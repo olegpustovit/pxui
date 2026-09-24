@@ -60,7 +60,7 @@ paths:
 | `Font.open_file` and system discovery | missing/empty font path, invalid size, and invalid `PRISMEL_UI_FONT` |
 | device/memory mixer creation | nonexistent audio driver and invalid sample-rate/channel facts |
 | audio file/byte/synthesis creation | missing/malformed/empty input and invalid frequency/amplitude/duration |
-| `Track.create` | destroyed parent mixer |
+| `Music.create` | destroyed parent mixer |
 
 Native error strings are copied into immutable OCaml error records before the
 next native call; the failure tests retain an error across a subsequent
