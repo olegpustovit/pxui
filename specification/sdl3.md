@@ -69,8 +69,8 @@ version query and compare it exactly.
 The binding tests run the wrong-domain matrix, a blocking-wait system-thread
 probe, copied event traces, parent/child teardown, stale access, malformed
 input, and 100,000-cycle ownership stress.  `tools/bench_sdl3.exe` reports the
-FFI call count, wall time, OCaml allocation, collection counts, heap size, and
-dropped release tokens for the same lifecycle categories.
+FFI call count, wall time, OCaml allocation, collection counts, and heap size
+for the same lifecycle categories.
 
 ## Extension parity fixtures
 
@@ -81,8 +81,11 @@ path and from copied bytes into tightly packed RGBA8.  Separate fixtures cover
 alpha, exact EXIF orientation, malformed input for every decoder, and the
 atomic watched-reload rule: failure preserves the borrowed wrapper, previous
 surface, pixels, and generation; success changes content and generation while
-preserving the borrowed wrapper.  Animation formats are outside Prismel's
-existing still-image API and are not silently advertised by this binding.
+preserving the borrowed wrapper. The binding exports only the owned-surface
+file and byte loaders; snapshot facts and a second retained wrapper were
+removed because the resource layer already owns reloads. Animation formats
+are outside Prismel's existing still-image API and are not silently advertised
+by this binding.
 
 SDL3_ttf conformance discovers an installed platform UI font with
 `PRISMEL_UI_FONT` override semantics, then covers empty text, UTF-8, family and
