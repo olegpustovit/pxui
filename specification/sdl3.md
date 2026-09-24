@@ -13,7 +13,7 @@ not bypass these classifications through `Private_raw`.
 
 | Class | Public operations | Enforcement |
 | --- | --- | --- |
-| Pure or any-thread query | error printers; compiled and linked `Version` facts; `Version.validate` and `Version.check`; `Thread.is_initial_domain`; `Thread.is_sdl_main_thread`; immutable handle generations and modes; TTF installed-font path discovery | These either do no native work or call an SDL function whose pinned header says it is safe from any thread.  They never acquire or destroy a resource. |
+| Pure or any-thread query | error printers; core compiled and linked `Version` facts and checks; extension `linked_version` and `check_version`; `Thread.is_initial_domain`; `Thread.is_sdl_main_thread`; immutable handle generations and modes; TTF installed-font path discovery | These either do no native work or call an SDL function whose pinned header says it is safe from any thread.  They never acquire or destroy a resource. |
 | Initial OCaml domain and SDL main thread | core `Init`, `Window`, `Clipboard`, `Text_input`, event polling, `Surface`, `Metal_view`, and explicit release draining; all image decode, TTF init/font, and mixer init/mixer/audio/track operations | The safe entry point checks both `Domain.is_main_domain` and `SDL_IsMainThread` before its native call and returns `Wrong_domain` on failure. |
 | Any-domain deferred release | GC finalizers for windows, Metal views, surfaces, fonts, mixers, audio values, and tracks | A finalizer only appends an opaque release token to an unbounded mutex-protected queue.  It never calls SDL.  The initial-domain safe boundary drains children before parents. |
 | Blocking initial-domain call | `Sdl3.Window.sync` | The stub releases the OCaml runtime system around `SDL_SyncWindow`; the synchronized window remains rooted and cannot be destroyed from another domain. The runtime is reacquired before returning to OCaml. |
@@ -22,6 +22,13 @@ not bypass these classifications through `Private_raw`.
 the pinned SDL header marks `SDL_WasInit` as not thread-safe.  Extension init
 queries follow the same safe-boundary rule even when their current state is
 also mirrored in OCaml.
+
+The core `Sdl3.Version.validate` applies the same minimum linked-version and
+stable-release policy to SDL3 and its extensions. Each extension passes its
+own compiled header version and maps incompatibility into its typed error;
+only the core retains a public `Version` module.
+Generated inventories record the Darwin major target, so a host minor update
+does not change checked-in provenance when the headers and ABI probes agree.
 
 Handle inspection such as `destroyed` is diagnostic only.  It does not make
 concurrent ownership mutation valid; create/use/destroy operations remain in
