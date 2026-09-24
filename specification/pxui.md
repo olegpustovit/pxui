@@ -1,85 +1,199 @@
 # PXUI interaction and visual contract
 
 PXUI is a wrapped sibling library. It depends on `prismel`; the core library
-does not depend on PXUI. New sketches keep a `Pxui.t` in their immutable model,
-feed ordered `Frame.events` through `Pxui.update`, and compose `Pxui.scene` into
-their picture. Its compact creative-tool character is inspired by
+does not depend on PXUI. Its compact creative-tool character is inspired by
 [ofxUI](https://github.com/liquidzym/ofxUI), adapted to Prismel's functional
 scene and event model.
 
-## Visual language
+## Architecture: one box, one pass, one draw list
 
-The default theme is deliberately closer to a creative-tool control deck than
-a native form:
+`Pxui.Ui` is the only UI engine. The panel kit, the SOP inspector
+(`sop_ui`), the workspace chrome (`sketch_ui`), and the graph canvas
+(`pxui_graph`) all build boxes in the same `Ui` frame, share one pointer
+capture, one focus, and one hit list, and paint into one instance list.
 
-- a near-black, slightly translucent panel with rounded corners and shadow;
-- a bright cyan-green accent and restrained glow line;
-- compact system UI typography;
-- inset tracks and fields with quiet borders;
-- distinct row hover, pressed, selected, focus, and active-drag feedback;
-- accented handles and value fills that make control state readable at a
-  glance.
+```ocaml
+let update model frame =
+  Pxui.Ui.frame model.ui frame @@ fun ui ->
+  Pxui.Ui.panel ui "Motion" @@ fun () ->
+  let animate = Pxui.Ui.toggle ui "Animate" model.animate in
+  let radius = Pxui.Ui.slider ui "Radius" ~range:(10., 120.) model.radius in
+  if Pxui.Ui.button ui "Quit" then Sketch.quit ();
+  { model with animate; radius }
 
-The `theme` record keeps the palette small: `panel`, `foreground`, `control`,
-`input`, `track`, and `accent`. Geometry derives secondary hover, border, and
-pressed colors from those values so a custom palette retains the interaction
-language.
+let view model _frame = scene_of model @ Pxui.Ui.scene model.ui
+```
 
-`Pxui.create ?font ?font_size` borrows an explicitly supplied `Font.t`, or uses
-`Scene.text` and the installed system UI font by default. `font_size` is in
-logical points. The default font is density-aware, so text retains its layout
-and sharpness on Retina output. Empty labels and field values are valid, and
-changing values share Prismel's bounded renderer-local text cache.
+Widget values live in the sketch model; widgets return them. There are no
+named change lists, value getters, or setters to keep in sync. `Ui.t` is a
+mutable cache handle threaded through the model like `Assets`, released with
+`Ui.destroy` from `Sketch.run_state ~on_stop`.
+
+Each frame runs four steps:
+
+1. **Route.** The frame's ordered events are resolved against the previous
+   frame's hit list (paint order, clipped). The topmost box under a press
+   becomes the single `active` box and captures the pointer until the
+   matching release; clickable presses also update keyboard focus. Wheel
+   steps go to the topmost `scroll` box under the pointer unless a
+   `blocking` box covers it. Key, text, and IME events go to the focused box.
+   One frame of input latency buys a single build pass.
+2. **Build.** User code creates boxes. A box key hashes its label (text after
+   `##` is key-only, `###id` replaces the key) with the enclosing box, so
+   state follows labels. Duplicate keys in one frame receive order-stable
+   distinct keys. Per-key state — rectangles, scroll offsets, accordion
+   state, text-editing buffers, double-click timing, cached subtrees — lives
+   in a retained cache: an open-addressing integer table into structure-of-
+   arrays pools. A key not built for a frame is pruned.
+3. **Layout.** A bottom-up pass computes `Px`, `Text`, and `Fit` sizes; a
+   top-down pass resolves `Pct`, `Rel`, and `Grow`, reserves a 10-point
+   gutter in overflowing scroll boxes, clamps scroll offsets, and positions
+   flow and floating (`at`) children. A box with `xform (scale, tx, ty)` is a
+   canvas whose children use canvas units.
+4. **Paint.** Boxes paint depth-first with nested clip rectangles, culling
+   boxes outside their clip. Painters receive the final rectangle and emit
+   `Scene_command.Ui_batch` instances. The published `Ui.scene` is one
+   native-only `Scene.Private.ui` node plus `Scene.text_input_region`
+   metadata.
+
+`Ui.cached ~key ~stamp` replays last frame's boxes and painters for a
+non-interactive subtree while its stamp is unchanged.
+
+## Renderer
+
+A UI instance is 64 bytes: a quad plus a kind. One Metal pipeline family,
+`Ui`, draws them with vertex pulling (four vertices per instance) and one
+signed-distance fragment stage:
+
+- **Rect.** Radius-0, non-anti-aliased rects rely on quad rasterization, so
+  fills cover exactly the pixels a triangle rectangle covers under the
+  top-left rule. A 1-point stroke is a separate band instance whose inner
+  test biases the sample point by +10⁻³ toward +x/+y, reproducing the
+  top-left rule on half-integer edges at every integer density. Rounded
+  rects, circles, and borders on them use an anti-aliased rounded-box SDF.
+- **Textured.** Glyphs and images sample one texture with nearest filtering.
+  Instances carry texel coordinates, normalized by the texture's size in the
+  fragment stage, so the atlas can grow without invalidating earlier
+  instances.
+- **Wire.** A cubic Bézier becomes 4–48 segment instances by length; the
+  vertex stage evaluates the curve and strokes each chord as an anti-aliased
+  capsule. Chords outside the batch clip are not emitted.
+- **Grid.** One quad draws a dot every `spacing` points from an origin.
+
+`Ui_batch` groups instances by `{clip, xform, texture}`; untextured
+instances never split a batch. `Prismel_next_execution.Private.lower_ui`
+lowers each batch to one indexed draw with a 24-byte affine uniform (logical
+canvas units to clip space) and a logical scissor, which the runtime scales
+to physical pixels exactly once. `Ui` draws use direct texture bindings, so
+the executor gives them their own attachment class and they never share an
+argument-buffer render pass with Scene2 draws. `Scene.Private.ui` layers,
+like `view3d`, ignore enclosing Scene transforms and clips: the batch
+carries its own.
+
+## Typography and the design kit
+
+`Pxui.Theme` is the design kit: the six-colour palette (`panel`,
+`foreground`, `control`, `input`, `track`, `accent`) with derived muted,
+border, faint-border, hover, pressed, and invalid colours, and the kit face,
+DepartureMono (or `PRISMEL_UI_FONT`), loaded once per logical size. Kit text
+defaults to 11 points; panel rows are 24 points with 3 points of padding.
+
+Glyphs are rasterized by SDL_ttf exactly as whole strings were: each code
+point is rendered at the backing density (`Font.Private.glyph`), packed
+white-with-coverage into one shelf atlas, and placed at the font's pen
+advance for that density with the run's origin snapped to a physical pixel.
+For the kit face this reproduces whole-string rendering pixel for pixel at
+1×, 2×, and 3× (only the RGB of fully transparent pixels differs). Pair
+kerning of proportional overrides is not applied.
+
+Kit rows reproduce the retired retained panel exactly: the label column is
+`min(140, max(120, inner/3))` capped at half the inner width; value controls
+sit at `(label, y + 3)` and are `row_height - 6` tall; toggles are 40 × 18
+at the right edge; labels are dark bars with light text 8 points in; text
+sits at `y + max 5 ((row_height - font_size - 3) / 2)`. `test_ui_parity`
+compares a native 2× render of every kit widget with
+`lib/pxui/fixtures/kit_panel_2x.png`, captured from the retained PXUI before
+its removal. The only permitted differences are the corner squares of
+1-point strokes (the old tessellated stroke left outer corners notched and
+blended inner corners two or three times) and the XY knob, now an
+anti-aliased circle instead of a 32-gon.
 
 ## Coordinate model
 
-Panel position, width, padding, row height, rendering, and hit testing all use
-Prismel logical points. Event coordinates arrive in that same space because
-the SDL renderer logical size performs native-to-logical pointer mapping.
-PXUI must never multiply event positions by `Frame.pixel_scale`.
+Panel position, width, padding, row height, layout, painting, and hit testing
+use Prismel logical points. Runtime translates SDL3 logical event
+coordinates into that space; PXUI never multiplies positions by
+`Frame.pixel_scale`, which only selects the glyph density.
 
-## Pointer state machine
+A panel with `max_height` clips rows to its padded content rectangle.
+Vertical wheel/trackpad steps over it scroll by one row each and are clamped;
+horizontal steps do nothing. The scrollbar is a view of the retained offset.
 
-PXUI tracks hover and one active left-pointer interaction:
+## Pointer and keyboard contract
 
-- A button, toggle, or choice becomes armed when pressed inside its control.
-  It commits only if the matching release is also inside. A release outside
-  cancels the action; moving out and back in preserves the arm until release.
-- A slider captures on press and emits `Slid (name, value)` whenever its
-  clamped value changes during motion. Motion continues to update it outside
-  the original bounds until release.
-- A range chooses the nearest handle on press, captures that handle through
-  release, preserves `low <= high`, and emits `Ranged`.
-- An XY pad captures both axes, clamps them independently to their declared
-  ranges, and emits `Moved2`.
-- The final release position is applied to a captured continuous control before
-  capture ends.
+- Buttons, toggles, choices, and accordion headers commit only when the press
+  and release both land inside their control; a release outside cancels.
+- Sliders, ranges, and XY pads follow the captured pointer outside their
+  bounds and clamp to their drag range; the release position applies before
+  capture ends. A range keeps the nearer handle chosen at press.
+- Integer sliders snap and return integers.
+- Double-clicking a slider's label (0.35 s, 5 points) opens an inline
+  numeric editor that takes focus; the first numeric character replaces the
+  value, Enter commits a finite (or strict integer) value even beyond the
+  soft range, Escape cancels, and a press elsewhere commits valid text and
+  drops invalid text.
+- Pressing a text field focuses it: `TextInput` appends UTF-8, `TextEditing`
+  shows IME composition, Backspace/Delete remove one scalar value. A press
+  elsewhere clears focus. `Ui.text_input_focused` lets hosts suppress their
+  own shortcuts.
+- `PointerCancelled` ends capture but keeps text focus. `WindowFocusLost`
+  ends capture and clears hover, focus, and composition.
 
-This state lives in the returned `Pxui.t`; `Pxui.update` never mutates its input
-value and returns changes in event order. Compatibility functions (`add_*`,
-`handle_event`, and `draw`) use the same semantics.
+## Hosts
 
-## Focus and text
-
-Pressing a text field gives it focus. `TextInput` appends committed UTF-8,
-`TextEditing` records in-progress IME composition, and Backspace removes one
-complete UTF-8 scalar sequence. A press elsewhere moves or clears focus.
-
-`WindowFocusLost` is a hard cancellation boundary: it clears pointer capture,
-hover, text focus, and composition without emitting a value change. The core
-Input module simultaneously clears held keys and mouse buttons, preventing a
-lost release from leaving either layer active.
+- `Pxui.Camera_control` / `Camera2_control` build Camera and Render sections
+  into the current panel (`widgets`), apply the [H]/[C] shortcuts
+  (`shortcuts`), and navigate in a control area (`navigate`); `panel`
+  combines them for standalone sketches. Sliders read the camera each frame.
+- `Pxui.Settings` persists model values in the original `PXUI1` format.
+- `Sop_ui.Node_inspector.widgets` builds a node's parameter rows from its
+  schema each frame (folders become accordions, keys are field names) and
+  applies edits through `Node.apply_parameters`; nothing is synchronized
+  back.
+- `Pxui_graph.update view ui frame` builds the graph canvas: a clickable,
+  scrollable canvas box and one box per visible tile, keyed by node id, with
+  VIEW-button and output-port children. The graph's spatial index still culls
+  tiles and resolves input-port and wire hits; wires are Béziers hit by
+  distance to the flattened curve, and the dot grid is one quad. Tiles keep
+  the retained integer screen geometry so graph labels stay pixel-identical.
+  Parameter-only document edits keep layout, edges, and the spatial index.
+  The Space menu is a floating box whose search field takes focus in the
+  frame it opens.
+- `Sketch_ui` builds the whole workspace — pane backgrounds, splitters,
+  headers, graph, inspector, status — in one `Ui.frame` per application
+  frame. `Environment3.update_with ~inspector` adds sketch-owned kit widgets
+  below the camera sections.
 
 ## Regression requirements
 
-Tests for PXUI changes must cover:
+Tests for PXUI changes must cover press/release commit and cancellation,
+captured drags beyond bounds, final release positions, nearest range
+handles, focus loss and pointer cancellation, text entry with UTF-8 and IME,
+numeric-label editing, bounded scrolling, accordions, canvas transforms,
+cached subtrees, and identical behaviour at 1× and 2× (`lib/pxui/test_ui`);
+native pixel parity of the kit (`test_ui_parity`); exact UI-pipeline
+coverage against Scene2 geometry (`prismel_next_execution/test_ui_pipeline`);
+and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
+`test/test_sop_ui`, `test/test_sketch_ui`).
 
-1. press/release-inside commit and release-outside cancellation;
-2. multiple captured drag movements, including positions outside the control;
-3. final release position for slider, range, and XY controls;
-4. nearest-handle range selection and clamping;
-5. high-DPI-neutral logical hit testing;
-6. focus loss during an armed or dragged interaction;
-7. ordered changes from a multi-event update;
-8. hover/pressed/drag scene differences and system-font rendering in a
-   headless framebuffer.
+## Undo history
+
+`Pxui.Undo` is the one bounded immutable history that higher-level editors
+share instead of keeping private stacks. `commit` makes the current value
+undoable and installs a new one (clearing redo), `amend` replaces the current
+value without an entry so a continuous pointer edit collapses into one step,
+and `undo`/`redo` walk the stack within a fixed capacity. `Sketch_ui` keeps
+its editable `Edit_graph.t` document in one: graph-pane edits, node creation,
+paste, delete, and inspector parameter commits are entries, slider drags held
+under the primary button are amended into the entry opened at press, and
+Command/Ctrl-Z, Shift-Command/Ctrl-Z, and Ctrl-Y step it.
