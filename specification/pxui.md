@@ -152,8 +152,8 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
 ## Hosts
 
 - `Pxui.Camera_control` / `Camera2_control` build Camera and Render sections
-  into the current panel (`widgets`), apply the [H]/[C] shortcuts
-  (`shortcuts`), and navigate in a control area (`navigate`); `panel`
+  into the current panel (`widgets`), expose `toggle_ui`/`open_camera` for
+  host key bindings, and navigate in a control area (`navigate`); `panel`
   combines them for standalone sketches. Sliders read the camera each frame.
 - `Pxui.Settings` persists model values in the original `PXUI1` format.
 - `Sop_ui.Node_inspector.widgets` builds a node's parameter rows from its
@@ -167,8 +167,13 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   distance to the flattened curve, and the dot grid is one quad. Tiles keep
   the retained integer screen geometry so graph labels stay pixel-identical.
   Parameter-only document edits keep layout, edges, and the spatial index.
-  The Space menu is a floating box whose search field takes focus in the
-  frame it opens.
+  The node menu (host-opened, `Pxui_graph.open_menu_at`) is a kit panel
+  around `Ui.picker`, whose search row takes focus in the frame it opens; a
+  right click opens `Ui.context_menu` for the canvas, a tile, or a wire.
+- `Ui.modal` centers a panel (last frame's height, retained while closed);
+  Escape, focus loss, or a press outside dismiss it. `Ui.picker` retains its
+  cursor and armed-delete row; the host keeps the query and recomputes rows as
+  typing changes it. Their golden is `fixtures/kit_overlays_2x.png`.
 - `Sketch_ui` builds the whole workspace — pane backgrounds, splitters,
   headers, graph, inspector, status — in one `Ui.frame` per application
   frame. `Environment3.update_with ~inspector` adds sketch-owned kit widgets
