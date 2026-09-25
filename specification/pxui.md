@@ -102,6 +102,7 @@ Glyphs are rasterized by SDL_ttf exactly as whole strings were: each code
 point is rendered at the backing density (`Font.Private.glyph`), packed
 white-with-coverage into one shelf atlas, and placed at the font's pen
 advance for that density with the run's origin snapped to a physical pixel.
+The atlas uses `Image.upload_rgba`; a failed upload stays dirty for retry.
 For the kit face this reproduces whole-string rendering pixel for pixel at
 1×, 2×, and 3× (only the RGB of fully transparent pixels differs). Pair
 kerning of proportional overrides is not applied.
