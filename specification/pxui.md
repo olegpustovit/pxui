@@ -167,11 +167,15 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   distance to the flattened curve, and the dot grid is one quad. Tiles keep
   the retained integer screen geometry so graph labels stay pixel-identical.
   Parameter-only document edits keep layout, edges, and the spatial index.
-  The node menu (host-opened, `Pxui_graph.open_menu_at`) is a kit panel
+  The node menu (host-opened, `Pxui_graph.open_menu_at`) uses `Ui.popup`
   around `Ui.picker`, whose search row takes focus in the frame it opens; a
   right click opens `Ui.context_menu` for the canvas, a tile, or a wire.
-- `Ui.modal` centers a panel (last frame's height, retained while closed);
-  Escape, focus loss, or a press outside dismiss it. `Ui.picker` retains its
+- `Ui.popup` uses the last laid-out rectangle for outside-press dismissal;
+  an estimated height is used only until the first layout. `Ui.modal` and
+  `Ui.context_menu` share that dismissal path. `Ui.modal` centers a panel
+  using its last height. Escape and focus loss also dismiss. The node menu
+  uses `Ui.fuzzy_match` on labels, keys, and category breadcrumbs, as the
+  preset picker does. `Ui.picker` retains its
   cursor and armed-delete row; the host keeps the query and recomputes rows as
   typing changes it. Their golden is `fixtures/kit_overlays_2x.png`.
 - `Sketch_ui` builds the whole workspace — pane backgrounds, splitters,
