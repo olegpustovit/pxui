@@ -167,7 +167,9 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   tiles and resolves input-port and wire hits; wires are Béziers hit by
   distance to the flattened curve, and the dot grid is one quad. Tiles keep
   the retained integer screen geometry so graph labels stay pixel-identical.
-  Parameter-only document edits keep layout, edges, and the spatial index.
+  Committed node drags rebuild the edge BVH from stored positions; a click
+  without motion leaves it alone. Parameter-only document edits keep layout,
+  edges, and the spatial index.
   The node menu (host-opened, `Pxui_graph.open_menu_at`) uses `Ui.popup`
   around `Ui.picker`, whose search row takes focus in the frame it opens; a
   right click opens `Ui.context_menu` for the canvas, a tile, or a wire.
