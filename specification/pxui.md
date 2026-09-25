@@ -52,7 +52,7 @@ Each frame runs four steps:
    canvas whose children use canvas units.
 4. **Paint.** Boxes paint depth-first with nested clip rectangles, culling
    boxes outside their clip. Painters receive the final rectangle and emit
-   `Scene_command.Ui_batch` instances. The published `Ui.scene` is one
+   `Scene.Private.Ui_batch` instances. The published `Ui.scene` is one
    native-only `Scene.Private.ui` node plus `Scene.text_input_region`
    metadata.
 
