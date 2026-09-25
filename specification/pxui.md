@@ -200,7 +200,7 @@ and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
 
 ## Undo history
 
-`Pxui.Undo` is the one bounded immutable history that higher-level editors
+`Editor.History` is the one bounded immutable history that higher-level editors
 share instead of keeping private stacks. `commit` makes the current value
 undoable and installs a new one (clearing redo), `amend` replaces the current
 value without an entry so a continuous pointer edit collapses into one step,
