@@ -156,7 +156,8 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   into the current panel (`widgets`), expose `toggle_ui`/`open_camera` for
   host key bindings, and navigate in a control area (`navigate`); `panel`
   combines them for standalone sketches. Sliders read the camera each frame.
-- `Pxui.Settings` persists model values in the original `PXUI1` format.
+- `Editor.Store.Settings` persists model values in the versioned Prismel JSON
+  envelope and reads existing `PXUI1` files.
 - `Sop_ui.Node_inspector.widgets` builds a node's parameter rows from its
   schema each frame (folders become accordions, keys are field names) and
   applies edits through `Node.apply_parameters`; nothing is synchronized
