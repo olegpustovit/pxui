@@ -92,6 +92,10 @@ carries its own.
 
 ## Typography and the design kit
 
+PXUI records the nearest hit ancestor of each box. A pane root's
+`Ui.signal.subtree_press` reports the last press on that root or a nested
+control, while `pressed` remains exclusive to the topmost box.
+
 `Pxui.Theme` is the design kit: the six-colour palette (`panel`,
 `foreground`, `control`, `input`, `track`, `accent`) with derived muted,
 border, faint-border, hover, pressed, and invalid colours, and the kit face,
