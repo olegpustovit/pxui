@@ -7,8 +7,8 @@ scene and event model.
 
 ## Architecture: one box, one pass, one draw list
 
-`Pxui.Ui` is the only UI engine. The panel kit, the SOP inspector
-(`sop_ui`), the workspace chrome (`prismel_editor`), and the graph canvas
+`Pxui.Ui` is the only UI engine. The panel kit, the parameter inspector
+(`Pxui_shell.Inspector`), the workspace chrome (`pxui_shell`, `prismel_editor`), and the graph canvas
 (`pxui_graph`) all build boxes in the same `Ui` frame, share one pointer
 capture, one focus, and one hit list, and paint into one instance list.
 
@@ -168,7 +168,7 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   combines them for standalone sketches. Sliders read the camera each frame.
 - `Editor_core.Store.Settings` persists model values in the versioned Prismel JSON
   envelope and reads existing `PXUI1` files.
-- `Sop_ui.Node_inspector.widgets` builds a node's parameter rows from its
+- `Pxui_shell.Inspector.fields` builds parameter rows from a
   schema each frame (folders become accordions, keys are field names) and
   applies edits through `Node.apply_parameters`; nothing is synchronized
   back.
@@ -207,7 +207,7 @@ cached subtrees, and identical behaviour at 1× and 2× (`lib/pxui/test_ui`);
 native pixel parity of the kit (`test_ui_parity`); exact UI-pipeline
 coverage against Scene2 geometry (`prismel_execution/test_ui_pipeline`);
 and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
-`test/test_sop_ui`, `test/test_prismel_editor`).
+`test/test_sop_ui`, `lib/pxui_shell/test_shell`, `test/test_prismel_editor`).
 
 ## Undo history
 
