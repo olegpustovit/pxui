@@ -81,7 +81,7 @@ signed-distance fragment stage:
 - **Grid.** One quad draws a dot every `spacing` points from an origin.
 
 `Ui_batch` groups instances by `{clip, xform, texture}`; untextured
-instances never split a batch. `Prismel_next_execution.Private.lower_ui`
+instances never split a batch. `Prismel_execution.Private.lower_ui`
 lowers each batch to one indexed draw with a 24-byte affine uniform (logical
 canvas units to clip space) and a logical scissor, which the runtime scales
 to physical pixels exactly once. `Ui` draws use direct texture bindings, so
@@ -201,7 +201,7 @@ handles, focus loss and pointer cancellation, text entry with UTF-8 and IME,
 numeric-label editing, bounded scrolling, accordions, canvas transforms,
 cached subtrees, and identical behaviour at 1× and 2× (`lib/pxui/test_ui`);
 native pixel parity of the kit (`test_ui_parity`); exact UI-pipeline
-coverage against Scene2 geometry (`prismel_next_execution/test_ui_pipeline`);
+coverage against Scene2 geometry (`prismel_execution/test_ui_pipeline`);
 and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
 `test/test_sop_ui`, `test/test_sketch_ui`).
 
