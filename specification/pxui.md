@@ -8,7 +8,7 @@ scene and event model.
 ## Architecture: one box, one pass, one draw list
 
 `Pxui.Ui` is the only UI engine. The panel kit, the SOP inspector
-(`sop_ui`), the workspace chrome (`sketch_ui`), and the graph canvas
+(`sop_ui`), the workspace chrome (`prismel_editor`), and the graph canvas
 (`pxui_graph`) all build boxes in the same `Ui` frame, share one pointer
 capture, one focus, and one hit list, and paint into one instance list.
 
@@ -166,7 +166,7 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   into the current panel (`widgets`), expose `toggle_ui`/`open_camera` for
   host key bindings, and navigate in a control area (`navigate`); `panel`
   combines them for standalone sketches. Sliders read the camera each frame.
-- `Editor.Store.Settings` persists model values in the versioned Prismel JSON
+- `Editor_core.Store.Settings` persists model values in the versioned Prismel JSON
   envelope and reads existing `PXUI1` files.
 - `Sop_ui.Node_inspector.widgets` builds a node's parameter rows from its
   schema each frame (folders become accordions, keys are field names) and
@@ -192,9 +192,9 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   preset picker does. `Ui.picker` retains its
   cursor and armed-delete row; the host keeps the query and recomputes rows as
   typing changes it. Their golden is `fixtures/kit_overlays_2x.png`.
-- `Sketch_ui` builds the whole workspace — pane backgrounds, splitters,
+- `Prismel_editor` builds the whole workspace — pane backgrounds, splitters,
   headers, graph, inspector, status — in one `Ui.frame` per application
-  frame. `Environment3.update_with ~inspector` adds sketch-owned kit widgets
+  frame. `Editor3.update_with ~inspector` adds sketch-owned kit widgets
   below the camera sections.
 
 ## Regression requirements
@@ -207,15 +207,15 @@ cached subtrees, and identical behaviour at 1× and 2× (`lib/pxui/test_ui`);
 native pixel parity of the kit (`test_ui_parity`); exact UI-pipeline
 coverage against Scene2 geometry (`prismel_execution/test_ui_pipeline`);
 and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
-`test/test_sop_ui`, `test/test_sketch_ui`).
+`test/test_sop_ui`, `test/test_prismel_editor`).
 
 ## Undo history
 
-`Editor.History` is the one bounded immutable history that higher-level editors
+`Editor_core.History` is the one bounded immutable history that higher-level editors
 share instead of keeping private stacks. `commit` makes the current value
 undoable and installs a new one (clearing redo), `amend` replaces the current
 value without an entry so a continuous pointer edit collapses into one step,
-and `undo`/`redo` walk the stack within a fixed capacity. `Sketch_ui` keeps
+and `undo`/`redo` walk the stack within a fixed capacity. `Prismel_editor` keeps
 its editable `Edit_graph.t` document in one: graph-pane edits, node creation,
 paste, delete, and inspector parameter commits are entries, slider drags held
 under the primary button are amended into the entry opened at press, and
