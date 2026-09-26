@@ -101,7 +101,10 @@ click and a scoped key in one event batch use the clicked pane.
 `Pxui.Theme` is the design kit: the six-colour palette (`panel`,
 `foreground`, `control`, `input`, `track`, `accent`) with derived muted,
 border, faint-border, hover, pressed, and invalid colours, and the kit face,
-DepartureMono (or `PRISMEL_UI_FONT`), loaded once per logical size. Kit text
+DepartureMono (or `PRISMEL_UI_FONT`). Each `Ui.t` loads it once per logical
+size, found from the working directory or the executable upward, caches a
+failed load (falling back to the system face), and frees its faces in
+`Ui.destroy`. Kit text
 defaults to 11 points; panel rows are 24 points with 3 points of padding.
 
 Glyphs are rasterized by SDL_ttf exactly as whole strings were: each code
