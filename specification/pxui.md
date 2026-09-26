@@ -153,8 +153,9 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   shows IME composition, Backspace/Delete remove one scalar value. A press
   elsewhere clears focus. `Ui.text_input_focused` lets hosts suppress their
   own shortcuts.
-- `PointerCancelled` ends capture but keeps text focus. `WindowFocusLost`
-  ends capture and clears hover, focus, and composition.
+- `PointerCancelled` ends capture without a release (no click, drag commit,
+  or context click) and keeps text focus. `WindowFocusLost` ends capture the
+  same way and clears hover, focus, and composition.
 
 ## Hosts
 
