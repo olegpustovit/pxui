@@ -15,8 +15,10 @@ Metal, QuartzCore, CoreGraphics, IOSurface, MetalFX, and Foundation frameworks;
 Prismel does not ship their headers or binaries.
 
 `lib/metal/gen/registry.ml` is the source for generated binding declarations.
-Each entry names its Metal SDK symbol, OCaml name, type, availability, and OGPU
-capability. Dune writes `metal_gen.ml`, `metal_gen.mli`, and
+SDK entries name their Metal symbol, OCaml name, type, availability, and OGPU
+capability. Custom `Native` entries name their existing primitive symbols,
+exact OCaml signature and the reason their implementation remains native.
+Dune writes `metal_gen.ml`, `metal_gen.mli`, and
 `metal_gen_stubs.inc` plus feature-map checks only under `_build`. Its 23-entry
 `Caps.feature` map names the Metal SDK types backing each capability; the
 unavailable timeline-fence feature has an explicit empty entry. The map rejects
@@ -25,21 +27,56 @@ the installed SDK. Four retained enum families are
 checked against SDK constants with native `static_assert`s. `Method` entries
 declare any selector over scalar, enum, NSString and handle arguments, with
 an optional trailing `NSError**` and a scalar, string or owned-handle result;
-`Property` entries declare getters and setters. Each becomes an external in
+`Property` entries declare getters and setters; `Class_method` entries declare
+typed class sends, including descriptor factories. Each becomes an external in
 `Metal_raw.Registry` and a stub with a typed Objective-C receiver and direct
 send, explicit availability guards, checked scalar conversion, and a
 result-returning native exception boundary. The generator rejects duplicate
 names/selectors, selector arity mismatches, and registry calls without a
-safe-layer call; it parses OCaml source so a comment cannot satisfy the
-reference check.
+safe-layer or raw-adapter reference; it parses both OCaml sources so a comment
+cannot satisfy the reference check. Raw externals outside the registry are a
+generation error. `Nsuint_int` and fixed `Tuple` arguments preserve the original
+machine-int index and tuple ABI without introducing boxed integer conversions.
+Unit methods can explicitly preserve their former pool-free success path;
+string/error temporaries require a pool, and exceptions always copy diagnostics
+inside a pool.
 
 Blocks, callbacks, descriptor graphs, handle arrays and ownership transfer
-remain handwritten in `metal_bridge.mm` and `metal_raw.ml`. No whole-SDK inventory, provenance ledger, or generated raw module
-participates in the build. The registry declares `MTLSize` as a fixed scalar
+remain implemented in `metal_bridge.mm`, with their declarations generated
+from `Native` entries. Shared positional ABI types live in the private
+`metal_raw_types.ml`; `metal_raw.ml` contains compatibility adapters over the
+generated registry. No whole-SDK inventory participates in the build.
+The registry declares `MTLSize` as a fixed scalar
 record, emits its OCaml type, and checks its SDK field types. The safe
 compute-pipeline `size3` re-exports that shape without another allocation.
 The capability map covers every known `Caps.feature`; the unsupported timeline
 fence is explicit, and OGPU conformance checks runtime capability truth.
+
+The registry migration audited all 187 formerly handwritten raw externals:
+53 implementations now use generated calls, and 134 retain custom native
+implementations with recorded reasons. The latter include hardware probes,
+checked descriptor graphs, heterogeneous allocation/resource handles, native
+memory, blocking waits, callbacks and compound snapshots. Some explicitly
+record future record-adapter or property-path lowering opportunities. The
+codemod removed the replaced stubs, unused macro families and compiler-reported
+unused helpers; public safe signatures did not change.
+
+Inspect the current inventory with
+`dune exec tools/codemod/codemod.exe -- metal-registry --audit`.
+The migration command (`metal-registry --apply`) parses the old OCaml ABI or
+lowers registered native entries with audited recipes. Follow it with
+`dead-stubs lib/metal/metal_bridge.mm lib tools test`,
+`metal-registry --drop-unused-macros`, and `drop-c-unused lib/metal`.
+Generator and codemod self-checks run under their `runtest` aliases.
+
+Compute encoding was measured on Apple M1, one domain, the dev profile and
+seven samples, with allocation counters and native completion outside the
+timed loop. Before/after medians: 20,000 buffer binds, 3.347/3.392 ms and
+72.00/72.00 bytes per call; 5,000 one-thread dispatches, 1.091/1.067 ms and
+80.02/80.02 bytes per call. Reproduce with
+`dune exec tools/bench_metal_registry.exe`. The benchmark checks the kernel's
+output and releases its owned resources; these are encoding costs, not GPU
+throughput measurements.
 
 ## Safe layer and ownership
 
@@ -49,6 +86,37 @@ encoder state, and capability where applicable. Expected rejection does not
 reach an Objective-C update method. Unknown native failures become typed
 `Native_error`; Metal unavailability is an explicit `Unsupported` or startup
 error rather than a no-op. Public `.mli` files hide raw values.
+
+Safe validation chains use the private result operator `let*`. The compiler
+codemod `tools/codemod/codemod.exe result-bind lib/metal/metal.ml` converts
+plain propagation and `Result.bind` callbacks while preserving explicit cleanup
+branches. Its self-check compares compiled success, failure, guard and cleanup
+behavior; `result-bind --verify BEFORE.ml AFTER.ml PPX.exe` compares the whole
+compiler tree after normalizing the migrated syntax. Only changed value
+definitions are formatted. The Metal build runs `result_bind_ppx.exe` before
+typing to lower the operator and its native-error adapter to matches. This
+avoids continuation allocations in the installed non-Flambda OCaml compiler;
+public signatures and validation/ownership policy remain handwritten.
+It also expands literal `on_main operation (fun () -> ...)` callbacks at
+compile time. The resulting match calls the same `before_main` guard and
+release-queue drain before the body. Dynamic callbacks and operation expressions
+with effects retain the ordinary helper, preserving their evaluation order.
+
+On Apple M1, one domain and the dev profile, six alternating before/after
+process pairs each took seven samples of the same encoding benchmark. Medians
+of those process medians were 3.335/3.229 ms for 20,000 buffer binds and
+1.065/1.081 ms for 5,000 dispatches, with unchanged 72.00 and 80.02 bytes per
+call respectively. Dispatch process medians ranged from 0.999–1.097 ms before
+and 1.046–1.135 ms after. These measurements use
+`tools/bench_metal_registry.exe`; native completion and exact output checks
+run outside the timed loop.
+
+The callback expansion was measured separately against the result-syntax
+version above, again with six alternating pairs of seven-sample processes.
+Before/after medians were 3.376/3.321 ms for buffer binds and 1.079/1.062 ms
+for dispatches. Allocation fell from 72.00 to 16.00 bytes per buffer bind and
+from 80.02 to 32.02 bytes per dispatch. The small timing differences remain
+within the observed process variation; the allocation reduction is repeatable.
 
 Native operations run on OCaml domain zero and the platform main executor. A
 call from another domain returns `Wrong_domain`. The only any-domain

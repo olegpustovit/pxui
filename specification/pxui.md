@@ -171,7 +171,9 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
 - `Pxui_shell.Inspector.fields` builds parameter rows from a
   schema each frame (folders become accordions, keys are field names) and
   applies edits through `Node.apply_parameters`; nothing is synchronized
-  back.
+  back. *Target (`flow.md` §9, M3):* the same inspector gains card pins
+  (●/○), vec3 rows with an `xyz` split toggle, drive display (`← source`,
+  `=expr`) and reset.
 - `Pxui_graph.update view ui frame` builds the graph canvas: a clickable,
   scrollable canvas box and one box per visible tile, keyed by node id, with
   VIEW-button and output-port children. The graph's spatial index still culls
@@ -184,6 +186,12 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   The node menu (host-opened, `Pxui_graph.open_menu_at`) uses `Ui.popup`
   around `Ui.picker`, whose search row takes focus in the frame it opens; a
   right click opens `Ui.context_menu` for the canvas, a tile, or a wire.
+  *Target (`flow.md` §6–§7, milestone M1):* left-to-right layout, header
+  trunk ports, polyline wires with authored bends drawn with `Ui.line` (no
+  Béziers), levels point/chip/card/full with zoom caps, parameter rows on
+  cards, knife and Alt-click bends; M2 adds the key grammar and the guide
+  strip in `Status_bar`; M3 adds row sockets and value nodes. The paragraph
+  above stays authoritative until M1 lands.
 - `Ui.popup` uses the last laid-out rectangle for outside-press dismissal;
   an estimated height is used only until the first layout. `Ui.modal` and
   `Ui.context_menu` share that dismissal path. `Ui.modal` centers a panel
