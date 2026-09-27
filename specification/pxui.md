@@ -168,12 +168,12 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   combines them for standalone sketches. Sliders read the camera each frame.
 - `Editor_core.Store.Settings` persists model values in the versioned Prismel JSON
   envelope and reads existing `PXUI1` files.
-- `Pxui_shell.Inspector.fields` builds parameter rows from a
+- `Pxui_shell.Inspector.fields` builds standalone parameter rows from a
   schema each frame (folders become accordions, keys are field names) and
-  applies edits through `Node.apply_parameters`; nothing is synchronized
-  back. *Target (`flow.md` §9, M3):* the same inspector gains card pins
-  (●/○), vec3 rows with an `xyz` split toggle, drive display (`← source`,
-  `=expr`) and reset.
+  applies edits through `Node.apply_parameters`. `Inspector.flow_fields`
+  builds editor rows from a Flow node: card pins (●/○), grouped vec3 controls
+  and `xyz` split, drive source and applied-value display, and reset. It emits
+  typed requests for the host to apply after the PXUI frame.
 - `Pxui_graph.update view ui frame` builds the graph canvas: a clickable,
   scrollable canvas box and one box per visible tile, keyed by node id, with
   VIEW-button and output-port children. The graph's spatial index still culls
@@ -195,8 +195,10 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   Contextual Tab, repeat, letter hints, connection walking, bypass, dissolve,
   find and framing share the Command table with guide membership. The host's
   status strip and grouped key sheet read that table; 380 ms tooltips use
-  `Ui.hover_delay` and noninteractive PXUI overlays. M3 adds value nodes and
-  parameter sockets.
+  `Ui.hover_delay` and noninteractive PXUI overlays. Value tiles, parameter
+  sockets and drive wires use the same hit tree and spatial index. Tab search
+  filters destinations by compatible value ports when started from a value
+  output.
 - `Ui.popup` uses the last laid-out rectangle for outside-press dismissal;
   an estimated height is used only until the first layout. `Ui.modal` and
   `Ui.context_menu` share that dismissal path. `Ui.modal` centers a panel
