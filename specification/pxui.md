@@ -192,8 +192,11 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   through the shared text editor or soft-range scrubbing. Alt-click adds
   or removes bends, Alt-drag pans, and Command/Ctrl-drag cuts crossed wires
   in one transaction. `o`/`p` and their Shift variants change detail levels.
-  *Target:* M2 adds the key grammar and guide strip; M3 adds value nodes
-  and parameter sockets.
+  Contextual Tab, repeat, letter hints, connection walking, bypass, dissolve,
+  find and framing share the Command table with guide membership. The host's
+  status strip and grouped key sheet read that table; 380 ms tooltips use
+  `Ui.hover_delay` and noninteractive PXUI overlays. M3 adds value nodes and
+  parameter sockets.
 - `Ui.popup` uses the last laid-out rectangle for outside-press dismissal;
   an estimated height is used only until the first layout. `Ui.modal` and
   `Ui.context_menu` share that dismissal path. `Ui.modal` centers a panel
