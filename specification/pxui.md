@@ -177,21 +177,23 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
 - `Pxui_graph.update view ui frame` builds the graph canvas: a clickable,
   scrollable canvas box and one box per visible tile, keyed by node id, with
   VIEW-button and output-port children. The graph's spatial index still culls
-  tiles and resolves input-port and wire hits; wires are Béziers hit by
-  distance to the flattened curve, and the dot grid is one quad. Tiles keep
-  the retained integer screen geometry so graph labels stay pixel-identical.
+  nodes and resolves input-port and wire hits. Nodes flow left to right;
+  geometry sockets sit in the header or input rows. Wires are polylines with
+  14-point stubs and authored bends, hit by exact segment distance through
+  the existing wire BVH. The dot grid is one quad.
   Committed node drags rebuild the edge BVH from stored positions; a click
   without motion leaves it alone. Parameter-only document edits keep layout,
-  edges, and the spatial index.
+  edges, and the spatial index unless exposure changes the node's height.
   The node menu (host-opened, `Pxui_graph.open_menu_at`) uses `Ui.popup`
   around `Ui.picker`, whose search row takes focus in the frame it opens; a
   right click opens `Ui.context_menu` for the canvas, a tile, or a wire.
-  *Target (`flow.md` §6–§7, milestone M1):* left-to-right layout, header
-  trunk ports, polyline wires with authored bends drawn with `Ui.line` (no
-  Béziers), levels point/chip/card/full with zoom caps, parameter rows on
-  cards, knife and Alt-click bends; M2 adds the key grammar and the guide
-  strip in `Status_bar`; M3 adds row sockets and value nodes. The paragraph
-  above stays authoritative until M1 lands.
+  Levels point/chip/card/full have zoom caps and explicit pins; cards
+  show primary and changed parameters. `Ui.value_field` edits literals
+  through the shared text editor or soft-range scrubbing. Alt-click adds
+  or removes bends, Alt-drag pans, and Command/Ctrl-drag cuts crossed wires
+  in one transaction. `o`/`p` and their Shift variants change detail levels.
+  *Target:* M2 adds the key grammar and guide strip; M3 adds value nodes
+  and parameter sockets.
 - `Ui.popup` uses the last laid-out rectangle for outside-press dismissal;
   an estimated height is used only until the first layout. `Ui.modal` and
   `Ui.context_menu` share that dismissal path. `Ui.modal` centers a panel
