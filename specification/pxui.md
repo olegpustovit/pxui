@@ -213,7 +213,10 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   typing changes it. Their golden is `fixtures/kit_overlays_2x.png`.
 - `Prismel_editor` builds the whole workspace — pane backgrounds, splitters,
   headers, graph, inspector, status — in one `Ui.frame` per application
-  frame. `Editor3.update_with ~inspector` adds sketch-owned kit widgets
+  frame. Its read-only Flow text projection uses the same pane hit tree for
+  binding selection and a scrollable, clipped body; it caches canonical text
+  until the network, definitions, display, or qualified-name setting changes.
+  `Editor3.update_with ~inspector` adds sketch-owned kit widgets
   below the camera sections.
 
 ## Regression requirements
