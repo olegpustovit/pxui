@@ -183,6 +183,8 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   output name. Wires are polylines with
   14-point stubs and authored bends, hit by exact segment distance through
   the existing wire BVH. The dot grid is one quad.
+  Compound bodies hide VIEW controls; their display selection stays in the
+  enclosing SOP network.
   Committed node drags rebuild the edge BVH from stored positions; a click
   without motion leaves it alone. Parameter-only document edits keep layout,
   edges, and the spatial index unless exposure changes the node's height.
