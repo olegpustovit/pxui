@@ -178,7 +178,9 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   scrollable canvas box and one box per visible tile, keyed by node id, with
   VIEW-button and output-port children. The graph's spatial index still culls
   nodes and resolves input-port and wire hits. Nodes flow left to right;
-  geometry sockets sit in the header or input rows. Wires are polylines with
+  geometry sockets sit in the header or input rows. Named compound outputs
+  appear in the header and output rows; a new geometry wire retains its source
+  output name. Wires are polylines with
   14-point stubs and authored bends, hit by exact segment distance through
   the existing wire BVH. The dot grid is one quad.
   Committed node drags rebuild the edge BVH from stored positions; a click
