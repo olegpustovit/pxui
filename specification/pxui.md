@@ -106,6 +106,15 @@ size, found from the working directory or the executable upward, caches a
 failed load (falling back to the system face), and frees its faces in
 `Ui.destroy`. Kit text
 defaults to 11 points; panel rows are 24 points with 3 points of padding.
+The editor inspector uses zero outer panel padding. Its shared
+`Ui.inspector_header`, `inspector_section`, `inspector_row`,
+`inspector_toggle`, `inspector_button`, `inspector_readout`, and
+`inspector_message` keep the
+selected node, empty selection, settings, viewport, camera, and render
+contexts on one visual grid. Parameter rows are 29 points high; labels that
+need the value column take a 51-point row with the control underneath.
+Choices open a menu of all options. Pin and tree chevron marks are painted
+shapes so their appearance does not depend on font glyph coverage.
 
 Glyphs are rasterized by SDL_ttf exactly as whole strings were: each code
 point is rendered at the backing density (`Font.Private.glyph`), packed
@@ -135,9 +144,14 @@ use Prismel logical points. Runtime translates SDL3 logical event
 coordinates into that space; PXUI never multiplies positions by
 `Frame.pixel_scale`, which only selects the glyph density.
 
-A panel with `max_height` clips rows to its padded content rectangle.
-Vertical wheel/trackpad steps over it scroll by one row each and are clamped;
-horizontal steps do nothing. The scrollbar is a view of the retained offset.
+A panel with `height` fills its pane; `max_height` caps a content-sized panel.
+Both clip rows to the padded content rectangle.
+Vertical wheel/trackpad steps over it scroll by one row each. Beyond an edge,
+the content stretches with the macOS rubber curve and springs back after input
+stops. A positive vertical SDL delta moves the content down, matching a
+downward natural trackpad or Magic Mouse gesture; an ordinary wheel follows
+SDL's normal direction. Horizontal steps do nothing. The scrollbar shows the
+bounded offset.
 
 ## Pointer and keyboard contract
 
@@ -155,7 +169,9 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
 - Pressing a text field focuses it: `TextInput` appends UTF-8, `TextEditing`
   shows IME composition, Backspace/Delete remove one scalar value. A press
   elsewhere clears focus. `Ui.text_input_focused` lets hosts suppress their
-  own shortcuts.
+  own shortcuts. Long values scroll horizontally to keep the caret visible;
+  Command-Left/Right reveal the start/end, and dragging past either edge
+  extends the selection while scrolling.
 - `PointerCancelled` ends capture without a release (no click, drag commit,
   or context click) and keeps text focus. `WindowFocusLost` ends capture the
   same way and clears hover, focus, and composition.
@@ -165,11 +181,12 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
 - `Pxui.Camera_control` / `Camera2_control` build Camera and Render sections
   into the current panel (`widgets`), expose `toggle_ui`/`open_camera` for
   host key bindings, and navigate in a control area (`navigate`); `panel`
-  combines them for standalone sketches. Sliders read the camera each frame.
+  combines them for standalone sketches. Their controls use the shared
+  inspector rows and read the camera each frame.
 - `Editor_core.Store.Settings` persists model values in the versioned Prismel JSON
   envelope and reads existing `PXUI1` files.
 - `Pxui_shell.Inspector.fields` builds standalone parameter rows from a
-  schema each frame (folders become accordions, keys are field names) and
+  schema each frame (folders become inspector sections, keys are field names) and
   applies edits through `Node.apply_parameters`. `Inspector.flow_fields`
   builds editor rows from a Flow node: card pins (●/○), grouped vec3 controls
   and `xyz` split, drive source and applied-value display, and reset. It emits
@@ -182,7 +199,9 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   appear in the header and output rows; a new geometry wire retains its source
   output name. Wires are polylines with
   14-point stubs and authored bends, hit by exact segment distance through
-  the existing wire BVH. The dot grid is one quad.
+  the existing wire BVH. The dot grid is one quad with antialiased dots on a
+  continuous 24-point graph pitch. Scrolling zooms at the pointer, and dragged
+  tile boxes move in the frame that receives the pointer motion.
   Compound bodies hide VIEW controls; their display selection stays in the
   enclosing SOP network.
   Committed node drags rebuild the edge BVH from stored positions; a click
@@ -192,8 +211,9 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
   around `Ui.picker`, whose search row takes focus in the frame it opens; a
   right click opens `Ui.context_menu` for the canvas, a tile, or a wire.
   Levels point/chip/card/full have zoom caps and explicit pins; cards
-  show primary and changed parameters. `Ui.value_field` edits literals
-  through the shared text editor or soft-range scrubbing. Alt-click adds
+  show primary and changed parameters. Numeric `Ui.value_field` controls set
+  soft-range values from pointer position; Option-click or label double-click
+  opens the shared text editor. Alt-click adds
   or removes bends, Alt-drag pans, and Command/Ctrl-drag cuts crossed wires
   in one transaction. `o`/`p` and their Shift variants change detail levels.
   Contextual Tab, repeat, letter hints, connection walking, bypass, dissolve,
@@ -214,7 +234,8 @@ horizontal steps do nothing. The scrollbar is a view of the retained offset.
 - `Prismel_editor` builds the whole workspace — pane backgrounds, splitters,
   headers, graph, inspector, status — in one `Ui.frame` per application
   frame. Its read-only Flow text projection uses the same pane hit tree for
-  binding selection and a scrollable, clipped body; it caches canonical text
+  binding selection and a scrollable, clipped body; the Flow list and text
+  views use PXUI's retained elastic scroll state. It caches canonical text
   until the network, definitions, display, or qualified-name setting changes.
   `Editor3.update_with ~inspector` adds sketch-owned kit widgets
   below the camera sections.
