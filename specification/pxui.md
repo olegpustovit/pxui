@@ -233,7 +233,14 @@ bounded offset.
   typing changes it. Their golden is `fixtures/kit_overlays_2x.png`.
 - `Prismel_editor` builds the whole workspace — pane backgrounds, splitters,
   headers, graph, inspector, status — in one `Ui.frame` per application
-  frame. Its read-only Flow text projection uses the same pane hit tree for
+  frame.  The panes are the leaves of a `Pxui_shell.Layout` tree (W10): every
+  leaf has a 22-point header, a right-click menu on it (split, close, retype)
+  and a collapse button; a splitter is a one-point gutter whose seven-point drag
+  target is built after the panes, so a neighbour's hit rectangle never covers it,
+  and a drag is view state until release (one edit of the editor graph, one history
+  entry).  A panel kind draws once; a second one of the same kind says it is shown
+  in another panel.  The graph canvas paints its grid, zones and wires in a clipped
+  child, so a pane beside it is never painted over. Its read-only Flow text projection uses the same pane hit tree for
   binding selection and a scrollable, clipped body; the Flow list and text
   views use PXUI's retained elastic scroll state. It caches canonical text
   until the network, definitions, display, or qualified-name setting changes.
