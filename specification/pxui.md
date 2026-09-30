@@ -290,4 +290,7 @@ the same way: no new token or widget.
 focusable, scrolling) with a line-number gutter, sharing `text_field`'s focus,
 IME composition, clipboard and edit events; it adds Enter, Up/Down, line-scoped
 Home/End, Escape to leave, `?readonly`, `?errors` (gutter marks) and `?spans`
-(tinted ranges). It draws only additive pixels, so no kit fixture changed.
+(tinted ranges). It draws only additive pixels, so no kit fixture changed. Gap B added Tab (two
+spaces; Shift-Tab takes them off; the box carries `Ui.keep_tab`, so focus traversal leaves it alone),
+`~wrap` (rows of a monospaced line, the gutter numbers logical lines) and `text_area_submit`, which also
+reports Command/Ctrl-Enter (the text pane's apply). `Ui.key_pressed` lets a dialog see its Enter.
