@@ -275,3 +275,9 @@ a diamond, a record a wide pill). `Theme.dark` tells the two palettes apart.
 iteration selector is built from ordinary boxes; no widget was added to `Ui`.
 The W5 footers (value, sparkline, tags, hoist button) are painted and hit-tested
 the same way: no new token or widget.
+
+`Ui.text_area` (W7) is the multiline sibling of `text_field`: one box (clickable,
+focusable, scrolling) with a line-number gutter, sharing `text_field`'s focus,
+IME composition, clipboard and edit events; it adds Enter, Up/Down, line-scoped
+Home/End, Escape to leave, `?readonly`, `?errors` (gutter marks) and `?spans`
+(tinted ranges). It draws only additive pixels, so no kit fixture changed.
