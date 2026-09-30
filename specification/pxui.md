@@ -273,3 +273,5 @@ and `record` (a list draws its element colour on a stacked socket, a function
 a diamond, a record a wide pill). `Theme.dark` tells the two palettes apart.
 `test_ui_parity` guards them with `fixtures/kit_zones_1x.png`. The
 iteration selector is built from ordinary boxes; no widget was added to `Ui`.
+The W5 footers (value, sparkline, tags, hoist button) are painted and hit-tested
+the same way: no new token or widget.
