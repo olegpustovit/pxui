@@ -219,7 +219,9 @@ bounded offset.
   Contextual Tab, repeat, letter hints, connection walking, bypass, dissolve,
   find and framing share the Command table with guide membership. The host's
   status strip and grouped key sheet read that table; 380 ms tooltips use
-  `Ui.hover_delay` and noninteractive PXUI overlays. Value tiles, parameter
+  `Ui.hover_delay` and noninteractive PXUI overlays. The workspace pane (`Scope`) adds a
+  marquee (a left drag on empty canvas), titled frames (Shift-G) and inline name, input-default
+  and frame-title fields, all built from `Ui.box` and `Ui.value_field`. Value tiles, parameter
   sockets and drive wires use the same hit tree and spatial index. Tab search
   filters destinations by compatible value ports when started from a value
   output.
@@ -238,7 +240,8 @@ bounded offset.
   and a collapse button; a splitter is a one-point gutter whose seven-point drag
   target is built after the panes, so a neighbour's hit rectangle never covers it,
   and a drag is view state until release (one edit of the editor graph, one history
-  entry).  A panel kind draws once; a second one of the same kind says it is shown
+  entry; the same three edits are the keys `Space o h/v/x` and `Space o g/l/t/i/u/m/w` on the
+  focused panel).  A panel kind draws once; a second one of the same kind says it is shown
   in another panel.  The graph canvas paints its grid, zones and wires in a clipped
   child, so a pane beside it is never painted over. Its read-only Flow text projection uses the same pane hit tree for
   binding selection and a scrollable, clipped body; the Flow list and text
