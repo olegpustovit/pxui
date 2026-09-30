@@ -263,3 +263,13 @@ its editable `Edit_graph.t` document in one: graph-pane edits, node creation,
 paste, delete, and inspector parameter commits are entries, slider drags held
 under the primary button are amended into the entry opened at press, and
 Command/Ctrl-Z, Shift-Command/Ctrl-Z, and Ctrl-Y step it.
+
+## Graph zones (workspace pane, W4)
+
+The graph pane of a workspace document adds tokens only: `Theme.zone_for`,
+`zone_fold`, `zone_sum`, `zone_fn` and `zone_let` (fill, edge, dashed; light
+and dark from the study's palette), and `Theme.ports` entries `text`, `fn`
+and `record` (a list draws its element colour on a stacked socket, a function
+a diamond, a record a wide pill). `Theme.dark` tells the two palettes apart.
+`test_ui_parity` guards them with `fixtures/kit_zones_1x.png`. The
+iteration selector is built from ordinary boxes; no widget was added to `Ui`.
