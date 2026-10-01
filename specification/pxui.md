@@ -294,3 +294,9 @@ Home/End, Escape to leave, `?readonly`, `?errors` (gutter marks) and `?spans`
 spaces; Shift-Tab takes them off; the box carries `Ui.keep_tab`, so focus traversal leaves it alone),
 `~wrap` (rows of a monospaced line, the gutter numbers logical lines) and `text_area_submit`, which also
 reports Command/Ctrl-Enter (the text pane's apply). `Ui.key_pressed` lets a dialog see its Enter.
+A `?language` (`Ui.language`: `colorize`, `brackets`, `indent`, `pairs`) makes it a code editor without
+teaching it a language: coloured runs by byte span, the bracket pair at the caret lit, Enter followed by
+the language's indentation, openers typed in pairs (wrapping a selection), closers stepping over
+themselves and Backspace taking an empty pair; `?on_context` reports a right-click for the host's menu.
+`Ui.context_menu` is as wide as its longest row and an empty label is a separator. `Ui.set_font_size`
+scales every kit text and row between frames (the editor's Command +/-).
