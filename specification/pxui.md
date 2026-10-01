@@ -52,9 +52,11 @@ Each frame runs four steps:
    canvas whose children use canvas units.
 4. **Paint.** Boxes paint depth-first with nested clip rectangles, culling
    boxes outside their clip. Painters receive the final rectangle and emit
-   `Scene.Private.Ui_batch` instances. The published `Ui.scene` is one
-   native-only `Scene.Private.ui` node plus `Scene.text_input_region`
-   metadata.
+   `Scene.Private.Ui_batch` instances. `Ui.to_front ~order` raises a root in both
+   painting and hit testing. The published `Ui.scene` contains native-only UI
+   batches plus `Scene.text_input_region` metadata. `Ui.scene ~under` can insert
+   a host Scene immediately before a raised root's UI batch, letting floating
+   native viewports share the UI's paint order without another hit-test path.
 
 `Ui.cached ~key ~stamp` replays last frame's boxes and painters for a
 non-interactive subtree while its stamp is unchanged.
@@ -106,6 +108,10 @@ size, found from the working directory or the executable upward, caches a
 failed load (falling back to the system face), and frees its faces in
 `Ui.destroy`. Kit text
 defaults to 11 points; panel rows are 24 points with 3 points of padding.
+Compact string fields (including node names and notes) align left; compact numeric
+fields align right. Choice fields carry a drawn disclosure mark, and their popup
+marks the current choice and spans at least the control's width, capped to the frame.
+Panel header disclosures and collapse controls use drawn chevrons rather than glyphs.
 The editor inspector uses zero outer panel padding. Its shared
 `Ui.inspector_header`, `inspector_section`, `inspector_row`,
 `inspector_toggle`, `inspector_button`, `inspector_readout`, and
