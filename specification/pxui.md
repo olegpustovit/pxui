@@ -298,5 +298,11 @@ A `?language` (`Ui.language`: `colorize`, `brackets`, `indent`, `pairs`) makes i
 teaching it a language: coloured runs by byte span, the bracket pair at the caret lit, Enter followed by
 the language's indentation, openers typed in pairs (wrapping a selection), closers stepping over
 themselves and Backspace taking an empty pair; `?on_context` reports a right-click for the host's menu.
+Every text widget edits as macOS does (word selection by double click, line by triple, Option and
+Command with the arrows, Backspace and Delete, Shift extending, Command-Z/Shift-Command-Z undo and
+redo kept per focused text with consecutive typing as one step); `Ui.signal.clicks` counts a
+double or triple click.  A language's optional `rewrite` runs after each edited frame and maps
+the caret: the editor's Lisp supplies parinfer's indent mode (`Lisp_text.parinfer_text`), toggled
+from the text pane's right-click menu.
 `Ui.context_menu` is as wide as its longest row and an empty label is a separator. `Ui.set_font_size`
 scales every kit text and row between frames (the editor's Command +/-).
