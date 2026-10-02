@@ -6,6 +6,12 @@ functions dynamically and they do not execute OCaml from a native callback.
 The generated symbol inventories describe the pinned native headers; the
 ownership-aware `.mli` files are the only API available to Runtime.
 
+The core inventory and dependency probe require SDL 3.4.16. Its pen-proximity
+event is 32 bytes; generated ABI checks must match that layout. Regenerate with
+`dune exec tools/sdl3/generate.exe -- --root . --extension core --write`, then
+check a fresh build directory and all four binding qualification aliases. An
+existing build directory can retain native objects compiled against an older SDK.
+
 ## Thread classes
 
 Every public operation belongs to one of the following classes.  Runtime must
