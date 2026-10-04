@@ -1,7 +1,7 @@
 # Metal binding contract
 
-`prismel.metal` is the foundational Apple-Silicon Metal binding under
-`ogpu_metal`. It does not depend on SDL3, OGPU, the runtime, Prismel, or UI
+`rays.metal` is the foundational Apple-Silicon Metal binding under
+`ogpu_metal`. It does not depend on SDL3, OGPU, the runtime, Rays, or UI
 libraries. The runtime obtains a Metal layer through OGPU; the binding itself
 never owns an SDL window. There is no CPU, browser, or OpenGL fallback.
 
@@ -12,7 +12,7 @@ writing framework link flags. `lib/metal/build_bridge.ml` compiles Objective-C++
 with ARC, a macOS 14 deployment target, and `-Wall -Wextra -Werror`. The build
 uses the installed public SDK as the type and availability oracle. It needs the
 Metal, QuartzCore, CoreGraphics, IOSurface, MetalFX, and Foundation frameworks;
-Prismel does not ship their headers or binaries.
+Rays does not ship their headers or binaries.
 
 `lib/metal/gen/registry.ml` is the source for generated binding declarations.
 SDK entries name their Metal symbol, OCaml name, type, availability, and OGPU
@@ -153,7 +153,7 @@ fixtures exercise native lifecycle boundaries. The M1 AGX driver crashes in a
 qualified Metal 4 static-linking fixture, so that fixture stays outside default
 `runtest`.
 
-`PRISMEL_METAL_SANITIZERS` accepts `address`, `undefined`, or `thread` for the
+`RAYS_METAL_SANITIZERS` accepts `address`, `undefined`, or `thread` for the
 bridge build. ThreadSanitizer is exclusive; AddressSanitizer and
 UndefinedBehaviorSanitizer may be combined. The MSL source path compiles at
 runtime through the public Metal API; there is no offline shader artifact

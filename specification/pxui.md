@@ -1,14 +1,14 @@
 # PXUI interaction and visual contract
 
-PXUI is a wrapped sibling library. It depends on `prismel`; the core library
+PXUI is a wrapped sibling library. It depends on `rays`; the core library
 does not depend on PXUI. Its compact creative-tool character is inspired by
-[ofxUI](https://github.com/liquidzym/ofxUI), adapted to Prismel's functional
+[ofxUI](https://github.com/liquidzym/ofxUI), adapted to Rays's functional
 scene and event model.
 
 ## Architecture: one box, one pass, one draw list
 
 `Pxui.Ui` is the only UI engine. The panel kit, the parameter inspector
-(`Pxui_shell.Inspector`), the workspace chrome (`pxui_shell`, `prismel_editor`), and the graph canvas
+(`Pxui_shell.Inspector`), the workspace chrome (`pxui_shell`, `rays_editor`), and the graph canvas
 (`pxui_graph`) all build boxes in the same `Ui` frame, share one pointer
 capture, one focus, and one hit list, and paint into one instance list.
 
@@ -83,7 +83,7 @@ signed-distance fragment stage:
 - **Grid.** One quad draws a dot every `spacing` points from an origin.
 
 `Ui_batch` groups instances by `{clip, xform, texture}`; untextured
-instances never split a batch. `Prismel_execution.Private.lower_ui`
+instances never split a batch. `Rays_execution.Private.lower_ui`
 lowers each batch to one indexed draw with a 24-byte affine uniform (logical
 canvas units to clip space) and a logical scissor, which the runtime scales
 to physical pixels exactly once. `Ui` draws use direct texture bindings, so
@@ -105,7 +105,7 @@ click and a scoped key in one event batch use the clicked pane.
 border (controls, 30%), edge (structure: separators, pane headers, window
 frames, 15%), faint-border, sheen (a near-white line inside the top edge of a
 panel body), hover, pressed, and invalid colours, and the kit face,
-DepartureMono (or `PRISMEL_UI_FONT`). The accent is signal orange `#f0481f`; invalid is magenta `#c2255c`;
+DepartureMono (or `RAYS_UI_FONT`). The accent is signal orange `#f0481f`; invalid is magenta `#c2255c`;
 float ports are blue, text ports muted. Floating windows lift with a soft
 shadow, a lighter fill and an edge hairline, not a dark frame. Each `Ui.t` loads it once per logical
 size, found from the working directory or the executable upward, caches a
@@ -150,7 +150,7 @@ anti-aliased circle instead of a 32-gon.
 ## Coordinate model
 
 Panel position, width, padding, row height, layout, painting, and hit testing
-use Prismel logical points. Runtime translates SDL3 logical event
+use Rays logical points. Runtime translates SDL3 logical event
 coordinates into that space; PXUI never multiplies positions by
 `Frame.pixel_scale`, which only selects the glyph density.
 
@@ -208,7 +208,7 @@ bounded offset.
   host key bindings, and navigate in a control area (`navigate`); `panel`
   combines them for standalone sketches. Their controls use the shared
   inspector rows and read the camera each frame.
-- `Editor_core.Store.Settings` persists model values in the versioned Prismel JSON
+- `Editor_core.Store.Settings` persists model values in the versioned Rays JSON
   envelope and reads existing `PXUI1` files.
 - `Pxui_shell.Inspector.fields` builds standalone parameter rows from a
   schema each frame (folders become inspector sections, keys are field names) and
@@ -258,7 +258,7 @@ bounded offset.
   preset picker does. `Ui.picker` retains its
   cursor and armed-delete row; the host keeps the query and recomputes rows as
   typing changes it. Their golden is `fixtures/kit_overlays_2x.png`.
-- `Prismel_editor` builds the whole workspace — pane backgrounds, splitters,
+- `Rays_editor` builds the whole workspace — pane backgrounds, splitters,
   headers, graph, inspector, status — in one `Ui.frame` per application
   frame.  The panes are the leaves of a `Pxui_shell.Layout` tree (W10): every
   leaf has a 22-point header, a right-click menu on it (split, close, retype)
@@ -283,9 +283,9 @@ handles, focus loss and pointer cancellation, text entry with UTF-8 and IME,
 numeric-label editing, bounded scrolling, accordions, canvas transforms,
 cached subtrees, and identical behaviour at 1× and 2× (`lib/pxui/test_ui`);
 native pixel parity of the kit (`test_ui_parity`); exact UI-pipeline
-coverage against Scene2 geometry (`prismel_execution/test_ui_pipeline`);
+coverage against Scene2 geometry (`rays_execution/test_ui_pipeline`);
 and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
-`test/test_sop_ui`, `lib/pxui_shell/test_shell`, `test/test_prismel_editor`).
+`test/test_sop_ui`, `lib/pxui_shell/test_shell`, `test/test_rays_editor`).
 
 ## Undo history
 
@@ -293,7 +293,7 @@ and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
 share instead of keeping private stacks. `commit` makes the current value
 undoable and installs a new one (clearing redo), `amend` replaces the current
 value without an entry so a continuous pointer edit collapses into one step,
-and `undo`/`redo` walk the stack within a fixed capacity. `Prismel_editor` keeps
+and `undo`/`redo` walk the stack within a fixed capacity. `Rays_editor` keeps
 its editable `Edit_graph.t` document in one: graph-pane edits, node creation,
 paste, delete, and inspector parameter commits are entries, slider drags held
 under the primary button are amended into the entry opened at press, and

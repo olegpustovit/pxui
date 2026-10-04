@@ -3,7 +3,7 @@
 The SDL3 bindings are ordinary Dune libraries under `lib/sdl3`,
 `lib/sdl3_image`, `lib/sdl3_ttf`, and `lib/sdl3_mixer`.  They do not load
 functions dynamically and they do not execute OCaml from a native callback.
-They bind what Prismel uses and nothing else: the ownership-aware `.mli` files
+They bind what Rays uses and nothing else: the ownership-aware `.mli` files
 are the only API available to Runtime, and each export has a caller outside
 the tests (`codemod dead-exports lib/sdl3 ... --users-exclude test_` reports
 nothing). SDL stays the platform layer: a later Linux or Windows port would
@@ -106,9 +106,9 @@ the initial-domain class.
 The core, image, TTF, and mixer stubs contain no `caml_callback*` call and
 install no callback that runs OCaml. Events are polled into one reusable
 native `SDL_Event` union that the stub converts to an OCaml value on the
-spot, skipping every kind Prismel does not read. Image and font results are
+spot, skipping every kind Rays does not read. Image and font results are
 returned synchronously as copied CPU bytes. Mixer device work remains inside
-SDL_mixer; Prismel supplies no OCaml audio callback.
+SDL_mixer; Rays supplies no OCaml audio callback.
 
 A native callback is allowed when it only queues. The rule it must satisfy is
 the one this file always described: a bounded native queue, no OCaml value,
@@ -121,7 +121,7 @@ file dialogs are callback-only and fit that shape:
   `SDL_ShowSaveFileDialog` or `SDL_ShowOpenFolderDialog`. It returns the
   dialog's id at once. A ninth open dialog is an error: the slots are the
   bound, so the callback never has to drop or grow anything.
-- SDL calls `prismel_dialog_callback` on whatever thread its platform code
+- SDL calls `rays_dialog_callback` on whatever thread its platform code
   chooses. It copies the chosen paths (at most 4096 paths and 1 MiB; more is
   a failure outcome), a cancel, or the error text into the slot and publishes
   it with one release store. It calls no OCaml, allocates no OCaml value and
@@ -174,7 +174,7 @@ inside `SDL_PollEvent`.
 
 ## Events and translations
 
-`Sdl3.Event.t` holds the nine kinds Prismel reads: quit; window changes
+`Sdl3.Event.t` holds the nine kinds Rays reads: quit; window changes
 (shown, hidden, minimized, restored, occluded, focus gained and lost, close
 requested, resized in logical points, pixel size changed in drawable pixels);
 key down and up; committed text and composition; pointer motion, buttons and
@@ -233,7 +233,7 @@ paths:
 | `Window.create` | video subsystem absent, plus invalid dimensions and embedded-NUL title |
 | `Metal_view.create` | dummy-video window without a native Metal layer |
 | SDL3_image file decoder | missing file and malformed input with the extension's own hint for every supported still format |
-| `Font.open_file` and system discovery | missing/empty font path, invalid size, and invalid `PRISMEL_UI_FONT` |
+| `Font.open_file` and system discovery | missing/empty font path, invalid size, and invalid `RAYS_UI_FONT` |
 | device/memory mixer creation | nonexistent audio driver and invalid sample-rate/channel facts |
 | audio byte creation and reload | missing/malformed/empty input, and a failed reload that leaves the original usable |
 | `Dialog.show` | NUL byte, empty or too many filters, a destroyed window or a worker domain (all refused before SDL is called), and a ninth open dialog |
@@ -269,11 +269,11 @@ alpha, exact EXIF orientation, malformed input for every decoder (a temporary
 file with the format's extension), and the reload rule: a failed reload leaves
 the previous pixels alone, a successful one replaces them. The binding exports
 only the file loader; the byte decoder is reached through it. Animation formats
-are outside Prismel's existing still-image API and are not silently advertised
+are outside Rays's existing still-image API and are not silently advertised
 by this binding.
 
 SDL3_ttf conformance discovers an installed platform UI font with
-`PRISMEL_UI_FONT` override semantics, then covers empty text, UTF-8, family and
+`RAYS_UI_FONT` override semantics, then covers empty text, UTF-8, family and
 style names, metrics, RGBA rasterization, setters, and 72/144-DPI rendering.
 The high-level Font adapter caches rasters in its 256-entry LRU and uploads
 them through the renderer-local OGPU texture cache (tested with the resource
@@ -287,7 +287,7 @@ transport or alternate audio backend.
 
 ## Packaging and discovery
 
-All four bindings are ordinary `prismel.*` Dune libraries.  The standalone
+All four bindings are ordinary `rays.*` Dune libraries.  The standalone
 `packaging/conf-sdl3*` opam definitions own only floor probes (see "Versions:
 one lock"); they do not contain implementation or build glue.  Each probe
 checks pkg-config, while `tools/packaging/check_sdl3_conf.ml` additionally
@@ -296,7 +296,7 @@ floor.
 
 One shared OCaml configurator implements discovery for the core and extension
 libraries.  Dynamic pkg-config linkage is the default.  With
-`PRISMEL_SDL3_LINK_MODE=static`, it requests private dependency flags and
+`RAYS_SDL3_LINK_MODE=static`, it requests private dependency flags and
 replaces the component's `-lSDL3*` flag with a resolved archive path.  Missing
 metadata or an absent archive is an error rather than a dynamic fallback.
 Component-specific `*_INCLUDE_DIR` and `*_LIB_DIR` variables provide validated
@@ -312,7 +312,7 @@ package.
 
 ## Native memory qualification
 
-`PRISMEL_SDL3_SANITIZERS` applies `address`, `undefined`, or both to every
+`RAYS_SDL3_SANITIZERS` applies `address`, `undefined`, or both to every
 binding stub compilation and native link.  The committed memory driver runs
 the same ten tests in all lanes: core ownership, typed events, constructor
 failures, 100,000-cycle stress, real CAMetalLayer lifecycle, every image
@@ -327,7 +327,7 @@ CoreGraphics `pdf_lexer_scan` over-read while CoreUI loads an Apple-owned theme
 PDF.  The address lane uses a function-scoped interceptor suppression for that
 system frame only.  The binding does not call the suppressed function, and the
 same real native window lifecycle passes without suppression under UBSan and
-Instruments Leaks.  No Prismel or SDL3 stub suppression is present.
+Instruments Leaks.  No Rays or SDL3 stub suppression is present.
 
 The release, ASan, and UBSan builds consume the same checked
 `lib/sdl3/abi.sexp` and lock, so the layout and floor asserts are identical in
