@@ -102,8 +102,12 @@ click and a scoped key in one event batch use the clicked pane.
 
 `Pxui.Theme` is the design kit: the six-colour palette (`panel`,
 `foreground`, `control`, `input`, `track`, `accent`) with derived muted,
-border, faint-border, hover, pressed, and invalid colours, and the kit face,
-DepartureMono (or `PRISMEL_UI_FONT`). Each `Ui.t` loads it once per logical
+border (controls, 30%), edge (structure: separators, pane headers, window
+frames, 15%), faint-border, sheen (a near-white line inside the top edge of a
+panel body), hover, pressed, and invalid colours, and the kit face,
+DepartureMono (or `PRISMEL_UI_FONT`). The accent is signal orange `#f0481f`; invalid is magenta `#c2255c`;
+float ports are blue, text ports muted. Floating windows lift with a soft
+shadow, a lighter fill and an edge hairline, not a dark frame. Each `Ui.t` loads it once per logical
 size, found from the working directory or the executable upward, caches a
 failed load (falling back to the system face), and frees its faces in
 `Ui.destroy`. Kit text
