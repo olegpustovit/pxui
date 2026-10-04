@@ -186,6 +186,21 @@ bounded offset.
   or context click) and keeps text focus. `WindowFocusLost` ends capture the
   same way and clears hover, focus, and composition.
 
+- A carry holds one payload on the handle: a `kind` and a `value`, both strings. `Ui.carry ~from`
+  holds it once the pointer is 4 points from the left press of the capture owner (a widget calls it
+  every frame it is pressed); `Ui.carry` without `~from` holds it at once from a key, with no
+  capture, and a left press is then the put (nothing else sees that press). `Ui.drop_target ui box`
+  answers `Hover payload` while the topmost box under the pointer is the box or inside it (hover is
+  computed for every box during someone else's drag) and `Dropped payload` on the frame of the
+  release there, once. The payload is gone after the release, a `PointerCancelled` or a
+  `WindowFocusLost`; `Ui.cancel_carry` is the host's cancel and keeps the pressed box from
+  carrying again before its next press. The ghost (the value as a label by the pointer) is a root
+  box raised with `to_front ~order:max_int` and painted with `draw_over` at the end of `Ui.frame`;
+  a frame with nothing carried builds and paints nothing new, so the parity fixtures do not move.
+  `Ui.text_area_submit ~on_drop` reports, while a payload is held over the area, the byte under the
+  pointer and whether it hovers or was released there (the carry's text caret). There is still one hit
+  list and one capture. See `flow.md` §7.12.
+
 ## Hosts
 
 - `Pxui.Camera_control` / `Camera2_control` build Camera and Render sections
