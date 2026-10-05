@@ -136,7 +136,16 @@ scrollbar is a 4-point `border` thumb with no track.
 Chrome and panels. The status strip reads, left to right: the document's file (its name when it has none), a dot for its state
 (checked, cooking, refused), the status line, a hairline, the focused pane's context as a label
 and each of its keys before what it does, then the layout in use and the frame rate
-(`Pxui_shell.Status_bar`). A docked timeline is one bar with the ruler at its end; a taller one
+(`Pxui_shell.Status_bar`). The keys are the ones the pane's sheet lists, in its words (graph:
+`Tab add after`, `o open`, `v view`, `b bypass`, `i enter`, `f hints`, `Space leader`; viewport:
+move, rotate, scale, enter object, orbit; Lisp, Timeline and Inspector have none). A graph that is
+the only docked pane shows `N nodes · M selected` and `ZOOM P%` on the right in place of the
+layout and the frame rate; with floating windows the right side is `N FLOATING` alone. A header's
+subject is cut with an ellipsis before its tabs and controls. A floating window's title row ends
+with a chevron (dock) and a cross (close); a floating viewport is the white sheet with its picture
+inset 12 points in a line-2 frame, the mode and camera as a label inside it. A value with a unit
+(`[@sop.unit "deg"]` on the field, carried by `Param.field_view.unit`) shows it after the number
+in `ink_3`; a vector row and a colour row are `Pxui_shell.Kit.vector` and `Kit.colour`. A docked timeline is one bar with the ruler at its end; a taller one
 puts the ruler under the bar with numbered major ticks and the last frame, a field, at the bar's end. The
 leader is a sheet along the bottom with its sections in columns; the key sheet has a filter
 field. The Outline lists, under a search field and an add button, the scene with its objects
