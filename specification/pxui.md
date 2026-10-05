@@ -100,31 +100,62 @@ control, while `pressed` remains exclusive to the topmost box.
 `Ui.last_press_within` reads that same hit tree before frame building so a
 click and a scoped key in one event batch use the clicked pane.
 
-`Pxui.Theme` is the design kit: the six-colour palette (`panel`,
-`foreground`, `control`, `input`, `track`, `accent`) with derived muted,
-border (controls, 30%), edge (structure: separators, pane headers, window
-frames, 15%), faint-border, sheen (a near-white line inside the top edge of a
-panel body), hover, pressed, and invalid colours, and the kit face,
-DepartureMono (or `RAYS_UI_FONT`). The accent is signal orange `#f0481f`; invalid is magenta `#c2255c`;
-float ports are blue, text ports muted. Floating windows lift with a soft
-shadow, a lighter fill and an edge hairline, not a dark frame. Each `Ui.t` loads it once per logical
+`Pxui.Theme` is the design kit, revision 3. The reference is the "Rays UI Redesign" canvas
+(foundations, widgets, workspace, overlays and one sheet per panel); `sketches/ws_layout` is the
+layout it is compared with, and `tools/ui_shot.exe FILE.rays OUT.png` renders any workspace's
+editor to a PNG without a window.
+
+Tokens. The six base colours are unchanged (`panel` the ground, `foreground` ink, `control` the
+current row, `input` the sheet, `track` the well, `accent` signal orange `#f0481f`); invalid is
+magenta `#c2255c` and the port colours are unchanged. Derived: text is ink, `ink_2` (labels and
+secondary text, 4.8:1 on the ground; `muted` is its old name) and `ink_3` (disabled, placeholder,
+keys); lines are the foreground at 30, 15 and 8 percent (`border`, `edge`, `faint_border`: the one
+outlined button and switches, panes and fields, inside a list); fills are `hover_fill`,
+`pressed_fill` and `tint` (the accent at 16 percent: a selection in text, a dock target). Type has
+four sizes, 40, 20, 13 and 11 (`display_size`, `title_size`, `font_size`, `label_size`); a label is
+upper case with a point of tracking (`Ui.Paint.cap`). One unit, 24 points, is a row, a header, a
+bar and the graph's grid pitch; a control is 20. Nothing has a radius, a shadow, a gradient or an
+ink fill: separation comes from space first, a hairline second, a rectangle last.
+
+Marks (`Ui.Paint`): corner `brackets` in the accent for the selected object (a node, a list row),
+an accent underline for keyboard focus, a `cross`ed box for nothing displayed, a `hatch` for
+bypassed or stale, a dot every 24 points and a register cross every 480 by 192 on the canvas,
+`dashed` lines for scopes and drop targets, and the drawn `chevron`.
+
+Widgets. A field is a value on an `edge` hairline (accent while it holds the keyboard, invalid
+when refused); the 2-point `ink_2` line under a number is its position in the soft range. A
+button is its text and, in `ink_3`, its key: hover and pressed fills, the `control` fill while
+active, and one outlined primary button per panel (`Pxui_shell.Kit.button`). Tabs are text, the
+one in use underlined (`Kit.segments`). A switch is 28 by 14 with an 8-point knob, accent when on.
+A section is a label in `ink_3` with a chevron under 16 points of space (4 at the top of its
+parent, none after a closed section). A list row is 24 points: hover is `faint_border`, the
+keyboard cursor the `control` fill, the selection that fill inset by 4 with accent brackets. A
+menu or a window is the `input` sheet with one hairline; a docked panel is the ground. The
+scrollbar is a 4-point `border` thumb with no track.
+
+The kit face is Pragmasevka (or `RAYS_UI_FONT`). Each `Ui.t` loads it once per logical
 size, found from the working directory or the executable upward, caches a
 failed load (falling back to the system face), and frees its faces in
-`Ui.destroy`. Kit text
-defaults to 11 points; panel rows are 24 points with 3 points of padding.
+`Ui.destroy`. Kit text defaults to 13 points and rows are `max 24 (size + 11)`, so 24 up to that
+size; `RAYS_UI_FONT_SIZE` overrides the editor's size (the tests set 11, the size their pointer
+positions were written for); chrome and inspector text take the kit size, never a literal one.
+A line of `Ui.text_area` is `Ui.text_line_height`, one and a half times the text (17 points at 11,
+20 at 13), not a 24-point control row; its gutter holds label-size line numbers in `ink_3` behind
+a `faint_border` rule, the caret's line is tinted with `faint_border`, an error line with the
+invalid colour at 7 percent, and the bracket pair at the caret is outlined in the accent.
 Compact string fields (including node names and notes) align left; compact numeric
-fields align right. Choice fields carry a drawn disclosure mark, and their popup
-marks the current choice and spans at least the control's width, capped to the frame.
-Panel header disclosures and collapse controls use drawn chevrons rather than glyphs.
+fields align right. Choice fields carry a drawn chevron, and their popup
+marks the current choice with a 6-point accent square and spans at least the control's width,
+capped to the frame.
 The editor inspector uses zero outer panel padding. Its shared
-`Ui.inspector_header`, `inspector_section`, `inspector_row`,
-`inspector_toggle`, `inspector_button`, `inspector_readout`, and
-`inspector_message` keep the
+`Ui.inspector_header` (the selected thing's name at the display size, once per panel),
+`inspector_section`, `inspector_row`, `inspector_toggle`, `inspector_button`,
+`inspector_readout`, and `inspector_message` keep the
 selected node, empty selection, settings, viewport, camera, and render
-contexts on one visual grid. Parameter rows are 29 points high; labels that
-need the value column take a 51-point row with the control underneath.
-Choices open a menu of all options. Pin and tree chevron marks are painted
-shapes so their appearance does not depend on font glyph coverage.
+contexts on one grid: 12 points, a 6-point slot for the pin dot (filled once the row is on the
+card), the label in `ink_2`, the control, 12 points. Parameter rows are 24 points high; a label
+too long for its column takes a 48-point row with the control underneath. A switch row gives the
+label the row and puts the switch at its end.
 
 Glyphs are rasterized by SDL_ttf exactly as whole strings were: each code
 point is rendered at the backing density (`Font.Private.glyph`), packed
@@ -135,17 +166,13 @@ For the kit face this reproduces whole-string rendering pixel for pixel at
 1×, 2×, and 3× (only the RGB of fully transparent pixels differs). Pair
 kerning of proportional overrides is not applied.
 
-Kit rows reproduce the retired retained panel exactly: the label column is
-`min(140, max(120, inner/3))` capped at half the inner width; value controls
-sit at `(label, y + 3)` and are `row_height - 6` tall; toggles are 40 × 18
-at the right edge; labels are dark bars with light text 8 points in; text
-sits at `y + max 5 ((row_height - font_size - 3) / 2)`. `test_ui_parity`
-compares a native 2× render of every kit widget with
-`lib/pxui/fixtures/kit_panel_2x.png`, captured from the retained PXUI before
-its removal. The only permitted differences are the corner squares of
-1-point strokes (the old tessellated stroke left outer corners notched and
-blended inner corners two or three times) and the XY knob, now an
-anti-aliased circle instead of a 32-gon.
+Kit rows: 12 points at each side, a label column of 112 points (half of a narrow row), then
+the control at `y + 2`, `row_height - 4` tall; a switch sits at the right edge; text sits at
+`y + max 4 ((row_height - font_size - 3) / 2)`. `test_ui_parity`
+compares a native 2x render of every kit widget with
+`lib/pxui/fixtures/kit_panel_2x.png` pixel for pixel; the goldens are rendered with
+DepartureMono (the test sets `RAYS_UI_FONT`) and are regenerated only when the kit's design
+changes, by running the test with `RAYS_UPDATE_FIXTURES=<dir>`.
 
 ## Coordinate model
 
@@ -261,13 +288,15 @@ bounded offset.
 - `Rays_editor` builds the whole workspace — pane backgrounds, splitters,
   headers, graph, inspector, status — in one `Ui.frame` per application
   frame.  The panes are the leaves of a `Pxui_shell.Layout` tree (W10): every
-  leaf has a 22-point header, a right-click menu on it (split, close, retype)
-  and a collapse button; a splitter is a one-point gutter whose seven-point drag
+  leaf has a 24-point header (its kind as a label, a breadcrumb, its tools, the accent square of
+  the focused pane), a right-click menu on it (split, close, retype)
+  and a collapse chevron (a window has dock and close); a splitter is a one-point gutter whose seven-point drag
   target is built after the panes, so a neighbour's hit rectangle never covers it,
   and a drag is view state until release (one edit of the editor graph, one history
   entry; the same three edits are the keys `Space o h/v/x` and `Space o g/l/t/i/u/m/w` on the
-  focused panel).  A panel kind draws once; a second one of the same kind says it is shown
-  in another panel.  The graph canvas paints its grid, zones and wires in a clipped
+  focused panel).  Every leaf is an instance with its own view state, however many of a kind the layout has
+  (`flow.md` §11.11); box keys are seeded by the enclosing box, an explicit `###id` included, so two
+  instances never share widget state.  The graph canvas paints its grid, zones and wires in a clipped
   child, so a pane beside it is never painted over. Its read-only Flow text projection uses the same pane hit tree for
   binding selection and a scrollable, clipped body; the Flow list and text
   views use PXUI's retained elastic scroll state. It caches canonical text
