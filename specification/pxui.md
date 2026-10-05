@@ -133,6 +133,21 @@ keyboard cursor the `control` fill, the selection that fill inset by 4 with acce
 menu or a window is the `input` sheet with one hairline; a docked panel is the ground. The
 scrollbar is a 4-point `border` thumb with no track.
 
+Chrome and panels. The status strip reads, left to right: the workspace, a dot for its state
+(checked, cooking, refused), the status line, a hairline, the focused pane's context as a label
+and each of its keys before what it does, then the layout in use and the frame rate
+(`Pxui_shell.Status_bar`). A docked timeline is one bar with the ruler at its end; a taller one
+puts the ruler under the bar with numbered major ticks and the last frame at the bar's end. The
+leader is a sheet along the bottom with its sections in columns; the key sheet has a filter
+field. The Outline lists, under a search field and an add button, the scene with its objects
+and their visible and render flags, geometry and materials with how many graphs use each, the
+World, the layouts (a row switches to it), the active graph's inputs and its data flow. Over a
+view the host draws, on patches of the ground, the render frame (a hairline with ink corner
+brackets and its resolution) where it is not the whole pane, the focused object's accent
+brackets and name, the render camera at the upper right, the scene's size and the frame rate
+at the lower right, and a traced view's samples with a 4-point progress bar at the upper left.
+A window's panes are built on the `input` sheet (`Core.on_sheet`, `Scope.with_theme`).
+
 The kit face is Pragmasevka (or `RAYS_UI_FONT`). Each `Ui.t` loads it once per logical
 size, found from the working directory or the executable upward, caches a
 failed load (falling back to the system face), and frees its faces in
