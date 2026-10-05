@@ -308,7 +308,7 @@ bounded offset.
   and a collapse chevron (a window has dock and close); a splitter is a one-point gutter whose seven-point drag
   target is built after the panes, so a neighbour's hit rectangle never covers it,
   and a drag is view state until release (one edit of the editor graph, one history
-  entry; the same three edits are the keys `Space o h/v/x` and `Space o g/l/t/i/u/m/w` on the
+  entry; the same three edits are the keys `Space o v/h/x` and `Space o g/l/t/i/u/m/w` on the
   focused panel).  Every leaf is an instance with its own view state, however many of a kind the layout has
   (`flow.md` §11.11); box keys are seeded by the enclosing box, an explicit `###id` included, so two
   instances never share widget state.  The graph canvas paints its grid, zones and wires in a clipped
