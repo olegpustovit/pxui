@@ -224,6 +224,9 @@ bounded offset.
   own shortcuts. Long values scroll horizontally to keep the caret visible;
   Command-Left/Right reveal the start/end, and dragging past either edge
   extends the selection while scrolling.
+- The wheel goes to the topmost scroll box under the pointer. A blocking box over it stops the wheel
+  only when it is not that box's own content: a field inside a scrolling panel lets the panel
+  scroll, a menu over the panel does not.
 - `PointerCancelled` ends capture without a release (no click, drag commit,
   or context click) and keeps text focus. `WindowFocusLost` ends capture the
   same way and clears hover, focus, and composition.
