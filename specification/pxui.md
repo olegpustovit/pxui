@@ -137,11 +137,16 @@ Chrome and panels. The status strip reads, left to right: the document's file (i
 (checked, cooking, refused), the status line, a hairline, the focused pane's context as a label
 and each of its keys before what it does, then the layout in use and the frame rate
 (`Pxui_shell.Status_bar`). The keys are the ones the pane's sheet lists, in its words (graph:
-`Tab add after`, `o open`, `v view`, `b bypass`, `i enter`, `f hints`, `Space leader`; viewport:
+`Tab add after`, `o open`, `v view`, `b bypass`, `i enter`, `f frame`, `w hints`, `Space leader`; viewport:
 move, rotate, scale, enter object, orbit; Lisp, Timeline and Inspector have none). A graph that is
 the only docked pane shows `N nodes · M selected` and `ZOOM P%` on the right in place of the
 layout and the frame rate; with floating windows the right side is `N FLOATING` alone. A header's
-subject is cut with an ellipsis before its tabs and controls. A floating window's title row ends
+right end is laid out once (`Chrome.header_slots`): the tabs a pane stands there (a graph panel's
+Graph / List / Text, then a text view's Selection / Graph / Document) keep their place, 8 apart,
+before the collapse button; the subject is cut to the room that remains, losing its head first
+(`… / sop`), then its tail with an ellipsis, then the label and the focus square whole; a group that does not
+fit in the header is left out, the last one first, so a header never draws over
+itself or past its pane. A floating window's title row ends
 with a chevron (dock) and a cross (close); a floating viewport is the white sheet with its picture
 inset 12 points in a line-2 frame, the mode and camera as a label inside it. A value with a unit
 (`[@sop.unit "deg"]` on the field, carried by `Param.field_view.unit`) shows it after the number
@@ -207,12 +212,45 @@ coordinates into that space; PXUI never multiplies positions by
 
 A panel with `height` fills its pane; `max_height` caps a content-sized panel.
 Both clip rows to the padded content rectangle.
-Vertical wheel/trackpad steps over it scroll by one row each. Beyond an edge,
-the content stretches with the macOS rubber curve and springs back after input
-stops. A positive vertical SDL delta moves the content down, matching a
-downward natural trackpad or Magic Mouse gesture; an ordinary wheel follows
-SDL's normal direction. Horizontal steps do nothing. The scrollbar shows the
-bounded offset.
+Scrolling is one mechanism, `apply_scroll` in `Pxui.Ui`, for every `scroll` box
+(panels, the inspector body, lists, menus, the text area): no widget has its
+own. Its model and constants are NSScrollView's as `../scriptc-ui`
+(`packages/appkit/src/scrolling-behavior.ts`) fitted them to a recording.
+
+- An unphased wheel (a mouse, or any platform without gesture phases) scrolls
+  by `scroll_step` (one row) per step. Past an edge, `x` points of travel show
+  as `0.05 x / (1 + 0.05 |x| / h)` in a box `h` tall, and 80 ms after the last
+  step the overscroll decays with tau = 0.084 s.
+- A trackpad (`Event.TrackpadScrolled`, macOS) moves the content one point per
+  point while the fingers are down, in the box the gesture began over. Past an
+  edge the content follows the fingers at about half their travel at first
+  (`0.55 x / (1 + 0.55 |x| / h)`; the reference's 0.05 read as not following), held
+  until the fingers lift, then decays with tau = 0.084 s. Fingers that rest more
+  than 0.1 s before lifting do not coast. Lifted in motion, the box coasts from the release
+  velocity (the last motion over the time since the one before, from the
+  events' own clock; under 20 points a second there is no coast):
+  `y(t) = y0 + v0 tau (1 - e^(-t/tau))`, tau = 0.26 s, ending when the speed
+  falls under 20 points a second. A coast that reaches an edge overshoots it
+  as `A (e^(-9.25 t) - e^(-19 t))` with `A = 0.39 v / (19 - 9.25)` for the
+  arrival velocity `v`, and ends on the edge. A touch or a wheel step catches a
+  coast or bounce where it is.
+- The system's own momentum events are not applied (the coast replaces them),
+  and the wheel steps SDL makes of a gesture's motion do not move the box in a
+  frame that carries the gesture; both still reach `signal.scroll` in steps, so
+  a canvas that zooms on the wheel is unchanged.
+- Every motion is a closed form of the time since it began or an exponential of
+  the frame's own interval, so the frame rate does not change it. An overscroll
+  under a quarter point becomes zero and a coast is on whole device pixels:
+  a box at rest does not move. Content that fits its box neither scrolls,
+  stretches nor coasts.
+
+A positive vertical delta moves the content down, matching a downward natural
+trackpad or Magic Mouse gesture; an ordinary wheel follows SDL's normal
+direction. Horizontal steps do nothing. The scrollbar shows the bounded offset.
+
+A `Ui` handle gives its theme's `panel` colour to the window
+(`Sketch.set_window_background`) on its first frame and when the theme changes:
+the title bar of a PXUI host is the ground its chrome is painted on.
 
 ## Pointer and keyboard contract
 
@@ -289,8 +327,8 @@ bounded offset.
   The node menu (host-opened, `Pxui_graph.open_menu_at`) uses `Ui.popup`
   around `Ui.picker`, whose search row takes focus in the frame it opens; a
   right click opens `Ui.context_menu` for the canvas, a tile, or a wire.
-  Levels point/chip/card/full have zoom caps and explicit pins; cards
-  show primary and changed parameters. Numeric `Ui.value_field` controls set
+  Levels point/chip/card/full are set explicitly (`o`, `p`) and never by the zoom; cards
+  show wired and written parameters. Numeric `Ui.value_field` controls set
   soft-range values from pointer position; Option-click or label double-click
   opens the shared text editor. Alt-click adds
   or removes bends, Alt-drag pans, and Command/Ctrl-drag cuts crossed wires

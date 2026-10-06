@@ -86,6 +86,7 @@ not bypass these classifications through `Private_raw`.
 | Initial OCaml domain and SDL main thread | core `Init`, `Hint`, `Window`, `Cursor`, `Clipboard`, `Text_input`, `Dialog.show`, event polling, and `Metal_view`; all image decode, TTF init/font, and mixer init/mixer/audio/track operations | The safe entry point checks both `Domain.is_main_domain` and `SDL_IsMainThread` before its native call and returns `Wrong_domain` on failure. |
 | Any-domain deferred release | GC finalizers for windows, cursors, Metal views, fonts, mixers, audio values, and tracks | A finalizer only appends an opaque release token to an unbounded mutex-protected queue.  It never calls SDL.  The initial-domain safe boundary drains children before parents; an atomic count lets the usual empty drain skip the lock and allocate nothing. |
 | Native callback, any thread | the file-dialog callback in `sdl3_dialog.c` | It runs no OCaml, allocates no OCaml value and takes no lock: it copies the outcome into one of eight fixed native slots and publishes it with a release store. See "Callback policy". |
+| Native block, the pumping thread | the NSEvent scroll monitor in `sdl3_cocoa.c` | AppKit calls it inside `SDL_PumpEvents`, on the initial domain. It runs no OCaml and allocates nothing: it writes one entry of a 256-entry ring (the oldest is dropped), which the same poll drains. |
 | Blocking initial-domain call | `Sdl3.Window.sync` | The stub releases the OCaml runtime system around `SDL_SyncWindow`; the synchronized window remains rooted and cannot be destroyed from another domain. The runtime is reacquired before returning to OCaml. |
 
 Extension init queries (`Init.initialized` of TTF and mixer) are result-returning
@@ -174,7 +175,24 @@ inside `SDL_PollEvent`.
 
 ## Events and translations
 
-`Sdl3.Event.t` holds the nine kinds Rays reads: quit; window changes
+SDL does not carry everything AppKit says, and `sdl3_cocoa.c` reads the rest
+through the Objective-C runtime (`objc_msgSend`; the stubs stay C and link
+`-lobjc`). Each function there does nothing unless the video driver is `cocoa`.
+
+- Scroll phases. SDL's Cocoa wheel event is `scrollingDelta * 0.1` for a
+  trackpad, with no phase, no difference between the fingers and the system's
+  momentum, and no event for a zero delta, so the lift is never seen. A local
+  NSEvent monitor for scroll-wheel events, installed with the first window,
+  queues each precise, phased event as `Sdl3.Event.Scroll { x; y; phase;
+  seconds }` (points in the wheel's directions; began or may-begin, changed,
+  ended or cancelled, momentum; the NSEvent timestamp). SDL's own wheel events
+  are untouched, so a moving `Scroll` has a `Mouse_wheel` twin; the poll looks
+  at the ring before and after SDL's queue so both reach the same batch.
+- Title bar. `caml_sdl3_create_window` hides the title and makes the title bar
+  transparent on the NSWindow from `SDL_PROP_WINDOW_COCOA_WINDOW_POINTER`;
+  `Sdl3.Window.set_background` sets the NSWindow background that then shows.
+
+`Sdl3.Event.t` holds the ten kinds Rays reads: a phased trackpad scroll (above); quit; window changes
 (shown, hidden, minimized, restored, occluded, focus gained and lost, close
 requested, resized in logical points, pixel size changed in drawable pixels);
 key down and up; committed text and composition; pointer motion, buttons and
