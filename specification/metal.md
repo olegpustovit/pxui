@@ -11,7 +11,7 @@ never owns an SDL window. There is no CPU, browser, or OpenGL fallback.
 writing framework link flags. `lib/metal/build_bridge.ml` compiles Objective-C++
 with ARC, a macOS 14 deployment target, and `-Wall -Wextra -Werror`. The build
 uses the installed public SDK as the type and availability oracle. It needs the
-Metal, QuartzCore, CoreGraphics, IOSurface, MetalFX, and Foundation frameworks;
+Metal, QuartzCore, CoreGraphics, IOSurface, and Foundation frameworks;
 Rays does not ship their headers or binaries.
 
 `lib/metal/gen/registry.ml` is the source for generated binding declarations.
@@ -19,9 +19,8 @@ SDK entries name their Metal symbol, OCaml name, type, availability, and OGPU
 capability. Custom `Native` entries name their existing primitive symbols,
 exact OCaml signature and the reason their implementation remains native.
 Dune writes `metal_gen.ml`, `metal_gen.mli`, and
-`metal_gen_stubs.inc` plus feature-map checks only under `_build`. Its 23-entry
-`Caps.feature` map names the Metal SDK types backing each capability; the
-unavailable timeline-fence feature has an explicit empty entry. The map rejects
+`metal_gen_stubs.inc` plus feature-map checks only under `_build`. Its 10-entry
+`Caps.feature` map names the Metal SDK types backing each capability. The map rejects
 duplicates and missing entries, and the bridge compiles its type checks against
 the installed SDK. Four retained enum families are
 checked against SDK constants with native `static_assert`s. `Method` entries
@@ -49,8 +48,8 @@ generated registry. No whole-SDK inventory participates in the build.
 The registry declares `MTLSize` as a fixed scalar
 record, emits its OCaml type, and checks its SDK field types. The safe
 compute-pipeline `size3` re-exports that shape without another allocation.
-The capability map covers every known `Caps.feature`; the unsupported timeline
-fence is explicit, and OGPU conformance checks runtime capability truth.
+The capability map covers every known `Caps.feature`, and OGPU conformance
+checks runtime capability truth.
 
 The registry migration audited all 187 formerly handwritten raw externals:
 53 implementations now use generated calls, and 134 retain custom native
@@ -134,10 +133,9 @@ native owners. `Metal.Release_queue.stats` reports handle and queue accounting
 for lifecycle checks.
 
 The safe API covers device and capability queries, buffers and mapped ranges,
-textures and views, samplers, libraries and functions, compute/render/mesh/tile
-pipelines, command encoders and buffers, heaps, residency,
-fences and shared events, counters, acceleration structures and function tables,
-MetalFX scaling, and presentation. Metal 4
+textures, samplers, libraries and functions, compute and render pipelines,
+command encoders and buffers, acceleration structures and intersection function
+tables, and presentation: what `ogpu_metal` calls, no more. Metal 4
 operations check their availability before use. `ogpu_metal` owns the portable
 capability profile and returns typed `Unsupported` for unavailable features.
 
