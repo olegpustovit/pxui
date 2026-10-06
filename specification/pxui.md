@@ -42,7 +42,7 @@ Each frame runs four steps:
    `##` is key-only, `###id` replaces the key) with the enclosing box, so
    state follows labels. Duplicate keys in one frame receive order-stable
    distinct keys. Per-key state — rectangles, scroll offsets, accordion
-   state, text-editing buffers, double-click timing, cached subtrees — lives
+   state, text-editing buffers, double-click timing — lives
    in a retained cache: an open-addressing integer table into structure-of-
    arrays pools. A key not built for a frame is pruned.
 3. **Layout.** A bottom-up pass computes `Px`, `Text`, and `Fit` sizes; a
@@ -143,7 +143,8 @@ Graph / List / Text, then a text view's Selection / Graph / Document) keep their
 before the collapse button; the subject is cut to the room that remains, losing its head first
 (`… / sop`), then its tail with an ellipsis, then the label and the focus square whole; a group that does not
 fit in the header is left out, the last one first, so a header never draws over
-itself or past its pane. A floating window's title row ends
+itself or past its pane. Text that is cut anywhere in the kit is cut by `Ui.ellipsis ~width ~limit`,
+the one text fitter. A floating window's title row ends
 with a chevron (dock) and a cross (close); a floating viewport is the white sheet with its picture
 inset 12 points in a line-2 frame, the mode and camera as a label inside it. A value with a unit
 (`[@sop.unit "deg"]` on the field, carried by `Param.field_view.unit`) shows it after the number
@@ -292,53 +293,39 @@ the title bar of a PXUI host is the ground its chrome is painted on.
 
 ## Hosts
 
-- `Pxui.Camera_control` / `Camera2_control` build Camera and Render sections
-  into the current panel (`widgets`), expose `toggle_ui`/`open_camera` for
-  host key bindings, and navigate in a control area (`navigate`); `panel`
-  combines them for standalone sketches. Their controls use the shared
+- `Pxui.Camera_control` builds Camera and Render sections
+  into the current panel (`widgets`), exposes `toggle_ui`/`open_camera` for
+  host key bindings, and navigates in a control area (`navigate`); `panel`
+  combines them for standalone sketches. Its controls use the shared
   inspector rows and read the camera each frame.
-- `Editor_core.Store.Settings` persists model values in the versioned Rays JSON
-  envelope and reads existing `PXUI1` files.
+- `Editor_core.Store.Settings` persists model values as one
+  `(settings :sketch "name" :key value ...)` s-expression, written atomically.
 - `Pxui_shell.Inspector.fields` builds standalone parameter rows from a
   schema each frame (folders become inspector sections, keys are field names) and
   applies edits through `Node.apply_parameters`. `Inspector.flow_fields`
-  builds editor rows from a Flow node: card pins (●/○), grouped vec3 controls
-  and `xyz` split, drive source and applied-value display, and reset. It emits
+  builds editor rows from a node of the workspace text: card pins (●/○), grouped vec3
+  controls, drive source and live-value display, and reset. It emits
   typed requests for the host to apply after the PXUI frame.
-- `Pxui_graph.update view ui frame` builds the graph canvas: a clickable,
-  scrollable canvas box and one box per visible tile, keyed by node id, with
-  VIEW-button and output-port children. The graph's spatial index still culls
-  nodes and resolves input-port and wire hits. Nodes flow left to right;
-  geometry sockets sit in the header or input rows. Named compound outputs
-  appear in the header and output rows; a new geometry wire retains its source
-  output name. Wires are polylines with
-  14-point stubs and authored bends, hit by exact segment distance through
-  the existing wire BVH. The dot grid is one quad with antialiased dots on a
+- `Pxui_graph.Scope.update view ui frame` builds the graph canvas: a clickable,
+  scrollable canvas box and one box per visible tile, keyed by path, with
+  socket, field and button children. The pane's bucket indices cull
+  tiles and resolve wire hits. Nodes flow left to right;
+  the first geometry input sits in the header, the others in rows. Wires are straight
+  segments bent clear of cards, never authored. The dot grid is on a
   continuous 24-point graph pitch. Scrolling zooms at the pointer, and dragged
   tile boxes move in the frame that receives the pointer motion.
-  Compound bodies hide VIEW controls; their display selection stays in the
-  enclosing SOP network.
-  Committed node drags rebuild the edge BVH from stored positions; a click
-  without motion leaves it alone. Parameter-only document edits keep layout,
-  edges, and the spatial index unless exposure changes the node's height.
-  The node menu (host-opened, `Pxui_graph.open_menu_at`) uses `Ui.popup`
-  around `Ui.picker`, whose search row takes focus in the frame it opens; a
-  right click opens `Ui.context_menu` for the canvas, a tile, or a wire.
+  The node menu (host-opened, `Pxui_graph.Node_menu`) uses `Ui.popup`, with a search row
+  that takes focus in the frame it opens; a
+  right click opens `Ui.context_menu` for a tile.
   Levels point/chip/card/full are set explicitly (`o`, `p`) and never by the zoom; cards
-  show wired and written parameters. Numeric `Ui.value_field` controls set
-  soft-range values from pointer position; Option-click or label double-click
-  opens the shared text editor. Alt-click adds
-  or removes bends, Alt-drag pans, and Command/Ctrl-drag cuts crossed wires
-  in one transaction. `o`/`p` and their Shift variants change detail levels.
-  Contextual Tab, repeat, letter hints, connection walking, bypass, dissolve,
-  find and framing share the Command table with guide membership. The host's
-  status strip and grouped key sheet read that table; 380 ms tooltips use
-  `Ui.hover_delay` and noninteractive PXUI overlays. The workspace pane (`Scope`) adds a
+  show wired and written parameters. Numeric `Ui.value_field` controls scrub when dragged;
+  Option-click opens the shared text editor. A right or middle drag pans.
+  The pane's keys are `Editor_core.Command` entries with guide membership
+  (`Scope.bindings`); the host's status strip and grouped key sheet read that table.
+  The pane has a
   marquee (a left drag on empty canvas), titled frames (Shift-G) and inline name, input-default
-  and frame-title fields, all built from `Ui.box` and `Ui.value_field`. Value tiles, parameter
-  sockets and drive wires use the same hit tree and spatial index. Tab search
-  filters destinations by compatible value ports when started from a value
-  output.
+  and frame-title fields, all built from `Ui.box` and `Ui.value_field`
+  (`specification/flow.md` §6 and §7).
 - `Ui.popup` uses the last laid-out rectangle for outside-press dismissal;
   an estimated height is used only until the first layout. `Ui.modal` and
   `Ui.context_menu` share that dismissal path. `Ui.modal` centers a panel
@@ -349,20 +336,19 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   typing changes it. Their golden is `fixtures/kit_overlays_2x.png`.
 - `Rays_editor` builds the whole workspace — pane backgrounds, splitters,
   headers, graph, inspector, status — in one `Ui.frame` per application
-  frame.  The panes are the leaves of a `Pxui_shell.Layout` tree (W10): every
+  frame.  The panes are the leaves of a `Pxui_shell.Layout` tree: every
   leaf has a 24-point header (its kind as a label, a breadcrumb, its tools, the accent square of
   the focused pane), a right-click menu on it (split, close, retype)
   and a collapse chevron (a window has dock and close); a splitter is a one-point gutter whose seven-point drag
   target is built after the panes, so a neighbour's hit rectangle never covers it,
   and a drag is view state until release (one edit of the editor graph, one history
-  entry; the same three edits are the keys `Space o v/h/x` and `Space o g/l/t/i/u/m/w` on the
+  entry; the same three edits are the keys `Space o v/h/x` and `Space l g/l/t/i/u/m/w` on the
   focused panel).  Every leaf is an instance with its own view state, however many of a kind the layout has
   (`flow.md` §11.11); box keys are seeded by the enclosing box, an explicit `###id` included, so two
   instances never share widget state.  The graph canvas paints its grid, zones and wires in a clipped
-  child, so a pane beside it is never painted over. Its read-only Flow text projection uses the same pane hit tree for
-  binding selection and a scrollable, clipped body; the Flow list and text
-  views use PXUI's retained elastic scroll state. It caches canonical text
-  until the network, definitions, display, or qualified-name setting changes.
+  child, so a pane beside it is never painted over. The Lisp pane is a `Ui.text_area` in the same hit tree;
+  the list and text
+  views use PXUI's retained elastic scroll state.
   `Editor3.update_with ~inspector` adds sketch-owned kit widgets
   below the camera sections.
 
@@ -372,7 +358,7 @@ Tests for PXUI changes must cover press/release commit and cancellation,
 captured drags beyond bounds, final release positions, nearest range
 handles, focus loss and pointer cancellation, text entry with UTF-8 and IME,
 numeric-label editing, bounded scrolling, accordions, canvas transforms,
-cached subtrees, and identical behaviour at 1× and 2× (`lib/pxui/test_ui`);
+and identical behaviour at 1× and 2× (`lib/pxui/test_ui`);
 native pixel parity of the kit (`test_ui_parity`); exact UI-pipeline
 coverage against Scene2 geometry (`rays_execution/test_ui_pipeline`);
 and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
@@ -385,12 +371,12 @@ share instead of keeping private stacks. `commit` makes the current value
 undoable and installs a new one (clearing redo), `amend` replaces the current
 value without an entry so a continuous pointer edit collapses into one step,
 and `undo`/`redo` walk the stack within a fixed capacity. `Rays_editor` keeps
-its editable `Edit_graph.t` document in one: graph-pane edits, node creation,
+its document (the workspace text and its layout) in one: graph-pane edits, node creation,
 paste, delete, and inspector parameter commits are entries, slider drags held
 under the primary button are amended into the entry opened at press, and
 Command/Ctrl-Z, Shift-Command/Ctrl-Z, and Ctrl-Y step it.
 
-## Graph zones (workspace pane, W4)
+## Graph zones
 
 The graph pane of a workspace document adds tokens only: `Theme.zone_for`,
 `zone_fold`, `zone_sum`, `zone_fn` and `zone_let` (fill, edge, dashed; light
@@ -399,14 +385,14 @@ and `record` (a list draws its element colour on a stacked socket, a function
 a diamond, a record a wide pill). `Theme.dark` tells the two palettes apart.
 `test_ui_parity` guards them with `fixtures/kit_zones_1x.png`. The
 iteration selector is built from ordinary boxes; no widget was added to `Ui`.
-The W5 footers (value, sparkline, tags, hoist button) are painted and hit-tested
+The footers (value, sparkline, tags) are painted
 the same way: no new token or widget.
 
-`Ui.text_area` (W7) is the multiline sibling of `text_field`: one box (clickable,
+`Ui.text_area` is the multiline sibling of `text_field`: one box (clickable,
 focusable, scrolling) with a line-number gutter, sharing `text_field`'s focus,
 IME composition, clipboard and edit events; it adds Enter, Up/Down, line-scoped
 Home/End, Escape to leave, `?readonly`, `?errors` (gutter marks) and `?spans`
-(tinted ranges). It draws only additive pixels, so no kit fixture changed. Gap B added Tab (two
+(tinted ranges). It draws only additive pixels, so no kit fixture changed. Tab inserts (two
 spaces; Shift-Tab takes them off; the box carries `Ui.keep_tab`, so focus traversal leaves it alone),
 `~wrap` (rows of a monospaced line, the gutter numbers logical lines) and `text_area_submit`, which also
 reports Command/Ctrl-Enter (the text pane's apply). `Ui.key_pressed` lets a dialog see its Enter.
