@@ -58,9 +58,6 @@ Each frame runs four steps:
    a host Scene immediately before a raised root's UI batch, letting floating
    native viewports share the UI's paint order without another hit-test path.
 
-`Ui.cached ~key ~stamp` replays last frame's boxes and painters for a
-non-interactive subtree while its stamp is unchanged.
-
 ## Renderer
 
 A UI instance is 64 bytes: a quad plus a kind. One Metal pipeline family,
