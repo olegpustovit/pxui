@@ -38,6 +38,10 @@ Each frame runs four steps:
    steps go to the topmost `scroll` box under the pointer unless a
    `blocking` box covers it. Key, text, and IME events go to the focused box.
    One frame of input latency buys a single build pass.
+   After the frame, `Ui.input ~owner` gives a viewport only pointer events
+   routed to its exact root; children and unowned ground retain their events.
+   Without an owner, unconsumed pointer events pass through. Unconsumed keys,
+   focus loss and pointer cancellation retain their existing routing.
 2. **Build.** User code creates boxes. A box key hashes its label (text after
    `##` is key-only, `###id` replaces the key) with the enclosing box, so
    state follows labels. Duplicate keys in one frame receive order-stable
