@@ -400,7 +400,9 @@ iteration selector. The 1x zone golden covers both taken and untaken states.
 draw paths. Header and body rows are 24 points, with right-aligned values on
 hairlines and no row fills. Header text determines column widths with a
 72-point minimum. The body builds only visible row boxes and requests only
-their cells; one extent box supplies the shared scrollbar's full range.
+their cells; one extent box supplies the shared scrollbar's full range. Rows
+belong to that extent, and the shared wheel/trackpad/coast state advances before
+the fixed-size body chooses its visible range.
 A clicked row returns its zero-based index as an intent. Its own 1x golden
 is `fixtures/kit_table_1x.png`.
 
