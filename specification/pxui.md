@@ -387,14 +387,14 @@ The graph pane of a workspace document adds tokens only: `Theme.zone_for`,
 and dark from the study's palette), and `Theme.ports` entries `text`, `fn`
 and `record` (a list draws its element colour on a stacked socket, a function
 a diamond, a record a wide pill). `Theme.dark` tells the two palettes apart.
-`test_ui_parity` guards them with `fixtures/kit_zones_1x.png`. The
+`test_ui_parity` guards them with `fixtures/kit_zones_2x.png`. The
 iteration selector is built from ordinary boxes; no widget was added to `Ui`.
 The footers (value, sparkline, tags) are painted
 the same way: no new token or widget.
 
 Conditional arms use `Theme.zone_branch ~taken`: a solid hairline and a warm
 wash, stronger for the selected arm. These zones have a condition rail and no
-iteration selector. The 1x zone golden covers both taken and untaken states.
+iteration selector. The 2x zone golden covers both taken and untaken states.
 
 `Ui.table` is a read-only table on the same box, capture, focus, scroll and
 draw paths. Header and body rows are 24 points, with right-aligned values on
@@ -403,8 +403,8 @@ hairlines and no row fills. Header text determines column widths with a
 their cells; one extent box supplies the shared scrollbar's full range. Rows
 belong to that extent, and the shared wheel/trackpad/coast state advances before
 the fixed-size body chooses its visible range.
-A clicked row returns its zero-based index as an intent. Its own 1x golden
-is `fixtures/kit_table_1x.png`.
+A clicked row returns its zero-based index as an intent. Its own 2x golden
+is `fixtures/kit_table_2x.png`.
 
 `Ui.text_area` is the multiline sibling of `text_field`: one box (clickable,
 focusable, scrolling) with a line-number gutter, sharing `text_field`'s focus,
