@@ -92,6 +92,13 @@ not bypass these classifications through `Private_raw`.
 Extension init queries (`Init.initialized` of TTF and mixer) are result-returning
 initial-domain queries even when their state is mirrored in OCaml.
 
+On Apple, the shared main-thread query additionally requires `pthread_main_np()`.
+SDL accepts any thread until its thread identity is established during
+initialization ([SDL implementation](https://github.com/libsdl-org/SDL/blob/release-3.4.2/src/SDL.c#L250-L262));
+headless resources can exist before that happens. The platform check closes that
+gap without initializing SDL. Same-domain OCaml threads are rejected both before
+and after video initialization; other platforms retain SDL's thread semantics.
+
 `Sdl3.validate_version` applies the same minimum linked-version and
 stable-release policy to SDL3 and its extensions. Each extension passes its
 own compiled header version and maps incompatibility into its typed error.
