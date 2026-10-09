@@ -138,7 +138,7 @@ Chrome and panels. The status strip reads, left to right: the document's file (i
 (checked, cooking, refused), the status line, a hairline, the focused pane's context as a label
 and each of its keys before what it does, then the layout in use and the frame rate
 (`Pxui_shell.Status_bar`). The keys are the ones the pane's sheet lists, in its words (graph:
-`Tab add after`, `o open`, `v view`, `b bypass`, `i enter`, `f frame`, `w hints`, `Space leader`; viewport:
+`Tab add after`, `o open`, `v view`, `b bypass`, `i enter`, `f frame`, `w hints`, `/ leader`; viewport:
 move, rotate, scale, enter object, orbit; Lisp, Timeline and Inspector have none). A graph that is
 the only docked pane shows `N nodes · M selected` and `ZOOM P%` on the right in place of the
 layout and the frame rate; with floating windows the right side is `N FLOATING` alone. A header's
@@ -346,7 +346,7 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   and a collapse chevron (a window has dock and close); a splitter is a one-point gutter whose seven-point drag
   target is built after the panes, so a neighbour's hit rectangle never covers it,
   and a drag is view state until release (one edit of the editor graph, one history
-  entry; the same three edits are the keys `Space o v/h/x` and `Space l g/l/t/i/u/m/w` on the
+  entry; the same three edits are the keys `/ o v/h/x` and `/ l g/l/t/i/u/m/w` on the
   focused panel).  Every leaf is an instance with its own view state, however many of a kind the layout has
   (`flow.md` §11.11); box keys are seeded by the enclosing box, an explicit `###id` included, so two
   instances never share widget state.  The graph canvas paints its grid, zones and wires in a clipped
