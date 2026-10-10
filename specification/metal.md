@@ -72,9 +72,8 @@ Compute encoding was measured on Apple M1, one domain, the dev profile and
 seven samples, with allocation counters and native completion outside the
 timed loop. Before/after medians: 20,000 buffer binds, 3.347/3.392 ms and
 72.00/72.00 bytes per call; 5,000 one-thread dispatches, 1.091/1.067 ms and
-80.02/80.02 bytes per call. Reproduce with
-`dune exec tools/bench_metal_registry.exe`. The benchmark checks the kernel's
-output and releases its owned resources; these are encoding costs, not GPU
+80.02/80.02 bytes per call, from a registry benchmark since removed. The benchmark checked the
+kernel's output and released its owned resources; these are encoding costs, not GPU
 throughput measurements.
 
 ## Safe layer and ownership
@@ -106,8 +105,8 @@ process pairs each took seven samples of the same encoding benchmark. Medians
 of those process medians were 3.335/3.229 ms for 20,000 buffer binds and
 1.065/1.081 ms for 5,000 dispatches, with unchanged 72.00 and 80.02 bytes per
 call respectively. Dispatch process medians ranged from 0.999–1.097 ms before
-and 1.046–1.135 ms after. These measurements use
-`tools/bench_metal_registry.exe`; native completion and exact output checks
+and 1.046–1.135 ms after. These measurements used
+a registry benchmark since removed; native completion and exact output checks
 run outside the timed loop.
 
 The callback expansion was measured separately against the result-syntax

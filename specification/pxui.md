@@ -17,9 +17,9 @@ let update model frame =
   Pxui.Ui.frame model.ui frame @@ fun ui ->
   Pxui.Ui.panel ui "Motion" @@ fun () ->
   let animate = Pxui.Ui.toggle ui "Animate" model.animate in
-  let radius = Pxui.Ui.slider ui "Radius" ~range:(10., 120.) model.radius in
+  let name = Pxui.Ui.text_field ui "Name" model.name in
   if Pxui.Ui.button ui "Quit" then Sketch.quit ();
-  { model with animate; radius }
+  { model with animate; name }
 
 let view model _frame = scene_of model @ Pxui.Ui.scene model.ui
 ```
@@ -45,7 +45,7 @@ Each frame runs four steps:
 2. **Build.** User code creates boxes. A box key hashes its label (text after
    `##` is key-only, `###id` replaces the key) with the enclosing box, so
    state follows labels. Duplicate keys in one frame receive order-stable
-   distinct keys. Per-key state — rectangles, scroll offsets, accordion
+   distinct keys. Per-key state — rectangles, scroll offsets, section
    state, text-editing buffers, double-click timing — lives
    in a retained cache: an open-addressing integer table into structure-of-
    arrays pools. A key not built for a frame is pruned.
@@ -175,9 +175,7 @@ A line of `Ui.text_area` is `Ui.text_line_height`, one and a half times the text
 a `faint_border` rule, the caret's line is tinted with `faint_border`, an error line with the
 invalid colour at 7 percent, and the bracket pair at the caret is outlined in the accent.
 Compact string fields (including node names and notes) align left; compact numeric
-fields align right. Choice fields carry a drawn chevron, and their popup
-marks the current choice with a 6-point accent square and spans at least the control's width,
-capped to the frame.
+fields align right.
 The editor inspector uses zero outer panel padding. Its shared
 `Ui.inspector_header` (the selected thing's name at the display size, once per panel),
 `inspector_section`, `inspector_row`, `inspector_toggle`, `inspector_button`,
@@ -200,7 +198,7 @@ kerning of proportional overrides is not applied.
 Kit rows: 12 points at each side, a label column of 112 points (half of a narrow row), then
 the control at `y + 2`, `row_height - 4` tall; a switch sits at the right edge; text sits at
 `y + max 4 ((row_height - font_size - 3) / 2)`. `test_ui_parity`
-compares a native 2x render of every kit widget with
+compares an offscreen 2x render (no window, as `tools/ui_shot` draws) of the kit widgets with
 `lib/pxui/fixtures/kit_panel_2x.png` pixel for pixel; the goldens are rendered with
 DepartureMono (the test sets `RAYS_UI_FONT`) and are regenerated only when the kit's design
 changes, by running the test with `RAYS_UPDATE_FIXTURES=<dir>`.
@@ -256,17 +254,14 @@ the title bar of a PXUI host is the ground its chrome is painted on.
 
 ## Pointer and keyboard contract
 
-- Buttons, toggles, choices, and accordion headers commit only when the press
+- Buttons, toggles and section headers commit only when the press
   and release both land inside their control; a release outside cancels.
-- Sliders, ranges, and XY pads follow the captured pointer outside their
-  bounds and clamp to their drag range; the release position applies before
-  capture ends. A range keeps the nearer handle chosen at press.
-- Integer sliders snap and return integers.
-- Double-clicking a slider's label (0.35 s, 5 points) opens an inline
-  numeric editor that takes focus; the first numeric character replaces the
-  value, Enter commits a finite (or strict integer) value even beyond the
-  soft range, Escape cancels, and a press elsewhere commits valid text and
-  drops invalid text.
+- A compact field's track follows the captured pointer outside its bounds;
+  the release position applies before capture ends.
+- A compact field opens an inline editor that takes focus (a click, or a
+  double-click or Option-click on a field with a track); Enter commits valid
+  text, Escape cancels, and a press elsewhere commits valid text and drops
+  invalid text.
 - Pressing a text field focuses it: `TextInput` appends UTF-8, `TextEditing`
   shows IME composition, Backspace/Delete remove one scalar value. A press
   elsewhere clears focus. `Ui.text_input_focused` lets hosts suppress their
@@ -353,17 +348,16 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   child, so a pane beside it is never painted over. The Lisp pane is a `Ui.text_area` in the same hit tree;
   the list and text
   views use PXUI's retained elastic scroll state.
-  `Editor3.update_with ~inspector` adds sketch-owned kit widgets
+  `Editor.update_with ~inspector` adds sketch-owned kit widgets
   below the camera sections.
 
 ## Regression requirements
 
 Tests for PXUI changes must cover press/release commit and cancellation,
-captured drags beyond bounds, final release positions, nearest range
-handles, focus loss and pointer cancellation, text entry with UTF-8 and IME,
-numeric-label editing, bounded scrolling, accordions, canvas transforms,
+captured drags beyond bounds, final release positions, focus loss and pointer cancellation, text entry with UTF-8 and IME,
+numeric-field editing, bounded scrolling, inspector sections,
 and identical behaviour at 1× and 2× (`lib/pxui/test_ui`);
-native pixel parity of the kit (`test_ui_parity`); exact UI-pipeline
+offscreen 2x pixel parity of the kit (`test_ui_parity`, in `runtest`); exact UI-pipeline
 coverage against Scene2 geometry (`rays_execution/test_ui_pipeline`);
 and the graph, inspector, and workspace contracts (`test/test_pxui_graph`,
 `test/test_sop_ui`, `lib/pxui_shell/test_shell`, `test/test_rays_editor`).
@@ -376,7 +370,7 @@ undoable and installs a new one (clearing redo), `amend` replaces the current
 value without an entry so a continuous pointer edit collapses into one step,
 and `undo`/`redo` walk the stack within a fixed capacity. `Rays_editor` keeps
 its document (the workspace text and its layout) in one: graph-pane edits, node creation,
-paste, delete, and inspector parameter commits are entries, slider drags held
+paste, delete, and inspector parameter commits are entries, field drags held
 under the primary button are amended into the entry opened at press, and
 Command/Ctrl-Z, Shift-Command/Ctrl-Z, and Ctrl-Y step it.
 
