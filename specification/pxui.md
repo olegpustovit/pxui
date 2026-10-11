@@ -52,8 +52,7 @@ Each frame runs four steps:
 3. **Layout.** A bottom-up pass computes `Px`, `Text`, and `Fit` sizes; a
    top-down pass resolves `Pct`, `Rel`, and `Grow`, reserves a 10-point
    gutter in overflowing scroll boxes, clamps scroll offsets, and positions
-   flow and floating (`at`) children. A box with `xform (scale, tx, ty)` is a
-   canvas whose children use canvas units.
+   flow and floating (`at`) children in logical screen points.
 4. **Paint.** Boxes paint depth-first with nested clip rectangles, culling
    boxes outside their clip. Painters receive the final rectangle and emit
    `Scene.Private.Ui_batch` instances. `Ui.to_front ~order` raises a root in both
@@ -84,19 +83,18 @@ signed-distance fragment stage:
 - **Grid.** One quad draws a dot every `spacing` points from an origin.
 
 PXUI layout, hit bounds, glyph placement and input regions use logical screen
-points directly. The kit has no per-box scale or translation: its batches
-retain the builder's identity transform, and physical-pixel snapping uses
-only the frame's density.
+points directly. The kit has no per-box or per-batch scale or translation;
+physical-pixel snapping uses only the frame's density.
 
-`Ui_batch` groups instances by `{clip, xform, texture}`; untextured
+`Ui_batch` groups instances by `{clip, texture}`; untextured
 instances never split a batch. `Rays_execution.Private.lower_ui`
 lowers each batch to one indexed draw with a 24-byte affine uniform (logical
-canvas units to clip space) and a logical scissor, which the runtime scales
+screen points to clip space) and a logical scissor, which the runtime scales
 to physical pixels exactly once. `Ui` draws use direct texture bindings, so
 the executor gives them their own attachment class and they never share an
 argument-buffer render pass with Scene2 draws. `Scene.Private.ui` layers,
 like `view3d`, ignore enclosing Scene transforms and clips: the batch
-carries its own.
+carries its own screen coordinates and clip.
 
 ## Typography and the design kit
 
