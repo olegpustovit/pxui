@@ -123,6 +123,17 @@ finalizer action enqueues an opaque retained pointer in the (unbounded)
 release queue; every safe domain-zero entry drains it inside an autorelease
 pool, so no Metal object is released on a GC domain.
 
+An OCaml program has no Cocoa run loop, so no pool encloses a stub and
+nothing would ever drain the thread's root autorelease page. Every stub that
+messages Objective-C therefore opens its own pool, and handle lookups return
+their object retained instead of autoreleased. Until 2026-10-11 the drain, the
+buffer and texture copies, the render-pass setters and the generated pool-free
+calls did not: each frame left its command buffer, encoder, pass descriptor,
+drawable and written buffers retained for the life of the process (4.0 KiB
+of footprint per frame, 0 after; `specification/web-export/results.md`).
+`runtime_autorelease` under `@runtest-native` runs lifecycles and frames with
+`OBJC_DEBUG_MISSING_POOLS` and fails on any report from the initial thread.
+
 Handles track generation, destruction, device identity, and parent dependents.
 Explicit destroy is idempotent; stale use, cross-device binding, or parent
 destruction with live children fails before native access. Submission resources

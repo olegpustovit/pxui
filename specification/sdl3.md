@@ -184,7 +184,11 @@ inside `SDL_PollEvent`.
 
 SDL does not carry everything AppKit says, and `sdl3_cocoa.c` reads the rest
 through the Objective-C runtime (`objc_msgSend`; the stubs stay C and link
-`-lobjc`). Each function there does nothing unless the video driver is `cocoa`.
+`-lobjc`). Each function there does nothing unless the video driver is `cocoa`,
+and brackets its AppKit messages with `objc_autoreleasePoolPush`/`Pop`: no run
+loop drains a pool for an OCaml program, and restyling the title bar outside
+one autoreleased the NSWindow about ninety times, so no closed window was ever
+deallocated (390 KiB each).
 
 - Scroll phases. SDL's Cocoa wheel event is `scrollingDelta * 0.1` for a
   trackpad, with no phase, no difference between the fingers and the system's
