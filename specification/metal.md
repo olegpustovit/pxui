@@ -3,7 +3,8 @@
 `rays.metal` is the foundational Apple-Silicon Metal binding under
 `ogpu_metal`. It does not depend on SDL3, OGPU, the runtime, Rays, or UI
 libraries. The runtime obtains a Metal layer through OGPU; the binding itself
-never owns an SDL window. There is no CPU, browser, or OpenGL fallback.
+never owns an SDL window. There is no CPU, browser, or OpenGL fallback. Web export is a
+separate compiler target emitted from a Lisp workspace, not a fallback: the native program never selects it.
 
 ## Build and registry
 
