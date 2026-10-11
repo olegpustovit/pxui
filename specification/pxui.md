@@ -83,6 +83,11 @@ signed-distance fragment stage:
   capsule. Chords outside the batch clip are not emitted.
 - **Grid.** One quad draws a dot every `spacing` points from an origin.
 
+PXUI layout, hit bounds, glyph placement and input regions use logical screen
+points directly. The kit has no per-box scale or translation: its batches
+retain the builder's identity transform, and physical-pixel snapping uses
+only the frame's density.
+
 `Ui_batch` groups instances by `{clip, xform, texture}`; untextured
 instances never split a batch. `Rays_execution.Private.lower_ui`
 lowers each batch to one indexed draw with a 24-byte affine uniform (logical
