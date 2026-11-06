@@ -1,5 +1,4 @@
-//! Compiles the conformance suite's GLSL to SPIR-V for the tests, as lib/ogpu/conformance/vulkan/dune
-//! does (glslangValidator and spirv-link). Test-only: the library itself ships no shader.
+//! Compiles the test-only GLSL conformance shaders with glslangValidator and spirv-link.
 use std::{env, path::PathBuf, process::Command};
 
 fn tool(name: &str) -> Option<PathBuf> {
@@ -16,7 +15,7 @@ fn run(program: &PathBuf, dir: &PathBuf, args: &[&str]) -> bool {
 }
 
 fn main() {
-    let source = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("../../../lib/ogpu/conformance/vulkan");
+    let source = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap()).join("tests/shaders");
     let out = PathBuf::from(env::var("OUT_DIR").unwrap());
     println!("cargo:rerun-if-changed={}", source.display());
     println!("cargo:rerun-if-changed=build.rs");

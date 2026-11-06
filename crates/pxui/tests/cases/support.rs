@@ -4,7 +4,7 @@ use pxui::ui::*;
 use rays::frame;
 
 pub fn font_path() -> String {
-    format!("{}/../../../assets/fonts/DepartureMono-Regular.otf", env!("CARGO_MANIFEST_DIR"))
+    format!("{}/../../assets/fonts/DepartureMono-Regular.otf", env!("CARGO_MANIFEST_DIR"))
 }
 
 /// A UI over the golden face: the pointer positions in the text tests assume its advance.

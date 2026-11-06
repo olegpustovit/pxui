@@ -14,11 +14,11 @@ const WIDTH: i64 = 320;
 const SCALE: i64 = 2;
 
 fn font_path() -> String {
-    format!("{}/../../../assets/fonts/DepartureMono-Regular.otf", env!("CARGO_MANIFEST_DIR"))
+    format!("{}/../../assets/fonts/DepartureMono-Regular.otf", env!("CARGO_MANIFEST_DIR"))
 }
 
 fn golden_path(name: &str) -> String {
-    format!("{}/../../../lib/pxui/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name)
+    format!("{}/../../crates/pxui/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name)
 }
 
 fn frame_at(count: i64, height: i64) -> frame::t {

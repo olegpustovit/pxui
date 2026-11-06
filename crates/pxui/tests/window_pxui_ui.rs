@@ -16,7 +16,7 @@ mod ui_b;
 mod ui_c;
 
 fn main() {
-    // Headless, as lib/pxui/dune sets SDL_VIDEODRIVER=dummy: the clipboard cases must not reach the
+    // Headless, as crates/pxui/dune sets SDL_VIDEODRIVER=dummy: the clipboard cases must not reach the
     // shared OS clipboard. The hint has to precede SDL initialisation.
     sdl3::hint::set(sdl3::hint::VIDEO_DRIVER, "dummy").expect("video driver hint");
     sdl3::init::init(&[sdl3::init::Subsystem::Video, sdl3::init::Subsystem::Events]).expect("SDL init");

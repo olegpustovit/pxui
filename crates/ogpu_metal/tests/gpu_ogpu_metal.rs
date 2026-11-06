@@ -2,7 +2,7 @@
 // The OCaml suite is one function over one device; here it is three stages (as for Vulkan), each with its
 // own device so each stays inside the per-test budget. Native qualification requires a Metal device and
 // ends with the process-wide Metal handle count where it began. The MSL is the OCaml suite's, dumped to
-// rs/fixtures/shaders/ogpu_metal/conformance/*.metal. Metal calls need the main thread: a harness = false
+// fixtures/shaders/ogpu_metal/conformance/*.metal. Metal calls need the main thread: a harness = false
 // target (common::run) runs the tests on it.
 mod common;
 use ogpu_metal::{backend, impl_};

@@ -39,8 +39,8 @@ fn words(value: &str) -> Vec<&str> {
 fn main() {
     let root = PathBuf::from(env::var_os("CARGO_MANIFEST_DIR").unwrap());
     let out = PathBuf::from(env::var_os("OUT_DIR").unwrap());
-    let lock_path = root.join("../../../packaging/sdl3.lock");
-    let abi_path = root.join("../../../lib/sdl3/abi.sexp");
+    let lock_path = root.join("../../packaging/sdl3.lock");
+    let abi_path = root.join("abi.sexp");
     println!("cargo:rerun-if-changed={}", lock_path.display());
     println!("cargo:rerun-if-changed={}", abi_path.display());
     println!("cargo:rerun-if-changed=src/bridge.c");
@@ -66,7 +66,7 @@ fn main() {
         .collect();
     assert_eq!(version.len(), 3, "SDL3 floor must be major.minor.patch");
 
-    let abi = fs::read_to_string(&abi_path).expect("read lib/sdl3/abi.sexp");
+    let abi = fs::read_to_string(&abi_path).expect("read SDL3 ABI manifest");
     let mut header = format!(
         "#include <SDL3/SDL.h>\n#include <stddef.h>\n\
          _Static_assert(SDL_MAJOR_VERSION == {major}, \"SDL3 major version changed\");\n\

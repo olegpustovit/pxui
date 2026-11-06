@@ -113,7 +113,7 @@ pub fn handle_stats() -> HandleStats {
 #[cfg(target_vendor = "apple")]
 unsafe extern "C" { fn rays_metal_handle_destroy(handle: *mut NativeHandle); }
 
-pub mod registry { include!(concat!(env!("OUT_DIR"), "/metal_registry.rs")); }
+pub mod registry;
 
 pub mod native {
     use super::{CommandBufferDiagnostics, Error, Handle, NativeHandle, TextureDescriptor};

@@ -1551,7 +1551,7 @@ mod tests {
             kind: "dependencies".to_owned(),
         };
         let package = Package {
-            manifest: PathBuf::from("rs/crates/ogpu_native/Cargo.toml"),
+            manifest: PathBuf::from("crates/ogpu_native/Cargo.toml"),
             package_name: "ogpu_native".to_owned(),
             crate_name: "ogpu_native".to_owned(),
             product: true,
@@ -1573,7 +1573,7 @@ mod tests {
     #[test]
     fn ogpu_consumers_select_a_backend() {
         let app = Package {
-            manifest: PathBuf::from("rs/bin/rays/Cargo.toml"),
+            manifest: PathBuf::from("crates/rays_bin/Cargo.toml"),
             package_name: "rays".to_owned(),
             crate_name: "rays".to_owned(),
             product: true,
@@ -1591,7 +1591,7 @@ mod tests {
     #[test]
     fn ogpu_selection_checks_each_platform_without_merging_backend_edges() {
         let mut app = Package {
-            manifest: PathBuf::from("rs/bin/app/Cargo.toml"),
+            manifest: PathBuf::from("crates/app/Cargo.toml"),
             package_name: "app".into(), crate_name: "app".into(), product: true,
             deps: vec![
                 DepSpec { alias: "ogpu_metal".into(), target: Some("cfg(target_os = \"macos\")".into()), ..Default::default() },

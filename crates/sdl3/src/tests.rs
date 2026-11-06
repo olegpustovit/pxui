@@ -91,7 +91,7 @@ fn sdl_calls_are_refused_from_worker_threads() {
 fn dummy_video_window_lifecycle_and_typed_errors() {
     claim_dummy_main();
     crate::check_version(true).unwrap();
-    let lock = include_str!("../../../../packaging/sdl3.lock");
+    let lock = include_str!("../../../packaging/sdl3.lock");
     let entry = lock.lines().map(str::trim).find(|line| line.starts_with("((sdl3 ")).unwrap();
     let floor = entry.split("(floor ").nth(1).unwrap().split(')').next().unwrap();
     let floor: Vec<i32> = floor.split('.').map(|part| part.parse().unwrap()).collect();
