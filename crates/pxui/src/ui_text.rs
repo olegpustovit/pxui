@@ -1354,23 +1354,42 @@ pub fn context_clicked(signal: &Signal) -> bool {
     signal.released && signal.button == Some(MouseButton::RightButton) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
 }
 
-/// Case-insensitive subsequence match.
+/// Case-insensitive (ASCII) subsequence match. Allocates nothing.
 pub fn fuzzy_match(query: &str, text: &str) -> bool {
-    // ponytail: case-insensitive subsequence match, no scoring; swap for fzf-style ranking if
-    // lists grow long.
-    let query = query.to_ascii_lowercase();
-    let text = text.to_ascii_lowercase();
-    let q = query.as_bytes();
-    let mut index = 0;
-    for c in text.bytes() {
-        if index == q.len() {
-            break;
-        }
-        if c == q[index] {
-            index += 1;
+    fuzzy_score(query, text).is_some()
+}
+
+/// `fuzzy_match` with a rank: `None` when `query` is not a subsequence of `text`, else higher for a
+/// better match. Each matched byte scores 1, plus 5 when it follows the previous match directly and
+/// 8 when it starts a word (the text's start, after a non-alphanumeric byte, or an upper-case byte
+/// after a lower-case one); each byte skipped before a match costs 1. A byte that cannot continue the
+/// previous match takes the next word start that still leaves the rest of the query matchable.
+/// No allocation (queries past 64 bytes match leftmost); O(text x query) at worst.
+pub fn fuzzy_score(query: &str, text: &str) -> Option<i32> {
+    let (q, t) = (query.as_bytes(), text.as_bytes());
+    let word_start = |i: usize| i == 0 || !t[i - 1].is_ascii_alphanumeric() || (t[i].is_ascii_uppercase() && t[i - 1].is_ascii_lowercase());
+    // the latest position each query byte can take with the rest still matchable after it
+    let mut limit = [usize::MAX; 64];
+    let mut end = t.len();
+    for k in (0..q.len()).rev() {
+        end = (0..end).rev().find(|&i| t[i].eq_ignore_ascii_case(&q[k]))?;
+        if k < 64 {
+            limit[k] = end;
         }
     }
-    index == q.len()
+    let (mut score, mut at, mut last) = (0, 0usize, None::<usize>);
+    for (k, &c) in q.iter().enumerate() {
+        let hit = |i: &usize| t[*i].eq_ignore_ascii_case(&c);
+        let first = (at..t.len()).find(hit)?;
+        let i = if last.is_some_and(|l| l + 1 == first) || word_start(first) || k >= 64 {
+            first
+        } else {
+            (first..=limit[k]).find(|i| hit(i) && word_start(*i)).unwrap_or(first)
+        };
+        score += 1 + if last.is_some_and(|l| l + 1 == i) { 5 } else { 0 } + if word_start(i) { 8 } else { 0 } - (i - at) as i32;
+        (at, last) = (i + 1, Some(i));
+    }
+    Some(score)
 }
 
 // ------------------------------------------------------------------ text area

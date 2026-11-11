@@ -426,7 +426,23 @@ fn dirty_ranges_merge_closest() {
     assert_eq!(r, [(0, 12), (50, 53), (100, 101), (1000, 1001)]);
 }
 
+/// Fuzzy ranking: word starts and runs beat scattered bytes; no allocation.
+fn fuzzy_score_ranks() {
+    mem_sys::local_reset();
+    let a = fuzzy_score("tr", "Transform");
+    let b = fuzzy_score("tr", "scatter");
+    let c = fuzzy_score("sc", "point/scale");
+    let d = fuzzy_score("sc", "describe");
+    let e = fuzzy_score("ps", "PointScale");
+    check(mem_sys::local_alloc_count() == 0, "fuzzy_score allocated");
+    check(a > b && c > d && e > fuzzy_score("ps", "perhaps"), &format!("{a:?} {b:?} {c:?} {d:?} {e:?}"));
+    check(fuzzy_score("xyz", "Transform").is_none() && fuzzy_match("TRF", "transform") && !fuzzy_match("ft", "transform"), "matching");
+    // the later word start is taken only when the rest still matches after it
+    check(fuzzy_score("ab", "xab_a").is_some(), "lookahead broke a match");
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("fuzzy_score_ranks", fuzzy_score_ranks),
     ("dirty_ranges_merge_closest", dirty_ranges_merge_closest),
     ("window_pxui_typography", window_pxui_typography),
     ("window_pxui_table", window_pxui_table),
