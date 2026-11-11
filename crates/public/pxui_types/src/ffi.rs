@@ -165,6 +165,7 @@ pub struct PxuiMotion { pub fast: f32, pub normal: f32, pub slow: f32, pub ease:
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct ThemeTokens {
+    pub size: u32,
     pub panel: Rgba,
     pub foreground: Rgba,
     pub control: Rgba,
@@ -509,7 +510,7 @@ pub struct PxuiPopupDesc {
 /// One text button of an inspector head.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PxuiHeadActionDesc { pub caption: Str, pub keycap: Str, pub active: u8, pub usable: u8, pub reserved: [u8; 6] }
+pub struct PxuiHeadActionDesc { pub size: u32, pub active: u8, pub usable: u8, pub reserved: [u8; 2], pub caption: Str, pub keycap: Str }
 
 /// An inspector head. `kind`, `badge`, `index` and `reset` are read when their flag is set.
 #[repr(C)]
@@ -523,7 +524,7 @@ pub struct PxuiHeaderDesc {
 /// and whether `reset` was pressed.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PxuiHeadOut { pub renamed: Str, pub chosen: i64, pub has_chosen: u8, pub reset_pressed: u8, pub reserved: [u8; 6] }
+pub struct PxuiHeadOut { pub size: u32, pub has_chosen: u8, pub reset_pressed: u8, pub reserved: [u8; 2], pub renamed: Str, pub chosen: i64 }
 
 /// `BoxOpts` crossing: `axis` is 0 row, 1 column, 2 stack. `hit` (with `hit_user` and `hit_release`, called once when the
 /// box's slot lets go of it) replaces the box's hit rectangle by the one it returns for the laid-out rectangle.
@@ -546,43 +547,44 @@ impl ThemeSource {
 /// A build callback of a container descriptor: `(user, ui)`, the `ui` a borrowed `PxuiUi` valid for the call.
 pub type UiBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void)>;
 
-// Descriptors of the kit widgets (`kit.rs` of `pxui_abi` and `pxui`): the one definition both sides use. They carry no `size`:
-// a widget that needs more takes a new descriptor.
+// Descriptors of the kit widgets (`kit.rs` of `pxui_abi` and `pxui`): the one definition both sides use. Each starts with `size`,
+// read before anything else: a descriptor passed alone may grow by appending fields; one in a span (menus, hints, head actions,
+// keyframes) is read at its exact size, since a span's stride cannot grow.
 pub type PxuiBuild = UiBuild;
 pub type PxuiGridBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize)>;
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PxuiMenuDesc { pub title: Str, pub items: Slice<Str> }
+pub struct PxuiMenuDesc { pub size: u32, pub reserved: u32, pub title: Str, pub items: Slice<Str> }
 #[repr(C)]
-pub struct PxuiGridListDesc { pub label: Str, pub count: usize, pub cell_w: f32, pub cell_h: f32, pub build: PxuiGridBuild, pub user: *mut core::ffi::c_void }
+pub struct PxuiGridListDesc { pub size: u32, pub reserved: u32, pub label: Str, pub count: usize, pub cell_w: f32, pub cell_h: f32, pub build: PxuiGridBuild, pub user: *mut core::ffi::c_void }
 #[repr(C)]
-pub struct PxuiSplitDesc { pub label: Str, pub axis: u32, pub ratio: f32, pub min_a: f32, pub min_b: f32, pub build_a: PxuiBuild, pub user_a: *mut core::ffi::c_void, pub build_b: PxuiBuild, pub user_b: *mut core::ffi::c_void }
+pub struct PxuiSplitDesc { pub size: u32, pub axis: u32, pub label: Str, pub ratio: f32, pub min_a: f32, pub min_b: f32, pub reserved: u32, pub build_a: PxuiBuild, pub user_a: *mut core::ffi::c_void, pub build_b: PxuiBuild, pub user_b: *mut core::ffi::c_void }
 #[repr(C)]
-pub struct PxuiMenuBarDesc { pub label: Str, pub menus: Slice<PxuiMenuDesc> }
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct PxuiMenuOut { pub menu: usize, pub item: usize }
+pub struct PxuiMenuBarDesc { pub size: u32, pub reserved: u32, pub label: Str, pub menus: Slice<PxuiMenuDesc> }
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiHintDesc { pub key: Str, pub value: Str }
+pub struct PxuiMenuOut { pub size: u32, pub reserved: u32, pub menu: usize, pub item: usize }
 #[repr(C)]
-pub struct PxuiFooterDesc { pub has_right: u8, pub reserved: [u8; 7], pub right: Str, pub hints: Slice<PxuiHintDesc> }
+#[derive(Clone, Copy, Default)]
+pub struct PxuiHintDesc { pub size: u32, pub reserved: u32, pub key: Str, pub value: Str }
+#[repr(C)]
+pub struct PxuiFooterDesc { pub size: u32, pub has_right: u8, pub reserved: [u8; 3], pub right: Str, pub hints: Slice<PxuiHintDesc> }
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PxuiKeyframeDesc { pub time: f32, pub target: u32, pub reserved: [u8; 4], pub values: [f32; 4], pub look: PxuiLookDesc, pub curve: PxuiCurveDesc }
+pub struct PxuiKeyframeDesc { pub size: u32, pub time: f32, pub target: u32, pub reserved: u32, pub values: [f32; 4], pub look: PxuiLookDesc, pub curve: PxuiCurveDesc }
 
 #[repr(C)]
-pub struct PxuiInspectorRowDesc { pub key: Str, pub label: Str, pub has_width: u8, pub has_pin: u8, pub pin: u8, pub reserved: [u8; 5], pub width: f32, pub row: PxuiBox, pub control_x: f32, pub control_y: f32, pub control_w: f32 }
+pub struct PxuiInspectorRowDesc { pub size: u32, pub has_width: u8, pub has_pin: u8, pub pin: u8, pub reserved: u8, pub key: Str, pub label: Str, pub width: f32, pub reserved_tail: u32, pub row: PxuiBox, pub control_x: f32, pub control_y: f32, pub control_w: f32 }
 #[repr(C)]
-pub struct PxuiInspectorSectionDesc { pub key: Str, pub label: Str, pub expanded: u8, pub has_set: u8, pub set_expanded: u8, pub reserved: [u8; 5], pub build: PxuiBuild, pub user: *mut core::ffi::c_void, pub out_open: u8 }
+pub struct PxuiInspectorSectionDesc { pub size: u32, pub expanded: u8, pub has_set: u8, pub set_expanded: u8, pub reserved: u8, pub key: Str, pub label: Str, pub build: PxuiBuild, pub user: *mut core::ffi::c_void, pub out_open: u8 }
 #[repr(C)]
-pub struct PxuiInspectorValueDesc { pub key: Str, pub label: Str, pub value: Str, pub has_width: u8, pub reserved: [u8; 7], pub width: f32 }
+pub struct PxuiInspectorValueDesc { pub size: u32, pub has_width: u8, pub reserved: [u8; 3], pub key: Str, pub label: Str, pub value: Str, pub width: f32 }
 #[repr(C)]
-pub struct PxuiInspectorTextDesc { pub key: Str, pub text: Str }
+pub struct PxuiInspectorTextDesc { pub size: u32, pub reserved: u32, pub key: Str, pub text: Str }
 pub type PxuiTableCell = Option<extern "C" fn(*mut core::ffi::c_void, i64, i64) -> Str>;
 #[repr(C)]
-pub struct PxuiTableDesc { pub label: Str, pub at: [f32; 2], pub width: f32, pub height: f32, pub headers: Slice<Str>, pub rows: i64, pub cell: PxuiTableCell, pub user: *mut core::ffi::c_void }
+pub struct PxuiTableDesc { pub size: u32, pub reserved: u32, pub label: Str, pub at: [f32; 2], pub width: f32, pub height: f32, pub headers: Slice<Str>, pub rows: i64, pub cell: PxuiTableCell, pub user: *mut core::ffi::c_void }
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -603,10 +605,11 @@ pub type PxuiCollectionText = Option<extern "C" fn(*mut core::ffi::c_void, usize
 
 #[repr(C)]
 pub struct PxuiListViewDesc {
+    pub size: u32,
+    pub multi: u8,
+    pub reserved: [u8; 3],
     pub label: Str,
     pub count: usize,
-    pub multi: u8,
-    pub reserved: [u8; 7],
     pub selected: PxuiU8MutSpan,
     pub text: PxuiCollectionText,
     pub user: *mut core::ffi::c_void,
@@ -614,6 +617,8 @@ pub struct PxuiListViewDesc {
 
 #[repr(C)]
 pub struct PxuiTreeViewDesc {
+    pub size: u32,
+    pub reserved: u32,
     pub label: Str,
     pub nodes: Slice<PxuiTreeNode>,
     pub open: PxuiU8MutSpan,
@@ -626,13 +631,14 @@ pub struct PxuiTreeViewDesc {
 
 #[repr(C)]
 pub struct PxuiTableViewDesc {
+    pub size: u32,
+    pub has_sort: u8,
+    pub ascending: u8,
+    pub reserved: [u8; 2],
     pub label: Str,
     pub titles: Slice<Str>,
     pub widths: PxuiF32MutSpan,
     pub rows: usize,
-    pub has_sort: u8,
-    pub ascending: u8,
-    pub reserved: [u8; 6],
     pub sort_column: usize,
     pub selected: *mut usize,
     pub text: PxuiCollectionText,
@@ -653,26 +659,26 @@ mod layout {
     }
     #[test]
     fn ffi_layouts_are_pinned() {
-        check("PxuiMenuDesc", size_of::<PxuiMenuDesc>(), align_of::<PxuiMenuDesc>(), &[offset_of!(PxuiMenuDesc, title), offset_of!(PxuiMenuDesc, items)]);
-        check("PxuiGridListDesc", size_of::<PxuiGridListDesc>(), align_of::<PxuiGridListDesc>(), &[offset_of!(PxuiGridListDesc, label), offset_of!(PxuiGridListDesc, count), offset_of!(PxuiGridListDesc, cell_w), offset_of!(PxuiGridListDesc, cell_h), offset_of!(PxuiGridListDesc, build), offset_of!(PxuiGridListDesc, user)]);
-        check("PxuiSplitDesc", size_of::<PxuiSplitDesc>(), align_of::<PxuiSplitDesc>(), &[offset_of!(PxuiSplitDesc, label), offset_of!(PxuiSplitDesc, axis), offset_of!(PxuiSplitDesc, ratio), offset_of!(PxuiSplitDesc, min_a), offset_of!(PxuiSplitDesc, min_b), offset_of!(PxuiSplitDesc, build_a), offset_of!(PxuiSplitDesc, user_a), offset_of!(PxuiSplitDesc, build_b), offset_of!(PxuiSplitDesc, user_b)]);
-        check("PxuiMenuBarDesc", size_of::<PxuiMenuBarDesc>(), align_of::<PxuiMenuBarDesc>(), &[offset_of!(PxuiMenuBarDesc, label), offset_of!(PxuiMenuBarDesc, menus)]);
-        check("PxuiMenuOut", size_of::<PxuiMenuOut>(), align_of::<PxuiMenuOut>(), &[offset_of!(PxuiMenuOut, menu), offset_of!(PxuiMenuOut, item)]);
-        check("PxuiHintDesc", size_of::<PxuiHintDesc>(), align_of::<PxuiHintDesc>(), &[offset_of!(PxuiHintDesc, key), offset_of!(PxuiHintDesc, value)]);
-        check("PxuiFooterDesc", size_of::<PxuiFooterDesc>(), align_of::<PxuiFooterDesc>(), &[offset_of!(PxuiFooterDesc, has_right), offset_of!(PxuiFooterDesc, reserved), offset_of!(PxuiFooterDesc, right), offset_of!(PxuiFooterDesc, hints)]);
-        check("PxuiKeyframeDesc", size_of::<PxuiKeyframeDesc>(), align_of::<PxuiKeyframeDesc>(), &[offset_of!(PxuiKeyframeDesc, time), offset_of!(PxuiKeyframeDesc, target), offset_of!(PxuiKeyframeDesc, reserved), offset_of!(PxuiKeyframeDesc, values), offset_of!(PxuiKeyframeDesc, look), offset_of!(PxuiKeyframeDesc, curve)]);
-        check("PxuiInspectorRowDesc", size_of::<PxuiInspectorRowDesc>(), align_of::<PxuiInspectorRowDesc>(), &[offset_of!(PxuiInspectorRowDesc, key), offset_of!(PxuiInspectorRowDesc, label), offset_of!(PxuiInspectorRowDesc, has_width), offset_of!(PxuiInspectorRowDesc, has_pin), offset_of!(PxuiInspectorRowDesc, pin), offset_of!(PxuiInspectorRowDesc, reserved), offset_of!(PxuiInspectorRowDesc, width), offset_of!(PxuiInspectorRowDesc, row), offset_of!(PxuiInspectorRowDesc, control_x), offset_of!(PxuiInspectorRowDesc, control_y), offset_of!(PxuiInspectorRowDesc, control_w)]);
-        check("PxuiInspectorSectionDesc", size_of::<PxuiInspectorSectionDesc>(), align_of::<PxuiInspectorSectionDesc>(), &[offset_of!(PxuiInspectorSectionDesc, key), offset_of!(PxuiInspectorSectionDesc, label), offset_of!(PxuiInspectorSectionDesc, expanded), offset_of!(PxuiInspectorSectionDesc, has_set), offset_of!(PxuiInspectorSectionDesc, set_expanded), offset_of!(PxuiInspectorSectionDesc, reserved), offset_of!(PxuiInspectorSectionDesc, build), offset_of!(PxuiInspectorSectionDesc, user), offset_of!(PxuiInspectorSectionDesc, out_open)]);
-        check("PxuiInspectorValueDesc", size_of::<PxuiInspectorValueDesc>(), align_of::<PxuiInspectorValueDesc>(), &[offset_of!(PxuiInspectorValueDesc, key), offset_of!(PxuiInspectorValueDesc, label), offset_of!(PxuiInspectorValueDesc, value), offset_of!(PxuiInspectorValueDesc, has_width), offset_of!(PxuiInspectorValueDesc, reserved), offset_of!(PxuiInspectorValueDesc, width)]);
-        check("PxuiInspectorTextDesc", size_of::<PxuiInspectorTextDesc>(), align_of::<PxuiInspectorTextDesc>(), &[offset_of!(PxuiInspectorTextDesc, key), offset_of!(PxuiInspectorTextDesc, text)]);
-        check("PxuiTableDesc", size_of::<PxuiTableDesc>(), align_of::<PxuiTableDesc>(), &[offset_of!(PxuiTableDesc, label), offset_of!(PxuiTableDesc, at), offset_of!(PxuiTableDesc, width), offset_of!(PxuiTableDesc, height), offset_of!(PxuiTableDesc, headers), offset_of!(PxuiTableDesc, rows), offset_of!(PxuiTableDesc, cell), offset_of!(PxuiTableDesc, user)]);
+        check("PxuiMenuDesc", size_of::<PxuiMenuDesc>(), align_of::<PxuiMenuDesc>(), &[offset_of!(PxuiMenuDesc, size), offset_of!(PxuiMenuDesc, reserved), offset_of!(PxuiMenuDesc, title), offset_of!(PxuiMenuDesc, items)]);
+        check("PxuiGridListDesc", size_of::<PxuiGridListDesc>(), align_of::<PxuiGridListDesc>(), &[offset_of!(PxuiGridListDesc, size), offset_of!(PxuiGridListDesc, reserved), offset_of!(PxuiGridListDesc, label), offset_of!(PxuiGridListDesc, count), offset_of!(PxuiGridListDesc, cell_w), offset_of!(PxuiGridListDesc, cell_h), offset_of!(PxuiGridListDesc, build), offset_of!(PxuiGridListDesc, user)]);
+        check("PxuiSplitDesc", size_of::<PxuiSplitDesc>(), align_of::<PxuiSplitDesc>(), &[offset_of!(PxuiSplitDesc, size), offset_of!(PxuiSplitDesc, axis), offset_of!(PxuiSplitDesc, label), offset_of!(PxuiSplitDesc, ratio), offset_of!(PxuiSplitDesc, min_a), offset_of!(PxuiSplitDesc, min_b), offset_of!(PxuiSplitDesc, reserved), offset_of!(PxuiSplitDesc, build_a), offset_of!(PxuiSplitDesc, user_a), offset_of!(PxuiSplitDesc, build_b), offset_of!(PxuiSplitDesc, user_b)]);
+        check("PxuiMenuBarDesc", size_of::<PxuiMenuBarDesc>(), align_of::<PxuiMenuBarDesc>(), &[offset_of!(PxuiMenuBarDesc, size), offset_of!(PxuiMenuBarDesc, reserved), offset_of!(PxuiMenuBarDesc, label), offset_of!(PxuiMenuBarDesc, menus)]);
+        check("PxuiMenuOut", size_of::<PxuiMenuOut>(), align_of::<PxuiMenuOut>(), &[offset_of!(PxuiMenuOut, size), offset_of!(PxuiMenuOut, reserved), offset_of!(PxuiMenuOut, menu), offset_of!(PxuiMenuOut, item)]);
+        check("PxuiHintDesc", size_of::<PxuiHintDesc>(), align_of::<PxuiHintDesc>(), &[offset_of!(PxuiHintDesc, size), offset_of!(PxuiHintDesc, reserved), offset_of!(PxuiHintDesc, key), offset_of!(PxuiHintDesc, value)]);
+        check("PxuiFooterDesc", size_of::<PxuiFooterDesc>(), align_of::<PxuiFooterDesc>(), &[offset_of!(PxuiFooterDesc, size), offset_of!(PxuiFooterDesc, has_right), offset_of!(PxuiFooterDesc, reserved), offset_of!(PxuiFooterDesc, right), offset_of!(PxuiFooterDesc, hints)]);
+        check("PxuiKeyframeDesc", size_of::<PxuiKeyframeDesc>(), align_of::<PxuiKeyframeDesc>(), &[offset_of!(PxuiKeyframeDesc, size), offset_of!(PxuiKeyframeDesc, time), offset_of!(PxuiKeyframeDesc, target), offset_of!(PxuiKeyframeDesc, reserved), offset_of!(PxuiKeyframeDesc, values), offset_of!(PxuiKeyframeDesc, look), offset_of!(PxuiKeyframeDesc, curve)]);
+        check("PxuiInspectorRowDesc", size_of::<PxuiInspectorRowDesc>(), align_of::<PxuiInspectorRowDesc>(), &[offset_of!(PxuiInspectorRowDesc, size), offset_of!(PxuiInspectorRowDesc, has_width), offset_of!(PxuiInspectorRowDesc, has_pin), offset_of!(PxuiInspectorRowDesc, pin), offset_of!(PxuiInspectorRowDesc, reserved), offset_of!(PxuiInspectorRowDesc, key), offset_of!(PxuiInspectorRowDesc, label), offset_of!(PxuiInspectorRowDesc, width), offset_of!(PxuiInspectorRowDesc, reserved_tail), offset_of!(PxuiInspectorRowDesc, row), offset_of!(PxuiInspectorRowDesc, control_x), offset_of!(PxuiInspectorRowDesc, control_y), offset_of!(PxuiInspectorRowDesc, control_w)]);
+        check("PxuiInspectorSectionDesc", size_of::<PxuiInspectorSectionDesc>(), align_of::<PxuiInspectorSectionDesc>(), &[offset_of!(PxuiInspectorSectionDesc, size), offset_of!(PxuiInspectorSectionDesc, expanded), offset_of!(PxuiInspectorSectionDesc, has_set), offset_of!(PxuiInspectorSectionDesc, set_expanded), offset_of!(PxuiInspectorSectionDesc, reserved), offset_of!(PxuiInspectorSectionDesc, key), offset_of!(PxuiInspectorSectionDesc, label), offset_of!(PxuiInspectorSectionDesc, build), offset_of!(PxuiInspectorSectionDesc, user), offset_of!(PxuiInspectorSectionDesc, out_open)]);
+        check("PxuiInspectorValueDesc", size_of::<PxuiInspectorValueDesc>(), align_of::<PxuiInspectorValueDesc>(), &[offset_of!(PxuiInspectorValueDesc, size), offset_of!(PxuiInspectorValueDesc, has_width), offset_of!(PxuiInspectorValueDesc, reserved), offset_of!(PxuiInspectorValueDesc, key), offset_of!(PxuiInspectorValueDesc, label), offset_of!(PxuiInspectorValueDesc, value), offset_of!(PxuiInspectorValueDesc, width)]);
+        check("PxuiInspectorTextDesc", size_of::<PxuiInspectorTextDesc>(), align_of::<PxuiInspectorTextDesc>(), &[offset_of!(PxuiInspectorTextDesc, size), offset_of!(PxuiInspectorTextDesc, reserved), offset_of!(PxuiInspectorTextDesc, key), offset_of!(PxuiInspectorTextDesc, text)]);
+        check("PxuiTableDesc", size_of::<PxuiTableDesc>(), align_of::<PxuiTableDesc>(), &[offset_of!(PxuiTableDesc, size), offset_of!(PxuiTableDesc, reserved), offset_of!(PxuiTableDesc, label), offset_of!(PxuiTableDesc, at), offset_of!(PxuiTableDesc, width), offset_of!(PxuiTableDesc, height), offset_of!(PxuiTableDesc, headers), offset_of!(PxuiTableDesc, rows), offset_of!(PxuiTableDesc, cell), offset_of!(PxuiTableDesc, user)]);
         check("PxuiU8MutSpan", size_of::<PxuiU8MutSpan>(), align_of::<PxuiU8MutSpan>(), &[offset_of!(PxuiU8MutSpan, ptr), offset_of!(PxuiU8MutSpan, len)]);
         check("PxuiF32MutSpan", size_of::<PxuiF32MutSpan>(), align_of::<PxuiF32MutSpan>(), &[offset_of!(PxuiF32MutSpan, ptr), offset_of!(PxuiF32MutSpan, len)]);
         check("PxuiU32MutSpan", size_of::<PxuiU32MutSpan>(), align_of::<PxuiU32MutSpan>(), &[offset_of!(PxuiU32MutSpan, ptr), offset_of!(PxuiU32MutSpan, len)]);
         check("PxuiTreeNode", size_of::<PxuiTreeNode>(), align_of::<PxuiTreeNode>(), &[offset_of!(PxuiTreeNode, depth), offset_of!(PxuiTreeNode, children)]);
-        check("PxuiListViewDesc", size_of::<PxuiListViewDesc>(), align_of::<PxuiListViewDesc>(), &[offset_of!(PxuiListViewDesc, label), offset_of!(PxuiListViewDesc, count), offset_of!(PxuiListViewDesc, multi), offset_of!(PxuiListViewDesc, reserved), offset_of!(PxuiListViewDesc, selected), offset_of!(PxuiListViewDesc, text), offset_of!(PxuiListViewDesc, user)]);
-        check("PxuiTreeViewDesc", size_of::<PxuiTreeViewDesc>(), align_of::<PxuiTreeViewDesc>(), &[offset_of!(PxuiTreeViewDesc, label), offset_of!(PxuiTreeViewDesc, nodes), offset_of!(PxuiTreeViewDesc, open), offset_of!(PxuiTreeViewDesc, selected), offset_of!(PxuiTreeViewDesc, visible), offset_of!(PxuiTreeViewDesc, visible_len), offset_of!(PxuiTreeViewDesc, text), offset_of!(PxuiTreeViewDesc, user)]);
-        check("PxuiTableViewDesc", size_of::<PxuiTableViewDesc>(), align_of::<PxuiTableViewDesc>(), &[offset_of!(PxuiTableViewDesc, label), offset_of!(PxuiTableViewDesc, titles), offset_of!(PxuiTableViewDesc, widths), offset_of!(PxuiTableViewDesc, rows), offset_of!(PxuiTableViewDesc, has_sort), offset_of!(PxuiTableViewDesc, ascending), offset_of!(PxuiTableViewDesc, reserved), offset_of!(PxuiTableViewDesc, sort_column), offset_of!(PxuiTableViewDesc, selected), offset_of!(PxuiTableViewDesc, text), offset_of!(PxuiTableViewDesc, user)]);
+        check("PxuiListViewDesc", size_of::<PxuiListViewDesc>(), align_of::<PxuiListViewDesc>(), &[offset_of!(PxuiListViewDesc, size), offset_of!(PxuiListViewDesc, multi), offset_of!(PxuiListViewDesc, reserved), offset_of!(PxuiListViewDesc, label), offset_of!(PxuiListViewDesc, count), offset_of!(PxuiListViewDesc, selected), offset_of!(PxuiListViewDesc, text), offset_of!(PxuiListViewDesc, user)]);
+        check("PxuiTreeViewDesc", size_of::<PxuiTreeViewDesc>(), align_of::<PxuiTreeViewDesc>(), &[offset_of!(PxuiTreeViewDesc, size), offset_of!(PxuiTreeViewDesc, reserved), offset_of!(PxuiTreeViewDesc, label), offset_of!(PxuiTreeViewDesc, nodes), offset_of!(PxuiTreeViewDesc, open), offset_of!(PxuiTreeViewDesc, selected), offset_of!(PxuiTreeViewDesc, visible), offset_of!(PxuiTreeViewDesc, visible_len), offset_of!(PxuiTreeViewDesc, text), offset_of!(PxuiTreeViewDesc, user)]);
+        check("PxuiTableViewDesc", size_of::<PxuiTableViewDesc>(), align_of::<PxuiTableViewDesc>(), &[offset_of!(PxuiTableViewDesc, size), offset_of!(PxuiTableViewDesc, has_sort), offset_of!(PxuiTableViewDesc, ascending), offset_of!(PxuiTableViewDesc, reserved), offset_of!(PxuiTableViewDesc, label), offset_of!(PxuiTableViewDesc, titles), offset_of!(PxuiTableViewDesc, widths), offset_of!(PxuiTableViewDesc, rows), offset_of!(PxuiTableViewDesc, sort_column), offset_of!(PxuiTableViewDesc, selected), offset_of!(PxuiTableViewDesc, text), offset_of!(PxuiTableViewDesc, user)]);
         check("PxuiNodeFields", size_of::<PxuiNodeFields>(), align_of::<PxuiNodeFields>(), &[offset_of!(PxuiNodeFields, size), offset_of!(PxuiNodeFields, reserved), offset_of!(PxuiNodeFields, look), offset_of!(PxuiNodeFields, mark), offset_of!(PxuiNodeFields, inset)]);
         check("PxuiRange", size_of::<PxuiRange>(), align_of::<PxuiRange>(), &[offset_of!(PxuiRange, start), offset_of!(PxuiRange, end)]);
         check("PxuiColorSpan", size_of::<PxuiColorSpan>(), align_of::<PxuiColorSpan>(), &[offset_of!(PxuiColorSpan, start), offset_of!(PxuiColorSpan, end), offset_of!(PxuiColorSpan, color), offset_of!(PxuiColorSpan, reserved)]);
@@ -700,7 +706,7 @@ mod layout {
         check("PxuiDirty", size_of::<PxuiDirty>(), align_of::<PxuiDirty>(), &[0, 4]);
         check("ThemeSource", size_of::<ThemeSource>(), align_of::<ThemeSource>(), &[0, 4, 8]);
         check("PxuiMotion", size_of::<PxuiMotion>(), align_of::<PxuiMotion>(), &[offset_of!(PxuiMotion, fast), offset_of!(PxuiMotion, normal), offset_of!(PxuiMotion, slow), offset_of!(PxuiMotion, ease)]);
-        check("PxuiThemeTokens", size_of::<ThemeTokens>(), align_of::<ThemeTokens>(), &[offset_of!(ThemeTokens, panel), offset_of!(ThemeTokens, foreground), offset_of!(ThemeTokens, control), offset_of!(ThemeTokens, input), offset_of!(ThemeTokens, track), offset_of!(ThemeTokens, accent), offset_of!(ThemeTokens, ink_ground), offset_of!(ThemeTokens, has_ink_ground), offset_of!(ThemeTokens, reserved), offset_of!(ThemeTokens, space), offset_of!(ThemeTokens, radius), offset_of!(ThemeTokens, display_size), offset_of!(ThemeTokens, title_size), offset_of!(ThemeTokens, font_size), offset_of!(ThemeTokens, label_size), offset_of!(ThemeTokens, motion), offset_of!(ThemeTokens, reduced_motion), offset_of!(ThemeTokens, reserved_tail), offset_of!(ThemeTokens, density)]);
+        check("PxuiThemeTokens", size_of::<ThemeTokens>(), align_of::<ThemeTokens>(), &[offset_of!(ThemeTokens, size), offset_of!(ThemeTokens, panel), offset_of!(ThemeTokens, foreground), offset_of!(ThemeTokens, control), offset_of!(ThemeTokens, input), offset_of!(ThemeTokens, track), offset_of!(ThemeTokens, accent), offset_of!(ThemeTokens, ink_ground), offset_of!(ThemeTokens, has_ink_ground), offset_of!(ThemeTokens, reserved), offset_of!(ThemeTokens, space), offset_of!(ThemeTokens, radius), offset_of!(ThemeTokens, display_size), offset_of!(ThemeTokens, title_size), offset_of!(ThemeTokens, font_size), offset_of!(ThemeTokens, label_size), offset_of!(ThemeTokens, motion), offset_of!(ThemeTokens, reduced_motion), offset_of!(ThemeTokens, reserved_tail), offset_of!(ThemeTokens, density)]);
         check("PxuiDialogOut", size_of::<PxuiDialogOut>(), align_of::<PxuiDialogOut>(), &[offset_of!(PxuiDialogOut, tag), offset_of!(PxuiDialogOut, index)]);
         check("PxuiThemeSnapshot", size_of::<PxuiThemeSnapshot>(), align_of::<PxuiThemeSnapshot>(), &[offset_of!(PxuiThemeSnapshot, size), offset_of!(PxuiThemeSnapshot, part_count), offset_of!(PxuiThemeSnapshot, tokens), offset_of!(PxuiThemeSnapshot, row_h), offset_of!(PxuiThemeSnapshot, control_h), offset_of!(PxuiThemeSnapshot, scrollbar_w), offset_of!(PxuiThemeSnapshot, scrollbar_gap), offset_of!(PxuiThemeSnapshot, ring)]);
         check("PxuiSizeDesc", size_of::<PxuiSizeDesc>(), align_of::<PxuiSizeDesc>(), &[offset_of!(PxuiSizeDesc, kind), offset_of!(PxuiSizeDesc, value), offset_of!(PxuiSizeDesc, relative)]);
@@ -722,9 +728,9 @@ mod layout {
         check("PxuiValueFieldDesc", size_of::<PxuiValueFieldDesc>(), align_of::<PxuiValueFieldDesc>(), &[offset_of!(PxuiValueFieldDesc, size), offset_of!(PxuiValueFieldDesc, flags), offset_of!(PxuiValueFieldDesc, font_size), offset_of!(PxuiValueFieldDesc, fraction), offset_of!(PxuiValueFieldDesc, tracking), offset_of!(PxuiValueFieldDesc, line), offset_of!(PxuiValueFieldDesc, lead_color), offset_of!(PxuiValueFieldDesc, trail_color), offset_of!(PxuiValueFieldDesc, reserved), offset_of!(PxuiValueFieldDesc, x), offset_of!(PxuiValueFieldDesc, y), offset_of!(PxuiValueFieldDesc, width), offset_of!(PxuiValueFieldDesc, height), offset_of!(PxuiValueFieldDesc, display), offset_of!(PxuiValueFieldDesc, placeholder), offset_of!(PxuiValueFieldDesc, lead), offset_of!(PxuiValueFieldDesc, trail), offset_of!(PxuiValueFieldDesc, label), offset_of!(PxuiValueFieldDesc, value)]);
         check("PxuiPaintInfo", size_of::<PxuiPaintInfo>(), align_of::<PxuiPaintInfo>(), &[offset_of!(PxuiPaintInfo, size), offset_of!(PxuiPaintInfo, rtl), offset_of!(PxuiPaintInfo, reserved), offset_of!(PxuiPaintInfo, font_size), offset_of!(PxuiPaintInfo, row_height), offset_of!(PxuiPaintInfo, density), offset_of!(PxuiPaintInfo, clip), offset_of!(PxuiPaintInfo, clip_radius), offset_of!(PxuiPaintInfo, theme)]);
         check("PxuiPopupDesc", size_of::<PxuiPopupDesc>(), align_of::<PxuiPopupDesc>(), &[offset_of!(PxuiPopupDesc, size), offset_of!(PxuiPopupDesc, has_stroke), offset_of!(PxuiPopupDesc, has_max_height), offset_of!(PxuiPopupDesc, dismiss_initial), offset_of!(PxuiPopupDesc, attached), offset_of!(PxuiPopupDesc, stroke), offset_of!(PxuiPopupDesc, max_height), offset_of!(PxuiPopupDesc, x), offset_of!(PxuiPopupDesc, y), offset_of!(PxuiPopupDesc, width), offset_of!(PxuiPopupDesc, height), offset_of!(PxuiPopupDesc, label)]);
-        check("PxuiHeadActionDesc", size_of::<PxuiHeadActionDesc>(), align_of::<PxuiHeadActionDesc>(), &[offset_of!(PxuiHeadActionDesc, caption), offset_of!(PxuiHeadActionDesc, keycap), offset_of!(PxuiHeadActionDesc, active), offset_of!(PxuiHeadActionDesc, usable), offset_of!(PxuiHeadActionDesc, reserved)]);
+        check("PxuiHeadActionDesc", size_of::<PxuiHeadActionDesc>(), align_of::<PxuiHeadActionDesc>(), &[offset_of!(PxuiHeadActionDesc, size), offset_of!(PxuiHeadActionDesc, active), offset_of!(PxuiHeadActionDesc, usable), offset_of!(PxuiHeadActionDesc, reserved), offset_of!(PxuiHeadActionDesc, caption), offset_of!(PxuiHeadActionDesc, keycap)]);
         check("PxuiHeaderDesc", size_of::<PxuiHeaderDesc>(), align_of::<PxuiHeaderDesc>(), &[offset_of!(PxuiHeaderDesc, size), offset_of!(PxuiHeaderDesc, has_kind), offset_of!(PxuiHeaderDesc, has_badge), offset_of!(PxuiHeaderDesc, has_index), offset_of!(PxuiHeaderDesc, has_reset), offset_of!(PxuiHeaderDesc, reset_enabled), offset_of!(PxuiHeaderDesc, reserved), offset_of!(PxuiHeaderDesc, key), offset_of!(PxuiHeaderDesc, kind), offset_of!(PxuiHeaderDesc, badge), offset_of!(PxuiHeaderDesc, index), offset_of!(PxuiHeaderDesc, reset), offset_of!(PxuiHeaderDesc, title), offset_of!(PxuiHeaderDesc, detail), offset_of!(PxuiHeaderDesc, actions)]);
-        check("PxuiHeadOut", size_of::<PxuiHeadOut>(), align_of::<PxuiHeadOut>(), &[offset_of!(PxuiHeadOut, renamed), offset_of!(PxuiHeadOut, chosen), offset_of!(PxuiHeadOut, has_chosen), offset_of!(PxuiHeadOut, reset_pressed), offset_of!(PxuiHeadOut, reserved)]);
+        check("PxuiHeadOut", size_of::<PxuiHeadOut>(), align_of::<PxuiHeadOut>(), &[offset_of!(PxuiHeadOut, size), offset_of!(PxuiHeadOut, has_chosen), offset_of!(PxuiHeadOut, reset_pressed), offset_of!(PxuiHeadOut, reserved), offset_of!(PxuiHeadOut, renamed), offset_of!(PxuiHeadOut, chosen)]);
         check("PxuiNodeDesc", size_of::<NodeDesc>(), align_of::<NodeDesc>(), &[offset_of!(NodeDesc, size), offset_of!(NodeDesc, flags), offset_of!(NodeDesc, w), offset_of!(NodeDesc, h), offset_of!(NodeDesc, min_w), offset_of!(NodeDesc, min_h), offset_of!(NodeDesc, max_w), offset_of!(NodeDesc, max_h), offset_of!(NodeDesc, grow), offset_of!(NodeDesc, shrink), offset_of!(NodeDesc, aspect), offset_of!(NodeDesc, axis), offset_of!(NodeDesc, padding), offset_of!(NodeDesc, margin), offset_of!(NodeDesc, gap), offset_of!(NodeDesc, row_gap), offset_of!(NodeDesc, justify), offset_of!(NodeDesc, align), offset_of!(NodeDesc, align_self), offset_of!(NodeDesc, wrap), offset_of!(NodeDesc, reserved), offset_of!(NodeDesc, grid), offset_of!(NodeDesc, cell), offset_of!(NodeDesc, z), offset_of!(NodeDesc, reserved_z), offset_of!(NodeDesc, role), offset_of!(NodeDesc, a11y), offset_of!(NodeDesc, anchor), offset_of!(NodeDesc, has_at), offset_of!(NodeDesc, at), offset_of!(NodeDesc, scroll_step), offset_of!(NodeDesc, look), offset_of!(NodeDesc, inset), offset_of!(NodeDesc, mark), offset_of!(NodeDesc, bar), offset_of!(NodeDesc, state), offset_of!(NodeDesc, transition)]);
     }
 }

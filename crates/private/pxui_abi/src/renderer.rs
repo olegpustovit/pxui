@@ -197,20 +197,27 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                 }
             }
         }
-        let mut breaks=Vec::with_capacity(layer.breaks.len());
-        for b in &layer.breaks {
+        // the layer's breaks live on the stack (the heap past 64): a settled frame allocates nothing here
+        let none=Break { at_instance:0, texture:None };
+        let mut stack=[none;64];
+        let mut heap: Vec<Break>=Vec::new();
+        let slots: &mut [Break]=if layer.breaks.len()<=64 { &mut stack[..layer.breaks.len()] } else { heap.resize(layer.breaks.len(),none); &mut heap[..] };
+        for (slot,b) in slots.iter_mut().zip(&layer.breaks) {
             let texture=if b.image==pxui_core::draw::ATLAS { None } else if let Some(image)=layer.images.get(b.image as usize) {
                 if let Some(texture)=image.handle.downcast_ref::<Texture>() { Some(texture) }
                 else { crate::image::texture_key(image).and_then(|key|renderer.textures.get(&key).map(|e|&e.0)) }
             } else { None };
-            breaks.push(Break { at_instance:b.at_instance, texture });
+            *slot=Break { at_instance:b.at_instance, texture };
         }
+        let breaks: &[Break]=slots;
         let blurs: Vec<&pxui_core::ui::BlurOut>=ui.output().blurs.iter().filter(|b|b.layer==index && (b.at_instance as usize)<layer.instances.len()).collect();
         let result=if blurs.is_empty() {
-            renderer.painter.draw_retained(&encoder,size_px,pass.scale,layer.id,&layer.instances,&layer.dirty,&breaks)
+            renderer.painter.draw_retained(&encoder,size_px,pass.scale,layer.id,&layer.instances,&layer.dirty,breaks)
         } else {
-            let Some(split)=pass.split else { drop(breaks); return renderer.fail(PXUI_ERR_STATE, "a layer with a backdrop blur needs the pass's split callback") };
+            let Some(split)=pass.split else { return renderer.fail(PXUI_ERR_STATE, "a layer with a backdrop blur needs the pass's split callback") };
             // a blur splits the layer where its view's run starts: a break there that keeps the texture in force
+            // (a layer with a blur is the rare case: it may allocate)
+            let mut breaks=breaks.to_vec();
             let mut splits: Vec<u32>=blurs.iter().map(|b|b.at_instance).collect();
             splits.sort_unstable();
             splits.dedup();
@@ -257,7 +264,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
             if let Some(next)=reopened { encoder=next; }
             outcome
         };
-        if let Err(e)=result { drop(breaks); return renderer.fail_gpu(e); }
+        if let Err(e)=result { return renderer.fail_gpu(e); }
         ui.drawn(index);
     }
     // ends only this copy's view of the pass; the app's encoder must `invalidate_state` before drawing more

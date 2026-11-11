@@ -89,11 +89,11 @@ mod theme_scope;
 pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
-#[cfg(all(test, feature = "static"))]
+#[cfg(test)]
 mod settled;
-#[cfg(all(test, feature = "static"))]
+#[cfg(test)]
 mod surface;
-#[cfg(all(test, feature = "static"))]
+#[cfg(test)]
 mod panics;
 pub use interaction::{Signal, SignalEvent, UiSaved};
 pub use pxui_types::Node;
@@ -131,8 +131,8 @@ mod sys {
         pub fn pxui_ui_set_dir(ui:*mut PxuiUi,dir:u32)->i32;
         pub fn pxui_ui_set_a11y(ui:*mut PxuiUi,on:u8)->i32;
         pub fn pxui_ui_inject_a11y(ui:*mut PxuiUi,actions:*const A11yAction,count:usize)->i32;
-        pub fn pxui_ui_patch_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->u8;
-        pub fn pxui_ui_busy_step(ui:*mut PxuiUi,box_:*const PxuiBox,now:f64)->u8;
+        pub fn pxui_ui_patch_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,out:*mut u8)->i32;
+        pub fn pxui_ui_busy_step(ui:*mut PxuiUi,box_:*const PxuiBox,now:f64,out:*mut u8)->i32;
         pub fn pxui_ui_request_frame(ui:*mut PxuiUi)->i32;
         pub fn pxui_ui_node(ui:*mut PxuiUi,label:Str,node:*const PxuiNodeDesc,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut pxui_types::geom::Rect)->i32;
@@ -146,14 +146,14 @@ mod sys {
         pub fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32;
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
-        pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void);
-        pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void);
-        pub fn pxui_col(ui:*mut PxuiUi,padding:f32,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void);
-        pub fn pxui_panel(ui:*mut PxuiUi,panel:*const PxuiPanel,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void);
-        pub fn pxui_label(ui:*mut PxuiUi,label:Str);
-        pub fn pxui_button(ui:*mut PxuiUi,label:Str)->u8;
-        pub fn pxui_toggle(ui:*mut PxuiUi,label:Str,on:u8)->u8;
-        pub fn pxui_text_field(ui:*mut PxuiUi,label:Str,value:Str,changed:*mut Str)->u8;
+        pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
+        pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
+        pub fn pxui_col(ui:*mut PxuiUi,padding:f32,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
+        pub fn pxui_panel(ui:*mut PxuiUi,panel:*const PxuiPanel,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
+        pub fn pxui_label(ui:*mut PxuiUi,label:Str)->i32;
+        pub fn pxui_button(ui:*mut PxuiUi,label:Str,out:*mut u8)->i32;
+        pub fn pxui_toggle(ui:*mut PxuiUi,label:Str,on:u8,out:*mut u8)->i32;
+        pub fn pxui_text_field(ui:*mut PxuiUi,label:Str,value:Str,changed:*mut Str,out_changed:*mut u8)->i32;
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
@@ -297,6 +297,12 @@ impl Ui {
         NonNull::new(unsafe { sys::pxui_ui_create_with_fonts(&desc, fonts.as_ptr(), fonts.len()) }).map(Self)
     }
 
+    /// The engine the library keeps behind this `Ui`, for the checks that compare the wrapper's drawing with the engine's own;
+    /// static link only, valid while the `Ui` lives.
+    #[cfg(feature = "static")]
+    #[doc(hidden)]
+    pub fn engine_ptr(&self) -> *const c_void { pxui_abi_link::engine_of(self.id()).cast() }
+
     /// The library's handle of this `Ui`: stable while it lives, so an app can key its own per-`Ui` state by it.
     #[inline] pub fn id(&self) -> usize { self.0.as_ptr() as usize }
 
@@ -403,8 +409,8 @@ impl Ui {
     #[track_caller] pub fn set_dir(&mut self,rtl:bool) {check(self, unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
     #[track_caller] pub fn set_a11y(&mut self,on:bool) {check(self, unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
     #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())})}
-    #[inline] pub fn patch_text(&mut self,box_:&PxuiBox,value:&str)->bool{unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value))!=0}}
-    #[inline] pub fn busy_step(&mut self,box_:&PxuiBox,now:f64)->bool{unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now)!=0}}
+    #[inline] #[track_caller] pub fn patch_text(&mut self,box_:&PxuiBox,value:&str)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value),&mut out)};live(self,rc)&&out!=0}
+    #[inline] #[track_caller] pub fn busy_step(&mut self,box_:&PxuiBox,now:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now,&mut out)};live(self,rc)&&out!=0}
     #[track_caller] pub fn request_frame(&mut self) {check(self, unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}
     #[inline]
     #[track_caller] pub fn node_desc(&mut self,label:&str,node:&PxuiNodeDesc)-> PxuiBox {
@@ -419,19 +425,23 @@ impl Ui {
     #[inline] #[track_caller] pub fn text(&mut self,box_:&PxuiBox,value:&str) {check(self, unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
 
     #[inline]
+    #[track_caller]
     pub fn within(&mut self, box_: &PxuiBox, mut f: &mut dyn FnMut(&mut Ui)) {
-        unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) }
+        check(self, unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
     }
 
     #[inline]
+    #[track_caller]
     pub fn scope(&mut self, label: &str, mut f: &mut dyn FnMut(&mut Ui)) {
-        unsafe { sys::pxui_scope(self.0.as_ptr(), as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) }
+        check(self, unsafe { sys::pxui_scope(self.0.as_ptr(), as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
     }
     #[inline]
+    #[track_caller]
     pub fn col(&mut self, padding:f32, label:&str, mut f: &mut dyn FnMut(&mut Ui)) {
-        unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) }
+        check(self, unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
     }
     #[inline]
+    #[track_caller]
     pub fn panel(&mut self, opts: pxui_types::ui::PanelOpts, label: &str, mut f: &mut dyn FnMut(&mut Ui)) {
         let panel = PxuiPanel {
             x: opts.x, y: opts.y, width: opts.width, height: opts.height.unwrap_or_default(), padding: opts.padding,
@@ -441,15 +451,16 @@ impl Ui {
             has_look: opts.look.is_some() as u8, look: opts.look.map(crate::node::look).unwrap_or_default(),
             ..PxuiPanel::default()
         };
-        unsafe { sys::pxui_panel(self.0.as_ptr(), &panel, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) }
+        check(self, unsafe { sys::pxui_panel(self.0.as_ptr(), &panel, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
     }
-    #[inline] pub fn label(&mut self, text:&str) { unsafe { sys::pxui_label(self.0.as_ptr(), as_str(text)) } }
-    #[inline] pub fn button(&mut self, text:&str) -> bool { unsafe { sys::pxui_button(self.0.as_ptr(), as_str(text)) != 0 } }
-    #[inline] pub fn toggle(&mut self, text:&str, on:bool) -> bool { unsafe { sys::pxui_toggle(self.0.as_ptr(), as_str(text), on as u8) != 0 } }
+    #[inline] #[track_caller] pub fn label(&mut self, text:&str) { check(self, unsafe { sys::pxui_label(self.0.as_ptr(), as_str(text)) }) }
+    #[inline] #[track_caller] pub fn button(&mut self, text:&str) -> bool { let mut out = 0; check(self, unsafe { sys::pxui_button(self.0.as_ptr(), as_str(text), &mut out) }); out != 0 }
+    #[inline] #[track_caller] pub fn toggle(&mut self, text:&str, on:bool) -> bool { let mut out = 0; check(self, unsafe { sys::pxui_toggle(self.0.as_ptr(), as_str(text), on as u8, &mut out) }); out != 0 }
+    #[track_caller]
     pub fn text_field(&mut self, label:&str, value:&str) -> Option<&str> {
-        let mut changed = Str::default();
-        let did_change = unsafe { sys::pxui_text_field(self.0.as_ptr(), as_str(label), as_str(value), &mut changed) };
-        if did_change == 0 { None } else { Some(core::str::from_utf8(unsafe { core::slice::from_raw_parts(changed.ptr, changed.len) }).ok()?) }
+        let (mut changed, mut did_change) = (Str::default(), 0);
+        check(self, unsafe { sys::pxui_text_field(self.0.as_ptr(), as_str(label), as_str(value), &mut changed, &mut did_change) });
+        if did_change == 0 { None } else { Some(lent_str(changed)) }
     }
 }
 
@@ -503,12 +514,16 @@ fn abi_version()->u32 { unsafe { sys::pxui_abi_version() } }
 #[inline]
 fn abi_version()->u32 { sys::pxui_abi_version() }
 
-/// A string the library lent, copied: the library only returns UTF-8 within its limits, so anything else is a library bug.
+/// A string the library lent, borrowed: it only returns UTF-8, so anything else is a library bug.
 #[track_caller]
-fn lent_string(value: Str) -> String {
-    if value.len == 0 { return String::new(); }
-    String::from_utf8(unsafe { core::slice::from_raw_parts(value.ptr, value.len) }.to_vec()).expect("pxui: the library returned text that is not UTF-8")
+fn lent_str<'a>(value: Str) -> &'a str {
+    if value.len == 0 { return ""; }
+    core::str::from_utf8(unsafe { core::slice::from_raw_parts(value.ptr, value.len) }).expect("pxui: the library returned text that is not UTF-8")
 }
+
+/// A string the library lent, copied.
+#[track_caller]
+fn lent_string(value: Str) -> String { lent_str(value).to_owned() }
 
 #[inline]
 fn status(rc:i32)->Result<(),i32>{ if rc==0 { Ok(()) } else { Err(rc) } }

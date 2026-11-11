@@ -13,6 +13,7 @@ test = false
 
 [dev-dependencies]
 input = { path = "../../crates/open/input" }
+mem_sys = { path = "../../crates/open/mem_sys" }
 pxui = { path = "../../crates/public/pxui", features = ["static"] }
 pxui_core = { path = "../../crates/private/pxui_core" }
 pxui_types = { path = "../../crates/public/pxui_types" }

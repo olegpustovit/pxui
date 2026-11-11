@@ -20,7 +20,7 @@ pub struct Theme(NonNull<PxuiTheme>);
 
 impl Theme {
     fn make(tokens: *const ThemeTokens) -> Theme {
-        Theme(NonNull::new(unsafe { lib::pxui_theme_create(tokens) }).expect("pxui: the library could not make a theme"))
+        Theme(NonNull::new(unsafe { lib::pxui_theme_create(tokens) }).expect("pxui: the library refused the theme tokens (not finite, a size or density at or below zero, a flag that is no bool)"))
     }
     pub fn from_tokens(tokens: Tokens) -> Theme { Theme::make(&ThemeTokens::from(tokens)) }
     fn result(&self, rc: i32) -> Result<(), String> {

@@ -1,4 +1,4 @@
-use core::ffi::c_void;
+use core::{cell::Cell, ffi::c_void};
 use pxui_types::{PxuiBox, Str, ffi::{PxuiMenuExtra, PxuiSubmenu, PxuiSwatch, Slice}, ui::{MenuResult, Pick}};
 use crate::{composite::{defer_callback_panic, deferred}, check, Strs, Ui};
 
@@ -29,7 +29,11 @@ mod raw {
 #[inline]
 fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
-struct Rows<'a, F: ?Sized> { rows_of: &'a F, owned: Vec<(String, String)>, raw: Vec<Str>, options: &'a PickerOpts }
+// The rows a picker holds between its calls on this thread: its row strings (the app's fill reuses them) and their `Str` span, so a
+// settled picker allocates nothing here. Taken for the call and put back, so a picker built inside a picker's callback finds them empty.
+thread_local! { static ROWS: Cell<(Vec<(String, String)>, Vec<Str>)> = const { Cell::new((Vec::new(), Vec::new())) }; }
+
+struct Rows<'a, F: ?Sized> { fill: &'a mut F, owned: Vec<(String, String)>, raw: Vec<Str>, options: &'a PickerOpts }
 extern "C" fn mark<F: ?Sized>(user: *mut c_void, row: i64, out: *mut pxui_types::geom::Rgba) -> u8 {
     if user.is_null() || out.is_null() || deferred() { return 0; }
     let ctx = unsafe { &*user.cast::<Rows<F>>() };
@@ -46,13 +50,13 @@ extern "C" fn off<F: ?Sized>(user: *mut c_void, row: i64) -> u8 {
     let Some(off) = &ctx.options.off else { return 0 };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| off(row))) { Ok(v) => v as u8, Err(panic) => { defer_callback_panic(panic); 0 } }
 }
-extern "C" fn rows<F: Fn(&str) -> Vec<(String, String)> + ?Sized>(user: *mut c_void, query: Str, out: *mut Slice<Str>) {
+extern "C" fn rows<F: FnMut(&str, &mut Vec<(String, String)>) + ?Sized>(user: *mut c_void, query: Str, out: *mut Slice<Str>) {
     if user.is_null() || out.is_null() || deferred() { return; }
     let ctx = unsafe { &mut *user.cast::<Rows<F>>() };
     let query_bytes = if query.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(query.ptr, query.len) } };
     let Ok(query) = core::str::from_utf8(query_bytes) else { unsafe { *out = Slice { ptr: core::ptr::null(), len: 0 }; } return; };
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (ctx.rows_of)(query)));
-    ctx.owned = match result { Ok(rows) => rows, Err(panic) => { defer_callback_panic(panic); Vec::new() } };
+    let (fill, owned) = (&mut *ctx.fill, &mut ctx.owned);
+    if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| fill(query, owned))) { defer_callback_panic(panic); owned.clear(); }
     ctx.raw.clear();
     for (label, detail) in &ctx.owned { ctx.raw.push(as_str(label)); ctx.raw.push(as_str(detail)); }
     unsafe { *out = Slice { ptr: ctx.raw.as_ptr(), len: ctx.raw.len() }; }
@@ -110,10 +114,20 @@ impl Ui {
         match tag { 0 => MenuResult::Open, 1 => MenuResult::Pick(index), 2 => MenuResult::Dismiss, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
     }
 
+    /// A picker whose rows come from `rows_of(query)`, a fresh vector each call.
     #[inline]
     #[track_caller]
     pub fn picker<F: Fn(&str) -> Vec<(String, String)> + ?Sized>(&mut self, options: &PickerOpts, label: &str, query: &str, rows_of: &F) -> (String, Pick) {
-        let mut rows_ctx = Rows { rows_of, owned: Vec::new(), raw: Vec::new(), options };
+        self.picker_filled(options, label, query, &mut |query: &str, rows: &mut Vec<(String, String)>| *rows = rows_of(query))
+    }
+
+    /// `picker` that asks for its rows by filling a vector kept between frames: `fill(query, rows)` replaces `rows` with the rows
+    /// for `query`, reusing the strings already in it, so a settled picker allocates nothing.
+    #[inline]
+    #[track_caller]
+    pub fn picker_filled<F: FnMut(&str, &mut Vec<(String, String)>) + ?Sized>(&mut self, options: &PickerOpts, label: &str, query: &str, fill: &mut F) -> (String, Pick) {
+        let (owned, raw) = ROWS.take();
+        let mut rows_ctx = Rows { fill, owned, raw, options };
         let mut out_query = Str::default();
         let mut tag = 0;
         let mut index: i64 = -1;
@@ -122,6 +136,9 @@ impl Ui {
             as_str(label), as_str(query), Some(rows::<F>), options.mark.as_ref().map(|_| mark::<F> as extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8), options.off.as_ref().map(|_| off::<F> as extern "C" fn(*mut c_void, i64) -> u8), &mut rows_ctx as *mut _ as *mut c_void,
             &mut out_query, &mut tag, &mut index,
         ) });
+        let Rows { mut owned, mut raw, .. } = rows_ctx;
+        raw.clear();
+        ROWS.set((core::mem::take(&mut owned), raw));
         let pick = match tag { 0 => Pick::None, 1 => Pick::Pick(index), 2 => Pick::Delete(index), 3 => Pick::Submit, 4 => Pick::Back, 5 => Pick::Cancel, _ => unreachable!("the library answers a picker with tag 0 to 5") };
         (crate::lent_string(out_query), pick)
     }

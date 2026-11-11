@@ -62,3 +62,20 @@ macro_rules! read_desc {
         }
     }};
 }
+
+/// `Some(&*p)` when `p` (a pointer to a descriptor whose first field is `size: u32`) is not null and its `size` covers the
+/// descriptor; a shorter record is refused before anything else is read. The pointee's size is the distance to the next element.
+macro_rules! sized {
+    ($ptr:expr) => {{
+        let p = $ptr;
+        if p.is_null() || unsafe { p.cast::<u32>().read_unaligned() } < (p.wrapping_add(1) as usize).wrapping_sub(p as usize) as u32 { None } else { Some(unsafe { &*p }) }
+    }};
+}
+
+/// `sized!` for a descriptor the call writes.
+macro_rules! sized_mut {
+    ($ptr:expr) => {{
+        let p = $ptr;
+        if p.is_null() || unsafe { p.cast::<u32>().read_unaligned() } < (p.wrapping_add(1) as usize).wrapping_sub(p as usize) as u32 { None } else { Some(unsafe { &mut *p }) }
+    }};
+}

@@ -17,6 +17,28 @@ pub type PxuiHit = Option<extern "C" fn(*mut c_void, Rect) -> Rect>;
 
 // Declares a box under the current parent. The descriptor's `hit` callback is owned by the box's hit shape from here on:
 // it is released exactly once, also when the call is refused.
+/// What a box's hit callback calls: the caller's function and its user pointer, and the owner that releases the user pointer when the
+/// slot lets go (or the closure is reused).
+pub(crate) struct HitSlot { call: core::cell::Cell<PxuiHit>, user: core::cell::Cell<*mut c_void>, owner: core::cell::RefCell<CallbackOwner> }
+
+/// The engine's closure for a hit callback. The engine keeps it as long as the box lives, and a box is rebuilt every frame, so the
+/// closures are kept in a list: one the engine has let go of (only the list holds it) takes the new callback and its owner, which
+/// releases the old user pointer, and the allocation is reused. A settled frame allocates none.
+// ponytail: the list holds one entry per hit callback ever live at once; trim it if a frame ever builds thousands and then none.
+fn hit_closure(shared: &mut crate::state::Shared, call: extern "C" fn(*mut c_void, Rect) -> Rect, user: *mut c_void, owner: CallbackOwner) -> Rc<dyn Fn(Rect) -> Rect> {
+    if let Some((closure, slot)) = shared.hits.iter().find(|(closure, _)| Rc::strong_count(closure) == 1) {
+        slot.call.set(Some(call));
+        slot.user.set(user);
+        *slot.owner.borrow_mut() = owner;
+        return Rc::clone(closure);
+    }
+    let slot = Rc::new(HitSlot { call: core::cell::Cell::new(Some(call)), user: core::cell::Cell::new(user), owner: core::cell::RefCell::new(owner) });
+    let read = Rc::clone(&slot);
+    let closure: Rc<dyn Fn(Rect) -> Rect> = Rc::new(move |rect| match read.call.get() { Some(call) => call(read.user.get(), rect), None => rect });
+    shared.hits.push((Rc::clone(&closure), slot));
+    closure
+}
+
 export!(pub unsafe fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32 {
     if desc.is_null() { return PXUI_ERR_ARGUMENT; }
     // the box owns the hit callback from here on, so a refused descriptor still releases it: read what it holds first
@@ -29,10 +51,7 @@ export!(pub unsafe fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const Pxui
     }
     let axis = match desc.axis { 0 => Axis::Row, 1 => Axis::Column, 2 => Axis::Stack, _ => return unsafe { fail(ui, "unknown box axis") } };
     let (Some(label), Some(w), Some(h)) = (unsafe { checked(label) }, size(desc.w), size(desc.h)) else { return unsafe { fail(ui, "invalid box arguments") }; };
-    let hit: Option<Rc<dyn Fn(Rect) -> Rect>> = desc.hit.map(|hit| {
-        let user = desc.hit_user;
-        Rc::new(move |rect| { let _ = &owner; hit(user, rect) }) as Rc<dyn Fn(Rect) -> Rect>
-    });
+    let hit = desc.hit.map(|hit| hit_closure(state.shared(), hit, desc.hit_user, owner));
     let opts = BoxOpts {
         flags: desc.flags, w, h, max_h: desc.max_h, axis, padding: desc.padding, at: (desc.has_at != 0).then_some((desc.at[0], desc.at[1])),
         scroll_step: desc.scroll_step, hit, hit_rect: (desc.has_hit_rect != 0).then_some(desc.hit_rect),

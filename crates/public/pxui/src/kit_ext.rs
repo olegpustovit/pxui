@@ -41,7 +41,7 @@ fn keyframe(target: Target, curve: Curve) -> KeyframeDesc {
         Target::Opacity(value) => (1, [value, 0.0, 0.0, 0.0], look(Look::NONE)),
         Target::Look(value) => (2, [0.0; 4], look(value)),
     };
-    KeyframeDesc { time: 0.0, target: kind, reserved: [0; 4], values, look: shape, curve: encode_curve(curve) }
+    KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: 0.0, target: kind, reserved: 0, values, look: shape, curve: encode_curve(curve) }
 }
 
 impl Ui {
@@ -92,13 +92,20 @@ impl Ui {
     pub fn inspector_header(&mut self, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>,
         actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head {
         let text = |value: Option<&str>| value.map_or_else(Str::default, as_str);
-        let descs: Vec<PxuiHeadActionDesc> = actions.iter().map(|a| PxuiHeadActionDesc { caption: as_str(&a.caption), keycap: as_str(&a.keycap), active: a.active as u8, usable: a.usable as u8, reserved: [0; 6] }).collect();
+        // up to 16 actions live on the stack, more on the heap
+        let one = |a: &HeadAction| PxuiHeadActionDesc { size: core::mem::size_of::<PxuiHeadActionDesc>() as u32, active: a.active as u8, usable: a.usable as u8, reserved: [0; 2], caption: as_str(&a.caption), keycap: as_str(&a.keycap) };
+        let mut stack = [one(&HeadAction { caption: String::new(), keycap: String::new(), active: false, usable: false }); 16];
+        let heap: Vec<PxuiHeadActionDesc>;
+        let descs: &[PxuiHeadActionDesc] = if actions.len() <= 16 {
+            for (slot, a) in stack.iter_mut().zip(actions) { *slot = one(a); }
+            &stack[..actions.len()]
+        } else { heap = actions.iter().map(one).collect(); &heap };
         let desc = PxuiHeaderDesc {
             size: core::mem::size_of::<PxuiHeaderDesc>() as u32, has_kind: kind.is_some() as u8, has_badge: badge.is_some() as u8, has_index: index.is_some() as u8,
             has_reset: reset.is_some() as u8, reset_enabled: reset_enabled as u8, reserved: [0; 3], key: as_str(key), kind: text(kind), badge: text(badge), index: text(index),
             reset: text(reset), title: as_str(title), detail: as_str(detail), actions: Slice { ptr: descs.as_ptr(), len: descs.len() },
         };
-        let mut out = PxuiHeadOut { renamed: Str::default(), chosen: 0, has_chosen: 0, reset_pressed: 0, reserved: [0; 6] };
+        let mut out = PxuiHeadOut { size: core::mem::size_of::<PxuiHeadOut>() as u32, has_chosen: 0, reset_pressed: 0, reserved: [0; 2], renamed: Str::default(), chosen: 0 };
         let user = rename.as_ref().map_or(core::ptr::null_mut(), |rename| rename as *const Rc<dyn Fn(&str) -> bool> as *mut c_void);
         check(self, unsafe { lib::pxui_ui_inspector_header(self.0.as_ptr(), &desc, rename.is_some().then_some(rename_call as extern "C" fn(*mut c_void, Str) -> u8), user, &mut out) });
         let renamed = if out.renamed.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(out.renamed.ptr, out.renamed.len) }).into_owned() };

@@ -4,7 +4,7 @@ use crate::node::{look, mark, size};
 use crate::{as_str, check, Ui};
 use core::ffi::c_void;
 use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Dir, Size, ui::{BoxOpts, Drop, HitFn, Payload}, Mark, PxuiBox, Str};
-use std::fmt::{Arguments, Write};
+use std::{alloc::Layout, fmt::{Arguments, Write}};
 
 library!(lib {
     fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
@@ -71,13 +71,21 @@ extern "C" fn hit_call(user: *mut c_void, rect: Rect) -> Rect {
         Err(panic) => { defer_callback_panic(panic); rect }
     }
 }
-extern "C" fn hit_release(user: *mut c_void) { drop(unsafe { Box::from_raw(user.cast::<HitFn>()) }) }
+extern "C" fn hit_release(user: *mut c_void) {
+    crate::paint::dropped(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { core::ptr::drop_in_place(user.cast::<HitFn>()) })));
+    crate::paint::pool_give(Layout::new::<HitFn>(), user.cast());
+}
+fn hit_box(hit: HitFn) -> *mut c_void {
+    let at = crate::paint::pool_take(Layout::new::<HitFn>()).cast::<HitFn>();
+    unsafe { at.write(hit); }
+    at.cast()
+}
 
 impl Ui {
     #[track_caller]
     pub fn box_(&mut self, label: &str, opts: BoxOpts) -> PxuiBox {
         let (hit, hit_user, hit_release_fn) = match &opts.hit {
-            Some(hit) => (Some(hit_call as extern "C" fn(*mut c_void, Rect) -> Rect), Box::into_raw(Box::new(hit.clone())).cast::<c_void>(), Some(hit_release as extern "C" fn(*mut c_void))),
+            Some(hit) => (Some(hit_call as extern "C" fn(*mut c_void, Rect) -> Rect), hit_box(hit.clone()), Some(hit_release as extern "C" fn(*mut c_void))),
             None => (None, core::ptr::null_mut(), None),
         };
         let desc = PxuiBoxDesc {

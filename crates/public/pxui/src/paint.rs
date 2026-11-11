@@ -9,8 +9,7 @@ use std::alloc::Layout;
 use pxui_types::{node::Dir, draw::Instance, ffi::PxuiPaintInfo, geom::{Rect, Rgba as Color, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, ui::text_top_for, PxuiBox, Span, Str, TextMetrics, TextStyle};
 
 library!(lib {
-    fn pxui_ui_draw(ui: *mut PxuiUi, box_: *const PxuiBox, over: u8, build: Option<extern "C" fn(*mut c_void, *mut RawPaint, Rect)>, user: *mut c_void, release: Option<extern "C" fn(*mut c_void)>) -> i32;
-    fn pxui_paint_info(p: *mut RawPaint, out: *mut PxuiPaintInfo) -> i32;
+    fn pxui_ui_draw(ui: *mut PxuiUi, box_: *const PxuiBox, over: u8, build: Option<extern "C" fn(*mut c_void, *mut RawPaint, Rect, *const PxuiPaintInfo)>, user: *mut c_void, release: Option<extern "C" fn(*mut c_void)>) -> i32;
     fn pxui_paint_span(p: *mut RawPaint, at_least: usize, span: *mut Span) -> i32;
     fn pxui_paint_icon(p: *mut RawPaint, x: f32, y: f32, font: u16, size: f32, codepoint: u32, c: Rgba) -> f32;
     fn pxui_paint_text(p: *mut RawPaint, x: f32, y: f32, s: Str);
@@ -51,10 +50,8 @@ fn refused(what: &str, rc: i32) { if rc != 0 { panic!("pxui: {what} refused ({rc
 fn some(color: Option<Rgba>) -> (u8, Rgba) { (color.is_some() as u8, color.unwrap_or_default()) }
 
 impl<'a> Paint<'a> {
-    unsafe fn from_raw(raw: *mut RawPaint) -> Option<Self> {
+    unsafe fn from_raw(raw: *mut RawPaint, info: &PxuiPaintInfo) -> Option<Self> {
         let raw = NonNull::new(raw)?;
-        let mut info = PxuiPaintInfo { size: core::mem::size_of::<PxuiPaintInfo>() as u32, rtl: 0, reserved: [0; 3], font_size: 0, row_height: 0, density: 0, clip: Rect::default(), clip_radius: 0.0, theme: pxui_types::ffi::ThemeTokens::from(pxui_types::theme::default()) };
-        refused("paint info", unsafe { lib::pxui_paint_info(raw.as_ptr(), &mut info) });
         Some(Paint { raw, _borrow: PhantomData, span: Span::EMPTY, open: false, clip: info.clip, clip_radius: info.clip_radius, theme: info.theme.into(), font_size: info.font_size, row_height: info.row_height, density: info.density, rtl: info.rtl != 0 })
     }
 
@@ -168,38 +165,52 @@ impl Shapes for Paint<'_> {
 }
 
 // The canvas closure is boxed behind the user pointer; the library releases it exactly once.
-struct Draw<F>(F);
-extern "C" fn draw<F: FnMut(&mut Paint<'_>, Rect)>(user: *mut c_void, raw: *mut RawPaint, rect: Rect) {
+extern "C" fn draw<F: FnMut(&mut Paint<'_>, Rect)>(user: *mut c_void, raw: *mut RawPaint, rect: Rect, info: *const PxuiPaintInfo) {
     if deferred() { return; }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let Some(mut paint) = (unsafe { Paint::from_raw(raw) }) else { return };
-        (unsafe { &mut *user.cast::<Draw<F>>() }.0)(&mut paint, rect);
+        let Some(mut paint) = (unsafe { info.as_ref().and_then(|info| Paint::from_raw(raw, info)) }) else { return };
+        (unsafe { &mut *user.cast::<F>() })(&mut paint, rect);
         paint.flush();
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
 
-// A canvas closure is boxed once per rebuilt frame and released when the library lets go of it. Released boxes wait in a small pool and
-// the next closure of the same layout (a canvas rebuilt each frame is always the same type) takes one: a settled frame allocates nothing.
+// A boxed closure (a canvas, a hit shape) is released when the library lets go of it. Released storage waits in a small pool and
+// the next closure of the same layout (a canvas rebuilt each frame is always the same type) takes it: a settled frame allocates
+// nothing. A zero-sized closure has no storage at all.
 // ponytail: at most POOLED boxes per thread, never returned to the allocator at thread exit; per-size pools if canvases of many types alternate.
 const POOLED: usize = 64;
 thread_local! { static POOL: std::cell::RefCell<Vec<(Layout, *mut u8)>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
-fn boxed<F>(f: F) -> *mut c_void {
-    let layout = Layout::new::<Draw<F>>();
-    let spare = if layout.size() == 0 { None } else { POOL.with(|pool| { let mut pool = pool.borrow_mut(); pool.iter().position(|(l, _)| *l == layout).map(|at| pool.swap_remove(at).1) }) };
-    let at = match spare { Some(at) => at, None if layout.size() == 0 => return Box::into_raw(Box::new(Draw(f))).cast(), None => unsafe { std::alloc::alloc(layout) } };
+/// Storage for a value of `layout`: a pooled box, else a new allocation (a dangling, aligned pointer for a zero-sized value).
+pub(crate) fn pool_take(layout: Layout) -> *mut u8 {
+    if layout.size() == 0 { return layout.align() as *mut u8; }
+    // `try_with`: after this thread's locals are torn down (a release at thread exit) the pool is simply absent
+    let spare = POOL.try_with(|pool| { let mut pool = pool.borrow_mut(); pool.iter().position(|(l, _)| *l == layout).map(|at| pool.swap_remove(at).1) }).ok().flatten();
+    let at = spare.unwrap_or_else(|| unsafe { std::alloc::alloc(layout) });
     if at.is_null() { std::alloc::handle_alloc_error(layout); }
-    unsafe { at.cast::<Draw<F>>().write(Draw(f)); }
+    at
+}
+
+/// Gives the storage of a value of `layout`, already dropped, back to the pool (or the allocator).
+pub(crate) fn pool_give(layout: Layout, at: *mut u8) {
+    if layout.size() == 0 { return; }
+    let kept = POOL.try_with(|pool| { let mut pool = pool.borrow_mut(); (pool.len() < POOLED).then(|| pool.push((layout, at))).is_some() }).unwrap_or(false);
+    if !kept { unsafe { std::alloc::dealloc(at, layout) } }
+}
+
+/// What a closure's `Drop` panicked with is kept to resume at the next call that can: it must not unwind into the library.
+pub(crate) fn dropped(result: std::thread::Result<()>) { if let Err(panic) = result { defer_callback_panic(panic); } }
+
+fn boxed<F>(f: F) -> *mut c_void {
+    let at = pool_take(Layout::new::<F>());
+    unsafe { at.cast::<F>().write(f); }
     at.cast()
 }
 
 extern "C" fn release<F>(user: *mut c_void) {
-    let layout = Layout::new::<Draw<F>>();
-    unsafe { core::ptr::drop_in_place(user.cast::<Draw<F>>()); }
-    if layout.size() == 0 { return unsafe { drop(Box::from_raw(user.cast::<Draw<F>>())) }; }
-    let kept = POOL.with(|pool| { let mut pool = pool.borrow_mut(); (pool.len() < POOLED).then(|| pool.push((layout, user.cast()))).is_some() });
-    if !kept { unsafe { std::alloc::dealloc(user.cast(), layout) } }
+    dropped(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { core::ptr::drop_in_place(user.cast::<F>()) })));
+    pool_give(Layout::new::<F>(), user.cast());
 }
 
 impl crate::Ui {
@@ -213,4 +224,66 @@ impl crate::Ui {
     #[inline] #[track_caller] pub fn canvas_over<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 1, f) }
     #[inline] #[track_caller] pub fn draw<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 0, f) }
     #[inline] #[track_caller] pub fn draw_over<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 1, f) }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::atomic::{AtomicUsize, Ordering};
+
+    static DROPS: AtomicUsize = AtomicUsize::new(0);
+    struct Counted;
+    impl Drop for Counted { fn drop(&mut self) { DROPS.fetch_add(1, Ordering::SeqCst); } }
+    struct Bomb;
+    impl Drop for Bomb { fn drop(&mut self) { panic!("drop bomb"); } }
+
+    fn pair<F>(f: F) -> (*mut c_void, extern "C" fn(*mut c_void)) { (boxed(f), release::<F>) }
+
+    #[test]
+    fn a_zero_sized_closure_is_dropped_once_and_a_panicking_drop_stays_out_of_c() {
+        let counted = Counted;
+        let f = move |_: &mut Paint<'_>, _: Rect| { let _ = &counted; };
+        assert_eq!(core::mem::size_of_val(&f), 0, "the closure owns a zero-sized value");
+        let (user, release) = pair(f);
+        release(user);
+        assert_eq!(DROPS.load(Ordering::SeqCst), 1, "dropped exactly once");
+
+        let bomb = Bomb;
+        let g = move |_: &mut Paint<'_>, _: Rect| { let _ = &bomb; };
+        let (user, release) = pair(g);
+        release(user);
+        let panic = crate::composite::take_callback_panic().expect("the panic of Drop is kept, not unwound into C");
+        assert_eq!(panic.downcast_ref::<&str>(), Some(&"drop bomb"));
+    }
+
+    use pxui_types::{FrameIn, Node, Size};
+
+    fn frame_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(ui: &mut crate::Ui, canvas: F) -> Result<(), i32> {
+        let mut canvas = Some(canvas);
+        ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| {
+            let node = ui.node("canvas", Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
+            if let Some(canvas) = canvas.take() { ui.canvas(&node, canvas); }
+        }).map(|_| ())
+    }
+
+    #[test]
+    fn a_span_left_open_or_a_library_call_under_one_is_an_error_not_a_silent_drop() {
+        let ink = Rgba { r: 1, g: 2, b: 3, a: 255 };
+        let mut ui = crate::Ui::new().expect("library");
+        // a library call made while a span is open (the wrapper's own calls commit first; this one bypasses it)
+        let rc = frame_with(&mut ui, move |p, _| {
+            p.fill(0.0, 0.0, 4.0, 4.0, ink);
+            unsafe { lib::pxui_paint_text(p.raw.as_ptr(), 0.0, 0.0, crate::as_str("x")) };
+        });
+        assert_eq!(rc.err(), Some(pxui_types::PXUI_ERR_STATE));
+        assert!(ui.last_error().contains("span is open"), "{}", ui.last_error());
+        // a callback that returns with its span uncommitted (its shapes would be dropped)
+        let rc = frame_with(&mut ui, move |p, _| { p.fill(0.0, 0.0, 4.0, 4.0, ink); p.open = false; });
+        assert_eq!(rc.err(), Some(pxui_types::PXUI_ERR_STATE));
+        assert!(ui.last_error().contains("uncommitted"), "{}", ui.last_error());
+        // a panic with a span open is carried to the frame, and the next frame draws cleanly
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let _ = frame_with(&mut ui, move |p, _| { p.fill(0.0, 0.0, 4.0, 4.0, ink); panic!("with a span open"); }); }));
+        assert!(result.is_err());
+        assert!(frame_with(&mut ui, move |p, _| p.fill(0.0, 0.0, 4.0, 4.0, ink)).is_ok(), "the Ui draws again");
+    }
 }

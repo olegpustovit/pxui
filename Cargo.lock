@@ -7,6 +7,7 @@ name = "abi_equal"
 version = "0.1.0"
 dependencies = [
  "input",
+ "mem_sys",
  "pxui",
  "pxui_core",
  "pxui_types",

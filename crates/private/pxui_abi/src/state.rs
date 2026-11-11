@@ -6,7 +6,8 @@ use pxui_core::ui::{Ui, UiBox};
 use pxui_types::{Event as FfiEvent, PxuiBox, ffi::{A11yNode, Output, Slice}, layout::Track};
 use std::{collections::HashMap, rc::Rc};
 
-pub(crate) const MAX_TEXT_BYTES: usize = 1 << 20;
+/// One string at most 256 MiB: a whole source file is text one widget edits; a longer one is refused with an error, never cut.
+pub(crate) const MAX_TEXT_BYTES: usize = 1 << 28;
 pub(crate) const MAX_TOTAL_TEXT_BYTES: usize = 8 << 20;
 
 /// One signal's key events and the joined text some of them carry, kept between frames so a frame that
@@ -18,6 +19,8 @@ pub(crate) struct KeyChunk { pub events: Vec<FfiEvent>, pub text: String }
 pub(crate) struct Shared {
     pub error: String,
     pub poisoned: bool,
+    /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
+    pub paint_error: bool,
     pub in_frame: bool,
     /// renderers created on this `Ui`: each holds a raw pointer to the engine, so it outlives none of them
     pub renderers: u32,
@@ -46,6 +49,12 @@ pub(crate) struct Shared {
     pub routed_keys: Vec<u32>,
     pub routed_buttons: Vec<u32>,
     pub hints: Vec<(String, String)>,
+    /// hit callbacks the engine holds or has let go of, kept to reuse (see `box_ops::hit_closure`)
+    pub hits: Vec<(Rc<dyn Fn(pxui_types::geom::Rect) -> pxui_types::geom::Rect>, Rc<crate::box_ops::HitSlot>)>,
+    /// an inspector head's actions, reused between frames like the hints
+    pub actions: Vec<pxui_core::ui::HeadAction>,
+    /// the name validator of an inspector head: one closure over a cell the call fills, so a settled head allocates none
+    pub rename: Option<(Rc<core::cell::Cell<(crate::text_inputs::TextValid, usize)>>, Rc<dyn Fn(&str) -> bool>)>,
     pub strs: Vec<&'static str>,
     pub menus: Vec<(&'static str, &'static [&'static str])>,
 }
@@ -56,10 +65,10 @@ impl Shared {
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs = strs; }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, in_frame: false, renderers: 0, returned: Vec::new(),
+            error: String::new(), poisoned: false, paint_error: false, in_frame: false, renderers: 0, returned: Vec::new(),
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, visible: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
-            hints: Vec::new(), strs: Vec::new(), menus: Vec::new(),
+            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), menus: Vec::new(),
         }
     }
 }
@@ -144,7 +153,7 @@ pub(crate) unsafe fn text(value: Str) -> Option<&'static str> {
     std::str::from_utf8(bytes).ok().map(|s| unsafe { &*(s as *const str) })
 }
 
-/// `text` limited to one megabyte.
+/// `text` limited to `MAX_TEXT_BYTES`.
 pub(crate) unsafe fn checked(value: Str) -> Option<&'static str> {
     if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
 }

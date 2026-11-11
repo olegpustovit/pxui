@@ -51,7 +51,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("pxui", &["pxui_types"][..]),
         // The kit gallery app: the engine, the painter and the platform's window host and GPU backend.
         // The cross-ABI checks: a tool, so it names the private crates the public ones must not.
-        ("abi_equal", &["input", "pxui", "pxui_core", "pxui_types"][..]),
+        ("abi_equal", &["input", "mem_sys", "pxui", "pxui_core", "pxui_types"][..]),
         ("pxui_gallery", &["pxui", "input", "mem_sys", "ogpu_core", "pxui_types", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland"][..]),
     ])
 }
@@ -157,3 +157,43 @@ pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/open/ogpu_metal/src/native/pipeline.rs", "calls Metal pipeline functions through the native backend wrapper"),
     ("crates/open/ogpu_metal/src/native/resource.rs", "calls Metal resource functions through the native backend wrapper"),
 ];
+
+/// The public wrapper (`crates/public/pxui`) is safe Rust over a C ABI, and three shape rules that hold elsewhere cannot hold
+/// there. It is one policy, not a list of lines:
+/// - `catch_unwind`: an app closure that panics inside a library callback must not unwind through C; the wrapper catches it
+///   in every trampoline and resumes it at the call that ran the callback.
+/// - lifetime parameters on structs: a value that borrows library memory (a frame, a painter, a text service) is tied to its `Ui`
+///   by a lifetime, which is how Rust says the library's pointer is valid only that long.
+/// - generics: only the closure trampolines of a callback crossing the ABI. A type parameter is `F` (bare on the struct that holds
+///   the closure, `F: FnMut(..)`/`Fn`/`FnOnce` on the function, or `F: ?Sized` over a `dyn` closure) or `R`, the closure's result.
+///   Any other generic item there still fails.
+pub fn wrapper_allows(path: &str, rule: &str, generics: &[&str]) -> bool {
+    if !path.starts_with("crates/public/pxui/src/") { return false; }
+    match rule {
+        "catch_unwind" | "struct lifetime" => true,
+        "generic" => !generics.is_empty() && closure_generics(generics),
+        _ => false,
+    }
+}
+
+// The tokens between `<` and `>`: lifetimes, `F`, or `F: Fn/FnMut/FnOnce(..)` separated by top-level commas.
+fn closure_generics(tokens: &[&str]) -> bool {
+    let mut depth = 0i32;
+    let mut parameters: Vec<Vec<&str>> = vec![Vec::new()];
+    for (at, token) in tokens.iter().enumerate() {
+        match *token {
+            "(" | "[" | "<" => depth += 1,
+            ")" | "]" => depth -= 1,
+            ">" if at == 0 || tokens[at - 1] != "-" => depth -= 1,
+            "," if depth == 0 => { parameters.push(Vec::new()); continue; }
+            _ => {}
+        }
+        if let Some(parameter) = parameters.last_mut() { parameter.push(token); }
+    }
+    parameters.iter().filter(|parameter| !parameter.is_empty()).all(|parameter| match parameter.as_slice() {
+        ["'", ..] => true,
+        ["F"] | ["R"] | ["F", ":", "?", "Sized"] => true,
+        ["F", ":", bound, ..] => matches!(*bound, "Fn" | "FnMut" | "FnOnce"),
+        _ => false,
+    })
+}

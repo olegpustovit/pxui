@@ -67,7 +67,7 @@ impl Ui {
         let mut context = Callback { f: text };
         let (text, user) = context.list();
         let desc = ListViewDesc {
-            label: as_str(label), count, multi: multi as u8, reserved: [0; 7],
+            size: core::mem::size_of::<ListViewDesc>() as u32, label: as_str(label), count, multi: multi as u8, reserved: [0; 3],
             // a `bool` is a byte; the library rejects any value above 1 before it writes
             selected: U8MutSpan { ptr: selected.as_mut_ptr().cast::<u8>(), len: selected.len() },
             text, user,
@@ -88,7 +88,7 @@ impl Ui {
         let mut context = Callback { f: text };
         let (text, user) = context.list();
         let desc = TreeViewDesc {
-            label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
+            size: core::mem::size_of::<TreeViewDesc>() as u32, reserved: 0, label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
             open: U8MutSpan { ptr: open.as_mut_ptr().cast::<u8>(), len: open.len() }, selected: &mut selected_raw,
             // the library writes at most `nodes.len()` rows into the vector's spare capacity
             visible: U32MutSpan { ptr: visible.as_mut_ptr(), len: nodes.len() }, visible_len: &mut rows_len,
@@ -112,9 +112,9 @@ impl Ui {
         let (text, user) = context.table();
         let mut selected_raw = selected.unwrap_or(usize::MAX);
         let desc = TableViewDesc {
-            label: as_str(label), titles: titles.span(),
+            size: core::mem::size_of::<TableViewDesc>() as u32, label: as_str(label), titles: titles.span(),
             widths: F32MutSpan { ptr: widths.as_mut_ptr(), len: widths.len() }, rows,
-            has_sort: sort.is_some() as u8, ascending: sort.map_or(0, |(_, ascending)| ascending as u8), reserved: [0; 6],
+            has_sort: sort.is_some() as u8, ascending: sort.map_or(0, |(_, ascending)| ascending as u8), reserved: [0; 2],
             sort_column: sort.map_or(0, |(column, _)| column), selected: &mut selected_raw,
             text, user,
         };

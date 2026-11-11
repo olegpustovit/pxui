@@ -26,7 +26,8 @@ fn an_engine_panic_through_an_export_returns_the_error_and_poisons_the_ui() {
     // every later call on this Ui fails at once with the same code, even valid ones
     assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, PXUI_ERR_PANIC);
     assert_eq!(unsafe { pxui_ui_request_frame(ui) }, PXUI_ERR_PANIC);
-    assert_eq!(unsafe { pxui_button(ui, Str { ptr: b"x".as_ptr(), len: 1 }) }, 0);
+    let mut pressed = 0;
+    assert_eq!(unsafe { pxui_button(ui, Str { ptr: b"x".as_ptr(), len: 1 }, &mut pressed) }, PXUI_ERR_PANIC);
     // another Ui is untouched
     let other = create();
     assert_eq!(unsafe { pxui_ui_set_dir(other, 0) }, 0);

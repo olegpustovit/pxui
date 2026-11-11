@@ -44,9 +44,9 @@ fn callback_text(callback: PxuiCollectionText, user: *mut c_void, row: usize, co
 
 export!(pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const PxuiListViewDesc, out: *mut usize) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null list view argument") }; }
-    let desc = unsafe { &*desc };
-    if desc.multi > 1 || desc.reserved != [0; 7] || desc.count > MAX_ITEMS || !valid_span(desc.selected.ptr, desc.selected.len, desc.count) {
+    if out.is_null() { return unsafe { fail(ui, "null list view argument") }; }
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid list view descriptor") }; };
+    if desc.multi > 1 || desc.reserved != [0; 3] || desc.count > MAX_ITEMS || !valid_span(desc.selected.ptr, desc.selected.len, desc.count) {
         return unsafe { fail(ui, "invalid list view descriptor") };
     }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
@@ -64,8 +64,8 @@ export!(pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const PxuiListVi
 
 export!(pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTreeViewDesc, out: *mut usize) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null tree argument") }; }
-    let desc = unsafe { &*desc };
+    if out.is_null() { return unsafe { fail(ui, "null tree argument") }; }
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid tree descriptor") }; };
     if desc.nodes.len > MAX_ITEMS || (desc.nodes.len != 0 && desc.nodes.ptr.is_null()) || !valid_span(desc.open.ptr, desc.open.len, desc.nodes.len)
         || !valid_output_span(desc.visible.ptr, desc.visible.len, desc.nodes.len) || desc.selected.is_null() || desc.visible_len.is_null() {
         return unsafe { fail(ui, "invalid tree descriptor") };
@@ -97,9 +97,9 @@ export!(pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTreeViewDes
 
 export!(pub unsafe fn pxui_ui_table_view(ui: *mut PxuiUi, desc: *const PxuiTableViewDesc, out: *mut usize) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null table argument") }; }
-    let desc = unsafe { &*desc };
-    if desc.has_sort > 1 || desc.ascending > 1 || desc.reserved != [0; 6] || desc.rows > MAX_ITEMS || desc.titles.len > 4096
+    if out.is_null() { return unsafe { fail(ui, "null table argument") }; }
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
+    if desc.has_sort > 1 || desc.ascending > 1 || desc.reserved != [0; 2] || desc.rows > MAX_ITEMS || desc.titles.len > 4096
         || desc.widths.len != desc.titles.len || !valid_span(desc.widths.ptr, desc.widths.len, desc.titles.len) || desc.selected.is_null() {
         return unsafe { fail(ui, "invalid table descriptor") };
     }

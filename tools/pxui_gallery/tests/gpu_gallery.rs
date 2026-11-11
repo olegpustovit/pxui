@@ -132,6 +132,32 @@ fn abi_kit_panel() {
     gpu.close();
 }
 
+/// A settled frame drawn again through the renderer allocates nothing: its layers' breaks live on the stack, its views and dirty
+/// ranges are the retained ones.
+fn renderer_draw_settled() {
+    let mut gpu = Gpu::open().expect("a GPU backend");
+    let theme = theme("");
+    let mut state = Gallery::new();
+    let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+    ui.set_theme(&theme).expect("default theme");
+    let events = [pointer_event()];
+    for count in 0..3 {
+        let input = frame_at(count, (PAGE_W, PAGE_H), 1, &events);
+        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", 1, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, &mut state, 0)); }).expect("frame");
+    }
+    let clear = panel(&ui.theme());
+    let mut renderer: Renderer = gpu.renderer(&ui).expect("PXUI renderer");
+    let mut worst = 0;
+    for round in 0..8 {
+        gpu.render(&mut renderer, (PAGE_W as u32, PAGE_H as u32), 1, clear);
+        if round >= 4 { worst = worst.max(gpu.draw_allocations.get()); }
+    }
+    drop(renderer);
+    gpu.close();
+    println!("PXUI renderer draw of a settled frame: {worst} allocations");
+    assert_eq!(worst, 0, "a settled draw allocates nothing");
+}
+
 fn gpu_gallery_idle() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_pxui_gallery"))
         .env("PXUI_GALLERY_HIDDEN", "1").env("PXUI_GALLERY_EXIT_AFTER", "2.5").env("PXUI_GALLERY_COUNT", "1")
@@ -153,5 +179,6 @@ fn main() {
         ("gpu_gallery_pages", gpu_gallery_pages),
         ("gpu_gallery_idle", gpu_gallery_idle),
         ("abi_baseline_pages", abi_baseline_pages),
+        ("renderer_draw_settled", renderer_draw_settled),
     ]);
 }

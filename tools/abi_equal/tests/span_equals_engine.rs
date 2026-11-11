@@ -2,7 +2,7 @@
 //! painter yields byte-identical instances, in the same order, text included.
 use input::{frame, Event, Platform};
 use pxui_core::ui::{Node, Ui as Engine};
-use pxui_types::{geom::Rgba, node::Dir, shape::Shapes, FrameIn, Size};
+use pxui_types::{geom::{Rect, Rgba}, node::Dir, shape::Shapes, theme::Look, ui::{CLIP, ROUND_CLIP}, FrameIn, Size};
 
 const SIZE: (f32, f32) = (300.0, 200.0);
 
@@ -39,6 +39,14 @@ macro_rules! art {
             $p.fill((i % 50) as f32 * 5.0, (i / 50) as f32 * 4.0, 3.0, 3.0, if i % 2 == 0 { ink } else { wash });
         }
         $p.line((0.0, 199.0), (299.0, 199.0), ink);
+        // a clip set mid-drawing, with more shapes under it than one span holds: the refill keeps stamping the new clip
+        let saved = Shapes::clip_rect($p);
+        Shapes::set_clip_rect($p, Rect::new(10.0, 10.0, 120.0, 90.0));
+        for i in 0..600 {
+            $p.fill((i % 40) as f32 * 6.0, (i / 40) as f32 * 7.0, 5.0, 5.0, if i % 3 == 0 { ink } else { wash });
+        }
+        Shapes::set_clip_rect($p, saved);
+        $p.fill(1.0, 1.0, 9.0, 9.0, ink);
     }};
 }
 
@@ -50,8 +58,11 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
     input.events = vec![Event::PointerMoved((-100.0, -100.0))];
     let frame = frame::Frame { input, pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) };
     ui.frame(&frame, &mut |ui| {
-        let b = ui.node("canvas", Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..Node::DEFAULT });
-        ui.canvas(&b, |p, _| art!(p));
+        let round = ui.node("round", Node { flags: CLIP | ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+        ui.within(&round, &mut |ui| {
+            let b = ui.node("canvas", Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..Node::DEFAULT });
+            ui.canvas(&b, |p, _| art!(p));
+        });
     });
     ui.output().draw.iter().flat_map(|layer| layer.instances.iter().copied()).collect()
 }
@@ -59,20 +70,23 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
 fn wrapper_instances() -> Vec<pxui_types::draw::Instance> {
     let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[pxui_core::text::PRAGMASEVKA]);
     ui.frame(&FrameIn { width: SIZE.0, height: SIZE.1, scale: 1.0, ..FrameIn::default() }, &mut |ui: &mut pxui::Ui| {
-        let b = ui.node("canvas", pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });
-        ui.canvas(&b, |p, _| art!(p));
+        let round = ui.node("round", pxui::Node { flags: CLIP | ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..pxui::Node::DEFAULT });
+        ui.within(&round, &mut |ui: &mut pxui::Ui| {
+            let b = ui.node("canvas", pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });
+            ui.canvas(&b, |p, _| art!(p));
+        });
     }).expect("frame");
-    // The wrapper's `Ui` is the library's `PxuiUi` pointer, a `#[repr(C)]` struct whose first field is the engine it built the
-    // frame in: read the layers from there.
-    let raw: *mut *mut Engine = unsafe { core::mem::transmute_copy(&ui) };
-    let engine = unsafe { &**raw };
+    // the engine the library built the frame in
+    let engine = unsafe { &*ui.engine_ptr().cast::<Engine>() };
     engine.output().draw.iter().flat_map(|layer| layer.instances.iter().copied()).collect()
 }
 
 #[test]
 fn span_equals_engine() {
     let (direct, wrapped) = (engine_instances(), wrapper_instances());
-    assert!(direct.len() > 700, "the drawing crosses a span boundary: {} instances", direct.len());
+    assert!(direct.len() > 1300, "the drawing crosses span boundaries, one under a clip: {} instances", direct.len());
+    assert!(direct.iter().any(|i| i.clip_radius != 0), "a rounded clip is stamped");
+    assert!(direct.iter().map(|i| i.clip).collect::<std::collections::HashSet<_>>().len() >= 2, "two clips are in flight");
     assert_eq!(wrapped.len(), direct.len(), "same number of instances");
     for (i, (a, b)) in wrapped.iter().zip(&direct).enumerate() {
         assert_eq!(a, b, "instance {i} differs");

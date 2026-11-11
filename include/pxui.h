@@ -1,6 +1,11 @@
 #ifndef PXUI_H
 #define PXUI_H
 
+/* ABI status: version 1 is unreleased, so its layouts (abi/layout.v1.txt) and functions (abi/pxui.v1.txt) may still change.
+   From the first release both are append-only: a layout is never altered, a descriptor grows by new trailing fields
+   (its leading `size` says how much the caller wrote), and a change that needs more is a new function.
+   Every call that can fail returns int32_t, 0 on success; the reason is pxui_last_error(ui). */
+
 #include <stddef.h>
 #include <stdint.h>
 
@@ -36,7 +41,7 @@ typedef struct { float x,y,w,h; } PxuiRect;
 typedef struct { float x,y; } PxuiPoint;
 typedef struct { uint8_t r,g,b,a; } PxuiColor;
 typedef struct { float fast,normal,slow,ease[4]; } PxuiMotion;
-typedef struct { PxuiColor panel,foreground,control,input,track,accent,ink_ground; uint8_t has_ink_ground,reserved[3]; float space[4],radius[3]; int64_t display_size,title_size,font_size,label_size; PxuiMotion motion; uint8_t reduced_motion,reserved_tail[3]; float density; } PxuiThemeTokens;
+typedef struct { uint32_t size; PxuiColor panel,foreground,control,input,track,accent,ink_ground; uint8_t has_ink_ground,reserved[3]; float space[4],radius[3]; int64_t display_size,title_size,font_size,label_size; PxuiMotion motion; uint8_t reduced_motion,reserved_tail[3]; float density; } PxuiThemeTokens;
 typedef struct { uint32_t size,cursor; uint8_t has_cursor,has_ime,has_background,has_clipboard; int64_t ime_rect[4],ime_caret; PxuiStr clipboard; PxuiColor background; uint8_t paste,reserved[7]; } PxuiPlatformOut;
 typedef struct { uint8_t has_damage,reserved[3]; PxuiRect rect; } PxuiDamage;
 typedef struct { uint32_t tag,text_start,text_end,reserved; double now,min,max,step; } PxuiA11yValue;
@@ -155,11 +160,11 @@ typedef struct {
 typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
-typedef struct { PxuiStr caption,keycap; uint8_t active,usable,reserved[6]; } PxuiHeadActionDesc;
+typedef struct { uint32_t size; uint8_t active,usable,reserved[2]; PxuiStr caption,keycap; } PxuiHeadActionDesc;
 typedef struct { const PxuiHeadActionDesc *ptr; size_t len; } PxuiHeadActionSpan;
 typedef struct { uint32_t size; uint8_t has_kind,has_badge,has_index,has_reset,reset_enabled,reserved[3]; PxuiStr key,kind,badge,index,reset,title,detail; PxuiHeadActionSpan actions; } PxuiHeaderDesc;
-typedef struct { PxuiStr renamed; int64_t chosen; uint8_t has_chosen,reset_pressed,reserved[6]; } PxuiHeadOut;
-typedef struct { float rect[4]; int16_t clip[4]; uint8_t color[4], color2[4]; uint32_t aux[2]; uint16_t radii[4]; uint16_t width; uint8_t kind, flags; uint16_t view, clip_radius; uint32_t extra[2]; } PxuiInstance; /* 64 bytes, frozen for major version 1 */
+typedef struct { uint32_t size; uint8_t has_chosen,reset_pressed,reserved[2]; PxuiStr renamed; int64_t chosen; } PxuiHeadOut;
+typedef struct { float rect[4]; int16_t clip[4]; uint8_t color[4], color2[4]; uint32_t aux[2]; uint16_t radii[4]; uint16_t width; uint8_t kind, flags; uint16_t view, clip_radius; uint32_t extra[2]; } PxuiInstance; /* 64 bytes; layouts are frozen from the first release, which has not happened yet */
 /* One layer of the last frame (a floating root's, in draw order): its root box key, retained id, instances (an empty layer draws nothing),
    texture break count and the instance ranges changed since it was last drawn. Borrowed until the next frame. */
 typedef struct { uint32_t start, end; } PxuiDirty;
@@ -182,7 +187,7 @@ typedef void (*PxuiRelease)(void *user);
 typedef struct { uint32_t size, axis; int64_t flags; PxuiSizeDesc w,h; float max_h,padding,scroll_step; uint8_t has_at,has_hit_rect,reserved[2]; float at[2]; PxuiRect hit_rect; PxuiHit hit; void *hit_user; PxuiRelease hit_release; } PxuiBoxDesc;
 /* The callback UI pointer is borrowed and valid only for that callback; do not retain or destroy it. */
 typedef void (*PxuiBuild)(void *user, PxuiUi *ui);
-typedef void (*PxuiPaintBuild)(void *user, PxuiPaint *paint, PxuiRect rect);
+typedef void (*PxuiPaintBuild)(void *user, PxuiPaint *paint, PxuiRect rect, const PxuiPaintInfo *info); /* info: valid during the call */
 typedef void (*PxuiPaintRelease)(void *user);
 typedef void (*PxuiSpanBuild)(void *user, float x, float width);
 typedef void (*PxuiPickerRows)(void *user, PxuiStr query, PxuiStrSpan *out);
@@ -190,26 +195,26 @@ typedef uint8_t (*PxuiTextValid)(void *user, PxuiStr value);
 typedef void (*PxuiCollectionEmit)(void *user, PxuiStr text);
 typedef void (*PxuiCollectionText)(void *user, size_t row, size_t column, PxuiCollectionEmit emit, void *emit_user);
 typedef PxuiStr (*PxuiTableCell)(void *user, int64_t row, int64_t column);
-typedef struct { PxuiStr label; size_t count; uint8_t multi,reserved[7]; PxuiU8MutSpan selected; PxuiCollectionText text; void *user; } PxuiListViewDesc;
-typedef struct { PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCollectionText text; void *user; } PxuiTreeViewDesc;
-typedef struct { PxuiStr label; PxuiStrSpan titles; PxuiF32MutSpan widths; size_t rows; uint8_t has_sort,ascending,reserved[6]; size_t sort_column; size_t *selected; PxuiCollectionText text; void *user; } PxuiTableViewDesc;
-typedef struct { PxuiStr label; float at[2],width,height; PxuiStrSpan headers; int64_t rows; PxuiTableCell cell; void *user; } PxuiTableDesc;
-typedef struct { PxuiStr title; PxuiStrSpan items; } PxuiMenuDesc;
+typedef struct { uint32_t size; uint8_t multi,reserved[3]; PxuiStr label; size_t count; PxuiU8MutSpan selected; PxuiCollectionText text; void *user; } PxuiListViewDesc;
+typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCollectionText text; void *user; } PxuiTreeViewDesc;
+typedef struct { uint32_t size; uint8_t has_sort,ascending,reserved[2]; PxuiStr label; PxuiStrSpan titles; PxuiF32MutSpan widths; size_t rows; size_t sort_column; size_t *selected; PxuiCollectionText text; void *user; } PxuiTableViewDesc;
+typedef struct { uint32_t size,reserved; PxuiStr label; float at[2],width,height; PxuiStrSpan headers; int64_t rows; PxuiTableCell cell; void *user; } PxuiTableDesc;
+typedef struct { uint32_t size,reserved; PxuiStr title; PxuiStrSpan items; } PxuiMenuDesc;
 typedef struct { const PxuiMenuDesc *ptr; size_t len; } PxuiMenuDescSpan;
 typedef void (*PxuiGridBuild)(void *user, PxuiUi *ui, size_t index);
-typedef struct { PxuiStr label; size_t count; float cell_w,cell_h; PxuiGridBuild build; void *user; } PxuiGridListDesc;
-typedef struct { PxuiStr label; uint32_t axis; float ratio,min_a,min_b; PxuiBuild build_a; void *user_a; PxuiBuild build_b; void *user_b; } PxuiSplitDesc;
-typedef struct { PxuiStr label; PxuiMenuDescSpan menus; } PxuiMenuBarDesc;
-typedef struct { size_t menu,item; } PxuiMenuOut;
-typedef struct { PxuiStr key,value; } PxuiHintDesc;
-typedef struct { uint8_t has_right,reserved[7]; PxuiStr right; const PxuiHintDesc *ptr; size_t len; } PxuiFooterDesc;
-typedef struct { float time; uint32_t target; uint8_t reserved[4]; float values[4]; PxuiLookDesc look; PxuiCurveDesc curve; } PxuiKeyframeDesc;
+typedef struct { uint32_t size,reserved; PxuiStr label; size_t count; float cell_w,cell_h; PxuiGridBuild build; void *user; } PxuiGridListDesc;
+typedef struct { uint32_t size,axis; PxuiStr label; float ratio,min_a,min_b; uint32_t reserved; PxuiBuild build_a; void *user_a; PxuiBuild build_b; void *user_b; } PxuiSplitDesc;
+typedef struct { uint32_t size,reserved; PxuiStr label; PxuiMenuDescSpan menus; } PxuiMenuBarDesc;
+typedef struct { uint32_t size,reserved; size_t menu,item; } PxuiMenuOut;
+typedef struct { uint32_t size,reserved; PxuiStr key,value; } PxuiHintDesc;
+typedef struct { uint32_t size; uint8_t has_right,reserved[3]; PxuiStr right; const PxuiHintDesc *ptr; size_t len; } PxuiFooterDesc;
+typedef struct { uint32_t size; float time; uint32_t target,reserved; float values[4]; PxuiLookDesc look; PxuiCurveDesc curve; } PxuiKeyframeDesc;
 typedef struct { const PxuiKeyframeDesc *ptr; size_t len; } PxuiKeyframeSpan;
 typedef struct { const PxuiHintDesc *ptr; size_t len; } PxuiHintSpan;
-typedef struct { PxuiStr key,label; uint8_t has_width,has_pin,pin,reserved[5]; float width; PxuiBox row; float control_x,control_y,control_w; } PxuiInspectorRowDesc;
-typedef struct { PxuiStr key,label; uint8_t expanded,has_set,set_expanded,reserved[5]; PxuiBuild build; void *user; uint8_t out_open; } PxuiInspectorSectionDesc;
-typedef struct { PxuiStr key,label,value; uint8_t has_width,reserved[7]; float width; } PxuiInspectorValueDesc;
-typedef struct { PxuiStr key,text; } PxuiInspectorTextDesc;
+typedef struct { uint32_t size; uint8_t has_width,has_pin,pin,reserved; PxuiStr key,label; float width; uint32_t reserved_tail; PxuiBox row; float control_x,control_y,control_w; } PxuiInspectorRowDesc;
+typedef struct { uint32_t size; uint8_t expanded,has_set,set_expanded,reserved; PxuiStr key,label; PxuiBuild build; void *user; uint8_t out_open; } PxuiInspectorSectionDesc;
+typedef struct { uint32_t size; uint8_t has_width,reserved[3]; PxuiStr key,label,value; float width; } PxuiInspectorValueDesc;
+typedef struct { uint32_t size,reserved; PxuiStr key,text; } PxuiInspectorTextDesc;
 enum PxuiSplitAxis { PXUI_SPLIT_ROW=0, PXUI_SPLIT_COLUMN=1 };
 enum PxuiKeyframeTarget { PXUI_KEY_OFFSET=0, PXUI_KEY_OPACITY=1, PXUI_KEY_LOOK=2 };
 
@@ -258,8 +263,8 @@ int32_t pxui_ui_focused(PxuiUi *ui, const PxuiBox *box, uint8_t *out);
 int32_t pxui_ui_state(PxuiUi *ui, const PxuiBox *box, int64_t default_value, int64_t *out);
 int32_t pxui_ui_set_state(PxuiUi *ui, const PxuiBox *box, int64_t value);
 int32_t pxui_ui_signal(PxuiUi *ui, const PxuiBox *box, PxuiSignal *out);
-uint8_t pxui_ui_patch_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value);
-uint8_t pxui_ui_busy_step(PxuiUi *ui, const PxuiBox *box, double now);
+int32_t pxui_ui_patch_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint8_t *out); /* out: whether the text was written; a stale box is PXUI_ERR_STALE */
+int32_t pxui_ui_busy_step(PxuiUi *ui, const PxuiBox *box, double now, uint8_t *out);
 int32_t pxui_ui_request_frame(PxuiUi *ui);
 int32_t pxui_ui_node(PxuiUi *ui, PxuiStr label, const PxuiNodeDesc *node, PxuiBox *out);
 int32_t pxui_ui_node_keyed(PxuiUi *ui, int64_t key, const PxuiNodeDesc *node, PxuiBox *out);
@@ -269,15 +274,15 @@ int32_t pxui_ui_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value);
 int32_t pxui_ui_set_look(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc *look, const PxuiStateDesc *state);
 int32_t pxui_ui_style(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc states[6], const PxuiStateDesc *state);
 float pxui_ui_text_width(PxuiUi *ui, uint8_t has_size, int64_t size, PxuiStr text);
-int32_t pxui_ui_draw(PxuiUi *ui, const PxuiBox *box, uint8_t over, PxuiPaintBuild build, void *user, PxuiPaintRelease release);
-void pxui_within(PxuiUi *ui, const PxuiBox *box, PxuiBuild build, void *user);
-void pxui_scope(PxuiUi *ui, PxuiStr label, PxuiBuild build, void *user);
-void pxui_col(PxuiUi *ui, float padding, PxuiStr label, PxuiBuild build, void *user);
-void pxui_panel(PxuiUi *ui, const PxuiPanel *panel, PxuiStr label, PxuiBuild build, void *user);
-void pxui_label(PxuiUi *ui, PxuiStr text);
-uint8_t pxui_button(PxuiUi *ui, PxuiStr label);
-uint8_t pxui_toggle(PxuiUi *ui, PxuiStr label, uint8_t on);
-uint8_t pxui_text_field(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiStr *changed);
+int32_t pxui_ui_draw(PxuiUi *ui, const PxuiBox *box, uint8_t over, PxuiPaintBuild build, void *user, PxuiPaintRelease release); /* a span must be committed (pxui_paint_span with at_least 0) before the callback returns; one left open, or a pxui_paint_* call made under an open span, is refused and the frame that ran the callback returns PXUI_ERR_STATE */
+int32_t pxui_within(PxuiUi *ui, const PxuiBox *box, PxuiBuild build, void *user);
+int32_t pxui_scope(PxuiUi *ui, PxuiStr label, PxuiBuild build, void *user);
+int32_t pxui_col(PxuiUi *ui, float padding, PxuiStr label, PxuiBuild build, void *user);
+int32_t pxui_panel(PxuiUi *ui, const PxuiPanel *panel, PxuiStr label, PxuiBuild build, void *user);
+int32_t pxui_label(PxuiUi *ui, PxuiStr text);
+int32_t pxui_button(PxuiUi *ui, PxuiStr label, uint8_t *out);
+int32_t pxui_toggle(PxuiUi *ui, PxuiStr label, uint8_t on, uint8_t *out);
+int32_t pxui_text_field(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiStr *changed, uint8_t *out_changed); /* changed: the new text, borrowed until the next frame, when out_changed */
 int32_t pxui_ui_checkbox(PxuiUi *ui, PxuiStr label, uint8_t value, uint8_t *out);
 int32_t pxui_ui_radio(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
 int32_t pxui_ui_tabs(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
@@ -346,6 +351,7 @@ typedef struct {
     uint32_t (*context_at)(void *user, PxuiStr text, int64_t caret); void (*rewrite)(void *user, PxuiStr text, int64_t caret, PxuiRewrite *out);
 } PxuiAreaCallbacks;
 int32_t pxui_ui_text_area_submit(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiAreaCallbacks *callbacks, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted);
+int32_t pxui_ui_patch_field(PxuiUi *ui, const PxuiBox *field, const PxuiValueFieldDesc *desc, PxuiStr text, uint8_t *out); /* the field's value and soft-range line written by patches, as its build lays them out; out is 0 when a patch cannot show it (a lead, a value too wide beside its trail): build the field's view */
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing); /* the callbacks run only during the call; slide and scrub write their text, borrowed until their next callback */
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
 int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
@@ -363,7 +369,6 @@ uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
 int32_t pxui_text_width(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
 size_t pxui_text_quads(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float x, float y, float scale, PxuiTextGlyph *out, size_t capacity);
 size_t pxui_text_rasterize_rgba(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
-int32_t pxui_paint_info(PxuiPaint *paint, PxuiPaintInfo *out);
 int32_t pxui_paint_span(PxuiPaint *paint, size_t at_least, PxuiSpan *span); /* at_least 0 only commits; call it before any other pxui_paint_* call */
 float pxui_paint_icon(PxuiPaint *paint, float x, float y, uint16_t font, float size, uint32_t codepoint, PxuiColor color);
 void pxui_paint_text(PxuiPaint *paint, float x, float y, PxuiStr text);
@@ -474,7 +479,7 @@ int32_t pxui_ui_field_drag(PxuiUi *ui, const PxuiBox *box, uint8_t *present, Pxu
 
 /* Themes a caller builds and scopes over a subtree. set and load apply over what the theme holds, as a theme file applies over
    its base: a tokens.* key re-derives every look from the new tokens, so set tokens before the keys that restyle single looks. */
-PxuiTheme *pxui_theme_create(const PxuiThemeTokens *tokens); /* tokens may be NULL for the defaults */
+PxuiTheme *pxui_theme_create(const PxuiThemeTokens *tokens); /* tokens may be NULL for the defaults; NULL result: the tokens are invalid (not finite, a size or density at or below zero, a flag above 1, reserved bytes set) */
 void pxui_theme_destroy(PxuiTheme *theme);
 int32_t pxui_theme_set(PxuiTheme *theme, PxuiStr key, PxuiStr value);
 int32_t pxui_theme_load(PxuiTheme *theme, PxuiStr path);

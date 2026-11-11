@@ -54,9 +54,21 @@ impl PxuiTheme {
     }
 }
 
-// The defaults, or `Theme::from_tokens(tokens)` when `tokens` is set.
+fn tokens_valid(t: &ThemeTokens) -> bool {
+    let tail = [t.motion.fast, t.motion.normal, t.motion.slow, t.density];
+    t.space.iter().chain(&t.radius).chain(&tail).all(|v| v.is_finite() && *v >= 0.0) && t.motion.ease.iter().all(|v| v.is_finite()) && t.density > 0.0
+        && [t.display_size, t.title_size, t.font_size, t.label_size].iter().all(|s| (1..=4096).contains(s))
+        && t.has_ink_ground <= 1 && t.reduced_motion <= 1 && t.reserved == [0; 3] && t.reserved_tail == [0; 3]
+}
+
+// The defaults, or `Theme::from_tokens(tokens)` when `tokens` is set; null when the tokens are invalid.
 export!(bare pub unsafe fn pxui_theme_create(tokens: *const ThemeTokens) -> *mut PxuiTheme {
-    let theme = if tokens.is_null() { Theme::default() } else { Theme::from_tokens(unsafe { *tokens }.into()) };
+    // a null `tokens` is the defaults; tokens that cannot be a theme (not finite, a flag that is no bool, a size or density at or
+    // below zero) make no theme
+    let theme = match unsafe { tokens.as_ref() } {
+        None => Theme::default(),
+        Some(_) => match read_desc!(tokens, ThemeTokens) { Some(t) if tokens_valid(&t) => Theme::from_tokens(t.into()), _ => return core::ptr::null_mut() },
+    };
     Box::into_raw(Box::new(PxuiTheme { theme, error: String::new() }))
 });
 

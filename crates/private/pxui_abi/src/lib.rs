@@ -24,6 +24,11 @@ mod ui_state;
 mod renderer;
 mod box_ops;
 mod kit_ext;
+/// The engine behind a wrapper `Ui` (its `id()`), for the checks that compare the wrapper's drawing with the engine's own. Not part of
+/// the C ABI and not exported; the pointer is valid while the `Ui` lives.
+#[doc(hidden)]
+pub fn engine_of(id: usize) -> *const pxui_core::ui::Ui { unsafe { (*(id as *const state::PxuiUi)).engine } }
+
 #[cfg(test)]
 mod safety;
 pub use text::*;

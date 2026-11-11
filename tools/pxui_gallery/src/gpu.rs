@@ -20,6 +20,8 @@ pub struct Gpu {
     textures: Vec<Texture>,
     submission: u64,
     completed: u64,
+    /// the allocations the last `Renderer::draw` made (for the test that pins a settled draw at none)
+    pub draw_allocations: std::cell::Cell<u64>,
 }
 
 impl Gpu {
@@ -36,7 +38,7 @@ impl Gpu {
         let driver = ogpu_core::impl_::create_driver().map_err(|e| error::to_string(&e))?;
         let device = be::create_device(driver).map_err(|e| error::to_string(&e))?;
         let queue = be::create_queue(&device).map_err(|e| error::to_string(&e))?;
-        Ok(Gpu { device, queue, textures: Vec::new(), submission: 0, completed: 0 })
+        Ok(Gpu { device, queue, textures: Vec::new(), submission: 0, completed: 0, draw_allocations: std::cell::Cell::new(0) })
     }
 
     /// Create a public PXUI renderer that borrows `ui` and adopts this app-owned device.
@@ -96,7 +98,10 @@ impl Gpu {
             mtl_render_encoder: native.mtl_render_encoder, width_px: size_px[0], height_px: size_px[1], scale,
             mtl_command_buffer: commands.mtl_command_buffer, ..UiPass::default()
         };
-        renderer.draw(&pass).map_err(|code| format!("pxui renderer draw failed ({code})"))?;
+        let before = mem_sys::local_alloc_count();
+        let drawn = renderer.draw(&pass);
+        self.draw_allocations.set(mem_sys::local_alloc_count() - before);
+        drawn.map_err(|code| format!("pxui renderer draw failed ({code})"))?;
         be::invalidate_state(encoder).map_err(|e| error::to_string(&e))
     }
 

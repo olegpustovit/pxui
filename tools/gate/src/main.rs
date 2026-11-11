@@ -218,7 +218,7 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
         if matches!(token.text.as_str(), "async" | "await") {
             issue(&mut issues, path, token.line, "async/await is not allowed in product code");
         }
-        if token.text == "catch_unwind" && crate_name != "parallel" {
+        if token.text == "catch_unwind" && crate_name != "parallel" && !policy::wrapper_allows(path, "catch_unwind", &[]) {
             issue(&mut issues, path, token.line, "catch_unwind is restricted to parallel worker isolation and the bin/rays crash reporter");
         }
         if token.text == "macro_rules"
@@ -270,13 +270,17 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
                                 || (at > 0 && parameters[at - 1].text == "'" && is_identifier(&parameter.text))
                         })
                     });
-                if !borrow_lifetimes_only && !domain_header.is_some_and(|(start, _)| token.text == "fn" && start == index)
+                let wrapper_closure = generic_end(&tokens, generic_index).is_some_and(|end| {
+                    let parameters: Vec<&str> = tokens[generic_index + 1..end].iter().map(|part| part.text.as_str()).collect();
+                    policy::wrapper_allows(path, "generic", &parameters)
+                });
+                if !borrow_lifetimes_only && !wrapper_closure && !domain_header.is_some_and(|(start, _)| token.text == "fn" && start == index)
                     && !kernel_headers.iter().any(|(start, _)| token.text == "fn" && *start == index) {
                     issue(&mut issues, path, token.line, "generic items are not allowed in product crates");
                 }
                 if matches!(token.text.as_str(), "struct" | "enum") {
                     if let Some(end) = generic_end(&tokens, generic_index) {
-                        if tokens[generic_index + 1..end].iter().any(|parameter| parameter.text == "'") {
+                        if tokens[generic_index + 1..end].iter().any(|parameter| parameter.text == "'") && !policy::wrapper_allows(path, "struct lifetime", &[]) {
                             issue(&mut issues, path, token.line, "struct and enum lifetime parameters are not allowed");
                         }
                     }

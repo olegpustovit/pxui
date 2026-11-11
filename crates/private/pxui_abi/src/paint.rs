@@ -18,7 +18,7 @@ struct Window { base: *mut Instance, base_len: usize, room: usize, open: bool }
 #[repr(C)]
 pub struct PxuiPaint { paint: *mut EnginePaint, pub(crate) shared: *mut Shared, window: Window }
 
-pub type PaintBuild = Option<extern "C" fn(*mut c_void, *mut PxuiPaint, Rect)>;
+pub type PaintBuild = Option<extern "C" fn(*mut c_void, *mut PxuiPaint, Rect, *const PxuiPaintInfo)>;
 pub type PaintRelease = Option<extern "C" fn(*mut c_void)>;
 pub type SpanBuild = Option<extern "C" fn(*mut c_void, f32, f32)>;
 
@@ -30,10 +30,18 @@ impl Drop for CallbackOwner { fn drop(&mut self) { if let Some(release) = self.r
 pub(crate) unsafe fn value<'a>(paint: *mut PxuiPaint) -> Option<&'a mut EnginePaint> {
     if paint.is_null() { return None; }
     if unsafe { (*paint).window.open } {
-        unsafe { let error = &mut (*(*paint).shared).error; error.clear(); error.push_str("a paint span is open: commit it before this call"); }
+        unsafe { refuse((*paint).shared, "a paint span is open: commit it before this call"); }
         return None;
     }
     unsafe { (*paint).paint.as_mut() }
+}
+
+/// Records why a paint call was refused: the frame that ran the callback returns `PXUI_ERR_STATE` and `pxui_last_error` says why.
+unsafe fn refuse(shared: *mut Shared, message: &str) {
+    let shared = unsafe { &mut *shared };
+    shared.paint_error = true;
+    shared.error.clear();
+    shared.error.push_str(message);
 }
 
 unsafe fn string(s: Str) -> Option<&'static str> { unsafe { crate::text(s) } }
@@ -49,8 +57,11 @@ export!(bare pub unsafe fn pxui_ui_draw(ui: *mut crate::PxuiUi, box_: *const Pxu
     let callback = move |paint: &mut EnginePaint, rect: pxui_core::ui::Rect| {
         let _owner = &owner;
         if let Some(build) = build {
+            let info = info_of(paint);
             let mut borrowed = PxuiPaint { paint, shared, window: Window { base: core::ptr::null_mut(), base_len: 0, room: 0, open: false } };
-            build(user, &mut borrowed, Rect { x: rect.x, y: rect.y, w: rect.w, h: rect.h });
+            build(user, &mut borrowed, Rect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, &info);
+            // shapes written into a span the callback never committed are not in the draw list: say so rather than drop them
+            if borrowed.window.open { unsafe { refuse(shared, "a paint callback returned with its span uncommitted: commit it (pxui_paint_span with at_least 0) before returning") }; }
         }
     };
     let engine = unsafe { &mut *state.engine };
@@ -81,20 +92,15 @@ export!(pub unsafe fn pxui_paint_scroll_y(p: *mut PxuiPaint, slot: u64) -> f32 {
     paint.scroll_y.get(slot as usize).copied().unwrap_or(0.0)
 });
 
-// What a paint callback reads once: sizes, clip and theme tokens.
-export!(pub unsafe fn pxui_paint_info(p: *mut PxuiPaint, out: *mut PxuiPaintInfo) -> i32 {
-    if p.is_null() || out.is_null() || unsafe { (*out).size } < core::mem::size_of::<PxuiPaintInfo>() as u32 { return PXUI_ERR_ARGUMENT; }
-    let Some(paint) = (unsafe { (*p).paint.as_ref() }) else { return PXUI_ERR_ARGUMENT; };
-    unsafe {
-        *out = PxuiPaintInfo {
-            size: core::mem::size_of::<PxuiPaintInfo>() as u32, rtl: paint.rtl as u8, reserved: [0; 3], font_size: paint.font_size,
-            row_height: paint.row_height, density: paint.density,
-            clip: Rect { x: paint.clip_rect.x, y: paint.clip_rect.y, w: paint.clip_rect.w, h: paint.clip_rect.h }, clip_radius: paint.clip_radius,
-            theme: paint.theme.into(),
-        };
+// What a paint callback reads once, handed to it with the callback: sizes, clip and theme tokens.
+fn info_of(paint: &EnginePaint) -> PxuiPaintInfo {
+    PxuiPaintInfo {
+        size: core::mem::size_of::<PxuiPaintInfo>() as u32, rtl: paint.rtl as u8, reserved: [0; 3], font_size: paint.font_size,
+        row_height: paint.row_height, density: paint.density,
+        clip: Rect { x: paint.clip_rect.x, y: paint.clip_rect.y, w: paint.clip_rect.w, h: paint.clip_rect.h }, clip_radius: paint.clip_radius,
+        theme: paint.theme.into(),
     }
-    0
-});
+}
 
 // Commits what the caller wrote into the previous span (`span.at` is where it stopped) and, when `at_least` is not zero, hands
 // out a window with room for at least that many more instances, stamped with the painter's clip, clip radius and view.

@@ -4,7 +4,7 @@ use crate::kit::PxuiHintDesc;
 use crate::state::{Build, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_build, checked, engine, fail, get, to_abi_box};
 use crate::text_inputs::TextValid;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
-use core::ffi::c_void;
+use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui::{Axis, HeadAction, LineStep, Rect, Ui};
 use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
@@ -48,6 +48,7 @@ export!(pub unsafe fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<PxuiHi
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if hints.len > 4096 || (hints.len != 0 && hints.ptr.is_null()) { return unsafe { fail(ui, "invalid inspector bar hints") }; }
     let raw = if hints.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(hints.ptr, hints.len) } };
+    if !raw.iter().all(|hint| hint.size as usize == core::mem::size_of_val(hint)) { return unsafe { fail(ui, "invalid inspector bar hints") }; }
     // the strings are reused between frames, like the footer's, so a settled bar allocates nothing
     let mut rows = core::mem::take(&mut state.shared().hints);
     rows.truncate(raw.len());
@@ -76,7 +77,8 @@ export!(pub unsafe fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: Build, user
 // `rename` (when set) says whether a typed name is valid; it is called only during this call.
 export!(pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const PxuiHeaderDesc, rename: TextValid, user: *mut c_void, out: *mut PxuiHeadOut) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null inspector header argument") }; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid inspector header output") }; };
+    if desc.is_null() { return unsafe { fail(ui, "null inspector header argument") }; }
     let Some(d) = read_desc!(desc, PxuiHeaderDesc) else { return unsafe { fail(ui, "invalid inspector header descriptor") }; };
     if [d.has_kind, d.has_badge, d.has_index, d.has_reset, d.reset_enabled].iter().any(|v| *v > 1)
         || d.actions.len > MAX_ACTIONS || (d.actions.len != 0 && d.actions.ptr.is_null()) {
@@ -88,16 +90,32 @@ export!(pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const Pxu
         optional(d.has_kind, d.kind), optional(d.has_badge, d.badge), optional(d.has_index, d.index), optional(d.has_reset, d.reset),
     ) else { return unsafe { fail(ui, "invalid inspector header text") }; };
     let raw: &[PxuiHeadActionDesc] = if d.actions.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(d.actions.ptr, d.actions.len) } };
-    let mut actions = Vec::with_capacity(raw.len());
-    for a in raw {
-        let (Some(caption), Some(keycap)) = (unsafe { checked(a.caption) }, unsafe { checked(a.keycap) }) else { return unsafe { fail(ui, "invalid inspector header action") }; };
-        if a.active > 1 || a.usable > 1 { return unsafe { fail(ui, "invalid inspector header action flag") }; }
-        actions.push(HeadAction { caption: caption.to_owned(), keycap: keycap.to_owned(), active: a.active != 0, usable: a.usable != 0 });
+    if !raw.iter().all(|a| a.size as usize == core::mem::size_of_val(a)) { return unsafe { fail(ui, "invalid inspector header action") }; }
+    // the strings are reused between frames, like the hints': a settled head allocates nothing
+    let mut actions = core::mem::take(&mut state.shared().actions);
+    actions.truncate(raw.len());
+    for (at, a) in raw.iter().enumerate() {
+        let (Some(caption), Some(keycap)) = (unsafe { checked(a.caption) }, unsafe { checked(a.keycap) }) else { state.shared().actions = actions; return unsafe { fail(ui, "invalid inspector header action") }; };
+        if a.active > 1 || a.usable > 1 { state.shared().actions = actions; return unsafe { fail(ui, "invalid inspector header action flag") }; }
+        match actions.get_mut(at) {
+            Some(row) => { row.caption.clear(); row.caption.push_str(caption); row.keycap.clear(); row.keycap.push_str(keycap); row.active = a.active != 0; row.usable = a.usable != 0; }
+            None => actions.push(HeadAction { caption: caption.to_owned(), keycap: keycap.to_owned(), active: a.active != 0, usable: a.usable != 0 }),
+        }
     }
-    let valid: Option<Rc<dyn Fn(&str) -> bool>> = rename.map(|rename| Rc::new(move |name: &str| rename(user, Str { ptr: name.as_ptr(), len: name.len() }) != 0) as Rc<dyn Fn(&str) -> bool>);
+    let valid = rename.map(|rename| {
+        let shared = state.shared();
+        let (cell, valid) = shared.rename.get_or_insert_with(|| {
+            let cell = Rc::new(Cell::new((None, 0usize)));
+            let read = Rc::clone(&cell);
+            (cell, Rc::new(move |name: &str| { let (rename, user) = read.get(); rename.is_some_and(|rename| rename(user as *mut c_void, Str { ptr: name.as_ptr(), len: name.len() }) != 0) }))
+        });
+        cell.set((Some(rename), user as usize));
+        Rc::clone(valid)
+    });
     let head = unsafe { (&mut *state.engine).inspector_header(key, kind, badge, index, valid, &actions, reset, d.reset_enabled != 0, title, detail) };
+    state.shared().actions = actions;
     let renamed = state.give(head.renamed);
-    unsafe { *out = PxuiHeadOut { renamed, chosen: head.chosen.unwrap_or(0), has_chosen: head.chosen.is_some() as u8, reset_pressed: head.reset_pressed as u8, reserved: [0; 6] }; }
+    (out.renamed, out.chosen, out.has_chosen, out.reset_pressed) = (renamed, head.chosen.unwrap_or(0), head.chosen.is_some() as u8, head.reset_pressed as u8);
     0
 });
 

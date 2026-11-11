@@ -20,7 +20,7 @@ fn curve(value: PxuiCurveDesc) -> Option<pxui_types::Curve> {
 export!(pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const PxuiGridListDesc, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null grid list argument") }; }
-    let desc = unsafe { &*desc };
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid grid list descriptor") }; };
     if desc.count > MAX_ITEMS || !desc.cell_w.is_finite() || !desc.cell_h.is_finite() || desc.cell_w <= 0.0 || desc.cell_h <= 0.0 {
         return unsafe { fail(ui, "invalid grid list descriptor") };
     }
@@ -53,12 +53,13 @@ export!(pub unsafe fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_ty
 export!(pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiFooterDesc) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() { return unsafe { fail(ui, "null footer descriptor") }; }
-    let desc = unsafe { &*desc };
-    if desc.has_right > 1 || desc.reserved != [0; 7] || desc.hints.len > 4096 || (desc.hints.len != 0 && desc.hints.ptr.is_null()) {
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid footer descriptor") }; };
+    if desc.has_right > 1 || desc.reserved != [0; 3] || desc.hints.len > 4096 || (desc.hints.len != 0 && desc.hints.ptr.is_null()) {
         return unsafe { fail(ui, "invalid footer descriptor") };
     }
     let right = if desc.has_right != 0 { let Some(s) = (unsafe { checked(desc.right) }) else { return unsafe { fail(ui, "invalid footer text") }; }; Some(s) } else { None };
     let raw = if desc.hints.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.hints.ptr, desc.hints.len) } };
+    if !raw.iter().all(|hint| hint.size as usize == core::mem::size_of_val(hint)) { return unsafe { fail(ui, "invalid footer hint") }; }
     // the engine takes owned rows; the strings are reused between frames, so a settled footer allocates nothing
     let mut hints = core::mem::take(&mut state.shared().hints);
     hints.truncate(raw.len());
@@ -78,7 +79,7 @@ export!(pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiFooterDes
 
 // One keyframe checked and decoded: its time, target (an offset, an opacity in 0..=1 or a look) and curve.
 unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> Result<(f32, Target, pxui_types::Curve), i32> {
-    if !key.time.is_finite() || key.time < 0.0 || key.time < previous || key.reserved != [0; 4] || !key.values.iter().all(|v| v.is_finite()) {
+    if !key.time.is_finite() || key.time < 0.0 || key.time < previous || key.reserved != 0 || !key.values.iter().all(|v| v.is_finite()) {
         return Err(unsafe { fail(ui, "invalid animation keyframe") });
     }
     let target = match key.target {
@@ -95,6 +96,7 @@ export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox
     let (engine, target_box) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { fail(ui, "invalid animation keyframe span") }; }
     let raw = unsafe { core::slice::from_raw_parts(keys.ptr, keys.len) };
+    if !raw.iter().all(|key| key.size as usize == core::mem::size_of_val(key)) { return unsafe { fail(ui, "invalid animation keyframe span") }; }
     // at most MAX_KEYS keyframes: decoded on the stack
     let mut decoded = [(0.0, Target::Opacity(1.0), pxui_types::Curve::Spring { omega: 1.0 }); MAX_KEYS];
     let mut previous = -1.0f32;
@@ -109,7 +111,9 @@ export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox
 export!(pub unsafe fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const PxuiKeyframeDesc, out: *mut u8) -> i32 {
     let (engine, target_box) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if key.is_null() || out.is_null() { return unsafe { fail(ui, "invalid animation argument") }; }
-    let (_, target, curve) = match unsafe { decode_key(ui, &*key, -1.0) } { Ok(key) => key, Err(code) => return code };
+    // a keyframe passed alone is read at its own size (a newer, longer one is fine); `decode_key` then checks it whole
+    let Some(key) = sized!(key) else { return unsafe { fail(ui, "invalid animation keyframe") }; };
+    let (_, target, curve) = match unsafe { decode_key(ui, key, -1.0) } { Ok(key) => key, Err(code) => return code };
     unsafe { *out = engine.animate(&target_box, target, curve) as u8; }
     0
 });
@@ -117,7 +121,7 @@ export!(pub unsafe fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key
 export!(pub unsafe fn pxui_ui_split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, changed: *mut u8, ratio: *mut f32) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || changed.is_null() || ratio.is_null() { return unsafe { fail(ui, "null split argument") }; }
-    let desc = unsafe { &*desc };
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid split descriptor") }; };
     if desc.axis > 1 || ![desc.ratio, desc.min_a, desc.min_b].iter().all(|v| v.is_finite()) || desc.min_a < 0.0 || desc.min_b < 0.0 {
         return unsafe { fail(ui, "invalid split descriptor") };
     }
@@ -134,10 +138,11 @@ export!(pub unsafe fn pxui_ui_split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc,
 export!(pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null menu bar argument") }; }
-    let desc = unsafe { &*desc };
+    let (Some(desc), Some(out)) = (sized!(desc), sized_mut!(out)) else { return unsafe { fail(ui, "invalid menu bar descriptor") }; };
     if desc.menus.len > MAX_MENUS || (desc.menus.len != 0 && desc.menus.ptr.is_null()) { return unsafe { fail(ui, "invalid menu bar span") }; }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid menu bar label") }; };
     let raw = if desc.menus.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.menus.ptr, desc.menus.len) } };
+    if !raw.iter().all(|menu| menu.size as usize == core::mem::size_of_val(menu)) { return unsafe { fail(ui, "invalid menu descriptor") }; }
     // all items go into one buffer, then each menu is a slice of it; both buffers are reused between frames
     let (mut flat, mut menus) = { let shared = state.shared(); (shared.take_strs(), core::mem::take(&mut shared.menus)) };
     flat.clear();
@@ -164,15 +169,14 @@ export!(pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBar
     menus.clear();
     { let shared = state.shared(); shared.put_strs(flat); shared.menus = menus; }
     let Some(picked) = picked else { return unsafe { fail(ui, "invalid menu bar strings") }; };
-    unsafe { *out = picked.map_or(PxuiMenuOut { menu: usize::MAX, item: usize::MAX }, |(menu, item)| PxuiMenuOut { menu, item }); }
+    (out.menu, out.item) = picked.unwrap_or((usize::MAX, usize::MAX));
     0
 });
 
 export!(pub unsafe fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut PxuiInspectorRowDesc) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() { return unsafe { fail(ui, "null inspector row descriptor") }; }
-    let desc = unsafe { &mut *desc };
-    if desc.has_width > 1 || desc.has_pin > 1 || desc.pin > 1 || desc.reserved != [0; 5] || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) {
+    let Some(desc) = sized_mut!(desc)else { return unsafe { fail(ui, "invalid inspector row descriptor") }; };
+    if desc.has_width > 1 || desc.has_pin > 1 || desc.pin > 1 || desc.reserved != 0 || desc.reserved_tail != 0 || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) {
         return unsafe { fail(ui, "invalid inspector row descriptor") };
     }
     let (Some(key), Some(label)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid inspector row text") }; };
@@ -183,9 +187,8 @@ export!(pub unsafe fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut PxuiInsp
 
 export!(pub unsafe fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *mut PxuiInspectorSectionDesc) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() { return unsafe { fail(ui, "null inspector section descriptor") }; }
-    let desc = unsafe { &mut *desc };
-    if desc.expanded > 1 || desc.has_set > 1 || desc.set_expanded > 1 || desc.reserved != [0; 5] { return unsafe { fail(ui, "invalid inspector section descriptor") }; }
+    let Some(desc) = sized_mut!(desc)else { return unsafe { fail(ui, "invalid inspector section descriptor") }; };
+    if desc.expanded > 1 || desc.has_set > 1 || desc.set_expanded > 1 || desc.reserved != 0 { return unsafe { fail(ui, "invalid inspector section descriptor") }; }
     let (Some(key), Some(label)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid inspector section text") }; };
     let shared = state.shared;
     let mut build = |engine: &mut Ui| call_build(shared, engine, desc.build, desc.user);
@@ -212,9 +215,8 @@ export!(pub unsafe fn pxui_ui_inspector_button(ui: *mut PxuiUi, key: Str, label:
 
 export!(pub unsafe fn pxui_ui_inspector_readout(ui: *mut PxuiUi, desc: *const PxuiInspectorValueDesc) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() { return unsafe { fail(ui, "null inspector readout descriptor") }; }
-    let desc = unsafe { &*desc };
-    if desc.has_width > 1 || desc.reserved != [0; 7] || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) { return unsafe { fail(ui, "invalid inspector readout descriptor") }; }
+    let Some(desc) = sized!(desc)else { return unsafe { fail(ui, "invalid inspector readout descriptor") }; };
+    if desc.has_width > 1 || desc.reserved != [0; 3] || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) { return unsafe { fail(ui, "invalid inspector readout descriptor") }; }
     let (Some(key), Some(label), Some(value)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }, unsafe { checked(desc.value) }) else { return unsafe { fail(ui, "invalid inspector readout text") }; };
     unsafe { (&mut *state.engine).inspector_readout((desc.has_width != 0).then_some(desc.width), key, label, value); }
     0
@@ -222,8 +224,7 @@ export!(pub unsafe fn pxui_ui_inspector_readout(ui: *mut PxuiUi, desc: *const Px
 
 export!(pub unsafe fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const PxuiInspectorTextDesc) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() { return unsafe { fail(ui, "null inspector message descriptor") }; }
-    let desc = unsafe { &*desc };
+    let Some(desc) = sized!(desc)else { return unsafe { fail(ui, "invalid inspector message descriptor") }; };
     let (Some(key), Some(value)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.text) }) else { return unsafe { fail(ui, "invalid inspector message text") }; };
     unsafe { (&mut *state.engine).inspector_message(key, value); }
     0
@@ -232,7 +233,7 @@ export!(pub unsafe fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const Px
 export!(pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTableDesc, clicked_row: *mut i64) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || clicked_row.is_null() { return unsafe { fail(ui, "null table argument") }; }
-    let desc = unsafe { &*desc };
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
     if desc.headers.len > 256 || desc.rows < 0 || desc.rows as usize > MAX_ITEMS || (desc.headers.len != 0 && desc.headers.ptr.is_null())
         || !desc.width.is_finite() || !desc.height.is_finite() || desc.width < 0.0 || desc.height < 0.0 || !desc.at.iter().all(|v| v.is_finite()) {
         return unsafe { fail(ui, "invalid table descriptor") };

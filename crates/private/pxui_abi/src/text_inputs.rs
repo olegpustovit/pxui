@@ -1,5 +1,5 @@
-use crate::state::{PxuiUi, checked, fail, finite, get};
-use crate::{PXUI_ERR_ARGUMENT, Str};
+use crate::state::{PxuiUi, boxed, checked, fail, finite, get};
+use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_types::ffi::{PxuiAreaCallbacks, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
 use std::rc::Rc;
@@ -106,6 +106,40 @@ export!(pub unsafe fn pxui_ui_text_area_submit(
 pub type SlideText = Option<extern "C" fn(*mut c_void, f32, *mut Str)>;
 pub type ScrubText = Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>;
 
+/// The options a value field descriptor names, without its callbacks.
+fn field_opts(d: &PxuiValueFieldDesc, display: &str, placeholder: &str, lead: &str, trail: &str) -> ValueFieldOpts {
+    let has = |flag: u32| d.flags & flag != 0;
+    ValueFieldOpts {
+        size: has(PxuiValueFieldDesc::HAS_SIZE).then_some(d.font_size),
+        display: has(PxuiValueFieldDesc::HAS_DISPLAY).then(|| display.to_owned()),
+        fraction: has(PxuiValueFieldDesc::HAS_FRACTION).then_some(d.fraction),
+        slide: None, scrub: None,
+        left: has(PxuiValueFieldDesc::LEFT), edit: has(PxuiValueFieldDesc::EDIT),
+        lead: has(PxuiValueFieldDesc::HAS_LEAD).then(|| (lead.to_owned(), d.lead_color)),
+        trail: has(PxuiValueFieldDesc::HAS_TRAIL).then(|| (trail.to_owned(), d.trail_color)),
+        line: has(PxuiValueFieldDesc::HAS_LINE).then_some(d.line),
+        bare: has(PxuiValueFieldDesc::BARE),
+        placeholder: has(PxuiValueFieldDesc::HAS_PLACEHOLDER).then(|| placeholder.to_owned()),
+        tracking: has(PxuiValueFieldDesc::HAS_TRACKING).then_some(d.tracking),
+        kept_drag: has(PxuiValueFieldDesc::KEPT_DRAG),
+    }
+}
+
+/// A value field descriptor read and validated: its strings, in the order display, placeholder, lead, trail, label, value.
+unsafe fn field_desc(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc) -> Result<(PxuiValueFieldDesc, [&'static str; 6]), i32> {
+    if desc.is_null() { return Err(unsafe { fail(ui, "invalid value field arguments") }); }
+    let Some(d) = read_desc!(desc, PxuiValueFieldDesc) else { return Err(unsafe { fail(ui, "invalid value field descriptor") }); };
+    if d.flags & !PxuiValueFieldDesc::KNOWN != 0
+        || !finite(&[d.x, d.y, d.width, d.height, d.fraction, d.tracking]) || d.width < 0.0 || d.height < 0.0 {
+        return Err(unsafe { fail(ui, "invalid value field descriptor") });
+    }
+    let (Some(label), Some(value), Some(display), Some(placeholder), Some(lead), Some(trail)) = (
+        unsafe { checked(d.label) }, unsafe { checked(d.value) }, unsafe { checked(d.display) },
+        unsafe { checked(d.placeholder) }, unsafe { checked(d.lead) }, unsafe { checked(d.trail) },
+    ) else { return Err(unsafe { fail(ui, "invalid value field strings") }); };
+    Ok((d, [display, placeholder, lead, trail, label, value]))
+}
+
 // A value field with its options. `valid` says whether typed text may commit (null: all may); `slide` and `scrub` turn a
 // pointer position into the field's text (they write the text, borrowed from the caller until its next callback). All three
 // are called only during this call, with `user`.
@@ -114,20 +148,11 @@ export!(pub unsafe fn pxui_ui_value_field(
     out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8,
 ) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || out_text.is_null() || out_changed.is_null() || out_editing.is_null() {
+    if out_text.is_null() || out_changed.is_null() || out_editing.is_null() {
         return unsafe { fail(ui, "invalid value field arguments") };
     }
-    let Some(d) = read_desc!(desc, PxuiValueFieldDesc) else { return unsafe { fail(ui, "invalid value field descriptor") }; };
-    if d.flags & !PxuiValueFieldDesc::KNOWN != 0
-        || !finite(&[d.x, d.y, d.width, d.height, d.fraction, d.tracking]) || d.width < 0.0 || d.height < 0.0 {
-        return unsafe { fail(ui, "invalid value field descriptor") };
-    }
+    let (d, [display, placeholder, lead, trail, label, value]) = match unsafe { field_desc(ui, desc) } { Ok(v) => v, Err(code) => return code };
     unsafe { *out_text = Str::default(); *out_changed = 0; *out_editing = 0; }
-    let has = |flag: u32| d.flags & flag != 0;
-    let (Some(label), Some(value), Some(display), Some(placeholder), Some(lead), Some(trail)) = (
-        unsafe { checked(d.label) }, unsafe { checked(d.value) }, unsafe { checked(d.display) },
-        unsafe { checked(d.placeholder) }, unsafe { checked(d.lead) }, unsafe { checked(d.trail) },
-    ) else { return unsafe { fail(ui, "invalid value field strings") }; };
     let invalid_result = Rc::new(Cell::new(false));
     // text a callback wrote, copied into the engine's `String` (and refused when it is not UTF-8 or too long)
     let produced = {
@@ -146,20 +171,9 @@ export!(pub unsafe fn pxui_ui_value_field(
             produced(out)
         }) as Rc<dyn Fn(&str, f32, bool) -> String>
     });
-    let opts = ValueFieldOpts {
-        size: has(PxuiValueFieldDesc::HAS_SIZE).then_some(d.font_size),
-        display: has(PxuiValueFieldDesc::HAS_DISPLAY).then(|| display.to_owned()),
-        fraction: has(PxuiValueFieldDesc::HAS_FRACTION).then_some(d.fraction),
-        slide, scrub,
-        left: has(PxuiValueFieldDesc::LEFT), edit: has(PxuiValueFieldDesc::EDIT),
-        lead: has(PxuiValueFieldDesc::HAS_LEAD).then(|| (lead.to_owned(), d.lead_color)),
-        trail: has(PxuiValueFieldDesc::HAS_TRAIL).then(|| (trail.to_owned(), d.trail_color)),
-        line: has(PxuiValueFieldDesc::HAS_LINE).then_some(d.line),
-        bare: has(PxuiValueFieldDesc::BARE),
-        placeholder: has(PxuiValueFieldDesc::HAS_PLACEHOLDER).then(|| placeholder.to_owned()),
-        tracking: has(PxuiValueFieldDesc::HAS_TRACKING).then_some(d.tracking),
-        kept_drag: has(PxuiValueFieldDesc::KEPT_DRAG),
-    };
+    let mut opts = field_opts(&d, display, placeholder, lead, trail);
+    opts.slide = slide;
+    opts.scrub = scrub;
     let accept = |text: &str| {
         let Some(valid) = valid else { return true; };
         let result = valid(user, Str { ptr: text.as_ptr(), len: text.len() });
@@ -170,6 +184,17 @@ export!(pub unsafe fn pxui_ui_value_field(
     if invalid_result.get() { return unsafe { fail(ui, "invalid value field callback result") }; }
     unsafe { *out_changed = (text != value) as u8; *out_editing = editing as u8; }
     unsafe { *out_text = state.give(text); }
+    0
+});
+
+// A value field's value (`text`) and soft-range line written by patches, as the field's build lays them out (the engine's
+// `patch_field`): `out` says whether the patch could show it; false (a lead, a value too wide beside its trail, a line
+// that had no width) means build the field's view. The descriptor is the one the field was built with.
+export!(pub unsafe fn pxui_ui_patch_field(ui: *mut PxuiUi, box_: *const PxuiBox, desc: *const PxuiValueFieldDesc, text: Str, out: *mut u8) -> i32 {
+    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    let (Some(text), false) = (unsafe { checked(text) }, out.is_null()) else { return unsafe { fail(ui, "invalid patch field arguments") }; };
+    let (d, [display, placeholder, lead, trail, ..]) = match unsafe { field_desc(ui, desc) } { Ok(v) => v, Err(code) => return code };
+    unsafe { *out = e.patch_field(&b, &field_opts(&d, display, placeholder, lead, trail), text) as u8; }
     0
 });
 
