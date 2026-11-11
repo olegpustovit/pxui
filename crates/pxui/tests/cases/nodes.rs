@@ -215,7 +215,20 @@ pub fn window_pxui_arena_over_aligned() {
     ui.destroy();
 }
 
+/// `Paint::grid` is one instance however many dots it shows.
+pub fn window_pxui_paint_grid_one_instance() {
+    let mut ui = new_ui(None);
+    frame(&mut ui, 0.0, &mut |ui| {
+        let h = ui.node("ground", Node { w: Size::Px(600.0), h: Size::Px(400.0), ..Node::DEFAULT });
+        ui.canvas(&h, |paint, r| paint.grid(r.x, r.y, r.w, r.h, (0.0, 0.0), 24.0, 2.0, color::rgb(9, 9, 9)));
+    });
+    let grids = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui::draw::kind::GRID).count();
+    check(grids == 1, &format!("{grids} grid instances for 425 dots"));
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_paint_grid_one_instance", window_pxui_paint_grid_one_instance),
     ("window_pxui_arena_over_aligned", window_pxui_arena_over_aligned),
     ("window_pxui_node_duplicate_keys", window_pxui_node_duplicate_keys),
     ("window_pxui_node_handles", window_pxui_node_handles),

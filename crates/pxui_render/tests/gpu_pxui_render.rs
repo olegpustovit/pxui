@@ -161,7 +161,7 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// Metal handles live on the process main thread, which libtest never gives a test: this target is
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
-    let cases: [(&str, fn()); 13] = [
+    let cases: [(&str, fn()); 14] = [
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -170,6 +170,7 @@ fn main() {
         ("gpu_ramp_gradient", gpu_ramp_gradient),
         ("gpu_retained_layer_writes_only_dirty_ranges", gpu_retained_layer_writes_only_dirty_ranges),
         ("gpu_view_table_past_255", gpu_view_table_past_255),
+        ("gpu_grid_instance_equals_dots", gpu_grid_instance_equals_dots),
         ("gpu_backdrop_blur", gpu_backdrop_blur),
         ("gpu_smooth_image", gpu_smooth_image),
         ("gpu_backdrop_blur_panel", gpu_backdrop_blur_panel),
@@ -404,6 +405,44 @@ fn gpu_view_table_past_255() {
     let (low, high) = (shoot(&mut painter, 1), shoot(&mut painter, 2000));
     assert!(low == high, "view 2000 drew differently from view 1");
     assert!(low != shoot(&mut painter, 0), "the entry changed nothing");
+}
+
+/// One `kind::GRID` instance draws the pixels of one rect instance per dot (fractional origin and
+/// spacing, a clip cutting dots, view 1's offset), to one level on a few edge texels.
+fn gpu_grid_instance_equals_dots() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut painter = painter(&device);
+    ok(painter.set_view(1, View { offset: [0.5, 0.25], ..View::IDENTITY }));
+    let target = target(&device);
+    let size = [W * SCALE, H * SCALE];
+    for (view, origin, spacing, dot) in [(0u16, [3.37f32, 5.11], 7.3f32, 2.0f32), (0, [0.0, 0.0], 24.0, 3.0), (1, [1.5, 2.25], 9.0, 1.5)] {
+        let (region, clip) = ([10.0f32, 8.0, 150.0, 110.0], [12i16, 9, 140, 100]);
+        let first = |lo: f32, o: f32| ((lo - o - dot) / spacing).floor() as i64 + 1;
+        let last = |hi: f32, o: f32| ((hi - o) / spacing).ceil() as i64 - 1;
+        let mut dots = Vec::new();
+        for j in first(region[1], origin[1])..=last(region[3], origin[1]) {
+            let dy = origin[1] + j as f32 * spacing;
+            for i in first(region[0], origin[0])..=last(region[2], origin[0]) {
+                let dx = origin[0] + i as f32 * spacing;
+                dots.push(Instance { clip, ..Instance::rect([dx, dy, dx + dot, dy + dot], RED).view(view) });
+            }
+        }
+        let grid = [Instance { clip, ..Instance::grid(region, origin, spacing, dot, RED).view(view) }];
+        let shoot = |painter: &mut Painter, instances: &[Instance]| {
+            painter.begin_frame();
+            pass(&queue, &target, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, instances, &[])));
+            ok(be::read_texture(&target, (W * SCALE * 4) as i64))
+        };
+        let (a, b) = (shoot(&mut painter, &dots), shoot(&mut painter, &grid));
+        // the quads differ (one per dot or one for all), so a pixel centre's interpolated position differs
+        // in its last bits (about 1e-3 px): an anti-aliased edge texel near a rounding boundary lands one
+        // level apart; inner and outer texels are equal
+        let worst = a.iter().zip(&b).map(|(x, y)| (*x as i32 - *y as i32).abs()).max().unwrap_or(0);
+        let apart = a.chunks(4).zip(b.chunks(4)).filter(|(x, y)| x != y).count();
+        println!("grid spacing {spacing}: {} dots, {apart} pixels a level apart (largest difference {worst})", dots.len());
+        assert!(dots.len() > 20 && worst <= 1, "spacing {spacing}: largest channel difference {worst}, {apart} pixels differ");
+    }
 }
 
 fn gpu_retained_layer_writes_only_dirty_ranges() {

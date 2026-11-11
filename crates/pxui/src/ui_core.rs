@@ -4963,25 +4963,15 @@ impl Paint {
         });
     }
 
-    /// `dot`-point squares every `spacing` points from `origin`, inside the rectangle.
-    // ponytail: one instance per dot (a 2000 x 1200 pane at the graph's 24-point spacing is about
-    // 4,200); a grid instance kind in the shader if the instance ring shows up in a profile.
+    /// `dot`-point squares every `spacing` points from `origin`, inside the rectangle: one instance
+    /// (`kind::GRID`) whatever the number of dots.
     pub fn grid(&mut self, x: f32, y: f32, w: f32, h: f32, origin: (f32, f32), spacing: f32, dot: f32, color: Color) {
         if !(w > 0.0 && h > 0.0 && spacing > 0.0) {
             return;
         }
-        let c = rgba(color);
         let saved = self.clip_rect;
         self.clip_rect = saved.intersect(Rect::new(x, y, w, h));
-        let first = |lo: f32, o: f32| ((lo - o - dot) / spacing).floor() as i64 + 1;
-        let last = |hi: f32, o: f32| ((hi - o) / spacing).ceil() as i64 - 1;
-        for j in first(y, origin.1)..=last(y + h, origin.1) {
-            let dy = origin.1 + j as f32 * spacing;
-            for i in first(x, origin.0)..=last(x + w, origin.0) {
-                let dx = origin.0 + i as f32 * spacing;
-                self.push(Instance::rect([dx, dy, dx + dot, dy + dot], c));
-            }
-        }
+        self.push(Instance::grid([x, y, x + w, y + h], [origin.0, origin.1], spacing, dot, rgba(color)));
         self.clip_rect = saved;
     }
 

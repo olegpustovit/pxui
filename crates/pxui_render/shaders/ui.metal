@@ -19,7 +19,7 @@ struct VOut {
   float2 v_tp;
 };
 
-constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u;
+constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u;
 constant uint INNER = 4u, ROUND = 8u;
 constant float TAU = 6.2831853;
 constant float2 CORNERS[6] = {float2(0, 0), float2(1, 0), float2(0, 1), float2(0, 1), float2(1, 0), float2(1, 1)};
@@ -44,9 +44,9 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   float pad = max(1.0, 1.0 / max(va.w * sqrt(abs(vm.x * vm.w - vm.y * vm.z)), 1e-3));
   float width = half2x16(I.c.x).x;
   float4 r = I.rect + (kind == ARC ? float4(off, 0.0, 0.0) : off.xyxy);
-  float4 p0 = (kind == ARC || kind == CURVE) ? float4(as_type<float2>(I.c.zw), 0.0, 0.0) : float4(half2x16(I.c.z), half2x16(I.c.w));
-  if (kind == CURVE) p0.xy += off;
-  float4 p2 = kind == RECT ? unpack_unorm4x8_to_float(I.b.x) : float4(half2x16(I.b.x), half2x16(I.b.y));
+  float4 p0 = (kind == ARC || kind == CURVE || kind == GRID) ? float4(as_type<float2>(I.c.zw), 0.0, 0.0) : float4(half2x16(I.c.z), half2x16(I.c.w));
+  if (kind == CURVE || kind == GRID) p0.xy += off;
+  float4 p2 = kind == GRID ? float4(as_type<float2>(I.b.xy), 0.0, 0.0) : kind == RECT ? unpack_unorm4x8_to_float(I.b.x) : float4(half2x16(I.b.x), half2x16(I.b.y));
   float h = width * 0.5 + pad;
   float2 p;
   if (kind == LINE) {
@@ -59,7 +59,7 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     float4 box = r;
     if (kind == ARC) box = float4(r.xy - (r.z + h), r.xy + (r.z + h));
     if (kind == CURVE) box = float4(min(min(r.xy, r.zw), p0.xy) - h, max(max(r.xy, r.zw), p0.xy) + h);
-    if (kind == RECT || kind == SHADOW) box = r + float4(-pad, -pad, pad, pad);
+    if (kind == RECT || kind == SHADOW || kind == GRID) box = r + float4(-pad, -pad, pad, pad);
     if (kind == SHADOW && (flags & INNER) == 0u) box = r + p0.xyxy + float4(-1.0, -1.0, 1.0, 1.0) * (p0.w + 3.0 * p0.z + pad);
     p = mix(box.xy, box.zw, c);
   }
@@ -209,6 +209,15 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
       fill = over(float4(in.v_color2.rgb, in.v_color2.a * (1.0 - cover(inner, px))), fill);
     }
     col = float4(fill.rgb, fill.a * cover(d, px));
+  } else if (kind == GRID) {
+    // the dot nearest p: one of the four around its cell (dots at origin + i * spacing, `dot` wide)
+    float2 cell = floor((p - in.v_p0.xy) / in.v_p2.x);
+    float d = 1e6;
+    for (int k = 0; k < 4; k++) {
+      float2 at = in.v_p0.xy + (cell + float2(float(k & 1), float(k >> 1))) * in.v_p2.x;
+      d = min(d, sd_rect(p, float4(at, at + in.v_p2.y), float4(0.0)));
+    }
+    col = float4(in.v_color.rgb, in.v_color.a * cover(d, px));
   } else if (kind == SHADOW) {
     float sigma = sqrt(in.v_p0.z * in.v_p0.z + 0.25 * px * px);
     float4 shape = in.v_rect + in.v_p0.xyxy;

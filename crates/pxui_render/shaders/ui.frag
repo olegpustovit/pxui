@@ -21,7 +21,7 @@ layout(location = 10) flat in uvec2 v_kf;
 layout(location = 11) in vec2 v_tp;
 layout(location = 0) out vec4 out_color;
 
-const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u;
+const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u;
 const uint INNER = 4u, ROUND = 8u;
 const float TAU = 6.2831853;
 
@@ -150,6 +150,15 @@ void main() {
       fill = over(vec4(v_color2.rgb, v_color2.a * (1.0 - cover(inner, px))), fill);
     }
     col = vec4(fill.rgb, fill.a * cover(d, px));
+  } else if (kind == GRID) {
+    // the dot nearest p: one of the four around its cell (dots at origin + i * spacing, `dot` wide)
+    vec2 cell = floor((p - v_p0.xy) / v_p2.x);
+    float d = 1e6;
+    for (int k = 0; k < 4; k++) {
+      vec2 at = v_p0.xy + (cell + vec2(float(k & 1), float(k >> 1))) * v_p2.x;
+      d = min(d, sd_rect(p, vec4(at, at + v_p2.y), vec4(0.0)));
+    }
+    col = vec4(v_color.rgb, v_color.a * cover(d, px));
   } else if (kind == SHADOW) {
     float sigma = sqrt(v_p0.z * v_p0.z + 0.25 * px * px);
     vec4 shape = v_rect + v_p0.xyxy;

@@ -10,6 +10,8 @@ pub mod kind {
     pub const LINE: u8 = 4;
     pub const ARC: u8 = 5;
     pub const CURVE: u8 = 6;
+    /// A repeating dot pattern (`Instance::grid`): one instance for a whole grid.
+    pub const GRID: u8 = 7;
 }
 /// Instance flags (byte 51).
 pub mod flags {
@@ -234,6 +236,11 @@ impl Instance {
             rect: [a[0], a[1], b[0], b[1]], color, width: f16(width), kind: kind::CURVE,
             extra: [control[0].to_bits(), control[1].to_bits()], ..Self::DEFAULT
         }
+    }
+    /// Squares `dot` points wide every `spacing` points from `origin` (in both axes), over `rect`:
+    /// the fragment stage draws the dot nearest each pixel exactly as a `rect` instance per dot would.
+    pub fn grid(rect: [f32; 4], origin: [f32; 2], spacing: f32, dot: f32, color: [u8; 4]) -> Self {
+        Instance { rect, color, kind: kind::GRID, aux: [spacing.to_bits(), dot.to_bits()], extra: [origin[0].to_bits(), origin[1].to_bits()], ..Self::DEFAULT }
     }
     /// Corner radii top-left, top-right, bottom-right, bottom-left.
     pub fn radii(self, radii: [f32; 4]) -> Self { Instance { radii: radii.map(f16), ..self } }
