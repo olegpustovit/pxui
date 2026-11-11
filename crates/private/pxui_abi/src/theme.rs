@@ -10,9 +10,9 @@ const _: () = assert!(core::mem::size_of::<Theme>() == core::mem::size_of::<Them
     && core::mem::offset_of!(Theme, image) == core::mem::offset_of!(ThemeSnapshot, image));
 
 // The theme in effect, whole, lent: valid until the `Ui` next changes it (a theme swap, a `themed` scope) or is freed.
-export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnapshot {
-    let Some(state)=(unsafe{get(ui)}) else { return core::ptr::null(); };
-    (unsafe{&*state.engine}.theme() as *const Theme).cast()
+export!(trusted pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnapshot {
+    if unsafe{get(ui)}.is_none() { return core::ptr::null(); }
+    unsafe{crate::trusted::pxui_ui_theme(ui)}
 });
 
 /// A theme a caller builds from tokens and key/value pairs, then scopes over a subtree with `pxui_ui_themed`. Each `set`

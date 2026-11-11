@@ -16,33 +16,47 @@ macro_rules! export {
         #[unsafe(no_mangle)]
         $vis unsafe extern "C" fn $name($h: $hty $(, $arg: $ty)*) -> i32 {
             let shared = <$hty as $crate::state::Handle>::shared($h);
-            export!(@run payload => { unsafe { $crate::state::panicked(shared, payload, true); } $crate::PXUI_ERR_PANIC }, $body)
+            export!(@run true, payload => { unsafe { $crate::state::panicked(shared, payload, true); } $crate::PXUI_ERR_PANIC }, $body)
         }
     };
+    // `trusted`: the body ends in a call of a `trusted` entry, which counts the call itself (the static wrapper calls it directly)
+    (trusted frame $vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) -> i32 $body:block) => {
+        #[unsafe(no_mangle)]
+        $vis unsafe extern "C" fn $name($h: $hty $(, $arg: $ty)*) -> i32 {
+            let shared = <$hty as $crate::state::Handle>::shared($h);
+            export!(@run false, payload => { unsafe { $crate::state::panicked(shared, payload, true); } $crate::PXUI_ERR_PANIC }, $body)
+        }
+    };
+    (trusted $vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) -> i32 $body:block) => {
+        export!(@handle false, $vis $name ($h: $hty $(, $arg: $ty)*) (-> i32) ($crate::PXUI_ERR_PANIC) $body);
+    };
+    (trusted $vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block) => {
+        export!(@handle false, $vis $name ($h: $hty $(, $arg: $ty)*) ($(-> $ret)?) (unsafe { core::mem::zeroed() }) $body);
+    };
     ($vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) -> i32 $body:block) => {
-        export!(@handle $vis $name ($h: $hty $(, $arg: $ty)*) (-> i32) ($crate::PXUI_ERR_PANIC) $body);
+        export!(@handle true, $vis $name ($h: $hty $(, $arg: $ty)*) (-> i32) ($crate::PXUI_ERR_PANIC) $body);
     };
     ($vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block) => {
-        export!(@handle $vis $name ($h: $hty $(, $arg: $ty)*) ($(-> $ret)?) (unsafe { core::mem::zeroed() }) $body);
+        export!(@handle true, $vis $name ($h: $hty $(, $arg: $ty)*) ($(-> $ret)?) (unsafe { core::mem::zeroed() }) $body);
     };
     (@bare $vis:vis $name:ident ($($arg:ident: $ty:ty),*) ($($ret:tt)*) ($failed:expr) $body:block) => {
         #[unsafe(no_mangle)]
         $vis unsafe extern "C" fn $name($($arg: $ty),*) $($ret)* {
-            export!(@run _payload => { $failed }, $body)
+            export!(@run true, _payload => { $failed }, $body)
         }
     };
-    (@handle $vis:vis $name:ident ($h:ident: $hty:ty $(, $arg:ident: $ty:ty)*) ($($ret:tt)*) ($failed:expr) $body:block) => {
+    (@handle $count:tt, $vis:vis $name:ident ($h:ident: $hty:ty $(, $arg:ident: $ty:ty)*) ($($ret:tt)*) ($failed:expr) $body:block) => {
         #[unsafe(no_mangle)]
         $vis unsafe extern "C" fn $name($h: $hty $(, $arg: $ty)*) $($ret)* {
             let shared = <$hty as $crate::state::Handle>::shared($h);
             if unsafe { $crate::state::poisoned(shared) } { return $failed; }
-            export!(@run payload => { unsafe { $crate::state::panicked(shared, payload, false); } $failed }, $body)
+            export!(@run $count, payload => { unsafe { $crate::state::panicked(shared, payload, false); } $failed }, $body)
         }
     };
     // the one place a panic is caught
-    (@run $payload:ident => $on_panic:block, $body:block) => {
+    (@run $count:tt, $payload:ident => $on_panic:block, $body:block) => {
         {
-            $crate::state::note_call();
+            if $count { $crate::state::note_call(); }
             match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $body)) {
                 Ok(value) => value,
                 Err($payload) => $on_panic,

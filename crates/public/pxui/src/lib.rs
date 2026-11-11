@@ -1,4 +1,5 @@
 #![allow(clippy::all)]
+#![cfg_attr(feature = "static", allow(unused_mut, dead_code))] // the static build runs callbacks without a trampoline and calls trusted entries: `mut f` and the C-callback machinery serve the dynamic one
 //! Stable PXUI wrapper. Shape and geometry types are re-exported from the std-only public crate.
 
 #[macro_use]
@@ -102,6 +103,8 @@ pub use pxui_types::Node;
 #[cfg(feature = "static")]
 mod sys {
     pub use pxui_abi_link::*;
+    // what the library's trusted entries replace: this wrapper's arguments are valid Rust values (see `pxui_abi::trusted`)
+    pub use pxui_abi_link::trusted::{pxui_button, pxui_label, pxui_text_field, pxui_toggle, pxui_ui_text, pxui_ui_theme};
 }
 
 #[cfg(not(feature = "static"))]
@@ -322,12 +325,18 @@ impl Ui {
     /// library and resumed here, after the call returns.
     pub fn frame(&mut self, input: &FrameIn, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, i32> {
         let mut out = FrameOut::default();
+        #[cfg(feature = "static")]
+        let rc = unsafe { pxui_abi_link::trusted::frame(self.0.as_ptr(), input, inner!(|ui: &mut Ui| build(ui)), &mut out) };
+        #[cfg(not(feature = "static"))]
         let rc = unsafe { sys::pxui_frame(self.0.as_ptr(), input, Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) };
         self.framed(rc, out)
     }
 
     pub fn input_frame(&mut self,input:&Input,mut build: &mut dyn FnMut(&mut Ui))->Result<Frame<'_>,i32> {
         let mut out=FrameOut::default();
+        #[cfg(feature = "static")]
+        let rc=unsafe { pxui_abi_link::trusted::input_frame(self.0.as_ptr(),input,inner!(|ui: &mut Ui| build(ui)),&mut out) };
+        #[cfg(not(feature = "static"))]
         let rc=unsafe { sys::pxui_ui_frame(self.0.as_ptr(),input,Some(composite::call::<&mut dyn FnMut(&mut Ui)>),&mut build as *mut _ as *mut c_void,&mut out) };
         self.framed(rc, out)
     }
@@ -421,31 +430,56 @@ impl Ui {
     #[track_caller] pub fn request_frame(&mut self) {check(self, unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}
     #[inline]
     #[track_caller] pub fn rect(&self,box_:&PxuiBox)-> geom::Rect {
-        let mut out=geom::Rect::default();check(self, unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)});out
+        let mut out=geom::Rect::default();
+        #[cfg(feature = "static")]
+        check(self, unsafe{pxui_abi_link::trusted::rect(self.0.as_ptr(),box_,&mut out)});
+        #[cfg(not(feature = "static"))]
+        check(self, unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)});
+        out
     }
-    #[inline] pub fn box_of_key(&self,key:i64)->Option<PxuiBox>{let mut out=PxuiBox::default();(unsafe{sys::pxui_ui_box_of_key(self.0.as_ptr(),key,&mut out)}!=0).then_some(out)}
+    #[inline] pub fn box_of_key(&self,key:i64)->Option<PxuiBox>{
+        let mut out=PxuiBox::default();
+        #[cfg(feature = "static")]
+        let found=unsafe{pxui_abi_link::trusted::box_of_key(self.0.as_ptr(),key,&mut out)};
+        #[cfg(not(feature = "static"))]
+        let found=unsafe{sys::pxui_ui_box_of_key(self.0.as_ptr(),key,&mut out)}!=0;
+        found.then_some(out)
+    }
     #[inline] pub fn key_of(seed:i64,label:&str)->i64{pxui_types::ui::key_of(seed,label)}
     #[inline] #[track_caller] pub fn text(&mut self,box_:&PxuiBox,value:&str) {check(self, unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
 
     #[inline]
     #[track_caller]
     pub fn within(&mut self, box_: &PxuiBox, mut f: &mut dyn FnMut(&mut Ui)) {
-        check(self, unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
+        #[cfg(feature = "static")]
+        let rc = unsafe { pxui_abi_link::trusted::within(self.0.as_ptr(), box_, inner!(|ui: &mut Ui| f(ui))) };
+        #[cfg(not(feature = "static"))]
+        let rc = unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
+        check(self, rc)
     }
 
     #[inline]
     #[track_caller]
     pub fn scope(&mut self, label: &str, mut f: &mut dyn FnMut(&mut Ui)) {
-        check(self, unsafe { sys::pxui_scope(self.0.as_ptr(), as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
+        #[cfg(feature = "static")]
+        let rc = unsafe { pxui_abi_link::trusted::scope(self.0.as_ptr(), label, inner!(|ui: &mut Ui| f(ui))) };
+        #[cfg(not(feature = "static"))]
+        let rc = unsafe { sys::pxui_scope(self.0.as_ptr(), as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
+        check(self, rc)
     }
     #[inline]
     #[track_caller]
     pub fn col(&mut self, padding:f32, label:&str, mut f: &mut dyn FnMut(&mut Ui)) {
-        check(self, unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
+        #[cfg(feature = "static")]
+        let rc = unsafe { pxui_abi_link::trusted::col(self.0.as_ptr(), padding, label, inner!(|ui: &mut Ui| f(ui))) };
+        #[cfg(not(feature = "static"))]
+        let rc = unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
+        check(self, rc)
     }
     #[inline]
     #[track_caller]
     pub fn panel(&mut self, opts: pxui_types::ui::PanelOpts, label: &str, mut f: &mut dyn FnMut(&mut Ui)) {
+        #[cfg(not(feature = "static"))]
         let panel = PxuiPanel {
             x: opts.x, y: opts.y, width: opts.width, height: opts.height.unwrap_or_default(), padding: opts.padding,
             has_height: opts.height.is_some() as u8, window: opts.window as u8,
@@ -454,7 +488,11 @@ impl Ui {
             has_look: opts.look.is_some() as u8, look: opts.look.map(crate::node::look).unwrap_or_default(),
             ..PxuiPanel::default()
         };
-        check(self, unsafe { sys::pxui_panel(self.0.as_ptr(), &panel, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
+        #[cfg(feature = "static")]
+        let rc = unsafe { pxui_abi_link::trusted::panel(self.0.as_ptr(), opts, label, inner!(|ui: &mut Ui| f(ui))) };
+        #[cfg(not(feature = "static"))]
+        let rc = unsafe { sys::pxui_panel(self.0.as_ptr(), &panel, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
+        check(self, rc)
     }
     #[inline] #[track_caller] pub fn label(&mut self, text:&str) { check(self, unsafe { sys::pxui_label(self.0.as_ptr(), as_str(text)) }) }
     #[inline] #[track_caller] pub fn button(&mut self, text:&str) -> bool { let mut out = 0; check(self, unsafe { sys::pxui_button(self.0.as_ptr(), as_str(text), &mut out) }); out != 0 }
@@ -486,6 +524,7 @@ impl Strs {
         else { strs.heap=values.iter().map(|v|as_str(v)).collect(); }
         strs
     }
+    #[cfg(not(feature = "static"))]
     #[inline]
     pub(crate) fn owned(values:&[String])->Self {
         let mut strs=Self { stack:[Str::default();32], heap:Vec::new(), len:values.len() };
@@ -514,8 +553,15 @@ fn live(ui: &Ui, rc: i32) -> bool {
 
 /// A failed call is a caller bug the engine would panic on (stale handle, non-finite number, oversized text):
 /// it panics with the library's message, inside the frame callback (carried to the app's `frame` call) or at the call.
+#[inline]
 #[track_caller]
-fn check(ui: &Ui, rc: i32) { if rc != 0 { panic!("pxui: {} ({rc})", ui.last_error()); } }
+fn check(ui: &Ui, rc: i32) { if rc != 0 { refused(ui, rc) } }
+
+/// The panic of a refused call, out of line: the many callers of `check` stay small enough to inline.
+#[cold]
+#[inline(never)]
+#[track_caller]
+fn refused(ui: &Ui, rc: i32) -> ! { panic!("pxui: {} ({rc})", ui.last_error()) }
 /// The library's process counters, for the performance gate: calls made into it (this one included) and heap allocations its
 /// allocator has made. In a static build both are the app's own allocator and the calls of the same process.
 #[cfg(feature="static")]

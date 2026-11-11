@@ -82,7 +82,7 @@ unsafe fn tracks(ptr: *const Track, len: usize, out: &mut [Track]) -> Option<usi
 /// list equal to one stored is shared, so a settled frame allocates nothing) and the engine gets a node pointing at that copy; any
 /// other node is handed over as it is.
 #[inline]
-fn declare(shared: &mut Shared, engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) -> bool {
+pub(crate) fn declare(shared: &mut Shared, engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) -> bool {
     if desc.grid.is_some() {
         let Some(handle) = declare_grid(shared, engine, label, key, desc) else { return false };
         *out = handle;
@@ -121,54 +121,47 @@ unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
     if desc.is_null() || !unsafe { node_ok(desc) } { None } else { Some(unsafe { &*desc }) }
 }
 
-export!(pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,desc:*const Node,out:*mut PxuiBox)->i32 {
-    let Some(state)=(unsafe{get(ui)}) else{return crate::PXUI_ERR_ARGUMENT};
+export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,desc:*const Node,out:*mut PxuiBox)->i32 {
+    if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null node argument")};}
-    let Some(label)=(unsafe{text(label)}) else{return unsafe{fail(ui,"invalid node label")};};
+    if unsafe{text(label)}.is_none(){return unsafe{fail(ui,"invalid node label")};}
     let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{fail(ui,"invalid node")};};
-    if !declare(state.shared(),unsafe{&mut *state.engine},Some(label),0,desc,unsafe{&mut *out}) {return unsafe{fail(ui,"invalid grid tracks")};}
-    0
+    unsafe{crate::trusted::pxui_ui_node(ui,label,desc,out)}
 });
 
-export!(pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const Node,out:*mut PxuiBox)->i32 {
-    let Some(state)=(unsafe{get(ui)}) else{return crate::PXUI_ERR_ARGUMENT};
+export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const Node,out:*mut PxuiBox)->i32 {
+    if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null keyed node argument")};}
     let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{fail(ui,"invalid keyed node")};};
-    if !declare(state.shared(),unsafe{&mut *state.engine},None,key,desc,unsafe{&mut *out}) {return unsafe{fail(ui,"invalid grid tracks")};}
-    0
+    unsafe{crate::trusted::pxui_ui_node_keyed(ui,key,desc,out)}
 });
 
-/// Ends a frame: frees replaced grid tracks and those of boxes that are gone, and builds the output once.
+/// Ends a frame: frees replaced grid tracks and those of boxes that are gone. The output is built when it is read.
 pub(crate) fn finish_frame(shared: &mut Shared, engine: &Ui) {
     shared.grid_retired.clear();
     if !shared.grid_tracks.is_empty() { shared.grid_tracks.retain(|key, _| engine.box_of_key(*key).is_some()); }
-    crate::ui::build_output(shared, engine, true);
+    shared.frame_ended = true;
 }
 
-export!(pub unsafe fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut Rect)->i32 {
-    let Some(state)=(unsafe{get(ui)}) else{return crate::PXUI_ERR_ARGUMENT};
+export!(trusted pub unsafe fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut Rect)->i32 {
+    if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null()||out.is_null(){return unsafe{fail(ui,"null rect argument")};}
-    let Some(b)=core_box(unsafe{*box_}) else{return unsafe{fail(ui,"invalid rect box")};};
-    unsafe{*out=(&*state.engine).rect(&b);}
-    0
+    if core_box(unsafe{*box_}).is_none(){return unsafe{fail(ui,"invalid rect box")};}
+    unsafe{crate::trusted::rect(ui,&*box_,&mut *out)}
 });
 
-export!(pub unsafe fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8 {
-    let Some(state)=(unsafe{get(ui)}) else{return 0};
-    if out.is_null(){return 0;}
-    let handle=unsafe{(&*state.engine).box_of_key(key)};
-    let Some(handle)=handle else{return 0};
-    unsafe{*out=to_abi_box(handle);}
-    1
+export!(trusted pub unsafe fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8 {
+    if unsafe{get(ui)}.is_none()||out.is_null() {return 0};
+    let found=unsafe{crate::trusted::box_of_key(ui,key,&mut *out)};
+    found as u8
 });
 
-export!(pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:pxui_types::Str)->i32 {
-    let Some(state)=(unsafe{get(ui)}) else{return crate::PXUI_ERR_ARGUMENT};
+export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:pxui_types::Str)->i32 {
+    if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null(){return unsafe{fail(ui,"null text box")};}
-    let Some(value)=(unsafe{text(value)}) else{return unsafe{fail(ui,"invalid text")};};
-    let Some(b)=core_box(unsafe{*box_}) else{return unsafe{fail(ui,"invalid text box")};};
-    unsafe{(&mut *state.engine).text(&b,value);}
-    0
+    if unsafe{text(value)}.is_none(){return unsafe{fail(ui,"invalid text")};}
+    if core_box(unsafe{*box_}).is_none(){return unsafe{fail(ui,"invalid text box")};}
+    unsafe{crate::trusted::pxui_ui_text(ui,box_,value)}
 });
 
 #[cfg(test)]

@@ -1,5 +1,6 @@
 //! The `Ui` lifecycle, the two frame entry points, theme and platform calls, and the first widgets.
-use crate::state::{Build, PxuiUi, Shared, boxed, call_build, checked, fail, fail_code, get, text};
+use crate::trusted;
+use crate::state::{Build, Inner, PxuiUi, Shared, boxed, call_inner, checked, fail, fail_code, get, text};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiUiDesc, Str};
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
@@ -81,7 +82,7 @@ export!(bare pub unsafe fn pxui_last_error(ui: *const PxuiUi) -> Str {
     Str { ptr: error.as_ptr(), len: error.len() }
 });
 
-/// Fills `shared.output` from the engine. `nodes` rebuilds the accessibility records too (every frame; between frames
+/// Fills `shared.output` from the engine. `nodes` rebuilds the accessibility records too (the first read after a frame; later
 /// only when the tree's revision moved).
 pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
     let output = engine.output();
@@ -148,7 +149,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
 export!(bare pub unsafe fn pxui_ui_output(ui: *mut PxuiUi) -> *const Output {
     let Some(state) = (unsafe { get(ui) }) else { return core::ptr::null(); };
     let shared = state.shared();
-    if !shared.in_frame { build_output(shared, unsafe { &*state.engine }, false); }
+    if !shared.in_frame { let nodes = core::mem::take(&mut shared.frame_ended); build_output(shared, unsafe { &*state.engine }, nodes); }
     &shared.output
 });
 
@@ -255,7 +256,7 @@ unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> input::Frame {
 }
 
 /// Runs one frame of `ui` over `frame`. Both frame entry points call it after decoding their input.
-unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
+unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &mut FrameOut) -> i32 {
     // The callbacks reach the shared state through `shared`, so no `&mut Shared` is held across the build.
     let (engine, shared) = unsafe { ((*ui).engine, (*ui).shared) };
     unsafe {
@@ -266,13 +267,19 @@ unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Build, user: *
         s.chunks_used = 0;
         s.in_frame = true;
     }
-    let output = unsafe { (&mut *engine).frame(frame, &mut |engine: &mut Ui| call_build(shared, engine, build, user)) };
+    // a panic of the build unwinds past this (the static wrapper's callbacks run without a catch): the `Ui` leaves the frame
+    struct Leave(*mut Shared);
+    impl Drop for Leave { fn drop(&mut self) { unsafe { (*self.0).in_frame = false; } } }
+    let _leave = Leave(shared);
+    // a panic of the build (the static wrapper's callbacks run without a catch) leaves the engine mid-frame: it is reset, then the panic goes on
+    let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { (&mut *engine).frame(frame, &mut |engine: &mut Ui| call_inner(shared, engine, build)) }));
+    let output = match built { Ok(output) => output, Err(panic) => { unsafe { (&mut *engine).abandon_frame(); } std::panic::resume_unwind(panic) } };
     let (damage, layers, layer_count) = (output.damage, output.draw.as_ptr(), output.draw.len());
     let s = unsafe { &mut *shared };
     s.in_frame = false;
     crate::node::finish_frame(s, unsafe { &*engine });
     let damage_rect = damage.map_or([0.0; 4], |r| [r.x, r.y, r.w, r.h]);
-    unsafe { *out = FrameOut { size: core::mem::size_of::<FrameOut>() as u32, damage: damage_rect, has_damage: damage.is_some() as u8, reserved: [0; 3], layer_count: layer_count as u32, layers: layers.cast() }; }
+    *out = FrameOut { size: core::mem::size_of::<FrameOut>() as u32, damage: damage_rect, has_damage: damage.is_some() as u8, reserved: [0; 3], layer_count: layer_count as u32, layers: layers.cast() };
     if core::mem::take(&mut s.poisoned) { PXUI_ERR_PANIC } else if core::mem::take(&mut s.paint_error) { PXUI_ERR_STATE } else { 0 }
 }
 
@@ -286,10 +293,10 @@ unsafe fn enter_frame(ui: *mut PxuiUi) -> Result<(), i32> {
     Ok(())
 }
 
-export!(frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
+/// The frame entries' bodies, shared by the exports (which decode and check the C descriptor first) and the static wrapper.
+pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, out: &mut FrameOut) -> i32 {
+    crate::state::note_call();
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
-    if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
-    let Some(input) = read_desc!(input, FrameIn) else { return unsafe { fail(ui, "invalid frame descriptor") }; };
     if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
     let mut base = unsafe { take_input(ui, input.time) };
@@ -297,15 +304,20 @@ export!(frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, b
     base.frame = input.time.to_bits() as i64;
     if !unsafe { push_events(&mut base, Slice { ptr: input.events, len: input.event_count }) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     let frame = frame::Frame { input: base, pixel_scale: (input.scale as f64, input.scale as f64), fps: 60.0, mouse_delta: (0.0, 0.0) };
-    let rc = unsafe { run_frame(ui, &frame, build, user, out) };
+    let rc = unsafe { run_frame(ui, &frame, build, out) };
     unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
     rc
+}
+
+export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
+    if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
+    let Some(input) = read_desc!(input, FrameIn) else { return unsafe { fail(ui, "invalid frame descriptor") }; };
+    unsafe { frame_body(ui, &input, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut *out) }
 });
 
-export!(frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
+pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inner, out: &mut FrameOut) -> i32 {
+    crate::state::note_call();
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
-    if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
-    let Some(input) = read_desc!(input, Input) else { return unsafe { fail(ui, "invalid input frame") }; };
     if !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid input frame") }; }
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
     let mut base = unsafe { take_input(ui, input.time) };
@@ -321,9 +333,15 @@ export!(frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, 
     }
     if !unsafe { push_events(&mut base, input.events) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     let frame = frame::Frame { input: base, pixel_scale: (input.pixel_scale[0], input.pixel_scale[1]), fps: input.fps, mouse_delta: (input.mouse_delta[0], input.mouse_delta[1]) };
-    let rc = unsafe { run_frame(ui, &frame, build, user, out) };
+    let rc = unsafe { run_frame(ui, &frame, build, out) };
     unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
     rc
+}
+
+export!(trusted frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
+    if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
+    let Some(input) = read_desc!(input, Input) else { return unsafe { fail(ui, "invalid input frame") }; };
+    unsafe { input_frame_body(ui, &input, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut *out) }
 });
 
 // The frame's input as the engine routed it to `owner` (a viewport's root key; none: the app's), for the app's own content: the
@@ -370,75 +388,58 @@ export!(pub unsafe fn pxui_ui_layer_drawn(ui: *mut PxuiUi, layer: u64) -> i32 {
     0
 });
 
-export!(pub unsafe fn pxui_within(ui: *mut PxuiUi, box_: *const PxuiBox, build: Build, user: *mut c_void) -> i32 {
-    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
-    let shared = unsafe { (*ui).shared };
-    e.within(&b, &mut |engine: &mut Ui| call_build(shared, engine, build, user));
-    0
+export!(trusted pub unsafe fn pxui_within(ui: *mut PxuiUi, box_: *const PxuiBox, build: Build, user: *mut c_void) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    unsafe { trusted::within(ui, box_, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
 });
 
-export!(pub unsafe fn pxui_scope(ui: *mut PxuiUi, label: Str, build: Build, user: *mut c_void) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_scope(ui: *mut PxuiUi, label: Str, build: Build, user: *mut c_void) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scope label") }; };
-    let shared = state.shared;
-    unsafe { (&mut *state.engine).scope(label, &mut |engine: &mut Ui| call_build(shared, engine, build, user)); }
-    0
+    unsafe { trusted::scope(ui, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
 });
 
-export!(pub unsafe fn pxui_col(ui: *mut PxuiUi, padding: f32, label: Str, build: Build, user: *mut c_void) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(label) = (unsafe { checked(label) }).filter(|_| padding.is_finite()) else { return unsafe { fail(ui, "invalid column arguments") }; };
-    let shared = state.shared;
-    unsafe { (&mut *state.engine).col(padding, label, &mut |engine: &mut Ui| call_build(shared, engine, build, user)); }
-    0
+export!(trusted pub unsafe fn pxui_col(ui: *mut PxuiUi, padding: f32, label: Str, build: Build, user: *mut c_void) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid column arguments") }; };
+    unsafe { trusted::col(ui, padding, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
 });
 
-export!(pub unsafe fn pxui_panel(ui: *mut PxuiUi, panel: *const PxuiPanel, label: Str, build: Build, user: *mut c_void) -> i32 {
-    let (Some(state), false) = (unsafe { get(ui) }, panel.is_null()) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_panel(ui: *mut PxuiUi, panel: *const PxuiPanel, label: Str, build: Build, user: *mut c_void) -> i32 {
+    if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid panel label") }; };
     let Some(panel) = read_desc!(panel, PxuiPanel) else { return unsafe { fail(ui, "invalid panel descriptor") }; };
-    if !crate::state::finite(&[panel.x, panel.y, panel.width, panel.height, panel.max_height]) { return unsafe { fail(ui, "invalid panel descriptor") }; }
     let mut opts = PanelOpts::default().at(panel.x, panel.y).width(panel.width).padding(panel.padding).window(panel.window != 0);
     if panel.has_height != 0 { opts = opts.height(panel.height); }
     if panel.has_max_height != 0 { opts = opts.max_height(panel.max_height); }
     if panel.has_stroke != 0 { opts.stroke = Some(panel.stroke); }
     if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; opts.look = Some(look); }
-    let shared = state.shared;
-    unsafe { (&mut *state.engine).panel(opts, label, &mut |engine: &mut Ui| call_build(shared, engine, build, user)); }
-    0
+    unsafe { trusted::panel(ui, opts, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
 });
 
-export!(pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid label text") }; };
-    unsafe { (&mut *state.engine).label(label); }
-    0
+export!(trusted pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if unsafe { checked(label) }.is_none() { return unsafe { fail(ui, "invalid label text") }; }
+    unsafe { trusted::pxui_label(ui, label) }
 });
 
-export!(pub unsafe fn pxui_button(ui: *mut PxuiUi, label: Str, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(label), false) = (unsafe { checked(label) }, out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") }; };
-    unsafe { *out = (&mut *state.engine).button(label) as u8; }
-    0
+export!(trusted pub unsafe fn pxui_button(ui: *mut PxuiUi, label: Str, out: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if unsafe { checked(label) }.is_none() || out.is_null() { return unsafe { fail(ui, "invalid button arguments") }; }
+    unsafe { trusted::pxui_button(ui, label, out) }
 });
 
-export!(pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(label), false, true) = (unsafe { checked(label) }, out.is_null(), on <= 1) else { return unsafe { fail(ui, "invalid toggle arguments") }; };
-    unsafe { *out = (&mut *state.engine).toggle(label, on != 0) as u8; }
-    0
+export!(trusted pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if unsafe { checked(label) }.is_none() || out.is_null() || on > 1 { return unsafe { fail(ui, "invalid toggle arguments") }; }
+    unsafe { trusted::pxui_toggle(ui, label, on, out) }
 });
 
-// A text field: `out_changed` says whether the user changed the text, `changed` then holds the new text (borrowed until the next frame).
-export!(pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field output") }; }
-    let (Some(label), Some(value)) = (unsafe { checked(label) }, unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid text field arguments") }; };
-    unsafe { *out_changed = 0; *changed = Str::default(); }
-    if let Some(value) = unsafe { (&mut *state.engine).text_field(label, value) } {
-        unsafe { *changed = state.give(value); *out_changed = 1; }
-    }
-    0
+    if unsafe { checked(label) }.is_none() || unsafe { checked(value) }.is_none() { return unsafe { fail(ui, "invalid text field arguments") }; }
+    unsafe { trusted::pxui_text_field(ui, label, value, changed, out_changed) }
 });
 
 #[cfg(test)]

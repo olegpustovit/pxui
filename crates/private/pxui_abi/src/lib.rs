@@ -3,6 +3,8 @@
 #[macro_use]
 mod macros;
 mod state;
+/// The entries the static wrapper calls without the C checks (see the module).
+pub mod trusted;
 mod ui;
 mod text;
 mod node;

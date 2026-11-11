@@ -11,12 +11,11 @@ pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<Str>)>;
 pub type PickerMark = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8>;
 pub type PickerOff = Option<extern "C" fn(*mut c_void, i64) -> u8>;
 
-export!(pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox, label: Str) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox, label: Str) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if box_.is_null() { return unsafe { fail(ui, "null tooltip box") }; }
-    let (Some(label), Some(box_)) = (unsafe { checked(label) }, core_box(unsafe { *box_ })) else { return unsafe { fail(ui, "invalid tooltip arguments") }; };
-    unsafe { (&mut *state.engine).tip(&box_, label); }
-    0
+    let (Some(label), Some(_)) = (unsafe { checked(label) }, core_box(unsafe { *box_ })) else { return unsafe { fail(ui, "invalid tooltip arguments") }; };
+    unsafe { crate::trusted::tip(ui, &*box_, label) }
 });
 
 export!(pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {

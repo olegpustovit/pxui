@@ -1,12 +1,11 @@
-use crate::state::{boxed, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, call_build, checked, fail, finite, get, to_abi_box};
+use crate::state::{boxed, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, checked, fail, finite, get, text};
 use crate::style::decode_look;
 use crate::ui::translate_event;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
-use pxui_core::ui::{Axis, Ui, Target, MAX_KEYS};
+use pxui_core::ui::{Axis, Target, MAX_KEYS};
 use pxui_types::ffi::{PxuiCurveDesc, PxuiGridListDesc, Slice};
 pub use pxui_types::ffi::{PxuiFooterDesc, PxuiHintDesc, PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiMenuBarDesc, PxuiMenuOut, PxuiSplitDesc, PxuiTableDesc};
 
-const MAX_ITEMS: usize = 1_000_000;
 const MAX_MENUS: usize = 256;
 
 fn curve(value: PxuiCurveDesc) -> Option<pxui_types::Curve> {
@@ -17,22 +16,12 @@ fn curve(value: PxuiCurveDesc) -> Option<pxui_types::Curve> {
         _ => return None,
     })
 }
-export!(pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const PxuiGridListDesc, out: *mut PxuiBox) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const PxuiGridListDesc, out: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null grid list argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid grid list descriptor") }; };
-    if desc.count > MAX_ITEMS || !desc.cell_w.is_finite() || !desc.cell_h.is_finite() || desc.cell_w <= 0.0 || desc.cell_h <= 0.0 {
-        return unsafe { fail(ui, "invalid grid list descriptor") };
-    }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid grid list label") }; };
-    let shared = state.shared;
-    let mut build = |engine: &mut Ui, index| if let Some(callback) = desc.build {
-        let mut borrowed = PxuiUi::borrowed(engine, shared);
-        callback(desc.user, (&mut borrowed as *mut PxuiUi).cast(), index);
-    };
-    let value = unsafe { (&mut *state.engine).grid_list(label, desc.count, desc.cell_w, desc.cell_h, &mut build) };
-    unsafe { *out = to_abi_box(value); }
-    0
+    unsafe { crate::trusted::grid_list(ui, label, desc.count, desc.cell_w, desc.cell_h, &mut |ui, index| if let Some(callback) = desc.build { callback(desc.user, ui.cast(), index) }, &mut *out) }
 });
 
 export!(pub unsafe fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_types::Event>, now: f64, out: *mut u8) -> i32 {
@@ -50,7 +39,7 @@ export!(pub unsafe fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_ty
     0
 });
 
-export!(pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiFooterDesc) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiFooterDesc) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() { return unsafe { fail(ui, "null footer descriptor") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid footer descriptor") }; };
@@ -63,18 +52,16 @@ export!(pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiFooterDes
     // the engine takes owned rows; the strings are reused between frames, so a settled footer allocates nothing
     let mut hints = core::mem::take(&mut state.shared().hints);
     hints.truncate(raw.len());
-    let mut total = right.map_or(0, str::len);
     for (at, hint) in raw.iter().enumerate() {
         let (Some(key), Some(value)) = (unsafe { checked(hint.key) }, unsafe { checked(hint.value) }) else { state.shared().hints = hints; return unsafe { fail(ui, "invalid footer hint") }; };
-        total = match total.checked_add(key.len()).and_then(|v| v.checked_add(value.len())) { Some(v) if v <= MAX_TOTAL_TEXT_BYTES => v, _ => { state.shared().hints = hints; return unsafe { fail(ui, "footer text limit exceeded") } } };
         match hints.get_mut(at) {
             Some(row) => { row.0.clear(); row.0.push_str(key); row.1.clear(); row.1.push_str(value); }
             None => hints.push((key.to_owned(), value.to_owned())),
         }
     }
-    unsafe { (&mut *state.engine).footer(right, &hints); }
+    let rc = unsafe { crate::trusted::footer(ui, right, &hints) };
     state.shared().hints = hints;
-    0
+    rc
 });
 
 // One keyframe checked and decoded: its time, target (an offset, an opacity in 0..=1 or a look) and curve.
@@ -118,21 +105,18 @@ export!(pub unsafe fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key
     0
 });
 
-export!(pub unsafe fn pxui_ui_split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, changed: *mut u8, ratio: *mut f32) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, changed: *mut u8, ratio: *mut f32) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || changed.is_null() || ratio.is_null() { return unsafe { fail(ui, "null split argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid split descriptor") }; };
-    if desc.axis > 1 || ![desc.ratio, desc.min_a, desc.min_b].iter().all(|v| v.is_finite()) || desc.min_a < 0.0 || desc.min_b < 0.0 {
-        return unsafe { fail(ui, "invalid split descriptor") };
-    }
+    if desc.axis > 1 { return unsafe { fail(ui, "invalid split descriptor") }; }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid split label") }; };
-    let shared = state.shared;
-    let mut a = |engine: &mut Ui| call_build(shared, engine, desc.build_a, desc.user_a);
-    let mut b = |engine: &mut Ui| call_build(shared, engine, desc.build_b, desc.user_b);
     let axis = if desc.axis == 0 { Axis::Row } else { Axis::Column };
-    let out = unsafe { (&mut *state.engine).split(label, axis, desc.ratio, desc.min_a, desc.min_b, &mut a, &mut b) };
-    unsafe { *changed = out.is_some() as u8; *ratio = out.unwrap_or_default(); }
-    0
+    let mut moved = None;
+    let rc = unsafe { crate::trusted::split(ui, label, axis, desc.ratio, desc.min_a, desc.min_b,
+        &mut |ui| if let Some(build) = desc.build_a { build(desc.user_a, ui.cast()) }, &mut |ui| if let Some(build) = desc.build_b { build(desc.user_b, ui.cast()) }, &mut moved) };
+    unsafe { *changed = moved.is_some() as u8; *ratio = moved.unwrap_or_default(); }
+    rc
 });
 
 export!(pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut) -> i32 {
@@ -173,90 +157,83 @@ export!(pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBar
     0
 });
 
-export!(pub unsafe fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut PxuiInspectorRowDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut PxuiInspectorRowDesc) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(desc) = sized_mut!(desc)else { return unsafe { fail(ui, "invalid inspector row descriptor") }; };
-    if desc.has_width > 1 || desc.has_pin > 1 || desc.pin > 1 || desc.reserved != 0 || desc.reserved_tail != 0 || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) {
-        return unsafe { fail(ui, "invalid inspector row descriptor") };
-    }
+    if desc.has_width > 1 || desc.has_pin > 1 || desc.pin > 1 || desc.reserved != 0 || desc.reserved_tail != 0 { return unsafe { fail(ui, "invalid inspector row descriptor") }; }
     let (Some(key), Some(label)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid inspector row text") }; };
-    let (row, x, y, w) = unsafe { (&mut *state.engine).inspector_row((desc.has_width != 0).then_some(desc.width), (desc.has_pin != 0).then_some(desc.pin != 0), key, label) };
-    (desc.row, desc.control_x, desc.control_y, desc.control_w) = (to_abi_box(row), x, y, w);
-    0
+    let mut row = (PxuiBox::default(), 0.0, 0.0, 0.0);
+    let rc = unsafe { crate::trusted::inspector_row(ui, (desc.has_width != 0).then_some(desc.width), (desc.has_pin != 0).then_some(desc.pin != 0), key, label, &mut row) };
+    if rc == 0 { (desc.row, desc.control_x, desc.control_y, desc.control_w) = row; }
+    rc
 });
 
-export!(pub unsafe fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *mut PxuiInspectorSectionDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *mut PxuiInspectorSectionDesc) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(desc) = sized_mut!(desc)else { return unsafe { fail(ui, "invalid inspector section descriptor") }; };
     if desc.expanded > 1 || desc.has_set > 1 || desc.set_expanded > 1 || desc.reserved != 0 { return unsafe { fail(ui, "invalid inspector section descriptor") }; }
     let (Some(key), Some(label)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid inspector section text") }; };
-    let shared = state.shared;
-    let mut build = |engine: &mut Ui| call_build(shared, engine, desc.build, desc.user);
-    let open = unsafe { (&mut *state.engine).inspector_section(key, desc.expanded != 0, (desc.has_set != 0).then_some(desc.set_expanded != 0), label, &mut build) };
+    let (build, user) = (desc.build, desc.user);
+    let mut open = false;
+    let rc = unsafe { crate::trusted::inspector_section(ui, key, desc.expanded != 0, (desc.has_set != 0).then_some(desc.set_expanded != 0), label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut open) };
     desc.out_open = open as u8;
-    0
+    rc
 });
 
-export!(pub unsafe fn pxui_ui_inspector_toggle(ui: *mut PxuiUi, key: Str, label: Str, value: u8, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_inspector_toggle(ui: *mut PxuiUi, key: Str, label: Str, value: u8, out: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() || value > 1 { return unsafe { fail(ui, "invalid inspector toggle arguments") }; }
     let (Some(key), Some(label)) = (unsafe { checked(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector toggle text") }; };
-    unsafe { *out = (&mut *state.engine).inspector_toggle(key, label, value != 0) as u8; }
-    0
+    let mut on = false;
+    let rc = unsafe { crate::trusted::inspector_toggle(ui, key, label, value != 0, &mut on) };
+    unsafe { *out = on as u8; }
+    rc
 });
 
-export!(pub unsafe fn pxui_ui_inspector_button(ui: *mut PxuiUi, key: Str, label: Str, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_inspector_button(ui: *mut PxuiUi, key: Str, label: Str, out: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() { return unsafe { fail(ui, "null inspector button output") }; }
     let (Some(key), Some(label)) = (unsafe { checked(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector button text") }; };
-    unsafe { *out = (&mut *state.engine).inspector_button(key, label) as u8; }
-    0
+    let mut pressed = false;
+    let rc = unsafe { crate::trusted::inspector_button(ui, key, label, &mut pressed) };
+    unsafe { *out = pressed as u8; }
+    rc
 });
 
-export!(pub unsafe fn pxui_ui_inspector_readout(ui: *mut PxuiUi, desc: *const PxuiInspectorValueDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_inspector_readout(ui: *mut PxuiUi, desc: *const PxuiInspectorValueDesc) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(desc) = sized!(desc)else { return unsafe { fail(ui, "invalid inspector readout descriptor") }; };
-    if desc.has_width > 1 || desc.reserved != [0; 3] || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) { return unsafe { fail(ui, "invalid inspector readout descriptor") }; }
+    if desc.has_width > 1 || desc.reserved != [0; 3] { return unsafe { fail(ui, "invalid inspector readout descriptor") }; }
     let (Some(key), Some(label), Some(value)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }, unsafe { checked(desc.value) }) else { return unsafe { fail(ui, "invalid inspector readout text") }; };
-    unsafe { (&mut *state.engine).inspector_readout((desc.has_width != 0).then_some(desc.width), key, label, value); }
-    0
+    unsafe { crate::trusted::inspector_readout(ui, (desc.has_width != 0).then_some(desc.width), key, label, value) }
 });
 
-export!(pub unsafe fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const PxuiInspectorTextDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(desc) = sized!(desc)else { return unsafe { fail(ui, "invalid inspector message descriptor") }; };
+export!(trusted pub unsafe fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const PxuiInspectorTextDesc) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(desc)=sized!(desc) else { return unsafe { fail(ui, "invalid inspector message descriptor") }; };
     let (Some(key), Some(value)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.text) }) else { return unsafe { fail(ui, "invalid inspector message text") }; };
-    unsafe { (&mut *state.engine).inspector_message(key, value); }
-    0
+    unsafe { crate::trusted::inspector_message(ui, key, value) }
 });
 
-export!(pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTableDesc, clicked_row: *mut i64) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTableDesc, clicked_row: *mut i64) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || clicked_row.is_null() { return unsafe { fail(ui, "null table argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
-    if desc.headers.len > 256 || desc.rows < 0 || desc.rows as usize > MAX_ITEMS || (desc.headers.len != 0 && desc.headers.ptr.is_null())
-        || !desc.width.is_finite() || !desc.height.is_finite() || desc.width < 0.0 || desc.height < 0.0 || !desc.at.iter().all(|v| v.is_finite()) {
-        return unsafe { fail(ui, "invalid table descriptor") };
-    }
+    if desc.headers.len > 256 || (desc.headers.len != 0 && desc.headers.ptr.is_null()) { return unsafe { fail(ui, "invalid table descriptor") }; }
     let mut list = state.shared().take_strs();
     let Some(label) = (unsafe { checked(desc.label) }).filter(|_| unsafe { crate::state::strings(desc.headers, 256, &mut list) }) else {
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid table strings") };
     };
-    let callback = desc.cell;
-    let user = desc.user;
-    let (mut bad_text, mut text_bytes) = (false, 0usize);
-    let mut cell = |row: i64, col: i64, emit: &mut dyn FnMut(&str)| {
-        let Some(callback) = callback else { return emit(""); };
-        let value = callback(user, row, col);
-        text_bytes = text_bytes.saturating_add(value.len);
-        match unsafe { checked(value) } {
-            Some(value) if text_bytes <= MAX_TOTAL_TEXT_BYTES => emit(value),
-            _ => { bad_text = true; emit("") }
-        }
-    };
-    let (clicked, _) = unsafe { (&mut *state.engine).table_with((desc.at[0], desc.at[1]), desc.width, desc.height, &list, desc.rows, &mut cell, label) };
+    let (callback, user) = (desc.cell, desc.user);
+    let mut bad_text = false;
+    let mut clicked = None;
+    let rc = unsafe { crate::trusted::table(ui, (desc.at[0], desc.at[1]), desc.width, desc.height, &list, desc.rows, &mut |row, col, put| {
+        let Some(callback) = callback else { return put("") };
+        match text(callback(user, row, col)) { Some(value) => put(value), None => { bad_text = true; put("") } }
+    }, label, &mut clicked) };
     state.shared().put_strs(list);
+    if rc != 0 { return rc; }
     if bad_text { return unsafe { fail(ui, "invalid table cell callback text") }; }
     unsafe { *clicked_row = clicked.unwrap_or(-1); }
     0

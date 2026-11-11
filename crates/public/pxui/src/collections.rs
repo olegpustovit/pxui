@@ -1,6 +1,4 @@
-use crate::{composite::{defer_callback_panic, deferred, resume_deferred}, check, Strs, Ui};
-use core::{ffi::c_void, panic::AssertUnwindSafe};
-use pxui_types::{Str, ffi::Slice};
+use crate::{check, Ui};
 
 /// A node of a preorder tree: its depth and whether it has children (not 0). The layout is the library's, so a slice of
 /// these crosses the ABI as it is.
@@ -8,116 +6,151 @@ use pxui_types::{Str, ffi::Slice};
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct TreeNode { pub depth: u16, pub children: u8 }
 
-use pxui_types::ffi::{PxuiCollectionEmit as Emit, PxuiF32MutSpan as F32MutSpan, PxuiListViewDesc as ListViewDesc, PxuiTableViewDesc as TableViewDesc, PxuiTreeNode as TreeNodeDesc, PxuiTreeViewDesc as TreeViewDesc, PxuiU32MutSpan as U32MutSpan, PxuiU8MutSpan as U8MutSpan};
-
+use pxui_types::ffi::PxuiTreeNode as TreeNodeDesc;
 const _: () = assert!(core::mem::size_of::<TreeNode>() == core::mem::size_of::<TreeNodeDesc>() && core::mem::align_of::<TreeNode>() == core::mem::align_of::<TreeNodeDesc>());
 
-#[cfg(feature = "static")]
-mod sys {
-    pub use pxui_abi_link::{pxui_ui_list_view, pxui_ui_table_view, pxui_ui_tree};
-}
+// The C-callback side of the collections (the dynamic build): trampolines the library calls for a row's text.
 #[cfg(not(feature = "static"))]
-mod sys {
-    use super::{ListViewDesc, TableViewDesc, TreeViewDesc};
-    use crate::sys::PxuiUi;
+mod link {
+    use super::*;
+    use crate::composite::{defer_callback_panic, deferred};
+    use core::{ffi::c_void, panic::AssertUnwindSafe};
+    use pxui_types::{Str, ffi::{PxuiCollectionEmit as Emit, PxuiF32MutSpan as F32MutSpan, PxuiListViewDesc as ListViewDesc, PxuiTableViewDesc as TableViewDesc, PxuiTreeViewDesc as TreeViewDesc, PxuiU32MutSpan as U32MutSpan, PxuiU8MutSpan as U8MutSpan, Slice}};
+
     #[link(name = "pxui")]
     unsafe extern "C" {
-        pub fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const ListViewDesc, out: *mut usize) -> i32;
-        pub fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const TreeViewDesc, out: *mut usize) -> i32;
-        pub fn pxui_ui_table_view(ui: *mut PxuiUi, desc: *const TableViewDesc, out: *mut usize) -> i32;
+        fn pxui_ui_list_view(ui: *mut crate::sys::PxuiUi, desc: *const ListViewDesc, out: *mut usize) -> i32;
+        fn pxui_ui_tree(ui: *mut crate::sys::PxuiUi, desc: *const TreeViewDesc, out: *mut usize) -> i32;
+        fn pxui_ui_table_view(ui: *mut crate::sys::PxuiUi, desc: *const TableViewDesc, out: *mut usize) -> i32;
     }
-}
 
-#[inline]
-fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
+    #[inline]
+    fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
-// The context hands out its trampoline and its user pointer from one method, so the two cannot name different types.
-struct Callback<F> { f: F }
-type TextFn = Option<extern "C" fn(*mut c_void, usize, usize, Emit, *mut c_void)>;
-impl<F: FnMut(usize, &mut dyn FnMut(&str))> Callback<F> {
-    fn list(&mut self) -> (TextFn, *mut c_void) { (Some(call_list::<F>), (self as *mut Self).cast()) }
-}
-struct TableCallback<F> { f: F }
-impl<F: FnMut(usize, usize, &mut dyn FnMut(&str))> TableCallback<F> {
-    fn table(&mut self) -> (TextFn, *mut c_void) { (Some(call_table::<F>), (self as *mut Self).cast()) }
-}
-extern "C" fn call_list<F: FnMut(usize, &mut dyn FnMut(&str))>(user: *mut c_void, row: usize, _column: usize, emit: Emit, emit_user: *mut c_void) {
-    if deferred() { return; }
-    let state = unsafe { &mut *user.cast::<Callback<F>>() };
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut put = |s: &str| { if let Some(emit) = emit { emit(emit_user, as_str(s)); } };
-        (state.f)(row, &mut put);
-    }));
-    if let Err(panic) = result { defer_callback_panic(panic); }
-}
-extern "C" fn call_table<F: FnMut(usize, usize, &mut dyn FnMut(&str))>(user: *mut c_void, row: usize, column: usize, emit: Emit, emit_user: *mut c_void) {
-    if deferred() { return; }
-    let state = unsafe { &mut *user.cast::<TableCallback<F>>() };
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut put = |s: &str| { if let Some(emit) = emit { emit(emit_user, as_str(s)); } };
-        (state.f)(row, column, &mut put);
-    }));
-    if let Err(panic) = result { defer_callback_panic(panic); }
+    // The context hands out its trampoline and its user pointer from one method, so the two cannot name different types.
+    struct Callback<F> { f: F }
+    type TextFn = Option<extern "C" fn(*mut c_void, usize, usize, Emit, *mut c_void)>;
+    impl<F: FnMut(usize, &mut dyn FnMut(&str))> Callback<F> {
+        fn list(&mut self) -> (TextFn, *mut c_void) { (Some(call_list::<F>), (self as *mut Self).cast()) }
+    }
+    struct TableCallback<F> { f: F }
+    impl<F: FnMut(usize, usize, &mut dyn FnMut(&str))> TableCallback<F> {
+        fn table(&mut self) -> (TextFn, *mut c_void) { (Some(call_table::<F>), (self as *mut Self).cast()) }
+    }
+    extern "C" fn call_list<F: FnMut(usize, &mut dyn FnMut(&str))>(user: *mut c_void, row: usize, _column: usize, emit: Emit, emit_user: *mut c_void) {
+        if deferred() { return; }
+        let state = unsafe { &mut *user.cast::<Callback<F>>() };
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let mut put = |s: &str| { if let Some(emit) = emit { emit(emit_user, as_str(s)); } };
+            (state.f)(row, &mut put);
+        }));
+        if let Err(panic) = result { defer_callback_panic(panic); }
+    }
+    extern "C" fn call_table<F: FnMut(usize, usize, &mut dyn FnMut(&str))>(user: *mut c_void, row: usize, column: usize, emit: Emit, emit_user: *mut c_void) {
+        if deferred() { return; }
+        let state = unsafe { &mut *user.cast::<TableCallback<F>>() };
+        let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+            let mut put = |s: &str| { if let Some(emit) = emit { emit(emit_user, as_str(s)); } };
+            (state.f)(row, column, &mut put);
+        }));
+        if let Err(panic) = result { defer_callback_panic(panic); }
+    }
+
+    impl Ui {
+        pub(super) fn list_view_c<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], text: F) -> Option<usize> {
+            let mut context = Callback { f: text };
+            let (text, user) = context.list();
+            let desc = ListViewDesc {
+                size: core::mem::size_of::<ListViewDesc>() as u32, label: as_str(label), count, multi: multi as u8, reserved: [0; 3],
+                selected: U8MutSpan { ptr: selected.as_mut_ptr(), len: selected.len() },
+                text, user,
+            };
+            let mut out = usize::MAX;
+            let rc = unsafe { pxui_ui_list_view(self.0.as_ptr(), &desc, &mut out) };
+            crate::composite::resume_deferred();
+            check(self, rc);
+            (out != usize::MAX).then_some(out)
+        }
+
+        pub(super) fn tree_c<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], text: F) -> (Option<usize>, usize) {
+            let mut rows_len = 0usize;
+            let mut selected_raw = selected.unwrap_or(usize::MAX);
+            let mut context = Callback { f: text };
+            let (text, user) = context.list();
+            let desc = TreeViewDesc {
+                size: core::mem::size_of::<TreeViewDesc>() as u32, reserved: 0, label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
+                open: U8MutSpan { ptr: open.as_mut_ptr(), len: open.len() }, selected: &mut selected_raw,
+                visible: U32MutSpan { ptr: visible.as_mut_ptr(), len: visible.len() }, visible_len: &mut rows_len,
+                text, user,
+            };
+            let mut out = usize::MAX;
+            let rc = unsafe { pxui_ui_tree(self.0.as_ptr(), &desc, &mut out) };
+            crate::composite::resume_deferred();
+            check(self, rc);
+            *selected = (selected_raw != usize::MAX).then_some(selected_raw);
+            ((out != usize::MAX).then_some(out), rows_len)
+        }
+
+        pub(super) fn table_view_c<F: FnMut(usize, usize, &mut dyn FnMut(&str))>(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: F) -> Option<usize> {
+            let titles = crate::Strs::new(titles);
+            let mut context = TableCallback { f: cell };
+            let (text, user) = context.table();
+            let mut selected_raw = selected.unwrap_or(usize::MAX);
+            let desc = TableViewDesc {
+                size: core::mem::size_of::<TableViewDesc>() as u32, label: as_str(label), titles: titles.span(),
+                widths: F32MutSpan { ptr: widths.as_mut_ptr(), len: widths.len() }, rows,
+                has_sort: sort.is_some() as u8, ascending: sort.map_or(0, |(_, ascending)| ascending as u8), reserved: [0; 2],
+                sort_column: sort.map_or(0, |(column, _)| column), selected: &mut selected_raw,
+                text, user,
+            };
+            let mut out = usize::MAX;
+            let rc = unsafe { pxui_ui_table_view(self.0.as_ptr(), &desc, &mut out) };
+            crate::composite::resume_deferred();
+            check(self, rc);
+            *selected = (selected_raw != usize::MAX).then_some(selected_raw);
+            (out != usize::MAX).then_some(out)
+        }
+    }
 }
 
 impl Ui {
     /// Builds a virtual list. `selected` has one flag per row (not 0: selected); the result is an activated row. The flags are
     /// the library's own storage for the call: nothing is copied or scanned.
     #[track_caller] pub fn list_view<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], text: F) -> Option<usize> {
-        let mut context = Callback { f: text };
-        let (text, user) = context.list();
-        let desc = ListViewDesc {
-            size: core::mem::size_of::<ListViewDesc>() as u32, label: as_str(label), count, multi: multi as u8, reserved: [0; 3],
-            selected: U8MutSpan { ptr: selected.as_mut_ptr(), len: selected.len() },
-            text, user,
-        };
-        let mut out = usize::MAX;
-        let rc = unsafe { sys::pxui_ui_list_view(self.0.as_ptr(), &desc, &mut out) };
-        resume_deferred();
-        check(self, rc);
-        (out != usize::MAX).then_some(out)
+        #[cfg(feature = "static")]
+        {
+            let (mut text, mut out) = (text, None);
+            check(self, unsafe { pxui_abi_link::trusted::list_view(self.0.as_ptr(), label, count, multi, selected, &mut text, &mut out) });
+            out
+        }
+        #[cfg(not(feature = "static"))]
+        self.list_view_c(label, count, multi, selected, text)
     }
 
     /// Builds a preorder virtual tree. The library writes the shown rows into the start of `visible` (at least a row per node);
     /// the result is an activated node and the number of rows shown.
     #[track_caller] pub fn tree<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], text: F) -> (Option<usize>, usize) {
-        let mut rows_len = 0usize;
-        let mut selected_raw = selected.unwrap_or(usize::MAX);
-        let mut context = Callback { f: text };
-        let (text, user) = context.list();
-        let desc = TreeViewDesc {
-            size: core::mem::size_of::<TreeViewDesc>() as u32, reserved: 0, label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
-            open: U8MutSpan { ptr: open.as_mut_ptr(), len: open.len() }, selected: &mut selected_raw,
-            visible: U32MutSpan { ptr: visible.as_mut_ptr(), len: visible.len() }, visible_len: &mut rows_len,
-            text, user,
-        };
-        let mut out = usize::MAX;
-        let rc = unsafe { sys::pxui_ui_tree(self.0.as_ptr(), &desc, &mut out) };
-        resume_deferred();
-        check(self, rc);
-        *selected = (selected_raw != usize::MAX).then_some(selected_raw);
-        ((out != usize::MAX).then_some(out), rows_len)
+        #[cfg(feature = "static")]
+        {
+            let (mut text, mut out) = (text, (None, 0));
+            let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<TreeNodeDesc>(), nodes.len()) };
+            check(self, unsafe { pxui_abi_link::trusted::tree(self.0.as_ptr(), label, nodes, open, selected, visible, &mut text, &mut out) });
+            out
+        }
+        #[cfg(not(feature = "static"))]
+        self.tree_c(label, nodes, open, selected, visible, text)
     }
 
     /// Builds a virtual table. Widths and selection are updated in place; the result is a sorted column.
     #[track_caller] pub fn table_view<F: FnMut(usize, usize, &mut dyn FnMut(&str))>(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: F) -> Option<usize> {
-        let titles = Strs::new(titles);
-        let mut context = TableCallback { f: cell };
-        let (text, user) = context.table();
-        let mut selected_raw = selected.unwrap_or(usize::MAX);
-        let desc = TableViewDesc {
-            size: core::mem::size_of::<TableViewDesc>() as u32, label: as_str(label), titles: titles.span(),
-            widths: F32MutSpan { ptr: widths.as_mut_ptr(), len: widths.len() }, rows,
-            has_sort: sort.is_some() as u8, ascending: sort.map_or(0, |(_, ascending)| ascending as u8), reserved: [0; 2],
-            sort_column: sort.map_or(0, |(column, _)| column), selected: &mut selected_raw,
-            text, user,
-        };
-        let mut out = usize::MAX;
-        let rc = unsafe { sys::pxui_ui_table_view(self.0.as_ptr(), &desc, &mut out) };
-        resume_deferred();
-        check(self, rc);
-        *selected = (selected_raw != usize::MAX).then_some(selected_raw);
-        (out != usize::MAX).then_some(out)
+        #[cfg(feature = "static")]
+        {
+            let (mut cell, mut out) = (cell, None);
+            check(self, unsafe { pxui_abi_link::trusted::table_view(self.0.as_ptr(), label, titles, widths, rows, sort, selected, &mut cell, &mut out) });
+            out
+        }
+        #[cfg(not(feature = "static"))]
+        self.table_view_c(label, titles, widths, rows, sort, selected, cell)
     }
 }
 

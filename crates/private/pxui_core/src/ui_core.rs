@@ -5272,6 +5272,18 @@ impl Ui {
         self.output()
     }
 
+    /// Leaves a frame whose build panicked (the panic goes on to the app): the next `frame` starts clean, and every kept view is
+    /// built again, as one the panic stopped part way has nodes that are not its own.
+    pub fn abandon_frame(&mut self) {
+        self.building = false;
+        self.settle = false;
+        self.view_cur = 0;
+        self.theme_depth = 0;
+        self.parents.clear();
+        self.seeds.clear();
+        self.epoch += 1;
+    }
+
     pub fn begin_frame(&mut self, frame: &rframe::Frame) {
         if self.destroyed {
             panic!("Ui.frame: the UI was destroyed");

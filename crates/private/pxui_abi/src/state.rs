@@ -30,6 +30,8 @@ pub(crate) struct Shared {
     /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
     pub paint_error: bool,
     pub in_frame: bool,
+    /// a frame ended since the output was last built: its next build refreshes the accessibility records too
+    pub frame_ended: bool,
     /// renderers created on this `Ui`: each holds a raw pointer to the engine, so it outlives none of them
     pub renderers: u32,
     /// text handed to C (an edited field, the picker query), valid until the next frame
@@ -38,7 +40,7 @@ pub(crate) struct Shared {
     pub grid_tracks: HashMap<i64, Rc<[Track]>>,
     /// replaced track slices, freed at the end of the frame (the old node may still borrow them until then)
     pub grid_retired: Vec<Rc<[Track]>>,
-    /// the output of the last frame, built once in `finish_frame` into these buffers
+    /// the output of the last frame, built into these buffers when it is read (`pxui_ui_output`)
     pub output: Output,
     pub nodes: Vec<A11yNode>,
     pub layers: Vec<pxui_types::ffi::PxuiLayerInfo>,
@@ -74,7 +76,7 @@ impl Shared {
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs = strs; }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, paint_error: false, in_frame: false, renderers: 0, returned: Vec::new(),
+            error: String::new(), poisoned: false, paint_error: false, in_frame: false, frame_ended: false, renderers: 0, returned: Vec::new(),
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), menus: Vec::new(),
@@ -103,12 +105,19 @@ impl PxuiUi {
     }
 }
 
+/// What a trusted entry runs for a container's children: it gets the borrowed handle of the engine being built. The C exports wrap
+/// their `Build` and user pointer in one (`|ui| build(user, ui.cast())`); the static wrapper passes its own closure.
+pub type Inner<'a> = &'a mut dyn FnMut(*mut PxuiUi);
+
+/// Calls `f` with a borrowed handle over `engine`.
+pub(crate) fn call_inner(shared: *mut Shared, engine: &mut Ui, f: Inner) {
+    let mut borrowed = PxuiUi::borrowed(engine, shared);
+    f(&mut borrowed);
+}
+
 /// Calls `build` with a borrowed handle over `engine`.
 pub(crate) fn call_build(shared: *mut Shared, engine: &mut Ui, build: Build, user: *mut c_void) {
-    if let Some(build) = build {
-        let mut borrowed = PxuiUi::borrowed(engine, shared);
-        build(user, (&mut borrowed as *mut PxuiUi).cast());
-    }
+    if let Some(build) = build { call_inner(shared, engine, &mut |ui| build(user, ui.cast())); }
 }
 
 pub use pxui_types::ffi::UiBuild as Build;

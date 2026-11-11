@@ -111,6 +111,7 @@ pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their
 pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/private/pxui_abi/src/lib.rs", "the stable ABI requires an unmangled C symbol export"),
     ("crates/private/pxui_abi/src/macros.rs", "the export macro declares the unmangled C symbols and wraps each body against unwinding"),
+    ("crates/private/pxui_abi/src/trusted.rs", "the entries the static wrapper calls without the C checks: raw handles in, the same bodies the exports run"),
     ("crates/private/pxui_abi/src/state.rs", "the Ui handle's shared state and the helpers that decode caller-owned C pointers"),
     ("crates/private/pxui_abi/src/ui.rs", "creates and frees the Ui and decodes caller-owned frame, theme and event buffers at the C ABI boundary"),
     ("crates/private/pxui_abi/src/safety.rs", "tests the exports through raw C handles"),

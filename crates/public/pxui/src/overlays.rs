@@ -7,7 +7,7 @@ pub use crate::opts::PickerOpts;
 
 #[cfg(feature = "static")]
 mod raw {
-    pub use pxui_abi_link::{pxui_ui_context_menu, pxui_ui_picker, pxui_ui_tip, pxui_ui_toasts};
+    pub use pxui_abi_link::{pxui_ui_context_menu, pxui_ui_picker, pxui_ui_toasts};
 }
 
 #[cfg(not(feature = "static"))]
@@ -66,6 +66,9 @@ extern "C" fn rows<F: FnMut(&str, &mut Vec<(String, String)>) + ?Sized>(user: *m
 impl Ui {
     #[inline]
     #[track_caller] pub fn tip(&mut self, box_: &PxuiBox, text: &str)  {
+        #[cfg(feature = "static")]
+        check(self, unsafe { pxui_abi_link::trusted::tip(self.0.as_ptr(), box_, text) });
+        #[cfg(not(feature = "static"))]
         check(self, unsafe { raw::pxui_ui_tip(self.0.as_ptr(), box_, as_str(text)) })
     }
 

@@ -2,8 +2,8 @@ use pxui_types::{Str, Mark, Node, PxuiBox, Size, theme::{Font, Look, Shadow}, ff
 use crate::{check, Ui};
 
 library!(sys {
-    fn pxui_ui_node(ui:*mut PxuiUi,label:Str,node:*const Node,out:*mut PxuiBox)->i32;
-    fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,node:*const Node,out:*mut PxuiBox)->i32;
+    #[trusted] fn pxui_ui_node(ui:*mut PxuiUi,label:Str,node:&Node,out:*mut PxuiBox)->i32;
+    #[trusted] fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,node:&Node,out:*mut PxuiBox)->i32;
 });
 
 pub(crate) fn size(s:Size)->PxuiSizeDesc { match s {Size::Px(value)=>PxuiSizeDesc{kind:0,value,relative:None},Size::Pct(value)=>PxuiSizeDesc{kind:1,value,relative:None},Size::Rel(relative)=>PxuiSizeDesc{kind:2,value:0.0,relative:Some(relative)},Size::Grow=>PxuiSizeDesc{kind:3,value:0.0,relative:None},Size::Fit=>PxuiSizeDesc{kind:4,value:0.0,relative:None}} }
