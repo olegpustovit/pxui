@@ -88,6 +88,8 @@ pub struct Window {
     extent: Extent,
     started: Instant,
     dead: bool,
+    /// the last extent re-read that failed (`take_failure`); the next pump tries again
+    failure: Option<Error>,
 }
 
 fn fail(failure: sdl3::Error) -> Error {
@@ -192,6 +194,7 @@ impl Window {
                 extent,
                 started: Instant::now(),
                 dead: false,
+                failure: None,
             })
         };
         let created = build();
@@ -220,9 +223,18 @@ impl Window {
                 }
             }
         }
-        // ponytail: a failed re-read keeps the last extent; surfacing it needs a pump error channel
-        let _ = self.sync();
+        // a failed re-read keeps the last extent, is reported by `take_failure` and is retried
+        if let Err(error) = self.sync() {
+            change_flag::announce(&mut self.changed);
+            self.failure = Some(error);
+        }
         open
+    }
+
+    /// The last failure to re-read the window's extent after a resize (the extent kept the last
+    /// good one), taken.
+    pub fn take_failure(&mut self) -> Option<Error> {
+        self.failure.take()
     }
 
     /// Sleeps until an event arrives or `deadline` (seconds on the `time` clock) passes; `None` waits

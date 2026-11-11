@@ -33,6 +33,8 @@ fn window_visibility() {
     for _ in 0..20 {
         window.pump(&mut events);
     }
+    // the resize's extent re-reads succeeded: nothing to report
+    assert!(window.take_failure().is_none(), "an extent re-read failed");
     let start = window.time();
     window.wait(Some(start + 0.05));
     let slept = window.time() - start;
