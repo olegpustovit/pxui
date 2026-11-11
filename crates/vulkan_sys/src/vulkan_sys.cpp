@@ -3,6 +3,7 @@
 #define VK_USE_PLATFORM_WIN32_KHR
 #define NOMINMAX
 #define WIN32_LEAN_AND_MEAN
+#include <chrono>
 #include <windows.h>
 #undef interface
 #else
@@ -415,7 +416,13 @@ int create_device(bool validation, bool fatal, Device **out) {
 void destroy_semaphore_now(Device *d, void *payload) { vkDestroySemaphore(d->device, reinterpret_cast<VkSemaphore>(payload), nullptr); }
 void defer(Device *d, void (*destroy)(Device *, void *), void *payload) {
   auto *g = new (std::nothrow) Garbage{nullptr, 0, destroy, payload};
-  if (!g) return; // ponytail: OOM leaks a possibly in-flight resource; preallocate garbage nodes if this occurs.
+  if (!g) {
+    // no node to queue it on: wait until nothing can use it, then destroy it now (no leak)
+    std::lock_guard<std::recursive_mutex> lock(d->qlock);
+    vkDeviceWaitIdle(d->device);
+    destroy(d, payload);
+    return;
+  }
   std::lock_guard<std::recursive_mutex> lock(d->qlock);
   g->tick = d->next_tick;
   g->next = d->garbage; d->garbage = g;
@@ -1229,8 +1236,14 @@ int32_t rv_sync_file_export(void *device, int32_t *fd) {
   defer(d, destroy_semaphore_now, reinterpret_cast<void *>(sem)); return r;
 }
 int32_t rv_sync_file_wait(int32_t fd, int32_t timeout_ms, uint8_t *ready) {
-  // ponytail: EINTR restarts the full timeout; track the deadline if a signal-heavy host needs exact waits.
-  pollfd p{fd, POLLIN, 0}; int r; do r = poll(&p, 1, timeout_ms); while (r < 0 && errno == EINTR);
+  // a signal restarts the wait for what is left of the timeout
+  auto end = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms < 0 ? 0 : timeout_ms);
+  pollfd p{fd, POLLIN, 0}; int r;
+  do {
+    long long rest = std::chrono::duration_cast<std::chrono::milliseconds>(end - std::chrono::steady_clock::now()).count();
+    int left = timeout_ms < 0 ? -1 : rest > 0 ? (int)rest : 0;
+    r = poll(&p, 1, left);
+  } while (r < 0 && errno == EINTR);
   if (r < 0) return VK_ERROR_UNKNOWN;
   *ready = r > 0; return VK_SUCCESS;
 }
