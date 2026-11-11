@@ -611,7 +611,68 @@ pub fn window_pxui_view_fit() {
     ui.destroy();
 }
 
+/// A `kept_drag` slider field in a kept view: its drag dirties no view (`DRAG_FREE`), the owner reads
+/// it after the frame (`field_drag`) and patches the value and line (`patch_field`); what shows then is
+/// what the field's own build of that drag shows (its release, at the same point).
+pub fn window_pxui_field_kept_drag() {
+    use std::cell::RefCell;
+    use std::rc::Rc;
+    let mut ui = new_ui(None);
+    let value = RefCell::new("0.25".to_owned());
+    let (builds, key) = (Cell::new(0), Cell::new(0));
+    let opts = |current: &str| ValueFieldOpts {
+        fraction: current.parse::<f32>().ok(),
+        slide: Some(Rc::new(|f: f32| cfmt::g(f64::from(f), 3))),
+        kept_drag: true,
+        ..ValueFieldOpts::default()
+    };
+    let mut build = |ui: &mut Ui| {
+        let current = value.borrow().clone();
+        ui.view("v", 1, Size::Px(200.0), Size::Px(40.0), &mut |ui| {
+            builds.set(builds.get() + 1);
+            let wrap = ui.box_("wrap", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(40.0)));
+            key.set(pxui::ui_core::key_of(wrap.box_key, "field"));
+            ui.within(&wrap, &mut |ui| *value.borrow_mut() = ui.value_field((20.0, 10.0), 100.0, 20.0, &opts(&current), &|_| true, "field", &current).0);
+        });
+    };
+    let at = |x: i64| ((x, 20), (x as f64, 20.0));
+    let mut t = 0.0;
+    let mut go = |ui: &mut Ui, events: Vec<Event>, pointer: (f64, f64), held: bool| {
+        t += 0.1;
+        let mut fr = frame_at(vec![], 2.0, t, events);
+        fr.input.pointer = pointer;
+        fr.input.buttons = if held { vec![input::MouseButton::LeftButton] } else { vec![] };
+        ui.frame(&fr, &mut build);
+    };
+    go(&mut ui, vec![], (0.0, 0.0), false);
+    go(&mut ui, vec![], (0.0, 0.0), false);
+    let (p, q) = at(40);
+    go(&mut ui, vec![move_to(p), press(p)], q, true);
+    let pressed = value.borrow().clone();
+    let (p, q) = at(70);
+    let before = builds.get();
+    go(&mut ui, vec![move_to(p)], q, true);
+    check(ui.rebuilt_views() == 0 && builds.get() == before, "a drag of a kept_drag field rebuilt its view");
+    let field = ui.box_of_key(key.get()).expect("the field");
+    let (fraction, dx) = ui.field_drag(&field).expect("the field's drag");
+    check(dx == 30.0, &format!("the drag's points from the press: {dx}"));
+    let text = cfmt::g(f64::from(fraction), 3);
+    check(text != pressed && ui.patch_field(&field, &opts(&pressed), &text), "patch_field refused");
+    let shown = |ui: &Ui| {
+        let mut v: Vec<_> = ui.output().draw[0].instances.iter().filter(|i| **i != pxui::draw::Instance::DEFAULT).map(|i| (i.kind, i.rect.map(f32::to_bits), i.color)).collect();
+        v.sort();
+        v
+    };
+    let patched = shown(&ui);
+    // the release at the same point: the field builds what it shows
+    go(&mut ui, vec![release(p)], q, false);
+    check(builds.get() == before + 1 && *value.borrow() == text, &format!("the release built {} times, value {}", builds.get() - before, value.borrow()));
+    check(shown(&ui) == patched, "the patched field differs from its build");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_field_kept_drag", window_pxui_field_kept_drag),
     ("window_pxui_budget_counts", window_pxui_budget_counts),
     ("window_pxui_budget_cached_per_view", window_pxui_budget_cached_per_view),
     ("window_pxui_budget_zero_alloc", window_pxui_budget_zero_alloc),

@@ -211,6 +211,10 @@ pub const HOVER_FREE: Flags = 262144;
 /// The node's square look paints its fill and border instances even when they are clear, so a
 /// patch to a look that shows them rewrites its range in place (it never grows the layer).
 pub const KEEP_ROOM: Flags = 524288;
+/// Nothing the node's view builds follows a drag of it: while the pointer holds it and only moves
+/// (no press, release or key), its view is not dirtied. The owner reads the drag between builds
+/// (`signal` on the kept handle; `field_drag` for a `value_field`) and patches what shows it.
+pub const DRAG_FREE: Flags = 1048576;
 const HIT_FLAGS: Flags = CLICKABLE | FOCUSABLE | SCROLL | SCROLL_X | BLOCKING | CAPTURE_UNCLAIMED;
 
 /// What a carry holds: a `kind` and a `value`, both strings.
@@ -6743,9 +6747,16 @@ impl Ui {
     fn mark_input(&mut self) {
         let mut marks = std::mem::take(&mut self.marks);
         marks.clear();
-        marks.extend(self.signals.keys().copied());
+        // a drag-free node held and moved (no press, release or key) dirties nothing
+        let drag_free = |ui: &Ui, key: i64| ui.active == Some(key) && ui.table.find(key).is_some_and(|slot| ui.slots[slot].node.flags & DRAG_FREE != 0);
+        marks.extend(self.signals.iter().filter(|(k, a)| !(drag_free(self, **k) && !a.pressed && !a.released && !a.clicked && a.keys.is_empty())).map(|(k, _)| *k));
         let (hot, focus, keyboard, carrying) = self.seen;
-        let now = (self.hot, self.focus, self.keyboard_focus, self.payload.is_some());
+        let mut now = (self.hot, self.focus, self.keyboard_focus, self.payload.is_some());
+        // while a drag-free node holds the capture the pointer's hover waits: the views it passed
+        // over follow it when the drag ends
+        if self.active.is_some_and(|k| drag_free(self, k)) {
+            now.0 = hot;
+        }
         if now.3 != carrying {
             marks.extend([hot, now.0]);
         } else if now.0 != hot {
@@ -6761,7 +6772,7 @@ impl Ui {
         // the focused view paints the caret and the input method's area every frame
         marks.push(now.1);
         // the view holding the pointer capture follows the gesture (and its keys) every frame
-        marks.extend(self.active);
+        marks.extend(self.active.filter(|k| !drag_free(self, *k)));
         for key in &marks {
             self.mark_key(*key);
         }
@@ -7443,6 +7454,10 @@ impl Ui {
 
     pub(crate) fn slot_rw(&self, slot: usize) -> f32 {
         self.slots[slot].rw
+    }
+
+    pub(crate) fn box_flags(&self, b: &UiBox) -> Flags {
+        self.slots[b.box_slot].node.flags
     }
 
     pub(crate) fn set_flags_of_box(&mut self, b: &UiBox, flags: Flags) {

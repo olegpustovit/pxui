@@ -490,7 +490,11 @@ sorted list (64 in a layer, 16 per painter copy); past the cap the two closest m
    since its build is not checked, nor a view holding one so patched). A node flagged `HOVER_FREE` dirties no view when the hover
    enters or leaves it (the app reads `hovered_within`, or `hovered_exactly` for the topmost box
 itself, and patches); a node flagged `KEEP_ROOM` paints its square look's fill and border even
-clear, so a patch that shows them rewrites its range in place; a patch made while building
+clear, so a patch that shows them rewrites its range in place; a node flagged `DRAG_FREE` dirties no
+view while the pointer holds it and only moves, and the hover waits until the drag ends (a
+`value_field` with `kept_drag`: the owner reads `field_drag` after the frame and writes the value
+and its line with `patch_field`); `Mark::Line` draws a line across a node's rectangle (`patch_mark`
+turns it over; `local_rect` is the rectangle `patch_rect` takes); a patch made while building
    reaches a kept view's node after the paint; `view_transform_about` scales about a fixed window
    point. `ui.built_nodes()` counts the last build's declared nodes, `ui.rebuilt_views()` the views it built rather than kept.
 

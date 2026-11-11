@@ -742,6 +742,9 @@ pub struct ValueFieldOpts {
     pub bare: bool,
     pub placeholder: Option<String>,
     pub tracking: Option<f32>,
+    /// the owner follows a drag of the slider between builds (`field_drag`, `patch_field`): the
+    /// drag dirties no view (`DRAG_FREE`)
+    pub kept_drag: bool,
 }
 
 impl Default for ValueFieldOpts {
@@ -760,6 +763,7 @@ impl Default for ValueFieldOpts {
             bare: false,
             placeholder: None,
             tracking: None,
+            kept_drag: false,
         }
     }
 }
@@ -775,6 +779,48 @@ impl Ui {
     #[allow(clippy::too_many_arguments)]
     pub fn value_field(&mut self, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (String, bool) {
         value_field_body(self, at, w, h, o, valid, label, value)
+    }
+
+    /// A `kept_drag` slider field held and dragged by the left button this frame, its view kept: the
+    /// fraction of its track under the pointer (what `slide` takes) and the pointer's points from
+    /// the press (what `scrub` takes), as its build would read them. `None` on any other frame (a
+    /// press, a release, typing: its view builds and the field reads them itself).
+    pub fn field_drag(&self, field: &UiBox) -> Option<(f32, f32)> {
+        if !self.live(field) || self.box_flags(field) & DRAG_FREE == 0 {
+            return None;
+        }
+        let signal = self.signal(field);
+        let pure = signal.held && !signal.pressed && !signal.released && signal.button == Some(MouseButton::LeftButton) && signal.keys.is_empty();
+        let alt = self.press_keys(field).contains(&Key::Alt);
+        (pure && !alt).then(|| (fraction_at(ints(self.rect(field)), signal.pointer.0), signal.pointer.0 - signal.press_point.0))
+    }
+
+    /// A `value_field`'s value (`text`) and soft-range line (`o.fraction`) written by patches, as its
+    /// build lays them out without a lead or a trail (`o.left`, `o.size`). False when a patch cannot
+    /// show it (the line had no width when built, the handle is stale): build the field's view.
+    pub fn patch_field(&mut self, field: &UiBox, o: &ValueFieldOpts, text: &str) -> bool {
+        let (Some(value), true) = (self.box_of_key(int_key(field.box_key, 1)), self.live(field)) else { return false };
+        let at = self.local_rect(field);
+        let mut ok = true;
+        if let Some(f) = o.fraction {
+            let width = (at.w * 0.0f32.max(1.0f32.min(f))).max(0.0);
+            match self.box_of_key(int_key(field.box_key, 0)) {
+                Some(line) if self.local_rect(&line).w > 0.0 || width == 0.0 => {
+                    let r = self.local_rect(&line);
+                    if r.w != width {
+                        ok &= self.patch_rect(&line, Rect::new(r.x, r.y, width, r.h));
+                    }
+                }
+                _ => return false,
+            }
+        }
+        let width = self.text_width(o.size, text);
+        let r = self.local_rect(&value);
+        let x = at.x + if o.left { 2.0 } else { at.w - 2.0 - width };
+        if (r.x, r.w) != (x, width.max(1.0)) {
+            ok &= self.patch_rect(&value, Rect::new(x, r.y, width.max(1.0), r.h));
+        }
+        ok && self.patch_text(&value, text)
     }
 
     /// The head block of a panel, from the kit's inspector sheet: 12 above, a chips row (the kind
@@ -2644,13 +2690,14 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, rows_of:
 }
 
 fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (String, bool) {
+    let slider = o.slide.is_some() || o.scrub.is_some();
+    let drag = if slider && o.kept_drag { DRAG_FREE } else { NO_FLAGS };
     let bx = this.box_(
         label,
-        BoxOpts::default().flags(CLICKABLE | TAB_STOP | BLOCKING | CLIP).at(at).w(Size::Px(w)).h(Size::Px(h)),
+        BoxOpts::default().flags(CLICKABLE | TAB_STOP | BLOCKING | CLIP | drag).at(at).w(Size::Px(w)).h(Size::Px(h)),
     );
     let signal = this.signal(&bx);
     let bounds = ints(this.rect(&bx));
-    let slider = o.slide.is_some() || o.scrub.is_some();
     let keys = this.key_events(&bx);
     let np = NumParams {
         size: o.size,
