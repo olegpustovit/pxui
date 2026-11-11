@@ -514,6 +514,33 @@ pub fn window_pxui_budget_zero_alloc() {
 /// Content-sized views: a `Fit` view kept is laid out at the size its last build measured; one that
 /// rebuilds and grows or shrinks re-lays out its column in that frame, and the kept views after it
 /// move through their table entries (not rebuilt, no instance written, hit where they now show).
+/// A kept view whose own size changes (its parent shrank) is rebuilt within the frame: the frame's
+/// output already fills the new size (the frame settles; no stale frame).
+pub fn window_pxui_view_resize_settles() {
+    let mut ui = new_ui(None);
+    let (parent_h, runs) = (Cell::new(100.0f32), Cell::new(0));
+    let ink = color::rgb(1, 2, 3);
+    let mut build = |ui: &mut Ui| {
+        let col = ui.node("col", Node { w: Size::Px(200.0), h: Size::Px(parent_h.get()), ..Node::DEFAULT });
+        ui.within(&col, &mut |ui| {
+            ui.view("v", 1, Size::Grow, Size::Grow, &mut |ui| {
+                runs.set(runs.get() + 1);
+                let h = ui.node("fill", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                ui.canvas(&h, move |paint, r| paint.fill(r.x, r.y, r.w, r.h, ink));
+            });
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    let filled = |ui: &Ui| ui.output().draw[0].instances.iter().find(|i| i.color == [1, 2, 3, 255]).map(|i| i.rect[3] - i.rect[1]);
+    check(filled(&ui) == Some(100.0) && runs.get() == 1, &format!("first build {:?}", filled(&ui)));
+    parent_h.set(60.0);
+    ui.frame(&at(0.2, vec![]), &mut build);
+    check(filled(&ui) == Some(60.0) && runs.get() == 2, &format!("the resized view showed {:?} after {} builds", filled(&ui), runs.get()));
+    check(!ui.wants_frame(&[], 10.0), "a settled frame still asks for another");
+    ui.destroy();
+}
+
 pub fn window_pxui_view_fit() {
     let mut ui = new_ui(None);
     let (runs, rows_a) = ([Cell::new(0), Cell::new(0), Cell::new(0)], Cell::new(1usize));
@@ -594,6 +621,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_input", window_pxui_view_input),
     ("window_pxui_view_offset", window_pxui_view_offset),
     ("window_pxui_view_table_2000", window_pxui_view_table_2000),
+    ("window_pxui_view_resize_settles", window_pxui_view_resize_settles),
     ("window_pxui_view_kept_atlas_break", window_pxui_view_kept_atlas_break),
     ("window_pxui_view_damage", window_pxui_view_damage),
     ("window_pxui_view_kit_cached", window_pxui_view_kit_cached),

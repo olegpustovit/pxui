@@ -1227,6 +1227,9 @@ pub struct Ui {
     grid_rows: std::cell::Cell<Vec<f32>>,
     /// this walk copied a kept view's run (nested views' spans follow, `a11y_relocate`)
     a11y_copied: bool,
+    /// layout found kept output stale: `frame` builds again (`settle`), with this quiet input
+    settle: bool,
+    quiet: Option<rframe::Frame>,
     /// `grow_line`'s pass stamp (`BoxRec::frozen`)
     grow_pass: u32,
     /// the text atlas's retirements and misses seen
@@ -1424,6 +1427,8 @@ impl Ui {
             temp_images: Vec::new(),
             atlas_events: (0, 0),
             grow_pass: 0,
+            settle: false,
+            quiet: None,
             a11y_copied: false,
             grid_rows: std::cell::Cell::new(Vec::new()),
             shifts: 0,
@@ -5684,10 +5689,32 @@ impl Ui {
     /// Route the frame's ordered events, run the builder, lay out, and paint. Tab/Shift-Tab
     /// traverse visible focusable boxes in presentation order, restricted to an open popup.
     /// Enter/Space activate controls.
+    /// One frame: build, lay out, paint. When layout finds kept output stale (a kept view resized,
+    /// moved without a table entry or in another layer, a virtual grid's columns or a scroll gutter
+    /// changed), the frame settles: it builds again at once with the same input minus its events (no
+    /// click or key is seen twice), at most twice, so no stale frame is shown.
     pub fn frame(&mut self, frame: &rframe::Frame, f: &mut dyn FnMut(&mut Ui)) -> FrameOut<'_> {
         self.begin_frame(frame);
         f(self);
         self.end_frame(frame);
+        for _ in 0..2 {
+            if !std::mem::take(&mut self.settle) {
+                break;
+            }
+            let mut quiet = self.quiet.take().unwrap_or_else(|| frame.clone());
+            quiet.input.t = frame.input.t;
+            quiet.input.dt = 0.0;
+            (quiet.input.frame, quiet.input.tick, quiet.input.size, quiet.input.pointer) = (frame.input.frame, frame.input.tick, frame.input.size, frame.input.pointer);
+            quiet.input.buttons.clone_from(&frame.input.buttons);
+            quiet.input.keys.clone_from(&frame.input.keys);
+            quiet.input.events.clear();
+            (quiet.pixel_scale, quiet.fps, quiet.mouse_delta) = (frame.pixel_scale, frame.fps, (0.0, 0.0));
+            self.begin_frame(&quiet);
+            f(self);
+            self.end_frame(&quiet);
+            self.quiet = Some(quiet);
+        }
+        self.settle = false;
         self.output()
     }
 
@@ -6721,10 +6748,10 @@ impl Ui {
             let moved = r.index == 0 && r.delta != (0.0, 0.0);
             let here = r.valid && r.layer == layer;
             if resized || moved || !here {
-                // ponytail: its old output shows for this frame (none when it changed layers); its
-                // next build, a frame later, fixes it.
+                // its build is stale: `frame` settles (builds again before it returns)
                 r.dirty = true;
                 self.frame_requested = true;
+                self.settle = true;
             }
             if here {
                 paint.keep(v);
