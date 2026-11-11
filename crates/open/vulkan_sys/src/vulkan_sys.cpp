@@ -144,6 +144,9 @@ struct Device {
   std::recursive_mutex qlock;
   Queue *upload_queue{};
   Command *upload{};
+  // The adopted command buffer (outside a pass) the app is recording now: a texture made while it is open takes its
+  // layout transition there, since the secondary upload buffer only runs at the next adoption.
+  Command *adopted_open{};
   std::mutex xlock;
   VkCommandPool transfer_pool{};
   VkCommandBuffer transfer_cb{};
@@ -757,6 +760,7 @@ int32_t rv_commands_adopt(void *queue, void *command_buffer, uint64_t serial, bo
     vkCmdExecuteCommands(c->cb, 1, &u->cb); full_barrier(c->cb);
     d->upload = nullptr; defer(d, recycle_upload_now, u);  // stamped `serial`: runs in this frame
   }
+  if (!inside_pass) d->adopted_open = c;
   *out = c; return VK_SUCCESS;
 }
 void *rv_commands_native(void *commands) { return reinterpret_cast<void *>(static_cast<Command *>(commands)->cb); }
@@ -768,7 +772,7 @@ void rv_commands_abandon(void *commands) {
   auto *c = static_cast<Command *>(commands);
   // The app's buffer is the app's to end; staging this copy wrote for it lives until the frame retires.
   // Staged writes recorded outside a pass end with one barrier before the app's next commands read them.
-  if (c->borrowed) { if (c->chunks) { if (!c->rendering) full_barrier(c->cb); defer(c->queue->device, release_chunks_now, c->chunks); } delete c; return; }
+  if (c->borrowed) { { std::lock_guard<std::recursive_mutex> lock(c->queue->device->qlock); if (c->queue->device->adopted_open == c) c->queue->device->adopted_open = nullptr; } if (c->chunks) { if (!c->rendering) full_barrier(c->cb); defer(c->queue->device, release_chunks_now, c->chunks); } delete c; return; }
   if (c->rendering) vkCmdEndRendering(c->cb); vkEndCommandBuffer(c->cb); cmd_recycle(c);
 }
 int32_t rv_buffer_create(void *device, uint64_t size, int32_t kind, void **out) {
@@ -879,7 +883,7 @@ static void push_descriptors(Command *c) {
 }
 static void before_dispatch(Command *c) { if (c->dispatched) full_barrier(c->cb); c->dispatched = true; push_descriptors(c); }
 static VkResult image_to_general(Device *d, Texture *t) {
-  std::lock_guard<std::recursive_mutex> lock(d->qlock); Command *u = upload_cmd(d); if (!u) return VK_ERROR_OUT_OF_HOST_MEMORY;
+  std::lock_guard<std::recursive_mutex> lock(d->qlock); Command *u = d->adopted_open ? d->adopted_open : upload_cmd(d); if (!u) return VK_ERROR_OUT_OF_HOST_MEMORY;
   VkImageMemoryBarrier2 b{VK_STRUCTURE_TYPE_IMAGE_MEMORY_BARRIER_2}; b.dstStageMask = VK_PIPELINE_STAGE_2_ALL_COMMANDS_BIT;
   b.dstAccessMask = VK_ACCESS_2_MEMORY_READ_BIT | VK_ACCESS_2_MEMORY_WRITE_BIT; b.oldLayout = VK_IMAGE_LAYOUT_UNDEFINED;
   b.newLayout = VK_IMAGE_LAYOUT_GENERAL; b.image = t->image; b.srcQueueFamilyIndex = b.dstQueueFamilyIndex = VK_QUEUE_FAMILY_IGNORED;
