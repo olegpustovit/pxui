@@ -596,7 +596,8 @@ struct ViewRec {
     /// `a11y_gen` is the tree's, and the shift its rects were taken under
     a11y_span: (u32, u32),
     a11y_gen: u64,
-    a11y_shift: ViewEntry,
+    /// the placement its rects were taken under: shift, scale, transform, pivot, composed affine
+    a11y_shift: [f32; 15],
     /// where its span started in the published tree when this walk copied it (`u32::MAX`: emitted)
     a11y_from: u32,
     /// the composed entry and the screen rectangle it shows
@@ -660,7 +661,7 @@ impl ViewRec {
             a11y_span: (0, 0),
             a11y_gen: 0,
             a11y_from: u32::MAX,
-            a11y_shift: ViewEntry { offset: [0.0; 2], opacity: 1.0, clip: [0.0; 4], scale: 1.0, transform: IDENTITY_2X2, pivot: [0.0; 2] },
+            a11y_shift: [0.0; 15],
             shift: (0.0, 0.0),
             alpha: 1.0,
             outer: UNBOUNDED,
@@ -1728,7 +1729,10 @@ impl Ui {
         let r = &self.views[v as usize];
         // what places its rects: the entry of the view that moves it (offset, transform, composed)
         let xf = &self.views[r.xf as usize];
-        let shift = ViewEntry { offset: [xf.shift.0, xf.shift.1], ..xf.entry() };
+        // its own transform and the composed one around it (`compose` keeps both)
+        let [t0, t1, t2, t3] = xf.transform;
+        let [a0, a1, a2, a3] = xf.pa;
+        let shift = [xf.shift.0, xf.shift.1, xf.scale, t0, t1, t2, t3, xf.pivot.0, xf.pivot.1, a0, a1, a2, a3, xf.pb[0], xf.pb[1]];
         if v != 0 && r.built != self.frame_number && r.a11y_gen == self.a11y_gen && r.a11y_shift == shift && !self.a11y_full {
             // kept and unmoved: its run of the published tree, nested views included, as it was (the
             // nested views' spans follow after the walk, `a11y_relocate`)
@@ -4286,15 +4290,12 @@ impl Ui {
     fn grow_line(&mut self, row: bool, start: usize, end: usize, mut free: f32) {
         self.grow_pass = self.grow_pass.wrapping_add(1).max(1);
         let pass = self.grow_pass;
-        let grows = |ui: &Ui, c: usize| {
-            let n = ui.nd(c);
-            (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && ui.boxes[c].frozen != pass
-        };
         loop {
             let (mut total, mut c) = (0.0, start);
             while c != end {
-                if grows(self, c) {
-                    total += self.nd(c).grow;
+                let n = self.nd(c);
+                if (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && self.boxes[c].frozen != pass {
+                    total += n.grow;
                 }
                 c = self.next_flow(self.boxes[c].next);
             }
@@ -4305,8 +4306,8 @@ impl Ui {
             let mut capped = false;
             c = start;
             while c != end {
-                if grows(self, c) {
-                    let n = *self.nd(c);
+                let n = *self.nd(c);
+                if (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && self.boxes[c].frozen != pass {
                     let (min, max) = if row { (n.min_w, n.max_w) } else { (n.min_h, n.max_h) };
                     let v = unit * n.grow;
                     if v < min || v > max {
@@ -4322,8 +4323,9 @@ impl Ui {
             if !capped {
                 c = start;
                 while c != end {
-                    if grows(self, c) {
-                        let g = self.nd(c).grow;
+                    let n = self.nd(c);
+                    if (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && self.boxes[c].frozen != pass {
+                        let g = n.grow;
                         self.set_main(row, c, unit * g);
                     }
                     c = self.next_flow(self.boxes[c].next);
@@ -6897,8 +6899,11 @@ impl Ui {
             }
             if here {
                 paint.keep(v);
-                // an enclosing view kept later keeps these instances too
-                paint.text.add_marks(&r.shelves);
+                // an enclosing view being rebuilt keeps these instances in its run too (the root's
+                // marks are not kept)
+                if r.parent != 0 {
+                    paint.text.add_marks(&r.shelves);
+                }
             }
             let hit_parent = r.hit_parent;
             for k in 0..self.views[v as usize].hits.len() {
