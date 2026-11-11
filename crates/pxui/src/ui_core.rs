@@ -1596,6 +1596,11 @@ impl Ui {
         self.rebuilt
     }
 
+    /// The views whose label (`Ui::view`'s) starts with `prefix` the last frame built rather than kept.
+    pub fn rebuilt_named(&self, prefix: &str) -> usize {
+        self.views.iter().skip(1).filter(|r| r.built == self.frame_number && r.name.starts_with(prefix)).count()
+    }
+
     /// The view being built is clean and runs again only to be checked (`verify_views`): a build
     /// that reads state its revision leaves out (a pan the view's offset shows) reads it as of the
     /// kept build.

@@ -613,7 +613,8 @@ pub fn window_pxui_view_fit() {
 
 /// A `kept_drag` slider field in a kept view: its drag dirties no view (`DRAG_FREE`), the owner reads
 /// it after the frame (`field_drag`) and patches the value and line (`patch_field`); what shows then is
-/// what the field's own build of that drag shows (its release, at the same point).
+/// what the field's own build of that drag shows (its release, at the same point), its trail (a
+/// unit) beside it.
 pub fn window_pxui_field_kept_drag() {
     use std::cell::RefCell;
     use std::rc::Rc;
@@ -624,6 +625,7 @@ pub fn window_pxui_field_kept_drag() {
         fraction: current.parse::<f32>().ok(),
         slide: Some(Rc::new(|f: f32| cfmt::g(f64::from(f), 3))),
         kept_drag: true,
+        trail: Some(("mm".to_owned(), pxui::geom::color::white())),
         ..ValueFieldOpts::default()
     };
     let mut build = |ui: &mut Ui| {

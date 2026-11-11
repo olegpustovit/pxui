@@ -801,10 +801,11 @@ impl Ui {
     }
 
     /// A `value_field`'s value (`text`) and soft-range line (`o.fraction`) written by patches, as its
-    /// build lays them out without a lead or a trail (`o.left`, `o.size`). False when a patch cannot
-    /// show it (the line had no width when built, the handle is stale): build the field's view.
+    /// build lays them out without a lead (`o.left`, `o.size`, `o.trail`). False when a patch cannot
+    /// show it (a lead, a value too wide beside its trail, the line had no width when built, the
+    /// handle is stale): build the field's view.
     pub fn patch_field(&mut self, field: &UiBox, o: &ValueFieldOpts, text: &str) -> bool {
-        let (Some(value), true) = (self.box_of_key(int_key(field.box_key, 1)), self.live(field)) else { return false };
+        let (Some(value), true, None) = (self.box_of_key(int_key(field.box_key, 1)), self.live(field), &o.lead) else { return false };
         let at = self.local_rect(field);
         let mut ok = true;
         if let Some(f) = o.fraction {
@@ -819,9 +820,17 @@ impl Ui {
                 _ => return false,
             }
         }
+        // a trail (a unit) stays put: the value sits against it, as long as it fits unshortened
+        let trail = match &o.trail {
+            Some((t, _)) => self.text_width(o.size, t) + 6.0,
+            None => 0.0,
+        };
         let width = self.text_width(o.size, text);
+        if trail > 0.0 && width > at.w - 4.0 - trail {
+            return false;
+        }
         let r = self.local_rect(&value);
-        let x = at.x + if o.left { 2.0 } else { at.w - 2.0 - width };
+        let x = at.x + if o.left { 2.0 } else { at.w - 2.0 - trail - width };
         if (r.x, r.w) != (x, width.max(1.0)) {
             ok &= self.patch_rect(&value, Rect::new(x, r.y, width.max(1.0), r.h));
         }
