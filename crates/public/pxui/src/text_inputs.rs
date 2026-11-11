@@ -1,6 +1,6 @@
 use core::ffi::c_void;
 use pxui_types::Str;
-use crate::{composite::defer_callback_panic, Ui};
+use crate::{composite::{defer_callback_panic, deferred}, status, Ui};
 
 const MAX_TEXT_BYTES: usize = 1 << 20;
 
@@ -23,15 +23,15 @@ mod raw {
     pub type TextValid = Option<extern "C" fn(*mut c_void, Str) -> u8>;
     #[link(name = "pxui")]
     unsafe extern "C" {
-        pub fn pxui_ui_text_area_submit(ui:*mut PxuiUi,at:*const f32,width:f32,height:f32,wrap:u8,label:Str,value:Str,out_text:*mut Str,out_changed:*mut u8,out_submitted:*mut u8)->i32;
-        pub fn pxui_ui_value_field(ui:*mut PxuiUi,at:*const f32,width:f32,height:f32,label:Str,value:Str,valid:TextValid,user:*mut c_void,out_text:*mut Str,out_changed:*mut u8,out_editing:*mut u8)->i32;
+    pub fn pxui_ui_text_area_submit(ui:*mut PxuiUi,at:*const f32,width:f32,height:f32,wrap:u8,label:Str,value:Str,out_text:*mut Str,out_changed:*mut u8,out_submitted:*mut u8)->i32;
+    pub fn pxui_ui_value_field(ui:*mut PxuiUi,at:*const f32,width:f32,height:f32,label:Str,value:Str,valid:TextValid,user:*mut c_void,out_text:*mut Str,out_changed:*mut u8,out_editing:*mut u8)->i32;
     }
 }
 
 struct Validator<F>(F);
 
 extern "C" fn validate<F: Fn(&str) -> bool>(user: *mut c_void, value: Str) -> u8 {
-    if user.is_null() || value.len > MAX_TEXT_BYTES || (value.len != 0 && value.ptr.is_null()) { return 0; }
+    if user.is_null() || deferred() || value.len > MAX_TEXT_BYTES || (value.len != 0 && value.ptr.is_null()) { return 0; }
     let bytes = if value.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(value.ptr, value.len) } };
     let Ok(value) = core::str::from_utf8(bytes) else { return 0; };
     match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (unsafe { &*user.cast::<Validator<F>>() }).0(value))) {
@@ -40,8 +40,8 @@ extern "C" fn validate<F: Fn(&str) -> bool>(user: *mut c_void, value: Str) -> u8
     }
 }
 
+#[inline]
 fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
-fn status(rc: i32) -> Result<(), i32> { if rc == 0 { Ok(()) } else { Err(rc) } }
 
 fn returned(value: Str) -> Result<String, i32> {
     if value.len > MAX_TEXT_BYTES || (value.len != 0 && value.ptr.is_null()) { return Err(-1); }
@@ -50,6 +50,7 @@ fn returned(value: Str) -> Result<String, i32> {
 }
 
 impl Ui {
+    #[inline]
     pub fn text_area_submit(&mut self, at: (f32, f32), width: f32, height: f32, options: &TextAreaOpts, label: &str, value: &str) -> Result<(String, bool), i32> {
         let at = [at.0, at.1];
         let (mut text, mut changed, mut submitted) = (Str::default(), 0, 0);
@@ -57,6 +58,7 @@ impl Ui {
         Ok((returned(text)?, submitted != 0))
     }
 
+    #[inline]
     pub fn value_field<F: Fn(&str) -> bool>(&mut self, at: (f32, f32), width: f32, height: f32, _options: &ValueFieldOpts, valid: F, label: &str, value: &str) -> Result<(String, bool), i32> {
         let at = [at.0, at.1];
         let mut validator = Validator(valid);

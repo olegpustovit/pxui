@@ -68,6 +68,21 @@ impl View {
 
 pub const MAX_LAYERS: usize = 64;
 
+/// Status codes of every `pxui_*` call that returns `i32`: 0 is success, a negative value one of these.
+pub const PXUI_ERR_ARGUMENT: i32 = -1;
+/// A GPU adoption or recording failure (`pxui_renderer_*`).
+pub const PXUI_ERR_GPU: i32 = -2;
+/// The call is not allowed now: inside a frame callback, on a borrowed handle, or with a renderer attached.
+pub const PXUI_ERR_STATE: i32 = -3;
+/// A panic was caught inside the library; the `Ui` is poisoned until its next frame call.
+pub const PXUI_ERR_PANIC: i32 = -4;
+
+/// Key codes of `Event::KEY_PRESSED` and `KEY_RELEASED`: a Unicode scalar value below `KEY_SPECIAL`
+/// is that character; `KEY_SPECIAL + n` is the special key `n` (arrows, enter, F-keys...) in the
+/// order documented in `pxui.h`; `KEY_UNKNOWN | code` carries a platform code the library has no name for.
+pub const KEY_SPECIAL: u32 = 0x11_0000;
+pub const KEY_UNKNOWN: u32 = 0x8000_0000;
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Str {
@@ -113,7 +128,7 @@ impl Event {
 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct FrameIn {
     pub size: u32,
     pub events: *const Event,
@@ -122,6 +137,9 @@ pub struct FrameIn {
     pub height: f32,
     pub scale: f32,
     pub time: f64,
+}
+impl Default for FrameIn {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0 } }
 }
 
 #[repr(C)]
@@ -142,7 +160,7 @@ pub struct FrameOut {
 /// are the `ogpu_vulkan::VK_*` bits the app enabled; creation fails unless `REQUIRED_FOR_UI` are set and
 /// the entry points behind them are loaded.
 #[repr(C)]
-#[derive(Debug, Default)]
+#[derive(Debug)]
 pub struct Gpu {
     pub size: u32,
     pub backend: u32,
@@ -164,6 +182,15 @@ pub struct Gpu {
     pub release_owner: Option<extern "C" fn(*mut core::ffi::c_void)>,
 }
 
+impl Default for Gpu {
+    fn default() -> Self {
+        let none = core::ptr::null_mut();
+        Self { size: core::mem::size_of::<Self>() as u32, backend: 0, instance: none, physical_device: none, device: none, queue: none, queue_family: 0, api_version: 0,
+            features: 0, get_instance_proc_addr: none, pipeline_cache: none, mtl_device: none, wl_display: none, wl_surface: none, metal_layer: none, hwnd: none,
+            owner_token: none, release_owner: None }
+    }
+}
+
 /// The app's command buffer of one frame, outside any pass, for `pxui_renderer_prepare(commands, frame,
 /// completed)`. `frame` is the app's serial for this command buffer and grows by at least one per prepare;
 /// `completed` is the last serial whose command buffer the app knows has finished, never going back, and
@@ -172,11 +199,14 @@ pub struct Gpu {
 /// transitions of textures it made since the last frame) into this buffer, so the app submits it before or
 /// with the frame's pass. Before `pxui_renderer_destroy` the app must have finished every frame it prepared.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Commands {
     pub size: u32,
     pub vk_command_buffer: *mut core::ffi::c_void,
     pub mtl_command_buffer: *mut core::ffi::c_void,
+}
+impl Default for Commands {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, vk_command_buffer: core::ptr::null_mut(), mtl_command_buffer: core::ptr::null_mut() } }
 }
 
 /// The app's open pass (Vulkan: inside `vkCmdBeginRendering` on the prepared frame's command buffer)
@@ -184,7 +214,7 @@ pub struct Commands {
 /// draw the pass holds PXUI's pipeline, descriptors, viewport and scissor, so either the UI is the last
 /// thing in the pass or the app rebinds everything (OGPU: `ogpu_core::backend::invalidate_state`).
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Pass {
     pub size: u32,
     pub vk_command_buffer: *mut core::ffi::c_void,
@@ -194,13 +224,18 @@ pub struct Pass {
     pub scale: f32,
     pub mtl_command_buffer: *mut core::ffi::c_void,
 }
+impl Default for Pass {
+    fn default() -> Self {
+        Self { size: core::mem::size_of::<Self>() as u32, vk_command_buffer: core::ptr::null_mut(), mtl_render_encoder: core::ptr::null_mut(), width_px: 0, height_px: 0, scale: 1.0, mtl_command_buffer: core::ptr::null_mut() }
+    }
+}
 
 /// An app texture PXUI samples at a `Break`, without a copy. The app keeps it alive until the frames
 /// drawing it complete. Vulkan: `vk_image_view` is a 2D color view whose image is in
 /// `VK_IMAGE_LAYOUT_GENERAL` whenever those frames run (every OGPU image is). PXUI only samples it:
 /// it never reads, writes, copies or destroys the image.
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct Image {
     pub size: u32,
     pub vk_image_view: *mut core::ffi::c_void,
@@ -209,6 +244,7 @@ pub struct Image {
     pub height: u32,
     pub format: u32,
 }
+impl Default for Image { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, vk_image_view: core::ptr::null_mut(), mtl_texture: core::ptr::null_mut(), width: 0, height: 0, format: 0 } } }
 
 impl Image {
     pub const FORMAT_R8: u32 = 0;
@@ -236,23 +272,26 @@ pub struct Span {
 pub struct PxuiBox { pub index: u64, pub key: i64, pub slot: u64, pub generation: u32 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct PxuiPanel {
     pub size: u32, pub x: f32, pub y: f32, pub width: f32, pub height: f32,
     pub padding: i64, pub has_height: u8, pub window: u8,
 }
+impl Default for PxuiPanel { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, x: 0.0, y: 0.0, width: 0.0, height: 0.0, padding: 0, has_height: 0, window: 0 } } }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct PxuiTargetDesc {
     pub size: u32, pub format: u32, pub samples: u8, pub reserved: [u8; 3],
     pub mask_width: u32, pub mask_height: u32, pub color_width: u32, pub color_height: u32,
     pub reserved_tail: u32,
 }
+impl Default for PxuiTargetDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, format: 0, samples: 1, reserved: [0; 3], mask_width: 0, mask_height: 0, color_width: 0, color_height: 0, reserved_tail: 0 } } }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct PxuiUiDesc { pub size: u32, pub platform: u32, pub font_size: i32 }
+impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0 } } }
 
 #[cfg(test)]
 mod abi_layout {

@@ -1,15 +1,16 @@
-use crate::{get, text, PxuiUi};
+use crate::state::{Build, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, call_build, checked, core_box, fail, finite, get, text, to_abi_box};
+use crate::style::decode_look;
+use crate::ui::translate_event;
+use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::ffi::c_void;
-use pxui_core::ui::{Axis, Ui, UiBox, Target, MAX_KEYS};
-use pxui_types::{PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiLookDesc, Slice}};
+use pxui_core::ui::{Axis, Ui, Target, MAX_KEYS};
+use pxui_types::ffi::{PxuiCurveDesc, PxuiLookDesc, Slice};
 use std::{cell::Cell, rc::Rc};
 
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_MENUS: usize = 256;
-const MAX_TEXT: usize = 1 << 20;
-const MAX_TOTAL_TEXT: usize = 8 << 20;
 
-pub type PxuiBuild = Option<extern "C" fn(*mut c_void, *mut PxuiUi)>;
+pub type PxuiBuild = Build;
 pub type PxuiGridBuild = Option<extern "C" fn(*mut c_void, *mut PxuiUi, usize)>;
 
 #[repr(C)]
@@ -45,43 +46,6 @@ pub type PxuiTableCell = Option<extern "C" fn(*mut c_void, i64, i64) -> Str>;
 #[repr(C)]
 pub struct PxuiTableDesc { pub label: Str, pub at: [f32; 2], pub width: f32, pub height: f32, pub headers: Slice<Str>, pub rows: i64, pub cell: PxuiTableCell, pub user: *mut c_void }
 
-unsafe fn checked(value: Str) -> Option<&'static str> {
-    if value.len > MAX_TEXT { return None; }
-    unsafe { text(value) }
-}
-unsafe fn strings(values: Slice<Str>) -> Option<Vec<&'static str>> {
-    if values.len > MAX_MENUS || (values.len != 0 && values.ptr.is_null()) { return None; }
-    let values = if values.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(values.ptr, values.len) } };
-    let mut total = 0usize;
-    values.iter().map(|v| {
-        total = total.checked_add(v.len)?;
-        if total > MAX_TOTAL_TEXT { return None; }
-        unsafe { checked(*v) }
-    }).collect()
-}
-fn box_(value: UiBox) -> PxuiBox { PxuiBox { index: value.index as u64, key: value.box_key, slot: value.box_slot as u64, generation: value.generation } }
-fn from_box(value: PxuiBox) -> UiBox { UiBox { index: value.index as usize, box_key: value.key, box_slot: value.slot as usize, generation: value.generation } }
-fn look(value: PxuiLookDesc) -> Option<pxui_types::theme::Look> {
-    use pxui_types::theme::{Font, Look, Ring, Shadow};
-    if value.has_gradient > 1 || value.dashed > 1 || value.font.caps > 1 || value.font.reserved != [0; 3]
-        || value.reserved != [0; 3] || value.reserved_tail != [0; 3]
-        || value.sides > u8::MAX as u32 || value.ring.sides > u8::MAX as u32
-        || value.shadows.iter().any(|s| s.inner > 1 || s.reserved != [0; 3]) { return None; }
-    let floats = [value.angle, value.border_w, value.opacity, value.ring.width, value.font.tracking,
-        value.radius[0], value.radius[1], value.radius[2], value.radius[3],
-        value.shadows[0].offset[0], value.shadows[0].offset[1], value.shadows[0].blur, value.shadows[0].spread,
-        value.shadows[1].offset[0], value.shadows[1].offset[1], value.shadows[1].blur, value.shadows[1].spread];
-    if !floats.iter().all(|v| v.is_finite()) { return None; }
-    let shadow = |s: pxui_types::ffi::PxuiShadowDesc| Shadow { color: s.color, offset: (s.offset[0], s.offset[1]), blur: s.blur, spread: s.spread, inner: s.inner != 0 };
-    Some(Look {
-        fill: value.fill, gradient: (value.has_gradient != 0).then_some(value.gradient), angle: value.angle,
-        border: value.border, border_w: value.border_w, sides: value.sides as u8, radius: value.radius,
-        shadows: [shadow(value.shadows[0]), shadow(value.shadows[1])], text: value.text,
-        font: Font { family: value.font.family, weight: value.font.weight, size: value.font.size, tracking: value.font.tracking, caps: value.font.caps != 0 },
-        opacity: value.opacity, ring: Ring { color: value.ring.color, width: value.ring.width, sides: value.ring.sides as u8 },
-        selection: value.selection, caret: value.caret, dashed: value.dashed != 0,
-    })
-}
 fn curve(value: PxuiCurveDesc) -> Option<pxui_types::Curve> {
     if !value.duration.is_finite() || !value.omega.is_finite() || !value.points.iter().all(|v| v.is_finite()) { return None; }
     Some(match value.kind {
@@ -90,223 +54,223 @@ fn curve(value: PxuiCurveDesc) -> Option<pxui_types::Curve> {
         _ => return None,
     })
 }
-#[derive(Clone, Copy)]
-struct CallbackCtx {
-    error: *mut std::ffi::CString,
-    returned: *mut Vec<std::ffi::CString>,
-    a11y_nodes: *mut Vec<crate::FfiA11yNode>,
-    grid_tracks: *mut std::collections::HashMap<i64, Vec<Box<[pxui_types::layout::Track]>>>,
-    grid_updated: *mut std::collections::HashMap<i64, bool>,
-}
-fn callback_ctx(state: &PxuiUi) -> CallbackCtx { CallbackCtx { error: state.error, returned: state.returned, a11y_nodes: state.a11y_nodes, grid_tracks: state.grid_tracks, grid_updated: state.grid_updated } }
-fn call_build(ctx: CallbackCtx, engine: &mut Ui, callback: PxuiBuild, user: *mut c_void) {
-    if let Some(callback) = callback {
-        let mut borrowed = PxuiUi { engine: engine as *mut Ui, error: ctx.error, returned: ctx.returned, a11y_nodes: ctx.a11y_nodes, grid_tracks: ctx.grid_tracks, grid_updated: ctx.grid_updated, owner: false };
-        callback(user, &mut borrowed);
-    }
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const PxuiGridListDesc, out: *mut PxuiBox) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() || out.is_null() { return unsafe { crate::fail(ui, "null grid list argument") }; }
+export!(pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const PxuiGridListDesc, out: *mut PxuiBox) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null grid list argument") }; }
     let desc = unsafe { &*desc };
     if desc.count > MAX_ITEMS || !desc.cell_w.is_finite() || !desc.cell_h.is_finite() || desc.cell_w <= 0.0 || desc.cell_h <= 0.0 {
-        return unsafe { crate::fail(ui, "invalid grid list descriptor") };
+        return unsafe { fail(ui, "invalid grid list descriptor") };
     }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { crate::fail(ui, "invalid grid list label") }; };
-    let ctx = callback_ctx(state);
+    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid grid list label") }; };
+    let shared = state.shared;
     let mut build = |engine: &mut Ui, index| if let Some(callback) = desc.build {
-        let mut borrowed = PxuiUi { engine, error: ctx.error, returned: ctx.returned, a11y_nodes: ctx.a11y_nodes, grid_tracks: ctx.grid_tracks, grid_updated: ctx.grid_updated, owner: false };
+        let mut borrowed = PxuiUi::borrowed(engine, shared);
         callback(desc.user, &mut borrowed, index);
     };
     let value = unsafe { (&mut *state.engine).grid_list(label, desc.count, desc.cell_w, desc.cell_h, &mut build) };
-    unsafe { *out = box_(value); }
+    unsafe { *out = to_abi_box(value); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_types::Event>, now: f64, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if out.is_null() || !now.is_finite() || events.len > 4096 || (events.len != 0 && events.ptr.is_null()) { return unsafe { crate::fail(ui, "invalid wants frame arguments") }; }
+export!(pub unsafe fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_types::Event>, now: f64, out: *mut u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() || !now.is_finite() || events.len > 4096 || (events.len != 0 && events.ptr.is_null()) { return unsafe { fail(ui, "invalid wants frame arguments") }; }
     let mut translated = Vec::with_capacity(events.len);
     if events.len != 0 {
         for event in unsafe { core::slice::from_raw_parts(events.ptr, events.len) } {
-            if event.text.len > MAX_TEXT || ![event.x, event.y, event.value].iter().all(|v| v.is_finite()) { return unsafe { crate::fail(ui, "invalid wants frame event") }; }
-            let Some(event) = crate::translate_event(*event) else { return unsafe { crate::fail(ui, "invalid wants frame event") }; };
+            if event.text.len > MAX_TEXT_BYTES || !finite(&[event.x as f32, event.y as f32, event.value as f32]) || ![event.x, event.y, event.value].iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid wants frame event") }; }
+            let Some(event) = translate_event(event) else { return unsafe { fail(ui, "invalid wants frame event") }; };
             translated.push(event);
         }
     }
     unsafe { *out = (&*state.engine).wants_frame(&translated, now) as u8; }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiFooterDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() { return unsafe { crate::fail(ui, "null footer descriptor") }; }
+export!(pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiFooterDesc) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() { return unsafe { fail(ui, "null footer descriptor") }; }
     let desc = unsafe { &*desc };
     if desc.has_right > 1 || desc.reserved != [0; 7] || desc.hints.len > 4096 || (desc.hints.len != 0 && desc.hints.ptr.is_null()) {
-        return unsafe { crate::fail(ui, "invalid footer descriptor") };
+        return unsafe { fail(ui, "invalid footer descriptor") };
     }
-    let right = if desc.has_right != 0 { let Some(s) = (unsafe { checked(desc.right) }) else { return unsafe { crate::fail(ui, "invalid footer text") }; }; Some(s) } else { None };
+    let right = if desc.has_right != 0 { let Some(s) = (unsafe { checked(desc.right) }) else { return unsafe { fail(ui, "invalid footer text") }; }; Some(s) } else { None };
     let raw = if desc.hints.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.hints.ptr, desc.hints.len) } };
-    let mut hints = Vec::with_capacity(raw.len());
+    // the engine takes owned rows; the strings are reused between frames, so a settled footer allocates nothing
+    let mut hints = core::mem::take(&mut state.shared().hints);
+    hints.truncate(raw.len());
     let mut total = right.map_or(0, str::len);
-    for hint in raw {
-        let (Some(key), Some(value)) = (unsafe { checked(hint.key) }, unsafe { checked(hint.value) }) else { return unsafe { crate::fail(ui, "invalid footer hint") }; };
-        total = match total.checked_add(key.len()).and_then(|v| v.checked_add(value.len())) { Some(v) if v <= MAX_TOTAL_TEXT => v, _ => return unsafe { crate::fail(ui, "footer text limit exceeded") } };
-        hints.push((key.to_owned(), value.to_owned()));
+    for (at, hint) in raw.iter().enumerate() {
+        let (Some(key), Some(value)) = (unsafe { checked(hint.key) }, unsafe { checked(hint.value) }) else { state.shared().hints = hints; return unsafe { fail(ui, "invalid footer hint") }; };
+        total = match total.checked_add(key.len()).and_then(|v| v.checked_add(value.len())) { Some(v) if v <= MAX_TOTAL_TEXT_BYTES => v, _ => { state.shared().hints = hints; return unsafe { fail(ui, "footer text limit exceeded") } } };
+        match hints.get_mut(at) {
+            Some(row) => { row.0.clear(); row.0.push_str(key); row.1.clear(); row.1.push_str(value); }
+            None => hints.push((key.to_owned(), value.to_owned())),
+        }
     }
     unsafe { (&mut *state.engine).footer(right, &hints); }
+    state.shared().hints = hints;
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if box_.is_null() || out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { crate::fail(ui, "invalid animation keyframe span") }; }
+export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, out: *mut u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if box_.is_null() || out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { fail(ui, "invalid animation keyframe span") }; }
     let raw = unsafe { core::slice::from_raw_parts(keys.ptr, keys.len) };
     let mut decoded = Vec::with_capacity(raw.len());
     let mut previous = -1.0f32;
     for key in raw {
         if !key.time.is_finite() || key.time < 0.0 || key.time < previous || key.reserved != [0; 4] || !key.values.iter().all(|v| v.is_finite()) {
-            return unsafe { crate::fail(ui, "invalid animation keyframe") };
+            return unsafe { fail(ui, "invalid animation keyframe") };
         }
         previous = key.time;
         let target = match key.target {
             0 => Target::Offset(key.values[0], key.values[1]),
             1 if (0.0..=1.0).contains(&key.values[0]) => Target::Opacity(key.values[0]),
-            2 => { let Some(look) = look(key.look) else { return unsafe { crate::fail(ui, "invalid animation look") }; }; Target::Look(look) },
-            _ => return unsafe { crate::fail(ui, "invalid animation target") },
+            2 => { let Some(look) = decode_look(key.look) else { return unsafe { fail(ui, "invalid animation look") }; }; Target::Look(look) },
+            _ => return unsafe { fail(ui, "invalid animation target") },
         };
-        let Some(curve) = curve(key.curve) else { return unsafe { crate::fail(ui, "invalid animation curve") }; };
+        let Some(curve) = curve(key.curve) else { return unsafe { fail(ui, "invalid animation curve") }; };
         decoded.push((key.time, target, curve));
     }
-    let raw_box = unsafe { *box_ };
-    let value = unsafe { (&mut *state.engine).animate_keys(&from_box(raw_box), &decoded) };
+    let Some(target_box) = core_box(unsafe { *box_ }) else { return unsafe { fail(ui, "invalid animation box") }; };
+    let value = unsafe { (&mut *state.engine).animate_keys(&target_box, &decoded) };
     unsafe { *out = value as u8; }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, changed: *mut u8, ratio: *mut f32) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() || changed.is_null() || ratio.is_null() { return unsafe { crate::fail(ui, "null split argument") }; }
+export!(pub unsafe fn pxui_ui_split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, changed: *mut u8, ratio: *mut f32) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || changed.is_null() || ratio.is_null() { return unsafe { fail(ui, "null split argument") }; }
     let desc = unsafe { &*desc };
     if desc.axis > 1 || ![desc.ratio, desc.min_a, desc.min_b].iter().all(|v| v.is_finite()) || desc.min_a < 0.0 || desc.min_b < 0.0 {
-        return unsafe { crate::fail(ui, "invalid split descriptor") };
+        return unsafe { fail(ui, "invalid split descriptor") };
     }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { crate::fail(ui, "invalid split label") }; };
-    let ctx = callback_ctx(state);
-    let mut a = |engine: &mut Ui| call_build(ctx, engine, desc.build_a, desc.user_a);
-    let mut b = |engine: &mut Ui| call_build(ctx, engine, desc.build_b, desc.user_b);
+    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid split label") }; };
+    let shared = state.shared;
+    let mut a = |engine: &mut Ui| call_build(shared, engine, desc.build_a, desc.user_a);
+    let mut b = |engine: &mut Ui| call_build(shared, engine, desc.build_b, desc.user_b);
     let axis = if desc.axis == 0 { Axis::Row } else { Axis::Column };
     let out = unsafe { (&mut *state.engine).split(label, axis, desc.ratio, desc.min_a, desc.min_b, &mut a, &mut b) };
     unsafe { *changed = out.is_some() as u8; *ratio = out.unwrap_or_default(); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() || out.is_null() { return unsafe { crate::fail(ui, "null menu bar argument") }; }
+export!(pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null menu bar argument") }; }
     let desc = unsafe { &*desc };
-    if desc.menus.len > MAX_MENUS || (desc.menus.len != 0 && desc.menus.ptr.is_null()) { return unsafe { crate::fail(ui, "invalid menu bar span") }; }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { crate::fail(ui, "invalid menu bar label") }; };
+    if desc.menus.len > MAX_MENUS || (desc.menus.len != 0 && desc.menus.ptr.is_null()) { return unsafe { fail(ui, "invalid menu bar span") }; }
+    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid menu bar label") }; };
     let raw = if desc.menus.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.menus.ptr, desc.menus.len) } };
-    let mut menus = Vec::with_capacity(raw.len());
+    // all items go into one buffer, then each menu is a slice of it; both buffers are reused between frames
+    let (mut flat, mut menus) = { let shared = state.shared(); (shared.take_strs(), core::mem::take(&mut shared.menus)) };
+    flat.clear();
+    menus.clear();
     let mut total = 0usize;
+    let mut valid = true;
     for menu in raw {
-        let Some(title) = (unsafe { checked(menu.title) }) else { return unsafe { crate::fail(ui, "invalid menu title") }; };
-        let Some(items) = (unsafe { strings(menu.items) }) else { return unsafe { crate::fail(ui, "invalid menu item strings") }; };
-        total = match total.checked_add(title.len()).and_then(|v| v.checked_add(items.iter().map(|s| s.len()).sum::<usize>())) { Some(v) if v <= MAX_TOTAL_TEXT => v, _ => return unsafe { crate::fail(ui, "menu text limit exceeded") } };
-        menus.push((title, items));
+        let before = flat.len();
+        valid &= unsafe { checked(menu.title) }.is_some() && unsafe { append_strings(menu.items, MAX_MENUS, &mut flat) };
+        let bytes = flat[before..].iter().map(|s| s.len()).sum::<usize>() + menu.title.len;
+        total = total.saturating_add(bytes);
+        if !valid || total > MAX_TOTAL_TEXT_BYTES { valid = false; break; }
     }
-    let menus: Vec<(&str, &[&str])> = menus.iter().map(|(title, items)| (*title, items.as_slice())).collect();
-    let picked = unsafe { (&mut *state.engine).menu_bar(label, &menus) };
+    let picked = if valid {
+        let mut at = 0;
+        for menu in raw {
+            // `flat` is complete: the slices stay valid until it is cleared below
+            let items: &'static [&'static str] = unsafe { core::slice::from_raw_parts(flat.as_ptr().add(at), menu.items.len) };
+            menus.push((unsafe { checked(menu.title) }.unwrap_or(""), items));
+            at += menu.items.len;
+        }
+        Some(unsafe { (&mut *state.engine).menu_bar(label, &menus) })
+    } else { None };
+    menus.clear();
+    { let shared = state.shared(); shared.put_strs(flat); shared.menus = menus; }
+    let Some(picked) = picked else { return unsafe { fail(ui, "invalid menu bar strings") }; };
     unsafe { *out = picked.map_or(PxuiMenuOut { menu: usize::MAX, item: usize::MAX }, |(menu, item)| PxuiMenuOut { menu, item }); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut PxuiInspectorRowDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() { return unsafe { crate::fail(ui, "null inspector row descriptor") }; }
+export!(pub unsafe fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut PxuiInspectorRowDesc) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() { return unsafe { fail(ui, "null inspector row descriptor") }; }
     let desc = unsafe { &mut *desc };
     if desc.has_width > 1 || desc.has_pin > 1 || desc.pin > 1 || desc.reserved != [0; 5] || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) {
-        return unsafe { crate::fail(ui, "invalid inspector row descriptor") };
+        return unsafe { fail(ui, "invalid inspector row descriptor") };
     }
-    let (Some(key), Some(label)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { crate::fail(ui, "invalid inspector row text") }; };
+    let (Some(key), Some(label)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid inspector row text") }; };
     let (row, x, y, w) = unsafe { (&mut *state.engine).inspector_row((desc.has_width != 0).then_some(desc.width), (desc.has_pin != 0).then_some(desc.pin != 0), key, label) };
-    (desc.row, desc.control_x, desc.control_y, desc.control_w) = (box_(row), x, y, w);
+    (desc.row, desc.control_x, desc.control_y, desc.control_w) = (to_abi_box(row), x, y, w);
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *mut PxuiInspectorSectionDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() { return unsafe { crate::fail(ui, "null inspector section descriptor") }; }
+export!(pub unsafe fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *mut PxuiInspectorSectionDesc) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() { return unsafe { fail(ui, "null inspector section descriptor") }; }
     let desc = unsafe { &mut *desc };
-    if desc.expanded > 1 || desc.has_set > 1 || desc.set_expanded > 1 || desc.reserved != [0; 5] { return unsafe { crate::fail(ui, "invalid inspector section descriptor") }; }
-    let (Some(key), Some(label)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { crate::fail(ui, "invalid inspector section text") }; };
-    let ctx = callback_ctx(state);
-    let mut build = |engine: &mut Ui| call_build(ctx, engine, desc.build, desc.user);
+    if desc.expanded > 1 || desc.has_set > 1 || desc.set_expanded > 1 || desc.reserved != [0; 5] { return unsafe { fail(ui, "invalid inspector section descriptor") }; }
+    let (Some(key), Some(label)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid inspector section text") }; };
+    let shared = state.shared;
+    let mut build = |engine: &mut Ui| call_build(shared, engine, desc.build, desc.user);
     let open = unsafe { (&mut *state.engine).inspector_section(key, desc.expanded != 0, (desc.has_set != 0).then_some(desc.set_expanded != 0), label, &mut build) };
     desc.out_open = open as u8;
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_inspector_toggle(ui: *mut PxuiUi, key: Str, label: Str, value: u8, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if out.is_null() || value > 1 { return unsafe { crate::fail(ui, "invalid inspector toggle arguments") }; }
-    let (Some(key), Some(label)) = (unsafe { checked(key) }, unsafe { checked(label) }) else { return unsafe { crate::fail(ui, "invalid inspector toggle text") }; };
+export!(pub unsafe fn pxui_ui_inspector_toggle(ui: *mut PxuiUi, key: Str, label: Str, value: u8, out: *mut u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() || value > 1 { return unsafe { fail(ui, "invalid inspector toggle arguments") }; }
+    let (Some(key), Some(label)) = (unsafe { checked(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector toggle text") }; };
     unsafe { *out = (&mut *state.engine).inspector_toggle(key, label, value != 0) as u8; }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_inspector_button(ui: *mut PxuiUi, key: Str, label: Str, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if out.is_null() { return unsafe { crate::fail(ui, "null inspector button output") }; }
-    let (Some(key), Some(label)) = (unsafe { checked(key) }, unsafe { checked(label) }) else { return unsafe { crate::fail(ui, "invalid inspector button text") }; };
+export!(pub unsafe fn pxui_ui_inspector_button(ui: *mut PxuiUi, key: Str, label: Str, out: *mut u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui, "null inspector button output") }; }
+    let (Some(key), Some(label)) = (unsafe { checked(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector button text") }; };
     unsafe { *out = (&mut *state.engine).inspector_button(key, label) as u8; }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_inspector_readout(ui: *mut PxuiUi, desc: *const PxuiInspectorValueDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() { return unsafe { crate::fail(ui, "null inspector readout descriptor") }; }
+export!(pub unsafe fn pxui_ui_inspector_readout(ui: *mut PxuiUi, desc: *const PxuiInspectorValueDesc) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() { return unsafe { fail(ui, "null inspector readout descriptor") }; }
     let desc = unsafe { &*desc };
-    if desc.has_width > 1 || desc.reserved != [0; 7] || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) { return unsafe { crate::fail(ui, "invalid inspector readout descriptor") }; }
-    let (Some(key), Some(label), Some(value)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }, unsafe { checked(desc.value) }) else { return unsafe { crate::fail(ui, "invalid inspector readout text") }; };
+    if desc.has_width > 1 || desc.reserved != [0; 7] || (desc.has_width != 0 && (!desc.width.is_finite() || desc.width < 0.0)) { return unsafe { fail(ui, "invalid inspector readout descriptor") }; }
+    let (Some(key), Some(label), Some(value)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.label) }, unsafe { checked(desc.value) }) else { return unsafe { fail(ui, "invalid inspector readout text") }; };
     unsafe { (&mut *state.engine).inspector_readout((desc.has_width != 0).then_some(desc.width), key, label, value); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const PxuiInspectorTextDesc) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() { return unsafe { crate::fail(ui, "null inspector message descriptor") }; }
+export!(pub unsafe fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const PxuiInspectorTextDesc) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() { return unsafe { fail(ui, "null inspector message descriptor") }; }
     let desc = unsafe { &*desc };
-    let (Some(key), Some(value)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.text) }) else { return unsafe { crate::fail(ui, "invalid inspector message text") }; };
+    let (Some(key), Some(value)) = (unsafe { checked(desc.key) }, unsafe { checked(desc.text) }) else { return unsafe { fail(ui, "invalid inspector message text") }; };
     unsafe { (&mut *state.engine).inspector_message(key, value); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTableDesc, clicked_row: *mut i64) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() || clicked_row.is_null() { return unsafe { crate::fail(ui, "null table argument") }; }
+export!(pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTableDesc, clicked_row: *mut i64) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || clicked_row.is_null() { return unsafe { fail(ui, "null table argument") }; }
     let desc = unsafe { &*desc };
     if desc.headers.len > 256 || desc.rows < 0 || desc.rows as usize > MAX_ITEMS || (desc.headers.len != 0 && desc.headers.ptr.is_null())
         || !desc.width.is_finite() || !desc.height.is_finite() || desc.width < 0.0 || desc.height < 0.0 || !desc.at.iter().all(|v| v.is_finite()) {
-        return unsafe { crate::fail(ui, "invalid table descriptor") };
+        return unsafe { fail(ui, "invalid table descriptor") };
     }
-    let (Some(label), Some(headers)) = (unsafe { checked(desc.label) }, unsafe { strings(desc.headers) }) else { return unsafe { crate::fail(ui, "invalid table strings") }; };
-    let headers: Vec<String> = headers.into_iter().map(str::to_owned).collect();
+    let mut list = state.shared().take_strs();
+    let Some(label) = (unsafe { checked(desc.label) }).filter(|_| unsafe { crate::state::strings(desc.headers, 256, &mut list) }) else {
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid table strings") };
+    };
+    // ponytail: the engine's table takes owned headers and an `Rc` cell closure, so each call allocates them; a
+    // borrowed-header, `&dyn Fn` signature in the engine would remove it.
+    let headers: Vec<String> = list.iter().map(|s| (*s).to_owned()).collect();
+    state.shared().put_strs(list);
     let callback = desc.cell;
     let user = desc.user;
     let bad_text = Rc::new(Cell::new(false));
@@ -316,15 +280,15 @@ pub unsafe extern "C" fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTableDe
     let cell: Rc<dyn Fn(i64, i64) -> String> = Rc::new(move |row, col| {
         let Some(callback) = callback else { return String::new(); };
         let value = callback(user, row, col);
-        if value.len > MAX_TEXT { bad_out.set(true); return String::new(); }
+        if value.len > MAX_TEXT_BYTES { bad_out.set(true); return String::new(); }
         let total = bytes_out.get().saturating_add(value.len);
-        if total > MAX_TOTAL_TEXT { bad_out.set(true); return String::new(); }
+        if total > MAX_TOTAL_TEXT_BYTES { bad_out.set(true); return String::new(); }
         let Some(value) = (unsafe { text(value) }) else { bad_out.set(true); return String::new(); };
         bytes_out.set(total);
         value.to_owned()
     });
     let (clicked, _) = unsafe { (&mut *state.engine).table((desc.at[0], desc.at[1]), desc.width, desc.height, &headers, desc.rows, cell, label) };
-    if bad_text.get() { return unsafe { crate::fail(ui, "invalid table cell callback text") }; }
+    if bad_text.get() { return unsafe { fail(ui, "invalid table cell callback text") }; }
     unsafe { *clicked_row = clicked.unwrap_or(-1); }
     0
-}
+});

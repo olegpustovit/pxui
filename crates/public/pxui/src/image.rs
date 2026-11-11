@@ -18,6 +18,7 @@ mod sys {
     }
 }
 
+#[inline]
 fn size(value: Size) -> PxuiSizeDesc {
     match value {
         Size::Px(value) => PxuiSizeDesc { kind: 0, value, relative: None },
@@ -28,14 +29,17 @@ fn size(value: Size) -> PxuiSizeDesc {
     }
 }
 
+#[inline]
 fn fit(value: Fit) -> u32 {
     match value { Fit::Fill => 0, Fit::Contain => 1, Fit::Cover => 2, Fit::None => 3 }
 }
 
+#[inline]
 fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
 impl Ui {
     /// Adds a host-owned GPU image as an accessible image widget.
+    #[inline]
     pub fn image(&mut self, label: &str, image: &Image, fit_mode: Fit, width: Size, height: Size) -> Result<PxuiBox, i32> {
         let mut out = PxuiBox::default();
         let rc = unsafe { sys::pxui_ui_image(self.0.as_ptr(), as_str(label), image, fit(fit_mode), size(width), size(height), &mut out) };
@@ -44,8 +48,15 @@ impl Ui {
 }
 
 impl Paint<'_> {
-    /// Paints a host-owned GPU image into the given logical-point rectangle.
-    pub fn image(&mut self, image: &Image, x: f32, y: f32, width: f32, height: f32, fit_mode: Fit, tint: Rgba) {
+    /// Paints a host-owned GPU image into the given logical-point rectangle, stretched to fill it.
+    #[inline]
+    pub fn image(&mut self, x: f32, y: f32, width: f32, height: f32, image: &Image) {
+        self.image_fit(x, y, width, height, image, Fit::Fill, Rgba { r: 255, g: 255, b: 255, a: 255 })
+    }
+
+    /// Paints a host-owned GPU image placed in the rectangle as CSS `object-fit` places it, texels multiplied by `tint`.
+    #[inline]
+    pub fn image_fit(&mut self, x: f32, y: f32, width: f32, height: f32, image: &Image, fit_mode: Fit, tint: Rgba) {
         unsafe { sys::pxui_paint_image(self.image_raw().cast(), image, x, y, width, height, fit(fit_mode), tint) }
     }
 }

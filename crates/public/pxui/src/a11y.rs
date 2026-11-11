@@ -19,6 +19,7 @@ mod sys {
 
 impl Ui {
     /// Sets the accessible name for a box declared in the current UI frame.
+    #[inline]
     pub fn a11y_name(&mut self, box_: &PxuiBox, name: &str) -> Result<(), i32> {
         let name = Str { ptr: name.as_ptr(), len: name.len() };
         let rc = unsafe { sys::pxui_ui_a11y_name(self.0.as_ptr(), box_, name) };

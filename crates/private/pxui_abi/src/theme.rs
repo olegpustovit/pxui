@@ -1,9 +1,10 @@
-use crate::{PxuiThemeSnapshot, PxuiUi, get};
+use crate::PxuiThemeSnapshot;
+use crate::state::{PxuiUi, get};
 use pxui_core::theme::Tokens;
 use pxui_types::theme::{Font, Look, Shadow};
 use pxui_types::ffi::{PxuiFontDesc, PxuiLookDesc, PxuiMotion, PxuiRingDesc, PxuiShadowDesc, ThemeTokens};
 
-fn tokens(t: Tokens) -> ThemeTokens {
+pub(crate) fn tokens(t: Tokens) -> ThemeTokens {
     ThemeTokens {
         panel:t.panel, foreground:t.foreground, control:t.control, input:t.input, track:t.track, accent:t.accent,
         ink_ground:t.ink_ground.unwrap_or_default(), has_ink_ground:t.ink_ground.is_some() as u8, reserved:[0;3],
@@ -32,8 +33,7 @@ fn look(v: Look) -> PxuiLookDesc {
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_theme(ui:*mut PxuiUi) -> PxuiThemeSnapshot {
+export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> PxuiThemeSnapshot {
     let Some(ui)=(unsafe{get(ui)}) else { return unsafe{core::mem::zeroed()}; };
     let engine=unsafe{&*ui.engine};
     let theme=engine.theme();
@@ -42,4 +42,4 @@ pub unsafe extern "C" fn pxui_ui_theme(ui:*mut PxuiUi) -> PxuiThemeSnapshot {
         tokens:tokens(theme.tokens), value:look(theme.value.idle), hint:look(theme.hint.idle),
         field:look(theme.field.idle), footer:look(theme.footer.idle),
     }
-}
+});

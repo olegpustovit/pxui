@@ -38,12 +38,14 @@ impl Text {
         NonNull::new(unsafe { sys::pxui_text_create(fonts.as_ptr(), fonts.len()) }).map(Self)
     }
 
+    #[inline]
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> {
         let font = Str { ptr: bytes.as_ptr(), len: bytes.len() };
         let index = unsafe { sys::pxui_text_add_font(self.0.as_ptr(), font) };
         (index != u32::MAX).then_some(index)
     }
 
+    #[inline]
     pub fn measure(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> {
         let mut out = TextMetrics::default();
         let value = as_str(value);
@@ -51,10 +53,12 @@ impl Text {
         if rc == 0 { Ok(out) } else { Err(rc) }
     }
 
+    #[inline]
     pub fn width(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> {
         self.measure(key, value, style, max_width).map(|metrics| metrics.width)
     }
 
+    #[inline]
     pub fn quads(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32) -> Result<Vec<TextGlyph>, i32> {
         let value = as_str(value);
         let call = |out, capacity| unsafe {
@@ -72,11 +76,13 @@ impl Text {
         Ok(glyphs)
     }
 
+    #[inline]
     pub fn end_frame(&mut self) -> Result<(), i32> {
         let rc = unsafe { sys::pxui_text_end_frame(self.0.as_ptr()) };
         if rc == 0 { Ok(()) } else { Err(rc) }
     }
 
+    #[inline]
     pub fn rasterize_rgba(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
         let mut width = 0;
         let mut height = 0;
@@ -99,4 +105,5 @@ impl Drop for Text {
     fn drop(&mut self) { unsafe { sys::pxui_text_destroy(self.0.as_ptr()) } }
 }
 
+#[inline]
 fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }

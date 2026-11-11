@@ -2,6 +2,7 @@
 //! Stable PXUI wrapper. Shape and geometry types are re-exported from the std-only public crate.
 
 use core::ffi::c_void;
+use core::marker::PhantomData;
 use core::ptr::NonNull;
 pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
 pub use pxui_types::ffi::PxuiNodeDesc;
@@ -39,6 +40,10 @@ mod style;
 mod text_width;
 mod interaction;
 mod node;
+#[cfg(all(test, feature = "static"))]
+mod settled;
+#[cfg(all(test, feature = "static"))]
+mod panics;
 pub use interaction::{Signal, SignalEvent, UiSaved};
 pub use pxui_types::Node;
 
@@ -61,7 +66,7 @@ mod sys {
         pub safe fn pxui_abi_version()->u32;
         pub fn pxui_ui_create(desc:*const PxuiUiDesc) -> *mut PxuiUi;
         pub fn pxui_ui_create_with_fonts(desc:*const PxuiUiDesc,fonts:*const Str,count:usize)->*mut PxuiUi;
-        pub fn pxui_ui_output(ui:*mut PxuiUi)->pxui_types::ffi::Output;
+        pub fn pxui_ui_output(ui:*mut PxuiUi)->*const pxui_types::ffi::Output;
         pub fn pxui_ui_tokens(ui:*mut PxuiUi)->pxui_types::ffi::ThemeTokens;
         pub fn pxui_ui_theme(ui:*mut PxuiUi)->pxui_types::ffi::PxuiThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
@@ -83,7 +88,7 @@ mod sys {
         pub fn pxui_ui_view(ui:*mut PxuiUi,label:Str,revision:u64,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:Option<extern "C" fn(*mut c_void,*mut PxuiUi)>,user:*mut c_void,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_anchored(ui:*mut PxuiUi,label:Str,anchor:*const pxui_types::ffi::PxuiAnchorDesc,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:Option<extern "C" fn(*mut c_void,*mut PxuiUi)>,user:*mut c_void,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_dialog(ui:*mut PxuiUi,title:Str,buttons:pxui_types::ffi::Slice<Str>,build:Option<extern "C" fn(*mut c_void,*mut PxuiUi)>,user:*mut c_void,out:*mut pxui_types::ffi::PxuiDialogOut)->i32;
-        pub fn pxui_ui_destroy(ui: *mut PxuiUi);
+        pub fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32;
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:Option<extern "C" fn(*mut c_void,*mut PxuiUi)>,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:Option<extern "C" fn(*mut c_void,*mut PxuiUi)>,user:*mut c_void);
@@ -108,47 +113,65 @@ pub struct Renderer<'ui> { raw:NonNull<sys::PxuiRenderer>, ui:&'ui mut Ui }
 
 impl<'ui> Renderer<'ui> {
     pub fn new(ui:&'ui mut Ui,gpu:pxui_types::Gpu,target:TargetDesc)->Option<Self> {
-        let desc=sys::PxuiTargetDesc { size:core::mem::size_of::<sys::PxuiTargetDesc>() as u32,format:target.format,samples:target.samples,reserved:[0;3],mask_width:0,mask_height:0,color_width:0,color_height:0,reserved_tail:0 };
+        let desc=sys::PxuiTargetDesc { format:target.format,samples:target.samples,..sys::PxuiTargetDesc::default() };
         let raw=unsafe { sys::pxui_renderer_create(ui.0.as_ptr(),&gpu,&desc) };
         NonNull::new(raw).map(|raw| Self { raw, ui })
     }
+    #[inline]
     pub fn ui(&mut self)->&mut Ui { self.ui }
     pub fn prepare(&mut self,commands:&pxui_types::Commands,frame:u64,completed:u64)->Result<(),i32> {
         let rc=unsafe { sys::pxui_renderer_prepare(self.raw.as_ptr(),commands,frame,completed) };
+        composite::resume_deferred();
         if rc==0 { Ok(()) } else { Err(rc) }
     }
     pub fn draw(&mut self,pass:&pxui_types::Pass)->Result<(),i32> {
         let rc=unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(),pass) };
+        composite::resume_deferred();
         if rc==0 { Ok(()) } else { Err(rc) }
     }
 }
 
 impl Drop for Renderer<'_> { fn drop(&mut self) { unsafe { sys::pxui_renderer_destroy(self.raw.as_ptr()) } } }
 
+/// One built frame: the draw output and damage of `pxui_frame`. It borrows the `Ui` it came from, so the
+/// layer pointers it holds cannot be read after the next frame invalidates them.
+pub struct Frame<'a> { out:FrameOut, _ui:PhantomData<&'a mut Ui> }
+
+impl core::ops::Deref for Frame<'_> { type Target=FrameOut; #[inline] fn deref(&self)->&FrameOut { &self.out } }
+
 #[repr(transparent)]
 pub struct Ui(NonNull<sys::PxuiUi>);
 
 impl Ui {
     pub fn new() -> Option<Self> {
-        let version=sys::pxui_abi_version();
+        let version=abi_version();
         if version >> 16 != 1 { return None; }
-        let desc=sys::PxuiUiDesc { size:core::mem::size_of::<sys::PxuiUiDesc>() as u32,platform:0,font_size:0 };
-        NonNull::new(unsafe { sys::pxui_ui_create(&desc) }).map(Self)
+        NonNull::new(unsafe { sys::pxui_ui_create(&sys::PxuiUiDesc::default()) }).map(Self)
     }
 
     pub fn new_with_fonts(platform:u32,font_size:i32,fonts:&[&[u8]])->Option<Self> {
-        let desc=sys::PxuiUiDesc { size:core::mem::size_of::<sys::PxuiUiDesc>() as u32,platform,font_size };
+        let desc=sys::PxuiUiDesc { platform,font_size,..sys::PxuiUiDesc::default() };
         let fonts:Vec<Str>=fonts.iter().map(|bytes|Str { ptr:bytes.as_ptr(),len:bytes.len() }).collect();
         NonNull::new(unsafe { sys::pxui_ui_create_with_fonts(&desc,fonts.as_ptr(),fonts.len()) }).map(Self)
     }
 
-    pub fn frame<F: FnMut(&mut Ui)>(&mut self, input: &FrameIn, mut build: F) -> Result<FrameOut, i32> {
+    /// Builds one frame. A panic in `build` (or in any callback of a widget it called) is carried out of the
+    /// library and resumed here, after the call returns.
+    pub fn frame<F: FnMut(&mut Ui)>(&mut self, input: &FrameIn, mut build: F) -> Result<Frame<'_>, i32> {
         let mut out = FrameOut::default();
         let rc = unsafe { sys::pxui_frame(self.0.as_ptr(), input, Some(frame_callback::<F>), &mut build as *mut _ as *mut c_void, &mut out) };
-        let result=if rc == 0 { Ok(out) } else { Err(rc) };
-        if let Some(panic)=paint::take_callback_panic(){std::panic::resume_unwind(panic)}
-        if let Some(panic)=composite::take_callback_panic(){std::panic::resume_unwind(panic)}
-        result
+        self.framed(rc, out)
+    }
+
+    pub fn input_frame<F: FnMut(&mut Ui)>(&mut self,input:&Input,mut build:F)->Result<Frame<'_>,i32> {
+        let mut out=FrameOut::default();
+        let rc=unsafe { sys::pxui_ui_frame(self.0.as_ptr(),input,Some(frame_callback::<F>),&mut build as *mut _ as *mut c_void,&mut out) };
+        self.framed(rc, out)
+    }
+
+    fn framed(&mut self, rc:i32, out:FrameOut)->Result<Frame<'_>,i32> {
+        composite::resume_deferred();
+        if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(rc) }
     }
 
     pub fn last_error(&self) -> &str {
@@ -157,76 +180,71 @@ impl Ui {
         core::str::from_utf8(unsafe { core::slice::from_raw_parts(s.ptr, s.len) }).unwrap_or("invalid error string")
     }
 
-    pub fn output(&mut self) -> Output { unsafe { sys::pxui_ui_output(self.0.as_ptr()) } }
+    /// The output of the last frame, borrowed from the `Ui`: a new frame needs `&mut self`, so a stale read does not compile.
+    #[inline]
+    pub fn output(&self) -> &Output { unsafe { &*sys::pxui_ui_output(self.0.as_ptr()) } }
     pub fn tokens(&mut self) -> pxui_types::theme::Tokens { unsafe { sys::pxui_ui_tokens(self.0.as_ptr()) }.into() }
     pub fn theme(&mut self) -> pxui_types::theme::ThemeSnapshot { unsafe { sys::pxui_ui_theme(self.0.as_ptr()) }.into() }
 
-    pub fn draw_revision(&mut self) -> u64 { self.output().draw_revision }
-    pub fn built_nodes(&mut self) -> u64 { self.output().built_nodes }
-    pub fn rebuilt_views(&mut self) -> u64 { self.output().rebuilt_views }
-    pub fn arranged_nodes(&mut self) -> u64 { self.output().arranged_nodes }
+    #[inline] pub fn draw_revision(&self) -> u64 { self.output().draw_revision }
+    #[inline] pub fn built_nodes(&self) -> u64 { self.output().built_nodes }
+    #[inline] pub fn rebuilt_views(&self) -> u64 { self.output().rebuilt_views }
+    #[inline] pub fn arranged_nodes(&self) -> u64 { self.output().arranged_nodes }
     pub fn view_size(&self) -> (f32, f32) {
         let mut out = pxui_types::geom::Point::default();
         let _ = unsafe { sys::pxui_ui_view_size(self.0.as_ptr(), &mut out) };
         (out.x, out.y)
     }
-    pub fn repaint_at(&mut self) -> Option<f64> {
+    #[inline]
+    pub fn repaint_at(&self) -> Option<f64> {
         let at = self.output().repaint_at;
         at.is_finite().then_some(at)
     }
 
-    pub fn input_frame<F: FnMut(&mut Ui)>(&mut self,input:&Input,mut build:F)->Result<FrameOut,i32> {
-        let mut out=FrameOut::default();
-        let rc=unsafe { sys::pxui_ui_frame(self.0.as_ptr(),input,Some(frame_callback::<F>),&mut build as *mut _ as *mut c_void,&mut out) };
-        let result=if rc==0 {Ok(out)} else {Err(rc)};
-        if let Some(panic)=paint::take_callback_panic(){std::panic::resume_unwind(panic)}
-        if let Some(panic)=composite::take_callback_panic(){std::panic::resume_unwind(panic)}
-        result
-    }
-
-    pub fn set_theme_source(&mut self,source:&ThemeSource)->Result<(),i32> {
-        let rc=unsafe{sys::pxui_ui_set_theme(self.0.as_ptr(),source)};if rc==0{Ok(())}else{Err(rc)}
-    }
+    pub fn set_theme_source(&mut self,source:&ThemeSource)->Result<(),i32> { status(unsafe{sys::pxui_ui_set_theme(self.0.as_ptr(),source)}) }
     pub fn set_theme(&mut self,source:&ThemeSource)->Result<(),i32>{self.set_theme_source(source)}
-    pub fn set_dir(&mut self,rtl:bool)->Result<(),i32>{let rc=unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)};if rc==0{Ok(())}else{Err(rc)}}
-    pub fn set_a11y(&mut self,on:bool)->Result<(),i32>{let rc=unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)};if rc==0{Ok(())}else{Err(rc)}}
-    pub fn inject_a11y(&mut self,actions:&[A11yAction])->Result<(),i32>{let rc=unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())};if rc==0{Ok(())}else{Err(rc)}}
-    pub fn patch_text(&mut self,box_:&PxuiBox,value:&str)->bool{unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value))!=0}}
-    pub fn busy_step(&mut self,box_:&PxuiBox,now:f64)->bool{unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now)!=0}}
-    pub fn request_frame(&mut self)->Result<(),i32>{let rc=unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())};if rc==0{Ok(())}else{Err(rc)}}
+    pub fn set_dir(&mut self,rtl:bool)->Result<(),i32>{status(unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
+    pub fn set_a11y(&mut self,on:bool)->Result<(),i32>{status(unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
+    pub fn inject_a11y(&mut self,actions:&[A11yAction])->Result<(),i32>{status(unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())})}
+    #[inline] pub fn patch_text(&mut self,box_:&PxuiBox,value:&str)->bool{unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value))!=0}}
+    #[inline] pub fn busy_step(&mut self,box_:&PxuiBox,now:f64)->bool{unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now)!=0}}
+    pub fn request_frame(&mut self)->Result<(),i32>{status(unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}
+    #[inline]
     pub fn node_desc(&mut self,label:&str,node:&PxuiNodeDesc)->Result<PxuiBox,i32>{
-        let mut out=PxuiBox::default();let rc=unsafe{sys::pxui_ui_node(self.0.as_ptr(),as_str(label),node,&mut out)};
-        if rc==0{Ok(out)}else{Err(rc)}
+        let mut out=PxuiBox::default();status(unsafe{sys::pxui_ui_node(self.0.as_ptr(),as_str(label),node,&mut out)})?;Ok(out)
     }
-    pub fn node(&mut self,label:&str,node:&Node)->Result<PxuiBox,i32>{let encoded=node::EncodedNode::new(node);self.node_desc(label,&encoded.desc)}
+    #[inline]
     pub fn rect(&mut self,box_:&PxuiBox)->Result<geom::Rect,i32>{
-        let mut out=geom::Rect::default();let rc=unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)};
-        if rc==0{Ok(out)}else{Err(rc)}
+        let mut out=geom::Rect::default();status(unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)})?;Ok(out)
     }
-    pub fn box_of_key(&mut self,key:i64)->Option<PxuiBox>{let mut out=PxuiBox::default();(unsafe{sys::pxui_ui_box_of_key(self.0.as_ptr(),key,&mut out)}!=0).then_some(out)}
-    pub fn key_of(seed:i64,label:&str)->i64{unsafe{sys::pxui_key_of(seed,as_str(label))}}
-    pub fn text(&mut self,box_:&PxuiBox,value:&str)->Result<(),i32>{let rc=unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))};if rc==0{Ok(())}else{Err(rc)}}
+    #[inline] pub fn box_of_key(&mut self,key:i64)->Option<PxuiBox>{let mut out=PxuiBox::default();(unsafe{sys::pxui_ui_box_of_key(self.0.as_ptr(),key,&mut out)}!=0).then_some(out)}
+    #[inline] pub fn key_of(seed:i64,label:&str)->i64{unsafe{sys::pxui_key_of(seed,as_str(label))}}
+    #[inline] pub fn text(&mut self,box_:&PxuiBox,value:&str)->Result<(),i32>{status(unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
 
+    #[inline]
     pub fn within<F: FnMut(&mut Ui)>(&mut self, box_: &PxuiBox, mut f: F) {
         unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(frame_callback::<F>), &mut f as *mut _ as *mut c_void) }
     }
 
+    #[inline]
     pub fn scope<F: FnMut(&mut Ui)>(&mut self, label: &str, mut f: F) {
         unsafe { sys::pxui_scope(self.0.as_ptr(), as_str(label), Some(frame_callback::<F>), &mut f as *mut _ as *mut c_void) }
     }
+    #[inline]
     pub fn col<F: FnMut(&mut Ui)>(&mut self, padding:f32, label:&str, mut f:F) {
         unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(frame_callback::<F>), &mut f as *mut _ as *mut c_void) }
     }
     pub fn panel<F: FnMut(&mut Ui)>(&mut self, label:&str, f:F) {
-        let panel = sys::PxuiPanel { size:core::mem::size_of::<sys::PxuiPanel>() as u32,x:12.0,y:12.0,width:280.0,height:0.0,padding:0,has_height:0,window:0 };
+        let panel = sys::PxuiPanel { x:12.0,y:12.0,width:280.0,..sys::PxuiPanel::default() };
         self.panel_desc(&panel, label, f)
     }
+    #[inline]
     pub fn panel_desc<F: FnMut(&mut Ui)>(&mut self, panel:&PxuiPanel, label:&str, mut f:F) {
         unsafe { sys::pxui_panel(self.0.as_ptr(), panel, as_str(label), Some(frame_callback::<F>), &mut f as *mut _ as *mut c_void) }
     }
-    pub fn label(&mut self, text:&str) { unsafe { sys::pxui_label(self.0.as_ptr(), as_str(text)) } }
-    pub fn button(&mut self, text:&str) -> bool { unsafe { sys::pxui_button(self.0.as_ptr(), as_str(text)) != 0 } }
-    pub fn toggle(&mut self, text:&str, on:bool) -> bool { unsafe { sys::pxui_toggle(self.0.as_ptr(), as_str(text), on as u8) != 0 } }
+    #[inline] pub fn label(&mut self, text:&str) { unsafe { sys::pxui_label(self.0.as_ptr(), as_str(text)) } }
+    #[inline] pub fn button(&mut self, text:&str) -> bool { unsafe { sys::pxui_button(self.0.as_ptr(), as_str(text)) != 0 } }
+    #[inline] pub fn toggle(&mut self, text:&str, on:bool) -> bool { unsafe { sys::pxui_toggle(self.0.as_ptr(), as_str(text), on as u8) != 0 } }
     pub fn text_field(&mut self, label:&str, value:&str) -> Option<&str> {
         let mut changed = Str::default();
         let did_change = unsafe { sys::pxui_text_field(self.0.as_ptr(), as_str(label), as_str(value), &mut changed) };
@@ -235,7 +253,7 @@ impl Ui {
 }
 
 extern "C" fn frame_callback<F:FnMut(&mut Ui)>(user:*mut c_void,raw:*mut sys::PxuiUi) {
-    if user.is_null() || raw.is_null() { return; }
+    if user.is_null() || raw.is_null() || composite::deferred() { return; }
     let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let f=unsafe{&mut *user.cast::<F>()};
         let mut ui=core::mem::ManuallyDrop::new(Ui(unsafe{NonNull::new_unchecked(raw)}));
@@ -244,6 +262,41 @@ extern "C" fn frame_callback<F:FnMut(&mut Ui)>(user:*mut c_void,raw:*mut sys::Px
     if let Err(panic)=result { composite::defer_callback_panic(panic); }
 }
 
-impl Drop for Ui { fn drop(&mut self) { unsafe { sys::pxui_ui_destroy(self.0.as_ptr()) } } }
+impl Drop for Ui { fn drop(&mut self) { let _ = unsafe { sys::pxui_ui_destroy(self.0.as_ptr()) }; } }
 
+/// A `&[&str]` as a span of `Str` for one call: up to 32 strings live on the stack, more on the heap.
+pub(crate) struct Strs { stack:[Str;32], heap:Vec<Str>, len:usize }
+
+impl Strs {
+    #[inline]
+    pub(crate) fn new(values:&[&str])->Self {
+        let mut strs=Self { stack:[Str::default();32], heap:Vec::new(), len:values.len() };
+        if values.len()<=32 { for (out,v) in strs.stack.iter_mut().zip(values) { *out=as_str(v); } }
+        else { strs.heap=values.iter().map(|v|as_str(v)).collect(); }
+        strs
+    }
+    #[inline]
+    pub(crate) fn owned(values:&[String])->Self {
+        let mut strs=Self { stack:[Str::default();32], heap:Vec::new(), len:values.len() };
+        if values.len()<=32 { for (out,v) in strs.stack.iter_mut().zip(values) { *out=as_str(v); } }
+        else { strs.heap=values.iter().map(|v|as_str(v)).collect(); }
+        strs
+    }
+    #[inline]
+    pub(crate) fn span(&self)->pxui_types::ffi::Slice<Str> {
+        let ptr=if self.len<=32 { self.stack.as_ptr() } else { self.heap.as_ptr() };
+        pxui_types::ffi::Slice { ptr, len:self.len }
+    }
+}
+
+#[inline]
 fn as_str(s: &str) -> Str { Str { ptr: s.as_ptr(), len: s.len() } }
+#[cfg(feature="static")]
+#[inline]
+fn abi_version()->u32 { unsafe { sys::pxui_abi_version() } }
+#[cfg(not(feature="static"))]
+#[inline]
+fn abi_version()->u32 { sys::pxui_abi_version() }
+
+#[inline]
+fn status(rc:i32)->Result<(),i32>{ if rc==0 { Ok(()) } else { Err(rc) } }

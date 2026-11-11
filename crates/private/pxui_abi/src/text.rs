@@ -1,6 +1,6 @@
 use pxui_text::{Align, AtlasKind, Style, Text, Wrap};
+use crate::PXUI_ERR_ARGUMENT;
 use pxui_types::{Str, TextGlyph, TextMetrics, TextStyle};
-use std::panic::{catch_unwind, AssertUnwindSafe};
 
 pub struct PxuiText { text: Text }
 
@@ -16,8 +16,8 @@ unsafe fn utf8<'a>(value: Str) -> Option<&'a str> {
     std::str::from_utf8(unsafe { bytes(value) }?).ok()
 }
 
-fn style(value: TextStyle) -> Option<Style> {
-    if value.size < core::mem::size_of::<TextStyle>() as u32
+pub(crate) fn style(value: TextStyle) -> Option<Style> {
+    if value.size < core::mem::size_of::<TextStyle>() as u32 || value.reserved != 0
         || value.italic > 1 || value.ellipsis > 1
         || !value.size_points.is_finite() || value.size_points <= 0.0
         || !value.line_height.is_finite() || !value.tracking.is_finite()
@@ -36,57 +36,44 @@ fn style(value: TextStyle) -> Option<Style> {
     })
 }
 
-fn metrics(value: pxui_text::Metrics) -> TextMetrics {
+pub(crate) fn metrics(value: pxui_text::Metrics) -> TextMetrics {
     TextMetrics { width: value.w, height: value.h, baseline: value.baseline, lines: value.lines }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_text_create(fonts: *const Str, count: usize) -> *mut PxuiText {
+export!(bare pub unsafe fn pxui_text_create(fonts: *const Str, count: usize) -> *mut PxuiText {
     if count > MAX_FONTS || (count != 0 && fonts.is_null()) { return core::ptr::null_mut(); }
-    let result = catch_unwind(AssertUnwindSafe(|| {
-        let mut font_bytes = Vec::with_capacity(count);
-        if count != 0 {
-            for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
-                let Some(font) = (unsafe { bytes(*font) }) else { return core::ptr::null_mut(); };
-                font_bytes.push(font);
-            }
+    let mut font_bytes = Vec::with_capacity(count);
+    if count != 0 {
+        for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
+            let Some(font) = (unsafe { bytes(*font) }) else { return core::ptr::null_mut(); };
+            font_bytes.push(font);
         }
-        let text = Text::new(&font_bytes);
-        Box::into_raw(Box::new(PxuiText { text }))
-    }));
-    result.unwrap_or(core::ptr::null_mut())
-}
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_text_destroy(text: *mut PxuiText) {
-    if !text.is_null() {
-        let _ = catch_unwind(AssertUnwindSafe(|| drop(unsafe { Box::from_raw(text) })));
     }
-}
+    Box::into_raw(Box::new(PxuiText { text: Text::new(&font_bytes) }))
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_text_add_font(text: *mut PxuiText, font: Str) -> u32 {
+export!(bare pub unsafe fn pxui_text_destroy(text: *mut PxuiText) {
+    if !text.is_null() { drop(unsafe { Box::from_raw(text) }); }
+});
+
+export!(bare pub unsafe fn pxui_text_add_font(text: *mut PxuiText, font: Str) -> u32 {
     if text.is_null() { return u32::MAX; }
     let Some(font) = (unsafe { bytes(font) }) else { return u32::MAX; };
-    catch_unwind(AssertUnwindSafe(|| u32::try_from(unsafe { &mut *text }.text.add_font(font)).unwrap_or(u32::MAX))).unwrap_or(u32::MAX)
-}
+    u32::try_from(unsafe { &mut *text }.text.add_font(font)).unwrap_or(u32::MAX)
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_text_width(text: *mut PxuiText, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
-    if text.is_null() || style_.is_null() || out.is_null() { return -1; }
-    let Some(value) = (unsafe { utf8(value) }) else { return -1; };
-    let Some(style) = style(unsafe { *style_ }) else { return -1; };
-    catch_unwind(AssertUnwindSafe(|| {
-        let measured = unsafe { &mut *text }.text.layout(key, value, &style, max_width);
-        unsafe { out.write(metrics(measured)); }
-        0
-    })).unwrap_or(-2)
-}
+export!(bare pub unsafe fn pxui_text_width(text: *mut PxuiText, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
+    if text.is_null() || style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
+    let Some(value) = (unsafe { utf8(value) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(style) = style(unsafe { *style_ }) else { return PXUI_ERR_ARGUMENT; };
+    let measured = unsafe { &mut *text }.text.layout(key, value, &style, max_width);
+    unsafe { out.write(metrics(measured)); }
+    0
+});
 
-/// Returns the total glyph count, or `usize::MAX` for invalid arguments or a panic. If `capacity`
-/// is smaller than the result, only the first `capacity` glyphs are written.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_text_quads(
+// Returns the total glyph count, or `usize::MAX` for invalid arguments or a panic. If `capacity`
+// is smaller than the result, only the first `capacity` glyphs are written.
+export!(bare pub unsafe fn pxui_text_quads(
     text: *mut PxuiText,
     key: u64,
     value: Str,
@@ -103,7 +90,7 @@ pub unsafe extern "C" fn pxui_text_quads(
     { return usize::MAX; }
     let Some(value) = (unsafe { utf8(value) }) else { return usize::MAX; };
     let Some(style) = style(unsafe { *style_ }) else { return usize::MAX; };
-    catch_unwind(AssertUnwindSafe(|| {
+    {
         let state = unsafe { &mut *text };
         state.text.layout(key, value, &style, max_width);
         let mut count = 0;
@@ -121,19 +108,18 @@ pub unsafe extern "C" fn pxui_text_quads(
             count += 1;
         });
         count
-    })).unwrap_or(usize::MAX)
-}
+    }
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_text_end_frame(text: *mut PxuiText) -> i32 {
+export!(bare pub unsafe fn pxui_text_end_frame(text: *mut PxuiText) -> i32 {
     if text.is_null() { return -1; }
-    catch_unwind(AssertUnwindSafe(|| unsafe { &mut *text }.text.end_frame())).map_or(-2, |_| 0)
-}
+    unsafe { &mut *text }.text.end_frame();
+    0
+});
 
-/// Renders shaped text to straight-alpha RGBA8. A null/short output buffer is a size query; the
-/// dimensions and required byte count are still returned. The caller retries with that capacity.
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_text_rasterize_rgba(
+// Renders shaped text to straight-alpha RGBA8. A null/short output buffer is a size query; the
+// dimensions and required byte count are still returned. The caller retries with that capacity.
+export!(bare pub unsafe fn pxui_text_rasterize_rgba(
     text: *mut PxuiText,
     key: u64,
     value: Str,
@@ -155,7 +141,7 @@ pub unsafe extern "C" fn pxui_text_rasterize_rgba(
     { return usize::MAX; }
     let Some(value) = (unsafe { utf8(value) }) else { return usize::MAX; };
     let Some(style) = style(unsafe { *style_ }) else { return usize::MAX; };
-    catch_unwind(AssertUnwindSafe(|| {
+    {
         let state = unsafe { &mut *text };
         let metrics = state.text.layout(key, value, &style, max_width);
         let (w, h) = if value.is_empty() {
@@ -204,8 +190,8 @@ pub unsafe extern "C" fn pxui_text_rasterize_rgba(
         }
         state.text.drain_uploads(&mut |_, _, _, _, _, _, _| {});
         required
-    })).unwrap_or(usize::MAX)
-}
+    }
+});
 
 fn over(dst: &mut [u8], src: [u8; 4]) {
     let (sa, da) = (src[3] as u32, dst[3] as u32);

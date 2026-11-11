@@ -14,17 +14,20 @@ mod sys {
     }
 }
 
+#[inline]
 fn encode_state(value:State)->PxuiStateDesc { node::state(value) }
 fn status(rc:i32)->Result<(),i32> { if rc==0 {Ok(())} else {Err(rc)} }
 
 impl Ui {
     /// Applies one look to a live node and records its interaction state for transitions.
+    #[inline]
     pub fn set_look(&mut self,box_:&PxuiBox,look:Look,state:State)->Result<(),i32> {
         let look=node::look(look); let state=encode_state(state);
         status(unsafe{sys::pxui_ui_set_look(self.0.as_ptr(),box_,&look,&state)})
     }
 
     /// Picks and applies the matching interaction look to a live node.
+    #[inline]
     pub fn style(&mut self,box_:&PxuiBox,states:&States,state:State)->Result<(),i32> {
         let values=[node::look(states.idle),node::look(states.hover),node::look(states.pressed),node::look(states.focus),node::look(states.disabled),node::look(states.checked)];
         let state=encode_state(state);

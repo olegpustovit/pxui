@@ -22,8 +22,7 @@ typedef struct {
     float drag[2], pointer[2], press_point[2], release_point[2], scroll[2];
     double pinch, a11y_value;
     uint32_t a11y_select[2];
-    PxuiEventSpan keys;
-    size_t text_len;
+    PxuiEventSpan keys; /* borrowed from the Ui until its next frame, with the text its events point at */
 } PxuiSignal;
 typedef struct { const uint32_t *ptr; size_t len; } PxuiU32Span;
 typedef struct { const uint8_t *ptr; size_t len; } PxuiU8Span;
@@ -120,11 +119,22 @@ enum PxuiEventKind {
 };
 enum PxuiValueCode {
     PXUI_MOUSE_LEFT=0, PXUI_MOUSE_RIGHT=1, PXUI_MOUSE_MIDDLE=2, PXUI_MOUSE_X1=3, PXUI_MOUSE_X2=4,
-    PXUI_KEY_UP=0x100, PXUI_KEY_DOWN=0x101, PXUI_KEY_LEFT=0x102, PXUI_KEY_RIGHT=0x103,
-    PXUI_KEY_SPACE=0x104, PXUI_KEY_ENTER=0x105, PXUI_KEY_ESCAPE=0x106, PXUI_KEY_BACKSPACE=0x107,
-    PXUI_KEY_TAB=0x108, PXUI_KEY_SHIFT=0x109, PXUI_KEY_CTRL=0x10a, PXUI_KEY_ALT=0x10b, PXUI_KEY_META=0x10c,
-    PXUI_KEY_F1=0x120, PXUI_KEY_F12=0x12b, PXUI_KEY_HOME=0x130, PXUI_KEY_DELETE=0x135
+    /* Key codes: a Unicode scalar value (below PXUI_KEY_SPECIAL) is that character; PXUI_KEY_SPECIAL + n is special key n;
+       PXUI_KEY_UNKNOWN | code carries a platform code. F2..F11 follow F1 in order. */
+    PXUI_KEY_SPECIAL=0x110000,
+    PXUI_KEY_UP=PXUI_KEY_SPECIAL+0, PXUI_KEY_DOWN=PXUI_KEY_SPECIAL+1, PXUI_KEY_LEFT=PXUI_KEY_SPECIAL+2, PXUI_KEY_RIGHT=PXUI_KEY_SPECIAL+3,
+    PXUI_KEY_SPACE=PXUI_KEY_SPECIAL+4, PXUI_KEY_ENTER=PXUI_KEY_SPECIAL+5, PXUI_KEY_ESCAPE=PXUI_KEY_SPECIAL+6, PXUI_KEY_BACKSPACE=PXUI_KEY_SPECIAL+7,
+    PXUI_KEY_TAB=PXUI_KEY_SPECIAL+8, PXUI_KEY_SHIFT=PXUI_KEY_SPECIAL+9, PXUI_KEY_CTRL=PXUI_KEY_SPECIAL+10, PXUI_KEY_ALT=PXUI_KEY_SPECIAL+11, PXUI_KEY_META=PXUI_KEY_SPECIAL+12,
+    PXUI_KEY_F1=PXUI_KEY_SPECIAL+13, PXUI_KEY_F12=PXUI_KEY_SPECIAL+24,
+    PXUI_KEY_HOME=PXUI_KEY_SPECIAL+25, PXUI_KEY_END=PXUI_KEY_SPECIAL+26, PXUI_KEY_PAGE_UP=PXUI_KEY_SPECIAL+27, PXUI_KEY_PAGE_DOWN=PXUI_KEY_SPECIAL+28,
+    PXUI_KEY_INSERT=PXUI_KEY_SPECIAL+29, PXUI_KEY_DELETE=PXUI_KEY_SPECIAL+30
 };
+#define PXUI_KEY_UNKNOWN 0x80000000u
+/* Status codes of every call that returns int32_t: 0 is success. */
+#define PXUI_ERR_ARGUMENT (-1) /* invalid argument; pxui_last_error says which */
+#define PXUI_ERR_GPU (-2)      /* GPU adoption or recording failed (pxui_renderer_*) */
+#define PXUI_ERR_STATE (-3)    /* not allowed now: inside a frame callback, on a borrowed handle, or with a renderer attached */
+#define PXUI_ERR_PANIC (-4)    /* a panic was caught in the library; the Ui fails every call until its next frame call */
 enum PxuiTargetFormat { PXUI_TARGET_RGBA8=1, PXUI_TARGET_BGRA8=2 };
 typedef struct {
     uint32_t size;
@@ -133,7 +143,7 @@ typedef struct {
     uint8_t has_height, window;
 } PxuiPanel;
 typedef struct { uint64_t index; int64_t key; uint64_t slot; uint32_t generation; } PxuiBox;
-typedef struct { uint16_t depth; uint8_t children,reserved; } PxuiTreeNode;
+typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 /* The callback UI pointer is borrowed and valid only for that callback; do not retain or destroy it. */
 typedef void (*PxuiBuild)(void *user, PxuiUi *ui);
 typedef void (*PxuiPaintBuild)(void *user, PxuiPaint *paint, PxuiRect rect);
@@ -169,11 +179,11 @@ enum PxuiKeyframeTarget { PXUI_KEY_OFFSET=0, PXUI_KEY_OPACITY=1, PXUI_KEY_LOOK=2
 uint32_t pxui_abi_version(void);
 PxuiUi *pxui_ui_create(const PxuiUiDesc *desc);
 PxuiUi *pxui_ui_create_with_fonts(const PxuiUiDesc *desc, const PxuiStr *fonts, size_t count);
-void pxui_ui_destroy(PxuiUi *ui);
+int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside a frame, or a renderer still attached */
 PxuiStr pxui_last_error(const PxuiUi *ui);
 int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 int32_t pxui_ui_frame(PxuiUi *ui, const PxuiInput *in, PxuiBuild build, void *user, PxuiFrameOut *out);
-PxuiOutput pxui_ui_output(PxuiUi *ui);
+const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its next frame */
 PxuiThemeTokens pxui_ui_tokens(PxuiUi *ui);
 PxuiThemeSnapshot pxui_ui_theme(PxuiUi *ui);
 int32_t pxui_ui_grid_list(PxuiUi *ui, const PxuiGridListDesc *desc, PxuiBox *out);
@@ -203,7 +213,7 @@ int32_t pxui_ui_focus_box(PxuiUi *ui, const PxuiBox *box);
 int32_t pxui_ui_focused(PxuiUi *ui, const PxuiBox *box, uint8_t *out);
 int32_t pxui_ui_state(PxuiUi *ui, const PxuiBox *box, int64_t default_value, int64_t *out);
 int32_t pxui_ui_set_state(PxuiUi *ui, const PxuiBox *box, int64_t value);
-int32_t pxui_ui_signal(PxuiUi *ui, const PxuiBox *box, PxuiSignal *out, PxuiEvent *events, size_t event_capacity, uint8_t *text, size_t text_capacity);
+int32_t pxui_ui_signal(PxuiUi *ui, const PxuiBox *box, PxuiSignal *out);
 uint8_t pxui_ui_patch_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value);
 uint8_t pxui_ui_busy_step(PxuiUi *ui, const PxuiBox *box, double now);
 int32_t pxui_ui_request_frame(PxuiUi *ui);

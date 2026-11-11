@@ -304,7 +304,8 @@ fn main() {
             };
             let a0 = mem_sys::local_alloc_count();
             let t0 = Instant::now();
-            renderer.ui().input_frame(&input, &mut |ui: &mut Ui| app(ui, &mut s)).unwrap_or_else(|code| { eprintln!("pxui_gallery: frame failed ({code}): {}", renderer.ui().last_error()); std::process::exit(1) });
+            // the frame borrows the Ui until it is dropped, so the error text is read after it
+            if let Err(code) = renderer.ui().input_frame(&input, &mut |ui: &mut Ui| app(ui, &mut s)).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", renderer.ui().last_error()); std::process::exit(1) }
             cost.us = t0.elapsed().as_secs_f64() * 1e6;
             cost.allocs = Some(mem_sys::local_alloc_count() - a0);
             events = std::mem::take(&mut frame.input.events);

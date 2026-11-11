@@ -14,5 +14,8 @@ pxui_core = { path = "../../private/pxui_core" }
 pxui_render = { path = "../../private/pxui_render" }
 pxui_abi_link = { package = "pxui_abi", path = "../../private/pxui_abi", optional = true }
 
+[dev-dependencies]
+mem_sys = { path = "../../open/mem_sys" }
+
 [lints]
 workspace = true

@@ -1,8 +1,10 @@
 use pxui_core::ui::{Look, State, States, UiBox};
-use pxui_types::{PxuiBox, ffi::{PxuiLookDesc, PxuiStateDesc}};
-use crate::{get, node::{from_abi_box, look, state}, PxuiUi};
+use pxui_types::ffi::{PxuiLookDesc, PxuiStateDesc};
+use crate::state::{PxuiUi, core_box, fail, get};
+use crate::node::{look, state};
+use crate::{PXUI_ERR_ARGUMENT, PxuiBox};
 
-fn decode_look(value:PxuiLookDesc)->Option<Look> {
+pub(crate) fn decode_look(value:PxuiLookDesc)->Option<Look> {
     if value.has_gradient>1 || value.reserved!=[0;3] || value.reserved_tail!=[0;3]
         || value.dashed>1 || value.font.caps>1 || value.font.reserved!=[0;3]
         || value.ring.sides>15 || value.sides>15
@@ -21,37 +23,36 @@ fn decode_state(value:PxuiStateDesc)->Option<State> {
     Some(state(value))
 }
 
-unsafe fn decode_args<'a>(ui:*mut PxuiUi,box_:*const PxuiBox,state_:*const PxuiStateDesc)->Result<(&'a mut crate::PxuiUi,UiBox,State),i32> {
-    let Some(ui)=(unsafe{get(ui)}) else{return Err(-1)};
-    if box_.is_null()||state_.is_null(){return Err(unsafe{crate::fail(ui as *mut PxuiUi,"null style descriptor")});}
-    let Some(state)=decode_state(unsafe{*state_}) else{return Err(unsafe{crate::fail(ui as *mut PxuiUi,"invalid style state")});};
-    Ok((ui,from_abi_box(unsafe{*box_}),state))
+unsafe fn decode_args<'a>(ui:*mut PxuiUi,box_:*const PxuiBox,state_:*const PxuiStateDesc)->Result<(&'a mut PxuiUi,UiBox,State),i32> {
+    let Some(ui)=(unsafe{get(ui)}) else{return Err(PXUI_ERR_ARGUMENT)};
+    if box_.is_null()||state_.is_null(){return Err(unsafe{fail(ui,"null style descriptor")});}
+    let Some(state)=decode_state(unsafe{*state_}) else{return Err(unsafe{fail(ui,"invalid style state")});};
+    let Some(box_)=core_box(unsafe{*box_}) else{return Err(unsafe{fail(ui,"invalid style box")});};
+    Ok((ui,box_,state))
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_set_look(ui:*mut PxuiUi,box_:*const PxuiBox,look_:*const PxuiLookDesc,state_:*const PxuiStateDesc)->i32 {
+export!(pub unsafe fn pxui_ui_set_look(ui:*mut PxuiUi,box_:*const PxuiBox,look_:*const PxuiLookDesc,state_:*const PxuiStateDesc)->i32 {
     let (ui,box_,state)=match unsafe{decode_args(ui,box_,state_)} {Ok(v)=>v,Err(rc)=>return rc};
-    if look_.is_null(){return unsafe{crate::fail(ui as *mut PxuiUi,"null look descriptor")};}
-    let Some(look)=decode_look(unsafe{*look_}) else{return unsafe{crate::fail(ui as *mut PxuiUi,"invalid look descriptor")};};
+    if look_.is_null(){return unsafe{fail(ui,"null look descriptor")};}
+    let Some(look)=decode_look(unsafe{*look_}) else{return unsafe{fail(ui,"invalid look descriptor")};};
     unsafe{(&mut *ui.engine).set_look(&box_,look,state);}
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_style(ui:*mut PxuiUi,box_:*const PxuiBox,states_:*const PxuiLookDesc,state_:*const PxuiStateDesc)->i32 {
+export!(pub unsafe fn pxui_ui_style(ui:*mut PxuiUi,box_:*const PxuiBox,states_:*const PxuiLookDesc,state_:*const PxuiStateDesc)->i32 {
     let (ui,box_,state)=match unsafe{decode_args(ui,box_,state_)} {Ok(v)=>v,Err(rc)=>return rc};
-    if states_.is_null(){return unsafe{crate::fail(ui as *mut PxuiUi,"null states descriptor")};}
+    if states_.is_null(){return unsafe{fail(ui,"null states descriptor")};}
     let values=unsafe{core::slice::from_raw_parts(states_,6)};
     let mut decoded=values.iter().copied().map(decode_look);
-    let Some(idle)=decoded.next().flatten() else{return unsafe{crate::fail(ui as *mut PxuiUi,"invalid states descriptor")};};
-    let Some(hover)=decoded.next().flatten() else{return unsafe{crate::fail(ui as *mut PxuiUi,"invalid states descriptor")};};
-    let Some(pressed)=decoded.next().flatten() else{return unsafe{crate::fail(ui as *mut PxuiUi,"invalid states descriptor")};};
-    let Some(focus)=decoded.next().flatten() else{return unsafe{crate::fail(ui as *mut PxuiUi,"invalid states descriptor")};};
-    let Some(disabled)=decoded.next().flatten() else{return unsafe{crate::fail(ui as *mut PxuiUi,"invalid states descriptor")};};
-    let Some(checked)=decoded.next().flatten() else{return unsafe{crate::fail(ui as *mut PxuiUi,"invalid states descriptor")};};
+    let Some(idle)=decoded.next().flatten() else{return unsafe{fail(ui,"invalid states descriptor")};};
+    let Some(hover)=decoded.next().flatten() else{return unsafe{fail(ui,"invalid states descriptor")};};
+    let Some(pressed)=decoded.next().flatten() else{return unsafe{fail(ui,"invalid states descriptor")};};
+    let Some(focus)=decoded.next().flatten() else{return unsafe{fail(ui,"invalid states descriptor")};};
+    let Some(disabled)=decoded.next().flatten() else{return unsafe{fail(ui,"invalid states descriptor")};};
+    let Some(checked)=decoded.next().flatten() else{return unsafe{fail(ui,"invalid states descriptor")};};
     unsafe{(&mut *ui.engine).style(&box_,&States{idle,hover,pressed,focus,disabled,checked},state);}
     0
-}
+});
 
 #[cfg(test)]
 mod tests {

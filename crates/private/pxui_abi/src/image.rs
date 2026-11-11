@@ -1,7 +1,8 @@
 use std::rc::Rc;
 use ogpu_core::backend::{self, Device, NativeTexture, Texture};
-use pxui_core::ui::{Fit, Image as CoreImage, UiBox};
-use pxui_types::{ffi::PxuiSizeDesc, geom::Rgba, PxuiBox, Size, Str};
+use pxui_core::ui::{Fit, Image as CoreImage};
+use pxui_types::{ffi::PxuiSizeDesc, geom::Rgba, PxuiBox, Str};
+use crate::{node::size, state::{checked, finite, to_abi_box}};
 
 #[derive(Clone, Copy)]
 struct ForeignImage(pxui_types::Image);
@@ -34,31 +35,18 @@ pub(crate) fn adopt_texture(device: &Device, image: &CoreImage) -> Result<Textur
     }).map_err(|_| ())
 }
 
-fn size(value: PxuiSizeDesc) -> Option<Size> {
-    if !value.value.is_finite() { return None; }
-    Some(match value.kind {
-        0 => Size::Px(value.value), 1 => Size::Pct(value.value), 2 => Size::Rel(value.relative?),
-        3 => Size::Grow, 4 => Size::Fit, _ => return None,
-    })
-}
-
-unsafe fn string(value: Str) -> Option<&'static str> { unsafe { crate::text(value) } }
-fn boxed(value: UiBox) -> PxuiBox { PxuiBox { index: value.index as u64, key: value.box_key, slot: value.box_slot as u64, generation: value.generation } }
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_image(ui: *mut crate::PxuiUi, label: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
+export!(pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, label: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { crate::get(ui) }) else { return -1; };
     if raw.is_null() || out.is_null() { return unsafe { crate::fail(ui, "invalid image descriptor") }; }
-    let (Some(label), Some(image), Some(fit), Some(width), Some(height)) = (unsafe { string(label) }, image(unsafe { *raw }), fit(fit_code), size(width), size(height))
+    let (Some(label), Some(image), Some(fit), Some(width), Some(height)) = (unsafe { checked(label) }, image(unsafe { *raw }), fit(fit_code), size(width), size(height))
         else { return unsafe { crate::fail(ui, "invalid image descriptor") }; };
     let handle = unsafe { &mut *state.engine }.image(label, &image, fit, width, height);
-    unsafe { *out = boxed(handle); }
+    unsafe { *out = to_abi_box(handle); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_paint_image(paint: *mut crate::paint::PxuiPaint, raw: *const pxui_types::Image, x: f32, y: f32, width: f32, height: f32, fit_code: u32, tint: Rgba) {
-    if raw.is_null() || ![x, y, width, height].iter().all(|v| v.is_finite()) { return; }
+export!(pub unsafe fn pxui_paint_image(paint: *mut crate::paint::PxuiPaint, raw: *const pxui_types::Image, x: f32, y: f32, width: f32, height: f32, fit_code: u32, tint: Rgba) {
+    if raw.is_null() || !finite(&[x, y, width, height]) { return; }
     let (Some(image), Some(fit), Some(paint)) = (image(unsafe { *raw }), fit(fit_code), unsafe { crate::paint::value(paint) }) else { return; };
     paint.image_fit(x, y, width, height, &image, fit, tint);
-}
+});

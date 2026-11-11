@@ -4,6 +4,7 @@ use crate::{Event, Str, geom::{Rect, Rgba}};
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Slice<T> { pub ptr: *const T, pub len: usize }
+impl<T> Default for Slice<T> { fn default() -> Self { Self { ptr: core::ptr::null(), len: 0 } } }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -21,6 +22,13 @@ pub struct Input {
     pub pixel_scale: [f64; 2],
     pub mouse_delta: [f64; 2],
     pub fps: f64,
+}
+
+impl Default for Input {
+    fn default() -> Self {
+        Self { size: core::mem::size_of::<Self>() as u32, time: 0.0, dt: 0.0, frame: 0, tick: 0, logical_size: [0; 2], pointer: [0.0; 2],
+            keys: Slice::default(), buttons: Slice::default(), events: Slice::default(), pixel_scale: [1.0; 2], mouse_delta: [0.0; 2], fps: 60.0 }
+    }
 }
 
 #[repr(C)]
@@ -117,10 +125,18 @@ pub struct Output {
     pub damage: Damage,
     pub a11y: A11yTree,
 }
+impl Default for Output {
+    fn default() -> Self {
+        Self { size: core::mem::size_of::<Self>() as u32, reserved: 0, draw_revision: 0, repaint_at: f64::INFINITY, built_nodes: 0, rebuilt_views: 0, arranged_nodes: 0,
+            platform: PlatformOut { size: core::mem::size_of::<PlatformOut>() as u32, ..PlatformOut::default() }, damage: Damage::default(),
+            a11y: A11yTree { nodes: Slice::default(), strings: Str::default(), revision: 0, first_child: u32::MAX, child_count: 0, actions: Slice::default() } }
+    }
+}
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
+#[derive(Clone, Copy, Debug)]
 pub struct ThemeSource { pub size: u32, pub flags: u32, pub source: Str }
+impl Default for ThemeSource { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, flags: 0, source: Str::default() } } }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -264,6 +280,46 @@ impl PxuiMarkDesc {
     pub const DIR_DOWN: u32 = 0; pub const DIR_UP: u32 = 1; pub const DIR_LEFT: u32 = 2; pub const DIR_RIGHT: u32 = 3;
 }
 
+/// Opaque `enter` state: pass it back to `leave` unchanged.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiSaved { pub size: u32, pub reserved: u32, pub parents: usize, pub seeds: usize }
+
+/// What `pxui_ui_signal` reports for one box. `keys` is borrowed from the `Ui` and valid until the next frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiSignal {
+    pub size: u32,
+    pub flags: u32,
+    pub has_subtree_press: u8,
+    pub button: u8,
+    pub has_a11y_value: u8,
+    pub has_a11y_select: u8,
+    pub reserved: [u8; 4],
+    pub subtree_press: i64,
+    pub clicks: i64,
+    pub drag: [f32; 2],
+    pub pointer: [f32; 2],
+    pub press_point: [f32; 2],
+    pub release_point: [f32; 2],
+    pub scroll: [f32; 2],
+    pub pinch: f64,
+    pub a11y_value: f64,
+    pub a11y_select: [u32; 2],
+    pub keys: Slice<Event>,
+}
+impl Default for PxuiSignal {
+    fn default() -> Self {
+        Self { size: core::mem::size_of::<Self>() as u32, flags: 0, has_subtree_press: 0, button: u8::MAX, has_a11y_value: 0, has_a11y_select: 0,
+            reserved: [0; 4], subtree_press: 0, clicks: 0, drag: [0.0; 2], pointer: [0.0; 2], press_point: [0.0; 2],
+            release_point: [0.0; 2], scroll: [0.0; 2], pinch: 1.0, a11y_value: 0.0, a11y_select: [0; 2], keys: Slice::default() }
+    }
+}
+impl PxuiSignal {
+    pub const HOVERED: u32 = 1; pub const PRESSED: u32 = 2; pub const HELD: u32 = 4; pub const RELEASED: u32 = 8;
+    pub const CLICKED: u32 = 16; pub const DOUBLE_CLICKED: u32 = 32; pub const DRAGGING: u32 = 64;
+}
+
 pub type PxuiInput = Input;
 pub type PxuiOutput = Output;
 pub type PxuiPlatformOut = PlatformOut;
@@ -321,6 +377,8 @@ mod layout {
         check("PxuiBarDesc", size_of::<PxuiBarDesc>(), align_of::<PxuiBarDesc>(), &[offset_of!(PxuiBarDesc, has_bar), offset_of!(PxuiBarDesc, whole), offset_of!(PxuiBarDesc, reserved), offset_of!(PxuiBarDesc, color), offset_of!(PxuiBarDesc, radius), offset_of!(PxuiBarDesc, width), offset_of!(PxuiBarDesc, gap), offset_of!(PxuiBarDesc, margin)]);
         check("PxuiStateDesc", size_of::<PxuiStateDesc>(), align_of::<PxuiStateDesc>(), &[offset_of!(PxuiStateDesc, hovered), offset_of!(PxuiStateDesc, pressed), offset_of!(PxuiStateDesc, focused), offset_of!(PxuiStateDesc, disabled), offset_of!(PxuiStateDesc, checked), offset_of!(PxuiStateDesc, reserved)]);
         check("PxuiCurveDesc", size_of::<PxuiCurveDesc>(), align_of::<PxuiCurveDesc>(), &[offset_of!(PxuiCurveDesc, kind), offset_of!(PxuiCurveDesc, duration), offset_of!(PxuiCurveDesc, points), offset_of!(PxuiCurveDesc, omega)]);
+        check("PxuiSaved", size_of::<PxuiSaved>(), align_of::<PxuiSaved>(), &[offset_of!(PxuiSaved, size), offset_of!(PxuiSaved, reserved), offset_of!(PxuiSaved, parents), offset_of!(PxuiSaved, seeds)]);
+        check("PxuiSignal", size_of::<PxuiSignal>(), align_of::<PxuiSignal>(), &[offset_of!(PxuiSignal, size), offset_of!(PxuiSignal, flags), offset_of!(PxuiSignal, has_subtree_press), offset_of!(PxuiSignal, button), offset_of!(PxuiSignal, has_a11y_value), offset_of!(PxuiSignal, has_a11y_select), offset_of!(PxuiSignal, reserved), offset_of!(PxuiSignal, subtree_press), offset_of!(PxuiSignal, clicks), offset_of!(PxuiSignal, drag), offset_of!(PxuiSignal, pointer), offset_of!(PxuiSignal, press_point), offset_of!(PxuiSignal, release_point), offset_of!(PxuiSignal, scroll), offset_of!(PxuiSignal, pinch), offset_of!(PxuiSignal, a11y_value), offset_of!(PxuiSignal, a11y_select), offset_of!(PxuiSignal, keys)]);
         check("PxuiNodeDesc", size_of::<NodeDesc>(), align_of::<NodeDesc>(), &[offset_of!(NodeDesc, size), offset_of!(NodeDesc, flags), offset_of!(NodeDesc, w), offset_of!(NodeDesc, h), offset_of!(NodeDesc, min_w), offset_of!(NodeDesc, min_h), offset_of!(NodeDesc, max_w), offset_of!(NodeDesc, max_h), offset_of!(NodeDesc, grow), offset_of!(NodeDesc, shrink), offset_of!(NodeDesc, aspect), offset_of!(NodeDesc, axis), offset_of!(NodeDesc, padding), offset_of!(NodeDesc, margin), offset_of!(NodeDesc, gap), offset_of!(NodeDesc, row_gap), offset_of!(NodeDesc, justify), offset_of!(NodeDesc, align), offset_of!(NodeDesc, align_self), offset_of!(NodeDesc, wrap), offset_of!(NodeDesc, reserved), offset_of!(NodeDesc, grid), offset_of!(NodeDesc, cell), offset_of!(NodeDesc, z), offset_of!(NodeDesc, reserved_z), offset_of!(NodeDesc, role), offset_of!(NodeDesc, a11y), offset_of!(NodeDesc, anchor), offset_of!(NodeDesc, has_at), offset_of!(NodeDesc, at), offset_of!(NodeDesc, scroll_step), offset_of!(NodeDesc, look), offset_of!(NodeDesc, inset), offset_of!(NodeDesc, mark), offset_of!(NodeDesc, bar), offset_of!(NodeDesc, state), offset_of!(NodeDesc, transition)]);
     }
 }

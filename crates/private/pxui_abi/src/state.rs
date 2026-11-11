@@ -1,0 +1,167 @@
+//! The state behind a `PxuiUi` handle and the helpers every export shares: string and box decoding,
+//! validation, the poison flag and the per-frame buffers that keep a settled frame allocation-free.
+use crate::{PXUI_ERR_ARGUMENT, Str};
+use core::ffi::c_void;
+use pxui_core::ui::{Ui, UiBox};
+use pxui_types::{Event as FfiEvent, PxuiBox, ffi::{A11yNode, Output, Slice}, layout::Track};
+use std::{collections::HashMap, rc::Rc};
+
+pub(crate) const MAX_TEXT_BYTES: usize = 1 << 20;
+pub(crate) const MAX_TOTAL_TEXT_BYTES: usize = 8 << 20;
+
+/// One signal's key events and the joined text some of them carry, kept between frames so a frame that
+/// reports keys allocates only while the buffers grow.
+#[derive(Default)]
+pub(crate) struct KeyChunk { pub events: Vec<FfiEvent>, pub text: String }
+
+/// Everything a `Ui` owns besides the engine. Borrowed callback handles point at the same value.
+pub(crate) struct Shared {
+    pub error: String,
+    pub poisoned: bool,
+    pub in_frame: bool,
+    /// renderers created on this `Ui`: each holds a raw pointer to the engine, so it outlives none of them
+    pub renderers: u32,
+    /// text handed to C (an edited field, the picker query), valid until the next frame
+    pub returned: Vec<String>,
+    /// grid tracks the engine's nodes borrow, one shared slice per keyed node that has a grid (equal lists share one)
+    pub grid_tracks: HashMap<i64, Rc<[Track]>>,
+    /// replaced track slices, freed at the end of the frame (the old node may still borrow them until then)
+    pub grid_retired: Vec<Rc<[Track]>>,
+    /// the output of the last frame, built once in `finish_frame` into these buffers
+    pub output: Output,
+    pub nodes: Vec<A11yNode>,
+    pub last_children: Vec<u32>,
+    pub chunks: Vec<KeyChunk>,
+    pub chunks_used: usize,
+    pub visible: Vec<u32>,
+    pub menu: Vec<(String, bool)>,
+    pub hints: Vec<(String, String)>,
+    pub strs: Vec<&'static str>,
+    pub menus: Vec<(&'static str, &'static [&'static str])>,
+}
+
+impl Shared {
+    /// The string scratch, taken so that a callback running meanwhile finds it empty rather than clobbers it; give it back with `put_strs`.
+    pub fn take_strs(&mut self) -> Vec<&'static str> { core::mem::take(&mut self.strs) }
+    pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs = strs; }
+    pub fn new() -> Self {
+        Self {
+            error: String::new(), poisoned: false, in_frame: false, renderers: 0, returned: Vec::new(),
+            grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
+            last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, visible: Vec::new(), menu: Vec::new(),
+            hints: Vec::new(), strs: Vec::new(), menus: Vec::new(),
+        }
+    }
+}
+
+/// The opaque `PxuiUi`: the engine plus the shared state. A borrowed handle (`owner == false`) is what a
+/// frame callback receives: its engine is the live `&mut Ui` of the frame being built.
+#[repr(C)]
+pub struct PxuiUi {
+    pub(crate) engine: *mut Ui,
+    pub(crate) shared: *mut Shared,
+    pub(crate) owner: bool,
+}
+
+impl PxuiUi {
+    pub(crate) fn borrowed(engine: &mut Ui, shared: *mut Shared) -> Self { Self { engine: engine as *mut Ui, shared, owner: false } }
+    pub(crate) fn shared<'a>(&self) -> &'a mut Shared { unsafe { &mut *self.shared } }
+    /// Keeps `value` alive until the next frame and returns it as a `Str`.
+    pub(crate) fn give(&self, value: String) -> Str {
+        let returned = &mut self.shared().returned;
+        returned.push(value);
+        let value = returned.last().map_or("", String::as_str);
+        Str { ptr: value.as_ptr(), len: value.len() }
+    }
+}
+
+/// Calls `build` with a borrowed handle over `engine`.
+pub(crate) fn call_build(shared: *mut Shared, engine: &mut Ui, build: Build, user: *mut c_void) {
+    if let Some(build) = build {
+        let mut borrowed = PxuiUi::borrowed(engine, shared);
+        build(user, &mut borrowed);
+    }
+}
+
+pub type Build = Option<extern "C" fn(*mut c_void, *mut PxuiUi)>;
+
+/// Where an export finds the shared state of its first argument, so the export macro can poison it.
+pub(crate) trait Handle { fn shared(self) -> *mut Shared; }
+impl Handle for *mut PxuiUi { fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } } }
+impl Handle for *const PxuiUi { fn shared(self) -> *mut Shared { Handle::shared(self as *mut PxuiUi) } }
+impl Handle for *mut crate::paint::PxuiPaint { fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } } }
+
+pub(crate) unsafe fn poisoned(shared: *mut Shared) -> bool { !shared.is_null() && unsafe { (*shared).poisoned } }
+
+/// Records a caught panic: the `Ui` fails every call until its next frame; a panic of the frame itself ends the frame.
+pub(crate) unsafe fn panicked(shared: *mut Shared, payload: Box<dyn core::any::Any + Send>, leave_frame: bool) {
+    if shared.is_null() { return; }
+    let shared = unsafe { &mut *shared };
+    shared.poisoned = true;
+    if leave_frame { shared.in_frame = false; }
+    let message = payload.downcast_ref::<&str>().copied().or_else(|| payload.downcast_ref::<String>().map(String::as_str)).unwrap_or("non-string panic payload");
+    shared.error.clear();
+    shared.error.push_str("panic: ");
+    shared.error.push_str(message);
+}
+
+pub(crate) unsafe fn get<'a>(ui: *mut PxuiUi) -> Option<&'a mut PxuiUi> {
+    if ui.is_null() { None } else { Some(unsafe { &mut *ui }) }
+}
+
+/// Records `message` as the last error and returns `PXUI_ERR_ARGUMENT`.
+pub(crate) unsafe fn fail(ui: *mut PxuiUi, message: &str) -> i32 { unsafe { fail_code(ui, message, PXUI_ERR_ARGUMENT) } }
+
+/// Records `message` as the last error and returns `code`.
+pub(crate) unsafe fn fail_code(ui: *mut PxuiUi, message: &str, code: i32) -> i32 {
+    if let Some(ui) = unsafe { get(ui) } {
+        let error = &mut ui.shared().error;
+        error.clear();
+        error.push_str(message);
+    }
+    code
+}
+
+/// UTF-8 text from ptr+len. NUL is ordinary text.
+pub(crate) unsafe fn text(value: Str) -> Option<&'static str> {
+    if value.len == 0 { return Some(""); }
+    if value.ptr.is_null() { return None; }
+    let bytes = unsafe { std::slice::from_raw_parts(value.ptr, value.len) };
+    std::str::from_utf8(bytes).ok().map(|s| unsafe { &*(s as *const str) })
+}
+
+/// `text` limited to one megabyte.
+pub(crate) unsafe fn checked(value: Str) -> Option<&'static str> {
+    if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
+}
+
+/// Decodes a span of strings into `out` (cleared first): at most `max` of them, at most eight megabytes in all.
+pub(crate) unsafe fn strings(values: Slice<Str>, max: usize, out: &mut Vec<&'static str>) -> bool {
+    out.clear();
+    unsafe { append_strings(values, max, out) }
+}
+
+/// `strings` that keeps what `out` holds.
+pub(crate) unsafe fn append_strings(values: Slice<Str>, max: usize, out: &mut Vec<&'static str>) -> bool {
+    if values.len > max || (values.len != 0 && values.ptr.is_null()) { return false; }
+    let values = if values.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(values.ptr, values.len) } };
+    let mut total = 0usize;
+    for value in values {
+        total = match total.checked_add(value.len) { Some(total) if total <= MAX_TOTAL_TEXT_BYTES => total, _ => return false };
+        let Some(value) = (unsafe { checked(*value) }) else { return false };
+        out.push(value);
+    }
+    true
+}
+
+pub(crate) fn finite(values: &[f32]) -> bool { values.iter().all(|v| v.is_finite()) }
+
+pub(crate) fn to_abi_box(b: UiBox) -> PxuiBox { PxuiBox { index: b.index as u64, key: b.box_key, slot: b.box_slot as u64, generation: b.generation } }
+pub(crate) fn core_box(raw: PxuiBox) -> Option<UiBox> {
+    Some(UiBox { index: usize::try_from(raw.index).ok()?, box_key: raw.key, box_slot: usize::try_from(raw.slot).ok()?, generation: raw.generation })
+}
+/// A box the engine still holds.
+pub(crate) fn live_box(engine: &Ui, raw: PxuiBox) -> Option<UiBox> {
+    let b = core_box(raw)?;
+    engine.live(&b).then_some(b)
+}

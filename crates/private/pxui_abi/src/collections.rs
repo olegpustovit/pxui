@@ -1,11 +1,10 @@
-use crate::{get, text, PxuiUi};
-use core::{cell::Cell, ffi::c_void};
+use crate::state::{MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, fail, get, strings, text};
+use crate::{PXUI_ERR_ARGUMENT, Str};
+use core::{cell::Cell, ffi::c_void, mem::{align_of, offset_of, size_of}};
 use pxui_core::ui_widgets::TreeNode;
-use pxui_types::{Str, ffi::Slice};
+use pxui_types::ffi::Slice;
 
 const MAX_ITEMS: usize = 1_000_000;
-const MAX_TEXT_BYTES: usize = 1 << 20;
-const MAX_TOTAL_TEXT_BYTES: usize = 8 << 20;
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
@@ -19,7 +18,11 @@ pub struct PxuiU32MutSpan { pub ptr: *mut u32, pub len: usize }
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiTreeNode { pub depth: u16, pub children: u8, pub reserved: u8 }
+pub struct PxuiTreeNode { pub depth: u16, pub children: u8 }
+
+// The engine's node and the C node share a layout, so a caller's array is the engine's slice with no copy.
+const _: () = assert!(size_of::<TreeNode>() == size_of::<PxuiTreeNode>() && align_of::<TreeNode>() == align_of::<PxuiTreeNode>()
+    && offset_of!(TreeNode, depth) == offset_of!(PxuiTreeNode, depth) && offset_of!(TreeNode, children) == offset_of!(PxuiTreeNode, children));
 
 pub type PxuiCollectionEmit = Option<extern "C" fn(*mut c_void, Str)>;
 pub type PxuiCollectionText = Option<extern "C" fn(*mut c_void, usize, usize, PxuiCollectionEmit, *mut c_void)>;
@@ -84,20 +87,6 @@ fn valid_span<T>(ptr: *mut T, len: usize, required: usize) -> bool {
 fn valid_output_span<T>(ptr: *mut T, len: usize, required: usize) -> bool {
     len >= required && len <= MAX_ITEMS && (len == 0 || !ptr.is_null())
 }
-unsafe fn checked(value: Str) -> Option<&'static str> {
-    if value.len > MAX_TEXT_BYTES { return None; }
-    unsafe { text(value) }
-}
-unsafe fn strings(values: Slice<Str>) -> Option<Vec<&'static str>> {
-    if values.len > 4096 || (values.len != 0 && values.ptr.is_null()) { return None; }
-    let values = if values.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(values.ptr, values.len) } };
-    let mut total = 0usize;
-    values.iter().map(|v| {
-        total = total.checked_add(v.len)?;
-        if total > MAX_TOTAL_TEXT_BYTES { return None; }
-        unsafe { checked(*v) }
-    }).collect()
-}
 fn callback_text(callback: PxuiCollectionText, user: *mut c_void, row: usize, column: usize, total: &Cell<usize>, put: &mut dyn FnMut(&str)) -> bool {
     if let Some(callback) = callback {
         let mut state = EmitCtxWithTarget { ctx: EmitCtx { invalid: false, bytes: 0, total }, target: Some(put) };
@@ -108,75 +97,84 @@ fn callback_text(callback: PxuiCollectionText, user: *mut c_void, row: usize, co
     }
 }
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const PxuiListViewDesc, out: *mut usize) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() || out.is_null() { return unsafe { crate::fail(ui, "null list view argument") }; }
+export!(pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const PxuiListViewDesc, out: *mut usize) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null list view argument") }; }
     let desc = unsafe { &*desc };
     if desc.multi > 1 || desc.reserved != [0; 7] || desc.count > MAX_ITEMS || !valid_span(desc.selected.ptr, desc.selected.len, desc.count) {
-        return unsafe { crate::fail(ui, "invalid list view descriptor") };
+        return unsafe { fail(ui, "invalid list view descriptor") };
     }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { crate::fail(ui, "invalid list view label") }; };
+    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
     let flags: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
-    if flags.iter().any(|v| *v > 1) { return unsafe { crate::fail(ui, "invalid list selection flags") }; }
-    let mut selected: Vec<bool> = flags.iter().map(|v| *v != 0).collect();
+    if flags.iter().any(|v| *v > 1) { return unsafe { fail(ui, "invalid list selection flags") }; }
+    // every byte is 0 or 1 now, so the caller's flags are the engine's `&mut [bool]` with no copy
+    let selected: &mut [bool] = unsafe { core::slice::from_raw_parts_mut(flags.as_mut_ptr().cast::<bool>(), flags.len()) };
     let bad_text = Cell::new(false);
     let text_budget = Cell::new(0);
-    let activated = unsafe { (&mut *state.engine).list_view(label, desc.count, desc.multi != 0, &mut selected, &mut |i, put| if !callback_text(desc.text, desc.user, i, 0, &text_budget, put) { bad_text.set(true); }) };
-    if bad_text.get() { return unsafe { crate::fail(ui, "invalid collection callback text") }; }
-    for (out_flag, value) in flags.iter_mut().zip(selected) { *out_flag = value as u8; }
+    let activated = unsafe { (&mut *state.engine).list_view(label, desc.count, desc.multi != 0, selected, &mut |i, put| if !callback_text(desc.text, desc.user, i, 0, &text_budget, put) { bad_text.set(true); }) };
+    if bad_text.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
     unsafe { *out = activated.unwrap_or(usize::MAX); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTreeViewDesc, out: *mut usize) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() || out.is_null() { return unsafe { crate::fail(ui, "null tree argument") }; }
+export!(pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTreeViewDesc, out: *mut usize) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null tree argument") }; }
     let desc = unsafe { &*desc };
     if desc.nodes.len > MAX_ITEMS || (desc.nodes.len != 0 && desc.nodes.ptr.is_null()) || !valid_span(desc.open.ptr, desc.open.len, desc.nodes.len)
         || !valid_output_span(desc.visible.ptr, desc.visible.len, desc.nodes.len) || desc.selected.is_null() || desc.visible_len.is_null() {
-        return unsafe { crate::fail(ui, "invalid tree descriptor") };
+        return unsafe { fail(ui, "invalid tree descriptor") };
     }
-    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { crate::fail(ui, "invalid tree label") }; };
+    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid tree label") }; };
     let raw_nodes = if desc.nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.nodes.ptr, desc.nodes.len) } };
-    if raw_nodes.iter().any(|n| n.children > 1 || n.reserved != 0) { return unsafe { crate::fail(ui, "invalid tree node") }; }
-    let nodes: Vec<_> = raw_nodes.iter().map(|n| TreeNode { depth: n.depth, children: n.children != 0 }).collect();
-    let raw_open: &mut [u8] = if desc.open.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.open.ptr, desc.open.len) } };
-    if raw_open.iter().any(|v| *v > 1) { return unsafe { crate::fail(ui, "invalid tree open flags") }; }
-    let mut open: Vec<bool> = raw_open.iter().map(|v| *v != 0).collect();
+    if raw_nodes.iter().any(|n| n.children > 1) { return unsafe { fail(ui, "invalid tree node") }; }
+    let nodes: &[TreeNode] = unsafe { core::slice::from_raw_parts(raw_nodes.as_ptr().cast::<TreeNode>(), raw_nodes.len()) };
+    let open_flags: &mut [u8] = if desc.open.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.open.ptr, desc.open.len) } };
+    if open_flags.iter().any(|v| *v > 1) { return unsafe { fail(ui, "invalid tree open flags") }; }
+    let open: &mut [bool] = unsafe { core::slice::from_raw_parts_mut(open_flags.as_mut_ptr().cast::<bool>(), open_flags.len()) };
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
-    let mut visible = Vec::with_capacity(desc.visible.len);
+    // the engine fills a `Vec`; its buffer lives on the Ui, taken so a nested call cannot reach it
+    let mut visible = core::mem::take(&mut state.shared().visible);
+    visible.clear();
     let bad_text = Cell::new(false);
     let text_budget = Cell::new(0);
-    let activated = unsafe { (&mut *state.engine).tree(label, &nodes, &mut open, &mut selected, &mut visible, &mut |i, put| if !callback_text(desc.text, desc.user, i, 0, &text_budget, put) { bad_text.set(true); }) };
-    if bad_text.get() { return unsafe { crate::fail(ui, "invalid collection callback text") }; }
-    for (dst, value) in raw_open.iter_mut().zip(open) { *dst = value as u8; }
-    if visible.len() > desc.visible.len { return unsafe { crate::fail(ui, "tree visible output buffer too small") }; }
-    if !visible.is_empty() { unsafe { core::ptr::copy_nonoverlapping(visible.as_ptr(), desc.visible.ptr, visible.len()) }; }
-    unsafe { *desc.visible_len = visible.len(); *desc.selected = selected.unwrap_or(usize::MAX); *out = activated.unwrap_or(usize::MAX); }
+    let activated = unsafe { (&mut *state.engine).tree(label, nodes, open, &mut selected, &mut visible, &mut |i, put| if !callback_text(desc.text, desc.user, i, 0, &text_budget, put) { bad_text.set(true); }) };
+    let fits = visible.len() <= desc.visible.len;
+    if !bad_text.get() && fits {
+        if !visible.is_empty() { unsafe { core::ptr::copy_nonoverlapping(visible.as_ptr(), desc.visible.ptr, visible.len()) }; }
+        unsafe { *desc.visible_len = visible.len(); *desc.selected = selected.unwrap_or(usize::MAX); *out = activated.unwrap_or(usize::MAX); }
+    }
+    state.shared().visible = visible;
+    if bad_text.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
+    if !fits { return unsafe { fail(ui, "tree visible output buffer too small") }; }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_table_view(ui: *mut PxuiUi, desc: *const PxuiTableViewDesc, out: *mut usize) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if desc.is_null() || out.is_null() { return unsafe { crate::fail(ui, "null table argument") }; }
+export!(pub unsafe fn pxui_ui_table_view(ui: *mut PxuiUi, desc: *const PxuiTableViewDesc, out: *mut usize) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null table argument") }; }
     let desc = unsafe { &*desc };
     if desc.has_sort > 1 || desc.ascending > 1 || desc.reserved != [0; 6] || desc.rows > MAX_ITEMS || desc.titles.len > 4096
         || desc.widths.len != desc.titles.len || !valid_span(desc.widths.ptr, desc.widths.len, desc.titles.len) || desc.selected.is_null() {
-        return unsafe { crate::fail(ui, "invalid table descriptor") };
+        return unsafe { fail(ui, "invalid table descriptor") };
     }
-    let (Some(label), Some(titles)) = (unsafe { checked(desc.label) }, unsafe { strings(desc.titles) }) else { return unsafe { crate::fail(ui, "invalid table strings") }; };
+    let mut titles = state.shared().take_strs();
+    let Some(label) = (unsafe { checked(desc.label) }).filter(|_| unsafe { strings(desc.titles, 4096, &mut titles) }) else {
+        state.shared().put_strs(titles);
+        return unsafe { fail(ui, "invalid table strings") };
+    };
     let widths: &mut [f32] = if desc.widths.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.widths.ptr, desc.widths.len) } };
-    if widths.iter().any(|w| !w.is_finite() || *w < 0.0) { return unsafe { crate::fail(ui, "invalid table widths") }; }
-    let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     let sort = (desc.has_sort != 0).then_some((desc.sort_column, desc.ascending != 0));
-    if sort.is_some_and(|(column, _)| column >= titles.len()) { return unsafe { crate::fail(ui, "invalid table sort column") }; }
+    if widths.iter().any(|w| !w.is_finite() || *w < 0.0) || sort.is_some_and(|(column, _)| column >= titles.len()) {
+        state.shared().put_strs(titles);
+        return unsafe { fail(ui, "invalid table widths or sort column") };
+    }
+    let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     let bad_text = Cell::new(false);
     let text_budget = Cell::new(0);
     let activated = unsafe { (&mut *state.engine).table_view(label, &titles, widths, desc.rows, sort, &mut selected, &|row, col, put| if !callback_text(desc.text, desc.user, row, col, &text_budget, put) { bad_text.set(true); }) };
-    if bad_text.get() { return unsafe { crate::fail(ui, "invalid collection callback text") }; }
+    state.shared().put_strs(titles);
+    if bad_text.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
     unsafe { *desc.selected = selected.unwrap_or(usize::MAX); *out = activated.unwrap_or(usize::MAX); }
     0
-}
+});

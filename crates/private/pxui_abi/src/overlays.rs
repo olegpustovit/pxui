@@ -1,91 +1,88 @@
-use crate::{PxuiUi, get, text};
+use crate::state::{MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, core_box, fail, finite, get, strings, text};
+use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::{ui::UiBox, ui_text::{MenuOpts, MenuResult, Pick, PickerOpts}};
-use pxui_types::{PxuiBox, Str, ffi::Slice};
-use std::ffi::CString;
+use pxui_core::ui_text::{MenuOpts, MenuResult, Pick, PickerOpts};
+use pxui_types::ffi::Slice;
 
 const MAX_ROWS: usize = 4096;
-const MAX_TEXT_BYTES: usize = 1 << 20;
-const MAX_TOTAL_TEXT_BYTES: usize = 8 << 20;
 
 pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<Str>)>;
 
-unsafe fn checked_text(value: Str) -> Option<&'static str> {
-    if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
-}
-
-unsafe fn strings(values: Slice<Str>) -> Option<Vec<&'static str>> {
-    if values.len > MAX_ROWS || (values.len != 0 && values.ptr.is_null()) { return None; }
-    let values = if values.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(values.ptr, values.len) } };
-    let mut total = 0usize;
-    values.iter().map(|value| {
-        total = total.checked_add(value.len)?;
-        if value.len > MAX_TEXT_BYTES || total > MAX_TOTAL_TEXT_BYTES { return None; }
-        unsafe { text(*value) }
-    }).collect()
-}
-
-fn core_box(raw: PxuiBox) -> UiBox { UiBox { index: raw.index as usize, box_key: raw.key, box_slot: raw.slot as usize, generation: raw.generation } }
-
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox, label: Str) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if box_.is_null() { return unsafe { crate::fail(state as *mut PxuiUi, "null tooltip box") }; }
-    let Some(label) = (unsafe { checked_text(label) }) else { return unsafe { crate::fail(state as *mut PxuiUi, "invalid tooltip text") }; };
-    unsafe { (&mut *state.engine).tip(&core_box(*box_), label); }
+export!(pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox, label: Str) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if box_.is_null() { return unsafe { fail(ui, "null tooltip box") }; }
+    let (Some(label), Some(box_)) = (unsafe { checked(label) }, core_box(unsafe { *box_ })) else { return unsafe { fail(ui, "invalid tooltip arguments") }; };
+    unsafe { (&mut *state.engine).tip(&box_, label); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if out_index.is_null() || !seconds.is_finite() || seconds < 0.0 { return unsafe { crate::fail(state as *mut PxuiUi, "invalid toast arguments") }; }
-    let (Some(label), Some(items)) = (unsafe { checked_text(label) }, unsafe { strings(items) }) else {
-        return unsafe { crate::fail(state as *mut PxuiUi, "invalid toast strings") };
+export!(pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out_index.is_null() || !seconds.is_finite() || seconds < 0.0 { return unsafe { fail(ui, "invalid toast arguments") }; }
+    let mut list = state.shared().take_strs();
+    let Some(label) = (unsafe { checked(label) }).filter(|_| unsafe { strings(items, MAX_ROWS, &mut list) }) else {
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid toast strings") };
     };
-    let value = unsafe { (&mut *state.engine).toasts(label, &items, seconds) };
+    let value = unsafe { (&mut *state.engine).toasts(label, &list, seconds) };
+    state.shared().put_strs(list);
     unsafe { *out_index = value.map_or(-1, |index| index as i64); }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_context_menu(
+export!(pub unsafe fn pxui_ui_context_menu(
     ui: *mut PxuiUi, x: f32, y: f32, label: Str, items: Slice<Str>, enabled: Slice<u8>,
     has_width: u8, width: f32, has_selected: u8, selected: i64,
     out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
-    if out_tag.is_null() || out_index.is_null() || !x.is_finite() || !y.is_finite() || has_width > 1 || has_selected > 1
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out_tag.is_null() || out_index.is_null() || !finite(&[x, y]) || has_width > 1 || has_selected > 1
         || (has_width != 0 && (!width.is_finite() || width < 0.0)) || items.len > MAX_ROWS
         || enabled.len != items.len || (enabled.len != 0 && enabled.ptr.is_null()) {
-        return unsafe { crate::fail(state as *mut PxuiUi, "invalid context menu arguments") };
+        return unsafe { fail(ui, "invalid context menu arguments") };
     }
-    let (Some(label), Some(labels)) = (unsafe { checked_text(label) }, unsafe { strings(items) }) else {
-        return unsafe { crate::fail(state as *mut PxuiUi, "invalid context menu strings") };
+    let mut list = state.shared().take_strs();
+    let Some(label) = (unsafe { checked(label) }).filter(|_| unsafe { strings(items, MAX_ROWS, &mut list) }) else {
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid context menu strings") };
     };
     let enabled = if enabled.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(enabled.ptr, enabled.len) } };
-    if enabled.iter().any(|value| *value > 1) { return unsafe { crate::fail(state as *mut PxuiUi, "invalid context menu enabled flags") }; }
-    let items: Vec<_> = labels.into_iter().zip(enabled).map(|(label, enabled)| (label.to_owned(), *enabled != 0)).collect();
+    if enabled.iter().any(|value| *value > 1) {
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid context menu enabled flags") };
+    }
+    // the engine takes owned rows; the buffers are reused, so an open menu allocates only while it grows
+    let mut menu = core::mem::take(&mut state.shared().menu);
+    menu.truncate(list.len());
+    for (at, (label, enabled)) in list.iter().zip(enabled).enumerate() {
+        match menu.get_mut(at) {
+            Some(row) => { row.0.clear(); row.0.push_str(label); row.1 = *enabled != 0; }
+            None => menu.push(((*label).to_owned(), *enabled != 0)),
+        }
+    }
     let opts = MenuOpts { width: (has_width != 0).then_some(width), selected: (has_selected != 0).then_some(selected), ..MenuOpts::default() };
-    let result = unsafe { (&mut *state.engine).context_menu((x, y), &opts, label, &items) };
+    let result = unsafe { (&mut *state.engine).context_menu((x, y), &opts, label, &menu) };
+    state.shared().menu = menu;
+    state.shared().put_strs(list);
     let (tag, index) = match result { MenuResult::Open => (0, -1), MenuResult::Pick(index) => (1, index), MenuResult::Dismiss => (2, -1) };
     unsafe { *out_tag = tag; *out_index = index; }
     0
-}
+});
 
-#[unsafe(no_mangle)]
-pub unsafe extern "C" fn pxui_ui_picker(
+export!(pub unsafe fn pxui_ui_picker(
     ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, label: Str, query: Str,
     rows: PickerRows, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return -1; };
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out_query.is_null() || out_tag.is_null() || out_index.is_null() || !(1..=1024).contains(&limit) || slash > 1 || at_rest > 1 {
-        return unsafe { crate::fail(state as *mut PxuiUi, "invalid picker arguments") };
+        return unsafe { fail(ui, "invalid picker arguments") };
     }
-    let (Some(label), Some(query)) = (unsafe { checked_text(label) }, unsafe { checked_text(query) }) else {
-        return unsafe { crate::fail(state as *mut PxuiUi, "invalid picker strings") };
+    let (Some(label), Some(query)) = (unsafe { checked(label) }, unsafe { checked(query) }) else {
+        return unsafe { fail(ui, "invalid picker strings") };
     };
     let invalid = Cell::new(false);
+    // ponytail: the engine's picker takes its rows as owned strings (`Vec<(String, String)>`), so each call copies
+    // them once; a `&str` row type in the engine would remove the copy.
     let rows_of = |query: &str| -> Vec<(String, String)> {
         let Some(callback) = rows else { return Vec::new(); };
         let mut span = Slice { ptr: core::ptr::null(), len: 0 };
@@ -113,12 +110,9 @@ pub unsafe extern "C" fn pxui_ui_picker(
     };
     let opts = PickerOpts { limit, slash: slash != 0, at_rest: at_rest != 0, ..PickerOpts::default() };
     let (query, pick) = unsafe { (&mut *state.engine).picker(&opts, label, query, &rows_of) };
-    if invalid.get() { return unsafe { crate::fail(state as *mut PxuiUi, "invalid picker rows") }; }
-    let Ok(query) = CString::new(query) else { return unsafe { crate::fail(state as *mut PxuiUi, "picker query contains NUL") }; };
-    unsafe { (&mut *state.returned).push(query); }
-    let value = unsafe { (&*state.returned).last().unwrap() };
-    unsafe { *out_query = Str { ptr: value.as_ptr().cast(), len: value.as_bytes().len() }; }
+    if invalid.get() { return unsafe { fail(ui, "invalid picker rows") }; }
+    unsafe { *out_query = state.give(query); }
     let (tag, index) = match pick { Pick::None => (0, -1), Pick::Pick(index) => (1, index), Pick::Delete(index) => (2, index), Pick::Submit => (3, -1), Pick::Back => (4, -1), Pick::Cancel => (5, -1) };
     unsafe { *out_tag = tag; *out_index = index; }
     0
-}
+});
