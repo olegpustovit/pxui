@@ -6133,6 +6133,18 @@ impl Ui {
     /// position bumps its own revision. A rebuild of the view rebuilds the views around it; the
     /// views inside it may still be kept. Returns the view's box, for `view_offset` and friends.
     pub fn view(&mut self, label: &str, revision: u64, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+        self.view_entry(label, revision, w, h, true, f)
+    }
+
+    /// `view` that takes no painter table entry of its own: its instances ride its parent's entry
+    /// exactly as the parent's own would (many small views that never move apart from their parent,
+    /// one per item of a list, say, past the table's 255 entries). `view_offset` and the other entry
+    /// changes on it are baked by a rebuild.
+    pub fn view_flat(&mut self, label: &str, revision: u64, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+        self.view_entry(label, revision, w, h, false, f)
+    }
+
+    fn view_entry(&mut self, label: &str, revision: u64, w: Size, h: Size, entry: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let b = self.node(label, Node { w, h, ..Node::DEFAULT });
         let parent = self.view_cur;
         let v = match self.slots[b.box_slot].view {
@@ -6141,7 +6153,7 @@ impl Ui {
                     self.views.push(ViewRec::new());
                     self.views.len() as u32 - 1
                 });
-                let index = self.free_indices.pop().unwrap_or(0);
+                let index = if entry { self.free_indices.pop().unwrap_or(0) } else { 0 };
                 let r = &mut self.views[v as usize];
                 r.name.push_str(label);
                 (r.slot, r.index) = (b.box_slot, index);
