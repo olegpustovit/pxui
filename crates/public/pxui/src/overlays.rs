@@ -1,6 +1,6 @@
 use core::ffi::c_void;
 use pxui_types::{PxuiBox, Str, ffi::Slice, ui::{MenuResult, Pick}};
-use crate::{composite::{defer_callback_panic, deferred}, status, Strs, Ui};
+use crate::{composite::{defer_callback_panic, deferred}, check, Strs, Ui};
 
 #[derive(Clone, Debug, Default)]
 pub struct MenuOpts { pub width: Option<f32>, pub selected: Option<i64> }
@@ -47,20 +47,20 @@ extern "C" fn rows<F: Fn(&str) -> Vec<(String, String)>>(user: *mut c_void, quer
 
 impl Ui {
     #[inline]
-    pub fn tip(&mut self, box_: &PxuiBox, text: &str) -> Result<(), i32> {
-        status(unsafe { raw::pxui_ui_tip(self.0.as_ptr(), box_, as_str(text)) })
+    #[track_caller] pub fn tip(&mut self, box_: &PxuiBox, text: &str)  {
+        check(self, unsafe { raw::pxui_ui_tip(self.0.as_ptr(), box_, as_str(text)) })
     }
 
     #[inline]
-    pub fn toasts(&mut self, label: &str, items: &[&str], seconds: f64) -> Result<Option<usize>, i32> {
+    #[track_caller] pub fn toasts(&mut self, label: &str, items: &[&str], seconds: f64) -> Option<usize> {
         let items = Strs::new(items);
         let mut index: i64 = -1;
-        status(unsafe { raw::pxui_ui_toasts(self.0.as_ptr(), as_str(label), items.span(), seconds, &mut index) })?;
-        Ok((index >= 0).then_some(index as usize))
+        check(self, unsafe { raw::pxui_ui_toasts(self.0.as_ptr(), as_str(label), items.span(), seconds, &mut index) });
+        (index >= 0).then_some(index as usize)
     }
 
     #[inline]
-    pub fn context_menu(&mut self, at: (f32, f32), options: &MenuOpts, label: &str, items: &[(String, bool)]) -> Result<MenuResult, i32> {
+    #[track_caller] pub fn context_menu(&mut self, at: (f32, f32), options: &MenuOpts, label: &str, items: &[(String, bool)]) -> MenuResult {
         // up to 32 rows live on the stack, more on the heap
         let (mut labels, mut enabled) = ([Str::default(); 32], [0u8; 32]);
         let (heap_labels, heap_enabled): (Vec<Str>, Vec<u8>);
@@ -76,28 +76,26 @@ impl Ui {
         let (has_selected, selected) = options.selected.map_or((0, 0), |selected| (1, selected));
         let mut tag = 0;
         let mut index: i64 = -1;
-        status(unsafe { raw::pxui_ui_context_menu(
+        check(self, unsafe { raw::pxui_ui_context_menu(
             self.0.as_ptr(), at.0, at.1, as_str(label), Slice { ptr: labels.as_ptr(), len: labels.len() },
             Slice { ptr: enabled.as_ptr(), len: enabled.len() }, has_width, width, has_selected, selected, &mut tag, &mut index,
-        ) })?;
-        match tag { 0 => Ok(MenuResult::Open), 1 => Ok(MenuResult::Pick(index)), 2 => Ok(MenuResult::Dismiss), _ => Err(-1) }
+        ) });
+        match tag { 0 => MenuResult::Open, 1 => MenuResult::Pick(index), 2 => MenuResult::Dismiss, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
     }
 
     #[inline]
-    pub fn picker<F: Fn(&str) -> Vec<(String, String)>>(&mut self, options: &PickerOpts, label: &str, query: &str, rows_of: F) -> Result<(String, Pick), i32> {
+    #[track_caller]
+    pub fn picker<F: Fn(&str) -> Vec<(String, String)>>(&mut self, options: &PickerOpts, label: &str, query: &str, rows_of: F) -> (String, Pick) {
         let mut rows_ctx = Rows { rows_of, owned: Vec::new(), raw: Vec::new() };
         let mut out_query = Str::default();
         let mut tag = 0;
         let mut index: i64 = -1;
-        status(unsafe { raw::pxui_ui_picker(
+        check(self, unsafe { raw::pxui_ui_picker(
             self.0.as_ptr(), options.limit, options.slash as u8, options.at_rest as u8,
             as_str(label), as_str(query), Some(rows::<F>), &mut rows_ctx as *mut _ as *mut c_void,
             &mut out_query, &mut tag, &mut index,
-        ) })?;
-        if out_query.len > 1 << 20 || (out_query.len != 0 && out_query.ptr.is_null()) { return Err(-1); }
-        let bytes = if out_query.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(out_query.ptr, out_query.len) } };
-        let query = String::from_utf8(bytes.to_vec()).map_err(|_| -1)?;
-        let pick = match tag { 0 => Pick::None, 1 => Pick::Pick(index), 2 => Pick::Delete(index), 3 => Pick::Submit, 4 => Pick::Back, 5 => Pick::Cancel, _ => return Err(-1) };
-        Ok((query, pick))
+        ) });
+        let pick = match tag { 0 => Pick::None, 1 => Pick::Pick(index), 2 => Pick::Delete(index), 3 => Pick::Submit, 4 => Pick::Back, 5 => Pick::Cancel, _ => unreachable!("the library answers a picker with tag 0 to 5") };
+        (crate::lent_string(out_query), pick)
     }
 }

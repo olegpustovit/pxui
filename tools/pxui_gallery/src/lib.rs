@@ -30,7 +30,7 @@ pub const ROWS: usize = 100_000;
 pub const TOAST_SECONDS: f64 = 3.0;
 
 fn node(ui: &mut Ui, label: &str, desc: Node) -> Handle {
-    ui.node(label, &desc).unwrap_or_else(|code| panic!("gallery node {label}: {code}"))
+    ui.node(label, desc)
 }
 
 fn panel_desc(opts: PanelOpts) -> PxuiPanel {
@@ -177,16 +177,16 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
     });
     ui.panel_desc(&panel_desc(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true)), "inspector", |ui| {
         let _ = ui.inspector_section("section", true, None, "Inspector", |ui| {
-            s.snap = ui.inspector_toggle("snap", "Snap", s.snap).unwrap_or(s.snap);
+            s.snap = ui.inspector_toggle("snap", "Snap", s.snap);
             let _ = ui.inspector_readout(None, "count", "Points", "1,024");
-            let (row, cx, cy, cw) = ui.inspector_row(None, None, "scale", "Scale").expect("valid inspector row");
+            let (row, cx, cy, cw) = ui.inspector_row(None, None, "scale", "Scale");
             ui.within(&row, &mut |ui: &mut Ui| {
                 let (v, _) = ui.value_field((cx, cy), cw, 20.0, &ValueFieldOpts::default(), &|t: &str| t.parse::<f64>().is_ok(), "scale-value", &s.scale);
                 if v != s.scale {
                     s.scale = v;
                 }
             });
-            if ui.inspector_button("reset", "Reset").unwrap_or(false) {
+            if ui.inspector_button("reset", "Reset") {
                 s.scale = "1.5".to_owned();
             }
         });
@@ -210,31 +210,31 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     s.busy.clear();
     ui.panel_desc(&panel_desc(PanelOpts::default().width(296.0)), "values", |ui| {
         ui.label("Values");
-        s.check = ui.checkbox("Snap to grid", s.check).unwrap_or(s.check);
-        s.radio = ui.radio("Quality", &["Draft", "Normal", "Final"], s.radio).unwrap_or(s.radio);
-        s.slider = ui.slider("Opacity", s.slider, 0.0..=1.0).unwrap_or(s.slider);
+        s.check = ui.checkbox("Snap to grid", s.check);
+        s.radio = ui.radio("Quality", &["Draft", "Normal", "Final"], s.radio);
+        s.slider = ui.slider("Opacity", s.slider, 0.0..=1.0);
         let _ = ui.progress("Export", Some(s.slider));
-        let p = ui.progress("Indexing", None).expect("valid progress node");
+        let p = ui.progress("Indexing", None);
         s.busy.push(p);
         let row = node(ui, "spin-row", Node { h: Size::Px(24.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
-            let sp = ui.spinner("Loading").expect("valid spinner node");
+            let sp = ui.spinner("Loading");
             s.busy.push(sp);
-            let b = ui.badge("count", "NEW").expect("valid badge node");
+            let b = ui.badge("count", "NEW");
             let _ = ui.tip(&b, "A badge: a small label in the accent");
         });
-        s.segment = ui.segmented("Align", &["Left", "Centre", "Right"], s.segment).unwrap_or(s.segment);
-        s.choice = ui.dropdown("Blend", &["Normal", "Multiply", "Screen", "Overlay", "Add"], s.choice).unwrap_or(s.choice);
+        s.segment = ui.segmented("Align", &["Left", "Centre", "Right"], s.segment);
+        s.choice = ui.dropdown("Blend", &["Normal", "Multiply", "Screen", "Overlay", "Add"], s.choice);
     });
     ui.panel_desc(&panel_desc(PanelOpts::default().at(332.0, 12.0).width(296.0)), "more", |ui| {
-        s.tab = ui.tabs("Sections", &["Layer", "Mask", "Effects"], s.tab).unwrap_or(s.tab);
-        if let Ok(Some(q)) = ui.search_field("Find", "/", &s.search, "Search layers") {
+        s.tab = ui.tabs("Sections", &["Layer", "Mask", "Effects"], s.tab);
+        if let Some(q) = ui.search_field("Find", "/", &s.search, "Search layers") {
             s.search = q;
         }
         let row = node(ui, "icons", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 4.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
             for (label, glyph) in [("Add", "+"), ("Remove", "-"), ("Close", "\u{d7}")] {
-                if ui.icon_button(label, glyph).unwrap_or(false) {
+                if ui.icon_button(label, glyph) {
                     s.adds += 1;
                 }
             }
@@ -273,12 +273,12 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
                 });
                 let bottom = node(ui, "table-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&bottom, &mut |ui: &mut Ui| {
-                    if let Ok(Some(c)) = ui.table_view("Points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, Some(s.sort), &mut s.table_sel, &cells) {
+                    if let Some(c) = ui.table_view("Points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, Some(s.sort), &mut s.table_sel, &cells) {
                         s.sort = (c, if s.sort.0 == c { !s.sort.1 } else { true });
                     }
                 });
             });
-        }).unwrap_or(None) {
+        }) {
             s.split = r;
         }
     });
@@ -313,7 +313,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         }
     });
     if s.dialog {
-        match ui.dialog("Delete layer", &["Cancel", "Delete"], |ui| { let _ = ui.inspector_message("body", "This cannot be undone."); }).unwrap_or(DialogOut::Open) {
+        match ui.dialog("Delete layer", &["Cancel", "Delete"], |ui| { let _ = ui.inspector_message("body", "This cannot be undone."); }) {
             DialogOut::Open => {}
             DialogOut::Closed | DialogOut::Button(0) => (s.dialog, s.said) = (false, "Kept the layer"),
             DialogOut::Button(_) => (s.dialog, s.said) = (false, "Deleted the layer"),
@@ -321,7 +321,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     }
     if let Some(at) = s.menu_at {
         let items = [("Cut".to_owned(), true), ("Copy".to_owned(), true), (String::new(), true), ("Delete".to_owned(), true)];
-        match ui.context_menu(at, &MenuOpts::default(), "context", &items).unwrap_or(MenuResult::Open) {
+        match ui.context_menu(at, &MenuOpts::default(), "context", &items) {
             MenuResult::Open => {}
             MenuResult::Pick(_) => (s.menu_at, s.said) = (None, "Picked from the menu"),
             MenuResult::Dismiss => s.menu_at = None,
@@ -332,7 +332,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         let _ = ui.modal("presets", Some(240.0), |ui| {
             ui.label("Presets");
             let rows = |_: &str| NAMES[..5].iter().map(|n| (n.to_string(), "09-24".to_owned())).collect();
-            let (_, pick) = ui.picker(&PickerOpts { limit: 4, ..PickerOpts::default() }, "Search presets", "", rows).unwrap_or_else(|_| (String::new(), Pick::None));
+            let (_, pick) = ui.picker(&PickerOpts { limit: 4, ..PickerOpts::default() }, "Search presets", "", rows);
             close = !matches!(pick, Pick::None);
         });
         if close {
@@ -472,7 +472,7 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
             s.bounce = true;
         }
         let a = chip(ui, "anchor", 2, px(60.0, 16.0));
-        anchor = ui.rect(&a).ok();
+        anchor = Some(ui.rect(&a));
         let c = chip(ui, "bouncer", 0, px(16.0, 16.0));
         if std::mem::take(&mut s.bounce) {
             let ease = Curve::Bezier { duration: 0.0, points: [0.25, 0.1, 0.25, 1.0] };
@@ -530,9 +530,9 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
     // one Window node holds the menu bar and the page: the screen reader's application -> window
     let (w, h) = ui.view_size();
     let window = node(ui, "window", Node { w: Size::Px(w), h: Size::Px(h), role: Role::Window, ..Node::DEFAULT });
-    ui.a11y_name(&window, "PXUI kit gallery").expect("valid window accessibility name");
+    ui.a11y_name(&window, "PXUI kit gallery");
     ui.within(&window, &mut |ui: &mut Ui| {
-        match ui.menu_bar("menus", &MENUS).ok().flatten() {
+        match ui.menu_bar("menus", &MENUS) {
             Some((0, 0)) => s.reload = true,
             Some((0, 1)) => s.toast("Hello from the menu"),
             Some((0, _)) => s.quit = true,
@@ -542,16 +542,16 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
         let body = node(ui, "body", Node { w: Size::Px(w), h: Size::Px(h - 24.0), at: Some((0.0, 24.0)), ..Node::DEFAULT });
         ui.within(&body, &mut |ui: &mut Ui| {
             let _ = ui.view("chrome", s.chrome_rev, Size::Grow, Size::Px(CHROME_H), &mut |ui: &mut Ui| {
-                let page = ui.tabs("Pages", &PAGES, s.page).unwrap_or(s.page);
+                let page = ui.tabs("Pages", &PAGES, s.page);
                 if page != s.page {
                     (s.page, s.page_rev) = (page, s.page_rev + 1); // the tabs show the click in this build
                 }
                 let row = node(ui, "switches", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
                 ui.within(&row, &mut |ui: &mut Ui| {
-                    let theme = ui.segmented("Theme", &["Rays", "Dusk"], s.dusk as usize).unwrap_or(s.dusk as usize) == 1;
-                    let compact = ui.checkbox("Compact", s.compact).unwrap_or(s.compact);
-                    let rtl = ui.checkbox("RTL", s.rtl).unwrap_or(s.rtl);
-                    let reduced = ui.checkbox("Still", s.reduced).unwrap_or(s.reduced);
+                    let theme = ui.segmented("Theme", &["Rays", "Dusk"], s.dusk as usize) == 1;
+                    let compact = ui.checkbox("Compact", s.compact);
+                    let rtl = ui.checkbox("RTL", s.rtl);
+                    let reduced = ui.checkbox("Still", s.reduced);
                     if (theme, compact, rtl, reduced) != (s.dusk, s.compact, s.rtl, s.reduced) {
                         (s.dusk, s.compact, s.rtl, s.reduced, s.host_dirty) = (theme, compact, rtl, reduced, true);
                     }
@@ -569,7 +569,7 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
             });
         });
     });
-    if let Ok(Some(i)) = ui.toasts("toasts", &s.toasts, TOAST_SECONDS) {
+    if let Some(i) = ui.toasts("toasts", &s.toasts, TOAST_SECONDS) {
         s.toasts.remove(i);
     }
 }

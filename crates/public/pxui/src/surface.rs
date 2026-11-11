@@ -166,3 +166,17 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
     })).expect_err("a caret inside a character is a caller bug");
     assert!(err.downcast_ref::<String>().is_some_and(|m| m.contains("caret and anchor")));
 }
+
+#[test]
+fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
+    let mut text = crate::Text::new(&[crate::text::pragmasevka()]).expect("a shaper");
+    let style = pxui_types::TextStyle::default();
+    let metrics = text.measure(1, "abc", &style, 0.0).expect("measure");
+    assert!(metrics.width > 0.0);
+    // the same text measures the same in the Ui's own service: one font, two homes
+    let mut ui = Ui::new().expect("library");
+    assert_eq!(ui.text_service().measure(1, "abc", &style, 0.0).expect("service").width, metrics.width);
+    let (w, h, pixels) = text.rasterize_rgba(2, "abc", &style, 0.0, 1.0, [255, 255, 255, 255]).expect("rasterize");
+    assert_eq!(pixels.len(), (w * h * 4) as usize);
+    assert!(pixels.chunks(4).any(|p| p[3] != 0), "something was inked");
+}

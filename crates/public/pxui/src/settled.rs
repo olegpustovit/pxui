@@ -13,20 +13,20 @@ fn panel(ui: &mut Ui, s: &mut State) {
         ui.label("Display");
         if ui.button("Apply") { s.clicks += 1; }
         s.night = ui.toggle("Night light", s.night);
-        s.check = ui.checkbox("Check", s.check).unwrap_or(s.check);
-        s.volume = ui.slider("Volume", s.volume, 0.0..=1.0).unwrap_or(s.volume);
-        s.mode = ui.radio("Mode", &["Auto", "Light", "Dark"], s.mode).unwrap_or(s.mode);
+        s.check = ui.checkbox("Check", s.check);
+        s.volume = ui.slider("Volume", s.volume, 0.0..=1.0);
+        s.mode = ui.radio("Mode", &["Auto", "Light", "Dark"], s.mode);
         let _ = ui.text_field("Name", "abc");
-        let row = ui.node("row", &Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT }).unwrap();
+        let row = ui.node("row", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
         ui.within(&row, |ui| {
             // a keyed node of a grid, as a custom widget declares it
             const COLS: [Track; 2] = [Track::Fr(1.0), Track::Px(40.0)];
-            let cell = ui.node_keyed(7, &Node { grid: Some(Grid { cols: &COLS, rows: &[] }), cell: Cell::at(0, 0), ..Node::DEFAULT }).unwrap();
-            let signal = ui.signal(&cell).unwrap();
+            let cell = ui.node_keyed(7, Node { grid: Some(Grid { cols: &COLS, rows: &[] }), cell: Cell::at(0, 0), ..Node::DEFAULT });
+            let signal = ui.signal(&cell);
             s.clicks += signal.clicked as u32;
-            ui.text(&cell, "custom").unwrap();
+            ui.text(&cell, "custom");
         });
-        let signal = ui.signal(&row).unwrap();
+        let signal = ui.signal(&row);
         s.clicks += signal.keys.len() as u32;
         engine_shaped(ui, s);
     });
@@ -49,8 +49,8 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
         p.text((2.0, 12.0), "span");
         p.fill(40.0, 0.0, 8.0, 8.0, Rgba { r: 9, g: 9, b: 9, a: 255 });
     });
-    s.seen += ui.list_view("items", 3, false, &mut [false; 3], |row, emit| emit(["one", "two", "three"][row])).ok().flatten().is_some() as u64;
-    s.seen += ui.table_str((0.0, 0.0), 120.0, 60.0, &["Name", "Size"], 3, |_, column| if column == 0 { "row" } else { "1" }, "table").ok().flatten().is_some() as u64;
+    s.seen += ui.list_view("items", 3, false, &mut [false; 3], |row, emit| emit(["one", "two", "three"][row])).is_some() as u64;
+    s.seen += ui.table_str((0.0, 0.0), 120.0, 60.0, &["Name", "Size"], 3, |_, column| if column == 0 { "row" } else { "1" }, "table").is_some() as u64;
     s.seen += ui.popup(None, None, true, false, (10.0, 10.0), 80.0, 30.0, "popup", |ui| ui.label("popped")) as u64;
 }
 

@@ -1,6 +1,6 @@
 use core::{any::Any, ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 use pxui_types::{PxuiBox, Size, Str, geom::Rect, layout::{Align, Placement, Side}, ffi::{PxuiAnchorDesc, PxuiDialogOut}};
-use crate::{node::size, status, sys, Strs, Ui};
+use crate::{node::size, sys, Strs, Ui, check};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DialogOut { Open, Closed, Button(usize) }
@@ -36,41 +36,41 @@ fn encode_placement(value: Placement) -> PxuiAnchorDesc {
 
 impl Ui {
     #[inline]
-    pub fn modal<F: FnMut(&mut Ui)>(&mut self, label: &str, width: Option<f32>, mut build: F) -> Result<bool, i32> {
+    #[track_caller] pub fn modal<F: FnMut(&mut Ui)>(&mut self, label: &str, width: Option<f32>, mut build: F) -> bool {
         let mut out = 0;
-        status(unsafe { sys::pxui_ui_modal(self.0.as_ptr(), as_str(label), width.is_some() as u8, width.unwrap_or_default(), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) })?;
-        Ok(out != 0)
+        check(self, unsafe { sys::pxui_ui_modal(self.0.as_ptr(), as_str(label), width.is_some() as u8, width.unwrap_or_default(), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) });
+        out != 0
     }
 
     #[inline]
-    pub fn scroll_view<F: FnMut(&mut Ui)>(&mut self, label: &str, width: Size, height: Size, mut build: F) -> Result<PxuiBox, i32> {
+    #[track_caller] pub fn scroll_view<F: FnMut(&mut Ui)>(&mut self, label: &str, width: Size, height: Size, mut build: F) -> PxuiBox {
         let mut out = PxuiBox::default();
-        status(unsafe { sys::pxui_ui_scroll_view(self.0.as_ptr(), as_str(label), size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_scroll_view(self.0.as_ptr(), as_str(label), size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) });
+        out
     }
 
     #[inline]
-    pub fn view<F: FnMut(&mut Ui)>(&mut self, label: &str, revision: u64, width: Size, height: Size, mut build: F) -> Result<PxuiBox, i32> {
+    #[track_caller] pub fn view<F: FnMut(&mut Ui)>(&mut self, label: &str, revision: u64, width: Size, height: Size, mut build: F) -> PxuiBox {
         let mut out = PxuiBox::default();
-        status(unsafe { sys::pxui_ui_view(self.0.as_ptr(), as_str(label), revision, size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_view(self.0.as_ptr(), as_str(label), revision, size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) });
+        out
     }
 
     #[inline]
-    pub fn anchored<F: FnMut(&mut Ui)>(&mut self, label: &str, anchor: Rect, placement: Placement, width: Size, height: Size, mut build: F) -> Result<PxuiBox, i32> {
+    #[track_caller] pub fn anchored<F: FnMut(&mut Ui)>(&mut self, label: &str, anchor: Rect, placement: Placement, width: Size, height: Size, mut build: F) -> PxuiBox {
         let mut descriptor = encode_placement(placement);
         descriptor.rect = anchor;
         let mut out = PxuiBox::default();
-        status(unsafe { sys::pxui_ui_anchored(self.0.as_ptr(), as_str(label), &descriptor, size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_anchored(self.0.as_ptr(), as_str(label), &descriptor, size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) });
+        out
     }
 
     #[inline]
-    pub fn dialog<F: FnMut(&mut Ui)>(&mut self, title: &str, buttons: &[&str], mut body: F) -> Result<DialogOut, i32> {
+    #[track_caller] pub fn dialog<F: FnMut(&mut Ui)>(&mut self, title: &str, buttons: &[&str], mut body: F) -> DialogOut {
         let buttons = Strs::new(buttons);
         let mut out = PxuiDialogOut::default();
-        status(unsafe { sys::pxui_ui_dialog(self.0.as_ptr(), as_str(title), buttons.span(), Some(call::<F>), &mut body as *mut _ as *mut c_void, &mut out) })?;
-        match out.tag { 0 => Ok(DialogOut::Open), 1 => Ok(DialogOut::Closed), 2 => Ok(DialogOut::Button(out.index)), _ => Err(-1) }
+        check(self, unsafe { sys::pxui_ui_dialog(self.0.as_ptr(), as_str(title), buttons.span(), Some(call::<F>), &mut body as *mut _ as *mut c_void, &mut out) });
+        match out.tag { 0 => DialogOut::Open, 1 => DialogOut::Closed, 2 => DialogOut::Button(out.index), _ => unreachable!("the library answers a dialog with tag 0, 1 or 2") }
     }
 }
 

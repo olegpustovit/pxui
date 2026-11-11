@@ -1,16 +1,11 @@
-use pxui_types::{Bar, Mark, Node, PxuiBox, Size, layout::{Align, Grid, MAX_TRACKS, Track}, theme::{Curve, Font, Look, Shadow}, ffi::{NodeDesc, PxuiAnchorDesc, PxuiBarDesc, PxuiCellDesc, PxuiCurveDesc, PxuiFontDesc, PxuiGridDesc, PxuiLookDesc, PxuiMarkDesc, PxuiRingDesc, PxuiShadowDesc, PxuiSizeDesc, PxuiStateDesc, PxuiTrackDesc, Slice}};
+use pxui_types::{Str, Bar, Mark, Node, PxuiBox, Size, layout::{Align, Grid, MAX_TRACKS, Track}, theme::{Curve, Font, Look, Shadow}, ffi::{NodeDesc, PxuiAnchorDesc, PxuiBarDesc, PxuiCellDesc, PxuiCurveDesc, PxuiFontDesc, PxuiGridDesc, PxuiLookDesc, PxuiMarkDesc, PxuiRingDesc, PxuiShadowDesc, PxuiSizeDesc, PxuiStateDesc, PxuiTrackDesc, Slice}};
 use core::mem::size_of;
-use crate::Ui;
+use crate::{check, Ui};
 
-#[cfg(feature = "static")]
-mod sys { pub use pxui_abi_link::pxui_ui_node_keyed; }
-#[cfg(not(feature = "static"))]
-mod sys {
-    use pxui_types::{ffi::NodeDesc, PxuiBox};
-    use crate::sys::PxuiUi;
-    #[link(name="pxui")]
-    unsafe extern "C" { pub fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const NodeDesc,out:*mut PxuiBox)->i32; }
-}
+library!(sys {
+    fn pxui_ui_node(ui:*mut PxuiUi,label:Str,node:*const NodeDesc,out:*mut PxuiBox)->i32;
+    fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,node:*const NodeDesc,out:*mut PxuiBox)->i32;
+});
 
 pub(crate) fn size(s:Size)->PxuiSizeDesc { match s {Size::Px(value)=>PxuiSizeDesc{kind:0,value,relative:None},Size::Pct(value)=>PxuiSizeDesc{kind:1,value,relative:None},Size::Rel(relative)=>PxuiSizeDesc{kind:2,value:0.0,relative:Some(relative)},Size::Grow=>PxuiSizeDesc{kind:3,value:0.0,relative:None},Size::Fit=>PxuiSizeDesc{kind:4,value:0.0,relative:None}} }
 #[inline]
@@ -44,25 +39,32 @@ impl Ui {
     /// Declares a node under the current parent, keyed by `label`. The descriptor is built on the stack and
     /// crosses by reference; only a node with a grid touches the library's track table.
     #[inline]
-    pub fn node(&mut self,label:&str,node:&Node)->Result<PxuiBox,i32> {
-        let mut store:[PxuiTrackDesc;2*MAX_TRACKS];
-        let grid=match &node.grid {
-            Some(g)=>{ store=[PxuiTrackDesc::default();2*MAX_TRACKS]; encode_grid(g,&mut store).ok_or(-1)? }
-            None=>PxuiGridDesc{has_grid:0,reserved:[0;7],cols:Slice{ptr:core::ptr::null(),len:0},rows:Slice{ptr:core::ptr::null(),len:0}},
-        };
-        self.node_desc(label,&encode(node,grid))
+    #[track_caller]
+    pub fn node(&mut self,label:&str,node:Node)->PxuiBox {
+        let mut store=[PxuiTrackDesc::default();2*MAX_TRACKS];
+        let grid=Self::grid_desc(&node,&mut store);
+        let mut out=PxuiBox::default();
+        check(self,unsafe{sys::pxui_ui_node(self.0.as_ptr(),crate::as_str(label),&encode(&node,grid),&mut out)});
+        out
     }
 
     /// Declares a node using an explicit key in the current parent scope.
     #[inline]
-    pub fn node_keyed(&mut self,key:i64,node:&Node)->Result<PxuiBox,i32> {
-        let mut store:[PxuiTrackDesc;2*MAX_TRACKS];
-        let grid=match &node.grid {
-            Some(g)=>{ store=[PxuiTrackDesc::default();2*MAX_TRACKS]; encode_grid(g,&mut store).ok_or(-1)? }
-            None=>PxuiGridDesc{has_grid:0,reserved:[0;7],cols:Slice{ptr:core::ptr::null(),len:0},rows:Slice{ptr:core::ptr::null(),len:0}},
-        };
+    #[track_caller]
+    pub fn node_keyed(&mut self,key:i64,node:Node)->PxuiBox {
+        let mut store=[PxuiTrackDesc::default();2*MAX_TRACKS];
+        let grid=Self::grid_desc(&node,&mut store);
         let mut out=PxuiBox::default();
-        let rc=unsafe{sys::pxui_ui_node_keyed(self.0.as_ptr(),key,&encode(node,grid),&mut out)};
-        if rc==0 {Ok(out)} else {Err(rc)}
+        check(self,unsafe{sys::pxui_ui_node_keyed(self.0.as_ptr(),key,&encode(&node,grid),&mut out)});
+        out
+    }
+
+    /// The node's grid as a descriptor over `store`; a grid of more tracks than the ABI takes is a caller bug.
+    #[track_caller]
+    fn grid_desc(node:&Node,store:&mut [PxuiTrackDesc;2*MAX_TRACKS])->PxuiGridDesc {
+        match &node.grid {
+            Some(g)=>encode_grid(g,store).expect("pxui: a grid holds at most 64 tracks per axis"),
+            None=>PxuiGridDesc{has_grid:0,reserved:[0;7],cols:Slice{ptr:core::ptr::null(),len:0},rows:Slice{ptr:core::ptr::null(),len:0}},
+        }
     }
 }

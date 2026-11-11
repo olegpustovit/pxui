@@ -39,11 +39,11 @@ fn panel(theme: &pxui_types::theme::ThemeSnapshot) -> [u8; 4] {
 fn shoot(gpu: &mut Gpu, theme: &ThemeSource, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
     let mut ui = Ui::new_with_fonts(1, 0, &[DEPARTURE_MONO]).expect("PXUI ABI");
     ui.set_theme(theme).unwrap_or_else(|code| panic!("theme failed ({code}): {}", ui.last_error()));
-    ui.set_dir(rtl).expect("set direction");
+    ui.set_dir(rtl);
     let events = [pointer_event()];
     for count in 0..2 {
         let input = frame_at(count, size, density, &events);
-        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", 1, Size::Grow, Size::Grow, &mut *build).expect("page view"); }).expect("frame");
+        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", 1, Size::Grow, Size::Grow, &mut *build); }).expect("frame");
     }
     let clear = ground.unwrap_or_else(|| panel(&ui.theme()));
     let mut renderer: Renderer<'_> = gpu.renderer(&mut ui).expect("PXUI renderer");
@@ -67,7 +67,7 @@ fn abi_baseline_pages() {
             let allocated = mem_sys::local_alloc_count();
             let started = Instant::now();
             ui.input_frame(&input, &mut |ui: &mut Ui| {
-                ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, &mut state, index)).expect("page view");
+                ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, &mut state, index));
             }).expect("frame");
             if count >= 10 {
                 times.push(started.elapsed().as_secs_f64() * 1e6);
@@ -104,7 +104,7 @@ fn gpu_gallery_pages() {
                 s.image = Some(image);
                 (s.dialog, s.menu_at) = (*i == 3, (*i == 3).then_some((360.0, 40.0)));
                 let pixels = shoot(&mut gpu, theme, *rtl, (PAGE_W, PAGE_H), density, None, &mut |ui: &mut Ui| {
-                    ui.view("page", 1, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, &mut s, *i)).expect("page view");
+                    ui.view("page", 1, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, &mut s, *i));
                 });
                 let path = format!("{}/fixtures/gallery_{page_name}_{name}_{density}x.png", env!("CARGO_MANIFEST_DIR"));
                 let worst = compare(&path, (PAGE_W, PAGE_H), density, &pixels, true);

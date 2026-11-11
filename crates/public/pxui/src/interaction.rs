@@ -1,4 +1,4 @@
-use crate::{status, PxuiBox, Ui};
+use crate::{PxuiBox, Ui, check};
 use pxui_types::{Event as FfiEvent, ffi::{PxuiSaved, PxuiSignal, Slice}};
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -37,23 +37,23 @@ pub type UiSaved = PxuiSaved;
 
 impl Ui {
     #[inline]
-    pub fn enter(&mut self,box_:&PxuiBox)->Result<UiSaved,i32>{
+    #[track_caller] pub fn enter(&mut self,box_:&PxuiBox)-> UiSaved {
         let mut out=PxuiSaved::default();
-        status(unsafe{sys::pxui_ui_enter(self.0.as_ptr(),box_,&mut out)})?;Ok(out)
+        check(self, unsafe{sys::pxui_ui_enter(self.0.as_ptr(),box_,&mut out)});out
     }
-    #[inline] pub fn leave(&mut self,saved:UiSaved)->Result<(),i32>{status(unsafe{sys::pxui_ui_leave(self.0.as_ptr(),&saved)})}
-    #[inline] pub fn focus_box(&mut self,box_:&PxuiBox)->Result<(),i32>{status(unsafe{sys::pxui_ui_focus_box(self.0.as_ptr(),box_)})}
-    #[inline] pub fn focused(&mut self,box_:&PxuiBox)->Result<bool,i32>{let mut out=0;status(unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)})?;Ok(out!=0)}
-    #[inline] pub fn state(&mut self,box_:&PxuiBox,default:i64)->Result<i64,i32>{let mut out=0;status(unsafe{sys::pxui_ui_state(self.0.as_ptr(),box_,default,&mut out)})?;Ok(out)}
-    #[inline] pub fn set_state(&mut self,box_:&PxuiBox,value:i64)->Result<(),i32>{status(unsafe{sys::pxui_ui_set_state(self.0.as_ptr(),box_,value)})}
+    #[inline] #[track_caller] pub fn leave(&mut self,saved:UiSaved) {check(self, unsafe{sys::pxui_ui_leave(self.0.as_ptr(),&saved)})}
+    #[inline] #[track_caller] pub fn focus_box(&mut self,box_:&PxuiBox) {check(self, unsafe{sys::pxui_ui_focus_box(self.0.as_ptr(),box_)})}
+    #[inline] #[track_caller] pub fn focused(&mut self,box_:&PxuiBox)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}
+    #[inline] #[track_caller] pub fn state(&mut self,box_:&PxuiBox,default:i64)-> i64 {let mut out=0;check(self, unsafe{sys::pxui_ui_state(self.0.as_ptr(),box_,default,&mut out)});out}
+    #[inline] #[track_caller] pub fn set_state(&mut self,box_:&PxuiBox,value:i64) {check(self, unsafe{sys::pxui_ui_set_state(self.0.as_ptr(),box_,value)})}
 
     /// What happened to `box_` this frame: one library call that fills scalars on the stack. A box with no key events
     /// allocates nothing; key events are copied out of the library's frame buffer.
     #[inline]
-    pub fn signal(&mut self,box_:&PxuiBox)->Result<Signal,i32>{
+    #[track_caller] pub fn signal(&mut self,box_:&PxuiBox)-> Signal {
         let mut raw=PxuiSignal::default();
-        status(unsafe{sys::pxui_ui_signal(self.0.as_ptr(),box_,&mut raw)})?;
-        Ok(decode_signal(&raw))
+        check(self, unsafe{sys::pxui_ui_signal(self.0.as_ptr(),box_,&mut raw)});
+        decode_signal(&raw)
     }
 }
 

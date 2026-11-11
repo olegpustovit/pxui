@@ -59,7 +59,7 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
 fn wrapper_instances() -> Vec<pxui_types::draw::Instance> {
     let mut ui = pxui::Ui::new_with_fonts(1, 0, &[pxui_core::text::PRAGMASEVKA]).expect("library");
     ui.frame(&FrameIn { width: SIZE.0, height: SIZE.1, scale: 1.0, ..FrameIn::default() }, |ui| {
-        let b = ui.node("canvas", &pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT }).unwrap();
+        let b = ui.node("canvas", pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });
         ui.canvas(&b, |p, _| art!(p));
     }).expect("frame");
     // The wrapper's `Ui` is the library's `PxuiUi` pointer, a `#[repr(C)]` struct whose first field is the engine it built the

@@ -7,6 +7,7 @@
 typedef struct PxuiUi PxuiUi;
 typedef struct PxuiRenderer PxuiRenderer;
 typedef struct PxuiPaint PxuiPaint;
+typedef struct PxuiShaper PxuiShaper;
 typedef struct PxuiTheme PxuiTheme;
 typedef struct { uint32_t size, platform; int32_t font_size; } PxuiUiDesc;
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
@@ -282,6 +283,13 @@ int32_t pxui_ui_text_area_submit(PxuiUi *ui, const float at[2], float width, flo
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing); /* the callbacks run only during the call; slide and scrub write their text, borrowed until their next callback */
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
 int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
+/* A text shaper of its own, for text laid out off the Ui on any thread: its own font system, no GPU atlas. */
+PxuiShaper *pxui_shaper_create(const PxuiStr *fonts, size_t count);
+void pxui_shaper_destroy(PxuiShaper *shaper);
+uint32_t pxui_shaper_add_font(PxuiShaper *shaper, PxuiStr font);
+int32_t pxui_shaper_width(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
+size_t pxui_shaper_rasterize_rgba(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
+PxuiStr pxui_default_font(void); /* Pragmasevka, embedded: valid as long as the library */
 /* The text service of a Ui: its one font system and glyph atlas, for canvas text an app lays out itself (atlases: pxui_renderer_atlas). */
 uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
 int32_t pxui_text_width(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);

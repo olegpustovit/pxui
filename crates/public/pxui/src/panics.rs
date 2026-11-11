@@ -28,7 +28,7 @@ fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
     let mut ui = Ui::new().expect("library");
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), |ui| {
-            let node = ui.node("canvas", &Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT }).unwrap();
+            let node = ui.node("canvas", Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT });
             ui.draw(&node, |_, _| panic!("paint callback"));
         });
     }));

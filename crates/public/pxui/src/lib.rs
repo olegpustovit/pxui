@@ -48,7 +48,7 @@ pub mod ui {
     pub use pxui_types::a11y::Role;
 }
 pub mod text;
-pub use text::Text;
+pub use text::{Text, UiText};
 pub mod paint;
 pub use paint::Paint;
 pub mod widgets;
@@ -101,6 +101,7 @@ mod sys {
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
     #[repr(C)] pub struct PxuiTheme { _private:[u8;0] }
     #[repr(C)] pub struct PxuiPaint { _private:[u8;0] }
+    #[repr(C)] pub struct PxuiShaper { _private:[u8;0] }
     #[link(name = "pxui")]
     unsafe extern "C" {
         pub safe fn pxui_abi_version()->u32;
@@ -255,25 +256,26 @@ impl Ui {
         at.is_finite().then_some(at)
     }
 
+    /// Replaces the theme from a theme file's text; the library refuses a file that does not parse (see `last_error`).
     pub fn set_theme_source(&mut self,source:&ThemeSource)->Result<(),i32> { status(unsafe{sys::pxui_ui_set_theme(self.0.as_ptr(),source)}) }
-    pub fn set_theme(&mut self,source:&ThemeSource)->Result<(),i32>{self.set_theme_source(source)}
-    pub fn set_dir(&mut self,rtl:bool)->Result<(),i32>{status(unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
-    pub fn set_a11y(&mut self,on:bool)->Result<(),i32>{status(unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
-    pub fn inject_a11y(&mut self,actions:&[A11yAction])->Result<(),i32>{status(unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())})}
+    pub fn set_theme(&mut self,source:&ThemeSource)->Result<(),i32> {self.set_theme_source(source)}
+    #[track_caller] pub fn set_dir(&mut self,rtl:bool) {check(self, unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
+    #[track_caller] pub fn set_a11y(&mut self,on:bool) {check(self, unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
+    #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())})}
     #[inline] pub fn patch_text(&mut self,box_:&PxuiBox,value:&str)->bool{unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value))!=0}}
     #[inline] pub fn busy_step(&mut self,box_:&PxuiBox,now:f64)->bool{unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now)!=0}}
-    pub fn request_frame(&mut self)->Result<(),i32>{status(unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}
+    #[track_caller] pub fn request_frame(&mut self) {check(self, unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}
     #[inline]
-    pub fn node_desc(&mut self,label:&str,node:&PxuiNodeDesc)->Result<PxuiBox,i32>{
-        let mut out=PxuiBox::default();status(unsafe{sys::pxui_ui_node(self.0.as_ptr(),as_str(label),node,&mut out)})?;Ok(out)
+    #[track_caller] pub fn node_desc(&mut self,label:&str,node:&PxuiNodeDesc)-> PxuiBox {
+        let mut out=PxuiBox::default();check(self, unsafe{sys::pxui_ui_node(self.0.as_ptr(),as_str(label),node,&mut out)});out
     }
     #[inline]
-    pub fn rect(&mut self,box_:&PxuiBox)->Result<geom::Rect,i32>{
-        let mut out=geom::Rect::default();status(unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)})?;Ok(out)
+    #[track_caller] pub fn rect(&mut self,box_:&PxuiBox)-> geom::Rect {
+        let mut out=geom::Rect::default();check(self, unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)});out
     }
     #[inline] pub fn box_of_key(&mut self,key:i64)->Option<PxuiBox>{let mut out=PxuiBox::default();(unsafe{sys::pxui_ui_box_of_key(self.0.as_ptr(),key,&mut out)}!=0).then_some(out)}
     #[inline] pub fn key_of(seed:i64,label:&str)->i64{pxui_types::ui::key_of(seed,label)}
-    #[inline] pub fn text(&mut self,box_:&PxuiBox,value:&str)->Result<(),i32>{status(unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
+    #[inline] #[track_caller] pub fn text(&mut self,box_:&PxuiBox,value:&str) {check(self, unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
 
     #[inline]
     pub fn within<F: FnMut(&mut Ui)>(&mut self, box_: &PxuiBox, mut f: F) {
@@ -346,6 +348,13 @@ fn abi_version()->u32 { unsafe { sys::pxui_abi_version() } }
 #[cfg(not(feature="static"))]
 #[inline]
 fn abi_version()->u32 { sys::pxui_abi_version() }
+
+/// A string the library lent, copied: the library only returns UTF-8 within its limits, so anything else is a library bug.
+#[track_caller]
+fn lent_string(value: Str) -> String {
+    if value.len == 0 { return String::new(); }
+    String::from_utf8(unsafe { core::slice::from_raw_parts(value.ptr, value.len) }.to_vec()).expect("pxui: the library returned text that is not UTF-8")
+}
 
 #[inline]
 fn status(rc:i32)->Result<(),i32>{ if rc==0 { Ok(()) } else { Err(rc) } }

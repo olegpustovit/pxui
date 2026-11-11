@@ -1,4 +1,4 @@
-use crate::{status, PxuiBox, Strs, Ui};
+use crate::{PxuiBox, Strs, Ui, check};
 use pxui_types::Str;
 
 #[cfg(feature = "static")]
@@ -26,94 +26,91 @@ mod sys {
     }
 }
 
-const MAX_TEXT_BYTES: usize = 1 << 20;
 
 #[inline]
 fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
 impl Ui {
     #[inline]
-    pub fn checkbox(&mut self, label: &str, value: bool) -> Result<bool, i32> {
+    #[track_caller] pub fn checkbox(&mut self, label: &str, value: bool) -> bool {
         let mut out = 0;
-        status(unsafe { sys::pxui_ui_checkbox(self.0.as_ptr(), as_str(label), value as u8, &mut out) })?;
-        Ok(out != 0)
+        check(self, unsafe { sys::pxui_ui_checkbox(self.0.as_ptr(), as_str(label), value as u8, &mut out) });
+        out != 0
     }
 
     #[inline]
-    pub fn radio(&mut self, label: &str, options: &[&str], selected: usize) -> Result<usize, i32> {
+    #[track_caller] pub fn radio(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
         let options = Strs::new(options);
         let mut out = 0;
-        status(unsafe { sys::pxui_ui_radio(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_radio(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) });
+        out
     }
 
     #[inline]
-    pub fn tabs(&mut self, label: &str, tabs: &[&str], selected: usize) -> Result<usize, i32> {
+    #[track_caller] pub fn tabs(&mut self, label: &str, tabs: &[&str], selected: usize) -> usize {
         let tabs = Strs::new(tabs);
         let mut out = 0;
-        status(unsafe { sys::pxui_ui_tabs(self.0.as_ptr(), as_str(label), tabs.span(), selected, &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_tabs(self.0.as_ptr(), as_str(label), tabs.span(), selected, &mut out) });
+        out
     }
 
     #[inline]
-    pub fn segmented(&mut self, label: &str, options: &[&str], selected: usize) -> Result<usize, i32> {
+    #[track_caller] pub fn segmented(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
         let options = Strs::new(options);
         let mut out = 0;
-        status(unsafe { sys::pxui_ui_segmented(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_segmented(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) });
+        out
     }
 
     #[inline]
-    pub fn dropdown(&mut self, label: &str, options: &[&str], selected: usize) -> Result<usize, i32> {
+    #[track_caller] pub fn dropdown(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
         let options = Strs::new(options);
         let mut out = 0;
-        status(unsafe { sys::pxui_ui_dropdown(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_dropdown(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) });
+        out
     }
 
     #[inline]
-    pub fn slider(&mut self, label: &str, value: f32, range: core::ops::RangeInclusive<f32>) -> Result<f32, i32> {
+    #[track_caller] pub fn slider(&mut self, label: &str, value: f32, range: core::ops::RangeInclusive<f32>) -> f32 {
         let mut out = 0.0;
-        status(unsafe { sys::pxui_ui_slider(self.0.as_ptr(), as_str(label), value, *range.start(), *range.end(), &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_slider(self.0.as_ptr(), as_str(label), value, *range.start(), *range.end(), &mut out) });
+        out
     }
 
     #[inline]
-    pub fn progress(&mut self, label: &str, value: Option<f32>) -> Result<PxuiBox, i32> {
+    #[track_caller] pub fn progress(&mut self, label: &str, value: Option<f32>) -> PxuiBox {
         let mut out = PxuiBox::default();
-        status(unsafe { sys::pxui_ui_progress(self.0.as_ptr(), as_str(label), value.is_some() as u8, value.unwrap_or_default(), &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_progress(self.0.as_ptr(), as_str(label), value.is_some() as u8, value.unwrap_or_default(), &mut out) });
+        out
     }
 
     #[inline]
-    pub fn spinner(&mut self, label: &str) -> Result<PxuiBox, i32> {
+    #[track_caller] pub fn spinner(&mut self, label: &str) -> PxuiBox {
         let mut out = PxuiBox::default();
-        status(unsafe { sys::pxui_ui_spinner(self.0.as_ptr(), as_str(label), &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_spinner(self.0.as_ptr(), as_str(label), &mut out) });
+        out
     }
 
     #[inline]
-    pub fn icon_button(&mut self, label: &str, icon: &str) -> Result<bool, i32> {
+    #[track_caller] pub fn icon_button(&mut self, label: &str, icon: &str) -> bool {
         let mut out = 0;
-        status(unsafe { sys::pxui_ui_icon_button(self.0.as_ptr(), as_str(label), as_str(icon), &mut out) })?;
-        Ok(out != 0)
+        check(self, unsafe { sys::pxui_ui_icon_button(self.0.as_ptr(), as_str(label), as_str(icon), &mut out) });
+        out != 0
     }
 
     #[inline]
-    pub fn badge(&mut self, label: &str, value: &str) -> Result<PxuiBox, i32> {
+    #[track_caller] pub fn badge(&mut self, label: &str, value: &str) -> PxuiBox {
         let mut out = PxuiBox::default();
-        status(unsafe { sys::pxui_ui_badge(self.0.as_ptr(), as_str(label), as_str(value), &mut out) })?;
-        Ok(out)
+        check(self, unsafe { sys::pxui_ui_badge(self.0.as_ptr(), as_str(label), as_str(value), &mut out) });
+        out
     }
 
     #[inline]
-    pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Result<Option<String>, i32> {
+    #[track_caller] pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<String> {
         let mut changed = 0;
         let mut out = Str::default();
-        status(unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(icon), as_str(value), as_str(placeholder), &mut changed, &mut out) })?;
-        if changed == 0 { return Ok(None); }
-        if out.len > MAX_TEXT_BYTES || (out.len != 0 && out.ptr.is_null()) { return Err(-1); }
-        let bytes = if out.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(out.ptr, out.len) } };
-        String::from_utf8(bytes.to_vec()).map(Some).map_err(|_| -1)
+        check(self, unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(icon), as_str(value), as_str(placeholder), &mut changed, &mut out) });
+        if changed == 0 { return None; }
+        Some(crate::lent_string(out))
     }
 }

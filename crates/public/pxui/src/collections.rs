@@ -1,4 +1,4 @@
-use crate::{composite::{defer_callback_panic, deferred, resume_deferred}, status, Strs, Ui};
+use crate::{composite::{defer_callback_panic, deferred, resume_deferred}, check, Strs, Ui};
 use core::{ffi::c_void, panic::AssertUnwindSafe};
 use pxui_types::{Str, ffi::Slice};
 
@@ -102,7 +102,7 @@ extern "C" fn call_table<F: FnMut(usize, usize, &mut dyn FnMut(&str))>(user: *mu
 impl Ui {
     /// Builds a virtual list. `selected` has one flag per row; the result is an activated row. The flags are the
     /// library's own storage for the call: nothing is copied.
-    pub fn list_view<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, count: usize, multi: bool, selected: &mut [bool], text: F) -> Result<Option<usize>, i32> {
+    #[track_caller] pub fn list_view<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, count: usize, multi: bool, selected: &mut [bool], text: F) -> Option<usize> {
         let mut context = Callback { f: text };
         let (text, user) = context.list();
         let desc = ListViewDesc {
@@ -114,12 +114,12 @@ impl Ui {
         let mut out = usize::MAX;
         let rc = unsafe { sys::pxui_ui_list_view(self.0.as_ptr(), &desc, &mut out) };
         resume_deferred();
-        status(rc)?;
-        Ok((out != usize::MAX).then_some(out))
+        check(self, rc);
+        (out != usize::MAX).then_some(out)
     }
 
     /// Builds a preorder virtual tree. `visible` is replaced by the current flattened row indices (its capacity is reused).
-    pub fn tree<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, nodes: &[TreeNode], open: &mut [bool], selected: &mut Option<usize>, visible: &mut Vec<u32>, text: F) -> Result<Option<usize>, i32> {
+    #[track_caller] pub fn tree<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, nodes: &[TreeNode], open: &mut [bool], selected: &mut Option<usize>, visible: &mut Vec<u32>, text: F) -> Option<usize> {
         visible.clear();
         visible.reserve(nodes.len());
         let mut rows_len = 0usize;
@@ -136,16 +136,16 @@ impl Ui {
         let mut out = usize::MAX;
         let rc = unsafe { sys::pxui_ui_tree(self.0.as_ptr(), &desc, &mut out) };
         resume_deferred();
-        status(rc)?;
+        check(self, rc);
         *selected = (selected_raw != usize::MAX).then_some(selected_raw);
-        if rows_len > nodes.len() { return Err(-1); }
+        assert!(rows_len <= nodes.len(), "pxui: the library reported more visible rows than there are nodes");
         // the library wrote `rows_len` rows into the spare capacity
         unsafe { visible.set_len(rows_len); }
-        Ok((out != usize::MAX).then_some(out))
+        (out != usize::MAX).then_some(out)
     }
 
     /// Builds a virtual table. Widths and selection are updated in place; the result is a sorted column.
-    pub fn table_view<F: FnMut(usize, usize, &mut dyn FnMut(&str))>(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: F) -> Result<Option<usize>, i32> {
+    #[track_caller] pub fn table_view<F: FnMut(usize, usize, &mut dyn FnMut(&str))>(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: F) -> Option<usize> {
         let titles = Strs::new(titles);
         let mut context = TableCallback { f: cell };
         let (text, user) = context.table();
@@ -160,9 +160,9 @@ impl Ui {
         let mut out = usize::MAX;
         let rc = unsafe { sys::pxui_ui_table_view(self.0.as_ptr(), &desc, &mut out) };
         resume_deferred();
-        status(rc)?;
+        check(self, rc);
         *selected = (selected_raw != usize::MAX).then_some(selected_raw);
-        Ok((out != usize::MAX).then_some(out))
+        (out != usize::MAX).then_some(out)
     }
 }
 
@@ -191,8 +191,8 @@ mod tests {
                         let _ = ui.tree("Outline", &nodes, &mut open, &mut selected, &mut visible, |i, put| { texts.set(texts.get() + 1); put(&format!("node {i}")); });
                         let _ = ui.table_view("Points", &["Name", "Group", "Tag"], &mut widths, ROWS, Some((0, true)), &mut table_sel, |r, c, put| { cells.set(cells.get() + 1); put(&format!("{r}:{c}")); });
                     });
-                    assert!(ratio.is_ok());
-                }).expect("view");
+                    assert!(ratio.is_none() || ratio.is_some());
+                });
             }).expect("frame");
         }
         assert!(texts.get() > 0 && cells.get() > 0, "the virtual rows were asked for their text");

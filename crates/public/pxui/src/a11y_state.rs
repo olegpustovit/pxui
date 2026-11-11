@@ -1,4 +1,4 @@
-use crate::{PxuiBox, Ui};
+use crate::{PxuiBox, Ui, check};
 
 #[cfg(feature = "static")]
 mod sys {
@@ -16,13 +16,13 @@ mod sys {
 
 impl Ui {
     #[inline]
-    pub fn a11y_number(&mut self, box_: &PxuiBox, now: f64, min: f64, max: f64, step: f64) -> Result<(), i32> {
+    #[track_caller] pub fn a11y_number(&mut self, box_: &PxuiBox, now: f64, min: f64, max: f64, step: f64)  {
         let rc = unsafe { sys::pxui_ui_a11y_number(self.0.as_ptr(), box_, now, min, max, step) };
-        if rc == 0 { Ok(()) } else { Err(rc) }
+        check(self, rc)
     }
     #[inline]
-    pub fn set_role(&mut self, box_: &PxuiBox, role: pxui_types::a11y::Role, states: u32) -> Result<(), i32> {
+    #[track_caller] pub fn set_role(&mut self, box_: &PxuiBox, role: pxui_types::a11y::Role, states: u32)  {
         let rc = unsafe { sys::pxui_ui_set_role(self.0.as_ptr(), box_, role as u32, states) };
-        if rc == 0 { Ok(()) } else { Err(rc) }
+        check(self, rc)
     }
 }

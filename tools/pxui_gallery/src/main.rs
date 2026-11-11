@@ -206,7 +206,7 @@ fn main() {
     let mut extent = win.extent();
     let mut target = gpu.target(extent.drawable.0 as u32, extent.drawable.1 as u32);
     let mut a11y = host::a11y(&mut win);
-    renderer.ui().set_a11y(a11y.is_some()).unwrap_or_else(|code| { eprintln!("pxui_gallery: set accessibility failed ({code})"); std::process::exit(1) });
+    renderer.ui().set_a11y(a11y.is_some());
     let mut actions = Vec::with_capacity(16);
     let mut a11y_seen = 0;
     let mut events: Vec<HostEvent> = Vec::with_capacity(256);
@@ -246,7 +246,7 @@ fn main() {
         }
         if s.host_dirty {
             apply_theme(renderer.ui(), &s, &mut dusk, &theme_path);
-            renderer.ui().set_dir(s.rtl).unwrap_or_else(|code| { eprintln!("pxui_gallery: set direction failed ({code})"); std::process::exit(1) });
+            renderer.ui().set_dir(s.rtl);
             (s.page_rev, s.chrome_rev, s.host_dirty, force) = (s.page_rev + 1, s.chrome_rev + 1, false, true);
         }
         if let Some(bridge) = a11y.as_mut() {
@@ -254,9 +254,9 @@ fn main() {
             if !host::a11y_pump(bridge, &mut actions) {
                 host::a11y_gone(&mut win);
                 (a11y, a11y_seen) = (None, 0);
-                renderer.ui().set_a11y(false).unwrap_or_else(|code| { eprintln!("pxui_gallery: disable accessibility failed ({code})"); std::process::exit(1) });
+                renderer.ui().set_a11y(false);
             } else if !actions.is_empty() {
-                renderer.ui().inject_a11y(&actions).unwrap_or_else(|code| { eprintln!("pxui_gallery: accessibility action failed ({code})"); std::process::exit(1) });
+                renderer.ui().inject_a11y(&actions);
                 force = true;
             }
         }
@@ -268,7 +268,7 @@ fn main() {
             force = true;
         }
         encode_events(&events, &mut raw_events, &mut event_text);
-        let built = force || renderer.ui().wants_frame(&raw_events, now).unwrap_or_else(|code| { eprintln!("pxui_gallery: frame gate failed ({code})"); std::process::exit(1) });
+        let built = force || renderer.ui().wants_frame(&raw_events, now);
         if built {
             force = false;
             if renderer.ui().output().platform.paste != 0 { host::paste(&mut win, &mut events); }

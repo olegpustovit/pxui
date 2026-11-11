@@ -1,4 +1,4 @@
-use crate::{PxuiBox, Str, Ui};
+use crate::{PxuiBox, Str, Ui, check};
 
 #[cfg(feature = "static")]
 mod sys {
@@ -20,9 +20,9 @@ mod sys {
 impl Ui {
     /// Sets the accessible name for a box declared in the current UI frame.
     #[inline]
-    pub fn a11y_name(&mut self, box_: &PxuiBox, name: &str) -> Result<(), i32> {
+    #[track_caller] pub fn a11y_name(&mut self, box_: &PxuiBox, name: &str)  {
         let name = Str { ptr: name.as_ptr(), len: name.len() };
         let rc = unsafe { sys::pxui_ui_a11y_name(self.0.as_ptr(), box_, name) };
-        if rc == 0 { Ok(()) } else { Err(rc) }
+        check(self, rc)
     }
 }
