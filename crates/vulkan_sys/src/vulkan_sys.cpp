@@ -907,7 +907,10 @@ int32_t rv_texture_read(void *texture, void *bytes, uint64_t row, uint32_t texel
       full_barrier(u->cb); vkCmdCopyImageToBuffer(u->cb,t->image,VK_IMAGE_LAYOUT_GENERAL,staging,1,&region); r = submit_locked(d,nullptr,nullptr,0,VK_NULL_HANDLE,VK_NULL_HANDLE,&tick); }
     else r = VK_ERROR_OUT_OF_HOST_MEMORY; }
   if (r == VK_SUCCESS) { VkSemaphoreWaitInfo wi{VK_STRUCTURE_TYPE_SEMAPHORE_WAIT_INFO}; wi.semaphoreCount = 1; wi.pSemaphores = &d->ticks; wi.pValues = &tick; r = vkWaitSemaphores(d->device,&wi,UINT64_MAX); }
-  if (r == VK_SUCCESS) { vmaInvalidateAllocation(d->allocator,allocation,0,total); memcpy(bytes,mapped.pMappedData,total); }
+  // Only each row's texels: the staging memory is not zeroed (lavapipe hands back a freed buffer's bytes), so a row's
+  // padding past them keeps the caller's bytes, as Metal's getBytes does.
+  if (r == VK_SUCCESS) { vmaInvalidateAllocation(d->allocator,allocation,0,total); const uint64_t used = static_cast<uint64_t>(t->width) * texel;
+    for (uint32_t y = 0; y < t->height; ++y) memcpy(static_cast<uint8_t *>(bytes) + y * row, static_cast<const uint8_t *>(mapped.pMappedData) + y * row, used); }
   vmaDestroyBuffer(d->allocator,staging,allocation); return r;
 }
 // Host-to-image rectangle: staged into the pending upload command like staged_write, so it lands before the next submit.
