@@ -203,9 +203,8 @@ const MAX_OPEN: usize = 8;
 
 static NEXT_DIALOG: AtomicI64 = AtomicI64::new(1);
 
-/// One window's portal connection and its open dialogs.
-// ponytail: a portal that dies after accepting a request leaves its dialog open forever (the bus fails only
-// unanswered calls); watch NameOwnerChanged for org.freedesktop.portal.Desktop if that is ever seen.
+/// One window's portal connection and its open dialogs. A portal that exits while dialogs are open (the
+/// bus fails only unanswered calls) is seen by its name losing its owner: those dialogs fail.
 pub(crate) struct Portal {
     conn: Conn,
     /// The request path prefix: the unique name without its ':' and with '.' as '_'.
@@ -228,6 +227,9 @@ fn session_address() -> Option<String> {
         bus.exists().then(|| format!("unix:path={}", bus.display()))
     })
 }
+
+/// The portal's name changing owner (it exited, or was activated).
+const OWNER_RULE: &str = "type='signal',sender='org.freedesktop.DBus',interface='org.freedesktop.DBus',member='NameOwnerChanged',arg0='org.freedesktop.portal.Desktop'";
 
 fn response_rule(path: &str) -> String {
     format!("type='signal',interface='org.freedesktop.portal.Request',member='Response',path='{path}'")
@@ -261,6 +263,7 @@ impl Portal {
         if !running && !activatable() {
             return Err(NO_FILE_DIALOG.to_owned());
         }
+        conn.add_match(OWNER_RULE).map_err(|_| NO_FILE_DIALOG.to_owned())?;
         let sender = conn.unique_name().trim_start_matches(':').replace('.', "_");
         Ok(Portal { conn, sender, open: Vec::new() })
     }
@@ -351,6 +354,17 @@ impl Portal {
 
     fn take(&mut self, mut m: Msg, events: &mut Vec<Event>) {
         let kind = m.kind();
+        if kind == SIGNAL && m.member() == "NameOwnerChanged" {
+            // (name, old owner, new owner): the portal's name with no new owner means it exited
+            let name = m.read_str().unwrap_or("").to_owned();
+            let _old = m.read_str();
+            if name == DESKTOP && m.read_str().is_some_and(str::is_empty) {
+                for open in self.open.drain(..) {
+                    events.push(Event::FileDialog { id: open.id, result: Err("the desktop portal exited while the file dialog was open".to_owned()) });
+                }
+            }
+            return;
+        }
         let at = match kind {
             METHOD_RETURN | ERROR => self.open.iter().position(|o| o.serial == m.reply_serial()),
             SIGNAL if m.member() == "Response" => self.open.iter().position(|o| o.path == m.path()),

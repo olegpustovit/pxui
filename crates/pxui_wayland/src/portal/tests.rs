@@ -141,6 +141,10 @@ fn serve(fake: &Conn, code: u32, uris: &[&str]) -> Seen {
     let mut reply = Msg(NonNull::new(unsafe { pd_new_reply(call.0.as_ptr()) }).unwrap());
     reply.put(b'o', handle.as_ptr().cast(), handle.len());
     fake.send(reply).expect("reply sent");
+    if code == u32::MAX {
+        // accepted: the dialog stays open
+        return seen;
+    }
     let (p, i, m) = (cstr(&handle), cstr("org.freedesktop.portal.Request"), cstr("Response"));
     // SAFETY: NUL-terminated names.
     let mut signal = Msg(NonNull::new(unsafe { pd_new_signal(p.as_ptr(), i.as_ptr(), m.as_ptr()) }).unwrap());
@@ -229,7 +233,15 @@ fn fake_portal() {
     serve(&fake, 0, &["file:///latin1/caf%E9"]);
     assert!(matches!(answer(&mut portal), (got, Err(e)) if got == id && e.contains("not UTF-8")));
 
-    let ids: Vec<i64> = (0..MAX_OPEN).map(|_| portal.show("", &[], None, DialogKind::OpenFile).expect("eight at once")).collect();
+    // one dialog the portal accepted (its call answered, no Response yet) and seven unanswered calls
+    let accepted = portal.show("", &[], None, DialogKind::OpenFile).expect("accepted");
+    serve(&fake, u32::MAX, &[]);
+    let mut events = Vec::new();
+    portal.pump(&mut events);
+    assert!(events.is_empty(), "an accepted dialog has no answer yet");
+    let mut ids: Vec<i64> = (1..MAX_OPEN).map(|_| portal.show("", &[], None, DialogKind::OpenFile).expect("eight at once")).collect();
+    ids.push(accepted);
+    ids.sort();
     assert!(portal.show("", &[], None, DialogKind::OpenFile).is_err(), "a ninth open dialog is an error");
     drop(fake);
     let mut answered = Vec::new();
@@ -244,5 +256,5 @@ fn fake_portal() {
         std::thread::sleep(Duration::from_millis(5));
     }
     answered.sort();
-    assert_eq!(answered, ids, "a portal that leaves the bus fails its open dialogs");
+    assert_eq!(answered, ids, "a portal that leaves the bus fails its open dialogs, the accepted one too (NameOwnerChanged)");
 }
