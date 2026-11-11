@@ -1231,6 +1231,43 @@ fn docs(workspace: &Path) -> Result<Vec<String>, String> {
     Ok(Vec::new())
 }
 
+fn dynamic_symbols(os: &str, output: &str) -> Vec<String> {
+    if os == "windows" {
+        let (mut symbols, mut gnu_table, mut llvm_table, mut saw_llvm_name) = (Vec::new(), false, false, false);
+        for line in output.lines() {
+            if line.contains("[Ordinal/Name Pointer] Table") {
+                gnu_table = true;
+                continue;
+            }
+            if line.trim() == "Export Table:" {
+                llvm_table = true;
+                continue;
+            }
+            if gnu_table {
+                if let Some((_, rest)) = line.split_once(']') {
+                    if let Some(name) = rest.split_whitespace().last() { symbols.push(name.to_owned()); }
+                } else if !symbols.is_empty() && !line.trim().is_empty() {
+                    break;
+                }
+            } else if llvm_table {
+                let mut fields = line.split_whitespace();
+                if fields.next().is_some_and(|field| field.parse::<u32>().is_ok()) {
+                    if let Some(name) = fields.last() { symbols.push(name.to_owned()); }
+                    saw_llvm_name = true;
+                } else if saw_llvm_name && line.trim().is_empty() {
+                    break;
+                }
+            }
+        }
+        symbols
+    } else {
+        output.lines()
+            .filter_map(|line| line.split_whitespace().last())
+            .map(|name| name.trim_start_matches('_').to_owned())
+            .collect()
+    }
+}
+
 fn abi_exports(workspace: &Path) -> Result<Vec<String>, String> {
     let status = std::process::Command::new("cargo")
         .current_dir(workspace)
@@ -1264,30 +1301,7 @@ fn abi_exports(workspace: &Path) -> Result<Vec<String>, String> {
         return Err(format!("{tool} failed for {}: {}", library.display(), String::from_utf8_lossy(&output.stderr).trim()));
     }
     let output = String::from_utf8_lossy(&output.stdout);
-    let symbols: Vec<_> = if env::consts::OS == "windows" {
-        let mut symbols = Vec::new();
-        let mut in_exports = false;
-        for line in output.lines() {
-            if line.contains("[Ordinal/Name Pointer] Table") {
-                in_exports = true;
-                continue;
-            }
-            if in_exports {
-                if let Some((_, name)) = line.split_once(']') {
-                    let name = name.trim();
-                    if !name.is_empty() { symbols.push(name.to_owned()); }
-                } else if !line.trim().is_empty() {
-                    break;
-                }
-            }
-        }
-        symbols
-    } else {
-        output.lines()
-            .filter_map(|line| line.split_whitespace().last())
-            .map(|name| name.trim_start_matches('_').to_owned())
-            .collect()
-    };
+    let symbols = dynamic_symbols(env::consts::OS, &output);
     let mut issues: Vec<_> = symbols.iter().filter(|name| !name.starts_with("pxui_")).map(|name| format!("abi-exports: unexpected dynamic symbol {name}")).collect();
     if !symbols.iter().any(|name| name == "pxui_abi_version") {
         issues.push("abi-exports: missing pxui_abi_version".to_owned());
@@ -1344,5 +1358,28 @@ fn main() {
             eprintln!("gate: {error}");
             process::exit(2);
         }
+    }
+}
+
+#[cfg(test)]
+mod export_tests {
+    use super::dynamic_symbols;
+
+    #[test]
+    fn parses_macos_and_linux_dynamic_symbols() {
+        assert_eq!(dynamic_symbols("macos", "0000000000001000 T _pxui_abi_version\n"), ["pxui_abi_version"]);
+        assert_eq!(dynamic_symbols("linux", "0000000000001000 T pxui_abi_version\n"), ["pxui_abi_version"]);
+    }
+
+    #[test]
+    fn parses_windows_gnu_export_table() {
+        let output = "[Ordinal/Name Pointer] Table -- Ordinal Base 1\n  Ordinal Hint Name\n [ 0] +base[ 1] 00001330 pxui_abi_version\n\nThe Function Table\n";
+        assert_eq!(dynamic_symbols("windows", output), ["pxui_abi_version"]);
+    }
+
+    #[test]
+    fn parses_windows_llvm_export_table() {
+        let output = "Export Table:\n DLL name: pxui_abi.dll\n Ordinal base: 1\n Ordinal      RVA  Name\n 1   0x13a0  pxui_abi_version\n\nImport Table:\n";
+        assert_eq!(dynamic_symbols("windows", output), ["pxui_abi_version"]);
     }
 }
