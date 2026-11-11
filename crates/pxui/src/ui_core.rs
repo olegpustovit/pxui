@@ -447,9 +447,9 @@ const NO_VIEW: u32 = u32::MAX;
 const UNBOUNDED: Rect = Rect::new(-1.0e7, -1.0e7, 2.0e7, 2.0e7);
 /// Instances that fill the room left before a kept view's run: they draw nothing.
 const EMPTY: Instance = Instance::DEFAULT;
-/// Room left before each kept run when a layer is compacted.
-// ponytail: fixed slack per kept view; a view whose neighbours grow past it compacts the layer
-// (every instance rewritten). Size the slack by the neighbours' churn if compaction shows up.
+/// Room left before each kept run when a layer is compacted: `SLACK` instances, or an eighth of the
+/// run when that is more, so the fresh pieces between big kept runs can grow by as much again before
+/// the next compaction (compactions get rarer as layers grow).
 const SLACK: usize = 32;
 
 /// A view's entry in the painter's view table (`pxui_render::View`): its instances move by `offset`,
@@ -787,6 +787,8 @@ struct Slot {
     /// frame
     range_layer: i64,
     range: (u32, u32),
+    /// empty instances after `range` a patch may grow into (left by a patch that grew it)
+    room: u32,
     clip: Rect,
     clip_radius: f32,
     painted: i64,
@@ -835,6 +837,7 @@ impl Slot {
             text: String::new(),
             range_layer: 0,
             range: (0, 0),
+            room: 0,
             clip: Rect::new(0.0, 0.0, 0.0, 0.0),
             clip_radius: 0.0,
             painted: -1,
@@ -968,35 +971,13 @@ impl Layer {
     }
 }
 
-/// Add `[a, b)` to sorted, disjoint `ranges`, merging what it touches.
-// ponytail: past 64 ranges the list collapses to its bounding range (the painter rewrites the span).
+/// Add `[a, b)` to sorted, disjoint `ranges` (`draw::add_range`).
 fn add_range(ranges: &mut Vec<(u32, u32)>, a: u32, b: u32) {
-    if a >= b {
-        return;
-    }
-    if let Some(last) = ranges.last_mut() {
-        if a >= last.0 && a <= last.1 {
-            last.1 = last.1.max(b);
-            return;
-        }
-    }
-    let at = ranges.partition_point(|r| r.1 < a);
-    let mut end = at;
-    let (mut lo, mut hi) = (a, b);
-    while end < ranges.len() && ranges[end].0 <= hi {
-        lo = lo.min(ranges[end].0);
-        hi = hi.max(ranges[end].1);
-        end += 1;
-    }
-    ranges.drain(at..end);
-    if ranges.len() >= 64 {
-        let (first, last) = (ranges[0].0.min(lo), ranges[ranges.len() - 1].1.max(hi));
-        ranges.clear();
-        ranges.push((first, last));
-    } else {
-        ranges.insert(at, (lo, hi));
-    }
+    crate::draw::add_range(ranges, a, b, DIRTY_RANGES);
 }
+
+/// Dirty ranges a layer keeps before the closest two merge.
+const DIRTY_RANGES: usize = 64;
 
 /// What the frame asks of the window system; the host applies it after the frame.
 #[derive(Default)]
@@ -1237,6 +1218,9 @@ pub struct Ui {
     temp_images: Vec<Image>,
     /// the text atlas's retirements and misses seen
     atlas_events: (u64, u64),
+    /// layer tails shifted by a growing patch, and layers compacted
+    shifts: u64,
+    compactions: u64,
     /// canvas closures and formatted labels of the frame being built
     arena: Arena,
     painting: bool,
@@ -1425,6 +1409,8 @@ impl Ui {
             temp_breaks: Vec::new(),
             temp_images: Vec::new(),
             atlas_events: (0, 0),
+            shifts: 0,
+            compactions: 0,
             arena: Arena::default(),
             painting: false,
             frame_requested: false,
@@ -1546,6 +1532,12 @@ impl Ui {
     /// virtual list saves.
     pub fn built_nodes(&self) -> usize {
         self.count
+    }
+
+    /// Layer tails shifted by a patch that grew past its node's room, and layers compacted, since
+    /// the `Ui` was made: both rewrite a layer from that point on.
+    pub fn layer_rewrites(&self) -> (u64, u64) {
+        (self.shifts, self.compactions)
     }
 
     /// Views (`Ui::view`) the last frame built rather than kept; the root is not counted.
@@ -5205,6 +5197,7 @@ impl Ui {
         }
         // scratch positions until `settle` places them
         s.range = (start, paint.layers[paint.layer].instances.len() as u32);
+        s.room = 0;
         s.clip = clip_rect;
         s.clip_radius = paint.clip_radius;
         s.painted = self.frame_number;
@@ -5451,8 +5444,14 @@ impl Ui {
         }
         self.damage = None;
         let mut target = std::mem::take(&mut self.draw[layer]);
-        if fresh.len() <= end - start {
-            // in place; a shorter patch leaves empty instances in the rest of the range
+        let room = self.slots[slot].room as usize;
+        if fresh.len() <= end - start + room {
+            // in place, growing into the room after it; a shorter patch leaves empty instances in the
+            // rest of the range
+            let grown = end.max(start + fresh.len());
+            let s = &mut self.slots[slot];
+            (s.range.1, s.room) = (grown as u32, (room - (grown - end)) as u32);
+            let end = grown;
             for k in start..end {
                 let new = fresh.get(k - start).copied().unwrap_or(EMPTY);
                 if target.instances[k] != new {
@@ -5464,8 +5463,9 @@ impl Ui {
                 }
             }
         } else {
-            // ponytail: a longer patch shifts the layer's tail and scans every view and node,
-            // O(instances + nodes); a node with slack of its own if growing patches get hot.
+            // past its room: the layer's tail shifts by the growth plus as much room again (one
+            // shift per doubling, so a node that keeps growing costs O(1) amortised per instance)
+            let (end, extra) = (end + room, fresh.len());
             for k in start..end {
                 let old = target.instances[k];
                 self.damage_instance(&old);
@@ -5473,8 +5473,9 @@ impl Ui {
             for new in fresh {
                 self.damage_instance(new);
             }
-            target.instances.splice(start..end, fresh.iter().copied());
-            let delta = (fresh.len() - (end - start)) as u32;
+            target.instances.splice(start..end, fresh.iter().copied().chain(std::iter::repeat_n(EMPTY, extra)));
+            let delta = (fresh.len() + extra - (end - start)) as u32;
+            self.shifts += 1;
             add_range(&mut target.dirty, start as u32, target.instances.len() as u32);
             for b in &mut target.breaks {
                 if b.at_instance as usize >= end {
@@ -5496,7 +5497,8 @@ impl Ui {
                     }
                 }
             }
-            self.slots[slot].range.1 = (start + fresh.len()) as u32;
+            let s = &mut self.slots[slot];
+            (s.range.1, s.room) = ((start + fresh.len()) as u32, extra as u32);
         }
         self.draw[layer] = target;
         self.patch_layers = scratch;
@@ -6850,6 +6852,7 @@ impl Ui {
     }
 
     fn compact_layer(&mut self, s: &mut Layer, d: &mut Layer, old_len: usize) {
+        self.compactions += 1;
         let mut out = std::mem::take(&mut self.compact);
         out.clear();
         self.moves.clear();
@@ -6865,7 +6868,7 @@ impl Ui {
                 s.pieces[k].at = out.len() as u32;
                 continue;
             }
-            out.resize(out.len() + SLACK, EMPTY);
+            out.resize(out.len() + SLACK.max((b - a) as usize / 8), EMPTY);
             let to = out.len() as u32;
             out.extend_from_slice(&d.instances[a as usize..b as usize]);
             s.pieces[k].at = to;
@@ -6890,8 +6893,7 @@ impl Ui {
     }
 
     /// A kept run `a..b` of layer `key` moved to `to`: the runs inside it and the ranges of nodes
-    /// painted into it follow.
-    // ponytail: scans every view and node, O(views + nodes), on compaction only.
+    /// painted into it follow. O(views + the moved views' nodes).
     fn move_runs(&mut self, key: i64) {
         // each by the one kept run that held it before any moved (a run nested in another moves with
         // it, once): the runs are in layer order and do not overlap
@@ -6900,17 +6902,19 @@ impl Ui {
             let k = moves.partition_point(|m| m.1 < b0);
             moves.get(k).filter(|&&(a, b, _)| a0 >= a && b0 <= b).map(|&(a, _, to)| (a0 - a + to, b0 - a + to))
         };
+        // a node painted into a kept run is one its view's last build declared
         for r in &mut self.views[1..] {
             if r.valid && r.built != self.painted && r.layer == key {
                 if let Some(run) = shift(r.run) {
                     r.run = run;
-                }
-            }
-        }
-        for s in &mut self.slots {
-            if s.key != 0 && s.painted != self.painted && s.range_layer == key {
-                if let Some(range) = shift(s.range) {
-                    s.range = range;
+                    for &slot in &r.nodes {
+                        let s = &mut self.slots[slot];
+                        if s.key != 0 && s.painted != self.painted && s.range_layer == key {
+                            if let Some(range) = shift(s.range) {
+                                s.range = range;
+                            }
+                        }
+                    }
                 }
             }
         }

@@ -403,11 +403,12 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
         ok(be::read_texture(&target, (W * SCALE * 4) as i64))
     };
     // (change, expected bytes written): frame 0 fills all three copies, the edit is replayed into the
-    // next two frames' copies, then the layer is quiet again.
-    let frames: [(Option<usize>, u64); 7] = [(None, 3 * count * 64), (None, 0), (Some(3), 64), (None, 64), (None, 64), (None, 0), (Some(7), 64)];
+    // next two frames' copies, then the layer is quiet again. Two far-apart edits copy only themselves
+    // (each copy keeps a list of ranges), not the span between them.
+    let frames: [(&[usize], u64); 11] = [(&[], 3 * count * 64), (&[], 0), (&[3], 64), (&[], 64), (&[], 64), (&[], 0), (&[7], 64), (&[], 64), (&[], 64), (&[1, 17], 128), (&[], 128)];
     for (frame, (change, expected)) in frames.into_iter().enumerate() {
-        if let Some(i) = change { instances[i] = Instance::rect([4.0 + frame as f32, 76.0, 12.0 + frame as f32, 90.0], [frame as u8 * 30, 90, 10, 255]).view(1); }
-        let dirty: Vec<(u32, u32)> = change.map(|i| (i as u32, i as u32 + 1)).into_iter().collect();
+        for &i in change { instances[i] = Instance::rect([4.0 + frame as f32, 76.0, 12.0 + frame as f32, 90.0], [frame as u8 * 20, 90, 10, 255]).view(1); }
+        let dirty: Vec<(u32, u32)> = change.iter().map(|&i| (i as u32, i as u32 + 1)).collect();
         painter.begin_frame();
         let mut allocations = 0;
         pass(&queue, &target, &mut |encoder| {

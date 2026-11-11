@@ -29,6 +29,41 @@ pub mod flags {
 }
 pub const NO_CLIP: [i16; 4] = [i16::MIN, i16::MIN, i16::MAX, i16::MAX];
 
+/// Adds `[a, b)` to `ranges`, a sorted list of disjoint instance ranges; overlapping and touching
+/// ranges merge. Past `cap` ranges the two with the smallest gap between them merge, so scattered
+/// edits stay a few small ranges, never one span over everything between them. O(ranges); no
+/// allocation once the list has held `cap + 1` ranges.
+pub fn add_range(ranges: &mut Vec<(u32, u32)>, a: u32, b: u32, cap: usize) {
+    if a >= b {
+        return;
+    }
+    if let Some(last) = ranges.last_mut() {
+        if a >= last.0 && a <= last.1 {
+            last.1 = last.1.max(b);
+            return;
+        }
+    }
+    let at = ranges.partition_point(|r| r.1 < a);
+    let mut end = at;
+    let (mut lo, mut hi) = (a, b);
+    while end < ranges.len() && ranges[end].0 <= hi {
+        lo = lo.min(ranges[end].0);
+        hi = hi.max(ranges[end].1);
+        end += 1;
+    }
+    if end > at {
+        ranges[at] = (lo, hi);
+        ranges.drain(at + 1..end);
+    } else {
+        ranges.insert(at, (lo, hi));
+    }
+    if ranges.len() > cap.max(1) {
+        let k = (0..ranges.len() - 1).min_by_key(|&k| ranges[k + 1].0 - ranges[k].1).unwrap_or(0);
+        ranges[k].1 = ranges[k + 1].1;
+        ranges.remove(k + 1);
+    }
+}
+
 /// One quad. Plain data: build with the constructors below or write the fields per the layout table.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]

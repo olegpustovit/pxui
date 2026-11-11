@@ -475,7 +475,13 @@ ui.frame(&FrameIn, &mut Text, |ui| ...) -> FrameOut
    Landed (P5 commit 2, engine): layers are retained (`Layer::id`, `Layer::dirty` gathered until
    `ui.drawn(i)`; hosts draw with `Painter::draw_retained`); fresh pieces are written in place, kept runs
    stay put, slack and compaction when they do not fit (a compaction moves each kept run and node range once,
-by the kept run that held it before any moved: a view nested in a moved one moves with it). `FrameOut::damage` is the union of changed
+by the kept run that held it before any moved: a view nested in a moved one moves with it; a
+moved view's nodes come from its own node list, O(views + moved nodes); the slack before a kept run
+is 32 instances or an eighth of the run). A patch that grows a node past its range writes into the
+room a previous growth left after it; past that room the layer's tail shifts once by the growth plus
+as much room again (amortised O(1) per grown instance, `Ui::layer_rewrites`). Dirty ranges stay a
+sorted list (64 in a layer, 16 per painter copy); past the cap the two closest merge
+(`draw::add_range`), so scattered edits copy themselves, not the span between them. `FrameOut::damage` is the union of changed
    instance bounds; `FrameOut::views` the table entries (`ViewEntry { offset, opacity, clip }`) that
    `view_offset`, `view_opacity`, `view_clip` change between frames without a rebuild (hit testing and
    `rect` follow; past 255 views the offset is baked by a rebuild). `ui.list(label, count, row_h, f)`

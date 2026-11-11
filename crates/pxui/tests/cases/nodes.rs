@@ -57,7 +57,17 @@ pub fn window_pxui_node_patch() {
     check(ui.output().draw[0].instances.len() == count, "an in-place patch changed the instance count");
     // a longer text shifts the later node's range; patching that node still hits its own instances
     check(ui.patch_text(&clock, "12:00:01"), "patch_text");
-    check(ui.output().draw[0].instances.len() == count + 3, "patch_text did not add the new glyphs");
+    let drawn = |ui: &Ui| ui.output().draw[0].instances.iter().filter(|i| **i != pxui::draw::Instance::DEFAULT).count();
+    check(drawn(&ui) == count + 3, "patch_text did not add the new glyphs");
+    // the growth left as much room again: the next growths are written in place, no tail shift
+    let shifts = ui.layer_rewrites().0;
+    check(shifts == 1, "a growing patch did not shift the tail once");
+    let len = ui.output().draw[0].instances.len();
+    for (k, t) in ["12:00:012", "12:00:0123", "12:00:01234"].iter().enumerate() {
+        check(ui.patch_text(&clock, t) && drawn(&ui) == count + 4 + k, "a growth into the room lost glyphs");
+    }
+    check(ui.layer_rewrites().0 == shifts && ui.output().draw[0].instances.len() == len, "a growth within the room shifted the layer");
+    check(ui.patch_text(&clock, "12:00:01"), "patch_text");
     let green = color::rgb(0, 160, 0);
     check(ui.patch_fill(&after, green) && has_color(&ui, green) && has_color(&ui, blue), "a shifted range missed its node");
     check(builds.get() == built && ui.draw_revision() > revision, "a patch ran the build or kept the revision");

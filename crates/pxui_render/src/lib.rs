@@ -196,13 +196,17 @@ struct Retained {
     /// Bytes between copies (256-aligned, so a copy can be bound at an offset).
     stride: usize,
     len: usize,
-    /// Per copy: the one `[start, end)` range of instances that differs from the layer's current content.
-    pending: [Option<(u32, u32)>; FRAMES],
+    /// Per copy: the `[start, end)` ranges of instances that differ from the layer's current content
+    /// (`PENDING_RANGES` at most, the closest merged past that).
+    pending: [Vec<(u32, u32)>; FRAMES],
 }
 
-fn union(a: Option<(u32, u32)>, b: (u32, u32)) -> Option<(u32, u32)> {
-    if b.0 >= b.1 { return a; }
-    Some(a.map_or(b, |a| (a.0.min(b.0), a.1.max(b.1))))
+/// Ranges a copy keeps pending before the closest two merge: a few far-apart edits each frame copy
+/// only themselves.
+const PENDING_RANGES: usize = 16;
+
+fn pending() -> [Vec<(u32, u32)>; FRAMES] {
+    std::array::from_fn(|_| Vec::with_capacity(PENDING_RANGES + 1))
 }
 
 fn instance_bytes(instances: &[Instance]) -> &[u8] {
@@ -518,8 +522,6 @@ impl Painter {
     /// A fresh or grown allocation is not yet in flight: all copies are filled at once and the old buffer is
     /// retired until its frames finish. Each segment after a [`Break`] gets its own globals record in the
     /// ring because storage bindings need 256-byte offsets (see [`Painter::retained_bytes`]).
-    // ponytail: one bounding range per copy (scattered edits rewrite the span between them); a range list
-    // per copy if a layer is edited in two far-apart places every frame.
     pub fn draw_retained(&mut self, pass: &RenderEncoder, size_px: [u32; 2], scale: f32, layer: u32, instances: &[Instance], dirty: &[(u32, u32)], breaks: &[Break]) -> Result<(), Error> {
         self.draw_retained_split(pass, size_px, scale, layer, instances, dirty, breaks, &[], &mut |_, _| Ok(None))
     }
@@ -555,7 +557,7 @@ impl Painter {
             let descriptor = BufferDescriptor { label: Some("pxui_render.retained".into()), size: (stride * FRAMES) as i64, usage: vec![BufferUsage::Storage] };
             let buffer = backend::create_host_buffer(&self.device, descriptor)?;
             let ptr = backend::host_ptr(&buffer)?.0.as_ptr();
-            if let Some(old) = self.layers[layer].replace(Retained { buffer, ptr, cap, stride, len: 0, pending: [None; FRAMES] }) { self.retired.push((old.buffer, FRAMES)); }
+            if let Some(old) = self.layers[layer].replace(Retained { buffer, ptr, cap, stride, len: 0, pending: pending() }) { self.retired.push((old.buffer, FRAMES)); }
         }
         let Some(store) = self.layers[layer].as_mut() else { return Ok(()) };
         let copy = self.region;
@@ -569,15 +571,19 @@ impl Painter {
             self.retained_bytes += (len * 64 * FRAMES) as u64;
         } else {
             let all = [(0, len as u32)];
-            for d in if changed { &all[..] } else { dirty } { for p in &mut store.pending { *p = union(*p, *d); } }
-            // (a range pending from a longer layer ends at the layer now)
-            if let Some((lo, hi)) = store.pending[copy].take().map(|(lo, hi)| (lo, hi.min(len as u32))).filter(|(lo, hi)| lo < hi) {
+            for d in if changed { &all[..] } else { dirty } { for p in &mut store.pending { pxui::draw::add_range(p, d.0, d.1, PENDING_RANGES); } }
+            for k in 0..store.pending[copy].len() {
+                // (a range pending from a longer layer ends at the layer now)
+                let (lo, hi) = store.pending[copy][k];
+                let hi = hi.min(len as u32);
+                if lo >= hi { continue; }
                 let (at, src) = (store.stride * copy + lo as usize * 64, &instance_bytes(instances)[lo as usize * 64..hi as usize * 64]);
                 // SAFETY: `hi <= len <= cap` (a checked slice of the instances), so the range lies inside copy `copy`.
                 unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), store.ptr.add(at), src.len()) }
                 backend::flush_host_range(&store.buffer, at as i64, src.len())?;
                 self.retained_bytes += src.len() as u64;
             }
+            store.pending[copy].clear();
         }
         store.len = len;
         if len == 0 { return Ok(()); }

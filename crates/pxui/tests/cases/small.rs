@@ -416,7 +416,18 @@ pub fn window_pxui_typography() {
     ui.destroy();
 }
 
+/// Dirty ranges stay sorted and disjoint; past the cap the closest two merge, never all of them.
+fn dirty_ranges_merge_closest() {
+    let mut r = Vec::new();
+    for (a, b) in [(10, 11), (0, 1), (11, 12), (100, 101), (50, 51), (1000, 1001), (52, 53)] {
+        pxui::draw::add_range(&mut r, a, b, 4);
+    }
+    // (11, 12) touches (10, 11); past four ranges the closest pair merges: (0, 1) with (10, 12), then 50 with 52
+    assert_eq!(r, [(0, 12), (50, 53), (100, 101), (1000, 1001)]);
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("dirty_ranges_merge_closest", dirty_ranges_merge_closest),
     ("window_pxui_typography", window_pxui_typography),
     ("window_pxui_table", window_pxui_table),
     ("window_pxui_keyboard", window_pxui_keyboard),
