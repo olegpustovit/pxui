@@ -1230,6 +1230,9 @@ pub struct Ui {
     /// layout found kept output stale: `frame` builds again (`settle`), with this quiet input
     settle: bool,
     quiet: Option<rframe::Frame>,
+    /// sizes a build read before layout (slot, width, height; NaN: not read): layout disagreeing
+    /// settles the frame
+    expected: std::cell::Cell<Vec<(usize, f32, f32)>>,
     /// `grow_line`'s pass stamp (`BoxRec::frozen`)
     grow_pass: u32,
     /// the text atlas's retirements and misses seen
@@ -1429,6 +1432,7 @@ impl Ui {
             grow_pass: 0,
             settle: false,
             quiet: None,
+            expected: std::cell::Cell::new(Vec::new()),
             a11y_copied: false,
             grid_rows: std::cell::Cell::new(Vec::new()),
             shifts: 0,
@@ -3235,6 +3239,14 @@ impl Ui {
     }
 
     /// The box's screen rectangle from the previous frame (empty for a stale handle).
+    /// The build read slot `slot`'s size as `w` x `h` (NaN: that side not read) before layout: if
+    /// layout lays it out otherwise, `Ui::frame` builds again.
+    pub(crate) fn expect(&self, slot: usize, w: f32, h: f32) {
+        let mut e = self.expected.take();
+        e.push((slot, w, h));
+        self.expected.set(e);
+    }
+
     pub fn rect(&self, b: &UiBox) -> Rect {
         if !self.live(b) {
             return Rect::new(0.0, 0.0, 0.0, 0.0);
@@ -5828,6 +5840,16 @@ impl Ui {
         self.phase(3);
         self.layout_time = self.phases[2] + self.phases[3];
         self.paint_all(frame);
+        // a size the build read before layout (last frame's) that layout changed: build again
+        let mut expected = self.expected.take();
+        for &(slot, w, h) in &expected {
+            let s = &self.slots[slot];
+            if s.key != 0 && ((!w.is_nan() && (s.rw - w).abs() > 0.01) || (!h.is_nan() && (s.rh - h).abs() > 0.01)) {
+                self.settle = true;
+            }
+        }
+        expected.clear();
+        self.expected.set(expected);
         self.phase(4);
         self.emit_a11y();
         self.phase(5);
@@ -6397,8 +6419,8 @@ impl Ui {
     /// and `OVERSCAN` more past each edge. `f(ui, i)` builds cell `i` inside a cell box keyed by `i`
     /// (its state stays while it is built); right to left the first cell is at the right. Returns the
     /// grid's scroll box.
-    // ponytail: cells of one size; the columns come from last frame's width (the window's on the
-    // first), so a resize shows one frame of the old wrap, as `list` does with its rows.
+    // Cells of one size; the columns come from last frame's width (the window's on the first): a
+    // width layout changes settles the frame (`Ui::frame` builds again), so no old wrap shows.
     pub fn grid_list(&mut self, label: &str, count: usize, cell_w: f32, cell_h: f32, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
         self.cells(label, count, (cell_w, cell_h), false, f)
     }
@@ -6417,6 +6439,7 @@ impl Ui {
         let body = self.node(label, Node { flags, w: Size::Grow, h: Size::Grow, scroll_step: along, role: Role::List, ..Node::DEFAULT });
         let seen = (self.slots[body.box_slot].rw, self.slots[body.box_slot].rh);
         let (w, h) = (if seen.0 > 0.0 { seen.0 } else { self.view_w }, if seen.1 > 0.0 { seen.1 } else { self.view_h });
+        self.expect(body.box_slot, w, h);
         let (room, room_across) = if sideways { (w, h) } else { (h, w) };
         let per = ((room_across / across).floor() as usize).max(1);
         let lines = count.div_ceil(per);

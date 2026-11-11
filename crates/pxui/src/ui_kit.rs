@@ -38,8 +38,8 @@ impl Ui {
     /// The width `b` (declared this frame) will be laid out at, from its ancestors' declarations:
     /// a `Px` width less the padding and margins down to it, through `Grow` widths across columns.
     /// Anything else (a share of a row, `Pct`, `Rel`, `Fit`) is known only after layout: last frame's.
-    // ponytail: a scroll gutter that appears with overflow is not taken off; a picker list in a
-    // scrolling panel cuts its labels 10 points late on the frame its scrollbar appears.
+    // Last frame's width when only layout knows it: a width layout changes (a scroll gutter that
+    // appears with overflow) settles the frame, so the picker's labels are cut right the same frame.
     pub(crate) fn width_of(&self, b: &UiBox) -> f32 {
         let mut index = b.index;
         let mut less = 0.0;
@@ -54,6 +54,7 @@ impl Ui {
             let p = self.node_at(index);
             less += n.margin.l + n.margin.r + p.padding.l + p.padding.r;
         }
+        self.expect(b.box_slot, self.slot_rw(b.box_slot), f32::NAN);
         self.rect(b).w
     }
 

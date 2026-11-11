@@ -354,6 +354,31 @@ pub fn layout_scroll_x_elastic() {
     }
 }
 
+/// A virtual grid whose width changes rewraps within the frame (the frame settles), not a frame late.
+pub fn layout_grid_list_resize_settles() {
+    let mut ui = new_ui(None);
+    let (width, third) = (std::cell::Cell::new(200.0f32), std::cell::Cell::new(None));
+    let build = |ui: &mut Ui| {
+        let col = ui.node("col", Node { w: Size::Px(width.get()), h: Size::Px(200.0), ..Node::DEFAULT });
+        ui.within(&col, &mut |ui| {
+            ui.grid_list("cells", 10, 50.0, 20.0, &mut |ui, i| {
+                let h = ui.node("c", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                if i == 2 {
+                    third.set(Some(h));
+                }
+            });
+        });
+    };
+    lay(&mut ui, 0.0, vec![], &mut |ui| { build(ui); vec![] });
+    lay(&mut ui, 0.1, vec![], &mut |ui| { build(ui); vec![] });
+    check(ui.rect(&third.get().unwrap()).y == 0.0, "four columns: the third cell is in the first row");
+    width.set(100.0);
+    lay(&mut ui, 0.2, vec![], &mut |ui| { build(ui); vec![] });
+    let r = ui.rect(&third.get().unwrap());
+    check(r.y == 20.0 && r.x == 0.0, &format!("two columns the same frame: the third cell at {r:?}"));
+    ui.destroy();
+}
+
 /// A virtual grid of 100,000 cells builds only the lines in view and the overscan, wrapping either
 /// way, mirrored right to left, and allocates nothing while it scrolls once warm.
 pub fn layout_grid_list() {
@@ -714,6 +739,7 @@ pub fn layout_scaling() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_grid_list_resize_settles", layout_grid_list_resize_settles),
     ("layout_grid_many_rows", layout_grid_many_rows),
     ("layout_grow_many_frozen", layout_grow_many_frozen),
     ("layout_stress_zero_alloc", layout_stress_zero_alloc),
