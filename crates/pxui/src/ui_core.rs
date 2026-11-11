@@ -1204,6 +1204,8 @@ pub struct Ui {
     patch_layers: Vec<Layer>,
     /// nodes of kept views patched while building: rewritten after the paint
     repatch: Vec<usize>,
+    /// the boxes a press is under (kept: a press allocates nothing)
+    press_chain: Vec<i64>,
     /// views by id (0: the root); free ids and painter table indices; the table index's view
     views: Vec<ViewRec>,
     free_views: Vec<u32>,
@@ -1397,6 +1399,7 @@ impl Ui {
             painted: -1,
             patch_layers: Vec::new(),
             repatch: Vec::new(),
+            press_chain: Vec::new(),
             views: vec![ViewRec::new()],
             free_views: Vec::new(),
             free_indices: (1..=255u16).rev().collect(),
@@ -2360,11 +2363,13 @@ impl Ui {
                         });
                         found.unwrap_or(owner)
                     };
-                    let mut chain = Vec::new();
+                    let mut chain = std::mem::take(&mut self.press_chain);
+                    chain.clear();
                     self.hit_ancestors(target, &mut |key| chain.push(key));
-                    for key in chain {
+                    for &key in &chain {
                         self.accumulator(key).subtree_press = Some(event_index as i64);
                     }
+                    self.press_chain = chain;
                     let flags = self.flags_of_key(target);
                     if *button == MouseButton::LeftButton {
                         // the nearest focusable box at or around the press takes the focus unless
@@ -5392,10 +5397,11 @@ impl Ui {
     fn repaint_node(&mut self, slot: usize) -> bool {
         if self.building {
             // the record holds the patch: a view built this frame paints it; a kept view's node is
-            // rewritten after the paint. Either view's next check (`verify_views`) is off.
+            // rewritten after the paint (whether it is on screen is known then: a view kept inside
+            // a view kept this frame is not yet). Either view's next check (`verify_views`) is off.
             let owner = self.slots[slot].owner as usize;
             self.views[owner].patched = true;
-            if self.range_valid(slot) && !self.repatch.contains(&slot) {
+            if !self.repatch.contains(&slot) {
                 self.repatch.push(slot);
             }
             return true;

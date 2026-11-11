@@ -68,6 +68,28 @@ pub fn window_pxui_node_patch() {
     ui.destroy();
 }
 
+/// A patch made while building, on a node of a view kept inside a kept view (no view rebuilds that
+/// frame), is written after the paint.
+pub fn window_pxui_node_patch_nested_kept() {
+    let mut ui = new_ui(None);
+    let (red, blue) = (color::rgb(200, 0, 0), color::rgb(0, 0, 200));
+    let handle = Cell::new(None);
+    let build = |ui: &mut Ui, patch: bool| {
+        ui.view("outer", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
+            ui.view("inner", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| handle.set(Some(chip(ui, "c", "x", red))));
+        });
+        if patch {
+            check(ui.patch_fill(&handle.get().unwrap(), blue), "patch_fill");
+        }
+    };
+    frame(&mut ui, 0.0, &mut |ui| build(ui, false));
+    frame(&mut ui, 0.1, &mut |ui| build(ui, false));
+    frame(&mut ui, 0.2, &mut |ui| build(ui, true));
+    check(ui.rebuilt_views() == 0, "a kept view rebuilt");
+    check(has_color(&ui, blue) && !has_color(&ui, red), "a patch made while building missed a node of a nested kept view");
+    ui.destroy();
+}
+
 thread_local! { static DROPS: Cell<usize> = const { Cell::new(0) }; }
 
 struct Counted(#[allow(dead_code)] u64);
@@ -167,6 +189,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_node_duplicate_keys", window_pxui_node_duplicate_keys),
     ("window_pxui_node_handles", window_pxui_node_handles),
     ("window_pxui_node_patch", window_pxui_node_patch),
+    ("window_pxui_node_patch_nested_kept", window_pxui_node_patch_nested_kept),
     ("window_pxui_arena_closures", window_pxui_arena_closures),
     ("window_pxui_arena_first_frame", window_pxui_arena_first_frame),
 ];
