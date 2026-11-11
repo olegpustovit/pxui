@@ -1149,6 +1149,7 @@ pub struct Ui {
     /// What the host last charged to its memory ledger for this UI; PXUI never reads it.
     pub charged: Bytes,
     pub(crate) text_rows_seen: Vec<(Option<usize>, String, Rc<Vec<(usize, usize, usize)>>)>,
+    pub(crate) text_panes: usize,
     pub(crate) text_colors_seen: Vec<(Tokens, String, Rc<Vec<(i64, i64, Color)>>)>,
     pub(crate) edit_redo: Vec<(String, usize, usize)>,
     pub(crate) edit_group: i64,
@@ -1353,6 +1354,7 @@ impl Ui {
             text_undo_held: 0,
             charged: Bytes::default(),
             text_rows_seen: Vec::new(),
+            text_panes: 8,
             text_colors_seen: Vec::new(),
             edit_redo: Vec::new(),
             edit_group: -1,

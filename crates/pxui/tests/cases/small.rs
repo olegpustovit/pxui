@@ -441,7 +441,22 @@ fn fuzzy_score_ranks() {
     check(fuzzy_score("ab", "xab_a").is_some(), "lookahead broke a match");
 }
 
+/// Text rows are kept least recently used first out, up to `set_text_panes`.
+fn text_rows_lru() {
+    let mut ui = new_ui(None);
+    ui.set_text_panes(2);
+    let texts = ["a\nb", "c\nd", "e\nf"];
+    let first = ui.text_rows(None, texts[0]);
+    ui.text_rows(None, texts[1]);
+    // reading the first again keeps it over the second when a third arrives
+    check(Rc::ptr_eq(&first, &ui.text_rows(None, texts[0])), "a kept text walked again");
+    ui.text_rows(None, texts[2]);
+    check(Rc::ptr_eq(&first, &ui.text_rows(None, texts[0])), "the most recently used text was dropped");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("text_rows_lru", text_rows_lru),
     ("fuzzy_score_ranks", fuzzy_score_ranks),
     ("dirty_ranges_merge_closest", dirty_ranges_merge_closest),
     ("window_pxui_typography", window_pxui_typography),

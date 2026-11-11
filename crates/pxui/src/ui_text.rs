@@ -1576,10 +1576,11 @@ impl Ui {
     /// The rows of a text: (start, stop, logical line) with `stop` exclusive and before the
     /// newline. Without `cols` a row is a line; with it a line continues every `cols` characters.
     /// An unchanged text costs no walk: the handle keeps the rows of the last few texts it laid
-    /// out. ponytail: 8 panes showing text; a ninth walks.
+    /// out, least recently used first out past `set_text_panes` (8 by default: the panes on screen).
     pub fn text_rows(&mut self, cols: Option<usize>, text: &str) -> Rows {
-        if let Some((_, _, rows)) = self.text_rows_seen.iter().find(|(c, t, _)| *c == cols && t == text) {
-            return rows.clone();
+        if let Some(k) = self.text_rows_seen.iter().position(|(c, t, _)| *c == cols && t == text) {
+            self.text_rows_seen[..=k].rotate_right(1);
+            return self.text_rows_seen[0].2.clone();
         }
         let n = text.len();
         let mut rows: Vec<(usize, usize, usize)> = Vec::new();
@@ -1619,8 +1620,16 @@ impl Ui {
         }
         let rows = Rc::new(rows);
         self.text_rows_seen.insert(0, (cols, text.to_owned(), rows.clone()));
-        self.text_rows_seen.truncate(8);
+        self.text_rows_seen.truncate(self.text_panes);
         rows
+    }
+
+    /// How many texts `text_rows` and `text_colors` keep (at least 1): the text panes a UI shows at
+    /// once. Each keeps a copy of its text.
+    pub fn set_text_panes(&mut self, n: usize) {
+        self.text_panes = n.max(1);
+        self.text_rows_seen.truncate(self.text_panes);
+        self.text_colors_seen.truncate(self.text_panes);
     }
 
     fn area_rows(&mut self, cfg: Wrap, text: &str) -> Rows {
@@ -1635,15 +1644,16 @@ impl Ui {
     }
 
     /// A language's colours for a text, kept like its rows: one list a pane on screen. A theme is
-    /// part of the colours. ponytail: 8 panes showing text; a ninth colours again.
+    /// part of the colours. Least recently used first out past `set_text_panes`.
     pub fn text_colors(&mut self, language: &Language, text: &str) -> Rc<Vec<(i64, i64, Color)>> {
         let theme = self.tokens();
-        if let Some((_, _, colors)) = self.text_colors_seen.iter().find(|(seen, known, _)| *seen == theme && known == text) {
-            return colors.clone();
+        if let Some(k) = self.text_colors_seen.iter().position(|(seen, known, _)| *seen == theme && known == text) {
+            self.text_colors_seen[..=k].rotate_right(1);
+            return self.text_colors_seen[0].2.clone();
         }
         let colors = Rc::new((language.colorize)(text));
         self.text_colors_seen.insert(0, (theme, text.to_owned(), colors.clone()));
-        self.text_colors_seen.truncate(8);
+        self.text_colors_seen.truncate(self.text_panes);
         colors
     }
 
