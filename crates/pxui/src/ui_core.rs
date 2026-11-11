@@ -3643,9 +3643,16 @@ impl Ui {
                     extent
                 }
                 None => {
+                    // a wrapping box's lines need its main size: declared, or for a size only layout
+                    // resolves (Grow, Pct, Rel) the one it was laid out at last (`rewrap` settles the
+                    // frame when that changed)
+                    let slot = self.boxes[index].slot;
+                    let last = (self.slots[slot].rw, self.slots[slot].rh);
                     let limit = match (n.wrap, n.axis == Axis::Row, n.w, n.h) {
                         (true, true, Size::Px(w), _) => w - n.padding.l - n.padding.r,
                         (true, false, _, Size::Px(h)) => h - n.padding.t - n.padding.b,
+                        (true, true, Size::Grow | Size::Pct(_) | Size::Rel(_), _) if last.0 > 0.0 => last.0 - n.padding.l - n.padding.r,
+                        (true, false, _, Size::Grow | Size::Pct(_) | Size::Rel(_)) if last.1 > 0.0 => last.1 - n.padding.t - n.padding.b,
                         _ => f32::INFINITY,
                     };
                     self.flow_extent(index, n, limit)
@@ -3719,9 +3726,9 @@ impl Ui {
     /// A wrapping `Fit` box whose main size its parent resolved (`Grow`, `Pct`, `Rel`, stretch):
     /// its lines measured again at that size give its cross size, before the parent places it.
     /// Called once per such child by its parent's pass, so layout stays O(nodes).
-    // ponytail: the parent's own Fit size and scroll extent (and a grid cell's row) were measured
-    // with one line; measure bottom-up again from the resolved width if a Fit column of wrapping
-    // Grow rows has to hug them.
+    /// The parent's own Fit size, scroll extent and grid row were measured with the lines at the
+    /// size it was laid out at last frame (one line the first time): a different cross size now
+    /// settles the frame (`Ui::frame` builds again and measures with this size).
     fn rewrap(&mut self, c: usize) {
         if !self.nd(c).wrap {
             return;
@@ -3735,6 +3742,11 @@ impl Ui {
         let pad = n.padding;
         let limit = if row { self.l_w[c] - pad.l - pad.r } else { self.l_h[c] - pad.t - pad.b };
         let (w, h) = self.flow_extent(c, &n, limit);
+        let measured = if row { self.l_h[c] } else { self.l_w[c] };
+        let now = if row { clamp(h + pad.t + pad.b, n.min_h, n.max_h) } else { clamp(w + pad.l + pad.r, n.min_w, n.max_w) };
+        if (now - measured).abs() > 0.01 {
+            self.settle = true;
+        }
         if row {
             self.l_content[c] = h + pad.t + pad.b;
             self.set_main(false, c, self.l_content[c]);

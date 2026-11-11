@@ -354,6 +354,30 @@ pub fn layout_scroll_x_elastic() {
     }
 }
 
+/// A `Fit` column holding a wrapping `Grow` row hugs all its lines from the first frame (the row's
+/// lines are measured at its resolved width; the frame settles when that changes).
+pub fn layout_fit_hugs_wrapped_row() {
+    let column = Node { w: Size::Px(100.0), h: Size::Fit, axis: Axis::Column, ..Node::DEFAULT };
+    let mut ui = new_ui(None);
+    let mut build = |ui: &mut Ui| {
+        let col = ui.node("col", column);
+        let inner = ui.enter(&col);
+        let row = ui.node("row", Node { w: Size::Grow, h: Size::Fit, axis: Axis::Row, wrap: true, ..Node::DEFAULT });
+        let saved = ui.enter(&row);
+        for k in 0..10 {
+            ui.node(&format!("b{k}"), px(40.0, 10.0));
+        }
+        ui.leave(saved);
+        ui.leave(inner);
+        vec![col, row]
+    };
+    let r = lay(&mut ui, 0.0, vec![], &mut build);
+    check(r[1].h == 50.0 && r[0].h == 50.0, &format!("five lines of two: row {:?}, column {:?}", r[1], r[0]));
+    let r = lay(&mut ui, 0.1, vec![], &mut build);
+    check(r[0].h == 50.0, "a second frame changed it");
+    ui.destroy();
+}
+
 /// A list of rows of three heights: every built row sits right under the one before it from the
 /// first frame (measured heights settle the frame); a warm frame allocates nothing.
 pub fn layout_list_measured() {
@@ -765,6 +789,7 @@ pub fn layout_scaling() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_fit_hugs_wrapped_row", layout_fit_hugs_wrapped_row),
     ("layout_list_measured", layout_list_measured),
     ("layout_grid_list_resize_settles", layout_grid_list_resize_settles),
     ("layout_grid_many_rows", layout_grid_many_rows),
