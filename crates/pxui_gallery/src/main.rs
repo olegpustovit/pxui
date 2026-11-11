@@ -22,7 +22,7 @@ use ogpu_core::surface::{Configuration, Format, PresentMode};
 use pxui::ui::{Theme, Ui};
 use pxui_gallery::gpu::{self, fail, Gpu};
 use pxui_gallery::*;
-use std::time::{Instant, SystemTime};
+use std::time::Instant;
 
 const PRAGMASEVKA: &[u8] = include_bytes!("../../../assets/fonts/Pragmasevka-Regular.ttf");
 
@@ -134,9 +134,6 @@ fn env(name: &str) -> Option<String> {
     std::env::var(name).ok().filter(|v| !v.is_empty())
 }
 
-fn modified(path: &str) -> Option<SystemTime> {
-    std::fs::metadata(path).and_then(|m| m.modified()).ok()
-}
 
 /// The second theme from its file over the default; the default with the errors printed when it
 /// does not parse.
@@ -189,7 +186,7 @@ fn main() {
     let platform = if cfg!(target_os = "macos") { input::Platform::Apple } else { input::Platform::Other };
     let mut ui = Ui::create(platform, None, pxui::text::Text::new(&[PRAGMASEVKA]));
     let mut dusk = load_theme(&theme_path);
-    let mut stamp = modified(&theme_path);
+    let mut watch = pxui::theme::Watch::new(std::path::Path::new(&theme_path), 1.0);
     ui.set_theme(s.theme(&dusk));
     s.image = Some(gpu.image(100, 60, &gpu::test_card(100, 60)));
     let mut painter = gpu.painter(&mut ui);
@@ -206,7 +203,6 @@ fn main() {
     frame.input.buttons.reserve(4);
     let (mut frames, mut draws, mut settled) = (0u64, 0u64, 0u64);
     let mut drawn_revision = -1i64;
-    let mut next_poll = 0.0;
     let mut last = 0.0;
     let mut cost = Cost::default();
     let mut text = String::with_capacity(160);
@@ -220,18 +216,14 @@ fn main() {
         }
         let now = win.time();
         // the second theme's file, polled once a second; a changed modification time reloads it
-        if now >= next_poll || s.reload {
-            next_poll = now + 1.0;
-            let m = modified(&theme_path);
-            if m != stamp || s.reload {
-                (stamp, s.reload) = (m, false);
-                dusk = load_theme(&theme_path);
-                if s.dusk {
-                    s.host_dirty = true;
-                }
-                s.toast("Theme file reloaded");
-                force = true;
+        if watch.poll(now) || s.reload {
+            s.reload = false;
+            dusk = load_theme(&theme_path);
+            if s.dusk {
+                s.host_dirty = true;
             }
+            s.toast("Theme file reloaded");
+            force = true;
         }
         if s.host_dirty {
             ui.set_theme(s.theme(&dusk));
@@ -347,7 +339,7 @@ fn main() {
         }
         // nothing to do: sleep until input, the UI's repaint time (a toast's end), the theme poll
         // or the next animation step
-        let mut wake = ui.repaint_at().unwrap_or(f64::INFINITY).min(next_poll);
+        let mut wake = ui.repaint_at().unwrap_or(f64::INFINITY).min(watch.next_poll());
         if animating {
             wake = wake.min(now + 1.0 / 60.0);
         }

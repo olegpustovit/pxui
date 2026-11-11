@@ -920,7 +920,7 @@ impl Theme {
     /// or `PART.FIELD` for every state of a part. Values: colours `#rgb[a]`/`#rrggbb[aa]`, numbers,
     /// `true`/`false`, `none`, side names. Every unknown key and malformed or out-of-range value is
     /// reported with its line; nothing is applied then.
-    // ponytail: no file watcher; a host reloads by calling parse again when its file changes.
+    /// A host reloads a theme file by calling `parse` again when `Watch::poll` reports a change.
     pub fn parse(text: &str, base: &Theme) -> Result<Theme, Vec<ThemeError>> {
         let (tf, thf, lf) = (token_fields(), theme_fields(), look_fields());
         let mut errors = Vec::new();
@@ -1003,5 +1003,50 @@ impl Theme {
             }
         }
         out
+    }
+}
+
+/// A theme file watched the designed way: its modification time polled at most once per `period`
+/// seconds, driven by the host's wait (sleep until `next_poll`, as for `Ui::repaint_at`). No thread,
+/// no OS notification API, nothing between polls.
+pub struct Watch {
+    path: std::path::PathBuf,
+    stamp: Option<std::time::SystemTime>,
+    next: f64,
+    period: f64,
+}
+
+impl Watch {
+    /// Watches `path` (its current modification time is the baseline), polling every `period` s.
+    pub fn new(path: &std::path::Path, period: f64) -> Watch {
+        let mut w = Watch { path: path.to_path_buf(), stamp: None, next: 0.0, period };
+        w.stamp = w.modified();
+        w
+    }
+
+    fn modified(&self) -> Option<std::time::SystemTime> {
+        std::fs::metadata(&self.path).and_then(|m| m.modified()).ok()
+    }
+
+    /// At time `now` (seconds, the host's clock): whether the file changed (or appeared or went)
+    /// since the last poll that saw a change. Reads the file system only when a poll is due.
+    pub fn poll(&mut self, now: f64) -> bool {
+        if now < self.next {
+            return false;
+        }
+        self.next = now + self.period;
+        let stamp = self.modified();
+        let changed = stamp != self.stamp;
+        self.stamp = stamp;
+        changed
+    }
+
+    /// When the next poll is due: a host waiting for input wakes by then.
+    pub fn next_poll(&self) -> f64 {
+        self.next
+    }
+
+    pub fn path(&self) -> &std::path::Path {
+        &self.path
     }
 }

@@ -448,7 +448,23 @@ pub fn styling_images_and_icons() {
     ui.destroy();
 }
 
+/// `theme::Watch` reports a changed file once, reads nothing before its poll is due.
+fn styling_theme_watch() {
+    let dir = std::env::temp_dir().join(format!("pxui-watch-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let path = dir.join("t.theme");
+    std::fs::write(&path, "row_h = 24\n").unwrap();
+    let mut w = pxui::theme::Watch::new(&path, 1.0);
+    check(!w.poll(0.0) && w.next_poll() == 1.0, "an unchanged file reported a change");
+    let f = std::fs::File::options().write(true).open(&path).unwrap();
+    f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();
+    check(!w.poll(0.5), "a poll before it was due read the file");
+    check(w.poll(1.0) && !w.poll(2.0), "a change was missed or reported twice");
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("styling_theme_watch", styling_theme_watch),
     ("styling_view_transform_hits", styling_view_transform_hits),
     ("styling_backdrop_blur_record", styling_backdrop_blur_record),
     ("styling_images_and_icons", styling_images_and_icons),

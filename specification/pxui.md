@@ -650,6 +650,12 @@ needs a measurement that shows it.
   instance). Past that a view bakes its offset into layout and rebuilds when it moves (no opacity or
   clip of its own). The painter writes the table once per first-instance offset per frame (at most
   four copies), 64 bytes a view.
+- Canvas closures are stored in the frame arena at up to 64-byte alignment (a cache line: SIMD
+  values fit); a capture aligned to more is a compile error, never a runtime panic.
+- Theme files are watched by polling their modification time (`theme::Watch`, once a second in the
+  gallery) from the host's wait, which already sleeps until `Ui::repaint_at`: no thread and no OS
+  notification API (inotify, FSEvents, ReadDirectoryChangesW differ per platform and need a thread or
+  a run-loop source).
 
 **Crate fate.**
 
