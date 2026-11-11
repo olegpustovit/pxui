@@ -53,6 +53,25 @@ pub fn window_pxui_view_rebuilds_one() {
     ui.destroy();
 }
 
+/// A layer that shrinks before the host drew it keeps its dirty ranges inside its instances: the painter
+/// refuses a range past the layer's length (Rays' graph pane built six frames, shrinking, before one draw).
+pub fn window_pxui_shrunk_layer_clips_dirty() {
+    let mut ui = new_ui(None);
+    let (count, rev) = (Cell::new(6), Cell::new(1u64));
+    let mut build = |ui: &mut Ui| {
+        ui.view("a", rev.get(), Size::Px(100.0), Size::Px(200.0), &mut |ui| {
+            for i in 0..count.get() { chip(ui, &format!("c{i}"), RED, NO_FLAGS); }
+        });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    (count.set(1), rev.set(2));
+    ui.frame(&at(0.1, vec![]), &mut build);
+    for layer in &ui.output().draw {
+        check(layer.dirty.iter().all(|&(a, b)| a <= b && b as usize <= layer.instances.len()), &format!("dirty {:?} of a layer of {} instances", layer.dirty, layer.instances.len()));
+    }
+    ui.destroy();
+}
+
 /// A dirty parent rebuilds; the clean view inside it is still kept.
 pub fn window_pxui_view_nested() {
     let mut ui = new_ui(None);
@@ -679,6 +698,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_budget_cached_per_view", window_pxui_budget_cached_per_view),
     ("window_pxui_budget_zero_alloc", window_pxui_budget_zero_alloc),
     ("window_pxui_view_rebuilds_one", window_pxui_view_rebuilds_one),
+    ("window_pxui_shrunk_layer_clips_dirty", window_pxui_shrunk_layer_clips_dirty),
     ("window_pxui_view_nested", window_pxui_view_nested),
     ("window_pxui_view_fit", window_pxui_view_fit),
     ("window_pxui_view_input", window_pxui_view_input),
