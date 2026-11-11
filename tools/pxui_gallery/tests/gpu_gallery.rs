@@ -1,7 +1,7 @@
 //! Gallery goldens and its idle budget, using the same public PXUI surface as the window app.
-#[path = "../../../crates/private/pxui_render/tests/png.rs"]
+#[path = "../../t/png.rs"]
 mod png;
-#[path = "../../../crates/private/pxui_core/tests/cases/run.rs"]
+#[path = "../../t/run.rs"]
 mod run;
 
 use pxui::{Renderer, Ui};
@@ -11,7 +11,7 @@ use pxui_types::{Event, Str, Size, ffi::{Input, Slice, ThemeSource}};
 use std::time::Instant;
 
 const DEPARTURE_MONO: &[u8] = include_bytes!("../../../assets/fonts/DepartureMono-Regular.otf");
-const DUSK: &str = include_str!("../../../crates/private/pxui_core/themes/dusk.theme");
+const DUSK: &str = include_str!("../../../assets/themes/dusk.theme");
 
 fn theme(source: &str) -> ThemeSource {
     ThemeSource { size: core::mem::size_of::<ThemeSource>() as u32, flags: 0, source: Str { ptr: source.as_ptr(), len: source.len() } }
@@ -37,7 +37,7 @@ fn panel(theme: &pxui_types::theme::ThemeSnapshot) -> [u8; 4] {
 
 /// Build one page twice to warm its retained view, then render it through the public renderer.
 fn shoot(gpu: &mut Gpu, theme: &ThemeSource, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
-    let mut ui = Ui::new_with_fonts(1, 0, &[DEPARTURE_MONO]).expect("PXUI ABI");
+    let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
     ui.set_theme(theme).unwrap_or_else(|code| panic!("theme failed ({code}): {}", ui.last_error()));
     ui.set_dir(rtl);
     let events = [pointer_event()];
@@ -46,7 +46,7 @@ fn shoot(gpu: &mut Gpu, theme: &ThemeSource, rtl: bool, size: (i64, i64), densit
         ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", 1, Size::Grow, Size::Grow, &mut *build); }).expect("frame");
     }
     let clear = ground.unwrap_or_else(|| panel(&ui.theme()));
-    let mut renderer: Renderer<'_> = gpu.renderer(&mut ui).expect("PXUI renderer");
+    let mut renderer: Renderer = gpu.renderer(&ui).expect("PXUI renderer");
     let pixels = gpu.render(&mut renderer, (size.0 as u32, size.1 as u32), density as u32, clear);
     drop(renderer);
     pixels
@@ -58,7 +58,7 @@ fn abi_baseline_pages() {
     let theme = theme("");
     for (index, name) in PAGES.iter().enumerate() {
         let mut state = Gallery::new();
-        let mut ui = Ui::new_with_fonts(1, 0, &[DEPARTURE_MONO]).expect("PXUI ABI");
+        let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
         ui.set_theme(&theme).expect("default theme");
         let (mut times, mut allocations) = (Vec::with_capacity(1000), Vec::with_capacity(1000));
         for count in 0..1010 {
@@ -123,7 +123,7 @@ fn abi_kit_panel() {
     for density in [1, 2] {
         let mut s = Gallery::new();
         let pixels = shoot(&mut gpu, &theme, false, (320, 300), density, Some([228, 139, 161, 255]), &mut |ui| kit_page(ui, &mut s));
-        let path = format!("{}/../../crates/private/pxui_core/fixtures/kit_panel_{density}x.png", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/../../fixtures/pxui_core/kit_panel_{density}x.png", env!("CARGO_MANIFEST_DIR"));
         let worst = compare(&path, (320, 300), density, &pixels, false);
         let limit = if cfg!(target_os = "macos") { 0 } else { 2 };
         assert!(worst <= limit, "the kit page at {density}x differs from kit_panel_{density}x.png by {worst}");

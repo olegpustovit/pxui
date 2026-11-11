@@ -226,7 +226,7 @@ Kit rows: 12 points at each side, a label column of 112 points (half of a narrow
 the control at `y + 2`, `row_height - 4` tall; a switch sits at the right edge; text sits at
 `y + max 4 ((row_height - font_size - 3) / 2)`. pxui's `gpu_pxui_parity` target
 renders the kit widgets headless (no SDL, no window: `pxui_render`'s painter into an offscreen
-texture) at 1x and 2x and compares them with `crates/private/pxui_core/fixtures/kit_*_{1,2}x.png` pixel for
+texture) at 1x and 2x and compares them with `fixtures/pxui_core/kit_*_{1,2}x.png` pixel for
 pixel; the goldens are rendered with
 DepartureMono (the test loads it as font 0) and are regenerated deliberately, by running the
 target with `RAYS_UPDATE_FIXTURES=1`.
@@ -521,7 +521,7 @@ path, and `ui.animate_keys(handle, &[(t, Target, Curve)])` runs up to `MAX_KEYS`
 segment on its own curve (a Bezier's duration is the segment's), in reused fixed records (no
 allocation once warm). A theme is a flat `key = value` file (`Theme::parse(text, &base) -> Result<Theme,
 Vec<ThemeError>>`, `Theme::write`): `tokens.*` keys re-derive the looks, then `PART.STATE.FIELD` or
-`PART.FIELD` keys override them; `crates/private/pxui_core/themes/rays.theme` is the default written out and
+`PART.FIELD` keys override them; `assets/themes/rays.theme` is the default written out and
 `dusk.theme` a second theme (golden `kit_dusk_{1,2}x.png`). Views also take `view_transform` /
 `view_scale` (hit testing through the inverse; nested views inherit the transforms around them, composed
 into their table entries as offset, opacity and clip are, and `rect`, hit testing and damage go through

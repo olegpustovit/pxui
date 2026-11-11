@@ -9,7 +9,7 @@ use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::types::{Extent, Origin, TextureDescriptor, TextureFormat, TextureUsage};
 use pxui_core::draw::{fit, nine_slice, Fit};
 use pxui_render::{flags, ramp, AtlasKind, Break, Instance, Painter, View};
-#[path = "png.rs"]
+#[path = "../../../../tools/t/png.rs"]
 mod png;
 
 const W: u32 = 128;
@@ -725,7 +725,7 @@ fn nine_slice_corners_stay_and_centre_stretches() {
 /// a staged atlas upload in each frame).
 fn shared_ui(caption: &str) -> pxui::Ui {
     const GOLDEN_FONT: &[u8] = include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf");
-    let mut ui = pxui::Ui::new_with_fonts(1, 0, &[GOLDEN_FONT]).expect("PXUI ABI v1");
+    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[GOLDEN_FONT]);
     shared_frame_ui(&mut ui, caption);
     ui
 }
@@ -733,7 +733,7 @@ fn shared_ui(caption: &str) -> pxui::Ui {
 fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32,
         width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
-    ui.frame(&input, |ui| ui.panel("panel", |ui| {
+    ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel(pxui_types::ui::PanelOpts::default(), "panel", &mut |ui: &mut pxui::Ui| {
         ui.label("PXUI");
         ui.toggle("Animate", true);
         ui.toggle("Wire", false);
@@ -743,7 +743,7 @@ fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
 }
 
 /// A renderer adopting `device` through one native lease, as an app hands its GPU to libpxui.
-fn shared_renderer<'ui>(device: &Device, ui: &'ui mut pxui::Ui) -> pxui::Renderer<'ui> {
+fn shared_renderer(device: &Device, ui: &pxui::Ui) -> pxui::Renderer {
     let native = ok(be::native_leased(device));
     let gpu = pxui_types::Gpu { size: native.size, backend: native.backend, instance: native.instance,
         physical_device: native.physical_device, device: native.device, queue: native.queue,
@@ -763,7 +763,7 @@ fn public_commands(commands: &be::Commands) -> pxui_types::Commands {
 
 /// One app frame: PXUI prepares into the app's command buffer, draws into the app's pass, the app forgets
 /// its cached pass state, ends the pass, submits once and waits.
-fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Renderer<'_>, frame: u64, completed: u64) {
+fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Renderer, frame: u64, completed: u64) {
     let commands = ok(be::begin_commands(queue));
     renderer.prepare(&public_commands(&commands), frame, completed).expect("prepare shared frame");
     let clear = (228.0 / 255.0, 139.0 / 255.0, 161.0 / 255.0, 1.0);
@@ -774,7 +774,7 @@ fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Render
     let public_pass = pxui_types::Pass { size: std::mem::size_of::<pxui_types::Pass>() as u32,
         vk_command_buffer: native_pass.vk_command_buffer, mtl_render_encoder: native_pass.mtl_render_encoder,
         width_px: native_pass.width_px, height_px: native_pass.height_px, scale: 2.0, // the app's density; a pass does not know it
-        mtl_command_buffer: public_commands(&commands).mtl_command_buffer };
+        mtl_command_buffer: public_commands(&commands).mtl_command_buffer, ..pxui_types::Pass::default() };
     renderer.draw(&public_pass).expect("draw into app pass");
     ok(be::invalidate_state(&encoder));
     ok(be::end_render(&encoder));
@@ -795,7 +795,7 @@ fn shared_panel(owner_first: bool) -> Option<(Vec<u8>, u64)> {
     shared_app_frame(&queue, &target, &mut renderer, 1, 0);
     let submits = be::submits() - submits;
     let pixels = ok(be::read_texture(&target, 640 * 4));
-    shared_frame_ui(renderer.ui(), "Shared device");
+    shared_frame_ui(&mut ui, "Shared device");
     shared_app_frame(&queue, &target, &mut renderer, 2, 1);
 
     ok(be::destroy_texture(&target));
@@ -813,7 +813,7 @@ fn shared_panel(owner_first: bool) -> Option<(Vec<u8>, u64)> {
 
 fn shared_device_matches_kit_panel() {
     let Some((pixels, _)) = shared_panel(false) else { return };
-    let golden = format!("{}/../pxui_core/fixtures/kit_panel_2x.png", env!("CARGO_MANIFEST_DIR"));
+    let golden = format!("{}/../../../fixtures/pxui_core/kit_panel_2x.png", env!("CARGO_MANIFEST_DIR"));
     let (w, h, expected) = png::decode(&std::fs::read(&golden).expect("kit panel golden"));
     assert_eq!((w, h), (640, 600));
     assert_eq!(pixels.len(), expected.len());

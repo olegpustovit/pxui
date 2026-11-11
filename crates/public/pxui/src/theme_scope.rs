@@ -11,7 +11,7 @@ library!(lib {
     fn pxui_theme_set(theme: *mut PxuiTheme, key: Str, value: Str) -> i32;
     fn pxui_theme_load(theme: *mut PxuiTheme, path: Str) -> i32;
     fn pxui_theme_last_error(theme: *const PxuiTheme) -> Str;
-    fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, build: Option<extern "C" fn(*mut c_void, *mut PxuiUi)>, user: *mut c_void) -> i32;
+    fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
 });
 
 /// A theme owned by the library. `set` and `load` apply over what the theme holds, as a theme file applies over its base: a
@@ -40,7 +40,7 @@ impl Drop for Theme { fn drop(&mut self) { unsafe { lib::pxui_theme_destroy(self
 impl Ui {
     /// Builds `f`'s subtree under `theme`; the `Ui`'s own theme is back afterwards.
     #[track_caller]
-    pub fn themed<F: FnMut(&mut Ui)>(&mut self, theme: &Theme, mut f: F) {
-        check(self, unsafe { lib::pxui_ui_themed(self.0.as_ptr(), theme.0.as_ptr(), Some(call::<F>), &mut f as *mut F as *mut c_void) })
+    pub fn themed(&mut self, theme: &Theme, mut f: &mut dyn FnMut(&mut Ui)) {
+        check(self, unsafe { lib::pxui_ui_themed(self.0.as_ptr(), theme.0.as_ptr(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
     }
 }

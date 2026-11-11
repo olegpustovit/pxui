@@ -11,8 +11,8 @@ fn run(ui: *mut PxuiUi, build: Build, user: *mut c_void) -> i32 {
     let mut out = FrameOut::default();
     unsafe { pxui_frame(ui, &frame_in(), build, user, &mut out) }
 }
-extern "C" fn nothing(_: *mut c_void, _: *mut PxuiUi) {}
-extern "C" fn count(user: *mut c_void, _: *mut PxuiUi) { unsafe { *user.cast::<u32>() += 1; } }
+extern "C" fn nothing(_: *mut c_void, _: *mut c_void) {}
+extern "C" fn count(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
 
 #[test]
 fn an_engine_panic_through_an_export_returns_the_error_and_poisons_the_ui() {
@@ -51,7 +51,8 @@ fn a_poisoned_ui_can_still_be_read_and_destroyed() {
 
 #[test]
 fn a_panic_inside_a_frame_fails_the_rest_of_the_frame_and_the_frame_itself() {
-    extern "C" fn poison(_: *mut c_void, ui: *mut PxuiUi) {
+    extern "C" fn poison(_: *mut c_void, ui: *mut c_void) {
+        let ui = ui.cast::<PxuiUi>();
         unsafe { panicked((*ui).shared, Box::new("mid-frame"), false); }
         assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, PXUI_ERR_PANIC);
     }
@@ -63,7 +64,8 @@ fn a_panic_inside_a_frame_fails_the_rest_of_the_frame_and_the_frame_itself() {
 
 #[test]
 fn a_callback_cannot_start_a_frame_replace_the_theme_or_free_the_ui() {
-    extern "C" fn reenter(user: *mut c_void, borrowed: *mut PxuiUi) {
+    extern "C" fn reenter(user: *mut c_void, borrowed: *mut c_void) {
+        let borrowed = borrowed.cast::<PxuiUi>();
         let owner = user.cast::<PxuiUi>();
         let mut out = FrameOut::default();
         let theme = ThemeSource::default();
@@ -116,10 +118,11 @@ fn default_descriptors_carry_their_size() {
 
 #[test]
 fn text_with_nul_crosses_as_ordinary_text() {
-    extern "C" fn build(user: *mut c_void, ui: *mut PxuiUi) {
+    extern "C" fn build(user: *mut c_void, ui: *mut c_void) {
+        let ui = ui.cast::<PxuiUi>();
         let query = Str { ptr: b"a\0b".as_ptr(), len: 3 };
         let (mut returned, mut tag, mut index) = (Str::default(), 0u32, 0i64);
-        let rc = unsafe { pxui_ui_picker(ui, 5, 0, 0, Str { ptr: b"pick".as_ptr(), len: 4 }, query, None, core::ptr::null_mut(), &mut returned, &mut tag, &mut index) };
+        let rc = unsafe { pxui_ui_picker(ui, 5, 0, 0, Str { ptr: b"pick".as_ptr(), len: 4 }, query, None, None, None, core::ptr::null_mut(), &mut returned, &mut tag, &mut index) };
         assert_eq!(rc, 0, "{}", error(ui));
         assert_eq!(unsafe { core::slice::from_raw_parts(returned.ptr, returned.len) }, b"a\0b");
         unsafe { *user.cast::<u32>() += 1; }

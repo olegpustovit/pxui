@@ -65,7 +65,14 @@ impl Backing {
 }
 
 /// A text shaper of its own, owned by the library; `key` names a layout in its cache.
+///
+/// A shaper may move to another thread (a worker owns its own), but it is not `Sync`: one thread at a time uses one shaper, and its
+/// calls never overlap (the library keeps no thread-local state for it). It shares nothing with the `Ui`'s text service.
 pub struct Text(NonNull<PxuiShaper>);
+
+// SAFETY: a shaper is a plain object of the library (its own font system and caches, no thread-local state, no pointer into the
+// caller), so moving it between threads is fine as long as one thread uses it at a time, which `&mut self` and no `Sync` guarantee.
+unsafe impl Send for Text {}
 
 impl Text {
     pub fn new(fonts: &[&[u8]]) -> Option<Self> {

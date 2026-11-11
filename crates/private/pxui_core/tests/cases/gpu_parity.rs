@@ -11,7 +11,7 @@ const WIDTH: i64 = 320;
 const DENSITIES: [i64; 2] = [1, 2];
 
 fn golden_path(name: &str) -> String {
-    format!("{}/fixtures/{}", env!("CARGO_MANIFEST_DIR"), name)
+    format!("{}/../../../fixtures/pxui_core/{}", env!("CARGO_MANIFEST_DIR"), name)
 }
 
 fn frame_at(count: i64, height: i64, density: i64) -> frame::Frame {
@@ -70,7 +70,7 @@ fn check(name: &str, golden: &str, density: i64, height: i64, pixels: &[u8]) {
 
 /// The second theme, from its file alone.
 fn dusk() -> Theme {
-    Theme::parse(include_str!("../../themes/dusk.theme"), &Theme::default()).expect("dusk.theme")
+    Theme::parse(include_str!("../../../../../assets/themes/dusk.theme"), &Theme::default()).expect("dusk.theme")
 }
 
 /// The kit panel under the dusk theme.

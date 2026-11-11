@@ -40,7 +40,6 @@ pxui_sdl = { path = "../../crates/open/pxui_sdl" }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 ogpu_vulkan = { path = "../../crates/open/ogpu_vulkan" }
-pxui_atspi = { path = "../../crates/private/pxui_atspi" }
 pxui_wayland = { path = "../../crates/open/pxui_wayland" }
 
 # Headless: the pages rendered offscreen into goldens; the idle case runs the app hidden.

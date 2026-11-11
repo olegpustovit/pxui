@@ -10,7 +10,7 @@ use crate::theme;
 const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
 use crate::ui_core::*;
 use crate::ui_kit::*;
-pub use pxui_types::ui::{ValueFieldOpts, TextEdit, LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
+pub use pxui_types::ui::{Language, ScrubPhase, TextAreaOpts, PickerOpts, MenuOpts, Submenu, ValueFieldOpts, TextEdit, LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
 use input::{Event, Key, MouseButton};
 use crate::geom::{color, Rgba as Color};
 use std::rc::Rc;
@@ -917,88 +917,6 @@ pub fn context_clicked(signal: &Signal) -> bool {
 
 // ------------------------------------------------------------------ text area
 
-/// What a code editor knows about its text. A host supplies one (the editor's Lisp); the text area
-/// itself is language-free. Byte positions are byte offsets into the text.
-#[derive(Clone)]
-pub struct Language {
-    /// sorted, non-overlapping byte spans and their colour; the rest is the foreground
-    pub colorize: Rc<dyn Fn(&str) -> Vec<(i64, i64, Color)>>,
-    /// the matched bracket pairs as (open, close) byte positions: the pair at the caret is lit
-    pub brackets: Rc<dyn Fn(&str) -> Vec<(i64, i64)>>,
-    /// `indent text caret`: the indentation Enter puts after the line break at `caret`
-    pub indent: Rc<dyn Fn(&str, i64) -> String>,
-    /// brackets typed in pairs: the opener wraps the selection or inserts both, the closer typed
-    /// before itself steps over it, Backspace between an empty pair takes both
-    pub pairs: Vec<(char, char)>,
-    /// `complete text caret`: the ranked suggestions for the token ending at `caret`, best first
-    pub complete: Rc<dyn Fn(&str, i64) -> Vec<Completion>>,
-    /// `describe text byte`: the token at `byte` and its description, shown as a tooltip
-    pub describe: Rc<dyn Fn(&str, i64) -> Option<(i64, i64, String)>>,
-    /// `number_at text byte`: the numeric literal at `byte`; dragging it sideways changes the value
-    pub number_at: Rc<dyn Fn(&str, i64) -> Option<(i64, i64)>>,
-    /// `context_at text caret`: what a character typed at `caret` lands in
-    pub context_at: Rc<dyn Fn(&str, i64) -> CodeContext>,
-    /// what starts a line comment: Command-/ comments or uncomments the lines the selection touches
-    pub comment: String,
-    /// `rewrite text caret`, run after every frame that edited the text: the text as the language
-    /// keeps it and where `caret` lands in it
-    pub rewrite: Option<Rc<dyn Fn(&str, i64) -> (String, i64)>>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ScrubPhase {
-    Live,
-    Done,
-}
-
-/// Options of `text_area_submit` (see there).
-#[derive(Clone)]
-pub struct TextAreaOpts {
-    pub wrap: bool,
-    pub errors: Vec<i64>,
-    pub messages: Vec<(i64, Option<(i64, i64)>, String)>,
-    pub spans: Vec<(i64, i64)>,
-    pub reveal: Option<i64>,
-    pub reveal_nonce: i64,
-    pub select: Option<(i64, i64)>,
-    pub splice: Vec<(i64, i64, String)>,
-    pub language: Option<Language>,
-    pub on_context: Option<Rc<dyn Fn((f32, f32))>>,
-    pub on_scrub: Option<Rc<dyn Fn(ScrubPhase)>>,
-    pub on_scrub_edit: Option<Rc<dyn Fn((i64, i64), &str)>>,
-    pub on_click: Option<Rc<dyn Fn(i64, bool)>>,
-    pub on_caret: Option<Rc<dyn Fn(i64)>>,
-    pub on_caret_move: Option<Rc<dyn Fn(i64)>>,
-    pub on_select: Option<Rc<dyn Fn((i64, i64))>>,
-    pub on_drop: Option<Rc<dyn Fn(i64, Drop)>>,
-    pub chips: Vec<(i64, i64, Color)>,
-}
-
-impl Default for TextAreaOpts {
-    fn default() -> TextAreaOpts {
-        TextAreaOpts {
-            wrap: false,
-            errors: Vec::new(),
-            messages: Vec::new(),
-            spans: Vec::new(),
-            reveal: None,
-            reveal_nonce: 0,
-            select: None,
-            splice: Vec::new(),
-            language: None,
-            on_context: None,
-            on_scrub: None,
-            on_scrub_edit: None,
-            on_click: None,
-            on_caret: None,
-            on_caret_move: None,
-            on_select: None,
-            on_drop: None,
-            chips: Vec::new(),
-        }
-    }
-}
-
 type Rows = Rc<Vec<(usize, usize, usize)>>;
 type Notes = Vec<(usize, Option<(i64, i64)>, String)>;
 
@@ -1507,21 +1425,6 @@ impl AreaPaint {
 
 // ------------------------------------------------------------------ picker
 
-#[derive(Clone)]
-pub struct PickerOpts {
-    pub limit: i64,
-    pub mark: Option<Rc<dyn Fn(i64) -> Option<Color>>>,
-    pub off: Option<Rc<dyn Fn(i64) -> bool>>,
-    pub slash: bool,
-    pub at_rest: bool,
-}
-
-impl Default for PickerOpts {
-    fn default() -> PickerOpts {
-        PickerOpts { limit: 10, mark: None, off: None, slash: true, at_rest: false }
-    }
-}
-
 impl Ui {
     /// A focused search row (the label is its placeholder and key) over the `(label, detail)` rows
     /// for the current query, windowed to `limit` (default 10) around the cursor. Rows are
@@ -1545,28 +1448,6 @@ impl Ui {
 }
 
 // ------------------------------------------------------------------ context menu
-
-/// A submenu of a `context_menu`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Submenu {
-    /// the row of the menu that opens it (drawn with a chevron)
-    pub row: i64,
-    pub rows: Vec<(String, bool)>,
-    pub keys: Vec<String>,
-    /// the row marked with the accent square
-    pub current: Option<i64>,
-}
-
-#[derive(Clone, Default)]
-pub struct MenuOpts {
-    pub width: Option<f32>,
-    pub selected: Option<i64>,
-    pub swatches: Vec<Option<Color>>,
-    pub keys: Vec<String>,
-    pub danger: Vec<i64>,
-    pub submenus: Vec<Submenu>,
-    pub lead_from: i64,
-}
 
 struct MenuRows {
     items: Vec<(String, bool)>,

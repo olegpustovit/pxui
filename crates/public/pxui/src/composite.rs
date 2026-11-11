@@ -18,10 +18,10 @@ pub(crate) fn defer_callback_panic(panic: Box<dyn Any + Send>) {
     CALLBACK_PANIC.with(|slot| { let mut slot = slot.borrow_mut(); if slot.is_none() { *slot = Some(panic); } });
 }
 
-pub(crate) extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut sys::PxuiUi) {
+pub(crate) extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut c_void) {
     if raw.is_null() || deferred() { return; }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut ui = ManuallyDrop::new(Ui(NonNull::new(raw).unwrap()));
+        let mut ui = ManuallyDrop::new(Ui(NonNull::new(raw.cast()).unwrap()));
         (unsafe { &mut *user.cast::<F>() })(&mut ui);
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
@@ -36,40 +36,40 @@ fn encode_placement(value: Placement) -> PxuiAnchorDesc {
 
 impl Ui {
     #[inline]
-    #[track_caller] pub fn modal<F: FnMut(&mut Ui)>(&mut self, label: &str, width: Option<f32>, mut build: F) -> bool {
+    #[track_caller] pub fn modal(&mut self, width: Option<f32>, label: &str, mut build: &mut dyn FnMut(&mut Ui)) -> bool {
         let mut out = 0;
-        check(self, unsafe { sys::pxui_ui_modal(self.0.as_ptr(), as_str(label), width.is_some() as u8, width.unwrap_or_default(), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { sys::pxui_ui_modal(self.0.as_ptr(), as_str(label), width.is_some() as u8, width.unwrap_or_default(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         out != 0
     }
 
     #[inline]
-    #[track_caller] pub fn scroll_view<F: FnMut(&mut Ui)>(&mut self, label: &str, width: Size, height: Size, mut build: F) -> PxuiBox {
+    #[track_caller] pub fn scroll_view(&mut self, label: &str, width: Size, height: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
         let mut out = PxuiBox::default();
-        check(self, unsafe { sys::pxui_ui_scroll_view(self.0.as_ptr(), as_str(label), size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { sys::pxui_ui_scroll_view(self.0.as_ptr(), as_str(label), size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
     #[inline]
-    #[track_caller] pub fn view<F: FnMut(&mut Ui)>(&mut self, label: &str, revision: u64, width: Size, height: Size, mut build: F) -> PxuiBox {
+    #[track_caller] pub fn view(&mut self, label: &str, revision: u64, width: Size, height: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
         let mut out = PxuiBox::default();
-        check(self, unsafe { sys::pxui_ui_view(self.0.as_ptr(), as_str(label), revision, size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { sys::pxui_ui_view(self.0.as_ptr(), as_str(label), revision, size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
     #[inline]
-    #[track_caller] pub fn anchored<F: FnMut(&mut Ui)>(&mut self, label: &str, anchor: Rect, placement: Placement, width: Size, height: Size, mut build: F) -> PxuiBox {
+    #[track_caller] pub fn anchored(&mut self, label: &str, anchor: Rect, placement: Placement, width: Size, height: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
         let mut descriptor = encode_placement(placement);
         descriptor.rect = anchor;
         let mut out = PxuiBox::default();
-        check(self, unsafe { sys::pxui_ui_anchored(self.0.as_ptr(), as_str(label), &descriptor, size(width), size(height), Some(call::<F>), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { sys::pxui_ui_anchored(self.0.as_ptr(), as_str(label), &descriptor, size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
     #[inline]
-    #[track_caller] pub fn dialog<F: FnMut(&mut Ui)>(&mut self, title: &str, buttons: &[&str], mut body: F) -> DialogOut {
+    #[track_caller] pub fn dialog(&mut self, title: &str, buttons: &[&str], mut body: &mut dyn FnMut(&mut Ui)) -> DialogOut {
         let buttons = Strs::new(buttons);
         let mut out = PxuiDialogOut::default();
-        check(self, unsafe { sys::pxui_ui_dialog(self.0.as_ptr(), as_str(title), buttons.span(), Some(call::<F>), &mut body as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { sys::pxui_ui_dialog(self.0.as_ptr(), as_str(title), buttons.span(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut body as *mut _ as *mut c_void, &mut out) });
         match out.tag { 0 => DialogOut::Open, 1 => DialogOut::Closed, 2 => DialogOut::Button(out.index), _ => unreachable!("the library answers a dialog with tag 0, 1 or 2") }
     }
 }

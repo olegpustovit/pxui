@@ -81,11 +81,11 @@ impl PxuiUi {
 pub(crate) fn call_build(shared: *mut Shared, engine: &mut Ui, build: Build, user: *mut c_void) {
     if let Some(build) = build {
         let mut borrowed = PxuiUi::borrowed(engine, shared);
-        build(user, &mut borrowed);
+        build(user, (&mut borrowed as *mut PxuiUi).cast());
     }
 }
 
-pub type Build = Option<extern "C" fn(*mut c_void, *mut PxuiUi)>;
+pub use pxui_types::ffi::UiBuild as Build;
 
 /// Where an export finds the shared state of its first argument, so the export macro can poison it.
 pub(crate) trait Handle { fn shared(self) -> *mut Shared; }

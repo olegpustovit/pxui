@@ -1,12 +1,15 @@
 use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, core_box, fail, finite, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui_text::{MenuOpts, MenuResult, Pick, PickerOpts};
-use pxui_types::ffi::Slice;
+use pxui_core::ui_text::{MenuOpts, MenuResult, Pick, PickerOpts, Submenu};
+use pxui_types::ffi::{PxuiMenuExtra, Slice};
+use std::rc::Rc;
 
 const MAX_ROWS: usize = 4096;
 
 pub type PickerRows = Option<extern "C" fn(*mut c_void, Str, *mut Slice<Str>)>;
+pub type PickerMark = Option<extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8>;
+pub type PickerOff = Option<extern "C" fn(*mut c_void, i64) -> u8>;
 
 export!(pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox, label: Str) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
@@ -32,7 +35,7 @@ export!(pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<S
 
 export!(pub unsafe fn pxui_ui_context_menu(
     ui: *mut PxuiUi, x: f32, y: f32, label: Str, items: Slice<Str>, enabled: Slice<u8>,
-    has_width: u8, width: f32, has_selected: u8, selected: i64,
+    has_width: u8, width: f32, has_selected: u8, selected: i64, extra: *const PxuiMenuExtra,
     out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
@@ -60,7 +63,16 @@ export!(pub unsafe fn pxui_ui_context_menu(
             None => menu.push(((*label).to_owned(), *enabled != 0)),
         }
     }
-    let opts = MenuOpts { width: (has_width != 0).then_some(width), selected: (has_selected != 0).then_some(selected), ..MenuOpts::default() };
+    let mut opts = MenuOpts { width: (has_width != 0).then_some(width), selected: (has_selected != 0).then_some(selected), ..MenuOpts::default() };
+    if !extra.is_null() {
+        // the size is read before the descriptor is copied
+        let size = unsafe { (*extra).size } as usize;
+        if size < core::mem::size_of::<PxuiMenuExtra>() || !unsafe { decode_extra(&*extra, &mut opts) } {
+            state.shared().menu = menu;
+            state.shared().put_strs(list);
+            return unsafe { fail(ui, "invalid context menu extras") };
+        }
+    }
     let result = unsafe { (&mut *state.engine).context_menu((x, y), &opts, label, &menu) };
     state.shared().menu = menu;
     state.shared().put_strs(list);
@@ -69,9 +81,29 @@ export!(pub unsafe fn pxui_ui_context_menu(
     0
 });
 
+// Owned copies of a menu's extras: keys and swatches, the destructive rows and the submenus, or false when a span or text is invalid.
+unsafe fn decode_extra(extra: &PxuiMenuExtra, opts: &mut MenuOpts) -> bool {
+    fn span<'a, T>(s: Slice<T>, max: usize) -> Option<&'a [T]> {
+        if s.len > max || (s.len != 0 && s.ptr.is_null()) { return None; }
+        Some(if s.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(s.ptr, s.len) } })
+    }
+    let own = |values: Slice<Str>| -> Option<Vec<String>> { span(values, MAX_ROWS)?.iter().map(|v| unsafe { checked(*v) }.map(str::to_owned)).collect() };
+    let (Some(keys), Some(swatches), Some(danger), Some(submenus)) = (own(extra.keys), span(extra.swatches, MAX_ROWS), span(extra.danger, MAX_ROWS), span(extra.submenus, 64)) else { return false };
+    opts.lead_from = extra.lead_from;
+    opts.keys = keys;
+    opts.swatches = swatches.iter().map(|s| (s.has != 0).then_some(s.color)).collect();
+    opts.danger = danger.to_vec();
+    for sub in submenus {
+        let (Some(rows), Some(enabled), Some(keys)) = (own(sub.rows), span(sub.enabled, MAX_ROWS), own(sub.keys)) else { return false };
+        if enabled.len() != rows.len() { return false; }
+        opts.submenus.push(Submenu { row: sub.row, rows: rows.into_iter().zip(enabled).map(|(r, e)| (r, *e != 0)).collect(), keys, current: (sub.has_current != 0).then_some(sub.current) });
+    }
+    true
+}
+
 export!(pub unsafe fn pxui_ui_picker(
     ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, label: Str, query: Str,
-    rows_cb: PickerRows, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
+    rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out_query.is_null() || out_tag.is_null() || out_index.is_null() || !(1..=1024).contains(&limit) || slash > 1 || at_rest > 1 {
@@ -100,7 +132,11 @@ export!(pub unsafe fn pxui_ui_picker(
         }
         rows.truncate(values.len() / 2);
     };
-    let opts = PickerOpts { limit, slash: slash != 0, at_rest: at_rest != 0, ..PickerOpts::default() };
+    // the closures run only during this call, so they may hold `user`
+    let user_addr = user as usize;
+    let mark = mark_cb.map(|cb| Rc::new(move |row: i64| { let mut c = pxui_types::geom::Rgba::default(); (cb(user_addr as *mut c_void, row, &mut c) != 0).then_some(c) }) as Rc<dyn Fn(i64) -> Option<pxui_types::geom::Rgba>>);
+    let off = off_cb.map(|cb| Rc::new(move |row: i64| cb(user_addr as *mut c_void, row) != 0) as Rc<dyn Fn(i64) -> bool>);
+    let opts = PickerOpts { limit, slash: slash != 0, at_rest: at_rest != 0, mark, off };
     let (query, pick) = unsafe { (&mut *state.engine).picker_filled(&opts, label, query, &mut { fill }) };
     if invalid.get() { return unsafe { fail(ui, "invalid picker rows") }; }
     unsafe { *out_query = state.give(query); }

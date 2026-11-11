@@ -2,68 +2,13 @@ use crate::state::{MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, fail, 
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::{cell::Cell, ffi::c_void, mem::{align_of, offset_of, size_of}};
 use pxui_core::ui_widgets::TreeNode;
-use pxui_types::ffi::Slice;
+pub use pxui_types::ffi::{PxuiCollectionEmit, PxuiCollectionText, PxuiF32MutSpan, PxuiListViewDesc, PxuiTableViewDesc, PxuiTreeNode, PxuiTreeViewDesc, PxuiU32MutSpan, PxuiU8MutSpan};
 
 const MAX_ITEMS: usize = 1_000_000;
-
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct PxuiU8MutSpan { pub ptr: *mut u8, pub len: usize }
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct PxuiF32MutSpan { pub ptr: *mut f32, pub len: usize }
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct PxuiU32MutSpan { pub ptr: *mut u32, pub len: usize }
-
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct PxuiTreeNode { pub depth: u16, pub children: u8 }
 
 // The engine's node and the C node share a layout, so a caller's array is the engine's slice with no copy.
 const _: () = assert!(size_of::<TreeNode>() == size_of::<PxuiTreeNode>() && align_of::<TreeNode>() == align_of::<PxuiTreeNode>()
     && offset_of!(TreeNode, depth) == offset_of!(PxuiTreeNode, depth) && offset_of!(TreeNode, children) == offset_of!(PxuiTreeNode, children));
-
-pub type PxuiCollectionEmit = Option<extern "C" fn(*mut c_void, Str)>;
-pub type PxuiCollectionText = Option<extern "C" fn(*mut c_void, usize, usize, PxuiCollectionEmit, *mut c_void)>;
-
-#[repr(C)]
-pub struct PxuiListViewDesc {
-    pub label: Str,
-    pub count: usize,
-    pub multi: u8,
-    pub reserved: [u8; 7],
-    pub selected: PxuiU8MutSpan,
-    pub text: PxuiCollectionText,
-    pub user: *mut c_void,
-}
-
-#[repr(C)]
-pub struct PxuiTreeViewDesc {
-    pub label: Str,
-    pub nodes: Slice<PxuiTreeNode>,
-    pub open: PxuiU8MutSpan,
-    pub selected: *mut usize,
-    pub visible: PxuiU32MutSpan,
-    pub visible_len: *mut usize,
-    pub text: PxuiCollectionText,
-    pub user: *mut c_void,
-}
-
-#[repr(C)]
-pub struct PxuiTableViewDesc {
-    pub label: Str,
-    pub titles: Slice<Str>,
-    pub widths: PxuiF32MutSpan,
-    pub rows: usize,
-    pub has_sort: u8,
-    pub ascending: u8,
-    pub reserved: [u8; 6],
-    pub sort_column: usize,
-    pub selected: *mut usize,
-    pub text: PxuiCollectionText,
-    pub user: *mut c_void,
-}
 
 struct EmitCtx<'a> { invalid: bool, bytes: usize, total: &'a Cell<usize> }
 // The Rust callback target stays in a stack context and never crosses the ABI boundary.

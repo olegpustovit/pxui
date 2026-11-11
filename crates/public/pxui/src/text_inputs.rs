@@ -1,17 +1,16 @@
 //! Text widgets with options: the value field (slide, scrub and validity callbacks), the text area, and the text edit the `Ui` keeps.
 use crate::composite::{defer_callback_panic, deferred};
-use crate::{as_str, check, status, Ui};
+use crate::{as_str, check, Ui};
 use core::ffi::c_void;
-use pxui_types::{ffi::PxuiValueFieldDesc, ui::TextEdit, PxuiBox, Str};
+use pxui_types::{ffi::{AreaNotify, PxuiAreaCallbacks, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, Drop, Payload, TextEdit}, PxuiBox, Str};
 pub use pxui_types::ui::ValueFieldOpts;
 
 const MAX_TEXT_BYTES: usize = 1 << 20;
 
-#[derive(Clone, Copy, Debug, Default)]
-pub struct TextAreaOpts { pub wrap: bool }
+pub use pxui_types::ui::{Language, ScrubPhase, TextAreaOpts};
 
 library!(lib {
-    fn pxui_ui_text_area_submit(ui: *mut PxuiUi, at: *const f32, width: f32, height: f32, wrap: u8, label: Str, value: Str, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8) -> i32;
+    fn pxui_ui_text_area_submit(ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, cbs: *const PxuiAreaCallbacks, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8) -> i32;
     fn pxui_ui_value_field(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: Option<extern "C" fn(*mut c_void, Str) -> u8>, slide: Option<extern "C" fn(*mut c_void, f32, *mut Str)>, scrub: Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>, user: *mut c_void, out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8) -> i32;
     fn pxui_ui_load_text_edit(ui: *mut PxuiUi, key: i64, text: Str, out_text: *mut Str, caret: *mut u64, anchor: *mut u64) -> i32;
     fn pxui_ui_remember(ui: *mut PxuiUi, text: Str, caret: u64, anchor: u64, typing: u8) -> i32;
@@ -54,13 +53,130 @@ extern "C" fn scrub_call(user: *mut c_void, origin: Str, dx: f32, coarse: u8, ou
 
 fn returned(value: Str) -> Result<String, i32> { text(value).map(str::to_owned).ok_or(-1) }
 
+/// What the library's text area callbacks reach: the app's closures, and the data a callback produced (lent to the library
+/// until its next callback).
+struct Area<'a> {
+    opts: &'a TextAreaOpts,
+    colors: Vec<PxuiColorSpan>, ranges: Vec<PxuiRange>, completions: Vec<PxuiCompletion>, completion_texts: Vec<pxui_types::ui::Completion>, produced: String,
+}
+
+fn area<'a>(user: *mut c_void) -> &'a mut Area<'a> { unsafe { &mut *user.cast::<Area>() } }
+fn lend(value: &str) -> Str { as_str(value) }
+fn utf8<'a>(value: Str) -> &'a str { text(value).unwrap_or("") }
+
+extern "C" fn on_context(user: *mut c_void, x: f32, y: f32) { let a = area(user); if let Some(f) = &a.opts.on_context { guarded((), &mut || f((x, y))) } }
+extern "C" fn on_scrub(user: *mut c_void, phase: u32) { let a = area(user); if let Some(f) = &a.opts.on_scrub { guarded((), &mut || f(if phase == 0 { ScrubPhase::Live } else { ScrubPhase::Done })) } }
+extern "C" fn on_scrub_edit(user: *mut c_void, start: i64, end: i64, value: Str) { let a = area(user); if let Some(f) = &a.opts.on_scrub_edit { guarded((), &mut || f((start, end), utf8(value))) } }
+extern "C" fn on_click(user: *mut c_void, at: i64, flag: u8) { let a = area(user); if let Some(f) = &a.opts.on_click { guarded((), &mut || f(at, flag != 0)) } }
+extern "C" fn on_caret(user: *mut c_void, at: i64) { let a = area(user); if let Some(f) = &a.opts.on_caret { guarded((), &mut || f(at)) } }
+extern "C" fn on_caret_move(user: *mut c_void, at: i64) { let a = area(user); if let Some(f) = &a.opts.on_caret_move { guarded((), &mut || f(at)) } }
+extern "C" fn on_select(user: *mut c_void, start: i64, end: i64) { let a = area(user); if let Some(f) = &a.opts.on_select { guarded((), &mut || f((start, end))) } }
+extern "C" fn on_drop(user: *mut c_void, at: i64, dropped: u8, kind: Str, value: Str) {
+    let a = area(user);
+    if let Some(f) = &a.opts.on_drop {
+        let payload = Payload { kind: utf8(kind).to_owned(), value: utf8(value).to_owned() };
+        guarded((), &mut || f(at, if dropped == 0 { Drop::Hover(payload.clone()) } else { Drop::Dropped(payload.clone()) }))
+    }
+}
+extern "C" fn colorize(user: *mut c_void, value: Str, out: *mut Slice<PxuiColorSpan>) {
+    let a = area(user);
+    let Some(l) = &a.opts.language else { return };
+    let spans = guarded(Vec::new(), &mut || (l.colorize)(utf8(value)));
+    a.colors = spans.into_iter().map(|(start, end, color)| PxuiColorSpan { start, end, color, reserved: 0 }).collect();
+    unsafe { *out = Slice { ptr: a.colors.as_ptr(), len: a.colors.len() }; }
+}
+extern "C" fn brackets(user: *mut c_void, value: Str, out: *mut Slice<PxuiRange>) {
+    let a = area(user);
+    let Some(l) = &a.opts.language else { return };
+    let pairs = guarded(Vec::new(), &mut || (l.brackets)(utf8(value)));
+    a.ranges = pairs.into_iter().map(|(start, end)| PxuiRange { start, end }).collect();
+    unsafe { *out = Slice { ptr: a.ranges.as_ptr(), len: a.ranges.len() }; }
+}
+extern "C" fn indent(user: *mut c_void, value: Str, caret: i64, out: *mut Str) {
+    let a = area(user);
+    let Some(l) = &a.opts.language else { return };
+    a.produced = guarded(String::new(), &mut || (l.indent)(utf8(value), caret));
+    unsafe { *out = lend(&a.produced); }
+}
+extern "C" fn complete(user: *mut c_void, value: Str, caret: i64, out: *mut Slice<PxuiCompletion>) {
+    let a = area(user);
+    let Some(l) = &a.opts.language else { return };
+    a.completion_texts = guarded(Vec::new(), &mut || (l.complete)(utf8(value), caret));
+    a.completions = a.completion_texts.iter().map(|c| PxuiCompletion { start: c.replace.0, end: c.replace.1, insert: lend(&c.insert), label: lend(&c.label), detail: lend(&c.detail), doc: lend(&c.doc) }).collect();
+    unsafe { *out = Slice { ptr: a.completions.as_ptr(), len: a.completions.len() }; }
+}
+extern "C" fn describe(user: *mut c_void, value: Str, at: i64, out: *mut PxuiDescription) {
+    let a = area(user);
+    let Some(l) = &a.opts.language else { return };
+    match guarded(None, &mut || (l.describe)(utf8(value), at)) {
+        Some((start, end, text)) => { a.produced = text; unsafe { *out = PxuiDescription { has: 1, reserved: [0; 7], start, end, text: lend(&a.produced) }; } }
+        None => unsafe { (*out).has = 0 },
+    }
+}
+extern "C" fn number_at(user: *mut c_void, value: Str, at: i64, out: *mut PxuiMaybeRange) {
+    let a = area(user);
+    let Some(l) = &a.opts.language else { return };
+    unsafe { *out = match guarded(None, &mut || (l.number_at)(utf8(value), at)) { Some((start, end)) => PxuiMaybeRange { has: 1, reserved: [0; 7], start, end }, None => PxuiMaybeRange::default() }; }
+}
+extern "C" fn context_at(user: *mut c_void, value: Str, caret: i64) -> u32 {
+    let a = area(user);
+    let Some(l) = &a.opts.language else { return 0 };
+    match guarded(CodeContext::Code, &mut || (l.context_at)(utf8(value), caret)) { CodeContext::Code => 0, CodeContext::String => 1, CodeContext::Comment => 2 }
+}
+extern "C" fn rewrite(user: *mut c_void, value: Str, caret: i64, out: *mut PxuiRewrite) {
+    let a = area(user);
+    let Some(f) = a.opts.language.as_ref().and_then(|l| l.rewrite.as_ref()) else { return };
+    let (text, caret) = guarded((utf8(value).to_owned(), caret), &mut || f(utf8(value), caret));
+    a.produced = text;
+    unsafe { *out = PxuiRewrite { text: lend(&a.produced), caret }; }
+}
+
 impl Ui {
-    #[inline]
-    pub fn text_area_submit(&mut self, at: (f32, f32), width: f32, height: f32, options: &TextAreaOpts, label: &str, value: &str) -> Result<(String, bool), i32> {
-        let at = [at.0, at.1];
+    /// A multiline text area: the new text and whether it was submitted. The app's closures in `options` run during this call.
+    #[track_caller]
+    pub fn text_area_submit(&mut self, at: (f32, f32), width: f32, height: f32, o: &TextAreaOpts, label: &str, value: &str) -> (String, bool) {
+        let ranges = |v: &[(i64, i64)]| -> Vec<PxuiRange> { v.iter().map(|(start, end)| PxuiRange { start: *start, end: *end }).collect() };
+        let messages: Vec<PxuiNote> = o.messages.iter().map(|(line, range, text)| PxuiNote { line: *line, start: range.map_or(0, |r| r.0), end: range.map_or(0, |r| r.1), has_range: range.is_some() as u8, reserved: [0; 7], text: as_str(text) }).collect();
+        let spans = ranges(&o.spans);
+        let splice: Vec<PxuiSplice> = o.splice.iter().map(|(start, end, text)| PxuiSplice { start: *start, end: *end, text: as_str(text) }).collect();
+        let chips: Vec<PxuiColorSpan> = o.chips.iter().map(|(start, end, color)| PxuiColorSpan { start: *start, end: *end, color: *color, reserved: 0 }).collect();
+        let pairs: Vec<u32> = o.language.as_ref().map_or_else(Vec::new, |l| l.pairs.iter().flat_map(|(a, b)| [*a as u32, *b as u32]).collect());
+        let lang = o.language.as_ref();
+        let has = |on: bool, flag: u32| if on { flag } else { 0 };
+        let desc = PxuiTextAreaDesc {
+            size: core::mem::size_of::<PxuiTextAreaDesc>() as u32,
+            flags: has(o.wrap, PxuiTextAreaDesc::WRAP) | has(o.reveal.is_some(), PxuiTextAreaDesc::HAS_REVEAL) | has(o.select.is_some(), PxuiTextAreaDesc::HAS_SELECT)
+                | has(lang.is_some(), PxuiTextAreaDesc::HAS_LANGUAGE) | has(lang.is_some_and(|l| l.rewrite.is_some()), PxuiTextAreaDesc::HAS_REWRITE),
+            x: at.0, y: at.1, width, height, reveal: o.reveal.unwrap_or_default(), reveal_nonce: o.reveal_nonce,
+            select: o.select.map_or(PxuiRange::default(), |(start, end)| PxuiRange { start, end }), label: as_str(label), value: as_str(value),
+            errors: Slice { ptr: o.errors.as_ptr(), len: o.errors.len() }, messages: Slice { ptr: messages.as_ptr(), len: messages.len() },
+            spans: Slice { ptr: spans.as_ptr(), len: spans.len() }, splice: Slice { ptr: splice.as_ptr(), len: splice.len() }, chips: Slice { ptr: chips.as_ptr(), len: chips.len() },
+            comment: as_str(lang.map_or("", |l| l.comment.as_str())), pairs: Slice { ptr: pairs.as_ptr(), len: pairs.len() },
+        };
+        let mut ctx = Area { opts: o, colors: Vec::new(), ranges: Vec::new(), completions: Vec::new(), completion_texts: Vec::new(), produced: String::new() };
+
+        let cbs = PxuiAreaCallbacks {
+            size: core::mem::size_of::<PxuiAreaCallbacks>() as u32, reserved: 0, user: &mut ctx as *mut Area as *mut c_void,
+            on_context: o.on_context.is_some().then_some(on_context as extern "C" fn(*mut c_void, f32, f32)),
+            on_scrub: o.on_scrub.is_some().then_some(on_scrub as extern "C" fn(*mut c_void, u32)),
+            on_scrub_edit: o.on_scrub_edit.is_some().then_some(on_scrub_edit as extern "C" fn(*mut c_void, i64, i64, Str)),
+            on_click: o.on_click.is_some().then_some(on_click as extern "C" fn(*mut c_void, i64, u8)),
+            on_caret: o.on_caret.is_some().then_some(on_caret as extern "C" fn(*mut c_void, i64)),
+            on_caret_move: o.on_caret_move.is_some().then_some(on_caret_move as extern "C" fn(*mut c_void, i64)),
+            on_select: o.on_select.is_some().then_some(on_select as extern "C" fn(*mut c_void, i64, i64)) as AreaNotify,
+            on_drop: o.on_drop.is_some().then_some(on_drop as extern "C" fn(*mut c_void, i64, u8, Str, Str)),
+            colorize: lang.map(|_| colorize as extern "C" fn(*mut c_void, Str, *mut Slice<PxuiColorSpan>)),
+            brackets: lang.map(|_| brackets as extern "C" fn(*mut c_void, Str, *mut Slice<PxuiRange>)),
+            indent: lang.map(|_| indent as extern "C" fn(*mut c_void, Str, i64, *mut Str)),
+            complete: lang.map(|_| complete as extern "C" fn(*mut c_void, Str, i64, *mut Slice<PxuiCompletion>)),
+            describe: lang.map(|_| describe as extern "C" fn(*mut c_void, Str, i64, *mut PxuiDescription)),
+            number_at: lang.map(|_| number_at as extern "C" fn(*mut c_void, Str, i64, *mut PxuiMaybeRange)),
+            context_at: lang.map(|_| context_at as extern "C" fn(*mut c_void, Str, i64) -> u32),
+            rewrite: lang.and_then(|l| l.rewrite.as_ref()).map(|_| rewrite as extern "C" fn(*mut c_void, Str, i64, *mut PxuiRewrite)),
+        };
         let (mut out, mut changed, mut submitted) = (Str::default(), 0, 0);
-        status(unsafe { lib::pxui_ui_text_area_submit(self.0.as_ptr(), at.as_ptr(), width, height, options.wrap as u8, as_str(label), as_str(value), &mut out, &mut changed, &mut submitted) })?;
-        Ok((returned(out)?, submitted != 0))
+        check(self, unsafe { lib::pxui_ui_text_area_submit(self.0.as_ptr(), &desc, &cbs, &mut out, &mut changed, &mut submitted) });
+        (returned(out).unwrap_or_default(), submitted != 0)
     }
 
     /// A compact field: the new text and whether a text editor is open. Only text `valid` accepts commits.

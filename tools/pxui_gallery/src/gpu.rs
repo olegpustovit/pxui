@@ -40,7 +40,7 @@ impl Gpu {
     }
 
     /// Create a public PXUI renderer that borrows `ui` and adopts this app-owned device.
-    pub fn renderer<'ui>(&self, ui: &'ui mut Ui) -> Result<Renderer<'ui>, String> {
+    pub fn renderer(&self, ui: &Ui) -> Result<Renderer, String> {
         // one lease, handed to the renderer: its device releases it when the renderer goes
         let native = be::native_leased(&self.device).map_err(|e| error::to_string(&e))?;
         let gpu = UiGpu {
@@ -77,7 +77,7 @@ impl Gpu {
     }
 
     /// Prepare PXUI's retained renderer before opening a host render encoder.
-    pub fn prepare(&mut self, renderer: &mut Renderer<'_>, commands: &be::Commands) -> Result<(), String> {
+    pub fn prepare(&mut self, renderer: &mut Renderer, commands: &be::Commands) -> Result<(), String> {
         let native = be::native_commands(commands).map_err(|e| error::to_string(&e))?;
         let commands = UiCommands { size: core::mem::size_of::<UiCommands>() as u32, vk_command_buffer: native.vk_command_buffer, mtl_command_buffer: native.mtl_command_buffer };
         let submission = self.submission.checked_add(1).ok_or_else(|| "PXUI gallery submission counter overflow".to_owned())?;
@@ -88,13 +88,13 @@ impl Gpu {
 
     /// Draw PXUI's retained layers into the already-open host pass. PXUI leaves its own pipeline, bindings
     /// and dynamic state bound, so the app's encoder forgets what it cached before it draws anything else.
-    pub fn draw(&self, renderer: &mut Renderer<'_>, commands: &be::Commands, encoder: &RenderEncoder, size_px: [u32; 2], scale: f32) -> Result<(), String> {
+    pub fn draw(&self, renderer: &mut Renderer, commands: &be::Commands, encoder: &RenderEncoder, size_px: [u32; 2], scale: f32) -> Result<(), String> {
         let commands = be::native_commands(commands).map_err(|e| error::to_string(&e))?;
         let native = be::native_pass(encoder).map_err(|e| error::to_string(&e))?;
         let pass = UiPass {
             size: core::mem::size_of::<UiPass>() as u32, vk_command_buffer: native.vk_command_buffer,
             mtl_render_encoder: native.mtl_render_encoder, width_px: size_px[0], height_px: size_px[1], scale,
-            mtl_command_buffer: commands.mtl_command_buffer,
+            mtl_command_buffer: commands.mtl_command_buffer, ..UiPass::default()
         };
         renderer.draw(&pass).map_err(|code| format!("pxui renderer draw failed ({code})"))?;
         be::invalidate_state(encoder).map_err(|e| error::to_string(&e))
@@ -107,7 +107,7 @@ impl Gpu {
     }
 
     /// Render the last frame to an offscreen target and return its RGBA pixels.
-    pub fn render(&mut self, renderer: &mut Renderer<'_>, size: (u32, u32), density: u32, ground: [u8; 4]) -> Vec<u8> {
+    pub fn render(&mut self, renderer: &mut Renderer, size: (u32, u32), density: u32, ground: [u8; 4]) -> Vec<u8> {
         let (w, h) = (size.0 * density, size.1 * density);
         let target = self.target(w, h);
         let commands = be::begin_commands(&self.queue).unwrap_or_else(|e| fail(e));

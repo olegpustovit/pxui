@@ -4,8 +4,8 @@ use pxui_core::geom::color;
 use pxui_core::ui::*;
 use std::cell::Cell;
 
-const RAYS: &str = include_str!("../../themes/rays.theme");
-const DUSK: &str = include_str!("../../themes/dusk.theme");
+const RAYS: &str = include_str!("../../../../../assets/themes/rays.theme");
+const DUSK: &str = include_str!("../../../../../assets/themes/dusk.theme");
 
 fn at(t: f64, events: Vec<input::Event>) -> input::frame::Frame {
     frame_at(vec![], 2.0, t, events)
@@ -16,7 +16,7 @@ fn at(t: f64, events: Vec<input::Event>) -> input::frame::Frame {
 pub fn styling_theme_file_round_trip() {
     let base = Theme::default();
     let written = base.write();
-    let path = format!("{}/themes/rays.theme", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/../../../assets/themes/rays.theme", env!("CARGO_MANIFEST_DIR"));
     if std::env::var("RAYS_UPDATE_FIXTURES").as_deref() == Ok("1") {
         std::fs::write(&path, &written).expect("rays.theme");
     }

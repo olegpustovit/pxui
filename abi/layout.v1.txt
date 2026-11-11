@@ -15,11 +15,11 @@ FrameIn 48 8 0 8 16 24 28 32 40
 FrameOut 40 8 0 4 20 21 24 32
 Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
 Commands 24 8 0 8 16
-Pass 48 8 0 8 16 24 28 32 40
+Pass 72 8 0 8 16 24 28 32 40 48 52 56 64
 Image 40 8 0 8 16 24 28 32
 Span 32 8 0 4 6 8 16 24
 PxuiBox 32 8 0 8 16 24
-PxuiPanel 40 8 0 4 8 12 16 24 32 33
+PxuiPanel 200 8 0 4 8 12 16 24 32 33 34 35 36 37 40 44 48
 PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
 PxuiUiDesc 12 4 0 4 8
 Slice 16 8 0 8
@@ -35,7 +35,7 @@ ThemeSource 24 8 0 4 8
 PxuiMotion 28 4 0 4 8 12
 PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 29 32 48 64 72 80 88 96 124 125 128
 PxuiDialogOut 16 8 0 8
-PxuiThemeSnapshot 752 8 0 4 8 144 296 448 600
+PxuiThemeSnapshot 176 8 0 4 8 144 148 152 156 160
 PxuiSizeDesc 16 8 0 4 8
 PxuiTrackDesc 8 4 0 4
 PxuiGridDesc 40 8 0 8 24
@@ -56,11 +56,11 @@ PxuiSplitDesc 64 8 0 16 20 24 28 32 40 48 56
 PxuiMenuBarDesc 32 8 0 16
 PxuiMenuOut 16 8 0 8
 PxuiHintDesc 32 8 0 16
-PxuiFooterDesc 40 8 0 8 24
-PxuiKeyframeDesc 368 8 0 4 8 12 32 184
-PxuiInspectorRowDesc 96 8 0 16 32 40 48 80 84 88
-PxuiInspectorSectionDesc 64 8 0 16 32 40 48 56
-PxuiInspectorValueDesc 64 8 0 16 32 48 56
+PxuiFooterDesc 40 8 0 1 8 24
+PxuiKeyframeDesc 216 8 0 4 8 12 32 184
+PxuiInspectorRowDesc 96 8 0 16 32 33 34 35 40 48 80 84 88
+PxuiInspectorSectionDesc 64 8 0 16 32 33 34 35 40 48 56
+PxuiInspectorValueDesc 64 8 0 16 32 48 49 56
 PxuiInspectorTextDesc 32 8 0 16
 PxuiTableDesc 72 8 0 16 24 28 32 48 56 64
 PxuiSaved 24 8 0 4 8 16
@@ -75,3 +75,24 @@ PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
 PxuiHeadOut 32 8 0 16 24 25 26
 PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56
 PxuiValueFieldDesc 152 8 0 4 8 16 20 24 28 32 36 40 44 48 52 56 72 88 104 120 136
+PxuiU8MutSpan 16 8 0 8
+PxuiF32MutSpan 16 8 0 8
+PxuiU32MutSpan 16 8 0 8
+PxuiTreeNode 4 2 0 2
+PxuiListViewDesc 64 8 0 16 24 25 32 48 56
+PxuiTreeViewDesc 96 8 0 16 32 48 56 72 80 88
+PxuiTableViewDesc 96 8 0 16 32 48 56 57 58 64 72 80 88
+PxuiNodeFields 192 8 0 4 8 160 176
+PxuiRange 16 8 0 8
+PxuiColorSpan 24 8 0 8 16 20
+PxuiNote 48 8 0 8 16 24 25 32
+PxuiSplice 32 8 0 8 16
+PxuiCompletion 80 8 0 8 16 32 48 64
+PxuiDescription 40 8 0 1 8 16 24
+PxuiMaybeRange 24 8 0 1 8 16
+PxuiRewrite 24 8 0 16
+PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
+PxuiAreaCallbacks 144 8 0 4 8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 128 136
+PxuiSwatch 8 1 0 1 4
+PxuiSubmenu 72 8 0 8 16 17 24 40 56
+PxuiMenuExtra 80 8 0 4 8 16 32 48 64

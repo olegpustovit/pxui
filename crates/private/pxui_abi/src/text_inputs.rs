@@ -1,30 +1,103 @@
 use crate::state::{PxuiUi, checked, fail, finite, get};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_types::ffi::PxuiValueFieldDesc;
+use pxui_types::ffi::{PxuiAreaCallbacks, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
 use std::rc::Rc;
-use pxui_core::ui_text::{TextAreaOpts, ValueFieldOpts};
+use pxui_types::ui::Drop;
+use pxui_core::ui_text::{CodeContext, Completion, Language, ScrubPhase, TextAreaOpts, ValueFieldOpts};
 
 pub type TextValid = Option<extern "C" fn(*mut c_void, Str) -> u8>;
 
+/// `values` as a slice, or None when a null pointer or an over-long span makes it invalid.
+unsafe fn span_of<'a, T>(values: pxui_types::ffi::Slice<T>, max: usize) -> Option<&'a [T]> {
+    if values.len > max || (values.len != 0 && values.ptr.is_null()) { return None; }
+    Some(if values.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(values.ptr, values.len) } })
+}
+
+/// The `TextAreaOpts` a text area descriptor and its callbacks describe, or None when a span or text is invalid. The closures
+/// hold `user` and run only during the widget's call.
+unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbacks>) -> Option<TextAreaOpts> {
+    const MAX: usize = 1 << 16;
+    let has = |flag: u32| d.flags & flag != 0;
+    let own = |s: Str| unsafe { checked(s) }.map(str::to_owned);
+    let mut o = TextAreaOpts { wrap: has(PxuiTextAreaDesc::WRAP), ..TextAreaOpts::default() };
+    o.errors = unsafe { span_of(d.errors, MAX) }?.to_vec();
+    for n in unsafe { span_of(d.messages, MAX) }? { o.messages.push((n.line, (n.has_range != 0).then_some((n.start, n.end)), own(n.text)?)); }
+    o.spans = unsafe { span_of(d.spans, MAX) }?.iter().map(|r| (r.start, r.end)).collect();
+    for sp in unsafe { span_of(d.splice, MAX) }? { o.splice.push((sp.start, sp.end, own(sp.text)?)); }
+    o.chips = unsafe { span_of(d.chips, MAX) }?.iter().map(|c| (c.start, c.end, c.color)).collect();
+    o.reveal = has(PxuiTextAreaDesc::HAS_REVEAL).then_some(d.reveal);
+    o.reveal_nonce = d.reveal_nonce;
+    o.select = has(PxuiTextAreaDesc::HAS_SELECT).then_some((d.select.start, d.select.end));
+    let Some(cb) = cb else { return if has(PxuiTextAreaDesc::HAS_LANGUAGE) { None } else { Some(o) } };
+    let user = cb.user as usize;
+    let u = move || user as *mut c_void;
+    let s = |t: &str| Str { ptr: t.as_ptr(), len: t.len() };
+    if let Some(f) = cb.on_context { o.on_context = Some(Rc::new(move |(x, y)| f(u(), x, y))); }
+    if let Some(f) = cb.on_scrub { o.on_scrub = Some(Rc::new(move |phase| f(u(), (phase == ScrubPhase::Done) as u32))); }
+    if let Some(f) = cb.on_scrub_edit { o.on_scrub_edit = Some(Rc::new(move |(a, b), t: &str| f(u(), a, b, s(t)))); }
+    if let Some(f) = cb.on_click { o.on_click = Some(Rc::new(move |p, flag| f(u(), p, flag as u8))); }
+    if let Some(f) = cb.on_caret { o.on_caret = Some(Rc::new(move |p| f(u(), p))); }
+    if let Some(f) = cb.on_caret_move { o.on_caret_move = Some(Rc::new(move |p| f(u(), p))); }
+    if let Some(f) = cb.on_select { o.on_select = Some(Rc::new(move |(a, b)| f(u(), a, b))); }
+    if let Some(f) = cb.on_drop {
+        o.on_drop = Some(Rc::new(move |p, drop: Drop| { let (dropped, payload) = match &drop { Drop::Hover(x) => (0, x), Drop::Dropped(x) => (1, x) }; f(u(), p, dropped, s(&payload.kind), s(&payload.value)) }));
+    }
+    if has(PxuiTextAreaDesc::HAS_LANGUAGE) {
+        let (Some(colorize), Some(brackets), Some(indent), Some(complete), Some(describe), Some(number_at), Some(context_at)) =
+            (cb.colorize, cb.brackets, cb.indent, cb.complete, cb.describe, cb.number_at, cb.context_at) else { return None };
+        let (comment, pairs) = (own(d.comment)?, unsafe { span_of(d.pairs, 64) }?);
+        if pairs.len() % 2 != 0 { return None; }
+        let pairs = pairs.chunks_exact(2).map(|p| Some((char::from_u32(p[0])?, char::from_u32(p[1])?))).collect::<Option<Vec<_>>>()?;
+        o.language = Some(Language {
+            colorize: Rc::new(move |t| { let mut out = Slice::default(); colorize(u(), s(t), &mut out); unsafe { span_of(out, 1 << 20) }.map_or_else(Vec::new, |v| v.iter().map(|c| (c.start, c.end, c.color)).collect()) }),
+            brackets: Rc::new(move |t| { let mut out = Slice::default(); brackets(u(), s(t), &mut out); unsafe { span_of(out, 1 << 20) }.map_or_else(Vec::new, |v| v.iter().map(|r| (r.start, r.end)).collect()) }),
+            indent: Rc::new(move |t, caret| { let mut out = Str::default(); indent(u(), s(t), caret, &mut out); unsafe { checked(out) }.unwrap_or("").to_owned() }),
+            pairs,
+            complete: Rc::new(move |t, caret| {
+                let mut out = Slice::default(); complete(u(), s(t), caret, &mut out);
+                unsafe { span_of(out, 4096) }.map_or_else(Vec::new, |v| v.iter().filter_map(|c| Some(Completion { replace: (c.start, c.end), insert: own(c.insert)?, label: own(c.label)?, detail: own(c.detail)?, doc: own(c.doc)? })).collect())
+            }),
+            describe: Rc::new(move |t, at| {
+                let mut out = PxuiDescription { has: 0, reserved: [0; 7], start: 0, end: 0, text: Str::default() };
+                describe(u(), s(t), at, &mut out);
+                if out.has == 0 { None } else { Some((out.start, out.end, own(out.text)?)) }
+            }),
+            number_at: Rc::new(move |t, at| { let mut out = PxuiMaybeRange::default(); number_at(u(), s(t), at, &mut out); (out.has != 0).then_some((out.start, out.end)) }),
+            context_at: Rc::new(move |t, caret| match context_at(u(), s(t), caret) { 1 => CodeContext::String, 2 => CodeContext::Comment, _ => CodeContext::Code }),
+            comment,
+            rewrite: if has(PxuiTextAreaDesc::HAS_REWRITE) {
+                let f = cb.rewrite?;
+                Some(Rc::new(move |t: &str, caret| { let mut out = PxuiRewrite { text: Str::default(), caret }; f(u(), s(t), caret, &mut out); (unsafe { checked(out.text) }.unwrap_or(t).to_owned(), out.caret) }))
+            } else { None },
+        });
+    }
+    Some(o)
+}
+
+// A text area with its options. `cbs` (may be null) holds the app's closures: they run only during this call, with `cbs.user`.
 export!(pub unsafe fn pxui_ui_text_area_submit(
-    ui: *mut PxuiUi, at: *const f32, width: f32, height: f32, wrap: u8, label: Str, value: Str,
+    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, cbs: *const PxuiAreaCallbacks,
     out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8,
 ) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if at.is_null() || out_text.is_null() || out_changed.is_null() || out_submitted.is_null() || wrap > 1 {
+    if desc.is_null() || out_text.is_null() || out_changed.is_null() || out_submitted.is_null() {
         return unsafe { fail(ui, "invalid text area arguments") };
     }
-    let (x, y) = unsafe { (*at, *at.add(1)) };
-    if !finite(&[x, y, width, height]) || width < 0.0 || height < 0.0 {
+    // the sizes are read before either descriptor is copied
+    if unsafe { (*desc).size } < core::mem::size_of::<PxuiTextAreaDesc>() as u32 || (!cbs.is_null() && unsafe { (*cbs).size } < core::mem::size_of::<PxuiAreaCallbacks>() as u32) {
+        return unsafe { fail(ui, "invalid text area descriptor") };
+    }
+    let d = unsafe { *desc };
+    if d.flags & !PxuiTextAreaDesc::KNOWN != 0 || !finite(&[d.x, d.y, d.width, d.height]) || d.width < 0.0 || d.height < 0.0 {
         return unsafe { fail(ui, "invalid text area arguments") };
     }
     unsafe { *out_text = Str::default(); *out_changed = 0; *out_submitted = 0; }
-    let (Some(label), Some(value)) = (unsafe { checked(label) }, unsafe { checked(value) }) else {
+    let (Some(label), Some(value)) = (unsafe { checked(d.label) }, unsafe { checked(d.value) }) else {
         return unsafe { fail(ui, "invalid text area strings") };
     };
-    let opts = TextAreaOpts { wrap: wrap != 0, ..TextAreaOpts::default() };
-    let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit((x, y), width, height, &opts, label, value) };
+    let Some(opts) = (unsafe { area_opts(&d, cbs.as_ref()) }) else { return unsafe { fail(ui, "invalid text area options") }; };
+    let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit((d.x, d.y), d.width, d.height, &opts, label, value) };
     unsafe { *out_changed = (text != value) as u8; *out_submitted = submitted as u8; }
     unsafe { *out_text = state.give(text); }
     0
@@ -44,8 +117,8 @@ export!(pub unsafe fn pxui_ui_value_field(
     if desc.is_null() || out_text.is_null() || out_changed.is_null() || out_editing.is_null() {
         return unsafe { fail(ui, "invalid value field arguments") };
     }
-    let d = unsafe { *desc };
-    if d.size < core::mem::size_of::<PxuiValueFieldDesc>() as u32 || d.flags & !PxuiValueFieldDesc::KNOWN != 0
+    let Some(d) = read_desc!(desc, PxuiValueFieldDesc) else { return unsafe { fail(ui, "invalid value field descriptor") }; };
+    if d.flags & !PxuiValueFieldDesc::KNOWN != 0
         || !finite(&[d.x, d.y, d.width, d.height, d.fraction, d.tracking]) || d.width < 0.0 || d.height < 0.0 {
         return unsafe { fail(ui, "invalid value field descriptor") };
     }

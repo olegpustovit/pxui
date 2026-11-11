@@ -25,6 +25,7 @@ library!(lib {
     fn pxui_paint_cap(p: *mut RawPaint, x: f32, y: f32, has_color: u8, color: Rgba, s: Str);
     fn pxui_paint_cap_width(p: *mut RawPaint, s: Str) -> f32;
     fn pxui_paint_ratio(p: *mut RawPaint, x: f32, y: f32, a: i64, b: i64);
+    fn pxui_paint_scroll_y(p: *mut RawPaint, slot: u64) -> f32;
     fn pxui_paint_input_region(p: *mut RawPaint, cursor: f32, x: f32, y: f32, w: f32, h: f32);
 });
 
@@ -34,6 +35,8 @@ pub struct Paint<'a> {
     span: Span,
     open: bool,
     clip: Rect,
+    /// the corner radius of the clip (a rounded `CLIP` node's children)
+    pub clip_radius: f32,
     pub theme: Tokens,
     pub font_size: i64,
     pub row_height: i64,
@@ -52,7 +55,7 @@ impl<'a> Paint<'a> {
         let raw = NonNull::new(raw)?;
         let mut info = PxuiPaintInfo { size: core::mem::size_of::<PxuiPaintInfo>() as u32, rtl: 0, reserved: [0; 3], font_size: 0, row_height: 0, density: 0, clip: Rect::default(), clip_radius: 0.0, theme: pxui_types::ffi::ThemeTokens::from(pxui_types::theme::default()) };
         refused("paint info", unsafe { lib::pxui_paint_info(raw.as_ptr(), &mut info) });
-        Some(Paint { raw, _borrow: PhantomData, span: Span::EMPTY, open: false, clip: info.clip, theme: info.theme.into(), font_size: info.font_size, row_height: info.row_height, density: info.density, rtl: info.rtl != 0 })
+        Some(Paint { raw, _borrow: PhantomData, span: Span::EMPTY, open: false, clip: info.clip, clip_radius: info.clip_radius, theme: info.theme.into(), font_size: info.font_size, row_height: info.row_height, density: info.density, rtl: info.rtl != 0 })
     }
 
     /// Commits the span, so the library's own instances (text, images) follow the shapes drawn before them.
@@ -79,6 +82,8 @@ impl<'a> Paint<'a> {
         self.span.clip = clip_of(self.clip);
     }
 
+    /// The scroll offset of the retained slot `slot` (a handle's `box_slot`).
+    #[inline] pub fn scroll_y(&mut self, slot: u64) -> f32 { unsafe { lib::pxui_paint_scroll_y(self.raw(), slot) } }
     #[inline] pub fn label_size(&self) -> i64 { 8.max(self.font_size - 2) }
     #[inline] pub fn cap_tracking(&self) -> f32 { 0.08 * self.label_size() as f32 }
     #[inline] pub fn text_top(&self, size: Option<i64>, y: f32, h: f32) -> f32 { text_top_for(self.font_size, size, y, h) }

@@ -34,8 +34,8 @@ library!(lib {
 });
 
 /// The platform whose editing conventions the `Ui` follows.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Platform { Apple, Other }
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Platform { Apple, #[default] Other }
 
 /// The heap a `Ui` holds, for the host to account for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -59,7 +59,8 @@ impl Ui {
     /// Whether the key (a `KEY_*` code or a character) was pressed in this frame's events.
     #[inline]
     #[track_caller]
-    pub fn key_pressed(&self, key: u32) -> bool {
+    pub fn key_pressed(&self, key: impl Into<u32>) -> bool {
+        let key = key.into();
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_key_pressed(self.0.as_ptr(), key, &mut out) });
         out != 0

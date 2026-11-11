@@ -14,11 +14,11 @@ library!(lib {
     fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const KeyframeDesc, out: *mut u8) -> i32;
     fn pxui_ui_button_styled(ui: *mut PxuiUi, text: Str, bare: u8, icon: u8, at_end: u8, has_ink: u8, ink: Rgba, out: *mut u8) -> i32;
     fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32;
-    fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: Option<extern "C" fn(*mut c_void, *mut PxuiUi)>, user: *mut c_void, out: *mut u8) -> i32;
+    fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8) -> i32;
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
-    fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: Option<extern "C" fn(*mut c_void, *mut PxuiUi)>, user: *mut c_void) -> i32;
+    fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const PxuiHeaderDesc, rename: Option<extern "C" fn(*mut c_void, Str) -> u8>, user: *mut c_void, out: *mut PxuiHeadOut) -> i32;
-    fn pxui_ui_inspector_section_view(ui: *mut PxuiUi, key: Str, revision: u64, expanded: u8, has_set: u8, set_expanded: u8, label: Str, build: Option<extern "C" fn(*mut c_void, *mut PxuiUi)>, user: *mut c_void, out: *mut u8) -> i32;
+    fn pxui_ui_inspector_section_view(ui: *mut PxuiUi, key: Str, revision: u64, expanded: u8, has_set: u8, set_expanded: u8, label: Str, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8) -> i32;
     fn pxui_ui_inspector_toggle_value(ui: *mut PxuiUi, key: Str, x: f32, y: f32, value: u8, out: *mut u8) -> i32;
     fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32) -> i32;
     fn pxui_ui_field_drag(ui: *mut PxuiUi, box_: *const PxuiBox, present: *mut u8, out: *mut Point) -> i32;
@@ -68,14 +68,14 @@ impl Ui {
         (out, decode_signal(&raw))
     }
     #[track_caller]
-    pub fn popup<F: FnMut(&mut Ui)>(&mut self, stroke: Option<Rgba>, max_height: Option<f32>, dismiss_initial: bool, attached: bool, at: (f32, f32), width: f32, height: f32, label: &str, mut f: F) -> bool {
+    pub fn popup(&mut self, stroke: Option<Rgba>, max_height: Option<f32>, dismiss_initial: bool, attached: bool, at: (f32, f32), width: f32, height: f32, label: &str, mut f: &mut dyn FnMut(&mut Ui)) -> bool {
         let desc = PxuiPopupDesc {
             size: core::mem::size_of::<PxuiPopupDesc>() as u32, has_stroke: stroke.is_some() as u8, has_max_height: max_height.is_some() as u8,
             dismiss_initial: dismiss_initial as u8, attached: attached as u8, stroke: stroke.unwrap_or_default(), max_height: max_height.unwrap_or_default(),
             x: at.0, y: at.1, width, height, label: as_str(label),
         };
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_popup(self.0.as_ptr(), &desc, Some(call::<F>), &mut f as *mut F as *mut c_void, &mut out) });
+        check(self, unsafe { lib::pxui_ui_popup(self.0.as_ptr(), &desc, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void, &mut out) });
         out != 0
     }
     #[track_caller]
@@ -84,8 +84,8 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_inspector_bar(self.0.as_ptr(), hints.span(), count) })
     }
     #[track_caller]
-    pub fn inspector_body<F: FnMut(&mut Ui)>(&mut self, mut f: F) {
-        check(self, unsafe { lib::pxui_ui_inspector_body(self.0.as_ptr(), Some(call::<F>), &mut f as *mut F as *mut c_void) })
+    pub fn inspector_body(&mut self, mut f: &mut dyn FnMut(&mut Ui)) {
+        check(self, unsafe { lib::pxui_ui_inspector_body(self.0.as_ptr(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
     }
     #[allow(clippy::too_many_arguments)]
     #[track_caller]
@@ -105,9 +105,9 @@ impl Ui {
         Head { renamed, chosen: (out.has_chosen != 0).then_some(out.chosen), reset_pressed: out.reset_pressed != 0 }
     }
     #[track_caller]
-    pub fn inspector_section_view<F: FnMut(&mut Ui)>(&mut self, key: &str, revision: u64, expanded: bool, set_expanded: Option<bool>, label: &str, mut f: F) -> bool {
+    pub fn inspector_section_view(&mut self, key: &str, revision: u64, expanded: bool, set_expanded: Option<bool>, label: &str, mut f: &mut dyn FnMut(&mut Ui)) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_inspector_section_view(self.0.as_ptr(), as_str(key), revision, expanded as u8, set_expanded.is_some() as u8, set_expanded.unwrap_or(false) as u8, as_str(label), Some(call::<F>), &mut f as *mut F as *mut c_void, &mut out) });
+        check(self, unsafe { lib::pxui_ui_inspector_section_view(self.0.as_ptr(), as_str(key), revision, expanded as u8, set_expanded.is_some() as u8, set_expanded.unwrap_or(false) as u8, as_str(label), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void, &mut out) });
         out != 0
     }
     #[track_caller]

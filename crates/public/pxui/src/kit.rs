@@ -2,56 +2,11 @@ use crate::{composite::{defer_callback_panic, deferred}, check, Strs, Ui};
 use core::{ffi::c_void, mem::ManuallyDrop, panic::AssertUnwindSafe, ptr::NonNull};
 use pxui_types::{Axis, Curve, Look, PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
 
-#[cfg(feature = "static")]
-pub(crate) use pxui_abi_link::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc as GridListDesc, PxuiHintDesc as HintDesc, PxuiInspectorRowDesc as InspectorRowDesc, PxuiInspectorSectionDesc as InspectorSectionDesc, PxuiInspectorTextDesc as InspectorTextDesc, PxuiInspectorValueDesc as InspectorValueDesc, PxuiKeyframeDesc as KeyframeDesc, PxuiMenuBarDesc as MenuBarDesc, PxuiMenuDesc as MenuDesc, PxuiMenuOut as MenuOut, PxuiSplitDesc as SplitDesc, PxuiTableDesc as TableDesc};
-
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct MenuDesc { title: Str, items: Slice<Str> }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct GridListDesc { label: Str, count: usize, cell_w: f32, cell_h: f32, build: Option<extern "C" fn(*mut c_void, *mut sys::PxuiUi, usize)>, user: *mut c_void }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct SplitDesc { label: Str, axis: u32, ratio: f32, min_a: f32, min_b: f32, build_a: Option<extern "C" fn(*mut c_void, *mut sys::PxuiUi)>, user_a: *mut c_void, build_b: Option<extern "C" fn(*mut c_void, *mut sys::PxuiUi)>, user_b: *mut c_void }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct MenuBarDesc { label: Str, menus: Slice<MenuDesc> }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct MenuOut { pub menu: usize, pub item: usize }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct HintDesc { pub key: Str, pub value: Str }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct FooterDesc { has_right: u8, reserved: [u8; 7], right: Str, hints: Slice<HintDesc> }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct KeyframeDesc { pub time: f32, pub target: u32, pub reserved: [u8; 4], pub values: [f32; 4], pub look: PxuiLookDesc, pub curve: PxuiCurveDesc }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct InspectorRowDesc { key: Str, label: Str, has_width: u8, has_pin: u8, pin: u8, reserved: [u8; 5], width: f32, row: PxuiBox, control_x: f32, control_y: f32, control_w: f32 }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct InspectorSectionDesc { key: Str, label: Str, expanded: u8, has_set: u8, set_expanded: u8, reserved: [u8; 5], build: Option<extern "C" fn(*mut c_void, *mut sys::PxuiUi)>, user: *mut c_void, out_open: u8 }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct InspectorValueDesc { key: Str, label: Str, value: Str, has_width: u8, reserved: [u8; 7], width: f32 }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct InspectorTextDesc { key: Str, text: Str }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-pub struct TableDesc { label: Str, at: [f32; 2], width: f32, height: f32, headers: Slice<Str>, rows: i64, cell: Option<extern "C" fn(*mut c_void, i64, i64) -> Str>, user: *mut c_void }
+pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc as GridListDesc, PxuiHintDesc as HintDesc, PxuiInspectorRowDesc as InspectorRowDesc, PxuiInspectorSectionDesc as InspectorSectionDesc, PxuiInspectorTextDesc as InspectorTextDesc, PxuiInspectorValueDesc as InspectorValueDesc, PxuiKeyframeDesc as KeyframeDesc, PxuiMenuBarDesc as MenuBarDesc, PxuiMenuDesc as MenuDesc, PxuiMenuOut as MenuOut, PxuiSplitDesc as SplitDesc, PxuiTableDesc as TableDesc};
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{PxuiUi, pxui_ui_animate_keys, pxui_ui_footer, pxui_ui_grid_list, pxui_ui_inspector_button, pxui_ui_inspector_message, pxui_ui_inspector_readout, pxui_ui_inspector_row, pxui_ui_inspector_section, pxui_ui_inspector_toggle, pxui_ui_menu_bar, pxui_ui_split, pxui_ui_table, pxui_ui_wants_frame};
+    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_footer, pxui_ui_grid_list, pxui_ui_inspector_button, pxui_ui_inspector_message, pxui_ui_inspector_readout, pxui_ui_inspector_row, pxui_ui_inspector_section, pxui_ui_inspector_toggle, pxui_ui_menu_bar, pxui_ui_split, pxui_ui_table, pxui_ui_wants_frame};
 }
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -79,8 +34,8 @@ mod sys {
 #[inline]
 fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
-type Build = Option<extern "C" fn(*mut c_void, *mut sys::PxuiUi)>;
-type GridBuild = Option<extern "C" fn(*mut c_void, *mut sys::PxuiUi, usize)>;
+type Build = pxui_types::ffi::UiBuild;
+type GridBuild = Option<extern "C" fn(*mut c_void, *mut c_void, usize)>;
 type CellFn = Option<extern "C" fn(*mut c_void, i64, i64) -> Str>;
 
 // Each context hands out its trampoline and its user pointer from one method, so the two cannot name different types.
@@ -92,20 +47,20 @@ struct GridCallback<F> { f: F }
 impl<F: FnMut(&mut Ui, usize)> GridCallback<F> {
     fn erased(&mut self) -> (GridBuild, *mut c_void) { (Some(call_grid::<F>), (self as *mut Self).cast()) }
 }
-extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut sys::PxuiUi) {
+extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut c_void) {
     if raw.is_null() || deferred() { return; }
     let state = unsafe { &mut *user.cast::<Callback<F>>() };
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw) }));
+        let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw.cast()) }));
         (state.f)(&mut ui);
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
-extern "C" fn call_grid<F: FnMut(&mut Ui, usize)>(user: *mut c_void, raw: *mut sys::PxuiUi, index: usize) {
+extern "C" fn call_grid<F: FnMut(&mut Ui, usize)>(user: *mut c_void, raw: *mut c_void, index: usize) {
     if raw.is_null() || deferred() { return; }
     let state = unsafe { &mut *user.cast::<GridCallback<F>>() };
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw) }));
+        let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw.cast()) }));
         (state.f)(&mut ui, index);
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
@@ -171,7 +126,7 @@ impl Hints {
 
 impl Ui {
     #[inline]
-    #[track_caller] pub fn grid_list<F: FnMut(&mut Ui, usize)>(&mut self, label: &str, count: usize, cell_w: f32, cell_h: f32, build: F) -> PxuiBox {
+    #[track_caller] pub fn grid_list(&mut self, label: &str, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> PxuiBox {
         let mut context = GridCallback { f: build };
         let (build, user) = context.erased();
         let desc = GridListDesc { label: as_str(label), count, cell_w, cell_h, build, user };
@@ -181,7 +136,7 @@ impl Ui {
     }
 
     #[inline]
-    #[track_caller] pub fn split<F: FnMut(&mut Ui), G: FnMut(&mut Ui)>(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: F, b: G) -> Option<f32> {
+    #[track_caller] pub fn split(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> {
         let (mut context_a, mut context_b) = (Callback { f: a }, Callback { f: b });
         let ((build_a, user_a), (build_b, user_b)) = (context_a.erased(), context_b.erased());
         let desc = SplitDesc { label: as_str(label), axis: match axis { Axis::Row => 0, Axis::Column => 1, Axis::Stack => panic!("pxui: a split is a row or a column") }, ratio, min_a, min_b, build_a, user_a, build_b, user_b };
@@ -224,7 +179,7 @@ impl Ui {
     }
 
     #[inline]
-    #[track_caller] pub fn inspector_section<F: FnMut(&mut Ui)>(&mut self, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: F) -> bool {
+    #[track_caller] pub fn inspector_section(&mut self, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: &mut dyn FnMut(&mut Ui)) -> bool {
         let mut context = Callback { f: build };
         let (build, user) = context.erased();
         let mut desc = InspectorSectionDesc { key: as_str(key), label: as_str(label), expanded: expanded as u8, has_set: set_expanded.is_some() as u8, set_expanded: set_expanded.unwrap_or(false) as u8, reserved: [0; 5], build, user, out_open: 0 };

@@ -18,9 +18,10 @@ fn image(raw: pxui_types::Image) -> Option<CoreImage> {
     Some(CoreImage { handle: Rc::new(ForeignImage(raw)), width: i64::from(raw.width), height: i64::from(raw.height) })
 }
 
+/// The identity of an app texture: its native handle (the handle `Rc` is made anew for every call that names the image).
 pub(crate) fn texture_key(image: &CoreImage) -> Option<usize> {
-    image.handle.downcast_ref::<ForeignImage>()?;
-    Some(Rc::as_ptr(&image.handle) as *const () as usize)
+    let raw = image.handle.downcast_ref::<ForeignImage>()?.0;
+    Some(if raw.vk_image_view.is_null() { raw.mtl_texture as usize } else { raw.vk_image_view as usize })
 }
 
 pub(crate) fn adopt_texture(device: &Device, image: &CoreImage) -> Result<Texture, ()> {

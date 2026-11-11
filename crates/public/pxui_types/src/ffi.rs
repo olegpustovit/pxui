@@ -1,5 +1,5 @@
 //! C-compatible frame, platform, accessibility, and theme exchange records.
-use crate::{Event, Str, geom::{Rect, Rgba}};
+use crate::{Event, PxuiBox, Str, geom::{Edges, Rect, Rgba}};
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -175,9 +175,119 @@ pub struct PxuiDialogOut { pub tag: u32, pub index: usize }
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiThemeSnapshot {
-    pub size: u32, pub reserved: u32, pub tokens: ThemeTokens,
-    pub value: PxuiLookDesc, pub hint: PxuiLookDesc, pub field: PxuiLookDesc, pub footer: PxuiLookDesc,
+    pub size: u32, pub part_count: u32, pub tokens: ThemeTokens,
+    pub row_h: f32, pub control_h: f32, pub scrollbar_w: f32, pub scrollbar_gap: f32, pub ring: PxuiRingDesc,
 }
+
+/// The fields of a declared node an app edits in place after its signal is known (`Ui::node_mut`): its look, its mark and the
+/// inset of its text.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiNodeFields { pub size: u32, pub reserved: u32, pub look: PxuiLookDesc, pub mark: PxuiMarkDesc, pub inset: Edges }
+
+/// A byte range `start..end` of a text.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiRange { pub start: i64, pub end: i64 }
+
+/// A byte range with a colour: a syntax span or a chip.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiColorSpan { pub start: i64, pub end: i64, pub color: Rgba, pub reserved: u32 }
+
+/// A message under a line of a text area, optionally pointing at a byte range of it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiNote { pub line: i64, pub start: i64, pub end: i64, pub has_range: u8, pub reserved: [u8; 7], pub text: Str }
+
+/// A replacement of bytes `start..end` of the text with `text`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiSplice { pub start: i64, pub end: i64, pub text: Str }
+
+/// One suggestion of a language's `complete`: the byte range `insert` replaces, the row, its detail and its doc line.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiCompletion { pub start: i64, pub end: i64, pub insert: Str, pub label: Str, pub detail: Str, pub doc: Str }
+
+/// A token's byte range and its description (`has` is 0 for none).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiDescription { pub has: u8, pub reserved: [u8; 7], pub start: i64, pub end: i64, pub text: Str }
+
+/// An optional byte range (`has` is 0 for none).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiMaybeRange { pub has: u8, pub reserved: [u8; 7], pub start: i64, pub end: i64 }
+
+/// What a language's `rewrite` returns: the text it keeps and where the caret lands in it.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiRewrite { pub text: Str, pub caret: i64 }
+
+/// A text area (`TextAreaOpts`): its place, its text and the data options. `flags` are the `PxuiTextAreaDesc::*` bits.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiTextAreaDesc {
+    pub size: u32, pub flags: u32, pub x: f32, pub y: f32, pub width: f32, pub height: f32,
+    pub reveal: i64, pub reveal_nonce: i64, pub select: PxuiRange, pub label: Str, pub value: Str,
+    pub errors: Slice<i64>, pub messages: Slice<PxuiNote>, pub spans: Slice<PxuiRange>, pub splice: Slice<PxuiSplice>, pub chips: Slice<PxuiColorSpan>,
+    /// what starts a line comment (the language's `comment`)
+    pub comment: Str,
+    /// the language's bracket pairs, opener then closer, as Unicode scalar values
+    pub pairs: Slice<u32>,
+}
+impl PxuiTextAreaDesc {
+    pub const WRAP: u32 = 1;
+    pub const HAS_REVEAL: u32 = 2;
+    pub const HAS_SELECT: u32 = 4;
+    pub const HAS_LANGUAGE: u32 = 8;
+    pub const HAS_REWRITE: u32 = 16;
+    pub const KNOWN: u32 = 31;
+}
+
+pub type AreaNotify = Option<extern "C" fn(*mut core::ffi::c_void, i64, i64)>;
+/// The app's closures of a text area (`TextAreaOpts::on_*` and `Language`), called only during the widget's call with
+/// `user`. A callback that returns data writes it to its `out` (borrowed until the next callback). `colorize` and the
+/// language members are all set or all null (`rewrite` alone may be null).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiAreaCallbacks {
+    pub size: u32, pub reserved: u32, pub user: *mut core::ffi::c_void,
+    pub on_context: Option<extern "C" fn(*mut core::ffi::c_void, f32, f32)>,
+    pub on_scrub: Option<extern "C" fn(*mut core::ffi::c_void, u32)>,
+    pub on_scrub_edit: Option<extern "C" fn(*mut core::ffi::c_void, i64, i64, Str)>,
+    pub on_click: Option<extern "C" fn(*mut core::ffi::c_void, i64, u8)>,
+    pub on_caret: Option<extern "C" fn(*mut core::ffi::c_void, i64)>,
+    pub on_caret_move: Option<extern "C" fn(*mut core::ffi::c_void, i64)>,
+    pub on_select: AreaNotify,
+    pub on_drop: Option<extern "C" fn(*mut core::ffi::c_void, i64, u8, Str, Str)>,
+    pub colorize: Option<extern "C" fn(*mut core::ffi::c_void, Str, *mut Slice<PxuiColorSpan>)>,
+    pub brackets: Option<extern "C" fn(*mut core::ffi::c_void, Str, *mut Slice<PxuiRange>)>,
+    pub indent: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut Str)>,
+    pub complete: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut Slice<PxuiCompletion>)>,
+    pub describe: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut PxuiDescription)>,
+    pub number_at: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut PxuiMaybeRange)>,
+    pub context_at: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64) -> u32>,
+    pub rewrite: Option<extern "C" fn(*mut core::ffi::c_void, Str, i64, *mut PxuiRewrite)>,
+}
+
+/// A menu row's colour swatch: none while `has` is 0.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiSwatch { pub has: u8, pub reserved: [u8; 3], pub color: Rgba }
+
+/// A submenu of a context menu: the row of the menu that opens it, its rows (`enabled` is as long as `rows`), their keys
+/// and the row marked with the accent square (when `has_current`).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiSubmenu { pub row: i64, pub current: i64, pub has_current: u8, pub reserved: [u8; 7], pub rows: Slice<Str>, pub enabled: Slice<u8>, pub keys: Slice<Str> }
+
+/// What a context menu has beyond its rows (`MenuOpts`): keys and swatches are per row (shorter than the rows is fine),
+/// `danger` the destructive rows, `lead_from` the first row that is not drawn with a leading mark.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiMenuExtra { pub size: u32, pub reserved: u32, pub lead_from: i64, pub keys: Slice<Str>, pub swatches: Slice<PxuiSwatch>, pub danger: Slice<i64>, pub submenus: Slice<PxuiSubmenu> }
 
 /// C mirror of `Size`; kinds are Px=0, Pct=1, Rel=2, Grow=3, Fit=4.
 #[repr(C)]
@@ -219,7 +329,7 @@ pub struct PxuiShadowDesc { pub color: Rgba, pub offset: [f32; 2], pub blur: f32
 pub struct PxuiRingDesc { pub color: Rgba, pub width: f32, pub sides: u32 }
 
 #[repr(C)]
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiLookDesc {
     pub fill: Rgba, pub gradient: Rgba, pub has_gradient: u8, pub reserved: [u8; 3], pub angle: f32,
     pub border: Rgba, pub border_w: f32, pub sides: u32, pub radius: [f32; 4], pub shadows: [PxuiShadowDesc; 2],
@@ -327,6 +437,8 @@ pub type PxuiDamage = Damage;
 pub type PxuiA11yValue = A11yValue;
 pub type PxuiA11yNode = A11yNode;
 pub type PxuiA11yAction = A11yAction;
+/// A span of actions, as `pxui_a11y_pump` hands them out.
+pub type A11yActionSpan = Slice<A11yAction>;
 pub type PxuiA11yTree = A11yTree;
 pub type PxuiThemeSource = ThemeSource;
 pub type PxuiThemeTokens = ThemeTokens;
@@ -411,6 +523,104 @@ impl ThemeSource {
     pub const REDUCED_MOTION: u32 = 2;
 }
 
+
+/// A build callback of a container descriptor: `(user, ui)`, the `ui` a borrowed `PxuiUi` valid for the call.
+pub type UiBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void)>;
+
+// Descriptors of the kit widgets (`kit.rs` of `pxui_abi` and `pxui`): the one definition both sides use. They carry no `size`:
+// a widget that needs more takes a new descriptor.
+pub type PxuiBuild = UiBuild;
+pub type PxuiGridBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize)>;
+
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PxuiMenuDesc { pub title: Str, pub items: Slice<Str> }
+#[repr(C)]
+pub struct PxuiGridListDesc { pub label: Str, pub count: usize, pub cell_w: f32, pub cell_h: f32, pub build: PxuiGridBuild, pub user: *mut core::ffi::c_void }
+#[repr(C)]
+pub struct PxuiSplitDesc { pub label: Str, pub axis: u32, pub ratio: f32, pub min_a: f32, pub min_b: f32, pub build_a: PxuiBuild, pub user_a: *mut core::ffi::c_void, pub build_b: PxuiBuild, pub user_b: *mut core::ffi::c_void }
+#[repr(C)]
+pub struct PxuiMenuBarDesc { pub label: Str, pub menus: Slice<PxuiMenuDesc> }
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct PxuiMenuOut { pub menu: usize, pub item: usize }
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct PxuiHintDesc { pub key: Str, pub value: Str }
+#[repr(C)]
+pub struct PxuiFooterDesc { pub has_right: u8, pub reserved: [u8; 7], pub right: Str, pub hints: Slice<PxuiHintDesc> }
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PxuiKeyframeDesc { pub time: f32, pub target: u32, pub reserved: [u8; 4], pub values: [f32; 4], pub look: PxuiLookDesc, pub curve: PxuiCurveDesc }
+
+#[repr(C)]
+pub struct PxuiInspectorRowDesc { pub key: Str, pub label: Str, pub has_width: u8, pub has_pin: u8, pub pin: u8, pub reserved: [u8; 5], pub width: f32, pub row: PxuiBox, pub control_x: f32, pub control_y: f32, pub control_w: f32 }
+#[repr(C)]
+pub struct PxuiInspectorSectionDesc { pub key: Str, pub label: Str, pub expanded: u8, pub has_set: u8, pub set_expanded: u8, pub reserved: [u8; 5], pub build: PxuiBuild, pub user: *mut core::ffi::c_void, pub out_open: u8 }
+#[repr(C)]
+pub struct PxuiInspectorValueDesc { pub key: Str, pub label: Str, pub value: Str, pub has_width: u8, pub reserved: [u8; 7], pub width: f32 }
+#[repr(C)]
+pub struct PxuiInspectorTextDesc { pub key: Str, pub text: Str }
+pub type PxuiTableCell = Option<extern "C" fn(*mut core::ffi::c_void, i64, i64) -> Str>;
+#[repr(C)]
+pub struct PxuiTableDesc { pub label: Str, pub at: [f32; 2], pub width: f32, pub height: f32, pub headers: Slice<Str>, pub rows: i64, pub cell: PxuiTableCell, pub user: *mut core::ffi::c_void }
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct PxuiU8MutSpan { pub ptr: *mut u8, pub len: usize }
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct PxuiF32MutSpan { pub ptr: *mut f32, pub len: usize }
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct PxuiU32MutSpan { pub ptr: *mut u32, pub len: usize }
+
+#[repr(C)]
+#[derive(Clone, Copy, Default)]
+pub struct PxuiTreeNode { pub depth: u16, pub children: u8 }
+
+pub type PxuiCollectionEmit = Option<extern "C" fn(*mut core::ffi::c_void, Str)>;
+pub type PxuiCollectionText = Option<extern "C" fn(*mut core::ffi::c_void, usize, usize, PxuiCollectionEmit, *mut core::ffi::c_void)>;
+
+#[repr(C)]
+pub struct PxuiListViewDesc {
+    pub label: Str,
+    pub count: usize,
+    pub multi: u8,
+    pub reserved: [u8; 7],
+    pub selected: PxuiU8MutSpan,
+    pub text: PxuiCollectionText,
+    pub user: *mut core::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct PxuiTreeViewDesc {
+    pub label: Str,
+    pub nodes: Slice<PxuiTreeNode>,
+    pub open: PxuiU8MutSpan,
+    pub selected: *mut usize,
+    pub visible: PxuiU32MutSpan,
+    pub visible_len: *mut usize,
+    pub text: PxuiCollectionText,
+    pub user: *mut core::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct PxuiTableViewDesc {
+    pub label: Str,
+    pub titles: Slice<Str>,
+    pub widths: PxuiF32MutSpan,
+    pub rows: usize,
+    pub has_sort: u8,
+    pub ascending: u8,
+    pub reserved: [u8; 6],
+    pub sort_column: usize,
+    pub selected: *mut usize,
+    pub text: PxuiCollectionText,
+    pub user: *mut core::ffi::c_void,
+}
+
+
 #[cfg(test)]
 mod layout {
     use super::*;
@@ -424,6 +634,40 @@ mod layout {
     }
     #[test]
     fn ffi_layouts_are_pinned() {
+        check("PxuiMenuDesc", size_of::<PxuiMenuDesc>(), align_of::<PxuiMenuDesc>(), &[offset_of!(PxuiMenuDesc, title), offset_of!(PxuiMenuDesc, items)]);
+        check("PxuiGridListDesc", size_of::<PxuiGridListDesc>(), align_of::<PxuiGridListDesc>(), &[offset_of!(PxuiGridListDesc, label), offset_of!(PxuiGridListDesc, count), offset_of!(PxuiGridListDesc, cell_w), offset_of!(PxuiGridListDesc, cell_h), offset_of!(PxuiGridListDesc, build), offset_of!(PxuiGridListDesc, user)]);
+        check("PxuiSplitDesc", size_of::<PxuiSplitDesc>(), align_of::<PxuiSplitDesc>(), &[offset_of!(PxuiSplitDesc, label), offset_of!(PxuiSplitDesc, axis), offset_of!(PxuiSplitDesc, ratio), offset_of!(PxuiSplitDesc, min_a), offset_of!(PxuiSplitDesc, min_b), offset_of!(PxuiSplitDesc, build_a), offset_of!(PxuiSplitDesc, user_a), offset_of!(PxuiSplitDesc, build_b), offset_of!(PxuiSplitDesc, user_b)]);
+        check("PxuiMenuBarDesc", size_of::<PxuiMenuBarDesc>(), align_of::<PxuiMenuBarDesc>(), &[offset_of!(PxuiMenuBarDesc, label), offset_of!(PxuiMenuBarDesc, menus)]);
+        check("PxuiMenuOut", size_of::<PxuiMenuOut>(), align_of::<PxuiMenuOut>(), &[offset_of!(PxuiMenuOut, menu), offset_of!(PxuiMenuOut, item)]);
+        check("PxuiHintDesc", size_of::<PxuiHintDesc>(), align_of::<PxuiHintDesc>(), &[offset_of!(PxuiHintDesc, key), offset_of!(PxuiHintDesc, value)]);
+        check("PxuiFooterDesc", size_of::<PxuiFooterDesc>(), align_of::<PxuiFooterDesc>(), &[offset_of!(PxuiFooterDesc, has_right), offset_of!(PxuiFooterDesc, reserved), offset_of!(PxuiFooterDesc, right), offset_of!(PxuiFooterDesc, hints)]);
+        check("PxuiKeyframeDesc", size_of::<PxuiKeyframeDesc>(), align_of::<PxuiKeyframeDesc>(), &[offset_of!(PxuiKeyframeDesc, time), offset_of!(PxuiKeyframeDesc, target), offset_of!(PxuiKeyframeDesc, reserved), offset_of!(PxuiKeyframeDesc, values), offset_of!(PxuiKeyframeDesc, look), offset_of!(PxuiKeyframeDesc, curve)]);
+        check("PxuiInspectorRowDesc", size_of::<PxuiInspectorRowDesc>(), align_of::<PxuiInspectorRowDesc>(), &[offset_of!(PxuiInspectorRowDesc, key), offset_of!(PxuiInspectorRowDesc, label), offset_of!(PxuiInspectorRowDesc, has_width), offset_of!(PxuiInspectorRowDesc, has_pin), offset_of!(PxuiInspectorRowDesc, pin), offset_of!(PxuiInspectorRowDesc, reserved), offset_of!(PxuiInspectorRowDesc, width), offset_of!(PxuiInspectorRowDesc, row), offset_of!(PxuiInspectorRowDesc, control_x), offset_of!(PxuiInspectorRowDesc, control_y), offset_of!(PxuiInspectorRowDesc, control_w)]);
+        check("PxuiInspectorSectionDesc", size_of::<PxuiInspectorSectionDesc>(), align_of::<PxuiInspectorSectionDesc>(), &[offset_of!(PxuiInspectorSectionDesc, key), offset_of!(PxuiInspectorSectionDesc, label), offset_of!(PxuiInspectorSectionDesc, expanded), offset_of!(PxuiInspectorSectionDesc, has_set), offset_of!(PxuiInspectorSectionDesc, set_expanded), offset_of!(PxuiInspectorSectionDesc, reserved), offset_of!(PxuiInspectorSectionDesc, build), offset_of!(PxuiInspectorSectionDesc, user), offset_of!(PxuiInspectorSectionDesc, out_open)]);
+        check("PxuiInspectorValueDesc", size_of::<PxuiInspectorValueDesc>(), align_of::<PxuiInspectorValueDesc>(), &[offset_of!(PxuiInspectorValueDesc, key), offset_of!(PxuiInspectorValueDesc, label), offset_of!(PxuiInspectorValueDesc, value), offset_of!(PxuiInspectorValueDesc, has_width), offset_of!(PxuiInspectorValueDesc, reserved), offset_of!(PxuiInspectorValueDesc, width)]);
+        check("PxuiInspectorTextDesc", size_of::<PxuiInspectorTextDesc>(), align_of::<PxuiInspectorTextDesc>(), &[offset_of!(PxuiInspectorTextDesc, key), offset_of!(PxuiInspectorTextDesc, text)]);
+        check("PxuiTableDesc", size_of::<PxuiTableDesc>(), align_of::<PxuiTableDesc>(), &[offset_of!(PxuiTableDesc, label), offset_of!(PxuiTableDesc, at), offset_of!(PxuiTableDesc, width), offset_of!(PxuiTableDesc, height), offset_of!(PxuiTableDesc, headers), offset_of!(PxuiTableDesc, rows), offset_of!(PxuiTableDesc, cell), offset_of!(PxuiTableDesc, user)]);
+        check("PxuiU8MutSpan", size_of::<PxuiU8MutSpan>(), align_of::<PxuiU8MutSpan>(), &[offset_of!(PxuiU8MutSpan, ptr), offset_of!(PxuiU8MutSpan, len)]);
+        check("PxuiF32MutSpan", size_of::<PxuiF32MutSpan>(), align_of::<PxuiF32MutSpan>(), &[offset_of!(PxuiF32MutSpan, ptr), offset_of!(PxuiF32MutSpan, len)]);
+        check("PxuiU32MutSpan", size_of::<PxuiU32MutSpan>(), align_of::<PxuiU32MutSpan>(), &[offset_of!(PxuiU32MutSpan, ptr), offset_of!(PxuiU32MutSpan, len)]);
+        check("PxuiTreeNode", size_of::<PxuiTreeNode>(), align_of::<PxuiTreeNode>(), &[offset_of!(PxuiTreeNode, depth), offset_of!(PxuiTreeNode, children)]);
+        check("PxuiListViewDesc", size_of::<PxuiListViewDesc>(), align_of::<PxuiListViewDesc>(), &[offset_of!(PxuiListViewDesc, label), offset_of!(PxuiListViewDesc, count), offset_of!(PxuiListViewDesc, multi), offset_of!(PxuiListViewDesc, reserved), offset_of!(PxuiListViewDesc, selected), offset_of!(PxuiListViewDesc, text), offset_of!(PxuiListViewDesc, user)]);
+        check("PxuiTreeViewDesc", size_of::<PxuiTreeViewDesc>(), align_of::<PxuiTreeViewDesc>(), &[offset_of!(PxuiTreeViewDesc, label), offset_of!(PxuiTreeViewDesc, nodes), offset_of!(PxuiTreeViewDesc, open), offset_of!(PxuiTreeViewDesc, selected), offset_of!(PxuiTreeViewDesc, visible), offset_of!(PxuiTreeViewDesc, visible_len), offset_of!(PxuiTreeViewDesc, text), offset_of!(PxuiTreeViewDesc, user)]);
+        check("PxuiTableViewDesc", size_of::<PxuiTableViewDesc>(), align_of::<PxuiTableViewDesc>(), &[offset_of!(PxuiTableViewDesc, label), offset_of!(PxuiTableViewDesc, titles), offset_of!(PxuiTableViewDesc, widths), offset_of!(PxuiTableViewDesc, rows), offset_of!(PxuiTableViewDesc, has_sort), offset_of!(PxuiTableViewDesc, ascending), offset_of!(PxuiTableViewDesc, reserved), offset_of!(PxuiTableViewDesc, sort_column), offset_of!(PxuiTableViewDesc, selected), offset_of!(PxuiTableViewDesc, text), offset_of!(PxuiTableViewDesc, user)]);
+        check("PxuiNodeFields", size_of::<PxuiNodeFields>(), align_of::<PxuiNodeFields>(), &[offset_of!(PxuiNodeFields, size), offset_of!(PxuiNodeFields, reserved), offset_of!(PxuiNodeFields, look), offset_of!(PxuiNodeFields, mark), offset_of!(PxuiNodeFields, inset)]);
+        check("PxuiRange", size_of::<PxuiRange>(), align_of::<PxuiRange>(), &[offset_of!(PxuiRange, start), offset_of!(PxuiRange, end)]);
+        check("PxuiColorSpan", size_of::<PxuiColorSpan>(), align_of::<PxuiColorSpan>(), &[offset_of!(PxuiColorSpan, start), offset_of!(PxuiColorSpan, end), offset_of!(PxuiColorSpan, color), offset_of!(PxuiColorSpan, reserved)]);
+        check("PxuiNote", size_of::<PxuiNote>(), align_of::<PxuiNote>(), &[offset_of!(PxuiNote, line), offset_of!(PxuiNote, start), offset_of!(PxuiNote, end), offset_of!(PxuiNote, has_range), offset_of!(PxuiNote, reserved), offset_of!(PxuiNote, text)]);
+        check("PxuiSplice", size_of::<PxuiSplice>(), align_of::<PxuiSplice>(), &[offset_of!(PxuiSplice, start), offset_of!(PxuiSplice, end), offset_of!(PxuiSplice, text)]);
+        check("PxuiCompletion", size_of::<PxuiCompletion>(), align_of::<PxuiCompletion>(), &[offset_of!(PxuiCompletion, start), offset_of!(PxuiCompletion, end), offset_of!(PxuiCompletion, insert), offset_of!(PxuiCompletion, label), offset_of!(PxuiCompletion, detail), offset_of!(PxuiCompletion, doc)]);
+        check("PxuiDescription", size_of::<PxuiDescription>(), align_of::<PxuiDescription>(), &[offset_of!(PxuiDescription, has), offset_of!(PxuiDescription, reserved), offset_of!(PxuiDescription, start), offset_of!(PxuiDescription, end), offset_of!(PxuiDescription, text)]);
+        check("PxuiMaybeRange", size_of::<PxuiMaybeRange>(), align_of::<PxuiMaybeRange>(), &[offset_of!(PxuiMaybeRange, has), offset_of!(PxuiMaybeRange, reserved), offset_of!(PxuiMaybeRange, start), offset_of!(PxuiMaybeRange, end)]);
+        check("PxuiRewrite", size_of::<PxuiRewrite>(), align_of::<PxuiRewrite>(), &[offset_of!(PxuiRewrite, text), offset_of!(PxuiRewrite, caret)]);
+        check("PxuiTextAreaDesc", size_of::<PxuiTextAreaDesc>(), align_of::<PxuiTextAreaDesc>(), &[offset_of!(PxuiTextAreaDesc, size), offset_of!(PxuiTextAreaDesc, flags), offset_of!(PxuiTextAreaDesc, x), offset_of!(PxuiTextAreaDesc, y), offset_of!(PxuiTextAreaDesc, width), offset_of!(PxuiTextAreaDesc, height), offset_of!(PxuiTextAreaDesc, reveal), offset_of!(PxuiTextAreaDesc, reveal_nonce), offset_of!(PxuiTextAreaDesc, select), offset_of!(PxuiTextAreaDesc, label), offset_of!(PxuiTextAreaDesc, value), offset_of!(PxuiTextAreaDesc, errors), offset_of!(PxuiTextAreaDesc, messages), offset_of!(PxuiTextAreaDesc, spans), offset_of!(PxuiTextAreaDesc, splice), offset_of!(PxuiTextAreaDesc, chips), offset_of!(PxuiTextAreaDesc, comment), offset_of!(PxuiTextAreaDesc, pairs)]);
+        check("PxuiAreaCallbacks", size_of::<PxuiAreaCallbacks>(), align_of::<PxuiAreaCallbacks>(), &[offset_of!(PxuiAreaCallbacks, size), offset_of!(PxuiAreaCallbacks, reserved), offset_of!(PxuiAreaCallbacks, user), offset_of!(PxuiAreaCallbacks, on_context), offset_of!(PxuiAreaCallbacks, on_scrub), offset_of!(PxuiAreaCallbacks, on_scrub_edit), offset_of!(PxuiAreaCallbacks, on_click), offset_of!(PxuiAreaCallbacks, on_caret), offset_of!(PxuiAreaCallbacks, on_caret_move), offset_of!(PxuiAreaCallbacks, on_select), offset_of!(PxuiAreaCallbacks, on_drop), offset_of!(PxuiAreaCallbacks, colorize), offset_of!(PxuiAreaCallbacks, brackets), offset_of!(PxuiAreaCallbacks, indent), offset_of!(PxuiAreaCallbacks, complete), offset_of!(PxuiAreaCallbacks, describe), offset_of!(PxuiAreaCallbacks, number_at), offset_of!(PxuiAreaCallbacks, context_at), offset_of!(PxuiAreaCallbacks, rewrite)]);
+        check("PxuiSwatch", size_of::<PxuiSwatch>(), align_of::<PxuiSwatch>(), &[offset_of!(PxuiSwatch, has), offset_of!(PxuiSwatch, reserved), offset_of!(PxuiSwatch, color)]);
+        check("PxuiSubmenu", size_of::<PxuiSubmenu>(), align_of::<PxuiSubmenu>(), &[offset_of!(PxuiSubmenu, row), offset_of!(PxuiSubmenu, current), offset_of!(PxuiSubmenu, has_current), offset_of!(PxuiSubmenu, reserved), offset_of!(PxuiSubmenu, rows), offset_of!(PxuiSubmenu, enabled), offset_of!(PxuiSubmenu, keys)]);
+        check("PxuiMenuExtra", size_of::<PxuiMenuExtra>(), align_of::<PxuiMenuExtra>(), &[offset_of!(PxuiMenuExtra, size), offset_of!(PxuiMenuExtra, reserved), offset_of!(PxuiMenuExtra, lead_from), offset_of!(PxuiMenuExtra, keys), offset_of!(PxuiMenuExtra, swatches), offset_of!(PxuiMenuExtra, danger), offset_of!(PxuiMenuExtra, submenus)]);
         check("Slice", size_of::<Slice<u32>>(), align_of::<Slice<u32>>(), &[0, 8]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[0, 8, 16, 24, 32, 40, 56, 72, 88, 104, 120, 136, 152]);
         check("PlatformOut", size_of::<PlatformOut>(), align_of::<PlatformOut>(), &[0, 4, 8, 9, 10, 11, 16, 48, 56, 72, 76, 77]);
@@ -437,7 +681,7 @@ mod layout {
         check("PxuiMotion", size_of::<PxuiMotion>(), align_of::<PxuiMotion>(), &[offset_of!(PxuiMotion, fast), offset_of!(PxuiMotion, normal), offset_of!(PxuiMotion, slow), offset_of!(PxuiMotion, ease)]);
         check("PxuiThemeTokens", size_of::<ThemeTokens>(), align_of::<ThemeTokens>(), &[offset_of!(ThemeTokens, panel), offset_of!(ThemeTokens, foreground), offset_of!(ThemeTokens, control), offset_of!(ThemeTokens, input), offset_of!(ThemeTokens, track), offset_of!(ThemeTokens, accent), offset_of!(ThemeTokens, ink_ground), offset_of!(ThemeTokens, has_ink_ground), offset_of!(ThemeTokens, reserved), offset_of!(ThemeTokens, space), offset_of!(ThemeTokens, radius), offset_of!(ThemeTokens, display_size), offset_of!(ThemeTokens, title_size), offset_of!(ThemeTokens, font_size), offset_of!(ThemeTokens, label_size), offset_of!(ThemeTokens, motion), offset_of!(ThemeTokens, reduced_motion), offset_of!(ThemeTokens, reserved_tail), offset_of!(ThemeTokens, density)]);
         check("PxuiDialogOut", size_of::<PxuiDialogOut>(), align_of::<PxuiDialogOut>(), &[offset_of!(PxuiDialogOut, tag), offset_of!(PxuiDialogOut, index)]);
-        check("PxuiThemeSnapshot", size_of::<PxuiThemeSnapshot>(), align_of::<PxuiThemeSnapshot>(), &[offset_of!(PxuiThemeSnapshot, size), offset_of!(PxuiThemeSnapshot, reserved), offset_of!(PxuiThemeSnapshot, tokens), offset_of!(PxuiThemeSnapshot, value), offset_of!(PxuiThemeSnapshot, hint), offset_of!(PxuiThemeSnapshot, field), offset_of!(PxuiThemeSnapshot, footer)]);
+        check("PxuiThemeSnapshot", size_of::<PxuiThemeSnapshot>(), align_of::<PxuiThemeSnapshot>(), &[offset_of!(PxuiThemeSnapshot, size), offset_of!(PxuiThemeSnapshot, part_count), offset_of!(PxuiThemeSnapshot, tokens), offset_of!(PxuiThemeSnapshot, row_h), offset_of!(PxuiThemeSnapshot, control_h), offset_of!(PxuiThemeSnapshot, scrollbar_w), offset_of!(PxuiThemeSnapshot, scrollbar_gap), offset_of!(PxuiThemeSnapshot, ring)]);
         check("PxuiSizeDesc", size_of::<PxuiSizeDesc>(), align_of::<PxuiSizeDesc>(), &[offset_of!(PxuiSizeDesc, kind), offset_of!(PxuiSizeDesc, value), offset_of!(PxuiSizeDesc, relative)]);
         check("PxuiTrackDesc", size_of::<PxuiTrackDesc>(), align_of::<PxuiTrackDesc>(), &[offset_of!(PxuiTrackDesc, kind), offset_of!(PxuiTrackDesc, value)]);
         check("PxuiGridDesc", size_of::<PxuiGridDesc>(), align_of::<PxuiGridDesc>(), &[offset_of!(PxuiGridDesc, has_grid), offset_of!(PxuiGridDesc, cols), offset_of!(PxuiGridDesc, rows)]);

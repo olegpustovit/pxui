@@ -26,4 +26,4 @@ case "$(uname -s)" in
 esac
 
 install -m 644 "$repo/include/pxui.h" "$prefix/include/pxui.h"
-install -m 644 "$repo/crates/private/pxui_core/themes/"*.theme "$prefix/share/pxui/themes/"
+install -m 644 "$repo/assets/themes/"*.theme "$prefix/share/pxui/themes/"

@@ -47,3 +47,18 @@ macro_rules! export {
         }
     };
 }
+
+/// A copy of the descriptor behind `$ptr` (of type `$ty`, whose first field is `size: u32`): the size is read before
+/// anything else, a descriptor shorter than `$ty` is refused (`None`) and at most `size_of::<$ty>()` bytes are copied,
+/// so a caller that grew its struct later is fine and a shorter one is never over-read.
+macro_rules! read_desc {
+    ($ptr:expr, $ty:ty) => {{
+        let p: *const $ty = $ptr;
+        let size = unsafe { p.cast::<u32>().read_unaligned() } as usize;
+        if size < core::mem::size_of::<$ty>() { None } else {
+            let mut value: $ty = unsafe { core::mem::zeroed() };
+            unsafe { core::ptr::copy_nonoverlapping(p.cast::<u8>(), (&mut value as *mut $ty).cast::<u8>(), core::mem::size_of::<$ty>()); }
+            Some(value)
+        }
+    }};
+}

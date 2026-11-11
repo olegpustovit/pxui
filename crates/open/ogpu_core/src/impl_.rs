@@ -15,6 +15,11 @@ pub fn select(implementation: Impl) {
     SELECTED.with(|cell| cell.set(Some(implementation)));
 }
 
+/// Whether this thread has selected a backend (a second copy of OGPU in the process selects only when its own has not).
+pub fn is_selected() -> bool {
+    SELECTED.with(|cell| cell.get().is_some())
+}
+
 fn selected(operation: &str) -> Result<Impl, Error> {
     SELECTED.with(Cell::get).ok_or_else(|| {
         error::make(operation, ErrorKind::NoAdapter, "no OGPU implementation selected")

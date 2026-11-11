@@ -104,17 +104,164 @@ impl From<Tokens> for crate::ffi::ThemeTokens {
     }
 }
 
-/// The Gallery-facing subset of the theme graph, transported through the stable C snapshot.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct ThemeSnapshot {
-    pub tokens: Tokens,
-    pub value: States,
-    pub hint: States,
-    pub field: States,
-    pub footer: States,
+/// The kit parts of a theme, in the order the C snapshot lists them. `pxui_core`'s `Theme` and `ThemeSnapshot` are
+/// generated from this one list, so a part exists in both or in neither.
+#[macro_export]
+macro_rules! theme_widgets {
+    ($m:ident) => {
+        $m! {
+    /// a docked panel's ground
+    panel,
+    /// a floating sheet (popup, menu, completion list): the input white with a hairline
+    popup,
+    /// a modal's sheet
+    modal,
+    /// the scroll thumb (fill)
+    scrollbar,
+    /// a caption: upper case at the label size
+    label,
+    /// a section header's caption and its chevron
+    section,
+    chevron,
+    /// an inspector row (its label in ink-2)
+    row,
+    /// a list row (picker, completion); `checked` is the keyboard's current row
+    list,
+    /// a row armed for deletion
+    row_doomed,
+    /// a parameter row's pin dot, `checked` when the row is on its card
+    pin,
+    /// the current choice's square, a message's dot
+    mark,
+    notice,
+    /// an accent caption beside a name
+    badge,
+    /// a text button; `checked` while it is on
+    button,
+    /// a quieter button (`bare`, a trailing reset)
+    button_bare,
+    /// a switch row, its track and knob (`checked` when on)
+    toggle,
+    switch,
+    knob,
+    /// a field's hairline and value; `focus` while it is edited
+    field,
+    field_invalid,
+    /// a value's position in its soft range
+    fraction,
+    /// empty text's stand-in
+    placeholder,
+    /// a value read out
+    value,
+    /// keys beside what they do (`hint`)
+    key,
+    hint,
+    /// a query's matched letters
+    matched,
+    /// a colour swatch's frame
+    swatch,
+    /// a menu row and a destructive one, a separator line
+    menu,
+    menu_danger,
+    menu_key,
+    separator,
+    /// a window's foot and an inspector's bar (the hairline)
+    footer,
+    /// an inspector head: its hairline, the name and its index
+    header,
+    title,
+    index,
+    /// a read-only table's header row and body rows
+    table_head,
+    table_row,
+    /// a tooltip, the carried payload and its tip
+    tooltip,
+    ghost,
+    /// the text area: ground, gutter rule (`border`), selection and caret
+    text_area,
+    /// a checkbox's box and a radio's ring (`checked` when on; the inner square is `mark`, the dot `notice`)
+    checkbox,
+    radio,
+    /// a slider's thumb (its rail is `separator`, the filled part `mark`)
+    slider,
+    /// a progress track (the bar is `mark`) and a spinner's dots (`checked` is the lead dot)
+    progress,
+    spinner,
+    /// a tab (`checked`: the one in use) and a segment of a segmented control
+    tab,
+    segment,
+    /// a dropdown's button (its menu is `popup` with `menu` rows)
+    dropdown,
+    /// a menu bar (its items are `menu` rows)
+    menubar,
+    /// a scroll view's frame
+    scroll_view,
+    /// a list row and a tree row (`checked`: selected; `focus`: the keyboard's row)
+    listbox,
+    tree,
+    /// a table's column header (`checked`: the sort column)
+    column,
+    /// a dialog's title bar
+    dialog,
+    /// a toast's sheet
+    toast,
+    /// a square button with a glyph
+    icon_button,
+    /// a search field's well
+    search,
+    /// an image's frame
+    image,
+        }
+    };
 }
 
+macro_rules! snapshot {
+    ($($(#[$doc:meta])* $name:ident),* $(,)?) => {
+        /// The tokens and one `States` per kit part: the engine's `Theme`, read through the C snapshot.
+        #[derive(Clone, Copy, Debug, PartialEq)]
+        pub struct ThemeSnapshot {
+            pub tokens: Tokens,
+            pub row_h: f32,
+            pub control_h: f32,
+            pub ring: Ring,
+            pub scrollbar_w: f32,
+            pub scrollbar_gap: f32,
+            $($(#[$doc])* pub $name: States,)*
+        }
+        /// How many kit parts a snapshot lists.
+        pub const WIDGET_COUNT: usize = [$(stringify!($name)),*].len();
+        impl ThemeSnapshot {
+            /// The snapshot from its C scalars and the `WIDGET_COUNT` parts of six looks each, in list order.
+            pub fn from_parts(v: &crate::ffi::PxuiThemeSnapshot, looks: &[crate::ffi::PxuiLookDesc]) -> ThemeSnapshot {
+                let mut looks = looks.chunks_exact(6).map(|s| States {
+                    idle: s[0].into(), hover: s[1].into(), pressed: s[2].into(), focus: s[3].into(), disabled: s[4].into(), checked: s[5].into(),
+                });
+                ThemeSnapshot {
+                    tokens: v.tokens.into(), row_h: v.row_h, control_h: v.control_h,
+                    ring: Ring { color: v.ring.color, width: v.ring.width, sides: v.ring.sides as u8 },
+                    scrollbar_w: v.scrollbar_w, scrollbar_gap: v.scrollbar_gap,
+                    $($name: looks.next().expect("a snapshot lists every part"),)*
+                }
+            }
+        }
+    };
+}
+theme_widgets!(snapshot);
+
 pub type Theme = ThemeSnapshot;
+
+impl From<Look> for crate::ffi::PxuiLookDesc {
+    fn from(v: Look) -> Self {
+        let shadow = |s: Shadow| crate::ffi::PxuiShadowDesc { color: s.color, offset: [s.offset.0, s.offset.1], blur: s.blur, spread: s.spread, inner: s.inner as u8, reserved: [0; 3] };
+        Self {
+            fill: v.fill, gradient: v.gradient.unwrap_or_default(), has_gradient: v.gradient.is_some() as u8, reserved: [0; 3], angle: v.angle,
+            border: v.border, border_w: v.border_w, sides: v.sides as u32, radius: v.radius, shadows: [shadow(v.shadows[0]), shadow(v.shadows[1])], text: v.text,
+            font: crate::ffi::PxuiFontDesc { family: v.font.family, weight: v.font.weight, size: v.font.size, tracking: v.font.tracking, caps: v.font.caps as u8, reserved: [0; 3] },
+            opacity: v.opacity, ring: crate::ffi::PxuiRingDesc { color: v.ring.color, width: v.ring.width, sides: v.ring.sides as u32 },
+            selection: v.selection, caret: v.caret, dashed: v.dashed as u8, reserved_tail: [0; 3],
+        }
+    }
+}
 
 impl From<crate::ffi::PxuiLookDesc> for Look {
     fn from(v: crate::ffi::PxuiLookDesc) -> Self {
@@ -129,13 +276,6 @@ impl From<crate::ffi::PxuiLookDesc> for Look {
             opacity:v.opacity, ring:Ring { color:v.ring.color, width:v.ring.width, sides:v.ring.sides as u8 },
             selection:v.selection, caret:v.caret, dashed:v.dashed != 0,
         }
-    }
-}
-
-impl From<crate::ffi::PxuiThemeSnapshot> for ThemeSnapshot {
-    fn from(v: crate::ffi::PxuiThemeSnapshot) -> Self {
-        let states = |look: crate::ffi::PxuiLookDesc| States::all(look.into());
-        Self { tokens:v.tokens.into(), value:states(v.value), hint:states(v.hint), field:states(v.field), footer:states(v.footer) }
     }
 }
 

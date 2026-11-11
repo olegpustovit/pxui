@@ -19,7 +19,8 @@ pub type PxuiHit = Option<extern "C" fn(*mut c_void, Rect) -> Rect>;
 // it is released exactly once, also when the call is refused.
 export!(pub unsafe fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32 {
     if desc.is_null() { return PXUI_ERR_ARGUMENT; }
-    let desc = unsafe { *desc };
+    // the box owns the hit callback from here on, so a refused descriptor still releases it: read what it holds first
+    let Some(desc) = read_desc!(desc, PxuiBoxDesc) else { return PXUI_ERR_ARGUMENT; };
     let owner = CallbackOwner { user: desc.hit_user, release: desc.hit_release };
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() || desc.size < core::mem::size_of::<PxuiBoxDesc>() as u32 || desc.has_at > 1 || desc.has_hit_rect > 1
@@ -73,6 +74,33 @@ export!(pub unsafe fn pxui_ui_patch_mark(ui: *mut PxuiUi, box_: *const PxuiBox, 
         _ => return unsafe { fail(ui, "invalid mark") },
     };
     unsafe { *out = e.patch_mark(&b, mark) as u8; }
+    0
+});
+
+// The look, mark and inset of a node declared this frame, to read (`pxui_ui_node_fields`) and to write back whole
+// (`pxui_ui_set_node_fields`), as the engine's `node_mut` lets a widget finish a node once its signal is known.
+export!(pub unsafe fn pxui_ui_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::ffi::PxuiNodeFields) -> i32 {
+    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    if out.is_null() { return unsafe { fail(ui, "null node output") }; }
+    let n = e.node_mut(&b);
+    let (kind, direction, width, rising) = match n.mark { Mark::None => (0, 0, 0.0, 0), Mark::Chevron(d) => (1, match d { Dir::Down => 0, Dir::Up => 1, Dir::Left => 2, Dir::Right => 3 }, 0.0, 0), Mark::Line { width, rising } => (2, 0, width, rising as u8) };
+    unsafe { *out = pxui_types::ffi::PxuiNodeFields { size: core::mem::size_of::<pxui_types::ffi::PxuiNodeFields>() as u32, reserved: 0, look: n.look.into(), mark: PxuiMarkDesc { kind, direction, width, rising, reserved: [0; 3] }, inset: n.inset }; }
+    0
+});
+
+export!(pub unsafe fn pxui_ui_set_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, fields: *const pxui_types::ffi::PxuiNodeFields) -> i32 {
+    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    let Some(f) = read_desc!(fields, pxui_types::ffi::PxuiNodeFields) else { return unsafe { fail(ui, "invalid node fields") }; };
+    let mark = match f.mark.kind {
+        0 => Mark::None,
+        1 => Mark::Chevron(match f.mark.direction { 0 => Dir::Down, 1 => Dir::Up, 2 => Dir::Left, 3 => Dir::Right, _ => return unsafe { fail(ui, "unknown mark direction") } }),
+        2 if f.mark.width.is_finite() && f.mark.rising <= 1 => Mark::Line { width: f.mark.width, rising: f.mark.rising != 0 },
+        _ => return unsafe { fail(ui, "invalid mark") },
+    };
+    let Some(look) = decode_look(f.look) else { return unsafe { fail(ui, "invalid look") }; };
+    if !finite(&[f.inset.l, f.inset.t, f.inset.r, f.inset.b]) { return unsafe { fail(ui, "invalid inset") }; }
+    let n = e.node_mut(&b);
+    (n.look, n.mark, n.inset) = (look, mark, f.inset);
     0
 });
 

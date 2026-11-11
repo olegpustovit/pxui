@@ -15,7 +15,7 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
     ui.set_font_size(13);
     assert_eq!(ui.text_top(None, 10.0, 24.0), 10.0 + ((24.0f32 - 13.0) / 2.0).floor());
     let mut seen = false;
-    ui.frame(&input(), |ui| {
+    ui.frame(&input(), &mut |ui: &mut Ui| {
         assert!(!ui.captured() && !ui.text_input_focused() && !ui.verifying());
         assert_eq!(ui.passed_undo(), None::<UndoKind>);
         let b = ui.box_("scroller", BoxOpts::default().flags(CLICKABLE | SCROLL | CLIP).w(Size::Px(100.0)).h(Size::Px(60.0)).at((10.0, 20.0)).scroll_step(12.0));
@@ -72,13 +72,13 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
     let hints = [("Esc".to_string(), "close".to_string())];
     let actions = [HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true }];
     for round in 0..3 {
-        ui.frame(&input(), |ui| {
-            ui.panel("extras", |ui| {
+        ui.frame(&input(), &mut |ui: &mut Ui| {
+            ui.panel(pxui_types::ui::PanelOpts::default(), "extras", &mut |ui: &mut Ui| {
                 assert!(!ui.button_styled("Styled", true, false, false, Some(pxui_types::geom::Rgba { r: 9, g: 9, b: 9, a: 255 })));
                 let head = ui.inspector_head_for_test(&actions);
                 assert_eq!(head.renamed, "Title");
-                ui.inspector_body(|ui| {
-                    assert!(ui.inspector_section_view("section", round, true, None, "Section", |ui| { ui.label("inside"); }));
+                ui.inspector_body(&mut |ui: &mut Ui| {
+                    assert!(ui.inspector_section_view("section", round, true, None, "Section", &mut |ui: &mut Ui| { ui.label("inside"); }));
                     assert!(!ui.inspector_toggle_value("toggle", (0.0, 0.0), false));
                 });
                 ui.inspector_bar(&hints, 3);
@@ -89,7 +89,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 assert_eq!(ui.field_drag(&grip), None);
                 if round == 0 { assert!(ui.animate(&grip, Target::Opacity(0.5), Curve::Spring { omega: 30.0 }), "a new target starts moving"); }
                 let mut ran = false;
-                let open = ui.popup(None, Some(100.0), true, false, (10.0, 10.0), 100.0, 40.0, "pop", |ui| { ran = true; ui.label("popped"); });
+                let open = ui.popup(None, Some(100.0), true, false, (10.0, 10.0), 100.0, 40.0, "pop", &mut |ui: &mut Ui| { ran = true; ui.label("popped"); });
                 assert_eq!(open, ran, "the build runs exactly while the popup is open");
             });
         }).expect("frame");
@@ -115,9 +115,9 @@ fn a_theme_built_from_key_values_scopes_over_a_subtree_and_refuses_bad_keys() {
     assert!(theme.load("/no/such/file.theme").is_err());
     let mut ui = Ui::new().expect("library");
     let mut inside = None;
-    ui.frame(&input(), |ui| {
+    ui.frame(&input(), &mut |ui: &mut Ui| {
         let outer = ui.tokens().accent;
-        ui.themed(&theme, |ui| inside = Some(ui.tokens().accent));
+        ui.themed(&theme, &mut |ui: &mut Ui| inside = Some(ui.tokens().accent));
         assert_eq!(ui.tokens().accent, outer, "the Ui's own theme is back");
     }).expect("frame");
     assert_eq!(inside, Some(pxui_types::geom::Rgba { r: 255, g: 0, b: 0, a: 255 }));
@@ -150,8 +150,8 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
         slide: Some(Rc::new(|f| format!("{f:.2}"))), scrub: Some(Rc::new(|origin, dx, _| format!("{origin}{dx}"))), ..ValueFieldOpts::default()
     };
     for _ in 0..2 {
-        ui.frame(&input(), |ui| {
-            ui.panel("fields", |ui| {
+        ui.frame(&input(), &mut |ui: &mut Ui| {
+            ui.panel(pxui_types::ui::PanelOpts::default(), "fields", &mut |ui: &mut Ui| {
                 let (text, editing) = ui.value_field((10.0, 10.0), 120.0, 20.0, &opts, &|t: &str| t.parse::<f32>().is_ok(), "amount", "0.25");
                 assert_eq!((text.as_str(), editing), ("0.25", false));
                 let edit = ui.load_text_edit(7, "abc");
@@ -162,7 +162,7 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
         }).expect("frame");
     }
     let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = ui.frame(&input(), |ui| ui.remember(&TextEdit { text: "é".into(), caret: 1, anchor: 0 }, false));
+        let _ = ui.frame(&input(), &mut |ui: &mut Ui| ui.remember(&TextEdit { text: "é".into(), caret: 1, anchor: 0 }, false));
     })).expect_err("a caret inside a character is a caller bug");
     assert!(err.downcast_ref::<String>().is_some_and(|m| m.contains("caret and anchor")));
 }

@@ -58,7 +58,7 @@ typedef struct { uint16_t family,weight; int64_t size; float tracking; uint8_t c
 typedef struct { PxuiColor color; float offset[2],blur,spread; uint8_t inner,reserved[3]; } PxuiShadowDesc;
 typedef struct { PxuiColor color; float width; uint32_t sides; } PxuiRingDesc;
 typedef struct { PxuiColor fill,gradient; uint8_t has_gradient,reserved[3]; float angle; PxuiColor border; float border_w; uint32_t sides; float radius[4]; PxuiShadowDesc shadows[2]; PxuiColor text; PxuiFontDesc font; float opacity; PxuiRingDesc ring; PxuiColor selection,caret; uint8_t dashed,reserved_tail[3]; } PxuiLookDesc;
-typedef struct { uint32_t size,reserved; PxuiThemeTokens tokens; PxuiLookDesc value,hint,field,footer; } PxuiThemeSnapshot;
+typedef struct { uint32_t size,part_count; PxuiThemeTokens tokens; float row_h,control_h,scrollbar_w,scrollbar_gap; PxuiRingDesc ring; } PxuiThemeSnapshot;
 typedef struct { uint32_t kind,direction; float width; uint8_t rising,reserved[3]; } PxuiMarkDesc;
 typedef struct { uint8_t has_bar,whole,reserved[2]; PxuiColor color; float radius,width,gap,margin; } PxuiBarDesc;
 typedef struct { uint8_t hovered,pressed,focused,disabled,checked,reserved[3]; } PxuiStateDesc;
@@ -90,8 +90,15 @@ typedef struct {
     void (*release_owner)(void *owner_token);
 } PxuiGpu;
 typedef struct { uint32_t size; void *vk_command_buffer, *mtl_command_buffer; } PxuiCommands;
-typedef struct { uint32_t size; void *vk_command_buffer, *mtl_render_encoder; uint32_t width_px,height_px; float scale; void *mtl_command_buffer; } PxuiPass;
 typedef struct { uint32_t size; void *vk_image_view, *mtl_texture; uint32_t width,height,format; } PxuiImage;
+typedef struct PxuiPass PxuiPass;
+typedef int32_t (*PxuiPassRecord)(void *user, const PxuiImage *target);
+/* A layer with a backdrop blur needs what the frame holds so far: split(user, record, record_user, out) ends the app's open pass,
+   calls record(record_user, &target) (the colour target, sampleable, everything drawn so far), reopens a pass over the same target
+   (load, not clear; same viewport and scissor), writes it to `out` and returns 0. */
+typedef int32_t (*PxuiPassSplit)(void *user, PxuiPassRecord record, void *record_user, PxuiPass *out);
+/* Draws layers first_layer.. (layer_count of them; 0 means every layer from first_layer), so an app can draw its own content between. */
+struct PxuiPass { uint32_t size; void *vk_command_buffer, *mtl_render_encoder; uint32_t width_px,height_px; float scale; void *mtl_command_buffer; uint32_t first_layer,layer_count; PxuiPassSplit split; void *split_user; };
 typedef struct { uint32_t size, format; uint8_t samples; uint8_t reserved[3]; uint32_t mask_width,mask_height,color_width,color_height,reserved_tail; } PxuiTargetDesc;
 typedef struct { uint32_t size; uint16_t font,weight; float size_points,line_height; uint32_t wrap,align; uint16_t max_lines; uint8_t italic,ellipsis; uint32_t reserved; float tracking; } PxuiTextStyle;
 typedef struct { float width,height,baseline; uint32_t lines; } PxuiTextMetrics;
@@ -142,7 +149,8 @@ typedef struct {
     uint32_t size;
     float x, y, width, height;
     int64_t padding;
-    uint8_t has_height, window;
+    uint8_t has_height, window, has_max_height, has_stroke, has_look, reserved[3];
+    float max_height; PxuiColor stroke; PxuiLookDesc look;
 } PxuiPanel;
 typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
@@ -206,7 +214,9 @@ int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *use
 int32_t pxui_ui_frame(PxuiUi *ui, const PxuiInput *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its next frame */
 PxuiThemeTokens pxui_ui_tokens(PxuiUi *ui);
-PxuiThemeSnapshot pxui_ui_theme(PxuiUi *ui);
+/* The theme in effect, whole: its scalars in `out` and every kit part's six looks (idle, hover, pressed, focus, disabled, checked)
+   in `looks`, in the part order of pxui_types::theme_widgets (`capacity` looks; part_count * 6 are written). */
+int32_t pxui_ui_theme(PxuiUi *ui, PxuiThemeSnapshot *out, PxuiLookDesc *looks, size_t capacity);
 int32_t pxui_ui_grid_list(PxuiUi *ui, const PxuiGridListDesc *desc, PxuiBox *out);
 int32_t pxui_ui_split(PxuiUi *ui, const PxuiSplitDesc *desc, uint8_t *changed, float *ratio);
 int32_t pxui_ui_menu_bar(PxuiUi *ui, const PxuiMenuBarDesc *desc, PxuiMenuOut *out);
@@ -274,16 +284,61 @@ int32_t pxui_ui_anchored(PxuiUi *ui, PxuiStr label, const PxuiAnchorDesc *anchor
 int32_t pxui_ui_dialog(PxuiUi *ui, PxuiStr title, PxuiStrSpan buttons, PxuiBuild build, void *user, PxuiDialogOut *out);
 int32_t pxui_ui_tip(PxuiUi *ui, const PxuiBox *box, PxuiStr label);
 int32_t pxui_ui_toasts(PxuiUi *ui, PxuiStr label, PxuiStrSpan items, double seconds, int64_t *out_index);
-int32_t pxui_ui_context_menu(PxuiUi *ui, float x, float y, PxuiStr label, PxuiStrSpan items, PxuiU8Span enabled, uint8_t has_width, float width, uint8_t has_selected, int64_t selected, uint32_t *out_tag, int64_t *out_index);
-int32_t pxui_ui_picker(PxuiUi *ui, int64_t limit, uint8_t slash, uint8_t at_rest, PxuiStr label, PxuiStr query, PxuiPickerRows rows, void *user, PxuiStr *out_query, uint32_t *out_tag, int64_t *out_index);
+typedef struct { uint8_t has, reserved[3]; PxuiColor color; } PxuiSwatch;
+typedef struct { int64_t row, current; uint8_t has_current, reserved[7]; PxuiStrSpan rows; PxuiU8Span enabled; PxuiStrSpan keys; } PxuiSubmenu;
+typedef struct { const PxuiSubmenu *ptr; size_t len; } PxuiSubmenuSpan;
+typedef struct { const PxuiSwatch *ptr; size_t len; } PxuiSwatchSpan;
+/* What a context menu has beyond its rows: keys and swatches per row (shorter than the rows is fine), the destructive rows, the
+   submenus and the first row drawn without a leading mark. `extra` may be null. */
+typedef struct { uint32_t size, reserved; int64_t lead_from; PxuiStrSpan keys; PxuiSwatchSpan swatches; PxuiI64Span danger; PxuiSubmenuSpan submenus; } PxuiMenuExtra;
+int32_t pxui_ui_context_menu(PxuiUi *ui, float x, float y, PxuiStr label, PxuiStrSpan items, PxuiU8Span enabled, uint8_t has_width, float width, uint8_t has_selected, int64_t selected, const PxuiMenuExtra *extra, uint32_t *out_tag, int64_t *out_index);
+/* mark(user, row, &color) returns 1 and sets the colour of a row's accent square, else 0; off(user, row) returns 1 for a row drawn off. */
+typedef uint8_t (*PxuiPickerMark)(void *user, int64_t row, PxuiColor *out);
+typedef uint8_t (*PxuiPickerOff)(void *user, int64_t row);
+int32_t pxui_ui_picker(PxuiUi *ui, int64_t limit, uint8_t slash, uint8_t at_rest, PxuiStr label, PxuiStr query, PxuiPickerRows rows, PxuiPickerMark mark, PxuiPickerOff off, void *user, PxuiStr *out_query, uint32_t *out_tag, int64_t *out_index);
 int32_t pxui_ui_list_view(PxuiUi *ui, const PxuiListViewDesc *desc, size_t *activated);
 int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated);
 int32_t pxui_ui_table_view(PxuiUi *ui, const PxuiTableViewDesc *desc, size_t *sort_column);
-int32_t pxui_ui_text_area_submit(PxuiUi *ui, const float at[2], float width, float height, uint8_t wrap, PxuiStr label, PxuiStr value, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted);
+typedef struct { int64_t start, end; } PxuiRange;
+typedef struct { int64_t start, end; PxuiColor color; uint32_t reserved; } PxuiColorSpan;
+typedef struct { int64_t line, start, end; uint8_t has_range, reserved[7]; PxuiStr text; } PxuiNote;
+typedef struct { int64_t start, end; PxuiStr text; } PxuiSplice;
+typedef struct { int64_t start, end; PxuiStr insert, label, detail, doc; } PxuiCompletion;
+typedef struct { uint8_t has, reserved[7]; int64_t start, end; PxuiStr text; } PxuiDescription;
+typedef struct { uint8_t has, reserved[7]; int64_t start, end; } PxuiMaybeRange;
+typedef struct { PxuiStr text; int64_t caret; } PxuiRewrite;
+typedef struct { const PxuiNote *ptr; size_t len; } PxuiNoteSpan;
+typedef struct { const PxuiRange *ptr; size_t len; } PxuiRangeSpan;
+typedef struct { const PxuiSplice *ptr; size_t len; } PxuiSpliceSpan;
+typedef struct { const PxuiColorSpan *ptr; size_t len; } PxuiColorSpanSpan;
+/* A text area (flags: 1 wrap, 2 reveal, 4 select, 8 language, 16 rewrite): its place, its text and the data options;
+   `comment` and `pairs` (opener, closer as Unicode scalar values) are the language's. */
+typedef struct {
+    uint32_t size, flags; float x, y, width, height; int64_t reveal, reveal_nonce; PxuiRange select; PxuiStr label, value;
+    PxuiI64Span errors; PxuiNoteSpan messages; PxuiRangeSpan spans; PxuiSpliceSpan splice; PxuiColorSpanSpan chips; PxuiStr comment; PxuiU32Span pairs;
+} PxuiTextAreaDesc;
+typedef struct { const PxuiCompletion *ptr; size_t len; } PxuiCompletionSpan;
+/* The app's closures of a text area (TextAreaOpts::on_* and Language), called only during the widget's call with `user`. A callback
+   that returns data writes it to its `out`, borrowed until its next callback. The language members are all set or all null (rewrite
+   alone may be null); on_scrub gets 0 for live, 1 for done; on_drop 0 for hover, 1 for dropped; context_at returns 0 code, 1 string, 2 comment. */
+typedef struct {
+    uint32_t size, reserved; void *user;
+    void (*on_context)(void *user, float x, float y); void (*on_scrub)(void *user, uint32_t phase);
+    void (*on_scrub_edit)(void *user, int64_t start, int64_t end, PxuiStr text); void (*on_click)(void *user, int64_t at, uint8_t flag);
+    void (*on_caret)(void *user, int64_t at); void (*on_caret_move)(void *user, int64_t at); void (*on_select)(void *user, int64_t start, int64_t end);
+    void (*on_drop)(void *user, int64_t at, uint8_t dropped, PxuiStr kind, PxuiStr value);
+    void (*colorize)(void *user, PxuiStr text, PxuiColorSpanSpan *out); void (*brackets)(void *user, PxuiStr text, PxuiRangeSpan *out);
+    void (*indent)(void *user, PxuiStr text, int64_t caret, PxuiStr *out); void (*complete)(void *user, PxuiStr text, int64_t caret, PxuiCompletionSpan *out);
+    void (*describe)(void *user, PxuiStr text, int64_t at, PxuiDescription *out); void (*number_at)(void *user, PxuiStr text, int64_t at, PxuiMaybeRange *out);
+    uint32_t (*context_at)(void *user, PxuiStr text, int64_t caret); void (*rewrite)(void *user, PxuiStr text, int64_t caret, PxuiRewrite *out);
+} PxuiAreaCallbacks;
+int32_t pxui_ui_text_area_submit(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiAreaCallbacks *callbacks, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted);
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing); /* the callbacks run only during the call; slide and scrub write their text, borrowed until their next callback */
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
 int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
 /* A text shaper of its own, for text laid out off the Ui on any thread: its own font system, no GPU atlas. */
+/* A shaper is a plain library object with no thread-local state: it may be created on one thread and used on another, but one thread
+   uses one shaper at a time (calls on it never overlap). It shares nothing with a PxuiUi's text service. */
 PxuiShaper *pxui_shaper_create(const PxuiStr *fonts, size_t count);
 void pxui_shaper_destroy(PxuiShaper *shaper);
 uint32_t pxui_shaper_add_font(PxuiShaper *shaper, PxuiStr font);
@@ -311,6 +366,8 @@ void pxui_paint_cap(PxuiPaint *paint, float x, float y, uint8_t has_color, PxuiC
 float pxui_paint_cap_width(PxuiPaint *paint, PxuiStr text);
 void pxui_paint_ratio(PxuiPaint *paint, float x, float y, int64_t a, int64_t b);
 void pxui_paint_input_region(PxuiPaint *paint, float cursor, float x, float y, float w, float h);
+/* The scroll offset of the retained slot `slot` (a box handle's box_slot) as the painter reads it; 0 out of range. */
+float pxui_paint_scroll_y(PxuiPaint *paint, uint64_t slot);
 void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
 /* Shared GPU: the renderer records into the app's command buffers and passes and never submits, waits,
  * presents or destroys what the app created. create takes the lease in gpu->owner_token (also on failure).
@@ -361,6 +418,10 @@ int32_t pxui_ui_set_at(PxuiUi *ui, const PxuiBox *box, float x, float y);
 int32_t pxui_ui_patch_look(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc *value, uint8_t *out);
 int32_t pxui_ui_patch_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect value, uint8_t *out);
 int32_t pxui_ui_patch_mark(PxuiUi *ui, const PxuiBox *box, const PxuiMarkDesc *value, uint8_t *out);
+/* The look, mark and inset of a node declared this frame, read and written back whole (the engine's node_mut). */
+typedef struct { uint32_t size, reserved; PxuiLookDesc look; PxuiMarkDesc mark; PxuiEdges inset; } PxuiNodeFields;
+int32_t pxui_ui_node_fields(PxuiUi *ui, const PxuiBox *box, PxuiNodeFields *out);
+int32_t pxui_ui_set_node_fields(PxuiUi *ui, const PxuiBox *box, const PxuiNodeFields *fields);
 int32_t pxui_ui_local_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);
 int32_t pxui_ui_scroll_offset(PxuiUi *ui, const PxuiBox *box, uint32_t which, float *out); /* 0 offset, 1 painted position */
 int32_t pxui_ui_set_scroll_offset(PxuiUi *ui, const PxuiBox *box, float value);
@@ -402,5 +463,16 @@ int32_t pxui_theme_set(PxuiTheme *theme, PxuiStr key, PxuiStr value);
 int32_t pxui_theme_load(PxuiTheme *theme, PxuiStr path);
 PxuiStr pxui_theme_last_error(const PxuiTheme *theme); /* borrowed from the theme until its next call */
 int32_t pxui_ui_themed(PxuiUi *ui, const PxuiTheme *theme, PxuiBuild build, void *user);
+
+
+/* Accessibility bridge of an app's window (Linux: AT-SPI2 on the accessibility bus; elsewhere start returns null, the platform's bridge
+   belongs to the window host). The app feeds each frame's tree and takes the actions assistive technology asked for. */
+typedef struct PxuiA11y PxuiA11y;
+PxuiA11y *pxui_a11y_start(PxuiStr name);
+int32_t pxui_a11y_fd(PxuiA11y *a11y);
+int32_t pxui_a11y_update(PxuiA11y *a11y, const PxuiA11yTree *tree);
+/* 1: the connection is alive, 0: gone (stop it). `out` holds the actions, borrowed until the next pump. */
+int32_t pxui_a11y_pump(PxuiA11y *a11y, PxuiA11yActionSpan *out);
+void pxui_a11y_stop(PxuiA11y *a11y);
 
 #endif

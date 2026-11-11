@@ -8,46 +8,7 @@ use pxui_types::{Str, ffi::Slice};
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct TreeNode { pub depth: u16, pub children: bool }
 
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct TreeNodeDesc { depth: u16, children: u8 }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct U8MutSpan { ptr: *mut u8, len: usize }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct F32MutSpan { ptr: *mut f32, len: usize }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-struct U32MutSpan { ptr: *mut u32, len: usize }
-
-#[cfg(feature = "static")]
-use pxui_abi_link::PxuiCollectionEmit as Emit;
-#[cfg(not(feature = "static"))]
-type Emit = Option<extern "C" fn(*mut c_void, Str)>;
-#[cfg(not(feature = "static"))]
-type Text = Option<extern "C" fn(*mut c_void, usize, usize, Emit, *mut c_void)>;
-
-#[cfg(feature = "static")]
-use pxui_abi_link::{
-    PxuiF32MutSpan as F32MutSpan, PxuiListViewDesc as ListViewDesc,
-    PxuiTableViewDesc as TableViewDesc, PxuiTreeNode as TreeNodeDesc,
-    PxuiTreeViewDesc as TreeViewDesc, PxuiU32MutSpan as U32MutSpan,
-    PxuiU8MutSpan as U8MutSpan,
-};
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-struct ListViewDesc { label: Str, count: usize, multi: u8, reserved: [u8; 7], selected: U8MutSpan, text: Text, user: *mut c_void }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-struct TreeViewDesc { label: Str, nodes: Slice<TreeNodeDesc>, open: U8MutSpan, selected: *mut usize, visible: U32MutSpan, visible_len: *mut usize, text: Text, user: *mut c_void }
-#[cfg(not(feature = "static"))]
-#[repr(C)]
-struct TableViewDesc { label: Str, titles: Slice<Str>, widths: F32MutSpan, rows: usize, has_sort: u8, ascending: u8, reserved: [u8; 6], sort_column: usize, selected: *mut usize, text: Text, user: *mut c_void }
+use pxui_types::ffi::{PxuiCollectionEmit as Emit, PxuiF32MutSpan as F32MutSpan, PxuiListViewDesc as ListViewDesc, PxuiTableViewDesc as TableViewDesc, PxuiTreeNode as TreeNodeDesc, PxuiTreeViewDesc as TreeViewDesc, PxuiU32MutSpan as U32MutSpan, PxuiU8MutSpan as U8MutSpan};
 
 const _: () = assert!(core::mem::size_of::<TreeNode>() == core::mem::size_of::<TreeNodeDesc>() && core::mem::align_of::<TreeNode>() == core::mem::align_of::<TreeNodeDesc>());
 
@@ -183,11 +144,11 @@ mod tests {
         let (texts, cells) = (core::cell::Cell::new(0usize), core::cell::Cell::new(0usize));
         for count in 0..3 {
             let input = pxui_types::FrameIn { width: 640.0, height: 464.0, time: count as f64 / 60.0, ..Default::default() };
-            ui.frame(&input, |ui| {
-                ui.view("page", count, pxui_types::Size::Grow, pxui_types::Size::Grow, |ui| {
-                    let ratio = ui.split("split", pxui_types::Axis::Row, 0.34, 120.0, 200.0, |ui| {
+            ui.frame(&input, &mut |ui: &mut Ui| {
+                ui.view("page", count, pxui_types::Size::Grow, pxui_types::Size::Grow, &mut |ui: &mut Ui| {
+                    let ratio = ui.split("split", pxui_types::Axis::Row, 0.34, 120.0, 200.0, &mut |ui: &mut Ui| {
                         let _ = ui.list_view("Files", ROWS, true, &mut list, |i, put| { texts.set(texts.get() + 1); put(&format!("file {i}")); });
-                    }, |ui| {
+                    }, &mut |ui: &mut Ui| {
                         let _ = ui.tree("Outline", &nodes, &mut open, &mut selected, &mut visible, |i, put| { texts.set(texts.get() + 1); put(&format!("node {i}")); });
                         let _ = ui.table_view("Points", &["Name", "Group", "Tag"], &mut widths, ROWS, Some((0, true)), &mut table_sel, |r, c, put| { cells.set(cells.get() + 1); put(&format!("{r}:{c}")); });
                     });

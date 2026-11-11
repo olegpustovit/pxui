@@ -1,11 +1,11 @@
 //! The PXUI kit gallery as a native window app. `PXUI_GALLERY_PAGE=n` and
 //! `PXUI_GALLERY_DUSK=1` choose the starting page and theme; the other switches and headless
 //! screenshot controls are listed in the gallery README.
-#[path = "../../../crates/private/pxui_render/tests/png.rs"]
+#[path = "../../t/png.rs"]
 #[allow(dead_code)]
 mod png;
 
-use input::{Event as HostEvent, Key, MouseButton, ScrollPhase};
+use input::{Event as HostEvent, Key};
 use ogpu_core::backend::{self as be, AcquireResult, ColorAttachment, RenderTarget, Surface};
 use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::surface::{Configuration, Format, PresentMode};
@@ -62,17 +62,17 @@ mod host {
     pub fn background(_: &mut Window, _: (f64, f64, f64)) {}
 
     use pxui_types::ffi::{A11yAction, A11yTree};
-    pub use pxui_atspi::Bridge as A11y;
+    pub use pxui::A11yBridge as A11y;
     pub fn a11y(win: &mut Window) -> Option<A11y> {
-        let bridge = A11y::connect("PXUI gallery").ok()?;
+        let bridge = A11y::connect("PXUI gallery")?;
         win.set_wake_fd(bridge.fd());
         Some(bridge)
     }
     pub fn a11y_gone(win: &mut Window) { win.set_wake_fd(-1); }
     pub fn a11y_update(b: &mut A11y, tree: &A11yTree) {
-        if let Err(error) = unsafe { b.update_ffi(tree) } { eprintln!("pxui_gallery: accessibility tree: {error}"); }
+        if !b.update(tree) { eprintln!("pxui_gallery: accessibility tree refused"); }
     }
-    pub fn a11y_pump(b: &mut A11y, out: &mut Vec<A11yAction>) -> bool { b.pump_ffi(out) }
+    pub fn a11y_pump(b: &mut A11y, out: &mut Vec<A11yAction>) -> bool { b.pump(out) }
 }
 
 fn env(name: &str) -> Option<String> { std::env::var(name).ok().filter(|v| !v.is_empty()) }
@@ -101,65 +101,14 @@ fn apply_theme(ui: &mut Ui, s: &Gallery, dusk: &mut String, path: &str) {
     }
 }
 
-fn key_code(key: Key) -> u32 {
-    match key {
-        Key::KeyChar(c) => c as u32,
-        Key::ArrowUp => 0x100, Key::ArrowDown => 0x101, Key::ArrowLeft => 0x102, Key::ArrowRight => 0x103,
-        Key::Space => 0x104, Key::Enter => 0x105, Key::Escape => 0x106, Key::Backspace => 0x107,
-        Key::Tab => 0x108, Key::Shift => 0x109, Key::Ctrl => 0x10a, Key::Alt => 0x10b, Key::Meta => 0x10c,
-        Key::F1 => 0x120, Key::F2 => 0x121, Key::F3 => 0x122, Key::F4 => 0x123, Key::F5 => 0x124, Key::F6 => 0x125,
-        Key::F7 => 0x126, Key::F8 => 0x127, Key::F9 => 0x128, Key::F10 => 0x129, Key::F11 => 0x12a, Key::F12 => 0x12b,
-        Key::Home => 0x130, Key::End => 0x131, Key::PageUp => 0x132, Key::PageDown => 0x133, Key::Insert => 0x134, Key::Delete => 0x135,
-        Key::Unknown(code) => code as u32,
-    }
-}
-
-fn button_code(button: MouseButton) -> u32 {
-    match button { MouseButton::LeftButton => 0, MouseButton::RightButton => 1, MouseButton::MiddleButton => 2, MouseButton::MouseX1 => 3, MouseButton::MouseX2 => 4 }
-}
-
-fn raw_event(kind: u32, code: u32, x: f64, y: f64, value: f64, text: &str) -> Event {
-    Event { kind, code, x, y, value, text: Str { ptr: text.as_ptr(), len: text.len() } }
-}
-
-fn encode_events(events: &[HostEvent], raw: &mut Vec<Event>, owned_text: &mut Vec<String>) {
+fn encode_events(events: &[HostEvent], raw: &mut Vec<Event>, scratch: &mut Vec<String>) {
     raw.clear();
-    owned_text.clear();
-    for event in events {
-        raw.push(match event {
-        HostEvent::KeyPressed(k) => raw_event(Event::KEY_PRESSED, key_code(*k), 0.0, 0.0, 0.0, ""),
-        HostEvent::KeyReleased(k) => raw_event(Event::KEY_RELEASED, key_code(*k), 0.0, 0.0, 0.0, ""),
-        HostEvent::PointerMoved((x, y)) => raw_event(Event::POINTER_MOVED, 0, *x, *y, 0.0, ""),
-        HostEvent::PointerPressed(b, (x, y)) => raw_event(Event::POINTER_PRESSED, button_code(*b), *x, *y, 0.0, ""),
-        HostEvent::PointerReleased(b, (x, y)) => raw_event(Event::POINTER_RELEASED, button_code(*b), *x, *y, 0.0, ""),
-        HostEvent::PointerCancelled(b) => raw_event(Event::POINTER_CANCELLED, button_code(*b), 0.0, 0.0, 0.0, ""),
-        HostEvent::Scrolled((x, y)) => raw_event(Event::SCROLLED, 0, *x, *y, 0.0, ""),
-        HostEvent::TextInput(s) => raw_event(Event::TEXT_INPUT, 0, 0.0, 0.0, 0.0, s),
-        HostEvent::Paste(s) => raw_event(Event::PASTE, 0, 0.0, 0.0, 0.0, s),
-        HostEvent::TextEditing { text, start, length } => raw_event(Event::TEXT_EDITING, 0, *start as f64, *length as f64, 0.0, text),
-        HostEvent::FileDropped(s) => raw_event(Event::FILE_DROPPED, 0, 0.0, 0.0, 0.0, s),
-        HostEvent::FileDragMoved((x, y)) => raw_event(Event::FILE_DRAG_MOVED, 0, *x, *y, 0.0, ""),
-        HostEvent::FileDragEnded => raw_event(Event::FILE_DRAG_ENDED, 0, 0.0, 0.0, 0.0, ""),
-        HostEvent::Pinched(value) => raw_event(Event::PINCHED, 0, 0.0, 0.0, *value, ""),
-        HostEvent::FileDialog { id, result } => match result {
-            Ok(paths) => {
-                owned_text.push(paths.join("\0"));
-                raw_event(Event::FILE_DIALOG, 0, 0.0, 0.0, *id as f64, owned_text.last().unwrap())
-            }
-            Err(error) => raw_event(Event::FILE_DIALOG, 1, 0.0, 0.0, *id as f64, error),
-        },
-        HostEvent::DialogOpened(id) => raw_event(Event::DIALOG_OPENED, *id as u32, 0.0, 0.0, 0.0, ""),
-        HostEvent::Resized((w, h)) => raw_event(Event::RESIZED, 0, *w as f64, *h as f64, 0.0, ""),
-        HostEvent::FocusLost => raw_event(Event::FOCUS_LOST, 0, 0.0, 0.0, 0.0, ""),
-        HostEvent::FocusGained => raw_event(Event::FOCUS_GAINED, 0, 0.0, 0.0, 0.0, ""),
-        HostEvent::Closed => raw_event(Event::CLOSED, 0, 0.0, 0.0, 0.0, ""),
-        HostEvent::PixelSizeChanged((w, h)) => raw_event(Event::PIXEL_SIZE_CHANGED, 0, *w as f64, *h as f64, 0.0, ""),
-        HostEvent::VisibilityChanged(visible) => raw_event(Event::VISIBILITY_CHANGED, 0, 0.0, 0.0, *visible as u8 as f64, ""),
-        HostEvent::TrackpadScrolled { delta: (x, y), phase, time } => {
-            let code = match phase { ScrollPhase::Touched => 0, ScrollPhase::Moved => 1, ScrollPhase::Lifted => 2, ScrollPhase::Momentum => 3 };
-            raw_event(Event::TRACKPAD_SCROLLED, code, *x, *y, *time, "")
-        }
-        });
+    scratch.clear();
+    scratch.resize(events.len(), String::new());
+    for (event, scratch) in events.iter().zip(scratch.iter_mut()) {
+        let r = event.raw(scratch);
+        let text = r.text.unwrap_or("");
+        raw.push(Event { kind: r.kind, code: r.code, x: r.x, y: r.y, value: r.value, text: Str { ptr: text.as_ptr(), len: text.len() } });
     }
 }
 
@@ -185,7 +134,7 @@ fn main() {
     let hidden = env("PXUI_GALLERY_HIDDEN").is_some();
     let exit_after = env("PXUI_GALLERY_EXIT_AFTER").and_then(|v| v.parse::<f64>().ok());
     let count = env("PXUI_GALLERY_COUNT").is_some();
-    let theme_path = env("PXUI_GALLERY_THEME").unwrap_or_else(|| format!("{}/../../crates/private/pxui_core/themes/dusk.theme", env!("CARGO_MANIFEST_DIR")));
+    let theme_path = env("PXUI_GALLERY_THEME").unwrap_or_else(|| format!("{}/../../assets/themes/dusk.theme", env!("CARGO_MANIFEST_DIR")));
     let mut dusk = load_theme(&theme_path);
     let mut theme_stamp = modified(&theme_path);
     let mut next_theme_poll = 0.0;
@@ -199,14 +148,14 @@ fn main() {
     };
     let mut gpu = Gpu::open().unwrap_or_else(|e| { eprintln!("pxui_gallery: no GPU: {e}"); std::process::exit(1) });
     let surface: Option<Surface> = if hidden { None } else { Some(be::create_surface(&gpu.device, configuration(&mut win)).unwrap_or_else(|e| fail(e))) };
-    let mut ui = Ui::new_with_fonts(0, 0, &[PRAGMASEVKA]).unwrap_or_else(|| { eprintln!("pxui_gallery: PXUI ABI mismatch"); std::process::exit(1) });
+    let mut ui = Ui::create(if cfg!(target_os = "macos") { pxui::Platform::Apple } else { pxui::Platform::Other }, None, &[PRAGMASEVKA]);
     apply_theme(&mut ui, &s, &mut dusk, &theme_path);
-    let mut renderer = gpu.renderer(&mut ui).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
+    let mut renderer = gpu.renderer(&ui).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
     s.image = Some(gpu.image(100, 60, &gpu::test_card(100, 60)));
     let mut extent = win.extent();
     let mut target = gpu.target(extent.drawable.0 as u32, extent.drawable.1 as u32);
     let mut a11y = host::a11y(&mut win);
-    renderer.ui().set_a11y(a11y.is_some());
+    ui.set_a11y(a11y.is_some());
     let mut actions = Vec::with_capacity(16);
     let mut a11y_seen = 0;
     let mut events: Vec<HostEvent> = Vec::with_capacity(256);
@@ -245,8 +194,8 @@ fn main() {
             force = true;
         }
         if s.host_dirty {
-            apply_theme(renderer.ui(), &s, &mut dusk, &theme_path);
-            renderer.ui().set_dir(s.rtl);
+            apply_theme(&mut ui, &s, &mut dusk, &theme_path);
+            ui.set_dir(s.rtl);
             (s.page_rev, s.chrome_rev, s.host_dirty, force) = (s.page_rev + 1, s.chrome_rev + 1, false, true);
         }
         if let Some(bridge) = a11y.as_mut() {
@@ -254,9 +203,9 @@ fn main() {
             if !host::a11y_pump(bridge, &mut actions) {
                 host::a11y_gone(&mut win);
                 (a11y, a11y_seen) = (None, 0);
-                renderer.ui().set_a11y(false);
+                ui.set_a11y(false);
             } else if !actions.is_empty() {
-                renderer.ui().inject_a11y(&actions);
+                ui.inject_a11y(&actions);
                 force = true;
             }
         }
@@ -268,10 +217,10 @@ fn main() {
             force = true;
         }
         encode_events(&events, &mut raw_events, &mut event_text);
-        let built = force || renderer.ui().wants_frame(&raw_events, now);
+        let built = force || ui.wants_frame(&raw_events, now);
         if built {
             force = false;
-            if renderer.ui().output().platform.paste != 0 { host::paste(&mut win, &mut events); }
+            if ui.output().platform.paste != 0 { host::paste(&mut win, &mut events); }
             let f = &mut frame.input;
             for e in &events {
                 match e {
@@ -290,9 +239,9 @@ fn main() {
             frame.pixel_scale = (win.scale(), win.scale());
             last = now;
             key_values.clear();
-            key_values.extend(f.keys.iter().copied().map(key_code));
+            key_values.extend(f.keys.iter().copied().map(Key::code));
             button_values.clear();
-            button_values.extend(f.buttons.iter().copied().map(button_code));
+            button_values.extend(f.buttons.iter().copied().map(input::MouseButton::code));
             encode_events(&f.events, &mut raw_events, &mut event_text);
             let input = Input {
                 size: core::mem::size_of::<Input>() as u32, time: f.t, dt: f.dt, frame: f.frame, tick: f.tick,
@@ -305,16 +254,16 @@ fn main() {
             let a0 = mem_sys::local_alloc_count();
             let t0 = Instant::now();
             // the frame borrows the Ui until it is dropped, so the error text is read after it
-            if let Err(code) = renderer.ui().input_frame(&input, &mut |ui: &mut Ui| app(ui, &mut s)).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", renderer.ui().last_error()); std::process::exit(1) }
+            if let Err(code) = ui.input_frame(&input, &mut |ui: &mut Ui| app(ui, &mut s)).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
             cost.us = t0.elapsed().as_secs_f64() * 1e6;
             cost.allocs = Some(mem_sys::local_alloc_count() - a0);
             events = std::mem::take(&mut frame.input.events);
-            let output = renderer.ui().output();
+            let output = ui.output();
             (cost.nodes, cost.views, cost.laid_out) = (output.built_nodes as usize, output.rebuilt_views as usize, output.arranged_nodes as usize);
             frames += 1;
             cost.frames = frames;
             if started.elapsed().as_secs_f64() > 0.5 { settled += 1; }
-            let out = renderer.ui().output().platform;
+            let out = ui.output().platform;
             host::cursor(&mut win, (out.has_cursor != 0).then_some(out.cursor));
             if out.has_clipboard != 0 { host::clipboard(&mut win, &output_text(out.clipboard)); }
             if out.has_background != 0 {
@@ -322,23 +271,23 @@ fn main() {
                 host::background(&mut win, (c.r as f64 / 255.0, c.g as f64 / 255.0, c.b as f64 / 255.0));
             }
             if let Some(bridge) = a11y.as_mut() {
-                let tree = renderer.ui().output().a11y;
+                let tree = ui.output().a11y;
                 if tree.revision != a11y_seen {
                     a11y_seen = tree.revision;
                     host::a11y_update(bridge, &tree);
                 }
             }
             readout(&mut text, &cost);
-            if let Some(h) = s.readout { renderer.ui().patch_text(&h, &text); }
+            if let Some(h) = s.readout { ui.patch_text(&h, &text); }
             if s.quit { break; }
         }
         let animating = s.page == 1 && !s.reduced;
         if animating {
-            for h in &s.busy { renderer.ui().busy_step(h, now); }
+            for h in &s.busy { ui.busy_step(h, now); }
         }
-        if renderer.ui().draw_revision() != drawn_revision {
-            drawn_revision = renderer.ui().draw_revision();
-            draw(&mut gpu, &mut renderer, &target, surface.as_ref(), extent, win.scale() as f32);
+        if ui.draw_revision() != drawn_revision {
+            drawn_revision = ui.draw_revision();
+            draw(&mut gpu, &mut ui, &mut renderer, &target, surface.as_ref(), extent, win.scale() as f32);
             draws += 1;
             if let Some(path) = shot.as_deref().filter(|_| draws >= 3) {
                 let (w, h) = (extent.drawable.0 as u32, extent.drawable.1 as u32);
@@ -348,7 +297,7 @@ fn main() {
             }
         }
         if exit_after.is_some_and(|secs| now >= secs) { break; }
-        let mut wake = renderer.ui().repaint_at().unwrap_or(f64::INFINITY).min(next_theme_poll);
+        let mut wake = ui.repaint_at().unwrap_or(f64::INFINITY).min(next_theme_poll);
         if animating { wake = wake.min(now + 1.0 / 60.0); }
         if shot.is_some() && draws < 3 { (wake, force) = (now, true); }
         if let Some(secs) = exit_after { wake = wake.min(secs); }
@@ -363,8 +312,8 @@ fn main() {
     gpu.close();
 }
 
-fn draw(gpu: &mut Gpu, renderer: &mut Renderer<'_>, target: &be::Texture, surface: Option<&Surface>, extent: host::Extent, scale: f32) {
-    let ground = renderer.ui().theme().tokens.panel;
+fn draw(gpu: &mut Gpu, ui: &mut Ui, renderer: &mut Renderer, target: &be::Texture, surface: Option<&Surface>, extent: host::Extent, scale: f32) {
+    let ground = ui.theme().tokens.panel;
     let frame = match surface {
         Some(surface) => match be::acquire_sync(surface).unwrap_or_else(|e| fail(e)) { AcquireResult::Acquired(frame) => Some(frame), _ => return },
         None => None,

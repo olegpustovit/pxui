@@ -212,8 +212,18 @@ impl Default for Commands {
     fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, vk_command_buffer: core::ptr::null_mut(), mtl_command_buffer: core::ptr::null_mut() } }
 }
 
+/// What a `Pass::split` calls with the target the app's pass drew into, once the app has ended that pass.
+pub type PassRecord = extern "C" fn(*mut core::ffi::c_void, *const Image) -> i32;
+/// A backdrop blur needs what the frame holds so far, so the library asks the app to end its open pass: `split(user, record,
+/// record_user, out)` ends the pass, calls `record(record_user, &target)` (the colour target, sampleable, holding everything
+/// drawn so far; the library records its blur passes into the prepared command buffer), reopens a pass over the same target
+/// (load, not clear; the same viewport and scissor), writes it to `out` and returns 0. The library draws the rest of the layer
+/// into that pass; the app's last pass is the one it holds afterwards.
+pub type PassSplit = extern "C" fn(*mut core::ffi::c_void, PassRecord, *mut core::ffi::c_void, *mut Pass) -> i32;
+
 /// The app's open pass (Vulkan: inside `vkCmdBeginRendering` on the prepared frame's command buffer)
-/// for `pxui_renderer_draw`. `scale` is the app's pixels per point. Bound state is not preserved: after
+/// for `pxui_renderer_draw`. It draws layers `first_layer..first_layer + layer_count` of the last frame (`layer_count` 0: every
+/// layer from `first_layer`), so an app can draw its own content between them. `split` is needed only by a layer with a backdrop blur. `scale` is the app's pixels per point. Bound state is not preserved: after
 /// draw the pass holds PXUI's pipeline, descriptors, viewport and scissor, so either the UI is the last
 /// thing in the pass or the app rebinds everything (OGPU: `ogpu_core::backend::invalidate_state`).
 #[repr(C)]
@@ -226,10 +236,15 @@ pub struct Pass {
     pub height_px: u32,
     pub scale: f32,
     pub mtl_command_buffer: *mut core::ffi::c_void,
+    pub first_layer: u32,
+    pub layer_count: u32,
+    pub split: Option<PassSplit>,
+    pub split_user: *mut core::ffi::c_void,
 }
 impl Default for Pass {
     fn default() -> Self {
-        Self { size: core::mem::size_of::<Self>() as u32, vk_command_buffer: core::ptr::null_mut(), mtl_render_encoder: core::ptr::null_mut(), width_px: 0, height_px: 0, scale: 1.0, mtl_command_buffer: core::ptr::null_mut() }
+        Self { size: core::mem::size_of::<Self>() as u32, vk_command_buffer: core::ptr::null_mut(), mtl_render_encoder: core::ptr::null_mut(), width_px: 0, height_px: 0, scale: 1.0, mtl_command_buffer: core::ptr::null_mut(),
+            first_layer: 0, layer_count: 0, split: None, split_user: core::ptr::null_mut() }
     }
 }
 
@@ -268,8 +283,15 @@ pub struct PxuiBox { pub index: u64, pub box_key: i64, pub box_slot: u64, pub ge
 pub struct PxuiPanel {
     pub size: u32, pub x: f32, pub y: f32, pub width: f32, pub height: f32,
     pub padding: i64, pub has_height: u8, pub window: u8,
+    pub has_max_height: u8, pub has_stroke: u8, pub has_look: u8, pub reserved: [u8; 3],
+    pub max_height: f32, pub stroke: geom::Rgba, pub look: ffi::PxuiLookDesc,
 }
-impl Default for PxuiPanel { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, x: 0.0, y: 0.0, width: 0.0, height: 0.0, padding: 0, has_height: 0, window: 0 } } }
+impl Default for PxuiPanel {
+    fn default() -> Self {
+        Self { size: core::mem::size_of::<Self>() as u32, x: 0.0, y: 0.0, width: 0.0, height: 0.0, padding: 0, has_height: 0, window: 0,
+            has_max_height: 0, has_stroke: 0, has_look: 0, reserved: [0; 3], max_height: 0.0, stroke: geom::Rgba::default(), look: ffi::PxuiLookDesc::default() }
+    }
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -318,6 +340,8 @@ mod abi_layout {
         assert_layout("PxuiPanel", size_of::<PxuiPanel>(), align_of::<PxuiPanel>(), &[
             offset_of!(PxuiPanel, size), offset_of!(PxuiPanel, x), offset_of!(PxuiPanel, y), offset_of!(PxuiPanel, width),
             offset_of!(PxuiPanel, height), offset_of!(PxuiPanel, padding), offset_of!(PxuiPanel, has_height), offset_of!(PxuiPanel, window),
+            offset_of!(PxuiPanel, has_max_height), offset_of!(PxuiPanel, has_stroke), offset_of!(PxuiPanel, has_look), offset_of!(PxuiPanel, reserved),
+            offset_of!(PxuiPanel, max_height), offset_of!(PxuiPanel, stroke), offset_of!(PxuiPanel, look),
         ]);
         assert_layout("PxuiTargetDesc", size_of::<PxuiTargetDesc>(), align_of::<PxuiTargetDesc>(), &[
             offset_of!(PxuiTargetDesc, size), offset_of!(PxuiTargetDesc, format), offset_of!(PxuiTargetDesc, samples),
@@ -515,6 +539,10 @@ mod abi_layout {
                 offset_of!(Pass, height_px),
                 offset_of!(Pass, scale),
                 offset_of!(Pass, mtl_command_buffer),
+                offset_of!(Pass, first_layer),
+                offset_of!(Pass, layer_count),
+                offset_of!(Pass, split),
+                offset_of!(Pass, split_user),
             ],
         );
         assert_layout(

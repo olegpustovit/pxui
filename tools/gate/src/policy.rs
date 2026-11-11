@@ -52,7 +52,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         // The kit gallery app: the engine, the painter and the platform's window host and GPU backend.
         // The cross-ABI checks: a tool, so it names the private crates the public ones must not.
         ("abi_equal", &["input", "pxui", "pxui_core", "pxui_types"][..]),
-        ("pxui_gallery", &["pxui", "input", "mem_sys", "ogpu_core", "pxui_types", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
+        ("pxui_gallery", &["pxui", "input", "mem_sys", "ogpu_core", "pxui_types", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland"][..]),
     ])
 }
 
@@ -61,7 +61,7 @@ pub fn package_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
     HashMap::from([
         // The public wrapper's optional static link points at the cdylib whose crate name is `pxui`.
         ("pxui", &["pxui", "pxui_types"][..]),
-        ("pxui_abi", &["input", "pxui_core", "pxui_render", "pxui_types", "pxui_text", "ogpu_core", "ogpu_metal", "ogpu_vulkan"][..]),
+        ("pxui_abi", &["input", "pxui_core", "pxui_render", "pxui_types", "pxui_text", "pxui_atspi", "ogpu_core", "ogpu_metal", "ogpu_vulkan"][..]),
     ])
 }
 

@@ -3,12 +3,14 @@ use crate::composite::{call, defer_callback_panic, deferred};
 use crate::node::{look, mark, size};
 use crate::{as_str, check, Ui};
 use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Size, ui::{BoxOpts, Drop, HitFn, Payload}, Mark, PxuiBox, Str};
+use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Dir, Size, ui::{BoxOpts, Drop, HitFn, Payload}, Mark, PxuiBox, Str};
 use std::fmt::{Arguments, Write};
 
 library!(lib {
     fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32;
+    fn pxui_ui_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::ffi::PxuiNodeFields) -> i32;
+    fn pxui_ui_set_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, fields: *const pxui_types::ffi::PxuiNodeFields) -> i32;
     fn pxui_ui_patch_look(ui: *mut PxuiUi, box_: *const PxuiBox, value: *const PxuiLookDesc, out: *mut u8) -> i32;
     fn pxui_ui_patch_rect(ui: *mut PxuiUi, box_: *const PxuiBox, value: Rect, out: *mut u8) -> i32;
     fn pxui_ui_patch_mark(ui: *mut PxuiUi, box_: *const PxuiBox, value: *const PxuiMarkDesc, out: *mut u8) -> i32;
@@ -27,7 +29,7 @@ library!(lib {
     fn pxui_ui_hovered(ui: *mut PxuiUi, box_: *const PxuiBox, within: u8, out: *mut u8) -> i32;
     fn pxui_ui_press_keys(ui: *mut PxuiUi, box_: *const PxuiBox, ptr: *mut *const u32, len: *mut usize) -> i32;
     fn pxui_ui_root_at(ui: *mut PxuiUi, x: f32, y: f32, roots: Slice<i64>, present: *mut u8, out: *mut i64) -> i32;
-    fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, build: Option<extern "C" fn(*mut c_void, *mut PxuiUi)>, user: *mut c_void, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
     fn pxui_ui_view_offset(ui: *mut PxuiUi, box_: *const PxuiBox, dx: f32, dy: f32) -> i32;
     fn pxui_ui_view_transform_about(ui: *mut PxuiUi, box_: *const PxuiBox, scale: f32, transform: *const f32, px: f32, py: f32) -> i32;
     fn pxui_ui_view_backdrop_blur(ui: *mut PxuiUi, box_: *const PxuiBox, sigma: f32) -> i32;
@@ -209,9 +211,9 @@ impl Ui {
     }
     /// `view` that takes no entry of its own in the painter's view table: its instances ride its parent's.
     #[track_caller]
-    pub fn view_flat<F: FnMut(&mut Ui)>(&mut self, label: &str, revision: u64, w: Size, h: Size, mut build: F) -> PxuiBox {
+    pub fn view_flat(&mut self, label: &str, revision: u64, w: Size, h: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
         let mut out = PxuiBox::default();
-        check(self, unsafe { lib::pxui_ui_view_flat(self.0.as_ptr(), as_str(label), revision, size(w), size(h), Some(call::<F>), &mut build as *mut F as *mut c_void, &mut out) });
+        check(self, unsafe { lib::pxui_ui_view_flat(self.0.as_ptr(), as_str(label), revision, size(w), size(h), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
     /// The last root pressed by a pointer press among `events`, by the previous hit tree.
@@ -229,8 +231,30 @@ impl Ui {
     pub fn view_transform_about(&mut self, b: &PxuiBox, scale: f32, transform: [f32; 4], pivot: (f32, f32)) {
         check(self, unsafe { lib::pxui_ui_view_transform_about(self.0.as_ptr(), b, scale, transform.as_ptr(), pivot.0, pivot.1) })
     }
+    /// Edits what a widget finishes of a node it declared this frame (the engine's `node_mut`): `edit` gets the node's look, mark
+    /// and inset, and what it leaves there is written back.
+    #[track_caller]
+    pub fn node_mut<R>(&mut self, b: &PxuiBox, edit: impl FnOnce(&mut NodeFields) -> R) -> R {
+        let mut raw = pxui_types::ffi::PxuiNodeFields { size: core::mem::size_of::<pxui_types::ffi::PxuiNodeFields>() as u32, reserved: 0, look: Default::default(), mark: Default::default(), inset: Default::default() };
+        check(self, unsafe { lib::pxui_ui_node_fields(self.0.as_ptr(), b, &mut raw) });
+        let direction = |d: u32| match d { 0 => Dir::Down, 1 => Dir::Up, 2 => Dir::Left, _ => Dir::Right };
+        let mut fields = NodeFields {
+            look: raw.look.into(), inset: raw.inset,
+            mark: match raw.mark.kind { 1 => Mark::Chevron(direction(raw.mark.direction)), 2 => Mark::Line { width: raw.mark.width, rising: raw.mark.rising != 0 }, _ => Mark::None },
+        };
+        let result = edit(&mut fields);
+        raw.look = fields.look.into();
+        raw.mark = mark(fields.mark);
+        raw.inset = fields.inset;
+        check(self, unsafe { lib::pxui_ui_set_node_fields(self.0.as_ptr(), b, &raw) });
+        result
+    }
     #[inline] #[track_caller] pub fn view_backdrop_blur(&mut self, b: &PxuiBox, sigma: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_blur(self.0.as_ptr(), b, sigma) }) }
 }
 
 /// A string the library lent: copied, since it only lives until the next frame.
 fn owned(value: Str) -> String { if value.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(value.ptr, value.len) }).into_owned() } }
+
+/// What `Ui::node_mut` edits of a node.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NodeFields { pub look: Look, pub mark: Mark, pub inset: pxui_types::geom::Edges }

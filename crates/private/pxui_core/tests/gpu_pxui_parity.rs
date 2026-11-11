@@ -3,9 +3,9 @@
 mod gpu;
 #[path = "cases/gpu_parity.rs"]
 mod gpu_parity;
-#[path = "../../pxui_render/tests/png.rs"]
+#[path = "../../../../tools/t/png.rs"]
 mod png;
-#[path = "cases/run.rs"]
+#[path = "../../../../tools/t/run.rs"]
 mod run;
 #[path = "cases/support.rs"]
 #[allow(dead_code)]

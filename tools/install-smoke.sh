@@ -12,7 +12,7 @@ test -s "$prefix/include/pxui.h"
 cmp "$repo/include/pxui.h" "$prefix/include/pxui.h"
 
 themes=0
-for theme in "$repo"/crates/private/pxui_core/themes/*.theme; do
+for theme in "$repo"/assets/themes/*.theme; do
     test -f "$theme" || continue
     cmp "$theme" "$prefix/share/pxui/themes/${theme##*/}"
     themes=$((themes + 1))

@@ -75,6 +75,12 @@ export!(pub unsafe fn pxui_paint_cap_width(p:*mut PxuiPaint,s:Str)->f32 { let (S
 export!(pub unsafe fn pxui_paint_ratio(p:*mut PxuiPaint,x:f32,y:f32,a:i64,b:i64) { if finite(&[x,y]) { if let Some(p)=unsafe{value(p)} { p.ratio((x,y),a,b); } } });
 export!(pub unsafe fn pxui_paint_input_region(p:*mut PxuiPaint,cursor:f32,x:f32,y:f32,w:f32,h:f32) { if finite(&[cursor,x,y,w,h]) { if let Some(p)=unsafe{value(p)} { p.input_region(cursor,x,y,w,h); } } });
 
+// The scroll offset of the retained slot `slot` (a box handle's `box_slot`), as the painter reads it; 0 for a slot out of range.
+export!(pub unsafe fn pxui_paint_scroll_y(p: *mut PxuiPaint, slot: u64) -> f32 {
+    let Some(paint) = (unsafe { p.as_ref().and_then(|h| h.paint.as_ref()) }) else { return 0.0 };
+    paint.scroll_y.get(slot as usize).copied().unwrap_or(0.0)
+});
+
 // What a paint callback reads once: sizes, clip and theme tokens.
 export!(pub unsafe fn pxui_paint_info(p: *mut PxuiPaint, out: *mut PxuiPaintInfo) -> i32 {
     if p.is_null() || out.is_null() || unsafe { (*out).size } < core::mem::size_of::<PxuiPaintInfo>() as u32 { return PXUI_ERR_ARGUMENT; }

@@ -31,8 +31,8 @@ export!(pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_r
 export!(pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
-    let d = unsafe { *desc };
-    if d.size < core::mem::size_of::<PxuiPopupDesc>() as u32 || d.has_stroke > 1 || d.has_max_height > 1 || d.dismiss_initial > 1 || d.attached > 1
+    let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
+    if d.has_stroke > 1 || d.has_max_height > 1 || d.dismiss_initial > 1 || d.attached > 1
         || !crate::state::finite(&[d.x, d.y, d.width, d.height]) || (d.has_max_height != 0 && !d.max_height.is_finite()) {
         return unsafe { fail(ui, "invalid popup descriptor") };
     }
@@ -77,8 +77,8 @@ export!(pub unsafe fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: Build, user
 export!(pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const PxuiHeaderDesc, rename: TextValid, user: *mut c_void, out: *mut PxuiHeadOut) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null inspector header argument") }; }
-    let d = unsafe { *desc };
-    if d.size < core::mem::size_of::<PxuiHeaderDesc>() as u32 || [d.has_kind, d.has_badge, d.has_index, d.has_reset, d.reset_enabled].iter().any(|v| *v > 1)
+    let Some(d) = read_desc!(desc, PxuiHeaderDesc) else { return unsafe { fail(ui, "invalid inspector header descriptor") }; };
+    if [d.has_kind, d.has_badge, d.has_index, d.has_reset, d.reset_enabled].iter().any(|v| *v > 1)
         || d.actions.len > MAX_ACTIONS || (d.actions.len != 0 && d.actions.ptr.is_null()) {
         return unsafe { fail(ui, "invalid inspector header descriptor") };
     }

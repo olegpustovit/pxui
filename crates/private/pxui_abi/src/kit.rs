@@ -1,49 +1,13 @@
-use crate::state::{boxed, Build, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, call_build, checked, fail, finite, get, to_abi_box};
+use crate::state::{boxed, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, call_build, checked, fail, finite, get, to_abi_box};
 use crate::style::decode_look;
 use crate::ui::translate_event;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
-use core::ffi::c_void;
 use pxui_core::ui::{Axis, Ui, Target, MAX_KEYS};
-use pxui_types::ffi::{PxuiCurveDesc, PxuiLookDesc, Slice};
+use pxui_types::ffi::{PxuiCurveDesc, PxuiGridListDesc, Slice};
+pub use pxui_types::ffi::{PxuiFooterDesc, PxuiHintDesc, PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiMenuBarDesc, PxuiMenuOut, PxuiSplitDesc, PxuiTableDesc};
 
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_MENUS: usize = 256;
-
-pub type PxuiBuild = Build;
-pub type PxuiGridBuild = Option<extern "C" fn(*mut c_void, *mut PxuiUi, usize)>;
-
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct PxuiMenuDesc { pub title: Str, pub items: Slice<Str> }
-#[repr(C)]
-pub struct PxuiGridListDesc { pub label: Str, pub count: usize, pub cell_w: f32, pub cell_h: f32, pub build: PxuiGridBuild, pub user: *mut c_void }
-#[repr(C)]
-pub struct PxuiSplitDesc { pub label: Str, pub axis: u32, pub ratio: f32, pub min_a: f32, pub min_b: f32, pub build_a: PxuiBuild, pub user_a: *mut c_void, pub build_b: PxuiBuild, pub user_b: *mut c_void }
-#[repr(C)]
-pub struct PxuiMenuBarDesc { pub label: Str, pub menus: Slice<PxuiMenuDesc> }
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct PxuiMenuOut { pub menu: usize, pub item: usize }
-#[repr(C)]
-#[derive(Clone, Copy, Default)]
-pub struct PxuiHintDesc { pub key: Str, pub value: Str }
-#[repr(C)]
-pub struct PxuiFooterDesc { pub has_right: u8, pub reserved: [u8; 7], pub right: Str, pub hints: Slice<PxuiHintDesc> }
-#[repr(C)]
-#[derive(Clone, Copy)]
-pub struct PxuiKeyframeDesc { pub time: f32, pub target: u32, pub reserved: [u8; 4], pub values: [f32; 4], pub look: PxuiLookDesc, pub curve: PxuiCurveDesc }
-
-#[repr(C)]
-pub struct PxuiInspectorRowDesc { pub key: Str, pub label: Str, pub has_width: u8, pub has_pin: u8, pub pin: u8, pub reserved: [u8; 5], pub width: f32, pub row: PxuiBox, pub control_x: f32, pub control_y: f32, pub control_w: f32 }
-#[repr(C)]
-pub struct PxuiInspectorSectionDesc { pub key: Str, pub label: Str, pub expanded: u8, pub has_set: u8, pub set_expanded: u8, pub reserved: [u8; 5], pub build: PxuiBuild, pub user: *mut c_void, pub out_open: u8 }
-#[repr(C)]
-pub struct PxuiInspectorValueDesc { pub key: Str, pub label: Str, pub value: Str, pub has_width: u8, pub reserved: [u8; 7], pub width: f32 }
-#[repr(C)]
-pub struct PxuiInspectorTextDesc { pub key: Str, pub text: Str }
-pub type PxuiTableCell = Option<extern "C" fn(*mut c_void, i64, i64) -> Str>;
-#[repr(C)]
-pub struct PxuiTableDesc { pub label: Str, pub at: [f32; 2], pub width: f32, pub height: f32, pub headers: Slice<Str>, pub rows: i64, pub cell: PxuiTableCell, pub user: *mut c_void }
 
 fn curve(value: PxuiCurveDesc) -> Option<pxui_types::Curve> {
     if !value.duration.is_finite() || !value.omega.is_finite() || !value.points.iter().all(|v| v.is_finite()) { return None; }
@@ -64,7 +28,7 @@ export!(pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const PxuiGridLi
     let shared = state.shared;
     let mut build = |engine: &mut Ui, index| if let Some(callback) = desc.build {
         let mut borrowed = PxuiUi::borrowed(engine, shared);
-        callback(desc.user, &mut borrowed, index);
+        callback(desc.user, (&mut borrowed as *mut PxuiUi).cast(), index);
     };
     let value = unsafe { (&mut *state.engine).grid_list(label, desc.count, desc.cell_w, desc.cell_h, &mut build) };
     unsafe { *out = to_abi_box(value); }

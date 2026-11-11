@@ -3,7 +3,7 @@
 //! `States` picks a look per interaction state; a `Theme` is the tokens plus one `States` per kit part.
 //! The Rays look (Pragmasevka, 24-point rows, 20-point controls, six colours) is `Theme::default()`:
 //! separation comes from space first, a hairline second, a rectangle last; nothing is filled with ink.
-//! A theme is also a flat `key = value` file (`Theme::parse`, `Theme::write`, `crates/pxui_core/themes/`).
+//! A theme is also a flat `key = value` file (`Theme::parse`, `Theme::write`, `assets/themes/`).
 use crate::draw::flags::{BOTTOM, LEFT, RIGHT, TOP};
 use crate::geom::{color, Rgba as Color};
 pub use pxui_types::theme::{
@@ -40,109 +40,7 @@ macro_rules! widgets {
     };
 }
 
-widgets! {
-    /// a docked panel's ground
-    panel,
-    /// a floating sheet (popup, menu, completion list): the input white with a hairline
-    popup,
-    /// a modal's sheet
-    modal,
-    /// the scroll thumb (fill)
-    scrollbar,
-    /// a caption: upper case at the label size
-    label,
-    /// a section header's caption and its chevron
-    section,
-    chevron,
-    /// an inspector row (its label in ink-2)
-    row,
-    /// a list row (picker, completion); `checked` is the keyboard's current row
-    list,
-    /// a row armed for deletion
-    row_doomed,
-    /// a parameter row's pin dot, `checked` when the row is on its card
-    pin,
-    /// the current choice's square, a message's dot
-    mark,
-    notice,
-    /// an accent caption beside a name
-    badge,
-    /// a text button; `checked` while it is on
-    button,
-    /// a quieter button (`bare`, a trailing reset)
-    button_bare,
-    /// a switch row, its track and knob (`checked` when on)
-    toggle,
-    switch,
-    knob,
-    /// a field's hairline and value; `focus` while it is edited
-    field,
-    field_invalid,
-    /// a value's position in its soft range
-    fraction,
-    /// empty text's stand-in
-    placeholder,
-    /// a value read out
-    value,
-    /// keys beside what they do (`hint`)
-    key,
-    hint,
-    /// a query's matched letters
-    matched,
-    /// a colour swatch's frame
-    swatch,
-    /// a menu row and a destructive one, a separator line
-    menu,
-    menu_danger,
-    menu_key,
-    separator,
-    /// a window's foot and an inspector's bar (the hairline)
-    footer,
-    /// an inspector head: its hairline, the name and its index
-    header,
-    title,
-    index,
-    /// a read-only table's header row and body rows
-    table_head,
-    table_row,
-    /// a tooltip, the carried payload and its tip
-    tooltip,
-    ghost,
-    /// the text area: ground, gutter rule (`border`), selection and caret
-    text_area,
-    /// a checkbox's box and a radio's ring (`checked` when on; the inner square is `mark`, the dot `notice`)
-    checkbox,
-    radio,
-    /// a slider's thumb (its rail is `separator`, the filled part `mark`)
-    slider,
-    /// a progress track (the bar is `mark`) and a spinner's dots (`checked` is the lead dot)
-    progress,
-    spinner,
-    /// a tab (`checked`: the one in use) and a segment of a segmented control
-    tab,
-    segment,
-    /// a dropdown's button (its menu is `popup` with `menu` rows)
-    dropdown,
-    /// a menu bar (its items are `menu` rows)
-    menubar,
-    /// a scroll view's frame
-    scroll_view,
-    /// a list row and a tree row (`checked`: selected; `focus`: the keyboard's row)
-    listbox,
-    tree,
-    /// a table's column header (`checked`: the sort column)
-    column,
-    /// a dialog's title bar
-    dialog,
-    /// a toast's sheet
-    toast,
-    /// a square button with a glyph
-    icon_button,
-    /// a search field's well
-    search,
-    /// an image's frame
-    image,
-}
+pxui_types::theme_widgets!(widgets);
 
 impl Default for Theme {
     fn default() -> Theme {

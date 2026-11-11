@@ -4,36 +4,36 @@ use crate::state::{Build, PxuiUi, call_build, checked, fail, get};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::ffi::c_void;
 use pxui_core::{Theme, ui::Ui};
-use pxui_types::theme::{Font, Look, Shadow};
-use pxui_types::ffi::{PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, ThemeTokens};
+use pxui_types::ffi::{PxuiLookDesc, PxuiRingDesc, ThemeTokens};
 
-fn font(v: Font) -> PxuiFontDesc {
-    PxuiFontDesc { family:v.family, weight:v.weight, size:v.size, tracking:v.tracking, caps:v.caps as u8, reserved:[0;3] }
+macro_rules! fill_parts {
+    ($($(#[$doc:meta])* $name:ident),* $(,)?) => {
+        /// The kit parts of `theme` in list order, six looks each.
+        fn parts(theme: &Theme) -> Vec<PxuiLookDesc> {
+            let mut out = Vec::with_capacity(pxui_types::theme::WIDGET_COUNT * 6);
+            for s in [$(&theme.$name),*] { out.extend([s.idle, s.hover, s.pressed, s.focus, s.disabled, s.checked].map(PxuiLookDesc::from)); }
+            out
+        }
+    };
 }
+pxui_types::theme_widgets!(fill_parts);
 
-fn shadow(v: Shadow) -> PxuiShadowDesc {
-    PxuiShadowDesc { color:v.color, offset:[v.offset.0,v.offset.1], blur:v.blur, spread:v.spread, inner:v.inner as u8, reserved:[0;3] }
-}
-
-fn look(v: Look) -> PxuiLookDesc {
-    PxuiLookDesc {
-        fill:v.fill, gradient:v.gradient.unwrap_or_default(), has_gradient:v.gradient.is_some() as u8, reserved:[0;3], angle:v.angle,
-        border:v.border, border_w:v.border_w, sides:v.sides as u32, radius:v.radius,
-        shadows:[shadow(v.shadows[0]),shadow(v.shadows[1])], text:v.text, font:font(v.font), opacity:v.opacity,
-        ring:PxuiRingDesc { color:v.ring.color, width:v.ring.width, sides:v.ring.sides as u32 },
-        selection:v.selection, caret:v.caret, dashed:v.dashed as u8, reserved_tail:[0;3],
-    }
-}
-
-export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> PxuiThemeSnapshot {
-    let Some(ui)=(unsafe{get(ui)}) else { return unsafe{core::mem::zeroed()}; };
-    let engine=unsafe{&*ui.engine};
-    let theme=engine.theme();
-    PxuiThemeSnapshot {
-        size:core::mem::size_of::<PxuiThemeSnapshot>() as u32, reserved:0,
-        tokens:theme.tokens.into(), value:look(theme.value.idle), hint:look(theme.hint.idle),
-        field:look(theme.field.idle), footer:look(theme.footer.idle),
-    }
+// The theme in effect, whole: its scalars in `out` and every kit part's six looks in `looks` (`capacity` looks; the count a
+// snapshot lists is `out.part_count` * 6, set also when `capacity` is too small, which is an error).
+export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi, out:*mut PxuiThemeSnapshot, looks:*mut PxuiLookDesc, capacity:usize) -> i32 {
+    let Some(state)=(unsafe{get(ui)}) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() || (looks.is_null() && capacity != 0) { return unsafe{fail(ui,"null theme output")}; }
+    let theme=unsafe{&*state.engine}.theme();
+    let list=parts(theme);
+    let snapshot=PxuiThemeSnapshot {
+        size:core::mem::size_of::<PxuiThemeSnapshot>() as u32, part_count:pxui_types::theme::WIDGET_COUNT as u32, tokens:theme.tokens.into(),
+        row_h:theme.row_h, control_h:theme.control_h, scrollbar_w:theme.scrollbar_w, scrollbar_gap:theme.scrollbar_gap,
+        ring:PxuiRingDesc { color:theme.ring.color, width:theme.ring.width, sides:theme.ring.sides as u32 },
+    };
+    unsafe { *out=snapshot; }
+    if capacity < list.len() { return unsafe{fail(ui,"the looks buffer is too small for the theme")}; }
+    unsafe { core::ptr::copy_nonoverlapping(list.as_ptr(), looks, list.len()); }
+    0
 });
 
 /// A theme a caller builds from tokens and key/value pairs, then scopes over a subtree with `pxui_ui_themed`. Each `set`

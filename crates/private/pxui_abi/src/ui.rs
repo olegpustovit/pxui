@@ -2,9 +2,8 @@
 use crate::state::{Build, PxuiUi, Shared, call_build, checked, core_box, fail, fail_code, get, text};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiUiDesc, Str};
 use core::ffi::c_void;
-use input::{Event, Key, MouseButton, Platform, ScrollPhase, frame};
+use input::{Event, Key, MouseButton, Platform, frame};
 use pxui_core::ui::{PanelOpts, Ui};
-use pxui_types::{KEY_SPECIAL, KEY_UNKNOWN};
 use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice, ThemeSource, ThemeTokens};
 
 fn platform() -> Platform {
@@ -12,36 +11,10 @@ fn platform() -> Platform {
     #[cfg(not(target_os = "macos"))] { Platform::Other }
 }
 
-/// The special keys in `pxui.h` order: key code `KEY_SPECIAL + n` is `SPECIAL_KEYS[n]`.
-const SPECIAL_KEYS: [Key; 31] = [
-    Key::ArrowUp, Key::ArrowDown, Key::ArrowLeft, Key::ArrowRight, Key::Space, Key::Enter, Key::Escape, Key::Backspace,
-    Key::Tab, Key::Shift, Key::Ctrl, Key::Alt, Key::Meta,
-    Key::F1, Key::F2, Key::F3, Key::F4, Key::F5, Key::F6, Key::F7, Key::F8, Key::F9, Key::F10, Key::F11, Key::F12,
-    Key::Home, Key::End, Key::PageUp, Key::PageDown, Key::Insert, Key::Delete,
-];
-
-pub(crate) fn key(code: u32) -> Option<Key> {
-    if code >= KEY_UNKNOWN { return Some(Key::Unknown(i64::from(code - KEY_UNKNOWN))); }
-    if code >= KEY_SPECIAL { return SPECIAL_KEYS.get((code - KEY_SPECIAL) as usize).copied(); }
-    char::from_u32(code).filter(|c| *c != '\0').map(Key::KeyChar)
-}
-
-pub(crate) fn key_code(key: Key) -> u32 {
-    match key {
-        Key::KeyChar(c) => c as u32,
-        // ponytail: platform codes outside 0..2^31 are truncated; widen the event if one ever matters
-        Key::Unknown(code) => KEY_UNKNOWN | (code as u32 & !KEY_UNKNOWN),
-        special => SPECIAL_KEYS.iter().position(|k| *k == special).map_or(KEY_UNKNOWN, |n| KEY_SPECIAL + n as u32),
-    }
-}
-
-pub(crate) fn button(code: u32) -> Option<MouseButton> {
-    Some(match code { 0 => MouseButton::LeftButton, 1 => MouseButton::RightButton, 2 => MouseButton::MiddleButton, 3 => MouseButton::MouseX1, 4 => MouseButton::MouseX2, _ => return None })
-}
-
-pub(crate) fn button_code(button: MouseButton) -> u32 {
-    match button { MouseButton::LeftButton => 0, MouseButton::RightButton => 1, MouseButton::MiddleButton => 2, MouseButton::MouseX1 => 3, MouseButton::MouseX2 => 4 }
-}
+pub(crate) fn key(code: u32) -> Option<Key> { Key::from_code(code) }
+pub(crate) fn key_code(key: Key) -> u32 { key.code() }
+pub(crate) fn button(code: u32) -> Option<MouseButton> { MouseButton::from_code(code) }
+pub(crate) fn button_code(button: MouseButton) -> u32 { button.code() }
 
 export!(bare pub unsafe fn pxui_abi_version() -> u32 { crate::ABI_VERSION });
 
@@ -55,14 +28,14 @@ export!(pub unsafe fn pxui_ui_view_size(ui: *mut PxuiUi, out: *mut pxui_types::g
 
 export!(bare pub unsafe fn pxui_ui_create(desc: *const PxuiUiDesc) -> *mut PxuiUi {
     if desc.is_null() { return core::ptr::null_mut(); }
-    let desc = unsafe { *desc };
+    let Some(desc) = read_desc!(desc, PxuiUiDesc) else { return core::ptr::null_mut(); };
     if !valid_desc(&desc) { return core::ptr::null_mut(); }
     unsafe { create_ui(desc, &[pxui_core::text::PRAGMASEVKA]) }
 });
 
 export!(bare pub unsafe fn pxui_ui_create_with_fonts(desc: *const PxuiUiDesc, fonts: *const Str, count: usize) -> *mut PxuiUi {
     if desc.is_null() || count == 0 || count > 128 || fonts.is_null() { return core::ptr::null_mut(); }
-    let desc = unsafe { *desc };
+    let Some(desc) = read_desc!(desc, PxuiUiDesc) else { return core::ptr::null_mut(); };
     if !valid_desc(&desc) { return core::ptr::null_mut(); }
     let mut bytes = Vec::with_capacity(count);
     for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
@@ -171,8 +144,8 @@ export!(pub unsafe fn pxui_ui_set_theme(ui: *mut PxuiUi, source: *const ThemeSou
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if !state.owner || state.shared().in_frame { return PXUI_ERR_STATE; }
     if source.is_null() { return unsafe { fail(ui, "null theme source") }; }
-    let source = unsafe { *source };
-    if source.size < core::mem::size_of::<ThemeSource>() as u32 || source.flags & !3 != 0 { return unsafe { fail(ui, "invalid theme descriptor") }; }
+    let Some(source) = read_desc!(source, ThemeSource) else { return unsafe { fail(ui, "invalid theme descriptor") }; };
+    if source.flags & !3 != 0 { return unsafe { fail(ui, "invalid theme descriptor") }; }
     let parsed = if source.source.len == 0 { Ok(pxui_core::Theme::default()) } else {
         let Some(text) = (unsafe { text(source.source) }) else { return unsafe { fail(ui, "invalid theme UTF-8") }; };
         pxui_core::Theme::parse(text, &pxui_core::Theme::default()).map_err(|_| ())
@@ -237,41 +210,7 @@ export!(pub unsafe fn pxui_ui_request_frame(ui: *mut PxuiUi) -> i32 {
 });
 
 pub(crate) fn translate_event(e: &pxui_types::Event) -> Option<Event> {
-    use pxui_types::Event as E;
-    let s = unsafe { text(e.text) };
-    Some(match e.kind {
-        E::KEY_PRESSED => Event::KeyPressed(key(e.code)?),
-        E::KEY_RELEASED => Event::KeyReleased(key(e.code)?),
-        E::POINTER_MOVED => Event::PointerMoved((e.x, e.y)),
-        E::POINTER_PRESSED => Event::PointerPressed(button(e.code)?, (e.x, e.y)),
-        E::POINTER_RELEASED => Event::PointerReleased(button(e.code)?, (e.x, e.y)),
-        E::POINTER_CANCELLED => Event::PointerCancelled(button(e.code)?),
-        E::SCROLLED => Event::Scrolled((e.x, e.y)),
-        E::TEXT_INPUT => Event::TextInput(s?.to_owned()),
-        E::PASTE => Event::Paste(s?.to_owned()),
-        E::TEXT_EDITING => Event::TextEditing { text: s?.to_owned(), start: e.x as i64, length: e.y as i64 },
-        E::FILE_DROPPED => Event::FileDropped(s?.to_owned()),
-        E::FILE_DRAG_MOVED => Event::FileDragMoved((e.x, e.y)),
-        E::FILE_DRAG_ENDED => Event::FileDragEnded,
-        E::PINCHED => Event::Pinched(e.value),
-        E::FILE_DIALOG => match e.code {
-            0 => Event::FileDialog { id: e.value as i64, result: Ok(s?.split('\0').map(str::to_owned).collect()) },
-            1 => Event::FileDialog { id: e.value as i64, result: Err(s?.to_owned()) },
-            _ => return None,
-        },
-        E::DIALOG_OPENED => Event::DialogOpened(e.code as i64),
-        E::RESIZED => Event::Resized((e.x as i64, e.y as i64)),
-        E::FOCUS_LOST => Event::FocusLost,
-        E::FOCUS_GAINED => Event::FocusGained,
-        E::CLOSED => Event::Closed,
-        E::PIXEL_SIZE_CHANGED => Event::PixelSizeChanged((e.x as i64, e.y as i64)),
-        E::VISIBILITY_CHANGED => Event::VisibilityChanged(e.value != 0.0),
-        E::TRACKPAD_SCROLLED => Event::TrackpadScrolled {
-            delta: (e.x, e.y), time: e.value,
-            phase: match e.code { 0 => ScrollPhase::Touched, 1 => ScrollPhase::Moved, 2 => ScrollPhase::Lifted, 3 => ScrollPhase::Momentum, _ => return None },
-        },
-        _ => return None,
-    })
+    Event::from_raw(&input::wire::Raw { kind: e.kind, code: e.code, x: e.x, y: e.y, value: e.value, text: unsafe { text(e.text) } })
 }
 
 /// Appends `events` to `base`, folding the key and pointer ones into its held state. False when one is invalid.
@@ -327,8 +266,8 @@ unsafe fn enter_frame(ui: *mut PxuiUi) -> Result<(), i32> {
 export!(frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
     if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
-    let input = unsafe { &*input };
-    if input.size < core::mem::size_of::<FrameIn>() as u32 || !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
+    let Some(input) = read_desc!(input, FrameIn) else { return unsafe { fail(ui, "invalid frame descriptor") }; };
+    if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
     let mut base = input::at_time(input.time);
     base.size = (input.width as i64, input.height as i64);
@@ -341,8 +280,8 @@ export!(frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, b
 export!(frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
     if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
-    let input = unsafe { *input };
-    if input.size < core::mem::size_of::<Input>() as u32 || !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid input frame") }; }
+    let Some(input) = read_desc!(input, Input) else { return unsafe { fail(ui, "invalid input frame") }; };
+    if !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid input frame") }; }
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
     let mut base = input::at_time(input.time);
     base.dt = input.dt; base.frame = input.frame; base.tick = input.tick;
@@ -384,10 +323,13 @@ export!(pub unsafe fn pxui_col(ui: *mut PxuiUi, padding: f32, label: Str, build:
 export!(pub unsafe fn pxui_panel(ui: *mut PxuiUi, panel: *const PxuiPanel, label: Str, build: Build, user: *mut c_void) {
     let (Some(state), false) = (unsafe { get(ui) }, panel.is_null()) else { return; };
     let Some(label) = (unsafe { text(label) }) else { return; };
-    let panel = unsafe { *panel };
-    if panel.size < core::mem::size_of::<PxuiPanel>() as u32 || !crate::state::finite(&[panel.x, panel.y, panel.width, panel.height]) { return; }
+    let Some(panel) = read_desc!(panel, PxuiPanel) else { return; };
+    if !crate::state::finite(&[panel.x, panel.y, panel.width, panel.height, panel.max_height]) { return; }
     let mut opts = PanelOpts::default().at(panel.x, panel.y).width(panel.width).padding(panel.padding).window(panel.window != 0);
     if panel.has_height != 0 { opts = opts.height(panel.height); }
+    if panel.has_max_height != 0 { opts = opts.max_height(panel.max_height); }
+    if panel.has_stroke != 0 { opts.stroke = Some(panel.stroke); }
+    if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return; }; opts.look = Some(look); }
     let shared = state.shared;
     unsafe { (&mut *state.engine).panel(opts, label, &mut |engine: &mut Ui| call_build(shared, engine, build, user)); }
 });
@@ -418,22 +360,19 @@ export!(pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, c
 
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use pxui_types::Event as C;
 
+    /// The numbering `input` encodes with is the one the C header and `pxui_types` document.
     #[test]
-    fn key_codes_round_trip_and_never_collide() {
-        let mut keys = vec![Key::KeyChar('a'), Key::KeyChar('\u{100}'), Key::KeyChar('\u{10ffff}'), Key::Unknown(7), Key::Unknown(0x7fff_ffff)];
-        keys.extend(SPECIAL_KEYS);
-        let mut codes = std::collections::HashSet::new();
-        for k in keys {
-            let code = key_code(k);
-            assert_eq!(key(code), Some(k), "{k:?} -> {code:#x}");
-            assert!(codes.insert(code), "{k:?} collides");
-        }
-        assert_eq!(key(0), None);
-        assert_eq!(key(0xd800), None);
-        assert_eq!(key(KEY_SPECIAL + SPECIAL_KEYS.len() as u32), None);
-        assert_eq!(key(key_code(Key::KeyChar('\u{100}'))), Some(Key::KeyChar('\u{100}')));
-        assert_ne!(key_code(Key::KeyChar('\u{100}')), key_code(Key::ArrowUp));
+    fn wire_numbers_are_the_abi_numbers() {
+        use input::wire as w;
+        assert_eq!((w::KEY_SPECIAL, w::KEY_UNKNOWN), (pxui_types::KEY_SPECIAL, pxui_types::KEY_UNKNOWN));
+        let pairs = [(w::KEY_PRESSED, C::KEY_PRESSED), (w::KEY_RELEASED, C::KEY_RELEASED), (w::POINTER_MOVED, C::POINTER_MOVED), (w::POINTER_PRESSED, C::POINTER_PRESSED),
+            (w::POINTER_RELEASED, C::POINTER_RELEASED), (w::POINTER_CANCELLED, C::POINTER_CANCELLED), (w::SCROLLED, C::SCROLLED), (w::TEXT_INPUT, C::TEXT_INPUT),
+            (w::PASTE, C::PASTE), (w::TEXT_EDITING, C::TEXT_EDITING), (w::FILE_DROPPED, C::FILE_DROPPED), (w::FILE_DRAG_MOVED, C::FILE_DRAG_MOVED),
+            (w::FILE_DRAG_ENDED, C::FILE_DRAG_ENDED), (w::PINCHED, C::PINCHED), (w::FILE_DIALOG, C::FILE_DIALOG), (w::DIALOG_OPENED, C::DIALOG_OPENED),
+            (w::RESIZED, C::RESIZED), (w::FOCUS_LOST, C::FOCUS_LOST), (w::FOCUS_GAINED, C::FOCUS_GAINED), (w::CLOSED, C::CLOSED),
+            (w::PIXEL_SIZE_CHANGED, C::PIXEL_SIZE_CHANGED), (w::VISIBILITY_CHANGED, C::VISIBILITY_CHANGED), (w::TRACKPAD_SCROLLED, C::TRACKPAD_SCROLLED)];
+        for (wire, abi) in pairs { assert_eq!(wire, abi); }
     }
 }

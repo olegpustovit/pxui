@@ -8,7 +8,7 @@ mod bench;
 mod layout;
 #[path = "cases/nodes.rs"]
 mod nodes;
-#[path = "cases/run.rs"]
+#[path = "../../../../tools/t/run.rs"]
 mod run;
 #[path = "cases/small.rs"]
 mod small;

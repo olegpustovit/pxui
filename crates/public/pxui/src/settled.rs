@@ -9,7 +9,7 @@ use pxui_types::{Axis, FrameIn, Size, layout::{Cell, Grid, Track}};
 struct State { clicks: u32, night: bool, check: bool, volume: f32, mode: usize, seen: u64 }
 
 fn panel(ui: &mut Ui, s: &mut State) {
-    ui.panel("settings", |ui| {
+    ui.panel(pxui_types::ui::PanelOpts::default(), "settings", &mut |ui: &mut Ui| {
         ui.label("Display");
         if ui.button("Apply") { s.clicks += 1; }
         s.night = ui.toggle("Night light", s.night);
@@ -18,7 +18,7 @@ fn panel(ui: &mut Ui, s: &mut State) {
         s.mode = ui.radio("Mode", &["Auto", "Light", "Dark"], s.mode);
         let _ = ui.text_field("Name", "abc");
         let row = ui.node("row", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
-        ui.within(&row, |ui| {
+        ui.within(&row, &mut |ui: &mut Ui| {
             // a keyed node of a grid, as a custom widget declares it
             const COLS: [Track; 2] = [Track::Fr(1.0), Track::Px(40.0)];
             let cell = ui.node_keyed(7, Node { grid: Some(Grid { cols: &COLS, rows: &[] }), cell: Cell::at(0, 0), ..Node::DEFAULT });
@@ -51,7 +51,7 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
     });
     s.seen += ui.list_view("items", 3, false, &mut [false; 3], |row, emit| emit(["one", "two", "three"][row])).is_some() as u64;
     s.seen += ui.table_str((0.0, 0.0), 120.0, 60.0, &["Name", "Size"], 3, |_, column| if column == 0 { "row" } else { "1" }, "table").is_some() as u64;
-    s.seen += ui.popup(None, None, true, false, (10.0, 10.0), 80.0, 30.0, "popup", |ui| ui.label("popped")) as u64;
+    s.seen += ui.popup(None, None, true, false, (10.0, 10.0), 80.0, 30.0, "popup", &mut |ui: &mut Ui| ui.label("popped")) as u64;
 }
 
 #[test]
@@ -64,7 +64,7 @@ fn a_settled_frame_through_the_wrapper_allocates_nothing() {
     let mut state = State { clicks: 0, night: false, check: false, volume: 0.5, mode: 0, seen: 0 };
     let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
     let frame = |ui: &mut Ui, state: &mut State| {
-        ui.frame(&input, |ui| panel(ui, state)).expect("frame");
+        ui.frame(&input, &mut |ui: &mut Ui| panel(ui, state)).expect("frame");
         // the stat accessors read the cached output: no rebuild, no allocation
         state.seen += ui.draw_revision() + ui.built_nodes() + ui.rebuilt_views() + ui.arranged_nodes() + ui.repaint_at().map_or(0, |_| 1);
         let output = ui.output();

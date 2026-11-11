@@ -1,7 +1,7 @@
 //! The PXUI kit gallery: every kit widget, old and new, on four pages, each page a cached view.
 //! The page functions are shared by the window app (`main.rs`) and the headless goldens
 //! (`tests/gpu_gallery.rs`); the host loop and the GPU half are in `main.rs` and `gpu.rs`.
-use pxui::{collections::TreeNode, DialogOut, Image, MenuOpts, MenuResult, Pick, PickerOpts, PxuiBox as Handle, PxuiPanel, TextAreaOpts, Ui, ValueFieldOpts};
+use pxui::{collections::TreeNode, DialogOut, Image, MenuOpts, MenuResult, Pick, PickerOpts, PxuiBox as Handle, ui_kit::PanelOpts, TextAreaOpts, Ui, ValueFieldOpts};
 use pxui::kit::{AnimationTarget, Keyframe};
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Node, Size, Str};
@@ -31,23 +31,6 @@ pub const TOAST_SECONDS: f64 = 3.0;
 
 fn node(ui: &mut Ui, label: &str, desc: Node) -> Handle {
     ui.node(label, desc)
-}
-
-fn panel_desc(opts: PanelOpts) -> PxuiPanel {
-    PxuiPanel {
-        size: core::mem::size_of::<PxuiPanel>() as u32,
-        x: opts.x, y: opts.y, width: opts.width, height: opts.height.unwrap_or_default(),
-        padding: opts.padding, has_height: opts.height.is_some() as u8, window: opts.window as u8,
-    }
-}
-
-#[derive(Clone)]
-struct PanelOpts { x:f32, y:f32, width:f32, height:Option<f32>, padding:i64, window:bool }
-impl Default for PanelOpts { fn default()->Self { Self{x:12.0,y:12.0,width:280.0,height:None,padding:0,window:false} } }
-impl PanelOpts {
-    fn at(mut self,x:f32,y:f32)->Self{self.x=x;self.y=y;self}
-    fn width(mut self,v:f32)->Self{self.width=v;self}
-    fn window(mut self,v:bool)->Self{self.window=v;self}
 }
 
 /// What the gallery holds between frames. `page_rev` and `chrome_rev` are the views' revisions: an
@@ -164,7 +147,7 @@ fn column(ui: &mut Ui, label: &str, at: (f32, f32), w: f32, h: Size, f: &mut dyn
 /// rest of the old kit: inspector section, rows and button, a value field, a text area, a footer
 /// and the read-only table.
 pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
-    ui.panel_desc(&panel_desc(PanelOpts::default()), "panel", |ui| {
+    ui.panel(PanelOpts::default(), "panel", &mut |ui: &mut Ui| {
         ui.label("PXUI");
         s.animate = ui.toggle("Animate", s.animate);
         s.wire = ui.toggle("Wire", s.wire);
@@ -175,8 +158,8 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
             s.quit = true;
         }
     });
-    ui.panel_desc(&panel_desc(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true)), "inspector", |ui| {
-        let _ = ui.inspector_section("section", true, None, "Inspector", |ui| {
+    ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true), "inspector", &mut |ui: &mut Ui| {
+        let _ = ui.inspector_section("section", true, None, "Inspector", &mut |ui: &mut Ui| {
             s.snap = ui.inspector_toggle("snap", "Snap", s.snap);
             let _ = ui.inspector_readout(None, "count", "Points", "1,024");
             let (row, cx, cy, cw) = ui.inspector_row(None, None, "scale", "Scale");
@@ -192,7 +175,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         });
         let notes = node(ui, "notes", Node { h: Size::Px(64.0), ..Node::DEFAULT });
         ui.within(&notes, &mut |ui: &mut Ui| {
-            let (text, _) = ui.text_area_submit((12.0, 4.0), 270.0, 56.0, &TextAreaOpts::default(), "notes-area", &s.notes).unwrap_or((s.notes.clone(), false));
+            let (text, _) = ui.text_area_submit((12.0, 4.0), 270.0, 56.0, &TextAreaOpts::default(), "notes-area", &s.notes);
             if text != s.notes {
                 s.notes = text;
             }
@@ -208,7 +191,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
 /// The controls page: every value widget, two columns.
 pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     s.busy.clear();
-    ui.panel_desc(&panel_desc(PanelOpts::default().width(296.0)), "values", |ui| {
+    ui.panel(PanelOpts::default().width(296.0), "values", &mut |ui: &mut Ui| {
         ui.label("Values");
         s.check = ui.checkbox("Snap to grid", s.check);
         s.radio = ui.radio("Quality", &["Draft", "Normal", "Final"], s.radio);
@@ -226,7 +209,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
         s.segment = ui.segmented("Align", &["Left", "Centre", "Right"], s.segment);
         s.choice = ui.dropdown("Blend", &["Normal", "Multiply", "Screen", "Overlay", "Add"], s.choice);
     });
-    ui.panel_desc(&panel_desc(PanelOpts::default().at(332.0, 12.0).width(296.0)), "more", |ui| {
+    ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0), "more", &mut |ui: &mut Ui| {
         s.tab = ui.tabs("Sections", &["Layer", "Mask", "Effects"], s.tab);
         if let Some(q) = ui.search_field("Find", "/", &s.search, "Search layers") {
             s.search = q;
@@ -239,7 +222,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
                 }
             }
         });
-        let _ = ui.scroll_view("Scroll both ways", Size::Grow, Size::Px(96.0), |ui| {
+        let _ = ui.scroll_view("Scroll both ways", Size::Grow, Size::Px(96.0), &mut |ui: &mut Ui| {
             for (i, name) in NAMES.iter().enumerate() {
                 let text = ui.theme().value.idle.text;
                 let n = node(ui, name, Node { w: Size::Px(420.0), h: Size::Px(22.0), inset: Edges { l: 8.0 + 8.0 * i as f32, ..Edges::ZERO }, look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
@@ -262,9 +245,9 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
     let pad = node(ui, "collections", Node { w: Size::Grow, h: Size::Grow, padding: Edges::all(12.0), ..Node::DEFAULT });
     ui.within(&pad, &mut |ui: &mut Ui| {
         let ratio = s.split;
-        if let Some(r) = ui.split("split", Axis::Row, ratio, 120.0, 200.0, |ui| {
+        if let Some(r) = ui.split("split", Axis::Row, ratio, 120.0, 200.0, &mut |ui: &mut Ui| {
             let _ = ui.list_view("Files", ROWS, true, &mut s.list, &names);
-        }, |ui| {
+        }, &mut |ui: &mut Ui| {
             let half = node(ui, "right", Node { w: Size::Grow, h: Size::Grow, padding: Edges { l: 8.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
             ui.within(&half, &mut |ui: &mut Ui| {
                 let top = node(ui, "tree-box", Node { h: Size::Grow, ..Node::DEFAULT });
@@ -287,7 +270,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
 /// The overlays page: buttons that open the dialog, a context menu, the picker in a modal and a
 /// toast; a tooltip on a resting pointer.
 pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
-    ui.panel_desc(&panel_desc(PanelOpts::default().width(296.0)), "overlays", |ui| {
+    ui.panel(PanelOpts::default().width(296.0), "overlays", &mut |ui: &mut Ui| {
         ui.label("Overlays");
         if ui.button("Open dialog") {
             s.dialog = true;
@@ -313,7 +296,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         }
     });
     if s.dialog {
-        match ui.dialog("Delete layer", &["Cancel", "Delete"], |ui| { let _ = ui.inspector_message("body", "This cannot be undone."); }) {
+        match ui.dialog("Delete layer", &["Cancel", "Delete"], &mut |ui: &mut Ui| { let _ = ui.inspector_message("body", "This cannot be undone."); }) {
             DialogOut::Open => {}
             DialogOut::Closed | DialogOut::Button(0) => (s.dialog, s.said) = (false, "Kept the layer"),
             DialogOut::Button(_) => (s.dialog, s.said) = (false, "Deleted the layer"),
@@ -329,10 +312,10 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     }
     if s.picker {
         let mut close = false;
-        let _ = ui.modal("presets", Some(240.0), |ui| {
+        let _ = ui.modal(Some(240.0), "presets", &mut |ui: &mut Ui| {
             ui.label("Presets");
             let rows = |_: &str| NAMES[..5].iter().map(|n| (n.to_string(), "09-24".to_owned())).collect();
-            let (_, pick) = ui.picker(&PickerOpts { limit: 4, ..PickerOpts::default() }, "Search presets", "", rows);
+            let (_, pick) = ui.picker(&PickerOpts { limit: 4, ..PickerOpts::default() }, "Search presets", "", &rows);
             close = !matches!(pick, Pick::None);
         });
         if close {
@@ -346,7 +329,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
 fn demo(ui: &mut Ui, title: &str, at: (f32, f32), (w, h): (f32, f32), body: Node, f: &mut dyn FnMut(&mut Ui)) {
     let t = ui.theme();
     let outer = node(ui, title, Node { w: Size::Px(w), h: Size::Px(h), at: Some(at), gap: 4.0, ..Node::DEFAULT });
-    ui.within(&outer, |ui: &mut Ui| {
+    ui.within(&outer, &mut |ui: &mut Ui| {
         let cap = node(ui, "caption", Node { w: Size::Grow, h: Size::Px(14.0), look: text_only(&t.hint.idle), ..Node::DEFAULT });
         let _ = ui.text(&cap, title);
         let frame = Look { border: t.field.idle.border, border_w: 1.0, ..Look::NONE };
@@ -493,7 +476,7 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     if let Some(a) = anchor.filter(|a| a.w > 0.0) {
         let place = Placement { side: Side::Right, align: Align::Center, gap: 4.0, margin: 4.0, flip: true };
         let pop = ui.theme();
-        let _ = ui.anchored("popup", a, place, Size::Fit, Size::Fit, |ui| {
+        let _ = ui.anchored("popup", a, place, Size::Fit, Size::Fit, &mut |ui: &mut Ui| {
             let n = node(ui, "popup-body", Node { w: Size::Px(96.0), h: Size::Px(24.0), look: Look { fill: pop.tokens.input, border: pop.field.idle.border, border_w: 1.0, text: pop.tokens.foreground, ..Look::NONE }, inset: Edges { l: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
             let _ = ui.text(&n, "anchored, flips");
         });
