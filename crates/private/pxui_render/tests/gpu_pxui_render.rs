@@ -843,7 +843,7 @@ fn shared_backdrop_blur() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
     let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
-    let mut ui = shared_ui("Functional UI");
+    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
     let glass = std::cell::Cell::new(None);
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
     let build = |ui: &mut pxui::Ui| {
