@@ -477,6 +477,9 @@ pub struct Text {
     names: Vec<String>,
     ascents: Vec<f32>,
     entries: HashMap<u64, Entry, Fast>,
+    /// every entry's key, and where the incremental sweep goes on
+    keys: Vec<u64>,
+    sweep: usize,
     frame: u32,
     walks: u64,
     cache_on: bool,
@@ -521,6 +524,8 @@ impl Text {
             names: Vec::new(),
             ascents: Vec::new(),
             entries: HashMap::default(),
+            keys: Vec::new(),
+            sweep: 0,
             frame: 1,
             walks: 0,
             cache_on: true,
@@ -561,9 +566,13 @@ impl Text {
             }
         }
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
+        let keys = &mut self.keys;
         let e = self.entries.entry(key).or_insert_with(|| Entry {
+            text: {
+                keys.push(key);
+                String::new()
+            },
             buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
-            text: String::new(),
             style: *style,
             width: 0,
             frame,
@@ -824,23 +833,28 @@ impl Text {
 
     /// Call once per frame: drops layouts not laid out in the last `KEEP_FRAMES` frames. A cached
     /// view's text is not laid out while the view is kept; its layouts outlive a short keep, so the
-    /// view's next rebuild is a cache hit, not a re-shape.
-    // ponytail: age-based, not size-based; a view kept past KEEP_FRAMES frames re-shapes its text (and
-    // allocates) on its next rebuild. An LRU with a byte budget if that shows.
-    // ponytail: one frame in SWEEP_FRAMES walks every layout (about 5 ns each); an intrusive LRU list
-    // if that spike shows.
+    /// view's next rebuild is a cache hit, not a re-shape. The sweep is incremental: each frame looks
+    /// at 1/`SWEEP_FRAMES` of the layouts (every one once per `SWEEP_FRAMES` frames), so no frame
+    /// walks them all.
     pub fn end_frame(&mut self) {
         let frame = self.frame;
         self.g.frame = frame + 1;
-        if frame % SWEEP_FRAMES == 0 {
-            let bytes = &mut self.cache_bytes;
-            self.entries.retain(|_, e| {
-                let keep = frame.wrapping_sub(e.frame) < KEEP_FRAMES;
-                if !keep {
-                    *bytes -= e.glyphs.capacity() * size_of::<CachedGlyph>();
-                }
-                keep
-            });
+        let mut budget = self.keys.len() / SWEEP_FRAMES as usize + 1;
+        while budget > 0 && !self.keys.is_empty() {
+            budget -= 1;
+            if self.sweep >= self.keys.len() {
+                self.sweep = 0;
+            }
+            let key = self.keys[self.sweep];
+            let stale = self.entries.get(&key).is_none_or(|e| frame.wrapping_sub(e.frame) >= KEEP_FRAMES);
+            if !stale {
+                self.sweep += 1;
+                continue;
+            }
+            if let Some(e) = self.entries.remove(&key) {
+                self.cache_bytes -= e.glyphs.capacity() * size_of::<CachedGlyph>();
+            }
+            self.keys.swap_remove(self.sweep);
         }
         self.frame += 1;
     }

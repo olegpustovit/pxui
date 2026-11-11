@@ -658,6 +658,9 @@ needs a measurement that shows it.
   of 32 on insertion only).
 - Dashed lines: straight segments and rectangles only; a quadratic curve has no dash pattern (it would
   need the curve's arc length in the fragment shader; nothing in the kit dashes a curve).
+- Text layouts are kept by age: one not laid out for `KEEP_FRAMES` (600) frames goes, found by an
+  incremental sweep (1/64 of the layouts a frame). A view kept longer re-shapes its text when it
+  next rebuilds; a byte budget would need cosmic-text's buffer sizes, which it does not report.
 - Theme files are watched by polling their modification time (`theme::Watch`, once a second in the
   gallery) from the host's wait, which already sleeps until `Ui::repaint_at`: no thread and no OS
   notification API (inotify, FSEvents, ReadDirectoryChangesW differ per platform and need a thread or
