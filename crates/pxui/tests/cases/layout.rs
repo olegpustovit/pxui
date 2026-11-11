@@ -354,6 +354,32 @@ pub fn layout_scroll_x_elastic() {
     }
 }
 
+/// A list of rows of three heights: every built row sits right under the one before it from the
+/// first frame (measured heights settle the frame); a warm frame allocates nothing.
+pub fn layout_list_measured() {
+    let mut ui = new_ui(None);
+    let rows = RefCell::new(vec![None; 200]);
+    let height = |i: usize| 10.0 + (i % 3) as f32 * 10.0;
+    let mut build = |ui: &mut Ui| {
+        let col = ui.node("col", Node { w: Size::Px(100.0), h: Size::Px(200.0), ..Node::DEFAULT });
+        ui.within(&col, &mut |ui| {
+            ui.list_measured("rows", 200, 12.0, &mut |ui, i| {
+                let h = ui.node("r", Node { w: Size::Px(80.0), h: Size::Px(height(i)), ..Node::DEFAULT });
+                rows.borrow_mut()[i] = Some(h);
+            });
+        });
+        vec![]
+    };
+    lay(&mut ui, 0.0, vec![], &mut build);
+    let tops = |ui: &Ui, range: std::ops::Range<usize>| range.map(|i| ui.rect(&rows.borrow()[i].unwrap()).y).collect::<Vec<f32>>();
+    check(tops(&ui, 0..6) == [0.0, 10.0, 30.0, 60.0, 70.0, 90.0], &format!("first frame tops {:?}", tops(&ui, 0..6)));
+    lay(&mut ui, 0.1, vec![], &mut build);
+    mem_sys::local_reset();
+    lay(&mut ui, 0.2, vec![], &mut build);
+    check(mem_sys::local_alloc_count() == 0, &format!("a warm measured list allocated {}", mem_sys::local_alloc_count()));
+    ui.destroy();
+}
+
 /// A virtual grid whose width changes rewraps within the frame (the frame settles), not a frame late.
 pub fn layout_grid_list_resize_settles() {
     let mut ui = new_ui(None);
@@ -739,6 +765,7 @@ pub fn layout_scaling() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_list_measured", layout_list_measured),
     ("layout_grid_list_resize_settles", layout_grid_list_resize_settles),
     ("layout_grid_many_rows", layout_grid_many_rows),
     ("layout_grow_many_frozen", layout_grow_many_frozen),

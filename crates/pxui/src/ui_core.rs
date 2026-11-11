@@ -518,6 +518,16 @@ pub struct BlurOut {
     pub opacity: f32,
 }
 
+/// `Ui::list_measured`'s cache: each row's measured (or estimated) height, the rows' tops (prefix
+/// sums, `count + 1`, rebuilt when a height changes) and the frame it was last used.
+#[derive(Default)]
+struct RowHeights {
+    heights: Vec<f32>,
+    tops: Vec<f32>,
+    dirty: bool,
+    frame: i64,
+}
+
 /// A cached subtree (`Ui::view`): when it was built, where its output lives and how it is shown.
 struct ViewRec {
     name: String,
@@ -1230,6 +1240,9 @@ pub struct Ui {
     /// layout found kept output stale: `frame` builds again (`settle`), with this quiet input
     settle: bool,
     quiet: Option<rframe::Frame>,
+    /// `list_measured`'s heights per list, and the rows this frame built (list, row, slot)
+    list_heights: HashMap<i64, RowHeights>,
+    list_rows: Vec<(i64, usize, usize)>,
     /// sizes a build read before layout (slot, width, height; NaN: not read): layout disagreeing
     /// settles the frame
     expected: std::cell::Cell<Vec<(usize, f32, f32)>>,
@@ -1432,6 +1445,8 @@ impl Ui {
             grow_pass: 0,
             settle: false,
             quiet: None,
+            list_heights: HashMap::new(),
+            list_rows: Vec::new(),
             expected: std::cell::Cell::new(Vec::new()),
             a11y_copied: false,
             grid_rows: std::cell::Cell::new(Vec::new()),
@@ -5850,6 +5865,20 @@ impl Ui {
         }
         expected.clear();
         self.expected.set(expected);
+        // measured rows of `list_measured`: a new height goes into the cache and the frame settles
+        for k in 0..self.list_rows.len() {
+            let (key, i, slot) = self.list_rows[k];
+            let h = self.slots[slot].rh;
+            if let Some(cache) = self.list_heights.get_mut(&key) {
+                if i < cache.heights.len() && (cache.heights[i] - h).abs() > 0.01 && self.slots[slot].key != 0 {
+                    (cache.heights[i], cache.dirty) = (h, true);
+                    self.settle = true;
+                }
+            }
+        }
+        self.list_rows.clear();
+        let frame_number = self.frame_number;
+        self.list_heights.retain(|_, c| frame_number - c.frame < 600);
         self.phase(4);
         self.emit_a11y();
         self.phase(5);
@@ -6384,8 +6413,8 @@ impl Ui {
     /// that builds only the rows in view and `OVERSCAN` more past each edge: `f(ui, i)` builds row
     /// `i`'s content inside a row box keyed by `i`, so a row's state and handles stay while it is
     /// built. Returns the list's scroll box.
-    // ponytail: rows of one known height; a measured-height cache when rows vary. Rows are chosen
-    // from the scroll position before layout: a fling past the overscan shows empty rows for a frame.
+    // Rows are chosen from the scroll position before layout: a fling past the overscan shows empty
+    // rows for a frame. Rows of differing heights: `list_measured`.
     pub fn list(&mut self, label: &str, count: usize, row_h: f32, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
         assert!(row_h > 0.0, "Ui.list {label}: rows need a positive height");
         let body = self.node(label, Node { flags: SCROLL | CLIP, w: Size::Grow, h: Size::Grow, scroll_step: row_h, role: Role::List, ..Node::DEFAULT });
@@ -6411,6 +6440,58 @@ impl Ui {
         }
         self.leave(inner);
         self.leave(saved);
+        body
+    }
+
+    /// `list` with rows of their own (`Fit`) heights: each row is measured when it is built and its
+    /// height cached by index (rows not yet built count `estimate_h`); the rows' tops are prefix sums
+    /// of the cache, so the scroll position finds its row by binary search. A measured height that
+    /// differs from the cached one settles the frame (`Ui::frame` builds again), so rows never
+    /// overlap or gap. No allocation once warm (the cache grows with `count`).
+    pub fn list_measured(&mut self, label: &str, count: usize, estimate_h: f32, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
+        assert!(estimate_h > 0.0, "Ui.list_measured {label}: the estimate needs a positive height");
+        let body = self.node(label, Node { flags: SCROLL | CLIP, w: Size::Grow, h: Size::Grow, scroll_step: estimate_h, role: Role::List, ..Node::DEFAULT });
+        let mut cache = self.list_heights.remove(&body.box_key).unwrap_or_default();
+        if cache.heights.len() != count {
+            cache.heights.resize(count, estimate_h);
+            cache.dirty = true;
+        }
+        if cache.dirty || cache.tops.len() != count + 1 {
+            cache.tops.clear();
+            cache.tops.push(0.0);
+            for k in 0..count {
+                let top = cache.tops[k] + cache.heights[k];
+                cache.tops.push(top);
+            }
+            cache.dirty = false;
+        }
+        cache.frame = self.frame_number;
+        let seen = self.slots[body.box_slot].rh;
+        let height = if seen > 0.0 { seen } else { self.view_h };
+        self.expect(body.box_slot, f32::NAN, height);
+        self.set_l_h(&body, height);
+        self.set_l_content(&body, cache.tops[count]);
+        if let Some(t) = self.input_frame_time() {
+            self.apply_scroll(true, t, body.index);
+        }
+        let offset = self.scroll_offset(&body);
+        // the row at the offset, and the one past the bottom edge
+        let top = cache.tops.partition_point(|y| *y <= offset).saturating_sub(1).min(count);
+        let bottom = cache.tops.partition_point(|y| *y < offset + height).min(count);
+        let (first, last) = (top.saturating_sub(OVERSCAN), (bottom + OVERSCAN).min(count));
+        let saved = self.enter(&body);
+        let extent = self.node_keyed(int_key(body.box_key, -1), Node { h: Size::Px(cache.tops[count]), ..Node::DEFAULT });
+        let inner = self.enter(&extent);
+        for i in first..last {
+            let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Fit, at: Some((0.0, cache.tops[i])), role: Role::ListItem, ..Node::DEFAULT });
+            self.list_rows.push((body.box_key, i, row.box_slot));
+            let saved = self.enter(&row);
+            f(self, i);
+            self.leave(saved);
+        }
+        self.leave(inner);
+        self.leave(saved);
+        self.list_heights.insert(body.box_key, cache);
         body
     }
 
