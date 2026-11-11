@@ -29,4 +29,3 @@ fn link_search(libs: &[&str]) {
         println!("cargo:rustc-link-search=native={dir}");
     }
 }
-
