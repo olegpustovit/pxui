@@ -56,6 +56,11 @@ void main() {
     if (kind == RECT || kind == SHADOW || kind == GRID || kind == BORDER) box = r + vec4(-pad, -pad, pad, pad);
     if (kind == SHADOW && (flags & INNER) == 0u) box = r + p0.xyxy + vec4(-1.0, -1.0, 1.0, 1.0) * (p0.w + 3.0 * p0.z + pad);
     p = mix(box.xy, box.zw, c);
+    // a grid is one triangle over its box (the second is empty): two triangles' shared diagonal through the
+    // dots would interpolate the position differently on each side (lavapipe: 0.06 points), so the dots it
+    // crosses differ; the fragment stage keeps the box
+    if (kind == GRID) p = gl_VertexIndex < 3 ? mix(box.xy, box.zw, 2.0 * c) : box.xy;
+    if (kind == GRID) r = box;
   }
   vec2 uv = mix(unpackUnorm2x16(I.b.x), unpackUnorm2x16(I.b.y), c);
   vec2 t = p - piv;

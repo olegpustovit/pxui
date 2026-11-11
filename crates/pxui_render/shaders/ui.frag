@@ -166,6 +166,8 @@ void main() {
     if (rel.w < best) { c = unpackUnorm4x8(v_kf.y); }
     col = vec4(c.rgb, c.a * cover(d, px) * (1.0 - cover(id, px)));
   } else if (kind == GRID) {
+    // the box (v_rect) the quad of a rect instance would cover, under the grid's single triangle
+    if (p.x < v_rect.x || p.y < v_rect.y || p.x >= v_rect.z || p.y >= v_rect.w) discard;
     // the dot nearest p: one of the four around its cell (dots at origin + i * spacing, `dot` wide)
     vec2 cell = floor((p - v_p0.xy) / v_p2.x);
     float d = 1e6;

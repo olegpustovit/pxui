@@ -62,6 +62,11 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     if (kind == RECT || kind == SHADOW || kind == GRID || kind == BORDER) box = r + float4(-pad, -pad, pad, pad);
     if (kind == SHADOW && (flags & INNER) == 0u) box = r + p0.xyxy + float4(-1.0, -1.0, 1.0, 1.0) * (p0.w + 3.0 * p0.z + pad);
     p = mix(box.xy, box.zw, c);
+    // a grid is one triangle over its box (the second is empty): two triangles' shared diagonal through the
+    // dots would interpolate the position differently on each side (lavapipe: 0.06 points), so the dots it
+    // crosses differ; the fragment stage keeps the box
+    if (kind == GRID) p = vid < 3 ? mix(box.xy, box.zw, 2.0 * c) : box.xy;
+    if (kind == GRID) r = box;
   }
   float2 uv = mix(unpack_unorm2x16_to_float(I.b.x), unpack_unorm2x16_to_float(I.b.y), c);
   float2 t = p - piv;
@@ -225,6 +230,8 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
     if (rel.w < best) { c = unpack_unorm4x8_to_float(in.v_kf.y); }
     col = float4(c.rgb, c.a * cover(d, px) * (1.0 - cover(id, px)));
   } else if (kind == GRID) {
+    // the box (v_rect) the quad of a rect instance would cover, under the grid's single triangle
+    if (p.x < in.v_rect.x || p.y < in.v_rect.y || p.x >= in.v_rect.z || p.y >= in.v_rect.w) discard_fragment();
     // the dot nearest p: one of the four around its cell (dots at origin + i * spacing, `dot` wide)
     float2 cell = floor((p - in.v_p0.xy) / in.v_p2.x);
     float d = 1e6;
