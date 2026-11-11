@@ -4,7 +4,7 @@ use crate::geom::{hash, Rect, Rgba as Color};
 use crate::node::Axis;
 use crate::theme::Look;
 use crate::{Flags, Size};
-use std::rc::Rc;
+use std::{borrow::Cow, rc::Rc};
 
 pub const NO_FLAGS: Flags = 0;
 pub const CLICKABLE: Flags = 1;
@@ -332,6 +332,25 @@ impl Default for ValueFieldOpts {
     }
 }
 
+
+pub fn ellipsis<'a>(width: &mut dyn FnMut(&str) -> f32, limit: f32, label: &'a str) -> Cow<'a, str> {
+    let dots = width("\u{2026}");
+    // `cut`: the longest prefix that fits with the ellipsis after it; -1 when the ellipsis alone does
+    // not
+    let mut cut: i64 = if dots <= limit { 0 } else { -1 };
+    let mut used = 0.0;
+    for (index, c) in label.char_indices() {
+        let next = index + c.len_utf8();
+        used += width(&label[index..next]);
+        if used > limit {
+            return if cut < 0 { Cow::Borrowed("") } else { Cow::Owned(format!("{}\u{2026}", &label[..cut as usize])) };
+        }
+        if used + dots <= limit {
+            cut = next as i64;
+        }
+    }
+    Cow::Borrowed(label)
+}
 
 pub fn contains(rect: Rect, point: (f32, f32)) -> bool { rect.contains(point) }
 

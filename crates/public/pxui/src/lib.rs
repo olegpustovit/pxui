@@ -24,6 +24,7 @@ pub mod a11y {
 }
 pub mod ui_core {
     pub use pxui_types::ui::*;
+    pub use crate::{Paint, Ui};
     pub use pxui_types::PxuiBox as UiBox;
     pub use pxui_types::{Flags, Size};
     pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
@@ -31,13 +32,23 @@ pub mod ui_core {
     #[inline] pub fn key(b: &UiBox) -> i64 { b.box_key }
 }
 pub mod ui_text {
+    /// Whether `signal` is a right click: released with the right button within 4 points of its press.
+    pub fn context_clicked(signal: &crate::Signal) -> bool {
+        let ((px, py), (rx, ry)) = (signal.press_point, signal.release_point);
+        signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
+    }
     pub use pxui_types::ui::{fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
     pub use crate::{MenuOpts, PickerOpts, TextAreaOpts, ValueFieldOpts};
 }
 pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
 pub mod ui_widgets { pub use crate::{DialogOut, TreeNode}; }
+/// The node handle `box_`, `node` and the views return.
+pub type Handle = pxui_types::PxuiBox;
+
 pub mod ui {
     pub use crate::ui_core::*;
+    pub use crate::Handle;
+    pub use pxui_types::Image;
     pub use crate::ui_text::*;
     pub use crate::ui_widgets::*;
     pub use crate::{Paint, Signal, Ui};

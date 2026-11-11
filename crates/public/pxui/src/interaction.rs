@@ -7,8 +7,8 @@ pub struct SignalEvent { pub kind: u32, pub code: u32, pub x: f64, pub y: f64, p
 pub struct Signal {
     pub hovered: bool, pub pressed: bool, pub held: bool, pub released: bool, pub clicked: bool,
     pub double_clicked: bool, pub dragging: bool, pub subtree_press: Option<i64>, pub clicks: i64,
-    pub drag: [f32;2], pub pointer: [f32;2], pub press_point: [f32;2], pub release_point: [f32;2],
-    pub button: Option<u8>, pub scroll: [f32;2], pub pinch: f64, pub keys: Vec<SignalEvent>,
+    pub drag: (f32,f32), pub pointer: (f32,f32), pub press_point: (f32,f32), pub release_point: (f32,f32),
+    pub button: Option<u8>, pub scroll: (f32,f32), pub pinch: f64, pub keys: Vec<SignalEvent>,
     pub a11y_value: Option<f64>, pub a11y_select: Option<[u32;2]>,
 }
 
@@ -62,8 +62,8 @@ pub(crate) fn decode_signal(raw:&PxuiSignal)->Signal {
     let keys=if raw.keys.len==0 { Vec::new() } else { decode_keys(&raw.keys) };
     let f=raw.flags;
     Signal{hovered:f&PxuiSignal::HOVERED!=0,pressed:f&PxuiSignal::PRESSED!=0,held:f&PxuiSignal::HELD!=0,released:f&PxuiSignal::RELEASED!=0,clicked:f&PxuiSignal::CLICKED!=0,double_clicked:f&PxuiSignal::DOUBLE_CLICKED!=0,dragging:f&PxuiSignal::DRAGGING!=0,
-        subtree_press:(raw.has_subtree_press!=0).then_some(raw.subtree_press),clicks:raw.clicks,drag:raw.drag,pointer:raw.pointer,
-        press_point:raw.press_point,release_point:raw.release_point,button:(raw.button!=u8::MAX).then_some(raw.button),scroll:raw.scroll,
+        subtree_press:(raw.has_subtree_press!=0).then_some(raw.subtree_press),clicks:raw.clicks,drag:(raw.drag[0],raw.drag[1]),pointer:(raw.pointer[0],raw.pointer[1]),
+        press_point:(raw.press_point[0],raw.press_point[1]),release_point:(raw.release_point[0],raw.release_point[1]),button:(raw.button!=u8::MAX).then_some(raw.button),scroll:(raw.scroll[0],raw.scroll[1]),
         pinch:raw.pinch,keys,a11y_value:(raw.has_a11y_value!=0).then_some(raw.a11y_value),a11y_select:(raw.has_a11y_select!=0).then_some(raw.a11y_select)}
 }
 

@@ -25,7 +25,7 @@ use std::rc::Rc;
 pub use pxui_types::{Flags, Size};
 pub use pxui_types::shape::{clip_of, Shapes};
 pub use pxui_types::ui::{
-    text_top_for,    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, BoxOpts, Cursor, Drop, HitFn, Payload, Target, UndoKind,
+    ellipsis, text_top_for,    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, BoxOpts, Cursor, Drop, HitFn, Payload, Target, UndoKind,
     BLOCKING, CAPTURE_UNCLAIMED, CLICKABLE, CLIP, DRAG_FREE, DRAG_THRESHOLD, FIT_TEXT, FOCUSABLE, FOCUS_MARK, HOVER_FREE, KEEP_FOCUS,
     KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
 };
@@ -2634,25 +2634,6 @@ impl Ui {
 /// stops at the first that does not fit: the cost follows what is shown, not the label's length.
 pub const PHASES: usize = 7;
 pub const PHASE_NAMES: [&str; PHASES] = ["begin", "build", "intrinsic", "arrange", "paint", "a11y", "finish"];
-
-pub fn ellipsis<'a>(width: &mut dyn FnMut(&str) -> f32, limit: f32, label: &'a str) -> Cow<'a, str> {
-    let dots = width("\u{2026}");
-    // `cut`: the longest prefix that fits with the ellipsis after it; -1 when the ellipsis alone does
-    // not
-    let mut cut: i64 = if dots <= limit { 0 } else { -1 };
-    let mut used = 0.0;
-    for (index, c) in label.char_indices() {
-        let next = index + c.len_utf8();
-        used += width(&label[index..next]);
-        if used > limit {
-            return if cut < 0 { Cow::Borrowed("") } else { Cow::Owned(format!("{}\u{2026}", &label[..cut as usize])) };
-        }
-        if used + dots <= limit {
-            cut = next as i64;
-        }
-    }
-    Cow::Borrowed(label)
-}
 
 pub(crate) const HOVER_SECONDS: f64 = 0.380;
 
