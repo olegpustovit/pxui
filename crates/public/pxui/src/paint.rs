@@ -179,15 +179,15 @@ extern "C" fn draw<F: FnMut(&mut Paint<'_>, Rect)>(user: *mut c_void, raw: *mut 
 // A boxed closure (a canvas, a hit shape) is released when the library lets go of it. Released storage waits in a small pool and
 // the next closure of the same layout (a canvas rebuilt each frame is always the same type) takes it: a settled frame allocates
 // nothing. A zero-sized closure has no storage at all.
-// ponytail: at most POOLED boxes per thread, never returned to the allocator at thread exit; per-size pools if canvases of many types alternate.
+// ponytail: at most POOLED boxes per layout and thread, never returned to the allocator at thread exit; layouts are the distinct closure types, so a bounded handful.
 const POOLED: usize = 64;
-thread_local! { static POOL: std::cell::RefCell<Vec<(Layout, *mut u8)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+thread_local! { static POOL: std::cell::RefCell<Vec<(Layout, Vec<*mut u8>)>> = const { std::cell::RefCell::new(Vec::new()) }; }
 
 /// Storage for a value of `layout`: a pooled box, else a new allocation (a dangling, aligned pointer for a zero-sized value).
 pub(crate) fn pool_take(layout: Layout) -> *mut u8 {
     if layout.size() == 0 { return layout.align() as *mut u8; }
     // `try_with`: after this thread's locals are torn down (a release at thread exit) the pool is simply absent
-    let spare = POOL.try_with(|pool| { let mut pool = pool.borrow_mut(); pool.iter().position(|(l, _)| *l == layout).map(|at| pool.swap_remove(at).1) }).ok().flatten();
+    let spare = POOL.try_with(|pool| pool.borrow_mut().iter_mut().find(|(l, _)| *l == layout).and_then(|(_, boxes)| boxes.pop())).ok().flatten();
     let at = spare.unwrap_or_else(|| unsafe { std::alloc::alloc(layout) });
     if at.is_null() { std::alloc::handle_alloc_error(layout); }
     at
@@ -196,7 +196,11 @@ pub(crate) fn pool_take(layout: Layout) -> *mut u8 {
 /// Gives the storage of a value of `layout`, already dropped, back to the pool (or the allocator).
 pub(crate) fn pool_give(layout: Layout, at: *mut u8) {
     if layout.size() == 0 { return; }
-    let kept = POOL.try_with(|pool| { let mut pool = pool.borrow_mut(); (pool.len() < POOLED).then(|| pool.push((layout, at))).is_some() }).unwrap_or(false);
+    let kept = POOL.try_with(|pool| {
+        let mut pool = pool.borrow_mut();
+        let boxes = match pool.iter().position(|(l, _)| *l == layout) { Some(i) => &mut pool[i].1, None => { pool.push((layout, Vec::new())); &mut pool.last_mut().expect("just pushed").1 } };
+        (boxes.len() < POOLED).then(|| boxes.push(at)).is_some()
+    }).unwrap_or(false);
     if !kept { unsafe { std::alloc::dealloc(at, layout) } }
 }
 
@@ -255,6 +259,18 @@ mod tests {
         release(user);
         let panic = crate::composite::take_callback_panic().expect("the panic of Drop is kept, not unwound into C");
         assert_eq!(panic.downcast_ref::<&str>(), Some(&"drop bomb"));
+    }
+
+    /// One layout filling its share of the pool (a graph of many cards) leaves the others theirs: a canvas of another type
+    /// still finds its box again instead of allocating every frame.
+    #[test]
+    fn a_full_pool_of_one_layout_still_pools_another() {
+        let (many, few) = (Layout::new::<[u64; 38]>(), Layout::new::<[u64; 3]>());
+        let held: Vec<_> = (0..POOLED + 6).map(|_| pool_take(many)).collect();
+        for at in held { pool_give(many, at); }
+        let one = pool_take(few);
+        pool_give(few, one);
+        assert_eq!(pool_take(few), one, "the second layout's box came back from the pool");
     }
 
     use pxui_types::{FrameIn, Node, Size};
