@@ -4,7 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-pub use pxui_types::ui::PanelOpts;
+pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 use crate::a11y::state as st;
 use input::{Event, Key};
 use crate::geom::Rgba as Color;
@@ -211,25 +211,6 @@ pub fn inspector_control_x(width: f32) -> f32 {
 pub fn mono_width(tracking: f32, size: i64, text: &str) -> f32 {
     let count = text.bytes().filter(|b| b & 0xc0 != 0x80).count();
     count as f32 * (size as f32 / 2.0 + tracking)
-}
-
-/// A text button of an inspector head: its label, its key in ink-3, whether it is on (the control
-/// fill) and whether it can be pressed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct HeadAction {
-    pub caption: String,
-    pub keycap: String,
-    pub active: bool,
-    pub usable: bool,
-}
-
-/// What a head reports for a frame: the name as edited, the index of the pressed action, and
-/// whether the trailing `reset` button was pressed.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Head {
-    pub renamed: String,
-    pub chosen: Option<i64>,
-    pub reset_pressed: bool,
 }
 
 pub struct PopupOpts {

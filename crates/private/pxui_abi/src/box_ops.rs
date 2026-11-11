@@ -10,6 +10,9 @@ use pxui_core::ui::{Axis, BoxOpts, Drop, Mark, Rect};
 use pxui_types::{Dir, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, Slice}};
 use std::rc::Rc;
 
+/// Keeps `value` alive until the next frame of `ui` and returns it as a `Str`.
+fn ui_give(ui: *mut PxuiUi, value: String) -> Str { unsafe { &*ui }.give(value) }
+
 pub type PxuiHit = Option<extern "C" fn(*mut c_void, Rect) -> Rect>;
 
 // Declares a box under the current parent. The descriptor's `hit` callback is owned by the box's hit shape from here on:
@@ -101,7 +104,7 @@ export!(pub unsafe fn pxui_ui_text_state(ui: *mut PxuiUi, box_: *const PxuiBox, 
     let value = e.text_state(&b);
     unsafe {
         *present = value.is_some() as u8;
-        *out = value.map_or(Str::default(), |value| (&*ui).give(value));
+        *out = value.map_or(Str::default(), |value| ui_give(ui, value));
     }
     0
 });
@@ -140,7 +143,7 @@ export!(pub unsafe fn pxui_ui_carrying(ui: *mut PxuiUi, present: *mut u8, kind: 
     let payload = e.carrying();
     unsafe {
         *present = payload.is_some() as u8;
-        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| ((&*ui).give(p.kind), (&*ui).give(p.value)));
+        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| (ui_give(ui, p.kind), ui_give(ui, p.value)));
     }
     0
 }); 
@@ -168,7 +171,7 @@ export!(pub unsafe fn pxui_ui_drop_target(ui: *mut PxuiUi, box_: *const PxuiBox,
     let (code, payload) = match e.drop_target(&b) { None => (0, None), Some(Drop::Hover(p)) => (1, Some(p)), Some(Drop::Dropped(p)) => (2, Some(p)) };
     unsafe {
         *tag = code;
-        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| ((&*ui).give(p.kind), (&*ui).give(p.value)));
+        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| (ui_give(ui, p.kind), ui_give(ui, p.value)));
     }
     0
 });

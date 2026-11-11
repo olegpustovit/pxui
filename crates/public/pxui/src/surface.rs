@@ -64,3 +64,40 @@ fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
     assert!(err.downcast_ref::<String>().is_some_and(|m| m.contains("font size")));
     assert_eq!(ui.font_size(), 13, "the refused call changed nothing");
 }
+
+#[test]
+fn kit_extras_build_and_report_through_the_engine_shapes() {
+    use pxui_types::{theme::Curve, ui::{HeadAction, LineStep, Target}, Axis};
+    let mut ui = Ui::new().expect("library");
+    let hints = [("Esc".to_string(), "close".to_string())];
+    let actions = [HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true }];
+    for round in 0..3 {
+        ui.frame(&input(), |ui| {
+            ui.panel("extras", |ui| {
+                assert!(!ui.button_styled("Styled", true, false, false, Some(pxui_types::geom::Rgba { r: 9, g: 9, b: 9, a: 255 })));
+                let head = ui.inspector_head_for_test(&actions);
+                assert_eq!(head.renamed, "Title");
+                ui.inspector_body(|ui| {
+                    assert!(ui.inspector_section_view("section", round, true, None, "Section", |ui| { ui.label("inside"); }));
+                    assert!(!ui.inspector_toggle_value("toggle", (0.0, 0.0), false));
+                });
+                ui.inspector_bar(&hints, 3);
+                let (text, step) = ui.line_field((0.0, 0.0), 120.0, 20.0, false, "find", "line", "abc");
+                assert_eq!((text.as_str(), step), ("abc", LineStep::None));
+                let (grip, signal) = ui.grip(format_args!("grip-{}", 1), Axis::Row, None);
+                assert!(!signal.clicked);
+                assert_eq!(ui.field_drag(&grip), None);
+                if round == 0 { assert!(ui.animate(&grip, Target::Opacity(0.5), Curve::Spring { omega: 30.0 }), "a new target starts moving"); }
+                let mut ran = false;
+                let open = ui.popup(None, Some(100.0), true, false, (10.0, 10.0), 100.0, 40.0, "pop", |ui| { ran = true; ui.label("popped"); });
+                assert_eq!(open, ran, "the build runs exactly while the popup is open");
+            });
+        }).expect("frame");
+    }
+}
+
+impl Ui {
+    fn inspector_head_for_test(&mut self, actions: &[pxui_types::ui::HeadAction]) -> pxui_types::ui::Head {
+        self.inspector_header("head", Some("kind"), None, Some("1"), Some(std::rc::Rc::new(|name: &str| !name.is_empty())), actions, Some("reset"), true, "Title", "detail")
+    }
+}

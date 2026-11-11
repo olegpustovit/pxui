@@ -71,6 +71,7 @@ mod text_width;
 mod interaction;
 mod ui_state;
 mod box_ops;
+mod kit_ext;
 pub use ui_state::{Bytes, Platform};
 mod node;
 #[cfg(all(test, feature = "static"))]

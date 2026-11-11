@@ -145,6 +145,11 @@ typedef struct {
 } PxuiPanel;
 typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
+typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
+typedef struct { PxuiStr caption,keycap; uint8_t active,usable,reserved[6]; } PxuiHeadActionDesc;
+typedef struct { const PxuiHeadActionDesc *ptr; size_t len; } PxuiHeadActionSpan;
+typedef struct { uint32_t size; uint8_t has_kind,has_badge,has_index,has_reset,reset_enabled,reserved[3]; PxuiStr key,kind,badge,index,reset,title,detail; PxuiHeadActionSpan actions; } PxuiHeaderDesc;
+typedef struct { PxuiStr renamed; int64_t chosen; uint8_t has_chosen,reset_pressed,reserved[6]; } PxuiHeadOut;
 typedef PxuiRect (*PxuiHit)(void *user, PxuiRect rect);
 typedef void (*PxuiRelease)(void *user);
 /* A box declaration: axis is 0 row, 1 column, 2 stack. The hit callback and its release belong to the box's slot once the call is made. */
@@ -174,6 +179,7 @@ typedef struct { PxuiStr key,value; } PxuiHintDesc;
 typedef struct { uint8_t has_right,reserved[7]; PxuiStr right; const PxuiHintDesc *ptr; size_t len; } PxuiFooterDesc;
 typedef struct { float time; uint32_t target; uint8_t reserved[4]; float values[4]; PxuiLookDesc look; PxuiCurveDesc curve; } PxuiKeyframeDesc;
 typedef struct { const PxuiKeyframeDesc *ptr; size_t len; } PxuiKeyframeSpan;
+typedef struct { const PxuiHintDesc *ptr; size_t len; } PxuiHintSpan;
 typedef struct { PxuiStr key,label; uint8_t has_width,has_pin,pin,reserved[5]; float width; PxuiBox row; float control_x,control_y,control_w; } PxuiInspectorRowDesc;
 typedef struct { PxuiStr key,label; uint8_t expanded,has_set,set_expanded,reserved[5]; PxuiBuild build; void *user; uint8_t out_open; } PxuiInspectorSectionDesc;
 typedef struct { PxuiStr key,label,value; uint8_t has_width,reserved[7]; float width; } PxuiInspectorValueDesc;
@@ -380,5 +386,18 @@ int32_t pxui_ui_view_flat(PxuiUi *ui, PxuiStr label, uint64_t revision, PxuiSize
 int32_t pxui_ui_view_offset(PxuiUi *ui, const PxuiBox *box, float dx, float dy);
 int32_t pxui_ui_view_transform_about(PxuiUi *ui, const PxuiBox *box, float scale, const float *transform, float px, float py);
 int32_t pxui_ui_view_backdrop_blur(PxuiUi *ui, const PxuiBox *box, float sigma);
+
+/* Kit and text widgets: styled buttons, grips, popups, inspector pieces, the line field. Text results are borrowed until the next frame. */
+int32_t pxui_ui_animate(PxuiUi *ui, const PxuiBox *box, const PxuiKeyframeDesc *key, uint8_t *out);
+int32_t pxui_ui_button_styled(PxuiUi *ui, PxuiStr text, uint8_t bare, uint8_t icon, uint8_t at_end, uint8_t has_ink, PxuiColor ink, uint8_t *out);
+int32_t pxui_ui_grip(PxuiUi *ui, PxuiStr label, uint32_t axis, uint8_t has_rect, PxuiRect rect, PxuiBox *out, PxuiSignal *signal);
+int32_t pxui_ui_popup(PxuiUi *ui, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out);
+int32_t pxui_ui_inspector_bar(PxuiUi *ui, PxuiHintSpan hints, int64_t count);
+int32_t pxui_ui_inspector_body(PxuiUi *ui, PxuiBuild build, void *user);
+int32_t pxui_ui_inspector_header(PxuiUi *ui, const PxuiHeaderDesc *desc, PxuiTextValid rename, void *user, PxuiHeadOut *out);
+int32_t pxui_ui_inspector_section_view(PxuiUi *ui, PxuiStr key, uint64_t revision, uint8_t expanded, uint8_t has_set, uint8_t set_expanded, PxuiStr label, PxuiBuild build, void *user, uint8_t *out);
+int32_t pxui_ui_inspector_toggle_value(PxuiUi *ui, PxuiStr key, float x, float y, uint8_t value, uint8_t *out);
+int32_t pxui_ui_line_field(PxuiUi *ui, float x, float y, float w, float h, uint8_t grab, PxuiStr placeholder, PxuiStr label, PxuiStr value, PxuiStr *text, uint32_t *step); /* step: 0 none, 1 next, 2 previous, 3 close */
+int32_t pxui_ui_field_drag(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiPoint *out);
 
 #endif

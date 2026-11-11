@@ -53,13 +53,18 @@ impl Ui {
     pub fn signal(&mut self,box_:&PxuiBox)->Result<Signal,i32>{
         let mut raw=PxuiSignal::default();
         status(unsafe{sys::pxui_ui_signal(self.0.as_ptr(),box_,&mut raw)})?;
-        let keys=if raw.keys.len==0 { Vec::new() } else { decode_keys(&raw.keys) };
-        let f=raw.flags;
-        Ok(Signal{hovered:f&PxuiSignal::HOVERED!=0,pressed:f&PxuiSignal::PRESSED!=0,held:f&PxuiSignal::HELD!=0,released:f&PxuiSignal::RELEASED!=0,clicked:f&PxuiSignal::CLICKED!=0,double_clicked:f&PxuiSignal::DOUBLE_CLICKED!=0,dragging:f&PxuiSignal::DRAGGING!=0,
-            subtree_press:(raw.has_subtree_press!=0).then_some(raw.subtree_press),clicks:raw.clicks,drag:raw.drag,pointer:raw.pointer,
-            press_point:raw.press_point,release_point:raw.release_point,button:(raw.button!=u8::MAX).then_some(raw.button),scroll:raw.scroll,
-            pinch:raw.pinch,keys,a11y_value:(raw.has_a11y_value!=0).then_some(raw.a11y_value),a11y_select:(raw.has_a11y_select!=0).then_some(raw.a11y_select)})
+        Ok(decode_signal(&raw))
     }
+}
+
+/// The wrapper's `Signal` from what the library wrote; key events are copied out of the frame buffer.
+pub(crate) fn decode_signal(raw:&PxuiSignal)->Signal {
+    let keys=if raw.keys.len==0 { Vec::new() } else { decode_keys(&raw.keys) };
+    let f=raw.flags;
+    Signal{hovered:f&PxuiSignal::HOVERED!=0,pressed:f&PxuiSignal::PRESSED!=0,held:f&PxuiSignal::HELD!=0,released:f&PxuiSignal::RELEASED!=0,clicked:f&PxuiSignal::CLICKED!=0,double_clicked:f&PxuiSignal::DOUBLE_CLICKED!=0,dragging:f&PxuiSignal::DRAGGING!=0,
+        subtree_press:(raw.has_subtree_press!=0).then_some(raw.subtree_press),clicks:raw.clicks,drag:raw.drag,pointer:raw.pointer,
+        press_point:raw.press_point,release_point:raw.release_point,button:(raw.button!=u8::MAX).then_some(raw.button),scroll:raw.scroll,
+        pinch:raw.pinch,keys,a11y_value:(raw.has_a11y_value!=0).then_some(raw.a11y_value),a11y_select:(raw.has_a11y_select!=0).then_some(raw.a11y_select)}
 }
 
 #[cold]

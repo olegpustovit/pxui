@@ -22,6 +22,7 @@ mod text_width;
 mod interaction;
 mod ui_state;
 mod box_ops;
+mod kit_ext;
 #[cfg(test)]
 mod safety;
 pub use text::*;
@@ -42,6 +43,7 @@ pub use text_width::*;
 pub use interaction::*;
 pub use ui_state::*;
 pub use box_ops::*;
+pub use kit_ext::*;
 pub use ui::*;
 pub use state::{Build, PxuiUi};
 pub(crate) use state::{core_box, fail, get, text};

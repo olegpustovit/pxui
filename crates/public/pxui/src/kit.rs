@@ -3,7 +3,7 @@ use core::{ffi::c_void, mem::ManuallyDrop, panic::AssertUnwindSafe, ptr::NonNull
 use pxui_types::{Axis, Curve, Look, PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
 
 #[cfg(feature = "static")]
-use pxui_abi_link::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc as GridListDesc, PxuiHintDesc as HintDesc, PxuiInspectorRowDesc as InspectorRowDesc, PxuiInspectorSectionDesc as InspectorSectionDesc, PxuiInspectorTextDesc as InspectorTextDesc, PxuiInspectorValueDesc as InspectorValueDesc, PxuiKeyframeDesc as KeyframeDesc, PxuiMenuBarDesc as MenuBarDesc, PxuiMenuDesc as MenuDesc, PxuiMenuOut as MenuOut, PxuiSplitDesc as SplitDesc, PxuiTableDesc as TableDesc};
+pub(crate) use pxui_abi_link::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc as GridListDesc, PxuiHintDesc as HintDesc, PxuiInspectorRowDesc as InspectorRowDesc, PxuiInspectorSectionDesc as InspectorSectionDesc, PxuiInspectorTextDesc as InspectorTextDesc, PxuiInspectorValueDesc as InspectorValueDesc, PxuiKeyframeDesc as KeyframeDesc, PxuiMenuBarDesc as MenuBarDesc, PxuiMenuDesc as MenuDesc, PxuiMenuOut as MenuOut, PxuiSplitDesc as SplitDesc, PxuiTableDesc as TableDesc};
 
 #[cfg(not(feature = "static"))]
 #[repr(C)]
@@ -25,14 +25,14 @@ pub struct MenuOut { pub menu: usize, pub item: usize }
 #[cfg(not(feature = "static"))]
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct HintDesc { key: Str, value: Str }
+pub struct HintDesc { pub key: Str, pub value: Str }
 #[cfg(not(feature = "static"))]
 #[repr(C)]
 pub struct FooterDesc { has_right: u8, reserved: [u8; 7], right: Str, hints: Slice<HintDesc> }
 #[cfg(not(feature = "static"))]
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct KeyframeDesc { time: f32, target: u32, reserved: [u8; 4], values: [f32; 4], look: PxuiLookDesc, curve: PxuiCurveDesc }
+pub struct KeyframeDesc { pub time: f32, pub target: u32, pub reserved: [u8; 4], pub values: [f32; 4], pub look: PxuiLookDesc, pub curve: PxuiCurveDesc }
 #[cfg(not(feature = "static"))]
 #[repr(C)]
 pub struct InspectorRowDesc { key: Str, label: Str, has_width: u8, has_pin: u8, pin: u8, reserved: [u8; 5], width: f32, row: PxuiBox, control_x: f32, control_y: f32, control_w: f32 }
@@ -139,11 +139,23 @@ fn encode_look(value: Look) -> PxuiLookDesc {
 pub enum AnimationTarget { Offset(f32, f32), Opacity(f32), Look(Look) }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Keyframe { pub time: f32, pub target: AnimationTarget, pub curve: Curve }
-fn encode_curve(value: Curve) -> PxuiCurveDesc {
+pub(crate) fn encode_curve(value: Curve) -> PxuiCurveDesc {
     match value {
         Curve::Bezier { duration, points } => PxuiCurveDesc { kind: PxuiCurveDesc::BEZIER, duration, points, omega: 0.0 },
         Curve::Spring { omega } => PxuiCurveDesc { kind: PxuiCurveDesc::SPRING, duration: 0.0, points: [0.0; 4], omega },
     }
+}
+
+/// Hint rows as descriptors for one call: up to 16 on the stack, more on the heap.
+pub(crate) struct Hints { stack: [HintDesc; 16], heap: Vec<HintDesc>, len: usize }
+impl Hints {
+    pub(crate) fn new(hints: &[(String, String)]) -> Hints {
+        let mut out = Hints { stack: [HintDesc::default(); 16], heap: Vec::new(), len: hints.len() };
+        let values: &mut [HintDesc] = if hints.len() <= 16 { &mut out.stack[..hints.len()] } else { out.heap = vec![HintDesc::default(); hints.len()]; &mut out.heap[..] };
+        for (out, (key, value)) in values.iter_mut().zip(hints) { *out = HintDesc { key: as_str(key), value: as_str(value) }; }
+        out
+    }
+    pub(crate) fn span(&self) -> Slice<HintDesc> { Slice { ptr: if self.len <= 16 { self.stack.as_ptr() } else { self.heap.as_ptr() }, len: self.len } }
 }
 
 impl Ui {
@@ -240,12 +252,8 @@ impl Ui {
     }
     #[inline]
     pub fn footer(&mut self, right: Option<&str>, hints: &[(String, String)]) -> Result<(), i32> {
-        // up to 16 hints live on the stack, more on the heap
-        let mut stack = [HintDesc::default(); 16];
-        let mut heap: Vec<HintDesc>;
-        let values: &mut [HintDesc] = if hints.len() <= 16 { &mut stack[..hints.len()] } else { heap = vec![HintDesc::default(); hints.len()]; &mut heap[..] };
-        for (out, (key, value)) in values.iter_mut().zip(hints) { *out = HintDesc { key: as_str(key), value: as_str(value) }; }
-        let desc = FooterDesc { has_right: right.is_some() as u8, reserved: [0; 7], right: right.map_or_else(Str::default, as_str), hints: Slice { ptr: values.as_ptr(), len: values.len() } };
+        let hints = Hints::new(hints);
+        let desc = FooterDesc { has_right: right.is_some() as u8, reserved: [0; 7], right: right.map_or_else(Str::default, as_str), hints: hints.span() };
         status(unsafe { sys::pxui_ui_footer(self.0.as_ptr(), &desc) })
     }
     #[inline]

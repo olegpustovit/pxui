@@ -69,3 +69,7 @@ TextStyle 36 4 0 4 6 8 12 16 20 24 26 27 28 32
 TextMetrics 16 4 0 4 8 12
 TextGlyph 40 4 0 16 32 36
 PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
+PxuiPopupDesc 48 8 0 4 5 6 7 8 12 16 20 24 28 32
+PxuiHeadActionDesc 40 8 0 16 32 33 34
+PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
+PxuiHeadOut 32 8 0 16 24 25 26

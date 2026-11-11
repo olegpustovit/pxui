@@ -10,7 +10,7 @@ use crate::theme;
 const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
 use crate::ui_core::*;
 use crate::ui_kit::*;
-pub use pxui_types::ui::{fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
+pub use pxui_types::ui::{LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
 use input::{Event, Key, MouseButton};
 use crate::geom::{color, Rgba as Color};
 use std::rc::Rc;
@@ -958,15 +958,6 @@ impl Ui {
         }
         (edit.text, step)
     }
-}
-
-/// What a `line_field`'s keys asked.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum LineStep {
-    None,
-    Next,
-    Previous,
-    Close,
 }
 
 pub fn context_clicked(signal: &Signal) -> bool {

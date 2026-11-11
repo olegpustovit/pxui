@@ -251,6 +251,36 @@ impl PanelOpts {
     }
 }
 
+/// What a `line_field`'s keys asked.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LineStep {
+    None,
+    Next,
+    Previous,
+    Close,
+}
+
+
+/// A text button of an inspector head: its label, its key in ink-3, whether it is on (the control
+/// fill) and whether it can be pressed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HeadAction {
+    pub caption: String,
+    pub keycap: String,
+    pub active: bool,
+    pub usable: bool,
+}
+
+/// What a head reports for a frame: the name as edited, the index of the pressed action, and
+/// whether the trailing `reset` button was pressed.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Head {
+    pub renamed: String,
+    pub chosen: Option<i64>,
+    pub reset_pressed: bool,
+}
+
+
 pub fn contains(rect: Rect, point: (f32, f32)) -> bool { rect.contains(point) }
 
 pub fn intersect(a: Rect, b: Rect) -> Rect { a.intersect(b) }

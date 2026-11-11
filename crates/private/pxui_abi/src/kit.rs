@@ -1,4 +1,4 @@
-use crate::state::{Build, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, call_build, checked, core_box, fail, finite, get, text, to_abi_box};
+use crate::state::{boxed, Build, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, call_build, checked, fail, finite, get, text, to_abi_box};
 use crate::style::decode_look;
 use crate::ui::translate_event;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
@@ -113,29 +113,40 @@ export!(pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiFooterDes
     0
 });
 
+// One keyframe checked and decoded: its time, target (an offset, an opacity in 0..=1 or a look) and curve.
+unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> Result<(f32, Target, pxui_types::Curve), i32> {
+    if !key.time.is_finite() || key.time < 0.0 || key.time < previous || key.reserved != [0; 4] || !key.values.iter().all(|v| v.is_finite()) {
+        return Err(unsafe { fail(ui, "invalid animation keyframe") });
+    }
+    let target = match key.target {
+        0 => Target::Offset(key.values[0], key.values[1]),
+        1 if (0.0..=1.0).contains(&key.values[0]) => Target::Opacity(key.values[0]),
+        2 => { let Some(look) = decode_look(key.look) else { return Err(unsafe { fail(ui, "invalid animation look") }); }; Target::Look(look) },
+        _ => return Err(unsafe { fail(ui, "invalid animation target") }),
+    };
+    let Some(curve) = curve(key.curve) else { return Err(unsafe { fail(ui, "invalid animation curve") }); };
+    Ok((key.time, target, curve))
+}
+
 export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if box_.is_null() || out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { fail(ui, "invalid animation keyframe span") }; }
+    let (engine, target_box) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    if out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { fail(ui, "invalid animation keyframe span") }; }
     let raw = unsafe { core::slice::from_raw_parts(keys.ptr, keys.len) };
     let mut decoded = Vec::with_capacity(raw.len());
     let mut previous = -1.0f32;
     for key in raw {
-        if !key.time.is_finite() || key.time < 0.0 || key.time < previous || key.reserved != [0; 4] || !key.values.iter().all(|v| v.is_finite()) {
-            return unsafe { fail(ui, "invalid animation keyframe") };
-        }
-        previous = key.time;
-        let target = match key.target {
-            0 => Target::Offset(key.values[0], key.values[1]),
-            1 if (0.0..=1.0).contains(&key.values[0]) => Target::Opacity(key.values[0]),
-            2 => { let Some(look) = decode_look(key.look) else { return unsafe { fail(ui, "invalid animation look") }; }; Target::Look(look) },
-            _ => return unsafe { fail(ui, "invalid animation target") },
-        };
-        let Some(curve) = curve(key.curve) else { return unsafe { fail(ui, "invalid animation curve") }; };
-        decoded.push((key.time, target, curve));
+        match unsafe { decode_key(ui, key, previous) } { Ok(key) => { previous = key.0; decoded.push(key); } Err(code) => return code }
     }
-    let Some(target_box) = core_box(unsafe { *box_ }) else { return unsafe { fail(ui, "invalid animation box") }; };
-    let value = unsafe { (&mut *state.engine).animate_keys(&target_box, &decoded) };
-    unsafe { *out = value as u8; }
+    unsafe { *out = engine.animate_keys(&target_box, &decoded) as u8; }
+    0
+});
+
+// Moves the box towards one target along a curve; the keyframe's time is ignored.
+export!(pub unsafe fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const PxuiKeyframeDesc, out: *mut u8) -> i32 {
+    let (engine, target_box) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    if key.is_null() || out.is_null() { return unsafe { fail(ui, "invalid animation argument") }; }
+    let (_, target, curve) = match unsafe { decode_key(ui, &*key, -1.0) } { Ok(key) => key, Err(code) => return code };
+    unsafe { *out = engine.animate(&target_box, target, curve) as u8; }
     0
 });
 

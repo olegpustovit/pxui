@@ -150,17 +150,10 @@ fn copy_signal(signal: &Signal, output: &mut PxuiSignal) {
     output.a11y_select = [selection.0, selection.1];
 }
 
-// One call, scalars in `out`; `out.keys` (and the text its events point at) is borrowed from the `Ui` until the next frame.
-// A box with no key events costs no allocation.
-export!(pub unsafe fn pxui_ui_signal(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut PxuiSignal) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if box_.is_null() || out.is_null() { return unsafe { fail(ui, "invalid signal arguments") }; }
-    let engine = unsafe { &*state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale signal box") }; };
-    let signal = engine.signal(&box_);
-    let output = unsafe { &mut *out };
+/// Fills `output` from `signal`; its key events (and their text) are kept in the `Ui`'s chunk buffers until the next frame.
+pub(crate) fn write_signal(state: &PxuiUi, signal: &Signal, output: &mut PxuiSignal) {
     *output = PxuiSignal::default();
-    copy_signal(&signal, output);
+    copy_signal(signal, output);
     if !signal.keys.is_empty() {
         let shared = state.shared();
         if shared.chunks_used == shared.chunks.len() { shared.chunks.push(KeyChunk::default()); }
@@ -169,6 +162,17 @@ export!(pub unsafe fn pxui_ui_signal(ui: *mut PxuiUi, box_: *const PxuiBox, out:
         fill(chunk, &signal.keys);
         output.keys = Slice { ptr: chunk.events.as_ptr(), len: chunk.events.len() };
     }
+}
+
+// One call, scalars in `out`; `out.keys` (and the text its events point at) is borrowed from the `Ui` until the next frame.
+// A box with no key events costs no allocation.
+export!(pub unsafe fn pxui_ui_signal(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut PxuiSignal) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if box_.is_null() || out.is_null() { return unsafe { fail(ui, "invalid signal arguments") }; }
+    let engine = unsafe { &*state.engine };
+    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale signal box") }; };
+    let signal = engine.signal(&box_);
+    unsafe { write_signal(state, &signal, &mut *out); }
     0
 });
 
