@@ -18,15 +18,19 @@ fn main() {
             .flag("-std=c++17").flag("-fobjc-arc").flag("-fblocks").warnings(true);
         build.flags(build_config::compile_flags(&sanitizers));
         build.flags(build_config::profile_compile_flags(&env::var("PROFILE").unwrap_or_default()));
-        if let Ok(entries) = fs::read_dir(&native_dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.extension().is_some_and(|extension| extension == "mm") {
-                    println!("cargo:rerun-if-changed={}", path.display());
-                    build.file(path);
-                }
-            }
+        // One translation unit including every .mm: the Foundation and Metal headers dominate each
+        // file's compile, so parsing them once is about 5x faster than six separate compiles.
+        let mut sources: Vec<PathBuf> = fs::read_dir(&native_dir).into_iter().flatten().flatten().map(|entry| entry.path())
+            .filter(|path| path.extension().is_some_and(|extension| extension == "mm")).collect();
+        sources.sort();
+        let mut unity = String::new();
+        for path in &sources {
+            println!("cargo:rerun-if-changed={}", path.display());
+            unity.push_str(&format!("#include \"{}\"\n", path.display()));
         }
+        let unity_path = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("metal_unity.mm");
+        fs::write(&unity_path, unity).unwrap_or_else(|error| build_failure(format!("{}: {error}", unity_path.display())));
+        build.file(unity_path);
         build.compile("metal_generated");
         for framework in build_config::FRAMEWORKS {
             println!("cargo:rustc-link-lib=framework={framework}");

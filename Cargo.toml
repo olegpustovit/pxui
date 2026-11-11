@@ -1,6 +1,8 @@
 [workspace]
 resolver = "2"
 members = ["crates/*", "tools/t", "tools/gate"]
+# `cargo build` builds the product crates; the test runner and the gate build on their first `cargo t` / `cargo run -p gate`.
+default-members = ["crates/*"]
 
 [workspace.package]
 version = "0.1.0"
