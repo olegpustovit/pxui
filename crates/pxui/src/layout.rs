@@ -47,15 +47,16 @@ pub enum Track {
 
 /// Grid tracks. `rows` empty: rows are added as children need them, each sized to its content.
 /// Gaps are the node's `gap` (between columns) and `row_gap`.
-// ponytail: at most MAX_TRACKS columns and rows (stack arrays in the passes, no allocation); raise
-// the cap when a grid needs more. Spans are spread in build order, not smallest span first as CSS.
+// Columns: at most MAX_TRACKS (stack arrays in the passes); rows: as many as the children reach (a
+// scratch the Ui keeps, no allocation once warm). Spans are spread in build order, not smallest span
+// first as CSS.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Grid {
     pub cols: &'static [Track],
     pub rows: &'static [Track],
 }
 
-pub const MAX_TRACKS: usize = 16;
+pub const MAX_TRACKS: usize = 64;
 
 /// A grid child's cell. `col == AUTO` places it at the next free cell in row order.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

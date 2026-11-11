@@ -1219,6 +1219,8 @@ pub struct Ui {
     moves: Vec<(u32, u32, u32)>,
     temp_breaks: Vec<Break>,
     temp_images: Vec<Image>,
+    /// a grid's rows (sizes, then tops), lent to `grid_tracks` and handed back
+    grid_rows: std::cell::Cell<Vec<f32>>,
     /// `grow_line`'s pass stamp (`BoxRec::frozen`)
     grow_pass: u32,
     /// the text atlas's retirements and misses seen
@@ -1416,6 +1418,7 @@ impl Ui {
             temp_images: Vec::new(),
             atlas_events: (0, 0),
             grow_pass: 0,
+            grid_rows: std::cell::Cell::new(Vec::new()),
             shifts: 0,
             compactions: 0,
             arena: Arena::default(),
@@ -3565,8 +3568,10 @@ impl Ui {
             let n = self.nd(index);
             let (content_w, content_h) = match n.grid {
                 Some(grid) => {
-                    let (cols, nc, rows, nr) = self.grid_tracks(index, n, &grid, None);
-                    (span(&cols[..nc], n.gap), span(&rows[..nr], n.row_gap))
+                    let (cols, nc, rows) = self.grid_tracks(index, n, &grid, None);
+                    let extent = (span(&cols[..nc], n.gap), span(&rows, n.row_gap));
+                    self.grid_rows.set(rows);
+                    extent
                 }
                 None => {
                     let limit = match (n.wrap, n.axis == Axis::Row, n.w, n.h) {
@@ -3695,17 +3700,22 @@ impl Ui {
     /// then what spanning children lack (`spread`; a fractional track measures as content, `room`
     /// None, but takes no span's share); with `room` (inner w, h) the
     /// fractional tracks share what the others leave.
-    fn grid_tracks(&self, index: usize, n: &Node, g: &Grid, room: Option<(f32, f32)>) -> ([f32; MAX_TRACKS], usize, [f32; MAX_TRACKS], usize) {
+    fn grid_tracks(&self, index: usize, n: &Node, g: &Grid, room: Option<(f32, f32)>) -> ([f32; MAX_TRACKS], usize, Vec<f32>) {
         let nc = g.cols.len().clamp(1, MAX_TRACKS);
-        let mut nr = g.rows.len().min(MAX_TRACKS);
-        let (mut colc, mut rowc) = ([0.0f32; MAX_TRACKS], [0.0f32; MAX_TRACKS]);
+        // rows: as many as the children reach, in a scratch the caller hands back (`grid_rows`)
+        let mut rowc = self.grid_rows.take();
+        rowc.clear();
+        rowc.resize(g.rows.len(), 0.0);
+        let mut colc = [0.0f32; MAX_TRACKS];
         let mut cursor = (0, 0);
         let mut spans = false;
         let mut child = self.next_flow(self.boxes[index].first);
         while child != NONE {
             let cn = self.nd(child);
             let (c, r, cs, rs) = next_cell(cn.cell, &mut cursor, nc);
-            nr = nr.max(r + rs);
+            if r + rs > rowc.len() {
+                rowc.resize(r + rs, 0.0);
+            }
             if cs == 1 {
                 colc[c] = colc[c].max(self.l_w[child] + cn.margin.l + cn.margin.r);
             }
@@ -3722,7 +3732,7 @@ impl Ui {
                 let cn = self.nd(child);
                 let (c, r, cs, rs) = next_cell(cn.cell, &mut cursor, nc);
                 if cs > 1 {
-                    spread(g.cols, &mut colc, c, cs, self.l_w[child] + cn.margin.l + cn.margin.r, n.gap);
+                    spread(g.cols, &mut colc[..nc], c, cs, self.l_w[child] + cn.margin.l + cn.margin.r, n.gap);
                 }
                 if rs > 1 {
                     spread(g.rows, &mut rowc, r, rs, self.l_h[child] + cn.margin.t + cn.margin.b, n.row_gap);
@@ -3730,30 +3740,29 @@ impl Ui {
                 child = self.next_flow(self.boxes[child].next);
             }
         }
-        let size = |tracks: &[Track], n: usize, content: &[f32; MAX_TRACKS], room: Option<f32>, gap: f32| {
-            let mut out = [0.0f32; MAX_TRACKS];
+        // content sizes become track sizes in place
+        let size = |tracks: &[Track], sizes: &mut [f32], room: Option<f32>, gap: f32| {
             let (mut fixed, mut fr) = (0.0, 0.0);
-            for i in 0..n {
+            for i in 0..sizes.len() {
                 match (tracks.get(i).copied().unwrap_or(Track::Fit), room) {
-                    (Track::Px(v), _) => out[i] = v,
-                    (Track::Fr(f), Some(_)) => fr += f,
-                    _ => out[i] = content[i],
+                    (Track::Px(v), _) => sizes[i] = v,
+                    (Track::Fr(f), Some(_)) => (sizes[i], fr) = (0.0, fr + f),
+                    _ => {}
                 }
-                fixed += out[i];
+                fixed += sizes[i];
             }
             if let Some(room) = room {
-                let free = (room - fixed - gap * n.saturating_sub(1) as f32).max(0.0);
-                for i in 0..n {
+                let free = (room - fixed - gap * sizes.len().saturating_sub(1) as f32).max(0.0);
+                for i in 0..sizes.len() {
                     if let Some(Track::Fr(f)) = tracks.get(i) {
-                        out[i] = if fr > 0.0 { free * f / fr } else { 0.0 };
+                        sizes[i] = if fr > 0.0 { free * f / fr } else { 0.0 };
                     }
                 }
             }
-            out
         };
-        let cols = size(g.cols, nc, &colc, room.map(|r| r.0), n.gap);
-        let rows = size(g.rows, nr, &rowc, room.map(|r| r.1), n.row_gap);
-        (cols, nc, rows, nr)
+        size(g.cols, &mut colc[..nc], room.map(|r| r.0), n.gap);
+        size(g.rows, &mut rowc, room.map(|r| r.1), n.row_gap);
+        (colc, nc, rowc)
     }
 
     /// The offset of `slot`'s scroll on axis `ax` (0 down, 1 sideways).
@@ -4320,14 +4329,19 @@ impl Ui {
     /// A grid: tracks sized by `grid_tracks`, each child in its cell (a `Grow` size fills the cell;
     /// `align` places it down).
     fn arrange_grid(&mut self, index: usize, n: &Node, g: &Grid, inner: (f32, f32), at: (f32, f32)) {
-        let (cols, nc, rows, nr) = self.grid_tracks(index, n, g, Some(inner));
-        let (mut col_x, mut row_y) = ([0.0f32; MAX_TRACKS + 1], [0.0f32; MAX_TRACKS + 1]);
+        let (cols, nc, mut rows) = self.grid_tracks(index, n, g, Some(inner));
+        let mut col_x = [0.0f32; MAX_TRACKS + 1];
         for i in 0..nc {
             col_x[i + 1] = col_x[i] + cols[i] + n.gap;
         }
+        // the row tops follow the row sizes in the scratch
+        let nr = rows.len();
+        rows.push(0.0);
         for i in 0..nr {
-            row_y[i + 1] = row_y[i] + rows[i] + n.row_gap;
+            let y = rows[nr + i] + rows[i] + n.row_gap;
+            rows.push(y);
         }
+        let row_y = |r: usize| rows[nr + r];
         let mut cursor = (0, 0);
         let mut c = self.next_flow(self.boxes[index].first);
         while c != NONE {
@@ -4335,7 +4349,7 @@ impl Ui {
             let m = cn.margin;
             let (col, row, cs, rs) = next_cell(cn.cell, &mut cursor, nc);
             let span_w = col_x[col + cs] - col_x[col] - n.gap;
-            let span_h = row_y[row + rs] - row_y[row] - n.row_gap;
+            let span_h = row_y(row + rs) - row_y(row) - n.row_gap;
             let a = cn.align_self.unwrap_or(n.align);
             if cn.w.is_grow() {
                 self.set_main(true, c, span_w - m.l - m.r);
@@ -4352,9 +4366,10 @@ impl Ui {
                 Align::End => span_h - oh,
                 _ => 0.0,
             };
-            (self.l_x[c], self.l_y[c]) = (at.0 + col_x[col] + m.l, at.1 + row_y[row] + y + m.t);
+            (self.l_x[c], self.l_y[c]) = (at.0 + col_x[col] + m.l, at.1 + row_y(row) + y + m.t);
             c = self.next_flow(self.boxes[c].next);
         }
+        self.grid_rows.set(rows);
     }
 
     fn screen(&self, index: usize) -> Rect {
@@ -4409,7 +4424,7 @@ fn span(tracks: &[f32], gap: f32) -> f32 {
 /// A child spanning `count` tracks from `at` needs `need` points: what its tracks (fixed and the
 /// content ones so far, with the gaps) lack is shared equally by its `Fit` tracks. A span over an
 /// `Fr` track sizes nothing (as in CSS: the fractions take the room).
-fn spread(tracks: &[Track], content: &mut [f32; MAX_TRACKS], at: usize, count: usize, need: f32, gap: f32) {
+fn spread(tracks: &[Track], content: &mut [f32], at: usize, count: usize, need: f32, gap: f32) {
     let (mut have, mut fits) = (gap * (count - 1) as f32, 0);
     for i in at..at + count {
         match tracks.get(i).copied().unwrap_or(Track::Fit) {
@@ -4442,8 +4457,7 @@ fn next_cell(c: Cell, cursor: &mut (usize, usize), cols: usize) -> (usize, usize
     } else {
         ((c.col as usize).min(cols - 1), c.row as usize)
     };
-    let row = row.min(MAX_TRACKS - 1);
-    (col, row, cs.min(cols - col), (c.row_span.max(1) as usize).min(MAX_TRACKS - row))
+    (col, row, cs.min(cols - col), c.row_span.max(1) as usize)
 }
 
 // Scrolling as NSScrollView does it, the constants fitted to a recording of one. Past an edge

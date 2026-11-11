@@ -205,6 +205,19 @@ pub fn layout_grid() {
     eq(r[0], 0.0, 0.0, 300.0, 78.0, "fit height of three rows");
 }
 
+/// A grid of 100 items in 4 columns has 25 rows (rows are not capped).
+pub fn layout_grid_many_rows() {
+    const COLS: &[Track] = &[Track::Fr(1.0); 4];
+    let grid = Node { w: Size::Px(400.0), h: Size::Fit, grid: Some(Grid { cols: COLS, rows: &[] }), row_gap: 2.0, ..Node::DEFAULT };
+    let kids = vec![Node { w: Size::Grow, h: Size::Px(10.0), ..Node::DEFAULT }; 100];
+    let mut ui = new_ui(None);
+    let mut build = |ui: &mut Ui| holder(ui, grid, &kids);
+    let r = lay(&mut ui, 0.0, vec![], &mut build);
+    eq(r[100], 300.0, 24.0 * 12.0, 100.0, 10.0, "the last item sits in row 25");
+    eq(r[0], 0.0, 0.0, 400.0, 25.0 * 12.0 - 2.0, "fit height of 25 rows");
+    ui.destroy();
+}
+
 /// Spanning children size the content tracks they cross; fixed and fractional tracks keep theirs.
 pub fn layout_grid_spans() {
     const COLS: &[Track] = &[Track::Fit, Track::Fit, Track::Px(30.0)];
@@ -701,6 +714,7 @@ pub fn layout_scaling() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_grid_many_rows", layout_grid_many_rows),
     ("layout_grow_many_frozen", layout_grow_many_frozen),
     ("layout_stress_zero_alloc", layout_stress_zero_alloc),
     ("layout_scaling", layout_scaling),
