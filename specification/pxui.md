@@ -208,7 +208,14 @@ drawing it again at any origin replays the list with the float operations of cos
 `physical`, so the quads equal a walk's, with no walk through the layout runs and no glyph-cache
 lookup (a glyph whose bin differs at a fractional origin looks its slot up). The list goes when the
 layout is re-shaped, the density changes or the atlas evicts a shelf; all lists together stop
-growing at `pxui_text::CACHE_BYTES` (4 MiB, `Ui::bytes().glyph_lists`). A run's first baseline sits the font's
+growing at `pxui_text::CACHE_BYTES` (4 MiB, `Ui::bytes().glyph_lists`). The atlas packs shelves of
+about one glyph height (a quarter taller at most) and never rewrites texels something may still
+sample: a shelf is reused only `pxui_text::FRAMES_IN_FLIGHT` (the painter's `FRAMES`, 3) frames after
+its last draw and only when no kept view's output sits on it (`Text::pin`: each view records the
+shelves its build and patches emitted on, `Text::marks`); y-adjacent idle shelves merge for a taller
+glyph and a reused shelf splits off what it does not need. When every shelf is in use, the least
+recently drawn one is retired: its glyphs go, its texels stay until the frames in flight are done,
+and every view rebuilds the next frame (`Text::retirements`). A run's first baseline sits the font's
 ascent below its top, on a device pixel. Carets, hit tests and selection
 spans of the text widgets come from the same layouts. `Paint::text_styled` and
 `Ui::text_metrics` take any `pxui::text::Style`: wrap, ellipsis, line limit,
@@ -626,6 +633,13 @@ closures outlive the build, and they live in the frame arena. Public functions t
 | Text shaping | full shaping, cached per node (`pxui_text`) |
 | Warm `cargo check -p pxui` | under 1 s |
 | Clean debug build, PXUI repo | under 30 s (cosmic-text about 13 s of it) |
+
+**Designed limits.** Deliberate bounds of this design, each with the reason it stays; a change
+needs a measurement that shows it.
+
+- A glyph that finds no atlas room free of frames in flight and kept output waits a frame (the `Ui`
+  requests one; `Text::misses`). A second atlas page would bind one more texture per layer, a
+  draw-call break; at the atlas sizes (1024x2048 R8, 1024x1024 RGBA8) a UI's working set fits.
 
 **Crate fate.**
 

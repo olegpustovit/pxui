@@ -149,6 +149,8 @@ pub enum AtlasKind { Mask, Color }
 
 /// Frames whose ring regions stay untouched: at most `FRAMES - 1` frames may be in flight on the GPU.
 const FRAMES: usize = 3;
+// the text atlas waits as many frames before it rewrites texels a frame drew
+const _: () = assert!(pxui::text::FRAMES_IN_FLIGHT as usize == FRAMES);
 /// Storage-buffer offset alignment that every Vulkan device satisfies.
 const ALIGN: usize = 256;
 fn align(n: usize) -> usize { (n + ALIGN - 1) & !(ALIGN - 1) }
@@ -291,8 +293,8 @@ impl Painter {
     }
 
     /// Copy a `w`×`h` rectangle (rows `stride` bytes apart) into an atlas at `x`,`y`. Takes effect
-    /// immediately: do not overwrite texels a frame still in flight samples.
-    // ponytail: no atlas double-buffering; eviction must wait for the frame using the old glyph if that races.
+    /// immediately: do not overwrite texels a frame still in flight samples (`pxui_text` never does:
+    /// its atlas rewrites a shelf only `FRAMES_IN_FLIGHT` = `FRAMES` frames after its last draw).
     pub fn upload(&mut self, atlas: AtlasKind, x: u32, y: u32, w: u32, h: u32, bytes: &[u8], stride: usize) -> Result<(), Error> {
         let texture = if atlas == AtlasKind::Mask { &self.mask } else { &self.color };
         backend::write_texture(texture, None, Origin { x: x as i64, y: y as i64, z: 0 }, Extent { width: w as i64, height: h as i64, depth: 1 }, stride as i64, bytes)

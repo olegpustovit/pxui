@@ -530,6 +530,8 @@ struct ViewRec {
     built: i64,
     kept: i64,
     visited: i64,
+    /// the atlas shelves its output samples (its build's glyphs, its patches', kept views inside)
+    shelves: pxui_text::Shelves,
     dirty: bool,
     /// its last build put boxes at the root, asked for a frame or ran a hover delay: rebuild it
     escapes: bool,
@@ -609,6 +611,7 @@ impl ViewRec {
             built: -1,
             kept: -1,
             visited: -1,
+            shelves: [0; 4],
             dirty: false,
             escapes: false,
             patched: false,
@@ -1232,7 +1235,8 @@ pub struct Ui {
     moves: Vec<(u32, u32, u32)>,
     temp_breaks: Vec<Break>,
     temp_images: Vec<Image>,
-    evictions: u64,
+    /// the text atlas's retirements and misses seen
+    atlas_events: (u64, u64),
     /// canvas closures and formatted labels of the frame being built
     arena: Arena,
     painting: bool,
@@ -1420,7 +1424,7 @@ impl Ui {
             moves: Vec::new(),
             temp_breaks: Vec::new(),
             temp_images: Vec::new(),
-            evictions: 0,
+            atlas_events: (0, 0),
             arena: Arena::default(),
             painting: false,
             frame_requested: false,
@@ -5422,8 +5426,19 @@ impl Ui {
         let focused = self.marks_focus(slot);
         let s = &self.slots[slot];
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
+        let outer = paint.text.marks();
+        paint.text.set_marks([0; 4]);
         paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, focused, steady);
+        let shelves = paint.text.marks();
+        paint.text.set_marks(outer);
         let scratch = self.paint_end(paint);
+        // the patched instances sit in the runs of its view and the views around it
+        let mut v = owner;
+        while v != 0 {
+            let r = &mut self.views[v as usize];
+            r.shelves = [0, 1, 2, 3].map(|k| r.shelves[k] | shelves[k]);
+            v = r.parent;
+        }
         let fresh = &scratch[0].instances;
         // ponytail: a colour glyph in the patch, or a texture break inside the node, needs the
         // layer's breaks rebuilt; such a patch waits for the next frame (whose build wins).
@@ -5720,12 +5735,24 @@ impl Ui {
         }
         self.repatch = repatch;
         self.step_tweens();
-        self.text_mut().end_frame();
-        // a glyph evicted from the atlas may be one a kept view's instances sample
-        let evictions = self.text_mut().evictions();
-        if evictions != self.evictions {
-            self.evictions = evictions;
-            self.epoch += 1;
+        // the atlas does not rewrite a shelf a kept view's instances sample: it retires it, and every
+        // view rebuilds next frame (the texels stay for the frames in flight); a glyph without room
+        // shows next frame
+        let mut pin = [0u64; 4];
+        for r in &self.views[1..] {
+            if r.valid {
+                for k in 0..4 {
+                    pin[k] |= r.shelves[k];
+                }
+            }
+        }
+        let text = self.text_mut();
+        text.end_frame();
+        text.pin(pin);
+        let atlas = (text.retirements(), text.misses());
+        if atlas != self.atlas_events {
+            self.epoch += (atlas.0 != self.atlas_events.0) as u64;
+            self.atlas_events = atlas;
             self.frame_requested = true;
         }
         self.foreground.clear();
@@ -6558,6 +6585,9 @@ impl Ui {
             }
             if here {
                 paint.keep(v);
+                // an enclosing view kept later keeps these instances too
+                let m = paint.text.marks();
+                paint.text.set_marks([0, 1, 2, 3].map(|k| m[k] | r.shelves[k]));
             }
             let hit_parent = r.hit_parent;
             for k in 0..self.views[v as usize].hits.len() {
@@ -6583,6 +6613,8 @@ impl Ui {
         self.paint_xf = xf;
         let child_clip = if table != 0 { UNBOUNDED } else { clip };
         paint.cut();
+        let outer = paint.text.marks();
+        paint.text.set_marks([0; 4]);
         let (first, hit_start) = (paint.layers[paint.layer].pieces.len() - 1, self.hit_count);
         let mut child = self.boxes[index].first;
         while child != NONE {
@@ -6590,7 +6622,10 @@ impl Ui {
             child = self.boxes[child].next;
         }
         paint.cut();
+        let shelves = paint.text.marks();
+        paint.text.set_marks([0, 1, 2, 3].map(|k| outer[k] | shelves[k]));
         let r = &mut self.views[v as usize];
+        r.shelves = shelves;
         r.pieces = (paint.layer, first, paint.layers[paint.layer].pieces.len() - 1);
         r.hit_parent = parent_hit;
         r.hits.clear();

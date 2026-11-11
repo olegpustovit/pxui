@@ -218,3 +218,60 @@ fn monospace_advances_tracking_and_ascent() {
     let a = t.ascent(0);
     assert!(a > 0.5 && a < 1.5, "ascent ratio {a}");
 }
+
+/// The texels a glyph samples, read from the CPU mirror (what the GPU texture holds once drained).
+fn texels(t: &Text, g: &Glyph) -> Vec<u8> {
+    let (aw, ah) = t.atlas_size(g.atlas);
+    let bpp = if g.atlas == AtlasKind::Mask { 1 } else { 4 };
+    let (x, y) = ((g.uv.x * aw as f32).round() as usize, (g.uv.y * ah as f32).round() as usize);
+    let (w, h) = ((g.uv.w * aw as f32).round() as usize, (g.uv.h * ah as f32).round() as usize);
+    let px = t.atlas_pixels(g.atlas);
+    (0..h).flat_map(|r| px[((y + r) * aw as usize + x) * bpp..((y + r) * aw as usize + x + w) * bpp].iter().copied()).collect()
+}
+
+/// A tiny atlas under churn (twelve new glyphs every frame): no frame still in flight and no kept output
+/// ever samples a rewritten texel, and churned text keeps finding room.
+#[test]
+fn atlas_eviction_never_rewrites_texels_in_use() {
+    let mut t = Text::new_sized(&[&pragma()], (128, 160), (16, 16));
+    let style = |size: f32| Style { size, ..Style::default() };
+    // kept output: emitted once, then shown each frame without emitting until a retirement asks
+    t.layout(1, "kept", &style(13.0), 0.0);
+    let mut kept: Vec<(Glyph, Vec<u8>)> = Vec::new();
+    let mut retirements = t.retirements();
+    let mut in_flight: Vec<Vec<(Glyph, Vec<u8>)>> = Vec::new();
+    let (mut emitted_n, mut evictions) = (0, t.evictions());
+    for frame in 0..400u32 {
+        if kept.is_empty() || t.retirements() != retirements {
+            // the kept view rebuilds: its glyphs and the shelves they sit on
+            retirements = t.retirements();
+            t.set_marks([0; 4]);
+            kept = emitted(&mut t, 1).into_iter().map(|g| (g, Vec::new())).collect();
+            kept.iter_mut().for_each(|(g, px)| *px = texels(&t, g));
+            let marks = t.marks();
+            t.pin(marks);
+        }
+        let key = 100 + frame as u64;
+        // twelve glyphs no recent frame drew, at one of three sizes
+        let churn: String = (0..12u32).map(|i| char::from(33 + ((frame * 12 + i) % 94) as u8)).collect();
+        t.layout(key, &churn, &style(10.0 + (frame % 3) as f32 * 7.0), 0.0);
+        let now: Vec<(Glyph, Vec<u8>)> = emitted(&mut t, key).into_iter().map(|g| { let px = texels(&t, &g); (g, px) }).collect();
+        emitted_n += now.len();
+        t.drain_uploads(&mut |_, _, _, _, _, _, _| {});
+        for (g, px) in in_flight.iter().flatten().chain(kept.iter()) {
+            assert_eq!(&texels(&t, g), px, "frame {frame}: a glyph still sampled was rewritten");
+        }
+        in_flight.push(now);
+        // pxui_render keeps 3 frames (its FRAMES): the last two may still be drawing
+        if in_flight.len() == 3 {
+            in_flight.remove(0);
+        }
+        t.end_frame();
+        evictions = evictions.max(t.evictions());
+    }
+    println!("atlas churn: {evictions} evictions, {emitted_n} glyphs, {} misses, {} retirements", t.misses(), t.retirements());
+    assert!(evictions > 100, "the churn evicted {evictions} shelves");
+    // 400 frames of 12 glyphs no recent frame drew, in an atlas about three frames' worth: a glyph
+    // without room (no shelf free of frames in flight and kept output) shows a frame later
+    assert!(t.misses() * 20 < emitted_n as u64, "{emitted_n} glyphs emitted, {} misses", t.misses());
+}

@@ -153,11 +153,29 @@ pub const PRAGMASEVKA: &[u8] = include_bytes!("../../../assets/fonts/Pragmasevka
 const MASK_SIZE: (u32, u32) = (1024, 2048);
 const COLOR_SIZE: (u32, u32) = (1024, 1024);
 
+/// Frames whose GPU work may still sample the atlas after the CPU writes it: the painter keeps
+/// `pxui_render`'s `FRAMES` (3) ring regions, so texels last drawn at frame `f` are free at `f + 3`.
+pub const FRAMES_IN_FLIGHT: u32 = 3;
+
+/// A set of atlas shelves, one bit per shelf of either atlas (`shelf_bit`; shelves past 256 share
+/// bits, which only keeps more shelves).
+pub type Shelves = [u64; 4];
+
+fn shelf_bit(kind: AtlasKind, shelf: u16) -> (usize, u64) {
+    let bit = (shelf as usize * 2 + idx(kind)) % 256;
+    (bit / 64, 1 << (bit % 64))
+}
+
 struct Shelf {
     y: u32,
     h: u32,
     x: u32,
     used: u32,
+    /// the frame it was retired at (its glyphs dropped, its texels left for the frames still
+    /// showing them); 0: open
+    retired: u32,
+    /// bumped whenever its glyphs are dropped: a slot of another generation is gone
+    generation: u32,
 }
 struct Atlas {
     w: u32,
@@ -171,6 +189,7 @@ struct Atlas {
 struct Slot {
     kind: AtlasKind,
     shelf: u16,
+    generation: u32,
     x: u32,
     y: u32,
     w: u32,
@@ -181,36 +200,115 @@ struct Slot {
 
 impl Atlas {
     fn new((w, h): (u32, u32), bpp: u32) -> Atlas {
-        Atlas { w, h, bpp, px: vec![0; (w * h * bpp) as usize], shelves: Vec::new(), next_y: 0 }
+        // a shelf is at least 2 texels tall: room for every shelf there can be, so no frame allocates
+        Atlas { w, h, bpp, px: vec![0; (w * h * bpp) as usize], shelves: Vec::with_capacity(h as usize / 2 + 1), next_y: 0 }
     }
 
-    /// Returns (x, y, shelf, evicted). One pixel of padding on the right and bottom.
-    // ponytail: shelf-LRU eviction; a shelf is only reused by glyphs no taller than it, and a glyph
-    // that finds no free or stale shelf this frame is skipped (retried next frame). Upgrade to a
-    // skyline/guillotine packer if tall-glyph churn shows up in profiles.
-    fn alloc(&mut self, w: u32, h: u32, frame: u32) -> Option<(u32, u32, u16, bool)> {
+    /// Room for a `w`x`h` glyph (one pixel of padding on the right and bottom), shelf-LRU. A shelf
+    /// is rewritten only when nothing can still sample it: not drawn in the last `FRAMES_IN_FLIGHT`
+    /// frames and not in `pinned` (kept output shows glyphs on it), or retired at least
+    /// `FRAMES_IN_FLIGHT` frames ago. With no such shelf the least recently used one no frame
+    /// in flight drew is retired (`Alloc::Retired`): its glyphs go, its texels stay until the frames
+    /// showing them are done, and the caller rebuilds what showed them.
+    fn alloc(&mut self, kind: AtlasKind, w: u32, h: u32, frame: u32, pinned: &Shelves) -> Alloc {
         let (pw, ph) = (w + 1, h + 1);
-        if pw > self.w {
-            return None;
+        if pw > self.w || ph > self.h {
+            return Alloc::Full;
         }
-        let best = self.shelves.iter().enumerate().filter(|(_, s)| s.h >= ph && s.x + pw <= self.w).min_by_key(|(_, s)| s.h).map(|(i, _)| i);
+        let open = |s: &Shelf| s.retired == 0;
+        // a shelf holds glyphs of about its height (a quarter taller at most), so one size's shelves
+        // fall idle together and can be reused when that size is gone
+        let fits = |s: &Shelf| s.h >= ph && s.h <= ph + ph / 4 + 1;
+        let best = self.shelves.iter().enumerate().filter(|(_, s)| open(s) && fits(s) && s.x + pw <= self.w).min_by_key(|(_, s)| s.h).map(|(i, _)| i);
         let (i, evicted) = if let Some(i) = best {
             (i, false)
         } else if self.next_y + ph <= self.h {
-            self.shelves.push(Shelf { y: self.next_y, h: ph, x: 0, used: frame });
+            self.shelves.push(Shelf { y: self.next_y, h: ph, x: 0, used: frame, retired: 0, generation: 0 });
             self.next_y += ph;
             (self.shelves.len() - 1, false)
         } else {
-            let stale = self.shelves.iter().enumerate().filter(|(_, s)| s.h >= ph && s.used < frame).min_by_key(|(_, s)| s.used).map(|(i, _)| i)?;
-            self.shelves[stale].x = 0;
-            (stale, true)
+            let unpinned = |i: usize| {
+                let (word, bit) = shelf_bit(kind, i as u16);
+                pinned[word] & bit == 0
+            };
+            let free = |i: usize, s: &Shelf| s.h > 0 && if s.retired != 0 { s.retired + FRAMES_IN_FLIGHT <= frame } else { s.used + FRAMES_IN_FLIGHT <= frame && unpinned(i) };
+            let lru = |shelves: &[Shelf], want: &dyn Fn(usize, &Shelf) -> bool| shelves.iter().enumerate().filter(|(i, s)| s.h >= ph && want(*i, s)).min_by_key(|(_, s)| (s.h, s.used)).map(|(i, _)| i);
+            match lru(&self.shelves, &free).or_else(|| self.merge(ph, &free)) {
+                Some(i) => {
+                    self.split(i, ph);
+                    let s = &mut self.shelves[i];
+                    (s.x, s.retired, s.generation) = (0, 0, s.generation.wrapping_add(1));
+                    (i, true)
+                }
+                None => {
+                    let Some(i) = lru(&self.shelves, &|_, s: &Shelf| s.h > 0 && open(s) && s.used + FRAMES_IN_FLIGHT <= frame) else { return Alloc::Full };
+                    let s = &mut self.shelves[i];
+                    (s.retired, s.generation) = (frame, s.generation.wrapping_add(1));
+                    return Alloc::Retired;
+                }
+            }
         };
         let s = &mut self.shelves[i];
         s.used = frame;
         let x = s.x;
         s.x += pw;
-        Some((x, s.y, i as u16, evicted))
+        Alloc::At(x, s.y, i as u16, evicted)
     }
+
+    /// The shelf below `i` (y-adjacent, live), if any.
+    fn below(&self, i: usize) -> Option<usize> {
+        let end = self.shelves[i].y + self.shelves[i].h;
+        self.shelves.iter().position(|s| s.h > 0 && s.y == end)
+    }
+
+    /// One shelf at least `ph` tall from a run of y-adjacent `free` shelves (the first is kept, the
+    /// rest become dead entries, height 0, for `split` to reuse); `None` when no run is tall enough.
+    /// O(shelves^2), only when the atlas has no room.
+    fn merge(&mut self, ph: u32, free: &dyn Fn(usize, &Shelf) -> bool) -> Option<usize> {
+        let start = (0..self.shelves.len()).find(|&i| {
+            let (mut at, mut total) = (i, 0);
+            while free(at, &self.shelves[at]) {
+                total += self.shelves[at].h;
+                if total >= ph {
+                    return true;
+                }
+                let Some(next) = self.below(at) else { return false };
+                at = next;
+            }
+            false
+        })?;
+        // `below(start)` is the next shelf of the run as `start` grows over it
+        while self.shelves[start].h < ph {
+            let Some(next) = self.below(start) else { break };
+            self.shelves[start].h += self.shelves[next].h;
+            let n = &mut self.shelves[next];
+            (n.h, n.generation) = (0, n.generation.wrapping_add(1));
+        }
+        Some(start)
+    }
+
+    /// Cut a reused shelf `i` down to about `ph`; the rest becomes a free shelf (a dead entry, or a
+    /// new one within the capacity reserved at creation).
+    fn split(&mut self, i: usize, ph: u32) {
+        let s = &self.shelves[i];
+        if s.h <= ph + ph / 4 + 1 {
+            return;
+        }
+        let rest = Shelf { y: s.y + ph, h: s.h - ph, x: 0, used: 0, retired: 0, generation: 0 };
+        self.shelves[i].h = ph;
+        match self.shelves.iter().position(|s| s.h == 0) {
+            Some(d) => self.shelves[d] = Shelf { generation: self.shelves[d].generation.wrapping_add(1), ..rest },
+            None => self.shelves.push(rest),
+        }
+    }
+}
+
+enum Alloc {
+    /// x, y, shelf, and whether a shelf's glyphs were dropped for it
+    At(u32, u32, u16, bool),
+    /// no room this frame; a shelf was retired for a later one
+    Retired,
+    Full,
 }
 
 /// A glyph of a layout as `glyphs` replays it: its cache key (with the subpixel bin it had), its
@@ -237,8 +335,14 @@ struct Glyphs {
     slots: HashMap<CacheKey, Slot, Fast>,
     dirty: Vec<(AtlasKind, u32, u32, u32, u32)>,
     evictions: u64,
+    /// shelves retired while kept output may show them, and glyphs that found no room
+    retirements: u64,
+    misses: u64,
     /// `Text::frame`, for the shelves' use marks
     frame: u32,
+    /// shelves emitted from since `Text::set_marks`, and the ones kept output shows (`Text::pin`)
+    marks: Shelves,
+    pinned: Shelves,
 }
 
 impl Glyphs {
@@ -248,7 +352,7 @@ impl Glyphs {
         if let Some(s) = self.slots.get(&key) {
             return Some(*s);
         }
-        let empty = Slot { kind: AtlasKind::Mask, shelf: 0, x: 0, y: 0, w: 0, h: 0, left: 0, top: 0 };
+        let empty = Slot { kind: AtlasKind::Mask, shelf: 0, generation: 0, x: 0, y: 0, w: 0, h: 0, left: 0, top: 0 };
         let Some(img) = self.swash.get_image_uncached(&mut self.fs, key) else { return Some(empty) };
         let (w, h) = (img.placement.width, img.placement.height);
         let kind = match img.content {
@@ -258,12 +362,24 @@ impl Glyphs {
         };
         let a = &mut self.atlases[idx(kind)];
         let bpp = a.bpp;
-        let mut s = Slot { kind, shelf: 0, x: 0, y: 0, w, h, left: img.placement.left, top: img.placement.top };
+        let mut s = Slot { kind, shelf: 0, generation: 0, x: 0, y: 0, w, h, left: img.placement.left, top: img.placement.top };
         if w > 0 && h > 0 {
             if img.data.len() != (w * h * bpp) as usize {
                 return Some(empty);
             }
-            let (x, y, shelf, evicted) = a.alloc(w, h, self.frame)?;
+            let (x, y, shelf, evicted) = match a.alloc(kind, w, h, self.frame, &self.pinned) {
+                Alloc::At(x, y, shelf, evicted) => (x, y, shelf, evicted),
+                Alloc::Retired => {
+                    (self.evictions, self.retirements, self.misses) = (self.evictions + 1, self.retirements + 1, self.misses + 1);
+                    let shelves = &a.shelves;
+                    self.slots.retain(|_, o| o.kind != kind || o.w == 0 || o.h == 0 || shelves[o.shelf as usize].generation == o.generation);
+                    return None;
+                }
+                Alloc::Full => {
+                    self.misses += 1;
+                    return None;
+                }
+            };
             for row in 0..h {
                 let src = (row * w * bpp) as usize;
                 let dst = (((y + row) * a.w + x) * bpp) as usize;
@@ -271,10 +387,11 @@ impl Glyphs {
             }
             if evicted {
                 self.evictions += 1;
-                self.slots.retain(|_, o| !(o.kind == kind && o.shelf == shelf));
+                let shelves = &a.shelves;
+                self.slots.retain(|_, o| o.kind != kind || o.w == 0 || o.h == 0 || shelves[o.shelf as usize].generation == o.generation);
             }
             self.dirty.push((kind, x, y, w, h));
-            (s.shelf, s.x, s.y) = (shelf, x, y);
+            (s.shelf, s.generation, s.x, s.y) = (shelf, a.shelves[shelf as usize].generation, x, y);
         }
         self.slots.insert(key, s);
         Some(s)
@@ -286,6 +403,8 @@ impl Glyphs {
             return;
         }
         self.atlases[idx(slot.kind)].shelves[slot.shelf as usize].used = self.frame;
+        let (word, bit) = shelf_bit(slot.kind, slot.shelf);
+        self.marks[word] |= bit;
         f(Glyph {
             rect: Rect { x: (x + slot.left) as f32, y: (y - slot.top) as f32, w: slot.w as f32, h: slot.h as f32 },
             uv: self.uv(&slot),
@@ -338,6 +457,8 @@ struct Entry {
     cached: bool,
     cached_scale: u32,
     cached_evictions: u64,
+    /// the shelves the list's glyphs sit on
+    shelves: Shelves,
 }
 
 pub struct Text {
@@ -358,16 +479,25 @@ fn idx(kind: AtlasKind) -> usize {
 
 impl Text {
     pub fn new(fonts: &[&[u8]]) -> Text {
+        Text::new_sized(fonts, MASK_SIZE, COLOR_SIZE)
+    }
+
+    /// `new` with a `mask` (R8) and `color` (RGBA8) atlas of these sizes in texels.
+    pub fn new_sized(fonts: &[&[u8]], mask: (u32, u32), color: (u32, u32)) -> Text {
         let mut t = Text {
             // not new_with_fonts: that calls load_system_fonts. ponytail: fixed locale; pass one in when per-locale fallback matters.
             g: Glyphs {
                 fs: FontSystem::new_with_locale_and_db("en-US".into(), fontdb::Database::new()),
                 swash: SwashCache::new(),
-                atlases: [Atlas::new(MASK_SIZE, 1), Atlas::new(COLOR_SIZE, 4)],
+                atlases: [Atlas::new(mask, 1), Atlas::new(color, 4)],
                 slots: HashMap::default(),
                 dirty: Vec::new(),
                 evictions: 0,
+                retirements: 0,
+                misses: 0,
                 frame: 1,
+                marks: [0; 4],
+                pinned: [0; 4],
             },
             names: Vec::new(),
             ascents: Vec::new(),
@@ -423,6 +553,7 @@ impl Text {
             cached: false,
             cached_scale: 0,
             cached_evictions: 0,
+            shelves: [0; 4],
         });
         e.frame = frame;
         e.cached = false;
@@ -532,6 +663,9 @@ impl Text {
         let Text { g, entries, walks, cache_on, cache_bytes, .. } = self;
         let Some(e) = entries.get_mut(&key) else { return };
         if e.cached && e.cached_scale == scale.to_bits() && e.cached_evictions == g.evictions {
+            for k in 0..4 {
+                g.marks[k] |= e.shelves[k];
+            }
             let (ox, start) = (origin.0 * scale, g.evictions);
             for c in &e.glyphs {
                 let (x, bin) = subpixel_bin(c.x.mul_add(scale, ox));
@@ -555,6 +689,7 @@ impl Text {
         let keep = *cache_on && *cache_bytes < CACHE_BYTES;
         *cache_bytes -= e.glyphs.capacity() * size_of::<CachedGlyph>();
         e.glyphs.clear();
+        e.shelves = [0; 4];
         e.cached = keep;
         for run in e.buf.layout_runs() {
             for lg in run.glyphs {
@@ -566,6 +701,10 @@ impl Text {
                 if keep {
                     let (x, y) = (lg.x + lg.font_size * lg.x_offset, lg.y - lg.font_size * lg.y_offset);
                     e.glyphs.push(CachedGlyph { key: p.cache_key, x, y, line_y: run.line_y, slot, uv: g.uv(&slot) });
+                    if slot.w > 0 && slot.h > 0 {
+                        let (word, bit) = shelf_bit(slot.kind, slot.shelf);
+                        e.shelves[word] |= bit;
+                    }
                 }
                 g.emit(slot, p.x, p.y, f);
             }
@@ -621,9 +760,42 @@ impl Text {
         self.cache_bytes
     }
 
-    /// Shelves evicted so far: glyph instances made before an eviction may sample another glyph.
+    /// Shelves evicted so far: glyph lists and slots made before an eviction are dropped.
     pub fn evictions(&self) -> u64 {
         self.g.evictions
+    }
+
+    /// Shelves retired so far: each dropped glyphs that output emitted at or after the pin may still
+    /// show. Rebuild that output (the texels stay `FRAMES_IN_FLIGHT` frames for it).
+    pub fn retirements(&self) -> u64 {
+        self.g.retirements
+    }
+
+    /// Glyphs that found no atlas room so far (each is missing from its walk: repaint next frame).
+    pub fn misses(&self) -> u64 {
+        self.g.misses
+    }
+
+    /// The frame `end_frame` closes (glyphs `glyphs` emits now are marked with it).
+    pub fn frame(&self) -> u32 {
+        self.frame
+    }
+
+    /// The shelves glyphs were emitted from since the last `set_marks` (a caller that keeps output
+    /// without emitting it again records these with it).
+    pub fn marks(&self) -> Shelves {
+        self.g.marks
+    }
+
+    pub fn set_marks(&mut self, marks: Shelves) {
+        self.g.marks = marks;
+    }
+
+    /// The shelves output shown without being emitted again samples (kept views): the atlas does not
+    /// rewrite them (it retires one instead when nothing else has room). Empty by default: every
+    /// frame emits all it shows.
+    pub fn pin(&mut self, shelves: Shelves) {
+        self.g.pinned = shelves;
     }
 
     /// Call once per frame: drops layouts not laid out in the last `KEEP_FRAMES` frames. A cached
