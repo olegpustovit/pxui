@@ -149,9 +149,10 @@ impl Paint<'_> {
 impl Shapes for Paint<'_> {
     #[inline]
     fn push(&mut self, instance: Instance) {
-        if !self.span.write(instance) {
+        // SAFETY: `span` is the window `pxui_paint_span` handed out (or empty, which writes nothing)
+        if !unsafe { self.span.write(instance) } {
             self.refill();
-            self.span.write(instance);
+            unsafe { self.span.write(instance); }
         }
     }
     #[inline] fn density(&self) -> i64 { self.density }

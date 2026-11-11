@@ -41,12 +41,16 @@ impl Span {
     }
 
     /// Stamps `instance` with the span's clip and view and stores it at `at`; false when the span is full.
+    ///
+    /// # Safety
+    /// `at..end` must be the window the library handed out (`pxui_paint_span`): writable instance storage, `at <= end`, both in one
+    /// allocation. The wrapper's `Paint` is the one caller; a `Span` is plain data a caller can fill with anything, so this cannot be safe.
     #[inline]
-    pub fn write(&mut self, instance: Instance) -> bool {
+    pub unsafe fn write(&mut self, instance: Instance) -> bool {
         if self.at == self.end {
             return false;
         }
-        // SAFETY: the library handed out `at..end` as writable instance storage and `at < end` here.
+        // SAFETY: by the contract above `at..end` is writable instance storage and `at < end` here.
         unsafe {
             self.at.write(Instance { clip: self.clip, clip_radius: self.clip_radius_f16, view: self.view, ..instance });
             self.at = self.at.add(1);

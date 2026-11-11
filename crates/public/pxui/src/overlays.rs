@@ -2,7 +2,8 @@ use core::{cell::Cell, ffi::c_void};
 use pxui_types::{PxuiBox, Str, ffi::{PxuiMenuExtra, PxuiSubmenu, PxuiSwatch, Slice}, ui::{MenuResult, Pick}};
 use crate::{composite::{defer_callback_panic, deferred}, check, Strs, Ui};
 
-pub use pxui_types::ui::{MenuOpts, PickerOpts, Submenu};
+pub use pxui_types::ui::{MenuOpts, Submenu};
+pub use crate::opts::PickerOpts;
 
 #[cfg(feature = "static")]
 mod raw {

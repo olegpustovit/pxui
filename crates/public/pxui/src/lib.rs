@@ -25,6 +25,7 @@ pub mod a11y {
 }
 pub mod ui_core {
     pub use pxui_types::ui::*;
+    pub use crate::opts::{BoxOpts, HitFn};
     pub use crate::{Paint, Ui};
     pub use pxui_types::PxuiBox as UiBox;
     pub use pxui_types::{Flags, Size};
@@ -75,6 +76,7 @@ pub use collections::TreeNode;
 pub mod image;
 mod text_inputs;
 pub use text_inputs::{Language, ScrubPhase, TextAreaOpts, ValueFieldOpts};
+pub mod opts;
 pub mod kit;
 #[path = "a11y.rs"]
 mod a11y_ffi;

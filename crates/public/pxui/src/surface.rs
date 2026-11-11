@@ -1,7 +1,8 @@
 //! The engine-shaped surface through the wrapper: queries, boxes, patches, scroll and text state, carries, view calls
 //! and the loud failure of a caller bug.
 use crate::Ui;
-use pxui_types::{geom::Rect, ui::{BoxOpts, Cursor, Drop, UndoKind, CLICKABLE, CLIP, SCROLL}, FrameIn, Mark, Size};
+use crate::opts::BoxOpts;
+use pxui_types::{geom::Rect, ui::{Cursor, Drop, UndoKind, CLICKABLE, CLIP, SCROLL}, FrameIn, Mark, Size};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
@@ -142,7 +143,8 @@ fn canvas_text_goes_through_the_uis_own_text_service() {
 
 #[test]
 fn value_fields_take_their_options_and_text_edits_are_kept() {
-    use pxui_types::ui::{TextEdit, ValueFieldOpts};
+    use crate::opts::ValueFieldOpts;
+    use pxui_types::ui::TextEdit;
     use std::rc::Rc;
     let mut ui = Ui::new().expect("library");
     let opts = ValueFieldOpts {

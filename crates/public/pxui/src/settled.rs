@@ -3,7 +3,8 @@
 //! between two counted points. The counting allocator is `mem_sys`, installed for the test binary by the `use`: linked statically
 //! (`--features static`) it counts the library's allocations too; linked dynamically it counts the wrapper's own.
 use crate::{Node, Ui};
-use pxui_types::{geom::{Rect, Rgba}, ui::{BoxOpts, HitFn, CLIP, SCROLL}};
+use pxui_types::{geom::{Rect, Rgba}, ui::{CLIP, SCROLL}};
+use crate::opts::{BoxOpts, HitFn};
 use std::{rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
 
 /// How many times the canvas callback ran and how many shapes it stored (a span holds 256: it refills)

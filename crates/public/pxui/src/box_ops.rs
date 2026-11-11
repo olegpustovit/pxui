@@ -1,9 +1,10 @@
 //! Boxes and what hangs off them, with the engine's names and shapes (see `ui_state` for how failures surface).
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::node::{look, mark, size};
+use crate::opts::{BoxOpts, HitFn};
 use crate::{as_str, check, Ui};
 use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Dir, Size, ui::{BoxOpts, Drop, HitFn, Payload}, Mark, PxuiBox, Str};
+use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Dir, Size, ui::{Drop, Payload}, Mark, PxuiBox, Str};
 use std::{alloc::Layout, fmt::{Arguments, Write}};
 
 library!(lib {

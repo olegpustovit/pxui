@@ -3,9 +3,9 @@ use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, check, lent_string, live, Ui};
 use core::ffi::c_void;
 use pxui_types::{ffi::{AreaNotify, PxuiAreaCallbacks, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, Drop, Payload, TextEdit}, PxuiBox, Str};
-pub use pxui_types::ui::ValueFieldOpts;
 
-pub use pxui_types::ui::{Language, ScrubPhase, TextAreaOpts};
+pub use pxui_types::ui::ScrubPhase;
+pub use crate::opts::{Language, TextAreaOpts, ValueFieldOpts};
 
 library!(lib {
     fn pxui_ui_text_area_submit(ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, cbs: *const PxuiAreaCallbacks, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8) -> i32;

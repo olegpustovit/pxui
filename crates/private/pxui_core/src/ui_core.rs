@@ -23,9 +23,10 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 pub use pxui_types::{Flags, Size};
+pub use crate::opts::{BoxOpts, HitFn};
 pub use pxui_types::shape::{clip_of, Shapes};
 pub use pxui_types::ui::{
-    ellipsis, text_top_for,    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, BoxOpts, Cursor, Drop, HitFn, Payload, Target, UndoKind,
+    ellipsis, text_top_for,    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Drop, Payload, Target, UndoKind,
     BLOCKING, CAPTURE_UNCLAIMED, CLICKABLE, CLIP, DRAG_FREE, DRAG_THRESHOLD, FIT_TEXT, FOCUSABLE, FOCUS_MARK, HOVER_FREE, KEEP_FOCUS,
     KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
 };
