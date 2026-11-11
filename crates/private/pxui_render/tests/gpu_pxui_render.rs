@@ -846,20 +846,21 @@ fn shared_backdrop_blur() {
     let mut ui = shared_ui("Functional UI");
     let glass = std::cell::Cell::new(None);
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
-    for count in 0..2 {
+    let build = |ui: &mut pxui::Ui| {
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             glass.set(Some(ui.view("glass", 1, Size::Px(160.0), Size::Px(80.0), &mut |ui: &mut pxui::Ui| {
                 ui.node("pane", Node { w: Size::Px(160.0), h: Size::Px(80.0), look: Look { fill: pxui::geom::color::rgba(0, 0, 0, 1), ..Look::NONE }, ..Node::DEFAULT });
             })));
         }).expect("build blur view");
-        if count == 0 {
-            ui.view_offset(&glass.get().unwrap(), 80.0, 40.0);
-            ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
-        }
-    }
+    };
+    build(&mut ui);
     let mut renderer = shared_renderer(&device, &ui);
+    shared_app_frame(&queue, &target, &mut renderer, 1, 0);
+    ui.view_offset(&glass.get().unwrap(), 80.0, 40.0);
+    ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
+    build(&mut ui);
     let commands = ok(be::begin_commands(&queue));
-    renderer.prepare(&public_commands(&commands), 1, 0).expect("prepare blur frame");
+    renderer.prepare(&public_commands(&commands), 2, 1).expect("prepare blur frame");
     let colors = |load| RenderTarget { colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load, store: Store::Store, clear: (1.0, 1.0, 1.0, 1.0) }], depth: None };
     let first = ok(be::render_encoder(&commands, &colors(Load::Clear)));
     let pass_of = |encoder: &RenderEncoder| {
