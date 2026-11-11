@@ -81,7 +81,7 @@ pub fn a11y_inject_actions() {
     let tree = ui.output().a11y;
     let quit = find(tree, Role::Button, "Quit").unwrap().id;
     let field = find(tree, Role::TextField, "Caption").unwrap().id;
-    ui.inject_a11y(&[A11yAction { id: quit, action: Action::Press, payload: 0.0 }, A11yAction { id: field, action: Action::SetValue, payload: 42.0 }]);
+    ui.inject_a11y(&[A11yAction { id: quit, action: Action::Press, payload: 0.0, end: 0.0 }, A11yAction { id: field, action: Action::SetValue, payload: 42.0, end: 0.0 }]);
     ui.frame(&at(0.2, vec![]), &mut |ui| kit(ui, &mut k));
     check(k.quit == 1, "an injected Press did not click the button");
     check(k.caption == "42", &format!("an injected SetValue did not edit the field: {:?}", k.caption));
@@ -89,10 +89,16 @@ pub fn a11y_inject_actions() {
     check(k.quit == 1, "the press clicked twice");
     check(ui.output().a11y.value_text(find(ui.output().a11y, Role::TextField, "Caption").unwrap()) == "42", "the field's new value is not in the tree");
     // a stale id is dropped; Focus focuses
-    ui.inject_a11y(&[A11yAction { id: quit ^ (1 << 40), action: Action::Press, payload: 0.0 }, A11yAction { id: field, action: Action::Focus, payload: 0.0 }]);
+    ui.inject_a11y(&[A11yAction { id: quit ^ (1 << 40), action: Action::Press, payload: 0.0, end: 0.0 }, A11yAction { id: field, action: Action::Focus, payload: 0.0, end: 0.0 }]);
     ui.frame(&at(0.4, vec![]), &mut |ui| kit(ui, &mut k));
     check(k.quit == 1, "a stale id clicked");
     check(find(ui.output().a11y, Role::TextField, "Caption").unwrap().states & state::FOCUSED != 0, "Focus did not focus the field");
+    // Select sets the focused field's selection (anchor, caret in chars), published back in the tree
+    ui.inject_a11y(&[A11yAction { id: field, action: Action::Select, payload: 2.0, end: 1.0 }]);
+    ui.frame(&at(0.5, vec![]), &mut |ui| kit(ui, &mut k));
+    ui.frame(&at(0.6, vec![]), &mut |ui| kit(ui, &mut k));
+    let selection = find(ui.output().a11y, Role::TextField, "Caption").unwrap().selection;
+    check(selection == (2, 1) && k.caption == "42", &format!("Select did not set the selection: {selection:?} {:?}", k.caption));
     ui.destroy();
 }
 

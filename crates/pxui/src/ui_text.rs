@@ -362,6 +362,11 @@ impl Ui {
             }
             self.enforce_text_undo();
         }
+        // a screen reader's Select (AT-SPI SetCaretOffset/SetSelection) lands in whichever field loads its edit
+        if let Some((anchor, caret)) = self.a11y_select_of(key) {
+            let byte = |chars: u32| text.char_indices().nth(chars as usize).map_or(text.len(), |(b, _)| b);
+            (self.edit_anchor, self.edit_caret) = (byte(anchor), byte(caret));
+        }
         TextEdit { text: text.to_owned(), caret: self.edit_caret, anchor: self.edit_anchor }
     }
 

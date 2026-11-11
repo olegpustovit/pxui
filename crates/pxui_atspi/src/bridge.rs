@@ -1,6 +1,6 @@
 //! The AT-SPI2 server: the application root and one object per tree node on the accessibility bus.
 use crate::map;
-use crate::wire::{Conn, METHOD_CALL, Msg};
+use crate::wire::{Conn, ERROR, METHOD_CALL, METHOD_RETURN, Msg};
 use pxui::a11y::{A11yAction, A11yDiff, A11yNode, A11yTree, Action, NO_PARENT, Role, Value, actions, change, diff, state};
 use std::io::Write as _;
 
@@ -16,6 +16,8 @@ const VALUE: &str = "org.a11y.atspi.Value";
 const TEXT: &str = "org.a11y.atspi.Text";
 const PROPERTIES: &str = "org.freedesktop.DBus.Properties";
 const EVENT_OBJECT: &str = "org.a11y.atspi.Event.Object";
+const CACHE: &str = "org.a11y.atspi.Cache";
+const CACHE_PATH: &str = "/org/a11y/atspi/cache";
 const UNKNOWN_METHOD: &str = "org.freedesktop.DBus.Error.UnknownMethod";
 const UNKNOWN_OBJECT: &str = "org.freedesktop.DBus.Error.UnknownObject";
 const INVALID_ARGS: &str = "org.freedesktop.DBus.Error.InvalidArgs";
@@ -88,6 +90,7 @@ enum Any {
     Str,
     Num(f64),
     Obj,
+    Rect(i32, i32, i32, i32),
 }
 
 pub struct Bridge {
@@ -96,6 +99,8 @@ pub struct Bridge {
     unique: String,
     /// the registry's root after a successful Embed: (bus name, path)
     parent: Option<(String, String)>,
+    /// the serial of the Socket.Embed call `pump` still waits for (0: answered)
+    embed: u32,
     app_id: i32,
     tree: A11yTree,
     diff: A11yDiff,
@@ -112,19 +117,22 @@ impl Bridge {
     pub fn connect_to(address: &str, app_name: &str) -> Result<Bridge, Error> {
         let conn = Conn::open(Some(address)).map_err(Error::NoBus)?;
         let unique = conn.unique_name();
+        // Embedding is asynchronous: `pump` takes the registry's answer, so a slow registry never stalls startup.
         let mut embed = Msg::call(REGISTRY, ROOT_PATH, "org.a11y.atspi.Socket", "Embed");
         embed.open(b'r', "").s(&unique).o(ROOT_PATH).close();
-        // ponytail: blocking Embed at startup (registry answers at once); asynchronous if a slow registry matters.
-        let parent = conn.call(embed, 3000).ok().and_then(|mut reply| {
-            reply.enter().then_some(())?;
-            Some((reply.read_str()?.to_owned(), reply.read_str()?.to_owned()))
-        });
-        Ok(Bridge { conn, app_name: app_name.to_owned(), unique, parent, app_id: 0, tree: A11yTree::new(), diff: A11yDiff::default() })
+        let embed = conn.send(embed).unwrap_or(0);
+        conn.flush();
+        Ok(Bridge { conn, app_name: app_name.to_owned(), unique, parent: None, embed, app_id: 0, tree: A11yTree::new(), diff: A11yDiff::default() })
     }
 
-    /// Whether the registry accepted the application (Socket.Embed answered).
+    /// Whether the registry accepted the application (Socket.Embed answered; `pump` reads the answer).
     pub fn embedded(&self) -> bool {
         self.parent.is_some()
+    }
+
+    /// Whether the registry has yet to answer Socket.Embed (no registry answers with an error).
+    pub fn embedding(&self) -> bool {
+        self.embed != 0
     }
 
     /// This connection's unique bus name: the bus name of every object the bridge serves.
@@ -162,6 +170,11 @@ impl Bridge {
                     if msg.kind() == METHOD_CALL {
                         let reply = self.handle(&mut msg, out);
                         self.conn.send(reply);
+                    } else if self.embed != 0 && msg.reply_serial() == self.embed && (msg.kind() == METHOD_RETURN || msg.kind() == ERROR) {
+                        self.embed = 0;
+                        if msg.kind() == METHOD_RETURN && msg.enter() {
+                            self.parent = (|| Some((msg.read_str()?.to_owned(), msg.read_str()?.to_owned())))();
+                        }
                     }
                 }
             }
@@ -180,6 +193,7 @@ impl Bridge {
             Any::Str => m.open(b'v', "s").s(text).close(),
             Any::Num(v) => m.open(b'v', "d").d(v).close(),
             Any::Obj => m.open(b'v', "(so)").open(b'r', "").s(&self.unique).o(text).close().close(),
+            Any::Rect(x, y, w, h) => m.open(b'v', "(iiii)").open(b'r', "").i(x).i(y).i(w).i(h).close().close(),
         };
         m.open(b'a', "{sv}").close();
         self.conn.send(m);
@@ -187,7 +201,17 @@ impl Bridge {
 
     fn emit(&self, old: &A11yTree, new: &A11yTree, d: &A11yDiff) {
         let parent_path = |tree: &A11yTree, n: &A11yNode| Path::of((n.parent != NO_PARENT).then(|| tree.nodes[n.parent as usize].id));
-        // A removed or added subtree is announced once, at its top.
+        // The cache follows every node; a removed or added subtree's events are announced once, at its top.
+        for &id in &d.removed {
+            let mut m = Msg::signal(CACHE_PATH, CACHE, "RemoveAccessible");
+            m.open(b'r', "").s(&self.unique).o(Path::of(Some(id)).as_str()).close();
+            self.conn.send(m);
+        }
+        for &id in &d.added {
+            let mut m = Msg::signal(CACHE_PATH, CACHE, "AddAccessible");
+            self.cache_item(&mut m, new, Target::Node(new.find(id).expect("added id is in the new tree")));
+            self.conn.send(m);
+        }
         for &id in &d.removed {
             let i = old.find(id).expect("removed id is in the old tree");
             let n = &old.nodes[i as usize];
@@ -249,11 +273,54 @@ impl Bridge {
                     self.signal(path, EVENT_OBJECT, "TextSelectionChanged", "", 0, 0, Any::Int(0), "");
                 }
             }
-            // ponytail: RECT (BoundsChanged), PARENT moves and ROLE changes send no event; readers re-query.
+            if mask & change::RECT != 0 {
+                let r = n.rect;
+                let at = |v: f32| v.round() as i32;
+                self.signal(path, EVENT_OBJECT, "BoundsChanged", "", 0, 0, Any::Rect(at(r.x), at(r.y), at(r.w), at(r.h)), "");
+            }
+            if mask & change::ROLE != 0 {
+                self.signal(path, EVENT_OBJECT, "PropertyChange", "accessible-role", 0, 0, Any::Int(map::role(n.role).0 as i32), "");
+            }
+            if mask & change::PARENT != 0 {
+                let parent = parent_path(new, n);
+                self.signal(path, EVENT_OBJECT, "PropertyChange", "accessible-parent", 0, 0, Any::Obj, parent.as_str());
+            }
         }
     }
 
     // ------------------------------------------------------------------ calls
+
+    /// One Cache item of `target` in `tree`: object, application, parent, index in parent, child count,
+    /// interfaces, name, role, description, states.
+    fn cache_item(&self, m: &mut Msg, tree: &A11yTree, target: Target) {
+        let node = match target {
+            Target::Root => None,
+            Target::Node(i) => Some(&tree.nodes[i as usize]),
+        };
+        let object = Path::of(node.map(|n| n.id));
+        m.open(b'r', "").open(b'r', "").s(&self.unique).o(object.as_str()).close();
+        m.open(b'r', "").s(&self.unique).o(ROOT_PATH).close();
+        match (node, &self.parent) {
+            (None, Some((bus, path))) => m.open(b'r', "").s(bus).o(path).close(),
+            (None, None) => m.open(b'r', "").s(&self.unique).o(NULL_PATH).close(),
+            (Some(n), _) => {
+                let parent = Path::of((n.parent != NO_PARENT).then(|| tree.nodes[n.parent as usize].id));
+                m.open(b'r', "").s(&self.unique).o(parent.as_str()).close()
+            }
+        };
+        let index = match target {
+            Target::Root => -1,
+            Target::Node(i) => tree.index_in_parent(i) as i32,
+        };
+        m.i(index).i(tree.child_count(Bridge::index(target)) as i32);
+        interfaces(m, node);
+        match node {
+            None => m.s(&self.app_name).u(map::ROLE_APPLICATION).s(""),
+            Some(n) => m.s(tree.str(n.name)).u(map::role(n.role).0).s(tree.str(n.description)),
+        };
+        let set = node.map_or([0, 0], map::states);
+        m.open(b'a', "u").u(set[0]).u(set[1]).close().close();
+    }
 
     fn target(&self, path: &str) -> Option<Target> {
         if path == ROOT_PATH {
@@ -303,28 +370,6 @@ impl Bridge {
             Target::Root => None,
             Target::Node(i) => Some(&self.tree.nodes[i as usize]),
         }
-    }
-
-    fn interfaces(&self, target: Target, m: &mut Msg) {
-        m.open(b'a', "s").s(ACCESSIBLE);
-        match self.node(target) {
-            None => {
-                m.s(APPLICATION);
-            }
-            Some(n) => {
-                m.s(COMPONENT);
-                if map::has_action_interface(n) {
-                    m.s(ACTION);
-                }
-                if matches!(n.value, Value::Number { .. }) {
-                    m.s(VALUE);
-                }
-                if is_text(n) {
-                    m.s(TEXT);
-                }
-            }
-        }
-        m.close();
     }
 
     /// Write property `prop` of `iface` as a variant; false when there is no such property.
@@ -388,10 +433,14 @@ impl Bridge {
 
     fn handle(&mut self, msg: &mut Msg, out: &mut Vec<A11yAction>) -> Msg {
         if msg.path() == "/org/a11y/atspi/cache" && msg.interface() == "org.a11y.atspi.Cache" && msg.member() == "GetItems" {
-            // ponytail: an empty cache; libatspi then reads each object on demand. Fill it (and send AddAccessible /
-            // RemoveAccessible) if walking large trees over the bus gets slow.
+            // every object, so a reader walks the tree without a call per object; update keeps it current
             let mut r = msg.reply();
-            r.open(b'a', "((so)(so)(so)iiassusau)").close();
+            r.open(b'a', "((so)(so)(so)iiassusau)");
+            self.cache_item(&mut r, &self.tree, Target::Root);
+            for i in 0..self.tree.nodes.len() as u32 {
+                self.cache_item(&mut r, &self.tree, Target::Node(i));
+            }
+            r.close();
             return r;
         }
         let Some(target) = self.target(msg.path()) else {
@@ -440,7 +489,7 @@ impl Bridge {
                     (APPLICATION, "Id", None) => self.app_id = msg.read_i32().unwrap_or(0),
                     (VALUE, "CurrentValue", Some(n)) if n.actions & actions::SET_VALUE != 0 => {
                         let Some(v) = msg.read_f64().filter(|v| v.is_finite()) else { return msg.error(INVALID_ARGS, "CurrentValue is a double") };
-                        out.push(A11yAction { id, action: Action::SetValue, payload: v });
+                        out.push(A11yAction { id, action: Action::SetValue, payload: v, end: 0.0 });
                     }
                     _ => return msg.error(INVALID_ARGS, "property is read-only"),
                 }
@@ -495,7 +544,7 @@ impl Bridge {
                 true
             }
             (ACCESSIBLE, "GetInterfaces") => {
-                self.interfaces(target, &mut r);
+                interfaces(&mut r, self.node(target));
                 true
             }
             (APPLICATION, "GetLocale") if node.is_none() => {
@@ -526,7 +575,7 @@ impl Bridge {
                     }
                     "DoAction" => {
                         let Some(a) = pick(msg) else { return msg.error(INVALID_ARGS, "no such action") };
-                        out.push(A11yAction { id, action: a.0, payload: 0.0 });
+                        out.push(A11yAction { id, action: a.0, payload: 0.0, end: 0.0 });
                         r.b(true);
                         true
                     }
@@ -563,8 +612,40 @@ impl Bridge {
                         r.i(a.min(c) as i32).i(a.max(c) as i32);
                         true
                     }
-                    // ponytail: caret and selection setting, bounded ranges and attributes are not served yet
-                    // (EditableText, Hypertext and the rest of Text likewise).
+                    // caret and selection setting reach the field as a Select action (one selection at most)
+                    "SetCaretOffset" | "SetSelection" | "AddSelection" | "RemoveSelection" => {
+                        let ints: Vec<i32> = std::iter::from_fn(|| msg.read_i32()).take(3).collect();
+                        let caret = n.selection.1 as i32;
+                        let (anchor, to) = match (member.as_str(), ints.as_slice()) {
+                            ("SetCaretOffset", [k]) => (*k, *k),
+                            ("SetSelection", [0, s, e]) | ("AddSelection", [s, e]) => (*s, *e),
+                            ("RemoveSelection", [0]) => (caret, caret),
+                            ("SetSelection" | "RemoveSelection", [_, ..]) => {
+                                r.b(false);
+                                return r;
+                            }
+                            _ => return msg.error(INVALID_ARGS, "offsets are ints"),
+                        };
+                        let clamp = |k: i32| f64::from(k.clamp(0, count));
+                        out.push(A11yAction { id, action: Action::Select, payload: clamp(anchor), end: clamp(to) });
+                        r.b(true);
+                        true
+                    }
+                    // PXUI text carries no attribute runs: one run of no attributes over the whole text
+                    "GetAttributes" | "GetAttributeRun" => {
+                        r.open(b'a', "{ss}").close().i(0).i(count);
+                        true
+                    }
+                    "GetDefaultAttributes" => {
+                        r.open(b'a', "{ss}").close();
+                        true
+                    }
+                    "GetDefaultAttributeSet" => {
+                        r.open(b'a', "s").close();
+                        true
+                    }
+                    // designed limit (specification/pxui.md): glyph geometry (GetCharacterExtents, GetRangeExtents,
+                    // GetOffsetAtPoint, GetBoundedRanges), EditableText and Hypertext are not served.
                     _ => false,
                 }
             }
@@ -633,18 +714,41 @@ impl Bridge {
             "GrabFocus" => {
                 let ok = n.actions & actions::FOCUS != 0;
                 if ok {
-                    out.push(A11yAction { id: n.id, action: Action::Focus, payload: 0.0 });
+                    out.push(A11yAction { id: n.id, action: Action::Focus, payload: 0.0, end: 0.0 });
                 }
                 r.b(ok);
             }
             "ScrollTo" => {
-                out.push(A11yAction { id: n.id, action: Action::Scroll, payload: 0.0 });
+                out.push(A11yAction { id: n.id, action: Action::Scroll, payload: 0.0, end: 0.0 });
                 r.b(true);
             }
             _ => return false,
         }
         true
     }
+}
+
+/// The interfaces an object (`None`: the application) serves.
+fn interfaces(m: &mut Msg, node: Option<&A11yNode>) {
+    m.open(b'a', "s").s(ACCESSIBLE);
+    match node {
+        None => {
+            m.s(APPLICATION);
+        }
+        Some(n) => {
+            m.s(COMPONENT);
+            if map::has_action_interface(n) {
+                m.s(ACTION);
+            }
+            if matches!(n.value, Value::Number { .. }) {
+                m.s(VALUE);
+            }
+            if is_text(n) {
+                m.s(TEXT);
+            }
+        }
+    }
+    m.close();
 }
 
 /// Nodes that serve the Text interface: editable fields and text areas.

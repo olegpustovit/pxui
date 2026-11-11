@@ -252,7 +252,7 @@ fn widgets_slider() {
     let n = node(&ui, Role::Slider, "Level");
     let Value::Number { now, min, max, step } = n.value else { panic!("the slider's value is not a number: {:?}", n.value) };
     check((now - 0.02).abs() < 1e-6 && (min, max) == (0.0, 1.0) && (step - 0.01).abs() < 1e-6, &format!("the value in the tree: {:?}", n.value));
-    ui.inject_a11y(&[A11yAction { id: n.id, action: Action::SetValue, payload: 0.5 }]);
+    ui.inject_a11y(&[A11yAction { id: n.id, action: Action::SetValue, payload: 0.5, end: 0.0 }]);
     ui.frame(&at(4.0, vec![]), &mut |ui| all(ui, &mut s));
     check(s.slider == 0.5, "SetValue moves it");
     check(matches!(node(&ui, Role::Slider, "Level").value, Value::Number { now: 0.5, .. }), "the number follows");

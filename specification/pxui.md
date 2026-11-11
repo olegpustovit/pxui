@@ -693,7 +693,11 @@ crates see; the code names it with `designed limit`.
 - `pxui_wayland`: the clipboard is process-local until a window opens (a Wayland selection needs a
   seat focus). `pxui_atspi`: one property writer (a probe message per name, `GetAll` only); no
   relations, since the engine records no label links; "screen" coordinates equal window ones because
-  Wayland gives a client no window position.
+  Wayland gives a client no window position; the Text interface serves content, caret, selection
+  (read and set) and an attribute-free run, not glyph geometry (`GetCharacterExtents`,
+  `GetRangeExtents`, `GetOffsetAtPoint`, `GetBoundedRanges`: the tree carries node rectangles, not
+  glyph positions), `EditableText` (edits arrive as keyboard input or `SetValue`, one undo step each)
+  or `Hypertext` (PXUI text has no links).
 - Tests and tools: GPU goldens of `pxui_render`'s scene allow 2 levels on edges (Metal measures 0,
   Vulkan 1: transcendental functions differ by driver); PXUI's GPU tests draw no host images; the gate
   finds HashMap outputs by tokens; `cargo t` runs at most four suites at once (cases start their own

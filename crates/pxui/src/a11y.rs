@@ -123,6 +123,8 @@ pub mod actions {
     pub const SCROLL: u32 = 1 << 3;
     pub const EXPAND: u32 = 1 << 4;
     pub const COLLAPSE: u32 = 1 << 5;
+    /// sets an editable node's selection (or caret); requested on any text node, never advertised
+    pub const SELECT: u32 = 1 << 6;
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -134,16 +136,19 @@ pub enum Action {
     Scroll = actions::SCROLL,
     Expand = actions::EXPAND,
     Collapse = actions::COLLAPSE,
+    Select = actions::SELECT,
 }
 
 /// A request from an assistive technology, handed back to the UI as input: the target node, the action and
-/// its number (the new value for SetValue; for Scroll, points to scroll down, or 0 to scroll the node into
-/// view; 0 otherwise).
+/// its numbers (the new value for SetValue; for Scroll, points to scroll down, or 0 to scroll the node into
+/// view; for Select, the anchor and the caret in chars; 0 otherwise).
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct A11yAction {
     pub id: u64,
     pub action: Action,
     pub payload: f64,
+    /// Select's caret (the selection runs `payload..end`); 0 otherwise
+    pub end: f64,
 }
 
 /// A byte range into `A11yTree::strings`.

@@ -14,6 +14,7 @@ use std::time::{Duration, Instant};
 
 const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
 const PROPS: &str = "org.freedesktop.DBus.Properties";
+const CACHE_PATH: &str = "/org/a11y/atspi/cache";
 
 /// A spawned daemon, terminated (SIGTERM, so it can clean up its own children) on drop.
 struct Daemon(Child);
@@ -141,21 +142,26 @@ const SLIDER: u64 = 5;
 const FIELD: u64 = 6;
 
 fn tree(t: &mut A11yTree, button: &str, checked: bool, text: &str, caret: u32) {
+    tree_moved(t, button, checked, text, caret, false);
+}
+
+/// `moved`: the button 10 points right, the toggle a push button, the slider under the window.
+fn tree_moved(t: &mut A11yTree, button: &str, checked: bool, text: &str, caret: u32, moved: bool) {
     let ids = |slot: u64| node_id(slot as usize, 1);
     t.begin();
     let w = t.push(NO_PARENT, ids(WINDOW), Role::Window, Rect::new(0.0, 0.0, 400.0, 300.0));
     t.set_name(w, "Demo window");
     t.set_states(w, state::ENABLED | state::VISIBLE | state::ACTIVE);
     let p = t.push(w, ids(PANEL), Role::Panel, Rect::new(0.0, 0.0, 400.0, 300.0));
-    let b = t.push(p, ids(BUTTON), Role::Button, Rect::new(10.0, 10.0, 80.0, 20.0));
+    let b = t.push(p, ids(BUTTON), Role::Button, Rect::new(if moved { 20.0 } else { 10.0 }, 10.0, 80.0, 20.0));
     t.set_name(b, button);
     t.set_states(b, state::ENABLED | state::VISIBLE | state::FOCUSABLE);
     t.set_actions(b, actions::PRESS | actions::FOCUS);
-    let g = t.push(p, ids(TOGGLE), Role::Toggle, Rect::new(10.0, 40.0, 80.0, 20.0));
+    let g = t.push(p, ids(TOGGLE), if moved { Role::Button } else { Role::Toggle }, Rect::new(10.0, 40.0, 80.0, 20.0));
     t.set_name(g, "Snap");
     t.set_states(g, state::ENABLED | state::VISIBLE | state::CHECKABLE | if checked { state::CHECKED } else { 0 });
     t.set_actions(g, actions::PRESS);
-    let s = t.push(p, ids(SLIDER), Role::Slider, Rect::new(10.0, 70.0, 200.0, 20.0));
+    let s = t.push(if moved { w } else { p }, ids(SLIDER), Role::Slider, Rect::new(10.0, 70.0, 200.0, 20.0));
     t.set_name(s, "Opacity");
     t.set_value_number(s, 0.5, 0.0, 1.0, 0.1);
     t.set_actions(s, actions::SET_VALUE);
@@ -199,7 +205,13 @@ fn atspi_bus_walk_actions_and_events() {
     });
 
     assert!(matches!(Bridge::connect_to("unix:path=/nonexistent/pxui-a11y", "x"), Err(pxui_atspi::Error::NoBus(_))));
-    let bridge = Bridge::connect_to(&address, "pxui test").unwrap_or_else(|e| panic!("{e}"));
+    let mut bridge = Bridge::connect_to(&address, "pxui test").unwrap_or_else(|e| panic!("{e}"));
+    // Socket.Embed is answered through pump, never blocking the connect
+    let deadline = Instant::now() + Duration::from_secs(3);
+    while bridge.embedding() && Instant::now() < deadline {
+        bridge.pump(&mut Vec::new());
+        std::thread::sleep(Duration::from_millis(5));
+    }
     assert_eq!(bridge.embedded(), registry, "Socket.Embed answered exactly when a registry runs");
     assert!(bridge.fd() >= 0);
     let mut t = A11yTree::new();
@@ -314,13 +326,47 @@ fn atspi_bus_walk_actions_and_events() {
     });
     let id = |slot: u64| node_id(slot as usize, 1);
     assert_eq!(c.actions, vec![
-        A11yAction { id: id(BUTTON), action: Action::Press, payload: 0.0 },
-        A11yAction { id: id(BUTTON), action: Action::Focus, payload: 0.0 },
-        A11yAction { id: id(SLIDER), action: Action::SetValue, payload: 0.8 },
+        A11yAction { id: id(BUTTON), action: Action::Press, payload: 0.0, end: 0.0 },
+        A11yAction { id: id(BUTTON), action: Action::Focus, payload: 0.0, end: 0.0 },
+        A11yAction { id: id(SLIDER), action: Action::SetValue, payload: 0.8, end: 0.0 },
     ]);
     let dest = c.bridge.bus_name().to_owned();
     let unknown = c.call_to(&dest, &path(999), ACCESSIBLE, "GetRole", &|_| {});
     assert_eq!((unknown.kind(), unknown.error_name()), (ERROR, "org.freedesktop.DBus.Error.UnknownObject"));
+
+    // Caret and selection setting become Select actions on the field.
+    c.actions.clear();
+    assert_eq!(c.call(&field, "org.a11y.atspi.Text", "SetSelection", &|m| {
+        m.i(0).i(1).i(3);
+    }).read_bool(), Some(true));
+    assert_eq!(c.call(&field, "org.a11y.atspi.Text", "SetCaretOffset", &|m| {
+        m.i(99);
+    }).read_bool(), Some(true));
+    assert_eq!(c.actions, vec![
+        A11yAction { id: id(FIELD), action: Action::Select, payload: 1.0, end: 3.0 },
+        A11yAction { id: id(FIELD), action: Action::Select, payload: 5.0, end: 5.0 },
+    ], "the offset is clamped to the text");
+    let mut run = c.call(&field, "org.a11y.atspi.Text", "GetAttributeRun", &|m| {
+        m.i(2).b(true);
+    });
+    assert!(run.enter());
+    run.leave();
+    assert_eq!((run.read_i32(), run.read_i32()), (Some(0), Some(5)), "one attribute-free run");
+
+    // The cache lists the application and every node.
+    let mut items = c.call(CACHE_PATH, "org.a11y.atspi.Cache", "GetItems", &|_| {});
+    assert!(items.enter());
+    let mut names = Vec::new();
+    while items.arg() == b'r' {
+        items.enter();
+        for _ in 0..5 {
+            items.skip();
+        }
+        items.skip();
+        names.push(items.read_str().unwrap().to_owned());
+        items.leave();
+    }
+    assert_eq!(names, ["pxui test", "Demo window", "", "Apply", "Snap", "Opacity", "Title"]);
 
     // Change events from the diff.
     c.signals.clear();
@@ -332,10 +378,11 @@ fn atspi_bus_walk_actions_and_events() {
     };
     assert!(has(&c, &toggle, "StateChanged", "checked", 1, ""), "{:?}", c.signals);
     assert!(has(&c, &button, "PropertyChange", "accessible-name", 0, "Apply all"), "{:?}", c.signals);
-    assert!(has(&c, &field, "TextChanged", "insert", 0, "hello!"), "{:?}", c.signals);
+    // "hello" to "hello!": only the changed middle, an insert of "!" at 5
+    assert!(has(&c, &field, "TextChanged", "insert", 5, "!"), "{:?}", c.signals);
     assert!(has(&c, &field, "TextCaretMoved", "", 6, ""), "{:?}", c.signals);
     let n = c.signals.len();
-    assert_eq!(n, 5, "checked, name, text delete + insert, caret: {:?}", c.signals);
+    assert_eq!(n, 4, "checked, name, text insert, caret: {:?}", c.signals);
 
     // An unchanged revision sends nothing; a removed node is announced on its parent.
     c.bridge.update(&t);
@@ -350,6 +397,18 @@ fn atspi_bus_walk_actions_and_events() {
     c.drain_signals(150);
     assert!(has(&c, &window, "ChildrenChanged", "remove", 0, ""), "{:?}", c.signals);
     assert_eq!(c.signals.len(), n + 1, "only the subtree's top is announced");
+    tree(&mut t, "Apply all", true, "hello!", 6);
+    c.bridge.update(&t);
+    c.drain_signals(50);
+
+    // Bounds, role and parent changes.
+    c.signals.clear();
+    tree_moved(&mut t, "Apply all", true, "hello!", 6, true);
+    c.bridge.update(&t);
+    c.drain_signals(150);
+    assert!(has(&c, &button, "BoundsChanged", "", 0, ""), "{:?}", c.signals);
+    assert!(has(&c, &toggle, "PropertyChange", "accessible-role", 0, ""), "{:?}", c.signals);
+    assert!(has(&c, &slider, "PropertyChange", "accessible-parent", 0, ""), "{:?}", c.signals);
     tree(&mut t, "Apply all", true, "hello!", 6);
     c.bridge.update(&t);
 

@@ -955,6 +955,8 @@ pub struct Accumulator {
     pub scroll_drag_x: f32,
     /// a value an assistive technology set (`A11yAction` SetValue)
     pub a11y_value: Option<f64>,
+    /// a selection an assistive technology set (`A11yAction` Select): anchor and caret in chars
+    pub a11y_select: Option<(u32, u32)>,
     pub scroll_touch: bool,
     pub scroll_lift: bool,
     /// product of this frame's pinch factors
@@ -1641,7 +1643,8 @@ impl Ui {
     /// Actions from an assistive technology (`pxui_atspi::Bridge::pump`), applied at the start of
     /// the next frame as input: Press clicks, Focus focuses, Scroll scrolls by `payload` points,
     /// SetValue hands `payload` to the widget (`Signal::a11y_value`), Expand and Collapse click a
-    /// disclosure whose state differs. Ids of nodes that are gone are dropped.
+    /// disclosure whose state differs, Select focuses a text field and sets its selection
+    /// (`Signal::a11y_select`). Ids of nodes that are gone are dropped.
     pub fn inject_a11y(&mut self, actions: &[A11yAction]) {
         self.a11y_pending.extend_from_slice(actions);
     }
@@ -1660,6 +1663,12 @@ impl Ui {
                 }
                 A11yKind::Scroll => self.scroll_y[slot] = (self.scroll_y[slot] + a.payload as f32).max(0.0),
                 A11yKind::SetValue => self.accumulator(key).a11y_value = Some(a.payload),
+                // a selection is made in a focused field: focus it, then the widget applies the range
+                A11yKind::Select => {
+                    let b = UiBox { index: NONE, box_key: key, box_slot: slot, generation };
+                    self.focus_box(&b);
+                    self.accumulator(key).a11y_select = Some((a.payload.max(0.0) as u32, a.end.max(0.0) as u32));
+                }
                 A11yKind::Expand | A11yKind::Collapse => {
                     if expanded != (a.action == A11yKind::Expand) {
                         self.accumulator(key).clicked = true;
@@ -2112,6 +2121,11 @@ impl Ui {
         self.platform == Platform::Apple && self.command_modifiers(keys)
     }
 
+    /// The selection a screen reader set on box `key` this frame (anchor, caret in chars).
+    pub(crate) fn a11y_select_of(&self, key: i64) -> Option<(u32, u32)> {
+        self.signals.get(&key).and_then(|s| s.a11y_select)
+    }
+
     fn accumulator(&mut self, key: i64) -> &mut Accumulator {
         if !self.signals.contains_key(&key) {
             let press_keys = if self.active == Some(key) { self.active_keys.clone() } else { Vec::new() };
@@ -2139,6 +2153,7 @@ impl Ui {
                     scroll_drag: 0.0,
                     scroll_drag_x: 0.0,
                     a11y_value: None,
+                    a11y_select: None,
                     scroll_touch: false,
                     scroll_lift: false,
                     press_keys,
@@ -3007,6 +3022,8 @@ pub struct Signal {
     pub keys: Vec<Event>,
     /// a value an assistive technology set this frame: the widget applies it as one edit
     pub a11y_value: Option<f64>,
+    /// a selection (anchor, caret in chars) an assistive technology set this frame on a focused text field
+    pub a11y_select: Option<(u32, u32)>,
 }
 
 impl Ui {
@@ -3308,6 +3325,7 @@ impl Ui {
                 pinch: 1.0,
                 keys: Vec::new(),
                 a11y_value: None,
+                a11y_select: None,
             },
             Some(value) => Signal {
                 hovered: self.hot == key,
@@ -3337,6 +3355,7 @@ impl Ui {
                 pinch: value.pinch,
                 keys: value.keys.iter().map(|(e, _)| e.clone()).collect(),
                 a11y_value: value.a11y_value,
+                a11y_select: value.a11y_select,
             },
         }
     }
