@@ -19,7 +19,7 @@ struct VOut {
   float2 v_tp;
 };
 
-constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u;
+constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u;
 constant uint INNER = 4u, ROUND = 8u;
 constant float TAU = 6.2831853;
 constant float2 CORNERS[6] = {float2(0, 0), float2(1, 0), float2(0, 1), float2(0, 1), float2(1, 0), float2(1, 1)};
@@ -46,7 +46,7 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   float4 r = I.rect + (kind == ARC ? float4(off, 0.0, 0.0) : off.xyxy);
   float4 p0 = (kind == ARC || kind == CURVE || kind == GRID) ? float4(as_type<float2>(I.c.zw), 0.0, 0.0) : float4(half2x16(I.c.z), half2x16(I.c.w));
   if (kind == CURVE || kind == GRID) p0.xy += off;
-  float4 p2 = kind == GRID ? float4(as_type<float2>(I.b.xy), 0.0, 0.0) : kind == RECT ? unpack_unorm4x8_to_float(I.b.x) : float4(half2x16(I.b.x), half2x16(I.b.y));
+  float4 p2 = kind == GRID ? float4(as_type<float2>(I.b.xy), 0.0, 0.0) : (kind == RECT || kind == BORDER) ? unpack_unorm4x8_to_float(I.b.x) : float4(half2x16(I.b.x), half2x16(I.b.y));
   float h = width * 0.5 + pad;
   float2 p;
   if (kind == LINE) {
@@ -59,7 +59,7 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     float4 box = r;
     if (kind == ARC) box = float4(r.xy - (r.z + h), r.xy + (r.z + h));
     if (kind == CURVE) box = float4(min(min(r.xy, r.zw), p0.xy) - h, max(max(r.xy, r.zw), p0.xy) + h);
-    if (kind == RECT || kind == SHADOW || kind == GRID) box = r + float4(-pad, -pad, pad, pad);
+    if (kind == RECT || kind == SHADOW || kind == GRID || kind == BORDER) box = r + float4(-pad, -pad, pad, pad);
     if (kind == SHADOW && (flags & INNER) == 0u) box = r + p0.xyxy + float4(-1.0, -1.0, 1.0, 1.0) * (p0.w + 3.0 * p0.z + pad);
     p = mix(box.xy, box.zw, c);
   }
@@ -78,7 +78,7 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   o.v_p0 = p0;
   o.v_p2 = p2;
   o.v_misc = float4(width, half2x16(I.c.y).y, va.z, 0.0);
-  o.v_kf = uint2(kind, flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags
+  o.v_kf = uint2(kind, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
   return o;
 }
 
@@ -209,6 +209,21 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
       fill = over(float4(in.v_color2.rgb, in.v_color2.a * (1.0 - cover(inner, px))), fill);
     }
     col = float4(fill.rgb, fill.a * cover(d, px));
+  } else if (kind == BORDER) {
+    // widths (top, right, bottom, left) in p0; colours top, right, bottom (p2), left (kf.y). A pixel takes
+    // the side it is nearest to per unit of that side's width: corners split on the CSS mitre line.
+    float4 w = in.v_p0;
+    float d = sd_rect(p, in.v_rect, in.v_radii);
+    float4 inner_r = float4(max(w.x, w.w), max(w.x, w.y), max(w.z, w.y), max(w.z, w.w));
+    float id = sd_rect(p, in.v_rect + float4(w.w, w.x, -w.y, -w.z), max(in.v_radii - inner_r, 0.0));
+    float4 e = float4(p.y - in.v_rect.y, in.v_rect.z - p.x, in.v_rect.w - p.y, p.x - in.v_rect.x);
+    float4 rel = float4(w.x > 0.0 ? e.x / w.x : 1e9, w.y > 0.0 ? e.y / w.y : 1e9, w.z > 0.0 ? e.z / w.z : 1e9, w.w > 0.0 ? e.w / w.w : 1e9);
+    float4 c = in.v_color;
+    float best = rel.x;
+    if (rel.y < best) { best = rel.y; c = in.v_color2; }
+    if (rel.z < best) { best = rel.z; c = in.v_p2; }
+    if (rel.w < best) { c = unpack_unorm4x8_to_float(in.v_kf.y); }
+    col = float4(c.rgb, c.a * cover(d, px) * (1.0 - cover(id, px)));
   } else if (kind == GRID) {
     // the dot nearest p: one of the four around its cell (dots at origin + i * spacing, `dot` wide)
     float2 cell = floor((p - in.v_p0.xy) / in.v_p2.x);

@@ -17,7 +17,7 @@ layout(location = 9) flat out vec4 v_misc;
 layout(location = 10) flat out uvec2 v_kf;
 layout(location = 11) out vec2 v_tp;
 
-const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u;
+const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u;
 const uint INNER = 4u;
 const vec2 CORNERS[6] = vec2[6](vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(0, 1), vec2(1, 0), vec2(1, 1));
 
@@ -40,7 +40,7 @@ void main() {
   vec4 r = I.rect + (kind == ARC ? vec4(off, 0.0, 0.0) : off.xyxy);
   vec4 p0 = (kind == ARC || kind == CURVE || kind == GRID) ? vec4(uintBitsToFloat(I.c.zw), 0.0, 0.0) : vec4(unpackHalf2x16(I.c.z), unpackHalf2x16(I.c.w));
   if (kind == CURVE || kind == GRID) p0.xy += off;
-  vec4 p2 = kind == GRID ? vec4(uintBitsToFloat(I.b.xy), 0.0, 0.0) : kind == RECT ? unpackUnorm4x8(I.b.x) : vec4(unpackHalf2x16(I.b.x), unpackHalf2x16(I.b.y));
+  vec4 p2 = kind == GRID ? vec4(uintBitsToFloat(I.b.xy), 0.0, 0.0) : (kind == RECT || kind == BORDER) ? unpackUnorm4x8(I.b.x) : vec4(unpackHalf2x16(I.b.x), unpackHalf2x16(I.b.y));
   float h = width * 0.5 + pad;
   vec2 p;
   if (kind == LINE) {
@@ -53,7 +53,7 @@ void main() {
     vec4 box = r;
     if (kind == ARC) box = vec4(r.xy - (r.z + h), r.xy + (r.z + h));
     if (kind == CURVE) box = vec4(min(min(r.xy, r.zw), p0.xy) - h, max(max(r.xy, r.zw), p0.xy) + h);
-    if (kind == RECT || kind == SHADOW || kind == GRID) box = r + vec4(-pad, -pad, pad, pad);
+    if (kind == RECT || kind == SHADOW || kind == GRID || kind == BORDER) box = r + vec4(-pad, -pad, pad, pad);
     if (kind == SHADOW && (flags & INNER) == 0u) box = r + p0.xyxy + vec4(-1.0, -1.0, 1.0, 1.0) * (p0.w + 3.0 * p0.z + pad);
     p = mix(box.xy, box.zw, c);
   }
@@ -72,5 +72,5 @@ void main() {
   v_p0 = p0;
   v_p2 = p2;
   v_misc = vec4(width, unpackHalf2x16(I.c.y).y, va.z, 0.0);
-  v_kf = uvec2(kind, flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags
+  v_kf = uvec2(kind, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
 }

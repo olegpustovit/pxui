@@ -335,12 +335,17 @@ fn gpu_per_side_borders() {
     let target = target(&device);
     let white = [255, 255, 255, 255];
     let (sides, n) = pxui::draw::borders([60.0, 8.0, 92.0, 32.0], [0.0; 4], [0.0, 4.0, 0.0, 2.0], [[0; 4], RED, [0; 4], BLUE]);
-    assert_eq!(n, 2, "only the two non-zero sides are emitted");
+    assert_eq!(n, 1, "one instance for every side");
+    // four widths and four colours: the corners split on the mitre, no seam
+    let (green, gold) = ([0, 160, 0, 255], [230, 180, 0, 255]);
+    let (four, m) = pxui::draw::borders([8.0, 48.0, 48.0, 80.0], [0.0; 4], [1.0, 2.0, 3.0, 4.0], [RED, green, BLUE, gold]);
     let mut instances = vec![
         Instance::rect([8.0, 8.0, 40.0, 32.0], white).border(4.0, INK).sides(flags::BOTTOM),
         Instance::rect([60.0, 8.0, 92.0, 32.0], white),
+        Instance::rect([8.0, 48.0, 48.0, 80.0], white),
     ];
     instances.extend_from_slice(&sides[..n]);
+    instances.extend_from_slice(&four[..m]);
     painter.begin_frame();
     pass(&queue, &target, &mut |encoder| ok(painter.draw(encoder, [W * SCALE, H * SCALE], SCALE as f32, &instances, &[])));
     let pixels = ok(be::read_texture(&target, (W * SCALE * 4) as i64));
@@ -356,6 +361,21 @@ fn gpu_per_side_borders() {
     assert_eq!(at(&pixels, 63.0, 20.0), white, "left side is only 2 wide");
     assert_eq!(at(&pixels, 90.0, 20.0), RED, "right side 4 wide, own colour");
     assert_eq!(at(&pixels, 76.0, 9.0), white, "no top border from the helper either");
+    for (x, y, colour, what) in [(28.0, 48.25, RED, "top"), (47.0, 64.0, green, "right"), (28.0, 79.0, BLUE, "bottom"), (9.0, 64.0, gold, "left"),
+        (8.25, 48.25, gold, "top-left corner: the wider left side's"), (11.75, 48.25, RED, "top-left past the mitre: top"), (47.75, 79.75, BLUE, "bottom-right corner: the wider bottom's")] {
+        assert_eq!(at(&pixels, x, y), colour, "four borders: {what}");
+    }
+    // no seam: every pixel centre well inside the band shows a border colour
+    for y in 0..32 {
+        for x in 0..40 {
+            let (px, py) = (8.25 + x as f32, 48.25 + y as f32);
+            let band = py < 49.0 || px > 46.0 || py > 77.0 || px < 12.0;
+            if band {
+                let c = at(&pixels, px, py);
+                assert!([RED, green, BLUE, gold].contains(&c), "a seam at ({px}, {py}): {c:?}");
+            }
+        }
+    }
 }
 
 fn gpu_ramp_gradient() {

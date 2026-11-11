@@ -12,6 +12,8 @@ pub mod kind {
     pub const CURVE: u8 = 6;
     /// A repeating dot pattern (`Instance::grid`): one instance for a whole grid.
     pub const GRID: u8 = 7;
+    /// A CSS border with a width and colour per side (`borders`): one instance, corners mitred.
+    pub const BORDER: u8 = 8;
 }
 /// Instance flags (byte 51).
 pub mod flags {
@@ -101,20 +103,22 @@ pub struct Break {
     pub image: u32,
 }
 
-/// CSS `border` with a width and colour per side `[top, right, bottom, left]`: one border-only rect
-/// instance per side with a non-zero width (draw the fill separately), `count` of them valid.
-// ponytail: one instance per side (up to 4); a side's inner edge uses the radii minus its width, so
-// mixed widths meet at corners with a square seam. A packed per-side format if borders dominate.
+/// CSS `border` with a width and colour per side `[top, right, bottom, left]` (draw the fill
+/// separately): one `kind::BORDER` instance, `count` 1 (0 with no width). Each pixel of the band takes
+/// the colour of the side it is nearest to relative to that side's width, so corners split on the
+/// mitre from the outer to the inner corner as in CSS, with no seam; the inner corners' radii are the
+/// outer ones less the wider adjacent side.
 pub fn borders(rect: [f32; 4], radii: [f32; 4], widths: [f32; 4], colors: [[u8; 4]; 4]) -> ([Instance; 4], usize) {
     let mut out = [Instance::DEFAULT; 4];
-    let mut n = 0;
-    for (i, side) in [flags::TOP, flags::RIGHT, flags::BOTTOM, flags::LEFT].into_iter().enumerate() {
-        if widths[i] > 0.0 {
-            out[n] = Instance::rect(rect, [0; 4]).radii(radii).border(widths[i], colors[i]).sides(side);
-            n += 1;
-        }
+    if widths.iter().all(|w| *w <= 0.0) {
+        return (out, 0);
     }
-    (out, n)
+    out[0] = Instance {
+        rect, color: colors[0], color2: colors[1], kind: kind::BORDER,
+        aux: [u32::from_le_bytes(colors[2]), u32::from_le_bytes(colors[3])],
+        extra: [halves(widths[0], widths[1]), halves(widths[2], widths[3])], ..Instance::DEFAULT
+    }.radii(radii);
+    (out, 1)
 }
 
 /// How an image fills a box, like CSS `object-fit`.

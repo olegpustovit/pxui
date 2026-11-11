@@ -21,7 +21,7 @@ layout(location = 10) flat in uvec2 v_kf;
 layout(location = 11) in vec2 v_tp;
 layout(location = 0) out vec4 out_color;
 
-const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u;
+const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u;
 const uint INNER = 4u, ROUND = 8u;
 const float TAU = 6.2831853;
 
@@ -150,6 +150,21 @@ void main() {
       fill = over(vec4(v_color2.rgb, v_color2.a * (1.0 - cover(inner, px))), fill);
     }
     col = vec4(fill.rgb, fill.a * cover(d, px));
+  } else if (kind == BORDER) {
+    // widths (top, right, bottom, left) in p0; colours top, right, bottom (p2), left (kf.y). A pixel takes
+    // the side it is nearest to per unit of that side's width: corners split on the CSS mitre line.
+    vec4 w = v_p0;
+    float d = sd_rect(p, v_rect, v_radii);
+    vec4 inner_r = vec4(max(w.x, w.w), max(w.x, w.y), max(w.z, w.y), max(w.z, w.w));
+    float id = sd_rect(p, v_rect + vec4(w.w, w.x, -w.y, -w.z), max(v_radii - inner_r, 0.0));
+    vec4 e = vec4(p.y - v_rect.y, v_rect.z - p.x, v_rect.w - p.y, p.x - v_rect.x);
+    vec4 rel = vec4(w.x > 0.0 ? e.x / w.x : 1e9, w.y > 0.0 ? e.y / w.y : 1e9, w.z > 0.0 ? e.z / w.z : 1e9, w.w > 0.0 ? e.w / w.w : 1e9);
+    vec4 c = v_color;
+    float best = rel.x;
+    if (rel.y < best) { best = rel.y; c = v_color2; }
+    if (rel.z < best) { best = rel.z; c = v_p2; }
+    if (rel.w < best) { c = unpackUnorm4x8(v_kf.y); }
+    col = vec4(c.rgb, c.a * cover(d, px) * (1.0 - cover(id, px)));
   } else if (kind == GRID) {
     // the dot nearest p: one of the four around its cell (dots at origin + i * spacing, `dot` wide)
     vec2 cell = floor((p - v_p0.xy) / v_p2.x);
