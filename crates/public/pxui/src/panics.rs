@@ -29,7 +29,7 @@ fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), |ui| {
             let node = ui.node("canvas", &Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT }).unwrap();
-            ui.draw(&node, |_, _| panic!("paint callback")).unwrap();
+            ui.draw(&node, |_, _| panic!("paint callback"));
         });
     }));
     // wherever the engine paints (during the frame or at the renderer), the panic is resumed by the call that ran it

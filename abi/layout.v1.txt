@@ -17,7 +17,7 @@ Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
 Commands 24 8 0 8 16
 Pass 48 8 0 8 16 24 28 32 40
 Image 40 8 0 8 16 24 28 32
-Span 40 8 0 8 16 24 26 28
+Span 32 8 0 4 6 8 16 24
 PxuiBox 32 8 0 8 16 24
 PxuiPanel 40 8 0 4 8 12 16 24 32 33
 PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
@@ -73,3 +73,4 @@ PxuiPopupDesc 48 8 0 4 5 6 7 8 12 16 20 24 28 32
 PxuiHeadActionDesc 40 8 0 16 32 33 34
 PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
 PxuiHeadOut 32 8 0 16 24 25 26
+PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56

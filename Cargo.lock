@@ -3,6 +3,16 @@
 version = 4
 
 [[package]]
+name = "abi_equal"
+version = "0.1.0"
+dependencies = [
+ "input",
+ "pxui",
+ "pxui_core",
+ "pxui_types",
+]
+
+[[package]]
 name = "bitflags"
 version = "2.13.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"

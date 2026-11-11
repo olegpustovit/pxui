@@ -1,0 +1,21 @@
+[package]
+name = "abi_equal"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# Checks that need both sides of the C ABI at once: the wrapper's inline shapes against the engine's own painter. A tool, so
+# it may name the private crates the public ones must not.
+[lib]
+path = "src/lib.rs"
+test = false
+
+[dev-dependencies]
+input = { path = "../../crates/open/input" }
+pxui = { path = "../../crates/public/pxui", features = ["static"] }
+pxui_core = { path = "../../crates/private/pxui_core" }
+pxui_types = { path = "../../crates/public/pxui_types" }
+
+[lints]
+workspace = true

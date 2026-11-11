@@ -1584,7 +1584,13 @@ impl Ui {
     /// at rest (a hairline, no caret) until something is typed in it. Build it inside a panel or
     /// `modal`.
     pub fn picker(&mut self, o: &PickerOpts, label: &str, query: &str, rows_of: &dyn Fn(&str) -> Vec<(String, String)>) -> (String, Pick) {
-        picker_body(self, o, label, query, rows_of)
+        picker_body(self, o, label, query, &mut |query, rows| *rows = rows_of(query))
+    }
+
+    /// `picker` that asks for its rows by filling a vector it keeps between frames: `fill(query, rows)` replaces `rows`
+    /// with the rows for `query`, reusing the strings already in it, so a settled picker copies no row into new storage.
+    pub fn picker_filled(&mut self, o: &PickerOpts, label: &str, query: &str, fill: &mut dyn FnMut(&str, &mut Vec<(String, String)>)) -> (String, Pick) {
+        picker_body(self, o, label, query, fill)
     }
 }
 
@@ -2391,9 +2397,10 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
     }
 }
 
-fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, rows_of: &dyn Fn(&str) -> Vec<(String, String)>) -> (String, Pick) {
+fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &mut dyn FnMut(&str, &mut Vec<(String, String)>)) -> (String, Pick) {
     let off = |i: i64| o.off.as_ref().map(|f| f(i)).unwrap_or(false);
-    let mut rows = rows_of(query);
+    let mut rows = core::mem::take(&mut this.picker_rows);
+    fill(query, &mut rows);
     // the search row: a 20-point field in 4 points of padding, a [/] before the query
     // a 20-point field in 4 points of margin
     let search = this.box_(label, BoxOpts::default().flags(CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK).w(Size::Grow).h(Size::Px(this.control_h())));
@@ -2453,7 +2460,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, rows_of:
                     this.edit_text_event(false, &mut edit, &|_| true, &modifiers, event);
                     if edit.text != query {
                         query = edit.text.clone();
-                        rows = rows_of(&query);
+                        fill(&query, &mut rows);
                         cursor = 0;
                         armed = -1;
                     }
@@ -2595,6 +2602,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, rows_of:
     this.leave(saved);
     this.set_state(&search, cursor);
     this.set_state(&list, armed);
+    this.picker_rows = rows;
     (query, result)
 }
 

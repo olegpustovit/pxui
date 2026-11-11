@@ -110,6 +110,23 @@ impl Ui {
         cell: Rc<dyn Fn(i64, i64) -> String>,
         label: &str,
     ) -> (Option<i64>, Signal) {
+        let titles: Vec<&str> = headers.iter().map(String::as_str).collect();
+        table_body(self, at, w, h, &titles, rows, &mut |row, column, emit| emit(&cell(row, column)), label)
+    }
+
+    /// `table` over borrowed headers and cells: `cell(row, column, emit)` calls `emit` with the text of one cell, which
+    /// may borrow from the caller. No header or cell is copied.
+    #[allow(clippy::too_many_arguments)]
+    pub fn table_with(
+        &mut self,
+        at: (f32, f32),
+        w: f32,
+        h: f32,
+        headers: &[&str],
+        rows: i64,
+        cell: &mut dyn FnMut(i64, i64, &mut dyn FnMut(&str)),
+        label: &str,
+    ) -> (Option<i64>, Signal) {
         table_body(self, at, w, h, headers, rows, cell, label)
     }
 }
@@ -829,7 +846,7 @@ impl Ui {
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[String], rows: i64, cell: Rc<dyn Fn(i64, i64) -> String>, label: &str) -> (Option<i64>, Signal) {
+fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], rows: i64, cell: &mut dyn FnMut(i64, i64, &mut dyn FnMut(&str)), label: &str) -> (Option<i64>, Signal) {
     if rows < 0 {
         panic!("Ui.table: negative row count");
     }
@@ -882,10 +899,11 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[String],
         this.set_look(&row, row_look, State::default());
         let saved = this.enter(&row);
         for column in 0..headers.len() {
-            let value = cell(index, column as i64);
-            let tw = this.text_width(None, &value);
-            let right = stops[column + 1] - 8.0;
-            this.part(int_key(row.box_key, column as i64), (right - tw, 0.0), Size::Px(tw.max(1.0)), row_h, text_only(&row_look), Edges::default(), &value);
+            cell(index, column as i64, &mut |value: &str| {
+                let tw = this.text_width(None, value);
+                let right = stops[column + 1] - 8.0;
+                this.part(int_key(row.box_key, column as i64), (right - tw, 0.0), Size::Px(tw.max(1.0)), row_h, text_only(&row_look), Edges::default(), value);
+            });
         }
         this.leave(saved);
     }

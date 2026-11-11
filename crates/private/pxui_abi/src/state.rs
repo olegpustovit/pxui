@@ -91,6 +91,7 @@ pub type Build = Option<extern "C" fn(*mut c_void, *mut PxuiUi)>;
 pub(crate) trait Handle { fn shared(self) -> *mut Shared; }
 impl Handle for *mut PxuiUi { fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } } }
 impl Handle for *const PxuiUi { fn shared(self) -> *mut Shared { Handle::shared(self as *mut PxuiUi) } }
+impl Handle for *mut crate::PxuiRenderer { fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } } }
 impl Handle for *mut crate::paint::PxuiPaint { fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } } }
 
 pub(crate) unsafe fn poisoned(shared: *mut Shared) -> bool { !shared.is_null() && unsafe { (*shared).poisoned } }

@@ -6,48 +6,25 @@ function pxui_col void pxui_col ( PxuiUi * ui , float padding , PxuiStr label , 
 function pxui_frame int32_t pxui_frame ( PxuiUi * ui , const PxuiFrameIn * in , PxuiBuild build , void * user , PxuiFrameOut * out ) ;
 function pxui_label void pxui_label ( PxuiUi * ui , PxuiStr text ) ;
 function pxui_last_error PxuiStr pxui_last_error ( const PxuiUi * ui ) ;
-function pxui_paint_brackets void pxui_paint_brackets ( PxuiPaint * paint , float x , float y , float w , float h , float offset , float length , float width , PxuiColor color ) ;
 function pxui_paint_cap void pxui_paint_cap ( PxuiPaint * paint , float x , float y , uint8_t has_color , PxuiColor color , PxuiStr text ) ;
-function pxui_paint_cap_tracking float pxui_paint_cap_tracking ( PxuiPaint * paint ) ;
 function pxui_paint_cap_width float pxui_paint_cap_width ( PxuiPaint * paint , PxuiStr text ) ;
 function pxui_paint_caret_x float pxui_paint_caret_x ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text , size_t index ) ;
-function pxui_paint_chevron void pxui_paint_chevron ( PxuiPaint * paint , float x , float y , uint32_t direction , PxuiColor color ) ;
-function pxui_paint_circle void pxui_paint_circle ( PxuiPaint * paint , float x , float y , float radius , PxuiColor fill , uint8_t has_fill , PxuiColor stroke , uint8_t has_stroke ) ;
-function pxui_paint_clip PxuiRect pxui_paint_clip ( PxuiPaint * paint ) ;
-function pxui_paint_clip_radius float pxui_paint_clip_radius ( PxuiPaint * paint ) ;
-function pxui_paint_dashed void pxui_paint_dashed ( PxuiPaint * paint , float x0 , float y0 , float x1 , float y1 , PxuiColor color ) ;
-function pxui_paint_dashed_rect void pxui_paint_dashed_rect ( PxuiPaint * paint , float x , float y , float w , float h , PxuiColor color ) ;
-function pxui_paint_dashed_width void pxui_paint_dashed_width ( PxuiPaint * paint , float x0 , float y0 , float x1 , float y1 , float width , PxuiColor color ) ;
-function pxui_paint_density int64_t pxui_paint_density ( PxuiPaint * paint ) ;
-function pxui_paint_fill void pxui_paint_fill ( PxuiPaint * paint , float x , float y , float w , float h , PxuiColor color ) ;
-function pxui_paint_flag void pxui_paint_flag ( PxuiPaint * paint , float x , float y , uint8_t round , uint8_t on ) ;
-function pxui_paint_font_size int64_t pxui_paint_font_size ( PxuiPaint * paint ) ;
-function pxui_paint_frame void pxui_paint_frame ( PxuiPaint * paint , float x , float y , float w , float h , PxuiColor color ) ;
-function pxui_paint_frame_width void pxui_paint_frame_width ( PxuiPaint * paint , float x , float y , float w , float h , float width , PxuiColor color ) ;
-function pxui_paint_grid void pxui_paint_grid ( PxuiPaint * paint , float x , float y , float w , float h , float ox , float oy , float spacing , float dot , PxuiColor color ) ;
 function pxui_paint_icon float pxui_paint_icon ( PxuiPaint * paint , float x , float y , uint16_t font , float size , uint32_t codepoint , PxuiColor color ) ;
 function pxui_paint_image void pxui_paint_image ( PxuiPaint * paint , const PxuiImage * image , float x , float y , float width , float height , uint32_t fit , PxuiColor tint ) ;
+function pxui_paint_info int32_t pxui_paint_info ( PxuiPaint * paint , PxuiPaintInfo * out ) ;
 function pxui_paint_input_region void pxui_paint_input_region ( PxuiPaint * paint , float cursor , float x , float y , float w , float h ) ;
-function pxui_paint_label_size int64_t pxui_paint_label_size ( PxuiPaint * paint ) ;
-function pxui_paint_line void pxui_paint_line ( PxuiPaint * paint , float x0 , float y0 , float x1 , float y1 , PxuiColor color ) ;
-function pxui_paint_line_width void pxui_paint_line_width ( PxuiPaint * paint , float x0 , float y0 , float x1 , float y1 , float width , PxuiColor color ) ;
 function pxui_paint_ratio void pxui_paint_ratio ( PxuiPaint * paint , float x , float y , int64_t a , int64_t b ) ;
-function pxui_paint_rect void pxui_paint_rect ( PxuiPaint * paint , float x , float y , float w , float h , PxuiColor fill , uint8_t has_fill , PxuiColor stroke , uint8_t has_stroke ) ;
-function pxui_paint_row_height int64_t pxui_paint_row_height ( PxuiPaint * paint ) ;
-function pxui_paint_rtl uint8_t pxui_paint_rtl ( PxuiPaint * paint ) ;
 function pxui_paint_selection int32_t pxui_paint_selection ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text , size_t a , size_t b , PxuiSpanBuild build , void * user ) ;
-function pxui_paint_stroke void pxui_paint_stroke ( PxuiPaint * paint , float x , float y , float w , float h , PxuiColor color ) ;
-function pxui_paint_stroke_width void pxui_paint_stroke_width ( PxuiPaint * paint , float x , float y , float w , float h , float width , PxuiColor color ) ;
+function pxui_paint_span int32_t pxui_paint_span ( PxuiPaint * paint , size_t at_least , PxuiSpan * span ) ;
 function pxui_paint_text void pxui_paint_text ( PxuiPaint * paint , float x , float y , PxuiStr text ) ;
 function pxui_paint_text_color void pxui_paint_text_color ( PxuiPaint * paint , float x , float y , PxuiColor color , PxuiStr text ) ;
 function pxui_paint_text_metrics PxuiTextMetrics pxui_paint_text_metrics ( PxuiPaint * paint , const PxuiTextStyle * style , float width , PxuiStr text ) ;
 function pxui_paint_text_size void pxui_paint_text_size ( PxuiPaint * paint , float x , float y , int64_t size , PxuiColor color , PxuiStr text ) ;
 function pxui_paint_text_styled PxuiTextMetrics pxui_paint_text_styled ( PxuiPaint * paint , float x , float y , const PxuiTextStyle * style , float width , uint8_t has_color , PxuiColor color , PxuiStr text ) ;
-function pxui_paint_text_top float pxui_paint_text_top ( PxuiPaint * paint , uint8_t has_size , int64_t size , float y , float h ) ;
 function pxui_paint_text_width float pxui_paint_text_width ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text ) ;
 function pxui_paint_text_with void pxui_paint_text_with ( PxuiPaint * paint , float x , float y , uint8_t has_size , int64_t size , float tracking , uint8_t has_color , PxuiColor color , PxuiStr text ) ;
-function pxui_paint_theme PxuiThemeTokens pxui_paint_theme ( PxuiPaint * paint ) ;
 function pxui_panel void pxui_panel ( PxuiUi * ui , const PxuiPanel * panel , PxuiStr label , PxuiBuild build , void * user ) ;
+function pxui_renderer_atlas int32_t pxui_renderer_atlas ( PxuiRenderer * renderer , uint32_t kind , PxuiImage * out ) ;
 function pxui_renderer_create PxuiRenderer * pxui_renderer_create ( PxuiUi * ui , const PxuiGpu * gpu , const PxuiTargetDesc * target ) ;
 function pxui_renderer_destroy void pxui_renderer_destroy ( PxuiRenderer * renderer ) ;
 function pxui_renderer_draw int32_t pxui_renderer_draw ( PxuiRenderer * renderer , const PxuiPass * pass ) ;
@@ -250,6 +227,7 @@ layout PxuiMenuDesc 32 8 0 16
 layout PxuiMenuOut 16 8 0 8
 layout PxuiMotion 28 4 0 4 8 12
 layout PxuiNodeDesc 504 8 0 8 16 32 48 52 56 60 64 68 72 76 80 96 112 116 120 124 128 132 133 136 176 184 186 188 192 196 236 240 248 256 408 424 440 464 472
+layout PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56
 layout PxuiPanel 40 8 0 4 8 12 16 24 32 33
 layout PxuiPoint 8 4 0 4
 layout PxuiPopupDesc 48 8 0 4 5 6 7 8 12 16 20 24 28 32
@@ -271,7 +249,7 @@ layout Rgba 4 1 0 1 2 3
 layout Role 1 1
 layout Size 16 8
 layout Slice 16 8 0 8
-layout Span 40 8 0 8 16 24 26 28
+layout Span 32 8 0 4 6 8 16 24
 layout Str 16 8 0 8
 layout TextGlyph 40 4 0 16 32 36
 layout TextMetrics 16 4 0 4 8 12

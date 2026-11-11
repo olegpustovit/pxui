@@ -50,7 +50,7 @@ impl Gpu {
             mtl_device: native.mtl_device, wl_display: native.wl_display, wl_surface: native.wl_surface, metal_layer: native.metal_layer,
             hwnd: native.hwnd, owner_token: native.owner_token, release_owner: native.release_owner,
         };
-        Renderer::new(ui, gpu, TargetDesc { format: TARGET_RGBA8, samples: 1 }).ok_or_else(|| "pxui renderer creation failed".to_owned())
+        Renderer::new(ui, gpu, TargetDesc { format: TARGET_RGBA8, samples: 1 })
     }
 
     /// An RGBA8 image `w` x `h` as a public host image. `Gpu` keeps its native texture alive.

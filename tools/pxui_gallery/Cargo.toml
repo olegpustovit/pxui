@@ -17,11 +17,17 @@ name = "pxui_gallery"
 path = "src/main.rs"
 test = false
 
+# `static` (the default) links the engine in; `--no-default-features` links the built libpxui, so the same goldens
+# run against the cdylib.
+[features]
+default = ["static"]
+static = ["pxui/static"]
+
 [dependencies]
 input = { path = "../../crates/open/input" }
 mem_sys = { path = "../../crates/open/mem_sys" }
 ogpu_core = { path = "../../crates/open/ogpu_core" }
-pxui = { path = "../../crates/public/pxui", features = ["static"] }
+pxui = { path = "../../crates/public/pxui", default-features = false }
 pxui_types = { path = "../../crates/public/pxui_types" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

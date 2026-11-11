@@ -7,6 +7,8 @@ pub mod ffi;
 pub mod geom;
 pub mod layout;
 pub mod node;
+pub mod shape;
+pub use shape::Span;
 pub mod text;
 pub mod theme;
 pub mod ui;
@@ -255,17 +257,6 @@ impl Image {
     pub const FORMAT_RGBA16F: u32 = 4;
     pub const FORMAT_RGBA32F: u32 = 5;
     pub const FORMAT_DEPTH32F: u32 = 6;
-}
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct Span {
-    pub at: *mut draw::Instance,
-    pub end: *mut draw::Instance,
-    pub clip: [i16; 4],
-    pub view: u16,
-    pub clip_radius_f16: u16,
-    pub offset: [f32; 2],
 }
 
 #[repr(C)]
@@ -544,12 +535,12 @@ mod abi_layout {
             size_of::<Span>(),
             align_of::<Span>(),
             &[
-                offset_of!(Span, at),
-                offset_of!(Span, end),
-                offset_of!(Span, clip),
+                offset_of!(Span, size),
                 offset_of!(Span, view),
                 offset_of!(Span, clip_radius_f16),
-                offset_of!(Span, offset),
+                offset_of!(Span, clip),
+                offset_of!(Span, at),
+                offset_of!(Span, end),
             ],
         );
     }

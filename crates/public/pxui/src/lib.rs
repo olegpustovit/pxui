@@ -100,6 +100,7 @@ mod sys {
     use pxui_types::ffi::PxuiNodeDesc;
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
     #[repr(C)] pub struct PxuiTheme { _private:[u8;0] }
+    #[repr(C)] pub struct PxuiPaint { _private:[u8;0] }
     #[link(name = "pxui")]
     unsafe extern "C" {
         pub safe fn pxui_abi_version()->u32;
@@ -140,6 +141,7 @@ mod sys {
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
+        pub fn pxui_renderer_atlas(renderer:*mut PxuiRenderer,kind:u32,out:*mut pxui_types::Image)->i32;
         pub fn pxui_renderer_destroy(renderer:*mut PxuiRenderer);
     }
 }
@@ -150,10 +152,11 @@ pub struct TargetDesc { pub format:u32, pub samples:u8 }
 pub struct Renderer<'ui> { raw:NonNull<sys::PxuiRenderer>, ui:&'ui mut Ui }
 
 impl<'ui> Renderer<'ui> {
-    pub fn new(ui:&'ui mut Ui,gpu:pxui_types::Gpu,target:TargetDesc)->Option<Self> {
+    /// A renderer on the app's device; the error is the library's reason (the device, the target or the `Ui` was refused).
+    pub fn new(ui:&'ui mut Ui,gpu:pxui_types::Gpu,target:TargetDesc)->Result<Self,String> {
         let desc=sys::PxuiTargetDesc { format:target.format,samples:target.samples,..sys::PxuiTargetDesc::default() };
         let raw=unsafe { sys::pxui_renderer_create(ui.0.as_ptr(),&gpu,&desc) };
-        NonNull::new(raw).map(|raw| Self { raw, ui })
+        match NonNull::new(raw) { Some(raw)=>Ok(Self { raw, ui }), None=>Err(ui.last_error().to_owned()) }
     }
     #[inline]
     pub fn ui(&mut self)->&mut Ui { self.ui }
@@ -166,6 +169,19 @@ impl<'ui> Renderer<'ui> {
         let rc=unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(),pass) };
         composite::resume_deferred();
         if rc==0 { Ok(()) } else { Err(rc) }
+    }
+}
+
+/// A glyph atlas of the renderer, for an app pass that draws text quads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AtlasKind { Mask, Color }
+
+impl Renderer<'_> {
+    /// The native handle of an atlas texture: one byte per texel for `Mask`, RGBA8 for `Color`. It stays the renderer's.
+    pub fn atlas(&self, kind: AtlasKind) -> Result<pxui_types::Image, i32> {
+        let mut out = pxui_types::Image::default();
+        let rc = unsafe { sys::pxui_renderer_atlas(self.raw.as_ptr(), matches!(kind, AtlasKind::Color) as u32, &mut out) };
+        if rc == 0 { Ok(out) } else { Err(rc) }
     }
 }
 

@@ -117,7 +117,7 @@ fn gpu_gallery_pages() {
     println!("PXUI gallery: {} pages x 2 themes x 2 densities match their goldens", shots.len());
 }
 
-fn gpu_gallery_kit_is_kit_panel() {
+fn abi_kit_panel() {
     let mut gpu = Gpu::open().expect("a GPU backend");
     let theme = theme("");
     for density in [1, 2] {
@@ -149,7 +149,7 @@ fn gpu_gallery_idle() {
 
 fn main() {
     run::run(&[
-        ("gpu_gallery_kit_is_kit_panel", gpu_gallery_kit_is_kit_panel),
+        ("abi_kit_panel", abi_kit_panel),
         ("gpu_gallery_pages", gpu_gallery_pages),
         ("gpu_gallery_idle", gpu_gallery_idle),
         ("abi_baseline_pages", abi_baseline_pages),

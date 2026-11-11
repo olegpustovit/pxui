@@ -256,6 +256,37 @@ fn run() -> i32 {
     status
 }
 
+/// A dynamic `pxui` links the built `libpxui` by its soname. Nothing depends on the cdylib in that mode, so cargo does not
+/// build it for the tests: build and uplift it here, with the `libpxui.1.dylib` / `libpxui.so.1` link the executables load.
+/// Only runs for the packages that link it; static builds do not need it and are not slowed down.
+fn ensure_libpxui(args: &Args) -> Result<(), i32> {
+    let linked = args.cargo.windows(2).any(|pair| (pair[0] == "-p" || pair[0] == "--package") && (pair[1] == "pxui" || pair[1] == "pxui_gallery"));
+    if !linked || cfg!(windows) { return Ok(()); }
+    let mut build = Command::new("cargo");
+    build.args(["build", "-q", "-p", "pxui_abi"]);
+    let mut profile = "debug".to_owned();
+    let mut flags = args.cargo.iter();
+    while let Some(flag) = flags.next() {
+        if flag == "--release" { build.arg("--release"); profile = "release".into(); }
+        else if flag == "--profile" {
+            if let Some(name) = flags.next() { build.arg("--profile").arg(name); profile = if name == "dev" { "debug".into() } else { name.to_string_lossy().into_owned() }; }
+        }
+    }
+    match build.status() {
+        Ok(status) if status.success() => {}
+        Ok(status) => return Err(status_code(status)),
+        Err(error) => { eprintln!("rays-t: failed to build libpxui: {error}"); return Err(1); }
+    }
+    let (library, soname) = if cfg!(target_os = "macos") { ("libpxui.dylib", "libpxui.1.dylib") } else { ("libpxui.so", "libpxui.so.1") };
+    let dir = args.target_dir.clone().unwrap_or_else(default_target_dir).join(profile);
+    let link = dir.join(soname);
+    #[cfg(unix)]
+    if fs::symlink_metadata(&link).is_err() {
+        if let Err(error) = std::os::unix::fs::symlink(library, &link) { eprintln!("rays-t: cannot link {}: {error}", link.display()); return Err(1); }
+    }
+    Ok(())
+}
+
 fn run_timeout(case: Duration) -> Duration {
     if case == SLOW_TEST_TIMEOUT { SLOW_RUN_TIMEOUT } else { WHOLE_RUN_DEFAULT }
 }
@@ -326,6 +357,7 @@ fn run_tests(
     timeout: Option<Duration>,
     timings: &mut Vec<TestTiming>,
 ) -> i32 {
+    if let Err(code) = ensure_libpxui(args) { return code; }
     // The build has its own bounded budget; the whole-run limit (60 s) covers listing and tests only,
     // so a cold compile of a large crate cannot eat the test budget. Slow builds are G2 (buildtime).
     let build_started = Instant::now();

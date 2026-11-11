@@ -50,6 +50,8 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         // The public wrapper names only the public types; the optional static link is a package-level edge below.
         ("pxui", &["pxui_types"][..]),
         // The kit gallery app: the engine, the painter and the platform's window host and GPU backend.
+        // The cross-ABI checks: a tool, so it names the private crates the public ones must not.
+        ("abi_equal", &["input", "pxui", "pxui_core", "pxui_types"][..]),
         ("pxui_gallery", &["pxui", "input", "mem_sys", "ogpu_core", "pxui_types", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
     ])
 }
@@ -147,6 +149,8 @@ pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/private/pxui_abi/src/kit_ext.rs", "validates widget descriptors, borrowed strings, callback contexts and caller-owned outputs at the C ABI boundary"),
     ("crates/public/pxui/src/kit_ext.rs", "calls the private C ABI, passes stack callback contexts and reads borrowed library strings"),
     ("crates/public/pxui/src/theme_scope.rs", "calls the private C ABI and owns the opaque theme handle"),
+    ("crates/private/pxui_abi/src/renderer.rs", "adopts the app's native GPU handles, validates caller-owned descriptors and records into the app's command buffer at the C ABI boundary"),
+    ("crates/public/pxui_types/src/shape.rs", "stores instances into the library's span of layer storage"),
     ("crates/public/pxui/src/ui_state.rs", "calls the private C ABI through safe wrapper methods"),
     ("crates/public/pxui/src/box_ops.rs", "calls the private C ABI, boxes the hit closure behind its callback and reads borrowed library strings"),
     ("crates/open/ogpu_core/src/backend.rs", "validates and adopts raw native GPU handles at the explicit backend bridge"),

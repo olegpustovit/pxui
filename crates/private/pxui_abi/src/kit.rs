@@ -1,11 +1,10 @@
-use crate::state::{boxed, Build, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, call_build, checked, fail, finite, get, text, to_abi_box};
+use crate::state::{boxed, Build, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, call_build, checked, fail, finite, get, to_abi_box};
 use crate::style::decode_look;
 use crate::ui::translate_event;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::ffi::c_void;
 use pxui_core::ui::{Axis, Ui, Target, MAX_KEYS};
 use pxui_types::ffi::{PxuiCurveDesc, PxuiLookDesc, Slice};
-use std::{cell::Cell, rc::Rc};
 
 const MAX_ITEMS: usize = 1_000_000;
 const MAX_MENUS: usize = 256;
@@ -132,12 +131,13 @@ export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox
     let (engine, target_box) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { fail(ui, "invalid animation keyframe span") }; }
     let raw = unsafe { core::slice::from_raw_parts(keys.ptr, keys.len) };
-    let mut decoded = Vec::with_capacity(raw.len());
+    // at most MAX_KEYS keyframes: decoded on the stack
+    let mut decoded = [(0.0, Target::Opacity(1.0), pxui_types::Curve::Spring { omega: 1.0 }); MAX_KEYS];
     let mut previous = -1.0f32;
-    for key in raw {
-        match unsafe { decode_key(ui, key, previous) } { Ok(key) => { previous = key.0; decoded.push(key); } Err(code) => return code }
+    for (slot, key) in decoded.iter_mut().zip(raw) {
+        match unsafe { decode_key(ui, key, previous) } { Ok(key) => { previous = key.0; *slot = key; } Err(code) => return code }
     }
-    unsafe { *out = engine.animate_keys(&target_box, &decoded) as u8; }
+    unsafe { *out = engine.animate_keys(&target_box, &decoded[..raw.len()]) as u8; }
     0
 });
 
@@ -278,28 +278,21 @@ export!(pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTableDesc,
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid table strings") };
     };
-    // ponytail: the engine's table takes owned headers and an `Rc` cell closure, so each call allocates them; a
-    // borrowed-header, `&dyn Fn` signature in the engine would remove it.
-    let headers: Vec<String> = list.iter().map(|s| (*s).to_owned()).collect();
-    state.shared().put_strs(list);
     let callback = desc.cell;
     let user = desc.user;
-    let bad_text = Rc::new(Cell::new(false));
-    let text_bytes = Rc::new(Cell::new(0usize));
-    let bad_out = Rc::clone(&bad_text);
-    let bytes_out = Rc::clone(&text_bytes);
-    let cell: Rc<dyn Fn(i64, i64) -> String> = Rc::new(move |row, col| {
-        let Some(callback) = callback else { return String::new(); };
+    let (mut bad_text, mut text_bytes) = (false, 0usize);
+    let mut cell = |row: i64, col: i64, emit: &mut dyn FnMut(&str)| {
+        let Some(callback) = callback else { return emit(""); };
         let value = callback(user, row, col);
-        if value.len > MAX_TEXT_BYTES { bad_out.set(true); return String::new(); }
-        let total = bytes_out.get().saturating_add(value.len);
-        if total > MAX_TOTAL_TEXT_BYTES { bad_out.set(true); return String::new(); }
-        let Some(value) = (unsafe { text(value) }) else { bad_out.set(true); return String::new(); };
-        bytes_out.set(total);
-        value.to_owned()
-    });
-    let (clicked, _) = unsafe { (&mut *state.engine).table((desc.at[0], desc.at[1]), desc.width, desc.height, &headers, desc.rows, cell, label) };
-    if bad_text.get() { return unsafe { fail(ui, "invalid table cell callback text") }; }
+        text_bytes = text_bytes.saturating_add(value.len);
+        match unsafe { checked(value) } {
+            Some(value) if text_bytes <= MAX_TOTAL_TEXT_BYTES => emit(value),
+            _ => { bad_text = true; emit("") }
+        }
+    };
+    let (clicked, _) = unsafe { (&mut *state.engine).table_with((desc.at[0], desc.at[1]), desc.width, desc.height, &list, desc.rows, &mut cell, label) };
+    state.shared().put_strs(list);
+    if bad_text { return unsafe { fail(ui, "invalid table cell callback text") }; }
     unsafe { *clicked_row = clicked.unwrap_or(-1); }
     0
 });

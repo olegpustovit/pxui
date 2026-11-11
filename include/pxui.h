@@ -151,6 +151,11 @@ typedef struct { PxuiStr caption,keycap; uint8_t active,usable,reserved[6]; } Px
 typedef struct { const PxuiHeadActionDesc *ptr; size_t len; } PxuiHeadActionSpan;
 typedef struct { uint32_t size; uint8_t has_kind,has_badge,has_index,has_reset,reset_enabled,reserved[3]; PxuiStr key,kind,badge,index,reset,title,detail; PxuiHeadActionSpan actions; } PxuiHeaderDesc;
 typedef struct { PxuiStr renamed; int64_t chosen; uint8_t has_chosen,reset_pressed,reserved[6]; } PxuiHeadOut;
+typedef struct { float rect[4]; int16_t clip[4]; uint8_t color[4], color2[4]; uint32_t aux[2]; uint16_t radii[4]; uint16_t width; uint8_t kind, flags; uint16_t view, clip_radius; uint32_t extra[2]; } PxuiInstance; /* 64 bytes, frozen for major version 1 */
+/* A window into a layer's instance storage: the caller stores 64-byte instances at at (stamping clip, clip_radius_f16 and view) and
+   advances it; pxui_paint_span commits what was written (at is where it stopped) and hands out the next window. */
+typedef struct { uint32_t size; uint16_t view,clip_radius_f16; int16_t clip[4]; PxuiInstance *at,*end; } PxuiSpan;
+typedef struct { uint32_t size; uint8_t rtl,reserved[3]; int64_t font_size,row_height,density; PxuiRect clip; float clip_radius; PxuiThemeTokens theme; } PxuiPaintInfo;
 typedef PxuiRect (*PxuiHit)(void *user, PxuiRect rect);
 typedef void (*PxuiRelease)(void *user);
 /* A box declaration: axis is 0 row, 1 column, 2 stack. The hit callback and its release belong to the box's slot once the call is made. */
@@ -279,26 +284,8 @@ int32_t pxui_text_width(PxuiText *text, uint64_t key, PxuiStr value, const PxuiT
 size_t pxui_text_quads(PxuiText *text, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float x, float y, float scale, PxuiTextGlyph *out, size_t capacity);
 int32_t pxui_text_end_frame(PxuiText *text);
 size_t pxui_text_rasterize_rgba(PxuiText *text, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
-int64_t pxui_paint_font_size(PxuiPaint *paint);
-int64_t pxui_paint_row_height(PxuiPaint *paint);
-int64_t pxui_paint_density(PxuiPaint *paint);
-PxuiRect pxui_paint_clip(PxuiPaint *paint);
-float pxui_paint_clip_radius(PxuiPaint *paint);
-float pxui_paint_text_top(PxuiPaint *paint, uint8_t has_size, int64_t size, float y, float h);
-int64_t pxui_paint_label_size(PxuiPaint *paint);
-float pxui_paint_cap_tracking(PxuiPaint *paint);
-uint8_t pxui_paint_rtl(PxuiPaint *paint);
-PxuiThemeTokens pxui_paint_theme(PxuiPaint *paint);
-void pxui_paint_fill(PxuiPaint *paint, float x, float y, float w, float h, PxuiColor color);
-void pxui_paint_stroke_width(PxuiPaint *paint, float x, float y, float w, float h, float width, PxuiColor color);
-void pxui_paint_stroke(PxuiPaint *paint, float x, float y, float w, float h, PxuiColor color);
-void pxui_paint_frame_width(PxuiPaint *paint, float x, float y, float w, float h, float width, PxuiColor color);
-void pxui_paint_frame(PxuiPaint *paint, float x, float y, float w, float h, PxuiColor color);
-void pxui_paint_rect(PxuiPaint *paint, float x, float y, float w, float h, PxuiColor fill, uint8_t has_fill, PxuiColor stroke, uint8_t has_stroke);
-void pxui_paint_line_width(PxuiPaint *paint, float x0, float y0, float x1, float y1, float width, PxuiColor color);
-void pxui_paint_line(PxuiPaint *paint, float x0, float y0, float x1, float y1, PxuiColor color);
-void pxui_paint_circle(PxuiPaint *paint, float x, float y, float radius, PxuiColor fill, uint8_t has_fill, PxuiColor stroke, uint8_t has_stroke);
-void pxui_paint_grid(PxuiPaint *paint, float x, float y, float w, float h, float ox, float oy, float spacing, float dot, PxuiColor color);
+int32_t pxui_paint_info(PxuiPaint *paint, PxuiPaintInfo *out);
+int32_t pxui_paint_span(PxuiPaint *paint, size_t at_least, PxuiSpan *span); /* at_least 0 only commits; call it before any other pxui_paint_* call */
 float pxui_paint_icon(PxuiPaint *paint, float x, float y, uint16_t font, float size, uint32_t codepoint, PxuiColor color);
 void pxui_paint_text(PxuiPaint *paint, float x, float y, PxuiStr text);
 void pxui_paint_text_color(PxuiPaint *paint, float x, float y, PxuiColor color, PxuiStr text);
@@ -311,12 +298,6 @@ float pxui_paint_caret_x(PxuiPaint *paint, uint8_t has_size, int64_t size, PxuiS
 int32_t pxui_paint_selection(PxuiPaint *paint, uint8_t has_size, int64_t size, PxuiStr text, size_t a, size_t b, PxuiSpanBuild build, void *user);
 void pxui_paint_cap(PxuiPaint *paint, float x, float y, uint8_t has_color, PxuiColor color, PxuiStr text);
 float pxui_paint_cap_width(PxuiPaint *paint, PxuiStr text);
-void pxui_paint_chevron(PxuiPaint *paint, float x, float y, uint32_t direction, PxuiColor color);
-void pxui_paint_brackets(PxuiPaint *paint, float x, float y, float w, float h, float offset, float length, float width, PxuiColor color);
-void pxui_paint_dashed_width(PxuiPaint *paint, float x0, float y0, float x1, float y1, float width, PxuiColor color);
-void pxui_paint_dashed(PxuiPaint *paint, float x0, float y0, float x1, float y1, PxuiColor color);
-void pxui_paint_dashed_rect(PxuiPaint *paint, float x, float y, float w, float h, PxuiColor color);
-void pxui_paint_flag(PxuiPaint *paint, float x, float y, uint8_t round, uint8_t on);
 void pxui_paint_ratio(PxuiPaint *paint, float x, float y, int64_t a, int64_t b);
 void pxui_paint_input_region(PxuiPaint *paint, float cursor, float x, float y, float w, float h);
 void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
@@ -331,6 +312,7 @@ void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y
 PxuiRenderer *pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target);
 int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *commands, uint64_t frame, uint64_t completed);
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
+int32_t pxui_renderer_atlas(PxuiRenderer *renderer, uint32_t kind, PxuiImage *out); /* kind 0: mask atlas (one byte per texel), 1: colour atlas (RGBA8); the texture stays the renderer's */
 void pxui_renderer_destroy(PxuiRenderer *renderer);
 
 /* Queries and switches on the Ui as a whole. Text results are borrowed until the next frame. */
