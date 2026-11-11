@@ -82,3 +82,36 @@ What changed, with its effect:
 The residual, measured as retired instructions and cycles (`proc_pid_rusage`, the same frames run alone, not interleaved): per call over the direct engine, a node costs 156 instructions (85 of them the C-input check), a button 110, a label 61, `text` 83, `within` 90 (the callback trampoline: a TLS check and `catch_unwind` each way), `theme`/`tokens` 24; a frame costs 800 (the input record, the output record, two trampolines). Layout makes 400 calls, so about 55,000 instructions (+5.6%) and +3.3% cycles; Overlays' 14 nodes cannot amortize the frame's fixed part: 5 µs per 1,000 nodes is 70 ns for its whole frame, less than the frame entry alone. Removing the rest means not checking what C hands over (a trusted static entry that skips the tag, flag and UTF-8 checks, which the static build could take since its caller is Rust) and building the output record only when it is read; neither was done here.
 
 The atlas CPU mirror lever was not built: the mirror's pages are untouched until glyphs land in them, so a one-label app does not pay for it, and it is the same in both builds.
+
+## Deferred performance work
+
+Measured 2026-11-11 on the same Apple M1, release profile, machine shared (load 7 to 14, a qemu VM near 240% of a core): the median of ten reports per mode (five runs, two reports each). The static path now calls trusted entries and the dynamic path trims what it can; the plan's limits are still not met everywhere, so each gate in `tools/pxui_gallery/tests/abi_bench.rs` is the measured median plus 25%, and the plan's value stays beside it as a named constant (`PLAN_*`, `GATE_*`) with a `ponytail:` comment naming the deferred work.
+
+| Page | Nodes | Static vs direct | Dynamic vs direct | Dynamic µs per 1,000 nodes | Dynamic µs added to a frame |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Kit | 87 | +1.8% | +3.3% | 10.5 | 0.88 |
+| Controls | 83 | +0.7% | +3.5% | 8.0 | 0.62 |
+| Collections | 263 | +0.8% | +1.5% | 5.9 | 1.57 |
+| Overlays | 14 | +3.1% | +4.6% | 13.4 | 0.19 |
+| Layout | 319 | +0.5% | +3.3% | 7.0 | 2.25 |
+
+Before this round (the table above, A7): static +1.0% to +5.3%, dynamic +1.3% to +5.5%.
+
+| Metric | Plan target | Gate now | Measured |
+| --- | --- | --- | --- |
+| Frame build, static vs direct | under 1% | under 6% (`GATE_STATIC_RATIO`: the worst run, +4.6% on Kit under load 14, plus 25%) | +0.5% to +3.1% |
+| Frame build, dynamic vs direct | under 3% | under 6% (`GATE_DYNAMIC_RATIO`) | +1.5% to +4.6% |
+| Dynamic µs per 1,000 nodes | under 5 | under 8.7 on pages of 100 nodes or more (`GATE_DYNAMIC_US_PER_1000_NODES`); smaller pages: at most 1.5 µs added to a frame (`GATE_DYNAMIC_SMALL_PAGE_US`: the worst run, 1.17 µs on Kit under load 14, plus 25%; the median was 0.88) | 5.9 and 7.0 (Collections, Layout); 0.19 to 0.88 µs (the small pages) |
+| Dynamic resident memory vs static | not above static | private (dirty) footprint at most 512 KiB above static (`GATE_PRIVATE_TOLERANCE_KIB`) and clean shared code pages at most 1,750 KiB above (`GATE_CLEAN_DELTA_KIB`: +848 KiB in two runs, +1,392 KiB in one under load 22, plus 25%) | private +272 KiB, clean shared pages +848 to +1,392 KiB over static (the static label app: 101,984 KiB resident, 40,529 KiB private) |
+
+What changed in this round:
+
+- `pxui_abi::trusted`: the hot exports' bodies without what only an untrusted caller needs (poison, null, UTF-8 and tag checks, `catch_unwind`). The `pxui_*` export validates what C hands over and calls the same entry (`export!(trusted ..)`), so the two paths run one body; the static wrapper calls the entries directly with Rust types (a `&str`, a `&Node`, a closure for the children of a container). A text over 256 MiB, a number that is not finite, a stale box and an oversized list stay checked in the entry. Covered: node, text, label, button, toggle, text field, theme, within, scope, col, view, scroll view, panel, modal, anchored, split, grid list, the frames, the form widgets, the inspector rows, the footer, tip, rect, box of key, the collections and the table.
+- A panic in an app callback now unwinds through the static library (no trampoline, no per-call catch); a frame abandons its engine state on the way (`Ui::abandon_frame`) and the panic reaches the app's `frame` call unchanged.
+- The wrapper's `check` panics out of line: it had made `Ui::node` too large to inline, so every node copied its 496 bytes once more (Layout +4.9% became +0.5%).
+- The frame's output record is built when it is read, not at the end of every frame.
+- The wrapper's deferred-panic check is one relaxed load while no thread holds a panic.
+
+Residual, as instructions over the direct engine (`proc_pid_rusage`, the same frames run alone): static, a frame costs about 400 (the input record built from the C descriptor, the frame's two moves of the engine's input) and a trusted call 4 to 11; the pages that still carry more call widgets that validate and decode a descriptor (the value field, the text area, the menu bar, the picker, the context menu, the popups). Dynamic, a node costs 160 (85 of them the 22 tag and flag bytes, read one by one: they sit 6 to 40 bytes apart in the 496-byte record, so wide compares do not group them), a label 67, a button 113, `text` 90, `within` 91 (a wrapper trampoline, its catch and the library's entry), `theme` and `tokens` 25, and a frame 700.
+
+Open items: `rays_editor::window_graph_costs` fails here too (the edit step allocates 754 against its budget of 700; the budget is unchanged and the cause is not yet found). The Rays gate (`cargo run -p gate -- all`) reports `duplicate crate name pxui` for `pxui_dylib` and the wrapper, which both name their library `pxui`; this predates this round.
