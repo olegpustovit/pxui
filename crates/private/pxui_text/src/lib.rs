@@ -211,8 +211,15 @@ struct Slot {
 
 impl Atlas {
     fn new((w, h): (u32, u32), bpp: u32) -> Atlas {
-        // a shelf is at least 2 texels tall: room for every shelf there can be, so no frame allocates
-        Atlas { w, h, bpp, px: vec![0; (w * h * bpp) as usize], shelves: Vec::with_capacity(h as usize / 2 + 1), next_y: 0 }
+        // the texels are allocated by `pixels`, when the first glyph lands or the mirror is read: a shaper that only lays text out holds
+        // none. A shelf is at least 2 texels tall: room for every shelf there can be, so no frame allocates
+        Atlas { w, h, bpp, px: Vec::new(), shelves: Vec::with_capacity(h as usize / 2 + 1), next_y: 0 }
+    }
+
+    /// The texels, `w * h * bpp` of them, allocated (zeroed) on first use.
+    fn pixels(&mut self) -> &mut [u8] {
+        if self.px.is_empty() { self.px = vec![0; (self.w * self.h * self.bpp) as usize]; }
+        &mut self.px
     }
 
     /// Room for a `w`x`h` glyph (one pixel of padding on the right and bottom), shelf-LRU. A shelf
@@ -394,7 +401,7 @@ impl Glyphs {
             for row in 0..h {
                 let src = (row * w * bpp) as usize;
                 let dst = (((y + row) * a.w + x) * bpp) as usize;
-                a.px[dst..dst + (w * bpp) as usize].copy_from_slice(&img.data[src..src + (w * bpp) as usize]);
+                a.pixels()[dst..dst + (w * bpp) as usize].copy_from_slice(&img.data[src..src + (w * bpp) as usize]);
             }
             if evicted {
                 self.evictions += 1;
@@ -768,8 +775,8 @@ impl Text {
     }
 
     /// The CPU mirror of an atlas, `atlas_size` texels, rows tightly packed (for CPU compositing).
-    pub fn atlas_pixels(&self, kind: AtlasKind) -> &[u8] {
-        &self.g.atlases[idx(kind)].px
+    pub fn atlas_pixels(&mut self, kind: AtlasKind) -> &[u8] {
+        self.g.atlases[idx(kind)].pixels()
     }
 
     pub fn atlas_size(&self, kind: AtlasKind) -> (u32, u32) {

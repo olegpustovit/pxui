@@ -52,7 +52,9 @@ pub fn create_indirect_command_buffer(device: &Handle, profile: &ogpu_core::vali
             support_color_attachment_mapping: u8::from(d.support_color_attachment_mapping),
         };
         let max_command_count = profile.capacity() as u64;
-        let options = (2 << 4) | (2 << 8);
+        // shared storage, hazard tracked: commands are encoded from the CPU (`indirectRenderCommandAtIndex:`), which Metal refuses on a
+        // private-storage buffer (the debug layer asserts)
+        let options = 2 << 8;
         use std::ffi::c_char;
         let mut output = std::ptr::null_mut();
         let mut message: *const c_char = std::ptr::null();

@@ -132,6 +132,26 @@ fn abi_kit_panel() {
     gpu.close();
 }
 
+/// A `Ui` and its renderer drop in either order without leaving the `Ui` allocated (the library refuses to destroy a `Ui` under a live
+/// renderer; the wrapper destroys it when the renderer goes).
+fn ui_and_renderer_drop_in_any_order() {
+    let gpu = Gpu::open().expect("a GPU backend");
+    let round = |gpu: &Gpu, ui_first: bool| {
+        let ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+        let renderer = gpu.renderer(&ui).expect("PXUI renderer");
+        if ui_first { drop(ui); drop(renderer); } else { drop(renderer); drop(ui); }
+    };
+    round(&gpu, true);
+    round(&gpu, false);
+    let base = mem_sys::allocated_bytes();
+    for round_at in 0..6 { round(&gpu, round_at % 2 == 0); }
+    let grown = mem_sys::allocated_bytes().saturating_sub(base);
+    println!("PXUI six Ui/renderer pairs dropped in both orders: {grown} bytes left allocated");
+    // a leaked `Ui` holds its font system and atlases: megabytes each
+    assert!(grown < 1 << 20, "a Ui leaked: {grown} bytes grew over six rounds");
+    gpu.close();
+}
+
 /// A settled frame drawn again through the renderer allocates nothing: its layers' breaks live on the stack, its views and dirty
 /// ranges are the retained ones.
 fn renderer_draw_settled() {
@@ -180,5 +200,6 @@ fn main() {
         ("gpu_gallery_idle", gpu_gallery_idle),
         ("abi_baseline_pages", abi_baseline_pages),
         ("renderer_draw_settled", renderer_draw_settled),
+        ("ui_and_renderer_drop_in_any_order", ui_and_renderer_drop_in_any_order),
     ]);
 }

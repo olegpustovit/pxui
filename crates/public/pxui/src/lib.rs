@@ -168,8 +168,8 @@ mod sys {
 #[derive(Clone, Copy, Default)]
 pub struct TargetDesc { pub format:u32, pub samples:u8 }
 
-/// A renderer on the app's device, bound to the `Ui` it was made from. The library refuses to destroy a `Ui` while a renderer of
-/// it lives (the `Ui` then stays allocated until the renderer drops), so drop the renderer first.
+/// A renderer on the app's device, bound to the `Ui` it was made from. Either may drop first: a `Ui` dropped while its renderer lives
+/// is destroyed when the renderer drops.
 pub struct Renderer { raw:NonNull<sys::PxuiRenderer> }
 
 impl Renderer {
@@ -250,7 +250,20 @@ impl Renderer {
     }
 }
 
-impl Drop for Renderer { fn drop(&mut self) { unsafe { sys::pxui_renderer_destroy(self.raw.as_ptr()) } } }
+impl Drop for Renderer {
+    fn drop(&mut self) {
+        unsafe { sys::pxui_renderer_destroy(self.raw.as_ptr()) }
+        sweep_orphans();
+    }
+}
+
+// The library refuses to destroy a `Ui` while a renderer of it lives (the renderer reads its engine). A `Ui` dropped first waits here
+// and goes when the last renderer does, so no drop order leaks one.
+thread_local! { static ORPHANS: std::cell::RefCell<Vec<NonNull<sys::PxuiUi>>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+fn sweep_orphans() {
+    let _ = ORPHANS.try_with(|orphans| orphans.borrow_mut().retain(|ui| unsafe { sys::pxui_ui_destroy(ui.as_ptr()) } != 0));
+}
 
 /// The input of a frame as routed to one owner: its scalars and the wire form of its keys, buttons and events (the numbering of
 /// `input::wire`), borrowed from the `Ui`.
@@ -466,7 +479,12 @@ impl Ui {
     }
 }
 
-impl Drop for Ui { fn drop(&mut self) { let _ = unsafe { sys::pxui_ui_destroy(self.0.as_ptr()) }; } }
+impl Drop for Ui {
+    fn drop(&mut self) {
+        // refused while a renderer of this `Ui` lives: it goes when the renderer drops (see `ORPHANS`)
+        if unsafe { sys::pxui_ui_destroy(self.0.as_ptr()) } != 0 { let _ = ORPHANS.try_with(|orphans| orphans.borrow_mut().push(self.0)); }
+    }
+}
 
 /// A `&[&str]` as a span of `Str` for one call: up to 32 strings live on the stack, more on the heap.
 pub(crate) struct Strs { stack:[Str;32], heap:Vec<Str>, len:usize }

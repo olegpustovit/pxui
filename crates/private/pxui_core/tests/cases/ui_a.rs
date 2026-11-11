@@ -86,9 +86,10 @@ fn scale_3(scale: f64) {
     };
     let mut ui = field_ui();
     ui.frame(&frame_at(vec![], scale, 0.0, vec![]), &mut build);
-    // the text engine's two atlas mirrors: R8 masks and RGBA8 colour glyphs
-    if ui.bytes().atlas != 1024 * 2048 + 1024 * 1024 * 4 {
-        fail(&lab("the glyph mirrors are not an R8 mask and an RGBA colour atlas"));
+    // the text engine's atlas mirrors are allocated by the first glyph that lands in each: this frame draws mask glyphs only, so the
+    // R8 mask atlas is held and the RGBA8 colour one (1024 x 1024 x 4) waits for a colour glyph
+    if ui.bytes().atlas != 1024 * 2048 {
+        fail(&lab("the glyph mirror is not an R8 mask atlas with the colour atlas still unallocated"));
     }
     // two panes texts, frame after frame: each is coloured once
     let coloured = Rc::new(Cell::new(0));

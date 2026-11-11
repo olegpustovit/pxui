@@ -220,7 +220,7 @@ fn monospace_advances_tracking_and_ascent() {
 }
 
 /// The texels a glyph samples, read from the CPU mirror (what the GPU texture holds once drained).
-fn texels(t: &Text, g: &Glyph) -> Vec<u8> {
+fn texels(t: &mut Text, g: &Glyph) -> Vec<u8> {
     let (aw, ah) = t.atlas_size(g.atlas);
     let bpp = if g.atlas == AtlasKind::Mask { 1 } else { 4 };
     let (x, y) = ((g.uv.x * aw as f32).round() as usize, (g.uv.y * ah as f32).round() as usize);
@@ -247,7 +247,7 @@ fn atlas_eviction_never_rewrites_texels_in_use() {
             retirements = t.retirements();
             t.set_marks([0; 4]);
             kept = emitted(&mut t, 1).into_iter().map(|g| (g, Vec::new())).collect();
-            kept.iter_mut().for_each(|(g, px)| *px = texels(&t, g));
+            kept.iter_mut().for_each(|(g, px)| *px = texels(&mut t, g));
             let marks = t.marks();
             t.pin(marks);
         }
@@ -255,11 +255,11 @@ fn atlas_eviction_never_rewrites_texels_in_use() {
         // twelve glyphs no recent frame drew, at one of three sizes
         let churn: String = (0..12u32).map(|i| char::from(33 + ((frame * 12 + i) % 94) as u8)).collect();
         t.layout(key, &churn, &style(10.0 + (frame % 3) as f32 * 7.0), 0.0);
-        let now: Vec<(Glyph, Vec<u8>)> = emitted(&mut t, key).into_iter().map(|g| { let px = texels(&t, &g); (g, px) }).collect();
+        let now: Vec<(Glyph, Vec<u8>)> = emitted(&mut t, key).into_iter().map(|g| { let px = texels(&mut t, &g); (g, px) }).collect();
         emitted_n += now.len();
         t.drain_uploads(&mut |_, _, _, _, _, _, _| {});
         for (g, px) in in_flight.iter().flatten().chain(kept.iter()) {
-            assert_eq!(&texels(&t, g), px, "frame {frame}: a glyph still sampled was rewritten");
+            assert_eq!(&texels(&mut t, g), px, "frame {frame}: a glyph still sampled was rewritten");
         }
         in_flight.push(now);
         // pxui_render keeps 3 frames (its FRAMES): the last two may still be drawing
@@ -283,4 +283,20 @@ fn locale_reaches_the_font_system() {
     assert_eq!(Text::new(&[&pragma()]).locale(), "en-US");
     let tag = pxui_text::env_locale();
     assert!(!tag.contains(['_', '.']) && !tag.is_empty(), "{tag}");
+}
+
+/// A shaper that only lays text out holds no atlas: the raster mirrors (megabytes) are allocated by the first glyph that lands in one.
+#[test]
+fn laying_text_out_allocates_no_atlas_until_a_glyph_is_drawn() {
+    let mut t = Text::new(&[&pragma()]);
+    let st = Style::default();
+    let metrics = t.measure(1, "layout only", &st, 0.0);
+    assert!(metrics.w > 0.0);
+    let (mask, color) = (t.atlas_size(AtlasKind::Mask), t.atlas_size(AtlasKind::Color));
+    let atlases = (mask.0 * mask.1 + color.0 * color.1 * 4) as usize;
+    assert!(atlases > 1 << 20, "the atlases are large: {atlases}");
+    assert!(t.bytes() < atlases / 4, "layout allocated an atlas: {} bytes", t.bytes());
+    t.layout(2, "drawn", &st, 0.0);
+    assert!(!emitted(&mut t, 2).is_empty());
+    assert!(t.bytes() > atlases / 4, "a drawn glyph allocated the mirror: {} bytes", t.bytes());
 }
