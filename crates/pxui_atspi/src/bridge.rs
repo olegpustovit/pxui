@@ -218,10 +218,14 @@ impl Bridge {
                 match n.value {
                     Value::Number { now, .. } => self.signal(path, EVENT_OBJECT, "PropertyChange", "accessible-value", 0, 0, Any::Num(now), ""),
                     _ if is_text(n) => {
-                        // ponytail: the whole text is replaced; a common prefix/suffix diff if readers need finer events.
-                        let (before, after) = (old.value_text(o), new.value_text(n));
-                        self.signal(path, EVENT_OBJECT, "TextChanged", "delete", 0, before.chars().count() as i32, Any::Str, before);
-                        self.signal(path, EVENT_OBJECT, "TextChanged", "insert", 0, after.chars().count() as i32, Any::Str, after);
+                        // only what changed between the common prefix and suffix
+                        let (at, gone, added) = map::text_edit(old.value_text(o), new.value_text(n));
+                        if !gone.is_empty() {
+                            self.signal(path, EVENT_OBJECT, "TextChanged", "delete", at, gone.chars().count() as i32, Any::Str, gone);
+                        }
+                        if !added.is_empty() {
+                            self.signal(path, EVENT_OBJECT, "TextChanged", "insert", at, added.chars().count() as i32, Any::Str, added);
+                        }
                     }
                     _ => {}
                 }
@@ -546,9 +550,7 @@ impl Bridge {
                     }
                     "GetStringAtOffset" => {
                         let (Some(k), Some(granularity)) = (msg.read_i32(), msg.read_u32()) else { return msg.error(INVALID_ARGS, "GetStringAtOffset(iu)") };
-                        // ponytail: character granularity is exact; word, sentence, line and paragraph answer the whole
-                        // (single-line) text. Real boundaries come with the full Text interface.
-                        let (s, e) = if granularity == 0 { (k.clamp(0, count), (k + 1).clamp(0, count)) } else { (0, count) };
+                        let (s, e) = map::text_span(text, k, granularity);
                         r.s(chars(text, s, e)).i(s).i(e);
                         true
                     }

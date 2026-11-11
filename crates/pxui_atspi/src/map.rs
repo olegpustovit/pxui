@@ -148,3 +148,48 @@ pub fn node_action_count(node: &A11yNode) -> usize {
 pub fn has_action_interface(node: &A11yNode) -> bool {
     node.actions & (actions::PRESS | actions::EXPAND | actions::COLLAPSE) != 0
 }
+
+/// The edit that turns `before` into `after` as AT-SPI `TextChanged` wants it: (offset, deleted
+/// text, inserted text) around their common prefix and suffix, offsets in characters.
+pub fn text_edit<'a>(before: &'a str, after: &'a str) -> (i32, &'a str, &'a str) {
+    let prefix: usize = before.chars().zip(after.chars()).take_while(|(a, b)| a == b).map(|(a, _)| a.len_utf8()).sum();
+    let (b, a) = (&before[prefix..], &after[prefix..]);
+    let suffix: usize = b.chars().rev().zip(a.chars().rev()).take_while(|(x, y)| x == y).map(|(x, _)| x.len_utf8()).sum();
+    let suffix = suffix.min(b.len()).min(a.len());
+    (before[..prefix].chars().count() as i32, &b[..b.len() - suffix], &a[..a.len() - suffix])
+}
+
+/// `GetStringAtOffset`'s span (character offsets, end exclusive) around character `k` of `text` for
+/// AT-SPI granularity 0 char, 1 word, 2 sentence, 3 line, 4 paragraph: a word is a run of
+/// alphanumerics (a non-word character is its own span), a sentence ends after `.`, `!` or `?` and
+/// the spaces that follow, a line and a paragraph end after a newline.
+pub fn text_span(text: &str, k: i32, granularity: u32) -> (i32, i32) {
+    let chars: Vec<char> = text.chars().collect();
+    let n = chars.len() as i32;
+    let k = k.clamp(0, n);
+    if granularity == 0 || n == 0 {
+        return (k, (k + 1).min(n));
+    }
+    let at = (k.min(n - 1)) as usize;
+    let word = |c: char| c.is_alphanumeric() || c == '_';
+    let (mut s, mut e) = (at, at + 1);
+    match granularity {
+        1 if word(chars[at]) => {
+            while s > 0 && word(chars[s - 1]) { s -= 1; }
+            while e < chars.len() && word(chars[e]) { e += 1; }
+        }
+        1 => {}
+        2 => {
+            let end = |i: usize| matches!(chars[i], '.' | '!' | '?');
+            while s > 0 && !(end(s - 1) && (s == chars.len() || chars[s].is_whitespace() || !end(s))) { s -= 1; }
+            while s < at && chars[s].is_whitespace() { s += 1; }
+            while e < chars.len() && !end(e - 1) { e += 1; }
+            while e < chars.len() && chars[e].is_whitespace() { e += 1; }
+        }
+        _ => {
+            while s > 0 && chars[s - 1] != '\n' { s -= 1; }
+            while e < chars.len() && chars[e - 1] != '\n' { e += 1; }
+        }
+    }
+    (s as i32, e as i32)
+}
