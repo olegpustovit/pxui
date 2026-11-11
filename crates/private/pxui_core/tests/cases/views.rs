@@ -66,7 +66,7 @@ pub fn window_pxui_shrunk_layer_clips_dirty() {
     ui.frame(&at(0.0, vec![]), &mut build);
     (count.set(1), rev.set(2));
     ui.frame(&at(0.1, vec![]), &mut build);
-    for layer in &ui.output().draw {
+    for layer in ui.output().draw.iter() {
         check(layer.dirty.iter().all(|&(a, b)| a <= b && b as usize <= layer.instances.len()), &format!("dirty {:?} of a layer of {} instances", layer.dirty, layer.instances.len()));
     }
     ui.destroy();
