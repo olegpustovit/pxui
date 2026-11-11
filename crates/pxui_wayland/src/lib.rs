@@ -10,6 +10,7 @@ use std::ptr::NonNull;
 use std::sync::atomic::{AtomicI64, Ordering};
 use std::time::Instant;
 
+mod portal;
 pub mod translate;
 
 pub use native_layer_token_sys::portable::Token;
@@ -64,8 +65,8 @@ pub struct DialogFilter {
     pub pattern: String,
 }
 
-/// What `show_dialog` answers: Wayland has no file dialog of its own; it comes from the XDG desktop portal.
-pub const NO_FILE_DIALOG: &str = "file dialogs need the XDG desktop portal (org.freedesktop.portal.FileChooser), which this host does not call yet";
+/// What `show_dialog` answers when no XDG desktop portal is on the session bus: Wayland has no file dialog of its own.
+pub const NO_FILE_DIALOG: &str = "file dialogs need the XDG desktop portal (org.freedesktop.portal.FileChooser) on the session bus, and none answers";
 
 /// Native binary startup policy: nothing to configure for a Wayland client.
 pub fn configure_native_process() -> Result<(), Error> {
@@ -168,6 +169,8 @@ unsafe extern "C" {
     fn rw_state(window: *mut c_void, width: *mut i32, height: *mut i32, scale120: *mut i32, rate: *mut i32, delay: *mut i32);
     fn rw_dispatch(window: *mut c_void, timeout_ms: i32) -> i32;
     fn rw_set_wake_fd(window: *mut c_void, fd: i32);
+    fn rw_set_portal_fd(window: *mut c_void, fd: i32);
+    fn rw_exported_handle(window: *mut c_void) -> *const c_char;
     fn rw_next(window: *mut c_void, out: *mut RawEvent) -> i32;
     fn rw_event_free(text: *mut c_char);
     fn rw_resize(window: *mut c_void, width: i32, height: i32);
@@ -214,6 +217,8 @@ pub struct Window {
     relative: Option<bool>,
     motion: (f64, f64),
     started: Instant,
+    /// The desktop portal's bus, from the first file dialog on.
+    portal: Option<portal::Portal>,
 }
 
 impl Window {
@@ -269,6 +274,7 @@ impl Window {
             relative: None,
             motion: (0.0, 0.0),
             started: Instant::now(),
+            portal: None,
         };
         OPEN.with(|open| open.borrow_mut().push(raw));
         window.read_state();
@@ -313,6 +319,9 @@ impl Window {
                 copied
             };
             open &= self.translate(&event, text, now, events);
+        }
+        if let Some(portal) = &mut self.portal {
+            portal.pump(events);
         }
         if let Some((key, text)) = self.repeat.due(now) {
             events.push(input::Event::KeyPressed(key));
@@ -407,6 +416,8 @@ impl Window {
             (a, b) => a.or(b),
         };
         let timeout = deadline.map_or(-1, |at| ((at - self.time()).max(0.0) * 1000.0).ceil().min(f64::from(i32::MAX)) as i32);
+        // a portal answer already read off its descriptor would not wake the poll
+        let timeout = if self.portal.as_ref().is_some_and(portal::Portal::buffered) { 0 } else { timeout };
         // SAFETY: a live window. A lost connection is reported by the next pump.
         unsafe { rw_dispatch(raw, timeout) };
     }
@@ -562,13 +573,23 @@ impl Window {
         Ok(())
     }
 
-    /// Always fails with `NO_FILE_DIALOG`; the editor keeps working without dialogs.
-    // ponytail: no portal call; org.freedesktop.portal.FileChooser over D-Bus (OpenFile/SaveFile, then its Response
-    // signal read in the pump) is ~300 lines with libdbus marshalling. Add it when a Linux desktop with a portal is a target.
+    /// Opens a file dialog through the XDG desktop portal and returns at once with its id, as pxui_sdl does; a later
+    /// `pump` delivers `Event::FileDialog` with the same id: the chosen paths, none when cancelled, or an error.
+    /// `pattern` lists extensions separated by semicolons ("png;jpg"), or "*". At most 8 dialogs are open at once.
+    /// Fails with `NO_FILE_DIALOG` when no portal is on the session bus (WSL has none); the editor keeps working.
     pub fn show_dialog(&mut self, filters: &[DialogFilter], default_location: Option<&str>, kind: DialogKind) -> Result<i64, Error> {
-        let _ = (filters, default_location, kind);
-        self.live()?;
-        Err(NO_FILE_DIALOG.to_owned())
+        let raw = self.live()?;
+        let portal = match &mut self.portal {
+            Some(portal) => portal,
+            None => self.portal.insert(portal::Portal::connect(None)?),
+        };
+        // SAFETY: a live window; the handle string is copied before anything else touches the window.
+        let handle = unsafe { rw_exported_handle(raw) };
+        let parent = if handle.is_null() { String::new() } else { format!("wayland:{}", unsafe { CStr::from_ptr(handle) }.to_string_lossy()) };
+        let id = portal.show(&parent, filters, default_location, kind)?;
+        // SAFETY: a live window; the shim only polls the descriptor, which the portal keeps open with the window.
+        unsafe { rw_set_portal_fd(raw, portal.fd()) };
+        Ok(id)
     }
 
     /// False while opened hidden and not shown, or while the compositor has suspended the window (xdg_toplevel

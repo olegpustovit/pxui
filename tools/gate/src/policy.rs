@@ -29,6 +29,8 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("pxui_render", &["ogpu_core", "pxui"][..]),
         // The window hosts are leaves: SDL, the input types and the native layer token.
         ("pxui_sdl", &["sdl3", "input", "native_layer_token_sys"][..]),
+        // pxui_wayland links libwayland-client, libxkbcommon and (file dialogs through the desktop portal) libdbus-1
+        // through its own C shims, like pxui_atspi.
         ("pxui_wayland", &["input", "native_layer_token_sys"][..]),
         // The Linux AT-SPI2 bridge: libdbus-1 through its own C shim, over pxui's accessibility tree.
         ("pxui_atspi", &["pxui"][..]),
@@ -72,7 +74,7 @@ pub const TESTS_INCLUDED_FORBIDDEN: &[&str] = &["sdl3", "sdl3_sys", "pxui_sdl"];
 pub const DOCS_CHECKS: &[(&str, &str, Option<&str>)] = &[];
 
 /// Crates besides `*_sys` that may use `unsafe`.
-pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their C shims and the extern blocks over them, like *_sys crates
+pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their C shims (Wayland, libdbus-1) and the extern blocks over them, like *_sys crates
 
 /// Files besides those of `UNSAFE_CRATES` that may use `unsafe`, each with its reason.
 pub const UNSAFE_FILES: &[(&str, &str)] = &[

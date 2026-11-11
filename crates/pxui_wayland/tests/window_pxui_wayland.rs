@@ -92,7 +92,10 @@ fn window_wayland_present() {
     window.pump(&mut events);
     window.set_relative_mouse(false).unwrap();
     assert_eq!(window.take_motion(), (0.0, 0.0));
-    assert_eq!(window.show_dialog(&[], None, pxui_wayland::DialogKind::OpenFile), Err(pxui_wayland::NO_FILE_DIALOG.to_owned()));
+    // WSLg runs no desktop portal; elsewhere a real dialog would open, which this test cannot answer
+    if std::env::var_os("DBUS_SESSION_BUS_ADDRESS").is_none() {
+        assert_eq!(window.show_dialog(&[], None, pxui_wayland::DialogKind::OpenFile), Err(pxui_wayland::NO_FILE_DIALOG.to_owned()));
+    }
 
     gpu.close();
     window.destroy().unwrap();

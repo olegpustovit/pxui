@@ -24,7 +24,10 @@ half: run the suite with `RAYS_ALLOW_SKIP=1` there.
 `pxui_wayland` (the Wayland window host) links `libwayland-client` and `libxkbcommon` (`libwayland-dev`,
 `libxkbcommon-dev`). Its protocol glue is checked in under `crates/pxui_wayland/protocol`; regenerating it needs
 `wayland-scanner` and the `wayland-protocols` XML (`apt-get download wayland-protocols`, `dpkg -x` into `~/vk/root`).
-Its window test skips without `WAYLAND_DISPLAY`. WSLg's compositor offers `wl_data_device` and `wp_viewporter` but no
+Its window test skips without `WAYLAND_DISPLAY`. File dialogs go through the XDG desktop portal
+(`org.freedesktop.portal.FileChooser` on the session bus, through libdbus-1: `libdbus-1-dev`), parented to the window's
+xdg-foreign-unstable-v2 handle when the compositor exports one; without a portal (WSL runs none) `show_dialog` returns
+`NO_FILE_DIALOG`. Its tests answer the requests from a fake portal on a private `dbus-daemon` (skipped without one). WSLg's compositor offers `wl_data_device` and `wp_viewporter` but no
 fractional scale, cursor shape, xdg-decoration or text-input-v3, so those paths need another compositor to exercise.
 `cargo run -p pxui_wayland --example window` runs the host loop.
 

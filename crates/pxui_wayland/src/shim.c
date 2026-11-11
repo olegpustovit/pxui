@@ -21,6 +21,7 @@
 #include "../protocol/text-input-unstable-v3.h"
 #include "../protocol/relative-pointer-unstable-v1.h"
 #include "../protocol/pointer-constraints-unstable-v1.h"
+#include "../protocol/xdg-foreign-unstable-v2.h"
 
 /* Mirrors translate::Raw on the Rust side. */
 enum { RW_KEY = 1, RW_MOTION, RW_BUTTON, RW_AXIS, RW_AXIS_DISCRETE, RW_AXIS_SOURCE, RW_AXIS_STOP, RW_FRAME,
@@ -58,6 +59,7 @@ typedef struct rw {
   struct zwp_text_input_manager_v3 *text_manager;
   struct zwp_relative_pointer_manager_v1 *relative_manager;
   struct zwp_pointer_constraints_v1 *constraints;
+  struct zxdg_exporter_v2 *exporter;
   uint32_t compositor_version, seat_version;
 
   struct wl_surface *surface;
@@ -70,6 +72,8 @@ typedef struct rw {
   struct zwp_text_input_v3 *text_input;
   struct zwp_relative_pointer_v1 *relative_pointer;
   struct zwp_locked_pointer_v1 *locked_pointer;
+  struct zxdg_exported_v2 *exported;
+  char *exported_handle; /* the toplevel's xdg-foreign handle: a portal dialog's parent */
   int relative;
 
   struct { struct wl_output *output; uint32_t name; int32_t scale; int entered; } outputs[MAX_OUTPUTS];
@@ -97,6 +101,7 @@ typedef struct rw {
   char *source_text;
   int paste_fd;
   int wake_fd; /* a descriptor the host also sleeps on (the accessibility bus), or -1 */
+  int portal_fd; /* the desktop portal's bus while a file dialog is open, or -1 */
   char *paste_buf;
   size_t paste_len;
   struct { int fd; char *text; size_t at, len; } writes[MAX_WRITES];
@@ -574,6 +579,8 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name, co
     w->relative_manager = wl_registry_bind(r, name, &zwp_relative_pointer_manager_v1_interface, 1);
   } else if (!strcmp(interface, zwp_pointer_constraints_v1_interface.name)) {
     w->constraints = wl_registry_bind(r, name, &zwp_pointer_constraints_v1_interface, 1);
+  } else if (!strcmp(interface, zxdg_exporter_v2_interface.name)) {
+    w->exporter = wl_registry_bind(r, name, &zxdg_exporter_v2_interface, 1);
   }
 }
 static void registry_remove(void *data, struct wl_registry *r, uint32_t name) {
@@ -587,6 +594,14 @@ static void registry_remove(void *data, struct wl_registry *r, uint32_t name) {
     break;
   }
 }
+static void exported_handle(void *data, struct zxdg_exported_v2 *e, const char *handle) {
+  rw *w = data;
+  (void)e;
+  free(w->exported_handle);
+  w->exported_handle = copy(handle);
+}
+static const struct zxdg_exported_v2_listener exported_listener = {.handle = exported_handle};
+
 static const struct wl_registry_listener registry_listener = {.global = registry_global, .global_remove = registry_remove};
 
 /* ---- public ---- */
@@ -599,6 +614,7 @@ rw *rw_open(const char *title, int32_t width, int32_t height, int32_t *error) {
   if (!w) { *error = 4; return NULL; }
   w->paste_fd = -1;
   w->wake_fd = -1;
+  w->portal_fd = -1;
   w->width = width;
   w->height = height;
   w->cursor_shape = WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_DEFAULT;
@@ -639,7 +655,11 @@ rw *rw_open(const char *title, int32_t width, int32_t height, int32_t *error) {
     w->text_input = zwp_text_input_manager_v3_get_text_input(w->text_manager, w->seat);
     zwp_text_input_v3_add_listener(w->text_input, &text_listener, w);
   }
-  wl_surface_commit(w->surface); /* no buffer: asks for the first configure */
+  if (w->exporter) {
+    w->exported = zxdg_exporter_v2_export_toplevel(w->exporter, w->surface);
+    zxdg_exported_v2_add_listener(w->exported, &exported_listener, w);
+  }
+  wl_surface_commit(w->surface); /* no buffer: asks for the first configure (the export's handle comes with it) */
   for (int i = 0; i < 20 && !w->configured; ++i) if (wl_display_roundtrip(w->display) < 0) break;
   if (!w->configured) { rw_close(w); *error = 3; return NULL; }
   return w;
@@ -660,6 +680,8 @@ void rw_close(rw *w) {
   free(w->preedit_pending); free(w->preedit_shown); free(w->commit_pending);
   if (w->cursor_device) wp_cursor_shape_device_v1_destroy(w->cursor_device);
   if (w->decoration) zxdg_toplevel_decoration_v1_destroy(w->decoration);
+  if (w->exported) zxdg_exported_v2_destroy(w->exported);
+  free(w->exported_handle);
   if (w->toplevel) xdg_toplevel_destroy(w->toplevel);
   if (w->xdg_surface) xdg_surface_destroy(w->xdg_surface);
   if (w->fractional) wp_fractional_scale_v1_destroy(w->fractional);
@@ -672,6 +694,7 @@ void rw_close(rw *w) {
   if (w->text_manager) zwp_text_input_manager_v3_destroy(w->text_manager);
   if (w->relative_manager) zwp_relative_pointer_manager_v1_destroy(w->relative_manager);
   if (w->constraints) zwp_pointer_constraints_v1_destroy(w->constraints);
+  if (w->exporter) zxdg_exporter_v2_destroy(w->exporter);
   if (w->decoration_manager) zxdg_decoration_manager_v1_destroy(w->decoration_manager);
   if (w->cursor_manager) wp_cursor_shape_manager_v1_destroy(w->cursor_manager);
   if (w->fractional_manager) wp_fractional_scale_manager_v1_destroy(w->fractional_manager);
@@ -714,12 +737,13 @@ int32_t rw_dispatch(rw *w, int32_t timeout_ms) {
   while (wl_display_prepare_read(d) != 0)
     if (wl_display_dispatch_pending(d) < 0) return -1;
   if (wl_display_flush(d) < 0 && errno != EAGAIN) { wl_display_cancel_read(d); return -1; }
-  struct pollfd fds[3 + MAX_WRITES];
+  struct pollfd fds[4 + MAX_WRITES];
   int count = 0;
   fds[count++] = (struct pollfd){.fd = wl_display_get_fd(d), .events = POLLIN};
   if (w->paste_fd >= 0) fds[count++] = (struct pollfd){.fd = w->paste_fd, .events = POLLIN};
   /* readable until the host serves it: waking is all poll has to do */
   if (w->wake_fd >= 0) fds[count++] = (struct pollfd){.fd = w->wake_fd, .events = POLLIN};
+  if (w->portal_fd >= 0) fds[count++] = (struct pollfd){.fd = w->portal_fd, .events = POLLIN};
   for (int i = 0; i < w->write_count; ++i) fds[count++] = (struct pollfd){.fd = w->writes[i].fd, .events = POLLOUT};
   /* Events queued by an earlier dispatch must not wait for the socket. */
   if (w->queue_len > w->queue_head) timeout_ms = 0;
@@ -738,6 +762,10 @@ int32_t rw_dispatch(rw *w, int32_t timeout_ms) {
 
 /* Also wake rw_dispatch when fd is readable (-1: no such descriptor). */
 void rw_set_wake_fd(rw *w, int32_t fd) { w->wake_fd = fd; }
+/* The same for the desktop portal's bus connection. */
+void rw_set_portal_fd(rw *w, int32_t fd) { w->portal_fd = fd; }
+/* The toplevel's xdg-foreign-unstable-v2 handle, or NULL (no exporter, or its handle has not arrived). */
+const char *rw_exported_handle(rw *w) { return w->exported_handle; }
 
 /* Pops the oldest event into *out; 0 when the queue is empty. */
 int32_t rw_next(rw *w, rw_event *out) {
