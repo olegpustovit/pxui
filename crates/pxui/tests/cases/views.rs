@@ -142,6 +142,36 @@ pub fn window_pxui_view_offset() {
     ui.destroy();
 }
 
+/// Two thousand views (one per graph card) each keep a table entry: an offset, opacity and clip
+/// change rewrites no instance and rebuilds no view.
+pub fn window_pxui_view_table_2000() {
+    let mut ui = new_ui(None);
+    let views = std::cell::RefCell::new(Vec::new());
+    let mut build = |ui: &mut Ui| {
+        let mut v = views.borrow_mut();
+        v.clear();
+        for k in 0..2000 {
+            v.push(ui.view(&format!("card{k}"), 1, Size::Px(20.0), Size::Px(10.0), &mut |ui| {
+                chip(ui, "x", RED, CLICKABLE);
+            }));
+        }
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    let instances = ui.output().draw[0].instances.clone();
+    let last = views.borrow()[1999];
+    ui.view_offset(&last, 7.0, 3.0);
+    ui.view_opacity(&last, 0.25);
+    ui.view_clip(&last, Some(Rect::new(0.0, 0.0, 5.0, 5.0)));
+    let entry = ui.output().views.iter().find(|(_, e)| e.offset == [7.0, 3.0]).copied();
+    check(entry.is_some_and(|(i, e)| i >= 2000 && e.opacity == 0.25 && e.clip[2] < 1.0e6), &format!("view 2000's entry {entry:?}"));
+    check(ui.output().draw[0].instances == instances, "a table change rewrote instances");
+    check(ui.output().draw[0].instances.iter().any(|i| Some(i.view) == entry.map(|e| e.0)), "the view's instances do not name its entry");
+    ui.frame(&at(0.2, vec![]), &mut build);
+    check(ui.rebuilt_views() == 0 && ui.output().views.iter().filter(|(i, _)| *i != 0).count() >= 2000, "a moved view rebuilt or lost its entry");
+    ui.destroy();
+}
+
 /// Damage: none for an idle frame; one node's rectangle for a one-node change; old and new for a
 /// patch that moves it.
 pub fn window_pxui_view_damage() {
@@ -526,6 +556,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_fit", window_pxui_view_fit),
     ("window_pxui_view_input", window_pxui_view_input),
     ("window_pxui_view_offset", window_pxui_view_offset),
+    ("window_pxui_view_table_2000", window_pxui_view_table_2000),
     ("window_pxui_view_damage", window_pxui_view_damage),
     ("window_pxui_view_kit_cached", window_pxui_view_kit_cached),
     ("window_pxui_list", window_pxui_list),

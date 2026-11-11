@@ -1390,8 +1390,8 @@ impl Ui {
             press_chain: Vec::new(),
             views: vec![ViewRec::new()],
             free_views: Vec::new(),
-            free_indices: (1..=255u16).rev().collect(),
-            index_owner: vec![0; 256],
+            free_indices: Vec::new(),
+            index_owner: vec![0],
             view_cur: 0,
             paint_xf: 0,
             epoch: 0,
@@ -6140,7 +6140,7 @@ impl Ui {
 
     /// `view` that takes no painter table entry of its own: its instances ride its parent's entry
     /// exactly as the parent's own would (many small views that never move apart from their parent,
-    /// one per item of a list, say, past the table's 255 entries). `view_offset` and the other entry
+    /// one per item of a list, say: each entry is 64 bytes the painter writes every frame). `view_offset` and the other entry
     /// changes on it are baked by a rebuild.
     pub fn view_flat(&mut self, label: &str, revision: u64, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         self.view_entry(label, revision, w, h, false, f)
@@ -6155,7 +6155,20 @@ impl Ui {
                     self.views.push(ViewRec::new());
                     self.views.len() as u32 - 1
                 });
-                let index = if entry { self.free_indices.pop().unwrap_or(0) } else { 0 };
+                // a table index of its own (unless flat): a freed one, else the next (the painter's
+                // table grows to the 16-bit instance field; past that a view bakes its offset)
+                let index = if !entry {
+                    0
+                } else {
+                    self.free_indices.pop().unwrap_or_else(|| {
+                        let next = self.index_owner.len();
+                        if next > u16::MAX as usize {
+                            return 0;
+                        }
+                        self.index_owner.push(0);
+                        next as u16
+                    })
+                };
                 let r = &mut self.views[v as usize];
                 r.name.push_str(label);
                 (r.slot, r.index) = (b.box_slot, index);
@@ -6404,8 +6417,8 @@ impl Ui {
     fn view_changed(&mut self, v: u32) {
         (self.a11y_dirty, self.a11y_full) = (true, true);
         if self.views[v as usize].index == 0 {
-            // ponytail: past 255 views the offset is baked by a rebuild (opacity and clip are not
-            // applied); a larger table or nested tables if that many views move.
+            // past 65,535 live views (the instance's 16-bit index) the offset is baked by a rebuild
+            // (opacity and clip are not applied): specification/pxui.md, designed limits
             self.mark_view(v);
             self.views[v as usize].dirty = true;
             self.frame_requested = true;

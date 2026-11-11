@@ -92,7 +92,8 @@ const BLUR_VERT_SPV: &[u8] = include_bytes!("../shaders/blur.vert.spv");
 const BLUR_FRAG_SPV: &[u8] = include_bytes!("../shaders/blur.frag.spv");
 
 pub use pxui::draw::{f16, flags, kind, Instance, NO_CLIP};
-pub const MAX_VIEWS: usize = 256;
+/// View indices fit the instance's 16-bit `view`; the table grows to the highest index set.
+pub const MAX_VIEWS: usize = 65536;
 /// Bytes of one view record in the globals buffer: four float4s (see the vertex shader).
 const VIEW_BYTES: usize = 64;
 
@@ -172,8 +173,13 @@ pub struct Painter {
     cursor: usize,
     /// Rings replaced by growth, kept alive until the frames that used them are done.
     retired: Vec<(Buffer, usize)>,
-    views: [View; MAX_VIEWS],
+    views: Vec<View>,
     views_len: usize,
+    /// This frame's globals in the ring for (target size, scale) and each first-instance offset
+    /// 0..4 (`usize::MAX`: not written): retained draws share them, so the view table is written at
+    /// most four times a frame whatever the layers and breaks.
+    headers: [usize; 4],
+    header_key: ([u32; 2], u32),
     draw_calls: u64,
     layers: Vec<Option<Retained>>,
     retained_bytes: u64,
@@ -292,7 +298,7 @@ impl Painter {
         Ok(Painter {
             device: device.clone(), pipeline, sampler, smooth, mask, color, depth: depth != DepthFormat::NoDepth,
             ring, ring_ptr, region_size, region: 0, cursor: 0, retired: Vec::new(),
-            views: [View::IDENTITY; MAX_VIEWS], views_len: 1, draw_calls: 0, layers: Vec::new(), retained_bytes: 0, blur: None, retired_textures: Vec::new(),
+            views: vec![View::IDENTITY], views_len: 1, headers: [usize::MAX; 4], header_key: ([0, 0], 0), draw_calls: 0, layers: Vec::new(), retained_bytes: 0, blur: None, retired_textures: Vec::new(),
         })
     }
 
@@ -308,8 +314,10 @@ impl Painter {
     pub fn set_view(&mut self, index: u16, view: View) -> Result<(), Error> {
         let index = index as usize;
         if index == 0 || index >= MAX_VIEWS { return Err(invalid("Painter.set_view", "view index must be in 1..MAX_VIEWS")); }
+        if index >= self.views.len() { self.views.resize(index + 1, View::IDENTITY); }
         self.views[index] = view;
         self.views_len = self.views_len.max(index + 1);
+        self.headers = [usize::MAX; 4];
         Ok(())
     }
 
@@ -318,6 +326,7 @@ impl Painter {
         self.region = (self.region + 1) % FRAMES;
         self.cursor = self.region * self.region_size;
         self.retained_bytes = 0;
+        self.headers = [usize::MAX; 4];
         for (buffer, frames) in &mut self.retired {
             *frames -= 1;
             if *frames == 0 { let _ = backend::destroy_buffer(buffer); }
@@ -345,6 +354,7 @@ impl Painter {
             let (ring, pointer) = host_ring(&self.device, region_size)?;
             self.retired.push((std::mem::replace(&mut self.ring, ring), FRAMES));
             self.ring_ptr = pointer;
+            self.headers = [usize::MAX; 4];
             self.region_size = region_size;
             self.cursor = self.region * region_size;
         }
@@ -364,6 +374,21 @@ impl Painter {
             ];
             self.write_floats(start + 16 + i * VIEW_BYTES, &record);
         }
+    }
+
+    /// This frame's globals for `first`, written on first use (see `headers`).
+    fn header(&mut self, size_px: [u32; 2], scale: f32, first: u32) -> Result<usize, Error> {
+        let key = (size_px, scale.to_bits());
+        if self.header_key != key { (self.header_key, self.headers) = (key, [usize::MAX; 4]); }
+        if self.headers[first as usize] == usize::MAX {
+            let header = align(16 + self.views_len * VIEW_BYTES);
+            let start = self.reserve(header)?;
+            self.write_header(start, size_px, scale, first);
+            backend::flush_host_range(&self.ring, start as i64, header)?;
+            // (`reserve` may have grown the ring and dropped the others)
+            self.headers[first as usize] = start;
+        }
+        Ok(self.headers[first as usize])
     }
 
     /// Pipeline, state, the globals at `start` and the fixed textures.
@@ -587,7 +612,6 @@ impl Painter {
         }
         store.len = len;
         if len == 0 { return Ok(()); }
-        let header = align(16 + self.views_len * VIEW_BYTES);
         let mut bound = None;
         for k in 0..=breaks.len() {
             let from = if k == 0 { 0 } else { breaks[k - 1].at_instance as usize };
@@ -596,10 +620,8 @@ impl Painter {
                 if let Some(next) = split(self, from as u32)? { pass = next; bound = None; }
             }
             if from == to { continue; }
-            let start = self.reserve(header)?;
             // Bind 4-instance (256-byte) aligned and skip the remainder with the globals' first-instance field.
-            self.write_header(start, size_px, scale, (from % 4) as u32);
-            backend::flush_host_range(&self.ring, start as i64, header)?;
+            let start = self.header(size_px, scale, (from % 4) as u32)?;
             self.bind(&pass, start)?;
             let texture = if k == 0 { None } else { breaks[k - 1].texture }.unwrap_or(&self.color);
             if bound != Some(texture as *const Texture) {

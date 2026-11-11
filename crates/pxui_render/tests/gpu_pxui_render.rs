@@ -161,7 +161,7 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// Metal handles live on the process main thread, which libtest never gives a test: this target is
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
-    let cases: [(&str, fn()); 12] = [
+    let cases: [(&str, fn()); 13] = [
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -169,6 +169,7 @@ fn main() {
         ("gpu_per_side_borders", gpu_per_side_borders),
         ("gpu_ramp_gradient", gpu_ramp_gradient),
         ("gpu_retained_layer_writes_only_dirty_ranges", gpu_retained_layer_writes_only_dirty_ranges),
+        ("gpu_view_table_past_255", gpu_view_table_past_255),
         ("gpu_backdrop_blur", gpu_backdrop_blur),
         ("gpu_smooth_image", gpu_smooth_image),
         ("gpu_backdrop_blur_panel", gpu_backdrop_blur_panel),
@@ -381,6 +382,28 @@ fn gpu_ramp_gradient() {
         assert!(near(at(&pixels, 0.5, y), RED, 8) && near(at(&pixels, 99.5, y), BLUE, 8), "ends");
     }
     assert_eq!(at(&pixels, 110.0, 10.0), BG, "outside the rect");
+}
+
+/// View 2,000's entry (offset, opacity, clip) applies exactly as view 1's would: the table is not
+/// capped at 256 entries.
+fn gpu_view_table_past_255() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut painter = painter(&device);
+    let target = target(&device);
+    let size = [W * SCALE, H * SCALE];
+    let entry = View { offset: [9.0, 4.0], opacity: 0.5, clip: [0.0, 0.0, 30.0, 40.0], ..View::IDENTITY };
+    let shoot = |painter: &mut Painter, view: u16| {
+        let rect = [Instance::rect([4.0, 4.0, 60.0, 50.0], RED).view(view)];
+        painter.begin_frame();
+        pass(&queue, &target, &mut |encoder| ok(painter.draw_retained(encoder, size, SCALE as f32, view as u32 % 3, &rect, &[], &[])));
+        ok(be::read_texture(&target, (W * SCALE * 4) as i64))
+    };
+    ok(painter.set_view(1, entry));
+    ok(painter.set_view(2000, entry));
+    let (low, high) = (shoot(&mut painter, 1), shoot(&mut painter, 2000));
+    assert!(low == high, "view 2000 drew differently from view 1");
+    assert!(low != shoot(&mut painter, 0), "the entry changed nothing");
 }
 
 fn gpu_retained_layer_writes_only_dirty_ranges() {

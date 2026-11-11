@@ -469,7 +469,7 @@ ui.frame(&FrameIn, &mut Text, |ui| ...) -> FrameOut
    root are re-arranged in the same frame, from their declared nodes only: no stale frame, and no
    kept subtree is laid out again. A kept sibling whose position changed is not rebuilt: layout's
    move rides its table entry (`delta`, composed with `view_offset`), and hit testing, `rect` and
-   damage follow (a view with no table index, past 255, rebuilds a frame later). A kept view whose
+   damage follow (a view with no table index, past 65,535, rebuilds a frame later). A kept view whose
    own laid-out size changes (a `Grow` side, a resized window) is still shown stale for one frame and
    rebuilt (`window_pxui_view_fit`).
    Landed (P5 commit 2, engine): layers are retained (`Layer::id`, `Layer::dirty` gathered until
@@ -484,7 +484,7 @@ sorted list (64 in a layer, 16 per painter copy); past the cap the two closest m
 (`draw::add_range`), so scattered edits copy themselves, not the span between them. `FrameOut::damage` is the union of changed
    instance bounds; `FrameOut::views` the table entries (`ViewEntry { offset, opacity, clip }`) that
    `view_offset`, `view_opacity`, `view_clip` change between frames without a rebuild (hit testing and
-   `rect` follow; past 255 views the offset is baked by a rebuild). `ui.list(label, count, row_h, f)`
+   `rect` follow; the table grows with the views, to the instance's 16-bit index). `ui.list(label, count, row_h, f)`
    builds only visible rows plus 4 each side; `ui.verify_views(true)` re-runs clean views and panics
    naming one whose output changed (`ui.verifying()` tells a build it is such a run; a view patched
    since its build is not checked, nor a view holding one so patched). A node flagged `HOVER_FREE` dirties no view when the hover
@@ -646,6 +646,10 @@ needs a measurement that shows it.
 - A glyph that finds no atlas room free of frames in flight and kept output waits a frame (the `Ui`
   requests one; `Text::misses`). A second atlas page would bind one more texture per layer, a
   draw-call break; at the atlas sizes (1024x2048 R8, 1024x1024 RGBA8) a UI's working set fits.
+- View table: 65,535 live views with an entry (the instance's 16-bit `view`, inside the 64-byte
+  instance). Past that a view bakes its offset into layout and rebuilds when it moves (no opacity or
+  clip of its own). The painter writes the table once per first-instance offset per frame (at most
+  four copies), 64 bytes a view.
 
 **Crate fate.**
 
