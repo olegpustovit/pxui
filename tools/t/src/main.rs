@@ -261,7 +261,7 @@ fn run() -> i32 {
 /// Only runs for the packages that link it; static builds do not need it and are not slowed down.
 fn ensure_libpxui(args: &Args) -> Result<(), i32> {
     let linked = args.cargo.windows(2).any(|pair| (pair[0] == "-p" || pair[0] == "--package") && (pair[1] == "pxui" || pair[1] == "pxui_gallery"));
-    if !linked || cfg!(windows) { return Ok(()); }
+    if !linked { return Ok(()); }
     let mut build = Command::new("cargo");
     build.args(["build", "-q", "-p", "pxui_abi"]);
     let mut profile = "debug".to_owned();
