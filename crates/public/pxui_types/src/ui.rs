@@ -300,6 +300,13 @@ pub fn int_key(seed: i64, n: i64) -> i64 {
 
 // ---------------------------------------------------------------- text helpers
 
+/// Where the top of kit text of `size` points goes to sit centred in a row at `y` of height `h`: its
+/// top is half of what the row has over the text size. Measured against the kit's reference
+/// renders: 13-point text in a 24-point row has its ascenders at 7 and its descenders at 18.
+pub fn text_top_for(font_size: i64, size: Option<i64>, y: f32, h: f32) -> f32 {
+    y + ((h - size.unwrap_or(font_size) as f32) / 2.0).floor()
+}
+
 pub fn line_start(text: &str, i: usize) -> usize {
     let b = text.as_bytes();
     let mut i = i;

@@ -20,6 +20,8 @@ mod a11y_state;
 mod style;
 mod text_width;
 mod interaction;
+mod ui_state;
+mod box_ops;
 #[cfg(test)]
 mod safety;
 pub use text::*;
@@ -38,6 +40,8 @@ pub use a11y_state::*;
 pub use style::*;
 pub use text_width::*;
 pub use interaction::*;
+pub use ui_state::*;
+pub use box_ops::*;
 pub use ui::*;
 pub use state::{Build, PxuiUi};
 pub(crate) use state::{core_box, fail, get, text};

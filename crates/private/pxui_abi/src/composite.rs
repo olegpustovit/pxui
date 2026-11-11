@@ -33,7 +33,7 @@ export!(pub unsafe fn pxui_ui_scroll_view(ui: *mut PxuiUi, label: Str, width: Px
     0
 });
 
-export!(pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+unsafe fn view_with(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox, flat: bool) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null view output") }; }
     let (Some(label), Some(width), Some(height)) = (unsafe { checked(label) }, size(width), size(height)) else {
@@ -41,9 +41,19 @@ export!(pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, label: Str, revision: u64, w
     };
     let shared = state.shared;
     let mut build = |engine: &mut Ui| call_build(shared, engine, callback, user);
-    let handle = unsafe { (&mut *state.engine).view(label, revision, width, height, &mut build) };
+    let engine = unsafe { &mut *state.engine };
+    let handle = if flat { engine.view_flat(label, revision, width, height, &mut build) } else { engine.view(label, revision, width, height, &mut build) };
     unsafe { *out = to_abi_box(handle); }
     0
+}
+
+export!(pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+    unsafe { view_with(ui, label, revision, width, height, callback, user, out, false) }
+});
+
+// A view that takes no entry of its own in the painter view table: its instances ride its parent entry.
+export!(pub unsafe fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+    unsafe { view_with(ui, label, revision, width, height, callback, user, out, true) }
 });
 
 export!(pub unsafe fn pxui_ui_anchored(ui: *mut PxuiUi, label: Str, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {

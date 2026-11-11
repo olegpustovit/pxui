@@ -34,6 +34,8 @@ pub(crate) struct Shared {
     pub chunks: Vec<KeyChunk>,
     pub chunks_used: usize,
     pub visible: Vec<u32>,
+    /// key codes of a box's held keys, valid until the next frame
+    pub key_codes: Vec<u32>,
     pub menu: Vec<(String, bool)>,
     pub hints: Vec<(String, String)>,
     pub strs: Vec<&'static str>,
@@ -48,7 +50,7 @@ impl Shared {
         Self {
             error: String::new(), poisoned: false, in_frame: false, renderers: 0, returned: Vec::new(),
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
-            last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, visible: Vec::new(), menu: Vec::new(),
+            last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, visible: Vec::new(), key_codes: Vec::new(), menu: Vec::new(),
             hints: Vec::new(), strs: Vec::new(), menus: Vec::new(),
         }
     }
@@ -105,6 +107,9 @@ pub(crate) unsafe fn panicked(shared: *mut Shared, payload: Box<dyn core::any::A
     shared.error.push_str(message);
 }
 
+/// The engine behind `ui`.
+pub(crate) unsafe fn engine<'a>(ui: *mut PxuiUi) -> Option<&'a mut Ui> { unsafe { get(ui) }.map(|state| unsafe { &mut *state.engine }) }
+
 pub(crate) unsafe fn get<'a>(ui: *mut PxuiUi) -> Option<&'a mut PxuiUi> {
     if ui.is_null() { None } else { Some(unsafe { &mut *ui }) }
 }
@@ -160,6 +165,13 @@ pub(crate) fn to_abi_box(b: UiBox) -> PxuiBox { PxuiBox { index: b.index as u64,
 pub(crate) fn core_box(raw: PxuiBox) -> Option<UiBox> {
     Some(UiBox { index: usize::try_from(raw.index).ok()?, box_key: raw.box_key, box_slot: usize::try_from(raw.box_slot).ok()?, generation: raw.generation })
 }
+/// The engine and the live box a call names, or the error code after recording why.
+pub(crate) unsafe fn boxed<'a>(ui: *mut PxuiUi, raw: *const PxuiBox) -> Result<(&'a mut Ui, UiBox), i32> {
+    let Some(engine) = (unsafe { engine(ui) }) else { return Err(PXUI_ERR_ARGUMENT) };
+    if raw.is_null() { return Err(unsafe { fail(ui, "null box") }); }
+    match live_box(engine, unsafe { *raw }) { Some(b) => Ok((engine, b)), None => Err(unsafe { fail(ui, "stale box") }) }
+}
+
 /// A box the engine still holds.
 pub(crate) fn live_box(engine: &Ui, raw: PxuiBox) -> Option<UiBox> {
     let b = core_box(raw)?;

@@ -332,6 +332,18 @@ pub type PxuiThemeSource = ThemeSource;
 pub type PxuiThemeTokens = ThemeTokens;
 pub type PxuiNodeDesc = NodeDesc;
 
+/// `BoxOpts` crossing: `axis` is 0 row, 1 column, 2 stack. `hit` (with `hit_user` and `hit_release`, called once when the
+/// box's slot lets go of it) replaces the box's hit rectangle by the one it returns for the laid-out rectangle.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PxuiBoxDesc {
+    pub size: u32, pub axis: u32, pub flags: i64, pub w: PxuiSizeDesc, pub h: PxuiSizeDesc,
+    pub max_h: f32, pub padding: f32, pub scroll_step: f32, pub has_at: u8, pub has_hit_rect: u8, pub reserved: [u8; 2],
+    pub at: [f32; 2], pub hit_rect: Rect,
+    pub hit: Option<extern "C" fn(*mut core::ffi::c_void, Rect) -> Rect>, pub hit_user: *mut core::ffi::c_void,
+    pub hit_release: Option<extern "C" fn(*mut core::ffi::c_void)>,
+}
+
 impl ThemeSource {
     pub const COMPACT: u32 = 1;
     pub const REDUCED_MOTION: u32 = 2;
@@ -379,6 +391,7 @@ mod layout {
         check("PxuiCurveDesc", size_of::<PxuiCurveDesc>(), align_of::<PxuiCurveDesc>(), &[offset_of!(PxuiCurveDesc, kind), offset_of!(PxuiCurveDesc, duration), offset_of!(PxuiCurveDesc, points), offset_of!(PxuiCurveDesc, omega)]);
         check("PxuiSaved", size_of::<PxuiSaved>(), align_of::<PxuiSaved>(), &[offset_of!(PxuiSaved, size), offset_of!(PxuiSaved, reserved), offset_of!(PxuiSaved, parents), offset_of!(PxuiSaved, seeds)]);
         check("PxuiSignal", size_of::<PxuiSignal>(), align_of::<PxuiSignal>(), &[offset_of!(PxuiSignal, size), offset_of!(PxuiSignal, flags), offset_of!(PxuiSignal, has_subtree_press), offset_of!(PxuiSignal, button), offset_of!(PxuiSignal, has_a11y_value), offset_of!(PxuiSignal, has_a11y_select), offset_of!(PxuiSignal, reserved), offset_of!(PxuiSignal, subtree_press), offset_of!(PxuiSignal, clicks), offset_of!(PxuiSignal, drag), offset_of!(PxuiSignal, pointer), offset_of!(PxuiSignal, press_point), offset_of!(PxuiSignal, release_point), offset_of!(PxuiSignal, scroll), offset_of!(PxuiSignal, pinch), offset_of!(PxuiSignal, a11y_value), offset_of!(PxuiSignal, a11y_select), offset_of!(PxuiSignal, keys)]);
+        check("PxuiBoxDesc", size_of::<PxuiBoxDesc>(), align_of::<PxuiBoxDesc>(), &[offset_of!(PxuiBoxDesc, size), offset_of!(PxuiBoxDesc, axis), offset_of!(PxuiBoxDesc, flags), offset_of!(PxuiBoxDesc, w), offset_of!(PxuiBoxDesc, h), offset_of!(PxuiBoxDesc, max_h), offset_of!(PxuiBoxDesc, padding), offset_of!(PxuiBoxDesc, scroll_step), offset_of!(PxuiBoxDesc, has_at), offset_of!(PxuiBoxDesc, has_hit_rect), offset_of!(PxuiBoxDesc, reserved), offset_of!(PxuiBoxDesc, at), offset_of!(PxuiBoxDesc, hit_rect), offset_of!(PxuiBoxDesc, hit), offset_of!(PxuiBoxDesc, hit_user), offset_of!(PxuiBoxDesc, hit_release)]);
         check("PxuiNodeDesc", size_of::<NodeDesc>(), align_of::<NodeDesc>(), &[offset_of!(NodeDesc, size), offset_of!(NodeDesc, flags), offset_of!(NodeDesc, w), offset_of!(NodeDesc, h), offset_of!(NodeDesc, min_w), offset_of!(NodeDesc, min_h), offset_of!(NodeDesc, max_w), offset_of!(NodeDesc, max_h), offset_of!(NodeDesc, grow), offset_of!(NodeDesc, shrink), offset_of!(NodeDesc, aspect), offset_of!(NodeDesc, axis), offset_of!(NodeDesc, padding), offset_of!(NodeDesc, margin), offset_of!(NodeDesc, gap), offset_of!(NodeDesc, row_gap), offset_of!(NodeDesc, justify), offset_of!(NodeDesc, align), offset_of!(NodeDesc, align_self), offset_of!(NodeDesc, wrap), offset_of!(NodeDesc, reserved), offset_of!(NodeDesc, grid), offset_of!(NodeDesc, cell), offset_of!(NodeDesc, z), offset_of!(NodeDesc, reserved_z), offset_of!(NodeDesc, role), offset_of!(NodeDesc, a11y), offset_of!(NodeDesc, anchor), offset_of!(NodeDesc, has_at), offset_of!(NodeDesc, at), offset_of!(NodeDesc, scroll_step), offset_of!(NodeDesc, look), offset_of!(NodeDesc, inset), offset_of!(NodeDesc, mark), offset_of!(NodeDesc, bar), offset_of!(NodeDesc, state), offset_of!(NodeDesc, transition)]);
     }
 }

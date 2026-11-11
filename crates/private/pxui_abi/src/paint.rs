@@ -13,7 +13,7 @@ pub type PaintBuild = Option<extern "C" fn(*mut c_void, *mut PxuiPaint, Rect)>;
 pub type PaintRelease = Option<extern "C" fn(*mut c_void)>;
 pub type SpanBuild = Option<extern "C" fn(*mut c_void, f32, f32)>;
 
-struct CallbackOwner { user: *mut c_void, release: PaintRelease }
+pub(crate) struct CallbackOwner { pub(crate) user: *mut c_void, pub(crate) release: PaintRelease }
 impl Drop for CallbackOwner { fn drop(&mut self) { if let Some(release) = self.release { release(self.user); } } }
 
 pub(crate) unsafe fn value<'a>(paint: *mut PxuiPaint) -> Option<&'a mut EnginePaint> {

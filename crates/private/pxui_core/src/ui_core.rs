@@ -24,7 +24,7 @@ use std::rc::Rc;
 
 pub use pxui_types::{Flags, Size};
 pub use pxui_types::ui::{
-    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, BoxOpts, Cursor, Drop, HitFn, Payload, Target, UndoKind,
+    text_top_for,    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, BoxOpts, Cursor, Drop, HitFn, Payload, Target, UndoKind,
     BLOCKING, CAPTURE_UNCLAIMED, CLICKABLE, CLIP, DRAG_FREE, DRAG_THRESHOLD, FIT_TEXT, FOCUSABLE, FOCUS_MARK, HOVER_FREE, KEEP_FOCUS,
     KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
 };
@@ -4281,13 +4281,6 @@ fn scroll_travel(overscroll: f64, height: f64) -> f64 {
 
 // ----------------------------------------------------------- painting
 
-
-/// Where the top of kit text of `size` points goes to sit centred in a row at `y` of height `h`: its
-/// top is half of what the row has over the text size. Measured against the kit's reference
-/// renders: 13-point text in a 24-point row has its ascenders at 7 and its descenders at 18.
-pub fn text_top_for(font_size: i64, size: Option<i64>, y: f32, h: f32) -> f32 {
-    y + ((h - size.unwrap_or(font_size) as f32) / 2.0).floor()
-}
 
 /// The instance clip of `rect`: whole points covering it.
 fn clip_of(Rect { x, y, w, h }: Rect) -> [i16; 4] {

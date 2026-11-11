@@ -1,6 +1,6 @@
 use core::{any::Any, ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
-use pxui_types::{PxuiBox, Size, Str, geom::Rect, layout::{Align, Placement, Side}, ffi::{PxuiAnchorDesc, PxuiDialogOut, PxuiSizeDesc}};
-use crate::{status, sys, Strs, Ui};
+use pxui_types::{PxuiBox, Size, Str, geom::Rect, layout::{Align, Placement, Side}, ffi::{PxuiAnchorDesc, PxuiDialogOut}};
+use crate::{node::size, status, sys, Strs, Ui};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DialogOut { Open, Closed, Button(usize) }
@@ -18,24 +18,13 @@ pub(crate) fn defer_callback_panic(panic: Box<dyn Any + Send>) {
     CALLBACK_PANIC.with(|slot| { let mut slot = slot.borrow_mut(); if slot.is_none() { *slot = Some(panic); } });
 }
 
-extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut sys::PxuiUi) {
+pub(crate) extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut sys::PxuiUi) {
     if raw.is_null() || deferred() { return; }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut ui = ManuallyDrop::new(Ui(NonNull::new(raw).unwrap()));
         (unsafe { &mut *user.cast::<F>() })(&mut ui);
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
-}
-
-#[inline]
-fn size(value: Size) -> PxuiSizeDesc {
-    match value {
-        Size::Px(value) => PxuiSizeDesc { kind: 0, value, relative: None },
-        Size::Pct(value) => PxuiSizeDesc { kind: 1, value, relative: None },
-        Size::Rel(relative) => PxuiSizeDesc { kind: 2, value: 0.0, relative: Some(relative) },
-        Size::Grow => PxuiSizeDesc { kind: 3, value: 0.0, relative: None },
-        Size::Fit => PxuiSizeDesc { kind: 4, value: 0.0, relative: None },
-    }
 }
 
 fn encode_placement(value: Placement) -> PxuiAnchorDesc {

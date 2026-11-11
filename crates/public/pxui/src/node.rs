@@ -12,7 +12,7 @@ mod sys {
     unsafe extern "C" { pub fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const NodeDesc,out:*mut PxuiBox)->i32; }
 }
 
-fn size(s:Size)->PxuiSizeDesc { match s {Size::Px(value)=>PxuiSizeDesc{kind:0,value,relative:None},Size::Pct(value)=>PxuiSizeDesc{kind:1,value,relative:None},Size::Rel(relative)=>PxuiSizeDesc{kind:2,value:0.0,relative:Some(relative)},Size::Grow=>PxuiSizeDesc{kind:3,value:0.0,relative:None},Size::Fit=>PxuiSizeDesc{kind:4,value:0.0,relative:None}} }
+pub(crate) fn size(s:Size)->PxuiSizeDesc { match s {Size::Px(value)=>PxuiSizeDesc{kind:0,value,relative:None},Size::Pct(value)=>PxuiSizeDesc{kind:1,value,relative:None},Size::Rel(relative)=>PxuiSizeDesc{kind:2,value:0.0,relative:Some(relative)},Size::Grow=>PxuiSizeDesc{kind:3,value:0.0,relative:None},Size::Fit=>PxuiSizeDesc{kind:4,value:0.0,relative:None}} }
 #[inline]
 fn align(v:Align)->u32 { v as u32 }
 fn track(v:Track)->PxuiTrackDesc { match v {Track::Px(value)=>PxuiTrackDesc{kind:0,value},Track::Fr(value)=>PxuiTrackDesc{kind:1,value},Track::Fit=>PxuiTrackDesc{kind:2,value:0.0}} }
@@ -20,7 +20,7 @@ fn font(v:Font)->PxuiFontDesc { PxuiFontDesc{family:v.family,weight:v.weight,siz
 fn shadow(v:Shadow)->PxuiShadowDesc { PxuiShadowDesc{color:v.color,offset:[v.offset.0,v.offset.1],blur:v.blur,spread:v.spread,inner:v.inner as u8,reserved:[0;3]} }
 pub(crate) fn look(v:Look)->PxuiLookDesc { PxuiLookDesc{fill:v.fill,gradient:v.gradient.unwrap_or_default(),has_gradient:v.gradient.is_some() as u8,reserved:[0;3],angle:v.angle,border:v.border,border_w:v.border_w,sides:v.sides as u32,radius:v.radius,shadows:[shadow(v.shadows[0]),shadow(v.shadows[1])],text:v.text,font:font(v.font),opacity:v.opacity,ring:PxuiRingDesc{color:v.ring.color,width:v.ring.width,sides:v.ring.sides as u32},selection:v.selection,caret:v.caret,dashed:v.dashed as u8,reserved_tail:[0;3]} }
 pub(crate) fn state(v:pxui_types::theme::State)->PxuiStateDesc { PxuiStateDesc{hovered:v.hovered as u8,pressed:v.pressed as u8,focused:v.focused as u8,disabled:v.disabled as u8,checked:v.checked as u8,reserved:[0;3]} }
-fn mark(v:Mark)->PxuiMarkDesc { match v {Mark::None=>PxuiMarkDesc{kind:0,..Default::default()},Mark::Chevron(dir)=>PxuiMarkDesc{kind:1,direction:dir as u32,..Default::default()},Mark::Line{width,rising}=>PxuiMarkDesc{kind:2,width,rising:rising as u8,..Default::default()}} }
+pub(crate) fn mark(v:Mark)->PxuiMarkDesc { match v {Mark::None=>PxuiMarkDesc{kind:0,..Default::default()},Mark::Chevron(dir)=>PxuiMarkDesc{kind:1,direction:dir as u32,..Default::default()},Mark::Line{width,rising}=>PxuiMarkDesc{kind:2,width,rising:rising as u8,..Default::default()}} }
 fn bar(v:Option<Bar>)->PxuiBarDesc { match v {None=>PxuiBarDesc::default(),Some(v)=>PxuiBarDesc{has_bar:1,whole:v.whole as u8,reserved:[0;2],color:v.color,radius:v.radius,width:v.width,gap:v.gap,margin:v.margin}} }
 
 /// Writes `g`'s tracks into `store` (columns first) and describes them. None when a list is longer than the ABI takes.

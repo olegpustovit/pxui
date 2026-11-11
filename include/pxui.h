@@ -25,6 +25,7 @@ typedef struct {
     PxuiEventSpan keys; /* borrowed from the Ui until its next frame, with the text its events point at */
 } PxuiSignal;
 typedef struct { const uint32_t *ptr; size_t len; } PxuiU32Span;
+typedef struct { const int64_t *ptr; size_t len; } PxuiI64Span;
 typedef struct { const uint8_t *ptr; size_t len; } PxuiU8Span;
 typedef struct { uint8_t *ptr; size_t len; } PxuiU8MutSpan;
 typedef struct { float *ptr; size_t len; } PxuiF32MutSpan;
@@ -144,6 +145,10 @@ typedef struct {
 } PxuiPanel;
 typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
+typedef PxuiRect (*PxuiHit)(void *user, PxuiRect rect);
+typedef void (*PxuiRelease)(void *user);
+/* A box declaration: axis is 0 row, 1 column, 2 stack. The hit callback and its release belong to the box's slot once the call is made. */
+typedef struct { uint32_t size, axis; int64_t flags; PxuiSizeDesc w,h; float max_h,padding,scroll_step; uint8_t has_at,has_hit_rect,reserved[2]; float at[2]; PxuiRect hit_rect; PxuiHit hit; void *hit_user; PxuiRelease hit_release; } PxuiBoxDesc;
 /* The callback UI pointer is borrowed and valid only for that callback; do not retain or destroy it. */
 typedef void (*PxuiBuild)(void *user, PxuiUi *ui);
 typedef void (*PxuiPaintBuild)(void *user, PxuiPaint *paint, PxuiRect rect);
@@ -320,5 +325,60 @@ PxuiRenderer *pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTar
 int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *commands, uint64_t frame, uint64_t completed);
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
 void pxui_renderer_destroy(PxuiRenderer *renderer);
+
+/* Queries and switches on the Ui as a whole. Text results are borrowed until the next frame. */
+int64_t pxui_ui_font_size(PxuiUi *ui);
+int64_t pxui_ui_row_height(PxuiUi *ui);
+uint64_t pxui_ui_frame_index(PxuiUi *ui);
+uint8_t pxui_ui_captured(PxuiUi *ui);
+uint8_t pxui_ui_text_input_focused(PxuiUi *ui);
+uint8_t pxui_ui_verifying(PxuiUi *ui);
+uint64_t pxui_ui_text_undo_bytes(PxuiUi *ui);
+float pxui_ui_inspector_width(PxuiUi *ui);
+float pxui_ui_inspector_label_x(PxuiUi *ui);
+uint32_t pxui_ui_passed_undo(PxuiUi *ui); /* 0 none, 1 undo, 2 redo */
+int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint8_t *out);
+int32_t pxui_ui_set_font_size(PxuiUi *ui, int64_t size);
+int32_t pxui_ui_unfocus(PxuiUi *ui);
+int32_t pxui_ui_dismiss_popup(PxuiUi *ui);
+int32_t pxui_ui_request_cursor(PxuiUi *ui, uint32_t shape); /* 1 horizontal resize, 2 vertical resize, 3 text */
+int32_t pxui_ui_repaint_after(PxuiUi *ui, double seconds);
+int32_t pxui_ui_verify_views(PxuiUi *ui, uint8_t on);
+int32_t pxui_ui_set_timing(PxuiUi *ui, uint8_t on);
+int32_t pxui_ui_phase_times(PxuiUi *ui, uint64_t *out, size_t len); /* nanoseconds, len must be 7 */
+int32_t pxui_ui_bytes(PxuiUi *ui, int64_t *out, size_t len); /* atlas, glyph lists, text undo; len must be 3 */
+uint32_t pxui_ui_platform(PxuiUi *ui); /* 0 other, 1 Apple */
+int32_t pxui_ui_rebuilt_named(PxuiUi *ui, PxuiStr prefix, uint64_t *out);
+int32_t pxui_ui_expanded(PxuiUi *ui, PxuiStr key, uint8_t *out); /* 0 unknown, 1 collapsed, 2 expanded */
+int32_t pxui_ui_hover_delay(PxuiUi *ui, PxuiStr key, uint8_t *out);
+int32_t pxui_ui_tooltip(PxuiUi *ui, PxuiStr key, PxuiStr text);
+int32_t pxui_ui_cap_width(PxuiUi *ui, PxuiStr text, float *out);
+float pxui_ui_text_top(PxuiUi *ui, uint8_t has_size, int64_t size, float y, float h);
+
+/* Boxes, patches, scroll and text state, carries, view transforms. */
+int32_t pxui_ui_box(PxuiUi *ui, PxuiStr label, const PxuiBoxDesc *desc, PxuiBox *out);
+int32_t pxui_ui_set_at(PxuiUi *ui, const PxuiBox *box, float x, float y);
+int32_t pxui_ui_patch_look(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc *value, uint8_t *out);
+int32_t pxui_ui_patch_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect value, uint8_t *out);
+int32_t pxui_ui_patch_mark(PxuiUi *ui, const PxuiBox *box, const PxuiMarkDesc *value, uint8_t *out);
+int32_t pxui_ui_local_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);
+int32_t pxui_ui_scroll_offset(PxuiUi *ui, const PxuiBox *box, uint32_t which, float *out); /* 0 offset, 1 painted position */
+int32_t pxui_ui_set_scroll_offset(PxuiUi *ui, const PxuiBox *box, float value);
+int32_t pxui_ui_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiStr *out);
+int32_t pxui_ui_set_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t present, PxuiStr value);
+int32_t pxui_ui_cached_label(PxuiUi *ui, const PxuiBox *box, uint64_t index, PxuiStr text, PxuiStr *out); /* borrowed from the slot */
+int32_t pxui_ui_to_front(PxuiUi *ui, int64_t order, const PxuiBox *box);
+int32_t pxui_ui_carrying(PxuiUi *ui, uint8_t *present, PxuiStr *kind, PxuiStr *value);
+int32_t pxui_ui_carry(PxuiUi *ui, uint8_t has_from, const PxuiBox *from, PxuiStr kind, PxuiStr value);
+int32_t pxui_ui_cancel_carry(PxuiUi *ui);
+int32_t pxui_ui_drop_target(PxuiUi *ui, const PxuiBox *box, uint32_t *tag, PxuiStr *kind, PxuiStr *value); /* 0 none, 1 hover, 2 dropped */
+int32_t pxui_ui_context_at(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiPoint *out);
+int32_t pxui_ui_hovered(PxuiUi *ui, const PxuiBox *box, uint8_t within, uint8_t *out);
+int32_t pxui_ui_press_keys(PxuiUi *ui, const PxuiBox *box, const uint32_t **ptr, size_t *len); /* key codes, borrowed until the next frame */
+int32_t pxui_ui_root_at(PxuiUi *ui, float x, float y, PxuiI64Span roots, uint8_t *present, int64_t *out);
+int32_t pxui_ui_view_flat(PxuiUi *ui, PxuiStr label, uint64_t revision, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
+int32_t pxui_ui_view_offset(PxuiUi *ui, const PxuiBox *box, float dx, float dy);
+int32_t pxui_ui_view_transform_about(PxuiUi *ui, const PxuiBox *box, float scale, const float *transform, float px, float py);
+int32_t pxui_ui_view_backdrop_blur(PxuiUi *ui, const PxuiBox *box, float sigma);
 
 #endif

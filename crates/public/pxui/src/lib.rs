@@ -1,6 +1,8 @@
 #![allow(clippy::all)]
 //! Stable PXUI wrapper. Shape and geometry types are re-exported from the std-only public crate.
 
+#[macro_use]
+mod macros;
 use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
@@ -67,9 +69,14 @@ mod a11y_state;
 mod style;
 mod text_width;
 mod interaction;
+mod ui_state;
+mod box_ops;
+pub use ui_state::{Bytes, Platform};
 mod node;
 #[cfg(all(test, feature = "static"))]
 mod settled;
+#[cfg(all(test, feature = "static"))]
+mod surface;
 #[cfg(all(test, feature = "static"))]
 mod panics;
 pub use interaction::{Signal, SignalEvent, UiSaved};
@@ -186,13 +193,13 @@ impl Ui {
     /// library and resumed here, after the call returns.
     pub fn frame<F: FnMut(&mut Ui)>(&mut self, input: &FrameIn, mut build: F) -> Result<Frame<'_>, i32> {
         let mut out = FrameOut::default();
-        let rc = unsafe { sys::pxui_frame(self.0.as_ptr(), input, Some(frame_callback::<F>), &mut build as *mut _ as *mut c_void, &mut out) };
+        let rc = unsafe { sys::pxui_frame(self.0.as_ptr(), input, Some(composite::call::<F>), &mut build as *mut _ as *mut c_void, &mut out) };
         self.framed(rc, out)
     }
 
     pub fn input_frame<F: FnMut(&mut Ui)>(&mut self,input:&Input,mut build:F)->Result<Frame<'_>,i32> {
         let mut out=FrameOut::default();
-        let rc=unsafe { sys::pxui_ui_frame(self.0.as_ptr(),input,Some(frame_callback::<F>),&mut build as *mut _ as *mut c_void,&mut out) };
+        let rc=unsafe { sys::pxui_ui_frame(self.0.as_ptr(),input,Some(composite::call::<F>),&mut build as *mut _ as *mut c_void,&mut out) };
         self.framed(rc, out)
     }
 
@@ -250,16 +257,16 @@ impl Ui {
 
     #[inline]
     pub fn within<F: FnMut(&mut Ui)>(&mut self, box_: &PxuiBox, mut f: F) {
-        unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(frame_callback::<F>), &mut f as *mut _ as *mut c_void) }
+        unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call::<F>), &mut f as *mut _ as *mut c_void) }
     }
 
     #[inline]
     pub fn scope<F: FnMut(&mut Ui)>(&mut self, label: &str, mut f: F) {
-        unsafe { sys::pxui_scope(self.0.as_ptr(), as_str(label), Some(frame_callback::<F>), &mut f as *mut _ as *mut c_void) }
+        unsafe { sys::pxui_scope(self.0.as_ptr(), as_str(label), Some(composite::call::<F>), &mut f as *mut _ as *mut c_void) }
     }
     #[inline]
     pub fn col<F: FnMut(&mut Ui)>(&mut self, padding:f32, label:&str, mut f:F) {
-        unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(frame_callback::<F>), &mut f as *mut _ as *mut c_void) }
+        unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(composite::call::<F>), &mut f as *mut _ as *mut c_void) }
     }
     pub fn panel<F: FnMut(&mut Ui)>(&mut self, label:&str, f:F) {
         let panel = sys::PxuiPanel { x:12.0,y:12.0,width:280.0,..sys::PxuiPanel::default() };
@@ -267,7 +274,7 @@ impl Ui {
     }
     #[inline]
     pub fn panel_desc<F: FnMut(&mut Ui)>(&mut self, panel:&PxuiPanel, label:&str, mut f:F) {
-        unsafe { sys::pxui_panel(self.0.as_ptr(), panel, as_str(label), Some(frame_callback::<F>), &mut f as *mut _ as *mut c_void) }
+        unsafe { sys::pxui_panel(self.0.as_ptr(), panel, as_str(label), Some(composite::call::<F>), &mut f as *mut _ as *mut c_void) }
     }
     #[inline] pub fn label(&mut self, text:&str) { unsafe { sys::pxui_label(self.0.as_ptr(), as_str(text)) } }
     #[inline] pub fn button(&mut self, text:&str) -> bool { unsafe { sys::pxui_button(self.0.as_ptr(), as_str(text)) != 0 } }
@@ -277,16 +284,6 @@ impl Ui {
         let did_change = unsafe { sys::pxui_text_field(self.0.as_ptr(), as_str(label), as_str(value), &mut changed) };
         if did_change == 0 { None } else { Some(core::str::from_utf8(unsafe { core::slice::from_raw_parts(changed.ptr, changed.len) }).ok()?) }
     }
-}
-
-extern "C" fn frame_callback<F:FnMut(&mut Ui)>(user:*mut c_void,raw:*mut sys::PxuiUi) {
-    if user.is_null() || raw.is_null() || composite::deferred() { return; }
-    let result=std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let f=unsafe{&mut *user.cast::<F>()};
-        let mut ui=core::mem::ManuallyDrop::new(Ui(unsafe{NonNull::new_unchecked(raw)}));
-        f(&mut ui);
-    }));
-    if let Err(panic)=result { composite::defer_callback_panic(panic); }
 }
 
 impl Drop for Ui { fn drop(&mut self) { let _ = unsafe { sys::pxui_ui_destroy(self.0.as_ptr()) }; } }
@@ -318,6 +315,11 @@ impl Strs {
 
 #[inline]
 fn as_str(s: &str) -> Str { Str { ptr: s.as_ptr(), len: s.len() } }
+
+/// A failed call is a caller bug the engine would panic on (stale handle, non-finite number, oversized text):
+/// it panics with the library's message, inside the frame callback (carried to the app's `frame` call) or at the call.
+#[track_caller]
+fn check(ui: &Ui, rc: i32) { if rc != 0 { panic!("pxui: {} ({rc})", ui.last_error()); } }
 #[cfg(feature="static")]
 #[inline]
 fn abi_version()->u32 { unsafe { sys::pxui_abi_version() } }
