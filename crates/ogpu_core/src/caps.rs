@@ -57,6 +57,9 @@ pub struct Caps {
     pub ray_tracing_refit: bool,
     pub memoryless_attachments: bool,
     pub unified_memory: bool,
+    /// A CPU driver (Vulkan's VK_PHYSICAL_DEVICE_TYPE_CPU: lavapipe): it rasterises and rounds blends unlike
+    /// hardware and runs heavy work far slower, which pixel tests and time budgets may allow for.
+    pub cpu_device: bool,
 }
 
 pub fn minimum_m1() -> Caps {
@@ -80,6 +83,7 @@ pub fn minimum_m1() -> Caps {
         ray_tracing_refit: false,
         memoryless_attachments: false,
         unified_memory: false,
+        cpu_device: false,
     }
 }
 

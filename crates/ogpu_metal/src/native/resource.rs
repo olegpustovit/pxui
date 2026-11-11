@@ -91,6 +91,7 @@ impl Device {
             ray_tracing_curves: info.raytracing && curves, ray_tracing_motion: info.raytracing,
             ray_tracing_refit: true, memoryless_attachments: family(DeviceFamily::Apple7)?,
             unified_memory: info.unified_memory,
+            cpu_device: false,
         };
         let _ = self.0.capabilities.set(caps);
         Ok(caps)

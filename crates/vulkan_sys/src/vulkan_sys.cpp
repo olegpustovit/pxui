@@ -611,14 +611,14 @@ VkResult staged_write(Buffer *b, VkDeviceSize offset, const void *src, VkDeviceS
 }
 
 extern "C" {
-struct rv_facts { uint64_t max_buffer, max_texture_1d, max_texture_2d, max_texture_3d, max_texture_cube, max_array_layers, device_local_bytes; uint32_t sample_counts, color_sample_counts, depth_sample_counts, max_invocations, api_version, ray_tracing; };
+struct rv_facts { uint64_t max_buffer, max_texture_1d, max_texture_2d, max_texture_3d, max_texture_cube, max_array_layers, device_local_bytes; uint32_t sample_counts, color_sample_counts, depth_sample_counts, max_invocations, api_version, ray_tracing, cpu_device; };
 int32_t rv_device_create(bool validation, bool fatal, void **out) { return create_device(validation, fatal, reinterpret_cast<Device **>(out)); }
 int32_t rv_validation_messages() { return validation_messages.load(std::memory_order_relaxed); }
 int32_t rv_device_facts(void *handle, rv_facts *out) {
   auto *d = static_cast<Device *>(handle); auto *l = &d->properties.limits; VkPhysicalDeviceMemoryProperties m{}; vkGetPhysicalDeviceMemoryProperties(d->physical, &m);
   uint64_t local = 0; for (uint32_t i = 0; i < m.memoryHeapCount; ++i) if ((m.memoryHeaps[i].flags & VK_MEMORY_HEAP_DEVICE_LOCAL_BIT) && m.memoryHeaps[i].size > local) local = m.memoryHeaps[i].size;
   VkSampleCountFlags s = l->framebufferColorSampleCounts & l->framebufferDepthSampleCounts;
-  *out = {l->maxStorageBufferRange, l->maxImageDimension1D, l->maxImageDimension2D, l->maxImageDimension3D, l->maxImageDimensionCube, l->maxImageArrayLayers, local, static_cast<uint32_t>(s), static_cast<uint32_t>(l->framebufferColorSampleCounts), static_cast<uint32_t>(l->framebufferDepthSampleCounts), l->maxComputeWorkGroupInvocations, d->properties.apiVersion, d->ray_tracing}; return VK_SUCCESS;
+  *out = {l->maxStorageBufferRange, l->maxImageDimension1D, l->maxImageDimension2D, l->maxImageDimension3D, l->maxImageDimensionCube, l->maxImageArrayLayers, local, static_cast<uint32_t>(s), static_cast<uint32_t>(l->framebufferColorSampleCounts), static_cast<uint32_t>(l->framebufferDepthSampleCounts), l->maxComputeWorkGroupInvocations, d->properties.apiVersion, d->ray_tracing, d->properties.deviceType == VK_PHYSICAL_DEVICE_TYPE_CPU}; return VK_SUCCESS;
 }
 int32_t rv_device_memory(void *handle, uint64_t *held, uint64_t *budget) {
   auto *d = static_cast<Device *>(handle); VmaBudget b[VK_MAX_MEMORY_HEAPS]{}; vmaGetHeapBudgets(d->allocator, b); VkPhysicalDeviceMemoryProperties m{}; vkGetPhysicalDeviceMemoryProperties(d->physical, &m);
