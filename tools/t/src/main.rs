@@ -277,13 +277,16 @@ fn ensure_libpxui(args: &Args) -> Result<(), i32> {
         Ok(status) => return Err(status_code(status)),
         Err(error) => { eprintln!("rays-t: failed to build libpxui: {error}"); return Err(1); }
     }
-    let (library, soname) = if cfg!(target_os = "macos") { ("libpxui.dylib", "libpxui.1.dylib") } else { ("libpxui.so", "libpxui.so.1") };
-    let dir = args.target_dir.clone().unwrap_or_else(default_target_dir).join(profile);
-    let link = dir.join(soname);
     #[cfg(unix)]
-    if fs::symlink_metadata(&link).is_err() {
-        if let Err(error) = std::os::unix::fs::symlink(library, &link) { eprintln!("rays-t: cannot link {}: {error}", link.display()); return Err(1); }
+    {
+        let (library, soname) = if cfg!(target_os = "macos") { ("libpxui.dylib", "libpxui.1.dylib") } else { ("libpxui.so", "libpxui.so.1") };
+        let link = args.target_dir.clone().unwrap_or_else(default_target_dir).join(profile).join(soname);
+        if fs::symlink_metadata(&link).is_err() {
+            if let Err(error) = std::os::unix::fs::symlink(library, &link) { eprintln!("rays-t: cannot link {}: {error}", link.display()); return Err(1); }
+        }
     }
+    #[cfg(not(unix))]
+    let _ = profile;
     Ok(())
 }
 
