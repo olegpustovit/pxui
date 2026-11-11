@@ -6627,6 +6627,8 @@ impl Ui {
                 changed = true;
             }
             d.instances.truncate(w as usize);
+            // a range the host never drew may reach past the shorter layer: the painter refuses it
+            d.dirty.retain_mut(|r| { r.1 = r.1.min(w); r.0 < r.1 });
         } else {
             changed = true;
             self.compact_layer(s, &mut d, old_len);
