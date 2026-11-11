@@ -12,12 +12,39 @@ use pxui_types::Str;
 
 pub use pxui_types::{draw, geom};
 pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};
-pub use pxui_core::{a11y, ui, ui_core, ui_kit, ui_text, ui_widgets};
-pub use pxui_core::Theme;
-pub use pxui_core::text as engine_text;
-pub use pxui_render as render;
 
 pub use pxui_types::theme;
+
+/// The engine's module paths, so an app moves to the wrapper by swapping its dependency.
+pub mod a11y {
+    pub use pxui_types::a11y::{state, Role};
+    pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree};
+}
+pub mod ui_core {
+    pub use pxui_types::ui::*;
+    pub use pxui_types::PxuiBox as UiBox;
+    pub use pxui_types::{Flags, Size};
+    pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
+    /// The key of a node handle.
+    #[inline] pub fn key(b: &UiBox) -> i64 { b.box_key }
+}
+pub mod ui_text {
+    pub use pxui_types::ui::{fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
+    pub use crate::{MenuOpts, PickerOpts, TextAreaOpts, ValueFieldOpts};
+}
+pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
+pub mod ui_widgets { pub use crate::{DialogOut, TreeNode}; }
+pub mod ui {
+    pub use crate::ui_core::*;
+    pub use crate::ui_text::*;
+    pub use crate::ui_widgets::*;
+    pub use crate::{Paint, Signal, Ui};
+    pub use pxui_types::draw::*;
+    pub use pxui_types::geom::*;
+    pub use pxui_types::layout::*;
+    pub use pxui_types::theme::{Curve, Font, Look, Ring, Shadow, State, States, Tokens};
+    pub use pxui_types::a11y::Role;
+}
 pub mod text;
 pub use text::Text;
 pub mod paint;
@@ -26,7 +53,8 @@ pub mod widgets;
 pub mod composite;
 pub use composite::DialogOut;
 pub mod overlays;
-pub use overlays::{MenuOpts, MenuResult, Pick, PickerOpts};
+pub use overlays::{MenuOpts, PickerOpts};
+pub use pxui_types::ui::{MenuResult, Pick};
 pub mod collections;
 pub use collections::TreeNode;
 pub mod image;
@@ -81,7 +109,6 @@ mod sys {
         pub fn pxui_ui_node(ui:*mut PxuiUi,label:Str,node:*const PxuiNodeDesc,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut pxui_types::geom::Rect)->i32;
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
-        pub fn pxui_key_of(seed:i64,label:Str)->i64;
         pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->i32;
         pub fn pxui_ui_modal(ui:*mut PxuiUi,label:Str,has_width:u8,width:f32,build:Option<extern "C" fn(*mut c_void,*mut PxuiUi)>,user:*mut c_void,out:*mut u8)->i32;
         pub fn pxui_ui_scroll_view(ui:*mut PxuiUi,label:Str,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:Option<extern "C" fn(*mut c_void,*mut PxuiUi)>,user:*mut c_void,out:*mut PxuiBox)->i32;
@@ -218,7 +245,7 @@ impl Ui {
         let mut out=geom::Rect::default();status(unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)})?;Ok(out)
     }
     #[inline] pub fn box_of_key(&mut self,key:i64)->Option<PxuiBox>{let mut out=PxuiBox::default();(unsafe{sys::pxui_ui_box_of_key(self.0.as_ptr(),key,&mut out)}!=0).then_some(out)}
-    #[inline] pub fn key_of(seed:i64,label:&str)->i64{unsafe{sys::pxui_key_of(seed,as_str(label))}}
+    #[inline] pub fn key_of(seed:i64,label:&str)->i64{pxui_types::ui::key_of(seed,label)}
     #[inline] pub fn text(&mut self,box_:&PxuiBox,value:&str)->Result<(),i32>{status(unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
 
     #[inline]

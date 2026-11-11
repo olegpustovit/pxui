@@ -6,7 +6,7 @@ pub const TIERS: &[&str] = &["public", "private", "open"];
 
 pub fn tier_allows(from_tier: &str, from_crate: &str, to_tier: &str, to_crate: &str, optional: bool, static_feature: bool) -> bool {
     match from_tier {
-        "public" => to_tier == "public" || (from_crate == "pxui" && to_tier == "private" && matches!(to_crate, "pxui_core" | "pxui_render")) || (from_crate == "pxui" && to_tier == "private" && to_crate == "pxui_abi" && optional && static_feature),
+        "public" => to_tier == "public" || (from_crate == "pxui" && to_tier == "private" && to_crate == "pxui_abi" && optional && static_feature),
         "private" => to_tier == "private" || to_tier == "open" || (to_tier == "public" && to_crate == "pxui_types"),
         "open" => to_tier == "open",
         _ => false,
@@ -47,10 +47,10 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("pxui_atspi", &["pxui_core", "pxui_types"][..]),
         ("pxui_abi", &[][..]),
         ("pxui_types", &[][..]),
-        // The public wrapper forwards to the private engine/renderer and its static ABI link.
-        ("pxui", &["pxui_core", "pxui_render", "pxui_types"][..]),
+        // The public wrapper names only the public types; the optional static link is a package-level edge below.
+        ("pxui", &["pxui_types"][..]),
         // The kit gallery app: the engine, the painter and the platform's window host and GPU backend.
-        ("pxui_gallery", &["pxui", "pxui_core", "input", "mem_sys", "ogpu_core", "pxui_render", "pxui_types", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
+        ("pxui_gallery", &["pxui", "input", "mem_sys", "ogpu_core", "pxui_types", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
     ])
 }
 
@@ -58,7 +58,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
 pub fn package_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
     HashMap::from([
         // The public wrapper's optional static link points at the cdylib whose crate name is `pxui`.
-        ("pxui", &["pxui", "pxui_core", "pxui_render", "pxui_types"][..]),
+        ("pxui", &["pxui", "pxui_types"][..]),
         ("pxui_abi", &["input", "pxui_core", "pxui_render", "pxui_types", "pxui_text", "ogpu_core", "ogpu_metal", "ogpu_vulkan"][..]),
     ])
 }

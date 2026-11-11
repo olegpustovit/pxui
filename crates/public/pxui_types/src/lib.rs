@@ -9,6 +9,7 @@ pub mod layout;
 pub mod node;
 pub mod text;
 pub mod theme;
+pub mod ui;
 
 pub use node::{Axis, Bar, Dir, Mark, Node};
 pub use text::{TextGlyph, TextMetrics, TextStyle};
@@ -269,7 +270,7 @@ pub struct Span {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiBox { pub index: u64, pub key: i64, pub slot: u64, pub generation: u32 }
+pub struct PxuiBox { pub index: u64, pub box_key: i64, pub box_slot: u64, pub generation: u32 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -321,7 +322,7 @@ mod abi_layout {
     #[test]
     fn abi_descriptors_match_layout_snapshot() {
         assert_layout("PxuiBox", size_of::<PxuiBox>(), align_of::<PxuiBox>(), &[
-            offset_of!(PxuiBox, index), offset_of!(PxuiBox, key), offset_of!(PxuiBox, slot), offset_of!(PxuiBox, generation),
+            offset_of!(PxuiBox, index), offset_of!(PxuiBox, box_key), offset_of!(PxuiBox, box_slot), offset_of!(PxuiBox, generation),
         ]);
         assert_layout("PxuiPanel", size_of::<PxuiPanel>(), align_of::<PxuiPanel>(), &[
             offset_of!(PxuiPanel, size), offset_of!(PxuiPanel, x), offset_of!(PxuiPanel, y), offset_of!(PxuiPanel, width),

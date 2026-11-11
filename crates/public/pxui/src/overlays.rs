@@ -1,12 +1,6 @@
 use core::ffi::c_void;
-use pxui_types::{PxuiBox, Str, ffi::Slice};
+use pxui_types::{PxuiBox, Str, ffi::Slice, ui::{MenuResult, Pick}};
 use crate::{composite::{defer_callback_panic, deferred}, status, Strs, Ui};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MenuResult { Open, Pick(i64), Dismiss }
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Pick { None, Pick(i64), Delete(i64), Submit, Back, Cancel }
 
 #[derive(Clone, Debug, Default)]
 pub struct MenuOpts { pub width: Option<f32>, pub selected: Option<i64> }

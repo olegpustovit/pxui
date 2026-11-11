@@ -23,44 +23,22 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 pub use pxui_types::{Flags, Size};
+pub use pxui_types::ui::{
+    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, BoxOpts, Cursor, Drop, HitFn, Payload, Target, UndoKind,
+    BLOCKING, CAPTURE_UNCLAIMED, CLICKABLE, CLIP, DRAG_FREE, DRAG_THRESHOLD, FIT_TEXT, FOCUSABLE, FOCUS_MARK, HOVER_FREE, KEEP_FOCUS,
+    KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
+};
 pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
 /// Sentinel for no box in parent, child and sibling indices.
 pub const NONE: usize = usize::MAX;
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Origin {
+    FromPointer(i64),
+    FromKey,
+}
+
 // ---------------------------------------------------------------- keys
-
-const ROOT_KEY: i64 = 0x2c1b3c6d;
-
-/// Keys 0 and 1 are the open-addressing empty/tombstone marks.
-fn hash_range(seed: i64, text: &str, first: usize, last: usize) -> i64 {
-    let hash = hash::bytes(seed as u64, &text.as_bytes()[first..last]) as i64;
-    if hash == 0 || hash == 1 { hash + 2 } else { hash }
-}
-
-fn find_marker(text: &str, marker: &str) -> Option<usize> {
-    if text.contains('#') { text.find(marker) } else { None }
-}
-
-pub fn key_of(seed: i64, text: &str) -> i64 {
-    // the id after ### replaces the label's hash, under the same parent: two panels that build the
-    // same widget keep separate state
-    match find_marker(text, "###") {
-        Some(index) => hash_range(seed, text, index + 3, text.len()),
-        None => hash_range(seed, text, 0, text.len()),
-    }
-}
-
-/// The label without its `##` suffix.
-pub fn display(text: &str) -> String {
-    shown(text).to_owned()
-}
-
-pub(crate) fn shown(text: &str) -> &str {
-    match find_marker(text, "##") {
-        Some(index) => &text[..index],
-        None => text,
-    }
-}
 
 // ------------------------------------------------------ retained cache
 
@@ -142,91 +120,7 @@ impl SlotTable {
 
 // ------------------------------------------------------------- boxes
 
-pub const NO_FLAGS: Flags = 0;
-pub const CLICKABLE: Flags = 1;
-pub const FOCUSABLE: Flags = 2;
-pub const SCROLL: Flags = 4;
-pub const CLIP: Flags = 8;
-pub const BLOCKING: Flags = 16;
-/// Kit controls enter keyboard mode through Tab; pointer editing retains the existing host
-/// shortcut behavior. Text-entry rows also focus on a press.
-pub const TAB_ONLY: Flags = 32;
-/// Keyboard traversal focus for a control whose pointer interaction leaves keyboard input with its
-/// host. Escape relinquishes this keyboard focus.
-pub const TAB_STOP: Flags = FOCUSABLE | TAB_ONLY;
-/// a multiline editor keeps Tab for itself (two spaces) instead of moving the focus
-pub const KEEP_TAB: Flags = 64;
-/// a press on such a box leaves the keyboard focus where it is (a completion row under an editor)
-pub const KEEP_FOCUS: Flags = 128;
-/// a scrolling box whose thumb is drawn over its content (an inspector body): no gutter
-pub const OVER_THUMB: Flags = 4096;
-/// A press whose topmost hit box is not clickable is captured by the nearest ancestor with this
-/// flag.
-pub const CAPTURE_UNCLAIMED: Flags = 8192;
-/// the control marks its own keyboard focus: the engine strokes no ring round it
-pub const FOCUS_MARK: Flags = 256;
-pub const TAB_STOP_MARKED: Flags = TAB_STOP | FOCUS_MARK;
-/// The node's text is cut with an ellipsis to the room its look leaves (the placed width less the
-/// text inset) when it does not fit.
-pub const FIT_TEXT: Flags = 16384;
-/// scrolls sideways (the wheel's and the trackpad's horizontal motion); with `SCROLL` on both axes
-pub const SCROLL_X: Flags = 32768;
-/// a flow child of a scroll box that stops at its top edge instead of scrolling out (CSS sticky);
-/// it paints over its siblings
-pub const STICKY: Flags = 65536;
-/// with `CLIP`: the children's clip takes the corner radius of the node's look (CSS `overflow:
-/// hidden` with `border-radius`); without it a clip is square
-pub const ROUND_CLIP: Flags = 131072;
-/// Nothing the node's view builds follows its hover: the pointer moving onto or off it dirties no
-/// view (the app reads `hovered_within` between frames and patches what shows it).
-pub const HOVER_FREE: Flags = 262144;
-/// The node's square look paints its fill and border instances even when they are clear, so a
-/// patch to a look that shows them rewrites its range in place (it never grows the layer).
-pub const KEEP_ROOM: Flags = 524288;
-/// Nothing the node's view builds follows a drag of it: while the pointer holds it and only moves
-/// (no press, release or key), its view is not dirtied. The owner reads the drag between builds
-/// (`signal` on the kept handle; `field_drag` for a `value_field`) and patches what shows it.
-pub const DRAG_FREE: Flags = 1048576;
 const HIT_FLAGS: Flags = CLICKABLE | FOCUSABLE | SCROLL | SCROLL_X | BLOCKING | CAPTURE_UNCLAIMED;
-
-/// What a carry holds: a `kind` and a `value`, both strings.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Payload {
-    pub kind: String,
-    pub value: String,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-enum Origin {
-    FromPointer(i64),
-    FromKey,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Drop {
-    /// the pointer is over the box while a payload is held
-    Hover(Payload),
-    /// the payload was released over the box, this frame only
-    Dropped(Payload),
-}
-
-/// Points a pressed pointer travels before a press is a drag: a carry starts, a click ends.
-pub const DRAG_THRESHOLD: f32 = 4.0;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Cursor {
-    HorizontalResize,
-    VerticalResize,
-    Text,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum UndoKind {
-    Undo,
-    Redo,
-}
-
-pub type HitFn = Rc<dyn Fn(Rect) -> Rect>;
 
 pub use crate::theme::{Curve, Font, Look, Ring, Shadow, State, States, Theme, Tokens};
 pub use crate::a11y::{A11yAction, A11yTree, Role};
@@ -298,14 +192,6 @@ struct Keys {
     t: [f32; MAX_KEYS],
     pose: [Pose; MAX_KEYS],
     curve: [Curve; MAX_KEYS],
-}
-
-/// What `Ui::animate` moves a node to.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Target {
-    Look(Look),
-    Offset(f32, f32),
-    Opacity(f32),
 }
 
 /// A transparent colour.
@@ -1150,18 +1036,8 @@ pub type ShelfEntry = (i64, String, Vec<(String, usize, usize)>, Vec<(String, us
 
 
 
-pub fn contains(rect: Rect, point: (f32, f32)) -> bool { rect.contains(point) }
-
-pub fn intersect(a: Rect, b: Rect) -> Rect { a.intersect(b) }
-
 fn rgba(c: Color) -> [u8; 4] {
     [c.r, c.g, c.b, c.a]
-}
-
-/// Integer-derived child keys: no label string per frame.
-pub fn int_key(seed: i64, n: i64) -> i64 {
-    let hash = hash::mix(seed, n);
-    if hash == 0 || hash == 1 { hash + 2 } else { hash }
 }
 
 impl Ui {
@@ -2774,76 +2650,6 @@ pub fn ellipsis<'a>(width: &mut dyn FnMut(&str) -> f32, limit: f32, label: &'a s
 pub(crate) const HOVER_SECONDS: f64 = 0.380;
 
 // ------------------------------------------------------------- boxes
-
-#[derive(Clone)]
-pub struct BoxOpts {
-    pub flags: Flags,
-    pub w: Size,
-    pub h: Size,
-    pub max_h: f32,
-    pub axis: Axis,
-    pub padding: f32,
-    pub at: Option<(f32, f32)>,
-    pub scroll_step: f32,
-    pub hit: Option<HitFn>,
-    pub hit_rect: Option<Rect>,
-}
-
-impl Default for BoxOpts {
-    fn default() -> BoxOpts {
-        BoxOpts {
-            flags: NO_FLAGS,
-            w: Size::Grow,
-            h: Size::Fit,
-            max_h: f32::INFINITY,
-            axis: Axis::Column,
-            padding: 0.0,
-            at: None,
-            scroll_step: 24.0,
-            hit: None,
-            hit_rect: None,
-        }
-    }
-}
-
-impl BoxOpts {
-    pub fn flags(mut self, flags: Flags) -> BoxOpts {
-        self.flags = flags;
-        self
-    }
-    pub fn w(mut self, w: Size) -> BoxOpts {
-        self.w = w;
-        self
-    }
-    pub fn h(mut self, h: Size) -> BoxOpts {
-        self.h = h;
-        self
-    }
-    pub fn max_h(mut self, max_h: f32) -> BoxOpts {
-        self.max_h = max_h;
-        self
-    }
-    pub fn axis(mut self, axis: Axis) -> BoxOpts {
-        self.axis = axis;
-        self
-    }
-    pub fn padding(mut self, padding: f32) -> BoxOpts {
-        self.padding = padding;
-        self
-    }
-    pub fn at(mut self, at: (f32, f32)) -> BoxOpts {
-        self.at = Some(at);
-        self
-    }
-    pub fn scroll_step(mut self, step: f32) -> BoxOpts {
-        self.scroll_step = step;
-        self
-    }
-    pub fn hit(mut self, hit: HitFn) -> BoxOpts {
-        self.hit = Some(hit);
-        self
-    }
-}
 
 /// What `enter`, `scope` and `enter_root` change; `leave` puts it back. Each only pushes (a root
 /// pushes the root box), so the depths restore it with no allocation.

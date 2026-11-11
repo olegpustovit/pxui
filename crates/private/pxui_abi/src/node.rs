@@ -107,11 +107,6 @@ export!(pub unsafe fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox
     1
 });
 
-export!(bare pub unsafe fn pxui_key_of(seed:i64,label:pxui_types::Str)->i64 {
-    let Some(label)=(unsafe{text(label)}) else{return 0};
-    pxui_core::ui_core::key_of(seed,label)
-});
-
 export!(pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:pxui_types::Str)->i32 {
     let Some(state)=(unsafe{get(ui)}) else{return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null(){return unsafe{fail(ui,"null text box")};}

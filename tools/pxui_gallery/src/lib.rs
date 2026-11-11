@@ -305,7 +305,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         ui.within(&row, &mut |ui: &mut Ui| {
             let _ = ui.icon_button("Help", "?");
         });
-        if let Some(help) = ui.box_of_key(Ui::key_of(row.key, "Help")) {
+        if let Some(help) = ui.box_of_key(Ui::key_of(row.box_key, "Help")) {
             let _ = ui.tip(&help, "Rest the pointer on a control to see its tip");
         }
         if !s.said.is_empty() {

@@ -10,6 +10,7 @@ use crate::theme;
 const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
 use crate::ui_core::*;
 use crate::ui_kit::*;
+pub use pxui_types::ui::{fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
 use input::{Event, Key, MouseButton};
 use crate::geom::{color, Rgba as Color};
 use std::rc::Rc;
@@ -115,25 +116,6 @@ pub fn word_right(text: &str, i: usize) -> usize {
         i += 1;
     }
     while i < n && word_char(b[i]) {
-        i += 1;
-    }
-    i
-}
-
-pub fn line_start(text: &str, i: usize) -> usize {
-    let b = text.as_bytes();
-    let mut i = i;
-    while i > 0 && b[i - 1] != b'\n' {
-        i -= 1;
-    }
-    i
-}
-
-pub fn line_end(text: &str, i: usize) -> usize {
-    let b = text.as_bytes();
-    let n = b.len();
-    let mut i = i;
-    while i < n && b[i] != b'\n' {
         i += 1;
     }
     i
@@ -992,67 +974,7 @@ pub fn context_clicked(signal: &Signal) -> bool {
     signal.released && signal.button == Some(MouseButton::RightButton) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
 }
 
-/// Case-insensitive (ASCII) subsequence match. Allocates nothing.
-pub fn fuzzy_match(query: &str, text: &str) -> bool {
-    fuzzy_score(query, text).is_some()
-}
-
-/// `fuzzy_match` with a rank: `None` when `query` is not a subsequence of `text`, else higher for a
-/// better match. Each matched byte scores 1, plus 5 when it follows the previous match directly and
-/// 8 when it starts a word (the text's start, after a non-alphanumeric byte, or an upper-case byte
-/// after a lower-case one); each byte skipped before a match costs 1. A byte that cannot continue the
-/// previous match takes the next word start that still leaves the rest of the query matchable.
-/// No allocation (queries past 64 bytes match leftmost); O(text x query) at worst.
-pub fn fuzzy_score(query: &str, text: &str) -> Option<i32> {
-    let (q, t) = (query.as_bytes(), text.as_bytes());
-    let word_start = |i: usize| i == 0 || !t[i - 1].is_ascii_alphanumeric() || (t[i].is_ascii_uppercase() && t[i - 1].is_ascii_lowercase());
-    // the latest position each query byte can take with the rest still matchable after it
-    let mut limit = [usize::MAX; 64];
-    let mut end = t.len();
-    for k in (0..q.len()).rev() {
-        end = (0..end).rev().find(|&i| t[i].eq_ignore_ascii_case(&q[k]))?;
-        if k < 64 {
-            limit[k] = end;
-        }
-    }
-    let (mut score, mut at, mut last) = (0, 0usize, None::<usize>);
-    for (k, &c) in q.iter().enumerate() {
-        let hit = |i: &usize| t[*i].eq_ignore_ascii_case(&c);
-        let first = (at..t.len()).find(hit)?;
-        let i = if last.is_some_and(|l| l + 1 == first) || word_start(first) || k >= 64 {
-            first
-        } else {
-            (first..=limit[k]).find(|i| hit(i) && word_start(*i)).unwrap_or(first)
-        };
-        score += 1 + if last.is_some_and(|l| l + 1 == i) { 5 } else { 0 } + if word_start(i) { 8 } else { 0 } - (i - at) as i32;
-        (at, last) = (i + 1, Some(i));
-    }
-    Some(score)
-}
-
 // ------------------------------------------------------------------ text area
-
-/// One ranked suggestion of `Language::complete`.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Completion {
-    /// the byte span `insert` replaces
-    pub replace: (i64, i64),
-    pub insert: String,
-    /// the row
-    pub label: String,
-    /// the row's right column: a type, a category
-    pub detail: String,
-    /// one line under the rows while the row is selected
-    pub doc: String,
-}
-
-/// What a character typed at the caret lands in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CodeContext {
-    Code,
-    String,
-    Comment,
-}
 
 /// What a code editor knows about its text. A host supplies one (the editor's Lisp); the text area
 /// itself is language-free. Byte positions are byte offsets into the text.
@@ -1644,17 +1566,6 @@ impl AreaPaint {
 
 // ------------------------------------------------------------------ picker
 
-/// The result of a `picker` for a frame.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Pick {
-    None,
-    Pick(i64),
-    Delete(i64),
-    Submit,
-    Back,
-    Cancel,
-}
-
 #[derive(Clone)]
 pub struct PickerOpts {
     pub limit: i64,
@@ -1697,13 +1608,6 @@ pub struct Submenu {
     pub keys: Vec<String>,
     /// the row marked with the accent square
     pub current: Option<i64>,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MenuResult {
-    Open,
-    Pick(i64),
-    Dismiss,
 }
 
 #[derive(Clone, Default)]

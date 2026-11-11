@@ -4,7 +4,6 @@ function pxui_abi_version uint32_t pxui_abi_version ( void ) ;
 function pxui_button uint8_t pxui_button ( PxuiUi * ui , PxuiStr label ) ;
 function pxui_col void pxui_col ( PxuiUi * ui , float padding , PxuiStr label , PxuiBuild build , void * user ) ;
 function pxui_frame int32_t pxui_frame ( PxuiUi * ui , const PxuiFrameIn * in , PxuiBuild build , void * user , PxuiFrameOut * out ) ;
-function pxui_key_of int64_t pxui_key_of ( int64_t seed , PxuiStr label ) ;
 function pxui_label void pxui_label ( PxuiUi * ui , PxuiStr text ) ;
 function pxui_last_error PxuiStr pxui_last_error ( const PxuiUi * ui ) ;
 function pxui_paint_brackets void pxui_paint_brackets ( PxuiPaint * paint , float x , float y , float w , float h , float offset , float length , float width , PxuiColor color ) ;

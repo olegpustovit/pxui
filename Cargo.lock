@@ -224,8 +224,6 @@ version = "0.1.0"
 dependencies = [
  "mem_sys",
  "pxui_abi",
- "pxui_core",
- "pxui_render",
  "pxui_types",
 ]
 

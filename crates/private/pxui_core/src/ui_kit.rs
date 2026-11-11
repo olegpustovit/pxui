@@ -4,6 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
+pub use pxui_types::ui::PanelOpts;
 use crate::a11y::state as st;
 use input::{Event, Key};
 use crate::geom::Rgba as Color;
@@ -210,54 +211,6 @@ pub fn inspector_control_x(width: f32) -> f32 {
 pub fn mono_width(tracking: f32, size: i64, text: &str) -> f32 {
     let count = text.bytes().filter(|b| b & 0xc0 != 0x80).count();
     count as f32 * (size as f32 / 2.0 + tracking)
-}
-
-#[derive(Clone)]
-pub struct PanelOpts {
-    /// a floating sheet's hairline (the theme's popup look in this colour); `look` replaces both
-    pub stroke: Option<Color>,
-    pub look: Option<Look>,
-    pub window: bool,
-    pub x: f32,
-    pub y: f32,
-    pub width: f32,
-    pub height: Option<f32>,
-    pub max_height: Option<f32>,
-    pub padding: i64,
-}
-
-impl Default for PanelOpts {
-    fn default() -> PanelOpts {
-        PanelOpts { stroke: None, look: None, window: false, x: 12.0, y: 12.0, width: 280.0, height: None, max_height: None, padding: 0 }
-    }
-}
-
-impl PanelOpts {
-    pub fn at(mut self, x: f32, y: f32) -> PanelOpts {
-        self.x = x;
-        self.y = y;
-        self
-    }
-    pub fn width(mut self, width: f32) -> PanelOpts {
-        self.width = width;
-        self
-    }
-    pub fn height(mut self, height: f32) -> PanelOpts {
-        self.height = Some(height);
-        self
-    }
-    pub fn max_height(mut self, height: f32) -> PanelOpts {
-        self.max_height = Some(height);
-        self
-    }
-    pub fn padding(mut self, padding: i64) -> PanelOpts {
-        self.padding = padding;
-        self
-    }
-    pub fn window(mut self, window: bool) -> PanelOpts {
-        self.window = window;
-        self
-    }
 }
 
 /// A text button of an inspector head: its label, its key in ink-3, whether it is on (the control

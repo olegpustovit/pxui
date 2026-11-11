@@ -142,7 +142,7 @@ typedef struct {
     int64_t padding;
     uint8_t has_height, window;
 } PxuiPanel;
-typedef struct { uint64_t index; int64_t key; uint64_t slot; uint32_t generation; } PxuiBox;
+typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 /* The callback UI pointer is borrowed and valid only for that callback; do not retain or destroy it. */
 typedef void (*PxuiBuild)(void *user, PxuiUi *ui);
@@ -221,7 +221,6 @@ int32_t pxui_ui_node(PxuiUi *ui, PxuiStr label, const PxuiNodeDesc *node, PxuiBo
 int32_t pxui_ui_node_keyed(PxuiUi *ui, int64_t key, const PxuiNodeDesc *node, PxuiBox *out);
 int32_t pxui_ui_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);
 uint8_t pxui_ui_box_of_key(PxuiUi *ui, int64_t key, PxuiBox *out);
-int64_t pxui_key_of(int64_t seed, PxuiStr label);
 int32_t pxui_ui_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value);
 int32_t pxui_ui_set_look(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc *look, const PxuiStateDesc *state);
 int32_t pxui_ui_style(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc states[6], const PxuiStateDesc *state);

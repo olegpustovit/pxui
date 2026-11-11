@@ -156,9 +156,9 @@ pub(crate) unsafe fn append_strings(values: Slice<Str>, max: usize, out: &mut Ve
 
 pub(crate) fn finite(values: &[f32]) -> bool { values.iter().all(|v| v.is_finite()) }
 
-pub(crate) fn to_abi_box(b: UiBox) -> PxuiBox { PxuiBox { index: b.index as u64, key: b.box_key, slot: b.box_slot as u64, generation: b.generation } }
+pub(crate) fn to_abi_box(b: UiBox) -> PxuiBox { PxuiBox { index: b.index as u64, box_key: b.box_key, box_slot: b.box_slot as u64, generation: b.generation } }
 pub(crate) fn core_box(raw: PxuiBox) -> Option<UiBox> {
-    Some(UiBox { index: usize::try_from(raw.index).ok()?, box_key: raw.key, box_slot: usize::try_from(raw.slot).ok()?, generation: raw.generation })
+    Some(UiBox { index: usize::try_from(raw.index).ok()?, box_key: raw.box_key, box_slot: usize::try_from(raw.box_slot).ok()?, generation: raw.generation })
 }
 /// A box the engine still holds.
 pub(crate) fn live_box(engine: &Ui, raw: PxuiBox) -> Option<UiBox> {
