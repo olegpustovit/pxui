@@ -161,7 +161,7 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// Metal handles live on the process main thread, which libtest never gives a test: this target is
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
-    let cases: [(&str, fn()); 18] = [
+    let cases: [(&str, fn()); 19] = [
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -180,6 +180,7 @@ fn main() {
         ("shared_device_matches_kit_panel", shared_device_matches_kit_panel),
         ("shared_no_submit", shared_no_submit),
         ("shared_teardown", shared_teardown),
+        ("shared_frame_serials", shared_frame_serials),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--ignored") { return; }
@@ -720,23 +721,30 @@ fn nine_slice_corners_stay_and_centre_stretches() {
     assert!(close(small[0].rect, [0.0, 0.0, 5.0, 10.0]) && close(small[2].rect, [5.0, 0.0, 10.0, 10.0]));
 }
 
-fn shared_panel(owner_first: bool) -> Vec<u8> {
-    let Some(device) = open() else { return Vec::new() };
-    let queue = ok(be::create_queue(&device));
-    let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+/// The kit panel built through the public ABI, with a label that changes between frames (new glyphs:
+/// a staged atlas upload in each frame).
+fn shared_ui(caption: &str) -> pxui::Ui {
     const GOLDEN_FONT: &[u8] = include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf");
     let mut ui = pxui::Ui::new_with_fonts(1, 0, &[GOLDEN_FONT]).expect("PXUI ABI v1");
+    shared_frame_ui(&mut ui, caption);
+    ui
+}
+
+fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32,
         width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
     ui.frame(&input, |ui| ui.panel("panel", |ui| {
         ui.label("PXUI");
         ui.toggle("Animate", true);
         ui.toggle("Wire", false);
-        ui.text_field("Caption", "Functional UI");
+        ui.text_field("Caption", caption);
         ui.button("Quit");
     })).expect("build shared-device panel");
+}
 
-    let native = ok(be::native(&device));
+/// A renderer adopting `device` through one native lease, as an app hands its GPU to libpxui.
+fn shared_renderer<'ui>(device: &Device, ui: &'ui mut pxui::Ui) -> pxui::Renderer<'ui> {
+    let native = ok(be::native_leased(device));
     let gpu = pxui_types::Gpu { size: native.size, backend: native.backend, instance: native.instance,
         physical_device: native.physical_device, device: native.device, queue: native.queue,
         queue_family: native.queue_family, api_version: native.api_version, features: native.features,
@@ -744,13 +752,20 @@ fn shared_panel(owner_first: bool) -> Vec<u8> {
         mtl_device: native.mtl_device, wl_display: native.wl_display, wl_surface: native.wl_surface,
         metal_layer: native.metal_layer, hwnd: native.hwnd, owner_token: native.owner_token,
         release_owner: native.release_owner };
-    let mut renderer = pxui::Renderer::new(&mut ui, gpu, pxui::TargetDesc { format: 1, samples: 1 }).expect("adopt app GPU");
+    pxui::Renderer::new(ui, gpu, pxui::TargetDesc { format: 1, samples: 1 }).expect("adopt app GPU")
+}
 
-    let commands = ok(be::begin_commands(&queue));
-    let native_commands = ok(be::native_commands(&commands));
-    let public_commands = pxui_types::Commands { size: std::mem::size_of::<pxui_types::Commands>() as u32,
-        vk_command_buffer: native_commands.vk_command_buffer, mtl_command_buffer: native_commands.mtl_command_buffer };
-    renderer.prepare(&public_commands, 1, 0).expect("prepare shared frame");
+fn public_commands(commands: &be::Commands) -> pxui_types::Commands {
+    let native = ok(be::native_commands(commands));
+    pxui_types::Commands { size: std::mem::size_of::<pxui_types::Commands>() as u32,
+        vk_command_buffer: native.vk_command_buffer, mtl_command_buffer: native.mtl_command_buffer }
+}
+
+/// One app frame: PXUI prepares into the app's command buffer, draws into the app's pass, the app forgets
+/// its cached pass state, ends the pass, submits once and waits.
+fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Renderer<'_>, frame: u64, completed: u64) {
+    let commands = ok(be::begin_commands(queue));
+    renderer.prepare(&public_commands(&commands), frame, completed).expect("prepare shared frame");
     let clear = (228.0 / 255.0, 139.0 / 255.0, 161.0 / 255.0, 1.0);
     let encoder = ok(be::render_encoder(&commands, &RenderTarget { colors: vec![ColorAttachment {
         texture: target.clone(), resolve: None, load: Load::Clear, store: Store::Store, clear,
@@ -758,30 +773,46 @@ fn shared_panel(owner_first: bool) -> Vec<u8> {
     let native_pass = ok(be::native_pass(&encoder));
     let public_pass = pxui_types::Pass { size: std::mem::size_of::<pxui_types::Pass>() as u32,
         vk_command_buffer: native_pass.vk_command_buffer, mtl_render_encoder: native_pass.mtl_render_encoder,
-        width_px: native_pass.width_px, height_px: native_pass.height_px, scale: native_pass.scale,
-        mtl_command_buffer: native_commands.mtl_command_buffer };
+        width_px: native_pass.width_px, height_px: native_pass.height_px, scale: 2.0, // the app's density; a pass does not know it
+        mtl_command_buffer: public_commands(&commands).mtl_command_buffer };
     renderer.draw(&public_pass).expect("draw into app pass");
+    ok(be::invalidate_state(&encoder));
     ok(be::end_render(&encoder));
     let submitted = ok(be::commit(&commands));
-    assert_eq!(submitted.epoch, 1, "the app submits the shared command buffer once");
-    ok(be::complete_through(&queue, submitted.epoch));
+    ok(be::complete_through(queue, submitted.epoch));
+}
+
+/// Two shared frames (the second retires the first and stages new glyphs), the readback of the first
+/// frame's pixels, the submits the whole run made, and teardown in the given order with the second
+/// frame's upload never retired by a later prepare.
+fn shared_panel(owner_first: bool) -> Option<(Vec<u8>, u64)> {
+    let device = open()?;
+    let queue = ok(be::create_queue(&device));
+    let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let mut ui = shared_ui("Functional UI");
+    let submits = be::submits();
+    let mut renderer = shared_renderer(&device, &mut ui);
+    shared_app_frame(&queue, &target, &mut renderer, 1, 0);
+    let submits = be::submits() - submits;
     let pixels = ok(be::read_texture(&target, 640 * 4));
+    shared_frame_ui(renderer.ui(), "Shared device");
+    shared_app_frame(&queue, &target, &mut renderer, 2, 1);
 
     ok(be::destroy_texture(&target));
     ok(be::destroy_queue(&queue));
     if owner_first {
-        ok(be::destroy_device(&device));
-        drop(renderer); // the lease keeps the native owner alive until B releases it
+        ok(be::destroy_device(&device)); // the lease keeps the native owner alive until the renderer goes
+        drop(renderer);
     } else {
         drop(renderer);
         ok(be::destroy_device(&device));
     }
-    pixels
+    assert_eq!(ui.last_error(), "", "renderer teardown reported an error");
+    Some((pixels, submits))
 }
 
 fn shared_device_matches_kit_panel() {
-    let pixels = shared_panel(false);
-    if pixels.is_empty() { return; }
+    let Some((pixels, _)) = shared_panel(false) else { return };
     let golden = format!("{}/../pxui_core/fixtures/kit_panel_2x.png", env!("CARGO_MANIFEST_DIR"));
     let (w, h, expected) = png::decode(&std::fs::read(&golden).expect("kit panel golden"));
     assert_eq!((w, h), (640, 600));
@@ -791,13 +822,41 @@ fn shared_device_matches_kit_panel() {
 }
 
 fn shared_no_submit() {
-    // The app command buffer is committed exactly once after PXUI records its draw into the pass.
-    let pixels = shared_panel(false);
-    if !pixels.is_empty() { assert!(pixels.iter().any(|&byte| byte != 0), "shared draw produced no pixels"); }
+    // Renderer creation, prepare and draw add no submit: the one in the frame is the app's own commit.
+    let Some((_, submits)) = shared_panel(false) else { return };
+    assert_eq!(submits, 1, "the library copy submitted work of its own");
 }
 
 fn shared_teardown() {
-    let first = shared_panel(true);
-    let second = shared_panel(false);
-    if !first.is_empty() && !second.is_empty() { assert_eq!(first, second, "both device teardown orders render identically"); }
+    let Some((first, _)) = shared_panel(true) else { return };
+    let Some((second, _)) = shared_panel(false) else { return };
+    assert_eq!(first, second, "both device teardown orders render identically");
+}
+
+/// `prepare` refuses serials that do not increase and more frames in flight than the painter's ring holds,
+/// before it records anything; the frames it accepted still render and tear down.
+fn shared_frame_serials() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let mut ui = shared_ui("Functional UI");
+    let mut renderer = shared_renderer(&device, &mut ui);
+    let frames = pxui_render::FRAMES as u64;
+    shared_app_frame(&queue, &target, &mut renderer, 1, 0);
+    let commands = ok(be::begin_commands(&queue));
+    let native = public_commands(&commands);
+    assert_eq!(renderer.prepare(&native, 1, 0), Err(-1), "a repeated frame serial");
+    assert_eq!(renderer.prepare(&native, 2 + frames, 1), Err(-1), "frame - completed > FRAMES");
+    assert_eq!(renderer.prepare(&native, 2, 2), Err(-1), "completed must precede the frame");
+    ok(be::abandon(&commands));
+    // the ring's limit itself: frame n with frame n - FRAMES the last one done
+    shared_app_frame(&queue, &target, &mut renderer, 1 + frames, 1);
+    let commands = ok(be::begin_commands(&queue));
+    assert_eq!(renderer.prepare(&public_commands(&commands), 2 + frames, 0), Err(-1), "completed went back");
+    ok(be::abandon(&commands));
+    drop(renderer);
+    assert!(ui.last_error().contains("completed"), "the refusal is the last error: {}", ui.last_error());
+    ok(be::destroy_texture(&target));
+    ok(be::destroy_queue(&queue));
+    ok(be::destroy_device(&device));
 }

@@ -135,6 +135,12 @@ pub struct FrameOut {
     pub layers: *const core::ffi::c_void,
 }
 
+/// The app's GPU, adopted by `pxui_renderer_create`. PXUI records into the app's command buffers and
+/// passes; it never submits, waits, presents or destroys what the app created. `owner_token` and
+/// `release_owner` are one lease on the app's device (OGPU: `ogpu_core::backend::native_leased`); the
+/// renderer takes it, also when creation fails, and releases it when it is destroyed. Vulkan: `features`
+/// are the `ogpu_vulkan::VK_*` bits the app enabled; creation fails unless `REQUIRED_FOR_UI` are set and
+/// the entry points behind them are loaded.
 #[repr(C)]
 #[derive(Debug, Default)]
 pub struct Gpu {
@@ -158,6 +164,13 @@ pub struct Gpu {
     pub release_owner: Option<extern "C" fn(*mut core::ffi::c_void)>,
 }
 
+/// The app's command buffer of one frame, outside any pass, for `pxui_renderer_prepare(commands, frame,
+/// completed)`. `frame` is the app's serial for this command buffer and grows by at least one per prepare;
+/// `completed` is the last serial whose command buffer the app knows has finished, never going back, and
+/// at least `frame - 3` (the renderer reuses what frame `frame - 3` used). Otherwise prepare returns
+/// `PXUI_ERR_ARGUMENT` and records nothing. Vulkan: prepare records glyph uploads (and image layout
+/// transitions of textures it made since the last frame) into this buffer, so the app submits it before or
+/// with the frame's pass. Before `pxui_renderer_destroy` the app must have finished every frame it prepared.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Commands {
@@ -166,6 +179,10 @@ pub struct Commands {
     pub mtl_command_buffer: *mut core::ffi::c_void,
 }
 
+/// The app's open pass (Vulkan: inside `vkCmdBeginRendering` on the prepared frame's command buffer)
+/// for `pxui_renderer_draw`. `scale` is the app's pixels per point. Bound state is not preserved: after
+/// draw the pass holds PXUI's pipeline, descriptors, viewport and scissor, so either the UI is the last
+/// thing in the pass or the app rebinds everything (OGPU: `ogpu_core::backend::invalidate_state`).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Pass {
@@ -178,6 +195,10 @@ pub struct Pass {
     pub mtl_command_buffer: *mut core::ffi::c_void,
 }
 
+/// An app texture PXUI samples at a `Break`, without a copy. The app keeps it alive until the frames
+/// drawing it complete. Vulkan: `vk_image_view` is a 2D color view whose image is in
+/// `VK_IMAGE_LAYOUT_GENERAL` whenever those frames run (every OGPU image is). PXUI only samples it:
+/// it never reads, writes, copies or destroys the image.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Image {

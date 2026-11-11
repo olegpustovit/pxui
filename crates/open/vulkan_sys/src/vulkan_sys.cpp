@@ -34,6 +34,13 @@
 namespace {
 constexpr int RV_NO_DEVICE = -100000;
 constexpr int RV_MISSING = -100001;
+// A borrowed (adopted) device never submits, waits or presents: the app owns its queue.
+constexpr int RV_BORROWED = -100002;
+// A borrowed device is torn down only after the app reported every adopted frame complete.
+constexpr int RV_IN_FLIGHT = -100003;
+// Feature bits of `rv_native_handles.features` (ogpu_vulkan::VK_* mirrors them).
+constexpr uint64_t RV_DYNAMIC_RENDERING = 1, RV_SYNCHRONIZATION2 = 2, RV_TIMELINE_SEMAPHORE = 4, RV_PUSH_DESCRIPTOR = 8,
+  RV_BUFFER_DEVICE_ADDRESS = 16, RV_NULL_DESCRIPTOR = 32, RV_MEMORY_BUDGET = 64;
 constexpr uint32_t MAX_SLOTS = 64;
 constexpr uint32_t MAX_PIPELINE_BINDINGS = 32;
 constexpr uint32_t DURATIONS = 16;
@@ -93,7 +100,7 @@ struct Command {
   VkDeviceSize index_offset{};
   bool rendering{};
   bool borrowed{};
-  uint32_t target_height{};
+  uint32_t target_width{}, target_height{};
   uint64_t external_mark{};
 };
 struct Queue {
@@ -102,6 +109,7 @@ struct Queue {
   uint64_t next_epoch{1};
   VkCommandPool pool{};
   Command *free_list{}, *flight_head{}, *flight_tail{}, *commands{};
+  bool secondary{};  // a borrowed device's upload queue records secondaries, executed in the app's command buffer
   double total_seconds{};
   uint64_t duration_epochs[DURATIONS]{};
   double durations[DURATIONS]{};
@@ -118,6 +126,9 @@ struct Device {
   VkPhysicalDeviceProperties properties{};
   bool budget{}, swapchain{}, ray_tracing{};
   bool borrowed_device{}, owns_pipeline_cache{true};
+  // Borrowed devices retire by the app's frame serials instead of `ticks`: work recorded into the app's
+  // command buffer of frame `adopted_serial` is free once the app reports `retired` >= that serial.
+  uint64_t adopted_serial{}, retired{}, features{};
   VkPipelineCache pipeline_cache{};
   std::atomic<int64_t> held{};
   VkSemaphore ticks{};
@@ -249,6 +260,13 @@ void leave_device() {
     vkDestroyInstance(process_instance, nullptr);
     process_instance = VK_NULL_HANDLE;
   }
+}
+// One allocator setup for created and adopted devices: buffers carry SHADER_DEVICE_ADDRESS usage.
+VkResult create_allocator(Device *d) {
+  VmaVulkanFunctions functions{}; functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr; functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
+  VmaAllocatorCreateInfo ai{}; ai.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT | (d->budget ? VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT : 0);
+  ai.physicalDevice = d->physical; ai.device = d->device; ai.pVulkanFunctions = &functions; ai.instance = d->instance; ai.vulkanApiVersion = VK_API_VERSION_1_3;
+  return vmaCreateAllocator(&ai, &d->allocator);
 }
 int create_device(bool validation, bool fatal, Device **out) {
   std::lock_guard<std::mutex> global(process_mutex);
@@ -401,10 +419,10 @@ int create_device(bool validation, bool fatal, Device **out) {
   volkLoadDevice(d->device);
   vkGetDeviceQueue(d->device, d->main_family, 0, &d->main_queue);
   if (one_queue) d->transfer_queue = d->main_queue; else vkGetDeviceQueue(d->device, d->transfer_family, shared ? 1 : 0, &d->transfer_queue);
-  VmaVulkanFunctions functions{}; functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr; functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
-  VmaAllocatorCreateInfo ai{}; ai.flags = VMA_ALLOCATOR_CREATE_BUFFER_DEVICE_ADDRESS_BIT | (d->budget ? VMA_ALLOCATOR_CREATE_EXT_MEMORY_BUDGET_BIT : 0);
-  ai.physicalDevice = d->physical; ai.device = d->device; ai.pVulkanFunctions = &functions; ai.instance = d->instance; ai.vulkanApiVersion = VK_API_VERSION_1_3;
-  r = vmaCreateAllocator(&ai, &d->allocator); if (r != VK_SUCCESS) { vkDestroyDevice(d->device, nullptr); delete d; return r; }
+  // Enabled above or creation failed; the budget extension only when present.
+  d->features = RV_DYNAMIC_RENDERING | RV_SYNCHRONIZATION2 | RV_TIMELINE_SEMAPHORE | RV_PUSH_DESCRIPTOR | RV_BUFFER_DEVICE_ADDRESS |
+      RV_NULL_DESCRIPTOR | (d->budget ? RV_MEMORY_BUDGET : 0);
+  r = create_allocator(d); if (r != VK_SUCCESS) { vkDestroyDevice(d->device, nullptr); delete d; return r; }
   VkPipelineCacheCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO}; vkCreatePipelineCache(d->device, &ci, nullptr, &d->pipeline_cache);
   VkSemaphoreTypeCreateInfo ti{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO}; ti.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
   VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}; si.pNext = &ti; vkCreateSemaphore(d->device, &si, nullptr, &d->ticks);
@@ -427,11 +445,12 @@ void defer(Device *d, void (*destroy)(Device *, void *), void *payload) {
     return;
   }
   std::lock_guard<std::recursive_mutex> lock(d->qlock);
-  g->tick = d->next_tick;
+  // Borrowed: the last frame that may use it, or the next one when a pending upload (executed then) may.
+  g->tick = d->borrowed_device ? d->adopted_serial + (d->upload ? 1 : 0) : d->next_tick;
   g->next = d->garbage; d->garbage = g;
 }
 void drain_garbage(Device *d) {
-  uint64_t done = 0; vkGetSemaphoreCounterValue(d->device, d->ticks, &done);
+  uint64_t done = d->retired; if (!d->borrowed_device) vkGetSemaphoreCounterValue(d->device, d->ticks, &done);
   Garbage *ready = nullptr;
   {
     std::lock_guard<std::recursive_mutex> lock(d->qlock);
@@ -501,13 +520,16 @@ Command *cmd_take(Queue *q) {
   if (c) { q->free_list = c->next; c->next = nullptr; vkResetCommandBuffer(c->cb, 0); }
   else {
     c = new (std::nothrow) Command{}; if (!c) return nullptr; c->queue = q; c->all = q->commands; q->commands = c;
-    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO}; ai.commandPool = q->pool; ai.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; ai.commandBufferCount = 1;
+    VkCommandBufferAllocateInfo ai{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO}; ai.commandPool = q->pool; ai.commandBufferCount = 1;
+    ai.level = q->secondary ? VK_COMMAND_BUFFER_LEVEL_SECONDARY : VK_COMMAND_BUFFER_LEVEL_PRIMARY;
     if (vkAllocateCommandBuffers(d->device, &ai, &c->cb) != VK_SUCCESS) { q->commands = c->all; delete c; return nullptr; }
     VkQueryPoolCreateInfo qi{VK_STRUCTURE_TYPE_QUERY_POOL_CREATE_INFO}; qi.queryType = VK_QUERY_TYPE_TIMESTAMP; qi.queryCount = 2;
     if (vkCreateQueryPool(d->device, &qi, nullptr, &c->timestamps) != VK_SUCCESS) { vkFreeCommandBuffers(d->device, q->pool, 1, &c->cb); q->commands = c->all; delete c; return nullptr; }
   }
   memset(c->slots, 0, sizeof c->slots); c->pipeline = nullptr; c->dirty = c->dispatched = false; c->rendering = false; c->index_buffer = VK_NULL_HANDLE;
+  VkCommandBufferInheritanceInfo inherit{VK_STRUCTURE_TYPE_COMMAND_BUFFER_INHERITANCE_INFO};
   VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+  if (q->secondary) bi.pInheritanceInfo = &inherit;
   if (vkBeginCommandBuffer(c->cb, &bi) != VK_SUCCESS) return nullptr;
   vkCmdResetQueryPool(c->cb, c->timestamps, 0, 2); vkCmdWriteTimestamp2(c->cb, VK_PIPELINE_STAGE_2_TOP_OF_PIPE_BIT, c->timestamps, 0);
   { std::lock_guard<std::recursive_mutex> lock(d->qlock); c->external_mark = d->external_serial; } external_barriers(c, true); return c;
@@ -527,11 +549,12 @@ Queue *queue_new(Device *d, VkResult *error) {
   if (*error != VK_SUCCESS) { vkDestroySemaphore(d->device, q->timeline, nullptr); delete q; return nullptr; } return q;
 }
 Command *upload_cmd(Device *d) {
-  if (!d->upload) { if (!d->upload_queue) { VkResult e{}; d->upload_queue = queue_new(d, &e); if (!d->upload_queue) return nullptr; }
+  if (!d->upload) { if (!d->upload_queue) { VkResult e{}; d->upload_queue = queue_new(d, &e); if (!d->upload_queue) return nullptr; d->upload_queue->secondary = d->borrowed_device; }
     d->upload = cmd_take(d->upload_queue); if (d->upload) full_barrier(d->upload->cb); }
   return d->upload;
 }
 VkResult submit_locked(Device *d, Queue *q, Command *c, uint64_t epoch, VkSemaphore wait, VkSemaphore signal, uint64_t *tick) {
+  if (d->borrowed_device) return static_cast<VkResult>(RV_BORROWED);
   VkCommandBufferSubmitInfo cbs[2]{}; uint32_t cbn = 0; Command *upload = d->upload;
   if (upload) { full_barrier(upload->cb); external_barriers(upload, false); VkResult r = vkEndCommandBuffer(upload->cb); if (r != VK_SUCCESS) return r;
     cbs[cbn] = {VK_STRUCTURE_TYPE_COMMAND_BUFFER_SUBMIT_INFO}; cbs[cbn++].commandBuffer = upload->cb; }
@@ -557,7 +580,8 @@ void queue_free(Queue *q) {
   vkDestroyCommandPool(dev, q->pool, nullptr); vkDestroySemaphore(dev, q->timeline, nullptr); delete q;
 }
 void reap_uploads(Device *d) {
-  if (!d->upload_queue) return; uint64_t done = 0; vkGetSemaphoreCounterValue(d->device, d->ticks, &done);
+  if (!d->upload_queue || d->borrowed_device) return;  // a borrowed device's uploads retire through its garbage
+  uint64_t done = 0; vkGetSemaphoreCounterValue(d->device, d->ticks, &done);
   std::lock_guard<std::recursive_mutex> lock(d->qlock); Command **at = &d->upload_queue->flight_head;
   while (*at) { Command *c = *at; if (c->tick <= done) { *at = c->next; cmd_recycle(c); } else at = &c->next; }
 }
@@ -578,7 +602,7 @@ void reap(Queue *q) {
   }
 }
 int64_t commit_cmd(Command *c, VkSemaphore wait, VkSemaphore signal) {
-  if (c->borrowed) return VK_ERROR_FEATURE_NOT_PRESENT;
+  if (c->borrowed || c->queue->device->borrowed_device) return RV_BORROWED;
   Queue *q = c->queue; Device *d = q->device; full_barrier(c->cb); vkCmdWriteTimestamp2(c->cb, VK_PIPELINE_STAGE_2_BOTTOM_OF_PIPE_BIT, c->timestamps, 1);
   external_barriers(c, false); VkResult r = vkEndCommandBuffer(c->cb); if (r != VK_SUCCESS) return r; uint64_t epoch = q->next_epoch;
   { std::lock_guard<std::recursive_mutex> lock(d->qlock); r = submit_locked(d, q, c, epoch, wait, signal, &c->tick); }
@@ -586,6 +610,7 @@ int64_t commit_cmd(Command *c, VkSemaphore wait, VkSemaphore signal) {
   if (q->flight_tail) q->flight_tail->next = c; else q->flight_head = c; q->flight_tail = c; return static_cast<int64_t>(epoch);
 }
 VkResult transfer_copy(Device *d, VkBuffer src, VkDeviceSize so, VkBuffer dst, VkDeviceSize doff, VkDeviceSize size) {
+  if (d->borrowed_device) return static_cast<VkResult>(RV_BORROWED);
   // Sharing the main queue: take its lock first (same order as everyone else), held across the wait.
   std::unique_lock<std::recursive_mutex> shared_queue(d->qlock, std::defer_lock); if (d->transfer_queue == d->main_queue) shared_queue.lock();
   std::lock_guard<std::mutex> lock(d->xlock); VkCommandBufferBeginInfo bi{VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO}; bi.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
@@ -635,45 +660,46 @@ struct rv_native_handles { void *instance,*physical_device,*device,*queue; uint3
 int32_t rv_device_native(void *handle, rv_native_handles *out) {
   if (!handle || !out) return VK_ERROR_INITIALIZATION_FAILED;
   auto *d = static_cast<Device *>(handle);
-  *out = {d->instance,d->physical,d->device,d->main_queue,d->main_family,d->properties.apiVersion,0x0full,
-          reinterpret_cast<void *>(vkGetInstanceProcAddr),reinterpret_cast<void *>(static_cast<uintptr_t>(d->pipeline_cache))};
+  *out = {d->instance,d->physical,d->device,d->main_queue,d->main_family,d->properties.apiVersion,d->features,
+          reinterpret_cast<void *>(vkGetInstanceProcAddr),(void *)(uintptr_t)d->pipeline_cache};
   return VK_SUCCESS;
 }
+// Wrap the app's device. The adopted device creates its own allocator, pipeline cache (unless one is shared)
+// and command pools, and never submits: uploads become a secondary command buffer that `rv_commands_adopt`
+// executes in the app's command buffer, and its garbage waits for `rv_device_retire`.
 int32_t rv_device_adopt(const rv_native_handles *native, void **out) {
   if (!native || !out || !native->instance || !native->physical_device || !native->device || !native->queue || !native->get_instance_proc_addr)
     return VK_ERROR_INITIALIZATION_FAILED;
-  auto get_instance = reinterpret_cast<PFN_vkGetInstanceProcAddr>(native->get_instance_proc_addr);
-  volkInitializeCustom(get_instance);
-  VkResult r = VK_SUCCESS;
+  volkInitializeCustom(reinterpret_cast<PFN_vkGetInstanceProcAddr>(native->get_instance_proc_addr));
   volkLoadInstanceOnly(reinterpret_cast<VkInstance>(native->instance));
   volkLoadDevice(reinterpret_cast<VkDevice>(native->device));
+  // The caller's feature bits are a claim; the entry points the recorder calls must really be there.
+  if (!vkCmdPushDescriptorSetKHR || !vkCmdBeginRendering || !vkCmdPipelineBarrier2 || !vkQueueSubmit2) return RV_MISSING;
   auto *d = new (std::nothrow) Device(); if (!d) return VK_ERROR_OUT_OF_HOST_MEMORY;
   d->instance = reinterpret_cast<VkInstance>(native->instance);
   d->physical = reinterpret_cast<VkPhysicalDevice>(native->physical_device);
   d->device = reinterpret_cast<VkDevice>(native->device);
-  d->main_queue = reinterpret_cast<VkQueue>(native->queue);
-  d->main_family = native->queue_family; d->transfer_family = native->queue_family;
-  d->borrowed_device = true;
+  d->main_queue = d->transfer_queue = reinterpret_cast<VkQueue>(native->queue);
+  d->main_family = d->transfer_family = native->queue_family;
+  d->borrowed_device = true; d->features = native->features; d->budget = native->features & RV_MEMORY_BUDGET;
   vkGetPhysicalDeviceProperties(d->physical, &d->properties);
-  d->pipeline_cache = static_cast<VkPipelineCache>(reinterpret_cast<uintptr_t>(native->pipeline_cache));
+  d->pipeline_cache = (VkPipelineCache)(uintptr_t)native->pipeline_cache;
   d->owns_pipeline_cache = native->pipeline_cache == nullptr;
+  VkResult r = VK_SUCCESS;
   if (d->owns_pipeline_cache) { VkPipelineCacheCreateInfo ci{VK_STRUCTURE_TYPE_PIPELINE_CACHE_CREATE_INFO}; r = vkCreatePipelineCache(d->device, &ci, nullptr, &d->pipeline_cache); }
-  VmaVulkanFunctions functions{}; functions.vkGetInstanceProcAddr = vkGetInstanceProcAddr; functions.vkGetDeviceProcAddr = vkGetDeviceProcAddr;
-  VmaAllocatorCreateInfo ai{};
-  ai.physicalDevice = d->physical; ai.device = d->device; ai.pVulkanFunctions = &functions; ai.instance = d->instance;
-  ai.vulkanApiVersion = native->api_version ? native->api_version : VK_API_VERSION_1_3;
-  if (r == VK_SUCCESS) r = vmaCreateAllocator(&ai, &d->allocator);
-  VkSemaphoreTypeCreateInfo ti{VK_STRUCTURE_TYPE_SEMAPHORE_TYPE_CREATE_INFO}; ti.semaphoreType = VK_SEMAPHORE_TYPE_TIMELINE;
-  VkSemaphoreCreateInfo si{VK_STRUCTURE_TYPE_SEMAPHORE_CREATE_INFO}; si.pNext = &ti;
-  if (r == VK_SUCCESS) r = vkCreateSemaphore(d->device, &si, nullptr, &d->ticks);
-  VkCommandPoolCreateInfo pi{VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO}; pi.flags = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; pi.queueFamilyIndex = d->transfer_family;
-  if (r == VK_SUCCESS) r = vkCreateCommandPool(d->device, &pi, nullptr, &d->transfer_pool);
-  VkCommandBufferAllocateInfo ca{VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO}; ca.commandPool = d->transfer_pool; ca.level = VK_COMMAND_BUFFER_LEVEL_PRIMARY; ca.commandBufferCount = 1;
-  if (r == VK_SUCCESS) r = vkAllocateCommandBuffers(d->device, &ca, &d->transfer_cb);
-  VkFenceCreateInfo fence{VK_STRUCTURE_TYPE_FENCE_CREATE_INFO};
-  if (r == VK_SUCCESS) r = vkCreateFence(d->device, &fence, nullptr, &d->transfer_fence);
-  if (r != VK_SUCCESS) { if (d->transfer_fence) vkDestroyFence(d->device,d->transfer_fence,nullptr); if (d->transfer_pool) vkDestroyCommandPool(d->device,d->transfer_pool,nullptr); if (d->ticks) vkDestroySemaphore(d->device,d->ticks,nullptr); if (d->allocator) vmaDestroyAllocator(d->allocator); if (d->owns_pipeline_cache && d->pipeline_cache) vkDestroyPipelineCache(d->device,d->pipeline_cache,nullptr); delete d; return r; }
+  if (r == VK_SUCCESS) r = create_allocator(d);
+  if (r != VK_SUCCESS) { if (d->allocator) vmaDestroyAllocator(d->allocator); if (d->owns_pipeline_cache && d->pipeline_cache) vkDestroyPipelineCache(d->device,d->pipeline_cache,nullptr); delete d; return r; }
   *out = d; return VK_SUCCESS;
+}
+// The app finished every frame through `completed`: free what those frames could still read.
+int32_t rv_device_retire(void *handle, uint64_t completed) {
+  auto *d = static_cast<Device *>(handle); if (!d->borrowed_device) return RV_BORROWED;
+  { std::lock_guard<std::recursive_mutex> lock(d->qlock); if (completed > d->retired) d->retired = completed; }
+  drain_garbage(d); return VK_SUCCESS;
+}
+// A borrowed device is destroyed only when no app command buffer it recorded into can still run.
+int32_t rv_device_release_check(void *handle) {
+  auto *d = static_cast<Device *>(handle); return d->borrowed_device && d->retired < d->adopted_serial ? RV_IN_FLIGHT : VK_SUCCESS;
 }
 int32_t rv_device_memory(void *handle, uint64_t *held, uint64_t *budget) {
   auto *d = static_cast<Device *>(handle); VmaBudget b[VK_MAX_MEMORY_HEAPS]{}; vmaGetHeapBudgets(d->allocator, b); VkPhysicalDeviceMemoryProperties m{}; vkGetPhysicalDeviceMemoryProperties(d->physical, &m);
@@ -714,10 +740,23 @@ int32_t rv_commands_begin(void *queue, void **out) {
   auto *q = static_cast<Queue *>(queue); drain_garbage(q->device); reap_uploads(q->device);
   Command *c = cmd_take(q); if (!c) return VK_ERROR_OUT_OF_HOST_MEMORY; *out = c; return VK_SUCCESS;
 }
-int32_t rv_commands_adopt(void *queue, void *command_buffer, void **out) {
+void recycle_upload_now(Device *, void *payload) { cmd_recycle(static_cast<Command *>(payload)); }
+void release_chunks_now(Device *d, void *payload) { chunks_release(d, static_cast<Chunk *>(payload)); }
+// Record into the app's command buffer of frame `serial`. Outside a pass, uploads recorded since the last frame
+// (layout transitions, zero fills, staged writes) run first, in the app's buffer.
+int32_t rv_commands_adopt(void *queue, void *command_buffer, uint64_t serial, bool inside_pass, void **out) {
   if (!queue || !command_buffer || !out) return VK_ERROR_INITIALIZATION_FAILED;
+  auto *q = static_cast<Queue *>(queue); Device *d = q->device; if (!d->borrowed_device) return RV_BORROWED;
+  if (serial == 0 || serial < d->adopted_serial) return VK_ERROR_INITIALIZATION_FAILED;
   auto *c = new (std::nothrow) Command{}; if (!c) return VK_ERROR_OUT_OF_HOST_MEMORY;
-  c->queue = static_cast<Queue *>(queue); c->cb = reinterpret_cast<VkCommandBuffer>(command_buffer); c->borrowed = true;
+  c->queue = q; c->cb = reinterpret_cast<VkCommandBuffer>(command_buffer); c->borrowed = true; c->rendering = inside_pass;
+  std::lock_guard<std::recursive_mutex> lock(d->qlock); d->adopted_serial = serial;
+  if (!inside_pass && d->upload) {
+    Command *u = d->upload; full_barrier(u->cb); VkResult r = vkEndCommandBuffer(u->cb);
+    if (r != VK_SUCCESS) { delete c; return r; }
+    vkCmdExecuteCommands(c->cb, 1, &u->cb); full_barrier(c->cb);
+    d->upload = nullptr; defer(d, recycle_upload_now, u);  // stamped `serial`: runs in this frame
+  }
   *out = c; return VK_SUCCESS;
 }
 void *rv_commands_native(void *commands) { return reinterpret_cast<void *>(static_cast<Command *>(commands)->cb); }
@@ -727,7 +766,9 @@ int32_t rv_commands_commit(void *commands, uint64_t *epoch) {
 }
 void rv_commands_abandon(void *commands) {
   auto *c = static_cast<Command *>(commands);
-  if (c->borrowed) { delete c; return; }
+  // The app's buffer is the app's to end; staging this copy wrote for it lives until the frame retires.
+  // Staged writes recorded outside a pass end with one barrier before the app's next commands read them.
+  if (c->borrowed) { if (c->chunks) { if (!c->rendering) full_barrier(c->cb); defer(c->queue->device, release_chunks_now, c->chunks); } delete c; return; }
   if (c->rendering) vkCmdEndRendering(c->cb); vkEndCommandBuffer(c->cb); cmd_recycle(c);
 }
 int32_t rv_buffer_create(void *device, uint64_t size, int32_t kind, void **out) {
@@ -954,12 +995,12 @@ int32_t rv_texture_create(void *device, const rv_texture_desc *desc, void **out)
   *out = t; return VK_SUCCESS;
 }
 void *rv_texture_native_view(void *texture) {
-  return reinterpret_cast<void *>(static_cast<uintptr_t>(static_cast<Texture *>(texture)->view));
+  return (void *)(uintptr_t)static_cast<Texture *>(texture)->view;
 }
 int32_t rv_texture_adopt_view(void *device, void *view, const rv_texture_desc *desc, void **out) {
   if (!device || !view || !desc || !out || desc->width == 0 || desc->height == 0) return VK_ERROR_INITIALIZATION_FAILED;
   auto *t = new (std::nothrow) Texture{}; if (!t) return VK_ERROR_OUT_OF_HOST_MEMORY;
-  t->device = static_cast<Device *>(device); t->view = reinterpret_cast<VkImageView>(view);
+  t->device = static_cast<Device *>(device); t->view = (VkImageView)(uintptr_t)view;
   t->width = desc->width; t->height = desc->height; t->depth = 1; t->mips = 1; t->samples = 1;
   t->format = rv_color_format(desc->format); t->aspect = VK_IMAGE_ASPECT_COLOR_BIT; t->borrowed_view = true;
   *out = t; return VK_SUCCESS;
@@ -978,7 +1019,8 @@ void rv_texture_destroy(void *texture) {
   defer(d,destroy_texture_now,t);
 }
 int32_t rv_texture_read(void *texture, void *bytes, uint64_t row, uint32_t texel) {
-  auto *t = static_cast<Texture *>(texture); Device *d = t->device; VkResult r = flush_uploads_wait(d); if (r != VK_SUCCESS) return r;
+  auto *t = static_cast<Texture *>(texture); Device *d = t->device; if (!t->image || d->borrowed_device) return RV_BORROWED;
+  VkResult r = flush_uploads_wait(d); if (r != VK_SUCCESS) return r;
   VkDeviceSize total = row * t->height; VkBufferCreateInfo bi{VK_STRUCTURE_TYPE_BUFFER_CREATE_INFO}; bi.size = total; bi.usage = VK_BUFFER_USAGE_TRANSFER_DST_BIT;
   VmaAllocationCreateInfo ai{}; ai.flags = VMA_ALLOCATION_CREATE_HOST_ACCESS_RANDOM_BIT | VMA_ALLOCATION_CREATE_MAPPED_BIT; ai.usage = VMA_MEMORY_USAGE_AUTO; ai.preferredFlags = VK_MEMORY_PROPERTY_HOST_CACHED_BIT;
   VkBuffer staging{}; VmaAllocation allocation{}; VmaAllocationInfo mapped{}; r = vmaCreateBuffer(d->allocator,&bi,&ai,&staging,&allocation,&mapped); if (r != VK_SUCCESS) return r;
@@ -996,14 +1038,23 @@ int32_t rv_texture_read(void *texture, void *bytes, uint64_t row, uint32_t texel
 }
 // Host-to-image rectangle: staged into the pending upload command like staged_write, so it lands before the next submit.
 // `bytes` holds the rows at a->bytes_per_row; a->offset is ignored.
-int32_t rv_texture_write(void *texture, const void *bytes, const rv_blit_desc *a) {
-  auto *t = static_cast<Texture *>(texture); Device *d = t->device; std::lock_guard<std::recursive_mutex> lock(d->qlock);
+static int32_t record_texture_write(Command *u, Texture *t, const void *bytes, const rv_blit_desc *a) {
+  if (!t->image) return RV_BORROWED;  // a wrapped app image view: its image belongs to the app
   VkDeviceSize total = static_cast<VkDeviceSize>(a->bytes_per_row) * (static_cast<VkDeviceSize>(a->height) * a->depth - 1) + static_cast<VkDeviceSize>(a->width) * a->texel;
-  Command *u = upload_cmd(d); VkBuffer chunk{}; VkDeviceSize at{}; char *room = u ? arena(u, total, 16, &chunk, &at) : nullptr;
+  VkBuffer chunk{}; VkDeviceSize at{}; char *room = u ? arena(u, total, 16, &chunk, &at) : nullptr;
   if (!room) return VK_ERROR_OUT_OF_DEVICE_MEMORY; memcpy(room, bytes, total);
   VkBufferImageCopy r{}; r.bufferOffset = at; r.bufferRowLength = a->bytes_per_row / a->texel; r.imageSubresource = {t->aspect,a->mip,0,1};
   r.imageOffset = {a->x,a->y,a->z}; r.imageExtent = {a->width,a->height,a->depth}; full_barrier(u->cb);
   vkCmdCopyBufferToImage(u->cb,chunk,t->image,VK_IMAGE_LAYOUT_GENERAL,1,&r); return VK_SUCCESS;
+}
+int32_t rv_texture_write(void *texture, const void *bytes, const rv_blit_desc *a) {
+  auto *t = static_cast<Texture *>(texture); Device *d = t->device; std::lock_guard<std::recursive_mutex> lock(d->qlock);
+  return record_texture_write(upload_cmd(d), t, bytes, a);
+}
+// The same staged write recorded into `commands` (an adopted app command buffer outside a pass).
+int32_t rv_cmd_write_texture(void *commands, void *texture, const void *bytes, const rv_blit_desc *a) {
+  auto *c = static_cast<Command *>(commands); if (c->rendering) return VK_ERROR_INITIALIZATION_FAILED;
+  return record_texture_write(c, static_cast<Texture *>(texture), bytes, a);
 }
 void rv_blit_buffer_to_texture(void *commands, void *buffer, void *texture, const rv_blit_desc *a) {
   auto *c = static_cast<Command *>(commands); auto *t = static_cast<Texture *>(texture);
@@ -1033,6 +1084,20 @@ static float rv_clear_component(const Texture *t, double v) {
   bool unorm8 = t->format == VK_FORMAT_R8G8B8A8_UNORM || t->format == VK_FORMAT_B8G8R8A8_UNORM || t->format == VK_FORMAT_R8_UNORM;
   if (!unorm8) return static_cast<float>(v); double c = std::clamp(v, 0.0, 1.0); return static_cast<float>(std::floor(c * 255.0 + 0.5) / 255.0);
 }
+// The dynamic state every pass starts with; `rv_cmd_invalidate` restores it after another OGPU copy drew.
+static void pass_defaults(Command *c) {
+  VkViewport vp{0.f,static_cast<float>(c->target_height),static_cast<float>(c->target_width),-static_cast<float>(c->target_height),0.f,1.f};
+  VkRect2D sc{{0,0},{c->target_width,c->target_height}}; vkCmdSetViewport(c->cb,0,1,&vp); vkCmdSetScissor(c->cb,0,1,&sc);
+  vkCmdSetCullMode(c->cb,VK_CULL_MODE_NONE); vkCmdSetFrontFace(c->cb,VK_FRONT_FACE_CLOCKWISE);
+  vkCmdSetDepthTestEnable(c->cb,VK_FALSE); vkCmdSetDepthWriteEnable(c->cb,VK_FALSE); vkCmdSetDepthCompareOp(c->cb,VK_COMPARE_OP_ALWAYS);
+  vkCmdSetPrimitiveTopology(c->cb,VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST);
+}
+// Another OGPU copy recorded into this pass: its pipeline, push descriptors, index buffer and dynamic state are
+// what the command buffer now holds, so this copy rebinds everything before its next draw.
+void rv_cmd_invalidate(void *commands) {
+  auto *c = static_cast<Command *>(commands); c->pipeline = nullptr; c->dirty = true; c->index_buffer = VK_NULL_HANDLE;
+  if (c->rendering) pass_defaults(c);
+}
 int32_t rv_render_begin(void *commands, const rv_attachment *colors, uint32_t count, const rv_depth_attachment *depth, const rv_size *size) {
   if (count > 8) return VK_ERROR_TOO_MANY_OBJECTS; auto *c = static_cast<Command *>(commands); VkRenderingAttachmentInfo attachments[8]{};
   for (uint32_t i = 0; i < count; ++i) {
@@ -1050,12 +1115,8 @@ int32_t rv_render_begin(void *commands, const rv_attachment *colors, uint32_t co
   }
   VkRenderingInfo info{VK_STRUCTURE_TYPE_RENDERING_INFO}; info.renderArea = {{0,0},{size->width,size->height}}; info.layerCount = 1;
   info.colorAttachmentCount = count; info.pColorAttachments = attachments; info.pDepthAttachment = depth ? &da : nullptr;
-  vkCmdBeginRendering(c->cb,&info); c->rendering = true; c->target_height = size->height;
-  VkViewport vp{0.f,static_cast<float>(size->height),static_cast<float>(size->width),-static_cast<float>(size->height),0.f,1.f};
-  VkRect2D sc{{0,0},{size->width,size->height}}; vkCmdSetViewport(c->cb,0,1,&vp); vkCmdSetScissor(c->cb,0,1,&sc);
-  vkCmdSetCullMode(c->cb,VK_CULL_MODE_NONE); vkCmdSetFrontFace(c->cb,VK_FRONT_FACE_CLOCKWISE);
-  vkCmdSetDepthTestEnable(c->cb,VK_FALSE); vkCmdSetDepthWriteEnable(c->cb,VK_FALSE); vkCmdSetDepthCompareOp(c->cb,VK_COMPARE_OP_ALWAYS);
-  vkCmdSetPrimitiveTopology(c->cb,VK_PRIMITIVE_TOPOLOGY_TRIANGLE_LIST); return VK_SUCCESS;
+  vkCmdBeginRendering(c->cb,&info); c->rendering = true; c->target_width = size->width; c->target_height = size->height;
+  pass_defaults(c); return VK_SUCCESS;
 }
 void rv_render_end(void *commands) { auto *c = static_cast<Command *>(commands); vkCmdEndRendering(c->cb); c->rendering = false; full_barrier(c->cb); }
 void rv_render_viewport(void *commands, const rv_rect *r) {

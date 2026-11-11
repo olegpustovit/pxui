@@ -299,6 +299,14 @@ void pxui_paint_flag(PxuiPaint *paint, float x, float y, uint8_t round, uint8_t 
 void pxui_paint_ratio(PxuiPaint *paint, float x, float y, int64_t a, int64_t b);
 void pxui_paint_input_region(PxuiPaint *paint, float cursor, float x, float y, float w, float h);
 void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
+/* Shared GPU: the renderer records into the app's command buffers and passes and never submits, waits,
+ * presents or destroys what the app created. create takes the lease in gpu->owner_token (also on failure).
+ * prepare(commands, frame, completed): frame grows by at least 1 per call; completed (the last frame the app
+ * knows finished) never goes back and is at least frame - 3; else PXUI_ERR_ARGUMENT and nothing is recorded.
+ * draw leaves PXUI's pipeline, descriptors, viewport and scissor bound in the app's pass: draw last, or
+ * rebind everything after it (OGPU: ogpu_core::backend::invalidate_state). PxuiImage: Vulkan views stay in
+ * VK_IMAGE_LAYOUT_GENERAL while frames sampling them run; PXUI only samples them. destroy: the app has
+ * finished every frame it prepared; a teardown failure is the Ui's last error. */
 PxuiRenderer *pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target);
 int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *commands, uint64_t frame, uint64_t completed);
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);

@@ -25,6 +25,8 @@ impl Error {
             0 => Ok(()),
             -100000 => Err(Self::NoDevice),
             -100001 => Err(Self::MissingFeature),
+            -100002 => Err(Self::Unsupported("a borrowed device or image view never submits, waits or copies: the app owns them")),
+            -100003 => Err(Self::InvalidInput("app frames recorded by this device have not been retired")),
             code => Err(Self::VulkanResult(code)),
         }
     }
@@ -210,6 +212,8 @@ unsafe extern "C" {
     fn rv_texture_adopt_view(device: *mut c_void, view: *mut c_void, descriptor: *const NativeTextureDescriptor, out: *mut *mut c_void) -> i32;
     fn rv_device_memory(device: *mut c_void, held: *mut u64, budget: *mut u64) -> i32;
     fn rv_device_destroy(device: *mut c_void);
+    fn rv_device_retire(device: *mut c_void, completed: u64) -> i32;
+    fn rv_device_release_check(device: *mut c_void) -> i32;
     fn rv_queue_create(device: *mut c_void, out: *mut *mut c_void) -> i32;
     fn rv_queue_completed(queue: *mut c_void, done: *mut u64) -> i32;
     fn rv_queue_wait(queue: *mut c_void, epoch: u64) -> i32;
@@ -218,14 +222,15 @@ unsafe extern "C" {
     fn rv_queue_total_seconds(queue: *mut c_void) -> f64;
     fn rv_queue_destroy(queue: *mut c_void);
     fn rv_commands_begin(queue: *mut c_void, out: *mut *mut c_void) -> i32;
-    fn rv_commands_adopt(queue: *mut c_void, command_buffer: *mut c_void, out: *mut *mut c_void) -> i32;
+    fn rv_commands_adopt(queue: *mut c_void, command_buffer: *mut c_void, serial: u64, inside_pass: bool, out: *mut *mut c_void) -> i32;
+    fn rv_cmd_invalidate(commands: *mut c_void);
+    fn rv_cmd_write_texture(commands: *mut c_void, texture: *mut c_void, bytes: *const c_void, args: *const NativeBlit) -> i32;
     fn rv_commands_native(commands: *mut c_void) -> *mut c_void;
     fn rv_commands_commit(commands: *mut c_void, epoch: *mut u64) -> i32;
     fn rv_commands_abandon(commands: *mut c_void);
     fn rv_buffer_create(device: *mut c_void, size: u64, kind: i32, out: *mut *mut c_void) -> i32;
     fn rv_buffer_zero(buffer: *mut c_void) -> i32;
     fn rv_buffer_destroy(buffer: *mut c_void);
-    fn rv_buffer_destroy_immediate(buffer: *mut c_void);
     fn rv_buffer_write(buffer: *mut c_void, offset: u64, data: *const c_void, length: u64) -> i32;
     fn rv_buffer_read(buffer: *mut c_void, offset: u64, data: *mut c_void, length: u64) -> i32;
     fn rv_buffer_map(buffer: *mut c_void) -> *mut c_void;
@@ -307,6 +312,10 @@ impl Device {
         Error::status(unsafe { rv_device_facts(self.raw(),&mut f) })?;
         Ok(DeviceFacts { max_buffer_bytes:f.max_buffer,max_texture_dimension_1d:f.max_texture_1d,max_texture_dimension_2d:f.max_texture_2d,max_texture_dimension_3d:f.max_texture_3d,max_texture_dimension_cube:f.max_texture_cube,max_texture_array_layers:f.max_array_layers,sample_counts:f.sample_counts,color_sample_counts:f.color_sample_counts,depth_sample_counts:f.depth_sample_counts,max_invocations:f.max_invocations,device_local_bytes:f.device_local_bytes,api_version:f.api_version,ray_tracing:f.ray_tracing!=0,cpu_device:f.cpu_device!=0 })
     }
+    /// A borrowed device: the app finished every frame through `completed`.
+    pub fn retire(&self, completed: u64) -> Result<(), Error> { Error::status(unsafe { rv_device_retire(self.raw(), completed) }) }
+    /// Whether destroying this device now frees nothing an unfinished app frame may use.
+    pub fn release_check(&self) -> Result<(), Error> { Error::status(unsafe { rv_device_release_check(self.raw()) }) }
     pub fn native_handles(&self) -> Result<NativeHandles, Error> {
         let mut handles = NativeHandles::default();
         Error::status(unsafe { rv_device_native(self.raw(), &mut handles) })?;
@@ -324,7 +333,7 @@ impl Device {
     pub fn buffer(&self,size:u64,kind:BufferKind)->Result<Buffer,Error>{
         if size==0{return Err(Error::InvalidInput("buffer size must be nonzero"));}
         let mut raw=std::ptr::null_mut();Error::status(unsafe{rv_buffer_create(self.raw(),size,if kind==BufferKind::Shared{0}else{1},&mut raw)})?;
-        let raw=nonnull(raw)?;let device=self.inner.clone();let inner=Arc::new(BufferInner{raw,_device:device.clone(),size,armed:std::sync::atomic::AtomicBool::new(true)});
+        let raw=nonnull(raw)?;let device=self.inner.clone();let inner=Arc::new(BufferInner{raw,_device:device.clone(),size});
         Ok(Buffer{raw,device,size,inner})
     }
     pub fn shader(&self,bytes:&[u8])->Result<ShaderModule,Error>{
@@ -418,7 +427,8 @@ pub struct Queue{inner:Arc<QueueInner>}
 impl Queue{
     pub fn begin(&self)->Result<Commands,Error>{let mut raw=std::ptr::null_mut();Error::status(unsafe{rv_commands_begin(self.inner.raw.as_ptr(),&mut raw)})?;
         Ok(Commands{raw:nonnull(raw)?,queue:self.inner.clone(),active:true,borrowed:false,_not_send:PhantomData})}
-    pub fn adopt_commands(&self, command_buffer:*mut c_void)->Result<Commands,Error>{let mut raw=std::ptr::null_mut();Error::status(unsafe{rv_commands_adopt(self.inner.raw.as_ptr(),command_buffer,&mut raw)})?;
+    /// Record into the app's command buffer of frame `serial`; outside a pass, pending uploads run first in it.
+    pub fn adopt_commands(&self, command_buffer:*mut c_void, serial:u64, inside_pass:bool)->Result<Commands,Error>{let mut raw=std::ptr::null_mut();Error::status(unsafe{rv_commands_adopt(self.inner.raw.as_ptr(),command_buffer,serial,inside_pass,&mut raw)})?;
         Ok(Commands{raw:nonnull(raw)?,queue:self.inner.clone(),active:true,borrowed:true,_not_send:PhantomData})}
     pub fn completed(&self)->Result<u64,Error>{let mut done=0;Error::status(unsafe{rv_queue_completed(self.inner.raw.as_ptr(),&mut done)})?;Ok(done)}
     pub fn wait(&self,epoch:u64)->Result<(),Error>{Error::status(unsafe{rv_queue_wait(self.inner.raw.as_ptr(),epoch)})}
@@ -431,6 +441,13 @@ pub struct Commands{raw:NonNull<c_void>,queue:Arc<QueueInner>,active:bool,borrow
 impl Commands{
     pub fn commit(mut self)->Result<u64,Error>{if self.borrowed{return Err(Error::InvalidInput("borrowed command buffers cannot be submitted"));}let mut epoch=0;let r=unsafe{rv_commands_commit(self.raw.as_ptr(),&mut epoch)};self.active=false;Error::status(r)?;Ok(epoch)}
     pub fn native(&self)->*mut c_void{unsafe{rv_commands_native(self.raw.as_ptr())}}
+    /// Forget cached pipeline, descriptor, index and dynamic state: another OGPU copy recorded into this pass.
+    pub fn invalidate(&mut self){unsafe{rv_cmd_invalidate(self.raw.as_ptr())}}
+    /// Stage `bytes` into `texture` inside this command buffer (outside a pass), as `Texture::write` does.
+    pub fn write_texture(&mut self,texture:&Texture,bytes:&[u8],args:BlitDescriptor)->Result<(),Error>{
+        same(&self.queue.device,&texture.device)?;let n=texture.write_layout(bytes,args)?;
+        Error::status(unsafe{rv_cmd_write_texture(self.raw.as_ptr(),texture.raw.as_ptr(),bytes.as_ptr().cast(),&n)})
+    }
     pub fn set_pipeline(&mut self,pipeline:&Pipeline)->Result<(),Error>{same(&self.queue.device,&pipeline.device)?;unsafe{rv_cmd_set_pipeline(self.raw.as_ptr(),pipeline.raw.as_ptr())};Ok(())}
     pub fn set_buffer(&mut self,index:u32,offset:u64,buffer:&Buffer)->Result<(),Error>{same(&self.queue.device,&buffer.device)?;if offset>buffer.size{return Err(Error::InvalidInput("buffer offset exceeds size"));}Error::status(unsafe{rv_cmd_set_buffer(self.raw.as_ptr(),index as i32,offset,buffer.raw.as_ptr())})}
     pub fn set_bytes(&mut self,index:u32,bytes:&[u8])->Result<(),Error>{Error::status(unsafe{rv_cmd_set_bytes(self.raw.as_ptr(),index as i32,bytes.as_ptr().cast(),bytes.len() as u64)})}
@@ -528,10 +545,10 @@ pub struct DepthAttachment{pub texture:Texture,pub load:i32,pub store:i32,pub cl
 
 #[derive(Clone)]
 pub struct Buffer { raw: NonNull<c_void>, device: Arc<DeviceInner>, size: u64, inner: Arc<BufferInner> }
-struct BufferInner { raw: NonNull<c_void>, _device: Arc<DeviceInner>, size: u64, armed: std::sync::atomic::AtomicBool }
+struct BufferInner { raw: NonNull<c_void>, _device: Arc<DeviceInner>, size: u64 }
 unsafe impl Send for BufferInner {}
 unsafe impl Sync for BufferInner {}
-impl Drop for BufferInner { fn drop(&mut self) { if self.armed.swap(false, std::sync::atomic::Ordering::AcqRel) { unsafe { rv_buffer_destroy(self.raw.as_ptr()) } } } }
+impl Drop for BufferInner { fn drop(&mut self) { unsafe { rv_buffer_destroy(self.raw.as_ptr()) } } }
 unsafe impl Send for Buffer {}
 unsafe impl Sync for Buffer {}
 impl Buffer {
@@ -540,13 +557,6 @@ impl Buffer {
     pub fn write(&mut self, offset:u64, bytes:&[u8]) -> Result<(),Error> {
         if offset.checked_add(bytes.len() as u64).is_none_or(|end|end>self.inner.size) { return Err(Error::InvalidInput("write range exceeds buffer")); }
         Error::status(unsafe { rv_buffer_write(self.inner.raw.as_ptr(),offset,bytes.as_ptr().cast(),bytes.len() as u64) })
-    }
-    pub fn destroy_after_external_completion(self) -> Result<(),Error> {
-        if Arc::strong_count(&self.inner) != 1 { return Err(Error::InvalidInput("staging buffer is still aliased")); }
-        if self.inner.armed.swap(false, std::sync::atomic::Ordering::AcqRel) {
-            unsafe { rv_buffer_destroy_immediate(self.inner.raw.as_ptr()) };
-        }
-        Ok(())
     }
     pub fn read(&self, offset:u64, bytes:&mut[u8]) -> Result<(),Error> {
         if offset.checked_add(bytes.len() as u64).is_none_or(|end|end>self.inner.size) { return Err(Error::InvalidInput("read range exceeds buffer")); }
@@ -638,14 +648,17 @@ impl Texture{
     pub fn native_view(&self)->*mut c_void{unsafe{rv_texture_native_view(self.raw.as_ptr())}}
     /// Write a 2D rectangle (`args.buffer_offset` is ignored; rows `bytes_per_row` apart, last row needs only its pixels).
     pub fn write(&self,bytes:&[u8],args:BlitDescriptor)->Result<(),Error>{
+        let n=self.write_layout(bytes,args)?;
+        Error::status(unsafe{rv_texture_write(self.raw.as_ptr(),bytes.as_ptr().cast(),&n)})
+    }
+    fn write_layout(&self,bytes:&[u8],args:BlitDescriptor)->Result<NativeBlit,Error>{
         let d=self.descriptor;let mip=args.mip_level;
         let width=d.width.checked_shr(mip).unwrap_or(0).max(1);let height=d.height.checked_shr(mip).unwrap_or(0).max(1);
         if args.texel_bytes==0||mip>=d.mip_levels||args.bytes_per_row%args.texel_bytes!=0||args.x<0||args.y<0||args.z!=0||args.depth!=1||args.width==0||args.height==0||
             (args.x as u32).checked_add(args.width).is_none_or(|end|end>width)||(args.y as u32).checked_add(args.height).is_none_or(|end|end>height)||
             args.bytes_per_row<args.width.saturating_mul(args.texel_bytes)||
             (args.bytes_per_row as u64*(args.height as u64-1)+args.width as u64*args.texel_bytes as u64)>bytes.len() as u64{return Err(Error::InvalidInput("invalid texture write layout"));}
-        let n=NativeBlit{offset:0,bytes_per_row:args.bytes_per_row,texel:args.texel_bytes,mip:mip,x:args.x,y:args.y,z:0,width:args.width,height:args.height,depth:1};
-        Error::status(unsafe{rv_texture_write(self.raw.as_ptr(),bytes.as_ptr().cast(),&n)})
+        Ok(NativeBlit{offset:0,bytes_per_row:args.bytes_per_row,texel:args.texel_bytes,mip:mip,x:args.x,y:args.y,z:0,width:args.width,height:args.height,depth:1})
     }
     pub fn read(&self,bytes:&mut[u8],bytes_per_row:u64,texel_bytes:u32)->Result<(),Error>{
         if texel_bytes==0||bytes_per_row%texel_bytes as u64!=0||bytes_per_row<self.descriptor.width as u64*texel_bytes as u64||

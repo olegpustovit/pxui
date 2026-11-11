@@ -132,7 +132,7 @@ pub struct Break<'a> { pub at_instance: u32, pub texture: Option<&'a Texture> }
 pub enum AtlasKind { Mask, Color }
 
 /// Frames whose ring regions stay untouched: at most `FRAMES - 1` frames may be in flight on the GPU.
-const FRAMES: usize = 3;
+pub const FRAMES: usize = 3;
 // the text atlas waits as many frames before it rewrites texels a frame drew
 const _: () = assert!(pxui_core::text::FRAMES_IN_FLIGHT as usize == FRAMES);
 /// Storage-buffer offset alignment that every Vulkan device satisfies.

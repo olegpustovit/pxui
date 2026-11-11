@@ -8,7 +8,7 @@ use vulkan_sys as sys;
 
 pub use sys::{
     GeometryKind,
-    AccelerationSizes, Acquire, Binding, BlitDescriptor, BufferKind, DeviceFacts, DeviceMemory,
+    AccelerationSizes, Acquire, Binding, BlitDescriptor, BufferKind, DeviceFacts, DeviceMemory, NativeHandles,
     PipelineDescriptor, Rect, SamplerDescriptor, Size, TextureDescriptor,
 };
 
@@ -51,6 +51,12 @@ fn error(operation: &'static str, error: sys::Error) -> Error {
 pub struct Device(sys::Device);
 impl Device {
     pub fn create(validation: bool, fatal_validation: bool) -> Result<Self, Error> { sys::Device::create(validation, fatal_validation).map_err(|failure| error("device_create", failure)).map(Self) }
+    /// A device over the app's handles: it records into the app's command buffers and never submits.
+    pub fn adopt(native: NativeHandles) -> Result<Self, Error> { sys::Device::adopt(native).map_err(|failure| error("device_adopt", failure)).map(Self) }
+    pub fn native_handles(&self) -> Result<NativeHandles, Error> { self.0.native_handles().map_err(|failure| error("device_native", failure)) }
+    pub fn retire(&self, completed: u64) -> Result<(), Error> { self.0.retire(completed).map_err(|failure| error("device_retire", failure)) }
+    pub fn release_check(&self) -> Result<(), Error> { self.0.release_check().map_err(|failure| error("device_destroy", failure)) }
+    pub fn wrap_texture_view(&self, view: *mut std::ffi::c_void, descriptor: TextureDescriptor) -> Result<Texture, Error> { self.0.wrap_texture_view(view, descriptor).map_err(|failure| error("texture_wrap", failure)).map(Texture) }
     pub fn validation_messages() -> u32 { sys::Device::validation_messages() }
     pub fn facts(&self) -> Result<DeviceFacts, Error> { self.0.facts().map_err(|failure| error("device_facts", failure)) }
     pub fn memory(&self) -> Result<DeviceMemory, Error> { self.0.memory().map_err(|failure| error("device_memory", failure)) }
@@ -107,6 +113,7 @@ pub fn dmabuf_import_sync_file(dmabuf: std::os::fd::BorrowedFd<'_>, fence: std::
 pub struct Queue(sys::Queue);
 impl Queue {
     pub fn begin(&self) -> Result<Commands, Error> { self.0.begin().map_err(|failure| error("commands_begin", failure)).map(Commands) }
+    pub fn adopt_commands(&self, command_buffer: *mut std::ffi::c_void, serial: u64, inside_pass: bool) -> Result<Commands, Error> { self.0.adopt_commands(command_buffer, serial, inside_pass).map_err(|failure| error("commands_adopt", failure)).map(Commands) }
     pub fn completed(&self) -> Result<u64, Error> { self.0.completed().map_err(|failure| error("queue_completed", failure)) }
     pub fn wait(&self, epoch: u64) -> Result<(), Error> { self.0.wait(epoch).map_err(|failure| error("queue_wait", failure)) }
     pub fn poll(&self) { self.0.poll() }
@@ -117,6 +124,9 @@ impl Queue {
 pub struct Commands(sys::Commands);
 impl Commands {
     pub fn commit(self) -> Result<u64, Error> { self.0.commit().map_err(|failure| error("commands_commit", failure)) }
+    pub fn native(&self) -> *mut std::ffi::c_void { self.0.native() }
+    pub fn invalidate(&mut self) { self.0.invalidate() }
+    pub fn write_texture(&mut self, texture: &Texture, bytes: &[u8], args: BlitDescriptor) -> Result<(), Error> { self.0.write_texture(&texture.0, bytes, args).map_err(|failure| error("texture_write", failure)) }
     pub fn set_pipeline(&mut self, pipeline: &Pipeline) -> Result<(), Error> { self.0.set_pipeline(&pipeline.0).map_err(|failure| error("set_pipeline", failure)) }
     pub fn set_buffer(&mut self, index: u32, offset: u64, buffer: &Buffer) -> Result<(), Error> { self.0.set_buffer(index, offset, &buffer.0).map_err(|failure| error("set_buffer", failure)) }
     pub fn set_bytes(&mut self, index: u32, bytes: &[u8]) -> Result<(), Error> { self.0.set_bytes(index, bytes).map_err(|failure| error("set_bytes", failure)) }
@@ -179,6 +189,7 @@ impl Pipeline {
 pub struct Texture(sys::Texture);
 impl Texture {
     pub fn descriptor(&self) -> TextureDescriptor { self.0.descriptor() }
+    pub fn native_view(&self) -> *mut std::ffi::c_void { self.0.native_view() }
     pub fn write(&self, bytes: &[u8], args: BlitDescriptor) -> Result<(), Error> { self.0.write(bytes, args).map_err(|failure| error("texture_write", failure)) }
     pub fn read(&self, bytes: &mut [u8], bytes_per_row: u64, texel_bytes: u32) -> Result<(), Error> { self.0.read(bytes, bytes_per_row, texel_bytes).map_err(|failure| error("texture_read", failure)) }
 }

@@ -39,6 +39,8 @@ use input::{frame, Event, Key, MouseButton, Platform, ScrollPhase};
 use pxui_core::ui::{PanelOpts, Ui};
 pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc, Str};
 pub use pxui_types::ffi::{PxuiDialogOut, PxuiThemeSnapshot};
+// the renderer's status codes (pxui.h): bad argument, GPU failure, call not allowed now
+const PXUI_ERR_ARGUMENT:i32=-1; const PXUI_ERR_GPU:i32=-2; const PXUI_ERR_STATE:i32=-3;
 use pxui_types::ffi::{A11yNode as FfiA11yNode, A11yTree as FfiA11yTree, A11yValue as FfiA11yValue, Damage as FfiDamage, Output as FfiOutput, PlatformOut as FfiPlatformOut, Slice as FfiSlice};
 use ogpu_core::backend::{self as gpu_backend, Device, Queue, Texture};
 use ogpu_core::pipeline::{ColorFormat, DepthFormat};
@@ -489,10 +491,22 @@ pub struct PxuiRenderer {
     device: Device,
     textures: std::collections::HashMap<usize, Texture>,
     engine: *mut Ui,
+    error: *mut CString,
     format: TextureFormat,
     samples: i64,
+    /// the last frame passed to `prepare`, and the last `completed` the app reported
     frame_serial: u64,
+    completed: u64,
     atlas_initialized: bool,
+}
+
+impl PxuiRenderer {
+    /// Record `message` as the owning `Ui`'s last error and return `code`.
+    fn fail(&mut self, code: i32, message: &str) -> i32 {
+        if let Ok(m)=CString::new(message) { unsafe { *self.error=m; } }
+        code
+    }
+    fn fail_gpu(&mut self, error: ogpu_core::error::Error) -> i32 { self.fail(PXUI_ERR_GPU, &ogpu_core::error::to_string(&error)) }
 }
 
 struct GpuLease { token:*mut c_void, release:Option<extern "C" fn(*mut c_void)>, active:bool }
@@ -530,18 +544,24 @@ pub unsafe extern "C" fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_ty
         Ok(p)=>p,
         Err(_)=>{ let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return core::ptr::null_mut(); }
     };
-    Box::into_raw(Box::new(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), engine:ui.engine, format, samples:i64::from(target.samples), frame_serial:0, atlas_initialized:false }))
+    Box::into_raw(Box::new(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), engine:ui.engine, error:ui.error, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false }))
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands:*const pxui_types::Commands, frame:u64, completed:u64) -> i32 {
-    if renderer.is_null() || commands.is_null() { return -1; }
+    if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };
+    if commands.is_null() || unsafe { (*commands).size } < core::mem::size_of::<pxui_types::Commands>() as u32 { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid commands descriptor"); }
     let commands=unsafe { *commands };
-    if commands.size < core::mem::size_of::<pxui_types::Commands>() as u32 { return -1; }
-    let native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:commands.vk_command_buffer, mtl_command_buffer:commands.mtl_command_buffer, frame_serial:frame };
-    let commands=match gpu_backend::adopt_commands(&renderer.queue,native) { Ok(c)=>c, Err(_)=>return -2 };
-    if gpu_backend::retire(&renderer.queue,completed).is_err() { return -2; }
+    // The painter's instance ring and the glyph atlas reuse what frame `frame - FRAMES` used: that frame must be done.
+    if frame <= renderer.frame_serial { return renderer.fail(PXUI_ERR_ARGUMENT, "frame serials must increase"); }
+    if completed >= frame || completed < renderer.completed || frame - completed > pxui_render::FRAMES as u64 {
+        return renderer.fail(PXUI_ERR_ARGUMENT, "completed must not go back and must be at least frame - 3");
+    }
+    let native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:commands.vk_command_buffer, mtl_command_buffer:commands.mtl_command_buffer, frame_serial:frame, inside_pass:0 };
+    let commands=match gpu_backend::adopt_commands(&renderer.queue,native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
+    if let Err(e)=gpu_backend::retire(&renderer.queue,completed) { return renderer.fail_gpu(e); }
+    renderer.completed=completed;
     let ui=unsafe { &mut *renderer.engine };
     let mut failed=None;
     if !renderer.atlas_initialized {
@@ -558,13 +578,13 @@ pub unsafe extern "C" fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, comma
             renderer.atlas_initialized=true;
         }
     }
-    if failed.is_some() { return -2; }
+    if let Some(e)=failed { return renderer.fail_gpu(e); }
     ui.text_mut().drain_uploads(&mut |kind,x,y,w,h,bytes,stride| {
         let atlas=if kind==TextKind::Mask { AtlasKind::Mask } else { AtlasKind::Color };
         let result=gpu_backend::write_texture_on(&commands,renderer.painter.atlas(atlas),None,Origin{x:x as i64,y:y as i64,z:0},Extent{width:w as i64,height:h as i64,depth:1},stride as i64,bytes);
         if let Err(error)=result { if failed.is_none() { failed=Some(error); } }
     });
-    if failed.is_some() { renderer.atlas_initialized=false; return -2; }
+    if let Some(e)=failed { renderer.atlas_initialized=false; return renderer.fail_gpu(e); }
     renderer.frame_serial=frame;
     renderer.painter.begin_frame();
     0
@@ -572,17 +592,19 @@ pub unsafe extern "C" fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, comma
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const pxui_types::Pass) -> i32 {
-    if renderer.is_null() || pass.is_null() { return -1; }
+    if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };
+    if pass.is_null() { return renderer.fail(PXUI_ERR_ARGUMENT, "pass is null"); }
     let pass=unsafe { *pass };
-    if pass.size < core::mem::size_of::<pxui_types::Pass>() as u32 || pass.width_px==0 || pass.height_px==0 || !pass.scale.is_finite() || pass.scale<=0.0 { return -1; }
-    let commands_native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_command_buffer:pass.mtl_command_buffer, frame_serial:renderer.frame_serial };
-    let native_pass=ogpu_core::backend::NativePass { size:pass.size, vk_command_buffer:pass.vk_command_buffer, mtl_render_encoder:pass.mtl_render_encoder, width_px:pass.width_px, height_px:pass.height_px, scale:pass.scale };
-    let commands=match gpu_backend::adopt_commands(&renderer.queue,commands_native) { Ok(c)=>c, Err(_)=>return -2 };
-    let encoder=match gpu_backend::adopt_render_encoder(&commands,native_pass,renderer.format,renderer.samples) { Ok(e)=>e, Err(_)=>return -2 };
+    if pass.size < core::mem::size_of::<pxui_types::Pass>() as u32 || pass.width_px==0 || pass.height_px==0 || !pass.scale.is_finite() || pass.scale<=0.0 { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid pass descriptor"); }
+    if renderer.frame_serial==0 { return renderer.fail(PXUI_ERR_STATE, "draw needs a prepared frame"); }
+    let commands_native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_command_buffer:pass.mtl_command_buffer, frame_serial:renderer.frame_serial, inside_pass:1 };
+    let native_pass=ogpu_core::backend::NativePass { size:core::mem::size_of::<ogpu_core::backend::NativePass>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_render_encoder:pass.mtl_render_encoder, width_px:pass.width_px, height_px:pass.height_px, scale:pass.scale };
+    let commands=match gpu_backend::adopt_commands(&renderer.queue,commands_native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
+    let encoder=match gpu_backend::adopt_render_encoder(&commands,native_pass,renderer.format,renderer.samples) { Ok(e)=>e, Err(e)=>return renderer.fail_gpu(e) };
     let ui=unsafe { &mut *renderer.engine };
     for (index,v) in ui.output().views {
-        if renderer.painter.set_view(*index,View { offset:v.offset,opacity:v.opacity,clip:v.clip,scale:v.scale,transform:v.transform,pivot:v.pivot }).is_err() { return -2; }
+        if let Err(e)=renderer.painter.set_view(*index,View { offset:v.offset,opacity:v.opacity,clip:v.clip,scale:v.scale,transform:v.transform,pivot:v.pivot }) { return renderer.fail_gpu(e); }
     }
     let mut used_textures=std::collections::HashSet::new();
     for index in 0..ui.output().draw.len() {
@@ -597,7 +619,7 @@ pub unsafe extern "C" fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*co
             let Some(key)=image::texture_key(image) else { continue; };
             used_textures.insert(key);
             if !renderer.textures.contains_key(&key) {
-                let texture=match image::adopt_texture(&renderer.device,image) { Ok(texture)=>texture, Err(())=>return -2 };
+                let texture=match image::adopt_texture(&renderer.device,image) { Ok(texture)=>texture, Err(())=>return renderer.fail(PXUI_ERR_GPU, "an app image could not be wrapped") };
                 renderer.textures.insert(key,texture);
             }
         }
@@ -609,23 +631,25 @@ pub unsafe extern "C" fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*co
             } else { None };
             breaks.push(Break { at_instance:b.at_instance, texture });
         }
-        if renderer.painter.draw_retained(&encoder,[pass.width_px,pass.height_px],pass.scale,layer.id,&layer.instances,&layer.dirty,&breaks).is_err() { return -2; }
+        if let Err(e)=renderer.painter.draw_retained(&encoder,[pass.width_px,pass.height_px],pass.scale,layer.id,&layer.instances,&layer.dirty,&breaks) { drop(breaks); return renderer.fail_gpu(e); }
         ui.drawn(index);
     }
     renderer.textures.retain(|key,_|used_textures.contains(key));
-    let _=gpu_backend::invalidate_state(&encoder);
-    if gpu_backend::end_render(&encoder).is_err() { return -2; }
+    // ends only this copy's view of the pass; the app's encoder must `invalidate_state` before drawing more
+    if let Err(e)=gpu_backend::end_render(&encoder) { return renderer.fail_gpu(e); }
     0
 }
 
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn pxui_renderer_destroy(renderer:*mut PxuiRenderer) {
     if renderer.is_null() { return; }
-    let renderer=unsafe { Box::from_raw(renderer) };
-    drop(renderer.painter);
-    drop(renderer.textures);
-    let _=gpu_backend::destroy_queue(&renderer.queue);
-    let _=gpu_backend::destroy_device(&renderer.device);
+    let PxuiRenderer { painter, queue, device, textures, error, frame_serial, .. } = *unsafe { Box::from_raw(renderer) };
+    // a painter or texture that fails to go stays a child of the device, which then refuses to go: reported below
+    drop(painter);
+    drop(textures);
+    // Contract (pxui.h): the app has finished every frame it passed to prepare, so everything retires now.
+    let result=gpu_backend::retire(&queue,frame_serial).and_then(|()| gpu_backend::destroy_queue(&queue)).and_then(|()| gpu_backend::destroy_device(&device));
+    if let Err(e)=result { if let Ok(m)=CString::new(ogpu_core::error::to_string(&e)) { unsafe { *error=m; } } }
 }
 
 #[unsafe(no_mangle)]

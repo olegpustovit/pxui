@@ -275,5 +275,14 @@ impl DriverRenderEncoder for Render {
         Ok(ogpu_core::backend::NativePass { size: std::mem::size_of::<ogpu_core::backend::NativePass>() as u32,
             mtl_render_encoder: self.encoder.native_ptr()?, width_px: self.width_px, height_px: self.height_px, scale: self.scale, ..Default::default() })
     }
-    fn invalidate_state(&self) -> Result<(), Error> { Ok(()) }
+    /// Another OGPU copy drew into this pass: put back the state a new encoder starts with (Metal keeps no
+    /// cached bindings here; the core makes the caller set its pipeline again).
+    fn invalidate_state(&self) -> Result<(), Error> {
+        let (w, h) = (self.width_px as f64, self.height_px as f64);
+        self.encoder.set_viewport(ogpu_core::render_pass::admit_viewport(ogpu_core::render_pass::Viewport { x: 0.0, y: 0.0, width: w, height: h, znear: 0.0, zfar: 1.0 })?)?;
+        self.encoder.set_scissor(Scissor { x: 0, y: 0, width: self.width_px as usize, height: self.height_px as usize })?;
+        self.encoder.set_cull_mode(Cull::CullNone)?;
+        self.encoder.set_winding(OgpuWinding::Clockwise)?;
+        self.encoder.set_depth_stencil_state(None)
+    }
 }

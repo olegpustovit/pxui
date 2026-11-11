@@ -1087,8 +1087,6 @@ fn create_accel(dev: &Rc<Dev>, descriptor: &DriverAccelDescriptor) -> Result<Box
 struct QueueState {
     queue: RefCell<Option<vk::Queue>>,
     submitted: Cell<i64>,
-    next_external: Cell<u64>,
-    staged: RefCell<Vec<(u64, vk::Buffer)>>,
 }
 
 impl QueueState {
@@ -1103,7 +1101,6 @@ struct Cmds {
     dev: Rc<Dev>,
     queue: Rc<QueueState>,
     commands: RefCell<Option<vk::Commands>>,
-    external_epoch: Option<u64>,
 }
 
 impl Cmds {
@@ -1338,7 +1335,9 @@ impl DriverRenderEncoder for Render {
             vk_command_buffer: commands.native(), width_px: self.width, height_px: self.height, scale: self.scale,
             ..Default::default() })
     }
-    fn invalidate_state(&self) -> Result<(), Error> { Ok(()) }
+    fn invalidate_state(&self) -> Result<(), Error> {
+        self.cmds.run(QUEUE_OP, &mut |c| { c.invalidate(); Ok(()) })
+    }
     fn render_set_pipeline(&self, pipeline: &dyn DriverPipeline) -> Result<(), Error> {
         let entry = pipeline_entry(QUEUE_OP, pipeline)?;
         self.bind_pipeline(&entry)
@@ -1508,30 +1507,21 @@ struct CommandsHandle {
 }
 
 impl DriverCommands for CommandsHandle {
+    /// Staged in this command buffer's own arena, released with it (adopted: when the app retires the frame).
     fn write_texture(&self, resource: &dyn DriverResource, write: &TextureRead, bytes: &[u8]) -> Result<(), Error> {
         const OP: &str = "Ogpu_vulkan.write_texture_on";
-        let Some(epoch) = self.cmds.external_epoch else { return Err(fail(OP, ErrorKind::InvalidState, "uploads require an adopted command buffer")); };
         let texture = texture_entry(OP, resource)?;
-        if !write.belongs_to(&texture.profile) { return Err(fail(OP, ErrorKind::InvalidArgument, "upload belongs to another texture")); }
+        if !write.belongs_to(&texture.descriptor) { return Err(fail(OP, ErrorKind::InvalidArgument, "upload belongs to another texture")); }
         let region = write.region();
-        let texel = types::texel_bytes(texture.profile.format) as u32;
-        let length = (write.bytes_per_row() as u64).checked_mul(region.height.saturating_sub(1) as u64)
-            .and_then(|n| n.checked_add(region.width as u64 * texel as u64))
-            .ok_or_else(|| fail(OP, ErrorKind::InvalidArgument, "upload byte length overflow"))?;
-        let mut staging = self.cmds.dev.device(OP)?.buffer(length, vk::BufferKind::Shared).map_err(|failure| of_vk(OP, failure))?;
-        staging.write(0, &bytes[..length as usize]).map_err(|failure| of_vk(OP, failure))?;
         let args = vk::BlitDescriptor { buffer_offset: 0, bytes_per_row: write.bytes_per_row() as u32,
-            texel_bytes: texel, mip_level: write.mip_level() as u32, x: region.x as i32, y: region.y as i32,
+            texel_bytes: types::texel_bytes(texture.descriptor.format) as u32, mip_level: write.mip_level() as u32, x: region.x as i32, y: region.y as i32,
             z: region.z as i32, width: region.width as u32, height: region.height as u32, depth: region.depth as u32 };
-        self.cmds.run(OP, &mut |commands| commands.blit_buffer_to_texture(&staging, &texture.texture, args))?;
-        self.cmds.queue.staged.borrow_mut().push((epoch, staging));
-        Ok(())
+        self.cmds.run(OP, &mut |commands| commands.write_texture(&texture.texture, bytes, args))
     }
     fn native_commands(&self) -> Result<NativeCommands, Error> {
         let commands = self.cmds.commands.borrow();
         let Some(commands) = commands.as_ref() else { return Err(fail(QUEUE_OP, ErrorKind::InvalidState, "commands are finished")); };
-        Ok(NativeCommands { size: std::mem::size_of::<NativeCommands>() as u32,
-            vk_command_buffer: commands.native(), frame_serial: self.cmds.external_epoch.unwrap_or(0), ..Default::default() })
+        Ok(NativeCommands { size: std::mem::size_of::<NativeCommands>() as u32, vk_command_buffer: commands.native(), ..Default::default() })
     }
     fn adopt_render_encoder(&self, native: NativePass, _target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
         let commands = self.cmds.commands.borrow();
@@ -1581,7 +1571,7 @@ impl DriverCommands for CommandsHandle {
 
 fn begin_commands(dev: &Rc<Dev>, queue: &Rc<QueueState>) -> Result<Box<dyn DriverCommands>, Error> {
     let native = queue.native(QUEUE_OP)?.begin().map_err(|failure| of_vk(QUEUE_OP, failure))?;
-    let cmds = Rc::new(Cmds { dev: dev.clone(), queue: queue.clone(), commands: RefCell::new(Some(native)), external_epoch: None });
+    let cmds = Rc::new(Cmds { dev: dev.clone(), queue: queue.clone(), commands: RefCell::new(Some(native)) });
     Ok(Box::new(CommandsHandle { cmds }))
 }
 
@@ -1606,23 +1596,16 @@ impl DriverQueue for NativeQueue {
         begin_commands(&self.dev, &self.state)
     }
     fn adopt_commands(&self, native: NativeCommands) -> Result<Box<dyn DriverCommands>, Error> {
-        if native.vk_command_buffer.is_null() { return Err(fail(QUEUE_OP, ErrorKind::InvalidArgument, "Vulkan command buffer is null")); }
+        if native.vk_command_buffer.is_null() || native.frame_serial == 0 {
+            return Err(fail(QUEUE_OP, ErrorKind::InvalidArgument, "an adopted Vulkan command buffer needs a handle and a nonzero frame serial"));
+        }
         let queue = self.state.native(QUEUE_OP)?;
-        let commands = queue.adopt_commands(native.vk_command_buffer).map_err(|failure| of_vk(QUEUE_OP, failure))?;
-        let epoch = if native.frame_serial != 0 { native.frame_serial } else { self.state.next_external.get().saturating_add(1) };
-        self.state.next_external.set(epoch);
-        let cmds = Rc::new(Cmds { dev: self.dev.clone(), queue: self.state.clone(), commands: RefCell::new(Some(commands)), external_epoch: Some(epoch) });
+        let commands = queue.adopt_commands(native.vk_command_buffer, native.frame_serial, native.inside_pass != 0).map_err(|failure| of_vk(QUEUE_OP, failure))?;
+        let cmds = Rc::new(Cmds { dev: self.dev.clone(), queue: self.state.clone(), commands: RefCell::new(Some(commands)) });
         Ok(Box::new(CommandsHandle { cmds }))
     }
     fn retire(&self, completed: u64) -> Result<(), Error> {
-        let mut staged = self.state.staged.borrow_mut();
-        let mut keep = Vec::with_capacity(staged.len());
-        for (epoch, buffer) in staged.drain(..) {
-            if epoch > completed { keep.push((epoch, buffer)); }
-            else { buffer.destroy_after_external_completion().map_err(|failure| of_vk(QUEUE_OP, failure))?; }
-        }
-        *staged = keep;
-        Ok(())
+        self.dev.device(QUEUE_OP)?.retire(completed).map_err(|failure| of_vk(QUEUE_OP, failure))
     }
     fn gpu_duration(&self, epoch: i64) -> Option<f64> {
         self.state.native(QUEUE_OP).ok().and_then(|queue| queue.duration(epoch as u64))
@@ -1638,9 +1621,6 @@ impl DriverQueue for NativeQueue {
         self.dev.device(OP)?.import_sync_file(fence).map_err(|failure| of_vk(OP, failure))
     }
     fn destroy_queue(&self) -> Result<(), Error> {
-        if !self.state.staged.borrow().is_empty() {
-            return Err(fail(QUEUE_OP, ErrorKind::InvalidState, "adopted command uploads must be retired before queue destruction"));
-        }
         let completed = self.state.native(QUEUE_OP)?.completed().map_or(-1, |done| done as i64);
         if completed < self.state.submitted.get() {
             Err(fail(QUEUE_OP, ErrorKind::InvalidState, "queue has commands in flight"))
@@ -1658,7 +1638,7 @@ fn create_queue(dev: &Rc<Dev>) -> Result<Box<dyn DriverQueue>, Error> {
     let native = device.queue().map_err(|failure| of_vk(QUEUE_OP, failure))?;
     live_add(1);
     dev.queues.set(dev.queues.get() + 1);
-    let state = Rc::new(QueueState { queue: RefCell::new(Some(native)), submitted: Cell::new(0), next_external: Cell::new(0), staged: RefCell::new(Vec::new()) });
+    let state = Rc::new(QueueState { queue: RefCell::new(Some(native)), submitted: Cell::new(0) });
     Ok(Box::new(NativeQueue { dev: dev.clone(), state }))
 }
 
@@ -1869,6 +1849,10 @@ impl DriverDevice for VulkanDevice {
     fn destroy_device(&self) -> Result<(), Error> {
         if self.dev.queues.get() != 0 {
             return Err(fail("Ogpu_vulkan.destroy_device", ErrorKind::InvalidState, "device has active queues"));
+        }
+        // An adopted device frees its garbage now: the app must have retired every frame it recorded into.
+        if self.dev.device("Ogpu_vulkan.destroy_device")?.release_check().is_err() {
+            return Err(fail("Ogpu_vulkan.destroy_device", ErrorKind::InvalidState, "app frames this adopted device recorded into are not retired"));
         }
         self.device_live.set(false);
         // Natives leaked past their owners go with the device.

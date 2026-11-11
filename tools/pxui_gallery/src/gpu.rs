@@ -41,7 +41,8 @@ impl Gpu {
 
     /// Create a public PXUI renderer that borrows `ui` and adopts this app-owned device.
     pub fn renderer<'ui>(&self, ui: &'ui mut Ui) -> Result<Renderer<'ui>, String> {
-        let native = be::native(&self.device).map_err(|e| error::to_string(&e))?;
+        // one lease, handed to the renderer: its device releases it when the renderer goes
+        let native = be::native_leased(&self.device).map_err(|e| error::to_string(&e))?;
         let gpu = UiGpu {
             size: native.size, backend: native.backend, instance: native.instance, physical_device: native.physical_device,
             device: native.device, queue: native.queue, queue_family: native.queue_family, api_version: native.api_version,
@@ -85,7 +86,8 @@ impl Gpu {
         Ok(())
     }
 
-    /// Draw PXUI's retained layers into the already-open host pass.
+    /// Draw PXUI's retained layers into the already-open host pass. PXUI leaves its own pipeline, bindings
+    /// and dynamic state bound, so the app's encoder forgets what it cached before it draws anything else.
     pub fn draw(&self, renderer: &mut Renderer<'_>, commands: &be::Commands, encoder: &RenderEncoder, size_px: [u32; 2], scale: f32) -> Result<(), String> {
         let commands = be::native_commands(commands).map_err(|e| error::to_string(&e))?;
         let native = be::native_pass(encoder).map_err(|e| error::to_string(&e))?;
@@ -94,7 +96,8 @@ impl Gpu {
             mtl_render_encoder: native.mtl_render_encoder, width_px: size_px[0], height_px: size_px[1], scale,
             mtl_command_buffer: commands.mtl_command_buffer,
         };
-        renderer.draw(&pass).map_err(|code| format!("pxui renderer draw failed ({code})"))
+        renderer.draw(&pass).map_err(|code| format!("pxui renderer draw failed ({code})"))?;
+        be::invalidate_state(encoder).map_err(|e| error::to_string(&e))
     }
 
     /// Complete the just-submitted queue work; gallery qualification renders synchronously.

@@ -47,8 +47,11 @@ pub struct NativeCommands {
     pub size: u32,
     pub vk_command_buffer: *mut c_void,
     pub mtl_command_buffer: *mut c_void,
-    /// App submission serial used by `retire`; zero means no caller serial was supplied.
+    /// App submission serial used by `retire`; zero means no caller serial was supplied (Vulkan adoption refuses it).
     pub frame_serial: u64,
+    /// Nonzero when the buffer is inside a render pass: the adopter then records only into that pass and
+    /// keeps uploads it has pending for the next adoption outside a pass.
+    pub inside_pass: u32,
 }
 
 #[repr(C)]
@@ -62,6 +65,10 @@ pub struct NativePass {
     pub scale: f32,
 }
 
+/// An image view (Vulkan) or texture (Metal) the app owns, sampled by another OGPU copy through
+/// `wrap_texture`. Vulkan: the image must be in `VK_IMAGE_LAYOUT_GENERAL` whenever a command buffer that
+/// samples it runs, as every OGPU image is. The wrapper only samples it: reads, writes, copies and present
+/// are refused, and destroying the wrapper leaves the app's object alone.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct NativeTexture {
@@ -471,7 +478,7 @@ struct ResourceInner {
 #[derive(Clone)]
 pub struct Buffer { resource: Resource, buffer_descriptor: AdmittedBuffer, memory: Memory }
 #[derive(Clone)]
-pub struct Texture { resource: Resource, texture_descriptor: AdmittedTexture }
+pub struct Texture { resource: Resource, texture_descriptor: AdmittedTexture, wrapped: bool }
 #[derive(Clone)]
 pub struct Pipeline(Rc<PipelineInner>);
 struct PipelineInner { driver: RefCell<Option<Rc<dyn DriverPipeline>>>, max_threads: i64, device: Device, library: Option<Library>, indirect: bool, shape: PipelineShape, render: Option<(pipeline::ColorFormat, i64)>, dead: Cell<bool> }
@@ -635,11 +642,19 @@ pub fn create_device(driver: Box<dyn Driver>) -> Result<Device, Error> {
 }
 
 pub fn capabilities(device: &Device) -> Caps { device.0.capabilities }
+/// The native handles and feature bits of `device`, with no lease: valid while the device lives.
 pub fn native(device: &Device) -> Result<NativeDevice, Error> {
     live("Backend.native", device)?;
     let mut native = device.0.raw().native()?;
-    device.0.native_leases.set(device.0.native_leases.get() + 1);
     native.size = std::mem::size_of::<NativeDevice>() as u32;
+    Ok(native)
+}
+/// `native` plus one lease that keeps the device's driver alive until it is released, so the device
+/// and its adopter can be destroyed in either order. Each call takes one lease: hand the descriptor to
+/// exactly one `adopt`, whose device releases it, or give it back with `release_native_device`.
+pub fn native_leased(device: &Device) -> Result<NativeDevice, Error> {
+    let mut native = native(device)?;
+    device.0.native_leases.set(device.0.native_leases.get() + 1);
     native.owner_token = Box::into_raw(Box::new(device.0.clone())).cast();
     native.release_owner = Some(release_native_owner);
     Ok(native)
@@ -851,7 +866,7 @@ fn create_texture_kind(operation: &str, device: &Device, descriptor: TextureDesc
     let descriptor = crate::validation::admit_ordinary_texture(&device.0.capabilities, descriptor, depth, memoryless)?;
     let raw = device.0.raw().create_texture(&descriptor)?;
     device.0.children.set(device.0.children.get() + 1);
-    Ok(Texture { resource: make_resource(device, raw), texture_descriptor: descriptor })
+    Ok(Texture { resource: make_resource(device, raw), texture_descriptor: descriptor, wrapped: false })
 }
 pub fn create_texture(device: &Device, descriptor: TextureDescriptor) -> Result<Texture, Error> {
     create_texture_kind("Backend.create_texture", device, descriptor, false, false)
@@ -878,7 +893,7 @@ pub fn wrap_texture(device: &Device, native: NativeTexture) -> Result<Texture, E
     let descriptor = crate::validation::admit_ordinary_texture(&device.0.capabilities, desc, false, false)?;
     let raw = device.0.raw().wrap_texture(native)?;
     device.0.children.set(device.0.children.get() + 1);
-    Ok(Texture { resource: make_resource(device, raw), texture_descriptor: descriptor })
+    Ok(Texture { resource: make_resource(device, raw), texture_descriptor: descriptor, wrapped: true })
 }
 pub fn native_texture(texture: &Texture) -> Result<NativeTexture, Error> {
     const OP: &str = "Backend.native_texture";
@@ -921,7 +936,7 @@ pub fn import_dmabuf(device: &Device, dmabuf: &crate::dmabuf::Dmabuf, render_tar
     let descriptor = crate::validation::admit_texture(&device.0.capabilities, profile)?;
     let raw = device.0.raw().import_dmabuf(&descriptor, dmabuf, render_target)?;
     device.0.children.set(device.0.children.get() + 1);
-    Ok(Texture { resource: make_resource(device, raw), texture_descriptor: descriptor })
+    Ok(Texture { resource: make_resource(device, raw), texture_descriptor: descriptor, wrapped: false })
 }
 /// A sync_file fence that signals once everything submitted so far, on any queue of this device, completes.
 #[cfg(unix)]
@@ -982,11 +997,17 @@ pub fn read_buffer(buffer: &Buffer, offset: i64, length: i64) -> Result<Vec<u8>,
     buffer_range(OP, buffer, offset, length)?;
     buffer.resource.0.raw().read(offset, length)
 }
+/// A wrapped app texture is only sampled: its image is the app's to read, write, copy or present.
+fn not_wrapped(operation: &str, texture: &Texture) -> Result<(), Error> {
+    if texture.wrapped { Err(make_error(operation, ErrorKind::Unsupported, "a wrapped app texture is only sampled")) } else { Ok(()) }
+}
 pub fn read_texture(texture: &Texture, bytes_per_row: i64) -> Result<Vec<u8>, Error> {
+    not_wrapped("Backend.read_texture", texture)?;
     let read = crate::validation::admit_base_texture_read(&texture.texture_descriptor, bytes_per_row)?;
     texture.resource.0.raw().read_texture(&read)
 }
 pub fn read_texture_into(texture: &Texture, bytes_per_row: i64, destination: &mut [u8]) -> Result<(), Error> {
+    not_wrapped("Backend.read_texture_into", texture)?;
     let read = crate::validation::admit_base_texture_read(&texture.texture_descriptor, bytes_per_row)?;
     let read = read.into_destination(destination)?;
     texture.resource.0.raw().read_texture_into(&read, destination)
@@ -996,6 +1017,7 @@ pub fn read_texture_into(texture: &Texture, bytes_per_row: i64, destination: &mu
 /// is still sampling (ring the textures, or complete the queue first).
 pub fn write_texture(texture: &Texture, mip: Option<i64>, origin: Origin, extent: Extent, bytes_per_row: i64, bytes: &[u8]) -> Result<(), Error> {
     const OP: &str = "Backend.write_texture";
+    not_wrapped(OP, texture)?;
     let d = &texture.texture_descriptor;
     if texture.resource.0.dead.get() { return Err(make_error(OP, ErrorKind::StaleHandle, "texture is destroyed")); }
     if !d.usage.contains(&TextureUsage::TextureCopyDst) {
@@ -1019,6 +1041,7 @@ pub fn write_texture(texture: &Texture, mip: Option<i64>, origin: Origin, extent
 pub fn write_texture_on(commands: &Commands, texture: &Texture, mip: Option<i64>, origin: Origin, extent: Extent, bytes_per_row: i64, bytes: &[u8]) -> Result<(), Error> {
     const OP: &str = "Backend.write_texture_on";
     recording(OP, commands)?;
+    not_wrapped(OP, texture)?;
     let d = &texture.texture_descriptor;
     if texture.resource.0.dead.get() { return Err(make_error(OP, ErrorKind::StaleHandle, "texture is destroyed")); }
     if !Rc::ptr_eq(&commands_device(commands).0, &texture.resource.0.device.0) {
@@ -1529,8 +1552,9 @@ pub fn begin_commands(queue: &Queue) -> Result<Commands, Error> {
     let raw = q.raw().begin_commands()?;
     Ok(Commands(Rc::new(CommandsInner { raw: RefCell::new(Some(raw)), queue: queue.clone(), state: Cell::new(CommandsState::Recording), encoder: RefCell::new(None), borrowed: Cell::new(false) })))
 }
+/// The native command buffer, also while a pass is open on it (the app hands both to PXUI).
 pub fn native_commands(commands: &Commands) -> Result<NativeCommands, Error> {
-    if commands.0.state.get() != CommandsState::Recording {
+    if !matches!(commands.0.state.get(), CommandsState::Recording | CommandsState::Encoding) {
         return Err(make_error("Backend.native_commands", ErrorKind::InvalidState, "commands are not recording"));
     }
     commands.0.raw().native_commands()
@@ -1775,12 +1799,17 @@ fn admit(operation: &str, queue: &Queue) -> Result<(), Error> {
     else if q.submitted - q.completed_epoch >= MAX_FRAMES_IN_FLIGHT { Err(make_error(operation, ErrorKind::Capacity, "frames-in-flight capacity reached")) }
     else { Ok(()) }
 }
+thread_local! { static SUBMITS: Cell<u64> = const { Cell::new(0) }; }
+/// Command buffers this thread handed to a driver to submit (`commit`, `commit_present`), over every
+/// device and every OGPU copy linked into this binary: a shared-device test asserts the adopter adds none.
+pub fn submits() -> u64 { SUBMITS.with(Cell::get) }
 pub fn commit(commands: &Commands) -> Result<Receipt, Error> {
     if commands.0.borrowed.get() {
         return Err(make_error("Backend.commit", ErrorKind::InvalidState, "adopted commands are owned by the app"));
     }
     recording("Backend.commit", commands)?;
     admit("Backend.commit", &commands.0.queue)?;
+    SUBMITS.with(|n| n.set(n.get() + 1));
     let receipt = commands.0.raw().commit()?;
     commands.0.queue.0.borrow_mut().submitted = receipt.epoch;
     commands.0.state.set(CommandsState::Committed);
@@ -2446,6 +2475,7 @@ fn validate_present(operation: &str, queue: &Queue, source: &Texture, frame: &Fr
     let q = queue.0.borrow();
     if q.dead { return Err(make_error(operation, ErrorKind::StaleHandle, "queue is destroyed")); }
     if source.resource.0.dead.get() { return Err(make_error(operation, ErrorKind::StaleHandle, "source texture is destroyed")); }
+    not_wrapped(operation, source)?;
     if !Rc::ptr_eq(&q.device.0, &frame.0.surface.0.device.0) {
         return Err(make_error(operation, ErrorKind::CrossDevice, "queue belongs to a different device"));
     }
@@ -2471,6 +2501,7 @@ pub fn commit_present(commands: &Commands, source: &Texture, frame: &Frame) -> R
     recording(OP, commands)?;
     validate_present(OP, &commands.0.queue, source, frame)?;
     admit(OP, &commands.0.queue)?;
+    SUBMITS.with(|n| n.set(n.get() + 1));
     let receipt = commands.0.raw().commit_present(&*source.resource.0.raw(), frame.0.raw.clone())?;
     commands.0.queue.0.borrow_mut().submitted = receipt.epoch;
     commands.0.state.set(CommandsState::Committed);
@@ -2678,6 +2709,7 @@ mod ownership_tests {
             resource: make_resource(&device, Box::new(Payload { _owner: Rc::new(()), fail: Rc::new(Cell::new(false)) })),
             texture_descriptor: admitted_test_texture(TextureDescriptor { label: None, width: 4, height: 4, depth: 1, mip_levels: 1,
                 sample_count: 1, format: TextureFormat::Rgba8Unorm, usage: vec![TextureUsage::RenderAttachment] }),
+            wrapped: false,
         };
         for row in [-1, 0, 15, 17, i64::MAX] {
             assert_eq!(read_texture(&texture, row).unwrap_err().kind, ErrorKind::InvalidArgument);
