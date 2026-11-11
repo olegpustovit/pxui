@@ -122,3 +122,47 @@ fn a_theme_built_from_key_values_scopes_over_a_subtree_and_refuses_bad_keys() {
     }).expect("frame");
     assert_eq!(inside, Some(pxui_types::geom::Rgba { r: 255, g: 0, b: 0, a: 255 }));
 }
+
+#[test]
+fn canvas_text_goes_through_the_uis_own_text_service() {
+    let mut ui = Ui::new().expect("library");
+    let style = pxui_types::TextStyle::default();
+    let mut text = ui.text_service();
+    let metrics = text.measure(1, "abc", &style, 0.0).expect("measure");
+    assert!(metrics.width > 0.0 && metrics.lines == 1);
+    let glyphs = text.quads(1, "abc", &style, 0.0, (10.0, 20.0), 1.0).expect("quads");
+    assert_eq!(glyphs.len(), 3, "one quad per glyph");
+    assert!(glyphs.iter().all(|g| g.rect[0] >= 10.0));
+    let (w, h, pixels) = text.rasterize_rgba(2, "abc", &style, 0.0, 1.0, [255, 255, 255, 255]).expect("rasterize");
+    assert_eq!(pixels.len(), (w * h * 4) as usize);
+    let mut bad = style;
+    bad.size_points = f32::NAN;
+    assert!(text.measure(3, "abc", &bad, 0.0).is_err(), "a NaN size is refused");
+}
+
+#[test]
+fn value_fields_take_their_options_and_text_edits_are_kept() {
+    use pxui_types::ui::{TextEdit, ValueFieldOpts};
+    use std::rc::Rc;
+    let mut ui = Ui::new().expect("library");
+    let opts = ValueFieldOpts {
+        fraction: Some(0.5), left: true, kept_drag: true, trail: Some(("px".into(), pxui_types::geom::Rgba { r: 1, g: 2, b: 3, a: 255 })),
+        slide: Some(Rc::new(|f| format!("{f:.2}"))), scrub: Some(Rc::new(|origin, dx, _| format!("{origin}{dx}"))), ..ValueFieldOpts::default()
+    };
+    for _ in 0..2 {
+        ui.frame(&input(), |ui| {
+            ui.panel("fields", |ui| {
+                let (text, editing) = ui.value_field((10.0, 10.0), 120.0, 20.0, &opts, &|t: &str| t.parse::<f32>().is_ok(), "amount", "0.25");
+                assert_eq!((text.as_str(), editing), ("0.25", false));
+                let edit = ui.load_text_edit(7, "abc");
+                assert_eq!((edit.text.as_str(), edit.caret, edit.anchor), ("abc", 3, 3));
+                ui.remember(&TextEdit { text: "abc".into(), caret: 1, anchor: 1 }, false);
+                assert!(ui.text_undo_bytes() >= 3, "the snapshot is held");
+            });
+        }).expect("frame");
+    }
+    let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let _ = ui.frame(&input(), |ui| ui.remember(&TextEdit { text: "é".into(), caret: 1, anchor: 0 }, false));
+    })).expect_err("a caret inside a character is a caller bug");
+    assert!(err.downcast_ref::<String>().is_some_and(|m| m.contains("caret and anchor")));
+}

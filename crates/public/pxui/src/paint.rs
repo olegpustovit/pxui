@@ -5,7 +5,8 @@
 use crate::composite::{defer_callback_panic, deferred};
 use crate::sys::PxuiPaint as RawPaint;
 use core::{ffi::c_void, marker::PhantomData, ptr::NonNull};
-use pxui_types::{draw::Instance, ffi::PxuiPaintInfo, geom::{Rect, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, ui::text_top_for, PxuiBox, Span, Str, TextMetrics, TextStyle};
+use std::alloc::Layout;
+use pxui_types::{node::Dir, draw::Instance, ffi::PxuiPaintInfo, geom::{Rect, Rgba as Color, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, ui::text_top_for, PxuiBox, Span, Str, TextMetrics, TextStyle};
 
 library!(lib {
     fn pxui_ui_draw(ui: *mut PxuiUi, box_: *const PxuiBox, over: u8, build: Option<extern "C" fn(*mut c_void, *mut RawPaint, Rect)>, user: *mut c_void, release: Option<extern "C" fn(*mut c_void)>) -> i32;
@@ -120,6 +121,29 @@ impl<'a> Paint<'a> {
     #[inline] pub fn input_region(&mut self, cursor: f32, x: f32, y: f32, w: f32, h: f32) { unsafe { lib::pxui_paint_input_region(self.raw(), cursor, x, y, w, h) } }
 }
 
+// The shapes as inherent methods, as the engine's `Paint` has them: an app needs no trait import. Each is the one definition in
+// `pxui_types::shape`.
+#[allow(clippy::too_many_arguments)]
+impl Paint<'_> {
+    #[inline] pub fn fill(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::fill(self, x, y, w, h, color) }
+    #[inline] pub fn stroke_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) { Shapes::stroke_w(self, x, y, w, h, width, color) }
+    #[inline] pub fn stroke(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::stroke(self, x, y, w, h, color) }
+    #[inline] pub fn frame_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) { Shapes::frame_w(self, x, y, w, h, width, color) }
+    #[inline] pub fn frame(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::frame(self, x, y, w, h, color) }
+    #[inline] pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, fill: Option<Color>, stroke: Option<Color>) { Shapes::rect(self, x, y, w, h, fill, stroke) }
+    #[inline] pub fn brackets(&mut self, x: f32, y: f32, w: f32, h: f32, offset: f32, length: f32, width: f32, color: Color) { Shapes::brackets(self, x, y, w, h, offset, length, width, color) }
+    #[inline] pub fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::dashed_rect(self, x, y, w, h, color) }
+    #[inline] pub fn line_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) { Shapes::line_w(self, from, to, width, color) }
+    #[inline] pub fn line(&mut self, from: (f32, f32), to: (f32, f32), color: Color) { Shapes::line(self, from, to, color) }
+    #[inline] pub fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Color>, stroke: Option<Color>) { Shapes::circle(self, at, radius, fill, stroke) }
+    #[inline] pub fn grid(&mut self, x: f32, y: f32, w: f32, h: f32, origin: (f32, f32), spacing: f32, dot: f32, color: Color) { Shapes::grid(self, x, y, w, h, origin, spacing, dot, color) }
+    #[inline] pub fn chevron(&mut self, at: (f32, f32), direction: Dir, color: Color) { Shapes::chevron(self, at, direction, color) }
+    #[inline] pub fn dashed_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) { Shapes::dashed_w(self, from, to, width, color) }
+    #[inline] pub fn dashed(&mut self, from: (f32, f32), to: (f32, f32), color: Color) { Shapes::dashed(self, from, to, color) }
+    #[inline] pub fn flag(&mut self, at: (f32, f32), round: bool, on: bool) { Shapes::flag(self, at, round, on) }
+
+}
+
 impl Shapes for Paint<'_> {
     #[inline]
     fn push(&mut self, instance: Instance) {
@@ -149,11 +173,33 @@ extern "C" fn draw<F: FnMut(&mut Paint<'_>, Rect)>(user: *mut c_void, raw: *mut 
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
-extern "C" fn release<F>(user: *mut c_void) { unsafe { drop(Box::from_raw(user.cast::<Draw<F>>())) } }
+
+// A canvas closure is boxed once per rebuilt frame and released when the library lets go of it. Released boxes wait in a small pool and
+// the next closure of the same layout (a canvas rebuilt each frame is always the same type) takes one: a settled frame allocates nothing.
+// ponytail: at most POOLED boxes per thread, never returned to the allocator at thread exit; per-size pools if canvases of many types alternate.
+const POOLED: usize = 64;
+thread_local! { static POOL: std::cell::RefCell<Vec<(Layout, *mut u8)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+fn boxed<F>(f: F) -> *mut c_void {
+    let layout = Layout::new::<Draw<F>>();
+    let spare = if layout.size() == 0 { None } else { POOL.with(|pool| { let mut pool = pool.borrow_mut(); pool.iter().position(|(l, _)| *l == layout).map(|at| pool.swap_remove(at).1) }) };
+    let at = match spare { Some(at) => at, None if layout.size() == 0 => return Box::into_raw(Box::new(Draw(f))).cast(), None => unsafe { std::alloc::alloc(layout) } };
+    if at.is_null() { std::alloc::handle_alloc_error(layout); }
+    unsafe { at.cast::<Draw<F>>().write(Draw(f)); }
+    at.cast()
+}
+
+extern "C" fn release<F>(user: *mut c_void) {
+    let layout = Layout::new::<Draw<F>>();
+    unsafe { core::ptr::drop_in_place(user.cast::<Draw<F>>()); }
+    if layout.size() == 0 { return unsafe { drop(Box::from_raw(user.cast::<Draw<F>>())) }; }
+    let kept = POOL.with(|pool| { let mut pool = pool.borrow_mut(); (pool.len() < POOLED).then(|| pool.push((layout, user.cast()))).is_some() });
+    if !kept { unsafe { std::alloc::dealloc(user.cast(), layout) } }
+}
 
 impl crate::Ui {
     fn canvas_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, over: u8, f: F) {
-        let user = Box::into_raw(Box::new(Draw(f))).cast::<c_void>();
+        let user = boxed(f);
         crate::check(self, unsafe { lib::pxui_ui_draw(self.0.as_ptr(), b, over, Some(draw::<F>), user, Some(release::<F>)) });
     }
     /// Free-form drawing with the node's final laid-out rectangle, after its look and before its children.

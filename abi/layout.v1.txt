@@ -74,3 +74,4 @@ PxuiHeadActionDesc 40 8 0 16 32 33 34
 PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
 PxuiHeadOut 32 8 0 16 24 25 26
 PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56
+PxuiValueFieldDesc 152 8 0 4 8 16 20 24 28 32 36 40 44 48 52 56 72 88 104 120 136

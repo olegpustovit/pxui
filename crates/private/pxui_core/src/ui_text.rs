@@ -10,7 +10,7 @@ use crate::theme;
 const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
 use crate::ui_core::*;
 use crate::ui_kit::*;
-pub use pxui_types::ui::{LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
+pub use pxui_types::ui::{ValueFieldOpts, TextEdit, LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
 use input::{Event, Key, MouseButton};
 use crate::geom::{color, Rgba as Color};
 use std::rc::Rc;
@@ -59,14 +59,6 @@ fn clipboard_command(command: bool, event: &Event) -> Option<char> {
         Event::KeyPressed(Key::KeyChar(key)) if command => Some(key.to_ascii_lowercase()),
         _ => None,
     }
-}
-
-/// The text being edited with its caret and selection anchor (byte offsets).
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct TextEdit {
-    pub text: String,
-    pub caret: usize,
-    pub anchor: usize,
 }
 
 /// Snapshots hold the whole text, and five stacks of 200 at 100 KB is 100 MB: so one cap covers the
@@ -710,48 +702,6 @@ impl Ui {
         parse: &dyn Fn(&str) -> Option<String>,
     ) -> (Option<String>, bool) {
         numeric_editor_body(self, p, accept, row, signal, keys, current, parse)
-    }
-}
-
-/// Options of `value_field` beyond its place and key.
-#[derive(Clone)]
-pub struct ValueFieldOpts {
-    pub size: Option<i64>,
-    pub display: Option<String>,
-    pub fraction: Option<f32>,
-    pub slide: Option<Rc<dyn Fn(f32) -> String>>,
-    pub scrub: Option<Rc<dyn Fn(&str, f32, bool) -> String>>,
-    pub left: bool,
-    pub edit: bool,
-    pub lead: Option<(String, Color)>,
-    pub trail: Option<(String, Color)>,
-    pub line: Option<Color>,
-    pub bare: bool,
-    pub placeholder: Option<String>,
-    pub tracking: Option<f32>,
-    /// the owner follows a drag of the slider between builds (`field_drag`, `patch_field`): the
-    /// drag dirties no view (`DRAG_FREE`)
-    pub kept_drag: bool,
-}
-
-impl Default for ValueFieldOpts {
-    fn default() -> ValueFieldOpts {
-        ValueFieldOpts {
-            size: None,
-            display: None,
-            fraction: None,
-            slide: None,
-            scrub: None,
-            left: false,
-            edit: false,
-            lead: None,
-            trail: None,
-            line: None,
-            bare: false,
-            placeholder: None,
-            tracking: None,
-            kept_drag: false,
-        }
     }
 }
 

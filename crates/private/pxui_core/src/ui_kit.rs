@@ -851,7 +851,10 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
         panic!("Ui.table: negative row count");
     }
     let row_h = (this.theme().row_h * this.theme().tokens.density).round();
-    let mut stops = vec![0.0; headers.len() + 1];
+    // the column stops live in a vector kept between frames: a settled table allocates nothing
+    let mut stops = core::mem::take(&mut this.table_stops);
+    stops.clear();
+    stops.resize(headers.len() + 1, 0.0);
     for (i, header) in headers.iter().enumerate() {
         let width = 72.0f32.max(this.text_width(None, header) + 24.0);
         stops[i + 1] = stops[i] + width;
@@ -871,10 +874,7 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
         this.leave(saved);
     }
     let body_h = 0.0f32.max(h - row_h);
-    let body = this.box_(
-        &format!("{}-body", label),
-        BoxOpts::default().flags(SCROLL + CLIP).w(Size::Px(w)).h(Size::Px(body_h)).scroll_step(row_h),
-    );
+    let body = this.box_fmt(format_args!("{}-body", label), BoxOpts::default().flags(SCROLL + CLIP).w(Size::Px(w)).h(Size::Px(body_h)).scroll_step(row_h));
     // Both sizes are explicit: use the shared wheel/trackpad/coast state before choosing rows.
     // Arrange then sees consumed input and a zero time delta.
     this.set_l_h(&body, body_h);
@@ -889,10 +889,7 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
     let extent = this.box_fmt(format_args!("{}-extent", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(rows as f32 * row_h)));
     let saved_extent = this.enter(&extent);
     for index in first..last {
-        let row = this.box_(
-            &format!("{}-row-{}", label, index),
-            BoxOpts::default().flags(CLICKABLE).at((0.0, index as f32 * row_h)).w(Size::Px(w)).h(Size::Px(row_h)),
-        );
+        let row = this.box_fmt(format_args!("{}-row-{}", label, index), BoxOpts::default().flags(CLICKABLE).at((0.0, index as f32 * row_h)).w(Size::Px(w)).h(Size::Px(row_h)));
         if this.signal(&row).clicked {
             clicked = Some(index);
         }
@@ -911,5 +908,6 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
     this.leave(saved_body);
     let sig = this.signal(&body);
     this.leave(saved);
+    this.table_stops = stops;
     (clicked, sig)
 }

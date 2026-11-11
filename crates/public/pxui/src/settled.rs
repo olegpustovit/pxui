@@ -2,6 +2,7 @@
 //! per interactive box and every output accessor, between two counted points. The library's counting allocator is
 //! `mem_sys`, installed for the test binary by the `use`.
 use crate::{Node, Ui};
+use pxui_types::{geom::Rgba, ui::{BoxOpts, CLIP, SCROLL}};
 use mem_sys as _;
 use pxui_types::{Axis, FrameIn, Size, layout::{Cell, Grid, Track}};
 
@@ -27,7 +28,30 @@ fn panel(ui: &mut Ui, s: &mut State) {
         });
         let signal = ui.signal(&row).unwrap();
         s.clicks += signal.keys.len() as u32;
+        engine_shaped(ui, s);
     });
+}
+
+// The engine-shaped calls: queries, a box with its scroll, label and text state, a canvas whose shapes land in a span, a
+// list, a table and a popup.
+fn engine_shaped(ui: &mut Ui, s: &mut State) {
+    s.seen += (ui.font_size() + ui.row_height()) as u64 + ui.frame_index() + ui.captured() as u64;
+    let scroller = ui.box_fmt(format_args!("scroller"), BoxOpts::default().flags(SCROLL | CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)).at((4.0, 4.0)));
+    s.seen += ui.scroll_offset(&scroller) as u64 + ui.local_rect(&scroller).w as u64 + ui.cached_label(&scroller, 0, "cached").len() as u64;
+    ui.set_text_state(&scroller, None);
+    s.seen += ui.text_state(&scroller).is_some() as u64 + ui.hovered_exactly(&scroller) as u64 + ui.drop_target(&scroller).is_some() as u64;
+    let canvas = ui.box_("canvas", BoxOpts::default().w(Size::Px(80.0)).h(Size::Px(30.0)));
+    let origin = s.clicks as f32;
+    ui.canvas(&canvas, move |p, _| {
+        p.fill(origin, 0.0, 8.0, 8.0, Rgba { r: 9, g: 9, b: 9, a: 255 });
+        p.line_w((0.0, 0.0), (20.0, 9.0), 1.5, Rgba { r: 1, g: 2, b: 3, a: 255 });
+        p.circle((30.0, 10.0), 4.0, Some(Rgba { r: 7, g: 7, b: 7, a: 255 }), None);
+        p.text((2.0, 12.0), "span");
+        p.fill(40.0, 0.0, 8.0, 8.0, Rgba { r: 9, g: 9, b: 9, a: 255 });
+    });
+    s.seen += ui.list_view("items", 3, false, &mut [false; 3], |row, emit| emit(["one", "two", "three"][row])).ok().flatten().is_some() as u64;
+    s.seen += ui.table_str((0.0, 0.0), 120.0, 60.0, &["Name", "Size"], 3, |_, column| if column == 0 { "row" } else { "1" }, "table").ok().flatten().is_some() as u64;
+    s.seen += ui.popup(None, None, true, false, (10.0, 10.0), 80.0, 30.0, "popup", |ui| ui.label("popped")) as u64;
 }
 
 #[test]

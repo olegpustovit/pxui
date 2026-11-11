@@ -930,6 +930,8 @@ pub struct Ui {
     pub(crate) edit_shelf: Vec<ShelfEntry>,
     /// the picker's rows, kept between frames so `picker_filled` reuses their strings
     pub(crate) picker_rows: Vec<(String, String)>,
+    /// the table's column stops, kept between frames
+    pub(crate) table_stops: Vec<f32>,
     pub(crate) edit_unit: Option<(usize, usize, i64)>,
     pub(crate) edit_column: f32,
     pub(crate) scrub_origin: Option<(i64, String)>,
@@ -1141,6 +1143,7 @@ impl Ui {
             edit_group: -1,
             edit_shelf: Vec::new(),
             picker_rows: Vec::new(),
+            table_stops: Vec::new(),
             edit_unit: None,
             edit_column: -1.0,
             scrub_origin: None,

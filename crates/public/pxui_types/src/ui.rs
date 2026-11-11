@@ -281,6 +281,58 @@ pub struct Head {
 }
 
 
+/// The text being edited with its caret and selection anchor (byte offsets).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct TextEdit {
+    pub text: String,
+    pub caret: usize,
+    pub anchor: usize,
+}
+
+
+/// Options of `value_field` beyond its place and key.
+#[derive(Clone)]
+pub struct ValueFieldOpts {
+    pub size: Option<i64>,
+    pub display: Option<String>,
+    pub fraction: Option<f32>,
+    pub slide: Option<Rc<dyn Fn(f32) -> String>>,
+    pub scrub: Option<Rc<dyn Fn(&str, f32, bool) -> String>>,
+    pub left: bool,
+    pub edit: bool,
+    pub lead: Option<(String, Color)>,
+    pub trail: Option<(String, Color)>,
+    pub line: Option<Color>,
+    pub bare: bool,
+    pub placeholder: Option<String>,
+    pub tracking: Option<f32>,
+    /// the owner follows a drag of the slider between builds (`field_drag`, `patch_field`): the
+    /// drag dirties no view (`DRAG_FREE`)
+    pub kept_drag: bool,
+}
+
+impl Default for ValueFieldOpts {
+    fn default() -> ValueFieldOpts {
+        ValueFieldOpts {
+            size: None,
+            display: None,
+            fraction: None,
+            slide: None,
+            scrub: None,
+            left: false,
+            edit: false,
+            lead: None,
+            trail: None,
+            line: None,
+            bare: false,
+            placeholder: None,
+            tracking: None,
+            kept_drag: false,
+        }
+    }
+}
+
+
 pub fn contains(rect: Rect, point: (f32, f32)) -> bool { rect.contains(point) }
 
 pub fn intersect(a: Rect, b: Rect) -> Rect { a.intersect(b) }

@@ -110,6 +110,17 @@ extern "C" fn call_grid<F: FnMut(&mut Ui, usize)>(user: *mut c_void, raw: *mut s
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
+/// The cell closure of `table_str`: its text is the caller's own, so the library borrows it and nothing is copied.
+struct CellStr<F> { f: F }
+extern "C" fn call_cell_str<'a, F: FnMut(i64, i64) -> &'a str>(user: *mut c_void, row: i64, column: i64) -> Str {
+    let state = unsafe { &mut *user.cast::<CellStr<F>>() };
+    if deferred() { return Str::default(); }
+    match std::panic::catch_unwind(AssertUnwindSafe(|| (state.f)(row, column))) {
+        Ok(value) => as_str(value),
+        Err(panic) => { defer_callback_panic(panic); Str::default() }
+    }
+}
+
 struct CellText<F> { f: F, value: String }
 impl<F: FnMut(i64, i64) -> String> CellText<F> {
     fn erased(&mut self) -> (CellFn, *mut c_void) { (Some(call_cell::<F>), (self as *mut Self).cast()) }
@@ -272,6 +283,16 @@ impl Ui {
     }
 
     #[inline]
+    /// `table` over cells that borrow from the caller's data (valid for the whole call): nothing is copied or allocated per cell.
+    pub fn table_str<'a, F: FnMut(i64, i64) -> &'a str>(&mut self, at: (f32, f32), width: f32, height: f32, headers: &[&str], rows: i64, cell: F, label: &str) -> Result<Option<i64>, i32> {
+        let header_values = Strs::new(headers);
+        let mut callback = CellStr { f: cell };
+        let desc = TableDesc { label: as_str(label), at: [at.0, at.1], width, height, headers: header_values.span(), rows, cell: Some(call_cell_str::<F>), user: (&mut callback as *mut CellStr<F>).cast() };
+        let mut out = -1;
+        status(unsafe { sys::pxui_ui_table(self.0.as_ptr(), &desc, &mut out) })?;
+        Ok((out >= 0).then_some(out))
+    }
+
     pub fn table<F: FnMut(i64, i64) -> String>(&mut self, at: (f32, f32), width: f32, height: f32, headers: &[String], rows: i64, cell: F, label: &str) -> Result<Option<i64>, i32> {
         let header_values = Strs::owned(headers);
         let mut callback = CellText { f: cell, value: String::new() };

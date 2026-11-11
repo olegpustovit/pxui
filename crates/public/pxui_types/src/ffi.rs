@@ -340,6 +340,33 @@ pub struct PxuiPaintInfo {
     pub clip: Rect, pub clip_radius: f32, pub theme: ThemeTokens,
 }
 
+/// `value_field`'s place, text and options. Each `HAS_*` flag says whether the option next to it is set; `lead` and `trail` are
+/// the framing texts, coloured by `lead_color` and `trail_color`. The slide, scrub and validity callbacks cross beside it.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PxuiValueFieldDesc {
+    pub size: u32, pub flags: u32, pub font_size: i64, pub fraction: f32, pub tracking: f32,
+    pub line: Rgba, pub lead_color: Rgba, pub trail_color: Rgba, pub reserved: [u8; 4],
+    pub x: f32, pub y: f32, pub width: f32, pub height: f32,
+    pub display: Str, pub placeholder: Str, pub lead: Str, pub trail: Str, pub label: Str, pub value: Str,
+}
+
+impl PxuiValueFieldDesc {
+    pub const LEFT: u32 = 1;
+    pub const EDIT: u32 = 2;
+    pub const BARE: u32 = 4;
+    pub const KEPT_DRAG: u32 = 8;
+    pub const HAS_SIZE: u32 = 16;
+    pub const HAS_FRACTION: u32 = 32;
+    pub const HAS_TRACKING: u32 = 64;
+    pub const HAS_LINE: u32 = 128;
+    pub const HAS_LEAD: u32 = 256;
+    pub const HAS_TRAIL: u32 = 512;
+    pub const HAS_DISPLAY: u32 = 1024;
+    pub const HAS_PLACEHOLDER: u32 = 2048;
+    pub const KNOWN: u32 = 4095;
+}
+
 /// A popup sheet: `popup`'s plain arguments (its build callback crosses beside this record).
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -427,6 +454,7 @@ mod layout {
         check("PxuiSaved", size_of::<PxuiSaved>(), align_of::<PxuiSaved>(), &[offset_of!(PxuiSaved, size), offset_of!(PxuiSaved, reserved), offset_of!(PxuiSaved, parents), offset_of!(PxuiSaved, seeds)]);
         check("PxuiSignal", size_of::<PxuiSignal>(), align_of::<PxuiSignal>(), &[offset_of!(PxuiSignal, size), offset_of!(PxuiSignal, flags), offset_of!(PxuiSignal, has_subtree_press), offset_of!(PxuiSignal, button), offset_of!(PxuiSignal, has_a11y_value), offset_of!(PxuiSignal, has_a11y_select), offset_of!(PxuiSignal, reserved), offset_of!(PxuiSignal, subtree_press), offset_of!(PxuiSignal, clicks), offset_of!(PxuiSignal, drag), offset_of!(PxuiSignal, pointer), offset_of!(PxuiSignal, press_point), offset_of!(PxuiSignal, release_point), offset_of!(PxuiSignal, scroll), offset_of!(PxuiSignal, pinch), offset_of!(PxuiSignal, a11y_value), offset_of!(PxuiSignal, a11y_select), offset_of!(PxuiSignal, keys)]);
         check("PxuiBoxDesc", size_of::<PxuiBoxDesc>(), align_of::<PxuiBoxDesc>(), &[offset_of!(PxuiBoxDesc, size), offset_of!(PxuiBoxDesc, axis), offset_of!(PxuiBoxDesc, flags), offset_of!(PxuiBoxDesc, w), offset_of!(PxuiBoxDesc, h), offset_of!(PxuiBoxDesc, max_h), offset_of!(PxuiBoxDesc, padding), offset_of!(PxuiBoxDesc, scroll_step), offset_of!(PxuiBoxDesc, has_at), offset_of!(PxuiBoxDesc, has_hit_rect), offset_of!(PxuiBoxDesc, reserved), offset_of!(PxuiBoxDesc, at), offset_of!(PxuiBoxDesc, hit_rect), offset_of!(PxuiBoxDesc, hit), offset_of!(PxuiBoxDesc, hit_user), offset_of!(PxuiBoxDesc, hit_release)]);
+        check("PxuiValueFieldDesc", size_of::<PxuiValueFieldDesc>(), align_of::<PxuiValueFieldDesc>(), &[offset_of!(PxuiValueFieldDesc, size), offset_of!(PxuiValueFieldDesc, flags), offset_of!(PxuiValueFieldDesc, font_size), offset_of!(PxuiValueFieldDesc, fraction), offset_of!(PxuiValueFieldDesc, tracking), offset_of!(PxuiValueFieldDesc, line), offset_of!(PxuiValueFieldDesc, lead_color), offset_of!(PxuiValueFieldDesc, trail_color), offset_of!(PxuiValueFieldDesc, reserved), offset_of!(PxuiValueFieldDesc, x), offset_of!(PxuiValueFieldDesc, y), offset_of!(PxuiValueFieldDesc, width), offset_of!(PxuiValueFieldDesc, height), offset_of!(PxuiValueFieldDesc, display), offset_of!(PxuiValueFieldDesc, placeholder), offset_of!(PxuiValueFieldDesc, lead), offset_of!(PxuiValueFieldDesc, trail), offset_of!(PxuiValueFieldDesc, label), offset_of!(PxuiValueFieldDesc, value)]);
         check("PxuiPaintInfo", size_of::<PxuiPaintInfo>(), align_of::<PxuiPaintInfo>(), &[offset_of!(PxuiPaintInfo, size), offset_of!(PxuiPaintInfo, rtl), offset_of!(PxuiPaintInfo, reserved), offset_of!(PxuiPaintInfo, font_size), offset_of!(PxuiPaintInfo, row_height), offset_of!(PxuiPaintInfo, density), offset_of!(PxuiPaintInfo, clip), offset_of!(PxuiPaintInfo, clip_radius), offset_of!(PxuiPaintInfo, theme)]);
         check("PxuiPopupDesc", size_of::<PxuiPopupDesc>(), align_of::<PxuiPopupDesc>(), &[offset_of!(PxuiPopupDesc, size), offset_of!(PxuiPopupDesc, has_stroke), offset_of!(PxuiPopupDesc, has_max_height), offset_of!(PxuiPopupDesc, dismiss_initial), offset_of!(PxuiPopupDesc, attached), offset_of!(PxuiPopupDesc, stroke), offset_of!(PxuiPopupDesc, max_height), offset_of!(PxuiPopupDesc, x), offset_of!(PxuiPopupDesc, y), offset_of!(PxuiPopupDesc, width), offset_of!(PxuiPopupDesc, height), offset_of!(PxuiPopupDesc, label)]);
         check("PxuiHeadActionDesc", size_of::<PxuiHeadActionDesc>(), align_of::<PxuiHeadActionDesc>(), &[offset_of!(PxuiHeadActionDesc, caption), offset_of!(PxuiHeadActionDesc, keycap), offset_of!(PxuiHeadActionDesc, active), offset_of!(PxuiHeadActionDesc, usable), offset_of!(PxuiHeadActionDesc, reserved)]);

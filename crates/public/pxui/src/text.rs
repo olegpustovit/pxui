@@ -1,55 +1,38 @@
-use core::ptr::NonNull;
+//! The `Ui`'s text service: the one font system and glyph atlas the `Ui` draws with, for canvas text an app lays out itself.
+//! Glyph quads reference the atlases `Renderer::atlas` hands out.
+use crate::{as_str, Ui};
 use pxui_types::{Str, TextGlyph, TextMetrics, TextStyle};
 
-pub const PRAGMASEVKA: &[u8] = include_bytes!("../../../../assets/fonts/Pragmasevka-Regular.ttf");
-
-#[cfg(feature = "static")]
-mod sys {
-    pub use pxui_abi_link::{pxui_text_add_font, pxui_text_create, pxui_text_destroy, pxui_text_end_frame, pxui_text_quads, pxui_text_rasterize_rgba, pxui_text_width, PxuiText};
-}
-
-#[cfg(not(feature = "static"))]
-mod sys {
-    use pxui_types::{Str, TextGlyph, TextMetrics, TextStyle};
-    #[repr(C)] pub struct PxuiText { _private: [u8; 0] }
-    #[link(name = "pxui")]
-    unsafe extern "C" {
-        pub fn pxui_text_create(fonts: *const Str, count: usize) -> *mut PxuiText;
-        pub fn pxui_text_destroy(text: *mut PxuiText);
-        pub fn pxui_text_add_font(text: *mut PxuiText, font: Str) -> u32;
-        pub fn pxui_text_width(text: *mut PxuiText, key: u64, value: Str, style: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32;
-        pub fn pxui_text_quads(text: *mut PxuiText, key: u64, value: Str, style: *const TextStyle, max_width: f32, x: f32, y: f32, scale: f32, out: *mut TextGlyph, capacity: usize) -> usize;
-        pub fn pxui_text_end_frame(text: *mut PxuiText) -> i32;
-        pub fn pxui_text_rasterize_rgba(text: *mut PxuiText, key: u64, value: Str, style: *const TextStyle, max_width: f32, scale: f32, color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize) -> usize;
-    }
-}
-
-pub use pxui_types::{TextGlyph as Glyph, TextMetrics as Metrics, TextStyle as Style};
+library!(lib {
+    fn pxui_text_add_font(ui: *mut PxuiUi, font: Str) -> u32;
+    fn pxui_text_width(ui: *mut PxuiUi, key: u64, value: Str, style: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32;
+    fn pxui_text_quads(ui: *mut PxuiUi, key: u64, value: Str, style: *const TextStyle, max_width: f32, x: f32, y: f32, scale: f32, out: *mut TextGlyph, capacity: usize) -> usize;
+    fn pxui_text_rasterize_rgba(ui: *mut PxuiUi, key: u64, value: Str, style: *const TextStyle, max_width: f32, scale: f32, color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize) -> usize;
+});
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum TextError { InvalidInput, Allocation, Engine }
 
-/// A text shaper with the font bytes and glyph atlas owned inside libpxui.
-pub struct Text(NonNull<sys::PxuiText>);
+/// The text service of a `Ui`. `key` names a layout in the service's cache: the same key with the same text and style is
+/// shaped once.
+pub struct Text<'ui>(&'ui mut Ui);
 
-impl Text {
-    pub fn new(fonts: &[&[u8]]) -> Option<Self> {
-        let fonts: Vec<Str> = fonts.iter().map(|font| Str { ptr: font.as_ptr(), len: font.len() }).collect();
-        NonNull::new(unsafe { sys::pxui_text_create(fonts.as_ptr(), fonts.len()) }).map(Self)
-    }
+impl Ui {
+    pub fn text_service(&mut self) -> Text<'_> { Text(self) }
+}
 
+impl Text<'_> {
+    /// Adds a font (the bytes are copied); its index.
     #[inline]
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> {
-        let font = Str { ptr: bytes.as_ptr(), len: bytes.len() };
-        let index = unsafe { sys::pxui_text_add_font(self.0.as_ptr(), font) };
+        let index = unsafe { lib::pxui_text_add_font(self.0.0.as_ptr(), Str { ptr: bytes.as_ptr(), len: bytes.len() }) };
         (index != u32::MAX).then_some(index)
     }
 
     #[inline]
     pub fn measure(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> {
         let mut out = TextMetrics::default();
-        let value = as_str(value);
-        let rc = unsafe { sys::pxui_text_width(self.0.as_ptr(), key, value, style, max_width, &mut out) };
+        let rc = unsafe { lib::pxui_text_width(self.0.0.as_ptr(), key, as_str(value), style, max_width, &mut out) };
         if rc == 0 { Ok(out) } else { Err(rc) }
     }
 
@@ -58,12 +41,11 @@ impl Text {
         self.measure(key, value, style, max_width).map(|metrics| metrics.width)
     }
 
+    /// The glyph quads of `value`, positioned at `origin` and scaled by `scale`.
     #[inline]
     pub fn quads(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32) -> Result<Vec<TextGlyph>, i32> {
-        let value = as_str(value);
-        let call = |out, capacity| unsafe {
-            sys::pxui_text_quads(self.0.as_ptr(), key, value, style, max_width, origin.0, origin.1, scale, out, capacity)
-        };
+        let ui = self.0.0.as_ptr();
+        let call = |out, capacity| unsafe { lib::pxui_text_quads(ui, key, as_str(value), style, max_width, origin.0, origin.1, scale, out, capacity) };
         let count = call(core::ptr::null_mut(), 0);
         if count == usize::MAX { return Err(-1); }
         let mut glyphs = Vec::new();
@@ -71,25 +53,17 @@ impl Text {
         glyphs.resize(count, TextGlyph::default());
         let written = call(glyphs.as_mut_ptr(), glyphs.len());
         if written == usize::MAX { return Err(-1); }
-        let written = written.min(glyphs.len());
-        glyphs.truncate(written);
+        glyphs.truncate(written.min(glyphs.len()));
         Ok(glyphs)
     }
 
-    #[inline]
-    pub fn end_frame(&mut self) -> Result<(), i32> {
-        let rc = unsafe { sys::pxui_text_end_frame(self.0.as_ptr()) };
-        if rc == 0 { Ok(()) } else { Err(rc) }
-    }
-
+    /// The text as straight-alpha RGBA8: width, height and pixels.
     #[inline]
     pub fn rasterize_rgba(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
-        let mut width = 0;
-        let mut height = 0;
-        let value = as_str(value);
+        let ui = self.0.0.as_ptr();
+        let (mut width, mut height) = (0, 0);
         let mut call = |out, capacity| unsafe {
-            sys::pxui_text_rasterize_rgba(self.0.as_ptr(), key, value, style, max_width, scale,
-                color[0], color[1], color[2], color[3], &mut width, &mut height, out, capacity)
+            lib::pxui_text_rasterize_rgba(ui, key, as_str(value), style, max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, out, capacity)
         };
         let required = call(core::ptr::null_mut(), 0);
         if required == usize::MAX { return Err(TextError::InvalidInput); }
@@ -100,10 +74,3 @@ impl Text {
         Ok((width, height, pixels))
     }
 }
-
-impl Drop for Text {
-    fn drop(&mut self) { unsafe { sys::pxui_text_destroy(self.0.as_ptr()) } }
-}
-
-#[inline]
-fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }

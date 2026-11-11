@@ -214,6 +214,15 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_view_flat(self.0.as_ptr(), as_str(label), revision, size(w), size(h), Some(call::<F>), &mut build as *mut F as *mut c_void, &mut out) });
         out
     }
+    /// The last root pressed by a pointer press among `events`, by the previous hit tree.
+    #[track_caller]
+    pub fn last_press_within(&self, events: &[pxui_types::Event], roots: &[i64]) -> Option<i64> {
+        let mut last = None;
+        for event in events.iter().filter(|event| event.kind == pxui_types::Event::POINTER_PRESSED) {
+            if let Some(root) = self.root_at((event.x as f32, event.y as f32), roots) { last = Some(root); }
+        }
+        last
+    }
     #[inline] #[track_caller] pub fn view_offset(&mut self, b: &PxuiBox, dx: f32, dy: f32) { check(self, unsafe { lib::pxui_ui_view_offset(self.0.as_ptr(), b, dx, dy) }) }
     #[inline]
     #[track_caller]

@@ -181,7 +181,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
             let _ = ui.inspector_readout(None, "count", "Points", "1,024");
             let (row, cx, cy, cw) = ui.inspector_row(None, None, "scale", "Scale").expect("valid inspector row");
             ui.within(&row, &mut |ui: &mut Ui| {
-                let (v, _) = ui.value_field((cx, cy), cw, 20.0, &ValueFieldOpts::default(), |t| t.parse::<f64>().is_ok(), "scale-value", &s.scale).unwrap_or((s.scale.clone(), false));
+                let (v, _) = ui.value_field((cx, cy), cw, 20.0, &ValueFieldOpts::default(), &|t: &str| t.parse::<f64>().is_ok(), "scale-value", &s.scale);
                 if v != s.scale {
                     s.scale = v;
                 }

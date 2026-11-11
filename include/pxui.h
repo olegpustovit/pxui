@@ -6,7 +6,6 @@
 
 typedef struct PxuiUi PxuiUi;
 typedef struct PxuiRenderer PxuiRenderer;
-typedef struct PxuiText PxuiText;
 typedef struct PxuiPaint PxuiPaint;
 typedef struct PxuiTheme PxuiTheme;
 typedef struct { uint32_t size, platform; int32_t font_size; } PxuiUiDesc;
@@ -156,6 +155,10 @@ typedef struct { float rect[4]; int16_t clip[4]; uint8_t color[4], color2[4]; ui
    advances it; pxui_paint_span commits what was written (at is where it stopped) and hands out the next window. */
 typedef struct { uint32_t size; uint16_t view,clip_radius_f16; int16_t clip[4]; PxuiInstance *at,*end; } PxuiSpan;
 typedef struct { uint32_t size; uint8_t rtl,reserved[3]; int64_t font_size,row_height,density; PxuiRect clip; float clip_radius; PxuiThemeTokens theme; } PxuiPaintInfo;
+typedef void (*PxuiSlideText)(void *user, float fraction, PxuiStr *out);
+typedef void (*PxuiScrubText)(void *user, PxuiStr origin, float dx, uint8_t coarse, PxuiStr *out);
+/* flags: 1 left, 2 edit, 4 bare, 8 kept_drag, 16 has_size, 32 has_fraction, 64 has_tracking, 128 has_line, 256 has_lead, 512 has_trail, 1024 has_display, 2048 has_placeholder */
+typedef struct { uint32_t size, flags; int64_t font_size; float fraction, tracking; PxuiColor line, lead_color, trail_color; uint8_t reserved[4]; float x,y,width,height; PxuiStr display,placeholder,lead,trail,label,value; } PxuiValueFieldDesc;
 typedef PxuiRect (*PxuiHit)(void *user, PxuiRect rect);
 typedef void (*PxuiRelease)(void *user);
 /* A box declaration: axis is 0 row, 1 column, 2 stack. The hit callback and its release belong to the box's slot once the call is made. */
@@ -276,14 +279,14 @@ int32_t pxui_ui_list_view(PxuiUi *ui, const PxuiListViewDesc *desc, size_t *acti
 int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated);
 int32_t pxui_ui_table_view(PxuiUi *ui, const PxuiTableViewDesc *desc, size_t *sort_column);
 int32_t pxui_ui_text_area_submit(PxuiUi *ui, const float at[2], float width, float height, uint8_t wrap, PxuiStr label, PxuiStr value, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted);
-int32_t pxui_ui_value_field(PxuiUi *ui, const float at[2], float width, float height, PxuiStr label, PxuiStr value, PxuiTextValid valid, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing);
-PxuiText *pxui_text_create(const PxuiStr *fonts, size_t count);
-void pxui_text_destroy(PxuiText *text);
-uint32_t pxui_text_add_font(PxuiText *text, PxuiStr font);
-int32_t pxui_text_width(PxuiText *text, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
-size_t pxui_text_quads(PxuiText *text, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float x, float y, float scale, PxuiTextGlyph *out, size_t capacity);
-int32_t pxui_text_end_frame(PxuiText *text);
-size_t pxui_text_rasterize_rgba(PxuiText *text, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
+int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing); /* the callbacks run only during the call; slide and scrub write their text, borrowed until their next callback */
+int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
+int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
+/* The text service of a Ui: its one font system and glyph atlas, for canvas text an app lays out itself (atlases: pxui_renderer_atlas). */
+uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
+int32_t pxui_text_width(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
+size_t pxui_text_quads(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float x, float y, float scale, PxuiTextGlyph *out, size_t capacity);
+size_t pxui_text_rasterize_rgba(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
 int32_t pxui_paint_info(PxuiPaint *paint, PxuiPaintInfo *out);
 int32_t pxui_paint_span(PxuiPaint *paint, size_t at_least, PxuiSpan *span); /* at_least 0 only commits; call it before any other pxui_paint_* call */
 float pxui_paint_icon(PxuiPaint *paint, float x, float y, uint16_t font, float size, uint32_t codepoint, PxuiColor color);

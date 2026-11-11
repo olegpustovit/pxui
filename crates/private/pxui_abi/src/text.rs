@@ -1,10 +1,7 @@
-use pxui_text::{Align, AtlasKind, Style, Text, Wrap};
+use pxui_text::{Align, AtlasKind, Style, Wrap};
+use crate::state::{PxuiUi, engine};
 use crate::PXUI_ERR_ARGUMENT;
 use pxui_types::{Str, TextGlyph, TextMetrics, TextStyle};
-
-pub struct PxuiText { text: Text }
-
-const MAX_FONTS: usize = 128;
 
 unsafe fn bytes<'a>(value: Str) -> Option<&'a [u8]> {
     if value.len == 0 { return Some(&[]); }
@@ -40,41 +37,29 @@ pub(crate) fn metrics(value: pxui_text::Metrics) -> TextMetrics {
     TextMetrics { width: value.w, height: value.h, baseline: value.baseline, lines: value.lines }
 }
 
-export!(bare pub unsafe fn pxui_text_create(fonts: *const Str, count: usize) -> *mut PxuiText {
-    if count > MAX_FONTS || (count != 0 && fonts.is_null()) { return core::ptr::null_mut(); }
-    let mut font_bytes = Vec::with_capacity(count);
-    if count != 0 {
-        for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
-            let Some(font) = (unsafe { bytes(*font) }) else { return core::ptr::null_mut(); };
-            font_bytes.push(font);
-        }
-    }
-    Box::into_raw(Box::new(PxuiText { text: Text::new(&font_bytes) }))
-});
-
-export!(bare pub unsafe fn pxui_text_destroy(text: *mut PxuiText) {
-    if !text.is_null() { drop(unsafe { Box::from_raw(text) }); }
-});
-
-export!(bare pub unsafe fn pxui_text_add_font(text: *mut PxuiText, font: Str) -> u32 {
-    if text.is_null() { return u32::MAX; }
+// Adds a font (its bytes are copied) to the Ui's text service; its index, or `u32::MAX` when refused.
+export!(pub unsafe fn pxui_text_add_font(ui: *mut PxuiUi, font: Str) -> u32 {
+    let Some(engine) = (unsafe { engine(ui) }) else { return u32::MAX; };
     let Some(font) = (unsafe { bytes(font) }) else { return u32::MAX; };
-    u32::try_from(unsafe { &mut *text }.text.add_font(font)).unwrap_or(u32::MAX)
+    u32::try_from(engine.text_mut().add_font(font)).unwrap_or(u32::MAX)
 });
 
-export!(bare pub unsafe fn pxui_text_width(text: *mut PxuiText, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
-    if text.is_null() || style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
+// Measures `value` in the Ui's text service: the one font system and glyph atlas the Ui itself draws with. `key` names the
+// layout in the service's cache.
+export!(pub unsafe fn pxui_text_width(ui: *mut PxuiUi, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
+    let Some(engine) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
     let Some(value) = (unsafe { utf8(value) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(style) = style(unsafe { *style_ }) else { return PXUI_ERR_ARGUMENT; };
-    let measured = unsafe { &mut *text }.text.layout(key, value, &style, max_width);
+    let measured = engine.text_mut().layout(key, value, &style, max_width);
     unsafe { out.write(metrics(measured)); }
     0
 });
 
 // Returns the total glyph count, or `usize::MAX` for invalid arguments or a panic. If `capacity`
 // is smaller than the result, only the first `capacity` glyphs are written.
-export!(bare pub unsafe fn pxui_text_quads(
-    text: *mut PxuiText,
+export!(pub unsafe fn pxui_text_quads(
+    ui: *mut PxuiUi,
     key: u64,
     value: Str,
     style_: *const TextStyle,
@@ -85,16 +70,17 @@ export!(bare pub unsafe fn pxui_text_quads(
     out: *mut TextGlyph,
     capacity: usize,
 ) -> usize {
-    if text.is_null() || style_.is_null() || (capacity != 0 && out.is_null())
+    let Some(engine) = (unsafe { engine(ui) }) else { return usize::MAX; };
+    if style_.is_null() || (capacity != 0 && out.is_null())
         || !origin_x.is_finite() || !origin_y.is_finite() || !scale.is_finite() || scale <= 0.0
     { return usize::MAX; }
     let Some(value) = (unsafe { utf8(value) }) else { return usize::MAX; };
     let Some(style) = style(unsafe { *style_ }) else { return usize::MAX; };
     {
-        let state = unsafe { &mut *text };
-        state.text.layout(key, value, &style, max_width);
+        let text = engine.text_mut();
+        text.layout(key, value, &style, max_width);
         let mut count = 0;
-        state.text.glyphs(key, (origin_x, origin_y), scale, &mut |glyph| {
+        text.glyphs(key, (origin_x, origin_y), scale, &mut |glyph| {
             if count < capacity {
                 let atlas = match glyph.atlas { AtlasKind::Mask => 0, AtlasKind::Color => 1 };
                 let value = TextGlyph {
@@ -111,16 +97,10 @@ export!(bare pub unsafe fn pxui_text_quads(
     }
 });
 
-export!(bare pub unsafe fn pxui_text_end_frame(text: *mut PxuiText) -> i32 {
-    if text.is_null() { return -1; }
-    unsafe { &mut *text }.text.end_frame();
-    0
-});
-
 // Renders shaped text to straight-alpha RGBA8. A null/short output buffer is a size query; the
 // dimensions and required byte count are still returned. The caller retries with that capacity.
-export!(bare pub unsafe fn pxui_text_rasterize_rgba(
-    text: *mut PxuiText,
+export!(pub unsafe fn pxui_text_rasterize_rgba(
+    ui: *mut PxuiUi,
     key: u64,
     value: Str,
     style_: *const TextStyle,
@@ -135,15 +115,16 @@ export!(bare pub unsafe fn pxui_text_rasterize_rgba(
     out: *mut u8,
     capacity: usize,
 ) -> usize {
-    if text.is_null() || style_.is_null() || width.is_null() || height.is_null()
+    let Some(engine) = (unsafe { engine(ui) }) else { return usize::MAX; };
+    if style_.is_null() || width.is_null() || height.is_null()
         || !max_width.is_finite() || !scale.is_finite() || scale <= 0.0
         || (capacity != 0 && out.is_null())
     { return usize::MAX; }
     let Some(value) = (unsafe { utf8(value) }) else { return usize::MAX; };
     let Some(style) = style(unsafe { *style_ }) else { return usize::MAX; };
     {
-        let state = unsafe { &mut *text };
-        let metrics = state.text.layout(key, value, &style, max_width);
+        let text = engine.text_mut();
+        let metrics = text.layout(key, value, &style, max_width);
         let (w, h) = if value.is_empty() {
             (1u32, 1u32)
         } else {
@@ -162,10 +143,10 @@ export!(bare pub unsafe fn pxui_text_rasterize_rgba(
 
         let (ink, alpha) = ([color_r, color_g, color_b], color_a as u32);
         let mut glyphs = Vec::new();
-        state.text.glyphs(key, (0.0, 0.0), scale, &mut |glyph| glyphs.push(glyph));
+        text.glyphs(key, (0.0, 0.0), scale, &mut |glyph| glyphs.push(glyph));
         for glyph in glyphs {
-            let (atlas_w, atlas_h) = state.text.atlas_size(glyph.atlas);
-            let atlas = state.text.atlas_pixels(glyph.atlas);
+            let (atlas_w, atlas_h) = text.atlas_size(glyph.atlas);
+            let atlas = text.atlas_pixels(glyph.atlas);
             let (u, v) = ((glyph.uv.x * atlas_w as f32).round() as i64, (glyph.uv.y * atlas_h as f32).round() as i64);
             let (gw, gh, gx, gy) = (glyph.rect.w as i64, glyph.rect.h as i64, glyph.rect.x as i64, glyph.rect.y as i64);
             for row in 0..gh {
@@ -188,7 +169,6 @@ export!(bare pub unsafe fn pxui_text_rasterize_rgba(
                 }
             }
         }
-        state.text.drain_uploads(&mut |_, _, _, _, _, _, _| {});
         required
     }
 });
