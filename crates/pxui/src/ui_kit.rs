@@ -109,70 +109,7 @@ impl Ui {
         cell: Rc<dyn Fn(i64, i64) -> String>,
         label: &str,
     ) -> (Option<i64>, Signal) {
-        if rows < 0 {
-            panic!("Ui.table: negative row count");
-        }
-        let row_h = (self.theme().row_h * self.theme().tokens.density).round();
-        let mut stops = vec![0.0; headers.len() + 1];
-        for (i, header) in headers.iter().enumerate() {
-            let width = 72.0f32.max(self.text_width(None, header) + 24.0);
-            stops[i + 1] = stops[i] + width;
-        }
-        let (head_look, row_look) = (self.theme().table_head.idle, self.theme().table_row.idle);
-        let root = self.box_(label, BoxOpts::default().flags(CLIP).at(at).w(Size::Px(w)).h(Size::Px(h)));
-        let saved = self.enter(&root);
-        let header = self.box_fmt(format_args!("{}-header", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(row_h)));
-        self.set_role(&root, Role::Table, 0);
-        self.set_look(&header, head_look, State::default());
-        {
-            let saved = self.enter(&header);
-            for (i, title) in headers.iter().enumerate() {
-                let cell = Size::Px((stops[i + 1] - stops[i] - 8.0).max(1.0));
-                self.part(int_key(header.box_key, i as i64), (stops[i] + 8.0, 0.0), cell, row_h, text_only(&head_look), Edges::default(), title);
-            }
-            self.leave(saved);
-        }
-        let body_h = 0.0f32.max(h - row_h);
-        let body = self.box_(
-            &format!("{}-body", label),
-            BoxOpts::default().flags(SCROLL + CLIP).w(Size::Px(w)).h(Size::Px(body_h)).scroll_step(row_h),
-        );
-        // Both sizes are explicit: use the shared wheel/trackpad/coast state before choosing rows.
-        // Arrange then sees consumed input and a zero time delta.
-        self.set_l_h(&body, body_h);
-        self.set_l_content(&body, rows as f32 * row_h);
-        if let Some(t) = self.input_frame_time() {
-            self.apply_scroll(true, t, body.index);
-        }
-        let first = rows.min(0.max((self.scroll_offset(&body) / row_h).floor() as i64));
-        let last = rows.min(first + (body_h / row_h).ceil() as i64 + 2);
-        let mut clicked = None;
-        let saved_body = self.enter(&body);
-        let extent = self.box_fmt(format_args!("{}-extent", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(rows as f32 * row_h)));
-        let saved_extent = self.enter(&extent);
-        for index in first..last {
-            let row = self.box_(
-                &format!("{}-row-{}", label, index),
-                BoxOpts::default().flags(CLICKABLE).at((0.0, index as f32 * row_h)).w(Size::Px(w)).h(Size::Px(row_h)),
-            );
-            if self.signal(&row).clicked {
-                clicked = Some(index);
-            }
-            self.set_look(&row, row_look, State::default());
-            let saved = self.enter(&row);
-            for column in 0..headers.len() {
-                let value = cell(index, column as i64);
-                let tw = self.text_width(None, &value);
-                let right = stops[column + 1] - 8.0;
-                self.part(int_key(row.box_key, column as i64), (right - tw, 0.0), Size::Px(tw.max(1.0)), row_h, text_only(&row_look), Edges::default(), &value);
-            }
-            self.leave(saved);
-        }
-        self.leave(saved_extent);
-        self.leave(saved_body);
-        let sig = self.signal(&body);
-        self.leave(saved);
-        (clicked, sig)
+        table_body(self, at, w, h, headers, rows, cell, label)
     }
 }
 
@@ -954,4 +891,73 @@ impl Ui {
         let along = (at - start).clamp(min_a, (room - min_b).max(min_a));
         Some(along / room)
     }
+}
+
+// Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
+// compile in parallel with the rest of the crate (rustc places methods with their type).
+fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[String], rows: i64, cell: Rc<dyn Fn(i64, i64) -> String>, label: &str) -> (Option<i64>, Signal) {
+    if rows < 0 {
+        panic!("Ui.table: negative row count");
+    }
+    let row_h = (this.theme().row_h * this.theme().tokens.density).round();
+    let mut stops = vec![0.0; headers.len() + 1];
+    for (i, header) in headers.iter().enumerate() {
+        let width = 72.0f32.max(this.text_width(None, header) + 24.0);
+        stops[i + 1] = stops[i] + width;
+    }
+    let (head_look, row_look) = (this.theme().table_head.idle, this.theme().table_row.idle);
+    let root = this.box_(label, BoxOpts::default().flags(CLIP).at(at).w(Size::Px(w)).h(Size::Px(h)));
+    let saved = this.enter(&root);
+    let header = this.box_fmt(format_args!("{}-header", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(row_h)));
+    this.set_role(&root, Role::Table, 0);
+    this.set_look(&header, head_look, State::default());
+    {
+        let saved = this.enter(&header);
+        for (i, title) in headers.iter().enumerate() {
+            let cell = Size::Px((stops[i + 1] - stops[i] - 8.0).max(1.0));
+            this.part(int_key(header.box_key, i as i64), (stops[i] + 8.0, 0.0), cell, row_h, text_only(&head_look), Edges::default(), title);
+        }
+        this.leave(saved);
+    }
+    let body_h = 0.0f32.max(h - row_h);
+    let body = this.box_(
+        &format!("{}-body", label),
+        BoxOpts::default().flags(SCROLL + CLIP).w(Size::Px(w)).h(Size::Px(body_h)).scroll_step(row_h),
+    );
+    // Both sizes are explicit: use the shared wheel/trackpad/coast state before choosing rows.
+    // Arrange then sees consumed input and a zero time delta.
+    this.set_l_h(&body, body_h);
+    this.set_l_content(&body, rows as f32 * row_h);
+    if let Some(t) = this.input_frame_time() {
+        this.apply_scroll(true, t, body.index);
+    }
+    let first = rows.min(0.max((this.scroll_offset(&body) / row_h).floor() as i64));
+    let last = rows.min(first + (body_h / row_h).ceil() as i64 + 2);
+    let mut clicked = None;
+    let saved_body = this.enter(&body);
+    let extent = this.box_fmt(format_args!("{}-extent", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(rows as f32 * row_h)));
+    let saved_extent = this.enter(&extent);
+    for index in first..last {
+        let row = this.box_(
+            &format!("{}-row-{}", label, index),
+            BoxOpts::default().flags(CLICKABLE).at((0.0, index as f32 * row_h)).w(Size::Px(w)).h(Size::Px(row_h)),
+        );
+        if this.signal(&row).clicked {
+            clicked = Some(index);
+        }
+        this.set_look(&row, row_look, State::default());
+        let saved = this.enter(&row);
+        for column in 0..headers.len() {
+            let value = cell(index, column as i64);
+            let tw = this.text_width(None, &value);
+            let right = stops[column + 1] - 8.0;
+            this.part(int_key(row.box_key, column as i64), (right - tw, 0.0), Size::Px(tw.max(1.0)), row_h, text_only(&row_look), Edges::default(), &value);
+        }
+        this.leave(saved);
+    }
+    this.leave(saved_extent);
+    this.leave(saved_body);
+    let sig = this.signal(&body);
+    this.leave(saved);
+    (clicked, sig)
 }

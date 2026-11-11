@@ -165,58 +165,7 @@ impl Ui {
     /// Dragging, the arrows (a hundredth of the range; Page keys a tenth; Home and End the ends) and
     /// an assistive technology's SetValue move it. Returns the value, held in `range`.
     pub fn slider(&mut self, text: &str, value: f32, range: RangeInclusive<f32>) -> f32 {
-        let (lo, hi) = (*range.start(), *range.end());
-        let span = (hi - lo).max(f32::MIN_POSITIVE);
-        let key = key_of(self.current_seed(), text);
-        let row = self.kit_line(key, NO_FLAGS, Role::Unknown);
-        let rh = self.row_height() as f32;
-        let ch = self.control_h();
-        let label_look = self.theme().row.idle;
-        let saved = self.enter(&row);
-        self.text_leaf(int_key(key, 0), rh, label_look, shown(text));
-        let track = self.node_keyed(int_key(key, 1), Node { flags: CLICKABLE | FOCUSABLE | BLOCKING, h: Size::Px(ch), axis: Axis::Stack, align: Align::Center, role: Role::Slider, ..Node::DEFAULT });
-        let s = self.signal(&track);
-        let mut v = value.clamp(lo.min(hi), hi.max(lo));
-        let step = span / 100.0;
-        pressed(&s.keys, &mut |k| {
-            v += match k {
-                Key::ArrowRight | Key::ArrowLeft => self.along(k) as f32 * step,
-                Key::ArrowUp => step,
-                Key::ArrowDown => -step,
-                Key::PageUp => 10.0 * step,
-                Key::PageDown => -10.0 * step,
-                Key::Home => lo - v,
-                Key::End => hi - v,
-                _ => 0.0,
-            };
-        });
-        if s.held || s.released {
-            let r = self.rect(&track);
-            let f = ((s.pointer.0 - r.x - 4.0) / (r.w - 8.0).max(1.0)).clamp(0.0, 1.0);
-            v = lo + if self.rtl() { 1.0 - f } else { f } * span;
-        }
-        if let Some(a) = s.a11y_value {
-            v = a as f32;
-        }
-        let v = v.clamp(lo.min(hi), hi.max(lo));
-        let f = ((v - lo) / span).clamp(0.0, 1.0);
-        self.a11y_name(&track, shown(text));
-        self.a11y_number(&track, v as f64, lo.min(hi) as f64, hi.max(lo) as f64, step as f64);
-        let t = self.theme();
-        let (rail, fill, thumb) = (t.separator.idle, t.mark.idle, t.slider);
-        let inner = self.enter(&track);
-        self.node_keyed(int_key(key, 2), Node { h: Size::Px(2.0), look: rail, ..Node::DEFAULT });
-        self.node_keyed(int_key(key, 3), Node { w: Size::Pct(f), h: Size::Px(2.0), look: fill, ..Node::DEFAULT });
-        let lane = self.node_keyed(int_key(key, 4), Node { h: Size::Px(14.0), axis: Axis::Row, ..Node::DEFAULT });
-        let tl = self.enter(&lane);
-        self.node_keyed(int_key(key, 5), Node { h: Size::Px(1.0), grow: f, ..Node::DEFAULT });
-        let th = self.node_keyed(int_key(key, 6), Node { w: Size::Px(8.0), h: Size::Px(14.0), ..Node::DEFAULT });
-        self.style(&th, &thumb, State { hovered: s.hovered, pressed: s.held, ..State::default() });
-        self.node_keyed(int_key(key, 7), Node { h: Size::Px(1.0), grow: 1.0 - f, ..Node::DEFAULT });
-        self.leave(tl);
-        self.leave(inner);
-        self.leave(saved);
-        v
+        slider_body(self, text, value, range)
     }
 
     /// A 4-point progress track across a row: a bar `value` (0 to 1) of the way, or with `None` a
@@ -767,80 +716,7 @@ impl Ui {
     /// Returns the column whose header was clicked (the sort intent).
     #[allow(clippy::too_many_arguments)]
     pub fn table_view(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &dyn Fn(usize, usize, &mut dyn FnMut(&str))) -> Option<usize> {
-        let rh = self.row_height() as f32;
-        let columns = titles.len().min(widths.len());
-        let t = self.theme();
-        let (frame_look, head_look, column, chevron, states) = (t.scroll_view.idle, t.table_head.idle, t.column, t.chevron.idle, t.listbox);
-        let bar = self.thumb();
-        let frame = self.node(label, Node { flags: FOCUSABLE | SCROLL_X | CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
-        self.a11y_name(&frame, shown(label));
-        let s = self.signal(&frame);
-        let focused = self.focused(&frame);
-        let page = (self.rect(&frame).h / rh - 1.0).floor().max(1.0) as i64;
-        let cursor = selected.unwrap_or(0).min(rows.saturating_sub(1));
-        let (c, _, _) = self.list_keys(&s.keys, cursor, rows, page);
-        if c != cursor || (selected.is_none() && s.keys.iter().any(|e| matches!(e, Event::KeyPressed(Key::ArrowDown | Key::ArrowUp)))) {
-            *selected = (rows > 0).then_some(c);
-        }
-        let total: f32 = widths[..columns].iter().map(|w| w + 1.0).sum();
-        let mut sorted = None;
-        let saved = self.enter(&frame);
-        let sheet = self.node("sheet", Node { w: Size::Grow, min_w: total, h: Size::Grow, ..Node::DEFAULT });
-        let inner = self.enter(&sheet);
-        let head = self.node("head", Node { h: Size::Px(rh), axis: Axis::Row, look: head_look, ..Node::DEFAULT });
-        let hs = self.enter(&head);
-        for i in 0..columns {
-            let n = self.node_keyed(int_key(head.box_key, i as i64), Node { flags: ROW_FLAGS, w: Size::Px(widths[i]), h: Size::Grow, axis: Axis::Row, align: Align::Center, justify: Justify::SpaceBetween, padding: Edges { l: 8.0, r: 8.0, ..Edges::ZERO }, role: Role::ColumnHeader, ..Node::DEFAULT });
-            let ns = self.signal(&n);
-            if ns.clicked {
-                sorted = Some(i);
-            }
-            let by = sort.filter(|(col, _)| *col == i);
-            self.style(&n, &column, State { hovered: ns.hovered, pressed: ns.held, checked: by.is_some(), ..State::default() });
-            self.a11y_name(&n, titles[i]);
-            let ms = self.enter(&n);
-            let look = self.node_mut(&n).look;
-            self.text_leaf(int_key(n.box_key, 0), rh, look, titles[i]);
-            if let Some((_, ascending)) = by {
-                let m = self.node("sort", Node { w: Size::Px(6.0), h: Size::Grow, look: chevron, ..Node::DEFAULT });
-                self.node_mut(&m).mark = Mark::Chevron(if ascending { Dir::Up } else { Dir::Down });
-            }
-            self.leave(ms);
-            let (_, gs) = self.grip(format_args!("grip{}", i), Axis::Row, None);
-            if gs.held && gs.drag.0 != 0.0 {
-                widths[i] = (widths[i] + if self.rtl() { -gs.drag.0 } else { gs.drag.0 }).max(32.0);
-            }
-        }
-        self.leave(hs);
-        let w = widths;
-        let body = self.list("rows", rows, rh, &mut |ui, i| {
-            let on = *selected == Some(i);
-            let (n, rs) = ui.virtual_row(&states, on, focused && on, 0.0, Role::Row, st::SELECTABLE | if on { st::SELECTED } else { 0 });
-            if rs.clicked {
-                *selected = Some(i);
-            }
-            let look = text_only(&ui.node_mut(&n).look);
-            ui.node_mut(&n).gap = 1.0;
-            let inner = ui.enter(&n);
-            for col in 0..columns {
-                cell(i, col, &mut |t| {
-                    let c = ui.node_keyed(int_key(n.box_key, col as i64), Node { w: Size::Px(w[col]), h: Size::Grow, axis: Axis::Row, align: Align::Center, padding: Edges { l: 8.0, r: 8.0, ..Edges::ZERO }, role: Role::Cell, ..Node::DEFAULT });
-                    ui.a11y_name(&c, t);
-                    let inner = ui.enter(&c);
-                    ui.text_leaf(int_key(c.box_key, 0), rh, look, t);
-                    ui.leave(inner);
-                });
-            }
-            ui.leave(inner);
-        });
-        self.node_mut(&body).bar = Some(self.thumb());
-        self.set_role(&body, Role::Unknown, 0);
-        self.leave(inner);
-        self.leave(saved);
-        if c != cursor {
-            self.reveal_row(&body, c);
-        }
-        sorted
+        table_view_body(self, label, titles, widths, rows, sort, selected, cell)
     }
 
     /// A modal dialog titled `title`: its title bar, `body`, then `buttons` at the end of a row (the
@@ -940,73 +816,7 @@ impl Ui {
     /// clear button. A click focuses it and the text widgets' editing applies; Escape clears it.
     /// Returns the new query on the frames that change it.
     pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<String> {
-        let key = key_of(self.current_seed(), label);
-        let row = self.kit_line(key, NO_FLAGS, Role::Unknown);
-        let ch = self.control_h();
-        let t = self.theme();
-        let (states, hint) = (t.search, t.placeholder.idle);
-        let saved = self.enter(&row);
-        let well = self.node_keyed(int_key(key, 0), Node { h: Size::Px(ch), axis: Axis::Row, align: Align::Center, gap: 4.0, padding: Edges { l: 4.0, r: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
-        let inner = self.enter(&well);
-        let glyph = self.text_leaf(int_key(key, 2), ch, hint, icon);
-        let field = self.node_keyed(int_key(key, 1), Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK, h: Size::Grow, inset: Edges { l: 2.0, ..Edges::ZERO }, role: Role::TextField, a11y: st::EDITABLE, ..Node::DEFAULT });
-        let s = self.signal(&field);
-        let focused = self.focused(&field);
-        let mut changed = None;
-        let mut edit = None;
-        if focused {
-            let mut e = self.load_text_edit(field.box_key, value);
-            let r = self.rect(&field);
-            let shift = self.press_shift(&field);
-            self.point_text_caret(None, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
-            for (event, modifiers) in self.key_events(&field) {
-                if event == Event::KeyPressed(Key::Escape) {
-                    e.text.clear();
-                    (e.caret, e.anchor) = (0, 0);
-                } else {
-                    self.edit_text_event(false, &mut e, &|_| true, &modifiers, &event);
-                }
-            }
-            self.save_text_edit(&e);
-            if e.text != value {
-                changed = Some(e.text.clone());
-            }
-            edit = Some(e);
-        }
-        if s.hovered {
-            self.request_cursor(Cursor::Text);
-        }
-        let state = State { focused, ..State::default() };
-        self.style(&well, &states, state);
-        let look = *states.pick(state);
-        self.node_mut(&glyph).look.text = hint.text;
-        let current = changed.as_deref().unwrap_or(value);
-        self.a11y_name(&field, shown(label));
-        self.a11y_value(&field, current, (0, 0));
-        self.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
-        match edit {
-            Some(edit) => {
-                let font_size = self.font_size();
-                let marks = Some((look.selection, look.caret));
-                let composition = self.composition().to_owned();
-                self.canvas(&field, move |paint, rect| {
-                    let r = crate::ui_kit::ints(rect);
-                    crate::ui_text::paint_text_edit(paint, None, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &edit)
-                });
-            }
-            None => self.text(&field, if value.is_empty() { placeholder } else { value }),
-        }
-        if !current.is_empty() {
-            let clear = self.node_keyed(int_key(key, 3), Node { flags: ROW_FLAGS, w: Size::Px(16.0), h: Size::Px(16.0), look: Look { text: hint.text, ..Look::NONE }, inset: Edges { l: 4.0, ..Edges::ZERO }, role: Role::Button, ..Node::DEFAULT });
-            self.text(&clear, "\u{d7}");
-            self.a11y_name(&clear, "Clear");
-            if self.signal(&clear).clicked {
-                changed = Some(String::new());
-            }
-        }
-        self.leave(inner);
-        self.leave(saved);
-        changed
+        search_field_body(self, label, icon, value, placeholder)
     }
 
     /// An image `w` x `h` placed by `fit` (CSS `object-fit`) in the image look's frame.
@@ -1028,4 +838,208 @@ impl Ui {
         });
         n
     }
+}
+
+// Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
+// compile in parallel with the rest of the crate (rustc places methods with their type).
+fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &dyn Fn(usize, usize, &mut dyn FnMut(&str))) -> Option<usize> {
+    let rh = this.row_height() as f32;
+    let columns = titles.len().min(widths.len());
+    let t = this.theme();
+    let (frame_look, head_look, column, chevron, states) = (t.scroll_view.idle, t.table_head.idle, t.column, t.chevron.idle, t.listbox);
+    let bar = this.thumb();
+    let frame = this.node(label, Node { flags: FOCUSABLE | SCROLL_X | CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
+    this.a11y_name(&frame, shown(label));
+    let s = this.signal(&frame);
+    let focused = this.focused(&frame);
+    let page = (this.rect(&frame).h / rh - 1.0).floor().max(1.0) as i64;
+    let cursor = selected.unwrap_or(0).min(rows.saturating_sub(1));
+    let (c, _, _) = this.list_keys(&s.keys, cursor, rows, page);
+    if c != cursor || (selected.is_none() && s.keys.iter().any(|e| matches!(e, Event::KeyPressed(Key::ArrowDown | Key::ArrowUp)))) {
+        *selected = (rows > 0).then_some(c);
+    }
+    let total: f32 = widths[..columns].iter().map(|w| w + 1.0).sum();
+    let mut sorted = None;
+    let saved = this.enter(&frame);
+    let sheet = this.node("sheet", Node { w: Size::Grow, min_w: total, h: Size::Grow, ..Node::DEFAULT });
+    let inner = this.enter(&sheet);
+    let head = this.node("head", Node { h: Size::Px(rh), axis: Axis::Row, look: head_look, ..Node::DEFAULT });
+    let hs = this.enter(&head);
+    for i in 0..columns {
+        let n = this.node_keyed(int_key(head.box_key, i as i64), Node { flags: ROW_FLAGS, w: Size::Px(widths[i]), h: Size::Grow, axis: Axis::Row, align: Align::Center, justify: Justify::SpaceBetween, padding: Edges { l: 8.0, r: 8.0, ..Edges::ZERO }, role: Role::ColumnHeader, ..Node::DEFAULT });
+        let ns = this.signal(&n);
+        if ns.clicked {
+            sorted = Some(i);
+        }
+        let by = sort.filter(|(col, _)| *col == i);
+        this.style(&n, &column, State { hovered: ns.hovered, pressed: ns.held, checked: by.is_some(), ..State::default() });
+        this.a11y_name(&n, titles[i]);
+        let ms = this.enter(&n);
+        let look = this.node_mut(&n).look;
+        this.text_leaf(int_key(n.box_key, 0), rh, look, titles[i]);
+        if let Some((_, ascending)) = by {
+            let m = this.node("sort", Node { w: Size::Px(6.0), h: Size::Grow, look: chevron, ..Node::DEFAULT });
+            this.node_mut(&m).mark = Mark::Chevron(if ascending { Dir::Up } else { Dir::Down });
+        }
+        this.leave(ms);
+        let (_, gs) = this.grip(format_args!("grip{}", i), Axis::Row, None);
+        if gs.held && gs.drag.0 != 0.0 {
+            widths[i] = (widths[i] + if this.rtl() { -gs.drag.0 } else { gs.drag.0 }).max(32.0);
+        }
+    }
+    this.leave(hs);
+    let w = widths;
+    let body = this.list("rows", rows, rh, &mut |ui, i| {
+        let on = *selected == Some(i);
+        let (n, rs) = ui.virtual_row(&states, on, focused && on, 0.0, Role::Row, st::SELECTABLE | if on { st::SELECTED } else { 0 });
+        if rs.clicked {
+            *selected = Some(i);
+        }
+        let look = text_only(&ui.node_mut(&n).look);
+        ui.node_mut(&n).gap = 1.0;
+        let inner = ui.enter(&n);
+        for col in 0..columns {
+            cell(i, col, &mut |t| {
+                let c = ui.node_keyed(int_key(n.box_key, col as i64), Node { w: Size::Px(w[col]), h: Size::Grow, axis: Axis::Row, align: Align::Center, padding: Edges { l: 8.0, r: 8.0, ..Edges::ZERO }, role: Role::Cell, ..Node::DEFAULT });
+                ui.a11y_name(&c, t);
+                let inner = ui.enter(&c);
+                ui.text_leaf(int_key(c.box_key, 0), rh, look, t);
+                ui.leave(inner);
+            });
+        }
+        ui.leave(inner);
+    });
+    this.node_mut(&body).bar = Some(this.thumb());
+    this.set_role(&body, Role::Unknown, 0);
+    this.leave(inner);
+    this.leave(saved);
+    if c != cursor {
+        this.reveal_row(&body, c);
+    }
+    sorted
+}
+
+fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<String> {
+    let key = key_of(this.current_seed(), label);
+    let row = this.kit_line(key, NO_FLAGS, Role::Unknown);
+    let ch = this.control_h();
+    let t = this.theme();
+    let (states, hint) = (t.search, t.placeholder.idle);
+    let saved = this.enter(&row);
+    let well = this.node_keyed(int_key(key, 0), Node { h: Size::Px(ch), axis: Axis::Row, align: Align::Center, gap: 4.0, padding: Edges { l: 4.0, r: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
+    let inner = this.enter(&well);
+    let glyph = this.text_leaf(int_key(key, 2), ch, hint, icon);
+    let field = this.node_keyed(int_key(key, 1), Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK, h: Size::Grow, inset: Edges { l: 2.0, ..Edges::ZERO }, role: Role::TextField, a11y: st::EDITABLE, ..Node::DEFAULT });
+    let s = this.signal(&field);
+    let focused = this.focused(&field);
+    let mut changed = None;
+    let mut edit = None;
+    if focused {
+        let mut e = this.load_text_edit(field.box_key, value);
+        let r = this.rect(&field);
+        let shift = this.press_shift(&field);
+        this.point_text_caret(None, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
+        for (event, modifiers) in this.key_events(&field) {
+            if event == Event::KeyPressed(Key::Escape) {
+                e.text.clear();
+                (e.caret, e.anchor) = (0, 0);
+            } else {
+                this.edit_text_event(false, &mut e, &|_| true, &modifiers, &event);
+            }
+        }
+        this.save_text_edit(&e);
+        if e.text != value {
+            changed = Some(e.text.clone());
+        }
+        edit = Some(e);
+    }
+    if s.hovered {
+        this.request_cursor(Cursor::Text);
+    }
+    let state = State { focused, ..State::default() };
+    this.style(&well, &states, state);
+    let look = *states.pick(state);
+    this.node_mut(&glyph).look.text = hint.text;
+    let current = changed.as_deref().unwrap_or(value);
+    this.a11y_name(&field, shown(label));
+    this.a11y_value(&field, current, (0, 0));
+    this.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
+    match edit {
+        Some(edit) => {
+            let font_size = this.font_size();
+            let marks = Some((look.selection, look.caret));
+            let composition = this.composition().to_owned();
+            this.canvas(&field, move |paint, rect| {
+                let r = crate::ui_kit::ints(rect);
+                crate::ui_text::paint_text_edit(paint, None, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &edit)
+            });
+        }
+        None => this.text(&field, if value.is_empty() { placeholder } else { value }),
+    }
+    if !current.is_empty() {
+        let clear = this.node_keyed(int_key(key, 3), Node { flags: ROW_FLAGS, w: Size::Px(16.0), h: Size::Px(16.0), look: Look { text: hint.text, ..Look::NONE }, inset: Edges { l: 4.0, ..Edges::ZERO }, role: Role::Button, ..Node::DEFAULT });
+        this.text(&clear, "\u{d7}");
+        this.a11y_name(&clear, "Clear");
+        if this.signal(&clear).clicked {
+            changed = Some(String::new());
+        }
+    }
+    this.leave(inner);
+    this.leave(saved);
+    changed
+}
+
+fn slider_body(this: &mut Ui, text: &str, value: f32, range: RangeInclusive<f32>) -> f32 {
+    let (lo, hi) = (*range.start(), *range.end());
+    let span = (hi - lo).max(f32::MIN_POSITIVE);
+    let key = key_of(this.current_seed(), text);
+    let row = this.kit_line(key, NO_FLAGS, Role::Unknown);
+    let rh = this.row_height() as f32;
+    let ch = this.control_h();
+    let label_look = this.theme().row.idle;
+    let saved = this.enter(&row);
+    this.text_leaf(int_key(key, 0), rh, label_look, shown(text));
+    let track = this.node_keyed(int_key(key, 1), Node { flags: CLICKABLE | FOCUSABLE | BLOCKING, h: Size::Px(ch), axis: Axis::Stack, align: Align::Center, role: Role::Slider, ..Node::DEFAULT });
+    let s = this.signal(&track);
+    let mut v = value.clamp(lo.min(hi), hi.max(lo));
+    let step = span / 100.0;
+    pressed(&s.keys, &mut |k| {
+        v += match k {
+            Key::ArrowRight | Key::ArrowLeft => this.along(k) as f32 * step,
+            Key::ArrowUp => step,
+            Key::ArrowDown => -step,
+            Key::PageUp => 10.0 * step,
+            Key::PageDown => -10.0 * step,
+            Key::Home => lo - v,
+            Key::End => hi - v,
+            _ => 0.0,
+        };
+    });
+    if s.held || s.released {
+        let r = this.rect(&track);
+        let f = ((s.pointer.0 - r.x - 4.0) / (r.w - 8.0).max(1.0)).clamp(0.0, 1.0);
+        v = lo + if this.rtl() { 1.0 - f } else { f } * span;
+    }
+    if let Some(a) = s.a11y_value {
+        v = a as f32;
+    }
+    let v = v.clamp(lo.min(hi), hi.max(lo));
+    let f = ((v - lo) / span).clamp(0.0, 1.0);
+    this.a11y_name(&track, shown(text));
+    this.a11y_number(&track, v as f64, lo.min(hi) as f64, hi.max(lo) as f64, step as f64);
+    let t = this.theme();
+    let (rail, fill, thumb) = (t.separator.idle, t.mark.idle, t.slider);
+    let inner = this.enter(&track);
+    this.node_keyed(int_key(key, 2), Node { h: Size::Px(2.0), look: rail, ..Node::DEFAULT });
+    this.node_keyed(int_key(key, 3), Node { w: Size::Pct(f), h: Size::Px(2.0), look: fill, ..Node::DEFAULT });
+    let lane = this.node_keyed(int_key(key, 4), Node { h: Size::Px(14.0), axis: Axis::Row, ..Node::DEFAULT });
+    let tl = this.enter(&lane);
+    this.node_keyed(int_key(key, 5), Node { h: Size::Px(1.0), grow: f, ..Node::DEFAULT });
+    let th = this.node_keyed(int_key(key, 6), Node { w: Size::Px(8.0), h: Size::Px(14.0), ..Node::DEFAULT });
+    this.style(&th, &thumb, State { hovered: s.hovered, pressed: s.held, ..State::default() });
+    this.node_keyed(int_key(key, 7), Node { h: Size::Px(1.0), grow: 1.0 - f, ..Node::DEFAULT });
+    this.leave(tl);
+    this.leave(inner);
+    this.leave(saved);
+    v
 }
