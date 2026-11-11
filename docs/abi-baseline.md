@@ -45,29 +45,40 @@ These measurements are macOS-only. Windows/NVIDIA and WSL/lavapipe qualification
 
 ## A7: performance gate
 
-Measured 2026-11-11 on Apple M1, macOS 27.0.1, release profile (thin LTO, 16 codegen units), `RAYS_SLOW=1 cargo t --release -p pxui_gallery abi_bench` (static) and `... --no-default-features abi_bench` (dynamic). One machine with other work running: runs repeated, medians below, differences under 1% between runs. `abi_bench` builds each page three ways (the engine called directly from `tools/abi_bench`, which compiles the gallery's own page source against `pxui_core`; the wrapper static; the wrapper against `libpxui`), interleaves 600 forced rebuilds of each and compares medians.
+Measured 2026-11-11 on Apple M1, macOS 27.0.1, release profile (thin LTO, 16 codegen units), `RAYS_SLOW=1 cargo t --release -p pxui_gallery abi_bench` (static) and `... --no-default-features abi_bench` (dynamic). `abi_bench` builds each page three ways (the engine called directly from `tools/abi_bench`, which compiles the gallery's own page source against `pxui_core`; the wrapper static; the wrapper against `libpxui`), interleaves 600 forced rebuilds of each and compares medians. The machine was shared (load 10 to 30): the table is the median of eight reports per mode (four runs, two reports each); a run differs from the median by up to 1%.
 
-| Page | Nodes | Direct (µs) | Wrapper static (µs) | vs direct | Wrapper dynamic (µs) | vs direct | Dynamic µs per 1,000 nodes |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| Kit | 87 | 28.0 | 29.3 | +4.3% | 31.0 | +9.6% | 31 |
-| Controls | 83 | 19.8 | 21.3 | +7.8% | 24.2 | +12.6% | 33 |
-| Collections | 263 | 109.5 | 124.9 | +14.1% | 121.8 | +15.7% | 63 |
-| Overlays | 14 | 4.1 | 4.4 | +7.1% | 4.5 | +13.6% | 39 |
-| Layout | 319 | 69.3 | 74.1 | +7.0% | 75.7 | +8.3% | 18 |
+| Page | Nodes | Direct (µs) | Wrapper static (µs) | vs direct | Direct (µs) | Wrapper dynamic (µs) | vs direct | Dynamic µs per 1,000 nodes |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| Kit | 87 | 28.2 | 29.0 | +3.2% | 28.1 | 29.0 | +3.4% | 11.5 |
+| Controls | 83 | 18.8 | 19.4 | +3.1% | 20.1 | 20.8 | +3.5% | 8.5 |
+| Collections | 263 | 104.8 | 105.9 | +1.0% | 109.4 | 110.9 | +1.3% | 5.5 |
+| Overlays | 14 | 3.9 | 4.1 | +5.3% | 4.1 | 4.4 | +5.5% | 16.4 |
+| Layout | 319 | 66.7 | 70.0 | +4.9% | 69.1 | 72.3 | +4.6% | 10.0 |
+
+Before this round: static +4.3, +7.8, +14.1, +7.1, +7.0%; dynamic +9.6, +12.6, +15.7, +13.6, +8.3% (18 to 63 µs per 1,000 nodes).
 
 | Metric | Limit | Result |
 | --- | --- | --- |
-| Frame build, static vs direct | under 1% | FAIL: +4% to +14% |
-| Frame build, dynamic vs direct | under 3% and 5 µs per 1,000 widgets | FAIL: +8% to +16%, 18 to 63 µs per 1,000 nodes |
-| Allocations per settled frame | 0 in all three | PASS on Kit, Controls, Collections, Overlays. Layout allocates 80 in all three (its popup is a root box, so the engine rebuilds the view every frame; the wrapper matches the engine) |
-| Draw calls | identical | PASS: 1, 2, 1, 1, 1 in both modes, as the engine's before the migration (static also compares the layers' instances: identical bytes on all five pages) |
-| Submits per frame | the app's own | PASS: one per render, the epoch of the app's queue advances by one |
-| Idle frame | no library call | PASS: 0 calls over the two seconds after the gallery settles (the frame gate is decided in the app from the last frame's repaint time) |
-| Paint closure of N shapes, no text | at most N / span + 1 calls | PASS counting the span a partly filled one still is: 2, 4 and 6 calls over an empty closure for 100, 1,000 and 10,000 shapes |
-| Resident memory, one-label app | dynamic not above static | FAIL: dynamic 103,072 KiB, static 102,032 KiB (+1,040 KiB, repeatable) |
-| First presented frame, one-label app | dynamic within 2 ms of static | PASS: 148.1 ms dynamic, 153.5 ms static (fastest of 31 runs; medians 172.0 and 170.4) |
-| Library release profile | fat LTO and one codegen unit only if it wins | Measured, no win: dynamic page ratios unchanged to 0.5% over four alternating runs, resident memory 103,184 against 103,200 KiB, first frame inside the noise; the dylib is 7.2 MB against 10.6 MB. Not adopted (no `dist` profile) |
+| Frame build, static vs direct | under 1% | FAIL: +1.0% to +5.3% (see the residual below) |
+| Frame build, dynamic vs direct | under 3% and 5 µs per 1,000 widgets | FAIL: +1.3% to +5.5%, 5.5 to 16.4 µs per 1,000 nodes |
+| Allocations per settled frame | 0 in all three | PASS on Kit, Controls, Collections, Overlays; Layout allocates 80 in all three (its popup is a root box, so the engine rebuilds the view every frame; the wrapper matches the engine). A settled frame's `Renderer::prepare` and `Renderer::draw` allocate nothing (draw was 14), pinned by `renderer_draw_settled` |
+| Draw calls | identical | PASS: 1, 2, 1, 1, 1 in both modes; static also compares the layers' instances: identical bytes on all five pages |
+| Submits per frame | the app's own | PASS: one per render |
+| Idle frame | no library call | PASS: 0 calls over the two seconds after the gallery settles |
+| Paint closure of N shapes, no text | at most N / span + 1 calls | PASS: 2, 4 and 6 calls over an empty closure for 100, 1,000 and 10,000 shapes |
+| Resident memory, one-label app | dynamic not above static | FAIL by 848 KiB: dynamic 103,088 KiB, static 102,240 KiB (was +1,040). The private footprint is the same in both (40 MB, `footprint`); the difference is clean, shareable file pages: the gallery's and `libpxui`'s text resident together is 6,304 KiB against the static binary's 5,632 KiB (`vmmap`, deterministic over runs): OGPU, `metal_sys` and `input` exist twice in a dynamic build (the app's copy and the library's), as section 5 of the plan expects |
+| First presented frame, one-label app | dynamic within 2 ms of static | PASS: 152.7 ms dynamic, 153.1 ms static (fastest of 31) |
+| Library release profile | fat LTO and one codegen unit only if it wins | Measured again with `libpxui` actually optimized across crates (below), no win: fat LTO and one codegen unit made the dynamic pages slower (+8% to +23% against +3% to +5%) and the dylib 7.0 MB against 11.0 MB; its text resident in the label app is 430 KiB smaller (dynamic +240 KiB over static instead of +672). Not adopted |
 
-Where the time goes (sample of the Layout and Collections pages): the wrapper turns each `Node` into a `NodeDesc` and the library back into an engine `Node` (about 45 ns a node, mostly struct copies), and a 100,000-row collection is validated on every call because C owns the flags (`list_view`, `tree`: byte flags 0 or 1 and the tree's `children`, 1.6 MB of nodes, about 15 µs of Collections' 16). Changes made on the way, with their effect on these pages: `Ui::theme()` decoded 50 KB on every call (Controls 11x and Layout 4.8x the engine; now cached per theme under `pxui_ui_theme_key`, a new export), the library built a new event `Vec` every frame (one allocation per frame, now reused), an app image got a new engine handle per call (four uses of one texture drew five times instead of twice, now one handle per texture), the flag scan of collections stopped short at the first bad byte and so could not vectorize (Collections +59% became +14%), and a plain node cleared 1 KiB of grid track storage it did not use. Not done: encode and decode the node once (a `Node` that the library can use as is), engine entry points that take u8 flags so a collection needs no scan, and the OGPU adopt allocations (a settled `Renderer::draw` makes 14: 8 adopting the commands, 5 the encoder, 1 at the end; pinned by `renderer_draw_settled`).
+What changed, with its effect:
 
-The atlas CPU mirror lever was not built: the mirror's pages are untouched until glyphs land in them, so a one-label app does not pay for it, and it is the same in both builds, so it does not explain the dynamic build's extra megabyte.
+- `libpxui` is built by its own package, `pxui_dylib` (a cdylib over `pxui_abi`): cargo builds a lib that is both cdylib and rlib without any LTO, so the library's engine ran without cross-crate inlining (a label took 260 more instructions than direct, a button 450). Dynamic Controls +9% became +3%, Overlays +12% became +4%, Kit +8% became +3.5%. The earlier "fat LTO, no win" row measured that unoptimized build.
+- A node crosses as the engine's own bytes: `Node` and everything in it are `#[repr(C)]` (an optional field is a byte-tagged `Opt*` value, a grid a pointer and length, enums bytes), the export checks its 22 tag and flag bytes and two sizes in place (about 85 instructions, no branch per byte) and the engine copies it once into the box (`node_ref`). The 504-byte `NodeDesc` encode and decode is gone (about 50 ns a node).
+- The theme is lent by pointer (`pxui_ui_theme` returns the engine's `Theme`, the same C layout as `ThemeSnapshot`): `Ui::theme()` returns `&Theme` again, without the 57 KB decode or the per-key cache; `tokens()` reads it. `pxui_ui_theme_key` and `pxui_ui_tokens` are gone.
+- Collection flags are bytes in the engine too (`list_view`, `tree`: not 0 is set), so a 100,000-row collection crosses with no scan, and the tree writes its rows into the caller's buffer (no 67 KB copy): Collections static +14% became +1%.
+- An ASCII label is checked inline (the UTF-8 check is a call only for other text).
+- OGPU re-points what it adopted (`readopt_commands`, `readopt_render_encoder`: Metal rebinds its handles, Vulkan replaces its native wrapper), so the renderer adopts the app's command buffer and pass once.
+
+The residual, measured as retired instructions and cycles (`proc_pid_rusage`, the same frames run alone, not interleaved): per call over the direct engine, a node costs 156 instructions (85 of them the C-input check), a button 110, a label 61, `text` 83, `within` 90 (the callback trampoline: a TLS check and `catch_unwind` each way), `theme`/`tokens` 24; a frame costs 800 (the input record, the output record, two trampolines). Layout makes 400 calls, so about 55,000 instructions (+5.6%) and +3.3% cycles; Overlays' 14 nodes cannot amortize the frame's fixed part: 5 µs per 1,000 nodes is 70 ns for its whole frame, less than the frame entry alone. Removing the rest means not checking what C hands over (a trusted static entry that skips the tag, flag and UTF-8 checks, which the static build could take since its caller is Rust) and building the output record only when it is read; neither was done here.
+
+The atlas CPU mirror lever was not built: the mirror's pages are untouched until glyphs land in them, so a one-label app does not pay for it, and it is the same in both builds.
