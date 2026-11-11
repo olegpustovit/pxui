@@ -155,6 +155,7 @@ pub(crate) unsafe fn fail_code(ui: *mut PxuiUi, message: &str, code: i32) -> i32
 }
 
 /// UTF-8 text from ptr+len. NUL is ordinary text.
+#[inline]
 pub(crate) unsafe fn text(value: Str) -> Option<&'static str> {
     if value.len == 0 { return Some(""); }
     if value.ptr.is_null() { return None; }
@@ -164,6 +165,7 @@ pub(crate) unsafe fn text(value: Str) -> Option<&'static str> {
 }
 
 /// `text` limited to `MAX_TEXT_BYTES`.
+#[inline]
 pub(crate) unsafe fn checked(value: Str) -> Option<&'static str> {
     if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
 }
