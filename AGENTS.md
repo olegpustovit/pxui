@@ -1,9 +1,10 @@
 # PXUI development guide
 
-PXUI is a Rust native UI engine: `pxui` (layout, widgets, draw list), `pxui_text`, `pxui_render`,
+PXUI is a Rust native UI engine: `pxui_core` (layout, widgets, draw list), `pxui_text`, `pxui_render`,
 window hosts (`pxui_sdl`, `pxui_wayland`), the AT-SPI2 bridge (`pxui_atspi`) and the portable GPU layer under them (`ogpu_*`, `*_sys`).
-The Cargo workspace is the repository root; `crates/` holds everything, `tools/` the test runner and
-the gate, `fixtures/` the goldens, `specification/` the design contracts. Rays embeds this repository
+The Cargo workspace is the repository root; `crates/public`, `crates/private` and `crates/open` hold
+the library tiers, `tools/` the test runner, gate and gallery, `fixtures/` the goldens,
+`specification/` the design contracts. Rays embeds this repository
 as its `pxui/` submodule through path dependencies: every crate must build and test here alone, and
 nothing may reach outside this repository (no `../../..` paths past the root).
 
@@ -45,8 +46,26 @@ nothing may reach outside this repository (no `../../..` paths past the root).
   change says otherwise. Goldens are owned here (`fixtures/`): refresh them alongside the intentional
   change, at the display density the golden was made at.
 - Required C/C++/Objective-C++ ABI code lives under its owning `*_sys` crate; the Metal bindings are
-  checked in under `crates/metal_sys/src/`.
+  checked in under `crates/open/metal_sys/src/`.
 - `cargo run -p gate -- deps` enforces crate boundaries and `-- shape` code shape (no generic items, no `unsafe` outside `*_sys`, no `impl Trait`, no panics for control flow); policy is `tools/gate/src/policy.rs`.
+- `cargo run -p gate -- tiers` enforces the public/private/open dependency table below.
+
+## Architecture: three tiers
+
+A crate's tier is its folder: `crates/public`, `crates/private` or `crates/open`. Put each new crate
+in its tier folder. The gate enforces this table; ABI design lives in `specification/abi.md`.
+
+| Tier | Crates | May depend on | Rule |
+| --- | --- | --- | --- |
+| public | `pxui` (wrapper), `pxui_types` | std, `pxui_types`; `pxui_abi` only behind `static` | Stable surface; additive changes only, bump ABI minor. |
+| private | `pxui_abi`, `pxui_core`, `pxui_text`, `pxui_render`, `pxui_atspi` | private, open, `pxui_types` | Reachable only through `libpxui`; change freely. |
+| open | `ogpu_*`, `*_sys`, `input`, `sdl3`, `pxui_sdl`, `pxui_wayland`, `mem_sys`, `cfmt` | open only | Statically linked by apps; no ABI promise, apps pin the commit. |
+
+- Apps talk to UI through `pxui`. If an app needs private functionality, add a `pxui_*` export, wrapper method and `pxui.h` declaration together.
+- `libpxui` is the `pxui_abi` cdylib and exports only `pxui_*`; `pxui` uses the dynamic ABI or those same functions through the `static` feature.
+- FFI uses `repr(C)`, pointer/length pairs and callback/user pairs. Borrows last through the next frame; Rust heap types, cross-side freeing and unwinding do not cross the ABI.
+- The app owns the GPU. PXUI adopts native handles and records into the app's command buffer/pass; it does not submit, wait, present or destroy shared resources. Calls stay on one thread, and the library creates no windows or displays.
+- ABI snapshots are append-only and gated. Paint shapes stay in wrapper spans; only text calls the library. `abi_bench` gates performance against the recorded baseline.
 
 Mark deliberate shortcuts with known ceilings using `ponytail:` and an upgrade trigger.
 Never shortcut correctness, input validation, lifetime safety, security or accessibility.

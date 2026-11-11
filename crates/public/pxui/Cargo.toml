@@ -1,0 +1,18 @@
+[package]
+name = "pxui"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[features]
+default = []
+static = ["dep:pxui_abi_link"]
+
+[dependencies]
+pxui_types = { path = "../pxui_types" }
+pxui_core = { path = "../../private/pxui_core" }
+pxui_render = { path = "../../private/pxui_render" }
+pxui_abi_link = { package = "pxui_abi", path = "../../private/pxui_abi", optional = true }
+
+[lints]
+workspace = true

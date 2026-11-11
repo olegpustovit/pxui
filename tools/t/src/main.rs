@@ -200,11 +200,16 @@ fn pxui_checkout() -> Option<i32> {
     }
 }
 
-/// None: no `-p` names a `pxui/crates/*` package (or there is no checkout); Some(all of them do).
+/// None: no `-p` names a PXUI crate or tool (or there is no checkout); Some(all of them do).
 fn pxui_only(root: &Path, args: &[OsString]) -> Option<bool> {
     if !root.join("pxui/Cargo.toml").is_file() { return None; }
     let packages: Vec<&OsString> = args.windows(2).filter(|pair| pair[0] == "-p" || pair[0] == "--package").map(|pair| &pair[1]).collect();
-    let inside = |name: &&OsString| root.join("pxui/crates").join(name).join("Cargo.toml").is_file() && !root.join("crates").join(name).exists();
+    let inside = |name: &&OsString| {
+        let name = name.to_string_lossy();
+        let pxui = ["public", "private", "open"].iter().any(|tier| root.join("pxui/crates").join(tier).join(name.as_ref()).join("Cargo.toml").is_file())
+            || root.join("pxui/tools").join(name.as_ref()).join("Cargo.toml").is_file();
+        pxui && !root.join("crates").join(name.as_ref()).exists() && !root.join("tools").join(name.as_ref()).exists()
+    };
     let count = packages.iter().filter(|name| inside(name)).count();
     if count == 0 { None } else { Some(count == packages.len()) }
 }
@@ -1342,11 +1347,13 @@ mod tests {
     #[test]
     fn pxui_packages_run_in_the_checkout_only_when_named_alone() {
         let root = std::env::temp_dir().join(format!("rays-t-pxui-{}", process::id()));
-        for dir in ["pxui/crates/pxui_core", "crates/rays"] { fs::create_dir_all(root.join(dir)).unwrap(); }
+        for dir in ["pxui/crates/private/pxui_core", "pxui/tools/pxui_gallery", "crates/rays", "tools/gate"] { fs::create_dir_all(root.join(dir)).unwrap(); }
         let args = |names: &[&str]| names.iter().flat_map(|name| ["-p", name]).map(OsString::from).collect::<Vec<_>>();
         assert_eq!(pxui_only(&root, &args(&["pxui_core"])), None, "no checkout manifest yet");
-        for manifest in ["pxui/Cargo.toml", "pxui/crates/pxui_core/Cargo.toml"] { fs::write(root.join(manifest), "").unwrap(); }
+        for manifest in ["pxui/Cargo.toml", "pxui/crates/private/pxui_core/Cargo.toml", "pxui/tools/pxui_gallery/Cargo.toml"] { fs::write(root.join(manifest), "").unwrap(); }
         assert_eq!(pxui_only(&root, &args(&["pxui_core"])), Some(true));
+        assert_eq!(pxui_only(&root, &args(&["pxui_gallery"])), Some(true));
+        assert_eq!(pxui_only(&root, &args(&["gate"])), None, "Rays' gate stays in the root workspace");
         assert_eq!(pxui_only(&root, &args(&["pxui_core", "rays"])), Some(false));
         assert_eq!(pxui_only(&root, &args(&["rays"])), None);
         fs::remove_dir_all(&root).unwrap();

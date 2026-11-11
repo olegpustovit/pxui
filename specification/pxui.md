@@ -226,7 +226,7 @@ Kit rows: 12 points at each side, a label column of 112 points (half of a narrow
 the control at `y + 2`, `row_height - 4` tall; a switch sits at the right edge; text sits at
 `y + max 4 ((row_height - font_size - 3) / 2)`. pxui's `gpu_pxui_parity` target
 renders the kit widgets headless (no SDL, no window: `pxui_render`'s painter into an offscreen
-texture) at 1x and 2x and compares them with `crates/pxui_core/fixtures/kit_*_{1,2}x.png` pixel for
+texture) at 1x and 2x and compares them with `crates/private/pxui_core/fixtures/kit_*_{1,2}x.png` pixel for
 pixel; the goldens are rendered with
 DepartureMono (the test loads it as font 0) and are regenerated deliberately, by running the
 target with `RAYS_UPDATE_FIXTURES=1`.
@@ -521,7 +521,7 @@ path, and `ui.animate_keys(handle, &[(t, Target, Curve)])` runs up to `MAX_KEYS`
 segment on its own curve (a Bezier's duration is the segment's), in reused fixed records (no
 allocation once warm). A theme is a flat `key = value` file (`Theme::parse(text, &base) -> Result<Theme,
 Vec<ThemeError>>`, `Theme::write`): `tokens.*` keys re-derive the looks, then `PART.STATE.FIELD` or
-`PART.FIELD` keys override them; `crates/pxui_core/themes/rays.theme` is the default written out and
+`PART.FIELD` keys override them; `crates/private/pxui_core/themes/rays.theme` is the default written out and
 `dusk.theme` a second theme (golden `kit_dusk_{1,2}x.png`). Views also take `view_transform` /
 `view_scale` (hit testing through the inverse; nested views inherit the transforms around them, composed
 into their table entries as offset, opacity and clip are, and `rect`, hit testing and damage go through
@@ -617,13 +617,13 @@ one Tab stop. A click focuses as on macOS: the nearest focusable box at or aroun
 keyboard focus unless it is `TAB_ONLY` (buttons, checkboxes, radios, tabs, segments, dropdowns, menus,
 icon buttons: the kit's buttons and toggles keep that rule); text fields, the search field, the slider
 and the list, tree and table (from a press on a row) take it; arrows move inside groups and mirror under `Rtl`. Row text is in
-leaves as wide as their text, so right to left puts it at the start. `crates/pxui_gallery` shows every
+leaves as wide as their text, so right to left puts it at the start. `tools/pxui_gallery` shows every
 kit widget and every layout mode on five cached-view pages (the Layout page also golden right to left,
 `gallery_layout_rtl_<theme>_{1,2}x.png`; its Bounce button runs a keyframed chip, the theme switch a
 theme transition) (`cargo run -p pxui_gallery`) with the Rays and `dusk.theme`
 themes (the file polled once a second through the host's wait and reloaded on a new mtime), density,
 direction and reduced-motion switches and a patched cost readout; its goldens are
-`crates/pxui_gallery/fixtures/gallery_<page>_<theme>_{1,2}x.png`, and its kit page renders
+`tools/pxui_gallery/fixtures/gallery_<page>_<theme>_{1,2}x.png`, and its kit page renders
 `kit_panel_{1,2}x.png` exactly.
 
 Composition closures are called immediately; standard widgets carry a `Look` (plain data); only `canvas`

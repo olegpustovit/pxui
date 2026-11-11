@@ -32,8 +32,8 @@ Hosts expose the same few functions and there is no `Host` trait: an app links t
 
 ## Host loop
 
-The shape of an app (names settle with the engine rewrite; `crates/pxui_render/tests/gpu_pxui_render.rs`
-and `crates/pxui_core/tests/gpu_pxui_parity.rs` hold the compiling version):
+The shape of an app (names settle with the engine rewrite; `crates/private/pxui_render/tests/gpu_pxui_render.rs`
+and `crates/private/pxui_core/tests/gpu_pxui_parity.rs` hold the compiling version):
 
 ```rust
 let mut win = pxui_sdl::Window::open("demo", 900, 600)?;          // or pxui_wayland

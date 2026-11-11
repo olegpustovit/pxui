@@ -1,0 +1,14 @@
+[package]
+name = "native_layer_token_sys"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+# The unmangled `rays_native_layer_token_*` C symbols exist only for C consumers of the staticlib; Rust users and libpxui (which exports only `pxui_*`) leave it off.
+[features]
+c-abi = []
+
+[lib]
+crate-type = ["rlib", "staticlib"]
+
+[lints]
+workspace = true

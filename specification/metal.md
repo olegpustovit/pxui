@@ -7,7 +7,7 @@ rendering has no CPU, browser or OpenGL fallback; web export is separate.
 ## Build boundary
 
 Required Objective-C++ ABI code and checked-in declarations live under
-`crates/metal_sys/src/`. The owning build script uses the installed public SDK
+`crates/open/metal_sys/src/`. The owning build script uses the installed public SDK
 as its type and availability oracle, compiles through `cc` with ARC, and links
 the required Apple frameworks. SDK headers and framework binaries are system
 inputs and are not distributed. No binding generator runs during the build.

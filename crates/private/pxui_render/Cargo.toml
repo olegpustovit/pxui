@@ -1,0 +1,33 @@
+[package]
+autotests = false
+name = "pxui_render"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+name = "pxui_render"
+path = "src/lib.rs"
+test = false
+
+[dependencies]
+ogpu_core = { path = "../../open/ogpu_core" }
+pxui_core = { path = "../pxui_core" }
+pxui_types = { path = "../../public/pxui_types" }
+
+[dev-dependencies]
+mem_sys = { path = "../../open/mem_sys" }
+pxui = { path = "../../public/pxui", features = ["static"] }
+
+[target.'cfg(any(windows, target_os = "linux"))'.dev-dependencies]
+ogpu_vulkan = { path = "../../open/ogpu_vulkan" }
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+ogpu_metal = { path = "../../open/ogpu_metal" }
+
+[[test]]
+name = "gpu_pxui_render"
+harness = false
+
+[lints]
+workspace = true

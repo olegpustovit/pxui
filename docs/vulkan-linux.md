@@ -22,7 +22,7 @@ file, which the CPU driver maps like a dmabuf, and `gpu_sync_file_fences` prints
 half: run the suite with `RAYS_ALLOW_SKIP=1` there.
 
 `pxui_wayland` (the Wayland window host) links `libwayland-client` and `libxkbcommon` (`libwayland-dev`,
-`libxkbcommon-dev`). Its protocol glue is checked in under `crates/pxui_wayland/protocol`; regenerating it needs
+`libxkbcommon-dev`). Its protocol glue is checked in under `crates/open/pxui_wayland/protocol`; regenerating it needs
 `wayland-scanner` and the `wayland-protocols` XML (`apt-get download wayland-protocols`, `dpkg -x` into `~/vk/root`).
 Its window test skips without `WAYLAND_DISPLAY`. File dialogs go through the XDG desktop portal
 (`org.freedesktop.portal.FileChooser` on the session bus, through libdbus-1: `libdbus-1-dev`), parented to the window's
@@ -43,8 +43,8 @@ changes with the `PixelSizeChanged` the host announces, so the resized swapchain
 
 ## The PXUI gallery on each platform
 
-`crates/pxui_gallery` shows every PXUI widget on four pages (Kit, Controls, Collections, Overlays) under the Rays theme
-and `crates/pxui_core/themes/dusk.theme` (reloaded when the file changes). It builds a frame only for input, a due repaint,
+`tools/pxui_gallery` shows every PXUI widget on four pages (Kit, Controls, Collections, Overlays) under the Rays theme
+and `crates/private/pxui_core/themes/dusk.theme` (reloaded when the file changes). It builds a frame only for input, a due repaint,
 a toast's expiry or the once-a-second theme poll, and sleeps in the host's wait otherwise.
 
 - macOS (`pxui_sdl` + Metal): `cargo run -p pxui_gallery`
@@ -64,7 +64,7 @@ Environment switches (all optional): `PXUI_GALLERY_PAGE=0..3`, `PXUI_GALLERY_DUS
 second and must stay 0 while idle). Example: `PXUI_GALLERY_PAGE=1 PXUI_GALLERY_DUSK=1 PXUI_GALLERY_SHOT=/tmp/p.png
 cargo run -p pxui_gallery`.
 
-`cargo t -p pxui_gallery` renders every page at 1x and 2x under both themes against `crates/pxui_gallery/fixtures` (tolerance
+`cargo t -p pxui_gallery` renders every page at 1x and 2x under both themes against `tools/pxui_gallery/fixtures` (tolerance
 2 per channel on every backend; lavapipe and NVIDIA stay within it) and checks the idle budget. The gallery's test image
 is 100x60 because the nearest-sampled texel boundaries of a 96x64 image under a 40-point box land exactly on pixel
 centres, which Metal and NVIDIA break differently (one texel row, 127 levels).

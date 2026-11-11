@@ -1,0 +1,495 @@
+#![allow(clippy::all)]
+//! Plain, stable value types shared by PXUI and applications.
+
+pub mod a11y;
+pub mod draw;
+pub mod ffi;
+pub mod geom;
+pub mod layout;
+pub mod node;
+pub mod text;
+pub mod theme;
+
+pub use node::{Axis, Bar, Dir, Mark, Node};
+pub use text::{TextGlyph, TextMetrics, TextStyle};
+pub use theme::{Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens};
+
+/// Node behavior bits. Kept as an integer so unknown future bits remain representable.
+pub type Flags = i64;
+
+/// Box sizing accepted by the UI.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub enum Size {
+    Px(f32),
+    Pct(f32),
+    Rel(extern "C" fn(f32) -> f32),
+    Grow,
+    Fit,
+}
+
+impl Size {
+    pub fn is_grow(&self) -> bool {
+        matches!(self, Self::Grow)
+    }
+}
+
+/// Painter view transform.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct View {
+    pub offset: [f32; 2],
+    pub opacity: f32,
+    pub clip: [f32; 4],
+    pub scale: f32,
+    pub transform: [f32; 4],
+    pub pivot: [f32; 2],
+}
+
+impl View {
+    pub const IDENTITY: Self = Self {
+        offset: [0.0; 2],
+        opacity: 1.0,
+        clip: [-32768.0, -32768.0, 32767.0, 32767.0],
+        scale: 1.0,
+        transform: [1.0, 0.0, 0.0, 1.0],
+        pivot: [0.0; 2],
+    };
+
+    pub fn rotation(radians: f32, pivot: [f32; 2]) -> Self {
+        let (s, c) = radians.sin_cos();
+        Self {
+            transform: [c, -s, s, c],
+            pivot,
+            ..Self::IDENTITY
+        }
+    }
+}
+
+pub const MAX_LAYERS: usize = 64;
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Str {
+    pub ptr: *const u8,
+    pub len: usize,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Event {
+    pub kind: u32,
+    pub code: u32,
+    pub x: f64,
+    pub y: f64,
+    pub value: f64,
+    pub text: Str,
+}
+
+impl Event {
+    pub const KEY_PRESSED: u32 = 1;
+    pub const KEY_RELEASED: u32 = 2;
+    pub const POINTER_MOVED: u32 = 3;
+    pub const POINTER_PRESSED: u32 = 4;
+    pub const POINTER_RELEASED: u32 = 5;
+    pub const POINTER_CANCELLED: u32 = 6;
+    pub const SCROLLED: u32 = 7;
+    pub const TEXT_INPUT: u32 = 8;
+    pub const PASTE: u32 = 9;
+    pub const TEXT_EDITING: u32 = 10;
+    pub const FILE_DROPPED: u32 = 11;
+    pub const FILE_DRAG_MOVED: u32 = 12;
+    pub const FILE_DRAG_ENDED: u32 = 13;
+    pub const PINCHED: u32 = 14;
+    pub const FILE_DIALOG: u32 = 15;
+    pub const DIALOG_OPENED: u32 = 16;
+    pub const RESIZED: u32 = 17;
+    pub const FOCUS_LOST: u32 = 18;
+    pub const FOCUS_GAINED: u32 = 19;
+    pub const CLOSED: u32 = 20;
+    pub const PIXEL_SIZE_CHANGED: u32 = 21;
+    pub const VISIBILITY_CHANGED: u32 = 22;
+    pub const TRACKPAD_SCROLLED: u32 = 23;
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FrameIn {
+    pub size: u32,
+    pub events: *const Event,
+    pub event_count: usize,
+    pub width: f32,
+    pub height: f32,
+    pub scale: f32,
+    pub time: f64,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct FrameOut {
+    pub size: u32,
+    pub damage: [f32; 4],
+    pub has_damage: u8,
+    pub reserved: [u8; 3],
+    pub layer_count: u32,
+    pub layers: *const core::ffi::c_void,
+}
+
+#[repr(C)]
+#[derive(Debug, Default)]
+pub struct Gpu {
+    pub size: u32,
+    pub backend: u32,
+    pub instance: *mut core::ffi::c_void,
+    pub physical_device: *mut core::ffi::c_void,
+    pub device: *mut core::ffi::c_void,
+    pub queue: *mut core::ffi::c_void,
+    pub queue_family: u32,
+    pub api_version: u32,
+    pub features: u64,
+    pub get_instance_proc_addr: *mut core::ffi::c_void,
+    pub pipeline_cache: *mut core::ffi::c_void,
+    pub mtl_device: *mut core::ffi::c_void,
+    pub wl_display: *mut core::ffi::c_void,
+    pub wl_surface: *mut core::ffi::c_void,
+    pub metal_layer: *mut core::ffi::c_void,
+    pub hwnd: *mut core::ffi::c_void,
+    pub owner_token: *mut core::ffi::c_void,
+    pub release_owner: Option<extern "C" fn(*mut core::ffi::c_void)>,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Commands {
+    pub size: u32,
+    pub vk_command_buffer: *mut core::ffi::c_void,
+    pub mtl_command_buffer: *mut core::ffi::c_void,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Pass {
+    pub size: u32,
+    pub vk_command_buffer: *mut core::ffi::c_void,
+    pub mtl_render_encoder: *mut core::ffi::c_void,
+    pub width_px: u32,
+    pub height_px: u32,
+    pub scale: f32,
+    pub mtl_command_buffer: *mut core::ffi::c_void,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Image {
+    pub size: u32,
+    pub vk_image_view: *mut core::ffi::c_void,
+    pub mtl_texture: *mut core::ffi::c_void,
+    pub width: u32,
+    pub height: u32,
+    pub format: u32,
+}
+
+impl Image {
+    pub const FORMAT_R8: u32 = 0;
+    pub const FORMAT_RGBA8: u32 = 1;
+    pub const FORMAT_BGRA8: u32 = 2;
+    pub const FORMAT_BGRA8_SRGB: u32 = 3;
+    pub const FORMAT_RGBA16F: u32 = 4;
+    pub const FORMAT_RGBA32F: u32 = 5;
+    pub const FORMAT_DEPTH32F: u32 = 6;
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct Span {
+    pub at: *mut draw::Instance,
+    pub end: *mut draw::Instance,
+    pub clip: [i16; 4],
+    pub view: u16,
+    pub clip_radius_f16: u16,
+    pub offset: [f32; 2],
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiBox { pub index: u64, pub key: i64, pub slot: u64, pub generation: u32 }
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiPanel {
+    pub size: u32, pub x: f32, pub y: f32, pub width: f32, pub height: f32,
+    pub padding: i64, pub has_height: u8, pub window: u8,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiTargetDesc {
+    pub size: u32, pub format: u32, pub samples: u8, pub reserved: [u8; 3],
+    pub mask_width: u32, pub mask_height: u32, pub color_width: u32, pub color_height: u32,
+    pub reserved_tail: u32,
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiUiDesc { pub size: u32, pub platform: u32, pub font_size: i32 }
+
+#[cfg(test)]
+mod abi_layout {
+    use super::*;
+    use core::mem::{align_of, offset_of, size_of};
+
+    fn assert_layout(name: &str, size: usize, align: usize, offsets: &[usize]) {
+        let row = include_str!("../../../../abi/layout.v1.txt")
+            .lines()
+            .find(|line| line.split_whitespace().next() == Some(name))
+            .unwrap_or_else(|| panic!("missing layout row for {name}"));
+        let mut fields = row.split_whitespace().skip(1);
+        assert_eq!(
+            fields.next().unwrap().parse::<usize>().unwrap(),
+            size,
+            "{name} size"
+        );
+        assert_eq!(
+            fields.next().unwrap().parse::<usize>().unwrap(),
+            align,
+            "{name} alignment"
+        );
+        let expected: Vec<usize> = fields.map(|field| field.parse().unwrap()).collect();
+        assert_eq!(expected, offsets, "{name} field offsets");
+    }
+
+    #[test]
+    fn abi_descriptors_match_layout_snapshot() {
+        assert_layout("PxuiBox", size_of::<PxuiBox>(), align_of::<PxuiBox>(), &[
+            offset_of!(PxuiBox, index), offset_of!(PxuiBox, key), offset_of!(PxuiBox, slot), offset_of!(PxuiBox, generation),
+        ]);
+        assert_layout("PxuiPanel", size_of::<PxuiPanel>(), align_of::<PxuiPanel>(), &[
+            offset_of!(PxuiPanel, size), offset_of!(PxuiPanel, x), offset_of!(PxuiPanel, y), offset_of!(PxuiPanel, width),
+            offset_of!(PxuiPanel, height), offset_of!(PxuiPanel, padding), offset_of!(PxuiPanel, has_height), offset_of!(PxuiPanel, window),
+        ]);
+        assert_layout("PxuiTargetDesc", size_of::<PxuiTargetDesc>(), align_of::<PxuiTargetDesc>(), &[
+            offset_of!(PxuiTargetDesc, size), offset_of!(PxuiTargetDesc, format), offset_of!(PxuiTargetDesc, samples),
+            offset_of!(PxuiTargetDesc, reserved), offset_of!(PxuiTargetDesc, mask_width), offset_of!(PxuiTargetDesc, mask_height),
+            offset_of!(PxuiTargetDesc, color_width), offset_of!(PxuiTargetDesc, color_height), offset_of!(PxuiTargetDesc, reserved_tail),
+        ]);
+        assert_layout("PxuiUiDesc", size_of::<PxuiUiDesc>(), align_of::<PxuiUiDesc>(), &[
+            offset_of!(PxuiUiDesc, size), offset_of!(PxuiUiDesc, platform), offset_of!(PxuiUiDesc, font_size),
+        ]);
+        assert_layout("TextStyle", size_of::<TextStyle>(), align_of::<TextStyle>(), &[
+            offset_of!(TextStyle, size), offset_of!(TextStyle, font), offset_of!(TextStyle, weight),
+            offset_of!(TextStyle, size_points), offset_of!(TextStyle, line_height), offset_of!(TextStyle, wrap),
+            offset_of!(TextStyle, align), offset_of!(TextStyle, max_lines), offset_of!(TextStyle, italic),
+            offset_of!(TextStyle, ellipsis), offset_of!(TextStyle, reserved), offset_of!(TextStyle, tracking),
+        ]);
+        assert_layout("TextMetrics", size_of::<TextMetrics>(), align_of::<TextMetrics>(), &[
+            offset_of!(TextMetrics, width), offset_of!(TextMetrics, height), offset_of!(TextMetrics, baseline), offset_of!(TextMetrics, lines),
+        ]);
+        assert_layout("TextGlyph", size_of::<TextGlyph>(), align_of::<TextGlyph>(), &[
+            offset_of!(TextGlyph, rect), offset_of!(TextGlyph, uv), offset_of!(TextGlyph, atlas), offset_of!(TextGlyph, reserved),
+        ]);
+    }
+
+    #[test]
+    fn frozen_layout_v1() {
+        assert_layout(
+            "Point",
+            size_of::<geom::Point>(),
+            align_of::<geom::Point>(),
+            &[offset_of!(geom::Point, x), offset_of!(geom::Point, y)],
+        );
+        assert_layout(
+            "Rect",
+            size_of::<geom::Rect>(),
+            align_of::<geom::Rect>(),
+            &[
+                offset_of!(geom::Rect, x),
+                offset_of!(geom::Rect, y),
+                offset_of!(geom::Rect, w),
+                offset_of!(geom::Rect, h),
+            ],
+        );
+        assert_layout(
+            "Edges",
+            size_of::<geom::Edges>(),
+            align_of::<geom::Edges>(),
+            &[
+                offset_of!(geom::Edges, l),
+                offset_of!(geom::Edges, t),
+                offset_of!(geom::Edges, r),
+                offset_of!(geom::Edges, b),
+            ],
+        );
+        assert_layout("Flags", size_of::<Flags>(), align_of::<Flags>(), &[]);
+        assert_layout("Size", size_of::<Size>(), align_of::<Size>(), &[]);
+        assert_layout(
+            "Role",
+            size_of::<a11y::Role>(),
+            align_of::<a11y::Role>(),
+            &[],
+        );
+        assert_layout(
+            "Rgba",
+            size_of::<geom::Rgba>(),
+            align_of::<geom::Rgba>(),
+            &[
+                offset_of!(geom::Rgba, r),
+                offset_of!(geom::Rgba, g),
+                offset_of!(geom::Rgba, b),
+                offset_of!(geom::Rgba, a),
+            ],
+        );
+        assert_layout(
+            "Instance",
+            size_of::<draw::Instance>(),
+            align_of::<draw::Instance>(),
+            &[
+                offset_of!(draw::Instance, rect),
+                offset_of!(draw::Instance, clip),
+                offset_of!(draw::Instance, color),
+                offset_of!(draw::Instance, color2),
+                offset_of!(draw::Instance, aux),
+                offset_of!(draw::Instance, radii),
+                offset_of!(draw::Instance, width),
+                offset_of!(draw::Instance, kind),
+                offset_of!(draw::Instance, flags),
+                offset_of!(draw::Instance, view),
+                offset_of!(draw::Instance, clip_radius),
+                offset_of!(draw::Instance, extra),
+            ],
+        );
+        assert_layout(
+            "View",
+            size_of::<View>(),
+            align_of::<View>(),
+            &[
+                offset_of!(View, offset),
+                offset_of!(View, opacity),
+                offset_of!(View, clip),
+                offset_of!(View, scale),
+                offset_of!(View, transform),
+                offset_of!(View, pivot),
+            ],
+        );
+        assert_layout(
+            "Str",
+            size_of::<Str>(),
+            align_of::<Str>(),
+            &[offset_of!(Str, ptr), offset_of!(Str, len)],
+        );
+        assert_layout(
+            "Event",
+            size_of::<Event>(),
+            align_of::<Event>(),
+            &[
+                offset_of!(Event, kind),
+                offset_of!(Event, code),
+                offset_of!(Event, x),
+                offset_of!(Event, y),
+                offset_of!(Event, value),
+                offset_of!(Event, text),
+            ],
+        );
+        assert_layout(
+            "FrameIn",
+            size_of::<FrameIn>(),
+            align_of::<FrameIn>(),
+            &[
+                offset_of!(FrameIn, size),
+                offset_of!(FrameIn, events),
+                offset_of!(FrameIn, event_count),
+                offset_of!(FrameIn, width),
+                offset_of!(FrameIn, height),
+                offset_of!(FrameIn, scale),
+                offset_of!(FrameIn, time),
+            ],
+        );
+        assert_layout(
+            "FrameOut",
+            size_of::<FrameOut>(),
+            align_of::<FrameOut>(),
+            &[
+                offset_of!(FrameOut, size),
+                offset_of!(FrameOut, damage),
+                offset_of!(FrameOut, has_damage),
+                offset_of!(FrameOut, reserved),
+                offset_of!(FrameOut, layer_count),
+                offset_of!(FrameOut, layers),
+            ],
+        );
+        assert_layout(
+            "Gpu",
+            size_of::<Gpu>(),
+            align_of::<Gpu>(),
+            &[
+                offset_of!(Gpu, size),
+                offset_of!(Gpu, backend),
+                offset_of!(Gpu, instance),
+                offset_of!(Gpu, physical_device),
+                offset_of!(Gpu, device),
+                offset_of!(Gpu, queue),
+                offset_of!(Gpu, queue_family),
+                offset_of!(Gpu, api_version),
+                offset_of!(Gpu, features),
+                offset_of!(Gpu, get_instance_proc_addr),
+                offset_of!(Gpu, pipeline_cache),
+                offset_of!(Gpu, mtl_device),
+                offset_of!(Gpu, wl_display),
+                offset_of!(Gpu, wl_surface),
+                offset_of!(Gpu, metal_layer),
+                offset_of!(Gpu, hwnd),
+                offset_of!(Gpu, owner_token),
+                offset_of!(Gpu, release_owner),
+            ],
+        );
+        assert_layout(
+            "Commands",
+            size_of::<Commands>(),
+            align_of::<Commands>(),
+            &[
+                offset_of!(Commands, size),
+                offset_of!(Commands, vk_command_buffer),
+                offset_of!(Commands, mtl_command_buffer),
+            ],
+        );
+        assert_layout(
+            "Pass",
+            size_of::<Pass>(),
+            align_of::<Pass>(),
+            &[
+                offset_of!(Pass, size),
+                offset_of!(Pass, vk_command_buffer),
+                offset_of!(Pass, mtl_render_encoder),
+                offset_of!(Pass, width_px),
+                offset_of!(Pass, height_px),
+                offset_of!(Pass, scale),
+                offset_of!(Pass, mtl_command_buffer),
+            ],
+        );
+        assert_layout(
+            "Image",
+            size_of::<Image>(),
+            align_of::<Image>(),
+            &[
+                offset_of!(Image, size),
+                offset_of!(Image, vk_image_view),
+                offset_of!(Image, mtl_texture),
+                offset_of!(Image, width),
+                offset_of!(Image, height),
+                offset_of!(Image, format),
+            ],
+        );
+        assert_layout(
+            "Span",
+            size_of::<Span>(),
+            align_of::<Span>(),
+            &[
+                offset_of!(Span, at),
+                offset_of!(Span, end),
+                offset_of!(Span, clip),
+                offset_of!(Span, view),
+                offset_of!(Span, clip_radius_f16),
+                offset_of!(Span, offset),
+            ],
+        );
+    }
+}

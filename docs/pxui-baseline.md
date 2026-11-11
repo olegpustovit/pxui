@@ -1,7 +1,7 @@
 # PXUI baseline (phase P0)
 
 Measured at commit `896e1754` plus the measurement case `window_pxui_baseline`
-(`crates/pxui_core/tests/cases/ui_a.rs`), on an Apple M1 (M-series Mac), debug (`dev`) profile, warm shared
+(`crates/private/pxui_core/tests/cases/ui_a.rs`), on an Apple M1 (M-series Mac), debug (`dev`) profile, warm shared
 state, one cargo process at a time. Re-run with `cargo t -p pxui_core window_pxui_baseline`.
 
 | Measure | Value |
@@ -19,7 +19,7 @@ state, one cargo process at a time. Re-run with `cargo t -p pxui_core window_pxu
 ## Not isolated, and caveats
 
 - There was no existing zero-allocation test for PXUI (the proposal's claim is not backed by one in
-  `crates/pxui_core/tests`). The kit frame is not allocation-free today: 15 allocations per warm frame.
+  `crates/private/pxui_core/tests`). The kit frame is not allocation-free today: 15 allocations per warm frame.
   The case reports the count only and asserts nothing; the P2 budget (0) is not met yet.
 - Allocation count is the measuring thread's (`mem_sys::local_alloc_count`); bytes are the process-wide
   total (`alloc_bytes_total`), so worker-thread allocations inflate bytes only.
@@ -49,7 +49,7 @@ allocations, about 3.9 to 4.0 us per warm kit frame before and after (debug, 2x)
 
 ## After P5 commit 2 (hybrid views, engine)
 
-`window_pxui_view_costs` (`crates/pxui_core/tests/cases/views.rs`): ten views of 50 kit widgets (25 labels,
+`window_pxui_view_costs` (`crates/private/pxui_core/tests/cases/views.rs`): ten views of 50 kit widgets (25 labels,
 25 buttons) each, `Ui::frame` only, debug, 2x, 100 frames after 10 warm-up, two runs:
 
 | Frame | CPU per frame | Allocations | Nodes declared |
@@ -66,7 +66,7 @@ each of the painter's three frame copies.
 
 ## After P5 layout and accessibility
 
-`layout_stress_zero_alloc` and `layout_scaling` (`crates/pxui_core/tests/cases/layout.rs`): a tree of
+`layout_stress_zero_alloc` and `layout_scaling` (`crates/private/pxui_core/tests/cases/layout.rs`): a tree of
 groups of 20 nodes cycling through every layout mode (flex weights and shrink, min/max, aspect, gap,
 per-edge padding and margin, every justify and align mode with baseline, wrap, a fixed + fr + fit grid
 with a span, a z-ordered stack, a both-axis scroll box with a sticky header), right to left, with an
@@ -107,7 +107,7 @@ allocations per frame (445/652/598 before).
 
 ## After the P5 performance pass
 
-`PXUI_BENCH=1 RAYS_SLOW=1 cargo t [--release] -p pxui_core pxui_bench` (`crates/pxui_core/tests/cases/bench.rs`)
+`PXUI_BENCH=1 RAYS_SLOW=1 cargo t [--release] -p pxui_core pxui_bench` (`crates/private/pxui_core/tests/cases/bench.rs`)
 prints min and median of 7 rounds (`Ui::frame` only, warm) and, with `Ui::set_timing`, the median
 round's phases; `PXUI_NO_TIMING=1` measures without the phase clocks (about 0.15 us a frame),
 `PXUI_PROFILE=<case>` loops one case 8 s for `sample <pid>`. M1, us per frame, min / median. Dev is
@@ -167,14 +167,14 @@ and was slower. With accessibility on, a frame that rebuilds any view still walk
 per-frame work in views (view table) and dirty ranges, not in instances.
 ## After P5 widget set and gallery
 
-`widgets_zero_alloc` (`crates/pxui_core/tests/cases/widgets.rs`): a 480 x 760 frame of every new widget
+`widgets_zero_alloc` (`crates/private/pxui_core/tests/cases/widgets.rs`): a 480 x 760 frame of every new widget
 (menu bar, checkbox, radio, slider, both progress bars, spinner, tabs, segmented, dropdown, icon
 button, badge, search, scroll view, image, a 100,000-row list, tree and table, two toasts), 30 warm
 frames after 10: 0 allocations rebuilt every frame (225 nodes declared) and 0 kept in a view (5
 nodes). `widgets_busy_patches`: 60 steps of the indeterminate bar and the spinner, 0 allocations, no
 frame wanted, the view's build skipped (2 nodes declared, the root and the view box). Virtual list,
 tree and table over 100,000 items build under 30 rows each. `gpu_widgets_draw_calls`: one draw call
-for the one layer. The gallery (`crates/pxui_gallery/tests/gpu_gallery.rs`): the kit page is
+for the one layer. The gallery (`tools/pxui_gallery/tests/gpu_gallery.rs`): the kit page is
 `kit_panel_{1,2}x.png` with a largest channel difference of 0 on Metal; run hidden with no input it
 built 1 frame in its first half second and 0 in the next two (`gpu_gallery_idle`); a changed theme file
 cost one frame.

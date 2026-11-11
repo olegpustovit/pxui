@@ -511,13 +511,14 @@ fn shape(workspace: &Path) -> Result<Vec<String>, String> {
         let crate_name = file
             .strip_prefix(&crates)
             .ok()
-            .and_then(|relative| relative.components().next())
+            .and_then(|relative| relative.components().nth(1))
             .map(|component| component.as_os_str().to_string_lossy().into_owned())
             .unwrap_or_default();
         let source = fs::read_to_string(&file).map_err(|error| format!("cannot read {}: {error}", file.display()))?;
         if disabled_lib_tests.contains(&crate_name) {
             let file_name = file.file_name().and_then(|name| name.to_str()).unwrap_or("");
-            let in_lib_src = relative.starts_with(&format!("crates/{crate_name}/src/"));
+            let in_lib_src = relative.starts_with(&format!("crates/{crate_name}/src/"))
+                || policy::TIERS.iter().any(|tier| relative.starts_with(&format!("crates/{tier}/{crate_name}/src/")));
             if in_lib_src && !file_name.starts_with("test_") && source.contains("#[test]") {
                 issues.push(format!(
                     "{relative}: unit tests in library sources require `[lib] test` to stay enabled"
@@ -574,7 +575,7 @@ struct Package {
     package_name: String,
     crate_name: String,
     product: bool,
-    /// A submodule crate (`pxui/crates/*`): in the graph so reach rules see through it, but policed by its own repository's gate.
+    /// A submodule crate (`pxui/crates/{public,private,open}/*`): in the graph so reach rules see through it, but policed by its own repository's gate.
     external: bool,
     deps: Vec<DepSpec>,
     has_binary: bool,
@@ -586,6 +587,7 @@ struct ParsedManifest {
     disable_auto_tests: bool,
     package_name: Option<String>,
     lib_name: Option<String>,
+    static_pxui_abi: bool,
     lib_unit_tests: bool,
     has_binary: bool,
     has_gpu_dev_targets: bool,
@@ -805,6 +807,7 @@ fn parse_manifest(path: &Path) -> Result<ParsedManifest, String> {
         disable_auto_tests: sections.get(&vec!["package".into()]).and_then(|entries| entries.get("autotests")).is_some_and(|(value, _)| value == "false"),
         package_name: field(&["package"], "name"),
         lib_name: field(&["lib"], "name"),
+        static_pxui_abi: false,
         lib_unit_tests,
         has_binary,
         has_gpu_dev_targets,
@@ -845,7 +848,18 @@ fn parse_manifest(path: &Path) -> Result<ParsedManifest, String> {
             }
         }
     }
+    parsed.static_pxui_abi = sections.get(&vec!["features".into()]).and_then(|entries| entries.get("static"))
+        .is_some_and(|(value, _)| feature_reaches_package(value, "pxui_abi", &parsed.deps));
     Ok(parsed)
+}
+
+fn feature_reaches_package(value: &str, package: &str, deps: &[DepSpec]) -> bool {
+    let references: HashSet<_> = value.split(|character: char| !character.is_ascii_alphanumeric() && character != '_').collect();
+    deps.iter().any(|dep| {
+        dep.optional
+            && dep.package.as_deref().unwrap_or(&dep.alias) == package
+            && references.contains(dep.alias.as_str())
+    })
 }
 
 fn cargo_manifests(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
@@ -854,12 +868,76 @@ fn cargo_manifests(dir: &Path, files: &mut Vec<PathBuf>) -> Result<(), String> {
     }
     for entry in fs::read_dir(dir).map_err(|error| format!("cannot scan {}: {error}", dir.display()))? {
         let entry = entry.map_err(|error| format!("cannot scan {}: {error}", dir.display()))?;
-        let path = entry.path().join("Cargo.toml");
-        if path.is_file() {
-            files.push(path);
+        let path = entry.path();
+        let manifest = path.join("Cargo.toml");
+        if manifest.is_file() {
+            files.push(manifest);
+        } else if entry.file_type().map_err(|error| format!("cannot inspect {}: {error}", path.display()))?.is_dir() {
+            cargo_manifests(&path, files)?;
         }
     }
     Ok(())
+}
+
+fn tiers(workspace: &Path) -> Result<Vec<String>, String> {
+    let workspace = fs::canonicalize(workspace).map_err(|error| format!("cannot locate workspace {}: {error}", workspace.display()))?;
+    let workspace_deps: HashMap<String, DepSpec> = parse_manifest(&workspace.join("Cargo.toml"))?.workspace_deps
+        .into_iter().map(|dependency| (dependency.alias.clone(), dependency)).collect();
+    let mut manifests = Vec::new();
+    cargo_manifests(&workspace.join("crates"), &mut manifests)?;
+    manifests.sort();
+    let mut packages = Vec::new();
+    let mut by_manifest = HashMap::new();
+    let mut errors = Vec::new();
+    for manifest in manifests {
+        let manifest = fs::canonicalize(&manifest).map_err(|error| format!("cannot resolve {}: {error}", manifest.display()))?;
+        let relative = manifest.strip_prefix(&workspace).unwrap_or(&manifest).to_string_lossy().replace('\\', "/");
+        let parts: Vec<_> = relative.split('/').collect();
+        if parts.len() != 4 || parts[0] != "crates" || !policy::TIERS.contains(&parts[1]) || parts[3] != "Cargo.toml" {
+            errors.push(format!("{relative}: crate must live under crates/public, crates/private or crates/open"));
+            continue;
+        }
+        let parsed = parse_manifest(&manifest)?;
+        let Some(package_name) = parsed.package_name.as_deref() else { continue };
+        let crate_name = crate_name(package_name, parsed.lib_name.as_deref());
+        if parts[2] != package_name.replace('-', "_") {
+            errors.push(format!("{relative}: tier folder must match package `{package_name}`"));
+            continue;
+        }
+        by_manifest.insert(manifest.clone(), (parts[1].to_owned(), crate_name.clone()));
+        packages.push((manifest, parsed, parts[1].to_owned(), crate_name));
+    }
+    for (manifest, parsed, from_tier, from_crate) in packages {
+        let parent = manifest.parent().unwrap_or(&workspace);
+        for mut dependency in parsed.deps {
+            // Test-only edges do not ship from the crate and may exercise adjacent private tiers.
+            if dependency.kind == "dev-dependencies" { continue; }
+            if dependency.workspace {
+                if let Some(inherited) = workspace_deps.get(&dependency.alias) {
+                    if dependency.package.is_none() { dependency.package = inherited.package.clone(); }
+                    if dependency.path.is_none() { dependency.path = inherited.path.clone(); }
+                }
+            }
+            let Some(path) = dependency.path.as_deref() else { continue };
+            let target_manifest = match fs::canonicalize(parent.join(path).join("Cargo.toml")) {
+                Ok(path) => path,
+                Err(error) => {
+                    errors.push(format!("{}:{}: cannot resolve tier dependency `{}`: {error}", manifest.display(), dependency.line, dependency.alias));
+                    continue;
+                }
+            };
+            let Some((to_tier, to_crate)) = by_manifest.get(&target_manifest) else {
+                errors.push(format!("{}:{}: `{from_crate}` may not depend on non-tier crate `{}`", manifest.display(), dependency.line, dependency.package.as_deref().unwrap_or(&dependency.alias)));
+                continue;
+            };
+            let dependency_crate = dependency.package.as_deref().unwrap_or(&dependency.alias).replace('-', "_");
+            if !policy::tier_allows(&from_tier, &from_crate, to_tier, &dependency_crate, dependency.optional, parsed.static_pxui_abi) {
+                errors.push(format!("{}:{}: {from_tier} crate `{from_crate}` may not depend on {to_tier} crate `{to_crate}`", manifest.display(), dependency.line));
+            }
+        }
+    }
+    errors.sort();
+    Ok(errors)
 }
 
 fn package_targets(dir: &Path, manifest: &ParsedManifest) -> Result<(bool, bool), String> {
@@ -892,6 +970,14 @@ fn package_targets(dir: &Path, manifest: &ParsedManifest) -> Result<(bool, bool)
 
 fn crate_name(package_name: &str, lib_name: Option<&str>) -> String {
     lib_name.unwrap_or(package_name).replace('-', "_")
+}
+
+fn graph_crate_name(package: &str, crate_name: &str) -> String {
+    if package == "pxui_abi" && crate_name == "pxui" {
+        "pxui_abi".to_owned()
+    } else {
+        crate_name.to_owned()
+    }
 }
 
 mod policy;
@@ -1082,27 +1168,31 @@ fn deps(workspace: &Path) -> Result<Vec<String>, String> {
         if by_package.insert(package.package_name.clone(), index).is_some() {
             errors.push(format!("{}: duplicate workspace package `{}`", package.manifest.display(), package.package_name));
         }
-        if by_crate.insert(package.crate_name.clone(), index).is_some() {
-            errors.push(format!("{}: duplicate crate name `{}`", package.manifest.display(), package.crate_name));
+        let graph_name = graph_crate_name(&package.package_name, &package.crate_name);
+        if by_crate.insert(graph_name.clone(), index).is_some() {
+            errors.push(format!("{}: duplicate crate identity `{graph_name}`", package.manifest.display()));
         }
     }
     let mut graph: HashMap<String, Vec<String>> = HashMap::new();
     let mut runtime_graph: HashMap<String, Vec<String>> = HashMap::new();
     let mut selection_direct: HashMap<String, Vec<String>> = HashMap::new();
     let allowlist = direct_allowlist();
+    let package_allowlist = policy::package_allowlist();
     let local_policy = local_workspace_only();
 
     for package in &packages {
         let errors_before = errors.len();
         let manifest_dir = package.manifest.parent().unwrap_or(workspace);
         let path = package.manifest.strip_prefix(workspace).unwrap_or(&package.manifest).to_string_lossy().replace('\\', "/");
+        let allowed = package_allowlist.get(package.package_name.as_str()).or_else(|| allowlist.get(package.crate_name.as_str()));
         if package.product
-            && !allowlist.contains_key(package.crate_name.as_str())
+            && allowed.is_none()
             && !local_policy.contains(package.crate_name.as_str())
         {
             errors.push(format!("{path}: no dependency policy for product crate `{}`", package.crate_name));
         }
         let mut direct = BTreeSet::new();
+        let mut graph_direct = BTreeSet::new();
         let mut selection = BTreeSet::new();
         let mut runtime_direct = BTreeSet::new();
         for dependency in &package.deps {
@@ -1142,12 +1232,13 @@ fn deps(workspace: &Path) -> Result<Vec<String>, String> {
                 }
                 if dependency.kind != "dev-dependencies" {
                     direct.insert(target.crate_name.clone());
+                    graph_direct.insert(graph_crate_name(&target.package_name, &target.crate_name));
                 }
                 if dependency.kind != "build-dependencies" {
-                    selection.insert(target.crate_name.clone());
+                    selection.insert(graph_crate_name(&target.package_name, &target.crate_name));
                 }
                 if dependency.kind == "dependencies" {
-                    runtime_direct.insert(target.crate_name.clone());
+                    runtime_direct.insert(graph_crate_name(&target.package_name, &target.crate_name));
                 }
                 if package.product && !target.product {
                     errors.push(format!("{path}:{}: product crate `{}` must not depend on tool crate `{}`", dependency.line, package.crate_name, target.crate_name));
@@ -1155,12 +1246,13 @@ fn deps(workspace: &Path) -> Result<Vec<String>, String> {
             }
         }
         let direct: Vec<String> = direct.into_iter().collect();
-        graph.insert(package.crate_name.clone(), direct.clone());
+        let source_graph_name = graph_crate_name(&package.package_name, &package.crate_name);
+        graph.insert(source_graph_name.clone(), graph_direct.into_iter().collect());
         let runtime_direct: Vec<String> = runtime_direct.into_iter().collect();
-        runtime_graph.insert(package.crate_name.clone(), runtime_direct);
+        runtime_graph.insert(source_graph_name.clone(), runtime_direct);
         let selection: Vec<String> = selection.into_iter().collect();
-        selection_direct.insert(package.crate_name.clone(), selection);
-        if let Some(allowed) = allowlist.get(package.crate_name.as_str()) {
+        selection_direct.insert(source_graph_name, selection);
+        if let Some(allowed) = allowed {
             let leaves = ocaml_leaves_reached(&package.crate_name, &allowlist);
             for dependency in &direct {
                 let name = dependency.as_str();
@@ -1214,6 +1306,15 @@ fn pxui_remote(workspace: &Path) -> Result<Vec<String>, String> {
         .map_err(|error| format!("cannot run tools/check-pxui-remote.sh: {error}"))?;
     print!("{}", String::from_utf8_lossy(&output.stdout));
     Ok(if output.status.success() { Vec::new() } else { vec![String::from_utf8_lossy(&output.stderr).trim().to_owned()] })
+}
+
+fn install_smoke(workspace: &Path) -> Result<Vec<String>, String> {
+    let script = workspace.join("tools/install-smoke.sh");
+    let status = std::process::Command::new(&script)
+        .current_dir(workspace)
+        .status()
+        .map_err(|error| format!("cannot run {}: {error}", script.display()))?;
+    Ok(if status.success() { Vec::new() } else { vec![format!("install-smoke: {} failed ({status})", script.display())] })
 }
 
 fn docs(workspace: &Path) -> Result<Vec<String>, String> {
@@ -1285,7 +1386,7 @@ fn abi_exports(workspace: &Path) -> Result<Vec<String>, String> {
     if let Some(triple) = env::var_os("CARGO_BUILD_TARGET") {
         target.push(triple);
     }
-    let library = target.join("debug").join(format!("{}pxui_abi{}", env::consts::DLL_PREFIX, env::consts::DLL_SUFFIX));
+    let library = target.join("debug").join(format!("{}pxui{}", env::consts::DLL_PREFIX, env::consts::DLL_SUFFIX));
     let (tool, args): (&str, &[&str]) = match env::consts::OS {
         "macos" => ("nm", &["-gU"]),
         "linux" => ("nm", &["-D", "--defined-only"]),
@@ -1309,6 +1410,319 @@ fn abi_exports(workspace: &Path) -> Result<Vec<String>, String> {
     Ok(issues)
 }
 
+fn abi_minor(source: &str) -> Result<u32, String> {
+    let declaration = source
+        .lines()
+        .find(|line| line.trim_start().starts_with("pub const ABI_VERSION:"))
+        .ok_or_else(|| "abi-snapshot: missing ABI_VERSION".to_owned())?;
+    let value = declaration
+        .split_once('=')
+        .and_then(|(_, value)| value.split(';').next())
+        .ok_or_else(|| "abi-snapshot: malformed ABI_VERSION".to_owned())?
+        .trim();
+    let version = if let Some((high, shift)) = value.split_once("<<") {
+        high.trim().parse::<u32>().ok().and_then(|high| shift.trim().parse::<u32>().ok().map(|shift| high << shift))
+    } else {
+        value.trim_start_matches("0x").parse::<u32>().ok()
+    }.ok_or_else(|| format!("abi-snapshot: unsupported ABI_VERSION expression `{value}`"))?;
+    Ok(version & 0xffff)
+}
+
+fn normalized_declaration(source: &str) -> String {
+    let tokens = lex(source);
+    tokens.into_iter().map(|token| token.text).collect::<Vec<_>>().join(" ")
+}
+
+fn c_exports(header: &str) -> BTreeMap<String, String> {
+    let mut declarations = BTreeMap::new();
+    let mut clean = String::with_capacity(header.len());
+    let mut chars = header.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '/' && chars.peek() == Some(&'*') {
+            chars.next();
+            while let Some(ch) = chars.next() {
+                if ch == '*' && chars.peek() == Some(&'/') { chars.next(); break; }
+            }
+            clean.push(' ');
+        } else if ch == '/' && chars.peek() == Some(&'/') {
+            while chars.next().is_some_and(|ch| ch != '\n') {}
+            clean.push(' ');
+        } else {
+            clean.push(ch);
+        }
+    }
+    for declaration in clean.split(';') {
+        let Some(paren) = declaration.find('(') else { continue };
+        let Some(name) = declaration[..paren].split_whitespace().last() else { continue };
+        let name = name.trim_start_matches('*');
+        if !name.starts_with("pxui_") { continue; }
+        declarations.insert(name.to_owned(), normalized_declaration(&format!("{};", declaration.trim())));
+    }
+    declarations
+}
+
+// Header names carry a `Pxui` prefix the Rust names drop; a few Rust names differ on purpose.
+// ponytail: every `*Span` is one `Slice`, so its element type is not compared here (layout rows pin the structs); compare it when a Span mix-up ships.
+fn canonical_name(name: &str) -> &str {
+    let name = name.strip_prefix("Pxui").filter(|rest| !rest.is_empty() && name != "PxuiUi").unwrap_or(name);
+    if name.ends_with("Span") || name == "Slice" { return "Slice"; }
+    match name {
+        "Color" => "Rgba",
+        "FfiEvent" => "Event",
+        "FfiOutput" => "Output",
+        "uint16_t" | "u16" => "u16",
+        "PxuiStr" | "Str" => "Str",
+        "PxuiFrameIn" | "FrameIn" => "FrameIn",
+        "PxuiFrameOut" | "FrameOut" => "FrameOut",
+        "PxuiGpu" | "Gpu" => "Gpu",
+        "PxuiCommands" | "Commands" => "Commands",
+        "PxuiPass" | "Pass" => "Pass",
+        "PxuiImage" | "Image" => "Image",
+        "PxuiText" | "Text" => "Text",
+        "PxuiTextStyle" | "TextStyle" => "TextStyle",
+        "PxuiTextMetrics" | "TextMetrics" => "TextMetrics",
+        "PxuiTextGlyph" | "TextGlyph" => "TextGlyph",
+        "PxuiTargetDesc" => "TargetDesc",
+        "PxuiPanel" => "Panel",
+        "PxuiBox" => "Box",
+        "PxuiBuild" | "Build" => "Build",
+        "void" => "c_void",
+        "char" | "c_char" => "char",
+        "uint8_t" | "u8" => "u8",
+        "uint32_t" | "u32" => "u32",
+        "uint64_t" | "u64" => "u64",
+        "int32_t" | "i32" => "i32",
+        "int64_t" | "i64" => "i64",
+        "size_t" | "usize" => "usize",
+        "float" | "f32" => "f32",
+        "double" | "f64" => "f64",
+        other => other,
+    }
+}
+
+fn canonical_type(tokens: &[Token], rust: bool) -> String {
+    let text: Vec<_> = tokens.iter().map(|token| token.text.as_str()).collect();
+    if rust && text.first() == Some(&"*") {
+        let mut at = 0;
+        let mut pointers = Vec::new();
+        while text.get(at) == Some(&"*") {
+            pointers.push(text.get(at + 1).copied().unwrap_or("mut"));
+            at += 2;
+        }
+        let target = text.get(at..).unwrap_or(&[]);
+        let name = target.iter().rev().find(|&&token| token != ":" && token != "*").copied().unwrap_or("");
+        let mut canonical = canonical_name(name).to_owned();
+        for qualifier in pointers.iter().rev() { canonical = format!("*{qualifier} {canonical}"); }
+        return canonical;
+    }
+    if !rust {
+        if let Some(pointer) = text.iter().position(|&token| token == "*") {
+            let depth = text[pointer..].iter().filter(|&&token| token == "*").count();
+            let is_const = text[..pointer].contains(&"const");
+            let name = text[..pointer].iter().rev().find(|&&token| token != "const" && token != "volatile").copied().unwrap_or("");
+            let mut canonical = canonical_name(name).to_owned();
+            for index in 0..depth {
+                let qualifier = if index == 0 && is_const { "const" } else { "mut" };
+                canonical = format!("*{qualifier} {canonical}");
+            }
+            return canonical;
+        }
+    }
+    if text.is_empty() || text == ["void"] { return "()".to_owned(); }
+    let text = if rust { &text[..text.iter().position(|&token| token == "<").unwrap_or(text.len())] } else { &text[..] };
+    let name = if rust && text.len() >= 3 && text[1] == ":" && text[2] == ":" {
+        text.last().copied().unwrap_or("")
+    } else { text.last().copied().unwrap_or("") };
+    canonical_name(name).to_owned()
+}
+
+fn c_signature(declaration: &str) -> String {
+    let tokens = lex(declaration);
+    let Some(open) = tokens.iter().position(|token| token.text == "(") else { return String::new() };
+    let Some(close) = matching(&tokens, open, "(", ")") else { return String::new() };
+    let result = canonical_type(&tokens[..open - 1], false);
+    let mut params = Vec::new();
+    let mut start = open + 1;
+    let mut depth = 0usize;
+    for index in open + 1..=close {
+        if index == close || (tokens[index].text == "," && depth == 0) {
+            let part = &tokens[start..index];
+            if !(part.len() == 1 && part[0].text == "void") && !part.is_empty() {
+                let array = part.iter().position(|token| token.text == "[");
+                let declarator = array.map_or(part, |at| &part[..at]);
+                let ty = &declarator[..declarator.len().saturating_sub(1)];
+                let mut canonical = canonical_type(ty, false);
+                if array.is_some() {
+                    if canonical.starts_with('*') {
+                        canonical = format!("*mut {canonical}");
+                    } else {
+                        let qualifier = if ty.iter().any(|token| token.text == "const") { "const" } else { "mut" };
+                        canonical = format!("*{qualifier} {canonical}");
+                    }
+                }
+                params.push(canonical);
+            }
+            start = index + 1;
+        } else if tokens[index].text == "(" { depth += 1; }
+        else if tokens[index].text == ")" { depth = depth.saturating_sub(1); }
+    }
+    format!("({})->{result}", params.join(","))
+}
+
+fn rust_signature(tokens: &[Token], fn_at: usize) -> Option<(String, String)> {
+    let name = tokens.get(fn_at + 1)?.text.clone();
+    let open = fn_at + 2;
+    let close = matching(tokens, open, "(", ")")?;
+    let mut params = Vec::new();
+    let mut start = open + 1;
+    let mut depth = 0usize;
+    for index in open + 1..=close {
+        if index == close || (tokens[index].text == "," && depth == 0) {
+            let part = &tokens[start..index];
+            if !part.is_empty() {
+                let colon = part.iter().position(|token| token.text == ":")?;
+                params.push(canonical_type(&part[colon + 1..], true));
+            }
+            start = index + 1;
+        } else if matches!(tokens[index].text.as_str(), "<" | "(" | "[") { depth += 1; }
+        else if matches!(tokens[index].text.as_str(), ">" | ")" | "]") { depth = depth.saturating_sub(1); }
+    }
+    let tail = &tokens[close + 1..];
+    // The return type ends at the body; a function without `->` must not borrow the next one's.
+    let body = tail.iter().position(|token| token.text == "{" || token.text == ";").unwrap_or(tail.len());
+    let result = tail[..body].iter().position(|token| token.text == "->")
+        .map(|arrow| canonical_type(&tail[arrow + 1..body], true))
+        .unwrap_or_else(|| "()".to_owned());
+    Some((name, format!("({})->{result}", params.join(","))))
+}
+
+fn rust_exports(source: &str) -> BTreeMap<String, String> {
+    let tokens = lex(source);
+    let mut declarations = BTreeMap::new();
+    for (at, token) in tokens.iter().enumerate() {
+        if token.text != "fn" { continue; }
+        let Some(name) = tokens.get(at + 1).map(|token| token.text.as_str()) else { continue };
+        if !name.starts_with("pxui_") { continue; }
+        let start = (0..at).rev().find(|&index| matches!(tokens[index].text.as_str(), "}" | ";")).map_or(0, |index| index + 1);
+        let prefix = tokens[start..at].iter().map(|token| token.text.as_str()).collect::<Vec<_>>();
+        let macro_export = prefix.windows(4).any(|window| window == ["export", "!", "(", "pub"])
+            || prefix.windows(3).any(|window| window == ["export", "!", "("]);
+        let no_mangle = prefix.iter().any(|token| *token == "no_mangle");
+        if !macro_export && !no_mangle { continue; }
+        if let Some((name, signature)) = rust_signature(&tokens, at) {
+            declarations.insert(name, signature);
+        }
+    }
+    declarations
+}
+
+fn abi_declarations(workspace: &Path) -> Result<(u32, BTreeMap<String, String>, BTreeMap<String, String>), String> {
+    let header_path = workspace.join("include/pxui.h");
+    let header = fs::read_to_string(&header_path).map_err(|error| format!("{}: {error}", header_path.display()))?;
+    let source_dir = workspace.join("crates/private/pxui_abi/src");
+    let source_path = source_dir.join("lib.rs");
+    let source = fs::read_to_string(&source_path).map_err(|error| format!("{}: {error}", source_path.display()))?;
+    let c = c_exports(&header);
+    let mut source_files = Vec::new();
+    rust_sources(&source_dir, &mut source_files).map_err(|error| format!("cannot scan {}: {error}", source_dir.display()))?;
+    source_files.sort();
+    let mut rust = BTreeMap::new();
+    for path in source_files {
+        let text = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        rust.extend(rust_exports(&text));
+    }
+    Ok((abi_minor(&source)?, c, rust))
+}
+
+fn abi_header(workspace: &Path) -> Result<Vec<String>, String> {
+    let (_, c, rust) = abi_declarations(workspace)?;
+    let mut issues = Vec::new();
+    for name in c.keys().filter(|name| !rust.contains_key(*name)) {
+        issues.push(format!("abi-header: {name} is declared in include/pxui.h but has no Rust no_mangle export"));
+    }
+    for name in rust.keys().filter(|name| !c.contains_key(*name)) {
+        issues.push(format!("abi-header: {name} is exported from pxui_abi but absent from include/pxui.h"));
+    }
+    for (name, declaration) in &c {
+        if let Some(signature) = rust.get(name) {
+            let c_sig = c_signature(declaration);
+            if &c_sig != signature {
+                issues.push(format!("abi-header: signature mismatch for {name}: header {c_sig}, Rust {signature}"));
+            }
+        }
+    }
+    Ok(issues)
+}
+
+fn abi_snapshot_lines(workspace: &Path) -> Result<(u32, BTreeMap<String, String>), String> {
+    let (minor, exports, _) = abi_declarations(workspace)?;
+    let layout_path = workspace.join("abi/layout.v1.txt");
+    let layout = fs::read_to_string(&layout_path).map_err(|error| format!("{}: {error}", layout_path.display()))?;
+    let mut lines = BTreeMap::new();
+    for (name, declaration) in exports {
+        lines.insert(format!("function {name}"), format!("function {name} {declaration}"));
+    }
+    for row in layout.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
+        let name = row.split_whitespace().next().unwrap();
+        lines.insert(format!("layout {name}"), format!("layout {row}"));
+    }
+    Ok((minor, lines))
+}
+
+fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>) -> Vec<String> {
+    let mut issues = Vec::new();
+    let mut old_minor = None;
+    let mut old_lines = BTreeMap::new();
+    for line in old.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
+        if let Some(value) = line.strip_prefix("minor ") {
+            old_minor = value.parse::<u32>().ok();
+        } else {
+            let mut words = line.split_whitespace();
+            if let (Some(kind), Some(name)) = (words.next(), words.next()) {
+                old_lines.insert(format!("{kind} {name}"), line.to_owned());
+            }
+        }
+    }
+    let Some(old_minor) = old_minor else { return vec!["abi-snapshot: snapshot has no valid `minor N` line".to_owned()] };
+    if minor < old_minor {
+        issues.push(format!("abi-snapshot: ABI minor decreased from {old_minor} to {minor}"));
+    }
+    for (key, old_line) in &old_lines {
+        match current.get(key) {
+            None => issues.push(format!("abi-snapshot: removed {old_line}")),
+            Some(new_line) if new_line != old_line => issues.push(format!("abi-snapshot: changed `{old_line}` to `{new_line}`")),
+            _ => (),
+        }
+    }
+    let additions: Vec<_> = current.iter().filter(|(key, _)| !old_lines.contains_key(*key)).map(|(_, line)| line).collect();
+    if !additions.is_empty() && minor <= old_minor {
+        issues.push(format!("abi-snapshot: {} new ABI line(s) require ABI minor > {old_minor}", additions.len()));
+    }
+    issues
+}
+
+fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
+    let (minor, lines) = abi_snapshot_lines(workspace)?;
+    let path = workspace.join("abi/pxui.v1.txt");
+    let old = match fs::read_to_string(&path) {
+        Ok(old) => old,
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
+        Err(error) => return Err(format!("{}: {error}", path.display())),
+    };
+    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&old, minor, &lines) };
+    if !issues.is_empty() { return Ok(issues); }
+    if write {
+        let mut snapshot = format!("# Append-only PXUI ABI snapshot.\nminor {minor}\n");
+        for line in lines.values() { snapshot.push_str(line); snapshot.push('\n'); }
+        fs::write(&path, snapshot).map_err(|error| format!("{}: {error}", path.display()))?;
+        Ok(Vec::new())
+    } else if old.is_empty() {
+        Ok(vec!["abi-snapshot: abi/pxui.v1.txt is missing; create the initial baseline with `cargo run -p gate -- abi-snapshot --write`".to_owned()])
+    } else {
+        Ok(Vec::new())
+    }
+}
+
 
 fn workspace_root() -> Result<PathBuf, String> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1321,8 +1735,10 @@ fn workspace_root() -> Result<PathBuf, String> {
 fn main() {
     let mut args = env::args().skip(1);
     let command = args.next().unwrap_or_else(|| "all".into());
-    if args.next().is_some() || !matches!(command.as_str(), "shape" | "deps" | "docs" | "pxui" | "abi-exports" | "all") {
-        eprintln!("usage: cargo run -p gate -- <shape|deps|docs|pxui|abi-exports|all>");
+    let option = args.next();
+    let write_snapshot = option.as_deref() == Some("--write");
+    if args.next().is_some() || (option.is_some() && !write_snapshot) || (write_snapshot && command != "abi-snapshot") || !matches!(command.as_str(), "shape" | "deps" | "tiers" | "docs" | "pxui" | "abi-exports" | "abi-header" | "abi-snapshot" | "install-smoke" | "all") {
+        eprintln!("usage: cargo run -p gate -- <shape|deps|tiers|docs|pxui|abi-exports|abi-header|abi-snapshot [--write]|install-smoke|all>");
         process::exit(2);
     }
     let workspace = match workspace_root() {
@@ -1335,13 +1751,21 @@ fn main() {
     let result = match command.as_str() {
         "shape" => shape(&workspace),
         "deps" => deps(&workspace),
+        "tiers" => tiers(&workspace),
         "docs" => docs(&workspace),
         "pxui" => pxui_remote(&workspace),
         "abi-exports" => abi_exports(&workspace),
+        "abi-header" => abi_header(&workspace),
+        "abi-snapshot" => abi_snapshot(&workspace, write_snapshot),
+        "install-smoke" => install_smoke(&workspace),
         _ => shape(&workspace).and_then(|mut errors| {
             errors.extend(deps(&workspace)?);
+            errors.extend(tiers(&workspace)?);
             errors.extend(pxui_remote(&workspace)?);
             if errors.is_empty() { errors.extend(abi_exports(&workspace)?); }
+            if errors.is_empty() { errors.extend(abi_header(&workspace)?); }
+            if errors.is_empty() { errors.extend(abi_snapshot(&workspace, false)?); }
+            if errors.is_empty() { errors.extend(install_smoke(&workspace)?); }
             if errors.is_empty() { errors.extend(docs(&workspace)?); }
             Ok(errors)
         }),
@@ -1358,6 +1782,105 @@ fn main() {
             eprintln!("gate: {error}");
             process::exit(2);
         }
+    }
+}
+
+#[cfg(test)]
+mod tier_tests {
+    use super::{feature_reaches_package, policy::tier_allows, DepSpec};
+
+    #[test]
+    fn tier_edges_follow_the_public_private_open_table() {
+        assert!(tier_allows("private", "pxui_core", "private", "pxui_text", false, false));
+        assert!(tier_allows("private", "pxui_core", "open", "input", false, false));
+        assert!(tier_allows("private", "pxui_core", "public", "pxui_types", false, false));
+        assert!(!tier_allows("open", "input", "private", "pxui_core", false, false));
+        assert!(tier_allows("public", "pxui", "private", "pxui_core", false, false));
+        assert!(tier_allows("public", "pxui", "private", "pxui_render", false, false));
+        assert!(!tier_allows("public", "pxui", "private", "pxui_text", false, false));
+        assert!(tier_allows("public", "pxui", "private", "pxui_abi", true, true));
+        assert!(!tier_allows("public", "pxui", "private", "pxui_abi", true, false));
+    }
+
+    #[test]
+    fn static_feature_resolves_dependency_alias_to_package() {
+        let dep = DepSpec {
+            alias: "pxui_abi_link".to_owned(),
+            package: Some("pxui_abi".to_owned()),
+            path: Some("../../private/pxui_abi".to_owned()),
+            workspace: false,
+            optional: true,
+            kind: "dependencies".to_owned(),
+            target: None,
+            line: 1,
+        };
+        assert!(feature_reaches_package("[\"dep:pxui_abi_link\"]", "pxui_abi", &[dep.clone()]));
+        assert!(!feature_reaches_package("[\"dep:pxui_abi_link\"]", "pxui_core", &[dep.clone()]));
+        assert!(!feature_reaches_package("[\"dep:pxui_abi\"]", "pxui_abi", &[dep]));
+    }
+}
+
+#[cfg(test)]
+mod crate_name_tests {
+    use super::graph_crate_name;
+
+    #[test]
+    fn only_the_abi_package_gets_a_distinct_graph_identity_for_the_pxui_lib_name() {
+        assert_eq!(graph_crate_name("pxui", "pxui"), "pxui");
+        assert_eq!(graph_crate_name("pxui_abi", "pxui"), "pxui_abi");
+        assert_eq!(graph_crate_name("other", "pxui"), "pxui");
+    }
+}
+
+#[cfg(test)]
+mod abi_tests {
+    use super::{c_signature, compare_abi_snapshot, lex, rust_exports, rust_signature};
+    use std::collections::BTreeMap;
+
+    #[test]
+    fn snapshot_is_append_only_and_additions_bump_minor() {
+        let old = "minor 2\nfunction pxui_a int32_t pxui_a ( void ) ;\nlayout Rect 16 4 0 4 8 12\n";
+        let current = BTreeMap::from([
+            ("function pxui_a".to_owned(), "function pxui_a int32_t pxui_a ( void ) ;".to_owned()),
+            ("function pxui_b".to_owned(), "function pxui_b void pxui_b ( void ) ;".to_owned()),
+            ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned()),
+        ]);
+        assert!(!compare_abi_snapshot(old, 2, &current).is_empty());
+        assert!(compare_abi_snapshot(old, 3, &current).is_empty());
+
+        let changed = BTreeMap::from([
+            ("function pxui_a".to_owned(), "function pxui_a int32_t pxui_a ( int32_t ) ;".to_owned()),
+            ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned()),
+        ]);
+        assert!(!compare_abi_snapshot(old, 4, &changed).is_empty());
+    }
+
+    #[test]
+    fn c_and_rust_export_signatures_normalize_abi_types() {
+        let c = c_signature("PxuiBox *pxui_get(PxuiGpu *gpu, uint32_t flags);");
+        let rust_tokens = lex("pub unsafe extern \"C\" fn pxui_get(gpu: *mut Gpu, flags: u32) -> *mut Box { }");
+        let at = rust_tokens.iter().position(|token| token.text == "fn").unwrap();
+        let (_, rust) = rust_signature(&rust_tokens, at).unwrap();
+        assert_eq!(c, rust);
+
+        let different = c_signature("PxuiBox *pxui_get(PxuiGpu *gpu, uint64_t flags);");
+        assert_ne!(different, rust);
+        assert_ne!(c_signature("const PxuiBox *pxui_get(PxuiGpu *gpu, uint32_t flags);"), c);
+    }
+
+    #[test]
+    fn c_parameter_arrays_decay_to_pointers() {
+        let c = c_signature("int32_t pxui_style(const PxuiLookDesc states[6], const float at[2]);");
+        let rust_tokens = lex("pub unsafe extern \"C\" fn pxui_style(states: *const PxuiLookDesc, at: *const f32) -> i32 { }");
+        let at = rust_tokens.iter().position(|token| token.text == "fn").unwrap();
+        let (_, rust) = rust_signature(&rust_tokens, at).unwrap();
+        assert_eq!(c, rust);
+    }
+
+    #[test]
+    fn module_exports_are_found_with_unsafe_no_mangle_attributes() {
+        let exports = rust_exports("#[unsafe(no_mangle)] pub unsafe extern \"C\" fn pxui_text_create(value: *const TextStyle) -> *mut Text { }\n");
+        assert_eq!(exports.get("pxui_text_create").map(String::as_str), Some("(*const TextStyle)->*mut Text"));
     }
 }
 

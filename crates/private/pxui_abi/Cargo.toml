@@ -1,0 +1,27 @@
+[package]
+name = "pxui_abi"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "pxui"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+input = { path = "../../open/input" }
+pxui_core = { path = "../pxui_core" }
+pxui_render = { path = "../pxui_render" }
+pxui_types = { path = "../../public/pxui_types" }
+pxui_text = { path = "../pxui_text" }
+ogpu_core = { path = "../../open/ogpu_core" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+ogpu_metal = { path = "../../open/ogpu_metal" }
+
+[target.'cfg(any(windows, target_os = "linux"))'.dependencies]
+ogpu_vulkan = { path = "../../open/ogpu_vulkan" }
+
+[lints]
+workspace = true

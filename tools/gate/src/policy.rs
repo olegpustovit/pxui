@@ -2,6 +2,17 @@
 //! one Rays uses (tools/gate there); only this file differs.
 use std::collections::{HashMap, HashSet};
 
+pub const TIERS: &[&str] = &["public", "private", "open"];
+
+pub fn tier_allows(from_tier: &str, from_crate: &str, to_tier: &str, to_crate: &str, optional: bool, static_feature: bool) -> bool {
+    match from_tier {
+        "public" => to_tier == "public" || (from_crate == "pxui" && to_tier == "private" && matches!(to_crate, "pxui_core" | "pxui_render")) || (from_crate == "pxui" && to_tier == "private" && to_crate == "pxui_abi" && optional && static_feature),
+        "private" => to_tier == "private" || to_tier == "open" || (to_tier == "public" && to_crate == "pxui_types"),
+        "open" => to_tier == "open",
+        _ => false,
+    }
+}
+
 /// Helper leaves any product crate may name.
 pub const HELPER_LEAVES: [&str; 1] = ["cfmt"];
 /// Leaves a crate may name directly when its allowed dependencies reach them.
@@ -23,20 +34,32 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("ogpu_metal", &["ogpu_core", "metal_sys", "native_layer_token_sys"][..]),
         ("ogpu_vulkan", &["ogpu_core", "vulkan_sys", "native_layer_token_sys"][..]),
         // Plain data in (input), a draw list out.
-        ("pxui_core", &["input", "cfmt", "pxui_text"][..]),
+        ("pxui_core", &["input", "cfmt", "pxui_text", "pxui_types"][..]),
         ("pxui_text", &[][..]),
         // The UI painter: the portable GPU API and PXUI's draw list.
-        ("pxui_render", &["ogpu_core", "pxui_core"][..]),
+        ("pxui_render", &["ogpu_core", "pxui_core", "pxui_types"][..]),
         // The window hosts are leaves: SDL, the input types and the native layer token.
         ("pxui_sdl", &["sdl3", "input", "native_layer_token_sys"][..]),
         // pxui_wayland links libwayland-client, libxkbcommon and (file dialogs through the desktop portal) libdbus-1
         // through its own C shims, like pxui_atspi.
         ("pxui_wayland", &["input", "native_layer_token_sys"][..]),
         // The Linux AT-SPI2 bridge: libdbus-1 through its own C shim, over pxui's accessibility tree.
-        ("pxui_atspi", &["pxui_core"][..]),
+        ("pxui_atspi", &["pxui_core", "pxui_types"][..]),
         ("pxui_abi", &[][..]),
+        ("pxui_types", &[][..]),
+        // The public wrapper forwards to the private engine/renderer and its static ABI link.
+        ("pxui", &["pxui_core", "pxui_render", "pxui_types"][..]),
         // The kit gallery app: the engine, the painter and the platform's window host and GPU backend.
-        ("pxui_gallery", &["pxui_core", "input", "mem_sys", "ogpu_core", "pxui_render", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
+        ("pxui_gallery", &["pxui", "pxui_core", "input", "mem_sys", "ogpu_core", "pxui_render", "pxui_types", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
+    ])
+}
+
+/// Package-specific dependency policy for packages whose library crate names collide.
+pub fn package_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
+    HashMap::from([
+        // The public wrapper's optional static link points at the cdylib whose crate name is `pxui`.
+        ("pxui", &["pxui", "pxui_core", "pxui_render", "pxui_types"][..]),
+        ("pxui_abi", &["input", "pxui_core", "pxui_render", "pxui_types", "pxui_text", "ogpu_core", "ogpu_metal", "ogpu_vulkan"][..]),
     ])
 }
 
@@ -79,7 +102,42 @@ pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their
 
 /// Files besides those of `UNSAFE_CRATES` that may use `unsafe`, each with its reason.
 pub const UNSAFE_FILES: &[(&str, &str)] = &[
-    ("crates/pxui_abi/src/lib.rs", "the stable ABI requires an unmangled C symbol export"),
-    ("crates/pxui_core/src/arena.rs", "frame bump arena: canvas closures are written into raw bytes and called through type-erased records"),
-    ("crates/pxui_render/src/lib.rs", "writes instance bytes into the host-mapped upload ring and views instance structs as bytes"),
+    ("crates/private/pxui_abi/src/lib.rs", "the stable ABI requires an unmangled C symbol export"),
+    ("crates/private/pxui_core/src/arena.rs", "frame bump arena: canvas closures are written into raw bytes and called through type-erased records"),
+    ("crates/private/pxui_render/src/lib.rs", "writes instance bytes into the host-mapped upload ring and views instance structs as bytes"),
+    ("crates/private/pxui_abi/src/a11y.rs", "validates and translates caller-owned C ABI pointers at the PXUI FFI boundary"),
+    ("crates/private/pxui_abi/src/a11y_state.rs", "validates and translates caller-owned C ABI pointers at the PXUI FFI boundary"),
+    ("crates/private/pxui_abi/src/collections.rs", "validates borrowed collection spans and invokes C ABI callbacks"),
+    ("crates/private/pxui_abi/src/composite.rs", "validates callback contexts and marshals composite UI data at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/image.rs", "validates borrowed GPU image descriptors at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/interaction.rs", "validates caller-owned event and output buffers at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/kit.rs", "validates callback contexts and caller-owned buffers at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/node.rs", "validates C node descriptors and caller-owned strings at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/overlays.rs", "validates borrowed overlay strings and callback contexts at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/paint.rs", "validates opaque C paint handles and callback contexts at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/style.rs", "validates borrowed style descriptors at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/text.rs", "validates C text handles and callback contexts at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/text_inputs.rs", "validates caller-owned text and callback pointers at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/text_width.rs", "validates borrowed text descriptors at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/theme.rs", "validates borrowed theme descriptors at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/widgets.rs", "validates borrowed widget descriptors and callback contexts at the C ABI boundary"),
+    ("crates/public/pxui/src/a11y.rs", "calls the private C ABI through validated safe wrapper methods"),
+    ("crates/public/pxui/src/a11y_state.rs", "calls the private C ABI through validated safe wrapper methods"),
+    ("crates/public/pxui/src/collections.rs", "calls the private C ABI and passes stack callback contexts with bounded lifetimes"),
+    ("crates/public/pxui/src/composite.rs", "calls the private C ABI and contains callback panics before returning to C"),
+    ("crates/public/pxui/src/image.rs", "calls the private C ABI with caller-owned GPU image descriptors"),
+    ("crates/public/pxui/src/interaction.rs", "calls the private C ABI through safe wrapper methods"),
+    ("crates/public/pxui/src/kit.rs", "calls the private C ABI and contains callback panics before returning to C"),
+    ("crates/public/pxui/src/lib.rs", "calls the private C ABI through safe wrapper methods and owns opaque handles"),
+    ("crates/public/pxui/src/node.rs", "calls the private C ABI through safe wrapper methods"),
+    ("crates/public/pxui/src/overlays.rs", "calls the private C ABI and contains callback panics before returning to C"),
+    ("crates/public/pxui/src/paint.rs", "calls the private C ABI and contains callback panics before returning to C"),
+    ("crates/public/pxui/src/style.rs", "calls the private C ABI through safe wrapper methods"),
+    ("crates/public/pxui/src/text.rs", "calls the private text C ABI through safe wrapper methods"),
+    ("crates/public/pxui/src/text_inputs.rs", "calls the private C ABI and validates callback inputs"),
+    ("crates/public/pxui/src/text_width.rs", "calls the private C ABI through safe wrapper methods"),
+    ("crates/public/pxui/src/widgets.rs", "calls the private C ABI through safe wrapper methods"),
+    ("crates/open/ogpu_core/src/backend.rs", "validates and adopts raw native GPU handles at the explicit backend bridge"),
+    ("crates/open/ogpu_metal/src/native/pipeline.rs", "calls Metal pipeline functions through the native backend wrapper"),
+    ("crates/open/ogpu_metal/src/native/resource.rs", "calls Metal resource functions through the native backend wrapper"),
 ];

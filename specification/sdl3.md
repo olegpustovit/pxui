@@ -1,7 +1,7 @@
 # SDL3 binding contract
 
-`crates/sdl3` provides the safe platform API. Required C/Objective-C++ ABI work
-lives under `crates/sdl3_sys`. Core, image and mixer cover only Rays's window,
+`crates/open/sdl3` provides the safe platform API. Required C/Objective-C++ ABI work
+lives under `crates/open/sdl3_sys`. Core, image and mixer cover only Rays's window,
 input, image and audio needs; text is `pxui_text` (cosmic-text), not SDL. Runtime must use the ownership-aware safe API.
 
 ## Versions and ABI
@@ -12,7 +12,7 @@ platform discovery path. Compiled header facts and linked runtime facts must
 agree on the supported major/minor and satisfy the floor. A tested version is
 qualification evidence, not an exact pin.
 
-`crates/sdl3_sys/abi.sexp` records reviewed sizes, alignment and offsets used by
+`crates/open/sdl3_sys/abi.sexp` records reviewed sizes, alignment and offsets used by
 the bridge. Native compilation verifies the supported ABI. SDL's own macros
 supply flags, keys, buttons and event constants. Shared bridge tags and signatures
 must be checked through round-trip tests. Header or library mismatches fail;
