@@ -254,9 +254,32 @@ pub fn window_pxui_node_patch_colour_glyph() {
     ui.destroy();
 }
 
+/// A `Mark::Line` node draws its line between its corners inset by half the width; `patch_rect`
+/// (from `local_rect`) moves its ends and `patch_mark` turns it over, with no build.
+pub fn window_pxui_node_line_patch() {
+    let mut ui = new_ui(None);
+    let builds = Cell::new(0);
+    let handle = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        builds.set(builds.get() + 1);
+        let look = Look { text: color::rgb(0, 0, 200), ..Look::NONE };
+        handle.set(Some(ui.node("line", Node { w: Size::Px(21.0), h: Size::Px(11.0), at: Some((10.0, 20.0)), look, mark: Mark::Line { width: 1.0, rising: false }, ..Node::DEFAULT })));
+    };
+    frame(&mut ui, 0.0, &mut build);
+    frame(&mut ui, 0.1, &mut build);
+    let line = |ui: &Ui| ui.output().draw[0].instances.iter().find(|i| i.kind == pxui::draw::kind::LINE).map(|i| i.rect);
+    check(line(&ui) == Some([10.5, 20.5, 30.5, 30.5]), &format!("the line's ends: {:?}", line(&ui)));
+    let h = handle.get().unwrap();
+    let r = ui.local_rect(&h);
+    check(ui.patch_rect(&h, pxui::geom::Rect::new(r.x + 2.0, r.y, r.w, r.h)) && ui.patch_mark(&h, Mark::Line { width: 1.0, rising: true }), "patch refused");
+    check(line(&ui) == Some([12.5, 30.5, 32.5, 20.5]) && builds.get() == 2, &format!("the patched line's ends: {:?}", line(&ui)));
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_node_patch_colour_glyph", window_pxui_node_patch_colour_glyph),
     ("window_pxui_paint_grid_one_instance", window_pxui_paint_grid_one_instance),
+    ("window_pxui_node_line_patch", window_pxui_node_line_patch),
     ("window_pxui_arena_over_aligned", window_pxui_arena_over_aligned),
     ("window_pxui_node_duplicate_keys", window_pxui_node_duplicate_keys),
     ("window_pxui_node_handles", window_pxui_node_handles),

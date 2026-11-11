@@ -262,6 +262,10 @@ pub use crate::layout::{place_anchored, Align, Anchor, Cell, Direction, Grid, Ju
 pub enum Mark {
     None,
     Chevron(Dir),
+    /// a line `width` thick in the look's text colour across the node's rectangle, between its
+    /// corners inset by half the width: top left to bottom right (`rising`: bottom left to top
+    /// right); `patch_rect` moves its ends, `patch_mark` turns it over, `patch_look` colours it
+    Line { width: f32, rising: bool },
 }
 
 /// A scroll node's thumb: `width` points wide, `gap` from the right edge, between `margin` points of
@@ -4795,8 +4799,15 @@ impl Paint {
             self.text_laid(at, &style, ink, key, m);
             self.label = buffer;
         }
-        if let Mark::Chevron(direction) = node.mark {
-            self.chevron((x + w / 2.0, y + h / 2.0), direction, fade(look.text));
+        match node.mark {
+            Mark::Chevron(direction) => self.chevron((x + w / 2.0, y + h / 2.0), direction, fade(look.text)),
+            Mark::Line { width, rising } => {
+                let half = width / 2.0;
+                let (left, top, right, bottom) = (x + half, y + half, x + w - half, y + h - half);
+                let (a, b) = if rising { ((left, bottom), (right, top)) } else { ((left, top), (right, bottom)) };
+                self.line_w(a, b, width, fade(look.text));
+            }
+            Mark::None => {}
         }
         let ring = look.ring;
         if focused && area && (steady || (ring.width > 0.0 && ring.color.a > 0)) {
@@ -5664,6 +5675,21 @@ impl Ui {
         let s = &mut self.slots[b.box_slot];
         (s.rx, s.ry, s.rw, s.rh) = (rect.x, rect.y, rect.w, rect.h);
         self.repaint_node(b.box_slot)
+    }
+
+    /// `patch_text` for the node's mark (`Mark::Line`'s direction).
+    pub fn patch_mark(&mut self, b: &Handle, mark: Mark) -> bool {
+        if !self.live(b) {
+            return false;
+        }
+        self.slots[b.box_slot].node.mark = mark;
+        self.repaint_node(b.box_slot)
+    }
+
+    /// The node's rectangle as its view lays it out, what `patch_rect` takes (`rect` is where the
+    /// window shows it); empty for a stale handle.
+    pub fn local_rect(&self, b: &Handle) -> Rect {
+        if self.live(b) { self.slot_rect(b.box_slot) } else { Rect::new(0.0, 0.0, 0.0, 0.0) }
     }
 
     /// `patch_rect` by an offset.
