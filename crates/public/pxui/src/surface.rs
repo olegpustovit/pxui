@@ -182,3 +182,23 @@ fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
     assert_eq!(pixels.len(), (w * h * 4) as usize);
     assert!(pixels.chunks(4).any(|p| p[3] != 0), "something was inked");
 }
+
+#[test]
+fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
+    use crate::opts::ValueFieldOpts;
+    use pxui_types::ui::TextEdit;
+    let mut ui = Ui::new().expect("library");
+    let stale = pxui_types::PxuiBox { index: 0, box_key: 1, box_slot: 99, generation: 7 };
+    // the engine answers a stale handle with false, so does the one export that replaced the wrapper's several calls
+    assert!(!ui.patch_field(&stale, &ValueFieldOpts::default(), "1.5"));
+    assert!(!ui.patch_text(&stale, "x"));
+    // text far over the old 1 MiB limit crosses whole in both directions, and a refused call is a loud one
+    let source = "(graph g)\n".repeat(300_000);
+    assert!(source.len() > 1 << 21);
+    ui.frame(&input(), &mut |ui: &mut Ui| {
+        let edit: TextEdit = ui.load_text_edit(9, &source);
+        assert_eq!(edit.text.len(), source.len(), "the edit holds the whole text");
+        let (text, _) = ui.text_area_submit((0.0, 0.0), 100.0, 100.0, &Default::default(), "area", &source);
+        assert_eq!(text.len(), source.len(), "the area returns the whole text");
+    }).expect("frame");
+}

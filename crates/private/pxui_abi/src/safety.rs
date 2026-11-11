@@ -134,3 +134,18 @@ fn text_with_nul_crosses_as_ordinary_text() {
     assert_eq!(built, 1);
     unsafe { pxui_ui_destroy(ui); }
 }
+
+#[test]
+fn theme_tokens_that_cannot_be_a_theme_make_none() {
+    use pxui_types::ffi::ThemeTokens;
+    let good = ThemeTokens::from(pxui_types::theme::default());
+    let made = unsafe { crate::theme::pxui_theme_create(&good) };
+    assert!(!made.is_null(), "the default tokens make a theme");
+    unsafe { crate::theme::pxui_theme_destroy(made); }
+    let bad = [
+        ThemeTokens { density: f32::NAN, ..good }, ThemeTokens { density: 0.0, ..good }, ThemeTokens { space: [f32::INFINITY; 4], ..good },
+        ThemeTokens { has_ink_ground: 2, ..good }, ThemeTokens { reduced_motion: 7, ..good }, ThemeTokens { font_size: 0, ..good },
+        ThemeTokens { reserved: [1, 0, 0], ..good }, ThemeTokens { size: 4, ..good },
+    ];
+    for tokens in bad { assert!(unsafe { crate::theme::pxui_theme_create(&tokens) }.is_null()); }
+}
