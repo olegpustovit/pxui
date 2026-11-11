@@ -882,7 +882,7 @@ fn shared_backdrop_blur() {
             let next_pass = pass_of(&next);
             reopened = Some(next);
             Ok(next_pass)
-        }).expect("draw the blurred layer");
+        }).unwrap_or_else(|code| panic!("draw the blurred layer: {code}: {}", ui.last_error()));
         if let Some(next) = reopened { open_pass = next; }
         ok(be::invalidate_state(&open_pass));
     }
