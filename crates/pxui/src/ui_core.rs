@@ -382,11 +382,13 @@ struct BoxRec {
     /// the view this box holds (`NO_VIEW`), and whether its build was skipped this frame
     view: u32,
     kept: bool,
+    /// the `grow_line` pass that froze it at its min or max (`Ui::grow_pass`)
+    frozen: u32,
 }
 
 impl BoxRec {
     fn blank() -> BoxRec {
-        BoxRec { key: 0, slot: 0, parent: NONE, first: NONE, last: NONE, next: NONE, hit: None, hit_rect: None, paint: arena::EMPTY, over: arena::EMPTY, view: NO_VIEW, kept: false }
+        BoxRec { key: 0, slot: 0, parent: NONE, first: NONE, last: NONE, next: NONE, hit: None, hit_rect: None, paint: arena::EMPTY, over: arena::EMPTY, view: NO_VIEW, kept: false, frozen: 0 }
     }
 }
 
@@ -1217,6 +1219,8 @@ pub struct Ui {
     moves: Vec<(u32, u32, u32)>,
     temp_breaks: Vec<Break>,
     temp_images: Vec<Image>,
+    /// `grow_line`'s pass stamp (`BoxRec::frozen`)
+    grow_pass: u32,
     /// the text atlas's retirements and misses seen
     atlas_events: (u64, u64),
     /// layer tails shifted by a growing patch, and layers compacted
@@ -1411,6 +1415,7 @@ impl Ui {
             temp_breaks: Vec::new(),
             temp_images: Vec::new(),
             atlas_events: (0, 0),
+            grow_pass: 0,
             shifts: 0,
             compactions: 0,
             arena: Arena::default(),
@@ -4169,48 +4174,52 @@ impl Ui {
     /// Share `free` points among the line's `Grow` children by their `grow` weights; a child held
     /// at its minimum or maximum leaves the rest to the others. With nothing free they keep their
     /// minimum.
-    // ponytail: the freeze loop is O(children x clamped), and past 64 children in a line the later
-    // ones are never frozen; fine for the short lines UI has.
+    // Each pass freezes every child its share would push past its min or max, so passes are at
+    // most the clamped children plus one: O(children x clamped), linear when nothing clamps.
     fn grow_line(&mut self, row: bool, start: usize, end: usize, mut free: f32) {
-        let mut frozen = 0u64;
+        self.grow_pass = self.grow_pass.wrapping_add(1).max(1);
+        let pass = self.grow_pass;
+        let grows = |ui: &Ui, c: usize| {
+            let n = ui.nd(c);
+            (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && ui.boxes[c].frozen != pass
+        };
         loop {
-            let (mut total, mut i, mut c) = (0.0, 0, start);
+            let (mut total, mut c) = (0.0, start);
             while c != end {
-                let n = self.nd(c);
-                if (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && frozen & (1 << i.min(63)) == 0 {
-                    total += n.grow;
+                if grows(self, c) {
+                    total += self.nd(c).grow;
                 }
-                (i, c) = (i + 1, self.next_flow(self.boxes[c].next));
+                c = self.next_flow(self.boxes[c].next);
             }
             if total <= 0.0 {
                 return;
             }
             let unit = free.max(0.0) / total;
             let mut capped = false;
-            (i, c) = (0, start);
+            c = start;
             while c != end {
-                let n = *self.nd(c);
-                let (min, max) = if row { (n.min_w, n.max_w) } else { (n.min_h, n.max_h) };
-                if (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && frozen & (1 << i.min(63)) == 0 {
+                if grows(self, c) {
+                    let n = *self.nd(c);
+                    let (min, max) = if row { (n.min_w, n.max_w) } else { (n.min_h, n.max_h) };
                     let v = unit * n.grow;
                     if v < min || v > max {
                         let held = clamp(v, min, max);
                         free -= held;
                         self.set_main(row, c, held);
-                        frozen |= 1 << i.min(63);
+                        self.boxes[c].frozen = pass;
                         capped = true;
                     }
                 }
-                (i, c) = (i + 1, self.next_flow(self.boxes[c].next));
+                c = self.next_flow(self.boxes[c].next);
             }
             if !capped {
-                (i, c) = (0, start);
+                c = start;
                 while c != end {
-                    let n = *self.nd(c);
-                    if (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && frozen & (1 << i.min(63)) == 0 {
-                        self.set_main(row, c, unit * n.grow);
+                    if grows(self, c) {
+                        let g = self.nd(c).grow;
+                        self.set_main(row, c, unit * g);
                     }
-                    (i, c) = (i + 1, self.next_flow(self.boxes[c].next));
+                    c = self.next_flow(self.boxes[c].next);
                 }
                 return;
             }

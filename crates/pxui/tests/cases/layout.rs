@@ -70,6 +70,18 @@ pub fn layout_min_max_aspect() {
     eq(r[2], 0.0, 80.0, 300.0, 50.0, "aspect from the stretched width, held by max_h");
 }
 
+/// A line of 100 growers, one past the 64th held by its max: every other one still grows.
+pub fn layout_grow_many_frozen() {
+    let grow = Node { w: Size::Grow, h: Size::Px(10.0), ..Node::DEFAULT };
+    let mut kids = vec![grow; 100];
+    kids[70].max_w = 1.0;
+    let r = once(Node { w: Size::Px(991.0), ..ROW }, &kids);
+    eq(r[71], r[70].x + r[70].w, 0.0, 1.0, 10.0, "the 71st child is held by its max");
+    for k in [1, 64, 65, 72, 100] {
+        check((r[k].w - 10.0).abs() < 0.01, &format!("child {k} grew to {}, not 10", r[k].w));
+    }
+}
+
 pub fn layout_gap_padding_margin() {
     let column = Node { w: Size::Px(200.0), h: Size::Fit, padding: Edges { l: 5.0, t: 7.0, r: 9.0, b: 11.0 }, gap: 4.0, ..Node::DEFAULT };
     let r = once(column, &[px(20.0, 10.0), Node { margin: Edges { l: 3.0, t: 2.0, r: 0.0, b: 6.0 }, ..px(20.0, 10.0) }, Node { w: Size::Grow, h: Size::Px(10.0), margin: Edges { l: 1.0, r: 2.0, ..Edges::ZERO }, ..Node::DEFAULT }]);
@@ -674,6 +686,7 @@ pub fn layout_scaling() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_grow_many_frozen", layout_grow_many_frozen),
     ("layout_stress_zero_alloc", layout_stress_zero_alloc),
     ("layout_scaling", layout_scaling),
     ("layout_kit_resize_same_frame", layout_kit_resize_same_frame),
