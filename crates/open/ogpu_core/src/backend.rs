@@ -344,6 +344,9 @@ pub trait DriverCommands {
     /// Adopted commands with no open encoder point at the app's next command buffer: true when they did, with nothing allocated;
     /// false when this driver cannot (the caller adopts anew).
     fn readopt(&mut self, _native: NativeCommands) -> Result<bool, Error> { Ok(false) }
+    /// Adopted commands the app is about to carry on with: whatever this driver still owes the app's command buffer (Vulkan's
+    /// barrier after staged writes) is recorded now, while it records, not when these are replaced or dropped a frame later.
+    fn settle(&mut self) {}
 }
 
 pub trait DriverQueue {
@@ -2182,6 +2185,12 @@ pub fn readopt_commands(commands: &Commands, native: NativeCommands) -> Result<b
     let mut raw = commands.0.raw.borrow_mut();
     let Some(driver) = raw.as_mut() else { return Ok(false) };
     driver.readopt(native)
+}
+
+/// Finishes what adopted `commands` owe the app's command buffer (see `DriverCommands::settle`); they stay for `readopt_commands`.
+pub fn settle_commands(commands: &Commands) {
+    if !commands.0.borrowed.get() || commands.0.encoder.borrow().is_some() { return; }
+    if let Some(driver) = commands.0.raw.borrow_mut().as_mut() { driver.settle(); }
 }
 
 /// Points `encoder`, adopted earlier on `commands` and ended, at the app's next pass on them (`commands` just readopted): what

@@ -146,6 +146,7 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     // a wrapped texture no frame in flight can still sample (it was last drawn more than 3 frames ago) goes
     renderer.textures.retain(|_,(_,used)| frame-*used<=pxui_render::FRAMES as u64);
     renderer.painter.begin_frame();
+    gpu_backend::settle_commands(&commands);
     renderer.prepared=Some(commands);
     0
 });
@@ -287,6 +288,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     }
     // ends only this copy's view of the pass; the app's encoder must `invalidate_state` before drawing more
     if let Err(e)=gpu_backend::end_render(&encoder) { return renderer.fail_gpu(e); }
+    gpu_backend::settle_commands(&commands);
     renderer.drawn=Some((commands,encoder));
     0
 });

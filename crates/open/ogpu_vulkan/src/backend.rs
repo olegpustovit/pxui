@@ -1515,8 +1515,10 @@ struct CommandsHandle {
 }
 
 impl DriverCommands for CommandsHandle {
-    /// The app's next command buffer in these adopted commands' objects: the native wrapper is replaced (the old one goes as it
-    /// would with the handle), the Rust objects stay.
+    /// Dropping the native wrapper records its closing barrier in the app's command buffer, which must still be recording: so it
+    /// goes now, and `readopt` makes the next one.
+    fn settle(&mut self) { self.cmds.commands.borrow_mut().take(); }
+    /// The app's next command buffer in these adopted commands' objects: a native wrapper is made anew, the Rust objects stay.
     fn readopt(&mut self, native: NativeCommands) -> Result<bool, Error> {
         if native.vk_command_buffer.is_null() || native.frame_serial == 0 { return Ok(false); }
         let commands = {
