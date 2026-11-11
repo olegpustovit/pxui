@@ -28,7 +28,11 @@ Its window test skips without `WAYLAND_DISPLAY`. File dialogs go through the XDG
 (`org.freedesktop.portal.FileChooser` on the session bus, through libdbus-1: `libdbus-1-dev`), parented to the window's
 xdg-foreign-unstable-v2 handle when the compositor exports one; without a portal (WSL runs none) `show_dialog` returns
 `NO_FILE_DIALOG`. Its tests answer the requests from a fake portal on a private `dbus-daemon` (skipped without one). WSLg's compositor offers `wl_data_device` and `wp_viewporter` but no
-fractional scale, cursor shape, xdg-decoration or text-input-v3, so those paths need another compositor to exercise.
+fractional scale, cursor shape, xdg-decoration or text-input-v3, so those paths need another compositor to exercise;
+without cursor-shape-v1 the cursor comes from the XCursor theme (`libwayland-cursor`, `XCURSOR_THEME`/`XCURSOR_SIZE`).
+Files dragged in as `text/uri-list` become `FileDropped` events; `set_surrounding_text` gives an input method the text
+around the caret, and its deletions arrive as Backspace/Delete presses. Without `wp_viewporter` the integer buffer scale
+changes with the `PixelSizeChanged` the host announces, so the resized swapchain's present carries it.
 `cargo run -p pxui_wayland --example window` runs the host loop.
 
 `pxui_atspi` (the AT-SPI2 accessibility bridge) links `libdbus-1` (`libdbus-1-dev`). Its bus test starts a private

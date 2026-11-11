@@ -12,6 +12,7 @@ fn window_visibility() {
         }
     };
     window.set_text_input(Some(((1, 2, 20, 12), 7))).unwrap();
+    window.set_surrounding_text(Some(("text", 2, 2))).unwrap();
     window.set_text_input(None).unwrap();
     window.set_text_input(None).unwrap();
     assert!(!window.visible().unwrap(), "native window was not initially hidden");

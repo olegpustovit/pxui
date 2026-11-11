@@ -58,7 +58,15 @@ fn window_wayland_present() {
 
     window.set_cursor(CursorShape::Text).unwrap();
     window.set_cursor(CursorShape::HorizontalResize).unwrap();
+    // without cursor-shape-v1 (WSLg) the cursor comes from the XCursor theme when one is installed
+    let themes = ["/usr/share/icons/default/index.theme", "/usr/share/icons/Adwaita/cursors", "/usr/share/icons/DMZ-White/cursors"];
+    if !window.protocols().unwrap().has(Protocols::CURSOR_SHAPE) && themes.iter().any(|t| std::path::Path::new(t).exists()) {
+        assert!(window.protocols().unwrap().has(Protocols::CURSOR_THEME), "an installed cursor theme was not loaded");
+    }
     window.set_text_input(Some(((10, 20, 120, 24), 30))).unwrap();
+    window.set_surrounding_text(Some(("héllo wörld", 3, 1))).unwrap();
+    assert!(window.set_surrounding_text(Some(("a\0b", 1, 1))).is_err(), "a NUL cannot be sent");
+    window.set_surrounding_text(None).unwrap();
     window.set_text_input(None).unwrap();
 
     let text = "pxui_wayland clipboard \u{2713}";

@@ -464,7 +464,7 @@ fn location(at: Option<&str>, kind: DialogKind) -> (Option<&str>, Option<&str>) 
 
 /// A `file://` URI's path, percent-escapes decoded. Another scheme or host, a malformed escape or a path that is
 /// not UTF-8 (the event carries text) is an error naming the URI.
-fn uri_path(uri: &str) -> Result<String, String> {
+pub(crate) fn uri_path(uri: &str) -> Result<String, String> {
     let rest = uri.strip_prefix("file://").ok_or_else(|| format!("the file dialog chose {uri}, which is not a local file"))?;
     let rest = rest.strip_prefix("localhost").unwrap_or(rest);
     if !rest.starts_with('/') {

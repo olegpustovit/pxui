@@ -46,6 +46,8 @@ impl Protocols {
     pub const POINTER: i32 = 128;
     pub const KEYBOARD: i32 = 256;
     pub const SERVER_DECORATED: i32 = 512;
+    /// No cursor-shape-v1, but an XCursor theme loaded: cursors come from it.
+    pub const CURSOR_THEME: i32 = 1024;
     pub fn has(self, bit: i32) -> bool {
         self.0 & bit != 0
     }
@@ -159,6 +161,10 @@ const COMMIT: i32 = 12;
 const PASTE: i32 = 13;
 const VISIBLE: i32 = 14;
 const RELATIVE: i32 = 15;
+const DRAG: i32 = 16;
+const DRAG_END: i32 = 17;
+const DROP: i32 = 18;
+const DELETE: i32 = 19;
 
 unsafe extern "C" {
     fn rw_open(title: *const c_char, width: i32, height: i32, error: *mut i32) -> *mut c_void;
@@ -169,6 +175,7 @@ unsafe extern "C" {
     fn rw_state(window: *mut c_void, width: *mut i32, height: *mut i32, scale120: *mut i32, rate: *mut i32, delay: *mut i32);
     fn rw_dispatch(window: *mut c_void, timeout_ms: i32) -> i32;
     fn rw_set_wake_fd(window: *mut c_void, fd: i32);
+    fn rw_buffer_scale(window: *mut c_void, scale: i32);
     fn rw_set_portal_fd(window: *mut c_void, fd: i32);
     fn rw_exported_handle(window: *mut c_void) -> *const c_char;
     fn rw_next(window: *mut c_void, out: *mut RawEvent) -> i32;
@@ -177,6 +184,7 @@ unsafe extern "C" {
     fn rw_set_resizable(window: *mut c_void, enabled: i32);
     fn rw_set_cursor(window: *mut c_void, shape: i32) -> i32;
     fn rw_set_text_input(window: *mut c_void, enabled: i32, x: i32, y: i32, width: i32, height: i32) -> i32;
+    fn rw_set_surrounding(window: *mut c_void, text: *const c_char, cursor: i32, anchor: i32) -> i32;
     fn rw_clipboard_set(window: *mut c_void, text: *const c_char) -> i32;
     fn rw_request_paste(window: *mut c_void) -> i32;
     fn rw_clipboard_get(window: *mut c_void, timeout_ms: i32) -> *mut c_char;
@@ -219,6 +227,8 @@ pub struct Window {
     started: Instant,
     /// The desktop portal's bus, from the first file dialog on.
     portal: Option<portal::Portal>,
+    /// The surrounding text last sent to the input method and the cursor's byte offset in it.
+    surrounding: Option<(String, usize)>,
 }
 
 impl Window {
@@ -275,9 +285,12 @@ impl Window {
             motion: (0.0, 0.0),
             started: Instant::now(),
             portal: None,
+            surrounding: None,
         };
         OPEN.with(|open| open.borrow_mut().push(raw));
         window.read_state();
+        // SAFETY: a live window; the first swapchain is made at this drawable size.
+        unsafe { rw_buffer_scale(raw.as_ptr(), window.scale120 / 120) };
         window.reported = window.extent;
         Ok(window)
     }
@@ -335,6 +348,9 @@ impl Window {
         }
         if self.extent.drawable != self.reported.drawable {
             events.push(input::Event::PixelSizeChanged(self.extent.drawable));
+            // SAFETY: a live window. Without a viewport the buffer scale goes with the drawable size it announces:
+            // the caller resizes its swapchain before the next present, the commit that carries the scale.
+            unsafe { rw_buffer_scale(raw, self.scale120 / 120) };
         }
         self.reported = self.extent;
         open
@@ -390,6 +406,20 @@ impl Window {
             COMMIT => events.push(Event::TextInput(text)),
             PASTE => events.push(Event::Paste(text)),
             RELATIVE => self.motion = (self.motion.0 + raw.x, self.motion.1 + raw.y),
+            DRAG => events.push(Event::FileDragMoved((raw.x, raw.y))),
+            DRAG_END => events.push(Event::FileDragEnded),
+            DROP => {
+                events.extend(translate::uri_list(&text).into_iter().map(Event::FileDropped));
+                events.push(Event::FileDragEnded);
+            }
+            // the input method deletes around the caret in the surrounding text it was sent: as key presses
+            DELETE => {
+                let (back, forward) = self.surrounding.as_ref().map_or((0, 0), |(text, cursor)| translate::deletes(text, *cursor, raw.a as usize, raw.b as usize));
+                for key in std::iter::repeat_n(input::Key::Backspace, back).chain(std::iter::repeat_n(input::Key::Delete, forward)) {
+                    events.push(Event::KeyPressed(key));
+                    events.push(Event::KeyReleased(key));
+                }
+            }
             VISIBLE => {
                 self.visible = raw.a != 0;
                 events.push(Event::VisibilityChanged(self.visible));
@@ -486,8 +516,8 @@ impl Window {
         Ok(())
     }
 
-    /// Without cursor-shape-v1 the compositor keeps its own cursor.
-    // ponytail: no wl_cursor theme fallback (libwayland-cursor + a shm buffer); add it for compositors without cursor-shape-v1.
+    /// Through cursor-shape-v1, else from the XCursor theme (`XCURSOR_THEME`, `XCURSOR_SIZE`); with neither the
+    /// compositor keeps its own cursor.
     pub fn set_cursor(&mut self, shape: CursorShape) -> Result<(), Error> {
         let raw = self.live()?;
         if self.cursor_shape == Some(shape) {
@@ -516,6 +546,30 @@ impl Window {
         let ((x, y, _, height), cursor) = area.unwrap_or(((0, 0, 0, 0), 0));
         // SAFETY: a live window.
         unsafe { rw_set_text_input(raw, i32::from(area.is_some()), clamp(x + cursor), clamp(y), 1, clamp(height)) };
+        Ok(())
+    }
+
+    /// The focused text's content around the caret, `cursor` and `anchor` byte offsets into it (`None`: none): an
+    /// input method reads it (text-input-v3 surrounding text) and may delete around the caret, which arrives as
+    /// Backspace and Delete presses. Beyond the protocol's 4000 bytes only the part around the caret is sent.
+    pub fn set_surrounding_text(&mut self, text: Option<(&str, usize, usize)>) -> Result<(), Error> {
+        let raw = self.live()?;
+        self.surrounding = None;
+        let sent = match text {
+            None => None,
+            Some((text, cursor, anchor)) => {
+                let (start, end) = translate::surrounding_range(text, cursor, anchor);
+                let part = CString::new(&text[start..end]).map_err(|_| "surrounding text contains a NUL byte".to_owned())?;
+                let at = |offset: usize| (offset.clamp(start, end) - start) as i32;
+                Some((part, at(cursor), at(anchor)))
+            }
+        };
+        let (pointer, cursor, anchor) = sent.as_ref().map_or((std::ptr::null(), 0, 0), |(p, c, a)| (p.as_ptr(), *c, *a));
+        // SAFETY: a live window; the shim copies the text.
+        if unsafe { rw_set_surrounding(raw, pointer, cursor, anchor) } != 0 {
+            return Err("out of memory".to_owned());
+        }
+        self.surrounding = sent.map(|(part, cursor, _)| (part.into_string().unwrap_or_default(), cursor as usize));
         Ok(())
     }
 

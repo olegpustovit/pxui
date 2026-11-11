@@ -4,6 +4,7 @@
  * Needs libwayland-client >= 1.22 (listener structs with preferred_buffer_scale and axis_relative_direction). */
 #define _GNU_SOURCE
 #include <wayland-client.h>
+#include <wayland-cursor.h>
 #include <xkbcommon/xkbcommon.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -25,10 +26,12 @@
 
 /* Mirrors translate::Raw on the Rust side. */
 enum { RW_KEY = 1, RW_MOTION, RW_BUTTON, RW_AXIS, RW_AXIS_DISCRETE, RW_AXIS_SOURCE, RW_AXIS_STOP, RW_FRAME,
-       RW_FOCUS, RW_CLOSE, RW_PREEDIT, RW_COMMIT, RW_PASTE, RW_VISIBLE, RW_RELATIVE };
+       RW_FOCUS, RW_CLOSE, RW_PREEDIT, RW_COMMIT, RW_PASTE, RW_VISIBLE, RW_RELATIVE, RW_DRAG, RW_DRAG_END, RW_DROP,
+       RW_DELETE };
 /* Protocol bits reported by rw_protocols. */
 enum { HAS_VIEWPORTER = 1, HAS_FRACTIONAL = 2, HAS_CURSOR_SHAPE = 4, HAS_DECORATION = 8, HAS_TEXT_INPUT = 16,
-       HAS_DATA_DEVICE = 32, HAS_SEAT = 64, HAS_POINTER = 128, HAS_KEYBOARD = 256, SERVER_DECORATED = 512 };
+       HAS_DATA_DEVICE = 32, HAS_SEAT = 64, HAS_POINTER = 128, HAS_KEYBOARD = 256, SERVER_DECORATED = 512,
+       HAS_CURSOR_THEME = 1024 };
 
 typedef struct {
   int32_t kind, a, b, c, d, e;
@@ -41,6 +44,7 @@ typedef struct {
 #define MAX_WRITES 8
 #define TEXT_MIMES 3
 static const char *text_mimes[TEXT_MIMES] = {"text/plain;charset=utf-8", "UTF8_STRING", "text/plain"};
+#define URI_LIST (1 << TEXT_MIMES) /* an offer's mime bit for text/uri-list: dropped files */
 
 typedef struct rw {
   struct wl_display *display;
@@ -55,6 +59,10 @@ typedef struct rw {
   struct wp_viewporter *viewporter;
   struct wp_fractional_scale_manager_v1 *fractional_manager;
   struct wp_cursor_shape_manager_v1 *cursor_manager;
+  struct wl_shm *shm;
+  struct wl_cursor_theme *cursor_theme; /* without cursor-shape-v1: the XCursor theme, at theme_scale */
+  struct wl_surface *cursor_surface;
+  int32_t theme_scale;
   struct zxdg_decoration_manager_v1 *decoration_manager;
   struct zwp_text_input_manager_v3 *text_manager;
   struct zwp_relative_pointer_manager_v1 *relative_manager;
@@ -82,6 +90,7 @@ typedef struct rw {
   int32_t width, height, pending_width, pending_height;
   int configured, suspended, pending_suspended, server_decorated;
   int32_t fractional120, preferred_scale, applied_scale120;
+  int32_t buffer_scale; /* the wl_surface buffer scale last set (no viewport), 0 none */
 
   uint32_t serial, pointer_serial;
   int32_t cursor_shape;
@@ -95,11 +104,20 @@ typedef struct rw {
   int32_t text_rect[4];
   char *preedit_pending, *preedit_shown, *commit_pending;
   int32_t preedit_begin, preedit_end;
+  char *surrounding; /* the text around the caret the client offers the input method, or NULL */
+  int32_t surround_cursor, surround_anchor;
+  int delete_pending;
+  uint32_t delete_before, delete_after;
 
   struct wl_data_offer *selection;
   struct wl_data_source *source;
   char *source_text;
   int paste_fd;
+  struct wl_data_offer *drag; /* the offer of a drag over the window carrying files */
+  int dropping; /* the drop is being read: the drag ends when it is */
+  int drop_fd; /* the dropped text/uri-list being read, or -1 */
+  char *drop_buf;
+  size_t drop_len;
   int wake_fd; /* a descriptor the host also sleeps on (the accessibility bus), or -1 */
   int portal_fd; /* the desktop portal's bus while a file dialog is open, or -1 */
   char *paste_buf;
@@ -137,15 +155,21 @@ static int32_t integer_scale(rw *w) {
   return scale;
 }
 /* Logical size and scale go to the compositor with the next commit, which the Vulkan present makes. With a
- * viewport the buffer may be any size (fractional or integer scale); without one the integer buffer scale says it. */
+ * viewport the buffer may be any size (fractional or integer scale); without one the integer buffer scale says it,
+ * and it waits for rw_buffer_scale: the host sets it when it reports the new drawable size, so the commit that
+ * carries it is the present of the resized swapchain (a buffer not divisible by the scale is a protocol error). */
 static void apply_geometry(rw *w) {
   int32_t scale120 = w->viewporter && w->fractional120 > 0 ? w->fractional120 : 120 * integer_scale(w);
   if (w->viewport) wp_viewport_set_destination(w->viewport, w->width, w->height);
-  else if (scale120 != w->applied_scale120 && w->compositor_version >= 3) wl_surface_set_buffer_scale(w->surface, scale120 / 120);
   else if (w->compositor_version < 3) scale120 = 120;
-  /* ponytail: without a viewport, a scale change can reach the compositor one frame before the resized swapchain;
-   * a buffer not divisible by the new scale is then a protocol error. Every compositor with HiDPI offers wp_viewporter. */
   w->applied_scale120 = scale120;
+}
+/* Without a viewport: the integer buffer scale of the drawable size the host announced, for the next commit (1 for a
+ * window kept at its logical size). */
+void rw_buffer_scale(rw *w, int32_t scale) {
+  if (w->viewport || w->compositor_version < 3 || scale < 1 || scale == w->buffer_scale) return;
+  wl_surface_set_buffer_scale(w->surface, scale);
+  w->buffer_scale = scale;
 }
 
 /* ---- xdg-shell ---- */
@@ -235,11 +259,51 @@ static const struct wl_output_listener output_listener = {
 
 /* ---- pointer ---- */
 
+/* The XCursor theme's cursor for the current shape (XCURSOR_THEME/XCURSOR_SIZE, at the outputs' integer scale), or
+ * NULL: no wl_shm, no theme, or none of the shape's names in it. */
+static struct wl_cursor *theme_cursor(rw *w) {
+  if (!w->shm) return NULL;
+  int32_t scale = integer_scale(w);
+  if (!w->cursor_theme || w->theme_scale != scale) {
+    if (w->cursor_theme) wl_cursor_theme_destroy(w->cursor_theme);
+    const char *size = getenv("XCURSOR_SIZE");
+    int px = size && atoi(size) > 0 ? atoi(size) : 24;
+    w->cursor_theme = wl_cursor_theme_load(getenv("XCURSOR_THEME"), px * scale, w->shm);
+    w->theme_scale = scale;
+  }
+  if (!w->cursor_theme) return NULL;
+  /* cursor-shape-v1 codes to the CSS names, then the X11 core names older themes use */
+  const char *names[3] = {"default", "left_ptr", NULL};
+  if (w->cursor_shape == WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_TEXT) { names[0] = "text"; names[1] = "xterm"; }
+  else if (w->cursor_shape == WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_EW_RESIZE) { names[0] = "ew-resize"; names[1] = "sb_h_double_arrow"; names[2] = "col-resize"; }
+  else if (w->cursor_shape == WP_CURSOR_SHAPE_DEVICE_V1_SHAPE_NS_RESIZE) { names[0] = "ns-resize"; names[1] = "sb_v_double_arrow"; names[2] = "row-resize"; }
+  for (int i = 0; i < 3 && names[i]; ++i) {
+    struct wl_cursor *c = wl_cursor_theme_get_cursor(w->cursor_theme, names[i]);
+    if (c && c->image_count) return c;
+  }
+  return NULL;
+}
 static void set_cursor_now(rw *w) {
   if (w->relative && w->pointer && w->pointer_serial) { wl_pointer_set_cursor(w->pointer, w->pointer_serial, NULL, 0, 0); return; }
-  if (!w->cursor_manager || !w->pointer || !w->pointer_serial) return;
-  if (!w->cursor_device) w->cursor_device = wp_cursor_shape_manager_v1_get_pointer(w->cursor_manager, w->pointer);
-  wp_cursor_shape_device_v1_set_shape(w->cursor_device, w->pointer_serial, (uint32_t)w->cursor_shape);
+  if (!w->pointer || !w->pointer_serial) return;
+  if (w->cursor_manager) {
+    if (!w->cursor_device) w->cursor_device = wp_cursor_shape_manager_v1_get_pointer(w->cursor_manager, w->pointer);
+    wp_cursor_shape_device_v1_set_shape(w->cursor_device, w->pointer_serial, (uint32_t)w->cursor_shape);
+    return;
+  }
+  /* no cursor-shape-v1: the theme's first image on a surface of our own (an animated cursor shows its first frame) */
+  struct wl_cursor *c = theme_cursor(w);
+  if (!c) return;
+  struct wl_cursor_image *image = c->images[0];
+  struct wl_buffer *buffer = wl_cursor_image_get_buffer(image);
+  if (!buffer) return;
+  if (!w->cursor_surface) w->cursor_surface = wl_compositor_create_surface(w->compositor);
+  int32_t scale = w->theme_scale > 0 ? w->theme_scale : 1;
+  if (w->compositor_version >= 3) wl_surface_set_buffer_scale(w->cursor_surface, scale);
+  wl_surface_attach(w->cursor_surface, buffer, 0, 0);
+  wl_surface_damage(w->cursor_surface, 0, 0, INT32_MAX, INT32_MAX);
+  wl_surface_commit(w->cursor_surface);
+  wl_pointer_set_cursor(w->pointer, w->pointer_serial, w->cursor_surface, (int32_t)image->hotspot_x / scale, (int32_t)image->hotspot_y / scale);
 }
 static void pointer_enter(void *data, struct wl_pointer *p, uint32_t serial, struct wl_surface *s, wl_fixed_t x, wl_fixed_t y) {
   rw *w = data;
@@ -378,6 +442,7 @@ static void text_sync(rw *w) {
   if (w->text_wanted) {
     if (!w->text_enabled) zwp_text_input_v3_enable(w->text_input);
     zwp_text_input_v3_set_cursor_rectangle(w->text_input, w->text_rect[0], w->text_rect[1], w->text_rect[2], w->text_rect[3]);
+    if (w->surrounding) zwp_text_input_v3_set_surrounding_text(w->text_input, w->surrounding, w->surround_cursor, w->surround_anchor);
     w->text_enabled = 1;
   } else if (w->text_enabled) {
     zwp_text_input_v3_disable(w->text_input);
@@ -414,11 +479,19 @@ static void text_commit(void *data, struct zwp_text_input_v3 *t, const char *tex
   free(w->commit_pending);
   w->commit_pending = copy(text);
 }
-/* ponytail: surrounding text is never sent, so deletion requests are dropped; add set_surrounding_text when an IME needs it. */
-static void text_delete(void *data, struct zwp_text_input_v3 *t, uint32_t before, uint32_t after) { (void)data; (void)t; (void)before; (void)after; }
+/* Bytes around the cursor of the surrounding text to delete; applied with done, before the commit string. */
+static void text_delete(void *data, struct zwp_text_input_v3 *t, uint32_t before, uint32_t after) {
+  rw *w = data;
+  (void)t;
+  w->delete_pending = 1;
+  w->delete_before = before;
+  w->delete_after = after;
+}
 static void text_done(void *data, struct zwp_text_input_v3 *t, uint32_t serial) {
   rw *w = data;
   (void)t; (void)serial;
+  if (w->delete_pending) push_kind(w, RW_DELETE, (int32_t)w->delete_before, (int32_t)w->delete_after, 0, 0, 0);
+  w->delete_pending = 0;
   if (w->commit_pending && *w->commit_pending) push(w, (rw_event){.kind = RW_COMMIT, .text = w->commit_pending});
   else free(w->commit_pending);
   w->commit_pending = NULL;
@@ -442,6 +515,7 @@ static void offer_offer(void *data, struct wl_data_offer *offer, const char *mim
   (void)data;
   intptr_t mimes = (intptr_t)wl_data_offer_get_user_data(offer);
   for (int i = 0; i < TEXT_MIMES; ++i) if (!strcmp(mime, text_mimes[i])) mimes |= 1 << i;
+  if (!strcmp(mime, "text/uri-list")) mimes |= URI_LIST;
   wl_data_offer_set_user_data(offer, (void *)mimes);
 }
 static void offer_actions(void *data, struct wl_data_offer *o, uint32_t a) { (void)data; (void)o; (void)a; }
@@ -452,14 +526,51 @@ static void device_offer(void *data, struct wl_data_device *d, struct wl_data_of
   wl_data_offer_add_listener(offer, &offer_listener, data);
   wl_data_offer_set_user_data(offer, (void *)0);
 }
-/* ponytail: drag and drop is refused (the offer is destroyed); FileDropped needs text/uri-list handling here. */
-static void device_enter(void *data, struct wl_data_device *d, uint32_t serial, struct wl_surface *s, wl_fixed_t x, wl_fixed_t y, struct wl_data_offer *offer) {
-  (void)data; (void)d; (void)serial; (void)s; (void)x; (void)y;
-  if (offer) wl_data_offer_destroy(offer);
+/* Drag and drop of files: a drag offering text/uri-list is accepted (copy) and followed (RW_DRAG); a drop reads
+ * the list through a pipe in service() and becomes RW_DROP (the Rust side turns it into FileDropped events and
+ * FileDragEnded); a drag that leaves ends with RW_DRAG_END. Other drags are refused. */
+static void drag_done(rw *w) {
+  if (!w->drag) return;
+  if (w->dropping && wl_data_offer_get_version(w->drag) >= 3) wl_data_offer_finish(w->drag);
+  wl_data_offer_destroy(w->drag);
+  w->drag = NULL;
+  w->dropping = 0;
 }
-static void device_leave(void *data, struct wl_data_device *d) { (void)data; (void)d; }
-static void device_motion(void *data, struct wl_data_device *d, uint32_t t, wl_fixed_t x, wl_fixed_t y) { (void)data; (void)d; (void)t; (void)x; (void)y; }
-static void device_drop(void *data, struct wl_data_device *d) { (void)data; (void)d; }
+static void device_enter(void *data, struct wl_data_device *d, uint32_t serial, struct wl_surface *s, wl_fixed_t x, wl_fixed_t y, struct wl_data_offer *offer) {
+  rw *w = data;
+  (void)d; (void)s;
+  if (w->dropping) { if (offer) wl_data_offer_destroy(offer); return; } /* the last drop is still being read */
+  drag_done(w);
+  if (!offer) return;
+  if (!((intptr_t)wl_data_offer_get_user_data(offer) & URI_LIST)) { wl_data_offer_accept(offer, serial, NULL); wl_data_offer_destroy(offer); return; }
+  w->drag = offer;
+  wl_data_offer_accept(offer, serial, "text/uri-list");
+  if (wl_data_offer_get_version(offer) >= 3)
+    wl_data_offer_set_actions(offer, WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY, WL_DATA_DEVICE_MANAGER_DND_ACTION_COPY);
+  push_kind(w, RW_DRAG, 0, 0, 0, wl_fixed_to_double(x), wl_fixed_to_double(y));
+}
+static void device_leave(void *data, struct wl_data_device *d) {
+  rw *w = data;
+  (void)d;
+  if (!w->drag || w->dropping) return;
+  drag_done(w);
+  push_kind(w, RW_DRAG_END, 0, 0, 0, 0, 0);
+}
+static void device_motion(void *data, struct wl_data_device *d, uint32_t t, wl_fixed_t x, wl_fixed_t y) {
+  rw *w = data;
+  (void)d;
+  if (w->drag && !w->dropping) push_kind(w, RW_DRAG, 0, 0, t, wl_fixed_to_double(x), wl_fixed_to_double(y));
+}
+static void device_drop(void *data, struct wl_data_device *d) {
+  rw *w = data;
+  (void)d;
+  int fds[2];
+  if (!w->drag || w->drop_fd >= 0 || pipe2(fds, O_CLOEXEC | O_NONBLOCK) != 0) { drag_done(w); push_kind(w, RW_DRAG_END, 0, 0, 0, 0, 0); return; }
+  wl_data_offer_receive(w->drag, "text/uri-list", fds[1]);
+  close(fds[1]);
+  w->drop_fd = fds[0];
+  w->dropping = 1;
+}
 static void device_selection(void *data, struct wl_data_device *d, struct wl_data_offer *offer) {
   rw *w = data;
   (void)d;
@@ -501,6 +612,25 @@ static void finish_paste(rw *w) {
   close(w->paste_fd);
   w->paste_fd = -1;
 }
+/* Reads what the pipe has into *buf (NUL-terminated); 1 once it is finished (end, error or out of memory). */
+static int drain(int fd, char **buf, size_t *len) {
+  for (;;) {
+    char chunk[4096];
+    ssize_t n = read(fd, chunk, sizeof chunk);
+    if (n > 0) {
+      char *grown = realloc(*buf, *len + (size_t)n + 1);
+      if (!grown) return 1;
+      memcpy(grown + *len, chunk, (size_t)n);
+      *len += (size_t)n;
+      grown[*len] = 0;
+      *buf = grown;
+    } else if (n < 0 && (errno == EAGAIN || errno == EINTR)) {
+      return 0;
+    } else {
+      return 1;
+    }
+  }
+}
 static void service(rw *w) {
   for (int i = 0; i < w->write_count;) {
     ssize_t n = 0;
@@ -514,21 +644,14 @@ static void service(rw *w) {
     free(w->writes[i].text);
     w->writes[i] = w->writes[--w->write_count];
   }
-  while (w->paste_fd >= 0) {
-    char chunk[4096];
-    ssize_t n = read(w->paste_fd, chunk, sizeof chunk);
-    if (n > 0) {
-      char *grown = realloc(w->paste_buf, w->paste_len + (size_t)n + 1);
-      if (!grown) { finish_paste(w); break; }
-      memcpy(grown + w->paste_len, chunk, (size_t)n);
-      w->paste_len += (size_t)n;
-      grown[w->paste_len] = 0;
-      w->paste_buf = grown;
-    } else if (n < 0 && (errno == EAGAIN || errno == EINTR)) {
-      break;
-    } else {
-      finish_paste(w);
-    }
+  if (w->paste_fd >= 0 && drain(w->paste_fd, &w->paste_buf, &w->paste_len)) finish_paste(w);
+  if (w->drop_fd >= 0 && drain(w->drop_fd, &w->drop_buf, &w->drop_len)) {
+    push(w, (rw_event){.kind = RW_DROP, .text = w->drop_buf ? w->drop_buf : copy("")});
+    w->drop_buf = NULL;
+    w->drop_len = 0;
+    close(w->drop_fd);
+    w->drop_fd = -1;
+    drag_done(w);
   }
 }
 
@@ -579,6 +702,8 @@ static void registry_global(void *data, struct wl_registry *r, uint32_t name, co
     w->relative_manager = wl_registry_bind(r, name, &zwp_relative_pointer_manager_v1_interface, 1);
   } else if (!strcmp(interface, zwp_pointer_constraints_v1_interface.name)) {
     w->constraints = wl_registry_bind(r, name, &zwp_pointer_constraints_v1_interface, 1);
+  } else if (!strcmp(interface, wl_shm_interface.name)) {
+    w->shm = wl_registry_bind(r, name, &wl_shm_interface, 1);
   } else if (!strcmp(interface, zxdg_exporter_v2_interface.name)) {
     w->exporter = wl_registry_bind(r, name, &zxdg_exporter_v2_interface, 1);
   }
@@ -613,6 +738,7 @@ rw *rw_open(const char *title, int32_t width, int32_t height, int32_t *error) {
   rw *w = calloc(1, sizeof *w);
   if (!w) { *error = 4; return NULL; }
   w->paste_fd = -1;
+  w->drop_fd = -1;
   w->wake_fd = -1;
   w->portal_fd = -1;
   w->width = width;
@@ -669,6 +795,9 @@ void rw_close(rw *w) {
   if (!w) return;
   for (int i = 0; i < w->write_count; ++i) { close(w->writes[i].fd); free(w->writes[i].text); }
   if (w->paste_fd >= 0) close(w->paste_fd);
+  if (w->drop_fd >= 0) close(w->drop_fd);
+  free(w->drop_buf);
+  if (w->drag) wl_data_offer_destroy(w->drag);
   free(w->paste_buf);
   if (w->source) wl_data_source_destroy(w->source);
   free(w->source_text);
@@ -677,7 +806,7 @@ void rw_close(rw *w) {
   if (w->text_input) zwp_text_input_v3_destroy(w->text_input);
   if (w->locked_pointer) zwp_locked_pointer_v1_destroy(w->locked_pointer);
   if (w->relative_pointer) zwp_relative_pointer_v1_destroy(w->relative_pointer);
-  free(w->preedit_pending); free(w->preedit_shown); free(w->commit_pending);
+  free(w->preedit_pending); free(w->preedit_shown); free(w->commit_pending); free(w->surrounding);
   if (w->cursor_device) wp_cursor_shape_device_v1_destroy(w->cursor_device);
   if (w->decoration) zxdg_toplevel_decoration_v1_destroy(w->decoration);
   if (w->exported) zxdg_exported_v2_destroy(w->exported);
@@ -697,6 +826,9 @@ void rw_close(rw *w) {
   if (w->exporter) zxdg_exporter_v2_destroy(w->exporter);
   if (w->decoration_manager) zxdg_decoration_manager_v1_destroy(w->decoration_manager);
   if (w->cursor_manager) wp_cursor_shape_manager_v1_destroy(w->cursor_manager);
+  if (w->cursor_surface) wl_surface_destroy(w->cursor_surface);
+  if (w->cursor_theme) wl_cursor_theme_destroy(w->cursor_theme);
+  if (w->shm) wl_shm_destroy(w->shm);
   if (w->fractional_manager) wp_fractional_scale_manager_v1_destroy(w->fractional_manager);
   if (w->viewporter) wp_viewporter_destroy(w->viewporter);
   if (w->data_manager) wl_data_device_manager_destroy(w->data_manager);
@@ -718,7 +850,7 @@ int32_t rw_protocols(rw *w) {
   return (w->viewporter ? HAS_VIEWPORTER : 0) | (w->fractional ? HAS_FRACTIONAL : 0) | (w->cursor_manager ? HAS_CURSOR_SHAPE : 0)
        | (w->decoration_manager ? HAS_DECORATION : 0) | (w->text_input ? HAS_TEXT_INPUT : 0) | (w->data_device ? HAS_DATA_DEVICE : 0)
        | (w->seat ? HAS_SEAT : 0) | (w->pointer ? HAS_POINTER : 0) | (w->keyboard ? HAS_KEYBOARD : 0)
-       | (w->server_decorated ? SERVER_DECORATED : 0);
+       | (w->server_decorated ? SERVER_DECORATED : 0) | (w->cursor_theme ? HAS_CURSOR_THEME : 0);
 }
 /* Logical size, scale in 120ths, key repeat (rate per second, delay ms). */
 void rw_state(rw *w, int32_t *width, int32_t *height, int32_t *scale120, int32_t *rate, int32_t *delay) {
@@ -737,10 +869,11 @@ int32_t rw_dispatch(rw *w, int32_t timeout_ms) {
   while (wl_display_prepare_read(d) != 0)
     if (wl_display_dispatch_pending(d) < 0) return -1;
   if (wl_display_flush(d) < 0 && errno != EAGAIN) { wl_display_cancel_read(d); return -1; }
-  struct pollfd fds[4 + MAX_WRITES];
+  struct pollfd fds[5 + MAX_WRITES];
   int count = 0;
   fds[count++] = (struct pollfd){.fd = wl_display_get_fd(d), .events = POLLIN};
   if (w->paste_fd >= 0) fds[count++] = (struct pollfd){.fd = w->paste_fd, .events = POLLIN};
+  if (w->drop_fd >= 0) fds[count++] = (struct pollfd){.fd = w->drop_fd, .events = POLLIN};
   /* readable until the host serves it: waking is all poll has to do */
   if (w->wake_fd >= 0) fds[count++] = (struct pollfd){.fd = w->wake_fd, .events = POLLIN};
   if (w->portal_fd >= 0) fds[count++] = (struct pollfd){.fd = w->portal_fd, .events = POLLIN};
@@ -785,11 +918,23 @@ void rw_set_resizable(rw *w, int32_t enabled) {
   xdg_toplevel_set_max_size(w->toplevel, enabled ? 0 : w->width, enabled ? 0 : w->height);
   wl_surface_commit(w->surface);
 }
-/* 0 set (or remembered for the next pointer enter); 1 no cursor-shape protocol. */
+/* 0 set by cursor-shape-v1, 2 from the XCursor theme (or remembered for the next pointer enter); 1 neither. */
 int32_t rw_set_cursor(rw *w, int32_t shape) {
   w->cursor_shape = shape;
   set_cursor_now(w);
-  return w->cursor_manager ? 0 : 1;
+  return w->cursor_manager ? 0 : theme_cursor(w) ? 2 : 1;
+}
+/* The text around the caret (at most 4000 bytes, the protocol's bound; NULL: none) and the cursor and anchor as
+ * byte offsets into it, sent to the input method with the text input state. 0 kept; 4 out of memory. */
+int32_t rw_set_surrounding(rw *w, const char *text, int32_t cursor, int32_t anchor) {
+  char *owned = text ? strdup(text) : NULL;
+  if (text && !owned) return 4;
+  free(w->surrounding);
+  w->surrounding = owned;
+  w->surround_cursor = cursor;
+  w->surround_anchor = anchor;
+  text_sync(w);
+  return 0;
 }
 /* 0 applied (or applied when the surface gains text focus); 1 no text-input-v3. */
 int32_t rw_set_text_input(rw *w, int32_t enabled, int32_t x, int32_t y, int32_t width, int32_t height) {

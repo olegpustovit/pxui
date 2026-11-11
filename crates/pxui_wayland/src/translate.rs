@@ -94,10 +94,41 @@ pub fn drawable(logical: (i64, i64), scale120: i32) -> (i64, i64) {
     (px(logical.0), px(logical.1))
 }
 
+/// A dropped text/uri-list (RFC 2483: CRLF lines, `#` comments) as the local paths it names; other URIs, and
+/// paths that are not UTF-8, are skipped.
+pub fn uri_list(text: &str) -> Vec<String> {
+    text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).filter_map(|uri| crate::portal::uri_path(uri).ok()).collect()
+}
+
+/// The protocol's 4000-byte bound on surrounding text: the byte range of `text` sent, around `cursor` and
+/// `anchor` (byte offsets), on character boundaries.
+pub const SURROUNDING_BYTES: usize = 4000;
+pub fn surrounding_range(text: &str, cursor: usize, anchor: usize) -> (usize, usize) {
+    let (lo, hi) = (cursor.min(anchor).min(text.len()), cursor.max(anchor).min(text.len()));
+    let spare = SURROUNDING_BYTES.saturating_sub(hi - lo) / 2;
+    let mut start = lo.saturating_sub(spare);
+    let mut end = (hi + spare).min(text.len());
+    while !text.is_char_boundary(start) {
+        start += 1;
+    }
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    (start, end.max(start))
+}
+
+/// An input method's delete_surrounding_text (`before` and `after` bytes around `cursor` in the `text` sent) as
+/// the Backspace and Delete presses that delete the same characters.
+pub fn deletes(text: &str, cursor: usize, before: usize, after: usize) -> (usize, usize) {
+    let cursor = cursor.min(text.len());
+    let chars = |range: Option<&str>| range.map_or(0, |s| s.chars().count());
+    (chars(text.get(cursor.saturating_sub(before)..cursor)), chars(text.get(cursor..(cursor + after).min(text.len()))))
+}
+
 pub const AXIS_VERTICAL: i32 = 0;
 pub const SOURCE_FINGER: i32 = 1;
-/// Continuous axis units a wheel notch moves when the compositor sends no discrete steps.
-// ponytail: libinput's 15 degrees reported as 10 units is the common default; read axis_value120 where it matters.
+/// Continuous axis units a wheel notch moves when the compositor sends no discrete steps and none has been
+/// learned yet (wl_pointer before version 5: weston's, mutter's and libinput's 15 degrees as 10 units).
 pub const UNITS_PER_NOTCH: f64 = 10.0;
 
 /// Collects one wl_pointer frame's axis events; `frame` turns them into at most a scroll and a lift.
@@ -110,6 +141,8 @@ pub struct Scroll {
     stopped: bool,
     time_ms: u32,
     touching: bool,
+    /// continuous units per notch, learned from frames that carried both (0: not yet)
+    units: f64,
 }
 
 impl Scroll {
@@ -131,8 +164,8 @@ impl Scroll {
     /// Fingers become TrackpadScrolled (Touched, Moved..., Lifted on axis_stop); wheels become Scrolled in
     /// notches. Wayland's axes grow rightwards and downwards; Rays' y grows away from the user.
     pub fn frame(&mut self, out: &mut Vec<Event>) {
-        let touching = self.touching;
-        let frame = std::mem::replace(self, Scroll { touching, ..Scroll::default() });
+        let (touching, units) = (self.touching, self.units);
+        let frame = std::mem::replace(self, Scroll { touching, units, ..Scroll::default() });
         let [dx, dy] = frame.delta;
         let time = f64::from(frame.time_ms) / 1000.0;
         let finger = frame.source == Some(SOURCE_FINGER) || (frame.source.is_none() && touching);
@@ -148,11 +181,18 @@ impl Scroll {
             }
         } else if frame.has_steps {
             let [sx, sy] = frame.steps120;
+            // this wheel's notch size in continuous units, for its frames that come without steps
+            for (d, s) in [(dx, sx), (dy, sy)] {
+                if d != 0.0 && s != 0 {
+                    self.units = (d / (f64::from(s) / 120.0)).abs();
+                }
+            }
             if sx != 0 || sy != 0 {
                 out.push(Event::Scrolled((f64::from(sx) / 120.0, -f64::from(sy) / 120.0)));
             }
         } else if dx != 0.0 || dy != 0.0 {
-            out.push(Event::Scrolled((dx / UNITS_PER_NOTCH, -dy / UNITS_PER_NOTCH)));
+            let units = if self.units > 0.0 { self.units } else { UNITS_PER_NOTCH };
+            out.push(Event::Scrolled((dx / units, -dy / units)));
         }
     }
 }
@@ -249,6 +289,21 @@ mod tests {
     }
 
     #[test]
+    fn drops_and_surrounding_text() {
+        let list = "# from a file manager\r\nfile:///tmp/a%20b.png\r\nhttps://example.org/x\r\nfile:///caf%E9\r\n\r\nfile://localhost/home/u/c.rays\r\n";
+        assert_eq!(uri_list(list), ["/tmp/a b.png", "/home/u/c.rays"]);
+        let text = "héllo wörld";
+        // é and ö are two bytes: 3 bytes before the cursor after "hé" is "hé"'s two chars
+        assert_eq!(deletes(text, 3, 3, 0), (2, 0));
+        assert_eq!(deletes(text, 3, 0, 3), (0, 3), "llo");
+        assert_eq!(deletes(text, 3, 1, 0), (0, 0), "a request that splits a character deletes nothing");
+        assert_eq!(surrounding_range(text, 3, 3), (0, text.len()));
+        let long = "é".repeat(3000);
+        let (s, e) = surrounding_range(&long, 3000, 3000);
+        assert!(e - s <= SURROUNDING_BYTES && long.is_char_boundary(s) && long.is_char_boundary(e) && s < 3000 && e > 3000);
+    }
+
+    #[test]
     fn scroll_frames() {
         let mut scroll = Scroll::default();
         let mut out = Vec::new();
@@ -258,10 +313,11 @@ mod tests {
         scroll.steps(0, 120);
         scroll.frame(&mut out);
         assert_eq!(out, [Event::Scrolled((0.0, -1.0))]);
-        // a wheel without discrete steps: continuous units over the notch size
+        // a wheel without discrete steps: continuous units over the default notch size, before any was learned
         out.clear();
-        scroll.axis(1, 5.0, 20);
-        scroll.frame(&mut out);
+        let mut fresh = Scroll::default();
+        fresh.axis(1, 5.0, 20);
+        fresh.frame(&mut out);
         assert_eq!(out, [Event::Scrolled((0.5, 0.0))]);
         // two fingers: touch, move, then axis_stop lifts; the stop frame needs no source
         out.clear();
@@ -278,6 +334,12 @@ mod tests {
             Event::TrackpadScrolled { delta: (2.0, -0.0), phase: ScrollPhase::Moved, time: 1.016 },
             Event::TrackpadScrolled { delta: (0.0, 0.0), phase: ScrollPhase::Lifted, time: 1.032 },
         ]);
+        // a step-less wheel frame after one with steps uses the learned 15 units a notch
+        out.clear();
+        scroll.source(0);
+        scroll.axis(0, 30.0, 40);
+        scroll.frame(&mut out);
+        assert_eq!(out, [Event::Scrolled((0.0, -2.0))]);
         // an empty frame (a button's) emits nothing
         out.clear();
         scroll.frame(&mut out);

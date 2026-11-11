@@ -1,5 +1,5 @@
 //! Compiles the Wayland shim, the portal's D-Bus shim and the checked-in wayland-scanner protocol code (no scanner at
-//! build time) and links libwayland-client, libxkbcommon and libdbus-1. Nothing on other targets.
+//! build time) and links libwayland-client, libwayland-cursor, libxkbcommon and libdbus-1. Nothing on other targets.
 //! The protocol files come from wayland-protocols 1.45 (`wayland-scanner client-header|private-code <xml>`; only
 //! tablet-v2's code, which cursor-shape-v1 references), with trailing blank lines stripped.
 //! Headers and libraries through pkg-config, else the default search paths (Debian/Ubuntu layout).
@@ -12,15 +12,16 @@ fn main() {
     }
     let protocols = ["xdg-shell", "xdg-decoration-unstable-v1", "viewporter", "fractional-scale-v1", "cursor-shape-v1", "tablet-v2", "text-input-unstable-v3", "relative-pointer-unstable-v1", "pointer-constraints-unstable-v1", "xdg-foreign-unstable-v2"];
     let mut build = cc::Build::new();
-    build.file("src/shim.c").includes(pkg_config(&["wayland-client", "xkbcommon"], "--cflags-only-I", "-I").unwrap_or_default()).warnings(true);
+    build.file("src/shim.c").includes(pkg_config(&["wayland-client", "wayland-cursor", "xkbcommon"], "--cflags-only-I", "-I").unwrap_or_default()).warnings(true);
     for protocol in protocols {
         build.file(format!("protocol/{protocol}.c"));
     }
     build.compile("pxui_wayland_shim");
     // The file dialog's D-Bus (the XDG desktop portal), its own shim beside pxui_atspi's.
     cc::Build::new().file("src/portal.c").includes(dbus_includes()).warnings(true).compile("pxui_wayland_portal");
-    link_search(&["wayland-client", "xkbcommon", "dbus-1"]);
+    link_search(&["wayland-client", "wayland-cursor", "xkbcommon", "dbus-1"]);
     println!("cargo:rustc-link-lib=wayland-client");
+    println!("cargo:rustc-link-lib=wayland-cursor");
     println!("cargo:rustc-link-lib=xkbcommon");
     println!("cargo:rustc-link-lib=dbus-1");
 }

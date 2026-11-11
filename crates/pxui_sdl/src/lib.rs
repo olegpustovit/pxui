@@ -353,6 +353,12 @@ impl Window {
         Ok(())
     }
 
+    /// Accepted for pxui_wayland parity: SDL's text input takes no surrounding text.
+    pub fn set_surrounding_text(&mut self, text: Option<(&str, usize, usize)>) -> Result<(), Error> {
+        let _ = text;
+        self.live().map(drop)
+    }
+
     /// Text input runs only while a text field has focus: `Some (region, cursor)` (logical points)
     /// starts it and places the input method there, `None` stops it. Repeating the same answer
     /// costs no SDL call.
