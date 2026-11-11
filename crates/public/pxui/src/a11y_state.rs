@@ -1,4 +1,4 @@
-use crate::{PxuiBox, Ui, check};
+use crate::{PxuiBox, Ui};
 
 #[cfg(feature = "static")]
 mod sys {
@@ -18,11 +18,11 @@ impl Ui {
     #[inline]
     #[track_caller] pub fn a11y_number(&mut self, box_: &PxuiBox, now: f64, min: f64, max: f64, step: f64)  {
         let rc = unsafe { sys::pxui_ui_a11y_number(self.0.as_ptr(), box_, now, min, max, step) };
-        check(self, rc)
+        crate::live(self, rc);
     }
     #[inline]
     #[track_caller] pub fn set_role(&mut self, box_: &PxuiBox, role: pxui_types::a11y::Role, states: u32)  {
         let rc = unsafe { sys::pxui_ui_set_role(self.0.as_ptr(), box_, role as u32, states) };
-        check(self, rc)
+        crate::live(self, rc);
     }
 }

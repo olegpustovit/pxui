@@ -233,8 +233,8 @@ impl Ui {
             KeyframeDesc { time: key.time, target, reserved: [0; 4], values, look, curve: encode_curve(key.curve) }
         }).collect();
         let mut out = 0;
-        check(self, unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, Slice { ptr: descriptors.as_ptr(), len: descriptors.len() }, &mut out) });
-        out != 0
+        let rc = unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, Slice { ptr: descriptors.as_ptr(), len: descriptors.len() }, &mut out) };
+        crate::live(self, rc) && out != 0
     }
 
     #[inline]

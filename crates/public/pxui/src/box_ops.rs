@@ -96,27 +96,28 @@ impl Ui {
     #[track_caller]
     pub fn patch_look(&mut self, b: &PxuiBox, value: &Look) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_patch_look(self.0.as_ptr(), b, &look(*value), &mut out) });
-        out != 0
+        let rc = unsafe { lib::pxui_ui_patch_look(self.0.as_ptr(), b, &look(*value), &mut out) };
+        crate::live(self, rc) && out != 0
     }
     #[inline]
     #[track_caller]
     pub fn patch_rect(&mut self, b: &PxuiBox, value: Rect) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_patch_rect(self.0.as_ptr(), b, value, &mut out) });
-        out != 0
+        let rc = unsafe { lib::pxui_ui_patch_rect(self.0.as_ptr(), b, value, &mut out) };
+        crate::live(self, rc) && out != 0
     }
     #[track_caller]
     pub fn patch_mark(&mut self, b: &PxuiBox, value: Mark) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_patch_mark(self.0.as_ptr(), b, &mark(value), &mut out) });
-        out != 0
+        let rc = unsafe { lib::pxui_ui_patch_mark(self.0.as_ptr(), b, &mark(value), &mut out) };
+        crate::live(self, rc) && out != 0
     }
     #[inline]
     #[track_caller]
     pub fn local_rect(&self, b: &PxuiBox) -> Rect {
         let mut out = Rect::default();
-        check(self, unsafe { lib::pxui_ui_local_rect(self.0.as_ptr(), b, &mut out) });
+        let rc = unsafe { lib::pxui_ui_local_rect(self.0.as_ptr(), b, &mut out) };
+        if !crate::live(self, rc) { return Rect::default(); }
         out
     }
     #[inline]

@@ -8,10 +8,10 @@ use core::marker::PhantomData;
 use core::ptr::NonNull;
 pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
 pub use pxui_types::ffi::PxuiNodeDesc;
-pub use pxui_types::{Commands, Gpu, Image, Pass};
+pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str};
+pub use pxui_types::ffi::Slice;
 pub use a11y_ffi::A11yBridge;
 pub use pxui_types::TextStyle;
-use pxui_types::Str;
 
 pub use pxui_types::{draw, geom};
 pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};
@@ -38,7 +38,7 @@ pub mod ui_text {
         let ((px, py), (rx, ry)) = (signal.press_point, signal.release_point);
         signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
     }
-    pub use pxui_types::ui::{fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
+    pub use pxui_types::ui::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
     pub use crate::{Language, MenuOpts, PickerOpts, ScrubPhase, Submenu, TextAreaOpts, ValueFieldOpts};
 }
 pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
@@ -124,6 +124,8 @@ mod sys {
         pub fn pxui_ui_tokens(ui:*mut PxuiUi)->pxui_types::ffi::ThemeTokens;
         pub fn pxui_ui_theme(ui:*mut PxuiUi,out:*mut pxui_types::ffi::PxuiThemeSnapshot,looks:*mut pxui_types::ffi::PxuiLookDesc,capacity:usize)->i32;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
+        pub fn pxui_ui_layer_drawn(ui:*mut PxuiUi,layer:u64)->i32;
+        pub fn pxui_ui_input(ui:*mut PxuiUi,has_owner:u8,owner:i64,out:*mut pxui_types::ffi::Input)->i32;
         pub fn pxui_ui_frame(ui:*mut PxuiUi,input:*const pxui_types::ffi::Input,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_ui_set_theme(ui:*mut PxuiUi,source:*const ThemeSource)->i32;
         pub fn pxui_ui_set_dir(ui:*mut PxuiUi,dir:u32)->i32;
@@ -155,6 +157,7 @@ mod sys {
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
+        pub fn pxui_renderer_draw_calls(renderer:*mut PxuiRenderer)->u64;
         pub fn pxui_renderer_atlas(renderer:*mut PxuiRenderer,kind:u32,out:*mut pxui_types::Image)->i32;
         pub fn pxui_renderer_destroy(renderer:*mut PxuiRenderer);
     }
@@ -186,6 +189,52 @@ impl Renderer {
     }
 }
 
+impl Renderer {
+    /// The draw calls the renderer has issued so far.
+    pub fn draw_calls(&self)->u64 { unsafe { sys::pxui_renderer_draw_calls(self.raw.as_ptr()) } }
+}
+
+/// A layer of the last frame: the key of its root box, its retained id, its instances, how many texture breaks they hold and the
+/// instance ranges changed since it was last drawn.
+#[derive(Clone, Copy, Debug)]
+pub struct Layer<'a> { pub key: i64, pub id: u32, pub breaks: usize, pub instances: &'a [pxui_types::draw::Instance], pub dirty: &'a [pxui_types::ffi::PxuiDirty] }
+
+/// What a pass split hands the app's recorder: the colour target of the pass the app just ended.
+pub type Recorder<'a> = &'a mut dyn FnMut(&pxui_types::Image) -> Result<(), i32>;
+
+struct Split<'a> { f: &'a mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, i32>, error: i32 }
+
+extern "C" fn split_pass(user: *mut c_void, record: pxui_types::PassRecord, record_user: *mut c_void, out: *mut pxui_types::Pass) -> i32 {
+    if deferred_panic() { return -1; }
+    let split = unsafe { &mut *user.cast::<Split>() };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut recorder = |image: &pxui_types::Image| -> Result<(), i32> { let rc = record(record_user, image); if rc == 0 { Ok(()) } else { Err(rc) } };
+        (split.f)(&mut recorder)
+    }));
+    match result {
+        Ok(Ok(next)) => { unsafe { *out = next; } 0 }
+        Ok(Err(code)) => { split.error = code; if code == 0 { -1 } else { code } }
+        Err(panic) => { composite::defer_callback_panic(panic); -1 }
+    }
+}
+
+#[inline]
+fn deferred_panic() -> bool { composite::deferred() }
+
+impl Renderer {
+    /// Draws one layer of the last frame (`Ui::layers()[layer]`) into the app's open pass, so the app can draw its own content
+    /// between layers. A layer with a backdrop blur calls `split`: end the open pass, hand `record` the colour target it holds so far
+    /// (the library records the blur into the prepared command buffer), reopen a pass over the same target (load, not clear; the same
+    /// viewport and scissor) and return it; the rest of the layer draws into that pass.
+    pub fn draw_layer(&mut self, pass: &pxui_types::Pass, layer: u32, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, i32>) -> Result<(), i32> {
+        let mut ctx = Split { f: split, error: 0 };
+        let pass = pxui_types::Pass { first_layer: layer, layer_count: 1, split: Some(split_pass), split_user: (&mut ctx as *mut Split).cast(), ..*pass };
+        let rc = unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(), &pass) };
+        composite::resume_deferred();
+        if rc == 0 { Ok(()) } else { Err(if ctx.error != 0 { ctx.error } else { rc }) }
+    }
+}
+
 /// A glyph atlas of the renderer, for an app pass that draws text quads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AtlasKind { Mask, Color }
@@ -200,6 +249,23 @@ impl Renderer {
 }
 
 impl Drop for Renderer { fn drop(&mut self) { unsafe { sys::pxui_renderer_destroy(self.raw.as_ptr()) } } }
+
+/// The input of a frame as routed to one owner: its scalars and the wire form of its keys, buttons and events (the numbering of
+/// `input::wire`), borrowed from the `Ui`.
+pub struct Routed<'a> { raw: Input, _ui: PhantomData<&'a mut Ui> }
+
+impl Routed<'_> {
+    #[inline] pub fn input(&self) -> &Input { &self.raw }
+    pub fn keys(&self) -> &[u32] { if self.raw.keys.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(self.raw.keys.ptr, self.raw.keys.len) } } }
+    pub fn buttons(&self) -> &[u32] { if self.raw.buttons.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(self.raw.buttons.ptr, self.raw.buttons.len) } } }
+    pub fn events(&self) -> &[Event] { if self.raw.events.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(self.raw.events.ptr, self.raw.events.len) } } }
+}
+
+/// The UTF-8 text of an event (empty when it has none).
+pub fn event_text(event: &Event) -> &str {
+    if event.text.len == 0 || event.text.ptr.is_null() { return ""; }
+    core::str::from_utf8(unsafe { core::slice::from_raw_parts(event.text.ptr, event.text.len) }).unwrap_or("")
+}
 
 /// One built frame: the draw output and damage of `pxui_frame`. It borrows the `Ui` it came from, so the
 /// layer pointers it holds cannot be read after the next frame invalidates them.
@@ -248,6 +314,15 @@ impl Ui {
         self.framed(rc, out)
     }
 
+    /// The last frame's input as the engine routed it to `owner` (a viewport's root key; `None`: the app's), borrowed until the
+    /// next frame or call. Panics before the first frame, like the engine.
+    #[track_caller]
+    pub fn routed_input(&mut self, owner: Option<i64>) -> Routed<'_> {
+        let mut raw = Input::default();
+        check(self, unsafe { sys::pxui_ui_input(self.0.as_ptr(), owner.is_some() as u8, owner.unwrap_or_default(), &mut raw) });
+        Routed { raw, _ui: PhantomData }
+    }
+
     fn framed(&mut self, rc:i32, out:FrameOut)->Result<Frame<'_>,i32> {
         composite::resume_deferred();
         if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(rc) }
@@ -259,15 +334,48 @@ impl Ui {
         core::str::from_utf8(unsafe { core::slice::from_raw_parts(s.ptr, s.len) }).unwrap_or("invalid error string")
     }
 
+    /// The accessibility nodes of the last frame (parents before children), when `set_a11y(true)`.
+    pub fn a11y_nodes(&self) -> &[A11yNode] {
+        let nodes = self.output().a11y.nodes;
+        if nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(nodes.ptr, nodes.len) } }
+    }
+
+    /// The accessible name of `node`, one of `a11y_nodes()`.
+    pub fn a11y_name_of(&self, node: &A11yNode) -> &str {
+        let strings = self.output().a11y.strings;
+        if strings.len == 0 { return ""; }
+        let text = unsafe { core::slice::from_raw_parts(strings.ptr, strings.len) };
+        text.get(node.name_start as usize..node.name_end as usize).and_then(|name| core::str::from_utf8(name).ok()).unwrap_or("")
+    }
+
+    /// How many layers the last frame has (a floating root's each, in draw order).
+    #[inline] pub fn layer_count(&self) -> usize { self.output().layers.len }
+
+    /// Layer `index` of the last frame.
+    pub fn layer(&self, index: usize) -> Layer<'_> {
+        let layers = self.output().layers;
+        assert!(index < layers.len, "pxui: layer {index} of {}", layers.len);
+        let raw = unsafe { *layers.ptr.add(index) };
+        let span = |ptr, len| if len == 0 { &[][..] } else { unsafe { core::slice::from_raw_parts(ptr, len) } };
+        Layer { key: raw.key, id: raw.id, breaks: raw.breaks as usize, instances: span(raw.instances.ptr, raw.instances.len), dirty: { let d = raw.dirty; if d.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(d.ptr, d.len) } } } }
+    }
+
+    /// The last frame's layers in draw order.
+    pub fn layers(&self) -> impl Iterator<Item = Layer<'_>> + '_ { (0..self.layer_count()).map(|index| self.layer(index)) }
+
+    /// Marks layer `index` of the last frame drawn (its dirty ranges clear), as `Renderer::draw_layer` does: for a host that
+    /// reads the layers itself.
+    #[track_caller] pub fn drawn(&mut self, index: usize) { check(self, unsafe { sys::pxui_ui_layer_drawn(self.0.as_ptr(), index as u64) }) }
+
     /// The output of the last frame, borrowed from the `Ui`: a new frame needs `&mut self`, so a stale read does not compile.
     #[inline]
     pub fn output(&self) -> &Output { unsafe { &*sys::pxui_ui_output(self.0.as_ptr()) } }
-    pub fn tokens(&mut self) -> pxui_types::theme::Tokens { unsafe { sys::pxui_ui_tokens(self.0.as_ptr()) }.into() }
+    pub fn tokens(&self) -> pxui_types::theme::Tokens { unsafe { sys::pxui_ui_tokens(self.0.as_ptr()) }.into() }
     /// The theme in effect, whole. It is decoded from the library's snapshot on every call (about 50 KB on the stack):
     /// call it once and keep what it gives.
     // ponytail: no cache; a per-theme-epoch cache in the library if a hot path ever calls this per widget.
     #[track_caller]
-    pub fn theme(&mut self) -> pxui_types::theme::ThemeSnapshot {
+    pub fn theme(&self) -> pxui_types::theme::ThemeSnapshot {
         let mut head = pxui_types::ffi::PxuiThemeSnapshot { size: core::mem::size_of::<pxui_types::ffi::PxuiThemeSnapshot>() as u32, part_count: 0, tokens: unsafe { core::mem::zeroed() }, row_h: 0.0, control_h: 0.0, scrollbar_w: 0.0, scrollbar_gap: 0.0, ring: unsafe { core::mem::zeroed() } };
         let mut looks = [pxui_types::ffi::PxuiLookDesc::default(); pxui_types::theme::WIDGET_COUNT * 6];
         check(self, unsafe { sys::pxui_ui_theme(self.0.as_ptr(), &mut head, looks.as_mut_ptr(), looks.len()) });
@@ -275,9 +383,9 @@ impl Ui {
     }
 
     #[inline] pub fn draw_revision(&self) -> u64 { self.output().draw_revision }
-    #[inline] pub fn built_nodes(&self) -> u64 { self.output().built_nodes }
-    #[inline] pub fn rebuilt_views(&self) -> u64 { self.output().rebuilt_views }
-    #[inline] pub fn arranged_nodes(&self) -> u64 { self.output().arranged_nodes }
+    #[inline] pub fn built_nodes(&self) -> usize { self.output().built_nodes as usize }
+    #[inline] pub fn rebuilt_views(&self) -> usize { self.output().rebuilt_views as usize }
+    #[inline] pub fn arranged_nodes(&self) -> usize { self.output().arranged_nodes as usize }
     pub fn view_size(&self) -> (f32, f32) {
         let mut out = pxui_types::geom::Point::default();
         let _ = unsafe { sys::pxui_ui_view_size(self.0.as_ptr(), &mut out) };
@@ -303,7 +411,7 @@ impl Ui {
         let mut out=PxuiBox::default();check(self, unsafe{sys::pxui_ui_node(self.0.as_ptr(),as_str(label),node,&mut out)});out
     }
     #[inline]
-    #[track_caller] pub fn rect(&mut self,box_:&PxuiBox)-> geom::Rect {
+    #[track_caller] pub fn rect(&self,box_:&PxuiBox)-> geom::Rect {
         let mut out=geom::Rect::default();check(self, unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)});out
     }
     #[inline] pub fn box_of_key(&self,key:i64)->Option<PxuiBox>{let mut out=PxuiBox::default();(unsafe{sys::pxui_ui_box_of_key(self.0.as_ptr(),key,&mut out)}!=0).then_some(out)}
@@ -374,6 +482,15 @@ impl Strs {
 
 #[inline]
 fn as_str(s: &str) -> Str { Str { ptr: s.as_ptr(), len: s.len() } }
+
+/// `rc` of a call the engine tolerates a stale handle for: true when it ran, false when the handle had gone; anything else is the
+/// caller bug `check` reports.
+#[track_caller]
+fn live(ui: &Ui, rc: i32) -> bool {
+    if rc == pxui_types::PXUI_ERR_STALE { return false; }
+    check(ui, rc);
+    true
+}
 
 /// A failed call is a caller bug the engine would panic on (stale handle, non-finite number, oversized text):
 /// it panics with the library's message, inside the frame callback (carried to the app's `frame` call) or at the call.

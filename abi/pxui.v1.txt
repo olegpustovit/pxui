@@ -35,6 +35,7 @@ function pxui_renderer_atlas int32_t pxui_renderer_atlas ( PxuiRenderer * render
 function pxui_renderer_create PxuiRenderer * pxui_renderer_create ( PxuiUi * ui , const PxuiGpu * gpu , const PxuiTargetDesc * target ) ;
 function pxui_renderer_destroy void pxui_renderer_destroy ( PxuiRenderer * renderer ) ;
 function pxui_renderer_draw int32_t pxui_renderer_draw ( PxuiRenderer * renderer , const PxuiPass * pass ) ;
+function pxui_renderer_draw_calls uint64_t pxui_renderer_draw_calls ( PxuiRenderer * renderer ) ;
 function pxui_renderer_prepare int32_t pxui_renderer_prepare ( PxuiRenderer * renderer , const PxuiCommands * commands , uint64_t frame , uint64_t completed ) ;
 function pxui_scope void pxui_scope ( PxuiUi * ui , PxuiStr label , PxuiBuild build , void * user ) ;
 function pxui_shaper_add_font uint32_t pxui_shaper_add_font ( PxuiShaper * shaper , PxuiStr font ) ;
@@ -97,6 +98,7 @@ function pxui_ui_hovered int32_t pxui_ui_hovered ( PxuiUi * ui , const PxuiBox *
 function pxui_ui_icon_button int32_t pxui_ui_icon_button ( PxuiUi * ui , PxuiStr label , PxuiStr icon , uint8_t * out ) ;
 function pxui_ui_image int32_t pxui_ui_image ( PxuiUi * ui , PxuiStr label , const PxuiImage * image , uint32_t fit , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBox * out ) ;
 function pxui_ui_inject_a11y int32_t pxui_ui_inject_a11y ( PxuiUi * ui , const PxuiA11yAction * actions , size_t count ) ;
+function pxui_ui_input int32_t pxui_ui_input ( PxuiUi * ui , uint8_t has_owner , int64_t owner , PxuiInput * out ) ;
 function pxui_ui_inspector_bar int32_t pxui_ui_inspector_bar ( PxuiUi * ui , PxuiHintSpan hints , int64_t count ) ;
 function pxui_ui_inspector_body int32_t pxui_ui_inspector_body ( PxuiUi * ui , PxuiBuild build , void * user ) ;
 function pxui_ui_inspector_button int32_t pxui_ui_inspector_button ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t * out ) ;
@@ -111,6 +113,7 @@ function pxui_ui_inspector_toggle int32_t pxui_ui_inspector_toggle ( PxuiUi * ui
 function pxui_ui_inspector_toggle_value int32_t pxui_ui_inspector_toggle_value ( PxuiUi * ui , PxuiStr key , float x , float y , uint8_t value , uint8_t * out ) ;
 function pxui_ui_inspector_width float pxui_ui_inspector_width ( PxuiUi * ui ) ;
 function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
+function pxui_ui_layer_drawn int32_t pxui_ui_layer_drawn ( PxuiUi * ui , uint64_t layer ) ;
 function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
 function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr * text , uint32_t * step ) ;
 function pxui_ui_list_view int32_t pxui_ui_list_view ( PxuiUi * ui , const PxuiListViewDesc * desc , size_t * activated ) ;
@@ -193,6 +196,7 @@ function pxui_ui_view_offset int32_t pxui_ui_view_offset ( PxuiUi * ui , const P
 function pxui_ui_view_size int32_t pxui_ui_view_size ( PxuiUi * ui , PxuiPoint * out ) ;
 function pxui_ui_view_transform_about int32_t pxui_ui_view_transform_about ( PxuiUi * ui , const PxuiBox * box , float scale , const float * transform , float px , float py ) ;
 function pxui_ui_wants_frame int32_t pxui_ui_wants_frame ( PxuiUi * ui , PxuiEventSpan events , double now , uint8_t * out ) ;
+function pxui_verify_new_views int32_t pxui_verify_new_views ( uint8_t on ) ;
 function pxui_within void pxui_within ( PxuiUi * ui , const PxuiBox * box , PxuiBuild build , void * user ) ;
 layout A11yAction 32 8 0 8 12 16 24 28
 layout A11yNode 128 8 0 8 12 16 20 24 28 32 80 96 100 104 112 116 120 124
@@ -209,7 +213,7 @@ layout Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
 layout Image 40 8 0 8 16 24 28 32
 layout Input 160 8 0 8 16 24 32 40 56 72 88 104 120 136 152
 layout Instance 64 4 0 16 24 28 32 40 48 50 51 52 54 56
-layout Output 224 8 0 4 8 16 24 32 40 48 136 160
+layout Output 240 8 0 4 8 16 24 32 40 48 136 160 224
 layout Pass 72 8 0 8 16 24 28 32 40 48 52 56 64
 layout PlatformOut 88 8 0 4 8 9 10 11 16 48 56 72 76 77
 layout Point 8 4 0 4
@@ -224,6 +228,7 @@ layout PxuiCompletion 80 8 0 8 16 32 48 64
 layout PxuiCurveDesc 28 4 0 4 8 24
 layout PxuiDescription 40 8 0 1 8 16 24
 layout PxuiDialogOut 16 8 0 8
+layout PxuiDirty 8 4 0 4
 layout PxuiF32MutSpan 16 8 0 8
 layout PxuiFontDesc 24 8 0 2 8 16 20 21
 layout PxuiFooterDesc 40 8 0 1 8 24
@@ -238,6 +243,7 @@ layout PxuiInspectorSectionDesc 64 8 0 16 32 33 34 35 40 48 56
 layout PxuiInspectorTextDesc 32 8 0 16
 layout PxuiInspectorValueDesc 64 8 0 16 32 48 49 56
 layout PxuiKeyframeDesc 216 8 0 4 8 12 32 184
+layout PxuiLayerInfo 48 8 0 8 12 16 32
 layout PxuiListViewDesc 64 8 0 16 24 25 32 48 56
 layout PxuiLookDesc 152 8 0 4 8 12 16 20 24 28 44 92 96 120 124 136 140 144 145
 layout PxuiMarkDesc 16 4 0 4 8 12 13

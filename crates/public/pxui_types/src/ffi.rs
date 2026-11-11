@@ -56,6 +56,18 @@ impl Default for PlatformOut {
     }
 }
 
+/// Instances `start..end` of a layer changed since it was last drawn.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PxuiDirty { pub start: u32, pub end: u32 }
+
+/// One layer of the last frame (a floating root's, drawn in order): the key of its root box, its retained id, its instances (an
+/// empty layer draws nothing), how many texture breaks they hold and the instance ranges changed since it was last drawn. Borrowed
+/// until the next frame.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiLayerInfo { pub key: i64, pub id: u32, pub breaks: u32, pub instances: Slice<crate::draw::Instance>, pub dirty: Slice<PxuiDirty> }
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Damage { pub has_damage: u8, pub reserved: [u8; 3], pub rect: Rect }
@@ -72,6 +84,11 @@ pub struct A11yValue {
     pub min: f64,
     pub max: f64,
     pub step: f64,
+}
+
+impl A11yNode {
+    /// Whether the node has `role`.
+    #[inline] pub fn is_role(&self, role: crate::a11y::Role) -> bool { self.role == role as u32 }
 }
 
 #[repr(C)]
@@ -124,12 +141,14 @@ pub struct Output {
     pub platform: PlatformOut,
     pub damage: Damage,
     pub a11y: A11yTree,
+    /// the last frame's layers in draw order, borrowed until the next frame
+    pub layers: Slice<PxuiLayerInfo>,
 }
 impl Default for Output {
     fn default() -> Self {
         Self { size: core::mem::size_of::<Self>() as u32, reserved: 0, draw_revision: 0, repaint_at: f64::INFINITY, built_nodes: 0, rebuilt_views: 0, arranged_nodes: 0,
             platform: PlatformOut { size: core::mem::size_of::<PlatformOut>() as u32, ..PlatformOut::default() }, damage: Damage::default(),
-            a11y: A11yTree { nodes: Slice::default(), strings: Str::default(), revision: 0, first_child: u32::MAX, child_count: 0, actions: Slice::default() } }
+            a11y: A11yTree { nodes: Slice::default(), strings: Str::default(), revision: 0, first_child: u32::MAX, child_count: 0, actions: Slice::default() }, layers: Slice::default() }
     }
 }
 
@@ -676,7 +695,9 @@ mod layout {
         check("A11yNode", size_of::<A11yNode>(), align_of::<A11yNode>(), &[0, 8, 12, 16, 20, 24, 28, 32, 80, 96, 100, 104, 112, 116, 120, 124]);
         check("A11yAction", size_of::<A11yAction>(), align_of::<A11yAction>(), &[0, 8, 12, 16, 24, 28]);
         check("A11yTree", size_of::<A11yTree>(), align_of::<A11yTree>(), &[0, 16, 32, 40, 44, 48, 56]);
-        check("Output", size_of::<Output>(), align_of::<Output>(), &[0, 4, 8, 16, 24, 32, 40, 48, 136, 160]);
+        check("Output", size_of::<Output>(), align_of::<Output>(), &[0, 4, 8, 16, 24, 32, 40, 48, 136, 160, 224]);
+        check("PxuiLayerInfo", size_of::<PxuiLayerInfo>(), align_of::<PxuiLayerInfo>(), &[0, 8, 12, 16, 32]);
+        check("PxuiDirty", size_of::<PxuiDirty>(), align_of::<PxuiDirty>(), &[0, 4]);
         check("ThemeSource", size_of::<ThemeSource>(), align_of::<ThemeSource>(), &[0, 4, 8]);
         check("PxuiMotion", size_of::<PxuiMotion>(), align_of::<PxuiMotion>(), &[offset_of!(PxuiMotion, fast), offset_of!(PxuiMotion, normal), offset_of!(PxuiMotion, slow), offset_of!(PxuiMotion, ease)]);
         check("PxuiThemeTokens", size_of::<ThemeTokens>(), align_of::<ThemeTokens>(), &[offset_of!(ThemeTokens, panel), offset_of!(ThemeTokens, foreground), offset_of!(ThemeTokens, control), offset_of!(ThemeTokens, input), offset_of!(ThemeTokens, track), offset_of!(ThemeTokens, accent), offset_of!(ThemeTokens, ink_ground), offset_of!(ThemeTokens, has_ink_ground), offset_of!(ThemeTokens, reserved), offset_of!(ThemeTokens, space), offset_of!(ThemeTokens, radius), offset_of!(ThemeTokens, display_size), offset_of!(ThemeTokens, title_size), offset_of!(ThemeTokens, font_size), offset_of!(ThemeTokens, label_size), offset_of!(ThemeTokens, motion), offset_of!(ThemeTokens, reduced_motion), offset_of!(ThemeTokens, reserved_tail), offset_of!(ThemeTokens, density)]);

@@ -101,6 +101,16 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
             });
         }
     }
+    // the dirty ranges first, all of them, so no slice below points into a vector that grows
+    shared.dirty.clear();
+    shared.dirty.extend(output.draw.iter().flat_map(|l| l.dirty.iter().map(|&(start, end)| pxui_types::ffi::PxuiDirty { start, end })));
+    shared.layers.clear();
+    let mut at = 0;
+    for l in output.draw.iter() {
+        let dirty = Slice { ptr: shared.dirty.as_ptr().wrapping_add(at), len: l.dirty.len() };
+        at += l.dirty.len();
+        shared.layers.push(pxui_types::ffi::PxuiLayerInfo { key: l.key, id: l.id, breaks: l.breaks.len() as u32, instances: Slice { ptr: l.instances.as_ptr(), len: l.instances.len() }, dirty });
+    }
     let platform = output.platform;
     let (cursor, has_cursor) = match platform.cursor {
         Some(pxui_core::ui::Cursor::HorizontalResize) => (1, true), Some(pxui_core::ui::Cursor::VerticalResize) => (2, true),
@@ -123,6 +133,7 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
             nodes: Slice { ptr: shared.nodes.as_ptr(), len: shared.nodes.len() }, strings: Str { ptr: tree.strings.as_ptr(), len: tree.strings.len() },
             revision: tree.revision, first_child: tree.first_child(u32::MAX), child_count: tree.child_count(u32::MAX), actions: Slice::default(),
         },
+        layers: Slice { ptr: shared.layers.as_ptr(), len: shared.layers.len() },
     };
 }
 
@@ -297,6 +308,50 @@ export!(frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, 
     if !unsafe { push_events(&mut base, input.events) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     let frame = frame::Frame { input: base, pixel_scale: (input.pixel_scale[0], input.pixel_scale[1]), fps: input.fps, mouse_delta: (input.mouse_delta[0], input.mouse_delta[1]) };
     unsafe { run_frame(ui, &frame, build, user, out) }
+});
+
+// The frame's input as the engine routed it to `owner` (a viewport's root key; none: the app's), for the app's own content: the
+// same record `pxui_ui_frame` takes, borrowed until the next call. Only after a frame has run.
+export!(pub unsafe fn pxui_ui_input(ui: *mut PxuiUi, has_owner: u8, owner: i64, out: *mut Input) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() || has_owner > 1 { return unsafe { fail(ui, "invalid input query") }; }
+    let engine = unsafe { &*state.engine };
+    if engine.frame_index() == 0 { return unsafe { fail_code(ui, "no frame has completed", PXUI_ERR_STATE) }; }
+    let shared = state.shared();
+    shared.routed = Some(engine.input((has_owner != 0).then_some(owner)));
+    let Some(f) = shared.routed.as_ref() else { return PXUI_ERR_STATE };
+    shared.routed_events.clear();
+    shared.routed_text.clear();
+    shared.routed_text.resize(f.input.events.len(), String::new());
+    for (event, scratch) in f.input.events.iter().zip(shared.routed_text.iter_mut()) {
+        let raw = event.raw(scratch);
+        let text = raw.text.unwrap_or("");
+        shared.routed_events.push(pxui_types::Event { kind: raw.kind, code: raw.code, x: raw.x, y: raw.y, value: raw.value, text: Str { ptr: text.as_ptr(), len: text.len() } });
+    }
+    shared.routed_keys.clear();
+    shared.routed_keys.extend(f.input.keys.iter().map(|k| k.code()));
+    shared.routed_buttons.clear();
+    shared.routed_buttons.extend(f.input.buttons.iter().map(|b| b.code()));
+    unsafe {
+        *out = Input {
+            size: core::mem::size_of::<Input>() as u32, time: f.input.t, dt: f.input.dt, frame: f.input.frame, tick: f.input.tick,
+            logical_size: [f.input.size.0, f.input.size.1], pointer: [f.input.pointer.0, f.input.pointer.1],
+            keys: Slice { ptr: shared.routed_keys.as_ptr(), len: shared.routed_keys.len() }, buttons: Slice { ptr: shared.routed_buttons.as_ptr(), len: shared.routed_buttons.len() },
+            events: Slice { ptr: shared.routed_events.as_ptr(), len: shared.routed_events.len() },
+            pixel_scale: [f.pixel_scale.0, f.pixel_scale.1], mouse_delta: [f.mouse_delta.0, f.mouse_delta.1], fps: f.fps,
+        };
+    }
+    0
+});
+
+// Marks layer `layer` of the last frame drawn (its dirty ranges clear), as `pxui_renderer_draw` does for a layer it draws: for a
+// host that reads the layers itself.
+export!(pub unsafe fn pxui_ui_layer_drawn(ui: *mut PxuiUi, layer: u64) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let engine = unsafe { &mut *state.engine };
+    if layer as usize >= engine.output().draw.len() { return unsafe { fail(ui, "no such layer") }; }
+    engine.drawn(layer as usize);
+    0
 });
 
 export!(pub unsafe fn pxui_within(ui: *mut PxuiUi, box_: *const PxuiBox, build: Build, user: *mut c_void) {

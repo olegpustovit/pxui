@@ -12,7 +12,7 @@ export!(pub unsafe fn pxui_ui_a11y_number(ui: *mut PxuiUi, box_: *const PxuiBox,
         return unsafe { fail(ui, "invalid accessibility number") };
     }
     let engine = unsafe { &mut *state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale accessibility box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale accessibility box", crate::PXUI_ERR_STALE) }; };
     engine.a11y_number(&box_, now, min, max, step);
     0
 });
@@ -35,7 +35,7 @@ export!(pub unsafe fn pxui_ui_set_role(ui: *mut PxuiUi, box_: *const PxuiBox, ro
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() || role > Role::Separator as u32 { return unsafe { fail(ui, "invalid role arguments") }; }
     let engine = unsafe { &mut *state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale accessibility box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale accessibility box", crate::PXUI_ERR_STALE) }; };
     let role = unsafe { core::mem::transmute::<u8, Role>(role as u8) };
     engine.set_role(&box_, role, states);
     0

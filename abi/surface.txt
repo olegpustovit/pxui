@@ -48,12 +48,15 @@ Paint|text_with|Rays|done
 Paint|text|Rays|done
 Paint|theme|Rays|inlined
 Renderer|draw|Gallery,Rays|done: layers first_layer.. of Pass, split callback for a backdrop blur
+Ui|a11y_name_of|Rays|done: the name text of one of them
 Ui|a11y_name|A4-required,Gallery,Rays|done
+Ui|a11y_nodes|Rays|done: the output's accessibility records as a slice
 Ui|a11y_number|A4-required|done
 Ui|anchored|Gallery|done
 Ui|animate_keys|Gallery|done
 Ui|animate|Rays|done
 Ui|arranged_nodes|Gallery|done
+Ui|background_request|Rays|done
 Ui|badge|Gallery|done
 Ui|begin_frame|Rays|replaced: frame builds begin, build and end in one call
 Ui|box_fmt|Rays|done
@@ -71,6 +74,7 @@ Ui|captured|Rays|done
 Ui|carrying|Rays|done
 Ui|carry|Rays|done
 Ui|checkbox|Gallery|done
+Ui|clipboard_request|Rays|done
 Ui|col|Rays|done
 Ui|context_at|Rays|done
 Ui|context_menu|Gallery,Rays|done
@@ -79,7 +83,7 @@ Ui|destroy|Gallery,Rays|replaced: dropping the Ui destroys it (the library refus
 Ui|dialog|Gallery|done
 Ui|dismiss_popup|Rays|done
 Ui|draw_revision|Gallery,Rays|done
-Ui|drawn|Gallery,Rays|replaced: Renderer::draw marks each layer drawn
+Ui|drawn|Rays|done: pxui_ui_layer_drawn, for a host that reads the layers itself (Renderer::draw_layer marks what it draws)
 Ui|drop_target|Rays|done
 Ui|dropdown|Gallery|done
 Ui|end_frame|Rays|replaced: frame
@@ -100,6 +104,7 @@ Ui|hovered_within|Rays|done
 Ui|icon_button|Gallery|done
 Ui|id|Rays|done: the library handle, a stable key for app state per Ui
 Ui|image|Gallery|done
+Ui|ime|Rays|done
 Ui|inject_a11y|Gallery|done
 Ui|input|Rays|replaced: frame takes the host's input as FrameIn/Input
 Ui|inspector_bar|Rays|done
@@ -118,6 +123,9 @@ Ui|inspector_width|Rays|done
 Ui|key_pressed|Rays|done
 Ui|label|Gallery,Rays|done
 Ui|last_press_within|Rays|inlined
+Ui|layer_count|Rays|done
+Ui|layers|Rays|done: every layer in draw order
+Ui|layer|Rays|done: a safe view of one layer of the last frame (instances, dirty ranges, breaks)
 Ui|leave|A4-required,Rays|done
 Ui|line_field|Rays|done
 Ui|list_view|Gallery|done
@@ -131,6 +139,7 @@ Ui|node|A4-required,Gallery,Rays|done
 Ui|output|Gallery,Rays|done
 Ui|panel|Gallery,Rays|done
 Ui|passed_undo|Rays|done
+Ui|paste_requested|Rays|done
 Ui|patch_field|Rays|done
 Ui|patch_look|Rays|done
 Ui|patch_mark|Rays|done
@@ -152,6 +161,7 @@ Ui|repaint_at|Gallery,Rays|done
 Ui|request_cursor|Rays|done
 Ui|request_frame|Gallery,Rays|done
 Ui|root_at|Rays|done
+Ui|routed_input|Rays|done: pxui_ui_input, the frame's input as routed to an owner
 Ui|row_height|Rays|done
 Ui|scope|Rays|done
 Ui|scroll_offset|Rays|done
@@ -199,6 +209,7 @@ Ui|tooltip|Rays|done
 Ui|tree|Gallery|done
 Ui|unfocus|Rays|done
 Ui|value_field|Gallery,Rays|done
+Ui|verify_new_views|Rays|done: pxui_verify_new_views
 Ui|verify_views|Rays|done
 Ui|verifying|Rays|done
 Ui|view_backdrop_blur|Rays|done

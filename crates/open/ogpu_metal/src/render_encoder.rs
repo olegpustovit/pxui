@@ -282,7 +282,8 @@ impl DriverRenderEncoder for Render {
         self.encoder.set_viewport(ogpu_core::render_pass::admit_viewport(ogpu_core::render_pass::Viewport { x: 0.0, y: 0.0, width: w, height: h, znear: 0.0, zfar: 1.0 })?)?;
         self.encoder.set_scissor(Scissor { x: 0, y: 0, width: self.width_px as usize, height: self.height_px as usize })?;
         self.encoder.set_cull_mode(Cull::CullNone)?;
-        self.encoder.set_winding(OgpuWinding::Clockwise)?;
-        self.encoder.set_depth_stencil_state(None)
+        // The depth-stencil state stays as it is: Metal has no way to unset one (the validation layer refuses nil), and a pass the UI
+        // draws into has no depth attachment for it to matter.
+        self.encoder.set_winding(OgpuWinding::Clockwise)
     }
 }

@@ -288,3 +288,8 @@ export!(pub unsafe fn pxui_renderer_atlas(renderer:*mut PxuiRenderer, kind:u32, 
     unsafe { *out=pxui_types::Image { size:core::mem::size_of::<pxui_types::Image>() as u32, vk_image_view:native.vk_image_view, mtl_texture:native.mtl_texture, width:native.width, height:native.height, format }; }
     0
 });
+
+// The draw calls this renderer's painter has issued so far, for tests that pin how many a frame takes.
+export!(pub unsafe fn pxui_renderer_draw_calls(renderer:*mut PxuiRenderer) -> u64 {
+    unsafe { renderer.as_ref() }.map_or(0, |r| r.painter.draw_calls())
+});

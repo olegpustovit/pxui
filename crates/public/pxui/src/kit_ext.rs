@@ -49,8 +49,8 @@ impl Ui {
     #[track_caller]
     pub fn animate(&mut self, b: &PxuiBox, target: Target, curve: Curve) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_animate(self.0.as_ptr(), b, &keyframe(target, curve), &mut out) });
-        out != 0
+        let rc = unsafe { lib::pxui_ui_animate(self.0.as_ptr(), b, &keyframe(target, curve), &mut out) };
+        crate::live(self, rc) && out != 0
     }
     #[track_caller]
     pub fn button_styled(&mut self, text: &str, bare: bool, icon: bool, at_end: bool, ink: Option<Rgba>) -> bool {
@@ -129,7 +129,7 @@ impl Ui {
     #[track_caller]
     pub fn field_drag(&self, field: &PxuiBox) -> Option<(f32, f32)> {
         let (mut present, mut out) = (0, Point::default());
-        check(self, unsafe { lib::pxui_ui_field_drag(self.0.as_ptr(), field, &mut present, &mut out) });
-        (present != 0).then_some((out.x, out.y))
+        let rc = unsafe { lib::pxui_ui_field_drag(self.0.as_ptr(), field, &mut present, &mut out) };
+        (crate::live(self, rc) && present != 0).then_some((out.x, out.y))
     }
 }

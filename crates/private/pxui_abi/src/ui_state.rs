@@ -62,6 +62,13 @@ export!(pub unsafe fn pxui_ui_repaint_after(ui: *mut PxuiUi, seconds: f64) -> i3
     0
 });
 
+// `verify_views(true)` for every `Ui` created from now on: a test harness turns it on once, for the UIs its code under test creates.
+export!(bare pub unsafe fn pxui_verify_new_views(on: u8) -> i32 {
+    if on > 1 { return PXUI_ERR_ARGUMENT; }
+    pxui_core::ui::Ui::verify_new_views(on != 0);
+    0
+});
+
 export!(pub unsafe fn pxui_ui_verify_views(ui: *mut PxuiUi, on: u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if on > 1 { return unsafe { fail(ui, "invalid flag") }; }

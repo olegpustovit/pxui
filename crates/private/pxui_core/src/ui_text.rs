@@ -10,7 +10,7 @@ use crate::theme;
 const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
 use crate::ui_core::*;
 use crate::ui_kit::*;
-pub use pxui_types::ui::{Language, ScrubPhase, TextAreaOpts, PickerOpts, MenuOpts, Submenu, ValueFieldOpts, TextEdit, LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
+pub use pxui_types::ui::{scrubbed, Language, ScrubPhase, TextAreaOpts, PickerOpts, MenuOpts, Submenu, ValueFieldOpts, TextEdit, LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
 use input::{Event, Key, MouseButton};
 use crate::geom::{color, Rgba as Color};
 use std::rc::Rc;
@@ -235,35 +235,6 @@ pub fn word_at(text: &str, i: usize) -> (usize, usize) {
     }
 }
 
-/// A number literal dragged `dx` points: a float moves a tenth of its last decimal place per
-/// point (Shift: ten times that) and keeps one more decimal; an integer moves one per six points,
-/// as the inspector's integers do.
-pub fn scrubbed(literal: &str, dx: f32, coarse: bool) -> String {
-    let dx = dx as f64;
-    let int_value = literal.parse::<i64>().ok();
-    match (literal.find('.'), int_value) {
-        (None, Some(v)) => {
-            let n = (dx / 6.0).round();
-            if n == 0.0 {
-                literal.to_owned()
-            } else {
-                (((v as f64) + n).round() as i64).to_string()
-            }
-        }
-        (Some(dot), _) => {
-            let decimals = literal.len() - dot - 1;
-            let step = 10.0f64.powf(-((decimals + 1) as f64)) * if coarse { 10.0 } else { 1.0 };
-            let v = (literal).parse::<f64>().ok().unwrap_or(0.0) + dx * step;
-            let s = cfmt::f(v, decimals + 1);
-            let mut n = s.len();
-            while n > 0 && s.as_bytes()[n - 1] == b'0' {
-                n -= 1;
-            }
-            if n > 0 && s.as_bytes()[n - 1] == b'.' { s[..n + 1].to_owned() } else { s[..n].to_owned() }
-        }
-        (None, None) => literal.to_owned(),
-    }
-}
 
 // ---- the retained edit state ----
 

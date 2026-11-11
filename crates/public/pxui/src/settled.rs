@@ -66,7 +66,7 @@ fn a_settled_frame_through_the_wrapper_allocates_nothing() {
     let frame = |ui: &mut Ui, state: &mut State| {
         ui.frame(&input, &mut |ui: &mut Ui| panel(ui, state)).expect("frame");
         // the stat accessors read the cached output: no rebuild, no allocation
-        state.seen += ui.draw_revision() + ui.built_nodes() + ui.rebuilt_views() + ui.arranged_nodes() + ui.repaint_at().map_or(0, |_| 1);
+        state.seen += ui.draw_revision() + ui.built_nodes() as u64 + ui.rebuilt_views() as u64 + ui.arranged_nodes() as u64 + ui.repaint_at().map_or(0, |_| 1);
         let output = ui.output();
         state.seen += output.a11y.nodes.len as u64 + output.platform.has_clipboard as u64;
     };

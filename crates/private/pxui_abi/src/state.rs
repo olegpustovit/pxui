@@ -30,6 +30,8 @@ pub(crate) struct Shared {
     /// the output of the last frame, built once in `finish_frame` into these buffers
     pub output: Output,
     pub nodes: Vec<A11yNode>,
+    pub layers: Vec<pxui_types::ffi::PxuiLayerInfo>,
+    pub dirty: Vec<pxui_types::ffi::PxuiDirty>,
     pub last_children: Vec<u32>,
     pub chunks: Vec<KeyChunk>,
     pub chunks_used: usize,
@@ -37,6 +39,12 @@ pub(crate) struct Shared {
     /// key codes of a box's held keys, valid until the next frame
     pub key_codes: Vec<u32>,
     pub menu: Vec<(String, bool)>,
+    /// the input frame `pxui_ui_input` last handed out, and its wire form (the events point into the frame's own strings)
+    pub routed: Option<input::frame::Frame>,
+    pub routed_events: Vec<FfiEvent>,
+    pub routed_text: Vec<String>,
+    pub routed_keys: Vec<u32>,
+    pub routed_buttons: Vec<u32>,
     pub hints: Vec<(String, String)>,
     pub strs: Vec<&'static str>,
     pub menus: Vec<(&'static str, &'static [&'static str])>,
@@ -50,7 +58,7 @@ impl Shared {
         Self {
             error: String::new(), poisoned: false, in_frame: false, renderers: 0, returned: Vec::new(),
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
-            last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, visible: Vec::new(), key_codes: Vec::new(), menu: Vec::new(),
+            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, visible: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), strs: Vec::new(), menus: Vec::new(),
         }
     }
@@ -170,11 +178,13 @@ pub(crate) fn core_box(raw: PxuiBox) -> Option<UiBox> {
 pub(crate) unsafe fn boxed<'a>(ui: *mut PxuiUi, raw: *const PxuiBox) -> Result<(&'a mut Ui, UiBox), i32> {
     let Some(engine) = (unsafe { engine(ui) }) else { return Err(PXUI_ERR_ARGUMENT) };
     if raw.is_null() { return Err(unsafe { fail(ui, "null box") }); }
-    match live_box(engine, unsafe { *raw }) { Some(b) => Ok((engine, b)), None => Err(unsafe { fail(ui, "stale box") }) }
+    match live_box(engine, unsafe { *raw }) { Some(b) => Ok((engine, b)), None => Err(unsafe { fail_code(ui, "stale box", crate::PXUI_ERR_STALE) }) }
 }
 
-/// A box the engine still holds.
+/// A box naming a slot the engine has. A node that has gone since the handle was made is not refused here: the engine's own calls
+/// tolerate it as it does (a patch does nothing, a query answers a default, a scroll or state call reads the slot), and the few that
+/// need a live node say so themselves.
 pub(crate) fn live_box(engine: &Ui, raw: PxuiBox) -> Option<UiBox> {
     let b = core_box(raw)?;
-    engine.live(&b).then_some(b)
+    engine.has_slot(&b).then_some(b)
 }

@@ -45,7 +45,6 @@ typedef struct { uint64_t id; uint32_t action_code,reserved; double payload; uin
 typedef struct { const PxuiA11yNode *ptr; size_t len; } PxuiA11yNodeSpan;
 typedef struct { const PxuiA11yAction *ptr; size_t len; } PxuiA11yActionSpan;
 typedef struct { PxuiA11yNodeSpan nodes; PxuiStr strings; uint64_t revision; uint32_t first_child,child_count; PxuiA11yActionSpan actions; } PxuiA11yTree;
-typedef struct { uint32_t size,reserved; uint64_t draw_revision; double repaint_at; uint64_t built_nodes,rebuilt_views,arranged_nodes; PxuiPlatformOut platform; PxuiDamage damage; PxuiA11yTree a11y; } PxuiOutput;
 typedef struct { uint32_t size,flags; PxuiStr source; } PxuiThemeSource;
 typedef struct { float l,t,r,b; } PxuiEdges;
 typedef struct { uint32_t kind; float value; float (*relative)(float); } PxuiSizeDesc;
@@ -143,6 +142,7 @@ enum PxuiValueCode {
 #define PXUI_ERR_ARGUMENT (-1) /* invalid argument; pxui_last_error says which */
 #define PXUI_ERR_GPU (-2)      /* GPU adoption or recording failed (pxui_renderer_*) */
 #define PXUI_ERR_STATE (-3)    /* not allowed now: inside a frame callback, on a borrowed handle, or with a renderer attached */
+#define PXUI_ERR_STALE (-5)    /* the box handle names a node that has gone (queries and patches treat it as "nothing there") */
 #define PXUI_ERR_PANIC (-4)    /* a panic was caught in the library; the Ui fails every call until its next frame call */
 enum PxuiTargetFormat { PXUI_TARGET_RGBA8=1, PXUI_TARGET_BGRA8=2 };
 typedef struct {
@@ -160,6 +160,14 @@ typedef struct { const PxuiHeadActionDesc *ptr; size_t len; } PxuiHeadActionSpan
 typedef struct { uint32_t size; uint8_t has_kind,has_badge,has_index,has_reset,reset_enabled,reserved[3]; PxuiStr key,kind,badge,index,reset,title,detail; PxuiHeadActionSpan actions; } PxuiHeaderDesc;
 typedef struct { PxuiStr renamed; int64_t chosen; uint8_t has_chosen,reset_pressed,reserved[6]; } PxuiHeadOut;
 typedef struct { float rect[4]; int16_t clip[4]; uint8_t color[4], color2[4]; uint32_t aux[2]; uint16_t radii[4]; uint16_t width; uint8_t kind, flags; uint16_t view, clip_radius; uint32_t extra[2]; } PxuiInstance; /* 64 bytes, frozen for major version 1 */
+/* One layer of the last frame (a floating root's, in draw order): its root box key, retained id, instances (an empty layer draws nothing),
+   texture break count and the instance ranges changed since it was last drawn. Borrowed until the next frame. */
+typedef struct { uint32_t start, end; } PxuiDirty;
+typedef struct { const PxuiDirty *ptr; size_t len; } PxuiDirtySpan;
+typedef struct { const PxuiInstance *ptr; size_t len; } PxuiInstanceSpan;
+typedef struct { int64_t key; uint32_t id, breaks; PxuiInstanceSpan instances; PxuiDirtySpan dirty; } PxuiLayerInfo;
+typedef struct { const PxuiLayerInfo *ptr; size_t len; } PxuiLayerSpan;
+typedef struct { uint32_t size,reserved; uint64_t draw_revision; double repaint_at; uint64_t built_nodes,rebuilt_views,arranged_nodes; PxuiPlatformOut platform; PxuiDamage damage; PxuiA11yTree a11y; PxuiLayerSpan layers; } PxuiOutput;
 /* A window into a layer's instance storage: the caller stores 64-byte instances at at (stamping clip, clip_radius_f16 and view) and
    advances it; pxui_paint_span commits what was written (at is where it stopped) and hands out the next window. */
 typedef struct { uint32_t size; uint16_t view,clip_radius_f16; int16_t clip[4]; PxuiInstance *at,*end; } PxuiSpan;
@@ -212,6 +220,11 @@ int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside 
 PxuiStr pxui_last_error(const PxuiUi *ui);
 int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 int32_t pxui_ui_frame(PxuiUi *ui, const PxuiInput *in, PxuiBuild build, void *user, PxuiFrameOut *out);
+/* The last frame's input as routed to `owner` (a viewport's root key; has_owner 0: the app's), for the app's own content: the record
+   pxui_ui_frame takes, borrowed until the next call. PXUI_ERR_STATE before the first frame. */
+int32_t pxui_ui_input(PxuiUi *ui, uint8_t has_owner, int64_t owner, PxuiInput *out);
+/* Marks layer `layer` of the last frame drawn (its dirty ranges clear), as pxui_renderer_draw does: for a host that reads the layers itself. */
+int32_t pxui_ui_layer_drawn(PxuiUi *ui, uint64_t layer);
 const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its next frame */
 PxuiThemeTokens pxui_ui_tokens(PxuiUi *ui);
 /* The theme in effect, whole: its scalars in `out` and every kit part's six looks (idle, hover, pressed, focus, disabled, checked)
@@ -380,6 +393,8 @@ void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y
 PxuiRenderer *pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target);
 int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *commands, uint64_t frame, uint64_t completed);
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
+/* The draw calls the renderer has issued so far. */
+uint64_t pxui_renderer_draw_calls(PxuiRenderer *renderer);
 int32_t pxui_renderer_atlas(PxuiRenderer *renderer, uint32_t kind, PxuiImage *out); /* kind 0: mask atlas (one byte per texel), 1: colour atlas (RGBA8); the texture stays the renderer's */
 void pxui_renderer_destroy(PxuiRenderer *renderer);
 
@@ -400,6 +415,8 @@ int32_t pxui_ui_unfocus(PxuiUi *ui);
 int32_t pxui_ui_dismiss_popup(PxuiUi *ui);
 int32_t pxui_ui_request_cursor(PxuiUi *ui, uint32_t shape); /* 1 horizontal resize, 2 vertical resize, 3 text */
 int32_t pxui_ui_repaint_after(PxuiUi *ui, double seconds);
+/* verify_views(on) for every Ui created from now on. */
+int32_t pxui_verify_new_views(uint8_t on);
 int32_t pxui_ui_verify_views(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_set_timing(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_phase_times(PxuiUi *ui, uint64_t *out, size_t len); /* nanoseconds, len must be 7 */

@@ -79,6 +79,9 @@ pub const PXUI_ERR_GPU: i32 = -2;
 pub const PXUI_ERR_STATE: i32 = -3;
 /// A panic was caught inside the library; the `Ui` is poisoned until its next frame call.
 pub const PXUI_ERR_PANIC: i32 = -4;
+/// The box handle names a node that has gone. The engine tolerates this for queries and patches (a stale handle patches nothing,
+/// has no signal, an empty rectangle), so the wrapper turns it into that result; for every other call it is a caller bug.
+pub const PXUI_ERR_STALE: i32 = -5;
 
 /// Key codes of `Event::KEY_PRESSED` and `KEY_RELEASED`: a Unicode scalar value below `KEY_SPECIAL`
 /// is that character; `KEY_SPECIAL + n` is the special key `n` (arrows, enter, F-keys...) in the

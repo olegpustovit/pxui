@@ -2879,6 +2879,11 @@ impl Ui {
         State { hovered: key != 0 && self.hot == key, pressed: key != 0 && self.active == Some(key), focused: key != 0 && self.focus == key, ..State::default() }
     }
 
+    /// The handle names a slot this `Ui` has: the most a call that only indexes the slot (scroll, state, text) needs of it.
+    pub fn has_slot(&self, b: &Handle) -> bool {
+        b.box_slot < self.slots.len()
+    }
+
     /// The handle still names the node it was made for (that node has not gone since).
     pub fn live(&self, b: &Handle) -> bool {
         self.slots.get(b.box_slot).is_some_and(|s| s.generation == b.generation && s.key == b.box_key && s.key != 0)

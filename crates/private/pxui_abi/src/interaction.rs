@@ -170,7 +170,7 @@ export!(pub unsafe fn pxui_ui_signal(ui: *mut PxuiUi, box_: *const PxuiBox, out:
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() || out.is_null() { return unsafe { fail(ui, "invalid signal arguments") }; }
     let engine = unsafe { &*state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale signal box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale signal box", crate::PXUI_ERR_STALE) }; };
     let signal = engine.signal(&box_);
     unsafe { write_signal(state, &signal, &mut *out); }
     0

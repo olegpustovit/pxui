@@ -7,7 +7,7 @@ use crate::{PXUI_ERR_ARGUMENT, PxuiBox};
 pub(crate) fn decode_look(value:PxuiLookDesc)->Option<Look> {
     if value.has_gradient>1 || value.reserved!=[0;3] || value.reserved_tail!=[0;3]
         || value.dashed>1 || value.font.caps>1 || value.font.reserved!=[0;3]
-        || value.ring.sides>15 || value.sides>15
+        || value.ring.sides&!0xF0!=0 || value.sides&!0xF0!=0
         || value.shadows.iter().any(|s|s.inner>1 || s.reserved!=[0;3])
     { return None; }
     let [a,b]=value.shadows;

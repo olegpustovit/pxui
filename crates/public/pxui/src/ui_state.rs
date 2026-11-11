@@ -21,6 +21,7 @@ library!(lib {
     fn pxui_ui_dismiss_popup(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_request_cursor(ui: *mut PxuiUi, shape: u32) -> i32;
     fn pxui_ui_repaint_after(ui: *mut PxuiUi, seconds: f64) -> i32;
+    fn pxui_verify_new_views(on: u8) -> i32;
     fn pxui_ui_verify_views(ui: *mut PxuiUi, on: u8) -> i32;
     fn pxui_ui_set_timing(ui: *mut PxuiUi, on: u8) -> i32;
     fn pxui_ui_phase_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32;
@@ -42,6 +43,21 @@ pub enum Platform { Apple, #[default] Other }
 pub struct Bytes { pub atlas: i64, pub glyph_lists: i64, pub text_undo: i64 }
 
 impl Ui {
+    /// `verify_views(true)` for every `Ui` created from now on: a test harness turns it on once.
+    #[track_caller] pub fn verify_new_views(on: bool) { assert_eq!(unsafe { lib::pxui_verify_new_views(on as u8) }, 0, "pxui: verify_new_views refused") }
+    /// The last frame asked for the clipboard's text: send it with the next frame as a paste event.
+    #[inline] pub fn paste_requested(&self) -> bool { self.output().platform.paste != 0 }
+    /// The text the last frame wants on the clipboard, borrowed until the next frame.
+    pub fn clipboard_request(&self) -> Option<&str> {
+        let p = &self.output().platform;
+        if p.has_clipboard == 0 { return None; }
+        if p.clipboard.len == 0 { return Some(""); }
+        core::str::from_utf8(unsafe { core::slice::from_raw_parts(p.clipboard.ptr, p.clipboard.len) }).ok()
+    }
+    /// The window ground colour the last frame asked for.
+    #[inline] pub fn background_request(&self) -> Option<pxui_types::geom::Rgba> { let p = &self.output().platform; (p.has_background != 0).then_some(p.background) }
+    /// The input-method area of the focused text and its caret offset, in points: `((x, y, w, h), caret)`.
+    #[inline] pub fn ime(&self) -> Option<((i64, i64, i64, i64), i64)> { let p = &self.output().platform; (p.has_ime != 0).then(|| ((p.ime_rect[0], p.ime_rect[1], p.ime_rect[2], p.ime_rect[3]), p.ime_caret)) }
     #[inline] pub fn font_size(&self) -> i64 { unsafe { lib::pxui_ui_font_size(self.0.as_ptr()) } }
     #[inline] pub fn row_height(&self) -> i64 { unsafe { lib::pxui_ui_row_height(self.0.as_ptr()) } }
     #[inline] pub fn frame_index(&self) -> u64 { unsafe { lib::pxui_ui_frame_index(self.0.as_ptr()) } }

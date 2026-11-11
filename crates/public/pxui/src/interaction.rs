@@ -43,16 +43,18 @@ impl Ui {
     }
     #[inline] #[track_caller] pub fn leave(&mut self,saved:UiSaved) {check(self, unsafe{sys::pxui_ui_leave(self.0.as_ptr(),&saved)})}
     #[inline] #[track_caller] pub fn focus_box(&mut self,box_:&PxuiBox) {check(self, unsafe{sys::pxui_ui_focus_box(self.0.as_ptr(),box_)})}
-    #[inline] #[track_caller] pub fn focused(&mut self,box_:&PxuiBox)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}
-    #[inline] #[track_caller] pub fn state(&mut self,box_:&PxuiBox,default:i64)-> i64 {let mut out=0;check(self, unsafe{sys::pxui_ui_state(self.0.as_ptr(),box_,default,&mut out)});out}
+    #[inline] #[track_caller] pub fn focused(&self,box_:&PxuiBox)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}
+    #[inline] #[track_caller] pub fn state(&self,box_:&PxuiBox,default:i64)-> i64 {let mut out=0;check(self, unsafe{sys::pxui_ui_state(self.0.as_ptr(),box_,default,&mut out)});out}
     #[inline] #[track_caller] pub fn set_state(&mut self,box_:&PxuiBox,value:i64) {check(self, unsafe{sys::pxui_ui_set_state(self.0.as_ptr(),box_,value)})}
 
     /// What happened to `box_` this frame: one library call that fills scalars on the stack. A box with no key events
     /// allocates nothing; key events are copied out of the library's frame buffer.
     #[inline]
-    #[track_caller] pub fn signal(&mut self,box_:&PxuiBox)-> Signal {
+    #[track_caller] pub fn signal(&self,box_:&PxuiBox)-> Signal {
         let mut raw=PxuiSignal::default();
-        check(self, unsafe{sys::pxui_ui_signal(self.0.as_ptr(),box_,&mut raw)});
+        let rc=unsafe{sys::pxui_ui_signal(self.0.as_ptr(),box_,&mut raw)};
+        // a node that has gone has no signal: the engine's `signal` answers with an all-quiet one
+        if !crate::live(self, rc) { return decode_signal(&PxuiSignal::default()); }
         decode_signal(&raw)
     }
 }
