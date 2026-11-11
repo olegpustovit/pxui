@@ -6767,7 +6767,7 @@ impl Ui {
         let mut marks = std::mem::take(&mut self.marks);
         marks.clear();
         // a drag-free node held and moved (no press, release or key) dirties nothing
-        let drag_free = |ui: &Ui, key: i64| ui.active == Some(key) && ui.table.find(key).is_some_and(|slot| ui.slots[slot].node.flags & DRAG_FREE != 0);
+        let drag_free = |ui: &Ui, key: i64| ui.active == Some(key) && ui.table.find(key).and_then(|slot| ui.slots.get(slot)).is_some_and(|s| s.node.flags & DRAG_FREE != 0);
         marks.extend(self.signals.iter().filter(|(k, a)| !(drag_free(self, **k) && !a.pressed && !a.released && !a.clicked && a.keys.is_empty())).map(|(k, _)| *k));
         let (hot, focus, keyboard, carrying) = self.seen;
         let mut now = (self.hot, self.focus, self.keyboard_focus, self.payload.is_some());
