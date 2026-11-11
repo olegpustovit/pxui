@@ -15,14 +15,20 @@ fn run(program: &PathBuf, dir: &PathBuf, args: &[&str]) -> bool {
 }
 
 /// Builds the Wayland test shim where libwayland headers exist; the `wayland_probe` cfg gates the test that uses it.
-/// ponytail: header path is hardcoded to /usr/include (Debian/Ubuntu); use pkg-config if another layout matters.
+/// libwayland-client's headers: pkg-config's include directories, else /usr/include.
 fn wayland_probe() {
     println!("cargo:rustc-check-cfg=cfg(wayland_probe)");
     println!("cargo:rerun-if-changed=tests/wayland_probe.c");
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") || !std::path::Path::new("/usr/include/wayland-client.h").is_file() {
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("linux") {
         return;
     }
-    cc::Build::new().file("tests/wayland_probe.c").cargo_metadata(false).warnings(true).compile("wayland_probe");
+    let pkg = Command::new("pkg-config").args(["--cflags-only-I", "wayland-client"]).output().ok().filter(|o| o.status.success());
+    let mut dirs: Vec<String> = pkg.map(|o| String::from_utf8_lossy(&o.stdout).split_whitespace().filter_map(|f| f.strip_prefix("-I")).map(str::to_owned).collect()).unwrap_or_default();
+    dirs.push("/usr/include".to_owned());
+    if !dirs.iter().any(|d| std::path::Path::new(d).join("wayland-client.h").is_file()) {
+        return;
+    }
+    cc::Build::new().file("tests/wayland_probe.c").includes(&dirs).cargo_metadata(false).warnings(true).compile("wayland_probe");
     // Link args are not propagated downstream, so only this package's own test binary gets the shim and libwayland-client.
     println!("cargo:rustc-link-arg={}/libwayland_probe.a", env::var("OUT_DIR").unwrap());
     println!("cargo:rustc-link-arg=-lwayland-client");
