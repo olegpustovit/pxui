@@ -4035,13 +4035,26 @@ impl Ui {
         self.set_main(!row, c, v);
     }
 
-    /// The distance from a node's top to its first text baseline (its height when it has no text).
-    // ponytail: a node without text of its own does not take its first child's baseline.
+    /// The distance from a node's top to its first text baseline. A node without text takes its
+    /// first in-flow child's, when that child's top is known before the node is arranged (a column
+    /// justified to the start, or a row aligning that child to the start or stretching it; not
+    /// scrolled, no grid); otherwise, or with no child, its bottom edge.
     fn baseline(&mut self, c: usize) -> f32 {
         let slot = self.boxes[c].slot;
         let h = self.l_h[c];
         if self.slots[slot].text.is_empty() {
-            return h;
+            let n = *self.nd(c);
+            let f = self.next_flow(self.boxes[c].first);
+            if f == NONE || n.grid.is_some() || n.flags & (SCROLL | SCROLL_X) != 0 {
+                return h;
+            }
+            let fa = self.nd(f).align_self.unwrap_or(n.align);
+            let top_known = match n.axis {
+                Axis::Column => n.justify == Justify::Start,
+                Axis::Row => !n.wrap && matches!(fa, Align::Start | Align::Stretch),
+                Axis::Stack => false,
+            };
+            return if top_known { n.padding.t + self.nd(f).margin.t + self.baseline(f) } else { h };
         }
         let (look, inset) = (self.slots[slot].node.look, self.slots[slot].node.inset);
         let size = look.font.points(self.font_size);

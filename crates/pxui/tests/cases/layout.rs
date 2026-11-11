@@ -135,6 +135,21 @@ pub fn layout_baseline() {
     let (bs, bb) = (base(&mut ui, 10, 14.0, "small"), base(&mut ui, 30, 34.0, "Big"));
     check(r[1].y == 0.0 && r[0].y > 0.0, "the deeper baseline sets the line");
     check((r[0].y + bs - (r[1].y + bb)).abs() < 0.01, &format!("baselines differ: {} vs {}", r[0].y + bs, r[1].y + bb));
+    // a padded box without text of its own takes its first child's baseline
+    let r = lay(&mut ui, 0.1, vec![], &mut |ui| {
+        let p = ui.node("p", Node { align: Align::Baseline, ..ROW });
+        let saved = ui.enter(&p);
+        let small = ui.node("s", text(10));
+        ui.text(&small, "small");
+        let boxed = ui.node("box", Node { w: Size::Fit, h: Size::Fit, axis: Axis::Column, padding: Edges::all(6.0), ..Node::DEFAULT });
+        let inner = ui.enter(&boxed);
+        let big = ui.node("b", text(30));
+        ui.text(&big, "Big");
+        ui.leave(inner);
+        ui.leave(saved);
+        vec![small, big]
+    });
+    check((r[0].y + bs - (r[1].y + bb)).abs() < 0.01, &format!("a boxed child's baseline: {} vs {}", r[0].y + bs, r[1].y + bb));
     ui.destroy();
 }
 
