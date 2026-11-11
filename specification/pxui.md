@@ -606,8 +606,8 @@ by `patch_rect`/`patch_look` between frames: no build, no allocation; reduced mo
 `tabs`, `segmented`, `dropdown(label, options, i)` (an anchored menu; Down/Up/Enter/Escape),
 `menu_bar(label, &[(title, items)]) -> Option<(menu, item)>` (hover switches an open menu; Left/Right,
 Down, Enter, Escape), `tip(&h, text)`, `scroll_view(label, w, h, f)` (both axes),
-`list_view(label, count, multi, &mut [bool], text)`, `tree(label, &[TreeNode], &mut open, &mut selected,
-&mut visible, text)` and `table_view(label, titles, &mut widths, rows, sort, &mut selected, cell)`
+`list_view(label, count, multi, &mut [u8], text)` (a flag a row, not 0: set), `tree(label, &[TreeNode], &mut open, &mut selected,
+&mut visible, text) -> (activated, rows shown)` (`visible`: a row per node, the shown rows written first) and `table_view(label, titles, &mut widths, rows, sort, &mut selected, cell)`
 (virtual through `ui.list`; the table's header stays, grips resize columns, a header click is the sort
 intent), `dialog(title, buttons, body) -> DialogOut`, `toasts(label, &[&str], seconds)` (the lower end corner;
 each goes `seconds` after it first showed, timed by the engine through `repaint_at_time` and keyed by

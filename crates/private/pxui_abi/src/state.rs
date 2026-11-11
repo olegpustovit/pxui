@@ -48,7 +48,6 @@ pub(crate) struct Shared {
     pub chunks_used: usize,
     /// the engine's input record of the last frame, kept for its vectors' capacity: a frame's events refill it without allocating
     pub spare_input: Option<input::Frame>,
-    pub visible: Vec<u32>,
     /// key codes of a box's held keys, valid until the next frame
     pub key_codes: Vec<u32>,
     pub menu: Vec<(String, bool)>,
@@ -77,7 +76,7 @@ impl Shared {
         Self {
             error: String::new(), poisoned: false, paint_error: false, in_frame: false, renderers: 0, returned: Vec::new(),
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
-            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, visible: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
+            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), menus: Vec::new(),
         }
     }

@@ -42,10 +42,6 @@ fn callback_text(callback: PxuiCollectionText, user: *mut c_void, row: usize, co
     }
 }
 
-/// Whether any of `flags` is not 0 or 1. A 100,000-row collection is checked on every call, so the scan is a branch-free OR
-/// the compiler vectorizes (any byte of 2 or more has a bit above the lowest) rather than a search that stops at the first.
-fn any_over_one(flags: &[u8]) -> bool { flags.iter().fold(0, |all, flag| all | flag) > 1 }
-
 export!(pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const PxuiListViewDesc, out: *mut usize) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null list view argument") }; }
@@ -54,10 +50,8 @@ export!(pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const PxuiListVi
         return unsafe { fail(ui, "invalid list view descriptor") };
     }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
-    let flags: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
-    if any_over_one(flags) { return unsafe { fail(ui, "invalid list selection flags") }; }
-    // every byte is 0 or 1 now, so the caller's flags are the engine's `&mut [bool]` with no copy
-    let selected: &mut [bool] = unsafe { core::slice::from_raw_parts_mut(flags.as_mut_ptr().cast::<bool>(), flags.len()) };
+    // the engine reads a flag as not 0 and writes 0 or 1, so the caller's bytes are its flags as they are: no scan, no copy
+    let selected: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
     let bad_text = Cell::new(false);
     let text_budget = Cell::new(0);
     let activated = unsafe { (&mut *state.engine).list_view(label, desc.count, desc.multi != 0, selected, &mut |i, put| if !callback_text(desc.text, desc.user, i, 0, &text_budget, put) { bad_text.set(true); }) };
@@ -76,26 +70,17 @@ export!(pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTreeViewDes
     }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid tree label") }; };
     let raw_nodes = if desc.nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.nodes.ptr, desc.nodes.len) } };
-    if raw_nodes.iter().fold(0, |all, n| all | n.children) > 1 { return unsafe { fail(ui, "invalid tree node") }; }
+    // any byte is a valid flag (not 0: has children), so the nodes and the open flags need no scan
     let nodes: &[TreeNode] = unsafe { core::slice::from_raw_parts(raw_nodes.as_ptr().cast::<TreeNode>(), raw_nodes.len()) };
-    let open_flags: &mut [u8] = if desc.open.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.open.ptr, desc.open.len) } };
-    if any_over_one(open_flags) { return unsafe { fail(ui, "invalid tree open flags") }; }
-    let open: &mut [bool] = unsafe { core::slice::from_raw_parts_mut(open_flags.as_mut_ptr().cast::<bool>(), open_flags.len()) };
+    let open: &mut [u8] = if desc.open.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.open.ptr, desc.open.len) } };
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
-    // the engine fills a `Vec`; its buffer lives on the Ui, taken so a nested call cannot reach it
-    let mut visible = core::mem::take(&mut state.shared().visible);
-    visible.clear();
+    // the engine writes the rows into the caller's buffer itself (at least a row per node, checked above): nothing is copied
+    let visible: &mut [u32] = if desc.visible.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.visible.ptr, desc.visible.len) } };
     let bad_text = Cell::new(false);
     let text_budget = Cell::new(0);
-    let activated = unsafe { (&mut *state.engine).tree(label, nodes, open, &mut selected, &mut visible, &mut |i, put| if !callback_text(desc.text, desc.user, i, 0, &text_budget, put) { bad_text.set(true); }) };
-    let fits = visible.len() <= desc.visible.len;
-    if !bad_text.get() && fits {
-        if !visible.is_empty() { unsafe { core::ptr::copy_nonoverlapping(visible.as_ptr(), desc.visible.ptr, visible.len()) }; }
-        unsafe { *desc.visible_len = visible.len(); *desc.selected = selected.unwrap_or(usize::MAX); *out = activated.unwrap_or(usize::MAX); }
-    }
-    state.shared().visible = visible;
+    let (activated, shown) = unsafe { (&mut *state.engine).tree(label, nodes, open, &mut selected, visible, &mut |i, put| if !callback_text(desc.text, desc.user, i, 0, &text_budget, put) { bad_text.set(true); }) };
     if bad_text.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
-    if !fits { return unsafe { fail(ui, "tree visible output buffer too small") }; }
+    unsafe { *desc.visible_len = shown; *desc.selected = selected.unwrap_or(usize::MAX); *out = activated.unwrap_or(usize::MAX); }
     0
 });
 

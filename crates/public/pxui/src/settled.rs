@@ -62,7 +62,7 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
     });
     let hit = ui.box_("hit", BoxOpts { hit: Some(Rc::clone(&s.hit)), ..BoxOpts::default().w(Size::Px(20.0)).h(Size::Px(20.0)) });
     s.seen += hit.box_key as u64 & 1;
-    s.seen += ui.list_view("items", 3, false, &mut [false; 3], |row, emit| emit(["one", "two", "three"][row])).is_some() as u64;
+    s.seen += ui.list_view("items", 3, false, &mut [0; 3], |row, emit| emit(["one", "two", "three"][row])).is_some() as u64;
     s.seen += ui.table_str((0.0, 0.0), 120.0, 60.0, &["Name", "Size"], 3, |_, column| if column == 0 { "row" } else { "1" }, "table").is_some() as u64;
     s.seen += ui.popup(None, None, true, false, (10.0, 10.0), 80.0, 30.0, "popup", &mut |ui: &mut Ui| ui.label("popped")) as u64;
 }

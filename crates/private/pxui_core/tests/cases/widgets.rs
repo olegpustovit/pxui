@@ -46,13 +46,14 @@ pub struct S {
     pub seg: usize,
     pub drop: usize,
     pub picked: Option<(usize, usize)>,
-    pub list: Vec<bool>,
+    pub list: Vec<u8>,
     pub multi: bool,
     pub activated: Option<usize>,
     pub nodes: Vec<TreeNode>,
-    pub open: Vec<bool>,
+    pub open: Vec<u8>,
     pub tree_sel: Option<usize>,
     pub visible: Vec<u32>,
+    pub shown: usize,
     pub widths: [f32; 3],
     pub table_sel: Option<usize>,
     pub sorted: Option<usize>,
@@ -69,10 +70,10 @@ pub struct S {
 
 impl S {
     pub fn new() -> S {
-        let nodes = (0..BIG).map(|i| TreeNode { depth: if i % 10 == 0 { 0 } else { 1 }, children: i % 10 == 0 }).collect();
+        let nodes = (0..BIG).map(|i| TreeNode { depth: if i % 10 == 0 { 0 } else { 1 }, children: (i % 10 == 0) as u8 }).collect();
         S {
-            check: false, radio: 0, slider: 0.25, tab: 0, seg: 0, drop: 0, picked: None, list: vec![false; BIG], multi: false, activated: None,
-            nodes, open: vec![false; BIG], tree_sel: None, visible: Vec::with_capacity(BIG), widths: [80.0, 80.0, 80.0], table_sel: None, sorted: None,
+            check: false, radio: 0, slider: 0.25, tab: 0, seg: 0, drop: 0, picked: None, list: vec![0; BIG], multi: false, activated: None,
+            nodes, open: vec![0; BIG], tree_sel: None, visible: vec![0; BIG], shown: 0, widths: [80.0, 80.0, 80.0], table_sel: None, sorted: None,
             search: String::new(), icon: 0, toasts: 0, gone: None, busy: Vec::with_capacity(4), image: None, add: None, scroll: None, list_frame: None,
         }
     }
@@ -158,7 +159,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             });
             s.list_frame = ui.box_of_key(key_of(b.box_key, "List"));
             sized(ui, "tree-box", 120.0, &mut |ui| {
-                ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &names);
+                s.shown = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &names).1;
             });
             sized(ui, "table-box", 150.0, &mut |ui| {
                 if let Some(c) = ui.table_view("Table", &["Name", "Next", "More"], &mut s.widths, BIG, Some((0, true)), &mut s.table_sel, &cells) {
@@ -512,7 +513,7 @@ fn widgets_list() {
     check(rows > 0 && rows < 30, &format!("100,000 rows built {rows}"));
     let third = *ui.output().a11y.nodes.iter().filter(|n| n.role == Role::ListItem).nth(2).unwrap();
     click(&mut ui, &mut s, 1.0, centre(&third));
-    check(s.list[2] && s.list.iter().filter(|b| **b).count() == 1, "a click selects row 2 alone");
+    check(s.list[2] != 0 && s.list.iter().filter(|b| **b != 0).count() == 1, "a click selects row 2 alone");
     check(ui.output().a11y.nodes.iter().filter(|n| n.role == Role::ListItem && n.states & state::SELECTED != 0).count() == 1, "the tree shows it selected");
     // double click activates
     let p = centre(&third);
@@ -530,9 +531,9 @@ fn widgets_list_keys_multi() {
     let item = |ui: &Ui, i: usize| *ui.output().a11y.nodes.iter().filter(|n| n.role == Role::ListItem).nth(i).unwrap();
     { let p = centre(&item(&ui, 1)); click(&mut ui, &mut s, 1.0, p); }
     { let p = centre(&item(&ui, 3)); click_with(&mut ui, &mut s, 2.0, p, vec![Key::Meta]); }
-    check(s.list[1] && s.list[3] && !s.list[2], "Command-click adds row 3");
+    check(s.list[1] != 0 && s.list[3] != 0 && s.list[2] == 0, "Command-click adds row 3");
     { let p = centre(&item(&ui, 4)); click_with(&mut ui, &mut s, 3.0, p, vec![Key::Shift]); }
-    check((3..=4).all(|i| s.list[i]) && !s.list[1], &format!("Shift-click selects the run 3..4: {:?}", &s.list[..8]));
+    check((3..=4).all(|i| s.list[i] != 0) && s.list[1] == 0, &format!("Shift-click selects the run 3..4: {:?}", &s.list[..8]));
     // Tab to the list (its frame holds the focus), then Down and Space
     for i in 0..40 {
         if s.list_frame.is_some_and(|b| ui.focused(&b)) {
@@ -542,7 +543,7 @@ fn widgets_list_keys_multi() {
     }
     check(s.list_frame.is_some_and(|b| ui.focused(&b)), "Tab reaches the list");
     keys(&mut ui, &mut s, 5.0, &[Key::ArrowDown, Key::Space]);
-    check(s.list[5] && s.list[4], "Down then Space adds row 5");
+    check(s.list[5] != 0 && s.list[4] != 0, "Down then Space adds row 5");
     ui.destroy();
 }
 
@@ -551,12 +552,12 @@ fn widgets_tree() {
     let mut ui = warm(&mut s);
     let items: Vec<A11yNode> = ui.output().a11y.nodes.iter().filter(|n| n.role == Role::TreeItem).copied().collect();
     check(!items.is_empty() && items.len() < 30, &format!("100,000 nodes built {} rows", items.len()));
-    check(s.visible.len() == BIG / 10, "collapsed: one row per top node");
+    check(s.shown == BIG / 10, "collapsed: one row per top node");
     let first = items[0];
     check(first.states & state::EXPANDABLE != 0 && first.states & state::EXPANDED == 0, "a parent is expandable and closed");
     // the chevron sits at the row's start
     click(&mut ui, &mut s, 1.0, ((first.rect.x + 12.0 + 5.0) as i64, centre(&first).1));
-    check(s.open[0] && s.visible.len() == BIG / 10 + 9, "the chevron opens node 0");
+    check(s.open[0] != 0 && s.shown == BIG / 10 + 9, "the chevron opens node 0");
     let first = *ui.output().a11y.nodes.iter().find(|n| n.role == Role::TreeItem).unwrap();
     check(first.states & state::EXPANDED != 0, "the tree shows it expanded");
     let child = *ui.output().a11y.nodes.iter().filter(|n| n.role == Role::TreeItem).nth(1).unwrap();

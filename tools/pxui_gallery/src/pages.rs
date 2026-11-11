@@ -62,9 +62,9 @@ pub struct Gallery {
     pub adds: u32,
     pub image: Option<Image>,
     // collections page
-    pub list: Vec<bool>,
+    pub list: Vec<u8>,
     pub nodes: Vec<TreeNode>,
-    pub open: Vec<bool>,
+    pub open: Vec<u8>,
     pub tree_sel: Option<usize>,
     pub visible: Vec<u32>,
     pub widths: [f32; 3],
@@ -92,8 +92,8 @@ impl Gallery {
             animate: true, wire: false, caption: "Functional UI".to_owned(), snap: true, scale: "1.5".to_owned(), notes: "(circle 4)\n(grid 8 8)".to_owned(),
             hints: vec![("enter".to_owned(), "apply".to_owned()), ("esc".to_owned(), "close".to_owned())],
             check: true, radio: 1, slider: 0.4, tab: 0, segment: 1, choice: 2, search: String::new(), adds: 0, image: None,
-            list: vec![false; ROWS], nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) }).collect(),
-            open: (0..ROWS).map(|i| i < 6).collect(), tree_sel: Some(2), visible: Vec::with_capacity(ROWS), widths: [96.0, 72.0, 72.0], table_sel: Some(1), sort: (0, true), split: 0.34,
+            list: vec![0; ROWS], nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
+            open: (0..ROWS).map(|i| (i < 6) as u8).collect(), tree_sel: Some(2), visible: vec![0; ROWS], widths: [96.0, 72.0, 72.0], table_sel: Some(1), sort: (0, true), split: 0.34,
             dialog: false, menu_at: None, picker: false, said: "", bounce: false, toasts: Vec::with_capacity(8), busy: Vec::with_capacity(4), readout: None,
         }
     }

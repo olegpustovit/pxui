@@ -17,11 +17,13 @@ use crate::ui_kit::text_only;
 use input::{Event, Key};
 use std::ops::RangeInclusive;
 
-/// A node of a tree, in preorder: its depth (0 at the top) and whether it has children.
+/// A node of a tree, in preorder: its depth (0 at the top) and whether it has children (not 0). A flag is a byte, not a
+/// `bool`, so a caller's array of them is usable as it is, whatever its bytes.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TreeNode {
     pub depth: u16,
-    pub children: bool,
+    pub children: u8,
 }
 
 /// What a dialog's frame did: still open, dismissed (Escape, a press outside), or a button pressed.
@@ -538,12 +540,12 @@ impl Ui {
     }
 
     /// A virtual list of `count` rows filling its parent: only the rows in view are built, each
-    /// row's text from `text(i, put)`. `selected` (one flag a row) is the selection: a click selects
+    /// row's text from `text(i, put)`. `selected` (one byte a row, not 0: selected) is the selection: a click selects
     /// a row alone; with `multi`, Command (Ctrl) toggles one and Shift selects the run from the
     /// keyboard's row. One Tab stop; Up, Down, Page keys, Home and End move the keyboard's row
     /// (selecting it alone without `multi`; Space toggles it with `multi`). Returns the row a
     /// double click or Enter activated.
-    pub fn list_view(&mut self, label: &str, count: usize, multi: bool, selected: &mut [bool], text: &dyn Fn(usize, &mut dyn FnMut(&str))) -> Option<usize> {
+    pub fn list_view(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], text: &dyn Fn(usize, &mut dyn FnMut(&str))) -> Option<usize> {
         let count = count.min(selected.len());
         let rh = self.row_height() as f32;
         let frame = self.node(label, Node { flags: FOCUSABLE | CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
@@ -553,29 +555,29 @@ impl Ui {
         let cursor = (self.state(&frame, 0).max(0) as usize).min(count.saturating_sub(1));
         let (mut c, enter, space) = self.list_keys(&s.keys, cursor, count, page);
         if c != cursor && !multi {
-            selected[..count].fill(false);
-            selected[c] = true;
+            selected[..count].fill(0);
+            selected[c] = 1;
         }
         if space && multi && count > 0 {
-            selected[c] = !selected[c];
+            selected[c] = (selected[c] == 0) as u8;
         }
         let mut activated = enter.then_some(c).filter(|_| count > 0);
         let states = self.theme().listbox;
         let saved = self.enter(&frame);
         let body = self.list("rows", count, rh, &mut |ui, i| {
-            let (n, rs) = ui.virtual_row(&states, selected[i], focused && i == c, ui.space(2), Role::ListItem, st::SELECTABLE | if selected[i] { st::SELECTED } else { 0 });
+            let (n, rs) = ui.virtual_row(&states, selected[i] != 0, focused && i == c, ui.space(2), Role::ListItem, st::SELECTABLE | if selected[i] != 0 { st::SELECTED } else { 0 });
             if rs.clicked {
                 let keys = ui.press_keys(&n);
                 let command = ui.command_modifiers(&keys);
                 if multi && command {
-                    selected[i] = !selected[i];
+                    selected[i] = (selected[i] == 0) as u8;
                 } else if multi && keys.contains(&Key::Shift) {
                     let (a, b) = (c.min(i), c.max(i));
-                    selected[..count].fill(false);
-                    selected[a..=b].fill(true);
+                    selected[..count].fill(0);
+                    selected[a..=b].fill(1);
                 } else {
-                    selected[..count].fill(false);
-                    selected[i] = true;
+                    selected[..count].fill(0);
+                    selected[i] = 1;
                 }
                 c = i;
             }
@@ -600,71 +602,73 @@ impl Ui {
         activated
     }
 
-    /// A tree over `nodes` (preorder), virtualised: the rows `visible` (a scratch the caller keeps)
-    /// lists, the expanded (`open`) nodes' children under them, each row indented 14 points a level
-    /// with a chevron when it has children. A click selects (`selected`, a node index), a click on
-    /// the chevron or a double click expands or collapses. Keys: Up and Down move, Right expands or
-    /// steps in, Left collapses or steps to the parent, Enter activates, Space toggles. Returns the
-    /// node a double click or Enter activated.
-    pub fn tree(&mut self, label: &str, nodes: &[TreeNode], open: &mut [bool], selected: &mut Option<usize>, visible: &mut Vec<u32>, text: &dyn Fn(usize, &mut dyn FnMut(&str))) -> Option<usize> {
+    /// A tree over `nodes` (preorder), virtualised: the first rows of `visible` (a scratch the caller
+    /// keeps, at least a row per node) list the nodes shown, the expanded (`open`, not 0) nodes'
+    /// children under them, each row indented 14 points a level with a chevron when it has children.
+    /// A click selects (`selected`, a node index), a click on the chevron or a double click expands or
+    /// collapses. Keys: Up and Down move, Right expands or steps in, Left collapses or steps to the
+    /// parent, Enter activates, Space toggles. Returns the node a double click or Enter activated and
+    /// the number of rows shown.
+    pub fn tree(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], text: &dyn Fn(usize, &mut dyn FnMut(&str))) -> (Option<usize>, usize) {
+        assert!(visible.len() >= nodes.len(), "tree: `visible` holds at least a row per node");
         // the visible rows are re-derived each build (specification/pxui.md, designed limits)
-        let flatten = |visible: &mut Vec<u32>, open: &[bool]| {
-            visible.clear();
-            let mut i = 0;
+        let flatten = |visible: &mut [u32], open: &[u8]| {
+            let (mut i, mut count) = (0, 0);
             while i < nodes.len() {
-                visible.push(i as u32);
+                visible[count] = i as u32;
+                count += 1;
                 let mut j = i + 1;
-                if nodes[i].children && !open.get(i).copied().unwrap_or(false) {
+                if nodes[i].children != 0 && open.get(i).copied().unwrap_or(0) == 0 {
                     while j < nodes.len() && nodes[j].depth > nodes[i].depth {
                         j += 1;
                     }
                 }
                 i = j;
             }
+            count
         };
-        flatten(visible, open);
+        let mut rows_shown = flatten(visible, open);
         let rh = self.row_height() as f32;
         let frame = self.node(label, Node { flags: FOCUSABLE | CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
         let s = self.signal(&frame);
         let focused = self.focused(&frame);
         let page = (self.rect(&frame).h / rh).floor().max(1.0) as i64;
         let cursor_node = self.state(&frame, 0).max(0) as usize;
-        let cursor = visible.iter().position(|v| *v as usize == cursor_node).unwrap_or(0);
-        let (mut c, enter, space) = self.list_keys(&s.keys, cursor, visible.len(), page);
+        let cursor = visible[..rows_shown].iter().position(|v| *v as usize == cursor_node).unwrap_or(0);
+        let (mut c, enter, space) = self.list_keys(&s.keys, cursor, rows_shown, page);
         let mut activated = None;
-        if let Some(&node) = visible.get(c) {
+        if let Some(&node) = visible[..rows_shown].get(c) {
             let node = node as usize;
-            let is_open = open.get(node).copied().unwrap_or(false);
-            let mut toggle = space && nodes[node].children;
+            let is_open = open.get(node).copied().unwrap_or(0) != 0;
+            let mut toggle = space && nodes[node].children != 0;
             pressed(&s.keys, &mut |k| match self.along(k) {
-                1 if nodes[node].children && !is_open => toggle = true,
-                1 if nodes[node].children => c = clamp_step(c, 1, visible.len()),
-                -1 if nodes[node].children && is_open => toggle = true,
+                1 if nodes[node].children != 0 && !is_open => toggle = true,
+                1 if nodes[node].children != 0 => c = clamp_step(c, 1, rows_shown),
+                -1 if nodes[node].children != 0 && is_open => toggle = true,
                 -1 => c = visible[..c].iter().rposition(|v| nodes[*v as usize].depth < nodes[node].depth).unwrap_or(c),
                 _ => {}
             });
             if toggle {
                 if let Some(o) = open.get_mut(node) {
-                    *o = !*o;
+                    *o = (*o == 0) as u8;
                 }
-                flatten(visible, open);
+                rows_shown = flatten(visible, open);
             }
             if enter {
                 activated = Some(node);
             }
             if c != cursor {
-                *selected = visible.get(c).map(|v| *v as usize);
+                *selected = visible[..rows_shown].get(c).map(|v| *v as usize);
             }
         }
         let t = self.theme();
         let (states, chevron) = (t.tree, t.chevron.idle);
         let saved = self.enter(&frame);
         let mut toggled = None;
-        let shown_rows = visible.len();
-        let rows: &[u32] = visible;
-        let body = self.list("rows", shown_rows, rh, &mut |ui, i| {
+        let rows: &[u32] = &visible[..rows_shown];
+        let body = self.list("rows", rows_shown, rh, &mut |ui, i| {
             let node = rows[i] as usize;
-            let (has, is_open) = (nodes[node].children, open.get(node).copied().unwrap_or(false));
+            let (has, is_open) = (nodes[node].children != 0, open.get(node).copied().unwrap_or(0) != 0);
             let on = *selected == Some(node);
             let a11y = st::SELECTABLE | if on { st::SELECTED } else { 0 } | if has { st::EXPANDABLE | if is_open { st::EXPANDED } else { 0 } } else { 0 };
             let inset = ui.space(2) + 14.0 * nodes[node].depth as f32;
@@ -695,7 +699,7 @@ impl Ui {
         });
         self.leave(saved);
         if let Some(o) = toggled.and_then(|node| open.get_mut(node)) {
-            *o = !*o;
+            *o = (*o == 0) as u8;
         }
         self.node_mut(&body).bar = Some(self.thumb());
         self.set_role(&body, Role::Tree, 0);
@@ -703,9 +707,9 @@ impl Ui {
         if c != cursor {
             self.reveal_row(&body, c);
         }
-        let cursor_node = visible.get(c).copied().unwrap_or(0);
+        let cursor_node = visible[..rows_shown].get(c).copied().unwrap_or(0);
         self.set_state(&frame, cursor_node as i64);
-        activated
+        (activated, rows_shown)
     }
 
     /// A table filling its parent: a header row of `titles` over a virtual list of `rows`, columns

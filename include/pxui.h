@@ -195,6 +195,8 @@ typedef uint8_t (*PxuiTextValid)(void *user, PxuiStr value);
 typedef void (*PxuiCollectionEmit)(void *user, PxuiStr text);
 typedef void (*PxuiCollectionText)(void *user, size_t row, size_t column, PxuiCollectionEmit emit, void *emit_user);
 typedef PxuiStr (*PxuiTableCell)(void *user, int64_t row, int64_t column);
+/* Collection flags (selected, open, a node's children) are bytes: not 0 is set; the library writes 0 or 1 and scans none.
+   A tree writes its shown rows into the start of `visible` (at least a row per node) and their number to `visible_len`. */
 typedef struct { uint32_t size; uint8_t multi,reserved[3]; PxuiStr label; size_t count; PxuiU8MutSpan selected; PxuiCollectionText text; void *user; } PxuiListViewDesc;
 typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCollectionText text; void *user; } PxuiTreeViewDesc;
 typedef struct { uint32_t size; uint8_t has_sort,ascending,reserved[2]; PxuiStr label; PxuiStrSpan titles; PxuiF32MutSpan widths; size_t rows; size_t sort_column; size_t *selected; PxuiCollectionText text; void *user; } PxuiTableViewDesc;

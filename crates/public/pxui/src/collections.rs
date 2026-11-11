@@ -2,11 +2,11 @@ use crate::{composite::{defer_callback_panic, deferred, resume_deferred}, check,
 use core::{ffi::c_void, panic::AssertUnwindSafe};
 use pxui_types::{Str, ffi::Slice};
 
-/// A node of a preorder tree: its depth and whether it has children. The layout is the library's, so a slice of
+/// A node of a preorder tree: its depth and whether it has children (not 0). The layout is the library's, so a slice of
 /// these crosses the ABI as it is.
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub struct TreeNode { pub depth: u16, pub children: bool }
+pub struct TreeNode { pub depth: u16, pub children: u8 }
 
 use pxui_types::ffi::{PxuiCollectionEmit as Emit, PxuiF32MutSpan as F32MutSpan, PxuiListViewDesc as ListViewDesc, PxuiTableViewDesc as TableViewDesc, PxuiTreeNode as TreeNodeDesc, PxuiTreeViewDesc as TreeViewDesc, PxuiU32MutSpan as U32MutSpan, PxuiU8MutSpan as U8MutSpan};
 
@@ -61,15 +61,14 @@ extern "C" fn call_table<F: FnMut(usize, usize, &mut dyn FnMut(&str))>(user: *mu
 }
 
 impl Ui {
-    /// Builds a virtual list. `selected` has one flag per row; the result is an activated row. The flags are the
-    /// library's own storage for the call: nothing is copied.
-    #[track_caller] pub fn list_view<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, count: usize, multi: bool, selected: &mut [bool], text: F) -> Option<usize> {
+    /// Builds a virtual list. `selected` has one flag per row (not 0: selected); the result is an activated row. The flags are
+    /// the library's own storage for the call: nothing is copied or scanned.
+    #[track_caller] pub fn list_view<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], text: F) -> Option<usize> {
         let mut context = Callback { f: text };
         let (text, user) = context.list();
         let desc = ListViewDesc {
             size: core::mem::size_of::<ListViewDesc>() as u32, label: as_str(label), count, multi: multi as u8, reserved: [0; 3],
-            // a `bool` is a byte; the library rejects any value above 1 before it writes
-            selected: U8MutSpan { ptr: selected.as_mut_ptr().cast::<u8>(), len: selected.len() },
+            selected: U8MutSpan { ptr: selected.as_mut_ptr(), len: selected.len() },
             text, user,
         };
         let mut out = usize::MAX;
@@ -79,19 +78,17 @@ impl Ui {
         (out != usize::MAX).then_some(out)
     }
 
-    /// Builds a preorder virtual tree. `visible` is replaced by the current flattened row indices (its capacity is reused).
-    #[track_caller] pub fn tree<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, nodes: &[TreeNode], open: &mut [bool], selected: &mut Option<usize>, visible: &mut Vec<u32>, text: F) -> Option<usize> {
-        visible.clear();
-        visible.reserve(nodes.len());
+    /// Builds a preorder virtual tree. The library writes the shown rows into the start of `visible` (at least a row per node);
+    /// the result is an activated node and the number of rows shown.
+    #[track_caller] pub fn tree<F: FnMut(usize, &mut dyn FnMut(&str))>(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], text: F) -> (Option<usize>, usize) {
         let mut rows_len = 0usize;
         let mut selected_raw = selected.unwrap_or(usize::MAX);
         let mut context = Callback { f: text };
         let (text, user) = context.list();
         let desc = TreeViewDesc {
             size: core::mem::size_of::<TreeViewDesc>() as u32, reserved: 0, label: as_str(label), nodes: Slice { ptr: nodes.as_ptr().cast::<TreeNodeDesc>(), len: nodes.len() },
-            open: U8MutSpan { ptr: open.as_mut_ptr().cast::<u8>(), len: open.len() }, selected: &mut selected_raw,
-            // the library writes at most `nodes.len()` rows into the vector's spare capacity
-            visible: U32MutSpan { ptr: visible.as_mut_ptr(), len: nodes.len() }, visible_len: &mut rows_len,
+            open: U8MutSpan { ptr: open.as_mut_ptr(), len: open.len() }, selected: &mut selected_raw,
+            visible: U32MutSpan { ptr: visible.as_mut_ptr(), len: visible.len() }, visible_len: &mut rows_len,
             text, user,
         };
         let mut out = usize::MAX;
@@ -99,10 +96,7 @@ impl Ui {
         resume_deferred();
         check(self, rc);
         *selected = (selected_raw != usize::MAX).then_some(selected_raw);
-        assert!(rows_len <= nodes.len(), "pxui: the library reported more visible rows than there are nodes");
-        // the library wrote `rows_len` rows into the spare capacity
-        unsafe { visible.set_len(rows_len); }
-        (out != usize::MAX).then_some(out)
+        ((out != usize::MAX).then_some(out), rows_len)
     }
 
     /// Builds a virtual table. Widths and selection are updated in place; the result is a sorted column.
@@ -137,11 +131,11 @@ mod tests {
     fn collections_page_builds_through_the_library_and_updates_state() {
         const ROWS: usize = 100_000;
         let mut ui = Ui::new().expect("library");
-        let mut list = vec![false; ROWS];
-        let nodes: Vec<TreeNode> = (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) }).collect();
-        let mut open: Vec<bool> = (0..ROWS).map(|i| i < 6).collect();
-        let (mut selected, mut visible, mut widths, mut table_sel) = (Some(2usize), Vec::with_capacity(ROWS), [96.0f32, 72.0, 72.0], Some(1usize));
-        let (texts, cells) = (core::cell::Cell::new(0usize), core::cell::Cell::new(0usize));
+        let mut list = vec![0u8; ROWS];
+        let nodes: Vec<TreeNode> = (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect();
+        let mut open: Vec<u8> = (0..ROWS).map(|i| (i < 6) as u8).collect();
+        let (mut selected, mut visible, mut widths, mut table_sel) = (Some(2usize), vec![0u32; ROWS], [96.0f32, 72.0, 72.0], Some(1usize));
+        let (texts, cells, mut shown) = (core::cell::Cell::new(0usize), core::cell::Cell::new(0usize), 0);
         for count in 0..3 {
             let input = pxui_types::FrameIn { width: 640.0, height: 464.0, time: count as f64 / 60.0, ..Default::default() };
             ui.frame(&input, &mut |ui: &mut Ui| {
@@ -149,7 +143,7 @@ mod tests {
                     let ratio = ui.split("split", pxui_types::Axis::Row, 0.34, 120.0, 200.0, &mut |ui: &mut Ui| {
                         let _ = ui.list_view("Files", ROWS, true, &mut list, |i, put| { texts.set(texts.get() + 1); put(&format!("file {i}")); });
                     }, &mut |ui: &mut Ui| {
-                        let _ = ui.tree("Outline", &nodes, &mut open, &mut selected, &mut visible, |i, put| { texts.set(texts.get() + 1); put(&format!("node {i}")); });
+                        shown = ui.tree("Outline", &nodes, &mut open, &mut selected, &mut visible, |i, put| { texts.set(texts.get() + 1); put(&format!("node {i}")); }).1;
                         let _ = ui.table_view("Points", &["Name", "Group", "Tag"], &mut widths, ROWS, Some((0, true)), &mut table_sel, |r, c, put| { cells.set(cells.get() + 1); put(&format!("{r}:{c}")); });
                     });
                     assert!(ratio.is_none() || ratio.is_some());
@@ -157,7 +151,7 @@ mod tests {
             }).expect("frame");
         }
         assert!(texts.get() > 0 && cells.get() > 0, "the virtual rows were asked for their text");
-        assert!(!visible.is_empty() && visible.len() <= nodes.len(), "{}", visible.len());
+        assert!(shown > 0 && shown <= nodes.len(), "{shown}");
         assert_eq!(visible[0], 0);
     }
 }
