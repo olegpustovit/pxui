@@ -568,12 +568,13 @@ impl Painter {
         } else {
             let all = [(0, len as u32)];
             for d in if changed { &all[..] } else { dirty } { for p in &mut store.pending { *p = union(*p, *d); } }
-            if let Some((lo, hi)) = store.pending[copy].take() {
-                let (at, n) = (store.stride * copy + lo as usize * 64, (hi - lo) as usize * 64);
-                // SAFETY: `hi <= len <= cap`, so the range lies inside copy `copy`.
-                unsafe { std::ptr::copy_nonoverlapping(instance_bytes(instances)[lo as usize * 64..].as_ptr(), store.ptr.add(at), n) }
-                backend::flush_host_range(&store.buffer, at as i64, n)?;
-                self.retained_bytes += n as u64;
+            // (a range pending from a longer layer ends at the layer now)
+            if let Some((lo, hi)) = store.pending[copy].take().map(|(lo, hi)| (lo, hi.min(len as u32))).filter(|(lo, hi)| lo < hi) {
+                let (at, src) = (store.stride * copy + lo as usize * 64, &instance_bytes(instances)[lo as usize * 64..hi as usize * 64]);
+                // SAFETY: `hi <= len <= cap` (a checked slice of the instances), so the range lies inside copy `copy`.
+                unsafe { std::ptr::copy_nonoverlapping(src.as_ptr(), store.ptr.add(at), src.len()) }
+                backend::flush_host_range(&store.buffer, at as i64, src.len())?;
+                self.retained_bytes += src.len() as u64;
             }
         }
         store.len = len;

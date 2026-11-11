@@ -421,9 +421,10 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
         painter.begin_frame();
         assert!(retained == plain(&mut painter, &instances), "frame {frame}: pixels equal plain draw");
     }
-    // Growth past capacity and a shrink: pixels still equal plain draw.
+    // Growth past capacity and a shrink (a shrink after an in-place change leaves the copies not yet
+    // written a pending range past the new length; it is clamped, not read past the instances): pixels still equal plain draw.
     let rows = |n: usize| (0..n).map(|i| Instance::rect([(i % 60) as f32, (i / 60) as f32 * 2.0, (i % 60) as f32 + 1.5, (i / 60) as f32 * 2.0 + 1.0], [(i * 7) as u8, 100, 200, 255])).collect::<Vec<_>>();
-    for (frame, n) in [300, 700, 90].into_iter().enumerate() {
+    for (frame, n) in [300, 700, 650, 90, 90, 90, 90].into_iter().enumerate() {
         let list = rows(n);
         painter.begin_frame();
         pass(&queue, &target, &mut |encoder| ok(painter.draw_retained(encoder, size, SCALE as f32, 1, &list, &[], &[])));
