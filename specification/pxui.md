@@ -674,6 +674,27 @@ needs a measurement that shows it.
   notification API (inotify, FSEvents, ReadDirectoryChangesW differ per platform and need a thread or
   a run-loop source).
 
+**Designed limits of the GPU layer, hosts and tools.** Each is a bound chosen for the sizes these
+crates see; the code names it with `designed limit`.
+
+- `ogpu_core`: reflected layouts and binding tables are checked by linear and pairwise scans (a
+  pipeline has under 16 bindings); dmabuf import takes the formats that have a `TextureFormat`
+  (8-bit RGBA/BGRA families): packed 16-bit, 10-bit and YCbCr need new variants and samplers first.
+- `ogpu_metal`: 64 depth-stencil states in a local LRU (handles are not `Send`; no `lru` dependency);
+  an indexed batch is one native draw per entry, as Metal has no multi-draw-indexed call outside
+  indirect command buffers.
+- `ogpu_mock`: its per-thread controls live as long as the thread (a few counters each).
+- `ogpu_vulkan`: an indirect command buffer is its recorded calls replayed into the encoder; the UI
+  issues one or two such buffers per frame, below secondary command buffers' fixed cost.
+- `pxui_wayland`: the clipboard is process-local until a window opens (a Wayland selection needs a
+  seat focus). `pxui_atspi`: one property writer (a probe message per name, `GetAll` only); no
+  relations, since the engine records no label links; "screen" coordinates equal window ones because
+  Wayland gives a client no window position.
+- Tests and tools: GPU goldens of `pxui_render`'s scene allow 2 levels on edges (Metal measures 0,
+  Vulkan 1: transcendental functions differ by driver); PXUI's GPU tests draw no host images; the gate
+  finds HashMap outputs by tokens; `cargo t` runs at most four suites at once (cases start their own
+  pools); Windows' bundled lld path is per machine (`~/.cargo/config.toml`).
+
 **Crate fate.**
 
 | Crate | Fate |

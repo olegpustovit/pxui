@@ -2,7 +2,7 @@
 t = "run -q -p rays-t --"
 
 # Windows-gnu: a 256 MB main-thread stack, as in Rays.
-# ponytail: Rays also links with rustc's bundled lld there (a -B path pinned to one user's toolchain); add it per machine in ~/.cargo/config.toml.
+# designed limit (specification/pxui.md): Rays also links with rustc's bundled lld there (a -B path pinned to one user's toolchain); add it per machine in ~/.cargo/config.toml.
 [target.x86_64-pc-windows-gnu]
 rustflags = ["-Clink-arg=-Wl,--stack,268435456"]
 

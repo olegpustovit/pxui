@@ -452,7 +452,7 @@ fn run_tests(
             }
         }
     }
-    // ponytail: cap outer concurrency at four; cases also run worker pools/Node workers.
+    // designed limit (specification/pxui.md): cap outer concurrency at four; cases also run worker pools/Node workers.
     // Revisit per-suite scheduling if larger hosts need more throughput.
     let workers = thread::available_parallelism().map_or(1, |count| count.get()).min(4);
     let mut failure_code = 0;

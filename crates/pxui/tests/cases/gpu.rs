@@ -104,7 +104,7 @@ pub fn render_with(painter: &mut Painter, ui: &mut Ui, size: (u32, u32), density
     }
     for index in 0..ui.output().draw.len() {
         let layer = &ui.output().draw[index];
-        // ponytail: PXUI's own tests draw no host images; a break back to the colour atlas is all
+        // designed limit (specification/pxui.md): PXUI's own tests draw no host images; a break back to the colour atlas is all
         let breaks: Vec<Break> = layer.breaks.iter().map(|b| {
             assert_eq!(b.image, pxui::draw::ATLAS, "host images need a host");
             Break { at_instance: b.at_instance, texture: None }

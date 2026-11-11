@@ -418,7 +418,7 @@ fn emits_text(name: &str, signature_and_body: &[Token]) -> bool {
         })
 }
 
-// ponytail: output detection is token-based; switch to syntax-aware provenance if new emission idioms appear.
+// designed limit (specification/pxui.md): output detection is token-based; switch to syntax-aware provenance if new emission idioms appear.
 fn hashmap_output_issues(path: &str, tokens: &[Token]) -> Vec<String> {
     let names = hash_map_names(tokens);
     if names.is_empty() {

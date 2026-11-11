@@ -416,7 +416,7 @@ impl Bridge {
                 ];
                 r.open(b'a', "{sv}");
                 for p in NAMES {
-                    // ponytail: a probe message per name keeps one property writer; fine for GetAll's rare use.
+                    // designed limit (specification/pxui.md): a probe message per name keeps one property writer; fine for GetAll's rare use.
                     let mut probe = Msg::signal(ROOT_PATH, ACCESSIBLE, "Probe");
                     if self.put_property(&mut probe, target, &i, p) {
                         r.open(b'e', "").s(p);
@@ -465,7 +465,7 @@ impl Bridge {
                 true
             }
             (ACCESSIBLE, "GetRelationSet") => {
-                // ponytail: no relations (labelled-by, controller-for); add with the engine's label links.
+                // designed limit (specification/pxui.md): no relations (labelled-by, controller-for); add with the engine's label links.
                 r.open(b'a', "(ua(so))").close();
                 true
             }
@@ -572,7 +572,7 @@ impl Bridge {
     }
 
     fn component(&self, member: &str, msg: &mut Msg, r: &mut Msg, n: A11yNode, out: &mut Vec<A11yAction>) -> bool {
-        // ponytail: window-relative only; "screen" coordinates equal window ones (Wayland gives no window position).
+        // designed limit (specification/pxui.md): window-relative only; "screen" coordinates equal window ones (Wayland gives no window position).
         let origin = |coord: u32| -> (f32, f32) {
             if coord == 2 && n.parent != NO_PARENT {
                 let p = self.tree.nodes[n.parent as usize].rect;

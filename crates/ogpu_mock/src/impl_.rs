@@ -4,7 +4,7 @@ use ogpu_core::backend::{Driver, Implementation as Impl};
 use std::cell::RefCell;
 
 thread_local! {
-    // ponytail: controls are kept for the thread's lifetime; they are a few counters each
+    // designed limit (specification/pxui.md): controls are kept for the thread's lifetime; they are a few counters each
     static CONTROLS: RefCell<Vec<Control>> = const { RefCell::new(Vec::new()) };
 }
 

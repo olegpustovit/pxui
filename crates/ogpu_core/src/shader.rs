@@ -76,7 +76,7 @@ fn index_space(kind: BindingKind) -> u8 {
     }
 }
 
-// ponytail: quadratic duplicate checks assume small reflection tables; use sets if they become hot.
+// designed limit (specification/pxui.md): quadratic duplicate checks assume small reflection tables; use sets if they become hot.
 pub fn validate_bindings(bindings: &[Binding]) -> Result<(), Error> {
     let mut seen = Vec::with_capacity(bindings.len());
     for value in bindings {

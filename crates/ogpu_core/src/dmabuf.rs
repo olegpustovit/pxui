@@ -18,7 +18,7 @@ pub const MAX_PLANES: usize = 4;
 /// DRM fourcc to texture format, ported from wlroots `render/vulkan/pixel_format.c` (MIT). DRM channel
 /// order is little-endian, texture formats are in memory byte order, so the names read reversed.
 /// The X variants import as the alpha format; their alpha byte is undefined and the caller ignores it.
-/// ponytail: only formats with a `TextureFormat`; packed 16-bit, 10-bit and YCbCr need new variants (and
+/// designed limit (specification/pxui.md): only formats with a `TextureFormat`; packed 16-bit, 10-bit and YCbCr need new variants (and
 /// YCbCr samplers) when a client must use them.
 pub const FORMATS: [(u32, TextureFormat); 7] = [
     (R8, TextureFormat::R8Unorm),

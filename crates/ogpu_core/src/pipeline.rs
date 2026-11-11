@@ -110,7 +110,7 @@ fn reflection(operation: &str, layout: &PipelineLayout, shaders: &[(&Shader, Sta
             "shader reflection and pipeline layout have different bindings",
         ));
     }
-    // ponytail: linear slot lookup assumes small reflected layouts; index it if counts grow.
+    // designed limit (specification/pxui.md): linear slot lookup assumes small reflected layouts; index it if counts grow.
     for (value, stage) in reflected {
         let Some((_, _, expected)) = expected
             .iter()

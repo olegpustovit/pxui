@@ -77,7 +77,7 @@ thread_local! {
     /// The open windows' shim handles, newest last: the clipboard free functions use the newest.
     static OPEN: std::cell::RefCell<Vec<NonNull<c_void>>> = const { std::cell::RefCell::new(Vec::new()) };
     /// The clipboard while no window is open: a Wayland client reaches the selection only through a surface.
-    // ponytail: process-local until a window opens (not handed to it); a windowless clipboard needs a seat focus anyway.
+    // designed limit (specification/pxui.md): process-local until a window opens (not handed to it); a windowless clipboard needs a seat focus anyway.
     static LOCAL: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
 

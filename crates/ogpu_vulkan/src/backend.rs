@@ -87,7 +87,7 @@ struct PipelineEntry {
     local: (i64, i64, i64),
 }
 
-/// ponytail: an indirect command buffer is its recorded calls, replayed into the encoder; secondary
+/// designed limit (specification/pxui.md): an indirect command buffer is its recorded calls, replayed into the encoder; secondary
 /// command buffers if replay shows in a frame's CPU time.
 #[derive(Clone)]
 enum IcbDraw {

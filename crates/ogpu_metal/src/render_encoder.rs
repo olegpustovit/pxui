@@ -30,7 +30,7 @@ fn render_pipeline(context: &CommandContext, pipeline: &dyn DriverPipeline) -> R
     }
 }
 
-// ponytail: indexed batches issue one native draw at a time; add batched native draws only when measured workloads justify it.
+// designed limit (specification/pxui.md): indexed batches issue one native draw at a time; add batched native draws only when measured workloads justify it.
 fn draw_batch(context: &CommandContext, encoder: &RenderEncoder, draws: &[DriverBatchDraw]) -> Result<(), Error> {
     let mut previous: Option<*const ()> = None;
     for d in draws {
