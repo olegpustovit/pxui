@@ -6701,6 +6701,9 @@ impl Ui {
         }
         std::mem::swap(&mut d.instances, &mut out);
         self.compact = out;
+        // ranges of skipped draws may reach past a layer that compaction made shorter: the painter refuses them
+        let len = d.instances.len() as u32;
+        d.dirty.retain_mut(|r| { r.1 = r.1.min(len); r.0 < r.1 });
     }
 
     /// A kept run `a..b` of layer `key` moved to `to`: the runs inside it and the ranges of nodes

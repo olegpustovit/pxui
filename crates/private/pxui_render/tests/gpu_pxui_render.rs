@@ -161,7 +161,7 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// Metal handles live on the process main thread, which libtest never gives a test: this target is
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
-    let cases: [(&str, fn()); 20] = [
+    let cases: [(&str, fn()); 21] = [
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -182,6 +182,7 @@ fn main() {
         ("shared_teardown", shared_teardown),
         ("shared_frame_serials", shared_frame_serials),
         ("shared_backdrop_blur", shared_backdrop_blur),
+        ("shared_skipped_draws", shared_skipped_draws),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--ignored") { return; }
@@ -855,12 +856,14 @@ fn shared_backdrop_blur() {
     };
     build(&mut ui);
     let mut renderer = shared_renderer(&device, &ui);
-    shared_app_frame(&queue, &target, &mut renderer, 1, 0);
     ui.view_offset(&glass.get().unwrap(), 80.0, 40.0);
     ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
     build(&mut ui);
+    ui.view_offset(&glass.get().unwrap(), 40.0, 20.0);
+    build(&mut ui);
+    build(&mut ui);
     let commands = ok(be::begin_commands(&queue));
-    renderer.prepare(&public_commands(&commands), 2, 1).expect("prepare blur frame");
+    renderer.prepare(&public_commands(&commands), 1, 0).expect("prepare blur frame");
     let colors = |load| RenderTarget { colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load, store: Store::Store, clear: (1.0, 1.0, 1.0, 1.0) }], depth: None };
     let first = ok(be::render_encoder(&commands, &colors(Load::Clear)));
     let pass_of = |encoder: &RenderEncoder| {
@@ -921,6 +924,85 @@ fn shared_frame_serials() {
     ok(be::abandon(&commands));
     drop(renderer);
     assert!(ui.last_error().contains("completed"), "the refusal is the last error: {}", ui.last_error());
+    ok(be::destroy_texture(&target));
+    ok(be::destroy_queue(&queue));
+    ok(be::destroy_device(&device));
+}
+
+/// A panel of `rows` labels and a caption: frames of different sizes, so each build moves the layer's instance count.
+fn rows_ui(ui: &mut pxui::Ui, rows: usize, caption: &str) {
+    let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
+    ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel(pxui_types::ui::PanelOpts::default(), "panel", &mut |ui: &mut pxui::Ui| {
+        for row in 0..rows { ui.label(&format!("row {row} {caption}")); }
+        ui.button("Quit");
+    })).expect("build a frame of rows");
+}
+
+/// Views of `rows` labels each, kept by revision: frames that move kept runs inside a layer.
+fn views_ui(ui: &mut pxui::Ui, views: usize, rows: usize, revision: u64) {
+    use pxui::ui::Size;
+    let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
+    ui.frame(&input, &mut |ui: &mut pxui::Ui| {
+        for v in 0..views {
+            let name = format!("view {v}");
+            ui.view(&name, revision + v as u64 % 2, Size::Px(300.0), Size::Px(20.0 * rows as f32), &mut |ui: &mut pxui::Ui| for row in 0..rows { ui.label(&format!("row {row} of {name}")); });
+        }
+    }).expect("build a frame of views");
+}
+
+/// A host that skips a draw (an occluded or minimized window) builds several frames between two draws: the layers' dirty ranges
+/// are those of every skipped frame, and they must still fit the instances the next draw uploads. Two or three builds before the
+/// first draw, and a draw, two builds and a draw, each over frames that grow and shrink the layer.
+fn shared_skipped_draws() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
+    // three builds, then the first draw
+    rows_ui(&mut ui, 12, "a");
+    rows_ui(&mut ui, 2, "b");
+    rows_ui(&mut ui, 7, "c");
+    let mut renderer = shared_renderer(&device, &ui);
+    shared_app_frame(&queue, &target, &mut renderer, 1, 0);
+    let first = ok(be::read_texture(&target, 640 * 4));
+    // a draw, two builds that shrink then grow, a draw
+    rows_ui(&mut ui, 1, "d");
+    rows_ui(&mut ui, 14, "e");
+    shared_app_frame(&queue, &target, &mut renderer, 2, 1);
+    // the skipped frames' result is the last build's: the same build drawn at once looks the same
+    let skipped = ok(be::read_texture(&target, 640 * 4));
+    let mut fresh = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
+    rows_ui(&mut fresh, 14, "e");
+    let mut fresh_renderer = shared_renderer(&device, &fresh);
+    shared_app_frame(&queue, &target, &mut fresh_renderer, 1, 0);
+    assert_eq!(skipped, ok(be::read_texture(&target, 640 * 4)), "frames built between two draws draw as the last one alone does");
+    assert_ne!(first, skipped, "the frames differ");
+    drop(fresh_renderer);
+    drop(renderer);
+    // kept views that come, go and move between draws
+    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
+    views_ui(&mut ui, 4, 3, 1);
+    views_ui(&mut ui, 1, 3, 1);
+    views_ui(&mut ui, 5, 2, 2);
+    let mut renderer = shared_renderer(&device, &ui);
+    shared_app_frame(&queue, &target, &mut renderer, 1, 0);
+    views_ui(&mut ui, 2, 6, 3);
+    views_ui(&mut ui, 6, 1, 3);
+    views_ui(&mut ui, 3, 4, 4);
+    shared_app_frame(&queue, &target, &mut renderer, 2, 1);
+    // a run of frames in which a seeded sequence builds one to three frames between draws
+    let mut seed = 0x2545_f491_4f6c_dd1du64;
+    let mut next = |n: u64| { seed = seed.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407); (seed >> 33) % n };
+    let (mut serial, mut completed) = (2u64, 1u64);
+    for _ in 0..300 {
+        for _ in 0..1 + next(3) {
+            if next(2) == 0 { views_ui(&mut ui, 1 + next(12) as usize, 1 + next(40) as usize, 1 + next(5)); } else { rows_ui(&mut ui, next(30) as usize, ["a", "b", "c"][next(3) as usize]); }
+        }
+        serial += 1;
+        completed += 1;
+        shared_app_frame(&queue, &target, &mut renderer, serial, completed);
+    }
+    drop(renderer);
     ok(be::destroy_texture(&target));
     ok(be::destroy_queue(&queue));
     ok(be::destroy_device(&device));
