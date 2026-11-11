@@ -181,6 +181,7 @@ fn main() {
         ("shared_no_submit", shared_no_submit),
         ("shared_teardown", shared_teardown),
         ("shared_frame_serials", shared_frame_serials),
+        ("shared_backdrop_blur", shared_backdrop_blur),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--ignored") { return; }
@@ -831,6 +832,69 @@ fn shared_teardown() {
     let Some((first, _)) = shared_panel(true) else { return };
     let Some((second, _)) = shared_panel(false) else { return };
     assert_eq!(first, second, "both device teardown orders render identically");
+}
+
+/// A shared frame whose layer asks for a backdrop blur: the app ends its pass, the library records the blur into the
+/// app's command buffer (making its scratch targets there, after the library adopted the buffer) and the app reopens
+/// the pass. Those targets must be in the layout the frame reads them in when the app's buffer runs: the fatal
+/// validation device fails the submit otherwise (UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout).
+fn shared_backdrop_blur() {
+    use pxui::ui::{Look, Node, Size};
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let mut ui = shared_ui("Functional UI");
+    let glass = std::cell::Cell::new(None);
+    let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
+    for count in 0..2 {
+        ui.frame(&input, &mut |ui: &mut pxui::Ui| {
+            glass.set(Some(ui.view("glass", 1, Size::Px(160.0), Size::Px(80.0), &mut |ui: &mut pxui::Ui| {
+                ui.node("pane", Node { w: Size::Px(160.0), h: Size::Px(80.0), look: Look { fill: pxui::geom::color::rgba(0, 0, 0, 1), ..Look::NONE }, ..Node::DEFAULT });
+            })));
+        }).expect("build blur view");
+        if count == 0 {
+            ui.view_offset(&glass.get().unwrap(), 80.0, 40.0);
+            ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
+        }
+    }
+    let mut renderer = shared_renderer(&device, &ui);
+    let commands = ok(be::begin_commands(&queue));
+    renderer.prepare(&public_commands(&commands), 1, 0).expect("prepare blur frame");
+    let colors = |load| RenderTarget { colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load, store: Store::Store, clear: (1.0, 1.0, 1.0, 1.0) }], depth: None };
+    let first = ok(be::render_encoder(&commands, &colors(Load::Clear)));
+    let pass_of = |encoder: &RenderEncoder| {
+        let native = ok(be::native_pass(encoder));
+        pxui_types::Pass { size: std::mem::size_of::<pxui_types::Pass>() as u32, vk_command_buffer: native.vk_command_buffer, mtl_render_encoder: native.mtl_render_encoder,
+            width_px: native.width_px, height_px: native.height_px, scale: 2.0, mtl_command_buffer: public_commands(&commands).mtl_command_buffer, ..pxui_types::Pass::default() }
+    };
+    let mut open_pass = first.clone();
+    let mut splits = 0;
+    let layers = ui.layers().count();
+    for layer in 0..layers as u32 {
+        let pass = pass_of(&open_pass);
+        let mut reopened = None;
+        renderer.draw_layer(&pass, layer, &mut |record| {
+            splits += 1;
+            ok(be::end_render(&open_pass));
+            let native = ok(be::native_texture(&target));
+            record(&pxui_types::Image { vk_image_view: native.vk_image_view, mtl_texture: native.mtl_texture, width: native.width, height: native.height, format: native.format, ..Default::default() })?;
+            let next = ok(be::render_encoder(&commands, &colors(Load::Load)));
+            let next_pass = pass_of(&next);
+            reopened = Some(next);
+            Ok(next_pass)
+        }).expect("draw the blurred layer");
+        if let Some(next) = reopened { open_pass = next; }
+        ok(be::invalidate_state(&open_pass));
+    }
+    assert_eq!(splits, 1, "the blurred layer split the app's pass once");
+    ok(be::end_render(&open_pass));
+    let submitted = ok(be::commit(&commands));
+    ok(be::complete_through(&queue, submitted.epoch));
+    ok(be::destroy_texture(&target));
+    ok(be::destroy_queue(&queue));
+    drop(renderer);
+    ok(be::destroy_device(&device));
+    assert_eq!(ui.last_error(), "", "renderer teardown reported an error");
 }
 
 /// `prepare` refuses serials that do not increase and more frames in flight than the painter's ring holds,
