@@ -164,7 +164,7 @@ export!(bare pub unsafe fn pxui_ui_output(ui: *mut PxuiUi) -> *const Output {
 
 export!(pub unsafe fn pxui_ui_tokens(ui: *mut PxuiUi) -> ThemeTokens {
     let Some(ui) = (unsafe { get(ui) }) else { return unsafe { core::mem::zeroed() }; };
-    crate::theme::tokens(unsafe { &*ui.engine }.tokens())
+    unsafe { &*ui.engine }.tokens().into()
 });
 
 export!(pub unsafe fn pxui_ui_set_theme(ui: *mut PxuiUi, source: *const ThemeSource) -> i32 {

@@ -72,6 +72,8 @@ mod interaction;
 mod ui_state;
 mod box_ops;
 mod kit_ext;
+mod theme_scope;
+pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
 #[cfg(all(test, feature = "static"))]
@@ -97,6 +99,7 @@ mod sys {
     pub use pxui_types::{PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
     use pxui_types::ffi::PxuiNodeDesc;
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
+    #[repr(C)] pub struct PxuiTheme { _private:[u8;0] }
     #[link(name = "pxui")]
     unsafe extern "C" {
         pub safe fn pxui_abi_version()->u32;

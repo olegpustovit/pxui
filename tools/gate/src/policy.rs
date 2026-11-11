@@ -146,6 +146,7 @@ pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/public/pxui/src/macros.rs", "the library! macro declares the extern block that links libpxui"),
     ("crates/private/pxui_abi/src/kit_ext.rs", "validates widget descriptors, borrowed strings, callback contexts and caller-owned outputs at the C ABI boundary"),
     ("crates/public/pxui/src/kit_ext.rs", "calls the private C ABI, passes stack callback contexts and reads borrowed library strings"),
+    ("crates/public/pxui/src/theme_scope.rs", "calls the private C ABI and owns the opaque theme handle"),
     ("crates/public/pxui/src/ui_state.rs", "calls the private C ABI through safe wrapper methods"),
     ("crates/public/pxui/src/box_ops.rs", "calls the private C ABI, boxes the hit closure behind its callback and reads borrowed library strings"),
     ("crates/open/ogpu_core/src/backend.rs", "validates and adopts raw native GPU handles at the explicit backend bridge"),

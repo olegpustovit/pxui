@@ -53,7 +53,7 @@ export!(pub unsafe fn pxui_paint_cap_tracking(p: *mut PxuiPaint) -> f32 { unsafe
 export!(pub unsafe fn pxui_paint_rtl(p: *mut PxuiPaint) -> u8 { unsafe { value(p) }.map_or(0, |p| p.rtl as u8) });
 export!(pub unsafe fn pxui_paint_theme(p: *mut PxuiPaint) -> ThemeTokens {
     let Some(p) = (unsafe { value(p) }) else { return unsafe { core::mem::zeroed() }; };
-    crate::theme::tokens(p.theme)
+    p.theme.into()
 });
 
 export!(pub unsafe fn pxui_paint_fill(p:*mut PxuiPaint,x:f32,y:f32,w:f32,h:f32,c:Rgba) { if finite(&[x,y,w,h]) { if let Some(p)=unsafe{value(p)} { p.fill(x,y,w,h,c); } } });

@@ -91,6 +91,19 @@ impl From<crate::ffi::ThemeTokens> for Tokens {
     }
 }
 
+impl From<Tokens> for crate::ffi::ThemeTokens {
+    fn from(t: Tokens) -> Self {
+        Self {
+            panel: t.panel, foreground: t.foreground, control: t.control, input: t.input, track: t.track, accent: t.accent,
+            ink_ground: t.ink_ground.unwrap_or_default(), has_ink_ground: t.ink_ground.is_some() as u8, reserved: [0; 3],
+            space: t.space, radius: t.radius, display_size: t.display_size, title_size: t.title_size,
+            font_size: t.font_size, label_size: t.label_size,
+            motion: crate::ffi::PxuiMotion { fast: t.motion.fast, normal: t.motion.normal, slow: t.motion.slow, ease: t.motion.ease },
+            reduced_motion: t.reduced_motion as u8, reserved_tail: [0; 3], density: t.density,
+        }
+    }
+}
+
 /// The Gallery-facing subset of the theme graph, transported through the stable C snapshot.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct ThemeSnapshot {

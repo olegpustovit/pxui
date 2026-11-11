@@ -101,3 +101,24 @@ impl Ui {
         self.inspector_header("head", Some("kind"), None, Some("1"), Some(std::rc::Rc::new(|name: &str| !name.is_empty())), actions, Some("reset"), true, "Title", "detail")
     }
 }
+
+#[test]
+fn a_theme_built_from_key_values_scopes_over_a_subtree_and_refuses_bad_keys() {
+    use crate::Theme;
+    use pxui_types::theme::default;
+    let mut theme = Theme::from_tokens(default());
+    theme.set("tokens.accent", "#ff0000").expect("a token");
+    theme.set("button.hover.fill", "#00ff00").expect("a look key");
+    let err = theme.set("button.nonsense", "1").expect_err("an unknown key is refused");
+    assert!(err.contains("unknown key"), "{err}");
+    assert!(theme.set("tokens.accent", "red").is_err(), "a malformed value is refused");
+    assert!(theme.load("/no/such/file.theme").is_err());
+    let mut ui = Ui::new().expect("library");
+    let mut inside = None;
+    ui.frame(&input(), |ui| {
+        let outer = ui.tokens().accent;
+        ui.themed(&theme, |ui| inside = Some(ui.tokens().accent));
+        assert_eq!(ui.tokens().accent, outer, "the Ui's own theme is back");
+    }).expect("frame");
+    assert_eq!(inside, Some(pxui_types::geom::Rgba { r: 255, g: 0, b: 0, a: 255 }));
+}

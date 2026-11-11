@@ -1,19 +1,11 @@
 use crate::PxuiThemeSnapshot;
-use crate::state::{PxuiUi, get};
-use pxui_core::theme::Tokens;
-use pxui_types::theme::{Font, Look, Shadow};
-use pxui_types::ffi::{PxuiFontDesc, PxuiLookDesc, PxuiMotion, PxuiRingDesc, PxuiShadowDesc, ThemeTokens};
 
-pub(crate) fn tokens(t: Tokens) -> ThemeTokens {
-    ThemeTokens {
-        panel:t.panel, foreground:t.foreground, control:t.control, input:t.input, track:t.track, accent:t.accent,
-        ink_ground:t.ink_ground.unwrap_or_default(), has_ink_ground:t.ink_ground.is_some() as u8, reserved:[0;3],
-        space:t.space, radius:t.radius, display_size:t.display_size, title_size:t.title_size,
-        font_size:t.font_size, label_size:t.label_size,
-        motion:PxuiMotion { fast:t.motion.fast, normal:t.motion.normal, slow:t.motion.slow, ease:t.motion.ease },
-        reduced_motion:t.reduced_motion as u8, reserved_tail:[0;3], density:t.density,
-    }
-}
+use crate::state::{Build, PxuiUi, call_build, checked, fail, get};
+use crate::{PXUI_ERR_ARGUMENT, Str};
+use core::ffi::c_void;
+use pxui_core::{Theme, ui::Ui};
+use pxui_types::theme::{Font, Look, Shadow};
+use pxui_types::ffi::{PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, ThemeTokens};
 
 fn font(v: Font) -> PxuiFontDesc {
     PxuiFontDesc { family:v.family, weight:v.weight, size:v.size, tracking:v.tracking, caps:v.caps as u8, reserved:[0;3] }
@@ -39,7 +31,65 @@ export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> PxuiThemeSnapshot {
     let theme=engine.theme();
     PxuiThemeSnapshot {
         size:core::mem::size_of::<PxuiThemeSnapshot>() as u32, reserved:0,
-        tokens:tokens(theme.tokens), value:look(theme.value.idle), hint:look(theme.hint.idle),
+        tokens:theme.tokens.into(), value:look(theme.value.idle), hint:look(theme.hint.idle),
         field:look(theme.field.idle), footer:look(theme.footer.idle),
     }
+});
+
+/// A theme a caller builds from tokens and key/value pairs, then scopes over a subtree with `pxui_ui_themed`. Each `set`
+/// or `load` applies over what is there already, as `Theme::parse` does over its base: a `tokens.*` key re-derives every
+/// look from the new tokens, so set tokens before the keys that restyle single looks.
+pub struct PxuiTheme { theme: Theme, error: String }
+
+impl PxuiTheme {
+    /// Applies `text` (a theme file) over the theme, or records why it cannot be and changes nothing.
+    fn apply(&mut self, text: &str) -> i32 {
+        match Theme::parse(text, &self.theme) {
+            Ok(theme) => { self.theme = theme; self.error.clear(); 0 }
+            Err(errors) => {
+                self.error = errors.iter().map(|e| format!("line {}: {}", e.line, e.message)).collect::<Vec<_>>().join("\n");
+                PXUI_ERR_ARGUMENT
+            }
+        }
+    }
+}
+
+// The defaults, or `Theme::from_tokens(tokens)` when `tokens` is set.
+export!(bare pub unsafe fn pxui_theme_create(tokens: *const ThemeTokens) -> *mut PxuiTheme {
+    let theme = if tokens.is_null() { Theme::default() } else { Theme::from_tokens(unsafe { *tokens }.into()) };
+    Box::into_raw(Box::new(PxuiTheme { theme, error: String::new() }))
+});
+
+export!(bare pub unsafe fn pxui_theme_destroy(theme: *mut PxuiTheme) { if !theme.is_null() { drop(unsafe { Box::from_raw(theme) }); } });
+
+// Sets one theme file key (`button.hover.fill`, `tokens.accent`, ...) to its value text.
+export!(bare pub unsafe fn pxui_theme_set(theme: *mut PxuiTheme, key: Str, value: Str) -> i32 {
+    let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
+    let (Some(key), Some(value)) = (unsafe { checked(key) }, unsafe { checked(value) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
+    if key.contains(['\n', '=']) || value.contains('\n') { theme.error = "a key holds no `=` or line break and a value no line break".into(); return PXUI_ERR_ARGUMENT; }
+    theme.apply(&format!("{key} = {value}"))
+});
+
+// Applies the theme file at `path`.
+export!(bare pub unsafe fn pxui_theme_load(theme: *mut PxuiTheme, path: Str) -> i32 {
+    let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(path) = (unsafe { checked(path) }) else { theme.error = "invalid theme path".into(); return PXUI_ERR_ARGUMENT; };
+    match std::fs::read_to_string(path) {
+        Ok(text) => theme.apply(&text),
+        Err(error) => { theme.error = format!("{path}: {error}"); PXUI_ERR_ARGUMENT }
+    }
+});
+
+// Why the last `set` or `load` was refused, borrowed from the theme until its next call.
+export!(bare pub unsafe fn pxui_theme_last_error(theme: *const PxuiTheme) -> Str {
+    match unsafe { theme.as_ref() } { Some(theme) => Str { ptr: theme.error.as_ptr(), len: theme.error.len() }, None => Str::default() }
+});
+
+// Builds a subtree under `theme`; the Ui's own theme is back when the call returns.
+export!(pub unsafe fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, build: Build, user: *mut c_void) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(theme) = (unsafe { theme.as_ref() }) else { return unsafe { fail(ui, "null theme") }; };
+    let shared = state.shared;
+    unsafe { (&mut *state.engine).themed(&theme.theme, &mut |engine: &mut Ui| call_build(shared, engine, build, user)); }
+    0
 });

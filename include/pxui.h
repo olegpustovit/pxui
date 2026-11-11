@@ -8,6 +8,7 @@ typedef struct PxuiUi PxuiUi;
 typedef struct PxuiRenderer PxuiRenderer;
 typedef struct PxuiText PxuiText;
 typedef struct PxuiPaint PxuiPaint;
+typedef struct PxuiTheme PxuiTheme;
 typedef struct { uint32_t size, platform; int32_t font_size; } PxuiUiDesc;
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 typedef struct { const PxuiStr *ptr; size_t len; } PxuiStrSpan;
@@ -399,5 +400,14 @@ int32_t pxui_ui_inspector_section_view(PxuiUi *ui, PxuiStr key, uint64_t revisio
 int32_t pxui_ui_inspector_toggle_value(PxuiUi *ui, PxuiStr key, float x, float y, uint8_t value, uint8_t *out);
 int32_t pxui_ui_line_field(PxuiUi *ui, float x, float y, float w, float h, uint8_t grab, PxuiStr placeholder, PxuiStr label, PxuiStr value, PxuiStr *text, uint32_t *step); /* step: 0 none, 1 next, 2 previous, 3 close */
 int32_t pxui_ui_field_drag(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiPoint *out);
+
+/* Themes a caller builds and scopes over a subtree. set and load apply over what the theme holds, as a theme file applies over
+   its base: a tokens.* key re-derives every look from the new tokens, so set tokens before the keys that restyle single looks. */
+PxuiTheme *pxui_theme_create(const PxuiThemeTokens *tokens); /* tokens may be NULL for the defaults */
+void pxui_theme_destroy(PxuiTheme *theme);
+int32_t pxui_theme_set(PxuiTheme *theme, PxuiStr key, PxuiStr value);
+int32_t pxui_theme_load(PxuiTheme *theme, PxuiStr path);
+PxuiStr pxui_theme_last_error(const PxuiTheme *theme); /* borrowed from the theme until its next call */
+int32_t pxui_ui_themed(PxuiUi *ui, const PxuiTheme *theme, PxuiBuild build, void *user);
 
 #endif
