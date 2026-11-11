@@ -1,7 +1,7 @@
 //! Interaction steps use a 240-point panel, 24-point rows, a value column at 120 and toggle bounds [197,237).
 use crate::support::*;
 use input::{Event, Key};
-use pxui::ui::*;
+use pxui_core::ui::*;
 use std::cell::Cell;
 
 thread_local! {

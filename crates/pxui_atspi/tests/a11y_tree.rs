@@ -1,7 +1,7 @@
-//! pxui::a11y builder, diff and the AT-SPI mapping tables (pxui's lib tests are off, so they live here). Headless,
+//! pxui_core::a11y builder, diff and the AT-SPI mapping tables (pxui's lib tests are off, so they live here). Headless,
 //! every target.
-use pxui::a11y::{A11yDiff, A11yTree, NO_PARENT, Role, Value, change, diff, node_id, state};
-use pxui::geom::Rect;
+use pxui_core::a11y::{A11yDiff, A11yTree, NO_PARENT, Role, Value, change, diff, node_id, state};
+use pxui_core::geom::Rect;
 use pxui_atspi::map;
 
 fn sample(button: &str, checked: bool) -> A11yTree {

@@ -1,7 +1,7 @@
 //! Ports of lib/pxui ,  and .
 use crate::support::*;
 use input::{Event, Key, MouseButton, ScrollPhase};
-use pxui::ui::*;
+use pxui_core::ui::*;
 use input::frame;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -391,7 +391,7 @@ fn key_of_box(b: &UiBox) -> i64 {
 /// Label typography through pxui_text: wrap, ellipsis with a line limit, alignment and a second
 /// (icon) font addressed by code point.
 pub fn window_pxui_typography() {
-    use pxui::text::{Align, Style, Wrap};
+    use pxui_core::text::{Align, Style, Wrap};
     let mut ui = new_ui(None);
     let icons = ui.text_mut().add_font(include_bytes!("../../../../assets/fonts/Pragmasevka-Regular.ttf")) as u16;
     let body = Style { size: 13.0, ..Style::default() };
@@ -409,7 +409,7 @@ pub fn window_pxui_typography() {
     let (wrapped, clipped) = (metrics[0], metrics[1]);
     assert!(wrapped.lines > 1 && wrapped.w <= 60.0, "wrap: {wrapped:?}");
     assert!(clipped.lines == 1 && clipped.w <= 60.0, "ellipsis on one line: {clipped:?}");
-    let glyphs: Vec<_> = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui::draw::kind::MASK).collect();
+    let glyphs: Vec<_> = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui_core::draw::kind::MASK).collect();
     assert!(glyphs.len() == 4, "three right-aligned glyphs and one icon: {}", glyphs.len());
     assert!(glyphs[0].rect[0] > 150.0, "right alignment: first glyph at {}", glyphs[0].rect[0]);
     assert!(glyphs[3].rect[1] >= 20.0, "the icon sits on its own line");
@@ -420,7 +420,7 @@ pub fn window_pxui_typography() {
 fn dirty_ranges_merge_closest() {
     let mut r = Vec::new();
     for (a, b) in [(10, 11), (0, 1), (11, 12), (100, 101), (50, 51), (1000, 1001), (52, 53)] {
-        pxui::draw::add_range(&mut r, a, b, 4);
+        pxui_core::draw::add_range(&mut r, a, b, 4);
     }
     // (11, 12) touches (10, 11); past four ranges the closest pair merges: (0, 1) with (10, 12), then 50 with 52
     assert_eq!(r, [(0, 12), (50, 53), (100, 101), (1000, 1001)]);

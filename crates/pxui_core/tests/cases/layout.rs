@@ -2,8 +2,8 @@
 //! anchored popups, both-axis scroll with sticky headers, right-to-left and the splitter.
 use crate::support::*;
 use input::Event;
-use pxui::geom::color;
-use pxui::ui::*;
+use pxui_core::geom::color;
+use pxui_core::ui::*;
 use std::cell::RefCell;
 
 fn at(t: f64, events: Vec<Event>) -> input::frame::Frame {

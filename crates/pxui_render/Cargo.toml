@@ -12,7 +12,7 @@ test = false
 
 [dependencies]
 ogpu_core = { path = "../ogpu_core" }
-pxui = { path = "../pxui" }
+pxui_core = { path = "../pxui_core" }
 
 [dev-dependencies]
 mem_sys = { path = "../mem_sys" }

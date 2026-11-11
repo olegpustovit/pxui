@@ -1,13 +1,13 @@
 use input::{Event, Key, MouseButton, Platform};
-use pxui::ui::*;
+use pxui_core::ui::*;
 use input::frame;
 
 /// The golden face: the pointer positions in the text tests assume its advance.
 pub const DEPARTURE_MONO: &[u8] = include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf");
 
 /// A text engine over the golden face alone.
-pub fn golden_text() -> pxui::text::Text {
-    pxui::text::Text::new(&[DEPARTURE_MONO])
+pub fn golden_text() -> pxui_core::text::Text {
+    pxui_core::text::Text::new(&[DEPARTURE_MONO])
 }
 
 /// A UI over the golden face.

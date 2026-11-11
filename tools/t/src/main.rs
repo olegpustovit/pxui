@@ -1342,12 +1342,12 @@ mod tests {
     #[test]
     fn pxui_packages_run_in_the_checkout_only_when_named_alone() {
         let root = std::env::temp_dir().join(format!("rays-t-pxui-{}", process::id()));
-        for dir in ["pxui/crates/pxui", "crates/rays"] { fs::create_dir_all(root.join(dir)).unwrap(); }
+        for dir in ["pxui/crates/pxui_core", "crates/rays"] { fs::create_dir_all(root.join(dir)).unwrap(); }
         let args = |names: &[&str]| names.iter().flat_map(|name| ["-p", name]).map(OsString::from).collect::<Vec<_>>();
-        assert_eq!(pxui_only(&root, &args(&["pxui"])), None, "no checkout manifest yet");
-        for manifest in ["pxui/Cargo.toml", "pxui/crates/pxui/Cargo.toml"] { fs::write(root.join(manifest), "").unwrap(); }
-        assert_eq!(pxui_only(&root, &args(&["pxui"])), Some(true));
-        assert_eq!(pxui_only(&root, &args(&["pxui", "rays"])), Some(false));
+        assert_eq!(pxui_only(&root, &args(&["pxui_core"])), None, "no checkout manifest yet");
+        for manifest in ["pxui/Cargo.toml", "pxui/crates/pxui_core/Cargo.toml"] { fs::write(root.join(manifest), "").unwrap(); }
+        assert_eq!(pxui_only(&root, &args(&["pxui_core"])), Some(true));
+        assert_eq!(pxui_only(&root, &args(&["pxui_core", "rays"])), Some(false));
         assert_eq!(pxui_only(&root, &args(&["rays"])), None);
         fs::remove_dir_all(&root).unwrap();
     }

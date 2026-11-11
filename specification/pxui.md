@@ -57,7 +57,7 @@ Each frame runs four steps:
    flow and floating (`at`) children in logical screen points.
 4. **Paint.** Boxes paint depth-first with nested clip rectangles, culling
    boxes outside their clip. Painters receive the final rectangle and emit
-   `pxui::draw::Instance`s, the clip riding in each. `Ui.to_front ~order` raises a root in both
+   `pxui_core::draw::Instance`s, the clip riding in each. `Ui.to_front ~order` raises a root in both
    painting and hit testing. `Ui.frame` returns `FrameOut`: the paint layers
    (instances, image breaks and images per raised root, borrowed) and `PlatformOut` (cursor,
    the focused text's input-method area, window ground, clipboard write, paste
@@ -114,7 +114,7 @@ click and a scoped key in one event batch use the clicked pane.
 `Pxui.Theme` is the design kit, revision 3. The reference is the "Rays UI Redesign" canvas
 (foundations, widgets, workspace, overlays and one sheet per panel); `sketches/ws_layout` is the
 layout it is compared with. Native framebuffer parity is checked through
-`cargo t -p pxui gpu_parity`; the CLI canvas renderer intentionally excludes editor chrome.
+`cargo t -p pxui_core gpu_parity`; the CLI canvas renderer intentionally excludes editor chrome.
 
 Tokens. The six base colours are unchanged (`panel` the ground, `foreground` ink, `control` the
 current row, `input` the sheet, `track` the well, `accent` signal orange `#f0481f`); invalid is
@@ -218,7 +218,7 @@ recently drawn one is retired: its glyphs go, its texels stay until the frames i
 and every view rebuilds the next frame (`Text::retirements`). A run's first baseline sits the font's
 ascent below its top, on a device pixel. Carets, hit tests and selection
 spans of the text widgets come from the same layouts. `Paint::text_styled` and
-`Ui::text_metrics` take any `pxui::text::Style`: wrap, ellipsis, line limit,
+`Ui::text_metrics` take any `pxui_core::text::Style`: wrap, ellipsis, line limit,
 alignment, tracking and font (an icon font is one more loaded font). The host
 feeds its painter's atlases from `Text::drain_uploads`.
 
@@ -226,7 +226,7 @@ Kit rows: 12 points at each side, a label column of 112 points (half of a narrow
 the control at `y + 2`, `row_height - 4` tall; a switch sits at the right edge; text sits at
 `y + max 4 ((row_height - font_size - 3) / 2)`. pxui's `gpu_pxui_parity` target
 renders the kit widgets headless (no SDL, no window: `pxui_render`'s painter into an offscreen
-texture) at 1x and 2x and compares them with `crates/pxui/fixtures/kit_*_{1,2}x.png` pixel for
+texture) at 1x and 2x and compares them with `crates/pxui_core/fixtures/kit_*_{1,2}x.png` pixel for
 pixel; the goldens are rendered with
 DepartureMono (the test loads it as font 0) and are regenerated deliberately, by running the
 target with `RAYS_UPDATE_FIXTURES=1`.
@@ -498,7 +498,7 @@ turns it over; `local_rect` is the rectangle `patch_rect` takes); a patch made w
    reaches a kept view's node after the paint; `view_transform_about` scales about a fixed window
    point. `ui.built_nodes()` counts the last build's declared nodes, `ui.rebuilt_views()` the views it built rather than kept.
 
-**Styling (P5 commit 2, styling half, landed).** `pxui::theme`: `Tokens` (colour roles, `space`,
+**Styling (P5 commit 2, styling half, landed).** `pxui_core::theme`: `Tokens` (colour roles, `space`,
 `radius` small/medium/large, type sizes, `motion` fast/normal/slow + cubic-bezier `ease`,
 `reduced_motion`, `density`), `Look` (fill solid or a two-stop linear `gradient` at `angle`, `border`
 + `border_w` on `sides` (`dashed`: one point of 4-on, 3-off dashes), per-corner `radius`, two `shadows` outer or inner, `text` + `Font` (family
@@ -521,7 +521,7 @@ path, and `ui.animate_keys(handle, &[(t, Target, Curve)])` runs up to `MAX_KEYS`
 segment on its own curve (a Bezier's duration is the segment's), in reused fixed records (no
 allocation once warm). A theme is a flat `key = value` file (`Theme::parse(text, &base) -> Result<Theme,
 Vec<ThemeError>>`, `Theme::write`): `tokens.*` keys re-derive the looks, then `PART.STATE.FIELD` or
-`PART.FIELD` keys override them; `crates/pxui/themes/rays.theme` is the default written out and
+`PART.FIELD` keys override them; `crates/pxui_core/themes/rays.theme` is the default written out and
 `dusk.theme` a second theme (golden `kit_dusk_{1,2}x.png`). Views also take `view_transform` /
 `view_scale` (hit testing through the inverse; nested views inherit the transforms around them, composed
 into their table entries as offset, opacity and clip are, and `rect`, hit testing and damage go through
@@ -641,7 +641,7 @@ closures outlive the build, and they live in the frame arena. Public functions t
 | Work when one view changes | that view only; the rest replays (`window_pxui_budget_counts`) |
 | Cached frame | O(views), not O(nodes) (`window_pxui_budget_cached_per_view`) |
 | Text shaping | full shaping, cached per node (`pxui_text`) |
-| Warm `cargo check -p pxui` | under 1 s |
+| Warm `cargo check -p pxui_core` | under 1 s |
 | Clean debug build, PXUI repo | under 30 s (cosmic-text about 13 s of it) |
 
 **Designed limits.** Deliberate bounds of this design, each with the reason it stays; a change

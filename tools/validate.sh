@@ -11,7 +11,7 @@ case "${1:-}" in
 On the Windows machine (Rust 1.99.1 windows-gnu per rust-toolchain.toml, MSYS2 UCRT64 with SDL3 in C:/msys64/ucrt64):
   cargo check --workspace --tests --locked
   cargo run -q -p gate -- deps
-  cargo t -p pxui_text -p pxui_render -p pxui -p ogpu_core -p ogpu_mock -p ogpu_vulkan -p pxui_sdl -p pxui_gallery -p input -p cfmt
+  cargo t -p pxui_text -p pxui_render -p pxui_core -p ogpu_core -p ogpu_mock -p ogpu_vulkan -p pxui_sdl -p pxui_gallery -p input -p cfmt
 Needs the Vulkan SDK validation layer for ogpu_vulkan; a changed PATH reruns the shader build step.
 TXT
   exit 0;;
@@ -22,7 +22,7 @@ libxkbcommon-dev libdbus-1-dev at-spi2-core glslang-tools vulkan-validationlayer
   export PATH=~/vk/root/usr/bin:$PATH LD_LIBRARY_PATH=~/vk/root/usr/lib/x86_64-linux-gnu
   export VK_ADD_LAYER_PATH=~/vk/root/usr/share/vulkan/explicit_layer.d
   export XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir WAYLAND_DISPLAY=wayland-0   # WSLg, for the Wayland smoke test
-  RAYS_ALLOW_SKIP=1 cargo t -p pxui_text -p pxui_render -p pxui -p ogpu_vulkan -p pxui_gallery -p pxui_wayland -p pxui_atspi
+  RAYS_ALLOW_SKIP=1 cargo t -p pxui_text -p pxui_render -p pxui_core -p ogpu_vulkan -p pxui_gallery -p pxui_wayland -p pxui_atspi
 TXT
   exit 0;;
 "") ;;

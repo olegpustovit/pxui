@@ -1,7 +1,7 @@
 //! Styling: theme files, scoped themes, variants, transitions and animation (headless, no GPU).
 use crate::support::*;
-use pxui::geom::color;
-use pxui::ui::*;
+use pxui_core::geom::color;
+use pxui_core::ui::*;
 use std::cell::Cell;
 
 const RAYS: &str = include_str!("../../themes/rays.theme");
@@ -439,12 +439,12 @@ pub fn styling_images_and_icons() {
         });
     }
     let layer = &ui.output().draw[0];
-    let images: Vec<_> = layer.instances.iter().filter(|i| i.kind == pxui::draw::kind::IMAGE).collect();
+    let images: Vec<_> = layer.instances.iter().filter(|i| i.kind == pxui_core::draw::kind::IMAGE).collect();
     check(images.len() == 10, &format!("{} image instances, not 1 fitted and 9 sliced", images.len()));
     check(images[0].rect == [0.0, 25.0, 100.0, 75.0], &format!("contain placed the image at {:?}", images[0].rect));
     check(images[1..].iter().all(|i| i.color == [255, 255, 255, 128]), "the slices lost their tint");
     check(layer.breaks.first().is_some_and(|b| b.image == 0) && layer.images.len() == 1, "one break to the image");
-    check(layer.instances.iter().any(|i| i.kind == pxui::draw::kind::MASK), "the icon drew no glyph");
+    check(layer.instances.iter().any(|i| i.kind == pxui_core::draw::kind::MASK), "the icon drew no glyph");
     ui.destroy();
 }
 
@@ -454,7 +454,7 @@ fn styling_theme_watch() {
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("t.theme");
     std::fs::write(&path, "row_h = 24\n").unwrap();
-    let mut w = pxui::theme::Watch::new(&path, 1.0);
+    let mut w = pxui_core::theme::Watch::new(&path, 1.0);
     check(!w.poll(0.0) && w.next_poll() == 1.0, "an unchanged file reported a change");
     let f = std::fs::File::options().write(true).open(&path).unwrap();
     f.set_modified(std::time::SystemTime::now() + std::time::Duration::from_secs(5)).unwrap();

@@ -1,7 +1,7 @@
 //! Picker, context menu, submenu and tooltip interaction contracts.
 use crate::support::*;
 use input::{Event, Key, Platform};
-use pxui::ui::*;
+use pxui_core::ui::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 

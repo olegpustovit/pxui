@@ -71,7 +71,7 @@
 //! [`Painter::draw_retained`] keeps a layer's instances in persistent GPU storage and writes only the
 //! dirty ranges (its doc states the frames-in-flight rule). [`Painter::blur`] is the only extra pass: a
 //! second small pipeline (`blur.*` shaders) runs a downsampling separable gaussian into scratch targets.
-//! Pure helpers in `pxui::draw` place images (`fit`, `nine_slice`) and emit per-side borders.
+//! Pure helpers in `pxui_core::draw` place images (`fit`, `nine_slice`) and emit per-side borders.
 //! Not built, opt-in later and only if measured: group opacity (render a view to a texture and composite
 //! it once), texture-cached views and content filters on them, dashed curves.
 
@@ -91,7 +91,7 @@ const BLUR_MSL: &str = include_str!("../shaders/blur.metal");
 const BLUR_VERT_SPV: &[u8] = include_bytes!("../shaders/blur.vert.spv");
 const BLUR_FRAG_SPV: &[u8] = include_bytes!("../shaders/blur.frag.spv");
 
-pub use pxui::draw::{f16, flags, kind, Instance, NO_CLIP};
+pub use pxui_core::draw::{f16, flags, kind, Instance, NO_CLIP};
 /// View indices fit the instance's 16-bit `view`; the table grows to the highest index set.
 pub const MAX_VIEWS: usize = 65536;
 /// Bytes of one view record in the globals buffer: four float4s (see the vertex shader).
@@ -151,7 +151,7 @@ pub enum AtlasKind { Mask, Color }
 /// Frames whose ring regions stay untouched: at most `FRAMES - 1` frames may be in flight on the GPU.
 const FRAMES: usize = 3;
 // the text atlas waits as many frames before it rewrites texels a frame drew
-const _: () = assert!(pxui::text::FRAMES_IN_FLIGHT as usize == FRAMES);
+const _: () = assert!(pxui_core::text::FRAMES_IN_FLIGHT as usize == FRAMES);
 /// Storage-buffer offset alignment that every Vulkan device satisfies.
 const ALIGN: usize = 256;
 fn align(n: usize) -> usize { (n + ALIGN - 1) & !(ALIGN - 1) }
@@ -216,7 +216,7 @@ fn pending() -> [Vec<(u32, u32)>; FRAMES] {
 }
 
 fn instance_bytes(instances: &[Instance]) -> &[u8] {
-    // SAFETY: Instance is repr(C) plain data with no padding (64 bytes, asserted in pxui::draw).
+    // SAFETY: Instance is repr(C) plain data with no padding (64 bytes, asserted in pxui_core::draw).
     unsafe { std::slice::from_raw_parts(instances.as_ptr().cast::<u8>(), instances.len() * 64) }
 }
 
@@ -596,7 +596,7 @@ impl Painter {
             self.retained_bytes += (len * 64 * FRAMES) as u64;
         } else {
             let all = [(0, len as u32)];
-            for d in if changed { &all[..] } else { dirty } { for p in &mut store.pending { pxui::draw::add_range(p, d.0, d.1, PENDING_RANGES); } }
+            for d in if changed { &all[..] } else { dirty } { for p in &mut store.pending { pxui_core::draw::add_range(p, d.0, d.1, PENDING_RANGES); } }
             for k in 0..store.pending[copy].len() {
                 // (a range pending from a longer layer ends at the layer now)
                 let (lo, hi) = store.pending[copy][k];

@@ -7,7 +7,7 @@ use ogpu_core::error::{self, Error};
 use ogpu_core::pipeline::{ColorFormat, DepthFormat};
 use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::types::{Extent, Origin, TextureDescriptor, TextureFormat, TextureUsage};
-use pxui::draw::{fit, nine_slice, Fit};
+use pxui_core::draw::{fit, nine_slice, Fit};
 use pxui_render::{flags, ramp, AtlasKind, Break, Instance, Painter, View};
 #[path = "png.rs"]
 mod png;
@@ -334,11 +334,11 @@ fn gpu_per_side_borders() {
     let mut painter = painter(&device);
     let target = target(&device);
     let white = [255, 255, 255, 255];
-    let (sides, n) = pxui::draw::borders([60.0, 8.0, 92.0, 32.0], [0.0; 4], [0.0, 4.0, 0.0, 2.0], [[0; 4], RED, [0; 4], BLUE]);
+    let (sides, n) = pxui_core::draw::borders([60.0, 8.0, 92.0, 32.0], [0.0; 4], [0.0, 4.0, 0.0, 2.0], [[0; 4], RED, [0; 4], BLUE]);
     assert_eq!(n, 1, "one instance for every side");
     // four widths and four colours: the corners split on the mitre, no seam
     let (green, gold) = ([0, 160, 0, 255], [230, 180, 0, 255]);
-    let (four, m) = pxui::draw::borders([8.0, 48.0, 48.0, 80.0], [0.0; 4], [1.0, 2.0, 3.0, 4.0], [RED, green, BLUE, gold]);
+    let (four, m) = pxui_core::draw::borders([8.0, 48.0, 48.0, 80.0], [0.0; 4], [1.0, 2.0, 3.0, 4.0], [RED, green, BLUE, gold]);
     let mut instances = vec![
         Instance::rect([8.0, 8.0, 40.0, 32.0], white).border(4.0, INK).sides(flags::BOTTOM),
         Instance::rect([60.0, 8.0, 92.0, 32.0], white),
@@ -707,7 +707,7 @@ fn fit_modes_place_and_crop() {
 fn nine_slice_corners_stay_and_centre_stretches() {
     let tiles = nine_slice([0.0, 0.0, 100.0, 60.0], [0.0, 0.0, 1.0, 1.0], [30.0, 30.0], [10.0, 10.0, 10.0, 10.0], [255; 4]);
     let third = 1.0 / 3.0;
-    assert!(close(tiles[0].rect, [0.0, 0.0, 10.0, 10.0]) && tiles[0].kind == pxui::draw::kind::IMAGE);
+    assert!(close(tiles[0].rect, [0.0, 0.0, 10.0, 10.0]) && tiles[0].kind == pxui_core::draw::kind::IMAGE);
     assert!(close(tiles[4].rect, [10.0, 10.0, 90.0, 50.0]));
     assert!(close(tiles[8].rect, [90.0, 50.0, 100.0, 60.0]));
     let uv = |i: usize| [0, 1, 2, 3].map(|k| { let w = tiles[i].aux[k / 2]; (w >> (16 * (k % 2)) & 0xffff) as f32 / 65535.0 });

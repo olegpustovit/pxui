@@ -23,20 +23,20 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("ogpu_metal", &["ogpu_core", "metal_sys", "native_layer_token_sys"][..]),
         ("ogpu_vulkan", &["ogpu_core", "vulkan_sys", "native_layer_token_sys"][..]),
         // Plain data in (input), a draw list out.
-        ("pxui", &["input", "cfmt", "pxui_text"][..]),
+        ("pxui_core", &["input", "cfmt", "pxui_text"][..]),
         ("pxui_text", &[][..]),
         // The UI painter: the portable GPU API and PXUI's draw list.
-        ("pxui_render", &["ogpu_core", "pxui"][..]),
+        ("pxui_render", &["ogpu_core", "pxui_core"][..]),
         // The window hosts are leaves: SDL, the input types and the native layer token.
         ("pxui_sdl", &["sdl3", "input", "native_layer_token_sys"][..]),
         // pxui_wayland links libwayland-client, libxkbcommon and (file dialogs through the desktop portal) libdbus-1
         // through its own C shims, like pxui_atspi.
         ("pxui_wayland", &["input", "native_layer_token_sys"][..]),
         // The Linux AT-SPI2 bridge: libdbus-1 through its own C shim, over pxui's accessibility tree.
-        ("pxui_atspi", &["pxui"][..]),
+        ("pxui_atspi", &["pxui_core"][..]),
         ("pxui_abi", &[][..]),
         // The kit gallery app: the engine, the painter and the platform's window host and GPU backend.
-        ("pxui_gallery", &["pxui", "input", "mem_sys", "ogpu_core", "pxui_render", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
+        ("pxui_gallery", &["pxui_core", "input", "mem_sys", "ogpu_core", "pxui_render", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
     ])
 }
 
@@ -51,12 +51,12 @@ pub fn forbidden_reaches() -> HashMap<String, HashSet<String>> {
     };
     // GPU backends know nothing about windows, the UI or each other.
     for library in ["ogpu_core", "ogpu_mock", "metal_sys", "vulkan_sys", "ogpu_metal", "ogpu_vulkan"] {
-        forbid(library, &["sdl3", "sdl3_sys", "pxui", "pxui_text", "pxui_render", "pxui_sdl", "pxui_wayland", "pxui_atspi"]);
+        forbid(library, &["sdl3", "sdl3_sys", "pxui_core", "pxui_text", "pxui_render", "pxui_sdl", "pxui_wayland", "pxui_atspi"]);
     }
     forbid("pxui_sdl", &["ogpu_core"]);
-    forbid("pxui_wayland", &["sdl3", "pxui_sdl", "ogpu_core", "pxui", "pxui_render"]);
+    forbid("pxui_wayland", &["sdl3", "pxui_sdl", "ogpu_core", "pxui_core", "pxui_render"]);
     forbid("pxui_atspi", &["sdl3", "pxui_sdl", "pxui_wayland", "ogpu_core", "pxui_render"]);
-    forbid("pxui", &["sdl3", "ogpu_core"]);
+    forbid("pxui_core", &["sdl3", "ogpu_core"]);
     forbid("pxui_render", &["sdl3", "metal_sys", "vulkan_sys", "ogpu_metal", "ogpu_vulkan", "ogpu_mock", "mem_sys"]);
     rules
 }
@@ -68,7 +68,7 @@ pub const EXTERNAL_CRATES: &[(&str, &str)] = &[("pxui_text", "cosmic-text")];
 pub const NO_DIRECT: &[(&str, &str, &str)] = &[];
 
 /// Crates whose tests (dev dependencies) may not reach the window host or SDL either.
-pub const TESTS_INCLUDED: &[&str] = &["pxui", "pxui_text", "pxui_render"];
+pub const TESTS_INCLUDED: &[&str] = &["pxui_core", "pxui_text", "pxui_render"];
 pub const TESTS_INCLUDED_FORBIDDEN: &[&str] = &["sdl3", "sdl3_sys", "pxui_sdl"];
 
 /// No registry checks here.
@@ -80,6 +80,6 @@ pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their
 /// Files besides those of `UNSAFE_CRATES` that may use `unsafe`, each with its reason.
 pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/pxui_abi/src/lib.rs", "the stable ABI requires an unmangled C symbol export"),
-    ("crates/pxui/src/arena.rs", "frame bump arena: canvas closures are written into raw bytes and called through type-erased records"),
+    ("crates/pxui_core/src/arena.rs", "frame bump arena: canvas closures are written into raw bytes and called through type-erased records"),
     ("crates/pxui_render/src/lib.rs", "writes instance bytes into the host-mapped upload ring and views instance structs as bytes"),
 ];

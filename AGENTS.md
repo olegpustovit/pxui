@@ -13,7 +13,7 @@ nothing may reach outside this repository (no `../../..` paths past the root).
   Write the smallest correct change, delete obsolete code, add no abstractions.
 - Fast compilation AND fast debug execution are requirements. Measure both before changing profiles,
   dependencies, crate boundaries or hot paths. Budgets: clean debug build of the workspace under 30 s
-  (cosmic-text is about 13 s of it); warm `cargo check -p pxui` after an edit under 1 s.
+  (cosmic-text is about 13 s of it); warm `cargo check -p pxui_core` after an edit under 1 s.
 - Keep incremental compilation and the warm shared `target/`. No routine clean, private target
   directories or RUSTFLAGS/profile overrides.
 - Inner loop: `cargo check -p <crate>`. Focused regression: `cargo t -p <crate> [filter]`.

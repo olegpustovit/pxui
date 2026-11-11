@@ -219,7 +219,19 @@ dependencies = [
 ]
 
 [[package]]
-name = "pxui"
+name = "pxui_abi"
+version = "0.1.0"
+
+[[package]]
+name = "pxui_atspi"
+version = "0.1.0"
+dependencies = [
+ "cc",
+ "pxui_core",
+]
+
+[[package]]
+name = "pxui_core"
 version = "0.1.0"
 dependencies = [
  "cfmt",
@@ -233,18 +245,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "pxui_abi"
-version = "0.1.0"
-
-[[package]]
-name = "pxui_atspi"
-version = "0.1.0"
-dependencies = [
- "cc",
- "pxui",
-]
-
-[[package]]
 name = "pxui_gallery"
 version = "0.1.0"
 dependencies = [
@@ -253,8 +253,8 @@ dependencies = [
  "ogpu_core",
  "ogpu_metal",
  "ogpu_vulkan",
- "pxui",
  "pxui_atspi",
+ "pxui_core",
  "pxui_render",
  "pxui_sdl",
  "pxui_wayland",
@@ -268,7 +268,7 @@ dependencies = [
  "ogpu_core",
  "ogpu_metal",
  "ogpu_vulkan",
- "pxui",
+ "pxui_core",
 ]
 
 [[package]]

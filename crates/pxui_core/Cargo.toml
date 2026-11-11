@@ -1,12 +1,12 @@
 [package]
 autotests = false
-name = "pxui"
+name = "pxui_core"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
 
 [lib]
-name = "pxui"
+name = "pxui_core"
 path = "src/lib.rs"
 test = false
 

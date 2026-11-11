@@ -6,8 +6,8 @@ use ogpu_core::error::{self, Error};
 use ogpu_core::pipeline::{ColorFormat, DepthFormat};
 use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::types::{Extent, Origin, TextureDescriptor, TextureFormat, TextureUsage};
-use pxui::text::AtlasKind as TextKind;
-use pxui::ui::{Image, Ui};
+use pxui_core::text::AtlasKind as TextKind;
+use pxui_core::ui::{Image, Ui};
 use pxui_render::{AtlasKind, Break, Painter, View};
 use std::rc::Rc;
 
@@ -123,7 +123,7 @@ pub fn paint(painter: &mut Painter, ui: &mut Ui, encoder: &RenderEncoder, size_p
         let layer = &ui.output().draw[index];
         let breaks: Vec<Break> = layer.breaks.iter().map(|b| Break {
             at_instance: b.at_instance,
-            texture: if b.image == pxui::draw::ATLAS { None } else { layer.images.get(b.image as usize).and_then(|i| i.handle.downcast_ref::<Texture>()) },
+            texture: if b.image == pxui_core::draw::ATLAS { None } else { layer.images.get(b.image as usize).and_then(|i| i.handle.downcast_ref::<Texture>()) },
         }).collect();
         painter.draw_retained(encoder, size_px, scale, layer.id, &layer.instances, &layer.dirty, &breaks)?;
         ui.drawn(index);

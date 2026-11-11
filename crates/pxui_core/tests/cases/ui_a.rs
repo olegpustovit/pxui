@@ -2,7 +2,7 @@
 use crate::steps::*;
 use crate::support::*;
 use input::{Event, Key, MouseButton, ScrollPhase};
-use pxui::ui::*;
+use pxui_core::ui::*;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -803,7 +803,7 @@ pub fn window_pxui_frame_gate() {
             if ui.hovered_within(&b) && ui.hover_delay("gate") {
                 ui.tooltip("gate", "Tip");
             }
-            ui.draw(&b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, pxui::geom::color::white()));
+            ui.draw(&b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, pxui_core::geom::color::white()));
         });
     };
     step(&mut ui, 0.0, vec![]);

@@ -6,7 +6,7 @@
 //! sleeps in the host's wait.
 //!
 //! Environment: `PXUI_GALLERY_PAGE=n` (0..3) and `PXUI_GALLERY_DUSK=1` pick the start;
-//! `PXUI_GALLERY_RTL=1` and `PXUI_GALLERY_COMPACT=1` set those switches; `PXUI_GALLERY_THEME=path` names the second theme's file (default `crates/pxui/themes/dusk.theme`,
+//! `PXUI_GALLERY_RTL=1` and `PXUI_GALLERY_COMPACT=1` set those switches; `PXUI_GALLERY_THEME=path` names the second theme's file (default `crates/pxui_core/themes/dusk.theme`,
 //! reloaded when its modification time changes); `PXUI_GALLERY_HIDDEN=1` keeps the window hidden and
 //! draws offscreen only; `PXUI_GALLERY_SHOT=out.png` saves the third drawn frame and exits;
 //! `PXUI_GALLERY_EXIT_AFTER=secs` exits after that long; `PXUI_GALLERY_COUNT=1` prints the frame
@@ -19,7 +19,7 @@ use input::{Event, Key};
 use ogpu_core::backend::{self as be, AcquireResult, ColorAttachment, RenderTarget, Surface};
 use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::surface::{Configuration, Format, PresentMode};
-use pxui::ui::{Theme, Ui};
+use pxui_core::ui::{Theme, Ui};
 use pxui_gallery::gpu::{self, fail, Gpu};
 use pxui_gallery::*;
 use std::time::Instant;
@@ -41,11 +41,11 @@ mod host {
         win.wait(deadline);
     }
 
-    pub fn cursor(win: &mut Window, c: Option<pxui::ui::Cursor>) {
+    pub fn cursor(win: &mut Window, c: Option<pxui_core::ui::Cursor>) {
         let shape = match c {
-            Some(pxui::ui::Cursor::HorizontalResize) => CursorShape::HorizontalResize,
-            Some(pxui::ui::Cursor::VerticalResize) => CursorShape::VerticalResize,
-            Some(pxui::ui::Cursor::Text) => CursorShape::Text,
+            Some(pxui_core::ui::Cursor::HorizontalResize) => CursorShape::HorizontalResize,
+            Some(pxui_core::ui::Cursor::VerticalResize) => CursorShape::VerticalResize,
+            Some(pxui_core::ui::Cursor::Text) => CursorShape::Text,
             None => CursorShape::Default,
         };
         let _ = win.set_cursor(shape);
@@ -70,8 +70,8 @@ mod host {
         None
     }
     pub fn a11y_gone(_: &mut Window) {}
-    pub fn a11y_update(_: &mut A11y, _: &pxui::a11y::A11yTree) {}
-    pub fn a11y_pump(_: &mut A11y, _: &mut Vec<pxui::a11y::A11yAction>) -> bool {
+    pub fn a11y_update(_: &mut A11y, _: &pxui_core::a11y::A11yTree) {}
+    pub fn a11y_pump(_: &mut A11y, _: &mut Vec<pxui_core::a11y::A11yAction>) -> bool {
         true
     }
 }
@@ -89,11 +89,11 @@ mod host {
         win.wait(deadline);
     }
 
-    pub fn cursor(win: &mut Window, c: Option<pxui::ui::Cursor>) {
+    pub fn cursor(win: &mut Window, c: Option<pxui_core::ui::Cursor>) {
         let shape = match c {
-            Some(pxui::ui::Cursor::HorizontalResize) => CursorShape::HorizontalResize,
-            Some(pxui::ui::Cursor::VerticalResize) => CursorShape::VerticalResize,
-            Some(pxui::ui::Cursor::Text) => CursorShape::Text,
+            Some(pxui_core::ui::Cursor::HorizontalResize) => CursorShape::HorizontalResize,
+            Some(pxui_core::ui::Cursor::VerticalResize) => CursorShape::VerticalResize,
+            Some(pxui_core::ui::Cursor::Text) => CursorShape::Text,
             None => CursorShape::Default,
         };
         let _ = win.set_cursor(shape);
@@ -121,11 +121,11 @@ mod host {
     pub fn a11y_gone(win: &mut Window) {
         win.set_wake_fd(-1);
     }
-    pub fn a11y_update(b: &mut A11y, tree: &pxui::a11y::A11yTree) {
+    pub fn a11y_update(b: &mut A11y, tree: &pxui_core::a11y::A11yTree) {
         b.update(tree);
     }
     /// False once the bus has gone.
-    pub fn a11y_pump(b: &mut A11y, out: &mut Vec<pxui::a11y::A11yAction>) -> bool {
+    pub fn a11y_pump(b: &mut A11y, out: &mut Vec<pxui_core::a11y::A11yAction>) -> bool {
         b.pump(out)
     }
 }
@@ -166,7 +166,7 @@ fn main() {
     let hidden = env("PXUI_GALLERY_HIDDEN").is_some();
     let exit_after = env("PXUI_GALLERY_EXIT_AFTER").and_then(|v| v.parse::<f64>().ok());
     let count = env("PXUI_GALLERY_COUNT").is_some();
-    let theme_path = env("PXUI_GALLERY_THEME").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/../pxui/themes/dusk.theme").to_owned());
+    let theme_path = env("PXUI_GALLERY_THEME").unwrap_or_else(|| concat!(env!("CARGO_MANIFEST_DIR"), "/../pxui_core/themes/dusk.theme").to_owned());
     let mut s = Gallery::new();
     s.page = env("PXUI_GALLERY_PAGE").and_then(|v| v.parse().ok()).unwrap_or(0) % PAGES.len();
     s.dusk = env("PXUI_GALLERY_DUSK").is_some();
@@ -184,9 +184,9 @@ fn main() {
     });
     let surface: Option<Surface> = if hidden { None } else { Some(be::create_surface(&gpu.device, configuration(&mut win)).unwrap_or_else(|e| fail(e))) };
     let platform = if cfg!(target_os = "macos") { input::Platform::Apple } else { input::Platform::Other };
-    let mut ui = Ui::create(platform, None, pxui::text::Text::new(&[PRAGMASEVKA]));
+    let mut ui = Ui::create(platform, None, pxui_core::text::Text::new(&[PRAGMASEVKA]));
     let mut dusk = load_theme(&theme_path);
-    let mut watch = pxui::theme::Watch::new(std::path::Path::new(&theme_path), 1.0);
+    let mut watch = pxui_core::theme::Watch::new(std::path::Path::new(&theme_path), 1.0);
     ui.set_theme(s.theme(&dusk));
     s.image = Some(gpu.image(100, 60, &gpu::test_card(100, 60)));
     let mut painter = gpu.painter(&mut ui);
@@ -227,7 +227,7 @@ fn main() {
         }
         if s.host_dirty {
             ui.set_theme(s.theme(&dusk));
-            ui.set_dir(if s.rtl { pxui::ui::Direction::Rtl } else { pxui::ui::Direction::Ltr });
+            ui.set_dir(if s.rtl { pxui_core::ui::Direction::Rtl } else { pxui_core::ui::Direction::Ltr });
             (s.page_rev, s.chrome_rev, s.host_dirty, force) = (s.page_rev + 1, s.chrome_rev + 1, false, true);
         }
         if let Some(bridge) = a11y.as_mut() {

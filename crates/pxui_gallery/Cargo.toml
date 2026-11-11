@@ -21,7 +21,7 @@ test = false
 input = { path = "../input" }
 mem_sys = { path = "../mem_sys" }
 ogpu_core = { path = "../ogpu_core" }
-pxui = { path = "../pxui" }
+pxui_core = { path = "../pxui_core" }
 pxui_render = { path = "../pxui_render" }
 
 [target.'cfg(target_os = "macos")'.dependencies]

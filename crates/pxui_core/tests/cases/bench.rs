@@ -1,11 +1,11 @@
-//! `PXUI_BENCH=1 RAYS_SLOW=1 cargo t [--release] -p pxui pxui_bench`: the engine's frame costs, min and
+//! `PXUI_BENCH=1 RAYS_SLOW=1 cargo t [--release] -p pxui_core pxui_bench`: the engine's frame costs, min and
 //! median of 7 rounds, with the per-phase breakdown (`Ui::phase_times`), for the kit baseline, ten
 //! 50-widget views and the 2,054-node layout stress tree (docs/pxui-baseline.md). Off by default.
 //! `PXUI_PROFILE=<case>` loops that case 8 s first: `sample <pid> 5 -file out.txt` while it runs.
 //! The phase clocks cost about 0.15 us a frame; `PXUI_NO_TIMING=1` measures without them.
 use crate::layout::{big_frame, stress, stress_popup};
 use crate::support::*;
-use pxui::ui::*;
+use pxui_core::ui::*;
 use std::cell::Cell;
 
 const ROUNDS: usize = 7;
@@ -55,7 +55,7 @@ pub fn pxui_bench() {
     if std::env::var_os("PXUI_BENCH").is_none() {
         return;
     }
-    eprintln!("PXUI_BENCH sizes: Node {} B, Look {} B, Instance {} B", size_of::<Node>(), size_of::<Look>(), size_of::<pxui::draw::Instance>());
+    eprintln!("PXUI_BENCH sizes: Node {} B, Look {} B, Instance {} B", size_of::<Node>(), size_of::<Look>(), size_of::<pxui_core::draw::Instance>());
     // the kit baseline (`window_pxui_baseline`)
     let mut ui = new_ui(Some(11));
     let t = Cell::new(0.0);

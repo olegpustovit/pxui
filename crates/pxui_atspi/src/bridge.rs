@@ -1,7 +1,7 @@
 //! The AT-SPI2 server: the application root and one object per tree node on the accessibility bus.
 use crate::map;
 use crate::wire::{Conn, ERROR, METHOD_CALL, METHOD_RETURN, Msg};
-use pxui::a11y::{A11yAction, A11yDiff, A11yNode, A11yTree, Action, NO_PARENT, Role, Value, actions, change, diff, state};
+use pxui_core::a11y::{A11yAction, A11yDiff, A11yNode, A11yTree, Action, NO_PARENT, Role, Value, actions, change, diff, state};
 use std::io::Write as _;
 
 pub const ROOT_PATH: &str = "/org/a11y/atspi/accessible/root";

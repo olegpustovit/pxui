@@ -1,14 +1,14 @@
 //! The accessibility tree the engine emits from the kit's roles, and actions injected back.
 use crate::support::*;
 use input::Event;
-use pxui::a11y::{state, A11yAction, Action, A11yTree, Role, NO_PARENT};
-use pxui::ui::*;
+use pxui_core::a11y::{state, A11yAction, Action, A11yTree, Role, NO_PARENT};
+use pxui_core::ui::*;
 
 fn at(t: f64, events: Vec<Event>) -> input::frame::Frame {
     frame_at(vec![], 1.0, t, events)
 }
 
-fn find<'a>(t: &'a A11yTree, role: Role, name: &str) -> Option<&'a pxui::a11y::A11yNode> {
+fn find<'a>(t: &'a A11yTree, role: Role, name: &str) -> Option<&'a pxui_core::a11y::A11yNode> {
     t.nodes.iter().find(|n| n.role == role && t.str(n.name) == name)
 }
 
@@ -50,7 +50,7 @@ pub fn a11y_kit_tree() {
     }
     let toggle = find(&tree, Role::Toggle, "Animate").unwrap();
     check(toggle.states & state::CHECKABLE != 0 && toggle.states & state::CHECKED == 0, "the toggle starts unchecked");
-    check(toggle.actions & pxui::a11y::actions::PRESS != 0, "a toggle can be pressed");
+    check(toggle.actions & pxui_core::a11y::actions::PRESS != 0, "a toggle can be pressed");
     let field = find(&tree, Role::TextField, "Caption").unwrap();
     check(tree.value_text(field) == "Functional UI" && field.states & state::EDITABLE != 0, "the field's value");
     let quit = find(&tree, Role::Button, "Quit").unwrap();

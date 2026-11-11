@@ -1,6 +1,6 @@
 //! PXUI roles, states and actions as AT-SPI2 constants (AtspiRole, AtspiStateType in atspi-constants.h).
 //! Plain tables, built on every target so the mapping is tested anywhere.
-use pxui::a11y::{A11yNode, Role, actions, state};
+use pxui_core::a11y::{A11yNode, Role, actions, state};
 
 /// (PXUI role, AtspiRole, role name as at-spi2 spells it).
 pub const ROLES: &[(Role, u32, &str)] = &[
@@ -130,14 +130,14 @@ pub fn states(node: &A11yNode) -> [u32; 2] {
 
 /// The Action interface's actions: (PXUI action, AT-SPI name, description). Focus, SetValue and Scroll go
 /// through Component.GrabFocus, Value.CurrentValue and Component.ScrollTo instead.
-pub const ACTIONS: &[(pxui::a11y::Action, &str, &str)] = &[
-    (pxui::a11y::Action::Press, "click", "Activate"),
-    (pxui::a11y::Action::Expand, "expand", "Expand"),
-    (pxui::a11y::Action::Collapse, "collapse", "Collapse"),
+pub const ACTIONS: &[(pxui_core::a11y::Action, &str, &str)] = &[
+    (pxui_core::a11y::Action::Press, "click", "Activate"),
+    (pxui_core::a11y::Action::Expand, "expand", "Expand"),
+    (pxui_core::a11y::Action::Collapse, "collapse", "Collapse"),
 ];
 
 /// The node's `k`th Action-interface action, and how many it has.
-pub fn node_action(node: &A11yNode, k: usize) -> Option<&'static (pxui::a11y::Action, &'static str, &'static str)> {
+pub fn node_action(node: &A11yNode, k: usize) -> Option<&'static (pxui_core::a11y::Action, &'static str, &'static str)> {
     ACTIONS.iter().filter(|a| node.actions & a.0 as u32 != 0).nth(k)
 }
 

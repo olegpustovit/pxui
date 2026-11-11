@@ -3,8 +3,8 @@
 //! patches with no rebuild, and virtual list, tree and table building only visible rows of 100,000.
 use crate::support::*;
 use input::{Event, Key};
-use pxui::a11y::{state, A11yAction, A11yNode, A11yTree, Action, Role, Value};
-use pxui::ui::*;
+use pxui_core::a11y::{state, A11yAction, A11yNode, A11yTree, Action, Role, Value};
+use pxui_core::ui::*;
 use std::rc::Rc;
 
 pub const W: i64 = 480;
@@ -145,7 +145,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
                 }
             }));
             if let Some(image) = s.image.clone() {
-                ui.image("Picture", &image, pxui::draw::Fit::Contain, Size::Px(48.0), Size::Px(32.0));
+                ui.image("Picture", &image, pxui_core::draw::Fit::Contain, Size::Px(48.0), Size::Px(32.0));
             }
         });
         let right = ui.node("right", Node { w: Size::Px(240.0), ..Node::DEFAULT });
@@ -442,7 +442,7 @@ fn widgets_scroll_view_rtl() {
     let (v, r) = (ui.rect(&view.get().unwrap()), ui.rect(&row.get().unwrap()));
     check((r.x + r.w - (v.x + v.w - 1.0)).abs() < 0.01, &format!("the content ends at the view's right edge: {r:?} in {v:?}"));
     // the text: the only mask instances, ending 8 points from the row's right edge
-    let glyphs: Vec<_> = ui.output().draw.iter().flat_map(|l| l.instances.iter()).filter(|i| i.kind == pxui::draw::kind::MASK).map(|i| i.rect).collect();
+    let glyphs: Vec<_> = ui.output().draw.iter().flat_map(|l| l.instances.iter()).filter(|i| i.kind == pxui_core::draw::kind::MASK).map(|i| i.rect).collect();
     let right = glyphs.iter().map(|g| g[2]).fold(f32::MIN, f32::max);
     check(!glyphs.is_empty() && right <= v.x + v.w - 1.0 - 8.0 + 0.5 && right > v.x + v.w - 40.0, &format!("the text sits at the start inset from the right: {right} in {v:?}"));
     let p = ((v.x + 50.0) as i64, (v.y + 20.0) as i64);
@@ -678,9 +678,9 @@ fn widgets_image() {
     let ui = warm(&mut s);
     let n = node(&ui, Role::Image, "Picture");
     check(n.rect.w == 48.0 && n.rect.h == 32.0, &format!("the image box: {:?}", n.rect));
-    let images: usize = ui.output().draw.iter().map(|l| l.breaks.iter().filter(|b| b.image != pxui::draw::ATLAS).count()).sum();
+    let images: usize = ui.output().draw.iter().map(|l| l.breaks.iter().filter(|b| b.image != pxui_core::draw::ATLAS).count()).sum();
     check(images == 1, &format!("one image break: {images}"));
-    let picture = |ui: &Ui| *ui.output().draw.iter().flat_map(|l| l.instances.iter()).find(|i| i.kind == pxui::draw::kind::IMAGE).expect("the picture");
+    let picture = |ui: &Ui| *ui.output().draw.iter().flat_map(|l| l.instances.iter()).find(|i| i.kind == pxui_core::draw::kind::IMAGE).expect("the picture");
     check(picture(&ui).clip_radius == 0, "a square frame clips nothing");
     // a rounded frame rounds the picture: a clip of the radius inside the 1-point border
     let mut ui = ui;
@@ -691,7 +691,7 @@ fn widgets_image() {
         ui.frame(&at(1.0 + t as f64 * 0.1, vec![]), &mut |ui| all(ui, &mut s));
     }
     let p = picture(&ui);
-    check(p.clip_radius == pxui::draw::f16(5.0), &format!("the picture's clip radius: {}", p.clip_radius));
+    check(p.clip_radius == pxui_core::draw::f16(5.0), &format!("the picture's clip radius: {}", p.clip_radius));
     ui.destroy();
 }
 

@@ -1,4 +1,4 @@
-//! The Linux AT-SPI2 bridge: serves a `pxui::a11y::A11yTree` to screen readers (Orca) on the accessibility
+//! The Linux AT-SPI2 bridge: serves a `pxui_core::a11y::A11yTree` to screen readers (Orca) on the accessibility
 //! bus and hands their requests back as `A11yAction`s. Raw libdbus-1 through src/shim.c; no threads: the
 //! host polls `Bridge::fd` and calls `pump`. The role/state tables (`map`) build everywhere; the bridge is
 //! Linux only.

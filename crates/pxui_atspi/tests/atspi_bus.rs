@@ -4,8 +4,8 @@
 //! actions and watches the change events. With python3 + gi + Atspi present, libatspi walks it too.
 //! Skips with a note when dbus-daemon is missing.
 #![cfg(target_os = "linux")]
-use pxui::a11y::{A11yAction, A11yTree, Action, NO_PARENT, Role, actions, node_id, state};
-use pxui::geom::Rect;
+use pxui_core::a11y::{A11yAction, A11yTree, Action, NO_PARENT, Role, actions, node_id, state};
+use pxui_core::geom::Rect;
 use pxui_atspi::wire::{Conn, ERROR, METHOD_RETURN, Msg, SIGNAL};
 use pxui_atspi::{Bridge, NODE_PREFIX, ROOT_PATH, a11y_bus_address};
 use std::io::{BufRead, BufReader};

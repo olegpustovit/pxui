@@ -4,7 +4,7 @@
 use crate::gpu;
 use crate::png;
 use input::{frame, Event, Platform};
-use pxui::ui::*;
+use pxui_core::ui::*;
 use std::rc::Rc;
 
 const WIDTH: i64 = 320;
@@ -208,7 +208,7 @@ fn glyph_lists_match_walks() {
                     ui.frame(&f, &mut |ui| build(ui));
                 }
                 let walks = ui.text_mut().glyph_walks() - walks;
-                let draw: Vec<Vec<pxui::draw::Instance>> = ui.output().draw.iter().map(|l| l.instances.clone()).collect();
+                let draw: Vec<Vec<pxui_core::draw::Instance>> = ui.output().draw.iter().map(|l| l.instances.clone()).collect();
                 ui.destroy();
                 (draw, walks)
             };
@@ -239,7 +239,7 @@ fn gpu_patch() {
     }
     let chip = |text: &'static str, fill: (i64, i64, i64)| {
         move |ui: &mut Ui| -> Handle {
-            let look = Look { fill: pxui::geom::color::rgb(fill.0, fill.1, fill.2), text: pxui::geom::color::black(), ..Look::NONE };
+            let look = Look { fill: pxui_core::geom::color::rgb(fill.0, fill.1, fill.2), text: pxui_core::geom::color::black(), ..Look::NONE };
             let h = ui.node("clock", Node { w: Size::Px(120.0), h: Size::Px(24.0), at: Some((10.0, 10.0)), look, inset: Edges { l: 6.0, ..Edges::default() }, ..Node::DEFAULT });
             ui.text(&h, text);
             h
@@ -256,7 +256,7 @@ fn gpu_patch() {
     };
     let (mut ui, clock) = built("12:00", (200, 40, 40));
     let before = shot(&mut ui);
-    assert!(ui.patch_fill(&clock, pxui::geom::color::rgb(40, 40, 200)) && ui.patch_text(&clock, "12:00:01"), "patch refused");
+    assert!(ui.patch_fill(&clock, pxui_core::geom::color::rgb(40, 40, 200)) && ui.patch_text(&clock, "12:00:01"), "patch refused");
     let patched = shot(&mut ui);
     ui.destroy();
     let (mut fresh, _) = built("12:00:01", (40, 40, 200));
@@ -327,7 +327,7 @@ fn gpu_retained_bytes() {
     let mut build = |ui: &mut Ui| {
         ui.view("kit", 1, Size::Px(WIDTH as f32), Size::Px(200.0), &mut |ui| new_panel(ui));
         ui.view("chip", 1, Size::Px(100.0), Size::Px(30.0), &mut |ui| {
-            let look = Look { fill: pxui::geom::color::rgb(200, 40, 40), ..Look::NONE };
+            let look = Look { fill: pxui_core::geom::color::rgb(200, 40, 40), ..Look::NONE };
             chip = Some(ui.node("chip", Node { w: Size::Px(80.0), h: Size::Px(20.0), look, ..Node::DEFAULT }));
         });
     };
@@ -340,7 +340,7 @@ fn gpu_retained_bytes() {
     ui.frame(&frame_at(4, 240, 2), &mut build);
     gpu::render_with(&mut painter, &mut ui, size, 2, [228, 139, 161, 255]);
     assert_eq!(painter.retained_bytes(), 0, "an all-kept frame wrote instances");
-    assert!(ui.patch_fill(&chip.unwrap(), pxui::geom::color::rgb(40, 40, 200)), "patch refused");
+    assert!(ui.patch_fill(&chip.unwrap(), pxui_core::geom::color::rgb(40, 40, 200)), "patch refused");
     for frame in 0..4 {
         gpu::render_with(&mut painter, &mut ui, size, 2, [228, 139, 161, 255]);
         let expected = if frame < 3 { 64 } else { 0 };
@@ -355,7 +355,7 @@ fn gpu_round_clip() {
     if !gpu::available() {
         return;
     }
-    let red = pxui::geom::color::rgb(220, 20, 20);
+    let red = pxui_core::geom::color::rgb(220, 20, 20);
     let (pixels, _) = render(1, 80, &mut |ui| {
         let clip = ui.node("clip", Node { flags: CLIP | ROUND_CLIP, w: Size::Px(100.0), h: Size::Px(60.0), at: Some((10.0, 10.0)), look: Look { radius: [16.0; 4], ..Look::NONE }, ..Node::DEFAULT });
         ui.within(&clip, &mut |ui| {

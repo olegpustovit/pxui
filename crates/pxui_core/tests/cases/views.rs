@@ -1,8 +1,8 @@
 //! Hybrid views (layer 2): cached builds, retained runs, damage, view offsets and virtual lists.
 use crate::support::*;
 use input::Event;
-use pxui::geom::color;
-use pxui::ui::*;
+use pxui_core::geom::color;
+use pxui_core::ui::*;
 use std::cell::Cell;
 
 fn at(t: f64, events: Vec<Event>) -> input::frame::Frame {
@@ -179,7 +179,7 @@ pub fn window_pxui_view_kept_atlas_break() {
     let Ok(emoji) = std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc") else { return println!("note: skipping, no colour emoji font") };
     let mut ui = new_ui(None);
     ui.text_mut().add_font(&emoji);
-    let image = pxui::ui::Image { handle: std::rc::Rc::new(()), width: 8, height: 8 };
+    let image = pxui_core::ui::Image { handle: std::rc::Rc::new(()), width: 8, height: 8 };
     let rev = Cell::new(1u64);
     let mut build = |ui: &mut Ui| {
         let img = image.clone();
@@ -197,8 +197,8 @@ pub fn window_pxui_view_kept_atlas_break() {
     let atlas_after_image = |ui: &Ui| {
         let d = &ui.output().draw[0];
         // the emoji's instance follows the image's directly: the atlas comes back right after it
-        let k = d.breaks.iter().position(|b| b.image != pxui::draw::ATLAS);
-        k.is_some_and(|k| d.breaks.get(k + 1).is_some_and(|b| b.image == pxui::draw::ATLAS && b.at_instance <= d.breaks[k].at_instance + 1))
+        let k = d.breaks.iter().position(|b| b.image != pxui_core::draw::ATLAS);
+        k.is_some_and(|k| d.breaks.get(k + 1).is_some_and(|b| b.image == pxui_core::draw::ATLAS && b.at_instance <= d.breaks[k].at_instance + 1))
     };
     check(atlas_after_image(&ui), "the fresh view has no break back to the atlas");
     // the label before it grows: the layer is placed again with the view kept
@@ -625,7 +625,7 @@ pub fn window_pxui_field_kept_drag() {
         fraction: current.parse::<f32>().ok(),
         slide: Some(Rc::new(|f: f32| cfmt::g(f64::from(f), 3))),
         kept_drag: true,
-        trail: Some(("mm".to_owned(), pxui::geom::color::white())),
+        trail: Some(("mm".to_owned(), pxui_core::geom::color::white())),
         ..ValueFieldOpts::default()
     };
     let mut build = |ui: &mut Ui| {
@@ -633,7 +633,7 @@ pub fn window_pxui_field_kept_drag() {
         ui.view("v", 1, Size::Px(200.0), Size::Px(40.0), &mut |ui| {
             builds.set(builds.get() + 1);
             let wrap = ui.box_("wrap", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(40.0)));
-            key.set(pxui::ui_core::key_of(wrap.box_key, "field"));
+            key.set(pxui_core::ui_core::key_of(wrap.box_key, "field"));
             ui.within(&wrap, &mut |ui| *value.borrow_mut() = ui.value_field((20.0, 10.0), 100.0, 20.0, &opts(&current), &|_| true, "field", &current).0);
         });
     };
@@ -661,7 +661,7 @@ pub fn window_pxui_field_kept_drag() {
     let text = cfmt::g(f64::from(fraction), 3);
     check(text != pressed && ui.patch_field(&field, &opts(&pressed), &text), "patch_field refused");
     let shown = |ui: &Ui| {
-        let mut v: Vec<_> = ui.output().draw[0].instances.iter().filter(|i| **i != pxui::draw::Instance::DEFAULT).map(|i| (i.kind, i.rect.map(f32::to_bits), i.color)).collect();
+        let mut v: Vec<_> = ui.output().draw[0].instances.iter().filter(|i| **i != pxui_core::draw::Instance::DEFAULT).map(|i| (i.kind, i.rect.map(f32::to_bits), i.color)).collect();
         v.sort();
         v
     };

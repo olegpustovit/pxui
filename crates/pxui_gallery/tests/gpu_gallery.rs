@@ -4,17 +4,17 @@
 //! the app, run hidden with no input, builds no frame after it settles.
 #[path = "../../pxui_render/tests/png.rs"]
 mod png;
-#[path = "../../pxui/tests/cases/run.rs"]
+#[path = "../../pxui_core/tests/cases/run.rs"]
 mod run;
 
 use input::{frame, Event, Platform};
-use pxui::ui::*;
+use pxui_core::ui::*;
 use pxui_gallery::gpu::{self, Gpu};
 use pxui_gallery::*;
 use std::time::Instant;
 
 const DEPARTURE_MONO: &[u8] = include_bytes!("../../../assets/fonts/DepartureMono-Regular.otf");
-const DUSK: &str = include_str!("../../pxui/themes/dusk.theme");
+const DUSK: &str = include_str!("../../pxui_core/themes/dusk.theme");
 
 fn frame_at(count: i64, size: (i64, i64), density: i64) -> frame::Frame {
     let mut input = input::at_time(count as f64 / 60.0);
@@ -26,7 +26,7 @@ fn frame_at(count: i64, size: (i64, i64), density: i64) -> frame::Frame {
 
 /// The second frame of a fresh UI over the golden face, in `theme` and `dir`, drawn over `ground`.
 fn shoot(gpu: &mut Gpu, theme: &Theme, dir: Direction, size: (i64, i64), density: i64, ground: [u8; 4], build: &mut dyn FnMut(&mut Ui)) -> (Vec<u8>, u64) {
-    let mut ui = Ui::create(Platform::Apple, None, pxui::text::Text::new(&[DEPARTURE_MONO]));
+    let mut ui = Ui::create(Platform::Apple, None, pxui_core::text::Text::new(&[DEPARTURE_MONO]));
     ui.set_theme(*theme);
     ui.set_dir(dir);
     for count in 0..2 {
@@ -44,7 +44,7 @@ fn shoot(gpu: &mut Gpu, theme: &Theme, dir: Direction, size: (i64, i64), density
 fn abi_baseline_pages() {
     for (index, name) in PAGES.iter().enumerate() {
         let mut state = Gallery::new();
-        let mut ui = Ui::create(Platform::Apple, None, pxui::text::Text::new(&[DEPARTURE_MONO]));
+        let mut ui = Ui::create(Platform::Apple, None, pxui_core::text::Text::new(&[DEPARTURE_MONO]));
         let (mut times, mut allocations) = (Vec::with_capacity(1000), Vec::with_capacity(1000));
         for count in 0..1010 {
             let frame = frame_at(count, (PAGE_W, PAGE_H), 1);
@@ -127,7 +127,7 @@ fn gpu_gallery_kit_is_kit_panel() {
         let (pixels, _) = shoot(&mut gpu, &Theme::default(), Direction::Ltr, (320, 300), density, [228, 139, 161, 255], &mut |ui| {
             ui.view("page", 1, Size::Grow, Size::Grow, &mut |ui| kit_page(ui, &mut s));
         });
-        let path = format!("{}/../pxui/fixtures/kit_panel_{density}x.png", env!("CARGO_MANIFEST_DIR"));
+        let path = format!("{}/../pxui_core/fixtures/kit_panel_{density}x.png", env!("CARGO_MANIFEST_DIR"));
         let worst = compare(&path, (320, 300), density, &pixels, false);
         let limit = if cfg!(target_os = "macos") { 0 } else { 2 };
         assert!(worst <= limit, "the kit page at {density}x differs from kit_panel_{density}x.png by {worst}");

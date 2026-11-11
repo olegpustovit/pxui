@@ -1,9 +1,9 @@
 //! The PXUI kit gallery: every kit widget, old and new, on four pages, each page a cached view.
 //! The page functions are shared by the window app (`main.rs`) and the headless goldens
 //! (`tests/gpu_gallery.rs`); the host loop and the GPU half are in `main.rs` and `gpu.rs`.
-use pxui::a11y::Role;
-use pxui::draw::Fit;
-use pxui::ui::*;
+use pxui_core::a11y::Role;
+use pxui_core::draw::Fit;
+use pxui_core::ui::*;
 use std::fmt::Write;
 use std::rc::Rc;
 

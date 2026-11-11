@@ -1,7 +1,7 @@
 //! Retained nodes (layer 1): stable handles, direct patches between builds, and the frame arena.
 use crate::support::*;
-use pxui::geom::color;
-use pxui::ui::*;
+use pxui_core::geom::color;
+use pxui_core::ui::*;
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -57,7 +57,7 @@ pub fn window_pxui_node_patch() {
     check(ui.output().draw[0].instances.len() == count, "an in-place patch changed the instance count");
     // a longer text shifts the later node's range; patching that node still hits its own instances
     check(ui.patch_text(&clock, "12:00:01"), "patch_text");
-    let drawn = |ui: &Ui| ui.output().draw[0].instances.iter().filter(|i| **i != pxui::draw::Instance::DEFAULT).count();
+    let drawn = |ui: &Ui| ui.output().draw[0].instances.iter().filter(|i| **i != pxui_core::draw::Instance::DEFAULT).count();
     check(drawn(&ui) == count + 3, "patch_text did not add the new glyphs");
     // the growth left as much room again: the next growths are written in place, no tail shift
     let shifts = ui.layer_rewrites().0;
@@ -222,7 +222,7 @@ pub fn window_pxui_paint_grid_one_instance() {
         let h = ui.node("ground", Node { w: Size::Px(600.0), h: Size::Px(400.0), ..Node::DEFAULT });
         ui.canvas(&h, |paint, r| paint.grid(r.x, r.y, r.w, r.h, (0.0, 0.0), 24.0, 2.0, color::rgb(9, 9, 9)));
     });
-    let grids = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui::draw::kind::GRID).count();
+    let grids = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui_core::draw::kind::GRID).count();
     check(grids == 1, &format!("{grids} grid instances for 425 dots"));
     ui.destroy();
 }
@@ -233,7 +233,7 @@ pub fn window_pxui_node_patch_colour_glyph() {
     let Ok(emoji) = std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc") else { return println!("note: skipping, no colour emoji font") };
     let mut ui = new_ui(None);
     ui.text_mut().add_font(&emoji);
-    let image = pxui::ui::Image { handle: Rc::new(()), width: 8, height: 8 };
+    let image = pxui_core::ui::Image { handle: Rc::new(()), width: 8, height: 8 };
     let label = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         let img = image.clone();
@@ -248,9 +248,9 @@ pub fn window_pxui_node_patch_colour_glyph() {
     frame(&mut ui, 0.1, &mut build);
     check(ui.patch_text(&label.get().unwrap(), "x\u{1f600}"), "the patch waited for a frame");
     let d = &ui.output().draw[0];
-    let glyph = d.instances.iter().rposition(|i| i.kind == pxui::draw::kind::IMAGE).expect("the colour glyph");
+    let glyph = d.instances.iter().rposition(|i| i.kind == pxui_core::draw::kind::IMAGE).expect("the colour glyph");
     let state = d.breaks.iter().filter(|b| b.at_instance as usize <= glyph).last().map(|b| b.image);
-    check(state == Some(pxui::draw::ATLAS), &format!("the colour glyph samples {state:?}, breaks {:?}", d.breaks));
+    check(state == Some(pxui_core::draw::ATLAS), &format!("the colour glyph samples {state:?}, breaks {:?}", d.breaks));
     ui.destroy();
 }
 
@@ -267,11 +267,11 @@ pub fn window_pxui_node_line_patch() {
     };
     frame(&mut ui, 0.0, &mut build);
     frame(&mut ui, 0.1, &mut build);
-    let line = |ui: &Ui| ui.output().draw[0].instances.iter().find(|i| i.kind == pxui::draw::kind::LINE).map(|i| i.rect);
+    let line = |ui: &Ui| ui.output().draw[0].instances.iter().find(|i| i.kind == pxui_core::draw::kind::LINE).map(|i| i.rect);
     check(line(&ui) == Some([10.5, 20.5, 30.5, 30.5]), &format!("the line's ends: {:?}", line(&ui)));
     let h = handle.get().unwrap();
     let r = ui.local_rect(&h);
-    check(ui.patch_rect(&h, pxui::geom::Rect::new(r.x + 2.0, r.y, r.w, r.h)) && ui.patch_mark(&h, Mark::Line { width: 1.0, rising: true }), "patch refused");
+    check(ui.patch_rect(&h, pxui_core::geom::Rect::new(r.x + 2.0, r.y, r.w, r.h)) && ui.patch_mark(&h, Mark::Line { width: 1.0, rising: true }), "patch refused");
     check(line(&ui) == Some([12.5, 30.5, 32.5, 20.5]) && builds.get() == 2, &format!("the patched line's ends: {:?}", line(&ui)));
     ui.destroy();
 }

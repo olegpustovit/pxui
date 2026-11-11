@@ -2,8 +2,8 @@
 use crate::support::*;
 use crate::ui_b::*;
 use input::{Event, Key, MouseButton, Platform};
-use pxui::ui::*;
-use pxui::geom::color;
+use pxui_core::ui::*;
+use pxui_core::geom::color;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 

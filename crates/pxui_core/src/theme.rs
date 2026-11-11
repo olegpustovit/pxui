@@ -3,7 +3,7 @@
 //! `States` picks a look per interaction state; a `Theme` is the tokens plus one `States` per kit part.
 //! The Rays look (Pragmasevka, 24-point rows, 20-point controls, six colours) is `Theme::default()`:
 //! separation comes from space first, a hairline second, a rectangle last; nothing is filled with ink.
-//! A theme is also a flat `key = value` file (`Theme::parse`, `Theme::write`, `crates/pxui/themes/`).
+//! A theme is also a flat `key = value` file (`Theme::parse`, `Theme::write`, `crates/pxui_core/themes/`).
 use crate::draw::flags::{BOTTOM, LEFT, RIGHT, TOP};
 use crate::geom::{color, Rgba as Color};
 

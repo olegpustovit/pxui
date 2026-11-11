@@ -6,8 +6,8 @@ use ogpu_core::error::{self, Error};
 use ogpu_core::pipeline::{ColorFormat, DepthFormat};
 use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::types::{TextureDescriptor, TextureFormat, TextureUsage};
-use pxui::text::AtlasKind as TextKind;
-use pxui::ui::Ui;
+use pxui_core::text::AtlasKind as TextKind;
+use pxui_core::ui::Ui;
 use pxui_render::{AtlasKind, Break, Painter, View};
 use std::cell::OnceCell;
 
@@ -106,7 +106,7 @@ pub fn render_with(painter: &mut Painter, ui: &mut Ui, size: (u32, u32), density
         let layer = &ui.output().draw[index];
         // designed limit (specification/pxui.md): PXUI's own tests draw no host images; a break back to the colour atlas is all
         let breaks: Vec<Break> = layer.breaks.iter().map(|b| {
-            assert_eq!(b.image, pxui::draw::ATLAS, "host images need a host");
+            assert_eq!(b.image, pxui_core::draw::ATLAS, "host images need a host");
             Break { at_instance: b.at_instance, texture: None }
         }).collect();
         ok(painter.draw_retained(&encoder, [w, h], density as f32, layer.id, &layer.instances, &layer.dirty, &breaks));
