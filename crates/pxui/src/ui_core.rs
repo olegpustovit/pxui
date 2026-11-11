@@ -5497,18 +5497,20 @@ impl Ui {
             v = r.parent;
         }
         let fresh = &scratch[0].instances;
-        // ponytail: a colour glyph in the patch, or a texture break inside the node, needs the
-        // layer's breaks rebuilt; such a patch waits for the next frame (whose build wins).
-        if fresh.iter().any(|i| i.kind == crate::draw::kind::IMAGE)
-            || self.draw[layer].breaks.iter().any(|b| start < b.at_instance as usize && (b.at_instance as usize) < end)
-        {
-            self.patch_layers = scratch;
-            self.request_frame();
-            return false;
-        }
+        // a colour glyph or an image in the patch, or a break inside the node: the layer's breaks are
+        // rewritten around the node now (`patch_breaks`)
+        let rebreak = fresh.iter().any(|i| i.kind == crate::draw::kind::IMAGE)
+            || !scratch[0].breaks.is_empty()
+            || self.draw[layer].breaks.iter().any(|b| start <= b.at_instance as usize && (b.at_instance as usize) < end);
         self.damage = None;
         let mut target = std::mem::take(&mut self.draw[layer]);
         let room = self.slots[slot].room as usize;
+        let (old_len, old_end) = (target.instances.len(), end + room);
+        let mut old_breaks = std::mem::take(&mut self.temp_breaks);
+        old_breaks.clear();
+        if rebreak {
+            old_breaks.extend_from_slice(&target.breaks);
+        }
         if fresh.len() <= end - start + room {
             // in place, growing into the room after it; a shorter patch leaves empty instances in the
             // rest of the range
@@ -5564,6 +5566,16 @@ impl Ui {
             let s = &mut self.slots[slot];
             (s.range.1, s.room) = ((start + fresh.len()) as u32, extra as u32);
         }
+        if rebreak {
+            let delta = target.instances.len() as i64 - old_len as i64;
+            patch_breaks(&mut target, &old_breaks, &scratch[0], start, old_end, start + fresh.len(), delta);
+            if owner != 0 {
+                // its kept record of its breaks is stale: it rebuilds next frame (this one is right)
+                self.views[owner as usize].dirty = true;
+                self.frame_requested = true;
+            }
+        }
+        self.temp_breaks = old_breaks;
         self.draw[layer] = target;
         self.patch_layers = scratch;
         self.views[owner as usize].patched = true;
@@ -6143,6 +6155,46 @@ fn half(h: u16) -> f32 {
     let (e, m) = (((h >> 10) & 0x1f) as i32, (h & 0x3ff) as f32);
     let v = if e == 0 { m * 2f32.powi(-24) } else if e == 31 { f32::INFINITY } else { (1.0 + m / 1024.0) * 2f32.powi(e - 15) };
     if h & 0x8000 != 0 { -v } else { v }
+}
+
+/// A patch rewrote instances `start..old_end` of `target` (its tail moved by `delta`) with `fresh`'s
+/// first `node_end - start`: the breaks before it stay, the node's are `fresh`'s (from the atlas on,
+/// as its paint assumed), the texture in effect after the old node is restored after the new one,
+/// and the later breaks follow the tail.
+fn patch_breaks(target: &mut Layer, old: &[Break], fresh: &Layer, start: usize, old_end: usize, node_end: usize, delta: i64) {
+    use crate::draw::ATLAS;
+    let active = |upto: &dyn Fn(usize) -> bool| old.iter().filter(|b| upto(b.at_instance as usize)).last().map_or(ATLAS, |b| b.image);
+    let (before, after) = (active(&|at| at < start), active(&|at| at <= old_end));
+    target.breaks.clear();
+    target.breaks.extend(old.iter().filter(|b| (b.at_instance as usize) < start).copied());
+    let push = |breaks: &mut Vec<Break>, at: usize, image: u32| match breaks.last_mut() {
+        Some(last) if last.at_instance as usize == at => last.image = image,
+        Some(last) if last.image == image => {}
+        None if image == ATLAS => {}
+        _ => breaks.push(Break { at_instance: at as u32, image }),
+    };
+    if before != ATLAS {
+        push(&mut target.breaks, start, ATLAS);
+    }
+    for b in &fresh.breaks {
+        let image = if b.image == ATLAS {
+            ATLAS
+        } else {
+            let t = &fresh.images[b.image as usize];
+            match target.images.iter().position(|i| Rc::ptr_eq(&i.handle, &t.handle)) {
+                Some(k) => k as u32,
+                None => {
+                    target.images.push(t.clone());
+                    target.images.len() as u32 - 1
+                }
+            }
+        };
+        push(&mut target.breaks, start + b.at_instance as usize, image);
+    }
+    push(&mut target.breaks, node_end, after);
+    for b in old.iter().filter(|b| b.at_instance as usize > old_end) {
+        push(&mut target.breaks, (b.at_instance as i64 + delta) as usize, b.image);
+    }
 }
 
 /// What an instance can cover, in its own view's points (an empty instance covers nothing).

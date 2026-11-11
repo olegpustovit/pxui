@@ -227,7 +227,35 @@ pub fn window_pxui_paint_grid_one_instance() {
     ui.destroy();
 }
 
+/// A patch that brings a colour glyph after an image, inside a kept view, is drawn the same frame:
+/// the layer breaks back to the colour atlas before the glyph and to the image's texture state after.
+pub fn window_pxui_node_patch_colour_glyph() {
+    let Ok(emoji) = std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc") else { return println!("note: skipping, no colour emoji font") };
+    let mut ui = new_ui(None);
+    ui.text_mut().add_font(&emoji);
+    let image = pxui::ui::Image { handle: Rc::new(()), width: 8, height: 8 };
+    let label = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        let img = image.clone();
+        ui.view("v", 1, Size::Px(200.0), Size::Px(60.0), &mut |ui| {
+            let h = ui.node("pic", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
+            let img = img.clone();
+            ui.canvas(&h, move |paint, r| paint.image(r.x, r.y, r.w, r.h, &img));
+            label.set(Some(chip(ui, "label", "plain", color::white())));
+        });
+    };
+    frame(&mut ui, 0.0, &mut build);
+    frame(&mut ui, 0.1, &mut build);
+    check(ui.patch_text(&label.get().unwrap(), "x\u{1f600}"), "the patch waited for a frame");
+    let d = &ui.output().draw[0];
+    let glyph = d.instances.iter().rposition(|i| i.kind == pxui::draw::kind::IMAGE).expect("the colour glyph");
+    let state = d.breaks.iter().filter(|b| b.at_instance as usize <= glyph).last().map(|b| b.image);
+    check(state == Some(pxui::draw::ATLAS), &format!("the colour glyph samples {state:?}, breaks {:?}", d.breaks));
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_node_patch_colour_glyph", window_pxui_node_patch_colour_glyph),
     ("window_pxui_paint_grid_one_instance", window_pxui_paint_grid_one_instance),
     ("window_pxui_arena_over_aligned", window_pxui_arena_over_aligned),
     ("window_pxui_node_duplicate_keys", window_pxui_node_duplicate_keys),
