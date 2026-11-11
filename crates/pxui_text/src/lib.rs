@@ -816,12 +816,22 @@ impl Text {
 
     /// The shelves glyphs were emitted from since the last `set_marks` (a caller that keeps output
     /// without emitting it again records these with it).
+    #[inline]
     pub fn marks(&self) -> Shelves {
         self.g.marks
     }
 
+    #[inline]
     pub fn set_marks(&mut self, marks: Shelves) {
         self.g.marks = marks;
+    }
+
+    /// Adds `shelves` to the marks (output kept from earlier frames that shows them).
+    #[inline]
+    pub fn add_marks(&mut self, shelves: &Shelves) {
+        for k in 0..4 {
+            self.g.marks[k] |= shelves[k];
+        }
     }
 
     /// The shelves output shown without being emitted again samples (kept views): the atlas does not

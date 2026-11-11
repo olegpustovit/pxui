@@ -977,6 +977,7 @@ impl Layer {
 }
 
 /// Add `[a, b)` to sorted, disjoint `ranges` (`draw::add_range`).
+#[inline]
 fn add_range(ranges: &mut Vec<(u32, u32)>, a: u32, b: u32) {
     crate::draw::add_range(ranges, a, b, DIRTY_RANGES);
 }
@@ -6686,8 +6687,7 @@ impl Ui {
             if here {
                 paint.keep(v);
                 // an enclosing view kept later keeps these instances too
-                let m = paint.text.marks();
-                paint.text.set_marks([0, 1, 2, 3].map(|k| m[k] | r.shelves[k]));
+                paint.text.add_marks(&r.shelves);
             }
             let hit_parent = r.hit_parent;
             for k in 0..self.views[v as usize].hits.len() {
@@ -6723,7 +6723,8 @@ impl Ui {
         }
         paint.cut();
         let shelves = paint.text.marks();
-        paint.text.set_marks([0, 1, 2, 3].map(|k| outer[k] | shelves[k]));
+        paint.text.set_marks(outer);
+        paint.text.add_marks(&shelves);
         let r = &mut self.views[v as usize];
         r.shelves = shelves;
         r.pieces = (paint.layer, first, paint.layers[paint.layer].pieces.len() - 1);

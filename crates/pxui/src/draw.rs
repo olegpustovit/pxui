@@ -33,6 +33,7 @@ pub const NO_CLIP: [i16; 4] = [i16::MIN, i16::MIN, i16::MAX, i16::MAX];
 /// ranges merge. Past `cap` ranges the two with the smallest gap between them merge, so scattered
 /// edits stay a few small ranges, never one span over everything between them. O(ranges); no
 /// allocation once the list has held `cap + 1` ranges.
+#[inline]
 pub fn add_range(ranges: &mut Vec<(u32, u32)>, a: u32, b: u32, cap: usize) {
     if a >= b {
         return;
@@ -43,6 +44,10 @@ pub fn add_range(ranges: &mut Vec<(u32, u32)>, a: u32, b: u32, cap: usize) {
             return;
         }
     }
+    insert_range(ranges, a, b, cap);
+}
+
+fn insert_range(ranges: &mut Vec<(u32, u32)>, a: u32, b: u32, cap: usize) {
     let at = ranges.partition_point(|r| r.1 < a);
     let mut end = at;
     let (mut lo, mut hi) = (a, b);
