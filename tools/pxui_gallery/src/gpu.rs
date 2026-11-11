@@ -27,7 +27,8 @@ pub struct Gpu {
     textures: Vec<Texture>,
     submission: u64,
     completed: u64,
-    /// the allocations the last `Renderer::draw` made (for the test that pins a settled draw at none)
+    /// the allocations the last `Renderer::prepare` and `Renderer::draw` made (for the test that pins a settled frame at none)
+    pub prepare_allocations: std::cell::Cell<u64>,
     pub draw_allocations: std::cell::Cell<u64>,
     /// the epoch of the last submit the gallery made (one per render), for the gate that counts submits
     pub epoch: std::cell::Cell<u64>,
@@ -47,7 +48,7 @@ impl Gpu {
         let driver = ogpu_core::impl_::create_driver().map_err(|e| error::to_string(&e))?;
         let device = be::create_device(driver).map_err(|e| error::to_string(&e))?;
         let queue = be::create_queue(&device).map_err(|e| error::to_string(&e))?;
-        Ok(Gpu { device, queue, textures: Vec::new(), submission: 0, completed: 0, draw_allocations: std::cell::Cell::new(0), epoch: std::cell::Cell::new(0) })
+        Ok(Gpu { device, queue, textures: Vec::new(), submission: 0, completed: 0, prepare_allocations: std::cell::Cell::new(0), draw_allocations: std::cell::Cell::new(0), epoch: std::cell::Cell::new(0) })
     }
 
     /// Create a public PXUI renderer that borrows `ui` and adopts this app-owned device.
@@ -93,7 +94,10 @@ impl Gpu {
         let commands = UiCommands { size: core::mem::size_of::<UiCommands>() as u32, vk_command_buffer: native.vk_command_buffer, mtl_command_buffer: native.mtl_command_buffer };
         let submission = self.submission.checked_add(1).ok_or_else(|| "PXUI gallery submission counter overflow".to_owned())?;
         self.submission = submission;
-        renderer.prepare(&commands, submission, self.completed).map_err(|code| format!("pxui renderer prepare failed ({code})"))?;
+        let before = allocations();
+        let prepared = renderer.prepare(&commands, submission, self.completed);
+        self.prepare_allocations.set(allocations() - before);
+        prepared.map_err(|code| format!("pxui renderer prepare failed ({code})"))?;
         Ok(())
     }
 

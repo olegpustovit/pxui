@@ -1456,6 +1456,14 @@ impl DriverRenderEncoder for Render {
         }
         Ok(())
     }
+    /// The app's next pass on the same (readopted) command buffer: an adopted pass is the buffer and its size, nothing allocated.
+    fn readopt(&mut self, native: NativePass) -> Result<bool, Error> {
+        if !self.borrowed { return Ok(false); }
+        let same = self.cmds.commands.borrow().as_ref().is_some_and(|commands| !native.vk_command_buffer.is_null() && native.vk_command_buffer == commands.native());
+        if !same { return Ok(false); }
+        (self.width, self.height, self.scale) = (native.width_px, native.height_px, native.scale);
+        Ok(true)
+    }
     fn end_render(&self) -> Result<(), Error> {
         if self.borrowed { return Ok(()); }
         self.cmds.run(QUEUE_OP, &mut |c| {
@@ -1507,6 +1515,17 @@ struct CommandsHandle {
 }
 
 impl DriverCommands for CommandsHandle {
+    /// The app's next command buffer in these adopted commands' objects: the native wrapper is replaced (the old one goes as it
+    /// would with the handle), the Rust objects stay.
+    fn readopt(&mut self, native: NativeCommands) -> Result<bool, Error> {
+        if native.vk_command_buffer.is_null() || native.frame_serial == 0 { return Ok(false); }
+        let commands = {
+            let queue = self.cmds.queue.native(QUEUE_OP)?;
+            queue.adopt_commands(native.vk_command_buffer, native.frame_serial, native.inside_pass != 0).map_err(|failure| of_vk(QUEUE_OP, failure))?
+        };
+        *self.cmds.commands.borrow_mut() = Some(commands);
+        Ok(true)
+    }
     /// Staged in this command buffer's own arena, released with it (adopted: when the app retires the frame).
     fn write_texture(&self, resource: &dyn DriverResource, write: &TextureRead, bytes: &[u8]) -> Result<(), Error> {
         const OP: &str = "Ogpu_vulkan.write_texture_on";

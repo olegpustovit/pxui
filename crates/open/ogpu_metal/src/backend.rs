@@ -516,6 +516,16 @@ struct MetalCommands {
 }
 
 impl DriverCommands for MetalCommands {
+    /// The app's next command buffer, in this adopted one's objects: rebound, its retained resources let go, a new token.
+    fn readopt(&mut self, native: ogpu_core::backend::NativeCommands) -> Result<bool, Error> {
+        let context = &self.context;
+        if native.mtl_command_buffer.is_null() || context.open_encoder.borrow().is_some() { return Ok(false); }
+        context.native.readopt(native.mtl_command_buffer)?;
+        context.retained.borrow_mut().clear();
+        context.commands_token.set(context.tables.token());
+        self.frame_serial = native.frame_serial;
+        Ok(true)
+    }
     fn compute_encoder(&self) -> Result<Box<dyn DriverComputeEncoder>, Error> {
         compute_encoder::create(&self.context)
     }
@@ -597,7 +607,7 @@ fn begin_commands(dev: &Rc<Dev>, queue: &Queue, active: &Rc<Vec<PendingPresentat
         device: dev.device.clone(),
         native,
         tables: dev.t.clone(),
-        commands_token: dev.t.token(),
+        commands_token: std::cell::Cell::new(dev.t.token()),
         open_encoder: RefCell::new(None),
         // Sized up front (here and in the native command buffer) so binding a pass's resources does not
         // reallocate mid-encode; pxui_render asserts an allocation-free draw.
@@ -635,7 +645,7 @@ impl DriverQueue for MetalQueue {
         }
         let command = native::CommandBuffer::adopt_raw(self.queue.metal(), native.mtl_command_buffer)?;
         let context = Rc::new(CommandContext { operation: "Ogpu_metal.Backend.adopt_commands", device: self.dev.device.clone(), native: command,
-            tables: self.dev.t.clone(), commands_token: self.dev.t.token(), open_encoder: RefCell::new(None), retained: RefCell::new(Vec::with_capacity(16)) });
+            tables: self.dev.t.clone(), commands_token: std::cell::Cell::new(self.dev.t.token()), open_encoder: RefCell::new(None), retained: RefCell::new(Vec::with_capacity(16)) });
         Ok(Box::new(MetalCommands { queue: self.queue.clone(), active: self.active.clone(), context, frame_serial: native.frame_serial }))
     }
     fn retire(&self, _completed: u64) -> Result<(), Error> { Ok(()) }

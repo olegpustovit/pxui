@@ -289,6 +289,9 @@ pub trait DriverRenderEncoder {
     fn use_resources(&self, resources: &[Rc<dyn DriverResource>]) -> Result<(), Error>;
     fn execute_icb(&self, icb: &dyn DriverIcb, location: i64, length: i64) -> Result<(), Error>;
     fn end_render(&self) -> Result<(), Error>;
+    /// An ended adopted encoder points at the app's next pass (`native`, on the same adopted commands): true when it did, with
+    /// nothing allocated; false when this driver cannot (the caller adopts anew).
+    fn readopt(&mut self, _native: NativePass) -> Result<bool, Error> { Ok(false) }
     fn invalidate_state(&self) -> Result<(), Error> { Ok(()) }
     fn native_pass(&self) -> Result<NativePass, Error> {
         Err(error::make("Backend.native_pass", ErrorKind::Unsupported, "native pass export is unavailable"))
@@ -338,6 +341,9 @@ pub trait DriverCommands {
     fn native_commands(&self) -> Result<NativeCommands, Error> {
         Err(error::make("Backend.native_commands", ErrorKind::Unsupported, "native command export is unavailable"))
     }
+    /// Adopted commands with no open encoder point at the app's next command buffer: true when they did, with nothing allocated;
+    /// false when this driver cannot (the caller adopts anew).
+    fn readopt(&mut self, _native: NativeCommands) -> Result<bool, Error> { Ok(false) }
 }
 
 pub trait DriverQueue {
@@ -530,7 +536,7 @@ pub struct Argument(Rc<ArgumentInner>);
 struct ArgumentInner { raw: RefCell<Option<Box<dyn DriverArgument>>>, length: i64, alignment: i64, device: Device, dead: Cell<bool> }
 #[derive(Clone)]
 pub struct RenderEncoder(Rc<RenderInner>);
-struct RenderInner { raw: RefCell<Option<Box<dyn DriverRenderEncoder>>>, commands: Commands, open: Cell<bool>, pipeline_set: Cell<bool>, indirect: Cell<bool>, target: (TextureFormat, u8), extent: (i64, i64) }
+struct RenderInner { raw: RefCell<Option<Box<dyn DriverRenderEncoder>>>, commands: Commands, open: Cell<bool>, pipeline_set: Cell<bool>, indirect: Cell<bool>, target: (TextureFormat, u8), extent: Cell<(i64, i64)> }
 
 // A dead wrapper keeps identity and validation metadata, never driver callbacks/native owners.
 // Access follows the existing liveness/state guards; failed transitions retain the payload.
@@ -2124,7 +2130,7 @@ pub fn render_encoder(commands: &Commands, target: &RenderTarget) -> Result<Rend
     let raw = commands.0.raw().render_encoder(&driver_target)?;
     commands.0.state.set(CommandsState::Encoding);
     let encoder = RenderEncoder(Rc::new(RenderInner {
-        raw: RefCell::new(Some(raw)), commands: commands.clone(), open: Cell::new(true), pipeline_set: Cell::new(false), indirect: Cell::new(false), target: (color.texture.texture_descriptor.format, samples.ilog2() as u8), extent: (width, height),
+        raw: RefCell::new(Some(raw)), commands: commands.clone(), open: Cell::new(true), pipeline_set: Cell::new(false), indirect: Cell::new(false), target: (color.texture.texture_descriptor.format, samples.ilog2() as u8), extent: Cell::new((width, height)),
     }));
     *commands.0.encoder.borrow_mut() = Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
     Ok(encoder)
@@ -2156,10 +2162,48 @@ pub fn adopt_render_encoder(
     let encoder = RenderEncoder(Rc::new(RenderInner {
         raw: RefCell::new(Some(raw)), commands: commands.clone(), open: Cell::new(true),
         pipeline_set: Cell::new(false), indirect: Cell::new(false), target: (format, samples.ilog2() as u8),
-        extent: (i64::from(native.width_px), i64::from(native.height_px)),
+        extent: Cell::new((i64::from(native.width_px), i64::from(native.height_px))),
     }));
     *commands.0.encoder.borrow_mut() = Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
     Ok(encoder)
+}
+
+/// Points `commands`, adopted earlier and with no encoder open, at the app's next native command buffer: what `adopt_commands`
+/// makes, without allocating. False when the driver cannot (or the commands are not in that state): adopt anew then.
+pub fn readopt_commands(commands: &Commands, native: NativeCommands) -> Result<bool, Error> {
+    const OP: &str = "Backend.readopt_commands";
+    if native.size < std::mem::size_of::<NativeCommands>() as u32 {
+        return Err(make_error(OP, ErrorKind::InvalidArgument, "native command descriptor is too small"));
+    }
+    let q = commands.0.queue.0.borrow();
+    if q.dead || q.device.0.dead.get() { return Err(make_error(OP, ErrorKind::StaleHandle, "queue or device is destroyed")); }
+    drop(q);
+    if !commands.0.borrowed.get() || commands.0.state.get() != CommandsState::Recording || commands.0.encoder.borrow().is_some() { return Ok(false); }
+    let mut raw = commands.0.raw.borrow_mut();
+    let Some(driver) = raw.as_mut() else { return Ok(false) };
+    driver.readopt(native)
+}
+
+/// Points `encoder`, adopted earlier on `commands` and ended, at the app's next pass on them (`commands` just readopted): what
+/// `adopt_render_encoder` makes, without allocating. False when the driver cannot: adopt anew then.
+pub fn readopt_render_encoder(commands: &Commands, encoder: &RenderEncoder, native: NativePass) -> Result<bool, Error> {
+    const OP: &str = "Backend.readopt_render_encoder";
+    recording(OP, commands)?;
+    if native.size < std::mem::size_of::<NativePass>() as u32 || native.width_px == 0 || native.height_px == 0 || !native.scale.is_finite() || native.scale <= 0.0 {
+        return Err(make_error(OP, ErrorKind::InvalidArgument, "invalid native pass descriptor"));
+    }
+    if encoder.0.open.get() || !Rc::ptr_eq(&encoder.0.commands.0, &commands.0) || !commands.0.borrowed.get() || commands.0.encoder.borrow().is_some() { return Ok(false); }
+    let mut raw = encoder.0.raw.borrow_mut();
+    let Some(driver) = raw.as_mut() else { return Ok(false) };
+    if !driver.readopt(native)? { return Ok(false); }
+    drop(raw);
+    encoder.0.open.set(true);
+    encoder.0.pipeline_set.set(false);
+    encoder.0.indirect.set(false);
+    encoder.0.extent.set((i64::from(native.width_px), i64::from(native.height_px)));
+    commands.0.state.set(CommandsState::Encoding);
+    *commands.0.encoder.borrow_mut() = Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
+    Ok(true)
 }
 
 fn render_compatible(operation: &str, encoder: &RenderEncoder, pipeline: &Pipeline) -> Result<(), Error> {
@@ -2239,7 +2283,7 @@ pub fn set_scissor(encoder: &RenderEncoder, rect: Rect) -> Result<(), Error> {
     const OP: &str = "Backend.set_scissor";
     open_render(OP, encoder)?;
     valid_rect(OP, rect)?;
-    let (width, height) = encoder.0.extent;
+    let (width, height) = encoder.0.extent.get();
     if rect.x > width || rect.width > width - rect.x || rect.y > height || rect.height > height - rect.y {
         return Err(make_error(OP, ErrorKind::InvalidArgument, "scissor rectangle is outside the render pass"));
     }
@@ -2394,7 +2438,8 @@ pub fn end_render(encoder: &RenderEncoder) -> Result<(), Error> {
     open_render(OP, encoder)?;
     encoder.0.raw().end_render()?;
     encoder.0.open.set(false);
-    encoder.0.raw.borrow_mut().take();
+    // an adopted encoder keeps its driver object for `readopt_render_encoder`; it is closed to every other call
+    if !encoder.0.commands.0.borrowed.get() { encoder.0.raw.borrow_mut().take(); }
     encoder.0.commands.0.encoder.borrow_mut().take();
     encoder.0.commands.0.state.set(CommandsState::Recording);
     Ok(())
@@ -2667,7 +2712,7 @@ mod ownership_tests {
         reject(ErrorKind::Unsupported, icb_set_pipeline(&icb, 0, &render));
         let pass = RenderEncoder(Rc::new(RenderInner {
             raw: RefCell::new(None), commands, open: Cell::new(true), pipeline_set: Cell::new(false),
-            indirect: Cell::new(false), target: (TextureFormat::Rgba8Unorm, 0), extent: (4, 4),
+            indirect: Cell::new(false), target: (TextureFormat::Rgba8Unorm, 0), extent: Cell::new((4, 4)),
         }));
         pass.0.commands.0.state.set(CommandsState::Encoding);
         render_compatible("test", &pass, &render).unwrap();

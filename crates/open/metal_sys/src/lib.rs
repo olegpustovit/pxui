@@ -92,6 +92,18 @@ impl Handle {
         #[cfg(not(target_vendor = "apple"))]
         { let _ = (pointer, kind); Err(Error::Unavailable) }
     }
+    /// Retain `pointer` (an Objective-C object of `kind`, the handle's own) in place of the object this handle holds, and release
+    /// that one: the handle, and every clone of it, now names the new object. Nothing is allocated.
+    pub unsafe fn rebind(&self, pointer: *mut std::ffi::c_void, kind: u32) -> Result<(), Error> {
+        #[cfg(target_vendor = "apple")]
+        {
+            if pointer.is_null() { return Err(Error::InvalidHandle); }
+            if unsafe { rays_metal_handle_rebind(self.0.0.as_ptr(), pointer, kind) } != 0 { return Err(Error::InvalidHandle); }
+            Ok(())
+        }
+        #[cfg(not(target_vendor = "apple"))]
+        { let _ = (pointer, kind); Err(Error::Unavailable) }
+    }
     pub fn object_ptr(&self, kind: u32) -> Result<*mut std::ffi::c_void, Error> {
         #[cfg(target_vendor = "apple")]
         {
@@ -137,6 +149,7 @@ unsafe extern "C" {
     fn rays_metal_handle_destroy(handle: *mut NativeHandle);
     fn rays_metal_handle_new(object: *mut std::ffi::c_void, kind: u32) -> *mut NativeHandle;
     fn rays_metal_handle_object(handle: *mut NativeHandle, kind: u32) -> *mut std::ffi::c_void;
+    fn rays_metal_handle_rebind(handle: *mut NativeHandle, object: *mut std::ffi::c_void, kind: u32) -> i32;
 }
 
 pub mod registry;

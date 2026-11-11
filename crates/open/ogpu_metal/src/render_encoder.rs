@@ -271,6 +271,15 @@ impl DriverRenderEncoder for Render {
         if let Some(pass) = &self.pass { let _ = pass.destroy(); }
         ended
     }
+    /// The app's next pass on the same (readopted) command buffer, in this ended adopted encoder's objects.
+    fn readopt(&mut self, native: ogpu_core::backend::NativePass) -> Result<bool, Error> {
+        if native.mtl_render_encoder.is_null() || self.pass.is_some() || self.context.open_encoder.borrow().is_some() { return Ok(false); }
+        if !self.encoder.readopt(&self.context.native, native.mtl_render_encoder)? { return Ok(false); }
+        *self.context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(self.encoder.clone()));
+        (self.width_px, self.height_px, self.scale) = (native.width_px, native.height_px, native.scale);
+        self.declared.get_mut().clear();
+        Ok(true)
+    }
     fn native_pass(&self) -> Result<ogpu_core::backend::NativePass, Error> {
         Ok(ogpu_core::backend::NativePass { size: std::mem::size_of::<ogpu_core::backend::NativePass>() as u32,
             mtl_render_encoder: self.encoder.native_ptr()?, width_px: self.width_px, height_px: self.height_px, scale: self.scale, ..Default::default() })

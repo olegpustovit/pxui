@@ -113,7 +113,8 @@ pub struct CommandContext {
     pub device: Device,
     pub native: native::CommandBuffer,
     pub tables: Rc<Tables>,
-    pub commands_token: i64,
+    /// names this command buffer to the resources it retains (one retain each); a new one for each command buffer readopted
+    pub commands_token: std::cell::Cell<i64>,
     pub open_encoder: RefCell<Option<OpenEncoder>>,
     pub retained: RefCell<Vec<Retained>>,
 }
@@ -121,7 +122,7 @@ pub struct CommandContext {
 impl CommandContext {
     /// One retain per buffer per command buffer, however many bindings reference it.
     pub fn keep_buffer(&self, buffer: &Buffer) -> Result<(), Error> {
-        if buffer.retain_for(self.commands_token)? {
+        if buffer.retain_for(self.commands_token.get())? {
             self.retained.borrow_mut().push(Retained::Buffer(buffer.clone()));
         }
         Ok(())
@@ -160,7 +161,7 @@ impl CommandContext {
 
     /// One retain per texture per command buffer, however many bindings reference it.
     pub fn keep_texture(&self, texture: &Texture) -> Result<(), Error> {
-        if texture.retain_for(self.commands_token)? {
+        if texture.retain_for(self.commands_token.get())? {
             self.retained.borrow_mut().push(Retained::Texture(texture.clone()));
         }
         Ok(())
@@ -168,7 +169,7 @@ impl CommandContext {
 
     /// One retain per sampler per command buffer, however many bindings reference it.
     pub fn keep_sampler(&self, sampler: &Sampler) -> Result<(), Error> {
-        if sampler.retain_for(self.commands_token)? {
+        if sampler.retain_for(self.commands_token.get())? {
             self.retained.borrow_mut().push(Retained::Sampler(sampler.clone()));
         }
         Ok(())

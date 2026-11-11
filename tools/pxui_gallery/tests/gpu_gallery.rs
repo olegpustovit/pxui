@@ -153,7 +153,7 @@ fn ui_and_renderer_drop_in_any_order() {
 }
 
 /// A settled frame drawn again through the renderer allocates nothing: its layers' breaks live on the stack, its views and dirty
-/// ranges are the retained ones.
+/// ranges are the retained ones, and the app's command buffer and pass are adopted into the objects of the frame before.
 fn renderer_draw_settled() {
     let mut gpu = Gpu::open().expect("a GPU backend");
     let theme = theme("");
@@ -167,19 +167,16 @@ fn renderer_draw_settled() {
     }
     let clear = panel(&ui.theme());
     let mut renderer: Renderer = gpu.renderer(&ui).expect("PXUI renderer");
-    let mut worst = 0;
+    let (mut prepare, mut draw) = (0, 0);
     for round in 0..8 {
         gpu.render(&mut renderer, (PAGE_W as u32, PAGE_H as u32), 1, clear);
-        if round >= 4 { worst = worst.max(gpu.draw_allocations.get()); }
+        if round >= 4 { (prepare, draw) = (prepare.max(gpu.prepare_allocations.get()), draw.max(gpu.draw_allocations.get())); }
     }
     drop(renderer);
     gpu.close();
-    println!("PXUI renderer draw of a settled frame: {worst} allocations");
-    // ponytail: adopting the app's command buffer and render pass makes OGPU objects (8 for the commands, 5 for the encoder on
-    // Metal, one more at the end) every draw, so a settled draw is not yet allocation-free; this pins what it costs. Pool the adopted
-    // objects in ogpu_core to bring it to zero, then assert zero. The count never included the library before the per-thread counter
-    // was replaced by the process-wide one.
-    assert!(worst <= 14, "a settled draw allocated {worst} times, over the 14 adopting the app's pass costs");
+    println!("PXUI renderer prepare and draw of a settled frame: {prepare} and {draw} allocations");
+    // the app's command buffer and pass are adopted once and pointed at each frame's (`readopt_*`): nothing is made per frame
+    assert_eq!((prepare, draw), (0, 0), "a settled frame's renderer prepare and draw allocate nothing");
 }
 
 fn gpu_gallery_idle() {

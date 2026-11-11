@@ -23,6 +23,18 @@ pub struct PxuiRenderer {
     frame_serial: u64,
     completed: u64,
     atlas_initialized: bool,
+    /// the app's command buffer and pass as adopted by the last prepare and draw, pointed at the next ones (`readopt_*`) so a
+    /// settled frame allocates nothing; adopted anew when the driver cannot
+    prepared: Option<gpu_backend::Commands>,
+    drawn: Option<(gpu_backend::Commands, gpu_backend::RenderEncoder)>,
+}
+
+/// `native` in the commands kept from the last frame when the driver can point them there, or adopted anew.
+fn adopt_again(queue: &Queue, kept: Option<gpu_backend::Commands>, native: ogpu_core::backend::NativeCommands) -> Result<gpu_backend::Commands, ogpu_core::error::Error> {
+    match kept {
+        Some(commands) if gpu_backend::readopt_commands(&commands, native)? => Ok(commands),
+        _ => gpu_backend::adopt_commands(queue, native),
+    }
 }
 
 impl PxuiRenderer {
@@ -75,7 +87,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: &pxui_types::Gpu, target: PxuiTargetDesc) -
         Ok(p)=>p,
         Err(e)=>{ let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err(describe(e)); }
     };
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false, prepared:None, drawn:None })
 }
 
 // Makes a renderer for the owner `Ui` (never a callback's borrowed handle) outside a frame; null, with the reason in
@@ -104,7 +116,7 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
         return renderer.fail(PXUI_ERR_ARGUMENT, "completed must not go back and must be at least frame - 3");
     }
     let native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:commands.vk_command_buffer, mtl_command_buffer:commands.mtl_command_buffer, frame_serial:frame, inside_pass:0 };
-    let commands=match gpu_backend::adopt_commands(&renderer.queue,native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
+    let commands=match adopt_again(&renderer.queue,renderer.prepared.take(),native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
     if let Err(e)=gpu_backend::retire(&renderer.queue,completed) { return renderer.fail_gpu(e); }
     renderer.completed=completed;
     let ui=unsafe { &mut *renderer.engine };
@@ -134,6 +146,7 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     // a wrapped texture no frame in flight can still sample (it was last drawn more than 3 frames ago) goes
     renderer.textures.retain(|_,(_,used)| frame-*used<=pxui_render::FRAMES as u64);
     renderer.painter.begin_frame();
+    renderer.prepared=Some(commands);
     0
 });
 
@@ -168,8 +181,13 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     let size_px=[pass.width_px,pass.height_px];
     let commands_native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_command_buffer:pass.mtl_command_buffer, frame_serial:renderer.frame_serial, inside_pass:1 };
     let native_pass=ogpu_core::backend::NativePass { size:core::mem::size_of::<ogpu_core::backend::NativePass>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_render_encoder:pass.mtl_render_encoder, width_px:pass.width_px, height_px:pass.height_px, scale:pass.scale };
-    let commands=match gpu_backend::adopt_commands(&renderer.queue,commands_native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
-    let encoder=match gpu_backend::adopt_render_encoder(&commands,native_pass,renderer.format,renderer.samples) { Ok(e)=>e, Err(e)=>return renderer.fail_gpu(e) };
+    let (kept_commands,kept_encoder)=renderer.drawn.take().unzip();
+    let commands=match adopt_again(&renderer.queue,kept_commands,commands_native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
+    let encoder=match kept_encoder.map(|e| gpu_backend::readopt_render_encoder(&commands,&e,native_pass).map(|again| again.then_some(e))) {
+        Some(Ok(Some(encoder)))=>encoder,
+        Some(Err(e))=>return renderer.fail_gpu(e),
+        _=>match gpu_backend::adopt_render_encoder(&commands,native_pass,renderer.format,renderer.samples) { Ok(e)=>e, Err(e)=>return renderer.fail_gpu(e) },
+    };
     let ui=unsafe { &mut *renderer.engine };
     for (index,v) in ui.output().views {
         if let Err(e)=renderer.painter.set_view(*index,View { offset:v.offset,opacity:v.opacity,clip:v.clip,scale:v.scale,transform:v.transform,pivot:v.pivot }) { return renderer.fail_gpu(e); }
@@ -269,13 +287,15 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     }
     // ends only this copy's view of the pass; the app's encoder must `invalidate_state` before drawing more
     if let Err(e)=gpu_backend::end_render(&encoder) { return renderer.fail_gpu(e); }
+    renderer.drawn=Some((commands,encoder));
     0
 });
 
 export!(bare pub unsafe fn pxui_renderer_destroy(renderer:*mut PxuiRenderer) {
     if renderer.is_null() { return; }
-    let PxuiRenderer { painter, queue, device, textures, shared, frame_serial, .. } = *unsafe { Box::from_raw(renderer) };
+    let PxuiRenderer { painter, queue, device, textures, shared, frame_serial, prepared, drawn, .. } = *unsafe { Box::from_raw(renderer) };
     // a painter or texture that fails to go stays a child of the device, which then refuses to go: reported below
+    drop((prepared, drawn));
     drop(painter);
     drop(textures);
     // Contract (pxui.h): the app has finished every frame it passed to prepare, so everything retires now.

@@ -179,6 +179,22 @@ impl RenderEncoderInner {
     }
 }
 impl Drop for RenderEncoderInner { fn drop(&mut self) { self.finish(true); } }
+impl RenderEncoder {
+    /// An ended adopted encoder names the app's next one (`pointer`) on the same command buffer, open again: no allocation. False
+    /// when it is not an ended adopted encoder of `command_buffer`.
+    pub(crate) fn readopt(&self, command_buffer: &CommandBuffer, pointer: *mut std::ffi::c_void) -> Result<bool, Error> {
+        let operation = "Metal.RenderEncoder.readopt";
+        enter_main(operation)?;
+        let inner = &self.0;
+        if inner.end_native || inner.pass.is_some() || !inner.ended.load(Ordering::Acquire) || !inner.command_buffer.same(command_buffer) { return Ok(false); }
+        command_buffer.lifetime().ensure_live(operation)?;
+        unsafe { inner.raw.rebind(pointer, metal_sys::native::KIND_RENDER_ENCODER) }.map_err(|failure| sys_error(operation, failure))?;
+        command_buffer.lifetime().attach();
+        inner.lifetime.destroyed.store(false, Ordering::Release);
+        inner.ended.store(false, Ordering::Release);
+        Ok(true)
+    }
+}
 #[derive(Clone)]
 pub struct RenderEncoder(Arc<RenderEncoderInner>);
 impl RenderEncoder {

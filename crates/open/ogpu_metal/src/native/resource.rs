@@ -644,6 +644,17 @@ impl CommandBuffer {
     }
     pub(crate) fn raw(&self) -> &metal_sys::Handle { &self.0.raw }
     pub(crate) fn lifetime(&self) -> &Lifetime { &self.0.lifetime }
+    /// Whether `other` is this command buffer (a clone of the same handle).
+    pub(crate) fn same(&self, other: &CommandBuffer) -> bool { Arc::ptr_eq(&self.0, &other.0) }
+    /// An adopted command buffer names the app's next one (`pointer`), its retained resources let go: no allocation.
+    pub(crate) fn readopt(&self, pointer: *mut std::ffi::c_void) -> Result<(), Error> {
+        let operation = "Metal.Command_buffer.readopt";
+        enter_main(operation)?;
+        self.0.lifetime.ensure_live(operation)?;
+        unsafe { self.0.raw.rebind(pointer, metal_sys::native::KIND_COMMAND_BUFFER) }.map_err(|failure| sys_error(operation, failure))?;
+        self.0.resources.borrow_mut().clear();
+        Ok(())
+    }
     pub(crate) fn retain_buffer(&self, buffer: &Buffer) { self.retain(RetainedResource::Buffer(buffer.clone())); }
     pub(crate) fn retain_texture(&self, texture: &Texture) { self.retain(RetainedResource::Texture(texture.clone())); }
     pub(crate) fn retain_pipeline(&self, pipeline: &ComputePipeline) { self.retain(RetainedResource::ComputePipeline(pipeline.clone())); }
