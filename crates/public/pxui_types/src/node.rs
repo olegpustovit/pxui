@@ -4,6 +4,33 @@ use crate::geom::{Edges, Rgba as Color};
 use crate::layout::{Align, Anchor, Cell, Grid, Justify};
 use crate::theme::{Curve, Look, State};
 
+/// An optional field of a node or a look with a C layout (`Option` has none): a byte tag (0 none, 1 some) then the value. `get`
+/// reads it as an `Option`, `Option::into` writes one.
+macro_rules! opt {
+    ($(#[$doc:meta])* $name:ident($($t:ty),+) $get:ty, |$($v:ident),+| $some:expr, |$o:ident| $from:expr) => {
+        $(#[$doc])*
+        #[repr(C, u8)]
+        #[derive(Clone, Copy, Debug, Default, PartialEq)]
+        pub enum $name { #[default] None, Some($($t),+) }
+        impl $name {
+            #[inline] pub const fn get(self) -> Option<$get> { match self { Self::Some($($v),+) => Some($some), Self::None => None } }
+            #[inline] pub const fn is_some(&self) -> bool { matches!(self, Self::Some(..)) }
+            #[inline] pub const fn is_none(&self) -> bool { matches!(self, Self::None) }
+        }
+        impl From<Option<$get>> for $name {
+            #[inline] fn from(value: Option<$get>) -> Self { match value { Some($o) => $from, None => Self::None } }
+        }
+    };
+}
+opt!(/** `Option<Align>` */ OptAlign(Align) Align, |v| v, |v| Self::Some(v));
+opt!(/** `Option<Grid>` */ OptGrid(Grid) Grid, |v| v, |v| Self::Some(v));
+opt!(/** `Option<Anchor>` */ OptAnchor(Anchor) Anchor, |v| v, |v| Self::Some(v));
+opt!(/** `Option<(f32, f32)>`: a point */ OptPoint(f32, f32) (f32, f32), |x, y| (x, y), |v| Self::Some(v.0, v.1));
+opt!(/** `Option<Bar>` */ OptBar(Bar) Bar, |v| v, |v| Self::Some(v));
+opt!(/** `Option<Curve>` */ OptCurve(Curve) Curve, |v| v, |v| Self::Some(v));
+opt!(/** `Option<Color>` */ OptColor(Color) Color, |v| v, |v| Self::Some(v));
+
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Axis {
     Row,
@@ -13,6 +40,7 @@ pub enum Axis {
     Stack,
 }
 
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dir {
     Down,
@@ -22,6 +50,7 @@ pub enum Dir {
 }
 
 /// A drawn mark centred in a node's rectangle, in its look's text colour.
+#[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Mark {
     None,
@@ -37,6 +66,7 @@ pub enum Mark {
 
 /// A scroll node's thumb: `width` points wide, `gap` from the right edge, between `margin` points of
 /// the top and bottom; `whole` keeps it on whole points (a panel's).
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Bar {
     pub color: Color,
@@ -57,9 +87,13 @@ pub struct Bar {
 /// outside the flow at an offset from the parent's origin, `anchor` by a window rectangle (a popup).
 /// `inset` is where its text sits in it; `mark` is drawn
 /// over its text; `bar` gives a scroll node its thumb; `state` is what the look was picked for (a
-/// change of state starts the theme's transition).
+/// change of state starts the theme's transition). The layout is C's (`pxui.h`'s `PxuiNode`): a node crosses the
+/// library boundary as these bytes, checked where it lands, never converted.
+#[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Node {
+    /// `size_of::<Node>()` (what `DEFAULT` holds): the library refuses a shorter record, so the struct can grow
+    pub size: u32,
     pub flags: Flags,
     pub w: Size,
     pub h: Size,
@@ -77,30 +111,31 @@ pub struct Node {
     pub row_gap: f32,
     pub justify: Justify,
     pub align: Align,
-    pub align_self: Option<Align>,
+    pub align_self: OptAlign,
     pub wrap: bool,
-    pub grid: Option<Grid>,
+    pub grid: OptGrid,
     pub cell: Cell,
     pub z: i16,
-    pub anchor: Option<Anchor>,
+    pub anchor: OptAnchor,
     /// what the node is to a screen reader (`Unknown`: not in the accessibility tree) and the states
     /// its widget declares (`a11y::state` bits: CHECKABLE, CHECKED, EXPANDABLE, EXPANDED, EDITABLE,
     /// MULTILINE, SELECTED, MODAL); focus, press, enabled and visibility come from the engine
     pub role: Role,
     pub a11y: u32,
-    pub at: Option<(f32, f32)>,
+    pub at: OptPoint,
     pub scroll_step: f32,
     pub look: Look,
     pub inset: Edges,
     pub mark: Mark,
-    pub bar: Option<Bar>,
+    pub bar: OptBar,
     pub state: State,
     /// the transition `set_look` picked for a change of state, started when the node is painted
-    pub transition: Option<Curve>,
+    pub transition: OptCurve,
 }
 
 impl Node {
     pub const DEFAULT: Node = Node {
+        size: core::mem::size_of::<Node>() as u32,
         flags: 0,
         w: Size::Grow,
         h: Size::Fit,
@@ -118,15 +153,15 @@ impl Node {
         row_gap: 0.0,
         justify: Justify::Start,
         align: Align::Start,
-        align_self: None,
+        align_self: OptAlign::None,
         wrap: false,
-        grid: None,
+        grid: OptGrid::None,
         cell: Cell::DEFAULT,
         z: 0,
-        anchor: None,
+        anchor: OptAnchor::None,
         role: Role::Unknown,
         a11y: 0,
-        at: None,
+        at: OptPoint::None,
         scroll_step: 24.0,
         look: Look::NONE,
         inset: Edges {
@@ -136,7 +171,7 @@ impl Node {
             b: 0.0,
         },
         mark: Mark::None,
-        bar: None,
+        bar: OptBar::None,
         state: State {
             hovered: false,
             pressed: false,
@@ -144,6 +179,6 @@ impl Node {
             disabled: false,
             checked: false,
         },
-        transition: None,
+        transition: OptCurve::None,
     };
 }

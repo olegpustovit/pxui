@@ -3,6 +3,7 @@
 use crate::geom::Rect;
 
 /// Where children sit along the main axis (CSS `justify-content`).
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Justify {
     #[default]
@@ -15,6 +16,7 @@ pub enum Justify {
 }
 
 /// Where a child sits across its line (CSS `align-items`, `align-self`).
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Align {
     #[default]
@@ -38,6 +40,7 @@ pub enum Direction {
 
 /// A grid track: fixed points, a share of the room left (`fr`), or its content: its largest
 /// single-span child, plus an equal share of what a spanning child needs past its tracks.
+#[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Track {
     Px(f32),
@@ -50,15 +53,37 @@ pub enum Track {
 // Columns: at most MAX_TRACKS (stack arrays in the passes); rows: as many as the children reach (a
 // scratch the Ui keeps, no allocation once warm). Spans are spread in build order, not smallest span
 // first as CSS.
-#[derive(Clone, Copy, Debug, PartialEq)]
+// A pointer and a length each, not slices, so that a node is the same bytes in C; only `Grid::new` makes one, from 'static
+// slices, so the accessors are sound (the library replaces a C caller's tracks by its own copies before the engine sees them).
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
 pub struct Grid {
-    pub cols: &'static [Track],
-    pub rows: &'static [Track],
+    cols: *const Track,
+    cols_len: usize,
+    rows: *const Track,
+    rows_len: usize,
+}
+
+impl Grid {
+    pub const fn new(cols: &'static [Track], rows: &'static [Track]) -> Grid {
+        Grid { cols: cols.as_ptr(), cols_len: cols.len(), rows: rows.as_ptr(), rows_len: rows.len() }
+    }
+    #[inline]
+    pub fn cols(&self) -> &'static [Track] { unsafe { core::slice::from_raw_parts(self.cols, self.cols_len) } }
+    #[inline]
+    pub fn rows(&self) -> &'static [Track] { unsafe { core::slice::from_raw_parts(self.rows, self.rows_len) } }
+    /// The tracks as the C caller wrote them, not yet trusted: (columns pointer, length, rows pointer, length).
+    pub fn raw(&self) -> (*const Track, usize, *const Track, usize) { (self.cols, self.cols_len, self.rows, self.rows_len) }
+}
+
+impl PartialEq for Grid {
+    fn eq(&self, other: &Grid) -> bool { self.cols() == other.cols() && self.rows() == other.rows() }
 }
 
 pub const MAX_TRACKS: usize = 64;
 
 /// A grid child's cell. `col == AUTO` places it at the next free cell in row order.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cell {
     pub col: u16,
@@ -93,6 +118,7 @@ impl Cell {
 }
 
 /// Which side of its anchor a popup opens on.
+#[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
     Below,
@@ -104,6 +130,7 @@ pub enum Side {
 /// How a popup sits by its anchor: on `side`, `gap` points off it, `align`ed along it (Start, Center,
 /// End), kept `margin` points inside the bounds. With `flip` it opens on the opposite side when its
 /// own does not fit and that one does; without, it is moved inside the bounds.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
     pub side: Side,
@@ -124,6 +151,7 @@ impl Placement {
 }
 
 /// A node placed by an anchor rectangle (window points) rather than its parent's flow.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Anchor {
     pub rect: Rect,

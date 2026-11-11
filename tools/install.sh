@@ -6,7 +6,7 @@ prefix=${1:-/usr/local}
 target_dir=${CARGO_TARGET_DIR:-"$repo/target"}
 cd "$repo"
 
-cargo build --release -p pxui_abi --target-dir "$target_dir"
+cargo build --release -p pxui_dylib --target-dir "$target_dir"
 
 mkdir -p "$prefix/lib" "$prefix/include" "$prefix/share/pxui/themes"
 case "$(uname -s)" in

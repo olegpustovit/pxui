@@ -263,7 +263,7 @@ fn ensure_libpxui(args: &Args) -> Result<(), i32> {
     let linked = args.cargo.windows(2).any(|pair| (pair[0] == "-p" || pair[0] == "--package") && (pair[1] == "pxui" || pair[1] == "pxui_gallery"));
     if !linked { return Ok(()); }
     let mut build = Command::new("cargo");
-    build.args(["build", "-q", "-p", "pxui_abi"]);
+    build.args(["build", "-q", "-p", "pxui_dylib"]);
     let mut profile = "debug".to_owned();
     let mut flags = args.cargo.iter();
     while let Some(flag) = flags.next() {

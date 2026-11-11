@@ -113,7 +113,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         s.picked = Some(p);
     }
     s.busy.clear();
-    let row = ui.node("columns", Node { w: Size::Px(W as f32), h: Size::Fit, axis: Axis::Row, at: Some((0.0, 24.0)), ..Node::DEFAULT });
+    let row = ui.node("columns", Node { w: Size::Px(W as f32), h: Size::Fit, axis: Axis::Row, at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
     ui.within(&row, &mut |ui| {
         let left = ui.node("left", Node { w: Size::Px(240.0), ..Node::DEFAULT });
         ui.within(&left, &mut |ui| {

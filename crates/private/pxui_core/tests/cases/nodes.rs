@@ -275,7 +275,7 @@ pub fn window_pxui_node_line_patch() {
     let mut build = |ui: &mut Ui| {
         builds.set(builds.get() + 1);
         let look = Look { text: color::rgb(0, 0, 200), ..Look::NONE };
-        handle.set(Some(ui.node("line", Node { w: Size::Px(21.0), h: Size::Px(11.0), at: Some((10.0, 20.0)), look, mark: Mark::Line { width: 1.0, rising: false }, ..Node::DEFAULT })));
+        handle.set(Some(ui.node("line", Node { w: Size::Px(21.0), h: Size::Px(11.0), at: Some((10.0, 20.0)).into(), look, mark: Mark::Line { width: 1.0, rising: false }, ..Node::DEFAULT })));
     };
     frame(&mut ui, 0.0, &mut build);
     frame(&mut ui, 0.1, &mut build);

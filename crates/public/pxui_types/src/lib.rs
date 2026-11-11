@@ -368,6 +368,59 @@ mod abi_layout {
         ]);
     }
 
+    /// The engine's own value types that cross as they are (a node, a look, the theme): `pxui.h` mirrors them field for field.
+    #[test]
+    fn value_types_match_layout_snapshot() {
+        use crate::{layout::*, node::*, theme::*};
+        assert_layout("PxuiSize", size_of::<Size>(), align_of::<Size>(), &[]);
+        assert_layout("PxuiTrack", size_of::<Track>(), align_of::<Track>(), &[]);
+        assert_layout("PxuiMark", size_of::<Mark>(), align_of::<Mark>(), &[]);
+        assert_layout("PxuiCurve", size_of::<Curve>(), align_of::<Curve>(), &[]);
+        assert_layout("PxuiOptAlign", size_of::<OptAlign>(), align_of::<OptAlign>(), &[]);
+        assert_layout("PxuiOptGrid", size_of::<OptGrid>(), align_of::<OptGrid>(), &[]);
+        assert_layout("PxuiOptAnchor", size_of::<OptAnchor>(), align_of::<OptAnchor>(), &[]);
+        assert_layout("PxuiOptPoint", size_of::<OptPoint>(), align_of::<OptPoint>(), &[]);
+        assert_layout("PxuiOptBar", size_of::<OptBar>(), align_of::<OptBar>(), &[]);
+        assert_layout("PxuiOptCurve", size_of::<OptCurve>(), align_of::<OptCurve>(), &[]);
+        assert_layout("PxuiOptColor", size_of::<OptColor>(), align_of::<OptColor>(), &[]);
+        assert_layout("PxuiGrid", size_of::<Grid>(), align_of::<Grid>(), &[]);
+        assert_layout("PxuiCell", size_of::<Cell>(), align_of::<Cell>(), &[offset_of!(Cell, col), offset_of!(Cell, row), offset_of!(Cell, col_span), offset_of!(Cell, row_span)]);
+        assert_layout("PxuiPlacement", size_of::<Placement>(), align_of::<Placement>(), &[offset_of!(Placement, side), offset_of!(Placement, align), offset_of!(Placement, gap), offset_of!(Placement, margin), offset_of!(Placement, flip)]);
+        assert_layout("PxuiAnchor", size_of::<Anchor>(), align_of::<Anchor>(), &[offset_of!(Anchor, rect), offset_of!(Anchor, placement)]);
+        assert_layout("PxuiFont", size_of::<Font>(), align_of::<Font>(), &[offset_of!(Font, family), offset_of!(Font, size), offset_of!(Font, weight), offset_of!(Font, tracking), offset_of!(Font, caps)]);
+        assert_layout("PxuiShadow", size_of::<Shadow>(), align_of::<Shadow>(), &[offset_of!(Shadow, color), offset_of!(Shadow, offset), offset_of!(Shadow, blur), offset_of!(Shadow, spread), offset_of!(Shadow, inner)]);
+        assert_layout("PxuiRing", size_of::<Ring>(), align_of::<Ring>(), &[offset_of!(Ring, color), offset_of!(Ring, width), offset_of!(Ring, sides)]);
+        assert_layout("PxuiLook", size_of::<Look>(), align_of::<Look>(), &[
+            offset_of!(Look, fill), offset_of!(Look, gradient), offset_of!(Look, angle), offset_of!(Look, border), offset_of!(Look, border_w), offset_of!(Look, sides),
+            offset_of!(Look, radius), offset_of!(Look, shadows), offset_of!(Look, text), offset_of!(Look, font), offset_of!(Look, opacity), offset_of!(Look, ring),
+            offset_of!(Look, selection), offset_of!(Look, caret), offset_of!(Look, dashed),
+        ]);
+        assert_layout("PxuiState", size_of::<State>(), align_of::<State>(), &[offset_of!(State, hovered), offset_of!(State, pressed), offset_of!(State, focused), offset_of!(State, disabled), offset_of!(State, checked)]);
+        assert_layout("PxuiBar", size_of::<Bar>(), align_of::<Bar>(), &[offset_of!(Bar, color), offset_of!(Bar, radius), offset_of!(Bar, width), offset_of!(Bar, gap), offset_of!(Bar, margin), offset_of!(Bar, whole)]);
+        assert_layout("PxuiNode", size_of::<Node>(), align_of::<Node>(), &[
+            offset_of!(Node, size), offset_of!(Node, flags), offset_of!(Node, w), offset_of!(Node, h), offset_of!(Node, min_w), offset_of!(Node, min_h), offset_of!(Node, max_w),
+            offset_of!(Node, max_h), offset_of!(Node, grow), offset_of!(Node, shrink), offset_of!(Node, aspect), offset_of!(Node, axis), offset_of!(Node, padding),
+            offset_of!(Node, margin), offset_of!(Node, gap), offset_of!(Node, row_gap), offset_of!(Node, justify), offset_of!(Node, align), offset_of!(Node, align_self),
+            offset_of!(Node, wrap), offset_of!(Node, grid), offset_of!(Node, cell), offset_of!(Node, z), offset_of!(Node, anchor), offset_of!(Node, role),
+            offset_of!(Node, a11y), offset_of!(Node, at), offset_of!(Node, scroll_step), offset_of!(Node, look), offset_of!(Node, inset), offset_of!(Node, mark),
+            offset_of!(Node, bar), offset_of!(Node, state), offset_of!(Node, transition),
+        ]);
+        assert_layout("PxuiMotion", size_of::<Motion>(), align_of::<Motion>(), &[offset_of!(Motion, fast), offset_of!(Motion, normal), offset_of!(Motion, slow), offset_of!(Motion, ease)]);
+        assert_layout("PxuiTokens", size_of::<Tokens>(), align_of::<Tokens>(), &[
+            offset_of!(Tokens, panel), offset_of!(Tokens, foreground), offset_of!(Tokens, control), offset_of!(Tokens, input), offset_of!(Tokens, track),
+            offset_of!(Tokens, accent), offset_of!(Tokens, invalid), offset_of!(Tokens, ink_ground), offset_of!(Tokens, space), offset_of!(Tokens, radius),
+            offset_of!(Tokens, display_size), offset_of!(Tokens, title_size), offset_of!(Tokens, font_size), offset_of!(Tokens, label_size), offset_of!(Tokens, motion),
+            offset_of!(Tokens, reduced_motion), offset_of!(Tokens, density),
+        ]);
+        assert_layout("PxuiStates", size_of::<States>(), align_of::<States>(), &[offset_of!(States, idle), offset_of!(States, hover), offset_of!(States, pressed), offset_of!(States, focus), offset_of!(States, disabled), offset_of!(States, checked)]);
+        // the kit parts follow `ring`, `scrollbar_w` and `scrollbar_gap` back to back, in `theme_widgets!` order
+        assert_layout("PxuiThemeSnapshot", size_of::<ThemeSnapshot>(), align_of::<ThemeSnapshot>(), &[
+            offset_of!(ThemeSnapshot, tokens), offset_of!(ThemeSnapshot, row_h), offset_of!(ThemeSnapshot, control_h), offset_of!(ThemeSnapshot, ring),
+            offset_of!(ThemeSnapshot, scrollbar_w), offset_of!(ThemeSnapshot, scrollbar_gap), offset_of!(ThemeSnapshot, panel),
+        ]);
+        assert_eq!(size_of::<ThemeSnapshot>(), offset_of!(ThemeSnapshot, panel) + WIDGET_COUNT * size_of::<States>(), "the parts are an array of States");
+    }
+
     #[test]
     fn frozen_layout_v1() {
         assert_layout(

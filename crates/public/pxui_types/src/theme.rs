@@ -9,6 +9,7 @@ const CLEAR: Color = Color {
 };
 
 /// Motion durations in seconds and the CSS cubic-bezier easing curve `[x1, y1, x2, y2]`.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Motion {
     pub fast: f32,
@@ -25,6 +26,7 @@ impl From<crate::ffi::PxuiMotion> for Motion {
 
 /// Ergonomic Rust view of the stable paint-token snapshot. `invalid` is a fixed kit color because
 /// the C snapshot intentionally carries only the six theme colors and optional ink ground.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
     pub panel: Color,
@@ -34,7 +36,7 @@ pub struct Tokens {
     pub track: Color,
     pub accent: Color,
     pub invalid: Color,
-    pub ink_ground: Option<Color>,
+    pub ink_ground: crate::node::OptColor,
     pub space: [f32; 4],
     pub radius: [f32; 3],
     pub display_size: i64,
@@ -77,7 +79,7 @@ impl From<crate::ffi::ThemeTokens> for Tokens {
             track: value.track,
             accent: value.accent,
             invalid: invalid(),
-            ink_ground: (value.has_ink_ground != 0).then_some(value.ink_ground),
+            ink_ground: (value.has_ink_ground != 0).then_some(value.ink_ground).into(),
             space: value.space,
             radius: value.radius,
             display_size: value.display_size,
@@ -95,7 +97,7 @@ impl From<Tokens> for crate::ffi::ThemeTokens {
     fn from(t: Tokens) -> Self {
         Self {
             size: core::mem::size_of::<crate::ffi::ThemeTokens>() as u32, panel: t.panel, foreground: t.foreground, control: t.control, input: t.input, track: t.track, accent: t.accent,
-            ink_ground: t.ink_ground.unwrap_or_default(), has_ink_ground: t.ink_ground.is_some() as u8, reserved: [0; 3],
+            ink_ground: t.ink_ground.get().unwrap_or_default(), has_ink_ground: t.ink_ground.is_some() as u8, reserved: [0; 3],
             space: t.space, radius: t.radius, display_size: t.display_size, title_size: t.title_size,
             font_size: t.font_size, label_size: t.label_size,
             motion: crate::ffi::PxuiMotion { fast: t.motion.fast, normal: t.motion.normal, slow: t.motion.slow, ease: t.motion.ease },
@@ -217,7 +219,8 @@ macro_rules! theme_widgets {
 
 macro_rules! snapshot {
     ($($(#[$doc:meta])* $name:ident),* $(,)?) => {
-        /// The tokens and one `States` per kit part: the engine's `Theme`, read through the C snapshot.
+        /// The tokens and one `States` per kit part: the engine's `Theme` (the same C layout), borrowed from the library.
+        #[repr(C)]
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub struct ThemeSnapshot {
             pub tokens: Tokens,
@@ -230,20 +233,6 @@ macro_rules! snapshot {
         }
         /// How many kit parts a snapshot lists.
         pub const WIDGET_COUNT: usize = [$(stringify!($name)),*].len();
-        impl ThemeSnapshot {
-            /// The snapshot from its C scalars and the `WIDGET_COUNT` parts of six looks each, in list order.
-            pub fn from_parts(v: &crate::ffi::PxuiThemeSnapshot, looks: &[crate::ffi::PxuiLookDesc]) -> ThemeSnapshot {
-                let mut looks = looks.chunks_exact(6).map(|s| States {
-                    idle: s[0].into(), hover: s[1].into(), pressed: s[2].into(), focus: s[3].into(), disabled: s[4].into(), checked: s[5].into(),
-                });
-                ThemeSnapshot {
-                    tokens: v.tokens.into(), row_h: v.row_h, control_h: v.control_h,
-                    ring: Ring { color: v.ring.color, width: v.ring.width, sides: v.ring.sides as u8 },
-                    scrollbar_w: v.scrollbar_w, scrollbar_gap: v.scrollbar_gap,
-                    $($name: looks.next().expect("a snapshot lists every part"),)*
-                }
-            }
-        }
     };
 }
 theme_widgets!(snapshot);
@@ -252,9 +241,9 @@ pub type Theme = ThemeSnapshot;
 
 impl From<Look> for crate::ffi::PxuiLookDesc {
     fn from(v: Look) -> Self {
-        let shadow = |s: Shadow| crate::ffi::PxuiShadowDesc { color: s.color, offset: [s.offset.0, s.offset.1], blur: s.blur, spread: s.spread, inner: s.inner as u8, reserved: [0; 3] };
+        let shadow = |s: Shadow| crate::ffi::PxuiShadowDesc { color: s.color, offset: s.offset, blur: s.blur, spread: s.spread, inner: s.inner as u8, reserved: [0; 3] };
         Self {
-            fill: v.fill, gradient: v.gradient.unwrap_or_default(), has_gradient: v.gradient.is_some() as u8, reserved: [0; 3], angle: v.angle,
+            fill: v.fill, gradient: v.gradient.get().unwrap_or_default(), has_gradient: v.gradient.is_some() as u8, reserved: [0; 3], angle: v.angle,
             border: v.border, border_w: v.border_w, sides: v.sides as u32, radius: v.radius, shadows: [shadow(v.shadows[0]), shadow(v.shadows[1])], text: v.text,
             font: crate::ffi::PxuiFontDesc { family: v.font.family, weight: v.font.weight, size: v.font.size, tracking: v.font.tracking, caps: v.font.caps as u8, reserved: [0; 3] },
             opacity: v.opacity, ring: crate::ffi::PxuiRingDesc { color: v.ring.color, width: v.ring.width, sides: v.ring.sides as u32 },
@@ -266,10 +255,10 @@ impl From<Look> for crate::ffi::PxuiLookDesc {
 impl From<crate::ffi::PxuiLookDesc> for Look {
     fn from(v: crate::ffi::PxuiLookDesc) -> Self {
         let shadow = |s: crate::ffi::PxuiShadowDesc| Shadow {
-            color:s.color, offset:(s.offset[0],s.offset[1]), blur:s.blur, spread:s.spread, inner:s.inner != 0,
+            color:s.color, offset:s.offset, blur:s.blur, spread:s.spread, inner:s.inner != 0,
         };
         Self {
-            fill:v.fill, gradient:(v.has_gradient != 0).then_some(v.gradient), angle:v.angle,
+            fill:v.fill, gradient:(v.has_gradient != 0).then_some(v.gradient).into(), angle:v.angle,
             border:v.border, border_w:v.border_w, sides:v.sides as u8, radius:v.radius,
             shadows:[shadow(v.shadows[0]),shadow(v.shadows[1])], text:v.text,
             font:Font { family:v.font.family, size:v.font.size, weight:v.font.weight, tracking:v.font.tracking, caps:v.font.caps != 0 },
@@ -294,14 +283,14 @@ pub fn default() -> Tokens {
     Tokens {
         panel: hex("#f4f5f0"), foreground: hex("#222b2b"), control: hex("#dce3de"),
         input: hex("#ffffff"), track: hex("#e3e8e4"), accent: hex("#f0481f"),
-        invalid: invalid(), ink_ground: None, space: [4.0, 8.0, 12.0, 16.0], radius: [0.0; 3],
+        invalid: invalid(), ink_ground: crate::node::OptColor::None, space: [4.0, 8.0, 12.0, 16.0], radius: [0.0; 3],
         display_size: DISPLAY_SIZE, title_size: TITLE_SIZE, font_size: FONT_SIZE, label_size: LABEL_SIZE,
         motion: Motion { fast: 0.0, normal: 0.0, slow: 0.0, ease: [0.25, 0.1, 0.25, 1.0] },
         reduced_motion: false, density: 1.0,
     }
 }
 
-pub fn ground(theme: &Tokens) -> Color { theme.ink_ground.unwrap_or(theme.panel) }
+pub fn ground(theme: &Tokens) -> Color { theme.ink_ground.get().unwrap_or(theme.panel) }
 pub fn ink_2(theme: &Tokens) -> Color { color::blend(theme.foreground, ground(theme), 0.32) }
 pub fn ink_3(theme: &Tokens) -> Color { color::blend(theme.foreground, ground(theme), 0.521) }
 pub fn muted(theme: &Tokens) -> Color { ink_2(theme) }
@@ -317,10 +306,11 @@ pub fn dark(theme: &Tokens) -> bool {
 }
 
 /// A box shadow: outer, or `inner` (CSS `inset`); none while `color` is transparent.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
     pub color: Color,
-    pub offset: (f32, f32),
+    pub offset: [f32; 2],
     pub blur: f32,
     pub spread: f32,
     pub inner: bool,
@@ -329,7 +319,7 @@ pub struct Shadow {
 impl Shadow {
     pub const NONE: Shadow = Shadow {
         color: CLEAR,
-        offset: (0.0, 0.0),
+        offset: [0.0, 0.0],
         blur: 0.0,
         spread: 0.0,
         inner: false,
@@ -339,6 +329,7 @@ impl Shadow {
 /// Node text: font `family` (the `pxui_text` font index), `size` points (0: the UI's font size; below 0:
 /// that many points from it, at least 8), `weight`, `tracking` in ems after every glyph, `caps`
 /// upper-cases it.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Font {
     pub family: u16,
@@ -370,6 +361,7 @@ impl Font {
 
 /// An outline drawn while the node holds the focus: `width` points inside its box on `sides`
 /// (`draw::flags::TOP | …`; 0 all four). None while `color` is transparent.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ring {
     pub color: Color,
@@ -392,10 +384,11 @@ impl Ring {
 /// `ring` while it holds the focus. `opacity` scales every alpha. `selection` and `caret` colour a text
 /// widget's editing marks. Transparent colours paint nothing. A `dashed` square border is one point
 /// of 4-on, 3-off dashes (a drop target, an expression card).
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     pub fill: Color,
-    pub gradient: Option<Color>,
+    pub gradient: crate::node::OptColor,
     pub angle: f32,
     pub border: Color,
     pub border_w: f32,
@@ -414,7 +407,7 @@ pub struct Look {
 impl Look {
     pub const NONE: Look = Look {
         fill: CLEAR,
-        gradient: None,
+        gradient: crate::node::OptColor::None,
         angle: 180.0,
         border: CLEAR,
         border_w: 0.0,
@@ -444,13 +437,13 @@ impl Look {
             }
         };
         let f = |a: f32, b: f32| a + (b - a) * t;
-        let gradient = match (self.gradient, to.gradient) {
+        let gradient = match (self.gradient.get(), to.gradient.get()) {
             (None, None) => None,
             (a, b) => Some(c(a.unwrap_or(self.fill), b.unwrap_or(to.fill))),
-        };
+        }.into();
         let shadow = |a: &Shadow, b: &Shadow| Shadow {
             color: c(a.color, b.color),
-            offset: (f(a.offset.0, b.offset.0), f(a.offset.1, b.offset.1)),
+            offset: [f(a.offset[0], b.offset[0]), f(a.offset[1], b.offset[1])],
             blur: f(a.blur, b.blur),
             spread: f(a.spread, b.spread),
             inner: if b.color.a > 0 { b.inner } else { a.inner },
@@ -484,6 +477,7 @@ impl Look {
 
 /// How an animation runs from 0 to 1: a CSS cubic-bezier over `duration` seconds, or a critically
 /// damped spring of natural frequency `omega` (radians a second) that settles by itself.
+#[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Curve {
     Bezier { duration: f32, points: [f32; 4] },
@@ -536,6 +530,7 @@ impl Curve {
 }
 
 /// What the pointer and keyboard are doing to a widget; `States::pick` resolves it to a look.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct State {
     pub hovered: bool,
@@ -546,6 +541,7 @@ pub struct State {
 }
 
 /// A look per interaction state, plus `checked` for a widget that is on, current or selected.
+#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct States {
     pub idle: Look,

@@ -7,7 +7,6 @@ use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
-pub use pxui_types::ffi::PxuiNodeDesc;
 pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str};
 pub use pxui_types::ffi::Slice;
 pub use a11y_ffi::A11yBridge;
@@ -112,7 +111,6 @@ mod sys {
     use pxui_types::ffi::{A11yAction, ThemeSource};
     #[repr(C)] pub struct PxuiUi { _private: [u8; 0] }
     pub use pxui_types::{PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
-    use pxui_types::ffi::PxuiNodeDesc;
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
     #[repr(C)] pub struct PxuiTheme { _private:[u8;0] }
     #[repr(C)] pub struct PxuiPaint { _private:[u8;0] }
@@ -124,9 +122,7 @@ mod sys {
         pub fn pxui_ui_create(desc:*const PxuiUiDesc) -> *mut PxuiUi;
         pub fn pxui_ui_create_with_fonts(desc:*const PxuiUiDesc,fonts:*const Str,count:usize)->*mut PxuiUi;
         pub fn pxui_ui_output(ui:*mut PxuiUi)->*const pxui_types::ffi::Output;
-        pub fn pxui_ui_theme_key(ui:*mut PxuiUi)->u64;
-        pub fn pxui_ui_tokens(ui:*mut PxuiUi)->pxui_types::ffi::ThemeTokens;
-        pub fn pxui_ui_theme(ui:*mut PxuiUi,out:*mut pxui_types::ffi::PxuiThemeSnapshot,looks:*mut pxui_types::ffi::PxuiLookDesc,capacity:usize)->i32;
+        pub fn pxui_ui_theme(ui:*mut PxuiUi)->*const pxui_types::theme::ThemeSnapshot;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
         pub fn pxui_ui_layer_drawn(ui:*mut PxuiUi,layer:u64)->i32;
         pub fn pxui_ui_input(ui:*mut PxuiUi,has_owner:u8,owner:i64,out:*mut pxui_types::ffi::Input)->i32;
@@ -138,7 +134,6 @@ mod sys {
         pub fn pxui_ui_patch_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,out:*mut u8)->i32;
         pub fn pxui_ui_busy_step(ui:*mut PxuiUi,box_:*const PxuiBox,now:f64,out:*mut u8)->i32;
         pub fn pxui_ui_request_frame(ui:*mut PxuiUi)->i32;
-        pub fn pxui_ui_node(ui:*mut PxuiUi,label:Str,node:*const PxuiNodeDesc,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut pxui_types::geom::Rect)->i32;
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->i32;
@@ -393,29 +388,12 @@ impl Ui {
     /// The output of the last frame, borrowed from the `Ui`: a new frame needs `&mut self`, so a stale read does not compile.
     #[inline]
     pub fn output(&self) -> &Output { unsafe { &*sys::pxui_ui_output(self.0.as_ptr()) } }
-    pub fn tokens(&self) -> pxui_types::theme::Tokens { unsafe { sys::pxui_ui_tokens(self.0.as_ptr()) }.into() }
-    /// The theme in effect, whole: decoded from the library's snapshot (about 50 KB) when the theme last changed and shared after
-    /// that, so asking again costs one library call and a reference count.
-    #[track_caller]
-    pub fn theme(&self) -> std::rc::Rc<pxui_types::theme::ThemeSnapshot> {
-        let key = unsafe { sys::pxui_ui_theme_key(self.0.as_ptr()) };
-        THEMES.with(|themes| {
-            let mut themes = themes.borrow_mut();
-            if let Some(entry) = themes.iter().find(|entry| entry.0 == key) { return std::rc::Rc::clone(&entry.1); }
-            let theme = std::rc::Rc::new(self.decode_theme());
-            if themes.len() == THEMES_KEPT { themes.remove(0); }
-            themes.push((key, std::rc::Rc::clone(&theme)));
-            theme
-        })
-    }
-
-    #[track_caller]
-    fn decode_theme(&self) -> pxui_types::theme::ThemeSnapshot {
-        let mut head = pxui_types::ffi::PxuiThemeSnapshot { size: core::mem::size_of::<pxui_types::ffi::PxuiThemeSnapshot>() as u32, part_count: 0, tokens: unsafe { core::mem::zeroed() }, row_h: 0.0, control_h: 0.0, scrollbar_w: 0.0, scrollbar_gap: 0.0, ring: unsafe { core::mem::zeroed() } };
-        let mut looks = [pxui_types::ffi::PxuiLookDesc::default(); pxui_types::theme::WIDGET_COUNT * 6];
-        check(self, unsafe { sys::pxui_ui_theme(self.0.as_ptr(), &mut head, looks.as_mut_ptr(), looks.len()) });
-        pxui_types::theme::ThemeSnapshot::from_parts(&head, &looks)
-    }
+    /// The theme in effect's tokens, by value: what a canvas closure captures.
+    #[inline] pub fn tokens(&self) -> pxui_types::theme::Tokens { self.theme().tokens }
+    /// The theme in effect, whole: the library's own, lent (no copy). Anything that could change it takes `&mut self`, so the
+    /// borrow cannot outlive it.
+    #[inline]
+    pub fn theme(&self) -> &pxui_types::theme::Theme { unsafe { &*sys::pxui_ui_theme(self.0.as_ptr()) } }
 
     #[inline] pub fn draw_revision(&self) -> u64 { self.output().draw_revision }
     #[inline] pub fn built_nodes(&self) -> usize { self.output().built_nodes as usize }
@@ -441,10 +419,6 @@ impl Ui {
     #[inline] #[track_caller] pub fn patch_text(&mut self,box_:&PxuiBox,value:&str)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value),&mut out)};live(self,rc)&&out!=0}
     #[inline] #[track_caller] pub fn busy_step(&mut self,box_:&PxuiBox,now:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now,&mut out)};live(self,rc)&&out!=0}
     #[track_caller] pub fn request_frame(&mut self) {check(self, unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}
-    #[inline]
-    #[track_caller] pub fn node_desc(&mut self,label:&str,node:&PxuiNodeDesc)-> PxuiBox {
-        let mut out=PxuiBox::default();check(self, unsafe{sys::pxui_ui_node(self.0.as_ptr(),as_str(label),node,&mut out)});out
-    }
     #[inline]
     #[track_caller] pub fn rect(&self,box_:&PxuiBox)-> geom::Rect {
         let mut out=geom::Rect::default();check(self, unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)});out
@@ -493,9 +467,6 @@ impl Ui {
     }
 }
 
-// The decoded themes of this thread under their `theme_key`s (a key is never reused, so an entry is never stale; the oldest goes first).
-thread_local! { static THEMES: std::cell::RefCell<Vec<(u64, std::rc::Rc<pxui_types::theme::ThemeSnapshot>)>> = const { std::cell::RefCell::new(Vec::new()) }; }
-const THEMES_KEPT: usize = 16;
 
 impl Drop for Ui {
     fn drop(&mut self) {

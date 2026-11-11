@@ -191,14 +191,6 @@ pub struct ThemeTokens {
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiDialogOut { pub tag: u32, pub index: usize }
 
-/// Small snapshot of the theme values used by the public Gallery surface.
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct PxuiThemeSnapshot {
-    pub size: u32, pub part_count: u32, pub tokens: ThemeTokens,
-    pub row_h: f32, pub control_h: f32, pub scrollbar_w: f32, pub scrollbar_gap: f32, pub ring: PxuiRingDesc,
-}
-
 /// The fields of a declared node an app edits in place after its signal is known (`Ui::node_mut`): its look, its mark and the
 /// inset of its text.
 #[repr(C)]
@@ -315,20 +307,6 @@ pub struct PxuiMenuExtra { pub size: u32, pub reserved: u32, pub lead_from: i64,
 pub struct PxuiSizeDesc { pub kind: u32, pub value: f32, pub relative: Option<extern "C" fn(f32) -> f32> }
 impl PxuiSizeDesc { pub const PX: u32 = 0; pub const PCT: u32 = 1; pub const REL: u32 = 2; pub const GROW: u32 = 3; pub const FIT: u32 = 4; }
 
-/// C mirror of a grid track; kinds are Px=0, Fr=1, Fit=2.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiTrackDesc { pub kind: u32, pub value: f32 }
-impl PxuiTrackDesc { pub const PX: u32 = 0; pub const FR: u32 = 1; pub const FIT: u32 = 2; }
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct PxuiGridDesc { pub has_grid: u8, pub reserved: [u8; 7], pub cols: Slice<PxuiTrackDesc>, pub rows: Slice<PxuiTrackDesc> }
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiCellDesc { pub col: u16, pub row: u16, pub col_span: u16, pub row_span: u16 }
-
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiAnchorDesc {
@@ -363,10 +341,6 @@ pub struct PxuiMarkDesc { pub kind: u32, pub direction: u32, pub width: f32, pub
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiBarDesc { pub has_bar: u8, pub whole: u8, pub reserved: [u8; 2], pub color: Rgba, pub radius: f32, pub width: f32, pub gap: f32, pub margin: f32 }
-
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiStateDesc { pub hovered: u8, pub pressed: u8, pub focused: u8, pub disabled: u8, pub checked: u8, pub reserved: [u8; 3] }
 
 #[repr(C)]
@@ -374,37 +348,6 @@ pub struct PxuiStateDesc { pub hovered: u8, pub pressed: u8, pub focused: u8, pu
 pub struct PxuiCurveDesc { pub kind: u32, pub duration: f32, pub points: [f32; 4], pub omega: f32 }
 impl PxuiCurveDesc { pub const NONE: u32 = 0; pub const BEZIER: u32 = 1; pub const SPRING: u32 = 2; }
 
-/// Complete C-safe node input. Optional values use explicit `has_*` fields or tagged kinds above.
-/// Enum values follow the corresponding pxui_types enums in declaration order.
-#[repr(C)]
-#[derive(Clone, Copy, Debug)]
-pub struct NodeDesc {
-    pub size: u32, pub flags: i64, pub w: PxuiSizeDesc, pub h: PxuiSizeDesc,
-    pub min_w: f32, pub min_h: f32, pub max_w: f32, pub max_h: f32, pub grow: f32, pub shrink: f32, pub aspect: f32,
-    pub axis: u32, pub padding: crate::geom::Edges, pub margin: crate::geom::Edges, pub gap: f32, pub row_gap: f32,
-    pub justify: u32, pub align: u32, pub align_self: u32, pub wrap: u8, pub reserved: [u8; 3],
-    pub grid: PxuiGridDesc, pub cell: PxuiCellDesc, pub z: i16, pub reserved_z: u16, pub role: u32, pub a11y: u32,
-    pub anchor: PxuiAnchorDesc, pub has_at: u32, pub at: [f32; 2], pub scroll_step: f32,
-    pub look: PxuiLookDesc, pub inset: crate::geom::Edges, pub mark: PxuiMarkDesc, pub bar: PxuiBarDesc,
-    pub state: PxuiStateDesc, pub transition: PxuiCurveDesc,
-}
-impl NodeDesc {
-    pub const AXIS_ROW: u32 = 0;
-    pub const AXIS_COLUMN: u32 = 1;
-    pub const AXIS_STACK: u32 = 2;
-    pub const JUSTIFY_START: u32 = 0;
-    pub const JUSTIFY_CENTER: u32 = 1;
-    pub const JUSTIFY_END: u32 = 2;
-    pub const JUSTIFY_SPACE_BETWEEN: u32 = 3;
-    pub const JUSTIFY_SPACE_AROUND: u32 = 4;
-    pub const JUSTIFY_SPACE_EVENLY: u32 = 5;
-    pub const ALIGN_START: u32 = 0;
-    pub const ALIGN_CENTER: u32 = 1;
-    pub const ALIGN_END: u32 = 2;
-    pub const ALIGN_STRETCH: u32 = 3;
-    pub const ALIGN_BASELINE: u32 = 4;
-    pub const ALIGN_SELF_NONE: u32 = u32::MAX;
-}
 impl PxuiMarkDesc {
     pub const NONE: u32 = 0; pub const CHEVRON: u32 = 1; pub const LINE: u32 = 2;
     pub const DIR_DOWN: u32 = 0; pub const DIR_UP: u32 = 1; pub const DIR_LEFT: u32 = 2; pub const DIR_RIGHT: u32 = 3;
@@ -462,7 +405,6 @@ pub type A11yActionSpan = Slice<A11yAction>;
 pub type PxuiA11yTree = A11yTree;
 pub type PxuiThemeSource = ThemeSource;
 pub type PxuiThemeTokens = ThemeTokens;
-pub type PxuiNodeDesc = NodeDesc;
 
 /// What a paint callback needs to know about its painter, read once per callback: the sizes, the clip and the theme tokens.
 #[repr(C)]
@@ -708,18 +650,13 @@ mod layout {
         check("PxuiMotion", size_of::<PxuiMotion>(), align_of::<PxuiMotion>(), &[offset_of!(PxuiMotion, fast), offset_of!(PxuiMotion, normal), offset_of!(PxuiMotion, slow), offset_of!(PxuiMotion, ease)]);
         check("PxuiThemeTokens", size_of::<ThemeTokens>(), align_of::<ThemeTokens>(), &[offset_of!(ThemeTokens, size), offset_of!(ThemeTokens, panel), offset_of!(ThemeTokens, foreground), offset_of!(ThemeTokens, control), offset_of!(ThemeTokens, input), offset_of!(ThemeTokens, track), offset_of!(ThemeTokens, accent), offset_of!(ThemeTokens, ink_ground), offset_of!(ThemeTokens, has_ink_ground), offset_of!(ThemeTokens, reserved), offset_of!(ThemeTokens, space), offset_of!(ThemeTokens, radius), offset_of!(ThemeTokens, display_size), offset_of!(ThemeTokens, title_size), offset_of!(ThemeTokens, font_size), offset_of!(ThemeTokens, label_size), offset_of!(ThemeTokens, motion), offset_of!(ThemeTokens, reduced_motion), offset_of!(ThemeTokens, reserved_tail), offset_of!(ThemeTokens, density)]);
         check("PxuiDialogOut", size_of::<PxuiDialogOut>(), align_of::<PxuiDialogOut>(), &[offset_of!(PxuiDialogOut, tag), offset_of!(PxuiDialogOut, index)]);
-        check("PxuiThemeSnapshot", size_of::<PxuiThemeSnapshot>(), align_of::<PxuiThemeSnapshot>(), &[offset_of!(PxuiThemeSnapshot, size), offset_of!(PxuiThemeSnapshot, part_count), offset_of!(PxuiThemeSnapshot, tokens), offset_of!(PxuiThemeSnapshot, row_h), offset_of!(PxuiThemeSnapshot, control_h), offset_of!(PxuiThemeSnapshot, scrollbar_w), offset_of!(PxuiThemeSnapshot, scrollbar_gap), offset_of!(PxuiThemeSnapshot, ring)]);
         check("PxuiSizeDesc", size_of::<PxuiSizeDesc>(), align_of::<PxuiSizeDesc>(), &[offset_of!(PxuiSizeDesc, kind), offset_of!(PxuiSizeDesc, value), offset_of!(PxuiSizeDesc, relative)]);
-        check("PxuiTrackDesc", size_of::<PxuiTrackDesc>(), align_of::<PxuiTrackDesc>(), &[offset_of!(PxuiTrackDesc, kind), offset_of!(PxuiTrackDesc, value)]);
-        check("PxuiGridDesc", size_of::<PxuiGridDesc>(), align_of::<PxuiGridDesc>(), &[offset_of!(PxuiGridDesc, has_grid), offset_of!(PxuiGridDesc, cols), offset_of!(PxuiGridDesc, rows)]);
-        check("PxuiCellDesc", size_of::<PxuiCellDesc>(), align_of::<PxuiCellDesc>(), &[offset_of!(PxuiCellDesc, col), offset_of!(PxuiCellDesc, row), offset_of!(PxuiCellDesc, col_span), offset_of!(PxuiCellDesc, row_span)]);
         check("PxuiAnchorDesc", size_of::<PxuiAnchorDesc>(), align_of::<PxuiAnchorDesc>(), &[offset_of!(PxuiAnchorDesc, has_anchor), offset_of!(PxuiAnchorDesc, rect), offset_of!(PxuiAnchorDesc, side), offset_of!(PxuiAnchorDesc, align), offset_of!(PxuiAnchorDesc, gap), offset_of!(PxuiAnchorDesc, margin), offset_of!(PxuiAnchorDesc, flip), offset_of!(PxuiAnchorDesc, reserved_tail)]);
         check("PxuiFontDesc", size_of::<PxuiFontDesc>(), align_of::<PxuiFontDesc>(), &[offset_of!(PxuiFontDesc, family), offset_of!(PxuiFontDesc, weight), offset_of!(PxuiFontDesc, size), offset_of!(PxuiFontDesc, tracking), offset_of!(PxuiFontDesc, caps), offset_of!(PxuiFontDesc, reserved)]);
         check("PxuiShadowDesc", size_of::<PxuiShadowDesc>(), align_of::<PxuiShadowDesc>(), &[offset_of!(PxuiShadowDesc, color), offset_of!(PxuiShadowDesc, offset), offset_of!(PxuiShadowDesc, blur), offset_of!(PxuiShadowDesc, spread), offset_of!(PxuiShadowDesc, inner), offset_of!(PxuiShadowDesc, reserved)]);
         check("PxuiRingDesc", size_of::<PxuiRingDesc>(), align_of::<PxuiRingDesc>(), &[offset_of!(PxuiRingDesc, color), offset_of!(PxuiRingDesc, width), offset_of!(PxuiRingDesc, sides)]);
         check("PxuiLookDesc", size_of::<PxuiLookDesc>(), align_of::<PxuiLookDesc>(), &[offset_of!(PxuiLookDesc, fill), offset_of!(PxuiLookDesc, gradient), offset_of!(PxuiLookDesc, has_gradient), offset_of!(PxuiLookDesc, angle), offset_of!(PxuiLookDesc, border), offset_of!(PxuiLookDesc, border_w), offset_of!(PxuiLookDesc, sides), offset_of!(PxuiLookDesc, radius), offset_of!(PxuiLookDesc, shadows), offset_of!(PxuiLookDesc, text), offset_of!(PxuiLookDesc, font), offset_of!(PxuiLookDesc, opacity), offset_of!(PxuiLookDesc, ring), offset_of!(PxuiLookDesc, selection), offset_of!(PxuiLookDesc, caret), offset_of!(PxuiLookDesc, dashed), offset_of!(PxuiLookDesc, reserved_tail)]);
         check("PxuiMarkDesc", size_of::<PxuiMarkDesc>(), align_of::<PxuiMarkDesc>(), &[offset_of!(PxuiMarkDesc, kind), offset_of!(PxuiMarkDesc, direction), offset_of!(PxuiMarkDesc, width), offset_of!(PxuiMarkDesc, rising), offset_of!(PxuiMarkDesc, reserved)]);
-        check("PxuiBarDesc", size_of::<PxuiBarDesc>(), align_of::<PxuiBarDesc>(), &[offset_of!(PxuiBarDesc, has_bar), offset_of!(PxuiBarDesc, whole), offset_of!(PxuiBarDesc, reserved), offset_of!(PxuiBarDesc, color), offset_of!(PxuiBarDesc, radius), offset_of!(PxuiBarDesc, width), offset_of!(PxuiBarDesc, gap), offset_of!(PxuiBarDesc, margin)]);
         check("PxuiStateDesc", size_of::<PxuiStateDesc>(), align_of::<PxuiStateDesc>(), &[offset_of!(PxuiStateDesc, hovered), offset_of!(PxuiStateDesc, pressed), offset_of!(PxuiStateDesc, focused), offset_of!(PxuiStateDesc, disabled), offset_of!(PxuiStateDesc, checked), offset_of!(PxuiStateDesc, reserved)]);
         check("PxuiCurveDesc", size_of::<PxuiCurveDesc>(), align_of::<PxuiCurveDesc>(), &[offset_of!(PxuiCurveDesc, kind), offset_of!(PxuiCurveDesc, duration), offset_of!(PxuiCurveDesc, points), offset_of!(PxuiCurveDesc, omega)]);
         check("PxuiSaved", size_of::<PxuiSaved>(), align_of::<PxuiSaved>(), &[offset_of!(PxuiSaved, size), offset_of!(PxuiSaved, reserved), offset_of!(PxuiSaved, parents), offset_of!(PxuiSaved, seeds)]);
@@ -731,6 +668,5 @@ mod layout {
         check("PxuiHeadActionDesc", size_of::<PxuiHeadActionDesc>(), align_of::<PxuiHeadActionDesc>(), &[offset_of!(PxuiHeadActionDesc, size), offset_of!(PxuiHeadActionDesc, active), offset_of!(PxuiHeadActionDesc, usable), offset_of!(PxuiHeadActionDesc, reserved), offset_of!(PxuiHeadActionDesc, caption), offset_of!(PxuiHeadActionDesc, keycap)]);
         check("PxuiHeaderDesc", size_of::<PxuiHeaderDesc>(), align_of::<PxuiHeaderDesc>(), &[offset_of!(PxuiHeaderDesc, size), offset_of!(PxuiHeaderDesc, has_kind), offset_of!(PxuiHeaderDesc, has_badge), offset_of!(PxuiHeaderDesc, has_index), offset_of!(PxuiHeaderDesc, has_reset), offset_of!(PxuiHeaderDesc, reset_enabled), offset_of!(PxuiHeaderDesc, reserved), offset_of!(PxuiHeaderDesc, key), offset_of!(PxuiHeaderDesc, kind), offset_of!(PxuiHeaderDesc, badge), offset_of!(PxuiHeaderDesc, index), offset_of!(PxuiHeaderDesc, reset), offset_of!(PxuiHeaderDesc, title), offset_of!(PxuiHeaderDesc, detail), offset_of!(PxuiHeaderDesc, actions)]);
         check("PxuiHeadOut", size_of::<PxuiHeadOut>(), align_of::<PxuiHeadOut>(), &[offset_of!(PxuiHeadOut, size), offset_of!(PxuiHeadOut, has_chosen), offset_of!(PxuiHeadOut, reset_pressed), offset_of!(PxuiHeadOut, reserved), offset_of!(PxuiHeadOut, renamed), offset_of!(PxuiHeadOut, chosen)]);
-        check("PxuiNodeDesc", size_of::<NodeDesc>(), align_of::<NodeDesc>(), &[offset_of!(NodeDesc, size), offset_of!(NodeDesc, flags), offset_of!(NodeDesc, w), offset_of!(NodeDesc, h), offset_of!(NodeDesc, min_w), offset_of!(NodeDesc, min_h), offset_of!(NodeDesc, max_w), offset_of!(NodeDesc, max_h), offset_of!(NodeDesc, grow), offset_of!(NodeDesc, shrink), offset_of!(NodeDesc, aspect), offset_of!(NodeDesc, axis), offset_of!(NodeDesc, padding), offset_of!(NodeDesc, margin), offset_of!(NodeDesc, gap), offset_of!(NodeDesc, row_gap), offset_of!(NodeDesc, justify), offset_of!(NodeDesc, align), offset_of!(NodeDesc, align_self), offset_of!(NodeDesc, wrap), offset_of!(NodeDesc, reserved), offset_of!(NodeDesc, grid), offset_of!(NodeDesc, cell), offset_of!(NodeDesc, z), offset_of!(NodeDesc, reserved_z), offset_of!(NodeDesc, role), offset_of!(NodeDesc, a11y), offset_of!(NodeDesc, anchor), offset_of!(NodeDesc, has_at), offset_of!(NodeDesc, at), offset_of!(NodeDesc, scroll_step), offset_of!(NodeDesc, look), offset_of!(NodeDesc, inset), offset_of!(NodeDesc, mark), offset_of!(NodeDesc, bar), offset_of!(NodeDesc, state), offset_of!(NodeDesc, transition)]);
     }
 }

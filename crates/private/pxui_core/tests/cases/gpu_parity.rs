@@ -240,7 +240,7 @@ fn gpu_patch() {
     let chip = |text: &'static str, fill: (i64, i64, i64)| {
         move |ui: &mut Ui| -> Handle {
             let look = Look { fill: pxui_core::geom::color::rgb(fill.0, fill.1, fill.2), text: pxui_core::geom::color::black(), ..Look::NONE };
-            let h = ui.node("clock", Node { w: Size::Px(120.0), h: Size::Px(24.0), at: Some((10.0, 10.0)), look, inset: Edges { l: 6.0, ..Edges::default() }, ..Node::DEFAULT });
+            let h = ui.node("clock", Node { w: Size::Px(120.0), h: Size::Px(24.0), at: Some((10.0, 10.0)).into(), look, inset: Edges { l: 6.0, ..Edges::default() }, ..Node::DEFAULT });
             ui.text(&h, text);
             h
         }
@@ -299,7 +299,7 @@ fn gpu_view_offset_pixels() {
         for count in 0..2 {
             ui.frame(&frame_at(count, 240, 2), &mut |ui| {
                 let at = if offset { (0.0, 0.0) } else { (24.0, 16.0) };
-                let holder = ui.node("holder", Node { w: Size::Px(300.0), h: Size::Px(200.0), at: Some(at), ..Node::DEFAULT });
+                let holder = ui.node("holder", Node { w: Size::Px(300.0), h: Size::Px(200.0), at: Some(at).into(), ..Node::DEFAULT });
                 let saved = ui.enter(&holder);
                 view = Some(ui.view("kit", 1, Size::Px(300.0), Size::Px(200.0), &mut |ui| new_panel(ui)));
                 ui.leave(saved);
@@ -357,7 +357,7 @@ fn gpu_round_clip() {
     }
     let red = pxui_core::geom::color::rgb(220, 20, 20);
     let (pixels, _) = render(1, 80, &mut |ui| {
-        let clip = ui.node("clip", Node { flags: CLIP | ROUND_CLIP, w: Size::Px(100.0), h: Size::Px(60.0), at: Some((10.0, 10.0)), look: Look { radius: [16.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+        let clip = ui.node("clip", Node { flags: CLIP | ROUND_CLIP, w: Size::Px(100.0), h: Size::Px(60.0), at: Some((10.0, 10.0)).into(), look: Look { radius: [16.0; 4], ..Look::NONE }, ..Node::DEFAULT });
         ui.within(&clip, &mut |ui| {
             ui.node("fill", Node { w: Size::Grow, h: Size::Grow, look: Look { fill: red, ..Look::NONE }, ..Node::DEFAULT });
         });

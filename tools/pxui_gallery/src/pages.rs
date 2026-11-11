@@ -135,7 +135,7 @@ fn text_only(look: &Look) -> Look { Look { text: look.text, font: look.font, ..L
 
 /// A column `w` wide at `at` in its parent (a page's free-standing panel spot).
 fn column(ui: &mut Ui, label: &str, at: (f32, f32), w: f32, h: Size, f: &mut dyn FnMut(&mut Ui)) {
-    let n = node(ui, label, Node { w: Size::Px(w), h, at: Some(at), ..Node::DEFAULT });
+    let n = node(ui, label, Node { w: Size::Px(w), h, at: Some(at).into(), ..Node::DEFAULT });
     ui.within(&n, f);
 }
 
@@ -324,7 +324,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
 /// box with a hairline (`body` its layout).
 fn demo(ui: &mut Ui, title: &str, at: (f32, f32), (w, h): (f32, f32), body: Node, f: &mut dyn FnMut(&mut Ui)) {
     let t = ui.theme().clone();
-    let outer = node(ui, title, Node { w: Size::Px(w), h: Size::Px(h), at: Some(at), gap: 4.0, ..Node::DEFAULT });
+    let outer = node(ui, title, Node { w: Size::Px(w), h: Size::Px(h), at: Some(at).into(), gap: 4.0, ..Node::DEFAULT });
     ui.within(&outer, &mut |ui: &mut Ui| {
         let cap = node(ui, "caption", Node { w: Size::Grow, h: Size::Px(14.0), look: text_only(&t.hint.idle), ..Node::DEFAULT });
         let _ = ui.text(&cap, title);
@@ -415,7 +415,7 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         });
         chip(ui, "below", 1, Node { w: Size::Grow, h: Size::Px(8.0), margin: Edges { t: 4.0, ..Edges::ZERO }, ..Node::DEFAULT });
     });
-    demo(ui, "Grid: fr, fit, 24; spans", (x(1), 128.0), (col_w, 104.0), Node { grid: Some(Grid { cols: COLS, rows: &[] }), gap: 4.0, row_gap: 4.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
+    demo(ui, "Grid: fr, fit, 24; spans", (x(1), 128.0), (col_w, 104.0), Node { grid: Some(Grid::new(COLS, &[])).into(), gap: 4.0, row_gap: 4.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
         chip(ui, "a", 0, Node { w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
         chip(ui, "b", 1, px(30.0, 14.0));
         chip(ui, "c", 2, Node { w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
@@ -511,7 +511,7 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
             Some((_, i)) if i != s.page => (s.page, s.page_rev, s.chrome_rev) = (i, s.page_rev + 1, s.chrome_rev + 1),
             _ => {}
         }
-        let body = node(ui, "body", Node { w: Size::Px(w), h: Size::Px(h - 24.0), at: Some((0.0, 24.0)), ..Node::DEFAULT });
+        let body = node(ui, "body", Node { w: Size::Px(w), h: Size::Px(h - 24.0), at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
         ui.within(&body, &mut |ui: &mut Ui| {
             let _ = ui.view("chrome", s.chrome_rev, Size::Grow, Size::Px(CHROME_H), &mut |ui: &mut Ui| {
                 let page = ui.tabs("Pages", &PAGES, s.page);

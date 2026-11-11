@@ -58,5 +58,5 @@ pub(crate) use state::{core_box, fail, get, text};
 pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc, Str};
 pub use pxui_types::ffi::{PxuiSaved, PxuiSignal};
 pub use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE};
-pub use pxui_types::ffi::{PxuiDialogOut, PxuiThemeSnapshot};
-pub const ABI_VERSION: u32 = 65537; // major 1 (the high 16 bits), minor 1
+pub use pxui_types::ffi::PxuiDialogOut;
+pub const ABI_VERSION: u32 = 1 << 16; // major 1 (the high 16 bits), minor 0: unreleased, so the surface still changes in place

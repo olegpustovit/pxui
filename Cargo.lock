@@ -287,6 +287,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "pxui_dylib"
+version = "0.1.0"
+dependencies = [
+ "pxui_abi",
+]
+
+[[package]]
 name = "pxui_gallery"
 version = "0.1.0"
 dependencies = [

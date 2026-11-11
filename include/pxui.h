@@ -53,32 +53,68 @@ typedef struct { PxuiA11yNodeSpan nodes; PxuiStr strings; uint64_t revision; uin
 typedef struct { uint32_t size,flags; PxuiStr source; } PxuiThemeSource;
 typedef struct { float l,t,r,b; } PxuiEdges;
 typedef struct { uint32_t kind; float value; float (*relative)(float); } PxuiSizeDesc;
-typedef struct { uint32_t kind; float value; } PxuiTrackDesc;
-typedef struct { const PxuiTrackDesc *ptr; size_t len; } PxuiTrackSpan;
-typedef struct { uint8_t has_grid,reserved[7]; PxuiTrackSpan cols,rows; } PxuiGridDesc;
-typedef struct { uint16_t col,row,col_span,row_span; } PxuiCellDesc;
 typedef struct { uint8_t has_anchor,reserved[3]; PxuiRect rect; uint32_t side,align; float gap,margin; uint8_t flip,reserved_tail[3]; } PxuiAnchorDesc;
 typedef struct { uint16_t family,weight; int64_t size; float tracking; uint8_t caps,reserved[3]; } PxuiFontDesc;
 typedef struct { PxuiColor color; float offset[2],blur,spread; uint8_t inner,reserved[3]; } PxuiShadowDesc;
 typedef struct { PxuiColor color; float width; uint32_t sides; } PxuiRingDesc;
 typedef struct { PxuiColor fill,gradient; uint8_t has_gradient,reserved[3]; float angle; PxuiColor border; float border_w; uint32_t sides; float radius[4]; PxuiShadowDesc shadows[2]; PxuiColor text; PxuiFontDesc font; float opacity; PxuiRingDesc ring; PxuiColor selection,caret; uint8_t dashed,reserved_tail[3]; } PxuiLookDesc;
-typedef struct { uint32_t size,part_count; PxuiThemeTokens tokens; float row_h,control_h,scrollbar_w,scrollbar_gap; PxuiRingDesc ring; } PxuiThemeSnapshot;
 typedef struct { uint32_t kind,direction; float width; uint8_t rising,reserved[3]; } PxuiMarkDesc;
-typedef struct { uint8_t has_bar,whole,reserved[2]; PxuiColor color; float radius,width,gap,margin; } PxuiBarDesc;
 typedef struct { uint8_t hovered,pressed,focused,disabled,checked,reserved[3]; } PxuiStateDesc;
 typedef struct { uint32_t kind; float duration,points[4],omega; } PxuiCurveDesc;
+/* The engine's own value types, as they cross: a node, a look and the theme are these bytes (abi/layout.v1.txt pins them,
+   the asserts below check the C side). An enum is a byte tag (an optional field: 0 none, 1 some) before its value, padded
+   to the value's alignment; a flag byte is 0 or 1. The library checks a node's tags and flags where it lies and refuses a
+   node with any other value. */
+typedef struct { uint32_t kind; union { float value; float (*relative)(float); } u; } PxuiSize;   /* enum PxuiSizeKind */
+typedef struct { uint8_t kind; float value; } PxuiTrack;                                        /* enum PxuiTrackKind */
+typedef struct { const PxuiTrack *cols; size_t cols_len; const PxuiTrack *rows; size_t rows_len; } PxuiGrid; /* at most 64 each; copied */
+typedef struct { uint16_t col,row,col_span,row_span; } PxuiCell;
+typedef struct { uint8_t side,align; float gap,margin; uint8_t flip; } PxuiPlacement;
+typedef struct { PxuiRect rect; PxuiPlacement placement; } PxuiAnchor;
+typedef struct { uint8_t kind; union { uint8_t direction; struct { float width; uint8_t rising; } line; } u; } PxuiMark; /* enum PxuiMarkKind */
+typedef struct { uint8_t kind; union { struct { float duration,points[4]; } bezier; float omega; } u; } PxuiCurve; /* 0 bezier, 1 spring */
+typedef struct { PxuiColor color; float radius,width,gap,margin; uint8_t whole; } PxuiBar;
+typedef struct { uint8_t has; uint8_t value; } PxuiOptAlign;
+typedef struct { uint8_t has; PxuiGrid value; } PxuiOptGrid;
+typedef struct { uint8_t has; PxuiAnchor value; } PxuiOptAnchor;
+typedef struct { uint8_t has; float x,y; } PxuiOptPoint;
+typedef struct { uint8_t has; PxuiBar value; } PxuiOptBar;
+typedef struct { uint8_t has; PxuiCurve value; } PxuiOptCurve;
+typedef struct { uint8_t has; PxuiColor value; } PxuiOptColor;
+typedef struct { uint16_t family; int64_t size; uint16_t weight; float tracking; uint8_t caps; } PxuiFont;
+typedef struct { PxuiColor color; float offset[2],blur,spread; uint8_t inner; } PxuiShadow;
+typedef struct { PxuiColor color; float width; uint8_t sides; } PxuiRing;
 typedef struct {
-    uint32_t size; int64_t flags; PxuiSizeDesc w,h;
-    float min_w,min_h,max_w,max_h,grow,shrink,aspect; uint32_t axis; PxuiEdges padding,margin; float gap,row_gap;
-    uint32_t justify,align,align_self; uint8_t wrap,reserved[3]; PxuiGridDesc grid; PxuiCellDesc cell;
-    int16_t z; uint16_t reserved_z; uint32_t role,a11y; PxuiAnchorDesc anchor; uint32_t has_at; float at[2]; float scroll_step;
-    PxuiLookDesc look; PxuiEdges inset; PxuiMarkDesc mark; PxuiBarDesc bar; PxuiStateDesc state; PxuiCurveDesc transition;
-} PxuiNodeDesc;
+    PxuiColor fill; PxuiOptColor gradient; float angle; PxuiColor border; float border_w; uint8_t sides; float radius[4];
+    PxuiShadow shadows[2]; PxuiColor text; PxuiFont font; float opacity; PxuiRing ring; PxuiColor selection,caret; uint8_t dashed;
+} PxuiLook;
+typedef struct { uint8_t hovered,pressed,focused,disabled,checked; } PxuiState;
+typedef struct {
+    uint32_t size; /* sizeof(PxuiNode) */
+    int64_t flags; PxuiSize w,h; float min_w,min_h,max_w,max_h,grow,shrink,aspect; uint8_t axis; PxuiEdges padding,margin;
+    float gap,row_gap; uint8_t justify,align; PxuiOptAlign align_self; uint8_t wrap; PxuiOptGrid grid; PxuiCell cell; int16_t z;
+    PxuiOptAnchor anchor; uint8_t role; uint32_t a11y; PxuiOptPoint at; float scroll_step; PxuiLook look; PxuiEdges inset;
+    PxuiMark mark; PxuiOptBar bar; PxuiState state; PxuiOptCurve transition;
+} PxuiNode;
+typedef struct {
+    PxuiColor panel,foreground,control,input,track,accent,invalid; PxuiOptColor ink_ground; float space[4],radius[3];
+    int64_t display_size,title_size,font_size,label_size; PxuiMotion motion; uint8_t reduced_motion; float density;
+} PxuiTokens;
+typedef struct { PxuiLook idle,hover,pressed,focus,disabled,checked; } PxuiStates;
+#define PXUI_THEME_PARTS 59
+/* The theme in effect, lent by pxui_ui_theme: the kit parts in the order of `theme_widgets!` (pxui_types/src/theme.rs). */
+typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float scrollbar_w,scrollbar_gap; PxuiStates parts[PXUI_THEME_PARTS]; } PxuiThemeSnapshot;
+#if defined(__LP64__) || defined(_WIN64)
+_Static_assert(sizeof(PxuiSize) == 16 && sizeof(PxuiGrid) == 32 && sizeof(PxuiOptGrid) == 40, "PxuiSize/PxuiGrid layout");
+_Static_assert(sizeof(PxuiLook) == 160 && offsetof(PxuiLook, dashed) == 152, "PxuiLook layout");
+_Static_assert(sizeof(PxuiNode) == 496 && offsetof(PxuiNode, look) == 240 && offsetof(PxuiNode, transition) == 464, "PxuiNode layout");
+_Static_assert(sizeof(PxuiTokens) == 136 && sizeof(PxuiThemeSnapshot) == 56808, "PxuiThemeSnapshot layout");
+#endif
 enum PxuiSizeKind { PXUI_SIZE_PX=0, PXUI_SIZE_PCT=1, PXUI_SIZE_REL=2, PXUI_SIZE_GROW=3, PXUI_SIZE_FIT=4 };
 enum PxuiTrackKind { PXUI_TRACK_PX=0, PXUI_TRACK_FR=1, PXUI_TRACK_FIT=2 };
 enum PxuiAxis { PXUI_AXIS_ROW=0, PXUI_AXIS_COLUMN=1, PXUI_AXIS_STACK=2 };
 enum PxuiJustify { PXUI_JUSTIFY_START=0, PXUI_JUSTIFY_CENTER=1, PXUI_JUSTIFY_END=2, PXUI_JUSTIFY_SPACE_BETWEEN=3, PXUI_JUSTIFY_SPACE_AROUND=4, PXUI_JUSTIFY_SPACE_EVENLY=5 };
-enum PxuiAlign { PXUI_ALIGN_START=0, PXUI_ALIGN_CENTER=1, PXUI_ALIGN_END=2, PXUI_ALIGN_STRETCH=3, PXUI_ALIGN_BASELINE=4, PXUI_ALIGN_SELF_NONE=UINT32_MAX };
+enum PxuiAlign { PXUI_ALIGN_START=0, PXUI_ALIGN_CENTER=1, PXUI_ALIGN_END=2, PXUI_ALIGN_STRETCH=3, PXUI_ALIGN_BASELINE=4 };
 enum PxuiAnchorSide { PXUI_SIDE_BELOW=0, PXUI_SIDE_ABOVE=1, PXUI_SIDE_RIGHT=2, PXUI_SIDE_LEFT=3 };
 enum PxuiCurveKind { PXUI_CURVE_NONE=0, PXUI_CURVE_BEZIER=1, PXUI_CURVE_SPRING=2 };
 enum PxuiMarkKind { PXUI_MARK_NONE=0, PXUI_MARK_CHEVRON=1, PXUI_MARK_LINE=2 };
@@ -235,12 +271,8 @@ int32_t pxui_ui_input(PxuiUi *ui, uint8_t has_owner, int64_t owner, PxuiInput *o
 /* Marks layer `layer` of the last frame drawn (its dirty ranges clear), as pxui_renderer_draw does: for a host that reads the layers itself. */
 int32_t pxui_ui_layer_drawn(PxuiUi *ui, uint64_t layer);
 const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its next frame */
-/* Names the theme in effect: it changes whenever pxui_ui_theme's answer might, so an app may keep the decoded snapshot under it. */
-uint64_t pxui_ui_theme_key(PxuiUi *ui);
-PxuiThemeTokens pxui_ui_tokens(PxuiUi *ui);
-/* The theme in effect, whole: its scalars in `out` and every kit part's six looks (idle, hover, pressed, focus, disabled, checked)
-   in `looks`, in the part order of pxui_types::theme_widgets (`capacity` looks; part_count * 6 are written). */
-int32_t pxui_ui_theme(PxuiUi *ui, PxuiThemeSnapshot *out, PxuiLookDesc *looks, size_t capacity);
+/* The theme in effect, lent: valid until the Ui next changes it (a theme swap, a themed scope) or is freed. */
+const PxuiThemeSnapshot *pxui_ui_theme(PxuiUi *ui);
 int32_t pxui_ui_grid_list(PxuiUi *ui, const PxuiGridListDesc *desc, PxuiBox *out);
 int32_t pxui_ui_split(PxuiUi *ui, const PxuiSplitDesc *desc, uint8_t *changed, float *ratio);
 int32_t pxui_ui_menu_bar(PxuiUi *ui, const PxuiMenuBarDesc *desc, PxuiMenuOut *out);
@@ -272,8 +304,8 @@ int32_t pxui_ui_signal(PxuiUi *ui, const PxuiBox *box, PxuiSignal *out);
 int32_t pxui_ui_patch_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint8_t *out); /* out: whether the text was written; a stale box is PXUI_ERR_STALE */
 int32_t pxui_ui_busy_step(PxuiUi *ui, const PxuiBox *box, double now, uint8_t *out);
 int32_t pxui_ui_request_frame(PxuiUi *ui);
-int32_t pxui_ui_node(PxuiUi *ui, PxuiStr label, const PxuiNodeDesc *node, PxuiBox *out);
-int32_t pxui_ui_node_keyed(PxuiUi *ui, int64_t key, const PxuiNodeDesc *node, PxuiBox *out);
+int32_t pxui_ui_node(PxuiUi *ui, PxuiStr label, const PxuiNode *node, PxuiBox *out); /* node->size = sizeof(PxuiNode); copied in the call */
+int32_t pxui_ui_node_keyed(PxuiUi *ui, int64_t key, const PxuiNode *node, PxuiBox *out);
 int32_t pxui_ui_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);
 uint8_t pxui_ui_box_of_key(PxuiUi *ui, int64_t key, PxuiBox *out);
 int32_t pxui_ui_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value);

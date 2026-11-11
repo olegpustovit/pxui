@@ -46,6 +46,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         // The Linux AT-SPI2 bridge: libdbus-1 through its own C shim, over pxui's accessibility tree.
         ("pxui_atspi", &["pxui_core", "pxui_types"][..]),
         ("pxui_abi", &[][..]),
+        ("pxui_dylib", &[][..]),
         ("pxui_types", &[][..]),
         // The public wrapper names only the public types; the optional static link is a package-level edge below.
         ("pxui", &["pxui_types"][..]),
@@ -63,6 +64,8 @@ pub fn package_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
     HashMap::from([
         // The public wrapper's optional static link points at the cdylib whose crate name is `pxui`.
         ("pxui", &["pxui", "pxui_types"][..]),
+        // libpxui: the exports of pxui_abi (crate name `pxui`) as one C library
+        ("pxui_dylib", &["pxui"][..]),
         ("pxui_abi", &["input", "mem_sys", "pxui_core", "pxui_render", "pxui_types", "pxui_text", "pxui_atspi", "ogpu_core", "ogpu_metal", "ogpu_vulkan"][..]),
     ])
 }
@@ -153,6 +156,7 @@ pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/public/pxui/src/theme_scope.rs", "calls the private C ABI and owns the opaque theme handle"),
     ("crates/private/pxui_abi/src/renderer.rs", "adopts the app's native GPU handles, validates caller-owned descriptors and records into the app's command buffer at the C ABI boundary"),
     ("crates/public/pxui_types/src/shape.rs", "stores instances into the library's span of layer storage"),
+    ("crates/public/pxui_types/src/layout.rs", "a grid holds its tracks as pointer and length so a node is the same bytes in C; only Grid::new makes one, from 'static slices"),
     ("crates/public/pxui/src/ui_state.rs", "calls the private C ABI through safe wrapper methods"),
     ("crates/public/pxui/src/box_ops.rs", "calls the private C ABI, boxes the hit closure behind its callback and reads borrowed library strings"),
     ("crates/open/ogpu_core/src/backend.rs", "validates and adopts raw native GPU handles at the explicit backend bridge"),

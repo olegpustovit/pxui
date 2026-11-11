@@ -29,7 +29,7 @@ fn panel(ui: &mut Ui, s: &mut State) {
         ui.within(&row, &mut |ui: &mut Ui| {
             // a keyed node of a grid, as a custom widget declares it
             const COLS: [Track; 2] = [Track::Fr(1.0), Track::Px(40.0)];
-            let cell = ui.node_keyed(7, Node { grid: Some(Grid { cols: &COLS, rows: &[] }), cell: Cell::at(0, 0), ..Node::DEFAULT });
+            let cell = ui.node_keyed(7, Node { grid: Some(Grid::new(&COLS, &[])).into(), cell: Cell::at(0, 0), ..Node::DEFAULT });
             let signal = ui.signal(&cell);
             s.clicks += signal.clicked as u32;
             ui.text(&cell, "custom");

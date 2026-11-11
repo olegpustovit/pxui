@@ -17,7 +17,7 @@ impl Ui {
     /// A part of a widget: a node at `at` in the current parent, `w` x `h`, with `look` and `text`
     /// inset by `inset`. Keyed by `key` (an `int_key` of its widget's key).
     pub(crate) fn part(&mut self, key: i64, at: (f32, f32), w: Size, h: f32, look: Look, inset: Edges, text: &str) -> Handle {
-        let n = self.node_keyed(key, Node { w, h: Size::Px(h), at: Some(at), look, inset, ..Node::DEFAULT });
+        let n = self.node_keyed(key, Node { w, h: Size::Px(h), at: Some(at).into(), look, inset, ..Node::DEFAULT });
         self.text(&n, text);
         n
     }
@@ -306,10 +306,10 @@ impl Ui {
                 h,
                 max_h,
                 padding: Edges::all(padding as f32),
-                at: Some((opts.x, opts.y)),
+                at: Some((opts.x, opts.y)).into(),
                 scroll_step: row_height as f32,
                 look,
-                bar: Some(bar),
+                bar: Some(bar).into(),
                 ..Node::DEFAULT
             },
         );
@@ -527,7 +527,7 @@ impl Ui {
         let rh = self.row_height() as f32;
         let t = self.theme();
         let bar = Bar { color: t.scrollbar.idle.fill, radius: t.scrollbar.idle.radius[0], width: t.scrollbar_w, gap: t.scrollbar_gap, margin: 6.0, whole: false };
-        let body = self.node("inspector-body", Node { flags: SCROLL | CLIP | OVER_THUMB, h: Size::Grow, scroll_step: rh, bar: Some(bar), role: Role::ScrollArea, ..Node::DEFAULT });
+        let body = self.node("inspector-body", Node { flags: SCROLL | CLIP | OVER_THUMB, h: Size::Grow, scroll_step: rh, bar: Some(bar).into(), role: Role::ScrollArea, ..Node::DEFAULT });
         self.within(&body, f);
     }
 

@@ -24,7 +24,7 @@ pub fn styling_theme_file_round_trip() {
     check(Theme::parse(RAYS, &base) == Ok(base), "rays.theme does not parse back to Theme::default()");
     let dusk = Theme::parse(DUSK, &base).unwrap_or_else(|e| panic!("dusk.theme: {e:?}"));
     check(dusk != base && dusk.tokens.accent == color::rgb(0x3b, 0x82, 0xf6), "dusk.theme did not restyle");
-    check(dusk.button.idle.gradient == Some(color::rgb(0x1d, 0x4e, 0xd8)) && dusk.button.idle.radius == [5.0; 4], "dusk button");
+    check(dusk.button.idle.gradient == Some(color::rgb(0x1d, 0x4e, 0xd8)).into() && dusk.button.idle.radius == [5.0; 4], "dusk button");
     check(Theme::parse(&dusk.write(), &base) == Ok(dusk), "a written theme does not round trip");
     // part keys over a base keep the base's other looks; comments and blank lines are skipped
     let t = Theme::parse("# a comment\n\nbutton.hover.fill = #223344  # trailing\n", &dusk).expect("one key");
@@ -355,7 +355,7 @@ pub fn styling_nested_view_transform() {
     let mut build = |ui: &mut Ui| {
         outer.set(Some(ui.view("outer", 1, Size::Px(200.0), Size::Px(150.0), &mut |ui| {
             ui.view("inner", 1, Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-                let h = ui.node("btn", Node { flags: CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), at: Some((10.0, 10.0)), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                let h = ui.node("btn", Node { flags: CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), at: Some((10.0, 10.0)).into(), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
                 btn.set(Some(h));
                 if ui.signal(&h).clicked {
                     clicked.set(clicked.get() + 1);

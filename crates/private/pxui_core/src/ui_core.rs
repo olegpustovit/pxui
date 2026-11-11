@@ -2781,14 +2781,14 @@ impl Ui {
 
     /// Declare build box `index`: its node record takes `node`, and its text, hit shape and canvases
     /// start empty. A patch made since the node's last build ends here.
-    fn set_box(&mut self, index: usize, node: Node) {
+    fn set_box(&mut self, index: usize, node: &Node) {
         let b = &mut self.boxes[index];
         b.hit = None;
         b.hit_rect = None;
         b.paint = arena::EMPTY;
         b.over = arena::EMPTY;
         let s = &mut self.slots[b.slot];
-        s.node = node;
+        s.node = *node;
         s.text.clear();
         s.a11y_name.clear();
         s.a11y_value.clear();
@@ -2802,7 +2802,13 @@ impl Ui {
     }
 
     /// Declare a node under the current parent by its key.
+    #[inline]
     pub fn node_keyed(&mut self, key: i64, node: Node) -> Handle {
+        self.node_keyed_ref(key, &node)
+    }
+
+    /// `node_keyed` of a node the caller keeps: it is copied once, into the box.
+    pub fn node_keyed_ref(&mut self, key: i64, node: &Node) -> Handle {
         self.require_building();
         let (key, found) = self.unique_key(key);
         let parent = self.current_parent();
@@ -2813,15 +2819,21 @@ impl Ui {
     }
 
     /// Declare a node under the current parent, keyed by `label` (see `key_of`).
+    #[inline]
     pub fn node(&mut self, label: &str, node: Node) -> Handle {
+        self.node_ref(label, &node)
+    }
+
+    /// `node` of a node the caller keeps: it is copied once, into the box.
+    pub fn node_ref(&mut self, label: &str, node: &Node) -> Handle {
         self.require_building();
         let key = key_of(self.current_seed(), label);
-        self.node_keyed(key, node)
+        self.node_keyed_ref(key, node)
     }
 
     pub fn box_keyed(&mut self, key: i64, opts: BoxOpts) -> UiBox {
         let BoxOpts { flags, w, h, max_h, axis, padding, at, scroll_step, hit, hit_rect } = opts;
-        let b = self.node_keyed(key, Node { flags, w, h, max_h, axis, padding: Edges::all(padding), at, scroll_step, ..Node::DEFAULT });
+        let b = self.node_keyed(key, Node { flags, w, h, max_h, axis, padding: Edges::all(padding), at: at.into(), scroll_step, ..Node::DEFAULT });
         self.boxes[b.index].hit = hit;
         self.boxes[b.index].hit_rect = hit_rect;
         b
@@ -2852,7 +2864,7 @@ impl Ui {
 
     pub fn set_at(&mut self, b: &UiBox, at: (f32, f32)) {
         self.require_building();
-        self.slots[b.box_slot].node.at = Some(at);
+        self.slots[b.box_slot].node.at = Some(at).into();
     }
 
     /// Give a node declared this frame the look `look`, picked for `state` (what `node` takes, set once
@@ -2867,7 +2879,7 @@ impl Ui {
                 None
             };
             let n = &mut self.slots[b.box_slot].node;
-            (n.look, n.state, n.transition) = (look, state, transition);
+            (n.look, n.state, n.transition) = (look, state, transition.into());
         }
     }
 
@@ -3345,7 +3357,7 @@ impl Ui {
                 self.order_stack(index);
             }
             let n = self.nd(index);
-            let (content_w, content_h) = match n.grid {
+            let (content_w, content_h) = match n.grid.get() {
                 Some(grid) => {
                     let (cols, nc, rows) = self.grid_tracks(index, n, &grid, None);
                     let extent = (span(&cols[..nc], n.gap), span(&rows, n.row_gap));
@@ -3492,11 +3504,11 @@ impl Ui {
     /// None, but takes no span's share); with `room` (inner w, h) the
     /// fractional tracks share what the others leave.
     fn grid_tracks(&self, index: usize, n: &Node, g: &Grid, room: Option<(f32, f32)>) -> ([f32; MAX_TRACKS], usize, Vec<f32>) {
-        let nc = g.cols.len().clamp(1, MAX_TRACKS);
+        let nc = g.cols().len().clamp(1, MAX_TRACKS);
         // rows: as many as the children reach, in a scratch the caller hands back (`grid_rows`)
         let mut rowc = self.grid_rows.take();
         rowc.clear();
-        rowc.resize(g.rows.len(), 0.0);
+        rowc.resize(g.rows().len(), 0.0);
         let mut colc = [0.0f32; MAX_TRACKS];
         let mut cursor = (0, 0);
         let mut spans = false;
@@ -3523,10 +3535,10 @@ impl Ui {
                 let cn = self.nd(child);
                 let (c, r, cs, rs) = next_cell(cn.cell, &mut cursor, nc);
                 if cs > 1 {
-                    spread(g.cols, &mut colc[..nc], c, cs, self.l_w[child] + cn.margin.l + cn.margin.r, n.gap);
+                    spread(g.cols(), &mut colc[..nc], c, cs, self.l_w[child] + cn.margin.l + cn.margin.r, n.gap);
                 }
                 if rs > 1 {
-                    spread(g.rows, &mut rowc, r, rs, self.l_h[child] + cn.margin.t + cn.margin.b, n.row_gap);
+                    spread(g.rows(), &mut rowc, r, rs, self.l_h[child] + cn.margin.t + cn.margin.b, n.row_gap);
                 }
                 child = self.next_flow(self.boxes[child].next);
             }
@@ -3551,8 +3563,8 @@ impl Ui {
                 }
             }
         };
-        size(g.cols, &mut colc[..nc], room.map(|r| r.0), n.gap);
-        size(g.rows, &mut rowc, room.map(|r| r.1), n.row_gap);
+        size(g.cols(), &mut colc[..nc], room.map(|r| r.0), n.gap);
+        size(g.rows(), &mut rowc, room.map(|r| r.1), n.row_gap);
         (colc, nc, rowc)
     }
 
@@ -3735,7 +3747,7 @@ impl Ui {
             let (bake_x, bake_y) = self.baked(index);
             let (origin_x, origin_y) = (self.l_x[index] + bake_x, self.l_y[index] + bake_y);
             let inner_at = (origin_x + pad.l, origin_y + pad.t);
-            match (n.grid, n.axis) {
+            match (n.grid.get(), n.axis) {
                 (Some(grid), _) => self.arrange_grid(index, &n, &grid, (inner_w, inner_h), inner_at),
                 (None, Axis::Stack) => self.arrange_stack(index, &n, (inner_w, inner_h), inner_at),
                 (None, _) => self.arrange_flow(index, &n, (inner_w, inner_h), inner_at),
@@ -3750,7 +3762,7 @@ impl Ui {
             while next != NONE {
                 let child = next;
                 let c = self.nd(child);
-                let c = Placed { flags: c.flags, margin_t: c.margin.t, anchor: c.anchor, w_grow: c.w.is_grow(), h_grow: c.h.is_grow(), at: c.at };
+                let c = Placed { flags: c.flags, margin_t: c.margin.t, anchor: c.anchor.get(), w_grow: c.w.is_grow(), h_grow: c.h.is_grow(), at: c.at.get() };
                 if self.flow(child) {
                     self.l_y[child] -= scroll_y;
                     self.l_x[child] -= scroll_x;
@@ -3848,7 +3860,7 @@ impl Ui {
             if f == NONE || n.grid.is_some() || n.flags & (SCROLL | SCROLL_X) != 0 {
                 return h;
             }
-            let fa = self.nd(f).align_self.unwrap_or(n.align);
+            let fa = self.nd(f).align_self.get().unwrap_or(n.align);
             let top_known = match n.axis {
                 Axis::Column => n.justify == Justify::Start,
                 Axis::Row => !n.wrap && matches!(fa, Align::Start | Align::Stretch),
@@ -3883,7 +3895,7 @@ impl Ui {
                 // child's Fit main size follows from them
                 let (cs, ce) = cross_margins(c.margin);
                 let cross_size = if row { c.h } else { c.w };
-                if !n.wrap && (cross_size.is_grow() || (c.align_self.unwrap_or(n.align) == Align::Stretch && matches!(cross_size, Size::Fit))) {
+                if !n.wrap && (cross_size.is_grow() || (c.align_self.get().unwrap_or(n.align) == Align::Stretch && matches!(cross_size, Size::Fit))) {
                     self.set_cross(row, end, cross_room - cs - ce);
                 }
                 if c.aspect > 0.0 && matches!(if row { c.w } else { c.h }, Size::Fit) {
@@ -3920,7 +3932,7 @@ impl Ui {
                     self.rewrap(c);
                 }
                 let (cs, ce) = cross_margins(cn.margin);
-                let a = cn.align_self.unwrap_or(n.align);
+                let a = cn.align_self.get().unwrap_or(n.align);
                 let fit = matches!(if row { cn.h } else { cn.w }, Size::Fit);
                 if cn.aspect > 0.0 && fit {
                     let main = self.main(row, c);
@@ -3958,7 +3970,7 @@ impl Ui {
                 let cn = *self.nd(c);
                 let (ms, me) = main_margins(cn.margin);
                 let (cs, ce) = cross_margins(cn.margin);
-                let a = cn.align_self.unwrap_or(n.align);
+                let a = cn.align_self.get().unwrap_or(n.align);
                 let cross_size = if row { cn.h } else { cn.w };
                 if n.wrap && (cross_size.is_grow() || (a == Align::Stretch && matches!(cross_size, Size::Fit))) {
                     self.set_cross(row, c, line_cross - cs - ce);
@@ -4105,7 +4117,7 @@ impl Ui {
                 Justify::End => inner.0 - ow,
                 _ => 0.0,
             };
-            let y = match cn.align_self.unwrap_or(n.align) {
+            let y = match cn.align_self.get().unwrap_or(n.align) {
                 Align::Center => (inner.1 - oh) / 2.0,
                 Align::End => inner.1 - oh,
                 _ => 0.0,
@@ -4139,7 +4151,7 @@ impl Ui {
             let (col, row, cs, rs) = next_cell(cn.cell, &mut cursor, nc);
             let span_w = col_x[col + cs] - col_x[col] - n.gap;
             let span_h = row_y(row + rs) - row_y(row) - n.row_gap;
-            let a = cn.align_self.unwrap_or(n.align);
+            let a = cn.align_self.get().unwrap_or(n.align);
             if cn.w.is_grow() {
                 self.set_main(true, c, span_w - m.l - m.r);
             }
@@ -4365,7 +4377,7 @@ impl Paint {
         let area = w > 0.0 && h > 0.0;
         let shown = |c: Color| c.a > 0 || steady;
         let round = steady || look.gradient.is_some() || radii.iter().any(|r| *r > 0.0) || look.shadows.iter().any(|s| shown(s.color));
-        let shadow = |s: &Shadow| Instance::shadow(corners, radii, rgba(fade(s.color)), [s.offset.0, s.offset.1], s.blur / 2.0, s.spread, s.inner);
+        let shadow = |s: &Shadow| Instance::shadow(corners, radii, rgba(fade(s.color)), s.offset, s.blur / 2.0, s.spread, s.inner);
         let bordered = steady || (look.border_w > 0.0 && look.border.a > 0);
         if area {
             for s in &look.shadows {
@@ -4376,7 +4388,7 @@ impl Paint {
             let inner = look.shadows.iter().any(|s| s.inner && shown(s.color));
             if round {
                 let mut shape = Instance::rect(corners, rgba(fade(look.fill))).radii(radii);
-                if let Some(to) = look.gradient {
+                if let Some(to) = look.gradient.get() {
                     let (dx, dy) = (look.angle.to_radians().sin(), -look.angle.to_radians().cos());
                     shape = shape.linear([0.5 - dx / 2.0, 0.5 - dy / 2.0], [0.5 + dx / 2.0, 0.5 + dy / 2.0], rgba(fade(to)));
                 }
@@ -4768,7 +4780,7 @@ impl Ui {
         let s = &self.slots[slot];
         let swap = self.swap_frame == self.frame_number && s.painted >= 0 && s.seen != s.node.look;
         let swap = swap.then(|| Curve::Bezier { duration: self.theme.tokens.motion.normal, points: self.theme.tokens.motion.ease });
-        if let Some(curve) = self.slots[slot].node.transition.take().or(swap) {
+        if let Some(curve) = core::mem::take(&mut self.slots[slot].node.transition).get().or(swap) {
             let from = match self.tween_of(slot) {
                 Some(_) => self.pose(slot).0,
                 None => Pose { look: self.slots[slot].seen, ..self.rest(slot) },
@@ -4872,7 +4884,7 @@ impl Ui {
             paint.clip_radius = outer_radius;
             if shown {
                 self.run_painters(self.boxes[index].over.0, index, clip_rect, paint);
-                if let Some(bar) = self.nd(index).bar {
+                if let Some(bar) = self.nd(index).bar.get() {
                     paint.clip_rect = clip_rect;
                     if flags & SCROLL != 0 || flags & SCROLL_X == 0 {
                         paint.bar(screen_rect, index, slot, &bar);
@@ -5208,7 +5220,7 @@ impl Ui {
         self.slots[tip.box_slot].node.inset.l = 7.0;
         self.text(&tip, tip_text);
         let inner = self.enter(&tip);
-        let k = self.node_keyed(int_key(tip.box_key, 0), Node { w: Size::Px(tw2.max(1.0)), h: Size::Px(20.0), at: Some((7.0 + tw1 + 6.0, 0.0)), look: key_look, ..Node::DEFAULT });
+        let k = self.node_keyed(int_key(tip.box_key, 0), Node { w: Size::Px(tw2.max(1.0)), h: Size::Px(20.0), at: Some((7.0 + tw1 + 6.0, 0.0)).into(), look: key_look, ..Node::DEFAULT });
         self.text(&k, tip_key);
         self.leave(inner);
         // Tooltip and ghost layers precede existing foreground entries at maximum priority.
@@ -5320,7 +5332,7 @@ impl Ui {
         root.nodes.clear();
         let root = self.append_box(ROOT_KEY, self.table.find(ROOT_KEY), NONE);
         let (w, h) = (frame.input.size.0 as f32, frame.input.size.1 as f32);
-        self.set_box(root, Node { w: Size::Px(w), h: Size::Px(h), at: Some((0.0, 0.0)), scroll_step: 0.0, ..Node::DEFAULT });
+        self.set_box(root, &Node { w: Size::Px(w), h: Size::Px(h), at: Some((0.0, 0.0)).into(), scroll_step: 0.0, ..Node::DEFAULT });
         self.parents.push(root);
         self.seeds.push(ROOT_KEY);
         self.phase(0);
@@ -5517,7 +5529,7 @@ impl Ui {
         self.set_look(&tip, Look { text: CLEAR_INK, ..look }, State::default());
         let inner = self.enter(&tip);
         for (i, line) in lines.iter().enumerate() {
-            let n = self.node_keyed(int_key(tip.box_key, i as i64), Node { w: Size::Px(width), h: Size::Px(20.0), at: Some((0.0, 14.0 * i as f32)), look: Look { fill: CLEAR_INK, border: CLEAR_INK, shadows: [Shadow::NONE; 2], ..look }, inset: Edges { l: 7.0, ..Edges::default() }, ..Node::DEFAULT });
+            let n = self.node_keyed(int_key(tip.box_key, i as i64), Node { w: Size::Px(width), h: Size::Px(20.0), at: Some((0.0, 14.0 * i as f32)).into(), look: Look { fill: CLEAR_INK, border: CLEAR_INK, shadows: [Shadow::NONE; 2], ..look }, inset: Edges { l: 7.0, ..Edges::default() }, ..Node::DEFAULT });
             self.text(&n, line);
         }
         self.leave(inner);
@@ -5530,7 +5542,7 @@ impl Ui {
     /// root wherever it is called, and painted over the rest.
     pub fn anchored(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let saved = self.enter_root_parent();
-        let b = self.node(label, Node { w, h, anchor: Some(Anchor { rect: anchor, placement }), ..Node::DEFAULT });
+        let b = self.node(label, Node { w, h, anchor: Some(Anchor { rect: anchor, placement }).into(), ..Node::DEFAULT });
         self.overlays.push(b.index);
         self.within(&b, f);
         self.leave(saved);
@@ -5948,7 +5960,7 @@ impl Ui {
         let extent = self.node_keyed(int_key(body.box_key, -1), Node { h: Size::Px(count as f32 * row_h), ..Node::DEFAULT });
         let inner = self.enter(&extent);
         for i in first..last {
-            let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Px(row_h), at: Some((0.0, i as f32 * row_h)), role: Role::ListItem, ..Node::DEFAULT });
+            let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Px(row_h), at: Some((0.0, i as f32 * row_h)).into(), role: Role::ListItem, ..Node::DEFAULT });
             let saved = self.enter(&row);
             f(self, i);
             self.leave(saved);
@@ -5998,7 +6010,7 @@ impl Ui {
         let extent = self.node_keyed(int_key(body.box_key, -1), Node { h: Size::Px(cache.tops[count]), ..Node::DEFAULT });
         let inner = self.enter(&extent);
         for i in first..last {
-            let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Fit, at: Some((0.0, cache.tops[i])), role: Role::ListItem, ..Node::DEFAULT });
+            let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Fit, at: Some((0.0, cache.tops[i])).into(), role: Role::ListItem, ..Node::DEFAULT });
             self.list_rows.push((body.box_key, i, row.box_slot));
             let saved = self.enter(&row);
             f(self, i);
@@ -6074,7 +6086,7 @@ impl Ui {
             if rtl {
                 x = ew - x - cell.0;
             }
-            let c = self.node_keyed(int_key(body.box_key, i as i64), Node { w: Size::Px(cell.0), h: Size::Px(cell.1), at: Some((x, y)), role: Role::ListItem, ..Node::DEFAULT });
+            let c = self.node_keyed(int_key(body.box_key, i as i64), Node { w: Size::Px(cell.0), h: Size::Px(cell.1), at: Some((x, y)).into(), role: Role::ListItem, ..Node::DEFAULT });
             let saved = self.enter(&c);
             f(self, i);
             self.leave(saved);

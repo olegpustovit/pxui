@@ -1,0 +1,19 @@
+[package]
+name = "pxui_dylib"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# libpxui: the `pxui_abi` exports as a C library. A package of its own because cargo builds a lib that is also an rlib without
+# LTO, and the library must be optimized across the engine's crates as the static build is (abi_bench measures both).
+[lib]
+name = "pxui"
+path = "src/lib.rs"
+crate-type = ["cdylib"]
+
+[dependencies]
+pxui_abi_link = { package = "pxui_abi", path = "../pxui_abi" }
+
+[lints]
+workspace = true

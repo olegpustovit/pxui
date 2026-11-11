@@ -803,7 +803,7 @@ impl Ui {
             let font_size = self.font_size();
             let at = 1.0 + pad + mono_width(0.0, font_size, label) + 6.0;
             let hw = self.text_width(Some(key_look.font.points(font_size)), hint);
-            let n = self.node_keyed(int_key(b.box_key, 0), Node { w: Size::Px(hw.max(1.0)), h: Size::Px(self.control_h()), at: Some((at, 0.0)), look: key_look, ..Node::DEFAULT });
+            let n = self.node_keyed(int_key(b.box_key, 0), Node { w: Size::Px(hw.max(1.0)), h: Size::Px(self.control_h()), at: Some((at, 0.0)).into(), look: key_look, ..Node::DEFAULT });
             self.text(&n, hint);
             self.leave(inner);
         }
@@ -1884,7 +1884,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         if !doc.is_empty() {
             let saved = this.enter(container);
             let size = this.font_size() as f32;
-            let n = this.node_keyed(int_key(container.box_key, -1), Node { w: Size::Px((width - 8.0).max(1.0)), h: Size::Px(size), at: Some((8.0, height - 18.0)), look: hint, ..Node::DEFAULT });
+            let n = this.node_keyed(int_key(container.box_key, -1), Node { w: Size::Px((width - 8.0).max(1.0)), h: Size::Px(size), at: Some((8.0, height - 18.0)).into(), look: hint, ..Node::DEFAULT });
             this.text(&n, &display(doc));
             this.leave(saved);
         }
@@ -2660,11 +2660,11 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
     if !renaming {
         let dy = if win { text_top_for(font_size, Some(display_size), 0.0, title_h) } else { 2.0 };
         let look = Look { font: Font { size: display_size, ..title_look.font }, ..title_look };
-        let n = this.node_keyed(k(3), Node { flags: FIT_TEXT, h: Size::Px(display_size as f32), at: Some((0.0, y_title + dy)), look, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
+        let n = this.node_keyed(k(3), Node { flags: FIT_TEXT, h: Size::Px(display_size as f32), at: Some((0.0, y_title + dy)).into(), look, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
         this.text(&n, title);
     }
     let ty = text_top_for(font_size, None, 0.0, line);
-    let n = this.node_keyed(k(4), Node { flags: FIT_TEXT, h: Size::Px(font_size as f32), at: Some((0.0, y_detail + ty)), look: hint, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
+    let n = this.node_keyed(k(4), Node { flags: FIT_TEXT, h: Size::Px(font_size as f32), at: Some((0.0, y_detail + ty)).into(), look: hint, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
     this.text(&n, detail);
     this.leave(saved);
     Head { renamed: title_shown, chosen: pressed, reset_pressed }

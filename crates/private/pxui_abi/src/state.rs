@@ -158,8 +158,9 @@ pub(crate) unsafe fn fail_code(ui: *mut PxuiUi, message: &str, code: i32) -> i32
 pub(crate) unsafe fn text(value: Str) -> Option<&'static str> {
     if value.len == 0 { return Some(""); }
     if value.ptr.is_null() { return None; }
-    let bytes = unsafe { std::slice::from_raw_parts(value.ptr, value.len) };
-    std::str::from_utf8(bytes).ok().map(|s| unsafe { &*(s as *const str) })
+    let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(value.ptr, value.len) };
+    // most labels are ASCII: checked inline, the answer in a register; anything else takes the full check
+    if bytes.is_ascii() { Some(unsafe { std::str::from_utf8_unchecked(bytes) }) } else { std::str::from_utf8(bytes).ok() }
 }
 
 /// `text` limited to `MAX_TEXT_BYTES`.

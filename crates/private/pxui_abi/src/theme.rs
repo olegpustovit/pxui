@@ -1,39 +1,18 @@
-use crate::PxuiThemeSnapshot;
-
 use crate::state::{Build, PxuiUi, call_build, checked, fail, get};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::ffi::c_void;
 use pxui_core::{Theme, ui::Ui};
-use pxui_types::ffi::{PxuiLookDesc, PxuiRingDesc, ThemeTokens};
+use pxui_types::{ffi::ThemeTokens, theme::ThemeSnapshot};
 
-macro_rules! fill_parts {
-    ($($(#[$doc:meta])* $name:ident),* $(,)?) => {
-        /// The kit parts of `theme` in list order, six looks each.
-        fn parts(theme: &Theme) -> Vec<PxuiLookDesc> {
-            let mut out = Vec::with_capacity(pxui_types::theme::WIDGET_COUNT * 6);
-            for s in [$(&theme.$name),*] { out.extend([s.idle, s.hover, s.pressed, s.focus, s.disabled, s.checked].map(PxuiLookDesc::from)); }
-            out
-        }
-    };
-}
-pxui_types::theme_widgets!(fill_parts);
+// The engine's theme is the snapshot's bytes: both are generated from `theme_widgets!` with C layout.
+const _: () = assert!(core::mem::size_of::<Theme>() == core::mem::size_of::<ThemeSnapshot>() && core::mem::align_of::<Theme>() == core::mem::align_of::<ThemeSnapshot>()
+    && core::mem::offset_of!(Theme, tokens) == core::mem::offset_of!(ThemeSnapshot, tokens) && core::mem::offset_of!(Theme, ring) == core::mem::offset_of!(ThemeSnapshot, ring)
+    && core::mem::offset_of!(Theme, image) == core::mem::offset_of!(ThemeSnapshot, image));
 
-// The theme in effect, whole: its scalars in `out` and every kit part's six looks in `looks` (`capacity` looks; the count a
-// snapshot lists is `out.part_count` * 6, set also when `capacity` is too small, which is an error).
-export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi, out:*mut PxuiThemeSnapshot, looks:*mut PxuiLookDesc, capacity:usize) -> i32 {
-    let Some(state)=(unsafe{get(ui)}) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() || (looks.is_null() && capacity != 0) { return unsafe{fail(ui,"null theme output")}; }
-    let theme=unsafe{&*state.engine}.theme();
-    let list=parts(theme);
-    let snapshot=PxuiThemeSnapshot {
-        size:core::mem::size_of::<PxuiThemeSnapshot>() as u32, part_count:pxui_types::theme::WIDGET_COUNT as u32, tokens:theme.tokens.into(),
-        row_h:theme.row_h, control_h:theme.control_h, scrollbar_w:theme.scrollbar_w, scrollbar_gap:theme.scrollbar_gap,
-        ring:PxuiRingDesc { color:theme.ring.color, width:theme.ring.width, sides:theme.ring.sides as u32 },
-    };
-    unsafe { *out=snapshot; }
-    if capacity < list.len() { return unsafe{fail(ui,"the looks buffer is too small for the theme")}; }
-    unsafe { core::ptr::copy_nonoverlapping(list.as_ptr(), looks, list.len()); }
-    0
+// The theme in effect, whole, lent: valid until the `Ui` next changes it (a theme swap, a `themed` scope) or is freed.
+export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnapshot {
+    let Some(state)=(unsafe{get(ui)}) else { return core::ptr::null(); };
+    (unsafe{&*state.engine}.theme() as *const Theme).cast()
 });
 
 /// A theme a caller builds from tokens and key/value pairs, then scopes over a subtree with `pxui_ui_themed`. Each `set`

@@ -104,7 +104,7 @@ pub fn layout_justify_align() {
     check(x(Justify::SpaceAround) == (60.0, 200.0), "space-around");
     check(x(Justify::SpaceEvenly) == (80.0, 180.0), "space-evenly");
     let y = |a: Align, own: Option<Align>| {
-        let r = once(Node { align: a, ..ROW }, &[Node { h: Size::Fit, align_self: own, ..px(20.0, 0.0) }, px(40.0, 20.0)]);
+        let r = once(Node { align: a, ..ROW }, &[Node { h: Size::Fit, align_self: own.into(), ..px(20.0, 0.0) }, px(40.0, 20.0)]);
         (r[1].y, r[1].h, r[2].y)
     };
     check(y(Align::Start, None) == (0.0, 0.0, 0.0), "align start");
@@ -194,7 +194,7 @@ pub fn layout_wrap_resolved() {
 
 pub fn layout_grid() {
     const COLS: &[Track] = &[Track::Px(50.0), Track::Fr(1.0), Track::Fit];
-    let grid = Node { w: Size::Px(300.0), h: Size::Fit, grid: Some(Grid { cols: COLS, rows: &[] }), gap: 10.0, row_gap: 4.0, ..Node::DEFAULT };
+    let grid = Node { w: Size::Px(300.0), h: Size::Fit, grid: Some(Grid::new(COLS, &[])).into(), gap: 10.0, row_gap: 4.0, ..Node::DEFAULT };
     let cell = Node { w: Size::Grow, h: Size::Px(20.0), ..Node::DEFAULT };
     let r = once(grid, &[cell, cell, Node { w: Size::Px(70.0), ..cell }, Node { cell: Cell::DEFAULT.span(2, 1), h: Size::Px(30.0), ..cell }, Node { cell: Cell::at(2, 2), ..cell }]);
     eq(r[1], 0.0, 0.0, 50.0, 20.0, "fixed track");
@@ -208,7 +208,7 @@ pub fn layout_grid() {
 /// A grid of 100 items in 4 columns has 25 rows (rows are not capped).
 pub fn layout_grid_many_rows() {
     const COLS: &[Track] = &[Track::Fr(1.0); 4];
-    let grid = Node { w: Size::Px(400.0), h: Size::Fit, grid: Some(Grid { cols: COLS, rows: &[] }), row_gap: 2.0, ..Node::DEFAULT };
+    let grid = Node { w: Size::Px(400.0), h: Size::Fit, grid: Some(Grid::new(COLS, &[])).into(), row_gap: 2.0, ..Node::DEFAULT };
     let kids = vec![Node { w: Size::Grow, h: Size::Px(10.0), ..Node::DEFAULT }; 100];
     let mut ui = new_ui(None);
     let mut build = |ui: &mut Ui| holder(ui, grid, &kids);
@@ -221,7 +221,7 @@ pub fn layout_grid_many_rows() {
 /// Spanning children size the content tracks they cross; fixed and fractional tracks keep theirs.
 pub fn layout_grid_spans() {
     const COLS: &[Track] = &[Track::Fit, Track::Fit, Track::Px(30.0)];
-    let grid = Node { w: Size::Fit, h: Size::Fit, grid: Some(Grid { cols: COLS, rows: &[] }), gap: 10.0, row_gap: 4.0, ..Node::DEFAULT };
+    let grid = Node { w: Size::Fit, h: Size::Fit, grid: Some(Grid::new(COLS, &[])).into(), gap: 10.0, row_gap: 4.0, ..Node::DEFAULT };
     let r = once(grid, &[
         Node { cell: Cell::at(0, 0), ..px(20.0, 10.0) },
         Node { cell: Cell::at(0, 1).span(3, 1), ..px(120.0, 10.0) },
@@ -235,7 +235,7 @@ pub fn layout_grid_spans() {
     // rows: 10 + 0 + a gap of the 50 spanned, 18 more to each
     eq(r[0], 0.0, 0.0, 120.0, 10.0 + 10.0 + 28.0 + 18.0 + 12.0, "fit size of the grown tracks");
     const FR: &[Track] = &[Track::Fr(1.0), Track::Fit];
-    let r = once(Node { w: Size::Px(300.0), grid: Some(Grid { cols: FR, rows: &[] }), ..grid }, &[Node { cell: Cell::DEFAULT.span(2, 1), ..px(280.0, 10.0) }, px(10.0, 10.0), px(40.0, 10.0)]);
+    let r = once(Node { w: Size::Px(300.0), grid: Some(Grid::new(FR, &[])).into(), ..grid }, &[Node { cell: Cell::DEFAULT.span(2, 1), ..px(280.0, 10.0) }, px(10.0, 10.0), px(40.0, 10.0)]);
     eq(r[3], 300.0 - 40.0, 14.0, 40.0, 10.0, "a span over a fractional track leaves the Fit one at its content");
 }
 
@@ -286,7 +286,7 @@ pub fn layout_anchored_flip() {
 pub fn layout_scroll_sticky() {
     let mut ui = new_ui(None);
     let mut build = |ui: &mut Ui| {
-        let p = ui.node("p", Node { flags: SCROLL | SCROLL_X | CLIP, scroll_step: 10.0, at: Some((0.0, 0.0)), ..px(100.0, 100.0) });
+        let p = ui.node("p", Node { flags: SCROLL | SCROLL_X | CLIP, scroll_step: 10.0, at: Some((0.0, 0.0)).into(), ..px(100.0, 100.0) });
         let saved = ui.enter(&p);
         let head = ui.node("head", Node { flags: STICKY, w: Size::Px(300.0), h: Size::Px(20.0), ..Node::DEFAULT });
         let body = ui.node("body", px(300.0, 300.0));
@@ -311,7 +311,7 @@ pub fn layout_scroll_x_elastic() {
             ui.set_dir(Direction::Rtl);
         }
         let mut build = |ui: &mut Ui| {
-            let p = ui.node("p", Node { flags: SCROLL_X | CLIP, at: Some((0.0, 0.0)), ..px(100.0, 100.0) });
+            let p = ui.node("p", Node { flags: SCROLL_X | CLIP, at: Some((0.0, 0.0)).into(), ..px(100.0, 100.0) });
             let saved = ui.enter(&p);
             let body = ui.node("body", px(300.0, 100.0));
             ui.leave(saved);
@@ -487,7 +487,7 @@ pub fn layout_grid_list() {
 pub fn layout_rtl() {
     let mut ui = new_ui(None);
     ui.set_dir(Direction::Rtl);
-    let r = lay(&mut ui, 0.0, vec![], &mut |ui| holder(ui, Node { padding: Edges { l: 10.0, ..Edges::ZERO }, gap: 5.0, ..ROW }, &[px(20.0, 10.0), px(40.0, 10.0), Node { at: Some((0.0, 0.0)), ..px(5.0, 5.0) }]));
+    let r = lay(&mut ui, 0.0, vec![], &mut |ui| holder(ui, Node { padding: Edges { l: 10.0, ..Edges::ZERO }, gap: 5.0, ..ROW }, &[px(20.0, 10.0), px(40.0, 10.0), Node { at: Some((0.0, 0.0)).into(), ..px(5.0, 5.0) }]));
     // the root mirrors too: the row sits at the window's right
     eq(r[0], 20.0, 0.0, 300.0, 40.0, "the row at the window's start (right)");
     eq(r[1], 290.0, 0.0, 20.0, 10.0, "first child at the right, inside the start padding");
@@ -502,7 +502,7 @@ pub fn layout_split_drag() {
     let ratio = std::cell::Cell::new(0.25);
     let panes = RefCell::new((Rect::default(), Rect::default()));
     let mut build = |ui: &mut Ui| {
-        let host = ui.node("host", Node { at: Some((0.0, 0.0)), ..px(201.0, 100.0) });
+        let host = ui.node("host", Node { at: Some((0.0, 0.0)).into(), ..px(201.0, 100.0) });
         let saved = ui.enter(&host);
         let (mut a, mut b) = (None, None);
         let got = ui.split("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| a = Some(ui.node("a", Node { h: Size::Grow, ..Node::DEFAULT })), &mut |ui| b = Some(ui.node("b", Node { h: Size::Grow, ..Node::DEFAULT })));
@@ -556,7 +556,7 @@ pub fn layout_warm_zero_alloc() {
     let mut build = |ui: &mut Ui| {
         let kinds = [
             Node { axis: Axis::Row, wrap: true, gap: 4.0, row_gap: 2.0, justify: Justify::SpaceBetween, align: Align::Baseline, ..px(200.0, 60.0) },
-            Node { grid: Some(Grid { cols: COLS, rows: &[] }), gap: 3.0, ..px(200.0, 60.0) },
+            Node { grid: Some(Grid::new(COLS, &[])).into(), gap: 3.0, ..px(200.0, 60.0) },
             Node { axis: Axis::Stack, justify: Justify::Center, ..px(200.0, 60.0) },
             Node { flags: SCROLL | SCROLL_X | CLIP, ..px(200.0, 60.0) },
         ];
@@ -629,7 +629,7 @@ pub fn stress(ui: &mut Ui, groups: usize) {
         let n = match mode {
             0 => Node { axis: Axis::Row, justify: JUSTIFY[g / 5 % 6], align: ALIGN[g / 5 % 5], gap: 1.0, padding: Edges { l: 1.0, t: 2.0, r: 3.0, b: 4.0 }, ..px(110.0, 110.0) },
             1 => Node { axis: Axis::Row, wrap: true, gap: 2.0, row_gap: 1.0, align: Align::Baseline, ..px(110.0, 110.0) },
-            2 => Node { grid: Some(Grid { cols: STRESS_COLS, rows: &[] }), gap: 1.0, row_gap: 1.0, ..px(110.0, 110.0) },
+            2 => Node { grid: Some(Grid::new(STRESS_COLS, &[])).into(), gap: 1.0, row_gap: 1.0, ..px(110.0, 110.0) },
             3 => Node { axis: Axis::Stack, justify: Justify::Center, align: Align::End, ..px(110.0, 110.0) },
             4 => Node { flags: SCROLL | SCROLL_X | CLIP, axis: Axis::Column, justify: Justify::SpaceBetween, ..px(110.0, 110.0) },
             _ => Node { axis: Axis::Column, padding: Edges::all(2.0), ..px(110.0, 110.0) },
@@ -654,7 +654,7 @@ pub fn stress(ui: &mut Ui, groups: usize) {
                 max_w: if i % 7 == 0 { 30.0 } else { f32::INFINITY },
                 aspect: if i % 4 == 0 { 2.0 } else { 0.0 },
                 margin: Edges { l: (i % 2) as f32, t: 1.0, r: 0.0, b: (i % 3) as f32 },
-                align_self: if i % 6 == 0 { Some(ALIGN[i % 5]) } else { None },
+                align_self: if i % 6 == 0 { Some(ALIGN[i % 5]).into() } else { None.into() },
                 z: (i % 4) as i16,
                 cell: match i {
                     5 => Cell::DEFAULT.span(2, 2),

@@ -4,7 +4,7 @@ use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
 use pxui_core::ui::{PanelOpts, Ui};
-use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice, ThemeSource, ThemeTokens};
+use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice, ThemeSource};
 
 fn platform() -> Platform {
     #[cfg(target_os = "macos")] { Platform::Apple }
@@ -150,17 +150,6 @@ export!(bare pub unsafe fn pxui_ui_output(ui: *mut PxuiUi) -> *const Output {
     let shared = state.shared();
     if !shared.in_frame { build_output(shared, unsafe { &*state.engine }, false); }
     &shared.output
-});
-
-// Names the theme in effect: unchanged while `pxui_ui_theme` would read the same, so an app may keep the decoded snapshot under it.
-export!(pub unsafe fn pxui_ui_theme_key(ui: *mut PxuiUi) -> u64 {
-    let Some(ui) = (unsafe { get(ui) }) else { return 0; };
-    unsafe { &*ui.engine }.theme_key()
-});
-
-export!(pub unsafe fn pxui_ui_tokens(ui: *mut PxuiUi) -> ThemeTokens {
-    let Some(ui) = (unsafe { get(ui) }) else { return unsafe { core::mem::zeroed() }; };
-    unsafe { &*ui.engine }.tokens().into()
 });
 
 export!(pub unsafe fn pxui_ui_set_theme(ui: *mut PxuiUi, source: *const ThemeSource) -> i32 {

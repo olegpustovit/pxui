@@ -2,7 +2,6 @@
 use crate::state::{PxuiUi, panicked};
 use crate::*;
 use core::ffi::c_void;
-use pxui_types::ffi::NodeDesc;
 
 fn create() -> *mut PxuiUi { unsafe { pxui_ui_create(&PxuiUiDesc::default()) } }
 fn frame_in() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
@@ -18,8 +17,7 @@ extern "C" fn count(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u
 fn an_engine_panic_through_an_export_returns_the_error_and_poisons_the_ui() {
     let ui = create();
     // declaring a node outside a frame makes the engine panic ("boxes must be built inside Ui.frame")
-    let mut desc: NodeDesc = unsafe { core::mem::zeroed() };
-    desc.size = core::mem::size_of::<NodeDesc>() as u32;
+    let desc = pxui_types::Node::DEFAULT;
     let mut out = PxuiBox::default();
     assert_eq!(unsafe { pxui_ui_node_keyed(ui, 1, &desc, &mut out) }, PXUI_ERR_PANIC);
     assert!(error(ui).starts_with("panic: "), "{}", error(ui));

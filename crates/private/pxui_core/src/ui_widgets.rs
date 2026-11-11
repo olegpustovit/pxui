@@ -208,7 +208,7 @@ impl Ui {
         for i in 0..8 {
             let a = i as f32 * std::f32::consts::TAU / 8.0;
             let at = (8.0 + 6.0 * a.sin() - 1.5, 8.0 - 6.0 * a.cos() - 1.5);
-            self.node_keyed(int_key(n.box_key, i), Node { w: Size::Px(3.0), h: Size::Px(3.0), at: Some(at), look: if i == 0 { lead } else { dim }, ..Node::DEFAULT });
+            self.node_keyed(int_key(n.box_key, i), Node { w: Size::Px(3.0), h: Size::Px(3.0), at: Some(at).into(), look: if i == 0 { lead } else { dim }, ..Node::DEFAULT });
         }
         self.leave(saved);
         n
@@ -492,7 +492,7 @@ impl Ui {
         let bar = self.thumb();
         let look = self.theme().scroll_view.idle;
         let rh = self.row_height() as f32;
-        let n = self.node(label, Node { flags: SCROLL | SCROLL_X | CLIP | BLOCKING, w, h, look, bar: Some(bar), scroll_step: rh, padding: Edges::all(1.0), role: Role::ScrollArea, ..Node::DEFAULT });
+        let n = self.node(label, Node { flags: SCROLL | SCROLL_X | CLIP | BLOCKING, w, h, look, bar: Some(bar).into(), scroll_step: rh, padding: Edges::all(1.0), role: Role::ScrollArea, ..Node::DEFAULT });
         self.a11y_name(&n, shown(label));
         self.within(&n, f);
         n
@@ -592,7 +592,7 @@ impl Ui {
             ui.leave(inner);
         });
         self.leave(saved);
-        self.node_mut(&body).bar = Some(self.thumb());
+        self.node_mut(&body).bar = Some(self.thumb()).into();
         self.set_role(&body, Role::List, if multi { st::SELECTABLE } else { 0 });
         self.a11y_name(&body, shown(label));
         if c != cursor {
@@ -701,7 +701,7 @@ impl Ui {
         if let Some(o) = toggled.and_then(|node| open.get_mut(node)) {
             *o = (*o == 0) as u8;
         }
-        self.node_mut(&body).bar = Some(self.thumb());
+        self.node_mut(&body).bar = Some(self.thumb()).into();
         self.set_role(&body, Role::Tree, 0);
         self.a11y_name(&body, shown(label));
         if c != cursor {
@@ -852,7 +852,7 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
     let t = this.theme();
     let (frame_look, head_look, column, chevron, states) = (t.scroll_view.idle, t.table_head.idle, t.column, t.chevron.idle, t.listbox);
     let bar = this.thumb();
-    let frame = this.node(label, Node { flags: FOCUSABLE | SCROLL_X | CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
+    let frame = this.node(label, Node { flags: FOCUSABLE | SCROLL_X | CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar).into(), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
     this.a11y_name(&frame, shown(label));
     let s = this.signal(&frame);
     let focused = this.focused(&frame);
@@ -913,7 +913,7 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
         }
         ui.leave(inner);
     });
-    this.node_mut(&body).bar = Some(this.thumb());
+    this.node_mut(&body).bar = Some(this.thumb()).into();
     this.set_role(&body, Role::Unknown, 0);
     this.leave(inner);
     this.leave(saved);

@@ -7,7 +7,6 @@ rust-version.workspace = true
 
 [lib]
 name = "pxui"
-crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 mem_sys = { path = "../../open/mem_sys" }

@@ -20,6 +20,8 @@ macro_rules! widgets {
         /// The tokens and one `States` per kit part. `row_h` is the kit row and `control_h` a control's
         /// height; `ring` is the focus outline of a focusable node whose look draws none; `scrollbar_w`
         /// and `scrollbar_gap` are the thumb's width and its distance from the right edge.
+        // C's layout, the same as `pxui_types::theme::ThemeSnapshot` (one field list): the library lends it to the app as it is
+        #[repr(C)]
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub struct Theme {
             pub tokens: Tokens,
@@ -252,6 +254,18 @@ macro_rules! value_conv {
 }
 value_conv!(Color => C, Option<Color> => O, f32 => F, i64 => I, bool => B, [f32; 4] => Q, u8 => S);
 
+impl From<pxui_types::node::OptColor> for Value {
+    fn from(x: pxui_types::node::OptColor) -> Value {
+        Value::O(x.get())
+    }
+}
+
+impl From<Value> for pxui_types::node::OptColor {
+    fn from(v: Value) -> pxui_types::node::OptColor {
+        Option::<Color>::from(v).into()
+    }
+}
+
 impl From<u16> for Value {
     fn from(x: u16) -> Value {
         Value::I(x as i64)
@@ -335,14 +349,14 @@ fn look_fields() -> Vec<Field<Look>> {
         field!(Look, "sides", Kind::Sides, sides),
         field!(Look, "radius", Kind::Quad(0.0, 4096.0), radius),
         field!(Look, "shadow.color", COLOR, shadows[0].color),
-        field!(Look, "shadow.x", OFFSET, shadows[0].offset.0),
-        field!(Look, "shadow.y", OFFSET, shadows[0].offset.1),
+        field!(Look, "shadow.x", OFFSET, shadows[0].offset[0]),
+        field!(Look, "shadow.y", OFFSET, shadows[0].offset[1]),
         field!(Look, "shadow.blur", LEN, shadows[0].blur),
         field!(Look, "shadow.spread", OFFSET, shadows[0].spread),
         field!(Look, "shadow.inner", Kind::Bool, shadows[0].inner),
         field!(Look, "shadow2.color", COLOR, shadows[1].color),
-        field!(Look, "shadow2.x", OFFSET, shadows[1].offset.0),
-        field!(Look, "shadow2.y", OFFSET, shadows[1].offset.1),
+        field!(Look, "shadow2.x", OFFSET, shadows[1].offset[0]),
+        field!(Look, "shadow2.y", OFFSET, shadows[1].offset[1]),
         field!(Look, "shadow2.blur", LEN, shadows[1].blur),
         field!(Look, "shadow2.spread", OFFSET, shadows[1].spread),
         field!(Look, "shadow2.inner", Kind::Bool, shadows[1].inner),

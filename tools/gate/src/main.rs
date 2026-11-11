@@ -977,8 +977,8 @@ fn crate_name(package_name: &str, lib_name: Option<&str>) -> String {
 }
 
 fn graph_crate_name(package: &str, crate_name: &str) -> String {
-    if package == "pxui_abi" && crate_name == "pxui" {
-        "pxui_abi".to_owned()
+    if (package == "pxui_abi" || package == "pxui_dylib") && crate_name == "pxui" {
+        package.to_owned()
     } else {
         crate_name.to_owned()
     }
@@ -1380,11 +1380,11 @@ fn dynamic_symbols(os: &str, output: &str) -> Vec<String> {
 fn abi_exports(workspace: &Path) -> Result<Vec<String>, String> {
     let status = std::process::Command::new("cargo")
         .current_dir(workspace)
-        .args(["build", "-p", "pxui_abi"])
+        .args(["build", "-p", "pxui_dylib"])
         .status()
-        .map_err(|error| format!("cannot build pxui_abi: {error}"))?;
+        .map_err(|error| format!("cannot build pxui_dylib: {error}"))?;
     if !status.success() {
-        return Ok(vec![format!("abi-exports: cargo build -p pxui_abi failed ({status})")]);
+        return Ok(vec![format!("abi-exports: cargo build -p pxui_dylib failed ({status})")]);
     }
 
     let mut target = env::var_os("CARGO_TARGET_DIR").map_or_else(|| workspace.join("target"), |path| {
