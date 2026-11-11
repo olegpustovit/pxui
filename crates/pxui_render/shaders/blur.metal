@@ -6,6 +6,7 @@ struct BOut {
   float2 uv;
   float4 rect [[flat]];
   float4 tap [[flat]];
+  float4 mode [[flat]];
 };
 
 vertex BOut blur_vertex(uint vid [[vertex_id]], device const float4* g [[buffer(0)]]) {
@@ -15,6 +16,7 @@ vertex BOut blur_vertex(uint vid [[vertex_id]], device const float4* g [[buffer(
   o.uv = uv;
   o.rect = g[0];  // source region in uv: x y w h
   o.tap = g[1];   // uv step per tap x y, sigma in taps, tap radius
+  o.mode = g[2];  // block side in source texels (0: the second pass), source width, height
   return o;
 }
 
@@ -23,10 +25,29 @@ fragment float4 blur_fragment(BOut in [[stage_in]], texture2d<float> src [[textu
   float4 sum = float4(0.0);
   float total = 0.0;
   int r = int(in.tap.w);
+  int n = int(in.mode.x);
   for (int k = -r; k <= r; k++) {
     float w = exp(-0.5 * float(k * k) / (in.tap.z * in.tap.z));
-    sum += w * src.sample(samp, base + in.tap.xy * float(k), level(0.0));
+    float2 at = base + in.tap.xy * float(k);
+    float4 c;
+    if (n > 0) {
+      // first pass: the n x n source block around the tap, premultiplied, averaged (straight-alpha source)
+      int2 lo = int2(floor(at * in.mode.yz - 0.5 * float(n) + 0.5)), hi = int2(in.mode.yz) - 1;
+      c = float4(0.0);
+      for (int j = 0; j < n; j++) {
+        for (int i = 0; i < n; i++) {
+          float4 t = src.read(uint2(clamp(lo + int2(i, j), int2(0), hi)));
+          c += float4(t.rgb * t.a, t.a);
+        }
+      }
+      c /= float(n * n);
+    } else {
+      c = src.sample(samp, at, level(0.0));  // premultiplied: linear filtering is exact
+    }
+    sum += w * c;
     total += w;
   }
-  return sum / total;
+  sum /= total;
+  // the first pass stays premultiplied for the second; the second answers straight alpha
+  return n > 0 ? sum : (sum.a > 0.0 ? float4(sum.rgb / sum.a, sum.a) : float4(0.0));
 }

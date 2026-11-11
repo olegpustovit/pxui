@@ -468,9 +468,9 @@ impl Painter {
     /// target), never the target of a pass that is still open. The result is valid until the next `blur`;
     /// call it once per blurred view per frame, before that view's draw. Scratch textures are created on
     /// first use and replaced only when the region's downsampled size changes.
-    // ponytail: bilinear taps (D=4 skips source rows) and straight-alpha averaging assume an opaque backdrop;
-    // a premultiplied/true-box downsample if translucent sources or fine detail matter. Needs the queue
-    // to submit its own two passes; they order against the caller's by queue order, not a fence.
+    // The first pass averages each source block whole (no skipped rows), premultiplied, so a translucent
+    // source blurs without dark or coloured fringes; the second filters the premultiplied result and
+    // returns straight alpha. The two passes order against the caller's by queue order, not a fence.
     pub fn blur_in(&mut self, commands: &Commands, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32) -> Result<&Texture, Error> {
         const OP: &str = "Painter.blur";
         let d = backend::texture_descriptor(source);
@@ -500,11 +500,11 @@ impl Painter {
             self.retired_textures.push((std::mem::replace(&mut blur.b, b), FRAMES));
             blur.size = size;
         }
-        // Two params records (uv region, then tap step / sigma / radius), 256-byte aligned for binding.
+        // Two params records (uv region; tap step / sigma / radius; block side / source size), 256-byte aligned for binding.
         let (sw, sh, h) = (sw as f32, sh as f32, size.1 as f32);
         let start = self.reserve(2 * ALIGN)?;
-        let pass_one = [x0 as f32 / sw, y0 as f32 / sh, (x1 - x0) as f32 / sw, (y1 - y0) as f32 / sh, down as f32 / sw, 0.0, sigma, radius];
-        let pass_two = [0.0, 0.0, 1.0, 1.0, 0.0, 1.0 / h, sigma, radius];
+        let pass_one = [x0 as f32 / sw, y0 as f32 / sh, (x1 - x0) as f32 / sw, (y1 - y0) as f32 / sh, down as f32 / sw, 0.0, sigma, radius, down as f32, sw, sh, 0.0];
+        let pass_two = [0.0, 0.0, 1.0, 1.0, 0.0, 1.0 / h, sigma, radius, 0.0, 0.0, 0.0, 0.0];
         self.write_floats(start, &pass_one);
         self.write_floats(start + ALIGN, &pass_two);
         backend::flush_host_range(&self.ring, start as i64, 2 * ALIGN)?;

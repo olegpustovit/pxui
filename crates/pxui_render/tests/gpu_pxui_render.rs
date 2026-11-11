@@ -161,7 +161,7 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// Metal handles live on the process main thread, which libtest never gives a test: this target is
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
-    let cases: [(&str, fn()); 14] = [
+    let cases: [(&str, fn()); 15] = [
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -171,6 +171,7 @@ fn main() {
         ("gpu_retained_layer_writes_only_dirty_ranges", gpu_retained_layer_writes_only_dirty_ranges),
         ("gpu_view_table_past_255", gpu_view_table_past_255),
         ("gpu_grid_instance_equals_dots", gpu_grid_instance_equals_dots),
+        ("gpu_blur_translucent_source", gpu_blur_translucent_source),
         ("gpu_backdrop_blur", gpu_backdrop_blur),
         ("gpu_smooth_image", gpu_smooth_image),
         ("gpu_backdrop_blur_panel", gpu_backdrop_blur_panel),
@@ -560,6 +561,35 @@ fn gpu_smooth_image() {
     assert_eq!(a, b, "1:1 on whole pixels, linear equals nearest");
     assert!(a.iter().zip(texels.chunks(4)).all(|(p, t)| p[..] == *t), "1:1 shows the texels: {a:?}");
     for texture in [&edge, &checker, &shown] { ok(be::destroy_texture(texture)); }
+    drop(painter);
+    finish(device, queue);
+}
+
+/// A translucent source blurs premultiplied: opaque red beside clear keeps its red where it fades
+/// (straight-alpha averaging darkened it towards the clear texels' black), at both downsamples.
+fn gpu_blur_translucent_source() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut painter = painter(&device);
+    let (w, h) = (64u32, 16u32);
+    let source = texture(&device, w, h, &[TextureUsage::TextureBinding, TextureUsage::TextureCopyDst, TextureUsage::TextureCopySrc]);
+    let pixels: Vec<u8> = (0..w * h).flat_map(|i| if i % w < w / 2 { [255, 0, 0, 255] } else { [0, 0, 0, 0] }).collect();
+    ok(be::write_texture(&source, None, Origin { x: 0, y: 0, z: 0 }, Extent { width: w as i64, height: h as i64, depth: 1 }, (w * 4) as i64, &pixels));
+    let sink = target(&device);
+    let back = ok(be::read_texture(&source, (w * 4) as i64));
+    assert_eq!((&back[..4], &back[(w as usize - 1) * 4..][..4]), (&[255u8, 0, 0, 255][..], &[0u8; 4][..]), "the source");
+    for sigma in [3.0, 8.0] {
+        painter.begin_frame();
+        let blurred = ok(painter.blur(&queue, &source, [0, 0, w, h], sigma)).clone();
+        pass(&queue, &sink, &mut |_| {}); // a pass after the blur's on the queue: its work is done
+        let bw = blurred_width(&blurred);
+        let out = ok(be::read_texture(&blurred, (bw * 4) as i64));
+        let row = &out[(bw as usize * (out.len() / 4 / bw as usize / 2)) * 4..][..bw as usize * 4];
+        let fading: Vec<&[u8]> = row.chunks(4).filter(|t| t[3] > 20 && t[3] < 235).collect();
+        assert!(!fading.is_empty(), "sigma {sigma}: no texel fades: {:?}", row.chunks(4).collect::<Vec<_>>());
+        assert!(fading.iter().all(|t| t[0] >= 250 && t[1] <= 2 && t[2] <= 2), "sigma {sigma}: a fading texel is not red: {fading:?}");
+    }
+    for texture in [&source, &sink] { ok(be::destroy_texture(texture)); }
     drop(painter);
     finish(device, queue);
 }

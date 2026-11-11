@@ -5,6 +5,7 @@ layout(std430, set = 0, binding = 0) readonly buffer Params { vec4 g[]; };
 layout(location = 0) out vec2 v_uv;
 layout(location = 1) flat out vec4 v_rect;
 layout(location = 2) flat out vec4 v_tap;
+layout(location = 3) flat out vec4 v_mode;
 
 void main() {
   vec2 uv = vec2(float((gl_VertexIndex << 1) & 2), float(gl_VertexIndex & 2));
@@ -12,4 +13,5 @@ void main() {
   v_uv = uv;
   v_rect = g[0];  // source region in uv: x y w h
   v_tap = g[1];   // uv step per tap x y, sigma in taps, tap radius
+  v_mode = g[2];  // block side in source texels (0: the second pass), source width, height
 }
