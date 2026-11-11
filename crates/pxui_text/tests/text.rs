@@ -275,3 +275,12 @@ fn atlas_eviction_never_rewrites_texels_in_use() {
     // without room (no shelf free of frames in flight and kept output) shows a frame later
     assert!(t.misses() * 20 < emitted_n as u64, "{emitted_n} glyphs emitted, {} misses", t.misses());
 }
+
+#[test]
+fn locale_reaches_the_font_system() {
+    let t = Text::new_with_locale(&[&pragma()], "ja-JP", pxui_text::ATLAS_SIZES.0, pxui_text::ATLAS_SIZES.1);
+    assert_eq!(t.locale(), "ja-JP");
+    assert_eq!(Text::new(&[&pragma()]).locale(), "en-US");
+    let tag = pxui_text::env_locale();
+    assert!(!tag.contains(['_', '.']) && !tag.is_empty(), "{tag}");
+}

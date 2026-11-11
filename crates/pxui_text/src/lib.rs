@@ -152,6 +152,17 @@ pub const PRAGMASEVKA: &[u8] = include_bytes!("../../../assets/fonts/Pragmasevka
 
 const MASK_SIZE: (u32, u32) = (1024, 2048);
 const COLOR_SIZE: (u32, u32) = (1024, 1024);
+/// `Text::new`'s mask and colour atlas sizes.
+pub const ATLAS_SIZES: ((u32, u32), (u32, u32)) = (MASK_SIZE, COLOR_SIZE);
+
+/// The user's locale from the POSIX environment (`LC_ALL`, then `LC_MESSAGES`, then `LANG`;
+/// `de_DE.UTF-8` gives `de-DE`), `en-US` when none names one.
+pub fn env_locale() -> String {
+    let name = ["LC_ALL", "LC_MESSAGES", "LANG"].iter().filter_map(|k| std::env::var(k).ok()).find(|v| !v.is_empty() && v != "C" && v != "POSIX");
+    let name = name.as_deref().unwrap_or("en_US");
+    let tag = name.split(['.', '@']).next().unwrap_or("en_US").replace('_', "-");
+    if tag.is_empty() { "en-US".into() } else { tag }
+}
 
 /// Frames whose GPU work may still sample the atlas after the CPU writes it: the painter keeps
 /// `pxui_render`'s `FRAMES` (3) ring regions, so texels last drawn at frame `f` are free at `f + 3`.
@@ -478,16 +489,24 @@ fn idx(kind: AtlasKind) -> usize {
 }
 
 impl Text {
+    /// Text for locale `en-US` (deterministic: goldens and tests); hosts pass the user's with
+    /// `new_with_locale` (`env_locale`).
     pub fn new(fonts: &[&[u8]]) -> Text {
-        Text::new_sized(fonts, MASK_SIZE, COLOR_SIZE)
+        Text::new_with_locale(fonts, "en-US", MASK_SIZE, COLOR_SIZE)
     }
 
     /// `new` with a `mask` (R8) and `color` (RGBA8) atlas of these sizes in texels.
     pub fn new_sized(fonts: &[&[u8]], mask: (u32, u32), color: (u32, u32)) -> Text {
+        Text::new_with_locale(fonts, "en-US", mask, color)
+    }
+
+    /// Text whose font fallback follows `locale` (a BCP 47 tag such as `ja-JP`), with atlases of
+    /// these sizes (`ATLAS_SIZES` are `new`'s).
+    pub fn new_with_locale(fonts: &[&[u8]], locale: &str, mask: (u32, u32), color: (u32, u32)) -> Text {
         let mut t = Text {
-            // not new_with_fonts: that calls load_system_fonts. ponytail: fixed locale; pass one in when per-locale fallback matters.
+            // not new_with_fonts: that calls load_system_fonts
             g: Glyphs {
-                fs: FontSystem::new_with_locale_and_db("en-US".into(), fontdb::Database::new()),
+                fs: FontSystem::new_with_locale_and_db(locale.into(), fontdb::Database::new()),
                 swash: SwashCache::new(),
                 atlases: [Atlas::new(mask, 1), Atlas::new(color, 4)],
                 slots: HashMap::default(),
@@ -774,6 +793,11 @@ impl Text {
     /// Glyphs that found no atlas room so far (each is missing from its walk: repaint next frame).
     pub fn misses(&self) -> u64 {
         self.g.misses
+    }
+
+    /// The locale font fallback follows.
+    pub fn locale(&self) -> &str {
+        self.g.fs.locale()
     }
 
     /// The frame `end_frame` closes (glyphs `glyphs` emits now are marked with it).
