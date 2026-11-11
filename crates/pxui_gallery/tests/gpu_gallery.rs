@@ -11,6 +11,7 @@ use input::{frame, Event, Platform};
 use pxui::ui::*;
 use pxui_gallery::gpu::{self, Gpu};
 use pxui_gallery::*;
+use std::time::Instant;
 
 const DEPARTURE_MONO: &[u8] = include_bytes!("../../../assets/fonts/DepartureMono-Regular.otf");
 const DUSK: &str = include_str!("../../pxui/themes/dusk.theme");
@@ -24,7 +25,7 @@ fn frame_at(count: i64, size: (i64, i64), density: i64) -> frame::Frame {
 }
 
 /// The second frame of a fresh UI over the golden face, in `theme` and `dir`, drawn over `ground`.
-fn shoot(gpu: &mut Gpu, theme: &Theme, dir: Direction, size: (i64, i64), density: i64, ground: [u8; 4], build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
+fn shoot(gpu: &mut Gpu, theme: &Theme, dir: Direction, size: (i64, i64), density: i64, ground: [u8; 4], build: &mut dyn FnMut(&mut Ui)) -> (Vec<u8>, u64) {
     let mut ui = Ui::create(Platform::Apple, None, pxui::text::Text::new(&[DEPARTURE_MONO]));
     ui.set_theme(*theme);
     ui.set_dir(dir);
@@ -33,9 +34,36 @@ fn shoot(gpu: &mut Gpu, theme: &Theme, dir: Direction, size: (i64, i64), density
     }
     let mut painter = gpu.painter(&mut ui);
     let pixels = gpu.render(&mut painter, &mut ui, (size.0 as u32, size.1 as u32), density as u32, ground);
+    let draw_calls = painter.draw_calls();
     drop(painter);
     ui.destroy();
-    pixels
+    (pixels, draw_calls)
+}
+
+/// The A0 ABI baseline: one warm, forced page rebuild over 1,000 headless frames at 1x.
+fn abi_baseline_pages() {
+    for (index, name) in PAGES.iter().enumerate() {
+        let mut state = Gallery::new();
+        let mut ui = Ui::create(Platform::Apple, None, pxui::text::Text::new(&[DEPARTURE_MONO]));
+        let (mut times, mut allocations) = (Vec::with_capacity(1000), Vec::with_capacity(1000));
+        for count in 0..1010 {
+            let frame = frame_at(count, (PAGE_W, PAGE_H), 1);
+            let revision = count as u64;
+            let allocated = mem_sys::local_alloc_count();
+            let started = Instant::now();
+            ui.frame(&frame, &mut |ui| {
+                ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui| page(ui, &mut state, index));
+            });
+            if count >= 10 {
+                times.push(started.elapsed().as_secs_f64() * 1e6);
+                allocations.push(mem_sys::local_alloc_count() - allocated);
+            }
+        }
+        times.sort_by(f64::total_cmp);
+        allocations.sort_unstable();
+        println!("PXUI ABI baseline page={name} median_us={:.2} allocations/frame={}", times[500], allocations[500]);
+        ui.destroy();
+    }
 }
 
 /// The largest channel difference from the golden at `path`, refreshed first with
@@ -75,12 +103,12 @@ fn gpu_gallery_pages() {
                 s.image = Some(image.clone());
                 // the overlays page with its dialog and context menu open
                 (s.dialog, s.menu_at) = (i == 3, (i == 3).then_some((360.0, 40.0)));
-                let pixels = shoot(&mut gpu, &theme, *dir, (PAGE_W, PAGE_H), density, ground(&theme), &mut |ui| {
+                let (pixels, draw_calls) = shoot(&mut gpu, &theme, *dir, (PAGE_W, PAGE_H), density, ground(&theme), &mut |ui| {
                     ui.view("page", 1, Size::Grow, Size::Grow, &mut |ui| page(ui, &mut s, i));
                 });
                 let path = format!("{}/fixtures/gallery_{page_name}_{name}_{density}x.png", env!("CARGO_MANIFEST_DIR"));
                 let worst = compare(&path, (PAGE_W, PAGE_H), density, &pixels, true);
-                println!("PXUI gallery {page_name} {name} {density}x: max channel difference {worst}");
+                println!("PXUI gallery {page_name} {name} {density}x: max channel difference {worst}, draw calls {draw_calls}, submits 1");
                 // drivers round blends differently by a level (lavapipe): 2 per channel, as pxui's goldens
                 assert!(worst <= 2, "gallery {page_name} under {name} at {density}x drifted: largest channel difference {worst}");
             }
@@ -96,7 +124,7 @@ fn gpu_gallery_kit_is_kit_panel() {
     let mut gpu = Gpu::open().expect("a GPU backend");
     for density in [1, 2] {
         let mut s = Gallery::new();
-        let pixels = shoot(&mut gpu, &Theme::default(), Direction::Ltr, (320, 300), density, [228, 139, 161, 255], &mut |ui| {
+        let (pixels, _) = shoot(&mut gpu, &Theme::default(), Direction::Ltr, (320, 300), density, [228, 139, 161, 255], &mut |ui| {
             ui.view("page", 1, Size::Grow, Size::Grow, &mut |ui| kit_page(ui, &mut s));
         });
         let path = format!("{}/../pxui/fixtures/kit_panel_{density}x.png", env!("CARGO_MANIFEST_DIR"));
@@ -133,5 +161,6 @@ fn main() {
         ("gpu_gallery_kit_is_kit_panel", gpu_gallery_kit_is_kit_panel),
         ("gpu_gallery_pages", gpu_gallery_pages),
         ("gpu_gallery_idle", gpu_gallery_idle),
+        ("abi_baseline_pages", abi_baseline_pages),
     ]);
 }

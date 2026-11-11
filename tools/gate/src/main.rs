@@ -1231,6 +1231,70 @@ fn docs(workspace: &Path) -> Result<Vec<String>, String> {
     Ok(Vec::new())
 }
 
+fn abi_exports(workspace: &Path) -> Result<Vec<String>, String> {
+    let status = std::process::Command::new("cargo")
+        .current_dir(workspace)
+        .args(["build", "-p", "pxui_abi"])
+        .status()
+        .map_err(|error| format!("cannot build pxui_abi: {error}"))?;
+    if !status.success() {
+        return Ok(vec![format!("abi-exports: cargo build -p pxui_abi failed ({status})")]);
+    }
+
+    let mut target = env::var_os("CARGO_TARGET_DIR").map_or_else(|| workspace.join("target"), |path| {
+        let path = PathBuf::from(path);
+        if path.is_absolute() { path } else { workspace.join(path) }
+    });
+    if let Some(triple) = env::var_os("CARGO_BUILD_TARGET") {
+        target.push(triple);
+    }
+    let library = target.join("debug").join(format!("{}pxui_abi{}", env::consts::DLL_PREFIX, env::consts::DLL_SUFFIX));
+    let (tool, args): (&str, &[&str]) = match env::consts::OS {
+        "macos" => ("nm", &["-gU"]),
+        "linux" => ("nm", &["-D", "--defined-only"]),
+        "windows" => ("objdump", &["-p"]),
+        os => return Err(format!("abi-exports: unsupported symbol-table tool for {os}")),
+    };
+    let output = std::process::Command::new(tool)
+        .args(args)
+        .arg(&library)
+        .output()
+        .map_err(|error| format!("cannot list exports from {} with {tool}: {error}", library.display()))?;
+    if !output.status.success() {
+        return Err(format!("{tool} failed for {}: {}", library.display(), String::from_utf8_lossy(&output.stderr).trim()));
+    }
+    let output = String::from_utf8_lossy(&output.stdout);
+    let symbols: Vec<_> = if env::consts::OS == "windows" {
+        let mut symbols = Vec::new();
+        let mut in_exports = false;
+        for line in output.lines() {
+            if line.contains("[Ordinal/Name Pointer] Table") {
+                in_exports = true;
+                continue;
+            }
+            if in_exports {
+                if let Some((_, name)) = line.split_once(']') {
+                    let name = name.trim();
+                    if !name.is_empty() { symbols.push(name.to_owned()); }
+                } else if !line.trim().is_empty() {
+                    break;
+                }
+            }
+        }
+        symbols
+    } else {
+        output.lines()
+            .filter_map(|line| line.split_whitespace().last())
+            .map(|name| name.trim_start_matches('_').to_owned())
+            .collect()
+    };
+    let mut issues: Vec<_> = symbols.iter().filter(|name| !name.starts_with("pxui_")).map(|name| format!("abi-exports: unexpected dynamic symbol {name}")).collect();
+    if !symbols.iter().any(|name| name == "pxui_abi_version") {
+        issues.push("abi-exports: missing pxui_abi_version".to_owned());
+    }
+    Ok(issues)
+}
+
 
 fn workspace_root() -> Result<PathBuf, String> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
@@ -1243,8 +1307,8 @@ fn workspace_root() -> Result<PathBuf, String> {
 fn main() {
     let mut args = env::args().skip(1);
     let command = args.next().unwrap_or_else(|| "all".into());
-    if args.next().is_some() || !matches!(command.as_str(), "shape" | "deps" | "docs" | "pxui" | "all") {
-        eprintln!("usage: cargo run -p gate -- <shape|deps|docs|pxui|all>");
+    if args.next().is_some() || !matches!(command.as_str(), "shape" | "deps" | "docs" | "pxui" | "abi-exports" | "all") {
+        eprintln!("usage: cargo run -p gate -- <shape|deps|docs|pxui|abi-exports|all>");
         process::exit(2);
     }
     let workspace = match workspace_root() {
@@ -1259,9 +1323,11 @@ fn main() {
         "deps" => deps(&workspace),
         "docs" => docs(&workspace),
         "pxui" => pxui_remote(&workspace),
+        "abi-exports" => abi_exports(&workspace),
         _ => shape(&workspace).and_then(|mut errors| {
             errors.extend(deps(&workspace)?);
             errors.extend(pxui_remote(&workspace)?);
+            if errors.is_empty() { errors.extend(abi_exports(&workspace)?); }
             if errors.is_empty() { errors.extend(docs(&workspace)?); }
             Ok(errors)
         }),
@@ -1280,4 +1346,3 @@ fn main() {
         }
     }
 }
-

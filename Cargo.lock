@@ -233,6 +233,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "pxui_abi"
+version = "0.1.0"
+
+[[package]]
 name = "pxui_atspi"
 version = "0.1.0"
 dependencies = [

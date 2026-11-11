@@ -34,6 +34,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("pxui_wayland", &["input", "native_layer_token_sys"][..]),
         // The Linux AT-SPI2 bridge: libdbus-1 through its own C shim, over pxui's accessibility tree.
         ("pxui_atspi", &["pxui"][..]),
+        ("pxui_abi", &[][..]),
         // The kit gallery app: the engine, the painter and the platform's window host and GPU backend.
         ("pxui_gallery", &["pxui", "input", "mem_sys", "ogpu_core", "pxui_render", "ogpu_metal", "ogpu_vulkan", "pxui_sdl", "pxui_wayland", "pxui_atspi"][..]),
     ])
@@ -78,6 +79,7 @@ pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their
 
 /// Files besides those of `UNSAFE_CRATES` that may use `unsafe`, each with its reason.
 pub const UNSAFE_FILES: &[(&str, &str)] = &[
+    ("crates/pxui_abi/src/lib.rs", "the stable ABI requires an unmangled C symbol export"),
     ("crates/pxui/src/arena.rs", "frame bump arena: canvas closures are written into raw bytes and called through type-erased records"),
     ("crates/pxui_render/src/lib.rs", "writes instance bytes into the host-mapped upload ring and views instance structs as bytes"),
 ];
