@@ -1313,6 +1313,10 @@ fn pxui_remote(workspace: &Path) -> Result<Vec<String>, String> {
 }
 
 fn install_smoke(workspace: &Path) -> Result<Vec<String>, String> {
+    if cfg!(windows) {
+        println!("install-smoke: skipped on Windows (tools/install.sh installs the macOS and Linux libraries only)");
+        return Ok(Vec::new());
+    }
     let script = workspace.join("tools/install-smoke.sh");
     let status = std::process::Command::new(&script)
         .current_dir(workspace)
