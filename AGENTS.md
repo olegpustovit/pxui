@@ -58,11 +58,11 @@ in its tier folder. The gate enforces this table; ABI design lives in `specifica
 | Tier | Crates | May depend on | Rule |
 | --- | --- | --- | --- |
 | public | `pxui` (wrapper), `pxui_types` | std, `pxui_types`; `pxui_abi` only behind `static` | Stable surface; additive changes only, bump ABI minor. |
-| private | `pxui_abi`, `pxui_core`, `pxui_text`, `pxui_render`, `pxui_atspi` | private, open, `pxui_types` | Reachable only through `libpxui`; change freely. |
+| private | `pxui_abi`, `pxui_dylib`, `pxui_core`, `pxui_text`, `pxui_render`, `pxui_atspi` | private, open, `pxui_types` | Reachable only through `libpxui`; change freely. |
 | open | `ogpu_*`, `*_sys`, `input`, `sdl3`, `pxui_sdl`, `pxui_wayland`, `mem_sys`, `cfmt` | open only | Statically linked by apps; no ABI promise, apps pin the commit. |
 
 - Apps talk to UI through `pxui`. If an app needs private functionality, add a `pxui_*` export, wrapper method and `pxui.h` declaration together.
-- `libpxui` is the `pxui_abi` cdylib and exports only `pxui_*`; `pxui` uses the dynamic ABI or those same functions through the `static` feature.
+- `libpxui` is the `pxui_dylib` cdylib over `pxui_abi` (its own package, so it is built with LTO like the static build) and exports only `pxui_*`; `pxui` uses the dynamic ABI or those same functions through the `static` feature.
 - FFI uses `repr(C)`, pointer/length pairs and callback/user pairs. Borrows last through the next frame; Rust heap types, cross-side freeing and unwinding do not cross the ABI.
 - The app owns the GPU. PXUI adopts native handles and records into the app's command buffer/pass; it does not submit, wait, present or destroy shared resources. Calls stay on one thread, and the library creates no windows or displays.
 - ABI snapshots are append-only and gated. Paint shapes stay in wrapper spans; only text calls the library. `abi_bench` gates performance against the recorded baseline.
