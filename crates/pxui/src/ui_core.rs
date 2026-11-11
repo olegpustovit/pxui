@@ -5713,7 +5713,10 @@ impl Ui {
         self.phase(5);
         let mut repatch = std::mem::take(&mut self.repatch);
         for slot in repatch.drain(..) {
-            self.repaint_node(slot);
+            // a node moving through a tween is painted by its step, next
+            if self.tween_of(slot).is_none() {
+                self.repaint_node(slot);
+            }
         }
         self.repatch = repatch;
         self.step_tweens();
