@@ -582,7 +582,9 @@ struct ViewRec {
     /// `a11y_gen` is the tree's, and the shift its rects were taken under
     a11y_span: (u32, u32),
     a11y_gen: u64,
-    a11y_shift: (f32, f32),
+    a11y_shift: ViewEntry,
+    /// where its span started in the published tree when this walk copied it (`u32::MAX`: emitted)
+    a11y_from: u32,
     /// the composed entry and the screen rectangle it shows
     shift: (f32, f32),
     alpha: f32,
@@ -643,7 +645,8 @@ impl ViewRec {
             wake: f64::INFINITY,
             a11y_span: (0, 0),
             a11y_gen: 0,
-            a11y_shift: (0.0, 0.0),
+            a11y_from: u32::MAX,
+            a11y_shift: ViewEntry { offset: [0.0; 2], opacity: 1.0, clip: [0.0; 4], scale: 1.0, transform: IDENTITY_2X2, pivot: [0.0; 2] },
             shift: (0.0, 0.0),
             alpha: 1.0,
             outer: UNBOUNDED,
@@ -1221,6 +1224,8 @@ pub struct Ui {
     temp_images: Vec<Image>,
     /// a grid's rows (sizes, then tops), lent to `grid_tracks` and handed back
     grid_rows: std::cell::Cell<Vec<f32>>,
+    /// this walk copied a kept view's run (nested views' spans follow, `a11y_relocate`)
+    a11y_copied: bool,
     /// `grow_line`'s pass stamp (`BoxRec::frozen`)
     grow_pass: u32,
     /// the text atlas's retirements and misses seen
@@ -1418,6 +1423,7 @@ impl Ui {
             temp_images: Vec::new(),
             atlas_events: (0, 0),
             grow_pass: 0,
+            a11y_copied: false,
             grid_rows: std::cell::Cell::new(Vec::new()),
             shifts: 0,
             compactions: 0,
@@ -1648,9 +1654,10 @@ impl Ui {
 
     /// Walk the views' declared nodes (a kept view's from its last build) into the next tree and
     /// publish it when it differs: an unchanged frame leaves the published tree and its revision.
-    // ponytail: a frame that rebuilds anything (or whose root declares roles) copies kept views' runs
-    // and walks rebuilt views' nodes, but compares the whole next tree with the published one to
-    // decide publication, O(tree); a per-run changed flag if trees get large.
+    // A frame that rebuilds anything (or whose root declares roles) copies kept views' runs, walks
+    // rebuilt views' nodes and relocates the views nested in copied runs (O(views x depth)); it
+    // compares the next tree with the published one (a memcmp, O(tree)) to decide publication:
+    // specification/pxui.md, designed limits.
     fn emit_a11y(&mut self) {
         if !self.a11y_on {
             return;
@@ -1669,6 +1676,7 @@ impl Ui {
         }
         self.a11y_written = 0;
         self.emit_view(&mut t, &mut map, 0);
+        self.a11y_relocate();
         if t.nodes != self.a11y.nodes || t.strings != self.a11y.strings {
             t.revision = self.a11y.revision;
             t.end();
@@ -1689,27 +1697,54 @@ impl Ui {
     fn emit_view(&mut self, t: &mut A11yTree, map: &mut [u32], v: u32) {
         let next_gen = self.a11y_gen + 1;
         let r = &self.views[v as usize];
-        let shift = self.views[r.xf as usize].shift;
+        // what places its rects: the entry of the view that moves it (offset, transform, composed)
+        let xf = &self.views[r.xf as usize];
+        let shift = ViewEntry { offset: [xf.shift.0, xf.shift.1], ..xf.entry() };
         if v != 0 && r.built != self.frame_number && r.a11y_gen == self.a11y_gen && r.a11y_shift == shift && !self.a11y_full {
-            // kept and unmoved: its run of the published tree, nested views included, as it was
+            // kept and unmoved: its run of the published tree, nested views included, as it was (the
+            // nested views' spans follow after the walk, `a11y_relocate`)
             let (s0, s1) = r.a11y_span;
             let base = t.nodes.len() as u32;
             t.copy_span(&self.a11y, s0..s1, map[r.slot]);
-            for w in self.views.iter_mut().skip(1) {
-                if w.a11y_gen == self.a11y_gen && w.a11y_span.0 >= s0 && w.a11y_span.1 <= s1 {
-                    w.a11y_span = (w.a11y_span.0 - s0 + base, w.a11y_span.1 - s0 + base);
-                    w.a11y_gen = next_gen;
-                }
-            }
+            self.a11y_copied = true;
             let r = &mut self.views[v as usize];
-            (r.a11y_span, r.a11y_gen) = ((base, base + (s1 - s0)), next_gen);
+            (r.a11y_span, r.a11y_gen, r.a11y_from) = ((base, base + (s1 - s0)), next_gen, s0);
             return;
         }
         let start = t.nodes.len() as u32;
         self.emit_nodes(t, map, v);
         let end = t.nodes.len() as u32;
         let r = &mut self.views[v as usize];
-        (r.a11y_span, r.a11y_gen, r.a11y_shift) = ((start, end), next_gen, shift);
+        (r.a11y_span, r.a11y_gen, r.a11y_shift, r.a11y_from) = ((start, end), next_gen, shift, u32::MAX);
+    }
+
+    /// After a walk: a view nested in a kept view whose run was copied takes its span in the new
+    /// tree. One pass over the views, each walking up to the copied view around it.
+    fn a11y_relocate(&mut self) {
+        const MOVED: u32 = u32::MAX - 1;
+        if !std::mem::take(&mut self.a11y_copied) {
+            return;
+        }
+        let next_gen = self.a11y_gen + 1;
+        for w in 1..self.views.len() {
+            if self.views[w].a11y_gen != self.a11y_gen {
+                continue;
+            }
+            let mut p = self.views[w].parent;
+            while p != 0 {
+                // up past views relocated with the copy around them (`MOVED`) to the copied one
+                let q = &self.views[p as usize];
+                if q.a11y_gen == next_gen && q.a11y_from != MOVED {
+                    let (s0, base) = (q.a11y_from, q.a11y_span.0);
+                    let r = &mut self.views[w];
+                    if s0 != u32::MAX && r.a11y_span.0 >= s0 {
+                        (r.a11y_span, r.a11y_gen, r.a11y_from) = ((r.a11y_span.0 - s0 + base, r.a11y_span.1 - s0 + base), next_gen, MOVED);
+                    }
+                    break;
+                }
+                p = self.views[p as usize].parent;
+            }
+        }
     }
 
     fn emit_nodes(&mut self, t: &mut A11yTree, map: &mut [u32], v: u32) {
@@ -1720,8 +1755,9 @@ impl Ui {
             map[slot] = parent;
             if s.node.role != Role::Unknown {
                 let n = &s.node;
-                let shift = self.views[self.views[s.owner as usize].xf as usize].shift;
-                let rect = Rect::new(s.rx + shift.0, s.ry + shift.1, s.rw, s.rh);
+                // where it shows: offset and transformed as `rect` reports it
+                let xf = &self.views[self.views[s.owner as usize].xf as usize];
+                let rect = xf.cover(Rect::new(s.rx + xf.shift.0, s.ry + xf.shift.1, s.rw, s.rh));
                 let shown = Rect::new(s.rx, s.ry, s.rw, s.rh).intersect(s.clip);
                 let mut states = n.a11y;
                 let mut acts = 0;

@@ -664,6 +664,11 @@ needs a measurement that shows it.
 - `Ui::tree` re-derives its visible rows each build it runs, O(nodes) at about a nanosecond a node:
   it borrows the caller's preorder slice and open flags, so it cannot know they are unchanged; an
   incremental list would need the tree to own its nodes or a change notice from the caller.
+- Accessibility: a frame that rebuilds a view copies kept views' published runs and walks only the
+  rebuilt views' nodes (nested views in a copied run are relocated in one pass over the views), then
+  compares the next tree with the published one, a flat memcmp of its nodes and strings (tens of
+  microseconds for a 10,000-node tree), to publish only on change; a host's bridge diffs what it
+  sends. Node rects are where the node shows: offset and transformed (`Ui::rect`).
 - Theme files are watched by polling their modification time (`theme::Watch`, once a second in the
   gallery) from the host's wait, which already sleeps until `Ui::repaint_at`: no thread and no OS
   notification API (inotify, FSEvents, ReadDirectoryChangesW differ per platform and need a thread or

@@ -97,6 +97,36 @@ pub fn a11y_inject_actions() {
 }
 
 /// A warm frame with the tree unchanged allocates nothing.
+/// A button inside a scaled view is published where it shows (its rect as `Ui::rect` reports it,
+/// transform included), also from a kept view's copied run inside a rebuilt one.
+pub fn a11y_transformed_view_rects() {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let (outer_rev, quit) = (std::cell::Cell::new(1u64), std::cell::Cell::new(None));
+    let mut build = |ui: &mut Ui| {
+        ui.view("outer", outer_rev.get(), Size::Px(300.0), Size::Px(200.0), &mut |ui| {
+            let v = ui.view("inner", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
+                let b = ui.node("quit", Node { w: Size::Px(40.0), h: Size::Px(20.0), flags: CLICKABLE, ..Node::DEFAULT });
+                ui.set_role(&b, Role::Button, 0);
+                ui.a11y_name(&b, "Quit");
+                quit.set(Some(b));
+            });
+            ui.view_scale(&v, 2.0);
+        });
+    };
+    for t in 0..3 {
+        ui.frame(&at(t as f64 * 0.1, vec![]), &mut build);
+    }
+    let shown = |ui: &Ui| ui.rect(&quit.get().unwrap());
+    let published = |ui: &Ui| find(&ui.output().a11y, Role::Button, "Quit").map(|n| n.rect);
+    check(published(&ui) == Some(shown(&ui)) && shown(&ui).w > 40.0, &format!("scaled: {:?} vs {:?}", published(&ui), shown(&ui)));
+    // the outer view rebuilds, the inner one is kept: its run is copied and still right
+    outer_rev.set(2);
+    ui.frame(&at(0.4, vec![]), &mut build);
+    check(published(&ui) == Some(shown(&ui)), &format!("copied: {:?} vs {:?}", published(&ui), shown(&ui)));
+    ui.destroy();
+}
+
 pub fn a11y_warm_zero_alloc() {
     let mut ui = new_ui(None);
     ui.set_a11y(true);
@@ -115,6 +145,7 @@ pub fn a11y_warm_zero_alloc() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("a11y_transformed_view_rects", a11y_transformed_view_rects),
     ("a11y_kit_tree", a11y_kit_tree),
     ("a11y_inject_actions", a11y_inject_actions),
     ("a11y_warm_zero_alloc", a11y_warm_zero_alloc),
