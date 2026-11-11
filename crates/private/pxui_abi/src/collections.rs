@@ -42,6 +42,10 @@ fn callback_text(callback: PxuiCollectionText, user: *mut c_void, row: usize, co
     }
 }
 
+/// Whether any of `flags` is not 0 or 1. A 100,000-row collection is checked on every call, so the scan is a branch-free OR
+/// the compiler vectorizes (any byte of 2 or more has a bit above the lowest) rather than a search that stops at the first.
+fn any_over_one(flags: &[u8]) -> bool { flags.iter().fold(0, |all, flag| all | flag) > 1 }
+
 export!(pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const PxuiListViewDesc, out: *mut usize) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null list view argument") }; }
@@ -51,7 +55,7 @@ export!(pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const PxuiListVi
     }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
     let flags: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
-    if flags.iter().any(|v| *v > 1) { return unsafe { fail(ui, "invalid list selection flags") }; }
+    if any_over_one(flags) { return unsafe { fail(ui, "invalid list selection flags") }; }
     // every byte is 0 or 1 now, so the caller's flags are the engine's `&mut [bool]` with no copy
     let selected: &mut [bool] = unsafe { core::slice::from_raw_parts_mut(flags.as_mut_ptr().cast::<bool>(), flags.len()) };
     let bad_text = Cell::new(false);
@@ -72,10 +76,10 @@ export!(pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTreeViewDes
     }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid tree label") }; };
     let raw_nodes = if desc.nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.nodes.ptr, desc.nodes.len) } };
-    if raw_nodes.iter().any(|n| n.children > 1) { return unsafe { fail(ui, "invalid tree node") }; }
+    if raw_nodes.iter().fold(0, |all, n| all | n.children) > 1 { return unsafe { fail(ui, "invalid tree node") }; }
     let nodes: &[TreeNode] = unsafe { core::slice::from_raw_parts(raw_nodes.as_ptr().cast::<TreeNode>(), raw_nodes.len()) };
     let open_flags: &mut [u8] = if desc.open.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.open.ptr, desc.open.len) } };
-    if open_flags.iter().any(|v| *v > 1) { return unsafe { fail(ui, "invalid tree open flags") }; }
+    if any_over_one(open_flags) { return unsafe { fail(ui, "invalid tree open flags") }; }
     let open: &mut [bool] = unsafe { core::slice::from_raw_parts_mut(open_flags.as_mut_ptr().cast::<bool>(), open_flags.len()) };
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     // the engine fills a `Vec`; its buffer lives on the Ui, taken so a nested call cannot reach it

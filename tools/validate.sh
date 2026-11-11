@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 # Local validation; there is no hosted CI. Runs on macOS (Metal) by default and never executes remotely.
-#   tools/validate.sh              macOS: workspace check, gates, cargo t on each PXUI crate with its wall time
+#   tools/validate.sh              macOS: workspace check, gates, cargo t on each PXUI crate with its wall time, the wrapper and the
+#                                  gallery in both link modes (static, and against the built libpxui), the installed-prefix check and,
+#                                  last, the A7 performance gate in both modes
 #   tools/validate.sh --windows    prints the commands to run on the Windows box (Vulkan, RTX)
 #   tools/validate.sh --linux      prints the commands to run under WSL2 lavapipe
 set -euo pipefail
@@ -38,6 +40,8 @@ cargo check --workspace --tests
 cargo run -q -p gate -- deps
 cargo run -q -p gate -- shape
 cargo run -q -p gate -- tiers
+cargo run -q -p gate -- abi-header
+cargo run -q -p gate -- abi-snapshot
 cargo t -p gate
 cargo t -p rays-t pxui_packages_run
 for crate in pxui_abi pxui_atspi pxui_core pxui_render pxui_text ogpu_core ogpu_mock ogpu_metal ogpu_vulkan pxui_sdl pxui_wayland input mem_sys metal_sys native_layer_token_sys sdl3 sdl3_sys vulkan_sys cfmt pxui_gallery; do
@@ -45,4 +49,13 @@ for crate in pxui_abi pxui_atspi pxui_core pxui_render pxui_text ogpu_core ogpu_
     cargo t -p "$crate"
     echo "validate: $crate passed in $((SECONDS - start)) s"
 done
+# the dynamic mode: the same wrapper and gallery tests against the built libpxui, then the installed-prefix check
+cargo t -p pxui
+cargo t -p pxui --features static
+cargo t -p pxui_gallery --no-default-features
+cargo run -q -p gate -- abi-exports
+cargo run -q -p gate -- install-smoke
+# the A7 performance gate, last: static (builds the number the dynamic run compares first-frame time and memory with), then dynamic
+RAYS_SLOW=1 cargo t --release -p pxui_gallery abi_bench
+RAYS_SLOW=1 cargo t --release -p pxui_gallery --no-default-features abi_bench
 echo "validate: ok"

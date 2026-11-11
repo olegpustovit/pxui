@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 0
+minor 1
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -8,6 +8,7 @@ function pxui_a11y_update int32_t pxui_a11y_update ( PxuiA11y * a11y , const Pxu
 function pxui_abi_version uint32_t pxui_abi_version ( void ) ;
 function pxui_button int32_t pxui_button ( PxuiUi * ui , PxuiStr label , uint8_t * out ) ;
 function pxui_col int32_t pxui_col ( PxuiUi * ui , float padding , PxuiStr label , PxuiBuild build , void * user ) ;
+function pxui_counter uint64_t pxui_counter ( uint32_t which ) ;
 function pxui_default_font PxuiStr pxui_default_font ( void ) ;
 function pxui_frame int32_t pxui_frame ( PxuiUi * ui , const PxuiFrameIn * in , PxuiBuild build , void * user , PxuiFrameOut * out ) ;
 function pxui_label int32_t pxui_label ( PxuiUi * ui , PxuiStr text ) ;
@@ -178,6 +179,7 @@ function pxui_ui_text_top float pxui_ui_text_top ( PxuiUi * ui , uint8_t has_siz
 function pxui_ui_text_undo_bytes uint64_t pxui_ui_text_undo_bytes ( PxuiUi * ui ) ;
 function pxui_ui_text_width float pxui_ui_text_width ( PxuiUi * ui , uint8_t has_size , int64_t size , PxuiStr text ) ;
 function pxui_ui_theme int32_t pxui_ui_theme ( PxuiUi * ui , PxuiThemeSnapshot * out , PxuiLookDesc * looks , size_t capacity ) ;
+function pxui_ui_theme_key uint64_t pxui_ui_theme_key ( PxuiUi * ui ) ;
 function pxui_ui_themed int32_t pxui_ui_themed ( PxuiUi * ui , const PxuiTheme * theme , PxuiBuild build , void * user ) ;
 function pxui_ui_tip int32_t pxui_ui_tip ( PxuiUi * ui , const PxuiBox * box , PxuiStr label ) ;
 function pxui_ui_to_front int32_t pxui_ui_to_front ( PxuiUi * ui , int64_t order , const PxuiBox * box ) ;

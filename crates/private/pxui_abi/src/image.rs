@@ -15,7 +15,25 @@ fn image(raw: pxui_types::Image) -> Option<CoreImage> {
     if raw.size < core::mem::size_of::<pxui_types::Image>() as u32 || raw.width == 0 || raw.height == 0
         || (raw.vk_image_view.is_null() && raw.mtl_texture.is_null()) || raw.format >= pxui_types::Image::FORMAT_DEPTH32F
     { return None; }
-    Some(CoreImage { handle: Rc::new(ForeignImage(raw)), width: i64::from(raw.width), height: i64::from(raw.height) })
+    Some(CoreImage { handle: handle_of(raw), width: i64::from(raw.width), height: i64::from(raw.height) })
+}
+
+// The engine tells images apart by their handle's identity and draws consecutive uses of one image as one segment, so an app texture
+// named in several calls (or frames) gets the same handle each time: made anew per call, four uses of one texture cost four draws.
+// A texture is the same one while its native handle, size and format are; the last few are kept (the oldest goes first).
+thread_local! { static HANDLES: std::cell::RefCell<Vec<(pxui_types::Image, Rc<dyn std::any::Any>)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+const HANDLES_KEPT: usize = 64;
+
+fn handle_of(raw: pxui_types::Image) -> Rc<dyn std::any::Any> {
+    let same = |a: &pxui_types::Image| a.vk_image_view == raw.vk_image_view && a.mtl_texture == raw.mtl_texture && a.width == raw.width && a.height == raw.height && a.format == raw.format;
+    HANDLES.with(|handles| {
+        let mut handles = handles.borrow_mut();
+        if let Some((_, handle)) = handles.iter().find(|(image, _)| same(image)) { return Rc::clone(handle); }
+        if handles.len() == HANDLES_KEPT { handles.remove(0); }
+        let handle: Rc<dyn std::any::Any> = Rc::new(ForeignImage(raw));
+        handles.push((raw, Rc::clone(&handle)));
+        handle
+    })
 }
 
 /// The identity of an app texture: its native handle (the handle `Rc` is made anew for every call that names the image).

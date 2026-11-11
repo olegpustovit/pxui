@@ -6,6 +6,14 @@ use pxui_core::ui::{Ui, UiBox};
 use pxui_types::{Event as FfiEvent, PxuiBox, ffi::{A11yNode, Output, Slice}, layout::Track};
 use std::{collections::HashMap, rc::Rc};
 
+/// Calls into the library since the process started (`pxui_counter`): one plain load and store, for the one thread the contract allows.
+static CALLS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+pub(crate) fn note_call() {
+    use core::sync::atomic::Ordering::Relaxed;
+    CALLS.store(CALLS.load(Relaxed).wrapping_add(1), Relaxed);
+}
+pub(crate) fn calls() -> u64 { CALLS.load(core::sync::atomic::Ordering::Relaxed) }
+
 /// One string at most 256 MiB: a whole source file is text one widget edits; a longer one is refused with an error, never cut.
 pub(crate) const MAX_TEXT_BYTES: usize = 1 << 28;
 pub(crate) const MAX_TOTAL_TEXT_BYTES: usize = 8 << 20;
@@ -38,6 +46,8 @@ pub(crate) struct Shared {
     pub last_children: Vec<u32>,
     pub chunks: Vec<KeyChunk>,
     pub chunks_used: usize,
+    /// the engine's input record of the last frame, kept for its vectors' capacity: a frame's events refill it without allocating
+    pub spare_input: Option<input::Frame>,
     pub visible: Vec<u32>,
     /// key codes of a box's held keys, valid until the next frame
     pub key_codes: Vec<u32>,
@@ -67,7 +77,7 @@ impl Shared {
         Self {
             error: String::new(), poisoned: false, paint_error: false, in_frame: false, renderers: 0, returned: Vec::new(),
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
-            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, visible: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
+            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, visible: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, strs: Vec::new(), menus: Vec::new(),
         }
     }

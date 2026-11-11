@@ -134,6 +134,8 @@ fn main() {
     let hidden = env("PXUI_GALLERY_HIDDEN").is_some();
     let exit_after = env("PXUI_GALLERY_EXIT_AFTER").and_then(|v| v.parse::<f64>().ok());
     let count = env("PXUI_GALLERY_COUNT").is_some();
+    // the one-window, one-label app of the A7 memory and start-up gate: it prints a line when its first frame is drawn
+    let label_only = env("PXUI_GALLERY_LABEL").is_some();
     let theme_path = env("PXUI_GALLERY_THEME").unwrap_or_else(|| format!("{}/../../assets/themes/dusk.theme", env!("CARGO_MANIFEST_DIR")));
     let mut dusk = load_theme(&theme_path);
     let mut theme_stamp = modified(&theme_path);
@@ -167,7 +169,11 @@ fn main() {
     frame.input.keys.reserve(8);
     frame.input.buttons.reserve(4);
     let (mut frames, mut draws, mut settled) = (0u64, 0u64, 0u64);
+    // library calls made since the gallery settled: an idle gallery makes none
+    let (mut calls_at_settle, mut calls_idle) = (None, 0u64);
     let mut drawn_revision = u64::MAX;
+    // when the last frame asked to be repainted: the frame gate is decided here, from this and the input, so an idle loop makes no library call
+    let mut repaint: Option<f64> = None;
     let mut last = 0.0;
     let mut cost = Cost::default();
     let mut text = String::with_capacity(160);
@@ -178,6 +184,7 @@ fn main() {
         events.clear();
         if !win.pump(&mut events) { break; }
         let now = win.time();
+        if now > 0.5 { calls_at_settle.get_or_insert_with(|| pxui::library_counter(pxui::COUNTER_CALLS)); }
         if now >= next_theme_poll {
             next_theme_poll = now + 1.0;
             let stamp = modified(&theme_path);
@@ -217,7 +224,7 @@ fn main() {
             force = true;
         }
         encode_events(&events, &mut raw_events, &mut event_text);
-        let built = force || ui.wants_frame(&raw_events, now);
+        let built = force || !raw_events.is_empty() || repaint.is_some_and(|at| now >= at);
         if built {
             force = false;
             if ui.output().platform.paste != 0 { host::paste(&mut win, &mut events); }
@@ -254,12 +261,13 @@ fn main() {
             let a0 = mem_sys::local_alloc_count();
             let t0 = Instant::now();
             // the frame borrows the Ui until it is dropped, so the error text is read after it
-            if let Err(code) = ui.input_frame(&input, &mut |ui: &mut Ui| app(ui, &mut s)).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
+            if let Err(code) = ui.input_frame(&input, &mut |ui: &mut Ui| if label_only { ui.label("PXUI"); } else { app(ui, &mut s) }).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
             cost.us = t0.elapsed().as_secs_f64() * 1e6;
             cost.allocs = Some(mem_sys::local_alloc_count() - a0);
             events = std::mem::take(&mut frame.input.events);
             let output = ui.output();
             (cost.nodes, cost.views, cost.laid_out) = (output.built_nodes as usize, output.rebuilt_views as usize, output.arranged_nodes as usize);
+            repaint = ui.repaint_at();
             frames += 1;
             cost.frames = frames;
             if started.elapsed().as_secs_f64() > 0.5 { settled += 1; }
@@ -285,10 +293,11 @@ fn main() {
         if animating {
             for h in &s.busy { ui.busy_step(h, now); }
         }
-        if ui.draw_revision() != drawn_revision {
+        if (built || animating) && ui.draw_revision() != drawn_revision {
             drawn_revision = ui.draw_revision();
             draw(&mut gpu, &mut ui, &mut renderer, &target, surface.as_ref(), extent, win.scale() as f32);
             draws += 1;
+            if label_only && draws == 1 { println!("pxui_gallery: first-frame"); }
             if let Some(path) = shot.as_deref().filter(|_| draws >= 3) {
                 let (w, h) = (extent.drawable.0 as u32, extent.drawable.1 as u32);
                 let pixels = be::read_texture(&target, (w * 4) as i64).unwrap_or_else(|e| fail(e));
@@ -297,13 +306,14 @@ fn main() {
             }
         }
         if exit_after.is_some_and(|secs| now >= secs) { break; }
-        let mut wake = ui.repaint_at().unwrap_or(f64::INFINITY).min(next_theme_poll);
+        let mut wake = repaint.unwrap_or(f64::INFINITY).min(next_theme_poll);
         if animating { wake = wake.min(now + 1.0 / 60.0); }
         if shot.is_some() && draws < 3 { (wake, force) = (now, true); }
         if let Some(secs) = exit_after { wake = wake.min(secs); }
         if wake > win.time() { host::wait(&mut win, wake.is_finite().then_some(wake)); }
     }
-    if count { println!("pxui_gallery: frames {frames} draws {draws} settled {settled}"); }
+    if let Some(at) = calls_at_settle { calls_idle = pxui::library_counter(pxui::COUNTER_CALLS) - at - 1; }
+    if count { println!("pxui_gallery: frames {frames} draws {draws} settled {settled} idle_calls {calls_idle}"); }
     s.image = None;
     drop(renderer);
     be::destroy_texture(&target).unwrap_or_else(|e| fail(e));

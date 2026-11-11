@@ -219,6 +219,8 @@ enum PxuiSplitAxis { PXUI_SPLIT_ROW=0, PXUI_SPLIT_COLUMN=1 };
 enum PxuiKeyframeTarget { PXUI_KEY_OFFSET=0, PXUI_KEY_OPACITY=1, PXUI_KEY_LOOK=2 };
 
 uint32_t pxui_abi_version(void);
+/* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */
+uint64_t pxui_counter(uint32_t which);
 PxuiUi *pxui_ui_create(const PxuiUiDesc *desc);
 PxuiUi *pxui_ui_create_with_fonts(const PxuiUiDesc *desc, const PxuiStr *fonts, size_t count);
 int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside a frame, or a renderer still attached */
@@ -231,6 +233,8 @@ int32_t pxui_ui_input(PxuiUi *ui, uint8_t has_owner, int64_t owner, PxuiInput *o
 /* Marks layer `layer` of the last frame drawn (its dirty ranges clear), as pxui_renderer_draw does: for a host that reads the layers itself. */
 int32_t pxui_ui_layer_drawn(PxuiUi *ui, uint64_t layer);
 const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its next frame */
+/* Names the theme in effect: it changes whenever pxui_ui_theme's answer might, so an app may keep the decoded snapshot under it. */
+uint64_t pxui_ui_theme_key(PxuiUi *ui);
 PxuiThemeTokens pxui_ui_tokens(PxuiUi *ui);
 /* The theme in effect, whole: its scalars in `out` and every kit part's six looks (idle, hover, pressed, focus, disabled, checked)
    in `looks`, in the part order of pxui_types::theme_widgets (`capacity` looks; part_count * 6 are written). */

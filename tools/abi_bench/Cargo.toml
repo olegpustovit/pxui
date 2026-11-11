@@ -1,0 +1,19 @@
+[package]
+name = "abi_bench"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+# The direct-engine build of the gallery pages (the same source, `pxui` naming `pxui_core`), for the A7 bench in
+# pxui_gallery. A tool: it may name the private crates the public ones must not.
+[lib]
+path = "src/lib.rs"
+test = false
+
+[dependencies]
+pxui_core = { path = "../../crates/private/pxui_core" }
+pxui_types = { path = "../../crates/public/pxui_types" }
+
+[lints]
+workspace = true

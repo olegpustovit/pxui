@@ -41,7 +41,8 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn node(&mut self,label:&str,node:Node)->PxuiBox {
-        let mut store=[PxuiTrackDesc::default();2*MAX_TRACKS];
+        // the track store is only written for a node with a grid: a plain node does not pay to clear its 1 KiB
+        let mut store=core::mem::MaybeUninit::<[PxuiTrackDesc;2*MAX_TRACKS]>::uninit();
         let grid=Self::grid_desc(&node,&mut store);
         let mut out=PxuiBox::default();
         check(self,unsafe{sys::pxui_ui_node(self.0.as_ptr(),crate::as_str(label),&encode(&node,grid),&mut out)});
@@ -52,7 +53,8 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn node_keyed(&mut self,key:i64,node:Node)->PxuiBox {
-        let mut store=[PxuiTrackDesc::default();2*MAX_TRACKS];
+        // the track store is only written for a node with a grid: a plain node does not pay to clear its 1 KiB
+        let mut store=core::mem::MaybeUninit::<[PxuiTrackDesc;2*MAX_TRACKS]>::uninit();
         let grid=Self::grid_desc(&node,&mut store);
         let mut out=PxuiBox::default();
         check(self,unsafe{sys::pxui_ui_node_keyed(self.0.as_ptr(),key,&encode(&node,grid),&mut out)});
@@ -61,9 +63,9 @@ impl Ui {
 
     /// The node's grid as a descriptor over `store`; a grid of more tracks than the ABI takes is a caller bug.
     #[track_caller]
-    fn grid_desc(node:&Node,store:&mut [PxuiTrackDesc;2*MAX_TRACKS])->PxuiGridDesc {
+    fn grid_desc(node:&Node,store:&mut core::mem::MaybeUninit<[PxuiTrackDesc;2*MAX_TRACKS]>)->PxuiGridDesc {
         match &node.grid {
-            Some(g)=>encode_grid(g,store).expect("pxui: a grid holds at most 64 tracks per axis"),
+            Some(g)=>encode_grid(g,store.write([PxuiTrackDesc::default();2*MAX_TRACKS])).expect("pxui: a grid holds at most 64 tracks per axis"),
             None=>PxuiGridDesc{has_grid:0,reserved:[0;7],cols:Slice{ptr:core::ptr::null(),len:0},rows:Slice{ptr:core::ptr::null(),len:0}},
         }
     }

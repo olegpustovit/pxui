@@ -824,6 +824,8 @@ pub struct Ui {
     theme_depth: usize,
     theme_ids: Vec<Theme>,
     theme_id: u32,
+    /// this `Ui`'s number among the process's, for `theme_key`
+    serial: u64,
     /// running transitions, the frame's time, and whether a theme in effect animates
     tweens: Vec<Tween>,
     /// keyframe stops of running `animate_keys` runs, and the free ones (reused: no allocation warm)
@@ -1061,6 +1063,7 @@ impl Ui {
             theme_depth: 0,
             theme_ids: Vec::new(),
             theme_id: 0,
+            serial: { static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1); NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) },
             tweens: Vec::new(),
             keyframes: Vec::new(),
             free_keyframes: Vec::new(),
@@ -1239,6 +1242,12 @@ impl Ui {
     pub fn theme(&self) -> &Theme {
         if self.theme_depth > 0 { &self.themes[self.theme_depth - 1] } else { &self.theme }
     }
+
+    /// Names the theme `theme()` returns, process-wide: it differs between `Ui`s and changes whenever the theme might (a swap, a
+    /// `themed` override). A cache of the theme keyed by this is never stale; it may be refilled more often than needed.
+    // ponytail: 24 bits of `Ui` number and 32 of epoch; a process that makes 16 million `Ui`s or changes one's theme 4 billion times
+    // wraps into a repeat, so widen the key (a second output) then.
+    pub fn theme_key(&self) -> u64 { self.serial << 40 | (self.epoch & 0xffff_ffff) << 8 | (self.theme_id & 0xff) as u64 }
 
     /// The theme in effect's tokens, by value: what a canvas closure captures.
     pub fn tokens(&self) -> Tokens {

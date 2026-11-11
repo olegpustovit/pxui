@@ -10,6 +10,7 @@ name = "pxui"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
+mem_sys = { path = "../../open/mem_sys" }
 input = { path = "../../open/input" }
 pxui_core = { path = "../pxui_core" }
 pxui_render = { path = "../pxui_render" }

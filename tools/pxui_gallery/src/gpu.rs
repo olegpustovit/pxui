@@ -7,6 +7,13 @@ use pxui::{Commands as UiCommands, Gpu as UiGpu, Image, Pass as UiPass, Renderer
 
 const TARGET_RGBA8: u32 = 1;
 
+/// Heap allocations the process has made, the library's included: in a static build one allocator counts both, in a dynamic build
+/// the library's own copy counts its half (`pxui_counter`). (The per-thread counter is off until a `local_reset`, so tests that
+/// count use this.)
+pub fn allocations() -> u64 {
+    mem_sys::alloc_count() + if cfg!(feature = "static") { 0 } else { pxui::library_counter(pxui::COUNTER_ALLOCATIONS) }
+}
+
 /// A GPU failure ends the app with its message.
 pub fn fail(e: Error) -> ! {
     eprintln!("pxui_gallery: gpu: {}", error::to_string(&e));
@@ -22,6 +29,8 @@ pub struct Gpu {
     completed: u64,
     /// the allocations the last `Renderer::draw` made (for the test that pins a settled draw at none)
     pub draw_allocations: std::cell::Cell<u64>,
+    /// the epoch of the last submit the gallery made (one per render), for the gate that counts submits
+    pub epoch: std::cell::Cell<u64>,
 }
 
 impl Gpu {
@@ -38,7 +47,7 @@ impl Gpu {
         let driver = ogpu_core::impl_::create_driver().map_err(|e| error::to_string(&e))?;
         let device = be::create_device(driver).map_err(|e| error::to_string(&e))?;
         let queue = be::create_queue(&device).map_err(|e| error::to_string(&e))?;
-        Ok(Gpu { device, queue, textures: Vec::new(), submission: 0, completed: 0, draw_allocations: std::cell::Cell::new(0) })
+        Ok(Gpu { device, queue, textures: Vec::new(), submission: 0, completed: 0, draw_allocations: std::cell::Cell::new(0), epoch: std::cell::Cell::new(0) })
     }
 
     /// Create a public PXUI renderer that borrows `ui` and adopts this app-owned device.
@@ -98,9 +107,9 @@ impl Gpu {
             mtl_render_encoder: native.mtl_render_encoder, width_px: size_px[0], height_px: size_px[1], scale,
             mtl_command_buffer: commands.mtl_command_buffer, ..UiPass::default()
         };
-        let before = mem_sys::local_alloc_count();
+        let before = allocations();
         let drawn = renderer.draw(&pass);
-        self.draw_allocations.set(mem_sys::local_alloc_count() - before);
+        self.draw_allocations.set(allocations() - before);
         drawn.map_err(|code| format!("pxui renderer draw failed ({code})"))?;
         be::invalidate_state(encoder).map_err(|e| error::to_string(&e))
     }
@@ -125,6 +134,7 @@ impl Gpu {
         self.draw(renderer, &commands, &encoder, [w, h], density as f32).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
         be::end_render(&encoder).unwrap_or_else(|e| fail(e));
         let receipt = be::commit(&commands).unwrap_or_else(|e| fail(e));
+        self.epoch.set(receipt.epoch as u64);
         self.complete(&receipt);
         let pixels = be::read_texture(&target, (w * 4) as i64).unwrap_or_else(|e| fail(e));
         be::destroy_texture(&target).unwrap_or_else(|e| fail(e));

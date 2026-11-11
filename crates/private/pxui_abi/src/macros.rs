@@ -41,9 +41,12 @@ macro_rules! export {
     };
     // the one place a panic is caught
     (@run $payload:ident => $on_panic:block, $body:block) => {
-        match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $body)) {
-            Ok(value) => value,
-            Err($payload) => $on_panic,
+        {
+            $crate::state::note_call();
+            match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| $body)) {
+                Ok(value) => value,
+                Err($payload) => $on_panic,
+            }
         }
     };
 }

@@ -1803,8 +1803,8 @@ mod tier_tests {
         assert!(tier_allows("private", "pxui_core", "open", "input", false, false));
         assert!(tier_allows("private", "pxui_core", "public", "pxui_types", false, false));
         assert!(!tier_allows("open", "input", "private", "pxui_core", false, false));
-        assert!(tier_allows("public", "pxui", "private", "pxui_core", false, false));
-        assert!(tier_allows("public", "pxui", "private", "pxui_render", false, false));
+        assert!(!tier_allows("public", "pxui", "private", "pxui_core", false, false));
+        assert!(!tier_allows("public", "pxui", "private", "pxui_render", false, false));
         assert!(!tier_allows("public", "pxui", "private", "pxui_text", false, false));
         assert!(tier_allows("public", "pxui", "private", "pxui_abi", true, true));
         assert!(!tier_allows("public", "pxui", "private", "pxui_abi", true, false));

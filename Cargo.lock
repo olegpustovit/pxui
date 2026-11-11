@@ -3,6 +3,14 @@
 version = 4
 
 [[package]]
+name = "abi_bench"
+version = "0.1.0"
+dependencies = [
+ "pxui_core",
+ "pxui_types",
+]
+
+[[package]]
 name = "abi_equal"
 version = "0.1.0"
 dependencies = [
@@ -243,6 +251,7 @@ name = "pxui_abi"
 version = "0.1.0"
 dependencies = [
  "input",
+ "mem_sys",
  "ogpu_core",
  "ogpu_metal",
  "ogpu_vulkan",
@@ -281,6 +290,7 @@ dependencies = [
 name = "pxui_gallery"
 version = "0.1.0"
 dependencies = [
+ "abi_bench",
  "input",
  "mem_sys",
  "ogpu_core",

@@ -120,9 +120,11 @@ mod sys {
     #[link(name = "pxui")]
     unsafe extern "C" {
         pub safe fn pxui_abi_version()->u32;
+        pub safe fn pxui_counter(which:u32)->u64;
         pub fn pxui_ui_create(desc:*const PxuiUiDesc) -> *mut PxuiUi;
         pub fn pxui_ui_create_with_fonts(desc:*const PxuiUiDesc,fonts:*const Str,count:usize)->*mut PxuiUi;
         pub fn pxui_ui_output(ui:*mut PxuiUi)->*const pxui_types::ffi::Output;
+        pub fn pxui_ui_theme_key(ui:*mut PxuiUi)->u64;
         pub fn pxui_ui_tokens(ui:*mut PxuiUi)->pxui_types::ffi::ThemeTokens;
         pub fn pxui_ui_theme(ui:*mut PxuiUi,out:*mut pxui_types::ffi::PxuiThemeSnapshot,looks:*mut pxui_types::ffi::PxuiLookDesc,capacity:usize)->i32;
         pub fn pxui_ui_view_size(ui:*mut PxuiUi,out:*mut pxui_types::geom::Point)->i32;
@@ -392,11 +394,23 @@ impl Ui {
     #[inline]
     pub fn output(&self) -> &Output { unsafe { &*sys::pxui_ui_output(self.0.as_ptr()) } }
     pub fn tokens(&self) -> pxui_types::theme::Tokens { unsafe { sys::pxui_ui_tokens(self.0.as_ptr()) }.into() }
-    /// The theme in effect, whole. It is decoded from the library's snapshot on every call (about 50 KB on the stack):
-    /// call it once and keep what it gives.
-    // ponytail: no cache; a per-theme-epoch cache in the library if a hot path ever calls this per widget.
+    /// The theme in effect, whole: decoded from the library's snapshot (about 50 KB) when the theme last changed and shared after
+    /// that, so asking again costs one library call and a reference count.
     #[track_caller]
-    pub fn theme(&self) -> pxui_types::theme::ThemeSnapshot {
+    pub fn theme(&self) -> std::rc::Rc<pxui_types::theme::ThemeSnapshot> {
+        let key = unsafe { sys::pxui_ui_theme_key(self.0.as_ptr()) };
+        THEMES.with(|themes| {
+            let mut themes = themes.borrow_mut();
+            if let Some(entry) = themes.iter().find(|entry| entry.0 == key) { return std::rc::Rc::clone(&entry.1); }
+            let theme = std::rc::Rc::new(self.decode_theme());
+            if themes.len() == THEMES_KEPT { themes.remove(0); }
+            themes.push((key, std::rc::Rc::clone(&theme)));
+            theme
+        })
+    }
+
+    #[track_caller]
+    fn decode_theme(&self) -> pxui_types::theme::ThemeSnapshot {
         let mut head = pxui_types::ffi::PxuiThemeSnapshot { size: core::mem::size_of::<pxui_types::ffi::PxuiThemeSnapshot>() as u32, part_count: 0, tokens: unsafe { core::mem::zeroed() }, row_h: 0.0, control_h: 0.0, scrollbar_w: 0.0, scrollbar_gap: 0.0, ring: unsafe { core::mem::zeroed() } };
         let mut looks = [pxui_types::ffi::PxuiLookDesc::default(); pxui_types::theme::WIDGET_COUNT * 6];
         check(self, unsafe { sys::pxui_ui_theme(self.0.as_ptr(), &mut head, looks.as_mut_ptr(), looks.len()) });
@@ -479,6 +493,10 @@ impl Ui {
     }
 }
 
+// The decoded themes of this thread under their `theme_key`s (a key is never reused, so an entry is never stale; the oldest goes first).
+thread_local! { static THEMES: std::cell::RefCell<Vec<(u64, std::rc::Rc<pxui_types::theme::ThemeSnapshot>)>> = const { std::cell::RefCell::new(Vec::new()) }; }
+const THEMES_KEPT: usize = 16;
+
 impl Drop for Ui {
     fn drop(&mut self) {
         // refused while a renderer of this `Ui` lives: it goes when the renderer drops (see `ORPHANS`)
@@ -527,6 +545,14 @@ fn live(ui: &Ui, rc: i32) -> bool {
 /// it panics with the library's message, inside the frame callback (carried to the app's `frame` call) or at the call.
 #[track_caller]
 fn check(ui: &Ui, rc: i32) { if rc != 0 { panic!("pxui: {} ({rc})", ui.last_error()); } }
+/// The library's process counters, for the performance gate: calls made into it (this one included) and heap allocations its
+/// allocator has made. In a static build both are the app's own allocator and the calls of the same process.
+#[cfg(feature="static")]
+pub fn library_counter(which:u32)->u64 { unsafe { sys::pxui_counter(which) } }
+#[cfg(not(feature="static"))]
+pub fn library_counter(which:u32)->u64 { sys::pxui_counter(which) }
+pub const COUNTER_CALLS:u32=0;
+pub const COUNTER_ALLOCATIONS:u32=1;
 #[cfg(feature="static")]
 #[inline]
 fn abi_version()->u32 { unsafe { sys::pxui_abi_version() } }

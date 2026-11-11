@@ -18,6 +18,12 @@ pub(crate) fn button_code(button: MouseButton) -> u32 { button.code() }
 
 export!(bare pub unsafe fn pxui_abi_version() -> u32 { crate::ABI_VERSION });
 
+// Process counters for the performance gate: 0 = calls into the library (this one included), 1 = heap allocations the library's
+// allocator has made. Anything else reads 0.
+export!(bare pub unsafe fn pxui_counter(which: u32) -> u64 {
+    match which { 0 => crate::state::calls(), 1 => mem_sys::alloc_count(), _ => 0 }
+});
+
 export!(pub unsafe fn pxui_ui_view_size(ui: *mut PxuiUi, out: *mut pxui_types::geom::Point) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null view size output") }; }
@@ -146,6 +152,12 @@ export!(bare pub unsafe fn pxui_ui_output(ui: *mut PxuiUi) -> *const Output {
     &shared.output
 });
 
+// Names the theme in effect: unchanged while `pxui_ui_theme` would read the same, so an app may keep the decoded snapshot under it.
+export!(pub unsafe fn pxui_ui_theme_key(ui: *mut PxuiUi) -> u64 {
+    let Some(ui) = (unsafe { get(ui) }) else { return 0; };
+    unsafe { &*ui.engine }.theme_key()
+});
+
 export!(pub unsafe fn pxui_ui_tokens(ui: *mut PxuiUi) -> ThemeTokens {
     let Some(ui) = (unsafe { get(ui) }) else { return unsafe { core::mem::zeroed() }; };
     unsafe { &*ui.engine }.tokens().into()
@@ -243,6 +255,16 @@ unsafe fn push_events(base: &mut input::Frame, events: Slice<pxui_types::Event>)
     true
 }
 
+/// The engine's input record for a frame at `time`: the last frame's, emptied, so that its vectors keep their capacity.
+unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> input::Frame {
+    let Some(mut base) = (unsafe { (*(*ui).shared).spare_input.take() }) else { return input::at_time(time) };
+    (base.t, base.dt, base.frame, base.tick, base.size, base.pointer) = (time, 0.0, 0, 0, (0, 0), (0.0, 0.0));
+    base.buttons.clear();
+    base.keys.clear();
+    base.events.clear();
+    base
+}
+
 /// Runs one frame of `ui` over `frame`. Both frame entry points call it after decoding their input.
 unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     // The callbacks reach the shared state through `shared`, so no `&mut Shared` is held across the build.
@@ -281,12 +303,14 @@ export!(frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, b
     let Some(input) = read_desc!(input, FrameIn) else { return unsafe { fail(ui, "invalid frame descriptor") }; };
     if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
-    let mut base = input::at_time(input.time);
+    let mut base = unsafe { take_input(ui, input.time) };
     base.size = (input.width as i64, input.height as i64);
     base.frame = input.time.to_bits() as i64;
     if !unsafe { push_events(&mut base, Slice { ptr: input.events, len: input.event_count }) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     let frame = frame::Frame { input: base, pixel_scale: (input.scale as f64, input.scale as f64), fps: 60.0, mouse_delta: (0.0, 0.0) };
-    unsafe { run_frame(ui, &frame, build, user, out) }
+    let rc = unsafe { run_frame(ui, &frame, build, user, out) };
+    unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
+    rc
 });
 
 export!(frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
@@ -295,7 +319,7 @@ export!(frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, 
     let Some(input) = read_desc!(input, Input) else { return unsafe { fail(ui, "invalid input frame") }; };
     if !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid input frame") }; }
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
-    let mut base = input::at_time(input.time);
+    let mut base = unsafe { take_input(ui, input.time) };
     base.dt = input.dt; base.frame = input.frame; base.tick = input.tick;
     base.size = (input.logical_size[0], input.logical_size[1]);
     base.pointer = (input.pointer[0], input.pointer[1]);
@@ -308,7 +332,9 @@ export!(frame pub unsafe fn pxui_ui_frame(ui: *mut PxuiUi, input: *const Input, 
     }
     if !unsafe { push_events(&mut base, input.events) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     let frame = frame::Frame { input: base, pixel_scale: (input.pixel_scale[0], input.pixel_scale[1]), fps: input.fps, mouse_delta: (input.mouse_delta[0], input.mouse_delta[1]) };
-    unsafe { run_frame(ui, &frame, build, user, out) }
+    let rc = unsafe { run_frame(ui, &frame, build, user, out) };
+    unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
+    rc
 });
 
 // The frame's input as the engine routed it to `owner` (a viewport's root key; none: the app's), for the app's own content: the

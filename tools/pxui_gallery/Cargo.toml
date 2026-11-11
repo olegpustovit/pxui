@@ -48,5 +48,15 @@ name = "gpu_gallery"
 path = "tests/gpu_gallery.rs"
 harness = false
 
+# The A7 performance gate: the gallery pages through the engine directly, the wrapper in this build's link mode, and the gallery
+# binary as a one-label app.
+[[test]]
+name = "abi_bench"
+path = "tests/abi_bench.rs"
+harness = false
+
+[dev-dependencies]
+abi_bench = { path = "../abi_bench" }
+
 [lints]
 workspace = true
