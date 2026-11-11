@@ -11,9 +11,10 @@ use crate::ui_core::Paint;
 use std::fmt;
 
 #[derive(Clone, Copy)]
-#[repr(C, align(16))]
-struct Block([u8; 16]);
-const ALIGN: usize = 16;
+#[repr(C, align(64))]
+struct Block([u8; 64]);
+/// The storage's alignment: a capture aligned to more does not compile (`Arena::add`).
+const ALIGN: usize = 64;
 
 /// No canvas: the end of a box's list.
 pub(crate) const END: u32 = u32::MAX;
@@ -47,13 +48,11 @@ unsafe fn drop<F>(at: *mut u8) {
 impl Arena {
     /// `size` bytes at a multiple of `align`, as a byte offset.
     fn bump(&mut self, align: usize, size: usize) -> usize {
-        // ponytail: alignment above 16 panics; over-aligned captures would need a padded base.
-        assert!(align <= ALIGN, "pxui arena: a canvas capture aligned to {align} bytes");
         let at = self.len.next_multiple_of(align);
         let end = at + size;
         let blocks = end.div_ceil(ALIGN);
         if blocks > self.blocks.len() {
-            self.blocks.resize(blocks.max(2 * self.blocks.len()).max(64), Block([0; ALIGN]));
+            self.blocks.resize(blocks.max(2 * self.blocks.len()).max(16), Block([0; ALIGN]));
         }
         self.len = end;
         at
@@ -65,11 +64,13 @@ impl Arena {
 
     /// Append `f` to `list`; it runs once in `run` and is dropped in `reset`.
     pub(crate) fn add<F: Fn(&mut Paint, Rect) + 'static>(&mut self, list: &mut List, f: F) {
+        // a cache line: captures of SIMD types fit; a page-aligned capture is a compile error
+        const { assert!(align_of::<F>() <= ALIGN, "pxui arena: a canvas capture aligned to more than 64 bytes") };
         let at = self.bump(align_of::<F>(), size_of::<F>());
         let index = self.canvases.len() as u32;
         self.canvases.push(Canvas { at, call: call::<F>, drop: std::mem::needs_drop::<F>().then_some(drop::<F>), next: END });
         // SAFETY: `at..at + size_of::<F>()` lies in the storage, is aligned for `F` (the base is
-        // 16-aligned, `align_of::<F>() <= 16`) and no live value overlaps it.
+        // 64-aligned, `align_of::<F>() <= 64`) and no live value overlaps it.
         unsafe { self.base().add(at).cast::<F>().write(f) };
         if list.1 == END {
             list.0 = index;

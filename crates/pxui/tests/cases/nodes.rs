@@ -195,7 +195,28 @@ pub fn window_pxui_node_duplicate_keys() {
     ui.destroy();
 }
 
+/// A canvas capture aligned to 32 bytes (a SIMD-aligned value) runs with its value intact.
+pub fn window_pxui_arena_over_aligned() {
+    #[derive(Clone, Copy)]
+    #[repr(align(32))]
+    struct Wide([u8; 4]);
+    let mut ui = new_ui(None);
+    let ink = Wide([9, 8, 7, 255]);
+    for t in 0..3 {
+        frame(&mut ui, t as f64, &mut |ui| {
+            let h = ui.node("wide", Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+            ui.canvas(&h, move |paint, r| {
+                assert_eq!(&ink as *const Wide as usize % 32, 0, "a capture lost its alignment");
+                paint.fill(r.x, r.y, r.w, r.h, color::rgb(ink.0[0] as i64, ink.0[1] as i64, ink.0[2] as i64));
+            });
+        });
+    }
+    check(has_color(&ui, color::rgb(9, 8, 7)), "the over-aligned canvas did not paint");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_arena_over_aligned", window_pxui_arena_over_aligned),
     ("window_pxui_node_duplicate_keys", window_pxui_node_duplicate_keys),
     ("window_pxui_node_handles", window_pxui_node_handles),
     ("window_pxui_node_patch", window_pxui_node_patch),
