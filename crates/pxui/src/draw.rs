@@ -245,7 +245,7 @@ impl Instance {
     pub fn radial(self, center: [f32; 2], radius: [f32; 2], color: [u8; 4]) -> Self { self.gradient(flags::RADIAL, [center[0], center[1], radius[0], radius[1]], color) }
     pub fn conic(self, center: [f32; 2], start_turns: f32, color: [u8; 4]) -> Self { self.gradient(flags::CONIC, [center[0], center[1], start_turns, 0.0], color) }
     /// Dashes for lines and arcs, in points along the stroke.
-    // ponytail: curves have no dashes (needs arc length of a quadratic); emit short curve pieces if needed.
+    // curves have no dashes: specification/pxui.md, designed limits
     pub fn dash(self, on: f32, off: f32, phase: f32) -> Self { Instance { aux: [halves(on, off), halves(phase, 0.0)], ..self } }
     pub fn round_caps(self) -> Self { Instance { flags: self.flags | flags::ROUND, ..self } }
     pub fn clip(self, rect: [i16; 4], radius: f32) -> Self { Instance { clip: rect, clip_radius: f16(radius), ..self } }

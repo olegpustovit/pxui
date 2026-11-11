@@ -1476,8 +1476,7 @@ impl Ui {
     /// built inside rebuilds when the override it was built under changes.
     pub fn themed(&mut self, theme: &Theme, f: &mut dyn FnMut(&mut Ui)) {
         let saved = self.theme_id;
-        // ponytail: ids by linear search over the distinct themes seen (at most 32, the last slot reused
-        // past that); a theme revision supplied by the caller if apps juggle many themes.
+        // ids by search over the distinct themes seen, at most 32 (specification/pxui.md, designed limits)
         self.theme_id = match self.theme_ids.iter().position(|t| t == theme) {
             Some(i) => i as u32 + 1,
             None => {
@@ -7141,8 +7140,7 @@ impl Ui {
 
     pub(crate) fn remember_modal_height(&mut self, key: i64, slot: usize) {
         if !self.modal_heights.contains_key(&key) && self.modal_heights.len() >= 32 {
-            // ponytail: scan at most 32 heights on insertion; use LRU if this small working set
-            // ever needs a larger capacity.
+            // the least recently seen of at most 32 goes (specification/pxui.md, designed limits)
             let oldest = self.modal_heights.iter().min_by_key(|(_, (_, seen))| *seen).map(|(k, _)| *k);
             if let Some(k) = oldest {
                 self.modal_heights.remove(&k);

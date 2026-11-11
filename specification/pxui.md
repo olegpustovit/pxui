@@ -652,6 +652,12 @@ needs a measurement that shows it.
   four copies), 64 bytes a view.
 - Canvas closures are stored in the frame arena at up to 64-byte alignment (a cache line: SIMD
   values fit); a capture aligned to more is a compile error, never a runtime panic.
+- Scoped themes (`Ui::themed`): up to 32 distinct overrides keep stable ids, found by comparing the
+  theme by value; a 33rd reuses the last id and rebuilds every view (an app juggles a handful).
+- Modal heights: the last 32 modals' measured heights are kept (the least recently seen goes, a scan
+  of 32 on insertion only).
+- Dashed lines: straight segments and rectangles only; a quadratic curve has no dash pattern (it would
+  need the curve's arc length in the fragment shader; nothing in the kit dashes a curve).
 - Theme files are watched by polling their modification time (`theme::Watch`, once a second in the
   gallery) from the host's wait, which already sleeps until `Ui::repaint_at`: no thread and no OS
   notification API (inotify, FSEvents, ReadDirectoryChangesW differ per platform and need a thread or
