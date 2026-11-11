@@ -658,8 +658,7 @@ impl Ui {
     /// steps in, Left collapses or steps to the parent, Enter activates, Space toggles. Returns the
     /// node a double click or Enter activated.
     pub fn tree(&mut self, label: &str, nodes: &[TreeNode], open: &mut [bool], selected: &mut Option<usize>, visible: &mut Vec<u32>, text: &dyn Fn(usize, &mut dyn FnMut(&str))) -> Option<usize> {
-        // ponytail: the visible rows are re-flattened, O(nodes), each frame the tree rebuilds; keep
-        // a running index if trees past a million nodes rebuild often.
+        // the visible rows are re-derived each build (specification/pxui.md, designed limits)
         let flatten = |visible: &mut Vec<u32>, open: &[bool]| {
             visible.clear();
             let mut i = 0;

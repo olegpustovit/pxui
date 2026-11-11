@@ -661,6 +661,9 @@ needs a measurement that shows it.
 - Text layouts are kept by age: one not laid out for `KEEP_FRAMES` (600) frames goes, found by an
   incremental sweep (1/64 of the layouts a frame). A view kept longer re-shapes its text when it
   next rebuilds; a byte budget would need cosmic-text's buffer sizes, which it does not report.
+- `Ui::tree` re-derives its visible rows each build it runs, O(nodes) at about a nanosecond a node:
+  it borrows the caller's preorder slice and open flags, so it cannot know they are unchanged; an
+  incremental list would need the tree to own its nodes or a change notice from the caller.
 - Theme files are watched by polling their modification time (`theme::Watch`, once a second in the
   gallery) from the host's wait, which already sleeps until `Ui::repaint_at`: no thread and no OS
   notification API (inotify, FSEvents, ReadDirectoryChangesW differ per platform and need a thread or
