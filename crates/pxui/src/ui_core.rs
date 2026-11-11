@@ -548,7 +548,7 @@ struct ViewRec {
     pieces: (usize, usize, usize),
     /// the texture in effect at the run's start, and the breaks inside it
     tex0: Option<Image>,
-    breaks: Vec<(u32, Image)>,
+    breaks: Vec<(u32, Option<Image>)>,
     hits: Vec<HitRec>,
     /// the slots its last build declared, in order (the accessibility walk), and the build's
     /// before (what `prune` frees from)
@@ -7062,7 +7062,7 @@ impl Ui {
                 let r = &self.views[p.view as usize];
                 set(p.at, &r.tex0, &mut breaks, &mut images);
                 for (at, image) in &r.breaks {
-                    set(p.at + at, &Some(image.clone()), &mut breaks, &mut images);
+                    set(p.at + at, image, &mut breaks, &mut images);
                 }
             }
         }
@@ -7109,11 +7109,8 @@ impl Ui {
                     if b.at_instance <= start {
                         tex0 = tex;
                     } else if b.at_instance < stop {
-                        // ponytail: a break back to the atlas inside a kept view is not replayed;
-                        // the image it follows keeps sampling. Store Option<Image> if a view mixes them.
-                        if let Some(t) = tex {
-                            breaks.push((b.at_instance - start, t));
-                        }
+                        // a break back to the atlas (`None`) is replayed too
+                        breaks.push((b.at_instance - start, tex));
                     }
                 }
                 let r = &mut self.views[v];

@@ -172,6 +172,43 @@ pub fn window_pxui_view_table_2000() {
     ui.destroy();
 }
 
+/// A kept view that draws an image and then text keeps its break back to the atlas when its layer
+/// is placed again around it (the text must not sample the image).
+pub fn window_pxui_view_kept_atlas_break() {
+    // a colour glyph after the image needs the break back to the colour atlas
+    let Ok(emoji) = std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc") else { return println!("note: skipping, no colour emoji font") };
+    let mut ui = new_ui(None);
+    ui.text_mut().add_font(&emoji);
+    let image = pxui::ui::Image { handle: std::rc::Rc::new(()), width: 8, height: 8 };
+    let rev = Cell::new(1u64);
+    let mut build = |ui: &mut Ui| {
+        let img = image.clone();
+        ui.label(&format!("before {}", rev.get()));
+        ui.view("v", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
+            let h = ui.node("pic", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
+            let img = img.clone();
+            ui.canvas(&h, move |paint, r| paint.image(r.x, r.y, r.w, r.h, &img));
+            ui.label("\u{1f600}");
+        });
+    };
+    for t in 0..2 {
+        ui.frame(&at(t as f64 * 0.1, vec![]), &mut build);
+    }
+    let atlas_after_image = |ui: &Ui| {
+        let d = &ui.output().draw[0];
+        // the emoji's instance follows the image's directly: the atlas comes back right after it
+        let k = d.breaks.iter().position(|b| b.image != pxui::draw::ATLAS);
+        k.is_some_and(|k| d.breaks.get(k + 1).is_some_and(|b| b.image == pxui::draw::ATLAS && b.at_instance <= d.breaks[k].at_instance + 1))
+    };
+    check(atlas_after_image(&ui), "the fresh view has no break back to the atlas");
+    // the label before it grows: the layer is placed again with the view kept
+    rev.set(1234567);
+    ui.frame(&at(0.3, vec![]), &mut build);
+    check(ui.rebuilt_views() == 0, "the view rebuilt");
+    check(atlas_after_image(&ui), "the kept view lost its break back to the atlas");
+    ui.destroy();
+}
+
 /// Damage: none for an idle frame; one node's rectangle for a one-node change; old and new for a
 /// patch that moves it.
 pub fn window_pxui_view_damage() {
@@ -557,6 +594,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_input", window_pxui_view_input),
     ("window_pxui_view_offset", window_pxui_view_offset),
     ("window_pxui_view_table_2000", window_pxui_view_table_2000),
+    ("window_pxui_view_kept_atlas_break", window_pxui_view_kept_atlas_break),
     ("window_pxui_view_damage", window_pxui_view_damage),
     ("window_pxui_view_kit_cached", window_pxui_view_kit_cached),
     ("window_pxui_list", window_pxui_list),
