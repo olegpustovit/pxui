@@ -23,14 +23,14 @@ unsafe fn engine<'a>(ui: *mut PxuiUi) -> &'a mut Ui { unsafe { &mut *(*ui).engin
 pub unsafe fn pxui_ui_node(ui: *mut PxuiUi, label: Str, desc: &Node, out: *mut PxuiBox) -> i32 {
     note_call();
     let Some(label) = (unsafe { utf8(label) }) else { return unsafe { fail(ui, "invalid node label") } };
-    if !declare(unsafe { (*ui).shared() }, unsafe { engine(ui) }, Some(label), 0, desc, unsafe { &mut *out }) { return unsafe { fail(ui, "invalid grid tracks") }; }
+    declare(unsafe { engine(ui) }, Some(label), 0, desc, unsafe { &mut *out });
     0
 }
 
 #[inline]
 pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
     note_call();
-    if !declare(unsafe { (*ui).shared() }, unsafe { engine(ui) }, None, key, desc, unsafe { &mut *out }) { return unsafe { fail(ui, "invalid grid tracks") }; }
+    declare(unsafe { engine(ui) }, None, key, desc, unsafe { &mut *out });
     0
 }
 

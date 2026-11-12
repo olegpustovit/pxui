@@ -1,4 +1,4 @@
-use crate::state::{PxuiUi, Shared, core_box, fail, get, text, to_abi_box};
+use crate::state::{PxuiUi, Shared, core_box, fail, get, text};
 use pxui_core::ui::Ui;
 use core::mem::{align_of, offset_of, size_of};
 use std::rc::Rc;
@@ -78,42 +78,37 @@ unsafe fn tracks(ptr: *const Track, len: usize, out: &mut [Track]) -> Option<usi
     Some(len)
 }
 
-/// Declares the node behind `desc` (checked by the caller). A grid's tracks are copied into `shared` for as long as its box lives (a
-/// list equal to one stored is shared, so a settled frame allocates nothing) and the engine gets a node pointing at that copy; any
-/// other node is handed over as it is.
+/// Declares `desc` as it is. A Rust node's grid borrows tracks that live as long as the program (`Grid::new` takes `'static`
+/// slices), so the engine keeps its pointers; a C node's grid reaches here only as the library's own copy (`grid_node`). The handle
+/// goes to `out` field by field: no wide copy of what the engine has just stored.
 #[inline]
-pub(crate) fn declare(shared: &mut Shared, engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) -> bool {
-    if desc.grid.is_some() {
-        let Some(handle) = declare_grid(shared, engine, label, key, desc) else { return false };
-        *out = handle;
-        return true;
-    }
-    // the handle goes to `out` field by field: no wide copy of what the engine has just stored
+pub(crate) fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) {
     let b = match label { Some(label) => engine.node_ref(label, desc), None => engine.node_keyed_ref(key, desc) };
     (out.index, out.box_key, out.box_slot, out.generation) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation);
-    true
 }
 
-/// `declare` of a grid node: its tracks, checked, become the library's own.
+/// A C node with a grid: its tracks, checked, become the library's own for as long as its box lives (a list equal to one stored is
+/// shared, so a settled frame allocates nothing), and the node pointing at that copy goes through the trusted entry.
 #[cold]
 #[inline(never)]
-fn declare_grid(shared: &mut Shared, engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node) -> Option<PxuiBox> {
-    let make = |engine: &mut Ui, node: &Node| match label { Some(label) => engine.node_ref(label, node), None => engine.node_keyed_ref(key, node) };
-    let OptGrid::Some(grid) = desc.grid else { return None };
+unsafe fn grid_node(ui: *mut PxuiUi, label: Option<pxui_types::Str>, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
+    let OptGrid::Some(grid) = desc.grid else { return unsafe { fail(ui, "invalid grid tracks") } };
     let (cols, cols_len, rows, rows_len) = grid.raw();
     let mut buffer = [Track::Fit; 2 * MAX_TRACKS];
-    let split = unsafe { tracks(cols, cols_len, &mut buffer) }?;
-    let len = split + unsafe { tracks(rows, rows_len, &mut buffer[split..]) }?;
+    let Some(split) = (unsafe { tracks(cols, cols_len, &mut buffer) }) else { return unsafe { fail(ui, "invalid grid tracks") } };
+    let Some(len) = (unsafe { tracks(rows, rows_len, &mut buffer[split..]) }).map(|rows| split + rows) else { return unsafe { fail(ui, "invalid grid tracks") } };
     let flat = &buffer[..len];
-    let stored = match shared.grid_tracks.values().find(|stored| stored[..] == *flat) { Some(stored) => Rc::clone(stored), None => Rc::from(flat) };
+    let stored = match unsafe { (*ui).shared() }.grid_tracks.values().find(|stored| stored[..] == *flat) { Some(stored) => Rc::clone(stored), None => Rc::from(flat) };
     // the engine's Grid borrows 'static tracks: these live in `shared` until the box is gone (see `finish_frame`)
     let all: &'static [Track] = unsafe { core::mem::transmute::<&[Track], &'static [Track]>(&stored[..]) };
     let node = Node { grid: OptGrid::Some(Grid::new(&all[..split], &all[split..])), ..*desc };
-    let handle = make(engine, &node);
-    if !shared.grid_tracks.get(&handle.box_key).is_some_and(|kept| Rc::ptr_eq(kept, &stored)) {
-        if let Some(old) = shared.grid_tracks.insert(handle.box_key, stored) { shared.grid_retired.push(old); }
+    let rc = match label { Some(label) => unsafe { crate::trusted::pxui_ui_node(ui, label, &node, out) }, None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) } };
+    let shared = unsafe { (*ui).shared() };
+    let key = unsafe { (*out).box_key };
+    if rc == 0 && !shared.grid_tracks.get(&key).is_some_and(|kept| Rc::ptr_eq(kept, &stored)) {
+        if let Some(old) = shared.grid_tracks.insert(key, stored) { shared.grid_retired.push(old); }
     }
-    Some(to_abi_box(handle))
+    rc
 }
 
 /// The node behind `desc` when it is one (see `node_ok`), borrowed for the call.
@@ -126,6 +121,7 @@ export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,
     if out.is_null(){return unsafe{fail(ui,"null node argument")};}
     if unsafe{text(label)}.is_none(){return unsafe{fail(ui,"invalid node label")};}
     let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{fail(ui,"invalid node")};};
+    if desc.grid.is_some() { return unsafe{grid_node(ui,Some(label),0,desc,out)}; }
     unsafe{crate::trusted::pxui_ui_node(ui,label,desc,out)}
 });
 
@@ -133,6 +129,7 @@ export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*co
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null keyed node argument")};}
     let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{fail(ui,"invalid keyed node")};};
+    if desc.grid.is_some() { return unsafe{grid_node(ui,None,key,desc,out)}; }
     unsafe{crate::trusted::pxui_ui_node_keyed(ui,key,desc,out)}
 });
 
