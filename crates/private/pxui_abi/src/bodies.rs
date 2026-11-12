@@ -437,6 +437,22 @@ mod tests {
         assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
     }
 
+    /// A name registered again, in the same `Ui` or another, answers the id it had and uses up none: a new name is the next number.
+    #[test]
+    fn a_name_again_keeps_its_id_and_consumes_none() {
+        let kind = BodyKind::tab as u32;
+        let (a, b) = unsafe { (pxui_ui_create(&PxuiUiDesc::default()), pxui_ui_create(&PxuiUiDesc::default())) };
+        let register = |ui, name| unsafe { pxui_body_register(ui, kind, text(name), Some(toggle_body), core::ptr::null_mut()) };
+        let kept = register(a, "kept_name");
+        assert_ne!(kept, 0);
+        for _ in 0..50 {
+            assert_eq!(register(a, "kept_name"), kept);
+            assert_eq!(register(b, "kept_name"), kept);
+        }
+        assert_eq!(register(b, "next_name"), kept + 1, "the repeats used up no ids");
+        assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
+    }
+
     /// A kind takes at most 65,535 names (ids are `u16`, 0 the built-in body): one more is refused instead of wrapping onto body 1,
     /// whose function and user pointer then stay its own.
     #[test]

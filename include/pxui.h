@@ -366,7 +366,7 @@ int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated
 int32_t pxui_ui_table_view(PxuiUi *ui, const PxuiTableViewDesc *desc, size_t *sort_column);
 /* Widget bodies: an app builds a widget kind's nodes itself. pxui_body_register names a body of kind `kind` (PxuiBodyKind, in the field order of
    PxuiBodies; append-only) `name`, for a theme's `KIND.body = NAME` (pxui_ui_set_theme, pxui_ui_theme_apply) and returns its id, 0 when refused
-   (see pxui_last_error). A name has one id for the whole process, whichever Ui registers it (65,535 names a kind at most, in the process): a
+   (see pxui_last_error). A name has one id for the whole process, whichever Ui registers it, and is never released (65,535 names a kind at most, in the process; choose names statically, and register a name again to change its body: that keeps the id and uses none): a
    theme carried from the Ui that parsed it to another selects the body of that name there, or the built-in body where that Ui has none; the function is called as body(user, ui, config) with the kind's record below, `ui` borrowed and valid for the call.
    Records start with `size` and grow at the end. A body builds with the ordinary calls, finds the parts its widget's behaviour reads through
    pxui_part, and runs the caller's content through its slots (pxui_slot); a slot is valid only during the body call that received it. */

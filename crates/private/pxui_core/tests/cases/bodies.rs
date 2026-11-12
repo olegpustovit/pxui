@@ -297,6 +297,20 @@ pub fn a_theme_from_another_ui_never_selects_another_body() {
     b.destroy();
 }
 
+/// Registering a name again, in the same `Ui` or another, keeps its id and uses up none: the next new name is the next number.
+pub fn registering_a_name_again_consumes_no_id() {
+    fn nothing(_: &mut Ui, _: &SpinnerConfig, _: &str) {}
+    let (mut a, mut b) = (new_ui(None), new_ui(None));
+    let kept = a.register_spinner_body("kept_name", nothing);
+    for _ in 0..50 {
+        check(a.register_spinner_body("kept_name", nothing) == kept, "a name again in the same Ui keeps its id");
+        check(b.register_spinner_body("kept_name", nothing) == kept, "a name in another Ui has the same id");
+    }
+    check(b.register_spinner_body("next_name", nothing).0 == kept.0 + 1, "the repeats used up no ids");
+    a.destroy();
+    b.destroy();
+}
+
 /// A progress body that draws a ring and builds no track still has its accessible name, number and busy state (on the row).
 fn ring_body(ui: &mut Ui, c: &ProgressConfig, label: &str) {
     ui.text(&c.row, shown(label));
@@ -1607,6 +1621,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("theme_file_selects_body", theme_file_selects_body),
     ("unknown_body_is_error", unknown_body_is_error),
     ("a_theme_from_another_ui_never_selects_another_body", a_theme_from_another_ui_never_selects_another_body),
+    ("registering_a_name_again_consumes_no_id", registering_a_name_again_consumes_no_id),
     ("button_pill_body", button_pill_body),
     ("icon_button_round_body", icon_button_round_body),
     ("checkbox_mark_body", checkbox_mark_body),
