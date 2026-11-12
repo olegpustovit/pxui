@@ -119,6 +119,8 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     let commands=match adopt_again(&renderer.queue,renderer.prepared.take(),native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
     if let Err(e)=gpu_backend::retire(&renderer.queue,completed) { return renderer.fail_gpu(e); }
     renderer.completed=completed;
+    // the renderer holds the engine until it returns: a callback it runs (the pass's split) finds no usable `PxuiUi` handle
+    let _current=crate::state::Current::set(renderer.shared, core::ptr::null_mut());
     let ui=unsafe { &mut *renderer.engine };
     let mut failed=None;
     if !renderer.atlas_initialized {
@@ -189,6 +191,8 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         Some(Err(e))=>return renderer.fail_gpu(e),
         _=>match gpu_backend::adopt_render_encoder(&commands,native_pass,renderer.format,renderer.samples) { Ok(e)=>e, Err(e)=>return renderer.fail_gpu(e) },
     };
+    // the renderer holds the engine until it returns: a callback it runs (the pass's split) finds no usable `PxuiUi` handle
+    let _current=crate::state::Current::set(renderer.shared, core::ptr::null_mut());
     let ui=unsafe { &mut *renderer.engine };
     for (index,v) in ui.output().views {
         if let Err(e)=renderer.painter.set_view(*index,View { offset:v.offset,opacity:v.opacity,clip:v.clip,scale:v.scale,transform:v.transform,pivot:v.pivot }) { return renderer.fail_gpu(e); }
