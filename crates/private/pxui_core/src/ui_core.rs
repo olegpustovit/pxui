@@ -31,18 +31,7 @@ pub use pxui_types::ui::{
     KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
 };
 pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
-/// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1. Filled at start-up; a frame
-/// only reads it.
-#[derive(Default)]
-pub(crate) struct BodyTable {
-    pub(crate) toggle: Vec<crate::ui_kit::ToggleBody>,
-    pub(crate) toggle_names: Vec<String>,
-    pub(crate) slider: Vec<crate::ui_widgets::SliderBody>,
-    pub(crate) slider_names: Vec<String>,
-    pub(crate) progress: Vec<crate::ui_widgets::ProgressBody>,
-    pub(crate) progress_names: Vec<String>,
-}
-
+use crate::bodies::BodyTable;
 /// Sentinel for no box in parent, child and sibling indices.
 pub const NONE: usize = usize::MAX;
 

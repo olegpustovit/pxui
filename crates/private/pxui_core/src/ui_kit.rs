@@ -4,7 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-use crate::ui_widgets::{ProgressBody, SliderBody};
+use crate::bodies::{in_body, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 use crate::a11y::state as st;
 use input::{Event, Key};
@@ -14,18 +14,6 @@ use std::borrow::Cow;
 
 pub type IRect = (i64, i64, i64, i64);
 
-/// What a toggle body is given: behaviour has computed all of it (and the widget's label comes beside it, as a `&str`). The body
-/// runs with the widget's row entered (`row`, whose `box_key` owns the parts) and builds the row's look, label and switch.
-/// Behaviour reads one part: `Part::HIT`, the area that takes presses (the whole row when the body builds none). A body never
-/// changes the value, the role or the focus.
-pub struct ToggleConfig {
-    pub state: State,
-    pub on: bool,
-    pub row: Handle,
-}
-
-pub type ToggleBody = fn(&mut Ui, &ToggleConfig, &str);
-
 /// Added to a part's number before it is mixed into its widget's key: far outside the small child indices (`int_key(owner, 0..n)`)
 /// that widgets and bodies number their ordinary children with, so a part never collides with one. Part of the contract: never changes.
 pub const PART_BASE: i64 = 1 << 40;
@@ -33,17 +21,6 @@ pub const PART_BASE: i64 = 1 << 40;
 /// The key of `part` of the widget keyed `owner`, wherever the body nests the node.
 pub fn part_key(owner: i64, part: Part) -> i64 {
     int_key(owner, PART_BASE + part.0 as i64)
-}
-
-/// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
-fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {
-    if name == "default" {
-        return None;
-    }
-    Some(names.iter().position(|n| n == name).unwrap_or_else(|| {
-        names.push(name.to_owned());
-        names.len() - 1
-    }))
 }
 
 /// The built-in toggle: the label on its row and the 28 x 14 switch 12 from the row's end, the knob 3 in from its side.
@@ -826,71 +803,8 @@ impl Ui {
         let value = if signal.clicked { !value } else { value };
         self.set_role(&row, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
         let config = ToggleConfig { state: State { hovered: signal.hovered, ..State::default() }, on: value, row };
-        let owner = core::mem::replace(&mut self.part_owner, row.box_key);
-        let saved = self.enter(&row);
-        match self.theme().body.toggle {
-            BodyId(0) => default_toggle(self, &config, text),
-            id => match self.bodies.toggle.get((id.0 as usize).wrapping_sub(1)).copied() {
-                Some(body) => body(self, &config, text),
-                None => default_toggle(self, &config, text),
-            },
-        }
-        self.leave(saved);
-        self.part_owner = owner;
+        in_body!(self, row.box_key, row, toggle, default_toggle(&config, text));
         value
-    }
-
-    /// A node of the widget whose body is building, found again by its role: keyed from the widget and `part`, so behaviour
-    /// reads its rectangle (`part_rect`) without a table. A body builds the parts its widget's config lists with this.
-    pub fn part(&mut self, part: Part, node: Node) -> Handle {
-        self.node_keyed(part_key(self.part_owner, part), node)
-    }
-
-    /// The box of `part` of the widget keyed `owner`, if it was built.
-    pub fn part_box(&self, owner: i64, part: Part) -> Option<UiBox> {
-        self.box_of_key(part_key(owner, part)).filter(|b| self.live(b))
-    }
-
-    /// The rectangle `part` of the widget keyed `owner` had last frame; `None` before it has been laid out (its first frame) or if
-    /// the body builds none.
-    pub fn part_rect(&self, owner: i64, part: Part) -> Option<Rect> {
-        self.part_box(owner, part).map(|b| self.rect(&b)).filter(|r| r.w > 0.0 && r.h > 0.0)
-    }
-
-    /// Register `body` as the toggle body called `name`, for a theme's `body.toggle` (or `toggle.body = NAME` in a theme file).
-    /// Registering a name again replaces its body and keeps its id; `default` is the built-in body and registers nothing.
-    // ponytail: ids are u16; a start-up that registers 65,535 bodies of one kind wraps, so widen `BodyId` then.
-    pub fn register_toggle_body(&mut self, name: &str, body: ToggleBody) -> BodyId {
-        let Some(i) = body_slot(&mut self.bodies.toggle_names, name) else { return BodyId::DEFAULT };
-        if i == self.bodies.toggle.len() { self.bodies.toggle.push(body) } else { self.bodies.toggle[i] = body }
-        BodyId(i as u16 + 1)
-    }
-
-    /// `register_toggle_body` for sliders.
-    pub fn register_slider_body(&mut self, name: &str, body: SliderBody) -> BodyId {
-        let Some(i) = body_slot(&mut self.bodies.slider_names, name) else { return BodyId::DEFAULT };
-        if i == self.bodies.slider.len() { self.bodies.slider.push(body) } else { self.bodies.slider[i] = body }
-        BodyId(i as u16 + 1)
-    }
-
-    /// `register_toggle_body` for progress bars.
-    pub fn register_progress_body(&mut self, name: &str, body: ProgressBody) -> BodyId {
-        let Some(i) = body_slot(&mut self.bodies.progress_names, name) else { return BodyId::DEFAULT };
-        if i == self.bodies.progress.len() { self.bodies.progress.push(body) } else { self.bodies.progress[i] = body }
-        BodyId(i as u16 + 1)
-    }
-
-    /// `Theme::parse` where `KIND.body = NAME` names the bodies this `Ui` registered; an unregistered name is a `ThemeError`.
-    pub fn parse_theme(&self, text: &str, base: &Theme) -> Result<Theme, Vec<crate::theme::ThemeError>> {
-        let named = |kind: &str, name: &str| {
-            let names = match kind {
-                "toggle" => &self.bodies.toggle_names,
-                "slider" => &self.bodies.slider_names,
-                _ => &self.bodies.progress_names,
-            };
-            names.iter().position(|n| n == name).map(|i| BodyId(i as u16 + 1))
-        };
-        Theme::parse_bodies(text, base, &named)
     }
 
     /// A splitter's grip: a node across `axis` (`Row`: a vertical line between side-by-side panes)

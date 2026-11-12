@@ -378,9 +378,6 @@ fn look_fields() -> Vec<Field<Look>> {
     ]
 }
 
-/// The widget kinds a theme file can pick a body for (`KIND.body = NAME`).
-const BODY_KINDS: [&str; 3] = ["toggle", "slider", "progress"];
-
 const STATES: [&str; 6] = ["idle", "hover", "pressed", "focus", "disabled", "checked"];
 
 fn state_mut<'a>(s: &'a mut States, name: &str) -> Option<&'a mut Look> {
@@ -486,7 +483,7 @@ impl Theme {
         Theme::parse_bodies(text, base, &|_, name| (name == "default").then_some(BodyId::DEFAULT))
     }
 
-    /// `parse` with `bodies` resolving the names of `KIND.body = NAME` (`toggle`, `slider`, `progress`): `bodies(kind, name)` is
+    /// `parse` with `bodies` resolving the names of `KIND.body = NAME` (any `Bodies::KINDS`): `bodies(kind, name)` is
     /// the registered body's id, `None` for a name that is not registered (a `ThemeError`). `default` is always the built-in one.
     /// `Ui::parse_theme` passes its own registry.
     pub fn parse_bodies(text: &str, base: &Theme, bodies: &dyn Fn(&str, &str) -> Option<BodyId>) -> Result<Theme, Vec<ThemeError>> {
@@ -520,13 +517,10 @@ impl Theme {
             if key.starts_with("tokens.") {
                 continue;
             }
-            if let Some(kind) = key.strip_suffix(".body").filter(|k| BODY_KINDS.contains(k)) {
-                let id = if value == "default" { Some(BodyId::DEFAULT) } else { bodies(kind, value) };
-                match (id, kind) {
-                    (None, _) => errors.push(ThemeError { line, message: format!("{key}: no {kind} body is registered as `{value}`") }),
-                    (Some(id), "toggle") => theme.body.toggle = id,
-                    (Some(id), "slider") => theme.body.slider = id,
-                    (Some(id), _) => theme.body.progress = id,
+            if let Some(kind) = key.strip_suffix(".body").filter(|k| Bodies::KINDS.contains(k)) {
+                match if value == "default" { Some(BodyId::DEFAULT) } else { bodies(kind, value) } {
+                    Some(id) => drop(theme.body.set(kind, id)),
+                    None => errors.push(ThemeError { line, message: format!("{key}: no {kind} body is registered as `{value}`") }),
                 }
                 continue;
             }

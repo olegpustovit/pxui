@@ -227,15 +227,48 @@ impl BodyId {
     pub const DEFAULT: BodyId = BodyId(0);
 }
 
-/// The body each widget kind builds with, in a theme: ids, never function pointers, so a `Theme` stays `Copy` and comparable
-/// and a theme file can pick one by name (`toggle.body = checkbox`). Grows at the end only.
-#[repr(C)]
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Bodies {
-    pub toggle: BodyId,
-    pub slider: BodyId,
-    pub progress: BodyId,
+/// The widget kinds that have a replaceable body: `kind register_fn BodyType`, one line each. `Bodies` here, the registry and its
+/// `Ui::register_*_body` functions and the theme file's `KIND.body = NAME` are all generated from it (`pxui_core::bodies`), so a
+/// kind is added by one line here plus its config, default body and dispatch. Append only: a kind's place is its field's offset.
+#[macro_export]
+macro_rules! body_kinds {
+    ($m:ident) => {
+        $m! {
+            toggle register_toggle_body ToggleBody,
+            slider register_slider_body SliderBody,
+            progress register_progress_body ProgressBody,
+        }
+    };
 }
+
+macro_rules! bodies {
+    ($($kind:ident $register:ident $body:ident),* $(,)?) => {
+        /// The body each widget kind builds with, in a theme: ids, never function pointers, so a `Theme` stays `Copy` and comparable
+        /// and a theme file can pick one by name (`toggle.body = checkbox`). One field per `body_kinds!` line, in its order; grows at
+        /// the end only.
+        #[repr(C)]
+        #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+        pub struct Bodies {
+            $(pub $kind: BodyId,)*
+        }
+
+        impl Bodies {
+            /// The kind names, in field order: what a theme file's `KIND.body` may name.
+            pub const KINDS: &'static [&'static str] = &[$(stringify!($kind)),*];
+
+            /// Set kind `kind`'s body; `false` for a name that is no kind.
+            pub fn set(&mut self, kind: &str, id: BodyId) -> bool {
+                match kind {
+                    $(stringify!($kind) => self.$kind = id,)*
+                    _ => return false,
+                }
+                true
+            }
+        }
+    };
+}
+
+body_kinds!(bodies);
 
 /// A node a widget's behaviour finds by role (`Ui::part`): the toggle's hit shape, the slider's rail and thumb, the progress
 /// track and its busy bar, a spinner's dots. Numbered once, never renumbered; every part has its own number, and a part's key is derived

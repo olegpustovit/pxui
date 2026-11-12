@@ -10,6 +10,7 @@
 //! Enter/Space activate, the arrows move within a group, Escape leaves. A warm frame allocates
 //! nothing. Progress and spinner animate through patches (`busy_step`) without rebuilding their view.
 use crate::a11y::state as st;
+use crate::bodies::{in_body, ProgressConfig, SliderConfig};
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
@@ -177,17 +178,7 @@ impl Ui {
         let key = key_of(self.current_seed(), label);
         let row = self.kit_line(key, NO_FLAGS, Role::Unknown);
         let config = ProgressConfig { value, row };
-        let owner = core::mem::replace(&mut self.part_owner, key);
-        let saved = self.enter(&row);
-        match self.theme().body.progress {
-            BodyId(0) => default_progress(self, &config, label),
-            id => match self.bodies.progress.get((id.0 as usize).wrapping_sub(1)).copied() {
-                Some(body) => body(self, &config, label),
-                None => default_progress(self, &config, label),
-            },
-        }
-        self.leave(saved);
-        self.part_owner = owner;
+        in_body!(self, key, row, progress, default_progress(&config, label));
         // a body without a track part gets the facts on the row: the widget's own box
         let track = self.part_box(key, Part::TRACK).unwrap_or(row);
         self.a11y_name(&track, shown(label));
@@ -1003,16 +994,6 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
     changed
 }
 
-/// What a progress body is given (and the label beside it, as a `&str`). It runs with the row entered (its `box_key` owns the parts) and builds the label, the track and the
-/// bar. Behaviour reads and sets the node built as `Part::TRACK` (the accessible name, number and busy state, the sweep's extent)
-/// and `busy_step` moves the node built as `Part::BAR` along it; a determinate bar is the body's own business.
-pub struct ProgressConfig {
-    pub value: Option<f32>,
-    pub row: Handle,
-}
-
-pub type ProgressBody = fn(&mut Ui, &ProgressConfig, &str);
-
 /// The built-in progress row: the label, then a 4-point track holding the bar.
 fn default_progress(this: &mut Ui, c: &ProgressConfig, label: &str) {
     let (track_look, bar, label_look) = (this.theme().progress.idle, this.theme().mark.idle, this.theme().row.idle);
@@ -1030,19 +1011,6 @@ fn default_progress(this: &mut Ui, c: &ProgressConfig, label: &str) {
     }
     this.leave(inner);
 }
-
-/// What a slider body is given (and the label beside it, as a `&str`; the label itself is built by behaviour). It runs with `track` entered: the node that takes the pointer and keys (a 20-point stack the
-/// full width of the row), and builds the rail, the filled part and the thumb inside it. Behaviour reads two parts to turn the
-/// pointer into a value: the rail built as `Part::RAIL` (the pointer maps across its width) and the thumb built as `Part::THUMB`
-/// (half its width is kept at each end). A body without them gets the whole `track` and no thumb. `fraction` is the value's
-/// place, 0 to 1; the body's own thumb carries it.
-pub struct SliderConfig {
-    pub state: State,
-    pub fraction: f32,
-    pub track: Handle,
-}
-
-pub type SliderBody = fn(&mut Ui, &SliderConfig, &str);
 
 /// The built-in slider: a 2-point rail, the filled part of it and an 8 x 14 thumb in a lane split by the value.
 fn default_slider(this: &mut Ui, c: &SliderConfig, _label: &str) {
@@ -1101,17 +1069,7 @@ fn slider_body(this: &mut Ui, text: &str, value: f32, range: RangeInclusive<f32>
     this.a11y_name(&track, shown(text));
     this.a11y_number(&track, v as f64, lo.min(hi) as f64, hi.max(lo) as f64, step as f64);
     let config = SliderConfig { state: State { hovered: s.hovered, pressed: s.held, ..State::default() }, fraction: f, track };
-    let owner = core::mem::replace(&mut this.part_owner, key);
-    let inner = this.enter(&track);
-    match this.theme().body.slider {
-        BodyId(0) => default_slider(this, &config, text),
-        id => match this.bodies.slider.get((id.0 as usize).wrapping_sub(1)).copied() {
-            Some(body) => body(this, &config, text),
-            None => default_slider(this, &config, text),
-        },
-    }
-    this.leave(inner);
-    this.part_owner = owner;
+    in_body!(this, key, track, slider, default_slider(&config, text));
     this.leave(saved);
     v
 }
