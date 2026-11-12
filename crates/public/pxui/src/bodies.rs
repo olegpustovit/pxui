@@ -80,7 +80,7 @@ impl Ui {
     }
 
     /// Runs a config's slot (the caller's content, built where the body calls this); for a search field's editor slot the answer is
-    /// whether the query is not empty, otherwise false. A slot is valid only during the body call that received it: a stale one panics.
+    /// whether the query is not empty, otherwise false. A slot is valid only during the body call that received it, and not inside its own content or a nested body: else this panics.
     #[track_caller]
     pub fn slot(&mut self, slot: PxuiSlot) -> bool {
         let mut out = 0u8;
@@ -209,6 +209,21 @@ mod tests {
         assert!(stale.is_err());
         assert!(ui.last_error().contains("stale slot"), "{}", ui.last_error());
         ui.frame(&input(1.0), &mut |ui: &mut Ui| ui.label("still usable")).expect("the Ui is not poisoned");
+    }
+
+    /// Content run through a slot that panics follows the callback panic rule too (in the static build it unwinds through the slot to
+    /// the body's entry): the panic surfaces at the frame, and the next frame's body runs its slot again.
+    #[test]
+    fn a_slot_whose_content_panics_follows_the_callback_panic_rule() {
+        let mut ui = Ui::new().expect("library");
+        ui.register_scroll_view_body("probe", |ui, c| { ui.slot(c.content); }).expect("registered");
+        ui.set_theme(&source("scroll_view.body = probe")).expect("theme");
+        let ran = Cell::new(0);
+        let build = |ui: &mut Ui, boom: bool| { ui.scroll_view("list", Size::Grow, Size::Grow, &mut |_: &mut Ui| { ran.set(ran.get() + 1); if boom { panic!("content") } }); };
+        let result = catch_unwind(AssertUnwindSafe(|| { let _ = ui.frame(&input(0.0), &mut |ui: &mut Ui| build(ui, true)); }));
+        assert_eq!(result.expect_err("the panic surfaces at frame()").downcast_ref::<&str>(), Some(&"content"));
+        ui.frame(&input(1.0), &mut |ui: &mut Ui| build(ui, false)).expect("the next frame renders");
+        assert_eq!(ran.get(), 2, "the slot ran again the frame after");
     }
 
     fn wide_tab(ui: &mut Ui, c: &crate::bodies::PxuiTabConfig) {

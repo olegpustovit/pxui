@@ -194,12 +194,13 @@ export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*co
 });
 
 // The node a widget declared this frame as the engine holds it, so a body can change what it needs of its layout and set it back
-// (`pxui_ui_set_node_layout`); written whole to `out`, whose `size` is the library's.
+// (`pxui_ui_set_node_layout`); written whole to `out` once the caller's `size` covers it (a shorter record is refused, never written
+// past), `size` then the library's.
 export!(pub unsafe fn pxui_ui_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut Node) -> i32 {
     let (e, b) = match unsafe { crate::state::boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
-    if out.is_null() { return unsafe { fail(ui, "null node output") } }
+    if out.is_null() || (unsafe { out.cast::<u32>().read_unaligned() } as usize) < size_of::<Node>() { return unsafe { fail(ui, "invalid node output") } }
     if !e.live(&b) { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } }
-    unsafe { *out = *e.node_mut(&b) };
+    unsafe { out.write(*e.node_mut(&b)) };
     0
 });
 
@@ -209,7 +210,8 @@ export!(pub unsafe fn pxui_ui_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox,
 export!(pub unsafe fn pxui_ui_set_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, desc: *const Node) -> i32 {
     let (e, b) = match unsafe { crate::state::boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     let Some(d) = (unsafe { checked_node(desc) }) else { return unsafe { invalid_node(ui) } };
-    if !e.live(&b) { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } }
+    // only a node this frame's build declared: a retained one (another frame's, a clean view's) keeps the layout it was built with
+    if !e.is_current_build_box(&b) { return unsafe { crate::state::fail_code(ui, "not a node of the frame being built", crate::PXUI_ERR_STALE) } }
     let n = e.node_mut(&b);
     (n.axis, n.justify, n.align, n.wrap, n.w, n.h, n.min_w, n.min_h, n.max_w, n.max_h) = (d.axis, d.justify, d.align, d.wrap, d.w, d.h, d.min_w, d.min_h, d.max_w, d.max_h);
     (n.grow, n.shrink, n.aspect, n.padding, n.margin, n.gap, n.row_gap, n.align_self, n.at) = (d.grow, d.shrink, d.aspect, d.padding, d.margin, d.gap, d.row_gap, d.align_self, d.at);

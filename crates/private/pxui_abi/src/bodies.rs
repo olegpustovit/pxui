@@ -20,34 +20,44 @@ enum Slot { Content(*mut (dyn FnMut(&mut Ui) + 'static)), Editor(*mut (dyn FnMut
 pub(crate) struct BodyState {
     /// `(fn, user)` of body id n + 1 of kind k at `table[k][n]`, filled by `pxui_body_register`
     table: Vec<Vec<(Body, *mut c_void)>>,
-    /// the slots of the body calls in progress, innermost last, and the serial the next one takes: a slot is live while it is here
-    slots: Vec<(u64, Slot)>,
-    serial: u64,
-    /// body calls in progress (`pxui_part` is refused outside one)
+    /// the slots of the body calls in progress, innermost last, with the depth of the body call each was given to: a slot is live
+    /// while it is here and runs only at that depth (not from a nested body, not inside its own content)
+    slots: Vec<(u64, u32, Slot)>,
+    /// body calls and running slots in progress (`pxui_part` is refused outside a body call)
     depth: u32,
     /// the spans a dialog's, a tip's and a footer's records point at, taken while their body runs (a nested body finds them empty)
     strs: Vec<Str>,
     hints: Vec<PxuiHintDesc>,
 }
 
-fn shared(ui: &Ui) -> Option<&'static mut Shared> { unsafe { ui.body_host().cast::<Shared>().as_mut() } }
+/// The shared state of the `Ui` the engine belongs to (null before a body was registered). A raw pointer, as `run_frame` keeps it: the
+/// body the trampoline calls reaches the same state through its handle, so no `&mut Shared` is held across the call; each access below
+/// is one short-lived place expression.
+fn shared(ui: &Ui) -> *mut Shared { ui.body_host().cast() }
 
-fn invoke(ui: &mut Ui, sh: &mut Shared, kind: BodyKind, id: BodyId, cfg: *const c_void) {
-    let Some(&(body, user)) = sh.bodies.table.get(kind as usize).and_then(|k| k.get((id.0 as usize).wrapping_sub(1))) else { return };
+fn invoke(ui: &mut Ui, sh: *mut Shared, kind: BodyKind, id: BodyId, cfg: *const c_void) {
+    let Some(&(body, user)) = (unsafe { &(*sh).bodies.table }).get(kind as usize).and_then(|k| k.get((id.0 as usize).wrapping_sub(1))) else { return };
     let mut handle = PxuiUi::borrowed(ui, sh);
-    sh.bodies.depth += 1;
+    let depth = unsafe { (*sh).bodies.depth };
+    unsafe { (*sh).bodies.depth = depth + 1 };
     body(user, (&mut handle as *mut PxuiUi).cast(), cfg);
-    sh.bodies.depth -= 1;
+    // set back, not decremented: a slot whose content unwound (the static wrapper's) never lowered it
+    unsafe { (*sh).bodies.depth = depth };
 }
 
-fn push(sh: &mut Shared, slot: Slot) -> PxuiSlot {
-    sh.bodies.serial += 1;
-    sh.bodies.slots.push((sh.bodies.serial, slot));
-    PxuiSlot { serial: sh.bodies.serial }
+/// Slot serials, one count for every `Ui`: a slot of one `Ui` never names a live slot of another.
+static SERIAL: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
+
+/// A slot of the body call the trampoline is about to make (one deeper than now).
+fn push(sh: *mut Shared, slot: Slot) -> PxuiSlot {
+    let serial = SERIAL.fetch_add(1, core::sync::atomic::Ordering::Relaxed) + 1;
+    let bodies = unsafe { &mut (*sh).bodies };
+    bodies.slots.push((serial, bodies.depth + 1, slot));
+    PxuiSlot { serial }
 }
 // the slot outlives the borrow it was made from only until the trampoline truncates the stack, before it returns
-fn content(sh: &mut Shared, f: &mut dyn FnMut(&mut Ui)) -> PxuiSlot { push(sh, Slot::Content(unsafe { core::mem::transmute::<&mut dyn FnMut(&mut Ui), *mut (dyn FnMut(&mut Ui) + 'static)>(f) })) }
-fn editor(sh: &mut Shared, f: &mut dyn FnMut(&mut Ui) -> bool) -> PxuiSlot { push(sh, Slot::Editor(unsafe { core::mem::transmute::<&mut dyn FnMut(&mut Ui) -> bool, *mut (dyn FnMut(&mut Ui) -> bool + 'static)>(f) })) }
+fn content(sh: *mut Shared, f: &mut dyn FnMut(&mut Ui)) -> PxuiSlot { push(sh, Slot::Content(unsafe { core::mem::transmute::<&mut dyn FnMut(&mut Ui), *mut (dyn FnMut(&mut Ui) + 'static)>(f) })) }
+fn editor(sh: *mut Shared, f: &mut dyn FnMut(&mut Ui) -> bool) -> PxuiSlot { push(sh, Slot::Editor(unsafe { core::mem::transmute::<&mut dyn FnMut(&mut Ui) -> bool, *mut (dyn FnMut(&mut Ui) -> bool + 'static)>(f) })) }
 
 fn st(s: State) -> PxuiStateDesc { PxuiStateDesc { hovered: s.hovered as u8, pressed: s.pressed as u8, focused: s.focused as u8, disabled: s.disabled as u8, checked: s.checked as u8, reserved: [0; 3] } }
 fn bx(b: pxui_core::ui::UiBox) -> PxuiBox { to_abi_box(b) }
@@ -60,11 +70,12 @@ macro_rules! tramp {
     ($kind:ident, |$ui:ident, $sh:ident, $c:ident: $ct:ty $(, $a:ident: $at:ty)*| $cfg:ident { $($f:ident: $v:expr),* $(,)? }) => {
         pub(super) fn $kind($ui: &mut Ui, $c: $ct $(, $a: $at)*) {
             let id = $ui.theme().body.$kind;
-            let Some($sh) = shared($ui) else { return };
-            let mark = $sh.bodies.slots.len();
+            let $sh = shared($ui);
+            if $sh.is_null() { return }
+            let mark = unsafe { (*$sh).bodies.slots.len() };
             let cfg = $cfg { size: core::mem::size_of::<$cfg>() as u32, $($f: $v),* };
             invoke($ui, $sh, BodyKind::$kind, id, (&cfg as *const $cfg).cast());
-            $sh.bodies.slots.truncate(mark);
+            unsafe { (*$sh).bodies.slots.truncate(mark) };
         }
     };
 }
@@ -74,15 +85,16 @@ macro_rules! tramp_span {
     ($kind:ident, $scratch:ident, |$ui:ident, $sh:ident, $span:ident, $c:ident: $ct:ty $(, $a:ident: $at:ty)*| $fill:block, $cfg:ident { $($f:ident: $v:expr),* $(,)? }) => {
         pub(super) fn $kind($ui: &mut Ui, $c: $ct $(, $a: $at)*) {
             let id = $ui.theme().body.$kind;
-            let Some($sh) = shared($ui) else { return };
-            let mark = $sh.bodies.slots.len();
-            let mut $span = core::mem::take(&mut $sh.bodies.$scratch);
+            let $sh = shared($ui);
+            if $sh.is_null() { return }
+            let mark = unsafe { (*$sh).bodies.slots.len() };
+            let mut $span = core::mem::take(unsafe { &mut (*$sh).bodies.$scratch });
             $span.clear();
             $fill
             let cfg = $cfg { size: core::mem::size_of::<$cfg>() as u32, $($f: $v),* };
             invoke($ui, $sh, BodyKind::$kind, id, (&cfg as *const $cfg).cast());
-            $sh.bodies.slots.truncate(mark);
-            $sh.bodies.$scratch = $span;
+            unsafe { (*$sh).bodies.slots.truncate(mark) };
+            unsafe { (*$sh).bodies.$scratch = $span };
         }
     };
 }
@@ -230,13 +242,19 @@ export!(pub unsafe fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out:
 });
 
 /// Runs a slot of the body call in progress (the caller's content, or a search field's editor, whose answer, 1 when the query is not
-/// empty, goes to `out` when it is not null); a slot of a body call that has returned is refused as stale.
+/// empty, goes to `out` when it is not null); a slot of a body call that has returned is refused as stale. It runs only in the body
+/// call that received it: one deeper (a nested body, or the slot's own content, which runs a level down) is refused, so the closure
+/// it lends is never entered while it runs.
 pub unsafe fn slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32 {
     crate::state::note_call();
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
-    let Some(&(_, found)) = state.shared().bodies.slots.iter().rev().find(|(serial, _)| *serial == slot.serial) else { return unsafe { fail_code(ui, "stale slot", PXUI_ERR_STALE) } };
+    let bodies = &mut state.shared().bodies;
+    let Some(&(_, level, found)) = bodies.slots.iter().rev().find(|(serial, ..)| *serial == slot.serial) else { return unsafe { fail_code(ui, "stale slot", PXUI_ERR_STALE) } };
+    if level != bodies.depth { return unsafe { fail_code(ui, "a slot runs in the body call that received it, not inside its own content or a nested body", PXUI_ERR_STATE) } }
+    bodies.depth = level + 1;
     let engine = unsafe { &mut *state.engine };
     let answer = match found { Slot::Content(f) => { unsafe { (*f)(engine) }; 0 } Slot::Editor(f) => (unsafe { (*f)(engine) }) as u8 };
+    state.shared().bodies.depth = level;
     if !out.is_null() { unsafe { *out = answer } }
     0
 }
@@ -348,6 +366,130 @@ mod tests {
         let mut out = 0u8;
         assert_eq!(unsafe { pxui_slot(ui, SLOT.with(Cell::get), &mut out) }, PXUI_ERR_STALE);
         assert!(error(ui).contains("stale slot"));
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    thread_local! {
+        static OWN: Cell<PxuiSlot> = const { Cell::new(PxuiSlot { serial: 0 }) };
+        static RUNS: Cell<u32> = const { Cell::new(0) };
+        static AGAIN: Cell<i32> = const { Cell::new(99) };
+    }
+
+    extern "C" fn own_slot_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
+        let c = unsafe { &*config.cast::<PxuiScrollConfig>() };
+        OWN.with(|s| s.set(c.content));
+        assert_eq!(unsafe { pxui_slot(ui.cast(), c.content, core::ptr::null_mut()) }, 0);
+    }
+
+    // the caller's content runs its own slot again: it would enter the closure that is running it
+    extern "C" fn reentering_content(_: *mut c_void, ui: *mut c_void) {
+        RUNS.with(|r| r.set(r.get() + 1));
+        if RUNS.with(Cell::get) < 3 { AGAIN.with(|a| a.set(unsafe { pxui_slot(ui.cast(), OWN.with(Cell::get), core::ptr::null_mut()) })); }
+    }
+
+    extern "C" fn reentering_frame(_: *mut c_void, ui: *mut c_void) {
+        let (mut out, grow) = (PxuiBox::default(), PxuiSizeDesc { kind: 3, value: 0.0, relative: None });
+        assert_eq!(unsafe { crate::pxui_ui_scroll_view(ui.cast(), text("list"), grow, grow, Some(reentering_content), core::ptr::null_mut(), &mut out) }, 0);
+    }
+
+    /// A slot is never run inside its own content (the closure it lends is running): refused, and the content ran once.
+    #[test]
+    fn a_slot_is_refused_inside_its_own_content() {
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        assert_eq!(unsafe { pxui_body_register(ui, BodyKind::scroll_view as u32, text("own"), Some(own_slot_body), core::ptr::null_mut()) }, 1);
+        assert_eq!(theme(ui, "scroll_view.body = own"), 0);
+        frame(ui, reentering_frame);
+        assert_eq!((RUNS.with(Cell::get), AGAIN.with(Cell::get)), (1, PXUI_ERR_STATE), "{}", error(ui));
+        // the refusal left the depth as it was: the next frame's body runs its slot again
+        frame(ui, reentering_frame);
+        assert_eq!(RUNS.with(Cell::get), 2);
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    thread_local! {
+        static FIRST: Cell<PxuiSlot> = const { Cell::new(PxuiSlot { serial: 0 }) };
+        static FOREIGN: Cell<i32> = const { Cell::new(99) };
+    }
+
+    // on the first Ui it keeps its slot; on the second it runs the first Ui's
+    extern "C" fn foreign_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
+        let c = unsafe { &*config.cast::<PxuiScrollConfig>() };
+        match FIRST.with(Cell::get) {
+            PxuiSlot { serial: 0 } => FIRST.with(|f| f.set(c.content)),
+            first => FOREIGN.with(|f| f.set(unsafe { pxui_slot(ui.cast(), first, core::ptr::null_mut()) })),
+        }
+    }
+
+    /// A slot of one `Ui` names nothing in another, however many slots each has made.
+    #[test]
+    fn a_slot_of_another_ui_is_stale() {
+        let (a, b) = unsafe { (pxui_ui_create(&PxuiUiDesc::default()), pxui_ui_create(&PxuiUiDesc::default())) };
+        for ui in [a, b] {
+            assert_eq!(unsafe { pxui_body_register(ui, BodyKind::scroll_view as u32, text("foreign"), Some(foreign_body), core::ptr::null_mut()) }, 1);
+            assert_eq!(theme(ui, "scroll_view.body = foreign"), 0);
+            frame(ui, scroll_frame);
+        }
+        assert_eq!(FOREIGN.with(Cell::get), PXUI_ERR_STALE);
+        assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
+    }
+
+    /// A kind takes at most 65,535 names (ids are `u16`, 0 the built-in body): one more is refused instead of wrapping onto body 1,
+    /// whose function and user pointer then stay its own.
+    #[test]
+    fn a_kind_refuses_a_name_past_the_last_id() {
+        extern "C" fn other(_: *mut c_void, _: *mut c_void, _: *const c_void) {}
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let kind = BodyKind::label as u32;
+        let mut name = String::new();
+        for id in 1..=u16::MAX {
+            name.clear();
+            name.push_str(&id.to_string());
+            assert_eq!(unsafe { pxui_body_register(ui, kind, text(&name), Some(toggle_body), core::ptr::null_mut()) }, id);
+        }
+        assert_eq!(unsafe { pxui_body_register(ui, kind, text("one_more"), Some(other), core::ptr::null_mut()) }, 0);
+        assert_eq!(unsafe { pxui_body_register(ui, kind, text("and_another"), Some(other), core::ptr::null_mut()) }, 0);
+        let first = unsafe { (&(*(*ui).shared).bodies.table)[kind as usize][0] };
+        assert_eq!(first.0 as *const () as usize, toggle_body as *const () as usize, "body 1 is still its own");
+        assert_eq!(unsafe { pxui_body_register(ui, kind, text("7"), Some(other), core::ptr::null_mut()) }, 7, "a name again keeps its id at the limit");
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    thread_local! { static LAID: Cell<PxuiBox> = const { Cell::new(PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }) }; }
+
+    #[repr(C, align(16))]
+    struct Raw([u8; core::mem::size_of::<Node>()]);
+
+    extern "C" fn layout_frame(_: *mut c_void, ui: *mut c_void) {
+        let ui = ui.cast::<PxuiUi>();
+        let mut b = PxuiBox::default();
+        assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui, 7, &Node::DEFAULT, &mut b) }, 0);
+        // a record shorter than the library's node is refused and not written past its size
+        let mut short = Raw([0xaa; core::mem::size_of::<Node>()]);
+        short.0[..4].copy_from_slice(&8u32.to_ne_bytes());
+        assert_eq!(unsafe { crate::pxui_ui_node_layout(ui, &b, short.0.as_mut_ptr().cast()) }, PXUI_ERR_ARGUMENT);
+        assert!(short.0[4..].iter().all(|&x| x == 0xaa), "the library wrote past the caller's record");
+        // the look half (`pxui_ui_node_fields`) the same
+        let mut short = Raw([0xaa; core::mem::size_of::<Node>()]);
+        short.0[..4].copy_from_slice(&8u32.to_ne_bytes());
+        assert_eq!(unsafe { crate::pxui_ui_node_fields(ui, &b, short.0.as_mut_ptr().cast()) }, PXUI_ERR_ARGUMENT);
+        assert!(short.0[4..].iter().all(|&x| x == 0xaa), "the library wrote past the caller's fields");
+        let mut node = Node::DEFAULT;
+        assert_eq!(unsafe { crate::pxui_ui_node_layout(ui, &b, &mut node) }, 0);
+        node.w = pxui_types::Size::Px(40.0);
+        assert_eq!(unsafe { crate::pxui_ui_set_node_layout(ui, &b, &node) }, 0);
+        LAID.with(|l| l.set(b));
+    }
+
+    /// `pxui_ui_node_layout` honours the caller's `size`; `pxui_ui_set_node_layout` changes only a node the frame being built declared.
+    #[test]
+    fn node_layout_honours_the_record_size_and_only_this_frames_nodes() {
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        frame(ui, layout_frame);
+        let b = LAID.with(Cell::get);
+        let mut node = Node::DEFAULT;
+        assert_eq!(unsafe { crate::pxui_ui_node_layout(ui, &b, &mut node) }, 0, "a live node is read after its frame");
+        assert!(matches!(node.w, pxui_types::Size::Px(w) if w == 40.0));
+        assert_eq!(unsafe { crate::pxui_ui_set_node_layout(ui, &b, &Node::DEFAULT) }, PXUI_ERR_STALE, "a retained node is not set outside its build");
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
     }
 }

@@ -100,7 +100,9 @@ export!(pub unsafe fn pxui_ui_patch_mark(ui: *mut PxuiUi, box_: *const PxuiBox, 
 // (`pxui_ui_set_node_fields`), as the engine's `node_mut` lets a widget finish a node once its signal is known.
 export!(pub unsafe fn pxui_ui_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::ffi::PxuiNodeFields) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
-    if out.is_null() { return unsafe { fail(ui, "null node output") }; }
+    // the caller's size first: a shorter record is refused, never written past
+    if out.is_null() || unsafe { out.cast::<u32>().read_unaligned() } < core::mem::size_of::<pxui_types::ffi::PxuiNodeFields>() as u32 { return unsafe { fail(ui, "invalid node output") }; }
+    if !e.live(&b) { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) }; }
     let n = e.node_mut(&b);
     let (kind, direction, width, rising) = match n.mark { Mark::None => (0, 0, 0.0, 0), Mark::Chevron(d) => (1, match d { Dir::Down => 0, Dir::Up => 1, Dir::Left => 2, Dir::Right => 3 }, 0.0, 0), Mark::Line { width, rising } => (2, 0, width, rising as u8) };
     unsafe { *out = pxui_types::ffi::PxuiNodeFields { size: core::mem::size_of::<pxui_types::ffi::PxuiNodeFields>() as u32, reserved: 0, look: n.look.into(), mark: PxuiMarkDesc { kind, direction, width, rising, reserved: [0; 3] }, inset: n.inset }; }

@@ -7,6 +7,7 @@
 use crate::ui_core::*;
 use crate::opts::ValueFieldOpts;
 use crate::ui_kit::part_key;
+use std::collections::HashMap;
 
 /// What a toggle body is given. It runs with the widget's row entered (`row`, whose `box_key` owns the parts) and builds the row's
 /// look, label and switch. Behaviour reads one part: `Part::HIT`, the area that takes presses (the whole row when the body builds none).
@@ -429,15 +430,21 @@ pub struct PickerFieldConfig {
 
 pub type PickerFieldBody = fn(&mut Ui, &PickerFieldConfig, &str);
 
-/// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
-fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {
+/// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body, and for a
+/// new name once the kind has 65,535 (ids are `u16` and 0 is the built-in body, so one more would wrap onto body 1).
+fn body_slot(names: &mut HashMap<String, usize>, name: &str) -> Option<usize> {
     if name == "default" {
         return None;
     }
-    Some(names.iter().position(|n| n == name).unwrap_or_else(|| {
-        names.push(name.to_owned());
-        names.len() - 1
-    }))
+    if let Some(&i) = names.get(name) {
+        return Some(i);
+    }
+    let i = names.len();
+    if i >= u16::MAX as usize {
+        return None;
+    }
+    names.insert(name.to_owned(), i);
+    Some(i)
 }
 
 fn kind_index(kind: &str) -> usize {
@@ -564,11 +571,11 @@ pub(crate) use in_item;
 
 macro_rules! registry {
     ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
-        /// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1 (and `names[kind]` n - 1 is
-        /// its name). Filled at start-up; a frame only reads it.
+        /// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1 (and `names[kind]` maps
+        /// its name to n - 1). Filled at start-up; a frame only reads it.
         pub(crate) struct BodyTable {
             $(pub(crate) $kind: Vec<$body>,)*
-            names: Vec<Vec<String>>,
+            names: Vec<HashMap<String, usize>>,
             /// the row a list, tree or table view is building (`Ui::item`); here, not in `Ui`, so `Ui` stays the size it was
             pub(crate) item: UiBox,
             /// an opaque pointer of the host that registered bodies (the C ABI's state): what a registered body's trampoline finds its caller's data by
@@ -577,7 +584,7 @@ macro_rules! registry {
 
         impl Default for BodyTable {
             fn default() -> BodyTable {
-                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| Vec::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, host: core::ptr::null_mut() }
+                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| HashMap::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, host: core::ptr::null_mut() }
             }
         }
 
@@ -585,7 +592,7 @@ macro_rules! registry {
             $(
                 #[doc = concat!("Register `body` as the ", stringify!($kind), " body called `name`, for a theme's `body.", stringify!($kind), "` (or `", stringify!($kind), ".body = NAME` in a theme file).")]
                 /// Registering a name again replaces its body and keeps its id; `default` is the built-in body and registers nothing.
-                // ponytail: ids are u16; a start-up that registers 65,535 bodies of one kind wraps, so widen `BodyId` then.
+                /// At most 65,535 names a kind: a new one past that registers nothing and returns `BodyId::DEFAULT`.
                 pub fn $register(&mut self, name: &str, body: $body) -> BodyId {
                     let Some(i) = body_slot(&mut self.bodies.names[kind_index(stringify!($kind))], name) else { return BodyId::DEFAULT };
                     if i == self.bodies.$kind.len() { self.bodies.$kind.push(body) } else { self.bodies.$kind[i] = body }
@@ -611,7 +618,7 @@ impl Ui {
 
     /// `Theme::parse` where `KIND.body = NAME` names the bodies this `Ui` registered; an unregistered name is a `ThemeError`.
     pub fn parse_theme(&self, text: &str, base: &Theme) -> Result<Theme, Vec<crate::theme::ThemeError>> {
-        let named = |kind: &str, name: &str| self.bodies.names[kind_index(kind)].iter().position(|n| n == name).map(|i| BodyId(i as u16 + 1));
+        let named = |kind: &str, name: &str| self.bodies.names[kind_index(kind)].get(name).map(|&i| BodyId(i as u16 + 1));
         Theme::parse_bodies(text, base, &named)
     }
 

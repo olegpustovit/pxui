@@ -440,7 +440,7 @@ uint16_t pxui_body_register(PxuiUi *ui, uint32_t kind, PxuiStr name, PxuiBodyFn 
 int32_t pxui_part(PxuiUi *ui, uint32_t part, const PxuiNode *node, PxuiBox *out);
 /* The box of `part` of the widget keyed `owner` as the last build left it: 0 and the box in `out`, 1 when it was not built. */
 int32_t pxui_part_box(PxuiUi *ui, int64_t owner, uint32_t part, PxuiBox *out);
-/* Runs a slot of the body call in progress; `out` (may be NULL) gets a search field's editor answer (1: the query is not empty). PXUI_ERR_STALE for a slot of a finished call. */
+/* Runs a slot of the body call in progress; `out` (may be NULL) gets a search field's editor answer (1: the query is not empty). PXUI_ERR_STALE for a slot of a finished call or another Ui, PXUI_ERR_STATE inside its own content or a nested body. */
 int32_t pxui_slot(PxuiUi *ui, PxuiSlot slot, uint8_t *out);
 enum PxuiPart { PXUI_PART_HIT=1, PXUI_PART_RAIL=2, PXUI_PART_THUMB=3, PXUI_PART_TRACK=4, PXUI_PART_BAR=5, PXUI_PART_TITLE=6, PXUI_PART_DISCLOSURE=7, PXUI_PART_CLEAR=8, PXUI_PART_EDITOR=9, PXUI_PART_DOT0=16 /* dot i: 16 + i, i < 256 */, PXUI_PART_BUTTON0=1024 /* dialog button i: 1024 + i, i < 256 */ };
 typedef struct { uint32_t size; uint8_t multi,reserved[3]; PxuiStr label; size_t count; PxuiU8MutSpan selected; PxuiCellBuild build; void *user; } PxuiListViewWithDesc;
@@ -577,7 +577,7 @@ int32_t pxui_ui_patch_mark(PxuiUi *ui, const PxuiBox *box, const PxuiMarkDesc *v
 typedef struct { uint32_t size, reserved; PxuiLookDesc look; PxuiMarkDesc mark; PxuiEdges inset; } PxuiNodeFields;
 int32_t pxui_ui_node_fields(PxuiUi *ui, const PxuiBox *box, PxuiNodeFields *out);
 int32_t pxui_ui_set_node_fields(PxuiUi *ui, const PxuiBox *box, const PxuiNodeFields *fields);
-/* The node a widget declared this frame as the engine holds it (written whole to out), and the layout of it (axis, justify, align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment, offset) set from `node`'s same fields, the others ignored: how a widget body sizes the node it was given. */
+/* The node a widget declared this frame as the engine holds it (written whole to out, refused when out->size is shorter), and the layout of a node the frame being built declared (axis, justify, align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment, offset) set from `node`'s same fields, the others ignored: how a widget body sizes the node it was given. */
 int32_t pxui_ui_node_layout(PxuiUi *ui, const PxuiBox *box, PxuiNode *out);
 int32_t pxui_ui_set_node_layout(PxuiUi *ui, const PxuiBox *box, const PxuiNode *node);
 int32_t pxui_ui_local_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);
