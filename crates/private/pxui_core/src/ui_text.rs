@@ -2375,12 +2375,11 @@ fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str, detail: &s
     }
     // the query's letters, matched in order, in the accent
     let q = query.to_ascii_lowercase();
-    let lower = text.to_ascii_lowercase();
     let mut next = 0usize;
     let mut pen = text_x;
     let mut start = 0usize;
     let is_matched = |at: usize, next: &mut usize| {
-        let hit = *next < q.len() && lower.len() > at && lower.as_bytes()[at] == q.as_bytes()[*next];
+        let hit = *next < q.len() && text.len() > at && text.as_bytes()[at].to_ascii_lowercase() == q.as_bytes()[*next];
         if hit {
             *next += 1;
         }
@@ -2809,6 +2808,7 @@ fn menu_rows_body(this: &mut Ui, m: &MenuRows) -> (Option<i64>, Option<i64>) {
             let chevron = m.chevrons.contains(&index);
             let state = State { hovered: signal.hovered || m.opened == Some(index), disabled: !enabled, ..State::default() };
             this.set_role(&row, Role::MenuItem, if m.selected == Some(index) { crate::a11y::state::CHECKED } else { 0 } | if chevron { crate::a11y::state::EXPANDABLE } else { 0 });
+            this.a11y_name(&row, shown(text));
             let config = MenuRowConfig { state, index, row, selected: m.selected == Some(index), chevron, danger, lead: lead_of(index) as f32, swatch_pad: m.swatch_pad, swatch: m.swatches.get(index as usize).copied().flatten() };
             let key = m.keys.get(index as usize).map(String::as_str).filter(|k| !k.is_empty());
             in_item!(this, body, row.box_key, row, default_menu_row(&config, text, key));
@@ -2829,7 +2829,7 @@ fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key: Option<&s
     let (font_size, rh) = (this.font_size(), this.row_height() as f32);
     this.set_look(&c.row, look, c.state);
     this.node_mut(&c.row).inset = Edges { l: this.space(2) + c.lead + c.swatch_pad, ..Edges::default() };
-    this.text(&c.row, &display(text));
+    this.text(&c.row, shown(text));
     let k = |n: i64| int_key(c.row.box_key, n);
     this.end_row(&c.row, 0.0);
     // the current choice: a 6-point accent square before the label

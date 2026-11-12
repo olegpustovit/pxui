@@ -370,6 +370,7 @@ impl Ui {
             }
             let config = TabConfig { state: State { checked: sel == i, ..state }, index: i, node: n };
             self.set_role(&n, Role::Tab, st::SELECTABLE | if sel == i { st::SELECTED } else { 0 });
+            self.a11y_name(&n, tab);
             in_item!(flat; self, body, n.box_key, n, default_tab(&config, tab));
         }
         // a click on a later tab unselects the earlier one in this frame, not the next
@@ -407,6 +408,7 @@ impl Ui {
             }
             let config = SegmentConfig { state: State { hovered: ns.hovered, pressed: ns.held, checked: sel == i, ..State::default() }, index: i, selected: sel, group: strip.box_key, node: n };
             self.set_role(&n, Role::Radio, st::CHECKABLE | if sel == i { st::CHECKED } else { 0 });
+            self.a11y_name(&n, option);
             in_item!(flat; self, body, n.box_key, n, default_segment(&config, option));
         }
         self.leave(inner);
@@ -429,6 +431,7 @@ impl Ui {
                 if s.clicked {
                     picked = Some(i);
                 }
+                ui.a11y_name(&n, item);
                 let config = MenuItemConfig { state: State { hovered: s.hovered, pressed: s.held, checked: current == Some(i), ..State::default() }, index: i, node: n };
                 in_item!(flat; ui, body, n.box_key, n, default_menu_item(&config, item));
             }
@@ -559,6 +562,7 @@ impl Ui {
             let on = open && menu == i;
             let config = MenuItemConfig { state: State { hovered: ns.hovered, pressed: ns.held, checked: on, ..State::default() }, index: i, node: n };
             self.set_role(&n, Role::MenuItem, st::EXPANDABLE | if on { st::EXPANDED } else { 0 });
+            self.a11y_name(&n, title);
             in_item!(flat; self, body, n.box_key, n, default_menu_title(&config, title));
         }
         if open {
