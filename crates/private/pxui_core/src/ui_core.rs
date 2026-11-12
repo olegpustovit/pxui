@@ -920,6 +920,7 @@ pub struct Ui {
     keyboard_focus: bool,
     composition: String,
     previous_keys: Vec<Key>,
+    route_keys: Vec<Key>,
     pub(crate) edit_focus: i64,
     pub edit_value: String,
     pub(crate) edit_caret: usize,
@@ -1146,6 +1147,7 @@ impl Ui {
             keyboard_focus: false,
             composition: String::new(),
             previous_keys: Vec::new(),
+            route_keys: Vec::new(),
             edit_focus: 0,
             edit_value: String::new(),
             edit_caret: 0,
@@ -2143,7 +2145,8 @@ impl Ui {
         let mut released_carry = false;
         self.passed_undo = None;
         self.modal_in_frame = self.modal_key.is_some();
-        let mut modifiers = input::keys_before(&self.previous_keys, &frame.input.keys, &frame.input.events);
+        let mut modifiers = std::mem::take(&mut self.route_keys);
+        input::keys_before_into(&self.previous_keys, &frame.input.keys, &frame.input.events, &mut modifiers);
         self.previous_keys.clone_from(&frame.input.keys);
         self.view_w = frame.input.size.0 as f32;
         self.view_h = frame.input.size.1 as f32;
@@ -2154,7 +2157,7 @@ impl Ui {
             _ => false,
         });
         for (event_index, event) in frame.input.events.iter().enumerate() {
-            modifiers = input::keys_after(&modifiers, event);
+            input::update_keys(&mut modifiers, event);
             let command = self.command_modifiers(&modifiers);
             if let Event::KeyPressed(Key::Tab) = event {
                 if !command && self.flags_of_key(self.focus) & KEEP_TAB == 0 {
@@ -2441,6 +2444,7 @@ impl Ui {
             }
         }
         let (mouse_x, mouse_y) = p32(frame.input.pointer);
+        self.route_keys = modifiers;
         if !self.pointer.0.is_finite() {
             self.pointer = (mouse_x, mouse_y);
         }

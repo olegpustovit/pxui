@@ -91,8 +91,9 @@ pub struct Window {
     extent: Extent,
     started: Instant,
     dead: bool,
-    /// the last extent re-read that failed (`take_failure`); the next pump tries again
+    /// the last event-poll or extent re-read failure (`take_failure`); the next pump tries again
     failure: Option<Error>,
+    polled: Vec<sdl3::Event>,
 }
 
 fn fail(failure: sdl3::Error) -> Error {
@@ -198,6 +199,7 @@ impl Window {
                 started: Instant::now(),
                 dead: false,
                 failure: None,
+                polled: Vec::with_capacity(256),
             })
         };
         let created = build();
@@ -215,8 +217,10 @@ impl Window {
     /// still open: false once a close request or quit arrived.
     pub fn pump(&mut self, events: &mut Vec<input::Event>) -> bool {
         let mut open = true;
-        if let Ok(polled) = sdl3::event::poll_coalesced() {
-            for raw in polled {
+        if let Err(error) = sdl3::event::poll_coalesced_into(&mut self.polled) {
+            self.failure = Some(fail(error));
+        } else {
+            for raw in self.polled.drain(..) {
                 if matches!(raw, sdl3::Event::Window(sdl3::WindowChange::Resized(..) | sdl3::WindowChange::PixelSizeChanged(..))) {
                     change_flag::announce(&mut self.changed);
                 }

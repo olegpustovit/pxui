@@ -176,6 +176,32 @@ bool rays_sdl3_test_push_resize_burst(void)
   return ok;
 }
 
+bool rays_sdl3_test_push_numeric_trace(void)
+{
+  SDL_Event event;
+  bool ok = true;
+  SDL_zero(event);
+  event.motion.type = SDL_EVENT_MOUSE_MOTION;
+  event.motion.x = 10.f; event.motion.y = 20.f;
+  event.motion.xrel = 1.f; event.motion.yrel = 2.f;
+  ok = push(&event) && ok;
+  event.motion.x = 12.f; event.motion.y = 24.f;
+  event.motion.xrel = 2.f; event.motion.yrel = 4.f;
+  ok = push(&event) && ok;
+  ok = rays_sdl3_test_push_resize_burst() && ok;
+  ok = push_key(SDL_EVENT_KEY_DOWN, SDLK_RIGHT, SDL_SCANCODE_RIGHT, SDL_KMOD_LSHIFT | SDL_KMOD_LCTRL | SDL_KMOD_LGUI, true, false) && ok;
+  ok = push_key(SDL_EVENT_KEY_UP, SDLK_RIGHT, SDL_SCANCODE_RIGHT, 0, false, false) && ok;
+  ok = push_button(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT, true, 12.f, 24.f) && ok;
+  ok = push_button(SDL_EVENT_MOUSE_BUTTON_UP, SDL_BUTTON_LEFT, false, 12.f, 24.f) && ok;
+  SDL_zero(event);
+  event.wheel.type = SDL_EVENT_MOUSE_WHEEL;
+  event.wheel.x = 1.f; event.wheel.y = -2.f;
+  event.wheel.integer_x = 1; event.wheel.integer_y = -2;
+  ok = push(&event) && ok;
+  ok = push_pinch(SDL_EVENT_PINCH_UPDATE, 1.25f) && ok;
+  return ok;
+}
+
 #define TEST_SLOTS 16
 static void *test_slots[TEST_SLOTS];
 static int test_ids[TEST_SLOTS];

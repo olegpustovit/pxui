@@ -586,7 +586,8 @@ pub enum Key {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyModifier { Shift, Control, Alt, Meta, NumLock, CapsLock, ScrollLock }
+#[repr(u8)]
+pub enum KeyModifier { Shift = 1, Control = 2, Alt = 4, Meta = 8, NumLock = 16, CapsLock = 32, ScrollLock = 64 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MouseButton { Left, Middle, Right, X1, X2 }
@@ -612,7 +613,8 @@ pub enum DialogOutcome { Chosen(Vec<String>), Cancelled, Failed(String) }
 pub enum Event {
     Quit,
     Window(WindowChange),
-    Key { key: Key, modifiers: Vec<KeyModifier>, down: bool, repeat: bool },
+    /// `modifiers` is a bitmask of `KeyModifier` values; zero means no modifiers.
+    Key { key: Key, modifiers: u8, down: bool, repeat: bool },
     TextInput(String),
     TextEditing { text: String, start: i32, length: i32 },
     MouseMotion { x: f64, y: f64, dx: f64, dy: f64 },
@@ -677,12 +679,7 @@ fn key(raw: i32, value: i32) -> Key {
     }
 }
 
-fn modifiers(bits: i32) -> Vec<KeyModifier> {
-    [(1, KeyModifier::Shift), (2, KeyModifier::Control), (4, KeyModifier::Alt),
-     (8, KeyModifier::Meta), (16, KeyModifier::NumLock), (32, KeyModifier::CapsLock),
-     (64, KeyModifier::ScrollLock)]
-        .into_iter().filter_map(|(mask, modifier)| (bits & mask != 0).then_some(modifier)).collect()
-}
+fn modifiers(bits: i32) -> u8 { (bits as u8) & 0x7f }
 
 unsafe fn decode(event: &RawEvent) -> Option<Event> {
     Some(match event.tag {
@@ -834,6 +831,8 @@ mod ffi {
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_push_resize_burst() -> bool;
         #[cfg(feature = "test-util")]
+        pub fn rays_sdl3_test_push_numeric_trace() -> bool;
+        #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_dialog_reserve() -> c_int;
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_dialog_abandon(id: c_int);
@@ -860,7 +859,8 @@ mod tests {
     fn key_unknown_and_modifier_wire_values_are_typed() {
         assert_eq!(key(0, b'q' as i32), Key::Char('q'));
         assert_eq!(key(1, 0x444), Key::Unknown(0x444));
-        assert_eq!(modifiers(1 | 8 | 32), vec![KeyModifier::Shift, KeyModifier::Meta, KeyModifier::CapsLock]);
+        assert_eq!(modifiers(1 | 8 | 32), KeyModifier::Shift as u8 | KeyModifier::Meta as u8 | KeyModifier::CapsLock as u8);
+        for bits in 0..=255 { assert_eq!(modifiers(bits), (bits & 127) as u8); }
     }
 
     #[test]
@@ -872,7 +872,7 @@ mod tests {
         };
         // SAFETY: this synthetic record contains no borrowed string pointers.
         assert_eq!(unsafe { decode(&raw) }, Some(Event::Key {
-            key: Key::Char('a'), modifiers: vec![KeyModifier::Shift, KeyModifier::Meta],
+            key: Key::Char('a'), modifiers: KeyModifier::Shift as u8 | KeyModifier::Meta as u8,
             down: true, repeat: false,
         }));
     }

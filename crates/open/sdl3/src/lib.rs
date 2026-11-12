@@ -572,50 +572,55 @@ pub mod event {
             | (Event::Window(super::WindowChange::PixelSizeChanged(..)), Event::Window(super::WindowChange::PixelSizeChanged(..))))
     }
 
-    fn flush(output: &mut Vec<Event>, motion: &mut Option<Event>, sizes: &mut Vec<Event>) {
+    fn flush(output: &mut Vec<Event>, motion: &mut Option<Event>, sizes: &mut [Option<Event>; 2]) {
         if let Some(event) = motion.take() { output.push(event); }
-        output.append(sizes);
+        for size in sizes { if let Some(event) = size.take() { output.push(event); } }
     }
 
-    fn coalesce(events: Vec<Event>) -> Vec<Event> {
-        let mut output = Vec::new();
-        let mut motion: Option<Event> = None;
-        let mut sizes = Vec::new();
-        for event in events {
-            match event {
-                Event::MouseMotion { x, y, dx, dy } => {
-                    motion = Some(match motion.take() {
-                        Some(Event::MouseMotion { dx: old_dx, dy: old_dy, .. }) => Event::MouseMotion { x, y, dx: dx + old_dx, dy: dy + old_dy },
-                        _ => Event::MouseMotion { x, y, dx, dy },
-                    });
-                }
-                event if is_size(&event) => {
-                    if let Some(old) = sizes.iter_mut().find(|old| same_size_kind(old, &event)) { *old = event; }
-                    else { sizes.push(event); }
-                }
-                event => {
-                    flush(&mut output, &mut motion, &mut sizes);
-                    output.push(event);
-                }
+    fn coalesce_event(event: Event, output: &mut Vec<Event>, motion: &mut Option<Event>, sizes: &mut [Option<Event>; 2]) {
+        match event {
+            Event::MouseMotion { x, y, dx, dy } => {
+                *motion = Some(match motion.take() {
+                    Some(Event::MouseMotion { dx: old_dx, dy: old_dy, .. }) => Event::MouseMotion { x, y, dx: dx + old_dx, dy: dy + old_dy },
+                    _ => Event::MouseMotion { x, y, dx, dy },
+                });
+            }
+            event if is_size(&event) => {
+                let index = if sizes[0].as_ref().is_none_or(|old| same_size_kind(old, &event)) { 0 } else { 1 };
+                sizes[index] = Some(event);
+            }
+            event => {
+                flush(output, motion, sizes);
+                output.push(event);
             }
         }
-        flush(&mut output, &mut motion, &mut sizes);
-        output
     }
 
     pub fn poll_coalesced() -> std::result::Result<Vec<Event>, Error> {
         const OPERATION: &str = "SDL3.Event.poll_coalesced";
         before_main(OPERATION)?;
         let mut events = Vec::new();
+        poll_coalesced_into(&mut events)?;
+        Ok(events)
+    }
+
+    /// Clears and reuses `events`; pointer/key/resize/scroll events need no allocations once warm.
+    /// Text, file-drop and dialog events still own their variable-length payloads. Discard output on error.
+    pub fn poll_coalesced_into(events: &mut Vec<Event>) -> std::result::Result<(), Error> {
+        before_main("SDL3.Event.poll_coalesced_into")?;
+        events.clear();
+        let mut motion = None;
+        let mut sizes = [None, None];
         loop {
             let event = sys::poll_event();
             take_live_resize_failure()?;
             match event {
-                Some(event) => events.push(event),
+                Some(event) => coalesce_event(event, events, &mut motion, &mut sizes),
                 None => break,
             }
         }
-        Ok(coalesce(events))
+        flush(events, &mut motion, &mut sizes);
+        Ok(())
     }
 
     pub fn wait(timeout_ms: i32) -> std::result::Result<bool, Error> {
@@ -628,6 +633,15 @@ pub mod event {
     mod tests {
         use super::*;
         use super::super::WindowChange;
+
+        fn coalesce(events: Vec<Event>) -> Vec<Event> {
+            let mut output = Vec::new();
+            let mut motion = None;
+            let mut sizes = [None, None];
+            for event in events { coalesce_event(event, &mut output, &mut motion, &mut sizes); }
+            flush(&mut output, &mut motion, &mut sizes);
+            output
+        }
 
         #[test]
         fn motion_and_size_events_coalesce_without_reordering_other_events() {
@@ -659,6 +673,20 @@ pub mod event {
                 Event::Quit,
                 Event::MouseMotion { x: 3.0, y: 4.0, dx: 2.0, dy: 3.0 },
             ]);
+        }
+
+        #[test]
+        fn reversed_resize_order_and_stable_boundaries_keep_every_event() {
+            let events = vec![
+                Event::Window(WindowChange::PixelSizeChanged(1, 2)),
+                Event::Window(WindowChange::Resized(3, 4)),
+                Event::Window(WindowChange::PixelSizeChanged(5, 6)),
+                Event::Key { key: super::super::Key::Enter, modifiers: 0, down: true, repeat: false },
+                Event::Window(WindowChange::Resized(7, 8)),
+                Event::MouseMotion { x: 1.0, y: 2.0, dx: 3.0, dy: 4.0 },
+            ];
+            let output = coalesce(events.clone());
+            assert_eq!(output, vec![events[2].clone(), events[1].clone(), events[3].clone(), events[5].clone(), events[4].clone()]);
         }
     }
 }

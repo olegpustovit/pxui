@@ -54,6 +54,32 @@ fn window_visibility() {
     println!("pxui_sdl visibility: hidden/show flags passed");
 }
 
+fn window_numeric_input_zero_alloc() {
+    let mut window = Window::open_with("input allocations", 32, 24, false, true, true).unwrap();
+    let mut events = Vec::with_capacity(256);
+    for _ in 0..8 {
+        events.clear();
+        assert!(sdl3_sys::test_util::push_numeric_trace());
+        assert!(window.pump(&mut events));
+    }
+    mem_sys::local_reset();
+    for _ in 0..100 {
+        events.clear();
+        assert!(sdl3_sys::test_util::push_numeric_trace());
+        assert!(window.pump(&mut events));
+        assert!(events.iter().any(|event| matches!(event, input::Event::PointerMoved(_))));
+        assert!(events.iter().any(|event| matches!(event, input::Event::PointerPressed(..))));
+        assert!(events.iter().any(|event| matches!(event, input::Event::PointerReleased(..))));
+        assert!(events.iter().any(|event| matches!(event, input::Event::Scrolled(_))));
+        assert!(events.iter().any(|event| matches!(event, input::Event::KeyPressed(_))));
+        assert!(events.iter().any(|event| matches!(event, input::Event::Resized(_))));
+        assert!(events.iter().any(|event| matches!(event, input::Event::Pinched(_))));
+    }
+    let allocations = mem_sys::local_alloc_count();
+    assert_eq!(allocations, 0, "real SDL input pump allocated after warming");
+    window.destroy().unwrap();
+}
+
 #[inline(never)]
 fn overflow(n: usize) -> usize {
     let recurse = std::hint::black_box(overflow as fn(usize) -> usize);
@@ -129,6 +155,7 @@ fn main() {
     }
     common::run(&[
         ("window_visibility", window_visibility),
+        ("window_numeric_input_zero_alloc", window_numeric_input_zero_alloc),
         ("native_stack_overflow_exits", native_stack_overflow_exits),
         ("native_abort_exits", native_abort_exits),
         ("native_startup_requires_initial_domain", native_startup_requires_initial_domain),

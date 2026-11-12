@@ -327,8 +327,10 @@ name = "pxui_sdl"
 version = "0.1.0"
 dependencies = [
  "input",
+ "mem_sys",
  "native_layer_token_sys",
  "sdl3",
+ "sdl3_sys",
 ]
 
 [[package]]

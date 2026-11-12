@@ -25,6 +25,11 @@ pub fn push_resize_burst() -> bool {
     unsafe { super::ffi::rays_sdl3_test_push_resize_burst() }
 }
 
+pub fn push_numeric_trace() -> bool {
+    // SAFETY: the helper queues fixed pointer, keyboard, resize, wheel and pinch events.
+    unsafe { super::ffi::rays_sdl3_test_push_numeric_trace() }
+}
+
 pub fn dialog_reserve() -> i32 {
     // SAFETY: the helper reserves one internal dialog test slot.
     unsafe { super::ffi::rays_sdl3_test_dialog_reserve() }

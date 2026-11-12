@@ -166,7 +166,7 @@ mod tests {
     fn translation_table() {
         let press = SdlEvent::MouseButton { button: SdlMouseButton::Right, down: true, x: 3., y: 4. };
         assert_eq!(translate(press), Some(Event::PointerPressed(MouseButton::RightButton, (3., 4.))));
-        let key = SdlEvent::Key { key: SdlKey::Char('a'), modifiers: Vec::new(), down: false, repeat: false };
+        let key = SdlEvent::Key { key: SdlKey::Char('a'), modifiers: 0, down: false, repeat: false };
         assert_eq!(translate(key), Some(Event::KeyReleased(Key::KeyChar('a'))));
         assert_eq!(translate(SdlEvent::Quit), Some(Event::Closed));
         assert_eq!(translate(SdlEvent::Window(WindowChange::Hidden)), Some(Event::VisibilityChanged(false)));

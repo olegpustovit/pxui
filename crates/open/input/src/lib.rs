@@ -177,31 +177,46 @@ fn add(key: Key, keys: &mut Vec<Key>) {
 
 pub fn keys_after(keys: &[Key], event: &Event) -> Vec<Key> {
     let mut keys = keys.to_vec();
+    update_keys(&mut keys, event);
+    keys
+}
+
+/// Applies one event without replacing the held-key buffer.
+pub fn update_keys(keys: &mut Vec<Key>, event: &Event) {
     match event {
-        Event::KeyPressed(key) => add(*key, &mut keys),
+        Event::KeyPressed(key) => add(*key, keys),
         Event::KeyReleased(key) => keys.retain(|held| held != key),
         Event::FocusLost => keys.clear(),
         _ => {}
     }
-    keys
 }
 
 pub fn keys_before(previous: &[Key], held: &[Key], events: &[Event]) -> Vec<Key> {
-    let mut keys = held.to_vec();
+    let mut keys = Vec::new();
+    keys_before_into(previous, held, events, &mut keys);
+    keys
+}
+
+/// Reconstructs the keys before the frame's events, retaining the output's capacity.
+pub fn keys_before_into(previous: &[Key], held: &[Key], events: &[Event], keys: &mut Vec<Key>) {
+    keys.clear();
+    keys.extend_from_slice(held);
     for event in events {
         match event {
             Event::KeyPressed(key) | Event::KeyReleased(key) => {
                 if previous.contains(key) {
-                    add(*key, &mut keys);
+                    add(*key, keys);
                 } else {
                     keys.retain(|held| held != key);
                 }
             }
-            Event::FocusLost => keys = previous.to_vec(),
+            Event::FocusLost => {
+                keys.clear();
+                keys.extend_from_slice(previous);
+            }
             _ => {}
         }
     }
-    keys
 }
 
 pub fn validate(v: &Frame) -> Result<(), String> {
@@ -585,6 +600,17 @@ mod tests {
         assert_eq!(before, vec![a]);
         let after = events.iter().fold(before, |keys, event| keys_after(&keys, event));
         assert_eq!(after, held.to_vec());
+        let mut retained = Vec::with_capacity(8);
+        let pointer = retained.as_ptr();
+        for _ in 0..100 {
+            keys_before_into(&previous, &held, &events, &mut retained);
+            assert_eq!(retained, previous);
+            for event in &events { update_keys(&mut retained, event); }
+            assert_eq!(retained, held);
+            update_keys(&mut retained, &Event::FocusLost);
+            assert!(retained.is_empty());
+            assert_eq!(retained.as_ptr(), pointer);
+        }
     }
 
     #[test]

@@ -82,6 +82,9 @@ fn sdl_calls_are_refused_from_worker_threads() {
         assert_eq!(crate::clipboard::get_text().unwrap_err().kind, ErrorKind::WrongDomain);
         assert_eq!(crate::hint::control_click_is_right_click(true).unwrap_err().kind, ErrorKind::WrongDomain);
         assert_eq!(crate::event::poll_coalesced().unwrap_err().kind, ErrorKind::WrongDomain);
+        let mut retained = vec![crate::Event::Quit];
+        assert_eq!(crate::event::poll_coalesced_into(&mut retained).unwrap_err().kind, ErrorKind::WrongDomain);
+        assert_eq!(retained, vec![crate::Event::Quit]);
         assert!(matches!(crate::Window::create("wrong domain", 8, 8, &[]),
             Err(error) if error.kind == ErrorKind::WrongDomain));
     }).join().unwrap();
@@ -210,20 +213,20 @@ fn typed_event_trace_and_async_dialog_outcomes_match_native_bridge() {
     use crate::KeyModifier as M;
     use crate::WindowChange as W;
     let expected = vec![
-        crate::Event::Key { key: K::Char('a'), modifiers: vec![M::Shift, M::CapsLock], down: true, repeat: false },
-        crate::Event::Key { key: K::Char('a'), modifiers: vec![], down: false, repeat: false },
-        crate::Event::Key { key: K::ArrowUp, modifiers: vec![], down: true, repeat: true },
-        crate::Event::Key { key: K::Escape, modifiers: vec![], down: true, repeat: false },
-        crate::Event::Key { key: K::F5, modifiers: vec![], down: true, repeat: false },
-        crate::Event::Key { key: K::Shift, modifiers: vec![M::Shift], down: true, repeat: false },
-        crate::Event::Key { key: K::Meta, modifiers: vec![M::Meta], down: true, repeat: false },
-        crate::Event::Key { key: K::Delete, modifiers: vec![], down: true, repeat: false },
-        crate::Event::Key { key: K::Enter, modifiers: vec![], down: true, repeat: false },
-        crate::Event::Key { key: K::Space, modifiers: vec![], down: true, repeat: false },
-        crate::Event::Key { key: K::Char('z'), modifiers: vec![], down: true, repeat: false },
-        crate::Event::Key { key: K::Char('a'), modifiers: vec![M::Meta], down: true, repeat: false },
-        crate::Event::Key { key: K::Char('7'), modifiers: vec![], down: true, repeat: false },
-        crate::Event::Key { key: K::Unknown(0x444), modifiers: vec![], down: true, repeat: false },
+        crate::Event::Key { key: K::Char('a'), modifiers: M::Shift as u8 | M::CapsLock as u8, down: true, repeat: false },
+        crate::Event::Key { key: K::Char('a'), modifiers: 0, down: false, repeat: false },
+        crate::Event::Key { key: K::ArrowUp, modifiers: 0, down: true, repeat: true },
+        crate::Event::Key { key: K::Escape, modifiers: 0, down: true, repeat: false },
+        crate::Event::Key { key: K::F5, modifiers: 0, down: true, repeat: false },
+        crate::Event::Key { key: K::Shift, modifiers: M::Shift as u8, down: true, repeat: false },
+        crate::Event::Key { key: K::Meta, modifiers: M::Meta as u8, down: true, repeat: false },
+        crate::Event::Key { key: K::Delete, modifiers: 0, down: true, repeat: false },
+        crate::Event::Key { key: K::Enter, modifiers: 0, down: true, repeat: false },
+        crate::Event::Key { key: K::Space, modifiers: 0, down: true, repeat: false },
+        crate::Event::Key { key: K::Char('z'), modifiers: 0, down: true, repeat: false },
+        crate::Event::Key { key: K::Char('a'), modifiers: M::Meta as u8, down: true, repeat: false },
+        crate::Event::Key { key: K::Char('7'), modifiers: 0, down: true, repeat: false },
+        crate::Event::Key { key: K::Unknown(0x444), modifiers: 0, down: true, repeat: false },
         crate::Event::TextInput("žirafa".into()),
         crate::Event::TextEditing { text: "č".into(), start: 1, length: 2 },
         crate::Event::MouseMotion { x: 11.5, y: 22.5, dx: 7.0, dy: 3.0 },
