@@ -151,6 +151,8 @@ pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/public/pxui/src/widgets.rs", "calls the private C ABI through safe wrapper methods"),
     ("crates/private/pxui_abi/src/ui_state.rs", "validates borrowed strings and caller-owned output pointers at the C ABI boundary"),
     ("crates/private/pxui_abi/src/box_ops.rs", "validates box descriptors, borrowed strings, callback contexts and caller-owned outputs at the C ABI boundary"),
+    ("crates/private/pxui_abi/src/bodies.rs", "routes the app's widget bodies: trampolines fill the C records, slots lend the caller's content, validated at the C ABI boundary"),
+    ("crates/public/pxui/src/bodies.rs", "calls the private C ABI to register typed bodies and contains their panics before returning to C"),
     ("crates/public/pxui/src/macros.rs", "the library! macro declares the extern block that links libpxui"),
     ("crates/private/pxui_abi/src/kit_ext.rs", "validates widget descriptors, borrowed strings, callback contexts and caller-owned outputs at the C ABI boundary"),
     ("crates/public/pxui/src/kit_ext.rs", "calls the private C ABI, passes stack callback contexts and reads borrowed library strings"),
