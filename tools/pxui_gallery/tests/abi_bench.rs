@@ -19,6 +19,10 @@ const MODE: &str = if STATIC { "static" } else { "dynamic" };
 const SAMPLES: usize = 600;
 /// Untimed frames before the first page: the start-up ramp measured at most about 50 ms.
 const WARM_UP: Duration = Duration::from_millis(200);
+/// Rounds and frames per round of the instruction count; its revisions start here, past the timed ones.
+const INSTRUCTION_ROUNDS: u64 = 15;
+const INSTRUCTION_FRAMES: u64 = 20;
+const INSTRUCTION_REVISIONS: u64 = 1_000_000;
 /// `pxui_abi`'s smallest span: a drawing of N shapes asks for a new one at most every this many.
 const SPAN: u64 = 256;
 // The gate's limits, all in one place. Each is the plan's target (`PLAN_*`, section A7 of the ABI plan) beside what the gate
@@ -40,6 +44,14 @@ const GATE_SMALL_PAGE_RATIO: f64 = 1.06;
 const GATE_DYNAMIC_US_PER_1000_NODES: f64 = 8.7;
 /// The worst of the runs taken (1.17 us on Kit, load 14) plus 25%; the median of the runs was 0.88.
 const GATE_DYNAMIC_SMALL_PAGE_US: f64 = 1.5;
+/// Retired instructions per frame, wrapper over direct (`abi_bench_pages`, macOS): the same in every run (spread 0.03%; Kit up to
+/// 0.2%) and immune to code placement (time moved 3% with an unrelated edit of this file; instructions up to 0.15%, the static
+/// wrapper's inlining into this binary), so the plan's ratios are the gates on every page, small ones included (static 1%, dynamic
+/// 3%). The two pages that miss the plan keep their measured ratio rounded up, the plan beside it: static Kit retires 1.04 to 1.20%
+/// more over three builds of this file (owned copies of widget results), dynamic Layout 4.20% more (400 calls, each through the C
+/// boundary's checks).
+const GATE_STATIC_KIT_INSTRUCTION_RATIO: f64 = 1.013;
+const GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.043;
 /// Plan: the dynamic build's resident memory no higher than the static build's. A second OGPU, `metal_sys` and `input` copy is the
 /// design (section 5), so the gate is its private (dirty) footprint, within a tolerance, and the clean shared code pages apart.
 const GATE_PRIVATE_TOLERANCE_KIB: f64 = 512.0;
@@ -98,6 +110,19 @@ fn direct_frame(d: &mut Direct, index: usize, revision: u64, count: u64) {
     d.ui.frame(&d.frame, &mut |ui: &mut engine::Ui| { ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut engine::Ui| direct_pages::page(ui, state, index)); });
 }
 
+/// Retired instructions per forced rebuild, the fewest of `INSTRUCTION_ROUNDS` rounds of `INSTRUCTION_FRAMES` (the process's count, so
+/// the minimum drops what another thread or the kernel added); `None` where the system does not count them (macOS only).
+/// `build(c)` builds the frame of revision `c + 1`.
+fn instructions_per_frame(build: &mut dyn FnMut(u64)) -> Option<f64> {
+    let mut fewest = f64::MAX;
+    for round in 0..INSTRUCTION_ROUNDS {
+        let start = mem_sys::instructions()?;
+        for frame in 0..INSTRUCTION_FRAMES { build(INSTRUCTION_REVISIONS + round * INSTRUCTION_FRAMES + frame); }
+        fewest = fewest.min((mem_sys::instructions()? - start) as f64 / INSTRUCTION_FRAMES as f64);
+    }
+    Some(fewest)
+}
+
 fn timed(f: &mut dyn FnMut()) -> f64 {
     let started = Instant::now();
     f();
@@ -138,6 +163,9 @@ fn abi_bench_pages() {
             if count >= 20 { tw.push(us_w); td.push(us_d); }
             nodes = w.ui.output().built_nodes as i64;
         }
+        // retired instructions: unlike time, the same in every run and in every placement of the code (Kit's time moved 3% with
+        // an unrelated edit of this file), so these gates are the plan's values
+        let counted = instructions_per_frame(&mut |c| wrapped_frame(&mut w, index, c + 1, c)).zip(instructions_per_frame(&mut |c| direct_frame(&mut d, index, c + 1, c)));
         // settled: the same revision again, with no input, builds nothing and allocates nothing, on either side
         (w.moved, d.moved) = (false, false);
         let revision = SAMPLES as u64 + 21;
@@ -151,10 +179,14 @@ fn abi_bench_pages() {
             direct_frame(&mut d, index, revision, count);
             if round >= 4 { sd = sd.max(allocations() - before); }
         }
+        // paired: sample i of each side ran back to back, so the medians of their ratios and differences cancel the load, frequency
+        // and core both saw; the two medians apart let a burst on one side through (Kit +10% with the other cases contending)
+        let ratio = median(&mut tw.iter().zip(&td).map(|(w, d)| w / d).collect::<Vec<_>>());
+        let delta = median(&mut tw.iter().zip(&td).map(|(w, d)| w - d).collect::<Vec<_>>());
         let (mw, md) = (median(&mut tw), median(&mut td));
-        let per_thousand = (mw - md) / (nodes.max(1) as f64 / 1000.0);
+        let per_thousand = delta / (nodes.max(1) as f64 / 1000.0);
         worst_per_thousand = worst_per_thousand.max(per_thousand);
-        println!("PXUI abi_bench {MODE} page={name} direct_us={md:.2} wrapper_us={mw:.2} ratio={:.4} delta_us_per_1000_nodes={per_thousand:.2} nodes={nodes} rebuild_allocs direct={ad} wrapper={aw} settled_allocs direct={sd} wrapper={sw}", mw / md);
+        println!("PXUI abi_bench {MODE} page={name} direct_us={md:.2} wrapper_us={mw:.2} ratio={ratio:.4} delta_us={delta:.2} delta_us_per_1000_nodes={per_thousand:.2} nodes={nodes} rebuild_allocs direct={ad} wrapper={aw} settled_allocs direct={sd} wrapper={sw}");
         // ponytail: the Layout page's anchored popup is a root box, which the engine rebuilds the view for on every frame (by design, see
         // `Ui::escape`), so that page never settles in any build; there the wrapper must only match the engine. Move the popup out of
         // the cached view to gate it at zero too.
@@ -162,9 +194,18 @@ fn abi_bench_pages() {
         if (settles && (sd, sw) != (0, 0)) || sw > sd { failures.push(format!("{name}: a settled frame allocates nothing in any build (direct {sd}, wrapper {sw})")); }
         let large = nodes >= GATE_PER_1000_MIN_NODES;
         let (static_ratio, dynamic_ratio) = if large { (GATE_STATIC_RATIO, GATE_DYNAMIC_RATIO) } else { (GATE_SMALL_PAGE_RATIO, GATE_SMALL_PAGE_RATIO) };
-        if STATIC && mw > md * static_ratio { failures.push(format!("{name}: wrapper static build {mw:.2} us is over {:.0}% above the direct engine's {md:.2} us (plan {:.0}%)", (static_ratio - 1.0) * 100.0, (PLAN_STATIC_RATIO - 1.0) * 100.0)); }
-        let dynamic_over = if large { per_thousand > GATE_DYNAMIC_US_PER_1000_NODES } else { mw - md > GATE_DYNAMIC_SMALL_PAGE_US };
-        if !STATIC && (mw > md * dynamic_ratio || dynamic_over) { failures.push(format!("{name}: wrapper dynamic build {mw:.2} us against direct {md:.2} us ({per_thousand:.2} us per 1000 nodes, {:.2} us a frame) is over {:.0}% or the per-node gate (plan {:.0}% and {PLAN_DYNAMIC_US_PER_1000_NODES} us per 1000 nodes)", mw - md, (dynamic_ratio - 1.0) * 100.0, (PLAN_DYNAMIC_RATIO - 1.0) * 100.0)); }
+        if STATIC && ratio > static_ratio { failures.push(format!("{name}: wrapper static build {mw:.2} us (paired x{ratio:.4}) is over {:.0}% above the direct engine's {md:.2} us (plan {:.0}%)", (static_ratio - 1.0) * 100.0, (PLAN_STATIC_RATIO - 1.0) * 100.0)); }
+        let dynamic_over = if large { per_thousand > GATE_DYNAMIC_US_PER_1000_NODES } else { delta > GATE_DYNAMIC_SMALL_PAGE_US };
+        let plan = if STATIC { PLAN_STATIC_RATIO } else { PLAN_DYNAMIC_RATIO };
+        let instruction_limit = match (STATIC, *name) { (true, "Kit") => GATE_STATIC_KIT_INSTRUCTION_RATIO, (false, "Layout") => GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO, _ => plan };
+        match counted {
+            Some((iw, id)) => {
+                println!("PXUI abi_bench {MODE} page={name} direct_instructions={id:.0} wrapper_instructions={iw:.0} instruction_ratio={:.5} limit={instruction_limit}", iw / id);
+                if iw > id * instruction_limit { failures.push(format!("{name}: wrapper {MODE} build retires {iw:.0} instructions a frame, over {:.1}% above the direct engine's {id:.0} (plan {:.0}%)", (instruction_limit - 1.0) * 100.0, (plan - 1.0) * 100.0)); }
+            }
+            None => println!("PXUI abi_bench {MODE} page={name}: instruction gate skipped (no retired-instruction count on this system)"),
+        }
+        if !STATIC && (ratio > dynamic_ratio || dynamic_over) { failures.push(format!("{name}: wrapper dynamic build {mw:.2} us against direct {md:.2} us (paired: x{ratio:.4}, {per_thousand:.2} us per 1000 nodes, {delta:.2} us a frame) is over {:.0}% or the per-node gate (plan {:.0}% and {PLAN_DYNAMIC_US_PER_1000_NODES} us per 1000 nodes)", (dynamic_ratio - 1.0) * 100.0, (PLAN_DYNAMIC_RATIO - 1.0) * 100.0)); }
     }
     println!("PXUI abi_bench {MODE} worst delta {worst_per_thousand:.2} us per 1000 nodes");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
