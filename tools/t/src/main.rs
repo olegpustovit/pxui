@@ -258,12 +258,15 @@ fn run() -> i32 {
 
 /// A dynamic `pxui` links the built `libpxui` by its soname. Nothing depends on the cdylib in that mode, so cargo does not
 /// build it for the tests: build and uplift it here, with the `libpxui.1.dylib` / `libpxui.so.1` link the executables load.
-/// Only runs for the packages that link it; static builds do not need it and are not slowed down.
+/// In PXUI's own workspace only for the packages that link it (static builds are not slowed down); Rays always links it dynamically,
+/// and builds it from the `pxui/` checkout's workspace into its own target directory.
 fn ensure_libpxui(args: &Args) -> Result<(), i32> {
-    let linked = args.cargo.windows(2).any(|pair| (pair[0] == "-p" || pair[0] == "--package") && (pair[1] == "pxui" || pair[1] == "pxui_gallery"));
+    let in_rays = !Path::new("crates/private/pxui_dylib").exists() && Path::new("pxui/Cargo.toml").exists();
+    let linked = in_rays || args.cargo.windows(2).any(|pair| (pair[0] == "-p" || pair[0] == "--package") && (pair[1] == "pxui" || pair[1] == "pxui_gallery"));
     if !linked { return Ok(()); }
     let mut build = Command::new("cargo");
-    build.args(["build", "-q", "-p", "pxui_dylib"]);
+    build.args(["build", "-q", "-p", "pxui_dylib", "--target-dir"]).arg(args.target_dir.clone().unwrap_or_else(default_target_dir));
+    if in_rays { build.args(["--manifest-path", "pxui/Cargo.toml"]); }
     let mut profile = "debug".to_owned();
     let mut flags = args.cargo.iter();
     while let Some(flag) = flags.next() {
