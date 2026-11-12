@@ -4,7 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-use crate::bodies::{in_body, ButtonConfig, ToggleConfig};
+use crate::bodies::{in_body, ButtonConfig, FooterConfig, LabelConfig, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 use crate::a11y::state as st;
 use input::{Event, Key};
@@ -72,6 +72,43 @@ fn default_button(this: &mut Ui, c: &ButtonConfig, text: &str) {
     match direction {
         Some(d) => n.mark = Mark::Chevron(d),
         None => this.text(&c.row, shown(text)),
+    }
+}
+
+/// The built-in label: ink-2 capitals 12 points from the left, a row high (4 more above it when it is the first thing of its parent).
+fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
+    let gap = if c.first { 4.0 } else { 0.0 };
+    let look = this.theme().label.idle;
+    let h = gap + this.row_height() as f32;
+    let inset = Edges { l: this.space(2), t: gap, r: 0.0, b: 0.0 };
+    let n = this.node_mut(&c.node);
+    (n.h, n.look, n.inset) = (Size::Px(h), look, inset);
+    this.text(&c.node, shown(text));
+}
+
+/// The built-in footer: the hairline under 4 points of space, the hints and the key at the end.
+fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &[(String, String)]) {
+    let row = c.row;
+    let rh = this.row_height() as f32;
+    let t = this.theme();
+    let (rule, key, hint, label) = (t.footer.idle, t.key.idle, t.hint.idle, t.label.idle);
+    // the hairline 4 points under what is above
+    let n = this.node_mut(&row);
+    (n.h, n.margin, n.look) = (Size::Px(1.0 + rh), Edges { t: 4.0, ..Edges::ZERO }, rule);
+    let size = key.font.points(this.font_size());
+    let mut pen = this.space(2);
+    for (i, (k, what)) in hints.iter().enumerate() {
+        let kw = this.text_width(Some(size), k);
+        this.placed(int_key(row.box_key, 2 * i as i64), (pen, 1.0), Size::Px(kw.max(1.0)), rh, key, Edges::default(), k);
+        pen += kw + 8.0;
+        let ww = this.text_width(None, what);
+        this.placed(int_key(row.box_key, 2 * i as i64 + 1), (pen, 1.0), Size::Px(ww.max(1.0)), rh, hint, Edges::default(), what);
+        pen += ww + 8.0;
+    }
+    if let Some(text) = right {
+        let cw = this.cap_width(text);
+        this.end_row(&row, this.space(2));
+        this.flow_part(int_key(row.box_key, -1), cw, rh, Edges { t: 1.0, ..Edges::ZERO }, label, text);
     }
 }
 
@@ -727,40 +764,16 @@ impl Ui {
     /// A window's title or a panel's caption: ink-2 capitals 12 points from the left, with 4 points
     /// above it when it is the first thing of its parent.
     pub fn label(&mut self, text: &str) {
-        let gap = if self.last_child_of_parent() == NONE { 4.0 } else { 0.0 };
-        let look = self.theme().label.idle;
-        let row = self.node(
-            text,
-            Node { h: Size::Px(gap + self.row_height() as f32), look, inset: Edges { l: self.space(2), t: gap, r: 0.0, b: 0.0 }, role: Role::Label, ..Node::DEFAULT },
-        );
-        self.text(&row, shown(text));
+        let first = self.last_child_of_parent() == NONE;
+        let node = self.node(text, Node { role: Role::Label, ..Node::DEFAULT });
+        in_body!(self, node.box_key, node, label, default_label(&LabelConfig { node, first }, text));
     }
 
     /// A window's foot: a line-2 hairline under 4 points of space, then the keys in ink-3 each
     /// followed by what it does in ink-2, 8 points apart, and `right` (a key or a count) at the end.
     pub fn footer(&mut self, right: Option<&str>, hints: &[(String, String)]) {
-        let rh = self.row_height() as f32;
-        let t = self.theme();
-        let (rule, key, hint, label) = (t.footer.idle, t.key.idle, t.hint.idle, t.label.idle);
-        // the hairline 4 points under what is above
-        let row = self.node("footer", Node { h: Size::Px(1.0 + rh), margin: Edges { t: 4.0, ..Edges::ZERO }, look: rule, role: Role::StatusBar, ..Node::DEFAULT });
-        let size = key.font.points(self.font_size());
-        let saved = self.enter(&row);
-        let mut pen = self.space(2);
-        for (i, (k, what)) in hints.iter().enumerate() {
-            let kw = self.text_width(Some(size), k);
-            self.placed(int_key(row.box_key, 2 * i as i64), (pen, 1.0), Size::Px(kw.max(1.0)), rh, key, Edges::default(), k);
-            pen += kw + 8.0;
-            let ww = self.text_width(None, what);
-            self.placed(int_key(row.box_key, 2 * i as i64 + 1), (pen, 1.0), Size::Px(ww.max(1.0)), rh, hint, Edges::default(), what);
-            pen += ww + 8.0;
-        }
-        if let Some(text) = right {
-            let cw = self.cap_width(text);
-            self.end_row(&row, self.space(2));
-            self.flow_part(int_key(row.box_key, -1), cw, rh, Edges { t: 1.0, ..Edges::ZERO }, label, text);
-        }
-        self.leave(saved);
+        let row = self.node("footer", Node { role: Role::StatusBar, ..Node::DEFAULT });
+        in_body!(self, row.box_key, row, footer, default_footer(&FooterConfig { row }, right, hints));
     }
 
     /// `true` on the frame a press and release both land inside the button.

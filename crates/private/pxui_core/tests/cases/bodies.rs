@@ -424,6 +424,127 @@ pub fn radio_mark_body() {
     swap("radio", &|ui| pick(ui, &|t, id| t.body.radio = id, &|ui| ui.register_radio_body("mark", mark_check)), Role::Radio, "B", Key::ArrowDown, &hits);
 }
 
+type Facts = Vec<(Role, String, pxui_core::a11y::Value, u32, u32)>;
+
+/// What the accessibility tree says of everything built, and the layer bytes, after `build` has settled; warm frames allocate nothing.
+fn settled(kind: &str, custom: &str, ui: &mut Ui, build: &dyn Fn(&mut Ui)) -> (Facts, String) {
+    let mut t = 0.0;
+    let mut step = |ui: &mut Ui| {
+        t += 0.1;
+        ui.frame(&frame(t, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| build(ui)));
+    };
+    for _ in 0..3 {
+        step(ui);
+    }
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    for _ in 0..20 {
+        step(ui);
+    }
+    check(mem_sys::local_alloc_count() == before, &format!("{kind} {custom}: warm frames allocated"));
+    let tree = ui.output().a11y;
+    let facts = tree.nodes.iter().map(|n| (n.role, tree.str(n.name).to_owned(), n.value, n.states, n.actions)).collect();
+    (facts, format!("{:?}", ui.output().draw[0].instances))
+}
+
+/// `settled` with the built-in body and with the one `install` puts in the theme: the facts are the same, the bytes are not.
+fn swap_static(kind: &str, install: &dyn Fn(&mut Ui), build: &dyn Fn(&mut Ui)) {
+    let mut runs = Vec::new();
+    for custom in [false, true] {
+        let mut ui = new_ui(None);
+        ui.set_a11y(true);
+        if custom {
+            install(&mut ui);
+        }
+        runs.push(settled(kind, if custom { "custom" } else { "default" }, &mut ui, build));
+        ui.destroy();
+    }
+    check(runs[0].0 == runs[1].0, &format!("{kind}: accessibility facts differ: {:?} {:?}", runs[0].0, runs[1].0));
+    check(runs[0].0.len() >= 1, &format!("{kind}: nothing in the tree"));
+    check(runs[0].1 != runs[1].1, &format!("{kind}: the body drew the same bytes"));
+}
+
+/// Three big dots: `busy_step` turns the dots it finds and stops at the first missing one.
+fn three_dots(ui: &mut Ui, c: &SpinnerConfig, _label: &str) {
+    let n = ui.node_mut(&c.node);
+    (n.w, n.h) = (Size::Px(24.0), Size::Px(8.0));
+    n.axis = Axis::Row;
+    for i in 0..3 {
+        ui.part(Part::dot(i), Node { w: Size::Px(6.0), h: Size::Px(6.0), margin: Edges::all(1.0), look: Look { fill: ui_ink(), ..Look::NONE }, ..Node::DEFAULT });
+    }
+}
+
+fn ui_ink() -> pxui_core::geom::Rgba {
+    pxui_core::geom::color::white()
+}
+
+pub fn spinner_three_dots_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.spinner = id, &|ui| ui.register_spinner_body("three", three_dots));
+    swap_static("spinner", &install, &|ui| { ui.spinner("Loading"); });
+    let mut ui = new_ui(None);
+    install(&mut ui);
+    let h = std::cell::Cell::new(None);
+    for k in 0..3 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| h.set(Some(ui.spinner("Loading")))));
+    }
+    let spinner = h.get().expect("the spinner");
+    check(ui.part_rect(spinner.box_key, Part::dot(2)).is_some_and(|r| r.w == 6.0) && ui.part_rect(spinner.box_key, Part::dot(3)).is_none(), "the dots are the body's");
+    check(ui.busy_step(&spinner, 0.5), "a custom spinner did not turn");
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    for i in 0..60 {
+        ui.busy_step(&spinner, 1.0 + i as f64 / 60.0);
+    }
+    check(mem_sys::local_alloc_count() == before, "animated steps allocated");
+    ui.destroy();
+}
+
+/// A badge as an outlined box that is always 40 wide; the text is still on the node `patch_text` finds.
+fn box_badge(ui: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
+    let n = ui.node_mut(&c.node);
+    (n.w, n.h, n.look) = (Size::Px(40.0), Size::Px(20.0), Look { border: pxui_core::geom::color::white(), border_w: 1.0, ..Look::NONE });
+    ui.text(&c.node, text);
+}
+
+pub fn badge_box_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.badge = id, &|ui| ui.register_badge_body("box", box_badge));
+    swap_static("badge", &install, &|ui| { ui.badge("Unread", "12"); });
+    let mut ui = new_ui(None);
+    install(&mut ui);
+    let h = std::cell::Cell::new(None);
+    for k in 0..3 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| h.set(Some(ui.badge("Unread", "12")))));
+    }
+    check(ui.patch_text(&h.get().expect("the badge"), "13"), "patch_text missed the badge's node");
+    ui.destroy();
+}
+
+/// A caption with a rule under it: the label's node holds a child.
+fn ruled_label(ui: &mut Ui, c: &LabelConfig, text: &str) {
+    let n = ui.node_mut(&c.node);
+    n.h = Size::Px(30.0);
+    ui.text(&c.node, shown(text));
+    ui.node("rule", Node { h: Size::Px(1.0), margin: Edges { t: 20.0, ..Edges::ZERO }, look: Look { fill: pxui_core::geom::color::white(), ..Look::NONE }, ..Node::DEFAULT });
+}
+
+pub fn label_rule_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.label = id, &|ui| ui.register_label_body("rule", ruled_label));
+    swap_static("label", &install, &|ui| ui.label("Section"));
+}
+
+/// A footer that is just its end key, with no rule and no hints.
+fn bare_footer(ui: &mut Ui, c: &FooterConfig, right: Option<&str>, _hints: &[(String, String)]) {
+    ui.node_mut(&c.row).h = Size::Px(24.0);
+    let end = ui.node("end", Node { w: Size::Px(60.0), h: Size::Px(24.0), ..Node::DEFAULT });
+    ui.text(&end, right.unwrap_or(""));
+}
+
+pub fn footer_bare_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.footer = id, &|ui| ui.register_footer_body("bare", bare_footer));
+    let hints = [("Esc".to_owned(), "close".to_owned())];
+    swap_static("footer", &install, &|ui| ui.footer(Some("3 items"), &hints));
+}
+
 pub const CASES: &[(&str, fn())] = &[
     ("toggle_checkbox_body", toggle_checkbox_body),
     ("slider_custom_thumb", slider_custom_thumb),
@@ -435,4 +556,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("icon_button_round_body", icon_button_round_body),
     ("checkbox_mark_body", checkbox_mark_body),
     ("radio_mark_body", radio_mark_body),
+    ("spinner_three_dots_body", spinner_three_dots_body),
+    ("badge_box_body", badge_box_body),
+    ("label_rule_body", label_rule_body),
+    ("footer_bare_body", footer_bare_body),
 ];

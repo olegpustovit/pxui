@@ -241,6 +241,10 @@ macro_rules! body_kinds {
             icon_button register_icon_button_body IconButtonBody,
             checkbox register_checkbox_body CheckBody,
             radio register_radio_body CheckBody,
+            spinner register_spinner_body SpinnerBody,
+            badge register_badge_body BadgeBody,
+            label register_label_body LabelBody,
+            footer register_footer_body FooterBody,
         }
     };
 }

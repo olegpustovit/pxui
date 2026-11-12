@@ -78,6 +78,41 @@ pub struct CheckConfig {
 
 pub type CheckBody = fn(&mut Ui, &CheckConfig, &str);
 
+/// What a spinner body is given (its label beside it). It runs with the spinner's `node` entered, which carries the role, the busy
+/// state and the accessible name; the body sizes it and builds the dots. `busy_step` turns the nodes built as `Part::dot(i)`, i from
+/// 0, until the first missing one: a body with none does not animate.
+pub struct SpinnerConfig {
+    pub node: Handle,
+}
+
+pub type SpinnerBody = fn(&mut Ui, &SpinnerConfig, &str);
+
+/// What a badge body is given (its label, then its text, beside it). It runs with the badge's `node` entered, which carries the
+/// role, the accessible name and value and the key `patch_text` finds; the body sizes and looks it and puts the text on it (a count
+/// patched later lands there).
+pub struct BadgeConfig {
+    pub node: Handle,
+}
+
+pub type BadgeBody = fn(&mut Ui, &BadgeConfig, &str, &str);
+
+/// What a label body is given (its text beside it). It runs with the label's `node` entered; `first` is whether it is the first
+/// thing of its parent (the default body gives it 4 points above).
+pub struct LabelConfig {
+    pub node: Handle,
+    pub first: bool,
+}
+
+pub type LabelBody = fn(&mut Ui, &LabelConfig, &str);
+
+/// What a footer body is given (the key at its end, then the key and what-it-does pairs, beside it). It runs with the footer's `row`
+/// entered, which carries the status-bar role, and builds everything: the rule, the hints, the key at the end.
+pub struct FooterConfig {
+    pub row: Handle,
+}
+
+pub type FooterBody = fn(&mut Ui, &FooterConfig, Option<&str>, &[(String, String)]);
+
 /// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
 fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {
     if name == "default" {

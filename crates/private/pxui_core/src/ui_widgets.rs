@@ -10,11 +10,11 @@
 //! Enter/Space activate, the arrows move within a group, Escape leaves. A warm frame allocates
 //! nothing. Progress and spinner animate through patches (`busy_step`) without rebuilding their view.
 use crate::a11y::state as st;
-use crate::bodies::{in_body, CheckConfig, IconButtonConfig, ProgressConfig, SliderConfig};
+use crate::bodies::{in_body, BadgeConfig, CheckConfig, IconButtonConfig, ProgressConfig, SliderConfig, SpinnerConfig};
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
-use crate::ui_kit::{part_key, text_only};
+use crate::ui_kit::text_only;
 use input::{Event, Key};
 use std::ops::RangeInclusive;
 
@@ -179,16 +179,9 @@ impl Ui {
     /// A 16-point spinner: eight dots round a circle, the lead dot in the accent. `busy_step` turns
     /// it. Returns its node.
     pub fn spinner(&mut self, label: &str) -> Handle {
-        let (dim, lead) = (self.theme().spinner.idle, self.theme().spinner.checked);
-        let n = self.node(label, Node { w: Size::Px(16.0), h: Size::Px(16.0), role: Role::Progress, a11y: st::BUSY, ..Node::DEFAULT });
+        let n = self.node(label, Node { role: Role::Progress, a11y: st::BUSY, ..Node::DEFAULT });
         self.a11y_name(&n, shown(label));
-        let saved = self.enter(&n);
-        for i in 0..8 {
-            let a = i as f32 * std::f32::consts::TAU / 8.0;
-            let at = (8.0 + 6.0 * a.sin() - 1.5, 8.0 - 6.0 * a.cos() - 1.5);
-            self.node_keyed(part_key(n.box_key, Part::dot(i as u8)), Node { w: Size::Px(3.0), h: Size::Px(3.0), at: Some(at).into(), look: if i == 0 { lead } else { dim }, ..Node::DEFAULT });
-        }
-        self.leave(saved);
+        in_body!(self, n.box_key, n, spinner, default_spinner(&SpinnerConfig { node: n }, label));
         n
     }
 
@@ -788,12 +781,10 @@ impl Ui {
     /// A small label in the badge look (`text`, keyed by `label` so `patch_text` can update a count
     /// without a rebuild). Returns its node.
     pub fn badge(&mut self, label: &str, text: &str) -> Handle {
-        let look = self.theme().badge.idle;
-        let w = self.text_width(Some(look.font.points(self.font_size())), text) + 8.0;
-        let n = self.node(label, Node { w: Size::Px(w), h: Size::Px(16.0), look, inset: Edges { l: 4.0, ..Edges::ZERO }, role: Role::Label, ..Node::DEFAULT });
-        self.text(&n, text);
+        let n = self.node(label, Node { role: Role::Label, ..Node::DEFAULT });
         self.a11y_name(&n, shown(label));
         self.a11y_value(&n, text, (0, 0));
+        in_body!(self, n.box_key, n, badge, default_badge(&BadgeConfig { node: n }, label, text));
         n
     }
 
@@ -972,6 +963,27 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
     this.leave(inner);
     this.leave(saved);
     changed
+}
+
+/// The built-in spinner: 16 points square, eight 3-point dots round a circle, the lead dot in the accent.
+fn default_spinner(this: &mut Ui, c: &SpinnerConfig, _label: &str) {
+    let (dim, lead) = (this.theme().spinner.idle, this.theme().spinner.checked);
+    let n = this.node_mut(&c.node);
+    (n.w, n.h) = (Size::Px(16.0), Size::Px(16.0));
+    for i in 0..8 {
+        let a = i as f32 * std::f32::consts::TAU / 8.0;
+        let at = (8.0 + 6.0 * a.sin() - 1.5, 8.0 - 6.0 * a.cos() - 1.5);
+        this.part(Part::dot(i as u8), Node { w: Size::Px(3.0), h: Size::Px(3.0), at: Some(at).into(), look: if i == 0 { lead } else { dim }, ..Node::DEFAULT });
+    }
+}
+
+/// The built-in badge: the text in the badge look on a 16-point pill as wide as the text and 4 points either side.
+fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
+    let look = this.theme().badge.idle;
+    let w = this.text_width(Some(look.font.points(this.font_size())), text) + 8.0;
+    let n = this.node_mut(&c.node);
+    (n.w, n.h, n.look, n.inset) = (Size::Px(w), Size::Px(16.0), look, Edges { l: 4.0, ..Edges::ZERO });
+    this.text(&c.node, text);
 }
 
 /// The built-in icon button: the 20-point square, the glyph centred.
