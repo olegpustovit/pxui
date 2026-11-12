@@ -61,7 +61,9 @@ unsafe fn create_ui(desc: PxuiUiDesc, fonts: &[&[u8]]) -> *mut PxuiUi {
     let font_size = (desc.font_size != 0).then_some(i64::from(desc.font_size));
     let engine = Box::into_raw(Box::new(Ui::create(platform, font_size, text)));
     let shared = Box::into_raw(Box::new(Shared::new()));
-    Box::into_raw(Box::new(PxuiUi { engine, shared, owner: true }))
+    let owner = Box::into_raw(Box::new(PxuiUi { engine, shared, owner: true }));
+    unsafe { (*shared).current = owner; }
+    owner
 }
 
 // Frees a `Ui`. Fails (and frees nothing) on a borrowed handle, inside a frame, or while a renderer is attached.
@@ -267,11 +269,13 @@ unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &m
         s.returned.clear();
         s.chunks_used = 0;
         s.in_frame = true;
+        // no handle is usable until the build callback runs: the engine is mid-frame (its own phases run between callbacks)
+        s.current = core::ptr::null_mut();
     }
     // a panic of the build unwinds past this (the static wrapper's callbacks run without a catch): the `Ui` leaves the frame
-    struct Leave(*mut Shared);
-    impl Drop for Leave { fn drop(&mut self) { unsafe { (*self.0).in_frame = false; } } }
-    let _leave = Leave(shared);
+    struct Leave(*mut Shared, *mut PxuiUi);
+    impl Drop for Leave { fn drop(&mut self) { unsafe { (*self.0).in_frame = false; (*self.0).current = self.1; } } }
+    let _leave = Leave(shared, ui);
     // a panic of the build (the static wrapper's callbacks run without a catch) leaves the engine mid-frame: it is reset, then the panic goes on
     let built = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { (&mut *engine).frame(frame, &mut |engine: &mut Ui| call_inner(shared, engine, build)) }));
     let output = match built { Ok(output) => output, Err(panic) => { unsafe { (&mut *engine).abandon_frame(); } std::panic::resume_unwind(panic) } };

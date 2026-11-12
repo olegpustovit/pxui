@@ -24,6 +24,7 @@ export!(trusted pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const Px
     let (shared, build, user) = (unsafe { (*ui).shared }, desc.build, desc.user);
     unsafe { crate::trusted::grid_cells(ui, label, desc.count, desc.cell_w, desc.cell_h, &mut |engine: &mut pxui_core::ui::Ui, index| {
         let mut borrowed = PxuiUi::borrowed(engine, shared);
+        let _current = crate::state::Current::set(shared, &mut borrowed);
         if let Some(build) = build { build(user, (&mut borrowed as *mut PxuiUi).cast(), index) }
     }, &mut *out) }
 });

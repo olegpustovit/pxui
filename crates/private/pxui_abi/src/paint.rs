@@ -51,6 +51,7 @@ export!(bare pub unsafe fn pxui_ui_draw(ui: *mut crate::PxuiUi, box_: *const Pxu
     // `owner` releases the callback on every early return, so a poisoned or invalid call still frees the caller's closure.
     let Some(state) = (unsafe { crate::get(ui) }) else { return crate::PXUI_ERR_ARGUMENT };
     if state.shared().poisoned { return crate::PXUI_ERR_PANIC; }
+    if !unsafe { crate::state::usable(ui) } { return unsafe { crate::state::refuse(state.shared) }; }
     if box_.is_null() || over > 1 { return unsafe { crate::fail(ui, "invalid paint callback descriptor") }; }
     let Some(b) = crate::core_box(unsafe { *box_ }) else { return unsafe { crate::fail(ui, "invalid paint box") }; };
     let shared = state.shared;

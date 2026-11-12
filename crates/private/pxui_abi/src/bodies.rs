@@ -38,6 +38,7 @@ fn shared(ui: &Ui) -> *mut Shared { ui.body_host().cast() }
 fn invoke(ui: &mut Ui, sh: *mut Shared, kind: BodyKind, id: BodyId, cfg: *const c_void) {
     let Some(&(body, user)) = (unsafe { &(*sh).bodies.table }).get(kind as usize).and_then(|k| k.get((id.0 as usize).wrapping_sub(1))) else { return };
     let mut handle = PxuiUi::borrowed(ui, sh);
+    let _current = crate::state::Current::set(sh, &mut handle);
     let depth = unsafe { (*sh).bodies.depth };
     unsafe { (*sh).bodies.depth = depth + 1 };
     body(user, (&mut handle as *mut PxuiUi).cast(), cfg);
@@ -246,7 +247,7 @@ export!(pub unsafe fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out:
 /// call that received it: one deeper (a nested body, or the slot's own content, which runs a level down) is refused, so the closure
 /// it lends is never entered while it runs.
 pub unsafe fn slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32 {
-    crate::state::note_call();
+    enter!(ui);
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
     let bodies = &mut state.shared().bodies;
     let Some(&(_, level, found)) = bodies.slots.iter().rev().find(|(serial, ..)| *serial == slot.serial) else { return unsafe { fail_code(ui, "stale slot", PXUI_ERR_STALE) } };

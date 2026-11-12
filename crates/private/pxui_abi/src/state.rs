@@ -30,6 +30,10 @@ pub(crate) struct Shared {
     /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
     pub paint_error: bool,
     pub in_frame: bool,
+    /// the one `PxuiUi` handle that may be used right now: the owner outside a frame; in a frame the innermost borrowed handle (the
+    /// engine it holds is the live `&mut Ui` of that callback), or null while no callback runs. Any other handle reaches the engine
+    /// through a pointer the live `&mut Ui` was not derived from, so every export refuses it (`usable`).
+    pub current: *mut PxuiUi,
     /// a frame ended since the output was last built: its next build refreshes the accessibility records too
     pub frame_ended: bool,
     /// renderers created on this `Ui`: each holds a raw pointer to the engine, so it outlives none of them
@@ -80,7 +84,7 @@ impl Shared {
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs = strs; }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, paint_error: false, in_frame: false, frame_ended: false, renderers: 0, returned: Vec::new(),
+            error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(),
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), menus: Vec::new(), bodies: Default::default(),
@@ -113,10 +117,36 @@ impl PxuiUi {
 /// their `Build` and user pointer in one (`|ui| build(user, ui.cast())`); the static wrapper passes its own closure.
 pub type Inner<'a> = &'a mut dyn FnMut(*mut PxuiUi);
 
+/// Makes a handle the current one (`Shared::current`) until dropped, then restores the previous: also when a callback unwinds.
+pub(crate) struct Current { shared: *mut Shared, prev: *mut PxuiUi }
+impl Current {
+    #[inline(always)]
+    pub fn set(shared: *mut Shared, handle: *mut PxuiUi) -> Self { Self { shared, prev: unsafe { core::mem::replace(&mut (*shared).current, handle) } } }
+}
+impl Drop for Current { #[inline(always)] fn drop(&mut self) { unsafe { (*self.shared).current = self.prev; } } }
+
+/// Whether `ui` is the handle an export may use now (one load and compare; see `Shared::current`).
+#[inline(always)]
+pub(crate) unsafe fn usable(ui: *mut PxuiUi) -> bool { unsafe { (*(*ui).shared).current == ui } }
+
+/// Records why a handle was refused and returns `PXUI_ERR_STATE`. Out of line, as `fail`.
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn refuse(shared: *mut Shared) -> i32 {
+    if !shared.is_null() {
+        let error = unsafe { &mut (*shared).error };
+        error.clear();
+        error.push_str("this handle is not the one a frame callback may use now: use the handle of the innermost callback, and the owner only outside a frame");
+    }
+    crate::PXUI_ERR_STATE
+}
+
 /// Calls `f` with a borrowed handle over `engine`.
 pub(crate) fn call_inner(shared: *mut Shared, engine: &mut Ui, f: Inner) {
     let mut borrowed = PxuiUi::borrowed(engine, shared);
-    f(&mut borrowed);
+    let handle: *mut PxuiUi = &mut borrowed;
+    let _current = Current::set(shared, handle);
+    f(handle);
 }
 
 /// Calls `build` with a borrowed handle over `engine`.
@@ -127,11 +157,26 @@ pub(crate) fn call_build(shared: *mut Shared, engine: &mut Ui, build: Build, use
 pub use pxui_types::ffi::UiBuild as Build;
 
 /// Where an export finds the shared state of its first argument, so the export macro can poison it.
-pub(crate) trait Handle { fn shared(self) -> *mut Shared; }
-impl Handle for *mut PxuiUi { fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } } }
-impl Handle for *const PxuiUi { fn shared(self) -> *mut Shared { Handle::shared(self as *mut PxuiUi) } }
-impl Handle for *mut crate::PxuiRenderer { fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } } }
-impl Handle for *mut crate::paint::PxuiPaint { fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } } }
+/// `usable` says whether the export may touch the engine through the handle: a `PxuiUi` must be `Shared::current`; a renderer holds the
+/// engine for its own calls, so it is refused inside a frame (the live `&mut Ui` of a callback would alias it); a paint handle reaches the
+/// painter of the one paint callback it was made for, and no callback nests in another, so it has no second live path.
+pub(crate) trait Handle { fn shared(self) -> *mut Shared; fn usable(self, shared: *mut Shared) -> bool; }
+impl Handle for *mut PxuiUi {
+    fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } }
+    #[inline(always)] fn usable(self, shared: *mut Shared) -> bool { shared.is_null() || unsafe { (*shared).current == self } }
+}
+impl Handle for *const PxuiUi {
+    fn shared(self) -> *mut Shared { Handle::shared(self as *mut PxuiUi) }
+    #[inline(always)] fn usable(self, shared: *mut Shared) -> bool { shared.is_null() || unsafe { (*shared).current == self as *mut PxuiUi } }
+}
+impl Handle for *mut crate::PxuiRenderer {
+    fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } }
+    #[inline(always)] fn usable(self, shared: *mut Shared) -> bool { shared.is_null() || unsafe { !(*shared).in_frame } }
+}
+impl Handle for *mut crate::paint::PxuiPaint {
+    fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } }
+    #[inline(always)] fn usable(self, _: *mut Shared) -> bool { true }
+}
 
 pub(crate) unsafe fn poisoned(shared: *mut Shared) -> bool { !shared.is_null() && unsafe { (*shared).poisoned } }
 

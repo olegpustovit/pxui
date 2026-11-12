@@ -147,3 +147,56 @@ fn theme_tokens_that_cannot_be_a_theme_make_none() {
     ];
     for tokens in bad { assert!(unsafe { crate::theme::pxui_theme_create(&tokens) }.is_null()); }
 }
+
+/// Calls every kind of export on `ui` and returns the statuses: a default-form one, a trusted-form one (C entry), the trusted entry the
+/// static wrapper calls, a bare one that touches the engine and a container.
+fn probe(ui: *mut PxuiUi) -> [i32; 6] {
+    let (label, mut pressed, mut out) = (Str { ptr: b"x".as_ptr(), len: 1 }, 0u8, PxuiBox::default());
+    unsafe {
+        [pxui_ui_set_dir(ui, 0), pxui_label(ui, label), pxui_button(ui, label, &mut pressed),
+         crate::trusted::pxui_ui_node_keyed(ui, 7, &pxui_types::Node::DEFAULT, &mut out),
+         pxui_ui_draw(ui, &out, 0, None, core::ptr::null_mut(), None), pxui_scope(ui, label, Some(nothing), core::ptr::null_mut())]
+    }
+}
+
+#[test]
+fn only_the_innermost_callbacks_handle_may_be_used_while_a_frame_is_built() {
+    // user: [owner, outer handle]; the outer callback nests a scope whose callback probes the outer handle and the owner
+    extern "C" fn inner(user: *mut c_void, ui: *mut c_void) {
+        let [owner, outer] = unsafe { *user.cast::<[*mut PxuiUi; 2]>() };
+        assert_eq!(probe(ui.cast()), [0; 6], "the innermost handle works");
+        assert_eq!(probe(outer), [PXUI_ERR_STATE; 6], "the outer handle is stale while its child runs");
+        assert_eq!(probe(owner), [PXUI_ERR_STATE; 6], "the owner is refused inside a frame");
+        assert!(error(ui.cast()).contains("not the one"), "{}", error(ui.cast()));
+        assert!(!unsafe { pxui_ui_output(owner) }.is_null(), "reading the output stays allowed");
+        assert!(!unsafe { pxui_last_error(owner) }.ptr.is_null());
+    }
+    extern "C" fn outer(user: *mut c_void, ui: *mut c_void) {
+        let owner = unsafe { *user.cast::<*mut PxuiUi>() };
+        assert_eq!(probe(ui.cast()), [0; 6]);
+        let mut handles = [owner, ui.cast::<PxuiUi>()];
+        assert_eq!(unsafe { pxui_scope(ui.cast(), Str { ptr: b"s".as_ptr(), len: 1 }, Some(inner), handles.as_mut_ptr().cast()) }, 0);
+        // the child returned: this handle is the current one again
+        assert_eq!(probe(ui.cast()), [0; 6]);
+        assert_eq!(probe(owner), [PXUI_ERR_STATE; 6]);
+    }
+    let ui = create();
+    let mut owner = ui;
+    assert_eq!(run(ui, Some(outer), (&mut owner as *mut *mut PxuiUi).cast()), 0, "{}", error(ui));
+    // outside a frame the owner is the handle again
+    assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, 0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+#[test]
+fn the_current_handle_is_restored_when_a_callback_unwinds() {
+    let ui = create();
+    let shared = unsafe { (*ui).shared };
+    let guard = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut engine = pxui_core::ui::Ui::create(input::Platform::Other, None, pxui_core::text::Text::new(&[pxui_core::text::PRAGMASEVKA]));
+        crate::state::call_inner(shared, &mut engine, &mut |_| panic!("callback"));
+    }));
+    assert!(guard.is_err());
+    assert_eq!(unsafe { (*shared).current }, ui, "the owner is current again");
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}

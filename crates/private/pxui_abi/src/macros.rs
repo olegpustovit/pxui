@@ -28,16 +28,16 @@ macro_rules! export {
         }
     };
     (trusted $vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) -> i32 $body:block) => {
-        export!(@handle false, $vis $name ($h: $hty $(, $arg: $ty)*) (-> i32) ($crate::PXUI_ERR_PANIC) $body);
+        export!(@handle false, $vis $name ($h: $hty $(, $arg: $ty)*) (-> i32) ($crate::PXUI_ERR_PANIC) ($crate::PXUI_ERR_STATE) $body);
     };
     (trusted $vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block) => {
-        export!(@handle false, $vis $name ($h: $hty $(, $arg: $ty)*) ($(-> $ret)?) (unsafe { core::mem::zeroed() }) $body);
+        export!(@handle false, $vis $name ($h: $hty $(, $arg: $ty)*) ($(-> $ret)?) (unsafe { core::mem::zeroed() }) (unsafe { core::mem::zeroed() }) $body);
     };
     ($vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) -> i32 $body:block) => {
-        export!(@handle true, $vis $name ($h: $hty $(, $arg: $ty)*) (-> i32) ($crate::PXUI_ERR_PANIC) $body);
+        export!(@handle true, $vis $name ($h: $hty $(, $arg: $ty)*) (-> i32) ($crate::PXUI_ERR_PANIC) ($crate::PXUI_ERR_STATE) $body);
     };
     ($vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block) => {
-        export!(@handle true, $vis $name ($h: $hty $(, $arg: $ty)*) ($(-> $ret)?) (unsafe { core::mem::zeroed() }) $body);
+        export!(@handle true, $vis $name ($h: $hty $(, $arg: $ty)*) ($(-> $ret)?) (unsafe { core::mem::zeroed() }) (unsafe { core::mem::zeroed() }) $body);
     };
     (@bare $vis:vis $name:ident ($($arg:ident: $ty:ty),*) ($($ret:tt)*) ($failed:expr) $body:block) => {
         #[unsafe(no_mangle)]
@@ -45,11 +45,13 @@ macro_rules! export {
             export!(@run true, _payload => { $failed }, $body)
         }
     };
-    (@handle $count:tt, $vis:vis $name:ident ($h:ident: $hty:ty $(, $arg:ident: $ty:ty)*) ($($ret:tt)*) ($failed:expr) $body:block) => {
+    (@handle $count:tt, $vis:vis $name:ident ($h:ident: $hty:ty $(, $arg:ident: $ty:ty)*) ($($ret:tt)*) ($failed:expr) ($refused:expr) $body:block) => {
         #[unsafe(no_mangle)]
         $vis unsafe extern "C" fn $name($h: $hty $(, $arg: $ty)*) $($ret)* {
             let shared = <$hty as $crate::state::Handle>::shared($h);
             if unsafe { $crate::state::poisoned(shared) } { return $failed; }
+            // a `trusted` export (`$count` false) is checked by its trusted entry, which the static wrapper calls directly (`enter!`)
+            if $count && !<$hty as $crate::state::Handle>::usable($h, shared) { unsafe { $crate::state::refuse(shared); } return $refused; }
             export!(@run $count, payload => { unsafe { $crate::state::panicked(shared, payload, false); } $failed }, $body)
         }
     };
@@ -95,4 +97,14 @@ macro_rules! sized_mut {
         let p = $ptr;
         if p.is_null() || unsafe { p.cast::<u32>().read_unaligned() } < (p.wrapping_add(1) as usize).wrapping_sub(p as usize) as u32 { None } else { Some(unsafe { &mut *p }) }
     }};
+}
+
+/// The start of a trusted entry: counts the call and refuses a handle that is not the current one (`Shared::current`) before the engine
+/// is touched; `$refused` is the value returned then (the status code `PXUI_ERR_STATE` when omitted).
+macro_rules! enter {
+    ($ui:expr) => { enter!($ui, $crate::PXUI_ERR_STATE) };
+    ($ui:expr, $refused:expr) => {
+        $crate::state::note_call();
+        if !unsafe { $crate::state::usable($ui) } { unsafe { $crate::state::refuse((*$ui).shared); } return $refused; }
+    };
 }

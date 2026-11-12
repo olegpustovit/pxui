@@ -224,7 +224,12 @@ typedef PxuiRect (*PxuiHit)(void *user, PxuiRect rect);
 typedef void (*PxuiRelease)(void *user);
 /* A box declaration: axis is 0 row, 1 column, 2 stack. The hit callback and its release belong to the box's slot once the call is made. */
 typedef struct { uint32_t size, axis; int64_t flags; PxuiSizeDesc w,h; float max_h,padding,scroll_step; uint8_t has_at,has_hit_rect,reserved[2]; float at[2]; PxuiRect hit_rect; PxuiHit hit; void *hit_user; PxuiRelease hit_release; } PxuiBoxDesc;
-/* The callback UI pointer is borrowed and valid only for that callback; do not retain or destroy it. */
+/* The callback UI pointer is borrowed and valid only for that callback; do not retain or destroy it. Only the handle of the innermost
+   running callback may be used: while a container's callback runs, the handle of the callback it was called from, and the owner handle,
+   are refused (PXUI_ERR_STATE, and zero or null for a call that returns a value; pxui_last_error says why) before the engine is touched.
+   Between callbacks of a frame (the engine's own phases) no handle is usable. pxui_last_error, pxui_ui_output (which builds nothing in
+   a frame) and pxui_ui_destroy / pxui_frame / pxui_ui_set_theme (which refuse in a frame themselves) stay callable on the owner. Outside
+   a frame the owner is the handle. A renderer's calls that reach the Ui (prepare, draw) are refused inside a frame too. */
 typedef void (*PxuiBuild)(void *user, PxuiUi *ui);
 typedef void (*PxuiPaintBuild)(void *user, PxuiPaint *paint, PxuiRect rect, const PxuiPaintInfo *info); /* info: valid during the call */
 typedef void (*PxuiPaintRelease)(void *user);
