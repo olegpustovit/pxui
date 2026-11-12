@@ -398,7 +398,13 @@ impl Ui {
 
     /// The output of the last frame, borrowed from the `Ui`: a new frame needs `&mut self`, so a stale read does not compile.
     #[inline]
-    pub fn output(&self) -> &Output { unsafe { &*sys::pxui_ui_output(self.0.as_ptr()) } }
+    #[track_caller]
+    pub fn output(&self) -> &Output {
+        // null only when building the output panicked inside the library
+        let output = unsafe { sys::pxui_ui_output(self.0.as_ptr()) };
+        if output.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
+        unsafe { &*output }
+    }
     /// The theme in effect's tokens, by value: what a canvas closure captures.
     #[inline] pub fn tokens(&self) -> pxui_types::theme::Tokens { self.theme().tokens }
     /// The theme in effect, whole: the library's own, lent (no copy). Anything that could change it takes `&mut self`, so the
