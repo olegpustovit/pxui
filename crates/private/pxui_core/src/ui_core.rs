@@ -938,8 +938,10 @@ pub struct Ui {
     pub(crate) picker_rows: Vec<(String, String)>,
     /// the table's column stops, kept between frames
     pub(crate) table_stops: Vec<f32>,
-    /// the bodies apps registered for the widget kinds (`register_toggle_body` and siblings), by kind; empty until one is
-    pub(crate) bodies: BodyTable,
+    /// the bodies apps registered for the widget kinds (`register_toggle_body` and siblings), by kind; empty until one is.
+    /// Boxed: a Vec per kind inline grows `Ui` with every kind and moves the fields placed after it, and a hot field moved
+    /// past an aarch64 load's offset range costs an address instruction on every node (B2a's four kinds: +510 a Layout frame)
+    pub(crate) bodies: Box<BodyTable>,
     /// the key of the widget whose body is building: `part` derives its keys from it
     pub(crate) part_owner: i64,
     pub(crate) edit_unit: Option<(usize, usize, i64)>,
@@ -1155,7 +1157,7 @@ impl Ui {
             edit_shelf: Vec::new(),
             picker_rows: Vec::new(),
             table_stops: Vec::new(),
-            bodies: BodyTable::default(),
+            bodies: Box::default(),
             part_owner: 0,
             edit_unit: None,
             edit_column: -1.0,
