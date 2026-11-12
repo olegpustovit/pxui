@@ -4,7 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-use crate::bodies::{in_body, ButtonConfig, FooterConfig, LabelConfig, ToggleConfig};
+use crate::bodies::{in_body, ButtonConfig, FooterConfig, GripConfig, LabelConfig, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 use crate::a11y::state as st;
 use input::{Event, Key};
@@ -73,6 +73,21 @@ fn default_button(this: &mut Ui, c: &ButtonConfig, text: &str) {
         Some(d) => n.mark = Mark::Chevron(d),
         None => this.text(&c.row, shown(text)),
     }
+}
+
+/// The built-in grip: a 1-point line (unless the caller placed it) in the separator look, the accent while held, taking presses
+/// 3 points either side of it on a part that is 6 points wider across.
+fn default_grip(this: &mut Ui, c: &GripConfig) {
+    let n = this.node_mut(&c.grip);
+    if !c.floating {
+        *(if c.vertical { &mut n.w } else { &mut n.h }) = Size::Px(1.0);
+    }
+    let (w, h) = (n.w, n.h);
+    let look = if c.state.pressed { Look { fill: this.theme().tokens.accent, ..Look::NONE } } else if !c.floating { this.theme().separator.idle } else { Look::NONE };
+    this.set_look(&c.grip, look, c.state);
+    let px = |s: Size| if let Size::Px(v) = s { v } else { 1.0 };
+    let band = if c.vertical { Node { at: Some((-3.0, 0.0)).into(), w: Size::Px(px(w) + 6.0), h: Size::Pct(1.0), ..Node::DEFAULT } } else { Node { at: Some((0.0, -3.0)).into(), w: Size::Pct(1.0), h: Size::Px(px(h) + 6.0), ..Node::DEFAULT } };
+    this.part(Part::HIT, band);
 }
 
 /// The built-in label: ink-2 capitals 12 points from the left, a row high (4 more above it when it is the first thing of its parent).
@@ -841,18 +856,18 @@ impl Ui {
         let mut opts = BoxOpts::default().flags(CLICKABLE | BLOCKING);
         opts = match rect {
             Some(r) => opts.at((r.x, r.y)).w(Size::Px(r.w)).h(Size::Px(r.h)),
-            None if row => opts.w(Size::Px(1.0)).h(Size::Grow),
-            None => opts.w(Size::Grow).h(Size::Px(1.0)),
+            None if row => opts.h(Size::Grow),
+            None => opts.w(Size::Grow),
         };
         let b = self.box_fmt(label, opts);
         self.set_role(&b, Role::Splitter, if row { st::VERTICAL } else { st::HORIZONTAL });
-        self.cached_hit(&b, row as u64, &mut || if row { Rc::new(|r: Rect| Rect::new(r.x - 3.0, r.y, r.w + 6.0, r.h)) } else { Rc::new(|r: Rect| Rect::new(r.x, r.y - 3.0, r.w, r.h + 6.0)) });
+        self.hit_part(&b, Part::HIT);
         let signal = self.signal(&b);
         if signal.hovered || signal.held {
             self.request_cursor(if row { Cursor::HorizontalResize } else { Cursor::VerticalResize });
         }
-        let look = if signal.held { Look { fill: self.theme().tokens.accent, ..Look::NONE } } else if rect.is_none() { self.theme().separator.idle } else { Look::NONE };
-        self.set_look(&b, look, State { pressed: signal.held, ..State::default() });
+        let config = GripConfig { state: State { pressed: signal.held, ..State::default() }, vertical: row, floating: rect.is_some(), grip: b };
+        in_body!(self, b.box_key, b, grip, default_grip(&config));
         (b, signal)
     }
 

@@ -113,6 +113,19 @@ pub struct FooterConfig {
 
 pub type FooterBody = fn(&mut Ui, &FooterConfig, Option<&str>, &[(String, String)]);
 
+/// What a grip body is given. It runs with the grip's `grip` box entered: the line between panes, which carries the role and takes
+/// the cursor and the drag; its place is the caller's (`floating`: at a rectangle the caller gave, else a flow child that fills the
+/// row or column across, `vertical` for a line between side-by-side panes) and the body sets its thickness and look. Behaviour reads
+/// one part: `Part::HIT`, the area that takes presses (the whole box when the body builds none).
+pub struct GripConfig {
+    pub state: State,
+    pub vertical: bool,
+    pub floating: bool,
+    pub grip: Handle,
+}
+
+pub type GripBody = fn(&mut Ui, &GripConfig);
+
 /// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
 fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {
     if name == "default" {

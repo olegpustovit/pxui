@@ -105,7 +105,7 @@ typedef struct { PxuiLook idle,hover,pressed,focus,disabled,checked; } PxuiState
 #define PXUI_THEME_PARTS 59
 /* The theme in effect, lent by pxui_ui_theme: the kit parts in the order of `theme_widgets!` (pxui_types/src/theme.rs). */
 /* The body each widget kind builds with: 0 the built-in, n the nth body registered for the kind. */
-typedef struct { uint16_t toggle,slider,progress,button,icon_button,checkbox,radio,spinner,badge,label,footer; } PxuiBodies;
+typedef struct { uint16_t toggle,slider,progress,button,icon_button,checkbox,radio,spinner,badge,label,footer,grip; } PxuiBodies;
 typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float scrollbar_w,scrollbar_gap; PxuiStates parts[PXUI_THEME_PARTS]; PxuiBodies bodies; } PxuiThemeSnapshot;
 #if defined(__LP64__) || defined(_WIN64)
 _Static_assert(sizeof(PxuiSize) == 16 && sizeof(PxuiGrid) == 32 && sizeof(PxuiOptGrid) == 40, "PxuiSize/PxuiGrid layout");

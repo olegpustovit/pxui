@@ -245,6 +245,7 @@ macro_rules! body_kinds {
             badge register_badge_body BadgeBody,
             label register_label_body LabelBody,
             footer register_footer_body FooterBody,
+            grip register_grip_body GripBody,
         }
     };
 }
@@ -286,7 +287,7 @@ body_kinds!(bodies);
 pub struct Part(pub u32);
 
 impl Part {
-    /// The area that takes a toggle's presses; the whole row when a body builds none.
+    /// The area that takes a toggle's or a grip's presses; the whole widget when a body builds none.
     pub const HIT: Part = Part(1);
     /// A slider's rail: the pointer maps to the value across its width.
     pub const RAIL: Part = Part(2);

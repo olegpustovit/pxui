@@ -545,6 +545,66 @@ pub fn footer_bare_body() {
     swap_static("footer", &install, &|ui| ui.footer(Some("3 items"), &hints));
 }
 
+/// A grip with a 21-point press band: 10 points either side of its line.
+fn wide_grip(ui: &mut Ui, c: &GripConfig) {
+    ui.node_mut(&c.grip).w = Size::Px(1.0);
+    ui.set_look(&c.grip, Look { fill: pxui_core::geom::color::white(), ..Look::NONE }, c.state);
+    ui.part(Part::HIT, Node { at: Some((-10.0, 0.0)).into(), w: Size::Px(21.0), h: Size::Pct(1.0), ..Node::DEFAULT });
+}
+
+/// Where a press takes the splitter's grip is the body's band (3 points either side by default, 10 in the custom body); the drag,
+/// the cursor, the role and the returned ratio are the same.
+pub fn grip_wide_band_body() {
+    let mut runs = Vec::new();
+    for custom in [false, true] {
+        let mut ui = new_ui(None);
+        ui.set_a11y(true);
+        if custom {
+            pick(&mut ui, &|t, id| t.body.grip = id, &|ui| ui.register_grip_body("wide", wide_grip));
+        }
+        let ratio = Cell::new(0.5f32);
+        let mut build = |ui: &mut Ui| {
+            let host = ui.node("host", Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
+            let saved = ui.enter(&host);
+            let got = ui.split("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| { ui.node("a", Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("b", Node { h: Size::Grow, ..Node::DEFAULT }); });
+            if let Some(r) = got {
+                ratio.set(r);
+            }
+            ui.leave(saved);
+        };
+        let mut t = 0.0;
+        let mut step = |ui: &mut Ui, e: Vec<Event>| {
+            t += 0.1;
+            ui.frame(&frame(t, e), &mut build);
+        };
+        for _ in 0..3 {
+            step(&mut ui, vec![]);
+        }
+        // the line is at x = 100; a drag that starts `off` points from it moves the ratio, or does not
+        let mut drag = |ui: &mut Ui, off: i64| {
+            ratio.set(0.5);
+            let (from, to) = ((100 - off, 50), (150, 50));
+            for e in [vec![move_to(from)], vec![press(from)], vec![move_to(to)], vec![release(to)], vec![]] {
+                step(ui, e);
+            }
+            ratio.get() != 0.5
+        };
+        let seen = [drag(&mut ui, 0), drag(&mut ui, 2), drag(&mut ui, 6), drag(&mut ui, 9), drag(&mut ui, 14)];
+        check(seen == if custom { [true, true, true, true, false] } else { [true, true, false, false, false] }, &format!("custom {custom}: drags started from 0, 2, 6, 9 and 14 points off: {seen:?}"));
+        mem_sys::local_reset();
+        let before = mem_sys::local_alloc_count();
+        for _ in 0..20 {
+            step(&mut ui, vec![]);
+        }
+        check(mem_sys::local_alloc_count() == before, &format!("custom {custom}: warm frames allocated"));
+        let tree = ui.output().a11y;
+        let facts: Facts = tree.nodes.iter().map(|n| (n.role, tree.str(n.name).to_owned(), n.value, n.states, n.actions)).collect();
+        runs.push(facts);
+        ui.destroy();
+    }
+    check(runs[0] == runs[1] && runs[0].iter().any(|f| f.0 == Role::Splitter), &format!("accessibility facts differ: {:?} {:?}", runs[0], runs[1]));
+}
+
 pub const CASES: &[(&str, fn())] = &[
     ("toggle_checkbox_body", toggle_checkbox_body),
     ("slider_custom_thumb", slider_custom_thumb),
@@ -560,4 +620,5 @@ pub const CASES: &[(&str, fn())] = &[
     ("badge_box_body", badge_box_body),
     ("label_rule_body", label_rule_body),
     ("footer_bare_body", footer_bare_body),
+    ("grip_wide_band_body", grip_wide_band_body),
 ];
