@@ -17,6 +17,8 @@ const STATIC: bool = cfg!(feature = "static");
 const MODE: &str = if STATIC { "static" } else { "dynamic" };
 /// Samples per page and side, interleaved so drift and thermal state hit both alike.
 const SAMPLES: usize = 600;
+/// Untimed frames before the first page: the start-up ramp measured at most about 50 ms.
+const WARM_UP: Duration = Duration::from_millis(200);
 /// `pxui_abi`'s smallest span: a drawing of N shapes asks for a new one at most every this many.
 const SPAN: u64 = 256;
 // The gate's limits, all in one place. Each is the plan's target (`PLAN_*`, section A7 of the ABI plan) beside what the gate
@@ -106,6 +108,15 @@ fn timed(f: &mut dyn FnMut()) -> f64 {
 fn abi_bench_pages() {
     if !slow() { return; }
     let (mut worst_per_thousand, mut failures) = (f64::MIN, Vec::<String>::new());
+    // A fresh process starts on a core that is still ramping up (or on an efficiency core, until the scheduler moves it): the first
+    // tens of milliseconds run up to 1.8x slower with the same instructions retired, which inflated the first page's (Kit's) medians
+    // and so its absolute delta. Build frames, untimed, until that has passed.
+    let (mut w, mut d, started, mut count) = (wrapped(), direct(), Instant::now(), 0);
+    while started.elapsed() < WARM_UP {
+        wrapped_frame(&mut w, 0, count + 1, count);
+        direct_frame(&mut d, 0, count + 1, count);
+        count += 1;
+    }
     for (index, name) in PAGES.iter().enumerate() {
         let (mut w, mut d) = (wrapped(), direct());
         let (mut tw, mut td) = (Vec::with_capacity(SAMPLES), Vec::with_capacity(SAMPLES));
