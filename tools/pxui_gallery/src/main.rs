@@ -12,6 +12,7 @@ use ogpu_core::surface::{Configuration, Format, PresentMode};
 use pxui::{Renderer, Ui};
 use pxui_gallery::gpu::{self, fail, Gpu};
 use pxui_gallery::*;
+use pxui_gallery::bodies_page::{self, BodiesPage};
 use pxui_types::{Event, Str, ffi::{Input, Slice}};
 use std::time::Instant;
 
@@ -144,6 +145,9 @@ fn main() {
     let mut theme_stamp = modified(&theme_path);
     let mut next_theme_poll = 0.0;
     let mut s = Gallery::new();
+    // `PXUI_GALLERY_PAGE=bodies`: the Bodies page alone (its proof bodies registered through the wrapper, selected by the theme text), in the dusk theme
+    let bodies_mode = env("PXUI_GALLERY_PAGE").as_deref() == Some("bodies");
+    let mut bodies = BodiesPage::new(true);
     s.page = env("PXUI_GALLERY_PAGE").and_then(|v| v.parse().ok()).unwrap_or(0) % PAGES.len();
     s.dusk = env("PXUI_GALLERY_DUSK").is_some();
     (s.rtl, s.compact, s.host_dirty) = (env("PXUI_GALLERY_RTL").is_some(), env("PXUI_GALLERY_COMPACT").is_some(), true);
@@ -157,7 +161,14 @@ fn main() {
     // the window system's share of the start (identical in both link modes): the A7 start-up gate subtracts it from main's span
     let window_ms = window_t.elapsed().as_secs_f64() * 1e3;
     let mut ui = Ui::create(if cfg!(target_os = "macos") { pxui::Platform::Apple } else { pxui::Platform::Other }, None, &[PRAGMASEVKA]);
-    apply_theme(&mut ui, &s, &mut dusk, &theme_path);
+    if bodies_mode {
+        bodies_page::register(&mut ui).unwrap_or_else(|e| { eprintln!("pxui_gallery: bodies: {e}"); std::process::exit(1) });
+        s.dusk = true;
+        let mut text = bodies.theme_text(&dusk);
+        apply_theme(&mut ui, &s, &mut text, &theme_path);
+    } else {
+        apply_theme(&mut ui, &s, &mut dusk, &theme_path);
+    }
     let mut renderer = gpu.renderer(&ui).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
     s.image = Some(gpu.image(100, 60, &gpu::test_card(100, 60)));
     let mut extent = win.extent();
@@ -207,7 +218,12 @@ fn main() {
             force = true;
         }
         if s.host_dirty {
-            apply_theme(&mut ui, &s, &mut dusk, &theme_path);
+            if bodies_mode {
+                let mut text = bodies.theme_text(&dusk);
+                apply_theme(&mut ui, &s, &mut text, &theme_path);
+            } else {
+                apply_theme(&mut ui, &s, &mut dusk, &theme_path);
+            }
             ui.set_dir(s.rtl);
             (s.page_rev, s.chrome_rev, s.host_dirty, force) = (s.page_rev + 1, s.chrome_rev + 1, false, true);
         }
@@ -267,8 +283,9 @@ fn main() {
             let a0 = mem_sys::local_alloc_count();
             let t0 = Instant::now();
             // the frame borrows the Ui until it is dropped, so the error text is read after it
-            if let Err(code) = ui.input_frame(&input, &mut |ui: &mut Ui| if label_only { ui.label("PXUI"); } else { app(ui, &mut s) }).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
+            if let Err(code) = ui.input_frame(&input, &mut |ui: &mut Ui| if label_only { ui.label("PXUI"); } else if bodies_mode { bodies_page::page(ui, &mut bodies) } else { app(ui, &mut s) }).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
             cost.us = t0.elapsed().as_secs_f64() * 1e6;
+            if std::mem::take(&mut bodies.dirty) { s.host_dirty = true; }
             cost.allocs = Some(mem_sys::local_alloc_count() - a0);
             events = std::mem::take(&mut frame.input.events);
             let output = ui.output();
