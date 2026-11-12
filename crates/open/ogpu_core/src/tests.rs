@@ -170,7 +170,7 @@ struct DiscardDevice { fail_first: bool, attempts: std::rc::Rc<std::cell::Cell<i
 impl crate::backend::DriverDevice for DiscardDevice {
     fn device_handle(&self) -> handle::Device { handle::create_device() }
     fn capabilities(&self) -> caps::Caps { caps::minimum_m1() }
-    fn allocated_size(&self) -> i64 { 0 }
+    fn allocated_size(&self) -> i64 { 7 }
     fn recommended_working_set(&self) -> i64 { 0 }
     fn create_buffer(&self, _: &AdmittedBuffer) -> Result<Box<dyn crate::backend::DriverResource>, crate::error::Error> { Err(discard_test_error()) }
     fn create_mapped_buffer(&self, _: &AdmittedBuffer) -> Result<crate::backend::DriverMapped, crate::error::Error> { Err(discard_test_error()) }
@@ -187,8 +187,13 @@ impl crate::backend::DriverDevice for DiscardDevice {
     fn create_surface(&self, _: &surface::AdmittedConfiguration) -> Result<Box<dyn crate::backend::DriverSurface>, crate::error::Error> {
         Ok(Box::new(DiscardSurface { fail_first: self.fail_first, attempts: self.attempts.clone() }))
     }
-    fn destroy_device(&self) -> Result<(), crate::error::Error> { Ok(()) }
+    fn native(&self) -> Result<crate::backend::NativeDevice, crate::error::Error> { Ok(Default::default()) }
+    fn destroy_device(&self) -> Result<(), crate::error::Error> {
+        if DESTROY_FAILS.replace(DESTROY_FAILS.get().saturating_sub(1)) > 0 { return Err(discard_test_error()); }
+        Ok(())
+    }
 }
+thread_local! { static DESTROY_FAILS: std::cell::Cell<i64> = const { std::cell::Cell::new(0) }; }
 
 struct DiscardDriver { fail_first: bool, attempts: std::rc::Rc<std::cell::Cell<i64>> }
 impl crate::backend::Driver for DiscardDriver {
@@ -287,4 +292,17 @@ fn surface_capacity_is_admitted_before_the_driver() {
     crate::backend::discard(&next).unwrap();
     crate::backend::destroy_surface(&surface).unwrap();
     crate::backend::destroy_device(&device).unwrap();
+}
+
+/// A leased device that is destroyed first is freed when its last lease goes; a failed driver destroy there must keep the
+/// driver (not re-borrow the cell the release still holds, which aborts inside the extern "C" release).
+#[test]
+fn last_native_lease_release_survives_a_failed_driver_destroy() {
+    let (device, _) = discard_test_device(false);
+    let native = crate::backend::native_leased(&device).unwrap_or_else(|_| panic!("lease"));
+    assert!(crate::backend::destroy_device(&device).is_ok());
+    assert_eq!(crate::backend::allocated_size(&device), 7, "a lease keeps the driver past destroy_device");
+    DESTROY_FAILS.set(1);
+    assert!(crate::backend::release_native_device(native).is_ok());
+    assert_eq!(crate::backend::allocated_size(&device), 7, "a failed destroy keeps the driver");
 }

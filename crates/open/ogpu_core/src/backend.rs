@@ -689,9 +689,13 @@ extern "C" fn release_native_owner(token: *mut c_void) {
     let leases = inner.native_leases.get().saturating_sub(1);
     inner.native_leases.set(leases);
     if leases == 0 && inner.dead.get() {
-        if let Some(driver) = inner.raw.borrow_mut().take() {
-            if driver.destroy_device().is_err() { inner.raw.borrow_mut().replace(driver); }
-            else { handle::destroy_device(&inner.handle); }
+        // taken in its own statement: the borrow must end before a failed destroy puts the driver back (this cannot unwind)
+        let driver = inner.raw.borrow_mut().take();
+        if let Some(driver) = driver {
+            match driver.destroy_device() {
+                Err(e) => { eprintln!("device destroy after its last lease: {}", error::to_string(&e)); inner.raw.borrow_mut().replace(driver); }
+                Ok(()) => handle::destroy_device(&inner.handle),
+            }
         }
     }
 }
