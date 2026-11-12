@@ -602,7 +602,7 @@ pub fn layout_kit_resize_same_frame() {
         let (cx, _, cw, _) = value_control((12, 0, w as i64, 24));
         let field = control(&ui, "Caption", 0);
         check(field.x == cx as f32 && field.w == cw as f32, &format!("width {w}: field control {field:?}, expected x {cx} w {cw}"));
-        let switch = control(&ui, "Wire", 0);
+        let switch = ui.rect(&ui.box_of_key(part_key(key_of(key_of(0x2c1b3c6d, "panel"), "Wire"), Part::HIT)).unwrap());
         check(switch.x == 12.0 + w - 12.0 - 28.0, &format!("width {w}: switch {switch:?}"));
     }
     ui.destroy();

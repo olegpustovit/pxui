@@ -26,13 +26,13 @@ pub struct ToggleConfig {
 
 pub type ToggleBody = fn(&mut Ui, &ToggleConfig, &str);
 
-/// The key of `part` of the widget keyed `owner`: its number's `int_key`, which is the key the built-in bodies' nodes had before
-/// bodies existed. The bar lives in the track, so its key derives from the track's.
+/// Added to a part's number before it is mixed into its widget's key: far outside the small child indices (`int_key(owner, 0..n)`)
+/// that widgets and bodies number their ordinary children with, so a part never collides with one. Part of the contract: never changes.
+pub const PART_BASE: i64 = 1 << 40;
+
+/// The key of `part` of the widget keyed `owner`, wherever the body nests the node.
 pub fn part_key(owner: i64, part: Part) -> i64 {
-    match part {
-        Part::BAR => int_key(int_key(owner, Part::TRACK.offset()), 1),
-        _ => int_key(owner, part.offset()),
-    }
+    int_key(owner, PART_BASE + part.0 as i64)
 }
 
 /// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.

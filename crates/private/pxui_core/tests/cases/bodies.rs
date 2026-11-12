@@ -275,10 +275,36 @@ pub fn unknown_body_is_error() {
     ui.destroy();
 }
 
+/// A progress body that draws a ring and builds no track still has its accessible name, number and busy state (on the row).
+fn ring_body(ui: &mut Ui, c: &ProgressConfig, label: &str) {
+    ui.text(&c.row, shown(label));
+    ui.node("ring", Node { w: Size::Px(16.0), h: Size::Px(16.0), look: Look { border: Look::NONE.fill, border_w: 2.0, radius: [8.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+}
+
+pub fn progress_without_track_keeps_accessibility() {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let mut theme = *ui.theme();
+    theme.body.progress = ui.register_progress_body("ring", ring_body);
+    ui.set_theme(theme);
+    for t in 0..2 {
+        ui.frame(&frame(t as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+            ui.progress("Busy", None);
+            ui.progress("Done", Some(0.25));
+        }));
+    }
+    let tree = ui.output().a11y;
+    let find = |name: &str| *tree.nodes.iter().find(|n| n.role == Role::Progress && tree.str(n.name) == name).unwrap_or_else(|| panic!("no progress {name}"));
+    check(find("Busy").states & state::BUSY != 0, "no busy state without a track");
+    check(find("Done").value == pxui_core::a11y::Value::Number { now: 25.0, min: 0.0, max: 100.0, step: 1.0 }, "no number without a track");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
     ("toggle_checkbox_body", toggle_checkbox_body),
     ("slider_custom_thumb", slider_custom_thumb),
     ("busy_step_custom_body", busy_step_custom_body),
+    ("progress_without_track_keeps_accessibility", progress_without_track_keeps_accessibility),
     ("theme_file_selects_body", theme_file_selects_body),
     ("unknown_body_is_error", unknown_body_is_error),
 ];

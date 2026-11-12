@@ -188,15 +188,15 @@ impl Ui {
         }
         self.leave(saved);
         self.part_owner = owner;
-        if let Some(track) = self.part_box(key, Part::TRACK) {
-            self.a11y_name(&track, shown(label));
-            match value {
-                Some(v) => {
-                    self.set_role(&track, Role::Progress, 0);
-                    self.a11y_number(&track, (v.clamp(0.0, 1.0) * 100.0) as f64, 0.0, 100.0, 1.0);
-                }
-                None => self.set_role(&track, Role::Progress, st::BUSY),
+        // a body without a track part gets the facts on the row: the widget's own box
+        let track = self.part_box(key, Part::TRACK).unwrap_or(row);
+        self.a11y_name(&track, shown(label));
+        match value {
+            Some(v) => {
+                self.set_role(&track, Role::Progress, 0);
+                self.a11y_number(&track, (v.clamp(0.0, 1.0) * 100.0) as f64, 0.0, 100.0, 1.0);
             }
+            None => self.set_role(&track, Role::Progress, st::BUSY),
         }
         row
     }
@@ -224,13 +224,16 @@ impl Ui {
         if !self.live(h) || self.theme().tokens.reduced_motion {
             return false;
         }
-        // a progress row (a spinner's own node says Progress): its track must say busy, and a determinate bar does not move
-        if self.node_mut(h).role != Role::Progress {
-            let (Some(bar), Some(track)) = (self.part_box(h.box_key, Part::BAR), self.part_box(h.box_key, Part::TRACK)) else { return false };
-            if self.node_mut(&track).a11y & st::BUSY == 0 {
+        // a progress row has a track or a bar part (a spinner has dots only); its busy node is the track, else the row; a determinate
+        // bar does not move
+        let track = self.part_box(h.box_key, Part::TRACK);
+        let bar = self.part_box(h.box_key, Part::BAR);
+        if track.is_some() || bar.is_some() {
+            let (Some(bar), busy) = (bar, track.unwrap_or(*h)) else { return false };
+            if self.node_mut(&busy).a11y & st::BUSY == 0 {
                 return false;
             }
-            let r = self.rect(&track);
+            let r = self.rect(&busy);
             let w = r.w * 0.3;
             let p = (now.rem_euclid(1.4) / 1.4) as f32;
             let x = if self.rtl() { r.x + r.w - p * (r.w + w) } else { r.x - w + p * (r.w + w) };

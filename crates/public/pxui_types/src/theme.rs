@@ -238,8 +238,8 @@ pub struct Bodies {
 }
 
 /// A node a widget's behaviour finds by role (`Ui::part`): the toggle's hit shape, the slider's rail and thumb, the progress
-/// track and its busy bar, a spinner's dots. Numbered once, never renumbered. The built-in bodies' parts keep the keys those nodes
-/// had before bodies existed (`Part::offset`), which is why `HIT` and `TRACK` share one.
+/// track and its busy bar, a spinner's dots. Numbered once, never renumbered; every part has its own number, and a part's key is derived
+/// from the widget's key and that number alone (`pxui_core::ui_kit::part_key`).
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Part(pub u32);
@@ -258,16 +258,6 @@ impl Part {
     /// Dot `i` of a spinner, which `busy_step` turns.
     pub const fn dot(i: u8) -> Part {
         Part(16 + i as u32)
-    }
-
-    /// The number a part's key is derived from.
-    pub const fn offset(self) -> i64 {
-        match self.0 {
-            1 | 4 => 0,
-            2 => 2,
-            3 => 6,
-            n => n as i64 - 16,
-        }
     }
 }
 
