@@ -54,7 +54,7 @@ const GATE_DYNAMIC_SMALL_PAGE_US: f64 = 1.5;
 /// more over three builds of this file (owned copies of widget results), dynamic Layout 3.74% more (400 library calls a frame, 231
 /// of them nodes through the C boundary's checks; docs/abi-baseline.md lists what each call still costs and why).
 const GATE_STATIC_KIT_INSTRUCTION_RATIO: f64 = 1.013;
-const GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.041; // 1.038 before widget bodies: 3.84% with the container bodies, 4.02% with the current-handle check of every call (OPEN_ISSUES.md)
+const GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.045; // the wrapper is 37,676 instructions over the engine's 855,031 (4.41%). The ratio rose from 4.02% because the page stopped copying the theme (the engine frame was 975,138, the wrapper 39,201 over it); 3.84% before the current-handle check of every call (OPEN_ISSUES.md)
 const GATE_STATIC_OVERLAYS_INSTRUCTION_RATIO: f64 = 1.011; // 1.01 before the current-handle check: about 118 instructions on a 60,429-instruction frame (1.0102)
 /// Plan: the dynamic build's resident memory no higher than the static build's. A second OGPU, `metal_sys` and `input` copy is the
 /// design (section 5), so the gate is its private (dirty) footprint, within a tolerance, and the clean shared code pages apart.
