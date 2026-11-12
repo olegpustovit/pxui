@@ -12,6 +12,9 @@ pub use native_layer_token_sys::portable::Token;
 /// Native binary startup policy; does not acquire SDL subsystems or change their ownership.
 pub use sdl3::init::configure_native_process;
 
+/// Thread-safe; the caller must retain a live window until its workers have stopped.
+pub fn wake() -> bool { sdl3::event::wake() }
+
 pub type Error = String;
 
 /// Window size in logical points and drawable size in pixels.

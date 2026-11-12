@@ -510,6 +510,9 @@ pub mod dialog {
 pub mod event {
     use super::{Error, Cell, Event, Rc, RefCell, before_main, sys};
 
+    /// Wake a waiting host from any thread while its SDL events subsystem is alive.
+    pub fn wake() -> bool { sys::wake() }
+
     thread_local! {
         static LIVE_RESIZE_CALLBACK: RefCell<Option<Rc<RefCell<Box<dyn FnMut() -> std::result::Result<(), Error>>>>>> = const { RefCell::new(None) };
         static LIVE_RESIZE_FAILURE: RefCell<Option<Error>> = const { RefCell::new(None) };

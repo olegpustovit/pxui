@@ -744,6 +744,12 @@ pub fn wait_event_timeout(timeout_ms: i32) -> bool {
     unsafe { ffi::rays_sdl3_wait_event_timeout(timeout_ms.max(0)) }
 }
 
+/// Thread-safe while the caller retains the SDL events subsystem.
+pub fn wake() -> bool {
+    // SAFETY: the bridge supplies its own initialized event; SDL_PushEvent is thread-safe.
+    unsafe { ffi::rays_sdl3_wake() }
+}
+
 /// Raw bridges to the SDL3_image and SDL3_mixer satellites (built and linked with SDL3).
 #[cfg(feature = "image")]
 pub mod image;
@@ -815,6 +821,7 @@ mod ffi {
         pub fn rays_sdl3_poll_event(event: *mut super::RawEvent) -> bool;
         pub fn rays_sdl3_event_free(event: *mut super::RawEvent);
         pub fn rays_sdl3_wait_event_timeout(timeout_ms: c_int) -> bool;
+        pub fn rays_sdl3_wake() -> bool;
         pub fn rays_sdl3_set_live_resize_callback(callback: Option<extern "C" fn()>);
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_polling_event_queue() -> bool;

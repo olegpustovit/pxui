@@ -41,6 +41,14 @@ fn window_visibility() {
     let slept = window.time() - start;
     assert!(slept < 1.0, "wait overslept its deadline: {slept} s");
     window.wait(Some(start - 1.0)); // a passed deadline returns at once
+    let woke = std::thread::spawn(wake).join().unwrap();
+    assert!(woke, "worker could not wake SDL");
+    let start = window.time();
+    window.wait(Some(start + 1.0));
+    assert!(window.time() - start < 0.5, "worker wake was lost");
+    events.clear();
+    assert!(window.pump(&mut events));
+    assert!(events.is_empty(), "a worker wake must not become UI input");
     window.destroy().unwrap();
     assert!(window.show().is_err());
     println!("pxui_sdl visibility: hidden/show flags passed");

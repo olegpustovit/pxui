@@ -86,6 +86,7 @@ void rays_sdl3_test_queue_resize_during_poll(void);
 
 bool rays_sdl3_poll_event(rays_sdl3_event *event);
 bool rays_sdl3_wait_event_timeout(int timeout_ms);
+bool rays_sdl3_wake(void);
 void rays_sdl3_event_free(rays_sdl3_event *event);
 bool rays_sdl3_scroll_take(double *x, double *y, int *phase, double *seconds);
 

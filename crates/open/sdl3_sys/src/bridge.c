@@ -459,3 +459,11 @@ bool rays_sdl3_wait_event_timeout(int timeout_ms)
 {
   return SDL_WaitEventTimeout(NULL, timeout_ms);
 }
+
+bool rays_sdl3_wake(void)
+{
+  SDL_Event event;
+  SDL_zero(event);
+  event.type = SDL_EVENT_USER;
+  return SDL_PushEvent(&event);
+}
