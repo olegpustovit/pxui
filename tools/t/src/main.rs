@@ -1157,6 +1157,9 @@ fn test_executables(output: &[u8]) -> io::Result<Vec<TestExecutable>> {
         if json_field(target, "test") != Some("true") {
             continue;
         }
+        if let Some(profile) = json_field(line, "profile") {
+            if json_field(profile, "test") != Some("true") { continue; }
+        }
         let Some(path) = json_string_field(line, "executable") else {
             continue;
         };
@@ -1548,6 +1551,14 @@ mod tests {
         let executables = test_executables(output).unwrap();
         assert_eq!(executables.len(), 1);
         assert_eq!(executables[0].crate_name, "runtime");
+    }
+    #[test]
+    fn cargo_json_rejects_normal_binaries_built_for_integration_tests() {
+        let output = br#"{"reason":"compiler-artifact","target":{"name":"app","test":true},"profile":{"test":false},"executable":"target/debug/app"}
+{"reason":"compiler-artifact","target":{"name":"queue","test":true},"profile":{"test":true},"executable":"target/debug/deps/queue-123"}"#;
+        let executables = test_executables(output).unwrap();
+        assert_eq!(executables.len(), 1);
+        assert_eq!(executables[0].path, PathBuf::from("target/debug/deps/queue-123"));
     }
 
     #[test]
