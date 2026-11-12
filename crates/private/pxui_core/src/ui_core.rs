@@ -1240,7 +1240,8 @@ impl Ui {
 
     /// The theme in effect: the UI's own, or the innermost `themed` override while building in one.
     pub fn theme(&self) -> &Theme {
-        if self.theme_depth > 0 { &self.themes[self.theme_depth - 1] } else { &self.theme }
+        // depth 0 wraps to no index: the UI's own (no bounds panic, so a library call that only reads the theme cannot unwind)
+        self.themes.get(self.theme_depth.wrapping_sub(1)).unwrap_or(&self.theme)
     }
 
     /// Names the theme `theme()` returns, process-wide: it differs between `Ui`s and changes whenever the theme might (a swap, a
