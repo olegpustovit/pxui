@@ -40,13 +40,13 @@ pub struct ProgressConfig {
 
 pub type ProgressBody = fn(&mut Ui, &ProgressConfig, &str);
 
-/// What a button body is given (the button's text beside it). The button is a `row` (its key, hit area, focus and accessible name,
-/// the node a press lands on) inside a `line` that places it in its row; both come with their behaviour only, and the body sets
-/// their layout and look (`Ui::node_mut`) and builds what is inside `row`, which it runs with entered. `look` is the one the
-/// caller's `States` picks for `state`; `bare`, `icon` and `at_end` are the variant the caller asked for. Behaviour reads no part.
+/// What a button body is given (the caller's `States`, then the button's text, beside it: `states.pick(state)` is the look the
+/// caller asked for). The button is a `row` (its key, hit area, focus and accessible name, the node a press lands on) inside a `line`
+/// that places it in its row; both come with their behaviour only, and the body sets their layout and look (`Ui::node_mut`) and
+/// builds what is inside `row`, which it runs with entered. `bare`, `icon` and `at_end` are the variant the caller asked for.
+/// Behaviour reads no part.
 pub struct ButtonConfig {
     pub state: State,
-    pub look: Look,
     pub bare: bool,
     pub icon: bool,
     pub at_end: bool,
@@ -54,14 +54,13 @@ pub struct ButtonConfig {
     pub row: Handle,
 }
 
-pub type ButtonBody = fn(&mut Ui, &ButtonConfig, &str);
+pub type ButtonBody = fn(&mut Ui, &ButtonConfig, &States, &str);
 
 /// What an icon button body is given (its label, then its icon, beside it). It runs with the button's `node` entered, which carries
-/// the key, the hit area and the accessible name; the body sets its size and look and draws the icon. `look` is the theme's
-/// `icon_button` look for `state`.
+/// the key, the hit area and the accessible name; the body sets its size and look (the theme's `icon_button` for `state`) and draws
+/// the icon.
 pub struct IconButtonConfig {
     pub state: State,
-    pub look: Look,
     pub node: Handle,
 }
 

@@ -45,7 +45,7 @@ fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
 
 /// The built-in button: its text on a 20-point box (6 points of padding in a transparent 1-point edge; 4 when `bare`), the glyph
 /// centred in the 20-point square of an `icon`, the box 5 points in from the start of its line (8 from the end with `at_end`).
-fn default_button(this: &mut Ui, c: &ButtonConfig, text: &str) {
+fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
     let measure = this.text_width(None, shown(text));
     let control_h = this.control_h();
     let rh = this.row_height() as f32;
@@ -58,7 +58,7 @@ fn default_button(this: &mut Ui, c: &ButtonConfig, text: &str) {
     line.padding = Edges { l: 5.0, t: pad, r: if c.at_end { 8.0 } else { 5.0 }, b: pad };
     let row = this.node_new(&c.row);
     (row.w, row.shrink, row.min_w, row.h) = (Size::Px(width), 1.0, 1.0, Size::Grow);
-    this.set_look(&c.row, c.look, c.state);
+    this.style(&c.row, states, c.state);
     let pad = if c.icon { ((width - measure) / 2.0).floor() } else if c.bare { 5.0 } else { 7.0 };
     let direction = match (c.icon, shown(text)) {
         (true, "<") => Some(Dir::Left),
@@ -829,8 +829,8 @@ impl Ui {
         self.leave(saved);
         let signal = self.signal(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused: self.focused(&row), ..State::default() };
-        let config = ButtonConfig { state, look: *states.pick(state), bare, icon, at_end, line, row };
-        in_body!(flat; self, key, row, button, default_button(&config, text));
+        let config = ButtonConfig { state, bare, icon, at_end, line, row };
+        in_body!(flat; self, key, row, button, default_button(&config, states, text));
         signal.clicked
     }
 

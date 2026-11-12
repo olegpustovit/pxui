@@ -768,12 +768,11 @@ impl Ui {
 
     /// A 20-point square button showing `icon` (a glyph of any loaded font) centred, named `label`.
     pub fn icon_button(&mut self, label: &str, icon: &str) -> bool {
-        let states = self.theme().icon_button;
         let b = self.node(label, Node { flags: STOP_FLAGS, role: Role::Button, ..Node::DEFAULT });
         let s = self.signal(&b);
         let state = State { hovered: s.hovered, pressed: s.held, ..State::default() };
         self.a11y_name(&b, shown(label));
-        let config = IconButtonConfig { state, look: *states.pick(state), node: b };
+        let config = IconButtonConfig { state, node: b };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, label, icon));
         s.clicked
     }
@@ -992,7 +991,8 @@ fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, _label: &str, icon: 
     let tw = this.text_width(None, icon);
     let n = this.node_new(&c.node);
     (n.w, n.h) = (Size::Px(ch), Size::Px(ch));
-    this.set_look(&c.node, c.look, c.state);
+    let look = *this.theme().icon_button.pick(c.state);
+    this.set_look(&c.node, look, c.state);
     let n = this.node_new(&c.node);
     n.look.ring = Ring::NONE;
     n.inset = Edges { l: ((ch - tw) / 2.0).floor(), ..Edges::ZERO };

@@ -356,13 +356,14 @@ fn pick(ui: &mut Ui, f: &dyn Fn(&mut Theme, BodyId), register: &dyn Fn(&mut Ui) 
 }
 
 /// A pill: a fixed 90 x 20 box with a dot inside, in the caller's look.
-fn pill_button(ui: &mut Ui, c: &ButtonConfig, _text: &str) {
+fn pill_button(ui: &mut Ui, c: &ButtonConfig, states: &States, _text: &str) {
+    let look = *states.pick(c.state);
     let rh = ui.row_height() as f32;
     ui.node_mut(&c.line).h = Size::Px(rh);
     let n = ui.node_mut(&c.row);
     (n.w, n.h) = (Size::Px(90.0), Size::Px(20.0));
-    ui.set_look(&c.row, Look { radius: [10.0; 4], ..c.look }, c.state);
-    ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(6.0), look: Look { fill: c.look.text, ..Look::NONE }, ..Node::DEFAULT });
+    ui.set_look(&c.row, Look { radius: [10.0; 4], ..look }, c.state);
+    ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(6.0), look: Look { fill: look.text, ..Look::NONE }, ..Node::DEFAULT });
 }
 
 /// Press, Space, the returned `true`, the role and the name are the default button's; the box is the body's.
@@ -388,10 +389,11 @@ pub fn button_pill_body() {
 }
 
 fn round_icon(ui: &mut Ui, c: &IconButtonConfig, _label: &str, _icon: &str) {
+    let look = *ui.theme().icon_button.pick(c.state);
     let n = ui.node_mut(&c.node);
     (n.w, n.h) = (Size::Px(32.0), Size::Px(32.0));
-    ui.set_look(&c.node, Look { radius: [16.0; 4], ..c.look }, c.state);
-    ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(12.0), look: Look { fill: c.look.text, ..Look::NONE }, ..Node::DEFAULT });
+    ui.set_look(&c.node, Look { radius: [16.0; 4], ..look }, c.state);
+    ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(12.0), look: Look { fill: look.text, ..Look::NONE }, ..Node::DEFAULT });
 }
 
 pub fn icon_button_round_body() {
