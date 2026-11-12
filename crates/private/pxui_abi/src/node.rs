@@ -193,6 +193,29 @@ export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*co
     unsafe{crate::trusted::pxui_ui_node_keyed(ui,key,desc,out)}
 });
 
+// The node a widget declared this frame as the engine holds it, so a body can change what it needs of its layout and set it back
+// (`pxui_ui_set_node_layout`); written whole to `out`, whose `size` is the library's.
+export!(pub unsafe fn pxui_ui_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut Node) -> i32 {
+    let (e, b) = match unsafe { crate::state::boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    if out.is_null() { return unsafe { fail(ui, "null node output") } }
+    if !e.live(&b) { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } }
+    unsafe { *out = *e.node_mut(&b) };
+    0
+});
+
+// Sets the layout of a node declared this frame, as a body sizes the node its widget gave it (`Ui::node_mut` in the engine): `desc`'s axis, justify,
+// align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment and offset. Its other fields (flags, role,
+// state, look, text, grid, anchor) are ignored: behaviour keeps them, the look is `pxui_ui_set_look`'s.
+export!(pub unsafe fn pxui_ui_set_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, desc: *const Node) -> i32 {
+    let (e, b) = match unsafe { crate::state::boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    let Some(d) = (unsafe { checked_node(desc) }) else { return unsafe { invalid_node(ui) } };
+    if !e.live(&b) { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } }
+    let n = e.node_mut(&b);
+    (n.axis, n.justify, n.align, n.wrap, n.w, n.h, n.min_w, n.min_h, n.max_w, n.max_h) = (d.axis, d.justify, d.align, d.wrap, d.w, d.h, d.min_w, d.min_h, d.max_w, d.max_h);
+    (n.grow, n.shrink, n.aspect, n.padding, n.margin, n.gap, n.row_gap, n.align_self, n.at) = (d.grow, d.shrink, d.aspect, d.padding, d.margin, d.gap, d.row_gap, d.align_self, d.at);
+    0
+});
+
 /// Ends a frame: frees replaced grid tracks and those of boxes that are gone. The output is built when it is read.
 pub(crate) fn finish_frame(shared: &mut Shared, engine: &Ui) {
     shared.grid_retired.clear();

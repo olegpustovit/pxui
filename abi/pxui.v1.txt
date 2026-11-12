@@ -129,6 +129,7 @@ function pxui_ui_modal int32_t pxui_ui_modal ( PxuiUi * ui , PxuiStr label , uin
 function pxui_ui_node int32_t pxui_ui_node ( PxuiUi * ui , PxuiStr label , const PxuiNode * node , PxuiBox * out ) ;
 function pxui_ui_node_fields int32_t pxui_ui_node_fields ( PxuiUi * ui , const PxuiBox * box , PxuiNodeFields * out ) ;
 function pxui_ui_node_keyed int32_t pxui_ui_node_keyed ( PxuiUi * ui , int64_t key , const PxuiNode * node , PxuiBox * out ) ;
+function pxui_ui_node_layout int32_t pxui_ui_node_layout ( PxuiUi * ui , const PxuiBox * box , PxuiNode * out ) ;
 function pxui_ui_output const PxuiOutput * pxui_ui_output ( PxuiUi * ui ) ;
 function pxui_ui_passed_undo uint32_t pxui_ui_passed_undo ( PxuiUi * ui ) ;
 function pxui_ui_patch_field int32_t pxui_ui_patch_field ( PxuiUi * ui , const PxuiBox * field , const PxuiValueFieldDesc * desc , PxuiStr text , uint8_t * out ) ;
@@ -161,6 +162,7 @@ function pxui_ui_set_dir int32_t pxui_ui_set_dir ( PxuiUi * ui , uint32_t dir ) 
 function pxui_ui_set_font_size int32_t pxui_ui_set_font_size ( PxuiUi * ui , int64_t size ) ;
 function pxui_ui_set_look int32_t pxui_ui_set_look ( PxuiUi * ui , const PxuiBox * box , const PxuiLookDesc * look , const PxuiStateDesc * state ) ;
 function pxui_ui_set_node_fields int32_t pxui_ui_set_node_fields ( PxuiUi * ui , const PxuiBox * box , const PxuiNodeFields * fields ) ;
+function pxui_ui_set_node_layout int32_t pxui_ui_set_node_layout ( PxuiUi * ui , const PxuiBox * box , const PxuiNode * node ) ;
 function pxui_ui_set_role int32_t pxui_ui_set_role ( PxuiUi * ui , const PxuiBox * box , uint32_t role , uint32_t states ) ;
 function pxui_ui_set_scroll_offset int32_t pxui_ui_set_scroll_offset ( PxuiUi * ui , const PxuiBox * box , float value ) ;
 function pxui_ui_set_state int32_t pxui_ui_set_state ( PxuiUi * ui , const PxuiBox * box , int64_t value ) ;

@@ -11,6 +11,8 @@ library!(lib {
     fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32;
     fn pxui_ui_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::ffi::PxuiNodeFields) -> i32;
+    fn pxui_ui_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::Node) -> i32;
+    fn pxui_ui_set_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, node: *const pxui_types::Node) -> i32;
     fn pxui_ui_set_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, fields: *const pxui_types::ffi::PxuiNodeFields) -> i32;
     fn pxui_ui_patch_look(ui: *mut PxuiUi, box_: *const PxuiBox, value: *const PxuiLookDesc, out: *mut u8) -> i32;
     fn pxui_ui_patch_rect(ui: *mut PxuiUi, box_: *const PxuiBox, value: Rect, out: *mut u8) -> i32;
@@ -258,6 +260,20 @@ impl Ui {
         raw.inset = fields.inset;
         check(self, unsafe { lib::pxui_ui_set_node_fields(self.0.as_ptr(), b, &raw) });
         result
+    }
+    /// The node its widget declared this frame as the engine holds it: change the layout fields and give it back to `set_node_layout`.
+    #[track_caller]
+    pub fn node_layout(&self, b: &PxuiBox) -> pxui_types::Node {
+        let mut out = pxui_types::Node::DEFAULT;
+        check(self, unsafe { lib::pxui_ui_node_layout(self.0.as_ptr(), b, &mut out) });
+        out
+    }
+    /// Sets the layout of a node its widget declared this frame, as a body sizes the node it was given: `node`'s axis, justify, align,
+    /// wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment and offset. Its other fields are ignored
+    /// (behaviour keeps the flags and the role; the look is `set_look`'s).
+    #[track_caller]
+    pub fn set_node_layout(&mut self, b: &PxuiBox, node: &pxui_types::Node) {
+        check(self, unsafe { lib::pxui_ui_set_node_layout(self.0.as_ptr(), b, node) });
     }
     #[inline] #[track_caller] pub fn view_backdrop_blur(&mut self, b: &PxuiBox, sigma: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_blur(self.0.as_ptr(), b, sigma) }) }
 }

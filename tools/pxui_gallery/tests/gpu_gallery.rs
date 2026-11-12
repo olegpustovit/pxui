@@ -7,6 +7,7 @@ mod run;
 use pxui::{Renderer, Ui};
 use pxui_gallery::gpu::{self, Gpu};
 use pxui_gallery::*;
+use pxui_gallery::bodies_page::{self, BodiesPage};
 use pxui_types::{Event, Str, Size, ffi::{Input, Slice, ThemeSource}};
 use std::time::Instant;
 
@@ -37,13 +38,20 @@ fn panel(theme: &pxui_types::theme::ThemeSnapshot) -> [u8; 4] {
 
 /// Build one page twice to warm its retained view, then render it through the public renderer.
 fn shoot(gpu: &mut Gpu, theme: &ThemeSource, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
+    shoot_setup(gpu, theme, rtl, size, density, ground, &mut |_| {}, false, build)
+}
+
+/// `shoot` with `setup` run on the new `Ui` before its theme is applied (what a theme that names an app's bodies needs), and with
+/// `rebuild` each frame builds the page again (a body that reads last frame's rectangles settles on the second).
+fn shoot_setup(gpu: &mut Gpu, theme: &ThemeSource, rtl: bool, size: (i64, i64), density: i64, ground: Option<[u8; 4]>, setup: &mut dyn FnMut(&mut Ui), rebuild: bool, build: &mut dyn FnMut(&mut Ui)) -> Vec<u8> {
     let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+    setup(&mut ui);
     ui.set_theme(theme).unwrap_or_else(|code| panic!("theme failed ({code}): {}", ui.last_error()));
     ui.set_dir(rtl);
     let events = [pointer_event()];
-    for count in 0..2 {
+    for count in 0..if rebuild { 3 } else { 2 } {
         let input = frame_at(count, size, density, &events);
-        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", 1, Size::Grow, Size::Grow, &mut *build); }).expect("frame");
+        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", if rebuild { count as u64 + 1 } else { 1 }, Size::Grow, Size::Grow, &mut *build); }).expect("frame");
     }
     let clear = ground.unwrap_or_else(|| panel(&ui.theme()));
     let mut renderer: Renderer = gpu.renderer(&ui).expect("PXUI renderer");
@@ -115,6 +123,56 @@ fn gpu_gallery_pages() {
     }
     gpu.close();
     println!("PXUI gallery: {} pages x 2 themes x 2 densities match their goldens", shots.len());
+}
+
+/// The Bodies page, its proof bodies registered through the wrapper and selected by theme text, against goldens made in either link mode:
+/// the static and the dynamic build draw the same pixels. The built-in widgets (no bodies selected) draw something else.
+fn gpu_gallery_bodies() {
+    let mut gpu = Gpu::open().expect("a GPU backend");
+    let register = &mut |ui: &mut Ui| bodies_page::register(ui).expect("the proof bodies register");
+    for (name, base) in [("rays", ""), ("dusk", DUSK)] {
+        for density in [1, 2] {
+            let mut page = BodiesPage::new(true);
+            let text = page.theme_text(base);
+            let pixels = shoot_setup(&mut gpu, &theme(&text), false, (PAGE_W, PAGE_H), density, None, register, true, &mut |ui: &mut Ui| bodies_page::page(ui, &mut page));
+            let path = format!("{}/fixtures/gallery_bodies_{name}_{density}x.png", env!("CARGO_MANIFEST_DIR"));
+            let worst = compare(&path, (PAGE_W, PAGE_H), density, &pixels, true);
+            println!("PXUI gallery bodies {name} {density}x: max channel difference {worst}");
+            assert!(worst <= 2, "the Bodies page under {name} at {density}x drifted: largest channel difference {worst}");
+            if density == 1 {
+                let mut plain = BodiesPage::new(false);
+                let text = plain.theme_text(base);
+                let other = shoot_setup(&mut gpu, &theme(&text), false, (PAGE_W, PAGE_H), density, None, register, true, &mut |ui: &mut Ui| bodies_page::page(ui, &mut plain));
+                assert!(compare(&path, (PAGE_W, PAGE_H), density, &other, false) > 2, "the Bodies page under {name} draws the same with the bodies not selected");
+            }
+        }
+    }
+    gpu.close();
+}
+
+/// With the proof bodies active a rebuilt Bodies page allocates nothing in a warm frame (the library's allocations included in either link
+/// mode), and the bodies do run: the page builds other nodes than with the built-in ones.
+fn bodies_page_settled() {
+    let events = [pointer_event()];
+    let mut built = Vec::new();
+    for custom in [false, true] {
+        let mut page = BodiesPage::new(custom);
+        let mut ui = Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+        bodies_page::register(&mut ui).expect("the proof bodies register");
+        let text = page.theme_text("");
+        ui.set_theme(&theme(&text)).expect("theme");
+        let mut worst = 0;
+        for count in 0..40 {
+            let input = frame_at(count, (PAGE_W, PAGE_H), 1, &events);
+            let before = gpu::allocations();
+            ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", count as u64 + 1, Size::Grow, Size::Grow, &mut |ui: &mut Ui| bodies_page::page(ui, &mut page)); }).expect("frame");
+            if count >= 10 { worst = worst.max(gpu::allocations() - before); }
+        }
+        println!("PXUI Bodies page custom {custom}: {} nodes built, {worst} allocations in the worst warm frame", ui.built_nodes());
+        assert_eq!(worst, 0, "a warm frame of the Bodies page (custom bodies {custom}) allocated");
+        built.push(ui.built_nodes());
+    }
+    assert_ne!(built[0], built[1], "the proof bodies did not run: the page builds {} nodes either way", built[0]);
 }
 
 fn abi_kit_panel() {
@@ -198,6 +256,8 @@ fn main() {
     run::run(&[
         ("abi_kit_panel", abi_kit_panel),
         ("gpu_gallery_pages", gpu_gallery_pages),
+        ("gpu_gallery_bodies", gpu_gallery_bodies),
+        ("bodies_page_settled", bodies_page_settled),
         ("gpu_gallery_idle", gpu_gallery_idle),
         ("abi_baseline_pages", abi_baseline_pages),
         ("renderer_draw_settled", renderer_draw_settled),
