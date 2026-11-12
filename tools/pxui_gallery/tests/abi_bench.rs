@@ -48,10 +48,10 @@ const GATE_DYNAMIC_SMALL_PAGE_US: f64 = 1.5;
 /// 0.2%) and immune to code placement (time moved 3% with an unrelated edit of this file; instructions up to 0.15%, the static
 /// wrapper's inlining into this binary), so the plan's ratios are the gates on every page, small ones included (static 1%, dynamic
 /// 3%). The two pages that miss the plan keep their measured ratio rounded up, the plan beside it: static Kit retires 1.04 to 1.20%
-/// more over three builds of this file (owned copies of widget results), dynamic Layout 4.20% more (400 calls, each through the C
-/// boundary's checks).
+/// more over three builds of this file (owned copies of widget results), dynamic Layout 3.74% more (400 library calls a frame, 231
+/// of them nodes through the C boundary's checks; docs/abi-baseline.md lists what each call still costs and why).
 const GATE_STATIC_KIT_INSTRUCTION_RATIO: f64 = 1.013;
-const GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.043;
+const GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.038;
 /// Plan: the dynamic build's resident memory no higher than the static build's. A second OGPU, `metal_sys` and `input` copy is the
 /// design (section 5), so the gate is its private (dirty) footprint, within a tolerance, and the clean shared code pages apart.
 const GATE_PRIVATE_TOLERANCE_KIB: f64 = 512.0;
