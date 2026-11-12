@@ -587,8 +587,6 @@ struct Slot {
     text_value: Option<String>,
     labels: Vec<Rc<str>>,
     label_count: usize,
-    /// a hit shape a kit widget keeps between frames, by its parameters
-    hit: Option<(u64, HitFn)>,
     press_time: f64,
     press_x: f32,
     press_y: f32,
@@ -635,7 +633,6 @@ impl Slot {
             text_value: None,
             labels: Vec::new(),
             label_count: 0,
-            hit: None,
             press_time: f64::NEG_INFINITY,
             press_x: 0.0,
             press_y: 0.0,
@@ -3261,21 +3258,6 @@ impl Ui {
         slot.labels[index].clone()
     }
 
-    /// Give `b` the hit shape `make` builds, kept in its slot while `key` (the shape's parameters)
-    /// is unchanged: no closure per frame.
-    pub(crate) fn cached_hit(&mut self, b: &UiBox, key: u64, make: &mut dyn FnMut() -> HitFn) {
-        let slot = &mut self.slots[b.box_slot];
-        let hit = match &slot.hit {
-            Some((k, hit)) if *k == key => hit.clone(),
-            _ => {
-                let hit = make();
-                slot.hit = Some((key, hit.clone()));
-                hit
-            }
-        };
-        self.boxes[b.index].hit = Some(hit);
-    }
-
     /// `row` takes presses where `part` of its widget sat last frame, relative to the row's own rectangle: the whole row until the
     /// part has been laid out. No closure.
     pub(crate) fn hit_part(&mut self, row: &UiBox, part: Part) {
@@ -3284,6 +3266,15 @@ impl Ui {
         if a.rw > 0.0 && b.rw > 0.0 && b.rh > 0.0 {
             self.boxes[row.index].shape = HitShape::Part(Rect::new(b.rx - a.rx, b.ry - a.ry, b.rw, b.rh));
         }
+    }
+
+    /// The box `part` of the widget keyed `owner` has in this frame's build, if the body built it (a canvas needs the build record,
+    /// which `part_box` does not give). It was built just now, so the search from the end of the build is short.
+    pub(crate) fn part_built(&self, owner: i64, part: Part) -> Option<UiBox> {
+        let key = crate::ui_kit::part_key(owner, part);
+        let index = self.boxes[..self.count].iter().rposition(|b| b.key == key)?;
+        let slot = self.boxes[index].slot;
+        Some(UiBox { index, box_key: key, box_slot: slot, generation: self.slots[slot].generation })
     }
 
     /// `b` takes presses on its own rectangle grown by `outset` on each side (a negative side shrinks it), from this frame's

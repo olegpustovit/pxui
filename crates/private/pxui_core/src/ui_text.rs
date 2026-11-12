@@ -5,7 +5,7 @@
 //! the word keys move and delete by words, Command-arrows (Apple) and Home/End move by lines,
 //! Command-A/C/X/V select all, copy, cut and paste, and Command-Z, Shift-Command-Z (or Command-Y)
 //! undo and redo the focused text.
-use crate::bodies::{body_of, in_item, MenuRowConfig, PickerRowConfig};
+use crate::bodies::{body_of, in_body, in_item, MenuRowConfig, PickerRowConfig, LineFieldConfig, PickerFieldConfig, TextFieldConfig, ValueFieldConfig};
 use crate::theme;
 
 const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
@@ -860,13 +860,12 @@ impl Ui {
         if signal.hovered {
             self.request_cursor(Cursor::Text);
         }
-        let t = self.theme();
         let state = State { focused, ..State::default() };
-        let field = *t.field.pick(state);
-        let look = if focused || !edit.text.is_empty() { field } else { Look { text: t.placeholder.idle.text, ..field } };
-        self.set_look(&field_box, look, state);
-        self.node_mut(&field_box).inset = Edges { l: 2.0, ..Edges::default() };
+        let config = LineFieldConfig { state, empty: edit.text.is_empty(), field: field_box };
+        let shown = if edit.text.is_empty() { placeholder } else { &edit.text };
+        in_body!(flat; self, field_box.box_key, field_box, line_field, default_line_field(&config, shown));
         if focused {
+            let field = *self.theme().field.pick(state);
             let composition = self.composition().to_owned();
             let font_size = self.font_size();
             let pedit = edit.clone();
@@ -876,10 +875,21 @@ impl Ui {
                 let (_, y, _, h) = control;
                 paint_text_edit(paint, None, false, 2.0, marks, control, label_y(font_size, y, h), &composition, &pedit);
             });
-        } else {
-            self.text(&field_box, if edit.text.is_empty() { placeholder } else { &edit.text });
         }
         (edit.text, step)
+    }
+}
+
+/// The built-in line field: the field look (the placeholder's ink while an unfocused field is empty), 2 points of inset and the shown
+/// text on the box; a focused field's text is painted by editing.
+fn default_line_field(this: &mut Ui, c: &LineFieldConfig, shown: &str) {
+    let t = this.theme();
+    let field = *t.field.pick(c.state);
+    let look = if c.state.focused || !c.empty { field } else { Look { text: t.placeholder.idle.text, ..field } };
+    this.set_look(&c.field, look, c.state);
+    this.node_mut(&c.field).inset = Edges { l: 2.0, ..Edges::default() };
+    if !c.state.focused {
+        this.text(&c.field, shown);
     }
 }
 
@@ -2285,23 +2295,13 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     let resting = at_rest && edit.text.is_empty();
     let state = State { focused: !resting, ..State::default() };
     let field = *t.field.pick(state);
-    let (hint, place_look) = (t.hint.idle, t.placeholder.idle);
-    // the search row: a 20-point field in 4 points of padding
-    this.set_look(&search, Look { text: CLEAR, ..field }, state);
     this.set_role(&search, Role::TextField, crate::a11y::state::EDITABLE);
     this.a11y_name(&search, label);
     this.a11y_value(&search, &edit.text, (edit.text[..edit.anchor.min(edit.text.len())].chars().count() as u32, edit.text[..edit.caret.min(edit.text.len())].chars().count() as u32));
     this.set_role(&list, Role::List, 0);
+    let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search };
+    in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, &placeholder));
     {
-        let saved = this.enter(&search);
-        if slash {
-            this.placed(int_key(search.box_key, 1), (0.0, 0.0), Size::Px(prefix as f32), this.control_h(), hint, Edges { l: 2.0, ..Edges::default() }, "/");
-        }
-        if edit.text.is_empty() {
-            let pw = this.text_width(None, &placeholder);
-            this.placed(int_key(search.box_key, 2), (prefix as f32, 0.0), Size::Px(pw + inset), this.control_h(), place_look, Edges { l: inset, ..Edges::default() }, &placeholder);
-        }
-        this.leave(saved);
         let edit = edit.clone();
         let marks = if edit.text.is_empty() { None } else { Some((field.selection, field.caret)) };
         this.canvas_over(&search, move |paint, rect| {
@@ -2344,6 +2344,22 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     this.set_state(&list, armed);
     this.picker_rows = rows;
     (query, result)
+}
+
+/// The built-in picker search field: the field look (the hairline, no caret ink) on the box, the `/` before the query when `slash`, and the
+/// placeholder while it is empty.
+fn default_picker_field(this: &mut Ui, c: &PickerFieldConfig, placeholder: &str) {
+    let t = this.theme();
+    let (hint, place_look, field) = (t.hint.idle, t.placeholder.idle, *t.field.pick(c.state));
+    let (search, ch) = (c.search, this.control_h());
+    this.set_look(&search, Look { text: CLEAR, ..field }, c.state);
+    if c.slash {
+        this.placed(int_key(search.box_key, 1), (0.0, 0.0), Size::Px(c.prefix), ch, hint, Edges { l: 2.0, ..Edges::default() }, "/");
+    }
+    if c.empty {
+        let pw = this.text_width(None, placeholder);
+        this.placed(int_key(search.box_key, 2), (c.prefix, 0.0), Size::Px(pw + c.inset), ch, place_look, Edges { l: c.inset, ..Edges::default() }, placeholder);
+    }
 }
 
 /// The built-in picker row: the list look for its state (the error one when `doomed`), the swatch, the label cut to leave room for the
@@ -2487,8 +2503,31 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
     };
     let shown: &str = if typed_is_some || signal.held || signal.released { &value } else { o.display.as_deref().unwrap_or(&value) };
     let invalid = this.state(&bx, 1) & 1 == 0;
+    let field = value_field_look(this.theme(), invalid, editing);
+    let config = ValueFieldConfig { state: State { focused: editing, ..State::default() }, invalid, w, h, field: bx };
+    in_body!(this, bx.box_key, bx, value_field, default_value_field(&config, o, shown));
+    if let Some((edit, composition)) = edit {
+        let (size, fs) = (o.size, this.font_size());
+        let ty = 0.max((h as i64 - size.unwrap_or(fs)) / 2);
+        let (selection, caret) = (field.selection, field.caret);
+        this.canvas(&bx, move |paint, rect| {
+            paint_text_edit(paint, size, false, 2.0, Some((selection, caret)), ints(rect), rect.y as i64 + ty, &composition, &edit);
+        });
+    }
+    (value.into_owned(), editing)
+}
+
+/// The look a value field's box takes: the invalid one, the focused field's while editing, else the field's own.
+fn value_field_look(t: &Theme, invalid: bool, editing: bool) -> Look {
+    if invalid { t.field_invalid.idle } else { *t.field.pick(State { focused: editing, ..State::default() }) }
+}
+
+/// The built-in value field: the hairline (invalid, editing, or `line`; left out when `bare`) and, unless it is being edited, the
+/// fraction line under the value, the placeholder or the value with its lead and trail.
+fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts, shown: &str) {
+    let (bx, w, h, invalid, editing) = (c.field, c.w, c.h, c.invalid, c.state.focused);
     let t = this.theme();
-    let field = if invalid { t.field_invalid.idle } else { *t.field.pick(State { focused: editing, ..State::default() }) };
+    let field = value_field_look(t, invalid, editing);
     let (fraction, placeholder, value_look) = (t.fraction.idle, t.placeholder.idle, t.value.idle);
     // the hairline: invalid, editing, or `line` (left out when `bare`)
     let line = match o.line {
@@ -2497,7 +2536,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
     };
     let look = if invalid || editing || !o.bare { Look { text: CLEAR, ..line } } else { Look { border: CLEAR, text: CLEAR, ..line } };
     this.set_look(&bx, look, State { focused: editing, ..State::default() });
-    let (x, y, w, h) = (0.0, 0.0, w, h);
+    let x = 0.0;
     let size = o.size;
     let fs = this.font_size();
     // the content is centred in the 19 points above the hairline: a body line starts half a point up
@@ -2507,60 +2546,52 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
     };
     let points = size.unwrap_or(0);
     let ink = |look: Look| Look { font: Font { size: points, ..look.font }, ..look };
-    let saved = this.enter(&bx);
+    if editing {
+        return;
+    }
     let k = |n: i64| int_key(bx.box_key, n);
-    if let Some((edit, composition)) = edit {
-        let ty = y as i64 + 0.max((h as i64 - size.unwrap_or(fs)) / 2);
-        let (selection, caret) = (field.selection, field.caret);
-        this.canvas(&bx, move |paint, rect| {
-            paint_text_edit(paint, size, false, 2.0, Some((selection, caret)), ints(rect), rect.y as i64 + ty, &composition, &edit);
-        });
-    } else {
-        // the 2-point line under the value is its position in the soft range
-        if let Some(f) = o.fraction {
-            this.placed(k(0), (x, h - 3.0), Size::Px((w * 0.0f32.max(1.0f32.min(f))).max(0.0)), 2.0, fraction, Edges::default(), "");
+    // the 2-point line under the value is its position in the soft range
+    if let Some(f) = o.fraction {
+        this.placed(k(0), (x, h - 3.0), Size::Px((w * 0.0f32.max(1.0f32.min(f))).max(0.0)), 2.0, fraction, Edges::default(), "");
+    }
+    let tracking = o.tracking.unwrap_or(0.0);
+    let text_w = |ui: &mut Ui, t: &str| ui.text_width(size, t);
+    match (&o.lead, &o.trail) {
+        (None, None) if shown.is_empty() && o.placeholder.is_some() => {
+            let p = o.placeholder.as_deref().unwrap_or("");
+            let pw = text_w(this, p);
+            this.text_part(k(1), (2.0, text_y), pw, ink(placeholder), p);
         }
-        let tracking = o.tracking.unwrap_or(0.0);
-        let text_w = |ui: &mut Ui, t: &str| ui.text_width(size, t);
-        match (&o.lead, &o.trail) {
-            (None, None) if shown.is_empty() && o.placeholder.is_some() => {
-                let p = o.placeholder.as_deref().unwrap_or("");
-                let pw = text_w(this, p);
-                this.text_part(k(1), (2.0, text_y), pw, ink(placeholder), p);
-            }
-            (None, None) => {
-                let width = text_w(this, shown);
-                let tx = if o.left { 2.0 } else { w - 2.0 - width };
-                let em = size.unwrap_or(fs) as f32;
-                let look = ink(value_look);
-                this.text_part(k(1), (tx, text_y), width, Look { font: Font { tracking: tracking / em, ..look.font }, ..look }, shown);
-            }
-            _ => {
-                // a lead (the expression's f) and a trail (its live value) frame the value: 6 between
-                let part = |ui: &mut Ui, n: i64, right: bool, text: &str, color: Color| -> f32 {
-                    let width = text_w(ui, text);
-                    let tx = if right { w - 2.0 - width } else { 2.0 };
-                    ui.text_part(k(n), (tx, text_y), width, ink(Look { text: color, ..value_look }), text);
-                    width
-                };
-                let lead_w = match &o.lead {
-                    Some((t, c)) => part(this, 2, false, t, *c) + 6.0,
-                    None => 0.0,
-                };
-                let trail_w = match &o.trail {
-                    Some((t, c)) => part(this, 3, true, t, *c) + 6.0,
-                    None => 0.0,
-                };
-                // with no lead the value sits against its trail (a unit: [35 mm])
-                let fitted = this.fit_text(size.unwrap_or(fs), w - 4.0 - lead_w - trail_w, shown);
-                let fw = text_w(this, &fitted);
-                let value_x = if o.lead.is_none() && !o.left { w - 2.0 - trail_w - fw } else { 2.0 + lead_w };
-                this.text_part(k(1), (value_x, text_y), fw, ink(value_look), &fitted);
-            }
+        (None, None) => {
+            let width = text_w(this, shown);
+            let tx = if o.left { 2.0 } else { w - 2.0 - width };
+            let em = size.unwrap_or(fs) as f32;
+            let look = ink(value_look);
+            this.text_part(k(1), (tx, text_y), width, Look { font: Font { tracking: tracking / em, ..look.font }, ..look }, shown);
+        }
+        _ => {
+            // a lead (the expression's f) and a trail (its live value) frame the value: 6 between
+            let part = |ui: &mut Ui, n: i64, right: bool, text: &str, color: Color| -> f32 {
+                let width = text_w(ui, text);
+                let tx = if right { w - 2.0 - width } else { 2.0 };
+                ui.text_part(k(n), (tx, text_y), width, ink(Look { text: color, ..value_look }), text);
+                width
+            };
+            let lead_w = match &o.lead {
+                Some((t, c)) => part(this, 2, false, t, *c) + 6.0,
+                None => 0.0,
+            };
+            let trail_w = match &o.trail {
+                Some((t, c)) => part(this, 3, true, t, *c) + 6.0,
+                None => 0.0,
+            };
+            // with no lead the value sits against its trail (a unit: [35 mm])
+            let fitted = this.fit_text(size.unwrap_or(fs), w - 4.0 - lead_w - trail_w, shown);
+            let fw = text_w(this, &fitted);
+            let value_x = if o.lead.is_none() && !o.left { w - 2.0 - trail_w - fw } else { 2.0 + lead_w };
+            this.text_part(k(1), (value_x, text_y), fw, ink(value_look), &fitted);
         }
     }
-    this.leave(saved);
-    (value.into_owned(), editing)
 }
 
 fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>, actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head {
@@ -2850,16 +2881,18 @@ fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key: Option<&s
 }
 
 fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
-    // the control, its hit shape and its text sit `space(2)` in from the row's ends at any density
+    // the control, its hit shape and its text sit `space(2)` in from the row's ends at any density (until the body's own editor part has
+    // been laid out)
     let side = this.space(2) as i64;
     let row = this.kit_row(Some(CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK), None, text);
-    this.cached_hit(&row, side as u64, &mut || Rc::new(move |r| floats(value_control_at(ints(r), side))));
+    this.hit_part(&row, Part::EDITOR);
     let signal = this.signal(&row);
     let focused = this.focused(&row);
+    let control_at = |ui: &Ui| ui.part_rect(row.box_key, Part::EDITOR).map_or_else(|| value_control_at(ints(ui.rect(&row)), side), |r| ints(r));
     // an unfocused field paints `value` as it is (kept in its slot); only editing copies it
     let edit = if focused {
         let mut edit = this.load_text_edit(row.box_key, value);
-        let (cx, _, cw, _) = value_control_at(ints(this.rect(&row)), side);
+        let (cx, _, cw, _) = control_at(this);
         let shift = this.press_shift(&row);
         this.point_text_caret(None, &mut edit, &signal, shift, (cx + 2) as f32, (cx + cw - 2) as f32);
         for (event, modifiers) in this.key_events(&row) {
@@ -2888,39 +2921,47 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
     // the I-beam over the value, as in any text field
     {
         let (px, py) = this.pointer();
-        let (cx, cy, cw, ch) = value_control_at(ints(this.rect(&row)), side);
+        let (cx, cy, cw, ch) = control_at(this);
         if hovered && px >= cx as f32 && px < (cx + cw) as f32 && py >= cy as f32 && py < (cy + ch) as f32 {
             this.request_cursor(Cursor::Text);
         }
     }
+    let config = TextFieldConfig { state: State { hovered, focused, ..State::default() }, row };
+    in_body!(this, row.box_key, row, text_field, default_text_field(&config, text, value));
+    if let Some(edit) = edit {
+        let control = this.part_built(row.box_key, Part::EDITOR).unwrap_or(row);
+        let field = *this.theme().field.pick(State { focused, ..State::default() });
+        let font_size = this.font_size();
+        let marks = Some((field.selection, field.caret));
+        this.canvas(&control, move |paint, rect| {
+            let (x, y, w, h) = ints(rect);
+            paint_text_edit(paint, None, false, 2.0, marks, (x, y, w, h), label_y(font_size, y - 2, h + 4), &composition, &edit)
+        });
+    }
+    changed
+}
+
+/// The built-in text field: the row in the row look with its label, and the control (the field look, a hairline, the value) in the
+/// value column from the row's end, built as `Part::EDITOR`.
+fn default_text_field(this: &mut Ui, c: &TextFieldConfig, text: &str, value: &str) {
+    let side = this.space(2) as i64;
     let t = this.theme();
-    let hover = State { hovered, ..State::default() };
-    let (look, field) = (*t.row.pick(hover), *t.field.pick(State { focused, ..State::default() }));
-    this.set_look(&row, look, hover);
-    this.node_mut(&row).inset = Edges { l: side as f32, ..Edges::default() };
-    this.text(&row, shown(text));
+    let hover = State { hovered: c.state.hovered, ..State::default() };
+    let (look, field) = (*t.row.pick(hover), *t.field.pick(State { focused: c.state.focused, ..State::default() }));
+    this.set_look(&c.row, look, hover);
+    this.node_mut(&c.row).inset = Edges { l: side as f32, ..Edges::default() };
+    this.text(&c.row, shown(text));
     // the value on its hairline in the control column (`value_control_at` of the row, from its
     // end; the start padding only narrows the room `value_control_w` sees)
     let rh = this.row_height() as f32;
     let pad = (rh - this.control_h()) / 2.0;
-    this.end_row(&row, side as f32);
-    this.node_mut(&row).padding.l = side as f32;
-    let saved = this.enter(&row);
-    let control = this.node_keyed(int_key(row.box_key, 0), Node { w: Size::Rel(value_control_w), h: Size::Px(rh - 2.0 * pad), margin: Edges { t: pad, ..Edges::ZERO }, look: field, inset: Edges { l: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
-    this.node_mut(&control).state = State { focused, ..State::default() };
-    match edit {
-        Some(edit) => {
-            let font_size = this.font_size();
-            let marks = Some((field.selection, field.caret));
-            this.canvas(&control, move |paint, rect| {
-                let (x, y, w, h) = ints(rect);
-                paint_text_edit(paint, None, false, 2.0, marks, (x, y, w, h), label_y(font_size, y - 2, h + 4), &composition, &edit)
-            });
-        }
-        None => this.text(&control, value),
+    this.end_row(&c.row, side as f32);
+    this.node_mut(&c.row).padding.l = side as f32;
+    let control = this.part(Part::EDITOR, Node { w: Size::Rel(value_control_w), h: Size::Px(rh - 2.0 * pad), margin: Edges { t: pad, ..Edges::ZERO }, look: field, inset: Edges { l: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
+    this.node_mut(&control).state = State { focused: c.state.focused, ..State::default() };
+    if !c.state.focused {
+        this.text(&control, value);
     }
-    this.leave(saved);
-    changed
 }
 
 fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, items: &[(String, bool)]) -> MenuResult {

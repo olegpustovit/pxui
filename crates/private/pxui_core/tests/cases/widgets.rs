@@ -494,7 +494,7 @@ fn widgets_compact_field_hit() {
     }
     let row_key = key_of(key_of(0x2c1b3c6d, "panel"), "Caption");
     let row = ui.rect(&ui.box_of_key(row_key).unwrap());
-    let control = ui.rect(&ui.box_of_key(int_key(row_key, 0)).unwrap());
+    let control = ui.rect(&ui.box_of_key(part_key(row_key, Part::EDITOR)).unwrap());
     let (cx, _, cw, _) = value_control_at(ints(row), 10);
     check(control.x == cx as f32 && control.w == cw as f32, &format!("control {control:?}, value_control_at x {cx} w {cw}"));
     // inside the control 10 points from the row's end, outside where a 12-point side put it

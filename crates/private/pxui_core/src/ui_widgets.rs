@@ -10,7 +10,7 @@
 //! Enter/Space activate, the arrows move within a group, Escape leaves. A warm frame allocates
 //! nothing. Progress and spinner animate through patches (`busy_step`) without rebuilding their view.
 use crate::a11y::state as st;
-use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body, in_item, in_place, BadgeConfig, DropdownConfig, MenuItemConfig, SegmentConfig, TabConfig, CheckConfig, IconButtonConfig, ProgressConfig, ScrollConfig, SliderConfig, SpinnerConfig, ToastConfig};
+use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body, in_item, in_place, BadgeConfig, DropdownConfig, MenuItemConfig, SegmentConfig, TabConfig, CheckConfig, IconButtonConfig, ProgressConfig, ScrollConfig, SearchFieldConfig, SliderConfig, SpinnerConfig, ToastConfig};
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
@@ -1037,71 +1037,85 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
 fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<String> {
     let key = key_of(this.current_seed(), label);
     let row = this.kit_line(key, NO_FLAGS, Role::Unknown);
-    let ch = this.control_h();
-    let t = this.theme();
-    let (states, hint) = (t.search, t.placeholder.idle);
     let saved = this.enter(&row);
-    let well = this.node_keyed(int_key(key, 0), Node { h: Size::Px(ch), axis: Axis::Row, align: Align::Center, gap: 4.0, padding: Edges { l: 4.0, r: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
-    let inner = this.enter(&well);
-    let glyph = this.text_leaf(int_key(key, 2), ch, hint, icon);
-    let field = this.node_keyed(int_key(key, 1), Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK, h: Size::Grow, inset: Edges { l: 2.0, ..Edges::ZERO }, role: Role::TextField, a11y: st::EDITABLE, ..Node::DEFAULT });
-    let s = this.signal(&field);
-    let focused = this.focused(&field);
+    let well = this.node_keyed(int_key(key, 0), Node::DEFAULT);
     let mut changed = None;
-    let mut edit = None;
-    if focused {
-        let mut e = this.load_text_edit(field.box_key, value);
-        let r = this.rect(&field);
-        let shift = this.press_shift(&field);
-        this.point_text_caret(None, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
-        for (event, modifiers) in this.key_events(&field) {
-            if event == Event::KeyPressed(Key::Escape) {
-                e.text.clear();
-                (e.caret, e.anchor) = (0, 0);
-            } else {
-                this.edit_text_event(false, &mut e, &|_| true, &modifiers, &event);
+    let mut editor = |ui: &mut Ui| -> bool {
+        let field = ui.node_keyed(int_key(key, 1), Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK, h: Size::Grow, inset: Edges { l: 2.0, ..Edges::ZERO }, role: Role::TextField, a11y: st::EDITABLE, ..Node::DEFAULT });
+        let s = ui.signal(&field);
+        let focused = ui.focused(&field);
+        let mut edit = None;
+        if focused {
+            let mut e = ui.load_text_edit(field.box_key, value);
+            let r = ui.rect(&field);
+            let shift = ui.press_shift(&field);
+            ui.point_text_caret(None, &mut e, &s, shift, r.x + 2.0, r.x + r.w - 2.0);
+            for (event, modifiers) in ui.key_events(&field) {
+                if event == Event::KeyPressed(Key::Escape) {
+                    e.text.clear();
+                    (e.caret, e.anchor) = (0, 0);
+                } else {
+                    ui.edit_text_event(false, &mut e, &|_| true, &modifiers, &event);
+                }
             }
+            ui.save_text_edit(&e);
+            if e.text != value {
+                changed = Some(e.text.clone());
+            }
+            edit = Some(e);
         }
-        this.save_text_edit(&e);
-        if e.text != value {
-            changed = Some(e.text.clone());
+        if s.hovered {
+            ui.request_cursor(Cursor::Text);
         }
-        edit = Some(e);
-    }
-    if s.hovered {
-        this.request_cursor(Cursor::Text);
-    }
-    let state = State { focused, ..State::default() };
-    this.style(&well, &states, state);
-    let look = *states.pick(state);
-    this.node_mut(&glyph).look.text = hint.text;
-    let current = changed.as_deref().unwrap_or(value);
-    this.a11y_name(&field, shown(label));
-    this.a11y_value(&field, current, (0, 0));
-    this.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
-    match edit {
-        Some(edit) => {
-            let font_size = this.font_size();
-            let marks = Some((look.selection, look.caret));
-            let composition = this.composition().to_owned();
-            this.canvas(&field, move |paint, rect| {
-                let r = crate::ui_kit::ints(rect);
-                crate::ui_text::paint_text_edit(paint, None, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &edit)
-            });
+        let t = ui.theme();
+        let (states, hint) = (t.search, t.placeholder.idle);
+        let look = *states.pick(State { focused, ..State::default() });
+        let current = changed.as_deref().unwrap_or(value);
+        ui.a11y_name(&field, shown(label));
+        ui.a11y_value(&field, current, (0, 0));
+        ui.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
+        match edit {
+            Some(edit) => {
+                let font_size = ui.font_size();
+                let marks = Some((look.selection, look.caret));
+                let composition = ui.composition().to_owned();
+                ui.canvas(&field, move |paint, rect| {
+                    let r = crate::ui_kit::ints(rect);
+                    crate::ui_text::paint_text_edit(paint, None, false, 2.0, marks, r, crate::ui_kit::label_y(font_size, r.1, r.3), &composition, &edit)
+                });
+            }
+            None => ui.text(&field, if value.is_empty() { placeholder } else { value }),
         }
-        None => this.text(&field, if value.is_empty() { placeholder } else { value }),
-    }
-    if !current.is_empty() {
-        let clear = this.node_keyed(int_key(key, 3), Node { flags: ROW_FLAGS, w: Size::Px(16.0), h: Size::Px(16.0), look: Look { text: hint.text, ..Look::NONE }, inset: Edges { l: 4.0, ..Edges::ZERO }, role: Role::Button, ..Node::DEFAULT });
-        this.text(&clear, "\u{d7}");
+        !current.is_empty()
+    };
+    let config = SearchFieldConfig { state: State { focused: this.focus_key() == int_key(key, 1), ..State::default() }, well, key };
+    in_body!(this, key, well, search_field, default_search_field(&config, icon, &mut editor));
+    if let Some(clear) = this.part_built(key, Part::CLEAR) {
+        this.set_role(&clear, Role::Button, 0);
         this.a11y_name(&clear, "Clear");
         if this.signal(&clear).clicked {
             changed = Some(String::new());
         }
     }
-    this.leave(inner);
     this.leave(saved);
     changed
+}
+
+/// The built-in search field: the 20-point well in the search look, the icon, the editing surface and, with a query, the 16-point clear
+/// button (a multiplication sign) after it.
+fn default_search_field(this: &mut Ui, c: &SearchFieldConfig, icon: &str, editor: &mut dyn FnMut(&mut Ui) -> bool) {
+    let ch = this.control_h();
+    let t = this.theme();
+    let (states, hint) = (t.search, t.placeholder.idle);
+    let n = this.node_new(&c.well);
+    (n.h, n.axis, n.align, n.gap, n.padding) = (Size::Px(ch), Axis::Row, Align::Center, 4.0, Edges { l: 4.0, r: 2.0, ..Edges::ZERO });
+    this.style(&c.well, &states, c.state);
+    let glyph = this.text_leaf(int_key(c.key, 2), ch, hint, icon);
+    this.node_mut(&glyph).look.text = hint.text;
+    if editor(this) {
+        let clear = this.part(Part::CLEAR, Node { flags: ROW_FLAGS, w: Size::Px(16.0), h: Size::Px(16.0), look: Look { text: hint.text, ..Look::NONE }, inset: Edges { l: 4.0, ..Edges::ZERO }, ..Node::DEFAULT });
+        this.text(&clear, "\u{d7}");
+    }
 }
 
 /// The built-in spinner: 16 points square, eight 3-point dots round a circle, the lead dot in the accent.

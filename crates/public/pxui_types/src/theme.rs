@@ -269,6 +269,11 @@ macro_rules! body_kinds {
             table_head register_table_head_body TableHeadBody,
             table register_table_body TableCellBody,
             picker register_picker_body PickerRowBody,
+            search_field register_search_field_body SearchFieldBody,
+            text_field register_text_field_body TextFieldBody,
+            line_field register_line_field_body LineFieldBody,
+            value_field register_value_field_body ValueFieldBody,
+            picker_field register_picker_field_body PickerFieldBody,
         }
     };
 }
@@ -330,6 +335,12 @@ impl Part {
     /// A tree row's disclosure mark: behaviour reads its presses (a click expands or collapses the row); the built-in body builds one on
     /// every row, a spacer when the row has no children.
     pub const DISCLOSURE: Part = Part(7);
+    /// A search field's clear button: behaviour reads its presses (a click clears the query), and gives it the button role and the name
+    /// Clear; the built-in body builds one while the query is not empty.
+    pub const CLEAR: Part = Part(8);
+    /// A text field's editing surface: where its value shows and its caret and selection are placed and painted, and what takes its
+    /// presses (the field's own box when a body builds none).
+    pub const EDITOR: Part = Part(9);
     /// Dot `i` of a spinner, which `busy_step` turns.
     pub const fn dot(i: u8) -> Part {
         Part(16 + i as u32)

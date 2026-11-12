@@ -5,6 +5,7 @@
 //! A config holds only what behaviour already computed (no measuring, formatting or allocation to fill it); the widget's text comes
 //! beside it as `&str`. A body never changes the value, the role or the focus.
 use crate::ui_core::*;
+use crate::opts::ValueFieldOpts;
 use crate::ui_kit::part_key;
 
 /// What a toggle body is given. It runs with the widget's row entered (`row`, whose `box_key` owns the parts) and builds the row's
@@ -358,6 +359,75 @@ pub struct PickerRowConfig {
 }
 
 pub type PickerRowBody = fn(&mut Ui, &PickerRowConfig, &str, &str, &str);
+
+/// What a search field body is given (its icon beside it, then `editor`). It runs with the `well` entered (a node of the kit's key
+/// with no layout or look yet, which the body sizes and styles for `state`) and builds what is in it, in order: the icon,
+/// the editing surface (it calls `editor` once, which builds the editing node, runs the editing and returns whether the query is not
+/// empty) and, when it is not, the clear button. `key` is the field's own. Behaviour reads one part: the node built as `Part::CLEAR`
+/// (a press on it clears the query; behaviour gives it the button role and the name Clear). Caret, selection, undo and the
+/// accessible text are the editing node's, which behaviour made.
+pub struct SearchFieldConfig {
+    pub state: State,
+    pub well: Handle,
+    pub key: i64,
+}
+
+pub type SearchFieldBody = fn(&mut Ui, &SearchFieldConfig, &str, &mut dyn FnMut(&mut Ui) -> bool);
+
+/// What a text field body is given (the field's label, then its value, beside it). It runs with the `row` entered: a row of the kit's
+/// height that takes presses on its `Part::EDITOR` (the whole row until one has been laid out) and carries the role, name and value.
+/// The body gives it its look for `state` (`hovered`, `focused`), the inset, the label, and builds the editing surface as
+/// `Part::EDITOR`: a node whose rectangle behaviour reads for the caret and the I-beam, which shows `value` unless `state.focused`
+/// (then behaviour paints the text, caret and selection on it). A body that builds none edits on the row.
+pub struct TextFieldConfig {
+    pub state: State,
+    pub row: Handle,
+}
+
+pub type TextFieldBody = fn(&mut Ui, &TextFieldConfig, &str, &str);
+
+/// What a line field body is given (what it shows beside it: the placeholder while the text is empty, else the text). It runs with the
+/// `field` entered, the box that takes presses and keys and is the editing surface: the body gives it its look for `state`
+/// (`focused`; `empty`: the text is, so the placeholder shows) and an inset of 2 points at the start (where editing places the text),
+/// and puts the shown text on it unless focused (behaviour then paints the text, caret and selection). It may build more nodes inside.
+pub struct LineFieldConfig {
+    pub state: State,
+    pub empty: bool,
+    pub field: Handle,
+}
+
+pub type LineFieldBody = fn(&mut Ui, &LineFieldConfig, &str);
+
+/// What a value field body is given (the text it shows beside it, and the caller's `ValueFieldOpts`). It runs with the `field` entered,
+/// the box that takes the pointer and the keys and is the editing surface. `state.focused` is the field being edited (behaviour then
+/// paints the text, caret and selection and the body leaves the inside alone); `invalid` is the text being refused. The body gives
+/// the box its look and builds the fraction line, the placeholder, the lead and the trail and the value, `w` x `h` points, with the
+/// text starting 2 points in (where editing places it).
+pub struct ValueFieldConfig {
+    pub state: State,
+    pub invalid: bool,
+    pub w: f32,
+    pub h: f32,
+    pub field: Handle,
+}
+
+pub type ValueFieldBody = fn(&mut Ui, &ValueFieldConfig, &ValueFieldOpts, &str);
+
+/// What a picker's search field body is given (its placeholder beside it). It runs with the `search` entered, the box that takes
+/// presses and keys and is the editing surface: the body gives it its look for `state` (`focused`; a field `resting` has the hairline
+/// and no caret) and builds the `/` prefix when `slash` and, while `empty`, the placeholder. Editing places the query `prefix` points
+/// in from the box's start plus `inset` more (behaviour paints it, the caret and the selection, over the body's nodes): the body
+/// leaves that room.
+pub struct PickerFieldConfig {
+    pub state: State,
+    pub empty: bool,
+    pub slash: bool,
+    pub prefix: f32,
+    pub inset: f32,
+    pub search: Handle,
+}
+
+pub type PickerFieldBody = fn(&mut Ui, &PickerFieldConfig, &str);
 
 /// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
 fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {

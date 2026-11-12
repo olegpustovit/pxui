@@ -1331,6 +1331,226 @@ pub fn picker_label_body() {
     check(got.0 == 2, &format!("picker: Down and Enter picked {}", got.0));
 }
 
+// Text chrome: the frame, the icon and the clear button of the text widgets are a body; the editing (caret, selection, undo,
+// clipboard) and what is returned stay the engine's. A swap test types, selects all, replaces and undoes with both bodies and
+// compares the text handed back and the accessibility facts (text and selection included).
+
+fn text_of(c: &Cells) -> String {
+    String::from_utf8(c.sel.borrow().clone()).unwrap()
+}
+
+fn keep_text(c: &Cells, text: &str) {
+    *c.sel.borrow_mut() = text.as_bytes().to_vec();
+    c.a.set(text.len() as i64);
+    c.b.set(text.bytes().map(|b| b as i64 * 31 + 7).sum());
+}
+
+fn command(k: char) -> Vec<Event> {
+    vec![key_down(Key::Meta), key_down(kc(k)), Event::KeyReleased(Key::Meta)]
+}
+
+/// Type, select all, replace, undo: the frames after the click that focused the field at `p`.
+fn edit_script(p: (i64, i64), tail: Vec<Vec<Event>>) -> Vec<Vec<Event>> {
+    let mut frames = click_on_at(p);
+    frames.extend([vec![Event::TextInput("hello".into())], vec![], command('a'), vec![Event::TextInput("X".into())], vec![], command('z'), vec![]]);
+    frames.extend(tail);
+    frames
+}
+
+/// The same UI idle (never clicked: unfocused) with the override allocates nothing in warm frames (a widget that returns its text
+/// each frame allocates by nature: its swap test compares counts with the built-in body's instead).
+fn idle_allocs(kind: &str, install: &dyn Fn(&mut Ui), build: &dyn Fn(&mut Ui, &Cells)) {
+    let mut ui = new_ui(None);
+    install(&mut ui);
+    let cells = Cells::default();
+    keep_text(&cells, "text");
+    for k in 0..3 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| build(ui, &cells));
+    }
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    for k in 3..23 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| build(ui, &cells));
+    }
+    check(mem_sys::local_alloc_count() == before, &format!("{kind}: warm frames with the override allocated"));
+    ui.destroy();
+}
+
+/// A search field as a 28-point ink well: a 14-point square for the icon, the editor, a 20-point square clear button.
+fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig, _icon: &str, editor: &mut dyn FnMut(&mut Ui) -> bool) {
+    let n = ui.node_mut(&c.well);
+    (n.h, n.axis, n.align, n.gap) = (Size::Px(28.0), Axis::Row, Align::Center, 6.0);
+    ui.set_look(&c.well, ink_look(), c.state);
+    ui.node("icon", Node { w: Size::Px(14.0), h: Size::Px(14.0), look: Look { fill: ui_ink(), radius: [7.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+    if editor(ui) {
+        let clear = ui.part(Part::CLEAR, Node { flags: CLICKABLE | BLOCKING, w: Size::Px(20.0), h: Size::Px(20.0), look: ink_look(), ..Node::DEFAULT });
+        ui.text(&clear, "x");
+    }
+}
+
+fn search_build(ui: &mut Ui, c: &Cells) {
+    ui.panel(PanelOpts::default(), "p", &mut |ui| {
+        let changed = ui.search_field("Find", "?", std::str::from_utf8(&c.sel.borrow()).unwrap(), "search");
+        if let Some(v) = changed {
+            keep_text(c, &v);
+        }
+    });
+}
+
+pub fn search_field_icon_clear_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.search_field = id, &|ui| ui.register_search_field_body("boxed", boxed_search));
+    let script = |ui: &Ui| {
+        let p = mid(tree_node(ui, Role::TextField, "Find").rect, 4.0);
+        edit_script(p, vec![])
+    };
+    let got = swap_root("search_field", &install, 0, true, &script, &search_build);
+    check(got.0 == 5, &format!("search_field: type, replace, undo left {} bytes, not hello", got.0));
+    // the clear button is the body's part: a press on it clears, in both
+    let clear_script = |ui: &Ui| {
+        let p = mid(tree_node(ui, Role::TextField, "Find").rect, 4.0);
+        let mut frames = click_on_at(p);
+        frames.extend([vec![Event::TextInput("hello".into())], vec![], vec![], vec![]]);
+        frames
+    };
+    let tail = |ui: &Ui| click_on(ui, Role::Button, "Clear");
+    for custom in [false, true] {
+        let mut ui = new_ui(None);
+        ui.set_a11y(true);
+        if custom {
+            install(&mut ui);
+        }
+        let cells = Cells::default();
+        let mut t = 0.0;
+        let mut step = |ui: &mut Ui, e: Vec<Event>| {
+            t += 0.1;
+            ui.frame(&frame(t, e), &mut |ui| search_build(ui, &cells));
+        };
+        for _ in 0..3 {
+            step(&mut ui, vec![]);
+        }
+        for e in clear_script(&ui) {
+            step(&mut ui, e);
+        }
+        check(text_of(&cells) == "hello", &format!("search_field custom {custom}: typed {:?}", text_of(&cells)));
+        for e in tail(&ui) {
+            step(&mut ui, e);
+        }
+        check(text_of(&cells).is_empty(), &format!("search_field custom {custom}: the clear button left {:?}", text_of(&cells)));
+        ui.destroy();
+    }
+    idle_allocs("search_field", &install, &search_build);
+}
+
+/// A text field whose editor is a 100-point ink box at the row's start, the label after it.
+fn leading_field(ui: &mut Ui, c: &TextFieldConfig, text: &str, value: &str) {
+    ui.set_look(&c.row, Look::NONE, c.state);
+    ui.node_mut(&c.row).inset = Edges { l: 108.0, ..Edges::ZERO };
+    ui.text(&c.row, shown(text));
+    let e = ui.part(Part::EDITOR, Node { at: Some((4.0, 2.0)).into(), w: Size::Px(100.0), h: Size::Px(20.0), look: Look { fill: ui_ink(), ..Look::NONE }, ..Node::DEFAULT });
+    if !c.state.focused {
+        ui.text(&e, value);
+    }
+}
+
+fn text_field_build(ui: &mut Ui, c: &Cells) {
+    ui.panel(PanelOpts::default(), "p", &mut |ui| {
+        let changed = ui.text_field("Caption", std::str::from_utf8(&c.sel.borrow()).unwrap());
+        if let Some(v) = changed {
+            keep_text(c, &v);
+        }
+    });
+}
+
+pub fn text_field_leading_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.text_field = id, &|ui| ui.register_text_field_body("leading", leading_field));
+    let script = |ui: &Ui| {
+        let row = key_of(key_of(0x2c1b3c6d, "p"), "Caption");
+        let p = mid(ui.part_rect(row, Part::EDITOR).unwrap(), 6.0);
+        edit_script(p, vec![])
+    };
+    let got = swap_root("text_field", &install, 0, true, &script, &text_field_build);
+    check(got.0 == 5, &format!("text_field: type, replace, undo left {} bytes, not hello", got.0));
+    idle_allocs("text_field", &install, &text_field_build);
+}
+
+/// A line field with a 6-point inset and the ink look when idle.
+fn inked_line(ui: &mut Ui, c: &LineFieldConfig, shown: &str) {
+    ui.set_look(&c.field, if c.state.focused { Look::NONE } else { ink_look() }, c.state);
+    ui.node_mut(&c.field).inset = Edges { l: 2.0, ..Edges::ZERO };
+    if !c.state.focused {
+        ui.text(&c.field, shown);
+    }
+}
+
+fn line_build(ui: &mut Ui, c: &Cells) {
+    let now = text_of(c);
+    let (text, _) = ui.line_field((10.0, 10.0), 200.0, 20.0, false, "type here", "Find", &now);
+    keep_text(c, &text);
+}
+
+pub fn line_field_inked_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.line_field = id, &|ui| ui.register_line_field_body("inked", inked_line));
+    let got = swap_root("line_field", &install, 0, true, &|_| edit_script((50, 20), vec![]), &line_build);
+    check(got.0 == 5, &format!("line_field: type, replace, undo left {} bytes, not hello", got.0));
+}
+
+/// A value field with its fraction line on top and the value at the start.
+fn topped_value(ui: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts, shown: &str) {
+    ui.set_look(&c.field, if c.state.focused { Look::NONE } else { ink_look() }, c.state);
+    if !c.state.focused {
+        let n = ui.node("top", Node { at: Some((0.0, 0.0)).into(), w: Size::Px(c.w * o.fraction.unwrap_or(0.0)), h: Size::Px(2.0), look: ink_look(), ..Node::DEFAULT });
+        let _ = n;
+        let t = ui.node("shown", Node { at: Some((2.0, 3.0)).into(), w: Size::Px(c.w), h: Size::Px(14.0), ..Node::DEFAULT });
+        ui.text(&t, shown);
+    }
+}
+
+fn value_build(ui: &mut Ui, c: &Cells) {
+    let now = text_of(c);
+    let o = ValueFieldOpts { fraction: Some(0.5), ..ValueFieldOpts::default() };
+    let (text, _) = ui.value_field((10.0, 10.0), 120.0, 20.0, &o, &|_| true, "Amount", &now);
+    keep_text(c, &text);
+}
+
+pub fn value_field_topped_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.value_field = id, &|ui| ui.register_value_field_body("topped", topped_value));
+    // a click opens the editor; Enter commits what the undo left
+    let got = swap_root("value_field", &install, 0, true, &|_| edit_script((50, 20), vec![vec![key_down(Key::Enter)], vec![]]), &value_build);
+    check(got.0 == 5, &format!("value_field: type, replace, undo left {} bytes, not hello", got.0));
+}
+
+/// A picker field with an ink look and no placeholder.
+fn inked_picker_field(ui: &mut Ui, c: &PickerFieldConfig, _placeholder: &str) {
+    ui.set_look(&c.search, ink_look(), c.state);
+}
+
+fn picker_build(ui: &mut Ui, c: &Cells) {
+    ui.panel(PanelOpts::default(), "p", &mut |ui| {
+        let now = text_of(c);
+        let mut fill = |q: &str, rows: &mut Vec<(String, String)>| {
+            rows.clear();
+            rows.extend(["Alpha", "Beta", "Gamma"].iter().filter(|r| r.to_lowercase().contains(q)).map(|r| (r.to_string(), String::new())));
+        };
+        let (q, pick) = ui.picker_filled(&PickerOpts::default(), "Find", &now, &mut fill);
+        keep_text(c, &q);
+        if let Pick::Pick(i) = pick {
+            c.row.set(Some(i as usize));
+        }
+    });
+}
+
+pub fn picker_field_inked_body() {
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.picker_field = id, &|ui| ui.register_picker_field_body("inked", inked_picker_field));
+    // the picker takes the keyboard itself: type, select all, replace, undo, then Enter picks the first row left
+    let script = |_: &Ui| {
+        let mut frames = vec![vec![Event::TextInput("be".into())], vec![], command('a'), vec![Event::TextInput("ga".into())], vec![], command('z'), vec![]];
+        frames.extend([vec![key_down(Key::Enter)], vec![]]);
+        frames
+    };
+    let got = swap_root("picker_field", &install, 0, true, &script, &picker_build);
+    check(got.0 > 0, "picker_field: the typing gave no query");
+}
+
 thread_local! { static TAB_RUNS: Cell<u32> = const { Cell::new(0) }; }
 
 fn counting_tab(ui: &mut Ui, c: &TabConfig, text: &str) {
@@ -1399,4 +1619,9 @@ pub const CASES: &[(&str, fn())] = &[
     ("table_left_cell_body", table_left_cell_body),
     ("picker_label_body", picker_label_body),
     ("kept_view_runs_no_item_body", kept_view_runs_no_item_body),
+    ("search_field_icon_clear_body", search_field_icon_clear_body),
+    ("text_field_leading_body", text_field_leading_body),
+    ("line_field_inked_body", line_field_inked_body),
+    ("value_field_topped_body", value_field_topped_body),
+    ("picker_field_inked_body", picker_field_inked_body),
 ];

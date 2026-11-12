@@ -592,15 +592,15 @@ pub fn layout_kit_resize_same_frame() {
         ui.text_field("Caption", "value");
         ui.toggle("Wire", true);
     });
-    let control = |ui: &Ui, row: &str, n: i64| {
+    let control = |ui: &Ui, row: &str| {
         let panel = key_of(0x2c1b3c6d, "panel");
-        ui.rect(&ui.box_of_key(int_key(key_of(panel, row), n)).unwrap())
+        ui.rect(&ui.box_of_key(part_key(key_of(panel, row), Part::EDITOR)).unwrap())
     };
     for (t, w) in [(0.0, 280.0), (0.1, 280.0), (0.2, 340.0)] {
         width.set(w);
         ui.frame(&at(t, vec![]), &mut build);
         let (cx, _, cw, _) = value_control((12, 0, w as i64, 24));
-        let field = control(&ui, "Caption", 0);
+        let field = control(&ui, "Caption");
         check(field.x == cx as f32 && field.w == cw as f32, &format!("width {w}: field control {field:?}, expected x {cx} w {cw}"));
         let switch = ui.rect(&ui.box_of_key(part_key(key_of(key_of(0x2c1b3c6d, "panel"), "Wire"), Part::HIT)).unwrap());
         check(switch.x == 12.0 + w - 12.0 - 28.0, &format!("width {w}: switch {switch:?}"));
