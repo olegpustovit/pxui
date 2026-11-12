@@ -234,7 +234,7 @@ pub fn theme_file_selects_body() {
     check(ui.register_toggle_body("second", checkbox_body) == BodyId(2), "the next name is the next id");
     let base = Theme::default();
     let t = ui.parse_theme("toggle.body = checkbox # the box\nslider.body = round\nprogress.body = default\n", &base).expect("a theme with bodies");
-    check(t.body == Bodies { toggle, slider, progress: BodyId::DEFAULT }, &format!("{:?}", t.body));
+    check(t.body == Bodies { toggle, slider, ..Bodies::default() }, &format!("{:?}", t.body));
     check(Theme::parse("toggle.body = default\n", &t).map(|t| t.body.toggle) == Ok(BodyId::DEFAULT), "default needs no registry");
     // keys the file leaves alone keep the base's body, and a token key keeps it too
     check(ui.parse_theme("tokens.density = 0.9\n", &t).map(|t| t.body) == Ok(t.body), "a token key dropped the bodies");
@@ -300,6 +300,130 @@ pub fn progress_without_track_keeps_accessibility() {
     ui.destroy();
 }
 
+/// Click, keyboard, returned value and accessibility facts of the widget `(role, name)` with a theme's body installed and with the
+/// built-in one; warm frames allocate nothing either way, and the two draw different bytes. `build` reads and writes the cell that
+/// stands for the widget's value. Returns nothing: it fails a `check`.
+fn swap(kind: &str, install: &dyn Fn(&mut Ui), role: Role, name: &str, key: Key, build: &dyn Fn(&mut Ui, &Cell<i64>)) {
+    let mut runs = Vec::new();
+    for custom in [false, true] {
+        let mut ui = new_ui(None);
+        ui.set_a11y(true);
+        if custom {
+            install(&mut ui);
+        }
+        let value = Cell::new(0);
+        let mut b = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| build(ui, &value));
+        let mut t = 0.0;
+        let mut step = |ui: &mut Ui, e: Vec<Event>| {
+            t += 0.1;
+            ui.frame(&frame(t, e), &mut b);
+        };
+        for _ in 0..3 {
+            step(&mut ui, vec![]);
+        }
+        let facts = |ui: &Ui| {
+            let n = tree_node(ui, role, name);
+            (n.role, n.actions, n.states & (state::CHECKABLE | state::CHECKED))
+        };
+        let p = mid(tree_node(&ui, role, name).rect, 4.0);
+        for e in [vec![move_to(p)], vec![press(p)], vec![release(p)], vec![]] {
+            step(&mut ui, e);
+        }
+        let clicked = (value.get(), facts(&ui));
+        step(&mut ui, vec![Event::KeyPressed(Key::Tab)]);
+        step(&mut ui, vec![Event::KeyPressed(key)]);
+        step(&mut ui, vec![]);
+        let keyed = (value.get(), facts(&ui));
+        mem_sys::local_reset();
+        let before = mem_sys::local_alloc_count();
+        for _ in 0..20 {
+            step(&mut ui, vec![]);
+        }
+        check(mem_sys::local_alloc_count() == before, &format!("{kind} custom {custom}: warm frames allocated"));
+        runs.push((clicked, keyed, ui.output().draw[0].instances.to_vec()));
+        ui.destroy();
+    }
+    check(runs[0].0 .0 != 0, &format!("{kind}: the click did nothing"));
+    check(runs[0].0 == runs[1].0 && runs[0].1 == runs[1].1, &format!("{kind}: behaviour differs: {:?} {:?}", (runs[0].0, runs[0].1), (runs[1].0, runs[1].1)));
+    check(runs[0].2 != runs[1].2, &format!("{kind}: the body drew the same bytes"));
+}
+
+fn pick(ui: &mut Ui, f: &dyn Fn(&mut Theme, BodyId), register: &dyn Fn(&mut Ui) -> BodyId) {
+    let id = register(ui);
+    let mut theme = *ui.theme();
+    f(&mut theme, id);
+    ui.set_theme(theme);
+}
+
+/// A pill: a fixed 90 x 20 box with a dot inside, in the caller's look.
+fn pill_button(ui: &mut Ui, c: &ButtonConfig, _text: &str) {
+    let rh = ui.row_height() as f32;
+    ui.node_mut(&c.line).h = Size::Px(rh);
+    let n = ui.node_mut(&c.row);
+    (n.w, n.h) = (Size::Px(90.0), Size::Px(20.0));
+    ui.set_look(&c.row, Look { radius: [10.0; 4], ..c.look }, c.state);
+    ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(6.0), look: Look { fill: c.look.text, ..Look::NONE }, ..Node::DEFAULT });
+}
+
+/// Press, Space, the returned `true`, the role and the name are the default button's; the box is the body's.
+pub fn button_pill_body() {
+    let hits = |ui: &mut Ui, v: &Cell<i64>| {
+        if ui.button("Go") {
+            v.set(v.get() + 1);
+        }
+        if ui.button_styled("Bare", true, false, true, None) {
+            v.set(v.get() + 100);
+        }
+    };
+    swap("button", &|ui| pick(ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("pill", pill_button)), Role::Button, "Go", Key::Space, &hits);
+    // the geometry is the body's: its box is 90 wide, not the text's
+    let mut ui = new_ui(None);
+    pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("pill", pill_button));
+    for k in 0..2 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.button("Go"); }));
+    }
+    let w = ui.box_of_key(key_of(key_of(0x2c1b3c6d, "panel"), "Go")).map(|b| ui.rect(&b).w);
+    check(w == Some(90.0), &format!("the button's box is not the body's: {w:?}"));
+    ui.destroy();
+}
+
+fn round_icon(ui: &mut Ui, c: &IconButtonConfig, _label: &str, _icon: &str) {
+    let n = ui.node_mut(&c.node);
+    (n.w, n.h) = (Size::Px(32.0), Size::Px(32.0));
+    ui.set_look(&c.node, Look { radius: [16.0; 4], ..c.look }, c.state);
+    ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(12.0), look: Look { fill: c.look.text, ..Look::NONE }, ..Node::DEFAULT });
+}
+
+pub fn icon_button_round_body() {
+    let hits = |ui: &mut Ui, v: &Cell<i64>| {
+        if ui.icon_button("Add", "+") {
+            v.set(v.get() + 1);
+        }
+    };
+    swap("icon_button", &|ui| pick(ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("round", round_icon)), Role::Button, "Add", Key::Space, &hits);
+}
+
+/// A checkbox or radio row as a label and one 10-point mark that is filled when on.
+fn mark_check(ui: &mut Ui, c: &CheckConfig, text: &str) {
+    let look = ui.theme().toggle.idle;
+    ui.set_look(&c.row, look, c.state);
+    ui.node_mut(&c.row).inset = Edges { l: 20.0, ..Edges::ZERO };
+    ui.text(&c.row, shown(text));
+    let fill = if c.on { ui.theme().tokens.accent } else { Look::NONE.fill };
+    ui.node("mark", Node { w: Size::Px(10.0), h: Size::Px(10.0), margin: Edges::all(2.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT });
+}
+
+pub fn checkbox_mark_body() {
+    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.checkbox("Snap", v.get() != 0) as i64);
+    swap("checkbox", &|ui| pick(ui, &|t, id| t.body.checkbox = id, &|ui| ui.register_checkbox_body("mark", mark_check)), Role::CheckBox, "Snap", Key::Space, &hits);
+}
+
+pub fn radio_mark_body() {
+    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.radio("Mode", &["A", "B", "C"], v.get() as usize) as i64);
+    // a click on "B" chooses 1; Tab then Down moves on to 2
+    swap("radio", &|ui| pick(ui, &|t, id| t.body.radio = id, &|ui| ui.register_radio_body("mark", mark_check)), Role::Radio, "B", Key::ArrowDown, &hits);
+}
+
 pub const CASES: &[(&str, fn())] = &[
     ("toggle_checkbox_body", toggle_checkbox_body),
     ("slider_custom_thumb", slider_custom_thumb),
@@ -307,4 +431,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("progress_without_track_keeps_accessibility", progress_without_track_keeps_accessibility),
     ("theme_file_selects_body", theme_file_selects_body),
     ("unknown_body_is_error", unknown_body_is_error),
+    ("button_pill_body", button_pill_body),
+    ("icon_button_round_body", icon_button_round_body),
+    ("checkbox_mark_body", checkbox_mark_body),
+    ("radio_mark_body", radio_mark_body),
 ];

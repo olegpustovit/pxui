@@ -40,6 +40,44 @@ pub struct ProgressConfig {
 
 pub type ProgressBody = fn(&mut Ui, &ProgressConfig, &str);
 
+/// What a button body is given (the button's text beside it). The button is a `row` (its key, hit area, focus and accessible name,
+/// the node a press lands on) inside a `line` that places it in its row; both come with their behaviour only, and the body sets
+/// their layout and look (`Ui::node_mut`) and builds what is inside `row`, which it runs with entered. `look` is the one the
+/// caller's `States` picks for `state`; `bare`, `icon` and `at_end` are the variant the caller asked for. Behaviour reads no part.
+pub struct ButtonConfig {
+    pub state: State,
+    pub look: Look,
+    pub bare: bool,
+    pub icon: bool,
+    pub at_end: bool,
+    pub line: Handle,
+    pub row: Handle,
+}
+
+pub type ButtonBody = fn(&mut Ui, &ButtonConfig, &str);
+
+/// What an icon button body is given (its label, then its icon, beside it). It runs with the button's `node` entered, which carries
+/// the key, the hit area and the accessible name; the body sets its size and look and draws the icon. `look` is the theme's
+/// `icon_button` look for `state`.
+pub struct IconButtonConfig {
+    pub state: State,
+    pub look: Look,
+    pub node: Handle,
+}
+
+pub type IconButtonBody = fn(&mut Ui, &IconButtonConfig, &str, &str);
+
+/// What a checkbox or radio body is given (the option's text beside it). It runs with the `row` entered, which takes the presses
+/// and carries the role, the checked state and the accessible name; the body sets the row's look and builds the box or ring and
+/// the label. `state` is hovered and pressed; `on` is the value. Behaviour reads no part.
+pub struct CheckConfig {
+    pub state: State,
+    pub on: bool,
+    pub row: Handle,
+}
+
+pub type CheckBody = fn(&mut Ui, &CheckConfig, &str);
+
 /// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
 fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {
     if name == "default" {

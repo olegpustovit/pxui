@@ -10,7 +10,7 @@
 //! Enter/Space activate, the arrows move within a group, Escape leaves. A warm frame allocates
 //! nothing. Progress and spinner animate through patches (`busy_step`) without rebuilding their view.
 use crate::a11y::state as st;
-use crate::bodies::{in_body, ProgressConfig, SliderConfig};
+use crate::bodies::{in_body, CheckConfig, IconButtonConfig, ProgressConfig, SliderConfig};
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
@@ -115,26 +115,9 @@ impl Ui {
         let value = value ^ s.clicked;
         self.set_role(&row, Role::CheckBox, st::CHECKABLE | if value { st::CHECKED } else { 0 });
         self.a11y_name(&row, shown(text));
-        self.check_parts(&row, s.hovered, s.held, value, false, shown(text));
+        let config = CheckConfig { state: State { hovered: s.hovered, pressed: s.held, ..State::default() }, on: value, row };
+        in_body!(self, row.box_key, row, checkbox, default_checkbox(&config, shown(text)));
         value
-    }
-
-    /// The box (or ring) and label of a checkbox or radio row `row`.
-    fn check_parts(&mut self, row: &Handle, hovered: bool, held: bool, on: bool, round: bool, text: &str) {
-        let t = self.theme();
-        let (states, inner, label) = (if round { t.radio } else { t.checkbox }, if round { t.notice.idle } else { t.mark.idle }, *t.toggle.pick(State { hovered, ..State::default() }));
-        self.set_look(row, Look { text: color::transparent(), ..label }, State { hovered, ..State::default() });
-        let rh = self.row_height() as f32;
-        let saved = self.enter(row);
-        let bx = self.node_keyed(int_key(row.box_key, 0), Node { w: Size::Px(12.0), h: Size::Px(12.0), padding: Edges::all(3.0), ..Node::DEFAULT });
-        self.style(&bx, &states, State { hovered, pressed: held, checked: on, ..State::default() });
-        if on {
-            let inside = self.enter(&bx);
-            self.node_keyed(int_key(row.box_key, 1), Node { w: Size::Px(6.0), h: Size::Px(6.0), look: inner, ..Node::DEFAULT });
-            self.leave(inside);
-        }
-        self.text_leaf(int_key(row.box_key, 2), rh, label, text);
-        self.leave(saved);
     }
 
     /// A radio group: one row per option, `selected` the chosen one. One Tab stop; the arrows move
@@ -158,7 +141,8 @@ impl Ui {
             }
             self.set_role(&row, Role::Radio, st::CHECKABLE | if sel == i { st::CHECKED } else { 0 });
             self.a11y_name(&row, option);
-            self.check_parts(&row, rs.hovered, rs.held, sel == i, true, option);
+            let config = CheckConfig { state: State { hovered: rs.hovered, pressed: rs.held, ..State::default() }, on: sel == i, row };
+            in_body!(self, row.box_key, row, radio, default_radio(&config, option));
         }
         self.leave(saved);
         sel
@@ -791,17 +775,13 @@ impl Ui {
 
     /// A 20-point square button showing `icon` (a glyph of any loaded font) centred, named `label`.
     pub fn icon_button(&mut self, label: &str, icon: &str) -> bool {
-        let ch = self.control_h();
         let states = self.theme().icon_button;
-        let b = self.node(label, Node { flags: STOP_FLAGS, w: Size::Px(ch), h: Size::Px(ch), role: Role::Button, ..Node::DEFAULT });
+        let b = self.node(label, Node { flags: STOP_FLAGS, role: Role::Button, ..Node::DEFAULT });
         let s = self.signal(&b);
-        self.style(&b, &states, State { hovered: s.hovered, pressed: s.held, ..State::default() });
-        let tw = self.text_width(None, icon);
-        let n = self.node_mut(&b);
-        n.look.ring = Ring::NONE;
-        n.inset = Edges { l: ((ch - tw) / 2.0).floor(), ..Edges::ZERO };
-        self.text(&b, icon);
+        let state = State { hovered: s.hovered, pressed: s.held, ..State::default() };
         self.a11y_name(&b, shown(label));
+        let config = IconButtonConfig { state, look: *states.pick(state), node: b };
+        in_body!(self, b.box_key, b, icon_button, default_icon_button(&config, label, icon));
         s.clicked
     }
 
@@ -992,6 +972,44 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
     this.leave(inner);
     this.leave(saved);
     changed
+}
+
+/// The built-in icon button: the 20-point square, the glyph centred.
+fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, _label: &str, icon: &str) {
+    let ch = this.control_h();
+    let tw = this.text_width(None, icon);
+    let n = this.node_mut(&c.node);
+    (n.w, n.h) = (Size::Px(ch), Size::Px(ch));
+    this.set_look(&c.node, c.look, c.state);
+    let n = this.node_mut(&c.node);
+    n.look.ring = Ring::NONE;
+    n.inset = Edges { l: ((ch - tw) / 2.0).floor(), ..Edges::ZERO };
+    this.text(&c.node, icon);
+}
+
+/// The built-in checkbox and radio: the 12-point box (an accent square inside when on) or ring, then the label, in the row's hover look.
+fn default_checkbox(this: &mut Ui, c: &CheckConfig, text: &str) {
+    check_parts(this, c, text, false)
+}
+
+fn default_radio(this: &mut Ui, c: &CheckConfig, text: &str) {
+    check_parts(this, c, text, true)
+}
+
+fn check_parts(this: &mut Ui, c: &CheckConfig, text: &str, round: bool) {
+    let (hovered, held, on) = (c.state.hovered, c.state.pressed, c.on);
+    let t = this.theme();
+    let (states, inner, label) = (if round { t.radio } else { t.checkbox }, if round { t.notice.idle } else { t.mark.idle }, *t.toggle.pick(State { hovered, ..State::default() }));
+    this.set_look(&c.row, Look { text: color::transparent(), ..label }, State { hovered, ..State::default() });
+    let rh = this.row_height() as f32;
+    let bx = this.node_keyed(int_key(c.row.box_key, 0), Node { w: Size::Px(12.0), h: Size::Px(12.0), padding: Edges::all(3.0), ..Node::DEFAULT });
+    this.style(&bx, &states, State { hovered, pressed: held, checked: on, ..State::default() });
+    if on {
+        let inside = this.enter(&bx);
+        this.node_keyed(int_key(c.row.box_key, 1), Node { w: Size::Px(6.0), h: Size::Px(6.0), look: inner, ..Node::DEFAULT });
+        this.leave(inside);
+    }
+    this.text_leaf(int_key(c.row.box_key, 2), rh, label, text);
 }
 
 /// The built-in progress row: the label, then a 4-point track holding the bar.

@@ -4,7 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-use crate::bodies::{in_body, ToggleConfig};
+use crate::bodies::{in_body, ButtonConfig, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 use crate::a11y::state as st;
 use input::{Event, Key};
@@ -41,6 +41,38 @@ fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
     let k = this.placed(int_key(c.row.box_key, 1), (if c.on { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
     this.node_mut(&k).state = on;
     this.leave(inner);
+}
+
+/// The built-in button: its text on a 20-point box (6 points of padding in a transparent 1-point edge; 4 when `bare`), the glyph
+/// centred in the 20-point square of an `icon`, the box 5 points in from the start of its line (8 from the end with `at_end`).
+fn default_button(this: &mut Ui, c: &ButtonConfig, text: &str) {
+    let measure = this.text_width(None, shown(text));
+    let control_h = this.control_h();
+    let rh = this.row_height() as f32;
+    let width = if c.icon { control_h } else { measure + if c.bare { 10.0 } else { 14.0 } };
+    let pad = (rh - control_h) / 2.0;
+    let line = this.node_mut(&c.line);
+    line.h = Size::Px(rh);
+    line.axis = Axis::Row;
+    line.justify = if c.at_end { Justify::End } else { Justify::Start };
+    line.padding = Edges { l: 5.0, t: pad, r: if c.at_end { 8.0 } else { 5.0 }, b: pad };
+    let row = this.node_mut(&c.row);
+    (row.w, row.shrink, row.min_w, row.h) = (Size::Px(width), 1.0, 1.0, Size::Grow);
+    this.set_look(&c.row, c.look, c.state);
+    let pad = if c.icon { ((width - measure) / 2.0).floor() } else if c.bare { 5.0 } else { 7.0 };
+    let direction = match (c.icon, shown(text)) {
+        (true, "<") => Some(Dir::Left),
+        (true, ">") => Some(Dir::Right),
+        (true, "v") => Some(Dir::Down),
+        (true, "^") => Some(Dir::Up),
+        _ => None,
+    };
+    let n = this.node_mut(&c.row);
+    n.inset = Edges { l: pad, ..Edges::default() };
+    match direction {
+        Some(d) => n.mark = Mark::Chevron(d),
+        None => this.text(&c.row, shown(text)),
+    }
 }
 
 impl Ui {
@@ -759,38 +791,18 @@ impl Ui {
     /// padding to 4 points; `icon` makes it the 20-point square with its glyph centred; `at_end`
     /// puts the box at the row's end, 8 points from the edge; `ink` colours the text.
     pub fn button_ex(&mut self, text: &str, states: &States, bare: bool, icon: bool, at_end: bool) -> bool {
-        let measure = self.text_width(None, shown(text));
-        // the box: a 1-point edge and 6 points of padding (4 when `bare`) round the text; an `icon`
-        // is the 20-point control square with its glyph centred
-        let control_h = self.control_h();
-        let width = if icon { control_h } else { measure + if bare { 10.0 } else { 14.0 } };
         // the row lays the box out: 5 in from the start (8 from the end with `at_end`), the control
         // centred in the row's height; the box is the button (its key, its hit area)
         let key = key_of(self.current_seed(), text);
-        let pad = (self.row_height() as f32 - control_h) / 2.0;
-        let line = Node { h: Size::Px(self.row_height() as f32), axis: Axis::Row, justify: if at_end { Justify::End } else { Justify::Start }, padding: Edges { l: 5.0, t: pad, r: if at_end { 8.0 } else { 5.0 }, b: pad }, ..Node::DEFAULT };
-        let line = self.node_keyed(int_key(key, 0x6c69), line);
+        let line = self.node_keyed(int_key(key, 0x6c69), Node::DEFAULT);
         let saved = self.enter(&line);
-        let row = self.node_keyed(key, Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY | FOCUS_MARK, w: Size::Px(width), shrink: 1.0, min_w: 1.0, h: Size::Grow, role: Role::Button, ..Node::DEFAULT });
+        let row = self.node_keyed(key, Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY | FOCUS_MARK, role: Role::Button, ..Node::DEFAULT });
         self.a11y_name(&row, shown(text));
         self.leave(saved);
         let signal = self.signal(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused: self.focused(&row), ..State::default() };
-        self.style(&row, states, state);
-        let pad = if icon { ((width - measure) / 2.0).floor() } else if bare { 5.0 } else { 7.0 };
-        let direction = match (icon, shown(text)) {
-            (true, "<") => Some(Dir::Left),
-            (true, ">") => Some(Dir::Right),
-            (true, "v") => Some(Dir::Down),
-            (true, "^") => Some(Dir::Up),
-            _ => None,
-        };
-        let n = self.node_mut(&row);
-        n.inset = Edges { l: pad, ..Edges::default() };
-        match direction {
-            Some(d) => n.mark = Mark::Chevron(d),
-            None => self.text(&row, shown(text)),
-        }
+        let config = ButtonConfig { state, look: *states.pick(state), bare, icon, at_end, line, row };
+        in_body!(self, key, row, button, default_button(&config, text));
         signal.clicked
     }
 

@@ -237,6 +237,10 @@ macro_rules! body_kinds {
             toggle register_toggle_body ToggleBody,
             slider register_slider_body SliderBody,
             progress register_progress_body ProgressBody,
+            button register_button_body ButtonBody,
+            icon_button register_icon_button_body IconButtonBody,
+            checkbox register_checkbox_body CheckBody,
+            radio register_radio_body CheckBody,
         }
     };
 }
