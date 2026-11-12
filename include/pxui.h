@@ -226,7 +226,8 @@ typedef void (*PxuiRelease)(void *user);
 typedef struct { uint32_t size, axis; int64_t flags; PxuiSizeDesc w,h; float max_h,padding,scroll_step; uint8_t has_at,has_hit_rect,reserved[2]; float at[2]; PxuiRect hit_rect; PxuiHit hit; void *hit_user; PxuiRelease hit_release; } PxuiBoxDesc;
 /* The callback UI pointer is borrowed and valid only for that callback; do not retain or destroy it. Only the handle of the innermost
    running callback may be used: while a container's callback runs, the handle of the callback it was called from, and the owner handle,
-   are refused (PXUI_ERR_STATE, and zero or null for a call that returns a value; pxui_last_error says why) before the engine is touched.
+   are refused (PXUI_ERR_STATE, and zero or null for a call that returns a value, SIZE_MAX or UINT32_MAX for the pxui_text_* calls whose
+   zero is an answer; pxui_last_error says why) before the engine is touched.
    Between callbacks of a frame (the engine's own phases) no handle is usable. pxui_last_error, pxui_ui_output (which builds nothing in
    a frame) and pxui_ui_destroy / pxui_frame / pxui_ui_set_theme (which refuse in a frame themselves) stay callable on the owner. Outside
    a frame the owner is the handle. A renderer's calls that reach the Ui (prepare, draw) are refused inside a frame too. */
@@ -504,7 +505,8 @@ uint32_t pxui_shaper_add_font(PxuiShaper *shaper, PxuiStr font);
 int32_t pxui_shaper_width(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
 size_t pxui_shaper_rasterize_rgba(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
 PxuiStr pxui_default_font(void); /* Pragmasevka, embedded: valid as long as the library */
-/* The text service of a Ui: its one font system and glyph atlas, for canvas text an app lays out itself (atlases: pxui_renderer_atlas). */
+/* The text service of a Ui: its one font system and glyph atlas, for canvas text an app lays out itself (atlases: pxui_renderer_atlas).
+   pxui_text_add_font answers UINT32_MAX, pxui_text_quads and pxui_text_rasterize_rgba SIZE_MAX, for bad arguments and a refused call. */
 uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
 int32_t pxui_text_width(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
 size_t pxui_text_quads(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float x, float y, float scale, PxuiTextGlyph *out, size_t capacity);

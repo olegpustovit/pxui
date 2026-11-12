@@ -78,7 +78,7 @@ export!(bare pub unsafe fn pxui_shaper_rasterize_rgba(
 export!(bare pub unsafe fn pxui_default_font() -> Str { Str { ptr: pxui_text::PRAGMASEVKA.as_ptr(), len: pxui_text::PRAGMASEVKA.len() } });
 
 // Adds a font (its bytes are copied) to the Ui's text service; its index, or `u32::MAX` when refused.
-export!(pub unsafe fn pxui_text_add_font(ui: *mut PxuiUi, font: Str) -> u32 {
+export!(failing(u32::MAX) pub unsafe fn pxui_text_add_font(ui: *mut PxuiUi, font: Str) -> u32 {
     let Some(engine) = (unsafe { engine(ui) }) else { return u32::MAX; };
     let Some(font) = (unsafe { bytes(font) }) else { return u32::MAX; };
     u32::try_from(engine.text_mut().add_font(font)).unwrap_or(u32::MAX)
@@ -228,14 +228,14 @@ export!(pub unsafe fn pxui_text_width(ui: *mut PxuiUi, key: u64, value: Str, sty
 
 // The glyph quads of `value` in the Ui's text service, for an app pass that samples the atlases of `pxui_renderer_atlas`. Returns
 // the total glyph count, or `usize::MAX` for invalid arguments; when `capacity` is smaller only the first `capacity` are written.
-export!(pub unsafe fn pxui_text_quads(
+export!(failing(usize::MAX) pub unsafe fn pxui_text_quads(
     ui: *mut PxuiUi, key: u64, value: Str, style_: *const TextStyle, max_width: f32, origin_x: f32, origin_y: f32, scale: f32, out: *mut TextGlyph, capacity: usize,
 ) -> usize {
     let Some(engine) = (unsafe { engine(ui) }) else { return usize::MAX; };
     unsafe { quads(engine.text_mut(), key, value, style_, max_width, origin_x, origin_y, scale, out, capacity) }
 });
 
-export!(pub unsafe fn pxui_text_rasterize_rgba(
+export!(failing(usize::MAX) pub unsafe fn pxui_text_rasterize_rgba(
     ui: *mut PxuiUi, key: u64, value: Str, style_: *const TextStyle, max_width: f32, scale: f32,
     color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize,
 ) -> usize {

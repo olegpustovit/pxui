@@ -416,9 +416,10 @@ impl Ui {
     #[inline] pub fn built_nodes(&self) -> usize { self.output().built_nodes as usize }
     #[inline] pub fn rebuilt_views(&self) -> usize { self.output().rebuilt_views as usize }
     #[inline] pub fn arranged_nodes(&self) -> usize { self.output().arranged_nodes as usize }
+    #[track_caller]
     pub fn view_size(&self) -> (f32, f32) {
         let mut out = pxui_types::geom::Point::default();
-        let _ = unsafe { sys::pxui_ui_view_size(self.0.as_ptr(), &mut out) };
+        check(self, unsafe { sys::pxui_ui_view_size(self.0.as_ptr(), &mut out) });
         (out.x, out.y)
     }
     #[inline]

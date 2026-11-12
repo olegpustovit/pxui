@@ -33,6 +33,10 @@ macro_rules! export {
     (trusted $vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) $(-> $ret:ty)? $body:block) => {
         export!(@handle false, $vis $name ($h: $hty $(, $arg: $ty)*) ($(-> $ret)?) (unsafe { core::mem::zeroed() }) (value) $body);
     };
+    // `failing`: a value export whose zero is a real answer (a count, an index) answers its own error value `$failed` on refusal and panic
+    (failing($failed:expr) $vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) -> $ret:ty $body:block) => {
+        export!(@handle true, $vis $name ($h: $hty $(, $arg: $ty)*) (-> $ret) ($failed) ([$failed]) $body);
+    };
     ($vis:vis unsafe fn $name:ident($h:ident: $hty:ty $(, $arg:ident: $ty:ty)* $(,)?) -> i32 $body:block) => {
         export!(@handle true, $vis $name ($h: $hty $(, $arg: $ty)*) (-> i32) ($crate::PXUI_ERR_PANIC) (status) $body);
     };
@@ -57,6 +61,7 @@ macro_rules! export {
     };
     (@refuse status, $shared:expr) => { return unsafe { $crate::state::refuse($shared) } };
     (@refuse value, $shared:expr) => { { unsafe { $crate::state::refuse($shared); } return unsafe { core::mem::zeroed() }; } };
+    (@refuse [$failed:expr], $shared:expr) => { { unsafe { $crate::state::refuse($shared); } return $failed; } };
     // the one place a panic is caught
     (@run $count:tt, $payload:ident => $on_panic:block, $body:block) => {
         {
