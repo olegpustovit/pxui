@@ -4,7 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-use crate::bodies::{in_body, ButtonConfig, FooterConfig, GripConfig, LabelConfig, ToggleConfig};
+use crate::bodies::{in_body, in_place, ButtonConfig, FooterConfig, GripConfig, InspectorRowConfig, LabelConfig, PanelConfig, SectionConfig, SplitConfig, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 use crate::a11y::state as st;
 use input::{Event, Key};
@@ -118,6 +118,67 @@ fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &
         this.end_row(&row, this.space(2));
         this.flow_part(int_key(row.box_key, -1), cw, rh, Edges { t: 1.0, ..Edges::ZERO }, label, text);
     }
+}
+
+/// The built-in sheet body (panel, window, popup, modal): the content in the sheet as the kit made it.
+fn default_panel(this: &mut Ui, _c: &PanelConfig, _label: &str, content: &mut dyn FnMut(&mut Ui)) {
+    content(this);
+}
+
+/// The built-in inspector row: the hover fill, the label fitted to its column and the pin dot.
+fn default_inspector_row(this: &mut Ui, c: &InspectorRowConfig, label: &str) {
+    let (look, dot) = (*this.theme().row.pick(c.state), this.theme().pin);
+    this.set_look(&c.row, look, c.state);
+    let shown = this.fit_text(this.font_size(), c.label_w, label);
+    this.text(&c.row, &shown);
+    // the pin dot: filled ink when the row is on its card, an ink-3 ring when it is not
+    if let Some(on) = c.pin {
+        let rh = this.row_height() as f32;
+        let saved = this.enter(&c.row);
+        this.placed(int_key(c.row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, *dot.pick(State { checked: on, ..State::default() }), Edges::default(), "");
+        this.leave(saved);
+    }
+}
+
+/// The built-in section header: the section look, the label, the disclosure chevron at the end, then the content when open.
+fn default_section(this: &mut Ui, c: &SectionConfig, label: &str, content: &mut dyn FnMut(&mut Ui)) {
+    let (title, rh) = (c.title, this.row_height() as f32);
+    // the sheet has no hover state on a section header
+    let (look, chevron) = (this.theme().section.idle, this.theme().chevron.idle);
+    this.set_look(&title, look, State::default());
+    this.node_mut(&title).inset = Edges { l: this.space(2), t: c.gap, ..Edges::default() };
+    this.text(&title, label);
+    this.end_row(&title, this.space(2));
+    let saved = this.enter(&title);
+    let mark = this.flow_part(int_key(title.box_key, 0), 6.0, rh, Edges { t: c.gap, ..Edges::ZERO }, chevron, "");
+    this.node_mut(&mark).mark = Mark::Chevron(if c.open { Dir::Down } else { Dir::Right });
+    this.leave(saved);
+    if c.open {
+        content(this);
+    }
+}
+
+/// One pane of the built-in split: it grows by its share of the room and holds at its minimum along the split.
+fn default_pane(this: &mut Ui, c: &SplitConfig, label: &str, grow: f32, min: f32, content: &mut dyn FnMut(&mut Ui)) {
+    let row = c.axis == Axis::Row;
+    let pane = this.node(label, Node { w: Size::Grow, h: Size::Grow, grow, min_w: if row { min } else { 0.0 }, min_h: if row { 0.0 } else { min }, flags: CLIP, ..Node::DEFAULT });
+    this.within(&pane, content);
+}
+
+/// The built-in split: the first pane, the grip, the second pane.
+fn default_split(this: &mut Ui, c: &SplitConfig, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) {
+    default_pane(this, c, "a", c.ratio, c.min_a, a);
+    this.grip(format_args!("grip"), c.axis, None);
+    default_pane(this, c, "b", 1.0 - c.ratio, c.min_b, b);
+}
+
+/// The sheets a panel body is called for.
+#[derive(Clone, Copy)]
+enum Sheet {
+    Panel,
+    Window,
+    Popup,
+    Modal,
 }
 
 impl Ui {
@@ -373,11 +434,20 @@ impl Ui {
     /// otherwise content sets the height. Rows beyond the height or `max_height` use the shared
     /// elastic scroll. `window` lays inspector rows and heads out as a floating window's.
     pub fn panel(&mut self, opts: PanelOpts, label: &str, f: &mut dyn FnMut(&mut Ui)) {
-        let b = self.panel_enter(&opts, label);
-        let saved = self.enter(&b.0);
-        f(self);
-        self.leave(saved);
-        self.panel_leave(b.1);
+        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, label, f);
+    }
+
+    /// A sheet of `kind`: its node, then the body of that kind around the caller's content.
+    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, f: &mut dyn FnMut(&mut Ui)) {
+        let (node, previous) = self.panel_enter(opts, label);
+        let c = PanelConfig { node };
+        match kind {
+            Sheet::Panel => in_body!(self, node.box_key, node, panel, default_panel(&c, label, f)),
+            Sheet::Window => in_body!(self, node.box_key, node, window, default_panel(&c, label, f)),
+            Sheet::Popup => in_body!(self, node.box_key, node, popup, default_panel(&c, label, f)),
+            Sheet::Modal => in_body!(self, node.box_key, node, modal, default_panel(&c, label, f)),
+        }
+        self.panel_leave(previous);
     }
 
     /// Open a panel: the box and the kit state to give back to `panel_leave`.
@@ -474,19 +544,11 @@ impl Ui {
         self.lead_gap();
         let rh = self.row_height() as f32;
         let row = self.node(key, Node { flags: CLICKABLE, h: Size::Px(rh), inset: Edges { l: label_x, ..Edges::default() }, ..Node::DEFAULT });
-        let hovered = self.hovered_within(&row);
-        let (look, dot) = (*self.theme().row.pick(State { hovered, ..State::default() }), self.theme().pin);
-        self.set_look(&row, look, State { hovered, ..State::default() });
-        let shown = self.fit_text(self.font_size(), label_w, label);
-        self.text(&row, &shown);
+        let state = State { hovered: self.hovered_within(&row), ..State::default() };
         self.set_role(&row, Role::Label, 0);
         self.a11y_name(&row, label);
-        // the pin dot: filled ink when the row is on its card, an ink-3 ring when it is not
-        if let Some(on) = pin {
-            let saved = self.enter(&row);
-            self.placed(int_key(row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, *dot.pick(State { checked: on, ..State::default() }), Edges::default(), "");
-            self.leave(saved);
-        }
+        let config = InspectorRowConfig { row, state, label_w, pin };
+        in_body!(flat; self, row.box_key, row, inspector_row, default_inspector_row(&config, label));
         (row, control_x, 2.0, 40.0f32.max(width - control_x - 12.0))
     }
 
@@ -543,20 +605,10 @@ impl Ui {
         if !open {
             self.set_closed_section(title.index);
         }
-        // the sheet has no hover state on a section header
-        let (look, chevron) = (self.theme().section.idle, self.theme().chevron.idle);
-        self.set_look(&title, look, State::default());
-        self.node_mut(&title).inset = Edges { l: self.space(2), t: gap, ..Edges::default() };
-        self.text(&title, label);
+        self.a11y_name(&title, label);
         self.set_role(&title, Role::Heading, st::EXPANDABLE | if open { st::EXPANDED } else { 0 });
-        self.end_row(&title, self.space(2));
-        let saved = self.enter(&title);
-        let mark = self.flow_part(int_key(title.box_key, 0), 6.0, rh, Edges { t: gap, ..Edges::ZERO }, chevron, "");
-        self.node_mut(&mark).mark = Mark::Chevron(if open { Dir::Down } else { Dir::Right });
-        self.leave(saved);
-        if open {
-            f(self);
-        }
+        let config = SectionConfig { title, open, gap };
+        in_place!(self, title.box_key, inspector_section, default_section(&config, label, f));
         open
     }
 
@@ -729,7 +781,7 @@ impl Ui {
         popts.look = opts.look;
         popts.max_height = opts.max_height;
         popts.padding = if opts.stroke.is_none() && opts.look.is_none() { 0 } else { 1 };
-        self.panel(popts, label, f);
+        self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, f);
         if let Some(sheet) = self.box_of_key(key) {
             let modal = if opts.role == Role::Dialog { st::MODAL } else { 0 };
             self.set_role(&sheet, opts.role, modal);
@@ -869,15 +921,11 @@ impl Ui {
     pub fn split(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> {
         let row = axis == Axis::Row;
         let split = self.node(label, Node { w: Size::Grow, h: Size::Grow, axis, ..Node::DEFAULT });
-        let saved = self.enter(&split);
-        let ratio = ratio.clamp(0.0, 1.0);
-        let pane = |grow: f32, min: f32| Node { w: Size::Grow, h: Size::Grow, grow, min_w: if row { min } else { 0.0 }, min_h: if row { 0.0 } else { min }, flags: CLIP, ..Node::DEFAULT };
-        let first = self.node("a", pane(ratio, min_a));
-        self.within(&first, a);
-        let (_, signal) = self.grip(format_args!("grip"), axis, None);
-        let second = self.node("b", pane(1.0 - ratio, min_b));
-        self.within(&second, b);
-        self.leave(saved);
+        let config = SplitConfig { split, axis, ratio: ratio.clamp(0.0, 1.0), min_a, min_b };
+        in_body!(self, split.box_key, split, split, default_split(&config, a, b));
+        // the grip is the box the body built under the key `Ui::grip` gives "grip" (none: the split cannot be dragged)
+        let Some(grip) = self.box_of_key(key_of(split.box_key, "grip")).filter(|g| self.live(g)) else { return None };
+        let signal = self.signal(&grip);
         if !(signal.held || signal.released) || (if row { signal.drag.0 } else { signal.drag.1 }) == 0.0 {
             return None;
         }

@@ -125,6 +125,94 @@ pub struct GripConfig {
 
 pub type GripBody = fn(&mut Ui, &GripConfig);
 
+/// What a panel, window, popup or modal body is given (its label, then the caller's content, beside it). The sheet is `node`, entered:
+/// it already carries the kit's look, scroll, clip, size, role and name, which the body may restyle (`Ui::node_mut`, `set_look`) or
+/// surround with chrome of its own; it calls `content` once where the content goes. Popup placement, stacking, dismissal and the
+/// scroll offset stay with behaviour, which reads the sheet's own box. `window` is the `window` kind (a panel opened with
+/// `PanelOpts::window`), the `modal` kind is the sheet a modal or dialog opens, the `popup` kind any other popup.
+pub struct PanelConfig {
+    pub node: Handle,
+}
+
+pub type PanelBody = fn(&mut Ui, &PanelConfig, &str, &mut dyn FnMut(&mut Ui));
+
+/// What a dialog body is given (its title, its button labels, then the caller's content, beside it). It runs inside the modal's sheet
+/// (entered) and builds the title bar, calls `content` once, then builds the buttons; the sheet itself is the `modal` body's.
+/// Behaviour reads three kinds of part: the title bar built as `Part::TITLE` (it gets the heading role and the title as name; none, no
+/// heading), and button `i` built as `Part::button(i)`, a clickable node (it gets the button role, its label as name and a press on it
+/// is the dialog's answer). Escape, a press outside and Enter (the last button) are behaviour's.
+pub type DialogBody = fn(&mut Ui, &str, &[&str], &mut dyn FnMut(&mut Ui));
+
+/// What an inspector section body is given (its label, then the caller's content, beside it). It runs in the section's parent, not
+/// entered: `title` is the header box (a full-width row that takes the click, carries the heading role, the expandable and
+/// expanded states and the name, and has the height and the gap above it already), `open` its state. The body styles the header
+/// (look, inset, text, the disclosure mark; `gap` is the space above that the section's place asks for) and calls `content` once
+/// after it when `open`. Behaviour reads no part: a press anywhere on `title` toggles it.
+pub struct SectionConfig {
+    pub title: Handle,
+    pub open: bool,
+    pub gap: f32,
+}
+
+pub type SectionBody = fn(&mut Ui, &SectionConfig, &str, &mut dyn FnMut(&mut Ui));
+
+/// What an inspector row body is given (its label beside it). It runs with the row entered: a clickable row of the kit's height whose
+/// label starts at `label_x` (its inset), carrying the label role and name. The body gives it the look for `state`, puts the label
+/// on it fitted into `label_w` points and draws the pin dot when `pin` (`Some(on)`) is given. The control the caller puts
+/// in the row is the caller's, at the places the call returns. Behaviour reads no part.
+pub struct InspectorRowConfig {
+    pub row: Handle,
+    pub state: State,
+    pub label_w: f32,
+    pub pin: Option<bool>,
+}
+
+pub type InspectorRowBody = fn(&mut Ui, &InspectorRowConfig, &str);
+
+/// What a split body is given (the two panes' content, beside it). It runs with the `split` box entered and builds, in order, the first
+/// pane, the grip and the second pane; each pane is a growing node with `grow` and the minimum along `axis` (`min_a`, `min_b`) that
+/// calls its content once. The grip is built with `Ui::grip(format_args!("grip"), axis, None)` (its own body is the `grip` kind's):
+/// behaviour reads its signal for the drag and the returned ratio; a body that builds none cannot be resized.
+pub struct SplitConfig {
+    pub split: Handle,
+    pub axis: Axis,
+    pub ratio: f32,
+    pub min_a: f32,
+    pub min_b: f32,
+}
+
+pub type SplitBody = fn(&mut Ui, &SplitConfig, &mut dyn FnMut(&mut Ui), &mut dyn FnMut(&mut Ui));
+
+/// What a scroll view body is given (the caller's content beside it). The view is `node`, entered: it carries the scroll flags,
+/// the offset, the role and the name, and the kit's look, padding and scrollbar (`Node::bar`: thumb colour, radius, width, gap),
+/// which the body may restyle; it calls `content` once. Scrolling, the thumb's drag and the offset are the engine's. Behaviour reads no part.
+pub struct ScrollConfig {
+    pub node: Handle,
+}
+
+pub type ScrollBody = fn(&mut Ui, &ScrollConfig, &mut dyn FnMut(&mut Ui));
+
+/// What a toast body is given (its text beside it). It runs with the toast's `node` entered (keyed by its text, clickable, the
+/// status role and the clock behaviour keeps); the body sizes and looks it for `state` (hovered) and puts the text on it. The stack's
+/// place, order and gap are behaviour's; a click, or the toast's time, is what dismisses it.
+pub struct ToastConfig {
+    pub state: State,
+    pub node: Handle,
+}
+
+pub type ToastBody = fn(&mut Ui, &ToastConfig, &str);
+
+/// What a tooltip body is given (the text's wrapped lines beside it, which behaviour already cut to `width`). It runs with the
+/// `tip` sheet entered: a root node `width` x `height` (the room the lines take, whatever the body draws) at the place behaviour chose,
+/// with the tooltip role, the full text as name and the overlay order. The body gives it its look and builds the lines.
+pub struct TipConfig {
+    pub tip: Handle,
+    pub width: f32,
+    pub height: f32,
+}
+
+pub type TipBody = fn(&mut Ui, &TipConfig, &[String]);
+
 /// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
 fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {
     if name == "default" {
@@ -182,6 +270,25 @@ macro_rules! in_body {
     }};
 }
 pub(crate) use in_body;
+
+/// `in_body!` for a widget whose body runs where it was called, with no node entered (an inspector section: its header and its content
+/// are siblings). The built-in body is called as it is; a registered one first becomes the owner of `Ui::part`.
+macro_rules! in_place {
+    ($ui:ident, $key:expr, $kind:ident, $default:ident($($arg:expr),*)) => {
+        match $ui.theme().body.$kind {
+            BodyId(0) => $default($ui, $($arg),*),
+            id => match $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied() {
+                Some(body) => {
+                    let owner = core::mem::replace(&mut $ui.part_owner, $key);
+                    body($ui, $($arg),*);
+                    $ui.part_owner = owner;
+                }
+                None => $default($ui, $($arg),*),
+            },
+        }
+    };
+}
+pub(crate) use in_place;
 
 macro_rules! registry {
     ($($kind:ident $register:ident $body:ident),* $(,)?) => {

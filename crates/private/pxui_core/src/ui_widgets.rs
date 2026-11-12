@@ -10,7 +10,7 @@
 //! Enter/Space activate, the arrows move within a group, Escape leaves. A warm frame allocates
 //! nothing. Progress and spinner animate through patches (`busy_step`) without rebuilding their view.
 use crate::a11y::state as st;
-use crate::bodies::{in_body, BadgeConfig, CheckConfig, IconButtonConfig, ProgressConfig, SliderConfig, SpinnerConfig};
+use crate::bodies::{in_body, in_place, BadgeConfig, CheckConfig, IconButtonConfig, ProgressConfig, ScrollConfig, SliderConfig, SpinnerConfig, ToastConfig};
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
@@ -57,6 +57,43 @@ fn clamp_step(i: usize, by: i64, n: usize) -> usize {
 const ROW_FLAGS: Flags = CLICKABLE | BLOCKING;
 const STOP_FLAGS: Flags = CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY;
 
+/// The built-in dialog: the title bar, the content, then the buttons at the end of a row, the last the default. Each button is a
+/// 20-point box with its text 7 points in, in the button looks; behaviour finds it as `Part::button(i)`.
+fn default_dialog(this: &mut Ui, title: &str, buttons: &[&str], content: &mut dyn FnMut(&mut Ui)) {
+    let t = this.theme();
+    let (bar, states) = (t.dialog.idle, t.button);
+    let rh = this.row_height() as f32;
+    let head = this.part(Part::TITLE, Node { h: Size::Px(rh + 8.0), look: bar, inset: Edges { l: this.space(2), ..Edges::ZERO }, ..Node::DEFAULT });
+    this.text(&head, shown(title));
+    content(this);
+    let row = this.node("buttons", Node { h: Size::Px(rh + 12.0), axis: Axis::Row, align: Align::Center, justify: Justify::End, gap: 4.0, padding: Edges { r: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
+    let saved = this.enter(&row);
+    for (i, text) in buttons.iter().enumerate() {
+        let w = this.text_width(None, text) + 14.0;
+        let ch = this.control_h();
+        let b = this.part(Part::button(i as u8), Node { flags: STOP_FLAGS, w: Size::Px(w), h: Size::Px(ch), shrink: 1.0, min_w: 1.0, inset: Edges { l: 7.0, ..Edges::ZERO }, ..Node::DEFAULT });
+        let s = this.signal(&b);
+        this.style(&b, &states, State { hovered: s.hovered, pressed: s.held, ..State::default() });
+        this.node_mut(&b).look.ring = Ring::NONE;
+        this.text(&b, text);
+    }
+    this.leave(saved);
+}
+
+/// The built-in toast: a row-and-a-half high box in the toast look, text 12 points in.
+fn default_toast(this: &mut Ui, c: &ToastConfig, text: &str) {
+    let (states, rh, side) = (this.theme().toast, this.row_height() as f32, this.space(2));
+    let n = this.node_new(&c.node);
+    (n.h, n.inset) = (Size::Px(rh + 12.0), Edges { l: side, r: side, ..Edges::ZERO });
+    this.style(&c.node, &states, c.state);
+    this.text(&c.node, text);
+}
+
+/// The built-in scroll view: the content in the node as the kit made it.
+fn default_scroll(this: &mut Ui, _c: &ScrollConfig, content: &mut dyn FnMut(&mut Ui)) {
+    content(this);
+}
+
 impl Ui {
     fn rtl(&self) -> bool {
         self.dir() == Direction::Rtl
@@ -92,19 +129,6 @@ impl Ui {
         let n = self.node_keyed(key, Node { w: Size::Px(w.max(1.0)), h: Size::Px(h), shrink: 1.0, flags: FIT_TEXT, look: text_only(&look), ..Node::DEFAULT });
         self.text(&n, text);
         n
-    }
-
-    /// A kit control: a 20-point box with its text 7 points in, the button's looks by default.
-    fn push_button(&mut self, key: i64, text: &str, states: &States) -> bool {
-        let w = self.text_width(None, text) + 14.0;
-        let ch = self.control_h();
-        let b = self.node_keyed(key, Node { flags: STOP_FLAGS, w: Size::Px(w), h: Size::Px(ch), shrink: 1.0, min_w: 1.0, inset: Edges { l: 7.0, ..Edges::ZERO }, role: Role::Button, ..Node::DEFAULT });
-        let s = self.signal(&b);
-        let state = State { hovered: s.hovered, pressed: s.held, ..State::default() };
-        self.style(&b, states, state);
-        self.node_mut(&b).look.ring = Ring::NONE;
-        self.text(&b, text);
-        s.clicked
     }
 
     /// A checkbox row: the 12-point box (an accent square inside when on) and the label.
@@ -472,7 +496,7 @@ impl Ui {
         let rh = self.row_height() as f32;
         let n = self.node(label, Node { flags: SCROLL | SCROLL_X | CLIP | BLOCKING, w, h, look, bar: Some(bar).into(), scroll_step: rh, padding: Edges::all(1.0), role: Role::ScrollArea, ..Node::DEFAULT });
         self.a11y_name(&n, shown(label));
-        self.within(&n, f);
+        in_body!(self, n.box_key, n, scroll_view, default_scroll(&ScrollConfig { node: n }, f));
         n
     }
 
@@ -707,20 +731,22 @@ impl Ui {
         let mut out = DialogOut::Open;
         let enter = self.key_pressed(Key::Enter);
         let shown_now = self.modal(Some(320.0), title, &mut |ui| {
-            let t = ui.theme();
-            let (bar, states) = (t.dialog.idle, t.button);
-            let rh = ui.row_height() as f32;
-            let head = ui.node("title", Node { h: Size::Px(rh + 8.0), look: bar, inset: Edges { l: ui.space(2), ..Edges::ZERO }, role: Role::Heading, ..Node::DEFAULT });
-            ui.text(&head, shown(title));
-            body(ui);
-            let row = ui.node("buttons", Node { h: Size::Px(rh + 12.0), axis: Axis::Row, align: Align::Center, justify: Justify::End, gap: 4.0, padding: Edges { r: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
-            let saved = ui.enter(&row);
-            for (i, b) in buttons.iter().enumerate() {
-                if ui.push_button(int_key(row.box_key, i as i64), b, &states) {
-                    out = DialogOut::Button(i);
+            let owner = ui.current_seed();
+            in_place!(ui, owner, dialog, default_dialog(title, buttons, body));
+            // the heading and the buttons are the body's nodes; their roles, names and presses are read here
+            if let Some(head) = ui.part_box(owner, Part::TITLE) {
+                ui.set_role(&head, Role::Heading, 0);
+                ui.a11y_name(&head, shown(title));
+            }
+            for (i, text) in buttons.iter().enumerate() {
+                if let Some(b) = ui.part_box(owner, Part::button(i as u8)) {
+                    ui.set_role(&b, Role::Button, 0);
+                    ui.a11y_name(&b, shown(text));
+                    if ui.signal(&b).clicked {
+                        out = DialogOut::Button(i);
+                    }
                 }
             }
-            ui.leave(saved);
         });
         if !shown_now {
             return DialogOut::Closed;
@@ -742,17 +768,16 @@ impl Ui {
         let ((w, h), m) = (self.view_size(), self.space(2));
         let x = if self.rtl() { m } else { w - m };
         let place = Placement { side: Side::Above, align: if self.rtl() { Align::Start } else { Align::End }, gap: 0.0, margin: m, flip: false };
-        let (look, states) = (self.theme().toast.idle, self.theme().toast);
-        let rh = self.row_height() as f32;
         let mut gone = None;
         let now = self.now();
         let stack = self.anchored(label, Rect::new(x, h - m, 0.0, 0.0), place, Size::Px(260.0), Size::Fit, &mut |ui| {
             for (i, item) in items.iter().enumerate() {
                 // keyed by text, so dropping one keeps the others' times
-                let n = ui.node_keyed(key_of(ui.current_seed(), item), Node { flags: ROW_FLAGS | FIT_TEXT, h: Size::Px(rh + 12.0), look, inset: Edges { l: ui.space(2), r: ui.space(2), ..Edges::ZERO }, role: Role::StatusBar, ..Node::DEFAULT });
+                let n = ui.node_keyed(key_of(ui.current_seed(), item), Node { flags: ROW_FLAGS | FIT_TEXT, role: Role::StatusBar, ..Node::DEFAULT });
                 let s = ui.signal(&n);
-                ui.style(&n, &states, State { hovered: s.hovered, ..State::default() });
-                ui.text(&n, item);
+                ui.a11y_name(&n, item);
+                let config = ToastConfig { state: State { hovered: s.hovered, ..State::default() }, node: n };
+                in_body!(flat; ui, n.box_key, n, toast, default_toast(&config, item));
                 let born = f64::from_bits(ui.state(&n, now.to_bits() as i64) as u64);
                 ui.set_state(&n, born.to_bits() as i64);
                 if s.clicked || now >= born + seconds {

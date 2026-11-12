@@ -31,7 +31,7 @@ pub use pxui_types::ui::{
     KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
 };
 pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
-use crate::bodies::BodyTable;
+use crate::bodies::{in_body, BodyTable, TipConfig};
 /// Sentinel for no box in parent, child and sibling indices.
 pub const NONE: usize = usize::MAX;
 
@@ -5584,14 +5584,8 @@ impl Ui {
         self.set_role(&tip, Role::Tooltip, 0);
         self.a11y_name(&tip, text);
         self.overlays.push(tip.index);
-        let look = self.theme().tooltip.idle;
-        self.set_look(&tip, Look { text: CLEAR_INK, ..look }, State::default());
-        let inner = self.enter(&tip);
-        for (i, line) in lines.iter().enumerate() {
-            let n = self.node_keyed(int_key(tip.box_key, i as i64), Node { w: Size::Px(width), h: Size::Px(20.0), at: Some((0.0, 14.0 * i as f32)).into(), look: Look { fill: CLEAR_INK, border: CLEAR_INK, shadows: [Shadow::NONE; 2], ..look }, inset: Edges { l: 7.0, ..Edges::default() }, ..Node::DEFAULT });
-            self.text(&n, line);
-        }
-        self.leave(inner);
+        let config = TipConfig { tip, width, height };
+        in_body!(self, tip.box_key, tip, tip, default_tip(&config, &lines));
         self.leave(saved);
     }
 
@@ -7011,4 +7005,14 @@ impl Ui {
         self.slots[b.box_slot].node.flags = flags;
     }
 
+}
+
+/// The built-in tooltip: the tooltip look with clear ink, then each line a 20-point node 14 points below the last, text 7 points in.
+fn default_tip(this: &mut Ui, c: &TipConfig, lines: &[String]) {
+    let look = this.theme().tooltip.idle;
+    this.set_look(&c.tip, Look { text: CLEAR_INK, ..look }, State::default());
+    for (i, line) in lines.iter().enumerate() {
+        let n = this.node_keyed(int_key(c.tip.box_key, i as i64), Node { w: Size::Px(c.width), h: Size::Px(20.0), at: Some((0.0, 14.0 * i as f32)).into(), look: Look { fill: CLEAR_INK, border: CLEAR_INK, shadows: [Shadow::NONE; 2], ..look }, inset: Edges { l: 7.0, ..Edges::default() }, ..Node::DEFAULT });
+        this.text(&n, line);
+    }
 }

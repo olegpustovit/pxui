@@ -246,6 +246,17 @@ macro_rules! body_kinds {
             label register_label_body LabelBody,
             footer register_footer_body FooterBody,
             grip register_grip_body GripBody,
+            panel register_panel_body PanelBody,
+            window register_window_body PanelBody,
+            popup register_popup_body PanelBody,
+            modal register_modal_body PanelBody,
+            dialog register_dialog_body DialogBody,
+            inspector_section register_inspector_section_body SectionBody,
+            inspector_row register_inspector_row_body InspectorRowBody,
+            split register_split_body SplitBody,
+            scroll_view register_scroll_view_body ScrollBody,
+            toast register_toast_body ToastBody,
+            tip register_tip_body TipBody,
         }
     };
 }
@@ -297,6 +308,13 @@ impl Part {
     pub const TRACK: Part = Part(4);
     /// The bar `busy_step` sweeps along an indeterminate progress track (inside the track).
     pub const BAR: Part = Part(5);
+    /// Dialog button `i` (the dialog's body builds one clickable node for each of its buttons; behaviour reads which was pressed
+    /// and sets its role and name).
+    pub const fn button(i: u8) -> Part {
+        Part(1024 + i as u32)
+    }
+    /// A dialog's title bar: behaviour gives it the heading role and the dialog's title as name.
+    pub const TITLE: Part = Part(6);
     /// Dot `i` of a spinner, which `busy_step` turns.
     pub const fn dot(i: u8) -> Part {
         Part(16 + i as u32)
