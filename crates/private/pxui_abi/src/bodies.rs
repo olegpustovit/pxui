@@ -242,3 +242,112 @@ pub unsafe fn slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32 {
 }
 
 export!(trusted pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32 { unsafe { crate::trusted::pxui_slot(ui, slot, out) } });
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, PxuiUiDesc, pxui_frame, pxui_last_error, pxui_ui_create, pxui_ui_destroy, pxui_ui_set_theme};
+    use core::cell::{Cell, RefCell};
+    use pxui_types::ffi::{PxuiSizeDesc, ThemeSource};
+
+    thread_local! {
+        static TOGGLE: RefCell<Vec<(u32, String, u8, i32, i32, i32)>> = const { RefCell::new(Vec::new()) };
+        static SLOT: Cell<PxuiSlot> = const { Cell::new(PxuiSlot { serial: 0 }) };
+        static CONTENT: Cell<u32> = const { Cell::new(0) };
+        static REGISTERED_IN_FRAME: Cell<u16> = const { Cell::new(99) };
+    }
+
+    fn text(s: &str) -> Str { Str { ptr: s.as_ptr(), len: s.len() } }
+    fn error(ui: *mut PxuiUi) -> String { let e = unsafe { pxui_last_error(ui) }; String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(e.ptr, e.len) }).into_owned() }
+
+    extern "C" fn toggle_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
+        let (ui, c) = (ui.cast::<PxuiUi>(), unsafe { &*config.cast::<PxuiToggleConfig>() });
+        let label = String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(c.label.ptr, c.label.len) }).into_owned();
+        let (node, mut out) = (Node::DEFAULT, PxuiBox::default());
+        let hit = unsafe { pxui_part(ui, Part::HIT.0, &node, &mut out) };
+        let bad = unsafe { pxui_part(ui, 10, &node, &mut out) };
+        // the owner's key is the row's: its part is found by it, one it never built is not
+        let mut found = PxuiBox::default();
+        let again = unsafe { pxui_part_box(ui, c.row.box_key, Part::HIT.0, &mut found) } + 10 * unsafe { pxui_part_box(ui, c.row.box_key, Part::TRACK.0, &mut found) };
+        TOGGLE.with(|t| t.borrow_mut().push((c.size, label, c.on, hit, bad, again)));
+        REGISTERED_IN_FRAME.with(|r| r.set(unsafe { pxui_body_register(ui, BodyKind::toggle as u32, text("late"), Some(toggle_body), core::ptr::null_mut()) }));
+    }
+
+    extern "C" fn toggle_frame(_: *mut c_void, ui: *mut c_void) {
+        let mut out = 0u8;
+        assert_eq!(unsafe { crate::pxui_toggle(ui.cast(), text("Wi-Fi"), 1, &mut out) }, 0);
+    }
+
+    fn frame(ui: *mut PxuiUi, build: extern "C" fn(*mut c_void, *mut c_void)) {
+        let mut out = FrameOut::default();
+        assert_eq!(unsafe { pxui_frame(ui, &FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, Some(build), core::ptr::null_mut(), &mut out) }, 0);
+    }
+
+    fn theme(ui: *mut PxuiUi, source: &str) -> i32 {
+        unsafe { pxui_ui_set_theme(ui, &ThemeSource { size: core::mem::size_of::<ThemeSource>() as u32, flags: 0, source: text(source) }) }
+    }
+
+    /// A C body gets the toggle's record (its size, label and value), builds `Part::HIT` through `pxui_part`, refuses a number that names no
+    /// part, finds the part again through `pxui_part_box`, and cannot register a body from inside the frame; `pxui_part` outside a body is
+    /// refused; an unknown name in a theme text, and every bad registration, are errors.
+    #[test]
+    fn a_c_body_gets_its_record_and_builds_a_part_and_bad_names_are_errors() {
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let user = core::ptr::null_mut();
+        let register = |kind: u32, name: &str, body: PxuiBodyFn| unsafe { pxui_body_register(ui, kind, text(name), body, user) };
+        assert_eq!(register(BodyKind::toggle as u32, "probe", Some(toggle_body)), 1);
+        assert_eq!(register(BodyKind::toggle as u32, "probe", Some(toggle_body)), 1, "a name again keeps its id");
+        assert_eq!(register(BodyKind::toggle as u32, "other", Some(toggle_body)), 2);
+        for (kind, name, body) in [(BodyKind::toggle as u32, "default", Some(toggle_body as _)), (BodyKind::toggle as u32, "", Some(toggle_body as _)), (BodyKind::toggle as u32, "a b", Some(toggle_body as _)),
+            (BodyKind::toggle as u32, "a=b", Some(toggle_body as _)), (BodyKind::toggle as u32, "nobody", None), (40, "probe", Some(toggle_body as _)), (u32::MAX, "probe", Some(toggle_body as _))] {
+            assert_eq!(register(kind, name, body), 0, "kind {kind} name {name:?} should be refused");
+            assert!(!error(ui).is_empty());
+        }
+        // a theme text that names a body nobody registered is refused, with the line
+        assert_eq!(theme(ui, "toggle.body = nope"), PXUI_ERR_ARGUMENT);
+        assert!(error(ui).contains("nope"), "{}", error(ui));
+        assert_eq!(theme(ui, "slider.body = probe"), PXUI_ERR_ARGUMENT, "a body of another kind is not this kind's");
+        assert_eq!(theme(ui, "toggle.body = probe"), 0);
+        frame(ui, toggle_frame);
+        let seen = TOGGLE.with(|t| t.borrow().clone());
+        assert_eq!(seen, vec![(core::mem::size_of::<PxuiToggleConfig>() as u32, "Wi-Fi".to_owned(), 1, 0, PXUI_ERR_ARGUMENT, 10)], "the body call: its record, HIT built and found, 10 (no part) refused, TRACK never built");
+        assert_eq!(REGISTERED_IN_FRAME.with(Cell::get), 0, "a body is not registered inside a frame");
+        frame(ui, toggle_frame);
+        assert_eq!(TOGGLE.with(|t| t.borrow().last().map(|s| s.5)), Some(10), "the second frame finds the part it built");
+        let (node, mut out) = (Node::DEFAULT, PxuiBox::default());
+        assert_eq!(unsafe { pxui_part(ui, Part::HIT.0, &node, &mut out) }, PXUI_ERR_STATE, "a part outside a body");
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    extern "C" fn scroll_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
+        let c = unsafe { &*config.cast::<PxuiScrollConfig>() };
+        SLOT.with(|s| s.set(c.content));
+        let mut answer = 7u8;
+        assert_eq!(unsafe { pxui_slot(ui.cast(), c.content, &mut answer) }, 0);
+        assert_eq!(answer, 0, "a content slot answers 0");
+        // a slot that was never made is stale
+        assert_eq!(unsafe { pxui_slot(ui.cast(), PxuiSlot { serial: 0xdead_beef }, core::ptr::null_mut()) }, PXUI_ERR_STALE);
+    }
+
+    extern "C" fn count_content(_: *mut c_void, _: *mut c_void) { CONTENT.with(|c| c.set(c.get() + 1)); }
+
+    extern "C" fn scroll_frame(_: *mut c_void, ui: *mut c_void) {
+        let mut out = PxuiBox::default();
+        let grow = PxuiSizeDesc { kind: 3, value: 0.0, relative: None };
+        assert_eq!(unsafe { crate::pxui_ui_scroll_view(ui.cast(), text("list"), grow, grow, Some(count_content), core::ptr::null_mut(), &mut out) }, 0);
+    }
+
+    /// A body runs the caller's content once through its slot; the slot is stale once the body call has returned.
+    #[test]
+    fn a_slot_runs_the_callers_content_and_is_stale_after_the_body_returns() {
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        assert_eq!(unsafe { pxui_body_register(ui, BodyKind::scroll_view as u32, text("probe"), Some(scroll_body), core::ptr::null_mut()) }, 1);
+        assert_eq!(theme(ui, "scroll_view.body = probe"), 0);
+        frame(ui, scroll_frame);
+        assert_eq!(CONTENT.with(Cell::get), 1, "the content ran once, through the slot");
+        let mut out = 0u8;
+        assert_eq!(unsafe { pxui_slot(ui, SLOT.with(Cell::get), &mut out) }, PXUI_ERR_STALE);
+        assert!(error(ui).contains("stale slot"));
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+}
