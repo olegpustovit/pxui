@@ -72,16 +72,18 @@ pub(crate) struct Shared {
     pub rename: Option<(Rc<core::cell::Cell<(crate::text_inputs::TextValid, usize)>>, Rc<dyn Fn(&str) -> bool>)>,
     /// the value field's callback context and the two closures over it, made once: a field call fills the context instead of allocating closures
     pub field: Option<crate::text_inputs::FieldCallbacks>,
-    pub strs: Vec<&'static str>,
+    pub strs: Vec<Vec<&'static str>>,
     pub menus: Vec<(&'static str, &'static [&'static str])>,
     /// the bodies the app registered and the slots of the body calls in progress (`bodies.rs`)
     pub bodies: crate::bodies::BodyState,
 }
 
 impl Shared {
-    /// The string scratch, taken so that a callback running meanwhile finds it empty rather than clobbers it; give it back with `put_strs`.
-    pub fn take_strs(&mut self) -> Vec<&'static str> { core::mem::take(&mut self.strs) }
-    pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs = strs; }
+    /// The string scratch, taken so that a callback running meanwhile takes another rather than clobbers it; give it back with `put_strs`.
+    /// A pool, not one buffer: a widget built inside another's callback (a radio in a dialog's content, a dialog in a dialog) takes its own,
+    /// and every one comes back, so a settled frame allocates none whatever the nesting.
+    pub fn take_strs(&mut self) -> Vec<&'static str> { self.strs.pop().unwrap_or_default() }
+    pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs.push(strs); }
     pub fn new() -> Self {
         Self {
             error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(),

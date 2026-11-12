@@ -25,9 +25,10 @@ pub(crate) struct BodyState {
     slots: Vec<(u64, u32, Slot)>,
     /// body calls and running slots in progress (`pxui_part` is refused outside a body call)
     depth: u32,
-    /// the spans a dialog's, a tip's and a footer's records point at, taken while their body runs (a nested body finds them empty)
-    strs: Vec<Str>,
-    hints: Vec<PxuiHintDesc>,
+    /// the spans a dialog's, a tip's and a footer's records point at: a pool, one taken while a body runs and given back after, so a body
+    /// nested in another takes its own and nothing allocates once the pool has grown to the deepest nesting
+    strs: Vec<Vec<Str>>,
+    hints: Vec<Vec<PxuiHintDesc>>,
 }
 
 /// The shared state of the `Ui` the engine belongs to (null before a body was registered). A raw pointer, as `run_frame` keeps it: the
@@ -81,7 +82,7 @@ macro_rules! tramp {
     };
 }
 
-/// A trampoline that needs a span of `Str` or hints for its record: taken from the shared scratch, given back after the call.
+/// A trampoline that needs a span of `Str` or hints for its record: taken from the shared scratch pool, given back after the call.
 macro_rules! tramp_span {
     ($kind:ident, $scratch:ident, |$ui:ident, $sh:ident, $span:ident, $c:ident: $ct:ty $(, $a:ident: $at:ty)*| $fill:block, $cfg:ident { $($f:ident: $v:expr),* $(,)? }) => {
         pub(super) fn $kind($ui: &mut Ui, $c: $ct $(, $a: $at)*) {
@@ -89,13 +90,13 @@ macro_rules! tramp_span {
             let $sh = shared($ui);
             if $sh.is_null() { return }
             let mark = unsafe { (*$sh).bodies.slots.len() };
-            let mut $span = core::mem::take(unsafe { &mut (*$sh).bodies.$scratch });
+            let mut $span = unsafe { (*$sh).bodies.$scratch.pop() }.unwrap_or_default();
             $span.clear();
             $fill
             let cfg = $cfg { size: core::mem::size_of::<$cfg>() as u32, $($f: $v),* };
             invoke($ui, $sh, BodyKind::$kind, id, (&cfg as *const $cfg).cast());
             unsafe { (*$sh).bodies.slots.truncate(mark) };
-            unsafe { (*$sh).bodies.$scratch = $span };
+            unsafe { (*$sh).bodies.$scratch.push($span) };
         }
     };
 }
@@ -491,6 +492,40 @@ mod tests {
         assert_eq!(unsafe { crate::pxui_ui_node_layout(ui, &b, &mut node) }, 0, "a live node is read after its frame");
         assert!(matches!(node.w, pxui_types::Size::Px(w) if w == 40.0));
         assert_eq!(unsafe { crate::pxui_ui_set_node_layout(ui, &b, &Node::DEFAULT) }, PXUI_ERR_STALE, "a retained node is not set outside its build");
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+    extern "C" fn dialog_body(_: *mut c_void, ui: *mut c_void, config: *const c_void) {
+        let c = unsafe { &*config.cast::<PxuiDialogConfig>() };
+        assert_eq!(unsafe { pxui_slot(ui.cast(), c.content, core::ptr::null_mut()) }, 0);
+    }
+
+    extern "C" fn nested_dialogs(depth: *mut c_void, ui: *mut c_void) {
+        let (ui, left) = (ui.cast::<PxuiUi>(), unsafe { *depth.cast::<u32>() });
+        let (mut out, buttons) = (pxui_types::ffi::PxuiDialogOut::default(), [text("OK"), text("Cancel")]);
+        if left == 0 { assert_eq!(unsafe { crate::pxui_label(ui, text("leaf")) }, 0); return }
+        let mut next = left - 1;
+        let rc = unsafe { crate::pxui_ui_dialog(ui, text("Title"), Slice { ptr: buttons.as_ptr(), len: 2 }, Some(nested_dialogs), (&mut next as *mut u32).cast(), &mut out) };
+        assert_eq!(rc, 0, "{}", error(ui));
+    }
+
+    /// A dialog built inside the content of a dialog (both with registered bodies) takes its own span scratch: once the pool has grown, a
+    /// frame with three nested dialogs allocates what one dialog does not, nothing.
+    #[test]
+    fn nested_dialogs_with_registered_bodies_allocate_nothing_once_settled() {
+        use mem_sys as _;
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        assert_eq!(unsafe { pxui_body_register(ui, BodyKind::dialog as u32, text("probe"), Some(dialog_body), core::ptr::null_mut()) }, 1);
+        assert_eq!(theme(ui, "dialog.body = probe"), 0);
+        let mut depth = 3u32;
+        let mut run = || {
+            let mut out = FrameOut::default();
+            assert_eq!(unsafe { pxui_frame(ui, &FrameIn { width: 400.0, height: 300.0, ..FrameIn::default() }, Some(nested_dialogs), (&mut depth as *mut u32).cast(), &mut out) }, 0, "{}", error(ui));
+        };
+        for _ in 0..4 { run(); }
+        mem_sys::local_reset();
+        let before = mem_sys::local_alloc_count();
+        for _ in 0..3 { run(); }
+        assert_eq!(mem_sys::local_alloc_count() - before, 0, "a settled frame of nested dialogs allocates");
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
     }
 }
