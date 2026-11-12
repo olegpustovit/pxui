@@ -103,6 +103,32 @@ export!(pub unsafe fn pxui_ui_text_area_submit(
     0
 });
 
+/// What the callbacks of a value field reach: the caller's `user` and functions of the call in progress (they run only during it).
+pub(crate) struct FieldCtx { user: Cell<*mut c_void>, slide: Cell<SlideText>, scrub: Cell<ScrubText>, invalid: Cell<bool> }
+pub(crate) type FieldCallbacks = (Rc<FieldCtx>, Rc<dyn Fn(f32) -> String>, Rc<dyn Fn(&str, f32, bool) -> String>);
+
+/// Text a callback wrote, copied into the engine's `String` (refused, and the call fails, when it is not UTF-8 or too long).
+fn produced(ctx: &FieldCtx, out: Str) -> String {
+    match unsafe { checked(out) } { Some(text) => text.to_owned(), None => { ctx.invalid.set(true); String::new() } }
+}
+
+fn field_callbacks() -> FieldCallbacks {
+    let ctx = Rc::new(FieldCtx { user: Cell::new(core::ptr::null_mut()), slide: Cell::new(None), scrub: Cell::new(None), invalid: Cell::new(false) });
+    let slide = { let ctx = Rc::clone(&ctx); Rc::new(move |fraction: f32| {
+        let Some(slide) = ctx.slide.get() else { return String::new() };
+        let mut out = Str::default();
+        slide(ctx.user.get(), fraction, &mut out);
+        produced(&ctx, out)
+    }) as Rc<dyn Fn(f32) -> String> };
+    let scrub = { let ctx = Rc::clone(&ctx); Rc::new(move |origin: &str, dx: f32, coarse: bool| {
+        let Some(scrub) = ctx.scrub.get() else { return String::new() };
+        let mut out = Str::default();
+        scrub(ctx.user.get(), Str { ptr: origin.as_ptr(), len: origin.len() }, dx, coarse as u8, &mut out);
+        produced(&ctx, out)
+    }) as Rc<dyn Fn(&str, f32, bool) -> String> };
+    (ctx, slide, scrub)
+}
+
 pub type SlideText = Option<extern "C" fn(*mut c_void, f32, *mut Str)>;
 pub type ScrubText = Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>;
 
@@ -153,35 +179,22 @@ export!(pub unsafe fn pxui_ui_value_field(
     }
     let (d, [display, placeholder, lead, trail, label, value]) = match unsafe { field_desc(ui, desc) } { Ok(v) => v, Err(code) => return code };
     unsafe { *out_text = Str::default(); *out_changed = 0; *out_editing = 0; }
-    let invalid_result = Rc::new(Cell::new(false));
-    // text a callback wrote, copied into the engine's `String` (and refused when it is not UTF-8 or too long)
-    let produced = {
-        let invalid = Rc::clone(&invalid_result);
-        move |out: Str| -> String { match unsafe { checked(out) } { Some(text) => text.to_owned(), None => { invalid.set(true); String::new() } } }
-    };
-    let slide: Option<Rc<dyn Fn(f32) -> String>> = slide.map(|slide| {
-        let produced = produced.clone();
-        Rc::new(move |fraction: f32| { let mut out = Str::default(); slide(user, fraction, &mut out); produced(out) }) as Rc<dyn Fn(f32) -> String>
-    });
-    let scrub: Option<Rc<dyn Fn(&str, f32, bool) -> String>> = scrub.map(|scrub| {
-        let produced = produced.clone();
-        Rc::new(move |origin: &str, dx: f32, coarse: bool| {
-            let mut out = Str::default();
-            scrub(user, Str { ptr: origin.as_ptr(), len: origin.len() }, dx, coarse as u8, &mut out);
-            produced(out)
-        }) as Rc<dyn Fn(&str, f32, bool) -> String>
-    });
+    let (ctx, slide_cb, scrub_cb) = state.shared().field.get_or_insert_with(field_callbacks).clone();
+    ctx.invalid.set(false);
+    ctx.user.set(user);
+    let slide_cb = slide.map(|slide| { ctx.slide.set(Some(slide)); slide_cb });
+    let scrub_cb = scrub.map(|scrub| { ctx.scrub.set(Some(scrub)); scrub_cb });
     let mut opts = field_opts(&d, display, placeholder, lead, trail);
-    opts.slide = slide;
-    opts.scrub = scrub;
+    opts.slide = slide_cb;
+    opts.scrub = scrub_cb;
     let accept = |text: &str| {
         let Some(valid) = valid else { return true; };
         let result = valid(user, Str { ptr: text.as_ptr(), len: text.len() });
-        if result > 1 { invalid_result.set(true); }
+        if result > 1 { ctx.invalid.set(true); }
         result == 1
     };
     let (text, editing) = unsafe { (&mut *state.engine).value_field((d.x, d.y), d.width, d.height, &opts, &accept, label, value) };
-    if invalid_result.get() { return unsafe { fail(ui, "invalid value field callback result") }; }
+    if ctx.invalid.get() { return unsafe { fail(ui, "invalid value field callback result") }; }
     unsafe { *out_changed = (text != value) as u8; *out_editing = editing as u8; }
     unsafe { *out_text = state.give(text); }
     0
