@@ -125,17 +125,20 @@ impl Current {
     #[inline(always)]
     pub fn set(shared: *mut Shared, handle: *mut PxuiUi) -> Self { Self { shared, prev: unsafe { core::mem::replace(&mut (*shared).current, handle) } } }
 }
-impl Drop for Current { #[inline(always)] fn drop(&mut self) { unsafe { (*self.shared).current = self.prev; } } }
+// a poisoned `Ui` stays without a current handle until its next frame (`panicked` cleared it): every call takes `refuse`'s way out
+impl Drop for Current { #[inline(always)] fn drop(&mut self) { unsafe { if !(*self.shared).poisoned { (*self.shared).current = self.prev; } } } }
 
 /// Whether `ui` is the handle an export may use now (one load and compare; see `Shared::current`).
 #[inline(always)]
 pub(crate) unsafe fn usable(ui: *mut PxuiUi) -> bool { unsafe { (*(*ui).shared).current == ui } }
 
-/// Records why a handle was refused and returns `PXUI_ERR_STATE`. Out of line, as `fail`.
+/// What a call on a handle that is not `Shared::current` returns: `PXUI_ERR_PANIC` on a poisoned `Ui` (whose error stays as the panic
+/// left it; poison clears `current`, so one compare covers both), else `PXUI_ERR_STATE` with the reason recorded. Out of line, as `fail`.
 #[cold]
 #[inline(never)]
 pub(crate) unsafe fn refuse(shared: *mut Shared) -> i32 {
     if !shared.is_null() {
+        if unsafe { (*shared).poisoned } { return crate::PXUI_ERR_PANIC; }
         let error = unsafe { &mut (*shared).error };
         error.clear();
         error.push_str("this handle is not the one a frame callback may use now: use the handle of the innermost callback, and the owner only outside a frame");
@@ -180,13 +183,12 @@ impl Handle for *mut crate::paint::PxuiPaint {
     #[inline(always)] fn usable(self, _: *mut Shared) -> bool { true }
 }
 
-pub(crate) unsafe fn poisoned(shared: *mut Shared) -> bool { !shared.is_null() && unsafe { (*shared).poisoned } }
-
 /// Records a caught panic: the `Ui` fails every call until its next frame; a panic of the frame itself ends the frame.
 pub(crate) unsafe fn panicked(shared: *mut Shared, payload: Box<dyn core::any::Any + Send>, leave_frame: bool) {
     if shared.is_null() { return; }
     let shared = unsafe { &mut *shared };
     shared.poisoned = true;
+    shared.current = core::ptr::null_mut();
     if leave_frame { shared.in_frame = false; }
     let message = payload.downcast_ref::<&str>().copied().or_else(|| payload.downcast_ref::<String>().map(String::as_str)).unwrap_or("non-string panic payload");
     shared.error.clear();
@@ -210,7 +212,8 @@ pub(crate) unsafe fn fail(ui: *mut PxuiUi, message: &str) -> i32 { unsafe { fail
 #[cold]
 #[inline(never)]
 pub(crate) unsafe fn fail_code(ui: *mut PxuiUi, message: &str, code: i32) -> i32 {
-    if let Some(ui) = unsafe { get(ui) } {
+    // a poisoned `Ui` keeps the panic's message
+    if let Some(ui) = unsafe { get(ui) }.filter(|ui| !ui.shared().poisoned) {
         let error = &mut ui.shared().error;
         error.clear();
         error.push_str(message);

@@ -294,7 +294,7 @@ unsafe fn enter_frame(ui: *mut PxuiUi) -> Result<(), i32> {
     let Some(state) = (unsafe { get(ui) }) else { return Err(PXUI_ERR_ARGUMENT) };
     let shared = state.shared();
     if !state.owner || shared.in_frame { return Err(unsafe { fail_code(ui, "a frame cannot start from a frame callback", PXUI_ERR_STATE) }); }
-    if core::mem::take(&mut shared.poisoned) { return Err(PXUI_ERR_PANIC); }
+    if core::mem::take(&mut shared.poisoned) { shared.current = ui; return Err(PXUI_ERR_PANIC); }
     Ok(())
 }
 
