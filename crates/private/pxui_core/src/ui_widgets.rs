@@ -13,7 +13,7 @@ use crate::a11y::state as st;
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
-use crate::ui_kit::text_only;
+use crate::ui_kit::{part_key, text_only};
 use input::{Event, Key};
 use std::ops::RangeInclusive;
 
@@ -170,32 +170,35 @@ impl Ui {
         slider_body(self, text, value, range)
     }
 
-    /// A 4-point progress track across a row: a bar `value` (0 to 1) of the way, or with `None` a
-    /// third-wide bar that `busy_step` sweeps across. Returns the track, for `busy_step`.
+    /// A progress row: the label and a 4-point track, with a bar `value` (0 to 1) of the way or, with `None`, a third-wide bar that
+    /// `busy_step` sweeps across (the default body; a theme's `body.progress` picks another). Behaviour: the track's accessible
+    /// name, number and busy state, on the node the body builds as `Part::TRACK`. Returns the row, for `busy_step`.
     pub fn progress(&mut self, label: &str, value: Option<f32>) -> Handle {
         let key = key_of(self.current_seed(), label);
         let row = self.kit_line(key, NO_FLAGS, Role::Unknown);
-        let (track_look, bar, label_look) = (self.theme().progress.idle, self.theme().mark.idle, self.theme().row.idle);
-        let rh = self.row_height() as f32;
+        let config = ProgressConfig { value, row };
+        let owner = core::mem::replace(&mut self.part_owner, key);
         let saved = self.enter(&row);
-        self.text_leaf(int_key(key, 1), rh, label_look, shown(label));
-        let track = self.node_keyed(int_key(key, 0), Node { flags: CLIP, h: Size::Px(4.0), look: track_look, role: Role::Progress, ..Node::DEFAULT });
-        self.a11y_name(&track, shown(label));
-        let inner = self.enter(&track);
-        match value {
-            Some(v) => {
-                let v = v.clamp(0.0, 1.0);
-                self.node_keyed(int_key(track.box_key, 0), Node { w: Size::Pct(v), h: Size::Grow, look: bar, ..Node::DEFAULT });
-                self.a11y_number(&track, (v * 100.0) as f64, 0.0, 100.0, 1.0);
-            }
-            None => {
-                self.node_keyed(int_key(track.box_key, 1), Node { w: Size::Pct(0.3), h: Size::Grow, look: bar, ..Node::DEFAULT });
-                self.set_role(&track, Role::Progress, st::BUSY);
+        match self.theme().body.progress {
+            BodyId(0) => default_progress(self, &config, label),
+            id => match self.bodies.progress.get((id.0 as usize).wrapping_sub(1)).copied() {
+                Some(body) => body(self, &config, label),
+                None => default_progress(self, &config, label),
+            },
+        }
+        self.leave(saved);
+        self.part_owner = owner;
+        if let Some(track) = self.part_box(key, Part::TRACK) {
+            self.a11y_name(&track, shown(label));
+            match value {
+                Some(v) => {
+                    self.set_role(&track, Role::Progress, 0);
+                    self.a11y_number(&track, (v.clamp(0.0, 1.0) * 100.0) as f64, 0.0, 100.0, 1.0);
+                }
+                None => self.set_role(&track, Role::Progress, st::BUSY),
             }
         }
-        self.leave(inner);
-        self.leave(saved);
-        track
+        row
     }
 
     /// A 16-point spinner: eight dots round a circle, the lead dot in the accent. `busy_step` turns
@@ -208,7 +211,7 @@ impl Ui {
         for i in 0..8 {
             let a = i as f32 * std::f32::consts::TAU / 8.0;
             let at = (8.0 + 6.0 * a.sin() - 1.5, 8.0 - 6.0 * a.cos() - 1.5);
-            self.node_keyed(int_key(n.box_key, i), Node { w: Size::Px(3.0), h: Size::Px(3.0), at: Some(at).into(), look: if i == 0 { lead } else { dim }, ..Node::DEFAULT });
+            self.node_keyed(part_key(n.box_key, Part::dot(i as u8)), Node { w: Size::Px(3.0), h: Size::Px(3.0), at: Some(at).into(), look: if i == 0 { lead } else { dim }, ..Node::DEFAULT });
         }
         self.leave(saved);
         n
@@ -221,9 +224,13 @@ impl Ui {
         if !self.live(h) || self.theme().tokens.reduced_motion {
             return false;
         }
-        if self.node_mut(h).role == Role::Progress && self.node_mut(h).w.is_grow() {
-            let Some(bar) = self.box_of_key(int_key(h.box_key, 1)).filter(|b| self.live(b)) else { return false };
-            let r = self.rect(h);
+        // a progress row (a spinner's own node says Progress): its track must say busy, and a determinate bar does not move
+        if self.node_mut(h).role != Role::Progress {
+            let (Some(bar), Some(track)) = (self.part_box(h.box_key, Part::BAR), self.part_box(h.box_key, Part::TRACK)) else { return false };
+            if self.node_mut(&track).a11y & st::BUSY == 0 {
+                return false;
+            }
+            let r = self.rect(&track);
             let w = r.w * 0.3;
             let p = (now.rem_euclid(1.4) / 1.4) as f32;
             let x = if self.rtl() { r.x + r.w - p * (r.w + w) } else { r.x - w + p * (r.w + w) };
@@ -234,7 +241,7 @@ impl Ui {
         let at = (now * 10.0).rem_euclid(8.0) as i64;
         let mut moved = false;
         for i in 0..8 {
-            let Some(dot) = self.box_of_key(int_key(h.box_key, i)).filter(|b| self.live(b)) else { return moved };
+            let Some(dot) = self.part_box(h.box_key, Part::dot(i as u8)) else { return moved };
             let behind = (at - i).rem_euclid(8) as f32;
             moved |= self.patch_look(&dot, &lead.lerp(&dim, (behind / 3.0).min(1.0)));
         }
@@ -993,6 +1000,63 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
     changed
 }
 
+/// What a progress body is given (and the label beside it, as a `&str`). It runs with the row entered (its `box_key` owns the parts) and builds the label, the track and the
+/// bar. Behaviour reads and sets the node built as `Part::TRACK` (the accessible name, number and busy state, the sweep's extent)
+/// and `busy_step` moves the node built as `Part::BAR` along it; a determinate bar is the body's own business.
+pub struct ProgressConfig {
+    pub value: Option<f32>,
+    pub row: Handle,
+}
+
+pub type ProgressBody = fn(&mut Ui, &ProgressConfig, &str);
+
+/// The built-in progress row: the label, then a 4-point track holding the bar.
+fn default_progress(this: &mut Ui, c: &ProgressConfig, label: &str) {
+    let (track_look, bar, label_look) = (this.theme().progress.idle, this.theme().mark.idle, this.theme().row.idle);
+    let rh = this.row_height() as f32;
+    this.text_leaf(int_key(c.row.box_key, 1), rh, label_look, shown(label));
+    let track = this.part(Part::TRACK, Node { flags: CLIP, h: Size::Px(4.0), look: track_look, role: Role::Progress, ..Node::DEFAULT });
+    let inner = this.enter(&track);
+    match c.value {
+        Some(v) => {
+            this.node_keyed(int_key(track.box_key, 0), Node { w: Size::Pct(v.clamp(0.0, 1.0)), h: Size::Grow, look: bar, ..Node::DEFAULT });
+        }
+        None => {
+            this.part(Part::BAR, Node { w: Size::Pct(0.3), h: Size::Grow, look: bar, ..Node::DEFAULT });
+        }
+    }
+    this.leave(inner);
+}
+
+/// What a slider body is given (and the label beside it, as a `&str`; the label itself is built by behaviour). It runs with `track` entered: the node that takes the pointer and keys (a 20-point stack the
+/// full width of the row), and builds the rail, the filled part and the thumb inside it. Behaviour reads two parts to turn the
+/// pointer into a value: the rail built as `Part::RAIL` (the pointer maps across its width) and the thumb built as `Part::THUMB`
+/// (half its width is kept at each end). A body without them gets the whole `track` and no thumb. `fraction` is the value's
+/// place, 0 to 1; the body's own thumb carries it.
+pub struct SliderConfig {
+    pub state: State,
+    pub fraction: f32,
+    pub track: Handle,
+}
+
+pub type SliderBody = fn(&mut Ui, &SliderConfig, &str);
+
+/// The built-in slider: a 2-point rail, the filled part of it and an 8 x 14 thumb in a lane split by the value.
+fn default_slider(this: &mut Ui, c: &SliderConfig, _label: &str) {
+    let t = this.theme();
+    let (rail, fill, thumb) = (t.separator.idle, t.mark.idle, t.slider);
+    let key = this.part_owner;
+    this.part(Part::RAIL, Node { h: Size::Px(2.0), look: rail, ..Node::DEFAULT });
+    this.node_keyed(int_key(key, 3), Node { w: Size::Pct(c.fraction), h: Size::Px(2.0), look: fill, ..Node::DEFAULT });
+    let lane = this.node_keyed(int_key(key, 4), Node { h: Size::Px(14.0), axis: Axis::Row, ..Node::DEFAULT });
+    let tl = this.enter(&lane);
+    this.node_keyed(int_key(key, 5), Node { h: Size::Px(1.0), grow: c.fraction, ..Node::DEFAULT });
+    let th = this.part(Part::THUMB, Node { w: Size::Px(8.0), h: Size::Px(14.0), ..Node::DEFAULT });
+    this.style(&th, &thumb, c.state);
+    this.node_keyed(int_key(key, 7), Node { h: Size::Px(1.0), grow: 1.0 - c.fraction, ..Node::DEFAULT });
+    this.leave(tl);
+}
+
 fn slider_body(this: &mut Ui, text: &str, value: f32, range: RangeInclusive<f32>) -> f32 {
     let (lo, hi) = (*range.start(), *range.end());
     let span = (hi - lo).max(f32::MIN_POSITIVE);
@@ -1020,8 +1084,10 @@ fn slider_body(this: &mut Ui, text: &str, value: f32, range: RangeInclusive<f32>
         };
     });
     if s.held || s.released {
-        let r = this.rect(&track);
-        let f = ((s.pointer.0 - r.x - 4.0) / (r.w - 8.0).max(1.0)).clamp(0.0, 1.0);
+        // across the rail, a half thumb in from each end: from the parts' rectangles of the last frame
+        let r = this.part_rect(key, Part::RAIL).unwrap_or_else(|| this.rect(&track));
+        let thumb = this.part_rect(key, Part::THUMB).map_or(0.0, |t| t.w);
+        let f = ((s.pointer.0 - r.x - thumb / 2.0) / (r.w - thumb).max(1.0)).clamp(0.0, 1.0);
         v = lo + if this.rtl() { 1.0 - f } else { f } * span;
     }
     if let Some(a) = s.a11y_value {
@@ -1031,19 +1097,18 @@ fn slider_body(this: &mut Ui, text: &str, value: f32, range: RangeInclusive<f32>
     let f = ((v - lo) / span).clamp(0.0, 1.0);
     this.a11y_name(&track, shown(text));
     this.a11y_number(&track, v as f64, lo.min(hi) as f64, hi.max(lo) as f64, step as f64);
-    let t = this.theme();
-    let (rail, fill, thumb) = (t.separator.idle, t.mark.idle, t.slider);
+    let config = SliderConfig { state: State { hovered: s.hovered, pressed: s.held, ..State::default() }, fraction: f, track };
+    let owner = core::mem::replace(&mut this.part_owner, key);
     let inner = this.enter(&track);
-    this.node_keyed(int_key(key, 2), Node { h: Size::Px(2.0), look: rail, ..Node::DEFAULT });
-    this.node_keyed(int_key(key, 3), Node { w: Size::Pct(f), h: Size::Px(2.0), look: fill, ..Node::DEFAULT });
-    let lane = this.node_keyed(int_key(key, 4), Node { h: Size::Px(14.0), axis: Axis::Row, ..Node::DEFAULT });
-    let tl = this.enter(&lane);
-    this.node_keyed(int_key(key, 5), Node { h: Size::Px(1.0), grow: f, ..Node::DEFAULT });
-    let th = this.node_keyed(int_key(key, 6), Node { w: Size::Px(8.0), h: Size::Px(14.0), ..Node::DEFAULT });
-    this.style(&th, &thumb, State { hovered: s.hovered, pressed: s.held, ..State::default() });
-    this.node_keyed(int_key(key, 7), Node { h: Size::Px(1.0), grow: 1.0 - f, ..Node::DEFAULT });
-    this.leave(tl);
+    match this.theme().body.slider {
+        BodyId(0) => default_slider(this, &config, text),
+        id => match this.bodies.slider.get((id.0 as usize).wrapping_sub(1)).copied() {
+            Some(body) => body(this, &config, text),
+            None => default_slider(this, &config, text),
+        },
+    }
     this.leave(inner);
+    this.part_owner = owner;
     this.leave(saved);
     v
 }

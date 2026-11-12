@@ -4,6 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
+use crate::ui_widgets::{ProgressBody, SliderBody};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 use crate::a11y::state as st;
 use input::{Event, Key};
@@ -13,10 +14,62 @@ use std::borrow::Cow;
 
 pub type IRect = (i64, i64, i64, i64);
 
+/// What a toggle body is given: behaviour has computed all of it (and the widget's label comes beside it, as a `&str`). The body
+/// runs with the widget's row entered (`row`, whose `box_key` owns the parts) and builds the row's look, label and switch.
+/// Behaviour reads one part: `Part::HIT`, the area that takes presses (the whole row when the body builds none). A body never
+/// changes the value, the role or the focus.
+pub struct ToggleConfig {
+    pub state: State,
+    pub on: bool,
+    pub row: Handle,
+}
+
+pub type ToggleBody = fn(&mut Ui, &ToggleConfig, &str);
+
+/// The key of `part` of the widget keyed `owner`: its number's `int_key`, which is the key the built-in bodies' nodes had before
+/// bodies existed. The bar lives in the track, so its key derives from the track's.
+pub fn part_key(owner: i64, part: Part) -> i64 {
+    match part {
+        Part::BAR => int_key(int_key(owner, Part::TRACK.offset()), 1),
+        _ => int_key(owner, part.offset()),
+    }
+}
+
+/// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
+fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {
+    if name == "default" {
+        return None;
+    }
+    Some(names.iter().position(|n| n == name).unwrap_or_else(|| {
+        names.push(name.to_owned());
+        names.len() - 1
+    }))
+}
+
+/// The built-in toggle: the label on its row and the 28 x 14 switch 12 from the row's end, the knob 3 in from its side.
+fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
+    let t = this.theme();
+    let on = State { checked: c.on, ..State::default() };
+    let (look, track, knob) = (*t.toggle.pick(c.state), *t.switch.pick(on), *t.knob.pick(on));
+    this.set_look(&c.row, look, c.state);
+    // the switch's end is `space(2)` from the row's end at any density
+    this.node_mut(&c.row).inset = Edges { l: this.space(2), ..Edges::default() };
+    this.text(&c.row, shown(label));
+    let top = ((this.row_height() - 14) / 2) as f32;
+    this.end_row(&c.row, this.space(2));
+    let s = this.part(Part::HIT, Node { w: Size::Px(28.0), h: Size::Px(14.0), margin: Edges { t: top, ..Edges::ZERO }, look: track, ..Node::DEFAULT });
+    this.text(&s, "");
+    this.node_mut(&s).state = on;
+    let inner = this.enter(&s);
+    let k = this.placed(int_key(c.row.box_key, 1), (if c.on { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
+    this.node_mut(&k).state = on;
+    this.leave(inner);
+}
+
 impl Ui {
     /// A part of a widget: a node at `at` in the current parent, `w` x `h`, with `look` and `text`
     /// inset by `inset`. Keyed by `key` (an `int_key` of its widget's key).
-    pub(crate) fn part(&mut self, key: i64, at: (f32, f32), w: Size, h: f32, look: Look, inset: Edges, text: &str) -> Handle {
+    pub(crate) fn placed(&mut self, key: i64, at: (f32, f32), w: Size, h: f32, look: Look, inset: Edges, text: &str) -> Handle {
         let n = self.node_keyed(key, Node { w, h: Size::Px(h), at: Some(at).into(), look, inset, ..Node::DEFAULT });
         self.text(&n, text);
         n
@@ -25,7 +78,7 @@ impl Ui {
     /// Text whose top is exactly `at` (a part as high as its text), `w` wide.
     pub(crate) fn text_part(&mut self, key: i64, at: (f32, f32), w: f32, look: Look, text: &str) -> Handle {
         let size = look.font.points(self.font_size()) as f32;
-        self.part(key, at, Size::Px(w.max(1.0)), size, look, Edges::default(), text)
+        self.placed(key, at, Size::Px(w.max(1.0)), size, look, Edges::default(), text)
     }
 
     /// A flow part `w` x `h` with `look` and `text`, `margin` round it: in a row laid out from the
@@ -377,7 +430,7 @@ impl Ui {
         // the pin dot: filled ink when the row is on its card, an ink-3 ring when it is not
         if let Some(on) = pin {
             let saved = self.enter(&row);
-            self.part(int_key(row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, *dot.pick(State { checked: on, ..State::default() }), Edges::default(), "");
+            self.placed(int_key(row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, *dot.pick(State { checked: on, ..State::default() }), Edges::default(), "");
             self.leave(saved);
         }
         (row, control_x, 2.0, 40.0f32.max(width - control_x - 12.0))
@@ -469,10 +522,10 @@ impl Ui {
         let on = State { checked: value, ..State::default() };
         let (track, knob) = (*self.theme().switch.pick(on), *self.theme().knob.pick(on));
         let saved = self.enter(&control);
-        let switch = self.part(int_key(control.box_key, 0), (0.0, 3.0), Size::Px(28.0), 14.0, track, Edges::default(), "");
+        let switch = self.placed(int_key(control.box_key, 0), (0.0, 3.0), Size::Px(28.0), 14.0, track, Edges::default(), "");
         self.node_mut(&switch).state = on;
         let inner = self.enter(&switch);
-        let k = self.part(int_key(control.box_key, 1), (if value { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
+        let k = self.placed(int_key(control.box_key, 1), (if value { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
         self.node_mut(&k).state = on;
         self.leave(inner);
         self.leave(saved);
@@ -517,7 +570,7 @@ impl Ui {
         let tw = self.text_width(None, &shown);
         let rh = self.row_height() as f32;
         let saved = self.enter(&row);
-        self.part(int_key(row.box_key, 1), (control_x + control_width - tw, 0.0), Size::Px(tw.max(1.0)), rh, look, Edges::default(), &shown);
+        self.placed(int_key(row.box_key, 1), (control_x + control_width - tw, 0.0), Size::Px(tw.max(1.0)), rh, look, Edges::default(), &shown);
         self.leave(saved);
     }
 
@@ -547,10 +600,10 @@ impl Ui {
         let mut at = 12.0;
         for (i, (k, what)) in hints.iter().enumerate() {
             let kw = mono_width(0.0, small, k);
-            self.part(int_key(bar.box_key, 2 * i as i64), (at, 1.0), Size::Px(kw.max(1.0)), line, key, Edges::default(), k);
+            self.placed(int_key(bar.box_key, 2 * i as i64), (at, 1.0), Size::Px(kw.max(1.0)), line, key, Edges::default(), k);
             at += kw + 8.0;
             let ww = mono_width(0.0, font_size, what);
-            self.part(int_key(bar.box_key, 2 * i as i64 + 1), (at, 1.0), Size::Px(ww.max(1.0)), line, hint, Edges::default(), what);
+            self.placed(int_key(bar.box_key, 2 * i as i64 + 1), (at, 1.0), Size::Px(ww.max(1.0)), line, hint, Edges::default(), what);
             at += ww + 8.0;
         }
         let text = format!("{} on card", count);
@@ -569,7 +622,7 @@ impl Ui {
         let row = self.node(key, Node { flags: FIT_TEXT, h: Size::Px(rh), look: hint, inset: Edges { l: 26.0, r: 12.0, ..Edges::default() }, role: Role::Label, ..Node::DEFAULT });
         self.text(&row, message);
         let saved = self.enter(&row);
-        self.part(int_key(row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, dot, Edges::default(), "");
+        self.placed(int_key(row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, dot, Edges::default(), "");
         self.leave(saved);
     }
 
@@ -687,10 +740,10 @@ impl Ui {
         let mut pen = self.space(2);
         for (i, (k, what)) in hints.iter().enumerate() {
             let kw = self.text_width(Some(size), k);
-            self.part(int_key(row.box_key, 2 * i as i64), (pen, 1.0), Size::Px(kw.max(1.0)), rh, key, Edges::default(), k);
+            self.placed(int_key(row.box_key, 2 * i as i64), (pen, 1.0), Size::Px(kw.max(1.0)), rh, key, Edges::default(), k);
             pen += kw + 8.0;
             let ww = self.text_width(None, what);
-            self.part(int_key(row.box_key, 2 * i as i64 + 1), (pen, 1.0), Size::Px(ww.max(1.0)), rh, hint, Edges::default(), what);
+            self.placed(int_key(row.box_key, 2 * i as i64 + 1), (pen, 1.0), Size::Px(ww.max(1.0)), rh, hint, Edges::default(), what);
             pen += ww + 8.0;
         }
         if let Some(text) = right {
@@ -764,34 +817,80 @@ impl Ui {
         signal.clicked
     }
 
-    /// A switch on its row: the label and the 28 x 14 switch at the end.
+    /// A switch row: the label and the 28 x 14 switch at the end (the default body; a theme's `body.toggle` picks another).
+    /// Behaviour: the row, a press on the part its body builds as `Part::HIT` (the whole row without one), the value, the role.
     pub fn toggle(&mut self, text: &str, value: bool) -> bool {
-        // the switch's hit shape sits where the switch does: `space(2)` from the end at any density
-        let side = self.space(2) as i64;
         let row = self.kit_row(Some(CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY), None, text);
-        self.cached_hit(&row, side as u64, &mut || Rc::new(move |r| floats(toggle_control_at(ints(r), side))));
+        self.hit_part(&row, Part::HIT);
         let signal = self.signal(&row);
         let value = if signal.clicked { !value } else { value };
-        let t = self.theme();
-        let hovered = State { hovered: signal.hovered, ..State::default() };
-        let on = State { checked: value, ..State::default() };
-        let (look, track, knob) = (*t.toggle.pick(hovered), *t.switch.pick(on), *t.knob.pick(on));
-        self.set_look(&row, look, hovered);
-        self.node_mut(&row).inset = Edges { l: side as f32, ..Edges::default() };
-        self.text(&row, shown(text));
         self.set_role(&row, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
-        // the 28 x 14 switch 12 from the row's end, the knob 3 in from its side
-        let top = ((self.row_height() - 14) / 2) as f32;
-        self.end_row(&row, self.space(2));
+        let config = ToggleConfig { state: State { hovered: signal.hovered, ..State::default() }, on: value, row };
+        let owner = core::mem::replace(&mut self.part_owner, row.box_key);
         let saved = self.enter(&row);
-        let s = self.flow_part(int_key(row.box_key, 0), 28.0, 14.0, Edges { t: top, ..Edges::ZERO }, track, "");
-        self.node_mut(&s).state = on;
-        let inner = self.enter(&s);
-        let k = self.part(int_key(row.box_key, 1), (if value { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
-        self.node_mut(&k).state = on;
-        self.leave(inner);
+        match self.theme().body.toggle {
+            BodyId(0) => default_toggle(self, &config, text),
+            id => match self.bodies.toggle.get((id.0 as usize).wrapping_sub(1)).copied() {
+                Some(body) => body(self, &config, text),
+                None => default_toggle(self, &config, text),
+            },
+        }
         self.leave(saved);
+        self.part_owner = owner;
         value
+    }
+
+    /// A node of the widget whose body is building, found again by its role: keyed from the widget and `part`, so behaviour
+    /// reads its rectangle (`part_rect`) without a table. A body builds the parts its widget's config lists with this.
+    pub fn part(&mut self, part: Part, node: Node) -> Handle {
+        self.node_keyed(part_key(self.part_owner, part), node)
+    }
+
+    /// The box of `part` of the widget keyed `owner`, if it was built.
+    pub fn part_box(&self, owner: i64, part: Part) -> Option<UiBox> {
+        self.box_of_key(part_key(owner, part)).filter(|b| self.live(b))
+    }
+
+    /// The rectangle `part` of the widget keyed `owner` had last frame; `None` before it has been laid out (its first frame) or if
+    /// the body builds none.
+    pub fn part_rect(&self, owner: i64, part: Part) -> Option<Rect> {
+        self.part_box(owner, part).map(|b| self.rect(&b)).filter(|r| r.w > 0.0 && r.h > 0.0)
+    }
+
+    /// Register `body` as the toggle body called `name`, for a theme's `body.toggle` (or `toggle.body = NAME` in a theme file).
+    /// Registering a name again replaces its body and keeps its id; `default` is the built-in body and registers nothing.
+    // ponytail: ids are u16; a start-up that registers 65,535 bodies of one kind wraps, so widen `BodyId` then.
+    pub fn register_toggle_body(&mut self, name: &str, body: ToggleBody) -> BodyId {
+        let Some(i) = body_slot(&mut self.bodies.toggle_names, name) else { return BodyId::DEFAULT };
+        if i == self.bodies.toggle.len() { self.bodies.toggle.push(body) } else { self.bodies.toggle[i] = body }
+        BodyId(i as u16 + 1)
+    }
+
+    /// `register_toggle_body` for sliders.
+    pub fn register_slider_body(&mut self, name: &str, body: SliderBody) -> BodyId {
+        let Some(i) = body_slot(&mut self.bodies.slider_names, name) else { return BodyId::DEFAULT };
+        if i == self.bodies.slider.len() { self.bodies.slider.push(body) } else { self.bodies.slider[i] = body }
+        BodyId(i as u16 + 1)
+    }
+
+    /// `register_toggle_body` for progress bars.
+    pub fn register_progress_body(&mut self, name: &str, body: ProgressBody) -> BodyId {
+        let Some(i) = body_slot(&mut self.bodies.progress_names, name) else { return BodyId::DEFAULT };
+        if i == self.bodies.progress.len() { self.bodies.progress.push(body) } else { self.bodies.progress[i] = body }
+        BodyId(i as u16 + 1)
+    }
+
+    /// `Theme::parse` where `KIND.body = NAME` names the bodies this `Ui` registered; an unregistered name is a `ThemeError`.
+    pub fn parse_theme(&self, text: &str, base: &Theme) -> Result<Theme, Vec<crate::theme::ThemeError>> {
+        let named = |kind: &str, name: &str| {
+            let names = match kind {
+                "toggle" => &self.bodies.toggle_names,
+                "slider" => &self.bodies.slider_names,
+                _ => &self.bodies.progress_names,
+            };
+            names.iter().position(|n| n == name).map(|i| BodyId(i as u16 + 1))
+        };
+        Theme::parse_bodies(text, base, &named)
     }
 
     /// A splitter's grip: a node across `axis` (`Row`: a vertical line between side-by-side panes)
@@ -869,7 +968,7 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
         let saved = this.enter(&header);
         for (i, title) in headers.iter().enumerate() {
             let cell = Size::Px((stops[i + 1] - stops[i] - 8.0).max(1.0));
-            this.part(int_key(header.box_key, i as i64), (stops[i] + 8.0, 0.0), cell, row_h, text_only(&head_look), Edges::default(), title);
+            this.placed(int_key(header.box_key, i as i64), (stops[i] + 8.0, 0.0), cell, row_h, text_only(&head_look), Edges::default(), title);
         }
         this.leave(saved);
     }
@@ -899,7 +998,7 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
             cell(index, column as i64, &mut |value: &str| {
                 let tw = this.text_width(None, value);
                 let right = stops[column + 1] - 8.0;
-                this.part(int_key(row.box_key, column as i64), (right - tw, 0.0), Size::Px(tw.max(1.0)), row_h, text_only(&row_look), Edges::default(), value);
+                this.placed(int_key(row.box_key, column as i64), (right - tw, 0.0), Size::Px(tw.max(1.0)), row_h, text_only(&row_look), Edges::default(), value);
             });
         }
         this.leave(saved);

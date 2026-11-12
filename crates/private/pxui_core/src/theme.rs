@@ -7,7 +7,7 @@
 use crate::draw::flags::{BOTTOM, LEFT, RIGHT, TOP};
 use crate::geom::{color, Rgba as Color};
 pub use pxui_types::theme::{
-    border, dark, default, edge, faint_border, ground, hover_fill, ink_2, ink_3, invalid,
+    border, dark, default, edge, Bodies, BodyId, Part, faint_border, ground, hover_fill, ink_2, ink_3, invalid,
     muted, pressed_fill, tint, Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens,
     DISPLAY_SIZE, FONT_SIZE, LABEL_SIZE, TITLE_SIZE,
 };
@@ -31,6 +31,8 @@ macro_rules! widgets {
             pub scrollbar_w: f32,
             pub scrollbar_gap: f32,
             $($(#[$doc])* pub $name: States,)*
+            /// The body each widget kind builds with (`Ui::register_toggle_body` and siblings); after the parts, as in the snapshot.
+            pub body: Bodies,
         }
         const WIDGETS: &[&str] = &[$(stringify!($name)),*];
         fn widget_mut<'a>(t: &'a mut Theme, name: &str) -> Option<&'a mut States> {
@@ -203,6 +205,7 @@ fn rays(t: &Tokens) -> Theme {
         icon_button: button(t.foreground),
         search: States { focus: Look { border: t.accent, ..field }, ..States::all(field) },
         image: States::all(line(edge(t), 0)),
+        body: Bodies::default(),
     }
 }
 
@@ -375,6 +378,9 @@ fn look_fields() -> Vec<Field<Look>> {
     ]
 }
 
+/// The widget kinds a theme file can pick a body for (`KIND.body = NAME`).
+const BODY_KINDS: [&str; 3] = ["toggle", "slider", "progress"];
+
 const STATES: [&str; 6] = ["idle", "hover", "pressed", "focus", "disabled", "checked"];
 
 fn state_mut<'a>(s: &'a mut States, name: &str) -> Option<&'a mut Look> {
@@ -477,6 +483,13 @@ impl Theme {
     /// reported with its line; nothing is applied then.
     /// A host reloads a theme file by calling `parse` again when `Watch::poll` reports a change.
     pub fn parse(text: &str, base: &Theme) -> Result<Theme, Vec<ThemeError>> {
+        Theme::parse_bodies(text, base, &|_, name| (name == "default").then_some(BodyId::DEFAULT))
+    }
+
+    /// `parse` with `bodies` resolving the names of `KIND.body = NAME` (`toggle`, `slider`, `progress`): `bodies(kind, name)` is
+    /// the registered body's id, `None` for a name that is not registered (a `ThemeError`). `default` is always the built-in one.
+    /// `Ui::parse_theme` passes its own registry.
+    pub fn parse_bodies(text: &str, base: &Theme, bodies: &dyn Fn(&str, &str) -> Option<BodyId>) -> Result<Theme, Vec<ThemeError>> {
         let (tf, thf, lf) = (token_fields(), theme_fields(), look_fields());
         let mut errors = Vec::new();
         let mut lines = Vec::new();
@@ -502,9 +515,19 @@ impl Theme {
                 }
             }
         }
-        let mut theme = if retoken { Theme { tokens, ..Theme::from_tokens(tokens) } } else { *base };
+        let mut theme = if retoken { Theme { tokens, body: base.body, ..Theme::from_tokens(tokens) } } else { *base };
         for &(line, key, value) in &lines {
             if key.starts_with("tokens.") {
+                continue;
+            }
+            if let Some(kind) = key.strip_suffix(".body").filter(|k| BODY_KINDS.contains(k)) {
+                let id = if value == "default" { Some(BodyId::DEFAULT) } else { bodies(kind, value) };
+                match (id, kind) {
+                    (None, _) => errors.push(ThemeError { line, message: format!("{key}: no {kind} body is registered as `{value}`") }),
+                    (Some(id), "toggle") => theme.body.toggle = id,
+                    (Some(id), "slider") => theme.body.slider = id,
+                    (Some(id), _) => theme.body.progress = id,
+                }
                 continue;
             }
             let result = apply(&thf, &mut theme, key, value).or_else(|| {
@@ -532,7 +555,9 @@ impl Theme {
         if errors.is_empty() { Ok(theme) } else { Err(errors) }
     }
 
-    /// Every field as a theme file: `Theme::parse(&t.write(), &any)` gives `t` back.
+    /// Every field as a theme file: `Theme::parse(&t.write(), &any)` gives `t` back. Bodies are not written: a body's name lives in
+    /// the `Ui` that registered it, so a theme with an overridden body round-trips through `Ui::parse_theme` only by its text.
+    // ponytail: no `KIND.body` lines; write them when a `Ui` can name its bodies for a saved theme.
     pub fn write(&self) -> String {
         use std::fmt::Write;
         let mut out = String::from("# pxui theme: `key = value`, see Theme::parse\n");

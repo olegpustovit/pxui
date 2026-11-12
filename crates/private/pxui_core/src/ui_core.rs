@@ -31,6 +31,18 @@ pub use pxui_types::ui::{
     KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
 };
 pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
+/// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1. Filled at start-up; a frame
+/// only reads it.
+#[derive(Default)]
+pub(crate) struct BodyTable {
+    pub(crate) toggle: Vec<crate::ui_kit::ToggleBody>,
+    pub(crate) toggle_names: Vec<String>,
+    pub(crate) slider: Vec<crate::ui_widgets::SliderBody>,
+    pub(crate) slider_names: Vec<String>,
+    pub(crate) progress: Vec<crate::ui_widgets::ProgressBody>,
+    pub(crate) progress_names: Vec<String>,
+}
+
 /// Sentinel for no box in parent, child and sibling indices.
 pub const NONE: usize = usize::MAX;
 
@@ -124,7 +136,7 @@ impl SlotTable {
 
 const HIT_FLAGS: Flags = CLICKABLE | FOCUSABLE | SCROLL | SCROLL_X | BLOCKING | CAPTURE_UNCLAIMED;
 
-pub use crate::theme::{Curve, Font, Look, Ring, Shadow, State, States, Theme, Tokens};
+pub use crate::theme::{Bodies, BodyId, Curve, Font, Look, Part, Ring, Shadow, State, States, Theme, Tokens};
 pub use crate::a11y::{A11yAction, A11yTree, Role};
 use crate::a11y::{actions as a11y_actions, state as a11y_state, Action as A11yKind, NO_PARENT};
 pub use crate::layout::{place_anchored, Align, Anchor, Cell, Direction, Grid, Justify, Placement, Side, Track};
@@ -141,6 +153,8 @@ struct BoxRec {
     next: usize,
     hit: Option<HitFn>,
     hit_rect: Option<Rect>,
+    /// a hit shape given as a rectangle relative to the node's own (a body's part: `Ui::hit_part`), no closure
+    hit_part: Option<Rect>,
     paint: arena::List,
     over: arena::List,
     /// the view this box holds (`NO_VIEW`), and whether its build was skipped this frame
@@ -152,7 +166,7 @@ struct BoxRec {
 
 impl BoxRec {
     fn blank() -> BoxRec {
-        BoxRec { key: 0, slot: 0, parent: NONE, first: NONE, last: NONE, next: NONE, hit: None, hit_rect: None, paint: arena::EMPTY, over: arena::EMPTY, view: NO_VIEW, kept: false, frozen: 0 }
+        BoxRec { key: 0, slot: 0, parent: NONE, first: NONE, last: NONE, next: NONE, hit: None, hit_rect: None, hit_part: None, paint: arena::EMPTY, over: arena::EMPTY, view: NO_VIEW, kept: false, frozen: 0 }
     }
 }
 
@@ -935,6 +949,10 @@ pub struct Ui {
     pub(crate) picker_rows: Vec<(String, String)>,
     /// the table's column stops, kept between frames
     pub(crate) table_stops: Vec<f32>,
+    /// the bodies apps registered for the widget kinds (`register_toggle_body` and siblings), by kind; empty until one is
+    pub(crate) bodies: BodyTable,
+    /// the key of the widget whose body is building: `part` derives its keys from it
+    pub(crate) part_owner: i64,
     pub(crate) edit_unit: Option<(usize, usize, i64)>,
     pub(crate) edit_column: f32,
     pub(crate) scrub_origin: Option<(i64, String)>,
@@ -1148,6 +1166,8 @@ impl Ui {
             edit_shelf: Vec::new(),
             picker_rows: Vec::new(),
             table_stops: Vec::new(),
+            bodies: BodyTable::default(),
+            part_owner: 0,
             edit_unit: None,
             edit_column: -1.0,
             scrub_origin: None,
@@ -2786,6 +2806,7 @@ impl Ui {
         let b = &mut self.boxes[index];
         b.hit = None;
         b.hit_rect = None;
+        b.hit_part = None;
         b.paint = arena::EMPTY;
         b.over = arena::EMPTY;
         let s = &mut self.slots[b.slot];
@@ -3241,6 +3262,16 @@ impl Ui {
             }
         };
         self.boxes[b.index].hit = Some(hit);
+    }
+
+    /// `row` takes presses where `part` of its widget sat last frame, relative to the row's own rectangle: the whole row until the
+    /// part has been laid out. No closure.
+    pub(crate) fn hit_part(&mut self, row: &UiBox, part: Part) {
+        let Some(p) = self.part_box(row.box_key, part) else { return };
+        let (a, b) = (&self.slots[row.box_slot], &self.slots[p.box_slot]);
+        if a.rw > 0.0 && b.rw > 0.0 && b.rh > 0.0 {
+            self.boxes[row.index].hit_part = Some(Rect::new(b.rx - a.rx, b.ry - a.ry, b.rw, b.rh));
+        }
     }
 
     pub fn text_state(&self, b: &UiBox) -> Option<String> {
@@ -4827,14 +4858,16 @@ impl Ui {
             s.rw = w;
             s.rh = h;
         }
-        let hit = self.boxes[index].hit_rect.unwrap_or_else(|| match &self.boxes[index].hit {
-            None => screen_rect,
-            Some(f) => f(screen_rect),
+        let hit_part = self.boxes[index].hit_part;
+        let hit = self.boxes[index].hit_rect.unwrap_or_else(|| match (&self.boxes[index].hit, hit_part) {
+            (Some(f), _) => f(screen_rect),
+            (None, Some(p)) => Rect::new(x + p.x, y + p.y, p.w, p.h),
+            (None, None) => screen_rect,
         });
         let clipped_hit = intersect(hit, clip_rect);
         let Rect { w: hw, h: hh, .. } = clipped_hit;
-        let visible = match (self.boxes[index].hit_rect, &self.boxes[index].hit) {
-            (None, None) => hw > 0.0 && hh > 0.0,
+        let visible = match (self.boxes[index].hit_rect, &self.boxes[index].hit, hit_part) {
+            (None, None, None) => hw > 0.0 && hh > 0.0,
             _ => {
                 let Rect { w: vw, h: vh, .. } = intersect(screen_rect, clip_rect);
                 vw > 0.0 && vh > 0.0
@@ -5235,6 +5268,7 @@ impl Ui {
             let b = &mut self.boxes[index];
             b.hit = None;
             b.hit_rect = None;
+            b.hit_part = None;
             b.paint = arena::EMPTY;
             b.over = arena::EMPTY;
         }

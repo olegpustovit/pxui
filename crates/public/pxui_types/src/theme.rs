@@ -217,6 +217,60 @@ macro_rules! theme_widgets {
     };
 }
 
+/// Which registered body builds a widget kind's nodes: 0 is the built-in one, any other is the nth body the app registered for
+/// that kind (`Ui::register_toggle_body` and its siblings), numbered from 1 in registration order.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct BodyId(pub u16);
+
+impl BodyId {
+    pub const DEFAULT: BodyId = BodyId(0);
+}
+
+/// The body each widget kind builds with, in a theme: ids, never function pointers, so a `Theme` stays `Copy` and comparable
+/// and a theme file can pick one by name (`toggle.body = checkbox`). Grows at the end only.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Bodies {
+    pub toggle: BodyId,
+    pub slider: BodyId,
+    pub progress: BodyId,
+}
+
+/// A node a widget's behaviour finds by role (`Ui::part`): the toggle's hit shape, the slider's rail and thumb, the progress
+/// track and its busy bar, a spinner's dots. Numbered once, never renumbered. The built-in bodies' parts keep the keys those nodes
+/// had before bodies existed (`Part::offset`), which is why `HIT` and `TRACK` share one.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Part(pub u32);
+
+impl Part {
+    /// The area that takes a toggle's presses; the whole row when a body builds none.
+    pub const HIT: Part = Part(1);
+    /// A slider's rail: the pointer maps to the value across its width.
+    pub const RAIL: Part = Part(2);
+    /// A slider's thumb: half its width is kept at each end of the rail.
+    pub const THUMB: Part = Part(3);
+    /// A progress row's track: the accessible node, and the extent `busy_step` sweeps its bar across.
+    pub const TRACK: Part = Part(4);
+    /// The bar `busy_step` sweeps along an indeterminate progress track (inside the track).
+    pub const BAR: Part = Part(5);
+    /// Dot `i` of a spinner, which `busy_step` turns.
+    pub const fn dot(i: u8) -> Part {
+        Part(16 + i as u32)
+    }
+
+    /// The number a part's key is derived from.
+    pub const fn offset(self) -> i64 {
+        match self.0 {
+            1 | 4 => 0,
+            2 => 2,
+            3 => 6,
+            n => n as i64 - 16,
+        }
+    }
+}
+
 macro_rules! snapshot {
     ($($(#[$doc:meta])* $name:ident),* $(,)?) => {
         /// The tokens and one `States` per kit part: the engine's `Theme` (the same C layout), borrowed from the library.
@@ -230,6 +284,8 @@ macro_rules! snapshot {
             pub scrollbar_w: f32,
             pub scrollbar_gap: f32,
             $($(#[$doc])* pub $name: States,)*
+            /// The body each widget kind builds with; after the parts, so their array keeps its offsets.
+            pub body: Bodies,
         }
         /// How many kit parts a snapshot lists.
         pub const WIDGET_COUNT: usize = [$(stringify!($name)),*].len();

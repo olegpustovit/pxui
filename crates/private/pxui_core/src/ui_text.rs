@@ -2294,11 +2294,11 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     {
         let saved = this.enter(&search);
         if slash {
-            this.part(int_key(search.box_key, 1), (0.0, 0.0), Size::Px(prefix as f32), this.control_h(), hint, Edges { l: 2.0, ..Edges::default() }, "/");
+            this.placed(int_key(search.box_key, 1), (0.0, 0.0), Size::Px(prefix as f32), this.control_h(), hint, Edges { l: 2.0, ..Edges::default() }, "/");
         }
         if edit.text.is_empty() {
             let pw = this.text_width(None, &placeholder);
-            this.part(int_key(search.box_key, 2), (prefix as f32, 0.0), Size::Px(pw + inset), this.control_h(), place_look, Edges { l: inset, ..Edges::default() }, &placeholder);
+            this.placed(int_key(search.box_key, 2), (prefix as f32, 0.0), Size::Px(pw + inset), this.control_h(), place_look, Edges { l: inset, ..Edges::default() }, &placeholder);
         }
         this.leave(saved);
         let edit = edit.clone();
@@ -2355,7 +2355,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
         let text = ellipsis(&mut |s| this.text_width(None, s), limit, text);
         if let Some(color) = swatch {
             let fill = if unavailable { ink3 } else { color };
-            this.part(rk(0), (this.space(2), ((row_height - 8) / 2) as f32), Size::Px(8.0), 8.0, Look { fill, ..Look::NONE }, Edges::default(), "");
+            this.placed(rk(0), (this.space(2), ((row_height - 8) / 2) as f32), Size::Px(8.0), 8.0, Look { fill, ..Look::NONE }, Edges::default(), "");
         }
         // the query's letters, matched in order, in the accent
         let q = query.to_ascii_lowercase();
@@ -2389,7 +2389,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
             let run = &text[start..stop];
             let rw = this.text_width(None, run);
             let color = if doomed || unavailable { ink } else if flag { matched } else { ink };
-            this.part(rk(run_key), (pen, 0.0), Size::Px(rw.max(1.0)), rh, Look { text: color, ..Look::NONE }, Edges::default(), run);
+            this.placed(rk(run_key), (pen, 0.0), Size::Px(rw.max(1.0)), rh, Look { text: color, ..Look::NONE }, Edges::default(), run);
             run_key += 1;
             pen += rw;
             start = stop;
@@ -2510,7 +2510,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
     } else {
         // the 2-point line under the value is its position in the soft range
         if let Some(f) = o.fraction {
-            this.part(k(0), (x, h - 3.0), Size::Px((w * 0.0f32.max(1.0f32.min(f))).max(0.0)), 2.0, fraction, Edges::default(), "");
+            this.placed(k(0), (x, h - 3.0), Size::Px((w * 0.0f32.max(1.0f32.min(f))).max(0.0)), 2.0, fraction, Edges::default(), "");
         }
         let tracking = o.tracking.unwrap_or(0.0);
         let text_w = |ui: &mut Ui, t: &str| ui.text_width(size, t);
@@ -2812,10 +2812,10 @@ fn menu_rows_body(this: &mut Ui, m: &MenuRows) -> (Option<i64>, Option<i64>) {
             let saved = this.enter(&row);
             // the current choice: a 6-point accent square before the label
             if m.selected == Some(index) {
-                this.part(k(0), (this.space(2), rh / 2.0 - 3.0), Size::Px(6.0), 6.0, mark, Edges::default(), "");
+                this.placed(k(0), (this.space(2), rh / 2.0 - 3.0), Size::Px(6.0), 6.0, mark, Edges::default(), "");
             }
             if let Some(color) = m.swatches.get(index as usize).copied().flatten() {
-                this.part(k(1), (this.space(2) + lead, rh / 2.0 - 4.0), Size::Px(8.0), 8.0, Look { fill: color, ..swatch_look }, Edges::default(), "");
+                this.placed(k(1), (this.space(2) + lead, rh / 2.0 - 4.0), Size::Px(8.0), 8.0, Look { fill: color, ..swatch_look }, Edges::default(), "");
             }
             if chevron {
                 let c = this.flow_part(k(2), 6.0, rh, Edges { r: 15.25 - 3.0, ..Edges::ZERO }, chevron_look, "");

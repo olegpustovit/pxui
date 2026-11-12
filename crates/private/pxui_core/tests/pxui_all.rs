@@ -4,6 +4,8 @@ use mem_sys as _; // the counting global allocator
 mod a11y;
 #[path = "cases/bench.rs"]
 mod bench;
+#[path = "cases/bodies.rs"]
+mod bodies;
 #[path = "cases/layout.rs"]
 mod layout;
 #[path = "cases/nodes.rs"]
@@ -42,5 +44,6 @@ fn main() {
     cases.extend_from_slice(a11y::CASES);
     cases.extend_from_slice(bench::CASES);
     cases.extend_from_slice(widgets::CASES);
+    cases.extend_from_slice(bodies::CASES);
     run::run(&cases);
 }

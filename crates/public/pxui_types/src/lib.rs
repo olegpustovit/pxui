@@ -413,12 +413,12 @@ mod abi_layout {
             offset_of!(Tokens, reduced_motion), offset_of!(Tokens, density),
         ]);
         assert_layout("PxuiStates", size_of::<States>(), align_of::<States>(), &[offset_of!(States, idle), offset_of!(States, hover), offset_of!(States, pressed), offset_of!(States, focus), offset_of!(States, disabled), offset_of!(States, checked)]);
-        // the kit parts follow `ring`, `scrollbar_w` and `scrollbar_gap` back to back, in `theme_widgets!` order
+        // the kit parts follow `ring`, `scrollbar_w` and `scrollbar_gap` back to back, in `theme_widgets!` order, then the bodies
         assert_layout("PxuiThemeSnapshot", size_of::<ThemeSnapshot>(), align_of::<ThemeSnapshot>(), &[
             offset_of!(ThemeSnapshot, tokens), offset_of!(ThemeSnapshot, row_h), offset_of!(ThemeSnapshot, control_h), offset_of!(ThemeSnapshot, ring),
-            offset_of!(ThemeSnapshot, scrollbar_w), offset_of!(ThemeSnapshot, scrollbar_gap), offset_of!(ThemeSnapshot, panel),
+            offset_of!(ThemeSnapshot, scrollbar_w), offset_of!(ThemeSnapshot, scrollbar_gap), offset_of!(ThemeSnapshot, panel), offset_of!(ThemeSnapshot, body),
         ]);
-        assert_eq!(size_of::<ThemeSnapshot>(), offset_of!(ThemeSnapshot, panel) + WIDGET_COUNT * size_of::<States>(), "the parts are an array of States");
+        assert_eq!(offset_of!(ThemeSnapshot, body), offset_of!(ThemeSnapshot, panel) + WIDGET_COUNT * size_of::<States>(), "the parts are an array of States, then the bodies");
     }
 
     #[test]

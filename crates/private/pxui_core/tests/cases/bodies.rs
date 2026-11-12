@@ -1,0 +1,284 @@
+//! Widget bodies: a theme names a body per widget kind, behaviour (value, input, accessibility) stays the engine's, and what
+//! behaviour needs of the structure it reads from the body's parts. Proof bodies: a checkbox for the toggle, a round 24-point
+//! thumb for the slider, a taller track for progress. The default bodies' bytes are `bodies_default_identical` (pxui_gallery).
+use crate::support::*;
+use input::{Event, Key};
+use pxui_core::a11y::{state, Role};
+use pxui_core::ui::*;
+use std::cell::Cell;
+
+/// A toggle as a checkbox: a 12-point box at the row's start is the hit area, the label after it.
+fn checkbox_body(ui: &mut Ui, c: &ToggleConfig, label: &str) {
+    let t = ui.theme();
+    let (look, boxes) = (*t.toggle.pick(c.state), t.checkbox);
+    ui.set_look(&c.row, look, c.state);
+    ui.node_mut(&c.row).inset = Edges { l: 24.0, ..Edges::ZERO };
+    ui.text(&c.row, shown(label));
+    let b = ui.part(Part::HIT, Node { at: Some((6.0, 6.0)).into(), w: Size::Px(12.0), h: Size::Px(12.0), ..Node::DEFAULT });
+    ui.style(&b, &boxes, State { hovered: c.state.hovered, checked: c.on, ..State::default() });
+}
+
+/// A slider with a round 24-point thumb on a 4-point rail.
+fn round_body(ui: &mut Ui, c: &SliderConfig, _label: &str) {
+    let t = ui.theme();
+    let (rail, fill, thumb) = (t.separator.idle, t.mark.idle, t.slider);
+    ui.part(Part::RAIL, Node { h: Size::Px(4.0), look: rail, ..Node::DEFAULT });
+    ui.node("fill", Node { w: Size::Pct(c.fraction), h: Size::Px(4.0), look: fill, ..Node::DEFAULT });
+    let lane = ui.node("lane", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
+    let inside = ui.enter(&lane);
+    ui.node("before", Node { h: Size::Px(1.0), grow: c.fraction, ..Node::DEFAULT });
+    let th = ui.part(Part::THUMB, Node { w: Size::Px(24.0), h: Size::Px(24.0), look: Look { radius: [12.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+    ui.style(&th, &thumb, c.state);
+    ui.node("after", Node { h: Size::Px(1.0), grow: 1.0 - c.fraction, ..Node::DEFAULT });
+    ui.leave(inside);
+}
+
+/// A progress row with an 8-point track and a half-width bar.
+fn tall_body(ui: &mut Ui, c: &ProgressConfig, label: &str) {
+    let t = ui.theme();
+    let (track, bar) = (t.progress.idle, t.mark.idle);
+    ui.text(&c.row, shown(label));
+    let tr = ui.part(Part::TRACK, Node { flags: CLIP, h: Size::Px(8.0), look: track, ..Node::DEFAULT });
+    let inside = ui.enter(&tr);
+    match c.value {
+        Some(v) => {
+            ui.node("fill", Node { w: Size::Pct(v), h: Size::Grow, look: bar, ..Node::DEFAULT });
+        }
+        None => {
+            ui.part(Part::BAR, Node { w: Size::Pct(0.5), h: Size::Grow, look: bar, ..Node::DEFAULT });
+        }
+    }
+    ui.leave(inside);
+}
+
+fn frame(t: f64, events: Vec<Event>) -> input::frame::Frame {
+    frame_at(vec![], 1.0, t, events)
+}
+
+fn tree_node(ui: &Ui, role: Role, name: &str) -> pxui_core::a11y::A11yNode {
+    let tree = ui.output().a11y;
+    *tree.nodes.iter().find(|n| n.role == role && tree.str(n.name) == name).unwrap_or_else(|| panic!("no {role:?} {name}"))
+}
+
+fn mid(r: pxui_core::geom::Rect, dx: f32) -> (i64, i64) {
+    ((r.x + dx) as i64, (r.y + r.h / 2.0) as i64)
+}
+
+/// A UI whose toggle body is the checkbox when `checkbox` (registered by name, picked by the theme), the default otherwise.
+fn toggle_ui(checkbox: bool) -> Ui {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    if checkbox {
+        let id = ui.register_toggle_body("checkbox", checkbox_body);
+        let mut theme = *ui.theme();
+        theme.body.toggle = id;
+        ui.set_theme(theme);
+    }
+    ui
+}
+
+/// The toggle's role, name, actions and the states a user can see: what a body must not change.
+fn toggle_facts(ui: &Ui) -> (Role, u32, u32) {
+    let n = tree_node(ui, Role::Toggle, "Animate");
+    (n.role, n.actions, n.states & (state::CHECKABLE | state::CHECKED | state::FOCUSED))
+}
+
+/// Click, keyboard and accessibility state are the default body's; only the structure and where the press lands differ.
+pub fn toggle_checkbox_body() {
+    let mut runs = Vec::new();
+    for checkbox in [false, true] {
+        let mut ui = toggle_ui(checkbox);
+        let on = Cell::new(false);
+        let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| on.set(ui.toggle("Animate", on.get())));
+        let mut t = 0.0;
+        let mut step = |ui: &mut Ui, e: Vec<Event>| {
+            t += 0.1;
+            ui.frame(&frame(t, e), &mut build);
+        };
+        for _ in 0..2 {
+            step(&mut ui, vec![]);
+        }
+        let row = tree_node(&ui, Role::Toggle, "Animate").rect;
+        let (switch, boxed) = (mid(row, row.w - 20.0), mid(row, 12.0));
+        let (hit, miss) = if checkbox { (boxed, switch) } else { (switch, boxed) };
+        let mut click = |ui: &mut Ui, p: (i64, i64)| {
+            for e in [vec![move_to(p)], vec![press(p)], vec![release(p)], vec![]] {
+                step(ui, e);
+            }
+        };
+        click(&mut ui, miss);
+        check(!on.get(), &format!("checkbox {checkbox}: a press outside the body's hit area toggled"));
+        click(&mut ui, hit);
+        check(on.get(), &format!("checkbox {checkbox}: a press on the body's hit area did not toggle"));
+        let after_click = toggle_facts(&ui);
+        check(after_click.2 & state::CHECKED != 0, "the tree does not show it checked");
+        step(&mut ui, vec![Event::KeyPressed(Key::Tab)]);
+        step(&mut ui, vec![Event::KeyPressed(Key::Space)]);
+        step(&mut ui, vec![]);
+        check(!on.get(), &format!("checkbox {checkbox}: Space did not toggle it back"));
+        let after_key = toggle_facts(&ui);
+        // warm frames allocate nothing, with the override too
+        mem_sys::local_reset();
+        let before = mem_sys::local_alloc_count();
+        for _ in 0..20 {
+            step(&mut ui, vec![]);
+        }
+        check(mem_sys::local_alloc_count() == before, &format!("checkbox {checkbox}: warm frames allocated"));
+        let instances = ui.output().draw[0].instances.to_vec();
+        runs.push((after_click, after_key, instances));
+        ui.destroy();
+    }
+    check(runs[0].0 == runs[1].0 && runs[0].1 == runs[1].1, &format!("accessibility facts differ: {:?} {:?}", (runs[0].0, runs[0].1), (runs[1].0, runs[1].1)));
+    check(runs[0].2 != runs[1].2, "the checkbox body drew the same as the switch");
+}
+
+/// A 24-point thumb: a press at the rail's left end is 0 and at its right end 1, and a drag lands where the thumb's centre goes.
+pub fn slider_custom_thumb() {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let id = ui.register_slider_body("round", round_body);
+    let mut theme = *ui.theme();
+    theme.body.slider = id;
+    ui.set_theme(theme);
+    let v = Cell::new(0.5f32);
+    let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| v.set(ui.slider("Level", v.get(), 0.0..=1.0)));
+    let mut t = 0.0;
+    let mut step = |ui: &mut Ui, e: Vec<Event>| {
+        t += 0.1;
+        ui.frame(&frame(t, e), &mut build);
+    };
+    for _ in 0..3 {
+        step(&mut ui, vec![]);
+    }
+    let r = tree_node(&ui, Role::Slider, "Level").rect;
+    let at = |f: f32| mid(r, 12.0 + f * (r.w - 24.0));
+    let mut drag = |ui: &mut Ui, from: f32, to: f32| {
+        for e in [vec![move_to(at(from))], vec![press(at(from))], vec![move_to(at(to))], vec![release(at(to))], vec![]] {
+            step(ui, e);
+        }
+    };
+    drag(&mut ui, 0.0, 0.0);
+    check(v.get() < 0.002, &format!("a press at the left end of the rail: {}", v.get()));
+    drag(&mut ui, 0.0, 1.0);
+    check(v.get() > 0.998, &format!("a drag to the right end: {}", v.get()));
+    drag(&mut ui, 1.0, 0.75);
+    check((v.get() - 0.75).abs() < 0.002, &format!("a drag to three quarters: {}", v.get()));
+    // the thumb is the body's: 24 points wide where the value puts it
+    let thumb = ui.part_rect(key_of(key_of(0x2c1b3c6d, "panel"), "Level"), Part::THUMB).expect("the thumb part");
+    check(thumb.w == 24.0 && thumb.h == 24.0, &format!("the thumb part is not the body's: {thumb:?}"));
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    for _ in 0..20 {
+        step(&mut ui, vec![]);
+    }
+    check(mem_sys::local_alloc_count() == before, "warm slider frames allocated");
+    ui.destroy();
+}
+
+/// `busy_step` sweeps the bar a body built as `Part::BAR` along its `Part::TRACK`, and nothing else (the default body's too).
+pub fn busy_step_custom_body() {
+    busy_step_with(true);
+    busy_step_with(false);
+}
+
+fn busy_step_with(custom: bool) {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let id = ui.register_progress_body("tall", tall_body);
+    let mut theme = *ui.theme();
+    theme.body.progress = if custom { id } else { BodyId::DEFAULT };
+    ui.set_theme(theme);
+    let handles = std::cell::RefCell::new(Vec::new());
+    let build = |ui: &mut Ui| {
+        ui.view("busy", 1, Size::Px(240.0), Size::Px(100.0), &mut |ui| {
+            let mut h = handles.borrow_mut();
+            h.clear();
+            h.push(ui.progress("Busy", None));
+            h.push(ui.progress("Done", Some(0.5)));
+        });
+    };
+    for t in 0..3 {
+        ui.frame(&frame(t as f64 * 0.1, vec![]), &mut |ui| build(ui));
+    }
+    let (busy, done) = (handles.borrow()[0], handles.borrow()[1]);
+    let tree = ui.output().a11y;
+    let find = |name: &str| *tree.nodes.iter().find(|n| n.role == Role::Progress && tree.str(n.name) == name).expect(name);
+    check(find("Busy").states & state::BUSY != 0, "the custom track is not busy in the tree");
+    check(find("Done").value == pxui_core::a11y::Value::Number { now: 50.0, min: 0.0, max: 100.0, step: 1.0 }, "the custom track's number");
+    let bar = |ui: &Ui| ui.part_rect(busy.box_key, Part::BAR).expect("the bar part");
+    let track = ui.part_rect(busy.box_key, Part::TRACK).expect("the track part");
+    check(track.h == if custom { 8.0 } else { 4.0 }, &format!("the track is the body's: {track:?}"));
+    ui.frame(&frame(0.4, vec![]), &mut |ui| build(ui));
+    check(ui.built_nodes() <= 2, "a kept frame built nodes");
+    check(ui.busy_step(&busy, 1.0), "a custom body's bar did not move");
+    let first = bar(&ui);
+    check(ui.busy_step(&busy, 1.5), "the bar stopped");
+    let second = bar(&ui);
+    check(first.x != second.x && (first.w - track.w * 0.3).abs() < 0.01, &format!("the bar did not sweep: {first:?} {second:?}"));
+    check(!ui.busy_step(&done, 1.0), "a determinate bar moved");
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    for i in 0..60 {
+        ui.busy_step(&busy, 2.0 + i as f64 / 60.0);
+    }
+    check(mem_sys::local_alloc_count() == before, "animated steps allocated");
+    ui.destroy();
+}
+
+/// A theme file picks a registered body by name, and `default` the built-in one.
+pub fn theme_file_selects_body() {
+    let mut ui = new_ui(None);
+    let (toggle, slider) = (ui.register_toggle_body("checkbox", checkbox_body), ui.register_slider_body("round", round_body));
+    check(toggle == BodyId(1) && slider == BodyId(1), "ids are numbered from 1 per kind");
+    check(ui.register_toggle_body("checkbox", checkbox_body) == toggle, "a name registered again keeps its id");
+    check(ui.register_toggle_body("second", checkbox_body) == BodyId(2), "the next name is the next id");
+    let base = Theme::default();
+    let t = ui.parse_theme("toggle.body = checkbox # the box\nslider.body = round\nprogress.body = default\n", &base).expect("a theme with bodies");
+    check(t.body == Bodies { toggle, slider, progress: BodyId::DEFAULT }, &format!("{:?}", t.body));
+    check(Theme::parse("toggle.body = default\n", &t).map(|t| t.body.toggle) == Ok(BodyId::DEFAULT), "default needs no registry");
+    // keys the file leaves alone keep the base's body, and a token key keeps it too
+    check(ui.parse_theme("tokens.density = 0.9\n", &t).map(|t| t.body) == Ok(t.body), "a token key dropped the bodies");
+    // the body is a theme field: the theme differs, so a scope under it rebuilds and draws the body
+    check(t != base, "a theme with a body equals the default");
+    let draw = |theme: &Theme| {
+        let mut ui = new_ui(None);
+        ui.register_toggle_body("checkbox", checkbox_body);
+        for k in 0..2 {
+            ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.themed(theme, &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.toggle("Animate", true); })));
+        }
+        let drawn = ui.output().draw[0].instances.to_vec();
+        ui.destroy();
+        drawn
+    };
+    check(draw(&t) != draw(&base), "a scoped theme's body did not draw");
+    // the file's text is not written back: a written theme has no body keys, and parses to the base's bodies
+    check(Theme::parse(&t.write(), &base).map(|t| t.body) == Ok(Bodies::default()), "a written theme names bodies");
+    ui.destroy();
+}
+
+/// A name nobody registered, for the wrong kind or for a kind with no bodies, is a `ThemeError` with its line; nothing is applied.
+pub fn unknown_body_is_error() {
+    let mut ui = new_ui(None);
+    ui.register_toggle_body("checkbox", checkbox_body);
+    let base = Theme::default();
+    let errors = ui.parse_theme("tokens.density = 0.9\ntoggle.body = nosuch\nprogress.body = checkbox\nslider.body = checkbox\nbutton.body = checkbox\n", &base).expect_err("unknown names parsed");
+    let lines: Vec<usize> = errors.iter().map(|e| e.line).collect();
+    check(lines == [2, 3, 4, 5], &format!("error lines {lines:?}: {errors:?}"));
+    check(errors[0].message.contains("nosuch") && errors[0].message.contains("toggle"), &format!("{:?}", errors[0]));
+    check(Theme::parse("toggle.body = checkbox\n", &base).is_err(), "Theme::parse knows no registry");
+    check(ui.parse_theme("toggle.body = \n", &base).is_err(), "an empty name parsed");
+    // an id from another Ui draws the default body, with no panic
+    let mut theme = base;
+    theme.body.toggle = BodyId(7);
+    ui.set_theme(theme);
+    ui.frame(&frame(0.0, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.toggle("Animate", true); }));
+    ui.destroy();
+}
+
+pub const CASES: &[(&str, fn())] = &[
+    ("toggle_checkbox_body", toggle_checkbox_body),
+    ("slider_custom_thumb", slider_custom_thumb),
+    ("busy_step_custom_body", busy_step_custom_body),
+    ("theme_file_selects_body", theme_file_selects_body),
+    ("unknown_body_is_error", unknown_body_is_error),
+];

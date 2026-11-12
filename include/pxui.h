@@ -104,12 +104,14 @@ typedef struct {
 typedef struct { PxuiLook idle,hover,pressed,focus,disabled,checked; } PxuiStates;
 #define PXUI_THEME_PARTS 59
 /* The theme in effect, lent by pxui_ui_theme: the kit parts in the order of `theme_widgets!` (pxui_types/src/theme.rs). */
-typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float scrollbar_w,scrollbar_gap; PxuiStates parts[PXUI_THEME_PARTS]; } PxuiThemeSnapshot;
+/* The body each widget kind builds with: 0 the built-in, n the nth body registered for the kind. */
+typedef struct { uint16_t toggle,slider,progress; } PxuiBodies;
+typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float scrollbar_w,scrollbar_gap; PxuiStates parts[PXUI_THEME_PARTS]; PxuiBodies bodies; } PxuiThemeSnapshot;
 #if defined(__LP64__) || defined(_WIN64)
 _Static_assert(sizeof(PxuiSize) == 16 && sizeof(PxuiGrid) == 32 && sizeof(PxuiOptGrid) == 40, "PxuiSize/PxuiGrid layout");
 _Static_assert(sizeof(PxuiLook) == 160 && offsetof(PxuiLook, dashed) == 152, "PxuiLook layout");
 _Static_assert(sizeof(PxuiNode) == 488 && offsetof(PxuiNode, flags) == 16 && offsetof(PxuiNode, look) == 240 && offsetof(PxuiNode, transition) == 456, "PxuiNode layout");
-_Static_assert(sizeof(PxuiTokens) == 136 && sizeof(PxuiThemeSnapshot) == 56808, "PxuiThemeSnapshot layout");
+_Static_assert(sizeof(PxuiTokens) == 136 && sizeof(PxuiThemeSnapshot) == 56816, "PxuiThemeSnapshot layout");
 #endif
 enum PxuiSizeKind { PXUI_SIZE_PX=0, PXUI_SIZE_PCT=1, PXUI_SIZE_REL=2, PXUI_SIZE_GROW=3, PXUI_SIZE_FIT=4 };
 enum PxuiTrackKind { PXUI_TRACK_PX=0, PXUI_TRACK_FR=1, PXUI_TRACK_FIT=2 };
