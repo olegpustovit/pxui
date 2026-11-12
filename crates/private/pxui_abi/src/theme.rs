@@ -22,8 +22,9 @@ pub struct PxuiTheme { theme: Theme, error: String }
 
 impl PxuiTheme {
     /// Applies `text` (a theme file) over the theme, or records why it cannot be and changes nothing.
-    fn apply(&mut self, text: &str) -> i32 {
-        match Theme::parse(text, &self.theme) {
+    /// With `ui`, `KIND.body = NAME` names the bodies that `Ui` registered; without, only `default`.
+    fn apply(&mut self, text: &str, ui: Option<&Ui>) -> i32 {
+        match ui.map_or_else(|| Theme::parse(text, &self.theme), |ui| ui.parse_theme(text, &self.theme)) {
             Ok(theme) => { self.theme = theme; self.error.clear(); 0 }
             Err(errors) => {
                 self.error = errors.iter().map(|e| format!("line {}: {}", e.line, e.message)).collect::<Vec<_>>().join("\n");
@@ -58,7 +59,7 @@ export!(bare pub unsafe fn pxui_theme_set(theme: *mut PxuiTheme, key: Str, value
     let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
     let (Some(key), Some(value)) = (unsafe { checked(key) }, unsafe { checked(value) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
     if key.contains(['\n', '=']) || value.contains('\n') { theme.error = "a key holds no `=` or line break and a value no line break".into(); return PXUI_ERR_ARGUMENT; }
-    theme.apply(&format!("{key} = {value}"))
+    theme.apply(&format!("{key} = {value}"), None)
 });
 
 // Applies the theme file at `path`.
@@ -66,7 +67,7 @@ export!(bare pub unsafe fn pxui_theme_load(theme: *mut PxuiTheme, path: Str) -> 
     let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
     let Some(path) = (unsafe { checked(path) }) else { theme.error = "invalid theme path".into(); return PXUI_ERR_ARGUMENT; };
     match std::fs::read_to_string(path) {
-        Ok(text) => theme.apply(&text),
+        Ok(text) => theme.apply(&text, None),
         Err(error) => { theme.error = format!("{path}: {error}"); PXUI_ERR_ARGUMENT }
     }
 });
@@ -83,4 +84,13 @@ export!(pub unsafe fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, b
     let shared = state.shared;
     unsafe { (&mut *state.engine).themed(&theme.theme, &mut |engine: &mut Ui| call_build(shared, engine, build, user)); }
     0
+});
+
+// Applies `text` (a theme file, any number of lines) over the theme as `pxui_theme_set` does, with `KIND.body = NAME` naming the bodies
+// `ui` registered (`pxui_body_register`); an unregistered name is refused like any bad key, with the line in `pxui_theme_last_error`.
+export!(pub unsafe fn pxui_ui_theme_apply(ui: *mut PxuiUi, theme: *mut PxuiTheme, text: Str) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(theme) = (unsafe { theme.as_mut() }) else { return unsafe { fail(ui, "null theme") }; };
+    let Some(text) = (unsafe { checked(text) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
+    theme.apply(text, Some(unsafe { &*state.engine }))
 });

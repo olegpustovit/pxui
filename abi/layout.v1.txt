@@ -117,3 +117,41 @@ PxuiNode 488 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128
 PxuiTokens 136 8 0 4 8 12 16 20 24 28 36 52 64 72 80 88 96 124 128
 PxuiStates 960 8 0 160 320 480 640 800
 PxuiThemeSnapshot 56888 8 0 136 140 144 156 160 168 56808
+PxuiToggleConfig 64 8 0 4 12 16 48
+PxuiSliderConfig 64 8 0 4 12 16 48
+PxuiProgressConfig 64 8 0 4 8 16 48
+PxuiButtonConfig 104 8 0 4 12 13 14 16 48 80 88
+PxuiIconButtonConfig 80 8 0 4 16 48 64
+PxuiCheckConfig 64 8 0 4 12 16 48
+PxuiSpinnerConfig 56 8 0 8 40
+PxuiBadgeConfig 72 8 0 8 40 56
+PxuiLabelConfig 56 8 0 4 8 40
+PxuiFooterConfig 80 8 0 8 40 48 64
+PxuiGripConfig 48 8 0 4 12 13 16
+PxuiPanelConfig 64 8 0 8 40 56
+PxuiDialogConfig 48 8 0 8 24 40
+PxuiSectionConfig 72 8 0 4 8 16 48 64
+PxuiInspectorRowConfig 72 8 0 4 12 13 16 24 56
+PxuiSplitConfig 72 8 0 4 8 12 16 24 56 64
+PxuiScrollConfig 48 8 0 8 40
+PxuiToastConfig 64 8 0 4 16 48
+PxuiTipConfig 64 8 0 4 8 16 48
+PxuiTabConfig 72 8 0 4 16 24 56
+PxuiSegmentConfig 88 8 0 4 16 24 32 40 72
+PxuiDropdownConfig 72 8 0 4 12 16 24 56
+PxuiMenuItemConfig 72 8 0 4 16 24 56
+PxuiMenuRowConfig 104 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88
+PxuiRowConfig 64 8 0 4 16 24 56
+PxuiTreeRowConfig 80 8 0 4 12 13 16 24 32 40 72
+PxuiTableHeadConfig 72 8 0 4 12 13 16 24 56
+PxuiTableCellConfig 64 8 0 4 8 12 16 24 32 40 48
+PxuiPickerRowConfig 112 8 0 4 12 13 14 15 16 17 24 32 64 80 96
+PxuiSearchFieldConfig 80 8 0 4 16 24 56 72
+PxuiTextFieldConfig 80 8 0 4 16 48 64
+PxuiLineFieldConfig 64 8 0 4 12 16 48
+PxuiValueFieldConfig 224 8 0 4 12 16 20 24 56 208
+PxuiPickerFieldConfig 72 8 0 4 12 13 16 20 24 56
+PxuiSlot 8 8 0
+PxuiListViewWithDesc 64 8 0 4 5 8 24 32 48 56
+PxuiTreeViewWithDesc 104 8 0 4 8 24 40 56 64 80 88 96
+PxuiTableViewWithDesc 96 8 0 4 5 6 8 24 40 56 64 72 80 88

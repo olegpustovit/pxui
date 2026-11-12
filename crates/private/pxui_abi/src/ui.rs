@@ -160,11 +160,11 @@ export!(pub unsafe fn pxui_ui_set_theme(ui: *mut PxuiUi, source: *const ThemeSou
     if source.is_null() { return unsafe { fail(ui, "null theme source") }; }
     let Some(source) = read_desc!(source, ThemeSource) else { return unsafe { fail(ui, "invalid theme descriptor") }; };
     if source.flags & !3 != 0 { return unsafe { fail(ui, "invalid theme descriptor") }; }
-    let parsed = if source.source.len == 0 { Ok(pxui_core::Theme::default()) } else {
+    let parsed: Result<pxui_core::Theme, Vec<pxui_core::theme::ThemeError>> = if source.source.len == 0 { Ok(pxui_core::Theme::default()) } else {
         let Some(text) = (unsafe { text(source.source) }) else { return unsafe { fail(ui, "invalid theme UTF-8") }; };
-        pxui_core::Theme::parse(text, &pxui_core::Theme::default()).map_err(|_| ())
+        unsafe { &*state.engine }.parse_theme(text, &pxui_core::Theme::default())
     };
-    let Ok(mut theme) = parsed else { return unsafe { fail(ui, "theme parse failed") }; };
+    let mut theme = match parsed { Ok(theme) => theme, Err(errors) => return unsafe { fail(ui, &errors.iter().map(|e| format!("line {}: {}", e.line, e.message)).collect::<Vec<_>>().join("\n")) } };
     theme.tokens.density = if source.flags & ThemeSource::COMPACT != 0 { 0.84 } else { 1.0 };
     theme.tokens.reduced_motion = source.flags & ThemeSource::REDUCED_MOTION != 0;
     unsafe { (&mut *state.engine).set_theme(theme); }

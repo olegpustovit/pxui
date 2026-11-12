@@ -588,6 +588,107 @@ pub struct PxuiTableViewDesc {
 }
 
 
+// ---- widget bodies (`pxui_body_register`): what a body is given, one record per kind. The records hold what the widget's behaviour
+// already computed; the text beside each (a label, a value) is in the record, borrowed until the body returns. A body builds nodes
+// with the ordinary calls on the `ui` it is given, finds nothing but the parts it names (`pxui_part`) and runs the caller's content
+// through its slots (`pxui_slot`). Each record starts with `size` and grows only at its end; a flag is 0 or 1, a handle a `PxuiBox`.
+
+/// A body of widget content the caller gave (a panel's children, a table cell): valid only during the body call that received it,
+/// run with `pxui_slot`. A slot that is stale is refused.
+#[repr(C)]
+#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
+pub struct PxuiSlot { pub serial: u64 }
+
+/// A registered body: `(user, ui, config)`, `ui` a borrowed `PxuiUi` valid for the call and `config` the kind's record below.
+pub type PxuiBodyFn = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, *const core::ffi::c_void)>;
+
+/// A `_with` form's row or cell content: `(user, ui, row, column)` builds the children of one row or cell (`column` is 0 in a list
+/// or a tree), `ui` a borrowed `PxuiUi` valid for the call.
+pub type PxuiCellBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, usize)>;
+
+#[repr(C)]
+pub struct PxuiListViewWithDesc { pub size: u32, pub multi: u8, pub reserved: [u8; 3], pub label: Str, pub count: usize, pub selected: PxuiU8MutSpan, pub build: PxuiCellBuild, pub user: *mut core::ffi::c_void }
+
+#[repr(C)]
+pub struct PxuiTreeViewWithDesc {
+    pub size: u32, pub reserved: u32, pub label: Str, pub nodes: Slice<PxuiTreeNode>, pub open: PxuiU8MutSpan, pub selected: *mut usize,
+    pub visible: PxuiU32MutSpan, pub visible_len: *mut usize, pub build: PxuiCellBuild, pub user: *mut core::ffi::c_void,
+}
+
+#[repr(C)]
+pub struct PxuiTableViewWithDesc {
+    pub size: u32, pub has_sort: u8, pub ascending: u8, pub reserved: [u8; 2], pub label: Str, pub titles: Slice<Str>, pub widths: PxuiF32MutSpan,
+    pub rows: usize, pub sort_column: usize, pub selected: *mut usize, pub build: PxuiCellBuild, pub user: *mut core::ffi::c_void,
+}
+
+use crate::theme::States as PxuiStates;
+
+macro_rules! configs {
+    ($($(#[$doc:meta])* $name:ident { $($f:ident: $t:ty),* $(,)? })*) => {
+        $($(#[$doc])* #[repr(C)] #[derive(Clone, Copy)] pub struct $name { pub size: u32, $(pub $f: $t),* })*
+        #[cfg(test)]
+        fn config_layouts(check: &mut dyn FnMut(&str, usize, usize, &[usize])) {
+            use core::mem::{align_of, offset_of, size_of};
+            $(check(stringify!($name), size_of::<$name>(), align_of::<$name>(), &[offset_of!($name, size), $(offset_of!($name, $f)),*]);)*
+        }
+    };
+}
+
+configs! {
+    /// `row` is entered and owns `Part::HIT`.
+    PxuiToggleConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str }
+    /// `track` is entered; `fraction` is the value's place, 0 to 1. Behaviour reads `Part::RAIL` and `Part::THUMB`.
+    PxuiSliderConfig { state: PxuiStateDesc, fraction: f32, track: PxuiBox, label: Str }
+    PxuiProgressConfig { has_value: u8, value: f32, row: PxuiBox, label: Str }
+    /// `states.pick(state)` is the look the caller asked for; `states` is valid for the call.
+    PxuiButtonConfig { state: PxuiStateDesc, bare: u8, icon: u8, at_end: u8, line: PxuiBox, row: PxuiBox, states: *const PxuiStates, label: Str }
+    PxuiIconButtonConfig { state: PxuiStateDesc, node: PxuiBox, label: Str, icon: Str }
+    /// A checkbox or a radio option.
+    PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str }
+    PxuiSpinnerConfig { node: PxuiBox, label: Str }
+    PxuiBadgeConfig { node: PxuiBox, label: Str, text: Str }
+    PxuiLabelConfig { first: u8, node: PxuiBox, text: Str }
+    PxuiFooterConfig { row: PxuiBox, has_right: u8, right: Str, hints: Slice<PxuiHintDesc> }
+    PxuiGripConfig { state: PxuiStateDesc, vertical: u8, floating: u8, grip: PxuiBox }
+    /// A panel, window, popup or modal sheet.
+    PxuiPanelConfig { node: PxuiBox, label: Str, content: PxuiSlot }
+    PxuiDialogConfig { title: Str, buttons: Slice<Str>, content: PxuiSlot }
+    PxuiSectionConfig { open: u8, gap: f32, title: PxuiBox, label: Str, content: PxuiSlot }
+    PxuiInspectorRowConfig { state: PxuiStateDesc, has_pin: u8, pin: u8, label_w: f32, row: PxuiBox, label: Str }
+    /// `axis` is 0 row, 1 column, 2 stack.
+    PxuiSplitConfig { axis: u32, ratio: f32, min_a: f32, min_b: f32, split: PxuiBox, first: PxuiSlot, second: PxuiSlot }
+    PxuiScrollConfig { node: PxuiBox, content: PxuiSlot }
+    PxuiToastConfig { state: PxuiStateDesc, node: PxuiBox, text: Str }
+    PxuiTipConfig { width: f32, height: f32, tip: PxuiBox, lines: Slice<Str> }
+    PxuiTabConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str }
+    PxuiSegmentConfig { state: PxuiStateDesc, index: usize, selected: usize, group: i64, node: PxuiBox, text: Str }
+    PxuiDropdownConfig { state: PxuiStateDesc, open: u8, key: i64, button: PxuiBox, text: Str }
+    /// A menu bar title or a row of an open menu.
+    PxuiMenuItemConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str }
+    PxuiMenuRowConfig {
+        state: PxuiStateDesc, selected: u8, chevron: u8, danger: u8, has_swatch: u8, swatch: Rgba, has_shortcut: u8, index: i64, lead: f32, swatch_pad: f32,
+        row: PxuiBox, text: Str, shortcut: Str
+    }
+    /// A `list_view` or `table_view` row; `content` is the text or the caller's cells.
+    PxuiRowConfig { state: PxuiStateDesc, index: usize, row: PxuiBox, content: PxuiSlot }
+    PxuiTreeRowConfig { state: PxuiStateDesc, has: u8, open: u8, index: usize, node: usize, depth: usize, row: PxuiBox, content: PxuiSlot }
+    PxuiTableHeadConfig { state: PxuiStateDesc, has_ascending: u8, ascending: u8, index: usize, node: PxuiBox, title: Str }
+    PxuiTableCellConfig { header: u8, left: f32, right: f32, height: f32, row: i64, column: i64, key: i64, text: Str }
+    PxuiPickerRowConfig {
+        state: PxuiStateDesc, current: u8, doomed: u8, unavailable: u8, marked: u8, has_swatch: u8, swatch: Rgba, index: i64,
+        row: PxuiBox, label: Str, detail: Str, query: Str
+    }
+    /// `editor` is a slot that builds the editing surface and returns whether the query is not empty (`pxui_slot`'s `out`). Behaviour
+    /// reads `Part::CLEAR`.
+    PxuiSearchFieldConfig { state: PxuiStateDesc, key: i64, well: PxuiBox, icon: Str, editor: PxuiSlot }
+    PxuiTextFieldConfig { state: PxuiStateDesc, row: PxuiBox, label: Str, value: Str }
+    PxuiLineFieldConfig { state: PxuiStateDesc, empty: u8, field: PxuiBox, text: Str }
+    /// `opts` holds the caller's options (its strings borrowed for the call); its place, label and value are unset.
+    PxuiValueFieldConfig { state: PxuiStateDesc, invalid: u8, w: f32, h: f32, field: PxuiBox, opts: PxuiValueFieldDesc, text: Str }
+    PxuiPickerFieldConfig { state: PxuiStateDesc, empty: u8, slash: u8, prefix: f32, inset: f32, search: PxuiBox, placeholder: Str }
+}
+
+
 #[cfg(test)]
 mod layout {
     use super::*;
@@ -601,6 +702,7 @@ mod layout {
     }
     #[test]
     fn ffi_layouts_are_pinned() {
+        config_layouts(&mut check);
         check("PxuiMenuDesc", size_of::<PxuiMenuDesc>(), align_of::<PxuiMenuDesc>(), &[offset_of!(PxuiMenuDesc, size), offset_of!(PxuiMenuDesc, reserved), offset_of!(PxuiMenuDesc, title), offset_of!(PxuiMenuDesc, items)]);
         check("PxuiGridListDesc", size_of::<PxuiGridListDesc>(), align_of::<PxuiGridListDesc>(), &[offset_of!(PxuiGridListDesc, size), offset_of!(PxuiGridListDesc, reserved), offset_of!(PxuiGridListDesc, label), offset_of!(PxuiGridListDesc, count), offset_of!(PxuiGridListDesc, cell_w), offset_of!(PxuiGridListDesc, cell_h), offset_of!(PxuiGridListDesc, build), offset_of!(PxuiGridListDesc, user)]);
         check("PxuiSplitDesc", size_of::<PxuiSplitDesc>(), align_of::<PxuiSplitDesc>(), &[offset_of!(PxuiSplitDesc, size), offset_of!(PxuiSplitDesc, axis), offset_of!(PxuiSplitDesc, label), offset_of!(PxuiSplitDesc, ratio), offset_of!(PxuiSplitDesc, min_a), offset_of!(PxuiSplitDesc, min_b), offset_of!(PxuiSplitDesc, reserved), offset_of!(PxuiSplitDesc, build_a), offset_of!(PxuiSplitDesc, user_a), offset_of!(PxuiSplitDesc, build_b), offset_of!(PxuiSplitDesc, user_b)]);
@@ -621,6 +723,10 @@ mod layout {
         check("PxuiListViewDesc", size_of::<PxuiListViewDesc>(), align_of::<PxuiListViewDesc>(), &[offset_of!(PxuiListViewDesc, size), offset_of!(PxuiListViewDesc, multi), offset_of!(PxuiListViewDesc, reserved), offset_of!(PxuiListViewDesc, label), offset_of!(PxuiListViewDesc, count), offset_of!(PxuiListViewDesc, selected), offset_of!(PxuiListViewDesc, text), offset_of!(PxuiListViewDesc, user)]);
         check("PxuiTreeViewDesc", size_of::<PxuiTreeViewDesc>(), align_of::<PxuiTreeViewDesc>(), &[offset_of!(PxuiTreeViewDesc, size), offset_of!(PxuiTreeViewDesc, reserved), offset_of!(PxuiTreeViewDesc, label), offset_of!(PxuiTreeViewDesc, nodes), offset_of!(PxuiTreeViewDesc, open), offset_of!(PxuiTreeViewDesc, selected), offset_of!(PxuiTreeViewDesc, visible), offset_of!(PxuiTreeViewDesc, visible_len), offset_of!(PxuiTreeViewDesc, text), offset_of!(PxuiTreeViewDesc, user)]);
         check("PxuiTableViewDesc", size_of::<PxuiTableViewDesc>(), align_of::<PxuiTableViewDesc>(), &[offset_of!(PxuiTableViewDesc, size), offset_of!(PxuiTableViewDesc, has_sort), offset_of!(PxuiTableViewDesc, ascending), offset_of!(PxuiTableViewDesc, reserved), offset_of!(PxuiTableViewDesc, label), offset_of!(PxuiTableViewDesc, titles), offset_of!(PxuiTableViewDesc, widths), offset_of!(PxuiTableViewDesc, rows), offset_of!(PxuiTableViewDesc, sort_column), offset_of!(PxuiTableViewDesc, selected), offset_of!(PxuiTableViewDesc, text), offset_of!(PxuiTableViewDesc, user)]);
+        check("PxuiSlot", size_of::<PxuiSlot>(), align_of::<PxuiSlot>(), &[offset_of!(PxuiSlot, serial)]);
+        check("PxuiListViewWithDesc", size_of::<PxuiListViewWithDesc>(), align_of::<PxuiListViewWithDesc>(), &[offset_of!(PxuiListViewWithDesc, size), offset_of!(PxuiListViewWithDesc, multi), offset_of!(PxuiListViewWithDesc, reserved), offset_of!(PxuiListViewWithDesc, label), offset_of!(PxuiListViewWithDesc, count), offset_of!(PxuiListViewWithDesc, selected), offset_of!(PxuiListViewWithDesc, build), offset_of!(PxuiListViewWithDesc, user)]);
+        check("PxuiTreeViewWithDesc", size_of::<PxuiTreeViewWithDesc>(), align_of::<PxuiTreeViewWithDesc>(), &[offset_of!(PxuiTreeViewWithDesc, size), offset_of!(PxuiTreeViewWithDesc, reserved), offset_of!(PxuiTreeViewWithDesc, label), offset_of!(PxuiTreeViewWithDesc, nodes), offset_of!(PxuiTreeViewWithDesc, open), offset_of!(PxuiTreeViewWithDesc, selected), offset_of!(PxuiTreeViewWithDesc, visible), offset_of!(PxuiTreeViewWithDesc, visible_len), offset_of!(PxuiTreeViewWithDesc, build), offset_of!(PxuiTreeViewWithDesc, user)]);
+        check("PxuiTableViewWithDesc", size_of::<PxuiTableViewWithDesc>(), align_of::<PxuiTableViewWithDesc>(), &[offset_of!(PxuiTableViewWithDesc, size), offset_of!(PxuiTableViewWithDesc, has_sort), offset_of!(PxuiTableViewWithDesc, ascending), offset_of!(PxuiTableViewWithDesc, reserved), offset_of!(PxuiTableViewWithDesc, label), offset_of!(PxuiTableViewWithDesc, titles), offset_of!(PxuiTableViewWithDesc, widths), offset_of!(PxuiTableViewWithDesc, rows), offset_of!(PxuiTableViewWithDesc, sort_column), offset_of!(PxuiTableViewWithDesc, selected), offset_of!(PxuiTableViewWithDesc, build), offset_of!(PxuiTableViewWithDesc, user)]);
         check("PxuiNodeFields", size_of::<PxuiNodeFields>(), align_of::<PxuiNodeFields>(), &[offset_of!(PxuiNodeFields, size), offset_of!(PxuiNodeFields, reserved), offset_of!(PxuiNodeFields, look), offset_of!(PxuiNodeFields, mark), offset_of!(PxuiNodeFields, inset)]);
         check("PxuiRange", size_of::<PxuiRange>(), align_of::<PxuiRange>(), &[offset_of!(PxuiRange, start), offset_of!(PxuiRange, end)]);
         check("PxuiColorSpan", size_of::<PxuiColorSpan>(), align_of::<PxuiColorSpan>(), &[offset_of!(PxuiColorSpan, start), offset_of!(PxuiColorSpan, end), offset_of!(PxuiColorSpan, color), offset_of!(PxuiColorSpan, reserved)]);

@@ -563,7 +563,7 @@ macro_rules! in_item {
 pub(crate) use in_item;
 
 macro_rules! registry {
-    ($($kind:ident $register:ident $body:ident),* $(,)?) => {
+    ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
         /// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1 (and `names[kind]` n - 1 is
         /// its name). Filled at start-up; a frame only reads it.
         pub(crate) struct BodyTable {
@@ -571,11 +571,13 @@ macro_rules! registry {
             names: Vec<Vec<String>>,
             /// the row a list, tree or table view is building (`Ui::item`); here, not in `Ui`, so `Ui` stays the size it was
             pub(crate) item: UiBox,
+            /// an opaque pointer of the host that registered bodies (the C ABI's state): what a registered body's trampoline finds its caller's data by
+            host: *mut core::ffi::c_void,
         }
 
         impl Default for BodyTable {
             fn default() -> BodyTable {
-                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| Vec::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 } }
+                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| Vec::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, host: core::ptr::null_mut() }
             }
         }
 
@@ -597,6 +599,16 @@ macro_rules! registry {
 pxui_types::body_kinds!(registry);
 
 impl Ui {
+    /// Keep `host` for the registered bodies' trampolines (`body_host`).
+    pub fn set_body_host(&mut self, host: *mut core::ffi::c_void) {
+        self.bodies.host = host;
+    }
+
+    /// The pointer `set_body_host` kept, null before.
+    pub fn body_host(&self) -> *mut core::ffi::c_void {
+        self.bodies.host
+    }
+
     /// `Theme::parse` where `KIND.body = NAME` names the bodies this `Ui` registered; an unregistered name is a `ThemeError`.
     pub fn parse_theme(&self, text: &str, base: &Theme) -> Result<Theme, Vec<crate::theme::ThemeError>> {
         let named = |kind: &str, name: &str| self.bodies.names[kind_index(kind)].iter().position(|n| n == name).map(|i| BodyId(i as u16 + 1));
@@ -607,6 +619,11 @@ impl Ui {
     /// reads its rectangle (`part_rect`) without a table. A body builds the parts its widget's config lists with this.
     pub fn part(&mut self, part: Part, node: Node) -> Handle {
         self.node_keyed(part_key(self.part_owner, part), node)
+    }
+
+    /// The key `Ui::part` gives `part` of the widget whose body is building.
+    pub fn own_part_key(&self, part: Part) -> i64 {
+        part_key(self.part_owner, part)
     }
 
     /// The box of `part` of the widget keyed `owner`, if it was built.

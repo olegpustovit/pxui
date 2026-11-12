@@ -3,6 +3,7 @@
 #[macro_use]
 mod macros;
 mod state;
+mod bodies;
 /// The entries the static wrapper calls without the C checks (see the module).
 pub mod trusted;
 mod ui;
@@ -54,6 +55,7 @@ pub use renderer::*;
 pub use box_ops::*;
 pub use kit_ext::*;
 pub use ui::*;
+pub use bodies::*;
 pub use state::{Build, PxuiUi};
 pub(crate) use state::{core_box, fail, get, text};
 

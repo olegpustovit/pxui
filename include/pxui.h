@@ -358,6 +358,98 @@ int32_t pxui_ui_picker(PxuiUi *ui, int64_t limit, uint8_t slash, uint8_t at_rest
 int32_t pxui_ui_list_view(PxuiUi *ui, const PxuiListViewDesc *desc, size_t *activated);
 int32_t pxui_ui_tree(PxuiUi *ui, const PxuiTreeViewDesc *desc, size_t *activated);
 int32_t pxui_ui_table_view(PxuiUi *ui, const PxuiTableViewDesc *desc, size_t *sort_column);
+/* Widget bodies: an app builds a widget kind's nodes itself. pxui_body_register names a body of kind `kind` (PxuiBodyKind, in the field order of
+   PxuiBodies; append-only) `name`, for a theme's `KIND.body = NAME` (pxui_ui_set_theme, pxui_ui_theme_apply) and returns its id, 0 when refused
+   (see pxui_last_error); the function is called as body(user, ui, config) with the kind's record below, `ui` borrowed and valid for the call.
+   Records start with `size` and grow at the end. A body builds with the ordinary calls, finds the parts its widget's behaviour reads through
+   pxui_part, and runs the caller's content through its slots (pxui_slot); a slot is valid only during the body call that received it. */
+enum PxuiBodyKind { PXUI_BODY_TOGGLE=0, PXUI_BODY_SLIDER=1, PXUI_BODY_PROGRESS=2, PXUI_BODY_BUTTON=3, PXUI_BODY_ICON_BUTTON=4, PXUI_BODY_CHECKBOX=5, PXUI_BODY_RADIO=6, PXUI_BODY_SPINNER=7, PXUI_BODY_BADGE=8, PXUI_BODY_LABEL=9, PXUI_BODY_FOOTER=10, PXUI_BODY_GRIP=11, PXUI_BODY_PANEL=12, PXUI_BODY_WINDOW=13, PXUI_BODY_POPUP=14, PXUI_BODY_MODAL=15, PXUI_BODY_DIALOG=16, PXUI_BODY_INSPECTOR_SECTION=17, PXUI_BODY_INSPECTOR_ROW=18, PXUI_BODY_SPLIT=19, PXUI_BODY_SCROLL_VIEW=20, PXUI_BODY_TOAST=21, PXUI_BODY_TIP=22, PXUI_BODY_TAB=23, PXUI_BODY_SEGMENT=24, PXUI_BODY_DROPDOWN=25, PXUI_BODY_MENU_BAR=26, PXUI_BODY_MENU_ITEM=27, PXUI_BODY_CONTEXT_MENU=28, PXUI_BODY_LIST_VIEW=29, PXUI_BODY_TREE=30, PXUI_BODY_TABLE_VIEW=31, PXUI_BODY_TABLE_HEAD=32, PXUI_BODY_TABLE=33, PXUI_BODY_PICKER=34, PXUI_BODY_SEARCH_FIELD=35, PXUI_BODY_TEXT_FIELD=36, PXUI_BODY_LINE_FIELD=37, PXUI_BODY_VALUE_FIELD=38, PXUI_BODY_PICKER_FIELD=39 };
+typedef struct { uint64_t serial; } PxuiSlot;
+typedef void (*PxuiBodyFn)(void *user, PxuiUi *ui, const void *config);
+typedef void (*PxuiCellBuild)(void *user, PxuiUi *ui, size_t row, size_t column);
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t on; PxuiBox row; PxuiStr label; } PxuiToggleConfig;
+_Static_assert(sizeof(PxuiToggleConfig) == 64, "PxuiToggleConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; float fraction; PxuiBox track; PxuiStr label; } PxuiSliderConfig;
+_Static_assert(sizeof(PxuiSliderConfig) == 64, "PxuiSliderConfig layout");
+typedef struct { uint32_t size; uint8_t has_value; float value; PxuiBox row; PxuiStr label; } PxuiProgressConfig;
+_Static_assert(sizeof(PxuiProgressConfig) == 64, "PxuiProgressConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t bare; uint8_t icon; uint8_t at_end; PxuiBox line; PxuiBox row; const PxuiStates * states; PxuiStr label; } PxuiButtonConfig;
+_Static_assert(sizeof(PxuiButtonConfig) == 104, "PxuiButtonConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox node; PxuiStr label; PxuiStr icon; } PxuiIconButtonConfig;
+_Static_assert(sizeof(PxuiIconButtonConfig) == 80, "PxuiIconButtonConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t on; PxuiBox row; PxuiStr label; } PxuiCheckConfig;
+_Static_assert(sizeof(PxuiCheckConfig) == 64, "PxuiCheckConfig layout");
+typedef struct { uint32_t size; PxuiBox node; PxuiStr label; } PxuiSpinnerConfig;
+_Static_assert(sizeof(PxuiSpinnerConfig) == 56, "PxuiSpinnerConfig layout");
+typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiStr text; } PxuiBadgeConfig;
+_Static_assert(sizeof(PxuiBadgeConfig) == 72, "PxuiBadgeConfig layout");
+typedef struct { uint32_t size; uint8_t first; PxuiBox node; PxuiStr text; } PxuiLabelConfig;
+_Static_assert(sizeof(PxuiLabelConfig) == 56, "PxuiLabelConfig layout");
+typedef struct { uint32_t size; PxuiBox row; uint8_t has_right; PxuiStr right; PxuiHintSpan hints; } PxuiFooterConfig;
+_Static_assert(sizeof(PxuiFooterConfig) == 80, "PxuiFooterConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t vertical; uint8_t floating; PxuiBox grip; } PxuiGripConfig;
+_Static_assert(sizeof(PxuiGripConfig) == 48, "PxuiGripConfig layout");
+typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiSlot content; } PxuiPanelConfig;
+_Static_assert(sizeof(PxuiPanelConfig) == 64, "PxuiPanelConfig layout");
+typedef struct { uint32_t size; PxuiStr title; PxuiStrSpan buttons; PxuiSlot content; } PxuiDialogConfig;
+_Static_assert(sizeof(PxuiDialogConfig) == 48, "PxuiDialogConfig layout");
+typedef struct { uint32_t size; uint8_t open; float gap; PxuiBox title; PxuiStr label; PxuiSlot content; } PxuiSectionConfig;
+_Static_assert(sizeof(PxuiSectionConfig) == 72, "PxuiSectionConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_pin; uint8_t pin; float label_w; PxuiBox row; PxuiStr label; } PxuiInspectorRowConfig;
+_Static_assert(sizeof(PxuiInspectorRowConfig) == 72, "PxuiInspectorRowConfig layout");
+typedef struct { uint32_t size; uint32_t axis; float ratio; float min_a; float min_b; PxuiBox split; PxuiSlot first; PxuiSlot second; } PxuiSplitConfig;
+_Static_assert(sizeof(PxuiSplitConfig) == 72, "PxuiSplitConfig layout");
+typedef struct { uint32_t size; PxuiBox node; PxuiSlot content; } PxuiScrollConfig;
+_Static_assert(sizeof(PxuiScrollConfig) == 48, "PxuiScrollConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox node; PxuiStr text; } PxuiToastConfig;
+_Static_assert(sizeof(PxuiToastConfig) == 64, "PxuiToastConfig layout");
+typedef struct { uint32_t size; float width; float height; PxuiBox tip; PxuiStrSpan lines; } PxuiTipConfig;
+_Static_assert(sizeof(PxuiTipConfig) == 64, "PxuiTipConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; size_t index; PxuiBox node; PxuiStr text; } PxuiTabConfig;
+_Static_assert(sizeof(PxuiTabConfig) == 72, "PxuiTabConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; size_t index; size_t selected; int64_t group; PxuiBox node; PxuiStr text; } PxuiSegmentConfig;
+_Static_assert(sizeof(PxuiSegmentConfig) == 88, "PxuiSegmentConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t open; int64_t key; PxuiBox button; PxuiStr text; } PxuiDropdownConfig;
+_Static_assert(sizeof(PxuiDropdownConfig) == 72, "PxuiDropdownConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; size_t index; PxuiBox node; PxuiStr text; } PxuiMenuItemConfig;
+_Static_assert(sizeof(PxuiMenuItemConfig) == 72, "PxuiMenuItemConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t selected; uint8_t chevron; uint8_t danger; uint8_t has_swatch; PxuiColor swatch; uint8_t has_shortcut; int64_t index; float lead; float swatch_pad; PxuiBox row; PxuiStr text; PxuiStr shortcut; } PxuiMenuRowConfig;
+_Static_assert(sizeof(PxuiMenuRowConfig) == 104, "PxuiMenuRowConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; size_t index; PxuiBox row; PxuiSlot content; } PxuiRowConfig;
+_Static_assert(sizeof(PxuiRowConfig) == 64, "PxuiRowConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has; uint8_t open; size_t index; size_t node; size_t depth; PxuiBox row; PxuiSlot content; } PxuiTreeRowConfig;
+_Static_assert(sizeof(PxuiTreeRowConfig) == 80, "PxuiTreeRowConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_ascending; uint8_t ascending; size_t index; PxuiBox node; PxuiStr title; } PxuiTableHeadConfig;
+_Static_assert(sizeof(PxuiTableHeadConfig) == 72, "PxuiTableHeadConfig layout");
+typedef struct { uint32_t size; uint8_t header; float left; float right; float height; int64_t row; int64_t column; int64_t key; PxuiStr text; } PxuiTableCellConfig;
+_Static_assert(sizeof(PxuiTableCellConfig) == 64, "PxuiTableCellConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t current; uint8_t doomed; uint8_t unavailable; uint8_t marked; uint8_t has_swatch; PxuiColor swatch; int64_t index; PxuiBox row; PxuiStr label; PxuiStr detail; PxuiStr query; } PxuiPickerRowConfig;
+_Static_assert(sizeof(PxuiPickerRowConfig) == 112, "PxuiPickerRowConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; int64_t key; PxuiBox well; PxuiStr icon; PxuiSlot editor; } PxuiSearchFieldConfig;
+_Static_assert(sizeof(PxuiSearchFieldConfig) == 80, "PxuiSearchFieldConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox row; PxuiStr label; PxuiStr value; } PxuiTextFieldConfig;
+_Static_assert(sizeof(PxuiTextFieldConfig) == 80, "PxuiTextFieldConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t empty; PxuiBox field; PxuiStr text; } PxuiLineFieldConfig;
+_Static_assert(sizeof(PxuiLineFieldConfig) == 64, "PxuiLineFieldConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t invalid; float w; float h; PxuiBox field; PxuiValueFieldDesc opts; PxuiStr text; } PxuiValueFieldConfig;
+_Static_assert(sizeof(PxuiValueFieldConfig) == 224, "PxuiValueFieldConfig layout");
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t empty; uint8_t slash; float prefix; float inset; PxuiBox search; PxuiStr placeholder; } PxuiPickerFieldConfig;
+_Static_assert(sizeof(PxuiPickerFieldConfig) == 72, "PxuiPickerFieldConfig layout");
+uint16_t pxui_body_register(PxuiUi *ui, uint32_t kind, PxuiStr name, PxuiBodyFn body, void *user);
+/* Builds a node as part `part` (PXUI_PART_*) of the widget whose body is running; PXUI_ERR_STATE outside a body call. */
+int32_t pxui_part(PxuiUi *ui, uint32_t part, const PxuiNode *node, PxuiBox *out);
+/* The box of `part` of the widget keyed `owner` as the last build left it: 0 and the box in `out`, 1 when it was not built. */
+int32_t pxui_part_box(PxuiUi *ui, int64_t owner, uint32_t part, PxuiBox *out);
+/* Runs a slot of the body call in progress; `out` (may be NULL) gets a search field's editor answer (1: the query is not empty). PXUI_ERR_STALE for a slot of a finished call. */
+int32_t pxui_slot(PxuiUi *ui, PxuiSlot slot, uint8_t *out);
+enum PxuiPart { PXUI_PART_HIT=1, PXUI_PART_RAIL=2, PXUI_PART_THUMB=3, PXUI_PART_TRACK=4, PXUI_PART_BAR=5, PXUI_PART_TITLE=6, PXUI_PART_DISCLOSURE=7, PXUI_PART_CLEAR=8, PXUI_PART_EDITOR=9, PXUI_PART_DOT0=16 /* dot i: 16 + i, i < 256 */, PXUI_PART_BUTTON0=1024 /* dialog button i: 1024 + i, i < 256 */ };
+typedef struct { uint32_t size; uint8_t multi,reserved[3]; PxuiStr label; size_t count; PxuiU8MutSpan selected; PxuiCellBuild build; void *user; } PxuiListViewWithDesc;
+typedef struct { uint32_t size,reserved; PxuiStr label; const PxuiTreeNode *ptr; size_t len; PxuiU8MutSpan open; size_t *selected; PxuiU32MutSpan visible; size_t *visible_len; PxuiCellBuild build; void *user; } PxuiTreeViewWithDesc;
+typedef struct { uint32_t size; uint8_t has_sort,ascending,reserved[2]; PxuiStr label; PxuiStrSpan titles; PxuiF32MutSpan widths; size_t rows; size_t sort_column; size_t *selected; PxuiCellBuild build; void *user; } PxuiTableViewWithDesc;
+/* The three collections with the caller's own rows or cells: `build` builds the children of one row or cell (`column` 0 in a list or a tree) inside the row's or cell's node. */
+int32_t pxui_ui_list_view_with(PxuiUi *ui, const PxuiListViewWithDesc *desc, size_t *activated);
+int32_t pxui_ui_tree_with(PxuiUi *ui, const PxuiTreeViewWithDesc *desc, size_t *activated);
+int32_t pxui_ui_table_view_with(PxuiUi *ui, const PxuiTableViewWithDesc *desc, size_t *sort_column);
 typedef struct { int64_t start, end; } PxuiRange;
 typedef struct { int64_t start, end; PxuiColor color; uint32_t reserved; } PxuiColorSpan;
 typedef struct { int64_t line, start, end; uint8_t has_range, reserved[7]; PxuiStr text; } PxuiNote;
@@ -526,6 +618,8 @@ int32_t pxui_theme_set(PxuiTheme *theme, PxuiStr key, PxuiStr value);
 int32_t pxui_theme_load(PxuiTheme *theme, PxuiStr path);
 PxuiStr pxui_theme_last_error(const PxuiTheme *theme); /* borrowed from the theme until its next call */
 int32_t pxui_ui_themed(PxuiUi *ui, const PxuiTheme *theme, PxuiBuild build, void *user);
+/* pxui_theme_set for a whole theme file: `KIND.body = NAME` names the bodies `ui` registered; an unregistered name is refused (pxui_theme_last_error). */
+int32_t pxui_ui_theme_apply(PxuiUi *ui, PxuiTheme *theme, PxuiStr text);
 
 
 /* Accessibility bridge of an app's window (Linux: AT-SPI2 on the accessibility bus; elsewhere start returns null, the platform's bridge

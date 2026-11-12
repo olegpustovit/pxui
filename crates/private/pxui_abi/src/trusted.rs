@@ -446,3 +446,39 @@ pub unsafe fn table(ui: *mut PxuiUi, at: (f32, f32), width: f32, height: f32, he
     if bad.get() { return unsafe { fail(ui, "invalid table cell callback text") }; }
     0
 }
+
+/// `pxui_slot` as the static wrapper calls it: the caller's content runs inside, and a panic of it unwinds to the app as in every trusted entry.
+#[inline]
+pub unsafe fn pxui_slot(ui: *mut PxuiUi, slot: pxui_types::ffi::PxuiSlot, out: *mut u8) -> i32 { unsafe { crate::bodies::slot(ui, slot, out) } }
+
+/// `list_view` with the caller's row content: `cell(ui, row, 0)` builds the children of row `row`, `ui` the borrowed handle.
+#[inline]
+pub unsafe fn list_view_with(ui: *mut PxuiUi, label: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut Option<usize>) -> i32 {
+    note_call();
+    if long(label) || count > MAX_ITEMS || selected.len() != count { return unsafe { fail(ui, "invalid list view descriptor") }; }
+    let shared = unsafe { (*ui).shared };
+    *out = unsafe { engine(ui) }.list_view_with(label, count, multi, selected, &mut |engine, row| { let mut borrowed = PxuiUi::borrowed(engine, shared); cell(&mut borrowed, row, 0) });
+    0
+}
+
+/// `tree` with the caller's row content: `cell(ui, node, 0)` builds the children of the row that shows tree node `node`.
+#[inline]
+pub unsafe fn tree_with(ui: *mut PxuiUi, label: &str, nodes: &[pxui_types::ffi::PxuiTreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut (Option<usize>, usize)) -> i32 {
+    note_call();
+    if long(label) || nodes.len() > MAX_ITEMS || open.len() != nodes.len() || visible.len() < nodes.len() { return unsafe { fail(ui, "invalid tree descriptor") }; }
+    let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<pxui_core::ui_widgets::TreeNode>(), nodes.len()) };
+    let shared = unsafe { (*ui).shared };
+    *out = unsafe { engine(ui) }.tree_with(label, nodes, open, selected, visible, &mut |engine, node| { let mut borrowed = PxuiUi::borrowed(engine, shared); cell(&mut borrowed, node, 0) });
+    0
+}
+
+/// `table_view` with the caller's cells: `cell(ui, row, column)` builds the children of one cell.
+#[inline]
+pub unsafe fn table_view_with(ui: *mut PxuiUi, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(*mut PxuiUi, usize, usize), out: &mut Option<usize>) -> i32 {
+    note_call();
+    if long(label) || rows > MAX_ITEMS || titles.len() > 4096 || widths.len() != titles.len() || !options_ok(titles) { return unsafe { fail(ui, "invalid table descriptor") }; }
+    if widths.iter().any(|w| !w.is_finite() || *w < 0.0) || sort.is_some_and(|(column, _)| column >= titles.len()) { return unsafe { fail(ui, "invalid table widths or sort column") }; }
+    let shared = unsafe { (*ui).shared };
+    *out = unsafe { engine(ui) }.table_view_with(label, titles, widths, rows, sort, selected, &mut |engine, row, column| { let mut borrowed = PxuiUi::borrowed(engine, shared); cell(&mut borrowed, row, column) });
+    0
+}

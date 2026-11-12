@@ -70,6 +70,8 @@ pub(crate) struct Shared {
     pub field: Option<crate::text_inputs::FieldCallbacks>,
     pub strs: Vec<&'static str>,
     pub menus: Vec<(&'static str, &'static [&'static str])>,
+    /// the bodies the app registered and the slots of the body calls in progress (`bodies.rs`)
+    pub bodies: crate::bodies::BodyState,
 }
 
 impl Shared {
@@ -81,7 +83,7 @@ impl Shared {
             error: String::new(), poisoned: false, paint_error: false, in_frame: false, frame_ended: false, renderers: 0, returned: Vec::new(),
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
-            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), menus: Vec::new(),
+            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), menus: Vec::new(), bodies: Default::default(),
         }
     }
 }

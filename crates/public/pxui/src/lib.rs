@@ -10,6 +10,7 @@ use core::ptr::NonNull;
 pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
 pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str};
 pub use pxui_types::ffi::Slice;
+pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
 pub use pxui_types::TextStyle;
 
@@ -72,6 +73,7 @@ pub mod overlays;
 pub use overlays::{MenuOpts, PickerOpts, Submenu};
 pub use pxui_types::ui::{MenuResult, Pick};
 pub mod collections;
+pub mod bodies;
 pub use collections::TreeNode;
 pub mod image;
 mod text_inputs;
