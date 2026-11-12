@@ -323,12 +323,12 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
 /// A captioned demo box of the layout page, `w` x `h` at `at`: its caption, then `f`'s nodes in a
 /// box with a hairline (`body` its layout).
 fn demo(ui: &mut Ui, title: &str, at: (f32, f32), (w, h): (f32, f32), body: Node, f: &mut dyn FnMut(&mut Ui)) {
-    let t = ui.theme().clone();
+    let (hint, border) = { let t = ui.theme(); (text_only(&t.hint.idle), t.field.idle.border) };
     let outer = node(ui, title, Node { w: Size::Px(w), h: Size::Px(h), at: Some(at).into(), gap: 4.0, ..Node::DEFAULT });
     ui.within(&outer, &mut |ui: &mut Ui| {
-        let cap = node(ui, "caption", Node { w: Size::Grow, h: Size::Px(14.0), look: text_only(&t.hint.idle), ..Node::DEFAULT });
+        let cap = node(ui, "caption", Node { w: Size::Grow, h: Size::Px(14.0), look: hint, ..Node::DEFAULT });
         let _ = ui.text(&cap, title);
-        let frame = Look { border: t.field.idle.border, border_w: 1.0, ..Look::NONE };
+        let frame = Look { border, border_w: 1.0, ..Look::NONE };
         let b = node(ui, "body", Node { w: Size::Grow, h: Size::Grow, look: frame, padding: Edges::all(4.0), ..body });
         ui.within(&b, &mut *f);
     });
@@ -464,9 +464,9 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     }
     if let Some(a) = anchor.filter(|a| a.w > 0.0) {
         let place = Placement { side: Side::Right, align: Align::Center, gap: 4.0, margin: 4.0, flip: true };
-        let pop = ui.theme().clone();
+        let (input, border, foreground) = { let t = ui.theme(); (t.tokens.input, t.field.idle.border, t.tokens.foreground) };
         let _ = ui.anchored("popup", a, place, Size::Fit, Size::Fit, &mut |ui: &mut Ui| {
-            let n = node(ui, "popup-body", Node { w: Size::Px(96.0), h: Size::Px(24.0), look: Look { fill: pop.tokens.input, border: pop.field.idle.border, border_w: 1.0, text: pop.tokens.foreground, ..Look::NONE }, inset: Edges { l: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let n = node(ui, "popup-body", Node { w: Size::Px(96.0), h: Size::Px(24.0), look: Look { fill: input, border, border_w: 1.0, text: foreground, ..Look::NONE }, inset: Edges { l: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
             let _ = ui.text(&n, "anchored, flips");
         });
     }
