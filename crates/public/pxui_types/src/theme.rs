@@ -257,6 +257,18 @@ macro_rules! body_kinds {
             scroll_view register_scroll_view_body ScrollBody,
             toast register_toast_body ToastBody,
             tip register_tip_body TipBody,
+            tab register_tab_body TabBody,
+            segment register_segment_body SegmentBody,
+            dropdown register_dropdown_body DropdownBody,
+            menu_bar register_menu_bar_body MenuItemBody,
+            menu_item register_menu_item_body MenuItemBody,
+            context_menu register_context_menu_body MenuRowBody,
+            list_view register_list_view_body RowBody,
+            tree register_tree_body TreeRowBody,
+            table_view register_table_view_body RowBody,
+            table_head register_table_head_body TableHeadBody,
+            table register_table_body TableCellBody,
+            picker register_picker_body PickerRowBody,
         }
     };
 }
@@ -315,6 +327,9 @@ impl Part {
     }
     /// A dialog's title bar: behaviour gives it the heading role and the dialog's title as name.
     pub const TITLE: Part = Part(6);
+    /// A tree row's disclosure mark: behaviour reads its presses (a click expands or collapses the row); the built-in body builds one on
+    /// every row, a spacer when the row has no children.
+    pub const DISCLOSURE: Part = Part(7);
     /// Dot `i` of a spinner, which `busy_step` turns.
     pub const fn dot(i: u8) -> Part {
         Part(16 + i as u32)

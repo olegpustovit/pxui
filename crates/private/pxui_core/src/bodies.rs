@@ -213,6 +213,152 @@ pub struct TipConfig {
 
 pub type TipBody = fn(&mut Ui, &TipConfig, &[String]);
 
+/// What a tab body is given (the tab's text beside it). It runs with the tab's `node` entered (the built-in body is called without it):
+/// a growing-height row item, keyed by its place in the bar, with the tab role, its name and its selected state; behaviour reads
+/// its presses. The body gives it its width (`Size::Px`, the text's by default), its look for `state` (`checked`: it is the tab in
+/// use) and the text. A click on a later tab unselects an earlier one in the same frame; a body's own look follows on the next frame.
+pub struct TabConfig {
+    pub state: State,
+    pub index: usize,
+    pub node: Handle,
+}
+
+pub type TabBody = fn(&mut Ui, &TabConfig, &str);
+
+/// What a segmented-control body is given (the option's text beside it). It runs with the segment's `node` entered: a radio-role item
+/// keyed by its place in the strip, checked when it is the choice; behaviour reads its presses. `selected` is the choice's index and
+/// `group` the strip's key, so a body can find the choice's segment (`Ui::part_rect(int_key(group, selected), part)`) and move a
+/// marker to it. The body gives the segment its width, inset, look for `state` (`checked`) and text.
+pub struct SegmentConfig {
+    pub state: State,
+    pub index: usize,
+    pub selected: usize,
+    pub group: i64,
+    pub node: Handle,
+}
+
+pub type SegmentBody = fn(&mut Ui, &SegmentConfig, &str);
+
+/// What a dropdown body is given (the chosen option's text beside it). It runs inside the `button` (entered): the combo box that takes
+/// the presses and keys, with its role, expanded state and name; `key` is the dropdown's own key (the built-in body keys its text and
+/// chevron from it). The body gives the button its look for `state` and builds what shows in it. The open menu is built after the body
+/// returns, under the button; its rows are the `menu_item` kind's.
+pub struct DropdownConfig {
+    pub state: State,
+    pub open: bool,
+    pub key: i64,
+    pub button: Handle,
+}
+
+pub type DropdownBody = fn(&mut Ui, &DropdownConfig, &str);
+
+/// What a menu bar title (`menu_bar`) or a row of a dropdown's or menu bar's open menu (`menu_item`) body is given (its text beside
+/// it). It runs with the item's `node` entered (the built-in body is called without it): a row item with the menu-item role (and, for a
+/// title, its expandable and expanded states) whose presses and hover behaviour reads. `state.checked` is a title's menu being open or
+/// a row being the lit one. The body gives the item its size, inset, look and text.
+pub struct MenuItemConfig {
+    pub state: State,
+    pub index: usize,
+    pub node: Handle,
+}
+
+pub type MenuItemBody = fn(&mut Ui, &MenuItemConfig, &str);
+
+/// What a context menu row body is given (its text, then its shortcut, beside it). It runs with the `row` entered: a row of the kit's
+/// height that takes the click and the pointer when it is enabled, with the menu-item role and its checked and expandable states.
+/// The body gives it the look for `state` (`hovered`: the pointer, or its submenu is open; `disabled`) with `danger` picking the
+/// error look, its inset, text and what sits in it: the current-choice mark (`selected`), a colour `swatch`, a submenu `chevron`, the
+/// shortcut. `lead` and `swatch_pad` are the menu's room for the mark and the swatches. Separators are behaviour's.
+pub struct MenuRowConfig {
+    pub state: State,
+    pub index: i64,
+    pub row: Handle,
+    pub selected: bool,
+    pub chevron: bool,
+    pub danger: bool,
+    pub lead: f32,
+    pub swatch_pad: f32,
+    pub swatch: Option<crate::geom::Rgba>,
+}
+
+pub type MenuRowBody = fn(&mut Ui, &MenuRowConfig, &str, Option<&str>);
+
+/// What a `list_view` or `table_view` row body is given (the row's content beside it: the text, or the caller's cells, which it calls
+/// once where it goes). It runs with the `row` entered (the built-in body is called without owning parts): a full-width row item that
+/// carries the kit's look and padding, its role, selected state and presses; the body may restyle it (`Ui::node_mut`, `set_look`) and
+/// builds what is inside. `state`: hovered, pressed, `checked` (selected), `focused` (the keyboard's row). Which rows are built, the
+/// selection and the keys are behaviour's. In a table the content is the cells, built with their widths and roles.
+pub struct RowConfig {
+    pub state: State,
+    pub index: usize,
+    pub row: Handle,
+}
+
+pub type RowBody = fn(&mut Ui, &RowConfig, &mut dyn FnMut(&mut Ui));
+
+/// What a tree row body is given (the row's content beside it). Like `RowConfig`; `node` is the tree node the row shows, `depth` its
+/// level, `has` whether it has children and `open` whether they show. Behaviour reads one part: the node built as `Part::DISCLOSURE`
+/// (a press on it expands or collapses). The built-in body builds the disclosure mark (a spacer without children) and then the content.
+pub struct TreeRowConfig {
+    pub state: State,
+    pub index: usize,
+    pub node: usize,
+    pub depth: usize,
+    pub has: bool,
+    pub open: bool,
+    pub row: Handle,
+}
+
+pub type TreeRowBody = fn(&mut Ui, &TreeRowConfig, &mut dyn FnMut(&mut Ui));
+
+/// What a table header cell body is given (the column's title beside it). It runs with the cell's `node` entered: the column's width,
+/// the column-header role and name, and the presses (a click is the sort intent). `ascending` is the sort direction when the table is
+/// sorted by this column. The body gives the node its look for `state` (`checked`: it is the sorted column) and builds the title and
+/// the sort mark. The resize grip after it is behaviour's.
+pub struct TableHeadConfig {
+    pub state: State,
+    pub index: usize,
+    pub ascending: Option<bool>,
+    pub node: Handle,
+}
+
+pub type TableHeadBody = fn(&mut Ui, &TableHeadConfig, &str);
+
+/// What a read-only `table` cell body is given (the cell's text beside it, as the caller's builder gave it). The cell is a header cell
+/// (`header`, with `row` -1) or the data cell of `row`; `key` is the key its node takes (the row's or the header's own, then the
+/// column); the column spans `left` to `right` across the table and the row is `height` high. The body builds the cell's nodes
+/// (the built-in one a node `height` high, left-aligned for a header and right-aligned for data). The row's hit area, its look and
+/// the clicked row are behaviour's.
+pub struct TableCellConfig {
+    pub header: bool,
+    pub row: i64,
+    pub column: i64,
+    pub key: i64,
+    pub left: f32,
+    pub right: f32,
+    pub height: f32,
+}
+
+pub type TableCellBody = fn(&mut Ui, &TableCellConfig, &str);
+
+/// What a picker row body is given (the row's label, its detail and the query that was typed, beside it). It runs with the `row`
+/// entered: a clickable row of the kit's height with the list-item role and its name; behaviour reads its click. The body gives it the
+/// look for `state` (`checked`: the keyboard's row; `hovered`), with `doomed` (armed for deletion) and `unavailable` (cannot be
+/// picked) its looks, and builds the label (the query's letters in the accent), the detail, the colour `swatch` when the picker marks
+/// rows (`marked`) and the Enter hint on the keyboard's row.
+pub struct PickerRowConfig {
+    pub state: State,
+    pub index: i64,
+    pub current: bool,
+    pub doomed: bool,
+    pub unavailable: bool,
+    pub marked: bool,
+    pub swatch: Option<crate::geom::Rgba>,
+    pub row: Handle,
+}
+
+pub type PickerRowBody = fn(&mut Ui, &PickerRowConfig, &str, &str, &str);
+
 /// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body.
 fn body_slot(names: &mut Vec<String>, name: &str) -> Option<usize> {
     if name == "default" {
@@ -290,6 +436,62 @@ macro_rules! in_place {
 }
 pub(crate) use in_place;
 
+/// Kind `$kind`'s registered body, `None` for the built-in (body 0, or an id nothing was registered under): a collection resolves it once
+/// before its item loop.
+macro_rules! body_of {
+    ($ui:ident, $kind:ident) => {
+        match $ui.theme().body.$kind {
+            BodyId(0) => None,
+            id => $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied(),
+        }
+    };
+}
+pub(crate) use body_of;
+
+/// `in_body!` for one item of a collection, with `$body` resolved by `body_of!`: the built-in body is called with `$node` entered (with
+/// `flat`, as it is: it builds no children; with `place`, nothing is entered) and owns no parts; a registered one gets both.
+macro_rules! in_item {
+    (place; $ui:ident, $body:expr, $key:expr, $default:ident($($arg:expr),*)) => {
+        match $body {
+            None => $default($ui, $($arg),*),
+            Some(body) => {
+                let owner = core::mem::replace(&mut $ui.part_owner, $key);
+                body($ui, $($arg),*);
+                $ui.part_owner = owner;
+            }
+        }
+    };
+    (flat; $ui:ident, $body:expr, $key:expr, $node:expr, $default:ident($($arg:expr),*)) => {
+        match $body {
+            None => $default($ui, $($arg),*),
+            Some(body) => {
+                let owner = core::mem::replace(&mut $ui.part_owner, $key);
+                let saved = $ui.enter(&$node);
+                body($ui, $($arg),*);
+                $ui.leave(saved);
+                $ui.part_owner = owner;
+            }
+        }
+    };
+    ($ui:ident, $body:expr, $key:expr, $node:expr, $default:ident($($arg:expr),*)) => {
+        match $body {
+            None => {
+                let saved = $ui.enter(&$node);
+                $default($ui, $($arg),*);
+                $ui.leave(saved);
+            }
+            Some(body) => {
+                let owner = core::mem::replace(&mut $ui.part_owner, $key);
+                let saved = $ui.enter(&$node);
+                body($ui, $($arg),*);
+                $ui.leave(saved);
+                $ui.part_owner = owner;
+            }
+        }
+    };
+}
+pub(crate) use in_item;
+
 macro_rules! registry {
     ($($kind:ident $register:ident $body:ident),* $(,)?) => {
         /// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1 (and `names[kind]` n - 1 is
@@ -297,11 +499,13 @@ macro_rules! registry {
         pub(crate) struct BodyTable {
             $(pub(crate) $kind: Vec<$body>,)*
             names: Vec<Vec<String>>,
+            /// the row a list, tree or table view is building (`Ui::item`); here, not in `Ui`, so `Ui` stays the size it was
+            pub(crate) item: UiBox,
         }
 
         impl Default for BodyTable {
             fn default() -> BodyTable {
-                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| Vec::new()).collect() }
+                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| Vec::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 } }
             }
         }
 

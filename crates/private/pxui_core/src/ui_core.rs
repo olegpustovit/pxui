@@ -2963,6 +2963,13 @@ impl Ui {
         saved
     }
 
+    /// The node being built into (the innermost one entered): a table cell's, for the cell's builder.
+    pub fn entered(&self) -> Handle {
+        let index = self.parents.last().copied().unwrap_or(0);
+        let slot = self.boxes[index].slot;
+        UiBox { index, box_key: self.current_seed(), box_slot: slot, generation: self.slots[slot].generation }
+    }
+
     pub fn leave(&mut self, saved: Saved) {
         let Saved::Depths(parents, seeds) = saved;
         self.parents.truncate(parents);

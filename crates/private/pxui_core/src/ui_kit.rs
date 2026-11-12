@@ -4,7 +4,7 @@
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-use crate::bodies::{in_body, in_place, ButtonConfig, FooterConfig, GripConfig, InspectorRowConfig, LabelConfig, PanelConfig, SectionConfig, SplitConfig, ToggleConfig};
+use crate::bodies::{body_of, in_body, in_item, in_place, TableCellConfig, ButtonConfig, FooterConfig, GripConfig, InspectorRowConfig, LabelConfig, PanelConfig, SectionConfig, SplitConfig, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 use crate::a11y::state as st;
 use input::{Event, Key};
@@ -296,6 +296,18 @@ impl Ui {
         label: &str,
     ) -> (Option<i64>, Signal) {
         table_body(self, at, w, h, headers, rows, cell, label)
+    }
+}
+
+/// The built-in `table` cell: a header's title 8 points in from its column's start, a data cell's text right-aligned 8 points in from its end.
+fn default_table_cell(this: &mut Ui, c: &TableCellConfig, text: &str) {
+    if c.header {
+        let look = text_only(&this.theme().table_head.idle);
+        this.placed(c.key, (c.left + 8.0, 0.0), Size::Px((c.right - c.left - 8.0).max(1.0)), c.height, look, Edges::default(), text);
+    } else {
+        let tw = this.text_width(None, text);
+        let look = text_only(&this.theme().table_row.idle);
+        this.placed(c.key, (c.right - 8.0 - tw, 0.0), Size::Px(tw.max(1.0)), c.height, look, Edges::default(), text);
     }
 }
 
@@ -953,6 +965,7 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
         stops[i + 1] = stops[i] + width;
     }
     let (head_look, row_look) = (this.theme().table_head.idle, this.theme().table_row.idle);
+    let cell_body = body_of!(this, table);
     let root = this.box_(label, BoxOpts::default().flags(CLIP).at(at).w(Size::Px(w)).h(Size::Px(h)));
     let saved = this.enter(&root);
     let header = this.box_fmt(format_args!("{}-header", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(row_h)));
@@ -961,8 +974,9 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
     {
         let saved = this.enter(&header);
         for (i, title) in headers.iter().enumerate() {
-            let cell = Size::Px((stops[i + 1] - stops[i] - 8.0).max(1.0));
-            this.placed(int_key(header.box_key, i as i64), (stops[i] + 8.0, 0.0), cell, row_h, text_only(&head_look), Edges::default(), title);
+            let key = int_key(header.box_key, i as i64);
+            let config = TableCellConfig { header: true, row: -1, column: i as i64, key, left: stops[i], right: stops[i + 1], height: row_h };
+            in_item!(place; this, cell_body, key, default_table_cell(&config, title));
         }
         this.leave(saved);
     }
@@ -990,9 +1004,9 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
         let saved = this.enter(&row);
         for column in 0..headers.len() {
             cell(index, column as i64, &mut |value: &str| {
-                let tw = this.text_width(None, value);
-                let right = stops[column + 1] - 8.0;
-                this.placed(int_key(row.box_key, column as i64), (right - tw, 0.0), Size::Px(tw.max(1.0)), row_h, text_only(&row_look), Edges::default(), value);
+                let key = int_key(row.box_key, column as i64);
+                let config = TableCellConfig { header: false, row: index, column: column as i64, key, left: stops[column], right: stops[column + 1], height: row_h };
+                in_item!(place; this, cell_body, key, default_table_cell(&config, value));
             });
         }
         this.leave(saved);

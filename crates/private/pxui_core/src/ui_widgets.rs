@@ -10,11 +10,11 @@
 //! Enter/Space activate, the arrows move within a group, Escape leaves. A warm frame allocates
 //! nothing. Progress and spinner animate through patches (`busy_step`) without rebuilding their view.
 use crate::a11y::state as st;
-use crate::bodies::{in_body, in_place, BadgeConfig, CheckConfig, IconButtonConfig, ProgressConfig, ScrollConfig, SliderConfig, SpinnerConfig, ToastConfig};
+use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body, in_item, in_place, BadgeConfig, DropdownConfig, MenuItemConfig, SegmentConfig, TabConfig, CheckConfig, IconButtonConfig, ProgressConfig, ScrollConfig, SliderConfig, SpinnerConfig, ToastConfig};
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
-use crate::ui_kit::text_only;
+use crate::ui_kit::{part_key, text_only};
 use input::{Event, Key};
 use std::ops::RangeInclusive;
 
@@ -94,6 +94,82 @@ fn default_scroll(this: &mut Ui, _c: &ScrollConfig, content: &mut dyn FnMut(&mut
     content(this);
 }
 
+/// The built-in row of a list or a table: the kit's look is already on it; the content goes inside.
+fn default_row(this: &mut Ui, _c: &RowConfig, content: &mut dyn FnMut(&mut Ui)) {
+    content(this);
+}
+
+/// The built-in tree row: the disclosure mark (a spacer without children), then the content.
+fn default_tree_row(this: &mut Ui, c: &TreeRowConfig, content: &mut dyn FnMut(&mut Ui)) {
+    let chevron = this.theme().chevron.idle;
+    let d = this.node_keyed(part_key(c.row.box_key, Part::DISCLOSURE), Node { flags: if c.has { ROW_FLAGS } else { NO_FLAGS }, w: Size::Px(10.0), h: Size::Grow, look: if c.has { chevron } else { Look::NONE }, ..Node::DEFAULT });
+    if c.has {
+        this.node_new(&d).mark = Mark::Chevron(if c.open { Dir::Down } else if this.rtl() { Dir::Left } else { Dir::Right });
+    }
+    content(this);
+}
+
+/// The built-in table header cell: the column look for its state, the title and, when sorted by it, the sort chevron.
+fn default_table_head(this: &mut Ui, c: &TableHeadConfig, title: &str) {
+    let chevron = this.theme().chevron.idle;
+    let look = *this.theme().column.pick(c.state);
+    this.set_look(&c.node, look, c.state);
+    let rh = this.row_height() as f32;
+    this.text_leaf(int_key(c.node.box_key, 0), rh, look, title);
+    if let Some(ascending) = c.ascending {
+        let m = this.node("sort", Node { w: Size::Px(6.0), h: Size::Grow, look: chevron, ..Node::DEFAULT });
+        this.node_mut(&m).mark = Mark::Chevron(if ascending { Dir::Up } else { Dir::Down });
+    }
+}
+
+/// The built-in tab: as wide as its text, in the tab look for its state.
+fn default_tab(this: &mut Ui, c: &TabConfig, text: &str) {
+    let w = this.text_width(None, text);
+    this.node_new(&c.node).w = Size::Px(w);
+    let look = *this.theme().tab.pick(c.state);
+    this.set_look(&c.node, look, c.state);
+    this.text(&c.node, text);
+}
+
+/// The built-in segment: the text's width and 16, 8 in, a point over the one before it.
+fn default_segment(this: &mut Ui, c: &SegmentConfig, text: &str) {
+    let w = this.text_width(None, text) + 16.0;
+    let n = this.node_new(&c.node);
+    (n.w, n.margin, n.inset) = (Size::Px(w), Edges { l: if c.index == 0 { 0.0 } else { -1.0 }, ..Edges::ZERO }, Edges { l: 8.0, ..Edges::ZERO });
+    let look = *this.theme().segment.pick(c.state);
+    this.set_look(&c.node, look, c.state);
+    this.text(&c.node, text);
+}
+
+/// The built-in row of a dropdown's or menu bar's open menu: 8 in, in the menu look.
+fn default_menu_item(this: &mut Ui, c: &MenuItemConfig, text: &str) {
+    this.node_new(&c.node).inset = Edges { l: this.space(2), ..Edges::ZERO };
+    let look = *this.theme().menu.pick(c.state);
+    this.set_look(&c.node, look, c.state);
+    this.text(&c.node, text);
+}
+
+/// The built-in menu bar title: its text's width and 16, 8 in, in the menu look.
+fn default_menu_title(this: &mut Ui, c: &MenuItemConfig, text: &str) {
+    let w = this.text_width(None, text) + 16.0;
+    let n = this.node_new(&c.node);
+    (n.w, n.inset) = (Size::Px(w), Edges { l: 8.0, ..Edges::ZERO });
+    let look = *this.theme().menu.pick(c.state);
+    this.set_look(&c.node, look, c.state);
+    this.text(&c.node, text);
+}
+
+/// The built-in dropdown button: the dropdown look for its state, the chosen option's text and a chevron.
+fn default_dropdown(this: &mut Ui, c: &DropdownConfig, text: &str) {
+    let t = this.theme();
+    let (look, idle, chevron) = (*t.dropdown.pick(c.state), t.dropdown.idle, t.chevron.idle);
+    this.set_look(&c.button, look, c.state);
+    let node = this.node_keyed(int_key(c.key, 2), Node { flags: FIT_TEXT, h: Size::Grow, look: text_only(&idle), ..Node::DEFAULT });
+    this.text(&node, text);
+    let mark = this.node_keyed(int_key(c.key, 3), Node { w: Size::Px(6.0), h: Size::Grow, look: chevron, ..Node::DEFAULT });
+    this.node_mut(&mark).mark = Mark::Chevron(Dir::Down);
+}
+
 impl Ui {
     fn rtl(&self) -> bool {
         self.dir() == Direction::Rtl
@@ -107,6 +183,28 @@ impl Ui {
             Key::ArrowLeft => -s,
             _ => 0,
         }
+    }
+
+    /// The row a `list_view`, `tree` or `table_view` is building: the node a text row's or cell's text is put in and takes its look
+    /// from, and where a cell's widgets get its accessible name.
+    pub fn item(&self) -> Handle {
+        self.bodies.item
+    }
+
+    /// A text row's text: a row-high label in the look of `item`, which it returns.
+    fn row_text(&mut self, text: &str) -> Handle {
+        let (n, rh) = (self.bodies.item, self.row_height() as f32);
+        let look = self.node_mut(&n).look;
+        self.text_leaf(int_key(n.box_key, 1), rh, look, text);
+        n
+    }
+
+    /// A table cell's text: the cell (the node being built into) is named by it, and it is a row-high label in the look of `item`.
+    fn cell_text(&mut self, text: &str) {
+        let (c, row, rh) = (self.entered(), self.bodies.item, self.row_height() as f32);
+        self.a11y_name(&c, text);
+        let look = text_only(&self.node_mut(&row).look);
+        self.text_leaf(int_key(c.box_key, 0), rh, look, text);
     }
 
     /// The theme's scroll thumb, 2 points in from the ends.
@@ -247,7 +345,8 @@ impl Ui {
     /// Returns the tab in use.
     pub fn tabs(&mut self, label: &str, tabs: &[&str], selected: usize) -> usize {
         let rh = self.row_height() as f32;
-        let (bar_look, states) = (self.theme().header.idle, self.theme().tab);
+        let bar_look = self.theme().header.idle;
+        let body = body_of!(self, tab);
         let bar = self.node(label, Node { flags: FOCUSABLE | TAB_ONLY, h: Size::Px(rh), axis: Axis::Row, padding: Edges { l: self.space(2), r: self.space(2), ..Edges::ZERO }, gap: self.space(2), look: bar_look, role: Role::TabList, ..Node::DEFAULT });
         self.a11y_name(&bar, shown(label));
         let s = self.signal(&bar);
@@ -260,8 +359,7 @@ impl Ui {
         let saved = self.enter(&bar);
         let (before, mut old) = (sel, None);
         for (i, tab) in tabs.iter().enumerate() {
-            let w = self.text_width(None, tab);
-            let n = self.node_keyed(int_key(bar.box_key, i as i64), Node { flags: ROW_FLAGS, w: Size::Px(w), h: Size::Grow, role: Role::Tab, ..Node::DEFAULT });
+            let n = self.node_keyed(int_key(bar.box_key, i as i64), Node { flags: ROW_FLAGS, h: Size::Grow, role: Role::Tab, ..Node::DEFAULT });
             let ts = self.signal(&n);
             if ts.clicked {
                 sel = i;
@@ -270,13 +368,17 @@ impl Ui {
             if i == before {
                 old = Some((n, state));
             }
-            self.style(&n, &states, State { checked: sel == i, ..state });
+            let config = TabConfig { state: State { checked: sel == i, ..state }, index: i, node: n };
             self.set_role(&n, Role::Tab, st::SELECTABLE | if sel == i { st::SELECTED } else { 0 });
-            self.text(&n, tab);
+            in_item!(flat; self, body, n.box_key, n, default_tab(&config, tab));
         }
         // a click on a later tab unselects the earlier one in this frame, not the next
         if let Some((n, state)) = old.filter(|_| sel != before) {
-            self.style(&n, &states, state);
+            // ponytail: a registered body's old tab keeps its look for the click's frame; the built-in look is set again here
+            if body.is_none() {
+                let look = *self.theme().tab.pick(state);
+                self.set_look(&n, look, state);
+            }
             self.set_role(&n, Role::Tab, st::SELECTABLE);
         }
         self.leave(saved);
@@ -289,7 +391,7 @@ impl Ui {
         let key = key_of(self.current_seed(), label);
         let line = self.kit_line(key, NO_FLAGS, Role::Unknown);
         let ch = self.control_h();
-        let states = self.theme().segment;
+        let body = body_of!(self, segment);
         let saved = self.enter(&line);
         let strip = self.node_keyed(int_key(key, 0), Node { flags: FOCUSABLE | TAB_ONLY, w: Size::Fit, h: Size::Px(ch), axis: Axis::Row, role: Role::Group, ..Node::DEFAULT });
         self.a11y_name(&strip, shown(label));
@@ -298,15 +400,14 @@ impl Ui {
         pressed(&s.keys, &mut |k| sel = clamp_step(sel, self.along(k), options.len()));
         let inner = self.enter(&strip);
         for (i, option) in options.iter().enumerate() {
-            let w = self.text_width(None, option) + 16.0;
-            let n = self.node_keyed(int_key(strip.box_key, i as i64), Node { flags: ROW_FLAGS, w: Size::Px(w), h: Size::Grow, margin: Edges { l: if i == 0 { 0.0 } else { -1.0 }, ..Edges::ZERO }, inset: Edges { l: 8.0, ..Edges::ZERO }, role: Role::Radio, ..Node::DEFAULT });
+            let n = self.node_keyed(int_key(strip.box_key, i as i64), Node { flags: ROW_FLAGS, h: Size::Grow, role: Role::Radio, ..Node::DEFAULT });
             let ns = self.signal(&n);
             if ns.clicked {
                 sel = i;
             }
-            self.style(&n, &states, State { hovered: ns.hovered, pressed: ns.held, checked: sel == i, ..State::default() });
+            let config = SegmentConfig { state: State { hovered: ns.hovered, pressed: ns.held, checked: sel == i, ..State::default() }, index: i, selected: sel, group: strip.box_key, node: n };
             self.set_role(&n, Role::Radio, st::CHECKABLE | if sel == i { st::CHECKED } else { 0 });
-            self.text(&n, option);
+            in_item!(flat; self, body, n.box_key, n, default_segment(&config, option));
         }
         self.leave(inner);
         self.leave(saved);
@@ -316,19 +417,20 @@ impl Ui {
     /// Menu rows in an anchored sheet below `anchor`, `current` lit: the row clicked, if any.
     fn menu_sheet(&mut self, anchor: Rect, width: f32, items: &[&str], current: Option<usize>) -> Option<usize> {
         let t = self.theme();
-        let (sheet, states) = (t.popup.idle, t.menu);
+        let sheet = t.popup.idle;
+        let body = body_of!(self, menu_item);
         let rh = self.row_height() as f32;
         let place = Placement { side: Side::Below, align: Align::Start, gap: 2.0, margin: 4.0, flip: true };
         let mut picked = None;
         let menu = self.anchored("menu", anchor, place, Size::Px(width), Size::Fit, &mut |ui| {
             for (i, item) in items.iter().enumerate() {
-                let n = ui.node_keyed(int_key(ui.current_seed(), i as i64), Node { flags: ROW_FLAGS, h: Size::Px(rh), inset: Edges { l: ui.space(2), ..Edges::ZERO }, role: Role::MenuItem, ..Node::DEFAULT });
+                let n = ui.node_keyed(int_key(ui.current_seed(), i as i64), Node { flags: ROW_FLAGS, h: Size::Px(rh), role: Role::MenuItem, ..Node::DEFAULT });
                 let s = ui.signal(&n);
                 if s.clicked {
                     picked = Some(i);
                 }
-                ui.style(&n, &states, State { hovered: s.hovered, pressed: s.held, checked: current == Some(i), ..State::default() });
-                ui.text(&n, item);
+                let config = MenuItemConfig { state: State { hovered: s.hovered, pressed: s.held, checked: current == Some(i), ..State::default() }, index: i, node: n };
+                in_item!(flat; ui, body, n.box_key, n, default_menu_item(&config, item));
             }
         });
         let n = self.node_mut(&menu);
@@ -351,7 +453,7 @@ impl Ui {
         let rh = self.row_height() as f32;
         let ch = self.control_h();
         let t = self.theme();
-        let (label_look, states, chevron) = (t.row.idle, t.dropdown, t.chevron.idle);
+        let label_look = t.row.idle;
         let saved = self.enter(&row);
         self.text_leaf(int_key(key, 0), rh, label_look, shown(label));
         let button = self.node_keyed(int_key(key, 1), Node { flags: STOP_FLAGS, h: Size::Px(ch), axis: Axis::Row, align: Align::Center, gap: 4.0, padding: Edges { l: 4.0, r: 6.0, ..Edges::ZERO }, role: Role::ComboBox, ..Node::DEFAULT });
@@ -389,12 +491,9 @@ impl Ui {
         let open = lit >= 0;
         self.set_role(&button, Role::ComboBox, st::EXPANDABLE | if open { st::EXPANDED } else { 0 });
         self.a11y_name(&button, shown(label));
-        self.style(&button, &states, State { hovered: s.hovered, pressed: s.held, focused: self.focused(&button), ..State::default() });
         let inner = self.enter(&button);
-        let text = self.node_keyed(int_key(key, 2), Node { flags: FIT_TEXT, h: Size::Grow, look: text_only(&states.idle), ..Node::DEFAULT });
-        self.text(&text, options.get(sel).copied().unwrap_or(""));
-        let mark = self.node_keyed(int_key(key, 3), Node { w: Size::Px(6.0), h: Size::Grow, look: chevron, ..Node::DEFAULT });
-        self.node_mut(&mark).mark = Mark::Chevron(Dir::Down);
+        let config = DropdownConfig { state: State { hovered: s.hovered, pressed: s.held, focused: self.focused(&button), ..State::default() }, open, key, button };
+        in_place!(self, button.box_key, dropdown, default_dropdown(&config, options.get(sel).copied().unwrap_or("")));
         if open {
             if let Some(i) = self.menu_sheet(anchor, anchor.w.max(80.0), options, Some(lit as usize)) {
                 sel = i;
@@ -414,7 +513,8 @@ impl Ui {
     pub fn menu_bar(&mut self, label: &str, menus: &[(&str, &[&str])]) -> Option<(usize, usize)> {
         let rh = self.row_height() as f32;
         let t = self.theme();
-        let (bar_look, states) = (t.menubar.idle, t.menu);
+        let bar_look = t.menubar.idle;
+        let body = body_of!(self, menu_bar);
         let bar = self.node(label, Node { flags: FOCUSABLE | TAB_ONLY | BLOCKING, h: Size::Px(rh), axis: Axis::Row, padding: Edges { l: 4.0, ..Edges::ZERO }, look: bar_look, role: Role::MenuBar, ..Node::DEFAULT });
         self.a11y_name(&bar, shown(label));
         let s = self.signal(&bar);
@@ -446,8 +546,7 @@ impl Ui {
         let saved = self.enter(&bar);
         let mut anchor = Rect::new(0.0, 0.0, 0.0, 0.0);
         for (i, (title, _)) in menus.iter().enumerate() {
-            let w = self.text_width(None, title) + 16.0;
-            let n = self.node_keyed(int_key(bar.box_key, i as i64), Node { flags: ROW_FLAGS, w: Size::Px(w), h: Size::Grow, inset: Edges { l: 8.0, ..Edges::ZERO }, role: Role::MenuItem, ..Node::DEFAULT });
+            let n = self.node_keyed(int_key(bar.box_key, i as i64), Node { flags: ROW_FLAGS, h: Size::Grow, role: Role::MenuItem, ..Node::DEFAULT });
             let ns = self.signal(&n);
             if ns.clicked {
                 (open, menu, lit) = (!(open && menu == i), i, -1);
@@ -458,9 +557,9 @@ impl Ui {
                 anchor = self.rect(&n);
             }
             let on = open && menu == i;
-            self.style(&n, &states, State { hovered: ns.hovered, pressed: ns.held, checked: on, ..State::default() });
+            let config = MenuItemConfig { state: State { hovered: ns.hovered, pressed: ns.held, checked: on, ..State::default() }, index: i, node: n };
             self.set_role(&n, Role::MenuItem, st::EXPANDABLE | if on { st::EXPANDED } else { 0 });
-            self.text(&n, title);
+            in_item!(flat; self, body, n.box_key, n, default_menu_title(&config, title));
         }
         if open {
             let menu_rect = self.box_of_key(key_of(bar.box_key, "menu")).map_or(anchor, |m| self.rect(&m));
@@ -501,15 +600,16 @@ impl Ui {
     }
 
     /// The row being built by `ui.list`: its kit row look on a clickable child that fills it.
-    fn virtual_row(&mut self, states: &States, checked: bool, cursor: bool, inset: f32, role: Role, a11y: u32) -> (Handle, Signal) {
+    fn virtual_row(&mut self, states: &States, checked: bool, cursor: bool, inset: f32, role: Role, a11y: u32) -> (Handle, Signal, State) {
         let rh = self.row_height() as f32;
         if let Some(row) = self.box_of_key(self.current_seed()) {
             self.set_role(&row, Role::Unknown, 0);
         }
         let n = self.node("row", Node { flags: ROW_FLAGS, h: Size::Px(rh), axis: Axis::Row, align: Align::Center, padding: Edges { l: inset, r: self.space(2), ..Edges::ZERO }, gap: 4.0, role, a11y, ..Node::DEFAULT });
         let s = self.signal(&n);
-        self.style(&n, states, State { hovered: s.hovered, pressed: s.held, checked, focused: cursor, ..State::default() });
-        (n, s)
+        let state = State { hovered: s.hovered, pressed: s.held, checked, focused: cursor, ..State::default() };
+        self.style(&n, states, state);
+        (n, s, state)
     }
 
     /// Keys of a focused list over `count` rows: the new cursor and whether Enter or Space came.
@@ -548,6 +648,12 @@ impl Ui {
     /// (selecting it alone without `multi`; Space toggles it with `multi`). Returns the row a
     /// double click or Enter activated.
     pub fn list_view(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], text: &dyn Fn(usize, &mut dyn FnMut(&str))) -> Option<usize> {
+        self.list_view_with(label, count, multi, selected, &mut |ui, i| text(i, &mut |t| { ui.row_text(t); }))
+    }
+
+    /// `list_view` with the caller's own row content: `cell(ui, i)` builds row `i`'s children (any widgets), inside the row node
+    /// (`Ui::item`) that the `list_view` body shapes. Names, roles and states the cell's widgets need are the caller's.
+    pub fn list_view_with(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(&mut Ui, usize)) -> Option<usize> {
         let count = count.min(selected.len());
         let rh = self.row_height() as f32;
         let frame = self.node(label, Node { flags: FOCUSABLE | CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
@@ -565,9 +671,10 @@ impl Ui {
         }
         let mut activated = enter.then_some(c).filter(|_| count > 0);
         let states = self.theme().listbox;
+        let row_body = body_of!(self, list_view);
         let saved = self.enter(&frame);
         let body = self.list("rows", count, rh, &mut |ui, i| {
-            let (n, rs) = ui.virtual_row(&states, selected[i] != 0, focused && i == c, ui.space(2), Role::ListItem, st::SELECTABLE | if selected[i] != 0 { st::SELECTED } else { 0 });
+            let (n, rs, state) = ui.virtual_row(&states, selected[i] != 0, focused && i == c, ui.space(2), Role::ListItem, st::SELECTABLE | if selected[i] != 0 { st::SELECTED } else { 0 });
             if rs.clicked {
                 let keys = ui.press_keys(&n);
                 let command = ui.command_modifiers(&keys);
@@ -586,12 +693,10 @@ impl Ui {
             if rs.double_clicked {
                 activated = Some(i);
             }
-            let inner = ui.enter(&n);
-            text(i, &mut |t| {
-                let (look, rh) = (ui.node_mut(&n).look, ui.row_height() as f32);
-                ui.text_leaf(int_key(n.box_key, 1), rh, look, t);
-            });
-            ui.leave(inner);
+            let config = RowConfig { state, index: i, row: n };
+            let outer = core::mem::replace(&mut ui.bodies.item, n);
+            in_item!(ui, row_body, n.box_key, n, default_row(&config, &mut |ui| cell(ui, i)));
+            ui.bodies.item = outer;
         });
         self.leave(saved);
         self.node_mut(&body).bar = Some(self.thumb()).into();
@@ -612,6 +717,17 @@ impl Ui {
     /// parent, Enter activates, Space toggles. Returns the node a double click or Enter activated and
     /// the number of rows shown.
     pub fn tree(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], text: &dyn Fn(usize, &mut dyn FnMut(&str))) -> (Option<usize>, usize) {
+        self.tree_with(label, nodes, open, selected, visible, &mut |ui, node| {
+            text(node, &mut |t| {
+                let n = ui.row_text(t);
+                ui.a11y_name(&n, t);
+            })
+        })
+    }
+
+    /// `tree` with the caller's own row content: `cell(ui, node)` builds the children of the row that shows tree node `node`, after
+    /// the disclosure mark, inside the row node (`Ui::item`). Its accessible name is the caller's (`a11y_name` on `Ui::item`).
+    pub fn tree_with(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> (Option<usize>, usize) {
         assert!(visible.len() >= nodes.len(), "tree: `visible` holds at least a row per node");
         // the visible rows are re-derived each build (specification/pxui.md, designed limits)
         let flatten = |visible: &mut [u32], open: &[u8]| {
@@ -664,7 +780,8 @@ impl Ui {
             }
         }
         let t = self.theme();
-        let (states, chevron) = (t.tree, t.chevron.idle);
+        let states = t.tree;
+        let row_body = body_of!(self, tree);
         let saved = self.enter(&frame);
         let mut toggled = None;
         let rows: &[u32] = &visible[..rows_shown];
@@ -674,21 +791,14 @@ impl Ui {
             let on = *selected == Some(node);
             let a11y = st::SELECTABLE | if on { st::SELECTED } else { 0 } | if has { st::EXPANDABLE | if is_open { st::EXPANDED } else { 0 } } else { 0 };
             let inset = ui.space(2) + 14.0 * nodes[node].depth as f32;
-            let (n, rs) = ui.virtual_row(&states, on, focused && i == c, inset, Role::TreeItem, a11y);
-            let inner = ui.enter(&n);
-            let disclosure = ui.node("open", Node { flags: if has { ROW_FLAGS } else { NO_FLAGS }, w: Size::Px(10.0), h: Size::Grow, look: if has { chevron } else { Look::NONE }, ..Node::DEFAULT });
-            if has {
-                ui.node_mut(&disclosure).mark = Mark::Chevron(if is_open { Dir::Down } else if ui.rtl() { Dir::Left } else { Dir::Right });
-                if ui.signal(&disclosure).clicked {
-                    toggled = Some(node);
-                }
+            let (n, rs, state) = ui.virtual_row(&states, on, focused && i == c, inset, Role::TreeItem, a11y);
+            let config = TreeRowConfig { state, index: i, node, depth: nodes[node].depth as usize, has, open: is_open, row: n };
+            let outer = core::mem::replace(&mut ui.bodies.item, n);
+            in_item!(ui, row_body, n.box_key, n, default_tree_row(&config, &mut |ui| cell(ui, node)));
+            ui.bodies.item = outer;
+            if has && ui.part_box(n.box_key, Part::DISCLOSURE).is_some_and(|d| ui.signal(&d).clicked) {
+                toggled = Some(node);
             }
-            text(node, &mut |t| {
-                let (look, rh) = (ui.node_mut(&n).look, ui.row_height() as f32);
-                ui.text_leaf(int_key(n.box_key, 1), rh, look, t);
-                ui.a11y_name(&n, t);
-            });
-            ui.leave(inner);
             if rs.clicked {
                 *selected = Some(node);
                 c = i;
@@ -722,6 +832,14 @@ impl Ui {
     /// Returns the column whose header was clicked (the sort intent).
     #[allow(clippy::too_many_arguments)]
     pub fn table_view(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &dyn Fn(usize, usize, &mut dyn FnMut(&str))) -> Option<usize> {
+        table_view_body(self, label, titles, widths, rows, sort, selected, &mut |ui, row, col| cell(row, col, &mut |t| ui.cell_text(t)))
+    }
+
+    /// `table_view` with the caller's own cells: `cell(ui, row, col)` builds the children of one cell (any widgets), inside the cell
+    /// node (the column's width, the cell role) of a row node (`Ui::item`) the `table_view` body shapes. A cell's accessible name is
+    /// the caller's (`a11y_name` on `Ui::entered`).
+    #[allow(clippy::too_many_arguments)]
+    pub fn table_view_with(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> Option<usize> {
         table_view_body(self, label, titles, widths, rows, sort, selected, cell)
     }
 
@@ -842,11 +960,12 @@ impl Ui {
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &dyn Fn(usize, usize, &mut dyn FnMut(&str))) -> Option<usize> {
+fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> Option<usize> {
     let rh = this.row_height() as f32;
     let columns = titles.len().min(widths.len());
     let t = this.theme();
-    let (frame_look, head_look, column, chevron, states) = (t.scroll_view.idle, t.table_head.idle, t.column, t.chevron.idle, t.listbox);
+    let (frame_look, head_look, states) = (t.scroll_view.idle, t.table_head.idle, t.listbox);
+    let (head_body, row_body) = (body_of!(this, table_head), body_of!(this, table_view));
     let bar = this.thumb();
     let frame = this.node(label, Node { flags: FOCUSABLE | SCROLL_X | CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar).into(), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
     this.a11y_name(&frame, shown(label));
@@ -872,16 +991,9 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
             sorted = Some(i);
         }
         let by = sort.filter(|(col, _)| *col == i);
-        this.style(&n, &column, State { hovered: ns.hovered, pressed: ns.held, checked: by.is_some(), ..State::default() });
         this.a11y_name(&n, titles[i]);
-        let ms = this.enter(&n);
-        let look = this.node_mut(&n).look;
-        this.text_leaf(int_key(n.box_key, 0), rh, look, titles[i]);
-        if let Some((_, ascending)) = by {
-            let m = this.node("sort", Node { w: Size::Px(6.0), h: Size::Grow, look: chevron, ..Node::DEFAULT });
-            this.node_mut(&m).mark = Mark::Chevron(if ascending { Dir::Up } else { Dir::Down });
-        }
-        this.leave(ms);
+        let config = TableHeadConfig { state: State { hovered: ns.hovered, pressed: ns.held, checked: by.is_some(), ..State::default() }, index: i, ascending: by.map(|(_, ascending)| ascending), node: n };
+        in_item!(this, head_body, n.box_key, n, default_table_head(&config, titles[i]));
         let (_, gs) = this.grip(format_args!("grip{}", i), Axis::Row, None);
         if gs.held && gs.drag.0 != 0.0 {
             widths[i] = (widths[i] + if this.rtl() { -gs.drag.0 } else { gs.drag.0 }).max(32.0);
@@ -891,23 +1003,22 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
     let w = widths;
     let body = this.list("rows", rows, rh, &mut |ui, i| {
         let on = *selected == Some(i);
-        let (n, rs) = ui.virtual_row(&states, on, focused && on, 0.0, Role::Row, st::SELECTABLE | if on { st::SELECTED } else { 0 });
+        let (n, rs, state) = ui.virtual_row(&states, on, focused && on, 0.0, Role::Row, st::SELECTABLE | if on { st::SELECTED } else { 0 });
         if rs.clicked {
             *selected = Some(i);
         }
-        let look = text_only(&ui.node_mut(&n).look);
         ui.node_mut(&n).gap = 1.0;
-        let inner = ui.enter(&n);
-        for col in 0..columns {
-            cell(i, col, &mut |t| {
+        let config = RowConfig { state, index: i, row: n };
+        let outer = core::mem::replace(&mut ui.bodies.item, n);
+        in_item!(ui, row_body, n.box_key, n, default_row(&config, &mut |ui| {
+            for col in 0..columns {
                 let c = ui.node_keyed(int_key(n.box_key, col as i64), Node { w: Size::Px(w[col]), h: Size::Grow, axis: Axis::Row, align: Align::Center, padding: Edges { l: 8.0, r: 8.0, ..Edges::ZERO }, role: Role::Cell, ..Node::DEFAULT });
-                ui.a11y_name(&c, t);
                 let inner = ui.enter(&c);
-                ui.text_leaf(int_key(c.box_key, 0), rh, look, t);
+                cell(ui, i, col);
                 ui.leave(inner);
-            });
-        }
-        ui.leave(inner);
+            }
+        }));
+        ui.bodies.item = outer;
     });
     this.node_mut(&body).bar = Some(this.thumb()).into();
     this.set_role(&body, Role::Unknown, 0);

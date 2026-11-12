@@ -5,6 +5,7 @@
 //! the word keys move and delete by words, Command-arrows (Apple) and Home/End move by lines,
 //! Command-A/C/X/V select all, copy, cut and paste, and Command-Z, Shift-Command-Z (or Command-Y)
 //! undo and redo the focused text.
+use crate::bodies::{body_of, in_item, MenuRowConfig, PickerRowConfig};
 use crate::theme;
 
 const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
@@ -2311,6 +2312,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     }
     let saved = this.enter(&list);
     let row_height = this.row_height();
+    let body = body_of!(this, picker);
     for visible in 0..length {
         let index = start + visible;
         // a row that cannot be picked leaves the keyboard with the search field
@@ -2330,83 +2332,90 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
         let unavailable = off(index);
         let (text, detail) = &rows[index as usize];
         let swatch = o.mark.as_ref().and_then(|m| m(index));
-        let t = this.theme();
-        let ink3 = t.placeholder.idle.text;
         // the keyboard cursor is the control fill; a row armed for deletion reads in the error colour
         let state = State { hovered: row_signal.hovered, checked: current, ..State::default() };
-        let look = if doomed { t.row_doomed.idle } else { *t.list.pick(state) };
-        let ink = if doomed { look.text } else if unavailable { t.list.disabled.text } else { t.list.idle.text };
-        let (matched, key_look, detail_look) = (t.matched.idle.text, t.key.idle, if unavailable { t.placeholder.idle } else { t.hint.idle });
-        this.set_look(&row, look, state);
         this.set_role(&row, Role::ListItem, if current { crate::a11y::state::SELECTED } else { 0 });
         this.a11y_name(&row, text);
-        let width = this.width_of(&row);
-        let rk = |n: i64| int_key(row.box_key, n);
-        let inner = this.enter(&row);
-        let rh = row_height as f32;
-        let text_x = if o.mark.is_none() { this.space(2) } else { this.space(2) + 16.0 };
-        // a label that would run into the detail is cut with an ellipsis
-        let key_size = key_look.font.points(font_size);
-        let key_text = "\u{21b5}";
-        let kw = this.text_width(Some(key_size), key_text);
-        let right = if current { width - this.space(2) - kw - 8.0 } else { width - this.space(2) };
-        let dw = this.text_width(None, detail);
-        let limit = right - dw - 12.0 - text_x;
-        let text = ellipsis(&mut |s| this.text_width(None, s), limit, text);
-        if let Some(color) = swatch {
-            let fill = if unavailable { ink3 } else { color };
-            this.placed(rk(0), (this.space(2), ((row_height - 8) / 2) as f32), Size::Px(8.0), 8.0, Look { fill, ..Look::NONE }, Edges::default(), "");
-        }
-        // the query's letters, matched in order, in the accent
-        let q = query.to_ascii_lowercase();
-        let lower = text.to_ascii_lowercase();
-        let mut next = 0usize;
-        let mut pen = text_x;
-        let mut start = 0usize;
-        let is_matched = |at: usize, next: &mut usize| {
-            let hit = *next < q.len() && lower.len() > at && lower.as_bytes()[at] == q.as_bytes()[*next];
-            if hit {
-                *next += 1;
-            }
-            hit
-        };
-        let mut run_key = 10;
-        let mut flag = !text.is_empty() && is_matched(0, &mut next);
-        while start < text.len() {
-            let mut stop = start + 1;
-            let mut following = false;
-            while stop < text.len() {
-                if text.as_bytes()[stop] & 0xc0 == 0x80 {
-                    stop += 1;
-                    continue;
-                }
-                following = is_matched(stop, &mut next);
-                if following != flag {
-                    break;
-                }
-                stop += 1;
-            }
-            let run = &text[start..stop];
-            let rw = this.text_width(None, run);
-            let color = if doomed || unavailable { ink } else if flag { matched } else { ink };
-            this.placed(rk(run_key), (pen, 0.0), Size::Px(rw.max(1.0)), rh, Look { text: color, ..Look::NONE }, Edges::default(), run);
-            run_key += 1;
-            pen += rw;
-            start = stop;
-            flag = following;
-        }
-        this.end_row(&row, this.space(2));
-        this.flow_part(rk(2), dw, rh, Edges::ZERO, detail_look, detail);
-        if current {
-            this.flow_part(rk(1), kw, rh, Edges { l: 8.0, ..Edges::ZERO }, key_look, key_text);
-        }
-        this.leave(inner);
+        let config = PickerRowConfig { state, index, current, doomed, unavailable, marked: o.mark.is_some(), swatch, row };
+        in_item!(this, body, row.box_key, row, default_picker_row(&config, text, detail, &query));
     }
     this.leave(saved);
     this.set_state(&search, cursor);
     this.set_state(&list, armed);
     this.picker_rows = rows;
     (query, result)
+}
+
+/// The built-in picker row: the list look for its state (the error one when `doomed`), the swatch, the label cut to leave room for the
+/// detail with the query's letters in the accent, the detail, and the Enter hint on the keyboard's row.
+fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str, detail: &str, query: &str) {
+    let (row, current, doomed, unavailable, swatch, state) = (c.row, c.current, c.doomed, c.unavailable, c.swatch, c.state);
+    let (font_size, row_height) = (this.font_size(), this.row_height());
+    let t = this.theme();
+    let ink3 = t.placeholder.idle.text;
+    let look = if doomed { t.row_doomed.idle } else { *t.list.pick(state) };
+    let ink = if doomed { look.text } else if unavailable { t.list.disabled.text } else { t.list.idle.text };
+    let (matched, key_look, detail_look) = (t.matched.idle.text, t.key.idle, if unavailable { t.placeholder.idle } else { t.hint.idle });
+    this.set_look(&row, look, state);
+    let width = this.width_of(&row);
+    let rk = |n: i64| int_key(row.box_key, n);
+    let rh = row_height as f32;
+    let text_x = if !c.marked { this.space(2) } else { this.space(2) + 16.0 };
+    // a label that would run into the detail is cut with an ellipsis
+    let key_size = key_look.font.points(font_size);
+    let key_text = "\u{21b5}";
+    let kw = this.text_width(Some(key_size), key_text);
+    let right = if current { width - this.space(2) - kw - 8.0 } else { width - this.space(2) };
+    let dw = this.text_width(None, detail);
+    let limit = right - dw - 12.0 - text_x;
+    let text = ellipsis(&mut |s| this.text_width(None, s), limit, text);
+    if let Some(color) = swatch {
+        let fill = if unavailable { ink3 } else { color };
+        this.placed(rk(0), (this.space(2), ((row_height - 8) / 2) as f32), Size::Px(8.0), 8.0, Look { fill, ..Look::NONE }, Edges::default(), "");
+    }
+    // the query's letters, matched in order, in the accent
+    let q = query.to_ascii_lowercase();
+    let lower = text.to_ascii_lowercase();
+    let mut next = 0usize;
+    let mut pen = text_x;
+    let mut start = 0usize;
+    let is_matched = |at: usize, next: &mut usize| {
+        let hit = *next < q.len() && lower.len() > at && lower.as_bytes()[at] == q.as_bytes()[*next];
+        if hit {
+            *next += 1;
+        }
+        hit
+    };
+    let mut run_key = 10;
+    let mut flag = !text.is_empty() && is_matched(0, &mut next);
+    while start < text.len() {
+        let mut stop = start + 1;
+        let mut following = false;
+        while stop < text.len() {
+            if text.as_bytes()[stop] & 0xc0 == 0x80 {
+                stop += 1;
+                continue;
+            }
+            following = is_matched(stop, &mut next);
+            if following != flag {
+                break;
+            }
+            stop += 1;
+        }
+        let run = &text[start..stop];
+        let rw = this.text_width(None, run);
+        let color = if doomed || unavailable { ink } else if flag { matched } else { ink };
+        this.placed(rk(run_key), (pen, 0.0), Size::Px(rw.max(1.0)), rh, Look { text: color, ..Look::NONE }, Edges::default(), run);
+        run_key += 1;
+        pen += rw;
+        start = stop;
+        flag = following;
+    }
+    this.end_row(&row, this.space(2));
+    this.flow_part(rk(2), dw, rh, Edges::ZERO, detail_look, detail);
+    if current {
+        this.flow_part(rk(1), kw, rh, Edges { l: 8.0, ..Edges::ZERO }, key_look, key_text);
+    }
 }
 
 fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (String, bool) {
@@ -2777,8 +2786,7 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
 fn menu_rows_body(this: &mut Ui, m: &MenuRows) -> (Option<i64>, Option<i64>) {
     let mut hovered = None;
     let mut picked = None;
-    let font_size = this.font_size();
-    let rh = this.row_height() as f32;
+    let body = body_of!(this, context_menu);
     let lead_of = |index: i64| if m.selected.is_none() || index < m.lead_from { 0 } else { 14 };
     for (index, (text, enabled)) in m.items.iter().enumerate() {
         let index = index as i64;
@@ -2793,45 +2801,52 @@ fn menu_rows_body(this: &mut Ui, m: &MenuRows) -> (Option<i64>, Option<i64>) {
         } else {
             let enabled = *enabled;
             let danger = m.danger.contains(&index);
-            let states = if danger { t.menu_danger } else { t.menu };
-            let (mark, swatch_look, chevron_look, key_look) = (t.mark.idle, t.swatch.idle, t.hint.idle, t.menu_key.idle);
             let row = this.kit_row(Some(if enabled { CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY } else { BLOCKING }), None, text);
             let signal = this.signal(&row);
             if enabled && signal.hovered {
                 hovered = Some(index);
             }
             let chevron = m.chevrons.contains(&index);
-            let lead = lead_of(index) as f32;
             let state = State { hovered: signal.hovered || m.opened == Some(index), disabled: !enabled, ..State::default() };
-            this.style(&row, &states, state);
             this.set_role(&row, Role::MenuItem, if m.selected == Some(index) { crate::a11y::state::CHECKED } else { 0 } | if chevron { crate::a11y::state::EXPANDABLE } else { 0 });
-            this.node_mut(&row).inset = Edges { l: this.space(2) + lead + m.swatch_pad, ..Edges::default() };
-            this.text(&row, &display(text));
-            let k = |n: i64| int_key(row.box_key, n);
-            this.end_row(&row, 0.0);
-            let saved = this.enter(&row);
-            // the current choice: a 6-point accent square before the label
-            if m.selected == Some(index) {
-                this.placed(k(0), (this.space(2), rh / 2.0 - 3.0), Size::Px(6.0), 6.0, mark, Edges::default(), "");
-            }
-            if let Some(color) = m.swatches.get(index as usize).copied().flatten() {
-                this.placed(k(1), (this.space(2) + lead, rh / 2.0 - 4.0), Size::Px(8.0), 8.0, Look { fill: color, ..swatch_look }, Edges::default(), "");
-            }
-            if chevron {
-                let c = this.flow_part(k(2), 6.0, rh, Edges { r: 15.25 - 3.0, ..Edges::ZERO }, chevron_look, "");
-                this.node_mut(&c).mark = Mark::Chevron(Dir::Right);
-            }
-            if let Some(key) = m.keys.get(index as usize).filter(|k| !k.is_empty()) {
-                let kw = this.text_width(Some(key_look.font.points(font_size)), key);
-                this.flow_part(k(3), kw, rh, Edges { r: this.space(2), ..Edges::ZERO }, key_look, key);
-            }
-            this.leave(saved);
+            let config = MenuRowConfig { state, index, row, selected: m.selected == Some(index), chevron, danger, lead: lead_of(index) as f32, swatch_pad: m.swatch_pad, swatch: m.swatches.get(index as usize).copied().flatten() };
+            let key = m.keys.get(index as usize).map(String::as_str).filter(|k| !k.is_empty());
+            in_item!(this, body, row.box_key, row, default_menu_row(&config, text, key));
             if enabled && signal.clicked && !chevron && picked.is_none() {
                 picked = Some(index);
             }
         }
     }
     (picked, hovered)
+}
+
+/// The built-in context menu row: the menu look (the error one for `danger`) for its state, the label `lead` and `swatch_pad` in from the
+/// start, then the choice's mark, the swatch, the submenu chevron and the shortcut.
+fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key: Option<&str>) {
+    let t = this.theme();
+    let look = *(if c.danger { t.menu_danger } else { t.menu }).pick(c.state);
+    let (mark, swatch_look, chevron_look, key_look) = (t.mark.idle, t.swatch.idle, t.hint.idle, t.menu_key.idle);
+    let (font_size, rh) = (this.font_size(), this.row_height() as f32);
+    this.set_look(&c.row, look, c.state);
+    this.node_mut(&c.row).inset = Edges { l: this.space(2) + c.lead + c.swatch_pad, ..Edges::default() };
+    this.text(&c.row, &display(text));
+    let k = |n: i64| int_key(c.row.box_key, n);
+    this.end_row(&c.row, 0.0);
+    // the current choice: a 6-point accent square before the label
+    if c.selected {
+        this.placed(k(0), (this.space(2), rh / 2.0 - 3.0), Size::Px(6.0), 6.0, mark, Edges::default(), "");
+    }
+    if let Some(color) = c.swatch {
+        this.placed(k(1), (this.space(2) + c.lead, rh / 2.0 - 4.0), Size::Px(8.0), 8.0, Look { fill: color, ..swatch_look }, Edges::default(), "");
+    }
+    if c.chevron {
+        let n = this.flow_part(k(2), 6.0, rh, Edges { r: 15.25 - 3.0, ..Edges::ZERO }, chevron_look, "");
+        this.node_mut(&n).mark = Mark::Chevron(Dir::Right);
+    }
+    if let Some(key) = key {
+        let kw = this.text_width(Some(key_look.font.points(font_size)), key);
+        this.flow_part(k(3), kw, rh, Edges { r: this.space(2), ..Edges::ZERO }, key_look, key);
+    }
 }
 
 fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
