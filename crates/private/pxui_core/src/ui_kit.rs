@@ -24,7 +24,7 @@ pub fn part_key(owner: i64, part: Part) -> i64 {
 }
 
 /// The built-in toggle: the label on its row and the 28 x 14 switch 12 from the row's end, the knob 3 in from its side.
-fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
+pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
     let t = this.theme();
     let on = State { checked: c.on, ..State::default() };
     let (look, track, knob) = (*t.toggle.pick(c.state), *t.switch.pick(on), *t.knob.pick(on));
@@ -45,7 +45,7 @@ fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
 
 /// The built-in button: its text on a 20-point box (6 points of padding in a transparent 1-point edge; 4 when `bare`), the glyph
 /// centred in the 20-point square of an `icon`, the box 5 points in from the start of its line (8 from the end with `at_end`).
-fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
+pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
     let measure = this.text_width(None, shown(text));
     let control_h = this.control_h();
     let rh = this.row_height() as f32;
@@ -77,14 +77,14 @@ fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) 
 
 /// The built-in grip: the line in the separator look (none when the caller placed it), the accent while held, taking presses
 /// 3 points either side of it.
-fn default_grip(this: &mut Ui, c: &GripConfig) {
+pub(crate) fn default_grip(this: &mut Ui, c: &GripConfig) {
     let look = if c.state.pressed { Look { fill: this.theme().tokens.accent, ..Look::NONE } } else if !c.floating { this.theme().separator.idle } else { Look::NONE };
     this.set_look(&c.grip, look, c.state);
     this.hit_outset(&c.grip, if c.vertical { Edges { l: 3.0, r: 3.0, ..Edges::ZERO } } else { Edges { t: 3.0, b: 3.0, ..Edges::ZERO } });
 }
 
 /// The built-in label: ink-2 capitals 12 points from the left, a row high (4 more above it when it is the first thing of its parent).
-fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
+pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
     let gap = if c.first { 4.0 } else { 0.0 };
     let look = this.theme().label.idle;
     let h = gap + this.row_height() as f32;
@@ -95,7 +95,7 @@ fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
 }
 
 /// The built-in footer: the hairline under 4 points of space, the hints and the key at the end.
-fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &[(String, String)]) {
+pub(crate) fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &[(String, String)]) {
     let row = c.row;
     let rh = this.row_height() as f32;
     let t = this.theme();
@@ -121,12 +121,12 @@ fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &
 }
 
 /// The built-in sheet body (panel, window, popup, modal): the content in the sheet as the kit made it.
-fn default_panel(this: &mut Ui, _c: &PanelConfig, _label: &str, content: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_panel(this: &mut Ui, _c: &PanelConfig, _label: &str, content: &mut dyn FnMut(&mut Ui)) {
     content(this);
 }
 
 /// The built-in inspector row: the hover fill, the label fitted to its column and the pin dot.
-fn default_inspector_row(this: &mut Ui, c: &InspectorRowConfig, label: &str) {
+pub(crate) fn default_inspector_row(this: &mut Ui, c: &InspectorRowConfig, label: &str) {
     let (look, dot) = (*this.theme().row.pick(c.state), this.theme().pin);
     this.set_look(&c.row, look, c.state);
     let shown = this.fit_text(this.font_size(), c.label_w, label);
@@ -141,7 +141,7 @@ fn default_inspector_row(this: &mut Ui, c: &InspectorRowConfig, label: &str) {
 }
 
 /// The built-in section header: the section look, the label, the disclosure chevron at the end, then the content when open.
-fn default_section(this: &mut Ui, c: &SectionConfig, label: &str, content: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_section(this: &mut Ui, c: &SectionConfig, label: &str, content: &mut dyn FnMut(&mut Ui)) {
     let (title, rh) = (c.title, this.row_height() as f32);
     // the sheet has no hover state on a section header
     let (look, chevron) = (this.theme().section.idle, this.theme().chevron.idle);
@@ -159,14 +159,14 @@ fn default_section(this: &mut Ui, c: &SectionConfig, label: &str, content: &mut 
 }
 
 /// One pane of the built-in split: it grows by its share of the room and holds at its minimum along the split.
-fn default_pane(this: &mut Ui, c: &SplitConfig, label: &str, grow: f32, min: f32, content: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_pane(this: &mut Ui, c: &SplitConfig, label: &str, grow: f32, min: f32, content: &mut dyn FnMut(&mut Ui)) {
     let row = c.axis == Axis::Row;
     let pane = this.node(label, Node { w: Size::Grow, h: Size::Grow, grow, min_w: if row { min } else { 0.0 }, min_h: if row { 0.0 } else { min }, flags: CLIP, ..Node::DEFAULT });
     this.within(&pane, content);
 }
 
 /// The built-in split: the first pane, the grip, the second pane.
-fn default_split(this: &mut Ui, c: &SplitConfig, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_split(this: &mut Ui, c: &SplitConfig, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) {
     default_pane(this, c, "a", c.ratio, c.min_a, a);
     this.grip(format_args!("grip"), c.axis, None);
     default_pane(this, c, "b", 1.0 - c.ratio, c.min_b, b);
@@ -300,7 +300,7 @@ impl Ui {
 }
 
 /// The built-in `table` cell: a header's title 8 points in from its column's start, a data cell's text right-aligned 8 points in from its end.
-fn default_table_cell(this: &mut Ui, c: &TableCellConfig, text: &str) {
+pub(crate) fn default_table_cell(this: &mut Ui, c: &TableCellConfig, text: &str) {
     if c.header {
         let look = text_only(&this.theme().table_head.idle);
         this.placed(c.key, (c.left + 8.0, 0.0), Size::Px((c.right - c.left - 8.0).max(1.0)), c.height, look, Edges::default(), text);

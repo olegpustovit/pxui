@@ -882,7 +882,7 @@ impl Ui {
 
 /// The built-in line field: the field look (the placeholder's ink while an unfocused field is empty), 2 points of inset and the shown
 /// text on the box; a focused field's text is painted by editing.
-fn default_line_field(this: &mut Ui, c: &LineFieldConfig, shown: &str) {
+pub(crate) fn default_line_field(this: &mut Ui, c: &LineFieldConfig, shown: &str) {
     let t = this.theme();
     let field = *t.field.pick(c.state);
     let look = if c.state.focused || !c.empty { field } else { Look { text: t.placeholder.idle.text, ..field } };
@@ -2348,7 +2348,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
 
 /// The built-in picker search field: the field look (the hairline, no caret ink) on the box, the `/` before the query when `slash`, and the
 /// placeholder while it is empty.
-fn default_picker_field(this: &mut Ui, c: &PickerFieldConfig, placeholder: &str) {
+pub(crate) fn default_picker_field(this: &mut Ui, c: &PickerFieldConfig, placeholder: &str) {
     let t = this.theme();
     let (hint, place_look, field) = (t.hint.idle, t.placeholder.idle, *t.field.pick(c.state));
     let (search, ch) = (c.search, this.control_h());
@@ -2364,7 +2364,7 @@ fn default_picker_field(this: &mut Ui, c: &PickerFieldConfig, placeholder: &str)
 
 /// The built-in picker row: the list look for its state (the error one when `doomed`), the swatch, the label cut to leave room for the
 /// detail with the query's letters in the accent, the detail, and the Enter hint on the keyboard's row.
-fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str, detail: &str, query: &str) {
+pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str, detail: &str, query: &str) {
     let (row, current, doomed, unavailable, swatch, state) = (c.row, c.current, c.doomed, c.unavailable, c.swatch, c.state);
     let (font_size, row_height) = (this.font_size(), this.row_height());
     let t = this.theme();
@@ -2524,7 +2524,7 @@ fn value_field_look(t: &Theme, invalid: bool, editing: bool) -> Look {
 
 /// The built-in value field: the hairline (invalid, editing, or `line`; left out when `bare`) and, unless it is being edited, the
 /// fraction line under the value, the placeholder or the value with its lead and trail.
-fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts, shown: &str) {
+pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts, shown: &str) {
     let (bx, w, h, invalid, editing) = (c.field, c.w, c.h, c.invalid, c.state.focused);
     let t = this.theme();
     let field = value_field_look(t, invalid, editing);
@@ -2853,7 +2853,7 @@ fn menu_rows_body(this: &mut Ui, m: &MenuRows) -> (Option<i64>, Option<i64>) {
 
 /// The built-in context menu row: the menu look (the error one for `danger`) for its state, the label `lead` and `swatch_pad` in from the
 /// start, then the choice's mark, the swatch, the submenu chevron and the shortcut.
-fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key: Option<&str>) {
+pub(crate) fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key: Option<&str>) {
     let t = this.theme();
     let look = *(if c.danger { t.menu_danger } else { t.menu }).pick(c.state);
     let (mark, swatch_look, chevron_look, key_look) = (t.mark.idle, t.swatch.idle, t.hint.idle, t.menu_key.idle);
@@ -2943,7 +2943,7 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
 
 /// The built-in text field: the row in the row look with its label, and the control (the field look, a hairline, the value) in the
 /// value column from the row's end, built as `Part::EDITOR`.
-fn default_text_field(this: &mut Ui, c: &TextFieldConfig, text: &str, value: &str) {
+pub(crate) fn default_text_field(this: &mut Ui, c: &TextFieldConfig, text: &str, value: &str) {
     let side = this.space(2) as i64;
     let t = this.theme();
     let hover = State { hovered: c.state.hovered, ..State::default() };

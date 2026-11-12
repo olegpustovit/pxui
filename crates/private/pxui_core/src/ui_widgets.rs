@@ -59,7 +59,7 @@ const STOP_FLAGS: Flags = CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY;
 
 /// The built-in dialog: the title bar, the content, then the buttons at the end of a row, the last the default. Each button is a
 /// 20-point box with its text 7 points in, in the button looks; behaviour finds it as `Part::button(i)`.
-fn default_dialog(this: &mut Ui, title: &str, buttons: &[&str], content: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[&str], content: &mut dyn FnMut(&mut Ui)) {
     let t = this.theme();
     let (bar, states) = (t.dialog.idle, t.button);
     let rh = this.row_height() as f32;
@@ -81,7 +81,7 @@ fn default_dialog(this: &mut Ui, title: &str, buttons: &[&str], content: &mut dy
 }
 
 /// The built-in toast: a row-and-a-half high box in the toast look, text 12 points in.
-fn default_toast(this: &mut Ui, c: &ToastConfig, text: &str) {
+pub(crate) fn default_toast(this: &mut Ui, c: &ToastConfig, text: &str) {
     let (states, rh, side) = (this.theme().toast, this.row_height() as f32, this.space(2));
     let n = this.node_new(&c.node);
     (n.h, n.inset) = (Size::Px(rh + 12.0), Edges { l: side, r: side, ..Edges::ZERO });
@@ -90,17 +90,17 @@ fn default_toast(this: &mut Ui, c: &ToastConfig, text: &str) {
 }
 
 /// The built-in scroll view: the content in the node as the kit made it.
-fn default_scroll(this: &mut Ui, _c: &ScrollConfig, content: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_scroll(this: &mut Ui, _c: &ScrollConfig, content: &mut dyn FnMut(&mut Ui)) {
     content(this);
 }
 
 /// The built-in row of a list or a table: the kit's look is already on it; the content goes inside.
-fn default_row(this: &mut Ui, _c: &RowConfig, content: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_row(this: &mut Ui, _c: &RowConfig, content: &mut dyn FnMut(&mut Ui)) {
     content(this);
 }
 
 /// The built-in tree row: the disclosure mark (a spacer without children), then the content.
-fn default_tree_row(this: &mut Ui, c: &TreeRowConfig, content: &mut dyn FnMut(&mut Ui)) {
+pub(crate) fn default_tree_row(this: &mut Ui, c: &TreeRowConfig, content: &mut dyn FnMut(&mut Ui)) {
     let chevron = this.theme().chevron.idle;
     let d = this.node_keyed(part_key(c.row.box_key, Part::DISCLOSURE), Node { flags: if c.has { ROW_FLAGS } else { NO_FLAGS }, w: Size::Px(10.0), h: Size::Grow, look: if c.has { chevron } else { Look::NONE }, ..Node::DEFAULT });
     if c.has {
@@ -110,7 +110,7 @@ fn default_tree_row(this: &mut Ui, c: &TreeRowConfig, content: &mut dyn FnMut(&m
 }
 
 /// The built-in table header cell: the column look for its state, the title and, when sorted by it, the sort chevron.
-fn default_table_head(this: &mut Ui, c: &TableHeadConfig, title: &str) {
+pub(crate) fn default_table_head(this: &mut Ui, c: &TableHeadConfig, title: &str) {
     let chevron = this.theme().chevron.idle;
     let look = *this.theme().column.pick(c.state);
     this.set_look(&c.node, look, c.state);
@@ -123,7 +123,7 @@ fn default_table_head(this: &mut Ui, c: &TableHeadConfig, title: &str) {
 }
 
 /// The built-in tab: as wide as its text, in the tab look for its state.
-fn default_tab(this: &mut Ui, c: &TabConfig, text: &str) {
+pub(crate) fn default_tab(this: &mut Ui, c: &TabConfig, text: &str) {
     let w = this.text_width(None, text);
     this.node_new(&c.node).w = Size::Px(w);
     let look = *this.theme().tab.pick(c.state);
@@ -132,7 +132,7 @@ fn default_tab(this: &mut Ui, c: &TabConfig, text: &str) {
 }
 
 /// The built-in segment: the text's width and 16, 8 in, a point over the one before it.
-fn default_segment(this: &mut Ui, c: &SegmentConfig, text: &str) {
+pub(crate) fn default_segment(this: &mut Ui, c: &SegmentConfig, text: &str) {
     let w = this.text_width(None, text) + 16.0;
     let n = this.node_new(&c.node);
     (n.w, n.margin, n.inset) = (Size::Px(w), Edges { l: if c.index == 0 { 0.0 } else { -1.0 }, ..Edges::ZERO }, Edges { l: 8.0, ..Edges::ZERO });
@@ -142,7 +142,7 @@ fn default_segment(this: &mut Ui, c: &SegmentConfig, text: &str) {
 }
 
 /// The built-in row of a dropdown's or menu bar's open menu: 8 in, in the menu look.
-fn default_menu_item(this: &mut Ui, c: &MenuItemConfig, text: &str) {
+pub(crate) fn default_menu_item(this: &mut Ui, c: &MenuItemConfig, text: &str) {
     this.node_new(&c.node).inset = Edges { l: this.space(2), ..Edges::ZERO };
     let look = *this.theme().menu.pick(c.state);
     this.set_look(&c.node, look, c.state);
@@ -150,7 +150,7 @@ fn default_menu_item(this: &mut Ui, c: &MenuItemConfig, text: &str) {
 }
 
 /// The built-in menu bar title: its text's width and 16, 8 in, in the menu look.
-fn default_menu_title(this: &mut Ui, c: &MenuItemConfig, text: &str) {
+pub(crate) fn default_menu_title(this: &mut Ui, c: &MenuItemConfig, text: &str) {
     let w = this.text_width(None, text) + 16.0;
     let n = this.node_new(&c.node);
     (n.w, n.inset) = (Size::Px(w), Edges { l: 8.0, ..Edges::ZERO });
@@ -160,7 +160,7 @@ fn default_menu_title(this: &mut Ui, c: &MenuItemConfig, text: &str) {
 }
 
 /// The built-in dropdown button: the dropdown look for its state, the chosen option's text and a chevron.
-fn default_dropdown(this: &mut Ui, c: &DropdownConfig, text: &str) {
+pub(crate) fn default_dropdown(this: &mut Ui, c: &DropdownConfig, text: &str) {
     let t = this.theme();
     let (look, idle, chevron) = (*t.dropdown.pick(c.state), t.dropdown.idle, t.chevron.idle);
     this.set_look(&c.button, look, c.state);
@@ -1103,7 +1103,7 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
 
 /// The built-in search field: the 20-point well in the search look, the icon, the editing surface and, with a query, the 16-point clear
 /// button (a multiplication sign) after it.
-fn default_search_field(this: &mut Ui, c: &SearchFieldConfig, icon: &str, editor: &mut dyn FnMut(&mut Ui) -> bool) {
+pub(crate) fn default_search_field(this: &mut Ui, c: &SearchFieldConfig, icon: &str, editor: &mut dyn FnMut(&mut Ui) -> bool) {
     let ch = this.control_h();
     let t = this.theme();
     let (states, hint) = (t.search, t.placeholder.idle);
@@ -1119,7 +1119,7 @@ fn default_search_field(this: &mut Ui, c: &SearchFieldConfig, icon: &str, editor
 }
 
 /// The built-in spinner: 16 points square, eight 3-point dots round a circle, the lead dot in the accent.
-fn default_spinner(this: &mut Ui, c: &SpinnerConfig, _label: &str) {
+pub(crate) fn default_spinner(this: &mut Ui, c: &SpinnerConfig, _label: &str) {
     let (dim, lead) = (this.theme().spinner.idle, this.theme().spinner.checked);
     let n = this.node_new(&c.node);
     (n.w, n.h) = (Size::Px(16.0), Size::Px(16.0));
@@ -1131,7 +1131,7 @@ fn default_spinner(this: &mut Ui, c: &SpinnerConfig, _label: &str) {
 }
 
 /// The built-in badge: the text in the badge look on a 16-point pill as wide as the text and 4 points either side.
-fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
+pub(crate) fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
     let look = this.theme().badge.idle;
     let w = this.text_width(Some(look.font.points(this.font_size())), text) + 8.0;
     let n = this.node_new(&c.node);
@@ -1140,7 +1140,7 @@ fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
 }
 
 /// The built-in icon button: the 20-point square, the glyph centred.
-fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, _label: &str, icon: &str) {
+pub(crate) fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, _label: &str, icon: &str) {
     let ch = this.control_h();
     let tw = this.text_width(None, icon);
     let n = this.node_new(&c.node);
@@ -1154,11 +1154,11 @@ fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, _label: &str, icon: 
 }
 
 /// The built-in checkbox and radio: the 12-point box (an accent square inside when on) or ring, then the label, in the row's hover look.
-fn default_checkbox(this: &mut Ui, c: &CheckConfig, text: &str) {
+pub(crate) fn default_checkbox(this: &mut Ui, c: &CheckConfig, text: &str) {
     check_parts(this, c, text, false)
 }
 
-fn default_radio(this: &mut Ui, c: &CheckConfig, text: &str) {
+pub(crate) fn default_radio(this: &mut Ui, c: &CheckConfig, text: &str) {
     check_parts(this, c, text, true)
 }
 
@@ -1179,7 +1179,7 @@ fn check_parts(this: &mut Ui, c: &CheckConfig, text: &str, round: bool) {
 }
 
 /// The built-in progress row: the label, then a 4-point track holding the bar.
-fn default_progress(this: &mut Ui, c: &ProgressConfig, label: &str) {
+pub(crate) fn default_progress(this: &mut Ui, c: &ProgressConfig, label: &str) {
     let (track_look, bar, label_look) = (this.theme().progress.idle, this.theme().mark.idle, this.theme().row.idle);
     let rh = this.row_height() as f32;
     this.text_leaf(int_key(c.row.box_key, 1), rh, label_look, shown(label));
@@ -1197,7 +1197,7 @@ fn default_progress(this: &mut Ui, c: &ProgressConfig, label: &str) {
 }
 
 /// The built-in slider: a 2-point rail, the filled part of it and an 8 x 14 thumb in a lane split by the value.
-fn default_slider(this: &mut Ui, c: &SliderConfig, _label: &str) {
+pub(crate) fn default_slider(this: &mut Ui, c: &SliderConfig, _label: &str) {
     let t = this.theme();
     let (rail, fill, thumb) = (t.separator.idle, t.mark.idle, t.slider);
     let key = this.part_owner;

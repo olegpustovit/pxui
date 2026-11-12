@@ -175,3 +175,26 @@ What changed in this round:
 Residual then (now: the section above), as instructions over the direct engine (`proc_pid_rusage`, the same frames run alone): static, a frame costs about 400 (the input record built from the C descriptor, the frame's two moves of the engine's input) and a trusted call 4 to 11; the pages that still carry more call widgets that validate and decode a descriptor (the value field, the text area, the menu bar, the picker, the context menu, the popups). Dynamic, a node costs 160 (85 of them the 22 tag and flag bytes, read one by one: they sit 6 to 40 bytes apart in the 496-byte record, so wide compares do not group them), a label 67, a button 113, `text` 90, `within` 91 (a wrapper trampoline, its catch and the library's entry), `theme` and `tokens` 25, and a frame 700.
 
 (The Rays gate's `duplicate crate name pxui` for `pxui_dylib` is fixed: the graph knows the private pxui_abi and pxui_dylib by package name, as the PXUI gate does.)
+
+## Widget bodies
+
+Phase B6 of the widget bodies plan. `abi_bench_bodies` (`RAYS_SLOW=1 cargo t --release -p pxui_gallery abi_bench_bodies`, static build, direct engine; `tools/validate.sh` runs it with the rest of `abi_bench`) builds each gallery page with the default bodies and with every one of the 40 kinds overridden by a registered copy of its built-in (`Ui::register_builtin_bodies(name)`, generated from `body_kinds!`: the registry lookup and an indirect call instead of the direct call). The two draw the same layer bytes (asserted). Apple M1, release profile, loaded machine; instructions are the fewest of 15 rounds of 20 forced rebuilds, time the median of 600 interleaved rebuilds (paired ratio).
+
+| Page | Before B1 (instr.) | Default (instr.) | Growth (plan under 1%) | Overridden (instr.) | Overridden / default (plan under 2%) | Time default / overridden (us) | Time ratio | Allocations a rebuild, settled (both) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Kit | 336,197 | 338,645 | +0.73% | 339,111 | +0.14% | 26.54 / 26.54 | 1.0016 | 46, 0 |
+| Controls | 269,449 | 271,554 | +0.78% | 272,129 | +0.21% | 20.08 / 20.12 | 1.0021 | 0, 0 |
+| Collections | 1,590,325 | 1,597,075 | +0.42% | 1,598,234 | +0.07% | 105.96 / 106.46 | 1.0035 | 1, 0 |
+| Overlays | 60,436 | 60,452 | +0.03% | 60,716 | +0.44% | 4.04 / 4.08 | 1.0002 | 0, 0 |
+| Layout | 974,424 | 976,622 | +0.23% | 976,662 | +0.00% | 70.83 / 71.21 | 1.0064 | 80, 80 (the page never settles, see `abi_bench_pages`; equal in both) |
+
+- Every limit is the plan's; none was relaxed. The instruction count is the gate (it does not move with load or code placement; the before-B1 figures are release-profile counts, a non-release build retires about 25% more); the time is printed.
+- Default bodies vs `fixtures/bodies_baseline.bin`: identical (`bodies_default_identical`, unchanged).
+- `size_of::<Bodies>()` is 80 bytes for 40 kinds (2 per kind, the plan's limit; asserted by the bench). Each `Theme` grew by that.
+- An overridden widget inside a kept view runs no body: `kept_view_runs_no_item_body`, `kept_view_runs_no_container_body`.
+
+Gates raised during this plan (each recorded in `OPEN_ISSUES.md`):
+
+- Dynamic time ratio 1.041 to 1.074 and 8.7 to 15.4 us per 1000 nodes: dynamic Layout is +5.3 to +5.9% over the direct engine since `Ui` holds its body table in a `Box`, with retired instructions unchanged (placement, not work).
+- Dynamic Layout retired instructions 1.038 to 1.039: 3.84% over direct since the container bodies (plan 3%).
+- Static time ratio 1.0175 to 1.034: static Layout is +2.4 to +2.7% since the text bodies, instructions unchanged.

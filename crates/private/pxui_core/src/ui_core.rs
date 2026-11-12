@@ -7006,7 +7006,7 @@ impl Ui {
 }
 
 /// The built-in tooltip: the tooltip look with clear ink, then each line a 20-point node 14 points below the last, text 7 points in.
-fn default_tip(this: &mut Ui, c: &TipConfig, lines: &[String]) {
+pub(crate) fn default_tip(this: &mut Ui, c: &TipConfig, lines: &[String]) {
     let look = this.theme().tooltip.idle;
     this.set_look(&c.tip, Look { text: CLEAR_INK, ..look }, State::default());
     for (i, line) in lines.iter().enumerate() {

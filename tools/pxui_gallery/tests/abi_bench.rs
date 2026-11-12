@@ -241,6 +241,95 @@ fn abi_bench_instances() {
 #[cfg(not(feature = "static"))]
 fn abi_bench_instances() {}
 
+/// Widget bodies (B6), direct engine: every page with the default bodies and with every kind overridden by a registered copy of its
+/// built-in (`Ui::register_builtin_bodies`: the registry and an indirect call). Same bytes drawn; retired instructions gated, time
+/// (paired medians) and allocations printed; the default bodies against the count before bodies existed.
+#[cfg(feature = "static")]
+fn abi_bench_bodies() {
+    if !slow() { return; }
+    // Retired instructions per forced rebuild before B1 (direct engine), and the plan's limits: default vs before 1%, overridden vs default 2%.
+    const BEFORE_B1: [f64; 5] = [336_197.0, 269_449.0, 1_590_325.0, 60_436.0, 974_424.0];
+    const PLAN_DEFAULT_VS_BEFORE: f64 = 1.01;
+    const PLAN_OVERRIDDEN_RATIO: f64 = 1.02;
+    // Measured overridden/default instruction ratio per page (rounded up to 0.001) where the plan's value is missed; else the plan's.
+    const GATE_OVERRIDDEN_RATIO: [f64; 5] = [PLAN_OVERRIDDEN_RATIO; 5];
+    let kinds = pxui_types::theme::Bodies::KINDS.len();
+    let size = core::mem::size_of::<pxui_types::theme::Bodies>();
+    println!("PXUI abi_bench bodies Bodies size={size} bytes for {kinds} kinds");
+    assert!(size <= 2 * kinds, "Bodies is {size} bytes, over 2 per kind ({kinds})");
+    let overridden = || {
+        let mut d = direct();
+        let bodies = d.ui.register_builtin_bodies("copy");
+        let mut theme = *d.ui.theme();
+        theme.body = bodies;
+        d.ui.set_theme(theme);
+        d
+    };
+    let mut failures = Vec::<String>::new();
+    let (mut d, started, mut count) = (direct(), Instant::now(), 0);
+    while started.elapsed() < WARM_UP { direct_frame(&mut d, 0, count + 1, count); count += 1; }
+    for (index, name) in PAGES.iter().enumerate() {
+        let (mut a, mut b) = (direct(), overridden());
+        // the registered copies draw the default's bytes
+        for count in 0..3 {
+            direct_frame(&mut a, index, 1, count);
+            direct_frame(&mut b, index, 1, count);
+        }
+        let (la, lb) = (a.ui.output().draw, b.ui.output().draw);
+        assert_eq!(la.len(), lb.len(), "{name}: layer count");
+        for (x, y) in la.iter().zip(lb) {
+            assert!(x.instances == y.instances && x.breaks.len() == y.breaks.len(), "{name}: overridden bodies draw differently");
+        }
+        let (mut ta, mut tb) = (Vec::with_capacity(SAMPLES), Vec::with_capacity(SAMPLES));
+        let (mut aa, mut ab) = (0, 0);
+        for count in 0..(20 + SAMPLES as u64) {
+            let revision = count + 1;
+            let (mut build_a, mut build_b) = (|| direct_frame(&mut a, index, revision, count), || direct_frame(&mut b, index, revision, count));
+            let (us_a, us_b);
+            if count % 2 == 0 {
+                let before = allocations(); us_a = timed(&mut build_a); aa = allocations() - before;
+                let before = allocations(); us_b = timed(&mut build_b); ab = allocations() - before;
+            } else {
+                let before = allocations(); us_b = timed(&mut build_b); ab = allocations() - before;
+                let before = allocations(); us_a = timed(&mut build_a); aa = allocations() - before;
+            }
+            if count >= 20 { ta.push(us_a); tb.push(us_b); }
+        }
+        let time_ratio = median(&mut tb.iter().zip(&ta).map(|(b, a)| b / a).collect::<Vec<_>>());
+        let (ma, mb) = (median(&mut ta), median(&mut tb));
+        let counted = instructions_per_frame(&mut |c| direct_frame(&mut a, index, c + 1, c)).zip(instructions_per_frame(&mut |c| direct_frame(&mut b, index, c + 1, c)));
+        (a.moved, b.moved) = (false, false);
+        let revision = SAMPLES as u64 + 21;
+        let (mut sa, mut sb) = (0, 0);
+        for round in 0..12 {
+            let count = revision + round;
+            let before = allocations();
+            direct_frame(&mut a, index, revision, count);
+            if round >= 4 { sa = sa.max(allocations() - before); }
+            let before = allocations();
+            direct_frame(&mut b, index, revision, count);
+            if round >= 4 { sb = sb.max(allocations() - before); }
+        }
+        println!("PXUI abi_bench bodies page={name} default_us={ma:.2} overridden_us={mb:.2} time_ratio={time_ratio:.4} rebuild_allocs default={aa} overridden={ab} settled_allocs default={sa} overridden={sb}");
+        // the Layout page never settles (see abi_bench_pages): there the overridden build must only match the default
+        let settles = index != 4;
+        if (settles && (sa, sb) != (0, 0)) || sb > sa { failures.push(format!("{name}: a settled frame allocates nothing (default {sa}, overridden {sb})")); }
+        match counted {
+            Some((ia, ib)) => {
+                let (growth, ratio) = (ia / BEFORE_B1[index], ib / ia);
+                println!("PXUI abi_bench bodies page={name} default_instructions={ia:.0} before_b1={:.0} growth={growth:.5} (limit {PLAN_DEFAULT_VS_BEFORE}) overridden_instructions={ib:.0} ratio={ratio:.5} (limit {}, plan {PLAN_OVERRIDDEN_RATIO})", BEFORE_B1[index], GATE_OVERRIDDEN_RATIO[index]);
+                if growth > PLAN_DEFAULT_VS_BEFORE { failures.push(format!("{name}: default bodies retire {ia:.0} instructions, over {:.1}% above the {:.0} before bodies", (PLAN_DEFAULT_VS_BEFORE - 1.0) * 100.0, BEFORE_B1[index])); }
+                if ratio > GATE_OVERRIDDEN_RATIO[index] { failures.push(format!("{name}: overridden bodies retire {ib:.0} instructions against the default's {ia:.0}, over {:.1}%", (GATE_OVERRIDDEN_RATIO[index] - 1.0) * 100.0)); }
+            }
+            None => println!("PXUI abi_bench bodies page={name}: instruction gate skipped (no retired-instruction count on this system)"),
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+#[cfg(not(feature = "static"))]
+fn abi_bench_bodies() {}
+
 /// Draw calls and submits per rendered frame, through the app's own GPU, in this build's link mode.
 fn abi_bench_gpu() {
     if !slow() { return; }
@@ -414,6 +503,7 @@ fn main() {
     run::run(&[
         ("abi_bench_pages", abi_bench_pages),
         ("abi_bench_instances", abi_bench_instances),
+        ("abi_bench_bodies", abi_bench_bodies),
         ("abi_bench_gpu", abi_bench_gpu),
         ("abi_bench_paint_calls", abi_bench_paint_calls),
         ("abi_bench_idle", abi_bench_idle),

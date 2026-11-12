@@ -569,6 +569,50 @@ macro_rules! in_item {
 }
 pub(crate) use in_item;
 
+/// Each kind's built-in body, by `body_kinds!` name; a kind missing here fails to compile in `register_builtin_bodies`.
+macro_rules! builtin {
+    (toggle) => { crate::ui_kit::default_toggle };
+    (slider) => { crate::ui_widgets::default_slider };
+    (progress) => { crate::ui_widgets::default_progress };
+    (button) => { crate::ui_kit::default_button };
+    (icon_button) => { crate::ui_widgets::default_icon_button };
+    (checkbox) => { crate::ui_widgets::default_checkbox };
+    (radio) => { crate::ui_widgets::default_radio };
+    (spinner) => { crate::ui_widgets::default_spinner };
+    (badge) => { crate::ui_widgets::default_badge };
+    (label) => { crate::ui_kit::default_label };
+    (footer) => { crate::ui_kit::default_footer };
+    (grip) => { crate::ui_kit::default_grip };
+    (panel) => { crate::ui_kit::default_panel };
+    (window) => { crate::ui_kit::default_panel };
+    (popup) => { crate::ui_kit::default_panel };
+    (modal) => { crate::ui_kit::default_panel };
+    (dialog) => { crate::ui_widgets::default_dialog };
+    (inspector_section) => { crate::ui_kit::default_section };
+    (inspector_row) => { crate::ui_kit::default_inspector_row };
+    (split) => { crate::ui_kit::default_split };
+    (scroll_view) => { crate::ui_widgets::default_scroll };
+    (toast) => { crate::ui_widgets::default_toast };
+    (tip) => { crate::ui_core::default_tip };
+    (tab) => { crate::ui_widgets::default_tab };
+    (segment) => { crate::ui_widgets::default_segment };
+    (dropdown) => { crate::ui_widgets::default_dropdown };
+    (menu_bar) => { crate::ui_widgets::default_menu_title };
+    (menu_item) => { crate::ui_widgets::default_menu_item };
+    (context_menu) => { crate::ui_text::default_menu_row };
+    (list_view) => { crate::ui_widgets::default_row };
+    (tree) => { crate::ui_widgets::default_tree_row };
+    (table_view) => { crate::ui_widgets::default_row };
+    (table_head) => { crate::ui_widgets::default_table_head };
+    (table) => { crate::ui_kit::default_table_cell };
+    (picker) => { crate::ui_text::default_picker_row };
+    (search_field) => { crate::ui_widgets::default_search_field };
+    (text_field) => { crate::ui_text::default_text_field };
+    (line_field) => { crate::ui_text::default_line_field };
+    (value_field) => { crate::ui_text::default_value_field };
+    (picker_field) => { crate::ui_text::default_picker_field };
+}
+
 macro_rules! registry {
     ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
         /// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1 (and `names[kind]` maps
@@ -599,6 +643,14 @@ macro_rules! registry {
                     BodyId(i as u16 + 1)
                 }
             )*
+
+            /// Register every kind's built-in body under `name` and return the `Bodies` selecting them all: the same drawing through
+            /// the registry and an indirect call (the gate's "every kind overridden by a copy of the default").
+            pub fn register_builtin_bodies(&mut self, name: &str) -> Bodies {
+                let mut bodies = Bodies::default();
+                $(bodies.$kind = self.$register(name, builtin!($kind));)*
+                bodies
+            }
         }
     };
 }
