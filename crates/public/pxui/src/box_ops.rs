@@ -151,7 +151,7 @@ impl Ui {
     pub fn text_state(&self, b: &PxuiBox) -> Option<String> {
         let (mut present, mut out) = (0, Str::default());
         check(self, unsafe { lib::pxui_ui_text_state(self.0.as_ptr(), b, &mut present, &mut out) });
-        (present != 0).then(|| String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(out.ptr, out.len) }).into_owned())
+        (present != 0).then(|| owned(out))
     }
     #[track_caller]
     pub fn set_text_state(&mut self, b: &PxuiBox, value: Option<String>) {
@@ -164,6 +164,7 @@ impl Ui {
     pub fn cached_label(&mut self, b: &PxuiBox, index: usize, text: &str) -> &str {
         let mut out = Str::default();
         check(self, unsafe { lib::pxui_ui_cached_label(self.0.as_ptr(), b, index as u64, as_str(text), &mut out) });
+        if out.len == 0 { return ""; }
         unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(out.ptr, out.len)) }
     }
     #[inline] #[track_caller] pub fn to_front(&mut self, order: i64, b: &PxuiBox) { check(self, unsafe { lib::pxui_ui_to_front(self.0.as_ptr(), order, b) }) }

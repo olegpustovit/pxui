@@ -279,7 +279,8 @@ int32_t pxui_ui_input(PxuiUi *ui, uint8_t has_owner, int64_t owner, PxuiInput *o
 /* Marks layer `layer` of the last frame drawn (its dirty ranges clear), as pxui_renderer_draw does: for a host that reads the layers itself. */
 int32_t pxui_ui_layer_drawn(PxuiUi *ui, uint64_t layer);
 const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its next frame */
-/* The theme in effect, lent: valid until the Ui next changes it (a theme swap, a themed scope) or is freed. */
+/* The theme in effect, lent: valid until the Ui next changes it (a theme swap, a themed scope) or is freed. NULL when the call is refused
+   (a poisoned Ui, a handle that is not the current one): see pxui_last_error. */
 const PxuiThemeSnapshot *pxui_ui_theme(PxuiUi *ui);
 int32_t pxui_ui_grid_list(PxuiUi *ui, const PxuiGridListDesc *desc, PxuiBox *out);
 int32_t pxui_ui_split(PxuiUi *ui, const PxuiSplitDesc *desc, uint8_t *changed, float *ratio);

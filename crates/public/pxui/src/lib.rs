@@ -403,8 +403,14 @@ impl Ui {
     #[inline] pub fn tokens(&self) -> pxui_types::theme::Tokens { self.theme().tokens }
     /// The theme in effect, whole: the library's own, lent (no copy). Anything that could change it takes `&mut self`, so the
     /// borrow cannot outlive it.
+    /// Panics with the library's message when the call is refused (a `Ui` an earlier panic poisoned): the library returns null.
     #[inline]
-    pub fn theme(&self) -> &pxui_types::theme::Theme { unsafe { &*sys::pxui_ui_theme(self.0.as_ptr()) } }
+    #[track_caller]
+    pub fn theme(&self) -> &pxui_types::theme::Theme {
+        let theme = unsafe { sys::pxui_ui_theme(self.0.as_ptr()) };
+        if theme.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
+        unsafe { &*theme }
+    }
 
     #[inline] pub fn draw_revision(&self) -> u64 { self.output().draw_revision }
     #[inline] pub fn built_nodes(&self) -> usize { self.output().built_nodes as usize }

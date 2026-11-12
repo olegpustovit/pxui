@@ -44,3 +44,18 @@ fn the_output_borrows_the_ui() {
     let revision = ui.output().draw_revision;
     assert_eq!(revision, ui.draw_revision());
 }
+
+/// A refused `theme()` (here a `Ui` an engine panic poisoned: `label` outside a frame) panics with the library's message
+/// instead of dereferencing the null the library returns. Dynamic build only: a static build has no catch at the export
+/// boundary, so the engine panic unwinds to the caller and nothing poisons the `Ui`.
+#[cfg(not(feature = "static"))]
+#[test]
+fn theme_of_a_poisoned_ui_panics_with_the_library_message() {
+    let mut ui = Ui::new().expect("library");
+    assert!(catch_unwind(AssertUnwindSafe(|| { ui.label("outside a frame"); })).is_err(), "the engine panics outside a frame");
+    let payload = catch_unwind(AssertUnwindSafe(|| { let _ = ui.theme(); })).expect_err("theme() on a poisoned Ui must panic, not read null");
+    let message = payload.downcast_ref::<String>().expect("formatted message");
+    assert!(message.starts_with("pxui: panic: "), "{message}");
+    let _ = ui.frame(&input(), &mut |_| {}); // the next frame clears the poison
+    let _ = ui.theme();
+}
