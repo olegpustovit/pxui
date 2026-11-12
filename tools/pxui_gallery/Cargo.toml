@@ -55,6 +55,12 @@ name = "abi_bench"
 path = "tests/abi_bench.rs"
 harness = false
 
+# The default widget bodies draw the same layer bytes as the baseline recorded before bodies existed (static link only).
+[[test]]
+name = "bodies"
+path = "tests/bodies.rs"
+harness = false
+
 [dev-dependencies]
 abi_bench = { path = "../abi_bench" }
 
