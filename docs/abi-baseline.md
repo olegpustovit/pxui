@@ -83,9 +83,42 @@ The residual, measured as retired instructions and cycles (`proc_pid_rusage`, th
 
 The atlas CPU mirror lever was not built: the mirror's pages are untouched until glyphs land in them, so a one-label app does not pay for it, and it is the same in both builds.
 
+## Frame-build targets met (A7)
+
+Measured 2026-11-12 on the same Apple M1, release profile, machine shared and loaded (load 16 to 53, the qemu VM): the median of twelve runs per mode, the two modes alternating (`RAYS_SLOW=1 cargo t --release -p pxui_gallery [--no-default-features] abi_bench_pages`). The plan's frame-build limits hold on the pages of 100 nodes or more, so `GATE_STATIC_RATIO` and `GATE_DYNAMIC_RATIO` are the plan's 1% and 3% there; a page under 100 nodes keeps the earlier 6% (`GATE_SMALL_PAGE_RATIO`) and, dynamic, 1.5 µs a frame.
+
+| Page | Nodes | Static vs direct (worst run) | Dynamic vs direct (worst run) | Dynamic µs per 1,000 nodes | Dynamic µs added to a frame |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Kit | 87 | +1.2% (+1.8%) | +3.2% to +4.2% (+4.5%) | 13 to 17 | 0.9 to 1.4 |
+| Controls | 83 | +0.8% (+1.1%) | +2.5% (+3.5%) | 5.8 | 0.47 |
+| Collections | 263 | +0.7% (+0.8%) | +1.1% (+1.3%) | 4.4 | 1.14 |
+| Overlays | 14 | +3.0% (+4.2%) | +3.0% (+5.2%) | 8.9 | 0.13 |
+| Layout | 319 | +0.6% (+1.4%) | +2.6% (+3.0%) | 5.6 | 1.79 |
+
+Before this round, ten runs per mode at the start of the same session: static Collections +0.6%, Layout +0.6% (worst runs +0.8%, +1.2%), dynamic Collections +0.9%, Layout +2.5% (worst +1.2%, +3.2%). A run differs from the median by up to 0.8% under this load; the same code linked into another test binary moves a page's median by up to 1% (code placement), so the dynamic Layout margin is about 0.4%.
+
+Measured as retired instructions over the direct engine (`proc_pid_rusage`, the same frames run alone, the minimum of 25 rounds):
+
+| | Before | After |
+| --- | ---: | ---: |
+| Static Layout frame | 7,700 (+0.79%) | 400 (+0.04%) |
+| Static Collections frame | 3,700 (+0.23%) | 3,500 (+0.22%) |
+| Dynamic Layout frame | 48,100 (+4.94%) | 41,100 (+4.22%) |
+| Dynamic node | 155 (85 the check) | 136 (63 the check) |
+| Dynamic label, button, `text` | 64, 110, 93 | 46, 89, 77 |
+
+What changed:
+
+- The trusted node entries take a Rust node as it is: its grid borrows `'static` tracks (`Grid::new`), so the static wrapper no longer copies a grid's tracks into the library and looks them up every frame; only a C node's grid is copied, in the export, before it goes through the same entry. This was most of the static residual: the copy path (a 1 KB track buffer, a lookup, the library's `Shared` touched by every node entry) also kept the wrapper's page code from inlining as well as the direct engine's.
+- A node's byte-sized fields (`axis`, `justify`, `align`, `wrap`, `role`, `state`) and `z` are its first 16 bytes after `size` (`PxuiNode` is 488 bytes, was 496; ABI 1.0 is unreleased, so the layout row, header and snapshot changed in place). The export tests those bytes as two words (each byte's low seven bits plus the room above its largest value carry into its top bit) instead of eleven byte loads; the eleven scattered flags (the optional values' tags and the look's five) are or-ed and compared once; the optional values' contents are read only when one is set. Every byte the check reads is one Rust always writes (padding and an unset optional value's contents are never read). The check is inline in the export.
+- The exports pass on the text they checked rather than the caller's pair again (nothing is kept in a register across the UTF-8 check); a label of up to 16 bytes is checked for ASCII with two loads; `fail` and `fail_code` are out of line, so an export's argument checks are a branch each and its prologue saves fewer registers.
+- The wrapper's node handle is not zeroed before the call (the library writes it whenever it returns 0).
+
+Not done, with the reason: the static widgets that still decode a descriptor (value field, text area, menu bar, picker, context menu, popups) and the frame's input record (about 370 instructions a frame) are on the pages under 100 nodes only, or under 0.05% of a large page. Dynamic, what remains is the boundary itself: a node's call, poison, call-count and argument checks (about 70 instructions) and its tag and flag check (63; the eleven scattered bytes sit in the optional values and the look, whose layouts the engine and the theme share, and an unset optional value's contents may be padding, so they cannot be read as wider words), `within` 71 (two indirect calls and the wrapper's trampoline), `text` 77, `theme` and `tokens` 23, a grid list cell 46 (the engine's call through the library's and the wrapper's closures and the trampoline), a frame about 730. On Layout the 231 node calls are three quarters of the dynamic instructions; removing the check entirely (measured, not adopted) takes the page from +2.7% to +1.3%.
+
 ## Deferred performance work
 
-Measured 2026-11-11 on the same Apple M1, release profile, machine shared (load 7 to 14, a qemu VM near 240% of a core): the median of ten reports per mode (five runs, two reports each). The static path now calls trusted entries and the dynamic path trims what it can; the plan's limits are still not met everywhere, so each gate in `tools/pxui_gallery/tests/abi_bench.rs` is the measured median plus 25%, and the plan's value stays beside it as a named constant (`PLAN_*`, `GATE_*`) with a `ponytail:` comment naming the deferred work.
+Measured 2026-11-11 on the same Apple M1, release profile, machine shared (load 7 to 14, a qemu VM near 240% of a core): the median of ten reports per mode (five runs, two reports each). The static path now calls trusted entries and the dynamic path trims what it can. The limits below are not the plan's, so each gate in `tools/pxui_gallery/tests/abi_bench.rs` is the measured value plus 25% and the plan's value stays beside it as a named constant (`PLAN_*`, `GATE_*`); the frame-build ratios this table was gated on are met since (the section above).
 
 | Page | Nodes | Static vs direct | Dynamic vs direct | Dynamic µs per 1,000 nodes | Dynamic µs added to a frame |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -99,10 +132,8 @@ Before this round (the table above, A7): static +1.0% to +5.3%, dynamic +1.3% to
 
 | Metric | Plan target | Gate now | Measured |
 | --- | --- | --- | --- |
-| Frame build, static vs direct | under 1% | under 6% (`GATE_STATIC_RATIO`: the worst run, +4.6% on Kit under load 14, plus 25%) | +0.5% to +3.1% |
-| Frame build, dynamic vs direct | under 3% | under 6% (`GATE_DYNAMIC_RATIO`) | +1.5% to +4.6% |
 | First presented frame, one-label app | dynamic within 2 ms of static (`PLAN_START_MS`) | dynamic at most 8 ms past static (`GATE_START_MS`), the fastest of 41 launches each, interleaved with the static build's copy of the gallery binary (was: 2 ms, fastest of 31 launches each, the static run recorded in a separate earlier run) | -4.1 to +3.0 ms in six runs (an earlier 21-launch version: -5.0 to +8.5 ms in five); process start is 140 to 155 ms and the fastest launch of either build moves by up to 15 ms between runs under load, so 2 ms is below what the machine can resolve |
-| Dynamic µs per 1,000 nodes | under 5 | under 8.7 on pages of 100 nodes or more (`GATE_DYNAMIC_US_PER_1000_NODES`); smaller pages: at most 1.5 µs added to a frame (`GATE_DYNAMIC_SMALL_PAGE_US`: the worst run, 1.17 µs on Kit under load 14, plus 25%; the median was 0.88) | 5.9 and 7.0 (Collections, Layout); 0.19 to 0.88 µs (the small pages) |
+| Dynamic µs per 1,000 nodes | under 5 | under 8.7 on pages of 100 nodes or more (`GATE_DYNAMIC_US_PER_1000_NODES`); smaller pages: at most 1.5 µs added to a frame (`GATE_DYNAMIC_SMALL_PAGE_US`: the worst run, 1.17 µs on Kit under load 14, plus 25%; the median was 0.88) | 5.9 and 7.0 (Collections, Layout); 0.19 to 0.88 µs (the small pages). 2026-11-12: 4.4 and 5.6; 0.13 to 1.4 µs (Kit's direct page runs 30% slower, 28 to 36 µs, when the test loads `libpxui` from `target/release` rather than from a copy of the same file elsewhere, so its absolute delta grows with it; its ratio does not move) |
 | Dynamic resident memory vs static | not above static | private (dirty) footprint at most 512 KiB above static (`GATE_PRIVATE_TOLERANCE_KIB`) and clean shared code pages at most 1,750 KiB above (`GATE_CLEAN_DELTA_KIB`: +848 KiB in two runs, +1,392 KiB in one under load 22, plus 25%) | private +272 KiB, clean shared pages +848 to +1,392 KiB over static (the static label app: 101,984 KiB resident, 40,529 KiB private) |
 
 What changed in this round:
@@ -113,6 +144,6 @@ What changed in this round:
 - The frame's output record is built when it is read, not at the end of every frame.
 - The wrapper's deferred-panic check is one relaxed load while no thread holds a panic.
 
-Residual, as instructions over the direct engine (`proc_pid_rusage`, the same frames run alone): static, a frame costs about 400 (the input record built from the C descriptor, the frame's two moves of the engine's input) and a trusted call 4 to 11; the pages that still carry more call widgets that validate and decode a descriptor (the value field, the text area, the menu bar, the picker, the context menu, the popups). Dynamic, a node costs 160 (85 of them the 22 tag and flag bytes, read one by one: they sit 6 to 40 bytes apart in the 496-byte record, so wide compares do not group them), a label 67, a button 113, `text` 90, `within` 91 (a wrapper trampoline, its catch and the library's entry), `theme` and `tokens` 25, and a frame 700.
+Residual then (now: the section above), as instructions over the direct engine (`proc_pid_rusage`, the same frames run alone): static, a frame costs about 400 (the input record built from the C descriptor, the frame's two moves of the engine's input) and a trusted call 4 to 11; the pages that still carry more call widgets that validate and decode a descriptor (the value field, the text area, the menu bar, the picker, the context menu, the popups). Dynamic, a node costs 160 (85 of them the 22 tag and flag bytes, read one by one: they sit 6 to 40 bytes apart in the 496-byte record, so wide compares do not group them), a label 67, a button 113, `text` 90, `within` 91 (a wrapper trampoline, its catch and the library's entry), `theme` and `tokens` 25, and a frame 700.
 
 (The Rays gate's `duplicate crate name pxui` for `pxui_dylib` is fixed: the graph knows the private pxui_abi and pxui_dylib by package name, as the PXUI gate does.)

@@ -20,20 +20,18 @@ const SAMPLES: usize = 600;
 /// `pxui_abi`'s smallest span: a drawing of N shapes asks for a new one at most every this many.
 const SPAN: u64 = 256;
 // The gate's limits, all in one place. Each is the plan's target (`PLAN_*`, section A7 of the ABI plan) beside what the gate
-// enforces now (`GATE_*`: the measured median plus 25%, docs/abi-baseline.md "Deferred performance work"). The gap between the two
-// is deferred work: ponytail: the static path calls trusted entries for the hot exports only (the rich widgets, text areas, value
-// fields, menus and the picker still validate and decode a descriptor), the frame's input record is rebuilt from the C descriptor
-// each frame, and a node's 22 tag and flag bytes are checked one by one (85 instructions, no layout that groups them). Move a GATE_*
-// towards its PLAN_* as each lands; never past a measured median without saying why.
+// enforces (`GATE_*`); docs/abi-baseline.md records the measurements behind each. The frame-build ratios are the plan's on the pages
+// of at least `GATE_PER_1000_MIN_NODES` nodes; a smaller page's frame is dominated by the fixed cost of the frame entry, so it keeps
+// the earlier ratio limit and, dynamic, a limit on the microseconds added to a frame.
 const PLAN_STATIC_RATIO: f64 = 1.01;
-/// The worst page of the runs taken (+4.6% on Kit under load 14; the median of ten reports was +1.8%, Overlays +3.1%) plus 25%.
-const GATE_STATIC_RATIO: f64 = 1.06;
+const GATE_STATIC_RATIO: f64 = PLAN_STATIC_RATIO;
 const PLAN_DYNAMIC_RATIO: f64 = 1.03;
-const GATE_DYNAMIC_RATIO: f64 = 1.06;
+const GATE_DYNAMIC_RATIO: f64 = PLAN_DYNAMIC_RATIO;
 const PLAN_DYNAMIC_US_PER_1000_NODES: f64 = 5.0;
-/// Pages of at least this many nodes are gated per 1,000 nodes; a smaller page's frame is dominated by the fixed cost of the frame
-/// entry, so it is gated on the absolute microseconds the dynamic build adds to a frame.
 const GATE_PER_1000_MIN_NODES: i64 = 100;
+/// Pages under `GATE_PER_1000_MIN_NODES` nodes, both builds (the worst run measured, +4.6% on Kit under load 14, plus 25%).
+const GATE_SMALL_PAGE_RATIO: f64 = 1.06;
+/// The worst measured (7.0 on Layout) plus 25%: what a node's checks cost across the boundary keeps it above the plan's 5.
 const GATE_DYNAMIC_US_PER_1000_NODES: f64 = 8.7;
 /// The worst of the runs taken (1.17 us on Kit, load 14) plus 25%; the median of the runs was 0.88.
 const GATE_DYNAMIC_SMALL_PAGE_US: f64 = 1.5;
@@ -148,9 +146,11 @@ fn abi_bench_pages() {
         // the cached view to gate it at zero too.
         let settles = index != 4;
         if (settles && (sd, sw) != (0, 0)) || sw > sd { failures.push(format!("{name}: a settled frame allocates nothing in any build (direct {sd}, wrapper {sw})")); }
-        if STATIC && mw > md * GATE_STATIC_RATIO { failures.push(format!("{name}: wrapper static build {mw:.2} us is over {:.0}% above the direct engine's {md:.2} us (plan {:.0}%)", (GATE_STATIC_RATIO - 1.0) * 100.0, (PLAN_STATIC_RATIO - 1.0) * 100.0)); }
-        let dynamic_over = if nodes >= GATE_PER_1000_MIN_NODES { per_thousand > GATE_DYNAMIC_US_PER_1000_NODES } else { mw - md > GATE_DYNAMIC_SMALL_PAGE_US };
-        if !STATIC && (mw > md * GATE_DYNAMIC_RATIO || dynamic_over) { failures.push(format!("{name}: wrapper dynamic build {mw:.2} us against direct {md:.2} us ({per_thousand:.2} us per 1000 nodes, {:.2} us a frame) is over {:.0}% or the per-node gate (plan {:.0}% and {PLAN_DYNAMIC_US_PER_1000_NODES} us per 1000 nodes)", mw - md, (GATE_DYNAMIC_RATIO - 1.0) * 100.0, (PLAN_DYNAMIC_RATIO - 1.0) * 100.0)); }
+        let large = nodes >= GATE_PER_1000_MIN_NODES;
+        let (static_ratio, dynamic_ratio) = if large { (GATE_STATIC_RATIO, GATE_DYNAMIC_RATIO) } else { (GATE_SMALL_PAGE_RATIO, GATE_SMALL_PAGE_RATIO) };
+        if STATIC && mw > md * static_ratio { failures.push(format!("{name}: wrapper static build {mw:.2} us is over {:.0}% above the direct engine's {md:.2} us (plan {:.0}%)", (static_ratio - 1.0) * 100.0, (PLAN_STATIC_RATIO - 1.0) * 100.0)); }
+        let dynamic_over = if large { per_thousand > GATE_DYNAMIC_US_PER_1000_NODES } else { mw - md > GATE_DYNAMIC_SMALL_PAGE_US };
+        if !STATIC && (mw > md * dynamic_ratio || dynamic_over) { failures.push(format!("{name}: wrapper dynamic build {mw:.2} us against direct {md:.2} us ({per_thousand:.2} us per 1000 nodes, {:.2} us a frame) is over {:.0}% or the per-node gate (plan {:.0}% and {PLAN_DYNAMIC_US_PER_1000_NODES} us per 1000 nodes)", mw - md, (dynamic_ratio - 1.0) * 100.0, (PLAN_DYNAMIC_RATIO - 1.0) * 100.0)); }
     }
     println!("PXUI abi_bench {MODE} worst delta {worst_per_thousand:.2} us per 1000 nodes");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
