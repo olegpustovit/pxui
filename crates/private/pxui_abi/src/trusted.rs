@@ -10,19 +10,26 @@ use pxui_core::ui::Ui;
 use pxui_types::{FrameIn, FrameOut, Node, Size, ffi::Input, theme::ThemeSnapshot};
 
 
-/// `value` as text the caller promises is UTF-8 (the checked length is the one the exports refuse above).
+/// `value` as text the caller promises is UTF-8 (the checked length is the one the exports refuse above). Its pointer is never null:
+/// a Rust `str`'s, or the pair an export checked (`state::pair`, an empty text included).
 #[inline]
 unsafe fn utf8<'a>(value: Str) -> Option<&'a str> {
     if value.len > MAX_TEXT_BYTES { return None; }
-    Some(unsafe { std::str::from_utf8_unchecked(if value.len == 0 { &[] } else { std::slice::from_raw_parts(value.ptr, value.len) }) })
+    Some(unsafe { std::str::from_utf8_unchecked(std::slice::from_raw_parts(value.ptr, value.len)) })
 }
 #[inline]
 unsafe fn engine<'a>(ui: *mut PxuiUi) -> &'a mut Ui { unsafe { &mut *(*ui).engine } }
 
 #[inline]
 pub unsafe fn pxui_ui_node(ui: *mut PxuiUi, label: Str, desc: &Node, out: *mut PxuiBox) -> i32 {
+    let Some(label) = (unsafe { utf8(label) }) else { note_call(); return unsafe { fail(ui, "invalid node label") } };
+    unsafe { node(ui, label, desc, out) }
+}
+
+/// `pxui_ui_node` of a label already checked (UTF-8, at most `MAX_TEXT_BYTES`): the export's entry, which checks it as C hands it over.
+#[inline(always)]
+pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
     note_call();
-    let Some(label) = (unsafe { utf8(label) }) else { return unsafe { fail(ui, "invalid node label") } };
     declare(unsafe { engine(ui) }, Some(label), 0, desc, unsafe { &mut *out });
     0
 }
@@ -36,8 +43,14 @@ pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *m
 
 #[inline]
 pub unsafe fn pxui_ui_text(ui: *mut PxuiUi, box_: *const PxuiBox, value: Str) -> i32 {
+    let Some(value) = (unsafe { utf8(value) }) else { note_call(); return unsafe { fail(ui, "invalid text") } };
+    unsafe { text(ui, box_, value) }
+}
+
+/// `pxui_ui_text` of a value already checked (UTF-8, at most `MAX_TEXT_BYTES`), as `node`.
+#[inline(always)]
+pub(crate) unsafe fn text(ui: *mut PxuiUi, box_: *const PxuiBox, value: &str) -> i32 {
     note_call();
-    let Some(value) = (unsafe { utf8(value) }) else { return unsafe { fail(ui, "invalid text") } };
     let raw = unsafe { *box_ };
     unsafe { engine(ui) }.text(&pxui_core::ui::UiBox { index: raw.index as usize, box_key: raw.box_key, box_slot: raw.box_slot as usize, generation: raw.generation }, value);
     0
@@ -378,10 +391,17 @@ pub unsafe fn table_view(ui: *mut PxuiUi, label: &str, titles: &[&str], widths: 
 /// A grid of `count` cells, built on demand: `f` gets the borrowed handle and the cell's index.
 #[inline]
 pub unsafe fn grid_list(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, f: &mut dyn FnMut(*mut PxuiUi, usize), out: &mut PxuiBox) -> i32 {
+    let shared = unsafe { (*ui).shared };
+    unsafe { grid_cells(ui, label, count, cell_w, cell_h, &mut |engine: &mut Ui, index| { let mut borrowed = PxuiUi::borrowed(engine, shared); f(&mut borrowed, index) }, out) }
+}
+
+/// `grid_list` with the engine's own cell closure: the export's makes the borrowed handle and calls C's callback itself, one
+/// indirect call a cell fewer than through `f`.
+#[inline(always)]
+pub(crate) unsafe fn grid_cells(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, cell: &mut dyn FnMut(&mut Ui, usize), out: &mut PxuiBox) -> i32 {
     note_call();
     if long(label) || count > MAX_ITEMS || !cell_w.is_finite() || !cell_h.is_finite() || cell_w <= 0.0 || cell_h <= 0.0 { return unsafe { fail(ui, "invalid grid list descriptor") }; }
-    let shared = unsafe { (*ui).shared };
-    *out = to_abi_box(unsafe { engine(ui) }.grid_list(label, count, cell_w, cell_h, &mut |engine: &mut Ui, index| { let mut borrowed = PxuiUi::borrowed(engine, shared); f(&mut borrowed, index) }));
+    *out = to_abi_box(unsafe { engine(ui) }.grid_list(label, count, cell_w, cell_h, cell));
     0
 }
 

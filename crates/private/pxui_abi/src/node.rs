@@ -1,5 +1,5 @@
-use crate::state::{PxuiUi, Shared, core_box, fail, get, text};
-use pxui_core::ui::Ui;
+use crate::state::{PxuiUi, Shared, checked, core_box, fail, get};
+use pxui_core::ui::{Ui, UiBox};
 use core::mem::{align_of, offset_of, size_of};
 use std::rc::Rc;
 use pxui_types::{a11y::Role, layout::{Align, Anchor, Grid, Justify, MAX_TRACKS, Side, Track}, node::{OptAlign, OptAnchor, OptBar, OptCurve, OptGrid}, theme::{Font, Look, Ring, Shadow, State}, Axis, Bar, Dir, Mark, Node, Size, geom::Rect, ffi::{PxuiFontDesc, PxuiLookDesc, PxuiShadowDesc, PxuiStateDesc}, PxuiBox};
@@ -40,59 +40,66 @@ pub(crate) unsafe fn mark_ok(p: *const u8, at: usize) -> bool {
 }
 /// The always-present tag and flag bytes of a node with the largest value each may hold. The node's own C layout: an enum is a
 /// byte, an optional field a byte tag (0 none, 1 some) before its value. The first ten are the byte fields `Node` keeps in its
-/// first 16 bytes (after `size`, before `z`), tested as two words.
+/// first 16 bytes (after `size`, before `z`), tested as one vector; then the tags of the `OPTIONAL` fields whose values are checked
+/// when set, the other flags, and `mark` last.
 const NODE_BYTES: [(usize, u8); 22] = [
     (offset_of!(Node, axis), Axis::Stack as u8), (offset_of!(Node, justify), Justify::SpaceEvenly as u8), (offset_of!(Node, align), Align::Baseline as u8),
     (offset_of!(Node, wrap), 1), (offset_of!(Node, role), Role::Separator as u8), (offset_of!(Node, state.hovered), 1), (offset_of!(Node, state.pressed), 1),
     (offset_of!(Node, state.focused), 1), (offset_of!(Node, state.disabled), 1), (offset_of!(Node, state.checked), 1),
-    (offset_of!(Node, align_self), 1), (offset_of!(Node, grid), 1), (offset_of!(Node, anchor), 1), (offset_of!(Node, at), 1), (offset_of!(Node, look.gradient), 1),
+    (offset_of!(Node, align_self), 1), (offset_of!(Node, anchor), 1), (offset_of!(Node, bar), 1), (offset_of!(Node, transition), 1),
+    (offset_of!(Node, grid), 1), (offset_of!(Node, at), 1), (offset_of!(Node, look.gradient), 1),
     (offset_of!(Node, look.shadows) + offset_of!(Shadow, inner), 1), (offset_of!(Node, look.shadows) + size_of::<Shadow>() + offset_of!(Shadow, inner), 1),
-    (offset_of!(Node, look.font.caps), 1), (offset_of!(Node, look.dashed), 1), (offset_of!(Node, mark), 2), (offset_of!(Node, bar), 1),
-    (offset_of!(Node, transition), 1),
+    (offset_of!(Node, look.font.caps), 1), (offset_of!(Node, look.dashed), 1), (offset_of!(Node, mark), 2),
 ];
 /// How many of `NODE_BYTES` lie in the first 16 bytes, which hold nothing else but `size` and `z` (every byte is written).
 const HEAD: usize = 10;
-/// Past the head, only `mark` holds more than a flag: `node_ok` ors the flags and tests `mark` by itself.
-const _: () = { let mut i = HEAD; while i < NODE_BYTES.len() { assert!(NODE_BYTES[i].1 == 1 || NODE_BYTES[i].0 == offset_of!(Node, mark)); i += 1; } };
+/// How many tags after the head are of optional fields whose values `node_ok` checks when set (`mark`'s is the last byte).
+const OPTIONAL: usize = 4;
+const MARK: usize = NODE_BYTES.len() - 1;
+/// Past the head every byte is a flag but `mark`: `node_ok` ors the flags and tests `mark` by itself.
+const _: () = { let mut i = HEAD; while i < MARK { assert!(NODE_BYTES[i].1 == 1); i += 1; } };
+const _: () = assert!(NODE_BYTES[MARK].0 == offset_of!(Node, mark) && NODE_BYTES[HEAD].0 == offset_of!(Node, align_self) && NODE_BYTES[HEAD + OPTIONAL - 1].0 == offset_of!(Node, transition));
 const _: () = assert!(offset_of!(Node, z) == 14 && offset_of!(Node, flags) == 16 && NODE_BYTES[HEAD - 1].0 < 14 && NODE_BYTES[HEAD].0 >= 16);
-/// The first 16 bytes' test, as two words (see `over`): per byte, 0x7f minus its largest value and 0x80 where a byte is checked,
-/// 0 and 0 where any value goes (`size`, `z`).
-static HEAD_TEST: [u64; 4] = {
-    let (mut room, mut mask, mut i) = ([0u64; 2], [0u64; 2], 0);
-    while i < HEAD {
-        let (at, max) = NODE_BYTES[i];
-        room[at / 8] |= ((0x7f - max) as u64) << (8 * (at % 8));
-        mask[at / 8] |= 0x80 << (8 * (at % 8));
-        i += 1;
-    }
-    [room[0], mask[0], room[1], mask[1]]
-};
-
-/// Nonzero when a checked byte of `word` is over its largest value: its low seven bits plus the room above that value carry into
-/// its top bit, and a byte whose top bit is set is over in any case. No carry crosses into the next byte (127 + 127 < 256).
+/// Whether a byte of the first 16 at `p` is over its largest value (`HEAD_MAX`): one vector compare.
+#[cfg(target_arch = "aarch64")]
 #[inline(always)]
-fn over(word: u64, room: u64, mask: u64) -> u64 { (((word & 0x7f7f_7f7f_7f7f_7f7f) + room) | word) & mask }
+unsafe fn head_over(p: *const u8) -> bool {
+    use core::arch::aarch64::{vcgtq_u8, vld1q_u8, vmaxvq_u8};
+    unsafe { vmaxvq_u8(vcgtq_u8(vld1q_u8(p), vld1q_u8(HEAD_MAX.as_ptr()))) != 0 }
+}
+/// `head_over` byte by byte, where there is no vector compare to name.
+#[cfg(not(target_arch = "aarch64"))]
+#[inline(always)]
+unsafe fn head_over(p: *const u8) -> bool {
+    let head = unsafe { p.cast::<[u8; 16]>().read_unaligned() };
+    head.iter().zip(HEAD_MAX.iter()).fold(false, |over, (byte, max)| over | (byte > max))
+}
+/// The first 16 bytes' largest values: a checked byte's own, 0xff where any value goes (`size`, `z`).
+static HEAD_MAX: [u8; 16] = {
+    let (mut max, mut i) = ([0xff; 16], 0);
+    while i < HEAD { max[NODE_BYTES[i].0] = NODE_BYTES[i].1; i += 1; }
+    max
+};
 
 /// Whether the record behind `p` is a `Node` as C may write one: long enough, every enum tag known, every flag 0 or 1, sizes
 /// finite. Floats are otherwise taken as they are (the engine tolerates any), and a grid's tracks are checked where they are copied.
-/// No branch per byte: the first 16 bytes are tested as two words, the scattered flags are or-ed and compared once; a value behind
-/// a tag is read only when the tag says it is there.
+/// No branch per byte: the first 16 bytes are compared with their largest values as one vector, the scattered flags are or-ed and
+/// compared once; a value behind a tag is read only when the tag says it is there.
 #[inline(always)]
 unsafe fn node_ok(p: *const Node) -> bool {
     let p = p.cast::<u8>();
-    let word = |at: usize| u64::from_le_bytes(unsafe { p.add(at).cast::<[u8; 8]>().read_unaligned() });
     // the caller's size before anything past it is read: a shorter record is refused, never read beyond
-    if (unsafe { p.cast::<u32>().read_unaligned() } as usize) < size_of::<Node>() { return false; }
-    let (first, second) = (word(0), word(8));
-    // the constants from memory, two pair loads (volatile, or they are folded back in and built with eight instructions)
-    let [room0, mask0, room1, mask1] = unsafe { core::ptr::read_volatile(&HEAD_TEST) };
-    let mut flags = 0u8;
-    for &(at, max) in NODE_BYTES[HEAD..].iter() { if max == 1 { flags |= unsafe { byte(p, at) } } }
-    if over(first, room0, mask0) | over(second, room1, mask1) != 0 || flags > 1 || unsafe { byte(p, offset_of!(Node, mark)) } > 2
-        || !unsafe { size_ok(p, offset_of!(Node, w)) && size_ok(p, offset_of!(Node, h)) } { return false; }
-    let tag = |at: usize| unsafe { byte(p, at) };
+    // (volatile: else the compiler rebuilds the head's first four bytes from this load instead of loading the 16 at once)
+    if (unsafe { core::ptr::read_volatile(p.cast::<u32>()) } as usize) < size_of::<Node>() { return false; }
+    let over = unsafe { head_over(p) };
+    let tag = |at: usize| unsafe { byte(p, at) } as u32;
+    let (mut optional, mut flags) = (0, 0);
+    for &(at, _) in &NODE_BYTES[HEAD..HEAD + OPTIONAL] { optional |= tag(at); }
+    for &(at, _) in &NODE_BYTES[HEAD + OPTIONAL..MARK] { flags |= tag(at); }
+    let mark = tag(offset_of!(Node, mark));
+    if over || optional | flags > 1 || mark > 2 || !unsafe { size_ok(p, offset_of!(Node, w)) && size_ok(p, offset_of!(Node, h)) } { return false; }
     // the common node sets none of the optional values whose contents are checked: one branch
-    if tag(offset_of!(Node, align_self)) | tag(offset_of!(Node, anchor)) | tag(offset_of!(Node, mark)) | tag(offset_of!(Node, bar)) | tag(offset_of!(Node, transition)) == 0 { return true; }
+    if optional | mark == 0 { return true; }
     let value = |at: usize, align: usize| at + payload(1, align);
     let set = |at: usize| tag(at) == 1;
     let anchor = value(offset_of!(Node, anchor), align_of::<OptAnchor>());
@@ -118,12 +125,17 @@ unsafe fn tracks(ptr: *const Track, len: usize, out: &mut [Track]) -> Option<usi
 
 /// Declares `desc` as it is. A Rust node's grid borrows tracks that live as long as the program (`Grid::new` takes `'static`
 /// slices), so the engine keeps its pointers; a C node's grid reaches here only as the library's own copy (`grid_node`). The handle
-/// goes to `out` field by field: no wide copy of what the engine has just stored.
+/// goes to `out` as its bytes (two vector moves) where the engine's handle has the same layout, else field by field.
 #[inline(always)]
 pub(crate) fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) {
     let b = match label { Some(label) => engine.node_ref(label, desc), None => engine.node_keyed_ref(key, desc) };
-    (out.index, out.box_key, out.box_slot, out.generation) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation);
+    if SAME_BOX { unsafe { core::ptr::copy_nonoverlapping((&b as *const UiBox).cast::<u8>(), (out as *mut PxuiBox).cast::<u8>(), size_of::<PxuiBox>()) } }
+    else { (out.index, out.box_key, out.box_slot, out.generation) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation); }
 }
+/// Whether the engine's handle is `PxuiBox` byte for byte (every 64-bit target): its padding is copied too, as padding.
+const SAME_BOX: bool = size_of::<UiBox>() == size_of::<PxuiBox>() && offset_of!(UiBox, index) == offset_of!(PxuiBox, index)
+    && offset_of!(UiBox, box_key) == offset_of!(PxuiBox, box_key) && offset_of!(UiBox, box_slot) == offset_of!(PxuiBox, box_slot)
+    && offset_of!(UiBox, generation) == offset_of!(PxuiBox, generation) && size_of::<usize>() == size_of::<u64>();
 
 /// A C node with a grid: its tracks, checked, become the library's own for as long as its box lives (a list equal to one stored is
 /// shared, so a settled frame allocates nothing), and the node pointing at that copy goes through the trusted entry.
@@ -140,7 +152,7 @@ unsafe fn grid_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node,
     // the engine's Grid borrows 'static tracks: these live in `shared` until the box is gone (see `finish_frame`)
     let all: &'static [Track] = unsafe { core::mem::transmute::<&[Track], &'static [Track]>(&stored[..]) };
     let node = Node { grid: OptGrid::Some(Grid::new(&all[..split], &all[split..])), ..*desc };
-    let rc = match label { Some(label) => unsafe { crate::trusted::pxui_ui_node(ui, crate::state::pair(label), &node, out) }, None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) } };
+    let rc = match label { Some(label) => unsafe { crate::trusted::node(ui, label, &node, out) }, None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) } };
     let shared = unsafe { (*ui).shared() };
     let key = unsafe { (*out).box_key };
     if rc == 0 && !shared.grid_tracks.get(&key).is_some_and(|kept| Rc::ptr_eq(kept, &stored)) {
@@ -155,19 +167,28 @@ unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
     if desc.is_null() || !unsafe { node_ok(desc) } { None } else { Some(unsafe { &*desc }) }
 }
 
+/// The refusals of a node that fails `node_ok`, out of line with their messages: the check's branches then share one target and
+/// nothing is set up for it on the way through.
+#[cold]
+#[inline(never)]
+unsafe fn invalid_node(ui: *mut PxuiUi) -> i32 { unsafe { fail(ui, "invalid node") } }
+#[cold]
+#[inline(never)]
+unsafe fn invalid_keyed(ui: *mut PxuiUi) -> i32 { unsafe { fail(ui, "invalid keyed node") } }
+
 export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,desc:*const Node,out:*mut PxuiBox)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null node argument")};}
-    let Some(label)=(unsafe{text(label)}) else{return unsafe{fail(ui,"invalid node label")};};
-    let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{fail(ui,"invalid node")};};
+    let Some(label)=(unsafe{checked(label)}) else{return unsafe{fail(ui,"invalid node label")};};
+    let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{invalid_node(ui)};};
     if desc.grid.is_some() { return unsafe{grid_node(ui,Some(label),0,desc,out)}; }
-    unsafe{crate::trusted::pxui_ui_node(ui,crate::state::pair(label),desc,out)}
+    unsafe{crate::trusted::node(ui,label,desc,out)}
 });
 
 export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const Node,out:*mut PxuiBox)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null keyed node argument")};}
-    let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{fail(ui,"invalid keyed node")};};
+    let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{invalid_keyed(ui)};};
     if desc.grid.is_some() { return unsafe{grid_node(ui,None,key,desc,out)}; }
     unsafe{crate::trusted::pxui_ui_node_keyed(ui,key,desc,out)}
 });
@@ -195,9 +216,9 @@ export!(trusted pub unsafe fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut
 export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:pxui_types::Str)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null(){return unsafe{fail(ui,"null text box")};}
-    let Some(value)=(unsafe{text(value)}) else{return unsafe{fail(ui,"invalid text")};};
+    let Some(value)=(unsafe{checked(value)}) else{return unsafe{fail(ui,"invalid text")};};
     if core_box(unsafe{*box_}).is_none(){return unsafe{fail(ui,"invalid text box")};}
-    unsafe{crate::trusted::pxui_ui_text(ui,box_,crate::state::pair(value))}
+    unsafe{crate::trusted::text(ui,box_,value)}
 });
 
 #[cfg(test)]
@@ -228,8 +249,10 @@ mod tests {
         };
         assert_eq!(place(&raw(full)), 0);
         assert_eq!(place(&raw(Node { mark: Mark::Chevron(Dir::Right), ..full })), 0);
+        // the head's unchecked bytes take any value (`z` is all ones here)
+        assert_eq!(place(&raw(Node { z: -1, ..full })), 0);
         let mut refused = Vec::new();
-        // one past the largest value, and a byte with its top bit set (the first 16 bytes are tested as words, see `over`)
+        // one past the largest value, and a byte with its top bit set (the first 16 bytes are compared as one vector, see `head_over`)
         for &(at, max) in NODE_BYTES.iter() { for byte in [max + 1, 0x80, 0xff] { let mut bad = raw(full); bad.0[at] = byte; refused.push(bad); } }
         let value = |at: usize, align: usize| at + payload(1, align);
         let anchor = value(offset_of!(Node, anchor), align_of::<OptAnchor>());

@@ -21,7 +21,11 @@ export!(trusted pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const Px
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null grid list argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid grid list descriptor") }; };
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid grid list label") }; };
-    unsafe { crate::trusted::grid_list(ui, label, desc.count, desc.cell_w, desc.cell_h, &mut |ui, index| if let Some(callback) = desc.build { callback(desc.user, ui.cast(), index) }, &mut *out) }
+    let (shared, build, user) = (unsafe { (*ui).shared }, desc.build, desc.user);
+    unsafe { crate::trusted::grid_cells(ui, label, desc.count, desc.cell_w, desc.cell_h, &mut |engine: &mut pxui_core::ui::Ui, index| {
+        let mut borrowed = PxuiUi::borrowed(engine, shared);
+        if let Some(build) = build { build(user, (&mut borrowed as *mut PxuiUi).cast(), index) }
+    }, &mut *out) }
 });
 
 export!(pub unsafe fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_types::Event>, now: f64, out: *mut u8) -> i32 {

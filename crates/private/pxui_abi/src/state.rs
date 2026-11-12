@@ -196,10 +196,10 @@ pub(crate) fn ascii(bytes: &[u8]) -> bool {
 #[inline(always)]
 pub(crate) fn pair(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
-/// `text` limited to `MAX_TEXT_BYTES`.
+/// `text` limited to `MAX_TEXT_BYTES`. The limit is compared past 16 bytes only, where `ascii` branches anyway: a label pays nothing for it.
 #[inline(always)]
 pub(crate) unsafe fn checked(value: Str) -> Option<&'static str> {
-    if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
+    if value.len <= 16 { unsafe { text(value) } } else if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
 }
 
 /// Decodes a span of strings into `out` (cleared first): at most `max` of them, at most eight megabytes in all.
