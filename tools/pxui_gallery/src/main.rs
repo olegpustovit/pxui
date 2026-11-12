@@ -130,6 +130,9 @@ fn output_text(value: Str) -> String {
 }
 
 fn main() {
+    let entered = Instant::now();
+    // the A7 start-up gate times exec plus dynamic loading alone with this
+    if env("PXUI_GALLERY_NOOP").is_some() { return; }
     let shot = env("PXUI_GALLERY_SHOT");
     let hidden = env("PXUI_GALLERY_HIDDEN").is_some();
     let exit_after = env("PXUI_GALLERY_EXIT_AFTER").and_then(|v| v.parse::<f64>().ok());
@@ -144,12 +147,15 @@ fn main() {
     s.page = env("PXUI_GALLERY_PAGE").and_then(|v| v.parse().ok()).unwrap_or(0) % PAGES.len();
     s.dusk = env("PXUI_GALLERY_DUSK").is_some();
     (s.rtl, s.compact, s.host_dirty) = (env("PXUI_GALLERY_RTL").is_some(), env("PXUI_GALLERY_COMPACT").is_some(), true);
+    let window_t = Instant::now();
     let mut win = match host::open(WINDOW_W, WINDOW_H, hidden) {
         Ok(w) => w,
         Err(e) => { eprintln!("pxui_gallery: no window: {e}"); std::process::exit(1) }
     };
     let mut gpu = Gpu::open().unwrap_or_else(|e| { eprintln!("pxui_gallery: no GPU: {e}"); std::process::exit(1) });
     let surface: Option<Surface> = if hidden { None } else { Some(be::create_surface(&gpu.device, configuration(&mut win)).unwrap_or_else(|e| fail(e))) };
+    // the window system's share of the start (identical in both link modes): the A7 start-up gate subtracts it from main's span
+    let window_ms = window_t.elapsed().as_secs_f64() * 1e3;
     let mut ui = Ui::create(if cfg!(target_os = "macos") { pxui::Platform::Apple } else { pxui::Platform::Other }, None, &[PRAGMASEVKA]);
     apply_theme(&mut ui, &s, &mut dusk, &theme_path);
     let mut renderer = gpu.renderer(&ui).unwrap_or_else(|e| { eprintln!("pxui_gallery: {e}"); std::process::exit(1) });
@@ -297,7 +303,7 @@ fn main() {
             drawn_revision = ui.draw_revision();
             draw(&mut gpu, &mut ui, &mut renderer, &target, surface.as_ref(), extent, win.scale() as f32);
             draws += 1;
-            if label_only && draws == 1 { println!("pxui_gallery: first-frame"); }
+            if label_only && draws == 1 { println!("pxui_gallery: first-frame {:.3}", entered.elapsed().as_secs_f64() * 1e3 - window_ms); }
             if let Some(path) = shot.as_deref().filter(|_| draws >= 3) {
                 let (w, h) = (extent.drawable.0 as u32, extent.drawable.1 as u32);
                 let pixels = be::read_texture(&target, (w * 4) as i64).unwrap_or_else(|e| fail(e));

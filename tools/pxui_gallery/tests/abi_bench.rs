@@ -256,8 +256,11 @@ fn abi_bench_idle() {
     assert_eq!((field("settled"), field("idle_calls")), (0, 0), "an idle gallery calls the library");
 }
 
-/// One launch of the one-label app at `exe`: milliseconds to the first presented frame, resident KiB, private KiB.
-fn launch(exe: &std::path::Path) -> (f64, f64, f64) {
+/// One launch of the one-label app at `exe`: milliseconds to the first presented frame, resident KiB, private KiB, and the span from
+/// `main` to the first frame without the window system (the gallery subtracts what its window and GPU opening took: the same in both
+/// link modes). What stays in the last number: symbol binding, engine and font setup, the first frame build; exec and dyld loading
+/// `libpxui` are `noop`'s.
+fn launch(exe: &std::path::Path) -> (f64, f64, f64, f64) {
     let started = Instant::now();
     let mut command = Command::new(exe);
     command.env("PXUI_GALLERY_HIDDEN", "1").env("PXUI_GALLERY_LABEL", "1").env("PXUI_GALLERY_EXIT_AFTER", "5");
@@ -269,6 +272,7 @@ fn launch(exe: &std::path::Path) -> (f64, f64, f64) {
         assert!(lines.read_line(&mut line).expect("read") > 0, "the label app exited before its first frame");
     }
     let ms = started.elapsed().as_secs_f64() * 1e3;
+    let span_ms = line.split_whitespace().last().and_then(|v| v.parse::<f64>().ok()).expect("the span after first-frame");
     std::thread::sleep(Duration::from_millis(100));
     let ps = Command::new("ps").args(["-o", "rss=", "-p", &child.id().to_string()]).output().expect("ps");
     let rss = String::from_utf8_lossy(&ps.stdout).trim().parse::<f64>().expect("an rss in KiB");
@@ -280,7 +284,14 @@ fn launch(exe: &std::path::Path) -> (f64, f64, f64) {
     });
     let _ = child.kill();
     let _ = child.wait();
-    (ms, rss, footprint.map_or(rss, |bytes| bytes / 1024.0))
+    (ms, rss, footprint.map_or(rss, |bytes| bytes / 1024.0), span_ms)
+}
+
+/// Milliseconds for `exe` to be exec'd, loaded (dyld, the library's initialisers) and to return from `main` at once.
+fn noop(exe: &std::path::Path) -> f64 {
+    let started = Instant::now();
+    assert!(Command::new(exe).env("PXUI_GALLERY_NOOP", "1").status().expect("run the gallery").success());
+    started.elapsed().as_secs_f64() * 1e3
 }
 
 /// Launches in each link mode: the fastest first frame, the median resident and private sizes. Start-up noise (other processes, the
@@ -288,10 +299,14 @@ fn launch(exe: &std::path::Path) -> (f64, f64, f64) {
 /// build directory; the dynamic run launches the two alternately, so load drifts through both alike. Without the copy the static
 /// run's recorded numbers stand in.
 const LAUNCHES: usize = 41;
+const NOOPS: usize = 101;
 /// The dynamic first frame may trail the static by this much (the plan: 2 ms). Run to run the fastest of 41 interleaved launches
 /// differs by a few ms on a loaded machine (process start is 145 to 190 ms): see docs/abi-baseline.md "Deferred performance work".
 const PLAN_START_MS: f64 = 2.0;
 const GATE_START_MS: f64 = 8.0;
+/// The same bound on the paired median of the window-free first frame (`launch`'s last number): the pairs share the load, the
+/// window system is subtracted, so this is the library's own cost: the plan's 2 ms held in every run (worst 1.78) and the gate is the worst run plus 40%, because the in-process span is noise about zero (-0.5 to +1.2 ms).
+const GATE_START_PAIRED_MS: f64 = 2.5;
 
 fn abi_bench_start() {
     if !slow() { return; }
@@ -305,7 +320,7 @@ fn abi_bench_start() {
         mine.push(launch(&own));
         if let Some(copy) = rival { theirs.push(launch(copy)); }
     }
-    let summary = |runs: &[(f64, f64, f64)]| {
+    let summary = |runs: &[(f64, f64, f64, f64)]| {
         let first = runs.iter().map(|r| r.0).fold(f64::MAX, f64::min);
         let (mut rss, mut private): (Vec<f64>, Vec<f64>) = runs.iter().map(|r| (r.1, r.2)).unzip();
         (first, median(&mut runs.iter().map(|r| r.0).collect::<Vec<_>>()), median(&mut rss), median(&mut private))
@@ -322,6 +337,15 @@ fn abi_bench_start() {
             text.split_whitespace().filter_map(|v| v.parse().ok()).collect()
         };
         println!("PXUI abi_bench static label app: first frame {:.1} ms, resident {:.0} KiB, private {:.0} KiB ({})", numbers[0], numbers[1], numbers[2], if rival.is_some() { "interleaved" } else { "recorded" });
+        // paired: launch i of each build ran back to back, so the median of the differences cancels the load both saw
+        let paired = |pick: fn(&(f64, f64, f64, f64)) -> f64| median(&mut mine.iter().zip(&theirs).map(|(a, b)| pick(a) - pick(b)).collect::<Vec<_>>());
+        if rival.is_some() {
+            let (all, span) = (paired(|r| r.0), paired(|r| r.3));
+            let load = median(&mut (0..NOOPS).map(|_| noop(&own) - noop(&copy)).collect::<Vec<_>>());
+            let lib = load + span;
+            println!("PXUI abi_bench dynamic over static, medians of paired launches: presented frame {all:+.2} ms; library {lib:+.2} ms = exec and load {load:+.2} ({NOOPS} pairs) + main to first frame without window and GPU opening {span:+.2} ({LAUNCHES} pairs); gate {GATE_START_PAIRED_MS:.1}, plan {PLAN_START_MS:.1}");
+            assert!(lib <= GATE_START_PAIRED_MS, "dynamic first frame is {lib:.2} ms over static, gate {GATE_START_PAIRED_MS} ms");
+        }
         println!("PXUI abi_bench dynamic first frame {:+.1} ms over static (gate {GATE_START_MS:.1}; plan {PLAN_START_MS:.1})", first_ms - numbers[0]);
         assert!(first_ms <= numbers[0] + GATE_START_MS, "dynamic first frame {first_ms:.1} ms is over {GATE_START_MS} ms past static {:.1} ms", numbers[0]);
         let (private_delta, clean_delta) = (private_kib - numbers[2], (rss_kib - private_kib) - (numbers[1] - numbers[2]));
