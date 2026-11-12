@@ -52,6 +52,8 @@ const NODE_BYTES: [(usize, u8); 22] = [
 ];
 /// How many of `NODE_BYTES` lie in the first 16 bytes, which hold nothing else but `size` and `z` (every byte is written).
 const HEAD: usize = 10;
+/// Past the head, only `mark` holds more than a flag: `node_ok` ors the flags and tests `mark` by itself.
+const _: () = { let mut i = HEAD; while i < NODE_BYTES.len() { assert!(NODE_BYTES[i].1 == 1 || NODE_BYTES[i].0 == offset_of!(Node, mark)); i += 1; } };
 const _: () = assert!(offset_of!(Node, z) == 14 && offset_of!(Node, flags) == 16 && NODE_BYTES[HEAD - 1].0 < 14 && NODE_BYTES[HEAD].0 >= 16);
 /// The first 16 bytes' test, as two words (see `over`): per byte, 0x7f minus its largest value and 0x80 where a byte is checked,
 /// 0 and 0 where any value goes (`size`, `z`).
@@ -79,12 +81,14 @@ fn over(word: u64, room: u64, mask: u64) -> u64 { (((word & 0x7f7f_7f7f_7f7f_7f7
 unsafe fn node_ok(p: *const Node) -> bool {
     let p = p.cast::<u8>();
     let word = |at: usize| u64::from_le_bytes(unsafe { p.add(at).cast::<[u8; 8]>().read_unaligned() });
+    // the caller's size before anything past it is read: a shorter record is refused, never read beyond
+    if (unsafe { p.cast::<u32>().read_unaligned() } as usize) < size_of::<Node>() { return false; }
     let (first, second) = (word(0), word(8));
     // the constants from memory, two pair loads (volatile, or they are folded back in and built with eight instructions)
     let [room0, mask0, room1, mask1] = unsafe { core::ptr::read_volatile(&HEAD_TEST) };
     let mut flags = 0u8;
     for &(at, max) in NODE_BYTES[HEAD..].iter() { if max == 1 { flags |= unsafe { byte(p, at) } } }
-    if over(first, room0, mask0) | over(second, room1, mask1) != 0 || flags > 1 || unsafe { byte(p, offset_of!(Node, mark)) } > 2 || (first as u32 as usize) < size_of::<Node>()
+    if over(first, room0, mask0) | over(second, room1, mask1) != 0 || flags > 1 || unsafe { byte(p, offset_of!(Node, mark)) } > 2
         || !unsafe { size_ok(p, offset_of!(Node, w)) && size_ok(p, offset_of!(Node, h)) } { return false; }
     let tag = |at: usize| unsafe { byte(p, at) };
     // the common node sets none of the optional values whose contents are checked: one branch
