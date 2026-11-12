@@ -825,8 +825,8 @@ fn caret_x(t: &mut Text, size: i64, text: &str, index: usize) -> f32 {
 
 // ----------------------------------------------------------------- Ui
 
+#[repr(C)]
 pub struct Ui {
-    theme: Theme,
     /// `themed` overrides in effect (`themes[..theme_depth]`, storage kept), the distinct themes views
     /// were built under (an id is an index) and the id in effect
     themes: Vec<Theme>,
@@ -1043,6 +1043,9 @@ pub struct Ui {
     wake: f64,
     out: PlatformOut,
     destroyed: bool,
+    /// last, and `repr(C)` to keep it so: the 57 KB theme inline anywhere earlier puts every hot field past one aarch64
+    /// load's reach (32 KB scaled, 4 KB for bytes), an address instruction per access (measured: see git log)
+    theme: Theme,
 }
 
 /// Bytes a UI holds: the glyph atlases' CPU mirrors, the text layouts' glyph lists, and the text undo
