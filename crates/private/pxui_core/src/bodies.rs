@@ -113,9 +113,9 @@ pub struct FooterConfig {
 pub type FooterBody = fn(&mut Ui, &FooterConfig, Option<&str>, &[(String, String)]);
 
 /// What a grip body is given. It runs with the grip's `grip` box entered: the line between panes, which carries the role and takes
-/// the cursor and the drag; its place is the caller's (`floating`: at a rectangle the caller gave, else a flow child that fills the
-/// row or column across, `vertical` for a line between side-by-side panes) and the body sets its thickness and look. Behaviour reads
-/// one part: `Part::HIT`, the area that takes presses (the whole box when the body builds none).
+/// the cursor and the drag; its place is the caller's (`floating`: at a rectangle the caller gave, else a 1-point flow child that
+/// fills the row or column across, `vertical` for a line between side-by-side panes). The body sets its look, may set its
+/// thickness, and sets its press band with `Ui::hit_outset` on `grip` (the box itself when it sets none). Behaviour reads no part.
 pub struct GripConfig {
     pub state: State,
     pub vertical: bool,

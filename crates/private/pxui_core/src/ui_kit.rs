@@ -75,19 +75,12 @@ fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) 
     }
 }
 
-/// The built-in grip: a 1-point line (unless the caller placed it) in the separator look, the accent while held, taking presses
-/// 3 points either side of it on a part that is 6 points wider across.
+/// The built-in grip: the line in the separator look (none when the caller placed it), the accent while held, taking presses
+/// 3 points either side of it.
 fn default_grip(this: &mut Ui, c: &GripConfig) {
-    let n = this.node_new(&c.grip);
-    if !c.floating {
-        *(if c.vertical { &mut n.w } else { &mut n.h }) = Size::Px(1.0);
-    }
-    let (w, h) = (n.w, n.h);
     let look = if c.state.pressed { Look { fill: this.theme().tokens.accent, ..Look::NONE } } else if !c.floating { this.theme().separator.idle } else { Look::NONE };
     this.set_look(&c.grip, look, c.state);
-    let px = |s: Size| if let Size::Px(v) = s { v } else { 1.0 };
-    let band = if c.vertical { Node { at: Some((-3.0, 0.0)).into(), w: Size::Px(px(w) + 6.0), h: Size::Pct(1.0), ..Node::DEFAULT } } else { Node { at: Some((0.0, -3.0)).into(), w: Size::Pct(1.0), h: Size::Px(px(h) + 6.0), ..Node::DEFAULT } };
-    this.part(Part::HIT, band);
+    this.hit_outset(&c.grip, if c.vertical { Edges { l: 3.0, r: 3.0, ..Edges::ZERO } } else { Edges { t: 3.0, b: 3.0, ..Edges::ZERO } });
 }
 
 /// The built-in label: ink-2 capitals 12 points from the left, a row high (4 more above it when it is the first thing of its parent).
@@ -856,18 +849,17 @@ impl Ui {
         let mut opts = BoxOpts::default().flags(CLICKABLE | BLOCKING);
         opts = match rect {
             Some(r) => opts.at((r.x, r.y)).w(Size::Px(r.w)).h(Size::Px(r.h)),
-            None if row => opts.h(Size::Grow),
-            None => opts.w(Size::Grow),
+            None if row => opts.w(Size::Px(1.0)).h(Size::Grow),
+            None => opts.w(Size::Grow).h(Size::Px(1.0)),
         };
         let b = self.box_fmt(label, opts);
         self.set_role(&b, Role::Splitter, if row { st::VERTICAL } else { st::HORIZONTAL });
-        self.hit_part(&b, Part::HIT);
         let signal = self.signal(&b);
         if signal.hovered || signal.held {
             self.request_cursor(if row { Cursor::HorizontalResize } else { Cursor::VerticalResize });
         }
         let config = GripConfig { state: State { pressed: signal.held, ..State::default() }, vertical: row, floating: rect.is_some(), grip: b };
-        in_body!(self, b.box_key, b, grip, default_grip(&config));
+        in_body!(flat; self, b.box_key, b, grip, default_grip(&config));
         (b, signal)
     }
 

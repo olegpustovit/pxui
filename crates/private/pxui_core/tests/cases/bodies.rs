@@ -551,7 +551,7 @@ pub fn footer_bare_body() {
 fn wide_grip(ui: &mut Ui, c: &GripConfig) {
     ui.node_mut(&c.grip).w = Size::Px(1.0);
     ui.set_look(&c.grip, Look { fill: pxui_core::geom::color::white(), ..Look::NONE }, c.state);
-    ui.part(Part::HIT, Node { at: Some((-10.0, 0.0)).into(), w: Size::Px(21.0), h: Size::Pct(1.0), ..Node::DEFAULT });
+    ui.hit_outset(&c.grip, Edges { l: 10.0, r: 10.0, ..Edges::ZERO });
 }
 
 /// Where a press takes the splitter's grip is the body's band (3 points either side by default, 10 in the custom body); the drag,

@@ -142,8 +142,8 @@ struct BoxRec {
     next: usize,
     hit: Option<HitFn>,
     hit_rect: Option<Rect>,
-    /// a hit shape given as a rectangle relative to the node's own (a body's part: `Ui::hit_part`), no closure
-    hit_part: Option<Rect>,
+    /// a hit shape without a closure (`Ui::hit_part`, `Ui::hit_outset`)
+    shape: HitShape,
     paint: arena::List,
     over: arena::List,
     /// the view this box holds (`NO_VIEW`), and whether its build was skipped this frame
@@ -153,9 +153,18 @@ struct BoxRec {
     frozen: u32,
 }
 
+/// A box's hit shape without a closure: its own rectangle, a rectangle relative to it (a body's part, `Ui::hit_part`) or its own
+/// grown by an outset (`Ui::hit_outset`).
+#[derive(Clone, Copy)]
+enum HitShape {
+    Own,
+    Part(Rect),
+    Outset(Edges),
+}
+
 impl BoxRec {
     fn blank() -> BoxRec {
-        BoxRec { key: 0, slot: 0, parent: NONE, first: NONE, last: NONE, next: NONE, hit: None, hit_rect: None, hit_part: None, paint: arena::EMPTY, over: arena::EMPTY, view: NO_VIEW, kept: false, frozen: 0 }
+        BoxRec { key: 0, slot: 0, parent: NONE, first: NONE, last: NONE, next: NONE, hit: None, hit_rect: None, shape: HitShape::Own, paint: arena::EMPTY, over: arena::EMPTY, view: NO_VIEW, kept: false, frozen: 0 }
     }
 }
 
@@ -2797,7 +2806,7 @@ impl Ui {
         let b = &mut self.boxes[index];
         b.hit = None;
         b.hit_rect = None;
-        b.hit_part = None;
+        b.shape = HitShape::Own;
         b.paint = arena::EMPTY;
         b.over = arena::EMPTY;
         let s = &mut self.slots[b.slot];
@@ -3266,8 +3275,14 @@ impl Ui {
         let Some(p) = self.part_box(row.box_key, part) else { return };
         let (a, b) = (&self.slots[row.box_slot], &self.slots[p.box_slot]);
         if a.rw > 0.0 && b.rw > 0.0 && b.rh > 0.0 {
-            self.boxes[row.index].hit_part = Some(Rect::new(b.rx - a.rx, b.ry - a.ry, b.rw, b.rh));
+            self.boxes[row.index].shape = HitShape::Part(Rect::new(b.rx - a.rx, b.ry - a.ry, b.rw, b.rh));
         }
+    }
+
+    /// `b` takes presses on its own rectangle grown by `outset` on each side (a negative side shrinks it), from this frame's
+    /// layout on: a band wider than a thin line, with no part node and no closure. A body declares it on the box it was given.
+    pub fn hit_outset(&mut self, b: &UiBox, outset: Edges) {
+        self.boxes[b.index].shape = HitShape::Outset(outset);
     }
 
     pub fn text_state(&self, b: &UiBox) -> Option<String> {
@@ -4854,16 +4869,17 @@ impl Ui {
             s.rw = w;
             s.rh = h;
         }
-        let hit_part = self.boxes[index].hit_part;
-        let hit = self.boxes[index].hit_rect.unwrap_or_else(|| match (&self.boxes[index].hit, hit_part) {
+        let shape = self.boxes[index].shape;
+        let hit = self.boxes[index].hit_rect.unwrap_or_else(|| match (&self.boxes[index].hit, shape) {
             (Some(f), _) => f(screen_rect),
-            (None, Some(p)) => Rect::new(x + p.x, y + p.y, p.w, p.h),
-            (None, None) => screen_rect,
+            (None, HitShape::Part(p)) => Rect::new(x + p.x, y + p.y, p.w, p.h),
+            (None, HitShape::Outset(e)) => Rect::new(x - e.l, y - e.t, w + e.l + e.r, h + e.t + e.b),
+            (None, HitShape::Own) => screen_rect,
         });
         let clipped_hit = intersect(hit, clip_rect);
         let Rect { w: hw, h: hh, .. } = clipped_hit;
-        let visible = match (self.boxes[index].hit_rect, &self.boxes[index].hit, hit_part) {
-            (None, None, None) => hw > 0.0 && hh > 0.0,
+        let visible = match (self.boxes[index].hit_rect, &self.boxes[index].hit, shape) {
+            (None, None, HitShape::Own) => hw > 0.0 && hh > 0.0,
             _ => {
                 let Rect { w: vw, h: vh, .. } = intersect(screen_rect, clip_rect);
                 vw > 0.0 && vh > 0.0
@@ -5264,7 +5280,7 @@ impl Ui {
             let b = &mut self.boxes[index];
             b.hit = None;
             b.hit_rect = None;
-            b.hit_part = None;
+            b.shape = HitShape::Own;
             b.paint = arena::EMPTY;
             b.over = arena::EMPTY;
         }
