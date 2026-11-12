@@ -38,7 +38,7 @@ macro_rules! typed {
     ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
         impl Ui {
             $(
-                #[doc = concat!("Registers `body` as the ", stringify!($kind), " body called `name`, for a theme's `body.", stringify!($kind), "` (`", stringify!($kind), ".body = NAME` in a theme file). Registering a name again replaces its function and keeps its id; the error is the library's reason (`default` and names with a space, `=` or `#` are refused, and so is a call inside a frame).")]
+                #[doc = concat!("Registers `body` as the ", stringify!($kind), " body called `name`, for a theme's `body.", stringify!($kind), "` (`", stringify!($kind), ".body = NAME` in a theme file). Registering a name again replaces its function and keeps its id; a name has the same id in every `Ui` (a theme carried to another `Ui` selects that name's body there, the built-in body where it has none); the error is the library's reason (`default` and names with a space, `=` or `#` are refused, and so is a call inside a frame).")]
                 pub fn $register(&mut self, name: &str, body: fn(&mut Ui, &$config)) -> Result<BodyId, String> {
                     extern "C" fn entry(user: *mut c_void, raw: *mut c_void, config: *const c_void) {
                         enter(raw, config, &mut |ui| (unsafe { core::mem::transmute::<*mut c_void, fn(&mut Ui, &$config)>(user) })(ui, unsafe { &*config.cast::<$config>() }));

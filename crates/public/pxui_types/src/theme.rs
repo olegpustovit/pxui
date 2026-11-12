@@ -218,7 +218,7 @@ macro_rules! theme_widgets {
 }
 
 /// Which registered body builds a widget kind's nodes: 0 is the built-in one, any other is the nth body the app registered for
-/// that kind (`Ui::register_toggle_body` and its siblings), numbered from 1 in registration order.
+/// that kind (`Ui::register_toggle_body` and its siblings), numbered from 1 in the order the process first saw its name (the same id in every `Ui`).
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct BodyId(pub u16);

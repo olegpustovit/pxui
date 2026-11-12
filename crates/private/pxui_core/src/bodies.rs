@@ -430,21 +430,29 @@ pub struct PickerFieldConfig {
 
 pub type PickerFieldBody = fn(&mut Ui, &PickerFieldConfig, &str);
 
-/// The index of `name` among a kind's registered names, added when new; `None` for `default`, which is no registered body, and for a
-/// new name once the kind has 65,535 (ids are `u16` and 0 is the built-in body, so one more would wrap onto body 1).
-fn body_slot(names: &mut HashMap<String, usize>, name: &str) -> Option<usize> {
+/// A kind's body names, numbered once for the process: a name has the same `BodyId` in every `Ui`, so a `Theme` (which holds ids)
+/// carried from the `Ui` that parsed it to another selects the body of that name there, or the built-in body where the other `Ui`
+/// registered none. Ids are `u16` and 0 is the built-in body: past 65,535 names of one kind a new name has no id (it would wrap onto
+/// body 1). Locked only to register a name, never by a frame.
+static NAMES: std::sync::Mutex<Vec<HashMap<String, BodyId>>> = std::sync::Mutex::new(Vec::new());
+
+/// The id of `name` for kind number `kind`, numbered when new; `None` for `default`, which is no registered body, and for a new name
+/// once the kind has 65,535.
+fn body_id(kind: usize, name: &str) -> Option<BodyId> {
     if name == "default" {
         return None;
     }
-    if let Some(&i) = names.get(name) {
-        return Some(i);
+    let mut kinds = NAMES.lock().unwrap_or_else(|e| e.into_inner());
+    if kinds.is_empty() {
+        kinds.resize_with(Bodies::KINDS.len(), HashMap::new);
     }
-    let i = names.len();
-    if i >= u16::MAX as usize {
-        return None;
+    let names = &mut kinds[kind];
+    if let Some(&id) = names.get(name) {
+        return Some(id);
     }
-    names.insert(name.to_owned(), i);
-    Some(i)
+    let id = BodyId(u16::try_from(names.len() + 1).ok()?);
+    names.insert(name.to_owned(), id);
+    Some(id)
 }
 
 fn kind_index(kind: &str) -> usize {
@@ -452,12 +460,12 @@ fn kind_index(kind: &str) -> usize {
 }
 
 /// Run kind `$kind`'s body for widget `$ui`: the built-in `$default` (a direct call) for body 0, else the registered one,
-/// `$default` again for an id nothing was registered under. The arguments follow the `&mut Ui`.
+/// `$default` again for an id this `Ui` registered nothing under. The arguments follow the `&mut Ui`.
 macro_rules! body_call {
     ($ui:ident, $kind:ident, $default:ident($($arg:expr),*)) => {
         match $ui.theme().body.$kind {
             BodyId(0) => $default($ui, $($arg),*),
-            id => match $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied() {
+            id => match $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied().flatten() {
                 Some(body) => body($ui, $($arg),*),
                 None => $default($ui, $($arg),*),
             },
@@ -472,7 +480,7 @@ macro_rules! in_body {
     (flat; $ui:ident, $key:expr, $node:expr, $kind:ident, $default:ident($($arg:expr),*)) => {
         match $ui.theme().body.$kind {
             BodyId(0) => $default($ui, $($arg),*),
-            id => match $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied() {
+            id => match $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied().flatten() {
                 Some(body) => {
                     let owner = core::mem::replace(&mut $ui.part_owner, $key);
                     let saved = $ui.enter(&$node);
@@ -500,7 +508,7 @@ macro_rules! in_place {
     ($ui:ident, $key:expr, $kind:ident, $default:ident($($arg:expr),*)) => {
         match $ui.theme().body.$kind {
             BodyId(0) => $default($ui, $($arg),*),
-            id => match $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied() {
+            id => match $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied().flatten() {
                 Some(body) => {
                     let owner = core::mem::replace(&mut $ui.part_owner, $key);
                     body($ui, $($arg),*);
@@ -519,7 +527,7 @@ macro_rules! body_of {
     ($ui:ident, $kind:ident) => {
         match $ui.theme().body.$kind {
             BodyId(0) => None,
-            id => $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied(),
+            id => $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied().flatten(),
         }
     };
 }
@@ -615,11 +623,12 @@ macro_rules! builtin {
 
 macro_rules! registry {
     ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
-        /// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1 (and `names[kind]` maps
-        /// its name to n - 1). Filled at start-up; a frame only reads it.
+        /// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1 (`None` where this `Ui`
+        /// registered nothing under the process-wide id of a name another `Ui` did), and `names[kind]` maps the names registered here
+        /// to their ids. Filled at start-up; a frame only reads it.
         pub(crate) struct BodyTable {
-            $(pub(crate) $kind: Vec<$body>,)*
-            names: Vec<HashMap<String, usize>>,
+            $(pub(crate) $kind: Vec<Option<$body>>,)*
+            names: Vec<HashMap<String, BodyId>>,
             /// the row a list, tree or table view is building (`Ui::item`); here, not in `Ui`, so `Ui` stays the size it was
             pub(crate) item: UiBox,
             /// an opaque pointer of the host that registered bodies (the C ABI's state): what a registered body's trampoline finds its caller's data by
@@ -636,11 +645,16 @@ macro_rules! registry {
             $(
                 #[doc = concat!("Register `body` as the ", stringify!($kind), " body called `name`, for a theme's `body.", stringify!($kind), "` (or `", stringify!($kind), ".body = NAME` in a theme file).")]
                 /// Registering a name again replaces its body and keeps its id; `default` is the built-in body and registers nothing.
-                /// At most 65,535 names a kind: a new one past that registers nothing and returns `BodyId::DEFAULT`.
+                /// A name has one id for the whole process (not one per `Ui`). At most 65,535 names a kind in the process: a new one past
+                /// that registers nothing and returns `BodyId::DEFAULT`.
                 pub fn $register(&mut self, name: &str, body: $body) -> BodyId {
-                    let Some(i) = body_slot(&mut self.bodies.names[kind_index(stringify!($kind))], name) else { return BodyId::DEFAULT };
-                    if i == self.bodies.$kind.len() { self.bodies.$kind.push(body) } else { self.bodies.$kind[i] = body }
-                    BodyId(i as u16 + 1)
+                    let kind = kind_index(stringify!($kind));
+                    let Some(id) = body_id(kind, name) else { return BodyId::DEFAULT };
+                    let at = id.0 as usize - 1;
+                    if self.bodies.$kind.len() <= at { self.bodies.$kind.resize(at + 1, None) }
+                    self.bodies.$kind[at] = Some(body);
+                    self.bodies.names[kind].insert(name.to_owned(), id);
+                    id
                 }
             )*
 
@@ -670,7 +684,7 @@ impl Ui {
 
     /// `Theme::parse` where `KIND.body = NAME` names the bodies this `Ui` registered; an unregistered name is a `ThemeError`.
     pub fn parse_theme(&self, text: &str, base: &Theme) -> Result<Theme, Vec<crate::theme::ThemeError>> {
-        let named = |kind: &str, name: &str| self.bodies.names[kind_index(kind)].get(name).map(|&i| BodyId(i as u16 + 1));
+        let named = |kind: &str, name: &str| self.bodies.names[kind_index(kind)].get(name).copied();
         Theme::parse_bodies(text, base, &named)
     }
 

@@ -275,6 +275,28 @@ pub fn unknown_body_is_error() {
     ui.destroy();
 }
 
+/// A body name has one id in the whole process, so a theme carried to another `Ui` selects the body of that name there, never whatever
+/// that `Ui` registered under the same number: where it registered none the built-in body builds.
+pub fn a_theme_from_another_ui_never_selects_another_body() {
+    let mut a = new_ui(None);
+    a.register_toggle_body("checkbox", checkbox_body);
+    let second = a.register_toggle_body("second", checkbox_body);
+    let theme = a.parse_theme("toggle.body = second\n", &Theme::default()).expect("a names its body");
+    check(theme.body.toggle == second, "the parse picked the id of its name");
+    let mut b = new_ui(None);
+    let (other, extra) = (b.register_toggle_body("other", |_, _, _| panic!("a body of another name ran")), b.register_toggle_body("extra", |_, _, _| panic!("a body of another name ran")));
+    check(other != second && extra != second, &format!("ids {other:?} {extra:?} {second:?}: another Ui's names share the id of a name"));
+    check(b.parse_theme("toggle.body = second\n", &Theme::default()).is_err(), "b knows no body second");
+    b.set_theme(theme);
+    for k in 0..2 {
+        b.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.toggle("Animate", true); }));
+    }
+    // and the same name registered in both is the same id, whose body each Ui runs
+    check(b.register_toggle_body("second", checkbox_body) == second, "a name is one id in every Ui");
+    a.destroy();
+    b.destroy();
+}
+
 /// A progress body that draws a ring and builds no track still has its accessible name, number and busy state (on the row).
 fn ring_body(ui: &mut Ui, c: &ProgressConfig, label: &str) {
     ui.text(&c.row, shown(label));
@@ -1584,6 +1606,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("progress_without_track_keeps_accessibility", progress_without_track_keeps_accessibility),
     ("theme_file_selects_body", theme_file_selects_body),
     ("unknown_body_is_error", unknown_body_is_error),
+    ("a_theme_from_another_ui_never_selects_another_body", a_theme_from_another_ui_never_selects_another_body),
     ("button_pill_body", button_pill_body),
     ("icon_button_round_body", icon_button_round_body),
     ("checkbox_mark_body", checkbox_mark_body),

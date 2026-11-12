@@ -18,8 +18,8 @@ enum Slot { Content(*mut (dyn FnMut(&mut Ui) + 'static)), Editor(*mut (dyn FnMut
 /// The app's bodies and the slots of the body calls in progress, in `Shared`.
 #[derive(Default)]
 pub(crate) struct BodyState {
-    /// `(fn, user)` of body id n + 1 of kind k at `table[k][n]`, filled by `pxui_body_register`
-    table: Vec<Vec<(Body, *mut c_void)>>,
+    /// `(fn, user)` of body id n + 1 of kind k at `table[k][n]` (`None` where only another `Ui` registered that name), filled by `pxui_body_register`
+    table: Vec<Vec<Option<(Body, *mut c_void)>>>,
     /// the slots of the body calls in progress, innermost last, with the depth of the body call each was given to: a slot is live
     /// while it is here and runs only at that depth (not from a nested body, not inside its own content)
     slots: Vec<(u64, u32, Slot)>,
@@ -37,7 +37,7 @@ pub(crate) struct BodyState {
 fn shared(ui: &Ui) -> *mut Shared { ui.body_host().cast() }
 
 fn invoke(ui: &mut Ui, sh: *mut Shared, kind: BodyKind, id: BodyId, cfg: *const c_void) {
-    let Some(&(body, user)) = (unsafe { &(*sh).bodies.table }).get(kind as usize).and_then(|k| k.get((id.0 as usize).wrapping_sub(1))) else { return };
+    let Some((body, user)) = (unsafe { &(*sh).bodies.table }).get(kind as usize).and_then(|k| k.get((id.0 as usize).wrapping_sub(1))).copied().flatten() else { return };
     let mut handle = PxuiUi::borrowed(ui, sh);
     let _current = crate::state::Current::set(sh, &mut handle);
     let depth = unsafe { (*sh).bodies.depth };
@@ -221,8 +221,10 @@ export!(pub unsafe fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, 
     let id = register(engine, name);
     let table = &mut state.shared().bodies.table;
     if table.is_empty() { table.resize_with(REGISTER.len(), Vec::new); }
-    let (kind_table, at) = (&mut table[kind as usize], (id.0 as usize).wrapping_sub(1));
-    if at == kind_table.len() { kind_table.push((body, user)) } else if let Some(entry) = kind_table.get_mut(at) { *entry = (body, user) } else { unsafe { fail(ui, "too many bodies of one kind") }; return 0 }
+    if id.0 == 0 { unsafe { fail(ui, "too many bodies of one kind") }; return 0 }
+    let (kind_table, at) = (&mut table[kind as usize], id.0 as usize - 1);
+    if kind_table.len() <= at { kind_table.resize(at + 1, None) }
+    kind_table[at] = Some((body, user));
     id.0
 });
 
@@ -450,7 +452,7 @@ mod tests {
         }
         assert_eq!(unsafe { pxui_body_register(ui, kind, text("one_more"), Some(other), core::ptr::null_mut()) }, 0);
         assert_eq!(unsafe { pxui_body_register(ui, kind, text("and_another"), Some(other), core::ptr::null_mut()) }, 0);
-        let first = unsafe { (&(*(*ui).shared).bodies.table)[kind as usize][0] };
+        let first = unsafe { (&(*(*ui).shared).bodies.table)[kind as usize][0].expect("body 1") };
         assert_eq!(first.0 as *const () as usize, toggle_body as *const () as usize, "body 1 is still its own");
         assert_eq!(unsafe { pxui_body_register(ui, kind, text("7"), Some(other), core::ptr::null_mut()) }, 7, "a name again keeps its id at the limit");
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
@@ -527,5 +529,33 @@ mod tests {
         for _ in 0..3 { run(); }
         assert_eq!(mem_sys::local_alloc_count() - before, 0, "a settled frame of nested dialogs allocates");
         assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
+
+    thread_local! { static WRONG: Cell<u32> = const { Cell::new(0) }; }
+    extern "C" fn wrong_body(_: *mut c_void, _: *mut c_void, _: *const c_void) { WRONG.with(|w| w.set(w.get() + 1)); }
+
+    extern "C" fn themed_toggle_frame(user: *mut c_void, ui: *mut c_void) {
+        let theme = user.cast::<crate::theme::PxuiTheme>();
+        extern "C" fn toggle(_: *mut c_void, ui: *mut c_void) { let mut out = 0u8; assert_eq!(unsafe { crate::pxui_toggle(ui.cast(), text("Wi-Fi"), 1, &mut out) }, 0); }
+        assert_eq!(unsafe { crate::pxui_ui_themed(ui.cast(), theme, Some(toggle), core::ptr::null_mut()) }, 0);
+    }
+
+    /// A theme applied against one `Ui` and used in another selects the body of that name there: another `Ui`'s bodies, which hold the
+    /// same number in its own registration order, never run.
+    #[test]
+    fn a_theme_applied_against_one_ui_never_selects_another_uis_body() {
+        let (a, b) = (unsafe { pxui_ui_create(&PxuiUiDesc::default()) }, unsafe { pxui_ui_create(&PxuiUiDesc::default()) });
+        let reg = |ui, name: &str, body: PxuiBodyFn| unsafe { pxui_body_register(ui, BodyKind::toggle as u32, text(name), body, core::ptr::null_mut()) };
+        let (alpha, beta) = (reg(a, "alpha", Some(toggle_body)), reg(a, "beta", Some(toggle_body)));
+        let (gamma, delta) = (reg(b, "gamma", Some(wrong_body)), reg(b, "delta", Some(wrong_body)));
+        assert!(![alpha, beta].iter().any(|id| [gamma, delta].contains(id)), "ids {alpha} {beta} {gamma} {delta}: a name is one id process-wide");
+        let theme = unsafe { crate::theme::pxui_theme_create(core::ptr::null()) };
+        assert_eq!(unsafe { crate::theme::pxui_ui_theme_apply(a, theme, text("toggle.body = beta")) }, 0, "{}", error(a));
+        assert_eq!(unsafe { crate::theme::pxui_ui_theme_apply(b, theme, text("toggle.body = beta")) }, PXUI_ERR_ARGUMENT, "b registered no beta");
+        let mut out = FrameOut::default();
+        assert_eq!(unsafe { pxui_frame(b, &FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, Some(themed_toggle_frame), theme.cast(), &mut out) }, 0, "{}", error(b));
+        assert_eq!(WRONG.with(Cell::get), 0, "a body of another Ui ran");
+        unsafe { crate::theme::pxui_theme_destroy(theme); }
+        assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
     }
 }
