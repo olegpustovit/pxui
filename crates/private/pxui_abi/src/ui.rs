@@ -19,10 +19,11 @@ pub(crate) fn button_code(button: MouseButton) -> u32 { button.code() }
 
 export!(bare pub unsafe fn pxui_abi_version() -> u32 { crate::ABI_VERSION });
 
-// Process counters for the performance gate: 0 = calls into the library (this one included), 1 = heap allocations the library's
-// allocator has made. Anything else reads 0.
+// Process counters: 0 = calls into the library (this one included); 1.. = the library's own allocator counters, numbered as
+// `mem_sys::COUNT_*` (allocations, bytes, live bytes, this thread's allocations and peak, reset of this thread's). The app registers
+// this export with `mem_sys::set_peer`, so its budgets and ledgers count the whole process. Anything else reads 0.
 export!(bare pub unsafe fn pxui_counter(which: u32) -> u64 {
-    match which { 0 => crate::state::calls(), 1 => mem_sys::alloc_count(), _ => 0 }
+    match which { 0 => crate::state::calls(), _ => mem_sys::own(which) }
 });
 
 export!(pub unsafe fn pxui_ui_view_size(ui: *mut PxuiUi, out: *mut pxui_types::geom::Point) -> i32 {

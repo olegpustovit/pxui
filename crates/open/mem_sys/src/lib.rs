@@ -4,7 +4,7 @@ pub mod windows_process;
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
 use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
-use std::sync::Mutex;
+use std::sync::{Mutex, OnceLock};
 
 static LIVE: AtomicU64 = AtomicU64::new(0);
 static ALLOCS: AtomicU64 = AtomicU64::new(0);
@@ -14,6 +14,32 @@ static PRESSURE: AtomicI64 = AtomicI64::new(0);
 static PRESSURE_LOCK: Mutex<bool> = Mutex::new(false);
 
 pub struct CountingAllocator;
+
+/// Another copy of this crate in the process (a dynamic `libpxui` carries its own allocator and counters): its counter export,
+/// registered once by the app. The public counters below add its numbers to this copy's, so budgets and ledgers see the whole process.
+pub const COUNT_ALLOCS: u32 = 1;
+pub const COUNT_BYTES: u32 = 2;
+pub const COUNT_LIVE: u32 = 3;
+pub const COUNT_LOCAL_ALLOCS: u32 = 4;
+pub const COUNT_LOCAL_PEAK: u32 = 5;
+/// Resets the peer's per-thread counters (answers 0).
+pub const COUNT_LOCAL_RESET: u32 = 6;
+static PEER: OnceLock<fn(u32) -> u64> = OnceLock::new();
+pub fn set_peer(counter: fn(u32) -> u64) { let _ = PEER.set(counter); }
+fn peer(which: u32) -> u64 { PEER.get().map_or(0, |counter| counter(which)) }
+
+/// This copy's own counter `which` (the numbers above), what a process's other copy reads through its export.
+pub fn own(which: u32) -> u64 {
+    match which {
+        COUNT_ALLOCS => ALLOCS.load(Ordering::Relaxed),
+        COUNT_BYTES => TOTAL.load(Ordering::Relaxed),
+        COUNT_LIVE => LIVE.load(Ordering::Relaxed),
+        COUNT_LOCAL_ALLOCS => LOCAL.with(|local| local.get().2),
+        COUNT_LOCAL_PEAK => LOCAL.with(|local| local.get().1).max(0) as u64,
+        COUNT_LOCAL_RESET => { local_reset_own(); 0 }
+        _ => 0,
+    }
+}
 
 #[global_allocator]
 static GLOBAL: CountingAllocator = CountingAllocator;
@@ -36,13 +62,18 @@ fn note_local(delta: i64, allocs: u64) {
     });
 }
 
-pub fn local_reset() {
+fn local_reset_own() {
     LOCAL_ON.store(true, Ordering::Relaxed);
     LOCAL.with(|local| local.set((0, 0, 0)));
 }
+pub fn local_reset() {
+    local_reset_own();
+    peer(COUNT_LOCAL_RESET);
+}
 /// Peak bytes live above the `local_reset` baseline on this thread.
-pub fn local_peak_bytes() -> i64 { LOCAL.with(|local| local.get().1) }
-pub fn local_alloc_count() -> u64 { LOCAL.with(|local| local.get().2) }
+/// (With a peer: the sum of both copies' peaks, an upper bound of the process's.)
+pub fn local_peak_bytes() -> i64 { LOCAL.with(|local| local.get().1) + peer(COUNT_LOCAL_PEAK) as i64 }
+pub fn local_alloc_count() -> u64 { LOCAL.with(|local| local.get().2) + peer(COUNT_LOCAL_ALLOCS) }
 
 fn add_live(size: usize) {
     note_local(size as i64, 1);
@@ -105,11 +136,11 @@ unsafe impl GlobalAlloc for CountingAllocator {
     }
 }
 
-pub fn alloc_count() -> u64 { ALLOCS.load(Ordering::Relaxed) }
-pub fn alloc_bytes_total() -> u64 { TOTAL.load(Ordering::Relaxed) }
+pub fn alloc_count() -> u64 { ALLOCS.load(Ordering::Relaxed) + peer(COUNT_ALLOCS) }
+pub fn alloc_bytes_total() -> u64 { TOTAL.load(Ordering::Relaxed) + peer(COUNT_BYTES) }
 
 pub fn allocated_bytes() -> u64 {
-    LIVE.load(Ordering::Relaxed)
+    LIVE.load(Ordering::Relaxed) + peer(COUNT_LIVE)
 }
 
 pub fn peak_allocated_bytes() -> u64 {
