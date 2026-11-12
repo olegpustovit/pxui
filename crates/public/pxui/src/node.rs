@@ -19,17 +19,18 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn node(&mut self,label:&str,node:Node)->PxuiBox {
-        let mut out=PxuiBox::default();
-        check(self,unsafe{sys::pxui_ui_node(self.0.as_ptr(),crate::as_str(label),&node,&mut out)});
-        out
+        // written by the library whenever it returns 0; `check` does not return otherwise
+        let mut out=core::mem::MaybeUninit::<PxuiBox>::uninit();
+        check(self,unsafe{sys::pxui_ui_node(self.0.as_ptr(),crate::as_str(label),&node,out.as_mut_ptr())});
+        unsafe { out.assume_init() }
     }
 
     /// Declares a node using an explicit key in the current parent scope.
     #[inline]
     #[track_caller]
     pub fn node_keyed(&mut self,key:i64,node:Node)->PxuiBox {
-        let mut out=PxuiBox::default();
-        check(self,unsafe{sys::pxui_ui_node_keyed(self.0.as_ptr(),key,&node,&mut out)});
-        out
+        let mut out=core::mem::MaybeUninit::<PxuiBox>::uninit();
+        check(self,unsafe{sys::pxui_ui_node_keyed(self.0.as_ptr(),key,&node,out.as_mut_ptr())});
+        unsafe { out.assume_init() }
     }
 }

@@ -94,6 +94,17 @@ pub struct Bar {
 pub struct Node {
     /// `size_of::<Node>()` (what `DEFAULT` holds): the library refuses a shorter record, so the struct can grow
     pub size: u32,
+    // the byte-sized fields and `z`, back to back after `size`: the library tests the first 16 bytes of a node as two words
+    pub axis: Axis,
+    pub justify: Justify,
+    pub align: Align,
+    pub wrap: bool,
+    /// what the node is to a screen reader (`Unknown`: not in the accessibility tree); `a11y` holds the states
+    /// its widget declares (`a11y::state` bits: CHECKABLE, CHECKED, EXPANDABLE, EXPANDED, EDITABLE,
+    /// MULTILINE, SELECTED, MODAL); focus, press, enabled and visibility come from the engine
+    pub role: Role,
+    pub state: State,
+    pub z: i16,
     pub flags: Flags,
     pub w: Size,
     pub h: Size,
@@ -104,23 +115,14 @@ pub struct Node {
     pub grow: f32,
     pub shrink: f32,
     pub aspect: f32,
-    pub axis: Axis,
     pub padding: Edges,
     pub margin: Edges,
     pub gap: f32,
     pub row_gap: f32,
-    pub justify: Justify,
-    pub align: Align,
-    pub align_self: OptAlign,
-    pub wrap: bool,
     pub grid: OptGrid,
     pub cell: Cell,
-    pub z: i16,
+    pub align_self: OptAlign,
     pub anchor: OptAnchor,
-    /// what the node is to a screen reader (`Unknown`: not in the accessibility tree) and the states
-    /// its widget declares (`a11y::state` bits: CHECKABLE, CHECKED, EXPANDABLE, EXPANDED, EDITABLE,
-    /// MULTILINE, SELECTED, MODAL); focus, press, enabled and visibility come from the engine
-    pub role: Role,
     pub a11y: u32,
     pub at: OptPoint,
     pub scroll_step: f32,
@@ -128,7 +130,6 @@ pub struct Node {
     pub inset: Edges,
     pub mark: Mark,
     pub bar: OptBar,
-    pub state: State,
     /// the transition `set_look` picked for a change of state, started when the node is painted
     pub transition: OptCurve,
 }

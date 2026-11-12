@@ -152,10 +152,14 @@ pub(crate) unsafe fn get<'a>(ui: *mut PxuiUi) -> Option<&'a mut PxuiUi> {
     if ui.is_null() { None } else { Some(unsafe { &mut *ui }) }
 }
 
-/// Records `message` as the last error and returns `PXUI_ERR_ARGUMENT`.
+/// Records `message` as the last error and returns `PXUI_ERR_ARGUMENT`. Out of line, as `fail_code`: an export's checks stay a branch each.
+#[cold]
+#[inline(never)]
 pub(crate) unsafe fn fail(ui: *mut PxuiUi, message: &str) -> i32 { unsafe { fail_code(ui, message, PXUI_ERR_ARGUMENT) } }
 
 /// Records `message` as the last error and returns `code`.
+#[cold]
+#[inline(never)]
 pub(crate) unsafe fn fail_code(ui: *mut PxuiUi, message: &str, code: i32) -> i32 {
     if let Some(ui) = unsafe { get(ui) } {
         let error = &mut ui.shared().error;
@@ -166,17 +170,34 @@ pub(crate) unsafe fn fail_code(ui: *mut PxuiUi, message: &str, code: i32) -> i32
 }
 
 /// UTF-8 text from ptr+len. NUL is ordinary text.
-#[inline]
+#[inline(always)]
 pub(crate) unsafe fn text(value: Str) -> Option<&'static str> {
     if value.len == 0 { return Some(""); }
     if value.ptr.is_null() { return None; }
     let bytes: &'static [u8] = unsafe { std::slice::from_raw_parts(value.ptr, value.len) };
     // most labels are ASCII: checked inline, the answer in a register; anything else takes the full check
-    if bytes.is_ascii() { Some(unsafe { std::str::from_utf8_unchecked(bytes) }) } else { std::str::from_utf8(bytes).ok() }
+    if ascii(bytes) { Some(unsafe { std::str::from_utf8_unchecked(bytes) }) } else { std::str::from_utf8(bytes).ok() }
 }
 
+/// Whether `bytes` are ASCII. Up to 16 of them (a label) are two loads that may overlap, not a loop; longer ones `is_ascii`.
+#[inline(always)]
+pub(crate) fn ascii(bytes: &[u8]) -> bool {
+    let (n, p) = (bytes.len(), bytes.as_ptr());
+    let word = |at: usize| unsafe { p.add(at).cast::<u64>().read_unaligned() };
+    let half = |at: usize| unsafe { p.add(at).cast::<u32>().read_unaligned() };
+    if n >= 8 { if n <= 16 { (word(0) | word(n - 8)) & 0x8080_8080_8080_8080 == 0 } else { bytes.is_ascii() } }
+    else if n >= 4 { (half(0) | half(n - 4)) & 0x8080_8080 == 0 }
+    // one to three bytes: the first, the middle and the last are all of them
+    else { n == 0 || unsafe { *p | *p.add(n / 2) | *p.add(n - 1) } & 0x80 == 0 }
+}
+
+/// `value` as the pair C hands over. An export passes its checked text on this way, not the caller's pair again, so nothing is
+/// kept in a register across the UTF-8 check.
+#[inline(always)]
+pub(crate) fn pair(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
+
 /// `text` limited to `MAX_TEXT_BYTES`.
-#[inline]
+#[inline(always)]
 pub(crate) unsafe fn checked(value: Str) -> Option<&'static str> {
     if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
 }

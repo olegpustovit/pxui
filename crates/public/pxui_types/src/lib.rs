@@ -398,12 +398,12 @@ mod abi_layout {
         assert_layout("PxuiState", size_of::<State>(), align_of::<State>(), &[offset_of!(State, hovered), offset_of!(State, pressed), offset_of!(State, focused), offset_of!(State, disabled), offset_of!(State, checked)]);
         assert_layout("PxuiBar", size_of::<Bar>(), align_of::<Bar>(), &[offset_of!(Bar, color), offset_of!(Bar, radius), offset_of!(Bar, width), offset_of!(Bar, gap), offset_of!(Bar, margin), offset_of!(Bar, whole)]);
         assert_layout("PxuiNode", size_of::<Node>(), align_of::<Node>(), &[
-            offset_of!(Node, size), offset_of!(Node, flags), offset_of!(Node, w), offset_of!(Node, h), offset_of!(Node, min_w), offset_of!(Node, min_h), offset_of!(Node, max_w),
-            offset_of!(Node, max_h), offset_of!(Node, grow), offset_of!(Node, shrink), offset_of!(Node, aspect), offset_of!(Node, axis), offset_of!(Node, padding),
-            offset_of!(Node, margin), offset_of!(Node, gap), offset_of!(Node, row_gap), offset_of!(Node, justify), offset_of!(Node, align), offset_of!(Node, align_self),
-            offset_of!(Node, wrap), offset_of!(Node, grid), offset_of!(Node, cell), offset_of!(Node, z), offset_of!(Node, anchor), offset_of!(Node, role),
-            offset_of!(Node, a11y), offset_of!(Node, at), offset_of!(Node, scroll_step), offset_of!(Node, look), offset_of!(Node, inset), offset_of!(Node, mark),
-            offset_of!(Node, bar), offset_of!(Node, state), offset_of!(Node, transition),
+            offset_of!(Node, size), offset_of!(Node, axis), offset_of!(Node, justify), offset_of!(Node, align), offset_of!(Node, wrap), offset_of!(Node, role),
+            offset_of!(Node, state), offset_of!(Node, z), offset_of!(Node, flags), offset_of!(Node, w), offset_of!(Node, h), offset_of!(Node, min_w),
+            offset_of!(Node, min_h), offset_of!(Node, max_w), offset_of!(Node, max_h), offset_of!(Node, grow), offset_of!(Node, shrink), offset_of!(Node, aspect),
+            offset_of!(Node, padding), offset_of!(Node, margin), offset_of!(Node, gap), offset_of!(Node, row_gap), offset_of!(Node, grid), offset_of!(Node, cell),
+            offset_of!(Node, align_self), offset_of!(Node, anchor), offset_of!(Node, a11y), offset_of!(Node, at), offset_of!(Node, scroll_step), offset_of!(Node, look),
+            offset_of!(Node, inset), offset_of!(Node, mark), offset_of!(Node, bar), offset_of!(Node, transition),
         ]);
         assert_layout("PxuiMotion", size_of::<Motion>(), align_of::<Motion>(), &[offset_of!(Motion, fast), offset_of!(Motion, normal), offset_of!(Motion, slow), offset_of!(Motion, ease)]);
         assert_layout("PxuiTokens", size_of::<Tokens>(), align_of::<Tokens>(), &[

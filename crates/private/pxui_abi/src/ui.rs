@@ -1,6 +1,6 @@
 //! The `Ui` lifecycle, the two frame entry points, theme and platform calls, and the first widgets.
 use crate::trusted;
-use crate::state::{Build, Inner, PxuiUi, Shared, boxed, call_inner, checked, fail, fail_code, get, text};
+use crate::state::{Build, Inner, PxuiUi, Shared, boxed, call_inner, checked, fail, fail_code, get, pair, text};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiUiDesc, Str};
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
@@ -420,27 +420,27 @@ export!(trusted pub unsafe fn pxui_panel(ui: *mut PxuiUi, panel: *const PxuiPane
 
 export!(trusted pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if unsafe { checked(label) }.is_none() { return unsafe { fail(ui, "invalid label text") }; }
-    unsafe { trusted::pxui_label(ui, label) }
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid label text") } };
+    unsafe { trusted::pxui_label(ui, pair(label)) }
 });
 
 export!(trusted pub unsafe fn pxui_button(ui: *mut PxuiUi, label: Str, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if unsafe { checked(label) }.is_none() || out.is_null() { return unsafe { fail(ui, "invalid button arguments") }; }
-    unsafe { trusted::pxui_button(ui, label, out) }
+    let (Some(label), false) = (unsafe { checked(label) }, out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") } };
+    unsafe { trusted::pxui_button(ui, pair(label), out) }
 });
 
 export!(trusted pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if unsafe { checked(label) }.is_none() || out.is_null() || on > 1 { return unsafe { fail(ui, "invalid toggle arguments") }; }
-    unsafe { trusted::pxui_toggle(ui, label, on, out) }
+    let (Some(label), false) = (unsafe { checked(label) }, out.is_null() || on > 1) else { return unsafe { fail(ui, "invalid toggle arguments") } };
+    unsafe { trusted::pxui_toggle(ui, pair(label), on, out) }
 });
 
 export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field output") }; }
-    if unsafe { checked(label) }.is_none() || unsafe { checked(value) }.is_none() { return unsafe { fail(ui, "invalid text field arguments") }; }
-    unsafe { trusted::pxui_text_field(ui, label, value, changed, out_changed) }
+    let (Some(label), Some(value)) = (unsafe { checked(label) }, unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid text field arguments") } };
+    unsafe { trusted::pxui_text_field(ui, pair(label), pair(value), changed, out_changed) }
 });
 
 #[cfg(test)]

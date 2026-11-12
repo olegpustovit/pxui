@@ -91,10 +91,11 @@ typedef struct {
 typedef struct { uint8_t hovered,pressed,focused,disabled,checked; } PxuiState;
 typedef struct {
     uint32_t size; /* sizeof(PxuiNode) */
-    int64_t flags; PxuiSize w,h; float min_w,min_h,max_w,max_h,grow,shrink,aspect; uint8_t axis; PxuiEdges padding,margin;
-    float gap,row_gap; uint8_t justify,align; PxuiOptAlign align_self; uint8_t wrap; PxuiOptGrid grid; PxuiCell cell; int16_t z;
-    PxuiOptAnchor anchor; uint8_t role; uint32_t a11y; PxuiOptPoint at; float scroll_step; PxuiLook look; PxuiEdges inset;
-    PxuiMark mark; PxuiOptBar bar; PxuiState state; PxuiOptCurve transition;
+    uint8_t axis,justify,align,wrap,role; PxuiState state; int16_t z; /* the first 16 bytes are tested as two words */
+    int64_t flags; PxuiSize w,h; float min_w,min_h,max_w,max_h,grow,shrink,aspect; PxuiEdges padding,margin;
+    float gap,row_gap; PxuiOptGrid grid; PxuiCell cell; PxuiOptAlign align_self;
+    PxuiOptAnchor anchor; uint32_t a11y; PxuiOptPoint at; float scroll_step; PxuiLook look; PxuiEdges inset;
+    PxuiMark mark; PxuiOptBar bar; PxuiOptCurve transition;
 } PxuiNode;
 typedef struct {
     PxuiColor panel,foreground,control,input,track,accent,invalid; PxuiOptColor ink_ground; float space[4],radius[3];
@@ -107,7 +108,7 @@ typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float 
 #if defined(__LP64__) || defined(_WIN64)
 _Static_assert(sizeof(PxuiSize) == 16 && sizeof(PxuiGrid) == 32 && sizeof(PxuiOptGrid) == 40, "PxuiSize/PxuiGrid layout");
 _Static_assert(sizeof(PxuiLook) == 160 && offsetof(PxuiLook, dashed) == 152, "PxuiLook layout");
-_Static_assert(sizeof(PxuiNode) == 496 && offsetof(PxuiNode, look) == 240 && offsetof(PxuiNode, transition) == 464, "PxuiNode layout");
+_Static_assert(sizeof(PxuiNode) == 488 && offsetof(PxuiNode, flags) == 16 && offsetof(PxuiNode, look) == 240 && offsetof(PxuiNode, transition) == 456, "PxuiNode layout");
 _Static_assert(sizeof(PxuiTokens) == 136 && sizeof(PxuiThemeSnapshot) == 56808, "PxuiThemeSnapshot layout");
 #endif
 enum PxuiSizeKind { PXUI_SIZE_PX=0, PXUI_SIZE_PCT=1, PXUI_SIZE_REL=2, PXUI_SIZE_GROW=3, PXUI_SIZE_FIT=4 };

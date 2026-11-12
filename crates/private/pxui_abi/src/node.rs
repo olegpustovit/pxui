@@ -22,6 +22,7 @@ unsafe fn byte(p: *const u8, at: usize) -> u8 { unsafe { p.add(at).read() } }
 /// Where the value of a C-layout enum (tag then a union of its variants) starts: the tag rounded up to the enum's alignment.
 const fn payload(tag: usize, align: usize) -> usize { tag.div_ceil(align) * align }
 /// Whether the `Size` at `at` has a known tag, a finite length and, for `Rel`, a function.
+#[inline(always)]
 unsafe fn size_ok(p: *const u8, at: usize) -> bool {
     let value = at + payload(4, align_of::<Size>());
     match unsafe { p.add(at).cast::<u32>().read_unaligned() } {
@@ -32,38 +33,71 @@ unsafe fn size_ok(p: *const u8, at: usize) -> bool {
     }
 }
 /// Whether the `Mark` at `at` is a known one.
+#[inline(always)]
 pub(crate) unsafe fn mark_ok(p: *const u8, at: usize) -> bool {
     let value = at + payload(1, align_of::<Mark>());
     match unsafe { byte(p, at) } { 0 => true, 1 => (unsafe { byte(p, value) }) <= Dir::Right as u8, 2 => (unsafe { byte(p, value + size_of::<f32>()) }) <= 1, _ => false }
 }
 /// The always-present tag and flag bytes of a node with the largest value each may hold. The node's own C layout: an enum is a
-/// byte, an optional field a byte tag (0 none, 1 some) before its value.
+/// byte, an optional field a byte tag (0 none, 1 some) before its value. The first ten are the byte fields `Node` keeps in its
+/// first 16 bytes (after `size`, before `z`), tested as two words.
 const NODE_BYTES: [(usize, u8); 22] = [
     (offset_of!(Node, axis), Axis::Stack as u8), (offset_of!(Node, justify), Justify::SpaceEvenly as u8), (offset_of!(Node, align), Align::Baseline as u8),
-    (offset_of!(Node, align_self), 1), (offset_of!(Node, wrap), 1), (offset_of!(Node, grid), 1), (offset_of!(Node, anchor), 1),
-    (offset_of!(Node, role), Role::Separator as u8), (offset_of!(Node, at), 1), (offset_of!(Node, look.gradient), 1),
+    (offset_of!(Node, wrap), 1), (offset_of!(Node, role), Role::Separator as u8), (offset_of!(Node, state.hovered), 1), (offset_of!(Node, state.pressed), 1),
+    (offset_of!(Node, state.focused), 1), (offset_of!(Node, state.disabled), 1), (offset_of!(Node, state.checked), 1),
+    (offset_of!(Node, align_self), 1), (offset_of!(Node, grid), 1), (offset_of!(Node, anchor), 1), (offset_of!(Node, at), 1), (offset_of!(Node, look.gradient), 1),
     (offset_of!(Node, look.shadows) + offset_of!(Shadow, inner), 1), (offset_of!(Node, look.shadows) + size_of::<Shadow>() + offset_of!(Shadow, inner), 1),
     (offset_of!(Node, look.font.caps), 1), (offset_of!(Node, look.dashed), 1), (offset_of!(Node, mark), 2), (offset_of!(Node, bar), 1),
-    (offset_of!(Node, state.hovered), 1), (offset_of!(Node, state.pressed), 1), (offset_of!(Node, state.focused), 1), (offset_of!(Node, state.disabled), 1),
-    (offset_of!(Node, state.checked), 1), (offset_of!(Node, transition), 1),
+    (offset_of!(Node, transition), 1),
 ];
+/// How many of `NODE_BYTES` lie in the first 16 bytes, which hold nothing else but `size` and `z` (every byte is written).
+const HEAD: usize = 10;
+const _: () = assert!(offset_of!(Node, z) == 14 && offset_of!(Node, flags) == 16 && NODE_BYTES[HEAD - 1].0 < 14 && NODE_BYTES[HEAD].0 >= 16);
+/// The first 16 bytes' test, as two words (see `over`): per byte, 0x7f minus its largest value and 0x80 where a byte is checked,
+/// 0 and 0 where any value goes (`size`, `z`).
+static HEAD_TEST: [u64; 4] = {
+    let (mut room, mut mask, mut i) = ([0u64; 2], [0u64; 2], 0);
+    while i < HEAD {
+        let (at, max) = NODE_BYTES[i];
+        room[at / 8] |= ((0x7f - max) as u64) << (8 * (at % 8));
+        mask[at / 8] |= 0x80 << (8 * (at % 8));
+        i += 1;
+    }
+    [room[0], mask[0], room[1], mask[1]]
+};
+
+/// Nonzero when a checked byte of `word` is over its largest value: its low seven bits plus the room above that value carry into
+/// its top bit, and a byte whose top bit is set is over in any case. No carry crosses into the next byte (127 + 127 < 256).
+#[inline(always)]
+fn over(word: u64, room: u64, mask: u64) -> u64 { (((word & 0x7f7f_7f7f_7f7f_7f7f) + room) | word) & mask }
 
 /// Whether the record behind `p` is a `Node` as C may write one: long enough, every enum tag known, every flag 0 or 1, sizes
 /// finite. Floats are otherwise taken as they are (the engine tolerates any), and a grid's tracks are checked where they are copied.
-/// The fixed bytes are checked together without branching; a value behind a tag is read only when the tag says it is there.
+/// No branch per byte: the first 16 bytes are tested as two words, the scattered flags are or-ed and compared once; a value behind
+/// a tag is read only when the tag says it is there.
+#[inline(always)]
 unsafe fn node_ok(p: *const Node) -> bool {
     let p = p.cast::<u8>();
-    let over = NODE_BYTES.iter().fold(false, |over, &(at, max)| over | (unsafe { byte(p, at) } > max));
-    if over || (unsafe { p.cast::<u32>().read_unaligned() } as usize) < size_of::<Node>() || !unsafe { size_ok(p, offset_of!(Node, w)) && size_ok(p, offset_of!(Node, h)) } { return false; }
+    let word = |at: usize| u64::from_le_bytes(unsafe { p.add(at).cast::<[u8; 8]>().read_unaligned() });
+    let (first, second) = (word(0), word(8));
+    // the constants from memory, two pair loads (volatile, or they are folded back in and built with eight instructions)
+    let [room0, mask0, room1, mask1] = unsafe { core::ptr::read_volatile(&HEAD_TEST) };
+    let mut flags = 0u8;
+    for &(at, max) in NODE_BYTES[HEAD..].iter() { if max == 1 { flags |= unsafe { byte(p, at) } } }
+    if over(first, room0, mask0) | over(second, room1, mask1) != 0 || flags > 1 || unsafe { byte(p, offset_of!(Node, mark)) } > 2 || (first as u32 as usize) < size_of::<Node>()
+        || !unsafe { size_ok(p, offset_of!(Node, w)) && size_ok(p, offset_of!(Node, h)) } { return false; }
+    let tag = |at: usize| unsafe { byte(p, at) };
+    // the common node sets none of the optional values whose contents are checked: one branch
+    if tag(offset_of!(Node, align_self)) | tag(offset_of!(Node, anchor)) | tag(offset_of!(Node, mark)) | tag(offset_of!(Node, bar)) | tag(offset_of!(Node, transition)) == 0 { return true; }
     let value = |at: usize, align: usize| at + payload(1, align);
-    let tag = |at: usize| unsafe { byte(p, at) } == 1;
+    let set = |at: usize| tag(at) == 1;
     let anchor = value(offset_of!(Node, anchor), align_of::<OptAnchor>());
-    !(tag(offset_of!(Node, align_self)) && unsafe { byte(p, value(offset_of!(Node, align_self), align_of::<OptAlign>())) } > Align::Baseline as u8)
-        && !(tag(offset_of!(Node, anchor)) && unsafe { byte(p, anchor + offset_of!(Anchor, placement.side)) > Side::Left as u8
+    !(set(offset_of!(Node, align_self)) && unsafe { byte(p, value(offset_of!(Node, align_self), align_of::<OptAlign>())) } > Align::Baseline as u8)
+        && !(set(offset_of!(Node, anchor)) && unsafe { byte(p, anchor + offset_of!(Anchor, placement.side)) > Side::Left as u8
             || byte(p, anchor + offset_of!(Anchor, placement.align)) > Align::Baseline as u8 || byte(p, anchor + offset_of!(Anchor, placement.flip)) > 1 })
         && unsafe { mark_ok(p, offset_of!(Node, mark)) }
-        && !(tag(offset_of!(Node, bar)) && unsafe { byte(p, value(offset_of!(Node, bar), align_of::<OptBar>()) + offset_of!(Bar, whole)) } > 1)
-        && !(tag(offset_of!(Node, transition)) && unsafe { byte(p, value(offset_of!(Node, transition), align_of::<OptCurve>())) } > 1)
+        && !(set(offset_of!(Node, bar)) && unsafe { byte(p, value(offset_of!(Node, bar), align_of::<OptBar>()) + offset_of!(Bar, whole)) } > 1)
+        && !(set(offset_of!(Node, transition)) && unsafe { byte(p, value(offset_of!(Node, transition), align_of::<OptCurve>())) } > 1)
 }
 
 /// The checked tracks a C grid points at, into `out`: None when a list is longer than `MAX_TRACKS`, null with a length, or holds
@@ -81,7 +115,7 @@ unsafe fn tracks(ptr: *const Track, len: usize, out: &mut [Track]) -> Option<usi
 /// Declares `desc` as it is. A Rust node's grid borrows tracks that live as long as the program (`Grid::new` takes `'static`
 /// slices), so the engine keeps its pointers; a C node's grid reaches here only as the library's own copy (`grid_node`). The handle
 /// goes to `out` field by field: no wide copy of what the engine has just stored.
-#[inline]
+#[inline(always)]
 pub(crate) fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Node, out: &mut PxuiBox) {
     let b = match label { Some(label) => engine.node_ref(label, desc), None => engine.node_keyed_ref(key, desc) };
     (out.index, out.box_key, out.box_slot, out.generation) = (b.index as u64, b.box_key, b.box_slot as u64, b.generation);
@@ -91,7 +125,7 @@ pub(crate) fn declare(engine: &mut Ui, label: Option<&str>, key: i64, desc: &Nod
 /// shared, so a settled frame allocates nothing), and the node pointing at that copy goes through the trusted entry.
 #[cold]
 #[inline(never)]
-unsafe fn grid_node(ui: *mut PxuiUi, label: Option<pxui_types::Str>, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
+unsafe fn grid_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
     let OptGrid::Some(grid) = desc.grid else { return unsafe { fail(ui, "invalid grid tracks") } };
     let (cols, cols_len, rows, rows_len) = grid.raw();
     let mut buffer = [Track::Fit; 2 * MAX_TRACKS];
@@ -102,7 +136,7 @@ unsafe fn grid_node(ui: *mut PxuiUi, label: Option<pxui_types::Str>, key: i64, d
     // the engine's Grid borrows 'static tracks: these live in `shared` until the box is gone (see `finish_frame`)
     let all: &'static [Track] = unsafe { core::mem::transmute::<&[Track], &'static [Track]>(&stored[..]) };
     let node = Node { grid: OptGrid::Some(Grid::new(&all[..split], &all[split..])), ..*desc };
-    let rc = match label { Some(label) => unsafe { crate::trusted::pxui_ui_node(ui, label, &node, out) }, None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) } };
+    let rc = match label { Some(label) => unsafe { crate::trusted::pxui_ui_node(ui, crate::state::pair(label), &node, out) }, None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) } };
     let shared = unsafe { (*ui).shared() };
     let key = unsafe { (*out).box_key };
     if rc == 0 && !shared.grid_tracks.get(&key).is_some_and(|kept| Rc::ptr_eq(kept, &stored)) {
@@ -112,6 +146,7 @@ unsafe fn grid_node(ui: *mut PxuiUi, label: Option<pxui_types::Str>, key: i64, d
 }
 
 /// The node behind `desc` when it is one (see `node_ok`), borrowed for the call.
+#[inline(always)]
 unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
     if desc.is_null() || !unsafe { node_ok(desc) } { None } else { Some(unsafe { &*desc }) }
 }
@@ -119,10 +154,10 @@ unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
 export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,desc:*const Node,out:*mut PxuiBox)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null node argument")};}
-    if unsafe{text(label)}.is_none(){return unsafe{fail(ui,"invalid node label")};}
+    let Some(label)=(unsafe{text(label)}) else{return unsafe{fail(ui,"invalid node label")};};
     let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{fail(ui,"invalid node")};};
     if desc.grid.is_some() { return unsafe{grid_node(ui,Some(label),0,desc,out)}; }
-    unsafe{crate::trusted::pxui_ui_node(ui,label,desc,out)}
+    unsafe{crate::trusted::pxui_ui_node(ui,crate::state::pair(label),desc,out)}
 });
 
 export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const Node,out:*mut PxuiBox)->i32 {
@@ -156,9 +191,9 @@ export!(trusted pub unsafe fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut
 export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:pxui_types::Str)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null(){return unsafe{fail(ui,"null text box")};}
-    if unsafe{text(value)}.is_none(){return unsafe{fail(ui,"invalid text")};}
+    let Some(value)=(unsafe{text(value)}) else{return unsafe{fail(ui,"invalid text")};};
     if core_box(unsafe{*box_}).is_none(){return unsafe{fail(ui,"invalid text box")};}
-    unsafe{crate::trusted::pxui_ui_text(ui,box_,value)}
+    unsafe{crate::trusted::pxui_ui_text(ui,box_,crate::state::pair(value))}
 });
 
 #[cfg(test)]
@@ -190,7 +225,8 @@ mod tests {
         assert_eq!(place(&raw(full)), 0);
         assert_eq!(place(&raw(Node { mark: Mark::Chevron(Dir::Right), ..full })), 0);
         let mut refused = Vec::new();
-        for &(at, max) in NODE_BYTES.iter() { let mut bad = raw(full); bad.0[at] = max + 1; refused.push(bad); }
+        // one past the largest value, and a byte with its top bit set (the first 16 bytes are tested as words, see `over`)
+        for &(at, max) in NODE_BYTES.iter() { for byte in [max + 1, 0x80, 0xff] { let mut bad = raw(full); bad.0[at] = byte; refused.push(bad); } }
         let value = |at: usize, align: usize| at + payload(1, align);
         let anchor = value(offset_of!(Node, anchor), align_of::<OptAnchor>());
         for (at, byte) in [
