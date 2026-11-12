@@ -774,7 +774,7 @@ impl Ui {
         let state = State { hovered: s.hovered, pressed: s.held, ..State::default() };
         self.a11y_name(&b, shown(label));
         let config = IconButtonConfig { state, look: *states.pick(state), node: b };
-        in_body!(self, b.box_key, b, icon_button, default_icon_button(&config, label, icon));
+        in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, label, icon));
         s.clicked
     }
 
@@ -784,7 +784,7 @@ impl Ui {
         let n = self.node(label, Node { role: Role::Label, ..Node::DEFAULT });
         self.a11y_name(&n, shown(label));
         self.a11y_value(&n, text, (0, 0));
-        in_body!(self, n.box_key, n, badge, default_badge(&BadgeConfig { node: n }, label, text));
+        in_body!(flat; self, n.box_key, n, badge, default_badge(&BadgeConfig { node: n }, label, text));
         n
     }
 
@@ -968,7 +968,7 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
 /// The built-in spinner: 16 points square, eight 3-point dots round a circle, the lead dot in the accent.
 fn default_spinner(this: &mut Ui, c: &SpinnerConfig, _label: &str) {
     let (dim, lead) = (this.theme().spinner.idle, this.theme().spinner.checked);
-    let n = this.node_mut(&c.node);
+    let n = this.node_new(&c.node);
     (n.w, n.h) = (Size::Px(16.0), Size::Px(16.0));
     for i in 0..8 {
         let a = i as f32 * std::f32::consts::TAU / 8.0;
@@ -981,7 +981,7 @@ fn default_spinner(this: &mut Ui, c: &SpinnerConfig, _label: &str) {
 fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
     let look = this.theme().badge.idle;
     let w = this.text_width(Some(look.font.points(this.font_size())), text) + 8.0;
-    let n = this.node_mut(&c.node);
+    let n = this.node_new(&c.node);
     (n.w, n.h, n.look, n.inset) = (Size::Px(w), Size::Px(16.0), look, Edges { l: 4.0, ..Edges::ZERO });
     this.text(&c.node, text);
 }
@@ -990,10 +990,10 @@ fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
 fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, _label: &str, icon: &str) {
     let ch = this.control_h();
     let tw = this.text_width(None, icon);
-    let n = this.node_mut(&c.node);
+    let n = this.node_new(&c.node);
     (n.w, n.h) = (Size::Px(ch), Size::Px(ch));
     this.set_look(&c.node, c.look, c.state);
-    let n = this.node_mut(&c.node);
+    let n = this.node_new(&c.node);
     n.look.ring = Ring::NONE;
     n.inset = Edges { l: ((ch - tw) / 2.0).floor(), ..Edges::ZERO };
     this.text(&c.node, icon);

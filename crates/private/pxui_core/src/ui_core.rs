@@ -2900,6 +2900,11 @@ impl Ui {
         &mut self.slots[b.box_slot].node
     }
 
+    /// `node_mut` of a handle this frame's build has just made, as a default body holds it: no liveness check.
+    pub(crate) fn node_new(&mut self, b: &Handle) -> &mut Node {
+        &mut self.slots[b.box_slot].node
+    }
+
     /// `set_look` with the look `states` picks for `state`.
     pub fn style(&mut self, b: &Handle, states: &States, state: State) {
         self.set_look(b, *states.pick(state), state);

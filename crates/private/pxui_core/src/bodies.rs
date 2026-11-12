@@ -156,8 +156,24 @@ macro_rules! body_call {
 }
 pub(crate) use body_call;
 
-/// Make `$key` the widget whose parts `Ui::part` keys, enter `$node`, run kind `$kind`'s body and restore both.
+/// Make `$key` the widget whose parts `Ui::part` keys, enter `$node`, run kind `$kind`'s body and restore both. With `flat` the
+/// built-in body (which builds no parts and no children, so needs neither) is called as it is.
 macro_rules! in_body {
+    (flat; $ui:ident, $key:expr, $node:expr, $kind:ident, $default:ident($($arg:expr),*)) => {
+        match $ui.theme().body.$kind {
+            BodyId(0) => $default($ui, $($arg),*),
+            id => match $ui.bodies.$kind.get((id.0 as usize).wrapping_sub(1)).copied() {
+                Some(body) => {
+                    let owner = core::mem::replace(&mut $ui.part_owner, $key);
+                    let saved = $ui.enter(&$node);
+                    body($ui, $($arg),*);
+                    $ui.leave(saved);
+                    $ui.part_owner = owner;
+                }
+                None => $default($ui, $($arg),*),
+            },
+        }
+    };
     ($ui:ident, $key:expr, $node:expr, $kind:ident, $default:ident($($arg:expr),*)) => {{
         let owner = core::mem::replace(&mut $ui.part_owner, $key);
         let saved = $ui.enter(&$node);

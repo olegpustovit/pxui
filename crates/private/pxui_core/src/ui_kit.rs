@@ -30,16 +30,16 @@ fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
     let (look, track, knob) = (*t.toggle.pick(c.state), *t.switch.pick(on), *t.knob.pick(on));
     this.set_look(&c.row, look, c.state);
     // the switch's end is `space(2)` from the row's end at any density
-    this.node_mut(&c.row).inset = Edges { l: this.space(2), ..Edges::default() };
+    this.node_new(&c.row).inset = Edges { l: this.space(2), ..Edges::default() };
     this.text(&c.row, shown(label));
     let top = ((this.row_height() - 14) / 2) as f32;
     this.end_row(&c.row, this.space(2));
     let s = this.part(Part::HIT, Node { w: Size::Px(28.0), h: Size::Px(14.0), margin: Edges { t: top, ..Edges::ZERO }, look: track, ..Node::DEFAULT });
     this.text(&s, "");
-    this.node_mut(&s).state = on;
+    this.node_new(&s).state = on;
     let inner = this.enter(&s);
     let k = this.placed(int_key(c.row.box_key, 1), (if c.on { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
-    this.node_mut(&k).state = on;
+    this.node_new(&k).state = on;
     this.leave(inner);
 }
 
@@ -51,12 +51,12 @@ fn default_button(this: &mut Ui, c: &ButtonConfig, text: &str) {
     let rh = this.row_height() as f32;
     let width = if c.icon { control_h } else { measure + if c.bare { 10.0 } else { 14.0 } };
     let pad = (rh - control_h) / 2.0;
-    let line = this.node_mut(&c.line);
+    let line = this.node_new(&c.line);
     line.h = Size::Px(rh);
     line.axis = Axis::Row;
     line.justify = if c.at_end { Justify::End } else { Justify::Start };
     line.padding = Edges { l: 5.0, t: pad, r: if c.at_end { 8.0 } else { 5.0 }, b: pad };
-    let row = this.node_mut(&c.row);
+    let row = this.node_new(&c.row);
     (row.w, row.shrink, row.min_w, row.h) = (Size::Px(width), 1.0, 1.0, Size::Grow);
     this.set_look(&c.row, c.look, c.state);
     let pad = if c.icon { ((width - measure) / 2.0).floor() } else if c.bare { 5.0 } else { 7.0 };
@@ -67,7 +67,7 @@ fn default_button(this: &mut Ui, c: &ButtonConfig, text: &str) {
         (true, "^") => Some(Dir::Up),
         _ => None,
     };
-    let n = this.node_mut(&c.row);
+    let n = this.node_new(&c.row);
     n.inset = Edges { l: pad, ..Edges::default() };
     match direction {
         Some(d) => n.mark = Mark::Chevron(d),
@@ -78,7 +78,7 @@ fn default_button(this: &mut Ui, c: &ButtonConfig, text: &str) {
 /// The built-in grip: a 1-point line (unless the caller placed it) in the separator look, the accent while held, taking presses
 /// 3 points either side of it on a part that is 6 points wider across.
 fn default_grip(this: &mut Ui, c: &GripConfig) {
-    let n = this.node_mut(&c.grip);
+    let n = this.node_new(&c.grip);
     if !c.floating {
         *(if c.vertical { &mut n.w } else { &mut n.h }) = Size::Px(1.0);
     }
@@ -96,7 +96,7 @@ fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
     let look = this.theme().label.idle;
     let h = gap + this.row_height() as f32;
     let inset = Edges { l: this.space(2), t: gap, r: 0.0, b: 0.0 };
-    let n = this.node_mut(&c.node);
+    let n = this.node_new(&c.node);
     (n.h, n.look, n.inset) = (Size::Px(h), look, inset);
     this.text(&c.node, shown(text));
 }
@@ -108,7 +108,7 @@ fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &
     let t = this.theme();
     let (rule, key, hint, label) = (t.footer.idle, t.key.idle, t.hint.idle, t.label.idle);
     // the hairline 4 points under what is above
-    let n = this.node_mut(&row);
+    let n = this.node_new(&row);
     (n.h, n.margin, n.look) = (Size::Px(1.0 + rh), Edges { t: 4.0, ..Edges::ZERO }, rule);
     let size = key.font.points(this.font_size());
     let mut pen = this.space(2);
@@ -781,7 +781,7 @@ impl Ui {
     pub fn label(&mut self, text: &str) {
         let first = self.last_child_of_parent() == NONE;
         let node = self.node(text, Node { role: Role::Label, ..Node::DEFAULT });
-        in_body!(self, node.box_key, node, label, default_label(&LabelConfig { node, first }, text));
+        in_body!(flat; self, node.box_key, node, label, default_label(&LabelConfig { node, first }, text));
     }
 
     /// A window's foot: a line-2 hairline under 4 points of space, then the keys in ink-3 each
@@ -830,7 +830,7 @@ impl Ui {
         let signal = self.signal(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused: self.focused(&row), ..State::default() };
         let config = ButtonConfig { state, look: *states.pick(state), bare, icon, at_end, line, row };
-        in_body!(self, key, row, button, default_button(&config, text));
+        in_body!(flat; self, key, row, button, default_button(&config, text));
         signal.clicked
     }
 
