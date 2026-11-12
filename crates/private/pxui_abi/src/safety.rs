@@ -191,11 +191,14 @@ fn only_the_innermost_callbacks_handle_may_be_used_while_a_frame_is_built() {
 #[test]
 fn the_current_handle_is_restored_when_a_callback_unwinds() {
     let ui = create();
+    // the callback panics on another thread (the gate allows no catch_unwind here); the state is plain data the thread reaches by address
     let shared = unsafe { (*ui).shared };
-    let guard = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    let address = shared as usize;
+    let guard = std::thread::spawn(move || {
+        let shared = address as *mut crate::state::Shared;
         let mut engine = pxui_core::ui::Ui::create(input::Platform::Other, None, pxui_core::text::Text::new(&[pxui_core::text::PRAGMASEVKA]));
         crate::state::call_inner(shared, &mut engine, &mut |_| panic!("callback"));
-    }));
+    }).join();
     assert!(guard.is_err());
     assert_eq!(unsafe { (*shared).current }, ui, "the owner is current again");
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
