@@ -325,6 +325,81 @@ pub fn styling_animate_keys() {
     ui.destroy();
 }
 
+/// Animated independent axes preserve the anchor, nested hit/accessible geometry and manual transforms.
+pub fn styling_animate_scale() {
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let (outer, button, flat, clicks) = (Cell::new(None), Cell::new(None), Cell::new(None), Cell::new(0));
+    let mut build = |ui: &mut Ui| {
+        let v = ui.view("outer", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
+            let inner = ui.view("inner", 1, Size::Px(50.0), Size::Px(40.0), &mut |ui| {
+                let b = ui.node("button", Node { flags: CLICKABLE, role: Role::Button, w: Size::Px(20.0), h: Size::Px(10.0), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                ui.a11y_name(&b, "Scaled");
+                if ui.signal(&b).clicked { clicks.set(clicks.get() + 1); }
+                button.set(Some(b));
+            });
+            ui.node_mut(&inner).at = Some((20.0, 10.0)).into();
+        });
+        ui.node_mut(&v).at = Some((60.0, 40.0)).into();
+        outer.set(Some(v));
+        flat.set(Some(ui.view_flat("flat", 1, Size::Px(1.0), Size::Px(1.0), &mut |_| {})));
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    let (outer, button, flat) = (outer.get().unwrap(), button.get().unwrap(), flat.get().unwrap());
+    let linear = Curve::Bezier { duration: 0.2, points: [0.0, 0.0, 1.0, 1.0] };
+    let instant = Curve::Steps { duration: 0.0, count: 1 };
+    let near = |a: Rect, b: Rect| [a.x - b.x, a.y - b.y, a.w - b.w, a.h - b.h].iter().all(|d| d.abs() < 0.002);
+    let shown = |ui: &Ui, expected: Rect| {
+        let actual = ui.rect(&button);
+        assert!(near(actual, expected), "rect {actual:?}, expected {expected:?}");
+        let tree = ui.output().a11y;
+        let accessible = tree.nodes.iter().find(|n| tree.str(n.name) == "Scaled").unwrap().rect;
+        assert!(near(accessible, expected), "accessible rect {accessible:?}, expected {expected:?}");
+        let out = ui.output();
+        let i = out.draw[0].instances.iter().find(|i| i.color[0] == 9).unwrap();
+        let e = out.views.iter().find(|(id, _)| *id == i.view).unwrap().1;
+        let map = |x: f32, y: f32| {
+            let (x, y) = (x + e.offset[0] - e.pivot[0], y + e.offset[1] - e.pivot[1]);
+            let [a, b, c, d] = e.transform;
+            (e.pivot[0] + e.scale * (a * x + b * y), e.pivot[1] + e.scale * (c * x + d * y))
+        };
+        let corners = [(i.rect[0], i.rect[1]), (i.rect[2], i.rect[1]), (i.rect[0], i.rect[3]), (i.rect[2], i.rect[3])].map(|(x, y)| map(x, y));
+        let low = corners.iter().fold((f32::INFINITY, f32::INFINITY), |a, b| (a.0.min(b.0), a.1.min(b.1)));
+        let high = corners.iter().fold((f32::NEG_INFINITY, f32::NEG_INFINITY), |a, b| (a.0.max(b.0), a.1.max(b.1)));
+        assert!(near(Rect::new(low.0, low.1, high.0 - low.0, high.1 - low.1), expected), "painter corners {corners:?}");
+    };
+    let target = Target::Scale { x: 2.0, y: 0.5, anchor: (1.0, 1.0) };
+    assert!(!ui.animate(&button, target, linear) && !ui.animate(&flat, target, linear));
+    assert!(!ui.animate_keys(&button, &[(0.2, target, linear)]) && !ui.animate_keys(&flat, &[(0.2, target, linear)]));
+    assert!(ui.animate(&outer, target, linear));
+    ui.frame(&at(0.2, vec![]), &mut build);
+    shown(&ui, Rect::new(40.0, 67.5, 30.0, 7.5));
+    assert_eq!(ui.transitions(), 1);
+    ui.frame(&at(0.3, vec![]), &mut build);
+    shown(&ui, Rect::new(0.0, 85.0, 40.0, 5.0));
+    assert_eq!(ui.transitions(), 0);
+    assert!(!ui.wants_frame(&[], 0.31));
+    ui.frame(&at(0.4, vec![press((10, 87)), release((10, 87))]), &mut build);
+    assert_eq!(clicks.get(), 1);
+    ui.frame(&at(0.5, vec![press((90, 55)), release((90, 55))]), &mut build);
+    assert_eq!(clicks.get(), 1);
+    assert!(ui.animate(&outer, Target::Scale { x: 0.0, y: 1.0, anchor: (0.0, 0.0) }, instant));
+    ui.frame(&at(0.6, vec![]), &mut build);
+    ui.frame(&at(0.7, vec![press((60, 55)), release((60, 55))]), &mut build);
+    assert_eq!(clicks.get(), 1, "a collapsed scale cannot be hit");
+    assert!(ui.animate(&outer, Target::Scale { x: -1.0, y: 1.0, anchor: (0.0, 0.0) }, instant));
+    ui.frame(&at(0.8, vec![]), &mut build);
+    shown(&ui, Rect::new(20.0, 50.0, 20.0, 10.0));
+    ui.frame(&at(0.9, vec![press((30, 55)), release((30, 55))]), &mut build);
+    assert_eq!(clicks.get(), 2, "a reflected scale keeps inverse hit testing");
+    ui.view_transform(&outer, 1.5, [0.0, -1.0, 1.0, 0.0], (0.0, 0.0));
+    assert!(ui.animate(&outer, Target::Scale { x: 2.0, y: 0.5, anchor: (0.0, 0.0) }, instant));
+    ui.frame(&at(1.0, vec![]), &mut build);
+    shown(&ui, Rect::new(0.0, 55.0, 30.0, 15.0));
+    ui.destroy();
+}
+
 /// A scaled view: its entry carries the transform, and hit testing goes through the inverse.
 pub fn styling_view_transform_hits() {
     let mut ui = new_ui(None);
@@ -468,6 +543,7 @@ fn styling_theme_watch() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("styling_animate_scale", styling_animate_scale),
     ("styling_theme_watch", styling_theme_watch),
     ("styling_view_transform_hits", styling_view_transform_hits),
     ("styling_backdrop_blur_record", styling_backdrop_blur_record),

@@ -13,6 +13,20 @@ mod curve_tests {
     use super::*;
 
     #[test]
+    fn scale_keyframes_keep_axes_and_anchor_and_reject_nonfinite_values() {
+        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let key = PxuiKeyframeDesc { size: core::mem::size_of::<PxuiKeyframeDesc>() as u32, target: 3,
+            values: [2.0, 0.5, 1.0, 0.0], curve: PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, duration: 0.14, count: 2, ..PxuiCurveDesc::default() }, ..PxuiKeyframeDesc::default() };
+        assert_eq!(unsafe { decode_key(ui, &key, -1.0) }, Ok((0.0, Target::Scale { x: 2.0, y: 0.5, anchor: (1.0, 0.0) }, pxui_types::Curve::Steps { duration: 0.14, count: 2 })));
+        for at in 0..4 { for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut bad = key; bad.values[at] = value;
+            assert_eq!(unsafe { decode_key(ui, &bad, -1.0) }, Err(PXUI_ERR_ARGUMENT));
+        } }
+        assert_eq!(unsafe { decode_key(ui, &PxuiKeyframeDesc { target: 4, ..key }, -1.0) }, Err(PXUI_ERR_ARGUMENT));
+        assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
+    }
+
+    #[test]
     fn curve_descriptors_validate_samples_counts_and_finite_parameters() {
         let table = PxuiCurveDesc { kind: PxuiCurveDesc::TABLE, duration: 0.24, count: 3,
             positions: [0.0, 0.25, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
@@ -118,6 +132,7 @@ unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> 
         0 => Target::Offset(key.values[0], key.values[1]),
         1 if (0.0..=1.0).contains(&key.values[0]) => Target::Opacity(key.values[0]),
         2 => { let Some(look) = decode_look(key.look) else { return Err(unsafe { fail(ui, "invalid animation look") }); }; Target::Look(look) },
+        3 => Target::Scale { x: key.values[0], y: key.values[1], anchor: (key.values[2], key.values[3]) },
         _ => return Err(unsafe { fail(ui, "invalid animation target") }),
     };
     let Some(curve) = curve(key.curve) else { return Err(unsafe { fail(ui, "invalid animation curve") }); };

@@ -40,6 +40,7 @@ fn keyframe(target: Target, curve: Curve) -> KeyframeDesc {
         Target::Offset(x, y) => (0, [x, y, 0.0, 0.0], look(Look::NONE)),
         Target::Opacity(value) => (1, [value, 0.0, 0.0, 0.0], look(Look::NONE)),
         Target::Look(value) => (2, [0.0; 4], look(value)),
+        Target::Scale { x, y, anchor } => (3, [x, y, anchor.0, anchor.1], look(Look::NONE)),
     };
     KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: 0.0, target: kind, reserved: 0, values, look: shape, curve: encode_curve(curve) }
 }

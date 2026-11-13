@@ -90,6 +90,9 @@ pub enum Target {
     Look(Look),
     Offset(f32, f32),
     Opacity(f32),
+    /// A view's contents, after its manual transform, about a fractional point of its box.
+    /// The anchor is fixed for the segment; (0, 0) is top-left, (0.5, 0.5) centre.
+    Scale { x: f32, y: f32, anchor: (f32, f32) },
 }
 
 /// The result of a `picker` for a frame.

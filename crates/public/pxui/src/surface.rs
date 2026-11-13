@@ -8,6 +8,80 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_warm() {
+    use crate::{kit::{AnimationTarget, Keyframe}, ui::{Curve, Look, Node, Role, Target}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    ui.set_a11y(true);
+    let (child, view, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
+    let mut build = |ui: &mut Ui| {
+        let v = ui.view("scale", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
+            builds.set(builds.get() + 1);
+            let b = ui.node("child", Node { w: Size::Px(20.0), h: Size::Px(10.0), role: Role::Button, at: Some((20.0, 10.0)).into(), look: Look { fill: pxui_types::geom::color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+            ui.a11y_name(&b, "Scaled");
+            child.set(Some(b));
+        });
+        ui.set_at(&v, (100.0, 40.0));
+        view.set(Some(v));
+    };
+    for time in [0.0, 0.1] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
+    let (view, child, built) = (view.get().unwrap(), child.get().unwrap(), builds.get());
+    let instances = ui.layer(0).instances.to_vec();
+    let mut positions = [0.0; 16]; positions[1] = 0.5; positions[2] = 1.0;
+    let mut values = positions; values[1] = 1.1;
+    let spring = Curve::Table { duration: 0.2, count: 3, positions, values };
+    let linear = Curve::Bezier { duration: 0.2, points: [0.0, 0.0, 1.0, 1.0] };
+    let instant = Curve::Steps { duration: 0.0, count: 1 };
+    let large = Target::Scale { x: 2.0, y: 0.5, anchor: (1.0, 1.0) };
+    let normal = Target::Scale { x: 1.0, y: 1.0, anchor: (1.0, 1.0) };
+    let shown = |ui: &Ui, expected: Rect| {
+        let near = |r: Rect| [r.x - expected.x, r.y - expected.y, r.w - expected.w, r.h - expected.h].iter().all(|d| d.abs() < 0.005);
+        assert!(near(ui.rect(&child)), "shown {:?}, expected {expected:?}", ui.rect(&child));
+        let node = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Scaled").unwrap();
+        assert!(near(node.rect), "accessible {:?}, expected {expected:?}", node.rect);
+    };
+    for round in 0..3 {
+        let base = 0.1 + round as f64 * 2.0;
+        mem_sys::local_reset();
+        assert!(ui.animate(&view, normal, instant));
+        ui.frame(&FrameIn { time: base, ..input() }, &mut build).unwrap();
+        assert!(ui.animate(&view, large, spring));
+        ui.frame(&FrameIn { time: base + 0.1, ..input() }, &mut build).unwrap();
+        shown(&ui, Rect::new(32.0, 88.5, 42.0, 4.5));
+        let before = ui.rect(&child);
+        assert!(ui.animate(&view, normal, linear));
+        ui.frame(&FrameIn { time: base + 0.1, ..input() }, &mut build).unwrap();
+        assert_eq!(ui.rect(&child), before, "retargeting cannot jump");
+        ui.frame(&FrameIn { time: base + 0.2, ..input() }, &mut build).unwrap();
+        shown(&ui, Rect::new(76.0, 69.25, 31.0, 7.25));
+        ui.frame(&FrameIn { time: base + 0.3, ..input() }, &mut build).unwrap();
+        shown(&ui, Rect::new(120.0, 50.0, 20.0, 10.0));
+        let keys = [
+            Keyframe { time: 0.2, target: AnimationTarget::Scale { x: 2.0, y: 0.5, anchor: (1.0, 1.0) }, curve: spring.with_duration(99.0) },
+            Keyframe { time: 0.4, target: AnimationTarget::Scale { x: 1.0, y: 1.0, anchor: (1.0, 1.0) }, curve: Curve::Steps { duration: 99.0, count: 2 } },
+        ];
+        assert!(ui.animate_keys(&view, &keys));
+        for (dt, expected) in [(0.1, Rect::new(32.0, 88.5, 42.0, 4.5)), (0.3, Rect::new(80.0, 67.5, 30.0, 7.5)), (0.4, Rect::new(120.0, 50.0, 20.0, 10.0))] {
+            ui.frame(&FrameIn { time: base + 0.3 + dt, ..input() }, &mut build).unwrap();
+            shown(&ui, expected);
+        }
+        let allocations = mem_sys::local_alloc_count();
+        assert!(round == 0 || allocations == 0, "warm scale animations allocated {allocations} times");
+        assert_eq!(builds.get(), built);
+        assert!(!ui.wants_frame(&[], base + 1.9));
+        assert_eq!(ui.layer(0).instances, instances.as_slice(), "scale must only update the transform table");
+    }
+    ui.set_theme(&crate::ThemeSource { flags: crate::ThemeSource::REDUCED_MOTION, ..crate::ThemeSource::default() }).unwrap();
+    assert!(ui.tokens().reduced_motion);
+    ui.frame(&FrameIn { time: 7.0, ..input() }, &mut build).unwrap();
+    assert!(ui.animate(&view, large, spring));
+    ui.frame(&FrameIn { time: 7.0, ..input() }, &mut build).unwrap();
+    shown(&ui, Rect::new(40.0, 85.0, 40.0, 5.0));
+    assert!(!ui.wants_frame(&[], 7.1));
+}
+
+#[test]
 fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm() {
     use crate::{kit::{AnimationTarget, Keyframe}, ui::{Curve, Look, Node, Target}};
     use std::cell::Cell;

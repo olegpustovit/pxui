@@ -266,7 +266,7 @@ typedef struct { uint32_t size; uint8_t expanded,has_set,set_expanded,reserved; 
 typedef struct { uint32_t size; uint8_t has_width,reserved[3]; PxuiStr key,label,value; float width; } PxuiInspectorValueDesc;
 typedef struct { uint32_t size,reserved; PxuiStr key,text; } PxuiInspectorTextDesc;
 enum PxuiSplitAxis { PXUI_SPLIT_ROW=0, PXUI_SPLIT_COLUMN=1 };
-enum PxuiKeyframeTarget { PXUI_KEY_OFFSET=0, PXUI_KEY_OPACITY=1, PXUI_KEY_LOOK=2 };
+enum PxuiKeyframeTarget { PXUI_KEY_OFFSET=0, PXUI_KEY_OPACITY=1, PXUI_KEY_LOOK=2, PXUI_KEY_SCALE=3 }; /* scale values: x, y, fractional anchor x/y; requires a view with its own painter entry */
 
 uint32_t pxui_abi_version(void);
 /* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */

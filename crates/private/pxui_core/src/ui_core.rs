@@ -172,13 +172,15 @@ impl BoxRec {
 /// No running transition.
 const NO_TWEEN: u32 = u32::MAX;
 
-/// A node's look and where `animate` puts it: offset and opacity.
+/// A node's look, offset/opacity, and the scale of its view's contents.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct Pose {
     look: Look,
     dx: f32,
     dy: f32,
     opacity: f32,
+    scale: [f32; 2],
+    anchor: [f32; 2],
 }
 
 /// A running transition of slot `slot` (while it has `generation`) from `from` to `to`, through
@@ -192,6 +194,8 @@ struct Tween {
     from: Pose,
     to: Pose,
     keys: u32,
+    /// Only the view table changes; its instance run needs no patch or steady look.
+    view_only: bool,
 }
 
 const NO_KEYS: u32 = u32::MAX;
@@ -354,6 +358,8 @@ struct ViewRec {
     transform: [f32; 4],
     pivot: (f32, f32),
     pivot_fixed: bool,
+    /// Resting animated X/Y scale and fractional anchor, composed after the manual transform.
+    scale_pose: [f32; 4],
     blur: f32,
     /// when its last build asked to be rebuilt (`Ui::repaint_after`; infinity: never)
     wake: f64,
@@ -421,6 +427,7 @@ impl ViewRec {
             transform: [1.0, 0.0, 0.0, 1.0],
             pivot: (0.0, 0.0),
             pivot_fixed: false,
+            scale_pose: [1.0, 1.0, 0.5, 0.5],
             blur: 0.0,
             wake: f64::INFINITY,
             a11y_span: (0, 0),
@@ -5658,7 +5665,8 @@ impl Ui {
     /// Where the node rests: its declared look, offset and opacity.
     fn rest(&self, slot: usize) -> Pose {
         let s = &self.slots[slot];
-        Pose { look: s.node.look, dx: s.pose.0, dy: s.pose.1, opacity: s.pose.2 }
+        let [x, y, ax, ay] = if s.view == NO_VIEW { [1.0, 1.0, 0.5, 0.5] } else { self.views[s.view as usize].scale_pose };
+        Pose { look: s.node.look, dx: s.pose.0, dy: s.pose.1, opacity: s.pose.2, scale: [x, y], anchor: [ax, ay] }
     }
 
     /// What the node shows now, and whether a transition is running (its instances stay steady).
@@ -5679,14 +5687,15 @@ impl Ui {
                     }
                 };
                 let f = |a: f32, b: f32| a + (b - a) * p;
-                let pose = Pose { look: from.look.lerp(&to.look, p), dx: f(from.dx, to.dx), dy: f(from.dy, to.dy), opacity: f(from.opacity, to.opacity) };
-                (pose, true)
+                let pose = Pose { look: from.look.lerp(&to.look, p), dx: f(from.dx, to.dx), dy: f(from.dy, to.dy), opacity: f(from.opacity, to.opacity), scale: [f(from.scale[0], to.scale[0]), f(from.scale[1], to.scale[1])], anchor: to.anchor };
+                (pose, !t.view_only)
             }
         }
     }
 
     fn start_tween(&mut self, slot: usize, curve: Curve, from: Pose, to: Pose) {
-        let tween = Tween { slot, generation: self.slots[slot].generation, start: self.now, curve, from, to, keys: NO_KEYS };
+        let view_only = self.slots[slot].view != NO_VIEW && from.look == to.look && from.dx == to.dx && from.dy == to.dy && from.opacity == to.opacity;
+        let tween = Tween { slot, generation: self.slots[slot].generation, start: self.now, curve, from, to, keys: NO_KEYS, view_only };
         match self.tween_of(slot) {
             Some(i) => {
                 self.free_keys(i);
@@ -5715,11 +5724,12 @@ impl Ui {
             if done {
                 let s = &mut self.slots[t.slot];
                 (s.node.look, s.pose) = (t.to.look, (t.to.dx, t.to.dy, t.to.opacity));
+                if s.view != NO_VIEW { self.views[s.view as usize].scale_pose = [t.to.scale[0], t.to.scale[1], t.to.anchor[0], t.to.anchor[1]]; }
                 self.drop_tween(i);
             } else {
                 i += 1;
             }
-            if done || self.slots[t.slot].painted != self.frame_number {
+            if !t.view_only && (done || self.slots[t.slot].painted != self.frame_number) {
                 self.repaint_node(t.slot);
             }
         }
@@ -5752,16 +5762,20 @@ impl Ui {
     }
 
     /// Animate a node to `target` along `curve` from where it shows now: its look, its offset from
-    /// where layout puts it, or its opacity. Driven by the patch path (the node's view does not
+    /// where layout puts it, its opacity, or its view's X/Y scale. Driven by the patch/table path (the node's view does not
     /// rebuild); the frame gate asks for frames until it rests. An animated look holds until the
     /// node's next declaration (as `patch_look`); offset and opacity hold until animated again. The
-    /// theme's `reduced_motion` makes it a jump. `false` for a stale handle.
+    /// theme's `reduced_motion` makes it a jump. Scale composes after the manual transform about a
+    /// fractional anchor, fixed for the segment; it requires a view with its own painter entry.
+    /// `false` for a stale handle or a scale target on an ordinary node/flat view.
     // Offset and opacity move the node's own look and text, not its children (a view's offset and
-    // opacity move a group), and hit testing stays where layout put it.
+    // opacity move a group), and hit testing stays where layout put it. Scale moves the whole view
+    // through its table entry, including nested hit/accessible rectangles, without rewriting instances.
     pub fn animate(&mut self, b: &Handle, target: Target, curve: Curve) -> bool {
         if !self.live(b) {
             return false;
         }
+        if matches!(target, Target::Scale { .. }) && !self.view_id(b).is_some_and(|v| self.views[v as usize].index != 0) { return false; }
         let slot = b.box_slot;
         let curve = if self.theme().tokens.reduced_motion { Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] } } else { curve };
         let from = self.pose(slot).0;
@@ -5773,6 +5787,7 @@ impl Ui {
             Target::Look(look) => to.look = look,
             Target::Offset(dx, dy) => (to.dx, to.dy) = (dx, dy),
             Target::Opacity(o) => to.opacity = o.clamp(0.0, 1.0),
+            Target::Scale { x, y, anchor } => { to.scale = [x, y]; to.anchor = [anchor.0, anchor.1]; },
         }
         self.start_tween(slot, curve, from, to);
         if !self.building {
@@ -5783,7 +5798,7 @@ impl Ui {
 
     /// Animate a node through up to `MAX_KEYS` keyframes from where it shows now: each `(t, target,
     /// curve)` reaches `target` `t` seconds after the start (times ascending), its segment shaped by
-    /// `curve` (a Bezier's duration is the segment's; a spring that has not settled by the next stop
+    /// `curve` (Bezier/table/steps use the segment's duration; a spring that has not settled by the next stop
     /// jumps to it). A target sets its channel and keeps the others from the stop before. Driven as
     /// `animate` is (patch path, no rebuild, no allocation once warm; reduced motion jumps to the
     /// last stop); `animate` is the one-key case. `false` for a stale handle.
@@ -5793,6 +5808,7 @@ impl Ui {
         if !self.live(b) {
             return false;
         }
+        if keys.iter().any(|(_, target, _)| matches!(target, Target::Scale { .. })) && !self.view_id(b).is_some_and(|v| self.views[v as usize].index != 0) { return false; }
         let slot = b.box_slot;
         let from = self.pose(slot).0;
         let mut k = Keys { n: keys.len(), t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS] };
@@ -5802,11 +5818,14 @@ impl Ui {
                 Target::Look(look) => at.look = look,
                 Target::Offset(dx, dy) => (at.dx, at.dy) = (dx, dy),
                 Target::Opacity(o) => at.opacity = o.clamp(0.0, 1.0),
+                Target::Scale { x, y, anchor } => { at.scale = [x, y]; at.anchor = [anchor.0, anchor.1]; },
             }
             (k.t[j], k.pose[j], k.curve[j]) = (t, at, curve);
         }
         let last = if self.theme().tokens.reduced_motion { 0.0 } else { k.t[k.n - 1] };
         self.start_tween(slot, Curve::Bezier { duration: last, points: [0.0, 0.0, 1.0, 1.0] }, from, at);
+        let tween = self.tween_of(slot).expect("the run just started");
+        self.tweens[tween].view_only &= keys.iter().all(|(_, target, _)| matches!(target, Target::Scale { .. }));
         if last > 0.0 {
             let id = match self.free_keyframes.pop() {
                 Some(id) => {
@@ -6393,6 +6412,11 @@ impl Ui {
         let (pa, pb) = if pxf == 0 || (p.plain() && p.parent_plain()) { (IDENTITY_2X2, [0.0; 2]) } else { p.affine() };
         let c = self.views[v as usize].box_clip;
         let box_clip = p.cover(Rect::new(c.x + pshift.0, c.y + pshift.1, c.w, c.h));
+        let slot = self.views[v as usize].slot;
+        let scale = if self.slots[slot].tween == NO_TWEEN { self.views[v as usize].scale_pose } else {
+            let pose = self.pose(slot).0;
+            [pose.scale[0], pose.scale[1], pose.anchor[0], pose.anchor[1]]
+        };
         let r = &mut self.views[v as usize];
         r.stamp = stamp;
         if r.index == 0 {
@@ -6403,6 +6427,12 @@ impl Ui {
             r.shift = (pshift.0 + r.offset.0 + r.delta.0, pshift.1 + r.offset.1 + r.delta.1);
             r.alpha = palpha * r.opacity;
             (r.pa, r.pb) = (pa, pb);
+            if scale[0] != 1.0 || scale[1] != 1.0 {
+                let anchor = r.own_entry().map((r.built_rect.x + r.shift.0 + r.built_rect.w * scale[2], r.built_rect.y + r.shift.1 + r.built_rect.h * scale[3]));
+                let shift = [(1.0 - scale[0]) * anchor.0, (1.0 - scale[1]) * anchor.1];
+                r.pa = [pa[0] * scale[0], pa[1] * scale[1], pa[2] * scale[0], pa[3] * scale[1]];
+                r.pb = [pb[0] + pa[0] * shift[0] + pa[1] * shift[1], pb[1] + pa[2] * shift[0] + pa[3] * shift[1]];
+            }
             r.outer = box_clip.intersect(pouter).intersect(r.clip.unwrap_or(UNBOUNDED));
         }
         r.flat = r.plain() && r.parent_plain();
@@ -6432,6 +6462,7 @@ impl Ui {
             out.push((r.index, r.entry()));
         }
         let changed = out != self.view_out;
+        self.a11y_dirty |= changed;
         self.view_prev = std::mem::replace(&mut self.view_out, out);
         // the next refresh writes into `view_prev`: room now, not on the second frame
         self.view_prev.reserve(self.view_out.len().saturating_sub(self.view_prev.len()));
@@ -6666,10 +6697,12 @@ impl Ui {
         }
         let budget = packed.saturating_mul(2).max(256);
         if kept != 0 {
-            // Prepare both buffers before compaction is first needed by a scrolling retained list.
-            d.instances.reserve(budget.saturating_sub(d.instances.len()));
-            self.compact.reserve(budget.saturating_sub(self.compact.len()));
-            self.moves.reserve(kept.saturating_sub(self.moves.len()));
+            // Existing fresh views may all be kept next frame; reserve their run padding now.
+            let reserve = packed.saturating_add(SLACK.saturating_mul(self.views.len().saturating_sub(kept)))
+                .saturating_add(s.instances.len() / 8).saturating_mul(2).max(256);
+            d.instances.reserve(reserve.saturating_sub(d.instances.len()));
+            self.compact.reserve(reserve.saturating_sub(self.compact.len()));
+            self.moves.reserve(self.views.len().saturating_sub(self.moves.len()));
             d.dirty.reserve(s.pieces.len().saturating_sub(d.dirty.len()));
         }
         // the room each fresh piece has: up to the next non-empty kept run

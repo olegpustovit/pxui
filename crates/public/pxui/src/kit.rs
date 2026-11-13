@@ -105,7 +105,7 @@ fn encode_look(value: Look) -> PxuiLookDesc {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AnimationTarget { Offset(f32, f32), Opacity(f32), Look(Look) }
+pub enum AnimationTarget { Offset(f32, f32), Opacity(f32), Look(Look), Scale { x: f32, y: f32, anchor: (f32, f32) } }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Keyframe { pub time: f32, pub target: AnimationTarget, pub curve: Curve }
 pub(crate) fn encode_curve(value: Curve) -> PxuiCurveDesc {
@@ -276,6 +276,7 @@ impl Ui {
                 AnimationTarget::Offset(x, y) => (0, [x, y, 0.0, 0.0], encode_look(Look::NONE)),
                 AnimationTarget::Opacity(value) => (1, [value, 0.0, 0.0, 0.0], encode_look(Look::NONE)),
                 AnimationTarget::Look(value) => (2, [0.0; 4], encode_look(value)),
+                AnimationTarget::Scale { x, y, anchor } => (3, [x, y, anchor.0, anchor.1], encode_look(Look::NONE)),
             };
             *out = KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: key.time, target, reserved: 0, values, look, curve: encode_curve(key.curve) };
         }

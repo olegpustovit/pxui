@@ -738,7 +738,30 @@ pub fn window_pxui_empty_buffers_preserve_names_and_values() {
     ui.destroy();
 }
 
+pub fn window_pxui_more_kept_views_reuse_compaction_scratch() {
+    let mut ui = new_ui(None);
+    let mut phase = 0u64;
+    let labels = ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "10", "11"];
+    for frame in 0..30 {
+        if frame == 10 { mem_sys::local_reset(); }
+        ui.frame(&at(frame as f64 / 60.0, vec![]), &mut |ui| {
+            ui.view("outer", frame, Size::Px(200.0), Size::Px(200.0), &mut |ui| {
+                for (i, label) in labels.iter().enumerate() {
+                    ui.view(label, if i < 3 { 1 } else { phase }, Size::Px(20.0), Size::Px(10.0), &mut |ui| {
+                        ui.node("tile", Node { w: Size::Grow, h: Size::Grow, look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                    });
+                }
+            });
+        });
+        if frame >= 10 { assert_eq!(mem_sys::local_alloc_count(), 0, "frame {frame} allocated"); }
+        phase = (frame + 1).min(10);
+        assert_eq!(ui.output().draw[0].instances.iter().filter(|i| i.color[0] == 9).count(), 12);
+    }
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_more_kept_views_reuse_compaction_scratch", window_pxui_more_kept_views_reuse_compaction_scratch),
     ("window_pxui_empty_buffers_preserve_names_and_values", window_pxui_empty_buffers_preserve_names_and_values),
     ("window_pxui_field_kept_drag", window_pxui_field_kept_drag),
     ("window_pxui_budget_counts", window_pxui_budget_counts),
