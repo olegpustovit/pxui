@@ -542,6 +542,8 @@ void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y
  * finished every frame it prepared; a teardown failure is the Ui's last error. */
 PxuiRenderer *pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTargetDesc *target);
 int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *commands, uint64_t frame, uint64_t completed);
+/* Prepare blur storage at startup/resize, outside frame recording. Nonzero drawable-pixel dimensions. */
+int32_t pxui_renderer_resize(PxuiRenderer *renderer, uint32_t width, uint32_t height);
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
 /* The draw calls the renderer has issued so far. */
 uint64_t pxui_renderer_draw_calls(PxuiRenderer *renderer);

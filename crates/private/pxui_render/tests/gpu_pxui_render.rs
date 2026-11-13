@@ -8,7 +8,7 @@ use ogpu_core::pipeline::{ColorFormat, DepthFormat};
 use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::types::{Extent, Origin, TextureDescriptor, TextureFormat, TextureUsage};
 use pxui_core::draw::{fit, nine_slice, Fit};
-use pxui_render::{flags, ramp, AtlasKind, Break, Instance, Painter, View};
+use pxui_render::{flags, ramp, AtlasKind, Blurred, Break, Instance, Painter, View};
 #[path = "../../../../tools/t/png.rs"]
 mod png;
 
@@ -161,7 +161,7 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// Metal handles live on the process main thread, which libtest never gives a test: this target is
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
-    let cases: [(&str, fn()); 22] = [
+    let cases: [(&str, fn()); 26] = [
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -173,6 +173,7 @@ fn main() {
         ("gpu_grid_instance_equals_dots", gpu_grid_instance_equals_dots),
         ("gpu_blur_translucent_source", gpu_blur_translucent_source),
         ("gpu_blur_saturation", gpu_blur_saturation),
+        ("gpu_blur_prepared_targets", gpu_blur_prepared_targets),
         ("gpu_backdrop_blur", gpu_backdrop_blur),
         ("gpu_smooth_image", gpu_smooth_image),
         ("gpu_backdrop_blur_panel", gpu_backdrop_blur_panel),
@@ -183,6 +184,9 @@ fn main() {
         ("shared_teardown", shared_teardown),
         ("shared_frame_serials", shared_frame_serials),
         ("shared_backdrop_blur", shared_backdrop_blur),
+        ("shared_backdrop_blur_requires_resize_without_leaking", shared_backdrop_blur_requires_resize_without_leaking),
+        ("shared_draw_callback_refuses_nested_renderer_resize", shared_draw_callback_refuses_nested_renderer_resize),
+        ("shared_resize_validation", shared_resize_validation),
         ("shared_skipped_draws", shared_skipped_draws),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -598,6 +602,7 @@ fn gpu_blur_translucent_source() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
     let mut painter = painter(&device);
+    ok(painter.prepare_blur([W * SCALE, H * SCALE]));
     let (w, h) = (64u32, 16u32);
     let source = texture(&device, w, h, &[TextureUsage::TextureBinding, TextureUsage::TextureCopyDst, TextureUsage::TextureCopySrc]);
     let pixels: Vec<u8> = (0..w * h).flat_map(|i| if i % w < w / 2 { [255, 0, 0, 255] } else { [0, 0, 0, 0] }).collect();
@@ -610,7 +615,7 @@ fn gpu_blur_translucent_source() {
         let blurred = ok(painter.blur(&queue, &source, [0, 0, w, h], sigma)).clone();
         pass(&queue, &sink, &mut |_| {}); // a pass after the blur's on the queue: its work is done
         let bw = blurred_width(&blurred);
-        let out = ok(be::read_texture(&blurred, (bw * 4) as i64));
+        let out = read_blurred(&blurred);
         let row = &out[(bw as usize * (out.len() / 4 / bw as usize / 2)) * 4..][..bw as usize * 4];
         let fading: Vec<&[u8]> = row.chunks(4).filter(|t| t[3] > 20 && t[3] < 235).collect();
         assert!(!fading.is_empty(), "sigma {sigma}: no texel fades: {:?}", row.chunks(4).collect::<Vec<_>>());
@@ -626,6 +631,7 @@ fn gpu_blur_saturation() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
     let mut painter = painter(&device);
+    ok(painter.prepare_blur([W * SCALE, H * SCALE]));
     let source = target(&device);
     let size = [W * SCALE, H * SCALE];
     let commands = ok(be::begin_commands(&queue));
@@ -641,8 +647,7 @@ fn gpu_blur_saturation() {
             let commands = ok(be::begin_commands(&queue));
             let blurred = ok(painter.blur_in_with_saturation(&commands, &source, [0, 0, size[0], size[1]], sigma, saturation)).clone();
             ok(be::complete_through(&queue, ok(be::commit(&commands)).epoch));
-            let width = blurred_width(&blurred);
-            let pixels = ok(be::read_texture(&blurred, i64::from(width) * 4));
+            let pixels = read_blurred(&blurred);
             let expected = [200.0, 80.0, 40.0].map(|c| (gray + (c - gray) * saturation).clamp(0.0, 255.0).round() as u8);
             assert!(pixels.chunks_exact(4).all(|p| near(p.try_into().unwrap(), [expected[0], expected[1], expected[2], 128], 3)), "sigma {sigma}, saturation {saturation}: {:?}, expected {expected:?}", &pixels[..4]);
         }
@@ -657,10 +662,67 @@ fn gpu_blur_saturation() {
     finish(device, queue);
 }
 
+fn gpu_blur_prepared_targets() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut painter = painter(&device);
+    let source = target(&device);
+    let commands = ok(be::begin_commands(&queue));
+    assert!(painter.blur_in(&commands, &source, [0, 0, 64, 64], 8.0).is_err(), "draw cannot allocate missing targets");
+    ok(be::abandon(&commands));
+    assert!(painter.prepare_blur([0, 192]).is_err());
+    assert!(painter.prepare_blur([256, 0]).is_err());
+    ok(painter.prepare_blur([256, 192]));
+    mem_sys::local_reset();
+    ok(painter.prepare_blur([256, 192]));
+    assert_eq!(mem_sys::local_alloc_count(), 0, "unchanged capacity needs no preparation");
+    let mut identity = None;
+    let mut previous = None;
+    for (step, (region, sigma)) in [([0, 0, 256, 192], 3.0), ([32, 16, 223, 175], 8.0), ([8, 8, 71, 45], 3.0), ([0, 0, 1, 1], 8.0)].into_iter().enumerate() {
+        painter.begin_frame();
+        let color = [RED, BLUE, GREEN, BG][step];
+        pass(&queue, &source, &mut |encoder| ok(painter.draw(encoder, [256, 192], SCALE as f32, &[Instance::rect([0.0, 0.0, 128.0, 96.0], color)], &[])));
+        let commands = ok(be::begin_commands(&queue));
+        let blurred = ok(painter.blur_in(&commands, &source, region, sigma));
+        ok(be::complete_through(&queue, ok(be::commit(&commands)).epoch));
+        let native = ok(be::native_texture(&blurred.texture));
+        let key = (native.mtl_texture, native.vk_image_view);
+        if let Some(identity) = identity { assert_eq!(key, identity, "region/sigma changes must reuse the texture"); }
+        identity = Some(key);
+        assert_eq!((native.width, native.height), (128, 96));
+        let down = if sigma < 6.0 { 2 } else { 4 };
+        assert_eq!(blurred.size, [((region[2]-region[0])/down).max(1), ((region[3]-region[1])/down).max(1)]);
+        assert_eq!(blurred.uv, [0.0, 0.0, blurred.size[0] as f32/128.0, blurred.size[1] as f32/96.0]);
+        let pixels = read_blurred(&blurred);
+        assert!(pixels.chunks_exact(4).all(|p| near(p.try_into().unwrap(), color, 1)), "unoccupied stale texels cannot enter the filter");
+        previous = Some(blurred.texture);
+    }
+    let previous = previous.unwrap();
+    ok(painter.prepare_blur([512, 384]));
+    for frame in 0..pxui_render::FRAMES {
+        assert!(be::native_texture(&previous).is_ok(), "old target retired before frame {frame}");
+        painter.begin_frame();
+    }
+    assert!(be::native_texture(&previous).is_err(), "old targets retire after the flight window");
+    let next = ok(painter.blur(&queue, &source, [0, 0, 256, 192], 3.0));
+    pass(&queue, &source, &mut |_| {});
+    let native = ok(be::native_texture(&next.texture));
+    assert_eq!((native.width, native.height), (256, 192));
+    assert_ne!(Some((native.mtl_texture, native.vk_image_view)), identity, "resize replaces the targets");
+    ok(painter.prepare_blur([16, 16]));
+    let commands = ok(be::begin_commands(&queue));
+    assert!(painter.blur_in(&commands, &source, [0, 0, 256, 192], 3.0).is_err(), "oversized regions require a resize");
+    ok(be::abandon(&commands));
+    ok(be::destroy_texture(&source));
+    drop(painter);
+    finish(device, queue);
+}
+
 fn gpu_backdrop_blur() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
     let mut painter = painter(&device);
+    ok(painter.prepare_blur([W * SCALE, H * SCALE]));
     let source = target(&device);
     let size = [W * SCALE, H * SCALE];
     let edge = [Instance::rect([0.0, 0.0, 64.0, 96.0], [0, 0, 0, 255]), Instance::rect([64.0, 0.0, 128.0, 96.0], [255, 255, 255, 255])];
@@ -670,9 +732,9 @@ fn gpu_backdrop_blur() {
     let blurred = ok(painter.blur(&queue, &source, [0, 0, size[0], size[1]], 4.0)).clone();
     // The blurred texture drawn as an image through a break, tinted white, into a fresh target.
     let shown = target(&device);
-    let image = [Instance::image([0.0, 0.0, 128.0, 96.0], [0.0, 0.0, 1.0, 1.0], [255, 255, 255, 255])];
-    pass(&queue, &shown, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &image, &[Break { at_instance: 0, texture: Some(&blurred) }])));
-    let direct = ok(be::read_texture(&blurred, (blurred_width(&blurred) * 4) as i64));
+    let image = [Instance::image([0.0, 0.0, 128.0, 96.0], blurred.uv, [255, 255, 255, 255])];
+    pass(&queue, &shown, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &image, &[Break { at_instance: 0, texture: Some(&blurred.texture) }])));
+    let direct = read_blurred(&blurred);
     let shown_pixels = ok(be::read_texture(&shown, (size[0] * 4) as i64));
     assert_eq!(blurred_width(&blurred), 128);
     let row = middle_row(&direct, 128);
@@ -682,12 +744,12 @@ fn gpu_backdrop_blur() {
     assert_eq!(at(&shown_pixels, 20.0, 20.0)[0] as i32, row[20], "drawn image shows the blurred texel");
     assert_eq!(at(&shown_pixels, 65.5, 48.0)[..3], [row[65] as u8; 3], "drawn image shows the blurred texel next to the edge");
 
-    // Right three quarters, sigma 8 px: the scratch targets are replaced (x4 downsample, 48 texels, edge at 16).
+    // Right three quarters, sigma 8 px: reuse the same targets (x4 downsample, 48 occupied texels, edge at 16).
     let blurred = ok(painter.blur(&queue, &source, [64, 0, size[0], size[1]], 8.0)).clone();
     painter.begin_frame();
     pass(&queue, &shown, &mut |_| {});
     assert_eq!(blurred_width(&blurred), 48);
-    let row = middle_row(&ok(be::read_texture(&blurred, 48 * 4)), 48);
+    let row = middle_row(&read_blurred(&blurred), 48);
     assert_ramp(&row, 16, 2.0, "x4 downsample");
     assert!(painter.blur(&queue, &source, [0, 0, size[0] + 1, size[1]], 4.0).is_err(), "region outside the source is refused");
     for texture in [&source, &shown] { ok(be::destroy_texture(texture)); }
@@ -702,6 +764,7 @@ fn gpu_backdrop_blur_panel() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
     let mut painter = painter(&device);
+    ok(painter.prepare_blur([W * SCALE, H * SCALE]));
     let target = target(&device);
     let size = [W * SCALE, H * SCALE];
     let panel = [40.0, 24.0, 88.0, 72.0];
@@ -710,8 +773,8 @@ fn gpu_backdrop_blur_panel() {
     painter.begin_frame();
     pass(&queue, &target, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &edge, &[])));
     let blurred = ok(painter.blur(&queue, &target, region, 8.0)).clone();
-    let glass = [Instance::image(panel, [0.0, 0.0, 1.0, 1.0], [128, 128, 128, 255]).radii([12.0; 4])];
-    pass_with(&queue, &target, Load::Load, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &glass, &[Break { at_instance: 0, texture: Some(&blurred) }])));
+    let glass = [Instance::image(panel, blurred.uv, [128, 128, 128, 255]).radii([12.0; 4])];
+    pass_with(&queue, &target, Load::Load, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &glass, &[Break { at_instance: 0, texture: Some(&blurred.texture) }])));
     let pixels = ok(be::read_texture(&target, (size[0] * 4) as i64));
     let red = |x: f32, y: f32| at(&pixels, x, y)[0] as i32;
     assert_eq!((red(20.0, 48.0), red(110.0, 48.0)), (0, 255), "outside the view the backdrop is untouched");
@@ -725,7 +788,14 @@ fn gpu_backdrop_blur_panel() {
     finish(device, queue);
 }
 
-fn blurred_width(texture: &Texture) -> u32 { be::texture_descriptor(texture).width as u32 }
+fn blurred_width(blurred: &Blurred) -> u32 { blurred.size[0] }
+
+fn read_blurred(blurred: &Blurred) -> Vec<u8> {
+    let width = be::texture_descriptor(&blurred.texture).width as usize;
+    let pixels = ok(be::read_texture(&blurred.texture, (width * 4) as i64));
+    pixels.chunks_exact(width * 4).take(blurred.size[1] as usize)
+        .flat_map(|row| row[..blurred.size[0] as usize * 4].iter().copied()).collect()
+}
 
 // Pure image-placement maths (no GPU).
 
@@ -872,11 +942,15 @@ fn shared_teardown() {
     assert_eq!(first, second, "both device teardown orders render identically");
 }
 
-/// A shared frame whose layer asks for a backdrop blur: the app ends its pass, the library records the blur into the
-/// app's command buffer (making its scratch targets there, after the library adopted the buffer) and the app reopens
-/// the pass. Those targets must be in the layout the frame reads them in when the app's buffer runs: the fatal
+/// A shared frame whose layer asks for a backdrop blur: targets are prepared before recording;
+/// the app ends its pass, the library records the blur and the app reopens the pass.
+/// Those targets must be in the layout the frame reads them in when the app's buffer runs: the fatal
 /// validation device fails the submit otherwise (UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout).
-fn shared_backdrop_blur() {
+fn shared_backdrop_blur() { shared_backdrop_blur_case(true, false); }
+fn shared_backdrop_blur_requires_resize_without_leaking() { shared_backdrop_blur_case(false, false); }
+fn shared_draw_callback_refuses_nested_renderer_resize() { shared_backdrop_blur_case(true, true); }
+
+fn shared_backdrop_blur_case(prepared: bool, reenter: bool) {
     use pxui::ui::{Look, Node, Size};
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
@@ -893,6 +967,8 @@ fn shared_backdrop_blur() {
     };
     build(&mut ui);
     let mut renderer = shared_renderer(&device, &ui);
+    let mut nested = reenter.then(|| shared_renderer(&device, &ui));
+    if prepared { renderer.resize(640, 600).expect("prepare blur targets before recording"); }
     ui.view_offset(&glass.get().unwrap(), 80.0, 40.0);
     ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
     ui.view_backdrop_saturation(&glass.get().unwrap(), 0.9);
@@ -915,8 +991,11 @@ fn shared_backdrop_blur() {
     for layer in 0..layers as u32 {
         let pass = pass_of(&open_pass);
         let mut reopened = None;
-        renderer.draw_layer(&pass, layer, &mut |record| {
+        let result = renderer.draw_layer(&pass, layer, &mut |record| {
             splits += 1;
+            if let Some(nested) = &mut nested {
+                assert_eq!(nested.resize(640, 600), Err(-3), "a draw callback cannot enter another renderer on the same UI");
+            }
             ok(be::end_render(&open_pass));
             let native = ok(be::native_texture(&target));
             record(&pxui_types::Image { vk_image_view: native.vk_image_view, mtl_texture: native.mtl_texture, width: native.width, height: native.height, format: native.format, ..Default::default() })?;
@@ -924,10 +1003,23 @@ fn shared_backdrop_blur() {
             let next_pass = pass_of(&next);
             reopened = Some(next);
             Ok(next_pass)
-        }).unwrap_or_else(|code| panic!("draw the blurred layer: {code}: {}", ui.last_error()));
+        });
+        if !prepared && result.is_err() {
+            assert_eq!(result, Err(pxui_types::PXUI_ERR_GPU));
+            assert!(ui.last_error().contains("prepare blur targets before recording"));
+            ok(be::abandon(&commands));
+            drop(renderer);
+            assert!(ui.last_error().contains("prepare blur targets before recording"), "renderer teardown must not report leaked GPU children: {}", ui.last_error());
+            ok(be::destroy_texture(&target));
+            ok(be::destroy_queue(&queue));
+            ok(be::destroy_device(&device));
+            return;
+        }
+        result.unwrap_or_else(|code| panic!("draw the blurred layer: {code}: {}", ui.last_error()));
         if let Some(next) = reopened { open_pass = next; }
         ok(be::invalidate_state(&open_pass));
     }
+    assert!(prepared, "an unprepared blur must fail before recording its passes");
     assert_eq!(splits, 1, "the blurred layer split the app's pass once");
     ok(be::end_render(&open_pass));
     let submitted = ok(be::commit(&commands));
@@ -935,11 +1027,35 @@ fn shared_backdrop_blur() {
     let pixels = ok(be::read_texture(&target, 640 * 4));
     let inside: [u8; 4] = pixels[(100 * 640 + 160) * 4..][..4].try_into().unwrap();
     assert!(near(inside, [194, 79, 33, 255], 2), "public backdrop saturation reached the composite: {inside:?}");
+    if reenter {
+        assert!(ui.last_error().contains("owner only outside a frame"));
+        build(&mut ui);
+    }
     ok(be::destroy_texture(&target));
     ok(be::destroy_queue(&queue));
     drop(renderer);
+    drop(nested);
     ok(be::destroy_device(&device));
     assert_eq!(ui.last_error(), "", "renderer teardown reported an error");
+}
+
+fn shared_resize_validation() {
+    let Some(device) = open() else { return };
+    let mut ui = shared_ui("Resize");
+    let mut renderer = shared_renderer(&device, &ui);
+    assert_eq!(renderer.resize(0, 600), Err(-1));
+    assert_eq!(renderer.resize(640, 0), Err(-1));
+    assert!(ui.last_error().contains("nonzero"));
+    renderer.resize(640, 600).expect("valid resize");
+    mem_sys::local_reset();
+    renderer.resize(640, 600).expect("unchanged resize");
+    assert_eq!(mem_sys::local_alloc_count(), 0, "same dimensions reuse prepared targets");
+    ui.frame(&pxui_types::FrameIn { width: 320.0, height: 300.0, ..Default::default() }, &mut |ui| {
+        assert_eq!(renderer.resize(800, 600), Err(-3), "resizing in a UI frame is refused");
+        assert!(ui.last_error().contains("owner only outside a frame"));
+    }).expect("frame after resize");
+    drop(renderer);
+    ok(be::destroy_device(&device));
 }
 
 /// `prepare` refuses serials that do not increase and more frames in flight than the painter's ring holds,

@@ -12,8 +12,9 @@
 //! // a cached layer: only the instances that changed since its last frame are written
 //! painter.draw_retained(&encoder, [w_px, h_px], scale, layer, &instances, &dirty_ranges, &[])?;
 //! // backdrop blur: end the pass that drew the backdrop, blur, then draw the result as an image
-//! let blurred = painter.blur(&queue, &backdrop, [x0, y0, x1, y1], sigma_px)?.clone();
-//! painter.draw(&encoder, .., &[Instance::image(rect, [0.0, 0.0, 1.0, 1.0], tint)], &[Break { at_instance: 0, texture: Some(&blurred) }])?;
+//! painter.prepare_blur([w_px, h_px])?; // at startup/resize, before recording a frame
+//! let blurred = painter.blur(&queue, &backdrop, [x0, y0, x1, y1], sigma_px)?;
+//! painter.draw(&encoder, .., &[Instance::image(rect, blurred.uv, tint)], &[Break { at_instance: 0, texture: Some(&blurred.texture) }])?;
 //! ```
 //!
 //! # Conventions (same as the Lisp `ui` shader this replaces)
@@ -171,8 +172,13 @@ pub struct Painter {
     retired_textures: Vec<(Texture, usize)>,
 }
 
-/// The backdrop-blur pipeline and its two scratch targets (`size` texels each), made on first use.
+/// The backdrop-blur pipeline and two scratch targets prepared outside frame recording.
 struct Blur { pipeline: Pipeline, sampler: Sampler, a: Texture, b: Texture, size: (u32, u32) }
+
+/// The occupied region of a reusable scratch texture; sample only `uv`, not the whole allocation.
+/// Its pixels remain valid until the next blur on this painter.
+#[derive(Clone)]
+pub struct Blurred { pub texture: Texture, pub uv: [f32; 4], pub size: [u32; 2] }
 
 /// Highest retained layer index + 1.
 
@@ -440,25 +446,58 @@ impl Painter {
         backend::flush_host_range(&self.ring, start as i64, at - start)
     }
 
-    /// Backdrop blur, one extra pass pair per blurred view: a separable gaussian of deviation `sigma_px`
-    /// (source pixels) over the `src_rect_px` (`[x0, y0, x1, y1]`) region of `source`, run on `queue`
-    /// into painter-owned scratch targets. Returns the blurred texture, `1/2` (sigma < 6) or `1/4` of the
-    /// region's size per side (the first pass downsamples), RGBA8, whole texture = the region: draw it with
-    /// `Instance::image(rect, [0, 0, 1, 1], tint)` through a [`Break`] (rounded corners, tint and view
-    /// opacity then apply as for any image) after cloning the returned handle, since it borrows the painter.
-    /// `source` is the caller's responsibility: a texture whose passes already ended (or a copy of the
-    /// target), never the target of a pass that is still open. The result is valid until the next `blur`;
-    /// call it once per blurred view per frame, before that view's draw. Scratch textures are created on
-    /// first use and replaced only when the region's downsampled size changes.
+    /// Prepare the two scratch textures for any blur region within `max_region_px` at startup/resize.
+    /// Call outside frame recording; drawing never creates or resizes textures. Old textures retire
+    /// after the existing frames-in-flight window. Repeating the same capacity is a no-op.
+    pub fn prepare_blur(&mut self, max_region_px: [u32; 2]) -> Result<(), Error> {
+        if max_region_px.contains(&0) { return Err(invalid("Painter.prepare_blur", "blur extent must be nonzero")); }
+        let size = ((max_region_px[0] / 2).max(1), (max_region_px[1] / 2).max(1));
+        if self.blur.as_ref().is_some_and(|b| b.size == size) { return Ok(()); }
+        let target = |label: &str| backend::create_texture(&self.device, TextureDescriptor {
+            label: Some(label.into()), width: size.0 as i64, height: size.1 as i64, depth: 1, mip_levels: 1, sample_count: 1,
+            format: TextureFormat::Rgba8Unorm, usage: vec![TextureUsage::RenderAttachment, TextureUsage::TextureBinding, TextureUsage::TextureCopySrc],
+        });
+        let a = target("pxui_render.blur.a")?;
+        let b = match target("pxui_render.blur.b") {
+            Ok(b) => b,
+            Err(e) => { let _ = backend::destroy_texture(&a); return Err(e); }
+        };
+        if let Some(blur) = &mut self.blur {
+            self.retired_textures.push((std::mem::replace(&mut blur.a, a), FRAMES));
+            self.retired_textures.push((std::mem::replace(&mut blur.b, b), FRAMES));
+            blur.size = size;
+        } else {
+            let pipeline = match pipeline(&self.device, ColorFormat::Rgba8Unorm, DepthFormat::NoDepth, 1, (BLUR_MSL, BLUR_VERT_SPV, BLUR_FRAG_SPV), ["blur_vertex", "blur_fragment"], &BLUR_SLOTS, Blend::Replace) {
+                Ok(p) => p,
+                Err(e) => { let _ = backend::destroy_texture(&a); let _ = backend::destroy_texture(&b); return Err(e); }
+            };
+            let sampler = match backend::create_sampler(&self.device, SamplerDescriptor {
+                label: Some("pxui_render.blur".into()), min_filter: SamplerFilter::Linear, mag_filter: SamplerFilter::Linear,
+                mip_filter: MipFilter::NoMip, address_u: AddressMode::ClampToEdge, address_v: AddressMode::ClampToEdge,
+                lod_min: 0.0, lod_max: 0.0, max_anisotropy: 1,
+            }) {
+                Ok(s) => s,
+                Err(e) => { let _ = backend::destroy_texture(&a); let _ = backend::destroy_texture(&b); let _ = backend::destroy_pipeline(&pipeline); return Err(e); }
+            };
+            self.blur = Some(Blur { pipeline, sampler, a, b, size });
+        }
+        Ok(())
+    }
+
+    /// Backdrop blur of `src_rect_px` (`[x0, y0, x1, y1]`), with deviation `sigma_px` source pixels.
+    /// Requires [`Painter::prepare_blur`] before recording. The first pass downsamples by 2 (sigma < 6)
+    /// or 4; both passes draw only that occupied rectangle of the preallocated textures. Composite
+    /// using the returned texture **and UV rectangle**. Its pixels remain valid until the next blur.
+    /// `source` must have ended its passes, never be the target of a pass still open.
     // The first pass averages each source block whole (no skipped rows), premultiplied, so a translucent
     // source blurs without dark or coloured fringes; the second filters the premultiplied result and
     // returns straight alpha. The two passes order against the caller's by queue order, not a fence.
-    pub fn blur_in(&mut self, commands: &Commands, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32) -> Result<&Texture, Error> {
+    pub fn blur_in(&mut self, commands: &Commands, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32) -> Result<Blurred, Error> {
         self.blur_in_with_saturation(commands, source, src_rect_px, sigma_px, 1.0)
     }
 
     /// [`Painter::blur_in`] with CSS saturation applied once after unpremultiplying the filtered colour.
-    pub fn blur_in_with_saturation(&mut self, commands: &Commands, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32, saturation: f32) -> Result<&Texture, Error> {
+    pub fn blur_in_with_saturation(&mut self, commands: &Commands, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32, saturation: f32) -> Result<Blurred, Error> {
         const OP: &str = "Painter.blur";
         let d = backend::texture_descriptor(source);
         let (sw, sh) = (d.width as u32, d.height as u32);
@@ -469,39 +508,27 @@ impl Painter {
         let down = if sigma_px < 6.0 { 2 } else { 4 };
         let size = (((x1 - x0) / down).max(1), ((y1 - y0) / down).max(1));
         let (sigma, radius) = (sigma_px / down as f32, (sigma_px / down as f32 * 3.0).ceil().clamp(1.0, 32.0));
-        let target = |label: &str| backend::create_texture(&self.device, TextureDescriptor {
-            label: Some(label.into()), width: size.0 as i64, height: size.1 as i64, depth: 1, mip_levels: 1, sample_count: 1,
-            format: TextureFormat::Rgba8Unorm, usage: vec![TextureUsage::RenderAttachment, TextureUsage::TextureBinding, TextureUsage::TextureCopySrc],
-        });
-        if self.blur.is_none() {
-            let pipeline = pipeline(&self.device, ColorFormat::Rgba8Unorm, DepthFormat::NoDepth, 1, (BLUR_MSL, BLUR_VERT_SPV, BLUR_FRAG_SPV), ["blur_vertex", "blur_fragment"], &BLUR_SLOTS, Blend::Replace)?;
-            let sampler = backend::create_sampler(&self.device, SamplerDescriptor {
-                label: Some("pxui_render.blur".into()), min_filter: SamplerFilter::Linear, mag_filter: SamplerFilter::Linear,
-                mip_filter: MipFilter::NoMip, address_u: AddressMode::ClampToEdge, address_v: AddressMode::ClampToEdge,
-                lod_min: 0.0, lod_max: 0.0, max_anisotropy: 1,
-            })?;
-            self.blur = Some(Blur { pipeline, sampler, a: target("pxui_render.blur.a")?, b: target("pxui_render.blur.b")?, size });
-        } else if self.blur.as_ref().is_some_and(|b| b.size != size) {
-            let (a, b) = (target("pxui_render.blur.a")?, target("pxui_render.blur.b")?);
-            let blur = self.blur.as_mut().expect("checked above");
-            self.retired_textures.push((std::mem::replace(&mut blur.a, a), FRAMES));
-            self.retired_textures.push((std::mem::replace(&mut blur.b, b), FRAMES));
-            blur.size = size;
-        }
+        let Some(blur) = &self.blur else { return Err(error::make(OP, ErrorKind::InvalidState, "prepare blur targets before recording")); };
+        if size.0 > blur.size.0 || size.1 > blur.size.1 { return Err(invalid(OP, "blur region exceeds prepared capacity")); }
+        let (cw, ch) = (blur.size.0 as f32, blur.size.1 as f32);
+        let uv = [0.0, 0.0, size.0 as f32 / cw, size.1 as f32 / ch];
         // Two params records (uv region; tap step / sigma / radius; block side / source size), 256-byte aligned for binding.
-        let (sw, sh, h) = (sw as f32, sh as f32, size.1 as f32);
+        let (sw, sh) = (sw as f32, sh as f32);
         let start = self.reserve(2 * ALIGN)?;
         let pass_one = [x0 as f32 / sw, y0 as f32 / sh, (x1 - x0) as f32 / sw, (y1 - y0) as f32 / sh, down as f32 / sw, 0.0, sigma, radius, down as f32, sw, sh, 0.0];
-        let pass_two = [0.0, 0.0, 1.0, 1.0, 0.0, 1.0 / h, sigma, radius, 0.0, 0.0, 0.0, saturation];
+        let pass_two = [0.0, 0.0, uv[2], uv[3], 0.0, 1.0 / ch, sigma, radius, 0.0, 0.5 / cw, 0.5 / ch, saturation];
         self.write_floats(start, &pass_one);
         self.write_floats(start + ALIGN, &pass_two);
         backend::flush_host_range(&self.ring, start as i64, 2 * ALIGN)?;
-        let blur = self.blur.as_ref().expect("created above");
+        let blur = self.blur.as_ref().expect("prepared above");
         for (i, (src, dst)) in [(source, &blur.a), (&blur.a, &blur.b)].into_iter().enumerate() {
             let encoder = backend::render_encoder(commands, &RenderTarget {
                 colors: vec![ColorAttachment { texture: dst.clone(), resolve: None, load: Load::DontCare, store: Store::Store, clear: (0.0, 0.0, 0.0, 0.0) }],
                 depth: None,
             })?;
+            let viewport = ogpu_core::render_pass::Rect { x: 0, y: 0, width: size.0 as i64, height: size.1 as i64 };
+            backend::set_viewport(&encoder, viewport)?;
+            backend::set_scissor(&encoder, viewport)?;
             backend::set_render_pipeline(&encoder, &blur.pipeline)?;
             backend::set_cull(&encoder, Cull::CullNone)?;
             backend::set_stage_buffer(&encoder, ShaderStage::Vertex, 0, Some((start + i * ALIGN) as i64), &self.ring)?;
@@ -510,15 +537,15 @@ impl Painter {
             backend::draw(&encoder, Primitive::TriangleList, 0, 3, Some(1))?;
             backend::end_render(&encoder)?;
         }
-        Ok(&blur.b)
+        Ok(Blurred { texture: blur.b.clone(), uv, size: [size.0, size.1] })
     }
 
     /// [`Painter::blur_in`] in commands of its own, committed at once.
-    pub fn blur(&mut self, queue: &Queue, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32) -> Result<&Texture, Error> {
+    pub fn blur(&mut self, queue: &Queue, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32) -> Result<Blurred, Error> {
         let commands = backend::begin_commands(queue)?;
-        self.blur_in(&commands, source, src_rect_px, sigma_px)?;
+        let blurred = self.blur_in(&commands, source, src_rect_px, sigma_px)?;
         backend::commit(&commands)?;
-        Ok(&self.blur.as_ref().expect("blur_in made it").b)
+        Ok(blurred)
     }
 
     /// Like [`Painter::draw`] for a layer whose instances mostly stay the same between frames. The

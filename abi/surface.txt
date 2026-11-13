@@ -48,6 +48,7 @@ Paint|text_with|Rays|done
 Paint|text|Rays|done
 Paint|theme|Rays|inlined
 Renderer|draw|Gallery,Rays|done: layers first_layer.. of Pass, split callback for a backdrop blur
+Renderer|resize|LocalWave|done: prepare blur targets before frame recording
 Ui|a11y_name_of|Rays|done: the name text of one of them
 Ui|a11y_name|A4-required,Gallery,Rays|done
 Ui|a11y_nodes|Rays|done: the output's accessibility records as a slice

@@ -13,5 +13,5 @@ void main() {
   v_uv = uv;
   v_rect = g[0];  // source region in uv: x y w h
   v_tap = g[1];   // uv step per tap x y, sigma in taps, tap radius
-  v_mode = g[2];  // block side (0: second pass), source width, height, second-pass saturation
+  v_mode = g[2];  // block side (0: second pass), source width/height or half-texel UV, saturation
 }

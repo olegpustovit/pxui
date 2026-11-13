@@ -2,7 +2,7 @@ use ogpu_core::backend::{self as gpu_backend, Device, Queue, Texture};
 use ogpu_core::pipeline::{ColorFormat, DepthFormat};
 use ogpu_core::types::{Extent, Origin, TextureFormat};
 use pxui_core::ui::Ui;
-use pxui_render::{AtlasKind, Break, Instance, Painter, View};
+use pxui_render::{AtlasKind, Blurred, Break, Instance, Painter, View};
 use pxui_core::text::AtlasKind as TextKind;
 
 use crate::state::{fail, get, PxuiUi};
@@ -27,6 +27,7 @@ pub struct PxuiRenderer {
     /// settled frame allocates nothing; adopted anew when the driver cannot
     prepared: Option<gpu_backend::Commands>,
     drawn: Option<(gpu_backend::Commands, gpu_backend::RenderEncoder)>,
+    split_points: Vec<u32>,
 }
 
 /// `native` in the commands kept from the last frame when the driver can point them there, or adopted anew.
@@ -87,7 +88,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: &pxui_types::Gpu, target: PxuiTargetDesc) -
         Ok(p)=>p,
         Err(e)=>{ let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err(describe(e)); }
     };
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false, prepared:None, drawn:None })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false, prepared:None, drawn:None, split_points:Vec::new() })
 }
 
 // Makes a renderer for the owner `Ui` (never a callback's borrowed handle) outside a frame; null, with the reason in
@@ -153,8 +154,16 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     0
 });
 
+// Allocate blur scratch storage between frames, before recording commands for the resized target.
+export!(pub unsafe fn pxui_renderer_resize(renderer:*mut PxuiRenderer, width:u32, height:u32) -> i32 {
+    if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
+    let renderer=unsafe { &mut *renderer };
+    if width==0 || height==0 { return renderer.fail(PXUI_ERR_ARGUMENT, "renderer extent must be nonzero"); }
+    match renderer.painter.prepare_blur([width,height]) { Ok(())=>0, Err(e)=>renderer.fail_gpu(e) }
+});
+
 /// What the blur recording callback of one split reaches.
-struct Recording<'a> { painter: &'a mut Painter, renderer_device: &'a Device, queue: &'a Queue, serial: u64, native: [*mut c_void; 2], rect: [u32; 4], sigma: f32, saturation: f32, blurred: Option<Texture>, error: Option<ogpu_core::error::Error> }
+struct Recording<'a> { painter: &'a mut Painter, renderer_device: &'a Device, queue: &'a Queue, serial: u64, native: [*mut c_void; 2], rect: [u32; 4], sigma: f32, saturation: f32, blurred: Option<Blurred>, error: Option<ogpu_core::error::Error> }
 
 /// The app has ended its pass: record the blur of `rect` of the target it drew so far into its command buffer.
 extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -> i32 {
@@ -163,12 +172,14 @@ extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -
     let t = unsafe { *target };
     let result = (|| {
         let texture = gpu_backend::wrap_texture(rec.renderer_device, ogpu_core::backend::NativeTexture { size: core::mem::size_of::<ogpu_core::backend::NativeTexture>() as u32, vk_image_view: t.vk_image_view, mtl_texture: t.mtl_texture, width: t.width, height: t.height, format: t.format })?;
-        let native = ogpu_core::backend::NativeCommands { size: core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer: rec.native[0], mtl_command_buffer: rec.native[1], frame_serial: rec.serial, inside_pass: 0 };
-        let commands = gpu_backend::adopt_commands(rec.queue, native)?;
-        let blurred = rec.painter.blur_in_with_saturation(&commands, &texture, rec.rect, rec.sigma, rec.saturation)?.clone();
-        rec.blurred = Some(blurred);
-        let _ = gpu_backend::destroy_texture(&texture);
-        Ok(())
+        let blurred = (|| {
+            let native = ogpu_core::backend::NativeCommands { size: core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer: rec.native[0], mtl_command_buffer: rec.native[1], frame_serial: rec.serial, inside_pass: 0 };
+            let commands = gpu_backend::adopt_commands(rec.queue, native)?;
+            rec.painter.blur_in_with_saturation(&commands, &texture, rec.rect, rec.sigma, rec.saturation)
+        })();
+        let destroyed = gpu_backend::destroy_texture(&texture);
+        rec.blurred = Some(blurred?);
+        destroyed
     })();
     match result { Ok(()) => 0, Err(e) => { rec.error = Some(e); PXUI_ERR_GPU } }
 }
@@ -220,11 +231,16 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                 }
             }
         }
-        // the layer's breaks live on the stack (the heap past 64): a settled frame allocates nothing here
+        renderer.split_points.clear();
+        renderer.split_points.extend(ui.output().blurs.iter().filter(|b| b.layer==index && (b.at_instance as usize)<layer.instances.len()).map(|b| b.at_instance));
+        renderer.split_points.sort_unstable();
+        renderer.split_points.dedup();
+        // shortcut: layers past 64 boundaries still allocate, remove with the remaining blurred-draw allocations.
         let none=Break { at_instance:0, texture:None };
         let mut stack=[none;64];
         let mut heap: Vec<Break>=Vec::new();
-        let slots: &mut [Break]=if layer.breaks.len()<=64 { &mut stack[..layer.breaks.len()] } else { heap.resize(layer.breaks.len(),none); &mut heap[..] };
+        let capacity=layer.breaks.len()+renderer.split_points.len();
+        let slots: &mut [Break]=if capacity<=64 { &mut stack[..capacity] } else { heap.resize(capacity,none); &mut heap[..] };
         for (slot,b) in slots.iter_mut().zip(&layer.breaks) {
             let texture=if b.image==pxui_core::draw::ATLAS { None } else if let Some(image)=layer.images.get(b.image as usize) {
                 if let Some(texture)=image.handle.downcast_ref::<Texture>() { Some(texture) }
@@ -232,31 +248,28 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
             } else { None };
             *slot=Break { at_instance:b.at_instance, texture };
         }
-        let breaks: &[Break]=slots;
-        let blurs: Vec<&pxui_core::ui::BlurOut>=ui.output().blurs.iter().filter(|b|b.layer==index && (b.at_instance as usize)<layer.instances.len()).collect();
-        let result=if blurs.is_empty() {
+        let mut count=layer.breaks.len();
+        for &at in &renderer.split_points {
+            let i=slots[..count].partition_point(|b| b.at_instance<at);
+            if i==count || slots[i].at_instance!=at {
+                let texture=i.checked_sub(1).and_then(|j| slots[j].texture);
+                slots.copy_within(i..count,i+1);
+                slots[i]=Break { at_instance:at, texture };
+                count+=1;
+            }
+        }
+        let breaks=&slots[..count];
+        let result=if renderer.split_points.is_empty() {
             renderer.painter.draw_retained(&encoder,size_px,pass.scale,layer.id,&layer.instances,&layer.dirty,breaks)
         } else {
             let Some(split)=pass.split else { return renderer.fail(PXUI_ERR_STATE, "a layer with a backdrop blur needs the pass's split callback") };
-            // a blur splits the layer where its view's run starts: a break there that keeps the texture in force
-            // (a layer with a blur is the rare case: it may allocate)
-            let mut breaks=breaks.to_vec();
-            let mut splits: Vec<u32>=blurs.iter().map(|b|b.at_instance).collect();
-            splits.sort_unstable();
-            splits.dedup();
-            for &at in &splits {
-                if !breaks.iter().any(|b|b.at_instance==at) {
-                    let i=breaks.partition_point(|b|b.at_instance<at);
-                    breaks.insert(i,Break { at_instance:at, texture:i.checked_sub(1).and_then(|j|breaks[j].texture) });
-                }
-            }
             let (queue,device,format,samples,serial)=(&renderer.queue,&renderer.device,renderer.format,renderer.samples,renderer.frame_serial);
             let (native_commands,scale)=([pass.vk_command_buffer,pass.mtl_command_buffer],pass.scale);
             let mut reopened: Option<ogpu_core::backend::RenderEncoder>=None;
             let current=encoder.clone();
-            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,layer.id,&layer.instances,&layer.dirty,&breaks,&splits,&mut |painter,at| {
+            let outcome=renderer.painter.draw_retained_split(&current,size_px,scale,layer.id,&layer.instances,&layer.dirty,breaks,&renderer.split_points,&mut |painter,at| {
                 let mut latest=None;
-                for b in blurs.iter().filter(|b|b.at_instance==at) {
+                for b in ui.output().blurs.iter().filter(|b|b.layer==index && b.at_instance==at) {
                     let [w,h]=size_px;
                     let (x0,y0)=((b.rect.x*scale).floor().max(0.0) as u32,(b.rect.y*scale).floor().max(0.0) as u32);
                     let (x1,y1)=(((b.rect.x+b.rect.w)*scale).ceil().clamp(0.0,w as f32) as u32,((b.rect.y+b.rect.h)*scale).ceil().clamp(0.0,h as f32) as u32);
@@ -269,7 +282,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                     let rc=split(pass.split_user,record_blur,(&mut rec as *mut Recording).cast(),&mut next);
                     if let Some(e)=rec.error.take() { return Err(e); }
                     if rc!=0 || rec.blurred.is_none() { return Err(ogpu_core::error::make("Pxui.draw",ogpu_core::error::ErrorKind::InvalidState,"the app's pass split failed")); }
-                    let blurred=rec.blurred.take();
+                    let blurred=rec.blurred.take().expect("checked above");
                     let commands_native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:next.vk_command_buffer, mtl_command_buffer:next.mtl_command_buffer, frame_serial:serial, inside_pass:1 };
                     let native_next=ogpu_core::backend::NativePass { size:core::mem::size_of::<ogpu_core::backend::NativePass>() as u32, vk_command_buffer:next.vk_command_buffer, mtl_render_encoder:next.mtl_render_encoder, width_px:next.width_px, height_px:next.height_px, scale:next.scale };
                     let commands=gpu_backend::adopt_commands(queue,commands_native)?;
@@ -277,8 +290,8 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                     let rect=[x0,y0,x1,y1].map(|v|v as f32/scale);
                     let (alpha,radius)=((255.0*b.opacity.clamp(0.0,1.0)).round() as u8,b.radii.iter().fold(0.0f32,|a,r|a.max(*r)));
                     let clip=[b.rect.x.floor(),b.rect.y.floor(),(b.rect.x+b.rect.w).ceil(),(b.rect.y+b.rect.h).ceil()].map(|v|v as i16);
-                    let image=Instance::image(rect,[0.0,0.0,1.0,1.0],[alpha;4]).clip(clip,radius);
-                    painter.draw(&encoder,size_px,scale,&[image],&[Break { at_instance:0, texture:blurred.as_ref() }])?;
+                    let image=Instance::image(rect,blurred.uv,[alpha;4]).clip(clip,radius);
+                    painter.draw(&encoder,size_px,scale,&[image],&[Break { at_instance:0, texture:Some(&blurred.texture) }])?;
                     latest=Some(encoder);
                 }
                 if latest.is_some() { reopened=latest.clone(); }

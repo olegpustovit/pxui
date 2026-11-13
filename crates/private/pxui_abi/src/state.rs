@@ -163,7 +163,7 @@ pub use pxui_types::ffi::UiBuild as Build;
 
 /// Where an export finds the shared state of its first argument, so the export macro can poison it.
 /// `usable` says whether the export may touch the engine through the handle: a `PxuiUi` must be `Shared::current`; a renderer holds the
-/// engine for its own calls, so it is refused inside a frame (the live `&mut Ui` of a callback would alias it); a paint handle reaches the
+/// engine for its own calls, so it is refused inside a frame or another renderer's callback; a paint handle reaches the
 /// painter of the one paint callback it was made for, and no callback nests in another, so it has no second live path.
 pub(crate) trait Handle { fn shared(self) -> *mut Shared; fn usable(self, shared: *mut Shared) -> bool; }
 impl Handle for *mut PxuiUi {
@@ -176,7 +176,7 @@ impl Handle for *const PxuiUi {
 }
 impl Handle for *mut crate::PxuiRenderer {
     fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } }
-    #[inline(always)] fn usable(self, shared: *mut Shared) -> bool { shared.is_null() || unsafe { !(*shared).in_frame } }
+    #[inline(always)] fn usable(self, shared: *mut Shared) -> bool { shared.is_null() || unsafe { !(*shared).in_frame && !(*shared).current.is_null() } }
 }
 impl Handle for *mut crate::paint::PxuiPaint {
     fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } }

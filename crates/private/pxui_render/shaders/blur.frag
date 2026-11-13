@@ -31,7 +31,8 @@ void main() {
       }
       c /= float(n * n);
     } else {
-      c = textureLod(sampler2D(src, samp), at, 0.0);  // premultiplied: linear filtering is exact
+      vec2 half_texel = v_mode.yz;
+      c = textureLod(sampler2D(src, samp), clamp(at, half_texel, v_rect.xy + v_rect.zw - half_texel), 0.0);
     }
     sum += w * c;
     total += w;

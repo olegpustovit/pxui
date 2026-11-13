@@ -160,6 +160,7 @@ mod sys {
         pub fn pxui_text_field(ui:*mut PxuiUi,label:Str,value:Str,changed:*mut Str,out_changed:*mut u8)->i32;
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
+        pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
         pub fn pxui_renderer_draw(renderer:*mut PxuiRenderer,pass:*const pxui_types::Pass)->i32;
         pub fn pxui_renderer_draw_calls(renderer:*mut PxuiRenderer)->u64;
         pub fn pxui_renderer_atlas(renderer:*mut PxuiRenderer,kind:u32,out:*mut pxui_types::Image)->i32;
@@ -184,6 +185,11 @@ impl Renderer {
     pub fn prepare(&mut self,commands:&pxui_types::Commands,frame:u64,completed:u64)->Result<(),i32> {
         let rc=unsafe { sys::pxui_renderer_prepare(self.raw.as_ptr(),commands,frame,completed) };
         composite::resume_deferred();
+        if rc==0 { Ok(()) } else { Err(rc) }
+    }
+    /// Prepare blur targets at startup/resize, before recording the next frame. Dimensions are drawable pixels.
+    pub fn resize(&mut self,width:u32,height:u32)->Result<(),i32> {
+        let rc=unsafe { sys::pxui_renderer_resize(self.raw.as_ptr(),width,height) };
         if rc==0 { Ok(()) } else { Err(rc) }
     }
     pub fn draw(&mut self,pass:&pxui_types::Pass)->Result<(),i32> {
