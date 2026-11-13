@@ -246,3 +246,8 @@ fn carry_transfer_validates_outputs_handles_and_has_no_capture_side_effect_witho
     assert_eq!(out, 0, "a retired handle is quiet and cannot acquire capture");
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
+
+#[test]
+fn image_retirement_rejects_a_missing_renderer() {
+    assert_eq!(unsafe { crate::pxui_renderer_forget_image(core::ptr::null_mut(),core::ptr::null(),0) }, crate::PXUI_ERR_ARGUMENT);
+}

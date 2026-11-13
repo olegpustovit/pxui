@@ -115,3 +115,14 @@ Modal signal filtering reuses the signal map rather than collecting its keys eac
 plain labels reuse the painter's existing string buffer; preserve the legacy character-width cut,
 UTF-8 boundaries, tiny-width ellipsis and ASCII caps. Keep the modal wheel allocation regression
 and fitted/plain draw-instance parity case. Owned `ellipsis` helper results remain a separate path.
+
+
+ABI 1.13 adds Renderer::forget_image / pxui_renderer_forget_image. Hosts stop referencing an evicted
+image and forget it on every sampling renderer before destroying/reusing the native handle, passing
+the host's actual completed serial on the prepare timeline; completion must not regress. Refuse incomplete draws and never destroy the caller's
+image. Native identity interning is an O(1) LRU bounded to 1,024 entries and a 128 MiB estimated texel
+working set (one oversized image may stand alone). Wrappers retain weak image identities and retire
+abandoned entries by actual completed serials. Ignore inherited/trailing image breaks whose segment
+has no IMAGE instances; solid/text runs must not refresh resource use or bind stale textures. Preserve
+the 128-distinct-image native pixel/warm allocation test, explicit release guards, metadata bounds,
+and both backend paths. This is no process/native-memory qualification.

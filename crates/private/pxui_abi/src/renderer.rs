@@ -9,7 +9,7 @@ use crate::state::{fail, get, PxuiUi};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_STATE, PxuiTargetDesc};
 use core::ffi::c_void;
 
-struct CachedTexture { texture: Texture, used: u64 }
+struct CachedTexture { texture: Texture, used: u64, image: Option<std::rc::Weak<dyn std::any::Any>> }
 impl Drop for CachedTexture {
     fn drop(&mut self) { let _=gpu_backend::destroy_texture(&self.texture); }
 }
@@ -160,12 +160,37 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     });
     if let Some(e)=failed { renderer.atlas_initialized=[false;4]; return renderer.fail_gpu(e); }
     renderer.frame_serial=frame;
-    // a wrapped texture no frame in flight can still sample (it was last drawn more than 3 frames ago) goes
-    renderer.textures.retain(|_,entry| frame-entry.used<=pxui_render::FRAMES as u64);
-    renderer.blur_sources.retain(|_,entry| frame-entry.used<=pxui_render::FRAMES as u64);
+    // Keep live image identities; release abandoned wrappers only after their actual GPU completion.
+    renderer.textures.retain(|_,entry| entry.used>completed || entry.image.as_ref().is_some_and(|image|image.strong_count()!=0));
+    renderer.blur_sources.retain(|_,entry| entry.used>completed || frame-entry.used<=pxui_render::FRAMES as u64);
     renderer.painter.begin_frame();
     gpu_backend::settle_commands(&commands);
     renderer.prepared=Some(commands);
+    0
+});
+
+// The host forgets an evicted native resource before destroying/reusing its handle.
+export!(pub unsafe fn pxui_renderer_forget_image(renderer:*mut PxuiRenderer, raw:*const pxui_types::Image, completed:u64) -> i32 {
+    if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
+    let renderer=unsafe { &mut *renderer };
+    let Some(raw)=read_desc!(raw, pxui_types::Image) else { return renderer.fail(PXUI_ERR_ARGUMENT,"invalid image descriptor") };
+    if !crate::image::valid(raw) { return renderer.fail(PXUI_ERR_ARGUMENT,"invalid image descriptor"); }
+    if completed<renderer.completed { return renderer.fail(PXUI_ERR_ARGUMENT,"completed must not go back"); }
+    let key=crate::image::image_key(&raw);
+    if renderer.textures.get(&key).into_iter().chain(renderer.blur_sources.get(&key)).any(|entry|entry.used>completed) {
+        return renderer.fail(PXUI_ERR_STATE,"image still has an incomplete GPU frame");
+    }
+    if let Err(error)=gpu_backend::retire(&renderer.queue,completed) { return renderer.fail_gpu(error); }
+    renderer.completed=completed;
+    let released:Result<(),ogpu_core::error::Error>=(|| {
+        for cache in [&mut renderer.textures,&mut renderer.blur_sources] {
+            if let Some(entry)=cache.get(&key) { gpu_backend::destroy_texture(&entry.texture)?; }
+            cache.remove(&key);
+        }
+        Ok(())
+    })();
+    if let Err(error)=released { return renderer.fail_gpu(error); }
+    crate::image::forget(raw);
     0
 });
 
@@ -190,7 +215,7 @@ extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -
             std::collections::hash_map::Entry::Occupied(entry)=>entry.into_mut(),
             std::collections::hash_map::Entry::Vacant(entry)=>{
                 let texture=gpu_backend::wrap_texture(rec.renderer_device, ogpu_core::backend::NativeTexture { size: core::mem::size_of::<ogpu_core::backend::NativeTexture>() as u32, vk_image_view: t.vk_image_view, mtl_texture: t.mtl_texture, width: t.width, height: t.height, format: t.format })?;
-                entry.insert(CachedTexture { texture, used:rec.serial })
+                entry.insert(CachedTexture { texture, used:rec.serial, image:None })
             }
         };
         entry.used=rec.serial;
@@ -203,6 +228,26 @@ extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -
         Ok(())
     })();
     match result { Ok(()) => 0, Err(e) => { rec.error = Some(e); PXUI_ERR_GPU } }
+}
+
+// A retained solid/text run can inherit a texture break without sampling that image.
+fn samples_image(instances:&[Instance],breaks:&[pxui_core::draw::Break],index:usize)->bool {
+    let start=(breaks[index].at_instance as usize).min(instances.len());
+    let end=breaks.get(index+1).map_or(instances.len(),|b|(b.at_instance as usize).min(instances.len()));
+    instances[start..end].iter().any(|instance|instance.kind==pxui_render::kind::IMAGE)
+}
+#[cfg(test)]
+mod image_binding_tests {
+    #[test]
+    fn inherited_and_trailing_breaks_without_image_instances_do_not_sample_a_resource() {
+        let mut instances=[pxui_render::Instance::DEFAULT;6];
+        instances[3].kind=pxui_render::kind::IMAGE;
+        let breaks=[0,2,4,6].map(|at_instance|pxui_core::draw::Break{at_instance,image:0});
+        assert!(!super::samples_image(&instances,&breaks,0));
+        assert!(super::samples_image(&instances,&breaks,1));
+        assert!(!super::samples_image(&instances,&breaks,2));
+        assert!(!super::samples_image(&instances,&breaks,3));
+    }
 }
 
 // Draws layers `pass.first_layer..` (`pass.layer_count` of them, 0 for all) of the last frame into the app's open pass. A layer
@@ -237,8 +282,8 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     for index in first..end {
         let layer=&ui.output().draw[index];
         // Cache foreign wrappers before building this layer's texture bindings.
-        for b in &layer.breaks {
-            if b.image==pxui_core::draw::ATLAS { continue; }
+        for (index,b) in layer.breaks.iter().enumerate() {
+            if b.image==pxui_core::draw::ATLAS || !samples_image(&layer.instances,&layer.breaks,index) { continue; }
             let Some(image)=layer.images.get(b.image as usize) else { continue; };
             if image.handle.downcast_ref::<Texture>().is_some() { continue; }
             let Some(key)=crate::image::texture_key(image) else { continue; };
@@ -246,7 +291,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                 Some(entry)=>entry.used=renderer.frame_serial,
                 None=>{
                     let texture=match crate::image::adopt_texture(&renderer.device,image) { Ok(texture)=>texture, Err(())=>return renderer.fail(PXUI_ERR_GPU, "an app image could not be wrapped") };
-                    renderer.textures.insert(key,CachedTexture { texture, used:renderer.frame_serial });
+                    renderer.textures.insert(key,CachedTexture { texture, used:renderer.frame_serial, image:Some(std::rc::Rc::downgrade(&image.handle)) });
                 }
             }
         }
@@ -256,8 +301,8 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         renderer.split_points.dedup();
         renderer.breaks.clear();
         renderer.breaks.reserve(layer.breaks.len()+renderer.split_points.len());
-        for b in &layer.breaks {
-            let texture=if b.image==pxui_core::draw::ATLAS { None } else if let Some(image)=layer.images.get(b.image as usize) {
+        for (index,b) in layer.breaks.iter().enumerate() {
+            let texture=if b.image==pxui_core::draw::ATLAS || !samples_image(&layer.instances,&layer.breaks,index) { None } else if let Some(image)=layer.images.get(b.image as usize) {
                 if let Some(texture)=image.handle.downcast_ref::<Texture>() { Some(texture.clone()) }
                 else { crate::image::texture_key(image).and_then(|key|renderer.textures.get(&key).map(|e|e.texture.clone())) }
             } else { None };

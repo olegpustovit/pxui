@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 12
+minor 13
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -40,6 +40,7 @@ function pxui_renderer_create PxuiRenderer * pxui_renderer_create ( PxuiUi * ui 
 function pxui_renderer_destroy void pxui_renderer_destroy ( PxuiRenderer * renderer ) ;
 function pxui_renderer_draw int32_t pxui_renderer_draw ( PxuiRenderer * renderer , const PxuiPass * pass ) ;
 function pxui_renderer_draw_calls uint64_t pxui_renderer_draw_calls ( PxuiRenderer * renderer ) ;
+function pxui_renderer_forget_image int32_t pxui_renderer_forget_image ( PxuiRenderer * renderer , const PxuiImage * image , uint64_t completed ) ;
 function pxui_renderer_prepare int32_t pxui_renderer_prepare ( PxuiRenderer * renderer , const PxuiCommands * commands , uint64_t frame , uint64_t completed ) ;
 function pxui_renderer_resize int32_t pxui_renderer_resize ( PxuiRenderer * renderer , uint32_t width , uint32_t height ) ;
 function pxui_scope int32_t pxui_scope ( PxuiUi * ui , PxuiStr label , PxuiBuild build , void * user ) ;

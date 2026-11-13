@@ -12,29 +12,45 @@ fn fit(value: u32) -> Option<Fit> {
 }
 
 fn image(raw: pxui_types::Image) -> Option<CoreImage> {
-    if raw.size < core::mem::size_of::<pxui_types::Image>() as u32 || raw.width == 0 || raw.height == 0
-        || (raw.vk_image_view.is_null() && raw.mtl_texture.is_null()) || raw.format >= pxui_types::Image::FORMAT_DEPTH32F
-    { return None; }
+    if !valid(raw) { return None; }
     Some(CoreImage { handle: handle_of(raw), width: i64::from(raw.width), height: i64::from(raw.height) })
 }
 
-// The engine tells images apart by their handle's identity and draws consecutive uses of one image as one segment, so an app texture
-// named in several calls (or frames) gets the same handle each time: made anew per call, four uses of one texture cost four draws.
-// A texture is the same one while its native handle, size and format are; the last few are kept (the oldest goes first).
-thread_local! { static HANDLES: std::cell::RefCell<Vec<(pxui_types::Image, Rc<dyn std::any::Any>)>> = const { std::cell::RefCell::new(Vec::new()) }; }
-const HANDLES_KEPT: usize = 64;
-
-fn handle_of(raw: pxui_types::Image) -> Rc<dyn std::any::Any> {
-    let same = |a: &pxui_types::Image| a.vk_image_view == raw.vk_image_view && a.mtl_texture == raw.mtl_texture && a.width == raw.width && a.height == raw.height && a.format == raw.format;
-    HANDLES.with(|handles| {
-        let mut handles = handles.borrow_mut();
-        if let Some((_, handle)) = handles.iter().find(|(image, _)| same(image)) { return Rc::clone(handle); }
-        if handles.len() == HANDLES_KEPT { handles.remove(0); }
-        let handle: Rc<dyn std::any::Any> = Rc::new(ForeignImage(raw));
-        handles.push((raw, Rc::clone(&handle)));
-        handle
-    })
+pub(crate) fn valid(raw: pxui_types::Image) -> bool {
+    raw.size >= core::mem::size_of::<pxui_types::Image>() as u32 && raw.width != 0 && raw.height != 0
+        && (!raw.vk_image_view.is_null() || !raw.mtl_texture.is_null()) && raw.format < pxui_types::Image::FORMAT_DEPTH32F
 }
+
+struct Handle { value: Rc<dyn std::any::Any>, used: u64, bytes: u64 }
+struct Handles { entries: std::collections::HashMap<TextureKey, Handle>, clock: u64, bytes: u64 }
+const HANDLES_KEPT: usize = 1024;
+const HANDLES_BYTES: u64 = 128 * 1024 * 1024;
+impl Handles {
+    fn new() -> Self { Self { entries: std::collections::HashMap::with_capacity(HANDLES_KEPT), clock:0, bytes:0 } }
+    fn get(&mut self, raw: pxui_types::Image) -> Rc<dyn std::any::Any> {
+        let key=image_key(&raw);
+        self.clock=self.clock.wrapping_add(1);
+        if let Some(handle)=self.entries.get_mut(&key) { handle.used=self.clock; return Rc::clone(&handle.value); }
+        let texel=match raw.format { 0=>1, 4=>8, 5=>16, _=>4 };
+        let bytes=u64::from(raw.width).saturating_mul(u64::from(raw.height)).saturating_mul(texel);
+        // One image larger than the working-set budget may stand alone; no pixel memory is allocated here.
+        while !self.entries.is_empty() && (self.entries.len()>=HANDLES_KEPT || self.bytes.saturating_add(bytes)>HANDLES_BYTES) {
+            let key=*self.entries.iter().min_by_key(|(_,handle)|handle.used).unwrap().0;
+            self.remove(&key);
+        }
+        let value: Rc<dyn std::any::Any>=Rc::new(ForeignImage(raw));
+        self.entries.insert(key,Handle { value:Rc::clone(&value), used:self.clock, bytes });
+        self.bytes=self.bytes.saturating_add(bytes);
+        value
+    }
+    fn remove(&mut self,key:&TextureKey) {
+        if let Some(handle)=self.entries.remove(key) { self.bytes-=handle.bytes; }
+    }
+}
+// Stable identities avoid extra segments and wrappers when a warmed gallery scrolls back into view.
+thread_local! { static HANDLES: std::cell::RefCell<Handles> = std::cell::RefCell::new(Handles::new()); }
+fn handle_of(raw: pxui_types::Image) -> Rc<dyn std::any::Any> { HANDLES.with(|handles|handles.borrow_mut().get(raw)) }
+pub(crate) fn forget(raw: pxui_types::Image) { HANDLES.with(|handles|handles.borrow_mut().remove(&image_key(&raw))); }
 
 /// A native image's identity includes both handles, extent and format.
 pub(crate) type TextureKey = (usize, usize, u32, u32, u32);
@@ -62,6 +78,23 @@ pub(crate) fn adopt_texture(device: &Device, image: &CoreImage) -> Result<Textur
 
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn image_identities_reuse_large_working_sets_and_bound_metadata_residency() {
+        let mut cache=super::Handles::new();
+        let raw=|id|pxui_types::Image { mtl_texture:id as *mut _,width:16,height:16,format:1,..Default::default() };
+        let handles:Vec<_>=(1..=768).map(|id|cache.get(raw(id))).collect();
+        mem_sys::local_reset();
+        for _ in 0..10 { for (index,handle) in handles.iter().enumerate() { assert!(std::rc::Rc::ptr_eq(handle,&cache.get(raw(index+1)))); } }
+        assert_eq!(mem_sys::local_alloc_count(),0);
+        for id in 769..=2048 { cache.get(raw(id)); }
+        assert_eq!(cache.entries.len(),super::HANDLES_KEPT);
+        for id in 3000..4000 { cache.get(pxui_types::Image { width:512,height:512,..raw(id) }); }
+        assert!(cache.bytes<=super::HANDLES_BYTES);
+        assert_eq!(cache.entries.len(),128);
+        let image=raw(4000); let handle=cache.get(image); let weak=std::rc::Rc::downgrade(&handle); drop(handle);
+        cache.remove(&super::image_key(&image));
+        assert_eq!(weak.strong_count(),0);
+    }
     #[test]
     fn texture_keys_include_both_native_handles_extent_and_format() {
         let base=pxui_types::Image { width:16,height:32,format:1,..Default::default() };

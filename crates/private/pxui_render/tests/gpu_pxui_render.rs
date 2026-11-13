@@ -204,6 +204,7 @@ fn main() {
         ("shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations", shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations),
         ("shared_inline_ligature_color_preserves_native_coverage", shared_inline_ligature_color_preserves_native_coverage),
         ("shared_large_image_layer_allocates_nothing", shared_large_image_layer_allocates_nothing),
+        ("shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images", shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--ignored") { return; }
@@ -1801,6 +1802,60 @@ fn shared_public_measured_rows_render_settled_clipped_heights() {
         }
     }
     drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
+}
+
+
+fn shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,128,64,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let sources:Vec<_>=(0..128).map(|index| {
+        let source=texture(&device,1,1,&[TextureUsage::TextureBinding,TextureUsage::TextureCopyDst]);
+        ok(be::write_texture(&source,None,Origin{x:0,y:0,z:0},Extent{width:1,height:1,depth:1},4,&[RED,BLUE][index%2]));
+        source
+    }).collect();
+    let images:[pxui_types::Image;128]=std::array::from_fn(|index| {
+        let native=ok(be::native_texture(&sources[index]));
+        pxui_types::Image{vk_image_view:native.vk_image_view,mtl_texture:native.mtl_texture,width:1,height:1,format:native.format,..Default::default()}
+    });
+    let mut ui=pxui::Ui::new().expect("UI");
+    let mut renderer=shared_renderer(&device,&ui);
+    assert_eq!(renderer.forget_image(&pxui_types::Image::default(),0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+    for frame in 1..=24u64 {
+        let start=((frame-1)%4) as usize*32;
+        mem_sys::local_reset();
+        ui.frame(&pxui_types::FrameIn{width:128.0,height:64.0,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+            let bounds=ui.node("gallery",pxui::ui::Node{w:pxui::ui::Size::Px(128.0),h:pxui::ui::Size::Px(64.0),..pxui::ui::Node::DEFAULT});
+            ui.canvas(&bounds,move |paint,rect| {
+                for index in 0..32 { paint.image(rect.x+(index%8) as f32*16.0,rect.y+(index/8) as f32*16.0,16.0,16.0,&images[start+index]); }
+            });
+        }).expect("gallery frame");
+        let build_allocations=mem_sys::local_alloc_count();
+        let commands=ok(be::begin_commands(&queue));
+        renderer.prepare(&public_commands(&commands),frame,frame-1).expect("prepare");
+        let encoder=ok(be::render_encoder(&commands,&RenderTarget{colors:vec![ColorAttachment{texture:target.clone(),resolve:None,load:Load::Clear,store:Store::Store,clear:(0.0,0.0,0.0,1.0)}],depth:None}));
+        let native=ok(be::native_pass(&encoder));
+        let pass=pxui_types::Pass{vk_command_buffer:native.vk_command_buffer,mtl_render_encoder:native.mtl_render_encoder,mtl_command_buffer:public_commands(&commands).mtl_command_buffer,width_px:128,height_px:64,scale:1.0,..Default::default()};
+        let before=renderer.draw_calls();
+        mem_sys::local_reset();
+        renderer.draw(&pass).expect("draw gallery");
+        if frame>8 { assert_eq!(build_allocations+mem_sys::local_alloc_count(),0,"revisiting 128 warmed images after more than three unused frames"); }
+        assert_eq!(renderer.draw_calls()-before,32);
+        ok(be::invalidate_state(&encoder)); ok(be::end_render(&encoder));
+        let submitted=ok(be::commit(&commands)); ok(be::complete_through(&queue,submitted.epoch));
+        let pixels=ok(be::read_texture(&target,128*4));
+        for index in 0..32 {
+            let pixel=((index/8*16+8)*128+(index%8*16+8))*4;
+            assert_eq!(&pixels[pixel..pixel+4],[RED,BLUE][index%2],"image {index} of page {start}");
+        }
+    }
+    assert_eq!(renderer.forget_image(&images[96],23),Err(pxui_types::PXUI_ERR_STATE),"an incomplete serial cannot release the last draw");
+    for image in &images { renderer.forget_image(image,24).expect("release completed image without recording another frame"); renderer.forget_image(image,24).expect("idempotent release"); }
+    assert_eq!(renderer.forget_image(&images[96],23),Err(pxui_types::PXUI_ERR_ARGUMENT),"completion cannot regress");
+    drop(renderer);
+    for source in &sources { ok(be::destroy_texture(source)); }
     ok(be::destroy_texture(&target));
     finish(device,queue);
 }

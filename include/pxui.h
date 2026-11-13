@@ -579,6 +579,10 @@ int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *comman
 int32_t pxui_renderer_resize(PxuiRenderer *renderer, uint32_t width, uint32_t height);
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
 /* The draw calls the renderer has issued so far. */
+/* ABI 1.13: forget on every sampling renderer before destroying/reusing an app texture.
+   completed is the host's actual completed serial on the prepare timeline and must not go back.
+   Refuses ERR_STATE while a draw of the image exceeds completed. No extra frame; never destroys the app image. */
+int32_t pxui_renderer_forget_image(PxuiRenderer *renderer, const PxuiImage *image, uint64_t completed);
 uint64_t pxui_renderer_draw_calls(PxuiRenderer *renderer);
 int32_t pxui_renderer_atlas(PxuiRenderer *renderer, uint32_t kind, PxuiImage *out); /* PXUI_ATLAS_*: mask R8, colour RGBA8; second pages return ERR_STATE until prepared. The texture stays the renderer's. */
 void pxui_renderer_destroy(PxuiRenderer *renderer);

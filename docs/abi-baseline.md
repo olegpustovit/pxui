@@ -471,3 +471,56 @@ header, snapshot and dynamic-export gates pass. The corrected C fixture separate
 which correctly returns the stale-handle error. Logs use `/tmp/localwave-rust-carry-owner-` with
 `engine-final`, `static-matrix`, `abi-fixed` and `gate-*` suffixes. This qualifies the tested Rust
 paths, not native process allocations, stable wall latency or all platform runtimes.
+
+
+## Reusable native image identities and release (ABI 1.13)
+
+`Renderer::forget_image` / `pxui_renderer_forget_image` releases PXUI's wrapper and interned identity
+for an app texture. The host stops referencing that image, then calls forget on every sampling
+renderer before destroying/reusing the native handle, passing its actual completed GPU serial on the
+`prepare` timeline. Completion must not regress; no extra frame or command buffer is required.
+Incomplete draws return `ERR_STATE`; missing/malformed descriptors and regressing completion return
+`ERR_ARGUMENT`. Successful release is idempotent and never destroys the app-owned texture. Existing
+C layouts are unchanged; the header, exported function snapshot and wrapper surface add the function.
+
+The old 64-entry FIFO identity table is now a preallocated hash/LRU table: at most 1,024 identities,
+with a 128 MiB estimated texel working set (one larger caller image may stand alone). That estimate
+is not total native memory. Renderer wrappers keep weak identity references rather than expiring
+after three unused frames. Abandoned wrappers retire only after their actual completed serials.
+Hosts with explicit caches can release promptly through forget. Internal owned textures keep their
+existing path. Metal and Vulkan use the same public descriptor/key and backend wrapping operations.
+
+A retained solid/text run can inherit an external-image break without sampling that image. Importing
+such bindings kept unused textures falsely live and could bind an evicted resource. Renderer import
+now tests each segment's actual IMAGE instances; empty/inherited bindings use the atlas and do not
+refresh a wrapper's GPU use. Existing draw order and image segment counts are preserved.
+
+Tests exercise 768 reused identities with zero warm allocations, count/texel bounds, null retirement,
+inherited/trailing binding segments, and a real native gallery of 128 distinct textures. The gallery
+switches 32-image pages, revisits each after more than three frames, asserts zero warm Rust
+allocations and 32 draws, and reads every cell's color back. It rejects premature release and verifies
+completed, repeated release and resource teardown. No deadline or allocator threshold was changed.
+
+The initial native gallery test exposed a test-owned command buffer retained through queue teardown.
+The final API accepts completed directly and requires no extra command buffer to release an image. Failure and passing logs are retained at
+`/tmp/localwave-rust-image-retirement-native-test{,2}.log` (passing: 1 case, 4.585 s wall / 0.158 s
+summed). The first full matrix failed the unchanged layout scaling ratio at 139 -> 316 ns/node,
+then 139 -> 406 on its retry while a release build overlapped. That failure remains evidence at
+`/tmp/localwave-rust-image-retirement-child-matrix.log`; an isolated recheck is still required.
+
+
+The final ABI 1.13 matrix (completed serial passed directly) passes **328 cases in 17.200 s wall /
+15.804 s summed**, zero skips, exit 0. The earlier isolated matrix also passed **328 cases,
+13.109 / 15.897 s**. Static wrapper recheck: **49 cases, 0.900 / 1.678 s**; earlier dynamic wrapper:
+**48 cases, 5.928 / 1.703 s**. Native final API case: **1 case, 6.608 / 0.180 s**.
+Logs: `/tmp/localwave-rust-image-release-child-tests.log`,
+`/tmp/localwave-rust-image-retirement-{child-isolated,static,dynamic,native-final}.log`.
+Final dependency, header, snapshot and dynamic export gates pass; no C layout changes were needed.
+
+Optional Clippy with `-D warnings` is not green: the broad run reports preexisting style lints in
+cfmt, native_layer_token_sys, font_sys and input; the no-deps selected-package run reports existing
+pxui_render library lints (doc spacing, old APIs with many arguments, needless borrows and others).
+Those unchanged files were not edited for this image change. Logs:
+`/tmp/localwave-rust-image-retirement-child-clippy{,-scoped}.log`. This is not a Clippy pass or native
+memory/Vulkan runtime qualification. Renderer pixel/allocation guards and the scaling limit remain
+unchanged; no profile or stack changes were made.
