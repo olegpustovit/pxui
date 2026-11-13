@@ -773,6 +773,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_fit", window_pxui_view_fit),
     ("window_pxui_view_input", window_pxui_view_input),
     ("window_pxui_view_offset", window_pxui_view_offset),
+    ("window_pxui_view_unchanged_controls_keep_table_storage", window_pxui_view_unchanged_controls_keep_table_storage),
     ("window_pxui_view_table_2000", window_pxui_view_table_2000),
     ("window_pxui_view_resize_settles", window_pxui_view_resize_settles),
     ("window_pxui_view_kept_atlas_break", window_pxui_view_kept_atlas_break),
@@ -782,3 +783,32 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_verify", window_pxui_view_verify),
     ("window_pxui_view_costs", window_pxui_view_costs),
 ];
+
+/// Identical setters keep the published table buffer, avoiding a recomposition and accessibility invalidation.
+pub fn window_pxui_view_unchanged_controls_keep_table_storage() {
+    let mut ui=new_ui(None);
+    let view=Cell::new(None);
+    let mut build=|ui:&mut Ui| {
+        view.set(Some(ui.view("unchanged",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| { chip(ui,"child",RED,CLICKABLE); })));
+    };
+    ui.frame(&at(0.0,vec![]),&mut build);
+    let view=view.get().unwrap();
+    let clip=Some(Rect::new(0.0,0.0,320.0,240.0));
+    ui.view_opacity(&view,0.5);
+    ui.view_scale(&view,0.8);
+    ui.view_clip(&view,clip);
+    let address=ui.output().views.as_ptr();
+    let revision=ui.draw_revision();
+    mem_sys::local_reset();
+    for _ in 0..20 {
+        ui.view_opacity(&view,0.5);
+        assert_eq!(ui.output().views.as_ptr(),address);
+        ui.view_scale(&view,0.8);
+        assert_eq!(ui.output().views.as_ptr(),address);
+        ui.view_clip(&view,clip);
+        assert_eq!(ui.output().views.as_ptr(),address);
+        assert_eq!(ui.draw_revision(),revision);
+    }
+    assert_eq!(mem_sys::local_alloc_count(),0);
+    ui.destroy();
+}

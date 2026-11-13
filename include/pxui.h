@@ -311,6 +311,9 @@ const PxuiOutput *pxui_ui_output(PxuiUi *ui); /* borrowed from the Ui until its 
 /* The theme in effect, lent: valid until the Ui next changes it (a theme swap, a themed scope) or is freed. NULL when the call is refused
    (a poisoned Ui, a handle that is not the current one): see pxui_last_error. */
 const PxuiThemeSnapshot *pxui_ui_theme(PxuiUi *ui);
+/* Measured virtual rows: count <= 1,000,000, finite positive estimate and finite estimated total.
+   Called inside a frame; build may repeat while measured heights settle. The returned box scrolls the list. */
+int32_t pxui_ui_list_measured(PxuiUi *ui, PxuiStr label, size_t count, float estimate_h, PxuiGridBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_grid_list(PxuiUi *ui, const PxuiGridListDesc *desc, PxuiBox *out);
 int32_t pxui_ui_split(PxuiUi *ui, const PxuiSplitDesc *desc, uint8_t *changed, float *ratio);
 int32_t pxui_ui_menu_bar(PxuiUi *ui, const PxuiMenuBarDesc *desc, PxuiMenuOut *out);
@@ -640,6 +643,11 @@ int32_t pxui_ui_press_keys(PxuiUi *ui, const PxuiBox *box, const uint32_t **ptr,
 int32_t pxui_ui_root_at(PxuiUi *ui, float x, float y, PxuiI64Span roots, uint8_t *present, int64_t *out);
 int32_t pxui_ui_view_flat(PxuiUi *ui, PxuiStr label, uint64_t revision, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_view_offset(PxuiUi *ui, const PxuiBox *box, float dx, float dy);
+/* Per-instance alpha in [0,1], finite uniform centre scale (zero/negative allowed), and an additional
+   window-point clip (NULL removes it). Use regular views with their own entries; no offscreen group opacity. */
+int32_t pxui_ui_view_opacity(PxuiUi *ui, const PxuiBox *box, float opacity);
+int32_t pxui_ui_view_scale(PxuiUi *ui, const PxuiBox *box, float scale);
+int32_t pxui_ui_view_clip(PxuiUi *ui, const PxuiBox *box, const PxuiRect *clip);
 int32_t pxui_ui_view_transform_about(PxuiUi *ui, const PxuiBox *box, float scale, const float *transform, float px, float py);
 int32_t pxui_ui_view_backdrop_blur(PxuiUi *ui, const PxuiBox *box, float sigma);
 /* Saturation of the blurred backdrop: finite and nonnegative; 0 grayscale, 1 unchanged (default). */

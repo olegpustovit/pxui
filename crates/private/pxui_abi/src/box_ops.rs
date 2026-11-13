@@ -263,6 +263,30 @@ export!(pub unsafe fn pxui_ui_root_at(ui: *mut PxuiUi, x: f32, y: f32, roots: Sl
 
 // ------------------------------------------------------------------ views
 
+export!(pub unsafe fn pxui_ui_view_opacity(ui:*mut PxuiUi,box_:*const PxuiBox,opacity:f32)->i32 {
+    let (e,b)=match unsafe { boxed(ui,box_) } { Ok(v)=>v,Err(code)=>return code };
+    if !opacity.is_finite() || !(0.0..=1.0).contains(&opacity) { return unsafe { fail(ui,"view opacity out of range") }; }
+    e.view_opacity(&b,opacity);
+    0
+});
+
+export!(pub unsafe fn pxui_ui_view_scale(ui:*mut PxuiUi,box_:*const PxuiBox,scale:f32)->i32 {
+    let (e,b)=match unsafe { boxed(ui,box_) } { Ok(v)=>v,Err(code)=>return code };
+    if !scale.is_finite() { return unsafe { fail(ui,"view scale is not finite") }; }
+    e.view_scale(&b,scale);
+    0
+});
+
+export!(pub unsafe fn pxui_ui_view_clip(ui:*mut PxuiUi,box_:*const PxuiBox,clip:*const pxui_types::geom::Rect)->i32 {
+    let (e,b)=match unsafe { boxed(ui,box_) } { Ok(v)=>v,Err(code)=>return code };
+    let clip=unsafe { clip.as_ref() }.copied();
+    if let Some(r)=clip {
+        if r.w<0.0 || r.h<0.0 || !finite(&[r.x,r.y,r.w,r.h,r.x+r.w,r.y+r.h]) { return unsafe { fail(ui,"invalid view clip") }; }
+    }
+    e.view_clip(&b,clip);
+    0
+});
+
 export!(pub unsafe fn pxui_ui_view_offset(ui: *mut PxuiUi, box_: *const PxuiBox, dx: f32, dy: f32) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if !finite(&[dx, dy]) { return unsafe { fail(ui, "view offset is not finite") }; }
@@ -292,3 +316,22 @@ export!(pub unsafe fn pxui_ui_view_backdrop_saturation(ui: *mut PxuiUi, box_: *c
     e.view_backdrop_saturation(&b, saturation);
     0
 });
+
+#[cfg(test)]
+mod view_tests {
+    #[test]
+    fn public_view_controls_refuse_null_and_invalid_handles_without_poisoning() {
+        use crate::*;
+        let ui=unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        assert!(!ui.is_null());
+        let invalid=PxuiBox { box_slot:u64::MAX,..Default::default() };
+        for (handle,expected) in [(core::ptr::null(),PXUI_ERR_ARGUMENT),(&invalid as *const PxuiBox,PXUI_ERR_STALE)] {
+            assert_eq!(unsafe { super::pxui_ui_view_opacity(ui,handle,0.5) },expected);
+            assert_eq!(unsafe { super::pxui_ui_view_scale(ui,handle,1.0) },expected);
+            assert_eq!(unsafe { super::pxui_ui_view_clip(ui,handle,core::ptr::null()) },expected);
+        }
+        let mut out=FrameOut::default();
+        assert_eq!(unsafe { pxui_frame(ui,&FrameIn::default(),None,core::ptr::null_mut(),&mut out) },0);
+        assert_eq!(unsafe { pxui_ui_destroy(ui) },0);
+    }
+}

@@ -34,6 +34,9 @@ library!(lib {
     fn pxui_ui_root_at(ui: *mut PxuiUi, x: f32, y: f32, roots: Slice<i64>, present: *mut u8, out: *mut i64) -> i32;
     fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
     fn pxui_ui_view_offset(ui: *mut PxuiUi, box_: *const PxuiBox, dx: f32, dy: f32) -> i32;
+    fn pxui_ui_view_opacity(ui:*mut PxuiUi,box_:*const PxuiBox,opacity:f32)->i32;
+    fn pxui_ui_view_scale(ui:*mut PxuiUi,box_:*const PxuiBox,scale:f32)->i32;
+    fn pxui_ui_view_clip(ui:*mut PxuiUi,box_:*const PxuiBox,clip:*const Rect)->i32;
     fn pxui_ui_view_transform_about(ui: *mut PxuiUi, box_: *const PxuiBox, scale: f32, transform: *const f32, px: f32, py: f32) -> i32;
     fn pxui_ui_view_backdrop_blur(ui: *mut PxuiUi, box_: *const PxuiBox, sigma: f32) -> i32;
     fn pxui_ui_view_backdrop_saturation(ui: *mut PxuiUi, box_: *const PxuiBox, saturation: f32) -> i32;
@@ -240,6 +243,12 @@ impl Ui {
         last
     }
     #[inline] #[track_caller] pub fn view_offset(&mut self, b: &PxuiBox, dx: f32, dy: f32) { check(self, unsafe { lib::pxui_ui_view_offset(self.0.as_ptr(), b, dx, dy) }) }
+    /// Multiply each instance's alpha by a finite 0..1 value; overlaps remain per-instance, not group opacity.
+    #[inline] #[track_caller] pub fn view_opacity(&mut self,b:&PxuiBox,opacity:f32) { check(self,unsafe { lib::pxui_ui_view_opacity(self.0.as_ptr(),b,opacity) }) }
+    /// Uniform scale about the view box's centre. Zero hides it; negative values reflect both axes.
+    #[inline] #[track_caller] pub fn view_scale(&mut self,b:&PxuiBox,scale:f32) { check(self,unsafe { lib::pxui_ui_view_scale(self.0.as_ptr(),b,scale) }) }
+    /// Additional clip in window points (finite, nonnegative extent); None removes it. Use a regular view's own table entry.
+    #[inline] #[track_caller] pub fn view_clip(&mut self,b:&PxuiBox,clip:Option<Rect>) { check(self,unsafe { lib::pxui_ui_view_clip(self.0.as_ptr(),b,clip.as_ref().map_or(core::ptr::null(),|r|r)) }) }
     #[inline]
     #[track_caller]
     pub fn view_transform_about(&mut self, b: &PxuiBox, scale: f32, transform: [f32; 4], pivot: (f32, f32)) {

@@ -13,12 +13,14 @@ mod sys {
 }
 #[cfg(not(feature = "static"))]
 mod sys {
-    use super::{FooterDesc, GridListDesc, InspectorRowDesc, InspectorSectionDesc, InspectorTextDesc, InspectorValueDesc, KeyframeDesc, MenuBarDesc, MenuOut, SplitDesc, TableDesc};
+    use super::{FooterDesc, GridBuild, GridListDesc, InspectorRowDesc, InspectorSectionDesc, InspectorTextDesc, InspectorValueDesc, KeyframeDesc, MenuBarDesc, MenuOut, SplitDesc, TableDesc};
+    use core::ffi::c_void;
     pub use crate::sys::PxuiUi;
     use pxui_types::{PxuiBox, Str, ffi::Slice};
     #[link(name = "pxui")]
     unsafe extern "C" {
     pub fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const GridListDesc, out: *mut PxuiBox) -> i32;
+    pub fn pxui_ui_list_measured(ui:*mut PxuiUi,label:Str,count:usize,estimate_h:f32,build:GridBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
     pub fn pxui_ui_split(ui: *mut PxuiUi, desc: *const SplitDesc, changed: *mut u8, ratio: *mut f32) -> i32;
     pub fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const MenuBarDesc, out: *mut MenuOut) -> i32;
     pub fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut InspectorRowDesc) -> i32;
@@ -132,6 +134,24 @@ impl Hints {
 }
 
 impl Ui {
+    /// Virtual rows with cached measured heights; estimate unseen rows, then settle changed measurements in the same frame.
+    #[inline]
+    #[track_caller] pub fn list_measured(&mut self,label:&str,count:usize,estimate_h:f32,build:&mut dyn FnMut(&mut Ui,usize))->PxuiBox {
+        let mut out=PxuiBox::default();
+        #[cfg(feature="static")]
+        check(self,unsafe { pxui_abi_link::trusted::list_measured(self.0.as_ptr(),label,count,estimate_h,&mut |raw:*mut crate::sys::PxuiUi,index| {
+            let mut ui=ManuallyDrop::new(Ui(NonNull::new_unchecked(raw)));
+            build(&mut ui,index);
+        },&mut out) });
+        #[cfg(not(feature="static"))]
+        {
+            let mut context=GridCallback { f:build };
+            let (build,user)=context.erased();
+            check(self,unsafe { sys::pxui_ui_list_measured(self.0.as_ptr(),as_str(label),count,estimate_h,build,user,&mut out) });
+        }
+        out
+    }
+
     #[inline]
     #[track_caller] pub fn grid_list(&mut self, label: &str, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> PxuiBox {
         let mut out = PxuiBox::default();

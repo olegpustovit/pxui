@@ -391,6 +391,21 @@ pub unsafe fn table_view(ui: *mut PxuiUi, label: &str, titles: &[&str], widths: 
 
 // ---- more containers and callbacks
 
+/// Measured rows share the existing borrowed-handle callback protocol with virtual grids.
+#[inline]
+pub unsafe fn list_measured(ui:*mut PxuiUi,label:&str,count:usize,estimate_h:f32,f:&mut dyn FnMut(*mut PxuiUi,usize),out:&mut PxuiBox)->i32 {
+    enter!(ui);
+    if !unsafe { (*(*ui).shared).in_frame } { return crate::PXUI_ERR_STATE; }
+    if long(label) || count>MAX_ITEMS || !estimate_h.is_finite() || estimate_h<=0.0 || !(count as f32*estimate_h).is_finite() { return unsafe { fail(ui,"invalid measured list arguments") }; }
+    let shared=unsafe { (*ui).shared };
+    *out=to_abi_box(unsafe { engine(ui) }.list_measured(label,count,estimate_h,&mut |engine:&mut Ui,index| {
+        let mut borrowed=PxuiUi::borrowed(engine,shared);
+        let _current=crate::state::Current::set(shared,&mut borrowed);
+        f(&mut borrowed,index);
+    }));
+    0
+}
+
 /// A grid of `count` cells, built on demand: `f` gets the borrowed handle and the cell's index.
 #[inline]
 pub unsafe fn grid_list(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, f: &mut dyn FnMut(*mut PxuiUi, usize), out: &mut PxuiBox) -> i32 {

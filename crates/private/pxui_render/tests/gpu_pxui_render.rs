@@ -166,6 +166,8 @@ fn main() {
         ("gpu_second_atlas_pages_sample_in_one_draw", gpu_second_atlas_pages_sample_in_one_draw),
         ("shared_second_atlas_activates_after_prepare_without_replacing_first_page", shared_second_atlas_activates_after_prepare_without_replacing_first_page),
         ("shared_system_preferences_change_native_pixels_without_warm_allocations", shared_system_preferences_change_native_pixels_without_warm_allocations),
+        ("shared_public_view_controls_keep_native_draws_and_instances", shared_public_view_controls_keep_native_draws_and_instances),
+        ("shared_public_measured_rows_render_settled_clipped_heights", shared_public_measured_rows_render_settled_clipped_heights),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
         ("gpu_prepared_target_validation", gpu_prepared_target_validation),
@@ -1693,4 +1695,112 @@ fn shared_skipped_draws() {
     ok(be::destroy_texture(&target));
     ok(be::destroy_queue(&queue));
     ok(be::destroy_device(&device));
+}
+
+fn shared_public_view_controls_keep_native_draws_and_instances() {
+    use std::cell::Cell;
+    use pxui_types::geom::{Rect,color};
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let mut ui=pxui::Ui::new().unwrap();
+    let mut renderer=shared_renderer(&device,&ui);
+    let (outer,inner)=(Cell::new(None),Cell::new(None));
+    let builds=Cell::new(0);
+    let mut original=None;
+    let background=[228,139,161,255];
+    let faded=[235,104,121,255];
+    let overlap=[240,78,91,255];
+    for frame in 1..=12 {
+        let scale=[1.0,2.0,0.0,-1.0][(frame as usize-1)%4];
+        let clip=(frame%3==0).then_some(Rect::new(60.0,40.0,60.0,60.0));
+        mem_sys::local_reset();
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            let view=ui.view("outer",1,pxui::ui::Size::Px(100.0),pxui::ui::Size::Px(80.0),&mut |ui| {
+                builds.set(builds.get()+1);
+                inner.set(Some(ui.view("inner",1,pxui::ui::Size::Px(100.0),pxui::ui::Size::Px(80.0),&mut |ui| {
+                    for (key,rect) in [("base",Rect::new(0.0,0.0,100.0,80.0)),("overlap",Rect::new(20.0,20.0,40.0,20.0))] {
+                        ui.node(key,pxui::Node { w:pxui::ui::Size::Px(rect.w),h:pxui::ui::Size::Px(rect.h),at:Some((rect.x,rect.y)).into(),
+                            look:pxui::ui::Look { fill:color::rgb(255,0,0),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
+                    }
+                })));
+            });
+            ui.set_at(&view,(40.0,30.0));
+            outer.set(Some(view));
+        }).unwrap();
+        let view=outer.get().unwrap();
+        ui.view_opacity(&view,0.5);
+        ui.view_opacity(&inner.get().unwrap(),0.5);
+        ui.view_scale(&view,scale);
+        ui.view_clip(&view,clip);
+        if frame>=5 { assert_eq!(mem_sys::local_alloc_count(),0,"warm public view updates keep their table storage"); }
+        let instances=ui.layer(0).instances;
+        if let Some(original)=&original { assert_eq!(instances,original,"view controls preserve retained instances"); }
+        else { original=Some(instances.to_vec()); }
+        let draws=renderer.draw_calls();
+        let allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        assert_eq!(renderer.draw_calls()-draws,1);
+        if frame>=5 { assert_eq!(allocations,0); }
+        let pixels=ok(be::read_texture(&target,640*4));
+        for p in [(70.0,60.0),(50.0,40.0),(20.0,20.0),(100.0,80.0),(150.0,100.0)] {
+            let expected=if scale==0.0 || clip.is_some_and(|c|!c.contains(p)) { background } else {
+                let local=((p.0-90.0)/scale+50.0,(p.1-70.0)/scale+40.0);
+                if !Rect::new(0.0,0.0,100.0,80.0).contains(local) { background }
+                else if Rect::new(20.0,20.0,40.0,20.0).contains(local) { overlap } else { faded }
+            };
+            let at=((p.1*2.0) as usize*640+(p.0*2.0) as usize)*4;
+            let actual:[u8;4]=pixels[at..at+4].try_into().unwrap();
+            assert!(near(actual,expected,1),"scale {scale}, clip {clip:?}, point {p:?}: {actual:?} != {expected:?}");
+        }
+    }
+    assert_eq!(builds.get(),1,"table updates never rebuild retained views");
+    drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
+}
+
+fn shared_public_measured_rows_render_settled_clipped_heights() {
+    use std::cell::Cell;
+    use pxui_types::geom::color;
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let mut ui=pxui::Ui::new().unwrap();
+    let mut renderer=shared_renderer(&device,&ui);
+    let list=Cell::new(None);
+    let colors=[color::rgb(255,0,0),color::rgb(0,255,0),color::rgb(0,0,255)];
+    for frame in 1..=8 {
+        let offset=if frame%2==0 { 100.0 } else { 0.0 };
+        if let Some(list)=list.get() { ui.set_scroll_offset(&list,offset); }
+        mem_sys::local_reset();
+        let calls=Cell::new(0);
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            let bounds=ui.node("bounds",pxui::Node { w:pxui::ui::Size::Px(100.0),h:pxui::ui::Size::Px(200.0),..pxui::Node::DEFAULT });
+            ui.within(&bounds,&mut |ui| {
+                list.set(Some(ui.list_measured("rows",200,12.0,&mut |ui,i| {
+                    calls.set(calls.get()+1);
+                    ui.node("row",pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(10.0+(i%3) as f32*10.0),
+                        look:pxui::ui::Look { fill:colors[i%3],..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
+                })));
+            });
+        }).unwrap();
+        if frame>=5 { assert_eq!(mem_sys::local_alloc_count(),0,"warm measured row layout allocates nothing"); }
+        assert!(calls.get()>0 && calls.get()<100,"only visible rows and overscan are built, including settle passes");
+        let draws=renderer.draw_calls();
+        let allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        assert_eq!(renderer.draw_calls()-draws,1);
+        if frame>=5 { assert_eq!(allocations,0); }
+        let pixels=ok(be::read_texture(&target,640*4));
+        for y in [5,15,25,35,55,65,95,125,155,195,205] {
+            let expected=if y>=200 { [228,139,161,255] } else {
+                let position=(y+offset as usize)%60;
+                if position<10 { [255,0,0,255] } else if position<30 { [0,255,0,255] } else { [0,0,255,255] }
+            };
+            let at=(y*2*640+40)*4;
+            assert_eq!(&pixels[at..at+4],&expected,"measured row at y={y}, offset={offset}");
+        }
+    }
+    drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
 }

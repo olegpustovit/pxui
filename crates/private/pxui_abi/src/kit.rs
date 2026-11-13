@@ -8,6 +8,15 @@ pub use pxui_types::ffi::{PxuiFooterDesc, PxuiHintDesc, PxuiInspectorRowDesc, Px
 
 const MAX_MENUS: usize = 256;
 
+export!(trusted pub unsafe fn pxui_ui_list_measured(ui:*mut PxuiUi,label:Str,count:usize,estimate_h:f32,build:pxui_types::ffi::PxuiGridBuild,user:*mut core::ffi::c_void,out:*mut PxuiBox)->i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if out.is_null() { return unsafe { fail(ui,"null measured list output") }; }
+    let Some(label)=(unsafe { checked(label) }) else { return unsafe { fail(ui,"invalid measured list label") }; };
+    unsafe { crate::trusted::list_measured(ui,label,count,estimate_h,&mut |ui,index| {
+        if let Some(build)=build { build(user,ui.cast(),index); }
+    },&mut *out) }
+});
+
 #[cfg(test)]
 mod curve_tests {
     use super::*;
@@ -298,3 +307,43 @@ export!(trusted pub unsafe fn pxui_ui_table(ui: *mut PxuiUi, desc: *const PxuiTa
     unsafe { *clicked_row = clicked.unwrap_or(-1); }
     0
 });
+
+#[cfg(test)]
+mod measured_list_tests {
+    use crate::*;
+    #[test]
+    fn measured_lists_validate_c_arguments_and_keep_row_handles_scoped() {
+        struct State { owner:*mut crate::state::PxuiUi,frame:*mut crate::state::PxuiUi,rows:u32 }
+        extern "C" fn row(user:*mut core::ffi::c_void,raw:*mut core::ffi::c_void,index:usize) {
+            let state=unsafe { &mut *user.cast::<State>() };
+            assert_eq!(index,0);
+            state.rows+=1;
+            let mut size=pxui_types::geom::Point::default();
+            assert_eq!(unsafe { crate::pxui_ui_view_size(state.owner,&mut size) },PXUI_ERR_STATE);
+            assert_eq!(unsafe { crate::pxui_ui_view_size(state.frame,&mut size) },PXUI_ERR_STATE);
+            assert_eq!(unsafe { crate::pxui_ui_view_size(raw.cast(),&mut size) },0);
+            let node=pxui_types::Node { h:pxui_types::Size::Px(20.0),..pxui_types::Node::DEFAULT };
+            let mut out=PxuiBox::default();
+            assert_eq!(unsafe { crate::pxui_ui_node_keyed(raw.cast(),77,&node,&mut out) },0);
+        }
+        extern "C" fn build(user:*mut core::ffi::c_void,raw:*mut core::ffi::c_void) {
+            let state=unsafe { &mut *user.cast::<State>() };
+            state.frame=raw.cast();
+            let mut out=PxuiBox::default();
+            for (count,estimate) in [(1_000_001,20.0),(1,0.0),(1,f32::NAN),(2,f32::MAX)] {
+                assert_eq!(unsafe { super::pxui_ui_list_measured(raw.cast(),Str::default(),count,estimate,Some(row),user,&mut out) },PXUI_ERR_ARGUMENT);
+            }
+            assert_eq!(state.rows,0,"invalid arguments never reach rows or allocate their cache");
+            assert_eq!(unsafe { super::pxui_ui_list_measured(raw.cast(),Str::default(),1,20.0,Some(row),user,&mut out) },0);
+        }
+        let ui=unsafe { crate::pxui_ui_create(&PxuiUiDesc::default()) };
+        let mut out=PxuiBox::default();
+        assert_eq!(unsafe { super::pxui_ui_list_measured(ui,Str::default(),1,20.0,None,core::ptr::null_mut(),&mut out) },PXUI_ERR_STATE);
+        assert_eq!(unsafe { super::pxui_ui_list_measured(ui,Str::default(),1,20.0,None,core::ptr::null_mut(),core::ptr::null_mut()) },PXUI_ERR_ARGUMENT);
+        let mut state=State { owner:ui,frame:core::ptr::null_mut(),rows:0 };
+        let mut frame=FrameOut::default();
+        assert_eq!(unsafe { crate::pxui_frame(ui,&FrameIn { width:320.0,height:240.0,..Default::default() },Some(build),(&mut state as *mut State).cast(),&mut frame) },0);
+        assert!(state.rows>0 && state.rows<=3);
+        assert_eq!(unsafe { crate::pxui_ui_destroy(ui) },0);
+    }
+}

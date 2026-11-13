@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 8
+minor 9
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -126,6 +126,7 @@ function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_
 function pxui_ui_layer_drawn int32_t pxui_ui_layer_drawn ( PxuiUi * ui , uint64_t layer ) ;
 function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
 function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr * text , uint32_t * step ) ;
+function pxui_ui_list_measured int32_t pxui_ui_list_measured ( PxuiUi * ui , PxuiStr label , size_t count , float estimate_h , PxuiGridBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_list_view int32_t pxui_ui_list_view ( PxuiUi * ui , const PxuiListViewDesc * desc , size_t * activated ) ;
 function pxui_ui_list_view_with int32_t pxui_ui_list_view_with ( PxuiUi * ui , const PxuiListViewWithDesc * desc , size_t * activated ) ;
 function pxui_ui_load_text_edit int32_t pxui_ui_load_text_edit ( PxuiUi * ui , int64_t key , PxuiStr text , PxuiStr * out_text , uint64_t * caret , uint64_t * anchor ) ;
@@ -211,8 +212,11 @@ function pxui_ui_verifying uint8_t pxui_ui_verifying ( PxuiUi * ui ) ;
 function pxui_ui_view int32_t pxui_ui_view ( PxuiUi * ui , PxuiStr label , uint64_t revision , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_view_backdrop_blur int32_t pxui_ui_view_backdrop_blur ( PxuiUi * ui , const PxuiBox * box , float sigma ) ;
 function pxui_ui_view_backdrop_saturation int32_t pxui_ui_view_backdrop_saturation ( PxuiUi * ui , const PxuiBox * box , float saturation ) ;
+function pxui_ui_view_clip int32_t pxui_ui_view_clip ( PxuiUi * ui , const PxuiBox * box , const PxuiRect * clip ) ;
 function pxui_ui_view_flat int32_t pxui_ui_view_flat ( PxuiUi * ui , PxuiStr label , uint64_t revision , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_view_offset int32_t pxui_ui_view_offset ( PxuiUi * ui , const PxuiBox * box , float dx , float dy ) ;
+function pxui_ui_view_opacity int32_t pxui_ui_view_opacity ( PxuiUi * ui , const PxuiBox * box , float opacity ) ;
+function pxui_ui_view_scale int32_t pxui_ui_view_scale ( PxuiUi * ui , const PxuiBox * box , float scale ) ;
 function pxui_ui_view_size int32_t pxui_ui_view_size ( PxuiUi * ui , PxuiPoint * out ) ;
 function pxui_ui_view_transform_about int32_t pxui_ui_view_transform_about ( PxuiUi * ui , const PxuiBox * box , float scale , const float * transform , float px , float py ) ;
 function pxui_ui_wants_frame int32_t pxui_ui_wants_frame ( PxuiUi * ui , PxuiEventSpan events , double now , uint8_t * out ) ;

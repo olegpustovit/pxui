@@ -6325,8 +6325,10 @@ impl Ui {
     /// Scale a view's alpha by `opacity` (on each instance; overlaps inside it show through).
     pub fn view_opacity(&mut self, b: &Handle, opacity: f32) {
         if let Some(v) = self.view_id(b) {
-            self.views[v as usize].opacity = opacity;
-            self.view_changed(v);
+            if self.views[v as usize].opacity != opacity {
+                self.views[v as usize].opacity = opacity;
+                self.view_changed(v);
+            }
         }
     }
 
@@ -6346,8 +6348,10 @@ impl Ui {
     pub fn view_transform(&mut self, b: &Handle, scale: f32, transform: [f32; 4], pivot: (f32, f32)) {
         if let Some(v) = self.view_id(b) {
             let r = &mut self.views[v as usize];
-            (r.scale, r.transform, r.pivot, r.pivot_fixed) = (scale, transform, pivot, false);
-            self.view_changed(v);
+            if (r.scale,r.transform,r.pivot,r.pivot_fixed)!=(scale,transform,pivot,false) {
+                (r.scale, r.transform, r.pivot, r.pivot_fixed) = (scale, transform, pivot, false);
+                self.view_changed(v);
+            }
         }
     }
 
@@ -6400,8 +6404,10 @@ impl Ui {
     /// Clip a view's output to `clip` (window points), besides its parents' clips; `None` lifts it.
     pub fn view_clip(&mut self, b: &Handle, clip: Option<Rect>) {
         if let Some(v) = self.view_id(b) {
-            self.views[v as usize].clip = clip;
-            self.view_changed(v);
+            if self.views[v as usize].clip != clip {
+                self.views[v as usize].clip = clip;
+                self.view_changed(v);
+            }
         }
     }
 

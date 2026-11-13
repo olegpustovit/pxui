@@ -731,3 +731,120 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
         assert!(ui.frame(&FrameIn { appearance,reduced_motion,..input() },&mut |_|panic!("invalid inputs must not build")).is_err());
     }
 }
+
+#[test]
+fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_allocations() {
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let view=Cell::new(None);
+    let child=Cell::new(None);
+    let builds=Cell::new(0);
+    let mut ui=Ui::new().unwrap();
+    let mut build=|ui:&mut Ui| {
+        let v=ui.view("controlled",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {
+            builds.set(builds.get()+1);
+            child.set(Some(ui.node("child",crate::Node { flags:CLICKABLE,w:Size::Px(20.0),h:Size::Px(10.0),at:Some((10.0,10.0)).into(),
+                look:crate::ui::Look { fill:pxui_types::geom::color::rgb(255,0,0),..crate::ui::Look::NONE },..crate::Node::DEFAULT })));
+        });
+        ui.set_at(&v,(40.0,30.0));
+        view.set(Some(v));
+    };
+    for time in [0.0,0.1] { ui.frame(&FrameIn { time,..input() },&mut build).unwrap(); }
+    let (v,c,built)=(view.get().unwrap(),child.get().unwrap(),builds.get());
+    let original=ui.layer(0).instances.to_vec();
+    let near=|a:Rect,b:Rect|[a.x-b.x,a.y-b.y,a.w-b.w,a.h-b.h].iter().all(|v|v.abs()<0.001);
+    ui.view_transform_about(&v,1.0,[0.0,-1.0,1.0,0.0],(90.0,70.0));
+    ui.view_scale(&v,1.0);
+    assert!(near(ui.rect(&c),Rect::new(50.0,40.0,20.0,10.0)),"centre scale replaces an earlier manual rotation and fixed pivot");
+    for cycle in 0..4 {
+        mem_sys::local_reset();
+        for (scale,expected) in [(2.0,Rect::new(10.0,10.0,40.0,20.0)),(1.0,Rect::new(50.0,40.0,20.0,10.0)),
+            (0.0,Rect::new(90.0,70.0,0.0,0.0)),(-1.0,Rect::new(110.0,90.0,20.0,10.0))] {
+            ui.view_opacity(&v,0.5);
+            ui.view_scale(&v,scale);
+            ui.view_clip(&v,Some(Rect::new(0.0,0.0,320.0,240.0)));
+            ui.view_clip(&v,None);
+            assert!(near(ui.rect(&c),expected),"scale {scale}: {:?}",ui.rect(&c));
+            assert_eq!(ui.layer(0).instances,original.as_slice(),"view table edits never rewrite instances");
+        }
+        ui.frame(&FrameIn { time:0.2+cycle as f64*0.1,..input() },&mut build).unwrap();
+        assert_eq!(builds.get(),built);
+        if cycle>0 { assert_eq!(mem_sys::local_alloc_count(),0); }
+    }
+    ui.view_scale(&v,2.0);
+    ui.view_clip(&v,Some(Rect::new(20.0,15.0,10.0,10.0)));
+    for (time,x,hovered) in [(1.0,25.0,true),(1.1,15.0,false)] {
+        let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x,y:20.0,..Default::default() };
+        ui.frame(&FrameIn { time,events:&event,event_count:1,..input() },&mut build).unwrap();
+        assert_eq!(ui.signal(&c).hovered,hovered,"a view's window clip also clips hit testing");
+    }
+    ui.view_clip(&v,None);
+    let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x:15.0,y:20.0,..Default::default() };
+    ui.frame(&FrameIn { time:1.2,events:&event,event_count:1,..input() },&mut build).unwrap();
+    assert!(ui.signal(&c).hovered);
+    for opacity in [-1.0,1.01,f32::NAN,f32::INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.view_opacity(&v,opacity))).is_err()); }
+    for scale in [f32::NAN,f32::INFINITY,f32::NEG_INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.view_scale(&v,scale))).is_err()); }
+    for clip in [Rect::new(0.0,0.0,-1.0,2.0),Rect::new(f32::NAN,0.0,1.0,1.0),Rect::new(f32::MAX,0.0,f32::MAX,1.0)] {
+        assert!(catch_unwind(AssertUnwindSafe(||ui.view_clip(&v,Some(clip)))).is_err());
+    }
+}
+
+#[test]
+fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let rows:[Cell<Option<pxui_types::PxuiBox>>;200]=std::array::from_fn(|_|Cell::new(None));
+    let calls=Cell::new(0);
+    let list=Cell::new(None);
+    let count=Cell::new(200);
+    let mut ui=Ui::new().unwrap();
+    let mut build=|ui:&mut Ui| {
+        let col=ui.node("column",crate::Node { w:Size::Px(100.0),h:Size::Px(200.0),..crate::Node::DEFAULT });
+        ui.within(&col,&mut |ui| {
+            list.set(Some(ui.list_measured("measured",count.get(),12.0,&mut |ui,i| {
+                assert!(i<count.get());
+                calls.set(calls.get()+1);
+                rows[i].set(Some(ui.node("row",crate::Node { w:Size::Px(80.0),h:Size::Px(10.0+(i%3) as f32*10.0),..crate::Node::DEFAULT })));
+            })));
+        });
+    };
+    ui.frame(&input(),&mut build).unwrap();
+    for (i,top) in [0.0,10.0,30.0,60.0,70.0,90.0].into_iter().enumerate() {
+        assert_eq!(ui.rect(&rows[i].get().unwrap()).y,top,"measured rows settle without a visible gap");
+    }
+    assert!(calls.get()<100,"the list builds visible/overscan rows, not all 200");
+    for frame in 1..8 {
+        calls.set(0);
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut build).unwrap();
+        assert!(calls.get()>0 && calls.get()<40);
+        if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"warm measured rows keep their cache and callback storage"); }
+    }
+    ui.set_scroll_offset(&list.get().unwrap(),120.0);
+    ui.frame(&FrameIn { time:1.0,..input() },&mut build).unwrap();
+    assert!(ui.scroll_offset(&list.get().unwrap())>=120.0);
+    for frame in 1..5 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time:1.0+frame as f64/60.0,..input() },&mut build).unwrap();
+        if frame>=2 { assert_eq!(mem_sys::local_alloc_count(),0); }
+    }
+    count.set(0);
+    calls.set(0);
+    ui.frame(&FrameIn { time:2.0,..input() },&mut build).unwrap();
+    assert_eq!(calls.get(),0);
+    assert_eq!(ui.scroll_offset(&list.get().unwrap()),0.0);
+}
+
+#[test]
+fn measured_list_validation_and_callback_panics_leave_frames_reusable() {
+    let mut ui=Ui::new().unwrap();
+    for (count,estimate) in [(1,0.0),(1,-1.0),(1,f32::NAN),(1,f32::INFINITY),(1_000_001,12.0),(10,f32::MAX)] {
+        assert!(catch_unwind(AssertUnwindSafe(|| {
+            ui.frame(&input(),&mut |ui| { ui.list_measured("bad",count,estimate,&mut |_,_|panic!("invalid arguments reached the row")); }).unwrap();
+        })).is_err());
+    }
+    assert!(catch_unwind(AssertUnwindSafe(|| {
+        ui.frame(&input(),&mut |ui| { ui.list_measured("panic",1,20.0,&mut |_,_|panic!("row callback")); }).unwrap();
+    })).is_err());
+    ui.frame(&input(),&mut |ui| { ui.list_measured("recovered",1,20.0,&mut |ui,_| { ui.label("Recovered"); }); }).unwrap();
+}
