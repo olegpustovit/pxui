@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 0
+minor 1
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -201,6 +201,7 @@ function pxui_ui_verify_views int32_t pxui_ui_verify_views ( PxuiUi * ui , uint8
 function pxui_ui_verifying uint8_t pxui_ui_verifying ( PxuiUi * ui ) ;
 function pxui_ui_view int32_t pxui_ui_view ( PxuiUi * ui , PxuiStr label , uint64_t revision , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_view_backdrop_blur int32_t pxui_ui_view_backdrop_blur ( PxuiUi * ui , const PxuiBox * box , float sigma ) ;
+function pxui_ui_view_backdrop_saturation int32_t pxui_ui_view_backdrop_saturation ( PxuiUi * ui , const PxuiBox * box , float saturation ) ;
 function pxui_ui_view_flat int32_t pxui_ui_view_flat ( PxuiUi * ui , PxuiStr label , uint64_t revision , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_view_offset int32_t pxui_ui_view_offset ( PxuiUi * ui , const PxuiBox * box , float dx , float dy ) ;
 function pxui_ui_view_size int32_t pxui_ui_view_size ( PxuiUi * ui , PxuiPoint * out ) ;

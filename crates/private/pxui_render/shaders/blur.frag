@@ -38,5 +38,9 @@ void main() {
   }
   sum /= total;
   // the first pass stays premultiplied for the second; the second answers straight alpha
-  out_color = n > 0 ? sum : (sum.a > 0.0 ? vec4(sum.rgb / sum.a, sum.a) : vec4(0.0));
+  if (n > 0) { out_color = sum; return; }
+  if (sum.a <= 0.0) { out_color = vec4(0.0); return; }
+  vec3 rgb = sum.rgb / sum.a;
+  float gray = dot(rgb, vec3(0.2126, 0.7152, 0.0722));
+  out_color = vec4(mix(vec3(gray), rgb, v_mode.w), sum.a);
 }

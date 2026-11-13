@@ -213,6 +213,7 @@ Ui|verify_new_views|Rays|done: pxui_verify_new_views
 Ui|verify_views|Rays|done
 Ui|verifying|Rays|done
 Ui|view_backdrop_blur|Rays|done
+Ui|view_backdrop_saturation|LocalWave|done
 Ui|view_flat|Rays|done
 Ui|view_offset|Rays|done
 Ui|view_size|Gallery,Rays|done

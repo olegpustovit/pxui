@@ -161,7 +161,7 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// Metal handles live on the process main thread, which libtest never gives a test: this target is
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
-    let cases: [(&str, fn()); 21] = [
+    let cases: [(&str, fn()); 22] = [
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
@@ -172,6 +172,7 @@ fn main() {
         ("gpu_view_table_past_255", gpu_view_table_past_255),
         ("gpu_grid_instance_equals_dots", gpu_grid_instance_equals_dots),
         ("gpu_blur_translucent_source", gpu_blur_translucent_source),
+        ("gpu_blur_saturation", gpu_blur_saturation),
         ("gpu_backdrop_blur", gpu_backdrop_blur),
         ("gpu_smooth_image", gpu_smooth_image),
         ("gpu_backdrop_blur_panel", gpu_backdrop_blur_panel),
@@ -620,6 +621,42 @@ fn gpu_blur_translucent_source() {
     finish(device, queue);
 }
 
+/// Saturation runs once on straight RGB after filtering; it preserves alpha at both downsamples.
+fn gpu_blur_saturation() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut painter = painter(&device);
+    let source = target(&device);
+    let size = [W * SCALE, H * SCALE];
+    let commands = ok(be::begin_commands(&queue));
+    let encoder = ok(be::render_encoder(&commands, &RenderTarget {
+        colors: vec![ColorAttachment { texture: source.clone(), resolve: None, load: Load::Clear, store: Store::Store, clear: (200.0 / 255.0, 80.0 / 255.0, 40.0 / 255.0, 128.0 / 255.0) }], depth: None,
+    }));
+    ok(be::end_render(&encoder));
+    ok(be::complete_through(&queue, ok(be::commit(&commands)).epoch));
+    let gray = 0.2126 * 200.0 + 0.7152 * 80.0 + 0.0722 * 40.0;
+    for sigma in [3.0, 8.0] {
+        for saturation in [0.0, 0.9, 1.0, 1.5] {
+            painter.begin_frame();
+            let commands = ok(be::begin_commands(&queue));
+            let blurred = ok(painter.blur_in_with_saturation(&commands, &source, [0, 0, size[0], size[1]], sigma, saturation)).clone();
+            ok(be::complete_through(&queue, ok(be::commit(&commands)).epoch));
+            let width = blurred_width(&blurred);
+            let pixels = ok(be::read_texture(&blurred, i64::from(width) * 4));
+            let expected = [200.0, 80.0, 40.0].map(|c| (gray + (c - gray) * saturation).clamp(0.0, 255.0).round() as u8);
+            assert!(pixels.chunks_exact(4).all(|p| near(p.try_into().unwrap(), [expected[0], expected[1], expected[2], 128], 3)), "sigma {sigma}, saturation {saturation}: {:?}, expected {expected:?}", &pixels[..4]);
+        }
+    }
+    let commands = ok(be::begin_commands(&queue));
+    for saturation in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(painter.blur_in_with_saturation(&commands, &source, [0, 0, size[0], size[1]], 8.0, saturation).is_err());
+    }
+    ok(be::abandon(&commands));
+    ok(be::destroy_texture(&source));
+    drop(painter);
+    finish(device, queue);
+}
+
 fn gpu_backdrop_blur() {
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
@@ -858,13 +895,14 @@ fn shared_backdrop_blur() {
     let mut renderer = shared_renderer(&device, &ui);
     ui.view_offset(&glass.get().unwrap(), 80.0, 40.0);
     ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
+    ui.view_backdrop_saturation(&glass.get().unwrap(), 0.9);
     build(&mut ui);
     ui.view_offset(&glass.get().unwrap(), 40.0, 20.0);
     build(&mut ui);
     build(&mut ui);
     let commands = ok(be::begin_commands(&queue));
     renderer.prepare(&public_commands(&commands), 1, 0).expect("prepare blur frame");
-    let colors = |load| RenderTarget { colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load, store: Store::Store, clear: (1.0, 1.0, 1.0, 1.0) }], depth: None };
+    let colors = |load| RenderTarget { colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load, store: Store::Store, clear: (0.8, 0.3, 0.1, 1.0) }], depth: None };
     let first = ok(be::render_encoder(&commands, &colors(Load::Clear)));
     let pass_of = |encoder: &RenderEncoder| {
         let native = ok(be::native_pass(encoder));
@@ -894,6 +932,9 @@ fn shared_backdrop_blur() {
     ok(be::end_render(&open_pass));
     let submitted = ok(be::commit(&commands));
     ok(be::complete_through(&queue, submitted.epoch));
+    let pixels = ok(be::read_texture(&target, 640 * 4));
+    let inside: [u8; 4] = pixels[(100 * 640 + 160) * 4..][..4].try_into().unwrap();
+    assert!(near(inside, [194, 79, 33, 255], 2), "public backdrop saturation reached the composite: {inside:?}");
     ok(be::destroy_texture(&target));
     ok(be::destroy_queue(&queue));
     drop(renderer);

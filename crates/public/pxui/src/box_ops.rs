@@ -36,6 +36,7 @@ library!(lib {
     fn pxui_ui_view_offset(ui: *mut PxuiUi, box_: *const PxuiBox, dx: f32, dy: f32) -> i32;
     fn pxui_ui_view_transform_about(ui: *mut PxuiUi, box_: *const PxuiBox, scale: f32, transform: *const f32, px: f32, py: f32) -> i32;
     fn pxui_ui_view_backdrop_blur(ui: *mut PxuiUi, box_: *const PxuiBox, sigma: f32) -> i32;
+    fn pxui_ui_view_backdrop_saturation(ui: *mut PxuiUi, box_: *const PxuiBox, saturation: f32) -> i32;
 });
 
 /// A label written from `format_args!`: up to 128 bytes on the stack, longer ones on the heap.
@@ -277,6 +278,8 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_set_node_layout(self.0.as_ptr(), b, node) });
     }
     #[inline] #[track_caller] pub fn view_backdrop_blur(&mut self, b: &PxuiBox, sigma: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_blur(self.0.as_ptr(), b, sigma) }) }
+    /// Blurred backdrop saturation: 0 is grayscale, 1 preserves colour (the default).
+    #[inline] #[track_caller] pub fn view_backdrop_saturation(&mut self, b: &PxuiBox, saturation: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_saturation(self.0.as_ptr(), b, saturation) }) }
 }
 
 /// A string the library lent: copied, since it only lives until the next frame.

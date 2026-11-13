@@ -493,11 +493,19 @@ pub fn styling_backdrop_blur_record() {
     ui.view_backdrop_blur(&view.get().unwrap(), 6.0);
     ui.frame(&at(0.1, vec![]), &mut build);
     let blurs = ui.output().blurs.to_vec();
-    check(blurs.len() == 1 && blurs[0].sigma == 6.0 && blurs[0].rect == Rect::new(0.0, 30.0, 120.0, 40.0), &format!("blur record {blurs:?}"));
+    check(blurs.len() == 1 && blurs[0].sigma == 6.0 && blurs[0].saturation == 1.0 && blurs[0].rect == Rect::new(0.0, 30.0, 120.0, 40.0), &format!("blur record {blurs:?}"));
     let layer = &ui.output().draw[blurs[0].layer];
     check(blurs[0].at_instance >= 1 && layer.instances[blurs[0].at_instance as usize].color == [255, 255, 255, 80], "the blur does not start at the view's run");
     ui.view_offset(&view.get().unwrap(), 10.0, 0.0);
     check(ui.output().blurs[0].rect == Rect::new(10.0, 30.0, 120.0, 40.0), "the blur did not follow the view");
+    ui.view_backdrop_saturation(&view.get().unwrap(), 0.9);
+    check(ui.output().blurs[0].saturation == 0.9, "the blur did not update saturation");
+    for invalid in [-1.0, f32::NAN, f32::INFINITY] {
+        ui.view_backdrop_saturation(&view.get().unwrap(), invalid);
+        check(ui.output().blurs[0].saturation == 0.9, "invalid saturation changed the view");
+    }
+    ui.frame(&at(0.2, vec![]), &mut build);
+    check(ui.output().blurs[0].saturation == 0.9, "retained view lost saturation");
     ui.destroy();
 }
 

@@ -285,3 +285,10 @@ export!(pub unsafe fn pxui_ui_view_backdrop_blur(ui: *mut PxuiUi, box_: *const P
     e.view_backdrop_blur(&b, sigma);
     0
 });
+
+export!(pub unsafe fn pxui_ui_view_backdrop_saturation(ui: *mut PxuiUi, box_: *const PxuiBox, saturation: f32) -> i32 {
+    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    if !saturation.is_finite() || saturation < 0.0 { return unsafe { fail(ui, "backdrop saturation out of range") }; }
+    e.view_backdrop_saturation(&b, saturation);
+    0
+});

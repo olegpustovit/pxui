@@ -154,7 +154,7 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
 });
 
 /// What the blur recording callback of one split reaches.
-struct Recording<'a> { painter: &'a mut Painter, renderer_device: &'a Device, queue: &'a Queue, serial: u64, native: [*mut c_void; 2], rect: [u32; 4], sigma: f32, blurred: Option<Texture>, error: Option<ogpu_core::error::Error> }
+struct Recording<'a> { painter: &'a mut Painter, renderer_device: &'a Device, queue: &'a Queue, serial: u64, native: [*mut c_void; 2], rect: [u32; 4], sigma: f32, saturation: f32, blurred: Option<Texture>, error: Option<ogpu_core::error::Error> }
 
 /// The app has ended its pass: record the blur of `rect` of the target it drew so far into its command buffer.
 extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -> i32 {
@@ -165,7 +165,7 @@ extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -
         let texture = gpu_backend::wrap_texture(rec.renderer_device, ogpu_core::backend::NativeTexture { size: core::mem::size_of::<ogpu_core::backend::NativeTexture>() as u32, vk_image_view: t.vk_image_view, mtl_texture: t.mtl_texture, width: t.width, height: t.height, format: t.format })?;
         let native = ogpu_core::backend::NativeCommands { size: core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer: rec.native[0], mtl_command_buffer: rec.native[1], frame_serial: rec.serial, inside_pass: 0 };
         let commands = gpu_backend::adopt_commands(rec.queue, native)?;
-        let blurred = rec.painter.blur_in(&commands, &texture, rec.rect, rec.sigma)?.clone();
+        let blurred = rec.painter.blur_in_with_saturation(&commands, &texture, rec.rect, rec.sigma, rec.saturation)?.clone();
         rec.blurred = Some(blurred);
         let _ = gpu_backend::destroy_texture(&texture);
         Ok(())
@@ -264,7 +264,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                     // this copy of the pass ends here; the app ends its own, records the blur and reopens one
                     let open=latest.clone().or_else(||reopened.clone()).unwrap_or_else(||current.clone());
                     gpu_backend::end_render(&open)?;
-                    let mut rec=Recording { painter, renderer_device:device, queue, serial, native:native_commands, rect:[x0,y0,x1,y1], sigma:b.sigma*scale, blurred:None, error:None };
+                    let mut rec=Recording { painter, renderer_device:device, queue, serial, native:native_commands, rect:[x0,y0,x1,y1], sigma:b.sigma*scale, saturation:b.saturation, blurred:None, error:None };
                     let mut next=pass;
                     let rc=split(pass.split_user,record_blur,(&mut rec as *mut Recording).cast(),&mut next);
                     if let Some(e)=rec.error.take() { return Err(e); }

@@ -287,6 +287,7 @@ pub struct BlurOut {
     pub at_instance: u32,
     pub rect: Rect,
     pub sigma: f32,
+    pub saturation: f32,
     pub radii: [f32; 4],
     pub opacity: f32,
 }
@@ -361,6 +362,7 @@ struct ViewRec {
     /// Resting animated X/Y scale and fractional anchor, composed after the manual transform.
     scale_pose: [f32; 4],
     blur: f32,
+    saturation: f32,
     /// when its last build asked to be rebuilt (`Ui::repaint_after`; infinity: never)
     wake: f64,
     /// its nodes' run in the published accessibility tree (nested views inside it), valid while
@@ -429,6 +431,7 @@ impl ViewRec {
             pivot_fixed: false,
             scale_pose: [1.0, 1.0, 0.5, 0.5],
             blur: 0.0,
+            saturation: 1.0,
             wake: f64::INFINITY,
             a11y_span: (0, 0),
             a11y_gen: 0,
@@ -6266,6 +6269,15 @@ impl Ui {
         }
     }
 
+    /// Saturation of the blurred backdrop: 0 is grayscale, 1 preserves colour (the default).
+    pub fn view_backdrop_saturation(&mut self, b: &Handle, saturation: f32) {
+        if !saturation.is_finite() || saturation < 0.0 { return; }
+        if let Some(v) = self.view_id(b) {
+            self.views[v as usize].saturation = saturation;
+            self.view_changed(v);
+        }
+    }
+
     /// The blur records of the shown views, where their runs now sit.
     fn collect_blurs(&mut self) {
         self.blur_out.clear();
@@ -6274,7 +6286,7 @@ impl Ui {
                 if let Some(layer) = self.draw[..self.draw_len].iter().position(|l| l.key == r.layer) {
                     let rect = r.cover(r.screen);
                     let radii = self.slots[r.slot].node.look.radius;
-                    self.blur_out.push(BlurOut { layer, at_instance: r.run.0, rect, sigma: r.blur, radii, opacity: r.alpha });
+                    self.blur_out.push(BlurOut { layer, at_instance: r.run.0, rect, sigma: r.blur, saturation: r.saturation, radii, opacity: r.alpha });
                 }
             }
         }

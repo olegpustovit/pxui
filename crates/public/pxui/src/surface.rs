@@ -8,6 +8,33 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let view = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        view.set(Some(ui.view("glass", 1, Size::Px(120.0), Size::Px(40.0), &mut |ui| {
+            ui.node("pane", crate::Node { w: Size::Px(120.0), h: Size::Px(40.0), look: crate::ui::Look { fill: pxui_types::geom::color::white(), ..crate::ui::Look::NONE }, ..crate::Node::DEFAULT });
+        })));
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    let view = view.get().unwrap();
+    ui.view_backdrop_blur(&view, 8.0);
+    for time in [1.0, 2.0] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
+    for saturation in [0.0, 0.9, 1.0, 1.5] {
+        mem_sys::local_reset();
+        ui.view_backdrop_saturation(&view, saturation);
+        ui.frame(&FrameIn { time: 3.0, ..input() }, &mut build).unwrap();
+        assert_eq!(mem_sys::local_alloc_count(), 0, "warm backdrop saturation update");
+    }
+    for invalid in [-1.0, f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+        assert!(catch_unwind(AssertUnwindSafe(|| ui.view_backdrop_saturation(&view, invalid))).is_err());
+        assert!(ui.last_error().contains("saturation"));
+    }
+}
+
+#[test]
 fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_warm() {
     use crate::{kit::{AnimationTarget, Keyframe}, ui::{Curve, Look, Node, Role, Target}};
     use std::cell::Cell;

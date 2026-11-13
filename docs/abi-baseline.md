@@ -225,3 +225,12 @@ The embedding LocalWave workspace and pxui checkout previously selected differen
 The linker preserves its legacy stack/rpath behavior by default. `PXUI_CONSUMER_DEFAULT_STACK=1` delegates non-pxui consumers to plain cc; pxui-owned tools/test executables retain their existing stack. Dylibs always use plain cc. The public wrapper tracks the opt-out value with Cargo so changing it relinks consumers. Argument matching checks actual argv entries: a filename containing the text `-dynamiclib` is not a dynamic-library flag. The runner's Unix regression covers legacy/opt-out consumers, owned crates/tools, dylibs, spaces, prefix boundaries and error status propagation.
 
 LocalWave additionally checks LC_MAIN stacksize zero in its bundle verifier. Root/checkout/root cached core checks measured 0.14/0.13/0.03 seconds after earlier configuration-changing checks took 7–9 seconds. Whole-app checks after a checkout run reuse their build products. This is cache-reuse evidence, not a new clean-build or platform-wide latency guarantee.
+
+
+## Backdrop saturation (ABI 1.1)
+
+The additive `pxui_ui_view_backdrop_saturation` export, C declaration and wrapper method control one float per retained view. The default 1 keeps the existing blur; 0 is grayscale, and finite values above 1 increase saturation. Invalid values are rejected at the ABI boundary without changing the view. No public layout changes. The ABI minor is now 1; append-only checks are unchanged.
+
+Both Metal and GLSL use the previously unused fourth component of the blur mode uniform. Saturation mixes straight RGB with its luminance after the vertical filter unpremultiplies; the first pass remains premultiplied, alpha is unchanged, and the existing image composite applies view tint/opacity afterward. No extra draw pass, texture or uniform allocation is added. SPIR-V is regenerated/validated with shaders/build.sh.
+
+LocalWave qualification: 22 native Metal renderer cases pass (including goldens, alpha edges and 0/0.9/1/1.5 color readbacks at both downsample factors); 30 static and 29 dynamic wrapper cases pass. The new wrapper regression counts zero warm Rust allocations for saturation updates and UI construction. This does not yet qualify blur drawing: resize-time scratch preparation, temporary-vector removal and reusable GPU wrappers remain required. Vulkan runtime and native memory are unqualified.

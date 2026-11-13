@@ -454,12 +454,18 @@ impl Painter {
     // source blurs without dark or coloured fringes; the second filters the premultiplied result and
     // returns straight alpha. The two passes order against the caller's by queue order, not a fence.
     pub fn blur_in(&mut self, commands: &Commands, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32) -> Result<&Texture, Error> {
+        self.blur_in_with_saturation(commands, source, src_rect_px, sigma_px, 1.0)
+    }
+
+    /// [`Painter::blur_in`] with CSS saturation applied once after unpremultiplying the filtered colour.
+    pub fn blur_in_with_saturation(&mut self, commands: &Commands, source: &Texture, src_rect_px: [u32; 4], sigma_px: f32, saturation: f32) -> Result<&Texture, Error> {
         const OP: &str = "Painter.blur";
         let d = backend::texture_descriptor(source);
         let (sw, sh) = (d.width as u32, d.height as u32);
         let [x0, y0, x1, y1] = src_rect_px;
         if x0 >= x1 || y0 >= y1 || x1 > sw || y1 > sh { return Err(invalid(OP, "region must be non-empty and inside the source")); }
         if !(sigma_px > 0.0) || !sigma_px.is_finite() { return Err(invalid(OP, "sigma must be positive")); }
+        if !saturation.is_finite() || saturation < 0.0 { return Err(invalid(OP, "saturation must be finite and nonnegative")); }
         let down = if sigma_px < 6.0 { 2 } else { 4 };
         let size = (((x1 - x0) / down).max(1), ((y1 - y0) / down).max(1));
         let (sigma, radius) = (sigma_px / down as f32, (sigma_px / down as f32 * 3.0).ceil().clamp(1.0, 32.0));
@@ -486,7 +492,7 @@ impl Painter {
         let (sw, sh, h) = (sw as f32, sh as f32, size.1 as f32);
         let start = self.reserve(2 * ALIGN)?;
         let pass_one = [x0 as f32 / sw, y0 as f32 / sh, (x1 - x0) as f32 / sw, (y1 - y0) as f32 / sh, down as f32 / sw, 0.0, sigma, radius, down as f32, sw, sh, 0.0];
-        let pass_two = [0.0, 0.0, 1.0, 1.0, 0.0, 1.0 / h, sigma, radius, 0.0, 0.0, 0.0, 0.0];
+        let pass_two = [0.0, 0.0, 1.0, 1.0, 0.0, 1.0 / h, sigma, radius, 0.0, 0.0, 0.0, saturation];
         self.write_floats(start, &pass_one);
         self.write_floats(start + ALIGN, &pass_two);
         backend::flush_host_range(&self.ring, start as i64, 2 * ALIGN)?;

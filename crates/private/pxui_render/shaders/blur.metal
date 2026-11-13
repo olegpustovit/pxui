@@ -16,7 +16,7 @@ vertex BOut blur_vertex(uint vid [[vertex_id]], device const float4* g [[buffer(
   o.uv = uv;
   o.rect = g[0];  // source region in uv: x y w h
   o.tap = g[1];   // uv step per tap x y, sigma in taps, tap radius
-  o.mode = g[2];  // block side in source texels (0: the second pass), source width, height
+  o.mode = g[2];  // block side (0: second pass), source width, height, second-pass saturation
   return o;
 }
 
@@ -49,5 +49,9 @@ fragment float4 blur_fragment(BOut in [[stage_in]], texture2d<float> src [[textu
   }
   sum /= total;
   // the first pass stays premultiplied for the second; the second answers straight alpha
-  return n > 0 ? sum : (sum.a > 0.0 ? float4(sum.rgb / sum.a, sum.a) : float4(0.0));
+  if (n > 0) return sum;
+  if (sum.a <= 0.0) return float4(0.0);
+  float3 rgb = sum.rgb / sum.a;
+  float gray = dot(rgb, float3(0.2126, 0.7152, 0.0722));
+  return float4(mix(float3(gray), rgb, in.mode.w), sum.a);
 }
