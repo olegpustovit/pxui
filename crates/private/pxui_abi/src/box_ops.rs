@@ -207,6 +207,13 @@ export!(pub unsafe fn pxui_ui_carry(ui: *mut PxuiUi, has_from: u8, from: *const 
     0
 });
 
+export!(pub unsafe fn pxui_ui_transfer_carry(ui: *mut PxuiUi, to: *const PxuiBox, out: *mut u8) -> i32 {
+    let (e, b) = match unsafe { boxed(ui, to) } { Ok(v) => v, Err(code) => return code };
+    if out.is_null() { return unsafe { fail(ui, "null carry transfer output") }; }
+    unsafe { *out = e.transfer_carry(&b) as u8; }
+    0
+});
+
 export!(pub unsafe fn pxui_ui_cancel_carry(ui: *mut PxuiUi) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     e.cancel_carry();

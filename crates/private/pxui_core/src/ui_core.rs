@@ -1001,6 +1001,7 @@ pub struct Ui {
     payload: Option<(Payload, Origin)>,
     dropped: Option<(Payload, i64)>,
     spare_payload: Option<Payload>,
+    carry_fraction: [f64; 2],
     carry_latch: Option<i64>,
     passed_undo: Option<UndoKind>,
     frame_events: Vec<Event>,
@@ -1227,6 +1228,7 @@ impl Ui {
             payload: None,
             dropped: None,
             spare_payload: None,
+            carry_fraction: [0.0; 2],
             carry_latch: None,
             passed_undo: None,
             frame_events: Vec::new(),
@@ -1971,6 +1973,10 @@ impl Ui {
         s.generation = s.generation.wrapping_add(1);
         s.text_value = None;
         s.labels.clear();
+        // Freed slots can donate their retained strings before their next identity is assigned.
+        s.text.clear();
+        s.a11y_name.clear();
+        s.a11y_value.clear();
         self.free.push(slot);
         if self.focus == key {
             self.focus = 0;
@@ -2381,13 +2387,12 @@ impl Ui {
                         self.active = Some(target);
                         self.active_button = *button;
                         self.active_press = self.pointer;
-                        self.active_keys = modifiers.clone();
+                        self.active_keys.clone_from(&modifiers);
                         let pointer = self.pointer;
-                        let mods = modifiers.clone();
                         let value = self.accumulator(target);
                         value.pressed = true;
                         value.press_point = pointer;
-                        value.press_keys = mods;
+                        value.press_keys.clone_from(&modifiers);
                         value.button = Some(*button);
                         if let Some(slot) = self.table.find(target).filter(|s| *s < self.slots.len()) {
                             if *button == MouseButton::LeftButton {
@@ -2422,26 +2427,24 @@ impl Ui {
                     self.pointer = p32(*point);
                     if let Some(active) = self.active {
                         if *button == self.active_button {
-                            if let Some((_, Origin::FromPointer(o))) = &self.payload {
-                                if *o == active && *button == MouseButton::LeftButton {
-                                    released_carry = true;
-                                }
-                            }
+                            let carried = matches!(&self.payload, Some((_, Origin::FromPointer(owner))) if *owner == active && *button == MouseButton::LeftButton);
+                            released_carry |= carried;
                             let pointer = self.pointer;
                             let active_press = self.active_press;
-                            let active_keys = self.active_keys.clone();
+                            let active_keys = std::mem::take(&mut self.active_keys);
                             let index = self.hit_index(active);
-                            let clicked = *button == MouseButton::LeftButton
+                            let clicked = !carried && self.carry_latch != Some(active) && *button == MouseButton::LeftButton
                                 && index.is_some_and(|i| self.hit_contains(i, pointer) && self.hit_contains(i, active_press));
                             let value = self.accumulator(active);
                             value.released = true;
                             value.release_point = pointer;
                             value.press_point = active_press;
-                            value.press_keys = active_keys;
+                            value.press_keys.clone_from(&active_keys);
                             value.button = Some(*button);
                             if clicked {
                                 value.clicked = true;
                             }
+                            self.active_keys = active_keys;
                             self.active = None;
                         }
                     }
@@ -3311,6 +3314,7 @@ impl Ui {
 
     fn set_payload(&mut self, kind: &str, value: &str, origin: Origin) {
         self.retire_payload();
+        self.carry_fraction = [0.0; 2];
         let mut payload = self.spare_payload.take().unwrap_or_else(|| Payload { kind: String::new(), value: String::new() });
         payload.kind.clear(); payload.kind.push_str(kind);
         payload.value.clear(); payload.value.push_str(value);
@@ -3344,6 +3348,20 @@ impl Ui {
                 }
             }
         }
+    }
+
+    /// Move pointer capture to a live hit ancestor so virtualized source rows can disappear.
+    /// A scroll container follows the pointer at its edges; key carries and unrelated/stale targets
+    /// leave the current capture untouched.
+    pub fn transfer_carry(&mut self, to: &UiBox) -> bool {
+        if !self.live(to) { return false; }
+        let Some((_, Origin::FromPointer(owner))) = &self.payload else { return false; };
+        let owner = *owner;
+        if self.active != Some(owner) || !self.hit_within(owner, to.box_key) { return false; }
+        if owner != to.box_key { self.carry_fraction = [0.0; 2]; }
+        self.active = Some(to.box_key);
+        if let Some((_, origin)) = &mut self.payload { *origin = Origin::FromPointer(to.box_key); }
+        true
     }
 
     /// Forget the payload: the host cancelled (Escape) or finished a carry it started.
@@ -3384,11 +3402,13 @@ impl Ui {
     pub fn set_scroll_offset_x(&mut self, b: &UiBox, value: f32) {
         self.scroll_xs[b.box_slot] = value;
         self.glides[1][b.box_slot] = Glide::REST;
+        if self.active == Some(b.box_key) { self.carry_fraction[1] = 0.0; }
     }
 
     pub fn set_scroll_offset(&mut self, b: &UiBox, value: f32) {
         self.scroll_y[b.box_slot] = value;
         self.glides[0][b.box_slot] = Glide::REST;
+        if self.active == Some(b.box_key) { self.carry_fraction[0] = 0.0; }
     }
 
     /// Retained per-box scalar state for custom widgets.
@@ -3817,11 +3837,39 @@ impl Ui {
         }
     }
 
+    /// A captured carry scrolls its container at the visible edges, once per input time.
+    fn scroll_carry(&mut self, ax: usize, time: f64, index: usize, max_scroll: f64) {
+        let key = self.boxes[index].key;
+        if max_scroll <= 0.0 || self.active != Some(key)
+            || !matches!(&self.payload, Some((_, Origin::FromPointer(owner))) if *owner == key)
+            || !self.hit_within(self.hot, key) { return; }
+        let slot = self.boxes[index].slot;
+        let s = &self.slots[slot];
+        let rect = self.rect(&Handle { index, box_key: key, box_slot: slot, generation: s.generation });
+        let (point, start, extent) = if ax == 0 { (self.pointer.1, rect.y, rect.h) } else { (self.pointer.0, rect.x, rect.w) };
+        if extent <= 0.0 { return; }
+        let edge = (extent * 0.25).min(32.0);
+        let position = point - start;
+        let velocity = if position < edge { -(1.0 - position / edge).clamp(0.0, 1.0) }
+            else if position > extent - edge { ((position - extent + edge) / edge).clamp(0.0, 1.0) } else { 0.0 };
+        if velocity == 0.0 { return; }
+        let dt = (time - self.glides[ax][slot].frame_time).clamp(0.0, 0.05);
+        let sign = if ax == 1 && self.dir == Direction::Rtl { -1.0 } else { 1.0 };
+        let fraction = self.carry_fraction[ax];
+        let offset = self.offset_mut(ax, slot);
+        let desired = (*offset as f64 + velocity as f64 * sign * 720.0 * dt + fraction).clamp(0.0, max_scroll);
+        *offset = desired as f32;
+        // Keep subpixel travel at high frame rates instead of rounding every small step away.
+        self.carry_fraction[ax] = desired - *offset as f64;
+        self.glides[ax][slot] = Glide { frame_time: time, ..Glide::REST };
+    }
+
     /// The scroll motion of axis `ax`: wheel steps and finger travel pull (stretching past an
     /// edge), fingers lifted in motion coast and bounce, a stretch left alone decays.
     fn glide(&mut self, ax: usize, time: f64, index: usize, max_scroll: f64, (wheel, drag, touch, lift): (f32, f32, bool, bool)) {
         let slot = self.boxes[index].slot;
         let extent = if ax == 0 { self.l_h[index] } else { self.l_w[index] } as f64;
+        self.scroll_carry(ax, time, index, max_scroll);
         // at rest with no input: nothing moves (most scroll boxes, most frames)
         if !touch && !lift && wheel == 0.0 && drag == 0.0 && !self.glides[ax][slot].moving() {
             self.glides[ax][slot].frame_time = time;
@@ -5423,6 +5471,12 @@ impl Ui {
     /// The payload in flight follows the pointer as a small label above everything. Idle frames
     /// (nothing carried) build and paint nothing.
     fn carry_ghost(&mut self) {
+        if let Some((_, Origin::FromPointer(owner))) = &self.payload {
+            let owner = *owner;
+            // A source/container can disappear during this build; leave no painted ghost behind.
+            let present = self.table.find(owner).is_some_and(|slot| self.slots[slot].touched == self.frame_number || self.kept_now(self.slots[slot].owner));
+            if self.active != Some(owner) || !present { self.cancel_carry(); return; }
+        }
         if !self.pointer.0.is_finite() { return; }
         // The ghost copies text into frame storage; keep ownership here instead of cloning each frame.
         let Some((payload, origin)) = self.payload.take() else { return; };

@@ -26,6 +26,7 @@ library!(lib {
     fn pxui_ui_to_front(ui: *mut PxuiUi, order: i64, box_: *const PxuiBox) -> i32;
     fn pxui_ui_carrying(ui: *mut PxuiUi, present: *mut u8, kind: *mut Str, value: *mut Str) -> i32;
     fn pxui_ui_carry(ui: *mut PxuiUi, has_from: u8, from: *const PxuiBox, kind: Str, value: Str) -> i32;
+    fn pxui_ui_transfer_carry(ui: *mut PxuiUi, to: *const PxuiBox, out: *mut u8) -> i32;
     fn pxui_ui_cancel_carry(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_drop_target(ui: *mut PxuiUi, box_: *const PxuiBox, tag: *mut u32, kind: *mut Str, value: *mut Str) -> i32;
     fn pxui_ui_context_at(ui: *mut PxuiUi, box_: *const PxuiBox, present: *mut u8, out: *mut Point) -> i32;
@@ -193,6 +194,16 @@ impl Ui {
     pub fn carry(&mut self, from: Option<&PxuiBox>, kind: &str, value: &str) {
         let raw = from.map_or(core::ptr::null(), |b| b as *const PxuiBox);
         check(self, unsafe { lib::pxui_ui_carry(self.0.as_ptr(), from.is_some() as u8, raw, as_str(kind), as_str(value)) })
+    }
+    /// Move an active pointer carry's capture to a live hit ancestor, retaining it when virtual
+    /// source rows disappear. Removing that ancestor, losing capture or cancellation still ends it.
+    /// Scroll containers follow the pointer at their edges. Returns false for key carries,
+    /// stale/unrelated targets or no active pointer carry.
+    #[track_caller]
+    pub fn transfer_carry(&mut self, to: &PxuiBox) -> bool {
+        let mut out = 0;
+        check(self, unsafe { lib::pxui_ui_transfer_carry(self.0.as_ptr(), to, &mut out) });
+        out != 0
     }
     #[inline] #[track_caller] pub fn cancel_carry(&mut self) { check(self, unsafe { lib::pxui_ui_cancel_carry(self.0.as_ptr()) }) }
     #[track_caller]

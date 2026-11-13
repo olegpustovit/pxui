@@ -977,3 +977,97 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
         if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0); }
     }
 }
+
+#[test]
+fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_gestures_allocation_free() {
+    use crate::{DropRef, Node};
+    use pxui_types::{Event, KEY_SPECIAL};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let list = Cell::new(None);
+    let source = Cell::new(None);
+    let dropped = Cell::new(None);
+    let visible = Cell::new(true);
+    let mut build = |ui: &mut Ui| {
+        if !visible.get() { return; }
+        let body = ui.grid_list("virtual-carry", 10_000, 320.0, 20.0, &mut |ui, index| {
+            let row = ui.node("row", Node { flags: CLICKABLE, w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+            if index == 0 {
+                source.set(Some(row));
+                if ui.signal_state(&row).held { ui.carry(Some(&row), "occurrence", "duplicate song"); }
+            }
+            if let Some(DropRef::Dropped(payload)) = ui.drop_target_ref(&row) {
+                assert_eq!((payload.kind, payload.value), ("occurrence", "duplicate song"));
+                dropped.set(Some(index));
+            }
+        });
+        list.set(Some(body));
+        let unrelated = ui.node("unrelated", Node { flags: CLICKABLE, at: Some((400.0, 0.0)).into(), w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+        assert!(!ui.transfer_carry(&unrelated));
+        ui.transfer_carry(&body);
+        assert!(!ui.signal_state(&body).clicked, "finishing a carry must not click its capture owner");
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    let event = |kind, y| Event { kind, x: 10.0, y, ..Default::default() };
+    let shift = |kind| Event { kind, code: KEY_SPECIAL + 9, ..Default::default() };
+    let mut time = 0.0;
+    for round in 0..20 {
+        dropped.set(None);
+        mem_sys::local_reset();
+        for events in [
+            [shift(Event::KEY_PRESSED), event(Event::POINTER_PRESSED, 10.0)],
+            [event(Event::POINTER_MOVED, 80.0), Event::default()],
+            [Event { kind: Event::SCROLLED, y: -30.0, ..Default::default() }, Event::default()],
+            [Event::default(), Event::default()],
+            [event(Event::POINTER_RELEASED, 80.0), shift(Event::KEY_RELEASED)],
+            [Event { kind: Event::SCROLLED, y: 30.0, ..Default::default() }, Event::default()],
+            [Event::default(), Event::default()],
+        ] {
+            time += 0.02;
+            // Zero-kind events are not wire events; omit the unused slots.
+            let count = if events[0].kind == 0 { 0 } else { 1 + usize::from(events[1].kind != 0) };
+            ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: count, ..input() }, &mut build).unwrap();
+            if round == 0 && events[0].kind == Event::POINTER_RELEASED {
+                assert_eq!(ui.press_keys(&list.get().unwrap()), vec![KEY_SPECIAL + 9], "capture transfer preserves the press modifiers through release");
+            }
+            if events[0].kind == Event::SCROLLED && events[0].y < 0.0 {
+                assert!(!ui.transfer_carry(&source.get().unwrap()), "a virtualized child is stale");
+                assert!(ui.carrying_ref().is_some());
+            }
+        }
+        assert_eq!(dropped.get(), Some(34));
+        assert!(ui.carrying_ref().is_none());
+        if round > 4 { assert_eq!(mem_sys::local_alloc_count(), 0, "modified cross-page gesture across both allocator copies"); }
+    }
+    for cancel in [Some(event(Event::POINTER_CANCELLED, 0.0)), Some(event(Event::FOCUS_LOST, 0.0)), None] {
+        for e in [event(Event::POINTER_PRESSED, 10.0), event(Event::POINTER_MOVED, 80.0)] {
+            time += 0.02;
+            ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
+        }
+        dropped.set(None);
+        if let Some(e) = cancel {
+            time += 0.02;
+            ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
+        } else { ui.cancel_carry(); }
+        let e = event(Event::POINTER_RELEASED, 80.0);
+        time += 0.02;
+        ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
+        assert!(dropped.get().is_none() && ui.carrying_ref().is_none());
+    }
+    for e in [event(Event::POINTER_PRESSED, 10.0), event(Event::POINTER_MOVED, 80.0)] {
+        time += 0.02;
+        ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
+    }
+    visible.set(false);
+    time += 0.02;
+    ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+    assert!(ui.carrying_ref().is_none() && !ui.captured());
+    assert_eq!(ui.built_nodes(), 1, "removing the container must remove its floating label in the same frame");
+    assert!(ui.repaint_at().is_none());
+    let body = list.get().unwrap();
+    ui.carry(None, "key", "value");
+    assert!(!ui.transfer_carry(&body), "key carries keep press-to-drop semantics");
+    ui.cancel_carry();
+    assert!(!ui.transfer_carry(&source.get().unwrap()), "no carry cannot acquire capture");
+}

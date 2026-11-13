@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 11
+minor 12
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -202,6 +202,7 @@ function pxui_ui_tip int32_t pxui_ui_tip ( PxuiUi * ui , const PxuiBox * box , P
 function pxui_ui_to_front int32_t pxui_ui_to_front ( PxuiUi * ui , int64_t order , const PxuiBox * box ) ;
 function pxui_ui_toasts int32_t pxui_ui_toasts ( PxuiUi * ui , PxuiStr label , PxuiStrSpan items , double seconds , int64_t * out_index ) ;
 function pxui_ui_tooltip int32_t pxui_ui_tooltip ( PxuiUi * ui , PxuiStr key , PxuiStr text ) ;
+function pxui_ui_transfer_carry int32_t pxui_ui_transfer_carry ( PxuiUi * ui , const PxuiBox * to , uint8_t * out ) ;
 function pxui_ui_tree int32_t pxui_ui_tree ( PxuiUi * ui , const PxuiTreeViewDesc * desc , size_t * activated ) ;
 function pxui_ui_tree_with int32_t pxui_ui_tree_with ( PxuiUi * ui , const PxuiTreeViewWithDesc * desc , size_t * activated ) ;
 function pxui_ui_unfocus int32_t pxui_ui_unfocus ( PxuiUi * ui ) ;

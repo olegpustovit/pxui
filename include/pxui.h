@@ -637,6 +637,9 @@ int32_t pxui_ui_to_front(PxuiUi *ui, int64_t order, const PxuiBox *box);
 /* ABI 1.11 reuses carry/drop text buffers; returned strings survive cancellation until the next frame. */
 int32_t pxui_ui_carrying(PxuiUi *ui, uint8_t *present, PxuiStr *kind, PxuiStr *value);
 int32_t pxui_ui_carry(PxuiUi *ui, uint8_t has_from, const PxuiBox *from, PxuiStr kind, PxuiStr value);
+/* ABI 1.12: transfer an active pointer carry to a live hit ancestor (out=1); otherwise out=0.
+   Scroll ancestors follow the pointer at their edges. Release/cancellation does not click the ancestor. */
+int32_t pxui_ui_transfer_carry(PxuiUi *ui, const PxuiBox *to, uint8_t *out);
 int32_t pxui_ui_cancel_carry(PxuiUi *ui);
 int32_t pxui_ui_drop_target(PxuiUi *ui, const PxuiBox *box, uint32_t *tag, PxuiStr *kind, PxuiStr *value); /* 0 none, 1 hover, 2 dropped */
 int32_t pxui_ui_context_at(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiPoint *out);

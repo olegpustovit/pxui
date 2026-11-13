@@ -433,3 +433,41 @@ without diagnostics passes at rebuild **400 -> 521 ns/node**, layout **133 -> 16
 remain recorded; this does not establish stable scaling timings or their cause. No profile, stack,
 deadline or threshold changed. Native process allocations and platform qualification remain outside
 these Rust allocator checks.
+
+
+## Stable pointer carry ownership and edge scrolling (ABI 1.12)
+
+`transfer_carry` and `pxui_ui_transfer_carry` transfer an active pointer carry's capture to a live
+hit ancestor. Virtualized source rows can disappear while the carry remains. Unrelated/retired
+ancestors, key carries and absent carries return false without taking capture. The owning container
+must remain present; cancellation, focus loss and capture loss still end the gesture. Removing it
+also removes the floating label in that same frame. Finishing or cancelling a carry never clicks
+its capture owner. Press modifiers retain their values while their vectors reuse capacity.
+
+Scroll owners follow the pointer in a 32-point edge region (capped to a quarter of small viewports),
+at up to 720 logical points/second, with elapsed steps capped at 50 ms. Vertical/horizontal and RTL
+paths share the existing scroll machinery. Two UI-level f64 remainders retain subpixel travel at
+large offsets/high input rates; per-slot storage does not grow. Wheel scrolling remains available
+while carrying. No deadlines, profiles, stack sizes or dependency rules changed.
+
+A 100,000-cell core regression drives both axes and directions with actual pointer input, keeps
+capture after the source disappears, moves back to zero without overscroll, checks accumulated
+one-microsecond steps at 100,000-point offsets and delivers one drop after scrolling. Repeated warm
+runs allocate zero Rust objects. Static/dynamic wrapper coverage adds Shift-modified cross-page
+carries, modifier retention, unrelated/retired owners, cancellation, key-carry compatibility and
+same-frame container disappearance. Raw C coverage checks null UI/box/output and retired handles.
+
+The LocalWave 10,000-entry queue test exposed a repeated allocation in `Ui::text` while building the
+floating label. A temporary allocation backtrace isolated it: buffers in freed slots still contained
+old text and could not be reused by the existing empty-string donor path until those slots were
+reassigned. `free_slot` now clears text/accessibility contents while retaining capacity. The full app
+cross-page/clock allocation assertion passes; the temporary allocator instrumentation was removed.
+Failure/trace logs remain at `/tmp/localwave-rust-carry-owner-{ui,ui-diagnostic,allocation-trace}.log`.
+
+Final core/ABI/dynamic checks pass **281 cases, 8.870 s wall / 12.050 s summed**; the 100,000-cell
+edge case takes **0.575 s**. Static wrapper checks pass **49 cases, 2.168 s / 1.760 s**. Dependency,
+header, snapshot and dynamic-export gates pass. The corrected C fixture separately passes in
+**2.898 s / 0.032 s**; its first run incorrectly expected an argument error for an unknown box slot,
+which correctly returns the stale-handle error. Logs use `/tmp/localwave-rust-carry-owner-` with
+`engine-final`, `static-matrix`, `abi-fixed` and `gate-*` suffixes. This qualifies the tested Rust
+paths, not native process allocations, stable wall latency or all platform runtimes.

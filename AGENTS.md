@@ -101,3 +101,12 @@ payloads; the ghost temporarily owns its payload while copying text into frame s
 whole-gesture static/dynamic zero-allocation checks and the C borrow-lifetime regression. Cached
 views must propagate size reflow through their descendants and invalidate enclosing caches when a
 virtual grid's build-time size estimate changes; keep the nested-grid same-frame resize check.
+
+ABI 1.12 adds `transfer_carry` to move a pointer carry's capture to a live hit ancestor. Virtual
+children may then disappear; the ancestor disappearing or losing capture still cancels it. Standard
+scroll containers follow pointer edges in either axis, including RTL. Preserve time-based bounded
+scrolling and the two UI-owned subpixel remainders (no extra per-slot storage), plus static/dynamic
+modified-input/cancellation tests and the 100,000-cell edge/precision/allocation regression. Release
+and explicit cancellation must not click the capture owner. Validate owner presence before painting
+the ghost so an omitted container leaves no ghost in the same frame. Retired slots clear text/name/
+value contents while retaining their buffers for reuse before the next slot identity is assigned.

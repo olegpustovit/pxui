@@ -793,7 +793,86 @@ pub fn layout_scaling() {
     check(last.1 < first.1 * 1.5, &format!("rebuild per node grew from {:.0} to {:.0} ns", first.1, last.1));
 }
 
+pub fn layout_carry_edge_scroll() {
+    use std::cell::Cell;
+    for (sideways, rtl) in [(false, false), (false, true), (true, false), (true, true)] {
+        let mut ui = new_ui(None);
+        if rtl { ui.set_dir(Direction::Rtl); }
+        let (source, list, dropped) = (Cell::new(None), Cell::new(None), Cell::new(false));
+        let mut build = |ui: &mut Ui| {
+            let mut row = |ui: &mut Ui, index: usize| {
+                let grip = ui.node("grip", Node { flags: CLICKABLE, w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                if index == 0 {
+                    source.set(Some(grip));
+                    if ui.signal_state(&grip).held { ui.carry(Some(&grip), "item", "track"); }
+                }
+                if let Some((true, payload)) = ui.drop_target_ref(&grip) {
+                    check(payload.value == "track" && index != 0, "drop after cross-page scrolling keeps its payload");
+                    dropped.set(true);
+                }
+            };
+            let body = if sideways { ui.grid_list_x("items", 100_000, 40.0, 20.0, &mut row) }
+                else { ui.grid_list("items", 100_000, 40.0, 20.0, &mut row) };
+            ui.transfer_carry(&body);
+            list.set(Some(body));
+            check(!ui.signal_state(&body).clicked, "a carry must not click its ancestor");
+        };
+        let step = Cell::new(1.0 / 60.0);
+        let mut frame = at(0.0, Vec::with_capacity(2));
+        let mut tick = |ui: &mut Ui, events: &[Event]| {
+            frame.input.t += step.get();
+            frame.input.events.clear(); frame.input.events.extend_from_slice(events);
+            ui.frame(&frame, &mut build);
+        };
+        tick(&mut ui, &[]);
+        let (forward, back) = if sideways {
+            if rtl { ((2, 100), (318, 100)) } else { ((318, 100), (2, 100)) }
+        } else { ((100, 238), (100, 2)) };
+        for round in 0..6 {
+            let body = list.get().unwrap();
+            if sideways { ui.set_scroll_offset_x(&body, 0.0); } else { ui.set_scroll_offset(&body, 0.0); }
+            tick(&mut ui, &[]);
+            let r = ui.rect(&source.get().unwrap());
+            let press_at = ((r.x + 2.0) as i64, (r.y + 2.0) as i64);
+            let press = Event::PointerPressed(input::MouseButton::LeftButton, (press_at.0 as f64, press_at.1 as f64));
+            let motion = |(x, y): (i64, i64)| Event::PointerMoved((x as f64, y as f64));
+            dropped.set(false);
+            mem_sys::local_reset();
+            tick(&mut ui, &[press]);
+            tick(&mut ui, &[motion(forward)]);
+            for _ in 0..90 { tick(&mut ui, &[]); }
+            let offset = if sideways { ui.scroll_offset_x(&body) } else { ui.scroll_offset(&body) };
+            if offset <= 500.0 { fail(&format!("sideways={sideways} rtl={rtl}: edge carry did not advance: {offset}")); }
+            check(!ui.live(&source.get().unwrap()), "the source row must actually leave virtualization");
+            check(!ui.transfer_carry(&source.get().unwrap()), "a stale child cannot take capture");
+            if sideways { ui.set_scroll_offset_x(&body, 100_000.0); } else { ui.set_scroll_offset(&body, 100_000.0); }
+            tick(&mut ui, &[]);
+            let before = if sideways { ui.scroll_offset_x(&body) } else { ui.scroll_offset(&body) };
+            step.set(0.000_001);
+            for _ in 0..100 { tick(&mut ui, &[]); }
+            let after = if sideways { ui.scroll_offset_x(&body) } else { ui.scroll_offset(&body) };
+            check(after > before + 0.03, "subpixel carry travel must accumulate at large offsets and high input rates");
+            step.set(1.0 / 60.0);
+            if sideways { ui.set_scroll_offset_x(&body, 600.0); } else { ui.set_scroll_offset(&body, 600.0); }
+            tick(&mut ui, &[motion(back)]);
+            for _ in 0..100 { tick(&mut ui, &[]); }
+            let offset = if sideways { ui.scroll_offset_x(&body) } else { ui.scroll_offset(&body) };
+            check(offset == 0.0, "the opposite edge returns to zero without overscroll");
+            tick(&mut ui, &[motion((160, 120))]);
+            tick(&mut ui, &[Event::Scrolled(if sideways { (if rtl { 30.0 } else { -30.0 }, 0.0) } else { (0.0, -30.0) })]);
+            tick(&mut ui, &[]);
+            tick(&mut ui, &[Event::PointerReleased(input::MouseButton::LeftButton, (160.0, 120.0))]);
+            tick(&mut ui, &[]);
+            let allocations = mem_sys::local_alloc_count();
+            check(dropped.get() && ui.carrying_ref().is_none(), "release must deliver once after edge and wheel scrolling");
+            if round > 1 { check(allocations == 0, &format!("warm carried scroll allocated {allocations}")); }
+        }
+        ui.destroy();
+    }
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_carry_edge_scroll", layout_carry_edge_scroll),
     ("layout_fit_hugs_wrapped_row", layout_fit_hugs_wrapped_row),
     ("layout_list_measured", layout_list_measured),
     ("layout_grid_list_resize_settles", layout_grid_list_resize_settles),

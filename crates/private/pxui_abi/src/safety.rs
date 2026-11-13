@@ -223,3 +223,26 @@ fn carry_text_borrows_survive_replacement_cancellation_and_many_reads_until_next
     assert_eq!(run(ui, Some(nothing), core::ptr::null_mut()), 0);
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
+
+#[test]
+fn carry_transfer_validates_outputs_handles_and_has_no_capture_side_effect_without_a_carry() {
+    extern "C" fn node(user: *mut c_void, raw: *mut c_void) {
+        unsafe { pxui_ui_node_keyed(raw.cast(), 27, &pxui_types::Node::DEFAULT, user.cast()); }
+    }
+    let ui = create();
+    let mut out = 9;
+    let mut target = PxuiBox::default();
+    assert_eq!(unsafe { pxui_ui_transfer_carry(core::ptr::null_mut(), &target, &mut out) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_transfer_carry(ui, core::ptr::null(), &mut out) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_transfer_carry(ui, &target, &mut out) }, PXUI_ERR_STALE);
+    assert_eq!(out, 9);
+    assert_eq!(run(ui, Some(node), (&mut target as *mut PxuiBox).cast()), 0);
+    assert_eq!(target.box_key, 27);
+    assert_eq!(unsafe { pxui_ui_transfer_carry(ui, &target, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_transfer_carry(ui, &target, &mut out) }, 0);
+    assert_eq!(out, 0);
+    assert_eq!(run(ui, Some(nothing), core::ptr::null_mut()), 0);
+    assert_eq!(unsafe { pxui_ui_transfer_carry(ui, &target, &mut out) }, 0);
+    assert_eq!(out, 0, "a retired handle is quiet and cannot acquire capture");
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
