@@ -31,6 +31,14 @@ fn main() {
         let unity_path = PathBuf::from(env::var_os("OUT_DIR").unwrap()).join("metal_unity.mm");
         fs::write(&unity_path, unity).unwrap_or_else(|error| build_failure(format!("{}: {error}", unity_path.display())));
         build.file(unity_path);
+        // Rust uses -nodefaultlibs; availability guards still need Clang's platform-version runtime.
+        let runtime = build.get_compiler().to_command().arg("-print-file-name=libclang_rt.osx.a")
+            .output().expect("Clang could not locate its macOS runtime");
+        assert!(runtime.status.success(), "Clang could not locate its macOS runtime");
+        let runtime = PathBuf::from(std::str::from_utf8(&runtime.stdout).expect("non-UTF-8 Clang runtime path").trim());
+        assert!(runtime.is_absolute() && runtime.is_file(), "Clang macOS runtime is missing: {}", runtime.display());
+        println!("cargo:rustc-link-search=native={}", runtime.parent().expect("Clang runtime directory").display());
+        println!("cargo:rustc-link-lib=static=clang_rt.osx");
         build.compile("metal_generated");
         for framework in build_config::FRAMEWORKS {
             println!("cargo:rustc-link-lib=framework={framework}");

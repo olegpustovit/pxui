@@ -105,7 +105,10 @@ extern "C" int32_t rays_metal_argument_encoder_single(
                 case 4: [encoder setIndirectCommandBuffer:resource atIndex:static_cast<NSUInteger>(index)]; break;
                 case 7: [encoder setRenderPipelineState:resource atIndex:static_cast<NSUInteger>(index)]; break;
                 case 8: [encoder setComputePipelineState:resource atIndex:static_cast<NSUInteger>(index)]; break;
-                case 9: [encoder setDepthStencilState:resource atIndex:static_cast<NSUInteger>(index)]; break;
+                case 9:
+                    if (@available(macOS 26.0, *)) [encoder setDepthStencilState:resource atIndex:static_cast<NSUInteger>(index)];
+                    else return rays_metal_set_unavailable(message, "argument encoder depth stencil states require macOS 26");
+                    break;
             }
             return 0;
         }

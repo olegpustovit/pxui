@@ -404,9 +404,9 @@ extern "C" int32_t rays_metal_render_pipeline_reflection(
     @autoreleasepool {
       id<MTLRenderPipelineState> pipeline = (__bridge id<MTLRenderPipelineState>)
           rays_metal_handle_object(pipeline_handle, KIND_RENDER_PIPELINE);
-      if (pipeline == nil || pipeline.reflection == nil)
-        return rays_metal_set_error(message, "render pipeline has no requested reflection");
       if (@available(macOS 26.0, *)) {
+        if (pipeline == nil || pipeline.reflection == nil)
+          return rays_metal_set_error(message, "render pipeline has no requested reflection");
         if (!copy_bindings(pipeline.reflection.vertexBindings, vertex, vertex_count, message)) return 1;
         if (!copy_bindings(pipeline.reflection.fragmentBindings, fragment, fragment_count, message)) {
           free_pipeline_bindings(*vertex, *vertex_count);
