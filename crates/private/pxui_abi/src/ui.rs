@@ -113,6 +113,8 @@ pub(crate) fn build_output(shared: &mut Shared, engine: &Ui, nodes: bool) {
     }
     // the dirty ranges first, all of them, so no slice below points into a vector that grows
     shared.dirty.clear();
+    // A new partition of warmed instances must not grow the ABI copy after drawing starts.
+    shared.dirty.reserve(output.draw.iter().map(|layer| layer.dirty.capacity()).sum());
     shared.dirty.extend(output.draw.iter().flat_map(|l| l.dirty.iter().map(|&(start, end)| pxui_types::ffi::PxuiDirty { start, end })));
     shared.layers.clear();
     let mut at = 0;

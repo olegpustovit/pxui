@@ -532,7 +532,7 @@ fn run_tests(
 fn is_serial_test(name: &str) -> bool {
     name.rsplit("::")
         .next()
-        .is_some_and(|name| name.starts_with("window_") || name.starts_with("gpu_"))
+        .is_some_and(|name| name.starts_with("window_") || name.starts_with("gpu_") || name == "layout_scaling")
 }
 
 fn run_test_batch(
@@ -1684,6 +1684,8 @@ mod tests {
         assert!(is_serial_test("gpu_dispatch"));
         assert!(!is_serial_test("ordinary_case"));
         assert!(is_serial_test("module::window_open"));
+        assert!(is_serial_test("layout_scaling"));
+        assert!(is_serial_test("module::layout_scaling"));
     }
 
     #[cfg(unix)]

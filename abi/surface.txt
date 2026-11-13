@@ -17,6 +17,7 @@ Paint|dashed_w|Rays|inlined
 Paint|dashed|Rays|inlined
 Paint|density|Rays|inlined
 Paint|fill|Rays|inlined
+Paint|fill_fractional|LocalWave|inlined
 Paint|flag|Rays|inlined
 Paint|font_size|Rays|inlined
 Paint|frame_w|Rays|inlined

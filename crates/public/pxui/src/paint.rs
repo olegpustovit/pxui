@@ -137,6 +137,8 @@ impl<'a> Paint<'a> {
 #[allow(clippy::too_many_arguments)]
 impl Paint<'_> {
     #[inline] pub fn fill(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::fill(self, x, y, w, h, color) }
+    /// Fractional bounds with analytic antialiasing; invalid/empty rectangles draw nothing.
+    #[inline] pub fn fill_fractional(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::fill_fractional(self, x, y, w, h, color) }
     #[inline] pub fn stroke_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) { Shapes::stroke_w(self, x, y, w, h, width, color) }
     #[inline] pub fn stroke(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::stroke(self, x, y, w, h, color) }
     #[inline] pub fn frame_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) { Shapes::frame_w(self, x, y, w, h, width, color) }

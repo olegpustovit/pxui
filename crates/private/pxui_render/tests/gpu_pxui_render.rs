@@ -205,6 +205,7 @@ fn main() {
         ("shared_inline_ligature_color_preserves_native_coverage", shared_inline_ligature_color_preserves_native_coverage),
         ("shared_large_image_layer_allocates_nothing", shared_large_image_layer_allocates_nothing),
         ("shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images", shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images),
+        ("shared_fractional_fills_render_thin_bars_in_one_warm_draw", shared_fractional_fills_render_thin_bars_in_one_warm_draw),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--ignored") { return; }
@@ -1857,5 +1858,51 @@ fn shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_imag
     drop(renderer);
     for source in &sources { ok(be::destroy_texture(source)); }
     ok(be::destroy_texture(&target));
+    finish(device,queue);
+}
+
+fn shared_fractional_fills_render_thin_bars_in_one_warm_draw() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    for scale in [1u32,2] {
+        let target=texture(&device,640*scale,32*scale,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+        let mut ui=pxui::Ui::new().unwrap();
+        let mut renderer=shared_renderer(&device,&ui);
+        for frame in 1..=12u64 {
+            mem_sys::local_reset();
+            ui.frame(&pxui_types::FrameIn{width:640.0,height:32.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+                let node=ui.node("bars",pxui::ui::Node{w:pxui::ui::Size::Px(640.0),h:pxui::ui::Size::Px(32.0),..pxui::ui::Node::DEFAULT});
+                ui.canvas(&node,|paint,rect| {
+                    for i in 0..200 { paint.fill_fractional(rect.x+1.25+i as f32*3.0,rect.y+1.25,0.5,12.0,pxui::geom::Rgba{r:0,g:255,b:0,a:255}); }
+                });
+            }).unwrap();
+            let build_allocations=mem_sys::local_alloc_count();
+            assert_eq!(ui.layers().map(|layer| layer.instances.len()).sum::<usize>(),200);
+            let commands=ok(be::begin_commands(&queue));
+            renderer.prepare(&public_commands(&commands),frame,frame-1).unwrap();
+            let encoder=ok(be::render_encoder(&commands,&RenderTarget{colors:vec![ColorAttachment{texture:target.clone(),resolve:None,load:Load::Clear,store:Store::Store,clear:(0.0,0.0,0.0,1.0)}],depth:None}));
+            let native=ok(be::native_pass(&encoder));
+            let pass=pxui_types::Pass{vk_command_buffer:native.vk_command_buffer,mtl_render_encoder:native.mtl_render_encoder,mtl_command_buffer:public_commands(&commands).mtl_command_buffer,width_px:640*scale,height_px:32*scale,scale:scale as f32,..Default::default()};
+            let before=renderer.draw_calls();
+            mem_sys::local_reset();
+            renderer.draw(&pass).unwrap();
+            if frame>3 { assert_eq!(build_allocations+mem_sys::local_alloc_count(),0,"warm fractional bars at {scale}x"); }
+            assert_eq!(renderer.draw_calls()-before,1);
+            ok(be::invalidate_state(&encoder)); ok(be::end_render(&encoder));
+            let submitted=ok(be::commit(&commands)); ok(be::complete_through(&queue,submitted.epoch));
+        }
+        let pixels=ok(be::read_texture(&target,(640*scale*4).into()));
+        for i in 0..200 {
+            let x=(1+i*3)*scale;
+            let at=((8*scale)*(640*scale)+x) as usize*4;
+            assert_eq!([pixels[at],pixels[at+2],pixels[at+3]],[0,0,255]);
+            let expected=128;
+            assert!((pixels[at+1] as i32-expected).abs()<=1,"bar {i} at {scale}x: {}",pixels[at+1]);
+            let energy:i32=(0..scale).map(|dx| pixels[at+dx as usize*4+1] as i32).sum();
+            assert!((energy-(127.5*scale as f32).round() as i32).abs()<=2,"subpixel fill weight at {scale}x");
+        }
+        drop(renderer);
+        ok(be::destroy_texture(&target));
+    }
     finish(device,queue);
 }

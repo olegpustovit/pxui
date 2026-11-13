@@ -110,7 +110,8 @@ float sd_bezier(vec2 pos, vec2 A, vec2 B, vec2 C) {
 void main() {
   vec2 p = v_pos.xy;
   // points per pixel, rotation invariant (equals the old fwidth form on axis-aligned views)
-  float px = max(sqrt(0.5 * (dot(dFdx(p), dFdx(p)) + dot(dFdy(p), dFdy(p)))), 1e-4);
+  vec2 pixel_dx = dFdx(p), pixel_dy = dFdy(p);
+  float px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
   float pxt = max(sqrt(0.5 * (dot(dFdx(v_tp), dFdx(v_tp)) + dot(dFdy(v_tp), dFdy(v_tp)))), 1e-4);
   uint kind = v_kf.x, flags = v_kf.y & 255u, ramp = v_kf.y >> 8u;
   float clip_cov = cover(sd_rect(p, v_clip, vec4(v_misc.y)), px) * cover(sd_rect(v_tp, v_vclip, vec4(0.0)), pxt);
@@ -152,7 +153,13 @@ void main() {
       }
       fill = over(vec4(v_color2.rgb, v_color2.a * (1.0 - cover(inner, px))), fill);
     }
-    col = vec4(fill.rgb, fill.a * cover(d, px));
+    float coverage = cover(d, px);
+    if ((flags & 4u) != 0u && dot(v_radii, vec4(1.0)) == 0.0 && v_misc.x == 0.0) {
+      vec2 pixel = max(abs(pixel_dx) + abs(pixel_dy), vec2(1e-4));
+      vec2 overlap = clamp(min(p + pixel * 0.5, v_rect.zw) - max(p - pixel * 0.5, v_rect.xy), vec2(0.0), pixel) / pixel;
+      coverage = overlap.x * overlap.y;
+    }
+    col = vec4(fill.rgb, fill.a * coverage);
   } else if (kind == BORDER) {
     // widths (top, right, bottom, left) in p0; colours top, right, bottom (p2), left (kf.y). A pixel takes
     // the side it is nearest to per unit of that side's width: corners split on the CSS mitre line.

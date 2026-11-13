@@ -25,6 +25,8 @@ pub mod flags {
     pub const SMOOTH: u8 = 1;
     /// Mask/image glyphs use the second fixed atlas page, independent of image breaks.
     pub const GLYPH_PAGE_2: u8 = 2;
+    /// Pixel-area coverage for a plain RECT, preserving the weight of subpixel fills.
+    pub const AREA: u8 = 4;
     pub const INNER: u8 = 4;
     pub const ROUND: u8 = 8;
     /// Rect border sides (bits 4–7); none set, or all four, borders every side.

@@ -173,7 +173,8 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
                             texture2d<float> mask2_tex [[texture(7)]], texture2d<float> color2_tex [[texture(8)]]) {
   float2 p = in.v_pos.xy;
   // points per pixel, rotation invariant (equals the old fwidth form on axis-aligned views)
-  float px = max(sqrt(0.5 * (dot(dfdx(p), dfdx(p)) + dot(dfdy(p), dfdy(p)))), 1e-4);
+  float2 pixel_dx = dfdx(p), pixel_dy = dfdy(p);
+  float px = max(sqrt(0.5 * (dot(pixel_dx, pixel_dx) + dot(pixel_dy, pixel_dy))), 1e-4);
   float pxt = max(sqrt(0.5 * (dot(dfdx(in.v_tp), dfdx(in.v_tp)) + dot(dfdy(in.v_tp), dfdy(in.v_tp)))), 1e-4);
   uint kind = in.v_kf.x, flags = in.v_kf.y & 255u, ramp = in.v_kf.y >> 8u;
   float clip_cov = cover(sd_rect(p, in.v_clip, float4(in.v_misc.y)), px) * cover(sd_rect(in.v_tp, in.v_vclip, float4(0.0)), pxt);
@@ -215,7 +216,13 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
       }
       fill = over(float4(in.v_color2.rgb, in.v_color2.a * (1.0 - cover(inner, px))), fill);
     }
-    col = float4(fill.rgb, fill.a * cover(d, px));
+    float coverage = cover(d, px);
+    if ((flags & 4u) != 0u && dot(in.v_radii, float4(1.0)) == 0.0 && in.v_misc.x == 0.0) {
+      float2 pixel = max(abs(pixel_dx) + abs(pixel_dy), float2(1e-4));
+      float2 overlap = clamp(min(p + pixel * 0.5, in.v_rect.zw) - max(p - pixel * 0.5, in.v_rect.xy), float2(0.0), pixel) / pixel;
+      coverage = overlap.x * overlap.y;
+    }
+    col = float4(fill.rgb, fill.a * coverage);
   } else if (kind == BORDER) {
     // widths (top, right, bottom, left) in p0; colours top, right, bottom (p2), left (kf.y). A pixel takes
     // the side it is nearest to per unit of that side's width: corners split on the CSS mitre line.

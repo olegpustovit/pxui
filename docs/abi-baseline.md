@@ -524,3 +524,60 @@ Those unchanged files were not edited for this image change. Logs:
 `/tmp/localwave-rust-image-retirement-child-clippy{,-scoped}.log`. This is not a Clippy pass or native
 memory/Vulkan runtime qualification. Renderer pixel/allocation guards and the scaling limit remain
 unchanged; no profile or stack changes were made.
+
+
+## ABI 1.14 — fractional fills and output metadata (2026-11-13)
+
+`Paint::fill_fractional` streams unsnapped RECT instances through the existing span. It rejects
+nonfinite, empty and collapsed bounds; flag AREA (bit 2, RECT only) selects pixel-area coverage for
+axis-aligned fills. The existing hard fill remains pixel-snapped. Metal and Vulkan GLSL use matching
+coverage equations, with derivatives computed before clipping/discard; SPIR-V was rebuilt and
+validated. No layout or new C function is needed; the header documents the new flag, and the wrapper,
+shared shape writer, surface record, ABI version and snapshot move together to minor 14.
+
+A native regression draws 200 half-point bars at 1x and 2x, checks every bar's green-channel coverage
+and total weight, retains one instanced draw per frame, and asserts zero warmed Rust build/draw
+allocations. A half-pixel bar covers half a pixel's weight, including when its centre lands on a
+pixel centre. Static/dynamic descriptor checks retain fractional coordinates and reject invalid
+bounds. Existing shape pixels remain on their previous mode.
+
+The application's new combined waveform/queue workload exposed one late allocation in the ABI
+output getter at frame 84. Its CPU build and all four GPU recording stages were allocation-free;
+the output getter reported one allocation. The dirty-range ABI copy grew when the partition changed,
+although the engine already had the required storage. It now reserves from the source layers' dirty
+capacities. A deterministic test warms source partitions, acknowledges draws, reads an unchanged
+frame and then queries sixteen disjoint updates. It fails before the fix and passes after it; the
+range count remains sixteen. No dirty data is dropped or merged to meet the allocation gate.
+Logs: `/tmp/localwave-waveform-queue-output-trace.log`,
+`/tmp/localwave-waveform-output-partition-{before2,fixed}.log`.
+
+The first expanded matrix passed 333 checks and failed the unchanged layout-scaling ratio
+(417 -> 634 ns/node). An isolated run passed (417 -> 619), 1.571 s wall / 1.144 s summed. The runner
+now isolates that existing timing case in its serial group; its
+1.5x bound and all deadlines remain unchanged. Its scheduling check passes in 1.760 / 0.031 s;
+the subsequent 334-case matrix passes in 13.649 / 17.502 s, zero skips. The initial 18.314-second
+failure is retained. Logs: `/tmp/localwave-waveform-{pxui-all-tests,layout-isolated,
+runner-isolation,pxui-serial-tests}.log`.
+
+Focused fractional/native verification passes 3 checks in 11.796 s including rebuilding and cold
+shader compilation (1.002 s summed; native case 0.940 s). Shader generation and SPIR-V validation
+pass. Logs: `/tmp/localwave-waveform-fractional-area-tests.log`,
+`/tmp/localwave-waveform-shaders-final.log`. Vulkan runtime and native memory remain unqualified on
+this Mac; a Rust counter is not a process-wide allocation measurement.
+
+
+Final expanded static/core/ABI/renderer matrix: **335 checks pass in 18.577 s wall / 16.488 s
+summed**, zero skips, exit 0. The output-partition regression passes independently in **5.826 /
+0.033 s** including rebuilding. The signed LocalWave run after the fix records zero warmed Rust
+allocations in all seven workloads, including the previously failing queue drag. Every workload
+renders 200 waveform bars; the dedicated scrub/scroll case verifies nine release commits. The
+strict 1 ms wall gate still fails, and no process/native-memory qualification follows from these
+counts. Logs: `/tmp/localwave-waveform-pxui-final-tests.log`,
+`/tmp/localwave-waveform-output-partition-fixed.log`,
+`/tmp/localwave-waveform-fixed-performance.log`.
+
+Final dynamic wrapper run: **50 checks pass in 5.472 s wall / 1.859 s summed**, zero skips.
+Dependency, C-header, ABI snapshot and dynamic-export gates pass on the final source. The new RECT
+flag is grouped with the header's other instance constants so the snapshot extractor sees the
+unchanged paint-span signature. Logs: `/tmp/localwave-waveform-verified-dynamic-tests.log` and
+`/tmp/localwave-waveform-verified-gate-{deps,abi-header,abi-snapshot,abi-exports}.log`.

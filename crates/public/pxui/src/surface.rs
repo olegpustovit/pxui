@@ -1071,3 +1071,58 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
     ui.cancel_carry();
     assert!(!ui.transfer_carry(&source.get().unwrap()), "no carry cannot acquire capture");
 }
+
+#[test]
+fn fractional_fills_preserve_subpixel_quads_refuse_invalid_bounds_and_allocate_nothing_when_warm() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    for frame in 0..20 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn{time:frame as f64,..input()},&mut |ui| {
+            let node=ui.node("fractional",crate::Node{w:Size::Px(320.0),h:Size::Px(40.0),..crate::Node::DEFAULT});
+            ui.canvas(&node,|paint,rect| {
+                let white=pxui_types::geom::color::white();
+                for i in 0..200 { paint.fill_fractional(rect.x+i as f32*1.5+0.25,rect.y+1.25,0.5,4.0,white); }
+                for (x,y,w,h) in [(f32::NAN,0.0,1.0,1.0),(0.0,f32::INFINITY,1.0,1.0),(f32::MAX,0.0,f32::MAX,1.0),(f32::MAX,0.0,1.0,1.0),(0.0,0.0,0.0,1.0),(0.0,0.0,1.0,-1.0)] {
+                    paint.fill_fractional(x,y,w,h,white);
+                }
+            });
+        }).unwrap();
+        if frame>3 { assert_eq!(mem_sys::local_alloc_count(),0); }
+        let mut quads=ui.layers().flat_map(|layer| layer.instances.iter());
+        for i in 0..200 {
+            let q=quads.next().unwrap();
+            assert_eq!(q.rect,[i as f32*1.5+0.25,1.25,i as f32*1.5+0.75,5.25]);
+            assert_eq!(q.flags,pxui_types::draw::flags::AREA);
+        }
+        assert!(quads.next().is_none());
+    }
+}
+
+#[test]
+fn output_partitions_reuse_the_engine_dirty_capacity_after_unchanged_frames() {
+    use crate::ui::{Node,Look};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let names:Vec<_>=(0..32).map(|index|format!("part-{index}")).collect();
+    for frame in 0..8 {
+        ui.frame(&FrameIn{time:frame as f64,..input()},&mut |ui| {
+            for (index,name) in names.iter().enumerate() {
+                let phase=if frame<3 {frame.min(1)} else {frame-1};
+                let changed=index%2==0 && phase%2==1;
+                let revision=if index%2==0 {phase as u64} else {0};
+                ui.view(name.as_str(),revision,Size::Px(20.0),Size::Px(4.0),&mut |ui| {
+                    ui.node("quad",Node{w:Size::Px(20.0),h:Size::Px(4.0),look:Look{fill:if changed {pxui_types::geom::Rgba{r:0,g:0,b:255,a:255}} else {pxui_types::geom::color::white()},..Look::NONE},..Node::DEFAULT});
+                });
+            }
+        }).unwrap();
+        if frame<2 { ui.drawn(0); continue; }
+        mem_sys::local_reset();
+        let layer=ui.layer(0);
+        if frame>2 {
+            assert_eq!(layer.dirty.len(),16);
+            assert_eq!(mem_sys::local_alloc_count(),0,"output partition metadata must reuse capacity when no draw storage grows");
+        }
+        ui.drawn(0);
+    }
+}

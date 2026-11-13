@@ -111,6 +111,14 @@ pub trait Shapes {
         }
     }
 
+    /// An unsnapped fill with pixel-area coverage for axis-aligned rectangles.
+    fn fill_fractional(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
+        let rect = [x, y, x + w, y + h];
+        if rect[2] > rect[0] && rect[3] > rect[1] && rect.iter().all(|v| v.is_finite()) {
+            self.push(Instance { flags: crate::draw::flags::AREA, ..Instance::rect(rect, rgba(color)) });
+        }
+    }
+
     /// A band of `width` centred on the rectangle's edges.
     fn stroke_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) {
         if !(w > 0.0 && h > 0.0) {

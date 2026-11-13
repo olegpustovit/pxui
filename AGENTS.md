@@ -126,3 +126,16 @@ abandoned entries by actual completed serials. Ignore inherited/trailing image b
 has no IMAGE instances; solid/text runs must not refresh resource use or bind stale textures. Preserve
 the 128-distinct-image native pixel/warm allocation test, explicit release guards, metadata bounds,
 and both backend paths. This is no process/native-memory qualification.
+
+
+ABI 1.14 adds `Paint::fill_fractional` in the shared shape writer. `fill` keeps its pixel snapping;
+fractional fills preserve finite, increasing bounds and use RECT flag AREA (bit 2) for pixel-area
+coverage on axis-aligned fills. Keep Metal/GLSL and checked-in SPIR-V together. Preserve the 1x/2x
+native thin-bar area/pixel, one-draw and warm-allocation checks, plus static/dynamic descriptor tests.
+Derivative inputs must be evaluated before fragment clipping/discard. No C layout changed.
+
+The ABI output dirty-span buffer must reserve from the engine layers' retained dirty capacities,
+not only the previous frame's actual range count. New fragmentation of an already warm draw must
+not allocate while reading output. Preserve the regression that acknowledges a draw, reads an
+unchanged frame, then requests sixteen disjoint updates without new draw storage. `layout_scaling`
+is a timing case: the test runner puts it in the existing serial group, retaining its 1.5x bound.

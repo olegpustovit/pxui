@@ -169,6 +169,8 @@ typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
 #define PXUI_ATLAS_COLOR_2 3u
 /* Mask/image glyph instance flag: use the second fixed atlas page. */
 #define PXUI_GLYPH_PAGE_2 2u
+/* ABI 1.14: pixel-area coverage for a plain, unstroked RECT instance. */
+#define PXUI_RECT_AREA 4u
 typedef struct {
     uint32_t size;
     const PxuiEvent *events;
@@ -547,6 +549,7 @@ uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
 int32_t pxui_text_width(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
 size_t pxui_text_quads(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float x, float y, float scale, PxuiTextGlyph *out, size_t capacity);
 size_t pxui_text_rasterize_rgba(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
+/* ABI 1.14: bit 2 on plain, unstroked RECTs selects pixel-area coverage; no layout change. */
 int32_t pxui_paint_span(PxuiPaint *paint, size_t at_least, PxuiSpan *span); /* at_least 0 only commits; call it before any other pxui_paint_* call */
 float pxui_paint_icon(PxuiPaint *paint, float x, float y, uint16_t font, float size, uint32_t codepoint, PxuiColor color);
 void pxui_paint_text(PxuiPaint *paint, float x, float y, PxuiStr text);
