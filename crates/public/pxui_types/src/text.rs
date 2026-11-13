@@ -64,3 +64,45 @@ pub struct TextGlyph {
     pub atlas: u32,
     pub reserved: u32,
 }
+
+
+/// A nonempty UTF-8 byte range. Ranges are ordered and do not overlap; weight 0 inherits the base style.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TextSpan {
+    pub start: u32,
+    pub end: u32,
+    pub weight: u16,
+    pub flags: u16,
+    pub color: crate::geom::Rgba,
+    pub background: crate::geom::Rgba,
+    /// A 1.5-point rule at the bottom of the line box, independent of glyph colour.
+    pub underline: crate::geom::Rgba,
+}
+impl TextSpan {
+    pub const COLOR: u16=1;
+    pub const BACKGROUND: u16=2;
+    pub const UNDERLINE: u16=4;
+}
+
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextSpans {
+    pub size: u32,
+    pub count: u32,
+    pub spans: [TextSpan;8],
+}
+impl Default for TextSpans {
+    fn default() -> Self { Self { size:core::mem::size_of::<Self>() as u32,count:0,spans:[TextSpan::default();8] } }
+}
+impl TextSpans {
+    pub const MAX: usize=8;
+    pub fn new(spans: &[TextSpan]) -> Option<Self> {
+        if spans.len()>Self::MAX { return None; }
+        let mut value=Self::default();
+        value.count=spans.len() as u32;
+        value.spans[..spans.len()].copy_from_slice(spans);
+        Some(value)
+    }
+    pub fn as_slice(&self) -> Option<&[TextSpan]> { self.spans.get(..self.count as usize) }
+}

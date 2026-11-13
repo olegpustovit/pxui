@@ -148,6 +148,14 @@ struct PxuiPass { uint32_t size; void *vk_command_buffer, *mtl_render_encoder; u
 typedef struct { uint32_t size, format; uint8_t samples; uint8_t reserved[3]; uint32_t mask_width,mask_height,color_width,color_height,reserved_tail; } PxuiTargetDesc;
 typedef struct { uint32_t size; uint16_t font,weight; float size_points,line_height; uint32_t wrap,align; uint16_t max_lines; uint8_t italic,ellipsis; uint32_t features; float tracking; } PxuiTextStyle;
 #define PXUI_TEXT_FEATURE_TABULAR_NUMBERS 1u
+/* Ordered, disjoint, nonempty UTF-8 byte ranges. Weight 0 inherits the style.
+   Only active spans and flagged colours are read. Flagged colours are independent;
+   underline is a 1.5-point rule at the bottom of the line box. */
+typedef struct { uint32_t start,end; uint16_t weight,flags; PxuiColor color,background,underline; } PxuiTextSpan;
+typedef struct { uint32_t size,count; PxuiTextSpan spans[8]; } PxuiTextSpans;
+#define PXUI_TEXT_SPAN_COLOR 1u
+#define PXUI_TEXT_SPAN_BACKGROUND 2u
+#define PXUI_TEXT_SPAN_UNDERLINE 4u
 typedef struct { float width,height,baseline; uint32_t lines; } PxuiTextMetrics;
 typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
 typedef struct {
@@ -651,5 +659,10 @@ int32_t pxui_a11y_update(PxuiA11y *a11y, const PxuiA11yTree *tree);
 /* 1: the connection is alive, 0: gone (stop it). `out` holds the actions, borrowed until the next pump. */
 int32_t pxui_a11y_pump(PxuiA11y *a11y, PxuiA11yActionSpan *out);
 void pxui_a11y_stop(PxuiA11y *a11y);
+
+int32_t pxui_shaper_width_spans(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
+int32_t pxui_text_width_spans(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
+int32_t pxui_ui_text_spans(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiTextStyle *style, const PxuiTextSpans *spans);
+int32_t pxui_paint_text_spans(PxuiPaint *p, float x, float y, const PxuiTextStyle *style, float width, uint8_t has_color, PxuiColor color, PxuiStr text, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 
 #endif

@@ -12,7 +12,7 @@ pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str};
 pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
-pub use pxui_types::TextStyle;
+pub use pxui_types::{TextStyle,TextSpan};
 
 pub use pxui_types::{draw, geom};
 pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};

@@ -193,6 +193,8 @@ fn main() {
         ("shared_resize_validation", shared_resize_validation),
         ("shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source", shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source),
         ("shared_skipped_draws", shared_skipped_draws),
+        ("shared_inline_spans_render_colors_background_and_rule", shared_inline_spans_render_colors_background_and_rule),
+        ("shared_inline_ligature_color_preserves_native_coverage", shared_inline_ligature_color_preserves_native_coverage),
         ("shared_large_image_layer_allocates_nothing", shared_large_image_layer_allocates_nothing),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
@@ -912,7 +914,7 @@ fn public_commands(commands: &be::Commands) -> pxui_types::Commands {
 
 /// One app frame: PXUI prepares into the app's command buffer, draws into the app's pass, the app forgets
 /// its cached pass state, ends the pass, submits once and waits.
-fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Renderer, frame: u64, completed: u64) {
+fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Renderer, frame: u64, completed: u64) -> u64 {
     let commands = ok(be::begin_commands(queue));
     renderer.prepare(&public_commands(&commands), frame, completed).expect("prepare shared frame");
     let clear = (228.0 / 255.0, 139.0 / 255.0, 161.0 / 255.0, 1.0);
@@ -924,11 +926,81 @@ fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Render
         vk_command_buffer: native_pass.vk_command_buffer, mtl_render_encoder: native_pass.mtl_render_encoder,
         width_px: native_pass.width_px, height_px: native_pass.height_px, scale: 2.0, // the app's density; a pass does not know it
         mtl_command_buffer: public_commands(&commands).mtl_command_buffer, ..pxui_types::Pass::default() };
+    mem_sys::local_reset();
     renderer.draw(&public_pass).expect("draw into app pass");
+    let allocations=mem_sys::local_alloc_count();
     ok(be::invalidate_state(&encoder));
     ok(be::end_render(&encoder));
     let submitted = ok(be::commit(&commands));
     ok(be::complete_through(queue, submitted.epoch));
+    allocations
+}
+
+fn shared_inline_spans_render_colors_background_and_rule() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let mut ui=pxui::Ui::new().unwrap();
+    let style=pxui::TextStyle { size_points:20.0,line_height:24.0,..Default::default() };
+    let span=pxui::TextSpan { start:3,end:5,weight:700,flags:pxui::TextSpan::COLOR|pxui::TextSpan::BACKGROUND|pxui::TextSpan::UNDERLINE,
+        color:pxui::geom::color::rgba(255,0,0,255),background:pxui::geom::color::rgba(0,0,255,64),underline:pxui::geom::color::rgba(0,255,0,255) };
+    let mut renderer=shared_renderer(&device,&ui);
+    for frame in 1..=6 {
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            let b=ui.node("label",pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(40.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
+            ui.text_spans(&b,"ab CD ef",&style,&[span]).unwrap();
+        }).unwrap();
+        let rect=|color|ui.layers().find_map(|layer|layer.instances.iter().find(|i|i.kind==pxui_types::draw::kind::RECT && i.color==color).map(|i|i.rect)).expect("decoration instance");
+        let background=rect([0,0,255,64]);
+        let rule=rect([0,255,0,255]);
+        let draws=renderer.draw_calls();
+        let allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        assert_eq!(renderer.draw_calls()-draws,1,"inline spans keep one instanced draw per layer");
+        if frame>3 { assert_eq!(allocations,0,"warm inline span draws allocate nothing"); }
+        let pixels=ok(be::read_texture(&target,640*4));
+        let sample=|x:f32,y:f32|-> [u8;4] { let at=((y*2.0) as usize*640+(x*2.0) as usize)*4; pixels[at..at+4].try_into().unwrap() };
+        let background_pixel=sample((background[0]+background[2])*0.5,background[1]+1.25);
+        assert!(near(background_pixel,[171,104,185,255],2),"span background {background:?}: {background_pixel:?}");
+        assert_eq!(sample((rule[0]+rule[2])*0.5,(rule[1]+rule[3])*0.5),[0,255,0,255],"rule colour is independent of glyph colour");
+        assert!(pixels.chunks_exact(4).any(|p|p[0]>240 && p[1]<15 && p[2]<15),"native mask samples the span's red foreground");
+    }
+    drop(renderer);
+    assert_eq!(ui.last_error(),"");
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
+}
+
+fn shared_inline_ligature_color_preserves_native_coverage() {
+    const FONT:&[u8]=include_bytes!("../../../../assets/fonts/NotoSansArabic.ttf");
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let mut ui=pxui::Ui::create(pxui::Platform::Apple,None,&[FONT]);
+    let style=pxui::TextStyle { size_points:30.0,line_height:36.0,..Default::default() };
+    let span=pxui::TextSpan { start:2,end:4,flags:pxui::TextSpan::COLOR,color:pxui::geom::color::rgba(255,0,0,255),..Default::default() };
+    let mut renderer=shared_renderer(&device,&ui);
+    let mut original:Option<Vec<u8>>=None;
+    for frame in 1..=6 {
+        let colored=frame%2==0;
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            let b=ui.node("ligature",pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(60.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
+            ui.text_spans(&b,"لا",&style,if colored { std::slice::from_ref(&span) } else { &[] }).unwrap();
+        }).unwrap();
+        let draws=renderer.draw_calls();
+        let allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        assert_eq!(renderer.draw_calls()-draws,1,"inline spans keep one instanced draw per layer");
+        if frame>3 { assert_eq!(allocations,0,"warm clipped ligature draws allocate nothing"); }
+        let pixels=ok(be::read_texture(&target,640*4));
+        if let Some(original)=&original {
+            assert!(pixels.chunks_exact(4).zip(original.chunks_exact(4)).all(|(a,b)|a[1].abs_diff(b[1])<=2 && a[2].abs_diff(b[2])<=2),"colour clipping must preserve the original native glyph coverage");
+        }
+        if colored { assert!(pixels.chunks_exact(4).any(|p|p[0]>240 && p[1]<15 && p[2]<15)); }
+        if original.is_none() { original=Some(pixels); }
+    }
+    drop(renderer);
+    assert_eq!(ui.last_error(),"");
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
 }
 
 /// Two shared frames (the second retires the first and stages new glyphs), the readback of the first

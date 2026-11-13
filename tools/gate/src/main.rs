@@ -1488,6 +1488,7 @@ fn canonical_name(name: &str) -> &str {
         "PxuiImage" | "Image" => "Image",
         "PxuiText" | "Text" => "Text",
         "PxuiTextStyle" | "TextStyle" => "TextStyle",
+        "PxuiTextSpans" | "TextSpans" => "TextSpans",
         "PxuiTextMetrics" | "TextMetrics" => "TextMetrics",
         "PxuiTextGlyph" | "TextGlyph" => "TextGlyph",
         "PxuiTargetDesc" => "TargetDesc",

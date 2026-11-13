@@ -17,7 +17,7 @@ pub use crate::draw::Fit;
 use crate::arena::{self, Arena};
 pub use crate::geom::Edges;
 use std::any::Any;
-use pxui_text::{Metrics, Style, Text};
+use pxui_text::{Metrics, Style, Text, TextSpan, TextSpans};
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -569,6 +569,21 @@ pub fn key(b: &UiBox) -> i64 {
     b.box_key
 }
 
+struct NodeText { style:Style, spans:TextSpans, active:bool }
+impl NodeText {
+    fn top(&self,y:f32,h:f32,metrics:Metrics)->f32 {
+        let line=if self.style.line_height>0.0 { self.style.line_height } else { self.style.size*1.2 };
+        let block=self.style.size+metrics.lines.saturating_sub(1) as f32*line;
+        y+((h-block)/2.0).floor()
+    }
+    fn style(&self,node:&Node,rtl:bool)->Style {
+        let mut style=self.style;
+        if node.flags & FIT_TEXT!=0 { style.ellipsis=true; }
+        if rtl && style.align==pxui_text::Align::Left { style.align=pxui_text::Align::Right; }
+        style
+    }
+}
+
 struct Slot {
     key: i64,
     /// bumped when the slot is freed: handles to the node it held are stale from then on
@@ -578,6 +593,7 @@ struct Slot {
     dup: (i64, i64),
     node: Node,
     text: String,
+    rich: Option<Box<NodeText>>,
     /// where the node's look was painted: the layer's key, the instance range, the clip, and the
     /// frame
     range_layer: i64,
@@ -628,6 +644,7 @@ impl Slot {
             dup: (-1, 0),
             node: Node::DEFAULT,
             text: String::new(),
+            rich:None,
             range_layer: 0,
             range: (0, 0),
             room: 0,
@@ -815,6 +832,15 @@ fn text_key(style: &Style, width: f32, text: &str) -> u64 {
         seed = hash::mix(seed, v);
     }
     hash::bytes(seed as u64, text.as_bytes())
+}
+
+fn lay_out_spans(t:&mut Text,style:&Style,width:f32,text:&str,spans:&[TextSpan])->Option<(u64,Metrics)> {
+    let mut key=text_key(style,width,text);
+    for span in spans {
+        for value in [span.start as i64,span.end as i64,span.weight as i64,span.flags as i64,
+            u32::from_le_bytes(rgba(span.color)) as i64,u32::from_le_bytes(rgba(span.background)) as i64,u32::from_le_bytes(rgba(span.underline)) as i64] { key=hash::mix(key as i64,value) as u64; }
+    }
+    t.layout_spans(key,text,style,width,spans).map(|metrics|(key,metrics))
 }
 
 /// Kit text: the UI face (font 0) at `size` points with `tracking` points after every glyph.
@@ -1824,6 +1850,8 @@ impl Ui {
         let s = &mut self.slots[slot];
         // Virtual rows reuse text and accessibility storage after their old identity is retired.
         let generation = s.generation;
+        let mut rich=s.rich.take();
+        if let Some(rich)=&mut rich { rich.active=false; }
         let mut text = std::mem::take(&mut s.text);
         let mut a11y_name = std::mem::take(&mut s.a11y_name);
         let mut a11y_value = std::mem::take(&mut s.a11y_value);
@@ -1833,6 +1861,7 @@ impl Ui {
         *s = Slot::fresh();
         s.generation = generation;
         s.text = text;
+        s.rich=rich;
         s.a11y_name = a11y_name;
         s.a11y_value = a11y_value;
         s.key = key;
@@ -2853,6 +2882,7 @@ impl Ui {
         let s = &mut self.slots[b.slot];
         s.node = *node;
         s.text.clear();
+        if let Some(rich)=&mut s.rich { rich.active=false; }
         s.a11y_name.clear();
         s.a11y_value.clear();
         s.a11y_selection = (0, 0);
@@ -2988,12 +3018,28 @@ impl Ui {
     pub fn text(&mut self, b: &Handle, text: &str) {
         if self.live(b) {
             self.reuse_empty_string(b.box_slot, text.len(), |slot| &mut slot.text);
+            if let Some(rich)=&mut self.slots[b.box_slot].rich { rich.active=false; }
             let s = &mut self.slots[b.box_slot].text;
             if s != text {
                 s.clear();
                 s.push_str(text);
             }
         }
+    }
+
+    /// Explicit styled text on a node; its accessible name remains the original text.
+    pub fn text_spans(&mut self,b:&Handle,text:&str,style:&Style,spans:&[TextSpan])->bool {
+        if !self.live(b) || !pxui_text::valid_spans(text,spans) { return false; }
+        self.text(b,text);
+        if self.slots[b.box_slot].rich.is_none() {
+            let donor=self.slots.iter().enumerate().find_map(|(i,s)| (i!=b.box_slot && s.rich.as_ref().is_some_and(|r|!r.active)).then_some(i));
+            if let Some(i)=donor { self.slots[b.box_slot].rich=self.slots[i].rich.take(); }
+        }
+        let rich=self.slots[b.box_slot].rich.get_or_insert_with(||Box::new(NodeText { style:*style,spans:TextSpans::default(),active:false }));
+        rich.style=*style;
+        rich.spans=TextSpans::new(spans).expect("validated span count");
+        rich.active=true;
+        true
     }
 
     /// Start building children of `b`; give the result to `leave`.
@@ -3958,8 +4004,11 @@ impl Ui {
         let size = look.font.points(self.font_size);
         let style = Style { font: look.font.family, size: size as f32, weight: look.font.weight, tracking: look.font.tracking * size as f32, ..Style::default() };
         let text = self.text.as_mut().expect("Ui: the text engine is lent out");
-        let (_, m) = lay_out(text, &style, 0.0, &self.slots[slot].text);
-        text_top_for(self.font_size, Some(size), inset.t, h - inset.t - inset.b) + m.baseline
+        let rich=self.slots[slot].rich.as_deref().filter(|r|r.active);
+        let m=if let Some(rich)=rich { lay_out_spans(text,&rich.style(&self.slots[slot].node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,&self.slots[slot].text,rich.spans.as_slice().unwrap()).unwrap().1 }
+            else { lay_out(text, &style, 0.0, &self.slots[slot].text).1 };
+        let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m));
+        top+m.baseline
     }
 
     /// A row or column: lines (one unless it wraps), each sharing its room by grow and shrink
@@ -4453,7 +4502,7 @@ impl Paint {
     /// with no closure. Square, solid looks paint as hard rectangles on the pixel grid; rounded,
     /// gradient and shadowed ones as distance fields. `steady` (a running transition) emits the same
     /// instances whatever the colours, so each step rewrites the node's range in place.
-    fn look(&mut self, r: Rect, node: &Node, look: &Look, text: &str, focused: bool, steady: bool) {
+    fn look(&mut self, r: Rect, node: &Node, look: &Look, text: &str, rich:Option<&NodeText>, focused: bool, steady: bool) {
         let placed = r;
         let Rect { x, y, w, h } = placed;
         let o = look.opacity.clamp(0.0, 1.0);
@@ -4505,7 +4554,14 @@ impl Paint {
                 }
             }
         }
-        if !text.is_empty() {
+        if let Some(rich)=rich {
+            let width=w-node.inset.l-node.inset.r;
+            let style=rich.style(node,self.rtl);
+            if let Some((key,metrics))=lay_out_spans(&mut self.text,&style,width,text,rich.spans.as_slice().unwrap()) {
+                let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics));
+                self.text_laid(at,&style,Some(look.text),key,metrics,o);
+            }
+        } else if !text.is_empty() {
             let size = look.font.points(self.font_size);
             let inset = node.inset;
             let at = (x + inset.l, text_top_for(self.font_size, Some(size), y + inset.t, h - inset.t - inset.b));
@@ -4536,7 +4592,7 @@ impl Paint {
             // right to left the start inset is at the right: the text ends there
             let (key, m) = lay_out(&mut self.text, &style, 0.0, text);
             let at = if self.rtl { (x + w - inset.l - m.w, at.1) } else { at };
-            self.text_laid(at, &style, ink, key, m);
+            self.text_laid(at, &style, ink, key, m,1.0);
             self.label = buffer;
         }
         match node.mark {
@@ -4674,11 +4730,16 @@ impl Paint {
     /// keep their own colours under its alpha.
     pub fn text_styled(&mut self, at: (f32, f32), style: &Style, width: f32, color: Option<Color>, text: &str) -> Metrics {
         let (key, m) = lay_out(&mut self.text, style, width, text);
-        self.text_laid(at, style, color, key, m)
+        self.text_laid(at, style, color, key, m,1.0)
+    }
+
+    pub fn text_spans(&mut self,at:(f32,f32),style:&Style,width:f32,color:Option<Color>,text:&str,spans:&[TextSpan])->Option<Metrics> {
+        let (key,metrics)=lay_out_spans(&mut self.text,style,width,text,spans)?;
+        Some(self.text_laid(at,style,color,key,metrics,1.0))
     }
 
     /// `text_styled` for a layout already made (`lay_out`'s key and metrics).
-    fn text_laid(&mut self, at: (f32, f32), style: &Style, color: Option<Color>, key: u64, m: Metrics) -> Metrics {
+    fn text_laid(&mut self, at: (f32, f32), style: &Style, color: Option<Color>, key: u64, m: Metrics, opacity:f32) -> Metrics {
         let d = self.density as f32;
         let snap = |v: f32| (v * d).round() / d;
         let baseline = snap(at.1 + self.text.ascent(style.font) * style.size);
@@ -4687,7 +4748,14 @@ impl Paint {
         let (clip, view) = (clip_of(self.clip_rect), self.view);
         let Paint { text: t, layers, layer, .. } = self;
         let layer = &mut layers[*layer];
+        let fade=|mut c:[u8;4]| { if opacity<1.0 { c[3]=(c[3] as f32*opacity).round() as u8; } c };
+        let decoration=|deco:pxui_text::Decoration,layer:&mut Layer| {
+            let r=deco.rect;
+            layer.instances.push(Instance { clip,view,..Instance::rect([origin.0+r.x,origin.1+r.y,origin.0+r.x+r.w,origin.1+r.y+r.h],fade(deco.color)) });
+        };
+        t.decorations(key,false,&mut |deco|decoration(deco,layer));
         t.glyphs(key, origin, d, &mut |g| {
+            let color=fade(g.color.unwrap_or(color));
             let r = [g.rect.x / d, g.rect.y / d, (g.rect.x + g.rect.w) / d, (g.rect.y + g.rect.h) / d];
             let uv = [g.uv.x, g.uv.y, g.uv.x + g.uv.w, g.uv.y + g.uv.h];
             let instance = match g.atlas {
@@ -4702,6 +4770,7 @@ impl Paint {
             };
             layer.instances.push(Instance { clip, view, ..instance });
         });
+        t.decorations(key,true,&mut |deco|decoration(deco,layer));
         m
     }
 
@@ -4884,7 +4953,7 @@ impl Ui {
         let r = self.screen(index);
         let s = &self.slots[slot];
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
-        paint.look(Rect::new(r.x + pose.dx, r.y + pose.dy, r.w, r.h), &s.node, &look, &s.text, focused, steady);
+        paint.look(Rect::new(r.x + pose.dx, r.y + pose.dy, r.w, r.h), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), focused, steady);
         let s = &mut self.slots[slot];
         if self.motion {
             (s.seen, s.seen_state) = (s.node.look, s.node.state);
@@ -5118,7 +5187,7 @@ impl Ui {
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
         let outer = paint.text.marks();
         paint.text.set_marks([0; 4]);
-        paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, focused, steady);
+        paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), focused, steady);
         let shelves = paint.text.marks();
         paint.text.set_marks(outer);
         let scratch = self.paint_end(paint);

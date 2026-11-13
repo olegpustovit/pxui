@@ -14,7 +14,7 @@ pub mod theme;
 pub mod ui;
 
 pub use node::{Axis, Bar, Dir, Mark, Node};
-pub use text::{TextGlyph, TextMetrics, TextStyle};
+pub use text::{TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
 pub use theme::{Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens};
 
 /// Node behavior bits. Kept as an integer so unknown future bits remain representable.
@@ -360,6 +360,10 @@ mod abi_layout {
             offset_of!(TextStyle, align), offset_of!(TextStyle, max_lines), offset_of!(TextStyle, italic),
             offset_of!(TextStyle, ellipsis), offset_of!(TextStyle, features), offset_of!(TextStyle, tracking),
         ]);
+        assert_layout("TextSpan",size_of::<TextSpan>(),align_of::<TextSpan>(),&[
+            offset_of!(TextSpan,start),offset_of!(TextSpan,end),offset_of!(TextSpan,weight),offset_of!(TextSpan,flags),offset_of!(TextSpan,color),offset_of!(TextSpan,background),offset_of!(TextSpan,underline),
+        ]);
+        assert_layout("TextSpans",size_of::<TextSpans>(),align_of::<TextSpans>(),&[offset_of!(TextSpans,size),offset_of!(TextSpans,count),offset_of!(TextSpans,spans)]);
         assert_layout("TextMetrics", size_of::<TextMetrics>(), align_of::<TextMetrics>(), &[
             offset_of!(TextMetrics, width), offset_of!(TextMetrics, height), offset_of!(TextMetrics, baseline), offset_of!(TextMetrics, lines),
         ]);

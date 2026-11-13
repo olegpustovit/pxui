@@ -340,6 +340,7 @@ version = "0.1.0"
 dependencies = [
  "cosmic-text",
  "mem_sys",
+ "pxui_types",
 ]
 
 [[package]]

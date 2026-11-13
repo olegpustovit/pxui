@@ -35,9 +35,10 @@
 //! build of the dependency closure 24.5 s wall (116 s CPU); 40 external crates + pxui_text.
 
 use cosmic_text::{
-    Align as CAlign, Attrs, Buffer, CacheKey, Cursor, Ellipsize, EllipsizeHeightLimit, Family, FeatureTag, FontFeatures, FontSystem, Metrics as CMetrics, Shaping,
+    Align as CAlign, Attrs, AttrsList, Buffer, CacheKey, Cursor, Ellipsize, EllipsizeHeightLimit, Family, FeatureTag, FontFeatures, FontSystem, Metrics as CMetrics, Shaping,
     Style as CStyle, SubpixelBin, SwashCache, SwashContent, Weight, Wrap as CWrap, fontdb,
 };
+pub use pxui_types::{TextSpan, TextSpans};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
@@ -143,7 +144,83 @@ pub struct Glyph {
     pub rect: Rect,
     pub uv: Rect,
     pub atlas: AtlasKind,
+    /// An inline foreground override; None inherits the caller's colour.
+    pub color: Option<[u8;4]>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Decoration { pub rect: Rect, pub color:[u8;4] }
+
+/// Inline spans are byte ranges in source order, with one style per byte.
+pub fn valid_spans(text: &str, spans: &[TextSpan]) -> bool {
+    if spans.len()>TextSpans::MAX { return false; }
+    let mut end=0;
+    for span in spans {
+        let (start,next)=(span.start as usize,span.end as usize);
+        if span.flags & !(TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE)!=0 || start<end || start>=next
+            || !text.is_char_boundary(start) || !text.is_char_boundary(next) { return false; }
+        end=next;
+    }
+    true
+}
+
+fn rgba(color:pxui_types::geom::Rgba)->[u8;4] { [color.r,color.g,color.b,color.a] }
+
+fn glyph_range(run:&cosmic_text::LayoutRun,glyph:&cosmic_text::LayoutGlyph,start:usize,end:usize)->[f32;2] {
+    let position=|at| {
+        if at==glyph.start { if glyph.level.is_rtl() { glyph.x+glyph.w } else { glyph.x } }
+        else if at==glyph.end { if glyph.level.is_rtl() { glyph.x } else { glyph.x+glyph.w } }
+        else { run.cursor_position(&Cursor::new(run.line_i,at)).unwrap_or(glyph.x) }
+    };
+    let (a,b)=(position(start),position(end));
+    [a.min(b),a.max(b)]
+}
+
+// Caret cuts preserve the original shaping when a colour boundary crosses a ligature.
+fn glyph_parts(run:&cosmic_text::LayoutRun,glyph:&cosmic_text::LayoutGlyph,base:usize,spans:&[TextSpan],f:&mut dyn FnMut([f32;2],Option<[u8;4]>)) {
+    let (start,end)=(base+glyph.start,base+glyph.end);
+    if !spans.iter().any(|s|s.flags & TextSpan::COLOR!=0 && (s.start as usize)<end && (s.end as usize)>start) {
+        f([f32::NEG_INFINITY,f32::INFINITY],None);
+        return;
+    }
+    if start==end {
+        let at=start.saturating_sub(1);
+        let color=spans.iter().find(|s|s.flags & TextSpan::COLOR!=0 && s.start as usize<=at && s.end as usize>at).map(|s|rgba(s.color));
+        f([f32::NEG_INFINITY,f32::INFINITY],color);
+        return;
+    }
+    let mut cursor=start;
+    let mut part=|lo:usize,hi:usize,color| {
+        if lo>=hi { return; }
+        let mut clip=glyph_range(run,glyph,lo-base,hi-base);
+        if (!glyph.level.is_rtl() && lo==start) || (glyph.level.is_rtl() && hi==end) { clip[0]=f32::NEG_INFINITY; }
+        if (!glyph.level.is_rtl() && hi==end) || (glyph.level.is_rtl() && lo==start) { clip[1]=f32::INFINITY; }
+        f(clip,color);
+    };
+    for span in spans.iter().filter(|s|s.flags & TextSpan::COLOR!=0) {
+        let (lo,hi)=((span.start as usize).max(start),(span.end as usize).min(end));
+        if lo>=hi { continue; }
+        part(cursor,lo,None);
+        part(lo,hi,Some(rgba(span.color)));
+        cursor=hi;
+    }
+    part(cursor,end,None);
+}
+
+fn emit_clipped(mut glyph:Glyph,clip:[f32;2],f:&mut dyn FnMut(Glyph)) {
+    if clip==[f32::NEG_INFINITY,f32::INFINITY] { f(glyph); return; }
+    let (left,right)=(glyph.rect.x.max(clip[0]),(glyph.rect.x+glyph.rect.w).min(clip[1]));
+    if left>=right { return; }
+    let advance=glyph.uv.w/glyph.rect.w;
+    glyph.uv.x+=(left-glyph.rect.x)*advance;
+    glyph.uv.w=(right-left)*advance;
+    glyph.rect.x=left;
+    glyph.rect.w=right-left;
+    f(glyph);
+}
+
+struct Rich { spans:TextSpans }
+
 
 /// Frames a layout outlives its last use (`Text::end_frame`), and how often the unused are swept: a
 /// layout goes between `KEEP_FRAMES` and `KEEP_FRAMES + SWEEP_FRAMES` frames after its last use.
@@ -342,6 +419,8 @@ struct CachedGlyph {
     line_y: f32,
     slot: Slot,
     uv: Rect,
+    color: Option<[u8;4]>,
+    clip: [f32;2],
 }
 
 /// Layouts stop keeping glyph lists past this many bytes in all (a list goes with its layout).
@@ -419,7 +498,7 @@ impl Glyphs {
     }
 
     /// One quad for `slot` with its pen at device pixel (`x`, `y`); marks the slot's shelf used.
-    fn emit(&mut self, slot: Slot, x: i32, y: i32, f: &mut dyn FnMut(Glyph)) {
+    fn emit(&mut self, slot: Slot, x: i32, y: i32, color:Option<[u8;4]>, f: &mut dyn FnMut(Glyph)) {
         if slot.w == 0 || slot.h == 0 {
             return;
         }
@@ -430,6 +509,7 @@ impl Glyphs {
             rect: Rect { x: (x + slot.left) as f32, y: (y - slot.top) as f32, w: slot.w as f32, h: slot.h as f32 },
             uv: self.uv(&slot),
             atlas: slot.kind,
+            color,
         });
     }
 
@@ -469,6 +549,7 @@ struct Entry {
     buf: Buffer,
     text: String,
     style: Style,
+    rich: Option<Box<Rich>>,
     width: u32,
     frame: u32,
     m: Metrics,
@@ -567,11 +648,21 @@ impl Text {
     }
 
     pub fn layout(&mut self, key: u64, text: &str, style: &Style, max_width: f32) -> Metrics {
+        self.layout_inner(key,text,style,max_width,&[])
+    }
+
+    pub fn layout_spans(&mut self,key:u64,text:&str,style:&Style,max_width:f32,spans:&[TextSpan])->Option<Metrics> {
+        if !valid_spans(text,spans) { return None; }
+        Some(self.layout_inner(key,text,style,max_width,spans))
+    }
+
+    fn layout_inner(&mut self, key: u64, text: &str, style: &Style, max_width: f32, spans:&[TextSpan]) -> Metrics {
         let width = if max_width.is_finite() && max_width > 0.0 { max_width } else { f32::INFINITY };
         let frame = self.frame;
         if let Some(e) = self.entries.get_mut(&key) {
             e.frame = frame;
-            if e.width == width.to_bits() && e.style == *style && e.text == text {
+            if e.width == width.to_bits() && e.style == *style && e.text == text
+                && e.rich.as_ref().and_then(|r|r.spans.as_slice()).unwrap_or(&[])==spans {
                 return e.m;
             }
         }
@@ -584,6 +675,7 @@ impl Text {
             },
             buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
             style: *style,
+            rich:None,
             width: 0,
             frame,
             m: Metrics::default(),
@@ -625,6 +717,21 @@ impl Text {
             Align::Right => CAlign::Right,
         };
         b.set_text(text, &attrs, Shaping::Advanced, Some(align));
+        if spans.iter().any(|s|s.weight!=0 && s.weight!=style.weight) {
+            let mut offset=0;
+            for line in &mut b.lines {
+                let end=offset+line.text().len();
+                let mut list=AttrsList::new(&attrs);
+                for span in spans.iter().filter(|s|s.weight!=0) {
+                    let (start,stop)=((span.start as usize).max(offset),(span.end as usize).min(end));
+                    if start>=stop { continue; }
+                    let custom=attrs.clone().weight(Weight(span.weight));
+                    list.add_span(start-offset..stop-offset,&custom);
+                }
+                offset=end+line.ending().as_str().len();
+                line.set_attrs_list(list);
+            }
+        }
         b.shape_until_scroll(&mut self.g.fs, true);
         let mut m = Metrics::default();
         for run in b.layout_runs() {
@@ -635,8 +742,42 @@ impl Text {
             m.w = m.w.max(run.line_w);
             m.h = run.line_top + run.line_height;
         }
+        if !spans.is_empty() || e.rich.is_some() {
+            let rich=e.rich.get_or_insert_with(||Box::new(Rich { spans:TextSpans::default() }));
+            rich.spans=TextSpans::new(spans).expect("validated span count");
+        }
         e.m = m;
         m
+    }
+
+    /// Line boxes from the retained shaped runs, with no temporary allocation.
+    pub fn decorations(&self,key:u64,underline:bool,f:&mut dyn FnMut(Decoration)) {
+        let Some(entry)=self.entries.get(&key) else { return };
+        let Some(rich)=&entry.rich else { return };
+        let flag=if underline { TextSpan::UNDERLINE } else { TextSpan::BACKGROUND };
+        for span in rich.spans.as_slice().unwrap().iter().filter(|s|s.flags & flag!=0) {
+            let (a,b)=(Self::line_of(&entry.buf,span.start as usize),Self::line_of(&entry.buf,span.end as usize));
+            for run in entry.buf.layout_runs().filter(|r|r.line_i>=a.line && r.line_i<=b.line) {
+                let start=if run.line_i==a.line { a.index } else { 0 };
+                let end=if run.line_i==b.line { b.index } else { run.text.len() };
+                let mut active:Option<[f32;2]>=None;
+                let emit=|range:[f32;2],f:&mut dyn FnMut(Decoration)| {
+                    let h=if underline { run.line_height.min(1.5) } else { run.line_height };
+                    let y=if underline { run.line_top+run.line_height-h } else { run.line_top };
+                    f(Decoration { rect:Rect { x:range[0],y,w:range[1]-range[0],h },color:rgba(if underline { span.underline } else { span.background }) });
+                };
+                for glyph in run.glyphs {
+                    let (lo,hi)=(start.max(glyph.start),end.min(glyph.end));
+                    let range=(lo<hi).then(||glyph_range(&run,glyph,lo,hi)).filter(|r|r[1]>r[0]);
+                    match (active,range) {
+                        (Some(old),Some(next)) if next[0]<=old[1]+1e-4 && next[1]>=old[0]-1e-4 => active=Some([old[0].min(next[0]),old[1].max(next[1])]),
+                        (Some(old),next)=>{ emit(old,f); active=next; }
+                        (None,next)=>active=next,
+                    }
+                }
+                if let Some(range)=active { emit(range,f); }
+            }
+        }
     }
 
     /// Same as `layout`: the shaped buffer is cached either way.
@@ -716,11 +857,11 @@ impl Text {
                     if c.slot.w > 0 && c.slot.h > 0 {
                         g.atlases[idx(c.slot.kind)].shelves[c.slot.shelf as usize].used = g.frame;
                         let s = &c.slot;
-                        f(Glyph { rect: Rect { x: (x + s.left) as f32, y: (y - s.top) as f32, w: s.w as f32, h: s.h as f32 }, uv: c.uv, atlas: s.kind });
+                        emit_clipped(Glyph { rect: Rect { x: (x + s.left) as f32, y: (y - s.top) as f32, w: s.w as f32, h: s.h as f32 }, uv: c.uv, atlas: s.kind, color:c.color },c.clip.map(|v|v.mul_add(scale,ox)),f);
                     }
                 } else if let Some(slot) = g.slot(CacheKey { x_bin: bin, ..c.key }) {
                     // a bin the list does not hold, or a slot an eviction during this call may have moved
-                    g.emit(slot, x, y, f);
+                    g.emit(slot, x, y, c.color, &mut |glyph|emit_clipped(glyph,c.clip.map(|v|v.mul_add(scale,ox)),f));
                 }
             }
             return;
@@ -732,22 +873,21 @@ impl Text {
         e.glyphs.clear();
         e.shelves = [0; 4];
         e.cached = keep;
+        let spans=e.rich.as_ref().and_then(|r|r.spans.as_slice()).unwrap_or(&[]);
+        let (mut line,mut base)=(0,0);
         for run in e.buf.layout_runs() {
+            while line<run.line_i { base+=e.buf.lines[line].text().len()+e.buf.lines[line].ending().as_str().len(); line+=1; }
             for lg in run.glyphs {
-                let p = lg.physical((origin.0 * scale, (origin.1 + run.line_y) * scale), scale);
-                let Some(slot) = g.slot(p.cache_key) else {
-                    e.cached = false; // the atlas has no room this frame: walk again next time
-                    continue;
-                };
-                if keep {
-                    let (x, y) = (lg.x + lg.font_size * lg.x_offset, lg.y - lg.font_size * lg.y_offset);
-                    e.glyphs.push(CachedGlyph { key: p.cache_key, x, y, line_y: run.line_y, slot, uv: g.uv(&slot) });
-                    if slot.w > 0 && slot.h > 0 {
-                        let (word, bit) = shelf_bit(slot.kind, slot.shelf);
-                        e.shelves[word] |= bit;
+                let p=lg.physical((origin.0*scale,(origin.1+run.line_y)*scale),scale);
+                let Some(slot)=g.slot(p.cache_key) else { e.cached=false; continue; };
+                glyph_parts(&run,lg,base,spans,&mut |clip,color| {
+                    if keep {
+                        let (x,y)=(lg.x+lg.font_size*lg.x_offset,lg.y-lg.font_size*lg.y_offset);
+                        e.glyphs.push(CachedGlyph { key:p.cache_key,x,y,line_y:run.line_y,slot,uv:g.uv(&slot),color,clip });
+                        if slot.w>0 && slot.h>0 { let (word,bit)=shelf_bit(slot.kind,slot.shelf); e.shelves[word]|=bit; }
                     }
-                }
-                g.emit(slot, p.x, p.y, f);
+                    g.emit(slot,p.x,p.y,color,&mut |glyph|emit_clipped(glyph,clip.map(|v|v.mul_add(scale,origin.0*scale)),f));
+                });
             }
         }
         *cache_bytes += e.glyphs.capacity() * size_of::<CachedGlyph>();

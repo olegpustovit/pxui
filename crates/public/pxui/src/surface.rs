@@ -411,3 +411,119 @@ fn canvas_feature_styles_have_distinct_warm_cache_entries() {
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed feature styles must keep separate warm layout/glyph caches"); }
     }
 }
+
+
+#[test]
+fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() {
+    use crate::{TextSpan,TextStyle};
+    use pxui_types::geom::color;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    ui.set_a11y(true);
+    let text="ab CD ef";
+    let style=TextStyle { size_points:20.0,line_height:24.0,..Default::default() };
+    let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
+        color:color::rgba(255,0,0,255),background:color::rgba(0,0,255,64),underline:color::rgba(0,255,0,255),..Default::default() };
+    let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let measured=shaper.measure_spans(1,text,&style,200.0,&[span]).unwrap();
+    assert_eq!(ui.text_service().measure_spans(1,text,&style,200.0,&[span]).unwrap(),measured);
+    for frame in 0..10 {
+        let plain=frame%3==0;
+        let opacity=if frame%2==0 { 0.5 } else { 1.0 };
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+            let b=ui.node("label",crate::Node { role:crate::ui::Role::Label,w:Size::Px(200.0),h:Size::Px(40.0),look:crate::ui::Look { text:color::rgba(30,30,30,255),opacity,..crate::ui::Look::NONE },..crate::Node::DEFAULT });
+            if plain { ui.text(&b,text); } else { ui.text_spans(&b,text,&style,&[span]).unwrap(); }
+        }).unwrap();
+        if frame>=6 { assert_eq!(mem_sys::local_alloc_count(),0,"warm rich/plain rebuilds retain their span storage and glyph caches"); }
+        let alpha=if opacity==0.5 { 128 } else { 255 };
+        let has_red=ui.layers().any(|l|l.instances.iter().any(|i|i.color==[255,0,0,alpha]));
+        assert_eq!(has_red,!plain,"plain text clears previous span colours");
+        if !plain {
+            assert!(ui.layers().any(|l|l.instances.iter().any(|i|i.color==[0,255,0,alpha])));
+            let background=if opacity==0.5 { 32 } else { 64 };
+            assert!(ui.layers().any(|l|l.instances.iter().any(|i|i.color==[0,0,255,background])));
+        }
+        assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==text),"styled nodes expose the complete original label");
+    }
+}
+
+#[test]
+fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
+    use crate::{TextSpan,TextStyle};
+    use pxui_types::geom::color;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let style=TextStyle { size_points:20.0,..Default::default() };
+    let red=TextSpan { start:0,end:2,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:color::rgba(255,0,0,255),underline:color::rgba(255,0,0,255),..Default::default() };
+    let green=TextSpan { color:color::rgba(0,255,0,255),underline:color::rgba(0,255,0,255),..red };
+    for bad in [TextSpan { start:1,end:2,..red },TextSpan { end:99,..red },TextSpan { flags:8,..red }] {
+        assert!(ui.text_service().measure_spans(1,"é!",&style,0.0,&[bad]).is_err());
+    }
+    assert!(ui.text_service().measure_spans(1,"abcdefghij",&style,0.0,&[red;9]).is_err());
+    for frame in 0..7 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+            let b=ui.node("canvas",crate::Node { w:Size::Px(200.0),h:Size::Px(80.0),..crate::Node::DEFAULT });
+            ui.canvas(&b,move |paint,rect| {
+                let a=paint.text_spans((rect.x,rect.y),&style,0.0,None,"ab cd",&[red]).unwrap();
+                let b=paint.text_spans((rect.x,rect.y+30.0),&style,0.0,None,"ab cd",&[green]).unwrap();
+                assert_eq!(a,b,"decoration colour changes preserve text geometry");
+            });
+        }).unwrap();
+        if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"warm mixed spans keep separate shape/glyph caches"); }
+    }
+}
+
+
+#[test]
+fn inline_node_fractional_font_alignment_matches_canvas_text() {
+    use crate::{TextSpan,TextStyle};
+    use pxui_types::geom::color;
+    let mut ui=Ui::new().unwrap();
+    let style=TextStyle { size_points:20.25,..Default::default() };
+    let span=TextSpan { start:0,end:2,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
+    ui.frame(&input(),&mut |ui| {
+        let b=ui.node("fractional",crate::Node { w:Size::Px(200.0),h:Size::Px(40.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
+        ui.text_spans(&b,"ab cd",&style,&[span]).unwrap();
+        ui.canvas(&b,move |paint,rect| {
+            let top=rect.y+((rect.h-style.size_points)/2.0).floor();
+            paint.text_spans((rect.x,top),&style,200.0,Some(color::rgba(0,0,0,255)),"ab cd",&[span]).unwrap();
+        });
+    }).unwrap();
+    let instances:Vec<_>=ui.layers().flat_map(|layer|layer.instances.iter().copied()).collect();
+    assert_eq!(instances.len(),8);
+    for (node,canvas) in instances[..4].iter().zip(&instances[4..]) {
+        assert_eq!(node.rect,canvas.rect,"fractional font points must not be rounded before node alignment");
+        assert_eq!(node.aux,canvas.aux);
+        assert_eq!(node.color,canvas.color);
+    }
+}
+
+
+#[test]
+fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
+    use crate::{TextSpan,TextStyle};
+    use pxui_types::geom::color;
+    let mut ui=Ui::new().unwrap();
+    let style=TextStyle { size_points:20.0,line_height:24.0,wrap:TextStyle::WRAP_WORD,..Default::default() };
+    let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
+    let metrics=ui.text_service().measure_spans(1,"aa bb cc",&style,45.0,&[span]).unwrap();
+    assert_eq!(metrics.lines,3);
+    ui.frame(&input(),&mut |ui| {
+        let b=ui.node("wrapped",crate::Node { w:Size::Px(45.0),h:Size::Px(80.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
+        ui.text_spans(&b,"aa bb cc",&style,&[span]).unwrap();
+        ui.canvas(&b,move |paint,rect| {
+            let block=style.size_points+(metrics.lines-1) as f32*style.line_height;
+            let top=rect.y+((rect.h-block)/2.0).floor();
+            paint.text_spans((rect.x,top),&style,45.0,Some(color::rgba(0,0,0,255)),"aa bb cc",&[span]).unwrap();
+        });
+    }).unwrap();
+    let instances:Vec<_>=ui.layers().flat_map(|layer|layer.instances.iter().copied()).collect();
+    assert_eq!(instances.len(),12);
+    for (node,canvas) in instances[..6].iter().zip(&instances[6..]) {
+        assert_eq!(node.rect,canvas.rect,"node alignment includes every wrapped line");
+        assert_eq!(node.aux,canvas.aux);
+        assert_eq!(node.color,canvas.color);
+    }
+}

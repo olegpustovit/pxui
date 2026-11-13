@@ -155,3 +155,5 @@ PxuiSlot 8 8 0
 PxuiListViewWithDesc 64 8 0 4 5 8 24 32 48 56
 PxuiTreeViewWithDesc 104 8 0 4 8 24 40 56 64 80 88 96
 PxuiTableViewWithDesc 96 8 0 4 5 6 8 24 40 56 64 72 80 88
+TextSpan 24 4 0 4 8 10 12 16 20
+TextSpans 200 4 0 4 8

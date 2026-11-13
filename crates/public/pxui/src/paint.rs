@@ -9,6 +9,7 @@ use std::alloc::Layout;
 use pxui_types::{node::Dir, draw::Instance, ffi::PxuiPaintInfo, geom::{Rect, Rgba as Color, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, ui::text_top_for, PxuiBox, Span, Str, TextMetrics, TextStyle};
 
 library!(lib {
+    fn pxui_paint_text_spans(p:*mut RawPaint,x:f32,y:f32,style:*const TextStyle,width:f32,has_color:u8,color:Rgba,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_ui_draw(ui: *mut PxuiUi, box_: *const PxuiBox, over: u8, build: Option<extern "C" fn(*mut c_void, *mut RawPaint, Rect, *const PxuiPaintInfo)>, user: *mut c_void, release: Option<extern "C" fn(*mut c_void)>) -> i32;
     fn pxui_paint_span(p: *mut RawPaint, at_least: usize, span: *mut Span) -> i32;
     fn pxui_paint_icon(p: *mut RawPaint, x: f32, y: f32, font: u16, size: f32, codepoint: u32, c: Rgba) -> f32;
@@ -101,6 +102,14 @@ impl<'a> Paint<'a> {
         unsafe { lib::pxui_paint_text_styled(self.raw(), at.0, at.1, style, width, has_color, color, crate::as_str(s)) }
     }
     #[inline] pub fn text_width(&mut self, size: Option<i64>, s: &str) -> f32 { unsafe { lib::pxui_paint_text_width(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s)) } }
+    /// Draws one shaped layout with up to eight inline spans; invalid ranges or flags return an argument error.
+    pub fn text_spans(&mut self,at:(f32,f32),style:&TextStyle,width:f32,color:Option<Rgba>,text:&str,spans:&[pxui_types::TextSpan])->Result<TextMetrics,i32> {
+        let spans=pxui_types::TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+        let (has_color,color)=some(color);
+        let mut out=TextMetrics::default();
+        let rc=unsafe { lib::pxui_paint_text_spans(self.raw(),at.0,at.1,style,width,has_color,color,crate::as_str(text),&spans,&mut out) };
+        if rc==0 { Ok(out) } else { Err(rc) }
+    }
     #[inline] pub fn text_metrics(&mut self, style: &TextStyle, width: f32, s: &str) -> TextMetrics { unsafe { lib::pxui_paint_text_metrics(self.raw(), style, width, crate::as_str(s)) } }
     #[inline] pub fn caret_x(&mut self, size: Option<i64>, s: &str, index: usize) -> f32 { unsafe { lib::pxui_paint_caret_x(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s), index) } }
     /// Calls `f(x, width)` for each run of the selection `a..b` of `s`.

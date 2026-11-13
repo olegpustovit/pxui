@@ -1,7 +1,7 @@
 use pxui_text::{Align, AtlasKind, Style, Text, Wrap};
 use crate::state::{PxuiUi, engine};
 use crate::PXUI_ERR_ARGUMENT;
-use pxui_types::{Str, TextGlyph, TextMetrics, TextStyle};
+use pxui_types::{Str, TextGlyph, TextMetrics, TextSpans, TextStyle};
 
 unsafe fn bytes<'a>(value: Str) -> Option<&'a [u8]> {
     if value.len == 0 { return Some(&[]); }
@@ -33,6 +33,60 @@ pub(crate) fn style(value: TextStyle) -> Option<Style> {
         features: value.features,
     })
 }
+
+pub(crate) unsafe fn read_style(value:*const TextStyle)->Option<Style> {
+    if value.is_null() { return None; }
+    style(read_desc!(value,TextStyle)?)
+}
+
+pub(crate) unsafe fn span_packet(value:*const TextSpans)->Option<TextSpans> {
+    if value.is_null() { return None; }
+    let size=unsafe { value.cast::<u32>().read_unaligned() };
+    if size<(core::mem::size_of::<TextSpans>() as u32) { return None; }
+    let count=unsafe { core::ptr::addr_of!((*value).count).read_unaligned() };
+    if count>TextSpans::MAX as u32 { return None; }
+    let mut packet=TextSpans { count,..Default::default() };
+    for i in 0..count as usize {
+        let raw=unsafe { core::ptr::addr_of!((*value).spans).cast::<pxui_types::TextSpan>().add(i) };
+        let flags=unsafe { core::ptr::addr_of!((*raw).flags).read_unaligned() };
+        if flags & !(pxui_types::TextSpan::COLOR|pxui_types::TextSpan::BACKGROUND|pxui_types::TextSpan::UNDERLINE)!=0 { return None; }
+        let span=&mut packet.spans[i];
+        span.flags=flags;
+        span.start=unsafe { core::ptr::addr_of!((*raw).start).read_unaligned() };
+        span.end=unsafe { core::ptr::addr_of!((*raw).end).read_unaligned() };
+        span.weight=unsafe { core::ptr::addr_of!((*raw).weight).read_unaligned() };
+        if flags & pxui_types::TextSpan::COLOR!=0 { span.color=unsafe { core::ptr::addr_of!((*raw).color).read_unaligned() }; }
+        if flags & pxui_types::TextSpan::BACKGROUND!=0 { span.background=unsafe { core::ptr::addr_of!((*raw).background).read_unaligned() }; }
+        if flags & pxui_types::TextSpan::UNDERLINE!=0 { span.underline=unsafe { core::ptr::addr_of!((*raw).underline).read_unaligned() }; }
+    }
+    Some(packet)
+}
+
+unsafe fn measure_spans(text:&mut Text,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
+    if style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
+    let (Some(value),Some(style),Some(spans))=(unsafe { utf8(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
+    let Some(value)=text.layout_spans(key,value,&style,max_width,spans.as_slice().unwrap()) else { return PXUI_ERR_ARGUMENT };
+    unsafe { out.write(metrics(value)); }
+    0
+}
+
+export!(bare pub unsafe fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
+    let Some(shaper)=(unsafe { shaper.as_mut() }) else { return PXUI_ERR_ARGUMENT };
+    unsafe { measure_spans(&mut shaper.text,key,value,style_,max_width,spans,out) }
+});
+
+export!(pub unsafe fn pxui_text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
+    let Some(engine)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT };
+    unsafe { measure_spans(engine.text_mut(),key,value,style_,max_width,spans,out) }
+});
+
+export!(pub unsafe fn pxui_ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style_:*const TextStyle,spans:*const TextSpans)->i32 {
+    let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
+    if !state.shared().in_frame || box_.is_null() || style_.is_null() { return unsafe { crate::fail(ui,"text spans need a frame, a node and a style") }; }
+    let (Some(value),Some(style),Some(spans),Some(box_))=(unsafe { crate::state::checked(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) },crate::state::core_box(unsafe { *box_ })) else { return unsafe { crate::fail(ui,"invalid text spans") } };
+    if !unsafe { &mut *state.engine }.text_spans(&box_,value,&style,spans.as_slice().unwrap()) { return unsafe { crate::fail(ui,"invalid text span ranges or node") }; }
+    0
+});
 
 pub(crate) fn metrics(value: pxui_text::Metrics) -> TextMetrics {
     TextMetrics { width: value.w, height: value.h, baseline: value.baseline, lines: value.lines }
@@ -88,7 +142,7 @@ export!(failing(u32::MAX) pub unsafe fn pxui_text_add_font(ui: *mut PxuiUi, font
 unsafe fn measure(text: &mut Text, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
     if style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
     let Some(value) = (unsafe { utf8(value) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(style) = style(unsafe { *style_ }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(style) = (unsafe { read_style(style_) }) else { return PXUI_ERR_ARGUMENT; };
     let measured = text.layout(key, value, &style, max_width);
     unsafe { out.write(metrics(measured)); }
     0
@@ -111,7 +165,7 @@ unsafe fn quads(
         || !origin_x.is_finite() || !origin_y.is_finite() || !scale.is_finite() || scale <= 0.0
     { return usize::MAX; }
     let Some(value) = (unsafe { utf8(value) }) else { return usize::MAX; };
-    let Some(style) = style(unsafe { *style_ }) else { return usize::MAX; };
+    let Some(style) = (unsafe { read_style(style_) }) else { return usize::MAX; };
     {
         text.layout(key, value, &style, max_width);
         let mut count = 0;
@@ -156,7 +210,7 @@ unsafe fn rasterize(
         || (capacity != 0 && out.is_null())
     { return usize::MAX; }
     let Some(value) = (unsafe { utf8(value) }) else { return usize::MAX; };
-    let Some(style) = style(unsafe { *style_ }) else { return usize::MAX; };
+    let Some(style) = (unsafe { read_style(style_) }) else { return usize::MAX; };
     {
         let metrics = text.layout(key, value, &style, max_width);
         let (w, h) = if value.is_empty() {
@@ -261,6 +315,35 @@ mod tests {
         invalid = TextStyle::default();
         invalid.size_points = f32::NAN;
         assert!(style(invalid).is_none());
+    }
+
+    #[test]
+    fn span_packets_refuse_null_short_records_and_excess_counts() {
+        assert!(unsafe { super::span_packet(core::ptr::null()) }.is_none());
+        let short=[8u32,0];
+        assert!(unsafe { super::span_packet(short.as_ptr().cast()) }.is_none());
+        let invalid_header=[core::mem::size_of::<pxui_types::TextSpans>() as u32,9];
+        assert!(unsafe { super::span_packet(invalid_header.as_ptr().cast()) }.is_none());
+        let empty_header=[core::mem::size_of::<pxui_types::TextSpans>() as u32,0];
+        assert_eq!(unsafe { super::span_packet(empty_header.as_ptr().cast()) }.unwrap().count,0);
+        let invalid=pxui_types::TextSpans { count:9,..Default::default() };
+        assert!(unsafe { super::span_packet(&invalid) }.is_none());
+        let full=pxui_types::TextSpans::default();
+        assert!(unsafe { super::span_packet(&full) }.is_some());
+        #[repr(C)]
+        struct Prefix { size:u32,count:u32,start:u32,end:u32,weight:u16,flags:u16 }
+        let prefix=Prefix { size:core::mem::size_of::<pxui_types::TextSpans>() as u32,count:1,start:0,end:2,weight:700,flags:0 };
+        let decoded=unsafe { super::span_packet((&prefix as *const Prefix).cast()) }.unwrap();
+        assert_eq!(decoded.spans[0].weight,700);
+        assert_eq!(decoded.spans[0].color,Default::default(),"unflagged colour fields are not read");
+    }
+
+    #[test]
+    fn text_style_reader_refuses_null_and_short_records() {
+        assert!(unsafe { super::read_style(core::ptr::null()) }.is_none());
+        let short=[8u32,0];
+        assert!(unsafe { super::read_style(short.as_ptr().cast()) }.is_none());
+        assert!(unsafe { super::read_style(&TextStyle::default()) }.is_some());
     }
 
     #[test]

@@ -328,3 +328,133 @@ fn tabular_digits_shape_equal_advances_and_reuse_warm_glyphs() {
         assert_eq!(mem_sys::local_alloc_count(),0,"warm tnum shaping/glyph output allocates nothing");
     }
 }
+
+
+#[test]
+fn inline_spans_validate_ranges_and_keep_colors_rules_and_warm_replay() {
+    use pxui_text::{TextSpan,TextSpans};
+    use pxui_types::geom::color;
+    let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
+    let style=Style { size:20.0,..Default::default() };
+    let content="ab CD ef";
+    let span=TextSpan { start:3,end:5,weight:700,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
+        color:color::rgba(255,0,0,255),background:color::rgba(0,0,255,64),underline:color::rgba(0,255,0,255) };
+    let metrics=text.layout_spans(1,content,&style,0.0,&[span]).unwrap();
+    let glyphs=emitted(&mut text,1);
+    assert_eq!(glyphs.iter().filter(|g|g.color==Some([255,0,0,255])).count(),2);
+    text.layout(3,"CD",&Style { weight:700,..style },0.0);
+    let heavy=emitted(&mut text,3);
+    let marked:Vec<_>=glyphs.iter().filter(|g|g.color==Some([255,0,0,255])).collect();
+    assert!(marked.iter().zip(&heavy).all(|(a,b)|a.uv==b.uv),"the inline weight uses the same glyph-cache entries as an entirely bold layout");
+    for underline in [false,true] {
+        let mut rects=Vec::new();
+        text.decorations(1,underline,&mut |d|rects.push(d));
+        assert_eq!(rects.len(),1);
+        assert!((rects[0].rect.w-(text.caret(1,5).x-text.caret(1,3).x)).abs()<1e-4);
+        assert_eq!(rects[0].color,if underline { [0,255,0,255] } else { [0,0,255,64] });
+        if underline { assert_eq!(rects[0].rect.h,1.5); }
+    }
+    for _ in 0..4 {
+        mem_sys::local_reset();
+        assert_eq!(text.layout_spans(1,content,&style,0.0,&[span]).unwrap(),metrics);
+        let mut count=0;
+        text.glyphs(1,(0.0,0.0),1.0,&mut |_| count+=1);
+        text.decorations(1,false,&mut |_| count+=1);
+        text.decorations(1,true,&mut |_| count+=1);
+        assert_eq!(count,glyphs.len()+2);
+        assert_eq!(mem_sys::local_alloc_count(),0);
+    }
+    for invalid in [TextSpan { end:99,..span },TextSpan { start:5,end:4,..span },TextSpan { start:3,end:3,..span },TextSpan { flags:8,..span }] {
+        assert!(text.layout_spans(1,content,&style,0.0,&[invalid]).is_none());
+    }
+    assert!(text.layout_spans(1,content,&style,0.0,&[span,span]).is_none());
+    assert!(text.layout_spans(1,"é",&style,0.0,&[TextSpan { start:1,end:2,..span }]).is_none());
+    let eight:[TextSpan;8]=std::array::from_fn(|i|TextSpan { start:i as u32,end:i as u32+1,..span });
+    assert!(text.layout_spans(2,"12345678",&style,0.0,&eight).is_some());
+    assert!(TextSpans::new(&[span;9]).is_none());
+}
+
+#[test]
+fn inline_spans_split_ligature_color_without_reshaping_or_losing_marks() {
+    use pxui_text::TextSpan;
+    use pxui_types::geom::color;
+    const FONT:&[u8]=include_bytes!("../../../../assets/fonts/NotoSansArabic.ttf");
+    let mut text=Text::new(&[FONT]);
+    let style=Style { size:30.0,..Default::default() };
+    text.layout(1,"لا",&style,0.0);
+    let original=emitted(&mut text,1);
+    assert_eq!(original.len(),1,"fixture must form a ligature");
+    let span=TextSpan { start:2,end:4,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
+        color:color::rgba(255,0,0,255),background:color::rgba(0,0,255,255),underline:color::rgba(0,255,0,255),..Default::default() };
+    text.layout_spans(1,"لا",&style,0.0,&[span]).unwrap();
+    let pieces=emitted(&mut text,1);
+    assert_eq!(pieces.len(),2,"one bitmap clipped into inherited and span-coloured pieces");
+    assert_eq!(pieces[0].color,None);
+    assert_eq!(pieces[1].color,Some([255,0,0,255]));
+    assert!((pieces[0].rect.w+pieces[1].rect.w-original[0].rect.w).abs()<1e-4);
+    let caret=text.caret(1,2).x.min(text.caret(1,4).x);
+    for underline in [false,true] { text.decorations(1,underline,&mut |d|assert!((d.rect.x-caret).abs()<1e-4)); }
+    for scale in [1.0,1.5,2.0] {
+        for origin in [(0.0,0.0),(13.25,7.5),(24.0,3.0)] {
+            let mut cached=Vec::new();
+            text.set_glyph_cache(true);
+            text.glyphs(1,origin,scale,&mut |g|cached.push(g));
+            let mut walked=Vec::new();
+            text.set_glyph_cache(false);
+            text.glyphs(1,origin,scale,&mut |g|walked.push(g));
+            assert_eq!(cached,walked,"cached and uncached fragments at {scale}x and {origin:?}");
+        }
+    }
+}
+
+#[test]
+fn inline_spans_use_source_offsets_across_crlf_and_wrapped_lines() {
+    use pxui_text::TextSpan;
+    use pxui_types::geom::color;
+    let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
+    let content="ab\r\nββ cd ef";
+    assert_eq!(&content.as_bytes()[2..4],&[13,10],"exercise actual CRLF offsets");
+    let span=TextSpan { start:4,end:content.len() as u32,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:color::rgba(255,0,0,255),underline:color::rgba(0,255,0,255),..Default::default() };
+    let style=Style { size:20.0,wrap:Wrap::Word,..Default::default() };
+    let metrics=text.layout_spans(1,content,&style,45.0,&[span]).unwrap();
+    assert!(metrics.lines>=3);
+    assert_eq!(emitted(&mut text,1).iter().filter(|g|g.color==Some([255,0,0,255])).count(),6);
+    let mut rules=0;
+    text.decorations(1,true,&mut |d|{ assert!(d.rect.y>20.0); rules+=1; });
+    assert!(rules>=2);
+}
+
+
+#[test]
+fn inline_spans_preserve_ellipsized_glyph_output() {
+    use pxui_text::TextSpan;
+    use pxui_types::geom::color;
+    let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
+    let style=Style { ellipsis:true,max_lines:1,size:20.0,..Default::default() };
+    let content="a much longer label";
+    text.layout(1,content,&style,60.0);
+    let plain=emitted(&mut text,1);
+    assert!(!plain.is_empty());
+    let span=TextSpan { start:0,end:content.len() as u32,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
+    text.layout_spans(1,content,&style,60.0,&[span]).unwrap();
+    let rich=emitted(&mut text,1);
+    assert_eq!(plain.len(),rich.len());
+    for (a,b) in plain.iter().zip(&rich) { assert_eq!((a.rect,a.uv),(b.rect,b.uv)); }
+}
+
+
+#[test]
+fn inline_spans_keep_mixed_bidi_marks_disjoint() {
+    use pxui_text::TextSpan;
+    use pxui_types::geom::color;
+    const ARABIC:&[u8]=include_bytes!("../../../../assets/fonts/NotoSansArabic.ttf");
+    let mut text=Text::new(&[ARABIC,pxui_text::PRAGMASEVKA]);
+    let style=Style { size:20.0,..Default::default() };
+    let span=TextSpan { start:1,end:5,flags:TextSpan::BACKGROUND,background:color::rgba(0,0,255,64),..Default::default() };
+    text.layout_spans(1,"ab لا cd",&style,0.0,&[span]).unwrap();
+    let mut marks=Vec::new();
+    text.decorations(1,false,&mut |d|marks.push(d.rect));
+    assert_eq!(marks.len(),2,"unselected half of the RTL ligature separates the visual marks");
+    let (a,b)=(text.caret(1,3).x,text.caret(1,5).x);
+    assert!(marks.iter().any(|r|(r.x-a.min(b)).abs()<1e-4 && (r.w-(a-b).abs()).abs()<1e-4));
+}

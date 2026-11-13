@@ -4,9 +4,12 @@
 use crate::sys::{PxuiShaper, PxuiUi};
 use crate::{as_str, Ui};
 use core::ptr::NonNull;
-use pxui_types::{Str, TextGlyph, TextMetrics, TextStyle};
+use pxui_types::{Str, TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
 
 library!(lib {
+    fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
+    fn pxui_text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
+    fn pxui_ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const TextStyle,spans:*const TextSpans)->i32;
     fn pxui_default_font() -> Str;
     fn pxui_shaper_create(fonts: *const Str, count: usize) -> *mut PxuiShaper;
     fn pxui_shaper_destroy(shaper: *mut PxuiShaper);
@@ -48,6 +51,16 @@ impl Backing {
         if rc == 0 { Ok(out) } else { Err(rc) }
     }
 
+    fn measure_spans(self,key:u64,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> {
+        let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+        let mut out=TextMetrics::default();
+        let rc=unsafe { match self {
+            Backing::Shaper(s)=>lib::pxui_shaper_width_spans(s,key,as_str(value),style,max_width,&spans,&mut out),
+            Backing::Ui(u)=>lib::pxui_text_width_spans(u,key,as_str(value),style,max_width,&spans,&mut out),
+        } };
+        if rc==0 { Ok(out) } else { Err(rc) }
+    }
+
     fn rasterize_rgba(self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
         let (mut width, mut height) = (0, 0);
         let mut call = |out, capacity| unsafe { match self {
@@ -82,6 +95,8 @@ impl Text {
     /// Adds a font (the bytes are copied); its index.
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { Backing::Shaper(self.0.as_ptr()).add_font(bytes) }
     pub fn measure(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { Backing::Shaper(self.0.as_ptr()).measure(key, value, style, max_width) }
+    /// Measures one layout with up to eight ordered, disjoint UTF-8 byte ranges.
+    pub fn measure_spans(&mut self,key:u64,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { Backing::Shaper(self.0.as_ptr()).measure_spans(key,value,style,max_width,spans) }
     pub fn width(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(key, value, style, max_width).map(|m| m.width) }
     /// The text as straight-alpha RGBA8: width, height and pixels.
     pub fn rasterize_rgba(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
@@ -95,6 +110,13 @@ impl Drop for Text { fn drop(&mut self) { unsafe { lib::pxui_shaper_destroy(self
 pub struct UiText<'ui>(&'ui mut Ui);
 
 impl Ui {
+    /// Sets a frame's node text and explicit shaping style, preserving the complete accessibility label.
+    /// Spans are at most eight ordered, disjoint UTF-8 byte ranges; plain `text`/`patch_text` clears them.
+    pub fn text_spans(&mut self,box_:&crate::PxuiBox,text:&str,style:&TextStyle,spans:&[TextSpan])->Result<(),i32> {
+        let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+        let rc=unsafe { lib::pxui_ui_text_spans(self.0.as_ptr(),box_,as_str(text),style,&spans) };
+        if rc==0 { Ok(()) } else { Err(rc) }
+    }
     pub fn text_service(&mut self) -> UiText<'_> { UiText(self) }
 }
 
@@ -102,6 +124,8 @@ impl UiText<'_> {
     fn backing(&self) -> Backing { Backing::Ui(self.0.0.as_ptr()) }
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { self.backing().add_font(bytes) }
     pub fn measure(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { self.backing().measure(key, value, style, max_width) }
+    /// Measures one layout with up to eight ordered, disjoint UTF-8 byte ranges.
+    pub fn measure_spans(&mut self,key:u64,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { self.backing().measure_spans(key,value,style,max_width,spans) }
     pub fn width(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(key, value, style, max_width).map(|m| m.width) }
     pub fn rasterize_rgba(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
         self.backing().rasterize_rgba(key, value, style, max_width, scale, color)
