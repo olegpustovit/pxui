@@ -75,6 +75,7 @@ impl SlotTable {
     }
 
     fn find(&self, key: i64) -> Option<usize> {
+        if key == 0 || key == 1 { return None; }
         let position = self.index(key);
         if self.keys[position] == key { Some(self.slots[position]) } else { None }
     }
@@ -2765,6 +2766,7 @@ impl Ui {
     /// n-th starts there (n repeated labels cost n lookups, not n squared). With the key, its slot
     /// when it has one.
     fn unique_key(&mut self, first: i64) -> (i64, Option<usize>) {
+        assert!(first != 0 && first != 1, "Ui: keys 0 and 1 are reserved; derive integer keys with int_key");
         let (mut key, mut head) = (first, None);
         loop {
             match self.table.find(key) {

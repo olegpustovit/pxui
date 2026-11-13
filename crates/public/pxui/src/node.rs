@@ -25,7 +25,7 @@ impl Ui {
         unsafe { out.assume_init() }
     }
 
-    /// Declares a node using an explicit key in the current parent scope.
+    /// Declares a node using an explicit key in the current parent scope. Keys 0 and 1 are reserved; derive numeric keys with `int_key`.
     #[inline]
     #[track_caller]
     pub fn node_keyed(&mut self,key:i64,node:Node)->PxuiBox {

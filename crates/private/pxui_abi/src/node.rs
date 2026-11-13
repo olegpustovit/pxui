@@ -187,6 +187,7 @@ export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,
 
 export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*const Node,out:*mut PxuiBox)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
+    if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
     if out.is_null(){return unsafe{fail(ui,"null keyed node argument")};}
     let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{invalid_keyed(ui)};};
     if desc.grid.is_some() { return unsafe{grid_node(ui,None,key,desc,out)}; }
@@ -266,6 +267,12 @@ mod tests {
     /// them is refused, as are a short record, an unknown size kind, a `Rel` size with no function and a length that is not finite.
     extern "C" fn build(_: *mut c_void, ui: *mut c_void) {
         let ui = ui.cast::<PxuiUi>();
+        for key in [0, 1] {
+            let mut out = PxuiBox::default();
+            assert_eq!(unsafe { pxui_ui_node_keyed(ui, key, &Node::DEFAULT, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &Node::DEFAULT, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_box_of_key(ui, key, &mut out) }, 0);
+        }
         let place = |node: &Raw| { let mut out = PxuiBox::default(); unsafe { pxui_ui_node_keyed(ui, 7, (node.0.as_ptr()).cast(), &mut out) } };
         let full = Node {
             align_self: Some(Align::Center).into(), anchor: Some(Anchor { rect: Rect::default(), placement: Placement::BELOW }).into(),

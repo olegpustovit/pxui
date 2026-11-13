@@ -37,6 +37,7 @@ pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut P
 #[inline]
 pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
+    if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
     declare(unsafe { engine(ui) }, None, key, desc, unsafe { &mut *out });
     0
 }
