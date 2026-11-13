@@ -1393,9 +1393,26 @@ impl Ui {
         }
     }
 
+    // Recycled view containers can hold the buffer a newly visible text node needs.
+    fn reuse_empty_string(&mut self, slot: usize, len: usize, field: fn(&mut Slot) -> &mut String) {
+        if field(&mut self.slots[slot]).capacity() >= len { return; }
+        let donor = self.slots.iter_mut().enumerate().find_map(|(index, candidate)| {
+            if index == slot { return None; }
+            let buffer = field(candidate);
+            (buffer.is_empty() && buffer.capacity() >= len).then_some(index)
+        });
+        if let Some(donor) = donor {
+            let buffer = std::mem::take(field(&mut self.slots[donor]));
+            let mut old = std::mem::replace(field(&mut self.slots[slot]), buffer);
+            old.clear();
+            *field(&mut self.slots[donor]) = old;
+        }
+    }
+
     /// The node's accessible name (its text by default), for a node declared this frame.
     pub fn a11y_name(&mut self, b: &Handle, name: &str) {
         if self.live(b) {
+            self.reuse_empty_string(b.box_slot, name.len(), |slot| &mut slot.a11y_name);
             let s = &mut self.slots[b.box_slot].a11y_name;
             s.clear();
             s.push_str(name);
@@ -1406,6 +1423,7 @@ impl Ui {
     /// in chars).
     pub fn a11y_value(&mut self, b: &Handle, value: &str, selection: (u32, u32)) {
         if self.live(b) {
+            self.reuse_empty_string(b.box_slot, value.len(), |slot| &mut slot.a11y_value);
             let s = &mut self.slots[b.box_slot];
             s.a11y_value.clear();
             s.a11y_value.push_str(value);
@@ -2957,6 +2975,7 @@ impl Ui {
     /// Set the node's text (painted in its look's text colour and font).
     pub fn text(&mut self, b: &Handle, text: &str) {
         if self.live(b) {
+            self.reuse_empty_string(b.box_slot, text.len(), |slot| &mut slot.text);
             let s = &mut self.slots[b.box_slot].text;
             if s != text {
                 s.clear();
@@ -6634,6 +6653,26 @@ impl Ui {
         let mut d = std::mem::take(&mut self.draw[at]);
         let old_len = d.instances.len();
         let mut changed = false;
+        let mut kept = 0usize;
+        let mut packed = s.instances.len();
+        for piece in &s.pieces {
+            if piece.view != NO_VIEW {
+                let (a, b) = self.views[piece.view as usize].run;
+                if a < b {
+                    kept += 1;
+                    let len = (b - a) as usize;
+                    packed += len + SLACK.max(len / 8);
+                }
+            }
+        }
+        let budget = packed.saturating_mul(2).max(256);
+        if kept != 0 {
+            // Prepare both buffers before compaction is first needed by a scrolling retained list.
+            d.instances.reserve(budget.saturating_sub(d.instances.len()));
+            self.compact.reserve(budget.saturating_sub(self.compact.len()));
+            self.moves.reserve(kept.saturating_sub(self.moves.len()));
+            d.dirty.reserve(s.pieces.len().saturating_sub(d.dirty.len()));
+        }
         // the room each fresh piece has: up to the next non-empty kept run
         let mut limit = u32::MAX;
         for p in s.pieces.iter_mut().rev() {
@@ -6647,8 +6686,10 @@ impl Ui {
             }
         }
         let mut w = 0u32;
-        let mut fits = true;
+        // Appending rows must also reclaim holes before the retained layer grows without bound.
+        let mut fits = old_len.saturating_add(s.instances.len()) <= budget;
         for k in 0..s.pieces.len() {
+            if !fits { break; }
             let p = s.pieces[k];
             if p.view == NO_VIEW {
                 let len = p.b - p.a;

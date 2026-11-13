@@ -486,24 +486,29 @@ pub fn window_pxui_budget_zero_alloc() {
     ui.set_a11y(true);
     let mut list = |ui: &mut Ui| {
         ui.list("rows", 10_000, 24.0, &mut |ui, i| {
-            let row = ui.node("name", Node { w: Size::Grow, h: Size::Px(24.0), role: pxui_core::a11y::Role::Label, ..Node::DEFAULT });
-            ui.text(&row, WORDS[i % 4]);
-            ui.a11y_name(&row, WORDS[i % 4]);
-            ui.a11y_value(&row, WORDS[(i + 1) % 4], (0, 0));
+            ui.view("row", 0, Size::Grow, Size::Px(24.0), &mut |ui| {
+                let row = ui.node("name", Node { w: Size::Grow, h: Size::Px(24.0), role: pxui_core::a11y::Role::Label, ..Node::DEFAULT });
+                ui.text(&row, WORDS[i % 4]);
+                ui.a11y_name(&row, WORDS[i % 4]);
+                ui.a11y_value(&row, WORDS[(i + 1) % 4], (0, 0));
+            });
         });
     };
     ui.frame(&at(0.0, vec![move_to((100, 100))]), &mut list);
     // the frames are made up front: an event list allocates
-    let frames: Vec<_> = (1..=60).map(|t| at(t as f64, vec![Event::Scrolled((0.0, -1.0))])).collect();
+    let frames: Vec<_> = (1..=600).map(|t| at(t as f64, vec![Event::Scrolled((0.0, -1.0))])).collect();
     for f in &frames[..30] {
         ui.frame(f, &mut list);
     }
+    let mut largest = 0;
     let n = allocs(&mut || {
         for f in &frames[30..] {
             ui.frame(f, &mut list);
+            largest = largest.max(ui.output().draw[0].instances.len());
         }
     });
-    check(n == 0, &format!("{n} allocations scrolling a list 30 rows"));
+    check(n == 0, &format!("{n} allocations scrolling a list 570 rows"));
+    check(largest < 1024, &format!("retired row slots accumulated: {largest} instances"));
     ui.destroy();
 
     let mut ui = new_ui(None);
@@ -698,7 +703,43 @@ pub fn window_pxui_field_kept_drag() {
     ui.destroy();
 }
 
+/// Reusing an empty buffer never gives its donor another node's previous text or accessibility value.
+pub fn window_pxui_empty_buffers_preserve_names_and_values() {
+    const LONG: &str = "a reusable buffer large enough for a row";
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let reuse = Cell::new(false);
+    let mut build = |ui: &mut Ui| {
+        let spare = ui.node("spare", Node { role: pxui_core::a11y::Role::Label, h: Size::Px(24.0), ..Node::DEFAULT });
+        let target = ui.node("target", Node { role: pxui_core::a11y::Role::Label, h: Size::Px(24.0), ..Node::DEFAULT });
+        if !reuse.get() {
+            ui.text(&spare, LONG);
+            ui.a11y_name(&spare, LONG);
+            ui.a11y_value(&spare, LONG, (0, 0));
+        } else {
+            ui.text(&target, "a");
+            ui.a11y_name(&target, "a");
+            ui.a11y_value(&target, "a", (0, 0));
+            ui.text(&target, LONG);
+            ui.a11y_name(&target, LONG);
+            ui.a11y_value(&target, LONG, (1, 2));
+        }
+    };
+    let frame = at(0.0, vec![]);
+    ui.frame(&frame, &mut build);
+    reuse.set(true);
+    ui.frame(&frame, &mut build);
+    let tree = ui.output().a11y;
+    let labels: Vec<_> = tree.nodes.iter().filter(|node| node.role == pxui_core::a11y::Role::Label).collect();
+    check(labels.len() == 2 && tree.str(labels[0].name).is_empty() && tree.value_text(labels[0]).is_empty(), "a donor displayed stale contents");
+    check(tree.str(labels[1].name) == LONG && tree.value_text(labels[1]) == LONG, "the destination lost its name or value");
+    let count = allocs(&mut || { ui.frame(&frame, &mut build); });
+    check(count == 0, &format!("reusing text buffers allocated {count} times"));
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_empty_buffers_preserve_names_and_values", window_pxui_empty_buffers_preserve_names_and_values),
     ("window_pxui_field_kept_drag", window_pxui_field_kept_drag),
     ("window_pxui_budget_counts", window_pxui_budget_counts),
     ("window_pxui_budget_cached_per_view", window_pxui_budget_cached_per_view),
