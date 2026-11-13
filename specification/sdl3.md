@@ -91,3 +91,13 @@ gain, fades, pause/resume, stop, channel ownership and failure paths.
 Run `cargo t -p sdl3` and `cargo t -p sdl3_sys`; use native qualification for
 window/lifecycle checks. Historical migrations and sanitizer findings live in
 [history](../docs/history/README.md).
+
+### Idle dialog completion
+
+The callback release-publishes the copied result before posting the existing SDL host wake.
+Selection, cancellation and failure all wake an idle event host without a polling timer.
+The typed event/async-dialog regression checks `event::wait(0)` before consuming each outcome;
+its pre-fix run fails on selection. After the fix, the SDL and pxui_sdl matrix passes all
+19 checks in 7.228 seconds wall (2.909 seconds summed), including native window/input cases.
+The dependency gate passes. Logs: `/tmp/localwave-files-dialog-wake-before.log` and
+`/tmp/localwave-files-dialog-host-tests.log`. This does not qualify real sandbox picker access.

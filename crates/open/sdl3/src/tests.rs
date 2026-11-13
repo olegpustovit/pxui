@@ -271,14 +271,17 @@ fn typed_event_trace_and_async_dialog_outcomes_match_native_bridge() {
     assert_ne!(first, 0);
     assert!(outcomes().is_empty(), "a dialog that is still open produced an event");
     assert!(sdl3_sys::test_util::dialog_finish(first, Some(&["/tmp/žaba.png", "/tmp/b c.png"])));
+    assert!(crate::event::wait(0).unwrap(), "a completed dialog must wake an idle event host");
     assert_eq!(outcomes(), vec![(first, crate::DialogOutcome::Chosen(vec!["/tmp/žaba.png".into(), "/tmp/b c.png".into()]))]);
     assert!(outcomes().is_empty());
     let cancelled = sdl3_sys::test_util::dialog_reserve();
     assert_ne!(cancelled, first, "a finished dialog's id was reused at once");
     assert!(sdl3_sys::test_util::dialog_finish(cancelled, Some(&[])));
+    assert!(crate::event::wait(0).unwrap(), "cancellation must wake the host");
     assert_eq!(outcomes(), vec![(cancelled, crate::DialogOutcome::Cancelled)]);
     let failed = sdl3_sys::test_util::dialog_reserve();
     assert!(sdl3_sys::test_util::dialog_fail(failed));
+    assert!(crate::event::wait(0).unwrap(), "failure must wake the host");
     assert_eq!(outcomes(), vec![(failed, crate::DialogOutcome::Failed("boom".into()))]);
     let huge = sdl3_sys::test_util::dialog_reserve();
     assert!(sdl3_sys::test_util::dialog_finish_huge(huge));

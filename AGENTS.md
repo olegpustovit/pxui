@@ -159,3 +159,7 @@ rehash through retained spare arrays without increasing capacity. Recycled empty
 buffers choose the smallest suitable donor, preserving larger buffers for longer labels. Existing
 node identities keep the fast capacity check, even though set_box clears their strings. Preserve the registered 100-frame identity/text
 churn case and LocalWave's alternating cache-limit/menu regression; do not extend their warm-up.
+
+SDL dialog callbacks release-publish their copied outcome before calling the existing host wake.
+Chosen, cancelled and failed dialogs must wake an idle event loop; do not add periodic polling.
+Keep the typed native bridge regression's zero-time wait checks for all three outcomes.

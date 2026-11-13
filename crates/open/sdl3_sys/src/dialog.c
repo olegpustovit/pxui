@@ -2,7 +2,7 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "dialog.h"
+#include "bridge.h"
 
 enum { DIALOG_MAX_PATHS = 4096, DIALOG_MAX_BYTES = 1 << 20 };
 enum { DIALOG_FREE = 0, DIALOG_OPEN, DIALOG_DONE };
@@ -152,6 +152,7 @@ void SDLCALL rays_dialog_callback(void *raw, const char *const *filelist, int fi
     }
   }
   atomic_store_explicit(&slot->state, DIALOG_DONE, memory_order_release);
+  (void)rays_sdl3_wake();
 }
 
 int rays_dialog_show(rays_dialog_kind kind, SDL_Window *window,
