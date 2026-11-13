@@ -811,7 +811,7 @@ pub struct FrameOut<'a> {
 /// layout, so an unchanged label is a cache hit wherever it is drawn or measured.
 fn text_key(style: &Style, width: f32, text: &str) -> u64 {
     let mut seed = hash::mix(style.font as i64, style.size.to_bits() as i64);
-    for v in [style.weight as i64, style.italic as i64, style.line_height.to_bits() as i64, style.wrap as i64, style.align as i64, style.max_lines as i64, style.ellipsis as i64, style.tracking.to_bits() as i64, width.to_bits() as i64] {
+    for v in [style.weight as i64, style.italic as i64, style.line_height.to_bits() as i64, style.wrap as i64, style.align as i64, style.max_lines as i64, style.ellipsis as i64, style.tracking.to_bits() as i64, style.features as i64, width.to_bits() as i64] {
         seed = hash::mix(seed, v);
     }
     hash::bytes(seed as u64, text.as_bytes())

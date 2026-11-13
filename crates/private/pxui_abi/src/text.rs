@@ -14,7 +14,7 @@ unsafe fn utf8<'a>(value: Str) -> Option<&'a str> {
 }
 
 pub(crate) fn style(value: TextStyle) -> Option<Style> {
-    if value.size < core::mem::size_of::<TextStyle>() as u32 || value.reserved != 0
+    if value.size < core::mem::size_of::<TextStyle>() as u32 || value.features & !Style::FEATURE_TABULAR_NUMBERS != 0
         || value.italic > 1 || value.ellipsis > 1
         || !value.size_points.is_finite() || value.size_points <= 0.0
         || !value.line_height.is_finite() || !value.tracking.is_finite()
@@ -30,6 +30,7 @@ pub(crate) fn style(value: TextStyle) -> Option<Style> {
         max_lines: value.max_lines,
         ellipsis: value.ellipsis != 0,
         tracking: value.tracking,
+        features: value.features,
     })
 }
 
@@ -251,6 +252,9 @@ mod tests {
     #[test]
     fn text_style_validates_codes_and_numbers() {
         assert!(style(TextStyle::default()).is_some());
+        let enabled=style(TextStyle { features:TextStyle::FEATURE_TABULAR_NUMBERS,..Default::default() }).unwrap();
+        assert_eq!(enabled.features,pxui_text::Style::FEATURE_TABULAR_NUMBERS);
+        for features in [2,3,u32::MAX] { assert!(style(TextStyle { features,..Default::default() }).is_none()); }
         let mut invalid = TextStyle::default();
         invalid.wrap = u32::MAX;
         assert!(style(invalid).is_none());

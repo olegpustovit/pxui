@@ -358,7 +358,7 @@ mod abi_layout {
             offset_of!(TextStyle, size), offset_of!(TextStyle, font), offset_of!(TextStyle, weight),
             offset_of!(TextStyle, size_points), offset_of!(TextStyle, line_height), offset_of!(TextStyle, wrap),
             offset_of!(TextStyle, align), offset_of!(TextStyle, max_lines), offset_of!(TextStyle, italic),
-            offset_of!(TextStyle, ellipsis), offset_of!(TextStyle, reserved), offset_of!(TextStyle, tracking),
+            offset_of!(TextStyle, ellipsis), offset_of!(TextStyle, features), offset_of!(TextStyle, tracking),
         ]);
         assert_layout("TextMetrics", size_of::<TextMetrics>(), align_of::<TextMetrics>(), &[
             offset_of!(TextMetrics, width), offset_of!(TextMetrics, height), offset_of!(TextMetrics, baseline), offset_of!(TextMetrics, lines),

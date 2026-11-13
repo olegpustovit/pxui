@@ -35,7 +35,7 @@
 //! build of the dependency closure 24.5 s wall (116 s CPU); 40 external crates + pxui_text.
 
 use cosmic_text::{
-    Align as CAlign, Attrs, Buffer, CacheKey, Cursor, Ellipsize, EllipsizeHeightLimit, Family, FontSystem, Metrics as CMetrics, Shaping,
+    Align as CAlign, Attrs, Buffer, CacheKey, Cursor, Ellipsize, EllipsizeHeightLimit, Family, FeatureTag, FontFeatures, FontSystem, Metrics as CMetrics, Shaping,
     Style as CStyle, SubpixelBin, SwashCache, SwashContent, Weight, Wrap as CWrap, fontdb,
 };
 use std::collections::HashMap;
@@ -113,10 +113,13 @@ pub struct Style {
     pub ellipsis: bool,
     /// Points added after every glyph (CSS `letter-spacing`).
     pub tracking: f32,
+    /// OpenType feature bits; 0 preserves the font defaults.
+    pub features: u32,
 }
+impl Style { pub const FEATURE_TABULAR_NUMBERS: u32 = 1; }
 impl Default for Style {
     fn default() -> Style {
-        Style { font: 0, size: 14.0, weight: 400, italic: false, line_height: 0.0, wrap: Wrap::None, align: Align::Left, max_lines: 0, ellipsis: false, tracking: 0.0 }
+        Style { font: 0, size: 14.0, weight: 400, italic: false, line_height: 0.0, wrap: Wrap::None, align: Align::Left, max_lines: 0, ellipsis: false, tracking: 0.0, features: 0 }
     }
 }
 
@@ -602,6 +605,9 @@ impl Text {
         };
         let attrs = Attrs::new().family(family).weight(Weight(style.weight)).style(if style.italic { CStyle::Italic } else { CStyle::Normal });
         let attrs = if style.tracking != 0.0 { attrs.letter_spacing(style.tracking / style.size) } else { attrs };
+        let mut features=FontFeatures::new();
+        if style.features & Style::FEATURE_TABULAR_NUMBERS != 0 { features.enable(FeatureTag::new(b"tnum")); }
+        let attrs=attrs.font_features(features);
         let b = &mut e.buf;
         b.set_metrics(CMetrics::new(style.size, lh));
         b.set_wrap(match style.wrap {

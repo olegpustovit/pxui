@@ -300,3 +300,31 @@ fn laying_text_out_allocates_no_atlas_until_a_glyph_is_drawn() {
     assert!(!emitted(&mut t, 2).is_empty());
     assert!(t.bytes() > atlases / 4, "a drawn glyph allocated the mirror: {} bytes", t.bytes());
 }
+
+
+#[test]
+fn tabular_digits_shape_equal_advances_and_reuse_warm_glyphs() {
+    const FONT: &[u8]=include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
+    let mut text=Text::new(&[FONT]);
+    let plain=Style { size:20.0,..Default::default() };
+    let tabular=Style { features:Style::FEATURE_TABULAR_NUMBERS,..plain };
+    let digits="0123456789";
+    let metrics=text.layout(1,digits,&tabular,0.0);
+    for i in 0..10 {
+        let advance=text.caret(1,i+1).x-text.caret(1,i).x;
+        assert!((advance-metrics.w/10.0).abs()<1e-4,"digit {i}: {advance}");
+    }
+    let proportional=text.layout(2,"1111",&plain,0.0);
+    let aligned=text.layout(2,"1111",&tabular,0.0);
+    assert!((proportional.w-aligned.w).abs()>1.0,"fixture must exercise a real tnum substitution");
+    assert_eq!(text.layout(2,"1111",&plain,0.0),proportional,"changing the feature invalidates the existing layout");
+    text.glyphs(1,(0.0,0.0),1.0,&mut |_| {});
+    for _ in 0..4 {
+        mem_sys::local_reset();
+        assert_eq!(text.layout(1,digits,&tabular,0.0),metrics);
+        let mut glyphs=0;
+        text.glyphs(1,(0.0,0.0),1.0,&mut |_| glyphs+=1);
+        assert_eq!(glyphs,10);
+        assert_eq!(mem_sys::local_alloc_count(),0,"warm tnum shaping/glyph output allocates nothing");
+    }
+}

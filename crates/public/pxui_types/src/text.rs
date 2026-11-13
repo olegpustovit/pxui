@@ -13,7 +13,8 @@ pub struct TextStyle {
     pub max_lines: u16,
     pub italic: u8,
     pub ellipsis: u8,
-    pub reserved: u32,
+    /// OpenType feature bits; 0 preserves the font defaults.
+    pub features: u32,
     pub tracking: f32,
 }
 
@@ -30,13 +31,14 @@ impl Default for TextStyle {
             max_lines: 0,
             italic: 0,
             ellipsis: 0,
-            reserved: 0,
+            features: 0,
             tracking: 0.0,
         }
     }
 }
 
 impl TextStyle {
+    pub const FEATURE_TABULAR_NUMBERS: u32 = 1;
     pub const WRAP_NONE: u32 = 0;
     pub const WRAP_WORD: u32 = 1;
     pub const WRAP_GLYPH: u32 = 2;

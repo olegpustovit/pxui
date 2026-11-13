@@ -360,3 +360,54 @@ fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
         assert_eq!(text.len(), source.len(), "the area returns the whole text");
     }).expect("frame");
 }
+
+
+#[test]
+fn tabular_digits_reach_shaping_and_keep_warm_layouts_allocation_free() {
+    const FONT: &[u8]=include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
+    mem_sys::set_peer(crate::library_counter);
+    let mut text=crate::Text::new(&[FONT]).expect("shaper");
+    let plain=pxui_types::TextStyle { size_points:20.0,..Default::default() };
+    let tabular=pxui_types::TextStyle { features:pxui_types::TextStyle::FEATURE_TABULAR_NUMBERS,..plain };
+    let proportional=text.measure(1,"1111",&plain,0.0).unwrap();
+    let tabular_one=text.measure(1,"1111",&tabular,0.0).expect("tabular feature is accepted");
+    let tabular_eight=text.measure(2,"8888",&tabular,0.0).unwrap();
+    assert!((proportional.width-tabular_one.width).abs()>1.0,"font fixture must exercise a real substitution");
+    assert!((tabular_one.width-tabular_eight.width).abs()<1e-5,"equal digit counts have equal advances");
+    assert_eq!(text.measure(1,"1111",&plain,0.0).unwrap(),proportional,"feature changes invalidate the caller-keyed cache");
+    text.measure(1,"1111",&tabular,0.0).unwrap();
+    for _ in 0..4 {
+        mem_sys::local_reset();
+        assert_eq!(text.measure(1,"1111",&tabular,0.0).unwrap(),tabular_one);
+        assert_eq!(text.measure(2,"8888",&tabular,0.0).unwrap(),tabular_eight);
+        assert_eq!(mem_sys::local_alloc_count(),0,"warm feature-bearing layouts allocate nothing across the library boundary");
+    }
+}
+
+
+#[test]
+fn canvas_feature_styles_have_distinct_warm_cache_entries() {
+    use pxui_types::TextStyle;
+    const FONT: &[u8]=include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::create(crate::Platform::Apple,None,&[FONT]);
+    let plain=TextStyle { size_points:20.0,..Default::default() };
+    let tabular=TextStyle { features:TextStyle::FEATURE_TABULAR_NUMBERS,..plain };
+    let a=ui.text_service().measure(1,"1111",&plain,0.0).unwrap();
+    let b=ui.text_service().measure(2,"1111",&tabular,0.0).unwrap();
+    assert!((a.width-b.width).abs()>1.0);
+    for features in [2,3,u32::MAX] {
+        assert_eq!(ui.text_service().measure(1,"1111",&TextStyle { features,..plain },0.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+    }
+    for frame in 0..7 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+            let bounds=ui.node("numbers",crate::Node { w:Size::Px(240.0),h:Size::Px(80.0),..crate::Node::DEFAULT });
+            ui.canvas(&bounds,move |paint,rect| {
+                assert_eq!(paint.text_styled((rect.x,rect.y),&plain,0.0,None,"1111"),a);
+                assert_eq!(paint.text_styled((rect.x,rect.y+30.0),&tabular,0.0,None,"1111"),b);
+            });
+        }).unwrap();
+        if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed feature styles must keep separate warm layout/glyph caches"); }
+    }
+}
