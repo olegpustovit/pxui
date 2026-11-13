@@ -91,3 +91,13 @@ per-event modifiers, stale-handle quietness and static/dynamic warm keyboard tes
 borrowed core events into its retained chunks, reserving all text bytes before publishing pointers.
 Signal/modifier pools grow only to the peak events/signals seen; owned text and legacy key-vector
 reads remain separate allocation paths. No C function signature or layout changed in this minor.
+
+## Carry/drop queries
+
+ABI 1.11 adds borrowed Rust `carrying_ref`/`drop_target_ref` conveniences over the existing C exports.
+The ABI copies query strings into retained slots: C borrows survive payload replacement/cancellation
+until the next frame. Owned getters still copy. Core reuses gesture strings and moves released
+payloads; the ghost temporarily owns its payload while copying text into frame storage. Preserve
+whole-gesture static/dynamic zero-allocation checks and the C borrow-lifetime regression. Cached
+views must propagate size reflow through their descendants and invalidate enclosing caches when a
+virtual grid's build-time size estimate changes; keep the nested-grid same-frame resize check.

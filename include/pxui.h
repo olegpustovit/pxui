@@ -634,6 +634,7 @@ int32_t pxui_ui_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t *present, Pxu
 int32_t pxui_ui_set_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t present, PxuiStr value);
 int32_t pxui_ui_cached_label(PxuiUi *ui, const PxuiBox *box, uint64_t index, PxuiStr text, PxuiStr *out); /* borrowed from the slot */
 int32_t pxui_ui_to_front(PxuiUi *ui, int64_t order, const PxuiBox *box);
+/* ABI 1.11 reuses carry/drop text buffers; returned strings survive cancellation until the next frame. */
 int32_t pxui_ui_carrying(PxuiUi *ui, uint8_t *present, PxuiStr *kind, PxuiStr *value);
 int32_t pxui_ui_carry(PxuiUi *ui, uint8_t has_from, const PxuiBox *from, PxuiStr kind, PxuiStr value);
 int32_t pxui_ui_cancel_carry(PxuiUi *ui);

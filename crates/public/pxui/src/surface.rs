@@ -926,3 +926,54 @@ fn numeric_signal_state_preserves_legacy_keys_without_warm_keyboard_allocations(
     ui.frame(&FrameIn { time: 3.1, ..input() }, &mut |_| {}).unwrap();
     assert!(ui.signal_state(&node).keys.is_empty() && !ui.signal_state(&node).clicked);
 }
+
+#[test]
+fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
+    use crate::{DropRef, PayloadRef};
+    use pxui_types::Event;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let mut hover = false;
+    let mut dropped = false;
+    let mut deliveries = 0;
+    let payload = PayloadRef { kind: "queue-occurrence", value: "18446744073709551615" };
+    let mut build = |ui: &mut Ui| {
+        let source = ui.box_("carry-source", BoxOpts::default().flags(CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
+        let target = ui.box_("carry-target", BoxOpts::default().flags(CLICKABLE).at((0.0, 100.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
+        if ui.signal_state(&source).held { ui.carry(Some(&source), payload.kind, payload.value); }
+        if let Some(p) = ui.carrying_ref() { assert_eq!(p, payload); }
+        hover = false; dropped = false;
+        if let Some(state) = ui.drop_target_ref(&target) {
+            match state {
+                DropRef::Hover(p) => { assert_eq!(p, payload); hover = true; }
+                DropRef::Dropped(p) => { assert_eq!(p, payload); dropped = true; deliveries += 1; }
+            }
+        }
+        assert!(!ui.signal_state(&target).clicked);
+    };
+    let event = |kind, y| Event { kind, x: 10.0, y, ..Default::default() };
+    let mut tick = 0u32;
+    for round in 0..24 {
+        mem_sys::local_reset();
+        for e in [None, Some(event(Event::POINTER_PRESSED, 10.0)), Some(event(Event::POINTER_MOVED, 120.0)), Some(event(Event::POINTER_RELEASED, 120.0)), None] {
+            tick += 1;
+            ui.frame(&FrameIn { time: tick as f64 / 60.0, events: e.as_ref().map_or(core::ptr::null(), |e| e), event_count: usize::from(e.is_some()), ..input() }, &mut build).unwrap();
+        }
+        if round > 3 { assert_eq!(mem_sys::local_alloc_count(), 0, "whole warm gesture including payload start, hover, release and retirement"); }
+    }
+    drop(build);
+    assert!(!hover && !dropped, "a drop lasts one frame");
+    assert_eq!(deliveries, 24);
+    // Key carries reuse the same storage, including replacement and cancellation.
+    for round in 0..12 {
+        ui.frame(&FrameIn { time: 10.0 + round as f64, ..input() }, &mut |_| {}).unwrap();
+        mem_sys::local_reset();
+        ui.carry(None, payload.kind, payload.value);
+        assert_eq!(ui.carrying_ref(), Some(payload));
+        ui.carry(None, "kind", "café");
+        assert_eq!(ui.carrying_ref(), Some(PayloadRef { kind: "kind", value: "café" }));
+        ui.cancel_carry();
+        assert_eq!(ui.carrying_ref(), None);
+        if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+    }
+}

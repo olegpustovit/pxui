@@ -40,6 +40,9 @@ pub(crate) struct Shared {
     pub renderers: u32,
     /// text handed to C (an edited field, the picker query), valid until the next frame
     pub returned: Vec<String>,
+    /// Copies lent to C, with buffers reused only after the next frame begins.
+    pub lent: Vec<String>,
+    pub lent_used: usize,
     /// grid tracks the engine's nodes borrow, one shared slice per keyed node that has a grid (equal lists share one)
     pub grid_tracks: HashMap<i64, Rc<[Track]>>,
     /// replaced track slices, freed at the end of the frame (the old node may still borrow them until then)
@@ -86,7 +89,7 @@ impl Shared {
     pub fn put_strs(&mut self, mut strs: Vec<&'static str>) { strs.clear(); self.strs.push(strs); }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(),
+            error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), lent: Vec::new(), lent_used: 0,
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), menus: Vec::new(), bodies: Default::default(),
@@ -106,6 +109,14 @@ pub struct PxuiUi {
 impl PxuiUi {
     pub(crate) fn borrowed(engine: &mut Ui, shared: *mut Shared) -> Self { Self { engine: engine as *mut Ui, shared, owner: false } }
     pub(crate) fn shared<'a>(&self) -> &'a mut Shared { unsafe { &mut *self.shared } }
+    pub(crate) fn lend(&self, value: &str) -> Str {
+        let shared = self.shared();
+        if shared.lent_used == shared.lent.len() { shared.lent.push(String::new()); }
+        let slot = &mut shared.lent[shared.lent_used];
+        slot.clear(); slot.push_str(value);
+        shared.lent_used += 1;
+        Str { ptr: slot.as_ptr(), len: slot.len() }
+    }
     /// Keeps `value` alive until the next frame and returns it as a `Str`.
     pub(crate) fn give(&self, value: String) -> Str {
         let returned = &mut self.shared().returned;

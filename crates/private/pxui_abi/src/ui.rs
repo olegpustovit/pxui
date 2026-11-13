@@ -267,6 +267,7 @@ unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &m
         s.error.clear();
         s.paint_error = false;
         s.returned.clear();
+        s.lent_used = 0;
         s.chunks_used = 0;
         s.in_frame = true;
         // no handle is usable until the build callback runs: the engine is mid-frame (its own phases run between callbacks)

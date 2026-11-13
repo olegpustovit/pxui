@@ -63,7 +63,7 @@ pub mod ui {
 }
 pub mod text;
 pub use text::{Text, UiText};
-pub use box_ops::NodeFields;
+pub use box_ops::{NodeFields, PayloadRef, DropRef};
 pub mod paint;
 pub use paint::Paint;
 pub mod widgets;

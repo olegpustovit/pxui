@@ -204,3 +204,22 @@ fn the_current_handle_is_restored_when_a_callback_unwinds() {
     assert_eq!(unsafe { (*shared).current }, ui, "the owner is current again");
     assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
+
+#[test]
+fn carry_text_borrows_survive_replacement_cancellation_and_many_reads_until_next_frame() {
+    let ui = create();
+    let text = |s: &str| Str { ptr: s.as_ptr(), len: s.len() };
+    let mut kind = Str::default(); let mut value = Str::default(); let mut present = 0;
+    assert_eq!(unsafe { pxui_ui_carry(ui, 0, core::ptr::null(), text("kind"), text("café")) }, 0);
+    assert_eq!(unsafe { pxui_ui_carrying(ui, &mut present, &mut kind, &mut value) }, 0);
+    assert_eq!(present, 1);
+    let (first_kind, first_value) = (kind, value);
+    assert_eq!(unsafe { pxui_ui_cancel_carry(ui) }, 0);
+    assert_eq!(unsafe { pxui_ui_carry(ui, 0, core::ptr::null(), text("replacement"), text("different value")) }, 0);
+    for _ in 0..128 { assert_eq!(unsafe { pxui_ui_carrying(ui, &mut present, &mut kind, &mut value) }, 0); }
+    assert_eq!(unsafe { core::slice::from_raw_parts(first_kind.ptr, first_kind.len) }, b"kind");
+    assert_eq!(unsafe { core::slice::from_raw_parts(first_value.ptr, first_value.len) }, "café".as_bytes());
+    assert_eq!(unsafe { pxui_ui_cancel_carry(ui) }, 0);
+    assert_eq!(run(ui, Some(nothing), core::ptr::null_mut()), 0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}

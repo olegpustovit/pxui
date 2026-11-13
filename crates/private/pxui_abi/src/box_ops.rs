@@ -6,7 +6,7 @@ use crate::ui::key_code;
 use crate::style::decode_look;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::ffi::c_void;
-use pxui_core::ui::{Axis, BoxOpts, Drop, Mark, Rect};
+use pxui_core::ui::{Axis, BoxOpts, Mark, Rect};
 use pxui_types::{Dir, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, Slice}};
 use std::rc::Rc;
 
@@ -189,10 +189,10 @@ export!(pub unsafe fn pxui_ui_to_front(ui: *mut PxuiUi, order: i64, box_: *const
 export!(pub unsafe fn pxui_ui_carrying(ui: *mut PxuiUi, present: *mut u8, kind: *mut Str, value: *mut Str) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if present.is_null() || kind.is_null() || value.is_null() { return unsafe { fail(ui, "null carry output") }; }
-    let payload = e.carrying();
+    let payload = e.carrying_ref();
     unsafe {
         *present = payload.is_some() as u8;
-        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| (ui_give(ui, p.kind), ui_give(ui, p.value)));
+        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| ((&*ui).lend(&p.kind), (&*ui).lend(&p.value)));
     }
     0
 }); 
@@ -217,10 +217,10 @@ export!(pub unsafe fn pxui_ui_cancel_carry(ui: *mut PxuiUi) -> i32 {
 export!(pub unsafe fn pxui_ui_drop_target(ui: *mut PxuiUi, box_: *const PxuiBox, tag: *mut u32, kind: *mut Str, value: *mut Str) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if tag.is_null() || kind.is_null() || value.is_null() { return unsafe { fail(ui, "null drop output") }; }
-    let (code, payload) = match e.drop_target(&b) { None => (0, None), Some(Drop::Hover(p)) => (1, Some(p)), Some(Drop::Dropped(p)) => (2, Some(p)) };
+    let (code, payload) = match e.drop_target_ref(&b) { None => (0, None), Some((false, p)) => (1, Some(p)), Some((true, p)) => (2, Some(p)) };
     unsafe {
         *tag = code;
-        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| (ui_give(ui, p.kind), ui_give(ui, p.value)));
+        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| ((&*ui).lend(&p.kind), (&*ui).lend(&p.value)));
     }
     0
 });

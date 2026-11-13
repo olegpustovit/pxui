@@ -88,6 +88,12 @@ fn hit_box(hit: HitFn) -> *mut c_void {
     at.cast()
 }
 
+/// A carry query borrowed until the next mutable UI call, without owned string copies.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PayloadRef<'a> { pub kind: &'a str, pub value: &'a str }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropRef<'a> { Hover(PayloadRef<'a>), Dropped(PayloadRef<'a>) }
+
 impl Ui {
     #[track_caller]
     pub fn box_(&mut self, label: &str, opts: BoxOpts) -> PxuiBox {
@@ -175,9 +181,13 @@ impl Ui {
 
     #[track_caller]
     pub fn carrying(&self) -> Option<Payload> {
+        self.carrying_ref().map(|p| Payload { kind: p.kind.to_owned(), value: p.value.to_owned() })
+    }
+    #[track_caller]
+    pub fn carrying_ref(&self) -> Option<PayloadRef<'_>> {
         let (mut present, mut kind, mut value) = (0, Str::default(), Str::default());
         check(self, unsafe { lib::pxui_ui_carrying(self.0.as_ptr(), &mut present, &mut kind, &mut value) });
-        (present != 0).then(|| Payload { kind: owned(kind), value: owned(value) })
+        (present != 0).then(|| PayloadRef { kind: crate::lent_str(kind), value: crate::lent_str(value) })
     }
     #[track_caller]
     pub fn carry(&mut self, from: Option<&PxuiBox>, kind: &str, value: &str) {
@@ -187,10 +197,17 @@ impl Ui {
     #[inline] #[track_caller] pub fn cancel_carry(&mut self) { check(self, unsafe { lib::pxui_ui_cancel_carry(self.0.as_ptr()) }) }
     #[track_caller]
     pub fn drop_target(&mut self, b: &PxuiBox) -> Option<Drop> {
+        self.drop_target_ref(b).map(|drop| match drop {
+            DropRef::Hover(p) => Drop::Hover(Payload { kind: p.kind.to_owned(), value: p.value.to_owned() }),
+            DropRef::Dropped(p) => Drop::Dropped(Payload { kind: p.kind.to_owned(), value: p.value.to_owned() }),
+        })
+    }
+    #[track_caller]
+    pub fn drop_target_ref(&mut self, b: &PxuiBox) -> Option<DropRef<'_>> {
         let (mut tag, mut kind, mut value) = (0, Str::default(), Str::default());
         check(self, unsafe { lib::pxui_ui_drop_target(self.0.as_ptr(), b, &mut tag, &mut kind, &mut value) });
-        let payload = || Payload { kind: owned(kind), value: owned(value) };
-        match tag { 1 => Some(Drop::Hover(payload())), 2 => Some(Drop::Dropped(payload())), _ => None }
+        let payload = || PayloadRef { kind: crate::lent_str(kind), value: crate::lent_str(value) };
+        match tag { 1 => Some(DropRef::Hover(payload())), 2 => Some(DropRef::Dropped(payload())), _ => None }
     }
     /// The released right-click in this box or a descendant, through shared capture.
     #[track_caller]

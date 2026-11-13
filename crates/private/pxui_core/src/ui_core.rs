@@ -324,6 +324,8 @@ struct ViewRec {
     patched: bool,
     /// a clean view rebuilt by `verify_views`: its output must equal the kept one
     verify: bool,
+    /// Rebuild descendants together when this view's available size changes.
+    reflow: bool,
     /// `run` in layer `layer` holds its output
     valid: bool,
     layer: i64,
@@ -408,6 +410,7 @@ impl ViewRec {
             escapes: false,
             patched: false,
             verify: false,
+            reflow: false,
             valid: false,
             layer: 0,
             run: (0, 0),
@@ -997,6 +1000,7 @@ pub struct Ui {
     pub(crate) scrub_origin: Option<(i64, String)>,
     payload: Option<(Payload, Origin)>,
     dropped: Option<(Payload, i64)>,
+    spare_payload: Option<Payload>,
     carry_latch: Option<i64>,
     passed_undo: Option<UndoKind>,
     frame_events: Vec<Event>,
@@ -1222,6 +1226,7 @@ impl Ui {
             scrub_origin: None,
             payload: None,
             dropped: None,
+            spare_payload: None,
             carry_latch: None,
             passed_undo: None,
             frame_events: Vec::new(),
@@ -1979,7 +1984,7 @@ impl Ui {
         // the box that holds a carry's pointer is gone: the carry goes with it
         if let Some((_, Origin::FromPointer(owner))) = &self.payload {
             if *owner == key {
-                self.payload = None;
+                self.retire_payload();
             }
         }
         if self.hot == key {
@@ -2236,12 +2241,12 @@ impl Ui {
         keep_frame(&mut self.input_frame, frame);
         self.routed_events.clear();
         self.cancelled.clear();
-        self.dropped = None;
+        if let Some((payload, _)) = self.dropped.take() { self.spare_payload = Some(payload); }
         // a carry lives with the press that holds it: capture taken away since (a popup, a host
         // dismissal) takes the payload too, so no later release puts it
         if let Some((_, Origin::FromPointer(owner))) = &self.payload {
             if self.active != Some(*owner) {
-                self.payload = None;
+                self.retire_payload();
             }
         }
         let mut released_carry = false;
@@ -2319,10 +2324,9 @@ impl Ui {
                     if matches!(self.payload, Some((_, Origin::FromKey))) =>
                 {
                     self.pointer = p32(*point);
-                    if let Some((payload, _)) = &self.payload {
-                        self.dropped = Some((payload.clone(), self.topmost(p32(*point))));
+                    if let Some((payload, _)) = self.payload.take() {
+                        self.dropped = Some((payload, self.topmost(p32(*point))));
                     }
-                    self.payload = None;
                     if let Some(last) = self.routed_events.last_mut() {
                         last.0 = -1;
                     }
@@ -2502,7 +2506,7 @@ impl Ui {
                     }
                     if let Some((_, Origin::FromPointer(_))) = &self.payload {
                         if *button == MouseButton::LeftButton {
-                            self.payload = None;
+                            self.retire_payload();
                             released_carry = false;
                         }
                     }
@@ -2510,7 +2514,7 @@ impl Ui {
                 Event::FocusLost => {
                     self.gesture_velocity = (0.0, 0.0);
                     self.lift();
-                    self.payload = None;
+                    self.retire_payload();
                     released_carry = false;
                     self.active = None;
                     self.focus = 0;
@@ -2562,10 +2566,9 @@ impl Ui {
         }
         // released: what the carry was put on is what was hot at the release
         if released_carry {
-            if let Some((payload, _)) = &self.payload {
-                self.dropped = Some((payload.clone(), self.hot));
+            if let Some((payload, _)) = self.payload.take() {
+                self.dropped = Some((payload, self.hot));
             }
-            self.payload = None;
         }
     }
 
@@ -3298,8 +3301,20 @@ impl Ui {
         self.frame_number as u64
     }
 
-    pub fn carrying(&self) -> Option<Payload> {
-        self.payload.as_ref().map(|(p, _)| p.clone())
+    pub fn carrying(&self) -> Option<Payload> { self.carrying_ref().cloned() }
+
+    pub fn carrying_ref(&self) -> Option<&Payload> { self.payload.as_ref().map(|(p, _)| p) }
+
+    fn retire_payload(&mut self) {
+        if let Some((payload, _)) = self.payload.take() { self.spare_payload = Some(payload); }
+    }
+
+    fn set_payload(&mut self, kind: &str, value: &str, origin: Origin) {
+        self.retire_payload();
+        let mut payload = self.spare_payload.take().unwrap_or_else(|| Payload { kind: String::new(), value: String::new() });
+        payload.kind.clear(); payload.kind.push_str(kind);
+        payload.value.clear(); payload.value.push_str(value);
+        self.payload = Some((payload, origin));
     }
 
     /// Hold a payload. With `from`, the box that owns the pressed left button: it is held once the
@@ -3313,7 +3328,7 @@ impl Ui {
                         return;
                     }
                 }
-                self.payload = Some((Payload { kind: kind.to_owned(), value: value.to_owned() }, Origin::FromKey));
+                self.set_payload(kind, value, Origin::FromKey);
             }
             Some(b) => {
                 if self.payload.is_none()
@@ -3324,10 +3339,7 @@ impl Ui {
                     let (px, py) = self.active_press;
                     let (x, y) = self.pointer;
                     if (x - px).hypot(y - py) >= DRAG_THRESHOLD {
-                        self.payload = Some((
-                            Payload { kind: kind.to_owned(), value: value.to_owned() },
-                            Origin::FromPointer(b.box_key),
-                        ));
+                        self.set_payload(kind, value, Origin::FromPointer(b.box_key));
                     }
                 }
             }
@@ -3339,18 +3351,20 @@ impl Ui {
         if self.payload.is_some() {
             self.carry_latch = self.active;
         }
-        self.payload = None;
+        self.retire_payload();
     }
 
     pub fn drop_target(&mut self, b: &UiBox) -> Option<Drop> {
-        if let Some((payload, hot)) = self.dropped.clone() {
-            if hot != 0 && self.hit_within(hot, b.box_key) { Some(Drop::Dropped(payload)) } else { None }
-        } else if let Some((payload, _)) = self.payload.clone() {
-            let hot = self.hot;
-            if hot != 0 && self.hit_within(hot, b.box_key) { Some(Drop::Hover(payload)) } else { None }
-        } else {
-            None
-        }
+        self.drop_target_ref(b).map(|(dropped, payload)| if dropped { Drop::Dropped(payload.clone()) } else { Drop::Hover(payload.clone()) })
+    }
+
+    /// A drop remains readable by the target and its ancestors throughout this frame.
+    pub fn drop_target_ref(&mut self, b: &UiBox) -> Option<(bool, &Payload)> {
+        if self.dropped.is_none() && self.payload.is_none() { return None; }
+        let hot = self.dropped.as_ref().map_or(self.hot, |(_, hot)| *hot);
+        if hot == 0 || !self.hit_within(hot, b.box_key) { return None; }
+        if let Some((payload, _)) = &self.dropped { Some((true, payload)) }
+        else { self.carrying_ref().map(|payload| (false, payload)) }
     }
 
     pub fn scroll_offset(&self, b: &UiBox) -> f32 {
@@ -5409,10 +5423,10 @@ impl Ui {
     /// The payload in flight follows the pointer as a small label above everything. Idle frames
     /// (nothing carried) build and paint nothing.
     fn carry_ghost(&mut self) {
-        let (payload, px, py) = match &self.payload {
-            Some((payload, _)) if self.pointer.0.is_finite() => (payload.clone(), self.pointer.0, self.pointer.1),
-            _ => return,
-        };
+        if !self.pointer.0.is_finite() { return; }
+        // The ghost copies text into frame storage; keep ownership here instead of cloning each frame.
+        let Some((payload, origin)) = self.payload.take() else { return; };
+        let (px, py) = self.pointer;
         let width = self.text_width(None, &payload.value) + 12.0;
         let saved = self.enter_root();
         // kit overlays [07]: a white 20-point chip with the payload in body-size ink, and under it
@@ -5441,6 +5455,7 @@ impl Ui {
         self.foreground.push((i64::MAX, tip.index));
         self.foreground.push((i64::MAX, ghost.index));
         self.leave(saved);
+        self.payload = Some((payload, origin));
     }
 
     fn clear_frame_callbacks(&mut self) {
@@ -5614,6 +5629,7 @@ impl Ui {
         for &(slot, w, h) in &expected {
             let s = &self.slots[slot];
             if s.key != 0 && ((!w.is_nan() && (s.rw - w).abs() > 0.01) || (!h.is_nan() && (s.rh - h).abs() > 0.01)) {
+                self.mark_view(s.owner);
                 self.settle = true;
             }
         }
@@ -6143,9 +6159,11 @@ impl Ui {
         };
         self.boxes[b.index].view = v;
         let xf = if self.views[v as usize].index != 0 { v } else { self.views[parent as usize].xf };
+        let parent_reflow = self.views[parent as usize].reflow;
         let r = &mut self.views[v as usize];
         (r.parent, r.xf) = (parent, xf);
-        let clean = r.built >= 0 && r.valid && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id;
+        r.reflow |= parent_reflow;
+        let clean = !r.reflow && r.built >= 0 && r.valid && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id;
         if clean && !self.verify {
             r.kept = self.frame_number;
             self.boxes[b.index].kept = true;
@@ -6168,6 +6186,7 @@ impl Ui {
         // a verifying run keeps what was patched since the kept build (it is not checked against it)
         r.patched &= r.verify;
         r.dirty = r.escapes;
+        r.reflow = false;
         // the next build fills `prev`: room now, so a view's second build does not grow it
         r.prev.reserve(r.nodes.len().saturating_sub(r.prev.len()));
         if r.escapes && parent != 0 {
@@ -6652,12 +6671,6 @@ impl Ui {
             let resized = rect.w != r.built_rect.w || rect.h != r.built_rect.h;
             let moved = r.index == 0 && r.delta != (0.0, 0.0);
             let here = r.valid && r.layer == layer;
-            if resized || moved || !here {
-                // its build is stale: `frame` settles (builds again before it returns)
-                r.dirty = true;
-                self.frame_requested = true;
-                self.settle = true;
-            }
             if here {
                 paint.keep(v);
                 // an enclosing view being rebuilt keeps these instances in its run too (the root's
@@ -6667,6 +6680,13 @@ impl Ui {
                 }
             }
             let hit_parent = r.hit_parent;
+            r.reflow |= resized;
+            if resized || moved || !here {
+                // Reach a dirty nested view through every enclosing cache on the settling build.
+                self.mark_view(v);
+                self.frame_requested = true;
+                self.settle = true;
+            }
             for k in 0..self.views[v as usize].hits.len() {
                 let mut h = self.views[v as usize].hits[k];
                 if h.parent == hit_parent {

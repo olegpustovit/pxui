@@ -408,18 +408,23 @@ pub fn layout_list_measured() {
 pub fn layout_grid_list_resize_settles() {
     let mut ui = new_ui(None);
     let (width, third) = (std::cell::Cell::new(200.0f32), std::cell::Cell::new(None));
+    let fifth = std::cell::Cell::new(None);
     let build = |ui: &mut Ui| {
         let col = ui.node("col", Node { w: Size::Px(width.get()), h: Size::Px(200.0), ..Node::DEFAULT });
         ui.within(&col, &mut |ui| {
-            ui.grid_list("cells", 10, 50.0, 20.0, &mut |ui, i| {
-                let h = ui.node("c", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
-                if i == 2 {
-                    third.set(Some(h));
-                }
+            ui.view("outer", 1, Size::Grow, Size::Grow, &mut |ui| {
+                ui.view("inner", 1, Size::Grow, Size::Grow, &mut |ui| {
+                    ui.grid_list("cells", 10, 50.0, 20.0, &mut |ui, i| {
+                        let h = ui.node("c", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                        if i == 4 { fifth.set(Some(h)); }
+                        if i == 2 { third.set(Some(h)); }
+                    });
+                });
             });
         });
     };
     lay(&mut ui, 0.0, vec![], &mut |ui| { build(ui); vec![] });
+    check(ui.rect(&fifth.get().unwrap()).y == 20.0, "nested cached grids settle initial window estimates immediately");
     lay(&mut ui, 0.1, vec![], &mut |ui| { build(ui); vec![] });
     check(ui.rect(&third.get().unwrap()).y == 0.0, "four columns: the third cell is in the first row");
     width.set(100.0);

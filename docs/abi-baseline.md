@@ -402,3 +402,34 @@ existing C declaration changed. LocalWave's chip keyboard regression passes at z
 allocations in 4.513 seconds including build (0.031-second case). The original four-allocation failure
 is retained in /tmp/localwave-rust-find-filters-keyboard.log. No compiler profile/stack workaround
 or wall-time threshold change was introduced.
+
+## Borrowed drag queries and nested grid reflow (ABI 1.11)
+
+`carrying_ref` and `drop_target_ref` borrow kind/value strings over the existing C exports. The C
+side copies into retained per-frame string slots, so earlier pointers survive later reads, payload
+replacement and cancellation until the next frame. Owned methods still return owned copies.
+Gesture strings are reused after release/cancellation, released payloads move into the one-frame
+drop slot, and the floating label paints without cloning the payload. Pointer cancellation, focus
+loss, lost capture, the drag threshold, cancellation latch and non-consuming queries retain their
+behavior. No C signatures or layouts changed; the public addition bumps the minor.
+
+A whole repeated pointer gesture (start/hover/release/retirement), plus replacement/cancellation of
+key carries, asserts zero warm Rust allocations through static and dynamic wrappers. A raw C check
+retains earlier UTF-8 pointers through cancellation and 128 subsequent reads. The final core/ABI/
+dynamic matrix passes **278 cases, 15.101 s wall / 10.470 s summed**; the static wrapper passes
+**48 cases, 2.538 s / 1.404 s**. Dependency, C header, snapshot and dynamic-export gates pass.
+Logs: `/tmp/localwave-rust-queue-pxui-final.log`, `/tmp/localwave-rust-queue-wrapper-static.log`,
+and `/tmp/localwave-rust-queue-gate-*.log`.
+
+Virtual grid estimates now invalidate enclosing caches before settling. A resized cached view
+propagates reflow to descendants so nested virtual content reaches the right dimensions within the
+existing two settling passes. The regression includes two cached ancestors and checks initial size
+and a parent-only resize in the same frame. LocalWave's 10,000-entry queue exposed the bug: the old
+nested grid retained a five-column window estimate instead of one panel column.
+
+Earlier matrices and isolated runs failed the unchanged layout scaling limit (including rebuild
+418 -> 635 ns/node, and layout 138 -> 356 ns/node). A diagnostic run passed, and the final matrix
+without diagnostics passes at rebuild **400 -> 521 ns/node**, layout **133 -> 166 ns/node**. Failures
+remain recorded; this does not establish stable scaling timings or their cause. No profile, stack,
+deadline or threshold changed. Native process allocations and platform qualification remain outside
+these Rust allocator checks.
