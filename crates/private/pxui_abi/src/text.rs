@@ -183,7 +183,7 @@ unsafe fn quads(
         let mut count = 0;
         text.glyphs(key, (origin_x, origin_y), scale, &mut |glyph| {
             if count < capacity {
-                let atlas = match glyph.atlas { AtlasKind::Mask => 0, AtlasKind::Color => 1 };
+                let atlas = glyph.atlas as u32;
                 let value = TextGlyph {
                     rect: [glyph.rect.x, glyph.rect.y, glyph.rect.w, glyph.rect.h],
                     uv: [glyph.uv.x, glyph.uv.y, glyph.uv.w, glyph.uv.h],
@@ -257,8 +257,8 @@ unsafe fn rasterize(
                     if x < 0 || x >= w as i64 { continue; }
                     let at = (v + row) * atlas_w as i64 + u + col;
                     let src = match glyph.atlas {
-                        AtlasKind::Mask => [ink[0], ink[1], ink[2], ((atlas[at as usize] as u32 * alpha + 127) / 255) as u8],
-                        AtlasKind::Color => {
+                        AtlasKind::Mask|AtlasKind::Mask2 => [ink[0], ink[1], ink[2], ((atlas[at as usize] as u32 * alpha + 127) / 255) as u8],
+                        AtlasKind::Color|AtlasKind::Color2 => {
                             let i = at as usize * 4;
                             [atlas[i], atlas[i + 1], atlas[i + 2], ((atlas[i + 3] as u32 * alpha + 127) / 255) as u8]
                         }

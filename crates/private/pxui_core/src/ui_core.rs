@@ -403,7 +403,7 @@ impl ViewRec {
             built: -1,
             kept: -1,
             visited: -1,
-            shelves: [0; 4],
+            shelves: [0; 8],
             dirty: false,
             escapes: false,
             patched: false,
@@ -4759,8 +4759,8 @@ impl Paint {
             let r = [g.rect.x / d, g.rect.y / d, (g.rect.x + g.rect.w) / d, (g.rect.y + g.rect.h) / d];
             let uv = [g.uv.x, g.uv.y, g.uv.x + g.uv.w, g.uv.y + g.uv.h];
             let instance = match g.atlas {
-                pxui_text::AtlasKind::Mask => Instance::mask(r, uv, color),
-                pxui_text::AtlasKind::Color => {
+                pxui_text::AtlasKind::Mask|pxui_text::AtlasKind::Mask2 => Instance::mask(r, uv, color),
+                pxui_text::AtlasKind::Color|pxui_text::AtlasKind::Color2 => {
                     // image instances after an image's break sample that image: break back to the atlas
                     if layer.breaks.last().is_some_and(|b| b.image != crate::draw::ATLAS) {
                         layer.breaks.push(Break { at_instance: layer.instances.len() as u32, image: crate::draw::ATLAS });
@@ -4768,7 +4768,8 @@ impl Paint {
                     Instance::image(r, uv, [255, 255, 255, color[3]])
                 }
             };
-            layer.instances.push(Instance { clip, view, ..instance });
+            let flags=instance.flags|if matches!(g.atlas,pxui_text::AtlasKind::Mask2|pxui_text::AtlasKind::Color2) { crate::draw::flags::GLYPH_PAGE_2 } else { 0 };
+            layer.instances.push(Instance { clip, view,flags, ..instance });
         });
         t.decorations(key,true,&mut |deco|decoration(deco,layer));
         m
@@ -5186,7 +5187,7 @@ impl Ui {
         let s = &self.slots[slot];
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
         let outer = paint.text.marks();
-        paint.text.set_marks([0; 4]);
+        paint.text.set_marks([0; 8]);
         paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), focused, steady);
         let shelves = paint.text.marks();
         paint.text.set_marks(outer);
@@ -5195,7 +5196,7 @@ impl Ui {
         let mut v = owner;
         while v != 0 {
             let r = &mut self.views[v as usize];
-            r.shelves = [0, 1, 2, 3].map(|k| r.shelves[k] | shelves[k]);
+            r.shelves = std::array::from_fn(|k| r.shelves[k] | shelves[k]);
             v = r.parent;
         }
         let fresh = &scratch[0].instances;
@@ -5592,10 +5593,10 @@ impl Ui {
         // the atlas does not rewrite a shelf a kept view's instances sample: it retires it, and every
         // view rebuilds next frame (the texels stay for the frames in flight); a glyph without room
         // shows next frame
-        let mut pin = [0u64; 4];
+        let mut pin = [0u64; 8];
         for r in &self.views[1..] {
             if r.valid {
-                for k in 0..4 {
+                for k in 0..8 {
                     pin[k] |= r.shelves[k];
                 }
             }
@@ -6619,7 +6620,7 @@ impl Ui {
         let child_clip = if table != 0 { UNBOUNDED } else { clip };
         paint.cut();
         let outer = paint.text.marks();
-        paint.text.set_marks([0; 4]);
+        paint.text.set_marks([0; 8]);
         let (first, hit_start) = (paint.layers[paint.layer].pieces.len() - 1, self.hit_count);
         let mut child = self.boxes[index].first;
         while child != NONE {

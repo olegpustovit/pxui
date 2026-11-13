@@ -163,6 +163,8 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 fn main() {
     let cases: &[(&str, fn())] = &[
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
+        ("gpu_second_atlas_pages_sample_in_one_draw", gpu_second_atlas_pages_sample_in_one_draw),
+        ("shared_second_atlas_activates_after_prepare_without_replacing_first_page", shared_second_atlas_activates_after_prepare_without_replacing_first_page),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
         ("gpu_prepared_target_validation", gpu_prepared_target_validation),
@@ -937,6 +939,96 @@ fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Render
     let submitted = ok(be::commit(&commands));
     ok(be::complete_through(queue, submitted.epoch));
     allocations
+}
+
+fn gpu_second_atlas_pages_sample_in_one_draw() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let mut painter=painter(&device);
+    assert!(painter.atlas(AtlasKind::Mask2).is_none() && painter.atlas(AtlasKind::Color2).is_none());
+    ok(painter.prepare_atlas(AtlasKind::Mask2,(2,2)));
+    ok(painter.prepare_atlas(AtlasKind::Color2,(2,2)));
+    ok(painter.upload(AtlasKind::Mask,0,0,1,1,&[255],1));
+    ok(painter.upload(AtlasKind::Color,0,0,1,1,&[255,0,0,255],4));
+    ok(painter.upload(AtlasKind::Mask2,0,0,2,2,&[255;4],2));
+    ok(painter.upload(AtlasKind::Color2,0,0,2,2,&[0,255,0,255].repeat(4),8));
+    let extra=texture(&device,1,1,&[TextureUsage::TextureBinding,TextureUsage::TextureCopyDst]);
+    ok(be::write_texture(&extra,None,Origin { x:0,y:0,z:0 },Extent { width:1,height:1,depth:1 },4,&[0,0,255,255]));
+    let shown=target(&device);
+    let instances=[Instance::mask([10.0,10.0,30.0,30.0],[0.0,0.0,1.0/64.0,1.0/64.0],[0,0,0,255]),
+        Instance { flags:flags::GLYPH_PAGE_2,..Instance::mask([40.0,10.0,60.0,30.0],[0.0,0.0,1.0,1.0],[0,0,255,255]) },
+        Instance::image([10.0,40.0,30.0,60.0],[0.0,0.0,1.0/256.0,1.0/32.0],[255;4]),
+        Instance { flags:flags::GLYPH_PAGE_2,..Instance::image([40.0,40.0,60.0,60.0],[0.0,0.0,1.0,1.0],[255;4]) }];
+    for frame in 0..8 {
+        let breaks=[Break { at_instance:2,texture:Some(extra.clone()) }];
+        let has_image=frame%2!=0;
+        let draws=painter.draw_calls();
+        painter.begin_frame();
+        pass(&queue,&shown,&mut |encoder| {
+            mem_sys::local_reset();
+            ok(painter.prepare_atlas(AtlasKind::Mask2,(2,2)));
+            ok(painter.prepare_atlas(AtlasKind::Color2,(2,2)));
+            ok(painter.draw_retained(encoder,[W*SCALE,H*SCALE],SCALE as f32,0,&instances,&[],if has_image { &breaks } else { &[] }));
+            if frame>=4 { assert_eq!(mem_sys::local_alloc_count(),0,"prepared second pages reuse warm bindings and storage"); }
+        });
+        assert_eq!(painter.draw_calls()-draws,if has_image { 2 } else { 1 });
+        let pixels=ok(be::read_texture(&shown,(W*SCALE*4) as i64));
+        assert_eq!(at(&pixels,20.0,20.0),[0,0,0,255]);
+        assert_eq!(at(&pixels,50.0,20.0),[0,0,255,255]);
+        assert_eq!(at(&pixels,20.0,50.0),if has_image { [0,0,255,255] } else { [255,0,0,255] });
+        assert_eq!(at(&pixels,50.0,50.0),[0,255,0,255],"second-page colour glyphs ignore an unrelated image break");
+    }
+    assert!(painter.prepare_atlas(AtlasKind::Mask2,(3,3)).is_err());
+    for texture in [&shown,&extra] { ok(be::destroy_texture(texture)); }
+    drop(painter);
+    finish(device,queue);
+}
+
+fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let mut ui=pxui::Ui::new().unwrap();
+    let mut renderer=shared_renderer(&device,&ui);
+    assert!(matches!(renderer.atlas(pxui::AtlasKind::Mask2),Err(pxui_types::PXUI_ERR_STATE)));
+    let first=renderer.atlas(pxui::AtlasKind::Mask).unwrap();
+    let style=pxui::TextStyle { size_points:600.0,..Default::default() };
+    let mut first_pixels:Option<Vec<u8>>=None;
+    let mut first_glyph=None;
+    for frame in 1..=7 {
+        mem_sys::local_reset();
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            let b=ui.node("page-growth",pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(300.0),..pxui::Node::DEFAULT });
+            ui.canvas(&b,move |paint,_| { paint.text_styled((0.0,0.0),&style,0.0,Some(pxui::geom::color::rgba(0,0,0,255)),if frame==1 { "A" } else { "ABCDEF" }); });
+        }).unwrap();
+        let allocations=mem_sys::local_alloc_count();
+        let glyphs:Vec<_>=ui.layers().flat_map(|l|l.instances.iter().copied()).collect();
+        assert_eq!(glyphs.len(),if frame==1 { 1 } else { 6 });
+        if frame==1 { first_glyph=Some(glyphs[0]); }
+        let old=first_glyph.unwrap();
+        assert_eq!((glyphs[0].rect,glyphs[0].aux,glyphs[0].flags),(old.rect,old.aux,old.flags),"page growth preserves retained UVs");
+        assert_eq!(glyphs.iter().any(|g|g.flags & flags::GLYPH_PAGE_2!=0),frame>1,"page-growth glyphs: {glyphs:?}");
+        let draws=renderer.draw_calls();
+        let draw_allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        assert_eq!(renderer.draw_calls()-draws,1);
+        if frame>=4 { assert_eq!((allocations,draw_allocations),(0,0),"warm page-backed UI builds and draws allocate nothing"); }
+        let native=renderer.atlas(pxui::AtlasKind::Mask).unwrap();
+        assert_eq!((native.mtl_texture,native.vk_image_view),(first.mtl_texture,first.vk_image_view));
+        if frame>1 {
+            let second=renderer.atlas(pxui::AtlasKind::Mask2).unwrap();
+            assert_eq!((second.width,second.height,second.format),(first.width,first.height,first.format));
+            assert_ne!((second.mtl_texture,second.vk_image_view),(first.mtl_texture,first.vk_image_view));
+        }
+        let pixels=ok(be::read_texture(&target,640*4));
+        if let Some(old)=&first_pixels {
+            for (row,old) in pixels.chunks_exact(640*4).zip(old.chunks_exact(640*4)) {
+                assert_eq!(&row[..500*4],&old[..500*4],"existing native glyph coverage is unchanged");
+            }
+        } else { first_pixels=Some(pixels); }
+    }
+    drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
 }
 
 fn shared_inline_spans_render_colors_background_and_rule() {

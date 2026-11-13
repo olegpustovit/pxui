@@ -28,7 +28,7 @@ pub struct PxuiRenderer {
     /// the last frame passed to `prepare`, and the last `completed` the app reported
     frame_serial: u64,
     completed: u64,
-    atlas_initialized: bool,
+    atlas_initialized: [bool;4],
     /// the app's command buffer and pass as adopted by the last prepare and draw, pointed at the next ones (`readopt_*`) so a
     /// settled frame allocates nothing; adopted anew when the driver cannot
     prepared: Option<gpu_backend::Commands>,
@@ -96,7 +96,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: &pxui_types::Gpu, target: PxuiTargetDesc) -
         Ok(p)=>p,
         Err(e)=>{ let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err(describe(e)); }
     };
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false, prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:[false;4], prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None })
 }
 
 // Makes a renderer for the owner `Ui` (never a callback's borrowed handle) outside a frame; null, with the reason in
@@ -132,27 +132,33 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     let _current=crate::state::Current::set(renderer.shared, core::ptr::null_mut());
     let ui=unsafe { &mut *renderer.engine };
     let mut failed=None;
-    if !renderer.atlas_initialized {
-        for (kind,atlas,texel) in [(TextKind::Mask,AtlasKind::Mask,1i64),(TextKind::Color,AtlasKind::Color,4i64)] {
-            let (w,h)=ui.text_mut().atlas_size(kind);
-            let bytes=ui.text_mut().atlas_pixels(kind);
-            if let Err(error)=gpu_backend::write_texture_on(&commands,renderer.painter.atlas(atlas),None,Origin{x:0,y:0,z:0},Extent{width:w as i64,height:h as i64,depth:1},(w as i64)*texel,bytes) {
-                failed=Some(error);
-                break;
-            }
+    let mut copied=[false;4];
+    for (kind,atlas) in [(TextKind::Mask,AtlasKind::Mask),(TextKind::Color,AtlasKind::Color),(TextKind::Mask2,AtlasKind::Mask2),(TextKind::Color2,AtlasKind::Color2)] {
+        let index=kind as usize;
+        if !ui.text_mut().atlas_active(kind) || renderer.atlas_initialized[index] { continue; }
+        let (w,h)=ui.text_mut().atlas_size(kind);
+        if let Err(error)=renderer.painter.prepare_atlas(atlas,(w,h)) {
+            renderer.atlas_initialized=[false;4];
+            return renderer.fail_gpu(error);
         }
-        if failed.is_none() {
-            ui.text_mut().drain_uploads(&mut |_,_,_,_,_,_,_| {});
-            renderer.atlas_initialized=true;
+        let texture=renderer.painter.atlas(atlas).expect("prepared atlas");
+        let bytes=ui.text_mut().atlas_pixels(kind);
+        let texel=if kind.is_mask() { 1 } else { 4 };
+        if let Err(error)=gpu_backend::write_texture_on(&commands,texture,None,Origin{x:0,y:0,z:0},Extent{width:w as i64,height:h as i64,depth:1},(w as i64)*texel,bytes) {
+            renderer.atlas_initialized=[false;4];
+            return renderer.fail_gpu(error);
         }
+        renderer.atlas_initialized[index]=true;
+        copied[index]=true;
     }
-    if let Some(e)=failed { return renderer.fail_gpu(e); }
     ui.text_mut().drain_uploads(&mut |kind,x,y,w,h,bytes,stride| {
-        let atlas=if kind==TextKind::Mask { AtlasKind::Mask } else { AtlasKind::Color };
-        let result=gpu_backend::write_texture_on(&commands,renderer.painter.atlas(atlas),None,Origin{x:x as i64,y:y as i64,z:0},Extent{width:w as i64,height:h as i64,depth:1},stride as i64,bytes);
+        if copied[kind as usize] { return; }
+        let atlas=match kind { TextKind::Mask=>AtlasKind::Mask,TextKind::Color=>AtlasKind::Color,TextKind::Mask2=>AtlasKind::Mask2,TextKind::Color2=>AtlasKind::Color2 };
+        let texture=renderer.painter.atlas(atlas).expect("active atlas was prepared");
+        let result=gpu_backend::write_texture_on(&commands,texture,None,Origin{x:x as i64,y:y as i64,z:0},Extent{width:w as i64,height:h as i64,depth:1},stride as i64,bytes);
         if let Err(error)=result { if failed.is_none() { failed=Some(error); } }
     });
-    if let Some(e)=failed { renderer.atlas_initialized=false; return renderer.fail_gpu(e); }
+    if let Some(e)=failed { renderer.atlas_initialized=[false;4]; return renderer.fail_gpu(e); }
     renderer.frame_serial=frame;
     // a wrapped texture no frame in flight can still sample (it was last drawn more than 3 frames ago) goes
     renderer.textures.retain(|_,entry| frame-entry.used<=pxui_render::FRAMES as u64);
@@ -337,8 +343,9 @@ export!(pub unsafe fn pxui_renderer_atlas(renderer:*mut PxuiRenderer, kind:u32, 
     if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };
     if out.is_null() || unsafe { (*out).size } < core::mem::size_of::<pxui_types::Image>() as u32 { return renderer.fail(PXUI_ERR_ARGUMENT, "invalid image output"); }
-    let (atlas,format)=match kind { 0=>(AtlasKind::Mask,pxui_types::Image::FORMAT_R8), 1=>(AtlasKind::Color,pxui_types::Image::FORMAT_RGBA8), _=>return renderer.fail(PXUI_ERR_ARGUMENT, "unknown atlas kind") };
-    let native=match gpu_backend::native_texture(renderer.painter.atlas(atlas)) { Ok(native)=>native, Err(e)=>return renderer.fail_gpu(e) };
+    let (atlas,format)=match kind { 0=>(AtlasKind::Mask,pxui_types::Image::FORMAT_R8), 1=>(AtlasKind::Color,pxui_types::Image::FORMAT_RGBA8), 2=>(AtlasKind::Mask2,pxui_types::Image::FORMAT_R8), 3=>(AtlasKind::Color2,pxui_types::Image::FORMAT_RGBA8), _=>return renderer.fail(PXUI_ERR_ARGUMENT, "unknown atlas kind") };
+    let Some(texture)=renderer.painter.atlas(atlas) else { return renderer.fail(PXUI_ERR_STATE,"atlas page has not been prepared") };
+    let native=match gpu_backend::native_texture(texture) { Ok(native)=>native, Err(e)=>return renderer.fail_gpu(e) };
     unsafe { *out=pxui_types::Image { size:core::mem::size_of::<pxui_types::Image>() as u32, vk_image_view:native.vk_image_view, mtl_texture:native.mtl_texture, width:native.width, height:native.height, format }; }
     0
 });

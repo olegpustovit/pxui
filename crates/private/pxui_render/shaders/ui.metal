@@ -169,7 +169,8 @@ float sd_bezier(float2 pos, float2 A, float2 B, float2 C) {
 
 fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[texture(2)]],
                             texture2d<float> color_tex [[texture(3)]], sampler samp [[sampler(4)]],
-                            texture2d<float> atlas_tex [[texture(5)]], sampler smooth_samp [[sampler(6)]]) {
+                            texture2d<float> atlas_tex [[texture(5)]], sampler smooth_samp [[sampler(6)]],
+                            texture2d<float> mask2_tex [[texture(7)]], texture2d<float> color2_tex [[texture(8)]]) {
   float2 p = in.v_pos.xy;
   // points per pixel, rotation invariant (equals the old fwidth form on axis-aligned views)
   float px = max(sqrt(0.5 * (dot(dfdx(p), dfdx(p)) + dot(dfdy(p), dfdy(p)))), 1e-4);
@@ -179,10 +180,11 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
   if (clip_cov <= 0.0) discard_fragment();
   float4 col;
   if (kind == MASK) {
-    col = float4(in.v_color.rgb, in.v_color.a * mask_tex.sample(samp, in.v_pos.zw, level(0.0)).r);
+    float mask = (flags & 2u) != 0u ? mask2_tex.sample(samp,in.v_pos.zw,level(0.0)).r : mask_tex.sample(samp,in.v_pos.zw,level(0.0)).r;
+    col = float4(in.v_color.rgb, in.v_color.a * mask);
   } else if (kind == IMAGE) {
     // SMOOTH (bit 0): a scaled picture, filtered linearly; glyphs and atlas images stay nearest
-    col = in.v_color * ((flags & 1u) != 0u ? color_tex.sample(smooth_samp, in.v_pos.zw, level(0.0)) : color_tex.sample(samp, in.v_pos.zw, level(0.0)));
+    col = in.v_color * ((flags & 2u) != 0u ? color2_tex.sample(samp,in.v_pos.zw,level(0.0)) : ((flags & 1u) != 0u ? color_tex.sample(smooth_samp, in.v_pos.zw, level(0.0)) : color_tex.sample(samp, in.v_pos.zw, level(0.0))));
     if (dot(in.v_radii, float4(1.0)) > 0.0) col.a *= cover(sd_rect(p, in.v_rect, in.v_radii), px);
   } else if (kind == RECT) {
     float d = sd_rect(p, in.v_rect, in.v_radii);

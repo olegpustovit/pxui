@@ -289,7 +289,7 @@ fn monospace_advances_tracking_and_ascent() {
 /// The texels a glyph samples, read from the CPU mirror (what the GPU texture holds once drained).
 fn texels(t: &mut Text, g: &Glyph) -> Vec<u8> {
     let (aw, ah) = t.atlas_size(g.atlas);
-    let bpp = if g.atlas == AtlasKind::Mask { 1 } else { 4 };
+    let bpp = if g.atlas.is_mask() { 1 } else { 4 };
     let (x, y) = ((g.uv.x * aw as f32).round() as usize, (g.uv.y * ah as f32).round() as usize);
     let (w, h) = ((g.uv.w * aw as f32).round() as usize, (g.uv.h * ah as f32).round() as usize);
     let px = t.atlas_pixels(g.atlas);
@@ -300,7 +300,8 @@ fn texels(t: &mut Text, g: &Glyph) -> Vec<u8> {
 /// ever samples a rewritten texel, and churned text keeps finding room.
 #[test]
 fn atlas_eviction_never_rewrites_texels_in_use() {
-    let mut t = Text::new_sized(&[&pragma()], (128, 160), (16, 16));
+    // Two 80-row pages retain the former single-page total capacity and eviction pressure.
+    let mut t = Text::new_sized(&[&pragma()], (128, 80), (16, 16));
     let style = |size: f32| Style { size, ..Style::default() };
     // kept output: emitted once, then shown each frame without emitting until a retirement asks
     t.layout(1, "kept", &style(13.0), 0.0);
@@ -312,7 +313,7 @@ fn atlas_eviction_never_rewrites_texels_in_use() {
         if kept.is_empty() || t.retirements() != retirements {
             // the kept view rebuilds: its glyphs and the shelves they sit on
             retirements = t.retirements();
-            t.set_marks([0; 4]);
+            t.set_marks([0; 8]);
             kept = emitted(&mut t, 1).into_iter().map(|g| (g, Vec::new())).collect();
             kept.iter_mut().for_each(|(g, px)| *px = texels(&mut t, g));
             let marks = t.marks();
@@ -366,6 +367,55 @@ fn laying_text_out_allocates_no_atlas_until_a_glyph_is_drawn() {
     t.layout(2, "drawn", &st, 0.0);
     assert!(!emitted(&mut t, 2).is_empty());
     assert!(t.bytes() > atlases / 4, "a drawn glyph allocated the mirror: {} bytes", t.bytes());
+}
+
+#[test]
+fn second_mask_page_precedes_eviction_and_keeps_warm_uvs_and_pixels() {
+    let mut text=Text::new_sized(&[&pragma()],(64,32),(16,16));
+    let style=Style { size:32.0,..Default::default() };
+    assert!(!text.atlas_active(AtlasKind::Mask2));
+    text.layout(1,"ABCDE",&style,0.0);
+    assert!(!text.atlas_active(AtlasKind::Mask2),"measurement does not allocate a page");
+    let glyphs=emitted(&mut text,1);
+    assert_eq!(glyphs.len(),5);
+    assert!(glyphs.iter().any(|g|g.atlas==AtlasKind::Mask));
+    assert!(glyphs.iter().any(|g|g.atlas==AtlasKind::Mask2));
+    assert_eq!((text.evictions(),text.retirements(),text.misses()),(0,0,0));
+    assert_eq!(text.atlas_size(AtlasKind::Mask),text.atlas_size(AtlasKind::Mask2));
+    let pixels:Vec<_>=glyphs.iter().map(|g|texels(&mut text,g)).collect();
+    for frame in 0..8 {
+        mem_sys::local_reset();
+        text.layout(1,"ABCDE",&style,0.0);
+        let mut count=0;
+        text.glyphs(1,(0.0,0.0),1.0,&mut |g| { assert_eq!(g,glyphs[count]); count+=1; });
+        text.end_frame();
+        assert_eq!(mem_sys::local_alloc_count(),0,"warm page replay, frame {frame}");
+        assert_eq!(count,glyphs.len());
+        for (glyph,pixels) in glyphs.iter().zip(&pixels) { assert_eq!(texels(&mut text,glyph),*pixels); }
+    }
+}
+
+#[cfg(target_os="macos")]
+#[test]
+fn second_colour_page_preserves_emoji_pixels_before_eviction() {
+    let mut text=Text::new_sized(&[&pragma()],(64,64),(64,64));
+    text.enable_system_fonts();
+    let style=Style { size:48.0,..Default::default() };
+    text.layout(1,"😀😃",&style,0.0);
+    let glyphs=emitted(&mut text,1);
+    assert_eq!(glyphs.len(),2);
+    assert!(glyphs.iter().any(|g|g.atlas==AtlasKind::Color));
+    assert!(glyphs.iter().any(|g|g.atlas==AtlasKind::Color2));
+    assert_eq!((text.evictions(),text.retirements(),text.misses()),(0,0,0));
+    let pixels:Vec<_>=glyphs.iter().map(|g|texels(&mut text,g)).collect();
+    for _ in 0..4 {
+        mem_sys::local_reset();
+        text.layout(1,"😀😃",&style,0.0);
+        text.glyphs(1,(0.0,0.0),1.0,&mut |_|{});
+        text.end_frame();
+        assert_eq!(mem_sys::local_alloc_count(),0,"warm colour pages allocate nothing");
+        for (glyph,pixels) in glyphs.iter().zip(&pixels) { assert_eq!(texels(&mut text,glyph),*pixels); }
+    }
 }
 
 

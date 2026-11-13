@@ -300,6 +300,33 @@ fn canvas_text_goes_through_the_uis_own_text_service() {
 }
 
 #[test]
+fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
+    let mut ui=Ui::new().unwrap();
+    let style=crate::TextStyle { size_points:600.0,..Default::default() };
+    let mut text=ui.text_service();
+    let first=text.quads(1,"A",&style,0.0,(0.0,0.0),2.0).unwrap();
+    let glyphs=text.quads(1,"ABCDEF",&style,0.0,(0.0,0.0),2.0).unwrap();
+    assert_eq!(glyphs.len(),6);
+    assert_eq!(glyphs[0],first[0],"page growth preserves the first public quad");
+    assert!(glyphs.iter().any(|g|g.atlas==0) && glyphs.iter().any(|g|g.atlas==2));
+    assert!(glyphs.iter().all(|g|g.atlas==0 || g.atlas==2));
+    let (w,h,pixels)=text.rasterize_rgba(1,"ABCDEF",&style,0.0,2.0,[17,33,65,255]).unwrap();
+    let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let (sw,sh,rgba)=shaper.rasterize_rgba(1,"ABCDEF",&style,0.0,2.0,[17,33,65,255]).unwrap();
+    assert_eq!((w,h),(sw,sh));
+    assert_eq!(pixels,rgba,"standalone and UI mirrors sample both pages identically");
+    for glyph in &glyphs {
+        let [x,y,gw,gh]=glyph.rect;
+        assert!((y.max(0.0) as usize..((y+gh).ceil() as usize).min(h as usize)).any(|row| {
+            let start=(row*w as usize+x.max(0.0) as usize)*4;
+            let end=(row*w as usize+((x+gw).ceil() as usize).min(w as usize))*4;
+            pixels[start..end].chunks_exact(4).any(|p|p[3]>0)
+        }),"each page-backed quad has raster coverage: {glyph:?}");
+    }
+    assert_eq!(text.quads(1,"ABCDEF",&style,0.0,(0.0,0.0),2.0).unwrap(),glyphs);
+}
+
+#[test]
 fn value_fields_take_their_options_and_text_edits_are_kept() {
     use crate::opts::ValueFieldOpts;
     use pxui_types::ui::TextEdit;

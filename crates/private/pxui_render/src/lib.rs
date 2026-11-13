@@ -131,7 +131,7 @@ pub fn ramp(stops: &[(f32, [u8; 4])], row: &mut [u8; RAMP_TEXELS * 4]) {
 pub struct Break { pub at_instance: u32, pub texture: Option<Texture> }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AtlasKind { Mask, Color }
+pub enum AtlasKind { Mask, Color, Mask2, Color2 }
 
 /// Frames whose ring regions stay untouched: at most `FRAMES - 1` frames may be in flight on the GPU.
 pub const FRAMES: usize = 3;
@@ -150,6 +150,7 @@ pub struct Painter {
     smooth: Sampler,
     mask: Texture,
     color: Texture,
+    extra_atlases:[Option<Texture>;2],
     depth: bool,
     ring: Buffer,
     ring_ptr: *mut u8,
@@ -229,9 +230,9 @@ fn atlas(device: &Device, label: &str, format: TextureFormat, (width, height): (
 
 /// (binding, shader kind, layout kind, stage).
 type Slot = (i64, BindingKind, LayoutKind, Stage);
-/// The painter: two vertex storage buffers, two textures, the nearest sampler, the colour atlas again
-/// (always the atlas, for gradient ramps, even inside a break) and the linear sampler (`flags::SMOOTH`).
-const UI_SLOTS: [Slot; 7] = [
+/// The painter: two vertex storage buffers, four atlas pages, the current image, and nearest/linear samplers.
+/// The first colour page stays bound separately for gradient ramps, even inside an image break.
+const UI_SLOTS: [Slot; 9] = [
     (0, BindingKind::StorageBuffer, LayoutKind::Buffer, Stage::Vertex),
     (1, BindingKind::StorageBuffer, LayoutKind::Buffer, Stage::Vertex),
     (2, BindingKind::SampledTexture, LayoutKind::Texture, Stage::Fragment),
@@ -239,6 +240,8 @@ const UI_SLOTS: [Slot; 7] = [
     (4, BindingKind::Sampler, LayoutKind::Sampler, Stage::Fragment),
     (5, BindingKind::SampledTexture, LayoutKind::Texture, Stage::Fragment),
     (6, BindingKind::Sampler, LayoutKind::Sampler, Stage::Fragment),
+    (7, BindingKind::SampledTexture, LayoutKind::Texture, Stage::Fragment),
+    (8, BindingKind::SampledTexture, LayoutKind::Texture, Stage::Fragment),
 ];
 /// The blur: one vertex storage buffer (params), the source texture and a sampler.
 const BLUR_SLOTS: [Slot; 3] = [
@@ -285,7 +288,7 @@ impl Painter {
         let region_size = 4096 * 64;
         let (ring, ring_ptr) = host_ring(device, region_size)?;
         Ok(Painter {
-            device: device.clone(), pipeline, sampler, smooth, mask, color, depth: depth != DepthFormat::NoDepth,
+            device: device.clone(), pipeline, sampler, smooth, mask, color,extra_atlases:[None,None], depth: depth != DepthFormat::NoDepth,
             ring, ring_ptr, region_size, region: 0, cursor: 0, retired: Vec::new(),
             views: vec![View::IDENTITY], views_len: 1, headers: [usize::MAX; 4], header_key: ([0, 0], 0), draw_calls: 0, layers: Vec::new(), retained_bytes: 0, blur: None, retired_textures: Vec::new(),
         })
@@ -295,7 +298,7 @@ impl Painter {
     /// immediately: do not overwrite texels a frame still in flight samples (`pxui_text` never does:
     /// its atlas rewrites a shelf only `FRAMES_IN_FLIGHT` = `FRAMES` frames after its last draw).
     pub fn upload(&mut self, atlas: AtlasKind, x: u32, y: u32, w: u32, h: u32, bytes: &[u8], stride: usize) -> Result<(), Error> {
-        let texture = if atlas == AtlasKind::Mask { &self.mask } else { &self.color };
+        let texture = self.atlas(atlas).ok_or_else(||invalid("Painter.upload","atlas page is not prepared"))?;
         backend::write_texture(texture, None, Origin { x: x as i64, y: y as i64, z: 0 }, Extent { width: w as i64, height: h as i64, depth: 1 }, stride as i64, bytes)
     }
 
@@ -332,7 +335,26 @@ impl Painter {
     pub fn draw_calls(&self) -> u64 { self.draw_calls }
     /// Instance bytes [`Painter::draw_retained`] wrote into layer storage since [`Painter::begin_frame`].
     pub fn retained_bytes(&self) -> u64 { self.retained_bytes }
-    pub fn atlas(&self, atlas: AtlasKind) -> &Texture { if atlas == AtlasKind::Mask { &self.mask } else { &self.color } }
+    pub fn atlas(&self, atlas: AtlasKind) -> Option<&Texture> {
+        match atlas { AtlasKind::Mask=>Some(&self.mask),AtlasKind::Color=>Some(&self.color),AtlasKind::Mask2=>self.extra_atlases[0].as_ref(),AtlasKind::Color2=>self.extra_atlases[1].as_ref() }
+    }
+
+    /// Allocate a second page once, outside a render pass. The caller uploads its complete zero-padded
+    /// CPU mirror before drawing; no submission or implicit upload is made here.
+    pub fn prepare_atlas(&mut self,kind:AtlasKind,size:(u32,u32))->Result<(),Error> {
+        let index=match kind { AtlasKind::Mask2=>0,AtlasKind::Color2=>1,_=>return Ok(()) };
+        if let Some(texture)=&self.extra_atlases[index] {
+            let extent=backend::texture_descriptor(texture);
+            if (extent.width,extent.height)!=(size.0 as i64,size.1 as i64) { return Err(invalid("Painter.prepare_atlas","atlas extent changed")); }
+            return Ok(());
+        }
+        let texture=backend::create_texture(&self.device,TextureDescriptor {
+            label:Some("pxui_render.second_atlas".into()),width:size.0 as i64,height:size.1 as i64,depth:1,mip_levels:1,sample_count:1,
+            format:if index==0 { TextureFormat::R8Unorm } else { TextureFormat::Rgba8Unorm },usage:vec![TextureUsage::TextureBinding,TextureUsage::TextureCopyDst],
+        })?;
+        self.extra_atlases[index]=Some(texture);
+        Ok(())
+    }
 
     /// Reserve `need` bytes in this frame's region, growing the ring (a new allocation) if it is full.
     fn reserve(&mut self, need: usize) -> Result<usize, Error> {
@@ -389,7 +411,9 @@ impl Painter {
         backend::set_stage_texture(&pass, ShaderStage::Fragment, 2, &self.mask)?;
         backend::set_stage_sampler(pass, ShaderStage::Fragment, 4, &self.sampler)?;
         backend::set_stage_sampler(pass, ShaderStage::Fragment, 6, &self.smooth)?;
-        backend::set_stage_texture(&pass, ShaderStage::Fragment, 5, &self.color)
+        backend::set_stage_texture(&pass, ShaderStage::Fragment, 5, &self.color)?;
+        backend::set_stage_texture(&pass,ShaderStage::Fragment,7,self.extra_atlases[0].as_ref().unwrap_or(&self.mask))?;
+        backend::set_stage_texture(&pass,ShaderStage::Fragment,8,self.extra_atlases[1].as_ref().unwrap_or(&self.color))
     }
 
     fn write_floats(&self, at: usize, floats: &[f32]) {
@@ -672,6 +696,7 @@ impl Drop for Painter {
         let _ = backend::destroy_sampler(&self.smooth);
         let _ = backend::destroy_texture(&self.mask);
         let _ = backend::destroy_texture(&self.color);
+        for texture in self.extra_atlases.iter().flatten() { let _=backend::destroy_texture(texture); }
         let _ = backend::destroy_buffer(&self.ring);
         for (buffer, _) in &self.retired { let _ = backend::destroy_buffer(buffer); }
         for store in self.layers.iter().flatten() { let _ = backend::destroy_buffer(&store.buffer); }

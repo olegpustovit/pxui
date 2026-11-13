@@ -1,5 +1,5 @@
 //! Text for PXUI: cosmic-text shaping/bidi/wrapping/fallback behind a small concrete API, a layout
-//! cache keyed by a caller-supplied node key, and two glyph atlases (R8 mask, RGBA8 colour) that
+//! cache keyed by a caller-supplied node key, and two pages each of R8 mask and RGBA8 colour atlases that
 //! are exposed as dirty rectangles. The only workspace crate with an external dependency.
 //!
 //! ```text
@@ -104,6 +104,12 @@ pub enum Ellipsis {
 pub enum AtlasKind {
     Mask,
     Color,
+    Mask2,
+    Color2,
+}
+impl AtlasKind {
+    pub const ALL:[Self;4]=[Self::Mask,Self::Color,Self::Mask2,Self::Color2];
+    pub fn is_mask(self)->bool { matches!(self,Self::Mask|Self::Mask2) }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -256,12 +262,12 @@ pub fn env_locale() -> String {
 /// `pxui_render`'s `FRAMES` (3) ring regions, so texels last drawn at frame `f` are free at `f + 3`.
 pub const FRAMES_IN_FLIGHT: u32 = 3;
 
-/// A set of atlas shelves, one bit per shelf of either atlas (`shelf_bit`; shelves past 256 share
+/// A set of atlas shelves, one bit per shelf of all four pages (`shelf_bit`; shelves past 128 per page share
 /// bits, which only keeps more shelves).
-pub type Shelves = [u64; 4];
+pub type Shelves = [u64; 8];
 
 fn shelf_bit(kind: AtlasKind, shelf: u16) -> (usize, u64) {
-    let bit = (shelf as usize * 2 + idx(kind)) % 256;
+    let bit = (shelf as usize * 4 + idx(kind)) % 512;
     (bit / 64, 1 << (bit % 64))
 }
 
@@ -316,7 +322,7 @@ impl Atlas {
     /// `FRAMES_IN_FLIGHT` frames ago. With no such shelf the least recently used one no frame
     /// in flight drew is retired (`Alloc::Retired`): its glyphs go, its texels stay until the frames
     /// showing them are done, and the caller rebuilds what showed them.
-    fn alloc(&mut self, kind: AtlasKind, w: u32, h: u32, frame: u32, pinned: &Shelves) -> Alloc {
+    fn alloc(&mut self, kind: AtlasKind, w: u32, h: u32, frame: u32, pinned: &Shelves, reuse:Reuse) -> Alloc {
         let (pw, ph) = (w + 1, h + 1);
         if pw > self.w || ph > self.h {
             return Alloc::Full;
@@ -333,6 +339,7 @@ impl Atlas {
             self.next_y += ph;
             (self.shelves.len() - 1, false)
         } else {
+            if reuse==Reuse::Fresh { return Alloc::Full; }
             let unpinned = |i: usize| {
                 let (word, bit) = shelf_bit(kind, i as u16);
                 pinned[word] & bit == 0
@@ -347,6 +354,7 @@ impl Atlas {
                     (i, true)
                 }
                 None => {
+                    if reuse==Reuse::Free { return Alloc::Full; }
                     let Some(i) = lru(&self.shelves, &|_, s: &Shelf| s.h > 0 && open(s) && s.used + FRAMES_IN_FLIGHT <= frame) else { return Alloc::Full };
                     let s = &mut self.shelves[i];
                     (s.retired, s.generation) = (frame, s.generation.wrapping_add(1));
@@ -417,6 +425,9 @@ enum Alloc {
     Full,
 }
 
+#[derive(Clone,Copy,PartialEq)]
+enum Reuse { Fresh,Free,Retire }
+
 /// A glyph of a layout as `glyphs` replays it: its cache key (with the subpixel bin it had), its
 /// position before `physical` (`x + x_offset`, `y - y_offset`, its run's `line_y`) and its slot.
 #[derive(Clone, Copy)]
@@ -439,7 +450,7 @@ pub const CACHE_BYTES: usize = 4 << 20;
 struct Glyphs {
     fs: FontSystem,
     swash: SwashCache,
-    atlases: [Atlas; 2],
+    atlases: [Atlas; 4],
     slots: HashMap<CacheKey, Slot, Fast>,
     dirty: Vec<(AtlasKind, u32, u32, u32, u32)>,
     evictions: u64,
@@ -463,31 +474,37 @@ impl Glyphs {
         let empty = Slot { kind: AtlasKind::Mask, shelf: 0, generation: 0, x: 0, y: 0, w: 0, h: 0, left: 0, top: 0 };
         let Some(img) = self.swash.get_image_uncached(&mut self.fs, key) else { return Some(empty) };
         let (w, h) = (img.placement.width, img.placement.height);
-        let kind = match img.content {
+        let primary = match img.content {
             SwashContent::Mask => AtlasKind::Mask,
             SwashContent::Color => AtlasKind::Color,
             SwashContent::SubpixelMask => return Some(empty),
         };
-        let a = &mut self.atlases[idx(kind)];
-        let bpp = a.bpp;
-        let mut s = Slot { kind, shelf: 0, generation: 0, x: 0, y: 0, w, h, left: img.placement.left, top: img.placement.top };
+        let bpp = self.atlases[idx(primary)].bpp;
+        let mut s = Slot { kind:primary, shelf: 0, generation: 0, x: 0, y: 0, w, h, left: img.placement.left, top: img.placement.top };
         if w > 0 && h > 0 {
             if img.data.len() != (w * h * bpp) as usize {
                 return Some(empty);
             }
-            let (x, y, shelf, evicted) = match a.alloc(kind, w, h, self.frame, &self.pinned) {
-                Alloc::At(x, y, shelf, evicted) => (x, y, shelf, evicted),
-                Alloc::Retired => {
-                    (self.evictions, self.retirements, self.misses) = (self.evictions + 1, self.retirements + 1, self.misses + 1);
-                    let shelves = &a.shelves;
-                    self.slots.retain(|_, o| o.kind != kind || o.w == 0 || o.h == 0 || shelves[o.shelf as usize].generation == o.generation);
-                    return None;
+            let second=if primary==AtlasKind::Mask { AtlasKind::Mask2 } else { AtlasKind::Color2 };
+            let mut found=None;
+            'search: for reuse in [Reuse::Fresh,Reuse::Free,Reuse::Retire] {
+                for kind in [primary,second] {
+                    let a=&mut self.atlases[idx(kind)];
+                    match a.alloc(kind,w,h,self.frame,&self.pinned,reuse) {
+                        Alloc::At(x,y,shelf,evicted)=>{ found=Some((kind,x,y,shelf,evicted)); break 'search; }
+                        Alloc::Retired=>{
+                            (self.evictions,self.retirements,self.misses)=(self.evictions+1,self.retirements+1,self.misses+1);
+                            let shelves=&a.shelves;
+                            self.slots.retain(|_,o|o.kind!=kind || o.w==0 || o.h==0 || shelves[o.shelf as usize].generation==o.generation);
+                            return None;
+                        }
+                        Alloc::Full=>{}
+                    }
                 }
-                Alloc::Full => {
-                    self.misses += 1;
-                    return None;
-                }
-            };
+            }
+            let Some((kind,x,y,shelf,evicted))=found else { self.misses+=1; return None };
+            let a=&mut self.atlases[idx(kind)];
+            s.kind=kind;
             for row in 0..h {
                 let src = (row * w * bpp) as usize;
                 let dst = (((y + row) * a.w + x) * bpp) as usize;
@@ -611,15 +628,15 @@ impl Text {
             g: Glyphs {
                 fs: FontSystem::new_with_locale_and_db(locale.into(), fontdb::Database::new()),
                 swash: SwashCache::new(),
-                atlases: [Atlas::new(mask, 1), Atlas::new(color, 4)],
+                atlases: [Atlas::new(mask, 1), Atlas::new(color, 4),Atlas::new(mask,1),Atlas::new(color,4)],
                 slots: HashMap::default(),
                 dirty: Vec::new(),
                 evictions: 0,
                 retirements: 0,
                 misses: 0,
                 frame: 1,
-                marks: [0; 4],
-                pinned: [0; 4],
+                marks: [0; 8],
+                pinned: [0; 8],
             },
             names: Vec::new(),
             system:None,
@@ -709,7 +726,7 @@ impl Text {
             cached: false,
             cached_scale: 0,
             cached_evictions: 0,
-            shelves: [0; 4],
+            shelves: [0; 8],
         });
         e.frame = frame;
         e.cached = false;
@@ -879,7 +896,7 @@ impl Text {
         let Text { g, entries, walks, cache_on, cache_bytes, .. } = self;
         let Some(e) = entries.get_mut(&key) else { return };
         if e.cached && e.cached_scale == scale.to_bits() && e.cached_evictions == g.evictions {
-            for k in 0..4 {
+            for k in 0..8 {
                 g.marks[k] |= e.shelves[k];
             }
             let (ox, start) = (origin.0 * scale, g.evictions);
@@ -905,7 +922,7 @@ impl Text {
         let keep = *cache_on && *cache_bytes < CACHE_BYTES;
         *cache_bytes -= e.glyphs.capacity() * size_of::<CachedGlyph>();
         e.glyphs.clear();
-        e.shelves = [0; 4];
+        e.shelves = [0; 8];
         e.cached = keep;
         let spans=e.rich.as_ref().and_then(|r|r.spans.as_slice()).unwrap_or(&[]);
         let (mut line,mut base)=(0,0);
@@ -964,6 +981,9 @@ impl Text {
         (a.w, a.h)
     }
 
+    /// The first pages exist at startup; second pages become active with their first CPU texels.
+    pub fn atlas_active(&self,kind:AtlasKind)->bool { idx(kind)<2 || !self.g.atlases[idx(kind)].px.is_empty() }
+
     /// Heap held by the atlas mirrors and the layouts' glyph lists (`CACHE_BYTES` plus at most one
     /// list); cosmic-text's layout buffers are not counted.
     pub fn bytes(&self) -> usize {
@@ -1016,7 +1036,7 @@ impl Text {
     /// Adds `shelves` to the marks (output kept from earlier frames that shows them).
     #[inline]
     pub fn add_marks(&mut self, shelves: &Shelves) {
-        for k in 0..4 {
+        for k in 0..8 {
             self.g.marks[k] |= shelves[k];
         }
     }

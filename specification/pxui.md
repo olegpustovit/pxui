@@ -655,9 +655,10 @@ closures outlive the build, and they live in the frame arena. Public functions t
 **Designed limits.** Deliberate bounds of this design, each with the reason it stays; a change
 needs a measurement that shows it.
 
-- A glyph that finds no atlas room free of frames in flight and kept output waits a frame (the `Ui`
-  requests one; `Text::misses`). A second atlas page would bind one more texture per layer, a
-  draw-call break; at the atlas sizes (1024x2048 R8, 1024x1024 RGBA8) a UI's working set fits.
+- Each glyph kind has two fixed pages (1024x2048 R8 mask, 1024x1024 RGBA8 colour per page).
+  Second pages allocate on first use; instance flags select them in the same draw, preserving old
+  texture handles and UVs. After both pages fill, a glyph that finds no room free of frames in
+  flight and kept output waits a frame (the `Ui` requests one; `Text::misses`).
 - View table: 65,535 live views with an entry (the instance's 16-bit `view`, inside the 64-byte
   instance). Past that a view bakes its offset into layout and rebuilds when it moves (no opacity or
   clip of its own). The painter writes the table once per first-instance offset per frame (at most

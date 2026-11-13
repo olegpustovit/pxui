@@ -163,6 +163,12 @@ typedef struct { uint32_t size,count; PxuiTextSpan spans[8]; } PxuiTextSpans;
 #define PXUI_TEXT_SPAN_UNDERLINE 4u
 typedef struct { float width,height,baseline; uint32_t lines; } PxuiTextMetrics;
 typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
+#define PXUI_ATLAS_MASK 0u
+#define PXUI_ATLAS_COLOR 1u
+#define PXUI_ATLAS_MASK_2 2u
+#define PXUI_ATLAS_COLOR_2 3u
+/* Mask/image glyph instance flag: use the second fixed atlas page. */
+#define PXUI_GLYPH_PAGE_2 2u
 typedef struct {
     uint32_t size;
     const PxuiEvent *events;
@@ -561,7 +567,7 @@ int32_t pxui_renderer_resize(PxuiRenderer *renderer, uint32_t width, uint32_t he
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
 /* The draw calls the renderer has issued so far. */
 uint64_t pxui_renderer_draw_calls(PxuiRenderer *renderer);
-int32_t pxui_renderer_atlas(PxuiRenderer *renderer, uint32_t kind, PxuiImage *out); /* kind 0: mask atlas (one byte per texel), 1: colour atlas (RGBA8); the texture stays the renderer's */
+int32_t pxui_renderer_atlas(PxuiRenderer *renderer, uint32_t kind, PxuiImage *out); /* PXUI_ATLAS_*: mask R8, colour RGBA8; second pages return ERR_STATE until prepared. The texture stays the renderer's. */
 void pxui_renderer_destroy(PxuiRenderer *renderer);
 
 /* Queries and switches on the Ui as a whole. Text results are borrowed until the next frame. */

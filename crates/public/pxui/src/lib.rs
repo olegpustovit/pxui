@@ -247,13 +247,14 @@ impl Renderer {
 
 /// A glyph atlas of the renderer, for an app pass that draws text quads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AtlasKind { Mask, Color }
+pub enum AtlasKind { Mask, Color, Mask2, Color2 }
 
 impl Renderer {
-    /// The native handle of an atlas texture: one byte per texel for `Mask`, RGBA8 for `Color`. It stays the renderer's.
+    /// The renderer's atlas: R8 for `Mask`/`Mask2`, RGBA8 for `Color`/`Color2`.
+    /// Second pages return `PXUI_ERR_STATE` until a prepare uploads their first glyphs.
     pub fn atlas(&self, kind: AtlasKind) -> Result<pxui_types::Image, i32> {
         let mut out = pxui_types::Image::default();
-        let rc = unsafe { sys::pxui_renderer_atlas(self.raw.as_ptr(), matches!(kind, AtlasKind::Color) as u32, &mut out) };
+        let rc = unsafe { sys::pxui_renderer_atlas(self.raw.as_ptr(), kind as u32, &mut out) };
         if rc == 0 { Ok(out) } else { Err(rc) }
     }
 }

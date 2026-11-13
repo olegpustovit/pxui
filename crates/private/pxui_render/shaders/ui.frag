@@ -7,6 +7,8 @@ layout(set = 0, binding = 3) uniform texture2D color_tex;
 layout(set = 0, binding = 4) uniform sampler samp;
 layout(set = 0, binding = 5) uniform texture2D atlas_tex;
 layout(set = 0, binding = 6) uniform sampler smooth_samp;
+layout(set = 0, binding = 7) uniform texture2D mask2_tex;
+layout(set = 0, binding = 8) uniform texture2D color2_tex;
 layout(location = 0) in vec4 v_pos;
 layout(location = 1) flat in vec4 v_rect;
 layout(location = 2) flat in vec4 v_radii;
@@ -115,10 +117,11 @@ void main() {
   if (clip_cov <= 0.0) discard;
   vec4 col;
   if (kind == MASK) {
-    col = vec4(v_color.rgb, v_color.a * textureLod(sampler2D(mask_tex, samp), v_pos.zw, 0.0).r);
+    float mask = (flags & 2u) != 0u ? textureLod(sampler2D(mask2_tex,samp),v_pos.zw,0.0).r : textureLod(sampler2D(mask_tex,samp),v_pos.zw,0.0).r;
+    col = vec4(v_color.rgb, v_color.a * mask);
   } else if (kind == IMAGE) {
     // SMOOTH (bit 0): a scaled picture, filtered linearly; glyphs and atlas images stay nearest
-    col = v_color * ((flags & 1u) != 0u ? textureLod(sampler2D(color_tex, smooth_samp), v_pos.zw, 0.0) : textureLod(sampler2D(color_tex, samp), v_pos.zw, 0.0));
+    col = v_color * ((flags & 2u) != 0u ? textureLod(sampler2D(color2_tex,samp),v_pos.zw,0.0) : ((flags & 1u) != 0u ? textureLod(sampler2D(color_tex, smooth_samp), v_pos.zw, 0.0) : textureLod(sampler2D(color_tex, samp), v_pos.zw, 0.0)));
     if (dot(v_radii, vec4(1.0)) > 0.0) col.a *= cover(sd_rect(p, v_rect, v_radii), px);
   } else if (kind == RECT) {
     float d = sd_rect(p, v_rect, v_radii);

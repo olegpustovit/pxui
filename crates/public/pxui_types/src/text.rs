@@ -66,6 +66,7 @@ pub struct TextMetrics {
 pub struct TextGlyph {
     pub rect: [f32; 4],
     pub uv: [f32; 4],
+    /// 0/1: first mask/colour pages; 2/3: second mask/colour pages (ABI 1.7).
     pub atlas: u32,
     pub reserved: u32,
 }

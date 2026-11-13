@@ -62,7 +62,11 @@ pub fn painter(ui: &mut Ui) -> Painter {
     let text = ui.text_mut();
     let (mask, color) = (text.atlas_size(TextKind::Mask), text.atlas_size(TextKind::Color));
     let mut painter = ok(Painter::new(&device, ColorFormat::Rgba8Unorm, DepthFormat::NoDepth, 1, mask, color));
-    for (kind, atlas, texel, (w, h)) in [(TextKind::Mask, AtlasKind::Mask, 1, mask), (TextKind::Color, AtlasKind::Color, 4, color)] {
+    for (kind, atlas) in [(TextKind::Mask,AtlasKind::Mask),(TextKind::Color,AtlasKind::Color),(TextKind::Mask2,AtlasKind::Mask2),(TextKind::Color2,AtlasKind::Color2)] {
+        if !text.atlas_active(kind) { continue; }
+        let (w,h)=text.atlas_size(kind);
+        let texel=if kind.is_mask() { 1 } else { 4 };
+        ok(painter.prepare_atlas(atlas,(w,h)));
         ok(painter.upload(atlas, 0, 0, w, h, text.atlas_pixels(kind), (w * texel) as usize));
     }
     text.drain_uploads(&mut |_, _, _, _, _, _, _| {});
@@ -84,7 +88,13 @@ pub fn render_with(painter: &mut Painter, ui: &mut Ui, size: (u32, u32), density
     let mut uploads = Vec::new();
     ui.text_mut().drain_uploads(&mut |kind, x, y, w, h, bytes, stride| uploads.push((kind, x, y, w, h, bytes.to_vec(), stride)));
     for (kind, x, y, w, h, bytes, stride) in uploads {
-        let atlas = if kind == TextKind::Mask { AtlasKind::Mask } else { AtlasKind::Color };
+        let atlas = match kind { TextKind::Mask=>AtlasKind::Mask,TextKind::Color=>AtlasKind::Color,TextKind::Mask2=>AtlasKind::Mask2,TextKind::Color2=>AtlasKind::Color2 };
+        if painter.atlas(atlas).is_none() {
+            let (w,h)=ui.text_mut().atlas_size(kind);
+            ok(painter.prepare_atlas(atlas,(w,h)));
+            let texel=if kind.is_mask() { 1 } else { 4 };
+            ok(painter.upload(atlas,0,0,w,h,ui.text_mut().atlas_pixels(kind),(w*texel) as usize));
+        }
         ok(painter.upload(atlas, x, y, w, h, &bytes, stride));
     }
     let (w, h) = (size.0 * density, size.1 * density);

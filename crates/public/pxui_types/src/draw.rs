@@ -23,6 +23,8 @@ pub mod flags {
     /// An image (kind 2) sampled with the painter's linear filter: a picture drawn at any size
     /// (`Paint::image_fit`). Without it images sample nearest, as glyphs do.
     pub const SMOOTH: u8 = 1;
+    /// Mask/image glyphs use the second fixed atlas page, independent of image breaks.
+    pub const GLYPH_PAGE_2: u8 = 2;
     pub const INNER: u8 = 4;
     pub const ROUND: u8 = 8;
     /// Rect border sides (bits 4–7); none set, or all four, borders every side.
