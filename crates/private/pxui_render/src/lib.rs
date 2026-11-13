@@ -14,7 +14,7 @@
 //! // backdrop blur: end the pass that drew the backdrop, blur, then draw the result as an image
 //! painter.prepare_blur([w_px, h_px])?; // at startup/resize, before recording a frame
 //! let blurred = painter.blur(&queue, &backdrop, [x0, y0, x1, y1], sigma_px)?;
-//! painter.draw(&encoder, .., &[Instance::image(rect, blurred.uv, tint)], &[Break { at_instance: 0, texture: Some(&blurred.texture) }])?;
+//! painter.draw(&encoder, .., &[Instance::image(rect, blurred.uv, tint)], &[Break { at_instance: 0, texture: Some(blurred.texture.clone()) }])?;
 //! ```
 //!
 //! # Conventions (same as the Lisp `ui` shader this replaces)
@@ -126,8 +126,9 @@ pub fn ramp(stops: &[(f32, [u8; 4])], row: &mut [u8; RAMP_TEXELS * 4]) {
 }
 
 /// From `at_instance` on, [`kind::IMAGE`] instances sample `texture` (`None`: the colour atlas).
-#[derive(Clone, Copy)]
-pub struct Break<'a> { pub at_instance: u32, pub texture: Option<&'a Texture> }
+/// Texture handles clone without allocating, so callers can retain boundary storage between draws.
+#[derive(Clone)]
+pub struct Break { pub at_instance: u32, pub texture: Option<Texture> }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AtlasKind { Mask, Color }
@@ -419,7 +420,7 @@ impl Painter {
         let segment = |k: usize| {
             let from = if k == 0 { 0 } else { breaks[k - 1].at_instance as usize };
             let to = breaks.get(k).map_or(instances.len(), |b| b.at_instance as usize);
-            (&instances[from..to], if k == 0 { None } else { breaks[k - 1].texture })
+            (&instances[from..to], if k == 0 { None } else { breaks[k - 1].texture.as_ref() })
         };
         let header = align(16 + self.views_len * VIEW_BYTES);
         let need = header + (0..=breaks.len()).map(|k| align(segment(k).0.len() * 64)).sum::<usize>();
@@ -643,7 +644,7 @@ impl Painter {
             // Bind 4-instance (256-byte) aligned and skip the remainder with the globals' first-instance field.
             let start = self.header(size_px, scale, (from % 4) as u32)?;
             self.bind(&pass, start)?;
-            let texture = if k == 0 { None } else { breaks[k - 1].texture }.unwrap_or(&self.color);
+            let texture = if k == 0 { None } else { breaks[k - 1].texture.as_ref() }.unwrap_or(&self.color);
             if bound != Some(texture as *const Texture) {
                 backend::set_stage_texture(&pass, ShaderStage::Fragment, 3, texture)?;
                 bound = Some(texture);

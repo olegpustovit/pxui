@@ -34,6 +34,7 @@ pub struct PxuiRenderer {
     prepared: Option<gpu_backend::Commands>,
     drawn: Option<(gpu_backend::Commands, gpu_backend::RenderEncoder)>,
     split_points: Vec<u32>,
+    breaks: Vec<Break>,
     blur_commands: Option<gpu_backend::Commands>,
 }
 
@@ -95,7 +96,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: &pxui_types::Gpu, target: PxuiTargetDesc) -
         Ok(p)=>p,
         Err(e)=>{ let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err(describe(e)); }
     };
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false, prepared:None, drawn:None, split_points:Vec::new(), blur_commands:None })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false, prepared:None, drawn:None, split_points:Vec::new(), breaks:Vec::new(), blur_commands:None })
 }
 
 // Makes a renderer for the owner `Ui` (never a callback's borrowed handle) outside a frame; null, with the reason in
@@ -229,9 +230,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     let mut encoder=encoder;
     for index in first..end {
         let layer=&ui.output().draw[index];
-        // Adopt foreign textures before building `Break` references. Keeping those
-        // references alive while inserting another texture would borrow the map
-        // immutably across a mutation.
+        // Cache foreign wrappers before building this layer's texture bindings.
         for b in &layer.breaks {
             if b.image==pxui_core::draw::ATLAS { continue; }
             let Some(image)=layer.images.get(b.image as usize) else { continue; };
@@ -249,34 +248,27 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         renderer.split_points.extend(ui.output().blurs.iter().filter(|b| b.layer==index && (b.at_instance as usize)<layer.instances.len()).map(|b| b.at_instance));
         renderer.split_points.sort_unstable();
         renderer.split_points.dedup();
-        // shortcut: layers past 64 boundaries still allocate, remove with the remaining blurred-draw allocations.
-        let none=Break { at_instance:0, texture:None };
-        let mut stack=[none;64];
-        let mut heap: Vec<Break>=Vec::new();
-        let capacity=layer.breaks.len()+renderer.split_points.len();
-        let slots: &mut [Break]=if capacity<=64 { &mut stack[..capacity] } else { heap.resize(capacity,none); &mut heap[..] };
-        for (slot,b) in slots.iter_mut().zip(&layer.breaks) {
+        renderer.breaks.clear();
+        renderer.breaks.reserve(layer.breaks.len()+renderer.split_points.len());
+        for b in &layer.breaks {
             let texture=if b.image==pxui_core::draw::ATLAS { None } else if let Some(image)=layer.images.get(b.image as usize) {
-                if let Some(texture)=image.handle.downcast_ref::<Texture>() { Some(texture) }
-                else { crate::image::texture_key(image).and_then(|key|renderer.textures.get(&key).map(|e|&e.texture)) }
+                if let Some(texture)=image.handle.downcast_ref::<Texture>() { Some(texture.clone()) }
+                else { crate::image::texture_key(image).and_then(|key|renderer.textures.get(&key).map(|e|e.texture.clone())) }
             } else { None };
-            *slot=Break { at_instance:b.at_instance, texture };
+            renderer.breaks.push(Break { at_instance:b.at_instance, texture });
         }
-        let mut count=layer.breaks.len();
         for &at in &renderer.split_points {
-            let i=slots[..count].partition_point(|b| b.at_instance<at);
-            if i==count || slots[i].at_instance!=at {
-                let texture=i.checked_sub(1).and_then(|j| slots[j].texture);
-                slots.copy_within(i..count,i+1);
-                slots[i]=Break { at_instance:at, texture };
-                count+=1;
+            let i=renderer.breaks.partition_point(|b| b.at_instance<at);
+            if i==renderer.breaks.len() || renderer.breaks[i].at_instance!=at {
+                let texture=i.checked_sub(1).and_then(|j| renderer.breaks[j].texture.clone());
+                renderer.breaks.insert(i,Break { at_instance:at, texture });
             }
         }
-        let breaks=&slots[..count];
+        let breaks=&renderer.breaks;
         let result=if renderer.split_points.is_empty() {
             renderer.painter.draw_retained(&encoder,size_px,pass.scale,layer.id,&layer.instances,&layer.dirty,breaks)
         } else {
-            let Some(split)=pass.split else { return renderer.fail(PXUI_ERR_STATE, "a layer with a backdrop blur needs the pass's split callback") };
+            let Some(split)=pass.split else { renderer.breaks.clear(); return renderer.fail(PXUI_ERR_STATE, "a layer with a backdrop blur needs the pass's split callback") };
             let (queue,device,format,samples,serial)=(&renderer.queue,&renderer.device,renderer.format,renderer.samples,renderer.frame_serial);
             let (native_commands,scale)=([pass.vk_command_buffer,pass.mtl_command_buffer],pass.scale);
             let mut reopened: Option<ogpu_core::backend::RenderEncoder>=None;
@@ -306,7 +298,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                     let (alpha,radius)=((255.0*b.opacity.clamp(0.0,1.0)).round() as u8,b.radii.iter().fold(0.0f32,|a,r|a.max(*r)));
                     let clip=[b.rect.x.floor(),b.rect.y.floor(),(b.rect.x+b.rect.w).ceil(),(b.rect.y+b.rect.h).ceil()].map(|v|v as i16);
                     let image=Instance::image(rect,blurred.uv,[alpha;4]).clip(clip,radius);
-                    painter.draw(&encoder,size_px,scale,&[image],&[Break { at_instance:0, texture:Some(&blurred.texture) }])?;
+                    painter.draw(&encoder,size_px,scale,&[image],&[Break { at_instance:0, texture:Some(blurred.texture.clone()) }])?;
                     latest=Some(encoder);
                 }
                 if latest.is_some() { reopened=latest.clone(); }
@@ -315,6 +307,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
             if let Some(next)=reopened { encoder=next; }
             outcome
         };
+        renderer.breaks.clear();
         if let Err(e)=result { return renderer.fail_gpu(e); }
         ui.drawn(index);
     }

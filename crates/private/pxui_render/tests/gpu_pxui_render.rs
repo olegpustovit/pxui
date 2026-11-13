@@ -185,6 +185,7 @@ fn main() {
         ("shared_teardown", shared_teardown),
         ("shared_frame_serials", shared_frame_serials),
         ("shared_backdrop_blur", shared_backdrop_blur),
+        ("shared_large_blurred_layer_allocates_nothing", shared_large_blurred_layer_allocates_nothing),
         #[cfg(target_os="macos")]
         ("shared_backdrop_blur_bgra", shared_backdrop_blur_bgra),
         ("shared_backdrop_blur_requires_resize_without_leaking", shared_backdrop_blur_requires_resize_without_leaking),
@@ -192,6 +193,7 @@ fn main() {
         ("shared_resize_validation", shared_resize_validation),
         ("shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source", shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source),
         ("shared_skipped_draws", shared_skipped_draws),
+        ("shared_large_image_layer_allocates_nothing", shared_large_image_layer_allocates_nothing),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--ignored") { return; }
@@ -273,7 +275,7 @@ fn gpu_one_draw_per_layer() {
     painter.begin_frame();
     pass(&queue, &target, &mut |encoder| ok(painter.draw(encoder, [W * SCALE, H * SCALE], SCALE as f32, &rows, &[])));
     assert_eq!(painter.draw_calls(), 1, "clips do not split a layer");
-    let breaks = [Break { at_instance: 100, texture: Some(&external) }, Break { at_instance: 200, texture: None }];
+    let breaks = [Break { at_instance: 100, texture: Some(external.clone()) }, Break { at_instance: 200, texture: None }];
     painter.begin_frame();
     pass(&queue, &target, &mut |encoder| ok(painter.draw(encoder, [W * SCALE, H * SCALE], SCALE as f32, &rows, &breaks)));
     assert_eq!(painter.draw_calls(), 4, "two breaks make three draws");
@@ -442,7 +444,7 @@ fn gpu_ramp_gradient() {
     let instances = [bar(0.0), bar(40.0)];
     painter.begin_frame();
     // Row 40 is drawn after a break onto an external texture: ramps still read the atlas.
-    let breaks = [Break { at_instance: 1, texture: Some(&external) }];
+    let breaks = [Break { at_instance: 1, texture: Some(external.clone()) }];
     pass(&queue, &target, &mut |encoder| ok(painter.draw(encoder, [W * SCALE, H * SCALE], SCALE as f32, &instances, &breaks)));
     let pixels = ok(be::read_texture(&target, (W * SCALE * 4) as i64));
     for texture in [&target, &external] { ok(be::destroy_texture(texture)); }
@@ -526,7 +528,7 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
     let external = texture(&device, 4, 4, &[TextureUsage::TextureBinding, TextureUsage::TextureCopyDst]);
     ok(be::write_texture(&external, None, Origin { x: 0, y: 0, z: 0 }, Extent { width: 4, height: 4, depth: 1 }, 16, &[255; 64]));
     // A break at instance 14 (not a multiple of 4) puts the image on the external texture.
-    let breaks = [Break { at_instance: 14, texture: Some(&external) }];
+    let breaks = [Break { at_instance: 14, texture: Some(external.clone()) }];
     let size = [W * SCALE, H * SCALE];
     let mut instances = scene();
     let count = instances.len() as u64;
@@ -602,7 +604,7 @@ fn gpu_smooth_image() {
     let row = |painter: &mut Painter, flags: u8| {
         let image = [Instance { flags, ..Instance::image([0.0, 0.0, W as f32, H as f32], [0.0, 0.0, 1.0, 1.0], [255; 4]) }];
         painter.begin_frame();
-        pass(&queue, &shown, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &image, &[Break { at_instance: 0, texture: Some(&edge) }])));
+        pass(&queue, &shown, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &image, &[Break { at_instance: 0, texture: Some(edge.clone()) }])));
         middle_row(&ok(be::read_texture(&shown, (size[0] * 4) as i64)), size[0] as usize)
     };
     let (w, smooth, hard) = (size[0] as usize, row(&mut painter, flags::SMOOTH), row(&mut painter, 0));
@@ -622,7 +624,7 @@ fn gpu_smooth_image() {
         let s = SCALE as f32;
         let image = [Instance { flags, ..Instance::image([10.0, 10.0, 10.0 + 4.0 / s, 10.0 + 4.0 / s], [0.0, 0.0, 1.0, 1.0], [255; 4]) }];
         painter.begin_frame();
-        pass(&queue, &shown, &mut |encoder| ok(painter.draw(encoder, size, s, &image, &[Break { at_instance: 0, texture: Some(&checker) }])));
+        pass(&queue, &shown, &mut |encoder| ok(painter.draw(encoder, size, s, &image, &[Break { at_instance: 0, texture: Some(checker.clone()) }])));
         let px = ok(be::read_texture(&shown, (size[0] * 4) as i64));
         (0..16).map(|i| at(&px, 10.0 + ((i % 4) as f32 + 0.5) / s, 10.0 + ((i / 4) as f32 + 0.5) / s)).collect::<Vec<_>>()
     };
@@ -771,7 +773,7 @@ fn gpu_backdrop_blur() {
     // The blurred texture drawn as an image through a break, tinted white, into a fresh target.
     let shown = target(&device);
     let image = [Instance::image([0.0, 0.0, 128.0, 96.0], blurred.uv, [255, 255, 255, 255])];
-    pass(&queue, &shown, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &image, &[Break { at_instance: 0, texture: Some(&blurred.texture) }])));
+    pass(&queue, &shown, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &image, &[Break { at_instance: 0, texture: Some(blurred.texture.clone()) }])));
     let direct = read_blurred(&blurred);
     let shown_pixels = ok(be::read_texture(&shown, (size[0] * 4) as i64));
     assert_eq!(blurred_width(&blurred), 128);
@@ -812,7 +814,7 @@ fn gpu_backdrop_blur_panel() {
     pass(&queue, &target, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &edge, &[])));
     let blurred = ok(painter.blur(&queue, &target, region, 8.0)).clone();
     let glass = [Instance::image(panel, blurred.uv, [128, 128, 128, 255]).radii([12.0; 4])];
-    pass_with(&queue, &target, Load::Load, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &glass, &[Break { at_instance: 0, texture: Some(&blurred.texture) }])));
+    pass_with(&queue, &target, Load::Load, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &glass, &[Break { at_instance: 0, texture: Some(blurred.texture.clone()) }])));
     let pixels = ok(be::read_texture(&target, (size[0] * 4) as i64));
     let red = |x: f32, y: f32| at(&pixels, x, y)[0] as i32;
     assert_eq!((red(20.0, 48.0), red(110.0, 48.0)), (0, 255), "outside the view the backdrop is untouched");
@@ -984,11 +986,12 @@ fn shared_teardown() {
 /// the app ends its pass, the library records the blur and the app reopens the pass.
 /// Those targets must be in the layout the frame reads them in when the app's buffer runs: the fatal
 /// validation device fails the submit otherwise (UNASSIGNED-CoreValidation-DrawState-InvalidImageLayout).
-fn shared_backdrop_blur() { shared_backdrop_blur_case(true, false); }
-fn shared_backdrop_blur_requires_resize_without_leaking() { shared_backdrop_blur_case(false, false); }
-fn shared_draw_callback_refuses_nested_renderer_resize() { shared_backdrop_blur_case(true, true); }
+fn shared_backdrop_blur() { shared_backdrop_blur_case(true, false, false); }
+fn shared_large_blurred_layer_allocates_nothing() { shared_backdrop_blur_case(true, false, true); }
+fn shared_backdrop_blur_requires_resize_without_leaking() { shared_backdrop_blur_case(false, false, false); }
+fn shared_draw_callback_refuses_nested_renderer_resize() { shared_backdrop_blur_case(true, true, false); }
 
-fn shared_backdrop_blur_case(prepared: bool, reenter: bool) {
+fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
     use pxui::ui::{Look, Node, Size};
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
@@ -996,6 +999,12 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool) {
     let mut host_targets: [be::PreparedRenderTarget; 3] = std::array::from_fn(|i| ok(be::prepare_render_target(&device, RenderTarget {
         colors: vec![ColorAttachment { texture:targets[i].clone(), resolve:None, load:Load::Load, store:Store::Store, clear:(0.0,0.0,0.0,0.0) }], depth:None,
     })));
+    let sources: Vec<Texture>=(0..if large { 2 } else { 0 }).map(|_| texture(&device,1,1,&[TextureUsage::TextureBinding,TextureUsage::TextureCopyDst])).collect();
+    let images: Vec<pxui_types::Image>=sources.iter().map(|source| {
+        ok(be::write_texture(source,None,Origin { x:0,y:0,z:0 },Extent { width:1,height:1,depth:1 },4,&[0;4]));
+        let native=ok(be::native_texture(source));
+        pxui_types::Image { vk_image_view:native.vk_image_view,mtl_texture:native.mtl_texture,width:1,height:1,format:native.format,..Default::default() }
+    }).collect();
     let mut host_commands: Option<be::Commands> = None;
     let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
     let glass = std::cell::Cell::new(None);
@@ -1004,7 +1013,13 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool) {
     let build = |ui: &mut pxui::Ui| {
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             glass.set(Some(ui.view("glass", 1, Size::Px(160.0), Size::Px(80.0), &mut |ui: &mut pxui::Ui| {
-                ui.node("pane", Node { w: Size::Px(160.0), h: Size::Px(80.0), look: Look { fill: pxui::geom::color::rgba(0, 0, 0, 1), ..Look::NONE }, ..Node::DEFAULT });
+                let pane=ui.node("pane", Node { w: Size::Px(160.0), h: Size::Px(80.0), look: Look { fill: pxui::geom::color::rgba(0, 0, 0, 1), ..Look::NONE }, ..Node::DEFAULT });
+                if large {
+                    let images=[images[0],images[1]];
+                    ui.canvas(&pane,move |paint,rect| {
+                        for i in 0..96 { paint.image(rect.x+(i%16) as f32,rect.y+(i/16) as f32,1.0,1.0,&images[i%2]); }
+                    });
+                }
             })));
             second.set(Some(ui.view("second glass", 1, Size::Px(60.0), Size::Px(30.0), &mut |ui: &mut pxui::Ui| {
                 ui.node("pane", Node { w: Size::Px(60.0), h: Size::Px(30.0), look: Look { fill:pxui::geom::color::rgba(0,0,0,1), ..Look::NONE }, ..Node::DEFAULT });
@@ -1025,6 +1040,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool) {
     ui.view_offset(&glass.get().unwrap(), 40.0, 20.0);
     build(&mut ui);
     build(&mut ui);
+    if large { assert!(ui.layers().any(|layer|layer.breaks>64),"large blurred layer crosses the old stack limit"); }
     for frame in 1..=6 {
         let index=(frame as usize-1)%targets.len();
         let target=&targets[index];
@@ -1112,6 +1128,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool) {
     ok(be::destroy_queue(&queue));
     drop(renderer);
     drop(nested);
+    for source in &sources { ok(be::destroy_texture(source)); }
     ok(be::destroy_device(&device));
     assert_eq!(ui.last_error(), "", "renderer teardown reported an error");
 }
@@ -1236,6 +1253,57 @@ fn shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source
     assert_eq!(ui.last_error(),"","cached wrappers must retire without leaked device children");
     assert_eq!(ok(be::read_texture(&source,64)),red,"destroying wrappers must leave the host texture alive");
     for texture in [&source,&target] { ok(be::destroy_texture(texture)); }
+    finish(device,queue);
+}
+
+fn shared_large_image_layer_allocates_nothing() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let sources: [Texture;2]=std::array::from_fn(|_| texture(&device,1,1,&[TextureUsage::TextureBinding,TextureUsage::TextureCopyDst]));
+    let images: [pxui_types::Image;2]=std::array::from_fn(|i| {
+        ok(be::write_texture(&sources[i],None,Origin { x:0,y:0,z:0 },Extent { width:1,height:1,depth:1 },4,&[RED,BLUE][i]));
+        let native=ok(be::native_texture(&sources[i]));
+        pxui_types::Image { vk_image_view:native.vk_image_view,mtl_texture:native.mtl_texture,width:1,height:1,format:native.format,..Default::default() }
+    });
+    let mut ui=pxui::Ui::new().expect("UI");
+    let mut renderer=shared_renderer(&device,&ui);
+    for (index,count) in [65,128,96,128,65,64,96].into_iter().enumerate() {
+        let frame=index as u64+1;
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            let bounds=ui.node("images",pxui::ui::Node { w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(256.0),..pxui::ui::Node::DEFAULT });
+            ui.canvas(&bounds,move |paint,rect| {
+                for i in 0..count { paint.image(rect.x,rect.y+i as f32*2.0,64.0,2.0,&images[i%2]); }
+            });
+        }).expect("image layer");
+        assert!(ui.layers().any(|layer|layer.breaks==count),"exercise every boundary across growth/shrink and the old stack limit");
+        let commands=ok(be::begin_commands(&queue));
+        renderer.prepare(&public_commands(&commands),frame,frame-1).expect("prepare");
+        let encoder=ok(be::render_encoder(&commands,&RenderTarget { colors:vec![ColorAttachment {
+            texture:target.clone(),resolve:None,load:Load::Clear,store:Store::Store,clear:(0.0,0.0,0.0,1.0),
+        }],depth:None }));
+        let native=ok(be::native_pass(&encoder));
+        let pass=pxui_types::Pass { vk_command_buffer:native.vk_command_buffer,mtl_render_encoder:native.mtl_render_encoder,
+            mtl_command_buffer:public_commands(&commands).mtl_command_buffer,width_px:640,height_px:600,scale:2.0,..Default::default() };
+        let before=renderer.draw_calls();
+        mem_sys::local_reset();
+        renderer.draw(&pass).expect("draw large image layer");
+        let allocations=mem_sys::local_alloc_count();
+        if frame>3 { assert_eq!(allocations,0,"warm large image layers must allocate nothing"); }
+        assert_eq!(renderer.draw_calls()-before,count as u64,"one draw for each alternating texture segment");
+        ok(be::invalidate_state(&encoder));
+        ok(be::end_render(&encoder));
+        let submitted=ok(be::commit(&commands));
+        ok(be::complete_through(&queue,submitted.epoch));
+        let pixels=ok(be::read_texture(&target,640*4));
+        for i in 0..count {
+            assert_eq!(&pixels[((i*4+1)*640+20)*4..][..4],[RED,BLUE][i%2],"image {i} keeps its texture");
+        }
+    }
+    drop(renderer);
+    assert_eq!(ui.last_error(),"","scratch storage must not retain device children");
+    for source in &sources { ok(be::destroy_texture(source)); }
+    ok(be::destroy_texture(&target));
     finish(device,queue);
 }
 
