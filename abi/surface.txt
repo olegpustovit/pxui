@@ -224,3 +224,4 @@ Ui|view|Gallery,Rays|done
 Ui|wants_frame|Gallery,Rays|done
 Ui|within|Gallery,Rays|done
 Renderer|forget_image|LocalWave|done: pxui_renderer_forget_image
+Ui|key_down|LocalWave|done

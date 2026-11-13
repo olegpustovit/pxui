@@ -63,4 +63,4 @@ pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, Pxui
 pub use pxui_types::ffi::{PxuiSaved, PxuiSignal};
 pub use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE};
 pub use pxui_types::ffi::PxuiDialogOut;
-pub const ABI_VERSION: u32 = 65550; // major 1 (high 16 bits), minor 14: fractional canvas fills
+pub const ABI_VERSION: u32 = 65551; // major 1 (high 16 bits), minor 15: raw held-key queries

@@ -2600,6 +2600,11 @@ impl Ui {
         self.frame_events.iter().any(|e| matches!(e, Event::KeyPressed(k) if *k == key))
     }
 
+    /// Raw held keys, including modifiers while a widget or popup owns keyboard input.
+    pub fn key_down(&self, key: Key) -> bool {
+        self.input_frame.as_ref().is_some_and(|frame| frame.input.keys.contains(&key))
+    }
+
     pub fn unfocus(&mut self) {
         self.focus = 0;
         self.composition.clear();
@@ -7278,7 +7283,14 @@ impl Ui {
     /// A popup keeps only the signals, capture and focus that belong to it.
     pub(crate) fn retain_popup_state(&mut self, key: i64, related: &[i64]) {
         let mut signals = std::mem::take(&mut self.signals);
-        signals.retain(|target, _| self.belongs(*target, key, related));
+        let mut spare_signals = std::mem::take(&mut self.spare_signals);
+        let mut spare_modifiers = std::mem::take(&mut self.spare_modifiers);
+        for (_, mut value) in signals.extract_if(|target, _| !self.belongs(*target, key, related)) {
+            for (_, modifiers) in value.keys.drain(..) { spare_modifiers.push(modifiers); }
+            spare_signals.push(value);
+        }
+        self.spare_signals = spare_signals;
+        self.spare_modifiers = spare_modifiers;
         self.signals = signals;
         if let Some(active) = self.active {
             if !self.belongs(active, key, related) {

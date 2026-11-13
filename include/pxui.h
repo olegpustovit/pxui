@@ -173,6 +173,7 @@ typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
 #define PXUI_RECT_AREA 4u
 typedef struct {
     uint32_t size;
+    /* Event-only entry: held keys persist until release or focus loss. */
     const PxuiEvent *events;
     size_t event_count;
     float width, height, scale;
@@ -602,6 +603,8 @@ float pxui_ui_inspector_width(PxuiUi *ui);
 float pxui_ui_inspector_label_x(PxuiUi *ui);
 uint32_t pxui_ui_passed_undo(PxuiUi *ui); /* 0 none, 1 undo, 2 redo */
 int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint8_t *out);
+/* Raw held state, including modifiers when a widget or popup owns focus (ABI 1.15). */
+int32_t pxui_ui_key_down(PxuiUi *ui, uint32_t code, uint8_t *out);
 int32_t pxui_ui_set_font_size(PxuiUi *ui, int64_t size);
 int32_t pxui_ui_unfocus(PxuiUi *ui);
 int32_t pxui_ui_dismiss_popup(PxuiUi *ui);

@@ -28,6 +28,33 @@ export!(pub unsafe fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, out: *mut 
     0
 });
 
+export!(pub unsafe fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32 {
+    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(k) = key(code) else { return unsafe { fail(ui, "unknown key code") }; };
+    if out.is_null() { return unsafe { fail(ui, "null key output") }; }
+    unsafe { *out = e.key_down(k) as u8; }
+    0
+});
+
+#[cfg(test)]
+mod held_key_tests {
+    use super::*;
+    #[test]
+    fn held_key_queries_validate_handle_key_and_output_without_changing_failed_output() {
+        let ui=unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        assert!(!ui.is_null());
+        let mut out=99u8;
+        assert_eq!(unsafe { pxui_ui_key_down(std::ptr::null_mut(),b'a' as u32,&mut out) },PXUI_ERR_ARGUMENT);
+        assert_eq!(out,99);
+        assert_eq!(unsafe { pxui_ui_key_down(ui,0,&mut out) },PXUI_ERR_ARGUMENT);
+        assert_eq!(out,99);
+        assert_eq!(unsafe { pxui_ui_key_down(ui,b'a' as u32,std::ptr::null_mut()) },PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_key_down(ui,b'a' as u32,&mut out) },0);
+        assert_eq!(out,0);
+        assert_eq!(unsafe { crate::pxui_ui_destroy(ui) },0);
+    }
+}
+
 export!(pub unsafe fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if !(1..=1024).contains(&size) { return unsafe { fail(ui, "font size out of range") }; }

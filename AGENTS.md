@@ -139,3 +139,12 @@ not only the previous frame's actual range count. New fragmentation of an alread
 not allocate while reading output. Preserve the regression that acknowledges a draw, reads an
 unchanged frame, then requests sixteen disjoint updates without new draw storage. `layout_scaling`
 is a timing case: the test runner puts it in the existing serial group, retaining its 1.5x bound.
+
+
+ABI 1.15 adds `Ui::key_down` / `pxui_ui_key_down`, a scalar raw held-key query that respects
+the existing owner/callback guards but does not filter widget or modal ownership or consume keys.
+Event-only frames retain held keys until release/focus loss; full Input frames replace them with
+the host snapshot. Preserve cross-frame modifiers, focused/modal queries, release/focus-loss and
+static/dynamic zero-allocation checks. Popup filtering must recycle rejected accumulators and their
+modifier buffers into the existing pools rather than dropping warmed storage. Hosts accepting a
+custom popup result should dismiss after the popup call returns, before processing another input.

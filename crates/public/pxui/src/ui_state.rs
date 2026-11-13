@@ -16,6 +16,7 @@ library!(lib {
     fn pxui_ui_inspector_label_x(ui: *mut PxuiUi) -> f32;
     fn pxui_ui_passed_undo(ui: *mut PxuiUi) -> u32;
     fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
+    fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
     fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32;
     fn pxui_ui_unfocus(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_dismiss_popup(ui: *mut PxuiUi) -> i32;
@@ -79,6 +80,14 @@ impl Ui {
         let key = key.into();
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_key_pressed(self.0.as_ptr(), key, &mut out) });
+        out != 0
+    }
+    /// Raw held state, including modifiers while a field or popup owns keyboard focus.
+    #[inline]
+    #[track_caller]
+    pub fn key_down(&self, key: impl Into<u32>) -> bool {
+        let mut out = 0;
+        check(self, unsafe { lib::pxui_ui_key_down(self.0.as_ptr(), key.into(), &mut out) });
         out != 0
     }
     #[inline] #[track_caller] pub fn set_font_size(&mut self, size: i64) { check(self, unsafe { lib::pxui_ui_set_font_size(self.0.as_ptr(), size) }) }

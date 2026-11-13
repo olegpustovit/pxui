@@ -8,6 +8,61 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming_presses() {
+    use std::cell::Cell;
+    use pxui_types::{Event, KEY_SPECIAL};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let meta = KEY_SPECIAL + 12;
+    assert!(!ui.key_down(meta));
+    let modal = Cell::new(false);
+    let held = Cell::new(false);
+    let comma = Cell::new(false);
+    let mut contents = |ui: &mut Ui| {
+        let field = ui.node("focused", crate::Node { flags: crate::ui::FOCUSABLE, w: Size::Px(120.0), h: Size::Px(32.0), ..crate::Node::DEFAULT });
+        ui.focus_box(&field);
+        assert_eq!(ui.key_down(meta), held.get());
+        assert_eq!(ui.key_pressed(','), comma.get());
+        assert_eq!(ui.key_down(meta), held.get());
+        assert_eq!(ui.key_pressed(','), comma.get(), "reading held keys must not consume activation");
+    };
+    let mut build = |ui: &mut Ui| {
+        if modal.get() { ui.popup(None, None, false, false, (10.0,10.0),180.0,40.0,"keys",&mut contents); }
+        else { contents(ui); }
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    for round in 0..8 {
+        mem_sys::local_reset();
+        let mut trace=[0u64;14];
+        let mut index=0;
+        for popup in [false, true] {
+            modal.set(popup);
+            for (kind, code, down, pressed) in [
+                (Event::KEY_PRESSED, meta, true, false),
+                (Event::POINTER_MOVED, 0, true, false),
+                (Event::KEY_PRESSED, ',' as u32, true, true),
+                (Event::KEY_RELEASED, ',' as u32, true, false),
+                (Event::KEY_RELEASED, meta, false, false),
+                (Event::KEY_PRESSED, meta, true, false),
+                (Event::FOCUS_LOST, 0, false, false),
+            ] {
+                held.set(down); comma.set(pressed);
+                let event=Event {kind,code,..Event::default()};
+                ui.frame(&FrameIn {time:round as f64+0.01,events:&event,event_count:1,..input()},&mut build).unwrap();
+                assert_eq!(ui.key_down(meta), down);
+                trace[index]=mem_sys::local_alloc_count(); index+=1;
+            }
+        }
+        if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"raw held-key queries with focus and a popup: {trace:?}"); }
+    }
+    modal.set(false); held.set(true); comma.set(false);
+    let keys=[meta];
+    ui.input_frame(&crate::Input { logical_size:[320,240], keys:crate::Slice {ptr:keys.as_ptr(),len:1}, ..Default::default() },&mut build).unwrap();
+    held.set(false);
+    ui.input_frame(&crate::Input { logical_size:[320,240], ..Default::default() },&mut build).unwrap();
+}
+
+#[test]
 fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);

@@ -581,3 +581,30 @@ Dependency, C-header, ABI snapshot and dynamic-export gates pass on the final so
 flag is grouped with the header's other instance constants so the snapshot extractor sees the
 unchanged paint-span signature. Logs: `/tmp/localwave-waveform-verified-dynamic-tests.log` and
 `/tmp/localwave-waveform-verified-gate-{deps,abi-header,abi-snapshot,abi-exports}.log`.
+
+
+## Raw held-key queries and popup buffer reuse (2026-11-13)
+
+ABI **1.15** adds the read-only `Ui::key_down` / `pxui_ui_key_down` scalar. It queries
+the current raw held-key snapshot even when a field or popup owns keyboard input. It copies no
+event vectors and consumes no press. Event-only frames now retain held keys across frames until
+release or focus loss; the full Input entry still replaces them with the host's authoritative
+snapshot. No C layouts changed. Invalid handle/key/output checks preserve the output on failure.
+
+The focused/modal regression exposed discarded keyboard buffers when a popup filtered signals.
+Rejected accumulators and their modifier vectors now return to the existing pools. The regression
+checks zero warm Rust allocations while switching focus/modal ownership, pressing/releasing Meta
+and comma, passing unrelated pointer frames and losing focus. It also checks explicit held-key
+snapshots can clear the state. Custom popup acceptance must dismiss after the popup call returns.
+
+- Expanded static/core/text/ABI/renderer matrix: **365 checks pass, 22.674 s wall / 18.607 s
+  summed**, zero skips. `/tmp/localwave-settings-pxui-matrix.log`.
+- Dynamic wrapper: **51 checks pass, 4.653 / 1.654 s**, zero skips, including the expanded held-key
+  and explicit Input checks. `/tmp/localwave-settings-pxui-dynamic.log`.
+- Dependency, C-header, ABI snapshot and exported-symbol gates pass.
+  `/tmp/localwave-settings-gate-{deps,abi-header,abi-snapshot,abi-exports}.log`.
+
+The initial focused query test exposed lost cross-frame modifiers, then four counted allocations
+in popup switching; both failed logs remain under `/tmp/localwave-settings-held-key-*`. Neither
+the allocation assertion nor the timing budgets were relaxed. Native allocations and platform
+qualification remain separate; this change adds no rendering/backend behavior.

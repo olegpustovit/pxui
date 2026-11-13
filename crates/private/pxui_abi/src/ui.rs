@@ -239,6 +239,7 @@ unsafe fn push_events(base: &mut input::Frame, events: Slice<pxui_types::Event>)
         match &event {
             Event::KeyPressed(k) => if !base.keys.contains(k) { base.keys.push(*k) },
             Event::KeyReleased(k) => base.keys.retain(|held| held != k),
+            Event::FocusLost => { base.keys.clear(); base.buttons.clear(); }
             Event::PointerMoved(p) => base.pointer = *p,
             Event::PointerPressed(b, p) => { base.pointer = *p; if !base.buttons.contains(b) { base.buttons.push(*b) } }
             Event::PointerReleased(b, p) => { base.pointer = *p; base.buttons.retain(|held| held != b) }
@@ -250,12 +251,11 @@ unsafe fn push_events(base: &mut input::Frame, events: Slice<pxui_types::Event>)
     true
 }
 
-/// The engine's input record for a frame at `time`: the last frame's, emptied, so that its vectors keep their capacity.
+/// Reuse input buffers; the event-only entry retains keys, and the snapshot entry replaces them.
 unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> input::Frame {
     let Some(mut base) = (unsafe { (*(*ui).shared).spare_input.take() }) else { return input::at_time(time) };
     (base.t, base.dt, base.frame, base.tick, base.size, base.pointer) = (time, 0.0, 0, 0, (0, 0), (0.0, 0.0));
     base.buttons.clear();
-    base.keys.clear();
     base.events.clear();
     base
 }
@@ -358,6 +358,7 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
     let mut base = unsafe { take_input(ui, input.time) };
     base.dt = input.dt; base.frame = input.frame; base.tick = input.tick;
+    base.keys.clear(); // This entry receives the host's authoritative held-key snapshot.
     base.size = (input.logical_size[0], input.logical_size[1]);
     base.pointer = (input.pointer[0], input.pointer[1]);
     if input.keys.len != 0 { for code in unsafe { std::slice::from_raw_parts(input.keys.ptr, input.keys.len) } { base.keys.push(key(*code).unwrap_or(Key::Unknown(*code as i64))); } }
