@@ -483,8 +483,14 @@ pub fn window_pxui_budget_cached_per_view() {
 pub fn window_pxui_budget_zero_alloc() {
     const WORDS: [&str; 4] = ["alpha", "beta", "gamma", "delta"];
     let mut ui = new_ui(None);
+    ui.set_a11y(true);
     let mut list = |ui: &mut Ui| {
-        ui.list("rows", 10_000, 24.0, &mut |ui, i| ui.label(WORDS[i % 4]));
+        ui.list("rows", 10_000, 24.0, &mut |ui, i| {
+            let row = ui.node("name", Node { w: Size::Grow, h: Size::Px(24.0), role: pxui_core::a11y::Role::Label, ..Node::DEFAULT });
+            ui.text(&row, WORDS[i % 4]);
+            ui.a11y_name(&row, WORDS[i % 4]);
+            ui.a11y_value(&row, WORDS[(i + 1) % 4], (0, 0));
+        });
     };
     ui.frame(&at(0.0, vec![move_to((100, 100))]), &mut list);
     // the frames are made up front: an event list allocates

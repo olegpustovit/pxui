@@ -1793,12 +1793,19 @@ impl Ui {
             }
         };
         let s = &mut self.slots[slot];
-        // a reused slot keeps its generation and its text's storage
-        let (generation, mut text) = (s.generation, std::mem::take(&mut s.text));
+        // Virtual rows reuse text and accessibility storage after their old identity is retired.
+        let generation = s.generation;
+        let mut text = std::mem::take(&mut s.text);
+        let mut a11y_name = std::mem::take(&mut s.a11y_name);
+        let mut a11y_value = std::mem::take(&mut s.a11y_value);
         text.clear();
+        a11y_name.clear();
+        a11y_value.clear();
         *s = Slot::fresh();
         s.generation = generation;
         s.text = text;
+        s.a11y_name = a11y_name;
+        s.a11y_value = a11y_value;
         s.key = key;
         s.touched = self.frame_number;
         self.scroll_y[slot] = 0.0;
