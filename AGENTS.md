@@ -152,3 +152,10 @@ custom popup result should dismiss after the popup call returns, before processi
 Dismissed popup roots and attached roots are ignored while routing the next frame's old hit tree,
 then cleared before rebuilding. Preserve the overlapping next-press and warm-allocation regression;
 clearing modal ownership alone leaves the previous popup's clickable nodes in that tree.
+
+
+SlotTable reuses tombstones and grows only when the live count requires it; tombstone churn must
+rehash through retained spare arrays without increasing capacity. Recycled empty text/name/value
+buffers choose the smallest suitable donor, preserving larger buffers for longer labels. Existing
+node identities keep the fast capacity check, even though set_box clears their strings. Preserve the registered 100-frame identity/text
+churn case and LocalWave's alternating cache-limit/menu regression; do not extend their warm-up.

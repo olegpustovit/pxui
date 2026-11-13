@@ -871,7 +871,27 @@ pub fn layout_carry_edge_scroll() {
     }
 }
 
+pub fn layout_node_identity_churn() {
+    let mut ui = new_ui(None);
+    let mut frame = at(0.0,vec![]);
+    for round in 0..100 {
+        frame.input.t += 0.02;
+        mem_sys::local_reset();
+        ui.frame(&frame,&mut |ui| {
+            for key in 2..102 { ui.node_keyed(int_key(0x771,key),px(2.0,2.0)); }
+            for key in 0..60 {
+                let node=ui.node_keyed(int_key(0x772,round*100+key),px(2.0,2.0));
+                ui.text(&node,["Short","A medium label","A longer recycled label"][(key as usize+round as usize)%3]);
+            }
+        });
+        let allocations=mem_sys::local_alloc_count();
+        if round>=3 && allocations!=0 { panic!("identity churn round {round}: {allocations} allocations"); }
+    }
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_node_identity_churn",layout_node_identity_churn),
     ("layout_carry_edge_scroll", layout_carry_edge_scroll),
     ("layout_fit_hugs_wrapped_row", layout_fit_hugs_wrapped_row),
     ("layout_list_measured", layout_list_measured),

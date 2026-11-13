@@ -631,3 +631,40 @@ checks and all 52 dynamic wrapper cases pass. Logs:
 `/tmp/localwave-settings-pxui-dismiss-matrix.log`,
 `/tmp/localwave-settings-layout-scaling-recheck.log`. Native allocation and runtime platform
 qualification remain open.
+
+
+### Bounded identity churn and recycled strings
+
+An allocator stack trace of LocalWave's repeated Settings menus identified four late allocations
+in SlotTable growth. The table counted tombstones toward occupancy but never reused them, and
+selected growth using a 30% live threshold even when its existing capacity could hold the live
+set. Lookup now remembers the first tombstone while still searching for the key. Reusing that
+slot does not increase occupied count. Growth uses the existing 70% load limit on live entries;
+tombstone cleanup reuses the spare arrays.
+
+Recycled text/name/value storage chooses the smallest suitable empty buffer. Newly assigned
+identities can exchange oversized empty buffers too, preserving them for longer labels. Existing
+identities and empty requested labels keep constant-time capacity checks; scanning every cleared
+string during rebuild caused a real slowdown and was rejected. No ABI/layout descriptors changed.
+
+The registered `layout_node_identity_churn` case changes 60 identities beside 100 fixed nodes
+through **100 frames**, with rotating short/medium/long text, and requires zero allocations from
+frame 4 onward. The original direct private-unit attempt discovered zero tests because core's
+libtest target is disabled; the case was moved into its actual harness registry. A stronger text
+variant exposed delayed buffer growth; its assertion remains, and the buffer selection was fixed.
+Focused final check passes in **11.937 s wall / 0.031 s case**, including compilation and the
+runner's recorded contention retry. `/tmp/localwave-settings-best-fit-text-churn.log`.
+
+Final core + dynamic wrapper matrix: **251 checks pass, 14.206 s wall / 11.458 s summed**, zero
+skips. All 52 dynamic public cases pass. `/tmp/localwave-settings-pxui-checkpoint-tests.log`.
+The prior intermediate run timed out `layout_scaling` at 5 seconds while overscanning recycled
+buffers; the corrected path completes in **1.350 s**. A preceding focused layout run still missed
+the unchanged scaling ratio at **140→218 ns/node**; that failure is retained. This passing matrix
+does not establish stable latency. Logs: `/tmp/localwave-settings-final-balanced-pxui-tests.log`,
+`/tmp/localwave-settings-empty-buffer-fast-path.log`,
+`/tmp/localwave-settings-balanced-reuse-layout-tests.log`.
+
+LocalWave's alternating cache-limit/menu regression also changes clock digits within its original
+warm-up, avoiding an unvisited glyph appearing halfway through measurement. Its zero-allocation
+assertion and the signed app's warm-up/frame/time limits remain unchanged. Temporary allocator
+stack tracing was removed; no debug counter values or tracing branches ship.

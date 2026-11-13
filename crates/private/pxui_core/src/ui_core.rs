@@ -64,11 +64,14 @@ impl SlotTable {
     fn index(&self, key: i64) -> usize {
         let mask = self.keys.len() - 1;
         let mut position = (key as usize) & mask;
+        let mut vacant = None;
         loop {
             let found = self.keys[position];
-            if found == key || found == 0 {
+            if found == key {
                 return position;
             }
+            if found == 0 { return vacant.unwrap_or(position); }
+            if found == 1 && vacant.is_none() { vacant = Some(position); }
             position = (position + 1) & mask;
         }
     }
@@ -83,7 +86,7 @@ impl SlotTable {
         if 10 * (self.filled + 1) > 7 * self.keys.len() {
             let keys = std::mem::take(&mut self.keys);
             let slots = std::mem::take(&mut self.slots);
-            let capacity = if 10 * self.live > 3 * keys.len() { 2 * keys.len() } else { keys.len() };
+            let capacity = if 10 * (self.live + 1) > 7 * keys.len() { 2 * keys.len() } else { keys.len() };
             (self.keys, self.slots) = (std::mem::take(&mut self.spare_keys), std::mem::take(&mut self.spare_slots));
             self.keys.clear();
             self.keys.resize(capacity, 0);
@@ -105,7 +108,7 @@ impl SlotTable {
         }
         let position = self.index(key);
         if self.keys[position] != key {
-            self.filled += 1;
+            self.filled += usize::from(self.keys[position] == 0);
             self.live += 1;
         }
         self.keys[position] = key;
@@ -588,6 +591,7 @@ impl NodeText {
 
 struct Slot {
     key: i64,
+    new_identity: bool,
     /// bumped when the slot is freed: handles to the node it held are stale from then on
     generation: u32,
     touched: i64,
@@ -641,6 +645,7 @@ impl Slot {
     fn fresh() -> Slot {
         Slot {
             key: 0,
+            new_identity: false,
             generation: 0,
             touched: -1,
             dup: (-1, 0),
@@ -1471,12 +1476,16 @@ impl Ui {
 
     // Recycled view containers can hold the buffer a newly visible text node needs.
     fn reuse_empty_string(&mut self, slot: usize, len: usize, field: fn(&mut Slot) -> &mut String) {
-        if field(&mut self.slots[slot]).capacity() >= len { return; }
-        let donor = self.slots.iter_mut().enumerate().find_map(|(index, candidate)| {
+        if len == 0 { return; }
+        let new_identity = self.slots[slot].new_identity;
+        let current = field(&mut self.slots[slot]);
+        let capacity = current.capacity();
+        if capacity >= len && (!new_identity || !current.is_empty() || capacity == len) { return; }
+        let donor = self.slots.iter_mut().enumerate().filter_map(|(index, candidate)| {
             if index == slot { return None; }
             let buffer = field(candidate);
-            (buffer.is_empty() && buffer.capacity() >= len).then_some(index)
-        });
+            (buffer.is_empty() && buffer.capacity() >= len && (capacity < len || buffer.capacity() < capacity)).then_some((index, buffer.capacity()))
+        }).min_by_key(|(_, capacity)| *capacity).map(|(index, _)| index);
         if let Some(donor) = donor {
             let buffer = std::mem::take(field(&mut self.slots[donor]));
             let mut old = std::mem::replace(field(&mut self.slots[slot]), buffer);
@@ -2904,6 +2913,7 @@ impl Ui {
         }
         self.count = index + 1;
         let slot = self.slot_of(key, found);
+        self.slots[slot].new_identity = found.is_none();
         self.slots[slot].touched = self.frame_number;
         self.slots[slot].label_count = 0;
         self.slots[slot].owner = self.view_cur;
