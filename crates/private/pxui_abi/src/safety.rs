@@ -72,6 +72,7 @@ fn a_callback_cannot_start_a_frame_replace_the_theme_or_free_the_ui() {
             for ui in [borrowed, owner] {
                 assert_eq!(pxui_frame(ui, &frame_in(), Some(nothing), core::ptr::null_mut(), &mut out), PXUI_ERR_STATE);
                 assert_eq!(pxui_ui_set_theme(ui, &theme), PXUI_ERR_STATE);
+                assert_eq!(pxui_ui_use_theme(ui, core::ptr::null()), PXUI_ERR_STATE);
                 assert_eq!(pxui_ui_destroy(ui), PXUI_ERR_STATE);
                 assert!(!pxui_ui_output(ui).is_null());
             }

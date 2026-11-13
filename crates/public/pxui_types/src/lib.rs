@@ -143,9 +143,18 @@ pub struct FrameIn {
     pub height: f32,
     pub scale: f32,
     pub time: f64,
+    /// Host appearance: UNKNOWN, LIGHT or DARK. Added after the frozen 48-byte v1 prefix.
+    pub appearance: u32,
+    /// 0 or 1; the OS preference overrides themes that permit motion.
+    pub reduced_motion: u32,
 }
 impl Default for FrameIn {
-    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0 } }
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0,appearance:0,reduced_motion:0 } }
+}
+impl FrameIn {
+    pub const APPEARANCE_UNKNOWN:u32=0;
+    pub const APPEARANCE_LIGHT:u32=1;
+    pub const APPEARANCE_DARK:u32=2;
 }
 
 #[repr(C)]
@@ -527,7 +536,7 @@ mod abi_layout {
         );
         assert_layout(
             "FrameIn",
-            size_of::<FrameIn>(),
+            offset_of!(FrameIn,appearance), // frozen v1 prefix, accepted from older callers
             align_of::<FrameIn>(),
             &[
                 offset_of!(FrameIn, size),
@@ -539,6 +548,11 @@ mod abi_layout {
                 offset_of!(FrameIn, time),
             ],
         );
+        assert_layout("FrameInV1_8",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
+            offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),
+            offset_of!(FrameIn,width),offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),
+            offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),
+        ]);
         assert_layout(
             "FrameOut",
             size_of::<FrameOut>(),

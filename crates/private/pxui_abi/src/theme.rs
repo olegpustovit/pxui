@@ -20,6 +20,15 @@ export!(trusted pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnaps
 /// look from the new tokens, so set tokens before the keys that restyle single looks.
 pub struct PxuiTheme { theme: Theme, error: String }
 
+// A parsed theme can be selected repeatedly without parsing or allocating on an OS appearance change.
+export!(pub unsafe fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->i32 {
+    let Some(state)=(unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
+    if !state.owner || state.shared().in_frame { return crate::PXUI_ERR_STATE; }
+    let Some(theme)=(unsafe { theme.as_ref() }) else { return unsafe { fail(ui,"null theme") }; };
+    unsafe { &mut *state.engine }.set_theme(theme.theme);
+    0
+});
+
 impl PxuiTheme {
     /// Applies `text` (a theme file) over the theme, or records why it cannot be and changes nothing.
     /// With `ui`, `KIND.body = NAME` names the bodies that `Ui` registered; without, only `default`.

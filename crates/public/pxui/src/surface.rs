@@ -676,3 +676,58 @@ fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
     assert_eq!(ui.enable_system_fonts(),Err(pxui_types::PXUI_ERR_STATE));
     assert!(ui.last_error().contains("before the first frame"));
 }
+
+#[test]
+fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_authored_flags() {
+    use std::cell::Cell;
+    use crate::ui::Curve;
+    use crate::kit::{AnimationTarget,Keyframe};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let scoped=crate::Theme::default();
+    let handle=Cell::new(None);
+    let child=Cell::new(None);
+    let builds=Cell::new(0);
+    let seen=Cell::new(0);
+    let mut build=|ui:&mut Ui| {
+        handle.set(Some(ui.view("system",1,Size::Px(100.0),Size::Px(60.0),&mut |ui| {
+            builds.set(builds.get()+1);
+            seen.set(ui.system_appearance());
+            child.set(Some(ui.node("child",crate::Node { w:Size::Px(20.0),h:Size::Px(10.0),at:Some((10.0,10.0)).into(),..crate::Node::DEFAULT })));
+        })));
+        let reduced=ui.tokens().reduced_motion;
+        ui.themed(&scoped,&mut |ui|assert_eq!(ui.tokens().reduced_motion,reduced,"a scoped theme cannot bypass OS motion policy"));
+    };
+    let ease=Curve::Bezier { duration:10.0,points:[0.0,0.0,1.0,1.0] };
+    for cycle in 0..5 {
+        let time=cycle as f64*20.0;
+        ui.frame(&FrameIn { time,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
+        ui.frame(&FrameIn { time:time+0.01,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
+        let before=builds.get();
+        let view=handle.get().unwrap();
+        ui.animate_keys(&view,&[Keyframe { time:5.0,target:AnimationTarget::Scale { x:0.9,y:0.9,anchor:(0.5,0.5) },curve:ease },
+            Keyframe { time:10.0,target:AnimationTarget::Scale { x:0.8,y:0.8,anchor:(0.5,0.5) },curve:ease }]);
+        ui.frame(&FrameIn { time:time+0.1,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time:time+0.2,appearance:FrameIn::APPEARANCE_DARK,reduced_motion:1,..input() },&mut build).unwrap();
+        assert!(builds.get()>before);
+        assert_eq!(seen.get(),FrameIn::APPEARANCE_DARK);
+        assert!(ui.tokens().reduced_motion);
+        assert!(ui.repaint_at().is_none(),"turning on reduced motion settles existing keyframes");
+        let rect=ui.rect(&child.get().unwrap());
+        assert!((rect.w-16.0).abs()<0.001 && (rect.h-8.0).abs()<0.001,"motion reaches the final keyframe: {rect:?}");
+        if cycle>=2 { assert_eq!(mem_sys::local_alloc_count(),0,"warm preference changes retain caches and animation storage"); }
+        ui.frame(&FrameIn { time:time+0.3,appearance:FrameIn::APPEARANCE_DARK,reduced_motion:1,..input() },&mut build).unwrap();
+        let before=builds.get();
+        ui.frame(&FrameIn { time:time+0.4,appearance:FrameIn::APPEARANCE_DARK,reduced_motion:1,..input() },&mut build).unwrap();
+        assert_eq!(builds.get(),before,"unchanged OS inputs do not invalidate views");
+        ui.frame(&FrameIn { time:time+0.5,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
+        assert!(!ui.tokens().reduced_motion,"the app's original motion flag is restored");
+    }
+    ui.set_theme(&crate::ThemeSource { flags:crate::ThemeSource::REDUCED_MOTION,..Default::default() }).unwrap();
+    ui.frame(&FrameIn { time:120.0,..input() },&mut |_|{}).unwrap();
+    assert!(ui.tokens().reduced_motion,"an authored motion restriction is preserved");
+    for (appearance,reduced_motion) in [(3,0),(u32::MAX,0),(0,2),(0,u32::MAX)] {
+        assert!(ui.frame(&FrameIn { appearance,reduced_motion,..input() },&mut |_|panic!("invalid inputs must not build")).is_err());
+    }
+}

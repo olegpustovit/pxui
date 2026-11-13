@@ -879,6 +879,9 @@ pub struct Ui {
     free_keyframes: Vec<u32>,
     now: f64,
     motion: bool,
+    system_appearance:u32,
+    system_reduced_motion:bool,
+    theme_reduced_motion:bool,
     font_size: i64,
     platform: Platform,
     /// the text engine; `Paint` holds it while a frame paints
@@ -1125,6 +1128,9 @@ impl Ui {
             free_keyframes: Vec::new(),
             now: 0.0,
             motion: false,
+            system_appearance:0,
+            system_reduced_motion:false,
+            theme_reduced_motion:false,
             font_size,
             platform,
             text: Some(text),
@@ -1319,9 +1325,12 @@ impl Ui {
     /// look it showed to the new one over the new theme's `motion.normal`, through the patch path
     /// (no further rebuild); a theme that does not move (`reduced_motion`, or no durations) snaps.
     /// Between frames, or inside one for what is built after it.
-    pub fn set_theme(&mut self, theme: Theme) {
+    pub fn set_theme(&mut self, mut theme: Theme) {
+        self.theme_reduced_motion=theme.tokens.reduced_motion;
+        theme.tokens.reduced_motion|=self.system_reduced_motion;
         if theme != self.theme {
             self.epoch += 1;
+            if theme.tokens.reduced_motion && !self.theme.tokens.reduced_motion { self.snap_motion(); }
             // what each node shows now is where its move starts (one pass over the slots per swap)
             if theme.tokens.moves() {
                 self.swap_frame = self.frame_number + if self.building { 0 } else { 1 };
@@ -1335,9 +1344,25 @@ impl Ui {
         }
     }
 
+    /// Host facts stay separate from authored themes; turning the OS preference off restores them.
+    pub fn set_system_preferences(&mut self,appearance:u32,reduced_motion:bool) {
+        if (appearance,reduced_motion)!=(self.system_appearance,self.system_reduced_motion) { self.epoch+=1; }
+        if reduced_motion && !self.system_reduced_motion { self.snap_motion(); }
+        (self.system_appearance,self.system_reduced_motion)=(appearance,reduced_motion);
+        self.theme.tokens.reduced_motion=self.theme_reduced_motion||reduced_motion;
+    }
+
+    pub fn system_appearance(&self)->u32 { self.system_appearance }
+
     /// Build `f` under `theme` (a scoped override: what `f` builds reads `theme()` as `theme`). A view
     /// built inside rebuilds when the override it was built under changes.
     pub fn themed(&mut self, theme: &Theme, f: &mut dyn FnMut(&mut Ui)) {
+        let mut reduced;
+        let theme=if self.system_reduced_motion && !theme.tokens.reduced_motion {
+            reduced=*theme;
+            reduced.tokens.reduced_motion=true;
+            &reduced
+        } else { theme };
         let saved = self.theme_id;
         // ids by search over the distinct themes seen, at most 32 (specification/pxui.md, designed limits)
         self.theme_id = match self.theme_ids.iter().position(|t| t == theme) {
@@ -4936,7 +4961,7 @@ impl Ui {
         let s = &self.slots[slot];
         let swap = self.swap_frame == self.frame_number && s.painted >= 0 && s.seen != s.node.look;
         let swap = swap.then(|| Curve::Bezier { duration: self.theme.tokens.motion.normal, points: self.theme.tokens.motion.ease });
-        if let Some(curve) = core::mem::take(&mut self.slots[slot].node.transition).get().or(swap) {
+        if let Some(curve) = core::mem::take(&mut self.slots[slot].node.transition).get().or(swap).filter(|_|!self.system_reduced_motion) {
             let from = match self.tween_of(slot) {
                 Some(_) => self.pose(slot).0,
                 None => Pose { look: self.slots[slot].seen, ..self.rest(slot) },
@@ -5728,6 +5753,16 @@ impl Ui {
 // ---------------------------------------------------------- transitions
 
 impl Ui {
+    fn snap_motion(&mut self) {
+        self.swap_frame=-1;
+        for i in 0..self.tweens.len() {
+            self.free_keys(i);
+            let t=&mut self.tweens[i];
+            t.from=t.to;
+            t.curve=Curve::Bezier { duration:0.0,points:[0.0,0.0,1.0,1.0] };
+        }
+    }
+
     /// The running transition of `slot`, if it is still that node's.
     fn tween_of(&self, slot: usize) -> Option<usize> {
         let s = &self.slots[slot];

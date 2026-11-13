@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 7
+minor 8
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -181,6 +181,7 @@ function pxui_ui_spinner int32_t pxui_ui_spinner ( PxuiUi * ui , PxuiStr label ,
 function pxui_ui_split int32_t pxui_ui_split ( PxuiUi * ui , const PxuiSplitDesc * desc , uint8_t * changed , float * ratio ) ;
 function pxui_ui_state int32_t pxui_ui_state ( PxuiUi * ui , const PxuiBox * box , int64_t default_value , int64_t * out ) ;
 function pxui_ui_style int32_t pxui_ui_style ( PxuiUi * ui , const PxuiBox * box , const PxuiLookDesc states [ 6 ] , const PxuiStateDesc * state ) ;
+function pxui_ui_system_appearance int32_t pxui_ui_system_appearance ( PxuiUi * ui , uint32_t * out ) ;
 function pxui_ui_table int32_t pxui_ui_table ( PxuiUi * ui , const PxuiTableDesc * desc , int64_t * clicked_row ) ;
 function pxui_ui_table_view int32_t pxui_ui_table_view ( PxuiUi * ui , const PxuiTableViewDesc * desc , size_t * sort_column ) ;
 function pxui_ui_table_view_with int32_t pxui_ui_table_view_with ( PxuiUi * ui , const PxuiTableViewWithDesc * desc , size_t * sort_column ) ;
@@ -203,6 +204,7 @@ function pxui_ui_tooltip int32_t pxui_ui_tooltip ( PxuiUi * ui , PxuiStr key , P
 function pxui_ui_tree int32_t pxui_ui_tree ( PxuiUi * ui , const PxuiTreeViewDesc * desc , size_t * activated ) ;
 function pxui_ui_tree_with int32_t pxui_ui_tree_with ( PxuiUi * ui , const PxuiTreeViewWithDesc * desc , size_t * activated ) ;
 function pxui_ui_unfocus int32_t pxui_ui_unfocus ( PxuiUi * ui ) ;
+function pxui_ui_use_theme int32_t pxui_ui_use_theme ( PxuiUi * ui , const PxuiTheme * theme ) ;
 function pxui_ui_value_field int32_t pxui_ui_value_field ( PxuiUi * ui , const PxuiValueFieldDesc * desc , PxuiTextValid valid , PxuiSlideText slide , PxuiScrubText scrub , void * user , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_editing ) ;
 function pxui_ui_verify_views int32_t pxui_ui_verify_views ( PxuiUi * ui , uint8_t on ) ;
 function pxui_ui_verifying uint8_t pxui_ui_verifying ( PxuiUi * ui ) ;
@@ -226,6 +228,7 @@ layout Edges 16 4 0 4 8 12
 layout Event 48 8 0 4 8 16 24 32
 layout Flags 8 8
 layout FrameIn 48 8 0 8 16 24 28 32 40
+layout FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
 layout FrameOut 40 8 0 4 20 21 24 32
 layout Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
 layout Image 40 8 0 8 16 24 28 32

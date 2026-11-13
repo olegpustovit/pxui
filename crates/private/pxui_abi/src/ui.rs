@@ -304,19 +304,47 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
     if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
+    let legacy=core::mem::offset_of!(FrameIn,appearance) as u32;
+    let (appearance,reduced)=if input.size==legacy { (0,0) } else if input.size>=core::mem::size_of::<FrameIn>() as u32 {
+        (input.appearance,input.reduced_motion)
+    } else { return unsafe { fail(ui,"invalid frame descriptor size") }; };
+    if appearance>FrameIn::APPEARANCE_DARK || reduced>1 { return unsafe { fail(ui,"invalid system preferences") }; }
     let mut base = unsafe { take_input(ui, input.time) };
     base.size = (input.width as i64, input.height as i64);
     base.frame = input.time.to_bits() as i64;
     if !unsafe { push_events(&mut base, Slice { ptr: input.events, len: input.event_count }) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
+    unsafe { &mut *(*ui).engine }.set_system_preferences(appearance,reduced!=0);
     let frame = frame::Frame { input: base, pixel_scale: (input.scale as f64, input.scale as f64), fps: 60.0, mouse_delta: (0.0, 0.0) };
     let rc = unsafe { run_frame(ui, &frame, build, out) };
     unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
     rc
 }
 
+// Read only fields the caller supplied: old 48-byte inputs carry no OS preferences.
+unsafe fn read_frame(input:*const FrameIn)->Option<FrameIn> {
+    if input.is_null() { return None; }
+    let size=unsafe { input.cast::<u32>().read_unaligned() } as usize;
+    let legacy=core::mem::offset_of!(FrameIn,appearance);
+    if size!=legacy && size<core::mem::size_of::<FrameIn>() { return None; }
+    let mut value=FrameIn::default();
+    unsafe { core::ptr::copy_nonoverlapping(input.cast::<u8>(),(&mut value as *mut FrameIn).cast::<u8>(),legacy); }
+    if size>=core::mem::size_of::<FrameIn>() {
+        value.appearance=unsafe { core::ptr::addr_of!((*input).appearance).read_unaligned() };
+        value.reduced_motion=unsafe { core::ptr::addr_of!((*input).reduced_motion).read_unaligned() };
+    }
+    Some(value)
+}
+
+export!(pub unsafe fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i32 {
+    let Some(engine)=(unsafe { crate::state::engine(ui) }) else { return PXUI_ERR_ARGUMENT };
+    if out.is_null() { return unsafe { fail(ui,"null appearance output") }; }
+    unsafe { out.write(engine.system_appearance()); }
+    0
+});
+
 export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
-    let Some(input) = read_desc!(input, FrameIn) else { return unsafe { fail(ui, "invalid frame descriptor") }; };
+    let Some(input) = (unsafe { read_frame(input) }) else { return unsafe { fail(ui, "invalid frame descriptor") }; };
     unsafe { frame_body(ui, &input, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut *out) }
 });
 
@@ -450,6 +478,38 @@ export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value
 #[cfg(test)]
 mod tests {
     use pxui_types::Event as C;
+
+    #[test]
+    fn system_frame_tail_accepts_legacy_without_reading_past_it() {
+        use pxui_types::FrameIn;
+        #[repr(C)]
+        struct Legacy { size:u32,events:*const pxui_types::Event,count:usize,width:f32,height:f32,scale:f32,time:f64 }
+        let legacy=Legacy { size:48,events:core::ptr::null(),count:0,width:320.0,height:240.0,scale:1.0,time:9.0 };
+        assert_eq!(core::mem::size_of::<Legacy>(),48);
+        let decoded=unsafe { super::read_frame((&legacy as *const Legacy).cast()) }.unwrap();
+        assert_eq!((decoded.size,decoded.width,decoded.time,decoded.appearance,decoded.reduced_motion),(48,320.0,9.0,0,0));
+        let ui=unsafe { super::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        assert!(!ui.is_null());
+        let mut out=crate::FrameOut::default();
+        assert_eq!(unsafe { super::pxui_frame(ui,(&legacy as *const Legacy).cast(),None,core::ptr::null_mut(),&mut out) },0);
+        let mut appearance=99;
+        assert_eq!(unsafe { super::pxui_ui_system_appearance(ui,&mut appearance) },0);
+        assert_eq!(appearance,0);
+        assert_eq!(unsafe { super::pxui_ui_system_appearance(ui,core::ptr::null_mut()) },crate::PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { super::pxui_ui_destroy(ui) },0);
+        let short=[4u32];
+        assert!(unsafe { super::read_frame(short.as_ptr().cast()) }.is_none());
+        assert!(unsafe { super::read_frame(core::ptr::null()) }.is_none());
+        for size in 0..56 {
+            let input=FrameIn { size,..Default::default() };
+            assert_eq!(unsafe { super::read_frame(&input) }.is_some(),size==48);
+        }
+        for size in [56,64,u32::MAX] {
+            let input=FrameIn { size,appearance:2,reduced_motion:1,..Default::default() };
+            let decoded=unsafe { super::read_frame(&input) }.unwrap();
+            assert_eq!((decoded.appearance,decoded.reduced_motion),(2,1));
+        }
+    }
 
     /// The numbering `input` encodes with is the one the C header and `pxui_types` document.
     #[test]

@@ -175,7 +175,12 @@ typedef struct {
     size_t event_count;
     float width, height, scale;
     double time;
+    /* ABI 1.8 tail; legacy size=48 defaults both to zero. Partial tails are refused. */
+    uint32_t appearance, reduced_motion;
 } PxuiFrameIn;
+#define PXUI_APPEARANCE_UNKNOWN 0u
+#define PXUI_APPEARANCE_LIGHT 1u
+#define PXUI_APPEARANCE_DARK 2u
 typedef struct {
     uint32_t size;
     float damage[4];
@@ -320,6 +325,10 @@ int32_t pxui_ui_wants_frame(PxuiUi *ui, PxuiEventSpan events, double now, uint8_
 int32_t pxui_ui_footer(PxuiUi *ui, const PxuiFooterDesc *desc);
 int32_t pxui_ui_animate_keys(PxuiUi *ui, const PxuiBox *box, PxuiKeyframeSpan keys, uint8_t *out);
 int32_t pxui_ui_table(PxuiUi *ui, const PxuiTableDesc *desc, int64_t *clicked_row);
+/* Last host appearance; themes remain authored by the application. use_theme selects a parsed root
+   theme between frames, avoiding reparsing source when appearance changes. */
+int32_t pxui_ui_system_appearance(PxuiUi *ui, uint32_t *out);
+int32_t pxui_ui_use_theme(PxuiUi *ui, const PxuiTheme *theme);
 int32_t pxui_ui_set_theme(PxuiUi *ui, const PxuiThemeSource *source);
 int32_t pxui_ui_set_dir(PxuiUi *ui, uint32_t dir);
 int32_t pxui_ui_set_a11y(PxuiUi *ui, uint8_t on);

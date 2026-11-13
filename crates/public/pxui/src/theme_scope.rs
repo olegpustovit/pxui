@@ -13,6 +13,7 @@ library!(lib {
     fn pxui_theme_last_error(theme: *const PxuiTheme) -> Str;
     fn pxui_ui_theme_apply(ui: *mut PxuiUi, theme: *mut PxuiTheme, text: Str) -> i32;
     fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
+    fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->i32;
 });
 
 /// A theme owned by the library. `set` and `load` apply over what the theme holds, as a theme file applies over its base: a
@@ -42,6 +43,11 @@ impl Default for Theme { fn default() -> Theme { Theme::make(core::ptr::null()) 
 impl Drop for Theme { fn drop(&mut self) { unsafe { lib::pxui_theme_destroy(self.0.as_ptr()) } } }
 
 impl Ui {
+    /// Select a parsed root theme between frames. Host reduced motion still overrides it.
+    pub fn use_theme(&mut self,theme:&Theme) {
+        check(self,unsafe { lib::pxui_ui_use_theme(self.0.as_ptr(),theme.0.as_ptr()) });
+    }
+
     /// Builds `f`'s subtree under `theme`; the `Ui`'s own theme is back afterwards.
     #[track_caller]
     pub fn themed(&mut self, theme: &Theme, mut f: &mut dyn FnMut(&mut Ui)) {

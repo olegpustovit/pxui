@@ -165,6 +165,7 @@ fn main() {
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_second_atlas_pages_sample_in_one_draw", gpu_second_atlas_pages_sample_in_one_draw),
         ("shared_second_atlas_activates_after_prepare_without_replacing_first_page", shared_second_atlas_activates_after_prepare_without_replacing_first_page),
+        ("shared_system_preferences_change_native_pixels_without_warm_allocations", shared_system_preferences_change_native_pixels_without_warm_allocations),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
         ("gpu_prepared_target_validation", gpu_prepared_target_validation),
@@ -1025,6 +1026,43 @@ fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
                 assert_eq!(&row[..500*4],&old[..500*4],"existing native glyph coverage is unchanged");
             }
         } else { first_pixels=Some(pixels); }
+    }
+    drop(renderer);
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
+}
+
+fn shared_system_preferences_change_native_pixels_without_warm_allocations() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let mut ui=pxui::Ui::new().unwrap();
+    let mut light=pxui::Theme::default();
+    let mut dark=pxui::Theme::default();
+    light.set("tokens.foreground","#ff0000").unwrap();
+    dark.set("tokens.foreground","#0000ff").unwrap();
+    let mut renderer=shared_renderer(&device,&ui);
+    for frame in 1..=8 {
+        let is_dark=frame%2==0;
+        let appearance=if is_dark { pxui::FrameIn::APPEARANCE_DARK } else { pxui::FrameIn::APPEARANCE_LIGHT };
+        mem_sys::local_reset();
+        ui.use_theme(if is_dark { &dark } else { &light });
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,appearance,reduced_motion:1,..Default::default() },&mut |ui| {
+            ui.view("appearance",1,pxui::ui::Size::Px(100.0),pxui::ui::Size::Px(40.0),&mut |ui| {
+                assert_eq!(ui.system_appearance(),appearance);
+                assert!(ui.tokens().reduced_motion);
+                ui.node("block",pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(24.0),look:pxui::ui::Look { fill:ui.tokens().foreground,..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
+            });
+        }).unwrap();
+        if frame>=4 { assert_eq!(mem_sys::local_alloc_count(),0,"warm parsed theme selection and frame preferences allocate nothing"); }
+        assert!(ui.repaint_at().is_none());
+        let draws=renderer.draw_calls();
+        let allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        if frame>=4 { assert_eq!(allocations,0); }
+        assert_eq!(renderer.draw_calls()-draws,1);
+        let pixels=ok(be::read_texture(&target,640*4));
+        let at=(24*640+40)*4;
+        assert_eq!(&pixels[at..at+4],if is_dark { &[0,0,255,255] } else { &[255,0,0,255] },"appearance changes reach the native target immediately with reduced motion");
     }
     drop(renderer);
     ok(be::destroy_texture(&target));

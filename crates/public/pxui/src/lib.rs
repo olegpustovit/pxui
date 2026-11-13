@@ -132,6 +132,7 @@ mod sys {
         pub fn pxui_ui_layer_drawn(ui:*mut PxuiUi,layer:u64)->i32;
         pub fn pxui_ui_input(ui:*mut PxuiUi,has_owner:u8,owner:i64,out:*mut pxui_types::ffi::Input)->i32;
         pub fn pxui_ui_frame(ui:*mut PxuiUi,input:*const pxui_types::ffi::Input,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
+        pub fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i32;
         pub fn pxui_ui_set_theme(ui:*mut PxuiUi,source:*const ThemeSource)->i32;
         pub fn pxui_ui_set_dir(ui:*mut PxuiUi,dir:u32)->i32;
         pub fn pxui_ui_set_a11y(ui:*mut PxuiUi,on:u8)->i32;
@@ -412,6 +413,13 @@ impl Ui {
         if output.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
         unsafe { &*output }
     }
+    /// The last FrameIn's host appearance (UNKNOWN, LIGHT or DARK); available inside cached views.
+    pub fn system_appearance(&self)->u32 {
+        let mut value=0;
+        check(self,unsafe { sys::pxui_ui_system_appearance(self.0.as_ptr(),&mut value) });
+        value
+    }
+
     /// The theme in effect's tokens, by value: what a canvas closure captures.
     #[inline] pub fn tokens(&self) -> pxui_types::theme::Tokens { self.theme().tokens }
     /// The theme in effect, whole: the library's own, lent (no copy). Anything that could change it takes `&mut self`, so the
