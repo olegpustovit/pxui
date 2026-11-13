@@ -12,6 +12,7 @@ pub struct TextStyle {
     pub align: u32,
     pub max_lines: u16,
     pub italic: u8,
+    /// ELLIPSIS_NONE, END, MIDDLE or HEAD. max_lines 0 uses one visible line when enabled.
     pub ellipsis: u8,
     /// OpenType feature bits; 0 preserves the font defaults.
     pub features: u32,
@@ -38,6 +39,10 @@ impl Default for TextStyle {
 }
 
 impl TextStyle {
+    pub const ELLIPSIS_NONE: u8 = 0;
+    pub const ELLIPSIS_END: u8 = 1;
+    pub const ELLIPSIS_MIDDLE: u8 = 2;
+    pub const ELLIPSIS_HEAD: u8 = 3;
     pub const FEATURE_TABULAR_NUMBERS: u32 = 1;
     pub const WRAP_NONE: u32 = 0;
     pub const WRAP_WORD: u32 = 1;

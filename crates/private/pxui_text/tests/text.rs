@@ -1,4 +1,4 @@
-use pxui_text::{AtlasKind, Glyph, Rect, Style, Text, Wrap};
+use pxui_text::{Ellipsis, AtlasKind, Glyph, Rect, Style, Text, Wrap};
 
 const PRAGMA: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/../../../assets/fonts/Pragmasevka-Regular.ttf");
 
@@ -106,11 +106,78 @@ fn wrap_ellipsis_and_max_lines() {
     let clipped = t.layout(3, text, &Style { max_lines: 2, ..plain }, wide.w / 4.0);
     assert_eq!(clipped.lines, 2);
     let n_plain = emitted(&mut t, 2).len();
-    let el = t.layout(4, text, &Style { max_lines: 2, ellipsis: true, ..plain }, wide.w / 4.0);
+    let el = t.layout(4, text, &Style { max_lines: 2, ellipsis: Ellipsis::End, ..plain }, wide.w / 4.0);
     assert_eq!(el.lines, 2);
     assert!(emitted(&mut t, 4).len() < n_plain);
-    let one = t.layout(5, text, &Style { ellipsis: true, ..Style::default() }, wide.w / 2.0);
+    let one = t.layout(5, text, &Style { ellipsis: Ellipsis::End, ..Style::default() }, wide.w / 2.0);
     assert_eq!((one.lines, one.w <= wide.w / 2.0 + 0.5), (1, true), "{one:?}");
+}
+
+#[test]
+fn ellipsis_modes_preserve_endpoints_and_independent_warm_caches() {
+    use pxui_text::TextSpan;
+    use pxui_types::geom::color;
+    let mut t=Text::new(&[&pragma()]);
+    let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() },
+        TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:color::rgba(0,0,255,255),..Default::default() }];
+    let modes=[Ellipsis::None,Ellipsis::End,Ellipsis::Middle,Ellipsis::Head];
+    let mut expected=Vec::new();
+    t.layout(100,source,&Style { size:20.0,..Default::default() },1000.0);
+    let fitting=emitted(&mut t,100);
+    for (i,ellipsis) in modes.into_iter().enumerate() {
+        let style=Style { ellipsis,size:20.0,..Default::default() };
+        t.layout(100,source,&style,1000.0);
+        assert_eq!(emitted(&mut t,100),fitting,"fitting text stays intact for every mode");
+        let metrics=t.layout_spans(i as u64,source,&style,100.0,&spans).unwrap();
+        let glyphs=emitted(&mut t,i as u64);
+        let red=glyphs.iter().any(|g|g.color==Some([255,0,0,255]));
+        let blue=glyphs.iter().any(|g|g.color==Some([0,0,255,255]));
+        assert_eq!((red,blue),match ellipsis { Ellipsis::End=>(true,false),Ellipsis::Head=>(false,true),_=>(true,true) },"{ellipsis:?}");
+        assert_eq!(metrics.lines,1);
+        if ellipsis==Ellipsis::None { assert_eq!(glyphs.len(),26); }
+        else { assert!(metrics.w<=100.001 && glyphs.len()<26,"{ellipsis:?}: {metrics:?}"); }
+        // The same caller key must invalidate on mode changes as well as retain separate keys.
+        assert_eq!(t.layout_spans(99,source,&style,100.0,&spans).unwrap(),metrics);
+        assert_eq!(emitted(&mut t,99),glyphs);
+        expected.push((style,metrics,glyphs));
+    }
+    for _ in 0..4 {
+        mem_sys::local_reset();
+        for (i,(style,metrics,glyphs)) in expected.iter().enumerate() {
+            assert_eq!(t.layout_spans(i as u64,source,style,100.0,&spans).unwrap(),*metrics);
+            let mut count=0;
+            t.glyphs(i as u64,(0.0,0.0),1.0,&mut |g| { assert_eq!(g,glyphs[count]); count+=1; });
+            assert_eq!(count,glyphs.len());
+        }
+        t.end_frame();
+        assert_eq!(mem_sys::local_alloc_count(),0,"all warm ellipsis modes retain their layouts/glyphs");
+    }
+}
+
+#[test]
+fn ellipsis_modes_handle_wrapping_empty_text_and_unicode_source_indices() {
+    const ARABIC:&[u8]=include_bytes!("../../../../assets/fonts/NotoSansArabic.ttf");
+    let mut t=Text::new(&[&pragma(),ARABIC]);
+    for ellipsis in [Ellipsis::End,Ellipsis::Middle,Ellipsis::Head] {
+        for source in ["", "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz", "é/long/文件/لا/اسم/track.flac", "first line wraps over words and more words\r\nsecond line continues here"] {
+            for wrap in [Wrap::None,Wrap::Word,Wrap::Glyph] {
+                let style=Style { ellipsis,wrap,max_lines:2,size:20.0,..Default::default() };
+                let metrics=t.layout(1,source,&style,100.0);
+                assert!(metrics.lines<=2 && metrics.w.is_finite(),"{ellipsis:?} {wrap:?} {source:?}: {metrics:?}");
+                // Wrapped advances include hanging blanks; glyph overhangs follow the font.
+                if wrap==Wrap::None { assert!(metrics.w<=100.001,"{ellipsis:?} {source:?}: {metrics:?}"); }
+                for glyph in emitted(&mut t,1) {
+                    assert!(glyph.rect.x.is_finite() && glyph.rect.y.is_finite() && glyph.rect.w>0.0 && glyph.rect.h>0.0);
+                }
+                for x in [0.0,25.0,50.0,75.0,100.0] {
+                    let byte=t.hit(1,x,metrics.h*0.5);
+                    assert!(source.is_char_boundary(byte),"hit must return source UTF-8 boundaries: {source:?} {byte}");
+                }
+            }
+        }
+        assert_eq!(t.layout(1,"first\nsecond",&Style { ellipsis,..Default::default() },100.0).lines,1,"default ellipsis limits the whole block to one line");
+    }
 }
 
 #[test]
@@ -430,7 +497,7 @@ fn inline_spans_preserve_ellipsized_glyph_output() {
     use pxui_text::TextSpan;
     use pxui_types::geom::color;
     let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
-    let style=Style { ellipsis:true,max_lines:1,size:20.0,..Default::default() };
+    let style=Style { ellipsis:Ellipsis::End,max_lines:1,size:20.0,..Default::default() };
     let content="a much longer label";
     text.layout(1,content,&style,60.0);
     let plain=emitted(&mut text,1);

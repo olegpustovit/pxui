@@ -578,7 +578,7 @@ impl NodeText {
     }
     fn style(&self,node:&Node,rtl:bool)->Style {
         let mut style=self.style;
-        if node.flags & FIT_TEXT!=0 { style.ellipsis=true; }
+        if node.flags & FIT_TEXT!=0 && style.ellipsis==pxui_text::Ellipsis::None { style.ellipsis=pxui_text::Ellipsis::End; }
         if rtl && style.align==pxui_text::Align::Left { style.align=pxui_text::Align::Right; }
         style
     }

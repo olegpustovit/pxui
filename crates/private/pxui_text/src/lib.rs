@@ -26,8 +26,8 @@
 //! - `atlas_size(kind) -> (w, h)`, `bytes() -> usize` (atlas mirrors), `end_frame()`,
 //!   `ascent(font) -> f32` (fraction of the size). `PRAGMASEVKA` is the bundled UI face.
 //!
-//! `max_lines` (0 = unlimited) clips; with `ellipsis` the last visible line ends in an ellipsis
-//! (one line when `max_lines` is 0). Unchanged layouts and glyph iteration of already
+//! `max_lines` (0 = unlimited) clips; `ellipsis` selects end, middle or head truncation of the
+//! last visible line (one line when `max_lines` is 0). Unchanged layouts and glyph iteration of already
 //! rasterised glyphs perform zero heap allocations (tests/text.rs). Changed text allocates inside
 //! cosmic-text.
 //!
@@ -92,6 +92,13 @@ pub enum Align {
     Center,
     Right,
 }
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Ellipsis {
+    None,
+    End,
+    Middle,
+    Head,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum AtlasKind {
     Mask,
@@ -111,7 +118,7 @@ pub struct Style {
     pub align: Align,
     /// 0 = unlimited.
     pub max_lines: u16,
-    pub ellipsis: bool,
+    pub ellipsis: Ellipsis,
     /// Points added after every glyph (CSS `letter-spacing`).
     pub tracking: f32,
     /// OpenType feature bits; 0 preserves the font defaults.
@@ -120,7 +127,7 @@ pub struct Style {
 impl Style { pub const FEATURE_TABULAR_NUMBERS: u32 = 1; }
 impl Default for Style {
     fn default() -> Style {
-        Style { font: 0, size: 14.0, weight: 400, italic: false, line_height: 0.0, wrap: Wrap::None, align: Align::Left, max_lines: 0, ellipsis: false, tracking: 0.0, features: 0 }
+        Style { font: 0, size: 14.0, weight: 400, italic: false, line_height: 0.0, wrap: Wrap::None, align: Align::Left, max_lines: 0, ellipsis: Ellipsis::None, tracking: 0.0, features: 0 }
     }
 }
 
@@ -708,8 +715,15 @@ impl Text {
             Wrap::Glyph => CWrap::Glyph,
         });
         let lines = style.max_lines as usize;
-        b.set_ellipsize(if style.ellipsis { Ellipsize::End(EllipsizeHeightLimit::Lines(lines.max(1))) } else { Ellipsize::None });
-        let height = if lines > 0 && !style.ellipsis { Some(lines as f32 * lh) } else { None };
+        let limit=EllipsizeHeightLimit::Lines(lines.max(1));
+        b.set_ellipsize(match style.ellipsis {
+            Ellipsis::None=>Ellipsize::None,
+            Ellipsis::End=>Ellipsize::End(limit),
+            Ellipsis::Middle=>Ellipsize::Middle(limit),
+            Ellipsis::Head=>Ellipsize::Start(limit),
+        });
+        let visible=if style.ellipsis==Ellipsis::None { lines } else { lines.max(1) };
+        let height = (visible>0).then_some(visible as f32*lh);
         b.set_size(width.is_finite().then_some(width), height);
         let align = match style.align {
             Align::Left => CAlign::Left,

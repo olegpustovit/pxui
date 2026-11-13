@@ -194,6 +194,7 @@ fn main() {
         ("shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source", shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source),
         ("shared_skipped_draws", shared_skipped_draws),
         ("shared_inline_spans_render_colors_background_and_rule", shared_inline_spans_render_colors_background_and_rule),
+        ("shared_ellipsis_modes_native_pixels_and_warm_draw", shared_ellipsis_modes_native_pixels_and_warm_draw),
         ("shared_inline_ligature_color_preserves_native_coverage", shared_inline_ligature_color_preserves_native_coverage),
         ("shared_large_image_layer_allocates_nothing", shared_large_image_layer_allocates_nothing),
     ];
@@ -963,6 +964,51 @@ fn shared_inline_spans_render_colors_background_and_rule() {
         assert!(near(background_pixel,[171,104,185,255],2),"span background {background:?}: {background_pixel:?}");
         assert_eq!(sample((rule[0]+rule[2])*0.5,(rule[1]+rule[3])*0.5),[0,255,0,255],"rule colour is independent of glyph colour");
         assert!(pixels.chunks_exact(4).any(|p|p[0]>240 && p[1]<15 && p[2]<15),"native mask samples the span's red foreground");
+    }
+    drop(renderer);
+    assert_eq!(ui.last_error(),"");
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
+}
+
+fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,320,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let mut ui=pxui::Ui::new().unwrap();
+    let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let spans=[pxui::TextSpan { start:0,end:1,flags:pxui::TextSpan::COLOR,color:pxui::geom::color::rgba(255,0,0,255),..Default::default() },
+        pxui::TextSpan { start:25,end:26,flags:pxui::TextSpan::COLOR,color:pxui::geom::color::rgba(0,0,255,255),..Default::default() }];
+    let modes=[pxui::TextStyle::ELLIPSIS_END,pxui::TextStyle::ELLIPSIS_MIDDLE,pxui::TextStyle::ELLIPSIS_HEAD];
+    let mut renderer=shared_renderer(&device,&ui);
+    for frame in 1..=6 {
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:160.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            let b=ui.node("truncation",pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(160.0),..pxui::Node::DEFAULT });
+            ui.canvas(&b,move |paint,_| {
+                for (i,ellipsis) in modes.into_iter().enumerate() {
+                    let style=pxui::TextStyle { ellipsis,size_points:20.0,..Default::default() };
+                    paint.text_spans((10.0,10.0+i as f32*40.0),&style,100.0,Some(pxui::geom::color::rgba(0,0,0,255)),source,&spans).unwrap();
+                }
+            });
+        }).unwrap();
+        let draws=renderer.draw_calls();
+        let allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        assert_eq!(renderer.draw_calls()-draws,1,"mixed ellipsis modes stay in one instanced layer");
+        if frame>3 { assert_eq!(allocations,0,"warm truncated glyph draws allocate nothing"); }
+        let pixels=ok(be::read_texture(&target,640*4));
+        for (i,expected) in [(true,false),(true,true),(false,true)].into_iter().enumerate() {
+            let row=&pixels[i*80*640*4..(i+1)*80*640*4];
+            let red=row.chunks_exact(4).any(|p|p[0]>240 && p[1]<15 && p[2]<15);
+            let blue=row.chunks_exact(4).any(|p|p[2]>240 && p[0]<15 && p[1]<15);
+            assert_eq!((red,blue),expected,"end/middle/head retain the correct original endpoints");
+        }
+        if frame==6 {
+            let path=format!("{}/../../../fixtures/pxui_render/ellipsis_2x.png",env!("CARGO_MANIFEST_DIR"));
+            if std::env::var("RAYS_UPDATE_FIXTURES").as_deref()==Ok("1") { std::fs::write(&path,png::encode(640,320,&pixels)).unwrap(); }
+            let (w,h,expected)=png::decode(&std::fs::read(&path).expect("ellipsis golden"));
+            assert_eq!((w,h),(640,320));
+            assert!(pixels.iter().zip(&expected).all(|(a,b)|a.abs_diff(*b)<=2),"ellipsis native golden changed");
+        }
     }
     drop(renderer);
     assert_eq!(ui.last_error(),"");

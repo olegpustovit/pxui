@@ -1,4 +1,4 @@
-use pxui_text::{Align, AtlasKind, Style, Text, Wrap};
+use pxui_text::{Align, AtlasKind, Ellipsis, Style, Text, Wrap};
 use crate::state::{PxuiUi, engine};
 use crate::PXUI_ERR_ARGUMENT;
 use pxui_types::{Str, TextGlyph, TextMetrics, TextSpans, TextStyle};
@@ -15,7 +15,7 @@ unsafe fn utf8<'a>(value: Str) -> Option<&'a str> {
 
 pub(crate) fn style(value: TextStyle) -> Option<Style> {
     if value.size < core::mem::size_of::<TextStyle>() as u32 || value.features & !Style::FEATURE_TABULAR_NUMBERS != 0
-        || value.italic > 1 || value.ellipsis > 1
+        || value.italic > 1
         || !value.size_points.is_finite() || value.size_points <= 0.0
         || !value.line_height.is_finite() || !value.tracking.is_finite()
     { return None; }
@@ -28,7 +28,7 @@ pub(crate) fn style(value: TextStyle) -> Option<Style> {
         wrap: match value.wrap { TextStyle::WRAP_NONE => Wrap::None, TextStyle::WRAP_WORD => Wrap::Word, TextStyle::WRAP_GLYPH => Wrap::Glyph, _ => return None },
         align: match value.align { TextStyle::ALIGN_LEFT => Align::Left, TextStyle::ALIGN_CENTER => Align::Center, TextStyle::ALIGN_RIGHT => Align::Right, _ => return None },
         max_lines: value.max_lines,
-        ellipsis: value.ellipsis != 0,
+        ellipsis: match value.ellipsis { TextStyle::ELLIPSIS_NONE=>Ellipsis::None, TextStyle::ELLIPSIS_END=>Ellipsis::End, TextStyle::ELLIPSIS_MIDDLE=>Ellipsis::Middle, TextStyle::ELLIPSIS_HEAD=>Ellipsis::Head, _=>return None },
         tracking: value.tracking,
         features: value.features,
     })
@@ -315,6 +315,19 @@ mod tests {
         invalid = TextStyle::default();
         invalid.size_points = f32::NAN;
         assert!(style(invalid).is_none());
+    }
+
+    #[test]
+    fn ellipsis_modes_preserve_existing_codes_and_refuse_unknown_values() {
+        for (ellipsis,expected) in [(TextStyle::ELLIPSIS_NONE,pxui_text::Ellipsis::None),
+            (TextStyle::ELLIPSIS_END,pxui_text::Ellipsis::End),
+            (TextStyle::ELLIPSIS_MIDDLE,pxui_text::Ellipsis::Middle),
+            (TextStyle::ELLIPSIS_HEAD,pxui_text::Ellipsis::Head)] {
+            assert_eq!(style(TextStyle { ellipsis,..Default::default() }).unwrap().ellipsis,expected);
+        }
+        for ellipsis in 4..=u8::MAX {
+            assert!(style(TextStyle { ellipsis,..Default::default() }).is_none());
+        }
     }
 
     #[test]

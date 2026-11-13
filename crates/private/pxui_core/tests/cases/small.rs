@@ -399,7 +399,7 @@ pub fn window_pxui_typography() {
     let mut metrics = Vec::new();
     ui.frame(&frame_at(vec![], 2.0, 0.0, vec![]), &mut |ui| {
         metrics.push(ui.text_metrics(&Style { wrap: Wrap::Word, ..body }, 60.0, text));
-        metrics.push(ui.text_metrics(&Style { wrap: Wrap::Word, max_lines: 1, ellipsis: true, ..body }, 60.0, text));
+        metrics.push(ui.text_metrics(&Style { wrap: Wrap::Word, max_lines: 1, ellipsis: pxui_text::Ellipsis::End, ..body }, 60.0, text));
         let b = ui.box_("typography", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(40.0)).at((0.0, 0.0)));
         ui.draw(&b, move |paint, _| {
             paint.text_styled((0.0, 0.0), &Style { align: Align::Right, ..body }, 200.0, None, "end");

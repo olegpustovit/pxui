@@ -148,6 +148,11 @@ struct PxuiPass { uint32_t size; void *vk_command_buffer, *mtl_render_encoder; u
 typedef struct { uint32_t size, format; uint8_t samples; uint8_t reserved[3]; uint32_t mask_width,mask_height,color_width,color_height,reserved_tail; } PxuiTargetDesc;
 typedef struct { uint32_t size; uint16_t font,weight; float size_points,line_height; uint32_t wrap,align; uint16_t max_lines; uint8_t italic,ellipsis; uint32_t features; float tracking; } PxuiTextStyle;
 #define PXUI_TEXT_FEATURE_TABULAR_NUMBERS 1u
+/* Truncate the last visible line (one when max_lines is 0). */
+#define PXUI_TEXT_ELLIPSIS_NONE 0u
+#define PXUI_TEXT_ELLIPSIS_END 1u
+#define PXUI_TEXT_ELLIPSIS_MIDDLE 2u
+#define PXUI_TEXT_ELLIPSIS_HEAD 3u
 /* Ordered, disjoint, nonempty UTF-8 byte ranges. Weight 0 inherits the style.
    Only active spans and flagged colours are read. Flagged colours are independent;
    underline is a 1.5-point rule at the bottom of the line box. */

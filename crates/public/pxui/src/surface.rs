@@ -527,3 +527,67 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
         assert_eq!(node.color,canvas.color);
     }
 }
+
+#[test]
+fn ellipsis_modes_match_standalone_ui_measurement_quads_and_rasterization() {
+    use crate::TextStyle;
+    let mut ui=Ui::new().unwrap();
+    let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let mut previous=None;
+    for ellipsis in [TextStyle::ELLIPSIS_NONE,TextStyle::ELLIPSIS_END,TextStyle::ELLIPSIS_MIDDLE,TextStyle::ELLIPSIS_HEAD] {
+        let style=TextStyle { ellipsis,size_points:20.0,..Default::default() };
+        let a=shaper.measure(1,source,&style,100.0).unwrap();
+        assert_eq!(a,ui.text_service().measure(1,source,&style,100.0).unwrap());
+        let raster=shaper.rasterize_rgba(1,source,&style,100.0,1.0,[0,0,0,255]).unwrap();
+        assert_eq!(raster,ui.text_service().rasterize_rgba(1,source,&style,100.0,1.0,[0,0,0,255]).unwrap());
+        let glyphs=ui.text_service().quads(1,source,&style,100.0,(0.0,0.0),1.0).unwrap();
+        assert!(!glyphs.is_empty());
+        if ellipsis!=TextStyle::ELLIPSIS_NONE { assert!(a.width<=100.001 && glyphs.len()<26); }
+        if let Some(previous)=previous { assert_ne!(raster,previous,"mode changes invalidate the same caller key"); }
+        previous=Some(raster);
+    }
+    for ellipsis in [4,255] {
+        let style=TextStyle { ellipsis,..Default::default() };
+        assert_eq!(shaper.measure(1,source,&style,100.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+        assert_eq!(ui.text_service().measure(1,source,&style,100.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+        assert!(shaper.rasterize_rgba(1,source,&style,100.0,1.0,[0,0,0,255]).is_err());
+        assert!(ui.text_service().quads(1,source,&style,100.0,(0.0,0.0),1.0).is_err());
+    }
+}
+
+#[test]
+fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage() {
+    use crate::{TextStyle,TextSpan};
+    use pxui_types::geom::color;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    ui.set_a11y(true);
+    let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+    let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() },
+        TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:color::rgba(0,0,255,255),..Default::default() }];
+    for frame in 0..15 {
+        let ellipsis=[TextStyle::ELLIPSIS_END,TextStyle::ELLIPSIS_MIDDLE,TextStyle::ELLIPSIS_HEAD][frame%3];
+        let style=TextStyle { ellipsis,size_points:20.0,..Default::default() };
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+            let b=ui.node("ellipsis",crate::Node { flags:pxui_types::ui::FIT_TEXT,role:crate::ui::Role::Label,w:Size::Px(100.0),h:Size::Px(40.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
+            ui.text_spans(&b,source,&style,&spans).unwrap();
+            ui.canvas(&b,move |paint,rect| {
+                let top=rect.y+((rect.h-style.size_points)/2.0).floor();
+                paint.text_spans((rect.x,top),&style,100.0,Some(color::rgba(0,0,0,255)),source,&spans).unwrap();
+            });
+        }).unwrap();
+        if frame>=9 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed modes retain independent layout/glyph caches"); }
+        let instances:Vec<_>=ui.layers().flat_map(|l|l.instances.iter().copied()).collect();
+        let n=instances.len()/2;
+        assert!(n>0 && instances.len()%2==0);
+        for (node,canvas) in instances[..n].iter().zip(&instances[n..]) {
+            assert_eq!((node.rect,node.aux,node.color),(canvas.rect,canvas.aux,canvas.color),"FIT_TEXT preserves an explicit head/middle mode");
+        }
+        let red=instances[..n].iter().any(|i|i.color==[255,0,0,255]);
+        let blue=instances[..n].iter().any(|i|i.color==[0,0,255,255]);
+        assert_eq!((red,blue),match ellipsis { TextStyle::ELLIPSIS_END=>(true,false),TextStyle::ELLIPSIS_HEAD=>(false,true),_=>(true,true) });
+        assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==source),"truncation keeps the complete accessible source");
+    }
+}
