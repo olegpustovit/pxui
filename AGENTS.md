@@ -81,3 +81,13 @@ paint captures borrow byte ranges in the frame arena; keep ranges valid through 
 Selection and inline decorations stream the same shaped caret ranges instead of cosmic-text's allocating
 highlight iterator. Preserve the core/static/dynamic focused selection/IME allocation tests and native
 1x/2x pixel regression. Changed text/input events and other editor widgets are separate allocation paths.
+
+## Numeric keyboard signals
+
+ABI 1.10 reuses routed signal/modifier buffers. The Rust `signal_state` convenience uses the existing
+`pxui_ui_signal` function and returns the same scalars with empty owned keys; `signal` still copies
+all key/text/IME events. Do not discard consumed activation keys to remove allocations. Preserve
+per-event modifiers, stale-handle quietness and static/dynamic warm keyboard tests. The ABI encodes
+borrowed core events into its retained chunks, reserving all text bytes before publishing pointers.
+Signal/modifier pools grow only to the peak events/signals seen; owned text and legacy key-vector
+reads remain separate allocation paths. No C function signature or layout changed in this minor.

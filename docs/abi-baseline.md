@@ -367,3 +367,38 @@ Checks pass with zero skips: 111 text/static-wrapper/ABI/type cases in 5.574 sec
 Release library/app builds take 19.46/6.86 seconds. Signed bundle minimum OS/default stack/dylib identity/relative rpath/entitlement checks pass, with one smoke frame/draw then 508.6 ms idle. The ordinary signed 10,000-song workload passes the unchanged 1 ms maximum at 613 microseconds, with zero warm Rust allocations across 182 frames/draws (wall p50/p95/p99 293/472/601; CPU p50/p95/p99/max 286/353/369/372 microseconds). Prior failures, including ABI 1.8's 2,314 microseconds, remain evidence: this passing run does not establish stable latency or attribute earlier outliers to this change.
 
 A separate bounded Time Profiler launch with Points of Interest produced no application stdout and only an incomplete trace; export failed with Document Missing Template Error (exit 10). Recorder and isolated target are no longer running; the normal GUI was preserved. This attempt provides no timing samples or cause for earlier wall/CPU gaps. Logs: /tmp/localwave-rust-view-controls-*, incomplete trace: /tmp/localwave-time-profile-4y3_tn49/Run.trace. Native memory, stable latency, macOS 15/Vulkan runtime and full application/platform qualification remain open.
+
+## Retained numeric keyboard routing (ABI 1.10)
+
+The public Rust wrapper adds `Ui::signal_state`: it uses the existing `pxui_ui_signal` function,
+returns the same numeric/pointer/activation fields and leaves the owned keys vector empty. `signal`
+still returns every ordered key/text/IME event. No C signature or wire layout changes; the public
+addition advances the minor version and snapshot metadata only.
+
+Core routing now recycles signal accumulators and per-event modifier vectors up to their observed
+peak. Scalars reset on every reuse and events retain the modifiers held at that event. The ABI
+encodes borrowed core events into the existing retained chunks, reserving the complete text length
+before writing any event text pointer. The wrapper can read activation without cloning unused
+owned key vectors; it does not discard activation events. Legacy owned key reads and text payloads
+remain separate allocation paths.
+
+A LocalWave keyboard-chip regression first observed four allocations per warm Space activation.
+With the shared path fixed it passes with zero allocations through app plus dylib. Core and public
+static/dynamic regressions cover Shift/Space press/release, actual activation, borrowed modifier
+facts, retained storage, stale handles and complete legacy key events. The public regression also
+checks UTF-8 marked-text/input fields through the borrowed encoder. Native renderer behavior and
+draw counts are unchanged. macOS runtime tests do not qualify Vulkan or native process allocation.
+
+Initial core/ABI/wrapper check: 2.87 seconds; debug library rebuild: 9.97 seconds. Core focused
+regression: 12.849 seconds including build, 0.024-second case. The 235-case core/render run passes
+in 13.419 seconds wall / 12.111 summed cases; 86 static wrapper/ABI/type cases pass in 7.386 seconds
+wall / 2.634 summed cases. The later static UTF-8 extension passes separately in 5.353 seconds wall
+/ 0.028-second case. Logs: /tmp/localwave-rust-find-filters-signal-{check,core,engine,static,static-text}.
+The prior sub-second edited-core check and strict application wall-latency gates remain open.
+
+All 46 dynamic wrapper cases pass in 5.461 seconds wall / 1.584 summed cases, including the final
+UTF-8/IME extension. Dependency, header, snapshot and dynamic-export gates pass. No layout row or
+existing C declaration changed. LocalWave's chip keyboard regression passes at zero warm Rust
+allocations in 4.513 seconds including build (0.031-second case). The original four-allocation failure
+is retained in /tmp/localwave-rust-find-filters-keyboard.log. No compiler profile/stack workaround
+or wall-time threshold change was introduced.

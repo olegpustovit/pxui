@@ -1010,6 +1010,8 @@ pub struct Ui {
     view_h: f32,
     modal_heights: HashMap<i64, (f32, i64)>,
     signals: HashMap<i64, Accumulator>,
+    spare_signals: Vec<Accumulator>,
+    spare_modifiers: Vec<Vec<Key>>,
     hits: Vec<HitRec>,
     hit_count: usize,
     chain_key: i64,
@@ -1233,6 +1235,8 @@ impl Ui {
             view_h: 0.0,
             modal_heights: HashMap::new(),
             signals: HashMap::new(),
+            spare_signals: Vec::new(),
+            spare_modifiers: Vec::new(),
             hits: Vec::new(),
             hit_count: 0,
             chain_key: 0,
@@ -2001,7 +2005,10 @@ impl Ui {
 
     fn accumulator(&mut self, key: i64) -> &mut Accumulator {
         if !self.signals.contains_key(&key) {
-            let press_keys = if self.active == Some(key) { self.active_keys.clone() } else { Vec::new() };
+            let (keys, mut press_keys) = self.spare_signals.pop().map_or_else(
+                || (Vec::new(), Vec::new()), |value| (value.keys, value.press_keys));
+            press_keys.clear();
+            if self.active == Some(key) { press_keys.extend_from_slice(&self.active_keys); }
             self.signals.insert(
                 key,
                 Accumulator {
@@ -2020,7 +2027,7 @@ impl Ui {
                     scroll_x: 0.0,
                     scroll_y_steps: 0.0,
                     pinch: 1.0,
-                    keys: Vec::new(),
+                    keys,
                     scroll_wheel: 0.0,
                     scroll_wheel_x: 0.0,
                     scroll_drag: 0.0,
@@ -2220,7 +2227,10 @@ impl Ui {
     }
 
     fn route(&mut self, frame: &rframe::Frame) {
-        self.signals.clear();
+        for (_, mut value) in self.signals.drain() {
+            for (_, modifiers) in value.keys.drain(..) { self.spare_modifiers.push(modifiers); }
+            self.spare_signals.push(value);
+        }
         self.out.cursor = None;
         self.frame_events.clone_from(&frame.input.events);
         keep_frame(&mut self.input_frame, frame);
@@ -2512,7 +2522,9 @@ impl Ui {
                 Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
                     if self.focus != 0 {
                         let focus = self.focus;
-                        let mods = modifiers.clone();
+                        let mut mods = self.spare_modifiers.pop().unwrap_or_default();
+                        mods.clear();
+                        mods.extend_from_slice(&modifiers);
                         let value = self.accumulator(focus);
                         value.keys.push((event.clone(), mods));
                         if let Event::KeyPressed(Key::Enter) | Event::KeyPressed(Key::Space) | Event::KeyPressed(Key::KeyChar(' ')) = event {
@@ -3142,6 +3154,13 @@ impl Ui {
 
     /// What input did to the node this frame; a stale handle has no signal.
     pub fn signal(&self, b: &UiBox) -> Signal {
+        let mut signal = self.signal_state(b);
+        signal.keys.extend(self.key_events_ref(b).iter().map(|(event, _)| event.clone()));
+        signal
+    }
+
+    /// Signal scalars without cloning the owned key/text events.
+    pub fn signal_state(&self, b: &UiBox) -> Signal {
         let key = if self.live(b) { b.box_key } else { 0 };
         let held = key != 0 && self.active == Some(key);
         let slot = &self.slots[b.box_slot];
@@ -3193,7 +3212,7 @@ impl Ui {
                 },
                 scroll: (value.scroll_x, value.scroll_y_steps),
                 pinch: value.pinch,
-                keys: value.keys.iter().map(|(e, _)| e.clone()).collect(),
+                keys: Vec::new(),
                 a11y_value: value.a11y_value,
                 a11y_select: value.a11y_select,
             },
@@ -3202,10 +3221,12 @@ impl Ui {
 
     /// Key/text events of the focused box with the modifiers held at each.
     pub fn key_events(&self, b: &UiBox) -> Vec<(Event, Vec<Key>)> {
-        match self.signals.get(&b.box_key) {
-            None => Vec::new(),
-            Some(value) => value.keys.clone(),
-        }
+        self.key_events_ref(b).to_vec()
+    }
+
+    pub fn key_events_ref(&self, b: &UiBox) -> &[(Event, Vec<Key>)] {
+        let key = if self.live(b) { b.box_key } else { 0 };
+        self.signals.get(&key).filter(|_| key != 0).map_or(&[], |value| &value.keys)
     }
 
     /// Held keys at this box's captured press, retained through release.

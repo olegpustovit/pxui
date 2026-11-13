@@ -164,6 +164,29 @@ pub(crate) fn write_signal(state: &PxuiUi, signal: &Signal, output: &mut PxuiSig
     }
 }
 
+// Borrow routed events rather than constructing an owned core Signal's event vector.
+fn write_borrowed_signal(state: &PxuiUi, signal: &Signal, keys: &[(Event, Vec<input::Key>)], output: &mut PxuiSignal) {
+    *output = PxuiSignal::default();
+    copy_signal(signal, output);
+    if !keys.is_empty() {
+        let shared = state.shared();
+        if shared.chunks_used == shared.chunks.len() { shared.chunks.push(KeyChunk::default()); }
+        let chunk = &mut shared.chunks[shared.chunks_used];
+        shared.chunks_used += 1;
+        chunk.events.clear();
+        chunk.text.clear();
+        chunk.text.reserve(keys.iter().map(|(event, _)| text_len(event)).sum());
+        for (event, _) in keys {
+            let start = chunk.text.len();
+            let mut event = encode(event, &mut chunk.text);
+            let len = chunk.text.len() - start;
+            if len != 0 { event.text = Str { ptr: chunk.text.as_ptr().wrapping_add(start), len }; }
+            chunk.events.push(event);
+        }
+        output.keys = Slice { ptr: chunk.events.as_ptr(), len: chunk.events.len() };
+    }
+}
+
 // One call, scalars in `out`; `out.keys` (and the text its events point at) is borrowed from the `Ui` until the next frame.
 // A box with no key events costs no allocation.
 export!(pub unsafe fn pxui_ui_signal(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut PxuiSignal) -> i32 {
@@ -171,8 +194,8 @@ export!(pub unsafe fn pxui_ui_signal(ui: *mut PxuiUi, box_: *const PxuiBox, out:
     if box_.is_null() || out.is_null() { return unsafe { fail(ui, "invalid signal arguments") }; }
     let engine = unsafe { &*state.engine };
     let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale signal box", crate::PXUI_ERR_STALE) }; };
-    let signal = engine.signal(&box_);
-    unsafe { write_signal(state, &signal, &mut *out); }
+    let signal = engine.signal_state(&box_);
+    unsafe { write_borrowed_signal(state, &signal, engine.key_events_ref(&box_), &mut *out); }
     0
 });
 

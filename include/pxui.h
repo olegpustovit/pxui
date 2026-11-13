@@ -345,6 +345,7 @@ int32_t pxui_ui_focus_box(PxuiUi *ui, const PxuiBox *box);
 int32_t pxui_ui_focused(PxuiUi *ui, const PxuiBox *box, uint8_t *out);
 int32_t pxui_ui_state(PxuiUi *ui, const PxuiBox *box, int64_t default_value, int64_t *out);
 int32_t pxui_ui_set_state(PxuiUi *ui, const PxuiBox *box, int64_t value);
+/* ABI 1.10 retains numeric routing storage; signal events remain borrowed through the next frame. */
 int32_t pxui_ui_signal(PxuiUi *ui, const PxuiBox *box, PxuiSignal *out);
 int32_t pxui_ui_patch_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint8_t *out); /* out: whether the text was written; a stale box is PXUI_ERR_STALE */
 int32_t pxui_ui_busy_step(PxuiUi *ui, const PxuiBox *box, double now, uint8_t *out);

@@ -499,7 +499,39 @@ fn window_pxui_focused_text_field_warm_ime() {
     ui.destroy();
 }
 
+fn window_pxui_keyboard_signal_state_reuses_routing_storage() {
+    let mut ui = new_ui(Some(11));
+    let button = Cell::new(None);
+    let clicks = Cell::new(0);
+    let mut build = |ui: &mut Ui| {
+        let node = ui.node("button", Node { flags: CLICKABLE | TAB_STOP, w: Size::Px(120.0), h: Size::Px(32.0), ..Node::DEFAULT });
+        let state = ui.signal_state(&node);
+        check(state.keys.is_empty(), "scalar signal copied key events");
+        clicks.set(clicks.get() + i32::from(state.clicked));
+        button.set(Some(node));
+    };
+    ui.frame(&keyboard_frame(vec![], vec![]), &mut build);
+    ui.focus_box(&button.get().unwrap());
+    let mut frame = keyboard_frame(vec![], vec![key_down(Key::Shift), key_down(Key::Space), Event::KeyReleased(Key::Space), Event::KeyReleased(Key::Shift)]);
+    for tick in 0..60 {
+        frame.input.t = 1.0 + tick as f64 / 60.0;
+        mem_sys::local_reset();
+        ui.frame(&frame, &mut build);
+        if tick >= 5 { check(mem_sys::local_alloc_count() == 0, "warm numeric keyboard routing/state allocated"); }
+        let events = ui.key_events_ref(&button.get().unwrap());
+        check(events.len() == 4 && events[1].1.contains(&Key::Shift) && !events[2].1.contains(&Key::Space), "borrowed event modifiers changed");
+    }
+    check(clicks.get() == 60, "keyboard activation lost clicks");
+    let owned = ui.signal(&button.get().unwrap());
+    check(owned.clicked && owned.keys.len() == 4, "legacy owned signal lost key events");
+    let old = button.get().unwrap();
+    ui.frame(&keyboard_frame(vec![], vec![]), &mut |_| {});
+    check(ui.signal(&old).keys.is_empty() && ui.key_events_ref(&old).is_empty(), "retired node retained routed input");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_keyboard_signal_state_reuses_routing_storage", window_pxui_keyboard_signal_state_reuses_routing_storage),
     ("window_pxui_focused_text_field_warm_ime", window_pxui_focused_text_field_warm_ime),
     ("text_rows_lru", text_rows_lru),
     ("fuzzy_score_ranks", fuzzy_score_ranks),

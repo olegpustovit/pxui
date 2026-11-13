@@ -47,6 +47,16 @@ impl Ui {
     #[inline] #[track_caller] pub fn state(&self,box_:&PxuiBox,default:i64)-> i64 {let mut out=0;check(self, unsafe{sys::pxui_ui_state(self.0.as_ptr(),box_,default,&mut out)});out}
     #[inline] #[track_caller] pub fn set_state(&mut self,box_:&PxuiBox,value:i64) {check(self, unsafe{sys::pxui_ui_set_state(self.0.as_ptr(),box_,value)})}
 
+    /// Numeric/pointer/activation state only; `keys` is empty. Warm calls do not allocate.
+    #[inline]
+    #[track_caller] pub fn signal_state(&self, box_: &PxuiBox) -> Signal {
+        let mut raw = PxuiSignal::default();
+        let rc = unsafe { sys::pxui_ui_signal(self.0.as_ptr(), box_, &mut raw) };
+        if !crate::live(self, rc) { return decode_signal(&PxuiSignal::default()); }
+        raw.keys = pxui_types::ffi::Slice::default();
+        decode_signal(&raw)
+    }
+
     /// What happened to `box_` this frame: one library call that fills scalars on the stack. A box with no key events
     /// allocates nothing; key events are copied out of the library's frame buffer.
     #[inline]

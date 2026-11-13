@@ -881,3 +881,48 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     }).unwrap();
     assert!(changed, "composition commit must replace the retained selection");
 }
+
+#[test]
+fn numeric_signal_state_preserves_legacy_keys_without_warm_keyboard_allocations() {
+    use std::cell::Cell;
+    use pxui_types::{Event, KEY_SPECIAL};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let button = Cell::new(None);
+    let clicks = Cell::new(0);
+    let mut build = |ui: &mut Ui| {
+        let node = ui.node("button", crate::Node { flags: CLICKABLE | crate::ui::TAB_STOP, w: Size::Px(120.0), h: Size::Px(32.0), ..crate::Node::DEFAULT });
+        let state = ui.signal_state(&node);
+        assert!(state.keys.is_empty());
+        clicks.set(clicks.get() + i32::from(state.clicked));
+        button.set(Some(node));
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    ui.focus_box(&button.get().unwrap());
+    let key = |kind, code| Event { kind, code: KEY_SPECIAL + code, ..Default::default() };
+    let events = [key(Event::KEY_PRESSED, 9), key(Event::KEY_PRESSED, 4), key(Event::KEY_RELEASED, 4), key(Event::KEY_RELEASED, 9)];
+    for tick in 0..60 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time: 1.0 + tick as f64 / 60.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+        if tick >= 5 { assert_eq!(mem_sys::local_alloc_count(), 0, "numeric keyboard routing and scalar signal across the ABI"); }
+    }
+    assert_eq!(clicks.get(), 60);
+    let node = button.get().unwrap();
+    let owned = ui.signal(&node);
+    assert!(owned.clicked);
+    assert_eq!(owned.keys.len(), 4);
+    for (actual, expected) in owned.keys.iter().zip(events) {
+        assert_eq!((actual.kind, actual.code), (expected.kind, expected.code));
+    }
+    let text = "café";
+    let events = [Event { kind: Event::TEXT_EDITING, x: 1.0, y: 2.0,
+        text: pxui_types::Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() },
+        Event { kind: Event::TEXT_INPUT, text: pxui_types::Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() }];
+    ui.frame(&FrameIn { time: 3.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+    let owned = ui.signal(&node);
+    assert_eq!(owned.keys.len(), 2);
+    assert_eq!((owned.keys[0].kind, owned.keys[0].x, owned.keys[0].y, owned.keys[0].text.as_str()), (Event::TEXT_EDITING, 1.0, 2.0, text));
+    assert_eq!((owned.keys[1].kind, owned.keys[1].text.as_str()), (Event::TEXT_INPUT, text));
+    ui.frame(&FrameIn { time: 3.1, ..input() }, &mut |_| {}).unwrap();
+    assert!(ui.signal_state(&node).keys.is_empty() && !ui.signal_state(&node).clicked);
+}
