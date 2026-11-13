@@ -110,6 +110,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "font_sys"
+version = "0.1.0"
+
+[[package]]
 name = "fontdb"
 version = "0.23.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -339,6 +343,7 @@ name = "pxui_text"
 version = "0.1.0"
 dependencies = [
  "cosmic-text",
+ "font_sys",
  "mem_sys",
  "pxui_types",
 ]

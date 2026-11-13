@@ -670,4 +670,9 @@ int32_t pxui_text_width_spans(PxuiUi *ui, uint64_t key, PxuiStr value, const Pxu
 int32_t pxui_ui_text_spans(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiTextStyle *style, const PxuiTextSpans *spans);
 int32_t pxui_paint_text_spans(PxuiPaint *p, float x, float y, const PxuiTextStyle *style, float width, uint8_t has_color, PxuiColor color, PxuiStr text, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 
+/* Apple native fallback, cold discovery only. Ui must enable before its first frame.
+   Explicit-font constructors remain deterministic. No provider: PXUI_ERR_STATE. */
+int32_t pxui_shaper_system_fonts(PxuiShaper *shaper);
+int32_t pxui_text_system_fonts(PxuiUi *ui);
+
 #endif

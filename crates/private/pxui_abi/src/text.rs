@@ -111,6 +111,18 @@ export!(bare pub unsafe fn pxui_shaper_create(fonts: *const Str, count: usize) -
 
 export!(bare pub unsafe fn pxui_shaper_destroy(shaper: *mut PxuiShaper) { if !shaper.is_null() { drop(unsafe { Box::from_raw(shaper) }); } });
 
+export!(bare pub unsafe fn pxui_shaper_system_fonts(shaper:*mut PxuiShaper)->i32 {
+    let Some(shaper)=(unsafe { shaper.as_mut() }) else { return PXUI_ERR_ARGUMENT };
+    if shaper.text.enable_system_fonts() { 0 } else { crate::PXUI_ERR_STATE }
+});
+
+export!(pub unsafe fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32 {
+    let Some(engine)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT };
+    if engine.frame_index()!=0 { return unsafe { crate::state::fail_code(ui,"enable system fonts before the first frame",crate::PXUI_ERR_STATE) }; }
+    if !engine.text_mut().enable_system_fonts() { return unsafe { crate::state::fail_code(ui,"no system font provider for this platform",crate::PXUI_ERR_STATE) }; }
+    0
+});
+
 export!(bare pub unsafe fn pxui_shaper_add_font(shaper: *mut PxuiShaper, font: Str) -> u32 {
     let (Some(shaper), Some(font)) = (unsafe { shaper.as_mut() }, unsafe { bytes(font) }) else { return u32::MAX; };
     u32::try_from(shaper.text.add_font(font)).unwrap_or(u32::MAX)

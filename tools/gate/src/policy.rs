@@ -25,6 +25,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("native_layer_token_sys", &[][..]),
         ("mem_sys", &[][..]),
         ("input", &[][..]),
+        ("font_sys", &[][..]),
         ("sdl3_sys", &["native_layer_token_sys"][..]),
         ("sdl3", &["sdl3_sys", "native_layer_token_sys"][..]),
         ("metal_sys", &["ogpu_core"][..]),
@@ -35,7 +36,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("ogpu_vulkan", &["ogpu_core", "vulkan_sys", "native_layer_token_sys"][..]),
         // Plain data in (input), a draw list out.
         ("pxui_core", &["input", "cfmt", "pxui_text", "pxui_types"][..]),
-        ("pxui_text", &["pxui_types"][..]),
+        ("pxui_text", &["pxui_types", "font_sys"][..]),
         // The UI painter: the portable GPU API and PXUI's draw list.
         ("pxui_render", &["ogpu_core", "pxui_core", "pxui_types"][..]),
         // The window hosts are leaves: SDL, the input types and the native layer token.

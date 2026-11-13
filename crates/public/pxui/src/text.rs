@@ -7,6 +7,8 @@ use core::ptr::NonNull;
 use pxui_types::{Str, TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
 
 library!(lib {
+    fn pxui_shaper_system_fonts(shaper:*mut PxuiShaper)->i32;
+    fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32;
     fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const TextStyle,spans:*const TextSpans)->i32;
@@ -88,6 +90,11 @@ pub struct Text(NonNull<PxuiShaper>);
 unsafe impl Send for Text {}
 
 impl Text {
+    /// Enable native font fallback (Apple). A first missing cluster can discover/map a font file.
+    pub fn enable_system_fonts(&mut self)->Result<(),i32> {
+        let rc=unsafe { lib::pxui_shaper_system_fonts(self.0.as_ptr()) };
+        if rc==0 { Ok(()) } else { Err(rc) }
+    }
     pub fn new(fonts: &[&[u8]]) -> Option<Self> {
         let fonts: Vec<Str> = fonts.iter().map(|font| Str { ptr: font.as_ptr(), len: font.len() }).collect();
         NonNull::new(unsafe { lib::pxui_shaper_create(fonts.as_ptr(), fonts.len()) }).map(Self)
@@ -110,6 +117,11 @@ impl Drop for Text { fn drop(&mut self) { unsafe { lib::pxui_shaper_destroy(self
 pub struct UiText<'ui>(&'ui mut Ui);
 
 impl Ui {
+    /// Enable native font fallback before the first frame. Explicit-font UIs stay deterministic.
+    pub fn enable_system_fonts(&mut self)->Result<(),i32> {
+        let rc=unsafe { lib::pxui_text_system_fonts(self.0.as_ptr()) };
+        if rc==0 { Ok(()) } else { Err(rc) }
+    }
     /// Sets a frame's node text and explicit shaping style, preserving the complete accessibility label.
     /// Spans are at most eight ordered, disjoint UTF-8 byte ranges; plain `text`/`patch_text` clears them.
     pub fn text_spans(&mut self,box_:&crate::PxuiBox,text:&str,style:&TextStyle,spans:&[TextSpan])->Result<(),i32> {

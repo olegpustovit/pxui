@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 5
+minor 6
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -47,6 +47,7 @@ function pxui_shaper_add_font uint32_t pxui_shaper_add_font ( PxuiShaper * shape
 function pxui_shaper_create PxuiShaper * pxui_shaper_create ( const PxuiStr * fonts , size_t count ) ;
 function pxui_shaper_destroy void pxui_shaper_destroy ( PxuiShaper * shaper ) ;
 function pxui_shaper_rasterize_rgba size_t pxui_shaper_rasterize_rgba ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
+function pxui_shaper_system_fonts int32_t pxui_shaper_system_fonts ( PxuiShaper * shaper ) ;
 function pxui_shaper_width int32_t pxui_shaper_width ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , PxuiTextMetrics * out ) ;
 function pxui_shaper_width_spans int32_t pxui_shaper_width_spans ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
 function pxui_slot int32_t pxui_slot ( PxuiUi * ui , PxuiSlot slot , uint8_t * out ) ;
@@ -54,6 +55,7 @@ function pxui_text_add_font uint32_t pxui_text_add_font ( PxuiUi * ui , PxuiStr 
 function pxui_text_field int32_t pxui_text_field ( PxuiUi * ui , PxuiStr label , PxuiStr value , PxuiStr * changed , uint8_t * out_changed ) ;
 function pxui_text_quads size_t pxui_text_quads ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float x , float y , float scale , PxuiTextGlyph * out , size_t capacity ) ;
 function pxui_text_rasterize_rgba size_t pxui_text_rasterize_rgba ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
+function pxui_text_system_fonts int32_t pxui_text_system_fonts ( PxuiUi * ui ) ;
 function pxui_text_width int32_t pxui_text_width ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , PxuiTextMetrics * out ) ;
 function pxui_text_width_spans int32_t pxui_text_width_spans ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
 function pxui_theme_create PxuiTheme * pxui_theme_create ( const PxuiThemeTokens * tokens ) ;

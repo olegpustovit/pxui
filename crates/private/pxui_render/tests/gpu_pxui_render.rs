@@ -195,6 +195,8 @@ fn main() {
         ("shared_skipped_draws", shared_skipped_draws),
         ("shared_inline_spans_render_colors_background_and_rule", shared_inline_spans_render_colors_background_and_rule),
         ("shared_ellipsis_modes_native_pixels_and_warm_draw", shared_ellipsis_modes_native_pixels_and_warm_draw),
+        #[cfg(target_os="macos")]
+        ("shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations", shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations),
         ("shared_inline_ligature_color_preserves_native_coverage", shared_inline_ligature_color_preserves_native_coverage),
         ("shared_large_image_layer_allocates_nothing", shared_large_image_layer_allocates_nothing),
     ];
@@ -1009,6 +1011,37 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
             assert_eq!((w,h),(640,320));
             assert!(pixels.iter().zip(&expected).all(|(a,b)|a.abs_diff(*b)<=2),"ellipsis native golden changed");
         }
+    }
+    drop(renderer);
+    assert_eq!(ui.last_error(),"");
+    ok(be::destroy_texture(&target));
+    finish(device,queue);
+}
+
+#[cfg(target_os="macos")]
+fn shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,300,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let mut ui=pxui::Ui::new().unwrap();
+    ui.enable_system_fonts().unwrap();
+    let style=pxui::TextStyle { size_points:24.0,..Default::default() };
+    let mut renderer=shared_renderer(&device,&ui);
+    for frame in 1..=6 {
+        mem_sys::local_reset();
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:150.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            let b=ui.node("native-fonts",pxui::Node { w:pxui::ui::Size::Px(300.0),h:pxui::ui::Size::Px(80.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
+            ui.text_spans(&b,"漢字 العربية",&style,&[]).unwrap();
+            ui.canvas(&b,move |paint,_| { paint.text_styled((10.0,100.0),&style,100.0,None,"😀"); });
+        }).unwrap();
+        let build_allocations=mem_sys::local_alloc_count();
+        let draws=renderer.draw_calls();
+        let draw_allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        assert_eq!(renderer.draw_calls()-draws,1,"native fallback keeps glyphs in the existing instanced layer");
+        if frame>3 { assert_eq!((build_allocations,draw_allocations),(0,0),"warm fallback builds and draws allocate no Rust storage"); }
+        let pixels=ok(be::read_texture(&target,640*4));
+        assert!(pixels[..160*640*4].chunks_exact(4).any(|p|p[0]<20 && p[1]<20 && p[2]<20),"native script glyphs have actual mask coverage");
+        assert!(pixels[200*640*4..].chunks_exact(4).any(|p|p[0]>180 && p[1]>120 && p[2]<80),"native emoji retains its yellow colour pixels");
     }
     drop(renderer);
     assert_eq!(ui.last_error(),"");

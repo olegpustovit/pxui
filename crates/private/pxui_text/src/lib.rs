@@ -42,6 +42,7 @@ pub use pxui_types::{TextSpan, TextSpans};
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
+mod system;
 
 /// A multiply-rotate hasher for the engine's internal keys (glyph cache keys, node and layout keys):
 /// std's SipHash was a fifth of a full rebuild. Not DoS-resistant; no key here comes from outside.
@@ -572,6 +573,7 @@ struct Entry {
 
 pub struct Text {
     g: Glyphs,
+    system:Option<Box<system::SystemFonts>>,
     names: Vec<String>,
     ascents: Vec<f32>,
     entries: HashMap<u64, Entry, Fast>,
@@ -620,6 +622,7 @@ impl Text {
                 pinned: [0; 4],
             },
             names: Vec::new(),
+            system:None,
             ascents: Vec::new(),
             entries: HashMap::default(),
             keys: Vec::new(),
@@ -633,6 +636,22 @@ impl Text {
             t.add_font(f);
         }
         t
+    }
+
+    /// Enable OS discovery on missing glyphs. Explicit-font constructors stay deterministic.
+    /// Returns false when this platform has no native provider. Cold discovery may allocate/map files.
+    pub fn enable_system_fonts(&mut self)->bool {
+        if !font_sys::SUPPORTED { return false; }
+        if self.system.is_none() {
+            let mut system=system::SystemFonts::default();
+            if self.g.fs.db().faces().next().is_none() && !system.resolve("A",&mut self.g.fs) { return false; }
+            self.system=Some(Box::new(system));
+            self.entries.clear();
+            self.keys.clear();
+            self.sweep=0;
+            self.cache_bytes=0;
+        }
+        true
     }
 
     /// Loads a font (copies the bytes); returns its index for `Style::font`. Existing layouts keep
@@ -747,6 +766,7 @@ impl Text {
             }
         }
         b.shape_until_scroll(&mut self.g.fs, true);
+        if let Some(system)=&mut self.system { system::shape(b,&mut self.g.fs,system); }
         let mut m = Metrics::default();
         for run in b.layout_runs() {
             if m.lines == 0 {

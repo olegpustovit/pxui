@@ -591,3 +591,61 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
         assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==source),"truncation keeps the complete accessible source");
     }
 }
+
+#[cfg(target_os="macos")]
+#[test]
+fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
+    use crate::TextStyle;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let style=TextStyle { size_points:20.0,..Default::default() };
+    let old=text.rasterize_rgba(1,"漢字",&style,300.0,1.0,[0,0,0,255]).unwrap();
+    text.enable_system_fonts().unwrap();
+    ui.enable_system_fonts().unwrap();
+    let new=text.rasterize_rgba(1,"漢字",&style,300.0,1.0,[0,0,0,255]).unwrap();
+    assert_ne!(old,new,"enabling invalidates an earlier missing-font layout");
+    let cases=["漢字","العربية","😀"];
+    let mut measured=[pxui_types::TextMetrics::default();3];
+    for (i,source) in cases.into_iter().enumerate() {
+        measured[i]=text.measure(i as u64+1,source,&style,300.0).unwrap();
+        assert_eq!(measured[i],ui.text_service().measure(i as u64+1,source,&style,300.0).unwrap());
+        let (w,h,rgba)=text.rasterize_rgba(i as u64+1,source,&style,300.0,1.0,[0,0,0,255]).unwrap();
+        assert!(w>0 && h>0 && rgba.chunks_exact(4).any(|p|p[3]>0),"native fallback rasterizes {source}");
+    }
+    for _ in 0..4 {
+        mem_sys::local_reset();
+        text.enable_system_fonts().unwrap();
+        ui.enable_system_fonts().unwrap();
+        for (i,source) in cases.into_iter().enumerate() {
+            assert_eq!(text.measure(i as u64+1,source,&style,300.0).unwrap(),measured[i]);
+            assert_eq!(ui.text_service().measure(i as u64+1,source,&style,300.0).unwrap(),measured[i]);
+        }
+        assert_eq!(mem_sys::local_alloc_count(),0,"warm fallback measurement crosses both ABI paths without allocating");
+    }
+}
+
+#[cfg(target_os="macos")]
+#[test]
+fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
+    use crate::TextStyle;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    ui.enable_system_fonts().unwrap();
+    ui.set_a11y(true);
+    let source="漢字 العربية 😀";
+    let style=TextStyle { size_points:20.0,..Default::default() };
+    for frame in 0..7 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
+            let b=ui.node("native-fonts",crate::Node { role:crate::ui::Role::Label,w:Size::Px(300.0),h:Size::Px(40.0),..crate::Node::DEFAULT });
+            ui.text_spans(&b,source,&style,&[]).unwrap();
+            ui.canvas(&b,move |paint,rect| { paint.text_styled((rect.x,rect.y+50.0),&style,300.0,None,source); });
+        }).unwrap();
+        if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed-script nodes and canvas reuse warm layouts and glyphs"); }
+        assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==source));
+        assert!(!ui.layers().all(|layer|layer.instances.is_empty()));
+    }
+    assert_eq!(ui.enable_system_fonts(),Err(pxui_types::PXUI_ERR_STATE));
+    assert!(ui.last_error().contains("before the first frame"));
+}

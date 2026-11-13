@@ -5,6 +5,7 @@ edition.workspace = true
 license.workspace = true
 
 [dependencies]
+font_sys = { path = "../../open/font_sys" }
 pxui_types = { path = "../../public/pxui_types" }
 cosmic-text = { version = "0.19", default-features = false, features = ["std", "swash"] }
 
