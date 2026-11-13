@@ -18,7 +18,6 @@ use crate::arena::{self, Arena};
 pub use crate::geom::Edges;
 use std::any::Any;
 use pxui_text::{Metrics, Style, Text, TextSpan, TextSpans};
-use std::borrow::Cow;
 use std::collections::HashMap;
 use std::rc::Rc;
 
@@ -4684,28 +4683,35 @@ impl Paint {
             let at = (x + inset.l, text_top_for(self.font_size, Some(size), y + inset.t, h - inset.t - inset.b));
             let style = Style { font: look.font.family, size: size as f32, weight: look.font.weight, tracking: look.font.tracking * size as f32, ..Style::default() };
             let ink = Some(fade(look.text));
-            let fitted;
-            let text = if node.flags & FIT_TEXT != 0 {
-                let limit = w - inset.l - inset.r;
-                let plain = Style { tracking: 0.0, ..style };
-                if lay_out(&mut self.text, &plain, 0.0, text).1.w <= limit {
-                    text
-                } else {
-                    let shown = ellipsis(&mut |s| lay_out(&mut self.text, &plain, 0.0, s).1.w, limit, text);
-                    fitted = if shown.is_empty() && !(text.is_empty() && limit >= 0.0) { Cow::Borrowed("\u{2026}") } else { shown };
-                    &*fitted
-                }
-            } else {
-                text
-            };
             let mut buffer = std::mem::take(&mut self.label);
             buffer.clear();
-            let text = if look.font.caps {
-                buffer.extend(text.chars().map(|c| c.to_ascii_uppercase()));
-                &buffer
-            } else {
-                text
-            };
+            let mut fitted = false;
+            if node.flags & FIT_TEXT != 0 {
+                let limit = w - inset.l - inset.r;
+                let plain = Style { tracking: 0.0, ..style };
+                if lay_out(&mut self.text, &plain, 0.0, text).1.w > limit {
+                    // Keep the legacy character-width fit, but reuse paint storage for the cut.
+                    let dots = lay_out(&mut self.text, &plain, 0.0, "\u{2026}").1.w;
+                    let mut cut = 0;
+                    let mut used = 0.0;
+                    for (index, character) in text.char_indices() {
+                        let next = index + character.len_utf8();
+                        used += lay_out(&mut self.text, &plain, 0.0, &text[index..next]).1.w;
+                        if used > limit {
+                            buffer.push_str(&text[..cut]);
+                            buffer.push('\u{2026}');
+                            fitted = true;
+                            break;
+                        }
+                        if used + dots <= limit { cut = next; }
+                    }
+                }
+            }
+            if look.font.caps {
+                if fitted { buffer.make_ascii_uppercase(); }
+                else { buffer.extend(text.chars().map(|c| c.to_ascii_uppercase())); }
+            }
+            let text = if fitted || look.font.caps { buffer.as_str() } else { text };
             // right to left the start inset is at the right: the text ends there
             let (key, m) = lay_out(&mut self.text, &style, 0.0, text);
             let at = if self.rtl { (x + w - inset.l - m.w, at.1) } else { at };
@@ -7271,12 +7277,9 @@ impl Ui {
 
     /// A popup keeps only the signals, capture and focus that belong to it.
     pub(crate) fn retain_popup_state(&mut self, key: i64, related: &[i64]) {
-        let targets: Vec<i64> = self.signals.keys().copied().collect();
-        for target in targets {
-            if !self.belongs(target, key, related) {
-                self.signals.remove(&target);
-            }
-        }
+        let mut signals = std::mem::take(&mut self.signals);
+        signals.retain(|target, _| self.belongs(*target, key, related));
+        self.signals = signals;
         if let Some(active) = self.active {
             if !self.belongs(active, key, related) {
                 self.cancelled.insert(0, self.active_button);

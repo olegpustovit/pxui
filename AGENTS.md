@@ -110,3 +110,8 @@ modified-input/cancellation tests and the 100,000-cell edge/precision/allocation
 and explicit cancellation must not click the capture owner. Validate owner presence before painting
 the ghost so an omitted container leaves no ghost in the same frame. Retired slots clear text/name/
 value contents while retaining their buffers for reuse before the next slot identity is assigned.
+
+Modal signal filtering reuses the signal map rather than collecting its keys each frame. Fitted
+plain labels reuse the painter's existing string buffer; preserve the legacy character-width cut,
+UTF-8 boundaries, tiny-width ellipsis and ASCII caps. Keep the modal wheel allocation regression
+and fitted/plain draw-instance parity case. Owned `ellipsis` helper results remain a separate path.

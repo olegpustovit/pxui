@@ -1043,7 +1043,74 @@ pub fn window_pxui_full_width_retained_state() {
     ui.destroy();
 }
 
+fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
+    let mut ui = new_ui(Some(11));
+    let inside = Cell::new(None);
+    let open = Cell::new(false);
+    let background = Cell::new(false);
+    let mut build = |ui: &mut Ui| {
+        open.set(ui.modal(Some(300.0), "warm-modal", &mut |ui| {
+            let body = ui.node("body", Node { w: Size::Grow, h: Size::Px(140.0), flags: CLICKABLE | TAB_STOP | SCROLL, ..Node::DEFAULT });
+            inside.set(Some(body));
+            ui.within(&body, &mut |ui| {
+                for (key, width, caps) in [("wide", 80.0, false), ("tiny", 1.0, true), ("caps", 60.0, true)] {
+                    let label = ui.node(key, Node { w: Size::Px(width), h: Size::Px(24.0), flags: FIT_TEXT, look: Look { font: Font { caps, ..Font::BODY }, ..Look::NONE }, ..Node::DEFAULT });
+                    ui.text(&label, "a long label with café and 🎵");
+                }
+            });
+            let _ = ui.signal_state(&body);
+        }));
+        let behind = ui.node("background", Node { w: Size::Grow, h: Size::Grow, flags: CLICKABLE | TAB_STOP, ..Node::DEFAULT });
+        let signal = ui.signal_state(&behind);
+        background.set(signal.clicked || signal.hovered);
+    };
+    for time in [0.0, 0.01, 0.02] { ui.frame(&frame_at(vec![], 1.0, time, vec![]), &mut build); }
+    let rect = ui.rect(&inside.get().unwrap());
+    for cycle in 0..30 {
+        let events = vec![Event::PointerMoved((rect.x as f64 + 10.0, rect.y as f64 + 10.0)), Event::Scrolled((0.0, if cycle % 2 == 0 { -1.0 } else { 1.0 }))];
+        let frame = frame_at(vec![], 1.0, 0.03 + cycle as f64 * 0.01, events);
+        mem_sys::local_reset();
+        ui.frame(&frame, &mut build);
+        let allocations = mem_sys::local_alloc_count();
+        assert!(open.get() && !background.get());
+        if cycle > 8 { assert_eq!(allocations, 0, "modal filtering and fitted UTF-8/caps/tiny labels"); }
+    }
+    ui.destroy();
+}
+
+fn window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps() {
+    use pxui_core::geom::Rgba;
+    let mut actual = new_ui(Some(11));
+    let mut expected = new_ui(Some(11));
+    for label in ["split side by side", "café 🎵 long label", "عربي mixed text"] {
+        for width in [0.0, 1.0, 8.0, 28.0, 80.0, 200.0] {
+            for caps in [false, true] {
+                let mut shown = if expected.text_width(Some(11), label) <= width { label.to_owned() }
+                    else { let cut = ellipsis(&mut |s| expected.text_width(Some(11), s), width, label); if cut.is_empty() { "\u{2026}".to_owned() } else { cut.into_owned() } };
+                if caps { shown.make_ascii_uppercase(); }
+                let look = Look { text: Rgba { r: 0, g: 0, b: 0, a: 255 }, font: Font { caps, ..Font::BODY }, ..Look::NONE };
+                let frame = frame_at(vec![], 1.0, 0.0, vec![]);
+                actual.frame(&frame, &mut |ui| {
+                    let row = ui.node("label", Node { w: Size::Px(width), h: Size::Px(24.0), flags: FIT_TEXT, look, ..Node::DEFAULT });
+                    ui.text(&row, label);
+                });
+                expected.frame(&frame, &mut |ui| {
+                    let row = ui.node("label", Node { w: Size::Px(width), h: Size::Px(24.0), look: Look { font: Font { caps: false, ..look.font }, ..look }, ..Node::DEFAULT });
+                    ui.text(&row, &shown);
+                });
+                let a = actual.output().draw;
+                let b = expected.output().draw;
+                assert_eq!(a.len(), b.len());
+                for (a, b) in a.iter().zip(b) { assert_eq!(a.instances, b.instances, "{label:?} width={width} caps={caps}"); }
+            }
+        }
+    }
+    actual.destroy(); expected.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps", window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps),
+    ("window_modal_input_and_fitted_labels_reuse_warm_storage", window_modal_input_and_fitted_labels_reuse_warm_storage),
     ("window_pxui_full_width_retained_state", window_pxui_full_width_retained_state),
     ("window_pxui_scale_1x", window_pxui_scale_1x),
     ("window_pxui_scale_2x", window_pxui_scale_2x),
