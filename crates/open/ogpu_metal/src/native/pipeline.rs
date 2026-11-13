@@ -180,6 +180,24 @@ impl RenderEncoderInner {
 }
 impl Drop for RenderEncoderInner { fn drop(&mut self) { self.finish(true); } }
 impl RenderEncoder {
+    pub(crate) fn restart(&self, command_buffer: &CommandBuffer) -> Result<bool, Error> {
+        const OP: &str="Metal.RenderEncoder.restart";
+        enter_main(OP)?;
+        let inner=&self.0;
+        let Some(pass)=&inner.pass else { return Ok(false); };
+        if !inner.end_native || !inner.ended.load(Ordering::Acquire) || !inner.command_buffer.same(command_buffer) { return Ok(false); }
+        command_buffer.lifetime().ensure_live(OP)?;
+        pass.ensure_live(OP)?;
+        metal_sys::native::pipeline::restart_render_encoder(command_buffer.raw(),pass.raw(),&inner.raw).map_err(|failure| sys_error(OP,failure))?;
+        command_buffer.lifetime().attach();
+        pass.lifetime().attach();
+        for texture in [pass.color_attachment(),pass.depth_attachment(),pass.stencil_attachment(),pass.resolve_texture()].into_iter().flatten() {
+            command_buffer.retain_texture(&texture);
+        }
+        inner.lifetime.destroyed.store(false,Ordering::Release);
+        inner.ended.store(false,Ordering::Release);
+        Ok(true)
+    }
     /// An ended adopted encoder names the app's next one (`pointer`) on the same command buffer, open again: no allocation. False
     /// when it is not an ended adopted encoder of `command_buffer`.
     pub(crate) fn readopt(&self, command_buffer: &CommandBuffer, pointer: *mut std::ffi::c_void) -> Result<bool, Error> {

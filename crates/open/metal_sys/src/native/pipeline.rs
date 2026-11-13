@@ -1,4 +1,19 @@
 use super::{Error, Handle};
+
+pub fn restart_render_encoder(commands: &Handle, pass: &Handle, encoder: &Handle) -> Result<(), Error> {
+    #[cfg(target_vendor = "apple")]
+    {
+        unsafe extern "C" {
+            fn rays_metal_render_encoder_restart(commands: *mut super::NativeHandle, pass: *mut super::NativeHandle, encoder: *mut super::NativeHandle, message: *mut *const std::ffi::c_char) -> i32;
+        }
+        let mut message=std::ptr::null();
+        let status=unsafe { rays_metal_render_encoder_restart(commands.as_native_ptr()?,pass.as_native_ptr()?,encoder.as_native_ptr()?,&mut message) };
+        if status!=0 { return Err(unsafe { Error::from_native(status,message) }); }
+        Ok(())
+    }
+    #[cfg(not(target_vendor = "apple"))]
+    { let _=(commands,pass,encoder); Err(Error::Unavailable) }
+}
 #[cfg(target_vendor = "apple")]
 use super::NativeHandle;
 #[cfg(target_vendor = "apple")]

@@ -139,9 +139,17 @@ impl Commands {
     pub fn encoder_end(&mut self) { self.0.encoder_end() }
     pub fn blit_buffer_to_texture(&mut self, buffer: &Buffer, texture: &Texture, args: BlitDescriptor) -> Result<(), Error> { self.0.blit_buffer_to_texture(&buffer.0, &texture.0, args).map_err(|failure| error("blit_buffer_to_texture", failure)) }
     pub fn render_begin(&mut self, colors: &[ColorAttachment], depth: Option<DepthAttachment>, size: Size) -> Result<(), Error> {
-        let colors = colors.iter().map(ColorAttachment::native).collect::<Vec<_>>();
         let depth = depth.as_ref().map(DepthAttachment::native);
-        self.0.render_begin(&colors, depth, size).map_err(|failure| error("render_begin", failure))
+        macro_rules! begin {
+            ($($i:literal),*) => { self.0.render_begin(&[$(colors[$i].native()),*],depth,size) };
+        }
+        let result=match colors.len() {
+            0=>begin!(), 1=>begin!(0), 2=>begin!(0,1), 3=>begin!(0,1,2),
+            4=>begin!(0,1,2,3), 5=>begin!(0,1,2,3,4), 6=>begin!(0,1,2,3,4,5),
+            7=>begin!(0,1,2,3,4,5,6), 8=>begin!(0,1,2,3,4,5,6,7),
+            _=>return Err(error("render_begin",sys::Error::InvalidInput("at most eight color attachments are supported"))),
+        };
+        result.map_err(|failure| error("render_begin",failure))
     }
     pub fn render_end(&mut self) { self.0.render_end() }
     pub fn viewport(&mut self, rect: Rect) { self.0.viewport(rect) }
@@ -229,6 +237,7 @@ pub struct ColorAttachment { pub texture:Texture,pub resolve:Option<Texture>,pub
 impl ColorAttachment {
     fn native(&self)->sys::ColorAttachment{sys::ColorAttachment{texture:self.texture.0.clone(),resolve:self.resolve.as_ref().map(|t|t.0.clone()),load:self.load,store:self.store,clear:self.clear}}
 }
+#[derive(Clone)]
 pub struct DepthAttachment{pub texture:Texture,pub load:i32,pub store:i32,pub clear:f64}
 impl DepthAttachment{fn native(&self)->sys::DepthAttachment{sys::DepthAttachment{texture:self.texture.0.clone(),load:self.load,store:self.store,clear:self.clear}}}
 #[cfg(test)]

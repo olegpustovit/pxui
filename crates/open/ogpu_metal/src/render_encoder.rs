@@ -110,6 +110,7 @@ struct Render {
     height_px: u32,
     scale: f32,
     declared: std::cell::RefCell<Vec<i64>>,
+    reusable: bool,
 }
 
 pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
@@ -139,7 +140,7 @@ pub fn create(context: &Rc<CommandContext>, target: &DriverRenderTarget) -> Resu
     pass.set_actions(target.actions()).map_err(&fail_pass)?;
     let encoder = RenderEncoder::create(&context.native, &pass).map_err(&fail_pass)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::Render(encoder.clone(), pass.clone()));
-    Ok(Box::new(Render { context: context.clone(), encoder, pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(Vec::new()) }))
+    Ok(Box::new(Render { context: context.clone(), encoder, pass: Some(pass), width_px: target.target_width as u32, height_px: target.target_height as u32, scale: 1.0, declared: std::cell::RefCell::new(Vec::new()), reusable:false }))
 }
 
 pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePass) -> Result<Box<dyn DriverRenderEncoder>, Error> {
@@ -148,7 +149,7 @@ pub fn adopt(context: &Rc<CommandContext>, native: ogpu_core::backend::NativePas
     }
     let encoder = RenderEncoder::adopt_raw(&context.native, native.mtl_render_encoder)?;
     *context.open_encoder.borrow_mut() = Some(OpenEncoder::AdoptedRender(encoder.clone()));
-    Ok(Box::new(Render { context: context.clone(), encoder, pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(Vec::new()) }))
+    Ok(Box::new(Render { context: context.clone(), encoder, pass: None, width_px: native.width_px, height_px: native.height_px, scale: native.scale, declared: std::cell::RefCell::new(Vec::new()), reusable:false }))
 }
 
 impl DriverRenderEncoder for Render {
@@ -268,8 +269,17 @@ impl DriverRenderEncoder for Render {
     fn end_render(&self) -> Result<(), Error> {
         *self.context.open_encoder.borrow_mut() = None;
         let ended = self.encoder.end_encoding();
-        if let Some(pass) = &self.pass { let _ = pass.destroy(); }
+        if !self.reusable { if let Some(pass) = &self.pass { let _ = pass.destroy(); } }
         ended
+    }
+    fn retain_for_reuse(&mut self) -> bool { self.reusable=self.pass.is_some(); self.reusable }
+    fn restart(&mut self) -> Result<bool, Error> {
+        if !self.reusable || self.context.open_encoder.borrow().is_some() { return Ok(false); }
+        if !self.encoder.restart(&self.context.native)? { return Ok(false); }
+        let pass=self.pass.as_ref().expect("reusable owned pass");
+        *self.context.open_encoder.borrow_mut()=Some(OpenEncoder::Render(self.encoder.clone(),pass.clone()));
+        self.declared.get_mut().clear();
+        Ok(true)
     }
     /// The app's next pass on the same (readopted) command buffer, in this ended adopted encoder's objects.
     fn readopt(&mut self, native: ogpu_core::backend::NativePass) -> Result<bool, Error> {
@@ -294,5 +304,14 @@ impl DriverRenderEncoder for Render {
         // The depth-stencil state stays as it is: Metal has no way to unset one (the validation layer refuses nil), and a pass the UI
         // draws into has no depth attachment for it to matter.
         self.encoder.set_winding(OgpuWinding::Clockwise)
+    }
+}
+
+impl Drop for Render {
+    fn drop(&mut self) {
+        if self.reusable {
+            if !self.encoder.destroyed() { let _=self.encoder.end_encoding(); }
+            if let Some(pass)=&self.pass { let _=pass.destroy(); }
+        }
     }
 }

@@ -292,6 +292,9 @@ pub trait DriverRenderEncoder {
     /// An ended adopted encoder points at the app's next pass (`native`, on the same adopted commands): true when it did, with
     /// nothing allocated; false when this driver cannot (the caller adopts anew).
     fn readopt(&mut self, _native: NativePass) -> Result<bool, Error> { Ok(false) }
+    /// Keep an owned pass's setup after ending it, then restart that same immutable target.
+    fn retain_for_reuse(&mut self) -> bool { false }
+    fn restart(&mut self) -> Result<bool, Error> { Ok(false) }
     fn invalidate_state(&self) -> Result<(), Error> { Ok(()) }
     fn native_pass(&self) -> Result<NativePass, Error> {
         Err(error::make("Backend.native_pass", ErrorKind::Unsupported, "native pass export is unavailable"))
@@ -539,7 +542,7 @@ pub struct Argument(Rc<ArgumentInner>);
 struct ArgumentInner { raw: RefCell<Option<Box<dyn DriverArgument>>>, length: i64, alignment: i64, device: Device, dead: Cell<bool> }
 #[derive(Clone)]
 pub struct RenderEncoder(Rc<RenderInner>);
-struct RenderInner { raw: RefCell<Option<Box<dyn DriverRenderEncoder>>>, commands: Commands, open: Cell<bool>, pipeline_set: Cell<bool>, indirect: Cell<bool>, target: (TextureFormat, u8), extent: Cell<(i64, i64)> }
+struct RenderInner { raw: RefCell<Option<Box<dyn DriverRenderEncoder>>>, commands: Commands, open: Cell<bool>, pipeline_set: Cell<bool>, indirect: Cell<bool>, target: (TextureFormat, u8), extent: Cell<(i64, i64)>, reusable: bool }
 
 // A dead wrapper keeps identity and validation metadata, never driver callbacks/native owners.
 // Access follows the existing liveness/state guards; failed transitions retain the payload.
@@ -903,7 +906,7 @@ pub fn wrap_texture(device: &Device, native: NativeTexture) -> Result<Texture, E
         label: None, width: i64::from(native.width), height: i64::from(native.height), depth: 1,
         mip_levels: 1, sample_count: 1, format, usage: vec![TextureUsage::TextureBinding],
     };
-    let descriptor = crate::validation::admit_ordinary_texture(&device.0.capabilities, desc, false, false)?;
+    let descriptor = crate::validation::admit_texture(&device.0.capabilities, crate::validation::TextureProfile::ordinary(&device.0.capabilities, desc, false, false))?;
     let raw = device.0.raw().wrap_texture(native)?;
     device.0.children.set(device.0.children.get() + 1);
     Ok(Texture { resource: make_resource(device, raw), texture_descriptor: descriptor, wrapped: true })
@@ -2065,15 +2068,30 @@ fn attachment_check(operation: &str, device: &Device, texture: &Texture) -> Resu
         Err(make_error(operation, ErrorKind::InvalidArgument, "attachment texture lacks Render_attachment usage"))
     } else { Ok(()) }
 }
-pub fn render_encoder(commands: &Commands, target: &RenderTarget) -> Result<RenderEncoder, Error> {
+/// A validated immutable target and its reusable owned pass. Drop before destroying its attachments.
+/// The app still ends each encoder and owns command submission/completion.
+pub struct PreparedRenderTarget {
+    device: Device,
+    target: RenderTarget,
+    lowered: DriverRenderTarget,
+    encoder: Option<RenderEncoder>,
+}
+impl Drop for PreparedRenderTarget {
+    fn drop(&mut self) {
+        if let Some(encoder)=&self.encoder {
+            if !encoder.0.open.get() { encoder.0.raw.borrow_mut().take(); }
+        }
+    }
+}
+
+fn lower_render_target(device: &Device, target: &RenderTarget) -> Result<DriverRenderTarget, Error> {
     const OP: &str = "Backend.render_encoder";
-    recording(OP, commands)?;
-    let device = commands_device(commands);
-    require(OP, &device, Feature::RenderPipeline)?;
+    live(OP,device)?;
+    require(OP, device, Feature::RenderPipeline)?;
     if target.colors.is_empty() { return Err(make_error(OP, ErrorKind::InvalidArgument, "render target needs one color attachment")); }
     if target.colors.len() > 1 { return Err(make_error(OP, ErrorKind::Unsupported, "multiple color attachments are not exposed")); }
     let color = &target.colors[0];
-    attachment_check(OP, &device, &color.texture)?;
+    attachment_check(OP, device, &color.texture)?;
     if color.texture.texture_descriptor.format == TextureFormat::Depth32Float {
         return Err(make_error(OP, ErrorKind::InvalidArgument, "color attachment has a depth format"));
     }
@@ -2089,7 +2107,7 @@ pub fn render_encoder(commands: &Commands, target: &RenderTarget) -> Result<Rend
         Some(_) if color.store == Store::Discard =>
             return Err(make_error(OP, ErrorKind::InvalidArgument, "a resolve texture needs a Store or Resolve store action")),
         Some(resolve) => {
-            attachment_check(OP, &device, resolve)?;
+            attachment_check(OP, device, resolve)?;
             if !same_extent(resolve) || resolve.texture_descriptor.sample_count != 1 || resolve.texture_descriptor.format != color.texture.texture_descriptor.format {
                 return Err(make_error(OP, ErrorKind::InvalidArgument, "resolve texture extent or sample count differs"));
             }
@@ -2097,7 +2115,7 @@ pub fn render_encoder(commands: &Commands, target: &RenderTarget) -> Result<Rend
         _ => {}
     }
     if let Some(depth) = &target.depth {
-        attachment_check(OP, &device, &depth.depth_texture)?;
+        attachment_check(OP, device, &depth.depth_texture)?;
         if depth.depth_texture.texture_descriptor.format != TextureFormat::Depth32Float {
             return Err(make_error(OP, ErrorKind::InvalidArgument, "depth attachment requires a depth format"));
         }
@@ -2122,7 +2140,7 @@ pub fn render_encoder(commands: &Commands, target: &RenderTarget) -> Result<Rend
         color_load: color.load, color_store, depth_load, depth_store, clear_depth,
         stencil_load: Load::Clear, stencil_store: AttachmentStore::Store, clear_stencil: 0,
     })?;
-    let driver_target = DriverRenderTarget(DriverRenderProfile {
+    Ok(DriverRenderTarget(DriverRenderProfile {
         target_colors: vec![DriverColorAttachment {
             color: color.texture.resource.0.shared(),
             color_resolve: color.resolve.as_ref().map(|texture| texture.resource.0.shared()),
@@ -2133,13 +2151,60 @@ pub fn render_encoder(commands: &Commands, target: &RenderTarget) -> Result<Rend
             depth_load: depth.depth_load, depth_store: depth.depth_store, depth_clear: depth.depth_clear,
         }),
         target_width: width, target_height: height, target_samples: samples, clear_color, actions,
-    });
-    let raw = commands.0.raw().render_encoder(&driver_target)?;
+    }))
+}
+
+fn open_target(commands: &Commands, target: &DriverRenderTarget, format: TextureFormat, reusable: bool) -> Result<RenderEncoder, Error> {
+    let mut raw=commands.0.raw().render_encoder(target)?;
+    let reusable=reusable && raw.retain_for_reuse();
     commands.0.state.set(CommandsState::Encoding);
-    let encoder = RenderEncoder(Rc::new(RenderInner {
-        raw: RefCell::new(Some(raw)), commands: commands.clone(), open: Cell::new(true), pipeline_set: Cell::new(false), indirect: Cell::new(false), target: (color.texture.texture_descriptor.format, samples.ilog2() as u8), extent: Cell::new((width, height)),
+    let encoder=RenderEncoder(Rc::new(RenderInner {
+        raw:RefCell::new(Some(raw)), commands:commands.clone(), open:Cell::new(true), pipeline_set:Cell::new(false), indirect:Cell::new(false),
+        target:(format,target.target_samples.ilog2() as u8), extent:Cell::new((target.target_width,target.target_height)), reusable,
     }));
-    *commands.0.encoder.borrow_mut() = Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
+    *commands.0.encoder.borrow_mut()=Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
+    Ok(encoder)
+}
+
+pub fn render_encoder(commands: &Commands, target: &RenderTarget) -> Result<RenderEncoder, Error> {
+    recording("Backend.render_encoder",commands)?;
+    let lowered=lower_render_target(&commands_device(commands),target)?;
+    open_target(commands,&lowered,target.colors[0].texture.texture_descriptor.format,false)
+}
+
+pub fn prepare_render_target(device: &Device, target: RenderTarget) -> Result<PreparedRenderTarget, Error> {
+    let lowered=lower_render_target(device,&target)?;
+    Ok(PreparedRenderTarget { device:device.clone(), target, lowered, encoder:None })
+}
+
+/// Open the prepared target on this command stream. Reuses its ended pass when commands are readopted;
+/// otherwise opens a new one. Fixed attachment validation remains active on every call.
+pub fn render_prepared(commands: &Commands, prepared: &mut PreparedRenderTarget) -> Result<RenderEncoder, Error> {
+    const OP: &str="Backend.render_prepared";
+    recording(OP,commands)?;
+    if !Rc::ptr_eq(&commands_device(commands).0,&prepared.device.0) { return Err(make_error(OP,ErrorKind::CrossDevice,"target belongs to another device")); }
+    for color in &prepared.target.colors {
+        attachment_check(OP,&prepared.device,&color.texture)?;
+        if let Some(resolve)=&color.resolve { attachment_check(OP,&prepared.device,resolve)?; }
+    }
+    if let Some(depth)=&prepared.target.depth { attachment_check(OP,&prepared.device,&depth.depth_texture)?; }
+    if let Some(encoder)=&prepared.encoder {
+        if encoder.0.open.get() { return Err(make_error(OP,ErrorKind::InvalidState,"prepared render pass is still open")); }
+        if encoder.0.reusable && Rc::ptr_eq(&encoder.0.commands.0,&commands.0) {
+            let restarted=match encoder.0.raw.borrow_mut().as_mut() { Some(raw)=>raw.restart()?, None=>false };
+            if restarted {
+                encoder.0.open.set(true);
+                encoder.0.pipeline_set.set(false);
+                encoder.0.indirect.set(false);
+                commands.0.state.set(CommandsState::Encoding);
+                *commands.0.encoder.borrow_mut()=Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
+                return Ok(encoder.clone());
+            }
+        }
+    }
+    prepared.encoder.take();
+    let encoder=open_target(commands,&prepared.lowered,prepared.target.colors[0].texture.texture_descriptor.format,true)?;
+    prepared.encoder=Some(encoder.clone());
     Ok(encoder)
 }
 pub fn adopt_render_encoder(
@@ -2169,7 +2234,7 @@ pub fn adopt_render_encoder(
     let encoder = RenderEncoder(Rc::new(RenderInner {
         raw: RefCell::new(Some(raw)), commands: commands.clone(), open: Cell::new(true),
         pipeline_set: Cell::new(false), indirect: Cell::new(false), target: (format, samples.ilog2() as u8),
-        extent: Cell::new((i64::from(native.width_px), i64::from(native.height_px))),
+        extent: Cell::new((i64::from(native.width_px), i64::from(native.height_px))), reusable:false,
     }));
     *commands.0.encoder.borrow_mut() = Some(ActiveEncoder::Render(Rc::downgrade(&encoder.0)));
     Ok(encoder)
@@ -2452,7 +2517,7 @@ pub fn end_render(encoder: &RenderEncoder) -> Result<(), Error> {
     encoder.0.raw().end_render()?;
     encoder.0.open.set(false);
     // an adopted encoder keeps its driver object for `readopt_render_encoder`; it is closed to every other call
-    if !encoder.0.commands.0.borrowed.get() { encoder.0.raw.borrow_mut().take(); }
+    if !encoder.0.commands.0.borrowed.get() && !encoder.0.reusable { encoder.0.raw.borrow_mut().take(); }
     encoder.0.commands.0.encoder.borrow_mut().take();
     encoder.0.commands.0.state.set(CommandsState::Recording);
     Ok(())
@@ -2725,7 +2790,7 @@ mod ownership_tests {
         reject(ErrorKind::Unsupported, icb_set_pipeline(&icb, 0, &render));
         let pass = RenderEncoder(Rc::new(RenderInner {
             raw: RefCell::new(None), commands, open: Cell::new(true), pipeline_set: Cell::new(false),
-            indirect: Cell::new(false), target: (TextureFormat::Rgba8Unorm, 0), extent: Cell::new((4, 4)),
+            indirect: Cell::new(false), target: (TextureFormat::Rgba8Unorm, 0), extent: Cell::new((4, 4)), reusable:false,
         }));
         pass.0.commands.0.state.set(CommandsState::Encoding);
         render_compatible("test", &pass, &render).unwrap();

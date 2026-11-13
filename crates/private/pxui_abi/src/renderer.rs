@@ -9,12 +9,18 @@ use crate::state::{fail, get, PxuiUi};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_STATE, PxuiTargetDesc};
 use core::ffi::c_void;
 
+struct CachedTexture { texture: Texture, used: u64 }
+impl Drop for CachedTexture {
+    fn drop(&mut self) { let _=gpu_backend::destroy_texture(&self.texture); }
+}
+
 pub struct PxuiRenderer {
     painter: Painter,
     queue: Queue,
     device: Device,
     /// wrapped app textures by native handle, with the serial of the frame that last drew them
-    textures: std::collections::HashMap<usize, (Texture, u64)>,
+    textures: std::collections::HashMap<crate::image::TextureKey, CachedTexture>,
+    blur_sources: std::collections::HashMap<crate::image::TextureKey, CachedTexture>,
     engine: *mut Ui,
     pub(crate) shared: *mut crate::state::Shared,
     format: TextureFormat,
@@ -28,6 +34,7 @@ pub struct PxuiRenderer {
     prepared: Option<gpu_backend::Commands>,
     drawn: Option<(gpu_backend::Commands, gpu_backend::RenderEncoder)>,
     split_points: Vec<u32>,
+    blur_commands: Option<gpu_backend::Commands>,
 }
 
 /// `native` in the commands kept from the last frame when the driver can point them there, or adopted anew.
@@ -88,7 +95,7 @@ unsafe fn make(ui: &mut PxuiUi, gpu: &pxui_types::Gpu, target: PxuiTargetDesc) -
         Ok(p)=>p,
         Err(e)=>{ let _=gpu_backend::destroy_queue(&queue); let _=gpu_backend::destroy_device(&device); return Err(describe(e)); }
     };
-    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false, prepared:None, drawn:None, split_points:Vec::new() })
+    Ok(PxuiRenderer { painter, queue, device, textures:std::collections::HashMap::new(), blur_sources:std::collections::HashMap::new(), engine:ui.engine, shared:ui.shared, format, samples:i64::from(target.samples), frame_serial:0, completed:0, atlas_initialized:false, prepared:None, drawn:None, split_points:Vec::new(), blur_commands:None })
 }
 
 // Makes a renderer for the owner `Ui` (never a callback's borrowed handle) outside a frame; null, with the reason in
@@ -147,7 +154,8 @@ export!(pub unsafe fn pxui_renderer_prepare(renderer:*mut PxuiRenderer, commands
     if let Some(e)=failed { renderer.atlas_initialized=false; return renderer.fail_gpu(e); }
     renderer.frame_serial=frame;
     // a wrapped texture no frame in flight can still sample (it was last drawn more than 3 frames ago) goes
-    renderer.textures.retain(|_,(_,used)| frame-*used<=pxui_render::FRAMES as u64);
+    renderer.textures.retain(|_,entry| frame-entry.used<=pxui_render::FRAMES as u64);
+    renderer.blur_sources.retain(|_,entry| frame-entry.used<=pxui_render::FRAMES as u64);
     renderer.painter.begin_frame();
     gpu_backend::settle_commands(&commands);
     renderer.prepared=Some(commands);
@@ -163,7 +171,7 @@ export!(pub unsafe fn pxui_renderer_resize(renderer:*mut PxuiRenderer, width:u32
 });
 
 /// What the blur recording callback of one split reaches.
-struct Recording<'a> { painter: &'a mut Painter, renderer_device: &'a Device, queue: &'a Queue, serial: u64, native: [*mut c_void; 2], rect: [u32; 4], sigma: f32, saturation: f32, blurred: Option<Blurred>, error: Option<ogpu_core::error::Error> }
+struct Recording<'a> { painter: &'a mut Painter, renderer_device: &'a Device, queue: &'a Queue, commands: &'a mut Option<gpu_backend::Commands>, sources: &'a mut std::collections::HashMap<crate::image::TextureKey, CachedTexture>, serial: u64, native: [*mut c_void; 2], rect: [u32; 4], sigma: f32, saturation: f32, blurred: Option<Blurred>, error: Option<ogpu_core::error::Error> }
 
 /// The app has ended its pass: record the blur of `rect` of the target it drew so far into its command buffer.
 extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -> i32 {
@@ -171,15 +179,21 @@ extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -
     if target.is_null() || unsafe { (*target).size } < core::mem::size_of::<pxui_types::Image>() as u32 { return PXUI_ERR_ARGUMENT; }
     let t = unsafe { *target };
     let result = (|| {
-        let texture = gpu_backend::wrap_texture(rec.renderer_device, ogpu_core::backend::NativeTexture { size: core::mem::size_of::<ogpu_core::backend::NativeTexture>() as u32, vk_image_view: t.vk_image_view, mtl_texture: t.mtl_texture, width: t.width, height: t.height, format: t.format })?;
-        let blurred = (|| {
-            let native = ogpu_core::backend::NativeCommands { size: core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer: rec.native[0], mtl_command_buffer: rec.native[1], frame_serial: rec.serial, inside_pass: 0 };
-            let commands = gpu_backend::adopt_commands(rec.queue, native)?;
-            rec.painter.blur_in_with_saturation(&commands, &texture, rec.rect, rec.sigma, rec.saturation)
-        })();
-        let destroyed = gpu_backend::destroy_texture(&texture);
-        rec.blurred = Some(blurred?);
-        destroyed
+        let entry=match rec.sources.entry(crate::image::image_key(&t)) {
+            std::collections::hash_map::Entry::Occupied(entry)=>entry.into_mut(),
+            std::collections::hash_map::Entry::Vacant(entry)=>{
+                let texture=gpu_backend::wrap_texture(rec.renderer_device, ogpu_core::backend::NativeTexture { size: core::mem::size_of::<ogpu_core::backend::NativeTexture>() as u32, vk_image_view: t.vk_image_view, mtl_texture: t.mtl_texture, width: t.width, height: t.height, format: t.format })?;
+                entry.insert(CachedTexture { texture, used:rec.serial })
+            }
+        };
+        entry.used=rec.serial;
+        let native = ogpu_core::backend::NativeCommands { size: core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer: rec.native[0], mtl_command_buffer: rec.native[1], frame_serial: rec.serial, inside_pass: 0 };
+        let commands=adopt_again(rec.queue,rec.commands.take(),native)?;
+        let blurred=rec.painter.blur_in_with_saturation(&commands,&entry.texture,rec.rect,rec.sigma,rec.saturation);
+        gpu_backend::settle_commands(&commands);
+        rec.blurred=Some(blurred?);
+        *rec.commands=Some(commands);
+        Ok(())
     })();
     match result { Ok(()) => 0, Err(e) => { rec.error = Some(e); PXUI_ERR_GPU } }
 }
@@ -196,7 +210,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
     let commands_native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_command_buffer:pass.mtl_command_buffer, frame_serial:renderer.frame_serial, inside_pass:1 };
     let native_pass=ogpu_core::backend::NativePass { size:core::mem::size_of::<ogpu_core::backend::NativePass>() as u32, vk_command_buffer:pass.vk_command_buffer, mtl_render_encoder:pass.mtl_render_encoder, width_px:pass.width_px, height_px:pass.height_px, scale:pass.scale };
     let (kept_commands,kept_encoder)=renderer.drawn.take().unzip();
-    let commands=match adopt_again(&renderer.queue,kept_commands,commands_native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
+    let mut commands=match adopt_again(&renderer.queue,kept_commands,commands_native) { Ok(c)=>c, Err(e)=>return renderer.fail_gpu(e) };
     let encoder=match kept_encoder.map(|e| gpu_backend::readopt_render_encoder(&commands,&e,native_pass).map(|again| again.then_some(e))) {
         Some(Ok(Some(encoder)))=>encoder,
         Some(Err(e))=>return renderer.fail_gpu(e),
@@ -224,10 +238,10 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
             if image.handle.downcast_ref::<Texture>().is_some() { continue; }
             let Some(key)=crate::image::texture_key(image) else { continue; };
             match renderer.textures.get_mut(&key) {
-                Some(entry)=>entry.1=renderer.frame_serial,
+                Some(entry)=>entry.used=renderer.frame_serial,
                 None=>{
                     let texture=match crate::image::adopt_texture(&renderer.device,image) { Ok(texture)=>texture, Err(())=>return renderer.fail(PXUI_ERR_GPU, "an app image could not be wrapped") };
-                    renderer.textures.insert(key,(texture,renderer.frame_serial));
+                    renderer.textures.insert(key,CachedTexture { texture, used:renderer.frame_serial });
                 }
             }
         }
@@ -244,7 +258,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
         for (slot,b) in slots.iter_mut().zip(&layer.breaks) {
             let texture=if b.image==pxui_core::draw::ATLAS { None } else if let Some(image)=layer.images.get(b.image as usize) {
                 if let Some(texture)=image.handle.downcast_ref::<Texture>() { Some(texture) }
-                else { crate::image::texture_key(image).and_then(|key|renderer.textures.get(&key).map(|e|&e.0)) }
+                else { crate::image::texture_key(image).and_then(|key|renderer.textures.get(&key).map(|e|&e.texture)) }
             } else { None };
             *slot=Break { at_instance:b.at_instance, texture };
         }
@@ -277,7 +291,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                     // this copy of the pass ends here; the app ends its own, records the blur and reopens one
                     let open=latest.clone().or_else(||reopened.clone()).unwrap_or_else(||current.clone());
                     gpu_backend::end_render(&open)?;
-                    let mut rec=Recording { painter, renderer_device:device, queue, serial, native:native_commands, rect:[x0,y0,x1,y1], sigma:b.sigma*scale, saturation:b.saturation, blurred:None, error:None };
+                    let mut rec=Recording { painter, renderer_device:device, queue, commands:&mut renderer.blur_commands, sources:&mut renderer.blur_sources, serial, native:native_commands, rect:[x0,y0,x1,y1], sigma:b.sigma*scale, saturation:b.saturation, blurred:None, error:None };
                     let mut next=pass;
                     let rc=split(pass.split_user,record_blur,(&mut rec as *mut Recording).cast(),&mut next);
                     if let Some(e)=rec.error.take() { return Err(e); }
@@ -285,8 +299,9 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                     let blurred=rec.blurred.take().expect("checked above");
                     let commands_native=ogpu_core::backend::NativeCommands { size:core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer:next.vk_command_buffer, mtl_command_buffer:next.mtl_command_buffer, frame_serial:serial, inside_pass:1 };
                     let native_next=ogpu_core::backend::NativePass { size:core::mem::size_of::<ogpu_core::backend::NativePass>() as u32, vk_command_buffer:next.vk_command_buffer, mtl_render_encoder:next.mtl_render_encoder, width_px:next.width_px, height_px:next.height_px, scale:next.scale };
-                    let commands=gpu_backend::adopt_commands(queue,commands_native)?;
-                    let encoder=gpu_backend::adopt_render_encoder(&commands,native_next,format,samples)?;
+                    let resumed=adopt_again(queue,Some(commands.clone()),commands_native)?;
+                    let encoder=if gpu_backend::readopt_render_encoder(&resumed,&open,native_next)? { open } else { gpu_backend::adopt_render_encoder(&resumed,native_next,format,samples)? };
+                    commands=resumed;
                     let rect=[x0,y0,x1,y1].map(|v|v as f32/scale);
                     let (alpha,radius)=((255.0*b.opacity.clamp(0.0,1.0)).round() as u8,b.radii.iter().fold(0.0f32,|a,r|a.max(*r)));
                     let clip=[b.rect.x.floor(),b.rect.y.floor(),(b.rect.x+b.rect.w).ceil(),(b.rect.y+b.rect.h).ceil()].map(|v|v as i16);
@@ -312,11 +327,11 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
 
 export!(bare pub unsafe fn pxui_renderer_destroy(renderer:*mut PxuiRenderer) {
     if renderer.is_null() { return; }
-    let PxuiRenderer { painter, queue, device, textures, shared, frame_serial, prepared, drawn, .. } = *unsafe { Box::from_raw(renderer) };
+    let PxuiRenderer { painter, queue, device, textures, blur_sources, shared, frame_serial, prepared, drawn, blur_commands, .. } = *unsafe { Box::from_raw(renderer) };
     // a painter or texture that fails to go stays a child of the device, which then refuses to go: reported below
-    drop((prepared, drawn));
+    drop((prepared, drawn, blur_commands));
     drop(painter);
-    drop(textures);
+    drop((textures,blur_sources));
     // Contract (pxui.h): the app has finished every frame it passed to prepare, so everything retires now.
     let result=gpu_backend::retire(&queue,frame_serial).and_then(|()| gpu_backend::destroy_queue(&queue)).and_then(|()| gpu_backend::destroy_device(&device));
     if let Err(e)=result { unsafe { let error=&mut (*shared).error; error.clear(); error.push_str(&ogpu_core::error::to_string(&e)); } }

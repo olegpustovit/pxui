@@ -796,7 +796,7 @@ impl DriverDevice for MetalDevice {
         };
         let descriptor = ogpu_core::types::TextureDescriptor { label: None, width: native.width as i64, height: native.height as i64, depth: 1,
             mip_levels: 1, sample_count: 1, format, usage: vec![ogpu_core::types::TextureUsage::TextureBinding] };
-        let admitted = ogpu_core::validation::admit_ordinary_texture(&self.caps, descriptor, false, false)?;
+        let admitted = ogpu_core::validation::admit_texture(&self.caps,ogpu_core::validation::TextureProfile::ordinary(&self.caps,descriptor,false,false))?;
         let value = native::Texture::adopt_raw(self.dev.device.metal(), native.mtl_texture, admitted)?;
         let id = self.dev.t.token();
         Ok(Box::new(MetalTexture { value: Texture::from_native(self.dev.device.clone(), value), id }))

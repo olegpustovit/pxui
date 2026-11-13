@@ -36,10 +36,16 @@ fn handle_of(raw: pxui_types::Image) -> Rc<dyn std::any::Any> {
     })
 }
 
-/// The identity of an app texture: its native handle (the handle `Rc` is made anew for every call that names the image).
-pub(crate) fn texture_key(image: &CoreImage) -> Option<usize> {
+/// A native image's identity includes both handles, extent and format.
+pub(crate) type TextureKey = (usize, usize, u32, u32, u32);
+
+pub(crate) fn image_key(raw: &pxui_types::Image) -> TextureKey {
+    (raw.vk_image_view as usize, raw.mtl_texture as usize, raw.width, raw.height, raw.format)
+}
+
+pub(crate) fn texture_key(image: &CoreImage) -> Option<TextureKey> {
     let raw = image.handle.downcast_ref::<ForeignImage>()?.0;
-    Some(if raw.vk_image_view.is_null() { raw.mtl_texture as usize } else { raw.vk_image_view as usize })
+    Some(image_key(&raw))
 }
 
 pub(crate) fn adopt_texture(device: &Device, image: &CoreImage) -> Result<Texture, ()> {
@@ -52,6 +58,20 @@ pub(crate) fn adopt_texture(device: &Device, image: &CoreImage) -> Result<Textur
         height: raw.height,
         format: raw.format,
     }).map_err(|_| ())
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    fn texture_keys_include_both_native_handles_extent_and_format() {
+        let base=pxui_types::Image { width:16,height:32,format:1,..Default::default() };
+        for changed in [
+            pxui_types::Image { width:32,..base },pxui_types::Image { height:16,..base },
+            pxui_types::Image { format:2,..base },
+            pxui_types::Image { mtl_texture:std::ptr::dangling_mut(),..base },
+            pxui_types::Image { vk_image_view:std::ptr::dangling_mut(),..base },
+        ] { assert_ne!(super::image_key(&base),super::image_key(&changed)); }
+    }
 }
 
 export!(pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, label: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {

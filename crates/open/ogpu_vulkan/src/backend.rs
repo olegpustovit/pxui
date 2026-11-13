@@ -1294,6 +1294,8 @@ struct Render {
     width: u32,
     height: u32,
     scale: f32,
+    attachments: Vec<vk::ColorAttachment>,
+    depth: Option<vk::DepthAttachment>,
 }
 
 impl Render {
@@ -1471,6 +1473,13 @@ impl DriverRenderEncoder for Render {
             Ok(())
         })
     }
+    fn retain_for_reuse(&mut self) -> bool { !self.borrowed }
+    fn restart(&mut self) -> Result<bool, Error> {
+        if self.borrowed { return Ok(false); }
+        let mut depth=self.depth.clone();
+        self.cmds.run(QUEUE_OP,&mut |c| c.render_begin(&self.attachments,depth.take(),vk::Size { width:self.width,height:self.height }))?;
+        Ok(true)
+    }
 }
 
 fn render_encoder(cmds: &Rc<Cmds>, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
@@ -1505,9 +1514,8 @@ fn render_encoder(cmds: &Rc<Cmds>, target: &DriverRenderTarget) -> Result<Box<dy
         clear: *clear,
     });
     let size = vk::Size { width: target.target_width as u32, height: target.target_height as u32 };
-    let mut depth_attachment = depth_attachment;
-    cmds.run(OP, &mut |c| c.render_begin(&attachments, depth_attachment.take(), size))?;
-    Ok(Box::new(Render { cmds: cmds.clone(), borrowed: false, width: size.width, height: size.height, scale: 1.0 }))
+    cmds.run(OP, &mut |c| c.render_begin(&attachments, depth_attachment.clone(), size))?;
+    Ok(Box::new(Render { cmds: cmds.clone(), borrowed: false, width: size.width, height: size.height, scale: 1.0, attachments, depth:depth_attachment }))
 }
 
 struct CommandsHandle {
@@ -1550,7 +1558,7 @@ impl DriverCommands for CommandsHandle {
         if native.vk_command_buffer.is_null() || native.vk_command_buffer != commands.native() {
             return Err(fail(QUEUE_OP, ErrorKind::InvalidArgument, "pass command buffer does not match adopted commands"));
         }
-        Ok(Box::new(Render { cmds: self.cmds.clone(), borrowed: true, width: native.width_px, height: native.height_px, scale: native.scale }))
+        Ok(Box::new(Render { cmds: self.cmds.clone(), borrowed: true, width: native.width_px, height: native.height_px, scale: native.scale, attachments:Vec::new(), depth:None }))
     }
     fn compute_encoder(&self) -> Result<Box<dyn DriverComputeEncoder>, Error> {
         compute_encoder(&self.cmds)

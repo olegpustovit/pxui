@@ -24,6 +24,7 @@ ogpu_vulkan = { path = "../../open/ogpu_vulkan" }
 
 [target.'cfg(target_os = "macos")'.dev-dependencies]
 ogpu_metal = { path = "../../open/ogpu_metal" }
+metal_sys = { path = "../../open/metal_sys" }
 
 [[test]]
 name = "gpu_pxui_render"

@@ -161,10 +161,11 @@ fn near(a: [u8; 4], b: [u8; 4], tolerance: i32) -> bool { a.iter().zip(b).all(|(
 /// Metal handles live on the process main thread, which libtest never gives a test: this target is
 /// `harness = false` and speaks just enough of libtest's protocol (`--list`, names to filter).
 fn main() {
-    let cases: [(&str, fn()); 26] = [
+    let cases: &[(&str, fn())] = &[
         ("gpu_scene_golden_and_spot_checks", gpu_scene_golden_and_spot_checks),
         ("gpu_one_draw_per_layer", gpu_one_draw_per_layer),
         ("gpu_warm_frame_allocates_nothing", gpu_warm_frame_allocates_nothing),
+        ("gpu_prepared_target_validation", gpu_prepared_target_validation),
         ("gpu_view_scale_and_rotation", gpu_view_scale_and_rotation),
         ("gpu_per_side_borders", gpu_per_side_borders),
         ("gpu_ramp_gradient", gpu_ramp_gradient),
@@ -184,19 +185,22 @@ fn main() {
         ("shared_teardown", shared_teardown),
         ("shared_frame_serials", shared_frame_serials),
         ("shared_backdrop_blur", shared_backdrop_blur),
+        #[cfg(target_os="macos")]
+        ("shared_backdrop_blur_bgra", shared_backdrop_blur_bgra),
         ("shared_backdrop_blur_requires_resize_without_leaking", shared_backdrop_blur_requires_resize_without_leaking),
         ("shared_draw_callback_refuses_nested_renderer_resize", shared_draw_callback_refuses_nested_renderer_resize),
         ("shared_resize_validation", shared_resize_validation),
+        ("shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source", shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source),
         ("shared_skipped_draws", shared_skipped_draws),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--ignored") { return; }
     if args.iter().any(|a| a == "--list") {
-        for (name, _) in cases { println!("{name}: test"); }
+        for &(name, _) in cases { println!("{name}: test"); }
         return;
     }
     let filters: Vec<&String> = args.iter().filter(|a| !a.starts_with("--")).collect();
-    for (name, case) in cases {
+    for &(name, case) in cases {
         if !filters.is_empty() && !filters.iter().any(|f| *f == name) { continue; }
         if std::panic::catch_unwind(case).is_err() { std::process::exit(101); }
         println!("test {name} ... ok");
@@ -308,6 +312,40 @@ fn gpu_warm_frame_allocates_nothing() {
     ok(be::destroy_texture(&target));
     drop(painter);
     finish(device, queue);
+}
+
+fn gpu_prepared_target_validation() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let texture=target(&device);
+    let target_of=|texture: &Texture| RenderTarget { colors:vec![ColorAttachment { texture:texture.clone(), resolve:None, load:Load::Clear, store:Store::Store, clear:(0.0,0.0,0.0,1.0) }], depth:None };
+    assert!(be::prepare_render_target(&device,RenderTarget::default()).is_err());
+    let mut prepared=ok(be::prepare_render_target(&device,target_of(&texture)));
+    let commands=ok(be::begin_commands(&queue));
+    let encoder=ok(be::render_prepared(&commands,&mut prepared));
+    assert_eq!(be::render_prepared(&commands,&mut prepared).err().unwrap().kind,error::ErrorKind::InvalidState);
+    let other_commands=ok(be::begin_commands(&queue));
+    assert_eq!(be::render_prepared(&other_commands,&mut prepared).err().unwrap().kind,error::ErrorKind::InvalidState);
+    ok(be::abandon(&other_commands));
+    ok(be::end_render(&encoder));
+    ok(be::abandon(&commands));
+    let Some(other)=open() else { return };
+    let other_queue=ok(be::create_queue(&other));
+    let other_commands=ok(be::begin_commands(&other_queue));
+    assert_eq!(be::render_prepared(&other_commands,&mut prepared).err().unwrap().kind,error::ErrorKind::CrossDevice);
+    ok(be::abandon(&other_commands));
+    finish(other,other_queue);
+    let stale=target(&device);
+    let mut stale_target=ok(be::prepare_render_target(&device,target_of(&stale)));
+    ok(be::destroy_texture(&stale));
+    let commands=ok(be::begin_commands(&queue));
+    assert_eq!(be::render_prepared(&commands,&mut stale_target).err().unwrap().kind,error::ErrorKind::StaleHandle);
+    ok(be::abandon(&commands));
+    drop((prepared,stale_target));
+    ok(be::destroy_texture(&texture));
+    assert_eq!(be::draw(&encoder,ogpu_core::render_pass::Primitive::TriangleList,0,3,None).err().unwrap().kind,error::ErrorKind::InvalidState);
+    drop(encoder);
+    finish(device,queue);
 }
 
 fn gpu_view_scale_and_rotation() {
@@ -954,14 +992,22 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool) {
     use pxui::ui::{Look, Node, Size};
     let Some(device) = open() else { return };
     let queue = ok(be::create_queue(&device));
-    let target = texture(&device, 640, 600, &[TextureUsage::RenderAttachment, TextureUsage::TextureCopySrc]);
+    let targets: [Texture; 3] = std::array::from_fn(|_| texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]));
+    let mut host_targets: [be::PreparedRenderTarget; 3] = std::array::from_fn(|i| ok(be::prepare_render_target(&device, RenderTarget {
+        colors: vec![ColorAttachment { texture:targets[i].clone(), resolve:None, load:Load::Load, store:Store::Store, clear:(0.0,0.0,0.0,0.0) }], depth:None,
+    })));
+    let mut host_commands: Option<be::Commands> = None;
     let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[include_bytes!("../../../../assets/fonts/DepartureMono-Regular.otf")]);
     let glass = std::cell::Cell::new(None);
+    let second = std::cell::Cell::new(None);
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
     let build = |ui: &mut pxui::Ui| {
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             glass.set(Some(ui.view("glass", 1, Size::Px(160.0), Size::Px(80.0), &mut |ui: &mut pxui::Ui| {
                 ui.node("pane", Node { w: Size::Px(160.0), h: Size::Px(80.0), look: Look { fill: pxui::geom::color::rgba(0, 0, 0, 1), ..Look::NONE }, ..Node::DEFAULT });
+            })));
+            second.set(Some(ui.view("second glass", 1, Size::Px(60.0), Size::Px(30.0), &mut |ui: &mut pxui::Ui| {
+                ui.node("pane", Node { w: Size::Px(60.0), h: Size::Px(30.0), look: Look { fill:pxui::geom::color::rgba(0,0,0,1), ..Look::NONE }, ..Node::DEFAULT });
             })));
         }).expect("build blur view");
     };
@@ -972,66 +1018,97 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool) {
     ui.view_offset(&glass.get().unwrap(), 80.0, 40.0);
     ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
     ui.view_backdrop_saturation(&glass.get().unwrap(), 0.9);
+    ui.view_offset(&second.get().unwrap(), 220.0, 60.0);
+    ui.view_backdrop_blur(&second.get().unwrap(), 1.5);
+    ui.view_backdrop_saturation(&second.get().unwrap(), 0.9);
     build(&mut ui);
     ui.view_offset(&glass.get().unwrap(), 40.0, 20.0);
     build(&mut ui);
     build(&mut ui);
-    let commands = ok(be::begin_commands(&queue));
-    renderer.prepare(&public_commands(&commands), 1, 0).expect("prepare blur frame");
-    let colors = |load| RenderTarget { colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load, store: Store::Store, clear: (0.8, 0.3, 0.1, 1.0) }], depth: None };
-    let first = ok(be::render_encoder(&commands, &colors(Load::Clear)));
-    let pass_of = |encoder: &RenderEncoder| {
-        let native = ok(be::native_pass(encoder));
-        pxui_types::Pass { size: std::mem::size_of::<pxui_types::Pass>() as u32, vk_command_buffer: native.vk_command_buffer, mtl_render_encoder: native.mtl_render_encoder,
-            width_px: native.width_px, height_px: native.height_px, scale: 2.0, mtl_command_buffer: public_commands(&commands).mtl_command_buffer, ..pxui_types::Pass::default() }
-    };
-    let mut open_pass = first.clone();
-    let mut splits = 0;
-    let layers = ui.layers().count();
-    for layer in 0..layers as u32 {
-        let pass = pass_of(&open_pass);
-        let mut reopened = None;
-        let result = renderer.draw_layer(&pass, layer, &mut |record| {
-            splits += 1;
-            if let Some(nested) = &mut nested {
-                assert_eq!(nested.resize(640, 600), Err(-3), "a draw callback cannot enter another renderer on the same UI");
+    for frame in 1..=6 {
+        let index=(frame as usize-1)%targets.len();
+        let target=&targets[index];
+        let clear=[[0.8,0.3,0.1],[0.1,0.7,0.3],[0.3,0.1,0.8]][index];
+        let commands = ok(be::begin_commands(&queue));
+        let native=ok(be::native_commands(&commands));
+        let native=be::NativeCommands { frame_serial:frame, ..native };
+        ok(be::retire(&queue,frame-1));
+        let adopted=match host_commands.take() {
+            Some(kept) if ok(be::readopt_commands(&kept,native))=>kept,
+            _=>ok(be::adopt_commands(&queue,native)),
+        };
+        renderer.prepare(&public_commands(&commands), frame, frame - 1).expect("prepare blur frame");
+        let colors = |load| RenderTarget { colors: vec![ColorAttachment { texture: target.clone(), resolve: None, load, store: Store::Store, clear: (clear[0], clear[1], clear[2], 1.0) }], depth: None };
+        let first = ok(be::render_encoder(&commands, &colors(Load::Clear)));
+        let pass_of = |encoder: &RenderEncoder| {
+            let native = ok(be::native_pass(encoder));
+            pxui_types::Pass { size: std::mem::size_of::<pxui_types::Pass>() as u32, vk_command_buffer: native.vk_command_buffer, mtl_render_encoder: native.mtl_render_encoder,
+                width_px: native.width_px, height_px: native.height_px, scale: 2.0, mtl_command_buffer: public_commands(&commands).mtl_command_buffer, ..pxui_types::Pass::default() }
+        };
+        let mut open_pass = first.clone();
+        let mut splits = 0;
+        mem_sys::local_reset();
+        ui.view_transform_about(&glass.get().unwrap(),if frame%2==0 { 1.0 } else { 0.8 },[1.0,0.0,0.0,1.0],(80.0,40.0));
+        ui.view_backdrop_blur(&glass.get().unwrap(),if frame%2==0 { 8.0 } else { 0.5 });
+        let layers = ui.layers().count();
+        for layer in 0..layers as u32 {
+            let pass = pass_of(&open_pass);
+            let mut reopened = None;
+            let result = renderer.draw_layer(&pass, layer, &mut |record| {
+                splits += 1;
+                if let Some(nested) = &mut nested {
+                    assert_eq!(nested.resize(640, 600), Err(-3), "a draw callback cannot enter another renderer on the same UI");
+                }
+                ok(be::end_render(reopened.as_ref().unwrap_or(&open_pass)));
+                let native = ok(be::native_texture(&target));
+                record(&pxui_types::Image { vk_image_view: native.vk_image_view, mtl_texture: native.mtl_texture, width: native.width, height: native.height, format: native.format, ..Default::default() })?;
+                let next = ok(be::render_prepared(&adopted, &mut host_targets[index]));
+                let next_pass = pass_of(&next);
+                reopened = Some(next);
+                Ok(next_pass)
+            });
+            if !prepared && result.is_err() {
+                assert_eq!(result, Err(pxui_types::PXUI_ERR_GPU));
+                assert!(ui.last_error().contains("prepare blur targets before recording"));
+                ok(be::abandon(&commands));
+                drop(renderer);
+                assert!(ui.last_error().contains("prepare blur targets before recording"), "renderer teardown must not report leaked GPU children: {}", ui.last_error());
+                drop(host_targets);
+                drop(adopted);
+                drop(host_commands);
+                for target in &targets { ok(be::destroy_texture(target)); }
+                ok(be::destroy_queue(&queue));
+                ok(be::destroy_device(&device));
+                return;
             }
-            ok(be::end_render(&open_pass));
-            let native = ok(be::native_texture(&target));
-            record(&pxui_types::Image { vk_image_view: native.vk_image_view, mtl_texture: native.mtl_texture, width: native.width, height: native.height, format: native.format, ..Default::default() })?;
-            let next = ok(be::render_encoder(&commands, &colors(Load::Load)));
-            let next_pass = pass_of(&next);
-            reopened = Some(next);
-            Ok(next_pass)
-        });
-        if !prepared && result.is_err() {
-            assert_eq!(result, Err(pxui_types::PXUI_ERR_GPU));
-            assert!(ui.last_error().contains("prepare blur targets before recording"));
-            ok(be::abandon(&commands));
-            drop(renderer);
-            assert!(ui.last_error().contains("prepare blur targets before recording"), "renderer teardown must not report leaked GPU children: {}", ui.last_error());
-            ok(be::destroy_texture(&target));
-            ok(be::destroy_queue(&queue));
-            ok(be::destroy_device(&device));
-            return;
+            result.unwrap_or_else(|code| panic!("draw the blurred layer: {code}: {}", ui.last_error()));
+            if let Some(next) = reopened { open_pass = next; }
+            ok(be::invalidate_state(&open_pass));
         }
-        result.unwrap_or_else(|code| panic!("draw the blurred layer: {code}: {}", ui.last_error()));
-        if let Some(next) = reopened { open_pass = next; }
-        ok(be::invalidate_state(&open_pass));
+        let total = mem_sys::local_alloc_count();
+        if frame > 3 && !reenter { assert_eq!(total, 0, "warm blurred layers, including the host split, must allocate nothing"); }
+        assert!(prepared, "an unprepared blur must fail before recording its passes");
+        assert_eq!(splits, 2, "each blurred view splits the app pass once");
+        ok(be::end_render(&open_pass));
+        be::settle_commands(&adopted);
+        host_commands=Some(adopted);
+        let submitted = ok(be::commit(&commands));
+        ok(be::complete_through(&queue, submitted.epoch));
+        let pixels = ok(be::read_texture(&target, 640 * 4));
+        let gray=clear[0]*0.2126+clear[1]*0.7152+clear[2]*0.0722;
+        let expected=clear.map(|c| ((gray+(c-gray)*0.9)*254.0).round() as u8);
+        for (x,y) in [(160,100),(500,320)] {
+            let inside: [u8;4]=pixels[(y*640+x)*4..][..4].try_into().unwrap();
+            assert!(near(inside,[expected[0],expected[1],expected[2],255],2), "rotating target {index}: {inside:?}, expected {expected:?}");
+        }
+        if reenter {
+            assert!(ui.last_error().contains("owner only outside a frame"));
+            build(&mut ui);
+        }
     }
-    assert!(prepared, "an unprepared blur must fail before recording its passes");
-    assert_eq!(splits, 1, "the blurred layer split the app's pass once");
-    ok(be::end_render(&open_pass));
-    let submitted = ok(be::commit(&commands));
-    ok(be::complete_through(&queue, submitted.epoch));
-    let pixels = ok(be::read_texture(&target, 640 * 4));
-    let inside: [u8; 4] = pixels[(100 * 640 + 160) * 4..][..4].try_into().unwrap();
-    assert!(near(inside, [194, 79, 33, 255], 2), "public backdrop saturation reached the composite: {inside:?}");
-    if reenter {
-        assert!(ui.last_error().contains("owner only outside a frame"));
-        build(&mut ui);
-    }
-    ok(be::destroy_texture(&target));
+    drop(host_targets);
+    drop(host_commands);
+    for target in &targets { ok(be::destroy_texture(target)); }
     ok(be::destroy_queue(&queue));
     drop(renderer);
     drop(nested);
@@ -1056,6 +1133,110 @@ fn shared_resize_validation() {
     }).expect("frame after resize");
     drop(renderer);
     ok(be::destroy_device(&device));
+}
+
+/// The macOS host supplies a BGRA target; ordinary OGPU texture creation intentionally stays RGBA.
+#[cfg(target_os="macos")]
+fn shared_backdrop_blur_bgra() {
+    use metal_sys::{native as m,registry as r};
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let raw_device=m::default_device().unwrap();
+    assert_eq!(raw_device.object_ptr(m::KIND_DEVICE).unwrap(),ok(be::native(&device)).mtl_device);
+    let raw_queue=r::command_queue_create(&raw_device).unwrap();
+    let caps=be::capabilities(&device);
+    let profile=ogpu_core::validation::TextureProfile::descriptor_2d(TextureFormat::Bgra8Unorm,640,600,
+        ogpu_core::validation::StorageMode::Shared,vec![TextureUsage::RenderAttachment,TextureUsage::TextureBinding,TextureUsage::TextureCopySrc],None);
+    let admitted=ok(ogpu_core::validation::admit_texture(&caps,profile));
+    let texture=m::create_texture(&raw_device,&admitted).unwrap();
+    let descriptor=m::descriptors::create_render_pass().unwrap();
+    m::descriptors::set_render_pass_sizes(&descriptor,&admitted).unwrap();
+    let clear=ok(ogpu_core::render_pass::admit_clear_color([0.8,0.3,0.1,1.0]));
+    m::descriptors::set_render_pass_attachments(&descriptor,&texture,None,None,&clear).unwrap();
+    let actions=|load| ok(ogpu_core::render_pass::admit_actions(ogpu_core::render_pass::Actions {
+        color_load:load,color_store:ogpu_core::render_pass::AttachmentStore::Store,
+        depth_load:Load::Clear,depth_store:ogpu_core::render_pass::AttachmentStore::Store,clear_depth:1.0,
+        stencil_load:Load::Clear,stencil_store:ogpu_core::render_pass::AttachmentStore::Store,clear_stencil:0,
+    }));
+    let mut ui=pxui::Ui::new().unwrap();
+    let glass=std::cell::Cell::new(None);
+    let mut build=|ui: &mut pxui::Ui| {
+        glass.set(Some(ui.view("BGRA glass",1,pxui::ui::Size::Px(160.0),pxui::ui::Size::Px(80.0),&mut |ui| {
+            ui.node("pane",pxui::ui::Node { w:pxui::ui::Size::Px(160.0),h:pxui::ui::Size::Px(80.0),
+                look:pxui::ui::Look { fill:pxui::geom::color::rgba(0,0,0,1),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
+        })));
+    };
+    let input=pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,..Default::default() };
+    ui.frame(&input,&mut build).unwrap();
+    ui.view_backdrop_blur(&glass.get().unwrap(),8.0);
+    ui.view_backdrop_saturation(&glass.get().unwrap(),0.9);
+    ui.frame(&input,&mut build).unwrap();
+    let native=ok(be::native_leased(&device));
+    let mut renderer=pxui::Renderer::new(&ui,pxui_types::Gpu { backend:native.backend,mtl_device:native.mtl_device,
+        queue:raw_queue.object_ptr(m::KIND_COMMAND_QUEUE).unwrap(),owner_token:native.owner_token,release_owner:native.release_owner,..Default::default() },pxui::TargetDesc { format:2,samples:1 }).unwrap();
+    renderer.resize(640,600).unwrap();
+    let mut encoder=None;
+    for frame in 1..=4 {
+        let commands=r::command_buffer_create(&raw_queue).unwrap();
+        let pointer=commands.object_ptr(m::KIND_COMMAND_BUFFER).unwrap();
+        renderer.prepare(&pxui_types::Commands { mtl_command_buffer:pointer,..Default::default() },frame,frame-1).unwrap();
+        m::descriptors::set_render_pass_actions(&descriptor,&actions(Load::Clear)).unwrap();
+        if let Some(encoder)=&encoder { m::pipeline::restart_render_encoder(&commands,&descriptor,encoder).unwrap(); }
+        else { encoder=Some(r::command_buffer_render_encoder_from_pass(&commands,&descriptor).unwrap()); }
+        let encoder=encoder.as_ref().unwrap();
+        let pass=|| pxui_types::Pass { mtl_command_buffer:pointer,mtl_render_encoder:encoder.object_ptr(m::KIND_RENDER_ENCODER).unwrap(),width_px:640,height_px:600,scale:2.0,..Default::default() };
+        mem_sys::local_reset();
+        for layer in 0..ui.layers().count() as u32 {
+            renderer.draw_layer(&pass(),layer,&mut |record| {
+                r::render_encoder_end(encoder).unwrap();
+                record(&pxui_types::Image { mtl_texture:texture.object_ptr(m::KIND_TEXTURE).unwrap(),width:640,height:600,format:2,..Default::default() })?;
+                m::descriptors::set_render_pass_actions(&descriptor,&actions(Load::Load)).unwrap();
+                m::pipeline::restart_render_encoder(&commands,&descriptor,encoder).unwrap();
+                Ok(pass())
+            }).unwrap_or_else(|code| panic!("native BGRA draw: {code}: {}",ui.last_error()));
+        }
+        if frame>1 { assert_eq!(mem_sys::local_alloc_count(),0,"native BGRA blur draw allocates nothing when warm"); }
+        r::render_encoder_end(encoder).unwrap();
+        r::command_buffer_commit(&commands).unwrap();
+        m::wait_command_buffer(&commands).unwrap();
+        assert!(m::command_buffer_error(&commands).unwrap().is_none(),"native BGRA frame failed on the GPU");
+    }
+    let pixels=m::read_texture_bytes(&texture,640*600*4,640*4,640*600*4,(0,0,0,640,600,1),0,0).unwrap();
+    let pixel=&pixels[(40*640+40)*4..][..4];
+    assert!(near([pixel[2],pixel[1],pixel[0],pixel[3]],[194,79,33,255],2),"BGRA saturation/composite: {pixel:?}");
+    drop(renderer);
+    assert_eq!(ui.last_error(),"");
+    drop((encoder,descriptor,texture,raw_queue,raw_device));
+    metal_sys::drain_releases().unwrap();
+    finish(device,queue);
+}
+
+fn shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source() {
+    let Some(device)=open() else { return };
+    let queue=ok(be::create_queue(&device));
+    let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+    let source=texture(&device,16,16,&[TextureUsage::TextureBinding,TextureUsage::TextureCopySrc,TextureUsage::TextureCopyDst]);
+    let red=RED.repeat(16*16);
+    ok(be::write_texture(&source,None,Origin { x:0,y:0,z:0 },Extent { width:16,height:16,depth:1 },64,&red));
+    let native=ok(be::native_texture(&source));
+    let image=pxui_types::Image { vk_image_view:native.vk_image_view,mtl_texture:native.mtl_texture,width:native.width,height:native.height,format:native.format,..Default::default() };
+    let mut ui=pxui::Ui::new().expect("UI");
+    let mut renderer=shared_renderer(&device,&ui);
+    for frame in 1..=9 {
+        ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
+            if frame<=4 { ui.image("photo",&image,Fit::Fill,pxui::ui::Size::Px(64.0),pxui::ui::Size::Px(48.0)); }
+        }).expect("image frame");
+        shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
+        if frame<=4 {
+            let pixels=ok(be::read_texture(&target,640*4));
+            assert_eq!(&pixels[(20*640+20)*4..][..4],RED);
+        }
+    }
+    drop(renderer);
+    assert_eq!(ui.last_error(),"","cached wrappers must retire without leaked device children");
+    assert_eq!(ok(be::read_texture(&source,64)),red,"destroying wrappers must leave the host texture alive");
+    for texture in [&source,&target] { ok(be::destroy_texture(texture)); }
+    finish(device,queue);
 }
 
 /// `prepare` refuses serials that do not increase and more frames in flight than the painter's ring holds,

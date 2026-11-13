@@ -314,6 +314,7 @@ name = "pxui_render"
 version = "0.1.0"
 dependencies = [
  "mem_sys",
+ "metal_sys",
  "ogpu_core",
  "ogpu_metal",
  "ogpu_vulkan",

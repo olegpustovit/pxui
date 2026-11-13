@@ -173,7 +173,7 @@ pub struct Painter {
 }
 
 /// The backdrop-blur pipeline and two scratch targets prepared outside frame recording.
-struct Blur { pipeline: Pipeline, sampler: Sampler, a: Texture, b: Texture, size: (u32, u32) }
+struct Blur { pipeline: Pipeline, sampler: Sampler, a: Texture, b: Texture, size: (u32, u32), targets: [backend::PreparedRenderTarget; 2] }
 
 /// The occupied region of a reusable scratch texture; sample only `uv`, not the whole allocation.
 /// Its pixels remain valid until the next blur on this painter.
@@ -462,7 +462,15 @@ impl Painter {
             Ok(b) => b,
             Err(e) => { let _ = backend::destroy_texture(&a); return Err(e); }
         };
+        let prepared=(|| {
+            let target=|texture: &Texture| backend::prepare_render_target(&self.device,RenderTarget {
+                colors:vec![ColorAttachment { texture:texture.clone(), resolve:None, load:Load::DontCare, store:Store::Store, clear:(0.0,0.0,0.0,0.0) }], depth:None,
+            });
+            Ok([target(&a)?,target(&b)?])
+        })();
+        let targets=match prepared { Ok(targets)=>targets, Err(e)=>{ let _=backend::destroy_texture(&a); let _=backend::destroy_texture(&b); return Err(e); } };
         if let Some(blur) = &mut self.blur {
+            drop(std::mem::replace(&mut blur.targets,targets));
             self.retired_textures.push((std::mem::replace(&mut blur.a, a), FRAMES));
             self.retired_textures.push((std::mem::replace(&mut blur.b, b), FRAMES));
             blur.size = size;
@@ -479,7 +487,7 @@ impl Painter {
                 Ok(s) => s,
                 Err(e) => { let _ = backend::destroy_texture(&a); let _ = backend::destroy_texture(&b); let _ = backend::destroy_pipeline(&pipeline); return Err(e); }
             };
-            self.blur = Some(Blur { pipeline, sampler, a, b, size });
+            self.blur = Some(Blur { pipeline, sampler, a, b, size, targets });
         }
         Ok(())
     }
@@ -520,12 +528,9 @@ impl Painter {
         self.write_floats(start, &pass_one);
         self.write_floats(start + ALIGN, &pass_two);
         backend::flush_host_range(&self.ring, start as i64, 2 * ALIGN)?;
-        let blur = self.blur.as_ref().expect("prepared above");
-        for (i, (src, dst)) in [(source, &blur.a), (&blur.a, &blur.b)].into_iter().enumerate() {
-            let encoder = backend::render_encoder(commands, &RenderTarget {
-                colors: vec![ColorAttachment { texture: dst.clone(), resolve: None, load: Load::DontCare, store: Store::Store, clear: (0.0, 0.0, 0.0, 0.0) }],
-                depth: None,
-            })?;
+        let blur = self.blur.as_mut().expect("prepared above");
+        for (i, src) in [source, &blur.a].into_iter().enumerate() {
+            let encoder = backend::render_prepared(commands,&mut blur.targets[i])?;
             let viewport = ogpu_core::render_pass::Rect { x: 0, y: 0, width: size.0 as i64, height: size.1 as i64 };
             backend::set_viewport(&encoder, viewport)?;
             backend::set_scissor(&encoder, viewport)?;
@@ -654,6 +659,13 @@ impl Painter {
 
 impl Drop for Painter {
     fn drop(&mut self) {
+        if let Some(blur) = self.blur.take() {
+            drop(blur.targets);
+            let _ = backend::destroy_pipeline(&blur.pipeline);
+            let _ = backend::destroy_sampler(&blur.sampler);
+            let _ = backend::destroy_texture(&blur.a);
+            let _ = backend::destroy_texture(&blur.b);
+        }
         let _ = backend::destroy_pipeline(&self.pipeline);
         let _ = backend::destroy_sampler(&self.sampler);
         let _ = backend::destroy_sampler(&self.smooth);
@@ -663,11 +675,6 @@ impl Drop for Painter {
         for (buffer, _) in &self.retired { let _ = backend::destroy_buffer(buffer); }
         for store in self.layers.iter().flatten() { let _ = backend::destroy_buffer(&store.buffer); }
         for (texture, _) in &self.retired_textures { let _ = backend::destroy_texture(texture); }
-        if let Some(blur) = &self.blur {
-            let _ = backend::destroy_pipeline(&blur.pipeline);
-            let _ = backend::destroy_sampler(&blur.sampler);
-            let _ = backend::destroy_texture(&blur.a);
-            let _ = backend::destroy_texture(&blur.b);
-        }
+
     }
 }

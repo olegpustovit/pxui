@@ -122,12 +122,22 @@ pub fn drain_releases() -> Result<usize, Error> {
     #[cfg(target_vendor = "apple")]
     {
         if !native::is_main_thread() { return Err(Error::WrongThread); }
-        let pending = std::mem::take(&mut *PENDING_RELEASES.lock().unwrap_or_else(|poison| poison.into_inner()));
+        let mut pending = {
+            let mut queued=PENDING_RELEASES.lock().unwrap_or_else(|poison| poison.into_inner());
+            if queued.is_empty() { return Ok(0); }
+            std::mem::take(&mut *queued)
+        };
         let count = pending.len();
-        for pointer in pending {
+        for pointer in pending.drain(..) {
             unsafe { rays_metal_handle_destroy(pointer as *mut NativeHandle); }
             LIVE_HANDLES.fetch_sub(1, Ordering::Relaxed);
             TOTAL_RELEASED.fetch_add(1, Ordering::Relaxed);
+        }
+        // Native destruction stays outside the lock; retain capacity without losing concurrent drops.
+        let mut queued=PENDING_RELEASES.lock().unwrap_or_else(|poison| poison.into_inner());
+        if pending.capacity()>queued.capacity() {
+            pending.extend(queued.drain(..));
+            *queued=pending;
         }
         Ok(count)
     }
