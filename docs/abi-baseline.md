@@ -608,3 +608,26 @@ The initial focused query test exposed lost cross-frame modifiers, then four cou
 in popup switching; both failed logs remain under `/tmp/localwave-settings-held-key-*`. Neither
 the allocation assertion nor the timing budgets were relaxed. Native allocations and platform
 qualification remain separate; this change adds no rendering/backend behavior.
+
+
+### Immediate presses over a dismissed popup
+
+The signed Settings trace found a second issue: clearing modal ownership left the previous
+popup's clickable bounds in the input tree until another frame rebuilt it. A press overlapping
+that old popup could be swallowed. `dismiss_popup` now retains the dismissed roots, including
+attached roots, through routing the next frame, then clears them before construction. Ordinary
+hit testing keeps an empty-list fast path. No public layout or ABI version changes.
+
+The new public regression opens a popup over a button, dismisses it, then presses/releases the
+button over the old popup bounds without an intermediate frame. All warmed cycles allocate zero
+Rust objects. Static focused check passes in **14.961 s wall / 0.034 s case**, including compilation.
+`/tmp/localwave-settings-dismiss-hit-tests.log`.
+
+The final core + dynamic-wrapper run executes **250 checks, zero skips** in **24.802 / 11.330 s**.
+**249 pass; layout_scaling fails** its unchanged 1.5x ratio at **139→215 ns/node**. An isolated
+recheck passes at **138→204 ns/node**, **1.541 / 1.172 s**. The first failure remains retained;
+the recheck does not establish stable scaling or a cause. The new static/dynamic dismissal
+checks and all 52 dynamic wrapper cases pass. Logs:
+`/tmp/localwave-settings-pxui-dismiss-matrix.log`,
+`/tmp/localwave-settings-layout-scaling-recheck.log`. Native allocation and runtime platform
+qualification remain open.

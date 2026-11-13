@@ -1009,6 +1009,7 @@ pub struct Ui {
     cancelled: Vec<MouseButton>,
     modal_key: Option<i64>,
     modal_extra: Vec<i64>,
+    dismissed_popups: Vec<i64>,
     modal_in_frame: bool,
     view_w: f32,
     view_h: f32,
@@ -1236,6 +1237,7 @@ impl Ui {
             cancelled: Vec::new(),
             modal_key: None,
             modal_extra: Vec::new(),
+            dismissed_popups: Vec::new(),
             modal_in_frame: false,
             view_w: 0.0,
             view_h: 0.0,
@@ -2096,7 +2098,12 @@ impl Ui {
             return false;
         }
         let local = if v.flat { Some(point) } else { v.unmap(point) };
-        local.is_some_and(|p| contains(Rect::new(h.x, h.y, h.w, h.h), (p.0 - v.shift.0, p.1 - v.shift.1)))
+        if !local.is_some_and(|p| contains(Rect::new(h.x, h.y, h.w, h.h), (p.0 - v.shift.0, p.1 - v.shift.1))) { return false; }
+        let mut dismissed = false;
+        if !self.dismissed_popups.is_empty() {
+            self.hit_ancestors(h.key, &mut |key| dismissed |= self.dismissed_popups.contains(&key));
+        }
+        !dismissed
     }
 
     /// Topmost hit entry under `point`; 0 when none.
@@ -2615,6 +2622,10 @@ impl Ui {
     /// When the host closes a popup after accepting its result, release focus and capture. Its
     /// current frame remains consumed; next frame is unblocked.
     pub fn dismiss_popup(&mut self) {
+        if let Some(key) = self.modal_key {
+            self.dismissed_popups.push(key);
+            self.dismissed_popups.extend_from_slice(&self.modal_extra);
+        }
         self.modal_key = None;
         self.modal_extra.clear();
         self.unfocus();
@@ -5609,6 +5620,7 @@ impl Ui {
             self.out.background = Some(self.theme.tokens.panel);
         }
         self.route(frame);
+        self.dismissed_popups.clear();
         self.apply_a11y();
         self.mark_input();
         // views whose `repaint_after` is due rebuild now (the root rebuilds anyway)

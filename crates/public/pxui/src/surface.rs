@@ -8,6 +8,41 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds() {
+    use std::cell::Cell;
+    use pxui_types::Event;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let open = Cell::new(true);
+    let pressed = Cell::new(false);
+    let clicked = Cell::new(false);
+    let mut build = |ui: &mut Ui| {
+        if open.get() {
+            ui.popup(None,None,false,false,(0.0,0.0),180.0,100.0,"popup",&mut |ui| {
+                ui.node("cover",crate::Node {flags:CLICKABLE,w:Size::Grow,h:Size::Px(100.0),..crate::Node::DEFAULT});
+            });
+        }
+        let underlying=ui.node("underlying",crate::Node {flags:CLICKABLE,w:Size::Px(180.0),h:Size::Px(100.0),..crate::Node::DEFAULT});
+        let signal=ui.signal_state(&underlying);
+        pressed.set(signal.pressed); clicked.set(signal.clicked);
+    };
+    for round in 0..8 {
+        mem_sys::local_reset();
+        open.set(true);
+        ui.frame(&input(),&mut build).unwrap();
+        ui.dismiss_popup();
+        open.set(false);
+        for kind in [Event::POINTER_PRESSED,Event::POINTER_RELEASED] {
+            let event=Event {kind,x:60.0,y:50.0,..Event::default()};
+            ui.frame(&FrameIn {events:&event,event_count:1,..input()},&mut build).unwrap();
+            assert_eq!(pressed.get(),kind==Event::POINTER_PRESSED);
+            assert_eq!(clicked.get(),kind==Event::POINTER_RELEASED);
+        }
+        if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"dismiss/next-press warm frames"); }
+    }
+}
+
+#[test]
 fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming_presses() {
     use std::cell::Cell;
     use pxui_types::{Event, KEY_SPECIAL};

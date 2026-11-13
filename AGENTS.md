@@ -148,3 +148,7 @@ the host snapshot. Preserve cross-frame modifiers, focused/modal queries, releas
 static/dynamic zero-allocation checks. Popup filtering must recycle rejected accumulators and their
 modifier buffers into the existing pools rather than dropping warmed storage. Hosts accepting a
 custom popup result should dismiss after the popup call returns, before processing another input.
+
+Dismissed popup roots and attached roots are ignored while routing the next frame's old hit tree,
+then cleared before rebuilding. Preserve the overlapping next-press and warm-allocation regression;
+clearing modal ownership alone leaves the previous popup's clickable nodes in that tree.
