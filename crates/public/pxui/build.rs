@@ -4,6 +4,7 @@ use std::path::PathBuf;
 
 fn main() {
     println!("cargo:rerun-if-env-changed=PXUI_LIB_DIR");
+    println!("cargo:rerun-if-env-changed=PXUI_CONSUMER_DEFAULT_STACK");
     if let Some(dir) = std::env::var_os("PXUI_LIB_DIR") {
         println!("cargo:rustc-link-search=native={}", PathBuf::from(dir).display());
     }

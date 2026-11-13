@@ -17,6 +17,10 @@ nothing may reach outside this repository (no `../../..` paths past the root).
   (cosmic-text is about 13 s of it); warm `cargo check -p pxui_core` after an edit under 1 s.
 - Keep incremental compilation and the warm shared `target/`. No routine clean, private target
   directories or RUSTFLAGS/profile overrides.
+- Embedded Apple Silicon macOS workspaces sharing `target/` should resolve the same `tools/cc-stack.sh`
+  linker path. Consumers can set `PXUI_CONSUMER_DEFAULT_STACK=1` to keep the platform stack; PXUI-owned
+  tools keep their legacy stack. Without the opt-out existing consumers retain their stack setting.
+  The public wrapper tracks this environment value so changing it relinks consumers.
 - Inner loop: `cargo check -p <crate>`. Focused regression: `cargo t -p <crate> [filter]`.
   Never run raw `cargo test` or test binaries: `cargo t` kills cases at 5 seconds and runs at 60 seconds,
   serializes GPU/window cases, reports the slowest tests and records `target/t-times.tsv`.

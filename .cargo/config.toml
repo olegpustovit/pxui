@@ -6,7 +6,8 @@ t = "run -q -p rays-t --"
 [target.x86_64-pc-windows-gnu]
 rustflags = ["-Clink-arg=-Wl,--stack,268435456"]
 
-# Main-thread stack 256 MB on every binary: harness = false targets run their cases on the main thread.
+# PXUI-owned executables get a 256 MB main-thread stack: harness = false runs on the main thread.
+# Consumers may share this linker and set PXUI_CONSUMER_DEFAULT_STACK=1 for their platform default stack.
 # A linker wrapper, not a rustflag: the flag must not reach proc-macro dylibs (pxui_text's cosmic-text).
 [target.aarch64-apple-darwin]
 linker = "tools/cc-stack.sh"

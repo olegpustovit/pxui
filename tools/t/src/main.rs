@@ -1412,6 +1412,53 @@ mod tests {
 
     #[cfg(unix)]
     #[test]
+    fn mac_linker_preserves_legacy_stack_and_supports_default_stack_consumers() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = temp_path("linker");
+        let pxui = root.join("pxui with spaces");
+        let bin = root.join("bin");
+        fs::create_dir_all(pxui.join("tools")).unwrap();
+        fs::create_dir_all(&bin).unwrap();
+        let root = fs::canonicalize(root).unwrap();
+        let pxui = root.join("pxui with spaces");
+        let script = pxui.join("tools/cc-stack.sh");
+        fs::write(&script, include_str!("../../cc-stack.sh")).unwrap();
+        let compiler = root.join("bin/cc");
+        fs::write(&compiler, "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$LINK_ARGS_LOG\"\nexit \"${LINK_STATUS:-0}\"\n").unwrap();
+        fs::set_permissions(&compiler, fs::Permissions::from_mode(0o755)).unwrap();
+        let log = root.join("args");
+        let path = format!("{}:{}", root.join("bin").display(), env::var("PATH").unwrap_or_default());
+        let args = ["-o", "a program -dynamiclib with spaces", "-Wl,-literal,value"];
+        for (manifest, dylib, opt_out, extra) in [
+            (None, false, false, true),
+            (Some(root.join("app/crates/consumer")), false, false, true),
+            (None, false, true, false),
+            (Some(root.join("app/crates/consumer")), false, true, false),
+            (Some(root.join("pxui with spaces-other/crates/tool")), false, true, false),
+            (Some(pxui.join("crates/private/pxui_core")), false, true, true),
+            (Some(pxui.join("tools/pxui_gallery")), false, true, true),
+            (Some(pxui.join("crates/private/pxui_dylib")), true, true, false),
+        ] {
+            for status in [0, 7] {
+                let mut cmd = Command::new("sh");
+                cmd.arg(&script).args(args).env("PATH", &path).env("LINK_ARGS_LOG", &log).env("LINK_STATUS", status.to_string()).env_remove("CARGO_MANIFEST_DIR").env_remove("PXUI_CONSUMER_DEFAULT_STACK");
+                if opt_out { cmd.env("PXUI_CONSUMER_DEFAULT_STACK", "1"); }
+                if let Some(manifest) = &manifest { cmd.env("CARGO_MANIFEST_DIR", manifest); }
+                if dylib { cmd.arg("-dynamiclib"); }
+                let output = cmd.output().unwrap();
+                assert_eq!(output.status.code(), Some(status));
+                let actual = fs::read_to_string(&log).unwrap();
+                let mut expected = args.iter().copied().collect::<Vec<_>>();
+                if dylib { expected.push("-dynamiclib"); }
+                if extra { expected.extend(["-Wl,-stack_size,0x10000000", "-Wl,-rpath,@executable_path", "-Wl,-rpath,@executable_path/.."]); }
+                assert_eq!(actual.lines().collect::<Vec<_>>(), expected);
+            }
+        }
+        fs::remove_dir_all(root).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
     fn grouped_gpu_cases_keep_individual_timings_and_hard_deadlines() {
         use std::os::unix::fs::PermissionsExt;
         let root = temp_path("group");

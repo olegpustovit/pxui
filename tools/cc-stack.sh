@@ -1,10 +1,16 @@
 #!/bin/sh
-# Executables get a 256 MB main-thread stack (ld rejects -stack_size for dylibs, proc macros) and rpaths to their own directory and
-# the one above (target/<profile>), where the dynamic `libpxui.1.dylib` stands for the binaries (target/<profile>/<bin>) and the tests
-# (target/<profile>/deps/<test>) that link it.
-case " $* " in
-*" -dynamiclib "*) exec cc "$@" ;;
-esac
+# Executables keep the legacy 256 MB stack and local library rpaths. Consumers may opt into
+# plain cc with PXUI_CONSUMER_DEFAULT_STACK=1 while sharing the same Cargo linker fingerprint.
+for arg in "$@"; do
+    [ "$arg" != -dynamiclib ] || exec cc "$@"
+done
+if [ "${PXUI_CONSUMER_DEFAULT_STACK:-}" = 1 ]; then
+    pxui_root=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+    case "${CARGO_MANIFEST_DIR:-}" in
+    "$pxui_root"/crates/*|"$pxui_root"/tools/*) ;;
+    *) exec cc "$@" ;;
+    esac
+fi
 # Cargo cannot order the libpxui cdylib before a dependent's link: when it is missing, say what builds it.
 out=$(cc "$@" -Wl,-stack_size,0x10000000 -Wl,-rpath,@executable_path -Wl,-rpath,@executable_path/.. 2>&1) && status=0 || status=$?
 [ -z "$out" ] || echo "$out" >&2
