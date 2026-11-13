@@ -239,8 +239,8 @@ layout PxuiCell 8 2 0 2 4 6
 layout PxuiCheckConfig 64 8 0 4 12 16 48
 layout PxuiColorSpan 24 8 0 8 16 20
 layout PxuiCompletion 80 8 0 8 16 32 48 64
-layout PxuiCurve 24 4
-layout PxuiCurveDesc 28 4 0 4 8 24
+layout PxuiCurve 140 4
+layout PxuiCurveDesc 160 4 0 4 8 24 28 32 96
 layout PxuiDescription 40 8 0 1 8 16 24
 layout PxuiDialogConfig 48 8 0 8 24 40
 layout PxuiDialogOut 16 8 0 8
@@ -264,7 +264,7 @@ layout PxuiInspectorRowDesc 96 8 0 4 5 6 7 8 24 40 44 48 80 84 88
 layout PxuiInspectorSectionDesc 64 8 0 4 5 6 7 8 24 40 48 56
 layout PxuiInspectorTextDesc 40 8 0 4 8 24
 layout PxuiInspectorValueDesc 64 8 0 4 5 8 24 40 56
-layout PxuiKeyframeDesc 216 8 0 4 8 12 16 32 184
+layout PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
 layout PxuiLabelConfig 56 8 0 4 8 40
 layout PxuiLayerInfo 48 8 0 8 12 16 32
 layout PxuiLineFieldConfig 64 8 0 4 12 16 48
@@ -282,14 +282,14 @@ layout PxuiMenuItemConfig 72 8 0 4 16 24 56
 layout PxuiMenuOut 24 8 0 4 8 16
 layout PxuiMenuRowConfig 104 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88
 layout PxuiMotion 28 4 0 4 8 12
-layout PxuiNode 488 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
+layout PxuiNode 600 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
 layout PxuiNodeFields 192 8 0 4 8 160 176
 layout PxuiNote 48 8 0 8 16 24 25 32
 layout PxuiOptAlign 2 1
 layout PxuiOptAnchor 36 4
 layout PxuiOptBar 28 4
 layout PxuiOptColor 5 1
-layout PxuiOptCurve 28 4
+layout PxuiOptCurve 144 4
 layout PxuiOptGrid 40 8
 layout PxuiOptPoint 12 4
 layout PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56

@@ -60,7 +60,9 @@ typedef struct { PxuiColor color; float width; uint32_t sides; } PxuiRingDesc;
 typedef struct { PxuiColor fill,gradient; uint8_t has_gradient,reserved[3]; float angle; PxuiColor border; float border_w; uint32_t sides; float radius[4]; PxuiShadowDesc shadows[2]; PxuiColor text; PxuiFontDesc font; float opacity; PxuiRingDesc ring; PxuiColor selection,caret; uint8_t dashed,reserved_tail[3]; } PxuiLookDesc;
 typedef struct { uint32_t kind,direction; float width; uint8_t rising,reserved[3]; } PxuiMarkDesc;
 typedef struct { uint8_t hovered,pressed,focused,disabled,checked,reserved[3]; } PxuiStateDesc;
-typedef struct { uint32_t kind; float duration,points[4],omega; } PxuiCurveDesc;
+/* Table: count 2..16, strictly increasing positions from 0 to 1, finite values from 0 to 1 at the endpoints (overshoot allowed).
+   Steps: count > 0. Duration is finite, nonnegative seconds; keyframes use their segment duration. Only active table entries are read. */
+typedef struct { uint32_t kind; float duration,points[4],omega; uint32_t count; float positions[16],values[16]; } PxuiCurveDesc;
 /* The engine's own value types, as they cross: a node, a look and the theme are these bytes (abi/layout.v1.txt pins them,
    the asserts below check the C side). An enum is a byte tag (an optional field: 0 none, 1 some) before its value, padded
    to the value's alignment; a flag byte is 0 or 1. The library checks a node's tags and flags where it lies and refuses a
@@ -72,7 +74,7 @@ typedef struct { uint16_t col,row,col_span,row_span; } PxuiCell;
 typedef struct { uint8_t side,align; float gap,margin; uint8_t flip; } PxuiPlacement;
 typedef struct { PxuiRect rect; PxuiPlacement placement; } PxuiAnchor;
 typedef struct { uint8_t kind; union { uint8_t direction; struct { float width; uint8_t rising; } line; } u; } PxuiMark; /* enum PxuiMarkKind */
-typedef struct { uint8_t kind; union { struct { float duration,points[4]; } bezier; float omega; } u; } PxuiCurve; /* 0 bezier, 1 spring */
+typedef struct { uint8_t kind; union { struct { float duration,points[4]; } bezier; float omega; struct { float duration; uint32_t count; float positions[16],values[16]; } table; struct { float duration; uint32_t count; } steps; } u; } PxuiCurve; /* 0 bezier, 1 spring, 2 table, 3 steps */
 typedef struct { PxuiColor color; float radius,width,gap,margin; uint8_t whole; } PxuiBar;
 typedef struct { uint8_t has; uint8_t value; } PxuiOptAlign;
 typedef struct { uint8_t has; PxuiGrid value; } PxuiOptGrid;
@@ -110,7 +112,8 @@ typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float 
 #if defined(__LP64__) || defined(_WIN64)
 _Static_assert(sizeof(PxuiSize) == 16 && sizeof(PxuiGrid) == 32 && sizeof(PxuiOptGrid) == 40, "PxuiSize/PxuiGrid layout");
 _Static_assert(sizeof(PxuiLook) == 160 && offsetof(PxuiLook, dashed) == 152, "PxuiLook layout");
-_Static_assert(sizeof(PxuiNode) == 488 && offsetof(PxuiNode, flags) == 16 && offsetof(PxuiNode, look) == 240 && offsetof(PxuiNode, transition) == 456, "PxuiNode layout");
+_Static_assert(sizeof(PxuiCurve) == 140 && sizeof(PxuiOptCurve) == 144 && sizeof(PxuiCurveDesc) == 160 && offsetof(PxuiCurve, u.table.positions) == 12 && offsetof(PxuiCurveDesc, values) == 96, "PxuiCurve layout");
+_Static_assert(sizeof(PxuiNode) == 600 && offsetof(PxuiNode, flags) == 16 && offsetof(PxuiNode, look) == 240 && offsetof(PxuiNode, transition) == 456, "PxuiNode layout");
 _Static_assert(sizeof(PxuiTokens) == 136 && sizeof(PxuiThemeSnapshot) == 56888, "PxuiThemeSnapshot layout");
 #endif
 enum PxuiSizeKind { PXUI_SIZE_PX=0, PXUI_SIZE_PCT=1, PXUI_SIZE_REL=2, PXUI_SIZE_GROW=3, PXUI_SIZE_FIT=4 };
@@ -119,7 +122,7 @@ enum PxuiAxis { PXUI_AXIS_ROW=0, PXUI_AXIS_COLUMN=1, PXUI_AXIS_STACK=2 };
 enum PxuiJustify { PXUI_JUSTIFY_START=0, PXUI_JUSTIFY_CENTER=1, PXUI_JUSTIFY_END=2, PXUI_JUSTIFY_SPACE_BETWEEN=3, PXUI_JUSTIFY_SPACE_AROUND=4, PXUI_JUSTIFY_SPACE_EVENLY=5 };
 enum PxuiAlign { PXUI_ALIGN_START=0, PXUI_ALIGN_CENTER=1, PXUI_ALIGN_END=2, PXUI_ALIGN_STRETCH=3, PXUI_ALIGN_BASELINE=4 };
 enum PxuiAnchorSide { PXUI_SIDE_BELOW=0, PXUI_SIDE_ABOVE=1, PXUI_SIDE_RIGHT=2, PXUI_SIDE_LEFT=3 };
-enum PxuiCurveKind { PXUI_CURVE_NONE=0, PXUI_CURVE_BEZIER=1, PXUI_CURVE_SPRING=2 };
+enum PxuiCurveKind { PXUI_CURVE_NONE=0, PXUI_CURVE_BEZIER=1, PXUI_CURVE_SPRING=2, PXUI_CURVE_TABLE=3, PXUI_CURVE_STEPS=4 };
 enum PxuiMarkKind { PXUI_MARK_NONE=0, PXUI_MARK_CHEVRON=1, PXUI_MARK_LINE=2 };
 enum PxuiMarkDirection { PXUI_DIR_DOWN=0, PXUI_DIR_UP=1, PXUI_DIR_LEFT=2, PXUI_DIR_RIGHT=3 };
 typedef struct {

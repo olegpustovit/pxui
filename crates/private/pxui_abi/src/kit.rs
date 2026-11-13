@@ -8,13 +8,53 @@ pub use pxui_types::ffi::{PxuiFooterDesc, PxuiHintDesc, PxuiInspectorRowDesc, Px
 
 const MAX_MENUS: usize = 256;
 
+#[cfg(test)]
+mod curve_tests {
+    use super::*;
+
+    #[test]
+    fn curve_descriptors_validate_samples_counts_and_finite_parameters() {
+        let table = PxuiCurveDesc { kind: PxuiCurveDesc::TABLE, duration: 0.24, count: 3,
+            positions: [0.0, 0.25, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            values: [0.0, 1.043, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0], ..PxuiCurveDesc::default() };
+        assert!(curve(table).is_some());
+        assert!(curve(PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, count: 12, ..table }).is_some());
+        assert!(curve(PxuiCurveDesc { kind: PxuiCurveDesc::BEZIER, ..table }).is_some());
+        assert!(curve(PxuiCurveDesc { kind: PxuiCurveDesc::SPRING, omega: 20.0, ..table }).is_some());
+        for count in [0, 1, 17, u32::MAX] { assert!(curve(PxuiCurveDesc { count, ..table }).is_none()); }
+        for duration in [-1.0, f32::NAN, f32::INFINITY] { assert!(curve(PxuiCurveDesc { duration, ..table }).is_none()); }
+        for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
+            let mut bad = table;
+            bad.positions[1] = value; assert!(curve(bad).is_none());
+            bad = table; bad.values[1] = value; assert!(curve(bad).is_none());
+        }
+        for value in [0.0, -0.1, 1.0, 1.1] {
+            let mut bad = table; bad.positions[1] = value; assert!(curve(bad).is_none());
+        }
+        for at in [0, 2] {
+            let mut bad = table; bad.positions[at] = 0.5; assert!(curve(bad).is_none());
+            bad = table; bad.values[at] = 0.5; assert!(curve(bad).is_none());
+        }
+        assert!(curve(PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, count: 0, ..table }).is_none());
+        assert!(curve(PxuiCurveDesc { kind: 5, ..table }).is_none());
+        assert!(curve(PxuiCurveDesc { kind: PxuiCurveDesc::SPRING, omega: 0.0, ..table }).is_none());
+        let mut full = table;
+        full.count = 16;
+        for i in 0..16 { full.positions[i] = i as f32 / 15.0; full.values[i] = i as f32 / 15.0; }
+        assert!(curve(full).is_some());
+    }
+}
+
 fn curve(value: PxuiCurveDesc) -> Option<pxui_types::Curve> {
     if !value.duration.is_finite() || !value.omega.is_finite() || !value.points.iter().all(|v| v.is_finite()) { return None; }
-    Some(match value.kind {
-        PxuiCurveDesc::BEZIER if value.duration >= 0.0 && (0.0..=1.0).contains(&value.points[0]) && (0.0..=1.0).contains(&value.points[2]) => pxui_types::Curve::Bezier { duration: value.duration, points: value.points },
-        PxuiCurveDesc::SPRING if value.omega > 0.0 => pxui_types::Curve::Spring { omega: value.omega },
+    let decoded = match value.kind {
+        PxuiCurveDesc::BEZIER => pxui_types::Curve::Bezier { duration: value.duration, points: value.points },
+        PxuiCurveDesc::SPRING => pxui_types::Curve::Spring { omega: value.omega },
+        PxuiCurveDesc::TABLE => pxui_types::Curve::Table { duration: value.duration, count: value.count, positions: value.positions, values: value.values },
+        PxuiCurveDesc::STEPS => pxui_types::Curve::Steps { duration: value.duration, count: value.count },
         _ => return None,
-    })
+    };
+    decoded.valid().then_some(decoded)
 }
 export!(trusted pub unsafe fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const PxuiGridListDesc, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }

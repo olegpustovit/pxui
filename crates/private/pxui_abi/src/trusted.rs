@@ -30,6 +30,7 @@ pub unsafe fn pxui_ui_node(ui: *mut PxuiUi, label: Str, desc: &Node, out: *mut P
 #[inline(always)]
 pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
+    if let pxui_types::node::OptCurve::Some(curve) = &desc.transition { if !curve.valid() { return unsafe { fail(ui, "invalid transition curve") }; } }
     declare(unsafe { engine(ui) }, Some(label), 0, desc, unsafe { &mut *out });
     0
 }
@@ -38,6 +39,7 @@ pub(crate) unsafe fn node(ui: *mut PxuiUi, label: &str, desc: &Node, out: *mut P
 pub unsafe fn pxui_ui_node_keyed(ui: *mut PxuiUi, key: i64, desc: &Node, out: *mut PxuiBox) -> i32 {
     enter!(ui);
     if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
+    if let pxui_types::node::OptCurve::Some(curve) = &desc.transition { if !curve.valid() { return unsafe { fail(ui, "invalid transition curve") }; } }
     declare(unsafe { engine(ui) }, None, key, desc, unsafe { &mut *out });
     0
 }

@@ -43,7 +43,7 @@ PxuiRingDesc 12 4 0 4 8
 PxuiLookDesc 152 8 0 4 8 12 16 20 24 28 44 92 96 120 124 136 140 144 145
 PxuiMarkDesc 16 4 0 4 8 12 13
 PxuiStateDesc 8 1 0 1 2 3 4 5
-PxuiCurveDesc 28 4 0 4 8 24
+PxuiCurveDesc 160 4 0 4 8 24 28 32 96
 PxuiMenuDesc 40 8 0 4 8 24
 PxuiGridListDesc 56 8 0 4 8 24 32 36 40 48
 PxuiSplitDesc 72 8 0 4 8 24 28 32 36 40 48 56 64
@@ -51,7 +51,7 @@ PxuiMenuBarDesc 40 8 0 4 8 24
 PxuiMenuOut 24 8 0 4 8 16
 PxuiHintDesc 40 8 0 4 8 24
 PxuiFooterDesc 40 8 0 4 5 8 24
-PxuiKeyframeDesc 216 8 0 4 8 12 16 32 184
+PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
 PxuiInspectorRowDesc 96 8 0 4 5 6 7 8 24 40 44 48 80 84 88
 PxuiInspectorSectionDesc 64 8 0 4 5 6 7 8 24 40 48 56
 PxuiInspectorValueDesc 64 8 0 4 5 8 24 40 56
@@ -95,13 +95,13 @@ PxuiDirty 8 4 0 4
 PxuiSize 16 8
 PxuiTrack 8 4
 PxuiMark 12 4
-PxuiCurve 24 4
+PxuiCurve 140 4
 PxuiOptAlign 2 1
 PxuiOptGrid 40 8
 PxuiOptAnchor 36 4
 PxuiOptPoint 12 4
 PxuiOptBar 28 4
-PxuiOptCurve 28 4
+PxuiOptCurve 144 4
 PxuiOptColor 5 1
 PxuiGrid 32 8
 PxuiCell 8 2 0 2 4 6
@@ -113,7 +113,7 @@ PxuiRing 12 4 0 4 8
 PxuiLook 160 8 0 4 12 16 20 24 28 44 92 96 128 132 144 148 152
 PxuiState 5 1 0 1 2 3 4
 PxuiBar 24 4 0 4 8 12 16 20
-PxuiNode 488 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
+PxuiNode 600 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
 PxuiTokens 136 8 0 4 8 12 16 20 24 28 36 52 64 72 80 88 96 124 128
 PxuiStates 960 8 0 160 320 480 640 800
 PxuiThemeSnapshot 56888 8 0 136 140 144 156 160 168 56808

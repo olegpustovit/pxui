@@ -108,7 +108,7 @@ unsafe fn node_ok(p: *const Node) -> bool {
             || byte(p, anchor + offset_of!(Anchor, placement.align)) > Align::Baseline as u8 || byte(p, anchor + offset_of!(Anchor, placement.flip)) > 1 })
         && unsafe { mark_ok(p, offset_of!(Node, mark)) }
         && !(set(offset_of!(Node, bar)) && unsafe { byte(p, value(offset_of!(Node, bar), align_of::<OptBar>()) + offset_of!(Bar, whole)) } > 1)
-        && !(set(offset_of!(Node, transition)) && unsafe { byte(p, value(offset_of!(Node, transition), align_of::<OptCurve>())) } > 1)
+        && !(set(offset_of!(Node, transition)) && unsafe { byte(p, value(offset_of!(Node, transition), align_of::<OptCurve>())) } > 3)
 }
 
 /// The checked tracks a C grid points at, into `out`: None when a list is longer than `MAX_TRACKS`, null with a length, or holds
@@ -153,9 +153,10 @@ unsafe fn grid_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node,
     let all: &'static [Track] = unsafe { core::mem::transmute::<&[Track], &'static [Track]>(&stored[..]) };
     let node = Node { grid: OptGrid::Some(Grid::new(&all[..split], &all[split..])), ..*desc };
     let rc = match label { Some(label) => unsafe { crate::trusted::node(ui, label, &node, out) }, None => unsafe { crate::trusted::pxui_ui_node_keyed(ui, key, &node, out) } };
+    if rc != 0 { return rc; }
     let shared = unsafe { (*ui).shared() };
     let key = unsafe { (*out).box_key };
-    if rc == 0 && !shared.grid_tracks.get(&key).is_some_and(|kept| Rc::ptr_eq(kept, &stored)) {
+    if !shared.grid_tracks.get(&key).is_some_and(|kept| Rc::ptr_eq(kept, &stored)) {
         if let Some(old) = shared.grid_tracks.insert(key, stored) { shared.grid_retired.push(old); }
     }
     rc
@@ -283,6 +284,23 @@ mod tests {
         assert_eq!(place(&raw(Node { mark: Mark::Chevron(Dir::Right), ..full })), 0);
         // the head's unchecked bytes take any value (`z` is all ones here)
         assert_eq!(place(&raw(Node { z: -1, ..full })), 0);
+        let table = Curve::Table { duration: 0.24, count: 3,
+            positions: [0.0, 0.25, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+            values: [0.0, 1.043, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] };
+        for curve in [table, Curve::Steps { duration: 0.14, count: 2 }] {
+            assert_eq!(place(&raw(Node { transition: Some(curve).into(), ..full })), 0);
+        }
+        for curve in [Curve::Steps { duration: 0.14, count: 0 }, Curve::Steps { duration: f32::NAN, count: 2 },
+            Curve::Table { duration: 0.24, count: 17, positions: [0.0; 16], values: [0.0; 16] },
+            Curve::Table { duration: 0.24, count: 2, positions: [0.0; 16], values: [0.0; 16] }] {
+            let node = Node { transition: Some(curve).into(), ..full };
+            assert_eq!(place(&raw(node)), PXUI_ERR_ARGUMENT);
+            let mut out = PxuiBox::default();
+            assert_eq!(unsafe { crate::trusted::pxui_ui_node_keyed(ui, 8, &node, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { crate::trusted::node(ui, "bad-curve", &node, &mut out) }, PXUI_ERR_ARGUMENT);
+            let grid = Node { grid: Some(Grid::new(&[Track::Fit], &[])).into(), ..node };
+            assert_eq!(unsafe { pxui_ui_node_keyed(ui, 9, &grid, &mut out) }, PXUI_ERR_ARGUMENT);
+        }
         let mut refused = Vec::new();
         // one past the largest value, and a byte with its top bit set (the first 16 bytes are compared as one vector, see `head_over`)
         for &(at, max) in NODE_BYTES.iter() { for byte in [max + 1, 0x80, 0xff] { let mut bad = raw(full); bad.0[at] = byte; refused.push(bad); } }
@@ -292,7 +310,7 @@ mod tests {
             (value(offset_of!(Node, align_self), align_of::<OptAlign>()), 5), (anchor + offset_of!(Anchor, placement.side), 4),
             (anchor + offset_of!(Anchor, placement.align), 5), (anchor + offset_of!(Anchor, placement.flip), 2),
             (value(offset_of!(Node, mark), align_of::<Mark>()) + size_of::<f32>(), 2), (value(offset_of!(Node, bar), align_of::<OptBar>()) + offset_of!(Bar, whole), 2),
-            (value(offset_of!(Node, transition), align_of::<OptCurve>()), 2), (offset_of!(Node, w), 5), (offset_of!(Node, size), 8),
+            (value(offset_of!(Node, transition), align_of::<OptCurve>()), 4), (offset_of!(Node, w), 5), (offset_of!(Node, size), 8),
         ] { let mut bad = raw(full); bad.0[at] = byte; refused.push(bad); }
         let mut chevron = raw(Node { mark: Mark::Chevron(Dir::Right), ..full });
         chevron.0[value(offset_of!(Node, mark), align_of::<Mark>())] = 4;

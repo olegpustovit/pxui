@@ -5674,10 +5674,7 @@ impl Ui {
                         // the segment the run is in: from the stop before (the start for the first)
                         let j = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
                         let (from, t0) = if j == 0 { (&t.from, 0.0) } else { (&k.pose[j - 1], k.t[j - 1]) };
-                        let curve = match k.curve[j] {
-                            Curve::Bezier { points, .. } => Curve::Bezier { duration: k.t[j] - t0, points },
-                            spring => spring,
-                        };
+                        let curve = k.curve[j].with_duration(k.t[j] - t0);
                         (from, &k.pose[j], curve.at(elapsed - t0))
                     }
                 };
@@ -5714,7 +5711,7 @@ impl Ui {
                 self.drop_tween(i);
                 continue;
             }
-            let done = t.curve.at((self.now - t.start) as f32) >= 1.0;
+            let done = t.curve.finished((self.now - t.start) as f32);
             if done {
                 let s = &mut self.slots[t.slot];
                 (s.node.look, s.pose) = (t.to.look, (t.to.dx, t.to.dy, t.to.opacity));

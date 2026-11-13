@@ -516,10 +516,13 @@ flow children of a row laid out from its end), `mark` draws a chevron, `bar` a s
 for the text widgets' caret, selection and composition and the text area's code painter. Looks
 interpolate between states over the theme's motion (a transition record per node, painted steady and
 stepped through the patch path: a kept view is not rebuilt; `repaint_at` asks for frames until it
-rests); `ui.animate(handle, Target::{Look, Offset, Opacity}, Curve::{Bezier, Spring})` drives the same
+rests); `ui.animate(handle, Target::{Look, Offset, Opacity}, Curve::{Bezier, Spring, Table, Steps})` drives the same
 path, and `ui.animate_keys(handle, &[(t, Target, Curve)])` runs up to `MAX_KEYS` (8) keyframes, each
-segment on its own curve (a Bezier's duration is the segment's), in reused fixed records (no
-allocation once warm). A theme is a flat `key = value` file (`Theme::parse(text, &base) -> Result<Theme,
+segment on its own curve (Bezier, table and steps use the segment's duration), in reused fixed records (no
+allocation once warm). A table holds up to 16 inline positions and values, including uneven sample times
+and overshoot; finite endpoints are (0, 0) and (1, 1). Completion follows duration, so overshoot does not
+end a run early. Steps use CSS end steps with a one-microsecond boundary tolerance for scheduled clocks.
+A theme is a flat `key = value` file (`Theme::parse(text, &base) -> Result<Theme,
 Vec<ThemeError>>`, `Theme::write`): `tokens.*` keys re-derive the looks, then `PART.STATE.FIELD` or
 `PART.FIELD` keys override them; `assets/themes/rays.theme` is the default written out and
 `dusk.theme` a second theme (golden `kit_dusk_{1,2}x.png`). Views also take `view_transform` /

@@ -236,9 +236,13 @@ pub fn styling_reduced_motion() {
     ui.frame(&at(0.1, vec![move_to((24, 24))]), &mut build);
     check(ui.transitions() == 0, "reduced motion animated a hover");
     let handle = ui.box_of_key(key_of(0x2c1b3c6d, "p")).expect("panel");
-    check(ui.animate(&handle, Target::Opacity(0.5), Curve::Spring { omega: 20.0 }), "animate refused");
-    ui.frame(&at(0.2, vec![]), &mut build);
-    check(ui.transitions() == 0, "reduced motion ran an animation");
+    let mut samples = [0.0; 16];
+    samples[1] = 1.0;
+    for (i, curve) in [Curve::Spring { omega: 20.0 }, Curve::Table { duration: 1.0, count: 2, positions: samples, values: samples }, Curve::Steps { duration: 1.0, count: 12 }].into_iter().enumerate() {
+        check(ui.animate(&handle, Target::Opacity(0.25 * (i + 1) as f32), curve), "animate refused");
+        ui.frame(&at(0.2 + i as f64 * 0.1, vec![]), &mut build);
+        check(ui.transitions() == 0, "reduced motion ran an animation");
+    }
     ui.destroy();
 }
 

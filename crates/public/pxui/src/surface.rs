@@ -8,6 +8,63 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm() {
+    use crate::{kit::{AnimationTarget, Keyframe}, ui::{Curve, Look, Node, Target}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let table = Curve::Table {
+        duration: 0.4, count: 4,
+        positions: [0.0, 0.25, 0.5, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+        values: [0.0, 1.2, 0.9, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
+    };
+    let instant = Curve::Steps { duration: 0.0, count: 1 };
+    let steps = Curve::Steps { duration: 0.2, count: 2 };
+    let chip = Cell::new(None);
+    let builds = Cell::new(0);
+    let mut ui = Ui::new().expect("library");
+    let mut build = |ui: &mut Ui| {
+        ui.view("animation", 1, Size::Px(250.0), Size::Px(50.0), &mut |ui| {
+            builds.set(builds.get() + 1);
+            chip.set(Some(ui.node("chip", Node { w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill: pxui_types::geom::color::rgb(200, 40, 40), ..Look::NONE }, ..Node::DEFAULT })));
+        });
+    };
+    for time in [0.0, 0.1] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
+    let chip = chip.get().unwrap();
+    let built = builds.get();
+    let x = |ui: &Ui| ui.layer(0).instances.iter().find(|i| i.color[0] == 200).unwrap().rect[0];
+    for round in 0..3 {
+        let base = 0.1 + round as f64 * 2.0;
+        mem_sys::local_reset();
+        assert!(ui.animate(&chip, Target::Offset(0.0, 0.0), instant));
+        ui.frame(&FrameIn { time: base, ..input() }, &mut build).unwrap();
+        assert!(ui.animate(&chip, Target::Offset(100.0, 0.0), table));
+        for (dt, expected) in [(0.1, 120.0), (0.2, 90.0), (0.3, 95.0), (0.4, 100.0)] {
+            ui.frame(&FrameIn { time: base + dt, ..input() }, &mut build).unwrap();
+            assert!((x(&ui) - expected).abs() < 0.001, "table {dt}: {}", x(&ui));
+            assert_eq!(ui.repaint_at().is_some(), dt < 0.4);
+        }
+        assert!(ui.animate(&chip, Target::Offset(0.0, 0.0), steps));
+        for (dt, expected) in [(0.02, 100.0), (0.1, 50.0), (0.15, 50.0), (0.2, 0.0)] {
+            ui.frame(&FrameIn { time: base + 0.4 + dt, ..input() }, &mut build).unwrap();
+            assert!((x(&ui) - expected).abs() < 0.001, "steps {dt}: {}", x(&ui));
+        }
+        let keys = [
+            Keyframe { time: 0.4, target: AnimationTarget::Offset(100.0, 0.0), curve: table.with_duration(99.0) },
+            Keyframe { time: 0.6, target: AnimationTarget::Offset(0.0, 0.0), curve: steps.with_duration(99.0) },
+        ];
+        assert!(ui.animate_keys(&chip, &keys));
+        for (dt, expected) in [(0.1, 120.0), (0.2, 90.0), (0.4, 100.0), (0.5, 50.0), (0.6, 0.0)] {
+            ui.frame(&FrameIn { time: base + 0.6 + dt, ..input() }, &mut build).unwrap();
+            assert!((x(&ui) - expected).abs() < 0.001, "keys {dt}: {}", x(&ui));
+        }
+        let allocations = mem_sys::local_alloc_count();
+        assert!(round == 0 || allocations == 0, "warm animation allocated {allocations} times");
+        assert_eq!(builds.get(), built);
+        assert!(!ui.wants_frame(&[], base + 1.9));
+    }
+}
+
+#[test]
 fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
     let mut ui = Ui::new().expect("library");
     assert_eq!(ui.font_size(), 13);

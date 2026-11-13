@@ -110,8 +110,10 @@ pub enum AnimationTarget { Offset(f32, f32), Opacity(f32), Look(Look) }
 pub struct Keyframe { pub time: f32, pub target: AnimationTarget, pub curve: Curve }
 pub(crate) fn encode_curve(value: Curve) -> PxuiCurveDesc {
     match value {
-        Curve::Bezier { duration, points } => PxuiCurveDesc { kind: PxuiCurveDesc::BEZIER, duration, points, omega: 0.0 },
-        Curve::Spring { omega } => PxuiCurveDesc { kind: PxuiCurveDesc::SPRING, duration: 0.0, points: [0.0; 4], omega },
+        Curve::Bezier { duration, points } => PxuiCurveDesc { kind: PxuiCurveDesc::BEZIER, duration, points, ..PxuiCurveDesc::default() },
+        Curve::Spring { omega } => PxuiCurveDesc { kind: PxuiCurveDesc::SPRING, omega, ..PxuiCurveDesc::default() },
+        Curve::Table { duration, count, positions, values } => PxuiCurveDesc { kind: PxuiCurveDesc::TABLE, duration, count, positions, values, ..PxuiCurveDesc::default() },
+        Curve::Steps { duration, count } => PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, duration, count, ..PxuiCurveDesc::default() },
     }
 }
 
@@ -267,16 +269,18 @@ impl Ui {
     }
     #[inline]
     #[track_caller] pub fn animate_keys(&mut self, box_: &PxuiBox, keys: &[Keyframe]) -> bool {
-        let descriptors: Vec<_> = keys.iter().map(|key| {
+        assert!(!keys.is_empty() && keys.len() <= 8, "pxui: animate_keys accepts 1..=8 keyframes");
+        let mut descriptors = [KeyframeDesc::default(); 8];
+        for (out, key) in descriptors.iter_mut().zip(keys) {
             let (target, values, look) = match key.target {
                 AnimationTarget::Offset(x, y) => (0, [x, y, 0.0, 0.0], encode_look(Look::NONE)),
                 AnimationTarget::Opacity(value) => (1, [value, 0.0, 0.0, 0.0], encode_look(Look::NONE)),
                 AnimationTarget::Look(value) => (2, [0.0; 4], encode_look(value)),
             };
-            KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: key.time, target, reserved: 0, values, look, curve: encode_curve(key.curve) }
-        }).collect();
+            *out = KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: key.time, target, reserved: 0, values, look, curve: encode_curve(key.curve) };
+        }
         let mut out = 0;
-        let rc = unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, Slice { ptr: descriptors.as_ptr(), len: descriptors.len() }, &mut out) };
+        let rc = unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, Slice { ptr: descriptors.as_ptr(), len: keys.len() }, &mut out) };
         crate::live(self, rc) && out != 0
     }
 

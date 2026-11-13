@@ -622,19 +622,59 @@ impl Look {
     }
 }
 
-/// How an animation runs from 0 to 1: a CSS cubic-bezier over `duration` seconds, or a critically
-/// damped spring of natural frequency `omega` (radians a second) that settles by itself.
+/// Progress over seconds: a cubic Bezier, a critically damped spring, a sampled piecewise linear
+/// curve, or CSS end steps. Tables hold 2..=16 samples at strictly increasing normalized positions
+/// from 0 to 1; values start at 0 and end at 1, and may overshoot in between.
 #[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Curve {
     Bezier { duration: f32, points: [f32; 4] },
     Spring { omega: f32 },
+    Table { duration: f32, count: u32, positions: [f32; 16], values: [f32; 16] },
+    Steps { duration: f32, count: u32 },
 }
 
 impl Curve {
+    /// Valid finite parameters, including table endpoints and ordering. Checked at the ABI boundary.
+    pub fn valid(&self) -> bool {
+        match self {
+            Self::Bezier { duration, points } => duration.is_finite() && *duration >= 0.0
+                && points.iter().all(|v| v.is_finite()) && (0.0..=1.0).contains(&points[0]) && (0.0..=1.0).contains(&points[2]),
+            Self::Spring { omega } => omega.is_finite() && *omega > 0.0,
+            Self::Table { duration, count, positions, values } => {
+                if !duration.is_finite() || *duration < 0.0 || !(2..=16).contains(count) { return false; }
+                let n = *count as usize;
+                positions[0] == 0.0 && positions[n - 1] == 1.0 && values[0] == 0.0 && values[n - 1] == 1.0
+                    && positions[..n].iter().all(|v| v.is_finite()) && values[..n].iter().all(|v| v.is_finite())
+                    && positions[..n].windows(2).all(|w| w[0] < w[1])
+            }
+            Self::Steps { duration, count } => duration.is_finite() && *duration >= 0.0 && *count > 0,
+        }
+    }
+
     /// A run that is over before it starts.
     pub fn instant(&self) -> bool {
-        matches!(self, Curve::Bezier { duration, .. } if !(*duration > 0.0))
+        match self {
+            Self::Bezier { duration, .. } | Self::Table { duration, .. } | Self::Steps { duration, .. } => !(*duration > 0.0),
+            Self::Spring { .. } => false,
+        }
+    }
+
+    /// Completion follows time, not a progress value that may overshoot or reach 1 early.
+    pub fn finished(&self, t: f32) -> bool {
+        match self {
+            Self::Bezier { duration, .. } | Self::Table { duration, .. } | Self::Steps { duration, .. } => !(t < *duration),
+            Self::Spring { .. } => self.at(t) >= 1.0,
+        }
+    }
+
+    /// A keyframe segment supplies the duration; a physical spring keeps its own frequency.
+    pub fn with_duration(mut self, seconds: f32) -> Self {
+        match &mut self {
+            Self::Bezier { duration, .. } | Self::Table { duration, .. } | Self::Steps { duration, .. } => *duration = seconds,
+            Self::Spring { .. } => {},
+        }
+        self
     }
 
     /// Progress `t` seconds in; exactly 1 once the run is over.
@@ -671,6 +711,23 @@ impl Curve {
                 } else {
                     1.0 - rest
                 }
+            }
+            Curve::Table { duration, count, ref positions, ref values } => {
+                if !(t < duration) || !(duration > 0.0) { return 1.0; }
+                let p = (t / duration).max(0.0);
+                let n = (count as usize).clamp(2, 16);
+                for i in 1..n {
+                    if p <= positions[i] {
+                        let fraction = (p - positions[i - 1]) / (positions[i] - positions[i - 1]);
+                        return values[i - 1] + (values[i] - values[i - 1]) * fraction;
+                    }
+                }
+                1.0
+            }
+            Curve::Steps { duration, count } => {
+                if !(t < duration) || !(duration > 0.0) || count == 0 { return 1.0; }
+                // Matches LocalWave's tolerance for Date subtraction at scheduled boundaries.
+                (((t as f64 + 1.0e-6) / duration as f64 * count as f64).floor() / count as f64).clamp(0.0, 1.0) as f32
             }
         }
     }

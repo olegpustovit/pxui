@@ -198,3 +198,12 @@ Gates raised during this plan (each recorded in `OPEN_ISSUES.md`):
 - Dynamic time ratio 1.041 to 1.074 and 8.7 to 15.4 us per 1000 nodes: dynamic Layout is +5.3 to +5.9% over the direct engine since `Ui` holds its body table in a `Box`, with retired instructions unchanged (placement, not work).
 - Dynamic Layout retired instructions 1.038 to 1.039: 3.84% over direct since the container bodies (plan 3%).
 - Static time ratio 1.0175 to 1.034: static Layout is +2.4 to +2.7% since the text bodies, instructions unchanged.
+
+
+## LocalWave sampled motion curves (unreleased ABI 1.0)
+
+`Curve::Table` retains up to 16 sample positions and values inline, so uneven CSS `linear()` points and overshoot are preserved. `Curve::Steps` uses end steps with LocalWave's one-microsecond scheduled-clock tolerance. Completion uses elapsed duration instead of the progress value; table/Bezier overshoot and early step rounding cannot retire a run early. Keyframe segments rescale all finite-duration curves, and the wrapper now uses an eight-element stack descriptor array instead of allocating a temporary Vec on every call.
+
+The table expands `PxuiCurve` to 140 bytes, `PxuiOptCurve` to 144, `PxuiCurveDesc` to 160, `PxuiKeyframeDesc` to 344 and `PxuiNode` to 600. Node field offsets are unchanged. The 12 LocalWave points have uneven positions, so storing values alone at uniform intervals cannot meet the required 1e-6 tolerance. The header's existing unreleased-ABI policy permits this in-place change; both layout snapshots are intentionally refreshed, and the append-only gate remains unchanged. Apps and the dylib must rebuild together. C layout assertions and Rust layout checks pin the result.
+
+Both static and dynamic node entries validate table counts/order/endpoints, finite values and durations, and step counts. Grid materialization returns immediately on declaration failure before reading the output handle. The reserved-key guard's old panic fixture now uses a valid key, preserving its test of outside-frame panic containment. Decoder tests include malformed/max-sized tables; the wrapper regression checks overshoot, rendering, segment timing, frame idling, unchanged view build counts and zero warm allocations across the library boundary. LocalWave's separate motion vectors match the actual Swift/browser samples and a dense reference sweep.
