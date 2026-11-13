@@ -455,7 +455,52 @@ fn text_rows_lru() {
     ui.destroy();
 }
 
+fn window_pxui_focused_text_field_warm_ime() {
+    let mut ui = new_ui(Some(11));
+    let mut build = |ui: &mut Ui| {
+        ui.panel(PanelOpts::default().width(400.0), "editor", &mut |ui| {
+            assert!(ui.text_field("Text", "café track 10").is_none());
+            // Force arena growth after the editor captures its text ranges.
+            for i in 0..128 {
+                let b = ui.node_keyed(100 + i, Node::DEFAULT);
+                let payload = [i; 32];
+                ui.canvas(&b, move |_, _| { std::hint::black_box(payload); });
+            }
+        });
+    };
+    ui.frame(&keyboard_frame(vec![], vec![]), &mut build);
+    ui.frame(&keyboard_frame(vec![], vec![key_down(Key::Tab)]), &mut build);
+    check(ui.text_input_focused(), "Tab did not focus the text field");
+    ui.frame(&keyboard_frame(vec![], vec![
+        key_down(Key::Shift), key_down(Key::ArrowLeft), Event::KeyReleased(Key::Shift),
+        Event::TextEditing { text: "é".into(), start: 0, length: 1 },
+    ]), &mut build);
+    let mut frame = keyboard_frame(vec![], vec![]);
+    mem_sys::local_reset();
+    for tick in 0..80 {
+        frame.input.t = 1.0 + tick as f64 / 60.0;
+        frame.input.size.0 = 500 + tick % 2;
+        let before = mem_sys::local_alloc_count();
+        ui.frame(&frame, &mut build);
+        let allocations = mem_sys::local_alloc_count() - before;
+        if tick >= 10 { check(allocations == 0, "focused text field allocated on a warm frame"); }
+        check(ui.text_input_focused(), "warm rebuild lost text focus");
+        let ((_, _, w, h), caret) = ui.output().platform.ime.expect("focused field must publish IME geometry");
+        check(w > 0 && h > 0 && caret >= 0 && caret <= w, "invalid IME caret geometry");
+    }
+    // Selection and composition must survive the borrowed paint path; committing replaces the selection.
+    let mut committed = None;
+    ui.frame(&keyboard_frame(vec![], vec![Event::TextInput("é".into())]), &mut |ui| {
+        ui.panel(PanelOpts::default().width(400.0), "editor", &mut |ui| {
+            committed = ui.text_field("Text", "café track 10");
+        });
+    });
+    check(committed.as_deref() == Some("café track 1é"), "IME commit lost the selection");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_focused_text_field_warm_ime", window_pxui_focused_text_field_warm_ime),
     ("text_rows_lru", text_rows_lru),
     ("fuzzy_score_ranks", fuzzy_score_ranks),
     ("dirty_ranges_merge_closest", dirty_ranges_merge_closest),

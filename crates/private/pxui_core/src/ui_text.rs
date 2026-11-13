@@ -293,6 +293,10 @@ impl Ui {
     }
 
     pub fn load_text_edit(&mut self, key: i64, text: &str) -> TextEdit {
+        self.load_text_edit_into(key, text, String::new())
+    }
+
+    fn load_text_edit_into(&mut self, key: i64, text: &str, mut buffer: String) -> TextEdit {
         if self.edit_focus != key || self.edit_value != text {
             let left: ShelfEntry = (self.edit_focus, self.edit_value.clone(), self.edit_undo.clone(), self.edit_redo.clone());
             let back = self.edit_shelf.iter().find(|(k, v, _, _)| *k == key && v == text).cloned();
@@ -314,11 +318,13 @@ impl Ui {
             let byte = |chars: u32| text.char_indices().nth(chars as usize).map_or(text.len(), |(b, _)| b);
             (self.edit_anchor, self.edit_caret) = (byte(anchor), byte(caret));
         }
-        TextEdit { text: text.to_owned(), caret: self.edit_caret, anchor: self.edit_anchor }
+        buffer.clear();
+        buffer.push_str(text);
+        TextEdit { text: buffer, caret: self.edit_caret, anchor: self.edit_anchor }
     }
 
     pub(crate) fn save_text_edit(&mut self, edit: &TextEdit) {
-        self.edit_value = edit.text.clone();
+        if self.edit_value != edit.text { self.edit_value.clone_from(&edit.text); }
         self.edit_caret = edit.caret;
         self.edit_anchor = edit.anchor;
     }
@@ -582,13 +588,20 @@ pub fn paint_text_edit(
     composition: &str,
     edit: &TextEdit,
 ) {
+    paint_text_edit_ref(paint,size,right,inset,marks,control,y,composition,&EditRef { text:&edit.text,caret:edit.caret,anchor:edit.anchor });
+}
+
+struct EditRef<'a> { text:&'a str,caret:usize,anchor:usize }
+
+#[allow(clippy::too_many_arguments)]
+fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Color,Color)>,control:IRect,y:i64,composition:&str,edit:&EditRef<'_>) {
     let (cx, cy, cw, ch) = control;
     // the selection and caret colours (the field look's); `None` hides the caret
     let (tint, caret) = match marks {
         Some((selection, caret)) => (selection, Some(caret)),
         None => (theme::tint(&paint.theme), None),
     };
-    let before = edit.text[..edit.caret].to_owned();
+    let before = &edit.text[..edit.caret];
     let visible = 1.max(cw - 4) as f32;
     let full = paint.text_width(size, &edit.text);
     let scroll = 0.0f32.max(paint.edit_scroll_x.min(0.0f32.max(full - visible)));
@@ -609,7 +622,7 @@ pub fn paint_text_edit(
     let previous_clip = paint.clip_rect;
     paint.clip_rect = intersect(previous_clip, Rect::new(cx as f32, cy as f32, cw as f32, ch as f32));
     if edit.caret != edit.anchor {
-        let (start, stop) = text_selection(edit);
+        let (start, stop) = (edit.caret.min(edit.anchor),edit.caret.max(edit.anchor));
         let mut spans = [(0.0, 0.0); 4];
         let mut n = 0;
         paint.selection(size, &edit.text, start, stop, &mut |x0, w| {
@@ -2891,7 +2904,8 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
     let control_at = |ui: &Ui| ui.part_rect(row.box_key, Part::EDITOR).map_or_else(|| value_control_at(ints(ui.rect(&row)), side), |r| ints(r));
     // an unfocused field paints `value` as it is (kept in its slot); only editing copies it
     let edit = if focused {
-        let mut edit = this.load_text_edit(row.box_key, value);
+        let buffer = std::mem::take(&mut this.edit_work);
+        let mut edit = this.load_text_edit_into(row.box_key, value, buffer);
         let (cx, _, cw, _) = control_at(this);
         let shift = this.press_shift(&row);
         this.point_text_caret(None, &mut edit, &signal, shift, (cx + 2) as f32, (cx + cw - 2) as f32);
@@ -2916,7 +2930,6 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
         this.a11y_name(&row, text);
         this.a11y_value(&row, shown_value, selection);
     }
-    let composition = if focused { this.composition().to_owned() } else { String::new() };
     let hovered = signal.hovered;
     // the I-beam over the value, as in any text field
     {
@@ -2933,10 +2946,12 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
         let field = *this.theme().field.pick(State { focused, ..State::default() });
         let font_size = this.font_size();
         let marks = Some((field.selection, field.caret));
-        this.canvas(&control, move |paint, rect| {
+        let (caret, anchor) = (edit.caret, edit.anchor);
+        this.canvas_edit(&control, &edit.text, move |paint, rect, text, composition| {
             let (x, y, w, h) = ints(rect);
-            paint_text_edit(paint, None, false, 2.0, marks, (x, y, w, h), label_y(font_size, y - 2, h + 4), &composition, &edit)
+            paint_text_edit_ref(paint,None,false,2.0,marks,(x,y,w,h),label_y(font_size,y-2,h+4),composition,&EditRef { text,caret,anchor })
         });
+        this.edit_work = edit.text;
     }
     changed
 }

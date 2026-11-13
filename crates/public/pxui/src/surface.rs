@@ -848,3 +848,36 @@ fn measured_list_validation_and_callback_panics_leave_frames_reusable() {
     })).is_err());
     ui.frame(&input(),&mut |ui| { ui.list_measured("recovered",1,20.0,&mut |ui,_| { ui.label("Recovered"); }); }).unwrap();
 }
+
+#[test]
+fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
+    use pxui_types::{Event, Str, KEY_SPECIAL};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let mut build = |ui: &mut Ui| {
+        assert!(ui.text_field("Caption", "café track 10").is_none());
+    };
+    ui.frame(&input(), &mut build).unwrap();
+    let key = |kind, code| Event { kind, code: KEY_SPECIAL + code, ..Event::default() };
+    let focus = [key(Event::KEY_PRESSED, 8)];
+    ui.frame(&FrameIn { time: 0.1, events: focus.as_ptr(), event_count: focus.len(), ..input() }, &mut build).unwrap();
+    assert!(ui.text_input_focused());
+    let composition = "é";
+    let select = [key(Event::KEY_PRESSED, 9), key(Event::KEY_PRESSED, 2), key(Event::KEY_RELEASED, 9),
+        Event { kind: Event::TEXT_EDITING, text: Str { ptr: composition.as_ptr(), len: composition.len() }, y: 1.0, ..Event::default() }];
+    ui.frame(&FrameIn { time: 0.2, events: select.as_ptr(), event_count: select.len(), ..input() }, &mut build).unwrap();
+    for tick in 0..80 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time: 0.3 + tick as f64 / 60.0, width: 320.0 + (tick % 2) as f32, ..input() }, &mut build).unwrap();
+        if tick >= 10 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm focused text field across the ABI"); }
+        assert!(ui.text_input_focused());
+        let ((_, _, w, h), caret) = ui.ime().expect("focused field must publish IME geometry");
+        assert!(w > 0 && h > 0 && caret >= 0 && caret <= w);
+    }
+    let commit = Event { kind: Event::TEXT_INPUT, text: Str { ptr: composition.as_ptr(), len: composition.len() }, ..Event::default() };
+    let mut changed = false;
+    ui.frame(&FrameIn { time: 2.0, events: &commit, event_count: 1, ..input() }, &mut |ui| {
+        changed = ui.text_field("Caption", "café track 10") == Some("café track 1é");
+    }).unwrap();
+    assert!(changed, "composition commit must replace the retained selection");
+}

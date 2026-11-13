@@ -73,3 +73,11 @@ in its tier folder. The gate enforces this table; ABI design lives in `specifica
 
 Mark deliberate shortcuts with known ceilings using `ponytail:` and an upgrade trigger.
 Never shortcut correctness, input validation, lifetime safety, security or accessibility.
+
+## Focused text fields
+
+Keep `text_field` focus rebuilding for caret/IME output. Its edit buffer is reused, and text/composition
+paint captures borrow byte ranges in the frame arena; keep ranges valid through arena growth and reset.
+Selection and inline decorations stream the same shaped caret ranges instead of cosmic-text's allocating
+highlight iterator. Preserve the core/static/dynamic focused selection/IME allocation tests and native
+1x/2x pixel regression. Changed text/input events and other editor widgets are separate allocation paths.

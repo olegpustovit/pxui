@@ -398,7 +398,41 @@ fn gpu_widgets_draw_calls() {
     println!("PXUI widgets: {layers} layers, {calls} draw calls");
 }
 
+fn gpu_focused_text_field_ime_pixels() {
+    if !gpu::available() { return; }
+    for density in DENSITIES {
+        let mut ui = crate::support::new_ui(Some(11));
+        let mut build = |ui: &mut Ui| {
+            ui.panel(PanelOpts::default(), "editor", &mut |ui| {
+                assert!(ui.text_field("Caption", "café track 10").is_none());
+            });
+        };
+        ui.frame(&frame_at(0, 80, density), &mut build);
+        let mut frame = frame_at(1, 80, density);
+        frame.input.events = vec![Event::KeyPressed(input::Key::Tab)];
+        ui.frame(&frame, &mut build);
+        assert!(ui.text_input_focused());
+        let (plain, plain_calls) = gpu::render(&mut ui, (WIDTH as u32, 80), density as u32, [228, 139, 161, 255]);
+        assert_eq!(plain_calls, ui.output().draw.len() as u64);
+        frame.input.events = vec![Event::KeyPressed(input::Key::Shift), Event::KeyPressed(input::Key::ArrowLeft),
+            Event::KeyReleased(input::Key::Shift), Event::TextEditing { text: "é".into(), start: 0, length: 1 }];
+        ui.frame(&frame, &mut build);
+        let (composing, calls) = gpu::render(&mut ui, (WIDTH as u32, 80), density as u32, [228, 139, 161, 255]);
+        assert_eq!(calls, plain_calls);
+        assert_ne!(composing, plain, "selection and IME composition must change actual pixels");
+        frame.input.events.clear();
+        frame.input.t += 1.0 / 60.0;
+        ui.frame(&frame, &mut build);
+        let (warm, calls) = gpu::render(&mut ui, (WIDTH as u32, 80), density as u32, [228, 139, 161, 255]);
+        assert_eq!(calls, plain_calls);
+        assert_eq!(warm, composing, "borrowed text and composition must survive the next frame");
+        assert!(ui.output().platform.ime.is_some());
+        ui.destroy();
+    }
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("gpu_focused_text_field_ime_pixels", gpu_focused_text_field_ime_pixels),
     ("gpu_widgets_draw_calls", gpu_widgets_draw_calls),
     ("gpu_round_clip", gpu_round_clip),
     ("gpu_patch", gpu_patch),

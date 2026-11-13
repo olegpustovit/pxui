@@ -190,6 +190,21 @@ fn glyph_range(run:&cosmic_text::LayoutRun,glyph:&cosmic_text::LayoutGlyph,start
     [a.min(b),a.max(b)]
 }
 
+// Stream selected visual ranges using the same caret geometry as inline decorations.
+fn run_ranges(run:&cosmic_text::LayoutRun,start:usize,end:usize,f:&mut dyn FnMut([f32;2])) {
+    let mut active:Option<[f32;2]>=None;
+    for glyph in run.glyphs {
+        let (lo,hi)=(start.max(glyph.start),end.min(glyph.end));
+        let range=(lo<hi).then(||glyph_range(run,glyph,lo,hi)).filter(|r|r[1]>r[0]);
+        match (active,range) {
+            (Some(old),Some(next)) if next[0]<=old[1]+1e-4 && next[1]>=old[0]-1e-4 => active=Some([old[0].min(next[0]),old[1].max(next[1])]),
+            (Some(old),next)=>{ f(old); active=next; }
+            (None,next)=>active=next,
+        }
+    }
+    if let Some(range)=active { f(range); }
+}
+
 // Caret cuts preserve the original shaping when a colour boundary crosses a ligature.
 fn glyph_parts(run:&cosmic_text::LayoutRun,glyph:&cosmic_text::LayoutGlyph,base:usize,spans:&[TextSpan],f:&mut dyn FnMut([f32;2],Option<[u8;4]>)) {
     let (start,end)=(base+glyph.start,base+glyph.end);
@@ -811,22 +826,12 @@ impl Text {
             for run in entry.buf.layout_runs().filter(|r|r.line_i>=a.line && r.line_i<=b.line) {
                 let start=if run.line_i==a.line { a.index } else { 0 };
                 let end=if run.line_i==b.line { b.index } else { run.text.len() };
-                let mut active:Option<[f32;2]>=None;
                 let emit=|range:[f32;2],f:&mut dyn FnMut(Decoration)| {
                     let h=if underline { run.line_height.min(1.5) } else { run.line_height };
                     let y=if underline { run.line_top+run.line_height-h } else { run.line_top };
                     f(Decoration { rect:Rect { x:range[0],y,w:range[1]-range[0],h },color:rgba(if underline { span.underline } else { span.background }) });
                 };
-                for glyph in run.glyphs {
-                    let (lo,hi)=(start.max(glyph.start),end.min(glyph.end));
-                    let range=(lo<hi).then(||glyph_range(&run,glyph,lo,hi)).filter(|r|r[1]>r[0]);
-                    match (active,range) {
-                        (Some(old),Some(next)) if next[0]<=old[1]+1e-4 && next[1]>=old[0]-1e-4 => active=Some([old[0].min(next[0]),old[1].max(next[1])]),
-                        (Some(old),next)=>{ emit(old,f); active=next; }
-                        (None,next)=>active=next,
-                    }
-                }
-                if let Some(range)=active { emit(range,f); }
+                run_ranges(&run,start,end,&mut |range| emit(range,f));
             }
         }
     }
@@ -880,9 +885,11 @@ impl Text {
             if run.line_i < ca.line || run.line_i > cb.line {
                 continue;
             }
-            for (x, w) in run.highlight(ca, cb) {
-                f(Rect { x, y: run.line_top, w, h: run.line_height });
-            }
+            let start=if run.line_i==ca.line { ca.index } else { 0 };
+            let end=if run.line_i==cb.line { cb.index } else { run.text.len() };
+            run_ranges(&run,start,end,&mut |range| {
+                f(Rect { x:range[0],y:run.line_top,w:range[1]-range[0],h:run.line_height });
+            });
         }
     }
 

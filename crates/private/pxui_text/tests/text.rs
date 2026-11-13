@@ -575,3 +575,40 @@ fn inline_spans_keep_mixed_bidi_marks_disjoint() {
     let (a,b)=(text.caret(1,3).x,text.caret(1,5).x);
     assert!(marks.iter().any(|r|(r.x-a.min(b)).abs()<1e-4 && (r.w-(a-b).abs()).abs()<1e-4));
 }
+
+#[test]
+fn selection_streams_caret_ranges_across_bidi_ligatures_crlf_and_wrapping_without_allocating() {
+    use pxui_text::TextSpan;
+    const ARABIC: &[u8] = include_bytes!("../../../../assets/fonts/NotoSansArabic.ttf");
+    let mut text = Text::new(&[ARABIC, pxui_text::PRAGMASEVKA]);
+    let style = Style { size: 20.0, wrap: Wrap::Word, ..Default::default() };
+    for (source, start, end, width) in [
+        ("hello world", 2, 8, 0.0),
+        ("ab لا cd", 1, 5, 0.0),
+        ("cafe\u{301} track 10", 3, 6, 0.0),
+        ("one two three\r\nfour five six", 1, 25, 65.0),
+    ] {
+        let span = TextSpan { start, end, flags: TextSpan::BACKGROUND, ..Default::default() };
+        text.layout_spans(1, source, &style, width, &[span]).unwrap();
+        let mut expected = Vec::new();
+        text.decorations(1, false, &mut |decoration| expected.push(decoration.rect));
+        assert!(!expected.is_empty());
+        if source == "ab لا cd" {
+            assert_eq!(expected.len(), 2);
+            let (a, b) = (text.caret(1, 3).x, text.caret(1, 5).x);
+            assert!(expected.iter().any(|rect| (rect.x-a.min(b)).abs()<1e-4 && (rect.w-(a-b).abs()).abs()<1e-4));
+        }
+        mem_sys::local_reset();
+        for iteration in 0..100 {
+            let (a, b) = if iteration % 2 == 0 { (start, end) } else { (end, start) };
+            let mut count = 0;
+            text.selection(1, a as usize, b as usize, &mut |rect| {
+                assert_eq!(rect, expected[count]);
+                count += 1;
+            });
+            assert_eq!(count, expected.len());
+            text.selection(1, a as usize, a as usize, &mut |_| panic!("empty selection painted"));
+        }
+        assert_eq!(mem_sys::local_alloc_count(), 0);
+    }
+}

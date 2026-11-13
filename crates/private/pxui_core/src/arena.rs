@@ -21,7 +21,7 @@ pub(crate) const END: u32 = u32::MAX;
 
 struct Canvas {
     at: usize,
-    call: unsafe fn(*const u8, &mut Paint, Rect),
+    call: unsafe fn(*const u8, &Arena, &mut Paint, Rect),
     drop: Option<unsafe fn(*mut u8)>,
     next: u32,
 }
@@ -37,8 +37,8 @@ pub(crate) struct Arena {
     canvases: Vec<Canvas>,
 }
 
-unsafe fn call<F: Fn(&mut Paint, Rect)>(at: *const u8, paint: &mut Paint, rect: Rect) {
-    unsafe { (*at.cast::<F>())(paint, rect) }
+unsafe fn call<F: Fn(&Arena, &mut Paint, Rect)>(at: *const u8, arena: &Arena, paint: &mut Paint, rect: Rect) {
+    unsafe { (*at.cast::<F>())(arena, paint, rect) }
 }
 
 unsafe fn drop<F>(at: *mut u8) {
@@ -64,6 +64,11 @@ impl Arena {
 
     /// Append `f` to `list`; it runs once in `run` and is dropped in `reset`.
     pub(crate) fn add<F: Fn(&mut Paint, Rect) + 'static>(&mut self, list: &mut List, f: F) {
+        self.add_lent(list, move |_, paint, rect| f(paint, rect));
+    }
+
+    /// A callback can borrow temporary UTF-8 ranges until this frame's painting ends.
+    pub(crate) fn add_lent<F: Fn(&Arena, &mut Paint, Rect) + 'static>(&mut self, list: &mut List, f: F) {
         // a cache line: captures of SIMD types fit; a page-aligned capture is a compile error
         const { assert!(align_of::<F>() <= ALIGN, "pxui arena: a canvas capture aligned to more than 64 bytes") };
         let at = self.bump(align_of::<F>(), size_of::<F>());
@@ -86,7 +91,7 @@ impl Arena {
         while index != END {
             let canvas = &self.canvases[index as usize];
             // SAFETY: the record was written by `add` with this `call` and is not yet dropped.
-            unsafe { (canvas.call)(self.blocks.as_ptr().cast::<u8>().add(canvas.at), paint, rect) };
+            unsafe { (canvas.call)(self.blocks.as_ptr().cast::<u8>().add(canvas.at), self, paint, rect) };
             index = canvas.next;
         }
     }

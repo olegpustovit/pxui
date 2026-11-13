@@ -963,6 +963,7 @@ pub struct Ui {
     route_keys: Vec<Key>,
     pub(crate) edit_focus: i64,
     pub edit_value: String,
+    pub(crate) edit_work: String,
     pub(crate) edit_caret: usize,
     pub(crate) edit_anchor: usize,
     pub(crate) edit_scroll_x: f32,
@@ -1193,6 +1194,7 @@ impl Ui {
             route_keys: Vec::new(),
             edit_focus: 0,
             edit_value: String::new(),
+            edit_work: String::new(),
             edit_caret: 0,
             edit_anchor: 0,
             edit_scroll_x: 0.0,
@@ -3413,6 +3415,13 @@ impl Ui {
     pub fn canvas<F: Fn(&mut Paint, Rect) + 'static>(&mut self, b: &UiBox, f: F) {
         assert!(b.index < self.count && self.boxes[b.index].slot == b.box_slot, "Ui.canvas: the node was not built this frame");
         self.arena.add(&mut self.boxes[b.index].paint, f);
+    }
+
+    pub(crate) fn canvas_edit<F: Fn(&mut Paint, Rect, &str, &str) + 'static>(&mut self, b: &UiBox, text: &str, f: F) {
+        assert!(b.index < self.count && self.boxes[b.index].slot == b.box_slot, "Ui.canvas_edit: the node was not built this frame");
+        let text = self.arena.fmt(format_args!("{text}"));
+        let composition = self.arena.fmt(format_args!("{}", self.composition));
+        self.arena.add_lent(&mut self.boxes[b.index].paint, move |arena, paint, rect| f(paint, rect, arena.str(text), arena.str(composition)));
     }
 
     /// A canvas that draws after the node's children, outside its content clip.
