@@ -1212,6 +1212,86 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
 }
 
 #[test]
+fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_warm_allocations() {
+    use crate::ui::{Node, Edges, Role};
+    use crate::theme::{Font, Look, State};
+    use crate::{Event, Part, Str};
+    use std::cell::Cell;
+    thread_local! {
+        static SIZE: Cell<i64> = const { Cell::new(20) };
+        static ROW: Cell<i64> = const { Cell::new(0) };
+    }
+    fn body(ui: &mut Ui, c: &crate::bodies::PxuiTextFieldConfig) {
+        ROW.set(c.row.box_key);
+        let mut row = ui.node_layout(&c.row);
+        row.h = Size::Px(59.0);
+        ui.set_node_layout(&c.row, &row);
+        ui.set_look(&c.row, Look::NONE, State::default());
+        let editor = ui.part(Part::EDITOR, Node {
+            at: Some((18.0, 0.0)).into(), w: Size::Px(280.0), h: Size::Px(59.0),
+            inset: Edges {l:2.0,..Edges::ZERO},
+            look: Look {text:ui.theme().tokens.foreground,font:Font {size:SIZE.get(),..Font::BODY},..Look::NONE},
+            ..Node::DEFAULT
+        });
+        if c.state.focused == 0 { ui.text(&editor, crate::bodies::text_of(&c.value)); }
+    }
+    mem_sys::set_peer(crate::library_counter);
+    for size in [20,-3,0] {
+        for scale in [1.0,2.0] {
+            SIZE.set(size);
+            let mut ui = Ui::new().unwrap();
+            ui.set_a11y(true);
+            ui.register_text_field_body("font-sized-editor",body).unwrap();
+            let source = "text_field.body = font-sized-editor";
+            ui.set_theme(&crate::ThemeSource {source:Str {ptr:source.as_ptr(),len:source.len()},..Default::default()}).unwrap();
+            let value = "café track 10";
+            let mut build = |ui: &mut Ui| assert!(ui.text_field("Styled",value).is_none());
+            let frame = FrameIn {scale,..input()};
+            for tick in 0..3 { ui.frame(&FrameIn {time:tick as f64/60.0,..frame},&mut build).unwrap(); }
+            let glyphs = ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).map(|quad|(quad.rect,quad.aux)).collect::<Vec<_>>();
+            assert!(!glyphs.is_empty());
+            let points = if size==0 {ui.font_size()} else {Font {size,..Font::BODY}.points(ui.font_size())};
+            let full_width = ui.text_width(Some(points),value);
+            let focus = Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+8,..Default::default()};
+            ui.frame(&FrameIn {time:0.1,events:&focus,event_count:1,..frame},&mut build).unwrap();
+            assert_eq!(ui.ime().unwrap().1,(2.0+full_width).round() as i64,"focused text uses the body's editor font size {size}");
+            assert!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).map(|quad|(quad.rect,quad.aux)).eq(glyphs.iter().copied()),"focus preserves the exact glyph positions and atlas samples");
+            let editor = ui.part_rect(ROW.get(),Part::EDITOR).unwrap();
+            let prefix = ui.text_width(Some(points),"café ");
+            let x = editor.x+2.0+prefix;
+            let y = editor.y+editor.h/2.0;
+            if size==20 { SIZE.set(24); }
+            for kind in [Event::POINTER_PRESSED,Event::POINTER_RELEASED] {
+                let click = Event {kind,x:x as f64,y:y as f64,..Default::default()};
+                ui.frame(&FrameIn {time:0.2,events:&click,event_count:1,..frame},&mut build).unwrap();
+            }
+            let selected = ui.a11y_nodes().iter().find(|node|node.role==Role::TextField as u32).unwrap();
+            assert_eq!(selected.selection,[5,5],"pointer hit testing uses the displayed UTF-8 text at size {size}");
+            if size==20 {
+                let width = ui.text_width(Some(24),"café ");
+                assert_eq!(ui.ime().unwrap().1,(2.0+width).round() as i64,"a body size change paints the new font immediately, after hit testing the previous frame");
+            }
+            let key = |kind,code| Event {kind,code:pxui_types::KEY_SPECIAL+code,..Default::default()};
+            let composition = "é";
+            let select = [key(Event::KEY_PRESSED,9),key(Event::KEY_PRESSED,2),key(Event::KEY_RELEASED,9),Event {kind:Event::TEXT_EDITING,text:Str {ptr:composition.as_ptr(),len:composition.len()},y:1.0,..Default::default()}];
+            ui.frame(&FrameIn {time:0.3,events:select.as_ptr(),event_count:select.len(),..frame},&mut build).unwrap();
+            let selected = ui.a11y_nodes().iter().find(|node|node.role==Role::TextField as u32).unwrap();
+            assert_eq!(selected.selection,[5,4]);
+            for tick in 0..24 {
+                mem_sys::local_reset();
+                ui.frame(&FrameIn {time:0.4+tick as f64/60.0,..frame},&mut build).unwrap();
+                if tick>=8 {assert_eq!(mem_sys::local_alloc_count(),0,"warm custom body, focus, selection and composition");}
+                assert!(ui.ime().is_some());
+            }
+            let commit = Event {kind:Event::TEXT_INPUT,text:Str {ptr:composition.as_ptr(),len:composition.len()},..Default::default()};
+            let mut changed = false;
+            ui.frame(&FrameIn {time:1.0,events:&commit,event_count:1,..frame},&mut |ui| {changed=ui.text_field("Styled",value)==Some("caféétrack 10");}).unwrap();
+            assert!(changed,"composition commit replaces exactly the selected UTF-8 range");
+        }
+    }
+}
+
+#[test]
 fn numeric_signal_state_preserves_legacy_keys_without_warm_keyboard_allocations() {
     use std::cell::Cell;
     use pxui_types::{Event, KEY_SPECIAL};

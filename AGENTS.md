@@ -85,6 +85,9 @@ paint captures borrow byte ranges in the frame arena; keep ranges valid through 
 Selection and inline decorations stream the same shaped caret ranges instead of cosmic-text's allocating
 highlight iterator. Preserve the core/static/dynamic focused selection/IME allocation tests and native
 1x/2x pixel regression. Changed text/input events and other editor widgets are separate allocation paths.
+Custom editor parts supply the font size for focused glyphs, caret/selection and IME. Pointer hits use
+the previous displayed part's size; paint uses the newly built part's size. Preserve zero/default and
+relative sizing, same-frame size changes, UTF-8 selection and static/dynamic warm-allocation checks.
 
 ## Numeric keyboard signals
 

@@ -2902,13 +2902,18 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
     let signal = this.signal(&row);
     let focused = this.focused(&row);
     let control_at = |ui: &Ui| ui.part_rect(row.box_key, Part::EDITOR).map_or_else(|| value_control_at(ints(ui.rect(&row)), side), |r| ints(r));
+    // Pointer geometry and its font describe the editor the user saw last frame.
+    let size = this.part_box(row.box_key, Part::EDITOR).and_then(|part| {
+        let font = this.node_mut(&part).look.font;
+        (font.size != 0).then(|| font.points(this.font_size()))
+    });
     // an unfocused field paints `value` as it is (kept in its slot); only editing copies it
     let edit = if focused {
         let buffer = std::mem::take(&mut this.edit_work);
         let mut edit = this.load_text_edit_into(row.box_key, value, buffer);
         let (cx, _, cw, _) = control_at(this);
         let shift = this.press_shift(&row);
-        this.point_text_caret(None, &mut edit, &signal, shift, (cx + 2) as f32, (cx + cw - 2) as f32);
+        this.point_text_caret(size, &mut edit, &signal, shift, (cx + 2) as f32, (cx + cw - 2) as f32);
         for (event, modifiers) in this.key_events(&row) {
             this.edit_text_event(false, &mut edit, &|_| true, &modifiers, &event);
         }
@@ -2944,12 +2949,14 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
     if let Some(edit) = edit {
         let control = this.part_built(row.box_key, Part::EDITOR).unwrap_or(row);
         let field = *this.theme().field.pick(State { focused, ..State::default() });
-        let font_size = this.font_size();
+        let font = this.node_at(control.index).look.font;
+        let size = (font.size != 0).then(|| font.points(this.font_size()));
+        let font_size = size.unwrap_or(this.font_size());
         let marks = Some((field.selection, field.caret));
         let (caret, anchor) = (edit.caret, edit.anchor);
         this.canvas_edit(&control, &edit.text, move |paint, rect, text, composition| {
             let (x, y, w, h) = ints(rect);
-            paint_text_edit_ref(paint,None,false,2.0,marks,(x,y,w,h),label_y(font_size,y-2,h+4),composition,&EditRef { text,caret,anchor })
+            paint_text_edit_ref(paint,size,false,2.0,marks,(x,y,w,h),label_y(font_size,y-2,h+4),composition,&EditRef { text,caret,anchor })
         });
         this.edit_work = edit.text;
     }
