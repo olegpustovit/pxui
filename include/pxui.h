@@ -708,6 +708,8 @@ void pxui_a11y_stop(PxuiA11y *a11y);
 int32_t pxui_shaper_width_spans(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 int32_t pxui_text_width_spans(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 int32_t pxui_ui_text_spans(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiTextStyle *style, const PxuiTextSpans *spans);
+/* Positive line height; rounded primary-font metrics place CSS line-box baselines (ABI 1.17). */
+int32_t pxui_ui_text_line_box(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiTextStyle *style, const PxuiTextSpans *spans);
 int32_t pxui_paint_text_spans(PxuiPaint *p, float x, float y, const PxuiTextStyle *style, float width, uint8_t has_color, PxuiColor color, PxuiStr text, const PxuiTextSpans *spans, PxuiTextMetrics *out);
 
 /* Apple native fallback, cold discovery only. Ui must enable before its first frame.

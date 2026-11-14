@@ -183,3 +183,11 @@ Accessibility action injection validates the complete span before applying any a
 translates in fixed stack chunks into the engine's retained input queue. Preserve the 4,096-action
 bound, input order, invalid-tail atomicity, scalar payloads and static/dynamic warm allocation
 regressions. A per-call translation Vec breaks accessible scrolling's warm-frame allocation gate.
+
+
+ABI 1.17 adds Ui::text_line_box / pxui_ui_text_line_box. Positive explicit line heights use
+rounded primary-face ascent/descent and floored half-leading, with ULP snapping at integer
+boundaries. Preserve legacy text/text_spans positioning. Only explicit line-box nodes derive
+Fit dimensions from shaped text; empty labels retain one line and resolved Grow widths settle
+wrapped height in the same frame. Preserve invalid-input atomicity, static/dynamic resize/empty
+checks and warm allocations. Font metrics are normalized once when a font is loaded.

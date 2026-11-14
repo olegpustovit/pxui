@@ -1322,3 +1322,44 @@ fn accessibility_action_batches_keep_order_without_warm_allocations() {
         if cycle>1 {assert_eq!(mem_sys::local_alloc_count(),0,"ordered accessibility chunks");}
     }
 }
+
+#[test]
+fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() {
+    use crate::{TextStyle, ui::{Node, Role}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
+    let style=TextStyle {size_points:12.0,line_height:20.0,wrap:TextStyle::WRAP_WORD,..Default::default()};
+    let value="one two three four";
+    let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let expected=[80.0,200.0].map(|width| text.measure(1,value,&style,width).unwrap().lines as f32*20.0);
+    assert!(expected[0]>expected[1],"fixture must wrap");
+    let handle=Cell::new(None);
+    for round in 0..6 {
+        mem_sys::local_reset();
+        for (index,width) in [80.0,200.0].into_iter().enumerate() {
+            for empty in [false,true] {
+                ui.frame(&FrameIn {time:round as f64,..input()},&mut |ui| {
+                    ui.view("wrapper",(width as u64)*2+u64::from(empty),Size::Px(width),Size::Fit,&mut |ui| {
+                        let node=ui.node("line",Node {role:Role::Label,w:Size::Grow,h:Size::Fit,..Node::DEFAULT});
+                        ui.text_line_box(&node,if empty {""} else {value},&style,&[]).unwrap();
+                        handle.set(Some(node));
+                    });
+                }).unwrap();
+                let rect=ui.rect(&handle.get().unwrap());
+                assert!((rect.w-width).abs()<0.001);
+                assert!((rect.h-if empty {20.0} else {expected[index]}).abs()<0.001,"wrapped intrinsic height {rect:?}");
+            }
+        }
+        if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"line-box fit/resize reuses layout and glyphs");}
+    }
+    ui.frame(&input(),&mut |ui| {
+        let node=ui.node("checked",Node {role:Role::Label,w:Size::Px(200.0),h:Size::Px(20.0),..Node::DEFAULT});
+        ui.text_line_box(&node,value,&style,&[]).unwrap();
+        for invalid in [TextStyle {line_height:0.0,..style},TextStyle {line_height:f32::NAN,..style},TextStyle {font:u16::MAX,..style}] {
+            assert!(ui.text_line_box(&node,"wrong",&invalid,&[]).is_err());
+        }
+        assert!(ui.text_line_box(&node,"é",&style,&[crate::TextSpan {start:1,end:2,..Default::default()}]).is_err());
+    }).unwrap();
+    assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==value));
+}

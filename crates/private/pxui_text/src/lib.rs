@@ -607,7 +607,7 @@ pub struct Text {
     g: Glyphs,
     system:Option<Box<system::SystemFonts>>,
     names: Vec<String>,
-    ascents: Vec<f32>,
+    font_metrics: Vec<(f32,f32)>,
     entries: HashMap<u64, Entry, Fast>,
     /// every entry's key, and where the incremental sweep goes on
     keys: Vec<u64>,
@@ -655,7 +655,7 @@ impl Text {
             },
             names: Vec::new(),
             system:None,
-            ascents: Vec::new(),
+            font_metrics: Vec::new(),
             entries: HashMap::default(),
             keys: Vec::new(),
             sweep: 0,
@@ -691,18 +691,23 @@ impl Text {
     pub fn add_font(&mut self, bytes: &[u8]) -> usize {
         let ids = self.g.fs.db_mut().load_font_source(fontdb::Source::Binary(Arc::new(bytes.to_vec())));
         let name = ids.first().and_then(|id| self.g.fs.db().face(*id)).and_then(|f| f.families.first()).map(|f| f.0.clone()).unwrap_or_default();
-        let ascent = ids.first().and_then(|id| self.g.fs.get_font(*id, Weight::NORMAL)).map_or(0.0, |f| {
+        let metrics = ids.first().and_then(|id| self.g.fs.get_font(*id, Weight::NORMAL)).map_or((0.0,0.0), |f| {
             let m = f.as_swash().metrics(&[]);
-            m.ascent / m.units_per_em as f32
+            (m.ascent / m.units_per_em as f32,m.descent.abs() / m.units_per_em as f32)
         });
         self.names.push(name);
-        self.ascents.push(ascent);
+        self.font_metrics.push(metrics);
         self.names.len() - 1
     }
 
     /// The font's ascent as a fraction of its size (0 for an unknown index).
     pub fn ascent(&self, font: u16) -> f32 {
-        self.ascents.get(font as usize).copied().unwrap_or(0.0)
+        self.font_metrics.get(font as usize).map_or(0.0,|metrics|metrics.0)
+    }
+
+    /// Primary-face distances above and below the baseline, normalized to the em size.
+    pub fn font_metrics(&self,font:u16)->Option<(f32,f32)> {
+        self.font_metrics.get(font as usize).copied().filter(|(a,d)|a.is_finite() && d.is_finite() && *a>0.0 && *d>=0.0)
     }
 
     pub fn layout(&mut self, key: u64, text: &str, style: &Style, max_width: f32) -> Metrics {

@@ -11,6 +11,7 @@ library!(lib {
     fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32;
     fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
+    fn pxui_ui_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const TextStyle,spans:*const TextSpans)->i32;
     fn pxui_ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const TextStyle,spans:*const TextSpans)->i32;
     fn pxui_default_font() -> Str;
     fn pxui_shaper_create(fonts: *const Str, count: usize) -> *mut PxuiShaper;
@@ -128,6 +129,12 @@ impl Ui {
         let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
         let rc=unsafe { lib::pxui_ui_text_spans(self.0.as_ptr(),box_,as_str(text),style,&spans) };
         if rc==0 { Ok(()) } else { Err(rc) }
+    }
+    /// CSS line boxes with primary-font baseline rounding; requires a positive line height.
+    pub fn text_line_box(&mut self,box_:&crate::PxuiBox,text:&str,style:&TextStyle,spans:&[TextSpan])->Result<(),i32> {
+        let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+        let rc=unsafe {lib::pxui_ui_text_line_box(self.0.as_ptr(),box_,as_str(text),style,&spans)};
+        if rc==0 {Ok(())} else {Err(rc)}
     }
     pub fn text_service(&mut self) -> UiText<'_> { UiText(self) }
 }

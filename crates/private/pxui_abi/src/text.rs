@@ -88,6 +88,14 @@ export!(pub unsafe fn pxui_ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiB
     0
 });
 
+export!(pub unsafe fn pxui_ui_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style_:*const TextStyle,spans:*const TextSpans)->i32 {
+    let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
+    if !state.shared().in_frame || box_.is_null() || style_.is_null() { return unsafe { crate::fail(ui,"line-box text needs a frame, a node and a style") }; }
+    let (Some(value),Some(style),Some(spans),Some(box_))=(unsafe { crate::state::checked(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) },crate::state::core_box(unsafe { *box_ })) else { return unsafe { crate::fail(ui,"invalid line-box text") } };
+    if !unsafe { &mut *state.engine }.text_line_box(&box_,value,&style,spans.as_slice().unwrap()) { return unsafe { crate::fail(ui,"invalid line-box font, height, spans or node") }; }
+    0
+});
+
 pub(crate) fn metrics(value: pxui_text::Metrics) -> TextMetrics {
     TextMetrics { width: value.w, height: value.h, baseline: value.baseline, lines: value.lines }
 }

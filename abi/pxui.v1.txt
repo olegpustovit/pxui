@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 16
+minor 17
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -193,6 +193,7 @@ function pxui_ui_tabs int32_t pxui_ui_tabs ( PxuiUi * ui , PxuiStr label , PxuiS
 function pxui_ui_text int32_t pxui_ui_text ( PxuiUi * ui , const PxuiBox * box , PxuiStr value ) ;
 function pxui_ui_text_area_submit int32_t pxui_ui_text_area_submit ( PxuiUi * ui , const PxuiTextAreaDesc * desc , const PxuiAreaCallbacks * callbacks , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_submitted ) ;
 function pxui_ui_text_input_focused uint8_t pxui_ui_text_input_focused ( PxuiUi * ui ) ;
+function pxui_ui_text_line_box int32_t pxui_ui_text_line_box ( PxuiUi * ui , const PxuiBox * box_ , PxuiStr value , const PxuiTextStyle * style , const PxuiTextSpans * spans ) ;
 function pxui_ui_text_spans int32_t pxui_ui_text_spans ( PxuiUi * ui , const PxuiBox * box_ , PxuiStr value , const PxuiTextStyle * style , const PxuiTextSpans * spans ) ;
 function pxui_ui_text_state int32_t pxui_ui_text_state ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiStr * out ) ;
 function pxui_ui_text_top float pxui_ui_text_top ( PxuiUi * ui , uint8_t has_size , int64_t size , float y , float h ) ;

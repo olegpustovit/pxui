@@ -574,9 +574,20 @@ pub fn key(b: &UiBox) -> i64 {
     b.box_key
 }
 
-struct NodeText { style:Style, spans:TextSpans, active:bool }
+struct NodeText { style:Style, spans:TextSpans, active:bool, line_box:bool }
 impl NodeText {
-    fn top(&self,y:f32,h:f32,metrics:Metrics)->f32 {
+    fn top(&self,y:f32,h:f32,metrics:Metrics,text:&Text)->f32 {
+        if self.line_box {
+            let (a,d)=text.font_metrics(self.style.font).expect("validated line-box font");
+            let (a,d)=((a*self.style.size).round(),(d*self.style.size).round());
+            let line=self.style.line_height;
+            let leading=(line-a-d)/2.0;
+            let rounded=leading.round();
+            let tolerance=4.0*f32::EPSILON*line.abs().max(a).max(d);
+            let leading=if (leading-rounded).abs()<=tolerance {rounded} else {leading};
+            let baseline=a+leading.floor();
+            return y+(h-line*metrics.lines.max(1) as f32)/2.0+baseline-metrics.baseline;
+        }
         let line=if self.style.line_height>0.0 { self.style.line_height } else { self.style.size*1.2 };
         let block=self.style.size+metrics.lines.saturating_sub(1) as f32*line;
         y+((h-block)/2.0).floor()
@@ -3105,10 +3116,19 @@ impl Ui {
             let donor=self.slots.iter().enumerate().find_map(|(i,s)| (i!=b.box_slot && s.rich.as_ref().is_some_and(|r|!r.active)).then_some(i));
             if let Some(i)=donor { self.slots[b.box_slot].rich=self.slots[i].rich.take(); }
         }
-        let rich=self.slots[b.box_slot].rich.get_or_insert_with(||Box::new(NodeText { style:*style,spans:TextSpans::default(),active:false }));
+        let rich=self.slots[b.box_slot].rich.get_or_insert_with(||Box::new(NodeText { style:*style,spans:TextSpans::default(),active:false,line_box:false }));
         rich.style=*style;
+        rich.line_box=false;
         rich.spans=TextSpans::new(spans).expect("validated span count");
         rich.active=true;
+        true
+    }
+
+    /// Explicit CSS line boxes: primary-face rounded metrics set the first baseline.
+    pub fn text_line_box(&mut self,b:&Handle,text:&str,style:&Style,spans:&[TextSpan])->bool {
+        if !style.line_height.is_finite() || style.line_height<=0.0 || self.text.as_ref().and_then(|t|t.font_metrics(style.font)).is_none() { return false; }
+        if !self.text_spans(b,text,style,spans) { return false; }
+        self.slots[b.box_slot].rich.as_mut().unwrap().line_box=true;
         true
     }
 
@@ -3602,7 +3622,7 @@ impl Ui {
             if self.nd(index).axis == Axis::Stack {
                 self.order_stack(index);
             }
-            let n = self.nd(index);
+            let n = &self.slots[self.boxes[index].slot].node;
             let (content_w, content_h) = match n.grid.get() {
                 Some(grid) => {
                     let (cols, nc, rows) = self.grid_tracks(index, n, &grid, None);
@@ -3628,6 +3648,32 @@ impl Ui {
             };
             let pad = n.padding;
             let (mut cw, mut ch) = (content_w + pad.l + pad.r, content_h + pad.t + pad.b);
+            let slot=self.boxes[index].slot;
+            if matches!(n.w,Size::Fit) || matches!(n.h,Size::Fit) {
+                if let Some(rich)=self.slots[slot].rich.as_deref().filter(|r|r.active && r.line_box) {
+                    let style=rich.style(n,self.dir==Direction::Rtl);
+                    let inset=n.inset;
+                    let stored=&self.slots[slot];
+                    let text=self.text.as_mut().expect("Ui: the text engine is lent out");
+                    let spans=rich.spans.as_slice().unwrap();
+                    let natural=if matches!(n.w,Size::Fit) {
+                        lay_out_spans(text,&style,0.0,&stored.text,spans).unwrap().1.w+inset.l+inset.r
+                    } else {0.0};
+                    if matches!(n.w,Size::Fit) { cw=cw.max(natural); }
+                    if matches!(n.h,Size::Fit) {
+                        let width=match n.w {
+                            Size::Px(w)=>clamp(w,n.min_w,n.max_w),
+                            _ if stored.rw>0.0=>stored.rw,
+                            Size::Fit=>clamp(natural,n.min_w,n.max_w),
+                            _=>self.view_w,
+                        };
+                        let m=lay_out_spans(text,&style,(width-inset.l-inset.r).max(0.0),&stored.text,spans).unwrap().1;
+                        ch=ch.max(style.line_height*m.lines.max(1) as f32+inset.t+inset.b);
+                        // Grow/shrunk widths become known after layout; settle height in this frame.
+                        self.expect(slot,width,f32::NAN);
+                    }
+                }
+            }
             // a view's box: kept, its content is the size its last build measured (its children are
             // not declared); built, that measure is what it keeps
             let v = self.boxes[index].view;
@@ -4128,7 +4174,7 @@ impl Ui {
     fn baseline(&mut self, c: usize) -> f32 {
         let slot = self.boxes[c].slot;
         let h = self.l_h[c];
-        if self.slots[slot].text.is_empty() {
+        if self.slots[slot].text.is_empty() && !self.slots[slot].rich.as_ref().is_some_and(|r|r.active && r.line_box) {
             let n = *self.nd(c);
             let f = self.next_flow(self.boxes[c].first);
             if f == NONE || n.grid.is_some() || n.flags & (SCROLL | SCROLL_X) != 0 {
@@ -4149,7 +4195,7 @@ impl Ui {
         let rich=self.slots[slot].rich.as_deref().filter(|r|r.active);
         let m=if let Some(rich)=rich { lay_out_spans(text,&rich.style(&self.slots[slot].node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,&self.slots[slot].text,rich.spans.as_slice().unwrap()).unwrap().1 }
             else { lay_out(text, &style, 0.0, &self.slots[slot].text).1 };
-        let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m));
+        let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m,text));
         top+m.baseline
     }
 
@@ -4700,7 +4746,7 @@ impl Paint {
             let width=w-node.inset.l-node.inset.r;
             let style=rich.style(node,self.rtl);
             if let Some((key,metrics))=lay_out_spans(&mut self.text,&style,width,text,rich.spans.as_slice().unwrap()) {
-                let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics));
+                let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics,&self.text));
                 self.text_laid(at,&style,Some(look.text),key,metrics,o);
             }
         } else if !text.is_empty() {
