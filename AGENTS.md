@@ -210,3 +210,6 @@ ABI 1.19 exposes Ui::density / pxui_ui_density: the existing integer rendering d
 with Paint, rounded from host scale and clamped to at least one. Do not change the engine's
 fractional-scale policy here. Preserve initial/owner/callback queries, cache invalidation when
 density changes, equal-density retention and static/dynamic warm allocation checks.
+
+Analytic stroke widths must also fit the existing f16 instance field (maximum 65,504); reject
+finite overflow before writing an instance. Preserve the huge-finite-width regression.

@@ -46,7 +46,7 @@ fn analytic_curves_preserve_fractional_geometry_validate_and_reuse_warm_storage(
                     let color=crate::geom::Rgba {r:12,g:34,b:56,a:255};
                     paint.curve((1.25,2.75),(3.5,4.25),(5.75,6.5),1.6,color);
                     paint.cubic([(7.0,7.0),(11.5,7.0),(12.5,17.0),(17.0,17.0)],1.6,color);
-                    for width in [0.0,-1.0,f32::NAN,f32::INFINITY] {
+                    for width in [0.0,-1.0,f32::NAN,f32::INFINITY,f32::MAX] {
                         paint.curve((0.0,0.0),(1.0,1.0),(2.0,2.0),width,color);
                         paint.cubic([(0.0,0.0);4],width,color);
                     }

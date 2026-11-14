@@ -193,7 +193,7 @@ pub trait Shapes {
 
     /// An unsnapped quadratic Bezier with round caps, written as one analytic instance.
     fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Color) {
-        if width>0.0 && width.is_finite() && [from.0,from.1,control.0,control.1,to.0,to.1].iter().all(|v|v.is_finite()) {
+        if width>0.0 && width<=65504.0 && [from.0,from.1,control.0,control.1,to.0,to.1].iter().all(|v|v.is_finite()) {
             self.push(Instance::curve([from.0,from.1],[control.0,control.1],[to.0,to.1],width,rgba(color)));
         }
     }
@@ -201,7 +201,7 @@ pub trait Shapes {
     /// Four midpoint-matched quadratics approximate a cubic, without a tessellation buffer.
     // shortcut: four segments suit small icons, use adaptive splitting for large paths.
     fn cubic(&mut self, points:[(f32,f32);4], width:f32, color:Color) {
-        if !(width>0.0 && width.is_finite()) || points.iter().any(|p|!p.0.is_finite() || !p.1.is_finite()) {return;}
+        if !(width>0.0 && width<=65504.0) || points.iter().any(|p|!p.0.is_finite() || !p.1.is_finite()) {return;}
         let at=|t:f32| {
             let s=1.0-t;
             (points[0].0*s*s*s+3.0*points[1].0*s*s*t+3.0*points[2].0*s*t*t+points[3].0*t*t*t,
