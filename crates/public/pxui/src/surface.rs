@@ -1222,6 +1222,29 @@ fn measured_list_validation_and_callback_panics_leave_frames_reusable() {
 }
 
 #[test]
+fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
+    use pxui_types::Event;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let mut build = |ui: &mut Ui| { ui.label("Lifecycle"); };
+    let first = Event { kind: Event::FOCUS_GAINED, ..Event::default() };
+    ui.frame(&FrameIn { events: &first, event_count: 1, ..input() }, &mut build).unwrap();
+    for frame in 0..82 {
+        ui.frame(&FrameIn { time: frame as f64 / 60.0, ..input() }, &mut build).unwrap();
+    }
+    let events = [
+        Event { kind: Event::VISIBILITY_CHANGED, value: 0.0, ..Event::default() },
+        Event { kind: Event::FOCUS_LOST, ..Event::default() },
+        Event { kind: Event::FOCUS_GAINED, ..Event::default() },
+        Event { kind: Event::VISIBILITY_CHANGED, value: 1.0, ..Event::default() },
+    ];
+    mem_sys::local_reset();
+    ui.frame(&FrameIn { time: 30.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+    assert_eq!(mem_sys::local_alloc_count(), 0, "first resume must retain the normal input capacity");
+    assert!(!ui.text_input_focused());
+}
+
+#[test]
 fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     use pxui_types::{Event, Str, KEY_SPECIAL};
     mem_sys::set_peer(crate::library_counter);

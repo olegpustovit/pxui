@@ -42,7 +42,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("pxui_render", &["ogpu_core", "pxui_core", "pxui_types"][..]),
         // The window hosts are leaves: SDL, the input types and the native layer token.
         ("pxui_sdl", &["sdl3", "input", "native_layer_token_sys"][..]),
-        ("pxui_host", &["pxui", "pxui_sdl", "mem_sys", "ogpu_core", "ogpu_metal", "metal_sys"][..]),
+        ("pxui_host", &["pxui", "pxui_sdl", "input", "mem_sys", "ogpu_core", "ogpu_metal", "metal_sys"][..]),
         // pxui_wayland links libwayland-client, libxkbcommon and (file dialogs through the desktop portal) libdbus-1
         // through its own C shims, like pxui_atspi.
         ("pxui_wayland", &["input", "native_layer_token_sys"][..]),

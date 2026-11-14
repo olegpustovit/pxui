@@ -15,6 +15,7 @@ pxui_host = { path = "../../crates/host/pxui_host", features = ["static"] }
 pxui = { path = "../../crates/public/pxui", features = ["static"] }
 pxui_gallery = { path = "../pxui_gallery" }
 mem_sys = { path = "../../crates/open/mem_sys" }
+input = { path = "../../crates/open/input" }
 
 [lints]
 workspace = true

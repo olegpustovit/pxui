@@ -93,7 +93,14 @@ impl Event {
             Event::FileDragEnded => raw(FILE_DRAG_ENDED, 0, 0.0, 0.0, 0.0, ""),
             Event::Pinched(v) => raw(PINCHED, 0, 0.0, 0.0, *v, ""),
             Event::FileDialog { id, result } => match result {
-                Ok(paths) => { *scratch = paths.join("\0"); raw(FILE_DIALOG, 0, 0.0, 0.0, *id as f64, scratch) }
+                Ok(paths) => {
+                    scratch.clear();
+                    for (index, path) in paths.iter().enumerate() {
+                        if index != 0 { scratch.push('\0'); }
+                        scratch.push_str(path);
+                    }
+                    raw(FILE_DIALOG, 0, 0.0, 0.0, *id as f64, scratch)
+                }
                 Err(error) => raw(FILE_DIALOG, 1, 0.0, 0.0, *id as f64, error),
             },
             Event::DialogOpened(id) => raw(DIALOG_OPENED, *id as u32, 0.0, 0.0, 0.0, ""),
@@ -129,7 +136,7 @@ impl Event {
             FILE_DRAG_ENDED => Event::FileDragEnded,
             PINCHED => Event::Pinched(e.value),
             FILE_DIALOG => match e.code {
-                0 => Event::FileDialog { id: e.value as i64, result: Ok(s?.split('\0').map(str::to_owned).collect()) },
+                0 => Event::FileDialog { id: e.value as i64, result: Ok(if s?.is_empty() { Vec::new() } else { s?.split('\0').map(str::to_owned).collect() }) },
                 1 => Event::FileDialog { id: e.value as i64, result: Err(s?.to_owned()) },
                 _ => return None,
             },
@@ -178,6 +185,7 @@ mod tests {
             Event::TextEditing { text: "ime".into(), start: 1, length: 2 }, Event::FileDropped("/a".into()), Event::FileDragMoved((1.0, 2.0)),
             Event::FileDragEnded, Event::Pinched(1.25), Event::FileDialog { id: 7, result: Ok(vec!["/a".into(), "/b".into()]) },
             Event::FileDialog { id: 8, result: Err("no".into()) }, Event::DialogOpened(9), Event::Resized((10, 20)), Event::FocusLost,
+            Event::FileDialog { id: 10, result: Ok(Vec::new()) },
             Event::FocusGained, Event::Closed, Event::PixelSizeChanged((30, 40)), Event::VisibilityChanged(true),
             Event::TrackpadScrolled { delta: (1.0, 2.0), phase: ScrollPhase::Momentum, time: 3.0 },
         ];

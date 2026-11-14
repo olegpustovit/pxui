@@ -4,6 +4,9 @@
 #include "frames.h"
 #include <new>
 #include <TargetConditionals.h>
+#if TARGET_OS_IOS
+#import <UIKit/UIKit.h>
+#endif
 
 namespace {
 struct PXUIMetalFrames {
@@ -18,7 +21,23 @@ struct PXUIMetalFrames {
     id<CAMetalDrawable> drawable;
     id<MTLCommandBuffer> commands;
     id<MTLRenderCommandEncoder> encoder;
+#if TARGET_OS_IOS
+    id pauseObserver;
+    id resumeObserver;
+    bool suspended;
+    bool failed;
+#endif
 };
+}
+
+int rays_metal_frames_can_draw(void *raw) {
+    if (!NSThread.isMainThread || !raw) return 0;
+#if TARGET_OS_IOS
+    PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+    return !frames->suspended && UIApplication.sharedApplication.applicationState == UIApplicationStateActive;
+#else
+    return 1;
+#endif
 }
 
 void *rays_metal_frames_create(void *layerPointer, void *devicePointer, void *queuePointer) {
@@ -37,6 +56,23 @@ void *rays_metal_frames_create(void *layerPointer, void *devicePointer, void *qu
         frames->layer.displaySyncEnabled = YES;
 #endif
         frames->pass = [MTLRenderPassDescriptor new];
+#if TARGET_OS_IOS
+        frames->suspended = UIApplication.sharedApplication.applicationState != UIApplicationStateActive;
+        frames->pauseObserver = [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationWillResignActiveNotification object:nil queue:nil usingBlock:^(NSNotification *) {
+            frames->suspended = true;
+            if (frames->encoder) [frames->encoder endEncoding];
+            frames->encoder = nil;
+            frames->commands = nil;
+            frames->drawable = nil;
+            frames->pass.colorAttachments[0].texture = nil;
+            if (!rays_metal_frames_wait(frames)) frames->failed = true;
+            // An acquired but unsubmitted serial has no remaining GPU work after this drain.
+            frames->completed = frames->serial;
+        }];
+        frames->resumeObserver = [NSNotificationCenter.defaultCenter addObserverForName:UIApplicationDidBecomeActiveNotification object:nil queue:nil usingBlock:^(NSNotification *) {
+            frames->suspended = false;
+        }];
+#endif
         return frames;
     }
 }
@@ -45,6 +81,10 @@ int rays_metal_frames_begin(void *raw, uint32_t width, uint32_t height) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
         if (![NSThread isMainThread] || frames->commands || !width || !height) return -1;
+#if TARGET_OS_IOS
+        if (frames->failed) return -1;
+        if (!rays_metal_frames_can_draw(frames)) return 0;
+#endif
         const NSUInteger slot = frames->serial % 3;
         id<MTLCommandBuffer> previous = frames->pending[slot];
         if (previous) {
@@ -85,7 +125,12 @@ void *rays_metal_frames_pass(void *raw, double red, double green, double blue) {
 int rays_metal_frames_submit(void *raw) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
-        if (![NSThread isMainThread] || !frames->commands || !frames->encoder) return 0;
+        if (![NSThread isMainThread]) return -1;
+#if TARGET_OS_IOS
+        if (frames->failed) return -1;
+        if (!rays_metal_frames_can_draw(frames)) return 0;
+#endif
+        if (!frames->commands || !frames->encoder) return -1;
         [frames->encoder endEncoding];
         frames->encoder = nil;
         [frames->commands presentDrawable:frames->drawable];
@@ -104,6 +149,9 @@ int rays_metal_frames_wait(void *raw) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
         BOOL success = YES;
+#if TARGET_OS_IOS
+        if (frames->failed) success = NO;
+#endif
         for (NSUInteger i = 0; i < 3; i++) {
             [frames->pending[i] waitUntilCompleted];
             if (frames->pending[i].status == MTLCommandBufferStatusError) success = NO;
@@ -117,6 +165,10 @@ int rays_metal_frames_wait(void *raw) {
 void rays_metal_frames_destroy(void *raw) {
     @autoreleasepool {
         PXUIMetalFrames *frames = static_cast<PXUIMetalFrames *>(raw);
+#if TARGET_OS_IOS
+        [NSNotificationCenter.defaultCenter removeObserver:frames->pauseObserver];
+        [NSNotificationCenter.defaultCenter removeObserver:frames->resumeObserver];
+#endif
         [frames->encoder endEncoding];
         frames->encoder = nil;
         rays_metal_frames_wait(frames);

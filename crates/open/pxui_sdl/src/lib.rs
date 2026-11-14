@@ -10,6 +10,8 @@ use std::time::Instant;
 pub use sdl3::chrome::{Chrome, Snapshot as ChromeSnapshot};
 
 pub mod translate;
+#[cfg(target_os = "ios")]
+pub mod ios;
 
 pub use native_layer_token_sys::portable::Token;
 /// Native binary startup policy; does not acquire SDL subsystems or change their ownership.
@@ -90,6 +92,7 @@ pub struct Window {
     cursors: Vec<(CursorShape, Cursor)>,
     cursor_shape: Option<CursorShape>,
     text_input: bool,
+    ime_area: Option<((i64, i64, i64, i64), i64)>,
     changed: change_flag::ChangeFlag,
     /// window coordinates per logical point: SDL's display scale over its pixel density
     unit: f64,
@@ -206,6 +209,7 @@ impl Window {
                 cursors: Vec::new(),
                 cursor_shape: None,
                 text_input: false,
+                ime_area: None,
                 changed: change_flag::create(),
                 unit,
                 extent,
@@ -389,10 +393,13 @@ impl Window {
                 if self.text_input {
                     sdl3::text_input::stop(&self.handle).map_err(fail)?;
                     self.text_input = false;
+                    self.ime_area = None;
                 }
                 Ok(())
             }
             Some(((x, y, width, height), cursor)) => {
+                let area = Some(((x, y, width, height), cursor));
+                if self.text_input && self.ime_area == area { return Ok(()); }
                 if !self.text_input {
                     sdl3::text_input::start(&self.handle).map_err(fail)?;
                     self.text_input = true;
@@ -404,7 +411,9 @@ impl Window {
                     Rect { x: scale(x), y: scale(y), width: scale(width), height: scale(height) },
                     scale(cursor),
                 )
-                .map_err(fail)
+                .map_err(fail)?;
+                self.ime_area = area;
+                Ok(())
             }
         }
     }

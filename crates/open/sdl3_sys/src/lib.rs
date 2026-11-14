@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
 pub mod chrome;
+#[cfg(target_os = "ios")]
+pub mod ios;
 
 use std::cell::Cell;
 use std::ffi::{CStr, CString, c_char, c_void};
@@ -345,6 +347,11 @@ impl Window {
         // SAFETY: the window handle is live.
         let bits = unsafe { ffi::rays_sdl3_window_state(raw.as_ptr()) };
         Ok(WindowState { hidden: bits & 1 != 0, minimized: bits & 2 != 0, occluded: bits & 4 != 0 })
+    }
+
+    pub fn id(&self) -> std::result::Result<u32, Error> {
+        let raw = self.raw()?;
+        Ok(unsafe { ffi::rays_sdl3_window_id(raw.as_ptr()) })
     }
 
 

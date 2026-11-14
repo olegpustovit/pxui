@@ -1,5 +1,7 @@
 #[cfg(target_os = "macos")]
 pub use sdl3_sys::chrome;
+#[cfg(target_os = "ios")]
+pub use sdl3_sys::ios;
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -311,6 +313,7 @@ pub mod window {
         pub fn hide(&self) -> std::result::Result<(), Error> { self.native("SDL3.Window.hide")?.hide().map_err(|failure| native_error("SDL3.Window.hide", failure)) }
         pub fn restore(&self) -> std::result::Result<(), Error> { self.native("SDL3.Window.restore")?.restore().map_err(|failure| native_error("SDL3.Window.restore", failure)) }
         pub fn state(&self) -> std::result::Result<super::WindowState, Error> { self.native("SDL3.Window.state")?.state().map_err(|failure| native_error("SDL3.Window.state", failure)) }
+        pub fn id(&self) -> std::result::Result<u32, Error> { self.native("SDL3.Window.id")?.id().map_err(|failure| native_error("SDL3.Window.id", failure)) }
         pub fn sync(&self) -> std::result::Result<(), Error> { self.native("SDL3.Window.sync")?.sync().map_err(|failure| native_error("SDL3.Window.sync", failure)) }
         pub fn start_text_input(&self) -> std::result::Result<(), Error> {
             self.native("SDL3.Text_input.start")?.start_text_input().map_err(|failure| native_error("SDL3.Text_input.start", failure))

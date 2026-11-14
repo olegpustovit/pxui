@@ -5,6 +5,7 @@ extern "C" {
 #endif
 void *rays_metal_frames_create(void *layer, void *device, void *queue);
 int rays_metal_frames_begin(void *host, uint32_t width, uint32_t height);
+int rays_metal_frames_can_draw(void *host);
 uint64_t rays_metal_frames_serial(void *host);
 uint64_t rays_metal_frames_completed(void *host);
 void *rays_metal_frames_commands(void *host);

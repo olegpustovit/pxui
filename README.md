@@ -15,7 +15,7 @@ Dependencies are std and `cc`; `pxui_text` alone adds cosmic-text for shaping an
 | `pxui_text` | cosmic-text, shaping cache, glyph atlases, the bundled Pragmasevka font |
 | `pxui_render` | the painter: one instanced pipeline, atlas textures, draws into a pass the caller opened |
 | `pxui_sdl` | SDL3 window host: lifecycle, event pump, surface token |
-| `pxui_host` | macOS framework host: device/frame presentation and bounded image texture ownership, using the public UI wrapper |
+| `pxui_host` | macOS and experimental iOS framework host: device/frame presentation and bounded image texture ownership, using the public UI wrapper |
 | `pxui_wayland` | Wayland client window host (Linux) |
 | `pxui_atspi` | AT-SPI2 accessibility bridge (Linux): serves `pxui_core::a11y`'s tree over libdbus-1 |
 | `pxui_gallery` | the kit gallery app (`cargo run -p pxui_gallery`): every widget, both themes, goldens |
@@ -33,7 +33,7 @@ Hosts expose the same few functions and there is no `Host` trait: an app links t
 
 ## Host loop
 
-On macOS, `pxui_host` owns GPU setup, frame presentation and image texture lifetimes:
+On macOS and experimental iOS, `pxui_host` owns GPU setup, frame presentation and image texture lifetimes:
 
 ```rust
 let mut window = pxui_host::Window::open("demo", 900, 600)?;
@@ -49,6 +49,25 @@ completion. Source access and decoding run in the application's worker. `configu
 density and the maximum requested source pixels; application layout policy chooses that bound.
 The host adds no private engine dependencies or third-party packages. Native/process allocations
 are separate from the warm Rust allocator checks.
+
+`pxui_host::Events` retains the ABI event span and its UTF-8 bytes. Clear and reuse the app's
+input batch, call `Platform::pump`, feed `Events::encode` into `Ui::frame`, then call
+`Platform::apply` once per completed UI frame for cursor, keyboard/IME, background and clipboard
+requests. Numeric input and unchanged focused IME geometry allocate no Rust objects once warm;
+new text and clipboard contents are separate paths.
+
+On iOS, `pxui_sdl::ios::run` owns the window and callback. UIKit drives its display link;
+`Schedule::WaitUntil` pauses it until input, a worker wake or the repaint deadline. Metal stops
+new submissions while inactive and drains pending work on resign-active notifications. The
+callback's `Finish` and captured resource destruction happen before window destruction. Return
+errors through the callback result; a panic aborts at the C boundary. See
+[`ios_spike`](tools/ios_spike/src/main.rs) and build it with
+`packaging/ios-spike.sh iphonesimulator /absolute/shared/target`. Set
+`SIMCTL_CHILD_PXUI_IOS_LIFECYCLE_CHECK=1` on `simctl launch`, wait for the frame-90 marker,
+background it with another app, then relaunch the same bundle without terminating it. The
+182-frame / 82-warm-up / 100-measured allocation gate, idle deadline and same-process resume
+are qualified on the iOS 18.6 simulator. Finger gestures, safe areas, actual keyboard behavior,
+physical devices and native allocations remain to qualify.
 
 The shape of an app (names settle with the engine rewrite; `crates/private/pxui_render/tests/gpu_pxui_render.rs`
 and `crates/private/pxui_core/tests/gpu_pxui_parity.rs` hold the compiling version):

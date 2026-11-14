@@ -17,6 +17,10 @@ pub struct Graphics {
 }
 
 impl Graphics {
+    /// iOS draws only while active; macOS keeps its existing visibility policy in the window host.
+    pub fn can_draw(&self) -> bool {
+        self.frames.as_ref().is_some_and(Frames::can_draw)
+    }
     pub fn open(window: &mut Window, ui: &Ui) -> Result<Self, String> {
         ogpu_core::impl_::select(ogpu_metal::impl_::implementation());
         let driver = ogpu_core::impl_::create_driver().map_err(message)?;
@@ -100,6 +104,8 @@ impl Graphics {
             }
         };
         let before = count();
+        #[cfg(target_os = "ios")]
+        if !self.can_draw() { return Ok(false); }
         let extent = window.extent();
         let size = (extent.drawable.0 as u32, extent.drawable.1 as u32);
         if size.0 == 0 || size.1 == 0 {
@@ -146,7 +152,7 @@ impl Graphics {
             })
             .map_err(|code| format!("Renderer draw failed ({code})"))?;
         let drawn = count();
-        frames.submit()?;
+        if !frames.submit()? { return Ok(false); }
         self.images.submitted(frames.serial());
         let completed = frames.completed();
         self.retire_images(completed)?;
@@ -189,6 +195,8 @@ impl Graphics {
         revision: u64,
         pixels: Option<(u32, u32, &[u8])>,
     ) -> Result<bool, String> {
+        #[cfg(target_os = "ios")]
+        if !self.can_draw() { return Err("Image upload requires an active UI host".into()); }
         self.images
             .upload(&self.device, key, epoch, revision, pixels)
     }

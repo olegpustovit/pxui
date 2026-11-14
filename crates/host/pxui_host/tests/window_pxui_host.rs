@@ -195,8 +195,36 @@ fn framework_host_constructor_refusals_release_devices_and_queues() {
 }
 
 #[cfg(target_os = "macos")]
+fn framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows() {
+    use pxui::{Event, FrameIn, Ui};
+    mem_sys::set_peer(pxui::library_counter);
+    let mut window = pxui_host::Window::open_with("PXUI platform output", 320, 240, false, true, true).unwrap();
+    let mut platform = pxui_host::Platform::default();
+    let mut ui = Ui::new().unwrap();
+    let mut build = |ui: &mut Ui| { assert!(ui.text_field("Caption", "café track 10").is_none()); };
+    let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+    ui.frame(&input, &mut build).unwrap();
+    let focus = Event { kind: Event::KEY_PRESSED, code: input::Key::Tab.code(), ..Event::default() };
+    ui.frame(&FrameIn { events: &focus, event_count: 1, ..input }, &mut build).unwrap();
+    assert!(ui.ime().is_some());
+    for frame in 0..100 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn { time: 0.2 + frame as f64 / 60.0, ..input }, &mut build).unwrap();
+        platform.apply(&mut window, &ui).unwrap();
+        platform.apply(&mut window, &ui).unwrap();
+        if frame >= 10 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm platform output allocated"); }
+    }
+    ui.frame(&input, &mut |_| {}).unwrap();
+    assert!(ui.ime().is_none());
+    platform.apply(&mut window, &ui).unwrap();
+    window.destroy().unwrap();
+    assert!(platform.apply(&mut window, &ui).is_err());
+}
+
+#[cfg(target_os = "macos")]
 fn main() {
     harness::run(&[
+        ("framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows",framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows),
         ("framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release",framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release),
         ("framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums",framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums),
         ("framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),

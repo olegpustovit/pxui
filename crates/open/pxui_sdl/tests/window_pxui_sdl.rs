@@ -12,6 +12,9 @@ fn window_visibility() {
         }
     };
     window.set_text_input(Some(((1, 2, 20, 12), 7))).unwrap();
+    mem_sys::local_reset();
+    for _ in 0..100 { window.set_text_input(Some(((1, 2, 20, 12), 7))).unwrap(); }
+    assert_eq!(mem_sys::local_alloc_count(), 0, "unchanged IME output must reuse its area");
     window.set_surrounding_text(Some(("text", 2, 2))).unwrap();
     window.set_text_input(None).unwrap();
     window.set_text_input(None).unwrap();

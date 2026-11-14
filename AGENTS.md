@@ -74,7 +74,7 @@ in its tier folder. The gate enforces this table; ABI design lives in `specifica
 - `libpxui` is the `pxui_dylib` cdylib over `pxui_abi` (its own package, so it is built with LTO like the static build) and exports only `pxui_*`; `pxui` uses the dynamic ABI or those same functions through the `static` feature.
 - FFI uses `repr(C)`, pointer/length pairs and callback/user pairs. Borrows last through the next frame; Rust heap types, cross-side freeing and unwinding do not cross the ABI.
 - The app owns the GPU. PXUI adopts native handles and records into the app's command buffer/pass; it does not submit, wait, present or destroy shared resources. Calls stay on one thread, and the library creates no windows or displays.
-- That ownership contract describes the hostless renderer API. Apps may instead use `pxui_host`, which owns device/queue setup, frame acquisition/presentation and image texture retirement. Keep generic host machinery there, native Metal calls in `metal_sys`, and AppKit chrome in `sdl3_sys`. The convenience host supports macOS and experimental iOS SDL/Metal. iOS touch, safe areas, keyboard and display-link/background lifecycle remain unqualified; other hosts keep the existing renderer API.
+- That ownership contract describes the hostless renderer API. Apps may instead use `pxui_host`, which owns device/queue setup, frame acquisition/presentation and image texture retirement. Keep generic host machinery there, native Metal calls in `metal_sys`, and AppKit chrome in `sdl3_sys`. The convenience host supports macOS and experimental iOS SDL/Metal. iOS uses a display link and drains frames on background notifications; touch, safe areas, keyboard and physical-device behavior remain unqualified. Other hosts keep the existing renderer API.
 - `pxui::images` owns retained descriptors, bounded UTF-8 image paths, coalesced visibility-aware requests and LRU metadata. `pxui_host::Graphics` owns their textures and GPU fences. Applications deliver decoded RGBA data or a miss with the requested epoch and an increasing delivery revision; source access and application-specific decode scheduling stay outside the framework. Never expose a caller-supplied completed serial for image destruction. Preserve exact-pixel, stale-epoch, invalid-packet, in-flight retirement, constructor cleanup and zero-warm-allocation checks.
 - The native frame context is a private Objective-C++ struct with ARC-owned members. Do not register an Objective-C frame class: the native shim can be linked into both the static framework host and dynamic renderer, and duplicate runtime classes collide.
 - ABI snapshots are append-only and gated. Paint shapes stay in wrapper spans; only text calls the library. `abi_bench` gates performance against the recorded baseline.
@@ -192,8 +192,14 @@ For iOS SDL bring-up, use `packaging/ios-spike.sh` with the shared build root. T
 SDL3_DIR/pkg-config metadata must never fall back to host libraries. Keep arm64/device versus
 simulator platform and iOS 18 floor checks, default stack size, UIKit entry through SDL and retained
 Metal-layer invalidation. The probe draws the existing kit gallery through pxui_host for 182 frames,
-with zero Rust allocations in the final 100 after 82 warm-up frames. It does not qualify touch,
-keyboard, safe areas, display-link/background lifecycle, native allocations or physical devices.
+with zero Rust allocations in the final 100 after 82 warm-up frames. Keep the display-link idle
+deadline and same-process background/resume checks (`PXUI_IOS_LIFECYCLE_CHECK=1`); inactive
+draws must skip before GPU work. Native UIKit callbacks are scoped to the main loop and may
+not reenter Rust from an SDL event watch. Text/IME/dialog encoding reuses framework-owned
+storage, and native IME area updates skip unchanged geometry. The first four-event resume
+batch after a one-event startup must keep zero warm Rust allocations across both ABI paths.
+The probe does not qualify finger identities/gestures, keyboard, safe areas, native allocations
+or physical devices.
 The Metal backend uses the standard render-pipeline API when Metal 4 compiler creation reports
 Unsupported; retain function/device/profile validation, binding reflection and native pixel checks.
 Private textures use a device-owned, synchronous GPU staging queue and at most 4 MiB retained

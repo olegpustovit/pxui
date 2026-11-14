@@ -29,6 +29,7 @@ cat > "$bundle/Info.plist" <<EOF
 <key>UIDeviceFamily</key><array><integer>1</integer><integer>2</integer></array>
 <key>UILaunchScreen</key><dict/>
 <key>UIApplicationSupportsIndirectInputEvents</key><true/>
+<key>CADisableMinimumFrameDurationOnPhone</key><true/>
 <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 </dict></plist>
 EOF

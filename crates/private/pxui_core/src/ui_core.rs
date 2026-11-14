@@ -4602,10 +4602,8 @@ impl Ui {
 /// `v` held to `[min, max]`; the minimum wins.
 /// `kept` becomes a copy of `f` in the storage it already has (a frame with input allocated twice).
 fn keep_frame(kept: &mut Option<rframe::Frame>, f: &rframe::Frame) {
-    let Some(k) = kept else {
-        *kept = Some(f.clone());
-        return;
-    };
+    // Clone into empty vectors so a short startup batch keeps normal amortized input capacity.
+    let k = kept.get_or_insert_with(|| rframe::Frame { input: input::at_time(0.0), pixel_scale: (1.0,1.0), fps: 0.0, mouse_delta: (0.0,0.0) });
     let rframe::Frame { input, pixel_scale, fps, mouse_delta } = f;
     let input::Frame { t, dt, frame, tick, size, pointer, buttons, keys, events } = input;
     let i = &mut k.input;
