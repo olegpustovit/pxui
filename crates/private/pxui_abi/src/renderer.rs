@@ -1,3 +1,8 @@
+//! Renderer status refuses UI frame callbacks and another renderer's split callback on the same UI.
+//! Shared::current being null fences engine ownership; in_frame alone is insufficient. Foreign-
+//! image/blur-source wrappers use full native handles, extent and format identity and explicitly
+//! destroy retired wrappers.
+//!
 use ogpu_core::backend::{self as gpu_backend, Device, Queue, Texture};
 use ogpu_core::pipeline::{ColorFormat, DepthFormat};
 use ogpu_core::types::{Extent, Origin, TextureFormat};

@@ -1,3 +1,22 @@
+//! Text features and ellipsis modes participate in both caller-keyed style comparisons and content
+//! layout keys. Feature setup allocates only for new layouts. Preserve original accessibility
+//! labels, shaping, bitmap coverage, subpixel bins and cache replay when applying inline colours.
+//! Decorations stream from caret geometry without cosmic-text LayoutRun::highlight allocation;
+//! rules sit at line-box bottom with independent colour. Glyphs/decorations share opacity, clip and
+//! one instanced draw per layer. Preserve ligature, BiDi, CRLF, wrapping and ellipsis behavior
+//! without treating hanging blanks/font overhangs as clipping requirements.
+//!
+//! Center rich nodes using fractional font points and the whole wrapped block's line count/height.
+//! Measure baselines at current layout width. System fallback queries only missing clusters, checks
+//! outline/bitmap raster compatibility as well as coverage, reuses fontdb mappings and never copies
+//! large system files or scans directories. Keep explicit-font constructors deterministic, mapped
+//! paths bounded to 128 and negatives to 512x256 bytes; clearing negatives permits cold retries.
+//!
+//! Glyph atlases have two fixed pages per mask/colour kind. Second mirrors/textures allocate on
+//! first use only; retain old handles/UVs and in-flight/retained shelf protection. Newly active
+//! full mirrors upload on the caller's command buffer before partial uploads/draws; failed upload
+//! resets initialization. Second pages use flags/codes without adding draw breaks.
+//!
 //! Text for PXUI: cosmic-text shaping/bidi/wrapping/fallback behind a small concrete API, a layout
 //! cache keyed by a caller-supplied node key, and two pages each of R8 mask and RGBA8 colour atlases that
 //! are exposed as dirty rectangles. The only workspace crate with an external dependency.

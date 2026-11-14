@@ -1,3 +1,15 @@
+//! Backdrop saturation defaults to 1. Apply finite, nonnegative saturation once after vertical blur
+//! unpremultiplies RGB, before tint/opacity. Keep Metal/GLSL and checked-in validated SPIR-V
+//! synchronized, including fractional thin-bar coverage at 1x/2x.
+//!
+//! Prepare both blur scratch targets at startup/resize before recording commands. Both downsample
+//! factors share half-window capacity; limit viewport/scissor to occupied pixels and clamp the
+//! second pass to texel centers. Composite the returned texture together with its occupied UVs.
+//! Retire replacements through the flight window. Retained targets keep immutable attachments;
+//! restart passes only on the same command wrapper. Drop closed cached passes before texture
+//! retirement even if ended metadata clones survive. Boundary texture-handle storage retains peak
+//! layer capacity but clears handles after each layer.
+//!
 //! pxui_render: the PXUI painter. One instanced pipeline draws a whole UI layer: a unit quad drawn
 //! N times, one 64-byte [`Instance`] each, into a render pass the caller opened. Nothing is
 //! tessellated on the CPU; the fragment shader evaluates distance fields and samples two atlases.

@@ -1,3 +1,9 @@
+//! Retire textures only after actual completed GPU serials. Forget every image on each sampling
+//! renderer after its final sampling serial completes and before destroying/reusing its native
+//! handle. Cache bounds remain 1,024 entries and 128 MiB resident texels. Scan only pending
+//! retirements, without extra frames to observe completion. Retained segments with no IMAGE
+//! instances must ignore stale bindings.
+//!
 //! Main-thread texture ownership; frame builders borrow only `Images` descriptors.
 use ogpu_core::{
     backend as be,

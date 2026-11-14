@@ -1,3 +1,7 @@
+//! Retained opacity is per instance. Clip coordinates are window points and NULL clears it. Scale
+//! accepts finite zero/negative values and resets previous rotation/fixed-pivot transforms. Equal
+//! controls preserve transform storage and retained instances.
+//!
 //! Boxes and what hangs off them: `BoxOpts` boxes, patches, scroll and text state, carries and drops, view transforms.
 use crate::paint::CallbackOwner;
 use crate::state::{PxuiUi, boxed, checked, engine, fail, finite, get, to_abi_box};

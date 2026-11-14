@@ -1,3 +1,10 @@
+//! Enable SDL resizing before configuring AppKit full-size content. Chrome uses the live Metal
+//! layer and measures contentLayoutRect only on startup/native size change, never during UI builds.
+//! Preserve native zoom/full-screen controls and the platform default app stack. Cache
+//! appearance/reduced-motion notifications and wake only for changed facts; remove observers before
+//! window destruction. Never poll OS/defaults in frames. Dialog callbacks publish copied outcomes
+//! before waking idle hosts for success, cancellation and failure.
+//!
 //! The SDL3 window host: window lifecycle, the event pump translated to `input` events, cursor,
 //! text input, clipboard and the native layer token a GPU backend presents to. A leaf: it knows
 //! nothing of the UI engine or the renderer; callers pass plain values.

@@ -1,3 +1,8 @@
+//! Frame descriptor extensions preserve frozen prefixes and validate partial tails/larger bounds
+//! before mutation. Match static/dynamic behavior. Root theme replacement happens between frames
+//! with owner/callback guards. Output dirty-span copying reserves from engine dirty capacities so
+//! new fragmentation of warmed instances does not allocate.
+//!
 //! The `Ui` lifecycle, the two frame entry points, theme and platform calls, and the first widgets.
 use crate::trusted;
 use crate::state::{Build, Inner, PxuiUi, Shared, boxed, call_inner, checked, fail, fail_code, get, pair, text};

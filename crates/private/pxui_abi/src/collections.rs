@@ -1,3 +1,8 @@
+//! Measured lists require an active frame, count at most 1,000,000, finite positive estimate and
+//! finite estimated total. Callbacks use only the current borrowed UI and may repeat as measurement
+//! settles. Validate descriptors before mutation and preserve callback recovery, hit/accessibility
+//! geometry and bounded warm allocation behavior.
+//!
 use crate::state::{PxuiUi, checked, fail, get, strings, text};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::{cell::Cell, ffi::c_void, mem::{align_of, offset_of, size_of}};

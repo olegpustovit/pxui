@@ -1,3 +1,17 @@
+//! Scale-only animations update retained transform tables without rebuilding/rewriting instances.
+//! Preserve independent axes, fixed fractional anchors, manual/nested composition and
+//! hit/accessibility geometry. Animated bounds invalidate accessibility walks. Sampled curves
+//! retain uneven positions/overshoot in fixed arrays and finish by duration, never by progress
+//! reaching one; stack keyframe descriptors remain bounded. Compaction scratch must cover existing
+//! fresh views becoming retained together within the actual retained-length budget.
+//!
+//! Reuse empty text/name/value buffers across virtual-slot identities and compact retained draw
+//! runs within a budget proportional to live runs. Text nodes keep original accessibility labels
+//! and optional span storage across rebuild/reuse; plain text/patch_text clears active spans. Host
+//! reduced motion overrides scoped themes, snaps active keys and restores authored flags when
+//! disabled. Reuse routed signal/modifier storage without dropping ordered key/text/IME events;
+//! owned key-vector/text payload reads remain distinct allocation paths.
+//!
 //! Each frame declares keyed nodes. A node is a retained record with a stable `Handle` (slot index and
 //! generation): its layout inputs, its laid-out rectangle, its retained input state, and its `Look`
 //! and text as plain data the engine paints with no closure. A node lives until the build that owns

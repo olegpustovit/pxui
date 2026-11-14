@@ -1,3 +1,7 @@
+//! Native release draining retains Vec capacity, preserves releases queued concurrently and
+//! destroys native handles outside the queue lock. Rust allocation counters do not qualify native
+//! allocator behavior.
+//!
 #![cfg(any(target_os = "macos", target_os = "ios"))]
 
 pub mod frames;
