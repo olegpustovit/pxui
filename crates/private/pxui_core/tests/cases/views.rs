@@ -761,6 +761,7 @@ pub fn window_pxui_more_kept_views_reuse_compaction_scratch() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_view_entrance_channels", window_pxui_view_entrance_channels),
     ("window_pxui_more_kept_views_reuse_compaction_scratch", window_pxui_more_kept_views_reuse_compaction_scratch),
     ("window_pxui_empty_buffers_preserve_names_and_values", window_pxui_empty_buffers_preserve_names_and_values),
     ("window_pxui_field_kept_drag", window_pxui_field_kept_drag),
@@ -810,5 +811,27 @@ pub fn window_pxui_view_unchanged_controls_keep_table_storage() {
         assert_eq!(ui.draw_revision(),revision);
     }
     assert_eq!(mem_sys::local_alloc_count(),0);
+    ui.destroy();
+}
+
+
+pub fn window_pxui_view_entrance_channels() {
+    let mut ui=new_ui(None);
+    let (view,child)= (Cell::new(None),Cell::new(None));
+    let mut build=|ui:&mut Ui| {view.set(Some(ui.view("entrance",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {child.set(Some(chip(ui,"child",RED,CLICKABLE)));})));};
+    ui.frame(&at(0.0,vec![]),&mut build);
+    let original=ui.output().draw[0].instances.clone();
+    let curve=Curve::Bezier {duration:0.24,points:[0.0,0.0,1.0,1.0]};
+    let keys=[(0.0,Target::Opacity(0.0),curve),(0.0,Target::Offset(32.0,10.0),curve),
+        (0.24,Target::Opacity(1.0),curve),(0.24,Target::Offset(0.0,0.0),curve)];
+    assert!(ui.animate_keys(&view.get().unwrap(),&keys));
+    for (time,x,y,alpha) in [(0.0,32.0,10.0,0.0),(0.12,16.0,5.0,0.5),(0.24,0.0,0.0,1.0)] {
+        ui.frame(&at(time,vec![]),&mut build);
+        let r=ui.rect(&child.get().unwrap());
+        assert!((r.x-x).abs()<0.001 && (r.y-y).abs()<0.001);
+        assert!(ui.output().views.iter().any(|(_,e)|(e.opacity-alpha).abs()<0.001));
+        assert_eq!(ui.output().draw[0].instances,original);
+    }
+    assert_eq!(ui.transitions(),0);
     ui.destroy();
 }

@@ -168,3 +168,13 @@ SDL3 drop strings are borrowed, like text/IME event strings. Copy them into the 
 payload and never free the source pointer; SDL reclaims its temporary event memory on a later
 pump. The typed trace uses a static borrowed drop string so an accidental source free aborts
 deterministically, and verifies that later source mutation cannot change the owned Rust event.
+
+ABI 1.16 exposes the engine's host-supplied frame clock as Ui::now / pxui_ui_now.
+Offset/opacity/scale on an indexed retained view compose in its table entry, including nested hit
+and accessibility rectangles. They must leave cached draw instances unchanged and stop drawing
+when settled. Same-time keyframe channels form one pose before interpolation; the last curve at
+that timestamp shapes the shared segment. Preserve core and static/dynamic wrapper regressions.
+
+Reopened view kinds reuse their retained node/hit/name buffers from the bounded free-view pool.
+Preserve the nested-view reopen regression; LIFO reassignment can otherwise keep growing buffers
+on warm resize/show/hide cycles. Profiling labels may remain on free records until reassignment.

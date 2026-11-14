@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 15
+minor 16
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -123,8 +123,8 @@ function pxui_ui_inspector_section_view int32_t pxui_ui_inspector_section_view (
 function pxui_ui_inspector_toggle int32_t pxui_ui_inspector_toggle ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t value , uint8_t * out ) ;
 function pxui_ui_inspector_toggle_value int32_t pxui_ui_inspector_toggle_value ( PxuiUi * ui , PxuiStr key , float x , float y , uint8_t value , uint8_t * out ) ;
 function pxui_ui_inspector_width float pxui_ui_inspector_width ( PxuiUi * ui ) ;
-function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_key_down int32_t pxui_ui_key_down ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
+function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_layer_drawn int32_t pxui_ui_layer_drawn ( PxuiUi * ui , uint64_t layer ) ;
 function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
 function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr * text , uint32_t * step ) ;
@@ -139,6 +139,7 @@ function pxui_ui_node int32_t pxui_ui_node ( PxuiUi * ui , PxuiStr label , const
 function pxui_ui_node_fields int32_t pxui_ui_node_fields ( PxuiUi * ui , const PxuiBox * box , PxuiNodeFields * out ) ;
 function pxui_ui_node_keyed int32_t pxui_ui_node_keyed ( PxuiUi * ui , int64_t key , const PxuiNode * node , PxuiBox * out ) ;
 function pxui_ui_node_layout int32_t pxui_ui_node_layout ( PxuiUi * ui , const PxuiBox * box , PxuiNode * out ) ;
+function pxui_ui_now double pxui_ui_now ( PxuiUi * ui ) ;
 function pxui_ui_output const PxuiOutput * pxui_ui_output ( PxuiUi * ui ) ;
 function pxui_ui_passed_undo uint32_t pxui_ui_passed_undo ( PxuiUi * ui ) ;
 function pxui_ui_patch_field int32_t pxui_ui_patch_field ( PxuiUi * ui , const PxuiBox * field , const PxuiValueFieldDesc * desc , PxuiStr text , uint8_t * out ) ;

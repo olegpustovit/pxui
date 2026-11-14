@@ -88,7 +88,9 @@ pub enum UndoKind {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Target {
     Look(Look),
+    /// A retained view's contents move through its table entry; an ordinary node moves its own paint.
     Offset(f32, f32),
+    /// A retained view's contents fade together; an ordinary node fades its own paint.
     Opacity(f32),
     /// A view's contents, after its manual transform, about a fractional point of its box.
     /// The anchor is fixed for the segment; (0, 0) is top-left, (0.5, 0.5) centre.

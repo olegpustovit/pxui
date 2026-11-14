@@ -5102,6 +5102,10 @@ impl Ui {
         let focused = self.marks_focus(slot);
         let r = self.screen(index);
         let s = &self.slots[slot];
+        let v = s.view;
+        let pose = if v != NO_VIEW && self.views[v as usize].index != 0 {
+            Pose { dx: 0.0, dy: 0.0, opacity: 1.0, ..pose }
+        } else { pose };
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
         paint.look(Rect::new(r.x + pose.dx, r.y + pose.dy, r.w, r.h), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), focused, steady);
         let s = &mut self.slots[slot];
@@ -5334,6 +5338,10 @@ impl Ui {
         let (pose, steady) = self.pose(slot);
         let focused = self.marks_focus(slot);
         let s = &self.slots[slot];
+        let v = s.view;
+        let pose = if v != NO_VIEW && self.views[v as usize].index != 0 {
+            Pose { dx: 0.0, dy: 0.0, opacity: 1.0, ..pose }
+        } else { pose };
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
         let outer = paint.text.marks();
         paint.text.set_marks([0; 8]);
@@ -5935,7 +5943,8 @@ impl Ui {
     }
 
     fn start_tween(&mut self, slot: usize, curve: Curve, from: Pose, to: Pose) {
-        let view_only = self.slots[slot].view != NO_VIEW && from.look == to.look && from.dx == to.dx && from.dy == to.dy && from.opacity == to.opacity;
+        let v = self.slots[slot].view;
+        let view_only = v != NO_VIEW && self.views[v as usize].index != 0 && from.look == to.look;
         let tween = Tween { slot, generation: self.slots[slot].generation, start: self.now, curve, from, to, keys: NO_KEYS, view_only };
         match self.tween_of(slot) {
             Some(i) => {
@@ -6052,21 +6061,23 @@ impl Ui {
         if keys.iter().any(|(_, target, _)| matches!(target, Target::Scale { .. })) && !self.view_id(b).is_some_and(|v| self.views[v as usize].index != 0) { return false; }
         let slot = b.box_slot;
         let from = self.pose(slot).0;
-        let mut k = Keys { n: keys.len(), t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS] };
+        let mut k = Keys { n: 0, t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS] };
         let mut at = from;
-        for (j, &(t, target, curve)) in keys.iter().enumerate() {
+        for &(t, target, curve) in keys {
             match target {
                 Target::Look(look) => at.look = look,
                 Target::Offset(dx, dy) => (at.dx, at.dy) = (dx, dy),
                 Target::Opacity(o) => at.opacity = o.clamp(0.0, 1.0),
                 Target::Scale { x, y, anchor } => { at.scale = [x, y]; at.anchor = [anchor.0, anchor.1]; },
             }
+            // Channels at the same timestamp are one pose, so they interpolate together.
+            let j = if k.n > 0 && k.t[k.n - 1] == t { k.n - 1 } else { k.n += 1; k.n - 1 };
             (k.t[j], k.pose[j], k.curve[j]) = (t, at, curve);
         }
         let last = if self.theme().tokens.reduced_motion { 0.0 } else { k.t[k.n - 1] };
         self.start_tween(slot, Curve::Bezier { duration: last, points: [0.0, 0.0, 1.0, 1.0] }, from, at);
         let tween = self.tween_of(slot).expect("the run just started");
-        self.tweens[tween].view_only &= keys.iter().all(|(_, target, _)| matches!(target, Target::Scale { .. }));
+        self.tweens[tween].view_only &= keys.iter().all(|(_, target, _)| !matches!(target, Target::Look(_)));
         if last > 0.0 {
             let id = match self.free_keyframes.pop() {
                 Some(id) => {
@@ -6075,6 +6086,8 @@ impl Ui {
                 }
                 None => {
                     self.keyframes.push(k);
+                    // Returning a completed animation must not allocate on a warm frame.
+                    self.free_keyframes.reserve(self.keyframes.len().saturating_sub(self.free_keyframes.len()));
                     self.keyframes.len() as u32 - 1
                 }
             };
@@ -6215,7 +6228,10 @@ impl Ui {
         let parent = self.view_cur;
         let v = match self.slots[b.box_slot].view {
             NO_VIEW => {
-                let v = self.free_views.pop().unwrap_or_else(|| {
+                // Reopen the same view kind with its warmed node/hit buffers.
+                let matching = self.free_views.iter().rposition(|&v| self.views[v as usize].name == label);
+                let reused = matching.map(|i| self.free_views.swap_remove(i)).or_else(|| self.free_views.pop());
+                let v = reused.unwrap_or_else(|| {
                     self.views.push(ViewRec::new());
                     self.views.len() as u32 - 1
                 });
@@ -6234,6 +6250,7 @@ impl Ui {
                     })
                 };
                 let r = &mut self.views[v as usize];
+                r.name.clear();
                 r.name.push_str(label);
                 (r.slot, r.index) = (b.box_slot, index);
                 if index != 0 {
@@ -6629,8 +6646,7 @@ impl Ui {
         if r.index != 0 {
             self.free_indices.push(r.index);
         }
-        let (mut name, mut breaks, mut hits, mut nodes, mut prev) = (std::mem::take(&mut r.name), std::mem::take(&mut r.breaks), std::mem::take(&mut r.hits), std::mem::take(&mut r.nodes), std::mem::take(&mut r.prev));
-        name.clear();
+        let (name, mut breaks, mut hits, mut nodes, mut prev) = (std::mem::take(&mut r.name), std::mem::take(&mut r.breaks), std::mem::take(&mut r.hits), std::mem::take(&mut r.nodes), std::mem::take(&mut r.prev));
         breaks.clear();
         hits.clear();
         nodes.clear();
@@ -6672,10 +6688,8 @@ impl Ui {
         let c = self.views[v as usize].box_clip;
         let box_clip = p.cover(Rect::new(c.x + pshift.0, c.y + pshift.1, c.w, c.h));
         let slot = self.views[v as usize].slot;
-        let scale = if self.slots[slot].tween == NO_TWEEN { self.views[v as usize].scale_pose } else {
-            let pose = self.pose(slot).0;
-            [pose.scale[0], pose.scale[1], pose.anchor[0], pose.anchor[1]]
-        };
+        let pose = self.pose(slot).0;
+        let scale = [pose.scale[0], pose.scale[1], pose.anchor[0], pose.anchor[1]];
         let r = &mut self.views[v as usize];
         r.stamp = stamp;
         if r.index == 0 {
@@ -6683,8 +6697,8 @@ impl Ui {
             // its instances ride its parent's entry: the parent's own transform is not around it
             (r.pa, r.pb) = (IDENTITY_2X2, [0.0; 2]);
         } else {
-            r.shift = (pshift.0 + r.offset.0 + r.delta.0, pshift.1 + r.offset.1 + r.delta.1);
-            r.alpha = palpha * r.opacity;
+            r.shift = (pshift.0 + r.offset.0 + r.delta.0 + pose.dx, pshift.1 + r.offset.1 + r.delta.1 + pose.dy);
+            r.alpha = palpha * r.opacity * pose.opacity;
             (r.pa, r.pb) = (pa, pb);
             if scale[0] != 1.0 || scale[1] != 1.0 {
                 let anchor = r.own_entry().map((r.built_rect.x + r.shift.0 + r.built_rect.w * scale[2], r.built_rect.y + r.shift.1 + r.built_rect.h * scale[3]));

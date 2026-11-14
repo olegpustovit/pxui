@@ -1216,3 +1216,83 @@ fn output_partitions_reuse_the_engine_dirty_capacity_after_unchanged_frames() {
         ui.drawn(0);
     }
 }
+
+#[test]
+fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_allocating() {
+    use crate::kit::{AnimationTarget, Keyframe};
+    use crate::ui::{Curve, Node, Role};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    ui.set_a11y(true);
+    let (view, child, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
+    let mut build = |ui: &mut Ui| {
+        let v=ui.view("entrance",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {
+            builds.set(builds.get()+1);
+            let b=ui.node("child",Node { w:Size::Px(20.0),h:Size::Px(10.0),role:Role::Button,
+                look:crate::ui::Look {fill:pxui_types::geom::color::rgb(20,30,40),..crate::ui::Look::NONE},..Node::DEFAULT });
+            ui.a11y_name(&b,"Moving child"); child.set(Some(b));
+        });
+        ui.set_at(&v,(20.0,20.0)); view.set(Some(v));
+    };
+    ui.frame(&input(),&mut build).unwrap();
+    let instances=ui.layer(0).instances.to_vec();
+    let curve=Curve::Bezier {duration:1.0,points:[0.0,0.0,1.0,1.0]};
+    let keys=[
+        Keyframe {time:0.0,target:AnimationTarget::Opacity(0.0),curve},
+        Keyframe {time:0.0,target:AnimationTarget::Offset(0.0,10.0),curve},
+        Keyframe {time:0.1,target:AnimationTarget::Opacity(0.0),curve},
+        Keyframe {time:0.34,target:AnimationTarget::Opacity(1.0),curve},
+        Keyframe {time:0.34,target:AnimationTarget::Offset(0.0,0.0),curve},
+    ];
+    for round in 0..4 {
+        let base=round as f64;
+        ui.frame(&FrameIn {time:base,..input()},&mut build).unwrap();
+        mem_sys::local_reset();
+        assert!(ui.animate_keys(&view.get().unwrap(),&keys));
+        for (dt,y) in [(0.0,30.0),(0.05,30.0),(0.22,25.0),(0.34,20.0),(0.5,20.0)] {
+            ui.frame(&FrameIn {time:base+dt,..input()},&mut build).unwrap();
+            assert_eq!(ui.now(),base+dt);
+            let r=ui.rect(&child.get().unwrap());
+            assert!((r.y-y).abs()<0.005,"entrance y {r:?} expected {y}");
+            let node=ui.a11y_nodes().iter().find(|n|ui.a11y_name_of(n)=="Moving child").unwrap();
+            assert!((node.rect.y-y).abs()<0.005);
+            assert_eq!(ui.layer(0).instances,instances.as_slice(),"entrance updates the view table");
+        }
+        assert_eq!(builds.get(),1,"animation must not rebuild cached contents");
+        assert!(ui.repaint_at().is_none(),"settled entrance must stop drawing");
+        if round>0 {assert_eq!(mem_sys::local_alloc_count(),0);}
+    }
+}
+
+#[test]
+fn reopening_nested_view_kinds_reuses_their_node_and_hit_capacities() {
+    use crate::ui::{Node, Role};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    ui.set_a11y(true);
+    let shown=Cell::new(true);
+    let mut build=|ui:&mut Ui| {
+        if shown.get() {
+            ui.view("panel",1,Size::Grow,Size::Grow,&mut |ui| {
+                for (label,count) in [("header",2),("information",10),("clock",1),("queue",24)] {
+                    ui.view(label,1,Size::Grow,Size::Px(40.0),&mut |ui| {
+                        for _index in 0..count {
+                            let b=ui.node("item",Node {flags:CLICKABLE,w:Size::Px(10.0),h:Size::Px(1.0),role:Role::Button,..Node::DEFAULT});
+                            ui.a11y_name(&b,"item");
+                        }
+                    });
+                }
+            });
+        }
+    };
+    for round in 0..8 {
+        mem_sys::local_reset();
+        for (step,value) in [true,false,true,false].into_iter().enumerate() {
+            shown.set(value);
+            ui.frame(&FrameIn {time:(round*4+step) as f64,..input()},&mut build).unwrap();
+        }
+        if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"reopening view kinds"); }
+    }
+}

@@ -6,6 +6,7 @@ use pxui_core::ui::{Cursor, UndoKind};
 
 export!(pub unsafe fn pxui_ui_font_size(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.font_size()) });
 export!(pub unsafe fn pxui_ui_row_height(ui: *mut PxuiUi) -> i64 { unsafe { engine(ui) }.map_or(0, |e| e.row_height()) });
+export!(pub unsafe fn pxui_ui_now(ui: *mut PxuiUi) -> f64 { unsafe { engine(ui) }.map_or(0.0, |e| e.now()) });
 export!(pub unsafe fn pxui_ui_frame_index(ui: *mut PxuiUi) -> u64 { unsafe { engine(ui) }.map_or(0, |e| e.frame_index()) });
 export!(pub unsafe fn pxui_ui_captured(ui: *mut PxuiUi) -> u8 { unsafe { engine(ui) }.is_some_and(|e| e.captured()) as u8 });
 export!(pub unsafe fn pxui_ui_text_input_focused(ui: *mut PxuiUi) -> u8 { unsafe { engine(ui) }.is_some_and(|e| e.text_input_focused()) as u8 });

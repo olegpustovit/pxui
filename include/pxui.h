@@ -594,6 +594,8 @@ void pxui_renderer_destroy(PxuiRenderer *renderer);
 /* Queries and switches on the Ui as a whole. Text results are borrowed until the next frame. */
 int64_t pxui_ui_font_size(PxuiUi *ui);
 int64_t pxui_ui_row_height(PxuiUi *ui);
+/* Monotonic host frame time, shared by cached views (ABI 1.16). */
+double pxui_ui_now(PxuiUi *ui);
 uint64_t pxui_ui_frame_index(PxuiUi *ui);
 uint8_t pxui_ui_captured(PxuiUi *ui);
 uint8_t pxui_ui_text_input_focused(PxuiUi *ui);
