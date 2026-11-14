@@ -34,6 +34,10 @@ nothing may reach outside this repository (no `../../..` paths past the root).
 - A warm frame allocates nothing; `mem_sys`'s counting allocator is what the tests assert against.
   A UI draws with a small fixed number of draw calls (one instanced pipeline); a change that adds
   draw calls or per-frame allocations needs a measurement and a test that pins the new number.
+- A leaf's bounds come from its parent; skip its child-placement pass only without children and
+  without SCROLL/SCROLL_X. Empty scrolling grids still clamp both offsets. Layout child loops copy
+  only the fields they use, not the full 600-byte Node with its visual/motion payload. Preserve
+  leaf/parent transitions, native pixels, warm allocations and the unchanged layout-scaling ratio.
 - `pxui`, `pxui_text` and `pxui_render` contain no SDL and no window code, and `pxui` knows nothing
   about the GPU. Input is data in (`input::Event`, a logical size, a scale factor, a time); output is
   data out (a draw list plus cursor, IME, clipboard and repaint request). A target is a render pass

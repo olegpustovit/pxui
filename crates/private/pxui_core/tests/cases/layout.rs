@@ -793,6 +793,50 @@ pub fn layout_scaling() {
     check(last.1 < first.1 * 1.5, &format!("rebuild per node grew from {:.0} to {:.0} ns", first.1, last.1));
 }
 
+pub fn layout_leaf_scroll_geometry_and_parent_transitions() {
+    use std::cell::Cell;
+    const COLS: &[Track] = &[Track::Px(250.0)];
+    const TALL: &[Track] = &[Track::Px(200.0)];
+    const SHORT: &[Track] = &[Track::Px(20.0)];
+    let mut ui = new_ui(None);
+    let (mode, scrolling, plain, child) = (Cell::new(0), Cell::new(None), Cell::new(None), Cell::new(None));
+    let mut build = |ui: &mut Ui| {
+        let parent = ui.node("parent",Node {axis:Axis::Stack,padding:Edges::all(7.0),..px(200.0,160.0)});
+        ui.within(&parent,&mut |ui| {
+            let scroll = ui.node("scrolling-leaf",Node {
+                flags:SCROLL | SCROLL_X | CLIP,
+                grid:Some(Grid::new(COLS,if mode.get()==0 {TALL} else {SHORT})).into(),
+                at:Some((0.0,80.0)).into(),..px(100.0,40.0)
+            });
+            scrolling.set(Some(scroll));
+            ui.set_scroll_offset(&scroll,500.0);
+            ui.set_scroll_offset_x(&scroll,500.0);
+            let node=ui.node("plain-leaf",Node {at:Some((11.0,13.0)).into(),w:Size::Pct(0.5),h:Size::Px(40.0),..Node::DEFAULT});
+            plain.set(Some(node));
+            child.set(None);
+            if mode.get()==2 {
+                ui.within(&node,&mut |ui| {
+                    child.set(Some(ui.node("child",Node {at:Some((3.0,4.0)).into(),..px(20.0,10.0)})));
+                });
+            }
+        });
+    };
+    for round in 0..6 {
+        mem_sys::local_reset();
+        for step in [0,1,2,3] {
+            mode.set(step);
+            ui.frame(&at((round*4+step) as f64/60.0,vec![]),&mut build);
+            let scroll=scrolling.get().unwrap();
+            assert_eq!(ui.scroll_offset(&scroll),if step==0 {160.0} else {0.0},"a scrolling leaf must bound its vertical offset even without children");
+            assert_eq!(ui.scroll_offset_x(&scroll),150.0,"a scrolling leaf must bound its horizontal offset");
+            assert_eq!(ui.rect(&plain.get().unwrap()),Rect::new(11.0,13.0,93.0,40.0),"a plain leaf keeps its parent-resolved relative size and absolute position");
+            if let Some(child)=child.get() {assert_eq!(ui.rect(&child),Rect::new(14.0,17.0,20.0,10.0),"a former leaf arranges new children immediately");}
+        }
+        if round>=2 {assert_eq!(mem_sys::local_alloc_count(),0,"warm leaf/parent transitions and empty scrolling grids");}
+    }
+    ui.destroy();
+}
+
 pub fn layout_carry_edge_scroll() {
     use std::cell::Cell;
     for (sideways, rtl) in [(false, false), (false, true), (true, false), (true, true)] {
@@ -891,6 +935,7 @@ pub fn layout_node_identity_churn() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_leaf_scroll_geometry_and_parent_transitions",layout_leaf_scroll_geometry_and_parent_transitions),
     ("layout_node_identity_churn",layout_node_identity_churn),
     ("layout_carry_edge_scroll", layout_carry_edge_scroll),
     ("layout_fit_hugs_wrapped_row", layout_fit_hugs_wrapped_row),

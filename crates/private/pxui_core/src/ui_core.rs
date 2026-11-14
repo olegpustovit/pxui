@@ -921,7 +921,6 @@ pub struct Ui {
     l_h: Vec<f32>,
     l_content: Vec<f32>,
     l_content_w: Vec<f32>,
-    l_gutter: Vec<f32>,
     /// the horizontal scroll of each retained slot (`SCROLL_X`)
     scroll_xs: Vec<f32>,
     /// each slot's scroll motion down (0) and sideways (1), beside the slots (scans of the slots
@@ -1173,7 +1172,6 @@ impl Ui {
             l_h: Vec::new(),
             l_content: Vec::new(),
             l_content_w: Vec::new(),
-            l_gutter: Vec::new(),
             scroll_xs: Vec::new(),
             glides: [Vec::new(), Vec::new()],
             arranged: 0,
@@ -2954,7 +2952,6 @@ impl Ui {
             self.l_h.push(0.0);
             self.l_content.push(0.0);
             self.l_content_w.push(0.0);
-            self.l_gutter.push(0.0);
         }
         self.count = index + 1;
         let slot = self.slot_of(key, found);
@@ -4085,12 +4082,15 @@ impl Ui {
         self.l_x[0] = 0.0;
         self.l_y[0] = 0.0;
         for index in 0..self.count {
+            // A leaf's position and size are already resolved by its parent.
+            if self.boxes[index].first == NONE && self.nd(index).flags & (SCROLL | SCROLL_X) == 0 {
+                continue;
+            }
             let n = *self.nd(index);
             let pad = n.padding;
             let scrolls = n.flags & SCROLL != 0;
             let max_scroll = 0.0f32.max(self.l_content[index] - self.l_h[index]);
             let gutter = if scrolls && max_scroll > 0.0 && n.flags & OVER_THUMB == 0 { 10.0 } else { 0.0 };
-            self.l_gutter[index] = gutter;
             let slot = self.boxes[index].slot;
             if scrolls {
                 self.apply_scroll(false, time, index);
@@ -4258,32 +4258,33 @@ impl Ui {
         let (main_room, cross_room) = if row { inner } else { (inner.1, inner.0) };
         let main_margins = |m: Edges| if row { (m.l, m.r) } else { (m.t, m.b) };
         let cross_margins = |m: Edges| if row { (m.t, m.b) } else { (m.l, m.r) };
-        let grows = |c: &Node| if row { c.w.is_grow() } else { c.h.is_grow() };
         let mut start = self.next_flow(self.boxes[index].first);
         let mut cross_at = 0.0;
         while start != NONE {
             // the line: its children, their bases and the room they take
             let (mut used, mut count, mut end) = (0.0f32, 0usize, start);
             while end != NONE {
-                let c = *self.nd(end);
+                let (cross_size, main_size, margin, align, aspect, wrap) = {
+                    let c = self.nd(end);
+                    (if row {c.h} else {c.w}, if row {c.w} else {c.h}, c.margin, c.align_self.get().unwrap_or(n.align), c.aspect, c.wrap)
+                };
                 // a one-line flow knows its children's stretched cross sizes now, and an aspect
                 // child's Fit main size follows from them
-                let (cs, ce) = cross_margins(c.margin);
-                let cross_size = if row { c.h } else { c.w };
-                if !n.wrap && (cross_size.is_grow() || (c.align_self.get().unwrap_or(n.align) == Align::Stretch && matches!(cross_size, Size::Fit))) {
+                let (cs, ce) = cross_margins(margin);
+                if !n.wrap && (cross_size.is_grow() || (align == Align::Stretch && matches!(cross_size, Size::Fit))) {
                     self.set_cross(row, end, cross_room - cs - ce);
                 }
-                if c.aspect > 0.0 && matches!(if row { c.w } else { c.h }, Size::Fit) {
+                if aspect > 0.0 && matches!(main_size, Size::Fit) {
                     let cross = self.main(!row, end);
-                    self.set_main(row, end, if row { cross * c.aspect } else { cross / c.aspect });
+                    self.set_main(row, end, if row { cross * aspect } else { cross / aspect });
                 }
                 // in a column a wrapping row's width is known now; in a row, after the shares
-                if !row && c.wrap {
+                if !row && wrap {
                     self.rewrap(end);
                 }
                 // a Grow child starts from nothing (its minimum holds in `grow_line`)
-                let basis = if grows(&c) { 0.0 } else { self.main(row, end) };
-                let (ms, me) = main_margins(c.margin);
+                let basis = if main_size.is_grow() { 0.0 } else { self.main(row, end) };
+                let (ms, me) = main_margins(margin);
                 let outer = basis + ms + me;
                 if n.wrap && count > 0 && used + n.gap + outer > main_room {
                     break;
@@ -4302,16 +4303,17 @@ impl Ui {
             let (mut line_cross, mut base_max) = (0.0f32, 0.0f32);
             let mut c = start;
             while c != end {
-                let cn = *self.nd(c);
-                if row && cn.wrap {
+                let (wrap, margin, a, fit, aspect) = {
+                    let cn = self.nd(c);
+                    (cn.wrap,cn.margin,cn.align_self.get().unwrap_or(n.align),matches!(if row {cn.h} else {cn.w},Size::Fit),cn.aspect)
+                };
+                if row && wrap {
                     self.rewrap(c);
                 }
-                let (cs, ce) = cross_margins(cn.margin);
-                let a = cn.align_self.get().unwrap_or(n.align);
-                let fit = matches!(if row { cn.h } else { cn.w }, Size::Fit);
-                if cn.aspect > 0.0 && fit {
+                let (cs, ce) = cross_margins(margin);
+                if aspect > 0.0 && fit {
                     let main = self.main(row, c);
-                    self.set_cross(row, c, if row { main / cn.aspect } else { main * cn.aspect });
+                    self.set_cross(row, c, if row { main / aspect } else { main * aspect });
                 }
                 line_cross = line_cross.max(self.main(!row, c) + cs + ce);
                 if a == Align::Baseline {
@@ -4342,11 +4344,12 @@ impl Ui {
             };
             c = start;
             while c != end {
-                let cn = *self.nd(c);
-                let (ms, me) = main_margins(cn.margin);
-                let (cs, ce) = cross_margins(cn.margin);
-                let a = cn.align_self.get().unwrap_or(n.align);
-                let cross_size = if row { cn.h } else { cn.w };
+                let (margin,a,cross_size) = {
+                    let cn = self.nd(c);
+                    (cn.margin,cn.align_self.get().unwrap_or(n.align),if row {cn.h} else {cn.w})
+                };
+                let (ms, me) = main_margins(margin);
+                let (cs, ce) = cross_margins(margin);
                 if n.wrap && (cross_size.is_grow() || (a == Align::Stretch && matches!(cross_size, Size::Fit))) {
                     self.set_cross(row, c, line_cross - cs - ce);
                 }
@@ -4395,10 +4398,12 @@ impl Ui {
             let mut capped = false;
             c = start;
             while c != end {
-                let n = *self.nd(c);
-                if (if row { n.w.is_grow() } else { n.h.is_grow() }) && n.grow > 0.0 && self.boxes[c].frozen != pass {
-                    let (min, max) = if row { (n.min_w, n.max_w) } else { (n.min_h, n.max_h) };
-                    let v = unit * n.grow;
+                let (grows, weight, min, max) = {
+                    let n = self.nd(c);
+                    (if row {n.w.is_grow()} else {n.h.is_grow()},n.grow,if row {n.min_w} else {n.min_h},if row {n.max_w} else {n.max_h})
+                };
+                if grows && weight > 0.0 && self.boxes[c].frozen != pass {
+                    let v = unit * weight;
                     if v < min || v > max {
                         let held = clamp(v, min, max);
                         free -= held;
@@ -4471,18 +4476,20 @@ impl Ui {
     fn arrange_stack(&mut self, index: usize, n: &Node, inner: (f32, f32), at: (f32, f32)) {
         let mut c = self.next_flow(self.boxes[index].first);
         while c != NONE {
-            let cn = *self.nd(c);
-            let m = cn.margin;
-            if cn.w.is_grow() {
+            let (w_grow,h_grow,h_fit,aspect,wrap,m,align) = {
+                let cn = self.nd(c);
+                (cn.w.is_grow(),cn.h.is_grow(),matches!(cn.h,Size::Fit),cn.aspect,cn.wrap,cn.margin,cn.align_self.get().unwrap_or(n.align))
+            };
+            if w_grow {
                 self.set_main(true, c, inner.0 - m.l - m.r);
             }
-            if cn.h.is_grow() {
+            if h_grow {
                 self.set_main(false, c, inner.1 - m.t - m.b);
             }
-            if cn.aspect > 0.0 && matches!(cn.h, Size::Fit) {
-                self.set_main(false, c, self.l_w[c] / cn.aspect);
+            if aspect > 0.0 && h_fit {
+                self.set_main(false, c, self.l_w[c] / aspect);
             }
-            if cn.wrap {
+            if wrap {
                 self.rewrap(c);
             }
             let ow = self.l_w[c] + m.l + m.r;
@@ -4492,7 +4499,7 @@ impl Ui {
                 Justify::End => inner.0 - ow,
                 _ => 0.0,
             };
-            let y = match cn.align_self.get().unwrap_or(n.align) {
+            let y = match align {
                 Align::Center => (inner.1 - oh) / 2.0,
                 Align::End => inner.1 - oh,
                 _ => 0.0,
@@ -4521,20 +4528,21 @@ impl Ui {
         let mut cursor = (0, 0);
         let mut c = self.next_flow(self.boxes[index].first);
         while c != NONE {
-            let cn = *self.nd(c);
-            let m = cn.margin;
-            let (col, row, cs, rs) = next_cell(cn.cell, &mut cursor, nc);
+            let (m,cell,a,w_grow,h_grow,h_fit,aspect) = {
+                let cn = self.nd(c);
+                (cn.margin,cn.cell,cn.align_self.get().unwrap_or(n.align),cn.w.is_grow(),cn.h.is_grow(),matches!(cn.h,Size::Fit),cn.aspect)
+            };
+            let (col, row, cs, rs) = next_cell(cell, &mut cursor, nc);
             let span_w = col_x[col + cs] - col_x[col] - n.gap;
             let span_h = row_y(row + rs) - row_y(row) - n.row_gap;
-            let a = cn.align_self.get().unwrap_or(n.align);
-            if cn.w.is_grow() {
+            if w_grow {
                 self.set_main(true, c, span_w - m.l - m.r);
             }
-            if cn.h.is_grow() || (a == Align::Stretch && matches!(cn.h, Size::Fit)) {
+            if h_grow || (a == Align::Stretch && h_fit) {
                 self.set_main(false, c, span_h - m.t - m.b);
             }
-            if cn.aspect > 0.0 && matches!(cn.h, Size::Fit) {
-                self.set_main(false, c, self.l_w[c] / cn.aspect);
+            if aspect > 0.0 && h_fit {
+                self.set_main(false, c, self.l_w[c] / aspect);
             }
             let oh = self.l_h[c] + m.t + m.b;
             let y = match a {
