@@ -10,6 +10,15 @@ export!(pub unsafe fn pxui_ui_a11y_name(ui: *mut PxuiUi, box_: *const PxuiBox, n
     0
 });
 
+export!(pub unsafe fn pxui_ui_a11y_value(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,anchor:u32,caret:u32)->i32 {
+    if unsafe {get(ui)}.is_none() {return PXUI_ERR_ARGUMENT;}
+    let Some(value)=(unsafe {checked(value)}) else {return unsafe {fail(ui,"invalid accessibility value")};};
+    if !value.is_char_boundary(anchor as usize)||!value.is_char_boundary(caret as usize) {return unsafe {fail(ui,"invalid accessibility selection")};}
+    let (engine,box_)=match unsafe {crate::state::boxed(ui,box_)} {Ok(value)=>value,Err(code)=>return code};
+    if !engine.live(&box_) {return unsafe {crate::state::fail_code(ui,"stale accessibility value box",crate::PXUI_ERR_STALE)};}
+    engine.a11y_value(&box_,value,(anchor,caret));0
+});
+
 /// The accessibility bridge of a window the app owns (Linux: AT-SPI2 on the accessibility bus). The app feeds it each frame's tree
 /// (`FrameOut`/`Output.a11y`) and takes the actions assistive technology asked for; elsewhere the platform's own bridge lives in
 /// the host and `pxui_a11y_start` returns null.

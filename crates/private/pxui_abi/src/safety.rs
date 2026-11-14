@@ -364,3 +364,27 @@ fn measured_section_descriptors_validate_before_callbacks_and_restore_the_owner(
     assert_eq!(run(ui,Some(build),(&mut calls as *mut usize).cast()),0,"{}",error(ui));
     assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
 }
+
+#[test]
+fn accessible_text_value_guards_validate_the_whole_input_before_mutation() {
+    extern "C" fn build(_: *mut c_void,raw:*mut c_void) {
+        let ui=raw.cast::<PxuiUi>();let mut node=PxuiBox::default();
+        assert_eq!(unsafe {pxui_ui_node_keyed(ui,123,&pxui_types::Node {role:pxui_types::a11y::Role::Button,w:pxui_types::Size::Px(100.0),h:pxui_types::Size::Px(30.0),..pxui_types::Node::DEFAULT},&mut node)},0);
+        let valid=Str {ptr:"Café".as_ptr(),len:5};
+        assert_eq!(unsafe {pxui_ui_a11y_value(ui,&node,valid,5,0)},0);
+        for value in [Str {ptr:core::ptr::null(),len:1},Str {ptr:b"x".as_ptr(),len:crate::state::MAX_TEXT_BYTES+1},Str {ptr:b"\xff".as_ptr(),len:1}] {
+            assert_eq!(unsafe {pxui_ui_a11y_value(ui,&node,value,0,0)},PXUI_ERR_ARGUMENT);
+        }
+        for (anchor,caret) in [(4,0),(0,4),(6,0),(0,u32::MAX)] {assert_eq!(unsafe {pxui_ui_a11y_value(ui,&node,valid,anchor,caret)},PXUI_ERR_ARGUMENT);}
+        assert_eq!(unsafe {pxui_ui_a11y_value(ui,core::ptr::null(),valid,0,0)},PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe {pxui_ui_a11y_value(ui,&PxuiBox::default(),valid,0,0)},crate::PXUI_ERR_STALE);
+    }
+    let ui=create();assert_eq!(unsafe {pxui_ui_set_a11y(ui,1)},0);
+    let mut out=FrameOut::default();assert_eq!(unsafe {pxui_frame(ui,&frame_in(),Some(build),core::ptr::null_mut(),&mut out)},0,"{}",error(ui));
+    let out=unsafe {&*pxui_ui_output(ui)};
+    let nodes=unsafe {core::slice::from_raw_parts(out.a11y.nodes.ptr,out.a11y.nodes.len)};
+    let strings=unsafe {core::slice::from_raw_parts(out.a11y.strings.ptr,out.a11y.strings.len)};
+    let node=nodes.iter().find(|node|node.value.tag==1).unwrap();assert_eq!(&strings[node.value.text_start as usize..node.value.text_end as usize],"Café".as_bytes());assert_eq!(node.selection,[5,0]);
+    assert_eq!(unsafe {pxui_ui_a11y_value(core::ptr::null_mut(),core::ptr::null(),Str::default(),0,0)},PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
+}

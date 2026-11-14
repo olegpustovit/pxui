@@ -191,6 +191,15 @@ pub trait Shapes {
         self.line_w(from, to, 1.0, color);
     }
 
+    /// One analytic filled triangle; degenerate, nonfinite or overflowing edges draw nothing.
+    fn triangle(&mut self,a:(f32,f32),b:(f32,f32),c:(f32,f32),color:Color) {
+        if [a.0,a.1,b.0,b.1,c.0,c.1].iter().any(|v|!v.is_finite()) {return;}
+        let edges=[(b.0-a.0,b.1-a.1),(c.0-b.0,c.1-b.1),(a.0-c.0,a.1-c.1)];
+        let area=edges[0].0*edges[2].1-edges[0].1*edges[2].0;
+        if !area.is_finite()||area==0.0||edges.iter().any(|e| {let squared=e.0*e.0+e.1*e.1;!squared.is_finite()||squared<f32::MIN_POSITIVE}) {return;}
+        self.push(Instance::triangle([a.0,a.1],[b.0,b.1],[c.0,c.1],rgba(color)));
+    }
+
     /// An unsnapped quadratic Bezier with round caps, written as one analytic instance.
     fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Color) {
         if width>0.0 && width<=65504.0 && [from.0,from.1,control.0,control.1,to.0,to.1].iter().all(|v|v.is_finite()) {

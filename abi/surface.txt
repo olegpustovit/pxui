@@ -235,3 +235,7 @@ Ui|density|LocalWave|done: pxui_ui_density
 Ui|section_list|LocalWave|done: pxui_ui_section_list
 
 Ui|section_list_measured|LocalWave|done: pxui_ui_section_list_measured
+
+Ui|a11y_value|LocalWave|done: UTF-8 text value and selection via pxui_ui_a11y_value
+Ui|a11y_value_of|LocalWave|done: borrowed text value from a current accessibility node
+Paint|triangle|LocalWave|done: one analytic instance through the shape span

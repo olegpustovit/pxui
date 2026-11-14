@@ -6254,7 +6254,7 @@ fn bounds(i: &Instance) -> Option<Rect> {
     let span = |x0: f32, y0: f32, x1: f32, y1: f32, grow: f32| Rect::new(x0 - grow, y0 - grow, x1 - x0 + 2.0 * grow, y1 - y0 + 2.0 * grow);
     let r = match i.kind {
         kind::LINE => span(a.min(c), b.min(d), a.max(c), b.max(d), half(i.width)),
-        kind::CURVE => {
+        kind::CURVE | kind::TRIANGLE => {
             let (cx, cy) = (f32::from_bits(i.extra[0]), f32::from_bits(i.extra[1]));
             span(a.min(c).min(cx), b.min(d).min(cy), a.max(c).max(cx), b.max(d).max(cy), half(i.width))
         }

@@ -205,6 +205,7 @@ fn main() {
         ("shared_inline_ligature_color_preserves_native_coverage", shared_inline_ligature_color_preserves_native_coverage),
         ("shared_large_image_layer_allocates_nothing", shared_large_image_layer_allocates_nothing),
         ("shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images", shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images),
+        ("shared_filled_triangle_pixels_cover_both_windings_in_one_warm_draw",shared_filled_triangle_pixels_cover_both_windings_in_one_warm_draw),
         ("shared_fractional_fills_render_thin_bars_in_one_warm_draw", shared_fractional_fills_render_thin_bars_in_one_warm_draw),
         ("shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations",shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations),
     ];
@@ -1956,6 +1957,75 @@ fn shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations() 
                 }
             }
         }
+        drop(renderer);ok(be::destroy_texture(&target));
+    }
+    finish(device,queue);
+}
+
+// Independent area oracle: clip a triangle against the four edges of one physical pixel.
+fn triangle_pixel_area(points:[(f64,f64);3],x:f64,y:f64)->f64 {
+    let mut polygon=[(0.0,0.0);8];polygon[..3].copy_from_slice(&points);let mut count=3;
+    for (axis,bound,greater) in [(0,x,true),(0,x+1.0,false),(1,y,true),(1,y+1.0,false)] {
+        let mut clipped=[(0.0,0.0);8];let mut next=0;
+        let coordinate=|p:(f64,f64)|if axis==0 {p.0} else {p.1};
+        for index in 0..count {
+            let (a,b)=(polygon[index],polygon[(index+1)%count]);
+            let inside=|p|if greater {coordinate(p)>=bound} else {coordinate(p)<=bound};
+            let (ain,bin)=(inside(a),inside(b));
+            if ain {clipped[next]=a;next+=1;}
+            if ain!=bin {
+                let t=(bound-coordinate(a))/(coordinate(b)-coordinate(a));
+                clipped[next]=(a.0+t*(b.0-a.0),a.1+t*(b.1-a.1));next+=1;
+            }
+        }
+        polygon=clipped;count=next;
+    }
+    if count<3 {return 0.0;}
+    let mut area=0.0;for index in 0..count {let (a,b)=(polygon[index],polygon[(index+1)%count]);area+=a.0*b.1-b.0*a.1;}
+    (area.abs()*0.5).clamp(0.0,1.0)
+}
+fn shared_filled_triangle_pixels_cover_both_windings_in_one_warm_draw() {
+    let Some(device)=open() else {return};let queue=ok(be::create_queue(&device));
+    mem_sys::set_peer(pxui::library_counter);
+    for scale in [1u32,2] {
+        let target=texture(&device,64*scale,32*scale,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+        let mut ui=pxui::Ui::new().unwrap();let mut renderer=shared_renderer(&device,&ui);
+        for frame in 1..=8u64 {
+            mem_sys::local_reset();
+            ui.frame(&pxui_types::FrameIn {width:64.0,height:32.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+                let node=ui.node("triangles",pxui::ui::Node {w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(32.0),..pxui::Node::DEFAULT});
+                ui.draw(&node,|paint,_| {
+                    for index in 0..3 {
+                        let points=[(7.0,4.6),(7.0,19.4),(19.4,12.0)].map(|p|(4.25+index as f32*20.0+p.0*(2.0/3.0),4.5+p.1*(2.0/3.0)));
+                        let color=pxui::geom::Rgba {r:0,g:255,b:0,a:if index==2 {128} else {255}};
+                        paint.triangle(points[0],points[if index==1 {2} else {1}],points[if index==1 {1} else {2}],color);
+                    }
+                });
+            }).unwrap();
+            let allocations=mem_sys::local_alloc_count();assert_eq!(ui.layers().map(|layer|layer.instances.len()).sum::<usize>(),3);
+            let commands=ok(be::begin_commands(&queue));renderer.prepare(&public_commands(&commands),frame,frame-1).unwrap();
+            let encoder=ok(be::render_encoder(&commands,&RenderTarget {colors:vec![ColorAttachment {texture:target.clone(),resolve:None,load:Load::Clear,store:Store::Store,clear:(0.0,0.0,0.0,1.0)}],depth:None}));
+            let native=ok(be::native_pass(&encoder));let pass=pxui_types::Pass {vk_command_buffer:native.vk_command_buffer,mtl_render_encoder:native.mtl_render_encoder,mtl_command_buffer:public_commands(&commands).mtl_command_buffer,width_px:64*scale,height_px:32*scale,scale:scale as f32,..Default::default()};
+            let before=renderer.draw_calls();mem_sys::local_reset();renderer.draw(&pass).unwrap();
+            if frame>=4 {assert_eq!(allocations+mem_sys::local_alloc_count(),0,"warm triangle build/draw at {scale}x");}
+            assert_eq!(renderer.draw_calls()-before,1);
+            ok(be::invalidate_state(&encoder));ok(be::end_render(&encoder));let submitted=ok(be::commit(&commands));ok(be::complete_through(&queue,submitted.epoch));
+        }
+        let pixels=ok(be::read_texture(&target,(64*scale*4).into()));
+        let (mut error,mut area,mut energy)=(0.0,0.0,0.0);
+        for index in 0..3u32 {
+            let points=[(7.0,4.6),(7.0,19.4),(19.4,12.0)].map(|p|((4.25+f64::from(index)*20.0+p.0*(2.0/3.0))*f64::from(scale),(4.5+p.1*(2.0/3.0))*f64::from(scale)));
+            let opacity=if index==2 {128.0/255.0} else {1.0};
+            for y in 0..32*scale {for x in index*20*scale..(index+1)*20*scale {
+                let at=(y*64*scale+x) as usize*4;let expected=triangle_pixel_area(points,x.into(),y.into())*opacity;let actual=f64::from(pixels[at+1])/255.0;
+                assert_eq!([pixels[at],pixels[at+2],pixels[at+3]],[0,0,255]);
+                assert!((expected-actual).abs()<=0.17,"triangle coverage {index} {scale}x at {x},{y}: {actual}, expected {expected}");
+                error+=(expected-actual).abs();area+=expected;energy+=actual;
+                if index==1 {let prior=at-(20*scale) as usize*4;assert_eq!(&pixels[at..at+4],&pixels[prior..prior+4],"winding does not change pixels");}
+            }}
+        }
+        assert!(error/area<0.04,"analytic edge coverage mean error at {scale}x: {}",error/area);
+        assert!((energy-area).abs()/area<0.015,"triangle fill weight at {scale}x: {energy} vs {area}");
         drop(renderer);ok(be::destroy_texture(&target));
     }
     finish(device,queue);

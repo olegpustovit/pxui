@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 21
+minor 22
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -65,6 +65,7 @@ function pxui_theme_last_error PxuiStr pxui_theme_last_error ( const PxuiTheme *
 function pxui_theme_load int32_t pxui_theme_load ( PxuiTheme * theme , PxuiStr path ) ;
 function pxui_theme_set int32_t pxui_theme_set ( PxuiTheme * theme , PxuiStr key , PxuiStr value ) ;
 function pxui_toggle int32_t pxui_toggle ( PxuiUi * ui , PxuiStr label , uint8_t on , uint8_t * out ) ;
+function pxui_ui_a11y_value int32_t pxui_ui_a11y_value ( PxuiUi * ui , const PxuiBox * box , PxuiStr value , uint32_t anchor , uint32_t caret ) ;
 function pxui_ui_a11y_name int32_t pxui_ui_a11y_name ( PxuiUi * ui , const PxuiBox * box , PxuiStr name ) ;
 function pxui_ui_a11y_number int32_t pxui_ui_a11y_number ( PxuiUi * ui , const PxuiBox * box , double now , double min , double max , double step ) ;
 function pxui_ui_anchored int32_t pxui_ui_anchored ( PxuiUi * ui , PxuiStr label , const PxuiAnchorDesc * anchor , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;

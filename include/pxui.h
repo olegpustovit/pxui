@@ -244,6 +244,7 @@ typedef struct { float rect[4]; int16_t clip[4]; uint8_t color[4], color2[4]; ui
    texture break count and the instance ranges changed since it was last drawn. Borrowed until the next frame. */
 typedef struct { uint32_t start, end; } PxuiDirty;
 typedef struct { const PxuiDirty *ptr; size_t len; } PxuiDirtySpan;
+/* ABI 1.22: kind 9 is a filled triangle; rect = Ax,Ay,Bx,By, extra = Cx,Cy as f32 bits. */
 typedef struct { const PxuiInstance *ptr; size_t len; } PxuiInstanceSpan;
 typedef struct { int64_t key; uint32_t id, breaks; PxuiInstanceSpan instances; PxuiDirtySpan dirty; } PxuiLayerInfo;
 typedef struct { const PxuiLayerInfo *ptr; size_t len; } PxuiLayerSpan;
@@ -353,6 +354,7 @@ int32_t pxui_ui_set_dir(PxuiUi *ui, uint32_t dir);
 int32_t pxui_ui_set_a11y(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_inject_a11y(PxuiUi *ui, const PxuiA11yAction *actions, size_t count);
 int32_t pxui_ui_a11y_name(PxuiUi *ui, const PxuiBox *box, PxuiStr name);
+int32_t pxui_ui_a11y_value(PxuiUi *ui, const PxuiBox *box, PxuiStr value, uint32_t anchor, uint32_t caret);
 int32_t pxui_ui_a11y_number(PxuiUi *ui, const PxuiBox *box, double now, double min, double max, double step);
 int32_t pxui_ui_set_role(PxuiUi *ui, const PxuiBox *box, uint32_t role, uint32_t states);
 int32_t pxui_ui_enter(PxuiUi *ui, const PxuiBox *box, PxuiSaved *out);

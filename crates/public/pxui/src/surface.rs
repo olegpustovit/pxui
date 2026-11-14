@@ -1646,3 +1646,60 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
         if cycle>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm measured height changes/scroll/shrink");}
     }
 }
+
+#[test]
+fn filled_triangles_preserve_vertices_winding_validate_and_allocate_nothing_when_warm() {
+    mem_sys::set_peer(crate::library_counter);let mut ui=Ui::new().unwrap();
+    for round in 0..8 {
+        mem_sys::local_reset();
+        for scale in [1.0,2.0] {
+            ui.frame(&FrameIn {scale,..input()},&mut |ui| {
+                let node=ui.node("triangles",crate::Node {w:Size::Px(100.0),h:Size::Px(100.0),..crate::Node::DEFAULT});
+                ui.draw(&node,|paint,_| {
+                    let color=crate::geom::Rgba {r:12,g:34,b:56,a:128};
+                    paint.triangle((1.25,2.75),(5.75,2.75),(3.5,6.5),color);
+                    paint.triangle((1.25,2.75),(3.5,6.5),(5.75,2.75),color);
+                    for points in [
+                        [(0.0,0.0);3],[(0.0,0.0),(1.0,1.0),(2.0,2.0)],
+                        [(f32::NAN,0.0),(1.0,0.0),(2.0,2.0)],[(0.0,0.0),(f32::INFINITY,1.0),(2.0,2.0)],
+                        [(-f32::MAX,0.0),(f32::MAX,0.0),(0.0,1.0)],
+                        [(0.0,0.0),(1e-30,0.0),(0.0,1.0)],[(0.0,0.0),(1e30,0.0),(0.0,1e30)],
+                    ] {paint.triangle(points[0],points[1],points[2],color);}
+                });
+            }).unwrap();
+            let mut instances=ui.layers().flat_map(|layer|layer.instances.iter());
+            let first=instances.next().unwrap();assert_eq!(first.kind,crate::draw::kind::TRIANGLE);
+            assert_eq!(first.rect,[1.25,2.75,5.75,2.75]);assert_eq!(first.extra,[3.5f32.to_bits(),6.5f32.to_bits()]);assert_eq!(first.color,[12,34,56,128]);
+            let reverse=instances.next().unwrap();assert_eq!(reverse.rect,[1.25,2.75,3.5,6.5]);assert_eq!(reverse.extra,[5.75f32.to_bits(),2.75f32.to_bits()]);
+            assert_eq!(instances.count(),0,"invalid or degenerate triangles emit no instances");
+        }
+        if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm triangle build/draw storage");}
+    }
+}
+
+#[test]
+fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() {
+    mem_sys::set_peer(crate::library_counter);let mut ui=Ui::new().unwrap();ui.set_a11y(true);
+    for round in 0..8 {
+        mem_sys::local_reset();
+        for value in ["Not kept offline","Kept offline","Café","", "ready\0now"] {
+            ui.frame(&input(),&mut |ui| {
+                let button=ui.node("value",crate::Node {w:Size::Px(100.0),h:Size::Px(30.0),role:crate::ui::Role::Button,..crate::Node::DEFAULT});
+                ui.a11y_name(&button,"Offline");ui.a11y_value(&button,value,(value.len() as u32,0));
+            }).unwrap();
+            let node=ui.a11y_nodes().iter().find(|node|ui.a11y_name_of(node)=="Offline").unwrap();
+            assert_eq!(ui.a11y_value_of(node),if value.is_empty() {None} else {Some(value)});assert_eq!(node.selection,[value.len() as u32,0]);
+        }
+        if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm accessible value/selection changes");}
+    }
+    ui.frame(&input(),&mut |ui| {
+        let node=ui.node("number",crate::Node {w:Size::Px(100.0),h:Size::Px(30.0),role:crate::ui::Role::Slider,..crate::Node::DEFAULT});
+        ui.a11y_value(&node,"one",(0,0));ui.a11y_number(&node,1.0,0.0,2.0,1.0);
+    }).unwrap();
+    let node=ui.a11y_nodes().iter().find(|node|node.is_role(crate::ui::Role::Slider)).unwrap();assert_eq!(node.value.tag,2);assert_eq!(ui.a11y_value_of(node),None);
+    let stale=pxui_types::PxuiBox {index:0,box_key:1,box_slot:99,generation:99};ui.a11y_value(&stale,"stale",(0,0));
+    assert!(ui.last_error().contains("stale"));
+    assert!(catch_unwind(AssertUnwindSafe(|| {ui.frame(&input(),&mut |ui| {
+        let node=ui.node("invalid",crate::Node::DEFAULT);ui.a11y_value(&node,"é",(1,0));
+    }).unwrap();})).is_err(),"selection bytes cannot split UTF-8");
+}

@@ -47,6 +47,7 @@
 //! | 54–55 | `clip_radius` f16 | corner radius of `clip`                                                                                                               |||||||
 //! | 56–63 | `extra`       | gradient geometry f16×4   | –                    | offset x y, sigma, spread f16 | –                    | start, sweep f32 (radians, + = clockwise) | control x y f32 |
 //!
+//! Triangle (kind 9) stores A/B in `rect` and C as f32 bits in `extra`; it has no stroke.
 //! Gradient geometry is in rect-normalised units (0..1 across the rect): linear = from xy, to xy;
 //! radial = centre xy, radius xy; conic = centre xy, start angle in turns (0 = +x, clockwise).
 //! Stops interpolate premultiplied. Gradients with more than two stops sample a ramp: a 256×1 row of the
@@ -437,8 +438,8 @@ impl Painter {
             if at < previous || at > instances.len() { return Err(invalid(OP, "breaks must be ascending and within the instances")); }
             previous = at;
         }
-        if let Some(bad) = instances.iter().find(|i| i.kind > kind::BORDER || i.view as usize >= self.views_len) {
-            return Err(invalid(OP, if bad.kind > kind::BORDER { "unknown instance kind" } else { "instance names an unset view" }));
+        if let Some(bad) = instances.iter().find(|i| i.kind > kind::TRIANGLE || i.view as usize >= self.views_len) {
+            return Err(invalid(OP, if bad.kind > kind::TRIANGLE { "unknown instance kind" } else { "instance names an unset view" }));
         }
         if instances.is_empty() { return Ok(()); }
         let segment = |k: usize| {
@@ -616,8 +617,8 @@ impl Painter {
         if self.layers.len() <= layer { self.layers.resize_with(layer + 1, || None); }
         let fresh = self.layers[layer].as_ref().map_or(true, |s| len > s.cap);
         let changed = fresh || self.layers[layer].as_ref().is_some_and(|s| s.len != len);
-        let check = |slice: &[Instance], views_len: usize| match slice.iter().find(|i| i.kind > kind::BORDER || i.view as usize >= views_len) {
-            Some(bad) => Err(invalid(OP, if bad.kind > kind::BORDER { "unknown instance kind" } else { "instance names an unset view" })),
+        let check = |slice: &[Instance], views_len: usize| match slice.iter().find(|i| i.kind > kind::TRIANGLE || i.view as usize >= views_len) {
+            Some(bad) => Err(invalid(OP, if bad.kind > kind::TRIANGLE { "unknown instance kind" } else { "instance names an unset view" })),
             None => Ok(()),
         };
         if changed { check(instances, self.views_len)?; } else { for d in dirty { check(&instances[d.0 as usize..d.1 as usize], self.views_len)?; } }

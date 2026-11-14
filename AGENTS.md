@@ -242,3 +242,14 @@ Changing a nested view's transform or patched accessible content must invalidate
 accessibility spans. A cached parent copies its entire subtree's span; invalidating only the child
 leaves stale bounds under an unchanged parent. Preserve flat/nested scale-retarget/keyframe checks,
 unchanged glyph instances, no additional content builds and zero warm allocations.
+
+ABI 1.22 adds filled triangles through the existing shape span: kind 9, A/B in rect and C as f32
+bits in extra, one 64-byte instance and the existing instanced draw. Reject degenerate/nonfinite
+geometry and overflowing or subnormal edge lengths before writing. Keep Metal, GLSL and SPIR-V
+together; preserve both windings, native 1x/2x coverage, one-draw and warm-allocation checks.
+
+Ui::a11y_value exposes the existing text-value storage with UTF-8 byte anchor/caret positions.
+Validate the whole input before mutation; reversed selections are valid, numeric values take
+precedence, and stale handles remain quiet in the Rust wrapper. a11y_value_of borrows the current
+tree's text. Preserve C invalid-input atomicity and static/dynamic buffer-reuse checks. No C layout
+changes in this minor.

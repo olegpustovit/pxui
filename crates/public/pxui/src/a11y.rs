@@ -2,7 +2,7 @@ use crate::{PxuiBox, Str, Ui, check};
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_a11y_fd, pxui_a11y_pump, pxui_a11y_start, pxui_a11y_stop, pxui_a11y_update, pxui_ui_a11y_name, PxuiA11y};
+    pub use pxui_abi_link::{pxui_a11y_fd, pxui_a11y_pump, pxui_a11y_start, pxui_a11y_stop, pxui_a11y_update, pxui_ui_a11y_name, pxui_ui_a11y_value, PxuiA11y};
 }
 
 #[cfg(not(feature = "static"))]
@@ -20,10 +20,17 @@ mod sys {
         pub fn pxui_a11y_pump(a11y: *mut PxuiA11y, out: *mut pxui_types::ffi::A11yActionSpan) -> i32;
         pub fn pxui_a11y_stop(a11y: *mut PxuiA11y);
         pub fn pxui_ui_a11y_name(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32;
+        pub fn pxui_ui_a11y_value(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,anchor:u32,caret:u32)->i32;
     }
 }
 
 impl Ui {
+    /// Text value and UTF-8 byte selection of a declared box; numeric values take precedence.
+    #[track_caller]
+    pub fn a11y_value(&mut self,box_:&PxuiBox,value:&str,selection:(u32,u32)) {
+        let value=Str {ptr:value.as_ptr(),len:value.len()};
+        crate::live(self,unsafe {sys::pxui_ui_a11y_value(self.0.as_ptr(),box_,value,selection.0,selection.1)});
+    }
     /// Sets the accessible name for a box declared in the current UI frame.
     #[inline]
     #[track_caller] pub fn a11y_name(&mut self, box_: &PxuiBox, name: &str)  {

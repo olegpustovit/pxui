@@ -19,7 +19,7 @@ struct VOut {
   float2 v_tp;
 };
 
-constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u;
+constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 constant uint INNER = 4u, ROUND = 8u;
 constant float TAU = 6.2831853;
 constant float2 CORNERS[6] = {float2(0, 0), float2(1, 0), float2(0, 1), float2(0, 1), float2(1, 0), float2(1, 1)};
@@ -44,8 +44,8 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   float pad = max(1.0, 1.0 / max(va.w * sqrt(abs(vm.x * vm.w - vm.y * vm.z)), 1e-3));
   float width = half2x16(I.c.x).x;
   float4 r = I.rect + (kind == ARC ? float4(off, 0.0, 0.0) : off.xyxy);
-  float4 p0 = (kind == ARC || kind == CURVE || kind == GRID) ? float4(as_type<float2>(I.c.zw), 0.0, 0.0) : float4(half2x16(I.c.z), half2x16(I.c.w));
-  if (kind == CURVE || kind == GRID) p0.xy += off;
+  float4 p0 = (kind == ARC || kind == CURVE || kind == TRIANGLE || kind == GRID) ? float4(as_type<float2>(I.c.zw), 0.0, 0.0) : float4(half2x16(I.c.z), half2x16(I.c.w));
+  if (kind == CURVE || kind == TRIANGLE || kind == GRID) p0.xy += off;
   float4 p2 = kind == GRID ? float4(as_type<float2>(I.b.xy), 0.0, 0.0) : (kind == RECT || kind == BORDER) ? unpack_unorm4x8_to_float(I.b.x) : float4(half2x16(I.b.x), half2x16(I.b.y));
   float h = width * 0.5 + pad;
   float2 p;
@@ -58,7 +58,7 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   } else {
     float4 box = r;
     if (kind == ARC) box = float4(r.xy - (r.z + h), r.xy + (r.z + h));
-    if (kind == CURVE) box = float4(min(min(r.xy, r.zw), p0.xy) - h, max(max(r.xy, r.zw), p0.xy) + h);
+    if (kind == CURVE || kind == TRIANGLE) box = float4(min(min(r.xy, r.zw), p0.xy) - h, max(max(r.xy, r.zw), p0.xy) + h);
     if (kind == RECT || kind == SHADOW || kind == GRID || kind == BORDER) box = r + float4(-pad, -pad, pad, pad);
     if (kind == SHADOW && (flags & INNER) == 0u) box = r + p0.xyxy + float4(-1.0, -1.0, 1.0, 1.0) * (p0.w + 3.0 * p0.z + pad);
     p = mix(box.xy, box.zw, c);
@@ -90,6 +90,16 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
 float wrap(float x, float y) { return x - y * floor(x / y); }
 float cover(float d, float px) { return clamp(0.5 - d / px, 0.0, 1.0); }
 // radii are top-left, top-right, bottom-right, bottom-left (y down)
+float sd_triangle(float2 p,float2 a,float2 b,float2 c) {
+  float2 e0=b-a,e1=c-b,e2=a-c;
+  float2 v0=p-a,v1=p-b,v2=p-c;
+  float2 q0=v0-e0*clamp(dot(v0,e0)/dot(e0,e0),0.0,1.0);
+  float2 q1=v1-e1*clamp(dot(v1,e1)/dot(e1,e1),0.0,1.0);
+  float2 q2=v2-e2*clamp(dot(v2,e2)/dot(e2,e2),0.0,1.0);
+  float s=sign(e0.x*e2.y-e0.y*e2.x);
+  float2 d=min(min(float2(dot(q0,q0),s*(v0.x*e0.y-v0.y*e0.x)),float2(dot(q1,q1),s*(v1.x*e1.y-v1.y*e1.x))),float2(dot(q2,q2),s*(v2.x*e2.y-v2.y*e2.x)));
+  return -sqrt(d.x)*sign(d.y);
+}
 float sd_rect(float2 p, float4 r, float4 radii) {
   float2 half_ = (r.zw - r.xy) * 0.5;
   float2 q = p - (r.xy + r.zw) * 0.5;
@@ -187,6 +197,8 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
     // SMOOTH (bit 0): a scaled picture, filtered linearly; glyphs and atlas images stay nearest
     col = in.v_color * ((flags & 2u) != 0u ? color2_tex.sample(samp,in.v_pos.zw,level(0.0)) : ((flags & 1u) != 0u ? color_tex.sample(smooth_samp, in.v_pos.zw, level(0.0)) : color_tex.sample(samp, in.v_pos.zw, level(0.0))));
     if (dot(in.v_radii, float4(1.0)) > 0.0) col.a *= cover(sd_rect(p, in.v_rect, in.v_radii), px);
+  } else if (kind == TRIANGLE) {
+    col = float4(in.v_color.rgb, in.v_color.a * cover(sd_triangle(p, in.v_rect.xy, in.v_rect.zw, in.v_p0.xy), px));
   } else if (kind == RECT) {
     float d = sd_rect(p, in.v_rect, in.v_radii);
     float4 fill = in.v_color;

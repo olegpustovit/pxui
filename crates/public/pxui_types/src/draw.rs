@@ -14,6 +14,8 @@ pub mod kind {
     pub const GRID: u8 = 7;
     /// A CSS border with a width and colour per side (`borders`): one instance, corners mitred.
     pub const BORDER: u8 = 8;
+    /// A filled triangle; rect contains A/B and extra contains C as f32 bits.
+    pub const TRIANGLE:u8=9;
 }
 /// Instance flags (byte 51).
 pub mod flags {
@@ -237,6 +239,9 @@ impl Instance {
             rect: [center[0], center[1], radius, 0.0], color, width: f16(width), kind: kind::ARC,
             extra: [start.to_bits(), sweep.to_bits()], ..Self::DEFAULT
         }
+    }
+    pub fn triangle(a:[f32;2],b:[f32;2],c:[f32;2],color:[u8;4])->Self {
+        Self {rect:[a[0],a[1],b[0],b[1]],extra:[c[0].to_bits(),c[1].to_bits()],color,kind:kind::TRIANGLE,..Self::DEFAULT}
     }
     /// A quadratic bezier `a`–`control`–`b`, round caps.
     pub fn curve(a: [f32; 2], control: [f32; 2], b: [f32; 2], width: f32, color: [u8; 4]) -> Self {

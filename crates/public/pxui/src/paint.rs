@@ -148,6 +148,8 @@ impl Paint<'_> {
     #[inline] pub fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::dashed_rect(self, x, y, w, h, color) }
     #[inline] pub fn line_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) { Shapes::line_w(self, from, to, width, color) }
     #[inline] pub fn line(&mut self, from: (f32, f32), to: (f32, f32), color: Color) { Shapes::line(self, from, to, color) }
+    /// An unsnapped filled triangle, as one analytic instance.
+    #[inline] pub fn triangle(&mut self,a:(f32,f32),b:(f32,f32),c:(f32,f32),color:Color) {Shapes::triangle(self,a,b,c,color)}
     /// An unsnapped analytic quadratic Bezier, with round caps.
     #[inline] pub fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Color) { Shapes::curve(self,from,control,to,width,color) }
     /// Four midpoint-matched quadratics approximate a cubic; no tessellation buffer is allocated.

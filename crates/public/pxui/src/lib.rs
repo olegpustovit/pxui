@@ -393,6 +393,14 @@ impl Ui {
         text.get(node.name_start as usize..node.name_end as usize).and_then(|name| core::str::from_utf8(name).ok()).unwrap_or("")
     }
 
+    /// The text value of a current accessibility node; None for absent/numeric values.
+    pub fn a11y_value_of(&self,node:&A11yNode)->Option<&str> {
+        if node.value.tag!=1 {return None;}
+        let strings=self.output().a11y.strings;
+        let text=if strings.len==0 {&[][..]} else {unsafe {core::slice::from_raw_parts(strings.ptr,strings.len)}};
+        text.get(node.value.text_start as usize..node.value.text_end as usize).and_then(|value|core::str::from_utf8(value).ok())
+    }
+
     /// How many layers the last frame has (a floating root's each, in draw order).
     #[inline] pub fn layer_count(&self) -> usize { self.output().layers.len }
 
