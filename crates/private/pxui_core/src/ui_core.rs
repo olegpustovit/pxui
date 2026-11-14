@@ -6337,7 +6337,8 @@ impl Ui {
         let r = &mut self.views[v as usize];
         (r.parent, r.xf) = (parent, xf);
         r.reflow |= parent_reflow;
-        let clean = !r.reflow && r.built >= 0 && r.valid && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id;
+        // Culled views keep their build; visit_view settles fresh paint when they return.
+        let clean = !r.reflow && r.built >= 0 && !r.dirty && !r.escapes && r.revision == revision && r.epoch == self.epoch && r.theme == self.theme_id;
         if clean && !self.verify {
             r.kept = self.frame_number;
             self.boxes[b.index].kept = true;
