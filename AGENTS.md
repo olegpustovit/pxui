@@ -253,3 +253,7 @@ Validate the whole input before mutation; reversed selections are valid, numeric
 precedence, and stale handles remain quiet in the Rust wrapper. a11y_value_of borrows the current
 tree's text. Preserve C invalid-input atomicity and static/dynamic buffer-reuse checks. No C layout
 changes in this minor.
+
+The accessibility-value ABI accepts UTF-8 byte endpoints but must convert them to Unicode scalar
+offsets for the engine's tree, matching its existing text fields and AT-SPI contract. Keep reversed,
+combining-mark and non-BMP selections, validation before mutation and zero warm allocations.

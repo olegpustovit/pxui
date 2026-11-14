@@ -1682,13 +1682,13 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
     mem_sys::set_peer(crate::library_counter);let mut ui=Ui::new().unwrap();ui.set_a11y(true);
     for round in 0..8 {
         mem_sys::local_reset();
-        for value in ["Not kept offline","Kept offline","Café","", "ready\0now"] {
+        for value in ["Not kept offline","Kept offline","Café","", "ready\0now","🎵e\u{301}","👩‍💻"] {
             ui.frame(&input(),&mut |ui| {
                 let button=ui.node("value",crate::Node {w:Size::Px(100.0),h:Size::Px(30.0),role:crate::ui::Role::Button,..crate::Node::DEFAULT});
                 ui.a11y_name(&button,"Offline");ui.a11y_value(&button,value,(value.len() as u32,0));
             }).unwrap();
             let node=ui.a11y_nodes().iter().find(|node|ui.a11y_name_of(node)=="Offline").unwrap();
-            assert_eq!(ui.a11y_value_of(node),if value.is_empty() {None} else {Some(value)});assert_eq!(node.selection,[value.len() as u32,0]);
+            assert_eq!(ui.a11y_value_of(node),if value.is_empty() {None} else {Some(value)});assert_eq!(node.selection,[value.chars().count() as u32,0],"accessibility output uses character offsets, as native text widgets do");
         }
         if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm accessible value/selection changes");}
     }

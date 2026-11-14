@@ -16,7 +16,8 @@ export!(pub unsafe fn pxui_ui_a11y_value(ui:*mut PxuiUi,box_:*const PxuiBox,valu
     if !value.is_char_boundary(anchor as usize)||!value.is_char_boundary(caret as usize) {return unsafe {fail(ui,"invalid accessibility selection")};}
     let (engine,box_)=match unsafe {crate::state::boxed(ui,box_)} {Ok(value)=>value,Err(code)=>return code};
     if !engine.live(&box_) {return unsafe {crate::state::fail_code(ui,"stale accessibility value box",crate::PXUI_ERR_STALE)};}
-    engine.a11y_value(&box_,value,(anchor,caret));0
+    let selection=(value[..anchor as usize].chars().count() as u32,value[..caret as usize].chars().count() as u32);
+    engine.a11y_value(&box_,value,selection);0
 });
 
 /// The accessibility bridge of a window the app owns (Linux: AT-SPI2 on the accessibility bus). The app feeds it each frame's tree

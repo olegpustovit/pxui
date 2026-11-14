@@ -105,6 +105,7 @@ pub struct A11yNode {
     pub rect: Rect,
     pub states: u32,
     pub actions: u32,
+    /// Anchor and caret in Unicode scalar values, as in the engine's text widgets and AT-SPI.
     pub selection: [u32; 2],
     pub child_count: u32,
     pub first_child: u32,

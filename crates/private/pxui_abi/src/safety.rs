@@ -384,7 +384,7 @@ fn accessible_text_value_guards_validate_the_whole_input_before_mutation() {
     let out=unsafe {&*pxui_ui_output(ui)};
     let nodes=unsafe {core::slice::from_raw_parts(out.a11y.nodes.ptr,out.a11y.nodes.len)};
     let strings=unsafe {core::slice::from_raw_parts(out.a11y.strings.ptr,out.a11y.strings.len)};
-    let node=nodes.iter().find(|node|node.value.tag==1).unwrap();assert_eq!(&strings[node.value.text_start as usize..node.value.text_end as usize],"Café".as_bytes());assert_eq!(node.selection,[5,0]);
+    let node=nodes.iter().find(|node|node.value.tag==1).unwrap();assert_eq!(&strings[node.value.text_start as usize..node.value.text_end as usize],"Café".as_bytes());assert_eq!(node.selection,[4,0]);
     assert_eq!(unsafe {pxui_ui_a11y_value(core::ptr::null_mut(),core::ptr::null(),Str::default(),0,0)},PXUI_ERR_ARGUMENT);
     assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
 }

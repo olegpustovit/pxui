@@ -26,6 +26,7 @@ mod sys {
 
 impl Ui {
     /// Text value and UTF-8 byte selection of a declared box; numeric values take precedence.
+    /// Output accessibility selections use Unicode scalar offsets, matching native text widgets.
     #[track_caller]
     pub fn a11y_value(&mut self,box_:&PxuiBox,value:&str,selection:(u32,u32)) {
         let value=Str {ptr:value.as_ptr(),len:value.len()};
