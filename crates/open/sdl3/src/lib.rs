@@ -1,3 +1,6 @@
+#[cfg(target_os = "macos")]
+pub use sdl3_sys::chrome;
+
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 use std::sync::atomic::{AtomicU64, Ordering};

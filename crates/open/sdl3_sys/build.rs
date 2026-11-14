@@ -195,6 +195,11 @@ fn main() {
         }
     }
     if target == "macos" {
+        println!("cargo:rerun-if-changed=src/chrome.m");
+        println!("cargo:rerun-if-changed=src/chrome.h");
+        cc::Build::new().file("src/chrome.m").flag("-fobjc-arc").warnings(true).flag_if_supported("-Werror").compile("rays_sdl3_chrome");
+        println!("cargo:rustc-link-lib=framework=AppKit");
+        println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=objc");
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=ApplicationServices");

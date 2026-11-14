@@ -1,5 +1,7 @@
 #![cfg(target_os = "macos")]
 
+pub mod frames;
+
 use std::ffi::{c_char, CStr};
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};

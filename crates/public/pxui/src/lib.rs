@@ -18,6 +18,7 @@ pub use pxui_types::{draw, geom};
 pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};
 
 pub use pxui_types::theme;
+pub mod images;
 
 /// The engine's module paths, so an app moves to the wrapper by swapping its dependency.
 pub mod a11y {

@@ -2,13 +2,14 @@
 //! one Rays uses (tools/gate there); only this file differs.
 use std::collections::{HashMap, HashSet};
 
-pub const TIERS: &[&str] = &["public", "private", "open"];
+pub const TIERS: &[&str] = &["public", "private", "open", "host"];
 
 pub fn tier_allows(from_tier: &str, from_crate: &str, to_tier: &str, to_crate: &str, optional: bool, static_feature: bool) -> bool {
     match from_tier {
         "public" => to_tier == "public" || (from_crate == "pxui" && to_tier == "private" && to_crate == "pxui_abi" && optional && static_feature),
         "private" => to_tier == "private" || to_tier == "open" || (to_tier == "public" && to_crate == "pxui_types"),
         "open" => to_tier == "open",
+        "host" => to_tier == "public" || to_tier == "open",
         _ => false,
     }
 }
@@ -28,7 +29,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("font_sys", &[][..]),
         ("sdl3_sys", &["native_layer_token_sys"][..]),
         ("sdl3", &["sdl3_sys", "native_layer_token_sys"][..]),
-        ("metal_sys", &["ogpu_core"][..]),
+        ("metal_sys", &["ogpu_core", "native_layer_token_sys"][..]),
         ("vulkan_sys", &["ogpu_core"][..]),
         ("ogpu_core", &["native_layer_token_sys"][..]),
         ("ogpu_mock", &["ogpu_core"][..]),
@@ -41,6 +42,7 @@ pub fn direct_allowlist() -> HashMap<&'static str, &'static [&'static str]> {
         ("pxui_render", &["ogpu_core", "pxui_core", "pxui_types"][..]),
         // The window hosts are leaves: SDL, the input types and the native layer token.
         ("pxui_sdl", &["sdl3", "input", "native_layer_token_sys"][..]),
+        ("pxui_host", &["pxui", "pxui_sdl", "mem_sys", "ogpu_core", "ogpu_metal", "metal_sys"][..]),
         // pxui_wayland links libwayland-client, libxkbcommon and (file dialogs through the desktop portal) libdbus-1
         // through its own C shims, like pxui_atspi.
         ("pxui_wayland", &["input", "native_layer_token_sys"][..]),

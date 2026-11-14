@@ -54,7 +54,7 @@ nothing may reach outside this repository (no `../../..` paths past the root).
 - `cargo run -p gate -- deps` enforces crate boundaries and `-- shape` code shape (no generic items, no `unsafe` outside `*_sys`, no `impl Trait`, no panics for control flow); policy is `tools/gate/src/policy.rs`.
 - `cargo run -p gate -- tiers` enforces the public/private/open dependency table below.
 
-## Architecture: three tiers
+## Architecture: UI, platform and host integration
 
 A crate's tier is its folder: `crates/public`, `crates/private` or `crates/open`. Put each new crate
 in its tier folder. The gate enforces this table; ABI design lives in `specification/abi.md`.
@@ -64,11 +64,15 @@ in its tier folder. The gate enforces this table; ABI design lives in `specifica
 | public | `pxui` (wrapper), `pxui_types` | std, `pxui_types`; `pxui_abi` only behind `static` | Stable surface; additive changes only, bump ABI minor. |
 | private | `pxui_abi`, `pxui_dylib`, `pxui_core`, `pxui_text`, `pxui_render`, `pxui_atspi` | private, open, `pxui_types` | Reachable only through `libpxui`; change freely. |
 | open | `ogpu_*`, `*_sys`, `input`, `sdl3`, `pxui_sdl`, `pxui_wayland`, `mem_sys`, `cfmt` | open only | Statically linked by apps; no ABI promise, apps pin the commit. |
+| host | `pxui_host` | public, open | Framework-owned window/GPU/image lifecycle using public UI APIs; no private engine imports. |
 
 - Apps talk to UI through `pxui`. If an app needs private functionality, add a `pxui_*` export, wrapper method and `pxui.h` declaration together.
 - `libpxui` is the `pxui_dylib` cdylib over `pxui_abi` (its own package, so it is built with LTO like the static build) and exports only `pxui_*`; `pxui` uses the dynamic ABI or those same functions through the `static` feature.
 - FFI uses `repr(C)`, pointer/length pairs and callback/user pairs. Borrows last through the next frame; Rust heap types, cross-side freeing and unwinding do not cross the ABI.
 - The app owns the GPU. PXUI adopts native handles and records into the app's command buffer/pass; it does not submit, wait, present or destroy shared resources. Calls stay on one thread, and the library creates no windows or displays.
+- That ownership contract describes the hostless renderer API. Apps may instead use `pxui_host`, which owns device/queue setup, frame acquisition/presentation and image texture retirement. Keep generic host machinery there, native Metal calls in `metal_sys`, and AppKit chrome in `sdl3_sys`. The current convenience host is macOS-only; other hosts keep the existing renderer API.
+- `pxui::images` owns retained descriptors, bounded UTF-8 image paths, coalesced visibility-aware requests and LRU metadata. `pxui_host::Graphics` owns their textures and GPU fences. Applications deliver decoded RGBA data or a miss with the requested epoch and an increasing delivery revision; source access and application-specific decode scheduling stay outside the framework. Never expose a caller-supplied completed serial for image destruction. Preserve exact-pixel, stale-epoch, invalid-packet, in-flight retirement, constructor cleanup and zero-warm-allocation checks.
+- The native frame context is a private Objective-C++ struct with ARC-owned members. Do not register an Objective-C frame class: the native shim can be linked into both the static framework host and dynamic renderer, and duplicate runtime classes collide.
 - ABI snapshots are append-only and gated. Paint shapes stay in wrapper spans; only text calls the library. `abi_bench` gates performance against the recorded baseline.
 
 Mark deliberate shortcuts with known ceilings using `ponytail:` and an upgrade trigger.

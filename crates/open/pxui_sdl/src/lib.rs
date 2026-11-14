@@ -6,6 +6,9 @@ use sdl3::window::{Flag, Window as SdlWindow};
 use sdl3::{DialogFilter as SdlDialogFilter, DialogKind as SdlDialogKind, NativeView, Rect};
 use std::time::Instant;
 
+#[cfg(target_os = "macos")]
+pub use sdl3::chrome::{Chrome, Snapshot as ChromeSnapshot};
+
 pub mod translate;
 
 pub use native_layer_token_sys::portable::Token;

@@ -1800,6 +1800,10 @@ mod tier_tests {
 
     #[test]
     fn tier_edges_follow_the_public_private_open_table() {
+        assert!(tier_allows("host", "pxui_host", "public", "pxui", false, false));
+        assert!(tier_allows("host", "pxui_host", "open", "pxui_sdl", false, false));
+        assert!(!tier_allows("host", "pxui_host", "private", "pxui_render", false, false));
+        for tier in ["public", "private", "open"] { assert!(!tier_allows(tier, "pxui", "host", "pxui_host", false, false)); }
         assert!(tier_allows("private", "pxui_core", "private", "pxui_text", false, false));
         assert!(tier_allows("private", "pxui_core", "open", "input", false, false));
         assert!(tier_allows("private", "pxui_core", "public", "pxui_types", false, false));

@@ -15,6 +15,7 @@ Dependencies are std and `cc`; `pxui_text` alone adds cosmic-text for shaping an
 | `pxui_text` | cosmic-text, shaping cache, glyph atlases, the bundled Pragmasevka font |
 | `pxui_render` | the painter: one instanced pipeline, atlas textures, draws into a pass the caller opened |
 | `pxui_sdl` | SDL3 window host: lifecycle, event pump, surface token |
+| `pxui_host` | macOS framework host: device/frame presentation and bounded image texture ownership, using the public UI wrapper |
 | `pxui_wayland` | Wayland client window host (Linux) |
 | `pxui_atspi` | AT-SPI2 accessibility bridge (Linux): serves `pxui_core::a11y`'s tree over libdbus-1 |
 | `pxui_gallery` | the kit gallery app (`cargo run -p pxui_gallery`): every widget, both themes, goldens |
@@ -31,6 +32,23 @@ Dependencies are std and `cc`; `pxui_text` alone adds cosmic-text for shaping an
 Hosts expose the same few functions and there is no `Host` trait: an app links the one it wants.
 
 ## Host loop
+
+On macOS, `pxui_host` owns GPU setup, frame presentation and image texture lifetimes:
+
+```rust
+let mut window = pxui_host::Window::open("demo", 900, 600)?;
+let mut ui = pxui::Ui::new()?;
+let mut graphics = pxui_host::Graphics::open(&mut window, &ui)?;
+// Build UI with public pxui APIs, then present it:
+graphics.draw(&mut window, &ui, None)?;
+```
+
+`graphics.images()` lends descriptors and bounded decode requests. Deliver decoded RGBA with
+`upload_image`; the framework validates packets, caches textures and retires them after GPU
+completion. Source access and decoding run in the application's worker. `configure_images` takes
+density and the maximum requested source pixels; application layout policy chooses that bound.
+The host adds no private engine dependencies or third-party packages. Native/process allocations
+are separate from the warm Rust allocator checks.
 
 The shape of an app (names settle with the engine rewrite; `crates/private/pxui_render/tests/gpu_pxui_render.rs`
 and `crates/private/pxui_core/tests/gpu_pxui_parity.rs` hold the compiling version):
@@ -58,6 +76,7 @@ Input is data in, output is data out: there are no callbacks into the platform.
 ```sh
 cargo check -p pxui_core                 # inner loop
 cargo t -p pxui_core [filter]            # never raw `cargo test`: cases die at 5 s, runs at 60 s
+cargo t -p pxui_host                    # macOS: frame/image lifetime and native chrome
 cargo run -p gate -- deps           # dependency boundaries (`shape` checks code shape)
 tools/validate.sh                   # all of it on macOS; --windows / --linux print the commands for those machines
 ```

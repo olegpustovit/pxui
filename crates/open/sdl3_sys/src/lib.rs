@@ -1,3 +1,6 @@
+#[cfg(target_os = "macos")]
+pub mod chrome;
+
 use std::cell::Cell;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::rc::Rc;
