@@ -8,6 +8,36 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn shrinking_virtual_sections_select_the_clamped_rows_in_one_build_without_warm_allocations() {
+    use std::cell::Cell;
+    use crate::ui::{SectionList,SectionPart};
+    mem_sys::set_peer(crate::library_counter);
+    let count=Cell::new(10_000);let body=Cell::new(None);let first=Cell::new(None);let rows=Cell::new(0);let builds=Cell::new(0);
+    let mut ui=Ui::new().unwrap();
+    let mut build=|ui:&mut Ui| {
+        builds.set(builds.get()+1);rows.set(0);first.set(None);
+        body.set(Some(ui.section_list("shrinking",&SectionList {count:count.get(),row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true},&mut |_,part| {
+            if let SectionPart::Row(index)=part {if first.get().is_none() {first.set(Some(index));}rows.set(rows.get()+1);}
+        })));
+    };
+    ui.frame(&input(),&mut build).unwrap();
+    for cycle in 0..8 {
+        mem_sys::local_reset();
+        count.set(10_000);ui.set_scroll_offset(&body.get().unwrap(),199_900.0);ui.frame(&input(),&mut build).unwrap();
+        assert!(first.get().unwrap()>9900);
+        for next in [3,0] {
+            count.set(next);let previous=builds.get();
+            ui.frame(&input(),&mut build).unwrap();
+            assert_eq!(builds.get()-previous,1,"shrink completes in the original build");
+            assert_eq!(ui.scroll_offset(&body.get().unwrap()),0.0);
+            assert_eq!(rows.get(),next,"the first shrink frame must not leave an empty viewport");
+            assert_eq!(first.get(),if next>0 {Some(0)} else {None});
+        }
+        if cycle>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm shrink/grow virtual sections");}
+    }
+}
+
+#[test]
 fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm_allocations() {
     use std::cell::Cell;
     use crate::ui::{Node,SectionList,SectionPart,Role};

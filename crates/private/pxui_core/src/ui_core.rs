@@ -3943,6 +3943,13 @@ impl Ui {
     /// edge), fingers lifted in motion coast and bounce, a stretch left alone decays.
     fn glide(&mut self, ax: usize, time: f64, index: usize, max_scroll: f64, (wheel, drag, touch, lift): (f32, f32, bool, bool)) {
         let slot = self.boxes[index].slot;
+        // Virtual rows are selected before arrange: a smaller extent must bound the offset now.
+        let offset = *self.offset_mut(ax, slot);
+        let bounded = 0.0f64.max(max_scroll.min(offset as f64)) as f32;
+        if offset != bounded {
+            *self.offset_mut(ax, slot) = bounded;
+            self.glides[ax][slot] = Glide { frame_time: time, ..Glide::REST };
+        }
         let extent = if ax == 0 { self.l_h[index] } else { self.l_w[index] } as f64;
         self.scroll_carry(ax, time, index, max_scroll);
         // at rest with no input: nothing moves (most scroll boxes, most frames)

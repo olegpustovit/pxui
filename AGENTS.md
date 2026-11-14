@@ -227,3 +227,7 @@ bound, native 1x/2x opaque heading/right-edge pixels, click blocking and warm al
 Indexed section headings must return to the viewport with one frame build. Discarded paint is
 not a clean build cache: skipping that rebuild forces visit_view to settle the entire frame.
 Preserve the callback-count assertion alongside clipping, pixels and warm allocations.
+
+Virtual lists clamp invalid offsets before selecting rows after their extent shrinks. Preserve the
+one-build shrink-to-three/empty regression and warm allocations; clamping only during arrange
+can leave a resting virtual list blank until the next input.
