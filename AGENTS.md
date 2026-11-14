@@ -223,3 +223,7 @@ Validate the whole descriptor before building anything; preserve callback guards
 Culled cached views still update their composed geometry and accessibility visibility, without
 keeping offscreen draw runs. Preserve indexed/flat/clipped heading scrolling, the 570-row storage
 bound, native 1x/2x opaque heading/right-edge pixels, click blocking and warm allocation checks.
+
+Indexed section headings must return to the viewport with one frame build. Discarded paint is
+not a clean build cache: skipping that rebuild forces visit_view to settle the entire frame.
+Preserve the callback-count assertion alongside clipping, pixels and warm allocations.
