@@ -162,6 +162,10 @@ fn main_thread() -> bool {
 pub mod init {
     use super::{Error, before_main, check_version, native_error, sys};
 
+    /// Enters UIKit through SDL; call once from the native executable's main thread.
+    #[cfg(target_os = "ios")]
+    pub use sys::run_app;
+
     #[derive(Clone, Copy, Debug, PartialEq, Eq)]
     pub enum Subsystem { Video, Events }
 

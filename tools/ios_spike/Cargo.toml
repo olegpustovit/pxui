@@ -1,0 +1,16 @@
+[package]
+name = "ios_spike"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[[bin]]
+name = "pxui-ios-spike"
+path = "src/main.rs"
+test = false
+
+[target.'cfg(target_os = "ios")'.dependencies]
+pxui_sdl = { path = "../../crates/open/pxui_sdl" }
+
+[lints]
+workspace = true

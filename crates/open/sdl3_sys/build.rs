@@ -8,6 +8,21 @@ use std::process::Command;
 fn run_pkg_config(pkg: &str, lib: &str, argument: &str) -> String {
     println!("cargo:rerun-if-env-changed=SDL3_DIR");
     println!("cargo:rerun-if-env-changed=PKG_CONFIG");
+    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("ios") {
+        let directory = env::var_os("SDL3_DIR")
+            .unwrap_or_else(|| build_failure("iOS requires SDL3_DIR from packaging/build-sdl-ios.sh; host SDL cannot be used".into()));
+        let directory = PathBuf::from(directory);
+        let output = Command::new("pkg-config")
+            .env_remove("PKG_CONFIG_PATH")
+            .env_remove("PKG_CONFIG_SYSROOT_DIR")
+            .env("PKG_CONFIG_LIBDIR", directory.join("lib/pkgconfig"))
+            .args(["--static", argument, pkg])
+            .output().expect("pkg-config is required for the iOS SDL static dependencies");
+        if !output.status.success() {
+            build_failure(format!("iOS {pkg}: {}", String::from_utf8_lossy(&output.stderr)));
+        }
+        return String::from_utf8(output.stdout).expect("pkg-config output must be UTF-8");
+    }
     let prefix = |dir: &str| {
         if argument == "--cflags" {
             format!("-I{dir}/include")
@@ -68,6 +83,11 @@ fn emit_link_flags(libs: &str) {
             index += 1;
             println!("cargo:rustc-link-lib=framework={}", library_flags[index]);
         } else if let Some(framework) = flag.strip_prefix("-framework=") {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        } else if let Some(framework) = flag.strip_prefix("-Wl,-framework,") {
+            println!("cargo:rustc-link-lib=framework={framework}");
+        } else if let Some(framework) = flag.strip_prefix("-Wl,-weak_framework,") {
+            // SDL's optional CoreHaptics framework is present throughout the iOS 18 deployment floor.
             println!("cargo:rustc-link-lib=framework={framework}");
         } else {
             println!("cargo:rustc-link-arg={flag}");
@@ -185,6 +205,8 @@ fn main() {
     apply_cflags(&mut c, &run_pkg_config("sdl3", "SDL3", "--cflags"));
     if target == "macos" {
         c.define("RAYS_SDL3_MACOS", None).flag_if_supported("-fblocks");
+    } else if target == "ios" {
+        c.define("RAYS_SDL3_IOS", None);
     }
     c.compile("rays_sdl3_sys");
 

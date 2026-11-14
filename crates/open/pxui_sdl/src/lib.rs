@@ -14,6 +14,8 @@ pub mod translate;
 pub use native_layer_token_sys::portable::Token;
 /// Native binary startup policy; does not acquire SDL subsystems or change their ownership.
 pub use sdl3::init::configure_native_process;
+#[cfg(target_os = "ios")]
+pub use sdl3::init::run_app;
 
 /// Thread-safe; the caller must retain a live window until its workers have stopped.
 pub fn wake() -> bool { sdl3::event::wake() }
@@ -144,9 +146,12 @@ fn extent_in(unit: f64, window: &SdlWindow) -> Result<Extent, Error> {
 // Every step is checked: the first failure is the result.
 fn reveal(window: &SdlWindow) -> Result<(), sdl3::Error> {
     window.show()?;
-    window.restore()?;
-    window.raise_window()?;
-    window.center()?;
+    #[cfg(not(target_os = "ios"))]
+    {
+        window.restore()?;
+        window.raise_window()?;
+        window.center()?;
+    }
     window.sync()
 }
 

@@ -1,5 +1,28 @@
 # SDL3 binding contract
 
+## iOS host capability spike
+
+`packaging/ios-spike.sh [iphonesimulator|iphoneos] [build-root]` builds a checksum-verified
+static SDL from `packaging/sdl3.lock`, then the Rust `ios_spike` app. Both targets are arm64,
+use iOS 18 as the deployment floor and retain the default main-thread stack. The build checks
+the archive's architecture, Apple platform and minimum OS. OpenGL, GLES and Vulkan are disabled.
+
+Cross-compiling SDL bindings requires `SDL3_DIR` pointing at that target's installed prefix.
+Only its pkg-config metadata supplies static dependencies; never fall back to macOS libraries.
+`pxui_sdl::run_app` enters UIKit once through SDL on the process main thread. Layer tokens retain
+and release the iOS Metal layer and become invalid before the native view is destroyed.
+The iOS reveal path shows/syncs the window without unsupported desktop restoration/positioning.
+
+For a simulator, install the generated `target/aarch64-apple-ios-sim/debug/PXUIHostSpike.app`
+with `xcrun simctl install booted`, then `xcrun simctl launch --console booted dev.pxui.host-spike`.
+A completed probe prints `PXUI_IOS_SPIKE_OK` with logical/drawable dimensions and scale after
+checking layer lifetime through explicit destruction. Device bundles need developer provisioning.
+
+This is an SDL/window capability probe, not the gallery or an iOS rendering/performance gate.
+Immediate probe teardown can produce UIKit appearance-transition diagnostics. Metal renderer,
+touch routing, safe areas, keyboard/IME, display-link/background handling, Dynamic Type and device
+qualification remain required before an application adopts this host.
+
 `crates/open/sdl3` provides the safe platform API. Required C/Objective-C++ ABI work
 lives under `crates/open/sdl3_sys`. Core, image and mixer cover only Rays's window,
 input, image and audio needs; text is `pxui_text` (cosmic-text), not SDL. Runtime must use the ownership-aware safe API.

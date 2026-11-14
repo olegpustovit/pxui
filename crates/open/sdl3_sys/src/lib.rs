@@ -105,6 +105,13 @@ pub fn configure_fatal_errors() {
     unsafe { ffi::rays_sdl3_configure_fatal_errors() }
 }
 
+/// Enters UIKit through SDL on the process main thread, once for the app's lifetime.
+#[cfg(target_os = "ios")]
+pub fn run_app(main: extern "C" fn() -> i32) -> i32 {
+    // SAFETY: the native bridge retains this static function pointer until process termination.
+    unsafe { ffi::rays_sdl3_run_app(main) }
+}
+
 pub fn clear_error() {
     // SAFETY: clears SDL's thread-local error text.
     unsafe { ffi::rays_sdl3_clear_error() }
@@ -553,7 +560,7 @@ impl MetalView {
         // SAFETY: this view is live and the returned native layer remains retained by the view.
         let layer = unsafe { ffi::rays_sdl3_metal_layer(view.as_ptr()) };
         if layer.is_null() { return Err(sdl_error(ErrorKind::Sdl, "SDL could not read the native layer")); }
-        let (retain, release): (Option<Retain>, Option<Release>) = if cfg!(target_os = "macos") {
+        let (retain, release): (Option<Retain>, Option<Release>) = if cfg!(any(target_os = "macos", target_os = "ios")) {
             (Some(ffi::rays_sdl3_retain_layer), Some(ffi::rays_sdl3_release_layer))
         } else {
             (None, None)
@@ -769,6 +776,8 @@ mod ffi {
     pub struct SDLCursor { _private: [u8; 0] }
 
     unsafe extern "C" {
+        #[cfg(target_os = "ios")]
+        pub fn rays_sdl3_run_app(main: extern "C" fn() -> i32) -> i32;
         pub fn rays_sdl3_linked_version() -> i32;
         pub fn rays_sdl3_compiled_version() -> i32;
         pub fn rays_sdl3_get_error() -> *const c_char;

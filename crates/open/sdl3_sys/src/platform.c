@@ -175,6 +175,28 @@ void rays_sdl3_platform_set_window_background(SDL_Window *window,
 
 #else
 
+#if defined(RAYS_SDL3_IOS)
+#include <CoreFoundation/CoreFoundation.h>
+#include <pthread.h>
+#define SDL_MAIN_HANDLED
+#include <SDL3/SDL_main.h>
+
+static int (*ios_main)(void);
+static int rays_sdl3_ios_main(int argc, char **argv)
+{
+  (void)argc; (void)argv;
+  return ios_main();
+}
+int rays_sdl3_run_app(int (*main_function)(void))
+{
+  if (!pthread_main_np() || ios_main != NULL || main_function == NULL) return -1;
+  ios_main = main_function;
+  return SDL_RunApp(0, NULL, rays_sdl3_ios_main, NULL);
+}
+bool rays_sdl3_is_main_thread(void) { return pthread_main_np() && SDL_IsMainThread(); }
+void rays_sdl3_retain_layer(void *layer) { CFRetain(layer); }
+void rays_sdl3_release_layer(void *layer) { CFRelease(layer); }
+#else
 static SDL_ThreadID initial_thread;
 
 #if defined(_MSC_VER)
@@ -199,6 +221,7 @@ bool rays_sdl3_is_main_thread(void)
 
 void rays_sdl3_retain_layer(void *layer) { (void)layer; }
 void rays_sdl3_release_layer(void *layer) { (void)layer; }
+#endif
 void rays_sdl3_scroll_monitor_install(void) {}
 bool rays_sdl3_scroll_take(double *x, double *y, int *phase, double *seconds)
 {
