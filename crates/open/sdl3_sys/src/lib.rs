@@ -890,6 +890,10 @@ mod ffi {
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_push_numeric_trace() -> bool;
         #[cfg(feature = "test-util")]
+        pub fn rays_sdl3_test_touch_mouse_emulation_disabled() -> bool;
+        #[cfg(feature = "test-util")]
+        pub fn rays_sdl3_test_push_finger(phase: c_int, x: f64, y: f64) -> bool;
+        #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_push_touch_trace(window:u32)->bool;
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_dialog_reserve() -> c_int;

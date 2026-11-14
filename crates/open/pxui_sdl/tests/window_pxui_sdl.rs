@@ -62,6 +62,7 @@ fn window_visibility() {
 
 fn window_numeric_input_zero_alloc() {
     let mut window = Window::open_with("input allocations", 32, 24, false, true, true).unwrap();
+    assert!(sdl3_sys::test_util::touch_mouse_emulation_disabled());
     let mut events = Vec::with_capacity(256);
     for _ in 0..8 {
         events.clear();

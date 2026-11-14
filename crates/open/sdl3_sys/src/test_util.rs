@@ -1,5 +1,14 @@
 use std::ffi::{CString, c_char};
 
+pub fn touch_mouse_emulation_disabled() -> bool {
+    unsafe { super::ffi::rays_sdl3_test_touch_mouse_emulation_disabled() }
+}
+
+pub fn push_finger(phase: i32, x: f64, y: f64) -> bool {
+    if !(0..=3).contains(&phase) || !x.is_finite() || !y.is_finite() { return false; }
+    unsafe { super::ffi::rays_sdl3_test_push_finger(phase, x, y) }
+}
+
 #[cfg(any(target_os = "ios", target_os = "macos"))]
 pub use file_access_sys::test_util::{selection as file_selection, status as file_selection_status};
 

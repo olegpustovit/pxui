@@ -103,7 +103,25 @@ nonfinite values and pressure outside 0..=1 fail before input mutation; outside-
 remain valid. Public `Event` and `FrameIn` layouts are unchanged. SDL coalesces only adjacent
 motion for the same device/finger, preserving phase and interleaved-finger boundaries. Native SDL
 trace and static/dynamic ABI checks assert zero warm Rust allocations. This is transport coverage;
-widget gesture arbitration and physical finger behavior remain unqualified.
+these transport checks alone do not qualify widget gesture arbitration or physical finger behavior.
+
+Widget touch routing now shares the engine's pointer/capture and scroll paths. A tap inside a
+scrolling container waits for release; 8-point axis locking and 10-point slop distinguish dragging
+from tapping. The selected scroll ancestor retains the gesture when virtual rows retire. Touch-down
+catches momentum without activating a row; source timestamps drive velocity, with the plan's
+0.998-per-millisecond finger decay and existing 0.55 rubber-band curve. Trackpad coast settings are
+unchanged. A held stretch idles; cancellation releases it without a fling. Buttons and scrubbers
+outside scroll containers use normal pointer signals. Touch suppresses mouse hover until mouse
+input resumes. Popup/focus loss, stale owners, extra fingers and mouse takeover cancel safely.
+
+`pxui_sdl::Window::open` disables SDL mouse/touch emulation to avoid duplicate delivery. Update
+the host and libpxui together from the pinned checkout. Routed viewports receive the original
+typed touches, without the engine's synthetic pointer actions. Contact storage is fixed at 16;
+overflow cancels widget recognition until focus resets. This is single-finger widget arbitration;
+pinch, long-press menus, interactive edge-back, pull-to-refresh and device feel remain open.
+`SIMCTL_CHILD_PXUI_IOS_TOUCH_CHECK=1` runs 18 taps/scrolls/coast catches/cancellations through actual
+SDL, virtual widgets and Metal, preserving the original 182/82/100 allocation and idle-wake checks.
+The simulator trace uses synthetic SDL fingers, not physical touch or UIScrollView parity evidence.
 
 ABI 1.24 appends `FrameIn::environment`: safe-area insets (top/right/bottom/left), keyboard
 start/target rectangles, host-clock start time, duration, raw UIKit curve and did-show/did-hide

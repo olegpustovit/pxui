@@ -186,6 +186,9 @@ impl Window {
         sdl3::init::init(&[sdl3::init::Subsystem::Video]).map_err(fail)?;
         // The window and view release themselves when `build` returns; a failure then quits video.
         let build = || -> Result<Window, Error> {
+            // Typed touch owns gesture arbitration; emulated mouse/touch would deliver it twice.
+            sdl3::hint::set("SDL_TOUCH_MOUSE_EVENTS", "0").map_err(fail)?;
+            sdl3::hint::set("SDL_MOUSE_TOUCH_EVENTS", "0").map_err(fail)?;
             // SDL itself turns a Control-click into the secondary click.
             sdl3::hint::control_click_is_right_click(true).map_err(fail)?;
             if cfg!(windows) {

@@ -30,6 +30,8 @@ mod ui_c;
 mod views;
 #[path = "cases/widgets.rs"]
 mod widgets;
+#[path = "cases/touch.rs"]
+mod touch;
 
 fn main() {
     let mut cases: Vec<(&str, fn())> = Vec::new();
@@ -44,6 +46,7 @@ fn main() {
     cases.extend_from_slice(a11y::CASES);
     cases.extend_from_slice(bench::CASES);
     cases.extend_from_slice(widgets::CASES);
+    cases.extend_from_slice(touch::CASES);
     cases.extend_from_slice(bodies::CASES);
     run::run(&cases);
 }

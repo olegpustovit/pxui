@@ -347,3 +347,25 @@ bool rays_sdl3_test_push_touch_trace(uint32_t id) {
   }
   return true;
 }
+
+bool rays_sdl3_test_touch_mouse_emulation_disabled(void) {
+  return !SDL_GetHintBoolean(SDL_HINT_TOUCH_MOUSE_EVENTS, true) &&
+         !SDL_GetHintBoolean(SDL_HINT_MOUSE_TOUCH_EVENTS, true);
+}
+
+bool rays_sdl3_test_push_finger(int phase, double x, double y) {
+  SDL_Window *window = SDL_GetKeyboardFocus();
+  int width = 0, height = 0;
+  if (!window || phase < 0 || phase > 3 || !SDL_GetWindowSize(window, &width, &height) || width <= 0 || height <= 0) return false;
+  SDL_Event event;
+  SDL_zero(event);
+  event.tfinger.type = (Uint32[]){SDL_EVENT_FINGER_DOWN, SDL_EVENT_FINGER_MOTION, SDL_EVENT_FINGER_UP, SDL_EVENT_FINGER_CANCELED}[phase];
+  event.tfinger.windowID = SDL_GetWindowID(window);
+  event.tfinger.touchID = 0xfedcba9876543210ULL;
+  event.tfinger.fingerID = 7;
+  event.tfinger.timestamp = SDL_GetTicksNS();
+  event.tfinger.x = (float)(x / width);
+  event.tfinger.y = (float)(y / height);
+  event.tfinger.pressure = 0.5f;
+  return push(&event);
+}

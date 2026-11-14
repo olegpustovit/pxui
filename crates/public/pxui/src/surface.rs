@@ -1935,3 +1935,63 @@ fn typed_touch_batches_keep_ids_phases_lifetimes_and_zero_warm_allocations() {
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm typed touch frame and routed read allocated");}
     }
 }
+
+#[test]
+fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero() {
+    use crate::{Event, Str, Touch};
+    use crate::ui::{Node, SectionList, SectionPart};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    ui.set_a11y(true);
+    let body = Cell::new(None);
+    let clicked = Cell::new(None);
+    let built = Cell::new(0);
+    let mut build = |ui: &mut Ui| {
+        built.set(0);
+        ui.view("touch-page", 0, Size::Grow, Size::Grow, &mut |ui| {
+            body.set(Some(ui.section_list("touch-list", &SectionList {
+                count: 10_000, row_height: 24.0, leading_height: 0.0, header_height: 0.0,
+                trailing_height: 0.0, overlay_scrollbar: true,
+            }, &mut |ui, part| {
+                if let SectionPart::Row(index) = part {
+                    built.set(built.get() + 1);
+                    let row = ui.node("touch-row", Node { flags: CLICKABLE, w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                    ui.a11y_name(&row, "Song");
+                    let signal = ui.signal_state(&row);
+                    if signal.clicked { clicked.set(Some(index)); }
+                    assert!(!signal.hovered, "finger input must not leave mouse hover on a row");
+                }
+            })));
+        });
+    };
+    let mut packet = Touch { device: u64::MAX, finger: 7, x: 50.0, y: 100.0, pressure: 1.0, ..Touch::default() };
+    // Start outside the list so the initial host mouse position does not hover it.
+    let outside = Event { kind: Event::POINTER_MOVED, x: -1.0, y: -1.0, ..Event::default() };
+    ui.frame(&FrameIn { events: &outside, event_count: 1, ..input() }, &mut build).unwrap();
+    let send = |ui: &mut Ui, packet: &Touch, build: &mut dyn FnMut(&mut Ui)| {
+        let event = Event { kind: Event::TOUCH, text: Str { ptr: (packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Event::default() };
+        ui.frame(&FrameIn { time: packet.time, events: &event, event_count: 1, ..input() }, build).unwrap();
+    };
+    send(&mut ui, &packet, &mut build);
+    packet.phase = 2; packet.time = 0.01;
+    send(&mut ui, &packet, &mut build);
+    assert!(clicked.take().is_some(), "a touch tap did not activate a real virtual row");
+    for (phase, y, time) in [(0,200.0,0.02),(1,-200.0,0.03),(1,-300.0,0.04),(3,-300.0,0.05)] {
+        packet.phase = phase; packet.y = y; packet.time = time;
+        send(&mut ui, &packet, &mut build);
+    }
+    assert!(ui.scroll_offset(&body.get().unwrap()) >= 499.0, "retiring the original row cancelled its ancestor scroll capture");
+    for frame in 0..182 {
+        packet.time = 1.0 + frame as f64 / 120.0;
+        packet.phase = (frame % 4) as u32;
+        packet.y = if packet.phase == 0 { 100.0 } else { 60.0 };
+        clicked.set(None);
+        mem_sys::local_reset();
+        send(&mut ui, &packet, &mut build);
+        assert!(clicked.get().is_none(), "scroll/catch/cancel activated a virtual row");
+        assert!(built.get() <= 10 + 1 + 2 * 4 + 1, "frame {frame} exceeded viewport rows plus overscan: {}", built.get());
+        if frame >= 82 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm virtual finger frame {frame}"); }
+    }
+    assert!(ui.scroll_offset(&body.get().unwrap()) > 100.0);
+}

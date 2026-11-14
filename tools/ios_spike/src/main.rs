@@ -1,5 +1,7 @@
 #[cfg(target_os = "ios")]
 mod picker;
+#[cfg(target_os = "ios")]
+mod touch;
 
 #[cfg(target_os = "ios")]
 mod ios {
@@ -38,6 +40,7 @@ mod ios {
         background_timed: bool,
         background_reentrant: u8,
         picker: Option<super::picker::Probe>,
+        touch: Option<super::touch::Probe>,
     }
     impl Probe {
         fn open(window: &mut pxui_sdl::Window) -> Result<Self, String> {
@@ -99,6 +102,7 @@ mod ios {
                 background_timed: false,
                 background_reentrant: 0,
                 picker: std::env::var_os("PXUI_IOS_PICKER_CHECK").map(|_| super::picker::Probe::new(window.time())),
+                touch: std::env::var_os("PXUI_IOS_TOUCH_CHECK").map(|_| super::touch::Probe::new()),
             })
         }
         fn signal(
@@ -286,6 +290,7 @@ mod ios {
             }
             mem_sys::local_reset();
             self.events.clear();
+            if let Some(touch) = &self.touch { touch.push(self.frames)?; }
             if !self.platform.pump(window, &mut self.events)? {
                 return Err("iOS gallery window closed during probe".into());
             }
@@ -337,7 +342,9 @@ mod ios {
                             );
                             bounds = Some(inner);
                             ui.within(&inner, &mut |ui| {
-                                if self.keyboard_check {
+                                if let Some(touch) = self.touch.as_mut() {
+                                    touch.view(ui);
+                                } else if self.keyboard_check {
                                     ui.label("PXUI native keyboard");
                                     ui.text_field("Mobile input", "café track");
                                 } else {
@@ -368,6 +375,7 @@ mod ios {
                 ));
             }
             let built = mem_sys::local_alloc_count();
+            if let Some(touch) = self.touch.as_mut() { touch.check(&self.ui, self.frames)?; }
             self.platform.apply(window, &self.ui)?;
             let output = mem_sys::local_alloc_count();
             if !self.graphics.draw(window, &self.ui, None)? {

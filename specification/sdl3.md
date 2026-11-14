@@ -22,8 +22,8 @@ It waits for GPU completion, checks iOS memory metrics, then destroys the window
 layer invalidation. Device bundles need developer provisioning.
 
 This is a capability probe, not a device performance gate. The gallery respects safe areas;
-typed touch transport, keyboard geometry, display-link idle/background control and native document
-picker callbacks have simulator checks described in README.md. Widget touch arbitration, keyboard
+typed touch transport/widget arbitration, keyboard geometry, display-link idle/background control and native document
+picker callbacks have simulator checks described in README.md. Long press, interactive edge-back, keyboard
 editing/avoidance motion, Dynamic Type, actual provider grants and physical-device qualification
 remain open. Create the iOS Metal view before showing the window and hide the window before
 detaching its view.
@@ -100,6 +100,9 @@ handling stay behind the platform boundary.
 - Preserve fractional logical coordinates, wheel direction, pointer position and
   ordered motion. Trackpad phases and timestamps remain distinct from ordinary
   wheel events; do not apply natural-scroll inversion twice.
+- The pxui_sdl host disables SDL mouse-from-touch and touch-from-mouse emulation: the engine
+  arbitrates typed contacts. Low-level sdl3 callers retain control of their own hints. Forward
+  real mouse events independently; never turn a finger release into a mouse release.
 - Logical resize and drawable-pixel changes update runtime facts coherently.
   Do not poll window dimensions every frame. Hidden, minimized or occluded
   windows idle; visibility recovery must still be observed.

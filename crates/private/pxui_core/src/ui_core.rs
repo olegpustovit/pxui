@@ -21,6 +21,7 @@ use pxui_text::{Metrics, Style, Text, TextSpan, TextSpans};
 use std::collections::HashMap;
 use std::rc::Rc;
 mod string_pool;
+mod touch;
 use string_pool::{EmptyStrings, Field as StringField};
 
 impl StringField {
@@ -728,7 +729,7 @@ struct Glide {
     visual: f64,
     event_time: f64,
     frame_time: f64,
-    /// 0 neither, 1 coast, 2 bounce
+    /// 0 neither, 1 trackpad coast, 2 bounce, 3 finger coast
     mode: i64,
     velocity: f64,
     start: f64,
@@ -738,7 +739,7 @@ struct Glide {
 impl Glide {
     const REST: Glide = Glide { raw: 0.0, visual: 0.0, event_time: f64::NEG_INFINITY, frame_time: 0.0, mode: 0, velocity: 0.0, start: 0.0, from: 0.0 };
     fn moving(&self) -> bool {
-        self.mode != 0 || self.visual != 0.0
+        self.mode != 0 || (self.visual != 0.0 && self.event_time != f64::INFINITY)
     }
 }
 
@@ -773,6 +774,8 @@ pub struct Accumulator {
     pub a11y_select: Option<(u32, u32)>,
     pub scroll_touch: bool,
     pub scroll_lift: bool,
+    pub(crate) scroll_velocity: (f64, f64),
+    pub(crate) scroll_finger: bool,
     /// product of this frame's pinch factors
     pub pinch: f64,
     pub keys: Vec<(Event, Vec<Key>)>,
@@ -1003,6 +1006,7 @@ pub struct Ui {
     gesture_time: f64,
     /// the fingers' release velocity, down and sideways
     gesture_velocity: (f64, f64),
+    touches: touch::Touches,
     pub edit_undo: Vec<(String, usize, usize)>,
     pub(crate) text_undo_held: i64,
     /// What the host last charged to its memory ledger for this UI; PXUI never reads it.
@@ -1240,6 +1244,7 @@ impl Ui {
             gesture_key: 0,
             gesture_time: f64::NAN,
             gesture_velocity: (0.0, 0.0),
+            touches: touch::Touches::EMPTY,
             edit_undo: Vec::new(),
             text_undo_held: 0,
             charged: Bytes::default(),
@@ -2115,6 +2120,8 @@ impl Ui {
                     a11y_select: None,
                     scroll_touch: false,
                     scroll_lift: false,
+                    scroll_velocity: (0.0, 0.0),
+                    scroll_finger: false,
                     press_keys,
                 },
             );
@@ -2198,8 +2205,13 @@ impl Ui {
     pub fn last_press_within(&self, frame: &rframe::Frame, roots: &[i64]) -> Option<i64> {
         let mut last = None;
         for event in &frame.input.events {
-            if let Event::PointerPressed(_, point) = event {
-                if let Some(root) = self.root_at(p32(*point), roots) {
+            let point = match event {
+                Event::PointerPressed(_, point) => Some(*point),
+                Event::Touch(t) if t.phase == input::TouchPhase::Began => Some(t.point),
+                _ => None,
+            };
+            if let Some(point) = point {
+                if let Some(root) = self.root_at(p32(point), roots) {
                     last = Some(root);
                 }
             }
@@ -2218,6 +2230,10 @@ impl Ui {
     /// over it that is not its own content (a field inside a scrolling panel lets the panel
     /// scroll; a menu over it does not).
     fn scroll_target(&mut self, point: (f32, f32)) -> i64 {
+        self.scroll_target_flags(point, SCROLL | SCROLL_X)
+    }
+
+    fn scroll_target_flags(&mut self, point: (f32, f32), wanted: Flags) -> i64 {
         let mut blocker = 0;
         let mut index = self.hit_count as i64 - 1;
         while index >= 0 {
@@ -2225,7 +2241,7 @@ impl Ui {
             if self.hit_contains(i, point) {
                 let flags = self.hits[i].flags;
                 let key = self.hits[i].key;
-                if flags & (SCROLL | SCROLL_X) != 0 {
+                if flags & wanted != 0 {
                     return if blocker == 0 || self.hit_within(blocker, key) { key } else { 0 };
                 } else if blocker == 0 && flags & BLOCKING != 0 {
                     blocker = key;
@@ -2305,7 +2321,10 @@ impl Ui {
     fn lift(&mut self) {
         if self.gesture_key != 0 {
             let key = self.gesture_key;
-            self.accumulator(key).scroll_lift = true;
+            let velocity = self.gesture_velocity;
+            let value = self.accumulator(key);
+            value.scroll_lift = true;
+            value.scroll_velocity = velocity;
         }
         self.gesture_key = 0;
     }
@@ -2343,290 +2362,297 @@ impl Ui {
             Event::TrackpadScrolled { delta: (dx, dy), .. } => *dx != 0.0 || *dy != 0.0,
             _ => false,
         });
-        for (event_index, event) in frame.input.events.iter().enumerate() {
-            input::update_keys(&mut modifiers, event);
-            let command = self.command_modifiers(&modifiers);
-            if let Event::KeyPressed(Key::Tab) = event {
-                if !command && self.flags_of_key(self.focus) & KEEP_TAB == 0 {
-                    self.traverse_focus(modifiers.contains(&Key::Shift));
-                }
-            }
-            let (owner, delta): (i64, (f64, f64)) = match event {
-                Event::PointerMoved(point) => {
-                    let owner = self.pointer_target(p32(*point));
-                    let delta = if self.pointer.0.is_finite() {
-                        (point.0 - self.pointer.0 as f64, point.1 - self.pointer.1 as f64)
-                    } else {
-                        (0.0, 0.0)
-                    };
-                    (owner, delta)
-                }
-                Event::Touch(t)=>(self.pointer_target(p32(t.point)),(0.0,0.0)),
-                Event::PointerPressed(_, point) | Event::PointerReleased(_, point) => {
-                    (self.pointer_target(p32(*point)), (0.0, 0.0))
-                }
-                Event::Scrolled(_) | Event::Pinched(_) => {
-                    let target = match self.active {
-                        Some(target) => target,
-                        None => {
-                            let scroll = self.scroll_target(self.pointer);
-                            let fallback = if scroll != 0 { scroll } else { self.topmost(self.pointer) };
-                            self.modal_target(fallback)
-                        }
-                    };
-                    (target, (0.0, 0.0))
-                }
-                Event::KeyPressed(Key::Tab) if !command => {
-                    (if self.focus == 0 { ROOT_KEY } else { self.focus }, (0.0, 0.0))
-                }
-                Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
-                    (self.focus, (0.0, 0.0))
-                }
-                _ => (0, (0.0, 0.0)),
-            };
-            self.routed_events.push((owner, event.clone(), delta));
-            match event {
-                Event::PointerMoved(point) => {
-                    let (px, py) = self.pointer;
-                    self.pointer = p32(*point);
-                    if let Some(active) = self.active {
-                        let (x, y) = self.pointer;
-                        let value = self.accumulator(active);
-                        if px.is_finite() {
-                            value.drag_x += x - px;
-                            value.drag_y += y - py;
-                        }
-                        value.moved = true;
+        for (event_index, original) in frame.input.events.iter().enumerate() {
+            let touch_owner = self.touch_owner(original);
+            let actions = self.touch_events(original);
+            for (step, event) in std::iter::once(original).chain(actions.iter().flatten()).enumerate() {
+                input::update_keys(&mut modifiers, event);
+                let command = self.command_modifiers(&modifiers);
+                if let Event::KeyPressed(Key::Tab) = event {
+                    if !command && self.flags_of_key(self.focus) & KEEP_TAB == 0 {
+                        self.traverse_focus(modifiers.contains(&Key::Shift));
                     }
                 }
-                // a carry started from a key: a left press is the put, on what is under it, and
-                // nothing else sees the press
-                Event::PointerPressed(MouseButton::LeftButton, point)
-                    if matches!(self.payload, Some((_, Origin::FromKey))) =>
-                {
-                    self.pointer = p32(*point);
-                    if let Some((payload, _)) = self.payload.take() {
-                        self.dropped = Some((payload, self.topmost(p32(*point))));
+                let (owner, delta): (i64, (f64, f64)) = match event {
+                    Event::PointerMoved(point) => {
+                        let owner = self.pointer_target(p32(*point));
+                        let delta = if self.pointer.0.is_finite() {
+                            (point.0 - self.pointer.0 as f64, point.1 - self.pointer.1 as f64)
+                        } else {
+                            (0.0, 0.0)
+                        };
+                        (owner, delta)
                     }
-                    if let Some(last) = self.routed_events.last_mut() {
-                        last.0 = -1;
+                    Event::Touch(t)=>(touch_owner.unwrap_or_else(|| self.pointer_target(p32(t.point))),(0.0,0.0)),
+                    Event::PointerPressed(_, point) | Event::PointerReleased(_, point) => {
+                        (self.pointer_target(p32(*point)), (0.0, 0.0))
                     }
-                }
-                Event::PointerPressed(button, point) => {
-                    self.pointer = p32(*point);
-                    let target = if owner == 0 || self.flags_of_key(owner) & CLICKABLE != 0 {
-                        owner
-                    } else {
-                        let mut found = None;
-                        self.hit_ancestors(owner, &mut |key| {
-                            if found.is_none() && self.flags_of_key(key) & CAPTURE_UNCLAIMED != 0 {
-                                found = Some(key);
+                    Event::Scrolled(_) | Event::Pinched(_) => {
+                        let target = match self.active {
+                            Some(target) => target,
+                            None => {
+                                let scroll = self.scroll_target(self.pointer);
+                                let fallback = if scroll != 0 { scroll } else { self.topmost(self.pointer) };
+                                self.modal_target(fallback)
                             }
-                        });
-                        found.unwrap_or(owner)
-                    };
-                    let mut chain = std::mem::take(&mut self.press_chain);
-                    chain.clear();
-                    self.hit_ancestors(target, &mut |key| chain.push(key));
-                    for &key in &chain {
-                        self.accumulator(key).subtree_press = Some(event_index as i64);
+                        };
+                        (target, (0.0, 0.0))
                     }
-                    self.press_chain = chain;
-                    let flags = self.flags_of_key(target);
-                    if *button == MouseButton::LeftButton {
-                        // the nearest focusable box at or around the press takes the focus unless
-                        // it is a Tab stop only (buttons, as on macOS); a list takes it from its rows
-                        let mut holder = 0;
-                        if flags & KEEP_FOCUS == 0 {
-                            self.hit_ancestors(target, &mut |key| {
-                                if holder == 0 && self.flags_of_key(key) & FOCUSABLE != 0 {
-                                    holder = key;
+                    Event::KeyPressed(Key::Tab) if !command => {
+                        (if self.focus == 0 { ROOT_KEY } else { self.focus }, (0.0, 0.0))
+                    }
+                    Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
+                        (self.focus, (0.0, 0.0))
+                    }
+                    _ => (0, (0.0, 0.0)),
+                };
+                if step == 0 { self.routed_events.push((owner, event.clone(), delta)); }
+                else { self.frame_events.push(event.clone()); }
+                match event {
+                    Event::PointerMoved(point) => {
+                        let (px, py) = self.pointer;
+                        self.pointer = p32(*point);
+                        if let Some(active) = self.active {
+                            let (x, y) = self.pointer;
+                            let value = self.accumulator(active);
+                            if px.is_finite() {
+                                value.drag_x += x - px;
+                                value.drag_y += y - py;
+                            }
+                            value.moved = true;
+                        }
+                    }
+                    // a carry started from a key: a left press is the put, on what is under it, and
+                    // nothing else sees the press
+                    Event::PointerPressed(MouseButton::LeftButton, point)
+                        if matches!(self.payload, Some((_, Origin::FromKey))) =>
+                    {
+                        self.pointer = p32(*point);
+                        if let Some((payload, _)) = self.payload.take() {
+                            self.dropped = Some((payload, self.topmost(p32(*point))));
+                        }
+                        if let Some(last) = self.routed_events.last_mut() {
+                            last.0 = -1;
+                        }
+                    }
+                    Event::PointerPressed(button, point) => {
+                        self.pointer = p32(*point);
+                        let target = if owner == 0 || self.flags_of_key(owner) & CLICKABLE != 0 {
+                            owner
+                        } else {
+                            let mut found = None;
+                            self.hit_ancestors(owner, &mut |key| {
+                                if found.is_none() && self.flags_of_key(key) & CAPTURE_UNCLAIMED != 0 {
+                                    found = Some(key);
                                 }
                             });
-                        }
-                        let focus = if flags & KEEP_FOCUS != 0 {
-                            self.focus
-                        } else if holder != 0 && self.flags_of_key(holder) & TAB_ONLY == 0 {
-                            holder
-                        } else {
-                            0
+                            found.unwrap_or(owner)
                         };
-                        if focus != self.focus {
-                            self.composition.clear();
-                            self.edit_focus = 0;
+                        let mut chain = std::mem::take(&mut self.press_chain);
+                        chain.clear();
+                        self.hit_ancestors(target, &mut |key| chain.push(key));
+                        for &key in &chain {
+                            self.accumulator(key).subtree_press = Some(event_index as i64);
                         }
-                        self.focus = focus;
-                        self.keyboard_focus = false;
-                    }
-                    if (target == 0 || flags & (CLICKABLE | CAPTURE_UNCLAIMED) != 0) && self.active.is_none() {
-                        self.active = Some(target);
-                        self.active_button = *button;
-                        self.active_press = self.pointer;
-                        self.active_keys.clone_from(&modifiers);
-                        let pointer = self.pointer;
-                        let value = self.accumulator(target);
-                        value.pressed = true;
-                        value.press_point = pointer;
-                        value.press_keys.clone_from(&modifiers);
-                        value.button = Some(*button);
-                        if let Some(slot) = self.table.find(target).filter(|s| *s < self.slots.len()) {
-                            if *button == MouseButton::LeftButton {
-                                let (x, y) = pointer;
-                                let s = &self.slots[slot];
-                                let dx = x - s.press_x;
-                                let dy = y - s.press_y;
-                                // the second press within 0.35 s and 5 points is a double click,
-                                // the third a triple; the fourth starts over
-                                let count = if frame.input.t >= s.press_time
-                                    && frame.input.t - s.press_time <= 0.35
-                                    && dx * dx + dy * dy <= 25.0
-                                    && s.press_count < 3
-                                {
-                                    s.press_count + 1
-                                } else {
-                                    1
-                                };
-                                let s = &mut self.slots[slot];
-                                s.press_count = count;
-                                s.press_time = frame.input.t;
-                                s.press_x = x;
-                                s.press_y = y;
-                                let value = self.accumulator(target);
-                                value.clicks = count;
-                                value.double_clicked = count == 2;
-                            }
-                        }
-                    }
-                }
-                Event::PointerReleased(button, point) => {
-                    self.pointer = p32(*point);
-                    if let Some(active) = self.active {
-                        if *button == self.active_button {
-                            let carried = matches!(&self.payload, Some((_, Origin::FromPointer(owner))) if *owner == active && *button == MouseButton::LeftButton);
-                            released_carry |= carried;
-                            let pointer = self.pointer;
-                            let active_press = self.active_press;
-                            let active_keys = std::mem::take(&mut self.active_keys);
-                            let index = self.hit_index(active);
-                            let clicked = !carried && self.carry_latch != Some(active) && *button == MouseButton::LeftButton
-                                && index.is_some_and(|i| self.hit_contains(i, pointer) && self.hit_contains(i, active_press));
-                            let value = self.accumulator(active);
-                            value.released = true;
-                            value.release_point = pointer;
-                            value.press_point = active_press;
-                            value.press_keys.clone_from(&active_keys);
-                            value.button = Some(*button);
-                            if clicked {
-                                value.clicked = true;
-                            }
-                            self.active_keys = active_keys;
-                            self.active = None;
-                        }
-                    }
-                }
-                Event::Scrolled((horizontal, vertical)) => {
-                    let scroll = self.scroll_target(self.pointer);
-                    let target = self.modal_target(scroll);
-                    if target != 0 {
-                        let value = self.accumulator(target);
-                        value.scroll_x += *horizontal as f32;
-                        value.scroll_y_steps += *vertical as f32;
-                        if !phased {
-                            value.scroll_wheel += *vertical as f32;
-                            value.scroll_wheel_x += *horizontal as f32;
-                        }
-                    }
-                }
-                // The fingers on a trackpad: the gesture stays with the box it began over, and the
-                // velocity it is released with is its last motion over the time since the one
-                // before. The system's own momentum is not used: the box coasts by itself.
-                Event::TrackpadScrolled { phase: ScrollPhase::Momentum, .. } => {}
-                Event::TrackpadScrolled { phase: ScrollPhase::Lifted, time, .. } => {
-                    // fingers that rested before they lifted leave the content where it is
-                    if time - self.gesture_time > 0.1 {
-                        self.gesture_velocity = (0.0, 0.0);
-                    }
-                    self.lift();
-                }
-                Event::TrackpadScrolled { delta: (horizontal, vertical), phase, time } => {
-                    if *phase == ScrollPhase::Touched || self.gesture_key == 0 {
-                        let scroll = self.scroll_target(self.pointer);
-                        self.gesture_key = self.modal_target(scroll);
-                        self.gesture_time = f64::NAN;
-                        self.gesture_velocity = (0.0, 0.0);
-                    }
-                    let dt = time - self.gesture_time;
-                    self.gesture_velocity = if dt > 0.0 { (-vertical / dt, -horizontal / dt) } else { (0.0, 0.0) };
-                    self.gesture_time = *time;
-                    if self.gesture_key != 0 {
-                        let key = self.gesture_key;
-                        let value = self.accumulator(key);
-                        if *phase == ScrollPhase::Touched {
-                            value.scroll_touch = true;
-                            value.scroll_lift = false;
-                        }
-                        value.scroll_drag += *vertical as f32;
-                        value.scroll_drag_x += *horizontal as f32;
-                    }
-                }
-                // a trackpad pinch goes where the wheel goes
-                Event::Pinched(scale) => {
-                    let scroll = self.scroll_target(self.pointer);
-                    let target = self.modal_target(scroll);
-                    if target != 0 {
-                        self.accumulator(target).pinch *= *scale;
-                    }
-                }
-                // Cancellation ends capture without a release: no click, no commit.
-                Event::PointerCancelled(button) => {
-                    if *button == self.active_button {
-                        self.active = None;
-                    }
-                    if let Some((_, Origin::FromPointer(_))) = &self.payload {
+                        self.press_chain = chain;
+                        let flags = self.flags_of_key(target);
                         if *button == MouseButton::LeftButton {
-                            self.retire_payload();
-                            released_carry = false;
-                        }
-                    }
-                }
-                Event::FocusLost => {
-                    self.gesture_velocity = (0.0, 0.0);
-                    self.lift();
-                    self.retire_payload();
-                    released_carry = false;
-                    self.active = None;
-                    self.focus = 0;
-                    self.hot = 0;
-                    self.composition.clear();
-                    self.edit_focus = 0;
-                    self.keyboard_focus = false;
-                }
-                Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
-                    if self.focus != 0 {
-                        let focus = self.focus;
-                        let mut mods = self.spare_modifiers.pop().unwrap_or_default();
-                        mods.clear();
-                        mods.extend_from_slice(&modifiers);
-                        let value = self.accumulator(focus);
-                        value.keys.push((event.clone(), mods));
-                        if let Event::KeyPressed(Key::Enter) | Event::KeyPressed(Key::Space) | Event::KeyPressed(Key::KeyChar(' ')) = event {
-                            if !command {
-                                value.clicked = true;
+                            // the nearest focusable box at or around the press takes the focus unless
+                            // it is a Tab stop only (buttons, as on macOS); a list takes it from its rows
+                            let mut holder = 0;
+                            if flags & KEEP_FOCUS == 0 {
+                                self.hit_ancestors(target, &mut |key| {
+                                    if holder == 0 && self.flags_of_key(key) & FOCUSABLE != 0 {
+                                        holder = key;
+                                    }
+                                });
                             }
-                        }
-                        match event {
-                            Event::TextEditing { text, .. } => self.composition = text.clone(),
-                            Event::TextInput(_) => self.composition.clear(),
-                            Event::KeyPressed(Key::Escape) if self.flags_of_key(self.focus) & TAB_ONLY != 0 => {
-                                self.focus = 0;
-                                self.keyboard_focus = false;
+                            let focus = if flags & KEEP_FOCUS != 0 {
+                                self.focus
+                            } else if holder != 0 && self.flags_of_key(holder) & TAB_ONLY == 0 {
+                                holder
+                            } else {
+                                0
+                            };
+                            if focus != self.focus {
+                                self.composition.clear();
                                 self.edit_focus = 0;
                             }
-                            _ => {}
+                            self.focus = focus;
+                            self.keyboard_focus = false;
+                        }
+                        if (target == 0 || flags & (CLICKABLE | CAPTURE_UNCLAIMED) != 0) && self.active.is_none() {
+                            self.active = Some(target);
+                            self.active_button = *button;
+                            self.active_press = self.pointer;
+                            self.active_keys.clone_from(&modifiers);
+                            let pointer = self.pointer;
+                            let value = self.accumulator(target);
+                            value.pressed = true;
+                            value.press_point = pointer;
+                            value.press_keys.clone_from(&modifiers);
+                            value.button = Some(*button);
+                            if let Some(slot) = self.table.find(target).filter(|s| *s < self.slots.len()) {
+                                if *button == MouseButton::LeftButton {
+                                    let (x, y) = pointer;
+                                    let s = &self.slots[slot];
+                                    let dx = x - s.press_x;
+                                    let dy = y - s.press_y;
+                                    // the second press within 0.35 s and 5 points is a double click,
+                                    // the third a triple; the fourth starts over
+                                    let count = if frame.input.t >= s.press_time
+                                        && frame.input.t - s.press_time <= 0.35
+                                        && dx * dx + dy * dy <= 25.0
+                                        && s.press_count < 3
+                                    {
+                                        s.press_count + 1
+                                    } else {
+                                        1
+                                    };
+                                    let s = &mut self.slots[slot];
+                                    s.press_count = count;
+                                    s.press_time = frame.input.t;
+                                    s.press_x = x;
+                                    s.press_y = y;
+                                    let value = self.accumulator(target);
+                                    value.clicks = count;
+                                    value.double_clicked = count == 2;
+                                }
+                            }
                         }
                     }
+                    Event::PointerReleased(button, point) => {
+                        self.pointer = p32(*point);
+                        if let Some(active) = self.active {
+                            if *button == self.active_button {
+                                let carried = matches!(&self.payload, Some((_, Origin::FromPointer(owner))) if *owner == active && *button == MouseButton::LeftButton);
+                                released_carry |= carried;
+                                let pointer = self.pointer;
+                                let active_press = self.active_press;
+                                let active_keys = std::mem::take(&mut self.active_keys);
+                                let index = self.hit_index(active);
+                                let clicked = !carried && self.carry_latch != Some(active) && *button == MouseButton::LeftButton
+                                    && index.is_some_and(|i| self.hit_contains(i, pointer) && self.hit_contains(i, active_press));
+                                let value = self.accumulator(active);
+                                value.released = true;
+                                value.release_point = pointer;
+                                value.press_point = active_press;
+                                value.press_keys.clone_from(&active_keys);
+                                value.button = Some(*button);
+                                if clicked {
+                                    value.clicked = true;
+                                }
+                                self.active_keys = active_keys;
+                                self.active = None;
+                            }
+                        }
+                    }
+                    Event::Scrolled((horizontal, vertical)) => {
+                        let scroll = self.scroll_target(self.pointer);
+                        let target = self.modal_target(scroll);
+                        if target != 0 {
+                            let value = self.accumulator(target);
+                            value.scroll_x += *horizontal as f32;
+                            value.scroll_y_steps += *vertical as f32;
+                            if !phased {
+                                value.scroll_wheel += *vertical as f32;
+                                value.scroll_wheel_x += *horizontal as f32;
+                            }
+                        }
+                    }
+                    // The fingers on a trackpad: the gesture stays with the box it began over, and the
+                    // velocity it is released with is its last motion over the time since the one
+                    // before. The system's own momentum is not used: the box coasts by itself.
+                    Event::TrackpadScrolled { phase: ScrollPhase::Momentum, .. } => {}
+                    Event::TrackpadScrolled { phase: ScrollPhase::Lifted, time, .. } => {
+                        // fingers that rested before they lifted leave the content where it is
+                        if time - self.gesture_time > 0.1 {
+                            self.gesture_velocity = (0.0, 0.0);
+                        }
+                        self.lift();
+                    }
+                    Event::TrackpadScrolled { delta: (horizontal, vertical), phase, time } => {
+                        if *phase == ScrollPhase::Touched || self.gesture_key == 0 {
+                            let scroll = self.scroll_target(self.pointer);
+                            self.gesture_key = self.modal_target(scroll);
+                            self.gesture_time = f64::NAN;
+                            self.gesture_velocity = (0.0, 0.0);
+                        }
+                        let dt = time - self.gesture_time;
+                        self.gesture_velocity = if dt > 0.0 { (-vertical / dt, -horizontal / dt) } else { (0.0, 0.0) };
+                        self.gesture_time = *time;
+                        if self.gesture_key != 0 {
+                            let key = self.gesture_key;
+                            let value = self.accumulator(key);
+                            if *phase == ScrollPhase::Touched {
+                                value.scroll_touch = true;
+                                value.scroll_lift = false;
+                                value.scroll_velocity = (0.0, 0.0);
+                                value.scroll_finger = false;
+                            }
+                            value.scroll_drag += *vertical as f32;
+                            value.scroll_drag_x += *horizontal as f32;
+                        }
+                    }
+                    // a trackpad pinch goes where the wheel goes
+                    Event::Pinched(scale) => {
+                        let scroll = self.scroll_target(self.pointer);
+                        let target = self.modal_target(scroll);
+                        if target != 0 {
+                            self.accumulator(target).pinch *= *scale;
+                        }
+                    }
+                    // Cancellation ends capture without a release: no click, no commit.
+                    Event::PointerCancelled(button) => {
+                        if *button == self.active_button {
+                            self.active = None;
+                        }
+                        if let Some((_, Origin::FromPointer(_))) = &self.payload {
+                            if *button == MouseButton::LeftButton {
+                                self.retire_payload();
+                                released_carry = false;
+                            }
+                        }
+                    }
+                    Event::FocusLost => {
+                        self.gesture_velocity = (0.0, 0.0);
+                        self.lift();
+                        self.retire_payload();
+                        released_carry = false;
+                        self.active = None;
+                        self.focus = 0;
+                        self.hot = 0;
+                        self.composition.clear();
+                        self.edit_focus = 0;
+                        self.keyboard_focus = false;
+                    }
+                    Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
+                        if self.focus != 0 {
+                            let focus = self.focus;
+                            let mut mods = self.spare_modifiers.pop().unwrap_or_default();
+                            mods.clear();
+                            mods.extend_from_slice(&modifiers);
+                            let value = self.accumulator(focus);
+                            value.keys.push((event.clone(), mods));
+                            if let Event::KeyPressed(Key::Enter) | Event::KeyPressed(Key::Space) | Event::KeyPressed(Key::KeyChar(' ')) = event {
+                                if !command {
+                                    value.clicked = true;
+                                }
+                            }
+                            match event {
+                                Event::TextEditing { text, .. } => self.composition = text.clone(),
+                                Event::TextInput(_) => self.composition.clear(),
+                                Event::KeyPressed(Key::Escape) if self.flags_of_key(self.focus) & TAB_ONLY != 0 => {
+                                    self.focus = 0;
+                                    self.keyboard_focus = false;
+                                    self.edit_focus = 0;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
         let (mouse_x, mouse_y) = p32(frame.input.pointer);
@@ -2709,6 +2735,7 @@ impl Ui {
     /// When the host closes a popup after accepting its result, release focus and capture. Its
     /// current frame remains consumed; next frame is unblocked.
     pub fn dismiss_popup(&mut self) {
+        self.cancel_touch_for_popup(None, &[]);
         if let Some(key) = self.modal_key {
             self.dismissed_popups.push(key);
             self.dismissed_popups.extend_from_slice(&self.modal_extra);
@@ -2782,6 +2809,11 @@ impl Ui {
                         dy += my;
                     } else if let Event::PointerReleased(button, _) = event {
                         events.push(Event::PointerCancelled(*button));
+                        complete = false;
+                    } else if let Event::Touch(t) = event {
+                        if matches!(t.phase, input::TouchPhase::Ended | input::TouchPhase::Cancelled) {
+                            events.push(Event::Touch(input::Touch { phase: input::TouchPhase::Cancelled, ..*t }));
+                        }
                         complete = false;
                     } else {
                         complete = false;
@@ -3150,7 +3182,7 @@ impl Ui {
     /// focused. A widget adds `checked` and `disabled`.
     pub fn node_state(&self, b: &Handle) -> State {
         let key = if self.live(b) { b.box_key } else { 0 };
-        State { hovered: key != 0 && self.hot == key, pressed: key != 0 && self.active == Some(key), focused: key != 0 && self.focus == key, ..State::default() }
+        State { hovered: key != 0 && self.hot == key && !self.touches.using_touch, pressed: key != 0 && self.active == Some(key), focused: key != 0 && self.focus == key, ..State::default() }
     }
 
     /// The handle names a slot this `Ui` has: the most a call that only indexes the slot (scroll, state, text) needs of it.
@@ -3290,7 +3322,7 @@ impl Ui {
         let slot = &self.slots[b.box_slot];
         match self.signals.get(&key).filter(|_| key != 0) {
             None => Signal {
-                hovered: key != 0 && self.hot == key,
+                hovered: key != 0 && self.hot == key && !self.touches.using_touch,
                 pressed: false,
                 subtree_press: None,
                 held,
@@ -3311,7 +3343,7 @@ impl Ui {
                 a11y_select: None,
             },
             Some(value) => Signal {
-                hovered: self.hot == key,
+                hovered: self.hot == key && !self.touches.using_touch,
                 pressed: value.pressed,
                 subtree_press: value.subtree_press,
                 held,
@@ -3412,7 +3444,7 @@ impl Ui {
 
     /// The box itself is the topmost under the pointer (none of its children are).
     pub fn hovered_exactly(&self, b: &UiBox) -> bool {
-        b.box_key != 0 && self.hot == b.box_key
+        b.box_key != 0 && self.hot == b.box_key && !self.touches.using_touch
     }
 
     /// The box or a hit descendant owns hover in the shared hit tree.
@@ -4037,7 +4069,10 @@ impl Ui {
             self.glides[ax][slot].frame_time = time;
             return;
         }
-        let release = if ax == 0 { self.gesture_velocity.0 } else { self.gesture_velocity.1 };
+        let (velocity, finger) = self.signals.get(&self.boxes[index].key)
+            .map_or(((0.0, 0.0), false), |v| (v.scroll_velocity, v.scroll_finger));
+        let release = if ax == 0 { velocity.0 } else { velocity.1 };
+        let minimum = if finger { SCROLL_FINGER_MIN_VELOCITY } else { SCROLL_MIN_VELOCITY };
         let release = if ax == 1 && self.dir == Direction::Rtl { -release } else { release };
         // any input catches a coast or a bounce where it is
         if touch || wheel != 0.0 || drag != 0.0 {
@@ -4058,17 +4093,18 @@ impl Ui {
         if lift {
             if self.glides[ax][slot].visual != 0.0 {
                 self.glides[ax][slot].event_time = f64::NEG_INFINITY;
-            } else if max_scroll > 0.0 && release.abs() >= SCROLL_MIN_VELOCITY {
+            } else if max_scroll > 0.0 && release.abs() >= minimum {
                 let from = *self.offset_mut(ax, slot) as f64;
                 let g = &mut self.glides[ax][slot];
-                (g.mode, g.velocity, g.start, g.from) = (1, release, time, from);
+                (g.mode, g.velocity, g.start, g.from) = (if finger { 3 } else { 1 }, release, time, from);
             }
         }
         if wheel == 0.0 && drag == 0.0 {
             let g = self.glides[ax][slot];
-            if g.mode == 1 {
+            if g.mode == 1 || g.mode == 3 {
+                let tau = if g.mode == 3 { SCROLL_FINGER_TAU } else { SCROLL_COAST_TAU };
                 // v(t) = v0 e^(-t/tau), so y(t) = y0 + v0 tau (1 - e^(-t/tau))
-                let at = |t: f64| g.from + g.velocity * SCROLL_COAST_TAU * (1.0 - (-t / SCROLL_COAST_TAU).exp());
+                let at = |t: f64| g.from + g.velocity * tau * (1.0 - (-t / tau).exp());
                 let t = 0.0f64.max(time - g.start);
                 let y = at(t);
                 if y < 0.0 || y > max_scroll {
@@ -4080,7 +4116,7 @@ impl Ui {
                         let mid = (early + late) / 2.0;
                         if (at(mid) - edge) * (y - edge) > 0.0 { late = mid } else { early = mid }
                     }
-                    let arrival = g.velocity * (-late / SCROLL_COAST_TAU).exp();
+                    let arrival = g.velocity * (-late / tau).exp();
                     *self.offset_mut(ax, slot) = edge as f32;
                     let g = &mut self.glides[ax][slot];
                     g.mode = 2;
@@ -4090,7 +4126,8 @@ impl Ui {
                     // on whole device pixels, so text is sharp where the coast ends
                     let density = self.density as f64;
                     *self.offset_mut(ax, slot) = ((y * density).round() / density) as f32;
-                    if (g.velocity * (-t / SCROLL_COAST_TAU).exp()).abs() < SCROLL_MIN_VELOCITY {
+                    let minimum = if g.mode == 3 { SCROLL_FINGER_MIN_VELOCITY } else { SCROLL_MIN_VELOCITY };
+                    if (g.velocity * (-t / tau).exp()).abs() < minimum {
                         self.glides[ax][slot].mode = 0;
                     }
                 }
@@ -4697,10 +4734,13 @@ const SCROLL_STIFFNESS: f64 = 0.55;
 const SCROLL_WHEEL_PAST: f64 = 0.05 / 0.55;
 const SCROLL_SPRING_TAU: f64 = 0.084;
 const SCROLL_COAST_TAU: f64 = 0.26;
+// v(t) = v0 * 0.998^(1000t), UIScrollView's normal millisecond decay.
+const SCROLL_FINGER_TAU: f64 = 0.499499833166455;
 const SCROLL_BOUNCE_A: f64 = 9.25;
 const SCROLL_BOUNCE_B: f64 = 19.0;
 const SCROLL_BOUNCE_LAUNCH: f64 = 0.39;
 const SCROLL_MIN_VELOCITY: f64 = 20.0;
+const SCROLL_FINGER_MIN_VELOCITY: f64 = 5.0;
 
 fn scroll_stretch(travel: f64, height: f64) -> f64 {
     if height <= 0.0 {
@@ -5974,7 +6014,7 @@ impl Ui {
             Some(frame) => frame.input.t,
             None => 0.0,
         };
-        if self.active.is_some() || self.modal_in_frame || self.frame_events.iter().any(|e| matches!(e, Event::FocusLost)) {
+        if self.touches.using_touch || self.active.is_some() || self.modal_in_frame || self.frame_events.iter().any(|e| matches!(e, Event::FocusLost)) {
             self.hover_rest = None;
             return false;
         }
@@ -6872,7 +6912,7 @@ impl Ui {
         let drag_free = |ui: &Ui, key: i64| ui.active == Some(key) && ui.table.find(key).and_then(|slot| ui.slots.get(slot)).is_some_and(|s| s.node.flags & DRAG_FREE != 0);
         marks.extend(self.signals.iter().filter(|(k, a)| !(drag_free(self, **k) && !a.pressed && !a.released && !a.clicked && a.keys.is_empty())).map(|(k, _)| *k));
         let (hot, focus, keyboard, carrying) = self.seen;
-        let mut now = (self.hot, self.focus, self.keyboard_focus, self.payload.is_some());
+        let mut now = (if self.touches.using_touch { 0 } else { self.hot }, self.focus, self.keyboard_focus, self.payload.is_some());
         // while a drag-free node holds the capture the pointer's hover waits: the views it passed
         // over follow it when the drag ends
         if self.active.is_some_and(|k| drag_free(self, k)) {
@@ -7585,6 +7625,7 @@ impl Ui {
 
     /// A popup keeps only the signals, capture and focus that belong to it.
     pub(crate) fn retain_popup_state(&mut self, key: i64, related: &[i64]) {
+        self.cancel_touch_for_popup(Some(key), related);
         let mut signals = std::mem::take(&mut self.signals);
         let mut spare_signals = std::mem::take(&mut self.spare_signals);
         let mut spare_modifiers = std::mem::take(&mut self.spare_modifiers);

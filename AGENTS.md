@@ -330,6 +330,16 @@ Reject invalid payloads before mutating frame state/output in both entry points.
 SDL trace, adjacent same-finger coalescing and static/dynamic 182/82/100 allocation regressions.
 Touch transport coverage does not qualify widget gesture arbitration or real-device feel.
 
+Widget touch arbitration lives in pxui_core::ui_core::touch, never in applications. Retain the
+fixed 16-contact bound, 8-point axis lock, 10-point slop, per-scroll release velocity, normal finger
+decay and independent trackpad physics. Captures move to scroll ancestors before virtual rows
+retire. Catching a coast must not click; modal/focus/stale-owner/multitouch/mouse cancellation
+must not release or commit a control. Internal pointer actions feed existing widgets and popup
+dismissal, while routed viewports receive typed touches only. Suppress hover while using touch.
+pxui_sdl disables both SDL mouse/touch emulation hints. Preserve core physics/cancellation checks,
+static/dynamic 10,000-row allocation checks and the optional PXUI_IOS_TOUCH_CHECK SDL/Metal probe.
+Synthetic simulator input does not qualify hardware feel, long press, edge navigation or refresh.
+
 The scoped iOS loop delivers Signal::Control for inactive worker wakes and explicit deadlines.
 Keep the display link paused and all Metal drawing disabled in these callbacks. NextFrame defers
 drawing until foreground; WaitUntil uses the existing dispatch timer without idle polling. Retain

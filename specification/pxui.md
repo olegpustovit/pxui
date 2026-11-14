@@ -278,6 +278,18 @@ direction. A `SCROLL_X` box moves sideways by the same model on its own axis (th
 horizontal steps, the fingers' sideways travel, stretch, spring-back, coast and bounce; right to
 left the content follows the fingers mirrored). The scrollbar shows the bounded offset.
 
+Typed Touch contacts use the same widget capture and elastic scroll mechanism. Inside scrolling
+content, a pending tap commits on release within 10 points; axis choice locks after 8 points.
+Scrolling retains its ancestor key, so retiring virtual rows cannot cancel it. A touch catches
+coasting without clicking a row. Finger coasts use `v(t)=v0*0.998^(1000t)` and stop below 5 pt/s;
+trackpad constants above remain unchanged. The last source samples determine release velocity;
+resting for over 100 ms or cancellation leaves no fling. A held overscroll requests no frames.
+Pointer widgets outside scroll containers retain immediate press/drag/release behavior. Extra
+contacts, focus/modal changes, stale owners and mouse takeover cancel without release/commit.
+Storage is bounded to 16 contacts; overflow cancels recognition until focus resets. Original typed
+contacts, not internally synthesized pointer actions, pass to nested viewports. Long press, pinch,
+interactive navigation, refresh and exact device calibration remain separate work.
+
 A `Ui` handle asks for its theme's `panel` colour as the window ground
 (`PlatformOut.background`, applied with `Sketch.set_window_background`) on its
 first frame and when the theme changes:
