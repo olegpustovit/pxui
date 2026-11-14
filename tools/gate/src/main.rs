@@ -1088,24 +1088,31 @@ fn ogpu_selection_errors(
                             && dependency.target.as_deref().and_then(target_platform).is_none_or(|target| target == platform)
                     })
                 }).map(String::as_str).collect();
-                let reaches_ogpu = selected.iter().any(|dependency| {
+                let reaches_ogpu = selected.contains(&"pxui_host") || selected.iter().any(|dependency| {
                     *dependency == "ogpu_core" || dependency_path(dependency, "ogpu_core", graph).is_some()
                 });
                 if !reaches_ogpu {
                     continue;
                 }
+                let hosted = selected.contains(&"pxui_host") && packages.iter().any(|host| {
+                    host.crate_name == "pxui_host" && host.deps.iter().filter(|dependency| {
+                        dependency.kind == "dependencies" && !dependency.optional
+                            && dependency.package.as_deref().unwrap_or(&dependency.alias).replace('-', "_") == native
+                            && dependency.target.as_deref().and_then(target_platform) == Some(platform)
+                    }).count() == 1
+                });
                 let native_count = declarations.iter().filter(|dependency| {
                     dependency.package.as_deref().unwrap_or(&dependency.alias).replace('-', "_") == native
                         && !dependency.optional
                         && dependency.target.as_deref().and_then(target_platform) == Some(platform)
-                }).count() + usize::from(tests && package.crate_name == native);
+                }).count() + usize::from(tests && package.crate_name == native) + usize::from(hosted);
                 let mock = selected.contains(&"ogpu_mock") || (tests && package.crate_name == "ogpu_mock");
                 if native_count <= 1 && (native_count == 1 || (tests && mock)) && (tests || !mock) {
                     continue;
                 }
                 let role = if tests { "GPU/window tests or dev executable" } else { "native executable" };
                 errors.push(format!(
-                    "{path}: {role} {} must select one nonoptional {native} {}on {platform}{}",
+                    "{path}: {role} {} must select one nonoptional {native} {}or pxui_host owning it on {platform}{}",
                     package.crate_name,
                     if tests { "" } else { "normal dependency " },
                     if tests { " (mock may also be selected)" } else { "" },
@@ -1830,6 +1837,47 @@ mod tier_tests {
         assert!(feature_reaches_package("[\"dep:pxui_abi_link\"]", "pxui_abi", &[dep.clone()]));
         assert!(!feature_reaches_package("[\"dep:pxui_abi_link\"]", "pxui_core", &[dep.clone()]));
         assert!(!feature_reaches_package("[\"dep:pxui_abi\"]", "pxui_abi", &[dep]));
+    }
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::{ogpu_selection_errors, DepSpec, Package};
+    use std::{collections::HashMap, path::Path};
+
+    #[test]
+    fn framework_host_owns_one_required_native_backend() {
+        let dependency = |name: &str| DepSpec { alias: name.into(), kind: "dependencies".into(),
+            target: Some("cfg(target_vendor = \"apple\")".into()), ..DepSpec::default() };
+        let package = |name: &str, deps| Package { manifest: format!("/sdk/{name}/Cargo.toml").into(),
+            package_name: name.into(), crate_name: name.into(), product: false, external: false,
+            deps, has_binary: name == "probe", has_gpu_dev_targets: false };
+        let graph: HashMap<String, Vec<String>> = [
+            ("probe", vec!["pxui_host", "ogpu_core"]),
+            ("pxui_host", vec!["ogpu_metal"]), ("ogpu_metal", vec!["ogpu_core"]),
+        ].into_iter().map(|(name, deps)| (name.into(), deps.into_iter().map(String::from).collect())).collect();
+        let mut packages = vec![
+            package("probe", vec![dependency("pxui_host"), dependency("ogpu_core")]),
+            package("pxui_host", vec![dependency("ogpu_metal")]),
+        ];
+        let valid = |packages: &[Package]| ogpu_selection_errors(packages, &graph, &graph, Path::new("/sdk")).is_empty();
+        assert!(valid(&packages));
+        packages[0].deps[0].kind = "dev-dependencies".into();
+        assert!(!valid(&packages), "a dev host cannot satisfy production startup");
+        packages[0].deps[0].kind = "dependencies".into();
+        packages[0].deps.push(dependency("ogpu_metal"));
+        assert!(!valid(&packages), "host and app cannot both select the backend");
+        packages[0].deps.pop();
+        packages[1].deps[0].optional = true;
+        assert!(!valid(&packages), "host backend must be required");
+        packages[1].deps[0].optional = false;
+        packages[1].deps[0].kind = "dev-dependencies".into();
+        assert!(!valid(&packages), "host backend must be a normal dependency");
+        packages[1].deps[0].kind = "dependencies".into();
+        packages[1].deps[0].target = Some("cfg(windows)".into());
+        assert!(!valid(&packages), "host backend must cover the app platform");
+        packages[1].deps.clear();
+        assert!(!valid(&packages), "missing host backend must fail");
     }
 }
 

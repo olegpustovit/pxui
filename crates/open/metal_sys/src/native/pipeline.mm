@@ -114,14 +114,16 @@ static bool copy_bindings(NSArray<id<MTLBinding>> *source,
     id<MTLBinding> binding = source[index];
     if (binding.name == nil || binding.name.UTF8String == nullptr) {
       free_pipeline_bindings(bindings, index);
-      return rays_metal_set_error(message, "Metal returned an invalid reflected binding");
+      rays_metal_set_error(message, "Metal returned an invalid reflected binding");
+      return false;
     }
     const char *utf8 = binding.name.UTF8String;
     const size_t name_length = std::strlen(utf8);
     bindings[index].name = new (std::nothrow) char[name_length + 1];
     if (bindings[index].name == nullptr) {
       free_pipeline_bindings(bindings, index);
-      return rays_metal_set_error(message, "unable to copy Metal reflection binding name");
+      rays_metal_set_error(message, "unable to copy Metal reflection binding name");
+      return false;
     }
     std::memcpy(bindings[index].name, utf8, name_length + 1);
     bindings[index].binding_type = static_cast<int32_t>(binding.type);
@@ -135,7 +137,8 @@ static bool copy_bindings(NSArray<id<MTLBinding>> *source,
       if (value.bufferAlignment > static_cast<NSUInteger>(std::numeric_limits<int64_t>::max()) ||
           value.bufferDataSize > static_cast<NSUInteger>(std::numeric_limits<int64_t>::max())) {
         free_pipeline_bindings(bindings, index + 1);
-        return rays_metal_set_error(message, "Metal buffer reflection exceeds signed bounds");
+        rays_metal_set_error(message, "Metal buffer reflection exceeds signed bounds");
+        return false;
       }
       bindings[index].buffer_alignment = static_cast<int64_t>(value.bufferAlignment);
       bindings[index].buffer_data_size = static_cast<int64_t>(value.bufferDataSize);
@@ -147,7 +150,8 @@ static bool copy_bindings(NSArray<id<MTLBinding>> *source,
       if (value.threadgroupMemoryAlignment > static_cast<NSUInteger>(std::numeric_limits<int64_t>::max()) ||
           value.threadgroupMemoryDataSize > static_cast<NSUInteger>(std::numeric_limits<int64_t>::max())) {
         free_pipeline_bindings(bindings, index + 1);
-        return rays_metal_set_error(message, "Metal threadgroup reflection exceeds signed bounds");
+        rays_metal_set_error(message, "Metal threadgroup reflection exceeds signed bounds");
+        return false;
       }
       bindings[index].threadgroup_alignment = static_cast<int64_t>(value.threadgroupMemoryAlignment);
       bindings[index].threadgroup_data_size = static_cast<int64_t>(value.threadgroupMemoryDataSize);
@@ -157,7 +161,8 @@ static bool copy_bindings(NSArray<id<MTLBinding>> *source,
       id<MTLTextureBinding> value = (id<MTLTextureBinding>)binding;
       if (value.arrayLength > static_cast<NSUInteger>(std::numeric_limits<int64_t>::max())) {
         free_pipeline_bindings(bindings, index + 1);
-        return rays_metal_set_error(message, "Metal texture reflection exceeds signed bounds");
+        rays_metal_set_error(message, "Metal texture reflection exceeds signed bounds");
+        return false;
       }
       bindings[index].texture_type = static_cast<int32_t>(value.textureType);
       bindings[index].texture_data_type = static_cast<int32_t>(value.textureDataType);
@@ -174,7 +179,8 @@ static bool copy_bindings(NSArray<id<MTLBinding>> *source,
         if (value.objectPayloadAlignment > static_cast<NSUInteger>(std::numeric_limits<int64_t>::max()) ||
             value.objectPayloadDataSize > static_cast<NSUInteger>(std::numeric_limits<int64_t>::max())) {
           free_pipeline_bindings(bindings, index + 1);
-          return rays_metal_set_error(message, "Metal object-payload reflection exceeds signed bounds");
+          rays_metal_set_error(message, "Metal object-payload reflection exceeds signed bounds");
+          return false;
         }
         bindings[index].object_alignment = static_cast<int64_t>(value.objectPayloadAlignment);
         bindings[index].object_data_size = static_cast<int64_t>(value.objectPayloadDataSize);
@@ -264,8 +270,101 @@ extern "C" int32_t rays_metal_compute_pipeline_create_descriptor(
   }
 }
 
+extern "C" int32_t rays_metal_device_create_render_pipeline(
+    MetalHandle *device_handle, MetalHandle *library_handle,
+    const char *raw_label, const char *raw_vertex, const char *raw_fragment,
+    uint8_t reflection, uint64_t raw_sample_count,
+    const RaysMetalColorAttachment *attachments, size_t attachment_count,
+    int32_t raw_topology, uint8_t support_indirect_commands,
+    MetalHandle **output, RaysMetalPipelineBinding **vertex, size_t *vertex_count,
+    RaysMetalPipelineBinding **fragment, size_t *fragment_count, const char **message) {
+  if (message) *message = nullptr;
+  if (output) *output = nullptr;
+  if (vertex) *vertex = nullptr;
+  if (vertex_count) *vertex_count = 0;
+  if (fragment) *fragment = nullptr;
+  if (fragment_count) *fragment_count = 0;
+  if (device_handle == nullptr || library_handle == nullptr || raw_vertex == nullptr ||
+      output == nullptr || vertex == nullptr || vertex_count == nullptr ||
+      fragment == nullptr || fragment_count == nullptr || attachment_count > 8 ||
+      (attachment_count != 0 && attachments == nullptr) || raw_sample_count == 0 ||
+      raw_sample_count > std::numeric_limits<NSUInteger>::max())
+    return rays_metal_set_error(message, "invalid Metal render-pipeline arguments");
+  @try { @autoreleasepool {
+    id<MTLDevice> device = (__bridge id<MTLDevice>)rays_metal_handle_object(device_handle, KIND_DEVICE);
+    id<MTLLibrary> library = (__bridge id<MTLLibrary>)rays_metal_handle_object(library_handle, KIND_LIBRARY);
+    if (device == nil || library == nil || device.registryID != library.device.registryID)
+      return rays_metal_set_error(message, "invalid or incompatible Metal device/library");
+    NSString *label = raw_label == nullptr ? nil : [NSString stringWithUTF8String:raw_label];
+    NSString *vertex_name = [NSString stringWithUTF8String:raw_vertex];
+    NSString *fragment_name = raw_fragment == nullptr ? nil : [NSString stringWithUTF8String:raw_fragment];
+    if ((raw_label != nullptr && label == nil) || vertex_name == nil ||
+        (raw_fragment != nullptr && fragment_name == nil))
+      return rays_metal_set_error(message, "Metal render-pipeline strings are not valid UTF-8");
+    int32_t function_status = 0;
+    id<MTLFunction> vertex_function = checked_render_function(library, vertex_name, MTLFunctionTypeVertex, "vertex", &function_status, message);
+    if (vertex_function == nil) return function_status;
+    id<MTLFunction> fragment_function = nil;
+    if (fragment_name != nil) {
+      fragment_function = checked_render_function(library, fragment_name, MTLFunctionTypeFragment, "fragment", &function_status, message);
+      if (fragment_function == nil) return function_status;
+    }
+    MTLRenderPipelineDescriptor *descriptor = [[MTLRenderPipelineDescriptor alloc] init];
+    descriptor.label = label;
+    descriptor.vertexFunction = vertex_function;
+    descriptor.fragmentFunction = fragment_function;
+    descriptor.rasterSampleCount = static_cast<NSUInteger>(raw_sample_count);
+    descriptor.rasterizationEnabled = true;
+    descriptor.inputPrimitiveTopology = static_cast<MTLPrimitiveTopologyClass>(raw_topology);
+    descriptor.supportIndirectCommandBuffers = support_indirect_commands != 0;
+    for (NSUInteger index = 0; index < attachment_count; ++index) {
+      const RaysMetalColorAttachment &source = attachments[index];
+      MTLRenderPipelineColorAttachmentDescriptor *attachment = descriptor.colorAttachments[index];
+      attachment.pixelFormat = static_cast<MTLPixelFormat>(source.pixel_format);
+      attachment.blendingEnabled = source.blending_state != 0;
+      attachment.sourceRGBBlendFactor = static_cast<MTLBlendFactor>(source.source_rgb_blend_factor);
+      attachment.destinationRGBBlendFactor = static_cast<MTLBlendFactor>(source.destination_rgb_blend_factor);
+      attachment.rgbBlendOperation = static_cast<MTLBlendOperation>(source.rgb_blend_operation);
+      attachment.sourceAlphaBlendFactor = static_cast<MTLBlendFactor>(source.source_alpha_blend_factor);
+      attachment.destinationAlphaBlendFactor = static_cast<MTLBlendFactor>(source.destination_alpha_blend_factor);
+      attachment.alphaBlendOperation = static_cast<MTLBlendOperation>(source.alpha_blend_operation);
+      attachment.writeMask = static_cast<MTLColorWriteMask>(source.write_mask);
+    }
+    NSError *error = nil;
+    MTLRenderPipelineReflection *details = nil;
+    MTLPipelineOption options = reflection ? MTLPipelineOptionBindingInfo | MTLPipelineOptionBufferTypeInfo : MTLPipelineOptionNone;
+    id<MTLRenderPipelineState> pipeline = [device newRenderPipelineStateWithDescriptor:descriptor options:options reflection:&details error:&error];
+    if (pipeline == nil)
+      return rays_metal_set_error(message, error.localizedDescription.UTF8String ?: "Metal render-pipeline compilation failed without NSError");
+    if (pipeline.device.registryID != device.registryID ||
+        ((label == nil) != (pipeline.label == nil)) || (label != nil && ![pipeline.label isEqualToString:label]) ||
+        (reflection && details == nil))
+      return rays_metal_set_error(message, "Metal changed checked render-pipeline properties");
+    if (reflection && (!copy_bindings(details.vertexBindings, vertex, vertex_count, message) ||
+                       !copy_bindings(details.fragmentBindings, fragment, fragment_count, message))) {
+      free_pipeline_bindings(*vertex, *vertex_count); *vertex = nullptr; *vertex_count = 0;
+      free_pipeline_bindings(*fragment, *fragment_count); *fragment = nullptr; *fragment_count = 0;
+      return 1;
+    }
+    *output = rays_metal_handle_new((__bridge void *)pipeline, KIND_RENDER_PIPELINE);
+    if (*output) return 0;
+    free_pipeline_bindings(*vertex, *vertex_count); *vertex = nullptr; *vertex_count = 0;
+    free_pipeline_bindings(*fragment, *fragment_count); *fragment = nullptr; *fragment_count = 0;
+    return rays_metal_set_error(message, "unable to retain Metal render pipeline");
+  } } @catch (NSException *exception) {
+    free_pipeline_bindings(*vertex, *vertex_count); *vertex = nullptr; *vertex_count = 0;
+    free_pipeline_bindings(*fragment, *fragment_count); *fragment = nullptr; *fragment_count = 0;
+    return rays_metal_set_error(message, exception.reason.UTF8String);
+  }
+}
+
 extern "C" int32_t rays_metal_compiler_create(
     MetalHandle *device_handle, MetalHandle **output, const char **message) {
+#if TARGET_OS_SIMULATOR
+    (void)device_handle;
+    if (output) *output = nullptr;
+    return rays_metal_set_unavailable(message, "Metal 4 is unavailable in the simulator");
+#else
   if (message) *message = nullptr;
   if (output) *output = nullptr;
   if (device_handle == nullptr || output == nullptr)
@@ -275,7 +374,7 @@ extern "C" int32_t rays_metal_compiler_create(
       id<MTLDevice> device = (__bridge id<MTLDevice>)
           rays_metal_handle_object(device_handle, KIND_DEVICE);
       if (device == nil) return rays_metal_set_error(message, "invalid Metal device handle");
-      if (@available(macOS 26.0, *)) {
+      if (@available(macOS 26.0, iOS 26.0, *)) {
         if (![device supportsFamily:MTLGPUFamilyMetal4])
           return rays_metal_set_unavailable(message, "Metal 4 compilers are unsupported by this device");
         MTL4CompilerDescriptor *descriptor = [[MTL4CompilerDescriptor alloc] init];
@@ -293,6 +392,7 @@ extern "C" int32_t rays_metal_compiler_create(
   } @catch (NSException *exception) {
     return rays_metal_set_error(message, exception.reason.UTF8String);
   }
+#endif
 }
 
 extern "C" int32_t rays_metal_compiler_create_render_pipeline(
@@ -302,6 +402,14 @@ extern "C" int32_t rays_metal_compiler_create_render_pipeline(
     const RaysMetalColorAttachment *attachments, size_t attachment_count,
     int32_t raw_topology, uint8_t support_indirect_commands,
     MetalHandle **output, const char **message) {
+#if TARGET_OS_SIMULATOR
+    (void)compiler_handle; (void)library_handle; (void)raw_label;
+    (void)raw_vertex; (void)raw_fragment; (void)attachments; (void)attachment_count;
+    (void)raw_topology; (void)raw_sample_count;
+    (void)support_indirect_commands; (void)reflection;
+    if (output) *output = nullptr;
+    return rays_metal_set_unavailable(message, "Metal 4 is unavailable in the simulator");
+#else
   if (message) *message = nullptr;
   if (output) *output = nullptr;
   if (compiler_handle == nullptr || library_handle == nullptr || raw_vertex == nullptr ||
@@ -317,7 +425,7 @@ extern "C" int32_t rays_metal_compiler_create_render_pipeline(
       if (compiler == nil || library == nil ||
           compiler.device.registryID != library.device.registryID)
         return rays_metal_set_error(message, "invalid or incompatible Metal compiler/library");
-      if (@available(macOS 26.0, *)) {
+      if (@available(macOS 26.0, iOS 26.0, *)) {
         NSString *label = raw_label == nullptr ? nil : [NSString stringWithUTF8String:raw_label];
         NSString *vertex_name = [NSString stringWithUTF8String:raw_vertex];
         NSString *fragment_name = raw_fragment == nullptr ? nil : [NSString stringWithUTF8String:raw_fragment];
@@ -386,12 +494,21 @@ extern "C" int32_t rays_metal_compiler_create_render_pipeline(
   } @catch (NSException *exception) {
     return rays_metal_set_error(message, exception.reason.UTF8String);
   }
+#endif
 }
 
 extern "C" int32_t rays_metal_render_pipeline_reflection(
     MetalHandle *pipeline_handle, RaysMetalPipelineBinding **vertex,
     size_t *vertex_count, RaysMetalPipelineBinding **fragment,
     size_t *fragment_count, const char **message) {
+#if TARGET_OS_SIMULATOR
+    (void)pipeline_handle;
+    if (vertex) *vertex = nullptr;
+    if (vertex_count) *vertex_count = 0;
+    if (fragment) *fragment = nullptr;
+    if (fragment_count) *fragment_count = 0;
+    return rays_metal_set_unavailable(message, "Metal 4 is unavailable in the simulator");
+#else
   if (message) *message = nullptr;
   if (vertex) *vertex = nullptr;
   if (vertex_count) *vertex_count = 0;
@@ -404,7 +521,7 @@ extern "C" int32_t rays_metal_render_pipeline_reflection(
     @autoreleasepool {
       id<MTLRenderPipelineState> pipeline = (__bridge id<MTLRenderPipelineState>)
           rays_metal_handle_object(pipeline_handle, KIND_RENDER_PIPELINE);
-      if (@available(macOS 26.0, *)) {
+      if (@available(macOS 26.0, iOS 26.0, *)) {
         if (pipeline == nil || pipeline.reflection == nil)
           return rays_metal_set_error(message, "render pipeline has no requested reflection");
         if (!copy_bindings(pipeline.reflection.vertexBindings, vertex, vertex_count, message)) return 1;
@@ -431,6 +548,7 @@ extern "C" int32_t rays_metal_render_pipeline_reflection(
     }
     return rays_metal_set_error(message, exception.reason.UTF8String);
   }
+#endif
 }
 
 extern "C" void rays_metal_pipeline_reflection_free(

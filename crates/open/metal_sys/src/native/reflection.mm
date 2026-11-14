@@ -63,9 +63,11 @@ static MTLType *member_type(MTLStructMember *member) {
   MTLType *type = member.arrayType;
   if (type == nil) type = member.pointerType;
   if (type == nil) type = member.structType;
-  if (@available(macOS 26.0, *)) {
+#if !TARGET_OS_SIMULATOR
+  if (@available(macOS 26.0, iOS 26.0, *)) {
     if (type == nil) type = member.tensorReferenceType;
   }
+#endif
   if (type == nil) type = member.textureReferenceType;
   return type;
 }
@@ -74,9 +76,11 @@ static MTLType *array_element_type(MTLArrayType *array) {
   MTLType *type = array.elementArrayType;
   if (type == nil) type = array.elementPointerType;
   if (type == nil) type = array.elementStructType;
-  if (@available(macOS 26.0, *)) {
+#if !TARGET_OS_SIMULATOR
+  if (@available(macOS 26.0, iOS 26.0, *)) {
     if (type == nil) type = array.elementTensorReferenceType;
   }
+#endif
   if (type == nil) type = array.elementTextureReferenceType;
   return type;
 }
@@ -172,7 +176,9 @@ static bool copy_type(MTLType *source, size_t depth, size_t *remaining_members,
     node->access = static_cast<int64_t>(texture.access);
     node->texture_type = static_cast<int64_t>(texture.textureType);
     node->depth = texture.isDepthTexture ? 1 : 0;
-  } else if (@available(macOS 26.0, *)) {
+  }
+#if !TARGET_OS_SIMULATOR
+  else if (@available(macOS 26.0, iOS 26.0, *)) {
     if ([source isKindOfClass:[MTLTensorReferenceType class]]) {
       MTLTensorReferenceType *tensor = (MTLTensorReferenceType *)source;
       node->kind = 5;
@@ -201,7 +207,9 @@ static bool copy_type(MTLType *source, size_t depth, size_t *remaining_members,
     } else {
       node->kind = 0;
     }
-  } else {
+  }
+#endif
+  else {
     node->kind = 0;
   }
   *output = node.release();

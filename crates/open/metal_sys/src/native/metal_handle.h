@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <TargetConditionals.h>
 
 struct MetalHandle;
 

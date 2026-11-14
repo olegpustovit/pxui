@@ -56,7 +56,7 @@ extern "C" int32_t rays_metal_sampler_create(MetalHandle *device_handle,
     descriptor.lodMinClamp = s->lod_min; descriptor.lodMaxClamp = s->lod_max;
     descriptor.lodAverage = s->lod_average != 0;
     descriptor.compareFunction = static_cast<MTLCompareFunction>(s->compare_function);
-    if (@available(macOS 26.0, *)) { descriptor.reductionMode = static_cast<MTLSamplerReductionMode>(s->reduction_mode); descriptor.lodBias = s->lod_bias; }
+    if (@available(macOS 26.0, iOS 26.0, *)) { descriptor.reductionMode = static_cast<MTLSamplerReductionMode>(s->reduction_mode); descriptor.lodBias = s->lod_bias; }
     if (@available(macOS 13.0, *)) descriptor.supportArgumentBuffers = s->support_argument_buffers != 0;
     else if (s->support_argument_buffers) return rays_metal_set_unavailable(message, "sampler argument-buffer support requires macOS 13 or newer");
     NSString *label = raw_label ? [NSString stringWithUTF8String:raw_label] : nil;

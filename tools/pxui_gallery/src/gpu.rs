@@ -37,7 +37,7 @@ pub struct Gpu {
 impl Gpu {
     /// Open the platform backend's device.
     pub fn open() -> Result<Gpu, String> {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         ogpu_core::impl_::select(ogpu_metal::impl_::implementation());
         #[cfg(any(windows, target_os = "linux"))]
         ogpu_core::impl_::select(ogpu_core::impl_::Impl {

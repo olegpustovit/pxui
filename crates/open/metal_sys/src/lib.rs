@@ -1,6 +1,7 @@
-#![cfg(target_os = "macos")]
+#![cfg(any(target_os = "macos", target_os = "ios"))]
 
 pub mod frames;
+pub mod uploads;
 
 use std::ffi::{c_char, CStr};
 use std::ptr::NonNull;

@@ -132,6 +132,23 @@ impl Drop for RenderPipelineInner {
 #[derive(Clone)]
 pub struct RenderPipeline(Arc<RenderPipelineInner>);
 impl RenderPipeline {
+    /// Standard Metal pipeline creation, including reflection on systems without Metal 4.
+    pub fn create(device: &Device, library: &Library, profile: &AdmittedRenderPipeline) -> Result<Self, Error> {
+        const OP: &str = "Metal.RenderPipeline.create";
+        enter_main(OP)?;
+        device.ensure_live(OP)?;
+        library.lifetime().ensure_live(OP)?;
+        if !device.same(library.device()) { return Err(error(OP, ErrorKind::CrossDevice, "device and library belong to different devices")); }
+        if !profile.admitted_for(&device.capabilities()?) { return Err(error(OP, ErrorKind::CrossDevice, "pipeline was admitted for different device capabilities")); }
+        let (raw, reflection) = metal_sys::native::pipeline::create_device_render_pipeline(device.raw(), library.raw(), profile)
+            .map_err(|failure| sys_error(OP, failure))?;
+        device.attach_child(OP)?;
+        Ok(Self(Arc::new(RenderPipelineInner {
+            raw, lifetime: Lifetime::new(), device: device.clone(), reflection: profile.options().reflection.then(|| map_reflection(reflection)),
+            device_attached: AtomicBool::new(true),
+        })))
+    }
+
     pub fn supports_indirect_command_buffers(&self) -> Result<bool, Error> {
         const OP: &str = "Metal.RenderPipeline.supports_indirect_command_buffers";
         self.0.lifetime.ensure_live(OP)?;

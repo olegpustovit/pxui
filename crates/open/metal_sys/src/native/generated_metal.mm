@@ -27,26 +27,46 @@ static MetalHandle *make_handle(id object, uint32_t kind) { return object == nil
 static id checked_object(MetalHandle *handle, uint32_t kind) { void *pointer = rays_metal_handle_object(handle, kind); if (pointer == nullptr) @throw [NSException exceptionWithName:@"MetalHandleError" reason:@"invalid Metal handle" userInfo:nil]; return (__bridge id)pointer; }
 extern "C" void rays_metal_handle_destroy(MetalHandle *handle) { @autoreleasepool { if (handle != nullptr) { if (handle->object != nullptr) (void)CFBridgingRelease(handle->object); delete handle; } } }
 extern "C" int32_t rays_metal_default_device(MetalHandle **out, const char **message) { if (message) *message = nullptr; @try { @autoreleasepool { id<MTLDevice> device = MTLCreateSystemDefaultDevice(); if (device == nil) return set_error(message, "no default Metal device"); *out = make_handle(device, KIND_DEVICE); return *out ? 0 : set_error(message, "unable to allocate Metal handle"); } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
-extern "C" int32_t rays_metal_device_supports_sampler_reduction(MetalHandle *handle, uint8_t *output, const char **message) { if (message) *message = nullptr; if (output == nullptr) return set_error(message, "invalid sampler capability output"); @try { @autoreleasepool { id<MTLDevice> device = checked_object(handle, KIND_DEVICE); BOOL supported = NO; if (@available(macOS 26.0, *)) { supported = [device supportsFamily:MTLGPUFamilyApple10] && [MTLSamplerDescriptor instancesRespondToSelector:@selector(reductionMode)] && [MTLSamplerDescriptor instancesRespondToSelector:@selector(setReductionMode:)] && [MTLSamplerDescriptor instancesRespondToSelector:@selector(lodBias)] && [MTLSamplerDescriptor instancesRespondToSelector:@selector(setLodBias:)]; } *output = supported ? 1 : 0; return 0; } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
+extern "C" int32_t rays_metal_device_supports_sampler_reduction(MetalHandle *handle, uint8_t *output, const char **message) { if (message) *message = nullptr; if (output == nullptr) return set_error(message, "invalid sampler capability output"); @try { @autoreleasepool { id<MTLDevice> device = checked_object(handle, KIND_DEVICE); BOOL supported = NO; if (@available(macOS 26.0, iOS 26.0, *)) { supported = [device supportsFamily:MTLGPUFamilyApple10] && [MTLSamplerDescriptor instancesRespondToSelector:@selector(reductionMode)] && [MTLSamplerDescriptor instancesRespondToSelector:@selector(setReductionMode:)] && [MTLSamplerDescriptor instancesRespondToSelector:@selector(lodBias)] && [MTLSamplerDescriptor instancesRespondToSelector:@selector(setLodBias:)]; } *output = supported ? 1 : 0; return 0; } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
 extern "C" int pthread_main_np(void);
 extern "C" int32_t rays_metal_is_main_thread(void) { return pthread_main_np(); }
 // Legacy Metal ABI coverage remains callable on older supported macOS versions.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
-extern "C" int32_t rays_metal_buffer_copy(MetalHandle *handle, uint64_t offset, uint8_t *bytes, uintptr_t length, uint8_t write, const char **message) { if (message) *message = nullptr; @try { @autoreleasepool { id<MTLBuffer> buffer = checked_object(handle, KIND_BUFFER); if (offset > buffer.length || length > buffer.length - offset) return set_error(message, "buffer range is out of bounds"); void *contents = buffer.contents; if (contents == nullptr) return set_error(message, "buffer has no CPU mapping"); if (length != 0) { if (write) __builtin_memcpy(static_cast<uint8_t *>(contents) + offset, bytes, length); else __builtin_memcpy(bytes, static_cast<uint8_t *>(contents) + offset, length); } if (write && length != 0 && buffer.storageMode == MTLStorageModeManaged) [buffer didModifyRange:NSMakeRange(static_cast<NSUInteger>(offset), static_cast<NSUInteger>(length))]; return 0; } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
+extern "C" int32_t rays_metal_buffer_copy(MetalHandle *handle, uint64_t offset,
+    uint8_t *bytes, uintptr_t length, uint8_t write, const char **message) {
+  if (message) *message = nullptr;
+  @try { @autoreleasepool {
+    id<MTLBuffer> buffer = checked_object(handle, KIND_BUFFER);
+    if (offset > buffer.length || length > buffer.length - offset)
+      return set_error(message, "buffer range is out of bounds");
+    void *contents = buffer.contents;
+    if (contents == nullptr) return set_error(message, "buffer has no CPU mapping");
+    if (length != 0) {
+      if (write) __builtin_memcpy(static_cast<uint8_t *>(contents) + offset, bytes, length);
+      else __builtin_memcpy(bytes, static_cast<uint8_t *>(contents) + offset, length);
+    }
+#if TARGET_OS_OSX
+    if (write && length != 0 && buffer.storageMode == MTLStorageModeManaged)
+      [buffer didModifyRange:NSMakeRange(static_cast<NSUInteger>(offset), static_cast<NSUInteger>(length))];
+#endif
+    return 0;
+  } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); }
+}
 #pragma clang diagnostic pop
 extern "C" int32_t rays_metal_buffer_readback(MetalHandle *handle, uint8_t **contents, uint64_t *length, const char **message) { if (message) *message = nullptr; @try { @autoreleasepool { id<MTLBuffer> buffer = checked_object(handle, KIND_BUFFER); if (buffer.storageMode != MTLStorageModeShared) return rays_metal_set_unsupported(message, "readback requires shared buffer storage"); if (contents == nullptr || length == nullptr) return set_error(message, "invalid readback output"); *contents = static_cast<uint8_t *>(buffer.contents); *length = buffer.length; if (*contents == nullptr) return set_error(message, "buffer has no CPU mapping"); return 0; } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
 #include <unistd.h>
 extern "C" int32_t rays_metal_buffer_create_mapped(MetalHandle *device_handle, uint64_t length, int64_t options, MetalHandle **out, float **mapping, const char **message) { if (message) *message = nullptr; @try { @autoreleasepool { id<MTLDevice> device = checked_object(device_handle, KIND_DEVICE); const uint64_t page = static_cast<uint64_t>(getpagesize()); if (page == 0 || length > UINT64_MAX - (page - 1)) return set_error(message, "mapped buffer rounded length overflows"); const uint64_t rounded = ((length + page - 1) / page) * page; if (rounded > std::numeric_limits<NSUInteger>::max()) return set_error(message, "mapped buffer exceeds Metal length bounds"); id<MTLBuffer> buffer = [device newBufferWithLength:static_cast<NSUInteger>(rounded) options:static_cast<MTLResourceOptions>(options)]; if (buffer == nil || buffer.contents == nullptr) return set_error(message, "unable to allocate mapped Metal buffer"); __builtin_memset(buffer.contents, 0, static_cast<size_t>(rounded)); *out = make_handle(buffer, KIND_BUFFER); if (*out == nullptr) return set_error(message, "unable to allocate Metal handle"); *mapping = static_cast<float *>(buffer.contents); return 0; } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
 struct RaysTextureDescriptor { int32_t texture_type; int32_t pixel_format; uint64_t width; uint64_t height; uint64_t depth; uint64_t mip_levels; uint64_t sample_count; uint64_t array_length; int32_t storage_mode; int32_t cpu_cache_mode; int32_t hazard_tracking_mode; int32_t usage; uint8_t allow_gpu_optimized_contents; int32_t compression_type; int32_t swizzle_red; int32_t swizzle_green; int32_t swizzle_blue; int32_t swizzle_alpha; };
 extern "C" int32_t rays_metal_texture_create(MetalHandle *device_handle, const RaysTextureDescriptor *source, const char *label, MetalHandle **out, const char **message) { if (message) *message = nullptr; @try { @autoreleasepool { id<MTLDevice> device = checked_object(device_handle, KIND_DEVICE); MTLTextureDescriptor *descriptor = [[MTLTextureDescriptor alloc] init]; descriptor.textureType = static_cast<MTLTextureType>(source->texture_type); descriptor.pixelFormat = static_cast<MTLPixelFormat>(source->pixel_format); descriptor.width = static_cast<NSUInteger>(source->width); descriptor.height = static_cast<NSUInteger>(source->height); descriptor.depth = static_cast<NSUInteger>(source->depth); descriptor.mipmapLevelCount = static_cast<NSUInteger>(source->mip_levels); descriptor.sampleCount = static_cast<NSUInteger>(source->sample_count); descriptor.arrayLength = static_cast<NSUInteger>(source->array_length); descriptor.storageMode = static_cast<MTLStorageMode>(source->storage_mode); descriptor.cpuCacheMode = static_cast<MTLCPUCacheMode>(source->cpu_cache_mode); descriptor.hazardTrackingMode = static_cast<MTLHazardTrackingMode>(source->hazard_tracking_mode); descriptor.usage = static_cast<MTLTextureUsage>(source->usage); descriptor.allowGPUOptimizedContents = source->allow_gpu_optimized_contents != 0; if (@available(macOS 15.0, *)) descriptor.compressionType = static_cast<MTLTextureCompressionType>(source->compression_type); else if (source->compression_type != 0) return set_unavailable(message); if (@available(macOS 13.0, *)) descriptor.swizzle = MTLTextureSwizzleChannelsMake(static_cast<MTLTextureSwizzle>(source->swizzle_red), static_cast<MTLTextureSwizzle>(source->swizzle_green), static_cast<MTLTextureSwizzle>(source->swizzle_blue), static_cast<MTLTextureSwizzle>(source->swizzle_alpha)); else if (source->swizzle_red != 2 || source->swizzle_green != 3 || source->swizzle_blue != 4 || source->swizzle_alpha != 5) return set_unavailable(message); NSString *text = nil; if (label != nullptr) { text = [NSString stringWithUTF8String:label]; if (text == nil) return set_error(message, "invalid UTF-8 texture label"); } id<MTLTexture> texture = [device newTextureWithDescriptor:descriptor]; if (texture == nil) return set_error(message, "Metal returned no texture"); if (text != nil) texture.label = text; *out = make_handle(texture, KIND_TEXTURE); return *out ? 0 : set_error(message, "unable to allocate Metal handle"); } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
-static int32_t texture_transfer(uint8_t write, MetalHandle *handle, uint8_t *destination, uintptr_t destination_length, uintptr_t bytes_per_row, uintptr_t bytes_per_image, uint64_t x, uint64_t y, uint64_t z, uint64_t width, uint64_t height, uint64_t depth, uint64_t mip_level, uint64_t slice, const char **message) {
+int32_t rays_metal_uploads_copy(void *, void *, uint8_t *, bool, NSUInteger, NSUInteger, NSUInteger, MTLRegion, NSUInteger, NSUInteger, const char **);
+static int32_t texture_transfer(void *uploads, uint8_t write, MetalHandle *handle, uint8_t *destination, uintptr_t destination_length, uintptr_t bytes_per_row, uintptr_t bytes_per_image, uint64_t x, uint64_t y, uint64_t z, uint64_t width, uint64_t height, uint64_t depth, uint64_t mip_level, uint64_t slice, const char **message) {
   if (message) *message = nullptr;
   @try { @autoreleasepool {
     id<MTLTexture> texture = checked_object(handle, KIND_TEXTURE);
     // This safe Rust ABI accepts a borrowed slice. Bound the actual native write, including
     // standalone sys callers that have no Core admission value; never trust a raw pointer alone.
-    if (texture.storageMode == MTLStorageModePrivate || texture.storageMode == MTLStorageModeMemoryless || texture.sampleCount != 1)
+    if ((texture.storageMode == MTLStorageModePrivate && uploads == nullptr) || texture.storageMode == MTLStorageModeMemoryless || texture.sampleCount != 1)
       return rays_metal_set_unsupported(message, "texture has no CPU transfer mapping");
     if (destination == nullptr || mip_level >= texture.mipmapLevelCount || width == 0 || height == 0 || depth == 0)
       return rays_metal_set_invalid_argument(message, "invalid texture region or mip level");
@@ -88,13 +108,23 @@ static int32_t texture_transfer(uint8_t write, MetalHandle *handle, uint8_t *des
     if (row > max - rows || rows + row > max - images || images + rows + row > destination_length)
       return rays_metal_set_invalid_argument(message, "texture destination is too short");
     MTLRegion region = MTLRegionMake3D(static_cast<NSUInteger>(x), static_cast<NSUInteger>(y), static_cast<NSUInteger>(z), static_cast<NSUInteger>(width), static_cast<NSUInteger>(height), static_cast<NSUInteger>(depth));
+    if (texture.storageMode == MTLStorageModePrivate)
+      return rays_metal_uploads_copy(uploads, (__bridge void *)texture, destination, write != 0,
+          bytes_per_row, bytes_per_image, texel, region, static_cast<NSUInteger>(mip_level), static_cast<NSUInteger>(slice), message);
     if (write) [texture replaceRegion:region mipmapLevel:static_cast<NSUInteger>(mip_level) slice:static_cast<NSUInteger>(slice) withBytes:destination bytesPerRow:bytes_per_row bytesPerImage:bytes_per_image];
     else [texture getBytes:destination bytesPerRow:bytes_per_row bytesPerImage:bytes_per_image fromRegion:region mipmapLevel:static_cast<NSUInteger>(mip_level) slice:static_cast<NSUInteger>(slice)];
     return 0;
   } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); }
 }
-extern "C" int32_t rays_metal_texture_read(MetalHandle *handle, uint8_t *destination, uintptr_t destination_length, uintptr_t bytes_per_row, uintptr_t bytes_per_image, uint64_t x, uint64_t y, uint64_t z, uint64_t width, uint64_t height, uint64_t depth, uint64_t mip_level, uint64_t slice, const char **message) { return texture_transfer(0, handle, destination, destination_length, bytes_per_row, bytes_per_image, x, y, z, width, height, depth, mip_level, slice, message); }
-extern "C" int32_t rays_metal_texture_write(MetalHandle *handle, const uint8_t *source, uintptr_t source_length, uintptr_t bytes_per_row, uintptr_t bytes_per_image, uint64_t x, uint64_t y, uint64_t z, uint64_t width, uint64_t height, uint64_t depth, uint64_t mip_level, uint64_t slice, const char **message) { return texture_transfer(1, handle, const_cast<uint8_t *>(source), source_length, bytes_per_row, bytes_per_image, x, y, z, width, height, depth, mip_level, slice, message); }
+extern "C" int32_t rays_metal_texture_transfer(void *uploads, uint8_t write, MetalHandle *texture,
+    uint8_t *bytes, uintptr_t length, uintptr_t row, uintptr_t image,
+    uint64_t x, uint64_t y, uint64_t z, uint64_t width, uint64_t height, uint64_t depth,
+    uint64_t mip, uint64_t slice, const char **message) {
+  if (uploads == nullptr) return rays_metal_set_invalid_argument(message, "missing texture transfer context");
+  return texture_transfer(uploads, write, texture, bytes, length, row, image, x,y,z,width,height,depth,mip,slice,message);
+}
+extern "C" int32_t rays_metal_texture_read(MetalHandle *handle, uint8_t *destination, uintptr_t destination_length, uintptr_t bytes_per_row, uintptr_t bytes_per_image, uint64_t x, uint64_t y, uint64_t z, uint64_t width, uint64_t height, uint64_t depth, uint64_t mip_level, uint64_t slice, const char **message) { return texture_transfer(nullptr, 0, handle, destination, destination_length, bytes_per_row, bytes_per_image, x, y, z, width, height, depth, mip_level, slice, message); }
+extern "C" int32_t rays_metal_texture_write(MetalHandle *handle, const uint8_t *source, uintptr_t source_length, uintptr_t bytes_per_row, uintptr_t bytes_per_image, uint64_t x, uint64_t y, uint64_t z, uint64_t width, uint64_t height, uint64_t depth, uint64_t mip_level, uint64_t slice, const char **message) { return texture_transfer(nullptr, 1, handle, const_cast<uint8_t *>(source), source_length, bytes_per_row, bytes_per_image, x, y, z, width, height, depth, mip_level, slice, message); }
 extern "C" int32_t rays_metal_command_buffer_wait(MetalHandle *handle, const char **message) { if (message) *message = nullptr; @try { @autoreleasepool { id<MTLCommandBuffer> buffer = checked_object(handle, KIND_COMMAND_BUFFER); [buffer waitUntilCompleted]; return 0; } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
 extern "C" int32_t rays_metal_command_buffer_error(MetalHandle *handle, const char **output) { @try { @autoreleasepool { id<MTLCommandBuffer> buffer = checked_object(handle, KIND_COMMAND_BUFFER); NSError *error = buffer.error; if (error == nil) { *output = nullptr; return 0; } text_buffer = error.localizedDescription.UTF8String ?: "Metal command buffer failed"; *output = text_buffer.c_str(); return 1; } } @catch (NSException *exception) { text_buffer = exception.reason.UTF8String ?: "Metal command buffer failed"; *output = text_buffer.c_str(); return 1; } }
 extern "C" int32_t rays_metal_compute_encoder_set_bytes(MetalHandle *handle, const uint8_t *bytes, uintptr_t length, uint64_t index, const char **message) { if (message) *message = nullptr; @try { @autoreleasepool { id<MTLComputeCommandEncoder> encoder = checked_object(handle, KIND_COMPUTE_ENCODER); [encoder setBytes:bytes length:length atIndex:static_cast<NSUInteger>(index)]; return 0; } } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); } }
@@ -505,7 +535,12 @@ extern "C" int32_t rays_metal_device_is_low_power(MetalHandle *receiver, uint8_t
 // Legacy Metal ABI coverage remains callable on older supported macOS versions.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#if TARGET_OS_OSX
       const BOOL native_result = object.lowPower;
+#else
+      (void)object;
+      const BOOL native_result = NO;
+#endif
 #pragma clang diagnostic pop
       *out = native_result ? 1 : 0;
       return 0;
@@ -520,7 +555,12 @@ extern "C" int32_t rays_metal_device_is_removable(MetalHandle *receiver, uint8_t
 // Legacy Metal ABI coverage remains callable on older supported macOS versions.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#if TARGET_OS_OSX
       const BOOL native_result = object.removable;
+#else
+      (void)object;
+      const BOOL native_result = NO;
+#endif
 #pragma clang diagnostic pop
       *out = native_result ? 1 : 0;
       return 0;
@@ -535,7 +575,12 @@ extern "C" int32_t rays_metal_device_is_headless(MetalHandle *receiver, uint8_t 
 // Legacy Metal ABI coverage remains callable on older supported macOS versions.
 #pragma clang diagnostic push
 #pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#if TARGET_OS_OSX
       const BOOL native_result = object.headless;
+#else
+      (void)object;
+      const BOOL native_result = NO;
+#endif
 #pragma clang diagnostic pop
       *out = native_result ? 1 : 0;
       return 0;
@@ -988,7 +1033,12 @@ extern "C" int32_t rays_metal_texture_is_shareable(MetalHandle *receiver, uint8_
   @try {
     @autoreleasepool {
       id<MTLTexture> object = checked_object(receiver, KIND_TEXTURE);
+#if TARGET_OS_OSX
       const BOOL native_result = object.shareable;
+#else
+      (void)object;
+      const BOOL native_result = NO;
+#endif
       *out = native_result ? 1 : 0;
       return 0;
     }
@@ -1129,7 +1179,12 @@ extern "C" int32_t rays_metal_command_buffer_present_after_duration(MetalHandle 
   @try {
     @autoreleasepool {
       id<MTLCommandBuffer> object = checked_object(receiver, KIND_COMMAND_BUFFER);
+#if TARGET_OS_SIMULATOR
+      (void)object; (void)arg0; (void)arg1;
+      return rays_metal_set_unavailable(message, "minimum-duration presentation is unavailable in the simulator");
+#else
       [object presentDrawable:checked_object(arg0, KIND_METAL_DRAWABLE) afterMinimumDuration:arg1];
+#endif
       return 0;
     }
   } @catch (NSException *exception) { return set_error(message, exception.reason.UTF8String); }

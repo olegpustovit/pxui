@@ -313,7 +313,7 @@ pub struct Ui(NonNull<sys::PxuiUi>);
 impl Ui {
     /// A `Ui` with the library's default font; `None` when the library's ABI is not the one this wrapper was built for.
     pub fn new() -> Option<Self> {
-        Self::try_create(if cfg!(target_os = "macos") { Platform::Apple } else { Platform::Other }, None, &[])
+        Self::try_create(if cfg!(any(target_os = "macos", target_os = "ios")) { Platform::Apple } else { Platform::Other }, None, &[])
     }
 
     /// A `Ui` for `platform` with the kit font size `font_size` (the theme's when `None`) and `fonts` (the library's default

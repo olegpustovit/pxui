@@ -11,6 +11,10 @@ test = false
 
 [target.'cfg(target_os = "ios")'.dependencies]
 pxui_sdl = { path = "../../crates/open/pxui_sdl" }
+pxui_host = { path = "../../crates/host/pxui_host", features = ["static"] }
+pxui = { path = "../../crates/public/pxui", features = ["static"] }
+pxui_gallery = { path = "../pxui_gallery" }
+mem_sys = { path = "../../crates/open/mem_sys" }
 
 [lints]
 workspace = true

@@ -3,6 +3,7 @@
 #import <QuartzCore/CAMetalLayer.h>
 #include "frames.h"
 #include <new>
+#include <TargetConditionals.h>
 
 namespace {
 struct PXUIMetalFrames {
@@ -32,7 +33,9 @@ void *rays_metal_frames_create(void *layerPointer, void *devicePointer, void *qu
         frames->layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         frames->layer.framebufferOnly = YES;
         frames->layer.maximumDrawableCount = 3;
+#if TARGET_OS_OSX
         frames->layer.displaySyncEnabled = YES;
+#endif
         frames->pass = [MTLRenderPassDescriptor new];
         return frames;
     }

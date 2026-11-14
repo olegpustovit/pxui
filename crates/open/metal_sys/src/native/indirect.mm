@@ -53,7 +53,8 @@ extern "C" int32_t rays_metal_indirect_command_buffer_create(
             } else if (source->support_dynamic_attribute_stride || source->max_kernel_threadgroup_memory_bind_count != 0 || source->max_object_buffer_bind_count != 0 || source->max_mesh_buffer_bind_count != 0 || source->max_object_threadgroup_memory_bind_count != 0) {
                 return rays_metal_set_unavailable(message, "advanced indirect commands require macOS 14 or newer");
             }
-            if (@available(macOS 26.0, *)) {
+            #if !TARGET_OS_SIMULATOR
+            if (@available(macOS 26.0, iOS 26.0, *)) {
                 descriptor.inheritDepthStencilState = source->inherit_depth_stencil_state != 0;
                 descriptor.inheritDepthBias = source->inherit_depth_bias != 0;
                 descriptor.inheritDepthClipMode = source->inherit_depth_clip_mode != 0;
@@ -61,7 +62,9 @@ extern "C" int32_t rays_metal_indirect_command_buffer_create(
                 descriptor.inheritFrontFacingWinding = source->inherit_front_facing_winding != 0;
                 descriptor.inheritTriangleFillMode = source->inherit_triangle_fill_mode != 0;
                 descriptor.supportColorAttachmentMapping = source->support_color_attachment_mapping != 0;
-            } else if (source->inherit_depth_stencil_state || source->inherit_depth_bias || source->inherit_depth_clip_mode || source->inherit_cull_mode || source->inherit_front_facing_winding || source->inherit_triangle_fill_mode || source->support_color_attachment_mapping) {
+            } else
+            #endif
+            if (source->inherit_depth_stencil_state || source->inherit_depth_bias || source->inherit_depth_clip_mode || source->inherit_cull_mode || source->inherit_front_facing_winding || source->inherit_triangle_fill_mode || source->support_color_attachment_mapping) {
                 return rays_metal_set_unavailable(message, "Metal 4 indirect inheritance requires macOS 26 or newer");
             }
             id<MTLIndirectCommandBuffer> buffer = [device newIndirectCommandBufferWithDescriptor:descriptor maxCommandCount:static_cast<NSUInteger>(raw_count) options:static_cast<MTLResourceOptions>(raw_options)];

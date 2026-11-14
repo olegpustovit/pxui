@@ -164,6 +164,14 @@ pub fn create_compute_pipeline(
 }
 
 pub fn create_render_pipeline(compiler: &Handle, library: &Handle, profile: &ogpu_core::pipeline::AdmittedRenderPipeline) -> Result<(Handle, (Vec<Binding>, Vec<Binding>)), Error> {
+    render_pipeline(compiler, library, profile, false)
+}
+
+pub fn create_device_render_pipeline(device: &Handle, library: &Handle, profile: &ogpu_core::pipeline::AdmittedRenderPipeline) -> Result<(Handle, (Vec<Binding>, Vec<Binding>)), Error> {
+    render_pipeline(device, library, profile, true)
+}
+
+fn render_pipeline(compiler: &Handle, library: &Handle, profile: &ogpu_core::pipeline::AdmittedRenderPipeline, device: bool) -> Result<(Handle, (Vec<Binding>, Vec<Binding>)), Error> {
     #[cfg(target_vendor = "apple")]
     {
         let options = profile.options();
@@ -188,26 +196,51 @@ pub fn create_render_pipeline(compiler: &Handle, library: &Handle, profile: &ogp
         let fragment = fragment.map(CString::new).transpose().map_err(|_| Error::InvalidArgument("Metal function names must not contain NUL".into()))?;
         let mut output = std::ptr::null_mut();
         let mut message = std::ptr::null();
+        let mut vertex_bindings = std::ptr::null_mut();
+        let mut vertex_count = 0usize;
+        let mut fragment_bindings = std::ptr::null_mut();
+        let mut fragment_count = 0usize;
         let status = unsafe {
-            rays_metal_compiler_create_render_pipeline(
-                compiler.as_native_ptr()?, library.as_native_ptr()?,
-                label.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
-                vertex.as_ptr(), fragment.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
-                u8::from(reflection), sample_count, color_attachments.as_ptr(), color_attachments.len(),
-                primitive_topology, u8::from(support_indirect_command_buffers), &mut output, &mut message,
-            )
+            if device {
+                rays_metal_device_create_render_pipeline(
+                    compiler.as_native_ptr()?, library.as_native_ptr()?,
+                    label.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
+                    vertex.as_ptr(), fragment.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
+                    u8::from(reflection), sample_count, color_attachments.as_ptr(), color_attachments.len(),
+                    primitive_topology, u8::from(support_indirect_command_buffers), &mut output,
+                    &mut vertex_bindings, &mut vertex_count, &mut fragment_bindings, &mut fragment_count, &mut message,
+                )
+            } else {
+                rays_metal_compiler_create_render_pipeline(
+                    compiler.as_native_ptr()?, library.as_native_ptr()?,
+                    label.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
+                    vertex.as_ptr(), fragment.as_ref().map_or(std::ptr::null(), |value| value.as_ptr()),
+                    u8::from(reflection), sample_count, color_attachments.as_ptr(), color_attachments.len(),
+                    primitive_topology, u8::from(support_indirect_command_buffers), &mut output, &mut message,
+                )
+            }
         };
         if status != 0 { return Err(unsafe { Error::from_native(status, message) }); }
+        let bindings = if device {
+            let result = unsafe {
+                let vertex = bindings_from_raw(vertex_bindings, vertex_count);
+                let fragment = bindings_from_raw(fragment_bindings, fragment_count);
+                rays_metal_pipeline_reflection_free(vertex_bindings, vertex_count);
+                rays_metal_pipeline_reflection_free(fragment_bindings, fragment_count);
+                vertex.and_then(|vertex| fragment.map(|fragment| (vertex, fragment)))
+            };
+            Some(result)
+        } else { None };
         let pipeline = unsafe { Handle::from_native(output)? };
-        let reflection = if reflection {
-            render_pipeline_reflection(&pipeline)?
-        } else {
-            (Vec::new(), Vec::new())
+        let reflection = match bindings {
+            Some(result) => result?,
+            None if reflection => render_pipeline_reflection(&pipeline)?,
+            None => (Vec::new(), Vec::new()),
         };
         Ok((pipeline, reflection))
     }
     #[cfg(not(target_vendor = "apple"))]
-    { let _ = (compiler, library, profile); Err(Error::Unavailable) }
+    { let _ = (compiler, library, profile, device); Err(Error::Unavailable) }
 }
 
 pub fn render_pipeline_reflection(pipeline: &Handle) -> Result<(Vec<Binding>, Vec<Binding>), Error> {
@@ -294,6 +327,13 @@ unsafe extern "C" {
         binding_count: *mut usize, message: *mut *const c_char,
     ) -> i32;
     fn rays_metal_compiler_create(device: *mut NativeHandle, output: *mut *mut NativeHandle, message: *mut *const c_char) -> i32;
+    fn rays_metal_device_create_render_pipeline(
+        device: *mut NativeHandle, library: *mut NativeHandle, label: *const c_char, vertex: *const c_char,
+        fragment: *const c_char, reflection: u8, sample_count: u64, color_attachments: *const ColorAttachment,
+        color_attachment_count: usize, primitive_topology: i32, support_indirect_command_buffers: u8,
+        output: *mut *mut NativeHandle, vertex_bindings: *mut *mut RawBinding, vertex_count: *mut usize,
+        fragment_bindings: *mut *mut RawBinding, fragment_count: *mut usize, message: *mut *const c_char,
+    ) -> i32;
     fn rays_metal_compiler_create_render_pipeline(
         compiler: *mut NativeHandle, library: *mut NativeHandle, label: *const c_char, vertex: *const c_char,
         fragment: *const c_char, reflection: u8, sample_count: u64, color_attachments: *const ColorAttachment,

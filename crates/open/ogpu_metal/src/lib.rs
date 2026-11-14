@@ -1,5 +1,5 @@
-//! The macOS Metal driver owns native device, resource, queue, surface and encoder modules.
-#![cfg(target_os = "macos")]
+//! The Apple Metal driver owns native device, resource, queue, surface and encoder modules.
+#![cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod device;
 pub mod buffer;
 pub mod texture;

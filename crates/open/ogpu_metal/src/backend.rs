@@ -538,8 +538,7 @@ impl DriverCommands for MetalCommands {
     fn render_encoder(&self, target: &DriverRenderTarget) -> Result<Box<dyn DriverRenderEncoder>, Error> {
         render_encoder::create(&self.context, target)
     }
-    /// The same `replaceRegion` as `write_texture`: Metal textures here are CPU-writable and the
-    /// caller already keeps rewritten regions out of frames still in flight.
+    /// Completes the texture update before submission; callers keep rewritten regions out of frames in flight.
     fn write_texture(&self, texture: &dyn DriverResource, write: &TextureRead, bytes: &[u8]) -> Result<(), Error> {
         texture.write_texture(write, bytes)
     }

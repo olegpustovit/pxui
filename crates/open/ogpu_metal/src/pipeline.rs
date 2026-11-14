@@ -169,15 +169,15 @@ pub fn create_compute_from_library(device: &Device, library_value: &Library, adm
 
 fn build_render(op: &str, device: &Device, descriptor: &RenderDescriptor, admitted: &ogpu_core::pipeline::AdmittedRenderPipeline) -> Result<Pipeline, Error> {
     let library_value = library::compile_native(op, device, &descriptor.vertex)?;
-    let compiler = match native::Compiler::create(device.metal()) {
-        Ok(c) => c,
-        Err(e) => {
-            let _ = library_value.destroy();
-            return Err(e);
+    let created = match native::Compiler::create(device.metal()) {
+        Ok(compiler) => {
+            let created = compiler.create_render_pipeline(&library_value, admitted);
+            let _ = compiler.destroy();
+            created
         }
+        Err(error) if error.kind == ErrorKind::Unsupported => native::RenderPipeline::create(device.metal(), &library_value, admitted),
+        Err(error) => Err(error),
     };
-    let created = compiler.create_render_pipeline(&library_value, admitted);
-    let _ = compiler.destroy();
     let pipeline_value = match created {
         Ok(p) => p,
         Err(e) => {

@@ -106,8 +106,11 @@ extern "C" int32_t rays_metal_argument_encoder_single(
                 case 7: [encoder setRenderPipelineState:resource atIndex:static_cast<NSUInteger>(index)]; break;
                 case 8: [encoder setComputePipelineState:resource atIndex:static_cast<NSUInteger>(index)]; break;
                 case 9:
-                    if (@available(macOS 26.0, *)) [encoder setDepthStencilState:resource atIndex:static_cast<NSUInteger>(index)];
-                    else return rays_metal_set_unavailable(message, "argument encoder depth stencil states require macOS 26");
+                    #if !TARGET_OS_SIMULATOR
+                    if (@available(macOS 26.0, iOS 26.0, *)) [encoder setDepthStencilState:resource atIndex:static_cast<NSUInteger>(index)];
+                    else
+                    #endif
+                    return rays_metal_set_unavailable(message, "argument encoder depth stencil states require Metal 4");
                     break;
             }
             return 0;

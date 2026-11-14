@@ -16,6 +16,9 @@ ogpu_core = { path = "../ogpu_core" }
 metal_sys = { path = "../metal_sys" }
 native_layer_token_sys = { path = "../native_layer_token_sys" }
 
+[dev-dependencies]
+mem_sys = { path = "../mem_sys" }
+
 [[test]]
 name = "gpu_all"
 harness = false

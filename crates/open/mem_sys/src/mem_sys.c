@@ -5,8 +5,13 @@ typedef void (*pressure_callback)(int);
 static pressure_callback store_pressure;
 
 #if defined(__APPLE__)
+#include <TargetConditionals.h>
 #include <dispatch/dispatch.h>
+#if TARGET_OS_OSX
 #include <libproc.h>
+#else
+#include <mach/mach.h>
+#endif
 #include <malloc/malloc.h>
 #include <sys/resource.h>
 #include <sys/sysctl.h>
@@ -14,9 +19,16 @@ static pressure_callback store_pressure;
 
 static dispatch_source_t pressure_source;
 
+#if TARGET_OS_OSX
 static int read_rusage(struct rusage_info_v4 *info) {
   return proc_pid_rusage(getpid(), RUSAGE_INFO_V4, (rusage_info_t *)info) == 0;
 }
+#else
+static int read_vm(task_vm_info_data_t *info, mach_msg_type_number_t required) {
+  mach_msg_type_number_t count = TASK_VM_INFO_COUNT;
+  return task_info(mach_task_self(), TASK_VM_INFO, (task_info_t)info, &count) == KERN_SUCCESS && count >= required;
+}
+#endif
 
 static void on_pressure(void *context) {
   (void)context;
@@ -43,24 +55,41 @@ int mem_sys_pressure_start(pressure_callback callback) {
 }
 
 int mem_sys_phys_footprint(int64_t *out) {
+#if TARGET_OS_OSX
   struct rusage_info_v4 info;
   if (!read_rusage(&info) || info.ri_phys_footprint > INT64_MAX) return 0;
   *out = (int64_t)info.ri_phys_footprint;
+#else
+  task_vm_info_data_t info;
+  if (!read_vm(&info, TASK_VM_INFO_REV1_COUNT) || info.phys_footprint > INT64_MAX) return 0;
+  *out = (int64_t)info.phys_footprint;
+#endif
   return 1;
 }
 
 int mem_sys_peak_footprint(int64_t *out) {
+#if TARGET_OS_OSX
   struct rusage_info_v4 info;
   if (!read_rusage(&info) || info.ri_lifetime_max_phys_footprint > INT64_MAX) return 0;
   *out = (int64_t)info.ri_lifetime_max_phys_footprint;
+#else
+  task_vm_info_data_t info;
+  if (!read_vm(&info, TASK_VM_INFO_REV3_COUNT) || info.ledger_phys_footprint_peak < 0) return 0;
+  *out = info.ledger_phys_footprint_peak;
+#endif
   return 1;
 }
 
 int mem_sys_instructions(int64_t *out) {
+#if TARGET_OS_OSX
   struct rusage_info_v4 info;
   if (!read_rusage(&info)) return 0;
   *out = (int64_t)info.ri_instructions;
   return 1;
+#else
+  (void)out;
+  return 0;
+#endif
 }
 
 int64_t mem_sys_physical_ram(void) {

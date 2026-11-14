@@ -61,7 +61,11 @@ extern "C" int32_t rays_metal_layer_configure(
         layer.framebufferOnly = framebuffer_only != 0;
         layer.maximumDrawableCount = static_cast<NSUInteger>(maximum_drawables);
         layer.allowsNextDrawableTimeout = allows_timeout != 0;
+#if TARGET_OS_OSX
         layer.displaySyncEnabled = display_sync != 0;
+#else
+        (void)display_sync;
+#endif
         layer.presentsWithTransaction = presents_with_transaction != 0;
       } else {
         return rays_metal_set_unavailable(

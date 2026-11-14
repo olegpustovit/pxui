@@ -15,6 +15,30 @@ Enum constants and shared record layouts are checked against SDK declarations.
 Capabilities must describe actual device support and retain explicit availability
 guards for newer APIs. Bind only what a real `ogpu_metal` consumer needs.
 
+macOS and iOS share this driver. The build selects `macosx`, `iphoneos` or
+`iphonesimulator` and its matching Clang availability runtime from Cargo's target,
+then bundles only the target architecture's runtime slice. iOS builds reject
+unguarded calls to APIs newer than the iOS 18 deployment floor. Metal 4 code is
+excluded where simulator headers do not expose it; unsupported operations return
+typed errors. Desktop-only managed storage and presentation properties stay on macOS.
+
+The portable renderer prefers the Metal 4 compiler when available and uses the
+standard Metal render-pipeline API when compiler creation reports Unsupported.
+Other errors propagate. Both paths validate functions, device ownership, admitted
+pipeline options and binding reflection. Direct `Compiler::create` still means
+Metal 4 and refuses unsupported systems. `RenderPipeline::create` exposes the
+standard API for native consumers and its pixel/reflection regression.
+
+Private textures with copy usages transfer through a device-owned queue and shared
+staging buffer, retaining at most **4 MiB per native Device wrapper**, independently
+of texture count. Rows use aligned GPU pitches; larger images transfer in chunks,
+preserving CPU padding, origins, mip levels and slices. Transfers wait for completion
+before returning or reusing scratch. Shared/managed texture transfers keep their
+direct CPU path. This adds synchronous GPU copies on private storage; high-frequency
+upload pacing and native allocations still require platform measurement. Native Metal
+command objects are outside Rust allocation counters. Do not describe this as zero
+native/process allocations. Device destruction releases scratch after children retire.
+
 ## Validation and ownership
 
 - Expose opaque owned handles and typed errors. Validate live state, generation,

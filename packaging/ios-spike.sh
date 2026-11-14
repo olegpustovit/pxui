@@ -35,4 +35,4 @@ EOF
 plutil -lint "$bundle/Info.plist"
 # Device builds need the developer's provisioning profile before installation.
 if [ "$sdk" = iphonesimulator ]; then codesign --force --sign - "$bundle"; fi
-echo "SDL host capability spike: $bundle"
+echo "SDL/Metal gallery capability spike: $bundle"

@@ -76,12 +76,12 @@ unsafe fn make(ui: &mut PxuiUi, gpu: &pxui_types::Gpu, target: PxuiTargetDesc) -
     // This copy of OGPU (the library's own) has not been told which backend it drives: the app selected one in its copy.
     // In a static build this is the app's own copy: its selection (a mock, say) stays.
     if !ogpu_core::impl_::is_selected() {
-        #[cfg(target_os = "macos")]
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
         ogpu_core::impl_::select(ogpu_metal::impl_::implementation());
         #[cfg(any(windows,target_os = "linux"))]
         ogpu_core::impl_::select(ogpu_core::impl_::Impl { backend: ogpu_vulkan::impl_::BACKEND, create_driver: ogpu_vulkan::backend::create, live_handles: ogpu_vulkan::impl_::live_handles });
     }
-    #[cfg(target_os = "macos")]
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
     let driver=ogpu_metal::adopt(native);
     #[cfg(any(windows,target_os = "linux"))]
     let driver=ogpu_vulkan::adopt(native);

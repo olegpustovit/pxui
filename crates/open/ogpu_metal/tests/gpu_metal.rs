@@ -920,6 +920,76 @@ kernel void prismel_kernel(device uint *out [[buffer(0)]]) { out[0] = 113; }
 
 fn f32_bytes(values: &[f32]) -> Vec<u8> { values.iter().flat_map(|v| v.to_le_bytes()).collect() }
 
+fn gpu_standard_render_pipeline() {
+    let device = Device::system_default().unwrap_or_else(|failure| die(failure));
+    let library = compile_library(&device, RENDER_SOURCE, None).unwrap_or_else(|failure| die(failure));
+    let options = RenderPipelineOptions { fragment: Some("prismel_fragment".into()), color_formats: Some(vec![Format::Rgba8Unorm]),
+        reflection: true, label: Some("standard reflected render".into()), ..RenderPipelineOptions::default() };
+    let profile = ogpu_core::pipeline::admit_render_profile(&device.capabilities().unwrap(), "prismel_vertex".into(), options.clone()).unwrap();
+    let pipeline = RenderPipeline::create(&device, &library, &profile).unwrap_or_else(|failure| die(failure));
+    let reflection = pipeline.reflection().expect("standard render reflection");
+    assert_eq!(reflection.vertex_bindings.iter().map(buffer_binding_or_fail).collect::<Vec<_>>(),
+        vec![("offset".into(), 0, BindingAccess::ReadOnly, ShaderDataType::Vector(ScalarType::Float, 2))]);
+    assert_eq!(reflection.fragment_bindings.iter().map(buffer_binding_or_fail).collect::<Vec<_>>(),
+        vec![("tint".into(), 1, BindingAccess::ReadOnly, ShaderDataType::Vector(ScalarType::Float, 4))]);
+    assert!(!pipeline.supports_indirect_command_buffers().unwrap());
+    without_handles("invalid standard render function", &mut || {
+        let profile = ogpu_core::pipeline::admit_render_profile(&device.capabilities().unwrap(), "missing_vertex".into(), options.clone()).unwrap();
+        reject(ErrorKind::InvalidArgument, RenderPipeline::create(&device, &library, &profile).err());
+    });
+    let queue = CommandQueue::create(&device).unwrap();
+    let target = make_texture(&device, Texture::descriptor_2d(Format::Rgba8Unorm, 2, 2, StorageMode::Shared, &[TextureUsage::RenderAttachment], None)).unwrap();
+    let offset = shared(&device, 16);
+    offset.write_bytes(0, &f32_bytes(&[0.0; 4])).unwrap();
+    let tint = shared(&device, 16);
+    tint.write_bytes(0, &f32_bytes(&[0.25, 0.5, 0.75, 1.0])).unwrap();
+    let pass = make_render_pass(&device, 2, 2, 1).unwrap();
+    set_pass_attachments(&pass, &target, None, None, [0.0; 4]).unwrap();
+    let commands = CommandBuffer::create(&queue).unwrap();
+    let encoder = RenderEncoder::create(&commands, &pass).unwrap();
+    encoder.set_pipeline(&pipeline).unwrap();
+    reject(ErrorKind::InvalidState, pipeline.destroy().err());
+    encoder.set_vertex_buffer(0, 0, &offset).unwrap();
+    encoder.set_fragment_buffer(1, 0, &tint).unwrap();
+    encoder.draw_triangles(0, 3).unwrap();
+    encoder.end_encoding().unwrap();
+    complete(&commands);
+    assert_eq!(read_texture(&target, full_region(2, 2), 0, 0, 8, 16).unwrap(), [0x40, 0x80, 0xbf, 0xff].repeat(4));
+    pass.destroy().unwrap(); offset.destroy().unwrap(); tint.destroy().unwrap(); target.destroy().unwrap(); queue.destroy().unwrap();
+    pipeline.destroy().unwrap();
+    reject(ErrorKind::StaleHandle, pipeline.supports_indirect_command_buffers().err());
+    library.destroy().unwrap(); device.destroy().unwrap();
+}
+
+fn gpu_private_texture_transfers() {
+    let device = Device::system_default().unwrap();
+    let texture = make_texture(&device, Texture::descriptor_2d(Format::Rgba8Unorm, 1024, 1025, StorageMode::Private,
+        &[TextureUsage::TextureCopySrc, TextureUsage::TextureCopyDst], None)).unwrap();
+    let row = 1024 * 4 + 12;
+    let layout = || ogpu_core::validation::admit_texture_read(texture.admitted_descriptor(), full_region(1024, 1025), 0, 0, row, row * 1025).unwrap();
+    let write = layout();
+    let source: Vec<u8> = (0..write.length()).map(|i| (i % 251) as u8).collect();
+    let mut destination = vec![0xa5; write.length()];
+    let read = layout().into_destination(&mut destination).unwrap();
+    reject(ErrorKind::InvalidArgument, texture.write_bytes(&write, &source[..3]).err());
+    for round in 0..3 {
+        mem_sys::local_reset();
+        texture.write_bytes(&write, &source).unwrap();
+        texture.read_bytes_into(&read, &mut destination).unwrap();
+        if round != 0 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm private GPU transfer allocated Rust objects"); }
+        for y in 0..1025 {
+            assert_eq!(&destination[y * row..y * row + 4096], &source[y * row..y * row + 4096]);
+            assert!(destination[y * row + 4096..(y + 1) * row].iter().all(|&byte| byte == 0xa5));
+        }
+    }
+    let owned = texture.read_bytes(&write).unwrap();
+    assert_eq!(&owned[..4096], &source[..4096]);
+    reject(ErrorKind::InvalidState, device.destroy().err());
+    texture.destroy().unwrap();
+    reject(ErrorKind::StaleHandle, texture.write_bytes(&write, &source).err());
+    device.destroy().unwrap();
+}
+
 fn gpu_render_pipeline() {
     let device = Device::system_default().unwrap_or_else(|failure| die(failure));
     if !device.supports_family(DeviceFamily::Metal4).unwrap_or_else(|failure| die(failure)) {
@@ -1347,6 +1417,8 @@ pub const CASES: &[(&str, fn())] = &[
         ("gpu_texture_transfer_descriptors", gpu_texture_transfer_descriptors),
         ("gpu_texture_blit", gpu_texture_blit),
         ("gpu_function_constants", gpu_function_constants),
+        ("gpu_standard_render_pipeline", gpu_standard_render_pipeline),
+        ("gpu_private_texture_transfers", gpu_private_texture_transfers),
         ("gpu_render_pipeline", gpu_render_pipeline),
         ("gpu_render_icb_argument", gpu_render_icb_argument),
         ("gpu_argument_reflection_snapshot", gpu_argument_reflection_snapshot),

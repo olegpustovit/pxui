@@ -42,8 +42,17 @@ pub fn profile_compile_flags(profile: &str) -> &'static [&'static str] {
     match profile { "debug" | "dev" => &["-O0", "-g"], "release" => &["-O3", "-DNDEBUG"], _ => &["-O2"] }
 }
 
+pub fn apple_platform(os: &str, abi: &str) -> Option<(&'static str, &'static str)> {
+    match (os, abi) {
+        ("macos", _) => Some(("macosx", "osx")),
+        ("ios", "sim") => Some(("iphonesimulator", "iossim")),
+        ("ios", "") => Some(("iphoneos", "ios")),
+        _ => None,
+    }
+}
+
 pub fn check_sdk_version(version: &str) -> Result<(), String> {
-    let invalid = || format!("invalid macOS SDK version {version:?}");
+    let invalid = || format!("invalid Apple SDK version {version:?}");
     let number = |part: &str| {
         if part.is_empty() || !part.bytes().all(|byte| byte.is_ascii_digit()) { return Err(invalid()); }
         part.parse::<usize>().map_err(|_| invalid())
@@ -53,7 +62,7 @@ pub fn check_sdk_version(version: &str) -> Result<(), String> {
     number(parts.next().ok_or_else(invalid)?)?;
     if let Some(patch) = parts.next() { number(patch)?; }
     if parts.next().is_some() { return Err(invalid()); }
-    if major < 26 { return Err(format!("Metal requires macOS SDK 26.0 or newer (found {version})")); }
+    if major < 26 { return Err(format!("Metal requires Apple SDK 26.0 or newer (found {version})")); }
     Ok(())
 }
 
@@ -65,6 +74,11 @@ mod tests {
 
     #[test]
     fn source_build_config_contract() {
+        assert_eq!(apple_platform("macos", ""), Some(("macosx", "osx")));
+        assert_eq!(apple_platform("ios", "sim"), Some(("iphonesimulator", "iossim")));
+        assert_eq!(apple_platform("ios", ""), Some(("iphoneos", "ios")));
+        assert_eq!(apple_platform("ios", "macabi"), None);
+        assert_eq!(apple_platform("linux", ""), None);
         assert_eq!(parse_sanitizers("").unwrap(), []);
         assert_eq!(parse_sanitizers("none").unwrap(), []);
         let combined = parse_sanitizers("undefined,address,address").unwrap();

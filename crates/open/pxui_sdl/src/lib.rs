@@ -179,7 +179,7 @@ impl Window {
             if high_density {
                 flags.push(Flag::HighPixelDensity);
             }
-            if hidden {
+            if hidden || cfg!(target_os = "ios") {
                 flags.push(Flag::Hidden);
             }
             let handle = SdlWindow::create(title, width as i32, height as i32, &flags).map_err(fail)?;
@@ -187,11 +187,16 @@ impl Window {
             if unit != 1. {
                 handle.set_size(to_window(unit, width), to_window(unit, height)).map_err(fail)?;
             }
+            #[cfg(not(target_os = "ios"))]
             if !hidden {
                 reveal(&handle).map_err(fail)?;
             }
             let mut view = NativeView::create(&handle).map_err(fail)?;
             let _token = view.layer().map_err(fail)?;
+            #[cfg(target_os = "ios")]
+            if !hidden {
+                reveal(&handle).map_err(fail)?;
+            }
             // Size the target for the actual drawable once, rather than resizing it after.
             let extent = extent_in(unit, &handle)?;
             Ok(Window {
@@ -453,6 +458,8 @@ impl Window {
             record(cursor.destroy());
         }
         self.cursors.clear();
+        #[cfg(target_os = "ios")]
+        record(self.handle.hide());
         record(self.view.destroy());
         record(self.handle.destroy());
         record(sdl3::init::quit_subsystems(&[sdl3::init::Subsystem::Video]));

@@ -151,6 +151,10 @@ version = "0.1.0"
 name = "ios_spike"
 version = "0.1.0"
 dependencies = [
+ "mem_sys",
+ "pxui",
+ "pxui_gallery",
+ "pxui_host",
  "pxui_sdl",
 ]
 
@@ -218,6 +222,7 @@ dependencies = [
 name = "ogpu_metal"
 version = "0.1.0"
 dependencies = [
+ "mem_sys",
  "metal_sys",
  "native_layer_token_sys",
  "ogpu_core",

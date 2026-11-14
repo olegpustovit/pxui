@@ -8,8 +8,8 @@ use pxui_core::ui::{PanelOpts, Ui};
 use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice, ThemeSource};
 
 fn platform() -> Platform {
-    #[cfg(target_os = "macos")] { Platform::Apple }
-    #[cfg(not(target_os = "macos"))] { Platform::Other }
+    #[cfg(any(target_os = "macos", target_os = "ios"))] { Platform::Apple }
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))] { Platform::Other }
 }
 
 pub(crate) fn key(code: u32) -> Option<Key> { Key::from_code(code) }

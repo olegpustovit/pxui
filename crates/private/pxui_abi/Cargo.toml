@@ -18,7 +18,7 @@ pxui_text = { path = "../pxui_text" }
 pxui_atspi = { path = "../pxui_atspi" }
 ogpu_core = { path = "../../open/ogpu_core" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 ogpu_metal = { path = "../../open/ogpu_metal" }
 
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]

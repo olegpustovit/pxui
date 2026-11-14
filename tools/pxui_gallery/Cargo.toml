@@ -30,7 +30,7 @@ ogpu_core = { path = "../../crates/open/ogpu_core" }
 pxui = { path = "../../crates/public/pxui", default-features = false }
 pxui_types = { path = "../../crates/public/pxui_types" }
 
-[target.'cfg(target_os = "macos")'.dependencies]
+[target.'cfg(any(target_os = "macos", target_os = "ios"))'.dependencies]
 ogpu_metal = { path = "../../crates/open/ogpu_metal" }
 pxui_sdl = { path = "../../crates/open/pxui_sdl" }
 

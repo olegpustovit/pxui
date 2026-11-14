@@ -44,8 +44,8 @@ impl Lifetime {
     pub(crate) fn dependent_counter(&self) -> Arc<AtomicUsize> { self.dependents.clone() }
 }
 
-pub(crate) struct DeviceInner { raw: metal_sys::Handle, lifetime: Lifetime, registry_id: u64, capabilities: std::sync::OnceLock<ogpu_core::caps::Caps> }
-impl Drop for DeviceInner { fn drop(&mut self) { self.lifetime.destroyed.store(true, Ordering::Release); } }
+pub(crate) struct DeviceInner { raw: metal_sys::Handle, lifetime: Lifetime, registry_id: u64, capabilities: std::sync::OnceLock<ogpu_core::caps::Caps>, uploads: std::cell::RefCell<Option<metal_sys::uploads::Uploads>> }
+impl Drop for DeviceInner { fn drop(&mut self) { self.uploads.get_mut().take(); self.lifetime.destroyed.store(true, Ordering::Release); } }
 #[derive(Clone)]
 pub struct Device(pub(crate) Arc<DeviceInner>);
 
@@ -66,7 +66,7 @@ impl Device {
             .map_err(|failure| sys_error("Metal.Device.adopt_raw", failure))?;
         let registry_id = metal_sys::registry::device_registry_id(&raw)
             .map_err(|failure| sys_error("Metal.Device.adopt_raw", failure))?;
-        Ok(Self(Arc::new(DeviceInner { raw, lifetime: Lifetime::new(), registry_id, capabilities: std::sync::OnceLock::new() })))
+        Ok(Self(Arc::new(DeviceInner { raw, lifetime: Lifetime::new(), registry_id, capabilities: std::sync::OnceLock::new(), uploads: std::cell::RefCell::new(None) })))
     }
     pub(crate) fn native_ptr(&self) -> Result<*mut std::ffi::c_void, Error> {
         self.0.raw.object_ptr(metal_sys::native::KIND_DEVICE).map_err(|failure| sys_error("Metal.Device.native_ptr", failure))
@@ -78,7 +78,7 @@ impl Device {
             other => sys_error("Metal.Device.system_default", other),
         })?;
         let registry_id = metal_sys::registry::device_registry_id(&raw).map_err(|failure| sys_error("Metal.Device.registry_id", failure))?;
-        Ok(Self(Arc::new(DeviceInner { raw, lifetime: Lifetime::new(), registry_id, capabilities: std::sync::OnceLock::new() })))
+        Ok(Self(Arc::new(DeviceInner { raw, lifetime: Lifetime::new(), registry_id, capabilities: std::sync::OnceLock::new(), uploads: std::cell::RefCell::new(None) })))
     }
     pub fn capabilities(&self) -> Result<ogpu_core::caps::Caps, Error> {
         if let Some(caps) = self.0.capabilities.get() { return Ok(*caps); }
@@ -140,7 +140,19 @@ impl Device {
         self.0.lifetime.ensure_live(operation)?;
         metal_sys::registry::device_supports_texture_sample_count(&self.0.raw, sample_count as u64).map_err(|failure| sys_error(operation, failure))
     }
-    pub fn destroy(&self) -> Result<(), Error> { self.0.lifetime.destroy_parent("Metal.Device.destroy") }
+    fn uploads(&self) -> Result<std::cell::RefMut<'_, metal_sys::uploads::Uploads>, Error> {
+        let mut uploads = self.0.uploads.borrow_mut();
+        if uploads.is_none() {
+            *uploads = Some(metal_sys::uploads::Uploads::new(&self.0.raw)
+                .map_err(|failure| sys_error("Metal.Device.uploads", failure))?);
+        }
+        Ok(std::cell::RefMut::map(uploads, |uploads| uploads.as_mut().expect("created upload context")))
+    }
+    pub fn destroy(&self) -> Result<(), Error> {
+        self.0.lifetime.destroy_parent("Metal.Device.destroy")?;
+        self.0.uploads.borrow_mut().take();
+        Ok(())
+    }
     pub fn is_destroyed(&self) -> bool { self.0.lifetime.destroyed.load(Ordering::Acquire) }
     pub(crate) fn raw(&self) -> &metal_sys::Handle { &self.0.raw }
     pub(crate) fn lifetime(&self) -> &Lifetime { &self.0.lifetime }
@@ -390,27 +402,42 @@ impl Texture {
     pub fn admitted_descriptor(&self) -> &AdmittedTexture { &self.0.descriptor }
     pub fn is_destroyed(&self) -> bool { self.0.lifetime.destroyed.load(Ordering::Acquire) }
     pub fn read_bytes(&self, read: &TextureRead) -> Result<Vec<u8>, Error> {
-        const OP: &str = "Metal.Texture.read_bytes";
-        self.validate_read_owner(OP, read)?;
-        let o = read.region().origin(); let e = read.region().extent();
-        metal_sys::native::read_texture_bytes(&self.0.raw, read.length(), read.bytes_per_row(), read.bytes_per_image(),
-            (o.x as u64, o.y as u64, o.z as u64, e.width as u64, e.height as u64, e.depth as u64),
-            read.mip_level() as u64, read.slice() as u64).map_err(|failure| sys_error(OP, failure))
+        self.validate_read_owner("Metal.Texture.read_bytes", read)?;
+        let mut bytes = vec![0; read.length()];
+        self.read_span("Metal.Texture.read_bytes", read, &mut bytes)?;
+        Ok(bytes)
     }
     pub fn read_bytes_into(&self, read: &TextureReadInto, destination: &mut [u8]) -> Result<(), Error> {
-        const OP: &str = "Metal.Texture.read_bytes_into";
         read.bind_destination(destination.len())?;
-        let read = read.layout();
-        self.validate_read_owner(OP, read)?;
+        self.validate_read_owner("Metal.Texture.read_bytes_into", read.layout())?;
+        self.read_span("Metal.Texture.read_bytes_into", read.layout(), destination)
+    }
+    fn read_span(&self, operation: &str, read: &TextureRead, destination: &mut [u8]) -> Result<(), Error> {
         let o = read.region().origin(); let e = read.region().extent();
+        if self.0.descriptor.storage == ogpu_core::validation::StorageMode::Private {
+            if !self.0.descriptor.usage.contains(&ogpu_core::types::TextureUsage::TextureCopySrc) {
+                return Err(error(operation, ErrorKind::Unsupported, "private texture readback requires TextureCopySrc usage"));
+            }
+            return self.0.device.uploads()?.read(&self.0.raw, read, destination).map_err(|failure| sys_error(operation, failure));
+        }
         metal_sys::native::read_texture(&self.0.raw, destination, read.length(), read.bytes_per_row(), read.bytes_per_image(),
             (o.x as u64, o.y as u64, o.z as u64, e.width as u64, e.height as u64, e.depth as u64),
-            read.mip_level() as u64, read.slice() as u64).map_err(|failure| sys_error(OP, failure))
+            read.mip_level() as u64, read.slice() as u64).map_err(|failure| sys_error(operation, failure))
     }
     pub fn write_bytes(&self, write: &TextureRead, bytes: &[u8]) -> Result<(), Error> {
         const OP: &str = "Metal.Texture.write_bytes";
         self.validate_read_owner(OP, write)?;
         let o = write.region().origin(); let e = write.region().extent();
+        if self.0.descriptor.storage == ogpu_core::validation::StorageMode::Private {
+            if !self.0.descriptor.usage.contains(&ogpu_core::types::TextureUsage::TextureCopyDst) {
+                return Err(error(OP, ErrorKind::Unsupported, "private texture upload requires TextureCopyDst usage"));
+            }
+            let region = write.region();
+            let required = (region.depth - 1) * write.bytes_per_image() + (region.height - 1) * write.bytes_per_row()
+                + region.width * ogpu_core::types::texel_bytes(self.0.descriptor.format) as usize;
+            if bytes.len() < required { return Err(error(OP, ErrorKind::InvalidArgument, "texture source is too short")); }
+            return self.0.device.uploads()?.write(&self.0.raw, write, bytes).map_err(|failure| sys_error(OP, failure));
+        }
         metal_sys::native::write_texture(&self.0.raw, bytes, write.bytes_per_row(), write.bytes_per_image(),
             (o.x as u64, o.y as u64, o.z as u64, e.width as u64, e.height as u64, e.depth as u64),
             write.mip_level() as u64, write.slice() as u64).map_err(|failure| sys_error(OP, failure))

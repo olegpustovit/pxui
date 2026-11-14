@@ -16,12 +16,16 @@ The iOS reveal path shows/syncs the window without unsupported desktop restorati
 For a simulator, install the generated `target/aarch64-apple-ios-sim/debug/PXUIHostSpike.app`
 with `xcrun simctl install booted`, then `xcrun simctl launch --console booted dev.pxui.host-spike`.
 A completed probe prints `PXUI_IOS_SPIKE_OK` with logical/drawable dimensions and scale after
-checking layer lifetime through explicit destruction. Device bundles need developer provisioning.
+drawing the existing kit gallery through `pxui_host::Graphics` for 182 frames. The last 100 frames,
+after 82 warm-up frames, must allocate zero Rust objects across event pumping, UI and draw.
+It waits for GPU completion, checks iOS memory metrics, then destroys the window and verifies
+layer invalidation. Device bundles need developer provisioning.
 
-This is an SDL/window capability probe, not the gallery or an iOS rendering/performance gate.
-Immediate probe teardown can produce UIKit appearance-transition diagnostics. Metal renderer,
-touch routing, safe areas, keyboard/IME, display-link/background handling, Dynamic Type and device
-qualification remain required before an application adopts this host.
+This is a foreground gallery capability probe, not an interactive iOS host or a device performance
+gate. The desktop gallery clips on the phone and does not account for safe areas. Touch routing, safe areas,
+keyboard/IME, display-link/background handling, Dynamic Type and physical-device qualification
+remain required before an application adopts this host. Create the iOS Metal view before showing
+the window and hide the window before detaching its view.
 
 `crates/open/sdl3` provides the safe platform API. Required C/Objective-C++ ABI work
 lives under `crates/open/sdl3_sys`. Core, image and mixer cover only Rays's window,
