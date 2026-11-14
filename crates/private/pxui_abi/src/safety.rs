@@ -251,3 +251,34 @@ fn carry_transfer_validates_outputs_handles_and_has_no_capture_side_effect_witho
 fn image_retirement_rejects_a_missing_renderer() {
     assert_eq!(unsafe { crate::pxui_renderer_forget_image(core::ptr::null_mut(),core::ptr::null(),0) }, crate::PXUI_ERR_ARGUMENT);
 }
+
+#[test]
+fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
+    extern "C" fn slider(user:*mut c_void,raw:*mut c_void) {
+        let ui=raw.cast::<PxuiUi>();
+        let desc=pxui_types::Node {flags:pxui_types::ui::FOCUSABLE,role:pxui_types::a11y::Role::Slider,w:pxui_types::Size::Px(200.0),h:pxui_types::Size::Px(20.0),..pxui_types::Node::DEFAULT};
+        unsafe { assert_eq!(pxui_ui_node_keyed(ui,27,&desc,user.cast()),0); }
+    }
+    let ui=create();
+    assert_eq!(unsafe {pxui_ui_set_a11y(ui,1)},0);
+    let mut node=PxuiBox::default();
+    assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
+    let output=unsafe {&*pxui_ui_output(ui)};
+    let nodes=unsafe {core::slice::from_raw_parts(output.a11y.nodes.ptr,output.a11y.nodes.len)};
+    let id=nodes.iter().find(|node|node.role==pxui_types::a11y::Role::Slider as u32).unwrap().id;
+    let mut batch=[pxui_types::ffi::A11yAction {id,action_code:4,payload:3.0,..Default::default()};65];
+    batch[64].action_code=3;
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),batch.len())},PXUI_ERR_ARGUMENT);
+    assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
+    let value=unsafe {(&*(*ui).engine).signal_state(&crate::state::core_box(node).unwrap()).a11y_value};
+    assert_eq!(value,None,"invalid tail must not deliver earlier chunks");
+    batch[64].action_code=4; batch[64].payload=77.0;
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),batch.len())},0);
+    assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
+    let value=unsafe {(&*(*ui).engine).signal_state(&crate::state::core_box(node).unwrap()).a11y_value};
+    assert_eq!(value,Some(77.0));
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,core::ptr::null(),0)},0);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,core::ptr::null(),1)},PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),4097)},PXUI_ERR_ARGUMENT);
+    unsafe {pxui_ui_destroy(ui);}
+}

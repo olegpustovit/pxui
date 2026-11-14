@@ -178,3 +178,8 @@ that timestamp shapes the shared segment. Preserve core and static/dynamic wrapp
 Reopened view kinds reuse their retained node/hit/name buffers from the bounded free-view pool.
 Preserve the nested-view reopen regression; LIFO reassignment can otherwise keep growing buffers
 on warm resize/show/hide cycles. Profiling labels may remain on free records until reassignment.
+
+Accessibility action injection validates the complete span before applying any action, then
+translates in fixed stack chunks into the engine's retained input queue. Preserve the 4,096-action
+bound, input order, invalid-tail atomicity, scalar payloads and static/dynamic warm allocation
+regressions. A per-call translation Vec breaks accessible scrolling's warm-frame allocation gate.

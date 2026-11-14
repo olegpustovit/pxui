@@ -1296,3 +1296,29 @@ fn reopening_nested_view_kinds_reuses_their_node_and_hit_capacities() {
         if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"reopening view kinds"); }
     }
 }
+
+#[test]
+fn accessibility_action_batches_keep_order_without_warm_allocations() {
+    use crate::ui::{Node, Role, FOCUSABLE};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
+    let value=Cell::new(None);
+    let mut build=|ui:&mut Ui| {
+        let slider=ui.node("slider",Node {flags:FOCUSABLE,role:Role::Slider,w:Size::Px(200.0),h:Size::Px(20.0),..Node::DEFAULT});
+        ui.a11y_name(&slider,"Accessible value");
+        ui.a11y_number(&slider,0.0,0.0,100.0,1.0);
+        value.set(ui.signal_state(&slider).a11y_value);
+    };
+    ui.frame(&input(),&mut build).unwrap();
+    let id=ui.a11y_nodes().iter().find(|node|ui.a11y_name_of(node)=="Accessible value").unwrap().id;
+    let mut batch=[crate::A11yAction {id,action_code:4,..Default::default()};65];
+    for cycle in 0..8 {
+        for (index,action) in batch.iter_mut().enumerate() {action.payload=if cycle%2==0 {index as f64} else {(64-index) as f64};}
+        mem_sys::local_reset();
+        ui.inject_a11y(&batch);
+        ui.frame(&FrameIn {time:cycle as f64,..input()},&mut build).unwrap();
+        assert_eq!(value.get(),Some(if cycle%2==0 {64.0} else {0.0}));
+        if cycle>1 {assert_eq!(mem_sys::local_alloc_count(),0,"ordered accessibility chunks");}
+    }
+}

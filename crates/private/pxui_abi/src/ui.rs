@@ -192,18 +192,20 @@ export!(pub unsafe fn pxui_ui_set_a11y(ui: *mut PxuiUi, on: u8) -> i32 {
 export!(pub unsafe fn pxui_ui_inject_a11y(ui: *mut PxuiUi, actions: *const pxui_types::ffi::A11yAction, count: usize) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if count > 4096 || (count != 0 && actions.is_null()) { return unsafe { fail(ui, "invalid accessibility action span") }; }
-    let mut translated = Vec::with_capacity(count);
-    if count != 0 {
-        for a in unsafe { std::slice::from_raw_parts(actions, count) } {
-            let action = match a.action_code {
-                1 => pxui_core::a11y::Action::Press, 2 => pxui_core::a11y::Action::Focus, 4 => pxui_core::a11y::Action::SetValue,
-                8 => pxui_core::a11y::Action::Scroll, 16 => pxui_core::a11y::Action::Expand, 32 => pxui_core::a11y::Action::Collapse,
-                64 => pxui_core::a11y::Action::Select, _ => return unsafe { fail(ui, "invalid accessibility action code") },
-            };
-            translated.push(pxui_core::a11y::A11yAction { id: a.id, action, payload: a.payload, end: a.end as f64 });
-        }
+    let actions = if count == 0 { &[] } else { unsafe { std::slice::from_raw_parts(actions, count) } };
+    // Reject the whole batch before feeding any chunk to the retained engine queue.
+    if actions.iter().any(|a| !matches!(a.action_code,1|2|4|8|16|32|64)) {
+        return unsafe { fail(ui, "invalid accessibility action code") };
     }
-    unsafe { (&mut *state.engine).inject_a11y(&translated); }
+    use pxui_core::a11y::{Action, A11yAction};
+    const KINDS: [Action;7] = [Action::Press,Action::Focus,Action::SetValue,Action::Scroll,Action::Expand,Action::Collapse,Action::Select];
+    let mut translated = [A11yAction { id:0,action:Action::Press,payload:0.0,end:0.0 };32];
+    for chunk in actions.chunks(translated.len()) {
+        for (to,from) in translated.iter_mut().zip(chunk) {
+            *to=A11yAction { id:from.id,action:KINDS[from.action_code.trailing_zeros() as usize],payload:from.payload,end:from.end as f64 };
+        }
+        unsafe { (&mut *state.engine).inject_a11y(&translated[..chunk.len()]); }
+    }
     0
 });
 
