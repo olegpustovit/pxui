@@ -1,6 +1,10 @@
 #[cfg(target_os = "ios")]
 mod ios {
     use pxui_sdl::ios::{Schedule, Signal};
+    use std::sync::{
+        Arc,
+        atomic::{AtomicBool, Ordering},
+    };
 
     struct Probe {
         ui: pxui::Ui,
@@ -23,6 +27,10 @@ mod ios {
         saw_keyboard: bool,
         keyboard_hiding: bool,
         saw_hidden: bool,
+        background_worker: Option<(Arc<AtomicBool>, std::thread::JoinHandle<bool>)>,
+        background_woke: bool,
+        background_deadline: Option<f64>,
+        background_timed: bool,
     }
     impl Probe {
         fn open(window: &mut pxui_sdl::Window) -> Result<Self, String> {
@@ -69,6 +77,10 @@ mod ios {
                 saw_keyboard: false,
                 keyboard_hiding: false,
                 saw_hidden: false,
+                background_worker: None,
+                background_woke: false,
+                background_deadline: None,
+                background_timed: false,
             })
         }
         fn signal(
@@ -89,7 +101,52 @@ mod ios {
                     }
                     self.paused = true;
                     println!("PXUI_IOS_PAUSED frames={frames} warm_rust_allocs=0");
+                    if self.lifecycle && !self.background_woke && self.background_worker.is_none() {
+                        let ready = Arc::new(AtomicBool::new(false));
+                        let signal = ready.clone();
+                        self.background_worker = Some((
+                            ready,
+                            std::thread::spawn(move || {
+                                // Manual runtime diagnostic, not a unit-test wait.
+                                std::thread::sleep(std::time::Duration::from_millis(150));
+                                signal.store(true, Ordering::Release);
+                                pxui_sdl::wake()
+                            }),
+                        ));
+                    }
                     return Ok(Schedule::WaitUntil(None));
+                }
+                Signal::Control => {
+                    let frames = self.frames;
+                    mem_sys::local_reset();
+                    if self.graphics.can_draw() || self.graphics.draw(window, &self.ui, None)? {
+                        return Err("Inactive control callback submitted a frame".into());
+                    }
+                    if self
+                        .background_worker
+                        .as_ref()
+                        .is_some_and(|(ready, _)| ready.load(Ordering::Acquire))
+                    {
+                        let (_, worker) = self.background_worker.take().unwrap();
+                        if !worker.join().map_err(|_| "Background worker panicked")? {
+                            return Err("Background worker could not wake SDL".into());
+                        }
+                        self.background_woke = true;
+                        self.background_deadline = Some(window.time() + 0.1);
+                        println!("PXUI_IOS_BACKGROUND_WORKER_OK frames={frames}");
+                    }
+                    if self
+                        .background_deadline
+                        .is_some_and(|at| window.time() >= at)
+                    {
+                        self.background_deadline = None;
+                        self.background_timed = true;
+                        println!("PXUI_IOS_BACKGROUND_DEADLINE_OK frames={frames}");
+                    }
+                    if self.frames != frames || mem_sys::local_alloc_count() != 0 {
+                        return Err("Inactive control callback built or allocated a frame".into());
+                    }
+                    return Ok(Schedule::WaitUntil(self.background_deadline));
                 }
                 Signal::Resumed => {
                     if self.paused {
@@ -305,7 +362,12 @@ mod ios {
                 && self.idle_callbacks > 0
                 && self.worker_woke
                 && (!self.keyboard_check || (self.saw_keyboard && self.saw_hidden))
-                && (!self.lifecycle || (self.paused && self.resumed && self.holding));
+                && (!self.lifecycle
+                    || (self.paused
+                        && self.resumed
+                        && self.holding
+                        && self.background_woke
+                        && self.background_timed));
             self.graphics.close()?;
             if !complete {
                 return Err("iOS probe did not complete its frame/lifecycle/idle checks".into());

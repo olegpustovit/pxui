@@ -170,6 +170,15 @@ static void ios_source(void *context);
     dispatch_source_set_timer(timer, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
     if (!atomic_load(&foreground)) {
         link.paused = YES;
+        atomic_store(&dirty, false);
+        rays_ios_step step = [self invoke:RAYS_IOS_CONTROL];
+        if (step.action == RAYS_IOS_FAIL || step.action == RAYS_IOS_EXIT) {
+            [self finish:step.action == RAYS_IOS_FAIL]; return;
+        }
+        if (step.action == RAYS_IOS_WAIT) [self wait:step.delay];
+        else if (step.action != RAYS_IOS_NEXT) [self failure:"unknown iOS control schedule"];
+        // A requested frame remains deferred until foreground; control deadlines use only the timer.
+        if (atomic_load(&foreground)) link.paused = NO;
         return;
     }
     link.paused = NO;
@@ -193,8 +202,12 @@ static void ios_source(void *context);
     if (isnan(step.delay) || step.delay < 0) { [self failure:"invalid iOS repaint deadline"]; return; }
     if (step.delay <= link.duration) return;
     link.paused = YES;
-    uint64_t delay = isfinite(step.delay) ? (uint64_t)MIN(step.delay * NSEC_PER_SEC, (double)(INT64_MAX / 2)) : 0;
-    dispatch_source_set_timer(timer, isfinite(step.delay) ? dispatch_time(DISPATCH_TIME_NOW, (int64_t)delay) : DISPATCH_TIME_FOREVER,
+    [self wait:step.delay];
+}
+- (void)wait:(double)seconds {
+    if (isnan(seconds) || seconds < 0) { [self failure:"invalid iOS control deadline"]; return; }
+    uint64_t delay = isfinite(seconds) ? (uint64_t)MIN(seconds * NSEC_PER_SEC, (double)(INT64_MAX / 2)) : 0;
+    dispatch_source_set_timer(timer, isfinite(seconds) ? dispatch_time(DISPATCH_TIME_NOW, (int64_t)delay) : DISPATCH_TIME_FOREVER,
         DISPATCH_TIME_FOREVER, 0);
 }
 - (int)shutdown:(int)status {

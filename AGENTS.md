@@ -321,3 +321,10 @@ positions. Reserve typed arrays before publishing their pointers, and reuse host
 Reject invalid payloads before mutating frame state/output in both entry points. Preserve native
 SDL trace, adjacent same-finger coalescing and static/dynamic 182/82/100 allocation regressions.
 Touch transport coverage does not qualify widget gesture arbitration or real-device feel.
+
+The scoped iOS loop delivers Signal::Control for inactive worker wakes and explicit deadlines.
+Keep the display link paused and all Metal drawing disabled in these callbacks. NextFrame defers
+drawing until foreground; WaitUntil uses the existing dispatch timer without idle polling. Retain
+the same-process lifecycle probe: a background worker wake and deadline at frame 90, no frame or
+warm Rust allocation, then resume and finish the original 182/82/100 checks. This is not a grant
+of iOS background execution time or qualification of actual background audio on a physical device.

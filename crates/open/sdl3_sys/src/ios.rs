@@ -9,6 +9,8 @@ pub enum Signal {
     Resumed,
     LowMemory,
     Finish,
+    /// An inactive app may service controls and workers here; drawing must stay paused.
+    Control,
 }
 
 #[repr(C)]
@@ -66,6 +68,7 @@ pub fn run(callback: &mut dyn FnMut(Signal) -> Step) -> i32 {
             3 => Signal::Resumed,
             4 => Signal::LowMemory,
             5 => Signal::Finish,
+            6 => Signal::Control,
             _ => return Step::exit(false),
         };
         // The native loop calls only on main and unregisters all sources before returning.

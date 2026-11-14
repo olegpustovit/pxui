@@ -12,6 +12,8 @@ pub type Callback = dyn FnMut(&mut Window, Signal) -> Result<Schedule, String>;
 
 /// Runs once on the initial thread. On quit, calls Finish and drops captured app resources before
 /// destroying the window. The native loop exits the process after cleanup; startup rejection returns Err.
+/// Control signals service inactive worker wakes/deadlines without a display-link frame. NextFrame
+/// defers drawing until foreground; WaitUntil can schedule another control callback while inactive.
 pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Result<(), String> {
     use sdl3::ios::Step;
     let mut window = None;

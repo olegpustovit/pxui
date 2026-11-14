@@ -61,13 +61,17 @@ On iOS, `pxui_sdl::ios::run` owns the window and callback. UIKit drives its disp
 `Schedule::WaitUntil` pauses it until input, a worker wake or the repaint deadline. Metal stops
 new submissions while inactive and drains pending work on resign-active notifications. The
 callback's `Finish` and captured resource destruction happen before window destruction. Return
-errors through the callback result; a panic aborts at the C boundary. See
+errors through the callback result; a panic aborts at the C boundary.
+`Signal::Control` services worker wakes and explicit `WaitUntil` deadlines while inactive;
+the display link stays paused and `NextFrame` defers drawing until foreground. This does not
+grant background execution time to a suspended iOS app. See
 [`ios_spike`](tools/ios_spike/src/main.rs) and build it with
 `packaging/ios-spike.sh iphonesimulator /absolute/shared/target`. Set
 `SIMCTL_CHILD_PXUI_IOS_LIFECYCLE_CHECK=1` on `simctl launch`, wait for the frame-90 marker,
-background it with another app, then relaunch the same bundle without terminating it. The
-182-frame / 82-warm-up / 100-measured allocation gate, idle deadline and same-process resume
-are qualified on the iOS 18.6 simulator. Finger gestures, IME editing, keyboard avoidance motion,
+background it with another app, wait for both `PXUI_IOS_BACKGROUND_*_OK` markers at frame 90,
+then relaunch the same bundle without terminating it. The 182-frame / 82-warm-up / 100-measured
+allocation gate, idle deadline, same-process resume and inactive worker/deadline callbacks are
+qualified on the iOS 18.6 simulator. Finger gestures, IME editing, keyboard avoidance motion,
 physical devices and native allocations remain to qualify.
 
 ABI 1.25 adds typed touch transport: full 64-bit device/finger IDs, began/moved/ended/cancelled,
