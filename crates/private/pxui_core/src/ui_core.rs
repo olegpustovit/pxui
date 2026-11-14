@@ -1632,6 +1632,15 @@ impl Ui {
         self.a11y_written
     }
 
+    fn invalidate_a11y_view(&mut self,mut view:u32) {
+        self.a11y_dirty=true;
+        loop {
+            self.views[view as usize].a11y_gen=0;
+            if view==0 {break;}
+            view=self.views[view as usize].parent;
+        }
+    }
+
     fn emit_view(&mut self, t: &mut A11yTree, map: &mut [u32], v: u32) {
         let next_gen = self.a11y_gen + 1;
         let r = &self.views[v as usize];
@@ -5516,7 +5525,7 @@ impl Ui {
         self.draw[layer] = target;
         self.patch_layers = scratch;
         self.views[owner as usize].patched = true;
-        self.views[owner as usize].a11y_gen = 0;
+        self.invalidate_a11y_view(owner);
         self.draw_revision += 1;
         self.a11y_dirty = true;
         true
@@ -6449,6 +6458,56 @@ impl Ui {
         body
     }
 
+    /// A section with measured virtual rows; the callback also receives its logical content Y.
+    pub fn section_list_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+        let key=key_of(self.current_seed(),label);
+        let mut cache=self.list_heights.remove(&key).unwrap_or_default();
+        if cache.heights.len()!=section.count {cache.heights.resize(section.count,section.row_height);cache.dirty=true;}
+        if cache.dirty || cache.tops.len()!=section.count+1 {
+            cache.tops.clear();cache.tops.push(0.0);
+            for index in 0..section.count {cache.tops.push(cache.tops[index]+cache.heights[index]);}
+            cache.dirty=false;
+        }
+        cache.frame=self.frame_number;
+        let rows_h=cache.tops[section.count];
+        let before=section.leading_height+section.header_height;
+        let total=before+rows_h+section.trailing_height;
+        assert!(section.row_height>0.0 && section.row_height.is_finite() && total.is_finite()
+            && [section.leading_height,section.header_height,section.trailing_height].iter().all(|v|v.is_finite() && *v>=0.0),"Ui.section_list: invalid section geometry");
+        let flags=SCROLL|CLIP|if section.overlay_scrollbar {OVER_THUMB} else {0};
+        let body=self.node(label,Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
+        let seen=self.slots[body.box_slot].rh;
+        let height=if seen>0.0 {seen} else {self.view_h};
+        self.expect(body.box_slot,f32::NAN,height);
+        self.set_l_h(&body,height);
+        self.set_l_content(&body,total);
+        if let Some(time)=self.input_frame_time() {self.apply_scroll(true,time,body.index);}
+        let offset=self.scroll_position(&body);
+        let top=cache.tops.partition_point(|y| *y<=offset-before).saturating_sub(1).min(section.count);
+        let bottom=cache.tops.partition_point(|y| *y<offset+height-before).min(section.count);
+        let first=top.saturating_sub(OVERSCAN).min(section.count);
+        let last=bottom.saturating_add(OVERSCAN+1).min(section.count);
+        let saved=self.enter(&body);
+        for (key,h,flags,index) in [("leading",section.leading_height,0,usize::MAX),("header",section.header_height,STICKY|BLOCKING,usize::MAX-1)] {
+            if h>0.0 {
+                let part=self.node(key,Node {flags,w:Size::Grow,h:Size::Px(h),..Node::DEFAULT});
+                let inner=self.enter(&part); f(self,index,if index==usize::MAX {0.0} else {section.leading_height}); self.leave(inner);
+            }
+        }
+        let extent=self.node("rows",Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
+        let inner=self.enter(&extent);
+        for index in first..last {
+            let row=self.node_keyed(int_key(body.box_key,index as i64),Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,cache.tops[index])).into(),role:Role::ListItem,..Node::DEFAULT});
+            self.list_rows.push((body.box_key,index,row.box_slot));
+            let part=self.enter(&row); f(self,index,before+cache.tops[index]); self.leave(part);
+        }
+        self.leave(inner);
+        if section.trailing_height>0.0 {self.node("trailing",Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
+        self.leave(saved);
+        self.list_heights.insert(body.box_key,cache);
+        body
+    }
+
     /// `list` with rows of their own (`Fit`) heights: each row is measured when it is built and its
     /// height cached by index (rows not yet built count `estimate_h`); the rows' tops are prefix sums
     /// of the cache, so the scroll position finds its row by binary search. A measured height that
@@ -6846,7 +6905,7 @@ impl Ui {
             let r = &self.views[v as usize];
             if r.entry() != old_entry {
                 let cover = r.cover(r.screen);
-                self.a11y_dirty = true;
+                self.invalidate_a11y_view(v);
                 if shown {
                     self.add_damage(old_cover);
                     self.add_damage(cover);

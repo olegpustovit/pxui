@@ -322,3 +322,45 @@ fn section_list_descriptors_validate_before_callbacks_and_restore_the_owner() {
     assert_eq!(run(ui,Some(build),(&mut calls as *mut usize).cast()),0,"{}",error(ui));
     assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
 }
+
+#[test]
+fn measured_section_descriptors_validate_before_callbacks_and_restore_the_owner() {
+    use pxui_types::ffi::PxuiMeasuredSectionDesc;
+    extern "C" fn part(user:*mut c_void,raw:*mut c_void,index:usize,y:f32) {
+        let count=unsafe {&mut *user.cast::<usize>()};
+        assert!(y.is_finite());
+        if *count==0 {assert_eq!(index,usize::MAX);assert_eq!(y,0.0);}
+        if *count==1 {assert_eq!(index,usize::MAX-1);}
+        *count+=1;
+        let mut node=PxuiBox::default();
+        assert_eq!(unsafe {pxui_ui_node_keyed(raw.cast(),17,&pxui_types::Node {h:pxui_types::Size::Px(20.0),..pxui_types::Node::DEFAULT},&mut node)},0);
+    }
+    extern "C" fn build(user:*mut c_void,raw:*mut c_void) {
+        let ui=raw.cast::<PxuiUi>();
+        let valid=PxuiMeasuredSectionDesc {size:core::mem::size_of::<PxuiMeasuredSectionDesc>() as u32,
+            overlay_scrollbar:1,reserved:[0;3],label:Str {ptr:b"section".as_ptr(),len:7},count:10_000,
+            row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,build:Some(part),user};
+        let before=unsafe {*user.cast::<usize>()};
+        let mut out=PxuiBox {box_key:777,..PxuiBox::default()};
+        let mut bad=[valid;10];
+        bad[0].size-=1; bad[1].overlay_scrollbar=2; bad[2].reserved[1]=1;
+        bad[3].label=Str {ptr:core::ptr::null(),len:1}; bad[4].count=1_000_001;
+        bad[5].row_height=0.0; bad[6].leading_height=-1.0; bad[7].header_height=f32::NAN;
+        bad[8].trailing_height=f32::INFINITY; bad[9].row_height=f32::MAX;
+        for desc in &bad {
+            assert_eq!(unsafe {pxui_ui_section_list_measured(ui,desc,&mut out)},PXUI_ERR_ARGUMENT);
+            assert_eq!(out.box_key,777,"invalid descriptor leaves output unchanged");
+            assert_eq!(unsafe {*user.cast::<usize>()},before,"invalid descriptor calls no builder");
+        }
+        assert_eq!(unsafe {pxui_ui_section_list_measured(ui,core::ptr::null(),&mut out)},PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe {pxui_ui_section_list_measured(ui,&valid,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe {pxui_ui_section_list_measured(ui,&valid,&mut out)},0);
+        assert!((3..30).contains(&(unsafe {*user.cast::<usize>()}-before)));
+        let mut node=PxuiBox::default();
+        assert_eq!(unsafe {pxui_ui_node_keyed(ui,19,&pxui_types::Node::DEFAULT,&mut node)},0,"section callback restores its parent handle");
+    }
+    let ui=create(); let mut calls=0usize;
+    assert_eq!(unsafe {pxui_ui_section_list_measured(core::ptr::null_mut(),core::ptr::null(),core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
+    assert_eq!(run(ui,Some(build),(&mut calls as *mut usize).cast()),0,"{}",error(ui));
+    assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
+}

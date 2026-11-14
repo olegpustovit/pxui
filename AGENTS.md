@@ -231,3 +231,14 @@ Preserve the callback-count assertion alongside clipping, pixels and warm alloca
 Virtual lists clamp invalid offsets before selecting rows after their extent shrinks. Preserve the
 one-build shrink-to-three/empty regression and warm allocations; clamping only during arrange
 can leave a resting virtual list blank until the next input.
+
+ABI 1.21 adds Ui::section_list_measured / pxui_ui_section_list_measured. Reuse the existing
+measured-list prefix cache and binary search, including same-frame measurement settling; the row
+height is an estimate for unseen rows. The callback receives the logical content Y of each part.
+Warm height changes/scroll/shrink allocate nothing; storage is two floats per row plus one prefix
+entry. Preserve static/dynamic descriptor, callback recovery, native 1x/2x and one-draw checks.
+
+Changing a nested view's transform or patched accessible content must invalidate its ancestors'
+accessibility spans. A cached parent copies its entire subtree's span; invalidating only the child
+leaves stale bounds under an unchanged parent. Preserve flat/nested scale-retarget/keyframe checks,
+unchanged glyph instances, no additional content builds and zero warm allocations.

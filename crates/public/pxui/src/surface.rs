@@ -133,6 +133,25 @@ fn section_lists_validate_geometry_recover_callbacks_and_support_empty_unpinned_
 }
 
 #[test]
+fn measured_sections_validate_geometry_recover_callbacks_and_support_empty_unpinned_sections() {
+    use crate::ui::{SectionList,SectionPart};
+    let valid=SectionList {count:0,row_height:20.0,leading_height:30.0,header_height:0.0,trailing_height:40.0,overlay_scrollbar:false};
+    let mut ui=Ui::new().unwrap();
+    let called=std::cell::Cell::new(false);
+    for bad in [SectionList {count:1_000_001,..valid},SectionList {row_height:0.0,..valid},SectionList {row_height:f32::NAN,..valid},SectionList {leading_height:-1.0,..valid},SectionList {header_height:f32::INFINITY,..valid},SectionList {trailing_height:-1.0,..valid},SectionList {count:2,row_height:f32::MAX,..valid}] {
+        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list_measured("bad",&bad,&mut |_,_,_|called.set(true));});})).is_err());
+        assert!(!called.get(),"invalid geometry reached the callback");
+    }
+    for fail in [SectionPart::Leading,SectionPart::Header,SectionPart::Row(0)] {
+        let section=SectionList {count:1,header_height:20.0,..valid};
+        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list_measured("panic",&section,&mut |_,part,_| {if part==fail {panic!("section callback");}});});})).is_err());
+        let mut calls=0;
+        ui.frame(&input(),&mut |ui| {ui.section_list_measured("empty",&valid,&mut |_,part,_| {assert_eq!(part,SectionPart::Leading);calls+=1;});}).unwrap();
+        assert!(calls>=1,"empty sections retain the lead-in and omit a zero heading and all rows");
+    }
+}
+
+#[test]
 fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
@@ -346,10 +365,11 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
     use crate::{kit::{AnimationTarget, Keyframe}, ui::{Curve, Look, Node, Role, Target}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
+    for nested in [false,true] {
     let mut ui = Ui::new().unwrap();
     ui.set_a11y(true);
     let (child, view, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
-    let mut build = |ui: &mut Ui| {
+    let mut content = |ui: &mut Ui| {
         let v = ui.view("scale", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
             builds.set(builds.get() + 1);
             let b = ui.node("child", Node { w: Size::Px(20.0), h: Size::Px(10.0), role: Role::Button, at: Some((20.0, 10.0)).into(), look: Look { fill: pxui_types::geom::color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
@@ -359,6 +379,7 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
         ui.set_at(&v, (100.0, 40.0));
         view.set(Some(v));
     };
+    let mut build=|ui:&mut Ui| {if nested {ui.view("outer",0,Size::Grow,Size::Grow,&mut content);} else {content(ui);}};
     for time in [0.0, 0.1] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
     let (view, child, built) = (view.get().unwrap(), child.get().unwrap(), builds.get());
     let instances = ui.layer(0).instances.to_vec();
@@ -413,6 +434,7 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
     ui.frame(&FrameIn { time: 7.0, ..input() }, &mut build).unwrap();
     shown(&ui, Rect::new(40.0, 85.0, 40.0, 5.0));
     assert!(!ui.wants_frame(&[], 7.1));
+    }
 }
 
 #[test]
@@ -1579,4 +1601,48 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
         assert!(ui.text_line_box(&node,"é",&style,&[crate::TextSpan {start:1,end:2,..Default::default()}]).is_err());
     }).unwrap();
     assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==value));
+}
+
+#[test]
+fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
+    use std::cell::{Cell,RefCell};
+    use crate::ui::{Node,SectionList,SectionPart};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let count=Cell::new(10_000);let taller=Cell::new(false);let body=Cell::new(None);let header=Cell::new(None);
+    let positions=RefCell::new(Vec::with_capacity(100));
+    let mut build=|ui:&mut Ui| {
+        positions.borrow_mut().clear();
+        body.set(Some(ui.section_list_measured("measured",&SectionList {count:count.get(),row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true},&mut |ui,part,y| {
+            match part {
+                SectionPart::Leading=>assert_eq!(y,0.0),
+                SectionPart::Header=>{assert_eq!(y,100.0);header.set(Some(ui.node("heading",Node {w:Size::Grow,h:Size::Grow,..Node::DEFAULT})));},
+                SectionPart::Row(index)=>{
+                    let h=if taller.get() {40.0} else {20.0};
+                    let row=ui.node("content",Node {w:Size::Grow,h:Size::Px(h),..Node::DEFAULT});
+                    positions.borrow_mut().push((index,y,row));
+                }
+            }
+        })));
+    };
+    ui.frame(&input(),&mut build).unwrap();
+    for cycle in 0..10 {
+        mem_sys::local_reset();
+        for tall in [true,false] {
+            taller.set(tall);count.set(10_000);ui.set_scroll_offset(&body.get().unwrap(),0.0);
+            ui.frame(&input(),&mut build).unwrap();
+            let h=if tall {40.0} else {20.0};
+            assert!(positions.borrow().len()<30,"only visible rows and overscan are built");
+            for &(index,y,row) in positions.borrow().iter() {
+                assert_eq!(y,130.0+index as f32*h);
+                assert_eq!(ui.rect(&row).y,y);assert_eq!(ui.rect(&row).h,h);
+            }
+            ui.set_scroll_offset(&body.get().unwrap(),100.0);ui.frame(&input(),&mut build).unwrap();
+            assert_eq!(ui.rect(&header.get().unwrap()).y,0.0);
+            count.set(2);ui.frame(&input(),&mut build).unwrap();
+            assert_eq!(ui.scroll_offset(&body.get().unwrap()),(170.0+2.0*h-240.0).max(0.0));
+            assert_eq!(positions.borrow().len(),2);
+        }
+        if cycle>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm measured height changes/scroll/shrink");}
+    }
 }

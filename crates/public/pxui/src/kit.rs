@@ -20,6 +20,7 @@ mod sys {
     #[link(name = "pxui")]
     unsafe extern "C" {
     pub fn pxui_ui_section_list(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiSectionListDesc,out:*mut PxuiBox)->i32;
+    pub fn pxui_ui_section_list_measured(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiMeasuredSectionDesc,out:*mut PxuiBox)->i32;
     pub fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const GridListDesc, out: *mut PxuiBox) -> i32;
     pub fn pxui_ui_list_measured(ui:*mut PxuiUi,label:Str,count:usize,estimate_h:f32,build:GridBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
     pub fn pxui_ui_split(ui: *mut PxuiUi, desc: *const SplitDesc, changed: *mut u8, ratio: *mut f32) -> i32;
@@ -53,6 +54,10 @@ struct GridCallback<F> { f: F }
 impl<F: FnMut(&mut Ui, usize)> GridCallback<F> {
     fn erased(&mut self) -> (GridBuild, *mut c_void) { (Some(call_grid::<F>), (self as *mut Self).cast()) }
 }
+struct MeasuredCallback<F> { f: F }
+impl<F: FnMut(&mut Ui, usize,f32)> MeasuredCallback<F> {
+    fn erased(&mut self) -> (pxui_types::ffi::PxuiMeasuredSectionBuild, *mut c_void) { (Some(call_measured::<F>), (self as *mut Self).cast()) }
+}
 extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut c_void) {
     if raw.is_null() || deferred() { return; }
     let state = unsafe { &mut *user.cast::<Callback<F>>() };
@@ -68,6 +73,15 @@ extern "C" fn call_grid<F: FnMut(&mut Ui, usize)>(user: *mut c_void, raw: *mut c
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw.cast()) }));
         (state.f)(&mut ui, index);
+    }));
+    if let Err(panic) = result { defer_callback_panic(panic); }
+}
+extern "C" fn call_measured<F: FnMut(&mut Ui, usize,f32)>(user: *mut c_void, raw: *mut c_void, index: usize,y:f32) {
+    if raw.is_null() || deferred() { return; }
+    let state = unsafe { &mut *user.cast::<MeasuredCallback<F>>() };
+    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
+        let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw.cast()) }));
+        (state.f)(&mut ui, index,y);
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
@@ -150,6 +164,25 @@ impl Ui {
             let (build,user)=context.erased();
             let desc=pxui_types::ffi::PxuiSectionListDesc {size:core::mem::size_of::<pxui_types::ffi::PxuiSectionListDesc>() as u32,overlay_scrollbar:u8::from(section.overlay_scrollbar),reserved:[0;3],label:as_str(label),count:section.count,row_height:section.row_height,leading_height:section.leading_height,header_height:section.header_height,trailing_height:section.trailing_height,build,user};
             check(self,unsafe {sys::pxui_ui_section_list(self.0.as_ptr(),&desc,&mut out)});
+        }
+        out
+    }
+
+    /// A scrolling lead-in, sticky heading and measured virtual rows; the callback includes logical content Y in one scroll region.
+    #[track_caller]
+    pub fn section_list_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,build:&mut dyn FnMut(&mut Ui,pxui_types::ui::SectionPart,f32))->PxuiBox {
+        let mut out=PxuiBox::default();
+        let mut invoke=|ui:&mut Ui,index,y| build(ui,match index {usize::MAX=>pxui_types::ui::SectionPart::Leading,index if index==usize::MAX-1=>pxui_types::ui::SectionPart::Header,index=>pxui_types::ui::SectionPart::Row(index)},y);
+        #[cfg(feature="static")]
+        check(self,unsafe {pxui_abi_link::trusted::section_list_measured(self.0.as_ptr(),label,section,&mut |raw:*mut crate::sys::PxuiUi,index,y| {
+            let mut ui=ManuallyDrop::new(Ui(NonNull::new_unchecked(raw))); invoke(&mut ui,index,y);
+        },&mut out)});
+        #[cfg(not(feature="static"))]
+        {
+            let mut context=MeasuredCallback {f:&mut invoke};
+            let (build,user)=context.erased();
+            let desc=pxui_types::ffi::PxuiMeasuredSectionDesc {size:core::mem::size_of::<pxui_types::ffi::PxuiMeasuredSectionDesc>() as u32,overlay_scrollbar:u8::from(section.overlay_scrollbar),reserved:[0;3],label:as_str(label),count:section.count,row_height:section.row_height,leading_height:section.leading_height,header_height:section.header_height,trailing_height:section.trailing_height,build,user};
+            check(self,unsafe {sys::pxui_ui_section_list_measured(self.0.as_ptr(),&desc,&mut out)});
         }
         out
     }

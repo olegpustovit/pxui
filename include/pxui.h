@@ -288,6 +288,8 @@ typedef void (*PxuiGridBuild)(void *user, PxuiUi *ui, size_t index);
 typedef struct { uint32_t size,reserved; PxuiStr label; size_t count; float cell_w,cell_h; PxuiGridBuild build; void *user; } PxuiGridListDesc;
 /* build: SIZE_MAX for leading content, SIZE_MAX-1 for the sticky heading, otherwise a row index. */
 typedef struct { uint32_t size; uint8_t overlay_scrollbar,reserved[3]; PxuiStr label; size_t count; float row_height,leading_height,header_height,trailing_height; PxuiGridBuild build; void *user; } PxuiSectionListDesc;
+typedef void (*PxuiMeasuredSectionBuild)(void *user, void *ui, size_t index, float content_y);
+typedef struct { uint32_t size; uint8_t overlay_scrollbar,reserved[3]; PxuiStr label; size_t count; float row_height,leading_height,header_height,trailing_height; PxuiMeasuredSectionBuild build; void *user; } PxuiMeasuredSectionDesc;
 typedef struct { uint32_t size,axis; PxuiStr label; float ratio,min_a,min_b; uint32_t reserved; PxuiBuild build_a; void *user_a; PxuiBuild build_b; void *user_b; } PxuiSplitDesc;
 typedef struct { uint32_t size,reserved; PxuiStr label; PxuiMenuDescSpan menus; } PxuiMenuBarDesc;
 typedef struct { uint32_t size,reserved; size_t menu,item; } PxuiMenuOut;
@@ -327,6 +329,8 @@ int32_t pxui_ui_list_measured(PxuiUi *ui, PxuiStr label, size_t count, float est
 int32_t pxui_ui_grid_list(PxuiUi *ui, const PxuiGridListDesc *desc, PxuiBox *out);
 /* One scroll region with fixed rows and a scrolling lead-in/sticky heading (ABI 1.20). */
 int32_t pxui_ui_section_list(PxuiUi *ui, const PxuiSectionListDesc *desc, PxuiBox *out);
+/* Measured virtual rows; row_height estimates unseen rows (ABI 1.21). */
+int32_t pxui_ui_section_list_measured(PxuiUi *ui, const PxuiMeasuredSectionDesc *desc, PxuiBox *out);
 int32_t pxui_ui_split(PxuiUi *ui, const PxuiSplitDesc *desc, uint8_t *changed, float *ratio);
 int32_t pxui_ui_menu_bar(PxuiUi *ui, const PxuiMenuBarDesc *desc, PxuiMenuOut *out);
 int32_t pxui_ui_inspector_row(PxuiUi *ui, PxuiInspectorRowDesc *desc);

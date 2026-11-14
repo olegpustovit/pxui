@@ -233,3 +233,5 @@ Ui|text_line_box|LocalWave|done: pxui_ui_text_line_box
 Ui|density|LocalWave|done: pxui_ui_density
 
 Ui|section_list|LocalWave|done: pxui_ui_section_list
+
+Ui|section_list_measured|LocalWave|done: pxui_ui_section_list_measured

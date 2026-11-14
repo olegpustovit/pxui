@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 20
+minor 21
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -167,6 +167,7 @@ function pxui_ui_scroll_offset int32_t pxui_ui_scroll_offset ( PxuiUi * ui , con
 function pxui_ui_scroll_view int32_t pxui_ui_scroll_view ( PxuiUi * ui , PxuiStr label , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_search_field int32_t pxui_ui_search_field ( PxuiUi * ui , PxuiStr label , PxuiStr icon , PxuiStr value , PxuiStr placeholder , uint8_t * changed , PxuiStr * out ) ;
 function pxui_ui_section_list int32_t pxui_ui_section_list ( PxuiUi * ui , const PxuiSectionListDesc * desc , PxuiBox * out ) ;
+function pxui_ui_section_list_measured int32_t pxui_ui_section_list_measured ( PxuiUi * ui , const PxuiMeasuredSectionDesc * desc , PxuiBox * out ) ;
 function pxui_ui_segmented int32_t pxui_ui_segmented ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
 function pxui_ui_set_a11y int32_t pxui_ui_set_a11y ( PxuiUi * ui , uint8_t on ) ;
 function pxui_ui_set_at int32_t pxui_ui_set_at ( PxuiUi * ui , const PxuiBox * box , float x , float y ) ;
@@ -333,6 +334,7 @@ layout PxuiScrollConfig 48 8 0 8 40
 layout PxuiSearchFieldConfig 80 8 0 4 16 24 56 72
 layout PxuiSectionConfig 72 8 0 4 8 16 48 64
 layout PxuiSectionListDesc 64 8 0 4 5 8 24 32 36 40 44 48 56
+layout PxuiMeasuredSectionDesc 64 8 0 4 5 8 24 32 36 40 44 48 56
 layout PxuiSegmentConfig 88 8 0 4 16 24 32 40 72
 layout PxuiShadow 24 4 0 4 12 16 20
 layout PxuiShadowDesc 24 4 0 4 12 16 20 21
