@@ -16,6 +16,9 @@ mod ios {
         holding: bool,
         idle_until: Option<f64>,
         idle_callbacks: usize,
+        worker: Option<std::thread::JoinHandle<bool>>,
+        worker_started: f64,
+        worker_woke: bool,
     }
     impl Probe {
         fn open(window: &mut pxui_sdl::Window) -> Result<Self, String> {
@@ -55,6 +58,9 @@ mod ios {
                 holding: false,
                 idle_until: None,
                 idle_callbacks: 0,
+                worker: None,
+                worker_started: 0.0,
+                worker_woke: false,
             })
         }
         fn signal(
@@ -97,6 +103,17 @@ mod ios {
                 return Ok(Schedule::WaitUntil(None));
             }
             if self.frames == 182 {
+                if let Some(worker) = self.worker.take() {
+                    if window.time() - self.worker_started < 0.1 {
+                        return Err("Indefinitely idle loop polled before the worker wake".into());
+                    }
+                    if !worker.join().map_err(|_| "Wake worker panicked")? {
+                        return Err("Idle worker could not wake SDL".into());
+                    }
+                    self.worker_woke = true;
+                    println!("PXUI_IOS_WORKER_WAKE_OK frames=182");
+                    return Ok(Schedule::Exit);
+                }
                 if let Some(at) = self.idle_until {
                     self.idle_callbacks += 1;
                     if window.time() >= at {
@@ -110,7 +127,13 @@ mod ios {
                             "PXUI_IOS_IDLE_OK callbacks={} frames=182",
                             self.idle_callbacks
                         );
-                        return Ok(Schedule::Exit);
+                        self.worker_started = window.time();
+                        // Manual runtime probe: leave the native display link fully idle first.
+                        self.worker = Some(std::thread::spawn(|| {
+                            std::thread::sleep(std::time::Duration::from_millis(150));
+                            pxui_sdl::wake()
+                        }));
+                        return Ok(Schedule::WaitUntil(None));
                     }
                     return Ok(Schedule::WaitUntil(Some(at)));
                 }
@@ -142,7 +165,7 @@ mod ios {
                     },
                     &mut |ui| pxui_gallery::app(ui, &mut self.gallery),
                 )
-            .map_err(|code| format!("iOS gallery frame failed ({code})"))?;
+                .map_err(|code| format!("iOS gallery frame failed ({code})"))?;
             let built = mem_sys::local_alloc_count();
             self.platform.apply(window, &self.ui)?;
             let output = mem_sys::local_alloc_count();
@@ -165,6 +188,7 @@ mod ios {
         fn finish(self, window: &mut pxui_sdl::Window) -> Result<(), String> {
             let complete = self.frames == 182
                 && self.idle_callbacks > 0
+                && self.worker_woke
                 && (!self.lifecycle || (self.paused && self.resumed && self.holding));
             self.graphics.close()?;
             if !complete {
