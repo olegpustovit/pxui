@@ -15,6 +15,16 @@ fn window_visibility() {
         assert!(window.set_text_input(Some(area)).is_err());
     }
     window.set_text_input(Some(((1, 2, 20, 12), 7))).unwrap();
+    let options=pxui_sdl::TextInputOptions {autocorrect:0,capitalization:0,action:2};
+    for bad in [
+        pxui_sdl::TextInputOptions {autocorrect:2,..options},
+        pxui_sdl::TextInputOptions {capitalization:4,..options},
+        pxui_sdl::TextInputOptions {action:3,..options},
+    ] {assert!(window.set_text_input_with_options(Some(((1,2,20,12),7)),bad).is_err());}
+    window.set_text_input_with_options(Some(((1,2,20,12),7)),options).unwrap();
+    mem_sys::local_reset();
+    for _ in 0..100 {window.set_text_input_with_options(Some(((1,2,20,12),7)),options).unwrap();}
+    assert_eq!(mem_sys::local_alloc_count(),0,"unchanged native keyboard options must reuse platform state");
     mem_sys::local_reset();
     for _ in 0..100 { window.set_text_input(Some(((1, 2, 20, 12), 7))).unwrap(); }
     assert_eq!(mem_sys::local_alloc_count(), 0, "unchanged IME output must reuse its area");

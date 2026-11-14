@@ -96,6 +96,26 @@ pub struct Str {
     pub len: usize,
 }
 
+/// Single-line native keyboard traits. Capitalization: none, sentences, words, letters (0..=3).
+/// Action: Return (0), Done (1, dismisses focus), Search (2, leaves submission to the app).
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextInputOptions {
+    pub autocorrect: u32,
+    pub capitalization: u32,
+    pub action: u32,
+}
+impl Default for TextInputOptions {
+    fn default() -> Self { Self {autocorrect:1,capitalization:1,action:0} }
+}
+impl TextInputOptions {
+    pub const RETURN: u32 = 0;
+    pub const DONE: u32 = 1;
+    pub const SEARCH: u32 = 2;
+    pub const SEARCH_FIELD: Self = Self {autocorrect:0,capitalization:0,action:Self::SEARCH};
+    pub fn valid(&self) -> bool {self.autocorrect<=1 && self.capitalization<=3 && self.action<=2}
+}
+
 /// ABI 1.25 TOUCH payload, borrowed through Event::text (len = size_of::<Touch>()).
 /// Phase: 0 began, 1 moved, 2 ended, 3 cancelled. Position: logical points; time: source monotonic seconds.
 /// Pressure is finite in 0..=1. Positions may lie outside the window; identities retain all 64 bits.
@@ -613,6 +633,7 @@ mod abi_layout {
             offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),offset_of!(FrameIn,environment),
         ]);
         assert_layout("Keyboard",size_of::<Keyboard>(),align_of::<Keyboard>(),&[offset_of!(Keyboard,frame),offset_of!(Keyboard,flags)]);
+        assert_layout("TextInputOptions",size_of::<TextInputOptions>(),align_of::<TextInputOptions>(),&[offset_of!(TextInputOptions,autocorrect),offset_of!(TextInputOptions,capitalization),offset_of!(TextInputOptions,action)]);
         assert_layout("FrameInV1_26",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
             offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),offset_of!(FrameIn,width),
             offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),offset_of!(FrameIn,environment),offset_of!(FrameIn,keyboard),

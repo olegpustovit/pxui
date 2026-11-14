@@ -311,6 +311,12 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   own shortcuts. Long values scroll horizontally to keep the caret visible;
   Command-Left/Right reveal the start/end, and dragging past either edge
   extends the selection while scrolling.
+- `text_field_with_options` selects native autocorrection, capitalization and Return/Done/Search.
+  Done clears focus/IME output during the build; Search leaves submission to the app. Raw key
+  queries remain non-consuming. Marked text replaces the selected base range, and its Unicode
+  scalar selection determines the preedit highlight and caret. Commit plus Done paints the new
+  value immediately. Unchanged focused/preedit/refocus frames retain zero Rust allocations;
+  changed owned text and native text-system allocations are separate paths.
 - The wheel goes to the topmost scroll box under the pointer. A blocking box over it stops the wheel
   only when it is not that box's own content: a field inside a scrolling panel lets the panel
   scroll, a menu over the panel does not.

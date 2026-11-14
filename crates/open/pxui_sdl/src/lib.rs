@@ -1,7 +1,7 @@
 //! The SDL3 window host: window lifecycle, the event pump translated to `input` events, cursor,
 //! text input, clipboard and the native layer token a GPU backend presents to. A leaf: it knows
 //! nothing of the UI engine or the renderer; callers pass plain values.
-pub use sdl3::FileSelection;
+pub use sdl3::{FileSelection, TextInputOptions};
 
 use sdl3::cursor::{Cursor, Shape};
 use sdl3::window::{Flag, Window as SdlWindow};
@@ -97,6 +97,7 @@ pub struct Window {
     cursors: Vec<(CursorShape, Cursor)>,
     cursor_shape: Option<CursorShape>,
     text_input: bool,
+    text_input_options: TextInputOptions,
     ime_area: Option<((i64, i64, i64, i64), i64)>,
     changed: change_flag::ChangeFlag,
     /// window coordinates per logical point: SDL's display scale over its pixel density
@@ -225,6 +226,7 @@ impl Window {
                 cursors: Vec::new(),
                 cursor_shape: None,
                 text_input: false,
+                text_input_options: TextInputOptions::default(),
                 ime_area: None,
                 changed: change_flag::create(),
                 unit,
@@ -413,7 +415,11 @@ impl Window {
     /// starts it and places the input method there, `None` stops it. Repeating the same answer
     /// costs no SDL call.
     pub fn set_text_input(&mut self, area: Option<((i64, i64, i64, i64), i64)>) -> Result<(), Error> {
+        self.set_text_input_with_options(area, TextInputOptions::default())
+    }
+    pub fn set_text_input_with_options(&mut self, area: Option<((i64, i64, i64, i64), i64)>, options: TextInputOptions) -> Result<(), Error> {
         self.live()?;
+        if options.autocorrect>1 || options.capitalization>3 || options.action>2 {return Err("Invalid text input options".into());}
         match area {
             None => {
                 if self.text_input {
@@ -426,10 +432,11 @@ impl Window {
             Some(((x, y, width, height), cursor)) => {
                 if width <= 0 || height <= 0 || cursor < 0 { return Err("Text-input area dimensions must be positive and its cursor non-negative".into()); }
                 let area = Some(((x, y, width, height), cursor));
-                if self.text_input && self.ime_area == area { return Ok(()); }
-                if !self.text_input {
-                    sdl3::text_input::start(&self.handle).map_err(fail)?;
+                if self.text_input && self.ime_area == area && self.text_input_options == options { return Ok(()); }
+                if !self.text_input || self.text_input_options != options {
+                    sdl3::text_input::start_with_options(&self.handle, options).map_err(fail)?;
                     self.text_input = true;
+                    self.text_input_options = options;
                 }
                 let unit = self.unit;
                 let scale = |v: i64| (v as f64 * unit).round() as i32;

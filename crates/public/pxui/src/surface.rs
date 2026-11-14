@@ -2069,3 +2069,81 @@ fn text_field_refocus_reuses_its_warm_editor_storage() {
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm field refocus frame {frame}");}
     }
 }
+
+#[test]
+fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
+    use crate::{Event, TextInputOptions as Options};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let show_search=Cell::new(true);
+    let done=Options {autocorrect:0,capitalization:0,action:Options::DONE};
+    let mut build=|ui:&mut Ui| {
+        ui.view("input options",show_search.get() as u64,Size::Grow,Size::Grow,&mut |ui| {
+            if show_search.get() { assert!(ui.text_field_with_options("Search","café",Options::SEARCH_FIELD).is_none()); }
+            assert!(ui.text_field_with_options("Name","café",done).is_none());
+        });
+    };
+    ui.frame(&input(),&mut build).unwrap();
+    for frame in 0..182 {
+        let step=frame%6;
+        let code=pxui_types::KEY_SPECIAL+if matches!(step,0|2) {8} else {5};
+        let events=[Event {kind:Event::KEY_PRESSED,code,..Default::default()},Event {kind:Event::KEY_RELEASED,code,..Default::default()}];
+        let active=matches!(step,0|2|4);
+        mem_sys::local_reset();
+        ui.frame(&FrameIn {time:frame as f64,events:events.as_ptr(),event_count:if active {2} else {0},..input()},&mut build).unwrap();
+        let expected=match step {0|1=>Options::SEARCH_FIELD,2|3=>done,_=>Options::default()};
+        assert_eq!(ui.text_input_options(),expected,"frame {frame}");
+        assert_eq!(ui.ime().is_some(),step<4,"Done must dismiss native input in the same frame");
+        if step==4 {assert!(ui.key_pressed(code),"raw key queries remain non-consuming");}
+        if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm keyboard options frame {frame}");}
+    }
+    show_search.set(false);
+    ui.frame(&input(),&mut build).unwrap();
+    assert_eq!(ui.text_input_options(),Options::default(),"an unfocused or omitted field cannot retain options");
+}
+
+#[test]
+fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allocations() {
+    use crate::{Event,Part,Str};
+    fn body(ui:&mut Ui,c:&crate::bodies::PxuiTextFieldConfig) {
+        ui.set_look(&c.row,crate::theme::Look::NONE,crate::theme::State::default());
+        let editor=ui.part(Part::EDITOR,crate::Node {w:Size::Px(240.0),h:Size::Px(30.0),
+            look:crate::theme::Look {font:crate::theme::Font {size:18,..crate::theme::Font::BODY},..crate::theme::Look::NONE},..crate::Node::DEFAULT});
+        if c.state.focused==0 {ui.text(&editor,crate::bodies::text_of(&c.value));}
+    }
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    ui.register_text_field_body("marked-editor",body).unwrap();
+    let source="text_field.body = marked-editor";
+    ui.set_theme(&crate::ThemeSource {source:Str {ptr:source.as_ptr(),len:source.len()},..Default::default()}).unwrap();
+    let mut build=|ui:&mut Ui|assert!(ui.text_field("Marked","café track").is_none());
+    ui.frame(&input(),&mut build).unwrap();
+    let key=|kind,n|Event {kind,code:pxui_types::KEY_SPECIAL+n,..Default::default()};
+    let focus=[key(Event::KEY_PRESSED,8),key(Event::KEY_RELEASED,8),key(Event::KEY_PRESSED,12),
+        Event {kind:Event::KEY_PRESSED,code:'a' as u32,..Default::default()},key(Event::KEY_RELEASED,12)];
+    ui.frame(&FrameIn {events:focus.as_ptr(),event_count:focus.len(),..input()},&mut build).unwrap();
+    let value="éix";
+    for (start,length) in [(f64::from(i32::MAX),f64::from(i32::MAX)),(1.0,1.0)] {
+        let event=Event {kind:Event::TEXT_EDITING,text:Str {ptr:value.as_ptr(),len:value.len()},x:start,y:length,..Default::default()};
+        ui.frame(&FrameIn {events:&event,event_count:1,..input()},&mut build).unwrap();
+        let prefix=if start>3.0 {value} else {"éi"};
+        assert_eq!(ui.ime().unwrap().1,(2.0+ui.text_width(Some(18),prefix)).round() as i64,"marked selection uses Unicode scalar offsets");
+    }
+    for frame in 0..182 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn {time:frame as f64/120.0,..input()},&mut build).unwrap();
+        assert_eq!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).count(),3,
+            "preedit must replace the selected base text instead of appending to it");
+        assert_eq!(ui.ime().unwrap().1,(2.0+ui.text_width(Some(18),"éi")).round() as i64);
+        if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm marked selection frame {frame}");}
+    }
+    let commit=[Event {kind:Event::TEXT_INPUT,text:Str {ptr:value.as_ptr(),len:value.len()},..Default::default()},key(Event::KEY_PRESSED,5),key(Event::KEY_RELEASED,5)];
+    let mut changed=false;
+    ui.frame(&FrameIn {events:commit.as_ptr(),event_count:commit.len(),..input()},&mut |ui| {
+        changed=ui.text_field_with_options("Marked","café track",crate::TextInputOptions {action:crate::TextInputOptions::DONE,..Default::default()})==Some(value);
+    }).unwrap();
+    assert!(changed,"commit replaces precisely the original UTF-8 selection");
+    assert!(ui.ime().is_none());
+    assert_eq!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).count(),3,"commit and Done paint the latest value in the same frame");
+}

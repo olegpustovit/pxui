@@ -20,6 +20,7 @@ use native_layer_token_sys::portable::Token as NativeLayerToken;
 use sdl3_sys as sys;
 
 pub use sdl3_sys::{
+    TextInputOptions,
     DialogFilter, DialogKind, DialogOutcome, FileSelection, DropChange, Event, Key, KeyModifier, MouseButton,
     PinchPhase, Rect, ScrollPhase, TouchPhase, Version, WheelDirection, WindowChange, WindowState,
 };
@@ -326,6 +327,10 @@ pub mod window {
         pub fn start_text_input(&self) -> std::result::Result<(), Error> {
             self.native("SDL3.Text_input.start")?.start_text_input().map_err(|failure| native_error("SDL3.Text_input.start", failure))
         }
+        pub fn start_text_input_with_options(&self, options: super::TextInputOptions) -> std::result::Result<(), Error> {
+            self.native("SDL3.Text_input.start_with_options")?.start_text_input_with_options(options)
+                .map_err(|failure|native_error("SDL3.Text_input.start_with_options",failure))
+        }
         pub fn stop_text_input(&self) -> std::result::Result<(), Error> {
             self.native("SDL3.Text_input.stop")?.stop_text_input().map_err(|failure| native_error("SDL3.Text_input.stop", failure))
         }
@@ -514,6 +519,7 @@ pub mod text_input {
     use super::{Error, Rect, Window};
 
     pub fn start(window: &Window) -> std::result::Result<(), Error> { window.start_text_input() }
+    pub fn start_with_options(window:&Window,options:super::TextInputOptions)->std::result::Result<(),Error> {window.start_text_input_with_options(options)}
     pub fn stop(window: &Window) -> std::result::Result<(), Error> { window.stop_text_input() }
     pub fn clear_area(window:&Window)->std::result::Result<(),Error> {window.clear_text_input_area()}
     pub fn set_area(window: &Window, area: Rect, cursor: i32) -> std::result::Result<(), Error> {

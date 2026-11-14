@@ -2,6 +2,8 @@
 mod picker;
 #[cfg(target_os = "ios")]
 mod touch;
+#[cfg(target_os = "ios")]
+mod text;
 
 #[cfg(target_os = "ios")]
 mod ios {
@@ -43,6 +45,7 @@ mod ios {
         background_reentrant: u8,
         picker: Option<super::picker::Probe>,
         touch: Option<super::touch::Probe>,
+        text: Option<super::text::Probe>,
     }
     impl Probe {
         fn open(window: &mut pxui_sdl::Window) -> Result<Self, String> {
@@ -94,7 +97,7 @@ mod ios {
                 worker: None,
                 worker_started: 0.0,
                 worker_woke: false,
-                keyboard_check: std::env::var_os("PXUI_IOS_KEYBOARD_CHECK").is_some(),
+                keyboard_check: std::env::var_os("PXUI_IOS_KEYBOARD_CHECK").is_some() || std::env::var_os("PXUI_IOS_TEXT_CHECK").is_some(),
                 saw_keyboard: false,
                 keyboard_hiding: false,
                 saw_hidden: false,
@@ -107,6 +110,7 @@ mod ios {
                 background_reentrant: 0,
                 picker: std::env::var_os("PXUI_IOS_PICKER_CHECK").map(|_| super::picker::Probe::new(window.time())),
                 touch: std::env::var_os("PXUI_IOS_TOUCH_CHECK").map(|_| super::touch::Probe::new()),
+                text: std::env::var_os("PXUI_IOS_TEXT_CHECK").map(|_| super::text::Probe::new()),
             })
         }
         fn sample_keyboard(&mut self, window: &pxui_sdl::Window) -> Result<sdl3_sys::ios::Environment, String> {
@@ -316,12 +320,14 @@ mod ios {
             mem_sys::local_reset();
             self.events.clear();
             if let Some(touch) = &self.touch { touch.push(self.frames)?; }
+            if let Some(text) = self.text.as_mut() {text.inject(self.frames)?;}
             if !self.platform.pump(window, &mut self.events)? {
                 return Err("iOS gallery window closed during probe".into());
             }
             if let Some(error) = window.take_failure() {
                 return Err(error);
             }
+            if let Some(text) = &self.text {text.check_events(self.frames,&self.events)?;}
             if self.keyboard_check { self.sample_keyboard(window)?; }
             if self.keyboard_check && matches!(self.frames, 1 | 90) {
                 self.keyboard_hiding = false;
@@ -384,7 +390,8 @@ mod ios {
                                 } else if self.keyboard_check {
                                     ui.label("PXUI native keyboard");
                                     ui.node("field spacer", Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
-                                    ui.text_field("Mobile input", "café track");
+                                    if let Some(text) = self.text.as_mut() {text.view(ui,self.frames);}
+                                    else {ui.text_field("Mobile input", "café track");}
                                 } else {
                                     pxui_gallery::app(ui, &mut self.gallery);
                                 }
@@ -425,6 +432,7 @@ mod ios {
                 }
             }
             let built = mem_sys::local_alloc_count();
+            if let Some(text) = &self.text {text.check(&self.ui,self.frames)?;}
             if let Some(touch) = self.touch.as_mut() { touch.check(&self.ui, self.frames)?; }
             self.platform.apply(window, &self.ui)?;
             let output = mem_sys::local_alloc_count();
@@ -477,6 +485,7 @@ mod ios {
                 && self.picker.is_none()
                 && self.idle_callbacks > 0
                 && self.worker_woke
+                && self.text.as_ref().is_none_or(|text|text.complete())
                 && (!self.keyboard_check || (self.saw_keyboard && self.saw_hidden && self.keyboard_samples.iter().all(|samples| *samples > 0)))
                 && (!self.lifecycle
                     || (self.paused
@@ -489,6 +498,7 @@ mod ios {
             if !complete {
                 return Err("iOS probe did not complete its frame/lifecycle/idle checks".into());
             }
+            if self.text.is_some() {println!("PXUI_IOS_TEXT_OK fixtures=10 marked_utf8=true done=true queue_limits=true native_field_ownership=true warm_rust_allocs=0");}
             let footprint =
                 mem_sys::phys_footprint().ok_or("iOS physical footprint unavailable")?;
             let peak = mem_sys::peak_footprint().ok_or("iOS peak footprint unavailable")?;

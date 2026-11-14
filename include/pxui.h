@@ -16,6 +16,8 @@ typedef struct PxuiShaper PxuiShaper;
 typedef struct PxuiTheme PxuiTheme;
 typedef struct { uint32_t size, platform; int32_t font_size; } PxuiUiDesc;
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
+/* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
+typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
 typedef struct { const PxuiStr *ptr; size_t len; } PxuiStrSpan;
 typedef struct { uint32_t tag; size_t index; } PxuiDialogOut;
 /* ABI 1.25: TOUCH borrows this numeric payload through Event.text; len is sizeof(PxuiTouch).
@@ -332,6 +334,7 @@ int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside 
 PxuiStr pxui_last_error(const PxuiUi *ui);
 int32_t pxui_ui_environment(PxuiUi *ui, PxuiEnvironment *out);
 int32_t pxui_ui_keyboard(PxuiUi *ui, PxuiKeyboard *out);
+int32_t pxui_ui_text_input_options(PxuiUi *ui, PxuiTextInputOptions *out);
 int32_t pxui_ui_content_rect(PxuiUi *ui, PxuiRect *out);
 int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 int32_t pxui_ui_frame(PxuiUi *ui, const PxuiInput *in, PxuiBuild build, void *user, PxuiFrameOut *out);
@@ -405,6 +408,7 @@ int32_t pxui_label(PxuiUi *ui, PxuiStr text);
 int32_t pxui_button(PxuiUi *ui, PxuiStr label, uint8_t *out);
 int32_t pxui_toggle(PxuiUi *ui, PxuiStr label, uint8_t on, uint8_t *out);
 int32_t pxui_text_field(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiStr *changed, uint8_t *out_changed); /* changed: the new text, borrowed until the next frame, when out_changed */
+int32_t pxui_text_field_with_options(PxuiUi *ui, PxuiStr label, PxuiStr value, const PxuiTextInputOptions *options, PxuiStr *changed, uint8_t *out_changed);
 int32_t pxui_ui_checkbox(PxuiUi *ui, PxuiStr label, uint8_t value, uint8_t *out);
 int32_t pxui_ui_radio(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
 int32_t pxui_ui_tabs(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);

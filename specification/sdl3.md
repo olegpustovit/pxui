@@ -108,6 +108,11 @@ handling stay behind the platform boundary.
   windows idle; visibility recovery must still be observed.
 - Activate native text input only while a text field is focused. Preserve IME
   ranges, file-drag positions/end, pinch factors and asynchronous dialog ids.
+  Field-specific autocorrection/capitalization/action options must not change other native fields.
+  iOS marked-text notifications come only from SDL's owned hidden field. Copy their payloads
+  before callbacks return; bound the queue to 64 events / 1 MiB and surface overflow as an error.
+  Validate generation/window identity when transferring payload ownership and free pending data
+  on window destruction. Convert native UTF-16 marked selection offsets to Unicode scalar offsets.
 - Focus loss clears held keys/buttons; pointer cancellation remains distinct.
 
 ## Ownership and errors

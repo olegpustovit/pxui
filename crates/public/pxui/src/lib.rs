@@ -8,7 +8,7 @@ use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 pub use pxui_types::{Environment, Keyboard, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
-pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str, Touch};
+pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str, Touch, TextInputOptions};
 pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
@@ -160,6 +160,7 @@ mod sys {
         pub fn pxui_button(ui:*mut PxuiUi,label:Str,out:*mut u8)->i32;
         pub fn pxui_toggle(ui:*mut PxuiUi,label:Str,on:u8,out:*mut u8)->i32;
         pub fn pxui_text_field(ui:*mut PxuiUi,label:Str,value:Str,changed:*mut Str,out_changed:*mut u8)->i32;
+        pub fn pxui_text_field_with_options(ui:*mut PxuiUi,label:Str,value:Str,options:*const pxui_types::TextInputOptions,changed:*mut Str,out_changed:*mut u8)->i32;
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
@@ -555,6 +556,12 @@ impl Ui {
         let (mut changed, mut did_change) = (Str::default(), 0);
         check(self, unsafe { sys::pxui_text_field(self.0.as_ptr(), as_str(label), as_str(value), &mut changed, &mut did_change) });
         if did_change == 0 { None } else { Some(lent_str(changed)) }
+    }
+    #[track_caller]
+    pub fn text_field_with_options(&mut self, label:&str, value:&str, options:pxui_types::TextInputOptions) -> Option<&str> {
+        let (mut changed, mut did_change)=(Str::default(),0);
+        check(self,unsafe {sys::pxui_text_field_with_options(self.0.as_ptr(),as_str(label),as_str(value),&options,&mut changed,&mut did_change)});
+        if did_change==0 {None} else {Some(lent_str(changed))}
     }
 }
 

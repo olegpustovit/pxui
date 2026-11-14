@@ -1,5 +1,9 @@
 use std::ffi::{CString, c_char};
 
+/// Drives UIKit's real SDL text field and checks native event ownership/limits.
+#[cfg(target_os = "ios")]
+pub fn ios_text_step(step: i32) -> bool {unsafe {super::ffi::rays_sdl3_ios_test_text_step(step)}}
+
 pub fn touch_mouse_emulation_disabled() -> bool {
     unsafe { super::ffi::rays_sdl3_test_touch_mouse_emulation_disabled() }
 }

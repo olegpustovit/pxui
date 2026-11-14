@@ -66,6 +66,7 @@ bool rays_sdl3_set_hint(const char *name, const char *value);
 bool rays_sdl3_clipboard_set_text(const char *text);
 char *rays_sdl3_clipboard_get_text(void);
 bool rays_sdl3_start_text_input(SDL_Window *window);
+bool rays_sdl3_start_text_input_with_options(SDL_Window *window, uint32_t autocorrect, uint32_t capitalization, uint32_t action);
 bool rays_sdl3_set_text_input_area(SDL_Window *window, int x, int y, int width, int height, int cursor);
 bool rays_sdl3_stop_text_input(SDL_Window *window);
 bool rays_sdl3_clear_text_input_area(SDL_Window *window);

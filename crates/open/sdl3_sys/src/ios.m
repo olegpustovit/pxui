@@ -6,6 +6,7 @@
 #include <math.h>
 #include "bridge.h"
 #include "ios.h"
+#include "text_ios.h"
 
 enum { PENDING_PAUSE = 1, PENDING_RESUME = 2, PENDING_MEMORY = 4, PENDING_EXIT = 8 };
 @class PXUIIOSLoop;
@@ -368,6 +369,7 @@ int32_t rays_sdl3_ios_environment(uint32_t id, rays_ios_environment *out) {
     if (!pthread_main_np() || !out) { SDL_SetError("iOS environment requires main and output"); return 0; }
     SDL_Window *window = SDL_GetWindowFromID(id);
     if (!window) return 0;
+    if (!rays_sdl3_ios_text_status(window)) return 0;
     UIWindow *native = (__bridge UIWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
     if (!native) { SDL_SetError("SDL window has no UIKit window"); return 0; }
     SDL_Rect safe; int width, height;

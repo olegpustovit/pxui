@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 26
+minor 27
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -54,6 +54,7 @@ function pxui_shaper_width_spans int32_t pxui_shaper_width_spans ( PxuiShaper * 
 function pxui_slot int32_t pxui_slot ( PxuiUi * ui , PxuiSlot slot , uint8_t * out ) ;
 function pxui_text_add_font uint32_t pxui_text_add_font ( PxuiUi * ui , PxuiStr font ) ;
 function pxui_text_field int32_t pxui_text_field ( PxuiUi * ui , PxuiStr label , PxuiStr value , PxuiStr * changed , uint8_t * out_changed ) ;
+function pxui_text_field_with_options int32_t pxui_text_field_with_options ( PxuiUi * ui , PxuiStr label , PxuiStr value , const PxuiTextInputOptions * options , PxuiStr * changed , uint8_t * out_changed ) ;
 function pxui_text_quads size_t pxui_text_quads ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float x , float y , float scale , PxuiTextGlyph * out , size_t capacity ) ;
 function pxui_text_rasterize_rgba size_t pxui_text_rasterize_rgba ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
 function pxui_text_system_fonts int32_t pxui_text_system_fonts ( PxuiUi * ui ) ;
@@ -201,6 +202,7 @@ function pxui_ui_tabs int32_t pxui_ui_tabs ( PxuiUi * ui , PxuiStr label , PxuiS
 function pxui_ui_text int32_t pxui_ui_text ( PxuiUi * ui , const PxuiBox * box , PxuiStr value ) ;
 function pxui_ui_text_area_submit int32_t pxui_ui_text_area_submit ( PxuiUi * ui , const PxuiTextAreaDesc * desc , const PxuiAreaCallbacks * callbacks , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_submitted ) ;
 function pxui_ui_text_input_focused uint8_t pxui_ui_text_input_focused ( PxuiUi * ui ) ;
+function pxui_ui_text_input_options int32_t pxui_ui_text_input_options ( PxuiUi * ui , PxuiTextInputOptions * out ) ;
 function pxui_ui_text_line_box int32_t pxui_ui_text_line_box ( PxuiUi * ui , const PxuiBox * box_ , PxuiStr value , const PxuiTextStyle * style , const PxuiTextSpans * spans ) ;
 function pxui_ui_text_spans int32_t pxui_ui_text_spans ( PxuiUi * ui , const PxuiBox * box_ , PxuiStr value , const PxuiTextStyle * style , const PxuiTextSpans * spans ) ;
 function pxui_ui_text_state int32_t pxui_ui_text_state ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiStr * out ) ;
@@ -394,6 +396,7 @@ layout Slice 16 8 0 8
 layout Span 32 8 0 4 6 8 16 24
 layout Str 16 8 0 8
 layout TextGlyph 40 4 0 16 32 36
+layout TextInputOptions 12 4 0 4 8
 layout TextMetrics 16 4 0 4 8 12
 layout TextSpan 24 4 0 4 8 10 12 16 20
 layout TextSpans 200 4 0 4 8

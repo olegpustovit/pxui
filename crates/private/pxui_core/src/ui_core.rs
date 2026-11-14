@@ -993,11 +993,13 @@ pub struct Ui {
     focus: i64,
     keyboard_focus: bool,
     composition: String,
+    composition_selection: (i64, i64),
     previous_keys: Vec<Key>,
     route_keys: Vec<Key>,
     frame_modifiers: [bool; 4],
     pub(crate) edit_focus: i64,
     pub(crate) edit_owner: i64,
+    pub(crate) text_input_options: pxui_types::TextInputOptions,
     pub edit_value: String,
     pub(crate) edit_work: String,
     pub(crate) edit_caret: usize,
@@ -1234,11 +1236,13 @@ impl Ui {
             focus: 0,
             keyboard_focus: false,
             composition: String::new(),
+            composition_selection: (0, 0),
             previous_keys: Vec::new(),
             route_keys: Vec::new(),
             frame_modifiers: [false; 4],
             edit_focus: 0,
             edit_owner: 0,
+            text_input_options: pxui_types::TextInputOptions::default(),
             edit_value: String::new(),
             edit_work: String::new(),
             edit_caret: 0,
@@ -1414,6 +1418,9 @@ impl Ui {
         if self.keyboard != value { self.keyboard = value; self.epoch += 1; }
     }
     pub fn keyboard(&self) -> pxui_types::Keyboard { self.keyboard }
+    pub fn text_input_options(&self) -> pxui_types::TextInputOptions {
+        if self.text_input_focused() {self.text_input_options} else {pxui_types::TextInputOptions::default()}
+    }
     /// Safe content bounds, reduced by a full-width docked keyboard's current presentation frame.
     pub fn content_rect(&self) -> Rect {
         let [top, right, bottom, left] = self.environment.safe_area;
@@ -2667,7 +2674,10 @@ impl Ui {
                                 }
                             }
                             match event {
-                                Event::TextEditing { text, .. } => self.composition = text.clone(),
+                                Event::TextEditing { text, start, length } => {
+                                    self.composition.clone_from(text);
+                                    self.composition_selection = (*start, *length);
+                                }
                                 Event::TextInput(_) => self.composition.clear(),
                                 Event::KeyPressed(Key::Escape) if self.flags_of_key(self.focus) & TAB_ONLY != 0 => {
                                     self.focus = 0;
@@ -4812,6 +4822,7 @@ pub struct Paint {
     label: String,
     /// the horizontal scroll of the focused text; painters adjust it
     pub edit_scroll_x: f32,
+    pub(crate) composition_selection: (i64, i64),
     /// the content height of each box of this frame, by box index
     pub l_content: Vec<f32>,
     /// the scroll offset of each retained slot
@@ -5177,6 +5188,21 @@ impl Paint {
         self.text.selection(key, a, b, &mut |r| f(r.x, r.w));
     }
 
+    pub(crate) fn selection_fill(&mut self, size: Option<i64>, text: &str, range: (usize,usize), at: (f32,f32), height:f32, color:Color) {
+        let (key, _) = lay_out(&mut self.text, &kit_style(size.unwrap_or(self.font_size),0.0),0.0,text);
+        let (clip,clip_radius,view)=self.stamp();
+        let density=self.density as f32;
+        let snap=|value:f32|(value*density-0.5).ceil()/density;
+        let (top,bottom)=(snap(at.1),snap(at.1+height));
+        let instances=&mut self.layers[self.layer].instances;
+        self.text.selection(key,range.0,range.1,&mut |r| {
+            let (left,right)=(snap(at.0+r.x),snap(at.0+r.x+r.w));
+            if right>left && bottom>top {
+                instances.push(Instance {clip,clip_radius,view,..Instance::rect([left,top,right,bottom],rgba(color))});
+            }
+        });
+    }
+
     /// Where the top of kit text of `size` goes to sit centred in a row at `y` of height `h`.
     pub fn text_top(&self, size: Option<i64>, y: f32, h: f32) -> f32 {
         text_top_for(self.font_size, size, y, h)
@@ -5522,6 +5548,7 @@ impl Ui {
             ime: None,
             label: std::mem::take(&mut self.label),
             edit_scroll_x: self.edit_scroll_x,
+            composition_selection: self.composition_selection,
             l_content: std::mem::take(&mut self.l_content),
             scroll_y: std::mem::take(&mut self.scroll_y),
             l_content_w: std::mem::take(&mut self.l_content_w),
@@ -5869,6 +5896,7 @@ impl Ui {
         self.frame_requested = false;
         self.out.clipboard = None;
         self.out.paste = false;
+        self.text_input_options = pxui_types::TextInputOptions::default();
         self.out.background = None;
         // the window's title bar shows the ground the UI is painted on
         if self.window_ground != Some(self.theme.tokens.panel) {

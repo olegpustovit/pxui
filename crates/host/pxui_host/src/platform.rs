@@ -67,7 +67,10 @@ impl Platform {
                 out.ime_caret,
             )
         });
-        window.set_text_input(ime)?;
+        let options=if ime.is_some() {ui.text_input_options()} else {pxui::TextInputOptions::default()};
+        window.set_text_input_with_options(ime,pxui_sdl::TextInputOptions {
+            autocorrect:options.autocorrect,capitalization:options.capitalization,action:options.action,
+        })?;
         let frame = (ui.id(), ui.frame_index());
         if self.applied == Some(frame) {
             return Ok(());

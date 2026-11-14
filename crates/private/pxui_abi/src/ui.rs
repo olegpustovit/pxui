@@ -525,9 +525,46 @@ export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value
     unsafe { trusted::pxui_text_field(ui, pair(label), pair(value), changed, out_changed) }
 });
 
+export!(pub unsafe fn pxui_text_field_with_options(ui: *mut PxuiUi, label: Str, value: Str, options: *const pxui_types::TextInputOptions, changed: *mut Str, out_changed: *mut u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if options.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui,"null text field options or output") }; }
+    let options=unsafe { *options };
+    let (Some(label),Some(value))=(unsafe { checked(label) },unsafe { checked(value) }) else { return unsafe { fail(ui,"invalid text field text") }; };
+    if !options.valid() { return unsafe { fail(ui,"invalid text input options") }; }
+    unsafe { *out_changed=0; *changed=Str::default(); }
+    if let Some(value) = unsafe { &mut *state.engine }.text_field_with_options(label,value,options) {
+        unsafe { *changed=state.give(value); *out_changed=1; }
+    }
+    0
+});
+
 #[cfg(test)]
 mod tests {
     use pxui_types::Event as C;
+
+    #[test]
+    fn text_input_options_reject_invalid_calls_before_output_or_widget_mutation() {
+        use super::*;
+        let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
+        let mut changed=Str {ptr:b"sentinel".as_ptr(),len:8};
+        let mut flag=77;
+        for options in [
+            pxui_types::TextInputOptions {autocorrect:2,..Default::default()},
+            pxui_types::TextInputOptions {capitalization:4,..Default::default()},
+            pxui_types::TextInputOptions {action:3,..Default::default()},
+        ] {
+            assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),&options,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
+            assert_eq!(changed.len,8); assert_eq!(flag,77);
+            assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),0);
+        }
+        assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),core::ptr::null(),&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
+        assert_eq!(changed.len,8); assert_eq!(flag,77);
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
+        let mut options=pxui_types::TextInputOptions::SEARCH_FIELD;
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(core::ptr::null_mut(),&mut options)},PXUI_ERR_ARGUMENT);
+        assert_eq!(options,pxui_types::TextInputOptions::SEARCH_FIELD);
+        assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
+    }
 
     #[test]
     fn typed_touch_payloads_round_trip_full_ids_and_reject_invalid_tails_atomically() {

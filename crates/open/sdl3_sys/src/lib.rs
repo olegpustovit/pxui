@@ -6,6 +6,10 @@ pub mod chrome;
 pub mod ios;
 
 pub use file_access_sys::FileSelection;
+/// Native single-line keyboard traits; capitalization none/sentences/words/letters, action Return/Done/Search.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextInputOptions { pub autocorrect: u32, pub capitalization: u32, pub action: u32 }
+impl Default for TextInputOptions { fn default()->Self {Self {autocorrect:1,capitalization:1,action:0}} }
 use std::cell::Cell;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::rc::Rc;
@@ -470,6 +474,15 @@ impl Window {
         if unsafe { ffi::rays_sdl3_start_text_input(raw.as_ptr()) } { Ok(()) }
         else { Err(sdl_error(ErrorKind::Sdl, "SDL could not start text input")) }
     }
+    pub fn start_text_input_with_options(&self, options: TextInputOptions) -> std::result::Result<(), Error> {
+        let raw=self.raw()?;
+        if options.autocorrect>1 || options.capitalization>3 || options.action>2 {
+            return Err(Error {kind:ErrorKind::InvalidArgument,message:"invalid text input options".into()});
+        }
+        clear_error();
+        if unsafe {ffi::rays_sdl3_start_text_input_with_options(raw.as_ptr(),options.autocorrect,options.capitalization,options.action)} {Ok(())}
+        else {Err(sdl_error(ErrorKind::Sdl,"SDL could not configure text input"))}
+    }
 
     pub fn stop_text_input(&self) -> std::result::Result<(), Error> {
         let raw = self.raw()?;
@@ -862,6 +875,7 @@ mod ffi {
         pub fn rays_sdl3_sync_window(window: *mut SDLWindow) -> bool;
         pub fn rays_sdl3_set_window_background(window: *mut SDLWindow, red: f64, green: f64, blue: f64);
         pub fn rays_sdl3_start_text_input(window: *mut SDLWindow) -> bool;
+        pub fn rays_sdl3_start_text_input_with_options(window:*mut SDLWindow,autocorrect:u32,capitalization:u32,action:u32)->bool;
         pub fn rays_sdl3_stop_text_input(window: *mut SDLWindow) -> bool;
         pub fn rays_sdl3_clear_text_input_area(window:*mut SDLWindow)->bool;
         pub fn rays_sdl3_set_text_input_area(window: *mut SDLWindow, x: c_int, y: c_int, width: c_int, height: c_int, cursor: c_int) -> bool;
@@ -912,6 +926,8 @@ mod ffi {
         pub fn rays_dialog_ios_test_finish(mode: c_int, path: *const c_char) -> usize;
         #[cfg(all(feature = "test-util", target_os = "ios"))]
         pub fn rays_dialog_ios_test_close() -> bool;
+        #[cfg(all(target_os="ios",feature="test-util"))]
+        pub fn rays_sdl3_ios_test_text_step(step:c_int)->bool;
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_post_scroll(points: c_int, phase: c_int);
     }

@@ -2,6 +2,7 @@
 #include "sdl3_abi.h"
 #ifdef RAYS_SDL3_IOS
 #include "ios.h"
+#include "text_ios.h"
 #endif
 
 #include <limits.h>
@@ -92,6 +93,7 @@ SDL_Window *rays_sdl3_create_window(const char *title, int width, int height, ui
 void rays_sdl3_destroy_window(SDL_Window *window) {
 #if defined(RAYS_SDL3_IOS)
   rays_dialog_close(SDL_GetWindowID(window));
+  rays_sdl3_ios_text_close(window);
 #endif
   SDL_DestroyWindow(window);
 }
@@ -177,7 +179,30 @@ bool rays_sdl3_set_mouse_relative_system_scale(bool enabled)
 bool rays_sdl3_set_hint(const char *name, const char *value) { return SDL_SetHint(name, value); }
 bool rays_sdl3_clipboard_set_text(const char *text) { return SDL_SetClipboardText(text); }
 char *rays_sdl3_clipboard_get_text(void) { return SDL_GetClipboardText(); }
-bool rays_sdl3_start_text_input(SDL_Window *window) { return SDL_StartTextInput(window); }
+bool rays_sdl3_start_text_input(SDL_Window *window) {
+#ifdef RAYS_SDL3_IOS
+  return rays_sdl3_start_text_input_with_options(window, 1, 1, 0);
+#else
+  return SDL_StartTextInput(window);
+#endif
+}
+bool rays_sdl3_start_text_input_with_options(SDL_Window *window, uint32_t autocorrect, uint32_t capitalization, uint32_t action) {
+  if (autocorrect > 1 || capitalization > 3 || action > 2) return SDL_SetError("invalid text input options");
+#ifdef RAYS_SDL3_IOS
+  if (!rays_sdl3_ios_text_prepare(window, action)) return false;
+#endif
+  SDL_PropertiesID props = SDL_CreateProperties();
+  if (!props) return false;
+  bool ready = SDL_SetBooleanProperty(props, SDL_PROP_TEXTINPUT_AUTOCORRECT_BOOLEAN, autocorrect != 0)
+      && SDL_SetNumberProperty(props, SDL_PROP_TEXTINPUT_CAPITALIZATION_NUMBER, capitalization)
+      && SDL_SetBooleanProperty(props, SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN, false);
+  bool started = ready && SDL_StartTextInputWithProperties(window, props);
+  SDL_DestroyProperties(props);
+#ifdef RAYS_SDL3_IOS
+  if (started) started = rays_sdl3_ios_text_prepare(window, action);
+#endif
+  return started;
+}
 bool rays_sdl3_stop_text_input(SDL_Window *window) { return SDL_StopTextInput(window); }
 bool rays_sdl3_clear_text_input_area(SDL_Window *window) { return SDL_SetTextInputArea(window, NULL, 0); }
 bool rays_sdl3_set_text_input_area(SDL_Window *window,
@@ -277,6 +302,10 @@ static bool translate_event(const SDL_Event *source, rays_sdl3_event *event)
 {
   int value = 0;
   memset(event, 0, sizeof(*event));
+#ifdef RAYS_SDL3_IOS
+  int marked = rays_sdl3_ios_text_translate(source, event);
+  if (marked) { event->tag = EVENT_TEXT_EDITING; return marked > 0; }
+#endif
   switch (source->type) {
   case SDL_EVENT_QUIT:
     event->tag = EVENT_QUIT;

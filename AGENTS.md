@@ -74,7 +74,7 @@ in its tier folder. The gate enforces this table; ABI design lives in `specifica
 - `libpxui` is the `pxui_dylib` cdylib over `pxui_abi` (its own package, so it is built with LTO like the static build) and exports only `pxui_*`; `pxui` uses the dynamic ABI or those same functions through the `static` feature.
 - FFI uses `repr(C)`, pointer/length pairs and callback/user pairs. Borrows last through the next frame; Rust heap types, cross-side freeing and unwinding do not cross the ABI.
 - The app owns the GPU. PXUI adopts native handles and records into the app's command buffer/pass; it does not submit, wait, present or destroy shared resources. Calls stay on one thread, and the library creates no windows or displays.
-- That ownership contract describes the hostless renderer API. Apps may instead use `pxui_host`, which owns device/queue setup, frame acquisition/presentation and image texture retirement. Keep generic host machinery there, native Metal calls in `metal_sys`, and AppKit chrome in `sdl3_sys`. The convenience host supports macOS and experimental iOS SDL/Metal. iOS uses a display link and drains frames on background notifications; safe-area geometry and keyboard show/hide are qualified on the iOS simulator. Basic touch arbitration and docked keyboard avoidance have simulator checks. Keyboard editing, floating-keyboard avoidance and physical-device behavior remain unqualified. Other hosts keep the existing renderer API.
+- That ownership contract describes the hostless renderer API. Apps may instead use `pxui_host`, which owns device/queue setup, frame acquisition/presentation and image texture retirement. Keep generic host machinery there, native Metal calls in `metal_sys`, and AppKit chrome in `sdl3_sys`. The convenience host supports macOS and experimental iOS SDL/Metal. iOS uses a display link and drains frames on background notifications; safe-area geometry and keyboard show/hide are qualified on the iOS simulator. Basic touch arbitration and docked keyboard avoidance have simulator checks. Native UITextInput fixtures cover marked text, traits and Done; manual editing, real IME/dictation, floating-keyboard avoidance and physical-device behavior remain unqualified. Other hosts keep the existing renderer API.
 - `pxui::images` owns retained descriptors, bounded UTF-8 image paths, coalesced visibility-aware requests and LRU metadata. `pxui_host::Graphics` owns their textures and GPU fences. Applications deliver decoded RGBA data or a miss with the requested epoch and an increasing delivery revision; source access and application-specific decode scheduling stay outside the framework. Never expose a caller-supplied completed serial for image destruction. Preserve exact-pixel, stale-epoch, invalid-packet, in-flight retirement, constructor cleanup and zero-warm-allocation checks.
 - The native frame context is a private Objective-C++ struct with ARC-owned members. Do not register an Objective-C frame class: the native shim can be linked into both the static framework host and dynamic renderer, and duplicate runtime classes collide.
 - ABI snapshots are append-only and gated. Paint shapes stay in wrapper spans; only text calls the library. `abi_bench` gates performance against the recorded baseline.
@@ -372,3 +372,17 @@ cached-view invalidation, moving-only repaint, incomplete-tail/invalid-input che
 182/82/100 zero Rust allocation gate, including measured refocus/show/hide and IME bounds. Floating
 keyboards do not shrink global content. Editor identity survives blur; retain its buffers/history
 and move shelved stacks. Numeric routing picks adequate retained modifier capacity before growing.
+
+
+ABI 1.27 adds TextInputOptions and text_field_with_options/text_input_options without changing
+existing descriptors. Keep default field semantics; Done dismisses focus/IME in the same build,
+Search leaves submission to the app, and raw key queries remain non-consuming. Apps must guard
+shortcuts against focus at frame entry. Marked text replaces the selected base range; scalar
+selection offsets determine its caret and selection. Stream all shaped selection spans without
+allocating scratch. Preserve static/dynamic Unicode, commit-plus-Done and warm-refocus checks.
+The iOS observer belongs in sdl3_sys and accepts only SDL's owned hidden field. Preserve copied
+native queue payloads, generation/window validation, 64-event/1-MiB bounds, cleanup and typed
+failure; no borrowed native string may escape a callback. Native allocations and changed owned
+text are not part of the zero warm Rust frame claim. The native text probe uses explicit
+UITextInput calls/notifications; actual keyboard candidate and dictation interaction need hardware
+qualification.

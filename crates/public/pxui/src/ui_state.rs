@@ -10,6 +10,7 @@ library!(lib {
     fn pxui_ui_environment(ui: *mut PxuiUi, out: *mut pxui_types::Environment) -> i32;
     fn pxui_ui_keyboard(ui: *mut PxuiUi, out: *mut pxui_types::Keyboard) -> i32;
     fn pxui_ui_content_rect(ui: *mut PxuiUi, out: *mut pxui_types::geom::Rect) -> i32;
+    fn pxui_ui_text_input_options(ui: *mut PxuiUi, out: *mut pxui_types::TextInputOptions) -> i32;
     fn pxui_ui_now(ui: *mut PxuiUi) -> f64;
     fn pxui_ui_density(ui: *mut PxuiUi) -> i64;
     fn pxui_ui_frame_index(ui: *mut PxuiUi) -> u64;
@@ -79,6 +80,11 @@ impl Ui {
     pub fn keyboard(&self) -> pxui_types::Keyboard {
         let mut value = pxui_types::Keyboard::default();
         check(self, unsafe { lib::pxui_ui_keyboard(self.0.as_ptr(), &mut value) });
+        value
+    }
+    pub fn text_input_options(&self) -> pxui_types::TextInputOptions {
+        let mut value=pxui_types::TextInputOptions::default();
+        check(self,unsafe {lib::pxui_ui_text_input_options(self.0.as_ptr(),&mut value)});
         value
     }
     /// Safe window content above a docked keyboard, following its native presentation geometry.

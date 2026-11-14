@@ -606,11 +606,19 @@ fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,ma
         Some((selection, caret)) => (selection, Some(caret)),
         None => (theme::tint(&paint.theme), None),
     };
-    let before = &edit.text[..edit.caret];
+    let composing = !composition.is_empty();
+    let (start,end) = if composing {(edit.caret.min(edit.anchor),edit.caret.max(edit.anchor))} else {(edit.caret,edit.caret)};
+    let before = &edit.text[..start];
+    let after = &edit.text[end..];
+    let byte = |at:i64|composition.char_indices().nth(at.max(0) as usize).map_or(composition.len(),|(byte,_)|byte);
+    let (selected,count) = paint.composition_selection;
+    let marked = (byte(selected),byte(selected.max(0).saturating_add(count.max(0))));
     let visible = 1.max(cw - 4) as f32;
-    let full = paint.text_width(size, &edit.text);
+    let preedit_width = if composing {paint.text_width(size,composition)} else {0.0};
+    let full = if composing {paint.text_width(size,before)+preedit_width+paint.text_width(size,after)} else {paint.text_width(size,&edit.text)};
     let scroll = 0.0f32.max(paint.edit_scroll_x.min(0.0f32.max(full - visible)));
-    let caret_width = paint.caret_x(size, &edit.text, edit.caret);
+    let insertion_width = paint.caret_x(size, &edit.text, start);
+    let caret_width = insertion_width + if composing {paint.caret_x(size,composition,marked.1)} else {0.0};
     let scroll = if caret_width < scroll {
         caret_width
     } else if caret_width - scroll > visible {
@@ -622,31 +630,23 @@ fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,ma
     // a number keeps its right edge while it is edited, until it outgrows the field
     let origin = if right && full <= visible { (cx + cw - 2) as f32 - full } else { cx as f32 + inset };
     let text_x = origin - scroll;
+    let insertion_x = text_x + insertion_width;
     let caret_x = text_x + caret_width;
     paint.input_region(caret_x - cx as f32, cx as f32, cy as f32, cw as f32, ch as f32);
     let previous_clip = paint.clip_rect;
     paint.clip_rect = intersect(previous_clip, Rect::new(cx as f32, cy as f32, cw as f32, ch as f32));
-    if edit.caret != edit.anchor {
+    if !composing && edit.caret != edit.anchor {
         let (start, stop) = (edit.caret.min(edit.anchor),edit.caret.max(edit.anchor));
-        let mut spans = [(0.0, 0.0); 4];
-        let mut n = 0;
-        paint.selection(size, &edit.text, start, stop, &mut |x0, w| {
-            if n < spans.len() {
-                spans[n] = (x0, w);
-                n += 1;
-            }
-        });
-        for &(x0, w) in &spans[..n] {
-            paint.fill(text_x + x0, cy as f32 + 0.5, w, 1.max(ch - 2) as f32, tint);
-        }
+        paint.selection_fill(size,&edit.text,(start,stop),(text_x,cy as f32+0.5),1.max(ch-2) as f32,tint);
     }
     if composition.is_empty() {
         paint.text_with((text_x, y as f32), size, 0.0, None, &edit.text);
     } else {
         paint.text_with((text_x, y as f32), size, 0.0, None, &before);
-        paint.text_with((caret_x, y as f32), size, 0.0, None, composition);
-        let cwid = paint.text_width(size, composition);
-        paint.text_with((caret_x + cwid, y as f32), size, 0.0, None, &edit.text[edit.caret..]);
+        paint.selection_fill(size,composition,marked,(insertion_x,cy as f32+0.5),1.max(ch-2) as f32,tint);
+        paint.text_with((insertion_x, y as f32), size, 0.0, None, composition);
+        paint.text_with((insertion_x + preedit_width, y as f32), size, 0.0, None, after);
+        paint.fill(insertion_x,(cy+ch-2) as f32,preedit_width,1.0,caret.unwrap_or(paint.theme.foreground));
     }
     // the caret is the line of the text it sits in: 14 of a 20-point field at body size
     let (caret_y, caret_h) = match size {
@@ -835,7 +835,11 @@ impl Ui {
     /// all, copy, cut and paste, and Command-Z, Shift-Command-Z (or Command-Y) undo and redo the
     /// focused text. The result is the new value on the frames that change it.
     pub fn text_field(&mut self, text: &str, value: &str) -> Option<String> {
-        text_field_body(self, text, value)
+        self.text_field_with_options(text, value, pxui_types::TextInputOptions::default())
+    }
+
+    pub fn text_field_with_options(&mut self, text: &str, value: &str, options: pxui_types::TextInputOptions) -> Option<String> {
+        text_field_body(self, text, value, options)
     }
 
     /// A one-line search field at `at` (the first string is its key, the second its value) with a
@@ -2898,14 +2902,15 @@ pub(crate) fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key
     }
 }
 
-fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
+fn text_field_body(this: &mut Ui, text: &str, value: &str, options: pxui_types::TextInputOptions) -> Option<String> {
     // the control, its hit shape and its text sit `space(2)` in from the row's ends at any density (until the body's own editor part has
     // been laid out)
     let side = this.space(2) as i64;
     let row = this.kit_row(Some(CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK), None, text);
     this.hit_part(&row, Part::EDITOR);
     let signal = this.signal_state(&row);
-    let focused = this.focused(&row);
+    let mut focused = this.focused(&row);
+    if focused { this.text_input_options = options; }
     let control_at = |ui: &Ui| ui.part_rect(row.box_key, Part::EDITOR).map_or_else(|| value_control_at(ints(ui.rect(&row)), side), |r| ints(r));
     // Pointer geometry and its font describe the editor the user saw last frame.
     let size = this.part_box(row.box_key, Part::EDITOR).and_then(|part| {
@@ -2922,8 +2927,13 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
         this.with_key_events(&row, &mut |ui, keys| {
             for (event, modifiers) in keys {
                 ui.edit_text_event(false, &mut edit, &|_| true, modifiers, event);
+                if options.action == pxui_types::TextInputOptions::DONE && matches!(event, Event::KeyPressed(Key::Enter))
+                    && !ui.command_modifiers(modifiers) && ui.composition().is_empty() {
+                    ui.unfocus();
+                }
             }
         });
+        focused = this.focused(&row);
         this.save_text_edit(&edit);
         Some(edit)
     } else {
@@ -2952,19 +2962,21 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
         }
     }
     let config = TextFieldConfig { state: State { hovered, focused, ..State::default() }, row };
-    in_body!(this, row.box_key, row, text_field, default_text_field(&config, text, value));
+    in_body!(this, row.box_key, row, text_field, default_text_field(&config, text, changed.as_deref().unwrap_or(value)));
     if let Some(edit) = edit {
-        let control = this.part_built(row.box_key, Part::EDITOR).unwrap_or(row);
-        let field = *this.theme().field.pick(State { focused, ..State::default() });
-        let font = this.node_at(control.index).look.font;
-        let size = (font.size != 0).then(|| font.points(this.font_size()));
-        let font_size = size.unwrap_or(this.font_size());
-        let marks = Some((field.selection, field.caret));
-        let (caret, anchor) = (edit.caret, edit.anchor);
-        this.canvas_edit(&control, &edit.text, move |paint, rect, text, composition| {
-            let (x, y, w, h) = ints(rect);
-            paint_text_edit_ref(paint,size,false,2.0,marks,(x,y,w,h),label_y(font_size,y-2,h+4),composition,&EditRef { text,caret,anchor })
-        });
+        if focused {
+            let control = this.part_built(row.box_key, Part::EDITOR).unwrap_or(row);
+            let field = *this.theme().field.pick(State { focused, ..State::default() });
+            let font = this.node_at(control.index).look.font;
+            let size = (font.size != 0).then(|| font.points(this.font_size()));
+            let font_size = size.unwrap_or(this.font_size());
+            let marks = Some((field.selection, field.caret));
+            let (caret, anchor) = (edit.caret, edit.anchor);
+            this.canvas_edit(&control, &edit.text, move |paint, rect, text, composition| {
+                let (x, y, w, h) = ints(rect);
+                paint_text_edit_ref(paint,size,false,2.0,marks,(x,y,w,h),label_y(font_size,y-2,h+4),composition,&EditRef { text,caret,anchor })
+            });
+        }
         this.edit_work = edit.text;
     }
     changed

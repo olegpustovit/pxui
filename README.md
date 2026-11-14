@@ -153,8 +153,26 @@ layout guide, preserving native motion, including curve 7. There is no Rust anim
 (including measured frames), checks its IME bounds and real intermediate native geometry, then
 finishes the unchanged 182/82/100 zero warm Rust allocation and idle-wake checks. Refocusing reuses
 editor storage and undo history; routed keys choose a spare modifier buffer with enough capacity.
-Touch editing, composition, floating-keyboard field avoidance and external-screen/device behavior
-remain unqualified. A floating keyboard is exposed by `keyboard()` without shrinking global content.
+Manual touch editing, interactive IME candidates, microphone dictation, floating-keyboard field
+avoidance and external-screen/device behavior remain unqualified. A floating keyboard is exposed
+by `keyboard()` without shrinking global content.
+
+ABI 1.27 adds `Ui::text_field_with_options` and `Ui::text_input_options`. `TextInputOptions` selects
+autocorrection (0/1), capitalization (none/sentences/words/letters, 0..=3) and Return/Done/Search
+(0..=2). `SEARCH_FIELD` disables autocorrection and capitalization. Done clears focus and IME
+output in the same frame; Search leaves submission to the app. Raw key queries remain
+non-consuming, so applications must arbitrate shortcuts against focus at the start of the frame.
+The original `text_field` keeps its default traits. No existing descriptor layout changes.
+
+The iOS host observes SDL's hidden UIKit field for marked-text updates; pxui still paints the
+visible editor. It preserves Unicode scalar selection offsets, replaces the selected base text
+with preedit, and positions the caret within it. The native queue owns copied payloads, bounded to
+64 events / 1 MiB, rejects stale generations and reports overflow as a host error. Other UIKit
+fields are ignored. `SIMCTL_CHILD_PXUI_IOS_TEXT_CHECK=1` exercises native UITextInput methods,
+traits, commits, cancellation, deletion, Done and queue lifetime/limits before the original
+182/82/100 warm Rust allocation and idle-wake checks. These simulator fixtures post change
+notifications explicitly; they do not qualify real candidate interaction or microphone dictation.
+Changed owned text and Apple's native text system remain separate allocation paths.
 
 The shape of an app (names settle with the engine rewrite; `crates/private/pxui_render/tests/gpu_pxui_render.rs`
 and `crates/private/pxui_core/tests/gpu_pxui_parity.rs` hold the compiling version):
