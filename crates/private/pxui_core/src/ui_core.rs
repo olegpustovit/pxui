@@ -912,6 +912,7 @@ pub struct Ui {
     now: f64,
     motion: bool,
     environment:pxui_types::Environment,
+    keyboard: pxui_types::Keyboard,
     system_appearance:u32,
     system_reduced_motion:bool,
     theme_reduced_motion:bool,
@@ -996,6 +997,7 @@ pub struct Ui {
     route_keys: Vec<Key>,
     frame_modifiers: [bool; 4],
     pub(crate) edit_focus: i64,
+    pub(crate) edit_owner: i64,
     pub edit_value: String,
     pub(crate) edit_work: String,
     pub(crate) edit_caret: usize,
@@ -1170,6 +1172,7 @@ impl Ui {
             now: 0.0,
             motion: false,
             environment:pxui_types::Environment::default(),
+            keyboard: pxui_types::Keyboard::default(),
             system_appearance:0,
             system_reduced_motion:false,
             theme_reduced_motion:false,
@@ -1235,6 +1238,7 @@ impl Ui {
             route_keys: Vec::new(),
             frame_modifiers: [false; 4],
             edit_focus: 0,
+            edit_owner: 0,
             edit_value: String::new(),
             edit_work: String::new(),
             edit_caret: 0,
@@ -1406,6 +1410,24 @@ impl Ui {
         if self.environment!=value { self.environment=value; self.epoch+=1; }
     }
     pub fn environment(&self)->pxui_types::Environment { self.environment }
+    pub fn set_keyboard(&mut self, value: pxui_types::Keyboard) {
+        if self.keyboard != value { self.keyboard = value; self.epoch += 1; }
+    }
+    pub fn keyboard(&self) -> pxui_types::Keyboard { self.keyboard }
+    /// Safe content bounds, reduced by a full-width docked keyboard's current presentation frame.
+    pub fn content_rect(&self) -> Rect {
+        let [top, right, bottom, left] = self.environment.safe_area;
+        let (w, h) = (self.view_w.max(0.0), self.view_h.max(0.0));
+        let (x, y) = (left.min(w), top.min(h));
+        let right = (w-right).max(x);
+        let mut bottom = (h-bottom).max(y);
+        let [kx, ky, kw, kh] = self.keyboard.frame;
+        if self.keyboard.flags & pxui_types::Keyboard::VALID != 0 && kw > 0.0 && kh > 0.0
+            && kx <= x && kx+kw >= right && ky+kh >= bottom {
+            bottom = bottom.min(ky).max(y);
+        }
+        Rect::new(x, y, right-x, bottom-y)
+    }
     pub fn system_appearance(&self)->u32 { self.system_appearance }
 
     /// Build `f` under `theme` (a scoped override: what `f` builds reads `theme()` as `theme`). A view
@@ -2629,7 +2651,12 @@ impl Ui {
                     Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_) => {
                         if self.focus != 0 {
                             let focus = self.focus;
-                            let mut mods = self.spare_modifiers.pop().unwrap_or_default();
+                            // Empty release buffers must not displace warmed press capacity.
+                            let reusable = self.spare_modifiers.iter().enumerate()
+                                .filter(|(_, keys)| keys.capacity() >= modifiers.len())
+                                .min_by_key(|(_, keys)| keys.capacity()).map(|(index, _)| index);
+                            let mut mods = reusable.map(|index| self.spare_modifiers.swap_remove(index))
+                                .unwrap_or_else(|| self.spare_modifiers.pop().unwrap_or_default());
                             mods.clear();
                             mods.extend_from_slice(&modifiers);
                             let value = self.accumulator(focus);
@@ -2901,7 +2928,8 @@ impl Ui {
     }
 
     fn next_repaint(&self, now: f64) -> Option<f64> {
-        if self.frame_requested || self.active.is_some() || !self.tweens.is_empty() || !self.moving.is_empty() {
+        if self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0
+            || self.active.is_some() || !self.tweens.is_empty() || !self.moving.is_empty() {
             return Some(now);
         }
         let wake = self.views.iter().skip(1).fold(self.wake, |w, r| w.min(r.wake));

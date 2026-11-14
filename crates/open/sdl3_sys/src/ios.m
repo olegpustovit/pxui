@@ -1,5 +1,6 @@
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CADisplayLink.h>
+#import <QuartzCore/QuartzCore.h>
 #include <stdatomic.h>
 #include <pthread.h>
 #include <math.h>
@@ -8,6 +9,7 @@
 
 enum { PENDING_PAUSE = 1, PENDING_RESUME = 2, PENDING_MEMORY = 4, PENDING_EXIT = 8 };
 @class PXUIIOSLoop;
+@class PXUIKeyboardGeometryView;
 static PXUIIOSLoop *active_loop;
 static pthread_mutex_t loop_lock = PTHREAD_MUTEX_INITIALIZER;
 static bool ios_event_watch(void *unused, SDL_Event *event);
@@ -27,6 +29,8 @@ static void ios_source(void *context);
     CGRect keyboardFrom, keyboardFrame;
     CFTimeInterval keyboardStarted, keyboardDuration;
     NSUInteger keyboardCurve;
+    PXUIKeyboardGeometryView *keyboardGeometry;
+    NSArray<NSLayoutConstraint *> *keyboardConstraints;
 #ifdef RAYS_SDL3_TEST_UTIL
     unsigned suppressedWakes;
 #endif
@@ -41,6 +45,27 @@ static void ios_source(void *context);
 - (void)observe:(SDL_Event *)event;
 - (int)shutdown:(int)status;
 - (void)environment:(rays_ios_environment *)out window:(UIWindow *)window;
+@end
+
+@interface PXUIKeyboardGeometryView : UIView
+@property(nonatomic, weak) PXUIIOSLoop *loop;
+@end
+@implementation PXUIKeyboardGeometryView
+- (void)setFrame:(CGRect)value {
+    BOOL changed = !CGRectEqualToRect(self.frame, value);
+    [super setFrame:value];
+    if (changed) [self.loop requestWake];
+}
+- (void)setBounds:(CGRect)value {
+    BOOL changed = !CGRectEqualToRect(self.bounds, value);
+    [super setBounds:value];
+    if (changed) [self.loop requestWake];
+}
+- (void)setCenter:(CGPoint)value {
+    BOOL changed = !CGPointEqualToPoint(self.center, value);
+    [super setCenter:value];
+    if (changed) [self.loop requestWake];
+}
 @end
 
 @implementation PXUIIOSLoop
@@ -88,8 +113,43 @@ static void ios_source(void *context);
     [self post];
 }
 - (void)environment:(rays_ios_environment *)out window:(UIWindow *)window {
-    if (![keyboardScreen isEqual:window.screen]) return;
+    if (atomic_load(&finished)) return;
     UIView *view = window.rootViewController.view;
+    if (keyboardGeometry.superview != view) {
+        [NSLayoutConstraint deactivateConstraints:keyboardConstraints];
+        [keyboardGeometry removeFromSuperview];
+        keyboardGeometry = [PXUIKeyboardGeometryView new];
+        keyboardGeometry.loop = self;
+        keyboardGeometry.translatesAutoresizingMaskIntoConstraints = NO;
+        keyboardGeometry.userInteractionEnabled = NO;
+        keyboardGeometry.accessibilityElementsHidden = YES;
+        keyboardGeometry.opaque = NO;
+        keyboardGeometry.backgroundColor = UIColor.clearColor;
+        [view addSubview:keyboardGeometry];
+        UIKeyboardLayoutGuide *guide = view.keyboardLayoutGuide;
+        guide.followsUndockedKeyboard = YES;
+        keyboardConstraints = @[
+            [keyboardGeometry.leadingAnchor constraintEqualToAnchor:guide.leadingAnchor],
+            [keyboardGeometry.topAnchor constraintEqualToAnchor:guide.topAnchor],
+            [keyboardGeometry.widthAnchor constraintEqualToAnchor:guide.widthAnchor],
+            [keyboardGeometry.heightAnchor constraintEqualToAnchor:guide.heightAnchor],
+        ];
+        [NSLayoutConstraint activateConstraints:keyboardConstraints];
+        [view layoutIfNeeded];
+    }
+    CALayer *presentation = keyboardGeometry.layer.presentationLayer;
+    CGRect current = presentation ? presentation.frame : keyboardGeometry.frame;
+    CGRect target = keyboardGeometry.frame;
+    float c[4] = {(float)current.origin.x,(float)current.origin.y,(float)current.size.width,(float)current.size.height};
+    BOOL valid = true;
+    for (unsigned i = 0; i < 4; ++i) valid = valid && isfinite(c[i]);
+    if (valid && c[2] >= 0 && c[3] >= 0) {
+        memcpy(out->keyboard_current, c, sizeof(c));
+        BOOL moving = fabs(current.origin.x-target.origin.x)>0.015625 || fabs(current.origin.y-target.origin.y)>0.015625 ||
+            fabs(current.size.width-target.size.width)>0.015625 || fabs(current.size.height-target.size.height)>0.015625;
+        out->keyboard_flags = 1 | (moving || CACurrentMediaTime() < keyboardStarted+keyboardDuration ? 2 : 0);
+    }
+    if (![keyboardScreen isEqual:window.screen]) return;
     CGRect from = [keyboardScreen.coordinateSpace convertRect:keyboardFrom toCoordinateSpace:view];
     CGRect to = [keyboardScreen.coordinateSpace convertRect:keyboardFrame toCoordinateSpace:view];
     float a[4] = {(float)from.origin.x,(float)from.origin.y,(float)from.size.width,(float)from.size.height};
@@ -253,6 +313,9 @@ static void ios_source(void *context);
     if (timer) { dispatch_source_cancel(timer); timer = nil; }
     if (source) CFRunLoopSourceInvalidate(source);
     if (watching) { SDL_RemoveEventWatch(ios_event_watch, NULL); watching = NO; }
+    keyboardGeometry.loop = nil;
+    [NSLayoutConstraint deactivateConstraints:keyboardConstraints]; keyboardConstraints = nil;
+    [keyboardGeometry removeFromSuperview]; keyboardGeometry = nil;
     rays_ios_step step = [self invoke:RAYS_IOS_FINISH];
     if (step.action == RAYS_IOS_FAIL) status = 1;
     pthread_mutex_lock(&loop_lock); active_loop = nil; pthread_mutex_unlock(&loop_lock);

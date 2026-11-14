@@ -341,8 +341,10 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     let (appearance,reduced)=if input.size==legacy { (0,0) } else if input.size>=previous {
         (input.appearance,input.reduced_motion)
     } else { return unsafe { fail(ui,"invalid frame descriptor size") }; };
-    let environment=if input.size>=core::mem::size_of::<FrameIn>() as u32 { input.environment } else { pxui_types::Environment::default() };
+    let environment=if input.size>=core::mem::offset_of!(FrameIn,keyboard) as u32 { input.environment } else { pxui_types::Environment::default() };
     if !valid_environment(&environment) { return unsafe { fail(ui,"invalid host environment") }; }
+    let keyboard = if input.size >= core::mem::size_of::<FrameIn>() as u32 { input.keyboard } else { pxui_types::Keyboard::default() };
+    if !keyboard.valid() { return unsafe { fail(ui,"invalid keyboard geometry") }; }
     if appearance>FrameIn::APPEARANCE_DARK || reduced>1 { return unsafe { fail(ui,"invalid system preferences") }; }
     let mut base = unsafe { take_input(ui, input.time) };
     base.size = (input.width as i64, input.height as i64);
@@ -350,6 +352,7 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if !unsafe { push_events(&mut base, Slice { ptr: input.events, len: input.event_count }) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     unsafe { &mut *(*ui).engine }.set_system_preferences(appearance,reduced!=0);
     unsafe { &mut *(*ui).engine }.set_environment(environment);
+    unsafe { &mut *(*ui).engine }.set_keyboard(keyboard);
     let frame = frame::Frame { input: base, pixel_scale: (input.scale as f64, input.scale as f64), fps: 60.0, mouse_delta: (0.0, 0.0) };
     let rc = unsafe { run_frame(ui, &frame, build, out) };
     unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
@@ -364,7 +367,7 @@ unsafe fn read_frame(input:*const FrameIn)->Option<FrameIn> {
     let previous=core::mem::offset_of!(FrameIn,environment);
     if size!=legacy && size<previous { return None; }
     let mut value=FrameIn::default();
-    let copied=if size>=core::mem::size_of::<FrameIn>() { core::mem::size_of::<FrameIn>() } else if size>=previous { previous } else { legacy };
+    let copied=if size>=core::mem::size_of::<FrameIn>() { core::mem::size_of::<FrameIn>() } else if size>=core::mem::offset_of!(FrameIn,keyboard) { core::mem::offset_of!(FrameIn,keyboard) } else if size>=previous { previous } else { legacy };
     unsafe { core::ptr::copy_nonoverlapping(input.cast::<u8>(),(&mut value as *mut FrameIn).cast::<u8>(),copied); }
     Some(value)
 }
@@ -403,6 +406,7 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
     }
     if !unsafe { push_events(&mut base, input.events) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     unsafe { &mut *(*ui).engine }.set_environment(pxui_types::Environment::default());
+    unsafe { &mut *(*ui).engine }.set_keyboard(pxui_types::Keyboard::default());
     let frame = frame::Frame { input: base, pixel_scale: (input.pixel_scale[0], input.pixel_scale[1]), fps: input.fps, mouse_delta: (input.mouse_delta[0], input.mouse_delta[1]) };
     let rc = unsafe { run_frame(ui, &frame, build, out) };
     unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
@@ -648,5 +652,49 @@ mod tests {
             (w::RESIZED, C::RESIZED), (w::FOCUS_LOST, C::FOCUS_LOST), (w::FOCUS_GAINED, C::FOCUS_GAINED), (w::CLOSED, C::CLOSED),
             (w::PIXEL_SIZE_CHANGED, C::PIXEL_SIZE_CHANGED), (w::VISIBILITY_CHANGED, C::VISIBILITY_CHANGED), (w::TRACKPAD_SCROLLED, C::TRACKPAD_SCROLLED), (w::ENVIRONMENT_CHANGED, C::ENVIRONMENT_CHANGED), (w::TOUCH, C::TOUCH)];
         for (wire, abi) in pairs { assert_eq!(wire, abi); }
+    }
+}
+
+#[cfg(test)]
+mod keyboard_tests {
+    use super::*;
+    #[test]
+    fn keyboard_tail_validates_before_mutation_and_preserves_all_legacy_prefixes() {
+        use pxui_types::{Environment, Keyboard};
+        let ui=unsafe {super::pxui_ui_create(&crate::PxuiUiDesc::default())};
+        let keyboard=Keyboard {frame:[0.0,508.0,390.0,336.0],flags:Keyboard::VALID};
+        let environment=Environment {safe_area:[47.0,0.0,34.0,0.0],..Environment::default()};
+        let input=FrameIn {width:390.0,height:844.0,environment,keyboard,..FrameIn::default()};
+        let mut out=FrameOut::default();
+        assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);
+        let mut got=Keyboard::default();
+        let mut rect=pxui_types::geom::Rect::new(0.0,0.0,0.0,0.0);
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
+        assert_eq!(got,keyboard);
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_content_rect(ui,&mut rect)},0);
+        assert_eq!((rect.y,rect.h),(47.0,461.0));
+        for field in 0..7 {
+            let mut bad=keyboard;
+            match field {0=>bad.frame[0]=f32::NAN,1=>bad.frame[1]=f32::INFINITY,2=>bad.frame[2]=-1.0,3=>bad.frame[3]=-1.0,4=>bad.frame=[f32::MAX;4],5=>bad.flags=2,_=>bad.flags=4}
+            out.size=123;
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {keyboard:bad,..input},None,core::ptr::null_mut(),&mut out)},PXUI_ERR_ARGUMENT);
+            assert_eq!(out.size,123);
+            assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
+            assert_eq!(got,keyboard);
+        }
+        for size in 128..core::mem::size_of::<FrameIn>() as u32 {
+            let current=FrameIn {size,keyboard:Keyboard {flags:2,..keyboard},..input};
+            let mut prefix=[0u8;128];
+            unsafe {core::ptr::copy_nonoverlapping((&current as *const FrameIn).cast::<u8>(),prefix.as_mut_ptr(),128)};
+            let decoded=unsafe {super::read_frame(prefix.as_ptr().cast())}.unwrap();
+            assert_eq!(decoded.environment,environment);
+            assert_eq!(decoded.keyboard,Keyboard::default());
+            assert_eq!(unsafe {super::pxui_frame(ui,prefix.as_ptr().cast(),None,core::ptr::null_mut(),&mut out)},0);
+        }
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
+        let prior=got;
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(core::ptr::null_mut(),&mut got)},PXUI_ERR_ARGUMENT);
+        assert_eq!(got,prior);
+        assert_eq!(unsafe {super::pxui_ui_destroy(ui)},0);
     }
 }

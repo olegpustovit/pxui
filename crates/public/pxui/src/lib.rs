@@ -7,7 +7,7 @@ mod macros;
 use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-pub use pxui_types::{Environment, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
+pub use pxui_types::{Environment, Keyboard, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
 pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str, Touch};
 pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};

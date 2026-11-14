@@ -6,6 +6,7 @@ pub struct Platform {
     applied: Option<(usize, u64)>,
     pending: Vec<input::Event>,
     environment: pxui::Environment,
+    keyboard: pxui::Keyboard,
     #[cfg(target_os = "ios")]
     ios_clock: Option<f64>,
 }
@@ -37,7 +38,9 @@ impl Platform {
                 keyboard_curve: raw.keyboard_curve,
                 keyboard_visible: raw.keyboard_visible,
             };
-            if value != self.environment {
+            let keyboard = pxui::Keyboard { frame: raw.keyboard_current, flags: raw.keyboard_flags };
+            if value != self.environment || keyboard != self.keyboard {
+                self.keyboard = keyboard;
                 self.environment = value;
                 events.push(input::Event::EnvironmentChanged);
             }
@@ -48,6 +51,8 @@ impl Platform {
     pub fn environment(&self) -> pxui::Environment {
         self.environment
     }
+    /// Current native geometry; pass to FrameIn::keyboard with the environment.
+    pub fn keyboard(&self) -> pxui::Keyboard { self.keyboard }
     /// Apply once after each UI frame, including frames whose draw revision did not change.
     pub fn apply(&mut self, window: &mut Window, ui: &pxui::Ui) -> Result<(), String> {
         let out = ui.output().platform;

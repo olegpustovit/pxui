@@ -825,9 +825,10 @@ impl Ui {
             self.remember_modal_height(key, slot);
         }
         let height = self.modal_height(key);
-        let (view_w, view_h) = self.view_size();
-        let x = (0.0f32.max((view_w - width) / 2.0)).round();
-        let y = (0.0f32.max((view_h - height) / 2.0)).round();
+        let content = self.content_rect();
+        let (view_w, view_h) = (content.w, content.h);
+        let x = content.x + (0.0f32.max((view_w - width) / 2.0)).round();
+        let y = content.y + (0.0f32.max((view_h - height) / 2.0)).round();
         let look = self.theme().modal.idle;
         let opts = PopupOpts { look: Some(look), max_height: Some(48.0f32.max(view_h - 32.0)), dismiss_initial: false, role: Role::Dialog, ..PopupOpts::default() };
         self.popup_with_related(opts, (x, y), width, height, label, f)

@@ -52,7 +52,7 @@ are separate from the warm Rust allocator checks.
 
 `pxui_host::Events` retains the ABI event span and its UTF-8 bytes. Clear and reuse the app's
 input batch, call the fallible `Platform::pump`, feed `Events::encode` and
-`Platform::environment()` into `Ui::frame`, then call
+`Platform::environment()` and `Platform::keyboard()` into `Ui::frame`, then call
 `Platform::apply` once per completed UI frame for cursor, keyboard/IME, background and clipboard
 requests. Numeric input and unchanged focused IME geometry allocate no Rust objects once warm;
 new text and clipboard contents are separate paths.
@@ -77,8 +77,8 @@ grant background execution time to a suspended iOS app. See
 background it with another app, wait for both `PXUI_IOS_BACKGROUND_*_OK` markers at frame 90,
 then relaunch the same bundle without terminating it. The 182-frame / 82-warm-up / 100-measured
 allocation gate, idle deadline, same-process resume and inactive worker/deadline callbacks are
-qualified on the iOS 18.6 simulator. Finger gestures, IME editing, keyboard avoidance motion,
-physical devices and native allocations remain to qualify.
+qualified on the iOS 18.6 simulator. Basic finger arbitration and docked keyboard avoidance also
+have simulator checks; IME editing, physical gesture feel, devices and native allocations remain to qualify.
 
 `Window::show_dialog` uses UIKit document pickers on iOS for files, multiple files and folders.
 For a chosen `input::Event::FileDialog`, call `Window::take_dialog_selection(id)` once before the
@@ -138,10 +138,23 @@ following [Apple's coordinate-space guidance](https://developer.apple.com/videos
 It preserves UIKit curve values such as 7 and a stable mapping to the frame clock. The framework
 clears SDL's automatic keyboard avoidance area, keeping the Metal view fixed while layout uses
 the environment; the authored caret remains available in the UI's IME output. The gallery probe
-pads its content by the safe-area insets. `SIMCTL_CHILD_PXUI_IOS_KEYBOARD_CHECK=1` focuses a test
-field, checks real did-show/did-hide and geometry, then runs the unchanged 182/82/100 allocation
-and idle-wake checks. This qualifies simulator show/hide and geometry; touch editing, composition,
-keyboard-synchronized layout motion and floating/external-screen/device behavior remain open.
+pads its content by the safe-area insets.
+
+ABI 1.26 appends `FrameIn::keyboard`, a 20-byte current presentation rectangle and validity/motion
+flags. The old 48-, 56- and 128-byte frame prefixes and 72-byte `Environment` remain unchanged;
+incomplete keyboard tails are ignored. Invalid geometry is rejected before mutation.
+`Ui::keyboard()` exposes the snapshot; `Ui::content_rect()` combines safe areas and a full-width
+bottom-occluding keyboard. Cached views invalidate when it changes, and motion requests another
+frame until the native guide settles. Generic modals center within these usable bounds.
+
+The iOS host samples the presentation layer of an inert view constrained to UIKit's keyboard
+layout guide, preserving native motion, including curve 7. There is no Rust animation approximation.
+`SIMCTL_CHILD_PXUI_IOS_KEYBOARD_CHECK=1` puts a field at the content bottom, shows/hides twice
+(including measured frames), checks its IME bounds and real intermediate native geometry, then
+finishes the unchanged 182/82/100 zero warm Rust allocation and idle-wake checks. Refocusing reuses
+editor storage and undo history; routed keys choose a spare modifier buffer with enough capacity.
+Touch editing, composition, floating-keyboard field avoidance and external-screen/device behavior
+remain unqualified. A floating keyboard is exposed by `keyboard()` without shrinking global content.
 
 The shape of an app (names settle with the engine rewrite; `crates/private/pxui_render/tests/gpu_pxui_render.rs`
 and `crates/private/pxui_core/tests/gpu_pxui_parity.rs` hold the compiling version):

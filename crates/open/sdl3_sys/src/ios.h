@@ -12,5 +12,7 @@ typedef struct {
     float safe_area[4], keyboard_frame[4], keyboard_from[4];
     double keyboard_started, keyboard_duration, timestamp;
     uint32_t keyboard_curve, keyboard_visible;
+    float keyboard_current[4];
+    uint32_t keyboard_flags;
 } rays_ios_environment;
 int32_t rays_sdl3_ios_environment(uint32_t window, rays_ios_environment *out);

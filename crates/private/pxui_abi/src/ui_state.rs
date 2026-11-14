@@ -13,6 +13,18 @@ export!(pub unsafe fn pxui_ui_environment(ui:*mut PxuiUi,out:*mut pxui_types::En
     unsafe { out.write(e.environment()); }
     0
 });
+export!(pub unsafe fn pxui_ui_keyboard(ui:*mut PxuiUi,out:*mut pxui_types::Keyboard)->i32 {
+    let Some(e)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui,"null keyboard output") }; }
+    unsafe { out.write(e.keyboard()); }
+    0
+});
+export!(pub unsafe fn pxui_ui_content_rect(ui:*mut PxuiUi,out:*mut pxui_types::geom::Rect)->i32 {
+    let Some(e)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui,"null content rectangle output") }; }
+    unsafe { out.write(e.content_rect()); }
+    0
+});
 export!(pub unsafe fn pxui_ui_now(ui: *mut PxuiUi) -> f64 { unsafe { engine(ui) }.map_or(0.0, |e| e.now()) });
 export!(pub unsafe fn pxui_ui_frame_index(ui: *mut PxuiUi) -> u64 { unsafe { engine(ui) }.map_or(0, |e| e.frame_index()) });
 export!(pub unsafe fn pxui_ui_captured(ui: *mut PxuiUi) -> u8 { unsafe { engine(ui) }.is_some_and(|e| e.captured()) as u8 });

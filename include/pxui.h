@@ -186,6 +186,10 @@ typedef struct {
     double keyboard_started, keyboard_duration;
     uint32_t keyboard_curve, keyboard_visible;
 } PxuiEnvironment;
+/* ABI 1.26: current UIKit keyboard presentation frame, including intermediate geometry. */
+typedef struct { float frame[4]; uint32_t flags; } PxuiKeyboard;
+#define PXUI_KEYBOARD_VALID 1u
+#define PXUI_KEYBOARD_ANIMATING 2u
 typedef struct {
     uint32_t size;
     /* Event-only entry: held keys persist until release or focus loss. */
@@ -197,6 +201,7 @@ typedef struct {
     uint32_t appearance, reduced_motion;
     /* Read only when size includes this complete tail; otherwise defaults to zero. */
     PxuiEnvironment environment;
+    PxuiKeyboard keyboard;
 } PxuiFrameIn;
 #define PXUI_APPEARANCE_UNKNOWN 0u
 #define PXUI_APPEARANCE_LIGHT 1u
@@ -326,6 +331,8 @@ PxuiUi *pxui_ui_create_with_fonts(const PxuiUiDesc *desc, const PxuiStr *fonts, 
 int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside a frame, or a renderer still attached */
 PxuiStr pxui_last_error(const PxuiUi *ui);
 int32_t pxui_ui_environment(PxuiUi *ui, PxuiEnvironment *out);
+int32_t pxui_ui_keyboard(PxuiUi *ui, PxuiKeyboard *out);
+int32_t pxui_ui_content_rect(PxuiUi *ui, PxuiRect *out);
 int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 int32_t pxui_ui_frame(PxuiUi *ui, const PxuiInput *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 /* The last frame's input as routed to `owner` (a viewport's root key; has_owner 0: the app's), for the app's own content: the record

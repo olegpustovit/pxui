@@ -861,6 +861,24 @@ pub fn window_pxui_retained_keys() {
 pub fn window_pxui_text_memory() {
     let mut ui = ui11();
     let mut other = ui11();
+    let mut edit = ui.load_text_edit(1, "alpha");
+    ui.remember(&edit, false);
+    edit.text = "beta".into();
+    ui.edit_value.clone_from(&edit.text);
+    ui.unfocus();
+    let mut edit = ui.load_text_edit(2, "beta");
+    ui.remember(&edit, false);
+    edit.text = "gamma".into();
+    ui.edit_value.clone_from(&edit.text);
+    ui.unfocus();
+    let edit = ui.load_text_edit(1, "beta");
+    assert_eq!(ui.edit_undo[0].0, "alpha", "blur must preserve the history's field identity");
+    ui.unfocus();
+    let reopened = ui.load_text_edit(1, "beta");
+    assert_eq!((reopened.caret, reopened.anchor), (edit.caret, edit.anchor));
+    assert_eq!(ui.edit_undo[0].0, "alpha", "refocus must keep undo history");
+    ui.load_text_edit(2, "gamma");
+    assert_eq!(ui.edit_undo[0].0, "beta", "equal field values must not share undo history");
     for key in 1..=5i64 {
         for step in 1..=200i64 {
             let last = format!("{} {} {}", key, step, "x".repeat(100_000));

@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 25
+minor 26
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -84,6 +84,7 @@ function pxui_ui_captured uint8_t pxui_ui_captured ( PxuiUi * ui ) ;
 function pxui_ui_carry int32_t pxui_ui_carry ( PxuiUi * ui , uint8_t has_from , const PxuiBox * from , PxuiStr kind , PxuiStr value ) ;
 function pxui_ui_carrying int32_t pxui_ui_carrying ( PxuiUi * ui , uint8_t * present , PxuiStr * kind , PxuiStr * value ) ;
 function pxui_ui_checkbox int32_t pxui_ui_checkbox ( PxuiUi * ui , PxuiStr label , uint8_t value , uint8_t * out ) ;
+function pxui_ui_content_rect int32_t pxui_ui_content_rect ( PxuiUi * ui , PxuiRect * out ) ;
 function pxui_ui_context_at int32_t pxui_ui_context_at ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
 function pxui_ui_context_menu int32_t pxui_ui_context_menu ( PxuiUi * ui , float x , float y , PxuiStr label , PxuiStrSpan items , PxuiU8Span enabled , uint8_t has_width , float width , uint8_t has_selected , int64_t selected , const PxuiMenuExtra * extra , uint32_t * out_tag , int64_t * out_index ) ;
 function pxui_ui_create PxuiUi * pxui_ui_create ( const PxuiUiDesc * desc ) ;
@@ -129,6 +130,7 @@ function pxui_ui_inspector_width float pxui_ui_inspector_width ( PxuiUi * ui ) ;
 function pxui_ui_key_down int32_t pxui_ui_key_down ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_key_pressed_with int32_t pxui_ui_key_pressed_with ( PxuiUi * ui , uint32_t code , uint32_t modifier , uint8_t * out ) ;
+function pxui_ui_keyboard int32_t pxui_ui_keyboard ( PxuiUi * ui , PxuiKeyboard * out ) ;
 function pxui_ui_layer_drawn int32_t pxui_ui_layer_drawn ( PxuiUi * ui , uint64_t layer ) ;
 function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
 function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr * text , uint32_t * step ) ;
@@ -245,12 +247,14 @@ layout Event 48 8 0 4 8 16 24 32
 layout Flags 8 8
 layout FrameIn 48 8 0 8 16 24 28 32 40
 layout FrameInV1_24 128 8 0 8 16 24 28 32 40 48 52 56
+layout FrameInV1_26 152 8 0 8 16 24 28 32 40 48 52 56 128
 layout FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
 layout FrameOut 40 8 0 4 20 21 24 32
 layout Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
 layout Image 40 8 0 8 16 24 28 32
 layout Input 160 8 0 8 16 24 32 40 56 72 88 104 120 136 152
 layout Instance 64 4 0 16 24 28 32 40 48 50 51 52 54 56
+layout Keyboard 20 4 0 16
 layout Output 240 8 0 4 8 16 24 32 40 48 136 160 224
 layout Pass 72 8 0 8 16 24 28 32 40 48 52 56 64
 layout PlatformOut 88 8 0 4 8 9 10 11 16 48 56 72 76 77

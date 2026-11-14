@@ -162,6 +162,23 @@ pub struct Environment {
     pub keyboard_visible: u32,
 }
 
+/// Native presentation geometry, in logical window points; does not change Environment's frozen layout.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Keyboard {
+    pub frame: [f32; 4],
+    pub flags: u32,
+}
+impl Keyboard {
+    pub const VALID: u32 = 1;
+    pub const ANIMATING: u32 = 2;
+    pub fn valid(&self) -> bool {
+        self.flags <= 3 && self.flags != Self::ANIMATING
+            && self.frame.iter().all(|v| v.is_finite()) && self.frame[2] >= 0.0 && self.frame[3] >= 0.0
+            && (self.frame[0]+self.frame[2]).is_finite() && (self.frame[1]+self.frame[3]).is_finite()
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct FrameIn {
@@ -178,9 +195,11 @@ pub struct FrameIn {
     pub reduced_motion: u32,
     /// ABI 1.24 tail; absent tails use the default environment.
     pub environment: Environment,
+    /// ABI 1.26 tail: current native keyboard geometry, including intermediate animation frames.
+    pub keyboard: Keyboard,
 }
 impl Default for FrameIn {
-    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0,appearance:0,reduced_motion:0,environment:Environment::default() } }
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0,appearance:0,reduced_motion:0,environment:Environment::default(),keyboard:Keyboard::default() } }
 }
 impl FrameIn {
     pub const APPEARANCE_UNKNOWN:u32=0;
@@ -589,9 +608,14 @@ mod abi_layout {
             offset_of!(Environment,safe_area),offset_of!(Environment,keyboard_frame),offset_of!(Environment,keyboard_from),
             offset_of!(Environment,keyboard_started),offset_of!(Environment,keyboard_duration),offset_of!(Environment,keyboard_curve),offset_of!(Environment,keyboard_visible),
         ]);
-        assert_layout("FrameInV1_24",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
+        assert_layout("FrameInV1_24",offset_of!(FrameIn,keyboard),align_of::<FrameIn>(),&[
             offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),offset_of!(FrameIn,width),
             offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),offset_of!(FrameIn,environment),
+        ]);
+        assert_layout("Keyboard",size_of::<Keyboard>(),align_of::<Keyboard>(),&[offset_of!(Keyboard,frame),offset_of!(Keyboard,flags)]);
+        assert_layout("FrameInV1_26",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
+            offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),offset_of!(FrameIn,width),
+            offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),offset_of!(FrameIn,environment),offset_of!(FrameIn,keyboard),
         ]);
         assert_layout(
             "FrameOut",

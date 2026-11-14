@@ -34,6 +34,8 @@ mod ios {
         saw_keyboard: bool,
         keyboard_hiding: bool,
         saw_hidden: bool,
+        keyboard_samples: [usize; 2],
+        keyboard_last: f32,
         background_worker: Option<(Arc<AtomicBool>, std::thread::JoinHandle<bool>)>,
         background_woke: bool,
         background_deadline: Option<f64>,
@@ -96,6 +98,8 @@ mod ios {
                 saw_keyboard: false,
                 keyboard_hiding: false,
                 saw_hidden: false,
+                keyboard_samples: [0; 2],
+                keyboard_last: f32::NAN,
                 background_worker: None,
                 background_woke: false,
                 background_deadline: None,
@@ -104,6 +108,24 @@ mod ios {
                 picker: std::env::var_os("PXUI_IOS_PICKER_CHECK").map(|_| super::picker::Probe::new(window.time())),
                 touch: std::env::var_os("PXUI_IOS_TOUCH_CHECK").map(|_| super::touch::Probe::new()),
             })
+        }
+        fn sample_keyboard(&mut self, window: &pxui_sdl::Window) -> Result<sdl3_sys::ios::Environment, String> {
+            let value = pxui_sdl::ios::environment(window)?;
+            if value.keyboard_flags & 1 == 0 { return Err("Native keyboard guide is missing".into()); }
+            let bottom = window.extent().logical.1 as f32 - value.safe_area[2];
+            let from = value.keyboard_from[1].min(bottom);
+            let to = value.keyboard_frame[1].min(bottom);
+            let y = value.keyboard_current[1];
+            if y > from.min(to) + 0.5 && y < from.max(to) - 0.5
+                && (!self.keyboard_last.is_finite() || (y-self.keyboard_last).abs()>0.1) {
+                let direction = usize::from(self.keyboard_hiding);
+                self.keyboard_samples[direction] += 1;
+                if self.keyboard_samples[direction] == 1 {
+                    println!("PXUI_IOS_KEYBOARD_PRESENTATION direction={direction} current={:?} flags={}", value.keyboard_current, value.keyboard_flags);
+                }
+            }
+            self.keyboard_last = y;
+            Ok(value)
         }
         fn signal(
             &mut self,
@@ -240,13 +262,16 @@ mod ios {
                         return Err("Window closed while hiding keyboard".into());
                     }
                     let k = self.platform.environment().keyboard_frame;
+                    let current = self.sample_keyboard(window)?;
                     if self.platform.environment().keyboard_visible != 0
                         || (k[2] > 0.0
                             && k[3] > 0.0
                             && k[1] < window.extent().logical.1 as f32
                             && k[1] + k[3] > 0.0)
+                        || current.keyboard_flags & 2 != 0
+                        || current.keyboard_current[1] < window.extent().logical.1 as f32 - current.safe_area[2] - 0.5
                     {
-                        return Ok(Schedule::WaitUntil(None));
+                        return Ok(Schedule::NextFrame);
                     }
                     self.saw_hidden = true;
                     println!("PXUI_IOS_KEYBOARD_HIDDEN frame={k:?}");
@@ -297,8 +322,15 @@ mod ios {
             if let Some(error) = window.take_failure() {
                 return Err(error);
             }
-            if self.keyboard_check && self.frames == 1 {
+            if self.keyboard_check { self.sample_keyboard(window)?; }
+            if self.keyboard_check && matches!(self.frames, 1 | 90) {
+                self.keyboard_hiding = false;
                 self.events.push(input::Event::KeyPressed(input::Key::Tab));
+                self.events.push(input::Event::KeyReleased(input::Key::Tab));
+            }
+            if self.keyboard_check && matches!(self.frames, 40 | 130) {
+                self.keyboard_hiding = true;
+                self.ui.unfocus();
             }
             let extent = window.extent();
             let pumped = mem_sys::local_alloc_count();
@@ -313,6 +345,7 @@ mod ios {
                         scale: window.scale() as f32,
                         time: window.time(),
                         environment: self.platform.environment(),
+                        keyboard: self.platform.keyboard(),
                         appearance: self.system.appearance,
                         reduced_motion: self.system.reduced_motion,
                         events: wire.as_ptr(),
@@ -322,6 +355,10 @@ mod ios {
                     &mut |ui| {
                         use pxui::ui::{Edges, Node, Size};
                         let [t, r, b, l] = ui.environment().safe_area;
+                        let (t, r, b, l) = if self.keyboard_check {
+                            let rect = ui.content_rect();
+                            (rect.y, extent.logical.0 as f32-rect.x-rect.w, extent.logical.1 as f32-rect.y-rect.h, rect.x)
+                        } else { (t, r, b, l) };
                         let content = ui.node(
                             "iOS safe content",
                             Node {
@@ -346,6 +383,7 @@ mod ios {
                                     touch.view(ui);
                                 } else if self.keyboard_check {
                                     ui.label("PXUI native keyboard");
+                                    ui.node("field spacer", Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
                                     ui.text_field("Mobile input", "café track");
                                 } else {
                                     pxui_gallery::app(ui, &mut self.gallery);
@@ -365,6 +403,10 @@ mod ios {
                 (extent.logical.0 as f32 - l - r).max(0.0),
                 (extent.logical.1 as f32 - t - b).max(0.0),
             ];
+            let expected = if self.keyboard_check {
+                let content = self.ui.content_rect();
+                [content.x, content.y, content.w, content.h]
+            } else { expected };
             if [rect.x, rect.y, rect.w, rect.h]
                 .iter()
                 .zip(expected)
@@ -373,6 +415,14 @@ mod ios {
                 return Err(format!(
                     "Safe-area bounds mismatch: {rect:?}, expected={expected:?}"
                 ));
+            }
+            if self.keyboard_check {
+                if let Some(((x, y, w, h), _)) = self.ui.ime() {
+                    if (x as f32) < rect.x - 1.0 || (y as f32) < rect.y - 1.0
+                        || (x+w) as f32 > rect.x+rect.w+1.0 || (y+h) as f32 > rect.y+rect.h+1.0 {
+                        return Err(format!("Focused field is outside usable content: {:?}, content={rect:?}", (x,y,w,h)));
+                    }
+                }
             }
             let built = mem_sys::local_alloc_count();
             if let Some(touch) = self.touch.as_mut() { touch.check(&self.ui, self.frames)?; }
@@ -427,7 +477,7 @@ mod ios {
                 && self.picker.is_none()
                 && self.idle_callbacks > 0
                 && self.worker_woke
-                && (!self.keyboard_check || (self.saw_keyboard && self.saw_hidden))
+                && (!self.keyboard_check || (self.saw_keyboard && self.saw_hidden && self.keyboard_samples.iter().all(|samples| *samples > 0)))
                 && (!self.lifecycle
                     || (self.paused
                         && self.resumed

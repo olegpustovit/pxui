@@ -118,6 +118,7 @@ pub fn environment(window: &Window) -> Result<sdl3::ios::Environment, String> {
         &mut value.safe_area,
         &mut value.keyboard_frame,
         &mut value.keyboard_from,
+        &mut value.keyboard_current,
     ] {
         for number in rect {
             *number /= window.unit as f32;

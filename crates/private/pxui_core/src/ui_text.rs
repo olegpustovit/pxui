@@ -280,7 +280,9 @@ impl Ui {
     /// the text edited before it (scroll, undo stacks, a double click's selection unit).
     pub(crate) fn reset_edit(&mut self, key: i64, text: &str, anchor: usize) {
         self.edit_focus = key;
-        self.edit_value = text.to_owned();
+        self.edit_owner = key;
+        self.edit_value.clear();
+        self.edit_value.push_str(text);
         self.edit_caret = text.len();
         self.edit_anchor = anchor;
         self.edit_scroll_x = 0.0;
@@ -297,22 +299,25 @@ impl Ui {
     }
 
     fn load_text_edit_into(&mut self, key: i64, text: &str, mut buffer: String) -> TextEdit {
-        if self.edit_focus != key || self.edit_value != text {
-            let left: ShelfEntry = (self.edit_focus, self.edit_value.clone(), self.edit_undo.clone(), self.edit_redo.clone());
-            let back = self.edit_shelf.iter().find(|(k, v, _, _)| *k == key && v == text).cloned();
-            let mut shelf: Vec<ShelfEntry> = self.edit_shelf.iter().filter(|e| Some(*e) != back.as_ref()).cloned().collect();
+        if self.edit_owner != key || self.edit_value != text {
+            let back = self.edit_shelf.iter().position(|(k, v, _, _)| *k == key && v == text)
+                .map(|index| self.edit_shelf.remove(index));
             if !(self.edit_undo.is_empty() && self.edit_redo.is_empty()) {
-                shelf.insert(0, left);
+                let left: ShelfEntry = (self.edit_owner, std::mem::take(&mut self.edit_value),
+                    std::mem::take(&mut self.edit_undo), std::mem::take(&mut self.edit_redo));
+                self.edit_shelf.truncate(3);
+                self.edit_shelf.insert(0, left);
             }
-            shelf.truncate(4);
-            self.edit_shelf = shelf;
+            let (undo, redo) = if let Some((_, value, undo, redo)) = back {
+                self.edit_value = value;
+                (undo, redo)
+            } else { (Vec::new(), Vec::new()) };
             self.reset_edit(key, text, text.len());
-            if let Some((_, _, undo, redo)) = back {
-                self.edit_undo = undo;
-                self.edit_redo = redo;
-            }
+            self.edit_undo = undo;
+            self.edit_redo = redo;
             self.enforce_text_undo();
         }
+        self.edit_focus = key;
         // a screen reader's Select (AT-SPI SetCaretOffset/SetSelection) lands in whichever field loads its edit
         if let Some((anchor, caret)) = self.a11y_select_of(key) {
             let byte = |chars: u32| text.char_indices().nth(chars as usize).map_or(text.len(), |(b, _)| b);

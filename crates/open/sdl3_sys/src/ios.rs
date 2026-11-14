@@ -105,6 +105,8 @@ pub struct Environment {
     pub timestamp: f64,
     pub keyboard_curve: u32,
     pub keyboard_visible: u32,
+    pub keyboard_current: [f32; 4],
+    pub keyboard_flags: u32,
 }
 unsafe extern "C" {
     fn rays_sdl3_ios_environment(window: u32, out: *mut Environment) -> i32;

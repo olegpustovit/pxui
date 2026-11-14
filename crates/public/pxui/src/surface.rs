@@ -1995,3 +1995,77 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
     }
     assert!(ui.scroll_offset(&body.get().unwrap()) > 100.0);
 }
+
+#[test]
+fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations() {
+    use crate::{Environment, Keyboard};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let node = Cell::new(None);
+    let builds = Cell::new(0);
+    let expected = Cell::new([0.0, 47.0, 390.0, 763.0]);
+    let mut build = |ui: &mut Ui| {
+        ui.view("keyboard-content", 0, Size::Grow, Size::Grow, &mut |ui| {
+            builds.set(builds.get()+1);
+            let rect = ui.content_rect();
+            assert_eq!([rect.x, rect.y, rect.w, rect.h], expected.get());
+            node.set(Some(ui.node("visible content", crate::Node {
+                at: Some((rect.x, rect.y)).into(), w: Size::Px(rect.w), h: Size::Px(rect.h),
+                ..crate::Node::DEFAULT
+            })));
+        });
+    };
+    let environment = Environment {safe_area:[47.0,0.0,34.0,0.0],..Environment::default()};
+    for frame in 0..182 {
+        let y = [810.0,750.0,600.0,508.0,600.0,750.0][frame%6];
+        let flags = Keyboard::VALID | if matches!(frame%6,0|3) {0} else {Keyboard::ANIMATING};
+        let keyboard = Keyboard {frame:[0.0,y,390.0,844.0-y],flags};
+        expected.set([0.0,47.0,390.0,y.min(810.0)-47.0]);
+        mem_sys::local_reset();
+        ui.frame(&FrameIn {width:390.0,height:844.0,time:frame as f64/120.0,environment,keyboard,..FrameIn::default()}, &mut build).unwrap();
+        assert_eq!(ui.keyboard(), keyboard);
+        let rect=ui.rect(&node.get().unwrap());
+        assert_eq!([rect.x,rect.y,rect.w,rect.h],expected.get());
+        assert_eq!(ui.repaint_at().is_some(),flags & Keyboard::ANIMATING != 0);
+        let before=builds.get();
+        ui.frame(&FrameIn {width:390.0,height:844.0,time:frame as f64/120.0,environment,keyboard,..FrameIn::default()}, &mut build).unwrap();
+        assert_eq!(builds.get(),before,"unchanged keyboard geometry rebuilt a cached view");
+        if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm keyboard frame {frame}");}
+    }
+    for (keyboard,height) in [
+        (Keyboard {frame:[100.0,400.0,200.0,200.0],flags:Keyboard::VALID},763.0),
+        (Keyboard {frame:[0.0,900.0,390.0,100.0],flags:Keyboard::VALID},763.0),
+        (Keyboard {frame:[0.0,-100.0,390.0,1000.0],flags:Keyboard::VALID},0.0),
+    ] {
+        expected.set([0.0,47.0,390.0,height]);
+        ui.frame(&FrameIn {width:390.0,height:844.0,environment,keyboard,..FrameIn::default()},&mut build).unwrap();
+    }
+}
+
+#[test]
+fn text_field_refocus_reuses_its_warm_editor_storage() {
+    use pxui_types::{Event, KEY_SPECIAL};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let mut build = |ui: &mut Ui| assert!(ui.text_field("Caption", "café track 10").is_none());
+    let focus = [
+        Event {kind:Event::KEY_PRESSED,code:KEY_SPECIAL+8,..Event::default()},
+        Event {kind:Event::KEY_RELEASED,code:KEY_SPECIAL+8,..Event::default()},
+    ];
+    ui.frame(&input(), &mut build).unwrap();
+    for frame in 0..182 {
+        mem_sys::local_reset();
+        let focusing = matches!(frame, 1 | 90);
+        let focused = (1..40).contains(&frame) || (90..130).contains(&frame);
+        if matches!(frame,40|130) { ui.unfocus(); }
+        ui.frame(&FrameIn {
+            time:frame as f64/60.0,
+            events:if focusing {focus.as_ptr()} else {std::ptr::null()},
+            event_count:if focusing {focus.len()} else {0},
+            ..input()
+        }, &mut build).unwrap();
+        assert_eq!(ui.text_input_focused(),focused);
+        if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm field refocus frame {frame}");}
+    }
+}
