@@ -86,6 +86,40 @@ fn window_numeric_input_zero_alloc() {
     window.destroy().unwrap();
 }
 
+fn window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump() {
+    let mut window = Window::open_with("dialog capabilities", 32, 24, false, true, true).unwrap();
+    let mut events = Vec::with_capacity(32);
+    assert!(window.pump(&mut events));
+    let id = sdl3_sys::test_util::dialog_reserve();
+    assert!(id > 0);
+    assert!(sdl3_sys::test_util::dialog_finish(id, Some(&["/tmp/名前.flac", "/tmp/Björk.mp3"])));
+    events.clear();
+    assert!(window.pump(&mut events));
+    assert!(events.iter().any(|event| matches!(event, input::Event::FileDialog {id: chosen, result: Ok(paths)} if *chosen == i64::from(id) && paths.len() == 2)));
+    assert!(window.take_dialog_selection(-1).is_err());
+    let selected = window.take_dialog_selection(i64::from(id)).unwrap();
+    assert_eq!(selected[0].path(), std::path::Path::new("/tmp/名前.flac"));
+    assert!(selected[0].bookmark().unwrap().is_none());
+    assert!(window.take_dialog_selection(i64::from(id)).is_err());
+    let expired = sdl3_sys::test_util::dialog_reserve();
+    assert!(sdl3_sys::test_util::dialog_finish(expired, Some(&["/tmp/unused"])));
+    events.clear();
+    assert!(window.pump(&mut events));
+    events.clear();
+    assert!(window.pump(&mut events));
+    assert!(window.take_dialog_selection(i64::from(expired)).is_err());
+    window.destroy().unwrap();
+    assert!(window.take_dialog_selection(i64::from(id)).is_err());
+}
+
+#[cfg(target_os = "macos")]
+fn original_url_bookmarks_refuse_the_initial_thread() {
+    let (selected, _) = sdl3_sys::test_util::file_selection(&std::env::temp_dir()).unwrap();
+    assert!(selected.bookmark().unwrap_err().to_string().contains("worker thread"));
+    let (_, calls, starts, stops) = sdl3_sys::test_util::file_selection_status();
+    assert_eq!((calls, starts, stops), (0, 0, 0));
+}
+
 #[inline(never)]
 fn overflow(n: usize) -> usize {
     let recurse = std::hint::black_box(overflow as fn(usize) -> usize);
@@ -200,6 +234,9 @@ fn main() {
     common::run(&[
         ("window_visibility", window_visibility),
         ("window_numeric_input_zero_alloc", window_numeric_input_zero_alloc),
+        ("window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump", window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump),
+        #[cfg(target_os = "macos")]
+        ("original_url_bookmarks_refuse_the_initial_thread", original_url_bookmarks_refuse_the_initial_thread),
         ("native_stack_overflow_exits", native_stack_overflow_exits),
         ("native_abort_exits", native_abort_exits),
         ("native_startup_requires_initial_domain", native_startup_requires_initial_domain),

@@ -1,6 +1,8 @@
 //! The SDL3 window host: window lifecycle, the event pump translated to `input` events, cursor,
 //! text input, clipboard and the native layer token a GPU backend presents to. A leaf: it knows
 //! nothing of the UI engine or the renderer; callers pass plain values.
+pub use sdl3::FileSelection;
+
 use sdl3::cursor::{Cursor, Shape};
 use sdl3::window::{Flag, Window as SdlWindow};
 use sdl3::{DialogFilter as SdlDialogFilter, DialogKind as SdlDialogKind, NativeView, Rect};
@@ -105,6 +107,7 @@ pub struct Window {
     /// the last event-poll or extent re-read failure (`take_failure`); the next pump tries again
     failure: Option<Error>,
     polled: Vec<sdl3::Event>,
+    dialog_selections: Vec<(i64, Vec<FileSelection>)>,
 }
 
 fn fail(failure: sdl3::Error) -> Error {
@@ -227,6 +230,7 @@ impl Window {
                 dead: false,
                 failure: None,
                 polled: Vec::with_capacity(256),
+                dialog_selections: Vec::with_capacity(8),
             })
         };
         let created = build();
@@ -243,6 +247,7 @@ impl Window {
     /// Appends the frame's events (positions in logical points) and says whether the window is
     /// still open: false once a close request or quit arrived.
     pub fn pump(&mut self, events: &mut Vec<input::Event>) -> bool {
+        self.dialog_selections.clear();
         let mut open = true;
         if let Err(error) = sdl3::event::poll_coalesced_into(&mut self.polled) {
             self.failure = Some(fail(error));
@@ -251,7 +256,15 @@ impl Window {
                 if matches!(raw, sdl3::Event::Window(sdl3::WindowChange::Resized(..) | sdl3::WindowChange::PixelSizeChanged(..))) {
                     change_flag::announce(&mut self.changed);
                 }
-                if let Some(event) = translate::translate(translate::in_points(self.unit, raw)) {
+                let event = match raw {
+                    sdl3::Event::Dialog { id, outcome: sdl3::DialogOutcome::Chosen(files) } => {
+                        let paths = files.iter().map(|file| file.path().to_string_lossy().into_owned()).collect();
+                        self.dialog_selections.push((i64::from(id), files));
+                        Some(input::Event::FileDialog { id: i64::from(id), result: Ok(paths) })
+                    }
+                    raw => translate::translate(translate::in_points(self.unit, raw)),
+                };
+                if let Some(event) = event {
                     open &= !matches!(event, input::Event::Closed);
                     events.push(event);
                 }
@@ -454,6 +467,15 @@ impl Window {
         Ok(sdl3::dialog::show(&self.handle, native, &filters, default_location).map_err(fail)? as i64)
     }
 
+    /// Takes the original file capabilities for a chosen FileDialog event, once, before the next pump.
+    /// Move them to a worker before creating bookmarks or doing file I/O. Ignored outcomes expire.
+    pub fn take_dialog_selection(&mut self, id: i64) -> Result<Vec<FileSelection>, Error> {
+        self.live()?;
+        let index = self.dialog_selections.iter().position(|(chosen, _)| *chosen == id)
+            .ok_or_else(|| "Dialog selection is missing, expired or already consumed".to_owned())?;
+        Ok(self.dialog_selections.swap_remove(index).1)
+    }
+
     /// Shown and neither minimized nor covered. SDL announces the start of occlusion and not its
     /// end, so a caller that saw the window hidden asks this once per frame to learn when it is back.
     pub fn visible(&mut self) -> Result<bool, Error> {
@@ -467,6 +489,7 @@ impl Window {
             return Ok(());
         }
         self.dead = true;
+        self.dialog_selections.clear();
         let mut failure: Option<Error> = None;
         let mut record = |result: Result<(), sdl3::Error>| {
             if let Err(e) = result {

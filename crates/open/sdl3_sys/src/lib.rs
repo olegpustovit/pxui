@@ -5,6 +5,7 @@ pub mod chrome;
 #[cfg(target_os = "ios")]
 pub mod ios;
 
+pub use file_access_sys::FileSelection;
 use std::cell::Cell;
 use std::ffi::{CStr, CString, c_char, c_void};
 use std::rc::Rc;
@@ -634,7 +635,7 @@ pub enum WindowChange {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DropChange { Begin, Position, Complete, File(String) }
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub enum DialogOutcome { Chosen(Vec<String>), Cancelled, Failed(String) }
+pub enum DialogOutcome { Chosen(Vec<FileSelection>), Cancelled, Failed(String) }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum TouchPhase {Began,Moved,Ended,Cancelled}
@@ -672,6 +673,7 @@ struct RawEvent {
     text_len: usize,
     touch_id:u64,
     finger_id:u64,
+    dialog_urls: *mut c_void,
 }
 
 struct EventBuffer(*mut RawEvent);
@@ -714,7 +716,7 @@ fn key(raw: i32, value: i32) -> Key {
 
 fn modifiers(bits: i32) -> u8 { (bits as u8) & 0x7f }
 
-unsafe fn decode(event: &RawEvent) -> Option<Event> {
+unsafe fn decode(event: &mut RawEvent) -> Option<Event> {
     Some(match event.tag {
         0 => Event::Quit,
         1 => Event::Window(match event.a {
@@ -742,7 +744,25 @@ unsafe fn decode(event: &RawEvent) -> Option<Event> {
             2 => DropChange::Complete, 3 => DropChange::File(unsafe { event_text(event) }), _ => return None },
             x: event.x, y: event.y },
         10 => Event::Dialog { id: event.id, outcome: match event.a {
-            0 => DialogOutcome::Chosen(unsafe { chosen_paths(event) }), 1 => DialogOutcome::Cancelled,
+            0 => {
+                let paths = unsafe { chosen_paths(event) };
+                #[cfg(any(target_os="ios",target_os="macos"))]
+                if !event.dialog_urls.is_null() {
+                    let urls = std::mem::replace(&mut event.dialog_urls, std::ptr::null_mut());
+                    match unsafe { file_access_sys::take_apple_selection(urls) } {
+                        Ok(files) if files.len() == paths.len() && files.iter().zip(&paths).all(|(file,path)| file.path() == std::path::Path::new(path)) => DialogOutcome::Chosen(files),
+                        Ok(_) => DialogOutcome::Failed("Picker URLs do not match their paths".into()),
+                        Err(error) => DialogOutcome::Failed(error.to_string()),
+                    }
+                } else {
+                    #[cfg(target_os="ios")]
+                    { DialogOutcome::Failed("Picker lost its original document URLs".into()) }
+                    #[cfg(target_os="macos")]
+                    { DialogOutcome::Chosen(paths.into_iter().map(FileSelection::from).collect()) }
+                }
+                #[cfg(not(any(target_os="ios",target_os="macos")))]
+                { DialogOutcome::Chosen(paths.into_iter().map(FileSelection::from).collect()) }
+            }, 1 => DialogOutcome::Cancelled,
             2 => DialogOutcome::Failed(unsafe { event_text(event) }), _ => return None,
         } },
         11 => Event::Scroll { x: event.x, y: event.y,
@@ -764,7 +784,7 @@ pub fn poll_event() -> Option<Event> {
     if !unsafe { ffi::rays_sdl3_poll_event(&mut raw) } { return None; }
     let guard = EventBuffer(&mut raw);
     // SAFETY: string pointers and payload lengths are owned and initialized by the bridge.
-    let event = unsafe { decode(&raw) };
+    let event = unsafe { decode(&mut raw) };
     drop(guard);
     event
 }
@@ -880,6 +900,14 @@ mod ffi {
             count: c_int, failed: bool) -> bool;
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_dialog_finish_huge(id: c_int) -> bool;
+        #[cfg(all(feature = "test-util", target_os = "ios"))]
+        pub fn rays_dialog_ios_test_ready() -> bool;
+        #[cfg(all(feature = "test-util", target_os = "ios"))]
+        pub fn rays_dialog_ios_test_idle() -> bool;
+        #[cfg(all(feature = "test-util", target_os = "ios"))]
+        pub fn rays_dialog_ios_test_finish(mode: c_int, path: *const c_char) -> usize;
+        #[cfg(all(feature = "test-util", target_os = "ios"))]
+        pub fn rays_dialog_ios_test_close() -> bool;
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_post_scroll(points: c_int, phase: c_int);
     }
@@ -904,13 +932,13 @@ mod tests {
 
     #[test]
     fn event_wire_record_decodes_without_exposing_native_tags() {
-        let raw = RawEvent {
+        let mut raw = RawEvent {
             tag: 2, a: 0, b: b'a' as i32, c: 1 | 8, d: 1, e: 0, _f: 0, _g: 0, _h: 0,
             integer_x: 0, integer_y: 0, id: 0, x: 0.0, y: 0.0, z: 0.0, w: 0.0,
-            text: std::ptr::null_mut(), text_len: 0,touch_id:0,finger_id:0,
+            text: std::ptr::null_mut(), text_len: 0,touch_id:0,finger_id:0, dialog_urls: std::ptr::null_mut(),
         };
         // SAFETY: this synthetic record contains no borrowed string pointers.
-        assert_eq!(unsafe { decode(&raw) }, Some(Event::Key {
+        assert_eq!(unsafe { decode(&mut raw) }, Some(Event::Key {
             key: Key::Char('a'), modifiers: KeyModifier::Shift as u8 | KeyModifier::Meta as u8,
             down: true, repeat: false,
         }));

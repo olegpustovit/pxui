@@ -1,5 +1,24 @@
 use std::ffi::{CString, c_char};
 
+#[cfg(any(target_os = "ios", target_os = "macos"))]
+pub use file_access_sys::test_util::{selection as file_selection, status as file_selection_status};
+
+#[cfg(target_os = "ios")]
+pub fn ios_picker_ready() -> bool { unsafe { super::ffi::rays_dialog_ios_test_ready() } }
+
+#[cfg(target_os = "ios")]
+pub fn ios_picker_idle() -> bool { unsafe { super::ffi::rays_dialog_ios_test_idle() } }
+
+/// Drives the actual native delegate: 0 cancels, 1 chooses a file URL, 2 returns an invalid URL.
+#[cfg(target_os = "ios")]
+pub fn ios_picker_finish(mode: i32, path: &str) -> usize {
+    let Ok(path) = CString::new(path) else { return 0; };
+    unsafe { super::ffi::rays_dialog_ios_test_finish(mode, path.as_ptr()) }
+}
+
+#[cfg(target_os = "ios")]
+pub fn ios_picker_close() -> bool { unsafe { super::ffi::rays_dialog_ios_test_close() } }
+
 pub fn push_event_trace() -> bool {
     // SAFETY: the helper only pushes SDL-owned test events into the active queue.
     unsafe { super::ffi::rays_sdl3_test_push_event_trace() }

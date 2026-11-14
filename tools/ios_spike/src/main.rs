@@ -1,4 +1,7 @@
 #[cfg(target_os = "ios")]
+mod picker;
+
+#[cfg(target_os = "ios")]
 mod ios {
     use pxui_sdl::ios::{Schedule, Signal};
     use std::sync::{
@@ -34,6 +37,7 @@ mod ios {
         background_deadline: Option<f64>,
         background_timed: bool,
         background_reentrant: u8,
+        picker: Option<super::picker::Probe>,
     }
     impl Probe {
         fn open(window: &mut pxui_sdl::Window) -> Result<Self, String> {
@@ -94,6 +98,7 @@ mod ios {
                 background_deadline: None,
                 background_timed: false,
                 background_reentrant: 0,
+                picker: std::env::var_os("PXUI_IOS_PICKER_CHECK").map(|_| super::picker::Probe::new(window.time())),
             })
         }
         fn signal(
@@ -190,6 +195,10 @@ mod ios {
                 Signal::LowMemory => return Ok(Schedule::NextFrame),
                 Signal::Frame => {}
                 _ => return Ok(Schedule::NextFrame),
+            }
+            if let Some(picker) = self.picker.as_mut() {
+                if picker.step(window)? { self.picker = None; }
+                return Ok(Schedule::NextFrame);
             }
             mem_sys::local_reset();
             let system = self.preferences.snapshot();
@@ -407,6 +416,7 @@ mod ios {
         }
         fn finish(self, window: &mut pxui_sdl::Window) -> Result<(), String> {
             let complete = self.frames == 182
+                && self.picker.is_none()
                 && self.idle_callbacks > 0
                 && self.worker_woke
                 && (!self.keyboard_check || (self.saw_keyboard && self.saw_hidden))

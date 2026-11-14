@@ -80,6 +80,21 @@ allocation gate, idle deadline, same-process resume and inactive worker/deadline
 qualified on the iOS 18.6 simulator. Finger gestures, IME editing, keyboard avoidance motion,
 physical devices and native allocations remain to qualify.
 
+`Window::show_dialog` uses UIKit document pickers on iOS for files, multiple files and folders.
+For a chosen `input::Event::FileDialog`, call `Window::take_dialog_selection(id)` once before the
+next pump, then move the returned `FileSelection`s to your file worker. `FileSelection::bookmark`
+uses the exact original selected NSURL, rejects the UI thread and balances any security scope it
+starts. A plain path returns `None`; it does not claim a provider grant. The portable input event
+still carries paths only. Unconsumed capabilities expire at the next pump or window destruction.
+The framework retains at most eight native dialog outcomes, 4,096 paths / 1 MiB per selection.
+iOS path-only SaveFile is unsupported; export needs a source-URL API.
+
+`SIMCTL_CHILD_PXUI_IOS_PICKER_CHECK=1` runs native picker presentation/delegate checks before the
+gallery's unchanged 182/82/100 allocation gate. It checks original-URL worker bookmarking,
+main-thread refusal, cancellation, invalid URLs, duplicate callbacks, ignored-result expiry and
+window-close slot reclamation. This passes on iOS 18.6; its local URL fixtures do not qualify
+real file-provider permissions, cloud downloads or physical-device behavior.
+
 ABI 1.25 adds typed touch transport: full 64-bit device/finger IDs, began/moved/ended/cancelled,
 logical-point positions, pressure and the source monotonic timestamp. `Event::TOUCH` (25) borrows
 a 48-byte `Touch` through its `text` pointer/length; it is numeric data, not UTF-8. `Events` owns

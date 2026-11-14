@@ -127,7 +127,7 @@ pub fn translate(event: SdlEvent) -> Option<Event> {
         SdlEvent::Drop { change: DropChange::Complete, .. } => Some(Event::FileDragEnded),
         SdlEvent::Drop { change: DropChange::Begin, .. } => None,
         SdlEvent::Dialog { id, outcome: DialogOutcome::Chosen(paths) } => {
-            Some(Event::FileDialog { id: i64::from(id), result: Ok(paths) })
+            Some(Event::FileDialog { id: i64::from(id), result: Ok(paths.into_iter().map(|file| file.path().to_string_lossy().into_owned()).collect()) })
         }
         SdlEvent::Dialog { id, outcome: DialogOutcome::Cancelled } => {
             Some(Event::FileDialog { id: i64::from(id), result: Ok(Vec::new()) })

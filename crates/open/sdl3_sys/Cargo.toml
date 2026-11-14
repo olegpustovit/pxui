@@ -7,12 +7,13 @@ rust-version.workspace = true
 build = "build.rs"
 
 [features]
-test-util = []
+test-util = ["file_access_sys/test-util"]
 # SDL3 satellites: each links its own library, so only crates that call them pay for it.
 image = []
 mixer = []
 
 [dependencies]
+file_access_sys = { path = "../file_access_sys" }
 native_layer_token_sys = { path = "../native_layer_token_sys" }
 
 [build-dependencies]

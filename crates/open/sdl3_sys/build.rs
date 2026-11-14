@@ -236,10 +236,12 @@ fn main() {
         println!("cargo:rustc-link-lib=framework=CoreFoundation");
         println!("cargo:rustc-link-lib=framework=ApplicationServices");
     } else if target == "ios" {
+        println!("cargo:rerun-if-changed=src/dialog_ios.m");
+        println!("cargo:rustc-link-lib=framework=UniformTypeIdentifiers");
         println!("cargo:rerun-if-changed=src/ios.m");
         println!("cargo:rerun-if-changed=src/ios.h");
         let mut native = cc::Build::new();
-        native.file("src/ios.m").include("src").define("RAYS_SDL3_IOS", None)
+        native.file("src/ios.m").file("src/dialog_ios.m").include("src").define("RAYS_SDL3_IOS", None)
             .flag("-fobjc-arc").flag("-fblocks").warnings(true).flag_if_supported("-Werror");
         if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { native.define("RAYS_SDL3_TEST_UTIL", None); }
         apply_cflags(&mut native, &run_pkg_config("sdl3", "SDL3", "--cflags"));

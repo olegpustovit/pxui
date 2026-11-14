@@ -18,6 +18,7 @@ typedef struct {
   char *text;
   size_t text_len;
   uint64_t touch_id, finger_id;
+  void *dialog_urls;
 } rays_sdl3_event;
 
 int32_t rays_sdl3_linked_version(void);

@@ -89,7 +89,12 @@ SDL_Window *rays_sdl3_create_window(const char *title, int width, int height, ui
   return window;
 }
 
-void rays_sdl3_destroy_window(SDL_Window *window) { SDL_DestroyWindow(window); }
+void rays_sdl3_destroy_window(SDL_Window *window) {
+#if defined(RAYS_SDL3_IOS)
+  rays_dialog_close(SDL_GetWindowID(window));
+#endif
+  SDL_DestroyWindow(window);
+}
 
 bool rays_sdl3_window_size(SDL_Window *window, int *width, int *height)
 {
@@ -380,6 +385,10 @@ static bool translate_event(const SDL_Event *source, rays_sdl3_event *event)
 
 void rays_sdl3_event_free(rays_sdl3_event *event)
 {
+#if defined(RAYS_SDL3_IOS)
+  if (event->dialog_urls != NULL) rays_dialog_release_urls(event->dialog_urls);
+#endif
+  event->dialog_urls = NULL;
   free(event->text);
   event->text = NULL;
   event->text_len = 0;
@@ -390,6 +399,7 @@ static bool take_dialog_event(rays_sdl3_event *event)
   rays_dialog_result result;
   if (!rays_dialog_take(&result)) return false;
   memset(event, 0, sizeof(*event));
+  event->dialog_urls = result.urls;
   event->tag = EVENT_DIALOG;
   event->id = result.id;
   event->a = (int32_t)result.outcome;

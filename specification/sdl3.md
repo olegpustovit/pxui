@@ -21,11 +21,12 @@ after 82 warm-up frames, must allocate zero Rust objects across event pumping, U
 It waits for GPU completion, checks iOS memory metrics, then destroys the window and verifies
 layer invalidation. Device bundles need developer provisioning.
 
-This is a foreground gallery capability probe, not an interactive iOS host or a device performance
-gate. The desktop gallery clips on the phone and does not account for safe areas. Touch routing, safe areas,
-keyboard/IME, display-link/background handling, Dynamic Type and physical-device qualification
-remain required before an application adopts this host. Create the iOS Metal view before showing
-the window and hide the window before detaching its view.
+This is a capability probe, not a device performance gate. The gallery respects safe areas;
+typed touch transport, keyboard geometry, display-link idle/background control and native document
+picker callbacks have simulator checks described in README.md. Widget touch arbitration, keyboard
+editing/avoidance motion, Dynamic Type, actual provider grants and physical-device qualification
+remain open. Create the iOS Metal view before showing the window and hide the window before
+detaching its view.
 
 `crates/open/sdl3` provides the safe platform API. Required C/Objective-C++ ABI work
 lives under `crates/open/sdl3_sys`. Core, image and mixer cover only Rays's window,
@@ -67,6 +68,17 @@ The mixer owns audio-device work. Native dialogs return an id immediately, retai
 filters/default paths until completion, queue chosen/cancelled/failed outcomes,
 and deliver each result exactly once during initial-thread polling. Refuse a
 request beyond the fixed native slot capacity; bound copied path count and bytes.
+
+iOS opening uses UIDocumentPickerViewController with asCopy:NO and retained original NSURLs.
+`sdl3::DialogOutcome::Chosen` owns `FileSelection`s from the generic `file_access_sys` crate;
+`pxui_sdl::Window` keeps those capabilities separately from portable input paths until taken once
+or the next pump. Keep native NSURLs out of the input/renderer ABI. Transfer capabilities to the
+file worker before bookmark creation; never reconstruct an iOS grant from a path. Bookmark
+creation uses iOS minimal bookmarks, macOS security-scoped bookmarks and balanced start/stop.
+The native URL, callback array, event and window paths each release their own retained ownership
+on failure, cancellation and teardown. Window close cancels its UIKit picker and reclaims its
+completed native slots. File count is limited to 4,096, path payload to 1 MiB, bookmarks to 64 MiB.
+Path-only SaveFile returns an explicit error on iOS until source-URL export is implemented.
 
 Live resize may redraw the last settled scene from the platform event pump.
 The callback is guarded against reentry and only runs on the main thread during

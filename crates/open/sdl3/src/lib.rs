@@ -20,7 +20,7 @@ use native_layer_token_sys::portable::Token as NativeLayerToken;
 use sdl3_sys as sys;
 
 pub use sdl3_sys::{
-    DialogFilter, DialogKind, DialogOutcome, DropChange, Event, Key, KeyModifier, MouseButton,
+    DialogFilter, DialogKind, DialogOutcome, FileSelection, DropChange, Event, Key, KeyModifier, MouseButton,
     PinchPhase, Rect, ScrollPhase, TouchPhase, Version, WheelDirection, WindowChange, WindowState,
 };
 

@@ -188,6 +188,14 @@ SDL dialog callbacks release-publish their copied outcome before calling the exi
 Chosen, cancelled and failed dialogs must wake an idle event loop; do not add periodic polling.
 Keep the typed native bridge regression's zero-time wait checks for all three outcomes.
 
+iOS document pickers retain the original selected NSURL in file_access_sys::FileSelection.
+Window::take_dialog_selection consumes it once before the next pump; ignored outcomes and window
+destruction release capabilities. Move them to the file worker before creating bookmarks. Never
+reconstruct provider access from the portable event's path. Preserve original-object identity,
+main-thread refusal, cancellation/failure/expiry and eight-slot teardown checks. The optional
+PXUI_IOS_PICKER_CHECK probe drives actual UIKit presentation/delegates before the original
+182/82/100 allocation gate; local URL fixtures do not qualify real provider grants or hardware.
+
 For iOS SDL bring-up, use `packaging/ios-spike.sh` with the shared build root. Target-specific
 SDL3_DIR/pkg-config metadata must never fall back to host libraries. Keep arm64/device versus
 simulator platform and iOS 18 floor checks, default stack size, UIKit entry through SDL and retained

@@ -10,6 +10,7 @@ enum { DIALOG_FREE = 0, DIALOG_OPEN, DIALOG_DONE };
 typedef struct {
   atomic_int state;
   int id;
+  SDL_WindowID window;
   SDL_DialogFileFilter *filters;
   int filter_count;
   char *strings;
@@ -17,6 +18,7 @@ typedef struct {
   rays_dialog_outcome_kind outcome;
   char *payload;
   size_t payload_length;
+  void *urls;
 } dialog_slot;
 
 static dialog_slot dialog_slots[RAYS_DIALOG_SLOTS];
@@ -24,6 +26,10 @@ static int next_dialog_id = 1;
 
 static void release_buffers(dialog_slot *slot)
 {
+  #if defined(RAYS_SDL3_IOS)
+  if (slot->urls != NULL) rays_dialog_release_urls(slot->urls);
+  #endif
+  slot->urls = NULL;
   free(slot->filters);
   free(slot->strings);
   free(slot->default_location);
@@ -63,6 +69,7 @@ void *rays_dialog_reserve(const char *const *names, const char *const *patterns,
     SDL_SetError("too many file dialogs are open");
     return NULL;
   }
+  slot->urls = NULL;
   slot->filters = NULL;
   slot->filter_count = 0;
   slot->strings = NULL;
@@ -70,6 +77,7 @@ void *rays_dialog_reserve(const char *const *names, const char *const *patterns,
   slot->payload = NULL;
   slot->payload_length = 0;
   slot->outcome = RAYS_OUTCOME_CANCELLED;
+  slot->window = 0;
   for (index = 0; index < count; index++) {
     strings_length += strlen(names[index]) + 1 + strlen(patterns[index]) + 1;
   }
@@ -97,8 +105,8 @@ void *rays_dialog_reserve(const char *const *names, const char *const *patterns,
     if (slot->default_location == NULL) goto out_of_memory;
     memcpy(slot->default_location, default_location, length);
   }
-  slot->id = next_dialog_id++;
-  if (next_dialog_id <= 0) next_dialog_id = 1;
+  slot->id = next_dialog_id;
+  next_dialog_id = next_dialog_id == SDL_MAX_SINT32 ? 1 : next_dialog_id + 1;
   *id = slot->id;
   return slot;
 
@@ -162,6 +170,13 @@ int rays_dialog_show(rays_dialog_kind kind, SDL_Window *window,
   int id = 0;
   dialog_slot *slot = (dialog_slot *)rays_dialog_reserve(names, patterns, count, default_location, &id);
   if (slot == NULL) return 0;
+#if defined(RAYS_SDL3_IOS)
+  slot->window = SDL_GetWindowID(window);
+  if (!rays_dialog_ios_show(slot, window, kind, slot->filters, slot->filter_count, slot->default_location)) {
+    rays_dialog_abandon(slot);
+    return 0;
+  }
+#else
   switch (kind) {
   case RAYS_DIALOG_OPEN_FILE:
   case RAYS_DIALOG_OPEN_FILES:
@@ -180,6 +195,7 @@ int rays_dialog_show(rays_dialog_kind kind, SDL_Window *window,
     SDL_SetError("invalid file dialog kind");
     return 0;
   }
+#endif
   return id;
 }
 
@@ -197,9 +213,23 @@ bool rays_dialog_take(rays_dialog_result *result)
   result->outcome = found->outcome;
   result->payload = found->payload;
   result->payload_length = found->payload_length;
+  result->urls = found->urls;
+  found->urls = NULL;
   found->payload = NULL;
   found->payload_length = 0;
   release_buffers(found);
   atomic_store_explicit(&found->state, DIALOG_FREE, memory_order_release);
   return true;
 }
+
+#if defined(RAYS_SDL3_IOS)
+void rays_dialog_set_urls(void *raw, void *urls) { ((dialog_slot *)raw)->urls = urls; }
+void rays_dialog_close(SDL_WindowID window) {
+  rays_dialog_ios_close(window);
+  for (int index = 0; index < RAYS_DIALOG_SLOTS; index++) {
+    dialog_slot *slot = &dialog_slots[index];
+    if (atomic_load_explicit(&slot->state, memory_order_acquire) == DIALOG_DONE && slot->window == window)
+      rays_dialog_abandon(slot);
+  }
+}
+#endif
