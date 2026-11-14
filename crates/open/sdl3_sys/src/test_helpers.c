@@ -56,7 +56,8 @@ static bool push_drop(Uint32 type, const char *data, float x, float y)
   SDL_Event event;
   SDL_zero(event);
   event.drop.type = type;
-  event.drop.data = type == SDL_EVENT_DROP_FILE && data != NULL ? SDL_strdup(data) : (char *)data;
+  // SDL3 event text is borrowed; a static payload also detects an accidental free by the bridge.
+  event.drop.data = data;
   event.drop.x = x;
   event.drop.y = y;
   return push(&event);

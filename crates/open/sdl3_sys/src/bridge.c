@@ -352,8 +352,8 @@ static bool translate_event(const SDL_Event *source, rays_sdl3_event *event)
     event->y = source->drop.y;
     if (source->type == SDL_EVENT_DROP_FILE) {
       if (source->drop.data == NULL) return false;
+      // SDL3 retains ownership of the event string; only our copied payload is ours to free.
       event->text = copy_text(source->drop.data, &event->text_len);
-      SDL_free((void *)source->drop.data);
       return event->text != NULL;
     }
     return true;

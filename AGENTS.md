@@ -163,3 +163,8 @@ churn case and LocalWave's alternating cache-limit/menu regression; do not exten
 SDL dialog callbacks release-publish their copied outcome before calling the existing host wake.
 Chosen, cancelled and failed dialogs must wake an idle event loop; do not add periodic polling.
 Keep the typed native bridge regression's zero-time wait checks for all three outcomes.
+
+SDL3 drop strings are borrowed, like text/IME event strings. Copy them into the bridge-owned
+payload and never free the source pointer; SDL reclaims its temporary event memory on a later
+pump. The typed trace uses a static borrowed drop string so an accidental source free aborts
+deterministically, and verifies that later source mutation cannot change the owned Rust event.
