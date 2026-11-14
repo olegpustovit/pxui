@@ -195,6 +195,16 @@ fn main() {
     fs::write(out.join("sdl3_abi.h"), header).expect("write SDL3 ABI assertions");
 
     let target = env::var("CARGO_CFG_TARGET_OS").unwrap();
+    if target == "macos" || target == "ios" {
+        println!("cargo:rerun-if-changed=src/preferences.m");
+        println!("cargo:rerun-if-changed=src/preferences.h");
+        let mut preferences = cc::Build::new();
+        preferences.file("src/preferences.m").flag("-fobjc-arc").flag("-fblocks")
+            .warnings(true).flag_if_supported("-Werror");
+        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { preferences.define("RAYS_SDL3_TEST_UTIL", None); }
+        apply_cflags(&mut preferences, &run_pkg_config("sdl3", "SDL3", "--cflags"));
+        preferences.compile("rays_sdl3_preferences");
+    }
     let mut c = cc::Build::new();
     c.files(["src/bridge.c", "src/dialog.c", "src/platform.c", "src/test_helpers.c"])
         .include("src")
@@ -231,6 +241,7 @@ fn main() {
         let mut native = cc::Build::new();
         native.file("src/ios.m").include("src").define("RAYS_SDL3_IOS", None)
             .flag("-fobjc-arc").flag("-fblocks").warnings(true).flag_if_supported("-Werror");
+        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { native.define("RAYS_SDL3_TEST_UTIL", None); }
         apply_cflags(&mut native, &run_pkg_config("sdl3", "SDL3", "--cflags"));
         native.compile("rays_sdl3_ios");
     }

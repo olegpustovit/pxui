@@ -8,6 +8,8 @@ mod ios {
 
     struct Probe {
         ui: pxui::Ui,
+        preferences: pxui_sdl::Preferences,
+        system: pxui_sdl::PreferencesSnapshot,
         gallery: pxui_gallery::Gallery,
         graphics: pxui_host::Graphics,
         platform: pxui_host::Platform,
@@ -31,9 +33,14 @@ mod ios {
         background_woke: bool,
         background_deadline: Option<f64>,
         background_timed: bool,
+        background_reentrant: u8,
     }
     impl Probe {
         fn open(window: &mut pxui_sdl::Window) -> Result<Self, String> {
+            extern "C" fn wake() {
+                pxui_sdl::wake();
+            }
+            let preferences = window.preferences(wake)?;
             let extent = window.extent();
             let scale = window.scale();
             if extent.logical.0 <= 0
@@ -58,6 +65,11 @@ mod ios {
             let graphics = pxui_host::Graphics::open(window, &ui)?;
             Ok(Self {
                 ui,
+                preferences,
+                system: pxui_sdl::PreferencesSnapshot {
+                    appearance: u32::MAX,
+                    reduced_motion: u32::MAX,
+                },
                 graphics,
                 gallery: pxui_gallery::Gallery::new(),
                 platform: pxui_host::Platform::default(),
@@ -81,6 +93,7 @@ mod ios {
                 background_woke: false,
                 background_deadline: None,
                 background_timed: false,
+                background_reentrant: 0,
             })
         }
         fn signal(
@@ -119,6 +132,18 @@ mod ios {
                 Signal::Control => {
                     let frames = self.frames;
                     mem_sys::local_reset();
+                    if self.background_reentrant == 1 {
+                        if self
+                            .background_deadline
+                            .is_none_or(|at| window.time() >= at)
+                        {
+                            return Err(
+                                "Inactive nested-run-loop wake was lost until the timer".into()
+                            );
+                        }
+                        self.background_reentrant = 2;
+                        println!("PXUI_IOS_BACKGROUND_REENTRANT_OK frames={frames}");
+                    }
                     if self.graphics.can_draw() || self.graphics.draw(window, &self.ui, None)? {
                         return Err("Inactive control callback submitted a frame".into());
                     }
@@ -133,6 +158,12 @@ mod ios {
                         }
                         self.background_woke = true;
                         self.background_deadline = Some(window.time() + 0.1);
+                        if !sdl3_sys::ios::test_nested_wake() {
+                            return Err(
+                                "Native nested wake was not consumed by the busy guard".into()
+                            );
+                        }
+                        self.background_reentrant = 1;
                         println!("PXUI_IOS_BACKGROUND_WORKER_OK frames={frames}");
                     }
                     if self
@@ -159,6 +190,21 @@ mod ios {
                 Signal::LowMemory => return Ok(Schedule::NextFrame),
                 Signal::Frame => {}
                 _ => return Ok(Schedule::NextFrame),
+            }
+            mem_sys::local_reset();
+            let system = self.preferences.snapshot();
+            if system.appearance > 2
+                || system.reduced_motion > 1
+                || mem_sys::local_alloc_count() != 0
+            {
+                return Err("Invalid or allocating cached system preferences".into());
+            }
+            if system != self.system {
+                self.system = system;
+                println!(
+                    "PXUI_IOS_PREFERENCES appearance={} reduced_motion={}",
+                    system.appearance, system.reduced_motion
+                );
             }
             if self.lifecycle && self.frames == 90 && !self.resumed {
                 if !self.holding {
@@ -253,6 +299,8 @@ mod ios {
                         scale: window.scale() as f32,
                         time: window.time(),
                         environment: self.platform.environment(),
+                        appearance: self.system.appearance,
+                        reduced_motion: self.system.reduced_motion,
                         events: wire.as_ptr(),
                         event_count: wire.len(),
                         ..pxui::FrameIn::default()
@@ -367,6 +415,7 @@ mod ios {
                         && self.resumed
                         && self.holding
                         && self.background_woke
+                        && self.background_reentrant == 2
                         && self.background_timed));
             self.graphics.close()?;
             if !complete {

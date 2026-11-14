@@ -1,3 +1,5 @@
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod preferences;
 #[cfg(target_os = "macos")]
 pub mod chrome;
 #[cfg(target_os = "ios")]

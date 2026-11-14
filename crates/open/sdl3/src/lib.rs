@@ -1,3 +1,5 @@
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub use sdl3_sys::preferences;
 #[cfg(target_os = "macos")]
 pub use sdl3_sys::chrome;
 #[cfg(target_os = "ios")]

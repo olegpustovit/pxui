@@ -1,5 +1,8 @@
 #include "bridge.h"
 #include "sdl3_abi.h"
+#ifdef RAYS_SDL3_IOS
+#include "ios.h"
+#endif
 
 #include <limits.h>
 #include <stdlib.h>
@@ -475,8 +478,12 @@ bool rays_sdl3_wait_event_timeout(int timeout_ms)
 
 bool rays_sdl3_wake(void)
 {
+#ifdef RAYS_SDL3_IOS
+  return rays_sdl3_ios_wake() != 0;
+#else
   SDL_Event event;
   SDL_zero(event);
   event.type = SDL_EVENT_USER;
   return SDL_PushEvent(&event);
+#endif
 }

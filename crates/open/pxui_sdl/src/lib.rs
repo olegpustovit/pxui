@@ -10,10 +10,13 @@ use std::time::Instant;
 pub use sdl3::chrome::{Chrome, Snapshot as ChromeSnapshot};
 
 pub mod translate;
+pub mod app;
 #[cfg(target_os = "ios")]
 pub mod ios;
 
 pub use native_layer_token_sys::portable::Token;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub use sdl3::preferences::{Preferences, Snapshot as PreferencesSnapshot};
 /// Native binary startup policy; does not acquire SDL subsystems or change their ownership.
 pub use sdl3::init::configure_native_process;
 #[cfg(target_os = "ios")]
@@ -159,6 +162,13 @@ fn reveal(window: &SdlWindow) -> Result<(), sdl3::Error> {
 }
 
 impl Window {
+    /// Cached system facts; drop the monitor before destroying this window.
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    pub fn preferences(&self, wake: extern "C" fn()) -> Result<Preferences, String> {
+        self.live()?;
+        Preferences::open(self.handle.id().map_err(|e| e.to_string())?, wake)
+            .map_err(|e| e.to_string())
+    }
     /// A visible, vsynced, high-density window.
     pub fn open(title: &str, width: i64, height: i64) -> Result<Window, Error> {
         Window::open_with(title, width, height, true, false, true)

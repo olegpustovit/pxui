@@ -155,6 +155,44 @@ fn native_startup_requires_initial_domain() {
     assert_eq!(error.operation(), "SDL3.Init.configure_native_process");
 }
 
+fn app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors() {
+    use pxui_sdl::app::{Schedule, Signal};
+    use std::{cell::RefCell, rc::Rc};
+    struct Guard {
+        token: Option<pxui_sdl::Token>,
+        stages: Rc<RefCell<Vec<Signal>>>,
+    }
+    impl Guard {
+        fn signal(&mut self, window: &mut Window, signal: Signal, failure: u8) -> Result<Schedule, String> {
+            self.stages.borrow_mut().push(signal);
+            if signal == Signal::Initialize { self.token = Some(window.token()?); }
+            if (failure == 1 && signal == Signal::Initialize) || (failure == 2 && signal == Signal::Frame) {
+                return Err("injected callback failure".into());
+            }
+            Ok(match signal {
+                Signal::Initialize if failure == 4 => Schedule::WaitUntil(Some(f64::NAN)),
+                Signal::Initialize => Schedule::NextFrame,
+                Signal::Frame if failure == 3 => Schedule::WaitUntil(Some(f64::NAN)),
+                _ => Schedule::Exit,
+            })
+        }
+    }
+    impl Drop for Guard {
+        fn drop(&mut self) {
+            assert!(self.token.as_ref().unwrap().alive());
+            assert_eq!(self.stages.borrow().last(), Some(&Signal::Finish));
+        }
+    }
+    for failure in 0..5 {
+        let stages = Rc::new(RefCell::new(Vec::with_capacity(3)));
+        let mut guard = Guard { token: None, stages: stages.clone() };
+        let result = pxui_sdl::app::run("app callback cleanup", 32, 24, Box::new(move |window, signal| guard.signal(window, signal, failure)));
+        assert_eq!(result.is_err(), failure != 0);
+        let expected = if failure == 1 || failure == 4 { &[Signal::Initialize, Signal::Finish][..] } else { &[Signal::Initialize, Signal::Frame, Signal::Finish][..] };
+        assert_eq!(stages.borrow().as_slice(), expected);
+    }
+}
+
 fn main() {
     if let Ok(mode) = std::env::var("RAYS_RUNTIME_FATAL_CHILD") {
         fatal_child(&mode);
@@ -165,5 +203,6 @@ fn main() {
         ("native_stack_overflow_exits", native_stack_overflow_exits),
         ("native_abort_exits", native_abort_exits),
         ("native_startup_requires_initial_domain", native_startup_requires_initial_domain),
+        ("app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors", app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors),
     ]);
 }

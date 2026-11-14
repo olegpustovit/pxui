@@ -157,6 +157,7 @@ dependencies = [
  "pxui_gallery",
  "pxui_host",
  "pxui_sdl",
+ "sdl3_sys",
 ]
 
 [[package]]

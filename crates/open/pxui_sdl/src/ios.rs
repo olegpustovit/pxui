@@ -1,14 +1,6 @@
 //! UIKit owns the run loop; the framework owns display pacing, idle deadlines and callback lifetime.
 use super::Window;
-pub use sdl3::ios::Signal;
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Schedule {
-    NextFrame,
-    WaitUntil(Option<f64>),
-    Exit,
-}
-pub type Callback = dyn FnMut(&mut Window, Signal) -> Result<Schedule, String>;
+pub use super::app::{Callback, Schedule, Signal};
 
 /// Runs once on the initial thread. On quit, calls Finish and drops captured app resources before
 /// destroying the window. The native loop exits the process after cleanup; startup rejection returns Err.
@@ -20,7 +12,16 @@ pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Res
     let mut callback = Some(callback);
     let mut failure = None;
     let status = {
-        let mut invoke = |signal| {
+        let mut invoke = |native| {
+            let signal = match native {
+                sdl3::ios::Signal::Initialize => Signal::Initialize,
+                sdl3::ios::Signal::Frame => Signal::Frame,
+                sdl3::ios::Signal::Paused => Signal::Paused,
+                sdl3::ios::Signal::Resumed => Signal::Resumed,
+                sdl3::ios::Signal::LowMemory => Signal::LowMemory,
+                sdl3::ios::Signal::Finish => Signal::Finish,
+                sdl3::ios::Signal::Control => Signal::Control,
+            };
             if signal == Signal::Initialize {
                 match Window::open(title, width, height) {
                     Ok(created) => window = Some(created),
@@ -66,6 +67,10 @@ pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Res
                 return Step::exit(true);
             }
             if signal == Signal::Initialize {
+                if matches!(schedule, Schedule::WaitUntil(Some(at)) if !at.is_finite()) {
+                    failure.get_or_insert("iOS repaint deadline must be finite".into());
+                    return Step::exit(false);
+                }
                 return match window.handle.id() {
                     Ok(id) => Step::initialize(id),
                     Err(error) => {

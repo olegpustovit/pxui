@@ -57,7 +57,13 @@ input batch, call the fallible `Platform::pump`, feed `Events::encode` and
 requests. Numeric input and unchanged focused IME geometry allocate no Rust objects once warm;
 new text and clipboard contents are separate paths.
 
+`pxui_sdl::app::run` shares the callback contract across desktop and iOS, including Finish and
+capture cleanup before window destruction on errors. `Window::preferences` caches Apple system
+appearance and reduced motion through native notifications; read its copied snapshot and drop
+the monitor before the window.
+
 On iOS, `pxui_sdl::ios::run` owns the window and callback. UIKit drives its display link;
+worker wakes signal the run-loop source without SDL user events.
 `Schedule::WaitUntil` pauses it until input, a worker wake or the repaint deadline. Metal stops
 new submissions while inactive and drains pending work on resign-active notifications. The
 callback's `Finish` and captured resource destruction happen before window destruction. Return

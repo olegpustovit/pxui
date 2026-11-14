@@ -1,6 +1,14 @@
 //! Scoped UIKit loop callbacks. Native calls stop before the borrowed callback can leave scope.
 use std::ffi::c_void;
 
+#[cfg(feature = "test-util")]
+pub fn test_nested_wake() -> bool {
+    unsafe extern "C" {
+        fn rays_sdl3_ios_test_nested_wake() -> i32;
+    }
+    unsafe { rays_sdl3_ios_test_nested_wake() != 0 }
+}
+
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum Signal {
     Initialize,

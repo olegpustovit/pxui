@@ -328,3 +328,15 @@ drawing until foreground; WaitUntil uses the existing dispatch timer without idl
 the same-process lifecycle probe: a background worker wake and deadline at frame 90, no frame or
 warm Rust allocation, then resume and finish the original 182/82/100 checks. This is not a grant
 of iOS background execution time or qualification of actual background audio on a physical device.
+
+pxui_sdl::app::run shares the callback contract across desktop and iOS. Finish, captured resources
+and the window must clean up in that order on success, initialization errors, frame errors and
+invalid deadlines. Window::preferences owns cached Apple appearance/reduced motion: AppKit KVO
+and workspace notifications, UIKit trait registration and accessibility notifications. Native
+subscriptions belong to sdl3_sys; apps only read copied snapshots. Preserve main-thread refusal,
+native notifications, duplicate suppression, teardown and zero-warm-read checks.
+iOS worker wakes signal the retained CFRunLoop source directly, never queue SDL user events.
+Retain the source under the loop lock before signalling; do not invoke Rust from a worker or event
+watch. Re-post dirty inactive work after a control callback: its nested native run loop can consume
+a source while the Rust busy guard is set. Keep the deterministic native regression, original
+failure log, light/dark changes and 182/82/100 allocation/lifecycle checks.

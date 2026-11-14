@@ -27,10 +27,17 @@ static void ios_source(void *context);
     CGRect keyboardFrom, keyboardFrame;
     CFTimeInterval keyboardStarted, keyboardDuration;
     NSUInteger keyboardCurve;
+#ifdef RAYS_SDL3_TEST_UTIL
+    unsigned suppressedWakes;
+#endif
 }
 - (instancetype)initWithCallback:(rays_ios_callback)function user:(void *)context;
 - (void)begin;
 - (void)wake;
+- (int32_t)requestWake;
+#ifdef RAYS_SDL3_TEST_UTIL
+- (int32_t)testNestedWake;
+#endif
 - (void)observe:(SDL_Event *)event;
 - (int)shutdown:(int)status;
 - (void)environment:(rays_ios_environment *)out window:(UIWindow *)window;
@@ -106,7 +113,8 @@ static void ios_source(void *context);
     if (!native) { [self failure:"SDL window has no UIKit window"]; return; }
     hostWindow = native;
     CFRunLoopSourceContext context = {0}; context.info = (__bridge void *)self; context.perform = ios_source;
-    source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context);
+    CFRunLoopSourceRef createdSource = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context);
+    pthread_mutex_lock(&loop_lock); source = createdSource; pthread_mutex_unlock(&loop_lock);
     if (!source) { [self failure:"could not create the iOS wake source"]; return; }
     CFRunLoopAddSource(CFRunLoopGetMain(), source, kCFRunLoopCommonModes);
     timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, dispatch_get_main_queue());
@@ -132,8 +140,28 @@ static void ios_source(void *context);
     [self wake];
 }
 - (void)post {
-    if (source) { CFRunLoopSourceSignal(source); CFRunLoopWakeUp(CFRunLoopGetMain()); }
+    pthread_mutex_lock(&loop_lock);
+    CFRunLoopSourceRef retained = source;
+    if (retained) CFRetain(retained);
+    pthread_mutex_unlock(&loop_lock);
+    if (retained) { CFRunLoopSourceSignal(retained); CFRunLoopWakeUp(CFRunLoopGetMain()); CFRelease(retained); }
 }
+- (int32_t)requestWake {
+    if (atomic_load(&finished)) return 0;
+    atomic_store(&dirty, true);
+    [self post];
+    return 1;
+}
+#ifdef RAYS_SDL3_TEST_UTIL
+- (int32_t)testNestedWake {
+    if (!busy || atomic_load(&foreground)) return 0;
+    unsigned before = suppressedWakes;
+    [self requestWake];
+    for (unsigned i = 0; i < 16 && suppressedWakes == before; ++i)
+        CFRunLoopRunInMode(kCFRunLoopDefaultMode, 0, true);
+    return suppressedWakes != before;
+}
+#endif
 - (void)observe:(SDL_Event *)event {
     if (atomic_load(&finished) || event->type == SDL_EVENT_POLL_SENTINEL) return;
     unsigned signals = 0;
@@ -165,7 +193,13 @@ static void ios_source(void *context);
     if (signals & PENDING_EXIT) [self finish:0];
 }
 - (void)wake {
-    if (atomic_load(&finished) || busy) return;
+    if (atomic_load(&finished)) return;
+    if (busy) {
+#ifdef RAYS_SDL3_TEST_UTIL
+        ++suppressedWakes;
+#endif
+        return;
+    }
     [self drain];
     dispatch_source_set_timer(timer, DISPATCH_TIME_FOREVER, DISPATCH_TIME_FOREVER, 0);
     if (!atomic_load(&foreground)) {
@@ -179,6 +213,8 @@ static void ios_source(void *context);
         else if (step.action != RAYS_IOS_NEXT) [self failure:"unknown iOS control schedule"];
         // A requested frame remains deferred until foreground; control deadlines use only the timer.
         if (atomic_load(&foreground)) link.paused = NO;
+        // A nested native run loop can consume a source while the Rust callback is busy.
+        if (atomic_load(&dirty)) [self post];
         return;
     }
     link.paused = NO;
@@ -234,6 +270,19 @@ static bool ios_event_watch(void *unused, SDL_Event *event) {
 }
 static void ios_source(void *context) { [(__bridge PXUIIOSLoop *)context wake]; }
 static int ios_main_loop(void) { [active_loop begin]; return 0; }
+
+int32_t rays_sdl3_ios_wake(void) {
+    @autoreleasepool {
+        pthread_mutex_lock(&loop_lock); PXUIIOSLoop *loop = active_loop; pthread_mutex_unlock(&loop_lock);
+        return loop ? [loop requestWake] : 0;
+    }
+}
+#ifdef RAYS_SDL3_TEST_UTIL
+int32_t rays_sdl3_ios_test_nested_wake(void) {
+    if (!pthread_main_np()) return 0;
+    return [active_loop testNestedWake];
+}
+#endif
 
 int32_t rays_sdl3_run_ios(rays_ios_callback callback, void *user) {
     if (!pthread_main_np() || !callback) return -1;
