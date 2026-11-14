@@ -229,3 +229,5 @@ Renderer|forget_image|LocalWave|done: pxui_renderer_forget_image
 Ui|key_down|LocalWave|done
 Ui|now|LocalWave|done: pxui_ui_now
 Ui|text_line_box|LocalWave|done: pxui_ui_text_line_box
+
+Ui|density|LocalWave|done: pxui_ui_density

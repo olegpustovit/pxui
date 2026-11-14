@@ -204,3 +204,9 @@ visible glyph positions. Reuse the text engine's row scratch and cached metrics;
 shape glyphs against monotonically ordered logical run bounds, never re-shape substrings or scan
 every paragraph once per line. Hidden/truncated paragraphs do not contribute space advances.
 Preserve static/dynamic whitespace, paragraph, BiDi, glyph equality and warm allocation checks.
+
+
+ABI 1.19 exposes Ui::density / pxui_ui_density: the existing integer rendering density shared
+with Paint, rounded from host scale and clamped to at least one. Do not change the engine's
+fractional-scale policy here. Preserve initial/owner/callback queries, cache invalidation when
+density changes, equal-density retention and static/dynamic warm allocation checks.

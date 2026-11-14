@@ -1839,6 +1839,9 @@ impl Ui {
         self.view_w
     }
 
+    /// Integer rendering density shared with Paint (host scale rounded to at least one).
+    pub fn density(&self) -> i64 { self.density }
+
     pub fn view_size(&self) -> (f32, f32) {
         (self.view_w, self.view_h)
     }

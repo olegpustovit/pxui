@@ -8,6 +8,32 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    assert_eq!(ui.density(),1);
+    let builds=std::cell::Cell::new(0);
+    for round in 0..6 {
+        mem_sys::local_reset();
+        let before=builds.get();
+        for scale in [1.0,2.0,3.0,3.0] {
+            ui.frame(&FrameIn {scale,..input()},&mut |ui| {
+                assert_eq!(ui.density(),scale as i64);
+                ui.view("density",0,Size::Px(40.0),Size::Px(40.0),&mut |ui| {
+                    builds.set(builds.get()+1);
+                    let density=ui.density();
+                    let node=ui.node("paint",crate::Node {w:Size::Px(40.0),h:Size::Px(40.0),..crate::Node::DEFAULT});
+                    ui.draw(&node,move |paint,_| {assert_eq!(paint.density,density);});
+                });
+            }).unwrap();
+            assert_eq!(ui.density(),scale as i64,"owner keeps the last frame's density");
+        }
+        assert_eq!(builds.get()-before,3,"density changes invalidate cached contents; equal density retains them");
+        if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"cached density changes");}
+    }
+}
+
+#[test]
 fn analytic_curves_preserve_fractional_geometry_validate_and_reuse_warm_storage() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();

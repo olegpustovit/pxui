@@ -8,6 +8,7 @@ library!(lib {
     fn pxui_ui_font_size(ui: *mut PxuiUi) -> i64;
     fn pxui_ui_row_height(ui: *mut PxuiUi) -> i64;
     fn pxui_ui_now(ui: *mut PxuiUi) -> f64;
+    fn pxui_ui_density(ui: *mut PxuiUi) -> i64;
     fn pxui_ui_frame_index(ui: *mut PxuiUi) -> u64;
     fn pxui_ui_captured(ui: *mut PxuiUi) -> u8;
     fn pxui_ui_text_input_focused(ui: *mut PxuiUi) -> u8;
@@ -62,6 +63,8 @@ impl Ui {
     #[inline] pub fn ime(&self) -> Option<((i64, i64, i64, i64), i64)> { let p = &self.output().platform; (p.has_ime != 0).then(|| ((p.ime_rect[0], p.ime_rect[1], p.ime_rect[2], p.ime_rect[3]), p.ime_caret)) }
     #[inline] pub fn font_size(&self) -> i64 { unsafe { lib::pxui_ui_font_size(self.0.as_ptr()) } }
     #[inline] pub fn row_height(&self) -> i64 { unsafe { lib::pxui_ui_row_height(self.0.as_ptr()) } }
+    /// Integer rendering density shared with Paint: host scale rounded to at least one.
+    #[inline] pub fn density(&self) -> i64 { unsafe { lib::pxui_ui_density(self.0.as_ptr()) } }
     /// Host-supplied monotonic frame time; cached views share the same animation clock.
     #[inline] pub fn now(&self) -> f64 { unsafe { lib::pxui_ui_now(self.0.as_ptr()) } }
     #[inline] pub fn frame_index(&self) -> u64 { unsafe { lib::pxui_ui_frame_index(self.0.as_ptr()) } }

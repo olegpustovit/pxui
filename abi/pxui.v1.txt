@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 18
+minor 19
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -87,6 +87,7 @@ function pxui_ui_context_at int32_t pxui_ui_context_at ( PxuiUi * ui , const Pxu
 function pxui_ui_context_menu int32_t pxui_ui_context_menu ( PxuiUi * ui , float x , float y , PxuiStr label , PxuiStrSpan items , PxuiU8Span enabled , uint8_t has_width , float width , uint8_t has_selected , int64_t selected , const PxuiMenuExtra * extra , uint32_t * out_tag , int64_t * out_index ) ;
 function pxui_ui_create PxuiUi * pxui_ui_create ( const PxuiUiDesc * desc ) ;
 function pxui_ui_create_with_fonts PxuiUi * pxui_ui_create_with_fonts ( const PxuiUiDesc * desc , const PxuiStr * fonts , size_t count ) ;
+function pxui_ui_density int64_t pxui_ui_density ( PxuiUi * ui ) ;
 function pxui_ui_destroy int32_t pxui_ui_destroy ( PxuiUi * ui ) ;
 function pxui_ui_dialog int32_t pxui_ui_dialog ( PxuiUi * ui , PxuiStr title , PxuiStrSpan buttons , PxuiBuild build , void * user , PxuiDialogOut * out ) ;
 function pxui_ui_dismiss_popup int32_t pxui_ui_dismiss_popup ( PxuiUi * ui ) ;

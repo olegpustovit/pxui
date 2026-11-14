@@ -601,6 +601,8 @@ int64_t pxui_ui_font_size(PxuiUi *ui);
 int64_t pxui_ui_row_height(PxuiUi *ui);
 /* Monotonic host frame time, shared by cached views (ABI 1.16). */
 double pxui_ui_now(PxuiUi *ui);
+/* Integer rendering density shared with Paint: host scale rounded to at least one (ABI 1.19). */
+int64_t pxui_ui_density(PxuiUi *ui);
 uint64_t pxui_ui_frame_index(PxuiUi *ui);
 uint8_t pxui_ui_captured(PxuiUi *ui);
 uint8_t pxui_ui_text_input_focused(PxuiUi *ui);
