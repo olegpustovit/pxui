@@ -37,5 +37,8 @@ harness = false
 name = "gpu_pxui_parity"
 harness = false
 
+[[test]]
+name = "string_pool"
+
 [lints]
 workspace = true

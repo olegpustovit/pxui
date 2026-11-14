@@ -178,6 +178,11 @@ rehash through retained spare arrays without increasing capacity. Recycled empty
 buffers choose the smallest suitable donor, preserving larger buffers for longer labels. Existing
 node identities keep the fast capacity check, even though set_box clears their strings. Preserve the registered 100-frame identity/text
 churn case and LocalWave's alternating cache-limit/menu regression; do not extend their warm-up.
+Empty-string donors use retained sorted capacity/slot indices, built lazily once per field per
+frame. Node clears, retirement, empty writes and buffer transfers keep active indices current;
+nonempty writes remove their entry. Reserve metadata with slot capacity so the first warm query
+does not allocate. Keep the differential full-search check, live-content preservation, bounded
+metadata and dynamic/static scrolling/allocation tests. Stable nodes keep their capacity fast path.
 
 SDL dialog callbacks release-publish their copied outcome before calling the existing host wake.
 Chosen, cancelled and failed dialogs must wake an idle event loop; do not add periodic polling.

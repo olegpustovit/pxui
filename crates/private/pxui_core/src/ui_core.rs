@@ -20,6 +20,17 @@ use std::any::Any;
 use pxui_text::{Metrics, Style, Text, TextSpan, TextSpans};
 use std::collections::HashMap;
 use std::rc::Rc;
+mod string_pool;
+use string_pool::{EmptyStrings, Field as StringField};
+
+impl StringField {
+    fn get(self, slot: &Slot) -> &String {
+        match self {Self::Text=>&slot.text,Self::Name=>&slot.a11y_name,Self::Value=>&slot.a11y_value}
+    }
+    fn get_mut(self, slot: &mut Slot) -> &mut String {
+        match self {Self::Text=>&mut slot.text,Self::Name=>&mut slot.a11y_name,Self::Value=>&mut slot.a11y_value}
+    }
+}
 
 pub use pxui_types::{Flags, Size};
 pub use crate::opts::{BoxOpts, HitFn};
@@ -906,6 +917,7 @@ pub struct Ui {
     text: Option<Text>,
     table: SlotTable,
     slots: Vec<Slot>,
+    empty_strings: EmptyStrings,
     free: Vec<usize>,
     /// slots whose scroll may be in motion (`apply_scroll` adds, `prune` drops the settled), and
     /// `prune`'s scratch
@@ -1160,6 +1172,7 @@ impl Ui {
             text: Some(text),
             table: SlotTable::create(),
             slots: Vec::new(),
+            empty_strings: EmptyStrings::default(),
             free: Vec::new(),
             moving: Vec::new(),
             gone: Vec::new(),
@@ -1486,29 +1499,42 @@ impl Ui {
     }
 
     // Recycled view containers can hold the buffer a newly visible text node needs.
-    fn reuse_empty_string(&mut self, slot: usize, len: usize, field: fn(&mut Slot) -> &mut String) {
-        if len == 0 { return; }
+    fn cleared_strings(&mut self, slot: usize) {
+        if !self.empty_strings.active() {return;}
+        for field in StringField::ALL {
+            self.empty_strings.empty(field,slot,field.get(&self.slots[slot]).capacity());
+        }
+    }
+
+    fn reuse_empty_string(&mut self, slot: usize, len: usize, field: StringField) {
+        let capacity=field.get(&self.slots[slot]).capacity();
+        if len == 0 { self.empty_strings.empty(field,slot,capacity); return; }
         let new_identity = self.slots[slot].new_identity;
-        let current = field(&mut self.slots[slot]);
-        let capacity = current.capacity();
-        if capacity >= len && (!new_identity || !current.is_empty() || capacity == len) { return; }
-        let donor = self.slots.iter_mut().enumerate().filter_map(|(index, candidate)| {
-            if index == slot { return None; }
-            let buffer = field(candidate);
-            (buffer.is_empty() && buffer.capacity() >= len && (capacity < len || buffer.capacity() < capacity)).then_some((index, buffer.capacity()))
-        }).min_by_key(|(_, capacity)| *capacity).map(|(index, _)| index);
-        if let Some(donor) = donor {
-            let buffer = std::mem::take(field(&mut self.slots[donor]));
-            let mut old = std::mem::replace(field(&mut self.slots[slot]), buffer);
+        let current = field.get(&self.slots[slot]);
+        if capacity >= len && (!new_identity || !current.is_empty() || capacity == len) {
+            self.empty_strings.used(field,slot,capacity);
+            return;
+        }
+        if let Some(index)=self.empty_strings.rebuild(field) {
+            index.extend(self.slots.iter().enumerate().filter_map(|(slot,value)| {
+                let buffer=field.get(value);
+                (buffer.is_empty() && buffer.capacity()!=0).then_some((buffer.capacity(),slot))
+            }));
+            index.sort_unstable();
+        }
+        if let Some(donor) = self.empty_strings.donor(field,slot,capacity,len) {
+            let buffer = std::mem::take(field.get_mut(&mut self.slots[donor]));
+            let mut old = std::mem::replace(field.get_mut(&mut self.slots[slot]), buffer);
             old.clear();
-            *field(&mut self.slots[donor]) = old;
+            *field.get_mut(&mut self.slots[donor]) = old;
+            self.empty_strings.empty(field,donor,capacity);
         }
     }
 
     /// The node's accessible name (its text by default), for a node declared this frame.
     pub fn a11y_name(&mut self, b: &Handle, name: &str) {
         if self.live(b) {
-            self.reuse_empty_string(b.box_slot, name.len(), |slot| &mut slot.a11y_name);
+            self.reuse_empty_string(b.box_slot, name.len(), StringField::Name);
             let s = &mut self.slots[b.box_slot].a11y_name;
             s.clear();
             s.push_str(name);
@@ -1519,7 +1545,7 @@ impl Ui {
     /// in chars).
     pub fn a11y_value(&mut self, b: &Handle, value: &str, selection: (u32, u32)) {
         if self.live(b) {
-            self.reuse_empty_string(b.box_slot, value.len(), |slot| &mut slot.a11y_value);
+            self.reuse_empty_string(b.box_slot, value.len(), StringField::Value);
             let s = &mut self.slots[b.box_slot];
             s.a11y_value.clear();
             s.a11y_value.push_str(value);
@@ -1910,6 +1936,7 @@ impl Ui {
             Some(slot) => slot,
             None => {
                 self.slots.push(Slot::fresh());
+                self.empty_strings.reserve(self.slots.capacity());
                 self.scroll_y.push(0.0);
                 self.scroll_xs.push(0.0);
                 self.glides[0].push(Glide::REST);
@@ -2011,6 +2038,7 @@ impl Ui {
         s.text.clear();
         s.a11y_name.clear();
         s.a11y_value.clear();
+        self.cleared_strings(slot);
         self.free.push(slot);
         if self.focus == key {
             self.focus = 0;
@@ -2986,6 +3014,7 @@ impl Ui {
     /// start empty. A patch made since the node's last build ends here.
     fn set_box(&mut self, index: usize, node: &Node) {
         let b = &mut self.boxes[index];
+        let slot=b.slot;
         b.hit = None;
         b.hit_rect = None;
         b.shape = HitShape::Own;
@@ -2999,6 +3028,7 @@ impl Ui {
         s.a11y_value.clear();
         s.a11y_selection = (0, 0);
         s.a11y_number = None;
+        self.cleared_strings(slot);
     }
 
     /// The layout inputs and look of build box `index`.
@@ -3129,7 +3159,7 @@ impl Ui {
     /// Set the node's text (painted in its look's text colour and font).
     pub fn text(&mut self, b: &Handle, text: &str) {
         if self.live(b) {
-            self.reuse_empty_string(b.box_slot, text.len(), |slot| &mut slot.text);
+            self.reuse_empty_string(b.box_slot, text.len(), StringField::Text);
             if let Some(rich)=&mut self.slots[b.box_slot].rich { rich.active=false; }
             let s = &mut self.slots[b.box_slot].text;
             if s != text {
@@ -5745,6 +5775,7 @@ impl Ui {
             panic!("Ui.frame: time must be finite");
         }
         self.phase_at = self.timing.then(std::time::Instant::now);
+        self.empty_strings.begin_frame();
         let (scale_x, scale_y) = frame.pixel_scale;
         let density = 1.max(scale_x.max(scale_y).round() as i64);
         let size = (frame.input.size.0 as f32, frame.input.size.1 as f32);
