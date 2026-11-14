@@ -74,9 +74,14 @@ fn text_len(event: &Event) -> usize {
 }
 
 /// Encodes `value` and appends the text it carries to `text` (the caller reserved room, so pointers into it stay valid).
-fn encode(value: &Event, text: &mut String) -> FfiEvent {
+fn encode(value: &Event, text: &mut String, touches:&mut Vec<pxui_types::Touch>) -> FfiEvent {
     let mut out = FfiEvent::default();
     match value {
+        Event::Touch(t)=> {
+            touches.push(pxui_types::Touch {device:t.device,finger:t.finger,x:t.point.0,y:t.point.1,time:t.time,pressure:t.pressure,phase:t.phase.code()});
+            out.kind=FfiEvent::TOUCH;
+            out.text=Str {ptr:touches.as_ptr().wrapping_add(touches.len()-1).cast(),len:core::mem::size_of::<pxui_types::Touch>()};
+        }
         Event::KeyPressed(k) => { out.kind = FfiEvent::KEY_PRESSED; out.code = key_code(*k); }
         Event::KeyReleased(k) => { out.kind = FfiEvent::KEY_RELEASED; out.code = key_code(*k); }
         Event::PointerMoved(p) => { out.kind = FfiEvent::POINTER_MOVED; (out.x, out.y) = *p; }
@@ -121,10 +126,12 @@ fn encode(value: &Event, text: &mut String) -> FfiEvent {
 fn fill(chunk: &mut KeyChunk, keys: &[Event]) {
     chunk.events.clear();
     chunk.text.clear();
+    chunk.touches.clear();
+    chunk.touches.reserve(keys.iter().filter(|e|matches!(e,Event::Touch(_))).count());
     chunk.text.reserve(keys.iter().map(text_len).sum());
     for key in keys {
         let start = chunk.text.len();
-        let mut event = encode(key, &mut chunk.text);
+        let mut event = encode(key, &mut chunk.text,&mut chunk.touches);
         let len = chunk.text.len() - start;
         if len != 0 { event.text = Str { ptr: chunk.text.as_ptr().wrapping_add(start), len }; }
         chunk.events.push(event);
@@ -176,10 +183,12 @@ fn write_borrowed_signal(state: &PxuiUi, signal: &Signal, keys: &[(Event, Vec<in
         shared.chunks_used += 1;
         chunk.events.clear();
         chunk.text.clear();
+        chunk.touches.clear();
+        chunk.touches.reserve(keys.iter().filter(|(e,_)|matches!(e,Event::Touch(_))).count());
         chunk.text.reserve(keys.iter().map(|(event, _)| text_len(event)).sum());
         for (event, _) in keys {
             let start = chunk.text.len();
-            let mut event = encode(event, &mut chunk.text);
+            let mut event = encode(event, &mut chunk.text,&mut chunk.touches);
             let len = chunk.text.len() - start;
             if len != 0 { event.text = Str { ptr: chunk.text.as_ptr().wrapping_add(start), len }; }
             chunk.events.push(event);

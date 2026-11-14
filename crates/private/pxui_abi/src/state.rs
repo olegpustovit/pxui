@@ -21,7 +21,7 @@ pub(crate) const MAX_TOTAL_TEXT_BYTES: usize = 8 << 20;
 /// One signal's key events and the joined text some of them carry, kept between frames so a frame that
 /// reports keys allocates only while the buffers grow.
 #[derive(Default)]
-pub(crate) struct KeyChunk { pub events: Vec<FfiEvent>, pub text: String }
+pub(crate) struct KeyChunk { pub events: Vec<FfiEvent>, pub text: String, pub touches:Vec<pxui_types::Touch> }
 
 /// Everything a `Ui` owns besides the engine. Borrowed callback handles point at the same value.
 pub(crate) struct Shared {
@@ -64,6 +64,7 @@ pub(crate) struct Shared {
     pub routed: Option<input::frame::Frame>,
     pub routed_events: Vec<FfiEvent>,
     pub routed_text: Vec<String>,
+    pub routed_touches:Vec<pxui_types::Touch>,
     pub routed_keys: Vec<u32>,
     pub routed_buttons: Vec<u32>,
     pub hints: Vec<(String, String)>,
@@ -91,7 +92,7 @@ impl Shared {
         Self {
             error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), lent: Vec::new(), lent_used: 0,
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
-            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
+            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), menus: Vec::new(), bodies: Default::default(),
         }
     }

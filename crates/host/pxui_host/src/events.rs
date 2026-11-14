@@ -1,8 +1,9 @@
-/// Retained ABI events and UTF-8 bytes. Published text belongs to this encoder, not the input batch.
+/// Retained ABI events, UTF-8 bytes and numeric touch payloads, owned independently of the input batch.
 pub struct Events {
     wire: Vec<pxui::Event>,
     bytes: Vec<u8>,
     scratch: String,
+    touches: Vec<pxui::Touch>,
 }
 impl Default for Events {
     fn default() -> Self {
@@ -10,15 +11,37 @@ impl Default for Events {
             wire: Vec::with_capacity(input::EVENT_RESERVE),
             bytes: Vec::new(),
             scratch: String::new(),
+            touches: Vec::with_capacity(input::EVENT_RESERVE),
         }
     }
 }
 impl Events {
-    /// The event span and its text remain valid until the next encode or this encoder's destruction.
+    /// The event span and its payloads remain valid until the next encode or this encoder's destruction.
     pub fn encode(&mut self, events: &[input::Event]) -> &[pxui::Event] {
         self.wire.clear();
         self.bytes.clear();
+        self.touches.clear();
         for event in events {
+            if let input::Event::Touch(t) = event {
+                self.touches.push(pxui::Touch {
+                    device: t.device,
+                    finger: t.finger,
+                    x: t.point.0,
+                    y: t.point.1,
+                    time: t.time,
+                    pressure: t.pressure,
+                    phase: t.phase.code(),
+                });
+                self.wire.push(pxui::Event {
+                    kind: pxui::Event::TOUCH,
+                    text: pxui::Str {
+                        ptr: std::ptr::null(),
+                        len: core::mem::size_of::<pxui::Touch>(),
+                    },
+                    ..Default::default()
+                });
+                continue;
+            }
             self.scratch.clear();
             let raw = event.raw(&mut self.scratch);
             let text = raw.text.unwrap_or("");
@@ -36,7 +59,13 @@ impl Events {
             });
         }
         let mut offset = 0;
+        let mut touch = 0;
         for event in &mut self.wire {
+            if event.kind == pxui::Event::TOUCH {
+                event.text.ptr = self.touches.as_ptr().wrapping_add(touch).cast();
+                touch += 1;
+                continue;
+            }
             event.text.ptr = self.bytes.as_ptr().wrapping_add(offset);
             offset += event.text.len;
         }
@@ -92,6 +121,7 @@ mod tests {
                 y: event.y,
                 value: event.value,
                 text: Some(text),
+                touch: None,
             };
             assert_eq!(Event::from_raw(&raw).as_ref(), Some(expected));
             offset += event.text.len;
@@ -129,5 +159,43 @@ mod tests {
             0,
             "first native resume batch must not grow the encoder"
         );
+    }
+    #[test]
+    fn touch_payload_growth_owns_full_identities_and_reuses_warm_storage() {
+        let mut source = Vec::new();
+        for finger in 0..32 {
+            source.push(Event::Touch(input::Touch {
+                device: u64::MAX,
+                finger: u64::MAX - finger,
+                point: (-12.5, 144.25),
+                time: 10.0,
+                pressure: 0.375,
+                phase: input::TouchPhase::Moved,
+            }));
+        }
+        let mut encoded = Events::default();
+        encoded.encode(&source);
+        for (index, event) in encoded.as_slice().iter().enumerate() {
+            assert_eq!(event.kind, pxui::Event::TOUCH);
+            assert_eq!(event.text.len, core::mem::size_of::<pxui::Touch>());
+            assert_eq!(
+                event.text.ptr,
+                encoded.touches.as_ptr().wrapping_add(index).cast()
+            );
+            assert_eq!(encoded.touches[index].finger, u64::MAX - index as u64);
+            assert_eq!(pxui::event_text(event), "");
+        }
+        for count in [1, 32, 0, 3, 32] {
+            mem_sys::local_reset();
+            encoded.encode(&source[..count]);
+            assert_eq!(
+                mem_sys::local_alloc_count(),
+                0,
+                "warm numeric touch encoding allocated"
+            );
+        }
+        drop(source);
+        assert_eq!(encoded.touches[31].device, u64::MAX);
+        assert_eq!(encoded.touches[31].finger, u64::MAX - 31);
     }
 }

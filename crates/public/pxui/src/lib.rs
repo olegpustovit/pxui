@@ -8,7 +8,7 @@ use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 pub use pxui_types::{Environment, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
-pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str};
+pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str, Touch};
 pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
@@ -289,6 +289,12 @@ fn sweep_orphans() {
 pub struct Routed<'a> { raw: Input, _ui: PhantomData<&'a mut Ui> }
 
 impl Routed<'_> {
+    /// Numeric touch payload borrowed from this routed frame. Non-touch events return None.
+    pub fn touch(&self,index:usize)->Option<Touch> {
+        let event=self.events().get(index)?;
+        if event.kind!=Event::TOUCH || event.text.len!=core::mem::size_of::<Touch>() || event.text.ptr.is_null() {return None;}
+        Some(unsafe {event.text.ptr.cast::<Touch>().read_unaligned()})
+    }
     #[inline] pub fn input(&self) -> &Input { &self.raw }
     pub fn keys(&self) -> &[u32] { if self.raw.keys.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(self.raw.keys.ptr, self.raw.keys.len) } } }
     pub fn buttons(&self) -> &[u32] { if self.raw.buttons.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(self.raw.buttons.ptr, self.raw.buttons.len) } } }
@@ -297,7 +303,7 @@ impl Routed<'_> {
 
 /// The UTF-8 text of an event (empty when it has none).
 pub fn event_text(event: &Event) -> &str {
-    if event.text.len == 0 || event.text.ptr.is_null() { return ""; }
+    if event.kind==Event::TOUCH || event.text.len == 0 || event.text.ptr.is_null() { return ""; }
     core::str::from_utf8(unsafe { core::slice::from_raw_parts(event.text.ptr, event.text.len) }).unwrap_or("")
 }
 

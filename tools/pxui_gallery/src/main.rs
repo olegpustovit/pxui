@@ -102,11 +102,18 @@ fn apply_theme(ui: &mut Ui, s: &Gallery, dusk: &mut String, path: &str) {
     }
 }
 
-fn encode_events(events: &[HostEvent], raw: &mut Vec<Event>, scratch: &mut Vec<String>) {
+fn encode_events(events: &[HostEvent], raw: &mut Vec<Event>, scratch: &mut Vec<String>,touches:&mut Vec<pxui::Touch>) {
     raw.clear();
-    scratch.clear();
-    scratch.resize(events.len(), String::new());
+    if scratch.len()<events.len() {scratch.resize_with(events.len(),String::new);}
+    touches.clear();
+    touches.reserve(events.iter().filter(|e|matches!(e,HostEvent::Touch(_))).count());
     for (event, scratch) in events.iter().zip(scratch.iter_mut()) {
+        scratch.clear();
+        if let HostEvent::Touch(t)=event {
+            touches.push(pxui::Touch {device:t.device,finger:t.finger,x:t.point.0,y:t.point.1,time:t.time,pressure:t.pressure,phase:t.phase.code()});
+            raw.push(Event {kind:Event::TOUCH,text:Str {ptr:touches.as_ptr().wrapping_add(touches.len()-1).cast(),len:core::mem::size_of::<pxui::Touch>()},..Default::default()});
+            continue;
+        }
         let r = event.raw(scratch);
         let text = r.text.unwrap_or("");
         raw.push(Event { kind: r.kind, code: r.code, x: r.x, y: r.y, value: r.value, text: Str { ptr: text.as_ptr(), len: text.len() } });
@@ -180,6 +187,7 @@ fn main() {
     let mut events: Vec<HostEvent> = Vec::with_capacity(256);
     let mut raw_events = Vec::with_capacity(256);
     let mut event_text = Vec::new();
+    let mut event_touches=Vec::new();
     let mut key_values = Vec::with_capacity(8);
     let mut button_values = Vec::with_capacity(4);
     let mut frame = input::frame::Frame { input: input::at_time(0.0), pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) };
@@ -245,7 +253,7 @@ fn main() {
             target = gpu.target(extent.drawable.0 as u32, extent.drawable.1 as u32);
             force = true;
         }
-        encode_events(&events, &mut raw_events, &mut event_text);
+        encode_events(&events, &mut raw_events, &mut event_text,&mut event_touches);
         let built = force || !raw_events.is_empty() || repaint.is_some_and(|at| now >= at);
         if built {
             force = false;
@@ -271,7 +279,7 @@ fn main() {
             key_values.extend(f.keys.iter().copied().map(Key::code));
             button_values.clear();
             button_values.extend(f.buttons.iter().copied().map(input::MouseButton::code));
-            encode_events(&f.events, &mut raw_events, &mut event_text);
+            encode_events(&f.events, &mut raw_events, &mut event_text,&mut event_touches);
             let input = Input {
                 size: core::mem::size_of::<Input>() as u32, time: f.t, dt: f.dt, frame: f.frame, tick: f.tick,
                 logical_size: [f.size.0, f.size.1], pointer: [f.pointer.0, f.pointer.1],

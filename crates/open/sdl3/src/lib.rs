@@ -19,7 +19,7 @@ use sdl3_sys as sys;
 
 pub use sdl3_sys::{
     DialogFilter, DialogKind, DialogOutcome, DropChange, Event, Key, KeyModifier, MouseButton,
-    PinchPhase, Rect, ScrollPhase, Version, WheelDirection, WindowChange, WindowState,
+    PinchPhase, Rect, ScrollPhase, TouchPhase, Version, WheelDirection, WindowChange, WindowState,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -611,6 +611,11 @@ pub mod event {
             }
             event => {
                 flush(output, motion, sizes);
+                if let Event::Touch {device,finger,phase:super::TouchPhase::Moved,..}=&event
+                    && matches!(output.last(),Some(Event::Touch {device:a,finger:b,phase:super::TouchPhase::Moved,..}) if a==device && b==finger) {
+                    *output.last_mut().unwrap()=event;
+                    return;
+                }
                 output.push(event);
             }
         }
@@ -661,6 +666,17 @@ pub mod event {
             for event in events { coalesce_event(event, &mut output, &mut motion, &mut sizes); }
             flush(&mut output, &mut motion, &mut sizes);
             output
+        }
+
+        #[test]
+        fn only_adjacent_motion_for_the_same_finger_coalesces() {
+            use super::super::TouchPhase::*;
+            let touch=|device,finger,phase,x|Event::Touch {device,finger,phase,x,y:2.,pressure:0.375,seconds:x/120.};
+            let events=vec![touch(u64::MAX,1,Began,0.),touch(u64::MAX,1,Moved,1.),
+                touch(u64::MAX,1,Moved,2.),touch(u64::MAX,2,Moved,3.),
+                touch(0,2,Moved,4.),touch(u64::MAX,1,Ended,5.),touch(u64::MAX,1,Cancelled,6.)];
+            assert_eq!(coalesce(events.clone()),vec![events[0].clone(),events[2].clone(),
+                events[3].clone(),events[4].clone(),events[5].clone(),events[6].clone()]);
         }
 
         #[test]

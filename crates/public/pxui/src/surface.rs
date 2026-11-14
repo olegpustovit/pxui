@@ -1885,3 +1885,33 @@ fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
     ui.frame(&FrameIn { size:56,environment:invalid,..input() },&mut build).unwrap();
     assert_eq!(ui.environment(),crate::Environment::default(),"an old complete descriptor ignores the new tail");
 }
+
+#[test]
+fn typed_touch_batches_keep_ids_phases_lifetimes_and_zero_warm_allocations() {
+    use crate::{Touch,Event,Str};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let mut packets=[Touch::default();32];
+    let mut events=[Event::default();32];
+    for frame in 0..182 {
+        let count=[32,1,0,3][frame%4];
+        for (index,packet) in packets.iter_mut().enumerate() {
+            *packet=Touch {device:u64::MAX,finger:u64::MAX-index as u64,x:-1.25,y:99.5,
+                time:frame as f64/120.,pressure:0.375,phase:(frame%4) as u32};
+            events[index]=Event {kind:Event::TOUCH,text:Str {ptr:(packet as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Event::default()};
+        }
+        let expected=packets;
+        mem_sys::local_reset();
+        ui.frame(&FrameIn {events:events.as_ptr(),event_count:count,time:frame as f64/120.,..input()},&mut |_| {}).unwrap();
+        // The library must own the decoded value after the call returns.
+        packets.fill(Touch::default());
+        let routed=ui.routed_input(None);
+        assert_eq!(routed.events().len(),count);
+        for (index,packet) in expected[..count].iter().enumerate() {
+            assert_eq!(routed.touch(index),Some(*packet));
+            assert_eq!(crate::event_text(&routed.events()[index]),"");
+        }
+        assert_eq!(routed.touch(count),None);
+        if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm typed touch frame and routed read allocated");}
+    }
+}

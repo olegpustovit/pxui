@@ -333,3 +333,17 @@ void rays_sdl3_test_post_scroll(int points, int phase)
 #else
 void rays_sdl3_test_post_scroll(int points, int phase) { (void)points; (void)phase; }
 #endif
+
+bool rays_sdl3_test_push_touch_trace(uint32_t id) {
+  if (!SDL_GetWindowFromID(id)) return false;
+  const SDL_EventType types[]={SDL_EVENT_FINGER_DOWN,SDL_EVENT_FINGER_MOTION,SDL_EVENT_FINGER_UP,SDL_EVENT_FINGER_CANCELED};
+  for (unsigned i=0;i<4;i++) {
+    SDL_Event event; SDL_zero(event);
+    event.tfinger.type=types[i]; event.tfinger.windowID=id;
+    event.tfinger.touchID=UINT64_MAX; event.tfinger.fingerID=UINT64_C(0xfedcba9876543210);
+    event.tfinger.timestamp=UINT64_C(1000000000)+i*UINT64_C(10000000);
+    event.tfinger.x=-0.25f;event.tfinger.y=1.25f;event.tfinger.pressure=0.375f;
+    if (!push(&event)) return false;
+  }
+  return true;
+}

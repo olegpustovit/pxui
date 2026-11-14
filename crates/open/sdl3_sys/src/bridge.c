@@ -14,7 +14,7 @@ enum {
 enum {
   EVENT_QUIT, EVENT_WINDOW, EVENT_KEY, EVENT_TEXT_INPUT, EVENT_TEXT_EDITING,
   EVENT_MOUSE_MOTION, EVENT_MOUSE_BUTTON, EVENT_MOUSE_WHEEL, EVENT_PINCH,
-  EVENT_DROP, EVENT_DIALOG, EVENT_SCROLL
+  EVENT_DROP, EVENT_DIALOG, EVENT_SCROLL, EVENT_TOUCH
 };
 
 enum {
@@ -282,6 +282,18 @@ static bool translate_event(const SDL_Event *source, rays_sdl3_event *event)
     event->tag = EVENT_WINDOW;
     window_event(source, event);
     return true;
+  case SDL_EVENT_FINGER_DOWN: case SDL_EVENT_FINGER_MOTION:
+  case SDL_EVENT_FINGER_UP: case SDL_EVENT_FINGER_CANCELED: {
+    SDL_Window *window=SDL_GetWindowFromID(source->tfinger.windowID);
+    int width=0,height=0;
+    if (!window || !SDL_GetWindowSize(window,&width,&height) || width<=0 || height<=0) return false;
+    event->tag=EVENT_TOUCH;
+    event->a=source->type==SDL_EVENT_FINGER_DOWN?0:source->type==SDL_EVENT_FINGER_MOTION?1:source->type==SDL_EVENT_FINGER_UP?2:3;
+    event->touch_id=source->tfinger.touchID; event->finger_id=source->tfinger.fingerID;
+    event->x=(double)source->tfinger.x*width; event->y=(double)source->tfinger.y*height;
+    event->z=(double)source->tfinger.timestamp/1000000000.0; event->w=source->tfinger.pressure;
+    return true;
+  }
   case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP:
     event->tag = EVENT_KEY;
     event->a = key_code(source->key.key, source->key.scancode, &value);

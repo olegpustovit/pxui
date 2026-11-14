@@ -15,4 +15,5 @@
  (SDL_Surface 48 8 ((w 8) (h 12) (pixels 24) (pitch 16)))
  (SDL_TextEditingEvent 40 8 ((type 0) (text 24) (start 32) (length 36)))
  (SDL_TextInputEvent 32 8 ((type 0) (text 24)))
+ (SDL_TouchFingerEvent 56 8 ((type 0) (timestamp 8) (touchID 16) (fingerID 24) (x 32) (y 36) (pressure 48) (windowID 52)))
  (SDL_WindowEvent 32 8 ((type 0) (data1 20) (data2 24))))

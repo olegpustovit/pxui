@@ -69,16 +69,18 @@ pub const PIXEL_SIZE_CHANGED: u32 = 21;
 pub const VISIBILITY_CHANGED: u32 = 22;
 pub const TRACKPAD_SCROLLED: u32 = 23;
 pub const ENVIRONMENT_CHANGED: u32 = 24;
+pub const TOUCH: u32 = 25;
 
-/// One event as the C struct carries it: `kind`, `code`, `x`, `y`, `value` and UTF-8 `text` (`None`: the pointer was null).
+/// Semantic wire fields. Touch carries a typed borrow; other payloads use UTF-8 text.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Raw<'a> { pub kind: u32, pub code: u32, pub x: f64, pub y: f64, pub value: f64, pub text: Option<&'a str> }
+pub struct Raw<'a> { pub kind: u32, pub code: u32, pub x: f64, pub y: f64, pub value: f64, pub text: Option<&'a str>, pub touch:Option<&'a crate::Touch> }
 
 impl Event {
     /// The event as the wire carries it. `scratch` holds the text a dialog result joins; it must outlive the `Raw`.
     pub fn raw<'a>(&'a self, scratch: &'a mut String) -> Raw<'a> {
-        let raw = |kind, code, x, y, value, text| Raw { kind, code, x, y, value, text: Some(text) };
+        let raw = |kind, code, x, y, value, text| Raw { kind, code, x, y, value, text: Some(text), touch:None };
         match self {
+            Event::Touch(t)=>Raw {kind:TOUCH,code:t.phase.code(),x:t.point.0,y:t.point.1,value:t.time,text:None,touch:Some(t)},
             Event::KeyPressed(k) => raw(KEY_PRESSED, k.code(), 0.0, 0.0, 0.0, ""),
             Event::KeyReleased(k) => raw(KEY_RELEASED, k.code(), 0.0, 0.0, 0.0, ""),
             Event::PointerMoved((x, y)) => raw(POINTER_MOVED, 0, *x, *y, 0.0, ""),
@@ -123,6 +125,7 @@ impl Event {
     pub fn from_raw(e: &Raw) -> Option<Event> {
         let s = e.text;
         Some(match e.kind {
+            TOUCH=> {let t=*e.touch?;if !t.valid() {return None;} Event::Touch(t)},
             KEY_PRESSED => Event::KeyPressed(Key::from_code(e.code)?),
             KEY_RELEASED => Event::KeyReleased(Key::from_code(e.code)?),
             POINTER_MOVED => Event::PointerMoved((e.x, e.y)),
@@ -189,6 +192,7 @@ mod tests {
             Event::FileDragEnded, Event::Pinched(1.25), Event::FileDialog { id: 7, result: Ok(vec!["/a".into(), "/b".into()]) },
             Event::FileDialog { id: 8, result: Err("no".into()) }, Event::DialogOpened(9), Event::Resized((10, 20)), Event::FocusLost,
             Event::FileDialog { id: 10, result: Ok(Vec::new()) },
+            Event::Touch(crate::Touch {device:u64::MAX,finger:0xfedcba9876543210,point:(-1.0,900.0),time:4.0,pressure:1.0,phase:crate::TouchPhase::Cancelled}),
             Event::EnvironmentChanged, Event::FocusGained, Event::Closed, Event::PixelSizeChanged((30, 40)), Event::VisibilityChanged(true),
             Event::TrackpadScrolled { delta: (1.0, 2.0), phase: ScrollPhase::Momentum, time: 3.0 },
         ];

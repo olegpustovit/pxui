@@ -229,8 +229,20 @@ export!(pub unsafe fn pxui_ui_request_frame(ui: *mut PxuiUi) -> i32 {
     0
 });
 
+fn touch_event(e:&pxui_types::Event)->Option<input::Touch> {
+    if e.text.len!=core::mem::size_of::<pxui_types::Touch>() || e.text.ptr.is_null() {return None;}
+    let t=unsafe {e.text.ptr.cast::<pxui_types::Touch>().read_unaligned()};
+    let value=input::Touch {device:t.device,finger:t.finger,point:(t.x,t.y),time:t.time,pressure:t.pressure,phase:input::TouchPhase::from_code(t.phase)?};
+    value.valid().then_some(value)
+}
+
 pub(crate) fn translate_event(e: &pxui_types::Event) -> Option<Event> {
-    Event::from_raw(&input::wire::Raw { kind: e.kind, code: e.code, x: e.x, y: e.y, value: e.value, text: unsafe { text(e.text) } })
+    if e.kind==pxui_types::Event::TOUCH {return touch_event(e).map(Event::Touch);}
+    Event::from_raw(&input::wire::Raw { kind: e.kind, code: e.code, x: e.x, y: e.y, value: e.value, text: unsafe { text(e.text) },touch:None })
+}
+
+fn valid_touches(events:&[pxui_types::Event])->bool {
+    events.iter().all(|e|e.kind!=pxui_types::Event::TOUCH || touch_event(e).is_some())
 }
 
 /// Appends `events` to `base`, folding the key and pointer ones into its held state. False when one is invalid.
@@ -322,6 +334,8 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
     if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
+    let events=if input.event_count==0 {&[]} else {unsafe {core::slice::from_raw_parts(input.events,input.event_count)}};
+    if !valid_touches(events) {return unsafe {fail(ui,"invalid touch payload")};}
     let legacy=core::mem::offset_of!(FrameIn,appearance) as u32;
     let previous=core::mem::offset_of!(FrameIn,environment) as u32;
     let (appearance,reduced)=if input.size==legacy { (0,0) } else if input.size>=previous {
@@ -373,6 +387,8 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
     if !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid input frame") }; }
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
+    let events=if input.events.len==0 {&[]} else {unsafe {core::slice::from_raw_parts(input.events.ptr,input.events.len)}};
+    if !valid_touches(events) {return unsafe {fail(ui,"invalid touch payload")};}
     let mut base = unsafe { take_input(ui, input.time) };
     base.dt = input.dt; base.frame = input.frame; base.tick = input.tick;
     base.keys.clear(); // This entry receives the host's authoritative held-key snapshot.
@@ -407,12 +423,20 @@ export!(pub unsafe fn pxui_ui_input(ui: *mut PxuiUi, has_owner: u8, owner: i64, 
     let engine = unsafe { &*state.engine };
     if engine.frame_index() == 0 { return unsafe { fail_code(ui, "no frame has completed", PXUI_ERR_STATE) }; }
     let shared = state.shared();
-    shared.routed = Some(engine.input((has_owner != 0).then_some(owner)));
+    let routed=shared.routed.get_or_insert_with(||frame::Frame {input:input::at_time(0.0),pixel_scale:(1.0,1.0),fps:0.0,mouse_delta:(0.0,0.0)});
+    engine.input_into((has_owner!=0).then_some(owner),routed);
     let Some(f) = shared.routed.as_ref() else { return PXUI_ERR_STATE };
     shared.routed_events.clear();
-    shared.routed_text.clear();
-    shared.routed_text.resize(f.input.events.len(), String::new());
+    shared.routed_touches.clear();
+    shared.routed_touches.reserve(f.input.events.iter().filter(|e|matches!(e,Event::Touch(_))).count());
+    if shared.routed_text.len()<f.input.events.len() {shared.routed_text.resize(f.input.events.len(),String::new());}
     for (event, scratch) in f.input.events.iter().zip(shared.routed_text.iter_mut()) {
+        scratch.clear();
+        if let Event::Touch(t)=event {
+            shared.routed_touches.push(pxui_types::Touch {device:t.device,finger:t.finger,x:t.point.0,y:t.point.1,time:t.time,pressure:t.pressure,phase:t.phase.code()});
+            shared.routed_events.push(pxui_types::Event {kind:pxui_types::Event::TOUCH,text:Str {ptr:shared.routed_touches.as_ptr().wrapping_add(shared.routed_touches.len()-1).cast(),len:core::mem::size_of::<pxui_types::Touch>()},..Default::default()});
+            continue;
+        }
         let raw = event.raw(scratch);
         let text = raw.text.unwrap_or("");
         shared.routed_events.push(pxui_types::Event { kind: raw.kind, code: raw.code, x: raw.x, y: raw.y, value: raw.value, text: Str { ptr: text.as_ptr(), len: text.len() } });
@@ -502,6 +526,48 @@ mod tests {
     use pxui_types::Event as C;
 
     #[test]
+    fn typed_touch_payloads_round_trip_full_ids_and_reject_invalid_tails_atomically() {
+        use pxui_types::{Touch,Event as C,FrameIn,Str};
+        let ui=unsafe {super::pxui_ui_create(&crate::PxuiUiDesc::default())};
+        let mut packet=Touch {device:u64::MAX,finger:0xfedcba9876543210,x:-1.25,y:99.5,time:10.0,pressure:0.375,phase:0};
+        let mut out=crate::FrameOut::default();
+        for frame in 0..182 {
+            packet.phase=(frame%4) as u32;
+            let event=C {kind:C::TOUCH,text:Str {ptr:(&packet as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Default::default()};
+            mem_sys::local_reset();
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events:&event,event_count:1,width:320.0,height:240.0,time:frame as f64,..Default::default()},None,core::ptr::null_mut(),&mut out)},0);
+            let mut input=pxui_types::ffi::Input::default();
+            assert_eq!(unsafe {super::pxui_ui_input(ui,0,0,&mut input)},0);
+            assert_eq!(input.events.len,1);
+            let encoded=unsafe {&*input.events.ptr};
+            assert_eq!(encoded.kind,C::TOUCH);
+            assert_eq!(encoded.text.len,core::mem::size_of::<Touch>());
+            assert_eq!(unsafe {encoded.text.ptr.cast::<Touch>().read_unaligned()},packet);
+            if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm touch frame and routed read allocated");}
+        }
+        let input=FrameIn {width:320.0,height:240.0,..Default::default()};
+        for field in 0..7 {
+            let mut bad=packet;
+            match field {0=>bad.phase=4,1=>bad.x=f64::NAN,2=>bad.y=f64::INFINITY,3=>bad.time=f64::NAN,4=>bad.pressure=-1.0,5=>bad.pressure=1.01,_=>bad.pressure=f32::NAN}
+            let events=[C {kind:C::KEY_PRESSED,code:input::Key::Meta.code(),..Default::default()},C {kind:C::TOUCH,text:Str {ptr:(&bad as *const Touch).cast(),len:core::mem::size_of::<Touch>()},..Default::default()}];
+            out.size=777;
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events:events.as_ptr(),event_count:2,..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(out.size,777);
+            let engine=unsafe {&*(*ui).engine};
+            assert!(!engine.key_down(input::Key::Meta));
+            let snapshot=pxui_types::ffi::Input {events:pxui_types::ffi::Slice {ptr:events.as_ptr(),len:events.len()},..Default::default()};
+            assert_eq!(unsafe {super::pxui_ui_frame(ui,&snapshot,None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(out.size,777);
+            assert!(!unsafe {&*(*ui).engine}.key_down(input::Key::Meta));
+        }
+        for text in [Str::default(),Str {ptr:(&packet as *const Touch).cast(),len:47}] {
+            let event=C {kind:C::TOUCH,text,..Default::default()};
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {events:&event,event_count:1,..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+        }
+        assert_eq!(unsafe {super::pxui_ui_destroy(ui)},0);
+    }
+
+    #[test]
     fn host_environment_rejects_invalid_geometry_before_mutating_a_frame() {
         use pxui_types::{Environment,FrameIn};
         let ui=unsafe { super::pxui_ui_create(&crate::PxuiUiDesc::default()) };
@@ -580,7 +646,7 @@ mod tests {
             (w::PASTE, C::PASTE), (w::TEXT_EDITING, C::TEXT_EDITING), (w::FILE_DROPPED, C::FILE_DROPPED), (w::FILE_DRAG_MOVED, C::FILE_DRAG_MOVED),
             (w::FILE_DRAG_ENDED, C::FILE_DRAG_ENDED), (w::PINCHED, C::PINCHED), (w::FILE_DIALOG, C::FILE_DIALOG), (w::DIALOG_OPENED, C::DIALOG_OPENED),
             (w::RESIZED, C::RESIZED), (w::FOCUS_LOST, C::FOCUS_LOST), (w::FOCUS_GAINED, C::FOCUS_GAINED), (w::CLOSED, C::CLOSED),
-            (w::PIXEL_SIZE_CHANGED, C::PIXEL_SIZE_CHANGED), (w::VISIBILITY_CHANGED, C::VISIBILITY_CHANGED), (w::TRACKPAD_SCROLLED, C::TRACKPAD_SCROLLED), (w::ENVIRONMENT_CHANGED, C::ENVIRONMENT_CHANGED)];
+            (w::PIXEL_SIZE_CHANGED, C::PIXEL_SIZE_CHANGED), (w::VISIBILITY_CHANGED, C::VISIBILITY_CHANGED), (w::TRACKPAD_SCROLLED, C::TRACKPAD_SCROLLED), (w::ENVIRONMENT_CHANGED, C::ENVIRONMENT_CHANGED), (w::TOUCH, C::TOUCH)];
         for (wire, abi) in pairs { assert_eq!(wire, abi); }
     }
 }

@@ -66,3 +66,8 @@ pub fn post_scroll(points: i32, phase: i32) {
     // SAFETY: the helper posts one native trackpad event; it is a no-op off macOS.
     unsafe { super::ffi::rays_sdl3_test_post_scroll(points, phase) }
 }
+
+pub fn push_touch_trace(window:u32)->bool {
+    // SAFETY: the helper posts numeric SDL events for a checked live window ID.
+    unsafe {super::ffi::rays_sdl3_test_push_touch_trace(window)}
+}

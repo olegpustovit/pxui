@@ -70,6 +70,16 @@ background it with another app, then relaunch the same bundle without terminatin
 are qualified on the iOS 18.6 simulator. Finger gestures, IME editing, keyboard avoidance motion,
 physical devices and native allocations remain to qualify.
 
+ABI 1.25 adds typed touch transport: full 64-bit device/finger IDs, began/moved/ended/cancelled,
+logical-point positions, pressure and the source monotonic timestamp. `Event::TOUCH` (25) borrows
+a 48-byte `Touch` through its `text` pointer/length; it is numeric data, not UTF-8. `Events` owns
+that storage, and `Routed::touch(index)` copies a validated routed payload. Invalid phases,
+nonfinite values and pressure outside 0..=1 fail before input mutation; outside-window positions
+remain valid. Public `Event` and `FrameIn` layouts are unchanged. SDL coalesces only adjacent
+motion for the same device/finger, preserving phase and interleaved-finger boundaries. Native SDL
+trace and static/dynamic ABI checks assert zero warm Rust allocations. This is transport coverage;
+widget gesture arbitration and physical finger behavior remain unqualified.
+
 ABI 1.24 appends `FrameIn::environment`: safe-area insets (top/right/bottom/left), keyboard
 start/target rectangles, host-clock start time, duration, raw UIKit curve and did-show/did-hide
 visibility. `Ui::environment()` reads it inside cached views; a changed environment invalidates

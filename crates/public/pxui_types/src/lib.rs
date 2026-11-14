@@ -96,6 +96,15 @@ pub struct Str {
     pub len: usize,
 }
 
+/// ABI 1.25 TOUCH payload, borrowed through Event::text (len = size_of::<Touch>()).
+/// Phase: 0 began, 1 moved, 2 ended, 3 cancelled. Position: logical points; time: source monotonic seconds.
+/// Pressure is finite in 0..=1. Positions may lie outside the window; identities retain all 64 bits.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Touch {
+    pub device:u64, pub finger:u64, pub x:f64, pub y:f64, pub time:f64, pub pressure:f32, pub phase:u32,
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Event {
@@ -132,6 +141,7 @@ impl Event {
     pub const VISIBILITY_CHANGED: u32 = 22;
     pub const TRACKPAD_SCROLLED: u32 = 23;
     pub const ENVIRONMENT_CHANGED: u32 = 24;
+    pub const TOUCH: u32 = 25;
 }
 
 /// Host geometry in logical window points. Rectangles are [x, y, width, height].
@@ -574,6 +584,7 @@ mod abi_layout {
             offset_of!(FrameIn,width),offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),
             offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),
         ]);
+        assert_layout("Touch",size_of::<Touch>(),align_of::<Touch>(),&[offset_of!(Touch,device),offset_of!(Touch,finger),offset_of!(Touch,x),offset_of!(Touch,y),offset_of!(Touch,time),offset_of!(Touch,pressure),offset_of!(Touch,phase)]);
         assert_layout("Environment",size_of::<Environment>(),align_of::<Environment>(),&[
             offset_of!(Environment,safe_area),offset_of!(Environment,keyboard_frame),offset_of!(Environment,keyboard_from),
             offset_of!(Environment,keyboard_started),offset_of!(Environment,keyboard_duration),offset_of!(Environment,keyboard_curve),offset_of!(Environment,keyboard_visible),

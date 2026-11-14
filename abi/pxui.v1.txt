@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 24
+minor 25
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -395,4 +395,5 @@ layout TextSpan 24 4 0 4 8 10 12 16 20
 layout TextSpans 200 4 0 4 8
 layout TextStyle 36 4 0 4 6 8 12 16 20 24 26 27 28 32
 layout ThemeSource 24 8 0 4 8
+layout Touch 48 8 0 8 16 24 32 40 44
 layout View 56 4 0 8 12 28 32 48

@@ -69,6 +69,9 @@ pub fn positive(width: i32, height: i32) -> bool {
 
 pub fn translate(event: SdlEvent) -> Option<Event> {
     match event {
+        SdlEvent::Touch {device,finger,phase,x,y,pressure,seconds}=>Some(Event::Touch(input::Touch {
+            device,finger,point:(x,y),time:seconds,pressure,phase:match phase {sdl3::TouchPhase::Began=>input::TouchPhase::Began,sdl3::TouchPhase::Moved=>input::TouchPhase::Moved,sdl3::TouchPhase::Ended=>input::TouchPhase::Ended,sdl3::TouchPhase::Cancelled=>input::TouchPhase::Cancelled}
+        })),
         SdlEvent::MouseMotion { x, y, .. } => Some(Event::PointerMoved((x, y))),
         SdlEvent::MouseButton { button: raw, down, x, y } => {
             let value = button(raw);
@@ -144,6 +147,7 @@ pub fn in_points(unit: f64, event: SdlEvent) -> SdlEvent {
     let p = |v: f64| v / unit;
     let size = |v: i32| std::cmp::max(1, (f64::from(v) / unit).round() as i32);
     match event {
+        SdlEvent::Touch {device,finger,phase,x,y,pressure,seconds}=>SdlEvent::Touch {device,finger,phase,x:x/unit,y:y/unit,pressure,seconds},
         SdlEvent::MouseMotion { x, y, dx, dy } => {
             SdlEvent::MouseMotion { x: p(x), y: p(y), dx: p(dx), dy: p(dy) }
         }
@@ -161,6 +165,23 @@ pub fn in_points(unit: f64, event: SdlEvent) -> SdlEvent {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn touch_coordinates_scale_without_losing_identity_phase_or_time() {
+        for (phase, expected) in [
+            (sdl3::TouchPhase::Began, input::TouchPhase::Began),
+            (sdl3::TouchPhase::Moved, input::TouchPhase::Moved),
+            (sdl3::TouchPhase::Ended, input::TouchPhase::Ended),
+            (sdl3::TouchPhase::Cancelled, input::TouchPhase::Cancelled),
+        ] {
+            let native = SdlEvent::Touch { device:u64::MAX, finger:0xfedcba9876543210,
+                phase, x:-25., y:150., pressure:0.375, seconds:1234.25 };
+            assert_eq!(translate(in_points(2.,native)),Some(Event::Touch(input::Touch {
+                device:u64::MAX, finger:0xfedcba9876543210, phase:expected,
+                point:(-12.5,75.), pressure:0.375, time:1234.25,
+            })));
+        }
+    }
 
     #[test]
     fn translation_table() {

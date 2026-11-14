@@ -18,6 +18,10 @@ typedef struct { uint32_t size, platform; int32_t font_size; } PxuiUiDesc;
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 typedef struct { const PxuiStr *ptr; size_t len; } PxuiStrSpan;
 typedef struct { uint32_t tag; size_t index; } PxuiDialogOut;
+/* ABI 1.25: TOUCH borrows this numeric payload through Event.text; len is sizeof(PxuiTouch).
+   IDs retain all 64 bits. Phase: 0 began, 1 moved, 2 ended, 3 cancelled. Positions are logical points
+   and may be outside the window. Time is source monotonic seconds; finite pressure is in [0,1]. */
+typedef struct { uint64_t device, finger; double x, y, time; float pressure; uint32_t phase; } PxuiTouch;
 typedef struct { uint32_t kind, code; double x, y, value; PxuiStr text; } PxuiEvent;
 typedef struct { const PxuiEvent *ptr; size_t len; } PxuiEventSpan;
 typedef struct { uint32_t size, reserved; size_t parents, seeds; } PxuiSaved;
@@ -211,7 +215,7 @@ enum PxuiEventKind {
     PXUI_FILE_DROPPED=11, PXUI_FILE_DRAG_MOVED=12, PXUI_FILE_DRAG_ENDED=13,
     PXUI_PINCHED=14, PXUI_FILE_DIALOG=15, PXUI_DIALOG_OPENED=16, PXUI_RESIZED=17,
     PXUI_FOCUS_LOST=18, PXUI_FOCUS_GAINED=19, PXUI_CLOSED=20,
-    PXUI_PIXEL_SIZE_CHANGED=21, PXUI_VISIBILITY_CHANGED=22, PXUI_TRACKPAD_SCROLLED=23, PXUI_ENVIRONMENT_CHANGED=24
+    PXUI_PIXEL_SIZE_CHANGED=21, PXUI_VISIBILITY_CHANGED=22, PXUI_TRACKPAD_SCROLLED=23, PXUI_ENVIRONMENT_CHANGED=24, PXUI_TOUCH=25
 };
 enum PxuiValueCode {
     PXUI_MOUSE_LEFT=0, PXUI_MOUSE_RIGHT=1, PXUI_MOUSE_MIDDLE=2, PXUI_MOUSE_X1=3, PXUI_MOUSE_X2=4,

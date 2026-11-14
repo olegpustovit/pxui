@@ -55,6 +55,22 @@ fn cocoa_layer_ownership_and_trackpad_phases() {
     assert_eq!(mem_sys::local_alloc_count(),0,"clearing native IME geometry must not allocate Rust objects");
 
     let _ = sdl3::event::poll_coalesced().unwrap();
+    let mut touches=Vec::with_capacity(8);
+    for round in 0..100 {
+        mem_sys::local_reset();
+        assert!(sdl3_sys::test_util::push_touch_trace(window.id().unwrap()));
+        touches.clear();
+        sdl3::event::poll_coalesced_into(&mut touches).unwrap();
+        assert_eq!(touches.len(),4);
+        for (index,event) in touches.iter().enumerate() {
+            let sdl3::Event::Touch {device,finger,phase,x,y,pressure,seconds}=event else {panic!("expected touch, got {event:?}");};
+            assert_eq!((*device,*finger),(u64::MAX,0xfedcba9876543210));
+            assert_eq!((*x,*y,*pressure),(-20.0,75.0,0.375));
+            assert!((*seconds-(1.0+index as f64*0.01)).abs()<1e-9);
+            assert_eq!(*phase,[sdl3::TouchPhase::Began,sdl3::TouchPhase::Moved,sdl3::TouchPhase::Ended,sdl3::TouchPhase::Cancelled][index]);
+        }
+        if round>=2 {assert_eq!(mem_sys::local_alloc_count(),0,"native touch decoding allocated when warm");}
+    }
     for (points, phase) in [(0, 1), (-7, 2), (0, 4)] {
         sdl3_sys::test_util::post_scroll(points, phase);
     }

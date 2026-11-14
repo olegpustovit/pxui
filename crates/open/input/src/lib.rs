@@ -56,8 +56,23 @@ pub enum ScrollPhase {
 }
 
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchPhase { Began, Moved, Ended, Cancelled }
+impl TouchPhase {
+    pub fn code(self)->u32 {match self {Self::Began=>0,Self::Moved=>1,Self::Ended=>2,Self::Cancelled=>3}}
+    pub fn from_code(code:u32)->Option<Self> {Some(match code {0=>Self::Began,1=>Self::Moved,2=>Self::Ended,3=>Self::Cancelled,_=>return None})}
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Touch {
+    pub device:u64, pub finger:u64, pub point:(f64,f64), pub time:f64, pub pressure:f32, pub phase:TouchPhase,
+}
+impl Touch {
+    pub fn valid(&self)->bool {self.point.0.is_finite() && self.point.1.is_finite() && self.time.is_finite() && self.pressure.is_finite() && (0.0..=1.0).contains(&self.pressure)}
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
+    Touch(Touch),
     KeyPressed(Key),
     KeyReleased(Key),
     PointerMoved((f64, f64)),
@@ -376,6 +391,7 @@ fn put_event(out: &mut String, event: &Event) {
         }
         Event::DialogOpened(id) => { put_byte(out, 14); put_int(out, *id); }
         Event::Resized((w, h)) => { put_byte(out, 15); put_int(out, *w); put_int(out, *h); }
+        Event::Touch(t)=> {put_byte(out,24);put_int(out,t.device as i64);put_int(out,t.finger as i64);put_pair(out,t.point);put_f64(out,t.time);put_int(out,i64::from(t.pressure.to_bits()));put_byte(out,t.phase.code() as u8);}
         Event::EnvironmentChanged => put_byte(out, 23),
         Event::FocusLost => put_byte(out, 16),
         Event::FocusGained => put_byte(out, 17),
@@ -399,6 +415,7 @@ fn pair_eq(a: (f64, f64), b: (f64, f64)) -> bool {
 fn event_eq(a: &Event, b: &Event) -> bool {
     use Event::*;
     match (a, b) {
+        (Touch(a),Touch(b))=>a.device==b.device && a.finger==b.finger && a.phase==b.phase && pair_eq(a.point,b.point) && float_eq(a.time,b.time) && a.pressure.to_bits()==b.pressure.to_bits(),
         (KeyPressed(a), KeyPressed(b)) | (KeyReleased(a), KeyReleased(b)) => a == b,
         (PointerMoved(a), PointerMoved(b)) | (Scrolled(a), Scrolled(b)) | (FileDragMoved(a), FileDragMoved(b)) => pair_eq(*a, *b),
         (PointerPressed(ab, ap), PointerPressed(bb, bp)) | (PointerReleased(ab, ap), PointerReleased(bb, bp)) => ab == bb && pair_eq(*ap, *bp),
@@ -480,7 +497,7 @@ pub mod gate {
         matches!(event,
             Event::PointerMoved(_) | Event::PointerPressed(_, _) | Event::PointerReleased(_, _)
             | Event::PointerCancelled(_) | Event::Scrolled(_) | Event::Pinched(_)
-            | Event::TrackpadScrolled { .. })
+            | Event::TrackpadScrolled { .. } | Event::Touch(_))
     }
     fn key_event(event: &Event) -> bool {
         matches!(event, Event::KeyPressed(_) | Event::KeyReleased(_) | Event::TextInput(_) | Event::TextEditing { .. } | Event::Paste(_))

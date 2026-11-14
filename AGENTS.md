@@ -313,3 +313,11 @@ before mutating input/environment/output. Input's snapshot entry resets the envi
 default. Keep static/dynamic cached-view invalidation, unchanged-cache, warm allocation, invalid
 output atomicity and layout checks. UIKit curve 7 is data, not a standard easing enum. Keyboard
 notifications must match the window's screen, use view coordinates and map their clock once.
+
+
+ABI 1.25 carries numeric Touch payloads (48 bytes) through Event.text for kind 25; this is never
+UTF-8. Preserve full 64-bit identities, source timestamps, all four phases and outside-window
+positions. Reserve typed arrays before publishing their pointers, and reuse host/routed buffers.
+Reject invalid payloads before mutating frame state/output in both entry points. Preserve native
+SDL trace, adjacent same-finger coalescing and static/dynamic 182/82/100 allocation regressions.
+Touch transport coverage does not qualify widget gesture arbitration or real-device feel.

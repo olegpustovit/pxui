@@ -2361,6 +2361,7 @@ impl Ui {
                     };
                     (owner, delta)
                 }
+                Event::Touch(t)=>(self.pointer_target(p32(t.point)),(0.0,0.0)),
                 Event::PointerPressed(_, point) | Event::PointerReleased(_, point) => {
                     (self.pointer_target(p32(*point)), (0.0, 0.0))
                 }
@@ -2748,6 +2749,12 @@ impl Ui {
     /// Event ownership is recorded before release/cancellation clears capture. A viewport passes
     /// its exact root key: child widgets retain their events.
     pub fn input(&self, owner: Option<i64>) -> rframe::Frame {
+        let mut out=rframe::Frame {input:input::at_time(0.0),pixel_scale:(1.0,1.0),fps:0.0,mouse_delta:(0.0,0.0)};
+        self.input_into(owner,&mut out);
+        out
+    }
+
+    pub fn input_into(&self,owner:Option<i64>,out:&mut rframe::Frame) {
         let owner = owner.unwrap_or(0);
         let frame = match &self.input_frame {
             Some(frame) => frame,
@@ -2755,7 +2762,8 @@ impl Ui {
         };
         let accepts = |target: i64| !self.modal_in_frame && (target == 0 || target == owner);
         let accepts_pointer = |target: i64| accepts(target) && (owner == 0 || target == owner);
-        let mut events: Vec<Event> = Vec::new();
+        let mut events=std::mem::take(&mut out.input.events);
+        events.clear();
         let (mut dx, mut dy) = (0.0, 0.0);
         let mut complete = true;
         for (target, event, (mx, my)) in &self.routed_events {
@@ -2763,7 +2771,7 @@ impl Ui {
                 Event::FocusLost | Event::PointerCancelled(_) => events.push(event.clone()),
                 _ => {
                     let ok = match event {
-                        Event::PointerPressed(..) | Event::PointerReleased(..) | Event::PointerMoved(_) | Event::Scrolled(_) => {
+                        Event::PointerPressed(..) | Event::PointerReleased(..) | Event::PointerMoved(_) | Event::Scrolled(_) | Event::Touch(_) => {
                             accepts_pointer(*target)
                         }
                         _ => accepts(*target),
@@ -2783,17 +2791,16 @@ impl Ui {
         }
         let held = self.active.is_some_and(|a| accepts_pointer(a));
         let pointer = held || (self.active.is_none() && frame.input.buttons.is_empty() && accepts_pointer(self.hot));
-        let mut cancelled = self.cancelled.clone();
-        if self.modal_in_frame {
-            cancelled.extend(frame.input.buttons.iter().cloned());
-        }
-        for button in cancelled {
-            events.push(Event::PointerCancelled(button));
-        }
-        let mut out = frame.clone();
+        for button in &self.cancelled {events.push(Event::PointerCancelled(*button));}
+        if self.modal_in_frame {for button in &frame.input.buttons {events.push(Event::PointerCancelled(*button));}}
         out.input.events = events;
-        out.input.keys = if self.modal_in_frame || self.focus != 0 { Vec::new() } else { frame.input.keys.clone() };
-        out.input.buttons = if held { frame.input.buttons.clone() } else { Vec::new() };
+        out.input.keys.clear();
+        if !self.modal_in_frame && self.focus==0 {out.input.keys.extend_from_slice(&frame.input.keys);}
+        out.input.buttons.clear();
+        if held {out.input.buttons.extend_from_slice(&frame.input.buttons);}
+        let i=&frame.input;
+        (out.input.t,out.input.dt,out.input.frame,out.input.tick,out.input.size,out.input.pointer)=(i.t,i.dt,i.frame,i.tick,i.size,i.pointer);
+        (out.pixel_scale,out.fps)=(frame.pixel_scale,frame.fps);
         out.mouse_delta = if !pointer {
             (0.0, 0.0)
         } else if complete {
@@ -2801,7 +2808,6 @@ impl Ui {
         } else {
             (dx, dy)
         };
-        out
     }
 
     /// When the last frame's UI needs another frame with no input: at once for a gesture, a

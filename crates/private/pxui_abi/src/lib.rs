@@ -63,4 +63,4 @@ pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, Pxui
 pub use pxui_types::ffi::{PxuiSaved, PxuiSignal};
 pub use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE};
 pub use pxui_types::ffi::PxuiDialogOut;
-pub const ABI_VERSION: u32 = 65560; // major 1 (high 16 bits), minor 24: host environment
+pub const ABI_VERSION: u32 = 65561; // major 1 (high 16 bits), minor 25: typed touch payloads

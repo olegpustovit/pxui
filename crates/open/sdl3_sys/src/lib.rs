@@ -634,8 +634,12 @@ pub enum DropChange { Begin, Position, Complete, File(String) }
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum DialogOutcome { Chosen(Vec<String>), Cancelled, Failed(String) }
 
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TouchPhase {Began,Moved,Ended,Cancelled}
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
+    Touch {device:u64,finger:u64,phase:TouchPhase,x:f64,y:f64,pressure:f32,seconds:f64},
     Quit,
     Window(WindowChange),
     /// `modifiers` is a bitmask of `KeyModifier` values; zero means no modifiers.
@@ -664,6 +668,8 @@ struct RawEvent {
     w: f64,
     text: *mut c_char,
     text_len: usize,
+    touch_id:u64,
+    finger_id:u64,
 }
 
 struct EventBuffer(*mut RawEvent);
@@ -740,6 +746,7 @@ unsafe fn decode(event: &RawEvent) -> Option<Event> {
         11 => Event::Scroll { x: event.x, y: event.y,
             phase: match event.a { 0 => ScrollPhase::Began, 1 => ScrollPhase::Changed,
                 2 => ScrollPhase::Ended, 3 => ScrollPhase::Momentum, _ => return None }, seconds: event.z },
+        12=>Event::Touch {device:event.touch_id,finger:event.finger_id,phase:match event.a {0=>TouchPhase::Began,1=>TouchPhase::Moved,2=>TouchPhase::Ended,3=>TouchPhase::Cancelled,_=>return None},x:event.x,y:event.y,pressure:event.w as f32,seconds:event.z},
         _ => return None,
     })
 }
@@ -861,6 +868,8 @@ mod ffi {
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_push_numeric_trace() -> bool;
         #[cfg(feature = "test-util")]
+        pub fn rays_sdl3_test_push_touch_trace(window:u32)->bool;
+        #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_dialog_reserve() -> c_int;
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_dialog_abandon(id: c_int);
@@ -896,7 +905,7 @@ mod tests {
         let raw = RawEvent {
             tag: 2, a: 0, b: b'a' as i32, c: 1 | 8, d: 1, e: 0, _f: 0, _g: 0, _h: 0,
             integer_x: 0, integer_y: 0, id: 0, x: 0.0, y: 0.0, z: 0.0, w: 0.0,
-            text: std::ptr::null_mut(), text_len: 0,
+            text: std::ptr::null_mut(), text_len: 0,touch_id:0,finger_id:0,
         };
         // SAFETY: this synthetic record contains no borrowed string pointers.
         assert_eq!(unsafe { decode(&raw) }, Some(Event::Key {
