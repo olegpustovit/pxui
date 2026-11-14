@@ -8,6 +8,98 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm_allocations() {
+    use std::cell::Cell;
+    use crate::ui::{Node,SectionList,SectionPart,Role};
+    mem_sys::set_peer(crate::library_counter);
+    for flat in [false,true] {
+    let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
+    let section=SectionList {count:10_000,row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true};
+    let body=Cell::new(None); let lead=Cell::new(None); let header=Cell::new(None); let first=Cell::new(None);
+    let rows=Cell::new(0usize); let clicked=Cell::new(false); let sorted=Cell::new(false);
+    let mut build=|ui:&mut Ui| {
+        rows.set(0); clicked.set(false); sorted.set(false); first.set(None);
+        body.set(Some(ui.section_list("section",&section,&mut |ui,part| {
+            match part {
+                SectionPart::Leading=>{
+                    let clip=ui.node("heading-clip",Node {flags:CLIP,w:Size::Grow,h:Size::Px(100.0),..Node::DEFAULT});
+                    ui.within(&clip,&mut |ui| {
+                        let view=if flat {Ui::view_flat} else {Ui::view};
+                        view(ui,"heading-cache",0,Size::Grow,Size::Fit,&mut |ui| {
+                            let node=ui.node("title",Node {role:Role::Label,w:Size::Grow,h:Size::Px(100.0),..Node::DEFAULT});
+                            ui.a11y_name(&node,"Page heading"); lead.set(Some(node));
+                        });
+                    });
+                }
+                SectionPart::Header=>{
+                    let node=ui.node("sort",Node {flags:CLICKABLE,role:Role::Button,w:Size::Px(50.0),h:Size::Grow,..Node::DEFAULT});
+                    ui.a11y_name(&node,"Sort"); header.set(Some(node)); sorted.set(ui.signal_state(&node).clicked);
+                }
+                SectionPart::Row(index)=>{
+                    rows.set(rows.get()+1);
+                    let node=ui.node("row",Node {flags:CLICKABLE,role:Role::Button,w:Size::Grow,h:Size::Grow,..Node::DEFAULT});
+                    ui.a11y_name(&node,"Row");
+                    if index==0 {first.set(Some(node));}
+                    clicked.set(clicked.get() || ui.signal_state(&node).clicked);
+                }
+            }
+        })));
+    };
+    ui.frame(&input(),&mut build).unwrap();
+    assert_eq!(ui.rect(&lead.get().unwrap()).y,0.0);
+    assert_eq!(ui.rect(&header.get().unwrap()).y,100.0);
+    assert_eq!(ui.rect(&first.get().unwrap()).y,130.0);
+    assert_eq!(ui.rect(&first.get().unwrap()).w,320.0,"overlay thumb reserves no gutter");
+    let id=ui.a11y_nodes().iter().find(|n|n.is_role(Role::List)).unwrap().id;
+    for round in 0..8 {
+        mem_sys::local_reset();
+        for offset in [90.0,105.0,500.0,199_900.0,0.0] {
+            let previous=ui.scroll_offset(&body.get().unwrap());
+            ui.inject_a11y(&[crate::A11yAction {id,action_code:8,payload:(offset-previous) as f64,..Default::default()}]);
+            ui.frame(&input(),&mut build).unwrap();
+            assert!((ui.scroll_offset(&body.get().unwrap())-offset).abs()<0.001,"scroll offset");
+            assert!((ui.rect(&lead.get().unwrap()).y+offset).abs()<0.001,"retained heading rect: {:?}",ui.rect(&lead.get().unwrap()));
+            let heading=ui.a11y_nodes().iter().find(|n|ui.a11y_name_of(n)=="Page heading").unwrap();
+            assert!((heading.rect.y+offset).abs()<0.001,"retained heading accessibility: {:?}",heading.rect);
+            assert_eq!(heading.states & crate::a11y::state::VISIBLE!=0,offset<100.0,"offscreen headings are not visible to accessibility");
+            assert!((ui.rect(&header.get().unwrap()).y-(100.0-offset).max(0.0)).abs()<0.001);
+            assert!((1..30).contains(&rows.get()),"only viewport rows plus overscan: {}",rows.get());
+        }
+        if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm leading/sticky/virtual section scrolling");}
+    }
+    ui.set_scroll_offset(&body.get().unwrap(),105.0);
+    ui.frame(&input(),&mut build).unwrap();
+    assert_eq!(ui.rect(&first.get().unwrap()).y,25.0,"row partly under the pinned heading");
+    for (x,y,sort,row) in [(200.0,27.0,false,false),(20.0,15.0,true,false),(200.0,35.0,false,true)] {
+        for kind in [crate::Event::POINTER_PRESSED,crate::Event::POINTER_RELEASED] {
+            let event=crate::Event {kind,x,y,..Default::default()};
+            ui.frame(&FrameIn {events:&event,event_count:1,..input()},&mut build).unwrap();
+        }
+        assert_eq!(sorted.get(),sort); assert_eq!(clicked.get(),row,"sticky padding blocks rows underneath");
+    }
+    }
+}
+
+#[test]
+fn section_lists_validate_geometry_recover_callbacks_and_support_empty_unpinned_sections() {
+    use crate::ui::{SectionList,SectionPart};
+    let valid=SectionList {count:0,row_height:20.0,leading_height:30.0,header_height:0.0,trailing_height:40.0,overlay_scrollbar:false};
+    let mut ui=Ui::new().unwrap();
+    let called=std::cell::Cell::new(false);
+    for bad in [SectionList {count:1_000_001,..valid},SectionList {row_height:0.0,..valid},SectionList {row_height:f32::NAN,..valid},SectionList {leading_height:-1.0,..valid},SectionList {header_height:f32::INFINITY,..valid},SectionList {trailing_height:-1.0,..valid},SectionList {count:2,row_height:f32::MAX,..valid}] {
+        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("bad",&bad,&mut |_,_|called.set(true));});})).is_err());
+        assert!(!called.get(),"invalid geometry reached the callback");
+    }
+    for fail in [SectionPart::Leading,SectionPart::Header,SectionPart::Row(0)] {
+        let section=SectionList {count:1,header_height:20.0,..valid};
+        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("panic",&section,&mut |_,part| {if part==fail {panic!("section callback");}});});})).is_err());
+        let mut calls=0;
+        ui.frame(&input(),&mut |ui| {ui.section_list("empty",&valid,&mut |_,part| {assert_eq!(part,SectionPart::Leading);calls+=1;});}).unwrap();
+        assert!(calls>=1,"empty sections retain the lead-in and omit a zero heading and all rows");
+    }
+}
+
+#[test]
 fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();

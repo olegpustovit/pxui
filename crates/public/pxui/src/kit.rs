@@ -19,6 +19,7 @@ mod sys {
     use pxui_types::{PxuiBox, Str, ffi::Slice};
     #[link(name = "pxui")]
     unsafe extern "C" {
+    pub fn pxui_ui_section_list(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiSectionListDesc,out:*mut PxuiBox)->i32;
     pub fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const GridListDesc, out: *mut PxuiBox) -> i32;
     pub fn pxui_ui_list_measured(ui:*mut PxuiUi,label:Str,count:usize,estimate_h:f32,build:GridBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
     pub fn pxui_ui_split(ui: *mut PxuiUi, desc: *const SplitDesc, changed: *mut u8, ratio: *mut f32) -> i32;
@@ -134,6 +135,25 @@ impl Hints {
 }
 
 impl Ui {
+    /// A scrolling lead-in, sticky heading and virtual fixed-height rows in one scroll region.
+    #[track_caller]
+    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,build:&mut dyn FnMut(&mut Ui,pxui_types::ui::SectionPart))->PxuiBox {
+        let mut out=PxuiBox::default();
+        let mut invoke=|ui:&mut Ui,index| build(ui,match index {usize::MAX=>pxui_types::ui::SectionPart::Leading,index if index==usize::MAX-1=>pxui_types::ui::SectionPart::Header,index=>pxui_types::ui::SectionPart::Row(index)});
+        #[cfg(feature="static")]
+        check(self,unsafe {pxui_abi_link::trusted::section_list(self.0.as_ptr(),label,section,&mut |raw:*mut crate::sys::PxuiUi,index| {
+            let mut ui=ManuallyDrop::new(Ui(NonNull::new_unchecked(raw))); invoke(&mut ui,index);
+        },&mut out)});
+        #[cfg(not(feature="static"))]
+        {
+            let mut context=GridCallback {f:&mut invoke};
+            let (build,user)=context.erased();
+            let desc=pxui_types::ffi::PxuiSectionListDesc {size:core::mem::size_of::<pxui_types::ffi::PxuiSectionListDesc>() as u32,overlay_scrollbar:u8::from(section.overlay_scrollbar),reserved:[0;3],label:as_str(label),count:section.count,row_height:section.row_height,leading_height:section.leading_height,header_height:section.header_height,trailing_height:section.trailing_height,build,user};
+            check(self,unsafe {sys::pxui_ui_section_list(self.0.as_ptr(),&desc,&mut out)});
+        }
+        out
+    }
+
     /// Virtual rows with cached measured heights; estimate unseen rows, then settle changed measurements in the same frame.
     #[inline]
     #[track_caller] pub fn list_measured(&mut self,label:&str,count:usize,estimate_h:f32,build:&mut dyn FnMut(&mut Ui,usize))->PxuiBox {

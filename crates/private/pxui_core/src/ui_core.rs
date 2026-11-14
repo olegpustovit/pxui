@@ -374,7 +374,7 @@ struct ViewRec {
     a11y_span: (u32, u32),
     a11y_gen: u64,
     /// the placement its rects were taken under: shift, scale, transform, pivot, composed affine
-    a11y_shift: [f32; 15],
+    a11y_shift: [f32; 19],
     /// where its span started in the published tree when this walk copied it (`u32::MAX`: emitted)
     a11y_from: u32,
     /// the composed entry and the screen rectangle it shows
@@ -441,7 +441,7 @@ impl ViewRec {
             a11y_span: (0, 0),
             a11y_gen: 0,
             a11y_from: u32::MAX,
-            a11y_shift: [0.0; 15],
+            a11y_shift: [0.0; 19],
             shift: (0.0, 0.0),
             alpha: 1.0,
             outer: UNBOUNDED,
@@ -1640,7 +1640,7 @@ impl Ui {
         // its own transform and the composed one around it (`compose` keeps both)
         let [t0, t1, t2, t3] = xf.transform;
         let [a0, a1, a2, a3] = xf.pa;
-        let shift = [xf.shift.0, xf.shift.1, xf.scale, t0, t1, t2, t3, xf.pivot.0, xf.pivot.1, a0, a1, a2, a3, xf.pb[0], xf.pb[1]];
+        let shift = [xf.shift.0, xf.shift.1, xf.scale, t0, t1, t2, t3, xf.pivot.0, xf.pivot.1, a0, a1, a2, a3, xf.pb[0], xf.pb[1], xf.outer.x, xf.outer.y, xf.outer.w, xf.outer.h];
         if v != 0 && r.built != self.frame_number && r.a11y_gen == self.a11y_gen && r.a11y_shift == shift && !self.a11y_full {
             // kept and unmoved: its run of the published tree, nested views included, as it was (the
             // nested views' spans follow after the walk, `a11y_relocate`)
@@ -1699,13 +1699,14 @@ impl Ui {
                 // where it shows: offset and transformed as `rect` reports it
                 let xf = &self.views[self.views[s.owner as usize].xf as usize];
                 let rect = xf.cover(Rect::new(s.rx + xf.shift.0, s.ry + xf.shift.1, s.rw, s.rh));
-                let shown = Rect::new(s.rx, s.ry, s.rw, s.rh).intersect(s.clip);
+                let local = Rect::new(s.rx, s.ry, s.rw, s.rh).intersect(s.clip);
+                let shown = xf.cover(Rect::new(local.x + xf.shift.0, local.y + xf.shift.1, local.w, local.h)).intersect(xf.outer);
                 let mut states = n.a11y;
                 let mut acts = 0;
                 if !n.state.disabled {
                     states |= a11y_state::ENABLED;
                 }
-                if shown.w > 0.0 && shown.h > 0.0 {
+                if local.w > 0.0 && local.h > 0.0 && shown.w > 0.0 && shown.h > 0.0 {
                     states |= a11y_state::VISIBLE;
                 }
                 if n.flags & FOCUSABLE != 0 {
@@ -5266,21 +5267,41 @@ impl Ui {
             }
         } else {
             // Culled: keep retained rectangles current for `rect` queries.
-            self.retain_rects(index);
+            self.retain_rects(index, clip_rect);
         }
     }
 
-    fn retain_rects(&mut self, index: usize) {
+    fn retain_rects(&mut self, index: usize, clip: Rect) {
+        let rect = self.screen(index);
+        let slot = self.boxes[index].slot;
+        let s = &mut self.slots[slot];
+        (s.rx, s.ry, s.rw, s.rh, s.clip) = (rect.x, rect.y, rect.w, rect.h, clip);
+        let n = self.nd(index);
+        let child_clip = if n.flags & CLIP != 0 {
+            let p = n.padding;
+            clip.intersect(Rect::new(rect.x + p.l, rect.y + p.t, (rect.w - p.l - p.r).max(0.0), (rect.h - p.t - p.b).max(0.0)))
+        } else { clip };
+        let v = self.boxes[index].view;
+        if v != NO_VIEW {
+            let r = &mut self.views[v as usize];
+            r.box_clip = child_clip;
+            if self.boxes[index].kept {
+                r.delta = (rect.x - r.built_rect.x, rect.y - r.built_rect.y);
+                let resized = rect.w != r.built_rect.w || rect.h != r.built_rect.h;
+                r.reflow |= resized;
+                if resized || (r.index == 0 && r.delta != (0.0, 0.0)) {
+                    self.mark_view(v);
+                    self.frame_requested = true;
+                    self.settle = true;
+                }
+            } else {
+                r.built_rect = rect;
+                r.delta = (0.0, 0.0);
+            }
+        }
         let mut child = self.boxes[index].first;
         while child != NONE {
-            let Rect { x, y, w, h } = self.screen(child);
-            let slot = self.boxes[child].slot;
-            let s = &mut self.slots[slot];
-            s.rx = x;
-            s.ry = y;
-            s.rw = w;
-            s.rh = h;
-            self.retain_rects(child);
+            self.retain_rects(child, child_clip);
             child = self.boxes[child].next;
         }
     }
@@ -6382,6 +6403,45 @@ impl Ui {
         body
     }
 
+    /// A single scrolling section; headings use the existing sticky layout and rows stay virtual.
+    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
+        let rows_h=section.count as f32*section.row_height;
+        let before=section.leading_height+section.header_height;
+        let total=before+rows_h+section.trailing_height;
+        assert!(section.row_height>0.0 && section.row_height.is_finite() && total.is_finite()
+            && [section.leading_height,section.header_height,section.trailing_height].iter().all(|v|v.is_finite() && *v>=0.0),"Ui.section_list: invalid section geometry");
+        let flags=SCROLL|CLIP|if section.overlay_scrollbar {OVER_THUMB} else {0};
+        let body=self.node(label,Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
+        let seen=self.slots[body.box_slot].rh;
+        let height=if seen>0.0 {seen} else {self.view_h};
+        self.expect(body.box_slot,f32::NAN,height);
+        self.set_l_h(&body,height);
+        self.set_l_content(&body,total);
+        if let Some(time)=self.input_frame_time() {self.apply_scroll(true,time,body.index);}
+        let offset=self.scroll_position(&body);
+        let top=((offset-before)/section.row_height).floor().max(0.0) as usize;
+        let bottom=((offset+height-before)/section.row_height).ceil().max(0.0) as usize;
+        let first=top.saturating_sub(OVERSCAN).min(section.count);
+        let last=bottom.saturating_add(OVERSCAN+1).min(section.count);
+        let saved=self.enter(&body);
+        for (key,h,flags,index) in [("leading",section.leading_height,0,usize::MAX),("header",section.header_height,STICKY|BLOCKING,usize::MAX-1)] {
+            if h>0.0 {
+                let part=self.node(key,Node {flags,w:Size::Grow,h:Size::Px(h),..Node::DEFAULT});
+                let inner=self.enter(&part); f(self,index); self.leave(inner);
+            }
+        }
+        let extent=self.node("rows",Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
+        let inner=self.enter(&extent);
+        for index in first..last {
+            let row=self.node_keyed(int_key(body.box_key,index as i64),Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,index as f32*section.row_height)).into(),role:Role::ListItem,..Node::DEFAULT});
+            let part=self.enter(&row); f(self,index); self.leave(part);
+        }
+        self.leave(inner);
+        if section.trailing_height>0.0 {self.node("trailing",Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
+        self.leave(saved);
+        body
+    }
+
     /// `list` with rows of their own (`Fit`) heights: each row is measured when it is built and its
     /// height cached by index (rows not yet built count `estimate_h`); the rows' tops are prefix sums
     /// of the cache, so the scroll position finds its row by binary search. A measured height that
@@ -6769,19 +6829,26 @@ impl Ui {
         let mut out = std::mem::take(&mut self.view_prev);
         out.clear();
         for v in 1..self.views.len() as u32 {
-            if self.views[v as usize].index == 0 || !self.shown(v) {
+            if self.views[v as usize].index == 0 || self.views[v as usize].slot == NONE {
                 continue;
             }
+            let shown = self.shown(v);
             let (old_entry, old_cover) = (self.views[v as usize].entry(), self.views[v as usize].cover(self.views[v as usize].screen));
+            // Culled views still place rect/accessibility queries, without retaining draw runs.
             self.compose(v);
             let r = &self.views[v as usize];
             if r.entry() != old_entry {
                 let cover = r.cover(r.screen);
-                self.add_damage(old_cover);
-                self.add_damage(cover);
+                self.a11y_dirty = true;
+                if shown {
+                    self.add_damage(old_cover);
+                    self.add_damage(cover);
+                }
             }
-            let r = &self.views[v as usize];
-            out.push((r.index, r.entry()));
+            if shown {
+                let r = &self.views[v as usize];
+                out.push((r.index, r.entry()));
+            }
         }
         let changed = out != self.view_out;
         self.a11y_dirty |= changed;

@@ -503,6 +503,16 @@ pub type PxuiGridBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core:
 pub struct PxuiMenuDesc { pub size: u32, pub reserved: u32, pub title: Str, pub items: Slice<Str> }
 #[repr(C)]
 pub struct PxuiGridListDesc { pub size: u32, pub reserved: u32, pub label: Str, pub count: usize, pub cell_w: f32, pub cell_h: f32, pub build: PxuiGridBuild, pub user: *mut core::ffi::c_void }
+
+/// The callback receives usize::MAX for the lead-in, MAX-1 for the heading, and an index for rows.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PxuiSectionListDesc {
+    pub size:u32, pub overlay_scrollbar:u8, pub reserved:[u8;3],
+    pub label:Str, pub count:usize,
+    pub row_height:f32, pub leading_height:f32, pub header_height:f32, pub trailing_height:f32,
+    pub build:PxuiGridBuild, pub user:*mut core::ffi::c_void,
+}
 #[repr(C)]
 pub struct PxuiSplitDesc { pub size: u32, pub axis: u32, pub label: Str, pub ratio: f32, pub min_a: f32, pub min_b: f32, pub reserved: u32, pub build_a: PxuiBuild, pub user_a: *mut core::ffi::c_void, pub build_b: PxuiBuild, pub user_b: *mut core::ffi::c_void }
 #[repr(C)]
@@ -708,6 +718,7 @@ mod layout {
         config_layouts(&mut check);
         check("PxuiMenuDesc", size_of::<PxuiMenuDesc>(), align_of::<PxuiMenuDesc>(), &[offset_of!(PxuiMenuDesc, size), offset_of!(PxuiMenuDesc, reserved), offset_of!(PxuiMenuDesc, title), offset_of!(PxuiMenuDesc, items)]);
         check("PxuiGridListDesc", size_of::<PxuiGridListDesc>(), align_of::<PxuiGridListDesc>(), &[offset_of!(PxuiGridListDesc, size), offset_of!(PxuiGridListDesc, reserved), offset_of!(PxuiGridListDesc, label), offset_of!(PxuiGridListDesc, count), offset_of!(PxuiGridListDesc, cell_w), offset_of!(PxuiGridListDesc, cell_h), offset_of!(PxuiGridListDesc, build), offset_of!(PxuiGridListDesc, user)]);
+        check("PxuiSectionListDesc", size_of::<PxuiSectionListDesc>(), align_of::<PxuiSectionListDesc>(), &[offset_of!(PxuiSectionListDesc, size), offset_of!(PxuiSectionListDesc, overlay_scrollbar), offset_of!(PxuiSectionListDesc, reserved), offset_of!(PxuiSectionListDesc, label), offset_of!(PxuiSectionListDesc, count), offset_of!(PxuiSectionListDesc, row_height), offset_of!(PxuiSectionListDesc, leading_height), offset_of!(PxuiSectionListDesc, header_height), offset_of!(PxuiSectionListDesc, trailing_height), offset_of!(PxuiSectionListDesc, build), offset_of!(PxuiSectionListDesc, user)]);
         check("PxuiSplitDesc", size_of::<PxuiSplitDesc>(), align_of::<PxuiSplitDesc>(), &[offset_of!(PxuiSplitDesc, size), offset_of!(PxuiSplitDesc, axis), offset_of!(PxuiSplitDesc, label), offset_of!(PxuiSplitDesc, ratio), offset_of!(PxuiSplitDesc, min_a), offset_of!(PxuiSplitDesc, min_b), offset_of!(PxuiSplitDesc, reserved), offset_of!(PxuiSplitDesc, build_a), offset_of!(PxuiSplitDesc, user_a), offset_of!(PxuiSplitDesc, build_b), offset_of!(PxuiSplitDesc, user_b)]);
         check("PxuiMenuBarDesc", size_of::<PxuiMenuBarDesc>(), align_of::<PxuiMenuBarDesc>(), &[offset_of!(PxuiMenuBarDesc, size), offset_of!(PxuiMenuBarDesc, reserved), offset_of!(PxuiMenuBarDesc, label), offset_of!(PxuiMenuBarDesc, menus)]);
         check("PxuiMenuOut", size_of::<PxuiMenuOut>(), align_of::<PxuiMenuOut>(), &[offset_of!(PxuiMenuOut, size), offset_of!(PxuiMenuOut, reserved), offset_of!(PxuiMenuOut, menu), offset_of!(PxuiMenuOut, item)]);

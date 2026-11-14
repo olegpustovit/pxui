@@ -160,3 +160,4 @@ TextSpans 200 4 0 4 8
 
 # FrameIn above freezes the accepted v1 prefix; the complete ABI 1.8 descriptor follows.
 FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
+PxuiSectionListDesc 64 8 0 4 5 8 24 32 36 40 44 48 56

@@ -213,3 +213,13 @@ density changes, equal-density retention and static/dynamic warm allocation chec
 
 Analytic stroke widths must also fit the existing f16 instance field (maximum 65,504); reject
 finite overflow before writing an instance. Preserve the huge-finite-width regression.
+
+
+ABI 1.20 adds Ui::section_list / pxui_ui_section_list: one scrolling lead-in, optional pinned
+heading and fixed-height virtual rows, with an optional overlay scrollbar. Reuse the existing
+sticky, blocking and scroll layout; keep row selection O(viewport rows), never allocate per count.
+C callbacks receive SIZE_MAX for the lead-in, SIZE_MAX-1 for the heading, otherwise a row index.
+Validate the whole descriptor before building anything; preserve callback guards and recovery.
+Culled cached views still update their composed geometry and accessibility visibility, without
+keeping offscreen draw runs. Preserve indexed/flat/clipped heading scrolling, the 570-row storage
+bound, native 1x/2x opaque heading/right-edge pixels, click blocking and warm allocation checks.

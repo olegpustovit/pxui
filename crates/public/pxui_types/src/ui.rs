@@ -6,6 +6,20 @@ use crate::theme::Look;
 use crate::Flags;
 use std::borrow::Cow;
 
+/// Fixed rows in one scroll region, with a scrolling lead-in and a sticky column heading.
+#[derive(Clone, Copy, Debug)]
+pub struct SectionList {
+    pub count: usize,
+    pub row_height: f32,
+    pub leading_height: f32,
+    pub header_height: f32,
+    pub trailing_height: f32,
+    pub overlay_scrollbar: bool,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SectionPart { Leading, Header, Row(usize) }
+
 pub const NO_FLAGS: Flags = 0;
 pub const CLICKABLE: Flags = 1;
 pub const FOCUSABLE: Flags = 2;

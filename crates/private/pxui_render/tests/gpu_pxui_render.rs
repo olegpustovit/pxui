@@ -206,6 +206,7 @@ fn main() {
         ("shared_large_image_layer_allocates_nothing", shared_large_image_layer_allocates_nothing),
         ("shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images", shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_images),
         ("shared_fractional_fills_render_thin_bars_in_one_warm_draw", shared_fractional_fills_render_thin_bars_in_one_warm_draw),
+        ("shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations",shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations),
     ];
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.iter().any(|a| a == "--ignored") { return; }
@@ -1903,6 +1904,57 @@ fn shared_fractional_fills_render_thin_bars_in_one_warm_draw() {
         }
         drop(renderer);
         ok(be::destroy_texture(&target));
+    }
+    finish(device,queue);
+}
+
+fn shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations() {
+    let Some(device)=open() else {return};
+    let queue=ok(be::create_queue(&device));
+    mem_sys::set_peer(pxui::library_counter);
+    for scale in [1u32,2] {
+        let target=texture(&device,320*scale,240*scale,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+        let mut ui=pxui::Ui::new().unwrap();
+        let mut renderer=shared_renderer(&device,&ui);
+        let mut body=None;
+        let mut frame=0;
+        for round in 0..6 {
+            for offset in [90.0,105.0] {
+                if let Some(body)=body {ui.set_scroll_offset(&body,offset);}
+                frame+=1;
+                mem_sys::local_reset();
+                ui.frame(&pxui_types::FrameIn {width:320.0,height:240.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+                    body=Some(ui.section_list("section",&pxui::ui::SectionList {count:10_000,row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true},&mut |ui,part| {
+                        let (r,g,b)=match part {pxui::ui::SectionPart::Leading=>(255,0,0),pxui::ui::SectionPart::Header=>(255,255,255),pxui::ui::SectionPart::Row(_)=>(0,0,255)};
+                        let mut paint=|ui:&mut pxui::Ui| {ui.node("paint",pxui::ui::Node {w:pxui::ui::Size::Grow,h:pxui::ui::Size::Px(if part==pxui::ui::SectionPart::Leading {100.0} else if part==pxui::ui::SectionPart::Header {30.0} else {20.0}),look:pxui::ui::Look {fill:pxui::geom::Rgba {r,g,b,a:255},..pxui::ui::Look::NONE},..pxui::ui::Node::DEFAULT});};
+                        if part==pxui::ui::SectionPart::Leading {ui.view("heading-cache",0,pxui::ui::Size::Grow,pxui::ui::Size::Fit,&mut paint);} else {paint(ui);}
+                    }));
+                }).unwrap();
+                let build_allocations=mem_sys::local_alloc_count();
+                let commands=ok(be::begin_commands(&queue));
+                renderer.prepare(&public_commands(&commands),frame,frame-1).unwrap();
+                let encoder=ok(be::render_encoder(&commands,&RenderTarget {colors:vec![ColorAttachment {texture:target.clone(),resolve:None,load:Load::Clear,store:Store::Store,clear:(0.0,0.0,0.0,1.0)}],depth:None}));
+                let native=ok(be::native_pass(&encoder));
+                let pass=pxui_types::Pass {vk_command_buffer:native.vk_command_buffer,mtl_render_encoder:native.mtl_render_encoder,mtl_command_buffer:public_commands(&commands).mtl_command_buffer,width_px:320*scale,height_px:240*scale,scale:scale as f32,..Default::default()};
+                let before=renderer.draw_calls();
+                mem_sys::local_reset();
+                renderer.draw(&pass).unwrap();
+                if round>=3 {assert_eq!(build_allocations+mem_sys::local_alloc_count(),0,"warm section build/draw at {scale}x");}
+                assert_eq!(renderer.draw_calls()-before,1,"one analytic layer");
+                ok(be::invalidate_state(&encoder));ok(be::end_render(&encoder));
+                let submitted=ok(be::commit(&commands));ok(be::complete_through(&queue,submitted.epoch));
+                if round>=1 {
+                    let pixels=ok(be::read_texture(&target,(320*scale*4).into()));
+                    let sample=|x:u32,y:u32| {let at=((y*scale)*(320*scale)+x*scale) as usize*4;[pixels[at],pixels[at+1],pixels[at+2],pixels[at+3]]};
+                    assert_eq!(sample(100,27),[255,255,255,255],"opaque pinned header covers the row below");
+                    assert_eq!(sample(100,50),[0,0,255,255]);
+                    assert_eq!(sample(319,120),[0,0,255,255],"no reserved scrollbar gutter");
+                    if offset==90.0 {assert_eq!(sample(100,5),[255,0,0,255],"lead-in scrolls naturally");}
+                    else {assert_eq!(sample(100,5),[255,255,255,255],"heading pins after the lead-in exits");}
+                }
+            }
+        }
+        drop(renderer);ok(be::destroy_texture(&target));
     }
     finish(device,queue);
 }

@@ -406,6 +406,23 @@ pub unsafe fn list_measured(ui:*mut PxuiUi,label:&str,count:usize,estimate_h:f32
     0
 }
 
+/// One fixed-height section, sharing the existing borrowed grid callback protocol.
+#[inline]
+pub unsafe fn section_list(ui:*mut PxuiUi,label:&str,section:&pxui_types::ui::SectionList,f:&mut dyn FnMut(*mut PxuiUi,usize),out:&mut PxuiBox)->i32 {
+    enter!(ui);
+    if !unsafe { (*(*ui).shared).in_frame } {return crate::PXUI_ERR_STATE;}
+    let total=section.leading_height+section.header_height+section.count as f32*section.row_height+section.trailing_height;
+    if long(label) || section.count>MAX_ITEMS || !section.row_height.is_finite() || section.row_height<=0.0
+        || !total.is_finite() || [section.leading_height,section.header_height,section.trailing_height].iter().any(|v|!v.is_finite() || *v<0.0) {return unsafe {fail(ui,"invalid section list geometry")};}
+    let shared=unsafe {(*ui).shared};
+    *out=to_abi_box(unsafe {engine(ui)}.section_list(label,section,&mut |engine:&mut Ui,index| {
+        let mut borrowed=PxuiUi::borrowed(engine,shared);
+        let _current=crate::state::Current::set(shared,&mut borrowed);
+        f(&mut borrowed,index);
+    }));
+    0
+}
+
 /// A grid of `count` cells, built on demand: `f` gets the borrowed handle and the cell's index.
 #[inline]
 pub unsafe fn grid_list(ui: *mut PxuiUi, label: &str, count: usize, cell_w: f32, cell_h: f32, f: &mut dyn FnMut(*mut PxuiUi, usize), out: &mut PxuiBox) -> i32 {
