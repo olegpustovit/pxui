@@ -191,3 +191,16 @@ boundaries. Preserve legacy text/text_spans positioning. Only explicit line-box 
 Fit dimensions from shaped text; empty labels retain one line and resolved Grow widths settle
 wrapped height in the same frame. Preserve invalid-input atomicity, static/dynamic resize/empty
 checks and warm allocations. Font metrics are normalized once when a font is loaded.
+
+
+Paint::curve / Paint::cubic use the renderer's existing analytic quadratic instances through the
+shared shape writer. Cubic uses four midpoint-matched segments for control-sized paths; preserve
+the documented limit and LocalWave's subpixel SVG comparison. No new draw pipeline or C layout.
+Reject nonfinite geometry and nonpositive/nonfinite widths; warm shape building allocates nothing.
+
+ABI 1.18 adds TextStyle::WRAP_WORD_SPACES (3), retaining logical blank advances omitted between
+visible soft-wrapped runs in fitting metrics. Preserve normal word/glyph/no-wrap metrics and all
+visible glyph positions. Reuse the text engine's row scratch and cached metrics; inspect blank
+shape glyphs against monotonically ordered logical run bounds, never re-shape substrings or scan
+every paragraph once per line. Hidden/truncated paragraphs do not contribute space advances.
+Preserve static/dynamic whitespace, paragraph, BiDi, glyph equality and warm allocation checks.

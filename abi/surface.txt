@@ -10,6 +10,8 @@ Paint|cap|Rays|done
 Paint|caret_x|Rays|done
 Paint|chevron|Rays|inlined
 Paint|circle|Rays|inlined
+Paint|curve|LocalWave|inlined: existing analytic CURVE instances
+Paint|cubic|LocalWave|inlined: four existing CURVE instances
 Paint|clip_radius|Rays|inlined: the pub field, read once with the painter's info
 Paint|clip_rect|Rays|inlined
 Paint|dashed_rect|Rays|inlined

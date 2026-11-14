@@ -146,7 +146,12 @@ typedef int32_t (*PxuiPassSplit)(void *user, PxuiPassRecord record, void *record
 /* Draws layers first_layer.. (layer_count of them; 0 means every layer from first_layer), so an app can draw its own content between. */
 struct PxuiPass { uint32_t size; void *vk_command_buffer, *mtl_render_encoder; uint32_t width_px,height_px; float scale; void *mtl_command_buffer; uint32_t first_layer,layer_count; PxuiPassSplit split; void *split_user; };
 typedef struct { uint32_t size, format; uint8_t samples; uint8_t reserved[3]; uint32_t mask_width,mask_height,color_width,color_height,reserved_tail; } PxuiTargetDesc;
+/* wrap: 0 none, 1 word, 2 glyph, 3 word with omitted soft-wrap separator advances in fitting width (ABI 1.18). */
 typedef struct { uint32_t size; uint16_t font,weight; float size_points,line_height; uint32_t wrap,align; uint16_t max_lines; uint8_t italic,ellipsis; uint32_t features; float tracking; } PxuiTextStyle;
+#define PXUI_TEXT_WRAP_NONE 0u
+#define PXUI_TEXT_WRAP_WORD 1u
+#define PXUI_TEXT_WRAP_GLYPH 2u
+#define PXUI_TEXT_WRAP_WORD_SPACES 3u
 #define PXUI_TEXT_FEATURE_TABULAR_NUMBERS 1u
 /* Truncate the last visible line (one when max_lines is 0). */
 #define PXUI_TEXT_ELLIPSIS_NONE 0u

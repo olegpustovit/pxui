@@ -8,6 +8,72 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn analytic_curves_preserve_fractional_geometry_validate_and_reuse_warm_storage() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    for round in 0..6 {
+        mem_sys::local_reset();
+        for scale in [1.0,2.0] {
+            ui.frame(&FrameIn {scale,..input()},&mut |ui| {
+                let node=ui.node("curves",crate::Node {w:Size::Px(100.0),h:Size::Px(100.0),..crate::Node::DEFAULT});
+                ui.draw(&node,|paint,_| {
+                    let color=crate::geom::Rgba {r:12,g:34,b:56,a:255};
+                    paint.curve((1.25,2.75),(3.5,4.25),(5.75,6.5),1.6,color);
+                    paint.cubic([(7.0,7.0),(11.5,7.0),(12.5,17.0),(17.0,17.0)],1.6,color);
+                    for width in [0.0,-1.0,f32::NAN,f32::INFINITY] {
+                        paint.curve((0.0,0.0),(1.0,1.0),(2.0,2.0),width,color);
+                        paint.cubic([(0.0,0.0);4],width,color);
+                    }
+                    paint.curve((f32::INFINITY,0.0),(1.0,1.0),(2.0,2.0),1.0,color);
+                    paint.cubic([(f32::NAN,0.0);4],1.0,color);
+                });
+            }).unwrap();
+            let mut instances=ui.layers().flat_map(|layer|layer.instances.iter());
+            let first=instances.next().unwrap();
+            assert_eq!(first.kind,crate::draw::kind::CURVE);
+            assert_eq!(first.rect,[1.25,2.75,5.75,6.5]);
+            assert_eq!(first.extra,[3.5f32.to_bits(),4.25f32.to_bits()]);
+            assert_eq!(instances.count(),4,"one quadratic and four cubic pieces; invalid geometry emits nothing");
+        }
+        if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"analytic curve build/draw storage");}
+    }
+}
+
+#[test]
+fn soft_wrap_separator_widths_preserve_glyphs_and_cached_measurements() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let values=["one two three four","one   two three four","one two\nthree four","one\u{00a0}two three four","one אב two three four","\t one two three four"];
+    for round in 0..6 {
+        mem_sys::local_reset();
+        ui.frame(&input(),&mut |ui| {
+            for (index,value) in values.into_iter().enumerate() {
+                let plain=crate::TextStyle {size_points:12.0,line_height:20.0,wrap:crate::TextStyle::WRAP_WORD,..Default::default()};
+                let logical=crate::TextStyle {wrap:crate::TextStyle::WRAP_WORD_SPACES,..plain};
+                let base=index as u64*8+100;
+                let a=ui.text_service().measure(base,value,&plain,50.0).unwrap();
+                let b=ui.text_service().measure(base+1,value,&logical,50.0).unwrap();
+                assert_eq!((a.height,a.lines,a.baseline),(b.height,b.lines,b.baseline));
+                assert!(b.width>=a.width && b.width.is_finite());
+                if index==0 {
+                    let space=ui.text_service().width(base+2," ",&plain,0.0).unwrap();
+                    assert!((b.width-a.width-space).abs()<0.001,"the longest wrapped word retains its break space");
+                }
+                if round==0 {
+                    let a=ui.text_service().quads(base,value,&plain,50.0,(0.0,0.0),1.0).unwrap();
+                    let b=ui.text_service().quads(base+1,value,&logical,50.0,(0.0,0.0),1.0).unwrap();
+                    assert_eq!(a,b,"separator metrics leave visible glyphs unchanged");
+                }
+                let plain=crate::TextStyle {max_lines:1,..plain};
+                let logical=crate::TextStyle {max_lines:1,..logical};
+                assert_eq!(ui.text_service().measure(base+3,value,&plain,50.0).unwrap(),ui.text_service().measure(base+4,value,&logical,50.0).unwrap(),"hidden paragraphs must not contribute trailing spaces");
+            }
+        }).unwrap();
+        if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"both wrapping modes retain measurement storage");}
+    }
+}
+
+#[test]
 fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds() {
     use std::cell::Cell;
     use pxui_types::Event;

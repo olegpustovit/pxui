@@ -86,6 +86,7 @@ pub enum Wrap {
     None,
     Word,
     Glyph,
+    WordSpaces,
 }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Align {
@@ -608,6 +609,7 @@ pub struct Text {
     system:Option<Box<system::SystemFonts>>,
     names: Vec<String>,
     font_metrics: Vec<(f32,f32)>,
+    wrap_rows: Vec<(usize,usize,usize,f32)>,
     entries: HashMap<u64, Entry, Fast>,
     /// every entry's key, and where the incremental sweep goes on
     keys: Vec<u64>,
@@ -656,6 +658,7 @@ impl Text {
             names: Vec::new(),
             system:None,
             font_metrics: Vec::new(),
+            wrap_rows: Vec::new(),
             entries: HashMap::default(),
             keys: Vec::new(),
             sweep: 0,
@@ -767,7 +770,7 @@ impl Text {
         b.set_metrics(CMetrics::new(style.size, lh));
         b.set_wrap(match style.wrap {
             Wrap::None => CWrap::None,
-            Wrap::Word => CWrap::WordOrGlyph,
+            Wrap::Word | Wrap::WordSpaces => CWrap::WordOrGlyph,
             Wrap::Glyph => CWrap::Glyph,
         });
         let lines = style.max_lines as usize;
@@ -805,13 +808,37 @@ impl Text {
         b.shape_until_scroll(&mut self.g.fs, true);
         if let Some(system)=&mut self.system { system::shape(b,&mut self.g.fs,system); }
         let mut m = Metrics::default();
+        let logical_spaces=style.wrap==Wrap::WordSpaces;
+        let rows=&mut self.wrap_rows;
+        if logical_spaces {rows.clear();}
         for run in b.layout_runs() {
+            if logical_spaces {
+                let start=run.glyphs.iter().map(|g|g.start).min().unwrap_or(0);
+                let end=run.glyphs.iter().map(|g|g.end).max().unwrap_or(0);
+                rows.push((run.line_i,start,end,run.line_w));
+            }
             if m.lines == 0 {
                 m.baseline = run.line_y - run.line_top;
             }
             m.lines += 1;
             m.w = m.w.max(run.line_w);
             m.h = run.line_top + run.line_height;
+        }
+        if logical_spaces {
+            rows.sort_unstable_by_key(|row|(row.0,row.2));
+            // Soft wraps omit their separating blank glyphs; retain their logical advance for fitting.
+            for (line,buffer) in b.lines.iter().enumerate() {
+                if let Some(shape)=buffer.shape_opt() {
+                    for glyph in shape.spans.iter().flat_map(|s|&s.words).filter(|w|w.blank).flat_map(|w|&w.glyphs) {
+                        let next=rows.partition_point(|row|(row.0,row.2)<=(line,glyph.start));
+                        if next>0 && next<rows.len() && rows[next-1].0==line && rows[next].0==line
+                            && glyph.start>=rows[next-1].2 && glyph.end<=rows[next].1 {
+                            rows[next-1].3+=glyph.width(style.size);
+                        }
+                    }
+                }
+            }
+            m.w=rows.iter().fold(m.w,|width,row|width.max(row.3));
         }
         if !spans.is_empty() || e.rich.is_some() {
             let rich=e.rich.get_or_insert_with(||Box::new(Rich { spans:TextSpans::default() }));

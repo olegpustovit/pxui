@@ -25,7 +25,7 @@ pub(crate) fn style(value: TextStyle) -> Option<Style> {
         weight: value.weight,
         italic: value.italic != 0,
         line_height: value.line_height,
-        wrap: match value.wrap { TextStyle::WRAP_NONE => Wrap::None, TextStyle::WRAP_WORD => Wrap::Word, TextStyle::WRAP_GLYPH => Wrap::Glyph, _ => return None },
+        wrap: match value.wrap { TextStyle::WRAP_NONE => Wrap::None, TextStyle::WRAP_WORD => Wrap::Word, TextStyle::WRAP_GLYPH => Wrap::Glyph, TextStyle::WRAP_WORD_SPACES => Wrap::WordSpaces, _ => return None },
         align: match value.align { TextStyle::ALIGN_LEFT => Align::Left, TextStyle::ALIGN_CENTER => Align::Center, TextStyle::ALIGN_RIGHT => Align::Right, _ => return None },
         max_lines: value.max_lines,
         ellipsis: match value.ellipsis { TextStyle::ELLIPSIS_NONE=>Ellipsis::None, TextStyle::ELLIPSIS_END=>Ellipsis::End, TextStyle::ELLIPSIS_MIDDLE=>Ellipsis::Middle, TextStyle::ELLIPSIS_HEAD=>Ellipsis::Head, _=>return None },

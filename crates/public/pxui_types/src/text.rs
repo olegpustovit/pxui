@@ -47,6 +47,8 @@ impl TextStyle {
     pub const WRAP_NONE: u32 = 0;
     pub const WRAP_WORD: u32 = 1;
     pub const WRAP_GLYPH: u32 = 2;
+    /// Word wrapping whose fitting width includes separators omitted at visible soft wraps (ABI 1.18).
+    pub const WRAP_WORD_SPACES: u32 = 3;
     pub const ALIGN_LEFT: u32 = 0;
     pub const ALIGN_CENTER: u32 = 1;
     pub const ALIGN_RIGHT: u32 = 2;

@@ -148,6 +148,10 @@ impl Paint<'_> {
     #[inline] pub fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::dashed_rect(self, x, y, w, h, color) }
     #[inline] pub fn line_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) { Shapes::line_w(self, from, to, width, color) }
     #[inline] pub fn line(&mut self, from: (f32, f32), to: (f32, f32), color: Color) { Shapes::line(self, from, to, color) }
+    /// An unsnapped analytic quadratic Bezier, with round caps.
+    #[inline] pub fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Color) { Shapes::curve(self,from,control,to,width,color) }
+    /// Four midpoint-matched quadratics approximate a cubic; no tessellation buffer is allocated.
+    #[inline] pub fn cubic(&mut self, points:[(f32,f32);4], width:f32, color:Color) { Shapes::cubic(self,points,width,color) }
     #[inline] pub fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Color>, stroke: Option<Color>) { Shapes::circle(self, at, radius, fill, stroke) }
     #[inline] pub fn grid(&mut self, x: f32, y: f32, w: f32, h: f32, origin: (f32, f32), spacing: f32, dot: f32, color: Color) { Shapes::grid(self, x, y, w, h, origin, spacing, dot, color) }
     #[inline] pub fn chevron(&mut self, at: (f32, f32), direction: Dir, color: Color) { Shapes::chevron(self, at, direction, color) }

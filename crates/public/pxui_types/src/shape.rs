@@ -191,6 +191,28 @@ pub trait Shapes {
         self.line_w(from, to, 1.0, color);
     }
 
+    /// An unsnapped quadratic Bezier with round caps, written as one analytic instance.
+    fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Color) {
+        if width>0.0 && width.is_finite() && [from.0,from.1,control.0,control.1,to.0,to.1].iter().all(|v|v.is_finite()) {
+            self.push(Instance::curve([from.0,from.1],[control.0,control.1],[to.0,to.1],width,rgba(color)));
+        }
+    }
+
+    /// Four midpoint-matched quadratics approximate a cubic, without a tessellation buffer.
+    // shortcut: four segments suit small icons, use adaptive splitting for large paths.
+    fn cubic(&mut self, points:[(f32,f32);4], width:f32, color:Color) {
+        if !(width>0.0 && width.is_finite()) || points.iter().any(|p|!p.0.is_finite() || !p.1.is_finite()) {return;}
+        let at=|t:f32| {
+            let s=1.0-t;
+            (points[0].0*s*s*s+3.0*points[1].0*s*s*t+3.0*points[2].0*s*t*t+points[3].0*t*t*t,
+             points[0].1*s*s*s+3.0*points[1].1*s*s*t+3.0*points[2].1*s*t*t+points[3].1*t*t*t)
+        };
+        for index in 0..4 {
+            let (a,b,m)=(at(index as f32/4.0),at((index+1) as f32/4.0),at((index as f32+0.5)/4.0));
+            self.curve(a,(2.0*m.0-(a.0+b.0)/2.0,2.0*m.1-(a.1+b.1)/2.0),b,width,color);
+        }
+    }
+
     /// A disc with a one-point stroke centred on its edge.
     fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Color>, stroke: Option<Color>) {
         if !(radius > 0.0) {
