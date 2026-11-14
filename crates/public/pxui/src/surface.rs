@@ -1654,6 +1654,26 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
 }
 
 #[test]
+fn recycled_view_records_reserve_short_name_storage_without_losing_diagnostics() {
+    use crate::ui::Node;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let seed=|ui:&mut Ui,label:&str| {
+        for index in 0..16 {
+            let parent=ui.node_keyed(crate::ui::int_key(0x91b17,index),Node {w:Size::Px(10.0),h:Size::Px(10.0),..Node::DEFAULT});
+            ui.within(&parent,&mut |ui| {ui.view(label,1,Size::Grow,Size::Grow,&mut |_| {});});
+        }
+    };
+    for _ in 0..2 {ui.frame(&input(),&mut |ui| seed(ui,"x")).unwrap();}
+    ui.frame(&input(),&mut |_| {}).unwrap();
+    mem_sys::local_reset();
+    ui.frame(&input(),&mut |ui| seed(ui,"longer-recycled-view-name")).unwrap();
+    assert_eq!(mem_sys::local_alloc_count(),0,"recycled labels up to 32 bytes already have room");
+    assert_eq!(ui.rebuilt_named("longer-recycled"),16,"preserve full diagnostic labels");
+    assert_eq!(ui.rebuilt_named("x"),0);
+}
+
+#[test]
 fn reopening_nested_view_kinds_reuses_their_node_and_hit_capacities() {
     use crate::ui::{Node, Role};
     use std::cell::Cell;

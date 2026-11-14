@@ -340,3 +340,9 @@ Retain the source under the loop lock before signalling; do not invoke Rust from
 watch. Re-post dirty inactive work after a control callback: its nested native run loop can consume
 a source while the Rust busy guard is set. Keep the deterministic native regression, original
 failure log, light/dark changes and 182/82/100 allocation/lifecycle checks.
+
+
+A fresh cached-view record reserves at least 32 bytes for its diagnostic name; recycling adaptive
+subtrees must not grow these short-name buffers after warm-up. Preserve full names and prefix-based
+rebuild diagnostics; labels longer than 32 bytes remain supported and may grow storage when cold.
+Keep the recycled-record zero-allocation regression and existing node/hit-capacity reuse checks.

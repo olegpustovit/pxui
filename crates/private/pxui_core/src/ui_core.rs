@@ -6402,7 +6402,8 @@ impl Ui {
                 let matching = self.free_views.iter().rposition(|&v| self.views[v as usize].name == label);
                 let reused = matching.map(|i| self.free_views.swap_remove(i)).or_else(|| self.free_views.pop());
                 let v = reused.unwrap_or_else(|| {
-                    self.views.push(ViewRec::new());
+                    // Recycled records change labels as adaptive subtrees enter and leave.
+                    self.views.push(ViewRec { name: String::with_capacity(label.len().max(32)), ..ViewRec::new() });
                     self.views.len() as u32 - 1
                 });
                 // a table index of its own (unless flat): a freed one, else the next (the painter's
