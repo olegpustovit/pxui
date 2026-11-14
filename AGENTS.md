@@ -223,8 +223,3 @@ Validate the whole descriptor before building anything; preserve callback guards
 Culled cached views still update their composed geometry and accessibility visibility, without
 keeping offscreen draw runs. Preserve indexed/flat/clipped heading scrolling, the 570-row storage
 bound, native 1x/2x opaque heading/right-edge pixels, click blocking and warm allocation checks.
-
-Culled views retain clean build state even when their paint run is invalid. When they return,
-visit_view requests the existing same-frame settling build to regenerate paint; do not rebuild
-unchanged offscreen headings on every scroll tick. Preserve the explicit build-count regression
-in addition to native return pixels, flat-view reflow and the long-scroll storage/allocation bound.

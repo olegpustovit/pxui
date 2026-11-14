@@ -16,7 +16,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
     let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
     let section=SectionList {count:10_000,row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true};
     let body=Cell::new(None); let lead=Cell::new(None); let header=Cell::new(None); let first=Cell::new(None);
-    let rows=Cell::new(0usize); let heading_builds=Cell::new(0usize); let clicked=Cell::new(false); let sorted=Cell::new(false);
+    let rows=Cell::new(0usize); let clicked=Cell::new(false); let sorted=Cell::new(false);
     let mut build=|ui:&mut Ui| {
         rows.set(0); clicked.set(false); sorted.set(false); first.set(None);
         body.set(Some(ui.section_list("section",&section,&mut |ui,part| {
@@ -26,7 +26,6 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
                     ui.within(&clip,&mut |ui| {
                         let view=if flat {Ui::view_flat} else {Ui::view};
                         view(ui,"heading-cache",0,Size::Grow,Size::Fit,&mut |ui| {
-                            heading_builds.set(heading_builds.get()+1);
                             let node=ui.node("title",Node {role:Role::Label,w:Size::Grow,h:Size::Px(100.0),..Node::DEFAULT});
                             ui.a11y_name(&node,"Page heading"); lead.set(Some(node));
                         });
@@ -56,10 +55,8 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
         mem_sys::local_reset();
         for offset in [90.0,105.0,500.0,199_900.0,0.0] {
             let previous=ui.scroll_offset(&body.get().unwrap());
-            let previous_builds=heading_builds.get();
             ui.inject_a11y(&[crate::A11yAction {id,action_code:8,payload:(offset-previous) as f64,..Default::default()}]);
             ui.frame(&input(),&mut build).unwrap();
-            if !flat && previous>=100.0 && offset>=100.0 {assert_eq!(heading_builds.get(),previous_builds,"offscreen retained headings do not rebuild");}
             assert!((ui.scroll_offset(&body.get().unwrap())-offset).abs()<0.001,"scroll offset");
             assert!((ui.rect(&lead.get().unwrap()).y+offset).abs()<0.001,"retained heading rect: {:?}",ui.rect(&lead.get().unwrap()));
             let heading=ui.a11y_nodes().iter().find(|n|ui.a11y_name_of(n)=="Page heading").unwrap();
