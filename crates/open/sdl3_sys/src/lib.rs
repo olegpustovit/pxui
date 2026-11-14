@@ -476,6 +476,14 @@ impl Window {
         else { Err(sdl_error(ErrorKind::Sdl, "SDL could not stop text input")) }
     }
 
+    pub fn clear_text_input_area(&self)->std::result::Result<(),Error> {
+        let raw=self.raw()?;
+        clear_error();
+        // SAFETY: the live window is validated; SDL explicitly accepts a null area.
+        if unsafe {ffi::rays_sdl3_clear_text_input_area(raw.as_ptr())} {Ok(())}
+        else {Err(sdl_error(ErrorKind::Sdl,"could not clear text-input area"))}
+    }
+
     pub fn set_text_input_area(&self, area: Rect, cursor: i32) -> std::result::Result<(), Error> {
         if cursor < 0 { return Err(invalid("text-input cursor offset must be non-negative")); }
         if area.width <= 0 || area.height <= 0 { return Err(invalid("text-input area dimensions must be positive")); }
@@ -826,6 +834,7 @@ mod ffi {
         pub fn rays_sdl3_set_window_background(window: *mut SDLWindow, red: f64, green: f64, blue: f64);
         pub fn rays_sdl3_start_text_input(window: *mut SDLWindow) -> bool;
         pub fn rays_sdl3_stop_text_input(window: *mut SDLWindow) -> bool;
+        pub fn rays_sdl3_clear_text_input_area(window:*mut SDLWindow)->bool;
         pub fn rays_sdl3_set_text_input_area(window: *mut SDLWindow, x: c_int, y: c_int, width: c_int, height: c_int, cursor: c_int) -> bool;
         pub fn rays_sdl3_show_dialog(window: *mut SDLWindow, kind: c_int, names: *const *const c_char,
             patterns: *const *const c_char, count: c_int, default_location: *const c_char) -> c_int;

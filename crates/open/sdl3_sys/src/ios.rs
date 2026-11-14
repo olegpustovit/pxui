@@ -81,3 +81,30 @@ pub fn run(callback: &mut dyn FnMut(Signal) -> Step) -> i32 {
         )
     }
 }
+
+/// Geometry is in SDL window coordinates; timestamps use the native monotonic clock.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct Environment {
+    pub safe_area: [f32; 4],
+    pub keyboard_frame: [f32; 4],
+    pub keyboard_from: [f32; 4],
+    pub keyboard_started: f64,
+    pub keyboard_duration: f64,
+    pub timestamp: f64,
+    pub keyboard_curve: u32,
+    pub keyboard_visible: u32,
+}
+unsafe extern "C" {
+    fn rays_sdl3_ios_environment(window: u32, out: *mut Environment) -> i32;
+}
+pub fn environment(window: u32) -> Result<Environment, super::Error> {
+    let mut out = Environment::default();
+    if unsafe { rays_sdl3_ios_environment(window, &mut out) } != 1 {
+        return Err(super::sdl_error(
+            super::ErrorKind::Sdl,
+            "could not read the iOS environment",
+        ));
+    }
+    Ok(out)
+}

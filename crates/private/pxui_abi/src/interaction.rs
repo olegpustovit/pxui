@@ -105,6 +105,7 @@ fn encode(value: &Event, text: &mut String) -> FfiEvent {
         Event::FocusGained => out.kind = FfiEvent::FOCUS_GAINED,
         Event::Closed => out.kind = FfiEvent::CLOSED,
         Event::PixelSizeChanged((w, h)) => { out.kind = FfiEvent::PIXEL_SIZE_CHANGED; out.x = *w as f64; out.y = *h as f64; }
+        Event::EnvironmentChanged => out.kind = FfiEvent::ENVIRONMENT_CHANGED,
         Event::VisibilityChanged(v) => { out.kind = FfiEvent::VISIBILITY_CHANGED; out.value = *v as u8 as f64; }
         Event::TrackpadScrolled { delta, phase, time } => {
             out.kind = FfiEvent::TRACKPAD_SCROLLED;

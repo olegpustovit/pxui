@@ -74,7 +74,7 @@ in its tier folder. The gate enforces this table; ABI design lives in `specifica
 - `libpxui` is the `pxui_dylib` cdylib over `pxui_abi` (its own package, so it is built with LTO like the static build) and exports only `pxui_*`; `pxui` uses the dynamic ABI or those same functions through the `static` feature.
 - FFI uses `repr(C)`, pointer/length pairs and callback/user pairs. Borrows last through the next frame; Rust heap types, cross-side freeing and unwinding do not cross the ABI.
 - The app owns the GPU. PXUI adopts native handles and records into the app's command buffer/pass; it does not submit, wait, present or destroy shared resources. Calls stay on one thread, and the library creates no windows or displays.
-- That ownership contract describes the hostless renderer API. Apps may instead use `pxui_host`, which owns device/queue setup, frame acquisition/presentation and image texture retirement. Keep generic host machinery there, native Metal calls in `metal_sys`, and AppKit chrome in `sdl3_sys`. The convenience host supports macOS and experimental iOS SDL/Metal. iOS uses a display link and drains frames on background notifications; touch, safe areas, keyboard and physical-device behavior remain unqualified. Other hosts keep the existing renderer API.
+- That ownership contract describes the hostless renderer API. Apps may instead use `pxui_host`, which owns device/queue setup, frame acquisition/presentation and image texture retirement. Keep generic host machinery there, native Metal calls in `metal_sys`, and AppKit chrome in `sdl3_sys`. The convenience host supports macOS and experimental iOS SDL/Metal. iOS uses a display link and drains frames on background notifications; safe-area geometry and keyboard show/hide are qualified on the iOS simulator. Finger input, keyboard editing/avoidance motion and physical-device behavior remain unqualified. Other hosts keep the existing renderer API.
 - `pxui::images` owns retained descriptors, bounded UTF-8 image paths, coalesced visibility-aware requests and LRU metadata. `pxui_host::Graphics` owns their textures and GPU fences. Applications deliver decoded RGBA data or a miss with the requested epoch and an increasing delivery revision; source access and application-specific decode scheduling stay outside the framework. Never expose a caller-supplied completed serial for image destruction. Preserve exact-pixel, stale-epoch, invalid-packet, in-flight retirement, constructor cleanup and zero-warm-allocation checks.
 - The native frame context is a private Objective-C++ struct with ARC-owned members. Do not register an Objective-C frame class: the native shim can be linked into both the static framework host and dynamic renderer, and duplicate runtime classes collide.
 - ABI snapshots are append-only and gated. Paint shapes stay in wrapper spans; only text calls the library. `abi_bench` gates performance against the recorded baseline.
@@ -196,10 +196,13 @@ with zero Rust allocations in the final 100 after 82 warm-up frames. Keep the di
 deadline and same-process background/resume checks (`PXUI_IOS_LIFECYCLE_CHECK=1`); inactive
 draws must skip before GPU work. Native UIKit callbacks are scoped to the main loop and may
 not reenter Rust from an SDL event watch. Text/IME/dialog encoding reuses framework-owned
-storage, and native IME area updates skip unchanged geometry. The first four-event resume
-batch after a one-event startup must keep zero warm Rust allocations across both ABI paths.
-The probe does not qualify finger identities/gestures, keyboard, safe areas, native allocations
-or physical devices.
+storage, and native IME area updates skip unchanged geometry. The first five-event resume
+batch after a one-event startup must keep zero warm Rust allocations across both ABI paths;
+retain the eight-slot startup reserve without allocating in input::at_time.
+Keep actual native did-show/did-hide checks and exact safe-area bounds, including a keyboard
+already dismissed during background/resume. Do not wait for a second notification after state
+already matches. The probe does not qualify finger gestures, IME editing, synchronized avoidance
+motion, native allocations or physical devices.
 The Metal backend uses the standard render-pipeline API when Metal 4 compiler creation reports
 Unsupported; retain function/device/profile validation, binding reflection and native pixel checks.
 Private textures use a device-owned, synchronous GPU staging queue and at most 4 MiB retained
@@ -301,3 +304,12 @@ changes in this minor.
 The accessibility-value ABI accepts UTF-8 byte endpoints but must convert them to Unicode scalar
 offsets for the engine's tree, matching its existing text fields and AT-SPI contract. Keep reversed,
 combining-mark and non-BMP selections, validation before mutation and zero warm allocations.
+
+
+ABI 1.24 appends the 72-byte Environment to FrameIn, retaining both frozen 48/56-byte prefixes.
+Only a complete new tail is read; forward-sized legacy descriptors ignore partial new tails.
+Validate finite nonnegative insets/extents/duration, finite clock arithmetic and visibility 0/1
+before mutating input/environment/output. Input's snapshot entry resets the environment to its
+default. Keep static/dynamic cached-view invalidation, unchanged-cache, warm allocation, invalid
+output atomicity and layout checks. UIKit curve 7 is data, not a standard easing enum. Keyboard
+notifications must match the window's screen, use view coordinates and map their clock once.

@@ -19,6 +19,10 @@ mod ios {
         worker: Option<std::thread::JoinHandle<bool>>,
         worker_started: f64,
         worker_woke: bool,
+        keyboard_check: bool,
+        saw_keyboard: bool,
+        keyboard_hiding: bool,
+        saw_hidden: bool,
     }
     impl Probe {
         fn open(window: &mut pxui_sdl::Window) -> Result<Self, String> {
@@ -61,6 +65,10 @@ mod ios {
                 worker: None,
                 worker_started: 0.0,
                 worker_woke: false,
+                keyboard_check: std::env::var_os("PXUI_IOS_KEYBOARD_CHECK").is_some(),
+                saw_keyboard: false,
+                keyboard_hiding: false,
+                saw_hidden: false,
             })
         }
         fn signal(
@@ -103,6 +111,30 @@ mod ios {
                 return Ok(Schedule::WaitUntil(None));
             }
             if self.frames == 182 {
+                if self.keyboard_check && !self.keyboard_hiding {
+                    if !self.saw_keyboard {
+                        return Err("Native keyboard geometry was never observed".into());
+                    }
+                    window.set_text_input(None)?;
+                    self.keyboard_hiding = true;
+                }
+                if self.keyboard_check && !self.saw_hidden {
+                    self.events.clear();
+                    if !self.platform.pump(window, &mut self.events)? {
+                        return Err("Window closed while hiding keyboard".into());
+                    }
+                    let k = self.platform.environment().keyboard_frame;
+                    if self.platform.environment().keyboard_visible != 0
+                        || (k[2] > 0.0
+                            && k[3] > 0.0
+                            && k[1] < window.extent().logical.1 as f32
+                            && k[1] + k[3] > 0.0)
+                    {
+                        return Ok(Schedule::WaitUntil(None));
+                    }
+                    self.saw_hidden = true;
+                    println!("PXUI_IOS_KEYBOARD_HIDDEN frame={k:?}");
+                }
                 if let Some(worker) = self.worker.take() {
                     if window.time() - self.worker_started < 0.1 {
                         return Err("Indefinitely idle loop polled before the worker wake".into());
@@ -142,16 +174,20 @@ mod ios {
             }
             mem_sys::local_reset();
             self.events.clear();
-            if !self.platform.pump(window, &mut self.events) {
+            if !self.platform.pump(window, &mut self.events)? {
                 return Err("iOS gallery window closed during probe".into());
             }
             if let Some(error) = window.take_failure() {
                 return Err(error);
             }
+            if self.keyboard_check && self.frames == 1 {
+                self.events.push(input::Event::KeyPressed(input::Key::Tab));
+            }
             let extent = window.extent();
             let pumped = mem_sys::local_alloc_count();
             let wire = self.encoded.encode(&self.events);
             let encoded = mem_sys::local_alloc_count();
+            let mut bounds = None;
             self.ui
                 .frame(
                     &pxui::FrameIn {
@@ -159,13 +195,64 @@ mod ios {
                         height: extent.logical.1 as f32,
                         scale: window.scale() as f32,
                         time: window.time(),
+                        environment: self.platform.environment(),
                         events: wire.as_ptr(),
                         event_count: wire.len(),
                         ..pxui::FrameIn::default()
                     },
-                    &mut |ui| pxui_gallery::app(ui, &mut self.gallery),
+                    &mut |ui| {
+                        use pxui::ui::{Edges, Node, Size};
+                        let [t, r, b, l] = ui.environment().safe_area;
+                        let content = ui.node(
+                            "iOS safe content",
+                            Node {
+                                w: Size::Grow,
+                                h: Size::Grow,
+                                padding: Edges { t, r, b, l },
+                                ..Node::DEFAULT
+                            },
+                        );
+                        ui.within(&content, &mut |ui| {
+                            let inner = ui.node(
+                                "iOS safe bounds",
+                                Node {
+                                    w: Size::Grow,
+                                    h: Size::Grow,
+                                    ..Node::DEFAULT
+                                },
+                            );
+                            bounds = Some(inner);
+                            ui.within(&inner, &mut |ui| {
+                                if self.keyboard_check {
+                                    ui.label("PXUI native keyboard");
+                                    ui.text_field("Mobile input", "café track");
+                                } else {
+                                    pxui_gallery::app(ui, &mut self.gallery);
+                                }
+                            });
+                        });
+                    },
                 )
                 .map_err(|code| format!("iOS gallery frame failed ({code})"))?;
+            let rect = self
+                .ui
+                .rect(&bounds.ok_or("Safe-area content was not built")?);
+            let [t, r, b, l] = self.platform.environment().safe_area;
+            let expected = [
+                l,
+                t,
+                (extent.logical.0 as f32 - l - r).max(0.0),
+                (extent.logical.1 as f32 - t - b).max(0.0),
+            ];
+            if [rect.x, rect.y, rect.w, rect.h]
+                .iter()
+                .zip(expected)
+                .any(|(a, b)| (*a - b).abs() > 0.001)
+            {
+                return Err(format!(
+                    "Safe-area bounds mismatch: {rect:?}, expected={expected:?}"
+                ));
+            }
             let built = mem_sys::local_alloc_count();
             self.platform.apply(window, &self.ui)?;
             let output = mem_sys::local_alloc_count();
@@ -179,8 +266,36 @@ mod ios {
                     self.frames, self.events
                 ));
             }
+            if self.keyboard_check && !self.saw_keyboard {
+                let env = self.platform.environment();
+                let k = env.keyboard_frame;
+                if env.keyboard_visible != 0
+                    && k[2] > 0.0
+                    && k[3] > 0.0
+                    && k[1] < extent.logical.1 as f32
+                    && k[1] + k[3] > 0.0
+                {
+                    if env.keyboard_started > window.time() || env.keyboard_duration < 0.0 {
+                        return Err("Invalid native keyboard clock".into());
+                    }
+                    self.saw_keyboard = true;
+                    println!(
+                        "PXUI_IOS_KEYBOARD_SHOWN frame={k:?} from={:?} started={} duration={} curve={}",
+                        env.keyboard_from,
+                        env.keyboard_started,
+                        env.keyboard_duration,
+                        env.keyboard_curve
+                    );
+                }
+            }
+            if self.frames == 82 {
+                println!("PXUI_IOS_MEASURED_BEGIN frames=82");
+            }
             if self.frames == 0 {
-                println!("PXUI_IOS_GALLERY_FIRST_FRAME");
+                println!(
+                    "PXUI_IOS_GALLERY_FIRST_FRAME safe_area={:?} content={rect:?}",
+                    self.platform.environment().safe_area
+                );
             }
             self.frames += 1;
             Ok(Schedule::NextFrame)
@@ -189,6 +304,7 @@ mod ios {
             let complete = self.frames == 182
                 && self.idle_callbacks > 0
                 && self.worker_woke
+                && (!self.keyboard_check || (self.saw_keyboard && self.saw_hidden))
                 && (!self.lifecycle || (self.paused && self.resumed && self.holding));
             self.graphics.close()?;
             if !complete {

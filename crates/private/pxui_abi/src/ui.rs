@@ -255,11 +255,24 @@ unsafe fn push_events(base: &mut input::Frame, events: Slice<pxui_types::Event>)
 
 /// Reuse input buffers; the event-only entry retains keys, and the snapshot entry replaces them.
 unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> input::Frame {
-    let Some(mut base) = (unsafe { (*(*ui).shared).spare_input.take() }) else { return input::at_time(time) };
+    let mut base = unsafe { (*(*ui).shared).spare_input.take() }.unwrap_or_else(|| {
+        let mut base=input::at_time(time);
+        base.events.reserve(input::EVENT_RESERVE);
+        base
+    });
     (base.t, base.dt, base.frame, base.tick, base.size, base.pointer) = (time, 0.0, 0, 0, (0, 0), (0.0, 0.0));
     base.buttons.clear();
     base.events.clear();
     base
+}
+
+fn valid_environment(value:&pxui_types::Environment)->bool {
+    let rect=|r:&[f32;4]| r.iter().all(|v|v.is_finite()) && r[2]>=0.0 && r[3]>=0.0 && (r[0]+r[2]).is_finite() && (r[1]+r[3]).is_finite();
+    value.safe_area.iter().all(|v|v.is_finite() && *v>=0.0)
+        && (value.safe_area[0]+value.safe_area[2]).is_finite() && (value.safe_area[1]+value.safe_area[3]).is_finite()
+        && rect(&value.keyboard_frame) && rect(&value.keyboard_from)
+        && value.keyboard_started.is_finite() && value.keyboard_duration.is_finite() && value.keyboard_duration>=0.0
+        && (value.keyboard_started+value.keyboard_duration).is_finite() && value.keyboard_visible<=1
 }
 
 /// Runs one frame of `ui` over `frame`. Both frame entry points call it after decoding their input.
@@ -310,15 +323,19 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
     let legacy=core::mem::offset_of!(FrameIn,appearance) as u32;
-    let (appearance,reduced)=if input.size==legacy { (0,0) } else if input.size>=core::mem::size_of::<FrameIn>() as u32 {
+    let previous=core::mem::offset_of!(FrameIn,environment) as u32;
+    let (appearance,reduced)=if input.size==legacy { (0,0) } else if input.size>=previous {
         (input.appearance,input.reduced_motion)
     } else { return unsafe { fail(ui,"invalid frame descriptor size") }; };
+    let environment=if input.size>=core::mem::size_of::<FrameIn>() as u32 { input.environment } else { pxui_types::Environment::default() };
+    if !valid_environment(&environment) { return unsafe { fail(ui,"invalid host environment") }; }
     if appearance>FrameIn::APPEARANCE_DARK || reduced>1 { return unsafe { fail(ui,"invalid system preferences") }; }
     let mut base = unsafe { take_input(ui, input.time) };
     base.size = (input.width as i64, input.height as i64);
     base.frame = input.time.to_bits() as i64;
     if !unsafe { push_events(&mut base, Slice { ptr: input.events, len: input.event_count }) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     unsafe { &mut *(*ui).engine }.set_system_preferences(appearance,reduced!=0);
+    unsafe { &mut *(*ui).engine }.set_environment(environment);
     let frame = frame::Frame { input: base, pixel_scale: (input.scale as f64, input.scale as f64), fps: 60.0, mouse_delta: (0.0, 0.0) };
     let rc = unsafe { run_frame(ui, &frame, build, out) };
     unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
@@ -330,13 +347,11 @@ unsafe fn read_frame(input:*const FrameIn)->Option<FrameIn> {
     if input.is_null() { return None; }
     let size=unsafe { input.cast::<u32>().read_unaligned() } as usize;
     let legacy=core::mem::offset_of!(FrameIn,appearance);
-    if size!=legacy && size<core::mem::size_of::<FrameIn>() { return None; }
+    let previous=core::mem::offset_of!(FrameIn,environment);
+    if size!=legacy && size<previous { return None; }
     let mut value=FrameIn::default();
-    unsafe { core::ptr::copy_nonoverlapping(input.cast::<u8>(),(&mut value as *mut FrameIn).cast::<u8>(),legacy); }
-    if size>=core::mem::size_of::<FrameIn>() {
-        value.appearance=unsafe { core::ptr::addr_of!((*input).appearance).read_unaligned() };
-        value.reduced_motion=unsafe { core::ptr::addr_of!((*input).reduced_motion).read_unaligned() };
-    }
+    let copied=if size>=core::mem::size_of::<FrameIn>() { core::mem::size_of::<FrameIn>() } else if size>=previous { previous } else { legacy };
+    unsafe { core::ptr::copy_nonoverlapping(input.cast::<u8>(),(&mut value as *mut FrameIn).cast::<u8>(),copied); }
     Some(value)
 }
 
@@ -371,6 +386,7 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
         }
     }
     if !unsafe { push_events(&mut base, input.events) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
+    unsafe { &mut *(*ui).engine }.set_environment(pxui_types::Environment::default());
     let frame = frame::Frame { input: base, pixel_scale: (input.pixel_scale[0], input.pixel_scale[1]), fps: input.fps, mouse_delta: (input.mouse_delta[0], input.mouse_delta[1]) };
     let rc = unsafe { run_frame(ui, &frame, build, out) };
     unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
@@ -486,6 +502,43 @@ mod tests {
     use pxui_types::Event as C;
 
     #[test]
+    fn host_environment_rejects_invalid_geometry_before_mutating_a_frame() {
+        use pxui_types::{Environment,FrameIn};
+        let ui=unsafe { super::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let value=Environment { safe_area:[47.0,0.0,34.0,0.0],keyboard_frame:[0.0,500.0,390.0,344.0],keyboard_from:[0.0,844.0,390.0,344.0],
+            keyboard_started:1.0,keyboard_duration:0.25,keyboard_curve:7,keyboard_visible:1 };
+        let input=FrameIn { width:390.0,height:844.0,environment:value,..Default::default() };
+        let mut out=crate::FrameOut::default();
+        assert_eq!(unsafe {super::pxui_frame(ui,&input,None,core::ptr::null_mut(),&mut out)},0);
+        let mut got=Environment::default();
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_environment(ui,&mut got)},0);
+        assert_eq!(got,value);
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_environment(core::ptr::null_mut(),&mut got)},crate::PXUI_ERR_ARGUMENT);
+        assert_eq!(got,value);
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_environment(ui,core::ptr::null_mut())},crate::PXUI_ERR_ARGUMENT);
+        for field in 0..12 {
+            let mut bad=value;
+            match field {
+                0=>bad.safe_area[0]=f32::NAN, 1=>bad.safe_area[2]=-1.0, 2=>bad.safe_area=[f32::MAX;4],
+                3=>bad.keyboard_frame[0]=f32::INFINITY, 4=>bad.keyboard_frame[2]=-1.0, 5=>bad.keyboard_from[3]=-1.0,
+                6=>bad.keyboard_from[1]=f32::NAN, 7=>bad.keyboard_frame=[f32::MAX;4], 8=>bad.keyboard_started=f64::NAN,
+                9=>bad.keyboard_duration=-0.1, 10=>bad.keyboard_duration=f64::INFINITY, _=>bad.keyboard_visible=2,
+            }
+            out.size=123;
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {environment:bad,..input},None,core::ptr::null_mut(),&mut out)},crate::PXUI_ERR_ARGUMENT);
+            assert_eq!(out.size,123);
+            assert_eq!(unsafe {crate::ui_state::pxui_ui_environment(ui,&mut got)},0);
+            assert_eq!(got,value);
+        }
+        for size in 56..128 {
+            let raw=FrameIn { size,environment:Environment {keyboard_visible:2,..value},..input };
+            let decoded=unsafe {super::read_frame(&raw)}.unwrap();
+            assert_eq!(decoded.environment,Environment::default());
+        }
+        assert_eq!(unsafe {super::pxui_ui_destroy(ui)},0);
+    }
+
+    #[test]
     fn system_frame_tail_accepts_legacy_without_reading_past_it() {
         use pxui_types::FrameIn;
         #[repr(C)]
@@ -527,7 +580,7 @@ mod tests {
             (w::PASTE, C::PASTE), (w::TEXT_EDITING, C::TEXT_EDITING), (w::FILE_DROPPED, C::FILE_DROPPED), (w::FILE_DRAG_MOVED, C::FILE_DRAG_MOVED),
             (w::FILE_DRAG_ENDED, C::FILE_DRAG_ENDED), (w::PINCHED, C::PINCHED), (w::FILE_DIALOG, C::FILE_DIALOG), (w::DIALOG_OPENED, C::DIALOG_OPENED),
             (w::RESIZED, C::RESIZED), (w::FOCUS_LOST, C::FOCUS_LOST), (w::FOCUS_GAINED, C::FOCUS_GAINED), (w::CLOSED, C::CLOSED),
-            (w::PIXEL_SIZE_CHANGED, C::PIXEL_SIZE_CHANGED), (w::VISIBILITY_CHANGED, C::VISIBILITY_CHANGED), (w::TRACKPAD_SCROLLED, C::TRACKPAD_SCROLLED)];
+            (w::PIXEL_SIZE_CHANGED, C::PIXEL_SIZE_CHANGED), (w::VISIBILITY_CHANGED, C::VISIBILITY_CHANGED), (w::TRACKPAD_SCROLLED, C::TRACKPAD_SCROLLED), (w::ENVIRONMENT_CHANGED, C::ENVIRONMENT_CHANGED)];
         for (wire, abi) in pairs { assert_eq!(wire, abi); }
     }
 }

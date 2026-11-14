@@ -1,9 +1,17 @@
 /// Retained ABI events and UTF-8 bytes. Published text belongs to this encoder, not the input batch.
-#[derive(Default)]
 pub struct Events {
     wire: Vec<pxui::Event>,
     bytes: Vec<u8>,
     scratch: String,
+}
+impl Default for Events {
+    fn default() -> Self {
+        Self {
+            wire: Vec::with_capacity(input::EVENT_RESERVE),
+            bytes: Vec::new(),
+            scratch: String::new(),
+        }
+    }
 }
 impl Events {
     /// The event span and its text remain valid until the next encode or this encoder's destruction.
@@ -99,5 +107,27 @@ mod tests {
                 );
             }
         }
+    }
+    #[test]
+    fn first_resume_batch_reuses_the_cold_event_reserve() {
+        let source = [
+            Event::VisibilityChanged(false),
+            Event::FocusLost,
+            Event::FocusGained,
+            Event::VisibilityChanged(true),
+            Event::EnvironmentChanged,
+        ];
+        let mut encoded = Events::default();
+        encoded.encode(&source[..1]);
+        for _ in 0..82 {
+            encoded.encode(&[]);
+        }
+        mem_sys::local_reset();
+        assert_eq!(encoded.encode(&source).len(), 5);
+        assert_eq!(
+            mem_sys::local_alloc_count(),
+            0,
+            "first native resume batch must not grow the encoder"
+        );
     }
 }

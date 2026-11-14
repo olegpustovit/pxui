@@ -908,6 +908,7 @@ pub struct Ui {
     free_keyframes: Vec<u32>,
     now: f64,
     motion: bool,
+    environment:pxui_types::Environment,
     system_appearance:u32,
     system_reduced_motion:bool,
     theme_reduced_motion:bool,
@@ -1164,6 +1165,7 @@ impl Ui {
             free_keyframes: Vec::new(),
             now: 0.0,
             motion: false,
+            environment:pxui_types::Environment::default(),
             system_appearance:0,
             system_reduced_motion:false,
             theme_reduced_motion:false,
@@ -1260,9 +1262,9 @@ impl Ui {
             carry_fraction: [0.0; 2],
             carry_latch: None,
             passed_undo: None,
-            frame_events: Vec::new(),
+            frame_events: Vec::with_capacity(input::EVENT_RESERVE),
             input_frame: None,
-            routed_events: Vec::new(),
+            routed_events: Vec::with_capacity(input::EVENT_RESERVE),
             cancelled: Vec::new(),
             modal_key: None,
             modal_extra: Vec::new(),
@@ -1395,6 +1397,10 @@ impl Ui {
         self.theme.tokens.reduced_motion=self.theme_reduced_motion||reduced_motion;
     }
 
+    pub fn set_environment(&mut self, value:pxui_types::Environment) {
+        if self.environment!=value { self.environment=value; self.epoch+=1; }
+    }
+    pub fn environment(&self)->pxui_types::Environment { self.environment }
     pub fn system_appearance(&self)->u32 { self.system_appearance }
 
     /// Build `f` under `theme` (a scoped override: what `f` builds reads `theme()` as `theme`). A view
@@ -4602,8 +4608,11 @@ impl Ui {
 /// `v` held to `[min, max]`; the minimum wins.
 /// `kept` becomes a copy of `f` in the storage it already has (a frame with input allocated twice).
 fn keep_frame(kept: &mut Option<rframe::Frame>, f: &rframe::Frame) {
-    // Clone into empty vectors so a short startup batch keeps normal amortized input capacity.
-    let k = kept.get_or_insert_with(|| rframe::Frame { input: input::at_time(0.0), pixel_scale: (1.0,1.0), fps: 0.0, mouse_delta: (0.0,0.0) });
+    let k = kept.get_or_insert_with(|| {
+        let mut input=input::at_time(0.0);
+        input.events.reserve(input::EVENT_RESERVE);
+        rframe::Frame { input, pixel_scale:(1.0,1.0),fps:0.0,mouse_delta:(0.0,0.0) }
+    });
     let rframe::Frame { input, pixel_scale, fps, mouse_delta } = f;
     let input::Frame { t, dt, frame, tick, size, pointer, buttons, keys, events } = input;
     let i = &mut k.input;

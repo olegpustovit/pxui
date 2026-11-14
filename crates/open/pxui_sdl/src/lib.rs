@@ -398,6 +398,7 @@ impl Window {
                 Ok(())
             }
             Some(((x, y, width, height), cursor)) => {
+                if width <= 0 || height <= 0 || cursor < 0 { return Err("Text-input area dimensions must be positive and its cursor non-negative".into()); }
                 let area = Some(((x, y, width, height), cursor));
                 if self.text_input && self.ime_area == area { return Ok(()); }
                 if !self.text_input {
@@ -406,11 +407,13 @@ impl Window {
                 }
                 let unit = self.unit;
                 let scale = |v: i64| (v as f64 * unit).round() as i32;
-                sdl3::text_input::set_area(
+                // pxui owns keyboard avoidance; iOS must not translate the entire Metal view.
+                if cfg!(target_os="ios") { sdl3::text_input::clear_area(&self.handle) }
+                else { sdl3::text_input::set_area(
                     &self.handle,
                     Rect { x: scale(x), y: scale(y), width: scale(width), height: scale(height) },
                     scale(cursor),
-                )
+                ) }
                 .map_err(fail)?;
                 self.ime_area = area;
                 Ok(())

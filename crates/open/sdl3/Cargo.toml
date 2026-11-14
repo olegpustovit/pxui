@@ -15,6 +15,7 @@ mixer = ["sdl3_sys/mixer"]
 
 [dev-dependencies]
 sdl3_sys = { path = "../sdl3_sys", features = ["test-util"] }
+mem_sys = { path = "../mem_sys" }
 
 [lints]
 workspace = true

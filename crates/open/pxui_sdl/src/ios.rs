@@ -30,17 +30,17 @@ pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Res
             }
             if signal == Signal::Finish {
                 if let Some(mut app) = callback.take() {
-                    if let Some(window) = &mut window {
-                        if let Err(error) = app(window, signal) {
-                            failure.get_or_insert(error);
-                        }
+                    if let Some(window) = &mut window
+                        && let Err(error) = app(window, signal)
+                    {
+                        failure.get_or_insert(error);
                     }
                     drop(app);
                 }
-                if let Some(mut window) = window.take() {
-                    if let Err(error) = window.destroy() {
-                        failure.get_or_insert(error);
-                    }
+                if let Some(mut window) = window.take()
+                    && let Err(error) = window.destroy()
+                {
+                    failure.get_or_insert(error);
                 }
                 if let Some(error) = &failure {
                     eprintln!("PXUI iOS: {error}");
@@ -88,10 +88,10 @@ pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Res
         sdl3::ios::run(&mut invoke)
     };
     drop(callback.take());
-    if let Some(mut window) = window {
-        if let Err(error) = window.destroy() {
-            failure.get_or_insert(error);
-        }
+    if let Some(mut window) = window
+        && let Err(error) = window.destroy()
+    {
+        failure.get_or_insert(error);
     }
     match failure {
         Some(error) => Err(error),
@@ -100,4 +100,21 @@ pub fn run(title: &str, width: i64, height: i64, callback: Box<Callback>) -> Res
             "Could not run the iOS loop on the process main thread ({status})"
         )),
     }
+}
+
+/// Snapshot in logical window points. Native timestamps are mapped by the framework host.
+pub fn environment(window: &Window) -> Result<sdl3::ios::Environment, String> {
+    window.live()?;
+    let mut value = sdl3::ios::environment(window.handle.id().map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())?;
+    for rect in [
+        &mut value.safe_area,
+        &mut value.keyboard_frame,
+        &mut value.keyboard_from,
+    ] {
+        for number in rect {
+            *number /= window.unit as f32;
+        }
+    }
+    Ok(value)
 }

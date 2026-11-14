@@ -11,6 +11,9 @@ fn window_visibility() {
             return;
         }
     };
+    for area in [((1,2,0,12),7),((1,2,20,-1),7),((1,2,20,12),-1)] {
+        assert!(window.set_text_input(Some(area)).is_err());
+    }
     window.set_text_input(Some(((1, 2, 20, 12), 7))).unwrap();
     mem_sys::local_reset();
     for _ in 0..100 { window.set_text_input(Some(((1, 2, 20, 12), 7))).unwrap(); }

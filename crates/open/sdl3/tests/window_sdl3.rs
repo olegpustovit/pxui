@@ -49,6 +49,10 @@ fn cocoa_layer_ownership_and_trackpad_phases() {
     window.set_resizable(true).unwrap();
     window.center().unwrap();
     window.set_background(0.95, 0.95, 0.93).unwrap();
+    sdl3::text_input::clear_area(&window).unwrap();
+    mem_sys::local_reset();
+    for _ in 0..100 { sdl3::text_input::clear_area(&window).unwrap(); }
+    assert_eq!(mem_sys::local_alloc_count(),0,"clearing native IME geometry must not allocate Rust objects");
 
     let _ = sdl3::event::poll_coalesced().unwrap();
     for (points, phase) in [(0, 1), (-7, 2), (0, 4)] {
@@ -83,6 +87,7 @@ fn cocoa_layer_ownership_and_trackpad_phases() {
         Ok(_) => panic!("destroyed Metal view remained usable"),
     }
     window.destroy().unwrap();
+    assert_eq!(sdl3::text_input::clear_area(&window).unwrap_err().kind(),sdl3::ErrorKind::Destroyed);
     let mut native_window = sdl3_sys::Window::create(
         "SDL3 sys parent-retention test", 32, 24,
         &[sdl3_sys::WindowFlag::Hidden, sdl3_sys::WindowFlag::Metal],

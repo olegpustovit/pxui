@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 23
+minor 24
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -96,6 +96,7 @@ function pxui_ui_draw int32_t pxui_ui_draw ( PxuiUi * ui , const PxuiBox * box ,
 function pxui_ui_drop_target int32_t pxui_ui_drop_target ( PxuiUi * ui , const PxuiBox * box , uint32_t * tag , PxuiStr * kind , PxuiStr * value ) ;
 function pxui_ui_dropdown int32_t pxui_ui_dropdown ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
 function pxui_ui_enter int32_t pxui_ui_enter ( PxuiUi * ui , const PxuiBox * box , PxuiSaved * out ) ;
+function pxui_ui_environment int32_t pxui_ui_environment ( PxuiUi * ui , PxuiEnvironment * out ) ;
 function pxui_ui_expanded int32_t pxui_ui_expanded ( PxuiUi * ui , PxuiStr key , uint8_t * out ) ;
 function pxui_ui_field_drag int32_t pxui_ui_field_drag ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
 function pxui_ui_focus_box int32_t pxui_ui_focus_box ( PxuiUi * ui , const PxuiBox * box ) ;
@@ -239,9 +240,11 @@ layout A11yValue 48 8 0 4 8 12 16 24 32 40
 layout Commands 24 8 0 8 16
 layout Damage 20 4 0 1 4
 layout Edges 16 4 0 4 8 12
+layout Environment 72 8 0 16 32 48 56 64 68
 layout Event 48 8 0 4 8 16 24 32
 layout Flags 8 8
 layout FrameIn 48 8 0 8 16 24 28 32 40
+layout FrameInV1_24 128 8 0 8 16 24 28 32 40 48 52 56
 layout FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
 layout FrameOut 40 8 0 4 20 21 24 32
 layout Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120

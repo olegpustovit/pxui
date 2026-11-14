@@ -81,8 +81,13 @@ pub enum Event {
     Closed,
     PixelSizeChanged((i64, i64)),
     VisibilityChanged(bool),
+    /// Host safe-area or keyboard geometry changed.
+    EnvironmentChanged,
     TrackpadScrolled { delta: (f64, f64), phase: ScrollPhase, time: f64 },
 }
+
+/// Initial capacity for retained focus/visibility/environment batches; larger batches still grow.
+pub const EVENT_RESERVE: usize = 8;
 
 #[derive(Clone, Debug, PartialEq)]
 pub struct Frame {
@@ -371,6 +376,7 @@ fn put_event(out: &mut String, event: &Event) {
         }
         Event::DialogOpened(id) => { put_byte(out, 14); put_int(out, *id); }
         Event::Resized((w, h)) => { put_byte(out, 15); put_int(out, *w); put_int(out, *h); }
+        Event::EnvironmentChanged => put_byte(out, 23),
         Event::FocusLost => put_byte(out, 16),
         Event::FocusGained => put_byte(out, 17),
         Event::Closed => put_byte(out, 18),
@@ -399,7 +405,7 @@ fn event_eq(a: &Event, b: &Event) -> bool {
         (PointerCancelled(a), PointerCancelled(b)) => a == b,
         (TextInput(a), TextInput(b)) | (Paste(a), Paste(b)) | (FileDropped(a), FileDropped(b)) => a == b,
         (TextEditing { text: at, start: as_, length: al }, TextEditing { text: bt, start: bs, length: bl }) => at == bt && as_ == bs && al == bl,
-        (FileDragEnded, FileDragEnded) | (FocusLost, FocusLost) | (FocusGained, FocusGained) | (Closed, Closed) => true,
+        (EnvironmentChanged, EnvironmentChanged) | (FileDragEnded, FileDragEnded) | (FocusLost, FocusLost) | (FocusGained, FocusGained) | (Closed, Closed) => true,
         (Pinched(a), Pinched(b)) => float_eq(*a, *b),
         (FileDialog { id: ai, result: ar }, FileDialog { id: bi, result: br }) => ai == bi && ar == br,
         (DialogOpened(a), DialogOpened(b)) => a == b,

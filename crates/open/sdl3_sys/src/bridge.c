@@ -171,6 +171,7 @@ bool rays_sdl3_clipboard_set_text(const char *text) { return SDL_SetClipboardTex
 char *rays_sdl3_clipboard_get_text(void) { return SDL_GetClipboardText(); }
 bool rays_sdl3_start_text_input(SDL_Window *window) { return SDL_StartTextInput(window); }
 bool rays_sdl3_stop_text_input(SDL_Window *window) { return SDL_StopTextInput(window); }
+bool rays_sdl3_clear_text_input_area(SDL_Window *window) { return SDL_SetTextInputArea(window, NULL, 0); }
 bool rays_sdl3_set_text_input_area(SDL_Window *window,
     int x, int y, int width, int height, int cursor)
 {

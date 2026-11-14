@@ -131,6 +131,25 @@ impl Event {
     pub const PIXEL_SIZE_CHANGED: u32 = 21;
     pub const VISIBILITY_CHANGED: u32 = 22;
     pub const TRACKPAD_SCROLLED: u32 = 23;
+    pub const ENVIRONMENT_CHANGED: u32 = 24;
+}
+
+/// Host geometry in logical window points. Rectangles are [x, y, width, height].
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Environment {
+    /// Insets in top, right, bottom, left order; backgrounds may draw behind them.
+    pub safe_area: [f32; 4],
+    /// Keyboard's animation target and starting frame, including offscreen hide targets.
+    pub keyboard_frame: [f32; 4],
+    pub keyboard_from: [f32; 4],
+    /// Start time uses FrameIn::time's clock. Duration and curve come from the host.
+    pub keyboard_started: f64,
+    pub keyboard_duration: f64,
+    /// UIKit's raw animation curve, including platform values beyond 0..3.
+    pub keyboard_curve: u32,
+    /// 0 or 1; set after native did-show, cleared after native did-hide.
+    pub keyboard_visible: u32,
 }
 
 #[repr(C)]
@@ -147,9 +166,11 @@ pub struct FrameIn {
     pub appearance: u32,
     /// 0 or 1; the OS preference overrides themes that permit motion.
     pub reduced_motion: u32,
+    /// ABI 1.24 tail; absent tails use the default environment.
+    pub environment: Environment,
 }
 impl Default for FrameIn {
-    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0,appearance:0,reduced_motion:0 } }
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0,appearance:0,reduced_motion:0,environment:Environment::default() } }
 }
 impl FrameIn {
     pub const APPEARANCE_UNKNOWN:u32=0;
@@ -548,10 +569,18 @@ mod abi_layout {
                 offset_of!(FrameIn, time),
             ],
         );
-        assert_layout("FrameInV1_8",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
+        assert_layout("FrameInV1_8",offset_of!(FrameIn,environment),align_of::<FrameIn>(),&[
             offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),
             offset_of!(FrameIn,width),offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),
             offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),
+        ]);
+        assert_layout("Environment",size_of::<Environment>(),align_of::<Environment>(),&[
+            offset_of!(Environment,safe_area),offset_of!(Environment,keyboard_frame),offset_of!(Environment,keyboard_from),
+            offset_of!(Environment,keyboard_started),offset_of!(Environment,keyboard_duration),offset_of!(Environment,keyboard_curve),offset_of!(Environment,keyboard_visible),
+        ]);
+        assert_layout("FrameInV1_24",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
+            offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),offset_of!(FrameIn,width),
+            offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),offset_of!(FrameIn,environment),
         ]);
         assert_layout(
             "FrameOut",

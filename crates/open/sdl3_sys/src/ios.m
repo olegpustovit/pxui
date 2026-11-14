@@ -21,13 +21,19 @@ static void ios_source(void *context);
     CFRunLoopSourceRef source;
     atomic_bool finished, foreground, dirty;
     atomic_uint pending;
-    BOOL busy, watching;
+    BOOL busy, watching, keyboardVisible;
+    __weak UIWindow *hostWindow;
+    UIScreen *keyboardScreen;
+    CGRect keyboardFrom, keyboardFrame;
+    CFTimeInterval keyboardStarted, keyboardDuration;
+    NSUInteger keyboardCurve;
 }
 - (instancetype)initWithCallback:(rays_ios_callback)function user:(void *)context;
 - (void)begin;
 - (void)wake;
 - (void)observe:(SDL_Event *)event;
 - (int)shutdown:(int)status;
+- (void)environment:(rays_ios_environment *)out window:(UIWindow *)window;
 @end
 
 @implementation PXUIIOSLoop
@@ -54,7 +60,42 @@ static void ios_source(void *context);
     fprintf(stderr, "PXUI iOS loop: %s\n", message);
     [self finish:1];
 }
+- (void)keyboard:(NSNotification *)notification {
+    if (atomic_load(&finished)) return;
+    id screen = notification.object;
+    NSDictionary *info = notification.userInfo;
+    NSValue *from = info[UIKeyboardFrameBeginUserInfoKey], *to = info[UIKeyboardFrameEndUserInfoKey];
+    if (![screen isKindOfClass:UIScreen.class] || (hostWindow && ![screen isEqual:hostWindow.screen]) || !from || !to) return;
+    keyboardScreen = screen;
+    keyboardFrom = from.CGRectValue; keyboardFrame = to.CGRectValue;
+    keyboardStarted = CACurrentMediaTime();
+    keyboardDuration = [info[UIKeyboardAnimationDurationUserInfoKey] doubleValue];
+    keyboardCurve = [info[UIKeyboardAnimationCurveUserInfoKey] unsignedIntegerValue];
+    atomic_store(&dirty, true);
+    [self post];
+}
+- (void)keyboardVisibility:(NSNotification *)notification {
+    if (atomic_load(&finished) || ![notification.object isEqual:hostWindow.screen]) return;
+    keyboardVisible = [notification.name isEqualToString:UIKeyboardDidShowNotification];
+    atomic_store(&dirty, true);
+    [self post];
+}
+- (void)environment:(rays_ios_environment *)out window:(UIWindow *)window {
+    if (![keyboardScreen isEqual:window.screen]) return;
+    UIView *view = window.rootViewController.view;
+    CGRect from = [keyboardScreen.coordinateSpace convertRect:keyboardFrom toCoordinateSpace:view];
+    CGRect to = [keyboardScreen.coordinateSpace convertRect:keyboardFrame toCoordinateSpace:view];
+    float a[4] = {(float)from.origin.x,(float)from.origin.y,(float)from.size.width,(float)from.size.height};
+    float b[4] = {(float)to.origin.x,(float)to.origin.y,(float)to.size.width,(float)to.size.height};
+    memcpy(out->keyboard_from,a,sizeof(a)); memcpy(out->keyboard_frame,b,sizeof(b));
+    out->keyboard_started = keyboardStarted; out->keyboard_duration = keyboardDuration;
+    out->keyboard_curve = (uint32_t)keyboardCurve;
+    out->keyboard_visible = keyboardVisible ? 1 : 0;
+}
 - (void)begin {
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardVisibility:) name:UIKeyboardDidShowNotification object:nil];
+    [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardVisibility:) name:UIKeyboardDidHideNotification object:nil];
     rays_ios_step initial = [self invoke:RAYS_IOS_INIT];
     if (initial.action == RAYS_IOS_FAIL || initial.action == RAYS_IOS_EXIT) {
         [self finish:initial.action == RAYS_IOS_FAIL]; return;
@@ -63,6 +104,7 @@ static void ios_source(void *context);
     if (!window) { [self failure:"initialization did not supply a live SDL window"]; return; }
     UIWindow *native = (__bridge UIWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
     if (!native) { [self failure:"SDL window has no UIKit window"]; return; }
+    hostWindow = native;
     CFRunLoopSourceContext context = {0}; context.info = (__bridge void *)self; context.perform = ios_source;
     source = CFRunLoopSourceCreate(kCFAllocatorDefault, 0, &context);
     if (!source) { [self failure:"could not create the iOS wake source"]; return; }
@@ -157,6 +199,7 @@ static void ios_source(void *context);
 }
 - (int)shutdown:(int)status {
     if (atomic_exchange(&finished, true)) return status;
+    [NSNotificationCenter.defaultCenter removeObserver:self];
     [link invalidate]; link = nil;
     if (timer) { dispatch_source_cancel(timer); timer = nil; }
     if (source) CFRunLoopSourceInvalidate(source);
@@ -194,4 +237,23 @@ int32_t rays_sdl3_run_ios(rays_ios_callback callback, void *user) {
         fprintf(stderr, "PXUI iOS loop: %s\n", exception.reason.UTF8String);
         return [loop shutdown:1];
     }
+}
+
+int32_t rays_sdl3_ios_environment(uint32_t id, rays_ios_environment *out) {
+    if (!pthread_main_np() || !out) { SDL_SetError("iOS environment requires main and output"); return 0; }
+    SDL_Window *window = SDL_GetWindowFromID(id);
+    if (!window) return 0;
+    UIWindow *native = (__bridge UIWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
+    if (!native) { SDL_SetError("SDL window has no UIKit window"); return 0; }
+    SDL_Rect safe; int width, height;
+    if (!SDL_GetWindowSafeArea(window,&safe) || !SDL_GetWindowSize(window,&width,&height)) return 0;
+    rays_ios_environment value = {0};
+    value.safe_area[0] = (float)MAX(0,safe.y);
+    value.safe_area[1] = (float)MAX(0,width-safe.x-safe.w);
+    value.safe_area[2] = (float)MAX(0,height-safe.y-safe.h);
+    value.safe_area[3] = (float)MAX(0,safe.x);
+    value.timestamp = CACurrentMediaTime();
+    [active_loop environment:&value window:native];
+    *out = value;
+    return 1;
 }

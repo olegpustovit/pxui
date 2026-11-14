@@ -1,7 +1,13 @@
 #[cfg(target_os = "macos")]
 pub use sdl3_sys::chrome;
 #[cfg(target_os = "ios")]
-pub use sdl3_sys::ios;
+pub mod ios {
+    pub use sdl3_sys::ios::{run,Signal,Step,Environment};
+    pub fn environment(window:u32)->Result<Environment,super::Error> {
+        super::before_main("SDL3.iOS.environment")?;
+        sdl3_sys::ios::environment(window).map_err(|e|super::native_error("SDL3.iOS.environment",e))
+    }
+}
 
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
@@ -321,6 +327,9 @@ pub mod window {
         pub fn stop_text_input(&self) -> std::result::Result<(), Error> {
             self.native("SDL3.Text_input.stop")?.stop_text_input().map_err(|failure| native_error("SDL3.Text_input.stop", failure))
         }
+        pub fn clear_text_input_area(&self)->std::result::Result<(),Error> {
+            self.native("SDL3.Text_input.clear_area")?.clear_text_input_area().map_err(|failure|native_error("SDL3.Text_input.clear_area",failure))
+        }
         pub fn set_text_input_area(&self, area: super::Rect, cursor: i32) -> std::result::Result<(), Error> {
             if cursor < 0 {
                 return Err(error("SDL3.Text_input.set_area", ErrorKind::InvalidArgument,
@@ -504,6 +513,7 @@ pub mod text_input {
 
     pub fn start(window: &Window) -> std::result::Result<(), Error> { window.start_text_input() }
     pub fn stop(window: &Window) -> std::result::Result<(), Error> { window.stop_text_input() }
+    pub fn clear_area(window:&Window)->std::result::Result<(),Error> {window.clear_text_input_area()}
     pub fn set_area(window: &Window, area: Rect, cursor: i32) -> std::result::Result<(), Error> {
         window.set_text_input_area(area, cursor)
     }

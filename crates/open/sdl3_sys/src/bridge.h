@@ -66,6 +66,7 @@ char *rays_sdl3_clipboard_get_text(void);
 bool rays_sdl3_start_text_input(SDL_Window *window);
 bool rays_sdl3_set_text_input_area(SDL_Window *window, int x, int y, int width, int height, int cursor);
 bool rays_sdl3_stop_text_input(SDL_Window *window);
+bool rays_sdl3_clear_text_input_area(SDL_Window *window);
 void rays_sdl3_scroll_monitor_install(void);
 void rays_sdl3_window_plain_titlebar(SDL_Window *window);
 void rays_sdl3_app_activate(void);

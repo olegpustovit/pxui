@@ -68,6 +68,7 @@ pub const CLOSED: u32 = 20;
 pub const PIXEL_SIZE_CHANGED: u32 = 21;
 pub const VISIBILITY_CHANGED: u32 = 22;
 pub const TRACKPAD_SCROLLED: u32 = 23;
+pub const ENVIRONMENT_CHANGED: u32 = 24;
 
 /// One event as the C struct carries it: `kind`, `code`, `x`, `y`, `value` and UTF-8 `text` (`None`: the pointer was null).
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -109,6 +110,7 @@ impl Event {
             Event::FocusGained => raw(FOCUS_GAINED, 0, 0.0, 0.0, 0.0, ""),
             Event::Closed => raw(CLOSED, 0, 0.0, 0.0, 0.0, ""),
             Event::PixelSizeChanged((w, h)) => raw(PIXEL_SIZE_CHANGED, 0, *w as f64, *h as f64, 0.0, ""),
+            Event::EnvironmentChanged => raw(ENVIRONMENT_CHANGED, 0, 0.0, 0.0, 0.0, ""),
             Event::VisibilityChanged(v) => raw(VISIBILITY_CHANGED, 0, 0.0, 0.0, *v as u8 as f64, ""),
             Event::TrackpadScrolled { delta: (x, y), phase, time } => {
                 let code = match phase { ScrollPhase::Touched => 0, ScrollPhase::Moved => 1, ScrollPhase::Lifted => 2, ScrollPhase::Momentum => 3 };
@@ -146,6 +148,7 @@ impl Event {
             FOCUS_GAINED => Event::FocusGained,
             CLOSED => Event::Closed,
             PIXEL_SIZE_CHANGED => Event::PixelSizeChanged((e.x as i64, e.y as i64)),
+            ENVIRONMENT_CHANGED => Event::EnvironmentChanged,
             VISIBILITY_CHANGED => Event::VisibilityChanged(e.value != 0.0),
             TRACKPAD_SCROLLED => Event::TrackpadScrolled {
                 delta: (e.x, e.y), time: e.value,
@@ -186,7 +189,7 @@ mod tests {
             Event::FileDragEnded, Event::Pinched(1.25), Event::FileDialog { id: 7, result: Ok(vec!["/a".into(), "/b".into()]) },
             Event::FileDialog { id: 8, result: Err("no".into()) }, Event::DialogOpened(9), Event::Resized((10, 20)), Event::FocusLost,
             Event::FileDialog { id: 10, result: Ok(Vec::new()) },
-            Event::FocusGained, Event::Closed, Event::PixelSizeChanged((30, 40)), Event::VisibilityChanged(true),
+            Event::EnvironmentChanged, Event::FocusGained, Event::Closed, Event::PixelSizeChanged((30, 40)), Event::VisibilityChanged(true),
             Event::TrackpadScrolled { delta: (1.0, 2.0), phase: ScrollPhase::Momentum, time: 3.0 },
         ];
         for event in events {

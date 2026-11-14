@@ -176,6 +176,12 @@ typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
 #define PXUI_GLYPH_PAGE_2 2u
 /* ABI 1.14: pixel-area coverage for a plain, unstroked RECT instance. */
 #define PXUI_RECT_AREA 4u
+/* ABI 1.24: logical window points; insets are top/right/bottom/left, rectangles x/y/w/h. */
+typedef struct {
+    float safe_area[4], keyboard_frame[4], keyboard_from[4];
+    double keyboard_started, keyboard_duration;
+    uint32_t keyboard_curve, keyboard_visible;
+} PxuiEnvironment;
 typedef struct {
     uint32_t size;
     /* Event-only entry: held keys persist until release or focus loss. */
@@ -185,6 +191,8 @@ typedef struct {
     double time;
     /* ABI 1.8 tail; legacy size=48 defaults both to zero. Partial tails are refused. */
     uint32_t appearance, reduced_motion;
+    /* Read only when size includes this complete tail; otherwise defaults to zero. */
+    PxuiEnvironment environment;
 } PxuiFrameIn;
 #define PXUI_APPEARANCE_UNKNOWN 0u
 #define PXUI_APPEARANCE_LIGHT 1u
@@ -203,7 +211,7 @@ enum PxuiEventKind {
     PXUI_FILE_DROPPED=11, PXUI_FILE_DRAG_MOVED=12, PXUI_FILE_DRAG_ENDED=13,
     PXUI_PINCHED=14, PXUI_FILE_DIALOG=15, PXUI_DIALOG_OPENED=16, PXUI_RESIZED=17,
     PXUI_FOCUS_LOST=18, PXUI_FOCUS_GAINED=19, PXUI_CLOSED=20,
-    PXUI_PIXEL_SIZE_CHANGED=21, PXUI_VISIBILITY_CHANGED=22, PXUI_TRACKPAD_SCROLLED=23
+    PXUI_PIXEL_SIZE_CHANGED=21, PXUI_VISIBILITY_CHANGED=22, PXUI_TRACKPAD_SCROLLED=23, PXUI_ENVIRONMENT_CHANGED=24
 };
 enum PxuiValueCode {
     PXUI_MOUSE_LEFT=0, PXUI_MOUSE_RIGHT=1, PXUI_MOUSE_MIDDLE=2, PXUI_MOUSE_X1=3, PXUI_MOUSE_X2=4,
@@ -313,6 +321,7 @@ PxuiUi *pxui_ui_create(const PxuiUiDesc *desc);
 PxuiUi *pxui_ui_create_with_fonts(const PxuiUiDesc *desc, const PxuiStr *fonts, size_t count);
 int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside a frame, or a renderer still attached */
 PxuiStr pxui_last_error(const PxuiUi *ui);
+int32_t pxui_ui_environment(PxuiUi *ui, PxuiEnvironment *out);
 int32_t pxui_frame(PxuiUi *ui, const PxuiFrameIn *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 int32_t pxui_ui_frame(PxuiUi *ui, const PxuiInput *in, PxuiBuild build, void *user, PxuiFrameOut *out);
 /* The last frame's input as routed to `owner` (a viewport's root key; has_owner 0: the app's), for the app's own content: the record

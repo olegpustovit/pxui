@@ -162,3 +162,5 @@ TextSpans 200 4 0 4 8
 FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
 PxuiSectionListDesc 64 8 0 4 5 8 24 32 36 40 44 48 56
 PxuiMeasuredSectionDesc 64 8 0 4 5 8 24 32 36 40 44 48 56
+Environment 72 8 0 16 32 48 56 64 68
+FrameInV1_24 128 8 0 8 16 24 28 32 40 48 52 56

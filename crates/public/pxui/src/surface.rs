@@ -1237,6 +1237,7 @@ fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
         Event { kind: Event::FOCUS_LOST, ..Event::default() },
         Event { kind: Event::FOCUS_GAINED, ..Event::default() },
         Event { kind: Event::VISIBILITY_CHANGED, value: 1.0, ..Event::default() },
+        Event { kind: Event::ENVIRONMENT_CHANGED, ..Event::default() },
     ];
     mem_sys::local_reset();
     ui.frame(&FrameIn { time: 30.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
@@ -1850,4 +1851,37 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
     assert!(catch_unwind(AssertUnwindSafe(|| {ui.frame(&input(),&mut |ui| {
         let node=ui.node("invalid",crate::Node::DEFAULT);ui.a11y_value(&node,"é",(1,0));
     }).unwrap();})).is_err(),"selection bytes cannot split UTF-8");
+}
+
+#[test]
+fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
+    use std::cell::Cell;
+    let mut ui=Ui::new().unwrap();
+    mem_sys::set_peer(crate::library_counter);
+    let builds=Cell::new(0);
+    let seen=Cell::new(crate::Environment::default());
+    let mut build=|ui:&mut Ui| {
+        ui.view("environment",1,Size::Grow,Size::Grow,&mut |ui| {
+            builds.set(builds.get()+1); seen.set(ui.environment()); ui.label("Environment");
+        });
+    };
+    for round in 0..100 {
+        let environment=crate::Environment { safe_area:[47.0,0.0,34.0,0.0],keyboard_frame:[0.0,if round%2==0 {500.0} else {844.0},390.0,344.0],
+            keyboard_from:[0.0,844.0,390.0,344.0],keyboard_started:1.0,keyboard_duration:0.25,keyboard_curve:7,keyboard_visible:u32::from(round%2==0) };
+        mem_sys::local_reset();
+        let previous=builds.get();
+        ui.frame(&FrameIn { time:round as f64,environment,..input() },&mut build).unwrap();
+        assert!(builds.get()>previous,"geometry changes must rebuild a kept view");
+        assert_eq!(seen.get(),environment); assert_eq!(ui.environment(),environment);
+        let previous=builds.get();
+        ui.frame(&FrameIn { time:round as f64,environment,..input() },&mut build).unwrap();
+        assert_eq!(builds.get(),previous,"unchanged geometry must keep cached content");
+        if round>=10 {assert_eq!(mem_sys::local_alloc_count(),0,"warm environment updates allocated");}
+    }
+    let prior=ui.environment();
+    let mut invalid=prior; invalid.safe_area[0]=f32::NAN;
+    assert_eq!(ui.frame(&FrameIn { environment:invalid,..input() },&mut build).err(),Some(pxui_types::PXUI_ERR_ARGUMENT));
+    assert_eq!(ui.environment(),prior);
+    ui.frame(&FrameIn { size:56,environment:invalid,..input() },&mut build).unwrap();
+    assert_eq!(ui.environment(),crate::Environment::default(),"an old complete descriptor ignores the new tail");
 }

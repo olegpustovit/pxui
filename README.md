@@ -51,7 +51,8 @@ The host adds no private engine dependencies or third-party packages. Native/pro
 are separate from the warm Rust allocator checks.
 
 `pxui_host::Events` retains the ABI event span and its UTF-8 bytes. Clear and reuse the app's
-input batch, call `Platform::pump`, feed `Events::encode` into `Ui::frame`, then call
+input batch, call the fallible `Platform::pump`, feed `Events::encode` and
+`Platform::environment()` into `Ui::frame`, then call
 `Platform::apply` once per completed UI frame for cursor, keyboard/IME, background and clipboard
 requests. Numeric input and unchanged focused IME geometry allocate no Rust objects once warm;
 new text and clipboard contents are separate paths.
@@ -66,8 +67,28 @@ errors through the callback result; a panic aborts at the C boundary. See
 `SIMCTL_CHILD_PXUI_IOS_LIFECYCLE_CHECK=1` on `simctl launch`, wait for the frame-90 marker,
 background it with another app, then relaunch the same bundle without terminating it. The
 182-frame / 82-warm-up / 100-measured allocation gate, idle deadline and same-process resume
-are qualified on the iOS 18.6 simulator. Finger gestures, safe areas, actual keyboard behavior,
+are qualified on the iOS 18.6 simulator. Finger gestures, IME editing, keyboard avoidance motion,
 physical devices and native allocations remain to qualify.
+
+ABI 1.24 appends `FrameIn::environment`: safe-area insets (top/right/bottom/left), keyboard
+start/target rectangles, host-clock start time, duration, raw UIKit curve and did-show/did-hide
+visibility. `Ui::environment()` reads it inside cached views; a changed environment invalidates
+those views. The frozen 48-byte and 56-byte descriptors keep their layout and use a default
+environment. Forward-sized old descriptors ignore an incomplete environment tail. Invalid
+geometry is rejected before changing the frame. `EnvironmentChanged` is a numeric input event,
+so native geometry changes wake an otherwise idle UI. Retained event buffers start with eight
+slots for combined focus/visibility/keyboard batches and still grow for larger peaks.
+
+The iOS host reads [SDL's safe-area query](https://wiki.libsdl.org/SDL3/SDL_GetWindowSafeArea)
+and converts keyboard frames from their UIScreen into the SDL view's logical coordinates,
+following [Apple's coordinate-space guidance](https://developer.apple.com/videos/play/wwdc2023/10281/).
+It preserves UIKit curve values such as 7 and a stable mapping to the frame clock. The framework
+clears SDL's automatic keyboard avoidance area, keeping the Metal view fixed while layout uses
+the environment; the authored caret remains available in the UI's IME output. The gallery probe
+pads its content by the safe-area insets. `SIMCTL_CHILD_PXUI_IOS_KEYBOARD_CHECK=1` focuses a test
+field, checks real did-show/did-hide and geometry, then runs the unchanged 182/82/100 allocation
+and idle-wake checks. This qualifies simulator show/hide and geometry; touch editing, composition,
+keyboard-synchronized layout motion and floating/external-screen/device behavior remain open.
 
 The shape of an app (names settle with the engine rewrite; `crates/private/pxui_render/tests/gpu_pxui_render.rs`
 and `crates/private/pxui_core/tests/gpu_pxui_parity.rs` hold the compiling version):
