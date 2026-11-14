@@ -334,6 +334,49 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
 }
 
 #[test]
+fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
+    use pxui_types::{Event, KEY_SPECIAL};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    for round in 0..5 {
+        mem_sys::local_reset();
+        for modifier in [KEY_SPECIAL+9,KEY_SPECIAL+10,KEY_SPECIAL+11,KEY_SPECIAL+12] {
+            let key=|kind,code| Event {kind,code,..Default::default()};
+            for popup in [false,true] {
+                for (events,expected) in [
+                    ([key(Event::KEY_PRESSED,modifier),key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_RELEASED,modifier)],true),
+                    ([key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_PRESSED,modifier),key(Event::KEY_RELEASED,modifier)],false),
+                    ([key(Event::KEY_PRESSED,modifier),key(Event::FOCUS_LOST,0),key(Event::KEY_PRESSED,b'k' as u32)],false),
+                    ([key(Event::KEY_PRESSED,modifier),key(Event::KEY_RELEASED,modifier),key(Event::KEY_PRESSED,b'k' as u32)],false),
+                ] {
+                    let mut contents=|ui:&mut Ui| {
+                        let field=ui.node("focus",crate::Node {flags:crate::ui::FOCUSABLE,w:Size::Px(100.0),h:Size::Px(24.0),..crate::Node::DEFAULT});
+                        ui.focus_box(&field);
+                        assert_eq!(ui.key_pressed_with('k' as u32,modifier),expected);
+                        assert_eq!(ui.key_pressed_with('k' as u32,modifier),expected,"query consumes nothing");
+                        assert!(ui.key_pressed('k'));
+                        assert!(!ui.key_down(modifier));
+                    };
+                    ui.frame(&FrameIn {time:round as f64,events:events.as_ptr(),event_count:events.len(),..input()},&mut |ui| {
+                        if popup {ui.popup(None,None,false,true,(0.0,0.0),120.0,30.0,"chord",&mut contents);}
+                        else {contents(ui);}
+                    }).unwrap();
+                    ui.dismiss_popup();
+                }
+                let press=key(Event::KEY_PRESSED,modifier);
+                ui.frame(&FrameIn {events:&press,event_count:1,..input()},&mut |_| {}).unwrap();
+                let events=[key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_RELEASED,modifier)];
+                ui.frame(&FrameIn {events:events.as_ptr(),event_count:events.len(),..input()},&mut |ui| {
+                    assert!(ui.key_pressed_with('k' as u32,modifier),"modifier can be held from the previous frame");
+                    assert!(!ui.key_down(modifier));
+                }).unwrap();
+            }
+        }
+        if round>=2 {assert_eq!(mem_sys::local_alloc_count(),0,"focused and modal modifier-at-press queries");}
+    }
+}
+
+#[test]
 fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
@@ -1277,12 +1320,14 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             ui.frame(&FrameIn {time:0.3,events:select.as_ptr(),event_count:select.len(),..frame},&mut build).unwrap();
             let selected = ui.a11y_nodes().iter().find(|node|node.role==Role::TextField as u32).unwrap();
             assert_eq!(selected.selection,[5,4]);
+            let keys = [Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+11,..Default::default()},Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+14,..Default::default()},Event {kind:Event::KEY_RELEASED,code:pxui_types::KEY_SPECIAL+14,..Default::default()},Event {kind:Event::KEY_RELEASED,code:pxui_types::KEY_SPECIAL+11,..Default::default()}];
             for tick in 0..24 {
                 mem_sys::local_reset();
-                ui.frame(&FrameIn {time:0.4+tick as f64/60.0,..frame},&mut build).unwrap();
+                ui.frame(&FrameIn {time:0.4+tick as f64/60.0,events:keys.as_ptr(),event_count:keys.len(),..frame},&mut build).unwrap();
                 if tick>=8 {assert_eq!(mem_sys::local_alloc_count(),0,"warm custom body, focus, selection and composition");}
                 assert!(ui.ime().is_some());
             }
+            assert_eq!(ui.signal(&ui.box_of_key(ROW.get()).unwrap()).keys.len(),keys.len(),"editing must restore the original key stream for later consumers");
             let commit = Event {kind:Event::TEXT_INPUT,text:Str {ptr:composition.as_ptr(),len:composition.len()},..Default::default()};
             let mut changed = false;
             ui.frame(&FrameIn {time:1.0,events:&commit,event_count:1,..frame},&mut |ui| {changed=ui.text_field("Styled",value)==Some("caféétrack 10");}).unwrap();

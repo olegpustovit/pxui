@@ -88,6 +88,14 @@ highlight iterator. Preserve the core/static/dynamic focused selection/IME alloc
 Custom editor parts supply the font size for focused glyphs, caret/selection and IME. Pointer hits use
 the previous displayed part's size; paint uses the newly built part's size. Preserve zero/default and
 relative sizing, same-frame size changes, UTF-8 selection and static/dynamic warm-allocation checks.
+Text fields read scalar signals and temporarily borrow their retained key/modifier buffers while
+editing, restoring them before subsequent queries. Warm modified keyboard navigation must not clone
+those events or captured press modifiers; owned text/IME changes remain separate allocation paths.
+
+ABI 1.23 adds `key_pressed_with`: a raw, non-consuming key query with Shift/Ctrl/Alt/Meta held at
+the press, including a modifier released later in the same batch. Capture the initial modifier state
+before routing and replay event order, clearing on focus loss. Callers still arbitrate modal ownership.
+Keep C invalid-input output atomicity and focused/modal static/dynamic warm-allocation checks.
 
 ## Numeric keyboard signals
 

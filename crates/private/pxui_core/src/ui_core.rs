@@ -979,6 +979,7 @@ pub struct Ui {
     composition: String,
     previous_keys: Vec<Key>,
     route_keys: Vec<Key>,
+    frame_modifiers: [bool; 4],
     pub(crate) edit_focus: i64,
     pub edit_value: String,
     pub(crate) edit_work: String,
@@ -1215,6 +1216,7 @@ impl Ui {
             composition: String::new(),
             previous_keys: Vec::new(),
             route_keys: Vec::new(),
+            frame_modifiers: [false; 4],
             edit_focus: 0,
             edit_value: String::new(),
             edit_work: String::new(),
@@ -2299,6 +2301,7 @@ impl Ui {
         self.modal_in_frame = self.modal_key.is_some();
         let mut modifiers = std::mem::take(&mut self.route_keys);
         input::keys_before_into(&self.previous_keys, &frame.input.keys, &frame.input.events, &mut modifiers);
+        self.frame_modifiers = [Key::Shift, Key::Ctrl, Key::Alt, Key::Meta].map(|key| modifiers.contains(&key));
         self.previous_keys.clone_from(&frame.input.keys);
         self.view_w = frame.input.size.0 as f32;
         self.view_h = frame.input.size.1 as f32;
@@ -2643,6 +2646,24 @@ impl Ui {
     /// Raw held keys, including modifiers while a widget or popup owns keyboard input.
     pub fn key_down(&self, key: Key) -> bool {
         self.input_frame.as_ref().is_some_and(|frame| frame.input.keys.contains(&key))
+    }
+
+    /// Raw press query with a modifier at the time of each event, including same-frame releases.
+    pub fn key_pressed_with(&self, key: Key, modifier: Key) -> bool {
+        let Some(index) = [Key::Shift, Key::Ctrl, Key::Alt, Key::Meta].iter().position(|k| *k == modifier) else { return false; };
+        let mut held = self.frame_modifiers[index];
+        for event in &self.frame_events {
+            match event {
+                Event::KeyPressed(k) => {
+                    if *k == modifier { held = true; }
+                    if *k == key && held { return true; }
+                }
+                Event::KeyReleased(k) if *k == modifier => held = false,
+                Event::FocusLost => held = false,
+                _ => {}
+            }
+        }
+        false
     }
 
     pub fn unfocus(&mut self) {
@@ -3293,6 +3314,14 @@ impl Ui {
         self.signals.get(&key).filter(|_| key != 0).map_or(&[], |value| &value.keys)
     }
 
+    pub(crate) fn with_key_events(&mut self, b: &UiBox, f: &mut dyn FnMut(&mut Ui, &[(Event, Vec<Key>)])) {
+        let key = if self.live(b) { b.box_key } else { 0 };
+        let Some(signal) = self.signals.get_mut(&key).filter(|_| key != 0) else { f(self, &[]); return; };
+        let keys = std::mem::take(&mut signal.keys);
+        f(self, &keys);
+        if let Some(signal) = self.signals.get_mut(&key) { signal.keys = keys; }
+    }
+
     /// Held keys at this box's captured press, retained through release.
     pub fn press_keys(&self, b: &UiBox) -> Vec<Key> {
         match self.signals.get(&b.box_key) {
@@ -3302,7 +3331,10 @@ impl Ui {
     }
 
     pub(crate) fn press_shift(&self, b: &UiBox) -> bool {
-        self.press_keys(b).contains(&Key::Shift)
+        match self.signals.get(&b.box_key) {
+            Some(value) => value.press_keys.contains(&Key::Shift),
+            None => self.active == Some(b.box_key) && self.active_keys.contains(&Key::Shift),
+        }
     }
 
     /// The released right-click in this box or a descendant, through shared capture.

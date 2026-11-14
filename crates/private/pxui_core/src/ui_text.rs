@@ -2899,7 +2899,7 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
     let side = this.space(2) as i64;
     let row = this.kit_row(Some(CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK), None, text);
     this.hit_part(&row, Part::EDITOR);
-    let signal = this.signal(&row);
+    let signal = this.signal_state(&row);
     let focused = this.focused(&row);
     let control_at = |ui: &Ui| ui.part_rect(row.box_key, Part::EDITOR).map_or_else(|| value_control_at(ints(ui.rect(&row)), side), |r| ints(r));
     // Pointer geometry and its font describe the editor the user saw last frame.
@@ -2914,9 +2914,11 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str) -> Option<String> {
         let (cx, _, cw, _) = control_at(this);
         let shift = this.press_shift(&row);
         this.point_text_caret(size, &mut edit, &signal, shift, (cx + 2) as f32, (cx + cw - 2) as f32);
-        for (event, modifiers) in this.key_events(&row) {
-            this.edit_text_event(false, &mut edit, &|_| true, &modifiers, &event);
-        }
+        this.with_key_events(&row, &mut |ui, keys| {
+            for (event, modifiers) in keys {
+                ui.edit_text_event(false, &mut edit, &|_| true, modifiers, event);
+            }
+        });
         this.save_text_edit(&edit);
         Some(edit)
     } else {

@@ -624,6 +624,8 @@ uint32_t pxui_ui_passed_undo(PxuiUi *ui); /* 0 none, 1 undo, 2 redo */
 int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint8_t *out);
 /* Raw held state, including modifiers when a widget or popup owns focus (ABI 1.15). */
 int32_t pxui_ui_key_down(PxuiUi *ui, uint32_t code, uint8_t *out);
+/* ABI 1.23: raw press query with Shift/Ctrl/Alt/Meta held at the event, including same-frame release. */
+int32_t pxui_ui_key_pressed_with(PxuiUi *ui, uint32_t code, uint32_t modifier, uint8_t *out);
 int32_t pxui_ui_set_font_size(PxuiUi *ui, int64_t size);
 int32_t pxui_ui_unfocus(PxuiUi *ui);
 int32_t pxui_ui_dismiss_popup(PxuiUi *ui);

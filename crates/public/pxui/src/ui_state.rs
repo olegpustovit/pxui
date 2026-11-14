@@ -19,6 +19,7 @@ library!(lib {
     fn pxui_ui_passed_undo(ui: *mut PxuiUi) -> u32;
     fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
     fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
+    fn pxui_ui_key_pressed_with(ui: *mut PxuiUi, code: u32, modifier: u32, out: *mut u8) -> i32;
     fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32;
     fn pxui_ui_unfocus(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_dismiss_popup(ui: *mut PxuiUi) -> i32;
@@ -94,6 +95,15 @@ impl Ui {
     pub fn key_down(&self, key: impl Into<u32>) -> bool {
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_key_down(self.0.as_ptr(), key.into(), &mut out) });
+        out != 0
+    }
+    /// Raw press query with Shift/Ctrl/Alt/Meta held at the event, even if released in the same frame.
+    /// Like `key_pressed`, this neither filters modal/widget ownership nor consumes the press.
+    #[inline]
+    #[track_caller]
+    pub fn key_pressed_with(&self, key: u32, modifier: u32) -> bool {
+        let mut out = 0;
+        check(self, unsafe { lib::pxui_ui_key_pressed_with(self.0.as_ptr(), key, modifier, &mut out) });
         out != 0
     }
     #[inline] #[track_caller] pub fn set_font_size(&mut self, size: i64) { check(self, unsafe { lib::pxui_ui_set_font_size(self.0.as_ptr(), size) }) }
