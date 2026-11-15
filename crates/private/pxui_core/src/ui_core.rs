@@ -2140,6 +2140,7 @@ impl Ui {
         let s = &mut self.slots[slot];
         s.key = 0;
         s.generation = s.generation.wrapping_add(1);
+        if let Some(rich)=&mut s.rich { rich.active=false; }
         s.text_value = None;
         s.labels.clear();
         // Freed slots can donate their retained strings before their next identity is assigned.

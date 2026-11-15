@@ -51,6 +51,30 @@ pub fn window_pxui_node_handles() {
     ui.destroy();
 }
 
+pub fn window_pxui_retired_rich_text_donates_before_slot_reassignment() {
+    let mut ui = new_ui(None);
+    let style = pxui_core::text::Style::default();
+    let mut retired = None;
+    for phase in 0..3 {
+        frame(&mut ui, phase as f64, &mut |ui| {
+            let target = chip(ui, "target", "label", color::white());
+            let live = chip(ui, "live", "keep", color::white());
+            check(ui.text_spans(&live, "keep", &style, &[]), "live rich text");
+            if phase == 0 {
+                let donor = chip(ui, "donor", "label", color::white());
+                check(ui.text_spans(&donor, "label", &style, &[]), "donor rich text");
+                retired = Some(donor);
+            } else if phase == 2 {
+                check(!ui.live(&retired.unwrap()), "donor identity must already be retired");
+                mem_sys::local_reset();
+                check(ui.text_spans(&target, "label", &style, &[]), "target rich text");
+                check(mem_sys::local_alloc_count() == 0, "retired rich storage must donate before its slot is reassigned");
+            }
+        });
+    }
+    ui.destroy();
+}
+
 pub fn window_pxui_node_patch() {
     let mut ui = new_ui(None);
     let builds = Cell::new(0);
@@ -289,6 +313,7 @@ pub fn window_pxui_node_line_patch() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_retired_rich_text_donates_before_slot_reassignment", window_pxui_retired_rich_text_donates_before_slot_reassignment),
     ("window_pxui_current_build_box_rejects_forged_index", window_pxui_current_build_box_rejects_forged_index),
     ("window_pxui_node_patch_colour_glyph", window_pxui_node_patch_colour_glyph),
     ("window_pxui_paint_grid_one_instance", window_pxui_paint_grid_one_instance),
