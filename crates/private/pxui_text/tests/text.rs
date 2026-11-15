@@ -241,6 +241,39 @@ fn warm_unchanged_frame_allocates_nothing() {
 }
 
 #[test]
+fn fresh_label_costs_and_cached_hits_are_measured_separately() {
+    for (name, style, title) in [
+        ("title", Style { size: 14.0, line_height: 19.6, max_lines: 1, ellipsis: Ellipsis::End, ..Style::default() }, true),
+        ("number", Style { size: 13.0, line_height: 18.2, wrap: Wrap::WordSpaces, features: Style::FEATURE_TABULAR_NUMBERS, ..Style::default() }, false),
+    ] {
+        let mut text = Text::new(&[pxui_text::PRAGMASEVKA]);
+        let labels: Vec<String> = (0..64).map(|index| if title { format!("Track {index:05}") } else { index.to_string() }).collect();
+        text.layout(1, "0123456789 Track", &style, 200.0);
+        let mut expected = Vec::with_capacity(labels.len());
+        #[cfg(target_os = "macos")]
+        let started = mem_sys::profile::thread_cpu_time_ns().unwrap();
+        let before = text.layout_count();
+        mem_sys::local_reset();
+        for (i, label) in labels.iter().enumerate() {
+            expected.push(text.layout(i as u64 + 2, label, &style, 200.0));
+        }
+        let cold_allocations = mem_sys::local_alloc_count();
+        #[cfg(target_os = "macos")]
+        let cpu_ns = mem_sys::profile::thread_cpu_time_ns().unwrap() - started;
+        assert_eq!(text.layout_count() - before, 64);
+        mem_sys::local_reset();
+        for (i, label) in labels.iter().enumerate() {
+            assert_eq!(text.layout(i as u64 + 2, label, &style, 200.0), expected[i]);
+        }
+        assert_eq!(mem_sys::local_alloc_count(), 0, "cached labels must not allocate");
+        assert_eq!(text.layout_count() - before, 64);
+        #[cfg(target_os = "macos")]
+        println!("fresh text: kind={name} labels=64 mean_layout_cpu_us={:.2} allocations={cold_allocations}", cpu_ns as f64 / 64_000.0);
+        std::hint::black_box((name, cold_allocations));
+    }
+}
+
+#[test]
 fn glyph_lists_replay_a_walk_at_any_origin() {
     let text = "Cached \u{2192} runs, wrapped over lines at any origin";
     let st = Style { wrap: Wrap::Word, size: 13.0, ..Style::default() };

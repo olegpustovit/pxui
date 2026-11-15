@@ -6,6 +6,7 @@
 use crate::layout::{big_frame, stress, stress_popup};
 use crate::support::*;
 use pxui_core::ui::*;
+use pxui_core::text::Style;
 use std::cell::Cell;
 
 const ROUNDS: usize = 7;
@@ -193,7 +194,42 @@ fn cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads() {
     ui.destroy();
 }
 
+fn cached_glyph_paint_keeps_instance_bytes_without_warm_allocations() {
+    let mut ui = new_ui(None);
+    #[cfg(target_os = "macos")]
+    ui.set_cpu_clock(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
+    let mut frame = frame_at(vec![], 2.0, 0.0, vec![]);
+    frame.input.size = (1000, 1400);
+    let mut expected = Vec::new();
+    let mut paint_ns = 0;
+    for tick in 0..24 {
+        frame.input.t = tick as f64 / 60.0;
+        mem_sys::local_reset();
+        ui.frame(&frame, &mut |ui| {
+            let node = ui.node("text", Node { w: Size::Px(1000.0), h: Size::Px(1400.0), ..Node::DEFAULT });
+            ui.canvas(&node, |paint, _| {
+                for row in 0..100 {
+                    paint.text_styled((3.0, row as f32 * 14.0), &Style { size: 11.0, ..Style::default() }, 0.0, None,
+                        "Cached glyphs ABCDEFG 0123456789");
+                }
+            });
+        });
+        if tick == 3 { expected.clone_from(&ui.output().draw[0].instances); }
+        if tick >= 4 {
+            assert_eq!(mem_sys::local_alloc_count(), 0);
+            assert_eq!(ui.output().draw[0].instances, expected);
+            assert!(expected.len() > 2500, "exercise a full page of glyph instances");
+            if let Some(phases) = ui.phase_cpu_times() { paint_ns += phases[4]; }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    println!("cached glyph paint: rows=100 samples=20 mean_paint_cpu_us={:.2}", paint_ns as f64 / 20_000.0);
+    std::hint::black_box(paint_ns);
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
     ("pxui_bench", pxui_bench),
     ("cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads",cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads),
+    ("cached_glyph_paint_keeps_instance_bytes_without_warm_allocations", cached_glyph_paint_keeps_instance_bytes_without_warm_allocations),
 ];
