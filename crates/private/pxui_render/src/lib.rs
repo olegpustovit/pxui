@@ -671,16 +671,25 @@ impl Painter {
         store.len = len;
         if len == 0 { return Ok(()); }
         let mut bound = None;
+        let mut bind_fixed = true;
         for k in 0..=breaks.len() {
             let from = if k == 0 { 0 } else { breaks[k - 1].at_instance as usize };
             let to = breaks.get(k).map_or(len, |b| b.at_instance as usize);
             if k > 0 && splits.contains(&(from as u32)) && to != from {
-                if let Some(next) = split(self, from as u32)? { pass = next; bound = None; }
+                if let Some(next) = split(self, from as u32)? { pass = next; }
+                bound = None;
+                bind_fixed = true;
             }
             if from == to { continue; }
             // Bind 4-instance (256-byte) aligned and skip the remainder with the globals' first-instance field.
             let start = self.header(size_px, scale, (from % 4) as u32)?;
-            self.bind(&pass, start)?;
+            // Pipeline, atlases and samplers stay fixed until a split callback can change state.
+            if bind_fixed {
+                self.bind(&pass, start)?;
+                bind_fixed = false;
+            } else {
+                backend::set_stage_buffer(&pass, ShaderStage::Vertex, 1, Some(start as i64), &self.ring)?;
+            }
             let texture = if k == 0 { None } else { breaks[k - 1].texture.as_ref() }.unwrap_or(&self.color);
             if bound != Some(texture as *const Texture) {
                 backend::set_stage_texture(&pass, ShaderStage::Fragment, 3, texture)?;

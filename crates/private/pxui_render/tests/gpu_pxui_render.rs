@@ -542,8 +542,10 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
     let target = target(&device);
     let external = texture(&device, 4, 4, &[TextureUsage::TextureBinding, TextureUsage::TextureCopyDst]);
     ok(be::write_texture(&external, None, Origin { x: 0, y: 0, z: 0 }, Extent { width: 4, height: 4, depth: 1 }, 16, &[255; 64]));
-    // A break at instance 14 (not a multiple of 4) puts the image on the external texture.
-    let breaks = [Break { at_instance: 14, texture: Some(external.clone()) }];
+    // Exercise all four header offsets; only the segment at 14 samples the external image.
+    let breaks = [1, 2, 3, 4, 8, 14, 17].map(|at_instance| Break {
+        at_instance, texture: (at_instance == 14).then(|| external.clone()),
+    });
     let size = [W * SCALE, H * SCALE];
     let mut instances = scene();
     let count = instances.len() as u64;
@@ -560,11 +562,17 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
         let dirty: Vec<(u32, u32)> = change.iter().map(|&i| (i as u32, i as u32 + 1)).collect();
         painter.begin_frame();
         let mut allocations = 0;
+        let mut splits = 0;
         pass(&queue, &target, &mut |encoder| {
             mem_sys::local_reset();
-            ok(painter.draw_retained(encoder, size, SCALE as f32, 0, &instances, &dirty, &breaks));
+            ok(painter.draw_retained_split(encoder, size, SCALE as f32, 0, &instances, &dirty, &breaks, &[2, 14], &mut |_, _| {
+                splits += 1;
+                ok(be::invalidate_state(encoder));
+                Ok(None)
+            }));
             allocations = mem_sys::local_alloc_count();
         });
+        assert_eq!(splits, 2, "a callback keeping the pass still requires state restoration");
         assert_eq!(painter.retained_bytes(), expected, "frame {frame}: bytes written");
         if frame >= 2 { assert_eq!(allocations, 0, "frame {frame}: warm retained draw allocates nothing"); }
         let retained = ok(be::read_texture(&target, (W * SCALE * 4) as i64));
@@ -1560,7 +1568,9 @@ fn shared_large_image_layer_allocates_nothing() {
     });
     let mut ui=pxui::Ui::new().expect("UI");
     let mut renderer=shared_renderer(&device,&ui);
-    for (index,count) in [65,128,96,128,65,64,96].into_iter().enumerate() {
+    #[cfg(target_os="macos")]
+    let mut cpu_ns=0;
+    for (index,count) in [65,128,96,128,65,64,96].into_iter().chain([128;20]).enumerate() {
         let frame=index as u64+1;
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let bounds=ui.node("images",pxui::ui::Node { w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(256.0),..pxui::ui::Node::DEFAULT });
@@ -1578,9 +1588,13 @@ fn shared_large_image_layer_allocates_nothing() {
         let pass=pxui_types::Pass { vk_command_buffer:native.vk_command_buffer,mtl_render_encoder:native.mtl_render_encoder,
             mtl_command_buffer:public_commands(&commands).mtl_command_buffer,width_px:640,height_px:600,scale:2.0,..Default::default() };
         let before=renderer.draw_calls();
+        #[cfg(target_os="macos")]
+        let started=mem_sys::profile::thread_cpu_time_ns().expect("thread clock");
         mem_sys::local_reset();
         renderer.draw(&pass).expect("draw large image layer");
         let allocations=mem_sys::local_alloc_count();
+        #[cfg(target_os="macos")]
+        if index>=7 { cpu_ns+=mem_sys::profile::thread_cpu_time_ns().expect("thread clock")-started; }
         if frame>3 { assert_eq!(allocations,0,"warm large image layers must allocate nothing"); }
         assert_eq!(renderer.draw_calls()-before,count as u64,"one draw for each alternating texture segment");
         ok(be::invalidate_state(&encoder));
@@ -1592,6 +1606,8 @@ fn shared_large_image_layer_allocates_nothing() {
             assert_eq!(&pixels[((i*4+1)*640+20)*4..][..4],[RED,BLUE][i%2],"image {i} keeps its texture");
         }
     }
+    #[cfg(target_os="macos")]
+    println!("retained image segments: count=128 samples=20 mean_draw_cpu_us={:.2}",cpu_ns as f64/20_000.0);
     drop(renderer);
     assert_eq!(ui.last_error(),"","scratch storage must not retain device children");
     for source in &sources { ok(be::destroy_texture(source)); }
