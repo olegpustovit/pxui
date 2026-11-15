@@ -20,6 +20,8 @@
 //! the `patch_*` functions rewrite one node's instances in place (layer 1 of specification/pxui.md).
 use crate::theme;
 mod text_identity;
+mod reveal;
+use reveal::Geometry as ListGeometry;
 use text_identity::lay_out_node;
 pub use crate::geom::Rect;
 pub(crate) use crate::geom::p32;
@@ -347,6 +349,7 @@ struct RowHeights {
     tops: Vec<f32>,
     dirty: bool,
     frame: i64,
+    geometry: ListGeometry,
 }
 
 /// A cached subtree (`Ui::view`): when it was built, where its output lives and how it is shown.
@@ -675,6 +678,7 @@ struct Slot {
     rw: f32,
     rh: f32,
     state_value: Option<i64>,
+    reveal: usize,
     text_value: Option<String>,
     labels: Vec<Rc<str>>,
     label_count: usize,
@@ -724,6 +728,7 @@ impl Slot {
             rw: 0.0,
             rh: 0.0,
             state_value: None,
+            reveal: usize::MAX,
             text_value: None,
             labels: Vec::new(),
             label_count: 0,
@@ -6078,8 +6083,9 @@ impl Ui {
             }
         }
         self.list_rows.clear();
+        self.finish_reveals();
         let frame_number = self.frame_number;
-        self.list_heights.retain(|_, c| frame_number - c.frame < 600);
+        self.list_heights.retain(|key, c| frame_number - c.frame < 600 || self.table.find(*key).is_some());
         self.phase(4);
         self.emit_a11y();
         self.phase(5);
@@ -6665,13 +6671,14 @@ impl Ui {
     // Rows are chosen from the scroll position before layout: a fling past the overscan shows empty
     // rows for a frame. Rows of differing heights: `list_measured`.
     pub fn list(&mut self, label: &str, count: usize, row_h: f32, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
+        let padding = self.list_padding(key_of(self.current_seed(), label));
         assert!(row_h > 0.0, "Ui.list {label}: rows need a positive height");
         let body = self.node(label, Node { flags: SCROLL | CLIP, w: Size::Grow, h: Size::Grow, scroll_step: row_h, role: Role::List, ..Node::DEFAULT });
         let seen = self.slots[body.box_slot].rh;
         let height = if seen > 0.0 { seen } else { self.view_h };
         // the wheel and the trackpad move the list before its rows are chosen (as `table` does)
         self.set_l_h(&body, height);
-        self.set_l_content(&body, count as f32 * row_h);
+        self.set_l_content(&body, count as f32 * row_h + padding.t + padding.b);
         if let Some(t) = self.input_frame_time() {
             self.apply_scroll(true, t, body.index);
         }
@@ -6689,11 +6696,13 @@ impl Ui {
         }
         self.leave(inner);
         self.leave(saved);
+        self.remember_list(&body, ListGeometry::rows(&body, count, row_h, 0.0, 0.0, 0.0, padding));
         body
     }
 
     /// A single scrolling section; headings use the existing sticky layout and rows stay virtual.
     pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
+        let padding = self.list_padding(key_of(self.current_seed(), label));
         let rows_h=section.count as f32*section.row_height;
         let before=section.leading_height+section.header_height;
         let total=before+rows_h+section.trailing_height;
@@ -6705,7 +6714,7 @@ impl Ui {
         let height=if seen>0.0 {seen} else {self.view_h};
         self.expect(body.box_slot,f32::NAN,height);
         self.set_l_h(&body,height);
-        self.set_l_content(&body,total);
+        self.set_l_content(&body,total+padding.t+padding.b);
         if let Some(time)=self.input_frame_time() {self.apply_scroll(true,time,body.index);}
         let offset=self.scroll_position(&body);
         let top=((offset-before)/section.row_height).floor().max(0.0) as usize;
@@ -6728,12 +6737,14 @@ impl Ui {
         self.leave(inner);
         if section.trailing_height>0.0 {self.node("trailing",Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
         self.leave(saved);
+        self.remember_list(&body,ListGeometry::rows(&body,section.count,section.row_height,before,section.header_height,section.trailing_height,padding));
         body
     }
 
     /// A section with measured virtual rows; the callback also receives its logical content Y.
     pub fn section_list_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
         let key=key_of(self.current_seed(),label);
+        let padding=self.list_padding(key);
         let mut cache=self.list_heights.remove(&key).unwrap_or_default();
         if cache.heights.len()!=section.count {cache.heights.resize(section.count,section.row_height);cache.dirty=true;}
         if cache.dirty || cache.tops.len()!=section.count+1 {
@@ -6753,7 +6764,7 @@ impl Ui {
         let height=if seen>0.0 {seen} else {self.view_h};
         self.expect(body.box_slot,f32::NAN,height);
         self.set_l_h(&body,height);
-        self.set_l_content(&body,total);
+        self.set_l_content(&body,total+padding.t+padding.b);
         if let Some(time)=self.input_frame_time() {self.apply_scroll(true,time,body.index);}
         let offset=self.scroll_position(&body);
         let top=cache.tops.partition_point(|y| *y<=offset-before).saturating_sub(1).min(section.count);
@@ -6777,6 +6788,7 @@ impl Ui {
         self.leave(inner);
         if section.trailing_height>0.0 {self.node("trailing",Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
         self.leave(saved);
+        cache.geometry=ListGeometry::rows(&body,section.count,0.0,before,section.header_height,section.trailing_height,padding);
         self.list_heights.insert(body.box_key,cache);
         body
     }
@@ -6787,6 +6799,7 @@ impl Ui {
     /// differs from the cached one settles the frame (`Ui::frame` builds again), so rows never
     /// overlap or gap. No allocation once warm (the cache grows with `count`).
     pub fn list_measured(&mut self, label: &str, count: usize, estimate_h: f32, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
+        let padding = self.list_padding(key_of(self.current_seed(), label));
         assert!(estimate_h > 0.0, "Ui.list_measured {label}: the estimate needs a positive height");
         let body = self.node(label, Node { flags: SCROLL | CLIP, w: Size::Grow, h: Size::Grow, scroll_step: estimate_h, role: Role::List, ..Node::DEFAULT });
         let mut cache = self.list_heights.remove(&body.box_key).unwrap_or_default();
@@ -6808,7 +6821,7 @@ impl Ui {
         let height = if seen > 0.0 { seen } else { self.view_h };
         self.expect(body.box_slot, f32::NAN, height);
         self.set_l_h(&body, height);
-        self.set_l_content(&body, cache.tops[count]);
+        self.set_l_content(&body, cache.tops[count] + padding.t + padding.b);
         if let Some(t) = self.input_frame_time() {
             self.apply_scroll(true, t, body.index);
         }
@@ -6829,6 +6842,7 @@ impl Ui {
         }
         self.leave(inner);
         self.leave(saved);
+        cache.geometry = ListGeometry::rows(&body, count, 0.0, 0.0, 0.0, 0.0, padding);
         self.list_heights.insert(body.box_key, cache);
         body
     }
@@ -6851,6 +6865,7 @@ impl Ui {
     }
 
     fn cells(&mut self, label: &str, count: usize, cell: (f32, f32), sideways: bool, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
+        let padding = self.list_padding(key_of(self.current_seed(), label));
         assert!(cell.0 > 0.0 && cell.1 > 0.0, "Ui.grid_list {label}: cells need a positive size");
         let flags = CLIP | if sideways { SCROLL_X } else { SCROLL };
         // `along` is the scrolling axis, `across` the one the cells wrap in
@@ -6859,16 +6874,16 @@ impl Ui {
         let seen = (self.slots[body.box_slot].rw, self.slots[body.box_slot].rh);
         let (w, h) = (if seen.0 > 0.0 { seen.0 } else { self.view_w }, if seen.1 > 0.0 { seen.1 } else { self.view_h });
         self.expect(body.box_slot, w, h);
-        let (room, room_across) = if sideways { (w, h) } else { (h, w) };
+        let (room, room_across) = if sideways { (w - padding.l - padding.r, h - padding.t - padding.b) } else { (h - padding.t - padding.b, w - padding.l - padding.r) };
         let per = ((room_across / across).floor() as usize).max(1);
         let lines = count.div_ceil(per);
         let extent = lines as f32 * along;
         // the wheel and the trackpad move the grid before its lines are chosen (as `list` does)
         (self.l_w[body.index], self.l_h[body.index]) = (w, h);
         if sideways {
-            self.l_content_w[body.index] = extent;
+            self.l_content_w[body.index] = extent + padding.l + padding.r;
         } else {
-            self.l_content[body.index] = extent;
+            self.l_content[body.index] = extent + padding.t + padding.b;
         }
         let offset = match (self.input_frame_time(), sideways) {
             (Some(t), true) => {
@@ -6904,6 +6919,10 @@ impl Ui {
         }
         self.leave(inner);
         self.leave(saved);
+        let mut geometry = ListGeometry::rows(&body, count, along, 0.0, 0.0, 0.0, padding);
+        geometry.across = across;
+        geometry.horizontal = sideways;
+        self.remember_list(&body, geometry);
         body
     }
 

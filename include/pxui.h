@@ -699,6 +699,8 @@ int32_t pxui_ui_set_node_layout(PxuiUi *ui, const PxuiBox *box, const PxuiNode *
 int32_t pxui_ui_local_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);
 int32_t pxui_ui_scroll_offset(PxuiUi *ui, const PxuiBox *box, uint32_t which, float *out); /* 0 offset, 1 painted position */
 int32_t pxui_ui_set_scroll_offset(PxuiUi *ui, const PxuiBox *box, float value);
+/* ABI 1.32: minimum scroll to reveal a virtual list item/grid cell; out-of-range indices do nothing. */
+int32_t pxui_ui_reveal(PxuiUi *ui, const PxuiBox *list, size_t index);
 int32_t pxui_ui_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiStr *out);
 int32_t pxui_ui_set_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t present, PxuiStr value);
 int32_t pxui_ui_cached_label(PxuiUi *ui, const PxuiBox *box, uint64_t index, PxuiStr text, PxuiStr *out); /* borrowed from the slot */

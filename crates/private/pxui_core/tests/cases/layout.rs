@@ -934,7 +934,41 @@ pub fn layout_node_identity_churn() {
     ui.destroy();
 }
 
+fn layout_reveal_horizontal_grid() {
+    use std::cell::Cell;
+    for rtl in [false, true] {
+        let mut ui = new_ui(None);
+        if rtl { ui.set_dir(Direction::Rtl); }
+        let list = Cell::new(None);
+        let key = |index| int_key(1234, index as i64);
+        let mut build = |ui: &mut Ui| {
+            let body = ui.grid_list_x("rows", 10_000, 30.0, 20.0, &mut |ui, index| {
+                ui.node_keyed(key(index), px(30.0, 20.0));
+            });
+            list.set(Some(body));
+        };
+        let frame = at(0.0, vec![]);
+        ui.frame(&frame, &mut build);
+        for round in 0..5 {
+            mem_sys::local_reset();
+            for index in [0, 9999, 5000, 10, 9999] {
+                let list = list.get().unwrap();
+                ui.reveal(&list, index);
+                ui.frame(&frame, &mut build);
+                let r = ui.rect(&ui.box_of_key(key(index)).unwrap());
+                assert!(r.x >= -0.05 && r.x + r.w <= 320.05, "rtl {rtl}, index {index}: {r:?}");
+                let offset = ui.scroll_offset_x(&list);
+                ui.reveal(&list, index);
+                assert_eq!(ui.scroll_offset_x(&list), offset);
+            }
+            if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        }
+        ui.destroy();
+    }
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("layout_reveal_horizontal_grid", layout_reveal_horizontal_grid),
     ("layout_leaf_scroll_geometry_and_parent_transitions",layout_leaf_scroll_geometry_and_parent_transitions),
     ("layout_node_identity_churn",layout_node_identity_churn),
     ("layout_carry_edge_scroll", layout_carry_edge_scroll),

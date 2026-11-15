@@ -245,3 +245,12 @@ mapping and arrows. Collapsed ranges are read-only and cancel active capture. Va
 must be finite, ranges ordered with finite span, and step positive. Focus/modal/retirement and
 pointer/touch cancellation never manufacture a commit. Warm input/build/draw reuses routed storage.
 The C entry validates the size-prefixed 48-byte `PxuiScrubOut` before writing its node/flags/values.
+
+
+ABI 1.32 adds `Ui::reveal(&list, index)` for fixed/measured lists, sections and grids. It scrolls
+only enough to expose that item, accounting for padding, sticky headers and the current viewport;
+an oversized item aligns its leading edge. Measured rows use cached heights and estimates for
+unvisited rows. Requests made during construction settle after layout; requests between frames
+invalidate the containing retained view. Unknown indices and stale handles do nothing. The request
+and warm build/draw allocate nothing; cold list creation and new measurements keep their existing
+storage/measurement costs.

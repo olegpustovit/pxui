@@ -39,6 +39,7 @@ Static/dynamic validation, pixel and warm-allocation checks remain required.
 | 1.29 | `FIT_TEXT_PIXEL` / `PXUI_FIT_TEXT_PIXEL` | Round intrinsic text width to render density; retained nodes reuse validated text fingerprints. No descriptor layout change. |
 | 1.30 | `ui_animate_keys_repeat`, `kit::Repeat`, `box_of_a11y` | Repeat retained keyframes with counted/forever cycles, autoreverse and phase offset. Resolve live nodes from published accessibility identities; no descriptor layout change. |
 | 1.31 | `ui_scrub`, `Scrub`, 48-byte `PxuiScrubOut` | Caller-painted horizontal adjustment with captured preview/release commit, routed keys and accessible values. |
+| 1.32 | `ui_reveal` | Minimum-scroll reveal using retained fixed/measured list, section and grid geometry. |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

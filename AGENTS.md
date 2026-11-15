@@ -421,3 +421,11 @@ RTL/endpoints, independent new-capture previews/previous-release commits, digita
 modal/focus/retirement/multitouch cancellation and no false release on touch cancel.
 Validate value/range/span/positive step, output prefix and UTF-8 before mutation. Preserve actual
 short-prefix, forward-tail, callback-ownership, static/dynamic and zero-warm-allocation checks.
+
+
+ABI 1.32 owns minimum-scroll reveal in the framework. Retain fixed/measured list and grid geometry,
+including section insets, sticky occlusion and caller padding. Resolve grid wrapping against actual
+layout during resize, and settle requests made inside callbacks after layout without replaying input.
+Keep live cached-list geometry beyond the age-based retirement window; stale generations and invalid
+indices must stay quiet. Reuse measured prefix storage. Preserve minimum adjustment, resize, RTL,
+fixed/measured/static/dynamic and zero-warm-allocation regressions.

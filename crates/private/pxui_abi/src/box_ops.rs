@@ -14,6 +14,45 @@ use pxui_core::ui::{Axis, BoxOpts, Mark, Rect};
 use pxui_types::{Dir, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, Slice}};
 use std::rc::Rc;
 
+#[cfg(test)]
+mod reveal_tests {
+    use super::*;
+
+    #[test]
+    fn reveal_checks_handles_and_callback_ownership() {
+        struct State { owner: *mut PxuiUi, list: PxuiBox }
+        extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
+            let state = unsafe { &mut *user.cast::<State>() };
+            let desc = pxui_types::ffi::PxuiGridListDesc {
+                size: core::mem::size_of::<pxui_types::ffi::PxuiGridListDesc>() as u32,
+                reserved: 0, label: Str { ptr: b"rows".as_ptr(), len: 4 }, count: 100,
+                cell_w: 100.0, cell_h: 20.0, build: None, user: core::ptr::null_mut(),
+            };
+            assert_eq!(unsafe { crate::pxui_ui_grid_list(raw.cast(), &desc, &mut state.list) }, 0);
+            assert_eq!(unsafe { pxui_ui_reveal(state.owner, &state.list, 99) }, crate::PXUI_ERR_STATE);
+            assert_eq!(unsafe { pxui_ui_reveal(raw.cast(), &state.list, 0) }, 0);
+        }
+        let owner = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let mut state = State { owner, list: PxuiBox::default() };
+        let mut out = crate::FrameOut::default();
+        assert_eq!(unsafe { crate::pxui_frame(owner, &crate::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, Some(build), (&mut state as *mut State).cast(), &mut out) }, 0);
+        assert_eq!(unsafe { pxui_ui_reveal(core::ptr::null_mut(), &state.list, 99) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_reveal(owner, core::ptr::null(), 99) }, PXUI_ERR_ARGUMENT);
+        let invalid = PxuiBox { box_slot: u64::MAX, ..state.list };
+        assert_eq!(unsafe { pxui_ui_reveal(owner, &invalid, 99) }, crate::PXUI_ERR_STALE);
+        assert_eq!(unsafe { pxui_ui_reveal(owner, &state.list, 99) }, 0);
+        let mut offset = 0.0;
+        assert_eq!(unsafe { pxui_ui_scroll_offset(owner, &state.list, 0, &mut offset) }, 0);
+        assert_eq!(offset, 1900.0);
+        for index in [100, usize::MAX - 1, usize::MAX] {
+            assert_eq!(unsafe { pxui_ui_reveal(owner, &state.list, index) }, 0);
+        }
+        assert_eq!(unsafe { pxui_ui_scroll_offset(owner, &state.list, 0, &mut offset) }, 0);
+        assert_eq!(offset, 1900.0);
+        assert_eq!(unsafe { crate::pxui_ui_destroy(owner) }, 0);
+    }
+}
+
 /// Keeps `value` alive until the next frame of `ui` and returns it as a `Str`.
 fn ui_give(ui: *mut PxuiUi, value: String) -> Str { unsafe { &*ui }.give(value) }
 
@@ -148,6 +187,12 @@ export!(pub unsafe fn pxui_ui_set_scroll_offset(ui: *mut PxuiUi, box_: *const Px
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if !value.is_finite() { return unsafe { fail(ui, "scroll offset is not finite") }; }
     e.set_scroll_offset(&b, value);
+    0
+});
+
+export!(pub unsafe fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32 {
+    let (engine, list) = match unsafe { boxed(ui, list) } { Ok(v) => v, Err(code) => return code };
+    engine.reveal(&list, index);
     0
 });
 

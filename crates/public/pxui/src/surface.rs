@@ -8,6 +8,84 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations() {
+    use crate::ui::{Node, SectionList, SectionPart, Look};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    for kind in 0..4 {
+        let mut ui=Ui::new().unwrap();
+        ui.set_dir(kind==3);
+        let body=Cell::new(None);let count=Cell::new(10_000);let requested=Cell::new(None);
+        let size=Cell::new(100.0);let calls=Cell::new(0);
+        let row_key=|index| pxui_types::ui::int_key(5678,index as i64);
+        let mut build=|ui:&mut Ui| {
+            ui.view("reveal-page",count.get() as u64,Size::Px(size.get()),Size::Px(size.get()),&mut |ui| {
+                let mut row=|ui:&mut Ui,index| {
+                    calls.set(calls.get()+1);
+                    let h=if kind==1 || kind==2 {10.0+(index%3) as f32*20.0} else {20.0};
+                    ui.node_keyed(row_key(index),Node {w:Size::Px(25.0),h:Size::Px(h),look:Look {fill:crate::geom::Rgba {r:255,a:255,..Default::default()},..Look::NONE},..Node::DEFAULT});
+                };
+                let section=SectionList {count:count.get(),row_height:20.0,leading_height:35.0,header_height:14.0,trailing_height:11.0,overlay_scrollbar:true};
+                let list=match kind {
+                    0=>ui.section_list("rows",&section,&mut |ui,part| if let SectionPart::Row(index)=part {row(ui,index)}),
+                    1=>ui.list_measured("rows",count.get(),20.0,&mut row),
+                    2=>ui.section_list_measured("rows",&section,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
+                    _=>ui.grid_list("rows",count.get(),25.0,20.0,&mut row),
+                };
+                ui.set_node_layout(&list,&Node {w:Size::Grow,h:Size::Grow,padding:crate::geom::Edges::all(6.0),..Node::DEFAULT});
+                body.set(Some(list));
+                if let Some(index)=requested.take() {ui.reveal(&list,index);}
+            });
+        };
+        ui.frame(&input(),&mut build).unwrap();
+        ui.frame(&input(),&mut build).unwrap();
+        if kind==0 {
+            for (index, expected) in [(1,1.0),(0,1.0),(4,61.0),(3,61.0),(0,35.0)] {
+                ui.reveal(&body.get().unwrap(),index);
+                ui.frame(&input(),&mut build).unwrap();
+                assert_eq!(ui.scroll_offset(&body.get().unwrap()),expected,"minimum adjustment for row {index}");
+            }
+        }
+        for round in 0..5 {
+            mem_sys::local_reset();
+            for index in [0,5_000,9_999,5_010,1,9_990,4,5_000,5_000] {
+                calls.set(0);
+                ui.reveal(&body.get().unwrap(),index);
+                let allocations=mem_sys::local_alloc_count();
+                ui.frame(&input(),&mut build).unwrap();
+                let list=body.get().unwrap();
+                let r=ui.rect(&ui.box_of_key(row_key(index)).unwrap());let viewport=ui.rect(&list);
+                let header=if kind==0 || kind==2 {14.0} else {0.0};
+                assert!(r.y>=viewport.y+6.0+header-0.05 && r.y+r.h<=viewport.y+viewport.h-5.95,"kind {kind}, index {index}: {r:?} in {viewport:?}");
+                assert!(calls.get()<100,"reveal must not build all 10,000 rows");
+                let offset=ui.scroll_offset(&list);
+                ui.reveal(&list,index);
+                assert_eq!(ui.scroll_offset(&list),offset,"visible rows need no additional scrolling");
+                if round>1 {assert_eq!(allocations,0,"the request itself allocates nothing");assert_eq!(mem_sys::local_alloc_count(),0,"warm reveal/build/draw kind {kind}");}
+            }
+        }
+        for _ in 0..605 {ui.frame(&input(),&mut build).unwrap();}
+        mem_sys::local_reset();
+        ui.reveal(&body.get().unwrap(),1);
+        ui.frame(&input(),&mut build).unwrap();
+        assert!(ui.box_of_key(row_key(1)).is_some(),"live cached-list geometry must survive cache expiry");
+        assert_eq!(mem_sys::local_alloc_count(),0);
+        let list=body.get().unwrap();let offset=ui.scroll_offset(&list);
+        for index in [10_000,usize::MAX-1,usize::MAX] {ui.reveal(&list,index);}
+        assert_eq!(ui.scroll_offset(&list),offset);
+        // A request made after the builder must settle in the same frame with the new viewport.
+        size.set(80.0);requested.set(Some(9_999));
+        ui.frame(&input(),&mut build).unwrap();
+        let list=body.get().unwrap();let r=ui.rect(&ui.box_of_key(row_key(9_999)).unwrap_or_else(||panic!("resize kind {kind}, offset {}, request {:?}",ui.scroll_offset(&list),requested.get())));let v=ui.rect(&list);
+        assert!(r.y>=v.y+5.95 && r.y+r.h<=v.y+v.h-5.95);
+        count.set(0);ui.frame(&input(),&mut build).unwrap();
+        assert_eq!(ui.scroll_offset(&body.get().unwrap()),0.0);
+        ui.frame(&input(),&mut |_| {}).unwrap();
+        ui.reveal(&list,5);
+    }
+}
+
+#[test]
 fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_warm_allocations() {
     use crate::{Event, Scrub, Touch, Str, ui::{Node, Role}};
     use std::cell::Cell;

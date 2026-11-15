@@ -8,6 +8,7 @@ use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkD
 use std::{alloc::Layout, fmt::{Arguments, Write}};
 
 library!(lib {
+    fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32;
     fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32;
     fn pxui_ui_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::ffi::PxuiNodeFields) -> i32;
@@ -148,6 +149,13 @@ impl Ui {
         let mut out = 0.0;
         check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 0, &mut out) });
         out
+    }
+    /// Reveal a fixed/measured list item (or grid cell) with the smallest scroll adjustment.
+    /// Unvisited measured rows use the list's estimates and settle when measured. Stale handles
+    /// and out-of-range indices do nothing; no storage is allocated by the request.
+    #[track_caller]
+    pub fn reveal(&mut self, list: &PxuiBox, index: usize) {
+        crate::live(self, unsafe { lib::pxui_ui_reveal(self.0.as_ptr(), list, index) });
     }
     /// The painted scroll position, including elastic edge movement.
     #[inline]
