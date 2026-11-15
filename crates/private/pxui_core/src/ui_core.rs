@@ -7607,13 +7607,13 @@ impl Ui {
         self.moves.sort_unstable_by_key(|m| m.0);
         self.move_runs(d.key);
         for i in 0..out.len().max(old_len) {
-            let (old, new) = (d.instances.get(i).copied(), out.get(i).copied());
+            let (old, new) = (d.instances.get(i), out.get(i));
             if old != new {
                 if let Some(old) = old {
-                    self.damage_instance(&old);
+                    self.damage_instance(old);
                 }
                 if let Some(new) = new {
-                    self.damage_instance(&new);
+                    self.damage_instance(new);
                     add_range(&mut d.dirty, i as u32, i as u32 + 1);
                 }
             }
