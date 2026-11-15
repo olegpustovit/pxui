@@ -9,6 +9,10 @@ mod platform;
 pub use platform::Platform;
 #[cfg(target_os = "macos")]
 pub use pxui_sdl::Chrome;
+#[cfg(target_os = "macos")]
+mod accessibility;
+#[cfg(target_os = "macos")]
+pub use accessibility::Accessibility;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub use pxui_sdl::Window;
 #[cfg(any(target_os = "macos", target_os = "ios"))]

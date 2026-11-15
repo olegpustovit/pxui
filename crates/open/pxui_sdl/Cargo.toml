@@ -14,6 +14,9 @@ sdl3 = { path = "../sdl3" }
 mem_sys = { path = "../mem_sys" }
 sdl3_sys = { path = "../sdl3_sys", features = ["test-util"] }
 
+[features]
+test-util = ["sdl3/test-util"]
+
 # The window needs the SDL main thread, which libtest never gives a test: this target's own main runs it.
 [[test]]
 name = "window_pxui_sdl"

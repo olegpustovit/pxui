@@ -229,8 +229,10 @@ fn main() {
     if target == "macos" {
         println!("cargo:rerun-if-changed=src/chrome.m");
         println!("cargo:rerun-if-changed=src/chrome.h");
+        println!("cargo:rerun-if-changed=src/ax.m");
+        println!("cargo:rerun-if-changed=src/ax.h");
         let mut chrome = cc::Build::new();
-        chrome.file("src/chrome.m").flag("-fobjc-arc").warnings(true).flag_if_supported("-Werror");
+        chrome.files(["src/chrome.m", "src/ax.m"]).flag("-fobjc-arc").warnings(true).flag_if_supported("-Werror");
         if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { chrome.define("RAYS_SDL3_TEST_UTIL", None); }
         chrome.compile("rays_sdl3_chrome");
         println!("cargo:rustc-link-lib=framework=AppKit");

@@ -396,6 +396,14 @@ impl Ui {
         if nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(nodes.ptr, nodes.len) } }
     }
 
+    /// The text every node's name, description and text value ranges point into, and the revision of the tree
+    /// (it changes only when the tree's content did) with its first top-level node (`u32::MAX` when empty).
+    pub fn a11y_tree(&self) -> (&[u8], u64, u32) {
+        let tree = self.output().a11y;
+        let strings = if tree.strings.len == 0 { &[][..] } else { unsafe { core::slice::from_raw_parts(tree.strings.ptr, tree.strings.len) } };
+        (strings, tree.revision, tree.first_child)
+    }
+
     /// The accessible name of `node`, one of `a11y_nodes()`.
     pub fn a11y_name_of(&self, node: &A11yNode) -> &str {
         let strings = self.output().a11y.strings;

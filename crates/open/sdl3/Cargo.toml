@@ -12,6 +12,7 @@ sdl3_sys = { path = "../sdl3_sys" }
 [features]
 image = ["sdl3_sys/image"]
 mixer = ["sdl3_sys/mixer"]
+test-util = ["sdl3_sys/test-util"]
 
 [dev-dependencies]
 sdl3_sys = { path = "../sdl3_sys", features = ["test-util"] }

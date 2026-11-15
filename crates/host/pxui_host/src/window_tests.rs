@@ -229,6 +229,104 @@ fn framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_wi
 }
 
 #[cfg(target_os = "macos")]
+fn voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged() {
+    use pxui::{FrameIn, Ui};
+    use pxui_sdl::ax::test::{self as query, find};
+    use std::cell::Cell;
+    mem_sys::set_peer(pxui::library_counter);
+    let mut window = crate::Window::open_with("PXUI accessibility", 320, 240, false, true, true).unwrap();
+    let mut ax = crate::Accessibility::open(&mut window).unwrap();
+    let mut ui = Ui::new().unwrap();
+    let (seek, shuffle, pressed, hidden) = (Cell::new(25.0f32), Cell::new(false), Cell::new(0), Cell::new(false));
+    let mut build = |ui: &mut Ui| {
+        ui.label("Now playing");
+        if ui.button("Play") { pressed.set(pressed.get() + 1); }
+        seek.set(ui.slider("Seek", seek.get(), 0.0..=100.0));
+        if !hidden.get() { shuffle.set(ui.checkbox("Shuffle", shuffle.get())); }
+    };
+    let time = Cell::new(0.0);
+    let step = |ui: &mut Ui, ax: &mut crate::Accessibility, build: &mut dyn FnMut(&mut Ui)| {
+        ax.frame(ui);
+        time.set(time.get() + 1.0 / 60.0);
+        ui.frame(&FrameIn { width: 320.0, height: 240.0, time: time.get(), ..Default::default() }, build).unwrap();
+    };
+    // Off by default: no tree, no elements (skipped when VoiceOver really is running here).
+    if !pxui_sdl::ax::Bridge::voiceover() {
+        for _ in 0..3 { step(&mut ui, &mut ax, &mut build); }
+        assert!(ui.a11y_nodes().is_empty());
+        assert_eq!(query::top_level(ax.bridge()), 0);
+    }
+    ax.force(true);
+    for _ in 0..4 { step(&mut ui, &mut ax, &mut build); }
+    ax.frame(&mut ui);
+
+    let bridge = ax.bridge();
+    let label = find(bridge, "Now playing").expect("label element");
+    let play = find(bridge, "Play").expect("button element");
+    assert_eq!((label.role(), label.value()), ("AXStaticText", "Now playing"));
+    assert_eq!(play.role(), "AXButton");
+    assert!(play.enabled != 0 && play.actionable != 0 && label.actionable == 0);
+    assert!(play.frame[2] > 8.0 && play.frame[3] > 8.0, "frame {:?}", play.frame);
+    assert!(label.frame[1] > play.frame[1], "screen y grows upward: the label sits above the button");
+    let slider = find(bridge, "Seek").expect("slider element");
+    assert_eq!(slider.role(), "AXSlider");
+    assert_eq!((slider.has_number, slider.number, slider.min, slider.max), (1, 25.0, 0.0, 100.0));
+    let check = find(bridge, "Shuffle").expect("checkbox element");
+    assert_eq!((check.role(), check.has_number, check.number), ("AXCheckBox", 1, 0.0));
+    assert!(query::top_level(bridge) > 0);
+
+    // Press and increment queue actions that the next frame consumes as input.
+    assert_eq!(query::perform(bridge, "Play", query::PRESS, 0.0), Some(true));
+    assert_eq!(query::perform(bridge, "Now playing", query::PRESS, 0.0), Some(false), "labels have no press");
+    step(&mut ui, &mut ax, &mut build);
+    step(&mut ui, &mut ax, &mut build);
+    assert_eq!(pressed.get(), 1, "a press reaches the next frame's intent exactly once");
+    assert_eq!(query::perform(ax.bridge(), "Seek", query::INCREMENT, 0.0), Some(true));
+    for _ in 0..2 { step(&mut ui, &mut ax, &mut build); }
+    assert!(seek.get() > 25.0, "increment moved the slider to {}", seek.get());
+    assert_eq!(query::perform(ax.bridge(), "Seek", query::SET_VALUE, 60.0), Some(true));
+    for _ in 0..2 { step(&mut ui, &mut ax, &mut build); }
+    assert_eq!(seek.get(), 60.0);
+
+    // Settled and unchanged: no notifications, the same element objects, no Rust allocations.
+    for _ in 0..4 { step(&mut ui, &mut ax, &mut build); }
+    let (posted, identity) = (ax.notifications(), find(ax.bridge(), "Seek").unwrap().identity);
+    assert_eq!(find(ax.bridge(), "Seek").unwrap().number, 60.0);
+    for frame in 0..60 {
+        mem_sys::local_reset();
+        step(&mut ui, &mut ax, &mut build);
+        if frame >= 5 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm frame with the bridge on allocated"); }
+    }
+    assert_eq!(ax.notifications(), posted, "an unchanged tree posts nothing");
+    // A change posts, and keeps the element.
+    shuffle.set(true);
+    seek.set(80.0);
+    for _ in 0..3 { step(&mut ui, &mut ax, &mut build); }
+    assert!(ax.notifications() > posted, "value changes post notifications");
+    let seek_now = find(ax.bridge(), "Seek").unwrap();
+    assert_eq!((seek_now.identity, seek_now.number), (identity, 80.0));
+    assert_eq!(find(ax.bridge(), "Shuffle").unwrap().number, 1.0);
+    // An element that leaves the UI leaves the tree (with a notification); a malformed tree is refused.
+    let posted = ax.notifications();
+    hidden.set(true);
+    for _ in 0..3 { step(&mut ui, &mut ax, &mut build); }
+    assert!(find(ax.bridge(), "Shuffle").is_none() && ax.notifications() > posted);
+    assert!(find(ax.bridge(), "Seek").is_some());
+    let mut bad = [pxui_sdl::ax::Node { id: 1, parent: 7, role: 9, name: [0, 99], description: [0, 0], value: Default::default(), rect: [0.0; 4],
+        states: 0, actions: 0, selection: [0; 2], child_count: 0, first_child: u32::MAX, next_sibling: u32::MAX, last_child: u32::MAX }];
+    assert!(ax.bridge_mut().sync(&bad, b"", 0).is_err(), "out-of-range parent and string");
+    bad[0].parent = u32::MAX;
+    assert!(ax.bridge_mut().sync(&bad, b"", 0).is_err(), "string range past the text");
+    assert!(find(ax.bridge(), "Seek").is_some(), "a refused tree leaves the last good one");
+    // Turning it off empties the window and the tree.
+    ax.force(false);
+    for _ in 0..40 { step(&mut ui, &mut ax, &mut build); }
+    if !pxui_sdl::ax::Bridge::voiceover() { assert_eq!(query::top_level(ax.bridge()), 0); }
+    drop(ax);
+    window.destroy().unwrap();
+}
+
+#[cfg(target_os = "macos")]
 pub(crate) fn main() {
     harness::run(&[
         ("encoded_input_owns_text_and_reuses_dialog_and_numeric_storage",crate::events::tests::encoded_input_owns_text_and_reuses_dialog_and_numeric_storage),
@@ -237,6 +335,7 @@ pub(crate) fn main() {
         ("window_framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows",framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows),
         ("window_framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release",framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release),
         ("window_framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums",framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums),
+        ("window_voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged",voiceover_bridge_maps_nodes_round_trips_actions_and_stays_quiet_when_unchanged),
         ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
     ]);
 }

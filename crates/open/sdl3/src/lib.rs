@@ -2,6 +2,8 @@
 pub use sdl3_sys::preferences;
 #[cfg(target_os = "macos")]
 pub use sdl3_sys::chrome;
+#[cfg(target_os = "macos")]
+pub use sdl3_sys::ax;
 #[cfg(target_os = "ios")]
 pub mod ios {
     pub use sdl3_sys::ios::{run,Signal,Step,Environment};

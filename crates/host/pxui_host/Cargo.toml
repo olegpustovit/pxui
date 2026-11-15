@@ -23,3 +23,6 @@ metal_sys = { path = "../../open/metal_sys" }
 
 [lints]
 workspace = true
+
+[target.'cfg(target_os = "macos")'.dev-dependencies]
+pxui_sdl = { path = "../../open/pxui_sdl", features = ["test-util"] }

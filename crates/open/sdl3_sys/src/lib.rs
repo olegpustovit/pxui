@@ -2,6 +2,8 @@
 pub mod preferences;
 #[cfg(target_os = "macos")]
 pub mod chrome;
+#[cfg(target_os = "macos")]
+pub mod ax;
 #[cfg(target_os = "ios")]
 pub mod ios;
 

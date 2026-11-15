@@ -621,6 +621,26 @@ area, table, splitter. The Linux host wiring (`pxui_atspi::Bridge::update(out.a1
 `inject_a11y(bridge.pump())` before the next, `set_a11y(true)` while a client listens) belongs to the
 gallery's Wayland host loop.
 
+**VoiceOver (macOS host).** `pxui_host::Accessibility::open(&mut window)` once, `accessibility.frame(&mut ui)` before each
+`ui.frame`. `sdl3_sys::ax` (ax.m, ARC) keeps one `NSAccessibilityElement` per node id (`RaysAXElement`; nodes with
+press/set-value/expand actions get `RaysAXActionElement`, the only class that implements perform-press/increment/
+decrement/show-menu, so labels advertise no actions), set as `accessibilityChildren` of the SDL content view. Frames
+are computed lazily from the logical rect at query time (y flip, window origin, screen), so window moves and
+density changes need no update. `frame` polls `NSWorkspace.voiceOverEnabled` every 30 frames (or `PXUI_ACCESSIBILITY=1`
+/ `force(true)`), turns `set_a11y` on and off with it, and only when `a11y_tree().revision` changed copies the nodes
+into a reused buffer and syncs: each node is hashed (content only) and skipped when unchanged, so an unchanged tree costs
+no ObjC call and no Rust allocation, and a one-slider change touches one element. Element creation/removal or relinking
+posts LayoutChanged (and UIElementDestroyed), value changes ValueChanged, name changes TitleChanged, a newly focused
+node FocusedUIElementChanged. Client requests (press, increment/decrement and set-value as SetValue, show-menu as
+Expand, focus) go to a 32-entry main-thread queue, wake the SDL loop, and `frame` injects them with `inject_a11y`
+before the next frame; a full queue drops the newest. Malformed trees (indices or string ranges out of bounds) are
+refused natively and leave the last good tree. The tree stays off (empty, no walk) while no assistive client runs.
+Tests: `cargo t -p pxui_host voiceover` queries elements through the NSAccessibility protocol (no AX permission).
+Manual check: run the app, press Cmd+F5, VO+Right through the sidebar, activate a song with VO+Space, set the seek
+slider with VO+Up/Down; Accessibility Inspector works with `PXUI_ACCESSIBILITY=1`. Missing: custom rotors,
+table/column semantics (rows are flat), live regions (announcements), text-field value setting and selection ranges
+(SetValue carries a number only), scroll-to-visible, iOS UIAccessibility.
+
 **Widget set (P5, landed).** `ui_widgets.rs`, each a method over `&mut Ui` taking a value and returning
 the new value or an intent, one `States` entry each in the theme (`checkbox`, `radio`, `slider`,
 `progress`, `spinner`, `tab`, `segment`, `dropdown`, `menubar`, `scroll_view`, `listbox`, `tree`,

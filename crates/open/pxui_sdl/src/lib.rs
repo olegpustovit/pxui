@@ -17,6 +17,8 @@ use std::time::Instant;
 
 #[cfg(target_os = "macos")]
 pub use sdl3::chrome::{Chrome, Snapshot as ChromeSnapshot};
+#[cfg(target_os = "macos")]
+pub use sdl3::ax;
 
 pub mod translate;
 mod drops;
