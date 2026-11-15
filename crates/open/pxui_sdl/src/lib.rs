@@ -19,6 +19,7 @@ use std::time::Instant;
 pub use sdl3::chrome::{Chrome, Snapshot as ChromeSnapshot};
 
 pub mod translate;
+mod drops;
 pub mod app;
 #[cfg(target_os = "ios")]
 pub mod ios;
@@ -115,6 +116,7 @@ pub struct Window {
     /// the last event-poll or extent re-read failure (`take_failure`); the next pump tries again
     failure: Option<Error>,
     polled: Vec<sdl3::Event>,
+    drops: drops::Drops,
     dialog_selections: Vec<(i64, Vec<FileSelection>)>,
 }
 
@@ -242,6 +244,7 @@ impl Window {
                 dead: false,
                 failure: None,
                 polled: Vec::with_capacity(256),
+                drops: drops::Drops::default(),
                 dialog_selections: Vec::with_capacity(8),
             })
         };
@@ -274,7 +277,7 @@ impl Window {
                         self.dialog_selections.push((i64::from(id), files));
                         Some(input::Event::FileDialog { id: i64::from(id), result: Ok(paths) })
                     }
-                    raw => translate::translate(translate::in_points(self.unit, raw)),
+                    raw => self.drops.translate(translate::in_points(self.unit, raw)),
                 };
                 if let Some(event) = event {
                     open &= !matches!(event, input::Event::Closed);

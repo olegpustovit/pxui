@@ -898,6 +898,8 @@ mod ffi {
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_push_event_trace() -> bool;
         #[cfg(feature = "test-util")]
+        pub fn rays_sdl3_test_push_drop(phase: c_int) -> bool;
+        #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_mutate_event_sources();
         #[cfg(feature = "test-util")]
         pub fn rays_sdl3_test_push_resize_burst() -> bool;

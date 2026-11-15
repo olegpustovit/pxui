@@ -162,6 +162,7 @@ impl Event {
     pub const TRACKPAD_SCROLLED: u32 = 23;
     pub const ENVIRONMENT_CHANGED: u32 = 24;
     pub const TOUCH: u32 = 25;
+    pub const FILES_DROPPED: u32 = 26;
 }
 
 /// Host geometry in logical window points. Rectangles are [x, y, width, height].

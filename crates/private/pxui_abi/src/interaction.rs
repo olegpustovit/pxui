@@ -67,8 +67,8 @@ export!(pub unsafe fn pxui_ui_set_state(ui: *mut PxuiUi, box_: *const PxuiBox, v
 /// The bytes of the text `event` carries; a file dialog's paths are joined by NUL.
 fn text_len(event: &Event) -> usize {
     match event {
-        Event::TextInput(s) | Event::Paste(s) | Event::FileDropped(s) | Event::TextEditing { text: s, .. } | Event::FileDialog { result: Err(s), .. } => s.len(),
-        Event::FileDialog { result: Ok(paths), .. } => paths.iter().map(String::len).sum::<usize>() + paths.len().saturating_sub(1),
+        Event::TextInput(s) | Event::Paste(s) | Event::FileDropped(s) | Event::TextEditing { text: s, .. } | Event::FileDialog { result: Err(s), .. } | Event::FilesDropped { paths: Err(s), .. } => s.len(),
+        Event::FileDialog { result: Ok(paths), .. } | Event::FilesDropped { paths: Ok(paths), .. } => paths.iter().map(String::len).sum::<usize>() + paths.len().saturating_sub(1),
         _ => 0,
     }
 }
@@ -93,6 +93,13 @@ fn encode(value: &Event, text: &mut String, touches:&mut Vec<pxui_types::Touch>)
         Event::Paste(s) => { out.kind = FfiEvent::PASTE; text.push_str(s); }
         Event::TextEditing { text: s, start, length } => { out.kind = FfiEvent::TEXT_EDITING; out.x = *start as f64; out.y = *length as f64; text.push_str(s); }
         Event::FileDropped(s) => { out.kind = FfiEvent::FILE_DROPPED; text.push_str(s); }
+        Event::FilesDropped { position, paths } => {
+            out.kind=FfiEvent::FILES_DROPPED; (out.x,out.y)=*position;
+            match paths {
+                Ok(paths)=>for (i,p) in paths.iter().enumerate() {if i!=0 {text.push('\0');} text.push_str(p);},
+                Err(error)=>{out.code=1;text.push_str(error);}
+            }
+        }
         Event::FileDragMoved(p) => { out.kind = FfiEvent::FILE_DRAG_MOVED; (out.x, out.y) = *p; }
         Event::FileDragEnded => out.kind = FfiEvent::FILE_DRAG_ENDED,
         Event::Pinched(v) => { out.kind = FfiEvent::PINCHED; out.value = *v; }

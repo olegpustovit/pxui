@@ -70,6 +70,7 @@ pub const VISIBILITY_CHANGED: u32 = 22;
 pub const TRACKPAD_SCROLLED: u32 = 23;
 pub const ENVIRONMENT_CHANGED: u32 = 24;
 pub const TOUCH: u32 = 25;
+pub const FILES_DROPPED: u32 = 26;
 
 /// Semantic wire fields. Touch carries a typed borrow; other payloads use UTF-8 text.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -92,6 +93,14 @@ impl Event {
             Event::Paste(s) => raw(PASTE, 0, 0.0, 0.0, 0.0, s),
             Event::TextEditing { text, start, length } => raw(TEXT_EDITING, 0, *start as f64, *length as f64, 0.0, text),
             Event::FileDropped(s) => raw(FILE_DROPPED, 0, 0.0, 0.0, 0.0, s),
+            Event::FilesDropped { position: (x,y), paths } => match paths {
+                Ok(paths) => {
+                    scratch.clear();
+                    for (index,path) in paths.iter().enumerate() {if index!=0 {scratch.push('\0');} scratch.push_str(path);}
+                    raw(FILES_DROPPED,0,*x,*y,0.0,scratch)
+                }
+                Err(error) => raw(FILES_DROPPED,1,*x,*y,0.0,error),
+            },
             Event::FileDragMoved((x, y)) => raw(FILE_DRAG_MOVED, 0, *x, *y, 0.0, ""),
             Event::FileDragEnded => raw(FILE_DRAG_ENDED, 0, 0.0, 0.0, 0.0, ""),
             Event::Pinched(v) => raw(PINCHED, 0, 0.0, 0.0, *v, ""),
@@ -137,6 +146,14 @@ impl Event {
             PASTE => Event::Paste(s?.to_owned()),
             TEXT_EDITING => Event::TextEditing { text: s?.to_owned(), start: e.x as i64, length: e.y as i64 },
             FILE_DROPPED => Event::FileDropped(s?.to_owned()),
+            FILES_DROPPED => {
+                if !e.x.is_finite() || !e.y.is_finite() {return None;}
+                Event::FilesDropped {position:(e.x,e.y),paths:match e.code {
+                    0=>Ok(if s?.is_empty() {Vec::new()} else {s?.split('\0').map(str::to_owned).collect()}),
+                    1=>Err(s?.to_owned()),
+                    _=>return None,
+                }}
+            },
             FILE_DRAG_MOVED => Event::FileDragMoved((e.x, e.y)),
             FILE_DRAG_ENDED => Event::FileDragEnded,
             PINCHED => Event::Pinched(e.value),
@@ -189,6 +206,9 @@ mod tests {
             Event::PointerPressed(MouseButton::RightButton, (3.0, 4.0)), Event::PointerReleased(MouseButton::MouseX2, (5.0, 6.0)),
             Event::PointerCancelled(MouseButton::LeftButton), Event::Scrolled((0.0, -1.0)), Event::TextInput("hé".into()), Event::Paste("p".into()),
             Event::TextEditing { text: "ime".into(), start: 1, length: 2 }, Event::FileDropped("/a".into()), Event::FileDragMoved((1.0, 2.0)),
+            Event::FilesDropped {position:(-1.25,123.5),paths:Ok(vec!["/Music/名前.flac".into(),"/Björk.m4a".into()])},
+            Event::FilesDropped {position:(0.0,0.0),paths:Ok(Vec::new())},
+            Event::FilesDropped {position:(0.0,0.0),paths:Err("limit exceeded".into())},
             Event::FileDragEnded, Event::Pinched(1.25), Event::FileDialog { id: 7, result: Ok(vec!["/a".into(), "/b".into()]) },
             Event::FileDialog { id: 8, result: Err("no".into()) }, Event::DialogOpened(9), Event::Resized((10, 20)), Event::FocusLost,
             Event::FileDialog { id: 10, result: Ok(Vec::new()) },

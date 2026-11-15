@@ -37,6 +37,11 @@ pub fn push_event_trace() -> bool {
     unsafe { super::ffi::rays_sdl3_test_push_event_trace() }
 }
 
+/// 0 starts a drop with one file; 1 completes it with another; 2 cancels an empty drag.
+pub fn push_drop(phase: i32) -> bool {
+    unsafe { super::ffi::rays_sdl3_test_push_drop(phase) }
+}
+
 pub fn mutate_event_sources() {
     // SAFETY: this mutates static test fixture buffers after their events are copied.
     unsafe { super::ffi::rays_sdl3_test_mutate_event_sources() }

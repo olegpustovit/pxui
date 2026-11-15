@@ -85,6 +85,8 @@ pub enum Event {
     Paste(String),
     TextEditing { text: String, start: i64, length: i64 },
     FileDropped(String),
+    /// A completed host drop; transport failures reject the whole set.
+    FilesDropped { position: (f64, f64), paths: Result<Vec<String>, String> },
     FileDragMoved((f64, f64)),
     FileDragEnded,
     Pinched(f64),
@@ -241,7 +243,7 @@ pub fn keys_before_into(previous: &[Key], held: &[Key], events: &[Event], keys: 
 
 pub fn validate(v: &Frame) -> Result<(), String> {
     let event_valid = |event: &Event| match event {
-        Event::PointerMoved(p) | Event::Scrolled(p) | Event::FileDragMoved(p) => finite_pair(*p),
+        Event::PointerMoved(p) | Event::Scrolled(p) | Event::FileDragMoved(p) | Event::FilesDropped { position: p, .. } => finite_pair(*p),
         Event::PointerPressed(_, p) | Event::PointerReleased(_, p) => finite_pair(*p),
         Event::Pinched(f) => f.is_finite(),
         Event::TrackpadScrolled { delta, time, .. } => finite_pair(*delta) && time.is_finite(),
@@ -348,7 +350,7 @@ fn put_key(out: &mut String, key: Key) {
         Key::PageDown => (29, 0),
         Key::Insert => (30, 0),
         Key::Delete => (31, 0),
-        Key::Unknown(n) => (32, n as i64 as u64),
+        Key::Unknown(n) => (32, n as u64),
     };
     put_byte(out, tag);
     put_u64(out, value);
@@ -379,6 +381,13 @@ fn put_event(out: &mut String, event: &Event) {
         Event::Paste(text) => { put_byte(out, 22); put_str(out, text); }
         Event::TextEditing { text, start, length } => { put_byte(out, 8); put_str(out, text); put_int(out, *start); put_int(out, *length); }
         Event::FileDropped(path) => { put_byte(out, 9); put_str(out, path); }
+        Event::FilesDropped { position, paths } => {
+            put_byte(out, 25); put_pair(out, *position);
+            match paths {
+                Ok(paths) => { put_byte(out, 0); put_len(out, paths.len()); for path in paths { put_str(out, path); } }
+                Err(error) => { put_byte(out, 1); put_str(out, error); }
+            }
+        }
         Event::FileDragMoved(p) => { put_byte(out, 10); put_pair(out, *p); }
         Event::FileDragEnded => put_byte(out, 11),
         Event::Pinched(f) => { put_byte(out, 12); put_f64(out, *f); }
@@ -425,6 +434,7 @@ fn event_eq(a: &Event, b: &Event) -> bool {
         (EnvironmentChanged, EnvironmentChanged) | (FileDragEnded, FileDragEnded) | (FocusLost, FocusLost) | (FocusGained, FocusGained) | (Closed, Closed) => true,
         (Pinched(a), Pinched(b)) => float_eq(*a, *b),
         (FileDialog { id: ai, result: ar }, FileDialog { id: bi, result: br }) => ai == bi && ar == br,
+        (FilesDropped { position: a, paths: ap }, FilesDropped { position: b, paths: bp }) => pair_eq(*a, *b) && ap == bp,
         (DialogOpened(a), DialogOpened(b)) => a == b,
         (Resized(a), Resized(b)) | (PixelSizeChanged(a), PixelSizeChanged(b)) => a == b,
         (VisibilityChanged(a), VisibilityChanged(b)) => a == b,
@@ -781,6 +791,8 @@ mod tests {
             (Event::TextInput("first".into()), Event::TextInput("other".into())),
             (Event::TextEditing { text: "x".into(), start: 1, length: 2 }, Event::TextEditing { text: "x".into(), start: 2, length: 2 }),
             (Event::FileDropped("a".into()), Event::FileDropped("b".into())),
+            (Event::FilesDropped {position:(1.0,2.0),paths:Ok(vec!["a".into()])}, Event::FilesDropped {position:(1.0,2.0),paths:Ok(vec!["b".into()])}),
+            (Event::FilesDropped {position:(0.0,2.0),paths:Err("limit".into())}, Event::FilesDropped {position:(-0.0,2.0),paths:Err("limit".into())}),
             (Event::Pinched(1.0), Event::Pinched(2.0)),
             (Event::FileDialog { id: 4, result: Ok(vec!["a".into()]) }, Event::FileDialog { id: 4, result: Ok(vec!["b".into()]) }),
             (Event::DialogOpened(4), Event::DialogOpened(5)),

@@ -254,3 +254,14 @@ unvisited rows. Requests made during construction settle after layout; requests 
 invalidate the containing retained view. Unknown indices and stale handles do nothing. The request
 and warm build/draw allocate nothing; cold list creation and new measurements keep their existing
 storage/measurement costs.
+
+
+ABI 1.33 adds `Event::FILES_DROPPED` (26): x/y are logical points, code 0 carries NUL-separated
+UTF-8 paths and code 1 carries an error. No C record changes. `input::Event::FilesDropped` holds
+`position` and `paths: Result<Vec<String>, String>`. SDL retains an ordered set across pumps and
+publishes it once on completion. Empty/cancel delivery remains `FileDragEnded`; focus loss only
+hides hover. A first file without preceding hover announces its position so callers can capture
+application context immediately. A new native Begin cancels an abandoned set. The host rejects
+a whole set above 1,000,000 files or 64 MiB of path text, or with empty/NUL-containing paths.
+Apps retain their own path and import-policy validation. Actual file payloads allocate; warm
+empty/hover/cancel pumps reuse storage. Legacy single-file wire events remain available.

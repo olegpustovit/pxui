@@ -1,6 +1,38 @@
 mod common;
 use pxui_sdl::*;
 
+fn window_completed_drop_spans_pumps_and_cancel_reuses_buffers() {
+    use input::Event;
+    let mut window = Window::open_with("drop", 100, 80, true, true, true).unwrap();
+    let mut events = Vec::with_capacity(32);
+    window.pump(&mut events);
+    events.clear();
+    assert!(sdl3_sys::test_util::push_drop(0));
+    assert!(window.pump(&mut events));
+    let start = events.iter().find_map(|event| if let Event::FileDragMoved(p)=event {Some(*p)} else {None}).unwrap();
+    assert!(!events.iter().any(|event|matches!(event,Event::FilesDropped {..}|Event::FileDropped(_)|Event::FileDragEnded)));
+    events.clear();
+    assert!(sdl3_sys::test_util::push_drop(1));
+    assert!(window.pump(&mut events));
+    assert!(events.contains(&Event::FocusLost));
+    let drops: Vec<_> = events.iter().filter(|event|matches!(event,Event::FilesDropped {..})).collect();
+    assert_eq!(drops,[&Event::FilesDropped {position:(start.0*2.0,start.1*2.0),paths:Ok(vec!["/Music/first.flac".into(),"/Music/second.m4a".into()])}]);
+    events.clear();
+    window.pump(&mut events);
+    assert!(!events.iter().any(|event|matches!(event,Event::FilesDropped {..})),"delivery is one-shot");
+    for round in 0..8 {
+        events.clear();
+        assert!(sdl3_sys::test_util::push_drop(2));
+        mem_sys::local_reset();
+        window.pump(&mut events);
+        if round>1 {assert_eq!(mem_sys::local_alloc_count(),0,"warm native cancel/pump allocates nothing in Rust");}
+        assert!(events.iter().any(|event|matches!(event,Event::FileDragMoved(_))));
+        assert!(events.contains(&Event::FileDragEnded));
+        assert!(!events.iter().any(|event|matches!(event,Event::FilesDropped {..})));
+    }
+    window.destroy().unwrap();
+}
+
 // Window visibility requires the initial thread and reports a missing window explicitly.
 fn window_visibility() {
     let mut window = match Window::open_with("pxui_sdl", 32, 24, true, true, true) {
@@ -243,6 +275,7 @@ fn main() {
         fatal_child(&mode);
     }
     common::run(&[
+        ("window_completed_drop_spans_pumps_and_cancel_reuses_buffers", window_completed_drop_spans_pumps_and_cancel_reuses_buffers),
         ("window_visibility", window_visibility),
         ("window_numeric_input_zero_alloc", window_numeric_input_zero_alloc),
         ("window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump", window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump),

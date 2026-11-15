@@ -429,3 +429,13 @@ layout during resize, and settle requests made inside callbacks after layout wit
 Keep live cached-list geometry beyond the age-based retirement window; stale generations and invalid
 indices must stay quiet. Reuse measured prefix storage. Preserve minimum adjustment, resize, RTL,
 fixed/measured/static/dynamic and zero-warm-allocation regressions.
+
+
+ABI 1.33 adds completed FilesDropped events. SDL owns batching across pumps and the copied path
+strings until one completion, preserving order and logical coordinates. Bound retained transport
+paths to 1,000,000/64 MiB and reject the whole set visibly on overflow; never submit its accepted
+prefix. Keep focus loss separate from cancellation and notify first-file position when no hover
+preceded it, so application account capture cannot drift. A new Begin cancels an abandoned batch.
+Keep application import policy outside the host. Preserve two-pump native delivery, one-shot
+consumption, invalid UTF-8/code/position refusal, and zero warm empty/hover/cancel Rust allocations.
+Owned successful/error payloads remain cold allocation paths; never drop events to meet the gate.

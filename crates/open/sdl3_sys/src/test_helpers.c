@@ -161,6 +161,22 @@ bool rays_sdl3_test_push_event_trace(void)
   return ok;
 }
 
+bool rays_sdl3_test_push_drop(int phase)
+{
+  if (phase == 0)
+    return push_drop(SDL_EVENT_DROP_BEGIN, NULL, 32.f, 16.f) &&
+           push_drop(SDL_EVENT_DROP_FILE, "/Music/first.flac", 32.f, 16.f);
+  if (phase == 1)
+    return push_window(SDL_EVENT_WINDOW_FOCUS_LOST, 0, 0) &&
+           push_drop(SDL_EVENT_DROP_FILE, "/Music/second.m4a", 64.f, 32.f) &&
+           push_drop(SDL_EVENT_DROP_COMPLETE, NULL, 64.f, 32.f);
+  if (phase == 2)
+    return push_drop(SDL_EVENT_DROP_BEGIN, NULL, 32.f, 16.f) &&
+           push_drop(SDL_EVENT_DROP_POSITION, NULL, 32.f, 16.f) &&
+           push_drop(SDL_EVENT_DROP_COMPLETE, NULL, 32.f, 16.f);
+  return false;
+}
+
 void rays_sdl3_test_mutate_event_sources(void)
 {
   input_text[0] = 'x';

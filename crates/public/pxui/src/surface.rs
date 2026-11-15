@@ -8,6 +8,41 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn completed_file_drop_events_preserve_paths_positions_errors_and_empty_warm_storage() {
+    use crate::{Event,Str};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    for (code,payload) in [(0,"/Music/名前.flac\0/Music/Björk.m4a"),(1,"transport limit exceeded"),(0,"")] {
+        let event=Event {kind:Event::FILES_DROPPED,code,x:-12.5,y:31.25,text:Str {ptr:payload.as_ptr(),len:payload.len()},..Default::default()};
+        ui.frame(&FrameIn {events:&event,event_count:1,..input()},&mut |_| {}).unwrap();
+        let routed=ui.routed_input(None);
+        assert_eq!(routed.events().len(),1);
+        let event=&routed.events()[0];
+        assert_eq!((event.kind,event.code,event.x,event.y),(Event::FILES_DROPPED,code,-12.5,31.25));
+        assert_eq!(crate::event_text(event),payload);
+    }
+    let bad_utf8=[255u8];
+    for invalid in [
+        Event {kind:Event::FILES_DROPPED,code:2,..Default::default()},
+        Event {kind:Event::FILES_DROPPED,x:f64::NAN,..Default::default()},
+        Event {kind:Event::FILES_DROPPED,y:f64::INFINITY,..Default::default()},
+        Event {kind:Event::FILES_DROPPED,text:Str {ptr:core::ptr::null(),len:1},..Default::default()},
+        Event {kind:Event::FILES_DROPPED,text:Str {ptr:bad_utf8.as_ptr(),len:1},..Default::default()},
+    ] {
+        let mut built=false;
+        assert_eq!(ui.frame(&FrameIn {events:&invalid,event_count:1,..input()},&mut |_| built=true).err(),Some(pxui_types::PXUI_ERR_ARGUMENT));
+        assert!(!built);
+    }
+    let empty=Event {kind:Event::FILES_DROPPED,..Default::default()};
+    for round in 0..20 {
+        mem_sys::local_reset();
+        ui.frame(&FrameIn {events:&empty,event_count:1,..input()},&mut |_| {}).unwrap();
+        assert_eq!(ui.routed_input(None).events().len(),1);
+        if round>2 {assert_eq!(mem_sys::local_alloc_count(),0);}
+    }
+}
+
+#[test]
 fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations() {
     use crate::ui::{Node, SectionList, SectionPart, Look};
     use std::cell::Cell;
