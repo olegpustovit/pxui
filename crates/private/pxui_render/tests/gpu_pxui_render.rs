@@ -175,6 +175,7 @@ fn main() {
         ("gpu_per_side_borders", gpu_per_side_borders),
         ("gpu_ramp_gradient", gpu_ramp_gradient),
         ("gpu_retained_layer_writes_only_dirty_ranges", gpu_retained_layer_writes_only_dirty_ranges),
+        ("gpu_retained_layer_growth_by_a_few_instances_allocates_nothing", gpu_retained_layer_growth_by_a_few_instances_allocates_nothing),
         ("gpu_view_table_past_255", gpu_view_table_past_255),
         ("gpu_grid_instance_equals_dots", gpu_grid_instance_equals_dots),
         ("gpu_blur_translucent_source", gpu_blur_translucent_source),
@@ -597,6 +598,35 @@ fn gpu_retained_layer_writes_only_dirty_ranges() {
 }
 
 /// Red channel along the middle row of a `w`-texel-wide RGBA texture readback.
+fn gpu_retained_layer_growth_by_a_few_instances_allocates_nothing() {
+    let Some(device) = open() else { return };
+    let queue = ok(be::create_queue(&device));
+    let mut painter = painter(&device);
+    set_scene_views(&mut painter);
+    let target = target(&device);
+    let size = [W * SCALE, H * SCALE];
+    let rows = |n: usize| (0..n).map(|i| Instance::rect([(i % 60) as f32, (i / 60) as f32 * 2.0, (i % 60) as f32 + 1.5, (i / 60) as f32 * 2.0 + 1.0], [(i * 7) as u8, 100, 200, 255])).collect::<Vec<_>>();
+    // A warm 1000-instance layer, then a hover adds 100 instances (and removes them again).
+    for (frame, n) in [1000, 1000, 1100, 1000, 1100].into_iter().enumerate() {
+        let list = rows(n);
+        painter.begin_frame();
+        let mut allocations = 0;
+        pass(&queue, &target, &mut |encoder| {
+            mem_sys::local_reset();
+            ok(painter.draw_retained(encoder, size, SCALE as f32, 0, &list, &[], &[]));
+            allocations = mem_sys::local_alloc_count();
+        });
+        if frame > 0 { assert_eq!(allocations, 0, "frame {frame}: {n} instances grow within headroom"); }
+        let retained = ok(be::read_texture(&target, (W * SCALE * 4) as i64));
+        painter.begin_frame();
+        pass(&queue, &target, &mut |encoder| ok(painter.draw(encoder, size, SCALE as f32, &list, &[])));
+        assert!(retained == ok(be::read_texture(&target, (W * SCALE * 4) as i64)), "frame {frame}: pixels equal plain draw");
+    }
+    ok(be::destroy_texture(&target));
+    drop(painter);
+    finish(device, queue);
+}
+
 fn middle_row(pixels: &[u8], w: usize) -> Vec<i32> {
     let y = pixels.len() / 4 / w / 2;
     (0..w).map(|x| pixels[(y * w + x) * 4] as i32).collect()

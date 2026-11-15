@@ -635,7 +635,9 @@ impl Painter {
         };
         if changed { check(instances, self.views_len)?; } else { for d in dirty { check(&instances[d.0 as usize..d.1 as usize], self.views_len)?; } }
         if fresh && len > 0 {
-            let cap = len.max(256).max(self.layers[layer].as_ref().map_or(0, |s| s.cap * 2));
+            // Headroom: hover, focus and selection add a few instances to a warm layer; growing a buffer
+            // then would allocate in a warm frame.
+            let cap = (len + len / 2).max(256).max(self.layers[layer].as_ref().map_or(0, |s| s.cap * 2));
             let stride = align(cap * 64);
             let descriptor = BufferDescriptor { label: Some("pxui_render.retained".into()), size: (stride * FRAMES) as i64, usage: vec![BufferUsage::Storage] };
             let buffer = backend::create_host_buffer(&self.device, descriptor)?;
