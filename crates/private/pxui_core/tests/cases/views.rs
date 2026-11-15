@@ -803,7 +803,7 @@ pub fn window_pxui_damage_containment_preserves_other_views() {
 pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
     const ROWS: usize = 20;
     const TILES: usize = 64;
-    for step in [3, 19] {
+    for (step, fresh) in [(3, false), (19, false), (0, true)] {
         let mut ui = new_ui(None);
         #[cfg(target_os = "macos")]
         ui.set_cpu_clock(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
@@ -824,7 +824,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
                     for row in first..first + ROWS {
                         let holder = ui.node_keyed(int_key(viewport.box_key, row as i64), Node { w: Size::Px(600.0), h: Size::Px(20.0), at: Some((0.0, (row - first) as f32 * 20.0)).into(), ..Node::DEFAULT });
                         ui.within(&holder, &mut |ui| {
-                            let view = ui.view("row", 1, Size::Grow, Size::Grow, &mut |ui| {
+                            let view = ui.view("row", if fresh { tick as u64 } else { 1 }, Size::Grow, Size::Grow, &mut |ui| {
                                 let node = ui.node("tiles", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
                                 ui.canvas(&node, move |paint, rect| {
                                     for tile in 0..TILES { paint.fill(rect.x + tile as f32 * 8.0, rect.y, 8.0, 20.0, color::rgb(20 + (row % 200) as i64, 10, 10)); }
@@ -840,6 +840,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
             if tick >= 30 {
                 assert_eq!(mem_sys::local_alloc_count(), 0, "tick {tick}");
                 compactions += ui.layer_rewrites().1 - before;
+                if fresh { assert!(ui.output().draw[0].dirty.is_empty(), "unchanged fresh tiles must not upload"); }
                 if let Some(phases) = ui.phase_cpu_times() { paint_ns += phases[4]; }
             }
             let layer = &ui.output().draw[0];
@@ -858,7 +859,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
             assert_eq!(ui.rect(&ends[1].unwrap()), Rect::new(0.0, 380.0, 600.0, 20.0));
             ui.drawn(0);
         }
-        println!("streaming retained gaps: step={step} frames=100 compactions={compactions} largest={largest} mean_paint_cpu_us={:.2}", paint_ns as f64 / 100_000.0);
+        println!("streaming retained gaps: step={step} fresh={fresh} frames=100 compactions={compactions} largest={largest} mean_paint_cpu_us={:.2}", paint_ns as f64 / 100_000.0);
         assert!(compactions <= 50, "step {step}: fresh batches compacted {compactions}/100 frames");
         ui.destroy();
     }

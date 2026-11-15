@@ -7525,14 +7525,13 @@ impl Ui {
                     d.instances.resize(end, EMPTY);
                 }
                 for x in 0..len as usize {
-                    let (i, new) = (w as usize + x, s.instances[p.a as usize + x]);
-                    if i >= old_len || d.instances[i] != new {
+                    let (i, new) = (w as usize + x, &s.instances[p.a as usize + x]);
+                    if i >= old_len || d.instances[i] != *new {
                         if i < old_len {
-                            let old = d.instances[i];
-                            self.damage_instance(&old);
+                            self.damage_instance(&d.instances[i]);
                         }
-                        self.damage_instance(&new);
-                        d.instances[i] = new;
+                        self.damage_instance(new);
+                        d.instances[i] = *new;
                         add_range(&mut d.dirty, i as u32, i as u32 + 1);
                         changed = true;
                     }
@@ -7551,8 +7550,7 @@ impl Ui {
                 }
                 for i in w as usize..a as usize {
                     if d.instances[i] != EMPTY {
-                        let old = d.instances[i];
-                        self.damage_instance(&old);
+                        self.damage_instance(&d.instances[i]);
                         d.instances[i] = EMPTY;
                         add_range(&mut d.dirty, i as u32, i as u32 + 1);
                         changed = true;
@@ -7563,8 +7561,7 @@ impl Ui {
         }
         if fits {
             for i in w as usize..d.instances.len() {
-                let old = d.instances[i];
-                self.damage_instance(&old);
+                self.damage_instance(&d.instances[i]);
                 changed = true;
             }
             d.instances.truncate(w as usize);
