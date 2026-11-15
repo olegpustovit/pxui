@@ -263,6 +263,15 @@ typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t ge
 /* ABI 1.31: flags bit 0 preview, bit 1 commit, bit 2 held. Initialize size before calling. */
 typedef struct { uint32_t size, flags; PxuiBox node; float preview, commit; } PxuiScrubOut;
 _Static_assert(sizeof(PxuiScrubOut) == 48, "PxuiScrubOut layout");
+/* ABI 1.38: kinds bit 0 long press, 1 row swipe, 2 edge back, 3 pull to refresh; reveal is the row-swipe action
+   width and threshold the pull distance (0: 60), in points. Initialize size before calling. */
+typedef struct { uint32_t size, kinds; float reveal, threshold; } PxuiGestureIn;
+_Static_assert(sizeof(PxuiGestureIn) == 16, "PxuiGestureIn layout");
+/* flags: 1 highlighted, 2 long press (this frame), 4 swiping, 8 swipe open, 16 back active, 32 back commit and
+   64 back cancel (this frame), 128 refresh fired (this frame), 256 refreshing. swipe is the signed shift to paint a
+   swiped row's content at (mirrored right to left), back is progress 0..1, pull the pull-down in points. */
+typedef struct { uint32_t size, flags; float swipe, back, pull; } PxuiGestureOut;
+_Static_assert(sizeof(PxuiGestureOut) == 20, "PxuiGestureOut layout");
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
 typedef struct { uint32_t size; uint8_t active,usable,reserved[2]; PxuiStr caption,keycap; } PxuiHeadActionDesc;
@@ -724,6 +733,9 @@ int32_t pxui_ui_scroll_offset(PxuiUi *ui, const PxuiBox *box, uint32_t which, fl
 int32_t pxui_ui_set_scroll_offset(PxuiUi *ui, const PxuiBox *box, float value);
 /* ABI 1.32: minimum scroll to reveal a virtual list item/grid cell; out-of-range indices do nothing. */
 int32_t pxui_ui_reveal(PxuiUi *ui, const PxuiBox *list, size_t index);
+/* ABI 1.38: read, and with `in` set (may be NULL) request a node's touch gestures; commands bit 0 closes a swiped row,
+   bit 1 ends a refresh. Touch only; mouse and trackpad are unchanged. */
+int32_t pxui_ui_gesture(PxuiUi *ui, const PxuiBox *box, const PxuiGestureIn *in, uint32_t commands, PxuiGestureOut *out);
 /* ABI 1.34: cumulative text cache-miss layouts; read between frames. */
 int32_t pxui_ui_text_layout_count(PxuiUi *ui, uint64_t *out);
 int32_t pxui_ui_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiStr *out);

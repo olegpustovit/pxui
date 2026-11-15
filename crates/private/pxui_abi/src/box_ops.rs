@@ -53,6 +53,48 @@ mod reveal_tests {
     }
 }
 
+#[cfg(test)]
+mod gesture_tests {
+    use super::*;
+    use pxui_types::ffi::{PxuiGestureIn, PxuiGestureOut};
+
+    #[test]
+    fn gesture_validates_every_argument_before_changing_the_node() {
+        extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
+            let node = unsafe { &mut *user.cast::<PxuiBox>() };
+            let desc = pxui_types::ffi::PxuiGridListDesc {
+                size: core::mem::size_of::<pxui_types::ffi::PxuiGridListDesc>() as u32, reserved: 0,
+                label: Str { ptr: b"rows".as_ptr(), len: 4 }, count: 10, cell_w: 100.0, cell_h: 20.0, build: None, user: core::ptr::null_mut(),
+            };
+            assert_eq!(unsafe { crate::pxui_ui_grid_list(raw.cast(), &desc, node) }, 0);
+            let sentinel = || PxuiGestureOut { flags: 99, swipe: 1.0, back: 2.0, pull: 3.0, ..Default::default() };
+            let mut out = sentinel();
+            let good = PxuiGestureIn { kinds: 2, reveal: 80.0, ..Default::default() };
+            let bad = [PxuiGestureIn { kinds: 16, ..good }, PxuiGestureIn { reveal: f32::NAN, ..good }, PxuiGestureIn { threshold: f32::INFINITY, ..good }, PxuiGestureIn { size: 8, ..good }];
+            for request in &bad {
+                assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, request, 0, &mut out) }, PXUI_ERR_ARGUMENT);
+            }
+            assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 4, &mut out) }, PXUI_ERR_ARGUMENT);
+            let mut short = 4u32;
+            assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 0, (&mut short as *mut u32).cast()) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 0, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+            assert_eq!((out.flags, out.swipe, out.back, out.pull, short), (99, 1.0, 2.0, 3.0, 4), "refusals write nothing");
+            assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, core::ptr::null(), 0, &mut out) }, 0);
+            assert_eq!(out.flags, 0);
+            assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 3, &mut out) }, 0);
+            let stale = PxuiBox { box_slot: u64::MAX, ..*node };
+            assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), &stale, &good, 0, &mut out) }, crate::PXUI_ERR_STALE);
+            assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), core::ptr::null(), &good, 0, &mut out) }, PXUI_ERR_ARGUMENT);
+        }
+        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let mut node = PxuiBox::default();
+        let mut out = crate::FrameOut::default();
+        assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, Some(build), (&mut node as *mut PxuiBox).cast(), &mut out) }, 0);
+        assert_eq!(unsafe { pxui_ui_gesture(core::ptr::null_mut(), &node, core::ptr::null(), 0, &mut PxuiGestureOut::default()) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
+    }
+}
+
 /// Keeps `value` alive until the next frame of `ui` and returns it as a `Str`.
 fn ui_give(ui: *mut PxuiUi, value: String) -> Str { unsafe { &*ui }.give(value) }
 
@@ -214,6 +256,24 @@ export!(pub unsafe fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) 
 export!(pub unsafe fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32 {
     let (engine, list) = match unsafe { boxed(ui, list) } { Ok(v) => v, Err(code) => return code };
     engine.reveal(&list, index);
+    0
+});
+
+// ABI 1.38: read, and with `in_` set, request a node's touch gestures; `commands` bit 0 closes a swiped
+// row, bit 1 ends a refresh. Every argument is checked before the node changes.
+export!(pub unsafe fn pxui_ui_gesture(ui: *mut PxuiUi, box_: *const PxuiBox, in_: *const pxui_types::ffi::PxuiGestureIn, commands: u32, out: *mut pxui_types::ffi::PxuiGestureOut) -> i32 {
+    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid gesture output") }; };
+    let cfg = if in_.is_null() { None } else {
+        let request = unsafe { in_.read_unaligned() };
+        if (request.size as usize) < core::mem::size_of::<pxui_types::ffi::PxuiGestureIn>() || request.kinds & !15 != 0 || !request.reveal.is_finite() || !request.threshold.is_finite() {
+            return unsafe { fail(ui, "invalid gesture request") };
+        }
+        Some(pxui_core::ui::gesture::GestureCfg { kinds: request.kinds, reveal: request.reveal, threshold: request.threshold })
+    };
+    if commands & !3 != 0 { return unsafe { fail(ui, "invalid gesture command") }; }
+    let state = e.gesture(&b, cfg, commands);
+    *out = pxui_types::ffi::PxuiGestureOut { flags: state.flags, swipe: state.swipe, back: state.back, pull: state.pull, ..Default::default() };
     0
 });
 

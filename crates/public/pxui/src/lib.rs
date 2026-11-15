@@ -28,7 +28,7 @@ pub mod a11y {
 pub mod ui_core {
     pub use pxui_types::ui::*;
     pub use crate::opts::{BoxOpts, HitFn};
-    pub use crate::{Paint, Ui};
+    pub use crate::{GestureOpts, GestureState, Paint, Ui};
     pub use pxui_types::PxuiBox as UiBox;
     pub use pxui_types::{Flags, Size};
     pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
@@ -64,7 +64,7 @@ pub mod ui {
 }
 pub mod text;
 pub use text::{PreparedText, RetiredText, Text, UiText};
-pub use box_ops::{NodeFields, PayloadRef, DropRef};
+pub use box_ops::{NodeFields, PayloadRef, DropRef, GestureOpts, GestureState};
 pub mod paint;
 pub use paint::Paint;
 pub mod widgets;

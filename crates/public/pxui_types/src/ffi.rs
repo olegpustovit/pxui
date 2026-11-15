@@ -399,6 +399,34 @@ pub struct PxuiScrubOut {
 impl Default for PxuiScrubOut {
     fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, flags: 0, node: PxuiBox::default(), preview: 0.0, commit: 0.0 } }
 }
+/// ABI 1.38 gesture request: `kinds` bits 1 long press, 2 row swipe, 4 edge back, 8 pull to refresh;
+/// `reveal` is the row-swipe action width and `threshold` the pull distance (0: 60), in points.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiGestureIn {
+    pub size: u32,
+    pub kinds: u32,
+    pub reveal: f32,
+    pub threshold: f32,
+}
+impl Default for PxuiGestureIn {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, kinds: 0, reveal: 0.0, threshold: 0.0 } }
+}
+
+/// ABI 1.38 gesture state: flag bits, the signed shift of a swiped row's content, back progress
+/// 0..1 and the pull-down in points.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiGestureOut {
+    pub size: u32,
+    pub flags: u32,
+    pub swipe: f32,
+    pub back: f32,
+    pub pull: f32,
+}
+impl Default for PxuiGestureOut {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, flags: 0, swipe: 0.0, back: 0.0, pull: 0.0 } }
+}
 impl Default for PxuiSignal {
     fn default() -> Self {
         Self { size: core::mem::size_of::<Self>() as u32, flags: 0, has_subtree_press: 0, button: u8::MAX, has_a11y_value: 0, has_a11y_select: 0,
@@ -807,6 +835,8 @@ mod layout {
         check("PxuiSaved", size_of::<PxuiSaved>(), align_of::<PxuiSaved>(), &[offset_of!(PxuiSaved, size), offset_of!(PxuiSaved, reserved), offset_of!(PxuiSaved, parents), offset_of!(PxuiSaved, seeds)]);
         check("PxuiSignal", size_of::<PxuiSignal>(), align_of::<PxuiSignal>(), &[offset_of!(PxuiSignal, size), offset_of!(PxuiSignal, flags), offset_of!(PxuiSignal, has_subtree_press), offset_of!(PxuiSignal, button), offset_of!(PxuiSignal, has_a11y_value), offset_of!(PxuiSignal, has_a11y_select), offset_of!(PxuiSignal, reserved), offset_of!(PxuiSignal, subtree_press), offset_of!(PxuiSignal, clicks), offset_of!(PxuiSignal, drag), offset_of!(PxuiSignal, pointer), offset_of!(PxuiSignal, press_point), offset_of!(PxuiSignal, release_point), offset_of!(PxuiSignal, scroll), offset_of!(PxuiSignal, pinch), offset_of!(PxuiSignal, a11y_value), offset_of!(PxuiSignal, a11y_select), offset_of!(PxuiSignal, keys)]);
         check("PxuiScrubOut", size_of::<PxuiScrubOut>(), align_of::<PxuiScrubOut>(), &[offset_of!(PxuiScrubOut, size), offset_of!(PxuiScrubOut, flags), offset_of!(PxuiScrubOut, node), offset_of!(PxuiScrubOut, preview), offset_of!(PxuiScrubOut, commit)]);
+        check("PxuiGestureIn", size_of::<PxuiGestureIn>(), align_of::<PxuiGestureIn>(), &[offset_of!(PxuiGestureIn, size), offset_of!(PxuiGestureIn, kinds), offset_of!(PxuiGestureIn, reveal), offset_of!(PxuiGestureIn, threshold)]);
+        check("PxuiGestureOut", size_of::<PxuiGestureOut>(), align_of::<PxuiGestureOut>(), &[offset_of!(PxuiGestureOut, size), offset_of!(PxuiGestureOut, flags), offset_of!(PxuiGestureOut, swipe), offset_of!(PxuiGestureOut, back), offset_of!(PxuiGestureOut, pull)]);
         check("PxuiBoxDesc", size_of::<PxuiBoxDesc>(), align_of::<PxuiBoxDesc>(), &[offset_of!(PxuiBoxDesc, size), offset_of!(PxuiBoxDesc, axis), offset_of!(PxuiBoxDesc, flags), offset_of!(PxuiBoxDesc, w), offset_of!(PxuiBoxDesc, h), offset_of!(PxuiBoxDesc, max_h), offset_of!(PxuiBoxDesc, padding), offset_of!(PxuiBoxDesc, scroll_step), offset_of!(PxuiBoxDesc, has_at), offset_of!(PxuiBoxDesc, has_hit_rect), offset_of!(PxuiBoxDesc, reserved), offset_of!(PxuiBoxDesc, at), offset_of!(PxuiBoxDesc, hit_rect), offset_of!(PxuiBoxDesc, hit), offset_of!(PxuiBoxDesc, hit_user), offset_of!(PxuiBoxDesc, hit_release)]);
         check("PxuiValueFieldDesc", size_of::<PxuiValueFieldDesc>(), align_of::<PxuiValueFieldDesc>(), &[offset_of!(PxuiValueFieldDesc, size), offset_of!(PxuiValueFieldDesc, flags), offset_of!(PxuiValueFieldDesc, font_size), offset_of!(PxuiValueFieldDesc, fraction), offset_of!(PxuiValueFieldDesc, tracking), offset_of!(PxuiValueFieldDesc, line), offset_of!(PxuiValueFieldDesc, lead_color), offset_of!(PxuiValueFieldDesc, trail_color), offset_of!(PxuiValueFieldDesc, reserved), offset_of!(PxuiValueFieldDesc, x), offset_of!(PxuiValueFieldDesc, y), offset_of!(PxuiValueFieldDesc, width), offset_of!(PxuiValueFieldDesc, height), offset_of!(PxuiValueFieldDesc, display), offset_of!(PxuiValueFieldDesc, placeholder), offset_of!(PxuiValueFieldDesc, lead), offset_of!(PxuiValueFieldDesc, trail), offset_of!(PxuiValueFieldDesc, label), offset_of!(PxuiValueFieldDesc, value)]);
         check("PxuiPaintInfo", size_of::<PxuiPaintInfo>(), align_of::<PxuiPaintInfo>(), &[offset_of!(PxuiPaintInfo, size), offset_of!(PxuiPaintInfo, rtl), offset_of!(PxuiPaintInfo, reserved), offset_of!(PxuiPaintInfo, font_size), offset_of!(PxuiPaintInfo, row_height), offset_of!(PxuiPaintInfo, density), offset_of!(PxuiPaintInfo, clip), offset_of!(PxuiPaintInfo, clip_radius), offset_of!(PxuiPaintInfo, theme)]);

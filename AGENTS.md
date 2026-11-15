@@ -340,6 +340,16 @@ pxui_sdl disables both SDL mouse/touch emulation hints. Preserve core physics/ca
 static/dynamic 10,000-row allocation checks and the optional PXUI_IOS_TOUCH_CHECK SDL/Metal probe.
 Synthetic simulator input does not qualify hardware feel, long press, edge navigation or refresh.
 
+ABI 1.38 `ui_gesture` owns the UIKit gestures above scroll, in pxui_core::ui_core::gesture/touch and touch
+only: 0.1 s delayed highlight and 0.5 s long press inside the 10-point slop, horizontal row swipe after
+the 8-point axis lock (toward the actions, or any direction on an open row), leading-edge back from a
+20-point band, and pull to refresh on a scroll node (it may stretch short content). Timers run on the frame
+clock through `Touches::wake`; swipe and back settle on closed-form critically damped springs
+(`gsettle` keeps the frames coming); outputs are per-node retained state plus one-frame pulses, a refresh
+pulse is stamped for the next frame because layout fires it. Gesture nodes join the hit list but never
+become `topmost`. RTL mirrors the edge, swipe direction and `swipe` sign. Keep the synthetic-trace cases in
+tests/cases/gesture.rs and the warm-allocation check; hardware feel stays a device comparison.
+
 The scoped iOS loop delivers Signal::Control for inactive worker wakes and explicit deadlines.
 Keep the display link paused and all Metal drawing disabled in these callbacks. NextFrame defers
 drawing until foreground; WaitUntil uses the existing dispatch timer without idle polling. Retain

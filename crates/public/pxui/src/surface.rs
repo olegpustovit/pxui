@@ -248,6 +248,58 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
 }
 
 #[test]
+fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allocations() {
+    use crate::{Event, GestureOpts, GestureState, Touch, Str, ui::{BoxOpts, Size, CLICKABLE}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let state = Cell::new(GestureState::default());
+    let node = Cell::new(None);
+    let mut time = 0.0;
+    let mut build = |ui: &mut Ui| {
+        let row = ui.box_("row", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(50.0)).flags(CLICKABLE));
+        node.set(Some(row));
+        state.set(ui.gesture(&row, GestureOpts { long_press: true, row_swipe: Some(80.0), ..Default::default() }));
+    };
+    let touch = |ui: &mut Ui, phase: u32, x: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
+        let packet = Touch { device: 1, finger: 7, x, y: 25.0, phase, time: at, pressure: 1.0 };
+        let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
+        ui.frame(&FrameIn { time: at, events: &event, event_count: 1, ..input() }, build).unwrap();
+    };
+    ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+    for round in 0..4 {
+        time = f64::from(round) * 10.0 + 1.0;
+        mem_sys::local_reset();
+        touch(&mut ui, 0, 150.0, time, &mut build);
+        touch(&mut ui, 1, 142.0, time + 0.016, &mut build);
+        assert_eq!(state.get().swipe, -8.0);
+        touch(&mut ui, 1, 100.0, time + 0.032, &mut build);
+        assert_eq!((state.get().swiping, state.get().swipe), (true, -50.0));
+        touch(&mut ui, 2, 100.0, time + 0.4, &mut build);
+        ui.frame(&FrameIn { time: time + 0.5, ..input() }, &mut build).unwrap();
+        assert!(state.get().swipe_open && !state.get().swiping);
+        ui.frame(&FrameIn { time: time + 2.0, ..input() }, &mut build).unwrap();
+        assert_eq!(state.get().swipe, -80.0);
+        ui.close_swipe(&node.get().unwrap());
+        ui.frame(&FrameIn { time: time + 3.0, ..input() }, &mut build).unwrap();
+        ui.frame(&FrameIn { time: time + 4.0, ..input() }, &mut build).unwrap();
+        assert_eq!(state.get().swipe, 0.0);
+        // a held touch: highlight then long press come from frames alone
+        touch(&mut ui, 0, 100.0, time + 5.0, &mut build);
+        ui.frame(&FrameIn { time: time + 5.2, ..input() }, &mut build).unwrap();
+        assert!(state.get().highlighted && !state.get().long_pressed);
+        ui.frame(&FrameIn { time: time + 5.6, ..input() }, &mut build).unwrap();
+        assert!(state.get().long_pressed && !state.get().highlighted);
+        touch(&mut ui, 2, 100.0, time + 5.7, &mut build);
+        if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm gesture frames"); }
+    }
+    let stale = node.get().unwrap();
+    ui.frame(&FrameIn { time, ..input() }, &mut |_| {}).unwrap();
+    assert_eq!(ui.gesture_state(&stale), GestureState::default(), "a retired node reads as rest");
+    ui.close_swipe(&stale);
+}
+
+#[test]
 fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_warm_allocations() {
     use crate::{Event, Scrub, Touch, Str, ui::{Node, Role}};
     use std::cell::Cell;

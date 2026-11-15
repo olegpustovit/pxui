@@ -10,6 +10,7 @@ use std::{alloc::Layout, fmt::{Arguments, Write}};
 library!(lib {
     fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) -> i32;
     fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32;
+    fn pxui_ui_gesture(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiGestureIn, commands: u32, out: *mut pxui_types::ffi::PxuiGestureOut) -> i32;
     fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32;
     fn pxui_ui_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::ffi::PxuiNodeFields) -> i32;
@@ -96,6 +97,73 @@ fn hit_box(hit: HitFn) -> *mut c_void {
 pub struct PayloadRef<'a> { pub kind: &'a str, pub value: &'a str }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropRef<'a> { Hover(PayloadRef<'a>), Dropped(PayloadRef<'a>) }
+
+/// Touch gestures a node takes (touch only: a mouse or trackpad never starts one).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GestureOpts {
+    /// delayed highlight after 0.1 s and a long press after 0.5 s, within 10 pt of the touch-down
+    pub long_press: bool,
+    /// horizontal row swipe revealing actions this many points wide (8 pt axis lock; vertical goes to scroll)
+    pub row_swipe: Option<f32>,
+    /// interactive back from the leading 20 pt of the node
+    pub edge_back: bool,
+    /// pull to refresh on a scroll node: the pull distance in points (0 picks 60)
+    pub refresh: Option<f32>,
+}
+
+/// What the gestures did to a node. The `*_fired`/`long_pressed`/`back_*` bits last one frame; read
+/// before layout, scroll-derived `pull` is the previous frame's painted value.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct GestureState {
+    /// contact held past the highlight delay, or a quick tap's one-frame flash
+    pub highlighted: bool,
+    pub long_pressed: bool,
+    pub swiping: bool,
+    pub swipe_open: bool,
+    /// signed shift for the swiped row's content: negative reveals to the right of it, mirrored right to left
+    pub swipe: f32,
+    pub back_active: bool,
+    /// the back finished committing: pop the screen now (`back` is already 0)
+    pub back_committed: bool,
+    pub back_cancelled: bool,
+    /// back progress 0..1 while the finger drags or the commit/cancel settles
+    pub back: f32,
+    /// the pull crossed the threshold and was released: start loading, `refreshing` holds until `end_refresh`
+    pub refresh_fired: bool,
+    pub refreshing: bool,
+    /// points the content is pulled down past the top
+    pub pull: f32,
+}
+
+impl Ui {
+    fn gesture_call(&mut self, node: &PxuiBox, request: Option<pxui_types::ffi::PxuiGestureIn>, commands: u32) -> GestureState {
+        let mut out = pxui_types::ffi::PxuiGestureOut::default();
+        let request_ptr = request.as_ref().map_or(core::ptr::null(), |r| r as *const _);
+        crate::live(self, unsafe { lib::pxui_ui_gesture(self.0.as_ptr(), node, request_ptr, commands, &mut out) });
+        let f = out.flags;
+        GestureState {
+            highlighted: f & 1 != 0, long_pressed: f & 2 != 0, swiping: f & 4 != 0, swipe_open: f & 8 != 0, swipe: out.swipe,
+            back_active: f & 16 != 0, back_committed: f & 32 != 0, back_cancelled: f & 64 != 0, back: out.back,
+            refresh_fired: f & 128 != 0, refreshing: f & 256 != 0, pull: out.pull,
+        }
+    }
+    /// Take these gestures on `node` (call every build) and read what they did. A stale handle reads as rest.
+    #[track_caller]
+    pub fn gesture(&mut self, node: &PxuiBox, opts: GestureOpts) -> GestureState {
+        let kinds = u32::from(opts.long_press) | u32::from(opts.row_swipe.is_some()) << 1 | u32::from(opts.edge_back) << 2 | u32::from(opts.refresh.is_some()) << 3;
+        let request = pxui_types::ffi::PxuiGestureIn { kinds, reveal: opts.row_swipe.unwrap_or(0.0), threshold: opts.refresh.unwrap_or(0.0), ..Default::default() };
+        self.gesture_call(node, Some(request), 0)
+    }
+    /// Read a node's gesture state without changing what it takes.
+    #[track_caller]
+    pub fn gesture_state(&mut self, node: &PxuiBox) -> GestureState { self.gesture_call(node, None, 0) }
+    /// Close a swiped-open row.
+    #[track_caller]
+    pub fn close_swipe(&mut self, node: &PxuiBox) { self.gesture_call(node, None, 1); }
+    /// End a held refresh: the content returns to the top.
+    #[track_caller]
+    pub fn end_refresh(&mut self, node: &PxuiBox) { self.gesture_call(node, None, 2); }
+}
 
 impl Ui {
     #[track_caller]

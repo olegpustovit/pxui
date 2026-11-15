@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 37
+minor 38
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -113,6 +113,7 @@ function pxui_ui_font_size int64_t pxui_ui_font_size ( PxuiUi * ui ) ;
 function pxui_ui_footer int32_t pxui_ui_footer ( PxuiUi * ui , const PxuiFooterDesc * desc ) ;
 function pxui_ui_frame int32_t pxui_ui_frame ( PxuiUi * ui , const PxuiInput * in , PxuiBuild build , void * user , PxuiFrameOut * out ) ;
 function pxui_ui_frame_index uint64_t pxui_ui_frame_index ( PxuiUi * ui ) ;
+function pxui_ui_gesture int32_t pxui_ui_gesture ( PxuiUi * ui , const PxuiBox * box , const PxuiGestureIn * in , uint32_t commands , PxuiGestureOut * out ) ;
 function pxui_ui_grid_list int32_t pxui_ui_grid_list ( PxuiUi * ui , const PxuiGridListDesc * desc , PxuiBox * out ) ;
 function pxui_ui_grip int32_t pxui_ui_grip ( PxuiUi * ui , PxuiStr label , uint32_t axis , uint8_t has_rect , PxuiRect rect , PxuiBox * out , PxuiSignal * signal ) ;
 function pxui_ui_hover_delay int32_t pxui_ui_hover_delay ( PxuiUi * ui , PxuiStr key , uint8_t * out ) ;
@@ -295,6 +296,8 @@ layout PxuiFont 32 8 0 8 16 20 24
 layout PxuiFontDesc 24 8 0 2 8 16 20 21
 layout PxuiFooterConfig 80 8 0 8 40 48 64
 layout PxuiFooterDesc 40 8 0 4 5 8 24
+layout PxuiGestureIn 16 4 0 4 8 12
+layout PxuiGestureOut 20 4 0 4 8 12 16
 layout PxuiGrid 32 8
 layout PxuiGridListDesc 56 8 0 4 8 24 32 36 40 48
 layout PxuiGripConfig 48 8 0 4 12 13 16
