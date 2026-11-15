@@ -7581,11 +7581,13 @@ impl Ui {
         let mut out = std::mem::take(&mut self.compact);
         out.clear();
         self.moves.clear();
+        let mut fresh = 0usize;
         for k in 0..s.pieces.len() {
             let p = s.pieces[k];
             if p.view == NO_VIEW {
                 s.pieces[k].at = out.len() as u32;
                 out.extend_from_slice(&s.instances[p.a as usize..p.b as usize]);
+                fresh += (p.b - p.a) as usize;
                 continue;
             }
             let (a, b) = self.views[p.view as usize].run;
@@ -7593,7 +7595,9 @@ impl Ui {
                 s.pieces[k].at = out.len() as u32;
                 continue;
             }
-            out.resize(out.len() + SLACK.max((b - a) as usize / 8), EMPTY);
+            // Another fresh batch fits here; total extra padding is at most the scratch instance count.
+            out.resize(out.len() + SLACK.max((b - a) as usize / 8) + fresh, EMPTY);
+            fresh = 0;
             let to = out.len() as u32;
             out.extend_from_slice(&d.instances[a as usize..b as usize]);
             s.pieces[k].at = to;

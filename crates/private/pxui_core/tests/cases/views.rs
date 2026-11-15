@@ -799,7 +799,73 @@ pub fn window_pxui_damage_containment_preserves_other_views() {
     ui.destroy();
 }
 
+/// Newly visible rows grow the fresh gap before a retained footer; storage stays tied to live rows.
+pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
+    const ROWS: usize = 20;
+    const TILES: usize = 64;
+    for step in [3, 19] {
+        let mut ui = new_ui(None);
+        #[cfg(target_os = "macos")]
+        ui.set_cpu_clock(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
+        let mut frame = at(0.0, vec![]);
+        frame.input.size = (800, 600);
+        let mut compactions = 0;
+        let mut paint_ns = 0;
+        let mut largest = 0;
+        for tick in 0..130 {
+            let first = tick * step;
+            frame.input.t = tick as f64 / 60.0;
+            let before = ui.layer_rewrites().1;
+            mem_sys::local_reset();
+            let mut ends = [None; 2];
+            ui.frame(&frame, &mut |ui| {
+                let viewport = ui.node("viewport", Node { flags: CLIP, w: Size::Px(600.0), h: Size::Px(400.0), ..Node::DEFAULT });
+                ui.within(&viewport, &mut |ui| {
+                    for row in first..first + ROWS {
+                        let holder = ui.node_keyed(int_key(viewport.box_key, row as i64), Node { w: Size::Px(600.0), h: Size::Px(20.0), at: Some((0.0, (row - first) as f32 * 20.0)).into(), ..Node::DEFAULT });
+                        ui.within(&holder, &mut |ui| {
+                            let view = ui.view("row", 1, Size::Grow, Size::Grow, &mut |ui| {
+                                let node = ui.node("tiles", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                                ui.canvas(&node, move |paint, rect| {
+                                    for tile in 0..TILES { paint.fill(rect.x + tile as f32 * 8.0, rect.y, 8.0, 20.0, color::rgb(20 + (row % 200) as i64, 10, 10)); }
+                                });
+                            });
+                            if row == first { ends[0] = Some(view); }
+                            if row == first + ROWS - 1 { ends[1] = Some(view); }
+                        });
+                    }
+                });
+                ui.view("footer", 1, Size::Px(600.0), Size::Px(20.0), &mut |ui| { chip(ui, "control", BLUE, NO_FLAGS); });
+            });
+            if tick >= 30 {
+                assert_eq!(mem_sys::local_alloc_count(), 0, "tick {tick}");
+                compactions += ui.layer_rewrites().1 - before;
+                if let Some(phases) = ui.phase_cpu_times() { paint_ns += phases[4]; }
+            }
+            let layer = &ui.output().draw[0];
+            largest = largest.max(layer.instances.len());
+            assert!(layer.instances.len() <= 2 * (ROWS * TILES + 1 + (ROWS - step + 1) * 32));
+            let mut count = 0;
+            for instance in layer.instances.iter().filter(|i| i.color[1] == 10) {
+                let row = first + count / TILES;
+                assert_eq!(instance.color, [20 + (row % 200) as u8, 10, 10, 255]);
+                count += 1;
+            }
+            assert_eq!(count, ROWS * TILES);
+            assert_eq!(layer.instances.iter().filter(|i| i.color == [0, 0, 200, 255]).count(), 1);
+            assert!(layer.dirty.iter().all(|&(a, b)| a < b && b as usize <= layer.instances.len()));
+            assert_eq!(ui.rect(&ends[0].unwrap()), Rect::new(0.0, 0.0, 600.0, 20.0));
+            assert_eq!(ui.rect(&ends[1].unwrap()), Rect::new(0.0, 380.0, 600.0, 20.0));
+            ui.drawn(0);
+        }
+        if step == 3 { assert!(compactions <= 50, "fresh batches compacted {compactions}/100 frames"); }
+        println!("streaming retained gaps: step={step} frames=100 compactions={compactions} largest={largest} mean_paint_cpu_us={:.2}", paint_ns as f64 / 100_000.0);
+        ui.destroy();
+    }
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_streaming_rows_reuse_retained_gaps", window_pxui_streaming_rows_reuse_retained_gaps),
     ("window_pxui_damage_containment_preserves_other_views", window_pxui_damage_containment_preserves_other_views),
     ("window_pxui_view_entrance_channels", window_pxui_view_entrance_channels),
     ("window_pxui_more_kept_views_reuse_compaction_scratch", window_pxui_more_kept_views_reuse_compaction_scratch),
