@@ -702,6 +702,8 @@ int32_t pxui_ui_scroll_offset(PxuiUi *ui, const PxuiBox *box, uint32_t which, fl
 int32_t pxui_ui_set_scroll_offset(PxuiUi *ui, const PxuiBox *box, float value);
 /* ABI 1.32: minimum scroll to reveal a virtual list item/grid cell; out-of-range indices do nothing. */
 int32_t pxui_ui_reveal(PxuiUi *ui, const PxuiBox *list, size_t index);
+/* ABI 1.34: cumulative text cache-miss layouts; read between frames. */
+int32_t pxui_ui_text_layout_count(PxuiUi *ui, uint64_t *out);
 int32_t pxui_ui_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiStr *out);
 int32_t pxui_ui_set_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t present, PxuiStr value);
 int32_t pxui_ui_cached_label(PxuiUi *ui, const PxuiBox *box, uint64_t index, PxuiStr text, PxuiStr *out); /* borrowed from the slot */

@@ -8,6 +8,7 @@ use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkD
 use std::{alloc::Layout, fmt::{Arguments, Write}};
 
 library!(lib {
+    fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) -> i32;
     fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32;
     fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32;
@@ -148,6 +149,14 @@ impl Ui {
     pub fn scroll_offset(&self, b: &PxuiBox) -> f32 {
         let mut out = 0.0;
         check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 0, &mut out) });
+        out
+    }
+    /// Cumulative text cache misses for warm-up qualification; unchanged layouts do not advance it.
+    /// Read between frames. This counts layout work, not native allocations or glyph rasterization.
+    #[track_caller]
+    pub fn text_layout_count(&self) -> u64 {
+        let mut out=0;
+        check(self, unsafe { lib::pxui_ui_text_layout_count(self.0.as_ptr(), &mut out) });
         out
     }
     /// Reveal a fixed/measured list item (or grid cell) with the smallest scroll adjustment.

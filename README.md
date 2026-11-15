@@ -278,3 +278,10 @@ subsystem is `org.pxui.profile`, with the existing `UI build` frame/wall/CPU/QoS
 counters cover these calls; native allocations and scheduling still require separate evidence.
 Native texture inspection is test-only and crate-private. The host's main-thread test executable
 builds inside the library, retaining pixel, full-batch replay and GPU-completion lifetime checks.
+
+
+ABI 1.34 adds `Ui::text_layout_count()`: the cumulative number of text layouts performed after
+cache misses, including changed content, style, width or spans. Read it between frames and compare
+two values to audit cold shaping. Cache hits leave it unchanged; the query allocates nothing.
+It measures layout work, not glyph rasterization, native allocation or all process memory. No C
+record changes; C rejects null outputs before writing and retains the normal owner/callback guards.

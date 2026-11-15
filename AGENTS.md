@@ -449,3 +449,10 @@ crate-private/test-only in pxui_host; its internal main-thread harness retains f
 pixel/replay, warm draw and GPU-completion assertions. Prefix native cases with window_ so cargo t
 serializes them even in a library test target. Public hash! owns transient revision hashing while
 callers supply facts; preserve existing hash values and evaluate/borrow the input exactly once.
+
+
+ABI 1.34 exposes a monotonic text layout-miss counter for qualification. Increment only after the
+validated layout cache-hit path, count changed layouts as well as new keys, and never reset it at
+frame boundaries. The UI getter borrows through the normal owner guard and rejects unavailable
+text/invalid outputs before writing. Preserve static/dynamic cold-versus-cached and zero-warm-query
+checks. This counter does not qualify glyph rasterization or native/process allocations.

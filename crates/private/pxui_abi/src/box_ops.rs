@@ -190,6 +190,27 @@ export!(pub unsafe fn pxui_ui_set_scroll_offset(ui: *mut PxuiUi, box_: *const Px
     0
 });
 
+#[cfg(test)]
+#[test]
+fn text_layout_count_checks_outputs_before_writing() {
+    let mut out=77;
+    assert_eq!(unsafe {pxui_ui_text_layout_count(core::ptr::null_mut(),&mut out)},PXUI_ERR_ARGUMENT);
+    assert_eq!(out,77);
+    let ui=unsafe {crate::pxui_ui_create(&crate::PxuiUiDesc::default())};
+    assert_eq!(unsafe {pxui_ui_text_layout_count(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe {pxui_ui_text_layout_count(ui,&mut out)},0);
+    assert_eq!(out,0);
+    assert_eq!(unsafe {crate::pxui_ui_destroy(ui)},0);
+}
+
+export!(pub unsafe fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui, "null text layout count output") }; }
+    let Some(count) = (unsafe { &*state.engine }).text_layout_count() else { return crate::PXUI_ERR_STATE; };
+    unsafe { *out = count; }
+    0
+});
+
 export!(pub unsafe fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32 {
     let (engine, list) = match unsafe { boxed(ui, list) } { Ok(v) => v, Err(code) => return code };
     engine.reveal(&list, index);

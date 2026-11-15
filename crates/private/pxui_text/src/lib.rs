@@ -632,6 +632,7 @@ pub struct Text {
     sweep: usize,
     frame: u32,
     walks: u64,
+    layouts: u64,
     cache_on: bool,
     /// Capacity of every layout's glyph list, in bytes.
     cache_bytes: usize,
@@ -680,6 +681,7 @@ impl Text {
             sweep: 0,
             frame: 1,
             walks: 0,
+            layouts: 0,
             cache_on: true,
             cache_bytes: 0,
         };
@@ -759,6 +761,7 @@ impl Text {
                 self.cache_bytes -= entry.glyphs.capacity() * size_of::<CachedGlyph>();
             }
         }
+        self.layouts = self.layouts.saturating_add(1);
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         let keys = &mut self.keys;
         let e = self.entries.entry(key).or_insert_with(|| Entry {
@@ -1071,6 +1074,9 @@ impl Text {
     pub fn retirements(&self) -> u64 {
         self.g.retirements
     }
+
+    /// Cumulative cache-miss layouts, including changed content/style/width on an existing key.
+    pub fn layout_count(&self) -> u64 { self.layouts }
 
     /// Glyphs that found no atlas room so far (each is missing from its walk: repaint next frame).
     pub fn misses(&self) -> u64 {

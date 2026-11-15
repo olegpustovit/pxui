@@ -1940,6 +1940,9 @@ impl Ui {
         self.slots.iter().filter(|s| s.key != 0).count()
     }
 
+    /// Cumulative text layout misses. None while the painter temporarily owns the text service.
+    pub fn text_layout_count(&self) -> Option<u64> { self.text.as_ref().map(Text::layout_count) }
+
     pub fn row_height(&self) -> i64 {
         self.kit_row_height
     }

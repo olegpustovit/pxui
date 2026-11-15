@@ -41,6 +41,7 @@ Static/dynamic validation, pixel and warm-allocation checks remain required.
 | 1.31 | `ui_scrub`, `Scrub`, 48-byte `PxuiScrubOut` | Caller-painted horizontal adjustment with captured preview/release commit, routed keys and accessible values. |
 | 1.32 | `ui_reveal` | Minimum-scroll reveal using retained fixed/measured list, section and grid geometry. |
 | 1.33 | `FILES_DROPPED` event kind 26 | Completed host file sets with logical position, ordered paths or a whole-set transport error. |
+| 1.34 | `ui_text_layout_count` | Observe cumulative text cache-miss layouts without allocating or exposing the engine. |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

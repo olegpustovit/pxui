@@ -8,6 +8,32 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn text_layout_count_distinguishes_cold_content_from_retained_warm_frames_without_allocations() {
+    use crate::ui::Node;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    assert_eq!(ui.text_layout_count(),0);
+    let mut build=|ui:&mut Ui| {
+        let node=ui.node("label",Node {w:Size::Px(200.0),h:Size::Px(30.0),..Node::DEFAULT});
+        ui.text(&node,"Cache identity");
+    };
+    ui.frame(&input(),&mut build).unwrap();
+    let first=ui.text_layout_count();
+    assert!(first>0);
+    for round in 0..20 {
+        mem_sys::local_reset();
+        ui.frame(&input(),&mut build).unwrap();
+        assert_eq!(ui.text_layout_count(),first);
+        if round>2 {assert_eq!(mem_sys::local_alloc_count(),0);}
+    }
+    ui.frame(&input(),&mut |ui| {
+        let node=ui.node("label",Node {w:Size::Px(200.0),h:Size::Px(30.0),..Node::DEFAULT});
+        ui.text(&node,"Replacement identity");
+    }).unwrap();
+    assert!(ui.text_layout_count()>first);
+}
+
+#[test]
 fn framework_hash_preserves_caller_identities_borrows_once_and_allocates_nothing() {
     use std::hash::{Hash,Hasher};
     use crate::geom::hash::FastHasher;
