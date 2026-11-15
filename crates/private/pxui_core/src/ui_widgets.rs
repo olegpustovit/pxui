@@ -35,6 +35,16 @@ pub enum DialogOut {
     Button(usize),
 }
 
+/// Behavior for a caller-painted horizontal adjustable value. Pointer motion previews; only a
+/// captured left-button release commits. Keyboard and accessibility adjustments commit directly.
+#[derive(Clone, Copy, Debug)]
+pub struct Scrub {
+    pub node: Handle,
+    pub preview: Option<f32>,
+    pub commit: Option<f32>,
+    pub held: bool,
+}
+
 /// The key presses of `keys` (a focused node's signal), in order.
 fn pressed(keys: &[Event], f: &mut dyn FnMut(Key)) {
     for e in keys {
@@ -275,6 +285,73 @@ impl Ui {
     /// an assistive technology's SetValue move it. Returns the value, held in `range`.
     pub fn slider(&mut self, text: &str, value: f32, range: RangeInclusive<f32>) -> f32 {
         slider_body(self, text, value, range)
+    }
+
+    /// A behavior-only scrubber. Size it with the normal node layout API and paint into `node`.
+    /// A collapsed range is read-only. Arrows step once, Page keys ten times; Home/End select ends.
+    pub fn scrub(&mut self, label: &str, value: f32, range: RangeInclusive<f32>, step: f32) -> Scrub {
+        let (lo, hi) = (*range.start(), *range.end());
+        let enabled = hi > lo;
+        let node = self.node(label, Node {
+            flags: CLIP | if enabled { CLICKABLE | FOCUSABLE | FOCUS_MARK } else { 0 },
+            w: Size::Grow, h: Size::Px(self.control_h()),
+            role: if enabled { Role::Slider } else { Role::Progress },
+            ..Node::DEFAULT
+        });
+        self.a11y_name(&node, shown(label));
+        let value = value.clamp(lo, hi);
+        let mut result = Scrub { node, preview: None, commit: None, held: false };
+        if !enabled {
+            self.cancel_press(&node);
+            if self.focused(&node) { self.unfocus(); }
+        } else {
+            let signal = self.signal_state(&node);
+            let rect = self.rect(&node);
+            if signal.button == Some(input::MouseButton::LeftButton) && rect.w > 0.0 {
+                result.held = signal.held;
+                let at = |x: f32| {
+                    let fraction = ((x - rect.x) / rect.w).clamp(0.0, 1.0);
+                    let fraction = if self.rtl() { 1.0 - fraction } else { fraction };
+                    if fraction == 0.0 { lo } else if fraction == 1.0 { hi } else { (lo + fraction * (hi - lo)).clamp(lo, hi) }
+                };
+                if signal.held { result.preview = Some(at(signal.pointer.0)); }
+                if signal.released { result.commit = Some(at(signal.release_point.0)); }
+            }
+            if let Some(next) = signal.a11y_value.filter(|v| v.is_finite()) {
+                result.commit = Some(next.clamp(f64::from(lo), f64::from(hi)) as f32);
+                result.preview = result.commit;
+                self.cancel_press(&node);
+                result.held = false;
+            }
+            if self.focused(&node) {
+                let mut next = result.preview.or(result.commit).unwrap_or(value);
+                let mut adjusted = false;
+                for (event, modifiers) in self.key_events_ref(&node) {
+                    if modifiers.iter().any(|key| matches!(key, Key::Meta | Key::Ctrl | Key::Alt)) { continue; }
+                    if let Event::KeyPressed(key) = event {
+                        next = match key {
+                            Key::ArrowRight | Key::ArrowLeft => next + self.along(*key) as f32 * step,
+                            Key::ArrowUp => next + step,
+                            Key::ArrowDown => next - step,
+                            Key::PageUp => next + 10.0 * step,
+                            Key::PageDown => next - 10.0 * step,
+                            Key::Home => lo,
+                            Key::End => hi,
+                            _ => continue,
+                        }.clamp(lo, hi);
+                        result.commit = Some(next);
+                        adjusted = true;
+                    }
+                }
+                if adjusted {
+                    self.cancel_press(&node);
+                    result.held = false;
+                }
+            }
+        }
+        if !result.held && result.commit.is_some() { result.preview = result.commit; }
+        self.a11y_number(&node, result.preview.unwrap_or(value) as f64, lo as f64, hi as f64, step as f64);
+        result
     }
 
     /// A progress row: the label and a 4-point track, with a bar `value` (0 to 1) of the way or, with `None`, a third-wide bar that

@@ -8,6 +8,157 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_warm_allocations() {
+    use crate::{Event, Scrub, Touch, Str, ui::{Node, Role}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    ui.set_a11y(true);
+    let value = Cell::new(40.0);
+    let range = Cell::new((10.0, 110.0));
+    let result = Cell::new(None::<Scrub>);
+    let popup = Cell::new(false);
+    let present = Cell::new(true);
+    let mut build = |ui: &mut Ui| {
+        if popup.get() { ui.popup(None,None,false,false,(0.0,0.0),200.0,30.0,"scrub-popup",&mut |_| {}); }
+        if !present.get() { result.set(None); return; }
+        let (lo, hi) = range.get();
+        let scrub = ui.scrub("Position", value.get(), lo..=hi, 5.0);
+        ui.set_node_layout(&scrub.node, &Node { w: Size::Px(200.0), h: Size::Px(20.0), ..Node::DEFAULT });
+        result.set(Some(scrub));
+    };
+    let pointer = |kind, x, code| Event { kind, x, y: 10.0, code, ..Default::default() };
+    let key = |index| Event { kind: Event::KEY_PRESSED, code: pxui_types::KEY_SPECIAL + index, ..Default::default() };
+    ui.frame(&input(), &mut build).unwrap();
+    let mut identity = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Position").unwrap().id;
+    let mut time = 0.0;
+    for round in 0..8 {
+        mem_sys::local_reset();
+        for (event, preview, commit, held) in [
+            (pointer(Event::POINTER_PRESSED, 50.0, 0), Some(35.0), None, true),
+            (pointer(Event::POINTER_MOVED, 250.0, 0), Some(110.0), None, true),
+            (pointer(Event::POINTER_RELEASED, 150.0, 0), Some(85.0), Some(85.0), false),
+            (pointer(Event::POINTER_PRESSED, 50.0, 1), None, None, false),
+            (pointer(Event::POINTER_RELEASED, 50.0, 1), None, None, false),
+            (key(3), Some(45.0), Some(45.0), false),
+            (key(2), Some(35.0), Some(35.0), false),
+            (key(0), Some(45.0), Some(45.0), false),
+            (key(1), Some(35.0), Some(35.0), false),
+            (key(27), Some(90.0), Some(90.0), false),
+            (key(28), Some(10.0), Some(10.0), false),
+            (key(25), Some(10.0), Some(10.0), false),
+            (key(26), Some(110.0), Some(110.0), false),
+            (pointer(Event::POINTER_PRESSED, 50.0, 0), Some(35.0), None, true),
+            (pointer(Event::POINTER_CANCELLED, 50.0, 0), None, None, false),
+            (pointer(Event::POINTER_RELEASED, 50.0, 0), None, None, false),
+            (pointer(Event::POINTER_PRESSED, 50.0, 0), Some(35.0), None, true),
+            (Event { kind: Event::FOCUS_LOST, ..Default::default() }, None, None, false),
+            (pointer(Event::POINTER_RELEASED, 50.0, 0), None, None, false),
+        ] {
+            time += 0.01;
+            ui.frame(&FrameIn { time, events: &event, event_count: 1, ..input() }, &mut build).unwrap();
+            let s = result.get().unwrap();
+            assert_eq!((s.preview, s.commit, s.held), (preview, commit, held), "event {event:?}");
+            assert_eq!(ui.rect(&s.node), Rect::new(0.0, 0.0, 200.0, 20.0));
+        }
+        // The release point survives a later move in the same batch.
+        let press = pointer(Event::POINTER_PRESSED, 50.0, 0);
+        ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+        let events = [pointer(Event::POINTER_RELEASED, 150.0, 0), pointer(Event::POINTER_MOVED, 5.0, 0)];
+        ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: 2, ..input() }, &mut build).unwrap();
+        assert_eq!(result.get().unwrap().commit, Some(85.0));
+        ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+        let events = [pointer(Event::POINTER_RELEASED,150.0,0),pointer(Event::POINTER_PRESSED,20.0,0)];
+        ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: 2, ..input() }, &mut build).unwrap();
+        let s = result.get().unwrap();
+        assert_eq!((s.preview,s.commit,s.held),(Some(20.0),Some(85.0),true),"a new capture previews independently of the previous release");
+        let cancel = pointer(Event::POINTER_CANCELLED,20.0,0);
+        ui.frame(&FrameIn { time, events: &cancel, event_count: 1, ..input() }, &mut build).unwrap();
+        for accessible in [false,true] {
+            ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+            let right=key(3);
+            if accessible { ui.inject_a11y(&[crate::A11yAction {id:identity,action_code:4,payload:75.0,..Default::default()}]); }
+            ui.frame(&FrameIn { time, events: if accessible {core::ptr::null()} else {&right}, event_count:usize::from(!accessible), ..input() }, &mut build).unwrap();
+            let s=result.get().unwrap();let expected=if accessible {75.0} else {40.0};
+            assert_eq!((s.preview,s.commit,s.held),(Some(expected),Some(expected),false),"digital adjustment takes over a held pointer");
+            let release=pointer(Event::POINTER_RELEASED,150.0,0);
+            ui.frame(&FrameIn {time,events:&release,event_count:1,..input()},&mut build).unwrap();
+            assert!(result.get().unwrap().commit.is_none());
+        }
+        let events = [key(3), key(3), key(2)];
+        ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+        assert_eq!(result.get().unwrap().commit, Some(45.0), "all routed presses retain their order");
+        let events = [key(12), key(3), Event { kind: Event::KEY_RELEASED, code: pxui_types::KEY_SPECIAL + 12, ..Default::default() }];
+        ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
+        assert!(result.get().unwrap().commit.is_none(),"command chords remain available to the application");
+        for (payload, expected) in [(75.0, 75.0), (-1.0, 10.0), (f64::MAX, 110.0)] {
+            ui.inject_a11y(&[crate::A11yAction { id: identity, action_code: 4, payload, ..Default::default() }]);
+            ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+            assert_eq!(result.get().unwrap().commit, Some(expected));
+            let node = ui.a11y_nodes().iter().find(|n| n.id == identity).unwrap();
+            assert_eq!((node.value.now, node.value.min, node.value.max, node.value.step), (expected as f64, 10.0, 110.0, 5.0));
+        }
+        for (phase, x, preview, commit) in [(0,50.0,Some(35.0),None),(1,250.0,Some(110.0),None),(2,150.0,Some(85.0),Some(85.0)),(0,50.0,Some(35.0),None),(3,150.0,None,None)] {
+            time += 0.01;
+            let touch = Touch { device: 1, finger: 7, x, y: 10.0, phase, time, pressure: 1.0 };
+            let event = Event { kind: Event::TOUCH, text: Str { ptr: (&touch as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
+            ui.frame(&FrameIn { time, events: &event, event_count: 1, ..input() }, &mut build).unwrap();
+            let s = result.get().unwrap();
+            assert_eq!((s.preview, s.commit), (preview, commit));
+        }
+        for (phase, finger, held) in [(0,7,true),(0,8,false),(2,7,false),(2,8,false)] {
+            time += 0.01;
+            let touch = Touch { device: 1, finger, x: 50.0, y: 10.0, phase, time, pressure: 1.0 };
+            let event = Event { kind: Event::TOUCH, text: Str { ptr: (&touch as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
+            ui.frame(&FrameIn { time, events: &event, event_count: 1, ..input() }, &mut build).unwrap();
+            let s = result.get().unwrap();
+            assert_eq!(s.held,held);
+            assert!(s.commit.is_none(),"multitouch cancels the original adjustment");
+        }
+        ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+        popup.set(true);
+        ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+        assert!(!result.get().unwrap().held);
+        let release = pointer(Event::POINTER_RELEASED,150.0,0);
+        ui.frame(&FrameIn { time, events: &release, event_count: 1, ..input() }, &mut build).unwrap();
+        assert!(result.get().unwrap().commit.is_none(),"a modal cancels an outside scrub");
+        ui.dismiss_popup(); popup.set(false);
+        ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+        ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+        present.set(false);
+        ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+        assert!(result.get().is_none());
+        present.set(true);
+        ui.frame(&FrameIn { time, events: &release, event_count: 1, ..input() }, &mut build).unwrap();
+        assert!(result.get().unwrap().commit.is_none(),"a retired owner cannot commit after reappearing");
+        identity = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Position").unwrap().id;
+        if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm pointer/keyboard/a11y/touch scrub frames"); }
+    }
+    let press = pointer(Event::POINTER_PRESSED, 50.0, 0);
+    ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+    range.set((10.0, 10.0)); value.set(10.0);
+    ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+    assert!(!result.get().unwrap().held);
+    assert!(ui.a11y_nodes().iter().find(|n| n.id == identity).unwrap().is_role(Role::Progress));
+    range.set((10.0, 110.0)); value.set(40.0);
+    let release = pointer(Event::POINTER_RELEASED, 150.0, 0);
+    ui.frame(&FrameIn { time, events: &release, event_count: 1, ..input() }, &mut build).unwrap();
+    assert!(result.get().unwrap().commit.is_none(), "a read-only transition cancels capture");
+    ui.set_dir(true);
+    ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
+    let x = f64::from(ui.rect(&result.get().unwrap().node).x);
+    let press = pointer(Event::POINTER_PRESSED, x + 50.0, 0);
+    let release = pointer(Event::POINTER_RELEASED, x + 150.0, 0);
+    ui.frame(&FrameIn { time, events: &press, event_count: 1, ..input() }, &mut build).unwrap();
+    assert_eq!(result.get().unwrap().preview, Some(85.0));
+    ui.frame(&FrameIn { time, events: &release, event_count: 1, ..input() }, &mut build).unwrap();
+    assert_eq!(result.get().unwrap().commit, Some(35.0));
+    let right = key(3);
+    ui.frame(&FrameIn { time, events: &right, event_count: 1, ..input() }, &mut build).unwrap();
+    assert_eq!(result.get().unwrap().commit, Some(35.0));
+}
+
+#[test]
 fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_without_allocating() {
     use crate::{kit::{AnimationTarget, Keyframe, Repeat}, ui::{Curve, Look, Node, Target}};
     use std::cell::Cell;

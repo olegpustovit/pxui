@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 30
+minor 31
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -173,6 +173,7 @@ function pxui_ui_root_at int32_t pxui_ui_root_at ( PxuiUi * ui , float x , float
 function pxui_ui_row_height int64_t pxui_ui_row_height ( PxuiUi * ui ) ;
 function pxui_ui_scroll_offset int32_t pxui_ui_scroll_offset ( PxuiUi * ui , const PxuiBox * box , uint32_t which , float * out ) ;
 function pxui_ui_scroll_view int32_t pxui_ui_scroll_view ( PxuiUi * ui , PxuiStr label , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
+function pxui_ui_scrub int32_t pxui_ui_scrub ( PxuiUi * ui , PxuiStr label , float value , float min , float max , float step , PxuiScrubOut * out ) ;
 function pxui_ui_search_field int32_t pxui_ui_search_field ( PxuiUi * ui , PxuiStr label , PxuiStr icon , PxuiStr value , PxuiStr placeholder , uint8_t * changed , PxuiStr * out ) ;
 function pxui_ui_section_list int32_t pxui_ui_section_list ( PxuiUi * ui , const PxuiSectionListDesc * desc , PxuiBox * out ) ;
 function pxui_ui_section_list_measured int32_t pxui_ui_section_list_measured ( PxuiUi * ui , const PxuiMeasuredSectionDesc * desc , PxuiBox * out ) ;
@@ -345,6 +346,7 @@ layout PxuiRingDesc 12 4 0 4 8
 layout PxuiRowConfig 64 8 0 4 16 24 56
 layout PxuiSaved 24 8 0 4 8 16
 layout PxuiScrollConfig 48 8 0 8 40
+layout PxuiScrubOut 48 8 0 4 8 40 44
 layout PxuiSearchFieldConfig 80 8 0 4 16 24 56 72
 layout PxuiSectionConfig 72 8 0 4 8 16 48 64
 layout PxuiSectionListDesc 64 8 0 4 5 8 24 32 36 40 44 48 56

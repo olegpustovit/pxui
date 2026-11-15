@@ -1,4 +1,11 @@
 use crate::{PxuiBox, Ui, check};
+
+library!(scrub_lib {
+    fn pxui_ui_scrub(ui: *mut PxuiUi, label: pxui_types::Str, value: f32, min: f32, max: f32, step: f32, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
+});
+
+#[derive(Clone, Copy, Debug)]
+pub struct Scrub { pub node: PxuiBox, pub preview: Option<f32>, pub commit: Option<f32>, pub held: bool }
 #[cfg(not(feature = "static"))]
 use crate::Strs;
 #[cfg(not(feature = "static"))]
@@ -30,6 +37,16 @@ mod sys {
 fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
 impl Ui {
+    /// Behavior for a caller-painted scrubber. Pointer capture previews until release; routed
+    /// arrows/Page/Home/End and accessibility adjustments take over capture and commit. A collapsed range is
+    /// read-only. Use `set_node_layout` to size the returned node and `draw` to paint its body.
+    #[track_caller]
+    pub fn scrub(&mut self, label: &str, value: f32, range: core::ops::RangeInclusive<f32>, step: f32) -> Scrub {
+        let mut out = pxui_types::ffi::PxuiScrubOut::default();
+        check(self, unsafe { scrub_lib::pxui_ui_scrub(self.0.as_ptr(), crate::as_str(label), value, *range.start(), *range.end(), step, &mut out) });
+        Scrub { node: out.node, preview: (out.flags & 1 != 0).then_some(out.preview), commit: (out.flags & 2 != 0).then_some(out.commit), held: out.flags & 4 != 0 }
+    }
+
     #[inline]
     #[track_caller] pub fn checkbox(&mut self, label: &str, value: bool) -> bool {
         #[cfg(feature = "static")]

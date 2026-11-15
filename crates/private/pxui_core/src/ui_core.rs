@@ -3449,6 +3449,13 @@ impl Ui {
         }
     }
 
+    pub(crate) fn cancel_press(&mut self, b: &UiBox) {
+        if self.active == Some(b.box_key) {
+            self.cancelled.insert(0, self.active_button);
+            self.active = None;
+        }
+    }
+
     /// Key/text events of the focused box with the modifiers held at each.
     pub fn key_events(&self, b: &UiBox) -> Vec<(Event, Vec<Key>)> {
         self.key_events_ref(b).to_vec()

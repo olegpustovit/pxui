@@ -412,3 +412,12 @@ boundary, visibility, stop, reduced-motion, invalid-packet and zero-warm-allocat
 `Ui::box_of_a11y` resolves published identities with generation validation; hosts never decode
 slot IDs. Unknown/retired IDs leave output unchanged and do not revive after slot reuse. Geometry
 checks for retained animations must inspect transformed Ui::rect values, not static source quads.
+
+ABI 1.31 adds caller-painted Ui::scrub with a size-prefixed 48-byte PxuiScrubOut. Own pointer
+capture/mapping, release-only pointer commits, ordered routed Arrow/Home/End/Page keys and numeric
+accessibility in the framework. Borrow key/modifier storage; never clone owned signals for warm
+scrubbing. Read-only transitions cancel capture/focus. Keep command chords available to apps,
+RTL/endpoints, independent new-capture previews/previous-release commits, digital takeover,
+modal/focus/retirement/multitouch cancellation and no false release on touch cancel.
+Validate value/range/span/positive step, output prefix and UTF-8 before mutation. Preserve actual
+short-prefix, forward-tail, callback-ownership, static/dynamic and zero-warm-allocation checks.

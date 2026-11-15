@@ -254,6 +254,9 @@ typedef struct {
     float max_height; PxuiColor stroke; PxuiLookDesc look;
 } PxuiPanel;
 typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
+/* ABI 1.31: flags bit 0 preview, bit 1 commit, bit 2 held. Initialize size before calling. */
+typedef struct { uint32_t size, flags; PxuiBox node; float preview, commit; } PxuiScrubOut;
+_Static_assert(sizeof(PxuiScrubOut) == 48, "PxuiScrubOut layout");
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
 typedef struct { uint32_t size; uint8_t active,usable,reserved[2]; PxuiStr caption,keycap; } PxuiHeadActionDesc;
@@ -421,6 +424,8 @@ int32_t pxui_ui_tabs(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t sele
 int32_t pxui_ui_segmented(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
 int32_t pxui_ui_dropdown(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
 int32_t pxui_ui_slider(PxuiUi *ui, PxuiStr label, float value, float min, float max, float *out);
+/* Caller-painted horizontal control: finite ordered range (equal ends are read-only), positive finite step. */
+int32_t pxui_ui_scrub(PxuiUi *ui, PxuiStr label, float value, float min, float max, float step, PxuiScrubOut *out);
 int32_t pxui_ui_progress(PxuiUi *ui, PxuiStr label, uint8_t has_value, float value, PxuiBox *out);
 int32_t pxui_ui_spinner(PxuiUi *ui, PxuiStr label, PxuiBox *out);
 int32_t pxui_ui_icon_button(PxuiUi *ui, PxuiStr label, PxuiStr icon, uint8_t *out);

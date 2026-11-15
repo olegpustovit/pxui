@@ -168,3 +168,4 @@ Touch 48 8 0 8 16 24 32 40 44
 Keyboard 20 4 0 16
 FrameInV1_26 152 8 0 8 16 24 28 32 40 48 52 56 128
 TextInputOptions 12 4 0 4 8
+PxuiScrubOut 48 8 0 4 8 40 44

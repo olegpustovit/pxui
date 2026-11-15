@@ -45,7 +45,7 @@ pub mod ui_text {
     pub use crate::{Language, MenuOpts, PickerOpts, ScrubPhase, Submenu, TextAreaOpts, ValueFieldOpts};
 }
 pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
-pub mod ui_widgets { pub use crate::{DialogOut, TreeNode}; }
+pub mod ui_widgets { pub use crate::{DialogOut, Scrub, TreeNode}; }
 /// The node handle `box_`, `node` and the views return.
 pub type Handle = pxui_types::PxuiBox;
 
@@ -68,6 +68,7 @@ pub use box_ops::{NodeFields, PayloadRef, DropRef};
 pub mod paint;
 pub use paint::Paint;
 pub mod widgets;
+pub use widgets::Scrub;
 pub mod composite;
 pub use composite::DialogOut;
 pub mod overlays;

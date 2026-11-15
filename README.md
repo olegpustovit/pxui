@@ -235,3 +235,13 @@ first stop for autoreverse. Scale-only loops change transform entries without re
 `Ui::box_of_a11y(id)` resolves a published accessibility identity to its live node without exposing
 slot encoding to hosts. Unknown or retired identities return `None`, including after slot reuse.
 Use ordinary `Ui::rect` on that handle to inspect its displayed, transformed geometry.
+
+ABI 1.31 adds `Ui::scrub(label, value, range, step) -> Scrub` for caller-painted horizontal
+controls. The result carries `node`, `preview`, `commit` and `held`; use `set_node_layout` and
+`draw` on the node. Pointer capture previews across the full node and commits on left release;
+ordered Arrow/Home/End/Page presses and accessibility adjustments take over capture and commit directly. Page steps
+are ten ordinary steps; command-modified keys stay available to the app. RTL reverses horizontal
+mapping and arrows. Collapsed ranges are read-only and cancel active capture. Values/range/step
+must be finite, ranges ordered with finite span, and step positive. Focus/modal/retirement and
+pointer/touch cancellation never manufacture a commit. Warm input/build/draw reuses routed storage.
+The C entry validates the size-prefixed 48-byte `PxuiScrubOut` before writing its node/flags/values.

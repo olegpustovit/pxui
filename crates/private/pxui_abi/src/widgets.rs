@@ -4,6 +4,69 @@ use pxui_types::ffi::Slice;
 
 const MAX_OPTIONS: usize = 4096;
 
+#[cfg(test)]
+mod scrub_tests {
+    use super::*;
+    use pxui_types::ffi::PxuiScrubOut;
+
+    #[test]
+    fn scrub_validates_before_building_or_writing_and_preserves_callback_ownership() {
+        extern "C" fn build(user: *mut core::ffi::c_void, raw: *mut core::ffi::c_void) {
+            let ui = raw.cast();
+            let label = Str { ptr: b"Scrub".as_ptr(), len: 5 };
+            let sentinel = || PxuiScrubOut { flags: 99, node: PxuiBox { box_key: 777, ..Default::default() }, preview: 3.0, commit: 4.0, ..Default::default() };
+            let mut out = sentinel();
+            for (value, min, max, step) in [(f32::NAN,0.0,1.0,0.1),(0.5,f32::NEG_INFINITY,1.0,0.1),(0.5,0.0,f32::INFINITY,0.1),(0.5,1.0,0.0,0.1),(0.0,-f32::MAX,f32::MAX,0.1),(0.5,0.0,1.0,0.0),(0.5,0.0,1.0,-0.1),(0.5,0.0,1.0,f32::NAN),(0.5,0.0,1.0,f32::INFINITY)] {
+                assert_eq!(unsafe { pxui_ui_scrub(ui,label,value,min,max,step,&mut out) }, PXUI_ERR_ARGUMENT);
+                assert_eq!((out.flags,out.node.box_key,out.preview,out.commit),(99,777,3.0,4.0));
+            }
+            let invalid = [255u8];
+            assert_eq!(unsafe { pxui_ui_scrub(ui,Str {ptr:invalid.as_ptr(),len:1},0.5,0.0,1.0,0.1,&mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_scrub(ui,Str {ptr:core::ptr::null(),len:1},0.5,0.0,1.0,0.1,&mut out) }, PXUI_ERR_ARGUMENT);
+            let mut short = 4u32;
+            assert_eq!(unsafe { pxui_ui_scrub(ui,label,0.5,0.0,1.0,0.1,(&mut short as *mut u32).cast()) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(short,4);
+            assert_eq!(unsafe { pxui_ui_scrub(ui,label,0.5,0.0,1.0,0.1,core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+            let key = pxui_types::ui::key_of(pxui_types::ui::ROOT_KEY,"Scrub");
+            assert!(unsafe { crate::state::engine(ui) }.unwrap().box_of_key(key).is_none(),"invalid calls build no node");
+            let owner = unsafe { *user.cast::<*mut PxuiUi>() };
+            assert_eq!(unsafe { pxui_ui_scrub(owner,label,0.5,0.0,1.0,0.1,&mut out) }, crate::PXUI_ERR_STATE);
+            assert_eq!(out.node.box_key,777);
+            #[repr(C)]
+            struct Extended { out: PxuiScrubOut, tail: [u8;16] }
+            let mut forward = Extended { out: PxuiScrubOut {size:64,..sentinel()}, tail:[77;16] };
+            assert_eq!(unsafe { pxui_ui_scrub(ui,label,0.5,0.0,1.0,0.1,&mut forward.out) },0);
+            assert_eq!(forward.tail,[77;16]);
+            assert_eq!(forward.out.flags,0);
+            assert_ne!(forward.out.node.box_key,777);
+        }
+        let mut ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let mut out = PxuiScrubOut {flags:99,..Default::default()};
+        assert_eq!(unsafe { pxui_ui_scrub(ui,Str::default(),0.5,0.0,1.0,0.1,&mut out) },crate::PXUI_ERR_STATE);
+        assert_eq!(out.flags,99);
+        let mut frame = crate::FrameOut::default();
+        assert_eq!(unsafe { crate::pxui_frame(ui,&crate::FrameIn {width:320.0,height:240.0,..Default::default()},Some(build),(&mut ui as *mut *mut PxuiUi).cast(),&mut frame) },0);
+        assert_eq!(unsafe { crate::pxui_ui_destroy(ui) },0);
+    }
+}
+
+export!(pub unsafe fn pxui_ui_scrub(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, step: f32, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid scrub output") }; };
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scrub label") }; };
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || !(max - min).is_finite() || !step.is_finite() || step <= 0.0 {
+        return unsafe { fail(ui, "invalid scrub range, value or step") };
+    }
+    if !state.shared().in_frame { return crate::PXUI_ERR_STATE; }
+    let result = unsafe { crate::state::engine(ui) }.unwrap().scrub(label, value, min..=max, step);
+    *out = pxui_types::ffi::PxuiScrubOut {
+        flags: u32::from(result.preview.is_some()) | (u32::from(result.commit.is_some()) << 1) | (u32::from(result.held) << 2),
+        node: crate::state::to_abi_box(result.node), preview: result.preview.unwrap_or_default(), commit: result.commit.unwrap_or_default(),
+        ..Default::default()
+    };
+    0
+});
+
 export!(trusted pub unsafe fn pxui_ui_checkbox(ui: *mut PxuiUi, label: Str, value: u8, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if out.is_null() || value > 1 { return unsafe { fail(ui, "invalid checkbox arguments") }; }
