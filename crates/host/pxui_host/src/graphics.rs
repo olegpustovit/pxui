@@ -14,6 +14,7 @@ pub struct Graphics {
     queue: be::Queue,
     device: be::Device,
     blur_extent: (u32, u32),
+    acquire_wall: std::time::Duration,
 }
 
 impl Graphics {
@@ -39,6 +40,7 @@ impl Graphics {
             queue,
             device,
             blur_extent: (0, 0),
+            acquire_wall: std::time::Duration::ZERO,
         };
         host.frames = Some(Frames::new(&host.device, window.token()?)?);
         let native = be::native_leased(&host.device).map_err(message)?;
@@ -119,9 +121,13 @@ impl Graphics {
             self.blur_extent = size;
         }
         let frames = self.frames.as_mut().expect("Live frame context");
-        if !frames.begin(extent.drawable.0 as u32, extent.drawable.1 as u32)? {
+        let acquiring = std::time::Instant::now();
+        let began = frames.begin(extent.drawable.0 as u32, extent.drawable.1 as u32)?;
+        self.acquire_wall = acquiring.elapsed();
+        if !began {
             return Ok(false);
         }
+        let frames = self.frames.as_mut().expect("Live frame context");
         let acquired = count();
         let renderer = self.renderer.as_mut().expect("Live graphics renderer");
         let commands = frames.commands();
@@ -165,6 +171,12 @@ impl Graphics {
             ];
         }
         Ok(true)
+    }
+
+    /// Wall time the last `draw` spent acquiring its drawable and frame slot: display pacing,
+    /// not frame work, so callers can subtract it from a whole-frame wall span.
+    pub fn acquire_wall(&self) -> std::time::Duration {
+        self.acquire_wall
     }
 
     pub fn close(mut self) -> Result<(), String> {
