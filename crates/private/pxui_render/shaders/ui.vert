@@ -16,7 +16,18 @@ layout(location = 8) flat out vec4 v_p2;
 layout(location = 9) flat out vec4 v_misc;
 layout(location = 10) flat out uvec2 v_kf;
 layout(location = 11) out vec2 v_tp;
+layout(location = 12) flat out vec4 v_uvr;
 
+// Light text (Apple raster, flags bit 4 on a MASK): CoreText thickens light-on-dark stems. extra.x/y are the
+// glyph's ppem and device scale (halves); the quad grows one pixel for the grown ink and v_misc.w is the
+// extra coverage per neighbouring texel: round(4 * linear Rec.709 luminance) levels of 0.0025 * ppem,
+// within 0.33 px less the base dilation (0.006 * ppem, baked into the mask).
+const uint LIGHT = 16u;
+float light_extra(vec3 srgb, float ppem) {
+  vec3 lin = mix(pow((srgb + 0.055) / 1.055, vec3(2.4)), srgb / 12.92, lessThanEqual(srgb, vec3(0.04045)));
+  float level = floor(4.0 * dot(lin, vec3(0.2126, 0.7152, 0.0722)) + 0.5);
+  return min(0.0025 * ppem * level, max(0.33 - 0.006 * ppem, 0.0));
+}
 const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 const uint INNER = 4u;
 const vec2 CORNERS[6] = vec2[6](vec2(0, 0), vec2(1, 0), vec2(0, 1), vec2(0, 1), vec2(1, 0), vec2(1, 1));
@@ -52,6 +63,7 @@ void main() {
   } else {
     vec4 box = r;
     if (kind == ARC) box = vec4(r.xy - (r.z + h), r.xy + (r.z + h));
+    if (kind == MASK && (flags & LIGHT) != 0u) box = r + vec4(-1.0, -1.0, 1.0, 1.0) / max(p0.y, 1.0);
     if (kind == CURVE || kind == TRIANGLE) box = vec4(min(min(r.xy, r.zw), p0.xy) - h, max(max(r.xy, r.zw), p0.xy) + h);
     if (kind == RECT || kind == SHADOW || kind == GRID || kind == BORDER) box = r + vec4(-pad, -pad, pad, pad);
     if (kind == SHADOW && (flags & INNER) == 0u) box = r + p0.xyxy + vec4(-1.0, -1.0, 1.0, 1.0) * (p0.w + 3.0 * p0.z + pad);
@@ -62,7 +74,9 @@ void main() {
     if (kind == GRID) p = gl_VertexIndex < 3 ? mix(box.xy, box.zw, 2.0 * c) : box.xy;
     if (kind == GRID) r = box;
   }
-  vec2 uv = mix(unpackUnorm2x16(I.b.x), unpackUnorm2x16(I.b.y), c);
+  vec2 uv0 = unpackUnorm2x16(I.b.x), uv1 = unpackUnorm2x16(I.b.y);
+  // a light quad is one pixel larger than its glyph: extend the uv the same way (the fragment zeroes what is outside)
+  vec2 uv = (kind == MASK && (flags & LIGHT) != 0u) ? mix(uv0, uv1, (p - r.xy) / max(r.zw - r.xy, vec2(1e-6))) : mix(uv0, uv1, c);
   vec2 t = p - piv;
   t = piv + va.w * vec2(vm.x * t.x + vm.y * t.y, vm.z * t.x + vm.w * t.y);
   gl_Position = vec4(t.x / g[0].x * 2.0 - 1.0, 1.0 - t.y / g[0].y * 2.0, 0.0, 1.0);
@@ -76,6 +90,7 @@ void main() {
   v_color2 = unpackUnorm4x8(I.a.w);
   v_p0 = p0;
   v_p2 = p2;
-  v_misc = vec4(width, unpackHalf2x16(I.c.y).y, va.z, 0.0);
+  v_uvr = vec4(uv0, uv1);
+  v_misc = vec4(width, unpackHalf2x16(I.c.y).y, va.z, (kind == MASK && (flags & LIGHT) != 0u) ? light_extra(unpackUnorm4x8(I.a.z).rgb, p0.x) : 0.0);
   v_kf = uvec2(kind, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
 }

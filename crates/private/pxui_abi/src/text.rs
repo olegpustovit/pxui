@@ -238,7 +238,10 @@ export!(bare pub unsafe fn pxui_shaper_create(fonts: *const Str, count: usize) -
             font_bytes.push(font);
         }
     }
-    Box::into_raw(Box::new(PxuiShaper { text: Text::new(&font_bytes) }))
+    let mut text = Text::new(&font_bytes);
+    // the same default as `Ui` (ui.rs `platform`), so a standalone shaper rasterises like the UI's
+    text.set_apple_raster(cfg!(any(target_os = "macos", target_os = "ios")));
+    Box::into_raw(Box::new(PxuiShaper { text }))
 });
 
 export!(bare pub unsafe fn pxui_shaper_destroy(shaper: *mut PxuiShaper) { if !shaper.is_null() { drop(unsafe { Box::from_raw(shaper) }); } });

@@ -803,6 +803,11 @@ impl Text {
         self.font_generation = Arc::new(());
     }
 
+    /// Whether glyphs use the CoreText-matching raster (`set_apple_raster`).
+    pub fn apple_raster(&self) -> bool {
+        self.g.apple
+    }
+
     /// Loads a font (copies the bytes); returns its index for `Style::font`. Existing layouts keep
     /// their old shaping until their text, width or style changes.
     pub fn add_font(&mut self, bytes: &[u8]) -> usize {

@@ -36,6 +36,8 @@ pub mod flags {
     pub const RIGHT: u8 = 32;
     pub const BOTTOM: u8 = 64;
     pub const LEFT: u8 = 128;
+    /// A mask glyph of the Apple raster (`Instance::light`): the shader adds CoreText's light-on-dark stem growth.
+    pub const LIGHT: u8 = 16;
 }
 pub const NO_CLIP: [i16; 4] = [i16::MIN, i16::MIN, i16::MAX, i16::MAX];
 
@@ -218,6 +220,9 @@ impl Instance {
     pub fn mask(rect: [f32; 4], uv: [f32; 4], color: [u8; 4]) -> Self {
         Instance { rect, color, kind: kind::MASK, aux: [unorms(uv[0], uv[1]), unorms(uv[2], uv[3])], ..Self::DEFAULT }
     }
+    /// A mask glyph rasterised for CoreText parity at `ppem` device pixels and device scale `scale`; the
+    /// shader grows its ink by the fill colour's luminance level (`flags::LIGHT`, `extra` = both as halves).
+    pub fn light(self, ppem: f32, scale: f32) -> Self { Instance { flags: self.flags | flags::LIGHT, extra: [halves(ppem, scale), 0], ..self } }
     /// A colour glyph or image from the RGBA atlas (or the texture of the enclosing break). `tint`
     /// multiplies the texel per channel, alpha included: white keeps the image, a grey scales brightness,
     /// a translucent white fades it, a colour tints a white-on-transparent icon. Corner radii (`radii`)

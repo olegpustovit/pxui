@@ -472,7 +472,40 @@ fn gpu_plain_keyframe_cached_owner_visibility() {
     }
 }
 
+/// `PXUI_BENCH=1 RAYS_SLOW=1 cargo t -p pxui_core gpu_text_cost`: wall time of drawing and reading back a
+/// screen of text with the Apple raster's light-text shader path (`flags::LIGHT`: four extra taps per
+/// glyph fragment) and without it (other platform): min and median of 200 frames. Off by default.
+fn gpu_text_cost() {
+    if std::env::var_os("PXUI_BENCH").is_none() {
+        return;
+    }
+    for (name, platform) in [("other (no light taps)", Platform::Other), ("apple (light taps)", Platform::Apple)] {
+        let mut ui = Ui::create(platform, None, crate::support::golden_text());
+        let mut build = |ui: &mut Ui| {
+            for _ in 0..12 {
+                ui.label("The quick brown fox jumps over the lazy dog 0123456789 -- pack my box");
+            }
+        };
+        for count in 0..2 {
+            ui.frame(&frame_at(count, 240, 2), &mut build);
+        }
+        let quads = ui.output().draw.iter().flat_map(|l| l.instances.iter()).filter(|i| i.kind == pxui_core::draw::kind::MASK).count();
+        let mut painter = gpu::painter(&mut ui);
+        let mut times = Vec::new();
+        for _ in 0..210 {
+            let start = std::time::Instant::now();
+            gpu::render_with(&mut painter, &mut ui, (WIDTH as u32, 240), 2, [0, 0, 0, 255]);
+            times.push(start.elapsed().as_secs_f64() * 1e3);
+        }
+        times.drain(..10);
+        times.sort_by(f64::total_cmp);
+        eprintln!("PXUI_BENCH gpu text {name}: {quads} glyph quads, min {:.3} ms, median {:.3} ms", times[0], times[times.len() / 2]);
+        ui.destroy();
+    }
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("gpu_text_cost", gpu_text_cost),
     ("gpu_plain_keyframe_cached_owner_visibility", gpu_plain_keyframe_cached_owner_visibility),
     ("gpu_focused_text_field_ime_pixels", gpu_focused_text_field_ime_pixels),
     ("gpu_widgets_draw_calls", gpu_widgets_draw_calls),

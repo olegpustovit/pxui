@@ -21,6 +21,7 @@ layout(location = 8) flat in vec4 v_p2;
 layout(location = 9) flat in vec4 v_misc;
 layout(location = 10) flat in uvec2 v_kf;
 layout(location = 11) in vec2 v_tp;
+layout(location = 12) flat in vec4 v_uvr;
 layout(location = 0) out vec4 out_color;
 
 const uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
@@ -129,6 +130,23 @@ void main() {
   vec4 col;
   if (kind == MASK) {
     float mask = (flags & 2u) != 0u ? textureLod(sampler2D(mask2_tex,samp),v_pos.zw,0.0).r : textureLod(sampler2D(mask_tex,samp),v_pos.zw,0.0).r;
+    if ((flags & 16u) != 0u) {
+      // light text: grow the ink by v_misc.w per neighbouring texel (vertically only from 16 to 20 ppem, in full from 20);
+      // the quad is one pixel larger than the glyph, and taps outside its uv rect v_uvr are empty rather than another glyph's
+      vec2 ts = 1.0 / vec2((flags & 2u) != 0u ? textureSize(sampler2D(mask2_tex,samp),0) : textureSize(sampler2D(mask_tex,samp),0));
+      vec2 lo = v_uvr.xy, hi = v_uvr.zw;
+      bool second = (flags & 2u) != 0u;
+      vec2 u0 = v_pos.zw;
+      float c = all(greaterThanEqual(u0, lo)) && all(lessThan(u0, hi)) ? mask : 0.0;
+      vec4 n;
+      vec2 t[4] = vec2[4](u0 - vec2(ts.x, 0.0), u0 + vec2(ts.x, 0.0), u0 - vec2(0.0, ts.y), u0 + vec2(0.0, ts.y));
+      for (int k = 0; k < 4; k++) {
+        float s = second ? textureLod(sampler2D(mask2_tex,samp),t[k],0.0).r : textureLod(sampler2D(mask_tex,samp),t[k],0.0).r;
+        n[k] = all(greaterThanEqual(t[k], lo)) && all(lessThan(t[k], hi)) ? s : 0.0;
+      }
+      float vs = clamp((v_p0.x - 16.0) * 0.25, 0.0, 1.0);
+      mask = min(1.0, c + v_misc.w * (max(n.x, n.y) + vs * max(n.z, n.w)));
+    }
     col = vec4(v_color.rgb, v_color.a * mask);
   } else if (kind == IMAGE) {
     // SMOOTH (bit 0): a scaled picture, filtered linearly; glyphs and atlas images stay nearest

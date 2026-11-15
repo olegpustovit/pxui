@@ -22,17 +22,27 @@ fn render(t: &mut Text, size: f32, scale: f32, white: bool, w: usize, h: usize) 
     t.glyphs(1, (8.0, 40.0 - m.baseline), scale, &mut |g| quads.push(g));
     let (bg, fg) = if white { (0.0, 255.0) } else { (255.0, 0.0) };
     let mut out = vec![bg as u8; w * h];
+    // Light text as ui.frag does it (CPU mirror of the shader math; Apple raster only)
+    let ppem = size * scale;
+    let extra = if white && t.apple_raster() { (0.0025 * ppem * 4.0).min((0.33 - 0.006 * ppem).max(0.0)) } else { 0.0 };
+    let vs = ((ppem - 16.0) * 0.25).clamp(0.0, 1.0);
     for g in quads {
         let (aw, ah) = t.atlas_size(g.atlas);
         let atlas = t.atlas_pixels(g.atlas);
-        let (u, v) = ((g.uv.x * aw as f32).round() as usize, (g.uv.y * ah as f32).round() as usize);
-        for y in 0..g.rect.h as usize {
-            for x in 0..g.rect.w as usize {
-                let (px, py) = (g.rect.x as i32 + x as i32, g.rect.y as i32 + y as i32);
+        let (u, v) = ((g.uv.x * aw as f32).round() as i32, (g.uv.y * ah as f32).round() as i32);
+        let (gw, gh) = (g.rect.w as i32, g.rect.h as i32);
+        let tap = |x: i32, y: i32| if x < 0 || y < 0 || x >= gw || y >= gh { 0.0 } else { atlas[((v + y) * aw as i32 + u + x) as usize] as f32 / 255.0 };
+        let ring = (extra > 0.0) as i32;
+        for y in -ring..gh + ring {
+            for x in -ring..gw + ring {
+                let (px, py) = (g.rect.x as i32 + x, g.rect.y as i32 + y);
                 if px < 0 || py < 0 || px as usize >= w || py as usize >= h || g.atlas != AtlasKind::Mask && g.atlas != AtlasKind::Mask2 {
                     continue;
                 }
-                let a = atlas[(v + y) * aw as usize + u + x] as f32 / 255.0;
+                let mut a = tap(x, y);
+                if extra > 0.0 {
+                    a = (a + extra * (tap(x - 1, y).max(tap(x + 1, y)) + vs * tap(x, y - 1).max(tap(x, y + 1)))).min(1.0);
+                }
                 let o = &mut out[py as usize * w + px as usize];
                 *o = (*o as f32 + (fg - *o as f32) * a).round() as u8;
             }

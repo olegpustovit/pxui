@@ -17,8 +17,16 @@ struct VOut {
   float4 v_misc [[flat]];
   uint2 v_kf [[flat]];
   float2 v_tp;
+  float4 v_uvr [[flat]];
 };
 
+// Light text: see ui.vert.
+constant uint LIGHT = 16u;
+float light_extra(float3 srgb, float ppem) {
+  float3 lin = select(pow((srgb + 0.055) / 1.055, float3(2.4)), srgb / 12.92, srgb <= 0.04045);
+  float level = floor(4.0 * dot(lin, float3(0.2126, 0.7152, 0.0722)) + 0.5);
+  return min(0.0025 * ppem * level, max(0.33 - 0.006 * ppem, 0.0));
+}
 constant uint RECT = 0u, MASK = 1u, IMAGE = 2u, SHADOW = 3u, LINE = 4u, ARC = 5u, CURVE = 6u, GRID = 7u, BORDER = 8u, TRIANGLE = 9u;
 constant uint INNER = 4u, ROUND = 8u;
 constant float TAU = 6.2831853;
@@ -58,6 +66,7 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   } else {
     float4 box = r;
     if (kind == ARC) box = float4(r.xy - (r.z + h), r.xy + (r.z + h));
+    if (kind == MASK && (flags & LIGHT) != 0u) box = r + float4(-1.0, -1.0, 1.0, 1.0) / max(p0.y, 1.0);
     if (kind == CURVE || kind == TRIANGLE) box = float4(min(min(r.xy, r.zw), p0.xy) - h, max(max(r.xy, r.zw), p0.xy) + h);
     if (kind == RECT || kind == SHADOW || kind == GRID || kind == BORDER) box = r + float4(-pad, -pad, pad, pad);
     if (kind == SHADOW && (flags & INNER) == 0u) box = r + p0.xyxy + float4(-1.0, -1.0, 1.0, 1.0) * (p0.w + 3.0 * p0.z + pad);
@@ -68,7 +77,8 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
     if (kind == GRID) p = vid < 3 ? mix(box.xy, box.zw, 2.0 * c) : box.xy;
     if (kind == GRID) r = box;
   }
-  float2 uv = mix(unpack_unorm2x16_to_float(I.b.x), unpack_unorm2x16_to_float(I.b.y), c);
+  float2 uv0 = unpack_unorm2x16_to_float(I.b.x), uv1 = unpack_unorm2x16_to_float(I.b.y);
+  float2 uv = (kind == MASK && (flags & LIGHT) != 0u) ? mix(uv0, uv1, (p - r.xy) / max(r.zw - r.xy, float2(1e-6))) : mix(uv0, uv1, c);
   float2 t = p - piv;
   t = piv + va.w * float2(vm.x * t.x + vm.y * t.y, vm.z * t.x + vm.w * t.y);
   o.position = float4(t.x / g[0].x * 2.0 - 1.0, 1.0 - t.y / g[0].y * 2.0, 0.0, 1.0);
@@ -82,7 +92,8 @@ vertex VOut ui_vertex(uint vid [[vertex_id]], uint iid [[instance_id]],
   o.v_color2 = unpack_unorm4x8_to_float(I.a.w);
   o.v_p0 = p0;
   o.v_p2 = p2;
-  o.v_misc = float4(width, half2x16(I.c.y).y, va.z, 0.0);
+  o.v_uvr = float4(uv0, uv1);
+  o.v_misc = float4(width, half2x16(I.c.y).y, va.z, (kind == MASK && (flags & LIGHT) != 0u) ? light_extra(unpack_unorm4x8_to_float(I.a.z).rgb, p0.x) : 0.0);
   o.v_kf = uint2(kind, kind == BORDER ? I.b.y : flags | (kind == RECT ? I.b.y << 8u : 0u));  // rect: gradient ramp row + 1 above the flags; border: the left colour
   return o;
 }
@@ -192,6 +203,22 @@ fragment float4 ui_fragment(VOut in [[stage_in]], texture2d<float> mask_tex [[te
   float4 col;
   if (kind == MASK) {
     float mask = (flags & 2u) != 0u ? mask2_tex.sample(samp,in.v_pos.zw,level(0.0)).r : mask_tex.sample(samp,in.v_pos.zw,level(0.0)).r;
+    if ((flags & 16u) != 0u) {
+      // light text: see ui.frag
+      bool second = (flags & 2u) != 0u;
+      float2 ts = second ? 1.0 / float2(mask2_tex.get_width(), mask2_tex.get_height()) : 1.0 / float2(mask_tex.get_width(), mask_tex.get_height());
+      float2 lo = in.v_uvr.xy, hi = in.v_uvr.zw;
+      float2 u0 = in.v_pos.zw;
+      float c = all(u0 >= lo) && all(u0 < hi) ? mask : 0.0;
+      float2 t[4] = {u0 - float2(ts.x, 0.0), u0 + float2(ts.x, 0.0), u0 - float2(0.0, ts.y), u0 + float2(0.0, ts.y)};
+      float4 n;
+      for (int k = 0; k < 4; k++) {
+        float s = second ? mask2_tex.sample(samp,t[k],level(0.0)).r : mask_tex.sample(samp,t[k],level(0.0)).r;
+        n[k] = all(t[k] >= lo) && all(t[k] < hi) ? s : 0.0;
+      }
+      float vs = clamp((in.v_p0.x - 16.0) * 0.25, 0.0, 1.0);
+      mask = min(1.0, c + in.v_misc.w * (max(n.x, n.y) + vs * max(n.z, n.w)));
+    }
     col = float4(in.v_color.rgb, in.v_color.a * mask);
   } else if (kind == IMAGE) {
     // SMOOTH (bit 0): a scaled picture, filtered linearly; glyphs and atlas images stay nearest
