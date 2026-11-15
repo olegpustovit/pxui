@@ -675,6 +675,9 @@ int32_t pxui_verify_new_views(uint8_t on);
 int32_t pxui_ui_verify_views(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_set_timing(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_phase_times(PxuiUi *ui, uint64_t *out, size_t len); /* nanoseconds, len must be 7 */
+/* ABI 1.35: thread CPU ns, same order, sum of settling passes; len=7.
+   set_timing enables it on Apple; ERR_STATE if unavailable, without changing out. */
+int32_t pxui_ui_phase_cpu_times(PxuiUi *ui, uint64_t *out, size_t len);
 int32_t pxui_ui_bytes(PxuiUi *ui, int64_t *out, size_t len); /* atlas, glyph lists, text undo; len must be 3 */
 uint32_t pxui_ui_platform(PxuiUi *ui); /* 0 other, 1 Apple */
 int32_t pxui_ui_rebuilt_named(PxuiUi *ui, PxuiStr prefix, uint64_t *out);

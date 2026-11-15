@@ -285,3 +285,8 @@ cache misses, including changed content, style, width or spans. Read it between 
 two values to audit cold shaping. Cache hits leave it unchanged; the query allocates nothing.
 It measures layout work, not glyph rasterization, native allocation or all process memory. No C
 record changes; C rejects null outputs before writing and retains the normal owner/callback guards.
+
+ABI 1.35 adds `Ui::phase_cpu_times()`: thread CPU durations in the existing seven-phase order,
+summed across all settling passes. `set_timing(true)` enables the native clock on Apple; other
+platforms and failed/regressing clocks return `ERR_STATE`, without a wall-time fallback. Existing
+`phase_times()` remains wall timing of the final pass. Profiling is off by default.

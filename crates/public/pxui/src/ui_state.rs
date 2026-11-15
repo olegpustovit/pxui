@@ -33,6 +33,7 @@ library!(lib {
     fn pxui_ui_verify_views(ui: *mut PxuiUi, on: u8) -> i32;
     fn pxui_ui_set_timing(ui: *mut PxuiUi, on: u8) -> i32;
     fn pxui_ui_phase_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32;
+    fn pxui_ui_phase_cpu_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32;
     fn pxui_ui_bytes(ui: *mut PxuiUi, out: *mut i64, len: usize) -> i32;
     fn pxui_ui_platform(ui: *mut PxuiUi) -> u32;
     fn pxui_ui_rebuilt_named(ui: *mut PxuiUi, prefix: pxui_types::Str, out: *mut u64) -> i32;
@@ -151,6 +152,20 @@ impl Ui {
         let mut nanos = [0u64; 7];
         check(self, unsafe { lib::pxui_ui_phase_times(self.0.as_ptr(), nanos.as_mut_ptr(), nanos.len()) });
         nanos.map(std::time::Duration::from_nanos)
+    }
+    /// Thread CPU in phase order, summed across settling passes; enabled by set_timing.
+    /// Currently Apple platforms; refuses unavailable/failed clocks.
+    #[track_caller]
+    pub fn phase_cpu_times(&self) -> Result<[std::time::Duration; 7], i32> {
+        let mut nanos = [0u64; 7];
+        let code = unsafe {
+            lib::pxui_ui_phase_cpu_times(self.0.as_ptr(), nanos.as_mut_ptr(), nanos.len())
+        };
+        if code == 0 {
+            Ok(nanos.map(std::time::Duration::from_nanos))
+        } else {
+            Err(code)
+        }
     }
     #[track_caller]
     pub fn bytes(&self) -> Bytes {

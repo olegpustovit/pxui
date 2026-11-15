@@ -116,4 +116,84 @@ pub fn pxui_bench() {
     ui.destroy();
 }
 
-pub const CASES: &[(&str, fn())] = &[("pxui_bench", pxui_bench)];
+fn cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads() {
+    thread_local! { static CLOCK: Cell<u64> = const { Cell::new(0) }; }
+    fn clock() -> Option<u64> {
+        CLOCK.with(|value| {
+            let now = value.get();
+            value.set(now + 100);
+            Some(now)
+        })
+    }
+    let mut ui = new_ui(None);
+    let frame = frame_at(vec![], 1.0, 0.0, vec![]);
+    assert_eq!(ui.phase_cpu_times(), None);
+    ui.set_cpu_clock(Some(clock));
+    let mut calls = 0;
+    ui.frame(&frame, &mut |ui| {
+        calls += 1;
+        CLOCK.with(|value| value.set(value.get() + 1000));
+        let col=ui.node("col",Node {w:Size::Px(200.0),h:Size::Px(200.0),..Node::DEFAULT});
+        ui.within(&col,&mut |ui| {
+            ui.view("outer",1,Size::Grow,Size::Grow,&mut |ui| {
+                ui.view("inner",1,Size::Grow,Size::Grow,&mut |ui| {
+                    ui.grid_list("cells",10,50.0,20.0,&mut |ui,_| {
+                        ui.node("cell",Node {w:Size::Grow,h:Size::Grow,..Node::DEFAULT});
+                    });
+                });
+            });
+        });
+    });
+    assert!(calls > 1, "exercise settling passes");
+    assert_eq!(
+        ui.phase_cpu_times(),
+        Some([
+            100 * calls,
+            1100 * calls,
+            100 * calls,
+            100 * calls,
+            100 * calls,
+            100 * calls,
+            100 * calls
+        ])
+    );
+    for _ in 0..8 {
+        ui.frame(&frame, &mut |_| {});
+    }
+    mem_sys::local_reset();
+    ui.frame(&frame, &mut |_| {});
+    assert_eq!(
+        ui.phase_cpu_times(),
+        Some([100; 7]),
+        "reset at each outer frame"
+    );
+    assert_eq!(mem_sys::local_alloc_count(), 0);
+    for bad in [None, Some(0)] {
+        CLOCK.with(|value| value.set(0));
+        fn bad_clock() -> Option<u64> {
+            CLOCK.with(|value| {
+                let before = value.replace(1);
+                (before == 0).then_some(100)
+            })
+        }
+        fn regressing_clock() -> Option<u64> {
+            CLOCK.with(|value| Some(100 - value.replace(1)))
+        }
+        ui.set_cpu_clock(Some(if bad.is_none() {
+            bad_clock
+        } else {
+            regressing_clock
+        }));
+        ui.frame(&frame, &mut |_| {});
+        assert_eq!(ui.phase_cpu_times(), None);
+    }
+    ui.set_cpu_clock(None);
+    ui.frame(&frame, &mut |_| {});
+    assert_eq!(ui.phase_cpu_times(), None);
+    ui.destroy();
+}
+
+pub const CASES: &[(&str, fn())] = &[
+    ("pxui_bench", pxui_bench),
+    ("cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads",cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads),
+];

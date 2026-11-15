@@ -7,6 +7,35 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
+#[cfg(any(target_os="macos",target_os="ios"))]
+#[test]
+fn phase_cpu_timing_is_opt_in_and_zero_warm_allocation() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    assert_eq!(ui.phase_cpu_times(), Err(pxui_types::PXUI_ERR_STATE));
+    ui.set_timing(true);
+    for round in 0..20 {
+        mem_sys::local_reset();
+        ui.frame(&input(), &mut |_| {
+            let mut value = 1u64;
+            for index in 1..5000 {
+                value = std::hint::black_box(value.wrapping_mul(index));
+            }
+            std::hint::black_box(value);
+        })
+        .unwrap();
+        let phases = ui.phase_cpu_times().unwrap();
+        assert!(phases[1] > std::time::Duration::ZERO);
+        if round > 2 {
+            assert_eq!(mem_sys::local_alloc_count(), 0);
+        }
+    }
+    ui.set_timing(false);
+    assert_eq!(ui.phase_cpu_times(), Err(pxui_types::PXUI_ERR_STATE));
+    ui.frame(&input(), &mut |_| {}).unwrap();
+    assert_eq!(ui.phase_cpu_times(), Err(pxui_types::PXUI_ERR_STATE));
+}
+
 #[test]
 fn text_layout_count_distinguishes_cold_content_from_retained_warm_frames_without_allocations() {
     use crate::ui::Node;

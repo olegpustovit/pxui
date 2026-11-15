@@ -152,8 +152,66 @@ export!(pub unsafe fn pxui_ui_set_timing(ui: *mut PxuiUi, on: u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if on > 1 { return unsafe { fail(ui, "invalid flag") }; }
     e.set_timing(on != 0);
+    e.set_cpu_clock(if on != 0 { Some(thread_cpu_clock) } else { None });
     0
 });
+
+fn thread_cpu_clock() -> Option<u64> {
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    {
+        mem_sys::profile::thread_cpu_time_ns().ok()
+    }
+    // shortcut: Apple-only CPU clocks, add native clocks when qualifying another host.
+    #[cfg(not(any(target_os = "macos", target_os = "ios")))]
+    {
+        None
+    }
+}
+
+// CPU nanoseconds, all settling passes; no output write if timing/clock is unavailable.
+export!(pub unsafe fn pxui_ui_phase_cpu_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32 {
+        let Some(e) = (unsafe { engine(ui) }) else {
+            return PXUI_ERR_ARGUMENT;
+        };
+        if out.is_null() || len != pxui_core::ui::PHASES {
+            return unsafe { fail(ui, "CPU phase times need seven slots") };
+        }
+        let Some(times) = e.phase_cpu_times() else {
+            return crate::PXUI_ERR_STATE;
+        };
+        unsafe {
+            core::ptr::copy_nonoverlapping(times.as_ptr(), out, times.len());
+        }
+        0
+    });
+
+#[test]
+fn cpu_phase_output_is_atomic_for_invalid_or_unavailable_requests() {
+    let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+    let mut out = [99; 7];
+    assert_eq!(
+        unsafe { pxui_ui_phase_cpu_times(core::ptr::null_mut(), out.as_mut_ptr(), 7) },
+        PXUI_ERR_ARGUMENT
+    );
+    assert_eq!(
+        unsafe { pxui_ui_phase_cpu_times(ui, core::ptr::null_mut(), 7) },
+        PXUI_ERR_ARGUMENT
+    );
+    for len in [0, 6, 8] {
+        assert_eq!(
+            unsafe { pxui_ui_phase_cpu_times(ui, out.as_mut_ptr(), len) },
+            PXUI_ERR_ARGUMENT
+        );
+    }
+    assert_eq!(
+        unsafe { pxui_ui_phase_cpu_times(ui, out.as_mut_ptr(), 7) },
+        crate::PXUI_ERR_STATE
+    );
+    assert_eq!(out, [99; 7]);
+    unsafe {
+        crate::pxui_ui_destroy(ui);
+    }
+}
 
 // The seven phase times of the last frame in nanoseconds; `len` must be 7.
 export!(pub unsafe fn pxui_ui_phase_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32 {

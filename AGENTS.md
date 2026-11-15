@@ -456,3 +456,9 @@ validated layout cache-hit path, count changed layouts as well as new keys, and 
 frame boundaries. The UI getter borrows through the normal owner guard and rejects unavailable
 text/invalid outputs before writing. Preserve static/dynamic cold-versus-cached and zero-warm-query
 checks. This counter does not qualify glyph rasterization or native/process allocations.
+
+ABI 1.35 exposes opt-in CPU phase timing through the public API. Supply the native thread clock
+from the ABI platform layer; keep the core free of native/GPU dependencies. Sum every settling
+pass, reset at the outer frame, reject failed/regressing clocks and preserve invalid-output atomicity.
+Existing wall-phase semantics remain unchanged. Retain deterministic clock/settling and static/dynamic
+zero-warm-allocation checks. Apple clock support does not qualify other platforms/native allocation.

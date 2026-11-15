@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 34
+minor 35
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -156,6 +156,7 @@ function pxui_ui_patch_look int32_t pxui_ui_patch_look ( PxuiUi * ui , const Pxu
 function pxui_ui_patch_mark int32_t pxui_ui_patch_mark ( PxuiUi * ui , const PxuiBox * box , const PxuiMarkDesc * value , uint8_t * out ) ;
 function pxui_ui_patch_rect int32_t pxui_ui_patch_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect value , uint8_t * out ) ;
 function pxui_ui_patch_text int32_t pxui_ui_patch_text ( PxuiUi * ui , const PxuiBox * box , PxuiStr value , uint8_t * out ) ;
+function pxui_ui_phase_cpu_times int32_t pxui_ui_phase_cpu_times ( PxuiUi * ui , uint64_t * out , size_t len ) ;
 function pxui_ui_phase_times int32_t pxui_ui_phase_times ( PxuiUi * ui , uint64_t * out , size_t len ) ;
 function pxui_ui_picker int32_t pxui_ui_picker ( PxuiUi * ui , int64_t limit , uint8_t slash , uint8_t at_rest , PxuiStr label , PxuiStr query , PxuiPickerRows rows , PxuiPickerMark mark , PxuiPickerOff off , void * user , PxuiStr * out_query , uint32_t * out_tag , int64_t * out_index ) ;
 function pxui_ui_platform uint32_t pxui_ui_platform ( PxuiUi * ui ) ;
