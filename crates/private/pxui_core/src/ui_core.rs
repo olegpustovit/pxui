@@ -5028,7 +5028,7 @@ impl Paint {
             let style=rich.style(node,self.rtl);
             if let Some((key,metrics))=lay_out_node(&mut self.text,memo,node.flags,&style,width,text,rich.spans.as_slice().unwrap()) {
                 let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics,&self.text));
-                self.text_laid(at,&style,Some(look.text),key,metrics,o);
+                self.text_laid(at,&style,Some(look.text),key,metrics,o,true);
             }
         } else if !text.is_empty() && node.flags & FIT_TEXT_PIXEL!=0 {
             let size=look.font.points(self.font_size);
@@ -5044,7 +5044,7 @@ impl Paint {
                 (key,metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,limit,value,&[]).unwrap();
             }
             let at=(if self.rtl {x+w-inset.l-metrics.w} else {x+inset.l},text_top_for(self.font_size,Some(size),y+inset.t,h-inset.t-inset.b));
-            self.text_laid(at,&style,Some(fade(look.text)),key,metrics,1.0);
+            self.text_laid(at,&style,Some(fade(look.text)),key,metrics,1.0,false);
             self.label=buffer;
         } else if !text.is_empty() {
             let size = look.font.points(self.font_size);
@@ -5084,7 +5084,7 @@ impl Paint {
             // right to left the start inset is at the right: the text ends there
             let (key, m) = lay_out(&mut self.text, &style, 0.0, text);
             let at = if self.rtl { (x + w - inset.l - m.w, at.1) } else { at };
-            self.text_laid(at, &style, ink, key, m,1.0);
+            self.text_laid(at, &style, ink, key, m,1.0,false);
             self.label = buffer;
         }
         match node.mark {
@@ -5222,16 +5222,16 @@ impl Paint {
     /// keep their own colours under its alpha.
     pub fn text_styled(&mut self, at: (f32, f32), style: &Style, width: f32, color: Option<Color>, text: &str) -> Metrics {
         let (key, m) = lay_out(&mut self.text, style, width, text);
-        self.text_laid(at, style, color, key, m,1.0)
+        self.text_laid(at, style, color, key, m,1.0,false)
     }
 
     pub fn text_spans(&mut self,at:(f32,f32),style:&Style,width:f32,color:Option<Color>,text:&str,spans:&[TextSpan])->Option<Metrics> {
         let (key,metrics)=lay_out_spans(&mut self.text,style,width,text,spans)?;
-        Some(self.text_laid(at,style,color,key,metrics,1.0))
+        Some(self.text_laid(at,style,color,key,metrics,1.0,true))
     }
 
     /// `text_styled` for a layout already made (`lay_out`'s key and metrics).
-    fn text_laid(&mut self, at: (f32, f32), style: &Style, color: Option<Color>, key: u64, m: Metrics, opacity:f32) -> Metrics {
+    fn text_laid(&mut self, at: (f32, f32), style: &Style, color: Option<Color>, key: u64, m: Metrics, opacity:f32, decorated:bool) -> Metrics {
         let d = self.density as f32;
         let snap = |v: f32| (v * d).round() / d;
         let baseline = snap(at.1 + self.text.ascent(style.font) * style.size);
@@ -5245,7 +5245,7 @@ impl Paint {
             let r=deco.rect;
             layer.instances.push(Instance { clip,view,..Instance::rect([origin.0+r.x,origin.1+r.y,origin.0+r.x+r.w,origin.1+r.y+r.h],fade(deco.color)) });
         };
-        t.decorations(key,false,&mut |deco|decoration(deco,layer));
+        if decorated { t.decorations(key,false,&mut |deco|decoration(deco,layer)); }
         let apple = t.apple_raster();
         let light = Instance::light_extra(style.size * d, d);
         t.glyphs(key, origin, d, &mut |g| {
@@ -5266,7 +5266,7 @@ impl Paint {
             let flags=instance.flags|if matches!(g.atlas,pxui_text::AtlasKind::Mask2|pxui_text::AtlasKind::Color2) { crate::draw::flags::GLYPH_PAGE_2 } else { 0 };
             layer.instances.push(Instance { clip, view,flags, ..instance });
         });
-        t.decorations(key,true,&mut |deco|decoration(deco,layer));
+        if decorated { t.decorations(key,true,&mut |deco|decoration(deco,layer)); }
         m
     }
 

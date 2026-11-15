@@ -226,8 +226,10 @@ fn glyph_parts(run:&cosmic_text::LayoutRun,glyph:&cosmic_text::LayoutGlyph,base:
     part(cursor,end,None);
 }
 
+const UNCLIPPED:[f32;2]=[f32::NEG_INFINITY,f32::INFINITY];
+
 fn emit_clipped(mut glyph:Glyph,clip:[f32;2],f:&mut dyn FnMut(Glyph)) {
-    if clip==[f32::NEG_INFINITY,f32::INFINITY] { f(glyph); return; }
+    if clip==UNCLIPPED { f(glyph); return; }
     let (left,right)=(glyph.rect.x.max(clip[0]),(glyph.rect.x+glyph.rect.w).min(clip[1]));
     if left>=right { return; }
     let advance=glyph.uv.w/glyph.rect.w;
@@ -1072,7 +1074,8 @@ impl Text {
                     if c.slot.w > 0 && c.slot.h > 0 {
                         g.atlases[idx(c.slot.kind)].shelves[c.slot.shelf as usize].used = g.frame;
                         let s = &c.slot;
-                        emit_clipped(Glyph { rect: Rect { x: (x + s.left) as f32, y: (y - s.top) as f32, w: s.w as f32, h: s.h as f32 }, uv: c.uv, atlas: s.kind, color:c.color },c.clip.map(|v|v.mul_add(scale,ox)),f);
+                        let glyph=Glyph { rect: Rect { x: (x + s.left) as f32, y: (y - s.top) as f32, w: s.w as f32, h: s.h as f32 }, uv: c.uv, atlas: s.kind, color:c.color };
+                        if c.clip==UNCLIPPED { f(glyph); } else { emit_clipped(glyph,c.clip.map(|v|v.mul_add(scale,ox)),f); }
                     }
                 } else if let Some(slot) = g.slot(CacheKey { x_bin: bin, ..c.key }) {
                     // a bin the list does not hold, or a slot an eviction during this call may have moved
