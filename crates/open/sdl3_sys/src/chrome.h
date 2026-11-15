@@ -7,3 +7,4 @@ typedef struct {
 } RaysSDL3ChromeState;
 int rays_sdl3_chrome_configure(void *layer, double minimum_width, double minimum_height);
 int rays_sdl3_chrome_read(void *layer, RaysSDL3ChromeState *state);
+int rays_sdl3_chrome_update_background(void *window, void *color);

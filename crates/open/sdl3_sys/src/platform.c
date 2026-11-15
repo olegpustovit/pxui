@@ -1,4 +1,5 @@
 #include "bridge.h"
+#include "chrome.h"
 
 #ifdef _WIN32
 #include <windows.h>
@@ -169,7 +170,9 @@ void rays_sdl3_platform_set_window_background(SDL_Window *window,
   pool = objc_autoreleasePoolPush();
   color = ((id (*)(id, SEL, double, double, double, double))objc_msgSend)(
       (id)colors, sel_getUid("colorWithSRGBRed:green:blue:alpha:"), red, green, blue, 1.);
-  ((void (*)(id, SEL, id))objc_msgSend)(native, sel_getUid("setBackgroundColor:"), color);
+  if (!rays_sdl3_chrome_update_background(native, color)) {
+    ((void (*)(id, SEL, id))objc_msgSend)(native, sel_getUid("setBackgroundColor:"), color);
+  }
   objc_autoreleasePoolPop(pool);
 }
 

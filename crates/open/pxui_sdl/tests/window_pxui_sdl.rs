@@ -270,11 +270,49 @@ fn app_loop_cleans_up_callbacks_before_the_window_on_success_and_errors() {
     }
 }
 
+
+#[cfg(target_os = "macos")]
+fn window_background_preserves_native_fallback_pixels_and_releases_providers() {
+    extern "C" fn clock() -> u64 { mem_sys::profile::thread_cpu_time_ns().unwrap_or(u64::MAX) }
+    let mut times = [0; 2];
+    assert!(sdl3_sys::chrome::check_native_background(clock, &mut times));
+    assert!(times.iter().all(|&ns|ns>0));
+    println!("native background: samples=100 mean_update_cpu_us before={:.3} after={:.3}",times[0] as f64/100_000.0,times[1] as f64/100_000.0);
+}
+
+#[cfg(target_os = "macos")]
+fn window_background_api_uses_the_full_metal_view_and_preserves_resize() {
+    let mut window = Window::open_with("native background API", 320, 240, false, true, true).unwrap();
+    window.set_resizable(true).unwrap();
+    let token = window.token().unwrap();
+    window.set_background((0.2, 0.3, 0.4)).unwrap();
+    assert!(!sdl3_sys::chrome::background_state(&token).unwrap().1);
+    let chrome = Chrome::open(token.clone(), (200.0, 100.0)).unwrap();
+    for (width, height) in [(320, 240), (480, 320), (200, 100)] {
+        window.resize(width, height).unwrap();
+        for rgb in [(0.9,0.9,0.9),(0.1,0.1,0.1),(0.2,0.3,0.4)] {
+            mem_sys::local_reset();
+            window.set_background(rgb).unwrap();
+            let (actual, active) = sdl3_sys::chrome::background_state(&token).unwrap();
+            assert!(active, "the root opaque Metal view uses the bounded fallback");
+            assert!((actual[0]-rgb.0).abs()<1e-6 && (actual[1]-rgb.1).abs()<1e-6 && (actual[2]-rgb.2).abs()<1e-6);
+            assert_eq!(mem_sys::local_alloc_count(), 0);
+        }
+        assert!(chrome.snapshot().unwrap().full_size_content != 0);
+    }
+    window.destroy().unwrap();
+    assert!(sdl3_sys::chrome::background_state(&token).is_none());
+}
+
 fn main() {
     if let Ok(mode) = std::env::var("RAYS_RUNTIME_FATAL_CHILD") {
         fatal_child(&mode);
     }
     common::run(&[
+        #[cfg(target_os = "macos")]
+        ("window_background_api_uses_the_full_metal_view_and_preserves_resize", window_background_api_uses_the_full_metal_view_and_preserves_resize),
+        #[cfg(target_os = "macos")]
+        ("window_background_preserves_native_fallback_pixels_and_releases_providers", window_background_preserves_native_fallback_pixels_and_releases_providers),
         ("window_completed_drop_spans_pumps_and_cancel_reuses_buffers", window_completed_drop_spans_pumps_and_cancel_reuses_buffers),
         ("window_visibility", window_visibility),
         ("window_numeric_input_zero_alloc", window_numeric_input_zero_alloc),
