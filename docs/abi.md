@@ -44,6 +44,7 @@ Static/dynamic validation, pixel and warm-allocation checks remain required.
 | 1.34 | `ui_text_layout_count` | Observe cumulative text cache-miss layouts without allocating or exposing the engine. |
 | 1.35 | `ui_phase_cpu_times` | Opt-in Apple thread CPU timings for seven engine phases, summed over settling passes; unavailable clocks refuse without output writes. |
 | 1.36 | `text_fork`, `shaper_prepare`, `text_install`, `prepared_destroy` | Worker-owned shaping and bounded, allocation-free installation between frames; the same record returns retired storage to its worker. Font-generation mismatch refuses without mutation. |
+| 1.37 | `flags::LIGHT` / `PXUI_LIGHT` (MASK instance bit 4), `Instance::light` (`light_extra` packs the words) | Apple-raster glyphs ask the renderer for CoreText light-on-dark stem growth. `extra[0]` packs two f16: ppem in device pixels (low half) and device scale (high half); `extra[1]` is 0. The shader derives round(4 * linear Rec.709 luminance of the instance colour), grows the quad one pixel and adds the extra coverage from neighbouring texels. Renderers that predate 1.37 ignore the bit and `extra`, drawing the plain mask; no layout, export or signature change. |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

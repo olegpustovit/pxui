@@ -5247,12 +5247,13 @@ impl Paint {
         };
         t.decorations(key,false,&mut |deco|decoration(deco,layer));
         let apple = t.apple_raster();
+        let light = Instance::light_extra(style.size * d, d);
         t.glyphs(key, origin, d, &mut |g| {
             let color=fade(g.color.unwrap_or(color));
             let r = [g.rect.x / d, g.rect.y / d, (g.rect.x + g.rect.w) / d, (g.rect.y + g.rect.h) / d];
             let uv = [g.uv.x, g.uv.y, g.uv.x + g.uv.w, g.uv.y + g.uv.h];
             let instance = match g.atlas {
-                pxui_text::AtlasKind::Mask|pxui_text::AtlasKind::Mask2 if apple => Instance::mask(r, uv, color).light(style.size * d, d),
+                pxui_text::AtlasKind::Mask|pxui_text::AtlasKind::Mask2 if apple => Instance::mask(r, uv, color).light(light),
                 pxui_text::AtlasKind::Mask|pxui_text::AtlasKind::Mask2 => Instance::mask(r, uv, color),
                 pxui_text::AtlasKind::Color|pxui_text::AtlasKind::Color2 => {
                     // image instances after an image's break sample that image: break back to the atlas

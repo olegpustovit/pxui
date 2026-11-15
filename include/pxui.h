@@ -185,6 +185,10 @@ typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
 #define PXUI_GLYPH_PAGE_2 2u
 /* ABI 1.14: pixel-area coverage for a plain, unstroked RECT instance. */
 #define PXUI_RECT_AREA 4u
+/* ABI 1.37: MASK instance flag for CoreText-matching light text (docs/abi.md 1.37).
+   extra[0] packs two f16 (ppem in device pixels low, device scale high); the shader grows ink by the fill colour's luminance level.
+   Renderers that predate it ignore the bit and the extra words and draw the plain mask. */
+#define PXUI_LIGHT 16u
 /* ABI 1.24: logical window points; insets are top/right/bottom/left, rectangles x/y/w/h. */
 typedef struct {
     float safe_area[4], keyboard_frame[4], keyboard_from[4];

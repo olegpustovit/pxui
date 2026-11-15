@@ -220,9 +220,12 @@ impl Instance {
     pub fn mask(rect: [f32; 4], uv: [f32; 4], color: [u8; 4]) -> Self {
         Instance { rect, color, kind: kind::MASK, aux: [unorms(uv[0], uv[1]), unorms(uv[2], uv[3])], ..Self::DEFAULT }
     }
-    /// A mask glyph rasterised for CoreText parity at `ppem` device pixels and device scale `scale`; the
-    /// shader grows its ink by the fill colour's luminance level (`flags::LIGHT`, `extra` = both as halves).
-    pub fn light(self, ppem: f32, scale: f32) -> Self { Instance { flags: self.flags | flags::LIGHT, extra: [halves(ppem, scale), 0], ..self } }
+    /// The `extra` words of a light glyph at `ppem` device pixels and device scale `scale` (both as halves):
+    /// pack once per text, not per glyph.
+    pub fn light_extra(ppem: f32, scale: f32) -> [u32; 2] { [halves(ppem, scale), 0] }
+    /// A mask glyph rasterised for CoreText parity; the shader grows its ink by the fill colour's
+    /// luminance level (`flags::LIGHT`, `extra` from [`Instance::light_extra`]).
+    pub fn light(self, extra: [u32; 2]) -> Self { Instance { flags: self.flags | flags::LIGHT, extra, ..self } }
     /// A colour glyph or image from the RGBA atlas (or the texture of the enclosing break). `tint`
     /// multiplies the texel per channel, alpha included: white keeps the image, a grey scales brightness,
     /// a translucent white fades it, a colour tints a white-on-transparent icon. Corner radii (`radii`)
