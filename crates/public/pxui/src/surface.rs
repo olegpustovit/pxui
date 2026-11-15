@@ -8,6 +8,97 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_without_allocating() {
+    use crate::{kit::{AnimationTarget, Keyframe, Repeat}, ui::{Curve, Look, Node, Target}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    ui.set_a11y(true);
+    let view = Cell::new(None);
+    let child = Cell::new(None);
+    let builds = Cell::new(0);
+    let mut build = |ui: &mut Ui| {
+        view.set(Some(ui.view("repeat", 1, Size::Px(20.0), Size::Px(10.0), &mut |ui| {
+            builds.set(builds.get() + 1);
+            let bar = ui.node("bar", Node { w: Size::Grow, h: Size::Grow, role: crate::ui::Role::Image, look: Look { fill: crate::geom::Rgba { r: 255, a: 255, ..Default::default() }, ..Look::NONE }, ..Node::DEFAULT });
+            ui.a11y_name(&bar, "Repeated bar");
+            child.set(Some(bar));
+        })));
+    };
+    let curve = Curve::Bezier { duration: 99.0, points: [0.0, 0.0, 1.0, 1.0] };
+    let scale = |y| AnimationTarget::Scale { x: 1.0, y, anchor: (0.5, 1.0) };
+    let keys = [Keyframe { time: 0.0, target: scale(0.4), curve }, Keyframe { time: 0.5, target: scale(1.0), curve }];
+    ui.frame(&input(), &mut build).unwrap();
+    ui.frame(&input(), &mut build).unwrap();
+    let view = view.get().unwrap();
+    let child = child.get().unwrap();
+    let identity = ui.a11y_nodes().iter().find(|node| ui.a11y_name_of(node) == "Repeated bar").unwrap().id;
+    assert!(ui.box_of_a11y(u64::MAX).is_none());
+    let instances = ui.layer(0).instances.to_vec();
+    let built = builds.get();
+    for round in 0..3 {
+        let start = round as f64 * 10.0;
+        ui.frame(&FrameIn { time: start, ..input() }, &mut build).unwrap();
+        mem_sys::local_reset();
+        assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Forever, true, 0.25));
+        for tick in 0..61 {
+            let dt = tick as f64 / 60.0;
+            ui.frame(&FrameIn { time: start + dt, ..input() }, &mut build).unwrap();
+            let phase = (dt + 0.25) % 1.0;
+            let progress = if phase < 0.5 { phase * 2.0 } else { 2.0 - phase * 2.0 };
+            let rect = ui.rect(&child);
+            let resolved = ui.box_of_a11y(identity).unwrap();
+            assert_eq!(resolved.box_key, child.box_key);
+            assert_eq!(ui.rect(&resolved), rect);
+            assert!((rect.h - (4.0 + 6.0 * progress as f32)).abs() < 0.001);
+            assert!((rect.y + rect.h - 10.0).abs() < 0.001, "fixed bottom anchor");
+            assert!(ui.wants_frame(&[], start + dt));
+            assert_eq!(builds.get(), built);
+            assert_eq!(ui.layer(0).instances, instances.as_slice());
+        }
+        ui.view_clip(&view, Some(Rect::new(0.0, 0.0, 0.0, 0.0)));
+        ui.frame(&FrameIn { time: start + 2.0, ..input() }, &mut build).unwrap();
+        assert!(!ui.wants_frame(&[], start + 2.0), "hidden loops must idle");
+        ui.view_clip(&view, None);
+        ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
+        assert!(ui.wants_frame(&[], start + 3.0));
+        ui.view_opacity(&view, 0.0);
+        ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
+        assert!(!ui.wants_frame(&[], start + 3.0), "manually hidden loops must idle");
+        ui.view_opacity(&view, 1.0);
+        ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
+        assert!(ui.wants_frame(&[], start + 3.0));
+        // Finite cycles count both legs and settle at their authored first stop.
+        assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Count(2), true, 0.0));
+        for (dt, height, running) in [(0.5, 10.0, true), (1.0, 4.0, true), (1.5, 10.0, true), (2.0, 4.0, false)] {
+            ui.frame(&FrameIn { time: start + 3.0 + dt, ..input() }, &mut build).unwrap();
+            assert!((ui.rect(&child).h - height).abs() < 0.001);
+            assert_eq!(ui.wants_frame(&[], start + 3.0 + dt), running);
+        }
+        assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Count(2), false, 0.25));
+        ui.frame(&FrameIn { time: start + 5.75, ..input() }, &mut build).unwrap();
+        assert!((ui.rect(&child).h - 10.0).abs() < 0.001);
+        assert!(!ui.wants_frame(&[], start + 5.75));
+        assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Forever, true, 0.0));
+        assert!(ui.animate(&view, Target::Scale { x: 1.0, y: 0.4, anchor: (0.5, 1.0) }, curve.with_duration(0.0)));
+        ui.frame(&FrameIn { time: start + 6.0, ..input() }, &mut build).unwrap();
+        assert!(!ui.wants_frame(&[], start + 6.0), "retargeting stops a loop");
+        if round > 0 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+    }
+    assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Forever, true, 0.25));
+    ui.frame(&FrameIn { time: 27.0, reduced_motion: 1, ..input() }, &mut build).unwrap();
+    assert!((ui.rect(&child).h - 4.0).abs() < 0.001);
+    assert!(!ui.wants_frame(&[], 28.0));
+    assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Forever, true, 0.0));
+    ui.frame(&FrameIn { time: 28.0, reduced_motion: 1, ..input() }, &mut build).unwrap();
+    assert!(!ui.wants_frame(&[], 29.0));
+    ui.frame(&FrameIn { time: 29.0, ..input() }, &mut |_| {}).unwrap();
+    assert!(ui.box_of_a11y(identity).is_none());
+    ui.frame(&FrameIn { time: 30.0, ..input() }, &mut build).unwrap();
+    assert!(ui.box_of_a11y(identity).is_none(), "recycled slots must not revive retired identities");
+}
+
+#[test]
 fn shrinking_virtual_sections_select_the_clamped_rows_in_one_build_without_warm_allocations() {
     use std::cell::Cell;
     use crate::ui::{SectionList,SectionPart};

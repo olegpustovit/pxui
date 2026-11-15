@@ -240,6 +240,24 @@ struct Keys {
     t: [f32; MAX_KEYS],
     pose: [Pose; MAX_KEYS],
     curve: [Curve; MAX_KEYS],
+    repeat: u32,
+    autoreverse: bool,
+    offset: f32,
+}
+
+impl Keys {
+    fn cycle(&self) -> f64 { f64::from(self.t[self.n - 1]) * if self.autoreverse { 2.0 } else { 1.0 } }
+    fn finished(&self, elapsed: f64) -> bool {
+        // Preserve the existing single-run finish precision at authored f32 deadlines.
+        if self.repeat == 1 && !self.autoreverse && self.offset == 0.0 { return elapsed as f32 >= self.t[self.n - 1]; }
+        self.repeat != 0 && elapsed + f64::from(self.offset) >= self.cycle() * f64::from(self.repeat)
+    }
+    fn time(&self, elapsed: f64) -> f32 {
+        if self.repeat == 1 && !self.autoreverse && self.offset == 0.0 { return elapsed.max(0.0) as f32; }
+        let duration = f64::from(self.t[self.n - 1]);
+        let age = if self.finished(elapsed) { self.cycle() } else { (elapsed + f64::from(self.offset)).max(0.0) % self.cycle() };
+        if self.autoreverse && age > duration { (self.cycle() - age) as f32 } else { age as f32 }
+    }
 }
 
 /// A transparent colour.
@@ -2950,7 +2968,7 @@ impl Ui {
 
     fn next_repaint(&self, now: f64) -> Option<f64> {
         if self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0
-            || self.active.is_some() || !self.tweens.is_empty() || !self.moving.is_empty() {
+            || self.active.is_some() || self.tweens.iter().any(|t| t.keys == NO_KEYS || self.tween_visible(t)) || !self.moving.is_empty() {
             return Some(now);
         }
         let wake = self.views.iter().skip(1).fold(self.wake, |w, r| w.min(r.wake));
@@ -3337,6 +3355,13 @@ impl Ui {
 
     pub fn box_of_key(&self, key: i64) -> Option<UiBox> {
         self.table.find(key).map(|slot| UiBox { index: NONE, box_key: key, box_slot: slot, generation: self.slots[slot].generation })
+    }
+
+    /// Resolve a published accessibility identity without exposing its slot encoding to hosts.
+    pub fn box_of_a11y(&self, id: u64) -> Option<UiBox> {
+        let (slot, generation) = ((id & 0xffff_ffff) as usize, (id >> 32) as u32);
+        let s = self.slots.get(slot).filter(|s| s.generation == generation && s.key != 0)?;
+        Some(UiBox { index: NONE, box_key: s.key, box_slot: slot, generation })
     }
 
     /// The box's screen rectangle from the previous frame (empty for a stale handle).
@@ -6228,10 +6253,11 @@ impl Ui {
             None => (self.rest(slot), false),
             Some(i) => {
                 let t = &self.tweens[i];
-                let elapsed = (self.now - t.start) as f32;
+                let elapsed = self.now - t.start;
                 let (from, to, p) = match self.keyframes.get(t.keys as usize) {
-                    None => (&t.from, &t.to, t.curve.at(elapsed)),
+                    None => (&t.from, &t.to, t.curve.at(elapsed as f32)),
                     Some(k) => {
+                        let elapsed = k.time(elapsed);
                         // the segment the run is in: from the stop before (the start for the first)
                         let j = k.t[..k.n].iter().position(|&end| elapsed < end).unwrap_or(k.n - 1);
                         let (from, t0) = if j == 0 { (&t.from, 0.0) } else { (&k.pose[j - 1], k.t[j - 1]) };
@@ -6262,6 +6288,19 @@ impl Ui {
         }
     }
 
+    fn tween_visible(&self, tween: &Tween) -> bool {
+        let slot = &self.slots[tween.slot];
+        if slot.view == NO_VIEW { return slot.painted == self.frame_number; }
+        let view = &self.views[slot.view as usize];
+        if !self.shown(slot.view) || view.screen.w <= 0.0 || view.screen.h <= 0.0 { return false; }
+        let mut v = slot.view;
+        while v != 0 {
+            if self.views[v as usize].opacity == 0.0 { return false; }
+            v = self.views[v as usize].parent;
+        }
+        true
+    }
+
     /// After a paint: finished transitions come to rest, and nodes the paint did not reach (in a kept
     /// view) are rewritten in place through the patch path, so a transition never rebuilds a view.
     fn step_tweens(&mut self) {
@@ -6274,7 +6313,7 @@ impl Ui {
                 self.drop_tween(i);
                 continue;
             }
-            let done = t.curve.finished((self.now - t.start) as f32);
+            let done = self.keyframes.get(t.keys as usize).map_or_else(|| t.curve.finished((self.now - t.start) as f32), |k| k.finished(self.now - t.start));
             if done {
                 let s = &mut self.slots[t.slot];
                 (s.node.look, s.pose) = (t.to.look, (t.to.dx, t.to.dy, t.to.opacity));
@@ -6357,15 +6396,22 @@ impl Ui {
     /// `animate` is (patch path, no rebuild, no allocation once warm; reduced motion jumps to the
     /// last stop); `animate` is the one-key case. `false` for a stale handle.
     pub fn animate_keys(&mut self, b: &Handle, keys: &[(f32, Target, Curve)]) -> bool {
+        self.animate_keys_repeat(b, keys, 1, false, 0.0)
+    }
+
+    /// `repeat == 0` loops forever; a count includes the reverse leg. Offset is seconds into the
+    /// first cycle. Hidden runs keep their timeline but do not schedule frames. Retarget to stop.
+    pub fn animate_keys_repeat(&mut self, b: &Handle, keys: &[(f32, Target, Curve)], repeat: u32, autoreverse: bool, offset: f32) -> bool {
         assert!(!keys.is_empty() && keys.len() <= MAX_KEYS, "Ui.animate_keys: 1 to {MAX_KEYS} keyframes, not {}", keys.len());
         assert!(keys.windows(2).all(|w| w[0].0 <= w[1].0) && keys[0].0 >= 0.0, "Ui.animate_keys: keyframe times ascend from 0");
+        assert!(repeat <= u16::MAX as u32 && offset.is_finite() && offset >= 0.0);
         if !self.live(b) {
             return false;
         }
         if keys.iter().any(|(_, target, _)| matches!(target, Target::Scale { .. })) && !self.view_id(b).is_some_and(|v| self.views[v as usize].index != 0) { return false; }
         let slot = b.box_slot;
         let from = self.pose(slot).0;
-        let mut k = Keys { n: 0, t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS] };
+        let mut k = Keys { n: 0, t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS], repeat, autoreverse, offset };
         let mut at = from;
         for &(t, target, curve) in keys {
             match target {
@@ -6379,6 +6425,7 @@ impl Ui {
             (k.t[j], k.pose[j], k.curve[j]) = (t, at, curve);
         }
         let last = if self.theme().tokens.reduced_motion { 0.0 } else { k.t[k.n - 1] };
+        if autoreverse { at = if k.t[0] == 0.0 { k.pose[0] } else { from }; }
         self.start_tween(slot, Curve::Bezier { duration: last, points: [0.0, 0.0, 1.0, 1.0] }, from, at);
         let tween = self.tween_of(slot).expect("the run just started");
         self.tweens[tween].view_only &= keys.iter().all(|(_, target, _)| !matches!(target, Target::Look(_)));

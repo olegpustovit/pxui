@@ -42,6 +42,39 @@ mod curve_tests {
     use super::*;
 
     #[test]
+    fn repeat_validation_keeps_the_running_animation_and_output_unchanged() {
+        extern "C" fn build(user: *mut core::ffi::c_void, ui: *mut core::ffi::c_void) {
+            assert_eq!(unsafe { crate::pxui_ui_node_keyed(ui.cast(), 77, &pxui_types::Node::DEFAULT, user.cast()) }, 0);
+        }
+        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let mut target = PxuiBox::default();
+        let mut frame = crate::FrameOut::default();
+        assert_eq!(unsafe { crate::pxui_frame(ui, &crate::FrameIn::default(), Some(build), (&mut target as *mut PxuiBox).cast(), &mut frame) }, 0);
+        let key = PxuiKeyframeDesc { size: core::mem::size_of::<PxuiKeyframeDesc>() as u32, time: 1.0, target: 1,
+            values: [0.5, 0.0, 0.0, 0.0], curve: PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, count: 1, duration: 1.0, ..Default::default() }, ..Default::default() };
+        let span = Slice { ptr: &key, len: 1 };
+        let mut out = 0;
+        assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, span, 0, 1, 0.25, &mut out) }, 0);
+        assert_eq!(out, 1);
+        for (count, reverse, offset) in [(65_536, 0, 0.0), (1, 2, 0.0), (1, 0, -1.0), (1, 0, f32::NAN), (1, 0, f32::INFINITY)] {
+            out = 77;
+            assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, span, count, reverse, offset, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(out, 77);
+            assert_eq!(unsafe { boxed(ui, &target) }.unwrap().0.transitions(), 1);
+        }
+        for bad in [PxuiKeyframeDesc { time: 0.0, ..key }, PxuiKeyframeDesc { time: f32::INFINITY, ..key }, PxuiKeyframeDesc { size: 0, ..key }] {
+            out = 77;
+            assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, Slice { ptr: &bad, len: 1 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(out, 77);
+        }
+        let bad = [key, PxuiKeyframeDesc { time: 0.5, ..key }];
+        assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, Slice { ptr: bad.as_ptr(), len: 2 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, Slice { ptr: core::ptr::null(), len: 1 }, 1, 0, 0.0, &mut out) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_animate_keys_repeat(ui, &target, span, 1, 0, 0.0, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
+    }
+
+    #[test]
     fn scale_keyframes_keep_axes_and_anchor_and_reject_nonfinite_values() {
         let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
         let key = PxuiKeyframeDesc { size: core::mem::size_of::<PxuiKeyframeDesc>() as u32, target: 3,
@@ -169,19 +202,35 @@ unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> 
 }
 
 export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, out: *mut u8) -> i32 {
+    unsafe { animate_keys(ui, box_, keys, None, out) }
+});
+
+export!(pub unsafe fn pxui_ui_animate_keys_repeat(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32 {
+    unsafe { animate_keys(ui, box_, keys, Some((repeat, autoreverse, start_offset)), out) }
+});
+
+unsafe fn animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, repeat: Option<(u32, u8, f32)>, out: *mut u8) -> i32 {
     let (engine, target_box) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if out.is_null() || keys.len == 0 || keys.len > MAX_KEYS || keys.ptr.is_null() { return unsafe { fail(ui, "invalid animation keyframe span") }; }
+    if repeat.is_some_and(|(count, reverse, offset)| count > u16::MAX as u32 || reverse > 1 || !offset.is_finite() || offset < 0.0) { return unsafe { fail(ui, "invalid animation repeat") }; }
     let raw = unsafe { core::slice::from_raw_parts(keys.ptr, keys.len) };
     if !raw.iter().all(|key| key.size as usize == core::mem::size_of_val(key)) { return unsafe { fail(ui, "invalid animation keyframe span") }; }
-    // at most MAX_KEYS keyframes: decoded on the stack
+    // Decode the complete bounded packet before changing the running animation.
     let mut decoded = [(0.0, Target::Opacity(1.0), pxui_types::Curve::Spring { omega: 1.0 }); MAX_KEYS];
     let mut previous = -1.0f32;
     for (slot, key) in decoded.iter_mut().zip(raw) {
         match unsafe { decode_key(ui, key, previous) } { Ok(key) => { previous = key.0; *slot = key; } Err(code) => return code }
     }
-    unsafe { *out = engine.animate_keys(&target_box, &decoded[..raw.len()]) as u8; }
+    let running = match repeat {
+        None => engine.animate_keys(&target_box, &decoded[..raw.len()]),
+        Some((count, reverse, offset)) => {
+            if previous <= 0.0 { return unsafe { fail(ui, "repeating animation needs positive duration") }; }
+            engine.animate_keys_repeat(&target_box, &decoded[..raw.len()], count, reverse != 0, offset)
+        }
+    };
+    unsafe { *out = running as u8; }
     0
-});
+}
 
 // Moves the box towards one target along a curve; the keyframe's time is ignored.
 export!(pub unsafe fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const PxuiKeyframeDesc, out: *mut u8) -> i32 {

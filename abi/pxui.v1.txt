@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 29
+minor 30
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -72,8 +72,10 @@ function pxui_ui_a11y_value int32_t pxui_ui_a11y_value ( PxuiUi * ui , const Pxu
 function pxui_ui_anchored int32_t pxui_ui_anchored ( PxuiUi * ui , PxuiStr label , const PxuiAnchorDesc * anchor , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
 function pxui_ui_animate int32_t pxui_ui_animate ( PxuiUi * ui , const PxuiBox * box , const PxuiKeyframeDesc * key , uint8_t * out ) ;
 function pxui_ui_animate_keys int32_t pxui_ui_animate_keys ( PxuiUi * ui , const PxuiBox * box , PxuiKeyframeSpan keys , uint8_t * out ) ;
+function pxui_ui_animate_keys_repeat int32_t pxui_ui_animate_keys_repeat ( PxuiUi * ui , const PxuiBox * box , PxuiKeyframeSpan keys , uint32_t repeat , uint8_t autoreverse , float start_offset , uint8_t * out ) ;
 function pxui_ui_badge int32_t pxui_ui_badge ( PxuiUi * ui , PxuiStr label , PxuiStr value , PxuiBox * out ) ;
 function pxui_ui_box int32_t pxui_ui_box ( PxuiUi * ui , PxuiStr label , const PxuiBoxDesc * desc , PxuiBox * out ) ;
+function pxui_ui_box_of_a11y uint8_t pxui_ui_box_of_a11y ( PxuiUi * ui , uint64_t id , PxuiBox * out ) ;
 function pxui_ui_box_of_key uint8_t pxui_ui_box_of_key ( PxuiUi * ui , int64_t key , PxuiBox * out ) ;
 function pxui_ui_busy_step int32_t pxui_ui_busy_step ( PxuiUi * ui , const PxuiBox * box , double now , uint8_t * out ) ;
 function pxui_ui_button_styled int32_t pxui_ui_button_styled ( PxuiUi * ui , PxuiStr text , uint8_t bare , uint8_t icon , uint8_t at_end , uint8_t has_ink , PxuiColor ink , uint8_t * out ) ;

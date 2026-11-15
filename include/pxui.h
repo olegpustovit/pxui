@@ -369,6 +369,8 @@ int32_t pxui_ui_view_size(PxuiUi *ui, PxuiPoint *out);
 int32_t pxui_ui_wants_frame(PxuiUi *ui, PxuiEventSpan events, double now, uint8_t *out);
 int32_t pxui_ui_footer(PxuiUi *ui, const PxuiFooterDesc *desc);
 int32_t pxui_ui_animate_keys(PxuiUi *ui, const PxuiBox *box, PxuiKeyframeSpan keys, uint8_t *out);
+/* ABI 1.30: repeat 0 means forever, otherwise 1..65535 cycles; autoreverse is 0/1. */
+int32_t pxui_ui_animate_keys_repeat(PxuiUi *ui, const PxuiBox *box, PxuiKeyframeSpan keys, uint32_t repeat, uint8_t autoreverse, float start_offset, uint8_t *out);
 int32_t pxui_ui_table(PxuiUi *ui, const PxuiTableDesc *desc, int64_t *clicked_row);
 /* Last host appearance; themes remain authored by the application. use_theme selects a parsed root
    theme between frames, avoiding reparsing source when appearance changes. */
@@ -397,6 +399,8 @@ int32_t pxui_ui_node(PxuiUi *ui, PxuiStr label, const PxuiNode *node, PxuiBox *o
 int32_t pxui_ui_node_keyed(PxuiUi *ui, int64_t key, const PxuiNode *node, PxuiBox *out); /* keys 0 and 1 are reserved */
 int32_t pxui_ui_rect(PxuiUi *ui, const PxuiBox *box, PxuiRect *out);
 uint8_t pxui_ui_box_of_key(PxuiUi *ui, int64_t key, PxuiBox *out);
+/* ABI 1.30: 1 and the live box, or 0 without changing out for a retired/unknown identity. */
+uint8_t pxui_ui_box_of_a11y(PxuiUi *ui, uint64_t id, PxuiBox *out);
 int32_t pxui_ui_text(PxuiUi *ui, const PxuiBox *box, PxuiStr value);
 int32_t pxui_ui_set_look(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc *look, const PxuiStateDesc *state);
 int32_t pxui_ui_style(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc states[6], const PxuiStateDesc *state);

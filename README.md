@@ -223,3 +223,15 @@ still apply. It retains a validated text fingerprint across builds and shares la
 labels, so unchanged nodes do not hash their text again. It supports plain, line-box and inline
 span text, caps and RTL. `geom::hash::FastHasher` exposes the existing internal hash primitive for
 UI revisions and identities.
+
+ABI 1.30 adds `Ui::animate_keys_repeat(&view, &keys, Repeat::Forever, autoreverse, start_offset)`
+(`pxui_ui_animate_keys_repeat` in C). `Repeat::Count(n)` counts complete cycles, including the
+reverse leg when enabled; zero is refused by the Rust wrapper and means forever in C. Keyframes
+need positive total duration; the finite nonnegative offset is seconds into the first cycle.
+Hidden/clipped views request no frames; their timeline continues when another event reveals them.
+Retarget with `animate`/`animate_keys` to stop. Reduced motion settles at the terminal pose, the
+first stop for autoreverse. Scale-only loops change transform entries without rebuilding content.
+
+`Ui::box_of_a11y(id)` resolves a published accessibility identity to its live node without exposing
+slot encoding to hosts. Unknown or retired identities return `None`, including after slot reuse.
+Use ordinary `Ui::rect` on that handle to inspect its displayed, transformed geometry.

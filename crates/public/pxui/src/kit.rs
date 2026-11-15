@@ -9,7 +9,7 @@ pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc 
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_menu_bar, pxui_ui_wants_frame};
+    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_animate_keys_repeat, pxui_ui_menu_bar, pxui_ui_wants_frame};
 }
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -34,6 +34,7 @@ mod sys {
     pub fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_types::Event>, now: f64, out: *mut u8) -> i32;
     pub fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const FooterDesc) -> i32;
     pub fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, out: *mut u8) -> i32;
+    pub fn pxui_ui_animate_keys_repeat(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32;
     pub fn pxui_ui_table(ui: *mut PxuiUi, desc: *const TableDesc, clicked_row: *mut i64) -> i32;
     }
 }
@@ -123,6 +124,8 @@ fn encode_look(value: Look) -> PxuiLookDesc {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum AnimationTarget { Offset(f32, f32), Opacity(f32), Look(Look), Scale { x: f32, y: f32, anchor: (f32, f32) } }
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Repeat { Count(u16), Forever }
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Keyframe { pub time: f32, pub target: AnimationTarget, pub curve: Curve }
 pub(crate) fn encode_curve(value: Curve) -> PxuiCurveDesc {
@@ -342,6 +345,19 @@ impl Ui {
     }
     #[inline]
     #[track_caller] pub fn animate_keys(&mut self, box_: &PxuiBox, keys: &[Keyframe]) -> bool {
+        self.animate_keyframes(box_, keys, None)
+    }
+
+    /// Repeat a positive-duration keyframe run. A count includes the reverse leg; the start
+    /// offset is seconds into its first cycle. Hidden runs request no frames. Retarget to stop.
+    #[track_caller]
+    pub fn animate_keys_repeat(&mut self, box_: &PxuiBox, keys: &[Keyframe], repeat: Repeat, autoreverse: bool, start_offset: f32) -> bool {
+        assert!(repeat != Repeat::Count(0), "pxui: repeat count must be positive");
+        self.animate_keyframes(box_, keys, Some((repeat, autoreverse, start_offset)))
+    }
+
+    #[track_caller]
+    fn animate_keyframes(&mut self, box_: &PxuiBox, keys: &[Keyframe], repeat: Option<(Repeat, bool, f32)>) -> bool {
         assert!(!keys.is_empty() && keys.len() <= 8, "pxui: animate_keys accepts 1..=8 keyframes");
         let mut descriptors = [KeyframeDesc::default(); 8];
         for (out, key) in descriptors.iter_mut().zip(keys) {
@@ -354,7 +370,11 @@ impl Ui {
             *out = KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: key.time, target, reserved: 0, values, look, curve: encode_curve(key.curve) };
         }
         let mut out = 0;
-        let rc = unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, Slice { ptr: descriptors.as_ptr(), len: keys.len() }, &mut out) };
+        let span = Slice { ptr: descriptors.as_ptr(), len: keys.len() };
+        let rc = match repeat {
+            None => unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, span, &mut out) },
+            Some((repeat, reverse, offset)) => unsafe { sys::pxui_ui_animate_keys_repeat(self.0.as_ptr(), box_, span, match repeat { Repeat::Count(n) => n.into(), Repeat::Forever => 0 }, reverse as u8, offset, &mut out) },
+        };
         crate::live(self, rc) && out != 0
     }
 

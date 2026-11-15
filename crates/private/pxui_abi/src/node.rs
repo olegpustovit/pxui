@@ -240,6 +240,14 @@ export!(trusted pub unsafe fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut
     found as u8
 });
 
+export!(pub unsafe fn pxui_ui_box_of_a11y(ui:*mut PxuiUi,id:u64,out:*mut PxuiBox)->u8 {
+    if unsafe{get(ui)}.is_none() || out.is_null() { return 0; }
+    let Some(engine) = (unsafe { crate::state::engine(ui) }) else { return 0; };
+    let Some(found) = engine.box_of_a11y(id) else { return 0; };
+    unsafe { *out = crate::state::to_abi_box(found); }
+    1
+});
+
 export!(trusted pub unsafe fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:pxui_types::Str)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if box_.is_null(){return unsafe{fail(ui,"null text box")};}
@@ -254,6 +262,32 @@ mod tests {
     use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, PxuiUiDesc, pxui_frame, pxui_ui_create, pxui_ui_destroy};
     use core::ffi::c_void;
     use pxui_types::{Size, layout::Placement, theme::Curve};
+
+    #[test]
+    fn accessibility_box_lookup_keeps_failed_output_and_callback_ownership() {
+        struct State { owner: *mut PxuiUi }
+        extern "C" fn build(user: *mut c_void, raw: *mut c_void) {
+            let state = unsafe { &*user.cast::<State>() };
+            let mut target = PxuiBox::default();
+            assert_eq!(unsafe { pxui_ui_node_keyed(raw.cast(), 79, &Node::DEFAULT, &mut target) }, 0);
+            let id = (u64::from(target.generation) << 32) | target.box_slot;
+            let mut out = PxuiBox { box_key: 777, ..Default::default() };
+            assert_eq!(unsafe { pxui_ui_box_of_a11y(state.owner, id, &mut out) }, 0);
+            assert_eq!(out.box_key, 777);
+            assert_eq!(unsafe { pxui_ui_box_of_a11y(raw.cast(), id, &mut out) }, 1);
+            assert_eq!(out.box_key, target.box_key);
+        }
+        let ui = unsafe { pxui_ui_create(&PxuiUiDesc::default()) };
+        let mut state = State { owner: ui };
+        let mut frame = FrameOut::default();
+        assert_eq!(unsafe { pxui_frame(ui, &FrameIn::default(), Some(build), (&mut state as *mut State).cast(), &mut frame) }, 0);
+        let mut out = PxuiBox { box_key: 777, ..Default::default() };
+        assert_eq!(unsafe { pxui_ui_box_of_a11y(ui, u64::MAX, &mut out) }, 0);
+        assert_eq!(unsafe { pxui_ui_box_of_a11y(core::ptr::null_mut(), 0, &mut out) }, 0);
+        assert_eq!(unsafe { pxui_ui_box_of_a11y(ui, 0, core::ptr::null_mut()) }, 0);
+        assert_eq!(out.box_key, 777);
+        assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+    }
 
     /// A node as raw bytes, as C hands one over.
     #[repr(C, align(8))]

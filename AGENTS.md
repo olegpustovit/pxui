@@ -401,3 +401,14 @@ caps, spans, empty text, RTL/asymmetric-inset native pixels, min/max bounds and 
 zero-warm-allocation checks. Keep legacy plain-text painting unchanged without the flag. Plain
 pixel-fit labels preserve the legacy unbounded glyph positioning whenever text fits. FastHasher
 is shared through public geom::hash for internal revisions/identities, not untrusted hash tables.
+
+ABI 1.30 adds repeating keyframes with counted/forever cycles, autoreverse and a start offset.
+A counted cycle includes both legs. Hidden/clipped runs keep their timeline without requesting
+frames; retargeting stops them, and reduced motion settles at the terminal pose (the first stop
+for autoreverse). Reuse bounded keyframe storage and the existing transform table: scale-only
+loops must not rebuild content or rewrite instances. Preserve static/dynamic geometry, cycle
+boundary, visibility, stop, reduced-motion, invalid-packet and zero-warm-allocation checks.
+
+`Ui::box_of_a11y` resolves published identities with generation validation; hosts never decode
+slot IDs. Unknown/retired IDs leave output unchanged and do not revive after slot reuse. Geometry
+checks for retained animations must inspect transformed Ui::rect values, not static source quads.

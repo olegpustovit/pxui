@@ -143,6 +143,7 @@ mod sys {
         pub fn pxui_ui_request_frame(ui:*mut PxuiUi)->i32;
         pub fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut pxui_types::geom::Rect)->i32;
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
+        pub fn pxui_ui_box_of_a11y(ui:*mut PxuiUi,id:u64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->i32;
         pub fn pxui_ui_modal(ui:*mut PxuiUi,label:Str,has_width:u8,width:f32,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut u8)->i32;
         pub fn pxui_ui_scroll_view(ui:*mut PxuiUi,label:Str,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
@@ -498,6 +499,15 @@ impl Ui {
         #[cfg(not(feature = "static"))]
         let found=unsafe{sys::pxui_ui_box_of_key(self.0.as_ptr(),key,&mut out)}!=0;
         found.then_some(out)
+    }
+    /// The live node for a published accessibility identity; `None` after it retires.
+    #[inline] pub fn box_of_a11y(&self,id:u64)->Option<PxuiBox> {
+        let mut out=PxuiBox::default();
+        #[cfg(feature = "static")]
+        let found=unsafe {pxui_abi_link::pxui_ui_box_of_a11y(self.0.as_ptr(),id,&mut out)};
+        #[cfg(not(feature = "static"))]
+        let found=unsafe {sys::pxui_ui_box_of_a11y(self.0.as_ptr(),id,&mut out)};
+        (found!=0).then_some(out)
     }
     #[inline] pub fn key_of(seed:i64,label:&str)->i64{pxui_types::ui::key_of(seed,label)}
     #[inline] #[track_caller] pub fn text(&mut self,box_:&PxuiBox,value:&str) {check(self, unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
