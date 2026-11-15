@@ -153,6 +153,7 @@ impl Hints {
 
 impl Ui {
     /// A scrolling lead-in, sticky heading and virtual fixed-height rows in one scroll region.
+    /// `reveal(&returned_box, row)` scrolls a row index into view (minimum scroll, sticky heading respected).
     #[track_caller]
     pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,build:&mut dyn FnMut(&mut Ui,pxui_types::ui::SectionPart))->PxuiBox {
         let mut out=PxuiBox::default();
@@ -172,6 +173,7 @@ impl Ui {
     }
 
     /// A scrolling lead-in, sticky heading and measured virtual rows; the callback includes logical content Y in one scroll region.
+    /// `reveal(&returned_box, row)` scrolls a row index into view (minimum scroll, sticky heading respected).
     #[track_caller]
     pub fn section_list_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,build:&mut dyn FnMut(&mut Ui,pxui_types::ui::SectionPart,f32))->PxuiBox {
         let mut out=PxuiBox::default();
