@@ -59,6 +59,7 @@ use cosmic_text::{
 };
 pub use pxui_types::{TextSpan, TextSpans};
 use std::collections::HashMap;
+use pxui_types::geom::hash;
 use std::hash::{BuildHasherDefault, Hasher};
 use std::sync::Arc;
 mod system;
@@ -268,13 +269,33 @@ fn emit_clipped(mut glyph:Glyph,clip:[f32;2],f:&mut dyn FnMut(Glyph)) {
     f(glyph);
 }
 
+/// Content identity shared by UI drawing and keyless standalone/UI measurement.
+pub fn content_key(style: &Style, width: f32, text: &str, spans: &[TextSpan]) -> u64 {
+    let mut seed = hash::mix(style.font as i64, style.size.to_bits() as i64);
+    for v in [style.weight as i64, style.italic as i64, style.line_height.to_bits() as i64, style.wrap as i64, style.align as i64, style.max_lines as i64, style.ellipsis as i64, style.tracking.to_bits() as i64, style.features as i64, width.to_bits() as i64] {
+        seed = hash::mix(seed, v);
+    }
+    let mut key = hash::bytes(seed as u64, text.as_bytes());
+    for span in spans {
+        for value in [span.start as i64, span.end as i64, span.weight as i64, span.flags as i64,
+            u32::from_le_bytes(rgba(span.color)) as i64, u32::from_le_bytes(rgba(span.background)) as i64,
+            u32::from_le_bytes(rgba(span.underline)) as i64] {
+            key = hash::mix(key as i64, value) as u64;
+        }
+    }
+    key
+}
+
+
 struct Rich { spans:TextSpans }
 
 
-/// Frames a layout outlives its last use (`Text::end_frame`), and how often the unused are swept: a
-/// layout goes between `KEEP_FRAMES` and `KEEP_FRAMES + SWEEP_FRAMES` frames after its last use.
+/// Age before incremental expiry and the fraction of remaining layouts inspected per frame.
+/// Removing entries shrinks each following sweep budget; MAX_LAYOUTS also bounds storage.
 pub const KEEP_FRAMES: u32 = 600;
 pub const SWEEP_FRAMES: u32 = 64;
+/// Bound retained layouts even for standalone shapers without a frame clock.
+const MAX_LAYOUTS: usize = 4096;
 
 /// The bundled UI face (the PXUI default theme's font).
 pub const PRAGMASEVKA: &[u8] = include_bytes!("../../../../assets/fonts/Pragmasevka-Regular.ttf");
@@ -750,6 +771,13 @@ impl Text {
                 && e.rich.as_ref().and_then(|r|r.spans.as_slice()).unwrap_or(&[])==spans {
                 return e.m;
             }
+        } else if self.keys.len() >= MAX_LAYOUTS {
+            self.sweep %= self.keys.len();
+            let old = self.keys.swap_remove(self.sweep);
+            self.sweep = (self.sweep + 1) % MAX_LAYOUTS;
+            if let Some(entry) = self.entries.remove(&old) {
+                self.cache_bytes -= entry.glyphs.capacity() * size_of::<CachedGlyph>();
+            }
         }
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         let keys = &mut self.keys;
@@ -1109,8 +1137,8 @@ impl Text {
     /// Call once per frame: drops layouts not laid out in the last `KEEP_FRAMES` frames. A cached
     /// view's text is not laid out while the view is kept; its layouts outlive a short keep, so the
     /// view's next rebuild is a cache hit, not a re-shape. The sweep is incremental: each frame looks
-    /// at 1/`SWEEP_FRAMES` of the layouts (every one once per `SWEEP_FRAMES` frames), so no frame
-    /// walks them all.
+    /// at 1/`SWEEP_FRAMES` of the remaining layouts plus one, so no frame walks them all.
+    /// Removing entries reduces the following frame's budget.
     pub fn end_frame(&mut self) {
         let frame = self.frame;
         self.g.frame = frame + 1;
@@ -1132,5 +1160,33 @@ impl Text {
             self.keys.swap_remove(self.sweep);
         }
         self.frame += 1;
+    }
+}
+
+#[cfg(test)]
+mod layout_cache_tests {
+    use super::*;
+
+    #[test]
+    fn standalone_layout_cache_stays_bounded_without_end_frame() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        text.layout(1, "a", &Style::default(), 0.0);
+        text.glyphs(1, (0.0, 0.0), 1.0, &mut |_| {});
+        assert!(text.cache_bytes > 0);
+        for key in 2..=MAX_LAYOUTS as u64 + 8 {
+            text.layout(key, "", &Style::default(), 0.0);
+        }
+        assert_eq!(text.cache_bytes, 0);
+        assert_eq!(text.entries.len(), MAX_LAYOUTS);
+        assert_eq!(text.keys.len(), MAX_LAYOUTS);
+        for key in MAX_LAYOUTS as u64..=MAX_LAYOUTS as u64 + 8 {
+            assert!(text.entries.contains_key(&key));
+        }
+        for _ in 0..KEEP_FRAMES + MAX_LAYOUTS as u32 {
+            text.end_frame();
+        }
+        assert!(text.entries.is_empty());
+        assert!(text.keys.is_empty());
+        assert_eq!(text.cache_bytes, 0);
     }
 }

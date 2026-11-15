@@ -220,23 +220,22 @@ fn soft_wrap_separator_widths_preserve_glyphs_and_cached_measurements() {
             for (index,value) in values.into_iter().enumerate() {
                 let plain=crate::TextStyle {size_points:12.0,line_height:20.0,wrap:crate::TextStyle::WRAP_WORD,..Default::default()};
                 let logical=crate::TextStyle {wrap:crate::TextStyle::WRAP_WORD_SPACES,..plain};
-                let base=index as u64*8+100;
-                let a=ui.text_service().measure(base,value,&plain,50.0).unwrap();
-                let b=ui.text_service().measure(base+1,value,&logical,50.0).unwrap();
+                let a=ui.text_service().measure(value,&plain,50.0).unwrap();
+                let b=ui.text_service().measure(value,&logical,50.0).unwrap();
                 assert_eq!((a.height,a.lines,a.baseline),(b.height,b.lines,b.baseline));
                 assert!(b.width>=a.width && b.width.is_finite());
                 if index==0 {
-                    let space=ui.text_service().width(base+2," ",&plain,0.0).unwrap();
+                    let space=ui.text_service().width(" ",&plain,0.0).unwrap();
                     assert!((b.width-a.width-space).abs()<0.001,"the longest wrapped word retains its break space");
                 }
                 if round==0 {
-                    let a=ui.text_service().quads(base,value,&plain,50.0,(0.0,0.0),1.0).unwrap();
-                    let b=ui.text_service().quads(base+1,value,&logical,50.0,(0.0,0.0),1.0).unwrap();
+                    let a=ui.text_service().quads(value,&plain,50.0,(0.0,0.0),1.0).unwrap();
+                    let b=ui.text_service().quads(value,&logical,50.0,(0.0,0.0),1.0).unwrap();
                     assert_eq!(a,b,"separator metrics leave visible glyphs unchanged");
                 }
                 let plain=crate::TextStyle {max_lines:1,..plain};
                 let logical=crate::TextStyle {max_lines:1,..logical};
-                assert_eq!(ui.text_service().measure(base+3,value,&plain,50.0).unwrap(),ui.text_service().measure(base+4,value,&logical,50.0).unwrap(),"hidden paragraphs must not contribute trailing spaces");
+                assert_eq!(ui.text_service().measure(value,&plain,50.0).unwrap(),ui.text_service().measure(value,&logical,50.0).unwrap(),"hidden paragraphs must not contribute trailing spaces");
             }
         }).unwrap();
         if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"both wrapping modes retain measurement storage");}
@@ -659,16 +658,16 @@ fn canvas_text_goes_through_the_uis_own_text_service() {
     let mut ui = Ui::new().expect("library");
     let style = pxui_types::TextStyle::default();
     let mut text = ui.text_service();
-    let metrics = text.measure(1, "abc", &style, 0.0).expect("measure");
+    let metrics = text.measure("abc", &style, 0.0).expect("measure");
     assert!(metrics.width > 0.0 && metrics.lines == 1);
-    let glyphs = text.quads(1, "abc", &style, 0.0, (10.0, 20.0), 1.0).expect("quads");
+    let glyphs = text.quads("abc", &style, 0.0, (10.0, 20.0), 1.0).expect("quads");
     assert_eq!(glyphs.len(), 3, "one quad per glyph");
     assert!(glyphs.iter().all(|g| g.rect[0] >= 10.0));
-    let (w, h, pixels) = text.rasterize_rgba(2, "abc", &style, 0.0, 1.0, [255, 255, 255, 255]).expect("rasterize");
+    let (w, h, pixels) = text.rasterize_rgba("abc", &style, 0.0, 1.0, [255, 255, 255, 255]).expect("rasterize");
     assert_eq!(pixels.len(), (w * h * 4) as usize);
     let mut bad = style;
     bad.size_points = f32::NAN;
-    assert!(text.measure(3, "abc", &bad, 0.0).is_err(), "a NaN size is refused");
+    assert!(text.measure("abc", &bad, 0.0).is_err(), "a NaN size is refused");
 }
 
 #[test]
@@ -676,15 +675,15 @@ fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
     let mut ui=Ui::new().unwrap();
     let style=crate::TextStyle { size_points:600.0,..Default::default() };
     let mut text=ui.text_service();
-    let first=text.quads(1,"A",&style,0.0,(0.0,0.0),2.0).unwrap();
-    let glyphs=text.quads(1,"ABCDEF",&style,0.0,(0.0,0.0),2.0).unwrap();
+    let first=text.quads("A",&style,0.0,(0.0,0.0),2.0).unwrap();
+    let glyphs=text.quads("ABCDEF",&style,0.0,(0.0,0.0),2.0).unwrap();
     assert_eq!(glyphs.len(),6);
     assert_eq!(glyphs[0],first[0],"page growth preserves the first public quad");
     assert!(glyphs.iter().any(|g|g.atlas==0) && glyphs.iter().any(|g|g.atlas==2));
     assert!(glyphs.iter().all(|g|g.atlas==0 || g.atlas==2));
-    let (w,h,pixels)=text.rasterize_rgba(1,"ABCDEF",&style,0.0,2.0,[17,33,65,255]).unwrap();
+    let (w,h,pixels)=text.rasterize_rgba("ABCDEF",&style,0.0,2.0,[17,33,65,255]).unwrap();
     let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
-    let (sw,sh,rgba)=shaper.rasterize_rgba(1,"ABCDEF",&style,0.0,2.0,[17,33,65,255]).unwrap();
+    let (sw,sh,rgba)=shaper.rasterize_rgba("ABCDEF",&style,0.0,2.0,[17,33,65,255]).unwrap();
     assert_eq!((w,h),(sw,sh));
     assert_eq!(pixels,rgba,"standalone and UI mirrors sample both pages identically");
     for glyph in &glyphs {
@@ -695,7 +694,7 @@ fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
             pixels[start..end].chunks_exact(4).any(|p|p[3]>0)
         }),"each page-backed quad has raster coverage: {glyph:?}");
     }
-    assert_eq!(text.quads(1,"ABCDEF",&style,0.0,(0.0,0.0),2.0).unwrap(),glyphs);
+    assert_eq!(text.quads("ABCDEF",&style,0.0,(0.0,0.0),2.0).unwrap(),glyphs);
 }
 
 #[test]
@@ -730,12 +729,12 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
 fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
     let mut text = crate::Text::new(&[crate::text::pragmasevka()]).expect("a shaper");
     let style = pxui_types::TextStyle::default();
-    let metrics = text.measure(1, "abc", &style, 0.0).expect("measure");
+    let metrics = text.measure("abc", &style, 0.0).expect("measure");
     assert!(metrics.width > 0.0);
     // the same text measures the same in the Ui's own service: one font, two homes
     let mut ui = Ui::new().expect("library");
-    assert_eq!(ui.text_service().measure(1, "abc", &style, 0.0).expect("service").width, metrics.width);
-    let (w, h, pixels) = text.rasterize_rgba(2, "abc", &style, 0.0, 1.0, [255, 255, 255, 255]).expect("rasterize");
+    assert_eq!(ui.text_service().measure("abc", &style, 0.0).expect("service").width, metrics.width);
+    let (w, h, pixels) = text.rasterize_rgba("abc", &style, 0.0, 1.0, [255, 255, 255, 255]).expect("rasterize");
     assert_eq!(pixels.len(), (w * h * 4) as usize);
     assert!(pixels.chunks(4).any(|p| p[3] != 0), "something was inked");
 }
@@ -768,17 +767,17 @@ fn tabular_digits_reach_shaping_and_keep_warm_layouts_allocation_free() {
     let mut text=crate::Text::new(&[FONT]).expect("shaper");
     let plain=pxui_types::TextStyle { size_points:20.0,..Default::default() };
     let tabular=pxui_types::TextStyle { features:pxui_types::TextStyle::FEATURE_TABULAR_NUMBERS,..plain };
-    let proportional=text.measure(1,"1111",&plain,0.0).unwrap();
-    let tabular_one=text.measure(1,"1111",&tabular,0.0).expect("tabular feature is accepted");
-    let tabular_eight=text.measure(2,"8888",&tabular,0.0).unwrap();
+    let proportional=text.measure("1111",&plain,0.0).unwrap();
+    let tabular_one=text.measure("1111",&tabular,0.0).expect("tabular feature is accepted");
+    let tabular_eight=text.measure("8888",&tabular,0.0).unwrap();
     assert!((proportional.width-tabular_one.width).abs()>1.0,"font fixture must exercise a real substitution");
     assert!((tabular_one.width-tabular_eight.width).abs()<1e-5,"equal digit counts have equal advances");
-    assert_eq!(text.measure(1,"1111",&plain,0.0).unwrap(),proportional,"feature changes invalidate the caller-keyed cache");
-    text.measure(1,"1111",&tabular,0.0).unwrap();
+    assert_eq!(text.measure("1111",&plain,0.0).unwrap(),proportional,"feature changes have distinct cached layouts");
+    text.measure("1111",&tabular,0.0).unwrap();
     for _ in 0..4 {
         mem_sys::local_reset();
-        assert_eq!(text.measure(1,"1111",&tabular,0.0).unwrap(),tabular_one);
-        assert_eq!(text.measure(2,"8888",&tabular,0.0).unwrap(),tabular_eight);
+        assert_eq!(text.measure("1111",&tabular,0.0).unwrap(),tabular_one);
+        assert_eq!(text.measure("8888",&tabular,0.0).unwrap(),tabular_eight);
         assert_eq!(mem_sys::local_alloc_count(),0,"warm feature-bearing layouts allocate nothing across the library boundary");
     }
 }
@@ -792,11 +791,11 @@ fn canvas_feature_styles_have_distinct_warm_cache_entries() {
     let mut ui=Ui::create(crate::Platform::Apple,None,&[FONT]);
     let plain=TextStyle { size_points:20.0,..Default::default() };
     let tabular=TextStyle { features:TextStyle::FEATURE_TABULAR_NUMBERS,..plain };
-    let a=ui.text_service().measure(1,"1111",&plain,0.0).unwrap();
-    let b=ui.text_service().measure(2,"1111",&tabular,0.0).unwrap();
+    let a=ui.text_service().measure("1111",&plain,0.0).unwrap();
+    let b=ui.text_service().measure("1111",&tabular,0.0).unwrap();
     assert!((a.width-b.width).abs()>1.0);
     for features in [2,3,u32::MAX] {
-        assert_eq!(ui.text_service().measure(1,"1111",&TextStyle { features,..plain },0.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+        assert_eq!(ui.text_service().measure("1111",&TextStyle { features,..plain },0.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
     }
     for frame in 0..7 {
         mem_sys::local_reset();
@@ -824,8 +823,8 @@ fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() 
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
         color:color::rgba(255,0,0,255),background:color::rgba(0,0,255,64),underline:color::rgba(0,255,0,255),..Default::default() };
     let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
-    let measured=shaper.measure_spans(1,text,&style,200.0,&[span]).unwrap();
-    assert_eq!(ui.text_service().measure_spans(1,text,&style,200.0,&[span]).unwrap(),measured);
+    let measured=shaper.measure_spans(text,&style,200.0,&[span]).unwrap();
+    assert_eq!(ui.text_service().measure_spans(text,&style,200.0,&[span]).unwrap(),measured);
     for frame in 0..10 {
         let plain=frame%3==0;
         let opacity=if frame%2==0 { 0.5 } else { 1.0 };
@@ -857,9 +856,9 @@ fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
     let red=TextSpan { start:0,end:2,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:color::rgba(255,0,0,255),underline:color::rgba(255,0,0,255),..Default::default() };
     let green=TextSpan { color:color::rgba(0,255,0,255),underline:color::rgba(0,255,0,255),..red };
     for bad in [TextSpan { start:1,end:2,..red },TextSpan { end:99,..red },TextSpan { flags:8,..red }] {
-        assert!(ui.text_service().measure_spans(1,"é!",&style,0.0,&[bad]).is_err());
+        assert!(ui.text_service().measure_spans("é!",&style,0.0,&[bad]).is_err());
     }
-    assert!(ui.text_service().measure_spans(1,"abcdefghij",&style,0.0,&[red;9]).is_err());
+    assert!(ui.text_service().measure_spans("abcdefghij",&style,0.0,&[red;9]).is_err());
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
@@ -907,7 +906,7 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
     let mut ui=Ui::new().unwrap();
     let style=TextStyle { size_points:20.0,line_height:24.0,wrap:TextStyle::WRAP_WORD,..Default::default() };
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
-    let metrics=ui.text_service().measure_spans(1,"aa bb cc",&style,45.0,&[span]).unwrap();
+    let metrics=ui.text_service().measure_spans("aa bb cc",&style,45.0,&[span]).unwrap();
     assert_eq!(metrics.lines,3);
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("wrapped",crate::Node { w:Size::Px(45.0),h:Size::Px(80.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
@@ -936,22 +935,22 @@ fn ellipsis_modes_match_standalone_ui_measurement_quads_and_rasterization() {
     let mut previous=None;
     for ellipsis in [TextStyle::ELLIPSIS_NONE,TextStyle::ELLIPSIS_END,TextStyle::ELLIPSIS_MIDDLE,TextStyle::ELLIPSIS_HEAD] {
         let style=TextStyle { ellipsis,size_points:20.0,..Default::default() };
-        let a=shaper.measure(1,source,&style,100.0).unwrap();
-        assert_eq!(a,ui.text_service().measure(1,source,&style,100.0).unwrap());
-        let raster=shaper.rasterize_rgba(1,source,&style,100.0,1.0,[0,0,0,255]).unwrap();
-        assert_eq!(raster,ui.text_service().rasterize_rgba(1,source,&style,100.0,1.0,[0,0,0,255]).unwrap());
-        let glyphs=ui.text_service().quads(1,source,&style,100.0,(0.0,0.0),1.0).unwrap();
+        let a=shaper.measure(source,&style,100.0).unwrap();
+        assert_eq!(a,ui.text_service().measure(source,&style,100.0).unwrap());
+        let raster=shaper.rasterize_rgba(source,&style,100.0,1.0,[0,0,0,255]).unwrap();
+        assert_eq!(raster,ui.text_service().rasterize_rgba(source,&style,100.0,1.0,[0,0,0,255]).unwrap());
+        let glyphs=ui.text_service().quads(source,&style,100.0,(0.0,0.0),1.0).unwrap();
         assert!(!glyphs.is_empty());
         if ellipsis!=TextStyle::ELLIPSIS_NONE { assert!(a.width<=100.001 && glyphs.len()<26); }
-        if let Some(previous)=previous { assert_ne!(raster,previous,"mode changes invalidate the same caller key"); }
+        if let Some(previous)=previous { assert_ne!(raster,previous,"mode changes select distinct cached layouts"); }
         previous=Some(raster);
     }
     for ellipsis in [4,255] {
         let style=TextStyle { ellipsis,..Default::default() };
-        assert_eq!(shaper.measure(1,source,&style,100.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
-        assert_eq!(ui.text_service().measure(1,source,&style,100.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
-        assert!(shaper.rasterize_rgba(1,source,&style,100.0,1.0,[0,0,0,255]).is_err());
-        assert!(ui.text_service().quads(1,source,&style,100.0,(0.0,0.0),1.0).is_err());
+        assert_eq!(shaper.measure(source,&style,100.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+        assert_eq!(ui.text_service().measure(source,&style,100.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+        assert!(shaper.rasterize_rgba(source,&style,100.0,1.0,[0,0,0,255]).is_err());
+        assert!(ui.text_service().quads(source,&style,100.0,(0.0,0.0),1.0).is_err());
     }
 }
 
@@ -999,17 +998,17 @@ fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
     let mut ui=Ui::new().unwrap();
     let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
     let style=TextStyle { size_points:20.0,..Default::default() };
-    let old=text.rasterize_rgba(1,"漢字",&style,300.0,1.0,[0,0,0,255]).unwrap();
+    let old=text.rasterize_rgba("漢字",&style,300.0,1.0,[0,0,0,255]).unwrap();
     text.enable_system_fonts().unwrap();
     ui.enable_system_fonts().unwrap();
-    let new=text.rasterize_rgba(1,"漢字",&style,300.0,1.0,[0,0,0,255]).unwrap();
+    let new=text.rasterize_rgba("漢字",&style,300.0,1.0,[0,0,0,255]).unwrap();
     assert_ne!(old,new,"enabling invalidates an earlier missing-font layout");
     let cases=["漢字","العربية","😀"];
     let mut measured=[pxui_types::TextMetrics::default();3];
     for (i,source) in cases.into_iter().enumerate() {
-        measured[i]=text.measure(i as u64+1,source,&style,300.0).unwrap();
-        assert_eq!(measured[i],ui.text_service().measure(i as u64+1,source,&style,300.0).unwrap());
-        let (w,h,rgba)=text.rasterize_rgba(i as u64+1,source,&style,300.0,1.0,[0,0,0,255]).unwrap();
+        measured[i]=text.measure(source,&style,300.0).unwrap();
+        assert_eq!(measured[i],ui.text_service().measure(source,&style,300.0).unwrap());
+        let (w,h,rgba)=text.rasterize_rgba(source,&style,300.0,1.0,[0,0,0,255]).unwrap();
         assert!(w>0 && h>0 && rgba.chunks_exact(4).any(|p|p[3]>0),"native fallback rasterizes {source}");
     }
     for _ in 0..4 {
@@ -1017,8 +1016,8 @@ fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
         text.enable_system_fonts().unwrap();
         ui.enable_system_fonts().unwrap();
         for (i,source) in cases.into_iter().enumerate() {
-            assert_eq!(text.measure(i as u64+1,source,&style,300.0).unwrap(),measured[i]);
-            assert_eq!(ui.text_service().measure(i as u64+1,source,&style,300.0).unwrap(),measured[i]);
+            assert_eq!(text.measure(source,&style,300.0).unwrap(),measured[i]);
+            assert_eq!(ui.text_service().measure(source,&style,300.0).unwrap(),measured[i]);
         }
         assert_eq!(mem_sys::local_alloc_count(),0,"warm fallback measurement crosses both ABI paths without allocating");
     }
@@ -1740,7 +1739,7 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
     let style=TextStyle {size_points:12.0,line_height:20.0,wrap:TextStyle::WRAP_WORD,..Default::default()};
     let value="one two three four";
     let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
-    let expected=[80.0,200.0].map(|width| text.measure(1,value,&style,width).unwrap().lines as f32*20.0);
+    let expected=[80.0,200.0].map(|width| text.measure(value,&style,width).unwrap().lines as f32*20.0);
     assert!(expected[0]>expected[1],"fixture must wrap");
     let handle=Cell::new(None);
     for round in 0..6 {
@@ -2146,4 +2145,38 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
     assert!(changed,"commit replaces precisely the original UTF-8 selection");
     assert!(ui.ime().is_none());
     assert_eq!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).count(),3,"commit and Done paint the latest value in the same frame");
+}
+
+#[test]
+fn keyless_text_measurement_retains_interleaved_values_styles_widths_and_spans() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let mut text = crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let plain = crate::TextStyle { size_points:14.0, line_height:20.0, wrap:crate::TextStyle::WRAP_WORD, ..Default::default() };
+    let cases = [
+        ("1111", plain, 0.0),
+        ("88888", plain, 0.0),
+        ("1111", crate::TextStyle { features:crate::TextStyle::FEATURE_TABULAR_NUMBERS, ..plain }, 0.0),
+        ("office café words", plain, 40.0),
+        ("office café words", plain, 90.0),
+        ("office café words", crate::TextStyle { weight:700, tracking:0.2, ..plain }, 40.0),
+    ];
+    let expected = cases.map(|(value,style,width)| text.measure(value,&style,width).unwrap());
+    assert_ne!(expected[0].width,expected[1].width);
+    assert_ne!(expected[3].lines,expected[4].lines);
+    let spans = [crate::TextSpan { start:0, end:6, weight:700, ..Default::default() }];
+    let rich = text.measure_spans(cases[3].0,&plain,40.0,&spans).unwrap();
+    for round in 0..6 {
+        mem_sys::local_reset();
+        ui.frame(&input(), &mut |ui| {
+            for (index,(value,style,width)) in cases.into_iter().enumerate() {
+                assert_eq!(text.measure(value,&style,width).unwrap(),expected[index]);
+                assert_eq!(text.width(value,&style,width).unwrap(),expected[index].width);
+                assert_eq!(ui.text_service().measure(value,&style,width).unwrap(),expected[index]);
+            }
+            assert_eq!(text.measure_spans(cases[3].0,&plain,40.0,&spans).unwrap(),rich);
+            assert_eq!(ui.text_service().measure_spans(cases[3].0,&plain,40.0,&spans).unwrap(),rich);
+        }).unwrap();
+        if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"keyless layout identity must retain every interleaved variant"); }
+    }
 }

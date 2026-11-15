@@ -80,7 +80,7 @@ impl Backing {
     }
 }
 
-/// A text shaper of its own, owned by the library; `key` names a layout in its cache.
+/// A text shaper of its own, owned by the library; layouts are cached by content.
 ///
 /// A shaper may move to another thread (a worker owns its own), but it is not `Sync`: one thread at a time uses one shaper, and its
 /// calls never overlap (the library keeps no thread-local state for it). It shares nothing with the `Ui`'s text service.
@@ -102,13 +102,13 @@ impl Text {
     }
     /// Adds a font (the bytes are copied); its index.
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { Backing::Shaper(self.0.as_ptr()).add_font(bytes) }
-    pub fn measure(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { Backing::Shaper(self.0.as_ptr()).measure(key, value, style, max_width) }
+    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { Backing::Shaper(self.0.as_ptr()).measure(0, value, style, max_width) }
     /// Measures one layout with up to eight ordered, disjoint UTF-8 byte ranges.
-    pub fn measure_spans(&mut self,key:u64,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { Backing::Shaper(self.0.as_ptr()).measure_spans(key,value,style,max_width,spans) }
-    pub fn width(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(key, value, style, max_width).map(|m| m.width) }
+    pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { Backing::Shaper(self.0.as_ptr()).measure_spans(0,value,style,max_width,spans) }
+    pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(value, style, max_width).map(|m| m.width) }
     /// The text as straight-alpha RGBA8: width, height and pixels.
-    pub fn rasterize_rgba(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
-        Backing::Shaper(self.0.as_ptr()).rasterize_rgba(key, value, style, max_width, scale, color)
+    pub fn rasterize_rgba(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
+        Backing::Shaper(self.0.as_ptr()).rasterize_rgba(0, value, style, max_width, scale, color)
     }
 }
 
@@ -142,18 +142,18 @@ impl Ui {
 impl UiText<'_> {
     fn backing(&self) -> Backing { Backing::Ui(self.0.0.as_ptr()) }
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { self.backing().add_font(bytes) }
-    pub fn measure(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { self.backing().measure(key, value, style, max_width) }
+    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { self.backing().measure(0, value, style, max_width) }
     /// Measures one layout with up to eight ordered, disjoint UTF-8 byte ranges.
-    pub fn measure_spans(&mut self,key:u64,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { self.backing().measure_spans(key,value,style,max_width,spans) }
-    pub fn width(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(key, value, style, max_width).map(|m| m.width) }
-    pub fn rasterize_rgba(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
-        self.backing().rasterize_rgba(key, value, style, max_width, scale, color)
+    pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { self.backing().measure_spans(0,value,style,max_width,spans) }
+    pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(value, style, max_width).map(|m| m.width) }
+    pub fn rasterize_rgba(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
+        self.backing().rasterize_rgba(0, value, style, max_width, scale, color)
     }
 
     /// The glyph quads of `value`, positioned at `origin` and scaled by `scale`.
-    pub fn quads(&mut self, key: u64, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32) -> Result<Vec<TextGlyph>, i32> {
+    pub fn quads(&mut self, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32) -> Result<Vec<TextGlyph>, i32> {
         let ui = self.0.0.as_ptr();
-        let call = |out, capacity| unsafe { lib::pxui_text_quads(ui, key, as_str(value), style, max_width, origin.0, origin.1, scale, out, capacity) };
+        let call = |out, capacity| unsafe { lib::pxui_text_quads(ui, 0, as_str(value), style, max_width, origin.0, origin.1, scale, out, capacity) };
         let count = call(core::ptr::null_mut(), 0);
         if count == usize::MAX { return Err(-1); }
         let mut glyphs = Vec::new();

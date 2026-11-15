@@ -386,3 +386,10 @@ failure; no borrowed native string may escape a callback. Native allocations and
 text are not part of the zero warm Rust frame claim. The native text probe uses explicit
 UITextInput calls/notifications; actual keyboard candidate and dictation interaction need hardware
 qualification.
+
+ABI 1.28 makes standalone/UI Rust text measurement and raster/quads calls keyless. C key=0
+selects library-owned identity over all text/style/width/span fields; legacy nonzero keys remain
+accepted with full equality checks. Drawing and measurement share the identity helper. Retain the
+4,096-layout bound without a frame clock, incremental expiry, interleaved-style/span correctness,
+short-prefix validation and static/dynamic zero-warm-allocation checks. Owned raster/quads outputs
+and new layouts allocate; they are separate from warm measurement.

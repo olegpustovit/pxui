@@ -574,6 +574,9 @@ int32_t pxui_ui_patch_field(PxuiUi *ui, const PxuiBox *field, const PxuiValueFie
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing); /* the callbacks run only during the call; slide and scrub write their text, borrowed until their next callback */
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
 int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
+/* ABI 1.28: key=0 on text width/quads/raster calls selects library-owned content identity.
+   Nonzero legacy keys remain accepted; content/style/width/span validation still fences cache reuse.
+   Layout storage is bounded even for standalone shapers without a frame clock. */
 /* A text shaper of its own, for text laid out off the Ui on any thread: its own font system, no GPU atlas. */
 /* A shaper is a plain library object with no thread-local state: it may be created on one thread and used on another, but one thread
    uses one shaper at a time (calls on it never overlap). It shares nothing with a PxuiUi's text service. */

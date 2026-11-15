@@ -72,6 +72,7 @@ pub(crate) unsafe fn span_packet(value:*const TextSpans)->Option<TextSpans> {
 unsafe fn measure_spans(text:&mut Text,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
     if style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
     let (Some(value),Some(style),Some(spans))=(unsafe { utf8(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
+    let key=if key==0 {pxui_text::content_key(&style,max_width,value,spans.as_slice().unwrap())} else {key};
     let Some(value)=text.layout_spans(key,value,&style,max_width,spans.as_slice().unwrap()) else { return PXUI_ERR_ARGUMENT };
     unsafe { out.write(metrics(value)); }
     0
@@ -170,6 +171,7 @@ unsafe fn measure(text: &mut Text, key: u64, value: Str, style_: *const TextStyl
     if style_.is_null() || out.is_null() || !max_width.is_finite() { return PXUI_ERR_ARGUMENT; }
     let Some(value) = (unsafe { utf8(value) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(style) = (unsafe { read_style(style_) }) else { return PXUI_ERR_ARGUMENT; };
+    let key = if key == 0 { pxui_text::content_key(&style, max_width, value, &[]) } else { key };
     let measured = text.layout(key, value, &style, max_width);
     unsafe { out.write(metrics(measured)); }
     0
@@ -194,6 +196,7 @@ unsafe fn quads(
     let Some(value) = (unsafe { utf8(value) }) else { return usize::MAX; };
     let Some(style) = (unsafe { read_style(style_) }) else { return usize::MAX; };
     {
+        let key = if key == 0 { pxui_text::content_key(&style, max_width, value, &[]) } else { key };
         text.layout(key, value, &style, max_width);
         let mut count = 0;
         text.glyphs(key, (origin_x, origin_y), scale, &mut |glyph| {
@@ -239,6 +242,7 @@ unsafe fn rasterize(
     let Some(value) = (unsafe { utf8(value) }) else { return usize::MAX; };
     let Some(style) = (unsafe { read_style(style_) }) else { return usize::MAX; };
     {
+        let key = if key == 0 { pxui_text::content_key(&style, max_width, value, &[]) } else { key };
         let metrics = text.layout(key, value, &style, max_width);
         let (w, h) = if value.is_empty() {
             (1u32, 1u32)

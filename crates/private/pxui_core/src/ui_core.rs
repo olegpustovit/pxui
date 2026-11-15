@@ -22,7 +22,6 @@ use crate::theme;
 pub use crate::geom::Rect;
 pub(crate) use crate::geom::p32;
 use input::{Event, Key, MouseButton, Platform, ScrollPhase};
-use crate::geom::hash;
 use input::frame as rframe;
 use crate::geom::{color, Rgba as Color};
 use crate::draw::{Break, Instance};
@@ -870,22 +869,8 @@ pub struct FrameOut<'a> {
 
 // -------------------------------------------------------------- text
 
-/// The layout key of `text` in `style` at `width`: equal text in an equal style shares one cached
-/// layout, so an unchanged label is a cache hit wherever it is drawn or measured.
-fn text_key(style: &Style, width: f32, text: &str) -> u64 {
-    let mut seed = hash::mix(style.font as i64, style.size.to_bits() as i64);
-    for v in [style.weight as i64, style.italic as i64, style.line_height.to_bits() as i64, style.wrap as i64, style.align as i64, style.max_lines as i64, style.ellipsis as i64, style.tracking.to_bits() as i64, style.features as i64, width.to_bits() as i64] {
-        seed = hash::mix(seed, v);
-    }
-    hash::bytes(seed as u64, text.as_bytes())
-}
-
 fn lay_out_spans(t:&mut Text,style:&Style,width:f32,text:&str,spans:&[TextSpan])->Option<(u64,Metrics)> {
-    let mut key=text_key(style,width,text);
-    for span in spans {
-        for value in [span.start as i64,span.end as i64,span.weight as i64,span.flags as i64,
-            u32::from_le_bytes(rgba(span.color)) as i64,u32::from_le_bytes(rgba(span.background)) as i64,u32::from_le_bytes(rgba(span.underline)) as i64] { key=hash::mix(key as i64,value) as u64; }
-    }
+    let key=pxui_text::content_key(style,width,text,spans);
     t.layout_spans(key,text,style,width,spans).map(|metrics|(key,metrics))
 }
 
@@ -896,7 +881,7 @@ pub fn kit_style(size: i64, tracking: f32) -> Style {
 
 /// Lay `text` out (a cache hit when unchanged) and return its key and metrics.
 pub(crate) fn lay_out(t: &mut Text, style: &Style, width: f32, text: &str) -> (u64, Metrics) {
-    let key = text_key(style, width, text);
+    let key = pxui_text::content_key(style, width, text, &[]);
     (key, t.layout(key, text, style, width))
 }
 

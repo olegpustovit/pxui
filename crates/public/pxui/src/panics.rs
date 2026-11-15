@@ -84,6 +84,6 @@ fn the_text_service_of_a_poisoned_ui_answers_errors() {
     let style = pxui_types::TextStyle::default();
     let mut text = ui.text_service();
     assert_eq!(text.add_font(crate::text::pragmasevka()), None);
-    assert_eq!(text.quads(1, "", &style, f32::INFINITY, (0.0, 0.0), 1.0), Err(-1));
-    assert_eq!(text.rasterize_rgba(1, "", &style, f32::INFINITY, 1.0, [255; 4]), Err(crate::text::TextError::InvalidInput));
+    assert_eq!(text.quads("", &style, f32::INFINITY, (0.0, 0.0), 1.0), Err(-1));
+    assert_eq!(text.rasterize_rgba("", &style, f32::INFINITY, 1.0, [255; 4]), Err(crate::text::TextError::InvalidInput));
 }

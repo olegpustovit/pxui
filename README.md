@@ -209,3 +209,10 @@ Validation is local; there is no hosted CI.
 
 macOS needs `brew install pkgconf sdl3`. Linux Vulkan setup is in [docs/vulkan-linux.md](docs/vulkan-linux.md).
 Contributor rules are in [AGENTS.md](AGENTS.md). [MIT license](LICENSE).
+
+
+ABI 1.28 makes `Text` and `UiText` measurement, width, rasterization and quad methods keyless.
+The library derives layout identity from text, complete style, width and spans, and retains at
+most 4,096 layouts per shaper, including standalone use without frame calls. Existing C calls
+select this behavior with key=0; nonzero legacy keys still work. Warm measurement reuses storage;
+new layouts and owned raster/quad results allocate.
