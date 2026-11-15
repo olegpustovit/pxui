@@ -228,7 +228,49 @@ fn cached_glyph_paint_keeps_instance_bytes_without_warm_allocations() {
     ui.destroy();
 }
 
+fn covered_glyph_damage_preserves_instances_and_uploads() {
+    let mut ui = new_ui(None);
+    #[cfg(target_os = "macos")]
+    ui.set_cpu_clock(Some(|| mem_sys::profile::thread_cpu_time_ns().ok()));
+    let mut frame = frame_at(vec![], 2.0, 0.0, vec![]);
+    frame.input.size = (1000, 1400);
+    let mut expected = [Vec::new(), Vec::new()];
+    let mut paint_ns = 0;
+    for tick in 0..32 {
+        let variant = tick % 2;
+        frame.input.t = tick as f64 / 60.0;
+        mem_sys::local_reset();
+        ui.frame(&frame, &mut |ui| {
+            ui.view("page", tick as u64, Size::Px(1000.0), Size::Px(1400.0), &mut |ui| {
+                let fill = pxui_core::geom::color::rgb(20 + variant as i64, 20, 20);
+                let node = ui.node("text", Node { w: Size::Px(1000.0), h: Size::Px(1400.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT });
+                ui.canvas(&node, move |paint, _| {
+                    for row in 0..100 {
+                        paint.text_styled((3.0 + variant as f32, row as f32 * 14.0), &Style { size: 11.0, ..Style::default() }, 0.0, None,
+                            "Cached glyphs ABCDEFG 0123456789");
+                    }
+                });
+            });
+        });
+        if tick == 2 || tick == 3 { expected[variant].clone_from(&ui.output().draw[0].instances); }
+        if tick >= 4 {
+            assert_eq!(mem_sys::local_alloc_count(), 0);
+            assert_eq!(ui.output().draw[0].instances, expected[variant]);
+            assert_eq!(ui.output().damage, Some(Rect::new(0.0, 0.0, 1000.0, 1400.0)));
+            let layer = &ui.output().draw[0];
+            assert_eq!(layer.dirty.as_slice(), &[(0, layer.instances.len() as u32)]);
+            if let Some(phases) = ui.phase_cpu_times() { paint_ns += phases[4]; }
+        }
+        ui.drawn(0);
+    }
+    #[cfg(target_os = "macos")]
+    println!("covered glyph damage: rows=100 samples=28 mean_paint_cpu_us={:.2}", paint_ns as f64 / 28_000.0);
+    std::hint::black_box(paint_ns);
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("covered_glyph_damage_preserves_instances_and_uploads", covered_glyph_damage_preserves_instances_and_uploads),
     ("pxui_bench", pxui_bench),
     ("cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads",cpu_phase_clock_counts_settling_and_rejects_failed_or_regressing_reads),
     ("cached_glyph_paint_keeps_instance_bytes_without_warm_allocations", cached_glyph_paint_keeps_instance_bytes_without_warm_allocations),

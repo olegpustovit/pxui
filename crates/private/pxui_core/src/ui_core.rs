@@ -7255,8 +7255,11 @@ impl Ui {
 
     /// Add an instance's cover to the damage, moved and clipped as its view shows it.
     fn damage_instance(&mut self, i: &Instance) {
+        let v = &self.views[self.index_owner[i.view as usize] as usize];
+        // Every instance is clipped to this window-space rectangle after its view transform.
+        if self.damage.is_some_and(|d| d.x <= v.outer.x && d.y <= v.outer.y
+            && d.x + d.w >= v.outer.x + v.outer.w && d.y + d.h >= v.outer.y + v.outer.h) { return; }
         if let Some(r) = bounds(i) {
-            let v = &self.views[self.index_owner[i.view as usize] as usize];
             let r = Rect::new(r.x + v.shift.0, r.y + v.shift.1, r.w, r.h);
             let r = v.cover(r).intersect(v.outer);
             self.add_damage(r);

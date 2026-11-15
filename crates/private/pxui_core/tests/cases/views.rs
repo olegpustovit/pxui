@@ -760,7 +760,47 @@ pub fn window_pxui_more_kept_views_reuse_compaction_scratch() {
     ui.destroy();
 }
 
+/// Covering one transformed clip must not suppress damage outside that clip or instance uploads.
+pub fn window_pxui_damage_containment_preserves_other_views() {
+    let mut ui = new_ui(None);
+    let (view, revision, fill) = (Cell::new(None), Cell::new(0), Cell::new(RED));
+    let mut build = |ui: &mut Ui| {
+        view.set(Some(ui.view("clipped", revision.get(), Size::Px(100.0), Size::Px(60.0), &mut |ui| {
+            ui.node("background", Node { w: Size::Px(100.0), h: Size::Px(60.0), at: Some((0.0, 0.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+            ui.view("nested", revision.get(), Size::Px(100.0), Size::Px(60.0), &mut |ui| {
+                ui.node("inside", Node { w: Size::Px(20.0), h: Size::Px(10.0), at: Some((20.0, 20.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+            });
+        })));
+        ui.node("outside", Node { w: Size::Px(20.0), h: Size::Px(20.0), at: Some((150.0, 80.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+    };
+    ui.frame(&at(0.0, vec![]), &mut build);
+    let view = view.get().unwrap();
+    ui.view_clip(&view, Some(Rect::new(10.0, 10.0, 80.0, 40.0)));
+    ui.view_transform(&view, 1.5, [1.0, 0.0, 0.0, 1.0], (0.0, 0.0));
+    for tick in 1..24 {
+        if tick == 4 { mem_sys::local_reset(); }
+        revision.set(tick);
+        let color = if tick % 2 == 0 { RED } else { BLUE };
+        fill.set(color);
+        ui.frame(&at(tick as f64 / 60.0, vec![]), &mut build);
+        if tick > 1 { assert_eq!(ui.output().damage, Some(Rect::new(10.0, 10.0, 160.0, 90.0))); }
+        let layer = &ui.output().draw[0];
+        let mut changed = 0;
+        for (index, instance) in layer.instances.iter().enumerate() {
+            if instance.color == [color.r, color.g, color.b, color.a] {
+                changed += 1;
+                assert!(layer.dirty.iter().any(|&(a, b)| a as usize <= index && index < b as usize), "damage containment must still upload every changed instance");
+            }
+        }
+        assert_eq!(changed, 3);
+        if tick >= 4 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        for layer in 0..ui.output().draw.len() { ui.drawn(layer); }
+    }
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_damage_containment_preserves_other_views", window_pxui_damage_containment_preserves_other_views),
     ("window_pxui_view_entrance_channels", window_pxui_view_entrance_channels),
     ("window_pxui_more_kept_views_reuse_compaction_scratch", window_pxui_more_kept_views_reuse_compaction_scratch),
     ("window_pxui_empty_buffers_preserve_names_and_values", window_pxui_empty_buffers_preserve_names_and_values),
