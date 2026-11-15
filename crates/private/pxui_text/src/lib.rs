@@ -63,6 +63,8 @@ use pxui_types::geom::hash;
 use std::hash::BuildHasherDefault;
 use std::sync::Arc;
 mod system;
+mod prepared;
+pub use prepared::Prepared;
 
 pub use pxui_types::geom::hash::FastHasher;
 /// `HashMap`'s hasher parameter for `FastHasher`.
@@ -614,10 +616,23 @@ struct Entry {
     /// the atlas evicts past `cached_evictions`.
     glyphs: Vec<CachedGlyph>,
     cached: bool,
+    cacheable: bool,
     cached_scale: u32,
     cached_evictions: u64,
     /// the shelves the list's glyphs sit on
     shelves: Shelves,
+}
+
+impl Entry {
+    fn empty(style: &Style, frame: u32) -> Self {
+        let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
+        Self {
+            buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
+            text: String::new(), style: *style, rich: None, width: 0, frame,
+            m: Metrics::default(), glyphs: Vec::new(), cached: false, cacheable: true,
+            cached_scale: 0, cached_evictions: 0, shelves: [0; 8],
+        }
+    }
 }
 
 pub struct Text {
@@ -636,6 +651,7 @@ pub struct Text {
     cache_on: bool,
     /// Capacity of every layout's glyph list, in bytes.
     cache_bytes: usize,
+    font_generation: Arc<()>,
 }
 
 fn idx(kind: AtlasKind) -> usize {
@@ -684,6 +700,7 @@ impl Text {
             layouts: 0,
             cache_on: true,
             cache_bytes: 0,
+            font_generation: Arc::new(()),
         };
         for f in fonts {
             t.add_font(f);
@@ -703,6 +720,7 @@ impl Text {
             self.keys.clear();
             self.sweep=0;
             self.cache_bytes=0;
+            self.font_generation=Arc::new(());
         }
         true
     }
@@ -718,6 +736,7 @@ impl Text {
         });
         self.names.push(name);
         self.font_metrics.push(metrics);
+        self.font_generation=Arc::new(());
         self.names.len() - 1
     }
 
@@ -764,25 +783,13 @@ impl Text {
         self.layouts = self.layouts.saturating_add(1);
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         let keys = &mut self.keys;
-        let e = self.entries.entry(key).or_insert_with(|| Entry {
-            text: {
-                keys.push(key);
-                String::new()
-            },
-            buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
-            style: *style,
-            rich:None,
-            width: 0,
-            frame,
-            m: Metrics::default(),
-            glyphs: Vec::new(),
-            cached: false,
-            cached_scale: 0,
-            cached_evictions: 0,
-            shelves: [0; 8],
+        let e = self.entries.entry(key).or_insert_with(|| {
+            keys.push(key);
+            Entry::empty(style, frame)
         });
         e.frame = frame;
         e.cached = false;
+        e.cacheable = true;
         e.style = *style;
         e.width = width.to_bits();
         e.text.clear();
@@ -836,7 +843,9 @@ impl Text {
             }
         }
         b.shape_until_scroll(&mut self.g.fs, true);
-        if let Some(system)=&mut self.system { system::shape(b,&mut self.g.fs,system); }
+        if let Some(system)=&mut self.system {
+            if system::shape(b,&mut self.g.fs,system) { self.font_generation=Arc::new(()); }
+        }
         let mut m = Metrics::default();
         let logical_spaces=style.wrap==Wrap::WordSpaces;
         let rows=&mut self.wrap_rows;
@@ -988,7 +997,7 @@ impl Text {
         }
         *walks += 1;
         let start = g.evictions;
-        let keep = *cache_on && *cache_bytes < CACHE_BYTES;
+        let keep = *cache_on && e.cacheable && *cache_bytes < CACHE_BYTES;
         *cache_bytes -= e.glyphs.capacity() * size_of::<CachedGlyph>();
         e.glyphs.clear();
         e.shelves = [0; 8];

@@ -7,6 +7,57 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
+#[test]
+fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_install() {
+    use crate::{PreparedText,RetiredText,TextStyle,TextSpan};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();
+    let mut worker=ui.text_service().fork().unwrap();
+    let style=TextStyle::default();
+    let spans=[TextSpan {start:0,end:1,weight:700,..Default::default()}];
+    let records=std::thread::spawn(move || {
+        let (width,height,pixels)=worker.rasterize_rgba("forked",&style,200.0,1.0,[255;4]).unwrap();
+        assert!(width>0 && height>0 && pixels.chunks_exact(4).any(|pixel|pixel[3]>0),"a fork retains standalone rasterization");
+        (0..64).map(|index| {
+            let text=format!("Track {index:05}");
+            let record=worker.prepare(&text,&style,200.0,&spans).unwrap();
+            (text,record)
+        }).collect::<Vec<_>>()
+    }).join().unwrap();
+    let mut other=Ui::new().unwrap();
+    let _=other.text_service().fork().unwrap();
+    let mut records=records.into_iter();
+    let (first_text,first)=records.next().unwrap();
+    let rejected=other.text_service().install(first);
+    let (code,first)=match rejected {Err(error)=>error,Ok(_)=>panic!("foreign fonts accepted")};
+    assert_eq!(code,pxui_types::PXUI_ERR_STATE);
+    let records=std::iter::once((first_text,first)).chain(records).collect::<Vec<_>>();
+    let mut retired:Vec<RetiredText>=Vec::with_capacity(records.len());
+    let layouts=ui.text_layout_count();
+    mem_sys::local_reset();
+    for (text,record) in records {
+        let expected=record.metrics();
+        let storage=match ui.text_service().install(record) {Ok(storage)=>storage,Err((code,_))=>panic!("installation failed: {code}")};
+        retired.push(storage);
+        let actual=ui.text_service().measure_spans(&text,&style,200.0,&spans).unwrap();
+        assert_eq!((actual.width,actual.height,actual.baseline,actual.lines),(expected.width,expected.height,expected.baseline,expected.lines));
+    }
+    assert_eq!(ui.text_layout_count(),layouts);
+    assert_eq!(mem_sys::local_alloc_count(),0);
+    ui.frame(&input(),&mut |ui| {
+        let node=ui.node("prepared-label",crate::Node {w:Size::Px(200.0),h:Size::Px(30.0),..crate::Node::DEFAULT});
+        ui.text_spans(&node,"Track 00000",&style,&spans).unwrap();
+    }).unwrap();
+    assert_eq!(ui.text_layout_count(),layouts,"ordinary node drawing must use the prepared content key");
+    std::thread::spawn(move || drop(retired)).join().unwrap();
+    let mut worker=ui.text_service().fork().unwrap();
+    let stale:PreparedText=std::thread::spawn(move || worker.prepare("stale",&style,200.0,&[]).unwrap()).join().unwrap();
+    assert!(ui.text_service().add_font(crate::text::pragmasevka()).is_some());
+    let (code,stale)=match ui.text_service().install(stale) {Err(error)=>error,Ok(_)=>panic!("stale fonts accepted")};
+    assert_eq!(code,pxui_types::PXUI_ERR_STATE);
+    std::thread::spawn(move || drop(stale)).join().unwrap();
+}
+
 #[cfg(any(target_os="macos",target_os="ios"))]
 #[test]
 fn phase_cpu_timing_is_opt_in_and_zero_warm_allocation() {

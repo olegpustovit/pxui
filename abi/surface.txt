@@ -2,6 +2,11 @@
 # (the call has no counterpart: the ABI's frame/renderer/text service do its job; the row says what). One method per row.
 # Source records first use; A4 adds each export + wrapper + header line together.
 Ui|method|source|status
+UiText|fork|LocalWave|done: pxui_text_fork
+Text|prepare|LocalWave|done: pxui_shaper_prepare
+UiText|install|LocalWave|done: pxui_text_install; returns worker-owned retirement storage
+PreparedText|drop|LocalWave|done: pxui_prepared_destroy
+RetiredText|drop|LocalWave|done: pxui_prepared_destroy
 A11yBridge|connect|Gallery|done: pxui_a11y_start, fd, update, pump, stop (Linux AT-SPI2 through the library)
 Paint|brackets|Rays|inlined
 Paint|cap_tracking|Rays|inlined

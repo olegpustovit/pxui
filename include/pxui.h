@@ -13,6 +13,7 @@ typedef struct PxuiUi PxuiUi;
 typedef struct PxuiRenderer PxuiRenderer;
 typedef struct PxuiPaint PxuiPaint;
 typedef struct PxuiShaper PxuiShaper;
+typedef struct PxuiPreparedText PxuiPreparedText;
 typedef struct PxuiTheme PxuiTheme;
 typedef struct { uint32_t size, platform; int32_t font_size; } PxuiUiDesc;
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
@@ -593,6 +594,20 @@ int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anch
 /* A shaper is a plain library object with no thread-local state: it may be created on one thread and used on another, but one thread
    uses one shaper at a time (calls on it never overlap). It shares nothing with a PxuiUi's text service. */
 PxuiShaper *pxui_shaper_create(const PxuiStr *fonts, size_t count);
+/* ABI 1.36: fork between frames, then move the owned shaper to a worker. This reserves the
+   UI's bounded receiving cache and clones immutable font sources with matching face identities. */
+PxuiShaper *pxui_text_fork(PxuiUi *ui);
+/* Worker-only shaping, <=1 MiB UTF-8 and <=4 MiB glyph-list capacity per record.
+   Both outputs remain unchanged on failure. Spans follow the usual eight-range validation. */
+int32_t pxui_shaper_prepare(PxuiShaper *shaper, PxuiStr value, const PxuiTextStyle *style, float max_width, const PxuiTextSpans *spans, PxuiPreparedText **out, PxuiTextMetrics *out_metrics);
+/* Between frames, swap a ready record into its originating UI without shaping/allocation.
+   Success turns the SAME record into retired storage: send it back to the worker and destroy it.
+   Failure leaves it ready and unchanged. Foreign/stale fonts, retired records and callbacks refuse.
+   UI font additions/discovery invalidate outstanding forks; worker-discovered new faces cannot
+   be installed. Glyph rasterization/atlas growth remain separate cold allocation paths. */
+int32_t pxui_text_install(PxuiUi *ui, PxuiPreparedText *record);
+/* Any owning thread, null is allowed. Destroy ready or retired records exactly once. */
+void pxui_prepared_destroy(PxuiPreparedText *record);
 void pxui_shaper_destroy(PxuiShaper *shaper);
 uint32_t pxui_shaper_add_font(PxuiShaper *shaper, PxuiStr font);
 int32_t pxui_shaper_width(PxuiShaper *shaper, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);

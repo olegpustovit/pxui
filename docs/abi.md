@@ -43,6 +43,7 @@ Static/dynamic validation, pixel and warm-allocation checks remain required.
 | 1.33 | `FILES_DROPPED` event kind 26 | Completed host file sets with logical position, ordered paths or a whole-set transport error. |
 | 1.34 | `ui_text_layout_count` | Observe cumulative text cache-miss layouts without allocating or exposing the engine. |
 | 1.35 | `ui_phase_cpu_times` | Opt-in Apple thread CPU timings for seven engine phases, summed over settling passes; unavailable clocks refuse without output writes. |
+| 1.36 | `text_fork`, `shaper_prepare`, `text_install`, `prepared_destroy` | Worker-owned shaping and bounded, allocation-free installation between frames; the same record returns retired storage to its worker. Font-generation mismatch refuses without mutation. |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

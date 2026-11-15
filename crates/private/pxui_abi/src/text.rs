@@ -111,6 +111,122 @@ pub(crate) fn metrics(value: pxui_text::Metrics) -> TextMetrics {
 /// A text shaper of its own, for text laid out off the `Ui` (on any thread): its own font system and no GPU atlas.
 pub struct PxuiShaper { text: Text }
 
+/// Owned entirely by the library. Installation replaces its contents with retired UI storage.
+pub struct PxuiPreparedText { prepared: pxui_text::Prepared }
+
+export!(pub unsafe fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper {
+    let Some(state)=(unsafe { crate::state::get(ui) }) else { return core::ptr::null_mut() };
+    if state.shared().in_frame { return core::ptr::null_mut(); }
+    let text=unsafe { &mut *state.engine }.text_mut().preparer();
+    Box::into_raw(Box::new(PxuiShaper { text }))
+});
+
+export!(bare pub unsafe fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32 {
+    if out.is_null() || out_metrics.is_null() { return PXUI_ERR_ARGUMENT; }
+    let (Some(shaper),Some(value),Some(style),Some(spans))=(unsafe { shaper.as_mut() },unsafe { utf8(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
+    let Some(prepared)=shaper.text.prepare(value,&style,max_width,spans.as_slice().unwrap()) else { return PXUI_ERR_ARGUMENT };
+    let measured=metrics(prepared.metrics());
+    let record=Box::into_raw(Box::new(PxuiPreparedText { prepared }));
+    unsafe { out.write(record); out_metrics.write(measured); }
+    0
+});
+
+export!(pub unsafe fn pxui_text_install(ui:*mut PxuiUi,record:*mut PxuiPreparedText)->i32 {
+    let Some(state)=(unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT };
+    if state.shared().in_frame { return crate::PXUI_ERR_STATE; }
+    let Some(record)=(unsafe { record.as_mut() }) else { return PXUI_ERR_ARGUMENT };
+    if unsafe { &mut *state.engine }.text_mut().install(&mut record.prepared) { 0 } else { crate::PXUI_ERR_STATE }
+});
+
+export!(bare pub unsafe fn pxui_prepared_destroy(record:*mut PxuiPreparedText) {
+    if !record.is_null() { drop(unsafe { Box::from_raw(record) }); }
+});
+
+#[cfg(test)]
+mod prepared_tests {
+    use super::*;
+
+    fn value(text:&str)->Str { Str { ptr:text.as_ptr(),len:text.len() } }
+
+    #[test]
+    fn prepared_text_validation_preserves_outputs_and_reads_only_descriptor_prefixes() {
+        unsafe {
+            let shaper=pxui_shaper_create(core::ptr::null(),0);
+            let style=TextStyle::default();
+            let spans=TextSpans::default();
+            let short=4u32;
+            let oversized_count=[core::mem::size_of::<TextSpans>() as u32,9];
+            let mid_utf8=TextSpans::new(&[pxui_types::TextSpan {start:1,end:2,..Default::default()}]).unwrap();
+            let bad_utf8=[255u8];
+            let mut out=core::ptr::dangling_mut();
+            let sentinel=out;
+            let mut measured=TextMetrics {width:-99.0,height:-99.0,baseline:-99.0,lines:777};
+            for (text,style,width,spans) in [
+                (value("valid"),(&short as *const u32).cast(),200.0,&spans as *const TextSpans),
+                (value("valid"),&style,200.0,(&short as *const u32).cast()),
+                (value("valid"),&style,200.0,oversized_count.as_ptr().cast()),
+                (value("é"),&style,200.0,&mid_utf8),
+                (value("valid"),&style,f32::NAN,&spans),
+                (Str {ptr:bad_utf8.as_ptr(),len:1},&style,200.0,&spans),
+            ] {
+                assert_eq!(pxui_shaper_prepare(shaper,text,style,width,spans,&mut out,&mut measured),PXUI_ERR_ARGUMENT);
+                assert_eq!(out,sentinel);
+                assert_eq!((measured.width,measured.height,measured.baseline,measured.lines),(-99.0,-99.0,-99.0,777));
+            }
+            assert_eq!(pxui_shaper_prepare(shaper,value("valid"),&style,200.0,&spans,core::ptr::null_mut(),&mut measured),PXUI_ERR_ARGUMENT);
+            assert_eq!(pxui_shaper_prepare(shaper,value("valid"),&style,200.0,&spans,&mut out,core::ptr::null_mut()),PXUI_ERR_ARGUMENT);
+            pxui_shaper_destroy(shaper);
+            pxui_prepared_destroy(core::ptr::null_mut());
+        }
+    }
+
+    #[test]
+    fn prepared_text_refuses_foreign_retired_and_callback_handles_without_losing_ownership() {
+        struct Context {owner:*mut PxuiUi,record:*mut PxuiPreparedText}
+        extern "C" fn build(context:*mut core::ffi::c_void,borrowed:*mut core::ffi::c_void) {
+            let context=unsafe { &mut *context.cast::<Context>() };
+            for ui in [context.owner,borrowed.cast()] {
+                assert!(unsafe { pxui_text_fork(ui) }.is_null());
+                assert_eq!(unsafe { pxui_text_install(ui,context.record) },crate::PXUI_ERR_STATE);
+            }
+        }
+        unsafe {
+            let ui=crate::pxui_ui_create(&crate::PxuiUiDesc::default());
+            let other=crate::pxui_ui_create(&crate::PxuiUiDesc::default());
+            let shaper=pxui_text_fork(ui);
+            let other_shaper=pxui_text_fork(other);
+            assert!(!shaper.is_null() && !other_shaper.is_null());
+            let mut record=core::ptr::null_mut();
+            let mut measured=TextMetrics::default();
+            let style=TextStyle::default();
+            let spans=TextSpans::default();
+            assert_eq!(pxui_shaper_prepare(shaper,value("prepared"),&style,200.0,&spans,&mut record,&mut measured),0);
+            pxui_shaper_destroy(shaper);
+            pxui_shaper_destroy(other_shaper);
+            assert_eq!(pxui_text_install(core::ptr::null_mut(),record),PXUI_ERR_ARGUMENT);
+            assert_eq!(pxui_text_install(ui,core::ptr::null_mut()),PXUI_ERR_ARGUMENT);
+            assert_eq!(pxui_text_install(other,record),crate::PXUI_ERR_STATE);
+            let mut context=Context {owner:ui,record};
+            let mut output=crate::FrameOut::default();
+            assert_eq!(crate::pxui_frame(ui,&crate::FrameIn {width:320.0,height:240.0,..Default::default()},Some(build),(&mut context as *mut Context).cast(),&mut output),0);
+            // A split renderer callback owns the engine even though no UI frame is active.
+            (*(*ui).shared).current=core::ptr::null_mut();
+            assert!(pxui_text_fork(ui).is_null());
+            assert_eq!(pxui_text_install(ui,record),crate::PXUI_ERR_STATE);
+            (*(*ui).shared).current=ui;
+            let layouts=engine(ui).unwrap().text_mut().layout_count();
+            assert_eq!(pxui_text_install(ui,record),0);
+            let mut actual=TextMetrics::default();
+            assert_eq!(pxui_text_width_spans(ui,0,value("prepared"),&style,200.0,&spans,&mut actual),0);
+            assert_eq!((actual.width,actual.height,actual.baseline,actual.lines),(measured.width,measured.height,measured.baseline,measured.lines));
+            assert_eq!(engine(ui).unwrap().text_mut().layout_count(),layouts);
+            assert_eq!(pxui_text_install(ui,record),crate::PXUI_ERR_STATE);
+            pxui_prepared_destroy(record);
+            assert_eq!(crate::pxui_ui_destroy(ui)|crate::pxui_ui_destroy(other),0);
+        }
+    }
+}
+
 const MAX_FONTS: usize = 128;
 
 export!(bare pub unsafe fn pxui_shaper_create(fonts: *const Str, count: usize) -> *mut PxuiShaper {

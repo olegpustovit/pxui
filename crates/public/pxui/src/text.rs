@@ -1,12 +1,16 @@
 //! Text shaping outside the widget tree. A `Text` is a shaper of its own for text laid out off the `Ui` (on any thread): it measures
 //! and rasterizes to RGBA. `Ui::text_service` is the `Ui`'s own: the one font system and glyph atlas it draws with, whose glyph quads
 //! sample the atlases `Renderer::atlas` hands out.
-use crate::sys::{PxuiShaper, PxuiUi};
+use crate::sys::{PxuiPreparedText, PxuiShaper, PxuiUi};
 use crate::{as_str, Ui};
 use core::ptr::NonNull;
 use pxui_types::{Str, TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
 
 library!(lib {
+    fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper;
+    fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32;
+    fn pxui_text_install(ui:*mut PxuiUi,record:*mut PxuiPreparedText)->i32;
+    fn pxui_prepared_destroy(record:*mut PxuiPreparedText);
     fn pxui_shaper_system_fonts(shaper:*mut PxuiShaper)->i32;
     fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32;
     fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
@@ -83,14 +87,39 @@ impl Backing {
 /// A text shaper of its own, owned by the library; layouts are cached by content.
 ///
 /// A shaper may move to another thread (a worker owns its own), but it is not `Sync`: one thread at a time uses one shaper, and its
-/// calls never overlap (the library keeps no thread-local state for it). It shares nothing with the `Ui`'s text service.
+/// calls never overlap (the library keeps no thread-local state for it). A fork shares immutable font sources with its `Ui`.
 pub struct Text(NonNull<PxuiShaper>);
 
 // SAFETY: a shaper is a plain object of the library (its own font system and caches, no thread-local state, no pointer into the
 // caller), so moving it between threads is fine as long as one thread uses it at a time, which `&mut self` and no `Sync` guarantee.
 unsafe impl Send for Text {}
 
+/// A worker-owned layout. Move it to its originating UI for installation between frames.
+pub struct PreparedText { raw: NonNull<PxuiPreparedText>, metrics: TextMetrics }
+
+/// Replaced UI storage. Return it to the worker for destruction; it cannot be installed again.
+pub struct RetiredText(NonNull<PxuiPreparedText>);
+
+// SAFETY: both records uniquely own library storage and immutable font-generation tokens, with no UI pointer or thread-local state.
+unsafe impl Send for PreparedText {}
+unsafe impl Send for RetiredText {}
+
+impl PreparedText { pub fn metrics(&self)->TextMetrics { self.metrics } }
+impl Drop for PreparedText { fn drop(&mut self) { unsafe { lib::pxui_prepared_destroy(self.raw.as_ptr()) } } }
+impl Drop for RetiredText { fn drop(&mut self) { unsafe { lib::pxui_prepared_destroy(self.0.as_ptr()) } } }
+
 impl Text {
+    /// Shape and reserve glyph-list storage on the worker. Installation requires a shaper forked
+    /// from that UI; font additions or newly discovered fallback fonts invalidate its deliveries.
+    /// At most 1 MiB of UTF-8 and 4 MiB of glyph-list storage per record; rasterization stays cold.
+    pub fn prepare(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<PreparedText,i32> {
+        let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+        let mut raw=core::ptr::null_mut();
+        let mut metrics=TextMetrics::default();
+        let rc=unsafe { lib::pxui_shaper_prepare(self.0.as_ptr(),as_str(value),style,max_width,&spans,&mut raw,&mut metrics) };
+        if rc!=0 { return Err(rc); }
+        Ok(PreparedText { raw:NonNull::new(raw).expect("pxui: preparation succeeded without storage"),metrics })
+    }
     /// Enable native font fallback (Apple). A first missing cluster can discover/map a font file.
     pub fn enable_system_fonts(&mut self)->Result<(),i32> {
         let rc=unsafe { lib::pxui_shaper_system_fonts(self.0.as_ptr()) };
@@ -140,6 +169,19 @@ impl Ui {
 }
 
 impl UiText<'_> {
+    /// Between frames, clone the font database and reserve this UI's bounded receiving cache.
+    /// Move the returned shaper to a worker; its font sources preserve this UI's font identities.
+    pub fn fork(&mut self)->Option<Text> { NonNull::new(unsafe { lib::pxui_text_fork(self.0.0.as_ptr()) }).map(Text) }
+    /// Between frames, adopt a matching prepared layout without shaping or allocating. Ordinary
+    /// text calls with identical content/style/width use it. Glyph rasterization/atlas growth may
+    /// still allocate. Failure returns the original record; success returns storage to retire on the worker.
+    pub fn install(&mut self,prepared:PreparedText)->Result<RetiredText,(i32,PreparedText)> {
+        let rc=unsafe { lib::pxui_text_install(self.0.0.as_ptr(),prepared.raw.as_ptr()) };
+        if rc!=0 { return Err((rc,prepared)); }
+        let raw=prepared.raw;
+        core::mem::forget(prepared);
+        Ok(RetiredText(raw))
+    }
     fn backing(&self) -> Backing { Backing::Ui(self.0.0.as_ptr()) }
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { self.backing().add_font(bytes) }
     pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { self.backing().measure(0, value, style, max_width) }

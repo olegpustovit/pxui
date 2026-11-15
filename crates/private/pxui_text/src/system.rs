@@ -2,7 +2,7 @@ use cosmic_text::FontSystem;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
-#[derive(Default)]
+#[derive(Clone, Default)]
 pub(crate) struct SystemFonts {
     pub paths:HashSet<PathBuf>,
     failed:HashSet<String>,
@@ -33,16 +33,19 @@ pub(crate) fn missing<'a>(buffer:&'a cosmic_text::Buffer,seen:&HashSet<String>)-
 }
 
 /// Resolve every newly encountered missing cluster, then shape again with all newly mapped faces.
-pub(crate) fn shape(buffer:&mut cosmic_text::Buffer,fonts:&mut FontSystem,system:&mut SystemFonts) {
+pub(crate) fn shape(buffer:&mut cosmic_text::Buffer,fonts:&mut FontSystem,system:&mut SystemFonts)->bool {
     let mut seen=HashSet::new();
+    let mut changed=false;
     while let Some(cluster)=missing(buffer,&seen) {
         let cluster=cluster.to_owned();
         seen.insert(cluster.clone());
         if system.resolve(&cluster,fonts) {
+            changed=true;
             for line in &mut buffer.lines { line.reset_shaping(); }
             buffer.shape_until_scroll(fonts,true);
         }
     }
+    changed
 }
 
 #[cfg(all(test,target_os="macos"))]

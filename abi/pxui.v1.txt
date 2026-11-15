@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 35
+minor 36
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -35,6 +35,7 @@ function pxui_paint_text_with void pxui_paint_text_with ( PxuiPaint * paint , fl
 function pxui_panel int32_t pxui_panel ( PxuiUi * ui , const PxuiPanel * panel , PxuiStr label , PxuiBuild build , void * user ) ;
 function pxui_part int32_t pxui_part ( PxuiUi * ui , uint32_t part , const PxuiNode * node , PxuiBox * out ) ;
 function pxui_part_box int32_t pxui_part_box ( PxuiUi * ui , int64_t owner , uint32_t part , PxuiBox * out ) ;
+function pxui_prepared_destroy void pxui_prepared_destroy ( PxuiPreparedText * record ) ;
 function pxui_renderer_atlas int32_t pxui_renderer_atlas ( PxuiRenderer * renderer , uint32_t kind , PxuiImage * out ) ;
 function pxui_renderer_create PxuiRenderer * pxui_renderer_create ( PxuiUi * ui , const PxuiGpu * gpu , const PxuiTargetDesc * target ) ;
 function pxui_renderer_destroy void pxui_renderer_destroy ( PxuiRenderer * renderer ) ;
@@ -47,6 +48,7 @@ function pxui_scope int32_t pxui_scope ( PxuiUi * ui , PxuiStr label , PxuiBuild
 function pxui_shaper_add_font uint32_t pxui_shaper_add_font ( PxuiShaper * shaper , PxuiStr font ) ;
 function pxui_shaper_create PxuiShaper * pxui_shaper_create ( const PxuiStr * fonts , size_t count ) ;
 function pxui_shaper_destroy void pxui_shaper_destroy ( PxuiShaper * shaper ) ;
+function pxui_shaper_prepare int32_t pxui_shaper_prepare ( PxuiShaper * shaper , PxuiStr value , const PxuiTextStyle * style , float max_width , const PxuiTextSpans * spans , PxuiPreparedText * * out , PxuiTextMetrics * out_metrics ) ;
 function pxui_shaper_rasterize_rgba size_t pxui_shaper_rasterize_rgba ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
 function pxui_shaper_system_fonts int32_t pxui_shaper_system_fonts ( PxuiShaper * shaper ) ;
 function pxui_shaper_width int32_t pxui_shaper_width ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , PxuiTextMetrics * out ) ;
@@ -55,6 +57,8 @@ function pxui_slot int32_t pxui_slot ( PxuiUi * ui , PxuiSlot slot , uint8_t * o
 function pxui_text_add_font uint32_t pxui_text_add_font ( PxuiUi * ui , PxuiStr font ) ;
 function pxui_text_field int32_t pxui_text_field ( PxuiUi * ui , PxuiStr label , PxuiStr value , PxuiStr * changed , uint8_t * out_changed ) ;
 function pxui_text_field_with_options int32_t pxui_text_field_with_options ( PxuiUi * ui , PxuiStr label , PxuiStr value , const PxuiTextInputOptions * options , PxuiStr * changed , uint8_t * out_changed ) ;
+function pxui_text_fork PxuiShaper * pxui_text_fork ( PxuiUi * ui ) ;
+function pxui_text_install int32_t pxui_text_install ( PxuiUi * ui , PxuiPreparedText * record ) ;
 function pxui_text_quads size_t pxui_text_quads ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float x , float y , float scale , PxuiTextGlyph * out , size_t capacity ) ;
 function pxui_text_rasterize_rgba size_t pxui_text_rasterize_rgba ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
 function pxui_text_system_fonts int32_t pxui_text_system_fonts ( PxuiUi * ui ) ;

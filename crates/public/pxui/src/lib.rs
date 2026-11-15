@@ -63,7 +63,7 @@ pub mod ui {
     pub use pxui_types::a11y::Role;
 }
 pub mod text;
-pub use text::{Text, UiText};
+pub use text::{PreparedText, RetiredText, Text, UiText};
 pub use box_ops::{NodeFields, PayloadRef, DropRef};
 pub mod paint;
 pub use paint::Paint;
@@ -122,6 +122,7 @@ mod sys {
     #[repr(C)] pub struct PxuiTheme { _private:[u8;0] }
     #[repr(C)] pub struct PxuiPaint { _private:[u8;0] }
     #[repr(C)] pub struct PxuiShaper { _private:[u8;0] }
+    #[repr(C)] pub struct PxuiPreparedText { _private:[u8;0] }
     #[link(name = "pxui")]
     unsafe extern "C" {
         pub safe fn pxui_abi_version()->u32;
