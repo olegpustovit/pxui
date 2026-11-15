@@ -6,6 +6,8 @@ mod a11y;
 mod bench;
 #[path = "cases/bodies.rs"]
 mod bodies;
+#[path = "cases/gesture.rs"]
+mod gesture;
 #[path = "cases/layout.rs"]
 mod layout;
 #[path = "cases/nodes.rs"]
@@ -47,6 +49,7 @@ fn main() {
     cases.extend_from_slice(bench::CASES);
     cases.extend_from_slice(widgets::CASES);
     cases.extend_from_slice(touch::CASES);
+    cases.extend_from_slice(gesture::CASES);
     cases.extend_from_slice(bodies::CASES);
     run::run(&cases);
 }

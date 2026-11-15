@@ -1,4 +1,5 @@
-use super::{SCROLL, SCROLL_X, Ui, p32};
+use super::gesture::{EDGE_BACK, HIGHLIGHT_DELAY, LONG_PRESS, LONG_PRESS_DELAY, ROW_SWIPE};
+use super::{Direction, SCROLL, SCROLL_X, Ui, p32};
 use input::{Event, MouseButton, TouchPhase};
 
 type Id = (u64, u64);
@@ -10,11 +11,21 @@ struct Gesture {
     point: (f64, f64),
     time: f64,
     scroll: [i64; 2],
-    // Pending, pointer, vertical scroll, horizontal scroll.
+    // Pending, pointer, vertical scroll, horizontal scroll, row swipe, edge back, long press.
     mode: u8,
     axis: u8,
     velocity: (f64, f64),
     caught: bool,
+    // Nodes taking a long press, a row swipe or an edge back under the first contact (0: none).
+    press: i64,
+    swipe: i64,
+    edge: i64,
+    // Frame time of touch down; the revealed amount a swipe began from; the screen's width.
+    down: f64,
+    base: f64,
+    width: f64,
+    // Horizontal speed of the last segment, points per second.
+    vx: f64,
 }
 
 pub(super) struct Touches {
@@ -24,6 +35,10 @@ pub(super) struct Touches {
     blocked: bool,
     // shortcut: 16 contacts; overflow cancels until focus resets, grow only if a host needs more.
     overflow: bool,
+    // The frame clock of the frame routing input: gesture springs and timers run on it.
+    pub(super) clock: f64,
+    // When a pending press next needs a frame (infinity: none); rearmed each frame.
+    pub(super) wake: f64,
 }
 impl Touches {
     pub(super) const EMPTY: Self = Self {
@@ -32,6 +47,8 @@ impl Touches {
         gesture: None,
         blocked: false,
         overflow: false,
+        clock: 0.0,
+        wake: f64::INFINITY,
     };
 }
 
@@ -80,8 +97,47 @@ impl Ui {
             if gesture.mode == 1 {
                 events[0] = Some(Event::PointerCancelled(MouseButton::LeftButton));
             }
+            self.end_special(gesture, 0.0, true);
         }
         events
+    }
+
+    /// A swipe settles by position (a cancel has no flick) and a cancelled back returns; a pending
+    /// press loses its highlight. `vx` is the lift's horizontal speed, screen points per second.
+    fn end_special(&mut self, g: Gesture, vx: f64, cancelled: bool) {
+        let (s, clock) = (if self.dir == Direction::Rtl { -1.0 } else { 1.0 }, self.touches.clock);
+        if g.press != 0 {
+            self.set_highlight(g.press, false);
+        }
+        match g.mode {
+            4 => self.swipe_end(g.swipe, -vx * s, clock),
+            5 => self.back_end(g.edge, vx * s, g.width, clock, cancelled),
+            _ => {}
+        }
+    }
+
+    pub(super) fn finger_on_scroll(&self, key: i64) -> bool {
+        self.touches.gesture.is_some_and(|g| g.scroll[0] == key)
+    }
+
+    /// Timers of a pending contact on a long-press node: the highlight shows after a short delay,
+    /// the long press fires and takes the contact, and each asks for a frame when it is due.
+    pub(super) fn press_tick(&mut self, t: f64) {
+        let Some(mut g) = self.touches.gesture.filter(|g| g.mode == 0 && g.press != 0) else {
+            return;
+        };
+        let elapsed = t - g.down;
+        if elapsed >= LONG_PRESS_DELAY {
+            g.mode = 6;
+            self.touches.gesture = Some(g);
+            self.long_press(g.press);
+        } else {
+            let lit = elapsed >= HIGHLIGHT_DELAY;
+            if lit {
+                self.set_highlight(g.press, true);
+            }
+            self.touches.wake = g.down + if lit { LONG_PRESS_DELAY } else { HIGHLIGHT_DELAY };
+        }
     }
 
     pub(super) fn cancel_touch_for_popup(&mut self, root: Option<i64>, related: &[i64]) {
@@ -184,7 +240,12 @@ impl Ui {
                 value.scroll_finger = true;
                 value.scroll_velocity = (0.0, 0.0);
             }
-            let mode = if scroll == [0, 0] && owner != 0 { 1 } else { 0 };
+            let point = p32(t.point);
+            let press = if caught { 0 } else { self.gesture_at(point, LONG_PRESS) };
+            let swipe = self.gesture_at(point, ROW_SWIPE);
+            let edge = self.gesture_at(point, EDGE_BACK);
+            // A contact that may become a swipe, back or long press waits like one on a scroll.
+            let mode = if scroll == [0, 0] && owner != 0 && press == 0 && swipe == 0 && edge == 0 { 1 } else { 0 };
             self.touches.gesture = Some(Gesture {
                 id,
                 owner,
@@ -196,6 +257,13 @@ impl Ui {
                 axis: 0,
                 velocity: (0.0, 0.0),
                 caught,
+                press,
+                swipe,
+                edge,
+                down: self.touches.clock,
+                base: 0.0,
+                width: self.gesture_width(edge),
+                vx: 0.0,
             });
             return if mode == 1 {
                 [
@@ -249,6 +317,26 @@ impl Ui {
                 };
             }
             let mut delta = (t.point.0 - gesture.point.0, t.point.1 - gesture.point.1);
+            let dt = t.time - gesture.time;
+            gesture.vx = if dt > 0.0 && dt <= 0.1 { delta.0 / dt } else { 0.0 };
+            let s = if self.dir == Direction::Rtl { -1.0 } else { 1.0 };
+            // At the axis lock a horizontal move inward from the leading edge is a back, and one
+            // toward the actions of a swipe row (or any on an open one) is a swipe.
+            if gesture.mode == 0 && gesture.axis != 0 && gesture.edge != 0 {
+                if gesture.axis == 2 && travel.0 * s > 0.0 {
+                    gesture.mode = 5;
+                    gesture.owner = gesture.edge;
+                } else {
+                    gesture.edge = 0;
+                }
+            }
+            if gesture.mode == 0 && gesture.axis == 2 && gesture.swipe != 0 {
+                if self.swipe_amount(gesture.swipe) > 0.0 || travel.0 * s < 0.0 {
+                    (gesture.mode, gesture.base, gesture.owner) = (4, self.swipe_begin(gesture.swipe), gesture.swipe);
+                } else {
+                    gesture.swipe = 0;
+                }
+            }
             if gesture.mode == 0 && travel.0 * travel.0 + travel.1 * travel.1 >= 100.0 {
                 let axis = usize::from(gesture.axis == 2);
                 gesture.mode = if gesture.scroll[axis] != 0 {
@@ -269,9 +357,17 @@ impl Ui {
             } else if gesture.mode == 1 {
                 actions[0] = Some(Event::PointerMoved(t.point));
             }
-            if gesture.mode >= 2 {
+            if gesture.mode != 0 && gesture.mode != 6 && gesture.press != 0 {
+                self.set_highlight(gesture.press, false);
+                gesture.press = 0;
+            }
+            if gesture.mode == 4 {
+                self.swipe_move(gesture.swipe, gesture.base - (t.point.0 - gesture.start.0) * s);
+            } else if gesture.mode == 5 && gesture.width > 0.0 {
+                self.back_move(gesture.edge, (t.point.0 - gesture.start.0) * s / gesture.width);
+            }
+            if matches!(gesture.mode, 2 | 3) {
                 let axis = usize::from(gesture.mode == 3);
-                let dt = t.time - gesture.time;
                 let speed = if dt > 0.0 && dt <= 0.1 {
                     let d = if axis == 0 {
                         gesture.point.1 - t.point.1
@@ -299,7 +395,7 @@ impl Ui {
             gesture.time = t.time;
             self.touches.gesture = Some(gesture);
         } else if t.phase == TouchPhase::Ended {
-            if gesture.mode >= 2 && gesture.point != t.point {
+            if matches!(gesture.mode, 2 | 3) && gesture.point != t.point {
                 let axis = usize::from(gesture.mode == 3);
                 let delta = if axis == 0 {
                     t.point.1 - gesture.point.1
@@ -321,8 +417,19 @@ impl Ui {
                     value.scroll_drag_x += delta as f32;
                 }
             }
-            self.finish_touch(gesture, false, t.time);
+            let special = matches!(gesture.mode, 4..=6);
+            self.finish_touch(gesture, special, t.time);
             self.touches.gesture = None;
+            // a lift after a pause carries no flick; one at the last point keeps the last segment's
+            let dt = t.time - gesture.time;
+            let vx = if dt > 0.1 {
+                0.0
+            } else if dt > 0.0 && gesture.point != t.point {
+                (t.point.0 - gesture.point.0) / dt
+            } else {
+                gesture.vx
+            };
+            self.end_special(gesture, vx, false);
             if gesture.mode == 1 {
                 actions = [
                     Some(Event::PointerMoved(t.point)),
@@ -334,6 +441,9 @@ impl Ui {
                 && travel.0 * travel.0 + travel.1 * travel.1 < 100.0
                 && self.topmost(p32(gesture.start)) == gesture.owner
             {
+                if gesture.press != 0 {
+                    self.flash_highlight(gesture.press);
+                }
                 actions = [
                     Some(Event::PointerMoved(gesture.start)),
                     Some(Event::PointerPressed(

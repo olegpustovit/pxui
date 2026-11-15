@@ -39,6 +39,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 mod string_pool;
 mod touch;
+pub mod gesture;
 use string_pool::{EmptyStrings, Field as StringField};
 
 impl StringField {
@@ -977,6 +978,9 @@ pub struct Ui {
     /// each slot's scroll motion down (0) and sideways (1), beside the slots (scans of the slots
     /// stay small)
     glides: [Vec<Glide>; 2],
+    gestures: Vec<gesture::GSlot>,
+    /// slots whose swipe or back spring is running
+    gsettle: Vec<usize>,
     /// boxes the last layout ran over; row flow direction
     arranged: usize,
     dir: Direction,
@@ -1236,6 +1240,8 @@ impl Ui {
             l_content_w: Vec::new(),
             scroll_xs: Vec::new(),
             glides: [Vec::new(), Vec::new()],
+            gestures: Vec::new(),
+            gsettle: Vec::new(),
             arranged: 0,
             dir: Direction::Ltr,
             z_order: Vec::new(),
@@ -2052,6 +2058,7 @@ impl Ui {
                 self.scroll_xs.push(0.0);
                 self.glides[0].push(Glide::REST);
                 self.glides[1].push(Glide::REST);
+                self.gestures.push(gesture::GSlot::REST);
                 // the free list can take every slot: freeing never grows it (amortised with `slots`)
                 self.free.reserve(self.slots.capacity().saturating_sub(self.free.len()));
                 self.slots.len() - 1
@@ -2079,6 +2086,7 @@ impl Ui {
         self.scroll_y[slot] = 0.0;
         self.scroll_xs[slot] = 0.0;
         (self.glides[0][slot], self.glides[1][slot]) = (Glide::REST, Glide::REST);
+        self.gestures[slot] = gesture::GSlot::REST;
         self.table.add(key, slot);
         slot
     }
@@ -2106,9 +2114,11 @@ impl Ui {
         // a scroll in motion moves its view's layout every frame
         let mut moving = std::mem::take(&mut self.moving);
         moving.retain(|slot| self.slots[*slot].key != 0 && (self.glides[0][*slot].moving() || self.glides[1][*slot].moving()));
-        for slot in &moving {
+        let settling = std::mem::take(&mut self.gsettle);
+        for slot in moving.iter().chain(&settling) {
             self.mark_view(self.slots[*slot].owner);
         }
+        self.gsettle = settling;
         self.moving = moving;
         let mut gone = std::mem::take(&mut self.gone);
         // room for every rebuilt view's next `prev` too, so the frame after a view's first build
@@ -2284,7 +2294,7 @@ impl Ui {
     /// Topmost hit entry under `point`; 0 when none.
     fn topmost(&self, point: (f32, f32)) -> i64 {
         for index in (0..self.hit_count).rev() {
-            if self.hit_contains(index, point) {
+            if self.hits[index].flags & HIT_FLAGS != 0 && self.hit_contains(index, point) {
                 return self.hits[index].key;
             }
         }
@@ -2463,6 +2473,7 @@ impl Ui {
             Event::TrackpadScrolled { delta: (dx, dy), .. } => *dx != 0.0 || *dy != 0.0,
             _ => false,
         });
+        self.touches.clock = frame.input.t;
         for (event_index, original) in frame.input.events.iter().enumerate() {
             let touch_owner = self.touch_owner(original);
             let actions = self.touch_events(original);
@@ -2764,6 +2775,7 @@ impl Ui {
                 }
             }
         }
+        self.gesture_tick(frame.input.t);
         let (mouse_x, mouse_y) = p32(frame.input.pointer);
         self.route_keys = modifiers;
         if !self.pointer.0.is_finite() {
@@ -2960,7 +2972,7 @@ impl Ui {
             Some(f64::NEG_INFINITY)
         } else {
             // a `repaint_after` made between frames
-            Some(self.out.repaint_at.unwrap_or(f64::INFINITY).min(self.wake)).filter(|t| t.is_finite())
+            Some(self.out.repaint_at.unwrap_or(f64::INFINITY).min(self.wake).min(self.touches.wake)).filter(|t| t.is_finite())
         }
     }
 
@@ -3011,10 +3023,10 @@ impl Ui {
 
     fn next_repaint(&self, now: f64) -> Option<f64> {
         if self.frame_requested || self.keyboard.flags & pxui_types::Keyboard::ANIMATING != 0
-            || self.active.is_some() || self.tweens.iter().any(|t| t.keys == NO_KEYS || self.tween_visible(t)) || !self.moving.is_empty() {
+            || self.active.is_some() || self.tweens.iter().any(|t| t.keys == NO_KEYS || self.tween_visible(t)) || !self.moving.is_empty() || !self.gsettle.is_empty() {
             return Some(now);
         }
-        let wake = self.views.iter().skip(1).fold(self.wake, |w, r| w.min(r.wake));
+        let wake = self.views.iter().skip(1).fold(self.wake.min(self.touches.wake), |w, r| w.min(r.wake));
         let hover = match &self.hover_rest {
             Some((_, _, start, seen)) if *seen == self.frame_number && now - start < HOVER_SECONDS => start + HOVER_SECONDS,
             _ => f64::INFINITY,
@@ -4117,7 +4129,8 @@ impl Ui {
         let next = *self.offset_mut(ax, slot) as f64 + old - delta;
         let bounded = 0.0f64.max(max_scroll.min(next));
         let over = next - bounded;
-        let raw = if max_scroll <= 0.0 || over == 0.0 { 0.0 } else { old + (over - old) * past };
+        let stretch = max_scroll > 0.0 || (ax == 0 && self.gestures[slot].kinds & gesture::REFRESH != 0);
+        let raw = if !stretch || over == 0.0 { 0.0 } else { old + (over - old) * past };
         *self.offset_mut(ax, slot) = bounded as f32;
         self.glides[ax][slot].raw = raw;
         self.glides[ax][slot].visual = scroll_stretch(raw, extent);
@@ -4224,6 +4237,12 @@ impl Ui {
         if lift {
             if self.glides[ax][slot].visual != 0.0 {
                 self.glides[ax][slot].event_time = f64::NEG_INFINITY;
+                let g = &self.gestures[slot];
+                if ax == 0 && g.kinds & gesture::REFRESH != 0 && !g.refreshing && -self.glides[0][slot].visual >= f64::from(g.threshold_or_default()) {
+                    self.gestures[slot].refreshing = true;
+                    // read by the next frame: layout runs after this frame's build
+                    self.gpulse(slot, gesture::REFRESH_FIRED, self.frame_number + 1);
+                }
             } else if max_scroll > 0.0 && release.abs() >= minimum {
                 let from = *self.offset_mut(ax, slot) as f64;
                 let g = &mut self.glides[ax][slot];
@@ -4263,6 +4282,7 @@ impl Ui {
                     }
                 }
             }
+            let hold = if ax == 0 { self.gestures[slot].hold() } else { 0.0 };
             let g = &mut self.glides[ax][slot];
             if g.mode == 2 {
                 let t = 0.0f64.max(time - g.start);
@@ -4275,8 +4295,12 @@ impl Ui {
                 g.raw = scroll_travel(g.visual, extent);
             } else if g.visual != 0.0 && time - g.event_time > 0.08 {
                 let dt = 0.0f64.max(time - g.frame_time);
-                let visual = g.visual * (-dt / SCROLL_SPRING_TAU).exp();
-                g.visual = if visual.abs() < 0.25 { 0.0 } else { visual };
+                let visual = hold + (g.visual - hold) * (-dt / SCROLL_SPRING_TAU).exp();
+                g.visual = if (visual - hold).abs() < 0.25 { hold } else { visual };
+                // resting at a refresh hold is a stationary stretch: no more frames
+                if hold != 0.0 && g.visual == hold {
+                    g.event_time = f64::INFINITY;
+                }
                 g.raw = scroll_travel(g.visual, extent);
             }
         }
@@ -5516,7 +5540,8 @@ impl Ui {
         let view = self.boxes[index].view;
         let visible = visible || (view != NO_VIEW && w > 0.0 && h > 0.0);
         let flags = self.nd(index).flags;
-        let has_hit = flags & HIT_FLAGS != 0 && hw > 0.0 && hh > 0.0;
+        // a gesture node is findable by touch arbitration without being interactive itself
+        let has_hit = (flags & HIT_FLAGS != 0 || self.gestures[slot].kinds != 0) && hw > 0.0 && hh > 0.0;
         if has_hit {
             self.record_hit(index, parent_hit, clipped_hit);
         }
