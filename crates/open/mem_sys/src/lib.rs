@@ -1,3 +1,6 @@
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+pub mod profile;
+
 #[cfg(windows)]
 pub mod windows_process;
 

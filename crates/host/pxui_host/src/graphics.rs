@@ -80,9 +80,8 @@ impl Graphics {
     pub fn resident_image_bytes(&self) -> usize {
         self.images.resident_bytes()
     }
-    /// Native-resource inspection for GPU integration checks; applications draw the image descriptors.
-    #[doc(hidden)]
-    pub fn image_texture(&self, id: usize) -> Option<&be::Texture> {
+    #[cfg(test)]
+    pub(crate) fn image_texture(&self, id: usize) -> Option<&be::Texture> {
         self.images.texture(id)
     }
 

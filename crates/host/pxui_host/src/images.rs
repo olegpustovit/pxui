@@ -55,7 +55,8 @@ impl ImageCache {
     pub fn resident_bytes(&self) -> usize {
         self.bytes
     }
-    pub fn texture(&self, id: usize) -> Option<&be::Texture> {
+    #[cfg(test)]
+    pub(crate) fn texture(&self, id: usize) -> Option<&be::Texture> {
         self.descriptors
             .index(id)
             .and_then(|index| self.textures[index].as_ref())

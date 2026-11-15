@@ -125,7 +125,7 @@ void rays_sdl3_preferences_release(void *raw) {
 }
 
 #ifdef RAYS_SDL3_TEST_UTIL
-// These objects affect only this test process, never global preferences or another LocalWave instance.
+// These objects affect only this test process, never global preferences or another application instance.
 @interface LWTestWorkspace : NSObject
 @property BOOL accessibilityDisplayShouldReduceMotion;
 @property(strong) NSNotificationCenter *notificationCenter;

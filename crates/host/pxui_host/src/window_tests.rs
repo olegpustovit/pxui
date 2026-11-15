@@ -11,7 +11,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     use pxui::images::{Key, Path};
     use pxui::ui::{Fit, Node, Rgba, Size};
     use pxui::{FrameIn, Ui};
-    use pxui_host::{Graphics, Window};
+    use crate::{Graphics, Window};
     mem_sys::set_peer(pxui::library_counter);
     let mut window =
         Window::open_with("PXUI resource lifecycle", 320, 240, false, true, true).unwrap();
@@ -25,7 +25,8 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
         path: Path::new("memory:rgba").unwrap(),
         max_pixels: 64,
     };
-    let pixels = [255, 0, 0, 255, 0, 128, 255, 128];
+    let mut pixels: [u8; 8*4*4] = std::array::from_fn(|index| index as u8);
+    pixels[3] = 255;
     assert!(
         graphics
             .upload_image(Key::default(), epoch, 1, None)
@@ -45,20 +46,28 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     }
     assert!(
         graphics
-            .upload_image(key, epoch, 1, Some((2, 1, &pixels)))
+            .upload_image(key, epoch, 1, Some((8, 4, &pixels)))
             .unwrap()
     );
     let texture = graphics.image_texture(1).unwrap().clone();
-    assert_eq!(
-        ogpu_core::backend::read_texture(&texture, 8).unwrap(),
-        pixels
-    );
-    assert_eq!(graphics.resident_image_bytes(), pixels.len());
+    for id in 2..=8 {
+        let mut delivered = pixels;
+        delivered[0] = id as u8;
+        assert!(graphics.upload_image(Key {id,..key},epoch,id as u64,Some((8,4,&delivered))).unwrap());
+    }
+    // Read the entire batch after every upload, so aliasing the last source cannot pass.
+    for id in 1..=8 {
+        let mut expected = pixels;
+        if id > 1 {expected[0] = id as u8;}
+        let texture = graphics.image_texture(id).unwrap();
+        assert_eq!(ogpu_core::backend::read_texture(texture,8*4).unwrap(),expected);
+    }
+    assert_eq!(graphics.resident_image_bytes(),8*pixels.len());
     for frame in 0..32 {
         mem_sys::local_reset();
         assert!(
             !graphics
-                .upload_image(key, epoch, 1, Some((2, 1, &pixels)))
+                .upload_image(key, epoch, 1, Some((8, 4, &pixels)))
                 .unwrap()
         );
         ui.frame(
@@ -114,12 +123,10 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
         !ogpu_core::backend::texture_destroyed(&texture),
         "in-flight images must survive namespace changes"
     );
-    assert!(
-        !graphics
-            .upload_image(key, epoch, 2, Some((2, 1, &pixels)))
-            .unwrap(),
-        "old epochs cannot resurrect images"
-    );
+    for id in 1..=8 {
+        assert!(!graphics.upload_image(Key {id,..key},epoch,id as u64,Some((8,4,&pixels))).unwrap(),"old epochs cannot resurrect images");
+        assert!(graphics.images().quality(id).is_none());
+    }
     for frame in 0..3 {
         ui.frame(
             &FrameIn {
@@ -143,7 +150,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
 
 #[cfg(target_os = "macos")]
 fn framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums() {
-    use pxui_host::{Chrome, Window};
+    use crate::{Chrome, Window};
     let mut window = Window::open_with("PXUI window chrome", 800, 600, false, true, true).unwrap();
     window.set_resizable(true).unwrap();
     for minimum in [
@@ -180,12 +187,12 @@ fn framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_inv
 #[cfg(target_os = "macos")]
 fn framework_host_constructor_refusals_release_devices_and_queues() {
     let mut window =
-        pxui_host::Window::open_with("PXUI refused host", 320, 240, false, true, true).unwrap();
+        crate::Window::open_with("PXUI refused host", 320, 240, false, true, true).unwrap();
     window.destroy().unwrap();
     let ui = pxui::Ui::new().unwrap();
     let before = ogpu_metal::impl_::live_handles();
     for _ in 0..3 {
-        assert!(pxui_host::Graphics::open(&mut window, &ui).is_err());
+        assert!(crate::Graphics::open(&mut window, &ui).is_err());
     }
     assert_eq!(
         ogpu_metal::impl_::live_handles(),
@@ -198,8 +205,8 @@ fn framework_host_constructor_refusals_release_devices_and_queues() {
 fn framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows() {
     use pxui::{Event, FrameIn, Ui};
     mem_sys::set_peer(pxui::library_counter);
-    let mut window = pxui_host::Window::open_with("PXUI platform output", 320, 240, false, true, true).unwrap();
-    let mut platform = pxui_host::Platform::default();
+    let mut window = crate::Window::open_with("PXUI platform output", 320, 240, false, true, true).unwrap();
+    let mut platform = crate::Platform::default();
     let mut ui = Ui::new().unwrap();
     let mut build = |ui: &mut Ui| { assert!(ui.text_field("Caption", "café track 10").is_none()); };
     let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
@@ -222,14 +229,17 @@ fn framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_wi
 }
 
 #[cfg(target_os = "macos")]
-fn main() {
+pub(crate) fn main() {
     harness::run(&[
-        ("framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows",framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows),
-        ("framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release",framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release),
-        ("framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums",framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums),
-        ("framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
+        ("encoded_input_owns_text_and_reuses_dialog_and_numeric_storage",crate::events::tests::encoded_input_owns_text_and_reuses_dialog_and_numeric_storage),
+        ("first_resume_batch_reuses_the_cold_event_reserve",crate::events::tests::first_resume_batch_reuses_the_cold_event_reserve),
+        ("touch_payload_growth_owns_full_identities_and_reuses_warm_storage",crate::events::tests::touch_payload_growth_owns_full_identities_and_reuses_warm_storage),
+        ("window_framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows",framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_windows),
+        ("window_framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release",framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release),
+        ("window_framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums",framework_window_chrome_preserves_resize_zoom_and_rejects_dead_layers_and_invalid_minimums),
+        ("window_framework_host_constructor_refusals_release_devices_and_queues",framework_host_constructor_refusals_release_devices_and_queues),
     ]);
 }
 
 #[cfg(not(target_os = "macos"))]
-fn main() {}
+pub(crate) fn main() {}

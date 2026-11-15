@@ -8,6 +8,27 @@ use std::panic::{catch_unwind, AssertUnwindSafe};
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 #[test]
+fn framework_hash_preserves_caller_identities_borrows_once_and_allocates_nothing() {
+    use std::hash::{Hash,Hasher};
+    use crate::geom::hash::FastHasher;
+    for text in ["", "café", "a longer library identity with more than eight bytes"] {
+        let value=(42u64,true,Some(text));
+        let mut old=FastHasher::default();
+        value.hash(&mut old);
+        let expected=old.finish();
+        let mut calls=0;
+        assert_eq!(crate::hash!({calls+=1;value}),expected);
+        assert_eq!(calls,1);
+        let owned=text.to_owned();
+        assert_eq!(crate::hash!(&owned),crate::hash!(&text));
+        assert_eq!(owned,text,"the expression stays borrowed");
+        mem_sys::local_reset();
+        for _ in 0..100 {assert_eq!(crate::hash!(value),expected);}
+        assert_eq!(mem_sys::local_alloc_count(),0);
+    }
+}
+
+#[test]
 fn completed_file_drop_events_preserve_paths_positions_errors_and_empty_warm_storage() {
     use crate::{Event,Str};
     mem_sys::set_peer(crate::library_counter);

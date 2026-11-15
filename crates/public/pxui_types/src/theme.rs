@@ -726,7 +726,7 @@ impl Curve {
             }
             Curve::Steps { duration, count } => {
                 if !(t < duration) || !(duration > 0.0) || count == 0 { return 1.0; }
-                // Matches LocalWave's tolerance for Date subtraction at scheduled boundaries.
+                // Allow a small float-boundary epsilon when sampling scheduled steps.
                 (((t as f64 + 1.0e-6) / duration as f64 * count as f64).floor() / count as f64).clamp(0.0, 1.0) as f32
             }
         }

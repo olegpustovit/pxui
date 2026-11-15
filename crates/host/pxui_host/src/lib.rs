@@ -17,3 +17,8 @@ mod graphics;
 mod images;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub use graphics::Graphics;
+
+#[cfg(test)]
+mod window_tests;
+#[cfg(test)]
+fn main() { window_tests::main(); }

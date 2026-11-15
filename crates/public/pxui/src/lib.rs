@@ -661,3 +661,14 @@ fn lent_string(value: Str) -> String { lent_str(value).to_owned() }
 
 #[inline]
 fn status(rc:i32)->Result<(),i32>{ if rc==0 { Ok(()) } else { Err(rc) } }
+
+/// Hash a transient UI revision or identity using the framework's deterministic fast hash.
+/// This is not a DoS-resistant map hash; the expression is evaluated once and borrowed.
+#[macro_export]
+macro_rules! hash {
+    ($value:expr) => {{
+        let mut state = $crate::geom::hash::FastHasher::default();
+        ::std::hash::Hash::hash(&$value, &mut state);
+        ::std::hash::Hasher::finish(&state)
+    }};
+}

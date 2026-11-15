@@ -4,6 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[lib]
+harness = false
+
 [features]
 static = ["pxui/static"]
 
@@ -20,8 +23,3 @@ metal_sys = { path = "../../open/metal_sys" }
 
 [lints]
 workspace = true
-
-[[test]]
-name = "window_pxui_host"
-path = "tests/window_pxui_host.rs"
-harness = false

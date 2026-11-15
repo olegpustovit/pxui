@@ -77,12 +77,11 @@ impl Events {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::Events;
     use input::{Event, Key, MouseButton};
 
-    #[test]
-    fn encoded_input_owns_text_and_reuses_dialog_and_numeric_storage() {
+    pub(crate) fn encoded_input_owns_text_and_reuses_dialog_and_numeric_storage() {
         let source = vec![
             Event::KeyPressed(Key::Meta),
             Event::PointerPressed(MouseButton::LeftButton, (7.5, 12.0)),
@@ -138,8 +137,7 @@ mod tests {
             }
         }
     }
-    #[test]
-    fn first_resume_batch_reuses_the_cold_event_reserve() {
+    pub(crate) fn first_resume_batch_reuses_the_cold_event_reserve() {
         let source = [
             Event::VisibilityChanged(false),
             Event::FocusLost,
@@ -160,8 +158,7 @@ mod tests {
             "first native resume batch must not grow the encoder"
         );
     }
-    #[test]
-    fn touch_payload_growth_owns_full_identities_and_reuses_warm_storage() {
+    pub(crate) fn touch_payload_growth_owns_full_identities_and_reuses_warm_storage() {
         let mut source = Vec::new();
         for finger in 0..32 {
             source.push(Event::Touch(input::Touch {

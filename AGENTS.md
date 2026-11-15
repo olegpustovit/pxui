@@ -439,3 +439,13 @@ preceded it, so application account capture cannot drift. A new Begin cancels an
 Keep application import policy outside the host. Preserve two-pump native delivery, one-shot
 consumption, invalid UTF-8/code/position refusal, and zero warm empty/hover/cancel Rust allocations.
 Owned successful/error payloads remain cold allocation paths; never drop events to meet the gate.
+
+
+Generic Apple profiling belongs to mem_sys::profile: thread CPU time, initial-thread-only QoS and
+RAII Instruments intervals. Keep its native C symbols/log namespace generic and keep QoS changes
+after worker creation in consumers. Preserve error handling, monotonic clock and zero-warm-Rust
+allocation checks. Apps must not depend on GPU crates even for tests. Texture inspection is
+crate-private/test-only in pxui_host; its internal main-thread harness retains full-batch native
+pixel/replay, warm draw and GPU-completion assertions. Prefix native cases with window_ so cargo t
+serializes them even in a library test target. Public hash! owns transient revision hashing while
+callers supply facts; preserve existing hash values and evaluate/borrow the input exactly once.

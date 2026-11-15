@@ -265,3 +265,16 @@ application context immediately. A new native Begin cancels an abandoned set. Th
 a whole set above 1,000,000 files or 64 MiB of path text, or with empty/NUL-containing paths.
 Apps retain their own path and import-policy validation. Actual file payloads allocate; warm
 empty/hover/cancel pumps reuse storage. Legacy single-file wire events remain available.
+
+
+`hash!(value)` derives transient UI identities/revisions using the framework's existing fast hash,
+evaluating the expression once and borrowing it. Applications supply the facts, rather than
+constructing hashers. Values remain identical to the previous FastHasher calls; this is not a
+DoS-resistant map hash. It adds no C ABI surface.
+
+Apple profiling helpers live in `mem_sys::profile`: `thread_cpu_time_ns`, initial-thread-only
+`ui_thread_priority` and the RAII `FrameInterval` for optional Instruments intervals. The log
+subsystem is `org.pxui.profile`, with the existing `UI build` frame/wall/CPU/QoS fields. Warm Rust
+counters cover these calls; native allocations and scheduling still require separate evidence.
+Native texture inspection is test-only and crate-private. The host's main-thread test executable
+builds inside the library, retaining pixel, full-batch replay and GPU-completion lifetime checks.
