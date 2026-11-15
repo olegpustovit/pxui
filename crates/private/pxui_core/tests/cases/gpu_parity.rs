@@ -431,7 +431,49 @@ fn gpu_focused_text_field_ime_pixels() {
     }
 }
 
+/// Plain-node loops follow their kept owner, including clipping and opacity, without rebuilding.
+fn gpu_plain_keyframe_cached_owner_visibility() {
+    if !gpu::available() { return; }
+    for density in [1, 2] {
+        let mut ui = Ui::create(Platform::Apple, None, crate::support::golden_text());
+        let mut painter = gpu::painter(&mut ui);
+        let builds = std::cell::Cell::new(0);
+        for tick in 0..18 {
+            let (offset, opacity) = [(-30.0, 1.0), (0.0, 1.0), (30.0, 1.0), (60.0, 1.0), (0.0, 0.0), (0.0, 1.0)][tick % 6];
+            let frame = frame_at(tick as i64, 80, density);
+            mem_sys::local_reset();
+            ui.frame(&frame, &mut |ui| {
+                let clip = ui.node("clip", Node { flags: CLIP, w: Size::Px(100.0), h: Size::Px(40.0), at: Some((10.0, 10.0)).into(), ..Node::DEFAULT });
+                ui.within(&clip, &mut |ui| {
+                    let cached = ui.view("cached", 1, Size::Grow, Size::Px(20.0), &mut |ui| {
+                        builds.set(builds.get() + 1);
+                        let fill = ui.node("fill", Node { w: Size::Grow, h: Size::Grow, look: Look { fill: pxui_core::geom::color::rgb(220, 20, 20), ..Look::NONE }, ..Node::DEFAULT });
+                        let curve = Curve::Bezier { duration: 1.0, points: [0.0, 0.0, 1.0, 1.0] };
+                        ui.animate_keys_repeat(&fill, &[(0.0, Target::Opacity(1.0), curve), (1.0, Target::Opacity(1.0), curve)], 0, false, 0.0);
+                    });
+                    ui.node_mut(&cached).at = Some((0.0, offset)).into();
+                    ui.view_opacity(&cached, opacity);
+                });
+            });
+            if tick >= 6 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm loop visibility at {density}x, tick {tick}"); }
+            assert_eq!(ui.wants_frame(&[], tick as f64 / 60.0), opacity > 0.0 && offset > -20.0 && offset < 40.0, "cached child loop visibility at tick {tick}");
+            let pixels = gpu::render_with(&mut painter, &mut ui, (WIDTH as u32, 80), density as u32, [228, 139, 161, 255]);
+            for y in 0..80 * density as usize {
+                for x in 0..WIDTH as usize * density as usize {
+                    let (lx, ly) = ((x as f32 + 0.5) / density as f32, (y as f32 + 0.5) / density as f32);
+                    let inside = opacity > 0.0 && (10.0..110.0).contains(&lx) && (10.0..50.0).contains(&ly) && (10.0 + offset..30.0 + offset).contains(&ly);
+                    let at = (y * WIDTH as usize * density as usize + x) * 4;
+                    assert_eq!(&pixels[at..at + 4], if inside { &[220, 20, 20, 255] } else { &[228, 139, 161, 255] }, "density={density}, tick={tick}, pixel=({x},{y})");
+                }
+            }
+        }
+        assert_eq!(builds.get(), 1, "cached child animation must not rebuild its body");
+        ui.destroy();
+    }
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("gpu_plain_keyframe_cached_owner_visibility", gpu_plain_keyframe_cached_owner_visibility),
     ("gpu_focused_text_field_ime_pixels", gpu_focused_text_field_ime_pixels),
     ("gpu_widgets_draw_calls", gpu_widgets_draw_calls),
     ("gpu_round_clip", gpu_round_clip),

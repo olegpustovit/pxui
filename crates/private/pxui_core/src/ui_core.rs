@@ -6340,10 +6340,12 @@ impl Ui {
 
     fn tween_visible(&self, tween: &Tween) -> bool {
         let slot = &self.slots[tween.slot];
-        if slot.view == NO_VIEW { return slot.painted == self.frame_number; }
-        let view = &self.views[slot.view as usize];
-        if !self.shown(slot.view) || view.screen.w <= 0.0 || view.screen.h <= 0.0 { return false; }
-        let mut v = slot.view;
+        // A kept child's instances stay live without being painted again.
+        if slot.view == NO_VIEW && !self.range_valid(tween.slot) { return false; }
+        let mut v = if slot.view == NO_VIEW { slot.owner } else { slot.view };
+        if v == 0 { return true; }
+        let view = &self.views[v as usize];
+        if !self.shown(v) || view.screen.w <= 0.0 || view.screen.h <= 0.0 { return false; }
         while v != 0 {
             if self.views[v as usize].opacity == 0.0 { return false; }
             v = self.views[v as usize].parent;
