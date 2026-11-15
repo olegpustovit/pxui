@@ -645,3 +645,46 @@ fn selection_streams_caret_ranges_across_bidi_ligatures_crlf_and_wrapping_withou
         assert_eq!(mem_sys::local_alloc_count(), 0);
     }
 }
+
+fn apple_glyphs(apple: bool, origin: (f32, f32), size: f32, walk: bool) -> (Vec<Glyph>, Vec<u8>) {
+    let mut t = Text::new(&[&pragma()]);
+    t.set_apple_raster(apple);
+    t.set_glyph_cache(!walk);
+    let st = Style { size, ..Style::default() };
+    t.layout(1, "Hamburg ilfo", &st, f32::INFINITY);
+    let mut v = Vec::new();
+    // the first call walks; a second at the same origin replays the kept list when caching is on
+    t.glyphs(1, origin, 2.0, &mut |_| {});
+    t.glyphs(1, origin, 2.0, &mut |g| v.push(g));
+    (v, t.atlas_pixels(AtlasKind::Mask).to_vec())
+}
+
+#[test]
+fn apple_raster_is_dilated_quantised_and_replays_like_a_walk() {
+    // 13 pt at 2x is 26 ppem: halves of a pixel in x, whole pixels in y, masks one texel larger a side
+    let (apple, apple_px) = apple_glyphs(true, (0.3, 0.2), 13.0, false);
+    let (other, other_px) = apple_glyphs(false, (0.3, 0.2), 13.0, false);
+    assert_eq!(apple.len(), other.len());
+    assert_ne!(apple_px, other_px, "Apple masks differ from the cosmic-text ones");
+    assert!(apple.iter().zip(&other).any(|(a, o)| a.rect.w > o.rect.w), "dilation pads the masks");
+    assert!(apple.iter().all(|g| g.rect.y.fract() == 0.0 && g.rect.x.fract() == 0.0));
+    let (walked, _) = apple_glyphs(true, (0.3, 0.2), 13.0, true);
+    assert_eq!(apple, walked, "replay and walk agree");
+    // other platforms keep the same pixels as before: unhinted-off, quarter bins, truncated y
+    let (a, _) = apple_glyphs(false, (0.0, 0.0), 13.0, false);
+    assert!(a.iter().all(|g| g.rect.w > 0.0));
+}
+
+#[test]
+fn apple_raster_warm_frame_allocates_nothing() {
+    let mut t = Text::new(&[&pragma()]);
+    t.set_apple_raster(true);
+    let st = Style { size: 13.0, ..Style::default() };
+    t.layout(1, "Warm frame text", &st, f32::INFINITY);
+    t.glyphs(1, (1.3, 2.7), 2.0, &mut |_| {});
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    t.glyphs(1, (1.3, 2.7), 2.0, &mut |_| {});
+    t.glyphs(1, (5.9, 2.7), 2.0, &mut |_| {});
+    assert_eq!(mem_sys::local_alloc_count() - before, 0);
+}

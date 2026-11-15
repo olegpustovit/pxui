@@ -1193,7 +1193,8 @@ impl Ui {
     /// `platform` is the host's modifier conventions: the text keys and every Command check follow
     /// it. `text` holds the fonts the host loaded: font 0 is the kit face (`pxui_text::PRAGMASEVKA`
     /// in the default theme); `font_size` is the logical size of kit text.
-    pub fn create(platform: Platform, font_size: Option<i64>, text: Text) -> Ui {
+    pub fn create(platform: Platform, font_size: Option<i64>, mut text: Text) -> Ui {
+        text.set_apple_raster(platform == Platform::Apple);
         let font_size = font_size.unwrap_or(theme::FONT_SIZE);
         if font_size <= 0 {
             panic!("Ui.create: font_size must be positive");
