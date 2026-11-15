@@ -442,10 +442,10 @@ fn widgets_scroll_view_rtl() {
     }
     let (v, r) = (ui.rect(&view.get().unwrap()), ui.rect(&row.get().unwrap()));
     check((r.x + r.w - (v.x + v.w - 1.0)).abs() < 0.01, &format!("the content ends at the view's right edge: {r:?} in {v:?}"));
-    // the text: the only mask instances, ending 8 points from the row's right edge (Apple masks carry a one-texel dilation ring)
+    // the text: the only mask instances, ending 8 points from the row's right edge
     let glyphs: Vec<_> = ui.output().draw.iter().flat_map(|l| l.instances.iter()).filter(|i| i.kind == pxui_core::draw::kind::MASK).map(|i| i.rect).collect();
     let right = glyphs.iter().map(|g| g[2]).fold(f32::MIN, f32::max);
-    check(!glyphs.is_empty() && right <= v.x + v.w - 1.0 - 8.0 + 1.5 && right > v.x + v.w - 40.0, &format!("the text sits at the start inset from the right: {right} in {v:?}"));
+    check(!glyphs.is_empty() && right <= v.x + v.w - 1.0 - 8.0 + 0.5 && right > v.x + v.w - 40.0, &format!("the text sits at the start inset from the right: {right} in {v:?}"));
     let p = ((v.x + 50.0) as i64, (v.y + 20.0) as i64);
     ui.frame(&at(1.0, vec![move_to(p)]), &mut build);
     for t in 0..10 {

@@ -515,8 +515,8 @@ impl Glyphs {
         let (mut left, mut top) = (img.placement.left, img.placement.top);
         let mut dilated = false;
         if self.apple && img.content == SwashContent::Mask && w > 0 && h > 0 && img.data.len() == (w * h) as usize {
-            dilate(&img.data, w, h, 0.006 * f32::from_bits(key.font_size_bits), &mut self.scratch);
-            (w, h, left, top, dilated) = (w + 2, h + 2, left - 1, top + 1, true);
+            let (x0, y0, nw, nh) = dilate(&img.data, w, h, 0.006 * f32::from_bits(key.font_size_bits), &mut self.scratch);
+            (w, h, left, top, dilated) = (nw, nh, left - 1 + x0 as i32, top + 1 - y0 as i32, true);
         }
         let data: &[u8] = if dilated { &self.scratch } else { &img.data };
         let primary = match img.content {
@@ -630,18 +630,41 @@ fn apple_x(ppem: f32, pos: f32) -> (i32, SubpixelBin) {
 }
 
 /// CoreText's stem growth, applied to a coverage mask: a round dilation by `d` pixels shifted up by
-/// `d` is `c + d (|grad c| + dc/dy)` at an edge. `out` is the mask padded by one pixel all round.
-fn dilate(src: &[u8], w: u32, h: u32, d: f32, out: &mut Vec<u8>) {
+/// `d` is `c + d (|grad c| + dc/dy)` at an edge (empty pixels fill only where the edge crosses in). `out` gets the mask grown by one pixel all round,
+/// then trimmed of empty rows and columns; returns the trim's offset into the grown mask and its size.
+fn dilate(src: &[u8], w: u32, h: u32, d: f32, out: &mut Vec<u8>) -> (u32, u32, u32, u32) {
     let (w, h) = (w as i32, h as i32);
     let at = |x: i32, y: i32| if x < 0 || y < 0 || x >= w || y >= h { 0.0 } else { src[(y * w + x) as usize] as f32 };
     out.clear();
+    let (mut x0, mut y0, mut x1, mut y1) = (i32::MAX, i32::MAX, -1, -1);
     for y in -1..=h {
         for x in -1..=w {
             let gx = (at(x + 1, y) - at(x - 1, y)) * 0.5;
             let gy = (at(x, y + 1) - at(x, y - 1)) * 0.5;
-            out.push((at(x, y) + d * (gx.hypot(gy) + gy)).clamp(0.0, 255.0).round() as u8);
+            let c = at(x, y);
+            // an empty pixel only fills where the grown edge crosses into it (the top edge grows 2d)
+            let grown = if c > 0.0 { c + d * (gx.hypot(gy) + gy) } else {
+                let side = at(x - 1, y).max(at(x + 1, y)) / 255.0 + d - 1.0;
+                255.0 * side.max(at(x, y + 1) / 255.0 + 2.0 * d - 1.0).max(0.0)
+            };
+            let v = grown.clamp(0.0, 255.0).round() as u8;
+            if v > 0 {
+                (x0, y0, x1, y1) = (x0.min(x + 1), y0.min(y + 1), x1.max(x + 1), y1.max(y + 1));
+            }
+            out.push(v);
         }
     }
+    if x1 < 0 {
+        out.clear();
+        return (0, 0, 0, 0);
+    }
+    let (pw, nw, nh) = (w + 2, x1 - x0 + 1, y1 - y0 + 1);
+    for r in 0..nh {
+        let from = ((y0 + r) * pw + x0) as usize;
+        out.copy_within(from..from + nw as usize, (r * nw) as usize);
+    }
+    out.truncate((nw * nh) as usize);
+    (x0 as u32, y0 as u32, nw as u32, nh as u32)
 }
 
 struct Entry {
