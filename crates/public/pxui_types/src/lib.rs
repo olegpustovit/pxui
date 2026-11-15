@@ -459,13 +459,13 @@ mod abi_layout {
         assert_layout("PxuiSize", size_of::<Size>(), align_of::<Size>(), &[]);
         assert_layout("PxuiTrack", size_of::<Track>(), align_of::<Track>(), &[]);
         assert_layout("PxuiMark", size_of::<Mark>(), align_of::<Mark>(), &[]);
-        assert_layout("PxuiCurve", size_of::<Curve>(), align_of::<Curve>(), &[]);
+        assert_layout("PxuiTransition", size_of::<Transition>(), align_of::<Transition>(), &[]);
         assert_layout("PxuiOptAlign", size_of::<OptAlign>(), align_of::<OptAlign>(), &[]);
         assert_layout("PxuiOptGrid", size_of::<OptGrid>(), align_of::<OptGrid>(), &[]);
         assert_layout("PxuiOptAnchor", size_of::<OptAnchor>(), align_of::<OptAnchor>(), &[]);
         assert_layout("PxuiOptPoint", size_of::<OptPoint>(), align_of::<OptPoint>(), &[]);
         assert_layout("PxuiOptBar", size_of::<OptBar>(), align_of::<OptBar>(), &[]);
-        assert_layout("PxuiOptCurve", size_of::<OptCurve>(), align_of::<OptCurve>(), &[]);
+        assert_layout("PxuiOptTransition", size_of::<OptTransition>(), align_of::<OptTransition>(), &[]);
         assert_layout("PxuiOptColor", size_of::<OptColor>(), align_of::<OptColor>(), &[]);
         assert_layout("PxuiGrid", size_of::<Grid>(), align_of::<Grid>(), &[]);
         assert_layout("PxuiCell", size_of::<Cell>(), align_of::<Cell>(), &[offset_of!(Cell, col), offset_of!(Cell, row), offset_of!(Cell, col_span), offset_of!(Cell, row_span)]);

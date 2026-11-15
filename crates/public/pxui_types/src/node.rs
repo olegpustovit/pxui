@@ -27,7 +27,23 @@ opt!(/** `Option<Grid>` */ OptGrid(Grid) Grid, |v| v, |v| Self::Some(v));
 opt!(/** `Option<Anchor>` */ OptAnchor(Anchor) Anchor, |v| v, |v| Self::Some(v));
 opt!(/** `Option<(f32, f32)>`: a point */ OptPoint(f32, f32) (f32, f32), |x, y| (x, y), |v| Self::Some(v.0, v.1));
 opt!(/** `Option<Bar>` */ OptBar(Bar) Bar, |v| v, |v| Self::Some(v));
-opt!(/** `Option<Curve>` */ OptCurve(Curve) Curve, |v| v, |v| Self::Some(v));
+/// The transition a node carries from `set_look` to its paint: a Bezier or a spring. A sampled table is 128 bytes, and kept
+/// inline it made every `Node` copy 112 bytes longer, so `Ui::animate` and keyframes take tables and a node does not.
+#[repr(C, u8)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Transition { Bezier { duration: f32, points: [f32; 4] }, Spring { omega: f32 } }
+impl Transition {
+    /// `None` for a table or steps, which a node does not carry.
+    pub fn of(curve: Curve) -> Option<Self> {
+        match curve { Curve::Bezier { duration, points } => Some(Self::Bezier { duration, points }), Curve::Spring { omega } => Some(Self::Spring { omega }), _ => None }
+    }
+    pub fn curve(self) -> Curve {
+        match self { Self::Bezier { duration, points } => Curve::Bezier { duration, points }, Self::Spring { omega } => Curve::Spring { omega } }
+    }
+    /// Valid finite parameters, as `Curve::valid`. Checked at the ABI boundary.
+    pub fn valid(&self) -> bool { self.curve().valid() }
+}
+opt!(/** `Option<Transition>` */ OptTransition(Transition) Transition, |v| v, |v| Self::Some(v));
 opt!(/** `Option<Color>` */ OptColor(Color) Color, |v| v, |v| Self::Some(v));
 
 #[repr(u8)]
@@ -131,7 +147,7 @@ pub struct Node {
     pub mark: Mark,
     pub bar: OptBar,
     /// the transition `set_look` picked for a change of state, started when the node is painted
-    pub transition: OptCurve,
+    pub transition: OptTransition,
 }
 
 impl Node {
@@ -180,6 +196,6 @@ impl Node {
             disabled: false,
             checked: false,
         },
-        transition: OptCurve::None,
+        transition: OptTransition::None,
     };
 }

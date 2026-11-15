@@ -60,6 +60,7 @@ pub use pxui_types::ui::{
     KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
 };
 pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
+use pxui_types::node::Transition;
 use crate::bodies::{in_body, BodyTable, TipConfig};
 /// Sentinel for no box in parent, child and sibling indices.
 pub const NONE: usize = usize::MAX;
@@ -3275,7 +3276,7 @@ impl Ui {
             let s = &self.slots[b.box_slot];
             // a node shown last frame in another state moves to this look over the theme's transition
             let transition = if self.motion && s.seen_state != state && self.range_valid(b.box_slot) {
-                Some(self.theme().tokens.transition(s.seen_state, state)).filter(|c| !c.instant())
+                Some(self.theme().tokens.transition(s.seen_state, state)).filter(|c| !c.instant()).and_then(Transition::of)
             } else {
                 None
             };
@@ -5470,7 +5471,7 @@ impl Ui {
         let s = &self.slots[slot];
         let swap = self.swap_frame == self.frame_number && s.painted >= 0 && s.seen != s.node.look;
         let swap = swap.then(|| Curve::Bezier { duration: self.theme.tokens.motion.normal, points: self.theme.tokens.motion.ease });
-        if let Some(curve) = core::mem::take(&mut self.slots[slot].node.transition).get().or(swap).filter(|_|!self.system_reduced_motion) {
+        if let Some(curve) = core::mem::take(&mut self.slots[slot].node.transition).get().map(Transition::curve).or(swap).filter(|_|!self.system_reduced_motion) {
             let from = match self.tween_of(slot) {
                 Some(_) => self.pose(slot).0,
                 None => Pose { look: self.slots[slot].seen, ..self.rest(slot) },

@@ -81,14 +81,14 @@ typedef struct { uint16_t col,row,col_span,row_span; } PxuiCell;
 typedef struct { uint8_t side,align; float gap,margin; uint8_t flip; } PxuiPlacement;
 typedef struct { PxuiRect rect; PxuiPlacement placement; } PxuiAnchor;
 typedef struct { uint8_t kind; union { uint8_t direction; struct { float width; uint8_t rising; } line; } u; } PxuiMark; /* enum PxuiMarkKind */
-typedef struct { uint8_t kind; union { struct { float duration,points[4]; } bezier; float omega; struct { float duration; uint32_t count; float positions[16],values[16]; } table; struct { float duration; uint32_t count; } steps; } u; } PxuiCurve; /* 0 bezier, 1 spring, 2 table, 3 steps */
+typedef struct { uint8_t kind; union { struct { float duration,points[4]; } bezier; float omega; } u; } PxuiTransition; /* 0 bezier, 1 spring */
 typedef struct { PxuiColor color; float radius,width,gap,margin; uint8_t whole; } PxuiBar;
 typedef struct { uint8_t has; uint8_t value; } PxuiOptAlign;
 typedef struct { uint8_t has; PxuiGrid value; } PxuiOptGrid;
 typedef struct { uint8_t has; PxuiAnchor value; } PxuiOptAnchor;
 typedef struct { uint8_t has; float x,y; } PxuiOptPoint;
 typedef struct { uint8_t has; PxuiBar value; } PxuiOptBar;
-typedef struct { uint8_t has; PxuiCurve value; } PxuiOptCurve;
+typedef struct { uint8_t has; PxuiTransition value; } PxuiOptTransition;
 typedef struct { uint8_t has; PxuiColor value; } PxuiOptColor;
 typedef struct { uint16_t family; int64_t size; uint16_t weight; float tracking; uint8_t caps; } PxuiFont;
 typedef struct { PxuiColor color; float offset[2],blur,spread; uint8_t inner; } PxuiShadow;
@@ -106,7 +106,7 @@ typedef struct {
     int64_t flags; PxuiSize w,h; float min_w,min_h,max_w,max_h,grow,shrink,aspect; PxuiEdges padding,margin;
     float gap,row_gap; PxuiOptGrid grid; PxuiCell cell; PxuiOptAlign align_self;
     PxuiOptAnchor anchor; uint32_t a11y; PxuiOptPoint at; float scroll_step; PxuiLook look; PxuiEdges inset;
-    PxuiMark mark; PxuiOptBar bar; PxuiOptCurve transition;
+    PxuiMark mark; PxuiOptBar bar; PxuiOptTransition transition;
 } PxuiNode;
 typedef struct {
     PxuiColor panel,foreground,control,input,track,accent,invalid; PxuiOptColor ink_ground; float space[4],radius[3];
@@ -121,8 +121,8 @@ typedef struct { PxuiTokens tokens; float row_h,control_h; PxuiRing ring; float 
 #if defined(__LP64__) || defined(_WIN64)
 _Static_assert(sizeof(PxuiSize) == 16 && sizeof(PxuiGrid) == 32 && sizeof(PxuiOptGrid) == 40, "PxuiSize/PxuiGrid layout");
 _Static_assert(sizeof(PxuiLook) == 160 && offsetof(PxuiLook, dashed) == 152, "PxuiLook layout");
-_Static_assert(sizeof(PxuiCurve) == 140 && sizeof(PxuiOptCurve) == 144 && sizeof(PxuiCurveDesc) == 160 && offsetof(PxuiCurve, u.table.positions) == 12 && offsetof(PxuiCurveDesc, values) == 96, "PxuiCurve layout");
-_Static_assert(sizeof(PxuiNode) == 600 && offsetof(PxuiNode, flags) == 16 && offsetof(PxuiNode, look) == 240 && offsetof(PxuiNode, transition) == 456, "PxuiNode layout");
+_Static_assert(sizeof(PxuiTransition) == 24 && sizeof(PxuiOptTransition) == 28 && sizeof(PxuiCurveDesc) == 160 && offsetof(PxuiCurveDesc, values) == 96, "PxuiTransition layout");
+_Static_assert(sizeof(PxuiNode) == 488 && offsetof(PxuiNode, flags) == 16 && offsetof(PxuiNode, look) == 240 && offsetof(PxuiNode, transition) == 456, "PxuiNode layout");
 _Static_assert(sizeof(PxuiTokens) == 136 && sizeof(PxuiThemeSnapshot) == 56888, "PxuiThemeSnapshot layout");
 #endif
 enum PxuiSizeKind { PXUI_SIZE_PX=0, PXUI_SIZE_PCT=1, PXUI_SIZE_REL=2, PXUI_SIZE_GROW=3, PXUI_SIZE_FIT=4 };
@@ -185,6 +185,7 @@ typedef struct { float rect[4],uv[4]; uint32_t atlas,reserved; } PxuiTextGlyph;
 #define PXUI_GLYPH_PAGE_2 2u
 /* ABI 1.14: pixel-area coverage for a plain, unstroked RECT instance. */
 #define PXUI_RECT_AREA 4u
+/* ABI 1.39: a node's transition is a PxuiTransition (Bezier or spring), so PxuiNode is 488 bytes; tables and steps stay in PxuiCurveDesc. */
 /* ABI 1.37: MASK instance flag for CoreText-matching light text (docs/abi.md 1.37).
    extra[0] packs two f16 (ppem in device pixels low, device scale high); the shader grows ink by the fill colour's luminance level.
    Renderers that predate it ignore the bit and the extra words and draw the plain mask. */

@@ -2,7 +2,7 @@ use crate::state::{PxuiUi, Shared, checked, core_box, fail, get};
 use pxui_core::ui::{Ui, UiBox};
 use core::mem::{align_of, offset_of, size_of};
 use std::rc::Rc;
-use pxui_types::{a11y::Role, layout::{Align, Anchor, Grid, Justify, MAX_TRACKS, Side, Track}, node::{OptAlign, OptAnchor, OptBar, OptCurve, OptGrid}, theme::{Font, Look, Ring, Shadow, State}, Axis, Bar, Dir, Mark, Node, Size, geom::Rect, ffi::{PxuiFontDesc, PxuiLookDesc, PxuiShadowDesc, PxuiStateDesc}, PxuiBox};
+use pxui_types::{a11y::Role, layout::{Align, Anchor, Grid, Justify, MAX_TRACKS, Side, Track}, node::{OptAlign, OptAnchor, OptBar, OptTransition, OptGrid}, theme::{Font, Look, Ring, Shadow, State}, Axis, Bar, Dir, Mark, Node, Size, geom::Rect, ffi::{PxuiFontDesc, PxuiLookDesc, PxuiShadowDesc, PxuiStateDesc}, PxuiBox};
 
 pub(crate) fn size(v:pxui_types::ffi::PxuiSizeDesc)->Option<Size>{if !v.value.is_finite(){return None;} Some(match v.kind {0=>Size::Px(v.value),1=>Size::Pct(v.value),2=>Size::Rel(v.relative?),3=>Size::Grow,4=>Size::Fit,_=>return None})}
 fn font(v:PxuiFontDesc)->Font { Font { family:v.family, weight:v.weight, size:v.size, tracking:v.tracking, caps:v.caps!=0 } }
@@ -108,7 +108,7 @@ unsafe fn node_ok(p: *const Node) -> bool {
             || byte(p, anchor + offset_of!(Anchor, placement.align)) > Align::Baseline as u8 || byte(p, anchor + offset_of!(Anchor, placement.flip)) > 1 })
         && unsafe { mark_ok(p, offset_of!(Node, mark)) }
         && !(set(offset_of!(Node, bar)) && unsafe { byte(p, value(offset_of!(Node, bar), align_of::<OptBar>()) + offset_of!(Bar, whole)) } > 1)
-        && !(set(offset_of!(Node, transition)) && unsafe { byte(p, value(offset_of!(Node, transition), align_of::<OptCurve>())) } > 3)
+        && !(set(offset_of!(Node, transition)) && unsafe { byte(p, value(offset_of!(Node, transition), align_of::<OptTransition>())) } > 1)
 }
 
 /// The checked tracks a C grid points at, into `out`: None when a list is longer than `MAX_TRACKS`, null with a length, or holds
@@ -261,7 +261,7 @@ mod tests {
     use super::*;
     use crate::{FrameIn, FrameOut, PXUI_ERR_ARGUMENT, PxuiUiDesc, pxui_frame, pxui_ui_create, pxui_ui_destroy};
     use core::ffi::c_void;
-    use pxui_types::{Size, layout::Placement, theme::Curve};
+    use pxui_types::{Size, layout::Placement, node::Transition, theme::Curve};
 
     #[test]
     fn accessibility_box_lookup_keeps_failed_output_and_callback_ownership() {
@@ -312,21 +312,15 @@ mod tests {
         let full = Node {
             align_self: Some(Align::Center).into(), anchor: Some(Anchor { rect: Rect::default(), placement: Placement::BELOW }).into(),
             at: Some((1.0, 2.0)).into(), mark: Mark::Line { width: 1.0, rising: true }, bar: Some(Bar { color: Default::default(), radius: 0.0, width: 2.0, gap: 0.0, margin: 0.0, whole: true }).into(),
-            transition: Some(Curve::Spring { omega: 9.0 }).into(), ..Node::DEFAULT
+            transition: Some(Transition::Spring { omega: 9.0 }).into(), ..Node::DEFAULT
         };
         assert_eq!(place(&raw(full)), 0);
         assert_eq!(place(&raw(Node { mark: Mark::Chevron(Dir::Right), ..full })), 0);
         // the head's unchecked bytes take any value (`z` is all ones here)
         assert_eq!(place(&raw(Node { z: -1, ..full })), 0);
-        let table = Curve::Table { duration: 0.24, count: 3,
-            positions: [0.0, 0.25, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0],
-            values: [0.0, 1.043, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0] };
-        for curve in [table, Curve::Steps { duration: 0.14, count: 2 }] {
-            assert_eq!(place(&raw(Node { transition: Some(curve).into(), ..full })), 0);
-        }
-        for curve in [Curve::Steps { duration: 0.14, count: 0 }, Curve::Steps { duration: f32::NAN, count: 2 },
-            Curve::Table { duration: 0.24, count: 17, positions: [0.0; 16], values: [0.0; 16] },
-            Curve::Table { duration: 0.24, count: 2, positions: [0.0; 16], values: [0.0; 16] }] {
+        // a table or steps is not a node's transition (the engine picks Bezier); only an animation takes one
+        assert!(Transition::of(Curve::Steps { duration: 0.14, count: 2 }).is_none());
+        for curve in [Transition::Bezier { duration: f32::NAN, points: [0.0; 4] }, Transition::Spring { omega: 0.0 }] {
             let node = Node { transition: Some(curve).into(), ..full };
             assert_eq!(place(&raw(node)), PXUI_ERR_ARGUMENT);
             let mut out = PxuiBox::default();
@@ -344,7 +338,7 @@ mod tests {
             (value(offset_of!(Node, align_self), align_of::<OptAlign>()), 5), (anchor + offset_of!(Anchor, placement.side), 4),
             (anchor + offset_of!(Anchor, placement.align), 5), (anchor + offset_of!(Anchor, placement.flip), 2),
             (value(offset_of!(Node, mark), align_of::<Mark>()) + size_of::<f32>(), 2), (value(offset_of!(Node, bar), align_of::<OptBar>()) + offset_of!(Bar, whole), 2),
-            (value(offset_of!(Node, transition), align_of::<OptCurve>()), 4), (offset_of!(Node, w), 5), (offset_of!(Node, size), 8),
+            (value(offset_of!(Node, transition), align_of::<OptTransition>()), 4), (offset_of!(Node, w), 5), (offset_of!(Node, size), 8),
         ] { let mut bad = raw(full); bad.0[at] = byte; refused.push(bad); }
         let mut chevron = raw(Node { mark: Mark::Chevron(Dir::Right), ..full });
         chevron.0[value(offset_of!(Node, mark), align_of::<Mark>())] = 4;

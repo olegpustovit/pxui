@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 38
+minor 39
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -284,7 +284,6 @@ layout PxuiCell 8 2 0 2 4 6
 layout PxuiCheckConfig 64 8 0 4 12 16 48
 layout PxuiColorSpan 24 8 0 8 16 20
 layout PxuiCompletion 80 8 0 8 16 32 48 64
-layout PxuiCurve 140 4
 layout PxuiCurveDesc 160 4 0 4 8 24 28 32 96
 layout PxuiDescription 40 8 0 1 8 16 24
 layout PxuiDialogConfig 48 8 0 8 24 40
@@ -330,16 +329,16 @@ layout PxuiMenuItemConfig 72 8 0 4 16 24 56
 layout PxuiMenuOut 24 8 0 4 8 16
 layout PxuiMenuRowConfig 104 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88
 layout PxuiMotion 28 4 0 4 8 12
-layout PxuiNode 600 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
+layout PxuiNode 488 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
 layout PxuiNodeFields 192 8 0 4 8 160 176
 layout PxuiNote 48 8 0 8 16 24 25 32
 layout PxuiOptAlign 2 1
 layout PxuiOptAnchor 36 4
 layout PxuiOptBar 28 4
 layout PxuiOptColor 5 1
-layout PxuiOptCurve 144 4
 layout PxuiOptGrid 40 8
 layout PxuiOptPoint 12 4
+layout PxuiOptTransition 28 4
 layout PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56
 layout PxuiPanel 200 8 0 4 8 12 16 24 32 33 34 35 36 37 40 44 48
 layout PxuiPanelConfig 64 8 0 8 40 56
@@ -393,6 +392,7 @@ layout PxuiToastConfig 64 8 0 4 16 48
 layout PxuiToggleConfig 64 8 0 4 12 16 48
 layout PxuiTokens 136 8 0 4 8 12 16 20 24 28 36 52 64 72 80 88 96 124 128
 layout PxuiTrack 8 4
+layout PxuiTransition 24 4
 layout PxuiTreeNode 4 2 0 2
 layout PxuiTreeRowConfig 80 8 0 4 12 13 16 24 32 40 72
 layout PxuiTreeViewDesc 104 8 0 4 8 24 40 56 64 80 88 96
