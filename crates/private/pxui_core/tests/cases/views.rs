@@ -858,8 +858,8 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
             assert_eq!(ui.rect(&ends[1].unwrap()), Rect::new(0.0, 380.0, 600.0, 20.0));
             ui.drawn(0);
         }
-        if step == 3 { assert!(compactions <= 50, "fresh batches compacted {compactions}/100 frames"); }
         println!("streaming retained gaps: step={step} frames=100 compactions={compactions} largest={largest} mean_paint_cpu_us={:.2}", paint_ns as f64 / 100_000.0);
+        assert!(compactions <= 50, "step {step}: fresh batches compacted {compactions}/100 frames");
         ui.destroy();
     }
 }

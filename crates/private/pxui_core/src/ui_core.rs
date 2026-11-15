@@ -7506,20 +7506,21 @@ impl Ui {
             }
         }
         let mut w = 0u32;
-        // Appending rows must also reclaim holes before the retained layer grows without bound.
-        let mut fits = old_len.saturating_add(s.instances.len()) <= budget;
+        // Fresh pieces can overwrite old storage; bound their actual write ends instead of adding both.
+        let mut fits = old_len <= budget;
         for k in 0..s.pieces.len() {
             if !fits { break; }
             let p = s.pieces[k];
             if p.view == NO_VIEW {
                 let len = p.b - p.a;
-                if w + len > p.at {
+                let end = w as usize + len as usize;
+                if end > p.at as usize || end > budget {
                     fits = false;
                     break;
                 }
                 s.pieces[k].at = w;
-                if (w + len) as usize > d.instances.len() {
-                    d.instances.resize((w + len) as usize, EMPTY);
+                if end > d.instances.len() {
+                    d.instances.resize(end, EMPTY);
                 }
                 for x in 0..len as usize {
                     let (i, new) = (w as usize + x, s.instances[p.a as usize + x]);
