@@ -308,6 +308,51 @@ fn touch_coast_normal_decay_catch_rubber_band_and_warm_allocations() {
     }
 }
 
+// Frame-by-frame traces of UIScrollView's physics: the rubber band (x past the edge shows as
+// (1 - 1/(x * 0.55 / d + 1)) * d), the spring-back decay and the 0.998-per-millisecond coast.
+fn touch_trace_rubber_band_spring_back_and_coast_per_frame() {
+    use TouchPhase::*;
+    let mut scene = Scene::new(true, false);
+    scene.step(0.0, &[]);
+    let d = 120.0;
+    for (i, pull) in [20.0f64, 60.0, 150.0, 400.0].into_iter().enumerate() {
+        let t = 1.0 + i as f64 * 10.0;
+        scene.step(t, &[touch(Began, (50.0, 20.0), t)]);
+        scene.step(t + 0.016, &[touch(Moved, (50.0, 32.0), t + 0.016)]);
+        let (root, _, _) = scene.step(t + 0.032, &[touch(Moved, (50.0, 32.0 + pull), t + 0.032)]);
+        let expected = (1.0 - 1.0 / ((pull + 12.0) * 0.55 / d + 1.0)) * d;
+        let shown = f64::from(-scene.ui.scroll_position(&root));
+        assert!((shown - expected).abs() < 0.01, "pull {pull}: {shown} vs {expected}");
+        // the stretch decays as exp(-t/0.084) on the frame clock, at any frame rate
+        scene.step(t + 0.04, &[touch(Cancelled, (50.0, 32.0 + pull), t + 0.04)]);
+        let (root, _, _) = scene.step(t + 0.05, &[]);
+        let start = f64::from(-scene.ui.scroll_position(&root));
+        for frame in 1..=12 {
+            let dt = f64::from(frame) * 0.016;
+            let (root, _, _) = scene.step(t + 0.05 + dt, &[]);
+            let want = start * (-dt / 0.084).exp();
+            let got = f64::from(-scene.ui.scroll_position(&root));
+            assert!((got - want).abs() < 0.3 + 0.002 * start, "pull {pull} frame {frame}: {got} vs {want}");
+        }
+        scene.step(t + 5.0, &[]);
+    }
+    // a flick: v(t) = v0 * 0.998^(1000 t), the position integrating it, frame by frame at 120 Hz
+    scene.step(100.0, &[touch(Began, (50.0, 100.0), 100.0)]);
+    scene.step(100.016, &[touch(Moved, (50.0, 90.0), 100.016)]);
+    scene.step(100.032, &[touch(Moved, (50.0, 80.0), 100.032)]);
+    scene.step(100.04, &[touch(Ended, (50.0, 80.0), 100.04)]);
+    let tau = -1.0 / (1000.0 * 0.998f64.ln());
+    for frame in 1..=240 {
+        let dt = f64::from(frame) / 120.0;
+        let (root, _, signal) = scene.step(100.04 + dt, &[]);
+        let want = 20.0 + 625.0 * tau * (1.0 - (-dt / tau).exp());
+        let got = f64::from(scene.ui.scroll_offset(&root));
+        assert!((got - want).abs() <= 0.5, "frame {frame}: {got} vs {want}");
+        assert!(!signal.clicked);
+    }
+    scene.ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
     (
         "touch_taps_scroll_slop_cancellation_and_direct_controls",
@@ -316,6 +361,10 @@ pub const CASES: &[(&str, fn())] = &[
     (
         "touch_nested_axis_lock_multitouch_and_modal_cancellation",
         touch_nested_axis_lock_multitouch_and_modal_cancellation,
+    ),
+    (
+        "touch_trace_rubber_band_spring_back_and_coast_per_frame",
+        touch_trace_rubber_band_spring_back_and_coast_per_frame,
     ),
     (
         "touch_coast_normal_decay_catch_rubber_band_and_warm_allocations",
