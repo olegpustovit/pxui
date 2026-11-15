@@ -393,3 +393,11 @@ accepted with full equality checks. Drawing and measurement share the identity h
 4,096-layout bound without a frame clock, incremental expiry, interleaved-style/span correctness,
 short-prefix validation and static/dynamic zero-warm-allocation checks. Owned raster/quads outputs
 and new layouts allocate; they are separate from warm measurement.
+
+ABI 1.29 adds FIT_TEXT_PIXEL (bit 21), rounding Fit text width including insets to rendering
+density before explicit size clamps. Retained node memos validate against cached text and reuse
+its fingerprint across styles/widths; identical labels still share layouts. Preserve slot recycling,
+caps, spans, empty text, RTL/asymmetric-inset native pixels, min/max bounds and static/dynamic
+zero-warm-allocation checks. Keep legacy plain-text painting unchanged without the flag. Plain
+pixel-fit labels preserve the legacy unbounded glyph positioning whenever text fits. FastHasher
+is shared through public geom::hash for internal revisions/identities, not untrusted hash tables.

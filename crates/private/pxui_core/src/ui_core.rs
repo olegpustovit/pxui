@@ -19,6 +19,8 @@
 //! packs instance lists. Canvas closures live in the frame arena and run after layout. Between builds
 //! the `patch_*` functions rewrite one node's instances in place (layer 1 of specification/pxui.md).
 use crate::theme;
+mod text_identity;
+use text_identity::lay_out_node;
 pub use crate::geom::Rect;
 pub(crate) use crate::geom::p32;
 use input::{Event, Key, MouseButton, Platform, ScrollPhase};
@@ -51,7 +53,7 @@ pub use crate::opts::{BoxOpts, HitFn};
 pub use pxui_types::shape::{clip_of, Shapes};
 pub use pxui_types::ui::{
     ellipsis, text_top_for,    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Drop, Payload, Target, UndoKind,
-    BLOCKING, CAPTURE_UNCLAIMED, CLICKABLE, CLIP, DRAG_FREE, DRAG_THRESHOLD, FIT_TEXT, FOCUSABLE, FOCUS_MARK, HOVER_FREE, KEEP_FOCUS,
+    BLOCKING, CAPTURE_UNCLAIMED, CLICKABLE, CLIP, DRAG_FREE, DRAG_THRESHOLD, FIT_TEXT, FIT_TEXT_PIXEL, FOCUSABLE, FOCUS_MARK, HOVER_FREE, KEEP_FOCUS,
     KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
 };
 pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
@@ -635,6 +637,8 @@ struct Slot {
     dup: (i64, i64),
     node: Node,
     text: String,
+    /// Last layout key and text fingerprint survive builds and virtual-slot recycling.
+    text_layout: std::cell::Cell<Option<(u64, u64)>>,
     rich: Option<Box<NodeText>>,
     /// where the node's look was painted: the layer's key, the instance range, the clip, and the
     /// frame
@@ -687,6 +691,7 @@ impl Slot {
             dup: (-1, 0),
             node: Node::DEFAULT,
             text: String::new(),
+            text_layout: std::cell::Cell::new(None),
             rich:None,
             range_layer: 0,
             range: (0, 0),
@@ -872,6 +877,13 @@ pub struct FrameOut<'a> {
 fn lay_out_spans(t:&mut Text,style:&Style,width:f32,text:&str,spans:&[TextSpan])->Option<(u64,Metrics)> {
     let key=pxui_text::content_key(style,width,text,spans);
     t.layout_spans(key,text,style,width,spans).map(|metrics|(key,metrics))
+}
+
+fn plain_style(look:&Look,size:i64,flags:Flags)->Style {
+    Style {font:look.font.family,size:size as f32,weight:look.font.weight,
+        tracking:look.font.tracking*size as f32,
+        ellipsis:if flags & FIT_TEXT!=0 {pxui_text::Ellipsis::End} else {pxui_text::Ellipsis::None},
+        ..Style::default()}
 }
 
 /// Kit text: the UI face (font 0) at `size` points with `tracking` points after every glyph.
@@ -3802,29 +3814,34 @@ impl Ui {
             let pad = n.padding;
             let (mut cw, mut ch) = (content_w + pad.l + pad.r, content_h + pad.t + pad.b);
             let slot=self.boxes[index].slot;
-            if matches!(n.w,Size::Fit) || matches!(n.h,Size::Fit) {
-                if let Some(rich)=self.slots[slot].rich.as_deref().filter(|r|r.active && r.line_box) {
-                    let style=rich.style(n,self.dir==Direction::Rtl);
-                    let inset=n.inset;
-                    let stored=&self.slots[slot];
-                    let text=self.text.as_mut().expect("Ui: the text engine is lent out");
-                    let spans=rich.spans.as_slice().unwrap();
-                    let natural=if matches!(n.w,Size::Fit) {
-                        lay_out_spans(text,&style,0.0,&stored.text,spans).unwrap().1.w+inset.l+inset.r
-                    } else {0.0};
-                    if matches!(n.w,Size::Fit) { cw=cw.max(natural); }
-                    if matches!(n.h,Size::Fit) {
-                        let width=match n.w {
-                            Size::Px(w)=>clamp(w,n.min_w,n.max_w),
-                            _ if stored.rw>0.0=>stored.rw,
-                            Size::Fit=>clamp(natural,n.min_w,n.max_w),
-                            _=>self.view_w,
-                        };
-                        let m=lay_out_spans(text,&style,(width-inset.l-inset.r).max(0.0),&stored.text,spans).unwrap().1;
-                        ch=ch.max(style.line_height*m.lines.max(1) as f32+inset.t+inset.b);
-                        // Grow/shrunk widths become known after layout; settle height in this frame.
-                        self.expect(slot,width,f32::NAN);
-                    }
+            let rich=self.slots[slot].rich.as_deref().filter(|r|r.active);
+            let line_box=rich.is_some_and(|r|r.line_box);
+            let pixel=n.flags & FIT_TEXT_PIXEL!=0;
+            if (line_box && (matches!(n.w,Size::Fit) || matches!(n.h,Size::Fit))) || (pixel && matches!(n.w,Size::Fit)) {
+                let style=rich.map_or_else(||plain_style(&n.look,n.look.font.points(self.font_size),n.flags),|r|r.style(n,self.dir==Direction::Rtl));
+                let inset=n.inset;
+                let stored=&self.slots[slot];
+                let value=if rich.is_none() && n.look.font.caps {
+                    self.label.clear(); self.label.extend(stored.text.chars().map(|c|c.to_ascii_uppercase()));
+                    self.label.as_str()
+                } else {stored.text.as_str()};
+                let text=self.text.as_mut().expect("Ui: the text engine is lent out");
+                let spans=rich.and_then(|r|r.spans.as_slice()).unwrap_or(&[]);
+                let mut natural=if matches!(n.w,Size::Fit) {
+                    lay_out_node(text,&stored.text_layout,n.flags,&style,0.0,value,spans).unwrap().1.w+inset.l+inset.r
+                } else {0.0};
+                if pixel { natural=(natural*self.density as f32).ceil()/self.density as f32; }
+                if matches!(n.w,Size::Fit) {cw=cw.max(natural);}
+                if line_box && matches!(n.h,Size::Fit) {
+                    let width=match n.w {
+                        Size::Px(w)=>clamp(w,n.min_w,n.max_w),
+                        _ if stored.rw>0.0=>stored.rw,
+                        Size::Fit=>clamp(natural,n.min_w,n.max_w),
+                        _=>self.view_w,
+                    };
+                    let m=lay_out_node(text,&stored.text_layout,n.flags,&style,(width-inset.l-inset.r).max(0.0),value,spans).unwrap().1;
+                    ch=ch.max(style.line_height*m.lines.max(1) as f32+inset.t+inset.b);
+                    self.expect(slot,width,f32::NAN);
                 }
             }
             // a view's box: kept, its content is the size its last build measured (its children are
@@ -4358,11 +4375,17 @@ impl Ui {
         }
         let (look, inset) = (self.slots[slot].node.look, self.slots[slot].node.inset);
         let size = look.font.points(self.font_size);
-        let style = Style { font: look.font.family, size: size as f32, weight: look.font.weight, tracking: look.font.tracking * size as f32, ..Style::default() };
-        let text = self.text.as_mut().expect("Ui: the text engine is lent out");
-        let rich=self.slots[slot].rich.as_deref().filter(|r|r.active);
-        let m=if let Some(rich)=rich { lay_out_spans(text,&rich.style(&self.slots[slot].node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,&self.slots[slot].text,rich.spans.as_slice().unwrap()).unwrap().1 }
-            else { lay_out(text, &style, 0.0, &self.slots[slot].text).1 };
+        let stored=&self.slots[slot];
+        let flags=stored.node.flags;
+        let pixel=flags & FIT_TEXT_PIXEL!=0;
+        let rich=stored.rich.as_deref().filter(|r|r.active);
+        let style=if pixel {plain_style(&look,size,flags)} else {Style {font:look.font.family,size:size as f32,weight:look.font.weight,tracking:look.font.tracking*size as f32,..Style::default()}};
+        let value=if pixel && rich.is_none() && look.font.caps {
+            self.label.clear();self.label.extend(stored.text.chars().map(|c|c.to_ascii_uppercase()));self.label.as_str()
+        } else {stored.text.as_str()};
+        let text=self.text.as_mut().expect("Ui: the text engine is lent out");
+        let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans.as_slice().unwrap()).unwrap().1}
+            else {lay_out_node(text,&stored.text_layout,flags,&style,0.0,value,&[]).unwrap().1};
         let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m,text));
         top+m.baseline
     }
@@ -4871,7 +4894,7 @@ impl Paint {
     /// with no closure. Square, solid looks paint as hard rectangles on the pixel grid; rounded,
     /// gradient and shadowed ones as distance fields. `steady` (a running transition) emits the same
     /// instances whatever the colours, so each step rewrites the node's range in place.
-    fn look(&mut self, r: Rect, node: &Node, look: &Look, text: &str, rich:Option<&NodeText>, focused: bool, steady: bool) {
+    fn look(&mut self, r: Rect, node: &Node, look: &Look, text: &str, rich:Option<&NodeText>, memo:&std::cell::Cell<Option<(u64,u64)>>, focused: bool, steady: bool) {
         let placed = r;
         let Rect { x, y, w, h } = placed;
         let o = look.opacity.clamp(0.0, 1.0);
@@ -4926,10 +4949,26 @@ impl Paint {
         if let Some(rich)=rich {
             let width=w-node.inset.l-node.inset.r;
             let style=rich.style(node,self.rtl);
-            if let Some((key,metrics))=lay_out_spans(&mut self.text,&style,width,text,rich.spans.as_slice().unwrap()) {
+            if let Some((key,metrics))=lay_out_node(&mut self.text,memo,node.flags,&style,width,text,rich.spans.as_slice().unwrap()) {
                 let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics,&self.text));
                 self.text_laid(at,&style,Some(look.text),key,metrics,o);
             }
+        } else if !text.is_empty() && node.flags & FIT_TEXT_PIXEL!=0 {
+            let size=look.font.points(self.font_size);
+            let style=plain_style(look,size,node.flags);
+            let inset=node.inset;
+            let mut buffer=std::mem::take(&mut self.label);
+            buffer.clear();
+            if look.font.caps {buffer.extend(text.chars().map(|c|c.to_ascii_uppercase()));}
+            let value=if look.font.caps {buffer.as_str()} else {text};
+            let (mut key,mut metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,0.0,value,&[]).unwrap();
+            let limit=w-inset.l-inset.r;
+            if node.flags & FIT_TEXT!=0 && metrics.w>limit {
+                (key,metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,limit,value,&[]).unwrap();
+            }
+            let at=(if self.rtl {x+w-inset.l-metrics.w} else {x+inset.l},text_top_for(self.font_size,Some(size),y+inset.t,h-inset.t-inset.b));
+            self.text_laid(at,&style,Some(fade(look.text)),key,metrics,1.0);
+            self.label=buffer;
         } else if !text.is_empty() {
             let size = look.font.points(self.font_size);
             let inset = node.inset;
@@ -5349,7 +5388,7 @@ impl Ui {
             Pose { dx: 0.0, dy: 0.0, opacity: 1.0, ..pose }
         } else { pose };
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
-        paint.look(Rect::new(r.x + pose.dx, r.y + pose.dy, r.w, r.h), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), focused, steady);
+        paint.look(Rect::new(r.x + pose.dx, r.y + pose.dy, r.w, r.h), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), &s.text_layout, focused, steady);
         let s = &mut self.slots[slot];
         if self.motion {
             (s.seen, s.seen_state) = (s.node.look, s.node.state);
@@ -5608,7 +5647,7 @@ impl Ui {
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
         let outer = paint.text.marks();
         paint.text.set_marks([0; 8]);
-        paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), focused, steady);
+        paint.look(Rect::new(s.rx + pose.dx, s.ry + pose.dy, s.rw, s.rh), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), &s.text_layout, focused, steady);
         let shelves = paint.text.marks();
         paint.text.set_marks(outer);
         let scratch = self.paint_end(paint);

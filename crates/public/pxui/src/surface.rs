@@ -2180,3 +2180,54 @@ fn keyless_text_measurement_retains_interleaved_values_styles_widths_and_spans()
         if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"keyless layout identity must retain every interleaved variant"); }
     }
 }
+
+#[test]
+fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_layouts() {
+    use crate::{TextStyle,TextSpan,ui::{Node,Look,Font,Role,FIT_TEXT,FIT_TEXT_PIXEL}};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui=Ui::new().unwrap();ui.set_a11y(true);
+    let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let span=[TextSpan {start:0,end:2,weight:700,..Default::default()}];
+    let mut nodes=[None;9];
+    let look=Look {text:crate::geom::color::rgba(0,0,0,255),..Look::NONE};
+    let values=["ab cd","écho","a slightly longer label",""];
+    let styles=[TextStyle {size_points:14.25,line_height:20.0,..Default::default()},TextStyle {size_points:16.5,line_height:22.0,tracking:0.15,..Default::default()}];
+    let widths=styles.map(|style|values.map(|value| text.measure(value,&style,0.0).unwrap().width));
+    let span_width=text.measure_spans(values[0],&styles[0],0.0,&span).unwrap().width;
+    let plain_width=text.width("AB CD",&TextStyle {size_points:14.0,..Default::default()},0.0).unwrap();
+    let mut serial=0;
+    for round in 0..8 {
+        for scale in [1.0,2.0,1.25,1.75] {
+            for (variant,style) in styles.into_iter().enumerate() {
+                mem_sys::local_reset();serial+=1;
+                ui.frame(&FrameIn {scale,time:serial as f64/60.0,..input()},&mut |ui| {
+                    for (index,value) in values.into_iter().enumerate() {
+                        let node=ui.node_keyed(index as i64+100+100*(round%2) as i64,Node {flags:FIT_TEXT|FIT_TEXT_PIXEL,w:Size::Fit,h:Size::Px(24.0),role:Role::Label,look,..Node::DEFAULT});
+                        ui.text_line_box(&node,value,&style,&[]).unwrap();nodes[index]=Some(node);
+                    }
+                    let node=ui.node("spans",Node {flags:FIT_TEXT_PIXEL,w:Size::Fit,h:Size::Px(24.0),look,..Node::DEFAULT});
+                    ui.text_spans(&node,values[0],&styles[0],&span).unwrap();nodes[4]=Some(node);
+                    let node=ui.node("plain-caps",Node {flags:FIT_TEXT_PIXEL,w:Size::Fit,h:Size::Px(24.0),role:Role::Label,look:Look {font:Font {size:14,caps:true,..Font::BODY},..look},..Node::DEFAULT});
+                    ui.text(&node,values[0]);nodes[5]=Some(node);
+                    let node=ui.node("limited",Node {flags:FIT_TEXT_PIXEL,w:Size::Fit,max_w:10.25,h:Size::Px(24.0),look,..Node::DEFAULT});
+                    ui.text_line_box(&node,values[2],&style,&[]).unwrap();nodes[6]=Some(node);
+                    let node=ui.node("insets",Node {flags:FIT_TEXT_PIXEL,w:Size::Fit,h:Size::Px(24.0),inset:crate::ui::Edges {l:0.2,r:0.3,..Default::default()},look,..Node::DEFAULT});
+                    ui.text_line_box(&node,values[0],&style,&[]).unwrap();nodes[7]=Some(node);
+                    let node=ui.node("plain-limited",Node {flags:FIT_TEXT|FIT_TEXT_PIXEL,w:Size::Fit,max_w:10.25,h:Size::Px(24.0),look:Look {text:crate::geom::color::rgba(255,0,0,255),font:Font {size:14,..Font::BODY},..Look::NONE},..Node::DEFAULT});
+                    ui.text(&node,values[0]);nodes[8]=Some(node);
+                }).unwrap();
+                let density=ui.density() as f32;
+                let ceil=|value:f32|(value*density).ceil()/density;
+                for index in 0..4 {assert_eq!(ui.rect(&nodes[index].unwrap()).w,ceil(widths[variant][index]));}
+                assert_eq!(ui.rect(&nodes[4].unwrap()).w,ceil(span_width));
+                assert_eq!(ui.rect(&nodes[5].unwrap()).w,ceil(plain_width));
+                assert_eq!(ui.rect(&nodes[6].unwrap()).w,10.25,"explicit maximum still wins");
+                assert_eq!(ui.rect(&nodes[7].unwrap()).w,ceil(widths[variant][0]+0.5));
+                assert_eq!(ui.rect(&nodes[8].unwrap()).w,10.25);
+                assert_eq!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|i|i.kind==crate::draw::kind::MASK && i.color==[255,0,0,255]).count(),1,"constrained plain text retains a shaped ellipsis");
+                assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==values[2]),"full accessible labels survive fitting");
+                if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm pixel-fit density/style/span and recycled identity frames");}
+            }
+        }
+    }
+}

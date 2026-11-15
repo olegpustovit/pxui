@@ -199,6 +199,7 @@ fn main() {
         ("shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source", shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source),
         ("shared_skipped_draws", shared_skipped_draws),
         ("shared_inline_spans_render_colors_background_and_rule", shared_inline_spans_render_colors_background_and_rule),
+        ("shared_pixel_fit_text_matches_explicit_width_pixels", shared_pixel_fit_text_matches_explicit_width_pixels),
         ("shared_ellipsis_modes_native_pixels_and_warm_draw", shared_ellipsis_modes_native_pixels_and_warm_draw),
         #[cfg(target_os="macos")]
         ("shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations", shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations),
@@ -927,6 +928,10 @@ fn public_commands(commands: &be::Commands) -> pxui_types::Commands {
 /// One app frame: PXUI prepares into the app's command buffer, draws into the app's pass, the app forgets
 /// its cached pass state, ends the pass, submits once and waits.
 fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Renderer, frame: u64, completed: u64) -> u64 {
+    shared_app_frame_at_scale(queue,target,renderer,frame,completed,2.0)
+}
+
+fn shared_app_frame_at_scale(queue: &Queue, target: &Texture, renderer: &mut pxui::Renderer, frame: u64, completed: u64, scale:f32) -> u64 {
     let commands = ok(be::begin_commands(queue));
     renderer.prepare(&public_commands(&commands), frame, completed).expect("prepare shared frame");
     let clear = (228.0 / 255.0, 139.0 / 255.0, 161.0 / 255.0, 1.0);
@@ -936,7 +941,7 @@ fn shared_app_frame(queue: &Queue, target: &Texture, renderer: &mut pxui::Render
     let native_pass = ok(be::native_pass(&encoder));
     let public_pass = pxui_types::Pass { size: std::mem::size_of::<pxui_types::Pass>() as u32,
         vk_command_buffer: native_pass.vk_command_buffer, mtl_render_encoder: native_pass.mtl_render_encoder,
-        width_px: native_pass.width_px, height_px: native_pass.height_px, scale: 2.0, // the app's density; a pass does not know it
+        width_px: native_pass.width_px, height_px: native_pass.height_px, scale, // the app's density; a pass does not know it
         mtl_command_buffer: public_commands(&commands).mtl_command_buffer, ..pxui_types::Pass::default() };
     mem_sys::local_reset();
     renderer.draw(&public_pass).expect("draw into app pass");
@@ -2026,6 +2031,49 @@ fn shared_filled_triangle_pixels_cover_both_windings_in_one_warm_draw() {
         }
         assert!(error/area<0.04,"analytic edge coverage mean error at {scale}x: {}",error/area);
         assert!((energy-area).abs()/area<0.015,"triangle fill weight at {scale}x: {energy} vs {area}");
+        drop(renderer);ok(be::destroy_texture(&target));
+    }
+    finish(device,queue);
+}
+
+fn shared_pixel_fit_text_matches_explicit_width_pixels() {
+    let Some(device)=open() else {return};
+    let queue=ok(be::create_queue(&device));
+    for density in [1u32,2] {
+        let target=texture(&device,320*density,100*density,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
+        let mut ui=pxui::Ui::new().unwrap();
+        let mut renderer=shared_renderer(&device,&ui);
+        let style=pxui::TextStyle {size_points:14.25,line_height:20.0,max_lines:1,..Default::default()};
+        let value="ab CD café";
+        let span=[pxui::TextSpan {start:3,end:5,weight:700,..Default::default()}];
+        let mut text=pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+        let width=(text.measure_spans(value,&style,0.0,&span).unwrap().width*density as f32).ceil()/density as f32;
+        let plain_width=((text.width("AB CD",&pxui::TextStyle {size_points:14.0,..Default::default()},0.0).unwrap()+4.75)*density as f32).ceil()/density as f32;
+        for rtl in [false,true] {
+            ui.set_dir(rtl);
+            let mut reference=None;
+            for frame in 1..=8 {
+                let fitted=frame%2==0;
+                let look=pxui::ui::Look {text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE};
+                mem_sys::local_reset();
+                ui.frame(&pxui::FrameIn {width:320.0,height:100.0,scale:density as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
+                    let label=ui.node("rich",pxui::Node {flags:pxui::ui::FIT_TEXT|if fitted {pxui::ui::FIT_TEXT_PIXEL} else {0},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,10.0)).into(),look,..pxui::Node::DEFAULT});
+                    ui.text_line_box(&label,value,&style,&span).unwrap();
+                    let label=ui.node("plain",pxui::Node {flags:if fitted {pxui::ui::FIT_TEXT_PIXEL} else {0},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(plain_width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,40.0)).into(),inset:pxui::ui::Edges {l:1.25,r:3.5,..Default::default()},look:pxui::ui::Look {font:pxui::ui::Font {size:14,caps:true,..pxui::ui::Font::BODY},..look},..pxui::Node::DEFAULT});
+                    ui.text(&label,"ab cd");
+                }).unwrap();
+                if frame>=4 {assert_eq!(mem_sys::local_alloc_count(),0,"warm pixel-fit UI build");}
+                let before=renderer.draw_calls();
+                let serial=frame+u64::from(rtl)*8;
+                let allocations=shared_app_frame_at_scale(&queue,&target,&mut renderer,serial,serial-1,density as f32);
+                assert_eq!(renderer.draw_calls()-before,1);
+                if frame>=4 {assert_eq!(allocations,0,"warm native pixel-fit draw");}
+                let pixels=ok(be::read_texture(&target,i64::from(320*density*4)));
+                assert!(pixels.chunks_exact(4).any(|p|p!=[228,139,161,255]),"pixel fixture must contain rendered ink");
+                if let Some(reference)=&reference {assert!(&pixels==reference,"Fit and explicit width must draw identical pixels at {density}x, RTL={rtl}; first differing byte {:?}",pixels.iter().zip(reference).position(|(a,b)|a!=b));}
+                else {reference=Some(pixels);}
+            }
+        }
         drop(renderer);ok(be::destroy_texture(&target));
     }
     finish(device,queue);

@@ -60,44 +60,11 @@ use cosmic_text::{
 pub use pxui_types::{TextSpan, TextSpans};
 use std::collections::HashMap;
 use pxui_types::geom::hash;
-use std::hash::{BuildHasherDefault, Hasher};
+use std::hash::BuildHasherDefault;
 use std::sync::Arc;
 mod system;
 
-/// A multiply-rotate hasher for the engine's internal keys (glyph cache keys, node and layout keys):
-/// std's SipHash was a fifth of a full rebuild. Not DoS-resistant; no key here comes from outside.
-#[derive(Default, Clone, Copy)]
-pub struct FastHasher(u64);
-impl Hasher for FastHasher {
-    fn finish(&self) -> u64 {
-        self.0
-    }
-    fn write(&mut self, bytes: &[u8]) {
-        let mut chunks = bytes.chunks_exact(8);
-        for c in &mut chunks {
-            self.write_u64(u64::from_le_bytes(c.try_into().unwrap()));
-        }
-        let mut tail = [0u8; 8];
-        tail[..chunks.remainder().len()].copy_from_slice(chunks.remainder());
-        self.write_u64(u64::from_le_bytes(tail) ^ (bytes.len() as u64) << 56);
-    }
-    fn write_u8(&mut self, n: u8) {
-        self.write_u64(n as u64);
-    }
-    fn write_u16(&mut self, n: u16) {
-        self.write_u64(n as u64);
-    }
-    fn write_u32(&mut self, n: u32) {
-        self.write_u64(n as u64);
-    }
-    fn write_u64(&mut self, n: u64) {
-        // the final multiply spreads the low bits into the high bits hashbrown's control bytes read
-        self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
-    }
-    fn write_usize(&mut self, n: usize) {
-        self.write_u64(n as u64);
-    }
-}
+pub use pxui_types::geom::hash::FastHasher;
 /// `HashMap`'s hasher parameter for `FastHasher`.
 pub type Fast = BuildHasherDefault<FastHasher>;
 
@@ -270,12 +237,21 @@ fn emit_clipped(mut glyph:Glyph,clip:[f32;2],f:&mut dyn FnMut(Glyph)) {
 }
 
 /// Content identity shared by UI drawing and keyless standalone/UI measurement.
+pub fn text_hash(text: &str) -> u64 {
+    hash::bytes(0, text.as_bytes())
+}
+
 pub fn content_key(style: &Style, width: f32, text: &str, spans: &[TextSpan]) -> u64 {
+    layout_key(style, width, text_hash(text), spans)
+}
+
+/// A retained node can reuse its text fingerprint across widths/styles without hashing bytes.
+pub fn layout_key(style: &Style, width: f32, text_hash: u64, spans: &[TextSpan]) -> u64 {
     let mut seed = hash::mix(style.font as i64, style.size.to_bits() as i64);
     for v in [style.weight as i64, style.italic as i64, style.line_height.to_bits() as i64, style.wrap as i64, style.align as i64, style.max_lines as i64, style.ellipsis as i64, style.tracking.to_bits() as i64, style.features as i64, width.to_bits() as i64] {
         seed = hash::mix(seed, v);
     }
-    let mut key = hash::bytes(seed as u64, text.as_bytes());
+    let mut key = hash::mix(seed, text_hash as i64) as u64;
     for span in spans {
         for value in [span.start as i64, span.end as i64, span.weight as i64, span.flags as i64,
             u32::from_le_bytes(rgba(span.color)) as i64, u32::from_le_bytes(rgba(span.background)) as i64,
@@ -751,6 +727,10 @@ impl Text {
     /// Primary-face distances above and below the baseline, normalized to the em size.
     pub fn font_metrics(&self,font:u16)->Option<(f32,f32)> {
         self.font_metrics.get(font as usize).copied().filter(|(a,d)|a.is_finite() && d.is_finite() && *a>0.0 && *d>=0.0)
+    }
+
+    pub fn has_text(&self, key: u64, text: &str) -> bool {
+        self.entries.get(&key).is_some_and(|entry| entry.text == text)
     }
 
     pub fn layout(&mut self, key: u64, text: &str, style: &Style, max_width: f32) -> Metrics {

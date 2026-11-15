@@ -47,6 +47,8 @@ pub const TAB_STOP_MARKED: Flags = TAB_STOP | FOCUS_MARK;
 /// The node's text is cut with an ellipsis to the room its look leaves (the placed width less the
 /// text inset) when it does not fit.
 pub const FIT_TEXT: Flags = 16384;
+/// Fit text width, including text insets, rounded up to the frame's physical-pixel density.
+pub const FIT_TEXT_PIXEL: Flags = 2097152;
 /// scrolls sideways (the wheel's and the trackpad's horizontal motion); with `SCROLL` on both axes
 pub const SCROLL_X: Flags = 32768;
 /// a flow child of a scroll box that stops at its top edge instead of scrolling out (CSS sticky);

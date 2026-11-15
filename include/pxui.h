@@ -97,6 +97,8 @@ typedef struct {
     PxuiShadow shadows[2]; PxuiColor text; PxuiFont font; float opacity; PxuiRing ring; PxuiColor selection,caret; uint8_t dashed;
 } PxuiLook;
 typedef struct { uint8_t hovered,pressed,focused,disabled,checked; } PxuiState;
+/* ABI 1.29: ceil intrinsic text width (including text insets) to the integer rendering density. */
+#define PXUI_FIT_TEXT_PIXEL INT64_C(2097152)
 typedef struct {
     uint32_t size; /* sizeof(PxuiNode) */
     uint8_t axis,justify,align,wrap,role; PxuiState state; int16_t z; /* the first 16 bytes are tested as two words */

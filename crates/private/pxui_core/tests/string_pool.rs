@@ -78,3 +78,7 @@ mod string_pool {
         }
     }
 }
+
+mod text_identity {
+    include!("../src/ui_core/text_identity.rs");
+}

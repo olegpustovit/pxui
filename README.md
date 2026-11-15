@@ -216,3 +216,10 @@ The library derives layout identity from text, complete style, width and spans, 
 most 4,096 layouts per shaper, including standalone use without frame calls. Existing C calls
 select this behavior with key=0; nonzero legacy keys still work. Warm measurement reuses storage;
 new layouts and owned raster/quad results allocate.
+
+ABI 1.29 adds `ui::FIT_TEXT_PIXEL` (`PXUI_FIT_TEXT_PIXEL` in C). A Fit text node rounds its
+intrinsic width, including text insets, to the frame's rendering density; explicit min/max bounds
+still apply. It retains a validated text fingerprint across builds and shares layouts with equal
+labels, so unchanged nodes do not hash their text again. It supports plain, line-box and inline
+span text, caps and RTL. `geom::hash::FastHasher` exposes the existing internal hash primitive for
+UI revisions and identities.

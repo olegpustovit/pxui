@@ -83,6 +83,47 @@ pub mod color {
 
 /// Deterministic key hash (SplitMix64 words, length-framed bytes), same values as before.
 pub mod hash {
+    /// A multiply-rotate hasher for the engine's internal keys (glyph cache keys, node and layout keys):
+    /// Reuse for internal UI revisions and identities; this is not a DoS-resistant map hasher.
+    #[derive(Default, Clone, Copy)]
+    pub struct FastHasher(u64);
+    impl std::hash::Hasher for FastHasher {
+        #[inline]
+        fn finish(&self) -> u64 {
+            self.0
+        }
+        #[inline]
+        fn write(&mut self, bytes: &[u8]) {
+            let mut chunks = bytes.chunks_exact(8);
+            for c in &mut chunks {
+                self.write_u64(u64::from_le_bytes(c.try_into().unwrap()));
+            }
+            let mut tail = [0u8; 8];
+            tail[..chunks.remainder().len()].copy_from_slice(chunks.remainder());
+            self.write_u64(u64::from_le_bytes(tail) ^ (bytes.len() as u64) << 56);
+        }
+        #[inline]
+        fn write_u8(&mut self, n: u8) {
+            self.write_u64(n as u64);
+        }
+        #[inline]
+        fn write_u16(&mut self, n: u16) {
+            self.write_u64(n as u64);
+        }
+        #[inline]
+        fn write_u32(&mut self, n: u32) {
+            self.write_u64(n as u64);
+        }
+        #[inline]
+        fn write_u64(&mut self, n: u64) {
+            // the final multiply spreads the low bits into the high bits hashbrown's control bytes read
+            self.0 = (self.0.rotate_left(5) ^ n).wrapping_mul(0x51_7c_c1_b7_27_22_0a_95);
+        }
+        #[inline]
+        fn write_usize(&mut self, n: usize) {
+            self.write_u64(n as u64);
+        }
+    }
     const SEED_GAMMA: u64 = 0x9e3779b97f4a7c15;
     fn word(hash: u64, value: u64) -> u64 {
         let mut v = (hash ^ value).wrapping_add(SEED_GAMMA);

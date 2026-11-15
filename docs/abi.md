@@ -36,6 +36,7 @@ Static/dynamic validation, pixel and warm-allocation checks remain required.
 | 1.26 | `FrameIn.keyboard`, usable-content queries | Expose keyboard geometry and docked usable bounds. |
 | 1.27 | `TextInputOptions`, text-input option calls | Configure native text traits and return-key behavior. |
 | 1.28 | Keyless Rust text service; C key=0 derives content identity | Share bounded content/style/width/span layouts without caller hashes. C signatures stay unchanged. |
+| 1.29 | `FIT_TEXT_PIXEL` / `PXUI_FIT_TEXT_PIXEL` | Round intrinsic text width to render density; retained nodes reuse validated text fingerprints. No descriptor layout change. |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading
