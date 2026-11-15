@@ -153,6 +153,55 @@ pub fn layout_baseline() {
     ui.destroy();
 }
 
+/// A Fit box around a Fit text child is as wide as the text plus its padding, in a plain and a wrapping row.
+pub fn layout_fit_text_child() {
+    let mut ui = new_ui(Some(13));
+    let want = ui.text_width(Some(13), "Artist") ;
+    let look = Look { font: Font { size: 13, ..Font::BODY }, text: color::black(), ..Look::NONE };
+    for (wrap, flags) in [(false, 0), (true, 0), (false, FIT_TEXT), (true, FIT_TEXT), (false, FIT_TEXT_PIXEL)] {
+        let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
+            let row = ui.node("row", Node { axis: Axis::Row, wrap, w: Size::Px(300.0), h: Size::Fit, ..Node::DEFAULT });
+            let saved = ui.enter(&row);
+            let chip = ui.node("chip", Node { axis: Axis::Row, w: Size::Fit, h: Size::Px(32.0), padding: Edges { l: 12.0, r: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let inner = ui.enter(&chip);
+            let label = ui.node("label", Node { flags, w: Size::Fit, h: Size::Grow, look, ..Node::DEFAULT });
+            ui.text(&label, "Artist");
+            ui.leave(inner);
+            ui.leave(saved);
+            vec![chip, label]
+        });
+        check((r[1].w - want).abs() < 1.0 && (r[0].w - want - 24.0).abs() < 1.0, &format!("wrap {wrap} flags {flags}: label {} chip {} want {want}", r[1].w, r[0].w));
+    }
+    ui.destroy();
+}
+
+/// Baselines align per wrapped line: each line's deepest baseline sets that line, mixed sizes share it.
+pub fn layout_baseline_wrapped() {
+    let mut ui = new_ui(Some(13));
+    let sizes = [10, 30, 20, 10];
+    let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
+        let p = ui.node("p", Node { axis: Axis::Row, wrap: true, align: Align::Baseline, w: Size::Px(100.0), h: Size::Fit, row_gap: 3.0, ..Node::DEFAULT });
+        let saved = ui.enter(&p);
+        let mut out = vec![];
+        for (i, size) in sizes.into_iter().enumerate() {
+            let n = ui.node(&format!("t{i}"), Node { w: Size::Px(45.0), h: Size::Px(size as f32 + 4.0), look: Look { font: Font { size, ..Font::BODY }, text: color::black(), ..Look::NONE }, ..Node::DEFAULT });
+            ui.text(&n, "Ag");
+            out.push(n);
+        }
+        ui.leave(saved);
+        out
+    });
+    let base = |ui: &mut Ui, i: usize| {
+        let size = sizes[i];
+        r[i].y + text_top_for(13, Some(size), 0.0, size as f32 + 4.0) + ui.text_metrics(&kit_style(size, 0.0), 0.0, "Ag").baseline
+    };
+    let b: Vec<f32> = (0..4).map(|i| base(&mut ui, i)).collect();
+    check((b[0] - b[1]).abs() < 0.01, &format!("line 1 shares a baseline: {} vs {}", b[0], b[1]));
+    check((b[2] - b[3]).abs() < 0.01, &format!("line 2 shares a baseline: {} vs {}", b[2], b[3]));
+    check(r[2].y > r[1].y + r[1].h - 0.01 || r[3].y > r[1].y + r[1].h - 0.01, "line 2 starts below line 1");
+    ui.destroy();
+}
+
 pub fn layout_wrap() {
     let kid = px(40.0, 10.0);
     let r = once(Node { w: Size::Px(100.0), h: Size::Fit, axis: Axis::Row, wrap: true, gap: 10.0, row_gap: 5.0, ..Node::DEFAULT }, &[kid, kid, Node { h: Size::Px(12.0), ..kid }, kid]);
@@ -986,6 +1035,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("layout_gap_padding_margin", layout_gap_padding_margin),
     ("layout_justify_align", layout_justify_align),
     ("layout_baseline", layout_baseline),
+    ("layout_fit_text_child", layout_fit_text_child),
+    ("layout_baseline_wrapped", layout_baseline_wrapped),
     ("layout_wrap", layout_wrap),
     ("layout_wrap_resolved", layout_wrap_resolved),
     ("layout_grid", layout_grid),

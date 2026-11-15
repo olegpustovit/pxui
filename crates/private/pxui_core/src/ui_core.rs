@@ -3891,7 +3891,9 @@ impl Ui {
             let rich=self.slots[slot].rich.as_deref().filter(|r|r.active);
             let line_box=rich.is_some_and(|r|r.line_box);
             let pixel=n.flags & FIT_TEXT_PIXEL!=0;
-            if (line_box && (matches!(n.w,Size::Fit) || matches!(n.h,Size::Fit))) || (pixel && matches!(n.w,Size::Fit)) {
+            // a Fit width is the text's: any text, not only pixel-fitted or line-box text (else it collapsed to 0)
+            let has_text=rich.is_some() || !self.slots[slot].text.is_empty();
+            if (line_box && (matches!(n.w,Size::Fit) || matches!(n.h,Size::Fit))) || ((pixel || has_text) && matches!(n.w,Size::Fit)) {
                 let style=rich.map_or_else(||plain_style(&n.look,n.look.font.points(self.font_size),n.flags),|r|r.style(n,self.dir==Direction::Rtl));
                 let inset=n.inset;
                 let stored=&self.slots[slot];
