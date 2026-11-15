@@ -465,7 +465,8 @@ pub fn styling_nested_view_transform() {
     let close = |a: f32, b: f32| (a - b).abs() < 0.01;
     check(close(p0.0, 50.0) && close(p0.1, 40.0) && close(p1.0, 130.0) && close(p1.1, 80.0), &format!("the painter shows the button at {p0:?} to {p1:?}"));
     check((e.opacity - 0.5).abs() < 1e-6, &format!("the inner entry's opacity {}", e.opacity));
-    // a patch damages the drawn rectangle
+    // a patch damages the drawn rectangle (the host drew the moved view first)
+    ui.drawn(0);
     check(ui.patch_fill(&btn, color::rgb(9, 9, 10)), "patch refused");
     let d = ui.output().damage.expect("a patch damages");
     check(d.x <= 50.0 && d.y <= 40.0 && d.x + d.w >= 130.0 && d.y + d.h >= 80.0 && d.w <= 82.0 && d.h <= 42.0, &format!("damage {d:?}, drawn at {drawn:?}"));

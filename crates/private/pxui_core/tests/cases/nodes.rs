@@ -312,6 +312,33 @@ pub fn window_pxui_node_line_patch() {
     ui.destroy();
 }
 
+/// Two between-frame patches on far-apart nodes before one draw: the damage covers both.
+pub fn window_pxui_node_patch_damage_accumulates() {
+    let mut ui = new_ui(None);
+    let handles = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        let top = chip(ui, "top", "a", color::white());
+        ui.node("gap", Node { w: Size::Px(80.0), h: Size::Px(150.0), ..Node::DEFAULT });
+        handles.set(Some((top, chip(ui, "bottom", "b", color::white()))));
+    };
+    frame(&mut ui, 0.0, &mut build);
+    frame(&mut ui, 0.1, &mut build);
+    let (top, bottom) = handles.get().unwrap();
+    // one warm-up round sizes the patch scratch and dirty ranges, then a draw consumes its damage
+    check(ui.patch_fill(&top, color::rgb(7, 7, 7)) && ui.patch_fill(&bottom, color::rgb(8, 8, 8)), "warm-up patch");
+    ui.drawn(0);
+    check(ui.output().damage.is_none(), "a draw left damage");
+    mem_sys::local_reset();
+    check(ui.patch_fill(&top, color::rgb(1, 2, 3)), "patch top");
+    check(ui.patch_fill(&bottom, color::rgb(4, 5, 6)), "patch bottom");
+    let allocs = mem_sys::local_alloc_count();
+    let d = ui.output().damage.expect("patches left no damage");
+    let (t, b) = (ui.rect(&top), ui.rect(&bottom));
+    check(d.y <= t.y && d.y + d.h >= b.y + b.h, &format!("damage {d:?} lost a patch ({t:?}, {b:?})"));
+    check(allocs == 0, "warm patches allocated");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_retired_rich_text_donates_before_slot_reassignment", window_pxui_retired_rich_text_donates_before_slot_reassignment),
     ("window_pxui_current_build_box_rejects_forged_index", window_pxui_current_build_box_rejects_forged_index),
@@ -322,6 +349,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_node_duplicate_keys", window_pxui_node_duplicate_keys),
     ("window_pxui_node_handles", window_pxui_node_handles),
     ("window_pxui_node_patch", window_pxui_node_patch),
+    ("window_pxui_node_patch_damage_accumulates", window_pxui_node_patch_damage_accumulates),
     ("window_pxui_node_patch_nested_kept", window_pxui_node_patch_nested_kept),
     ("window_pxui_arena_closures", window_pxui_arena_closures),
     ("window_pxui_arena_first_frame", window_pxui_arena_first_frame),

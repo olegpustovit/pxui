@@ -1533,8 +1533,10 @@ impl Ui {
         FrameOut { draw: &self.draw[..self.draw_len], platform: &self.out, damage: self.damage, views: &self.view_out, blurs: &self.blur_out, a11y: &self.a11y }
     }
 
-    /// The host drew layer `index` of the output with its `dirty` ranges: they start over empty.
+    /// The host drew layer `index` of the output with its `dirty` ranges: they start over empty, and
+    /// so does the damage (between frames it accumulates over every patch until a draw consumes it).
     pub fn drawn(&mut self, index: usize) {
+        self.damage = None;
         if let Some(layer) = self.draw[..self.draw_len].get_mut(index) {
             layer.dirty.clear();
         }
@@ -5736,7 +5738,6 @@ impl Ui {
         let rebreak = fresh.iter().any(|i| i.kind == crate::draw::kind::IMAGE)
             || !scratch[0].breaks.is_empty()
             || self.draw[layer].breaks.iter().any(|b| start <= b.at_instance as usize && (b.at_instance as usize) < end);
-        self.damage = None;
         let mut target = std::mem::take(&mut self.draw[layer]);
         let room = self.slots[slot].room as usize;
         let (old_len, old_end) = (target.instances.len(), end + room);
@@ -7082,7 +7083,6 @@ impl Ui {
             self.views[v as usize].dirty = true;
             self.frame_requested = true;
         } else if !self.building && !self.painting && self.painted >= 0 {
-            self.damage = None;
             if self.refresh_views() {
                 self.draw_revision += 1;
             }
