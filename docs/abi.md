@@ -5,6 +5,42 @@ The current wire contract is [pxui.v1.txt](../abi/pxui.v1.txt); numeric layouts 
 header, wrapper, snapshots and C layout assertions together; rebuild app and dylib together.
 Static/dynamic validation, pixel and warm-allocation checks remain required.
 
+## Policy
+
+**Version.** `pxui_abi_version()` returns `major << 16 | minor` (`ABI_VERSION` in `pxui_abi`, mirrored by the `minor N` line of
+`abi/pxui.v1.txt`). The wrapper refuses a library whose major is not 1. Minor grows by one for each additive change.
+
+**Promise.** An app built against 1.N runs unchanged against any later 1.M library (M >= N). "Unchanged" covers: every export
+of 1.N with its signature; every record layout and field offset; every flag, enum and code value; the behaviour of existing
+calls on inputs they accepted; and identity hashes (text content/style keys, widget and node identities) once they have been
+frozen by a released minor. A call added after N is simply absent from an older library; the app checks the minor before using it.
+
+**Append-only rules.**
+
+- Exports are never removed, renamed or re-signatured. A different shape is a new export.
+- Records are `repr(C)` with `size: u32` first. A record grows only at its end; the library reads the caller's `size`, refuses a
+  shorter record (`read_desc!`, `sized!`) and copies no more than it knows, so a caller built against a larger or smaller
+  layout is never over-read. Existing fields keep offset, size and meaning.
+- Enum and flag values are never reused or renumbered. A retired value stays reserved.
+- `abi/pxui.v1.txt` and `abi/layout.v1.txt` change only by appending lines; each appended line has a row in the table below, and
+  the `abi-snapshot` and `abi-header` gates check them. Historical rows stay frozen.
+- One minor bump per additive change, made in the same commit as the export, header, snapshots and docs row.
+
+**Reserved flag bits.** Node flags (`Flags`, `u64`) use bits 0-21 today (highest is `FIT_TEXT_PIXEL`, 1 << 21). Bits 22-62 are
+reserved for future minors and must be passed as zero. Bit 63 is unassigned.
+
+**Extension set.** The Rays vocabulary and diagnostics (`inspector_*`, `line_field`, `value_field`, `picker`, `diagnostics`)
+are not part of the promise. They are to live in a separate manifest, `abi/pxui.ext.txt` (moved there by DX7.8), which carries
+no stability guarantee: they may change or disappear between minors, and an app pins the commit if it uses them.
+Until DX7.8 lands they are still listed in `abi/pxui.v1.txt` and are frozen like the rest.
+
+**Adding a call.** In one commit: the `pxui_abi` export; the wrapper method in `pxui`; the declaration in `include/pxui.h`;
+the appended row in `abi/pxui.v1.txt` (and `abi/layout.v1.txt` for a new record); the row in the table below; the
+`ABI_VERSION` bump with the `minor` line. Then run the `abi-header` and `abi-snapshot` gates.
+
+**Deprecation.** A deprecated call is kept forever and keeps its behaviour. Mark it in its docs row (and `#[deprecated]` on the
+wrapper) and name the replacement; nothing is removed from the manifest.
+
 | Version | Field/function | Purpose |
 | --- | --- | --- |
 | 1.0 | Initial public UI/text/renderer ABI | Opaque owners, sized descriptors and callback-scoped borrows. |
