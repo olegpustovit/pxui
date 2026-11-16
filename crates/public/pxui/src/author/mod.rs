@@ -6,5 +6,5 @@ mod text;
 mod view;
 pub use layout::Key;
 pub use press::Response;
-pub use text::text_style;
+pub use text::{text_style, LabelOpts};
 pub use view::hash_of;
