@@ -215,6 +215,65 @@ fn abi_bench_pages() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// Containers per frame of the authoring-helper page, each with `AUTHOR_CHILDREN` leaves.
+const AUTHOR_ROWS: usize = 200;
+const AUTHOR_CHILDREN: usize = 2;
+/// Plan: a container built through the authoring layer's thin shim retires at most 1% more instructions than `node` + `within`.
+const GATE_AUTHOR_RATIO: f64 = 1.01;
+
+/// The shape the authoring layer (`author/`) will have: an inlined generic forwarding to one non-generic body.
+struct Shim;
+impl Shim {
+    #[inline]
+    fn row<F: FnMut(&mut pxui::Ui)>(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, mut f: F) { self.row_body(ui, key, node, &mut f); }
+    fn row_body(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, f: &mut dyn FnMut(&mut pxui::Ui)) {
+        let b = ui.node(key, node);
+        ui.within(&b, f);
+    }
+    /// The variant under test: the helper takes the node by value and rebuilds a modified copy before using it.
+    #[inline]
+    fn rebuilding<F: FnMut(&mut pxui::Ui)>(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, mut f: F) { self.rebuilding_body(ui, key, node, &mut f); }
+    fn rebuilding_body(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, f: &mut dyn FnMut(&mut pxui::Ui)) {
+        let rebuilt = pxui::Node { w: node.w, h: node.h, padding: node.padding, gap: node.gap, axis: node.axis, ..pxui::Node::DEFAULT };
+        let b = ui.node(key, std::hint::black_box(rebuilt));
+        ui.within(&b, f);
+    }
+}
+
+/// Retired instructions per frame of `AUTHOR_ROWS` containers built three ways; the shim must stay within `GATE_AUTHOR_RATIO` of the
+/// direct calls; the node-rebuilding helper is measured and reported.
+fn abi_bench_author() {
+    if !slow() { return; }
+    let labels: Vec<String> = (0..AUTHOR_ROWS).map(|i| format!("row{i}")).collect();
+    let leaves: Vec<String> = (0..AUTHOR_CHILDREN).map(|i| format!("leaf{i}")).collect();
+    let row = pxui::Node { w: Size::Grow, h: Size::Px(24.0), ..pxui::Node::DEFAULT };
+    let leaf = pxui::Node { w: Size::Px(10.0), h: Size::Px(10.0), ..pxui::Node::DEFAULT };
+    let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
+    let shim = Shim;
+    // kind 0: node + within; 1: the thin shim; 2: the node-rebuilding helper
+    let mut build = |kind: u8, count: u64| {
+        let input = FrameIn { width: PAGE_W as f32, height: PAGE_H as f32, scale: 1.0, time: count as f64 / 60.0, ..FrameIn::default() };
+        ui.frame(&input, &mut |ui: &mut pxui::Ui| for label in &labels {
+            let mut children = |ui: &mut pxui::Ui| for l in &leaves { ui.node(l, leaf); };
+            match kind {
+                0 => { let b = ui.node(label, row); ui.within(&b, &mut children); }
+                1 => shim.row(ui, label, row, children),
+                _ => shim.rebuilding(ui, label, row, children),
+            }
+        }).expect("frame");
+    };
+    for count in 0..30 { for kind in 0..3 { build(kind, count); } }
+    let mut counts = [0.0; 3];
+    for (kind, slot) in counts.iter_mut().enumerate() { *slot = instructions_per_frame(&mut |c| build(kind as u8, c)).unwrap_or(0.0); }
+    let [direct, thin, rebuilt] = counts;
+    if direct == 0.0 { println!("PXUI abi_bench {MODE} page=Author: instruction gate skipped (no retired-instruction count on this system)"); return; }
+    println!("PXUI abi_bench {MODE} page=Author containers={AUTHOR_ROWS} direct_instructions={direct:.0} shim_instructions={thin:.0} shim_ratio={:.5} rebuilding_instructions={rebuilt:.0} rebuilding_ratio={:.5} limit={GATE_AUTHOR_RATIO}", thin / direct, rebuilt / direct);
+    assert!(thin <= direct * GATE_AUTHOR_RATIO, "Author: the thin shim retires {thin:.0} instructions a frame, over {:.0}% above the direct calls' {direct:.0}", (GATE_AUTHOR_RATIO - 1.0) * 100.0);
+    // Measured: a 600-byte Node copy is about 0.01% of a container's ~5,000 instructions, so the 1% limit does not catch a helper that only
+    // rebuilds the node (it retires 0.05% to 0.13% under direct here, with the copy forced by black_box). Reported, not gated.
+    println!("PXUI abi_bench {MODE} page=Author node-rebuilding helper is {} by the {:.0}% limit", if rebuilt > direct * GATE_AUTHOR_RATIO { "caught" } else { "not caught" }, (GATE_AUTHOR_RATIO - 1.0) * 100.0);
+}
+
 /// The wrapper's drawing is the engine's: same layers, same instances, same breaks (static link only, where both are one binary).
 #[cfg(feature = "static")]
 fn abi_bench_instances() {
@@ -508,6 +567,7 @@ fn abi_bench_start() {
 fn main() {
     run::run(&[
         ("abi_bench_pages", abi_bench_pages),
+        ("abi_bench_author", abi_bench_author),
         ("abi_bench_instances", abi_bench_instances),
         ("abi_bench_bodies", abi_bench_bodies),
         ("abi_bench_gpu", abi_bench_gpu),
