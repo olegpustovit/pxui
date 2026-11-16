@@ -164,7 +164,6 @@ crates/public/pxui/src/box_ops.rs	Ui::scroll_position	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::set_node_layout	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::set_text_state	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::text_layout_count	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::text_state	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::transfer_carry	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::view_flat	example,Allocates,Panics,Identity
 crates/public/pxui/src/box_ops.rs	Ui::view_transform_about	example,Allocates,Panics
@@ -208,7 +207,6 @@ crates/public/pxui/src/kit_ext.rs	Ui::inspector_body	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_header	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_section_view	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_toggle_value	example,Allocates,Panics,Identity
-crates/public/pxui/src/kit_ext.rs	Ui::line_field	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::popup	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit.rs	pxui_ui_animate_keys	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_animate_keys_repeat	example,Allocates,Panics
@@ -265,8 +263,6 @@ crates/public/pxui/src/testing.rs	key	Panics
 crates/public/pxui/src/text_inputs.rs	Ui::load_text_edit	example,Allocates,Panics,Identity
 crates/public/pxui/src/text_inputs.rs	Ui::patch_field	example,Allocates,Panics
 crates/public/pxui/src/text_inputs.rs	Ui::remember	example,Allocates,Panics
-crates/public/pxui/src/text_inputs.rs	Ui::text_area_submit	example,Allocates,Panics,Identity
-crates/public/pxui/src/text_inputs.rs	Ui::value_field	example,Allocates,Panics,Identity
 crates/public/pxui/src/text_width.rs	Ui::text_width	example,Allocates,Panics
 crates/public/pxui/src/text.rs	pragmasevka	example,Allocates,Panics
 crates/public/pxui/src/text.rs	Text::add_font	example,Allocates,Panics

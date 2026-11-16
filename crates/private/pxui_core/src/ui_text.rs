@@ -966,7 +966,7 @@ fn row_at_slot(notes: &Notes, count: usize, k: i64) -> usize {
 }
 
 fn gutter_of(char_w: f32, lines: usize) -> f32 {
-    36.0 + char_w * 0.max(lines.to_string().len() as i64 - 3) as f32
+    36.0 + char_w * 0.max(lines.checked_ilog10().map_or(1, |d| d + 1) as i64 - 3) as f32
 }
 
 fn clamp_pos(v: i64) -> usize {
@@ -1000,7 +1000,7 @@ impl Ui {
     /// An unchanged text costs no walk: the handle keeps the rows of the last few texts it laid
     /// out, least recently used first out past `set_text_panes` (8 by default: the panes on screen).
     pub fn text_rows(&mut self, cols: Option<usize>, text: &str) -> Rows {
-        if let Some(k) = self.text_rows_seen.iter().position(|(c, t, _)| *c == cols && t == text) {
+        if let Some(k) = self.text_rows_seen.iter().position(|(c, t, _)| *c == cols && &**t == text) {
             self.text_rows_seen[..=k].rotate_right(1);
             return self.text_rows_seen[0].2.clone();
         }
@@ -1041,7 +1041,7 @@ impl Ui {
             }
         }
         let rows = Rc::new(rows);
-        self.text_rows_seen.insert(0, (cols, text.to_owned(), rows.clone()));
+        self.text_rows_seen.insert(0, (cols, Rc::from(text), rows.clone()));
         self.text_rows_seen.truncate(self.text_panes);
         rows
     }
@@ -1194,13 +1194,13 @@ impl Ui {
     /// is a list of (start, stop, replacement) byte ranges of the given text applied together as
     /// one undo step before `select`.
     #[allow(clippy::too_many_arguments)]
-    pub fn text_area_submit(&mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (String, bool) {
+    pub fn text_area_submit(&mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<String>, bool) {
         text_area_submit_body(self, at, w, h, o, label, text)
     }
 }
 
 struct AreaPaint {
-    colors: Rc<Vec<(i64, i64, Color)>>,
+    colors: Option<Rc<Vec<(i64, i64, Color)>>>,
     composition: String,
     messages: Vec<(i64, Option<(i64, i64)>, String)>,
     chips: Vec<(i64, i64, Color)>,
@@ -1211,7 +1211,7 @@ struct AreaPaint {
     errors: Vec<i64>,
     notes: Notes,
     char_w: f32,
-    final_text: String,
+    final_text: Rc<str>,
     rows: Rows,
     count: usize,
     focused: bool,
@@ -1229,7 +1229,7 @@ struct AreaPaint {
 impl AreaPaint {
     fn paint(&self, paint: &mut Paint, Rect { x: bx, y: by, w: bw, h: bh }: Rect) {
         let theme = self.theme;
-        let final_text = self.final_text.as_str();
+        let final_text = &*self.final_text;
         let rows = &self.rows;
         let row = self.row;
         let char_w = self.char_w;
@@ -1265,7 +1265,7 @@ impl AreaPaint {
         };
         // the colours are sorted and the rows come in order: one walk of them, whatever the rows
         let mut colors_ahead = 0usize;
-        let colors = &*self.colors;
+        let colors: &[(i64, i64, Color)] = self.colors.as_deref().map_or(&[], |colors| colors.as_slice());
         let mut line = first;
         while line <= last {
             let lu = line as usize;
@@ -1503,7 +1503,7 @@ impl Ui {
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (String, bool) {
+fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<String>, bool) {
     // a line of code is one and a half times its text, as code editors set it (17 points at
     // 11, 20 at 13): the 24-point row is a control's, twice the text
     let row = this.text_line_height() as f32;
@@ -1549,8 +1549,8 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     // the content box scrolls; two empty boxes keep the completion popup's and the number
     // scrub's state between frames
     let saved = this.enter(&body);
-    let content = this.box_(
-        &format!("{}-content", label),
+    let content = this.box_fmt(
+        format_args!("{}-content", label),
         BoxOpts::default().w(Size::Px(w)).h(Size::Px((count + note_rows(&rows).len()) as f32 * row + pad)),
     );
     let suggest = this.box_fmt(format_args!("{}-suggest", label), BoxOpts::default().w(Size::Px(0.0)).h(Size::Px(0.0)).at((0.0, 0.0)));
@@ -1589,7 +1589,8 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let mut edit = if focused {
         this.load_text_edit(body.box_key, text)
     } else {
-        TextEdit { text: text.to_owned(), caret: text.len(), anchor: text.len() }
+        // nothing reads an unfocused area's edit text: the painted text is `final_text`
+        TextEdit { text: String::new(), caret: text.len(), anchor: text.len() }
     };
     let mut moved = false;
     let mut st = AreaState::default();
@@ -1770,7 +1771,12 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         moved = edit.caret != caret0 || edit.text != text || signal.pressed;
     }
     // scrolling: the wheel, then whatever keeps the caret (or `reveal`) in view
-    let final_text = edit.text.clone();
+    // unchanged text is the one the rows cache holds (most recently used first), shared without a copy
+    let final_text: Rc<str> = if !focused || edit.text == text {
+        this.text_rows_seen.first().filter(|seen| &*seen.1 == text).map_or_else(|| Rc::from(text), |seen| seen.1.clone())
+    } else {
+        Rc::from(edit.text.as_str())
+    };
     if focused {
         if let Some(f) = &o.on_caret {
             f(edit.caret as i64);
@@ -1801,7 +1807,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
             }
         }
     }
-    let rows = if final_text == text { rows } else { this.area_rows(cfg, &final_text) };
+    let rows = if &*final_text == text { rows } else { this.area_rows(cfg, &final_text) };
     let count = rows.len();
     let notes = note_rows(&rows);
     // `reveal` scrolls once per (offset, length, nonce): the content box remembers it, and
@@ -1853,9 +1859,9 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let area_look = this.theme().text_area.idle;
     let composition = this.composition().to_owned();
     // the language's colours and the bracket pair at the caret, once per frame
-    let colors: Rc<Vec<(i64, i64, Color)>> = match &language {
-        Some(l) => this.text_colors(l, &final_text),
-        None => Rc::new(Vec::new()),
+    let colors: Option<Rc<Vec<(i64, i64, Color)>>> = match &language {
+        Some(l) => Some(this.text_colors(l, &final_text)),
+        None => None,
     };
     let matched: Option<(usize, usize)> = match &language {
         Some(l) if focused => {
@@ -1951,7 +1957,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         rows,
         count,
         focused,
-        edit: edit.clone(),
+        edit: TextEdit { text: String::new(), caret: edit.caret, anchor: edit.anchor },
         row,
         pad,
         offset,
@@ -1961,7 +1967,8 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         look: area_look,
     };
     this.draw(&body, move |paint, rect| painted.paint(paint, rect));
-    (edit.text, st.submitted)
+    // an unfocused area's edit holds no text and nothing changed
+    ((focused && edit.text != text).then_some(edit.text), st.submitted)
 }
 
 fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language: &Option<Language>, suggest: &UiBox, open: i64, items: &[Completion], shown: usize, st: &mut AreaState, edit: &mut TextEdit) {

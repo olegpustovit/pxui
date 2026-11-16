@@ -270,7 +270,7 @@ impl Rig {
         let submitted = &mut self.submitted;
         host_frame(&mut self.ui, &frame_at(o.keys, 1.0, self.time, events), &mut |ui| {
             let (text, submit) = ui.text_area_submit((0.0, 0.0), 300.0, 96.0, &opts, "area", area);
-            *area = text;
+            if let Some(text) = text { *area = text; }
             *submitted = submit;
         });
     }

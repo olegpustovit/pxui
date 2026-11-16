@@ -134,7 +134,7 @@ export!(trusted pub unsafe fn pxui_ui_badge(ui: *mut PxuiUi, label: Str, value: 
 });
 
 export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, changed: *mut u8, out: *mut Str) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if changed.is_null() || out.is_null() { return unsafe { fail(ui, "null search field output") }; }
     unsafe { *changed = 0; *out = Str::default(); }
     let (Some(label), Some(icon), Some(value), Some(placeholder)) = (
@@ -142,6 +142,6 @@ export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, 
     ) else { return unsafe { fail(ui, "invalid search field text") }; };
     let mut found = None;
     let rc = unsafe { trusted::search_field(ui, label, icon, value, placeholder, &mut found) };
-    if let Some(value) = found { unsafe { *changed = 1; *out = state.give(value); } }
+    if let Some(value) = found { unsafe { *changed = 1; *out = value; } }
     rc
 });

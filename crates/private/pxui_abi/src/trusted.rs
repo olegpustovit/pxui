@@ -4,7 +4,7 @@
 //! two paths run one body. What Rust types cannot promise stays checked in the body (a text longer than `MAX_TEXT_BYTES`, a stale box,
 //! a number that is not finite). Each entry counts itself as one call into the library.
 use crate::node::declare;
-use crate::state::{Inner, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_inner, fail, note_call, to_abi_box};
+use crate::state::{get, Inner, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_inner, fail, note_call, to_abi_box};
 use crate::{PxuiBox, Str};
 use pxui_core::ui::Ui;
 use pxui_types::{FrameIn, FrameOut, Node, Size, ffi::Input, theme::ThemeSnapshot};
@@ -223,12 +223,13 @@ pub unsafe fn badge(ui: *mut PxuiUi, label: &str, value: &str, out: &mut PxuiBox
     0
 }
 
-/// The text a search field changed to, or none.
+/// The text a search field changed to, or none; kept by the library until the next frame.
 #[inline]
-pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str, placeholder: &str, out: &mut Option<String>) -> i32 {
+pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str, placeholder: &str, out: &mut Option<Str>) -> i32 {
     enter!(ui);
     if long(label) || long(icon) || long(value) || long(placeholder) { return unsafe { fail(ui, "invalid search field text") }; }
-    *out = unsafe { engine(ui) }.search_field(label, icon, value, placeholder);
+    let found = unsafe { engine(ui) }.search_field(label, icon, value, placeholder);
+    *out = found.map(|text| unsafe { get(ui) }.map_or(Str::default(), |state| state.give(text)));
     0
 }
 

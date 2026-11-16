@@ -160,17 +160,29 @@ impl Ui {
         out
     }
 
+    /// A search field: the text it changed to, or none; borrowed from the library, valid until the next call on `ui`.
+    ///
+    /// Allocates: the engine allocates the text when it changed; the wrapper nothing.
+    /// Identity: `label` keys the field; fields with the same label in one parent collide.
+    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
+    ///     assert_eq!(ui.search_field("find", "?", "", "Search"), None);
+    /// }).unwrap();
+    /// ```
     #[inline]
-    #[track_caller] pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<String> {
+    #[track_caller] pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<&str> {
         #[cfg(feature = "static")]
-        { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, icon, value, placeholder, &mut out) }); out }
+        { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, icon, value, placeholder, &mut out) }); out.map(crate::lent_str) }
         #[cfg(not(feature = "static"))]
         {
             let mut changed = 0;
             let mut out = Str::default();
             check(self, unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(icon), as_str(value), as_str(placeholder), &mut changed, &mut out) });
             if changed == 0 { return None; }
-            Some(crate::lent_string(out))
+            Some(crate::lent_str(out))
         }
     }
 }

@@ -124,13 +124,27 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_inspector_toggle_value(self.0.as_ptr(), as_str(key), at.0, at.1, value as u8, &mut out) });
         out != 0
     }
-    /// A one-line search field at `at`: the new value and what its keys asked.
+    /// A one-line search field at `at`: the new value when it differs from `value` (else none) and what its keys asked. The
+    /// text is borrowed from the library, valid until the next call on `ui`.
+    ///
+    /// Allocates: the engine allocates the result text each call; the wrapper nothing.
+    /// Identity: `label` keys the field; fields with the same label in one parent collide.
+    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
+    ///     let (changed, step) = ui.line_field((0.0, 0.0), 120.0, 20.0, false, "find", "line", "abc");
+    ///     assert_eq!((changed, step), (None, pxui::LineStep::None));
+    /// }).unwrap();
+    /// ```
     #[allow(clippy::too_many_arguments)]
     #[track_caller]
-    pub fn line_field(&mut self, at: (f32, f32), w: f32, h: f32, grab: bool, placeholder: &str, label: &str, value: &str) -> (String, LineStep) {
+    pub fn line_field(&mut self, at: (f32, f32), w: f32, h: f32, grab: bool, placeholder: &str, label: &str, value: &str) -> (Option<&str>, LineStep) {
         let (mut text, mut step) = (Str::default(), 0);
         check(self, unsafe { lib::pxui_ui_line_field(self.0.as_ptr(), at.0, at.1, w, h, grab as u8, as_str(placeholder), as_str(label), as_str(value), &mut text, &mut step) });
-        let edited = if text.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(text.ptr, text.len) }).into_owned() };
+        let edited = crate::lent_str(text);
+        let edited = (edited != value).then_some(edited);
         (edited, match step { 1 => LineStep::Next, 2 => LineStep::Previous, 3 => LineStep::Close, _ => LineStep::None })
     }
     /// The fraction of a dragged `kept_drag` field's track under the pointer, and the pointer's points from the press.

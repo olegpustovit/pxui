@@ -1155,7 +1155,7 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
         assert_eq!((ui.scroll_offset(&b), ui.scroll_position(&b)), (5.0, 5.0));
         assert_eq!(ui.text_state(&b), None);
         ui.set_text_state(&b, Some("kept".into()));
-        assert_eq!(ui.text_state(&b).as_deref(), Some("kept"));
+        assert_eq!(ui.text_state(&b), Some("kept"));
         assert_eq!(ui.cached_label(&b, 0, "label"), "label");
         ui.set_at(&b, (11.0, 21.0));
         let _ = ui.patch_rect(&b, Rect::new(0.0, 0.0, 1.0, 1.0));
@@ -1213,7 +1213,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 });
                 ui.inspector_bar(&hints, 3);
                 let (text, step) = ui.line_field((0.0, 0.0), 120.0, 20.0, false, "find", "line", "abc");
-                assert_eq!((text.as_str(), step), ("abc", LineStep::None));
+                assert_eq!((text, step), (None, LineStep::None));
                 let (grip, signal) = ui.grip(format_args!("grip-{}", 1), Axis::Row, None);
                 assert!(!signal.clicked);
                 assert_eq!(ui.field_drag(&grip), None);
@@ -1311,7 +1311,7 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
         ui.frame(&input(), &mut |ui: &mut Ui| {
             ui.panel(pxui_types::ui::PanelOpts::default(), "fields", &mut |ui: &mut Ui| {
                 let (text, editing) = ui.value_field((10.0, 10.0), 120.0, 20.0, &opts, &|t: &str| t.parse::<f32>().is_ok(), "amount", "0.25");
-                assert_eq!((text.as_str(), editing), ("0.25", false));
+                assert_eq!((text, editing), (None, false));
                 let edit = ui.load_text_edit(7, "abc");
                 assert_eq!((edit.text.as_str(), edit.caret, edit.anchor), ("abc", 3, 3));
                 ui.remember(&TextEdit { text: "abc".into(), caret: 1, anchor: 1 }, false);
@@ -1355,10 +1355,46 @@ fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
         let edit: TextEdit = ui.load_text_edit(9, &source);
         assert_eq!(edit.text.len(), source.len(), "the edit holds the whole text");
         let (text, _) = ui.text_area_submit((0.0, 0.0), 100.0, 100.0, &Default::default(), "area", &source);
-        assert_eq!(text.len(), source.len(), "the area returns the whole text");
+        assert_eq!(text, None, "the whole text crossed and compared equal");
     }).expect("frame");
 }
 
+
+#[test]
+fn text_area_submit_borrows_its_text_and_allocates_nothing_on_warm_frames() {
+    use crate::opts::TextAreaOpts;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().expect("library");
+    let source = "alpha\nbeta\ngamma";
+    let plain = TextAreaOpts::default();
+    for tick in 0..12 {
+        // warm-up and measured frames make the same call; the first 8 only warm the caches
+        mem_sys::local_reset();
+        let scope = (tick >= 8).then(mem_sys::warm_scope);
+        ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
+            ui.panel(pxui_types::ui::PanelOpts::default(), "borrowed", &mut |ui: &mut Ui| {
+                assert_eq!(ui.text_area_submit((0.0, 0.0), 100.0, 100.0, &plain, "area", source), (None, false));
+            });
+        }).expect("frame");
+        let allocated = mem_sys::local_alloc_count();
+        drop(scope);
+        if tick >= 8 {
+            assert_eq!(allocated, 0, "text_area_submit on warm frame {tick}");
+            assert!(mem_sys::take_reports().is_empty(), "warm frame {tick} allocated");
+        }
+    }
+    // a splice into the focused area changes the text: it comes back borrowed
+    let edit = TextAreaOpts { select: Some((0, 0)), splice: vec![(0, 5, "ALPHA".into())], ..TextAreaOpts::default() };
+    let mut changed = None;
+    for tick in 12..16 {
+        ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
+            ui.panel(pxui_types::ui::PanelOpts::default(), "borrowed", &mut |ui: &mut Ui| {
+                changed = changed.take().or(ui.text_area_submit((0.0, 0.0), 100.0, 100.0, &edit, "area", source).0.map(str::to_owned));
+            });
+        }).expect("frame");
+    }
+    assert_eq!(changed.as_deref(), Some("ALPHA\nbeta\ngamma"));
+}
 
 #[test]
 fn tabular_digits_reach_shaping_and_keep_warm_layouts_allocation_free() {

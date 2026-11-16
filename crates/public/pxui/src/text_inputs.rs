@@ -1,6 +1,6 @@
 //! Text widgets with options: the value field (slide, scrub and validity callbacks), the text area, and the text edit the `Ui` keeps.
 use crate::composite::{defer_callback_panic, deferred};
-use crate::{as_str, check, lent_string, live, Ui};
+use crate::{as_str, check, lent_str, lent_string, live, Ui};
 use core::ffi::c_void;
 use pxui_types::{ffi::{AreaNotify, PxuiAreaCallbacks, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, Drop, Payload, TextEdit}, PxuiBox, Str};
 
@@ -153,9 +153,22 @@ extern "C" fn rewrite(user: *mut c_void, value: Str, caret: i64, out: *mut PxuiR
 }
 
 impl Ui {
-    /// A multiline text area: the new text and whether it was submitted. The app's closures in `options` run during this call.
+    /// A multiline text area: the new text when it changed (else none) and whether it was submitted. The app's closures in
+    /// `options` run during this call; the text is borrowed from the library, valid until the next call on `ui`.
+    ///
+    /// Allocates: nothing on a warm frame without options, whether or not the area is focused-idle; typing allocates the new text.
+    /// Identity: `label` keys the area; areas with the same label in one parent collide.
+    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
+    ///     let (changed, submitted) = ui.text_area_submit((0.0, 0.0), 100.0, 60.0, &Default::default(), "area", "hello");
+    ///     assert_eq!((changed, submitted), (None, false));
+    /// }).unwrap();
+    /// ```
     #[track_caller]
-    pub fn text_area_submit(&mut self, at: (f32, f32), width: f32, height: f32, o: &TextAreaOpts, label: &str, value: &str) -> (String, bool) {
+    pub fn text_area_submit(&mut self, at: (f32, f32), width: f32, height: f32, o: &TextAreaOpts, label: &str, value: &str) -> (Option<&str>, bool) {
         let ranges = |v: &[(i64, i64)]| -> Vec<PxuiRange> { v.iter().map(|(start, end)| PxuiRange { start: *start, end: *end }).collect() };
         let messages: Vec<PxuiNote> = o.messages.iter().map(|(line, range, text)| PxuiNote { line: *line, start: range.map_or(0, |r| r.0), end: range.map_or(0, |r| r.1), has_range: range.is_some() as u8, reserved: [0; 7], text: as_str(text) }).collect();
         let spans = ranges(&o.spans);
@@ -197,20 +210,33 @@ impl Ui {
         };
         let (mut out, mut changed, mut submitted) = (Str::default(), 0, 0);
         check(self, unsafe { lib::pxui_ui_text_area_submit(self.0.as_ptr(), &desc, &cbs, &mut out, &mut changed, &mut submitted) });
-        (lent_string(out), submitted != 0)
+        ((changed != 0).then(|| lent_str(out)), submitted != 0)
     }
 
-    /// A compact field: the new text and whether a text editor is open. Only text `valid` accepts commits.
+    /// A compact field: the new text when it changed (else none) and whether a text editor is open. Only text `valid` accepts
+    /// commits. The text is borrowed from the library, valid until the next call on `ui`.
+    ///
+    /// Allocates: the engine allocates the result text each call; the wrapper nothing.
+    /// Identity: `label` keys the field; fields with the same label in one parent collide.
+    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
+    ///     let (changed, editing) = ui.value_field((0.0, 0.0), 100.0, 20.0, &Default::default(), &|t: &str| t.parse::<f32>().is_ok(), "amount", "0.25");
+    ///     assert_eq!((changed, editing), (None, false));
+    /// }).unwrap();
+    /// ```
     #[allow(clippy::too_many_arguments)]
     #[track_caller]
-    pub fn value_field(&mut self, at: (f32, f32), width: f32, height: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (String, bool) {
+    pub fn value_field(&mut self, at: (f32, f32), width: f32, height: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (Option<&str>, bool) {
         let desc = value_desc(at, width, height, o, label, value);
         let slide = o.slide.as_deref();
         let scrub = o.scrub.as_deref();
         let mut field = Field { valid, slide, scrub, produced: String::new() };
         let (mut out, mut changed, mut editing) = (Str::default(), 0, 0);
         check(self, unsafe { lib::pxui_ui_value_field(self.0.as_ptr(), &desc, Some(valid_call), slide.map(|_| slide_call as extern "C" fn(*mut c_void, f32, *mut Str)), scrub.map(|_| scrub_call as extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)), &mut field as *mut Field as *mut c_void, &mut out, &mut changed, &mut editing) });
-        (lent_string(out), editing != 0)
+        ((changed != 0).then(|| lent_str(out)), editing != 0)
     }
 
     /// A value field's value and soft-range line written by patches, as its build lays them out without a lead: false when a

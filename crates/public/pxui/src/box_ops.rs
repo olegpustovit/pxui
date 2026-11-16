@@ -302,11 +302,26 @@ impl Ui {
         out
     }
     #[inline] #[track_caller] pub fn set_scroll_offset(&mut self, b: &PxuiBox, value: f32) { check(self, unsafe { lib::pxui_ui_set_scroll_offset(self.0.as_ptr(), b, value) }) }
+    /// The text kept in the box's slot, or none when it holds none; borrowed from the library, valid until the
+    /// next call on `ui`.
+    ///
+    /// Allocates: nothing in the wrapper.
+    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
+    ///     assert_eq!(ui.text_state(&b), None);
+    ///     ui.set_text_state(&b, Some("kept".into()));
+    ///     assert_eq!(ui.text_state(&b), Some("kept"));
+    /// }).unwrap();
+    /// ```
     #[track_caller]
-    pub fn text_state(&self, b: &PxuiBox) -> Option<String> {
+    pub fn text_state(&self, b: &PxuiBox) -> Option<&str> {
         let (mut present, mut out) = (0, Str::default());
         check(self, unsafe { lib::pxui_ui_text_state(self.0.as_ptr(), b, &mut present, &mut out) });
-        (present != 0).then(|| owned(out))
+        (present != 0).then(|| crate::lent_str(out))
     }
     #[track_caller]
     pub fn set_text_state(&mut self, b: &PxuiBox, value: Option<String>) {
@@ -476,7 +491,6 @@ impl Ui {
 }
 
 /// A string the library lent: copied, since it only lives until the next frame.
-fn owned(value: Str) -> String { if value.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(value.ptr, value.len) }).into_owned() } }
 
 /// What `Ui::node_mut` edits of a node.
 #[derive(Clone, Copy, Debug, PartialEq)]
