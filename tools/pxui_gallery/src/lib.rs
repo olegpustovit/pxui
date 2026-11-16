@@ -5,4 +5,7 @@ mod compat;
 pub mod bodies_page;
 pub mod gpu;
 mod pages;
+
+/// A value field's new text, when it changed (the wrapper borrows it; `abi_bench` compiles `pages.rs` against the engine's owned form).
+fn take_value(changed: Option<&str>, value: &mut String) { if let Some(text) = changed { *value = text.to_owned(); } }
 pub use pages::*;

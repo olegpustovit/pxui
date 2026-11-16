@@ -161,9 +161,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
             let (row, cx, cy, cw) = ui.inspector_row(None, None, "scale", "Scale");
             ui.within(&row, &mut |ui: &mut Ui| {
                 let (v, _) = ui.value_field((cx, cy), cw, 20.0, &ValueFieldOpts::default(), &|t: &str| t.parse::<f64>().is_ok(), "scale-value", &s.scale);
-                if v != s.scale {
-                    s.scale = v;
-                }
+                super::take_value(v, &mut s.scale);
             });
             if ui.inspector_button("reset", "Reset") {
                 s.scale = "1.5".to_owned();
@@ -171,9 +169,9 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         });
         let notes = node(ui, "notes", Node { h: Size::Px(64.0), ..Node::DEFAULT });
         ui.within(&notes, &mut |ui: &mut Ui| {
-            let (text, _) = ui.text_area_submit((12.0, 4.0), 270.0, 56.0, &TextAreaOpts::default(), "notes-area", &s.notes);
-            if text != s.notes {
-                s.notes = text;
+            // None: unchanged. Some: borrowed (wrapper) or owned (engine, abi_bench) new text.
+            if let (Some(text), _) = ui.text_area_submit((12.0, 4.0), 270.0, 56.0, &TextAreaOpts::default(), "notes-area", &s.notes) {
+                s.notes = text.to_owned();
             }
         });
         let _ = ui.footer(Some("2 keys"), &s.hints);
@@ -208,7 +206,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0), "more", &mut |ui: &mut Ui| {
         s.tab = ui.tabs("Sections", &["Layer", "Mask", "Effects"], s.tab);
         if let Some(q) = ui.search_field("Find", "/", &s.search, "Search layers") {
-            s.search = q;
+            s.search = q.to_owned();
         }
         let row = node(ui, "icons", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 4.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {

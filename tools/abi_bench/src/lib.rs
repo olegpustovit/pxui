@@ -34,6 +34,9 @@ mod compat {
     }
 }
 
+/// `pages.rs`'s value-field update against the engine, which returns the field's whole text.
+fn take_value(text: String, value: &mut String) { if text != *value { *value = text; } }
+
 pub mod gallery {
     use super::pxui;
     include!("../../pxui_gallery/src/pages.rs");

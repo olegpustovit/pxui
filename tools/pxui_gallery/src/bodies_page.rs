@@ -134,7 +134,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         s.wifi = ui.toggle("Wi-Fi", s.wifi);
         s.volume = ui.slider("Volume", s.volume, 0.0..=1.0);
         s.align = ui.segmented("Align", &["Left", "Centre", "Right"], s.align);
-        if let Some(v) = ui.search_field("Find", "?", &s.query, "Search") { s.query = v; }
+        if let Some(v) = ui.search_field("Find", "?", &s.query, "Search") { s.query = v.to_owned(); }
     });
     ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true), "table", &mut |ui: &mut Ui| {
         let (widths, selected, flags) = (&mut s.widths, &mut s.selected, &mut s.flags);
