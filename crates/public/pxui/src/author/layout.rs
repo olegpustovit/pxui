@@ -110,7 +110,7 @@ impl Ui {
 /// `id` as a label: a NUL byte and its 16 lowercase hex digits, written into `out`. Out of line: label keys inline without it.
 #[cold]
 #[inline(never)]
-fn id_text(id: i64, out: &mut [u8; 17]) -> &str {
+pub(super) fn id_text(id: i64, out: &mut [u8; 17]) -> &str {
     for (at, digit) in out[1..].iter_mut().enumerate() { *digit = b"0123456789abcdef"[(id as u64 >> (60 - 4 * at)) as usize & 15]; }
     // NUL and ASCII hex digits: always UTF-8
     core::str::from_utf8(out).unwrap_or_default()
