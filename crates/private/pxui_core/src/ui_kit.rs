@@ -43,6 +43,38 @@ pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
     this.leave(inner);
 }
 
+/// How `button_opts` varies the kit's button; `DEFAULT` is the plain `button`.
+pub struct ButtonOpts {
+    /// The look per state; `None` is the theme's button (`button_bare` when `bare`). `selected` shows its `checked` look, a disabled button its `disabled` one.
+    pub states: Option<States>,
+    /// Width and height of the box in points (`Px`) or filling the line (`Grow`); `Fit` is the kit's own (the text and 14 wide, 20 high).
+    pub w: Size,
+    pub h: Size,
+    /// A disabled button takes no press or focus, shows its `disabled` look and reports disabled to accessibility; it still blocks what is under it.
+    pub enabled: bool,
+    /// The button is the current one of a group: its `checked` look and the accessible SELECTED state.
+    pub selected: bool,
+    /// Where the box sits in its line: `Start` (5 in), `Center`, or `End` (8 in from the end).
+    pub justify: Justify,
+    /// Added inside the box; with a `Fit` width it widens the box by its left and right.
+    pub padding: Edges,
+    /// The text's ink in every state but disabled.
+    pub ink: Option<Color>,
+    pub bare: bool,
+    pub icon: bool,
+}
+
+impl ButtonOpts {
+    pub const DEFAULT: ButtonOpts = ButtonOpts { states: None, w: Size::Fit, h: Size::Fit, enabled: true, selected: false, justify: Justify::Start, padding: Edges::ZERO, ink: None, bare: false, icon: false };
+}
+
+/// What `button_opts` reports: the box's signal and focus, and the box (the node a press lands on).
+pub struct ButtonOut {
+    pub signal: Signal,
+    pub focused: bool,
+    pub handle: Handle,
+}
+
 /// The built-in button: its text on a 20-point box (6 points of padding in a transparent 1-point edge; 4 when `bare`), the glyph
 /// centred in the 20-point square of an `icon`, the box 5 points in from the start of its line (8 from the end with `at_end`).
 pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
@@ -52,12 +84,13 @@ pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, t
     let width = if c.icon { control_h } else { measure + if c.bare { 10.0 } else { 14.0 } };
     let pad = (rh - control_h) / 2.0;
     let line = this.node_new(&c.line);
-    line.h = Size::Px(rh);
+    line.h = match c.h { Size::Px(h) => Size::Px(h + 2.0 * pad), Size::Fit => Size::Px(rh), h => h };
     line.axis = Axis::Row;
-    line.justify = if c.at_end { Justify::End } else { Justify::Start };
+    line.justify = if c.at_end { Justify::End } else { c.justify };
     line.padding = Edges { l: 5.0, t: pad, r: if c.at_end { 8.0 } else { 5.0 }, b: pad };
     let row = this.node_new(&c.row);
-    (row.w, row.shrink, row.min_w, row.h) = (Size::Px(width), 1.0, 1.0, Size::Grow);
+    (row.w, row.shrink, row.min_w, row.h) = (match c.w { Size::Fit => Size::Px(width + c.pad.l + c.pad.r), w => w }, 1.0, 1.0, match c.h { Size::Fit => Size::Grow, h => h });
+    if c.pad != Edges::ZERO { row.padding = c.pad; }
     this.style(&c.row, states, c.state);
     let pad = if c.icon { ((width - measure) / 2.0).floor() } else if c.bare { 5.0 } else { 7.0 };
     let direction = match (c.icon, shown(text)) {
@@ -841,45 +874,51 @@ impl Ui {
 
     /// `true` on the frame a press and release both land inside the button.
     pub fn button(&mut self, text: &str) -> bool {
-        let states = self.theme().button;
-        self.button_ex(text, &states, false, false, false)
+        self.button_opts(text, text, None, &ButtonOpts::DEFAULT, None).signal.clicked
     }
 
-    /// A button in `states` (a variant: `States { idle: Look { fill: RED, ..t.button.idle }, ..t.button }`).
-    pub fn button_with(&mut self, text: &str, states: &States) -> bool {
-        self.button_ex(text, states, false, false, false)
-    }
-
-    /// `button_ex` in the theme's button (`button_bare` when `bare`) with its text in `ink`.
+    /// `button_opts` in the theme's button (`button_bare` when `bare`) with its text in `ink`.
     pub fn button_styled(&mut self, text: &str, bare: bool, icon: bool, at_end: bool, ink: Option<Color>) -> bool {
-        let mut states = if bare { self.theme().button_bare } else { self.theme().button };
-        if let Some(ink) = ink {
-            for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.checked] {
-                look.text = ink;
-            }
-        }
-        self.button_ex(text, &states, bare, icon, at_end)
+        let opts = ButtonOpts { bare, icon, justify: if at_end { Justify::End } else { Justify::Start }, ink, ..ButtonOpts::DEFAULT };
+        self.button_opts(text, text, None, &opts, None).signal.clicked
     }
 
     /// A button is its text on a 20-point box (6 points of padding in a transparent 1-point edge):
     /// a fill on hover and press, an accent line inside the bottom edge with the keyboard. The box
-    /// starts 5 points in so that its text lines up with the labels at 12. `bare` narrows the
-    /// padding to 4 points; `icon` makes it the 20-point square with its glyph centred; `at_end`
-    /// puts the box at the row's end, 8 points from the edge; `ink` colours the text.
-    pub fn button_ex(&mut self, text: &str, states: &States, bare: bool, icon: bool, at_end: bool) -> bool {
-        // the row lays the box out: 5 in from the start (8 from the end with `at_end`), the control
+    /// starts 5 points in so that its text lines up with the labels at 12. `opts` varies it (see `ButtonOpts`); `key` is hashed
+    /// under the parent's seed, `content` replaces the text (which stays the accessible name unless `name` is set).
+    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, content: Option<&mut dyn FnMut(&mut Ui)>) -> ButtonOut {
+        // the row lays the box out: 5 in from the start (8 from the end at the end), the control
         // centred in the row's height; the box is the button (its key, its hit area)
-        let key = key_of(self.current_seed(), text);
+        let key = key_of(self.current_seed(), key);
         let line = self.node_keyed(int_key(key, 0x6c69), Node::DEFAULT);
         let saved = self.enter(&line);
-        let row = self.node_keyed(key, Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY | FOCUS_MARK, role: Role::Button, ..Node::DEFAULT });
-        self.a11y_name(&row, shown(text));
+        let flags = if opts.enabled { CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY | FOCUS_MARK } else { BLOCKING | TAB_ONLY };
+        let row = self.node_keyed(key, Node { flags, role: Role::Button, ..Node::DEFAULT });
+        self.a11y_name(&row, name.unwrap_or(text));
         self.leave(saved);
         let signal = self.signal(&row);
-        let state = State { hovered: signal.hovered, pressed: signal.held, focused: self.focused(&row), ..State::default() };
-        let config = ButtonConfig { state, bare, icon, at_end, line, row };
-        in_body!(flat; self, key, row, button, default_button(&config, states, text));
-        signal.clicked
+        let focused = self.focused(&row);
+        let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !opts.enabled, checked: opts.selected };
+        let mut states = match opts.states { Some(s) => s, None if opts.bare => self.theme().button_bare, None => self.theme().button };
+        if let Some(ink) = opts.ink {
+            for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.checked] {
+                look.text = ink;
+            }
+        }
+        let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, line, row };
+        let shown_text = if content.is_some() { "" } else { text };
+        in_body!(flat; self, key, row, button, default_button(&config, &states, shown_text));
+        // size, placement and padding went to the body in its config; the accessible states are the engine's
+        let n = self.node_new(&row);
+        n.state.disabled = !opts.enabled;
+        self.set_role(&row, Role::Button, if opts.selected { st::SELECTED } else { 0 });
+        if let Some(f) = content {
+            let inside = self.enter(&row);
+            f(self);
+            self.leave(inside);
+        }
+        ButtonOut { signal, focused, handle: row }
     }
 
     /// A switch row: the label and the 28 x 14 switch at the end (the default body; a theme's `body.toggle` picks another).

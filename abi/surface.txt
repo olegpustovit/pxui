@@ -73,7 +73,7 @@ Ui|box_of_key|Gallery,Rays|done
 Ui|box_|Rays|done
 Ui|built_nodes|Gallery,Rays|done
 Ui|busy_step|Gallery|done
-Ui|button_styled|Rays|done
+Ui|button_styled|Rays|replaced: Button::danger and Button::align through button_with
 Ui|button|Gallery,Rays|done
 Ui|bytes|Rays|done
 Ui|cached_label|Rays|done

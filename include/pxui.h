@@ -277,6 +277,8 @@ typedef struct { uint32_t size; float fraction, velocity; } PxuiDismissIn;
 typedef struct { uint32_t size, flags; float offset; } PxuiDismissOut;
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
+/* ABI 1.44: a kit button with options. w_kind/h_kind 0 the kit's size, 1 points, 2 fill; justify 0 start, 1 centre, 2 end; states NULL is the theme's button, else six PxuiLookDesc (idle, hover, pressed, focus, disabled, checked). */
+typedef struct { uint32_t size; uint8_t enabled,selected,danger,justify,w_kind,h_kind,has_name,reserved; float w,h,padding[4]; const PxuiLookDesc *states; PxuiStr key,text,name; } PxuiButtonDesc;
 typedef struct { uint32_t size; uint8_t active,usable,reserved[2]; PxuiStr caption,keycap; } PxuiHeadActionDesc;
 typedef struct { const PxuiHeadActionDesc *ptr; size_t len; } PxuiHeadActionSpan;
 typedef struct { uint32_t size; uint8_t has_kind,has_badge,has_index,has_reset,reset_enabled,reserved[3]; PxuiStr key,kind,badge,index,reset,title,detail; PxuiHeadActionSpan actions; } PxuiHeaderDesc;
@@ -753,6 +755,8 @@ int32_t pxui_ui_view_backdrop_saturation(PxuiUi *ui, const PxuiBox *box, float s
 int32_t pxui_ui_animate(PxuiUi *ui, const PxuiBox *box, const PxuiKeyframeDesc *key, uint8_t *out);
 int32_t pxui_ui_button_styled(PxuiUi *ui, PxuiStr text, uint8_t bare, uint8_t icon, uint8_t at_end, uint8_t has_ink, PxuiColor ink, uint8_t *out);
 int32_t pxui_ui_grip(PxuiUi *ui, PxuiStr label, uint32_t axis, uint8_t has_rect, PxuiRect rect, PxuiBox *out, PxuiSignal *signal);
+/* ABI 1.44: the kit button with options; build (when set) replaces its text inside the box. Reports the box, its signal and whether it has focus. */
+int32_t pxui_ui_button_with(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiBuild build, void *user, PxuiBox *out, PxuiSignal *signal, uint8_t *focused);
 int32_t pxui_ui_popup(PxuiUi *ui, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_inspector_bar(PxuiUi *ui, PxuiHintSpan hints, int64_t count);
 int32_t pxui_ui_inspector_body(PxuiUi *ui, PxuiBuild build, void *user);
@@ -912,7 +916,7 @@ _Static_assert(sizeof(PxuiThemeSnapshot) == 56888 && offsetof(PxuiThemeSnapshot,
 _Static_assert(sizeof(PxuiToggleConfig) == 64 && offsetof(PxuiToggleConfig, size) == 0 && offsetof(PxuiToggleConfig, state) == 4 && offsetof(PxuiToggleConfig, on) == 12 && offsetof(PxuiToggleConfig, row) == 16 && offsetof(PxuiToggleConfig, label) == 48, "PxuiToggleConfig layout");
 _Static_assert(sizeof(PxuiSliderConfig) == 64 && offsetof(PxuiSliderConfig, size) == 0 && offsetof(PxuiSliderConfig, state) == 4 && offsetof(PxuiSliderConfig, fraction) == 12 && offsetof(PxuiSliderConfig, track) == 16 && offsetof(PxuiSliderConfig, label) == 48, "PxuiSliderConfig layout");
 _Static_assert(sizeof(PxuiProgressConfig) == 64 && offsetof(PxuiProgressConfig, size) == 0 && offsetof(PxuiProgressConfig, has_value) == 4 && offsetof(PxuiProgressConfig, value) == 8 && offsetof(PxuiProgressConfig, row) == 16 && offsetof(PxuiProgressConfig, label) == 48, "PxuiProgressConfig layout");
-_Static_assert(sizeof(PxuiButtonConfig) == 104 && offsetof(PxuiButtonConfig, size) == 0 && offsetof(PxuiButtonConfig, state) == 4 && offsetof(PxuiButtonConfig, bare) == 12 && offsetof(PxuiButtonConfig, icon) == 13 && offsetof(PxuiButtonConfig, at_end) == 14 && offsetof(PxuiButtonConfig, line) == 16 && offsetof(PxuiButtonConfig, row) == 48 && offsetof(PxuiButtonConfig, states) == 80 && offsetof(PxuiButtonConfig, label) == 88, "PxuiButtonConfig layout");
+_Static_assert(sizeof(PxuiButtonConfig) == 136 && offsetof(PxuiButtonConfig, size) == 0 && offsetof(PxuiButtonConfig, state) == 4 && offsetof(PxuiButtonConfig, bare) == 12 && offsetof(PxuiButtonConfig, icon) == 13 && offsetof(PxuiButtonConfig, at_end) == 14 && offsetof(PxuiButtonConfig, line) == 16 && offsetof(PxuiButtonConfig, row) == 48 && offsetof(PxuiButtonConfig, states) == 80 && offsetof(PxuiButtonConfig, label) == 88 && offsetof(PxuiButtonConfig, w_kind) == 104 && offsetof(PxuiButtonConfig, h_kind) == 105 && offsetof(PxuiButtonConfig, justify) == 106 && offsetof(PxuiButtonConfig, reserved) == 107 && offsetof(PxuiButtonConfig, w) == 108 && offsetof(PxuiButtonConfig, h) == 112 && offsetof(PxuiButtonConfig, padding) == 116, "PxuiButtonConfig layout");
 _Static_assert(sizeof(PxuiIconButtonConfig) == 80 && offsetof(PxuiIconButtonConfig, size) == 0 && offsetof(PxuiIconButtonConfig, state) == 4 && offsetof(PxuiIconButtonConfig, node) == 16 && offsetof(PxuiIconButtonConfig, label) == 48 && offsetof(PxuiIconButtonConfig, icon) == 64, "PxuiIconButtonConfig layout");
 _Static_assert(sizeof(PxuiCheckConfig) == 64 && offsetof(PxuiCheckConfig, size) == 0 && offsetof(PxuiCheckConfig, state) == 4 && offsetof(PxuiCheckConfig, on) == 12 && offsetof(PxuiCheckConfig, row) == 16 && offsetof(PxuiCheckConfig, label) == 48, "PxuiCheckConfig layout");
 _Static_assert(sizeof(PxuiSpinnerConfig) == 56 && offsetof(PxuiSpinnerConfig, size) == 0 && offsetof(PxuiSpinnerConfig, node) == 8 && offsetof(PxuiSpinnerConfig, label) == 40, "PxuiSpinnerConfig layout");
@@ -964,6 +968,7 @@ _Static_assert(sizeof(PxuiGestureOut) == 20 && offsetof(PxuiGestureOut, size) ==
 _Static_assert(sizeof(PxuiSwipeIn) == 16 && offsetof(PxuiSwipeIn, size) == 0 && offsetof(PxuiSwipeIn, leading) == 4 && offsetof(PxuiSwipeIn, trailing) == 8 && offsetof(PxuiSwipeIn, full) == 12, "PxuiSwipeIn layout");
 _Static_assert(sizeof(PxuiDismissIn) == 12 && offsetof(PxuiDismissIn, size) == 0 && offsetof(PxuiDismissIn, fraction) == 4 && offsetof(PxuiDismissIn, velocity) == 8, "PxuiDismissIn layout");
 _Static_assert(sizeof(PxuiDismissOut) == 12 && offsetof(PxuiDismissOut, size) == 0 && offsetof(PxuiDismissOut, flags) == 4 && offsetof(PxuiDismissOut, offset) == 8, "PxuiDismissOut layout");
+_Static_assert(sizeof(PxuiButtonDesc) == 96 && offsetof(PxuiButtonDesc, size) == 0 && offsetof(PxuiButtonDesc, enabled) == 4 && offsetof(PxuiButtonDesc, selected) == 5 && offsetof(PxuiButtonDesc, danger) == 6 && offsetof(PxuiButtonDesc, justify) == 7 && offsetof(PxuiButtonDesc, w_kind) == 8 && offsetof(PxuiButtonDesc, h_kind) == 9 && offsetof(PxuiButtonDesc, has_name) == 10 && offsetof(PxuiButtonDesc, reserved) == 11 && offsetof(PxuiButtonDesc, w) == 12 && offsetof(PxuiButtonDesc, h) == 16 && offsetof(PxuiButtonDesc, padding) == 20 && offsetof(PxuiButtonDesc, states) == 40 && offsetof(PxuiButtonDesc, key) == 48 && offsetof(PxuiButtonDesc, text) == 64 && offsetof(PxuiButtonDesc, name) == 80, "PxuiButtonDesc layout");
 /* abi-layout end */
 
 #endif

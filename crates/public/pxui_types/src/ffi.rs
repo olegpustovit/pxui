@@ -769,6 +769,45 @@ pub struct PxuiPopupDesc {
     pub label: Str,
 }
 
+/// A kit button with options (`button_with`): its arguments beside the build callback that replaces its text. Kinds 0, 1, 2 are
+/// the kit's size, `Px` and `Grow`; `justify` 0, 1, 2 is start, centre, end; `states` null is the theme's button, else six looks (idle, hover, pressed, focus, disabled, checked) as `pxui_ui_style` takes them.
+#[repr(C)]
+#[derive(Clone, Copy)]
+pub struct PxuiButtonDesc {
+    /// Size of this record in bytes.
+    pub size: u32,
+    /// 0 or 1: the button takes input (0 shows the disabled look and blocks presses and focus).
+    pub enabled: u8,
+    /// 0 or 1: the current one of a group (the checked look, accessible SELECTED).
+    pub selected: u8,
+    /// 0 or 1: the text in the theme's invalid colour.
+    pub danger: u8,
+    /// Placement in its line: 0 start, 1 centre, 2 end.
+    pub justify: u8,
+    /// Width kind: 0 the kit's, 1 `w` points, 2 fill.
+    pub w_kind: u8,
+    /// Height kind: 0 the kit's, 1 `h` points, 2 fill.
+    pub h_kind: u8,
+    /// 0 or 1: `name` is the accessible name (else `text`).
+    pub has_name: u8,
+    /// Zero.
+    pub reserved: u8,
+    /// Width in points when `w_kind` is 1.
+    pub w: f32,
+    /// Height in points when `h_kind` is 1.
+    pub h: f32,
+    /// Extra padding inside the box: left, top, right, bottom, in points, finite and not negative.
+    pub padding: [f32; 4],
+    /// Null for the theme's button, else six looks: idle, hover, pressed, focus, disabled, checked.
+    pub states: *const PxuiLookDesc,
+    /// The node's key, hashed under the parent's seed.
+    pub key: Str,
+    /// The button's text (empty when a build callback draws its contents).
+    pub text: Str,
+    /// The accessible name when `has_name` is 1.
+    pub name: Str,
+}
+
 /// One text button of an inspector head.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -1158,8 +1197,8 @@ pub struct PxuiTableViewWithDesc {
 use crate::theme::States as PxuiStates;
 
 macro_rules! configs {
-    ($($(#[$doc:meta])* $name:ident { $($f:ident: $t:ty),* $(,)? })*) => {
-        $($(#[$doc])* #[repr(C)] #[derive(Clone, Copy)] pub struct $name { pub size: u32, $(pub $f: $t),* })*
+    ($($(#[$doc:meta])* $name:ident { $($(#[$fdoc:meta])* $f:ident: $t:ty),* $(,)? })*) => {
+        $($(#[$doc])* #[repr(C)] #[derive(Clone, Copy)] pub struct $name { pub size: u32, $($(#[$fdoc])* pub $f: $t),* })*
         #[cfg(test)]
         fn config_layouts(check: &mut dyn FnMut(&str, usize, usize, &[(&str, usize)])) {
             use core::mem::{align_of, size_of};
@@ -1175,7 +1214,23 @@ configs! {
     PxuiSliderConfig { state: PxuiStateDesc, fraction: f32, track: PxuiBox, label: Str }
     PxuiProgressConfig { has_value: u8, value: f32, row: PxuiBox, label: Str }
     /// `states.pick(state)` is the look the caller asked for; `states` is valid for the call.
-    PxuiButtonConfig { state: PxuiStateDesc, bare: u8, icon: u8, at_end: u8, line: PxuiBox, row: PxuiBox, states: *const PxuiStates, label: Str }
+    PxuiButtonConfig {
+        state: PxuiStateDesc, bare: u8, icon: u8, at_end: u8, line: PxuiBox, row: PxuiBox, states: *const PxuiStates, label: Str,
+        /// Width kind the caller asked for: 0 the kit's, 1 `w` points, 2 fill.
+        w_kind: u8,
+        /// Height kind the caller asked for: 0 the kit's, 1 `h` points, 2 fill.
+        h_kind: u8,
+        /// Placement in the line: 0 start, 1 centre, 2 end (2 also sets `at_end`).
+        justify: u8,
+        /// Zero.
+        reserved: u8,
+        /// Width in points when `w_kind` is 1.
+        w: f32,
+        /// Height in points when `h_kind` is 1.
+        h: f32,
+        /// Extra padding inside the box: left, top, right, bottom, in points.
+        padding: [f32; 4],
+    }
     PxuiIconButtonConfig { state: PxuiStateDesc, node: PxuiBox, label: Str, icon: Str }
     /// A checkbox or a radio option.
     PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str }
@@ -1307,6 +1362,7 @@ pub(crate) mod layout {
         check("PxuiValueFieldDesc", size_of::<PxuiValueFieldDesc>(), align_of::<PxuiValueFieldDesc>(), &[("size", core::mem::offset_of!(PxuiValueFieldDesc, size)), ("flags", core::mem::offset_of!(PxuiValueFieldDesc, flags)), ("font_size", core::mem::offset_of!(PxuiValueFieldDesc, font_size)), ("fraction", core::mem::offset_of!(PxuiValueFieldDesc, fraction)), ("tracking", core::mem::offset_of!(PxuiValueFieldDesc, tracking)), ("line", core::mem::offset_of!(PxuiValueFieldDesc, line)), ("lead_color", core::mem::offset_of!(PxuiValueFieldDesc, lead_color)), ("trail_color", core::mem::offset_of!(PxuiValueFieldDesc, trail_color)), ("reserved", core::mem::offset_of!(PxuiValueFieldDesc, reserved)), ("x", core::mem::offset_of!(PxuiValueFieldDesc, x)), ("y", core::mem::offset_of!(PxuiValueFieldDesc, y)), ("width", core::mem::offset_of!(PxuiValueFieldDesc, width)), ("height", core::mem::offset_of!(PxuiValueFieldDesc, height)), ("display", core::mem::offset_of!(PxuiValueFieldDesc, display)), ("placeholder", core::mem::offset_of!(PxuiValueFieldDesc, placeholder)), ("lead", core::mem::offset_of!(PxuiValueFieldDesc, lead)), ("trail", core::mem::offset_of!(PxuiValueFieldDesc, trail)), ("label", core::mem::offset_of!(PxuiValueFieldDesc, label)), ("value", core::mem::offset_of!(PxuiValueFieldDesc, value))]);
         check("PxuiPaintInfo", size_of::<PxuiPaintInfo>(), align_of::<PxuiPaintInfo>(), &[("size", core::mem::offset_of!(PxuiPaintInfo, size)), ("rtl", core::mem::offset_of!(PxuiPaintInfo, rtl)), ("reserved", core::mem::offset_of!(PxuiPaintInfo, reserved)), ("font_size", core::mem::offset_of!(PxuiPaintInfo, font_size)), ("row_height", core::mem::offset_of!(PxuiPaintInfo, row_height)), ("density", core::mem::offset_of!(PxuiPaintInfo, density)), ("clip", core::mem::offset_of!(PxuiPaintInfo, clip)), ("clip_radius", core::mem::offset_of!(PxuiPaintInfo, clip_radius)), ("theme", core::mem::offset_of!(PxuiPaintInfo, theme))]);
         check("PxuiPopupDesc", size_of::<PxuiPopupDesc>(), align_of::<PxuiPopupDesc>(), &[("size", core::mem::offset_of!(PxuiPopupDesc, size)), ("has_stroke", core::mem::offset_of!(PxuiPopupDesc, has_stroke)), ("has_max_height", core::mem::offset_of!(PxuiPopupDesc, has_max_height)), ("dismiss_initial", core::mem::offset_of!(PxuiPopupDesc, dismiss_initial)), ("attached", core::mem::offset_of!(PxuiPopupDesc, attached)), ("stroke", core::mem::offset_of!(PxuiPopupDesc, stroke)), ("max_height", core::mem::offset_of!(PxuiPopupDesc, max_height)), ("x", core::mem::offset_of!(PxuiPopupDesc, x)), ("y", core::mem::offset_of!(PxuiPopupDesc, y)), ("width", core::mem::offset_of!(PxuiPopupDesc, width)), ("height", core::mem::offset_of!(PxuiPopupDesc, height)), ("label", core::mem::offset_of!(PxuiPopupDesc, label))]);
+        check("PxuiButtonDesc", size_of::<PxuiButtonDesc>(), align_of::<PxuiButtonDesc>(), &[("size", core::mem::offset_of!(PxuiButtonDesc, size)), ("enabled", core::mem::offset_of!(PxuiButtonDesc, enabled)), ("selected", core::mem::offset_of!(PxuiButtonDesc, selected)), ("danger", core::mem::offset_of!(PxuiButtonDesc, danger)), ("justify", core::mem::offset_of!(PxuiButtonDesc, justify)), ("w_kind", core::mem::offset_of!(PxuiButtonDesc, w_kind)), ("h_kind", core::mem::offset_of!(PxuiButtonDesc, h_kind)), ("has_name", core::mem::offset_of!(PxuiButtonDesc, has_name)), ("reserved", core::mem::offset_of!(PxuiButtonDesc, reserved)), ("w", core::mem::offset_of!(PxuiButtonDesc, w)), ("h", core::mem::offset_of!(PxuiButtonDesc, h)), ("padding", core::mem::offset_of!(PxuiButtonDesc, padding)), ("states", core::mem::offset_of!(PxuiButtonDesc, states)), ("key", core::mem::offset_of!(PxuiButtonDesc, key)), ("text", core::mem::offset_of!(PxuiButtonDesc, text)), ("name", core::mem::offset_of!(PxuiButtonDesc, name))]);
         check("PxuiHeadActionDesc", size_of::<PxuiHeadActionDesc>(), align_of::<PxuiHeadActionDesc>(), &[("size", core::mem::offset_of!(PxuiHeadActionDesc, size)), ("active", core::mem::offset_of!(PxuiHeadActionDesc, active)), ("usable", core::mem::offset_of!(PxuiHeadActionDesc, usable)), ("reserved", core::mem::offset_of!(PxuiHeadActionDesc, reserved)), ("caption", core::mem::offset_of!(PxuiHeadActionDesc, caption)), ("keycap", core::mem::offset_of!(PxuiHeadActionDesc, keycap))]);
         check("PxuiHeaderDesc", size_of::<PxuiHeaderDesc>(), align_of::<PxuiHeaderDesc>(), &[("size", core::mem::offset_of!(PxuiHeaderDesc, size)), ("has_kind", core::mem::offset_of!(PxuiHeaderDesc, has_kind)), ("has_badge", core::mem::offset_of!(PxuiHeaderDesc, has_badge)), ("has_index", core::mem::offset_of!(PxuiHeaderDesc, has_index)), ("has_reset", core::mem::offset_of!(PxuiHeaderDesc, has_reset)), ("reset_enabled", core::mem::offset_of!(PxuiHeaderDesc, reset_enabled)), ("reserved", core::mem::offset_of!(PxuiHeaderDesc, reserved)), ("key", core::mem::offset_of!(PxuiHeaderDesc, key)), ("kind", core::mem::offset_of!(PxuiHeaderDesc, kind)), ("badge", core::mem::offset_of!(PxuiHeaderDesc, badge)), ("index", core::mem::offset_of!(PxuiHeaderDesc, index)), ("reset", core::mem::offset_of!(PxuiHeaderDesc, reset)), ("title", core::mem::offset_of!(PxuiHeaderDesc, title)), ("detail", core::mem::offset_of!(PxuiHeaderDesc, detail)), ("actions", core::mem::offset_of!(PxuiHeaderDesc, actions))]);
         check("PxuiHeadOut", size_of::<PxuiHeadOut>(), align_of::<PxuiHeadOut>(), &[("size", core::mem::offset_of!(PxuiHeadOut, size)), ("has_chosen", core::mem::offset_of!(PxuiHeadOut, has_chosen)), ("reset_pressed", core::mem::offset_of!(PxuiHeadOut, reset_pressed)), ("reserved", core::mem::offset_of!(PxuiHeadOut, reserved)), ("renamed", core::mem::offset_of!(PxuiHeadOut, renamed)), ("chosen", core::mem::offset_of!(PxuiHeadOut, chosen))]);

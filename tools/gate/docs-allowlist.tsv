@@ -199,7 +199,6 @@ crates/public/pxui/src/interaction.rs	pxui_ui_set_state	example,Allocates,Panics
 crates/public/pxui/src/interaction.rs	pxui_ui_signal	example,Allocates,Panics
 crates/public/pxui/src/interaction.rs	pxui_ui_state	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::animate	example,Allocates,Panics
-crates/public/pxui/src/kit_ext.rs	Ui::button_styled	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::field_drag	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::grip	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_bar	example,Allocates,Panics

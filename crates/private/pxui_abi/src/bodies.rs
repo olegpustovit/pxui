@@ -101,16 +101,24 @@ macro_rules! tramp_span {
     };
 }
 
+/// A button size as the descriptor writes it: kind 0 the kit's, 1 points, 2 fill.
+fn size_kind(size: pxui_core::ui::Size) -> (u8, f32) {
+    match size { pxui_core::ui::Size::Px(v) => (1, v), pxui_core::ui::Size::Grow => (2, 0.0), _ => (0, 0.0) }
+}
+
 mod tramps {
     use super::*;
     use pxui_core::ui_text::ValueFieldOpts;
     use pxui_types::theme::States;
+    use pxui_core::ui::Justify;
 
     tramp!(toggle, |ui, sh, c: &ToggleConfig, label: &str| PxuiToggleConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });
     tramp!(slider, |ui, sh, c: &SliderConfig, label: &str| PxuiSliderConfig { state: st(c.state), fraction: c.fraction, track: bx(c.track), label: pair(label) });
     tramp!(progress, |ui, sh, c: &ProgressConfig, label: &str| PxuiProgressConfig { has_value: c.value.is_some() as u8, value: c.value.unwrap_or(0.0), row: bx(c.row), label: pair(label) });
     tramp!(button, |ui, sh, c: &ButtonConfig, states: &States, label: &str| PxuiButtonConfig {
-        state: st(c.state), bare: c.bare as u8, icon: c.icon as u8, at_end: c.at_end as u8, line: bx(c.line), row: bx(c.row), states: states, label: pair(label)
+        state: st(c.state), bare: c.bare as u8, icon: c.icon as u8, at_end: c.at_end as u8, line: bx(c.line), row: bx(c.row), states: states, label: pair(label),
+        w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, justify: match c.justify { Justify::Center => 1, Justify::End => 2, _ => 0 },
+        reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, padding: [c.pad.l, c.pad.t, c.pad.r, c.pad.b]
     });
     tramp!(icon_button, |ui, sh, c: &IconButtonConfig, label: &str, icon: &str| PxuiIconButtonConfig { state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon) });
     tramp!(checkbox, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });

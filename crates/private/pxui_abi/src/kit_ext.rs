@@ -5,8 +5,8 @@ use crate::state::{Build, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_build, check
 use crate::text_inputs::TextValid;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui::{Axis, HeadAction, LineStep, Rect, Ui};
-use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
+use pxui_core::ui::{Axis, ButtonOpts, Edges, HeadAction, Justify, LineStep, Rect, Size, Ui};
+use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
@@ -15,6 +15,38 @@ export!(pub unsafe fn pxui_ui_button_styled(ui: *mut PxuiUi, text: Str, bare: u8
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(text) = (unsafe { checked(text) }).filter(|_| bare <= 1 && icon <= 1 && at_end <= 1 && has_ink <= 1 && !out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") }; };
     unsafe { *out = e.button_styled(text, bare != 0, icon != 0, at_end != 0, (has_ink != 0).then_some(ink)) as u8; }
+    0
+});
+
+// The kit button with options; `build` (when set) replaces its text, run inside the box. `states` is null (the theme's button) or six looks.
+export!(pub unsafe fn pxui_ui_button_with(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: Build, user: *mut c_void, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || out.is_null() || signal.is_null() || focused.is_null() { return unsafe { fail(ui, "null button argument") }; }
+    let Some(d) = read_desc!(desc, PxuiButtonDesc) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+    let size = |kind: u8, value: f32| match kind { 0 => Some(Size::Fit), 1 if value.is_finite() && value >= 0.0 => Some(Size::Px(value)), 2 => Some(Size::Grow), _ => None };
+    let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
+    let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+    if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.padding.iter().any(|v| !v.is_finite() || *v < 0.0) {
+        return unsafe { fail(ui, "invalid button descriptor") };
+    }
+    let (Some(key), Some(text), Some(name)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
+    let looks = if d.states.is_null() { None } else {
+        let raw = unsafe { core::slice::from_raw_parts(d.states, 6) };
+        let mut it = raw.iter().copied().map(crate::style::decode_look);
+        let mut next = || it.next().flatten();
+        match (next(), next(), next(), next(), next(), next()) {
+            (Some(idle), Some(hover), Some(pressed), Some(focus), Some(disabled), Some(checked)) => Some(pxui_core::ui::States { idle, hover, pressed, focus, disabled, checked }),
+            _ => return unsafe { fail(ui, "invalid button looks") },
+        }
+    };
+    let engine = unsafe { &mut *state.engine };
+    let ink = (d.danger != 0).then(|| engine.theme().tokens.invalid);
+    let opts = ButtonOpts { states: looks, w, h, enabled: d.enabled != 0, selected: d.selected != 0, justify,
+        padding: Edges { l: d.padding[0], t: d.padding[1], r: d.padding[2], b: d.padding[3] }, ink, ..ButtonOpts::DEFAULT };
+    let shared = state.shared;
+    let mut content = |engine: &mut Ui| call_build(shared, engine, build, user);
+    let result = engine.button_opts(key, text, (d.has_name != 0).then_some(name), &opts, if build.is_some() { Some(&mut content) } else { None });
+    unsafe { *out = to_abi_box(result.handle); write_signal(state, &result.signal, &mut *signal); *focused = result.focused as u8; }
     0
 });
 

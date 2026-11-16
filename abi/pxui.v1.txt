@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 43
+minor 44
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -84,6 +84,7 @@ function pxui_ui_box_of_a11y uint8_t pxui_ui_box_of_a11y ( PxuiUi * ui , uint64_
 function pxui_ui_box_of_key uint8_t pxui_ui_box_of_key ( PxuiUi * ui , int64_t key , PxuiBox * out ) ;
 function pxui_ui_busy_step int32_t pxui_ui_busy_step ( PxuiUi * ui , const PxuiBox * box , double now , uint8_t * out ) ;
 function pxui_ui_button_styled int32_t pxui_ui_button_styled ( PxuiUi * ui , PxuiStr text , uint8_t bare , uint8_t icon , uint8_t at_end , uint8_t has_ink , PxuiColor ink , uint8_t * out ) ;
+function pxui_ui_button_with int32_t pxui_ui_button_with ( PxuiUi * ui , const PxuiButtonDesc * desc , PxuiBuild build , void * user , PxuiBox * out , PxuiSignal * signal , uint8_t * focused ) ;
 function pxui_ui_bytes int32_t pxui_ui_bytes ( PxuiUi * ui , int64_t * out , size_t len ) ;
 function pxui_ui_cached_label int32_t pxui_ui_cached_label ( PxuiUi * ui , const PxuiBox * box , uint64_t index , PxuiStr text , PxuiStr * out ) ;
 function pxui_ui_cancel_carry int32_t pxui_ui_cancel_carry ( PxuiUi * ui ) ;
@@ -284,7 +285,8 @@ layout PxuiBadgeConfig 72 8 0 8 40 56
 layout PxuiBar 24 4 0 4 8 12 16 20
 layout PxuiBox 32 8 0 8 16 24
 layout PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
-layout PxuiButtonConfig 104 8 0 4 12 13 14 16 48 80 88
+layout PxuiButtonConfig 136 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116
+layout PxuiButtonDesc 96 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80
 layout PxuiCell 8 2 0 2 4 6
 layout PxuiCheckConfig 64 8 0 4 12 16 48
 layout PxuiColorSpan 24 8 0 8 16 20

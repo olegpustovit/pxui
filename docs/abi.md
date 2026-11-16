@@ -18,7 +18,7 @@ frozen by a released minor. A call added after N is simply absent from an older 
 **Append-only rules.**
 
 - Exports are never removed, renamed or re-signatured. A different shape is a new export.
-- Records are `repr(C)` with `size: u32` first. A record grows only at its end; the library reads the caller's `size`, refuses a
+- Records are `repr(C)` with `size: u32` first. A record grows only at its end (a record that grows at its end updates its own size row and appends its new field offsets; existing offsets never change); the library reads the caller's `size`, refuses a
   shorter record (`read_desc!`, `sized!`) and copies no more than it knows, so a caller built against a larger or smaller
   layout is never over-read. Existing fields keep offset, size and meaning.
 - Enum and flag values are never reused or renumbered. A retired value stays reserved.
@@ -87,6 +87,7 @@ wrapper) and name the replacement; nothing is removed from the manifest.
 | 1.41 | `ui_dismiss`, 12-byte `PxuiDismissIn`/`PxuiDismissOut` | Vertical drag-to-dismiss on a node for full-screen players and bottom sheets: a downward touch drag past the 8 pt axis lock (handed over by an inner vertical scroll only at its top) moves a `dismiss` offset; a release past a fraction of the node height (default 0.25) or at 600 pt/s commits for one frame and settles to the height, else springs back; upward drags rubber-band at 0.55. `PxuiGestureIn/Out` are unchanged; the flags are 8192/16384/32768. |
 | 1.42 | `PxuiGestureIn.kinds` bit 5 (32), touch drag | A node taking the whole touch at once, like a mouse press: Moved/Pressed on touch-down, pointer moves while held (capture keeps the node), release on lift. No scroll arbitration, so a scroll view around an index strip or scrubber does not scroll. No layout change; older libraries refuse kind 32. |
 | 1.43 | `ui_set_colors`, `ui_color`, `paint_color`; Rust `theme::ColorToken` | App-defined colour tokens: a fixed 64-entry table of light/dark `PxuiColor` pairs installed between frames (two parallel arrays, count 0 clears; a changed table rebuilds every view once). Reads pick the dark entry while the theme in effect is dark (`theme::dark`: panel channel sum below 384; `themed` scopes decide inside them, painters use the root theme), so a light/dark theme swap changes them with no app rebuild; past the table they read transparent. No record or layout change. |
+| 1.44 | `ui_button_with`, 96-byte `PxuiButtonDesc` | The kit button with options: size (kit, points, fill), enabled, selected, danger ink, accessible name, placement (start, centre, end), extra padding, six looks (or the theme's) and an optional build callback that replaces its text inside the box. Reports the box, its signal and focus. `ui_button` and `ui_button_styled` are unchanged; `PxuiButtonConfig` (what a button body is given) grows at its end by the size, placement and padding the caller asked for. |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

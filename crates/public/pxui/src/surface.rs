@@ -1204,7 +1204,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
     for round in 0..3 {
         ui.frame(&input(), &mut |ui: &mut Ui| {
             ui.panel(pxui_types::ui::PanelOpts::default(), "extras", &mut |ui: &mut Ui| {
-                assert!(!ui.button_styled("Styled", true, false, false, Some(pxui_types::geom::Rgba { r: 9, g: 9, b: 9, a: 255 })));
+                assert!(!ui.button_with("styled", "Styled", &crate::Button::DEFAULT.danger().align(pxui_types::layout::Justify::End)).clicked);
                 let head = ui.inspector_head_for_test(&actions);
                 assert_eq!(head.renamed, "Title");
                 ui.inspector_body(&mut |ui: &mut Ui| {

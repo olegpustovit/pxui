@@ -424,6 +424,33 @@ pub fn button_pill_body() {
     ui.destroy();
 }
 
+thread_local! { static SEEN: Cell<(f32, f32, u8, f32)> = const { Cell::new((0.0, 0.0, 9, 0.0)) }; }
+
+/// A body that records what the `Button` asked for and builds its own structure: one 33-point node named "mine".
+fn recording_button(ui: &mut Ui, c: &ButtonConfig, _states: &States, _text: &str) {
+    let px = |s: Size| if let Size::Px(v) = s { v } else { -1.0 };
+    SEEN.with(|seen| seen.set((px(c.w), px(c.h), matches!(c.justify, Justify::Center) as u8, c.pad.l)));
+    ui.node_mut(&c.line).h = Size::Px(ui.row_height() as f32);
+    ui.node_mut(&c.row).w = Size::Px(77.0);
+    ui.node("mine", Node { w: Size::Px(33.0), h: Size::Px(8.0), ..Node::DEFAULT });
+}
+
+/// `button_opts` builds through the Button body: a registered body gets the options in its config and replaces the structure.
+pub fn button_opts_uses_a_registered_body() {
+    let mut ui = new_ui(None);
+    pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("recording", recording_button));
+    let opts = ButtonOpts { w: Size::Px(50.0), h: Size::Px(30.0), justify: Justify::Center, padding: Edges { l: 3.0, ..Edges::ZERO }, ..ButtonOpts::DEFAULT };
+    for k in 0..2 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.button_opts("Go", "Go", None, &opts, None); }));
+    }
+    check(SEEN.with(|s| s.get()) == (50.0, 30.0, 1, 3.0), &format!("the body's config is {:?}", SEEN.with(|s| s.get())));
+    let row = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
+    let w = ui.box_of_key(row).map(|b| ui.rect(&b).w);
+    check(w == Some(77.0), &format!("the box is not the body's: {w:?}"));
+    check(ui.box_of_key(key_of(row, "mine")).is_some(), "the body's own node is missing");
+    ui.destroy();
+}
+
 /// A button in a plain column, outside any panel, is a row of the theme's `row_h` high.
 pub fn button_outside_panel_takes_theme_row_h() {
     let mut ui = new_ui(None);
@@ -1642,6 +1669,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("registering_a_name_again_consumes_no_id", registering_a_name_again_consumes_no_id),
     ("button_pill_body", button_pill_body),
     ("button_outside_panel_takes_theme_row_h", button_outside_panel_takes_theme_row_h),
+    ("button_opts_uses_a_registered_body", button_opts_uses_a_registered_body),
     ("icon_button_round_body", icon_button_round_body),
     ("checkbox_mark_body", checkbox_mark_body),
     ("radio_mark_body", radio_mark_body),

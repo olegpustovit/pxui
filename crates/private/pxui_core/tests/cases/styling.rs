@@ -86,7 +86,7 @@ pub fn styling_variant_states() {
     for k in 0..2 {
         ui.frame(&at(k as f64, vec![]), &mut |ui| {
             ui.panel(PanelOpts::default(), "p", &mut |ui| {
-                ui.button_with("Delete", &danger);
+                ui.button_opts("Delete", "Delete", None, &ButtonOpts { states: Some(danger), ..ButtonOpts::DEFAULT }, None);
             });
         });
     }

@@ -2,17 +2,20 @@
 use crate::box_ops::Label;
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::interaction::decode_signal;
+use crate::Button;
 use crate::kit::{encode_curve, HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
 use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look}, Axis, PxuiBox, Str};
+use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look}, Axis, PxuiBox, Str};
+use pxui_types::{layout::Justify, Size};
+use crate::Response;
 use pxui_types::ui::{Head, HeadAction, LineStep, Target};
 use std::{fmt::Arguments, rc::Rc};
 
 library!(lib {
     fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const KeyframeDesc, out: *mut u8) -> i32;
-    fn pxui_ui_button_styled(ui: *mut PxuiUi, text: Str, bare: u8, icon: u8, at_end: u8, has_ink: u8, ink: Rgba, out: *mut u8) -> i32;
+    fn pxui_ui_button_with(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32;
     fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32;
     fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8) -> i32;
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
@@ -53,11 +56,28 @@ impl Ui {
         let rc = unsafe { lib::pxui_ui_animate(self.0.as_ptr(), b, &keyframe(target, curve), &mut out) };
         crate::live(self, rc) && out != 0
     }
+    /// The one body of `button`, `button_with` and `button_content`: the options as a descriptor, the contents as a callback.
     #[track_caller]
-    pub fn button_styled(&mut self, text: &str, bare: bool, icon: bool, at_end: bool, ink: Option<Rgba>) -> bool {
-        let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_button_styled(self.0.as_ptr(), as_str(text), bare as u8, icon as u8, at_end as u8, ink.is_some() as u8, ink.unwrap_or_default(), &mut out) });
-        out != 0
+    pub(crate) fn button_keyed(&mut self, key: &str, text: &str, button: &Button, content: Option<&mut dyn FnMut(&mut Ui)>) -> Response {
+        let dim = |size: Size| match size { Size::Fit => (0, 0.0), Size::Px(v) => (1, v), Size::Grow => (2, 0.0), _ => (3, 0.0) };
+        let ((w_kind, w), (h_kind, h)) = (dim(button.w), dim(button.h));
+        let looks = button.look.map(|s| [look(s.idle), look(s.hover), look(s.pressed), look(s.focus), look(s.disabled), look(s.checked)]);
+        let p = button.pad;
+        let desc = PxuiButtonDesc {
+            size: core::mem::size_of::<PxuiButtonDesc>() as u32, enabled: button.enabled as u8, selected: button.selected as u8, danger: button.danger as u8,
+            justify: match button.align { Justify::Center => 1, Justify::End => 2, _ => 0 }, w_kind, h_kind, has_name: button.name.is_some() as u8, reserved: 0,
+            w, h, padding: [p.l, p.t, p.r, p.b], states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
+            key: as_str(key), text: as_str(text), name: as_str(button.name.unwrap_or("")),
+        };
+        let (mut out, mut raw, mut focused) = (PxuiBox::default(), PxuiSignal::default(), 0u8);
+        let has_content = content.is_some();
+        let mut inner = content;
+        let mut run = |ui: &mut Ui| if let Some(f) = inner.as_mut() { f(ui) };
+        let mut f: &mut dyn FnMut(&mut Ui) = &mut run;
+        let build = if has_content { Some(call::<&mut dyn FnMut(&mut Ui)> as extern "C" fn(*mut c_void, *mut c_void)) } else { None };
+        check(self, unsafe { lib::pxui_ui_button_with(self.0.as_ptr(), &desc, build, &mut f as *mut _ as *mut c_void, &mut out, &mut raw, &mut focused) });
+        let signal = decode_signal(&raw);
+        Response { clicked: signal.clicked, hovered: signal.hovered, held: signal.held, focused: focused != 0, activated: signal.clicked && !signal.released, handle: out }
     }
     /// A 1-point splitter line (see the engine): its box and what happened to it.
     #[track_caller]

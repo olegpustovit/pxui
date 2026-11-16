@@ -52,6 +52,12 @@ pub struct ButtonConfig {
     pub bare: bool,
     pub icon: bool,
     pub at_end: bool,
+    /// What the caller's `Button` asked for, which the body honours or not: the box's width and height (`Fit` is the kit's own), its
+    /// placement in the line (`Start`, `Center`; `End` also sets `at_end`) and extra padding inside it.
+    pub w: Size,
+    pub h: Size,
+    pub justify: Justify,
+    pub pad: Edges,
     pub line: Handle,
     pub row: Handle,
 }
