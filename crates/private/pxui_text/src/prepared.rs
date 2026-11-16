@@ -5,6 +5,9 @@
 use super::*;
 
 const MAX_TEXT_BYTES: usize = 1 << 20;
+/// Debug builds remember this many installed layouts' styles (a ring; no allocation after `preparer`).
+#[cfg(debug_assertions)]
+const MAX_INSTALLED: usize = 256;
 
 pub struct Prepared {
     font_generation: Arc<()>,
@@ -25,6 +28,8 @@ impl Text {
     pub fn preparer(&mut self) -> Text {
         self.entries.reserve(MAX_LAYOUTS - self.entries.len());
         self.keys.reserve(MAX_LAYOUTS - self.keys.len());
+        #[cfg(debug_assertions)]
+        self.installed.reserve_exact(MAX_INSTALLED - self.installed.len());
         let mut worker = Text::new_with_locale(&[], self.g.fs.locale(), self.atlas_size(AtlasKind::Mask), self.atlas_size(AtlasKind::Color));
         worker.g.fs = FontSystem::new_with_locale_and_db(self.g.fs.locale().into(), self.g.fs.db().clone());
         worker.names.clone_from(&self.names);
@@ -84,6 +89,15 @@ impl Text {
         std::mem::swap(slot, &mut record.entry);
         slot.frame = self.frame;
         self.cache_bytes = retained + slot.glyphs.capacity() * size_of::<CachedGlyph>();
+        #[cfg(debug_assertions)]
+        if self.installed.capacity() >= MAX_INSTALLED {
+            let item = (text_hash(&slot.text), record.key, slot.style, f32::from_bits(slot.width));
+            match self.installed.iter().position(|old| old.1 == record.key) {
+                Some(at) => self.installed[at] = item,
+                None if self.installed.len() < MAX_INSTALLED => self.installed.push(item),
+                None => { self.installed.remove(0); self.installed.push(item); }
+            }
+        }
         record.ready = false;
         true
     }
@@ -240,6 +254,31 @@ mod tests {
         assert_eq!(ui.keys.len(), MAX_LAYOUTS);
         assert!(ui.cache_bytes <= CACHE_BYTES);
         std::thread::spawn(move || drop(records)).join().unwrap();
+    }
+
+    #[cfg(debug_assertions)]
+    #[test]
+    fn a_draw_with_another_style_than_the_prepared_one_reports_both_styles_once() {
+        let text = "style-mismatch-probe";
+        let plain = Style::default();
+        let ellipsized = Style { ellipsis: Ellipsis::End, max_lines: 1, ..Style::default() };
+        let mine = || mem_sys::take_reports().into_iter().filter(|report| report.contains(text)).collect::<Vec<_>>();
+        let mut ui = Text::new(&[PRAGMASEVKA]);
+        ui.reporter = Some(mem_sys::report);
+        let mut worker = ui.preparer();
+        let mut record = worker.prepare(text, &plain, 80.0, &[]).unwrap();
+        assert!(ui.install(&mut record));
+        mine();
+        // the matching request adopts the installed layout
+        ui.layout(content_key(&plain, 80.0, text, &[]), text, &plain, 80.0);
+        assert!(mine().is_empty());
+        // the wrong-ellipsis request shapes afresh and is named once; asking again hits the cache
+        let key = content_key(&ellipsized, 80.0, text, &[]);
+        ui.layout(key, text, &ellipsized, 80.0);
+        ui.layout(key, text, &ellipsized, 80.0);
+        let reports = mine();
+        assert_eq!(reports.len(), 1, "{reports:?}");
+        assert!(reports[0].contains("ellipsis: None") && reports[0].contains("ellipsis: End"), "{}", reports[0]);
     }
 
     #[test]

@@ -61,7 +61,10 @@ export!(bare pub unsafe fn pxui_ui_create_with_fonts(desc: *const PxuiUiDesc, fo
 fn valid_desc(desc: &PxuiUiDesc) -> bool { desc.size >= core::mem::size_of::<PxuiUiDesc>() as u32 && desc.font_size >= 0 && desc.platform <= 2 }
 
 unsafe fn create_ui(desc: PxuiUiDesc, fonts: &[&[u8]]) -> *mut PxuiUi {
-    let text = pxui_core::text::Text::new(fonts);
+    #[allow(unused_mut)]
+    let mut text = pxui_core::text::Text::new(fonts);
+    #[cfg(debug_assertions)]
+    { text.reporter = Some(mem_sys::report); }
     let platform = match desc.platform { 0 => platform(), 1 => Platform::Apple, _ => Platform::Other };
     let font_size = (desc.font_size != 0).then_some(i64::from(desc.font_size));
     let engine = Box::into_raw(Box::new(Ui::create(platform, font_size, text)));

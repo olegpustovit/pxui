@@ -717,6 +717,12 @@ pub struct Text {
     /// Capacity of every layout's glyph list, in bytes.
     cache_bytes: usize,
     font_generation: Arc<()>,
+    /// Debug builds: (text hash, key, style, width) of the last installed prepared layouts, to name a draw that asks for another style.
+    #[cfg(debug_assertions)]
+    installed: Vec<(u64, u64, Style, f32)>,
+    /// Debug builds: where a style mismatch is reported (the host sets it; none = silent).
+    #[cfg(debug_assertions)]
+    pub reporter: Option<fn(std::fmt::Arguments)>,
 }
 
 fn idx(kind: AtlasKind) -> usize {
@@ -768,6 +774,10 @@ impl Text {
             cache_on: true,
             cache_bytes: 0,
             font_generation: Arc::new(()),
+            #[cfg(debug_assertions)]
+            installed: Vec::new(),
+            #[cfg(debug_assertions)]
+            reporter: None,
         };
         for f in fonts {
             t.add_font(f);
@@ -835,6 +845,17 @@ impl Text {
         self.font_metrics.get(font as usize).copied().filter(|(a,d)|a.is_finite() && d.is_finite() && *a>0.0 && *d>=0.0)
     }
 
+    /// Debug builds: a layout is shaped for text that was installed prepared under another style or width.
+    #[cfg(debug_assertions)]
+    fn report_style_mismatch(&self, key: u64, text: &str, style: &Style, width: f32) {
+        let Some(report) = self.reporter else { return };
+        if self.installed.is_empty() { return; }
+        let hash = text_hash(text);
+        if let Some((_, _, prepared, prepared_width)) = self.installed.iter().find(|item| item.0 == hash && item.1 != key) {
+            report(format_args!("prepared text {text:?} was requested with a different style: prepared {prepared:?} width {prepared_width}, requested {style:?} width {width}"));
+        }
+    }
+
     pub fn has_text(&self, key: u64, text: &str) -> bool {
         self.entries.get(&key).is_some_and(|entry| entry.text == text)
     }
@@ -865,6 +886,8 @@ impl Text {
                 self.cache_bytes -= entry.glyphs.capacity() * size_of::<CachedGlyph>();
             }
         }
+        #[cfg(debug_assertions)]
+        self.report_style_mismatch(key, text, style, width);
         self.layouts = self.layouts.saturating_add(1);
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         let keys = &mut self.keys;

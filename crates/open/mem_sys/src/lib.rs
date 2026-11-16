@@ -122,6 +122,23 @@ pub fn take_reports() -> Vec<String> {
     }
 }
 
+/// Adds one formatted message to the reports [`take_reports`] returns, from any thread (debug diagnostics, e.g. a style mismatch).
+/// Allocates: the message; inside a warm scope that allocation is not itself reported. Reports are dropped if the store is busy.
+/// Panics: never.
+///
+/// ```
+/// mem_sys::report(format_args!("misuse"));
+/// assert_eq!(mem_sys::take_reports(), ["misuse"]);
+/// ```
+pub fn report(message: std::fmt::Arguments) {
+    let before = WARM.try_with(|state| state.replace(2)).unwrap_or(0);
+    let text = message.to_string();
+    if let Ok(mut reports) = REPORTS.try_lock() {
+        reports.push(text);
+    }
+    let _ = WARM.try_with(|state| state.set(before));
+}
+
 fn note_alloc(size: usize) {
     if WARM_ON.load(Ordering::Relaxed) != 0 {
         match WARM.try_with(Cell::get) {
