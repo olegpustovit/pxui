@@ -2,7 +2,7 @@
 //! and rasterizes to RGBA. `Ui::text_service` is the `Ui`'s own: the one font system and glyph atlas it draws with, whose glyph quads
 //! sample the atlases `Renderer::atlas` hands out.
 use crate::sys::{PxuiPreparedText, PxuiShaper, PxuiUi};
-use crate::{as_str, Ui};
+use crate::{as_str, Error, Ui};
 use core::ptr::NonNull;
 use pxui_types::{Str, TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
 
@@ -29,13 +29,6 @@ library!(lib {
     fn pxui_text_rasterize_rgba(ui: *mut PxuiUi, key: u64, value: Str, style: *const TextStyle, max_width: f32, scale: f32, color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize) -> usize;
 });
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TextError {
-    InvalidInput,
-    Allocation,
-    Engine,
-}
-
 /// The default font (Pragmasevka) the library embeds.
 pub fn pragmasevka() -> &'static [u8] {
     let font = unsafe { lib::pxui_default_font() };
@@ -56,26 +49,26 @@ impl Backing {
         (index != u32::MAX).then_some(index)
     }
 
-    fn measure(self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> {
+    fn measure(self, key: u64, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, Error> {
         let mut out = TextMetrics::default();
         let rc = unsafe { match self {
             Backing::Shaper(s) => lib::pxui_shaper_width(s, key, as_str(value), style, max_width, &mut out),
             Backing::Ui(u) => lib::pxui_text_width(u, key, as_str(value), style, max_width, &mut out),
         } };
-        if rc == 0 { Ok(out) } else { Err(rc) }
+        if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
 
-    fn measure_spans(self,key:u64,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> {
-        let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+    fn measure_spans(self,key:u64,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> {
+        let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let mut out=TextMetrics::default();
         let rc=unsafe { match self {
             Backing::Shaper(s)=>lib::pxui_shaper_width_spans(s,key,as_str(value),style,max_width,&spans,&mut out),
             Backing::Ui(u)=>lib::pxui_text_width_spans(u,key,as_str(value),style,max_width,&spans,&mut out),
         } };
-        if rc==0 { Ok(out) } else { Err(rc) }
+        if rc==0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
 
-    fn rasterize_rgba_into(self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], pixels: &mut Vec<u8>) -> Result<(u32, u32), TextError> {
+    fn rasterize_rgba_into(self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], pixels: &mut Vec<u8>) -> Result<(u32, u32), Error> {
         let (mut width, mut height) = (0, 0);
         let mut call = |out, capacity| unsafe { match self {
             Backing::Shaper(s) => lib::pxui_shaper_rasterize_rgba(s, key, as_str(value), style, max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, out, capacity),
@@ -83,10 +76,10 @@ impl Backing {
         } };
         pixels.clear();
         let required = call(core::ptr::null_mut(), 0);
-        if required == usize::MAX { return Err(TextError::InvalidInput); }
-        pixels.try_reserve_exact(required).map_err(|_| TextError::Allocation)?;
+        if required == usize::MAX { return Err(Error::InvalidInput); }
+        pixels.try_reserve_exact(required).map_err(|_| Error::Allocation)?;
         pixels.resize(required, 0);
-        if call(pixels.as_mut_ptr(), pixels.len()) != required { pixels.clear(); return Err(TextError::Engine); }
+        if call(pixels.as_mut_ptr(), pixels.len()) != required { pixels.clear(); return Err(Error::Engine); }
         Ok((width, height))
     }
 }
@@ -122,18 +115,22 @@ impl Text {
     /// Shape and reserve glyph-list storage on the worker. Installation requires a shaper forked
     /// from that UI; font additions or newly discovered fallback fonts invalidate its deliveries.
     /// At most 1 MiB of UTF-8 and 4 MiB of glyph-list storage per record; rasterization stays cold.
-    pub fn prepare(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<PreparedText,i32> {
-        let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+    ///
+    /// Errors: InvalidInput for more than eight or overlapping spans, or text over the 1 MiB / 4 MiB limits; Engine when shaping fails.
+    pub fn prepare(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<PreparedText,Error> {
+        let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let mut raw=core::ptr::null_mut();
         let mut metrics=TextMetrics::default();
         let rc=unsafe { lib::pxui_shaper_prepare(self.0.as_ptr(),as_str(value),style,max_width,&spans,&mut raw,&mut metrics) };
-        if rc!=0 { return Err(rc); }
+        if rc!=0 { return Err(Error::from_code(rc)); }
         Ok(PreparedText { raw:NonNull::new(raw).expect("pxui: preparation succeeded without storage"),metrics })
     }
     /// Enable native font fallback (Apple). A first missing cluster can discover/map a font file.
-    pub fn enable_system_fonts(&mut self)->Result<(),i32> {
+    ///
+    /// Errors: State once a frame has run or the platform has no system fonts.
+    pub fn enable_system_fonts(&mut self)->Result<(),Error> {
         let rc=unsafe { lib::pxui_shaper_system_fonts(self.0.as_ptr()) };
-        if rc==0 { Ok(()) } else { Err(rc) }
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
     pub fn new(fonts: &[&[u8]]) -> Option<Self> {
         let fonts: Vec<Str> = fonts.iter().map(|font| Str { ptr: font.as_ptr(), len: font.len() }).collect();
@@ -141,12 +138,18 @@ impl Text {
     }
     /// Adds a font (the bytes are copied); its index.
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { Backing::Shaper(self.0.as_ptr()).add_font(bytes) }
-    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { Backing::Shaper(self.0.as_ptr()).measure(0, value, style, max_width) }
+    /// Errors: InvalidInput for a non-finite width or an oversized text.
+    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, Error> { Backing::Shaper(self.0.as_ptr()).measure(0, value, style, max_width) }
     /// Measures one layout with up to eight ordered, disjoint UTF-8 byte ranges.
-    pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { Backing::Shaper(self.0.as_ptr()).measure_spans(0,value,style,max_width,spans) }
-    pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(value, style, max_width).map(|m| m.width) }
+    ///
+    /// Errors: InvalidInput for bad spans or an oversized text.
+    pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> { Backing::Shaper(self.0.as_ptr()).measure_spans(0,value,style,max_width,spans) }
+    /// Errors: As `measure`.
+    pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, Error> { self.measure(value, style, max_width).map(|m| m.width) }
     /// The text as straight-alpha RGBA8: width, height and pixels.
-    pub fn rasterize_rgba(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
+    ///
+    /// Errors: InvalidInput for empty or oversized text or a non-finite size; Allocation when the pixels cannot be reserved; Engine when rendering fails.
+    pub fn rasterize_rgba(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), Error> {
         let mut pixels = Vec::new();
         let (width, height) = self.rasterize_rgba_into(value, style, max_width, scale, color, &mut pixels)?;
         Ok((width, height, pixels))
@@ -163,7 +166,9 @@ impl Text {
     /// let (w, h) = text.rasterize_rgba_into("abc", &Default::default(), 0.0, 1.0, [255; 4], &mut pixels).unwrap();
     /// assert_eq!(pixels.len(), (w * h * 4) as usize);
     /// ```
-    pub fn rasterize_rgba_into(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), TextError> {
+    ///
+    /// Errors: As `rasterize_rgba`.
+    pub fn rasterize_rgba_into(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), Error> {
         Backing::Shaper(self.0.as_ptr()).rasterize_rgba_into(0, value, style, max_width, scale, color, out)
     }
 }
@@ -175,22 +180,28 @@ pub struct UiText<'ui>(&'ui mut Ui);
 
 impl Ui {
     /// Enable native font fallback before the first frame. Explicit-font UIs stay deterministic.
-    pub fn enable_system_fonts(&mut self)->Result<(),i32> {
+    ///
+    /// Errors: State once a frame has run or the platform has no system fonts.
+    pub fn enable_system_fonts(&mut self)->Result<(),Error> {
         let rc=unsafe { lib::pxui_text_system_fonts(self.0.as_ptr()) };
-        if rc==0 { Ok(()) } else { Err(rc) }
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
     /// Sets a frame's node text and explicit shaping style, preserving the complete accessibility label.
     /// Spans are at most eight ordered, disjoint UTF-8 byte ranges; plain `text`/`patch_text` clears them.
-    pub fn text_spans(&mut self,box_:&crate::PxuiBox,text:&str,style:&TextStyle,spans:&[TextSpan])->Result<(),i32> {
-        let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+    ///
+    /// Errors: InvalidInput for more than eight or overlapping spans or a non-finite style value; Stale for a gone box.
+    pub fn text_spans(&mut self,box_:&crate::PxuiBox,text:&str,style:&TextStyle,spans:&[TextSpan])->Result<(),Error> {
+        let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let rc=unsafe { lib::pxui_ui_text_spans(self.0.as_ptr(),box_,as_str(text),style,&spans) };
-        if rc==0 { Ok(()) } else { Err(rc) }
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
     /// CSS line boxes with primary-font baseline rounding; requires a positive line height.
-    pub fn text_line_box(&mut self,box_:&crate::PxuiBox,text:&str,style:&TextStyle,spans:&[TextSpan])->Result<(),i32> {
-        let spans=TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+    ///
+    /// Errors: InvalidInput for a non-positive line height or bad spans; Stale for a gone box.
+    pub fn text_line_box(&mut self,box_:&crate::PxuiBox,text:&str,style:&TextStyle,spans:&[TextSpan])->Result<(),Error> {
+        let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let rc=unsafe {lib::pxui_ui_text_line_box(self.0.as_ptr(),box_,as_str(text),style,&spans)};
-        if rc==0 {Ok(())} else {Err(rc)}
+        if rc==0 {Ok(())} else {Err(Error::from_code(rc))}
     }
     pub fn text_service(&mut self) -> UiText<'_> { UiText(self) }
 }
@@ -202,20 +213,27 @@ impl UiText<'_> {
     /// Between frames, adopt a matching prepared layout without shaping or allocating. Ordinary
     /// text calls with identical content/style/width use it. Glyph rasterization/atlas growth may
     /// still allocate. Failure returns the original record; success returns storage to retire on the worker.
-    pub fn install(&mut self,prepared:PreparedText)->Result<RetiredText,(i32,PreparedText)> {
+    ///
+    /// Errors: State when the record was prepared by a shaper not forked from this UI or the fonts changed; the record comes back with the error.
+    pub fn install(&mut self,prepared:PreparedText)->Result<RetiredText,(Error,PreparedText)> {
         let rc=unsafe { lib::pxui_text_install(self.0.0.as_ptr(),prepared.raw.as_ptr()) };
-        if rc!=0 { return Err((rc,prepared)); }
+        if rc!=0 { return Err((Error::from_code(rc),prepared)); }
         let raw=prepared.raw;
         core::mem::forget(prepared);
         Ok(RetiredText(raw))
     }
     fn backing(&self) -> Backing { Backing::Ui(self.0.0.as_ptr()) }
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { self.backing().add_font(bytes) }
-    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, i32> { self.backing().measure(0, value, style, max_width) }
+    /// Errors: InvalidInput for a non-finite width or an oversized text.
+    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, Error> { self.backing().measure(0, value, style, max_width) }
     /// Measures one layout with up to eight ordered, disjoint UTF-8 byte ranges.
-    pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { self.backing().measure_spans(0,value,style,max_width,spans) }
-    pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(value, style, max_width).map(|m| m.width) }
-    pub fn rasterize_rgba(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
+    ///
+    /// Errors: InvalidInput for bad spans or an oversized text.
+    pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> { self.backing().measure_spans(0,value,style,max_width,spans) }
+    /// Errors: As `measure`.
+    pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, Error> { self.measure(value, style, max_width).map(|m| m.width) }
+    /// Errors: InvalidInput for empty or oversized text or a non-finite size; Allocation when the pixels cannot be reserved; Engine when rendering fails.
+    pub fn rasterize_rgba(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), Error> {
         let mut pixels = Vec::new();
         let (width, height) = self.rasterize_rgba_into(value, style, max_width, scale, color, &mut pixels)?;
         Ok((width, height, pixels))
@@ -233,12 +251,16 @@ impl UiText<'_> {
     /// let (w, h) = text.rasterize_rgba_into("abc", &Default::default(), 0.0, 1.0, [255; 4], &mut pixels).unwrap();
     /// assert_eq!(pixels.len(), (w * h * 4) as usize);
     /// ```
-    pub fn rasterize_rgba_into(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), TextError> {
+    ///
+    /// Errors: As `rasterize_rgba`.
+    pub fn rasterize_rgba_into(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), Error> {
         self.backing().rasterize_rgba_into(0, value, style, max_width, scale, color, out)
     }
 
     /// The glyph quads of `value`, positioned at `origin` and scaled by `scale`.
-    pub fn quads(&mut self, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32) -> Result<Vec<TextGlyph>, i32> {
+    ///
+    /// Errors: As `quads_into`.
+    pub fn quads(&mut self, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32) -> Result<Vec<TextGlyph>, Error> {
         let mut glyphs = Vec::new();
         self.quads_into(value, style, max_width, origin, scale, &mut glyphs)?;
         Ok(glyphs)
@@ -256,16 +278,18 @@ impl UiText<'_> {
     /// let n = ui.text_service().quads_into("abc", &Default::default(), 0.0, (0.0, 0.0), 1.0, &mut glyphs).unwrap();
     /// assert_eq!((n, glyphs.len()), (3, 3));
     /// ```
-    pub fn quads_into(&mut self, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32, out: &mut Vec<TextGlyph>) -> Result<usize, i32> {
+    ///
+    /// Errors: InvalidInput for empty or oversized text or a non-finite size; Allocation when `out` cannot grow; Engine when the quads cannot be written.
+    pub fn quads_into(&mut self, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32, out: &mut Vec<TextGlyph>) -> Result<usize, Error> {
         let ui = self.0.0.as_ptr();
         let call = |out, capacity| unsafe { lib::pxui_text_quads(ui, 0, as_str(value), style, max_width, origin.0, origin.1, scale, out, capacity) };
         out.clear();
         let count = call(core::ptr::null_mut(), 0);
-        if count == usize::MAX { return Err(-1); }
-        out.try_reserve_exact(count).map_err(|_| -1)?;
+        if count == usize::MAX { return Err(Error::InvalidInput); }
+        out.try_reserve_exact(count).map_err(|_| Error::Allocation)?;
         out.resize(count, TextGlyph::default());
         let written = call(out.as_mut_ptr(), out.len());
-        if written == usize::MAX { out.clear(); return Err(-1); }
+        if written == usize::MAX { out.clear(); return Err(Error::Engine); }
         out.truncate(written.min(out.len()));
         Ok(out.len())
     }

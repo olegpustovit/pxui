@@ -1040,7 +1040,7 @@ fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
     let mut ui=pxui::Ui::new().unwrap();
     let mut renderer=shared_renderer(&device,&ui);
-    assert!(matches!(renderer.atlas(pxui::AtlasKind::Mask2),Err(pxui_types::PXUI_ERR_STATE)));
+    assert!(matches!(renderer.atlas(pxui::AtlasKind::Mask2),Err(pxui::Error::State)));
     let first=renderer.atlas(pxui::AtlasKind::Mask).unwrap();
     let style=pxui::TextStyle { size_points:600.0,..Default::default() };
     let mut first_pixels:Option<Vec<u8>>=None;
@@ -1403,7 +1403,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
             let result = renderer.draw_layer(&pass, layer, &mut |record| {
                 splits += 1;
                 if let Some(nested) = &mut nested {
-                    assert_eq!(nested.resize(640, 600), Err(-3), "a draw callback cannot enter another renderer on the same UI");
+                    assert_eq!(nested.resize(640, 600), Err(pxui::Error::State), "a draw callback cannot enter another renderer on the same UI");
                 }
                 ok(be::end_render(reopened.as_ref().unwrap_or(&open_pass)));
                 let native = ok(be::native_texture(&target));
@@ -1414,7 +1414,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
                 Ok(next_pass)
             });
             if !prepared && result.is_err() {
-                assert_eq!(result, Err(pxui_types::PXUI_ERR_GPU));
+                assert_eq!(result, Err(pxui::Error::Gpu));
                 assert!(ui.last_error().contains("prepare blur targets before recording"));
                 ok(be::abandon(&commands));
                 drop(renderer);
@@ -1467,15 +1467,15 @@ fn shared_resize_validation() {
     let Some(device) = open() else { return };
     let mut ui = shared_ui("Resize");
     let mut renderer = shared_renderer(&device, &ui);
-    assert_eq!(renderer.resize(0, 600), Err(-1));
-    assert_eq!(renderer.resize(640, 0), Err(-1));
+    assert_eq!(renderer.resize(0, 600), Err(pxui::Error::InvalidInput));
+    assert_eq!(renderer.resize(640, 0), Err(pxui::Error::InvalidInput));
     assert!(ui.last_error().contains("nonzero"));
     renderer.resize(640, 600).expect("valid resize");
     mem_sys::local_reset();
     renderer.resize(640, 600).expect("unchanged resize");
     assert_eq!(mem_sys::local_alloc_count(), 0, "same dimensions reuse prepared targets");
     ui.frame(&pxui_types::FrameIn { width: 320.0, height: 300.0, ..Default::default() }, &mut |ui| {
-        assert_eq!(renderer.resize(800, 600), Err(-3), "resizing in a UI frame is refused");
+        assert_eq!(renderer.resize(800, 600), Err(pxui::Error::State), "resizing in a UI frame is refused");
         assert!(ui.last_error().contains("owner only outside a frame"));
     }).expect("frame after resize");
     drop(renderer);
@@ -1657,14 +1657,14 @@ fn shared_frame_serials() {
     shared_app_frame(&queue, &target, &mut renderer, 1, 0);
     let commands = ok(be::begin_commands(&queue));
     let native = public_commands(&commands);
-    assert_eq!(renderer.prepare(&native, 1, 0), Err(-1), "a repeated frame serial");
-    assert_eq!(renderer.prepare(&native, 2 + frames, 1), Err(-1), "frame - completed > FRAMES");
-    assert_eq!(renderer.prepare(&native, 2, 2), Err(-1), "completed must precede the frame");
+    assert_eq!(renderer.prepare(&native, 1, 0), Err(pxui::Error::InvalidInput), "a repeated frame serial");
+    assert_eq!(renderer.prepare(&native, 2 + frames, 1), Err(pxui::Error::InvalidInput), "frame - completed > FRAMES");
+    assert_eq!(renderer.prepare(&native, 2, 2), Err(pxui::Error::InvalidInput), "completed must precede the frame");
     ok(be::abandon(&commands));
     // the ring's limit itself: frame n with frame n - FRAMES the last one done
     shared_app_frame(&queue, &target, &mut renderer, 1 + frames, 1);
     let commands = ok(be::begin_commands(&queue));
-    assert_eq!(renderer.prepare(&public_commands(&commands), 2 + frames, 0), Err(-1), "completed went back");
+    assert_eq!(renderer.prepare(&public_commands(&commands), 2 + frames, 0), Err(pxui::Error::InvalidInput), "completed went back");
     ok(be::abandon(&commands));
     drop(renderer);
     assert!(ui.last_error().contains("completed"), "the refusal is the last error: {}", ui.last_error());
@@ -1876,7 +1876,7 @@ fn shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_imag
     });
     let mut ui=pxui::Ui::new().expect("UI");
     let mut renderer=shared_renderer(&device,&ui);
-    assert_eq!(renderer.forget_image(&pxui_types::Image::default(),0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+    assert_eq!(renderer.forget_image(&pxui_types::Image::default(),0),Err(pxui::Error::InvalidInput));
     for frame in 1..=24u64 {
         let start=((frame-1)%4) as usize*32;
         mem_sys::local_reset();
@@ -1905,9 +1905,9 @@ fn shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_imag
             assert_eq!(&pixels[pixel..pixel+4],[RED,BLUE][index%2],"image {index} of page {start}");
         }
     }
-    assert_eq!(renderer.forget_image(&images[96],23),Err(pxui_types::PXUI_ERR_STATE),"an incomplete serial cannot release the last draw");
+    assert_eq!(renderer.forget_image(&images[96],23),Err(pxui::Error::State),"an incomplete serial cannot release the last draw");
     for image in &images { renderer.forget_image(image,24).expect("release completed image without recording another frame"); renderer.forget_image(image,24).expect("idempotent release"); }
-    assert_eq!(renderer.forget_image(&images[96],23),Err(pxui_types::PXUI_ERR_ARGUMENT),"completion cannot regress");
+    assert_eq!(renderer.forget_image(&images[96],23),Err(pxui::Error::InvalidInput),"completion cannot regress");
     drop(renderer);
     for source in &sources { ok(be::destroy_texture(source)); }
     ok(be::destroy_texture(&target));

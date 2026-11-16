@@ -30,7 +30,7 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
     let (first_text,first)=records.next().unwrap();
     let rejected=other.text_service().install(first);
     let (code,first)=match rejected {Err(error)=>error,Ok(_)=>panic!("foreign fonts accepted")};
-    assert_eq!(code,pxui_types::PXUI_ERR_STATE);
+    assert_eq!(code,crate::Error::State);
     let records=std::iter::once((first_text,first)).chain(records).collect::<Vec<_>>();
     let mut retired:Vec<RetiredText>=Vec::with_capacity(records.len());
     let layouts=ui.text_layout_count();
@@ -54,7 +54,7 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
     let stale:PreparedText=std::thread::spawn(move || worker.prepare("stale",&style,200.0,&[]).unwrap()).join().unwrap();
     assert!(ui.text_service().add_font(crate::text::pragmasevka()).is_some());
     let (code,stale)=match ui.text_service().install(stale) {Err(error)=>error,Ok(_)=>panic!("stale fonts accepted")};
-    assert_eq!(code,pxui_types::PXUI_ERR_STATE);
+    assert_eq!(code,crate::Error::State);
     std::thread::spawn(move || drop(stale)).join().unwrap();
 }
 
@@ -63,7 +63,7 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
 fn phase_cpu_timing_is_opt_in_and_zero_warm_allocation() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
-    assert_eq!(ui.phase_cpu_times(), Err(pxui_types::PXUI_ERR_STATE));
+    assert_eq!(ui.phase_cpu_times(), Err(crate::Error::State));
     ui.set_timing(true);
     for round in 0..20 {
         mem_sys::local_reset();
@@ -82,9 +82,9 @@ fn phase_cpu_timing_is_opt_in_and_zero_warm_allocation() {
         }
     }
     ui.set_timing(false);
-    assert_eq!(ui.phase_cpu_times(), Err(pxui_types::PXUI_ERR_STATE));
+    assert_eq!(ui.phase_cpu_times(), Err(crate::Error::State));
     ui.frame(&input(), &mut |_| {}).unwrap();
-    assert_eq!(ui.phase_cpu_times(), Err(pxui_types::PXUI_ERR_STATE));
+    assert_eq!(ui.phase_cpu_times(), Err(crate::Error::State));
 }
 
 #[test]
@@ -157,7 +157,7 @@ fn completed_file_drop_events_preserve_paths_positions_errors_and_empty_warm_sto
         Event {kind:Event::FILES_DROPPED,text:Str {ptr:bad_utf8.as_ptr(),len:1},..Default::default()},
     ] {
         let mut built=false;
-        assert_eq!(ui.frame(&FrameIn {events:&invalid,event_count:1,..input()},&mut |_| built=true).err(),Some(pxui_types::PXUI_ERR_ARGUMENT));
+        assert_eq!(ui.frame(&FrameIn {events:&invalid,event_count:1,..input()},&mut |_| built=true).err(),Some(crate::Error::InvalidInput));
         assert!(!built);
     }
     let empty=Event {kind:Event::FILES_DROPPED,..Default::default()};
@@ -1431,7 +1431,7 @@ fn canvas_feature_styles_have_distinct_warm_cache_entries() {
     let b=ui.text_service().measure("1111",&tabular,0.0).unwrap();
     assert!((a.width-b.width).abs()>1.0);
     for features in [2,3,u32::MAX] {
-        assert_eq!(ui.text_service().measure("1111",&TextStyle { features,..plain },0.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+        assert_eq!(ui.text_service().measure("1111",&TextStyle { features,..plain },0.0),Err(crate::Error::InvalidInput));
     }
     for frame in 0..7 {
         mem_sys::local_reset();
@@ -1583,8 +1583,8 @@ fn ellipsis_modes_match_standalone_ui_measurement_quads_and_rasterization() {
     }
     for ellipsis in [4,255] {
         let style=TextStyle { ellipsis,..Default::default() };
-        assert_eq!(shaper.measure(source,&style,100.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
-        assert_eq!(ui.text_service().measure(source,&style,100.0),Err(pxui_types::PXUI_ERR_ARGUMENT));
+        assert_eq!(shaper.measure(source,&style,100.0),Err(crate::Error::InvalidInput));
+        assert_eq!(ui.text_service().measure(source,&style,100.0),Err(crate::Error::InvalidInput));
         assert!(shaper.rasterize_rgba(source,&style,100.0,1.0,[0,0,0,255]).is_err());
         assert!(ui.text_service().quads(source,&style,100.0,(0.0,0.0),1.0).is_err());
     }
@@ -1680,7 +1680,7 @@ fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
         assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==source));
         assert!(!ui.layers().all(|layer|layer.instances.is_empty()));
     }
-    assert_eq!(ui.enable_system_fonts(),Err(pxui_types::PXUI_ERR_STATE));
+    assert_eq!(ui.enable_system_fonts(),Err(crate::Error::State));
     assert!(ui.last_error().contains("before the first frame"));
 }
 
@@ -2547,7 +2547,7 @@ fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
     }
     let prior=ui.environment();
     let mut invalid=prior; invalid.safe_area[0]=f32::NAN;
-    assert_eq!(ui.frame(&FrameIn { environment:invalid,..input() },&mut build).err(),Some(pxui_types::PXUI_ERR_ARGUMENT));
+    assert_eq!(ui.frame(&FrameIn { environment:invalid,..input() },&mut build).err(),Some(crate::Error::InvalidInput));
     assert_eq!(ui.environment(),prior);
     ui.frame(&FrameIn { size:56,environment:invalid,..input() },&mut build).unwrap();
     assert_eq!(ui.environment(),crate::Environment::default(),"an old complete descriptor ignores the new tail");

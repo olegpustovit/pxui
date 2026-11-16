@@ -4,6 +4,8 @@
 
 #[macro_use]
 mod macros;
+mod error;
+pub use error::Error;
 use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
@@ -196,27 +198,33 @@ impl Renderer {
         let raw=unsafe { sys::pxui_renderer_create(ui.0.as_ptr(),&gpu,&desc) };
         match NonNull::new(raw) { Some(raw)=>Ok(Self { raw }), None=>Err(ui.last_error().to_owned()) }
     }
-    pub fn prepare(&mut self,commands:&pxui_types::Commands,frame:u64,completed:u64)->Result<(),i32> {
+    /// Errors: InvalidInput for a frame serial that repeats, regresses or runs more than the in-flight frames past `completed`; Gpu when recording fails.
+    pub fn prepare(&mut self,commands:&pxui_types::Commands,frame:u64,completed:u64)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_prepare(self.raw.as_ptr(),commands,frame,completed) };
         composite::resume_deferred();
-        if rc==0 { Ok(()) } else { Err(rc) }
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
     /// Prepare blur targets at startup/resize, before recording the next frame. Dimensions are drawable pixels.
-    pub fn resize(&mut self,width:u32,height:u32)->Result<(),i32> {
+    ///
+    /// Errors: InvalidInput for a zero dimension; State inside a frame or draw callback.
+    pub fn resize(&mut self,width:u32,height:u32)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_resize(self.raw.as_ptr(),width,height) };
-        if rc==0 { Ok(()) } else { Err(rc) }
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
     /// Forget before destroying/reusing a native image, on every renderer that sampled it.
     /// `completed` is the host's completed GPU serial on the prepare() timeline; it must not go back.
     /// Refuses while any draw of the image remains incomplete. No additional frame is needed.
-    pub fn forget_image(&mut self,image:&Image,completed:u64)->Result<(),i32> {
+    ///
+    /// Errors: InvalidInput for an unknown image or a `completed` that goes back; State while a draw of the image is incomplete.
+    pub fn forget_image(&mut self,image:&Image,completed:u64)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_forget_image(self.raw.as_ptr(),image,completed) };
-        if rc==0 { Ok(()) } else { Err(rc) }
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
-    pub fn draw(&mut self,pass:&pxui_types::Pass)->Result<(),i32> {
+    /// Errors: Gpu when recording fails; State when a draw is already open.
+    pub fn draw(&mut self,pass:&pxui_types::Pass)->Result<(),Error> {
         let rc=unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(),pass) };
         composite::resume_deferred();
-        if rc==0 { Ok(()) } else { Err(rc) }
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
 }
 
@@ -237,23 +245,23 @@ pub struct Layer<'a> {
 }
 
 /// What a pass split hands the app's recorder: the colour target of the pass the app just ended.
-pub type Recorder<'a> = &'a mut dyn FnMut(&pxui_types::Image) -> Result<(), i32>;
+pub type Recorder<'a> = &'a mut dyn FnMut(&pxui_types::Image) -> Result<(), Error>;
 
 struct Split<'a> {
-    f: &'a mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, i32>,
-    error: i32,
+    f: &'a mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>,
+    error: Option<Error>,
 }
 
 extern "C" fn split_pass(user: *mut c_void, record: pxui_types::PassRecord, record_user: *mut c_void, out: *mut pxui_types::Pass) -> i32 {
     if deferred_panic() { return -1; }
     let split = unsafe { &mut *user.cast::<Split>() };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let mut recorder = |image: &pxui_types::Image| -> Result<(), i32> { let rc = record(record_user, image); if rc == 0 { Ok(()) } else { Err(rc) } };
+        let mut recorder = |image: &pxui_types::Image| -> Result<(), Error> { let rc = record(record_user, image); if rc == 0 { Ok(()) } else { Err(Error::from_code(rc)) } };
         (split.f)(&mut recorder)
     }));
     match result {
         Ok(Ok(next)) => { unsafe { *out = next; } 0 }
-        Ok(Err(code)) => { split.error = code; if code == 0 { -1 } else { code } }
+        Ok(Err(error)) => { split.error = Some(error); -1 }
         Err(panic) => { composite::defer_callback_panic(panic); -1 }
     }
 }
@@ -266,12 +274,14 @@ impl Renderer {
     /// between layers. A layer with a backdrop blur calls `split`: end the open pass, hand `record` the colour target it holds so far
     /// (the library records the blur into the prepared command buffer), reopen a pass over the same target (load, not clear; the same
     /// viewport and scissor) and return it; the rest of the layer draws into that pass.
-    pub fn draw_layer(&mut self, pass: &pxui_types::Pass, layer: u32, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, i32>) -> Result<(), i32> {
-        let mut ctx = Split { f: split, error: 0 };
+    ///
+    /// Errors: Gpu when recording fails; the `Error` the `split` closure returned, when it failed.
+    pub fn draw_layer(&mut self, pass: &pxui_types::Pass, layer: u32, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>) -> Result<(), Error> {
+        let mut ctx = Split { f: split, error: None };
         let pass = pxui_types::Pass { first_layer: layer, layer_count: 1, split: Some(split_pass), split_user: (&mut ctx as *mut Split).cast(), ..*pass };
         let rc = unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(), &pass) };
         composite::resume_deferred();
-        if rc == 0 { Ok(()) } else { Err(if ctx.error != 0 { ctx.error } else { rc }) }
+        if rc == 0 { Ok(()) } else { Err(ctx.error.unwrap_or(Error::from_code(rc))) }
     }
 }
 
@@ -287,10 +297,12 @@ pub enum AtlasKind {
 impl Renderer {
     /// The renderer's atlas: R8 for `Mask`/`Mask2`, RGBA8 for `Color`/`Color2`.
     /// Second pages return `PXUI_ERR_STATE` until a prepare uploads their first glyphs.
-    pub fn atlas(&self, kind: AtlasKind) -> Result<pxui_types::Image, i32> {
+    ///
+    /// Errors: State for a second page before a prepare has uploaded its first glyphs.
+    pub fn atlas(&self, kind: AtlasKind) -> Result<pxui_types::Image, Error> {
         let mut out = pxui_types::Image::default();
         let rc = unsafe { sys::pxui_renderer_atlas(self.raw.as_ptr(), kind as u32, &mut out) };
-        if rc == 0 { Ok(out) } else { Err(rc) }
+        if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
 }
 
@@ -385,7 +397,9 @@ impl Ui {
     /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| ui.label("b")).unwrap();
     /// assert_eq!(ui.frame_index(), 2);
     /// ```
-    pub fn frame(&mut self, input: &FrameIn, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, i32> {
+    ///
+    /// Errors: InvalidInput for malformed input (events, environment); State when called inside a frame callback; Panic when the build closure panicked in the library.
+    pub fn frame(&mut self, input: &FrameIn, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> {
         let mut out = FrameOut::default();
         #[cfg(feature = "static")]
         let rc = unsafe { pxui_abi_link::trusted::frame(self.0.as_ptr(), input, inner!(|ui: &mut Ui| build(ui)), &mut out) };
@@ -394,7 +408,8 @@ impl Ui {
         self.framed(rc, out)
     }
 
-    pub fn input_frame(&mut self,input:&Input,mut build: &mut dyn FnMut(&mut Ui))->Result<Frame<'_>,i32> {
+    /// Errors: As `frame`.
+    pub fn input_frame(&mut self,input:&Input,mut build: &mut dyn FnMut(&mut Ui))->Result<Frame<'_>,Error> {
         let mut out=FrameOut::default();
         #[cfg(feature = "static")]
         let rc=unsafe { pxui_abi_link::trusted::input_frame(self.0.as_ptr(),input,inner!(|ui: &mut Ui| build(ui)),&mut out) };
@@ -412,9 +427,9 @@ impl Ui {
         Routed { raw, _ui: PhantomData }
     }
 
-    fn framed(&mut self, rc:i32, out:FrameOut)->Result<Frame<'_>,i32> {
+    fn framed(&mut self, rc:i32, out:FrameOut)->Result<Frame<'_>,Error> {
         composite::resume_deferred();
-        if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(rc) }
+        if rc==0 { Ok(Frame { out, _ui:PhantomData }) } else { Err(Error::from_code(rc)) }
     }
 
     pub fn last_error(&self) -> &str {
@@ -523,8 +538,11 @@ impl Ui {
     }
 
     /// Replaces the theme from a theme file's text; the library refuses a file that does not parse (see `last_error`).
-    pub fn set_theme_source(&mut self,source:&ThemeSource)->Result<(),i32> { status(unsafe{sys::pxui_ui_set_theme(self.0.as_ptr(),source)}) }
-    pub fn set_theme(&mut self,source:&ThemeSource)->Result<(),i32> {self.set_theme_source(source)}
+    ///
+    /// Errors: InvalidInput for theme text the engine cannot parse; State inside a frame callback.
+    pub fn set_theme_source(&mut self,source:&ThemeSource)->Result<(),Error> { status(unsafe{sys::pxui_ui_set_theme(self.0.as_ptr(),source)}) }
+    /// Errors: As `set_theme_source`.
+    pub fn set_theme(&mut self,source:&ThemeSource)->Result<(),Error> {self.set_theme_source(source)}
     #[track_caller] pub fn set_dir(&mut self,rtl:bool) {check(self, unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
     #[track_caller] pub fn set_a11y(&mut self,on:bool) {check(self, unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
     #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())})}
@@ -676,6 +694,9 @@ fn check(ui: &Ui, rc: i32) { if rc != 0 { refused(ui, rc) } }
 #[inline(never)]
 #[track_caller]
 fn refused(ui: &Ui, rc: i32) -> ! { panic!("pxui: {} ({rc})", ui.last_error()) }
+/// `check` for a wrapper call that returns its refusal as an `Error`.
+#[track_caller]
+fn check_error(ui: &Ui, result: Result<(), Error>) { if let Err(error) = result { refused(ui, error.code()) } }
 /// The library's process counters, for the performance gate: calls made into it (this one included) and heap allocations its
 /// allocator has made. In a static build both are the app's own allocator and the calls of the same process.
 #[cfg(feature="static")]
@@ -703,7 +724,7 @@ fn lent_str<'a>(value: Str) -> &'a str {
 fn lent_string(value: Str) -> String { lent_str(value).to_owned() }
 
 #[inline]
-fn status(rc:i32)->Result<(),i32>{ if rc==0 { Ok(()) } else { Err(rc) } }
+fn status(rc:i32)->Result<(),Error>{ if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) } }
 
 /// Hash a transient UI revision or identity using the framework's deterministic fast hash: `write` feeds the
 /// hasher, normally with `Hash::hash(&value, state)`. This is not a DoS-resistant map hash; the value stays

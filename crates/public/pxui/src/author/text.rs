@@ -105,7 +105,8 @@ impl Ui {
         let mut id_label = [0u8; 17];
         let label = match key { Key::Label(label) => label, Key::Id(id) => id_text(id, &mut id_label) };
         let b = self.node(label, Node::DEFAULT);
-        if let Err(code) = self.text_spans(&b, text, style, &[]) { crate::check(self, code) }
+        let result = self.text_spans(&b, text, style, &[]);
+        crate::check_error(self, result);
         b
     }
 }

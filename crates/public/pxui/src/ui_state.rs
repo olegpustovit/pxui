@@ -162,8 +162,10 @@ impl Ui {
     }
     /// Thread CPU in phase order, summed across settling passes; enabled by set_timing.
     /// Currently Apple platforms; refuses unavailable/failed clocks.
+    ///
+    /// Errors: State unless timing is enabled and the platform has a thread CPU clock.
     #[track_caller]
-    pub fn phase_cpu_times(&self) -> Result<[std::time::Duration; 7], i32> {
+    pub fn phase_cpu_times(&self) -> Result<[std::time::Duration; 7], crate::Error> {
         let mut nanos = [0u64; 7];
         let code = unsafe {
             lib::pxui_ui_phase_cpu_times(self.0.as_ptr(), nanos.as_mut_ptr(), nanos.len())
@@ -171,7 +173,7 @@ impl Ui {
         if code == 0 {
             Ok(nanos.map(std::time::Duration::from_nanos))
         } else {
-            Err(code)
+            Err(crate::Error::from_code(code))
         }
     }
     #[track_caller]

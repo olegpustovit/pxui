@@ -155,7 +155,7 @@ mod tests {
         let mut theme = Theme::default();
         let error = theme.apply(&ui, "toggle.body = nope").expect_err("an unregistered body");
         assert!(error.contains("nope"), "{error}");
-        assert_eq!(ui.set_theme(&source("toggle.body = nope")), Err(pxui_types::PXUI_ERR_ARGUMENT));
+        assert_eq!(ui.set_theme(&source("toggle.body = nope")), Err(crate::Error::InvalidInput));
         assert!(ui.last_error().contains("nope"), "{}", ui.last_error());
         // a body of another kind is not this kind's
         ui.register_slider_body("probe", |_, _| {}).expect("slider");

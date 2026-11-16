@@ -153,12 +153,14 @@ impl<'a> Paint<'a> {
     }
     #[inline] pub fn text_width(&mut self, size: Option<i64>, s: &str) -> f32 { unsafe { lib::pxui_paint_text_width(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s)) } }
     /// Draws one shaped layout with up to eight inline spans; invalid ranges or flags return an argument error.
-    pub fn text_spans(&mut self,at:(f32,f32),style:&TextStyle,width:f32,color:Option<Rgba>,text:&str,spans:&[pxui_types::TextSpan])->Result<TextMetrics,i32> {
-        let spans=pxui_types::TextSpans::new(spans).ok_or(pxui_types::PXUI_ERR_ARGUMENT)?;
+    ///
+    /// Errors: InvalidInput for more than eight or overlapping spans or a non-finite size; State when a span is open.
+    pub fn text_spans(&mut self,at:(f32,f32),style:&TextStyle,width:f32,color:Option<Rgba>,text:&str,spans:&[pxui_types::TextSpan])->Result<TextMetrics,crate::Error> {
+        let spans=pxui_types::TextSpans::new(spans).ok_or(crate::Error::InvalidInput)?;
         let (has_color,color)=some(color);
         let mut out=TextMetrics::default();
         let rc=unsafe { lib::pxui_paint_text_spans(self.raw(),at.0,at.1,style,width,has_color,color,crate::as_str(text),&spans,&mut out) };
-        if rc==0 { Ok(out) } else { Err(rc) }
+        if rc==0 { Ok(out) } else { Err(crate::Error::from_code(rc)) }
     }
     #[inline] pub fn text_metrics(&mut self, style: &TextStyle, width: f32, s: &str) -> TextMetrics { unsafe { lib::pxui_paint_text_metrics(self.raw(), style, width, crate::as_str(s)) } }
     #[inline] pub fn caret_x(&mut self, size: Option<i64>, s: &str, index: usize) -> f32 { unsafe { lib::pxui_paint_caret_x(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s), index) } }
@@ -377,7 +379,7 @@ mod tests {
 
     use pxui_types::{FrameIn, Node, Size};
 
-    fn frame_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(ui: &mut crate::Ui, canvas: F) -> Result<(), i32> {
+    fn frame_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(ui: &mut crate::Ui, canvas: F) -> Result<(), crate::Error> {
         let mut canvas = Some(canvas);
         ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| {
             let node = ui.node("canvas", Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
@@ -394,11 +396,11 @@ mod tests {
             p.fill(0.0, 0.0, 4.0, 4.0, ink);
             unsafe { lib::pxui_paint_text(p.raw.as_ptr(), 0.0, 0.0, crate::as_str("x")) };
         });
-        assert_eq!(rc.err(), Some(pxui_types::PXUI_ERR_STATE));
+        assert_eq!(rc.err(), Some(crate::Error::State));
         assert!(ui.last_error().contains("span is open"), "{}", ui.last_error());
         // a callback that returns with its span uncommitted (its shapes would be dropped)
         let rc = frame_with(&mut ui, move |p, _| { p.fill(0.0, 0.0, 4.0, 4.0, ink); p.open = false; });
-        assert_eq!(rc.err(), Some(pxui_types::PXUI_ERR_STATE));
+        assert_eq!(rc.err(), Some(crate::Error::State));
         assert!(ui.last_error().contains("uncommitted"), "{}", ui.last_error());
         // a panic with a span open is carried to the frame, and the next frame draws cleanly
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let _ = frame_with(&mut ui, move |p, _| { p.fill(0.0, 0.0, 4.0, 4.0, ink); panic!("with a span open"); }); }));
