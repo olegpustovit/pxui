@@ -451,6 +451,28 @@ pub fn button_opts_uses_a_registered_body() {
     ui.destroy();
 }
 
+/// A body that builds one `Part::HIT` node: its key is the part's of the button whose body is building.
+fn part_button(ui: &mut Ui, _c: &ButtonConfig, _states: &States, _text: &str) {
+    ui.part(Part::HIT, Node { w: Size::Px(10.0), h: Size::Px(8.0), ..Node::DEFAULT });
+}
+
+/// Two buttons with one key (the positional `button(text)`) own their own parts: a registered body's part is found under each
+/// button's de-duplicated key, not both under the first's.
+pub fn duplicate_key_buttons_own_their_parts() {
+    let mut ui = new_ui(None);
+    pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("parts", part_button));
+    let mut rows = [0i64; 2];
+    for k in 0..2 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+            for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, None).handle.box_key; }
+        }));
+    }
+    check(rows[0] != rows[1], "the two buttons share a key");
+    let parts = rows.map(|row| ui.part_box(row, Part::HIT).map(|b| b.box_key));
+    check(parts[0].is_some() && parts[1].is_some() && parts[0] != parts[1], &format!("each button owns its part: {parts:?}"));
+    ui.destroy();
+}
+
 /// A button in a plain column, outside any panel, is a row of the theme's `row_h` high.
 pub fn button_outside_panel_takes_theme_row_h() {
     let mut ui = new_ui(None);
@@ -1835,6 +1857,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("button_pill_body", button_pill_body),
     ("button_outside_panel_takes_theme_row_h", button_outside_panel_takes_theme_row_h),
     ("button_opts_uses_a_registered_body", button_opts_uses_a_registered_body),
+    ("duplicate_key_buttons_own_their_parts", duplicate_key_buttons_own_their_parts),
     ("icon_button_round_body", icon_button_round_body),
     ("icon_button_uses_a_registered_body", icon_button_uses_a_registered_body),
     ("icon_button_is_the_transport_key", icon_button_is_the_transport_key),

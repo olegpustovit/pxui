@@ -1020,7 +1020,7 @@ impl Ui {
         }
         let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, line, row };
         let shown_text = if content.is_some() { "" } else { text };
-        in_body!(flat; self, key, row, button, default_button(&config, &states, shown_text));
+        in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, shown_text));
         // size, placement and padding went to the body in its config; the accessible states are the engine's
         let n = self.node_new(&row);
         n.state.disabled = !opts.enabled;
