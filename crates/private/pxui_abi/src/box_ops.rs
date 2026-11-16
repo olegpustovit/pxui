@@ -56,7 +56,7 @@ mod reveal_tests {
 #[cfg(test)]
 mod gesture_tests {
     use super::*;
-    use pxui_types::ffi::{PxuiGestureIn, PxuiGestureOut};
+    use pxui_types::ffi::{PxuiGestureIn, PxuiGestureOut, PxuiSwipeIn};
 
     #[test]
     fn gesture_validates_every_argument_before_changing_the_node() {
@@ -75,6 +75,16 @@ mod gesture_tests {
                 assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, request, 0, &mut out) }, PXUI_ERR_ARGUMENT);
             }
             assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 4, &mut out) }, PXUI_ERR_ARGUMENT);
+            // ABI 1.40 swipe actions: refused requests change nothing, a good one takes effect
+            let swipe = PxuiSwipeIn { leading: 60.0, trailing: 80.0, full: 150.0, ..Default::default() };
+            for request in [PxuiSwipeIn { leading: f32::NAN, ..swipe }, PxuiSwipeIn { full: f32::INFINITY, ..swipe }, PxuiSwipeIn { size: 8, ..swipe }] {
+                assert_eq!(unsafe { pxui_ui_swipe_actions(raw.cast(), node, &request) }, PXUI_ERR_ARGUMENT);
+            }
+            assert_eq!(unsafe { pxui_ui_swipe_actions(raw.cast(), node, core::ptr::null()) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_swipe_actions(raw.cast(), core::ptr::null(), &swipe) }, PXUI_ERR_ARGUMENT);
+            let stale_swipe = PxuiBox { box_slot: u64::MAX, ..*node };
+            assert_eq!(unsafe { pxui_ui_swipe_actions(raw.cast(), &stale_swipe, &swipe) }, crate::PXUI_ERR_STALE);
+            assert_eq!(unsafe { pxui_ui_swipe_actions(raw.cast(), node, &swipe) }, 0);
             let mut short = 4u32;
             assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 0, (&mut short as *mut u32).cast()) }, PXUI_ERR_ARGUMENT);
             assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 0, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
@@ -269,11 +279,22 @@ export!(pub unsafe fn pxui_ui_gesture(ui: *mut PxuiUi, box_: *const PxuiBox, in_
         if (request.size as usize) < core::mem::size_of::<pxui_types::ffi::PxuiGestureIn>() || request.kinds & !15 != 0 || !request.reveal.is_finite() || !request.threshold.is_finite() {
             return unsafe { fail(ui, "invalid gesture request") };
         }
-        Some(pxui_core::ui::gesture::GestureCfg { kinds: request.kinds, reveal: request.reveal, threshold: request.threshold })
+        Some(pxui_core::ui::gesture::GestureCfg { kinds: request.kinds, reveal: request.reveal, threshold: request.threshold, ..Default::default() })
     };
     if commands & !3 != 0 { return unsafe { fail(ui, "invalid gesture command") }; }
     let state = e.gesture(&b, cfg, commands);
     *out = pxui_types::ffi::PxuiGestureOut { flags: state.flags, swipe: state.swipe, back: state.back, pull: state.pull, ..Default::default() };
+    0
+});
+
+// ABI 1.40: enable a node's row swipe with actions on both sides and a full-swipe commit distance, keeping its
+// other gestures; call after `pxui_ui_gesture` each build. Flags 512/1024 (commit) and 2048/4096 (open side) join
+// the gesture flags.
+export!(pub unsafe fn pxui_ui_swipe_actions(ui: *mut PxuiUi, box_: *const PxuiBox, in_: *const pxui_types::ffi::PxuiSwipeIn) -> i32 {
+    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    let Some(request) = sized!(in_) else { return unsafe { fail(ui, "invalid swipe request") }; };
+    if !request.leading.is_finite() || !request.trailing.is_finite() || !request.full.is_finite() { return unsafe { fail(ui, "invalid swipe request") }; }
+    e.swipe_actions(&b, request.leading, request.trailing, request.full);
     0
 });
 

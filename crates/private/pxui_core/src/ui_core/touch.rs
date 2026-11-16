@@ -110,7 +110,7 @@ impl Ui {
             self.set_highlight(g.press, false);
         }
         match g.mode {
-            4 => self.swipe_end(g.swipe, -vx * s, clock),
+            4 => self.swipe_end(g.swipe, -vx * s, clock, cancelled),
             5 => self.back_end(g.edge, vx * s, g.width, clock, cancelled),
             _ => {}
         }
@@ -331,7 +331,8 @@ impl Ui {
                 }
             }
             if gesture.mode == 0 && gesture.axis == 2 && gesture.swipe != 0 {
-                if self.swipe_amount(gesture.swipe) > 0.0 || travel.0 * s < 0.0 {
+                // toward the trailing actions is -s; a closed row needs actions on the side it moves to
+                if self.swipe_amount(gesture.swipe) != 0.0 || self.swipe_has(gesture.swipe, travel.0 * s < 0.0) {
                     (gesture.mode, gesture.base, gesture.owner) = (4, self.swipe_begin(gesture.swipe), gesture.swipe);
                 } else {
                     gesture.swipe = 0;

@@ -63,4 +63,4 @@ pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, Pxui
 pub use pxui_types::ffi::{PxuiSaved, PxuiSignal};
 pub use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE};
 pub use pxui_types::ffi::PxuiDialogOut;
-pub const ABI_VERSION: u32 = 65575; // major 1 (high 16 bits), minor 39: node transition is Bezier or spring (PxuiNode 488 bytes)
+pub const ABI_VERSION: u32 = 65576; // major 1 (high 16 bits), minor 40: row swipe actions on both sides with a full-swipe commit (`ui_swipe_actions`)

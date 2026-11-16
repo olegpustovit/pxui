@@ -150,9 +150,9 @@ fn row_swipe_axis_lock_offset_snap_and_close() {
         s.step(3.032, &[touch(Moved, (x(50.0), 25.0), 3.032)]);
         s.step(3.5, &[touch(Ended, (x(50.0), 25.0), 3.5)]);
         let seen = s.step(3.6, &[]);
-        assert_eq!(seen.row.flags, SWIPE_OPEN);
+        assert_eq!(seen.row.flags, SWIPE_OPEN | SWIPE_OPEN_TRAILING);
         let seen = s.step(4.5, &[]);
-        assert_eq!((seen.row.flags, seen.row.swipe), (SWIPE_OPEN, sign * 80.0));
+        assert_eq!((seen.row.flags, seen.row.swipe), (SWIPE_OPEN | SWIPE_OPEN_TRAILING, sign * 80.0));
         assert!(s.ui.repaint_at().is_none());
         // a flick back closes an open row even from the open side of half way
         s.step(5.0, &[touch(Began, (x(0.0), 25.0), 5.0)]);
@@ -167,7 +167,7 @@ fn row_swipe_axis_lock_offset_snap_and_close() {
         s.step(7.016, &[touch(Moved, (x(10.0), 25.0), 7.016)]);
         s.step(7.032, &[touch(Moved, (x(20.0), 25.0), 7.032)]);
         s.step(7.04, &[touch(Ended, (x(20.0), 25.0), 7.04)]);
-        assert_eq!(s.step(8.0, &[]).row.flags, SWIPE_OPEN);
+        assert_eq!(s.step(8.0, &[]).row.flags, SWIPE_OPEN | SWIPE_OPEN_TRAILING);
         // the app closes it
         s.commands[1] = CLOSE_SWIPE;
         assert_eq!(s.step(8.1, &[]).row.flags & SWIPE_OPEN, 0);
@@ -348,9 +348,91 @@ fn scroll_physics_trace_rubber_band_spring_back_and_catch() {
     s.ui.destroy();
 }
 
+fn row_swipe_both_sides_open_full_swipe_commit_close_and_mirror() {
+    for rtl in [false, true] {
+        let dir = if rtl { -1.0f64 } else { 1.0 };
+        let shift = |travel: f64| (-dir * travel) as f32; // physical shift for finger travel toward the trailing side
+        let mut s = Scene::new();
+        if rtl {
+            s.ui.set_dir(Direction::Rtl);
+        }
+        s.row = GestureCfg { kinds: ROW_SWIPE, reveal: 80.0, leading: 60.0, full: 120.0, ..Default::default() };
+        s.step(0.0, &[]);
+        let x = |d: f64| 150.0 - dir * d;
+        let open = |s: &mut Scene, t: f64, travel: f64, end_at: f64| {
+            s.step(t, &[touch(Began, (x(0.0), 25.0), t)]);
+            s.step(t + 0.016, &[touch(Moved, (x(travel.signum() * 10.0), 25.0), t + 0.016)]);
+            s.step(t + 0.032, &[touch(Moved, (x(travel), 25.0), t + 0.032)]);
+            s.step(end_at, &[touch(Ended, (x(travel), 25.0), end_at)])
+        };
+        // leading: axis lock, follows the finger, rubber band past its own 60 pt width
+        s.step(1.0, &[touch(Began, (x(0.0), 25.0), 1.0)]);
+        let seen = s.step(1.016, &[touch(Moved, (x(-7.0), 26.0), 1.016)]);
+        assert_eq!((seen.row.flags, seen.row.swipe), (0, 0.0));
+        let seen = s.step(1.032, &[touch(Moved, (x(-9.0), 26.0), 1.032)]);
+        assert_eq!((seen.row.flags, seen.row.swipe), (SWIPING, shift(-9.0)), "rtl {rtl}");
+        let seen = s.step(1.048, &[touch(Moved, (x(-100.0), 26.0), 1.048)]);
+        let stretch = (1.0 - 1.0 / (40.0 * 0.55 / 60.0 + 1.0)) * 60.0;
+        assert!((seen.row.swipe.abs() - (60.0 + stretch as f32)).abs() < 0.01 && seen.row.swipe * shift(-1.0) > 0.0);
+        s.step(1.064, &[touch(Moved, (x(-40.0), 26.0), 1.064)]);
+        // released past half way (and under the full distance) it rests open on the leading side
+        let seen = s.step(1.5, &[touch(Ended, (x(-40.0), 26.0), 1.5)]);
+        assert_eq!(seen.row.flags & (SWIPE_COMMIT_LEADING | SWIPE_COMMIT_TRAILING), 0);
+        s.step(1.6, &[]);
+        let seen = s.step(2.5, &[]);
+        assert_eq!((seen.row.flags, seen.row.swipe), (SWIPE_OPEN | SWIPE_OPEN_LEADING, shift(-60.0)));
+        assert!(s.ui.repaint_at().is_none());
+        s.commands[1] = CLOSE_SWIPE;
+        s.step(2.6, &[]);
+        let seen = s.step(3.5, &[]);
+        assert_eq!((seen.row.flags, seen.row.swipe), (0, 0.0), "close");
+        // trailing keeps its own width
+        let seen = open(&mut s, 4.0, 50.0, 4.5);
+        assert_eq!(seen.row.flags & SWIPE_COMMIT_TRAILING, 0);
+        s.step(4.6, &[]);
+        let seen = s.step(5.5, &[]);
+        assert_eq!((seen.row.flags, seen.row.swipe), (SWIPE_OPEN | SWIPE_OPEN_TRAILING, shift(80.0)));
+        s.commands[1] = CLOSE_SWIPE;
+        s.step(5.6, &[]);
+        assert_eq!(s.step(6.5, &[]).row.swipe, 0.0);
+        // a full swipe commits that side for one frame and the row settles closed
+        for (i, (travel, bit)) in [(125.0, SWIPE_COMMIT_TRAILING), (-125.0, SWIPE_COMMIT_LEADING)].into_iter().enumerate() {
+            let t = 10.0 + 10.0 * i as f64;
+            let seen = open(&mut s, t, travel, t + 0.5);
+            assert_eq!(seen.row.flags & !SWIPING, bit, "commit pulse on the release frame (rtl {rtl}, {travel})");
+            let seen = s.step(t + 0.6, &[]);
+            assert_eq!(seen.row.flags & (SWIPE_OPEN | SWIPE_COMMIT_LEADING | SWIPE_COMMIT_TRAILING), 0, "the pulse lasts one frame");
+            assert_eq!(s.step(t + 2.0, &[]).row.swipe, 0.0);
+            assert!(s.ui.repaint_at().is_none());
+        }
+        // just under the distance opens instead of committing
+        let seen = open(&mut s, 30.0, 110.0, 30.5);
+        assert_eq!(seen.row.flags & (SWIPE_COMMIT_LEADING | SWIPE_COMMIT_TRAILING), 0);
+        assert_eq!(s.step(32.0, &[]).row.flags, SWIPE_OPEN | SWIPE_OPEN_TRAILING);
+        // dragging an open trailing row across closed into the leading side
+        s.step(33.0, &[touch(Began, (x(0.0), 25.0), 33.0)]);
+        s.step(33.016, &[touch(Moved, (x(-10.0), 25.0), 33.016)]);
+        let seen = s.step(33.032, &[touch(Moved, (x(-100.0), 25.0), 33.032)]);
+        assert!(seen.row.swipe * shift(-1.0) > 0.0, "leading side revealed");
+        // a cancelled touch never commits
+        s.step(33.1, &[touch(Cancelled, (x(-100.0), 25.0), 33.1)]);
+        let seen = s.step(33.2, &[]);
+        assert_eq!(seen.row.flags & (SWIPE_COMMIT_LEADING | SWIPE_COMMIT_TRAILING), 0);
+        // a side with no actions is not a swipe
+        s.row = GestureCfg { kinds: ROW_SWIPE, reveal: 80.0, ..Default::default() };
+        s.commands[1] = CLOSE_SWIPE;
+        s.step(34.0, &[]);
+        s.step(36.0, &[]);
+        s.step(37.0, &[touch(Began, (x(0.0), 25.0), 37.0)]);
+        let seen = s.step(37.016, &[touch(Moved, (x(-12.0), 25.0), 37.016)]);
+        assert_eq!((seen.row.flags, seen.row.swipe), (0, 0.0));
+        s.ui.destroy();
+    }
+}
+
 fn gestures_allocate_nothing_when_warm() {
     let mut s = Scene::new();
-    s.row = GestureCfg { kinds: LONG_PRESS | ROW_SWIPE, reveal: 80.0, ..Default::default() };
+    s.row = GestureCfg { kinds: LONG_PRESS | ROW_SWIPE, reveal: 80.0, leading: 60.0, full: 120.0, ..Default::default() };
     s.nav = GestureCfg { kinds: EDGE_BACK, ..Default::default() };
     s.list = GestureCfg { kinds: REFRESH, threshold: 60.0, ..Default::default() };
     for round in 0..4 {
@@ -376,6 +458,14 @@ fn gestures_allocate_nothing_when_warm() {
         at = frames(&mut s, begin + 0.04, begin + 1.0, &[touch(Ended, (80.0, 25.0), begin + 0.04)]);
         s.commands[1] = CLOSE_SWIPE;
         at = frames(&mut s, at + 0.1, at + 1.0, &[]);
+        // full swipes commit on each side
+        for end in [20.0, 280.0] {
+            let begin = at + 1.0;
+            s.step(begin, &[touch(Began, (150.0, 25.0), begin)]);
+            s.step(begin + 0.016, &[touch(Moved, (150.0 + (end - 150.0) * 0.1, 25.0), begin + 0.016)]);
+            s.step(begin + 0.032, &[touch(Moved, (end, 25.0), begin + 0.032)]);
+            at = frames(&mut s, begin + 0.5, begin + 1.5, &[touch(Ended, (end, 25.0), begin + 0.5)]);
+        }
         let begin = at + 1.0;
         s.step(begin, &[touch(Began, (5.0, 100.0), begin)]);
         s.step(begin + 0.016, &[touch(Moved, (40.0, 100.0), begin + 0.016)]);
@@ -398,6 +488,7 @@ fn gestures_allocate_nothing_when_warm() {
 pub const CASES: &[(&str, fn())] = &[
     ("gesture_long_press_highlights_after_delay_fires_once_and_swallows_the_tap", long_press_highlights_after_delay_fires_once_and_swallows_the_tap),
     ("gesture_row_swipe_axis_lock_offset_snap_and_close", row_swipe_axis_lock_offset_snap_and_close),
+    ("gesture_row_swipe_both_sides_open_full_swipe_commit_close_and_mirror", row_swipe_both_sides_open_full_swipe_commit_close_and_mirror),
     ("gesture_edge_back_progress_commit_cancel_and_direction", edge_back_progress_commit_cancel_and_direction),
     ("gesture_pull_to_refresh_threshold_hold_and_end", pull_to_refresh_threshold_hold_and_end),
     ("gestures_allocate_nothing_when_warm", gestures_allocate_nothing_when_warm),

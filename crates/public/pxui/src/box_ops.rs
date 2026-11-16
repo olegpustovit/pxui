@@ -10,6 +10,7 @@ use std::{alloc::Layout, fmt::{Arguments, Write}};
 library!(lib {
     fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) -> i32;
     fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32;
+    fn pxui_ui_swipe_actions(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiSwipeIn) -> i32;
     fn pxui_ui_gesture(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiGestureIn, commands: u32, out: *mut pxui_types::ffi::PxuiGestureOut) -> i32;
     fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32;
@@ -109,6 +110,17 @@ pub struct GestureOpts {
     pub edge_back: bool,
     /// pull to refresh on a scroll node: the pull distance in points (0 picks 60)
     pub refresh: Option<f32>,
+    /// row swipe with actions on both sides and a full swipe (UIKit swipeActions); replaces `row_swipe`
+    pub swipe_actions: Option<SwipeActions>,
+}
+
+/// Row-swipe actions in points. A side of 0 has no actions; leading and trailing follow the layout direction.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct SwipeActions {
+    pub leading: f32,
+    pub trailing: f32,
+    /// finger travel that commits the edge action on release (0: no full swipe)
+    pub full: f32,
 }
 
 /// What the gestures did to a node. The `*_fired`/`long_pressed`/`back_*` bits last one frame; read
@@ -120,7 +132,12 @@ pub struct GestureState {
     pub long_pressed: bool,
     pub swiping: bool,
     pub swipe_open: bool,
-    /// signed shift for the swiped row's content: negative reveals to the right of it, mirrored right to left
+    /// which side rests open (with `swipe_open`), and a full swipe's commit, which lasts one frame; the row settles closed
+    pub swipe_open_leading: bool,
+    pub swipe_open_trailing: bool,
+    pub swipe_commit_leading: bool,
+    pub swipe_commit_trailing: bool,
+    /// signed shift for the swiped row's content: positive reveals the actions on its left, negative on its right (the physical side; leading is left in left-to-right)
     pub swipe: f32,
     pub back_active: bool,
     /// the back finished committing: pop the screen now (`back` is already 0)
@@ -145,6 +162,7 @@ impl Ui {
             highlighted: f & 1 != 0, long_pressed: f & 2 != 0, swiping: f & 4 != 0, swipe_open: f & 8 != 0, swipe: out.swipe,
             back_active: f & 16 != 0, back_committed: f & 32 != 0, back_cancelled: f & 64 != 0, back: out.back,
             refresh_fired: f & 128 != 0, refreshing: f & 256 != 0, pull: out.pull,
+            swipe_commit_leading: f & 512 != 0, swipe_commit_trailing: f & 1024 != 0, swipe_open_leading: f & 2048 != 0, swipe_open_trailing: f & 4096 != 0,
         }
     }
     /// Take these gestures on `node` (call every build) and read what they did. A stale handle reads as rest.
@@ -152,7 +170,12 @@ impl Ui {
     pub fn gesture(&mut self, node: &PxuiBox, opts: GestureOpts) -> GestureState {
         let kinds = u32::from(opts.long_press) | u32::from(opts.row_swipe.is_some()) << 1 | u32::from(opts.edge_back) << 2 | u32::from(opts.refresh.is_some()) << 3;
         let request = pxui_types::ffi::PxuiGestureIn { kinds, reveal: opts.row_swipe.unwrap_or(0.0), threshold: opts.refresh.unwrap_or(0.0), ..Default::default() };
-        self.gesture_call(node, Some(request), 0)
+        let state = self.gesture_call(node, Some(request), 0);
+        if let Some(a) = opts.swipe_actions {
+            let swipe = pxui_types::ffi::PxuiSwipeIn { leading: a.leading, trailing: a.trailing, full: a.full, ..Default::default() };
+            crate::live(self, unsafe { lib::pxui_ui_swipe_actions(self.0.as_ptr(), node, &swipe) });
+        }
+        state
     }
     /// Read a node's gesture state without changing what it takes.
     #[track_caller]

@@ -272,6 +272,10 @@ _Static_assert(sizeof(PxuiGestureIn) == 16, "PxuiGestureIn layout");
    64 back cancel (this frame), 128 refresh fired (this frame), 256 refreshing. swipe is the signed shift to paint a
    swiped row's content at (mirrored right to left), back is progress 0..1, pull the pull-down in points. */
 typedef struct { uint32_t size, flags; float swipe, back, pull; } PxuiGestureOut;
+/* ABI 1.40: row-swipe action widths in points, 0 disables a side (leading follows the layout direction), and the finger
+   travel that commits the edge action on release (0: no full swipe). Initialize size before calling. */
+typedef struct { uint32_t size; float leading, trailing, full; } PxuiSwipeIn;
+_Static_assert(sizeof(PxuiSwipeIn) == 16, "PxuiSwipeIn layout");
 _Static_assert(sizeof(PxuiGestureOut) == 20, "PxuiGestureOut layout");
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
@@ -737,6 +741,10 @@ int32_t pxui_ui_reveal(PxuiUi *ui, const PxuiBox *list, size_t index);
 /* ABI 1.38: read, and with `in` set (may be NULL) request a node's touch gestures; commands bit 0 closes a swiped row,
    bit 1 ends a refresh. Touch only; mouse and trackpad are unchanged. */
 int32_t pxui_ui_gesture(PxuiUi *ui, const PxuiBox *box, const PxuiGestureIn *in, uint32_t commands, PxuiGestureOut *out);
+/* ABI 1.40: enable a node's row swipe with actions on both sides and a full-swipe commit, keeping its other gestures;
+   call after pxui_ui_gesture each build. Extra PxuiGestureOut flags: 512 commit leading and 1024 commit trailing (this
+   frame), 2048 open leading and 4096 open trailing (8 stays set for either). swipe stays the physical shift. */
+int32_t pxui_ui_swipe_actions(PxuiUi *ui, const PxuiBox *box, const PxuiSwipeIn *in);
 /* ABI 1.34: cumulative text cache-miss layouts; read between frames. */
 int32_t pxui_ui_text_layout_count(PxuiUi *ui, uint64_t *out);
 int32_t pxui_ui_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiStr *out);

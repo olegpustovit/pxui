@@ -171,3 +171,4 @@ TextInputOptions 12 4 0 4 8
 PxuiScrubOut 48 8 0 4 8 40 44
 PxuiGestureIn 16 4 0 4 8 12
 PxuiGestureOut 20 4 0 4 8 12 16
+PxuiSwipeIn 16 4 0 4 8 12

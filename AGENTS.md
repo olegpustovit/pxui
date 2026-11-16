@@ -349,6 +349,11 @@ clock through `Touches::wake`; swipe and back settle on closed-form critically d
 pulse is stamped for the next frame because layout fires it. Gesture nodes join the hit list but never
 become `topmost`. RTL mirrors the edge, swipe direction and `swipe` sign. Keep the synthetic-trace cases in
 tests/cases/gesture.rs and the warm-allocation check; hardware feel stays a device comparison.
+ABI 1.40 `ui_swipe_actions` (after `ui_gesture` each build) gives the row swipe actions on both sides: signed
+internal `swipe` is positive toward the trailing side, `leading`/`reveal` are the side widths (0 disables a
+side), and a release past `full` points of finger travel (unstretched, never on a cancel) pulses
+SWIPE_COMMIT_LEADING/TRAILING for one frame and settles closed; open rows set SWIPE_OPEN_LEADING/TRAILING.
+`PxuiGestureIn` is unchanged, so `reveal`-only records keep a trailing-only swipe.
 
 The scoped iOS loop delivers Signal::Control for inactive worker wakes and explicit deadlines.
 Keep the display link paused and all Metal drawing disabled in these callbacks. NextFrame defers

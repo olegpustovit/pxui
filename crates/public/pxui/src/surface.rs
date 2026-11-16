@@ -249,7 +249,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
 
 #[test]
 fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allocations() {
-    use crate::{Event, GestureOpts, GestureState, Touch, Str, ui::{BoxOpts, Size, CLICKABLE}};
+    use crate::{Event, GestureOpts, GestureState, SwipeActions, Touch, Str, ui::{BoxOpts, Size, CLICKABLE}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
@@ -259,7 +259,7 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
     let mut build = |ui: &mut Ui| {
         let row = ui.box_("row", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(50.0)).flags(CLICKABLE));
         node.set(Some(row));
-        state.set(ui.gesture(&row, GestureOpts { long_press: true, row_swipe: Some(80.0), ..Default::default() }));
+        state.set(ui.gesture(&row, GestureOpts { long_press: true, swipe_actions: Some(SwipeActions { leading: 60.0, trailing: 80.0, full: 120.0 }), ..Default::default() }));
     };
     let touch = |ui: &mut Ui, phase: u32, x: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
         let packet = Touch { device: 1, finger: 7, x, y: 25.0, phase, time: at, pressure: 1.0 };
@@ -268,7 +268,7 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
     };
     ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
     for round in 0..4 {
-        time = f64::from(round) * 10.0 + 1.0;
+        time = f64::from(round) * 20.0 + 1.0;
         mem_sys::local_reset();
         touch(&mut ui, 0, 150.0, time, &mut build);
         touch(&mut ui, 1, 142.0, time + 0.016, &mut build);
@@ -291,6 +291,32 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
         ui.frame(&FrameIn { time: time + 5.6, ..input() }, &mut build).unwrap();
         assert!(state.get().long_pressed && !state.get().highlighted);
         touch(&mut ui, 2, 100.0, time + 5.7, &mut build);
+        // leading side opens; a full swipe commits each side for one frame and settles closed
+        touch(&mut ui, 0, 100.0, time + 8.1, &mut build);
+        touch(&mut ui, 1, 108.0, time + 8.116, &mut build);
+        touch(&mut ui, 1, 150.0, time + 8.132, &mut build);
+        assert_eq!((state.get().swiping, state.get().swipe), (true, 50.0));
+        touch(&mut ui, 2, 150.0, time + 8.5, &mut build);
+        ui.frame(&FrameIn { time: time + 10.0, ..input() }, &mut build).unwrap();
+        let open = state.get();
+        assert!(open.swipe_open && open.swipe_open_leading && !open.swipe_open_trailing && open.swipe == 60.0 && !open.swipe_commit_leading);
+        ui.close_swipe(&node.get().unwrap());
+        ui.frame(&FrameIn { time: time + 10.1, ..input() }, &mut build).unwrap();
+        ui.frame(&FrameIn { time: time + 11.0, ..input() }, &mut build).unwrap();
+        assert_eq!(state.get().swipe, 0.0);
+        for (i, (end, trailing)) in [(20.0, true), (280.0, false)].into_iter().enumerate() {
+            let t = time + 12.0 + 3.0 * i as f64;
+            touch(&mut ui, 0, 150.0, t, &mut build);
+            touch(&mut ui, 1, 150.0 + (end - 150.0) * 0.1, t + 0.016, &mut build);
+            touch(&mut ui, 1, end, t + 0.032, &mut build);
+            touch(&mut ui, 2, end, t + 0.5, &mut build);
+            let done = state.get();
+            assert_eq!((done.swipe_commit_trailing, done.swipe_commit_leading, done.swipe_open), (trailing, !trailing, false));
+            ui.frame(&FrameIn { time: t + 0.6, ..input() }, &mut build).unwrap();
+            assert!(!state.get().swipe_commit_trailing && !state.get().swipe_commit_leading);
+            ui.frame(&FrameIn { time: t + 2.0, ..input() }, &mut build).unwrap();
+            assert_eq!(state.get().swipe, 0.0);
+        }
         if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm gesture frames"); }
     }
     let stale = node.get().unwrap();
