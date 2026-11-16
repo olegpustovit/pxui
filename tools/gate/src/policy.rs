@@ -171,6 +171,23 @@ pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/open/ogpu_metal/src/native/resource.rs", "calls Metal resource functions through the native backend wrapper"),
 ];
 
+// The tokens between `<` and `>`, one list per top-level comma-separated parameter (empty lists for trailing commas).
+fn generic_parameters<'a>(tokens: &[&'a str]) -> Vec<Vec<&'a str>> {
+    let mut depth = 0i32;
+    let mut parameters: Vec<Vec<&str>> = vec![Vec::new()];
+    for (at, token) in tokens.iter().enumerate() {
+        match *token {
+            "(" | "[" | "<" => depth += 1,
+            ")" | "]" => depth -= 1,
+            ">" if at == 0 || tokens[at - 1] != "-" => depth -= 1,
+            "," if depth == 0 => { parameters.push(Vec::new()); continue; }
+            _ => {}
+        }
+        if let Some(parameter) = parameters.last_mut() { parameter.push(token); }
+    }
+    parameters
+}
+
 /// The public wrapper (`crates/public/pxui`) is safe Rust over a C ABI, and three shape rules that hold elsewhere cannot hold
 /// there. It is one policy, not a list of lines:
 /// - `catch_unwind`: an app closure that panics inside a library callback must not unwind through C; the wrapper catches it
@@ -191,22 +208,30 @@ pub fn wrapper_allows(path: &str, rule: &str, generics: &[&str]) -> bool {
 
 // The tokens between `<` and `>`: lifetimes, `F`, or `F: Fn/FnMut/FnOnce(..)` separated by top-level commas.
 fn closure_generics(tokens: &[&str]) -> bool {
-    let mut depth = 0i32;
-    let mut parameters: Vec<Vec<&str>> = vec![Vec::new()];
-    for (at, token) in tokens.iter().enumerate() {
-        match *token {
-            "(" | "[" | "<" => depth += 1,
-            ")" | "]" => depth -= 1,
-            ">" if at == 0 || tokens[at - 1] != "-" => depth -= 1,
-            "," if depth == 0 => { parameters.push(Vec::new()); continue; }
-            _ => {}
-        }
-        if let Some(parameter) = parameters.last_mut() { parameter.push(token); }
-    }
-    parameters.iter().filter(|parameter| !parameter.is_empty()).all(|parameter| match parameter.as_slice() {
+    generic_parameters(tokens).iter().filter(|parameter| !parameter.is_empty()).all(|parameter| match parameter.as_slice() {
         ["'", ..] => true,
         ["F"] | ["R"] | ["F", ":", "?", "Sized"] => true,
         ["F", ":", bound, ..] => matches!(*bound, "Fn" | "FnMut" | "FnOnce"),
         _ => false,
     })
+}
+
+/// Authoring shims (`crates/public/pxui/src/author/`): a function may take type parameters when it is nothing but a
+/// forwarding call, so each instantiation costs one call and the body it forwards to is compiled once.
+/// - the type parameters are lifetimes, `F: Fn/FnMut(..)` (the children closure), `T: Hash` / `T: Hash + ?Sized`
+///   or `K: Into<Key>`;
+/// - the function is `#[inline]`;
+/// - the body is one expression of at most 40 tokens: no statement, binding, block or control flow.
+/// The closure-trampoline exemption of `wrapper_allows` does not apply in that folder.
+pub fn author_shim_allows(path: &str, generics: &[&str], inline: bool, body: &[&str]) -> bool {
+    if !path.starts_with("crates/public/pxui/src/author/") || !inline || generics.is_empty() { return false; }
+    let shaped = generic_parameters(generics).iter().filter(|parameter| !parameter.is_empty()).all(|parameter| match parameter.as_slice() {
+        ["'", ..] => true,
+        ["F", ":", bound, "(", ..] => matches!(*bound, "Fn" | "FnMut"),
+        ["T", ":", "Hash"] | ["T", ":", "Hash", "+", "?", "Sized"] => true,
+        ["K", ":", "Into", "<", "Key", ">"] => true,
+        _ => false,
+    });
+    shaped && body.len() <= 40 && body.last() == Some(&")")
+        && !body.iter().any(|token| matches!(*token, ";" | "{" | "}" | "let" | "if" | "match" | "for" | "while" | "loop" | "unsafe" | "return" | "?"))
 }

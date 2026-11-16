@@ -274,6 +274,24 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
                     let parameters: Vec<&str> = tokens[generic_index + 1..end].iter().map(|part| part.text.as_str()).collect();
                     policy::wrapper_allows(path, "generic", &parameters)
                 });
+                // An authoring shim: `#[inline]` among the attributes before the item, a body that is one forwarding call.
+                let author_shim = token.text == "fn" && generic_end(&tokens, generic_index).is_some_and(|end| {
+                    let parameters: Vec<&str> = tokens[generic_index + 1..end].iter().map(|part| part.text.as_str()).collect();
+                    let mut before = index;
+                    while before > 0 && matches!(tokens[before - 1].text.as_str(), "pub" | "crate" | "super" | "in" | "self" | "(" | ")" | "const") { before -= 1; }
+                    let mut inline = false;
+                    while before > 0 && tokens[before - 1].text == "]" {
+                        let Some(open) = (0..before - 1).rev().find(|&at| tokens[at].text == "[" && matching(&tokens, at, "[", "]") == Some(before - 1)) else { break };
+                        if open == 0 || tokens[open - 1].text != "#" { break; }
+                        inline |= tokens.get(open + 1).is_some_and(|name| name.text == "inline");
+                        before = open - 1;
+                    }
+                    function_body(&tokens, index).is_some_and(|(open, close)| {
+                        let body: Vec<&str> = tokens[open + 1..close].iter().map(|part| part.text.as_str()).collect();
+                        policy::author_shim_allows(path, &parameters, inline, &body)
+                    })
+                });
+                let wrapper_closure = wrapper_closure && !path.starts_with("crates/public/pxui/src/author/") || author_shim;
                 if !borrow_lifetimes_only && !wrapper_closure && !domain_header.is_some_and(|(start, _)| token.text == "fn" && start == index)
                     && !kernel_headers.iter().any(|(start, _)| token.text == "fn" && *start == index) {
                     issue(&mut issues, path, token.line, "generic items are not allowed in product crates");
@@ -1965,5 +1983,48 @@ mod export_tests {
     fn parses_windows_llvm_export_table() {
         let output = "Export Table:\n DLL name: pxui_abi.dll\n Ordinal base: 1\n Ordinal      RVA  Name\n 1   0x13a0  pxui_abi_version\n\nImport Table:\n";
         assert_eq!(dynamic_symbols("windows", output), ["pxui_abi_version"]);
+    }
+}
+
+#[cfg(test)]
+mod author_shim_tests {
+    use super::shape_source;
+
+    const AUTHOR: &str = "crates/public/pxui/src/author/view.rs";
+    const GENERIC: &str = "generic items are not allowed in product crates";
+
+    fn generic_issues(path: &str, source: &str) -> usize {
+        shape_source("pxui", path, source).iter().filter(|issue| issue.ends_with(GENERIC)).count()
+    }
+
+    #[test]
+    fn thin_and_view_of_shims_pass_in_author() {
+        let thin = "impl Ui { #[inline] pub fn row<F: FnMut(&mut Ui)>(&mut self, key: Key, mut f: F) -> Response { self.row_body(key, &mut f) } }";
+        assert_eq!(generic_issues(AUTHOR, thin), 0);
+        let view_of = "impl Ui {\n/// Rebuilds only when inputs change.\n#[inline]\n#[must_use]\n#[doc = \"view\"]\npub(crate) fn view_of<'a, K: Into<Key>, T: Hash + ?Sized, F: FnMut(&mut Ui)>(&'a mut self, key: K, inputs: &T, mut f: F) -> Response {\n    self.view_of_body(key.into(), hash_of(inputs), &mut f)\n} }";
+        assert_eq!(generic_issues(AUTHOR, view_of), 0);
+    }
+
+    #[test]
+    fn shims_need_inline_and_the_author_folder() {
+        let thin = "#[inline] pub fn row<F: FnMut(&mut Ui)>(ui: &mut Ui, mut f: F) { ui.row_body(&mut f) }";
+        assert_eq!(generic_issues("crates/host/pxui_host/src/lib.rs", thin), 1);
+        assert_eq!(generic_issues("crates/public/pxui/src/widgets.rs", "#[inline] pub fn row<T: Hash>(ui: &mut Ui, t: &T) { ui.row_body(t) }"), 1);
+        assert_eq!(generic_issues(AUTHOR, "#[must_use] pub fn row<F: FnMut(&mut Ui)>(ui: &mut Ui, mut f: F) { ui.row_body(&mut f) }"), 1);
+    }
+
+    #[test]
+    fn generic_bodies_adapters_and_other_shapes_fail_in_author() {
+        let full = "#[inline] pub fn row<F: FnMut(&mut Ui)>(ui: &mut Ui, mut f: F) { let id = ui.begin(); f(ui); ui.end(id) }";
+        assert_eq!(generic_issues(AUTHOR, full), 1);
+        let once = "#[inline] pub fn once<F: FnOnce(&mut Ui)>(ui: &mut Ui, f: F) { ui.row_body(&mut Some(f)) }";
+        assert_eq!(generic_issues(AUTHOR, once), 1);
+        let other = "#[inline] pub fn value<T: Clone>(ui: &mut Ui, t: &T) { ui.value_body(t.clone()) }";
+        assert_eq!(generic_issues(AUTHOR, other), 1);
+        assert_eq!(generic_issues(AUTHOR, "pub struct Local<T> { value: T }"), 1);
+        assert!(shape_source("pxui", AUTHOR, "pub fn row(ui: &mut Ui, f: impl FnMut(&mut Ui)) { ui.row_body(f) }")
+            .iter().any(|issue| issue.ends_with("impl Trait is not allowed in product crates")));
+        assert!(shape_source("pxui", AUTHOR, "macro_rules! row { () => {} }")
+            .iter().any(|issue| issue.ends_with("macro_rules! is not allowed in product crates")));
     }
 }
