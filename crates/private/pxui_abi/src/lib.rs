@@ -63,4 +63,4 @@ pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, Pxui
 pub use pxui_types::ffi::{PxuiSaved, PxuiSignal};
 pub use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE};
 pub use pxui_types::ffi::PxuiDialogOut;
-pub const ABI_VERSION: u32 = 65576; // major 1 (high 16 bits), minor 40: row swipe actions on both sides with a full-swipe commit (`ui_swipe_actions`)
+pub const ABI_VERSION: u32 = 65577; // major 1 (high 16 bits), minor 41: vertical drag-to-dismiss (`ui_dismiss`)

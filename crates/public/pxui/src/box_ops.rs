@@ -10,6 +10,7 @@ use std::{alloc::Layout, fmt::{Arguments, Write}};
 library!(lib {
     fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) -> i32;
     fn pxui_ui_reveal(ui: *mut PxuiUi, list: *const PxuiBox, index: usize) -> i32;
+    fn pxui_ui_dismiss(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiDismissIn, out: *mut pxui_types::ffi::PxuiDismissOut) -> i32;
     fn pxui_ui_swipe_actions(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiSwipeIn) -> i32;
     fn pxui_ui_gesture(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiGestureIn, commands: u32, out: *mut pxui_types::ffi::PxuiGestureOut) -> i32;
     fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
@@ -112,6 +113,17 @@ pub struct GestureOpts {
     pub refresh: Option<f32>,
     /// row swipe with actions on both sides and a full swipe (UIKit swipeActions); replaces `row_swipe`
     pub swipe_actions: Option<SwipeActions>,
+    /// vertical drag-to-dismiss for a full-screen player or bottom sheet
+    pub dismiss: Option<DismissOpts>,
+}
+
+/// Drag-to-dismiss thresholds; 0 picks the default (UIKit sheet: a quarter of the node height, 600 points/s).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DismissOpts {
+    /// fraction of the node height a release past commits
+    pub fraction: f32,
+    /// downward release speed in points per second that commits
+    pub velocity: f32,
 }
 
 /// Row-swipe actions in points. A side of 0 has no actions; leading and trailing follow the layout direction.
@@ -150,6 +162,14 @@ pub struct GestureState {
     pub refreshing: bool,
     /// points the content is pulled down past the top
     pub pull: f32,
+    /// a drag-to-dismiss is under the finger or settling
+    pub dismissing: bool,
+    /// the release dismissed (this frame): close now; `dismiss` settles to the node height
+    pub dismiss_committed: bool,
+    /// the release sprang back (this frame)
+    pub dismiss_cancelled: bool,
+    /// points to translate the node down by (negative while rubber-banding upward)
+    pub dismiss: f32,
 }
 
 impl Ui {
@@ -162,6 +182,7 @@ impl Ui {
             highlighted: f & 1 != 0, long_pressed: f & 2 != 0, swiping: f & 4 != 0, swipe_open: f & 8 != 0, swipe: out.swipe,
             back_active: f & 16 != 0, back_committed: f & 32 != 0, back_cancelled: f & 64 != 0, back: out.back,
             refresh_fired: f & 128 != 0, refreshing: f & 256 != 0, pull: out.pull,
+            dismissing: false, dismiss_committed: false, dismiss_cancelled: false, dismiss: 0.0,
             swipe_commit_leading: f & 512 != 0, swipe_commit_trailing: f & 1024 != 0, swipe_open_leading: f & 2048 != 0, swipe_open_trailing: f & 4096 != 0,
         }
     }
@@ -175,7 +196,10 @@ impl Ui {
             let swipe = pxui_types::ffi::PxuiSwipeIn { leading: a.leading, trailing: a.trailing, full: a.full, ..Default::default() };
             crate::live(self, unsafe { lib::pxui_ui_swipe_actions(self.0.as_ptr(), node, &swipe) });
         }
-        state
+        let Some(d) = opts.dismiss else { return state };
+        let (request, mut out) = (pxui_types::ffi::PxuiDismissIn { fraction: d.fraction, velocity: d.velocity, ..Default::default() }, pxui_types::ffi::PxuiDismissOut::default());
+        crate::live(self, unsafe { lib::pxui_ui_dismiss(self.0.as_ptr(), node, &request, &mut out) });
+        GestureState { dismissing: out.flags & 8192 != 0, dismiss_committed: out.flags & 16384 != 0, dismiss_cancelled: out.flags & 32768 != 0, dismiss: out.offset, ..state }
     }
     /// Read a node's gesture state without changing what it takes.
     #[track_caller]

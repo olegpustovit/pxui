@@ -8,6 +8,12 @@ pub const LONG_PRESS: u32 = 1;
 pub const ROW_SWIPE: u32 = 2;
 pub const EDGE_BACK: u32 = 4;
 pub const REFRESH: u32 = 8;
+/// Internal kind bit of a dismiss node (set by `Ui::dismiss`, never by `gesture`).
+pub(super) const DISMISS: u32 = 16;
+/// `Ui::dismiss` flags: finger down or settling, and the release verdict (this frame).
+pub const DISMISSING: u32 = 8192;
+pub const DISMISS_COMMIT: u32 = 16384;
+pub const DISMISS_CANCEL: u32 = 32768;
 pub const CLOSE_SWIPE: u32 = 1;
 pub const END_REFRESH: u32 = 2;
 pub const HIGHLIGHTED: u32 = 1;
@@ -35,6 +41,9 @@ pub(super) const EDGE_WIDTH: f64 = 20.0;
 // A flick this fast (points/s) decides a swipe or a back; slower releases decide by position.
 pub(super) const SNAP_VELOCITY: f64 = 300.0;
 pub(super) const BACK_VELOCITY: f64 = 500.0;
+// UIKit sheet: a release this fast (points/s) downward dismisses; otherwise a quarter of the height.
+const DISMISS_VELOCITY: f32 = 600.0;
+const DISMISS_FRACTION: f32 = 0.25;
 // Default UIRefreshControl pull distance, points.
 const REFRESH_DISTANCE: f32 = 60.0;
 // Critically damped settle (rad/s): about 0.35 s to rest, the order of UINavigationController's pop.
@@ -61,6 +70,14 @@ pub struct GestureState {
     pub swipe: f32,
     pub back: f32,
     pub pull: f32,
+}
+
+/// A dismiss node's state: `DISMISS*` flag bits (8192/16384/32768, clear of the gesture flags) and the downward offset in points to translate the node by
+/// (negative while rubber-banding upward, the node height once a commit has settled).
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct DismissState {
+    pub flags: u32,
+    pub offset: f32,
 }
 
 #[derive(Clone, Copy)]
@@ -105,13 +122,18 @@ pub(super) struct GSlot {
     pub(super) back: f32,
     back_spring: Option<(Spring, bool)>,
     pub(super) refreshing: bool,
+    dismiss_fraction: f32,
+    dismiss_velocity: f32,
+    dismiss: f32,
+    dismiss_dragging: bool,
+    dismiss_spring: Option<Spring>,
     pulses: u32,
     pulse_frame: i64,
 }
 impl GSlot {
     pub(super) const REST: GSlot = GSlot {
         kinds: 0, reveal: 0.0, threshold: 0.0, leading: 0.0, full: 0.0, highlighted: false, swiping: false, open: 0, swipe: 0.0, swipe_raw: 0.0, swipe_spring: None,
-        back_active: false, back: 0.0, back_spring: None, refreshing: false, pulses: 0, pulse_frame: -1,
+        back_active: false, back: 0.0, back_spring: None, refreshing: false, dismiss_fraction: 0.0, dismiss_velocity: 0.0, dismiss: 0.0, dismiss_dragging: false, dismiss_spring: None, pulses: 0, pulse_frame: -1,
     };
     pub(super) fn hold(&self) -> f64 {
         if self.refreshing { -f64::from(self.threshold_or_default()) } else { 0.0 }
@@ -246,6 +268,42 @@ impl Ui {
         self.mark_key(key);
     }
 
+    /// A downward drag may start a dismiss when no inner scroll holds the contact: UIKit hands a sheet the
+    /// drag only when the content is at its top (or a glide is not being caught).
+    pub(super) fn dismiss_ready(&self, scroll: i64, caught: bool) -> bool {
+        !caught && self.table.find(scroll).is_none_or(|slot| self.scroll_y[slot] + self.glides[0][slot].visual as f32 <= 0.5)
+    }
+
+    /// The dismiss offset a drag continues from (a settling spring is caught where it is).
+    pub(super) fn dismiss_begin(&mut self, key: i64) -> f64 {
+        let Some(slot) = self.table.find(key) else { return 0.0 };
+        let s = &mut self.gestures[slot];
+        (s.dismiss_spring, s.dismiss_dragging) = (None, true);
+        f64::from(s.dismiss)
+    }
+
+    /// Finger at `raw` points from rest: upward past 0 rubber-bands.
+    pub(super) fn dismiss_move(&mut self, key: i64, raw: f64) {
+        let Some(slot) = self.table.find(key) else { return };
+        let height = f64::from(self.slots[slot].rh);
+        self.gestures[slot].dismiss = (if raw < 0.0 { -band(-raw, height) } else { raw }) as f32;
+        self.mark_key(key);
+    }
+
+    /// Lift: a downward flick or the distance commits (a cancel never does); the offset settles to the height or 0.
+    pub(super) fn dismiss_end(&mut self, key: i64, velocity: f64, now: f64, cancelled: bool) {
+        let Some(slot) = self.table.find(key) else { return };
+        let height = self.slots[slot].rh;
+        let s = &mut self.gestures[slot];
+        let (fraction, fast) = (if s.dismiss_fraction > 0.0 { s.dismiss_fraction } else { DISMISS_FRACTION }, if s.dismiss_velocity > 0.0 { s.dismiss_velocity } else { DISMISS_VELOCITY });
+        let commit = !cancelled && s.dismiss > 0.0 && (velocity >= f64::from(fast) || s.dismiss >= fraction * height);
+        let to = if commit { f64::from(height) } else { 0.0 };
+        (s.dismiss_dragging, s.dismiss_spring) = (false, Some(Spring { from: f64::from(s.dismiss), to, v0: if cancelled { 0.0 } else { velocity }, t0: now, eps: 0.25 }));
+        self.gpulse(slot, if commit { DISMISS_COMMIT } else { DISMISS_CANCEL }, self.frame_number);
+        self.gsettle_push(slot);
+        self.mark_key(key);
+    }
+
     pub(super) fn set_highlight(&mut self, key: i64, on: bool) {
         if let Some(slot) = self.table.find(key).filter(|s| self.gestures[*s].highlighted != on) {
             self.gestures[slot].highlighted = on;
@@ -281,6 +339,11 @@ impl Ui {
                 s.swipe = x as f32;
                 if done { s.swipe_spring = None } else { live = true }
             }
+            if let Some(sp) = s.dismiss_spring {
+                let (x, done) = sp.at(t);
+                s.dismiss = x as f32;
+                if done { s.dismiss_spring = None } else { live = true }
+            }
             if let Some((sp, commit)) = s.back_spring {
                 let (x, done) = sp.at(t);
                 s.back = x as f32;
@@ -304,6 +367,20 @@ impl Ui {
             let s = &mut self.gestures[b.box_slot];
             (s.kinds, s.leading, s.reveal, s.full) = (s.kinds | ROW_SWIPE, finite(leading), finite(trailing), finite(full));
         }
+    }
+
+    /// Take the vertical drag-to-dismiss on a node (call after `gesture` each build, which resets the node's kinds) and
+    /// read it. `fraction` of the node height (0 picks 0.25) or a downward release at `velocity` points/s (0 picks 600)
+    /// commits; the app translates the node by `offset` and closes on the commit pulse.
+    pub fn dismiss(&mut self, b: &UiBox, fraction: f32, velocity: f32) -> DismissState {
+        if !self.live(b) {
+            return DismissState::default();
+        }
+        let finite = |v: f32| if v.is_finite() { v.max(0.0) } else { 0.0 };
+        let s = &mut self.gestures[b.box_slot];
+        (s.kinds, s.dismiss_fraction, s.dismiss_velocity) = (s.kinds | DISMISS, finite(fraction), finite(velocity));
+        let pulses = if s.pulse_frame == self.frame_number { s.pulses & (DISMISS_COMMIT | DISMISS_CANCEL) } else { 0 };
+        DismissState { flags: pulses | if s.dismiss_dragging || s.dismiss_spring.is_some() { DISMISSING } else { 0 }, offset: s.dismiss }
     }
 
     /// Read (and, with `cfg`, set) a node's gesture state; `commands` close a swiped row or end a

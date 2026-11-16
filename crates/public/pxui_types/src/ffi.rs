@@ -428,6 +428,32 @@ impl Default for PxuiSwipeIn {
     fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, leading: 0.0, trailing: 0.0, full: 0.0 } }
 }
 
+/// ABI 1.41 drag-to-dismiss: `fraction` of the node height (0 picks 0.25) and a downward release speed in points
+/// per second (0 picks 600) commit on release.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiDismissIn {
+    pub size: u32,
+    pub fraction: f32,
+    pub velocity: f32,
+}
+impl Default for PxuiDismissIn {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, fraction: 0.0, velocity: 0.0 } }
+}
+
+/// ABI 1.41 dismiss state: flags 8192 dragging or settling, 16384 committed and 32768 cancelled (this frame), and
+/// the downward offset in points to translate the node by.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiDismissOut {
+    pub size: u32,
+    pub flags: u32,
+    pub offset: f32,
+}
+impl Default for PxuiDismissOut {
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, flags: 0, offset: 0.0 } }
+}
+
 /// ABI 1.38 gesture state: flag bits, the signed shift of a swiped row's content, back progress
 /// 0..1 and the pull-down in points.
 #[repr(C)]
@@ -852,6 +878,8 @@ mod layout {
         check("PxuiScrubOut", size_of::<PxuiScrubOut>(), align_of::<PxuiScrubOut>(), &[offset_of!(PxuiScrubOut, size), offset_of!(PxuiScrubOut, flags), offset_of!(PxuiScrubOut, node), offset_of!(PxuiScrubOut, preview), offset_of!(PxuiScrubOut, commit)]);
         check("PxuiGestureIn", size_of::<PxuiGestureIn>(), align_of::<PxuiGestureIn>(), &[offset_of!(PxuiGestureIn, size), offset_of!(PxuiGestureIn, kinds), offset_of!(PxuiGestureIn, reveal), offset_of!(PxuiGestureIn, threshold)]);
         check("PxuiSwipeIn", size_of::<PxuiSwipeIn>(), align_of::<PxuiSwipeIn>(), &[offset_of!(PxuiSwipeIn, size), offset_of!(PxuiSwipeIn, leading), offset_of!(PxuiSwipeIn, trailing), offset_of!(PxuiSwipeIn, full)]);
+        check("PxuiDismissIn", size_of::<PxuiDismissIn>(), align_of::<PxuiDismissIn>(), &[offset_of!(PxuiDismissIn, size), offset_of!(PxuiDismissIn, fraction), offset_of!(PxuiDismissIn, velocity)]);
+        check("PxuiDismissOut", size_of::<PxuiDismissOut>(), align_of::<PxuiDismissOut>(), &[offset_of!(PxuiDismissOut, size), offset_of!(PxuiDismissOut, flags), offset_of!(PxuiDismissOut, offset)]);
         check("PxuiGestureOut", size_of::<PxuiGestureOut>(), align_of::<PxuiGestureOut>(), &[offset_of!(PxuiGestureOut, size), offset_of!(PxuiGestureOut, flags), offset_of!(PxuiGestureOut, swipe), offset_of!(PxuiGestureOut, back), offset_of!(PxuiGestureOut, pull)]);
         check("PxuiBoxDesc", size_of::<PxuiBoxDesc>(), align_of::<PxuiBoxDesc>(), &[offset_of!(PxuiBoxDesc, size), offset_of!(PxuiBoxDesc, axis), offset_of!(PxuiBoxDesc, flags), offset_of!(PxuiBoxDesc, w), offset_of!(PxuiBoxDesc, h), offset_of!(PxuiBoxDesc, max_h), offset_of!(PxuiBoxDesc, padding), offset_of!(PxuiBoxDesc, scroll_step), offset_of!(PxuiBoxDesc, has_at), offset_of!(PxuiBoxDesc, has_hit_rect), offset_of!(PxuiBoxDesc, reserved), offset_of!(PxuiBoxDesc, at), offset_of!(PxuiBoxDesc, hit_rect), offset_of!(PxuiBoxDesc, hit), offset_of!(PxuiBoxDesc, hit_user), offset_of!(PxuiBoxDesc, hit_release)]);
         check("PxuiValueFieldDesc", size_of::<PxuiValueFieldDesc>(), align_of::<PxuiValueFieldDesc>(), &[offset_of!(PxuiValueFieldDesc, size), offset_of!(PxuiValueFieldDesc, flags), offset_of!(PxuiValueFieldDesc, font_size), offset_of!(PxuiValueFieldDesc, fraction), offset_of!(PxuiValueFieldDesc, tracking), offset_of!(PxuiValueFieldDesc, line), offset_of!(PxuiValueFieldDesc, lead_color), offset_of!(PxuiValueFieldDesc, trail_color), offset_of!(PxuiValueFieldDesc, reserved), offset_of!(PxuiValueFieldDesc, x), offset_of!(PxuiValueFieldDesc, y), offset_of!(PxuiValueFieldDesc, width), offset_of!(PxuiValueFieldDesc, height), offset_of!(PxuiValueFieldDesc, display), offset_of!(PxuiValueFieldDesc, placeholder), offset_of!(PxuiValueFieldDesc, lead), offset_of!(PxuiValueFieldDesc, trail), offset_of!(PxuiValueFieldDesc, label), offset_of!(PxuiValueFieldDesc, value)]);

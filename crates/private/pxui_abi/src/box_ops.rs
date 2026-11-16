@@ -56,7 +56,7 @@ mod reveal_tests {
 #[cfg(test)]
 mod gesture_tests {
     use super::*;
-    use pxui_types::ffi::{PxuiGestureIn, PxuiGestureOut, PxuiSwipeIn};
+    use pxui_types::ffi::{PxuiDismissIn, PxuiDismissOut, PxuiGestureIn, PxuiGestureOut, PxuiSwipeIn};
 
     #[test]
     fn gesture_validates_every_argument_before_changing_the_node() {
@@ -85,6 +85,19 @@ mod gesture_tests {
             let stale_swipe = PxuiBox { box_slot: u64::MAX, ..*node };
             assert_eq!(unsafe { pxui_ui_swipe_actions(raw.cast(), &stale_swipe, &swipe) }, crate::PXUI_ERR_STALE);
             assert_eq!(unsafe { pxui_ui_swipe_actions(raw.cast(), node, &swipe) }, 0);
+            // ABI 1.41 dismiss: refused requests change nothing, a good one reads rest
+            let ask = PxuiDismissIn { fraction: 0.3, velocity: 700.0, ..Default::default() };
+            let mut read = PxuiDismissOut::default();
+            for request in [PxuiDismissIn { fraction: f32::NAN, ..ask }, PxuiDismissIn { velocity: f32::INFINITY, ..ask }, PxuiDismissIn { size: 8, ..ask }] {
+                assert_eq!(unsafe { pxui_ui_dismiss(raw.cast(), node, &request, &mut read) }, PXUI_ERR_ARGUMENT);
+            }
+            assert_eq!(unsafe { pxui_ui_dismiss(raw.cast(), node, core::ptr::null(), &mut read) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_dismiss(raw.cast(), node, &ask, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { pxui_ui_dismiss(raw.cast(), core::ptr::null(), &ask, &mut read) }, PXUI_ERR_ARGUMENT);
+            let stale_dismiss = PxuiBox { box_slot: u64::MAX, ..*node };
+            assert_eq!(unsafe { pxui_ui_dismiss(raw.cast(), &stale_dismiss, &ask, &mut read) }, crate::PXUI_ERR_STALE);
+            assert_eq!(unsafe { pxui_ui_dismiss(raw.cast(), node, &ask, &mut read) }, 0);
+            assert_eq!((read.flags, read.offset), (0, 0.0));
             let mut short = 4u32;
             assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 0, (&mut short as *mut u32).cast()) }, PXUI_ERR_ARGUMENT);
             assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, &good, 0, core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
@@ -295,6 +308,17 @@ export!(pub unsafe fn pxui_ui_swipe_actions(ui: *mut PxuiUi, box_: *const PxuiBo
     let Some(request) = sized!(in_) else { return unsafe { fail(ui, "invalid swipe request") }; };
     if !request.leading.is_finite() || !request.trailing.is_finite() || !request.full.is_finite() { return unsafe { fail(ui, "invalid swipe request") }; }
     e.swipe_actions(&b, request.leading, request.trailing, request.full);
+    0
+});
+
+// ABI 1.41: take the vertical drag-to-dismiss on a node (after `pxui_ui_gesture` each build) and read it.
+export!(pub unsafe fn pxui_ui_dismiss(ui: *mut PxuiUi, box_: *const PxuiBox, in_: *const pxui_types::ffi::PxuiDismissIn, out: *mut pxui_types::ffi::PxuiDismissOut) -> i32 {
+    let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
+    let Some(request) = sized!(in_) else { return unsafe { fail(ui, "invalid dismiss request") }; };
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid dismiss output") }; };
+    if !request.fraction.is_finite() || !request.velocity.is_finite() { return unsafe { fail(ui, "invalid dismiss request") }; }
+    let state = e.dismiss(&b, request.fraction, request.velocity);
+    *out = pxui_types::ffi::PxuiDismissOut { flags: state.flags, offset: state.offset, ..Default::default() };
     0
 });
 

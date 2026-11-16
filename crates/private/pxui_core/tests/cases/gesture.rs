@@ -18,8 +18,11 @@ struct Scene {
     nav: GestureCfg,
     list: GestureCfg,
     commands: [u32; 3],
+    dismiss: Option<(f32, f32)>,
+    list_box: Option<UiBox>,
 }
 struct Seen {
+    dismiss: DismissState,
     row: GestureState,
     nav: GestureState,
     list: GestureState,
@@ -32,7 +35,7 @@ impl Scene {
         let mut frame = frame_at(vec![], 2.0, 0.0, Vec::with_capacity(32));
         frame.input.events.clear();
         let none = GestureCfg::default();
-        let mut scene = Self { ui: new_ui(None), frame, rows: 10, row: none, nav: none, list: none, commands: [0; 3] };
+        let mut scene = Self { ui: new_ui(None), frame, rows: 10, row: none, nav: none, list: none, commands: [0; 3], dismiss: None, list_box: None };
         scene.step(0.0, &[]);
         scene
     }
@@ -40,12 +43,13 @@ impl Scene {
         self.frame.input.t = time;
         self.frame.input.events.clear();
         self.frame.input.events.extend_from_slice(events);
-        let (rows, row_cfg, nav_cfg, list_cfg, commands) = (self.rows, self.row, self.nav, self.list, std::mem::take(&mut self.commands));
+        let (rows, row_cfg, nav_cfg, list_cfg, dismiss, commands) = (self.rows, self.row, self.nav, self.list, self.dismiss, std::mem::take(&mut self.commands));
         let mut seen = None;
         let mut list_box = None;
         self.ui.frame(&self.frame, &mut |ui| {
             let nav = ui.box_("nav", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(200.0)).flags(CLIP));
             let nav_state = ui.gesture(&nav, Some(nav_cfg), commands[0]);
+            let dismissed = dismiss.map_or_else(DismissState::default, |(fraction, velocity)| ui.dismiss(&nav, fraction, velocity));
             let saved = ui.enter(&nav);
             let list = ui.box_("list", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(200.0)).flags(CLIP | SCROLL));
             ui.gesture(&list, Some(list_cfg), commands[2]);
@@ -61,12 +65,13 @@ impl Scene {
             ui.leave(inner);
             ui.leave(saved);
             let (row, clicked) = first.unwrap();
-            seen = Some((row, nav_state, clicked));
+            seen = Some((row, nav_state, clicked, dismissed));
         });
         // scroll motion is applied by layout, after the build: read it once the frame is done
-        let (row, nav, clicked) = seen.unwrap();
+        let (row, nav, clicked, dismiss) = seen.unwrap();
         let list = list_box.unwrap();
-        Seen { row, nav, list: self.ui.gesture(&list, None, 0), clicked, offset: self.ui.scroll_offset(&list), position: self.ui.scroll_position(&list) }
+        self.list_box = Some(list);
+        Seen { dismiss, row, nav, list: self.ui.gesture(&list, None, 0), clicked, offset: self.ui.scroll_offset(&list), position: self.ui.scroll_position(&list) }
     }
 }
 
@@ -430,11 +435,116 @@ fn row_swipe_both_sides_open_full_swipe_commit_close_and_mirror() {
     }
 }
 
+// a vertical drag on the 200x200 nav node (an inner 10-row list scrolls inside it) from `y0` to `y1`, lifting after `lift` seconds
+fn drag(s: &mut Scene, at: f64, x: f64, y0: f64, y1: f64, lift: f64) -> (Seen, Seen) {
+    s.step(at, &[touch(Began, (x, y0), at)]);
+    s.step(at + 0.016, &[touch(Moved, (x, y0 + (y1 - y0).signum() * 12.0), at + 0.016)]);
+    let seen = s.step(at + 0.032, &[touch(Moved, (x, y1), at + 0.032)]);
+    (seen, s.step(at + lift, &[touch(Ended, (x, y1), at + lift)]))
+}
+fn settle(s: &mut Scene, at: f64) -> Seen {
+    (1..=60).map(|f| s.step(at + f64::from(f) / 60.0, &[])).last().unwrap()
+}
+
+fn dismiss_scene() -> Scene {
+    let mut s = Scene::new();
+    s.dismiss = Some((0.0, 0.0));
+    s.step(0.0, &[]);
+    s
+}
+
+fn dismiss_commits_by_distance_or_velocity_and_cancels_otherwise() {
+    let mut s = dismiss_scene();
+    // the list is at its top, so it hands the downward drag over; the offset follows the finger less the 12 pt lock slop
+    let (seen, lifted) = drag(&mut s, 1.0, 100.0, 20.0, 100.0, 1.0);
+    assert!((seen.dismiss.offset - 68.0).abs() < 1e-3 && seen.dismiss.flags == DISMISSING, "{:?}", seen.dismiss);
+    assert_eq!(seen.position, 0.0, "the list did not scroll");
+    // 68 of 200 is past a quarter: commit pulse once, then it settles to the height
+    assert_eq!(lifted.dismiss.flags & DISMISS_COMMIT, DISMISS_COMMIT, "{:?}", lifted.dismiss);
+    assert_eq!(s.step(2.02, &[]).dismiss.flags & (DISMISS_COMMIT | DISMISS_CANCEL), 0, "one frame");
+    let seen = settle(&mut s, 2.02);
+    assert_eq!((seen.dismiss.offset, seen.dismiss.flags), (200.0, 0));
+    assert!(s.ui.repaint_at().is_none());
+    // the app closes after the commit (the node goes away); a fresh node starts at rest
+    s.ui.destroy();
+    s = dismiss_scene();
+    // a short slow drag springs back
+    let at = 5.0;
+    let lifted = drag(&mut s, at, 100.0, 20.0, 50.0, 1.0).1;
+    assert_eq!(lifted.dismiss.flags & DISMISS_CANCEL, DISMISS_CANCEL);
+    assert_eq!((settle(&mut s, at + 1.0).dismiss.offset, s.ui.repaint_at()), (0.0, None));
+    // a short drag released at speed commits: 30 pt in 16 ms is far past 600
+    let at = 10.0;
+    s.step(at, &[touch(Began, (100.0, 20.0), at)]);
+    s.step(at + 0.016, &[touch(Moved, (100.0, 32.0), at + 0.016)]);
+    s.step(at + 0.032, &[touch(Moved, (100.0, 40.0), at + 0.032)]);
+    s.step(at + 0.048, &[touch(Moved, (100.0, 60.0), at + 0.048)]);
+    let seen = s.step(at + 0.05, &[touch(Ended, (100.0, 62.0), at + 0.05)]);
+    assert!(seen.dismiss.offset < 50.0);
+    assert_eq!(seen.dismiss.flags & DISMISS_COMMIT, DISMISS_COMMIT);
+    assert_eq!(settle(&mut s, at + 0.06).dismiss.offset, 200.0);
+    // a configured fraction: 0.5 needs 100 points
+    s.ui.destroy();
+    s = dismiss_scene();
+    s.dismiss = Some((0.5, 0.0));
+    let at = 20.0;
+    let lifted = drag(&mut s, at, 100.0, 20.0, 90.0, 1.0).1;
+    assert_eq!(lifted.dismiss.flags & DISMISS_CANCEL, DISMISS_CANCEL);
+    settle(&mut s, at + 1.0);
+    // upward past 0 rubber-bands at 0.55; a drag back down and up again stays continuous
+    s.dismiss = Some((0.0, 0.0));
+    let at = 30.0;
+    s.step(at, &[touch(Began, (100.0, 100.0), at)]);
+    s.step(at + 0.016, &[touch(Moved, (100.0, 112.0), at + 0.016)]);
+    s.step(at + 0.032, &[touch(Moved, (100.0, 150.0), at + 0.032)]);
+    let seen = s.step(at + 0.048, &[touch(Moved, (100.0, 52.0), at + 0.048)]);
+    let raw = -60.0_f64;
+    let want = -(0.55 * -raw / (1.0 + 0.55 * -raw / 200.0));
+    assert!((f64::from(seen.dismiss.offset) - want).abs() < 0.01, "{} vs {want}", seen.dismiss.offset);
+    // a cancel never commits
+    let seen = s.step(at + 0.06, &[touch(Cancelled, (100.0, 52.0), at + 0.06)]);
+    assert_eq!(seen.dismiss.flags & (DISMISS_COMMIT | DISMISS_CANCEL), DISMISS_CANCEL);
+    assert_eq!(settle(&mut s, at + 0.06).dismiss.offset, 0.0);
+    s.ui.destroy();
+}
+
+fn dismiss_hands_over_to_an_inner_scroll_only_at_its_top_and_ignores_horizontal() {
+    let mut s = Scene::new();
+    s.dismiss = Some((0.0, 0.0));
+    s.step(0.0, &[]);
+    // scroll the list down by dragging up: the drag scrolls and the sheet does not move
+    let seen = drag(&mut s, 1.0, 100.0, 150.0, 40.0, 0.04).0;
+    assert_eq!(seen.dismiss.offset, 0.0);
+    settle(&mut s, 1.04);
+    let offset = s.step(3.0, &[]).offset;
+    assert!(offset > 50.0, "list scrolled to {offset}");
+    // not at top: a downward drag scrolls the list back instead of moving the sheet
+    let (seen, lifted) = drag(&mut s, 4.0, 100.0, 20.0, 50.0, 1.0);
+    assert_eq!(seen.dismiss, DismissState { flags: 0, offset: 0.0 });
+    assert!(seen.position < offset);
+    assert_eq!(lifted.dismiss.flags & (DISMISS_COMMIT | DISMISS_CANCEL), 0);
+    // scroll all the way to the top, then the same drag moves the sheet
+    let list = s.list_box.unwrap();
+    s.ui.set_scroll_offset(&list, 0.0);
+    s.step(7.0, &[]);
+    let seen = drag(&mut s, 8.0, 100.0, 20.0, 80.0, 1.0).0;
+    assert!(seen.dismiss.offset > 40.0 && seen.position == 0.0, "{:?} {}", seen.dismiss, seen.position);
+    settle(&mut s, 9.0);
+    // a horizontal drag moves nothing
+    s.step(13.0, &[touch(Began, (100.0, 100.0), 13.0)]);
+    s.step(13.016, &[touch(Moved, (112.0, 102.0), 13.016)]);
+    let seen = s.step(13.032, &[touch(Moved, (180.0, 104.0), 13.032)]);
+    assert_eq!(seen.dismiss, DismissState::default());
+    s.step(13.04, &[touch(Ended, (180.0, 104.0), 13.04)]);
+    s.ui.destroy();
+}
+
 fn gestures_allocate_nothing_when_warm() {
     let mut s = Scene::new();
     s.row = GestureCfg { kinds: LONG_PRESS | ROW_SWIPE, reveal: 80.0, leading: 60.0, full: 120.0, ..Default::default() };
     s.nav = GestureCfg { kinds: EDGE_BACK, ..Default::default() };
     s.list = GestureCfg { kinds: REFRESH, threshold: 60.0, ..Default::default() };
+    s.dismiss = Some((0.0, 0.0));
     for round in 0..4 {
         let t = f64::from(round) * 30.0;
         mem_sys::local_reset();
@@ -477,7 +587,15 @@ fn gestures_allocate_nothing_when_warm() {
         s.step(begin + 0.032, &[touch(Moved, (100.0, 180.0), begin + 0.032)]);
         at = frames(&mut s, begin + 0.04, begin + 2.0, &[touch(Ended, (100.0, 180.0), begin + 0.04)]);
         s.commands[2] = END_REFRESH;
-        frames(&mut s, at + 0.1, at + 1.5, &[]);
+        at = frames(&mut s, at + 0.1, at + 1.5, &[]);
+        // dismiss: commit and spring back (the dismiss node also wraps the refresh list, so the drag starts at its top)
+        for end in [90.0, 50.0] {
+            let begin = at + 1.0;
+            s.step(begin, &[touch(Began, (100.0, 20.0), begin)]);
+            s.step(begin + 0.016, &[touch(Moved, (100.0, 32.0), begin + 0.016)]);
+            s.step(begin + 0.032, &[touch(Moved, (100.0, end), begin + 0.032)]);
+            at = frames(&mut s, begin + 0.5, begin + 1.5, &[touch(Ended, (100.0, end), begin + 0.5)]);
+        }
         if round >= 2 {
             assert_eq!(mem_sys::local_alloc_count(), 0, "warm gesture round {round}");
         }
@@ -491,6 +609,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("gesture_row_swipe_both_sides_open_full_swipe_commit_close_and_mirror", row_swipe_both_sides_open_full_swipe_commit_close_and_mirror),
     ("gesture_edge_back_progress_commit_cancel_and_direction", edge_back_progress_commit_cancel_and_direction),
     ("gesture_pull_to_refresh_threshold_hold_and_end", pull_to_refresh_threshold_hold_and_end),
+    ("gesture_dismiss_commits_by_distance_or_velocity_and_cancels_otherwise", dismiss_commits_by_distance_or_velocity_and_cancels_otherwise),
+    ("gesture_dismiss_hands_over_to_an_inner_scroll_only_at_its_top_and_ignores_horizontal", dismiss_hands_over_to_an_inner_scroll_only_at_its_top_and_ignores_horizontal),
     ("gestures_allocate_nothing_when_warm", gestures_allocate_nothing_when_warm),
     ("gesture_scroll_physics_trace_rubber_band_spring_back_and_catch", scroll_physics_trace_rubber_band_spring_back_and_catch),
 ];

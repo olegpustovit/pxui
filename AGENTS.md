@@ -354,6 +354,10 @@ internal `swipe` is positive toward the trailing side, `leading`/`reveal` are th
 side), and a release past `full` points of finger travel (unstretched, never on a cancel) pulses
 SWIPE_COMMIT_LEADING/TRAILING for one frame and settles closed; open rows set SWIPE_OPEN_LEADING/TRAILING.
 `PxuiGestureIn` is unchanged, so `reveal`-only records keep a trailing-only swipe.
+ABI 1.41 `ui_dismiss` (after `ui_gesture` each build, which resets kinds) adds the vertical dismiss: mode 7 starts at
+the axis lock on a downward drag when no inner scroll holds the contact (absent, or at its top and not gliding), keeps
+the offset continuous with a catching spring, rubber-bands upward past 0 and, on release, commits (a fraction of the node
+height, default 0.25, or 600 pt/s downward; never on a cancel) with a one-frame pulse, then settles to the height.
 
 The scoped iOS loop delivers Signal::Control for inactive worker wakes and explicit deadlines.
 Keep the display link paused and all Metal drawing disabled in these callbacks. NextFrame defers

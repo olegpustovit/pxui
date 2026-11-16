@@ -1,4 +1,4 @@
-use super::gesture::{EDGE_BACK, HIGHLIGHT_DELAY, LONG_PRESS, LONG_PRESS_DELAY, ROW_SWIPE};
+use super::gesture::{DISMISS, EDGE_BACK, HIGHLIGHT_DELAY, LONG_PRESS, LONG_PRESS_DELAY, ROW_SWIPE};
 use super::{Direction, SCROLL, SCROLL_X, Ui, p32};
 use input::{Event, MouseButton, TouchPhase};
 
@@ -11,7 +11,7 @@ struct Gesture {
     point: (f64, f64),
     time: f64,
     scroll: [i64; 2],
-    // Pending, pointer, vertical scroll, horizontal scroll, row swipe, edge back, long press.
+    // Pending, pointer, vertical scroll, horizontal scroll, row swipe, edge back, long press, dismiss.
     mode: u8,
     axis: u8,
     velocity: (f64, f64),
@@ -20,12 +20,14 @@ struct Gesture {
     press: i64,
     swipe: i64,
     edge: i64,
+    dismiss: i64,
     // Frame time of touch down; the revealed amount a swipe began from; the screen's width.
     down: f64,
     base: f64,
     width: f64,
     // Horizontal speed of the last segment, points per second.
     vx: f64,
+    vy: f64,
 }
 
 pub(super) struct Touches {
@@ -97,14 +99,14 @@ impl Ui {
             if gesture.mode == 1 {
                 events[0] = Some(Event::PointerCancelled(MouseButton::LeftButton));
             }
-            self.end_special(gesture, 0.0, true);
+            self.end_special(gesture, (0.0, 0.0), true);
         }
         events
     }
 
     /// A swipe settles by position (a cancel has no flick) and a cancelled back returns; a pending
     /// press loses its highlight. `vx` is the lift's horizontal speed, screen points per second.
-    fn end_special(&mut self, g: Gesture, vx: f64, cancelled: bool) {
+    fn end_special(&mut self, g: Gesture, (vx, vy): (f64, f64), cancelled: bool) {
         let (s, clock) = (if self.dir == Direction::Rtl { -1.0 } else { 1.0 }, self.touches.clock);
         if g.press != 0 {
             self.set_highlight(g.press, false);
@@ -112,6 +114,7 @@ impl Ui {
         match g.mode {
             4 => self.swipe_end(g.swipe, -vx * s, clock, cancelled),
             5 => self.back_end(g.edge, vx * s, g.width, clock, cancelled),
+            7 => self.dismiss_end(g.dismiss, vy, clock, cancelled),
             _ => {}
         }
     }
@@ -244,8 +247,9 @@ impl Ui {
             let press = if caught { 0 } else { self.gesture_at(point, LONG_PRESS) };
             let swipe = self.gesture_at(point, ROW_SWIPE);
             let edge = self.gesture_at(point, EDGE_BACK);
+            let dismiss = self.gesture_at(point, DISMISS);
             // A contact that may become a swipe, back or long press waits like one on a scroll.
-            let mode = if scroll == [0, 0] && owner != 0 && press == 0 && swipe == 0 && edge == 0 { 1 } else { 0 };
+            let mode = if scroll == [0, 0] && owner != 0 && press == 0 && swipe == 0 && edge == 0 && dismiss == 0 { 1 } else { 0 };
             self.touches.gesture = Some(Gesture {
                 id,
                 owner,
@@ -260,10 +264,12 @@ impl Ui {
                 press,
                 swipe,
                 edge,
+                dismiss,
                 down: self.touches.clock,
                 base: 0.0,
                 width: self.gesture_width(edge),
                 vx: 0.0,
+                vy: 0.0,
             });
             return if mode == 1 {
                 [
@@ -318,7 +324,7 @@ impl Ui {
             }
             let mut delta = (t.point.0 - gesture.point.0, t.point.1 - gesture.point.1);
             let dt = t.time - gesture.time;
-            gesture.vx = if dt > 0.0 && dt <= 0.1 { delta.0 / dt } else { 0.0 };
+            (gesture.vx, gesture.vy) = if dt > 0.0 && dt <= 0.1 { (delta.0 / dt, delta.1 / dt) } else { (0.0, 0.0) };
             let s = if self.dir == Direction::Rtl { -1.0 } else { 1.0 };
             // At the axis lock a horizontal move inward from the leading edge is a back, and one
             // toward the actions of a swipe row (or any on an open one) is a swipe.
@@ -328,6 +334,14 @@ impl Ui {
                     gesture.owner = gesture.edge;
                 } else {
                     gesture.edge = 0;
+                }
+            }
+            // A downward vertical drag on a dismiss node takes it unless an inner scroll not at its top owns it.
+            if gesture.mode == 0 && gesture.axis == 1 && gesture.dismiss != 0 {
+                if travel.1 > 0.0 && self.dismiss_ready(gesture.scroll[0], gesture.caught) {
+                    (gesture.mode, gesture.base, gesture.owner) = (7, self.dismiss_begin(gesture.dismiss) - travel.1, gesture.dismiss);
+                } else {
+                    gesture.dismiss = 0;
                 }
             }
             if gesture.mode == 0 && gesture.axis == 2 && gesture.swipe != 0 {
@@ -364,6 +378,8 @@ impl Ui {
             }
             if gesture.mode == 4 {
                 self.swipe_move(gesture.swipe, gesture.base - (t.point.0 - gesture.start.0) * s);
+            } else if gesture.mode == 7 {
+                self.dismiss_move(gesture.dismiss, gesture.base + travel.1);
             } else if gesture.mode == 5 && gesture.width > 0.0 {
                 self.back_move(gesture.edge, (t.point.0 - gesture.start.0) * s / gesture.width);
             }
@@ -418,19 +434,19 @@ impl Ui {
                     value.scroll_drag_x += delta as f32;
                 }
             }
-            let special = matches!(gesture.mode, 4..=6);
+            let special = matches!(gesture.mode, 4..=7);
             self.finish_touch(gesture, special, t.time);
             self.touches.gesture = None;
             // a lift after a pause carries no flick; one at the last point keeps the last segment's
             let dt = t.time - gesture.time;
-            let vx = if dt > 0.1 {
-                0.0
+            let v = if dt > 0.1 {
+                (0.0, 0.0)
             } else if dt > 0.0 && gesture.point != t.point {
-                (t.point.0 - gesture.point.0) / dt
+                ((t.point.0 - gesture.point.0) / dt, (t.point.1 - gesture.point.1) / dt)
             } else {
-                gesture.vx
+                (gesture.vx, gesture.vy)
             };
-            self.end_special(gesture, vx, false);
+            self.end_special(gesture, v, false);
             if gesture.mode == 1 {
                 actions = [
                     Some(Event::PointerMoved(t.point)),

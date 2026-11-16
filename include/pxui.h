@@ -276,6 +276,14 @@ typedef struct { uint32_t size, flags; float swipe, back, pull; } PxuiGestureOut
    travel that commits the edge action on release (0: no full swipe). Initialize size before calling. */
 typedef struct { uint32_t size; float leading, trailing, full; } PxuiSwipeIn;
 _Static_assert(sizeof(PxuiSwipeIn) == 16, "PxuiSwipeIn layout");
+/* ABI 1.41: drag-to-dismiss request: fraction of the node height (0: 0.25) and downward release speed in points per
+   second (0: 600) that commit. Initialize size before calling. */
+typedef struct { uint32_t size; float fraction, velocity; } PxuiDismissIn;
+/* flags: 8192 dragging or settling, 16384 committed and 32768 cancelled (this frame); offset is the downward points to
+   translate the node by (negative while rubber-banding up, the node height once a commit settled). */
+typedef struct { uint32_t size, flags; float offset; } PxuiDismissOut;
+_Static_assert(sizeof(PxuiDismissIn) == 12, "PxuiDismissIn layout");
+_Static_assert(sizeof(PxuiDismissOut) == 12, "PxuiDismissOut layout");
 _Static_assert(sizeof(PxuiGestureOut) == 20, "PxuiGestureOut layout");
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
@@ -745,6 +753,9 @@ int32_t pxui_ui_gesture(PxuiUi *ui, const PxuiBox *box, const PxuiGestureIn *in,
    call after pxui_ui_gesture each build. Extra PxuiGestureOut flags: 512 commit leading and 1024 commit trailing (this
    frame), 2048 open leading and 4096 open trailing (8 stays set for either). swipe stays the physical shift. */
 int32_t pxui_ui_swipe_actions(PxuiUi *ui, const PxuiBox *box, const PxuiSwipeIn *in);
+/* ABI 1.41: take a node's vertical drag-to-dismiss (a downward drag, handed over by an inner scroll view only at its top;
+   touch only; call after pxui_ui_gesture each build) and read its state. */
+int32_t pxui_ui_dismiss(PxuiUi *ui, const PxuiBox *box, const PxuiDismissIn *in, PxuiDismissOut *out);
 /* ABI 1.34: cumulative text cache-miss layouts; read between frames. */
 int32_t pxui_ui_text_layout_count(PxuiUi *ui, uint64_t *out);
 int32_t pxui_ui_text_state(PxuiUi *ui, const PxuiBox *box, uint8_t *present, PxuiStr *out);

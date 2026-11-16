@@ -326,6 +326,46 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
 }
 
 #[test]
+fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocations() {
+    use crate::{DismissOpts, Event, GestureOpts, GestureState, Touch, Str, ui::{BoxOpts, Size, CLICKABLE}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let state = Cell::new(GestureState::default());
+    let mut build = |ui: &mut Ui| {
+        let sheet = ui.box_("sheet", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(200.0)).flags(CLICKABLE));
+        state.set(ui.gesture(&sheet, GestureOpts { dismiss: Some(DismissOpts::default()), ..Default::default() }));
+    };
+    let touch = |ui: &mut Ui, phase: u32, y: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
+        let packet = Touch { device: 1, finger: 7, x: 100.0, y, phase, time: at, pressure: 1.0 };
+        let event = Event { kind: Event::TOUCH, text: Str { ptr: (&packet as *const Touch).cast(), len: core::mem::size_of::<Touch>() }, ..Default::default() };
+        ui.frame(&FrameIn { time: at, events: &event, event_count: 1, ..input() }, build).unwrap();
+    };
+    ui.frame(&FrameIn { time: 0.0, ..input() }, &mut build).unwrap();
+    for round in 0..4 {
+        let t = f64::from(round) * 20.0 + 1.0;
+        mem_sys::local_reset();
+        for (i, end) in [100.0, 50.0].into_iter().enumerate() {
+            let t = t + 8.0 * i as f64;
+            touch(&mut ui, 0, 20.0, t, &mut build);
+            touch(&mut ui, 1, 32.0, t + 0.016, &mut build);
+            touch(&mut ui, 1, end, t + 0.032, &mut build);
+            assert_eq!(state.get().dismiss, end as f32 - 32.0);
+            assert!(state.get().dismissing);
+            touch(&mut ui, 2, end, t + 0.5, &mut build);
+            let lifted = state.get();
+            assert_eq!((lifted.dismiss_committed, lifted.dismiss_cancelled), (i == 0, i == 1));
+            ui.frame(&FrameIn { time: t + 0.6, ..input() }, &mut build).unwrap();
+            assert!(!state.get().dismiss_committed && !state.get().dismiss_cancelled);
+            ui.frame(&FrameIn { time: t + 3.0, ..input() }, &mut build).unwrap();
+            assert_eq!((state.get().dismiss, state.get().dismissing), (if i == 0 { 200.0 } else { 0.0 }, false));
+            if i == 0 { ui.frame(&FrameIn { time: t + 4.0, ..input() }, &mut |_| {}).unwrap(); ui.frame(&FrameIn { time: t + 4.1, ..input() }, &mut build).unwrap(); }
+        }
+        if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm dismiss frames"); }
+    }
+}
+
+#[test]
 fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_warm_allocations() {
     use crate::{Event, Scrub, Touch, Str, ui::{Node, Role}};
     use std::cell::Cell;
