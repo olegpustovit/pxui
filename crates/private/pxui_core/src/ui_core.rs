@@ -7343,6 +7343,7 @@ impl Ui {
         prev.clear();
         *r = ViewRec { name, breaks, hits, nodes, prev, outer: Rect::new(0.0, 0.0, 0.0, 0.0), ..ViewRec::new() };
         self.free_views.push(v);
+        self.text_mut().view_freed(v);
     }
 
     /// The view's output is in the latest paint: its box was reached, or it sits in a kept view
@@ -7504,6 +7505,8 @@ impl Ui {
         r.delta = (0.0, 0.0);
         r.layer = layer;
         let (table, xf) = (r.index, r.xf);
+        // the text this build paints belongs to the view while it is not painted again
+        let owner = paint.text.paint_view(v);
         let saved = (paint.view, self.paint_xf);
         if table != 0 {
             paint.view = table;
@@ -7523,6 +7526,7 @@ impl Ui {
         let shelves = paint.text.marks();
         paint.text.set_marks(outer);
         paint.text.add_marks(&shelves);
+        paint.text.paint_view_end(owner);
         let r = &mut self.views[v as usize];
         r.shelves = shelves;
         r.pieces = (paint.layer, first, paint.layers[paint.layer].pieces.len() - 1);

@@ -509,6 +509,37 @@ pub fn window_pxui_list_text_survives_idle() {
     ui.destroy();
 }
 
+/// A kept view's text outside any list: 700 frames with no input keep the view (its text is never
+/// laid out, so age alone would drop it), then the view rebuilds with the same text: no re-shape.
+pub fn window_pxui_kept_view_text_survives_idle() {
+    let rev = Cell::new(1u64);
+    let mut ui = new_ui(None);
+    let mut header = |ui: &mut Ui| {
+        ui.view("header", rev.get(), Size::Grow, Size::Px(48.0), &mut |ui| {
+            let title = ui.node("title".into(), Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            ui.text(&title, "Songs");
+            let hint = ui.node("hint".into(), Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            ui.text(&hint, "Click a header to sort. Double-click or Return plays.");
+        });
+    };
+    ui.frame(&at(0.0, vec![move_to((100, 100))]), &mut header);
+    for k in 2..4 {
+        rev.set(k);
+        ui.frame(&at(k as f64, vec![]), &mut header);
+    }
+    let idle: Vec<_> = (0..700).map(|t| at(10.0 + t as f64, vec![])).collect();
+    for f in &idle {
+        ui.frame(f, &mut header);
+    }
+    rev.set(9);
+    let after = at(2000.0, vec![]);
+    let layouts = ui.text_mut().layout_count();
+    let n = allocs(&mut || { ui.frame(&after, &mut header); });
+    check(n == 0, &format!("{n} allocations rebuilding the header after 700 idle frames"));
+    check(ui.text_mut().layout_count() == layouts, "the header's text was re-shaped after 700 idle frames");
+    ui.destroy();
+}
+
 /// No allocation once warm: a virtual list scrolled a row per frame, and a hover entering and leaving
 /// a kept view's button with the theme's transition running.
 pub fn window_pxui_budget_zero_alloc() {
@@ -936,6 +967,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_budget_cached_per_view", window_pxui_budget_cached_per_view),
     ("window_pxui_budget_zero_alloc", window_pxui_budget_zero_alloc),
     ("window_pxui_list_text_survives_idle", window_pxui_list_text_survives_idle),
+    ("window_pxui_kept_view_text_survives_idle", window_pxui_kept_view_text_survives_idle),
     ("window_pxui_view_rebuilds_one", window_pxui_view_rebuilds_one),
     ("window_pxui_shrunk_layer_clips_dirty", window_pxui_shrunk_layer_clips_dirty),
     ("window_pxui_view_nested", window_pxui_view_nested),

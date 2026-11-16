@@ -626,13 +626,15 @@ fn subpixel_bin(pos: f32) -> (i32, SubpixelBin) {
 fn apple_x(ppem: f32, pos: f32) -> (i32, SubpixelBin) {
     let n = if ppem < 12.0 { 4 } else if ppem < 16.0 { 3 } else if ppem < 30.0 { 2 } else { 1 };
     let m = (pos * n as f32).floor() as i32;
-    let bin = match (n, m.rem_euclid(n)) {
+    // one division: the remainder from the quotient
+    let q = m.div_euclid(n);
+    let bin = match (n, m - q * n) {
         (_, 0) => SubpixelBin::Zero,
         (4 | 3, 1) => SubpixelBin::One,
         (4, 2) | (2, 1) => SubpixelBin::Two,
         _ => SubpixelBin::Three,
     };
-    (m.div_euclid(n), bin)
+    (q, bin)
 }
 
 /// CoreText's stem growth, applied to a coverage mask: a round dilation by `d` pixels shifted up by
@@ -683,6 +685,8 @@ struct Entry {
     /// the virtual list (0: none) and row that last asked for this layout
     list: u64,
     row: u32,
+    /// the view (0: none) whose paint last drew this layout: it owns it while its last paint is `frame`
+    view: u32,
     m: Metrics,
     /// The glyph list `glyphs` replays: valid while `cached`, for `cached_scale` (f32 bits), until
     /// the atlas evicts past `cached_evictions`.
@@ -700,7 +704,7 @@ impl Entry {
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         Self {
             buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
-            text: String::new(), style: *style, rich: None, width: 0, frame, list: 0, row: 0,
+            text: String::new(), style: *style, rich: None, width: 0, frame, list: 0, row: 0, view: 0,
             m: Metrics::default(), glyphs: Vec::new(), cached: false, cacheable: true,
             cached_scale: 0, cached_evictions: 0, shelves: [0; 8],
         }
@@ -722,6 +726,10 @@ pub struct Text {
     windows: [(u64, u32, u32); LIST_WINDOWS],
     /// the list and row being built (list 0: none)
     scope: (u64, u32),
+    /// the view being painted (0: none)
+    owner: u32,
+    /// each live view's last painted frame (0: not live), by view number
+    views: Vec<u32>,
     walks: u64,
     layouts: u64,
     cache_on: bool,
@@ -782,6 +790,8 @@ impl Text {
             frame: 1,
             windows: [(0, 0, 0); LIST_WINDOWS],
             scope: (0, 0),
+            owner: 0,
+            views: Vec::new(),
             walks: 0,
             layouts: 0,
             cache_on: true,
@@ -1093,10 +1103,12 @@ impl Text {
     /// layout's entry; later calls at any origin replay that list with the same float operations as
     /// `LayoutGlyph::physical`, so the quads equal a walk's. A glyph whose bin differs at the new
     /// origin (a fractional origin) looks its slot up as a walk would. The list is rebuilt when the
-    /// layout is re-shaped, the scale changes or the atlas evicted a shelf.
+    /// layout is re-shaped, the scale changes or the atlas evicted a shelf. Inside `paint_view` the
+    /// layout belongs to that view.
     pub fn glyphs(&mut self, key: u64, origin: (f32, f32), scale: f32, f: &mut dyn FnMut(Glyph)) {
-        let Text { g, entries, walks, cache_on, cache_bytes, .. } = self;
+        let Text { g, entries, walks, cache_on, cache_bytes, owner, .. } = self;
         let Some(e) = entries.get_mut(&key) else { return };
+        if *owner != 0 { e.view = *owner; }
         if e.cached && e.cached_scale == scale.to_bits() && e.cached_evictions == g.evictions {
             for k in 0..8 {
                 g.marks[k] |= e.shelves[k];
@@ -1264,8 +1276,8 @@ impl Text {
 
     /// A virtual list builds rows `first..last` (call each time it builds). Layouts asked for inside
     /// `list_row`..`list_end` are list-owned: while within `LIST_KEEP_ROWS` rows of the window they are
-    /// never age-evicted, so frames that do not build keep them; farther ones are dropped first by the
-    /// sweep and by a full cache. Windows persist until the list builds again.
+    /// never age-evicted, so frames that do not build keep them; farther ones are dropped first by a
+    /// full cache, and by the sweep once a sweep pass (`SWEEP_FRAMES`) has gone by unused. Windows persist until the list builds again.
     /// Allocates: never.
     pub fn list_window(&mut self, list: u64, first: usize, last: usize) {
         let list = list.max(1);
@@ -1290,6 +1302,45 @@ impl Text {
         self.scope = (0, 0);
     }
 
+    /// A rebuilt view's paint starts: layouts drawn (`glyphs`) from now on belong to `view`, and are never
+    /// age-evicted while it stays live (`view_freed`) and unpainted since; a view kept through a long
+    /// idle keeps its text, so its next rebuild does not re-shape. Returns the enclosing view (0: none)
+    /// for `paint_view_end`. Allocates: only when `view` is a new, higher number.
+    // kept out of line: inlined into `Ui::visit` it cost every abi_bench page ~20 retired instructions a frame
+    #[inline(never)]
+    pub fn paint_view(&mut self, view: u32) -> u32 {
+        match self.views.get_mut(view as usize) {
+            Some(painted) => *painted = self.frame,
+            None => self.grow_views(view),
+        }
+        std::mem::replace(&mut self.owner, view)
+    }
+
+    #[cold]
+    fn grow_views(&mut self, view: u32) {
+        self.views.resize(view as usize + 1, 0);
+        self.views[view as usize] = self.frame;
+    }
+
+    /// The view `paint_view` started is painted: layouts belong to `enclosing` (its return) again. Allocates: never.
+    #[inline]
+    pub fn paint_view_end(&mut self, enclosing: u32) {
+        self.owner = enclosing;
+    }
+
+    /// `view` is gone: its layouts fall back to age. Allocates: never.
+    pub fn view_freed(&mut self, view: u32) {
+        if let Some(painted) = self.views.get_mut(view as usize) {
+            *painted = 0;
+        }
+    }
+
+    /// The entry's view is live and not painted since it asked for the entry.
+    #[inline]
+    fn view_owned(&self, e: &Entry) -> bool {
+        e.view != 0 && self.views.get(e.view as usize) == Some(&e.frame)
+    }
+
     /// Rows between an entry's row and its list's window (0 inside it); `None` when not list-owned or its list is untracked.
     fn list_distance(&self, e: &Entry) -> Option<u32> {
         if e.list == 0 { return None; }
@@ -1298,7 +1349,7 @@ impl Text {
     }
 
     /// The index in `keys` to evict from a full cache: of the next 64 entries from the sweep, the
-    /// farthest list row beyond its keep window, else the first aged or unprotected one, else the sweep's own.
+    /// farthest list row beyond its keep window, else the oldest one not owned by a list window or a live view, else the sweep's own.
     fn victim(&mut self) -> usize {
         let n = self.keys.len();
         self.sweep %= n;
@@ -1309,6 +1360,7 @@ impl Text {
             let rank = match self.list_distance(e) {
                 Some(d) if d > LIST_KEEP_ROWS => 1 << 40 | d as u64,
                 Some(_) => 0,
+                None if self.view_owned(e) => 0,
                 None => 1 << 20 | self.frame.wrapping_sub(e.frame) as u64,
             };
             if rank > best_rank { (best, best_rank) = (at, rank); }
@@ -1316,8 +1368,9 @@ impl Text {
         best
     }
 
-    /// Call once per frame: drops layouts not laid out in the last `KEEP_FRAMES` frames. A cached
-    /// view's text is not laid out while the view is kept; its layouts outlive a short keep, so the
+    /// Call once per frame: drops layouts not laid out in the last `KEEP_FRAMES` frames, unless a
+    /// list window (`list_window`) or a live, unrepainted view (`paint_view`) owns them. A kept view's
+    /// text is not laid out while the view is kept; its owned layouts outlive any keep, so the
     /// view's next rebuild is a cache hit, not a re-shape. The sweep is incremental: each frame looks
     /// at 1/`SWEEP_FRAMES` of the remaining layouts plus one, so no frame walks them all.
     /// Removing entries reduces the following frame's budget.
@@ -1332,8 +1385,10 @@ impl Text {
             }
             let key = self.keys[self.sweep];
             let stale = self.entries.get(&key).is_none_or(|e| match self.list_distance(e) {
-                Some(d) => d > LIST_KEEP_ROWS,
-                None => frame.wrapping_sub(e.frame) >= KEEP_FRAMES,
+                // a far row's layout may hold text a nearer row shows next (content keys are shared): it
+                // goes once a sweep pass has gone by without a row asking for it
+                Some(d) => d > LIST_KEEP_ROWS && frame.wrapping_sub(e.frame) >= SWEEP_FRAMES,
+                None => frame.wrapping_sub(e.frame) >= KEEP_FRAMES && !self.view_owned(e),
             });
             if !stale {
                 self.sweep += 1;
@@ -1399,6 +1454,66 @@ mod layout_cache_tests {
             text.end_frame();
         }
         assert!((0..20).all(|r| !text.entries.contains_key(&(1000 + r))));
+    }
+
+    #[test]
+    fn apple_x_floors_to_its_ppems_fraction_on_both_sides_of_zero() {
+        for (ppem, n) in [(11.0, 4), (13.0, 3), (20.0, 2), (40.0, 1)] {
+            for k in -40..40 {
+                let pos = k as f32 * 0.1;
+                let m = (pos * n as f32).floor() as i32;
+                let bin = match (n, m.rem_euclid(n)) {
+                    (_, 0) => SubpixelBin::Zero,
+                    (4 | 3, 1) => SubpixelBin::One,
+                    (4, 2) | (2, 1) => SubpixelBin::Two,
+                    _ => SubpixelBin::Three,
+                };
+                assert_eq!(apple_x(ppem, pos), (m.div_euclid(n), bin), "ppem {ppem} at {pos}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_far_rows_shared_text_waits_a_sweep_pass_for_the_next_row_that_shows_it() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        text.list_window(7, 200, 220);
+        row(&mut text, 217);
+        // the window moves past row 217; row 317 shows the same layout (one content key) 40 frames on
+        text.list_window(7, 300, 320);
+        for _ in 0..40 {
+            text.end_frame();
+        }
+        assert!(text.entries.contains_key(&1217));
+        // nothing asks for it again: the sweep drops the far row
+        for _ in 0..4 * SWEEP_FRAMES {
+            text.end_frame();
+        }
+        assert!(!text.entries.contains_key(&1217));
+    }
+
+    #[test]
+    fn a_kept_views_layouts_outlive_idle_age_until_it_rebuilds_or_goes() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        for (key, view) in [(1, 3), (2, 4)] {
+            let outer = text.paint_view(view);
+            text.layout(key, "Songs", &Style::default(), 0.0);
+            text.glyphs(key, (0.0, 0.0), 1.0, &mut |_| {});
+            text.paint_view_end(outer);
+        }
+        text.layout(5, "plain", &Style::default(), 0.0);
+        for _ in 0..3 * KEEP_FRAMES {
+            text.end_frame();
+        }
+        assert!(text.entries.contains_key(&1) && text.entries.contains_key(&2), "kept views keep their text");
+        assert!(!text.entries.contains_key(&5));
+        // view 3 rebuilt without this text, view 4 freed: both fall back to age
+        let outer = text.paint_view(3);
+        text.paint_view_end(outer);
+        text.view_freed(4);
+        for _ in 0..2 * KEEP_FRAMES {
+            text.end_frame();
+        }
+        assert!(text.entries.is_empty());
     }
 
     #[test]

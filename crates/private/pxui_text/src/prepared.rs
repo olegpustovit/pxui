@@ -69,6 +69,12 @@ impl Text {
             || self.entries.capacity() < MAX_LAYOUTS || self.keys.capacity() < MAX_LAYOUTS {
             return false;
         }
+        // a replaced layout a near list row or a live view still owns keeps that owner (and a view's,
+        // the frame it was painted); another (a far row of shared text, an evicted entry's reused
+        // storage) is unowned, so age keeps it for its new row
+        let owner = self.entries.get(&record.key)
+            .filter(|e| self.list_distance(e).map_or(self.view_owned(e), |d| d <= LIST_KEEP_ROWS))
+            .map_or((0, 0, 0, self.frame), |e| (e.list, e.row, e.view, if self.view_owned(e) { e.frame } else { self.frame }));
         if !self.entries.contains_key(&record.key) {
             let empty = if self.keys.len() == MAX_LAYOUTS {
                 let at = self.victim();
@@ -87,7 +93,7 @@ impl Text {
             record.entry.cacheable = false;
         }
         std::mem::swap(slot, &mut record.entry);
-        slot.frame = self.frame;
+        (slot.list, slot.row, slot.view, slot.frame) = owner;
         self.cache_bytes = retained + slot.glyphs.capacity() * size_of::<CachedGlyph>();
         #[cfg(debug_assertions)]
         if self.installed.capacity() >= MAX_INSTALLED {
@@ -196,6 +202,50 @@ mod tests {
         assert!(replacement.entry.glyphs.capacity() > 0);
         assert_eq!(mem_sys::local_alloc_count(), 0);
         std::thread::spawn(move || drop((records, replacement))).join().unwrap();
+    }
+
+    #[test]
+    fn reinstalling_a_layout_keeps_its_list_and_view_ownership() {
+        let style = Style { size: 13.0, ..Style::default() };
+        let mut ui = Text::new(&[PRAGMASEVKA]);
+        let mut worker = ui.preparer();
+        let (mut first, mut again, mut later) = std::thread::spawn(move || {
+            let mut album = || worker.prepare("Album 70", &style, 200.0, &[]).unwrap();
+            (album(), album(), album())
+        }).join().unwrap();
+        let key = first.key;
+        assert!(ui.install(&mut first));
+        ui.list_window(7, 0, 40);
+        ui.list_row(7, 30);
+        let outer = ui.paint_view(2);
+        ui.layout(key, "Album 70", &style, 200.0);
+        ui.glyphs(key, (0.0, 0.0), 1.0, &mut |_| {});
+        ui.paint_view_end(outer);
+        ui.list_end();
+        assert!(ui.install(&mut again));
+        let entry = &ui.entries[&key];
+        assert!((entry.list, entry.row, entry.view) == (7, 30, 2) && ui.view_owned(entry));
+        for _ in 0..2 * KEEP_FRAMES {
+            ui.end_frame();
+        }
+        assert!(ui.entries.contains_key(&key), "a reinstalled row in its list's window survives idle");
+        // the same text prepared again for a row far below: row 30 no longer holds it, age does
+        ui.list_window(7, 5000, 5040);
+        assert!(ui.install(&mut later));
+        assert_eq!(ui.entries[&key].list, 0);
+        // a full cache of far list rows: the new layout reuses an evicted one's storage, not its ownership
+        let mut worker = ui.preparer();
+        let mut fresh = std::thread::spawn(move || worker.prepare("Album 71", &style, 200.0, &[]).unwrap()).join().unwrap();
+        for row in 0..MAX_LAYOUTS as u64 {
+            ui.list_row(7, row as usize);
+            ui.layout(10_000 + row, "", &style, 0.0);
+            ui.list_end();
+        }
+        let key = fresh.key;
+        assert!(ui.install(&mut fresh));
+        let entry = &ui.entries[&key];
+        assert_eq!((entry.list, entry.view), (0, 0));
+        std::thread::spawn(move || drop((first, again, later, fresh))).join().unwrap();
     }
 
     #[test]
