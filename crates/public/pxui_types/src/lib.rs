@@ -1,6 +1,9 @@
 #![allow(clippy::all)]
 //! Plain, stable value types shared by PXUI and applications.
 
+#[cfg(test)]
+#[macro_use]
+mod test_layout_rows;
 pub mod a11y;
 pub mod draw;
 pub mod ffi;
@@ -425,68 +428,47 @@ impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::siz
 #[cfg(test)]
 mod abi_layout {
     use super::*;
-    use core::mem::{align_of, offset_of, size_of};
+    use core::mem::{align_of, size_of};
+    use crate::test_layout_rows::row as assert_layout;
 
-    fn assert_layout(name: &str, size: usize, align: usize, offsets: &[usize]) {
-        let row = include_str!("../../../../abi/layout.v1.txt")
-            .lines()
-            .find(|line| line.split_whitespace().next() == Some(name))
-            .unwrap_or_else(|| panic!("missing layout row for {name}"));
-        let mut fields = row.split_whitespace().skip(1);
-        assert_eq!(
-            fields.next().unwrap().parse::<usize>().unwrap(),
-            size,
-            "{name} size"
-        );
-        assert_eq!(
-            fields.next().unwrap().parse::<usize>().unwrap(),
-            align,
-            "{name} alignment"
-        );
-        let expected: Vec<usize> = fields.map(|field| field.parse().unwrap()).collect();
-        assert_eq!(expected, offsets, "{name} field offsets");
-    }
-
-    #[test]
-    fn abi_descriptors_match_layout_snapshot() {
+    pub(crate) fn abi_descriptors_rows() {
         assert_layout("PxuiBox", size_of::<PxuiBox>(), align_of::<PxuiBox>(), &[
-            offset_of!(PxuiBox, index), offset_of!(PxuiBox, box_key), offset_of!(PxuiBox, box_slot), offset_of!(PxuiBox, generation),
+            ("index", core::mem::offset_of!(PxuiBox, index)), ("box_key", core::mem::offset_of!(PxuiBox, box_key)), ("box_slot", core::mem::offset_of!(PxuiBox, box_slot)), ("generation", core::mem::offset_of!(PxuiBox, generation)),
         ]);
         assert_layout("PxuiPanel", size_of::<PxuiPanel>(), align_of::<PxuiPanel>(), &[
-            offset_of!(PxuiPanel, size), offset_of!(PxuiPanel, x), offset_of!(PxuiPanel, y), offset_of!(PxuiPanel, width),
-            offset_of!(PxuiPanel, height), offset_of!(PxuiPanel, padding), offset_of!(PxuiPanel, has_height), offset_of!(PxuiPanel, window),
-            offset_of!(PxuiPanel, has_max_height), offset_of!(PxuiPanel, has_stroke), offset_of!(PxuiPanel, has_look), offset_of!(PxuiPanel, reserved),
-            offset_of!(PxuiPanel, max_height), offset_of!(PxuiPanel, stroke), offset_of!(PxuiPanel, look),
+            ("size", core::mem::offset_of!(PxuiPanel, size)), ("x", core::mem::offset_of!(PxuiPanel, x)), ("y", core::mem::offset_of!(PxuiPanel, y)), ("width", core::mem::offset_of!(PxuiPanel, width)),
+            ("height", core::mem::offset_of!(PxuiPanel, height)), ("padding", core::mem::offset_of!(PxuiPanel, padding)), ("has_height", core::mem::offset_of!(PxuiPanel, has_height)), ("window", core::mem::offset_of!(PxuiPanel, window)),
+            ("has_max_height", core::mem::offset_of!(PxuiPanel, has_max_height)), ("has_stroke", core::mem::offset_of!(PxuiPanel, has_stroke)), ("has_look", core::mem::offset_of!(PxuiPanel, has_look)), ("reserved", core::mem::offset_of!(PxuiPanel, reserved)),
+            ("max_height", core::mem::offset_of!(PxuiPanel, max_height)), ("stroke", core::mem::offset_of!(PxuiPanel, stroke)), ("look", core::mem::offset_of!(PxuiPanel, look)),
         ]);
         assert_layout("PxuiTargetDesc", size_of::<PxuiTargetDesc>(), align_of::<PxuiTargetDesc>(), &[
-            offset_of!(PxuiTargetDesc, size), offset_of!(PxuiTargetDesc, format), offset_of!(PxuiTargetDesc, samples),
-            offset_of!(PxuiTargetDesc, reserved), offset_of!(PxuiTargetDesc, mask_width), offset_of!(PxuiTargetDesc, mask_height),
-            offset_of!(PxuiTargetDesc, color_width), offset_of!(PxuiTargetDesc, color_height), offset_of!(PxuiTargetDesc, reserved_tail),
+            ("size", core::mem::offset_of!(PxuiTargetDesc, size)), ("format", core::mem::offset_of!(PxuiTargetDesc, format)), ("samples", core::mem::offset_of!(PxuiTargetDesc, samples)),
+            ("reserved", core::mem::offset_of!(PxuiTargetDesc, reserved)), ("mask_width", core::mem::offset_of!(PxuiTargetDesc, mask_width)), ("mask_height", core::mem::offset_of!(PxuiTargetDesc, mask_height)),
+            ("color_width", core::mem::offset_of!(PxuiTargetDesc, color_width)), ("color_height", core::mem::offset_of!(PxuiTargetDesc, color_height)), ("reserved_tail", core::mem::offset_of!(PxuiTargetDesc, reserved_tail)),
         ]);
         assert_layout("PxuiUiDesc", size_of::<PxuiUiDesc>(), align_of::<PxuiUiDesc>(), &[
-            offset_of!(PxuiUiDesc, size), offset_of!(PxuiUiDesc, platform), offset_of!(PxuiUiDesc, font_size),
+            ("size", core::mem::offset_of!(PxuiUiDesc, size)), ("platform", core::mem::offset_of!(PxuiUiDesc, platform)), ("font_size", core::mem::offset_of!(PxuiUiDesc, font_size)),
         ]);
         assert_layout("TextStyle", size_of::<TextStyle>(), align_of::<TextStyle>(), &[
-            offset_of!(TextStyle, size), offset_of!(TextStyle, font), offset_of!(TextStyle, weight),
-            offset_of!(TextStyle, size_points), offset_of!(TextStyle, line_height), offset_of!(TextStyle, wrap),
-            offset_of!(TextStyle, align), offset_of!(TextStyle, max_lines), offset_of!(TextStyle, italic),
-            offset_of!(TextStyle, ellipsis), offset_of!(TextStyle, features), offset_of!(TextStyle, tracking),
+            ("size", core::mem::offset_of!(TextStyle, size)), ("font", core::mem::offset_of!(TextStyle, font)), ("weight", core::mem::offset_of!(TextStyle, weight)),
+            ("size_points", core::mem::offset_of!(TextStyle, size_points)), ("line_height", core::mem::offset_of!(TextStyle, line_height)), ("wrap", core::mem::offset_of!(TextStyle, wrap)),
+            ("align", core::mem::offset_of!(TextStyle, align)), ("max_lines", core::mem::offset_of!(TextStyle, max_lines)), ("italic", core::mem::offset_of!(TextStyle, italic)),
+            ("ellipsis", core::mem::offset_of!(TextStyle, ellipsis)), ("features", core::mem::offset_of!(TextStyle, features)), ("tracking", core::mem::offset_of!(TextStyle, tracking)),
         ]);
         assert_layout("TextSpan",size_of::<TextSpan>(),align_of::<TextSpan>(),&[
-            offset_of!(TextSpan,start),offset_of!(TextSpan,end),offset_of!(TextSpan,weight),offset_of!(TextSpan,flags),offset_of!(TextSpan,color),offset_of!(TextSpan,background),offset_of!(TextSpan,underline),
+            ("start", core::mem::offset_of!(TextSpan, start)),("end", core::mem::offset_of!(TextSpan, end)),("weight", core::mem::offset_of!(TextSpan, weight)),("flags", core::mem::offset_of!(TextSpan, flags)),("color", core::mem::offset_of!(TextSpan, color)),("background", core::mem::offset_of!(TextSpan, background)),("underline", core::mem::offset_of!(TextSpan, underline)),
         ]);
-        assert_layout("TextSpans",size_of::<TextSpans>(),align_of::<TextSpans>(),&[offset_of!(TextSpans,size),offset_of!(TextSpans,count),offset_of!(TextSpans,spans)]);
+        assert_layout("TextSpans",size_of::<TextSpans>(),align_of::<TextSpans>(),&[("size", core::mem::offset_of!(TextSpans, size)),("count", core::mem::offset_of!(TextSpans, count)),("spans", core::mem::offset_of!(TextSpans, spans))]);
         assert_layout("TextMetrics", size_of::<TextMetrics>(), align_of::<TextMetrics>(), &[
-            offset_of!(TextMetrics, width), offset_of!(TextMetrics, height), offset_of!(TextMetrics, baseline), offset_of!(TextMetrics, lines),
+            ("width", core::mem::offset_of!(TextMetrics, width)), ("height", core::mem::offset_of!(TextMetrics, height)), ("baseline", core::mem::offset_of!(TextMetrics, baseline)), ("lines", core::mem::offset_of!(TextMetrics, lines)),
         ]);
         assert_layout("TextGlyph", size_of::<TextGlyph>(), align_of::<TextGlyph>(), &[
-            offset_of!(TextGlyph, rect), offset_of!(TextGlyph, uv), offset_of!(TextGlyph, atlas), offset_of!(TextGlyph, reserved),
+            ("rect", core::mem::offset_of!(TextGlyph, rect)), ("uv", core::mem::offset_of!(TextGlyph, uv)), ("atlas", core::mem::offset_of!(TextGlyph, atlas)), ("reserved", core::mem::offset_of!(TextGlyph, reserved)),
         ]);
     }
 
     /// The engine's own value types that cross as they are (a node, a look, the theme): `pxui.h` mirrors them field for field.
-    #[test]
-    fn value_types_match_layout_snapshot() {
+    pub(crate) fn value_types_rows() {
         use crate::{layout::*, node::*, theme::*};
         assert_layout("PxuiSize", size_of::<Size>(), align_of::<Size>(), &[]);
         assert_layout("PxuiTrack", size_of::<Track>(), align_of::<Track>(), &[]);
@@ -500,60 +482,61 @@ mod abi_layout {
         assert_layout("PxuiOptTransition", size_of::<OptTransition>(), align_of::<OptTransition>(), &[]);
         assert_layout("PxuiOptColor", size_of::<OptColor>(), align_of::<OptColor>(), &[]);
         assert_layout("PxuiGrid", size_of::<Grid>(), align_of::<Grid>(), &[]);
-        assert_layout("PxuiCell", size_of::<Cell>(), align_of::<Cell>(), &[offset_of!(Cell, col), offset_of!(Cell, row), offset_of!(Cell, col_span), offset_of!(Cell, row_span)]);
-        assert_layout("PxuiPlacement", size_of::<Placement>(), align_of::<Placement>(), &[offset_of!(Placement, side), offset_of!(Placement, align), offset_of!(Placement, gap), offset_of!(Placement, margin), offset_of!(Placement, flip)]);
-        assert_layout("PxuiAnchor", size_of::<Anchor>(), align_of::<Anchor>(), &[offset_of!(Anchor, rect), offset_of!(Anchor, placement)]);
-        assert_layout("PxuiFont", size_of::<Font>(), align_of::<Font>(), &[offset_of!(Font, family), offset_of!(Font, size), offset_of!(Font, weight), offset_of!(Font, tracking), offset_of!(Font, caps)]);
-        assert_layout("PxuiShadow", size_of::<Shadow>(), align_of::<Shadow>(), &[offset_of!(Shadow, color), offset_of!(Shadow, offset), offset_of!(Shadow, blur), offset_of!(Shadow, spread), offset_of!(Shadow, inner)]);
-        assert_layout("PxuiRing", size_of::<Ring>(), align_of::<Ring>(), &[offset_of!(Ring, color), offset_of!(Ring, width), offset_of!(Ring, sides)]);
+        assert_layout("PxuiCell", size_of::<Cell>(), align_of::<Cell>(), &[("col", core::mem::offset_of!(Cell, col)), ("row", core::mem::offset_of!(Cell, row)), ("col_span", core::mem::offset_of!(Cell, col_span)), ("row_span", core::mem::offset_of!(Cell, row_span))]);
+        assert_layout("PxuiPlacement", size_of::<Placement>(), align_of::<Placement>(), &[("side", core::mem::offset_of!(Placement, side)), ("align", core::mem::offset_of!(Placement, align)), ("gap", core::mem::offset_of!(Placement, gap)), ("margin", core::mem::offset_of!(Placement, margin)), ("flip", core::mem::offset_of!(Placement, flip))]);
+        assert_layout("PxuiAnchor", size_of::<Anchor>(), align_of::<Anchor>(), &[("rect", core::mem::offset_of!(Anchor, rect)), ("placement", core::mem::offset_of!(Anchor, placement))]);
+        assert_layout("PxuiFont", size_of::<Font>(), align_of::<Font>(), &[("family", core::mem::offset_of!(Font, family)), ("size", core::mem::offset_of!(Font, size)), ("weight", core::mem::offset_of!(Font, weight)), ("tracking", core::mem::offset_of!(Font, tracking)), ("caps", core::mem::offset_of!(Font, caps))]);
+        assert_layout("PxuiShadow", size_of::<Shadow>(), align_of::<Shadow>(), &[("color", core::mem::offset_of!(Shadow, color)), ("offset", core::mem::offset_of!(Shadow, offset)), ("blur", core::mem::offset_of!(Shadow, blur)), ("spread", core::mem::offset_of!(Shadow, spread)), ("inner", core::mem::offset_of!(Shadow, inner))]);
+        assert_layout("PxuiRing", size_of::<Ring>(), align_of::<Ring>(), &[("color", core::mem::offset_of!(Ring, color)), ("width", core::mem::offset_of!(Ring, width)), ("sides", core::mem::offset_of!(Ring, sides))]);
         assert_layout("PxuiLook", size_of::<Look>(), align_of::<Look>(), &[
-            offset_of!(Look, fill), offset_of!(Look, gradient), offset_of!(Look, angle), offset_of!(Look, border), offset_of!(Look, border_w), offset_of!(Look, sides),
-            offset_of!(Look, radius), offset_of!(Look, shadows), offset_of!(Look, text), offset_of!(Look, font), offset_of!(Look, opacity), offset_of!(Look, ring),
-            offset_of!(Look, selection), offset_of!(Look, caret), offset_of!(Look, dashed),
+            ("fill", core::mem::offset_of!(Look, fill)), ("gradient", core::mem::offset_of!(Look, gradient)), ("angle", core::mem::offset_of!(Look, angle)), ("border", core::mem::offset_of!(Look, border)), ("border_w", core::mem::offset_of!(Look, border_w)), ("sides", core::mem::offset_of!(Look, sides)),
+            ("radius", core::mem::offset_of!(Look, radius)), ("shadows", core::mem::offset_of!(Look, shadows)), ("text", core::mem::offset_of!(Look, text)), ("font", core::mem::offset_of!(Look, font)), ("opacity", core::mem::offset_of!(Look, opacity)), ("ring", core::mem::offset_of!(Look, ring)),
+            ("selection", core::mem::offset_of!(Look, selection)), ("caret", core::mem::offset_of!(Look, caret)), ("dashed", core::mem::offset_of!(Look, dashed)),
         ]);
-        assert_layout("PxuiState", size_of::<State>(), align_of::<State>(), &[offset_of!(State, hovered), offset_of!(State, pressed), offset_of!(State, focused), offset_of!(State, disabled), offset_of!(State, checked)]);
-        assert_layout("PxuiBar", size_of::<Bar>(), align_of::<Bar>(), &[offset_of!(Bar, color), offset_of!(Bar, radius), offset_of!(Bar, width), offset_of!(Bar, gap), offset_of!(Bar, margin), offset_of!(Bar, whole)]);
+        assert_layout("PxuiState", size_of::<State>(), align_of::<State>(), &[("hovered", core::mem::offset_of!(State, hovered)), ("pressed", core::mem::offset_of!(State, pressed)), ("focused", core::mem::offset_of!(State, focused)), ("disabled", core::mem::offset_of!(State, disabled)), ("checked", core::mem::offset_of!(State, checked))]);
+        assert_layout("PxuiBar", size_of::<Bar>(), align_of::<Bar>(), &[("color", core::mem::offset_of!(Bar, color)), ("radius", core::mem::offset_of!(Bar, radius)), ("width", core::mem::offset_of!(Bar, width)), ("gap", core::mem::offset_of!(Bar, gap)), ("margin", core::mem::offset_of!(Bar, margin)), ("whole", core::mem::offset_of!(Bar, whole))]);
         assert_layout("PxuiNode", size_of::<Node>(), align_of::<Node>(), &[
-            offset_of!(Node, size), offset_of!(Node, axis), offset_of!(Node, justify), offset_of!(Node, align), offset_of!(Node, wrap), offset_of!(Node, role),
-            offset_of!(Node, state), offset_of!(Node, z), offset_of!(Node, flags), offset_of!(Node, w), offset_of!(Node, h), offset_of!(Node, min_w),
-            offset_of!(Node, min_h), offset_of!(Node, max_w), offset_of!(Node, max_h), offset_of!(Node, grow), offset_of!(Node, shrink), offset_of!(Node, aspect),
-            offset_of!(Node, padding), offset_of!(Node, margin), offset_of!(Node, gap), offset_of!(Node, row_gap), offset_of!(Node, grid), offset_of!(Node, cell),
-            offset_of!(Node, align_self), offset_of!(Node, anchor), offset_of!(Node, a11y), offset_of!(Node, at), offset_of!(Node, scroll_step), offset_of!(Node, look),
-            offset_of!(Node, inset), offset_of!(Node, mark), offset_of!(Node, bar), offset_of!(Node, transition),
+            ("size", core::mem::offset_of!(Node, size)), ("axis", core::mem::offset_of!(Node, axis)), ("justify", core::mem::offset_of!(Node, justify)), ("align", core::mem::offset_of!(Node, align)), ("wrap", core::mem::offset_of!(Node, wrap)), ("role", core::mem::offset_of!(Node, role)),
+            ("state", core::mem::offset_of!(Node, state)), ("z", core::mem::offset_of!(Node, z)), ("flags", core::mem::offset_of!(Node, flags)), ("w", core::mem::offset_of!(Node, w)), ("h", core::mem::offset_of!(Node, h)), ("min_w", core::mem::offset_of!(Node, min_w)),
+            ("min_h", core::mem::offset_of!(Node, min_h)), ("max_w", core::mem::offset_of!(Node, max_w)), ("max_h", core::mem::offset_of!(Node, max_h)), ("grow", core::mem::offset_of!(Node, grow)), ("shrink", core::mem::offset_of!(Node, shrink)), ("aspect", core::mem::offset_of!(Node, aspect)),
+            ("padding", core::mem::offset_of!(Node, padding)), ("margin", core::mem::offset_of!(Node, margin)), ("gap", core::mem::offset_of!(Node, gap)), ("row_gap", core::mem::offset_of!(Node, row_gap)), ("grid", core::mem::offset_of!(Node, grid)), ("cell", core::mem::offset_of!(Node, cell)),
+            ("align_self", core::mem::offset_of!(Node, align_self)), ("anchor", core::mem::offset_of!(Node, anchor)), ("a11y", core::mem::offset_of!(Node, a11y)), ("at", core::mem::offset_of!(Node, at)), ("scroll_step", core::mem::offset_of!(Node, scroll_step)), ("look", core::mem::offset_of!(Node, look)),
+            ("inset", core::mem::offset_of!(Node, inset)), ("mark", core::mem::offset_of!(Node, mark)), ("bar", core::mem::offset_of!(Node, bar)), ("transition", core::mem::offset_of!(Node, transition)),
         ]);
-        assert_layout("PxuiMotion", size_of::<Motion>(), align_of::<Motion>(), &[offset_of!(Motion, fast), offset_of!(Motion, normal), offset_of!(Motion, slow), offset_of!(Motion, ease)]);
+        assert_layout("PxuiMotion", size_of::<Motion>(), align_of::<Motion>(), &[("fast", core::mem::offset_of!(Motion, fast)), ("normal", core::mem::offset_of!(Motion, normal)), ("slow", core::mem::offset_of!(Motion, slow)), ("ease", core::mem::offset_of!(Motion, ease))]);
         assert_layout("PxuiTokens", size_of::<Tokens>(), align_of::<Tokens>(), &[
-            offset_of!(Tokens, panel), offset_of!(Tokens, foreground), offset_of!(Tokens, control), offset_of!(Tokens, input), offset_of!(Tokens, track),
-            offset_of!(Tokens, accent), offset_of!(Tokens, invalid), offset_of!(Tokens, ink_ground), offset_of!(Tokens, space), offset_of!(Tokens, radius),
-            offset_of!(Tokens, display_size), offset_of!(Tokens, title_size), offset_of!(Tokens, font_size), offset_of!(Tokens, label_size), offset_of!(Tokens, motion),
-            offset_of!(Tokens, reduced_motion), offset_of!(Tokens, density),
+            ("panel", core::mem::offset_of!(Tokens, panel)), ("foreground", core::mem::offset_of!(Tokens, foreground)), ("control", core::mem::offset_of!(Tokens, control)), ("input", core::mem::offset_of!(Tokens, input)), ("track", core::mem::offset_of!(Tokens, track)),
+            ("accent", core::mem::offset_of!(Tokens, accent)), ("invalid", core::mem::offset_of!(Tokens, invalid)), ("ink_ground", core::mem::offset_of!(Tokens, ink_ground)), ("space", core::mem::offset_of!(Tokens, space)), ("radius", core::mem::offset_of!(Tokens, radius)),
+            ("display_size", core::mem::offset_of!(Tokens, display_size)), ("title_size", core::mem::offset_of!(Tokens, title_size)), ("font_size", core::mem::offset_of!(Tokens, font_size)), ("label_size", core::mem::offset_of!(Tokens, label_size)), ("motion", core::mem::offset_of!(Tokens, motion)),
+            ("reduced_motion", core::mem::offset_of!(Tokens, reduced_motion)), ("density", core::mem::offset_of!(Tokens, density)),
         ]);
-        assert_layout("PxuiStates", size_of::<States>(), align_of::<States>(), &[offset_of!(States, idle), offset_of!(States, hover), offset_of!(States, pressed), offset_of!(States, focus), offset_of!(States, disabled), offset_of!(States, checked)]);
+        assert_layout("PxuiStates", size_of::<States>(), align_of::<States>(), &[("idle", core::mem::offset_of!(States, idle)), ("hover", core::mem::offset_of!(States, hover)), ("pressed", core::mem::offset_of!(States, pressed)), ("focus", core::mem::offset_of!(States, focus)), ("disabled", core::mem::offset_of!(States, disabled)), ("checked", core::mem::offset_of!(States, checked))]);
         // the kit parts follow `ring`, `scrollbar_w` and `scrollbar_gap` back to back, in `theme_widgets!` order, then the bodies
         assert_layout("PxuiThemeSnapshot", size_of::<ThemeSnapshot>(), align_of::<ThemeSnapshot>(), &[
-            offset_of!(ThemeSnapshot, tokens), offset_of!(ThemeSnapshot, row_h), offset_of!(ThemeSnapshot, control_h), offset_of!(ThemeSnapshot, ring),
-            offset_of!(ThemeSnapshot, scrollbar_w), offset_of!(ThemeSnapshot, scrollbar_gap), offset_of!(ThemeSnapshot, panel), offset_of!(ThemeSnapshot, body),
+            ("tokens", core::mem::offset_of!(ThemeSnapshot, tokens)), ("row_h", core::mem::offset_of!(ThemeSnapshot, row_h)), ("control_h", core::mem::offset_of!(ThemeSnapshot, control_h)), ("ring", core::mem::offset_of!(ThemeSnapshot, ring)),
+            ("scrollbar_w", core::mem::offset_of!(ThemeSnapshot, scrollbar_w)), ("scrollbar_gap", core::mem::offset_of!(ThemeSnapshot, scrollbar_gap)), ("panel", core::mem::offset_of!(ThemeSnapshot, panel)), ("body", core::mem::offset_of!(ThemeSnapshot, body)),
         ]);
-        assert_eq!(offset_of!(ThemeSnapshot, body), offset_of!(ThemeSnapshot, panel) + WIDGET_COUNT * size_of::<States>(), "the parts are an array of States, then the bodies");
+        assert_eq!(core::mem::offset_of!(ThemeSnapshot, body), core::mem::offset_of!(ThemeSnapshot, panel) + WIDGET_COUNT * size_of::<States>(), "the parts are an array of States, then the bodies");
     }
 
-    #[test]
-    fn frozen_layout_v1() {
+    pub(crate) fn frozen_rows() {
+        // pxui.h calls `Point` PxuiPoint; the manifest pins both names
+        assert_layout("PxuiPoint", size_of::<geom::Point>(), align_of::<geom::Point>(), &[("x", core::mem::offset_of!(geom::Point, x)), ("y", core::mem::offset_of!(geom::Point, y))]);
         assert_layout(
             "Point",
             size_of::<geom::Point>(),
             align_of::<geom::Point>(),
-            &[offset_of!(geom::Point, x), offset_of!(geom::Point, y)],
+            &[("x", core::mem::offset_of!(geom::Point, x)), ("y", core::mem::offset_of!(geom::Point, y))],
         );
         assert_layout(
             "Rect",
             size_of::<geom::Rect>(),
             align_of::<geom::Rect>(),
             &[
-                offset_of!(geom::Rect, x),
-                offset_of!(geom::Rect, y),
-                offset_of!(geom::Rect, w),
-                offset_of!(geom::Rect, h),
+                ("x", core::mem::offset_of!(geom::Rect, x)),
+                ("y", core::mem::offset_of!(geom::Rect, y)),
+                ("w", core::mem::offset_of!(geom::Rect, w)),
+                ("h", core::mem::offset_of!(geom::Rect, h)),
             ],
         );
         assert_layout(
@@ -561,10 +544,10 @@ mod abi_layout {
             size_of::<geom::Edges>(),
             align_of::<geom::Edges>(),
             &[
-                offset_of!(geom::Edges, l),
-                offset_of!(geom::Edges, t),
-                offset_of!(geom::Edges, r),
-                offset_of!(geom::Edges, b),
+                ("l", core::mem::offset_of!(geom::Edges, l)),
+                ("t", core::mem::offset_of!(geom::Edges, t)),
+                ("r", core::mem::offset_of!(geom::Edges, r)),
+                ("b", core::mem::offset_of!(geom::Edges, b)),
             ],
         );
         assert_layout("Flags", size_of::<Flags>(), align_of::<Flags>(), &[]);
@@ -580,10 +563,10 @@ mod abi_layout {
             size_of::<geom::Rgba>(),
             align_of::<geom::Rgba>(),
             &[
-                offset_of!(geom::Rgba, r),
-                offset_of!(geom::Rgba, g),
-                offset_of!(geom::Rgba, b),
-                offset_of!(geom::Rgba, a),
+                ("r", core::mem::offset_of!(geom::Rgba, r)),
+                ("g", core::mem::offset_of!(geom::Rgba, g)),
+                ("b", core::mem::offset_of!(geom::Rgba, b)),
+                ("a", core::mem::offset_of!(geom::Rgba, a)),
             ],
         );
         assert_layout(
@@ -591,18 +574,18 @@ mod abi_layout {
             size_of::<draw::Instance>(),
             align_of::<draw::Instance>(),
             &[
-                offset_of!(draw::Instance, rect),
-                offset_of!(draw::Instance, clip),
-                offset_of!(draw::Instance, color),
-                offset_of!(draw::Instance, color2),
-                offset_of!(draw::Instance, aux),
-                offset_of!(draw::Instance, radii),
-                offset_of!(draw::Instance, width),
-                offset_of!(draw::Instance, kind),
-                offset_of!(draw::Instance, flags),
-                offset_of!(draw::Instance, view),
-                offset_of!(draw::Instance, clip_radius),
-                offset_of!(draw::Instance, extra),
+                ("rect", core::mem::offset_of!(draw::Instance, rect)),
+                ("clip", core::mem::offset_of!(draw::Instance, clip)),
+                ("color", core::mem::offset_of!(draw::Instance, color)),
+                ("color2", core::mem::offset_of!(draw::Instance, color2)),
+                ("aux", core::mem::offset_of!(draw::Instance, aux)),
+                ("radii", core::mem::offset_of!(draw::Instance, radii)),
+                ("width", core::mem::offset_of!(draw::Instance, width)),
+                ("kind", core::mem::offset_of!(draw::Instance, kind)),
+                ("flags", core::mem::offset_of!(draw::Instance, flags)),
+                ("view", core::mem::offset_of!(draw::Instance, view)),
+                ("clip_radius", core::mem::offset_of!(draw::Instance, clip_radius)),
+                ("extra", core::mem::offset_of!(draw::Instance, extra)),
             ],
         );
         assert_layout(
@@ -610,78 +593,78 @@ mod abi_layout {
             size_of::<View>(),
             align_of::<View>(),
             &[
-                offset_of!(View, offset),
-                offset_of!(View, opacity),
-                offset_of!(View, clip),
-                offset_of!(View, scale),
-                offset_of!(View, transform),
-                offset_of!(View, pivot),
+                ("offset", core::mem::offset_of!(View, offset)),
+                ("opacity", core::mem::offset_of!(View, opacity)),
+                ("clip", core::mem::offset_of!(View, clip)),
+                ("scale", core::mem::offset_of!(View, scale)),
+                ("transform", core::mem::offset_of!(View, transform)),
+                ("pivot", core::mem::offset_of!(View, pivot)),
             ],
         );
         assert_layout(
             "Str",
             size_of::<Str>(),
             align_of::<Str>(),
-            &[offset_of!(Str, ptr), offset_of!(Str, len)],
+            &[("ptr", core::mem::offset_of!(Str, ptr)), ("len", core::mem::offset_of!(Str, len))],
         );
         assert_layout(
             "Event",
             size_of::<Event>(),
             align_of::<Event>(),
             &[
-                offset_of!(Event, kind),
-                offset_of!(Event, code),
-                offset_of!(Event, x),
-                offset_of!(Event, y),
-                offset_of!(Event, value),
-                offset_of!(Event, text),
+                ("kind", core::mem::offset_of!(Event, kind)),
+                ("code", core::mem::offset_of!(Event, code)),
+                ("x", core::mem::offset_of!(Event, x)),
+                ("y", core::mem::offset_of!(Event, y)),
+                ("value", core::mem::offset_of!(Event, value)),
+                ("text", core::mem::offset_of!(Event, text)),
             ],
         );
         assert_layout(
             "FrameIn",
-            offset_of!(FrameIn,appearance), // frozen v1 prefix, accepted from older callers
+            core::mem::offset_of!(FrameIn,appearance), // frozen v1 prefix, accepted from older callers
             align_of::<FrameIn>(),
             &[
-                offset_of!(FrameIn, size),
-                offset_of!(FrameIn, events),
-                offset_of!(FrameIn, event_count),
-                offset_of!(FrameIn, width),
-                offset_of!(FrameIn, height),
-                offset_of!(FrameIn, scale),
-                offset_of!(FrameIn, time),
+                ("size", core::mem::offset_of!(FrameIn, size)),
+                ("events", core::mem::offset_of!(FrameIn, events)),
+                ("event_count", core::mem::offset_of!(FrameIn, event_count)),
+                ("width", core::mem::offset_of!(FrameIn, width)),
+                ("height", core::mem::offset_of!(FrameIn, height)),
+                ("scale", core::mem::offset_of!(FrameIn, scale)),
+                ("time", core::mem::offset_of!(FrameIn, time)),
             ],
         );
-        assert_layout("FrameInV1_8",offset_of!(FrameIn,environment),align_of::<FrameIn>(),&[
-            offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),
-            offset_of!(FrameIn,width),offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),
-            offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),
+        assert_layout("FrameInV1_8",core::mem::offset_of!(FrameIn,environment),align_of::<FrameIn>(),&[
+            ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),
+            ("width", core::mem::offset_of!(FrameIn, width)),("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),
+            ("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),
         ]);
-        assert_layout("Touch",size_of::<Touch>(),align_of::<Touch>(),&[offset_of!(Touch,device),offset_of!(Touch,finger),offset_of!(Touch,x),offset_of!(Touch,y),offset_of!(Touch,time),offset_of!(Touch,pressure),offset_of!(Touch,phase)]);
+        assert_layout("Touch",size_of::<Touch>(),align_of::<Touch>(),&[("device", core::mem::offset_of!(Touch, device)),("finger", core::mem::offset_of!(Touch, finger)),("x", core::mem::offset_of!(Touch, x)),("y", core::mem::offset_of!(Touch, y)),("time", core::mem::offset_of!(Touch, time)),("pressure", core::mem::offset_of!(Touch, pressure)),("phase", core::mem::offset_of!(Touch, phase))]);
         assert_layout("Environment",size_of::<Environment>(),align_of::<Environment>(),&[
-            offset_of!(Environment,safe_area),offset_of!(Environment,keyboard_frame),offset_of!(Environment,keyboard_from),
-            offset_of!(Environment,keyboard_started),offset_of!(Environment,keyboard_duration),offset_of!(Environment,keyboard_curve),offset_of!(Environment,keyboard_visible),
+            ("safe_area", core::mem::offset_of!(Environment, safe_area)),("keyboard_frame", core::mem::offset_of!(Environment, keyboard_frame)),("keyboard_from", core::mem::offset_of!(Environment, keyboard_from)),
+            ("keyboard_started", core::mem::offset_of!(Environment, keyboard_started)),("keyboard_duration", core::mem::offset_of!(Environment, keyboard_duration)),("keyboard_curve", core::mem::offset_of!(Environment, keyboard_curve)),("keyboard_visible", core::mem::offset_of!(Environment, keyboard_visible)),
         ]);
-        assert_layout("FrameInV1_24",offset_of!(FrameIn,keyboard),align_of::<FrameIn>(),&[
-            offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),offset_of!(FrameIn,width),
-            offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),offset_of!(FrameIn,environment),
+        assert_layout("FrameInV1_24",core::mem::offset_of!(FrameIn,keyboard),align_of::<FrameIn>(),&[
+            ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),("width", core::mem::offset_of!(FrameIn, width)),
+            ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),
         ]);
-        assert_layout("Keyboard",size_of::<Keyboard>(),align_of::<Keyboard>(),&[offset_of!(Keyboard,frame),offset_of!(Keyboard,flags)]);
-        assert_layout("TextInputOptions",size_of::<TextInputOptions>(),align_of::<TextInputOptions>(),&[offset_of!(TextInputOptions,autocorrect),offset_of!(TextInputOptions,capitalization),offset_of!(TextInputOptions,action)]);
+        assert_layout("Keyboard",size_of::<Keyboard>(),align_of::<Keyboard>(),&[("frame", core::mem::offset_of!(Keyboard, frame)),("flags", core::mem::offset_of!(Keyboard, flags))]);
+        assert_layout("TextInputOptions",size_of::<TextInputOptions>(),align_of::<TextInputOptions>(),&[("autocorrect", core::mem::offset_of!(TextInputOptions, autocorrect)),("capitalization", core::mem::offset_of!(TextInputOptions, capitalization)),("action", core::mem::offset_of!(TextInputOptions, action))]);
         assert_layout("FrameInV1_26",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
-            offset_of!(FrameIn,size),offset_of!(FrameIn,events),offset_of!(FrameIn,event_count),offset_of!(FrameIn,width),
-            offset_of!(FrameIn,height),offset_of!(FrameIn,scale),offset_of!(FrameIn,time),offset_of!(FrameIn,appearance),offset_of!(FrameIn,reduced_motion),offset_of!(FrameIn,environment),offset_of!(FrameIn,keyboard),
+            ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),("width", core::mem::offset_of!(FrameIn, width)),
+            ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),("keyboard", core::mem::offset_of!(FrameIn, keyboard)),
         ]);
         assert_layout(
             "FrameOut",
             size_of::<FrameOut>(),
             align_of::<FrameOut>(),
             &[
-                offset_of!(FrameOut, size),
-                offset_of!(FrameOut, damage),
-                offset_of!(FrameOut, has_damage),
-                offset_of!(FrameOut, reserved),
-                offset_of!(FrameOut, layer_count),
-                offset_of!(FrameOut, layers),
+                ("size", core::mem::offset_of!(FrameOut, size)),
+                ("damage", core::mem::offset_of!(FrameOut, damage)),
+                ("has_damage", core::mem::offset_of!(FrameOut, has_damage)),
+                ("reserved", core::mem::offset_of!(FrameOut, reserved)),
+                ("layer_count", core::mem::offset_of!(FrameOut, layer_count)),
+                ("layers", core::mem::offset_of!(FrameOut, layers)),
             ],
         );
         assert_layout(
@@ -689,24 +672,24 @@ mod abi_layout {
             size_of::<Gpu>(),
             align_of::<Gpu>(),
             &[
-                offset_of!(Gpu, size),
-                offset_of!(Gpu, backend),
-                offset_of!(Gpu, instance),
-                offset_of!(Gpu, physical_device),
-                offset_of!(Gpu, device),
-                offset_of!(Gpu, queue),
-                offset_of!(Gpu, queue_family),
-                offset_of!(Gpu, api_version),
-                offset_of!(Gpu, features),
-                offset_of!(Gpu, get_instance_proc_addr),
-                offset_of!(Gpu, pipeline_cache),
-                offset_of!(Gpu, mtl_device),
-                offset_of!(Gpu, wl_display),
-                offset_of!(Gpu, wl_surface),
-                offset_of!(Gpu, metal_layer),
-                offset_of!(Gpu, hwnd),
-                offset_of!(Gpu, owner_token),
-                offset_of!(Gpu, release_owner),
+                ("size", core::mem::offset_of!(Gpu, size)),
+                ("backend", core::mem::offset_of!(Gpu, backend)),
+                ("instance", core::mem::offset_of!(Gpu, instance)),
+                ("physical_device", core::mem::offset_of!(Gpu, physical_device)),
+                ("device", core::mem::offset_of!(Gpu, device)),
+                ("queue", core::mem::offset_of!(Gpu, queue)),
+                ("queue_family", core::mem::offset_of!(Gpu, queue_family)),
+                ("api_version", core::mem::offset_of!(Gpu, api_version)),
+                ("features", core::mem::offset_of!(Gpu, features)),
+                ("get_instance_proc_addr", core::mem::offset_of!(Gpu, get_instance_proc_addr)),
+                ("pipeline_cache", core::mem::offset_of!(Gpu, pipeline_cache)),
+                ("mtl_device", core::mem::offset_of!(Gpu, mtl_device)),
+                ("wl_display", core::mem::offset_of!(Gpu, wl_display)),
+                ("wl_surface", core::mem::offset_of!(Gpu, wl_surface)),
+                ("metal_layer", core::mem::offset_of!(Gpu, metal_layer)),
+                ("hwnd", core::mem::offset_of!(Gpu, hwnd)),
+                ("owner_token", core::mem::offset_of!(Gpu, owner_token)),
+                ("release_owner", core::mem::offset_of!(Gpu, release_owner)),
             ],
         );
         assert_layout(
@@ -714,9 +697,9 @@ mod abi_layout {
             size_of::<Commands>(),
             align_of::<Commands>(),
             &[
-                offset_of!(Commands, size),
-                offset_of!(Commands, vk_command_buffer),
-                offset_of!(Commands, mtl_command_buffer),
+                ("size", core::mem::offset_of!(Commands, size)),
+                ("vk_command_buffer", core::mem::offset_of!(Commands, vk_command_buffer)),
+                ("mtl_command_buffer", core::mem::offset_of!(Commands, mtl_command_buffer)),
             ],
         );
         assert_layout(
@@ -724,17 +707,17 @@ mod abi_layout {
             size_of::<Pass>(),
             align_of::<Pass>(),
             &[
-                offset_of!(Pass, size),
-                offset_of!(Pass, vk_command_buffer),
-                offset_of!(Pass, mtl_render_encoder),
-                offset_of!(Pass, width_px),
-                offset_of!(Pass, height_px),
-                offset_of!(Pass, scale),
-                offset_of!(Pass, mtl_command_buffer),
-                offset_of!(Pass, first_layer),
-                offset_of!(Pass, layer_count),
-                offset_of!(Pass, split),
-                offset_of!(Pass, split_user),
+                ("size", core::mem::offset_of!(Pass, size)),
+                ("vk_command_buffer", core::mem::offset_of!(Pass, vk_command_buffer)),
+                ("mtl_render_encoder", core::mem::offset_of!(Pass, mtl_render_encoder)),
+                ("width_px", core::mem::offset_of!(Pass, width_px)),
+                ("height_px", core::mem::offset_of!(Pass, height_px)),
+                ("scale", core::mem::offset_of!(Pass, scale)),
+                ("mtl_command_buffer", core::mem::offset_of!(Pass, mtl_command_buffer)),
+                ("first_layer", core::mem::offset_of!(Pass, first_layer)),
+                ("layer_count", core::mem::offset_of!(Pass, layer_count)),
+                ("split", core::mem::offset_of!(Pass, split)),
+                ("split_user", core::mem::offset_of!(Pass, split_user)),
             ],
         );
         assert_layout(
@@ -742,12 +725,12 @@ mod abi_layout {
             size_of::<Image>(),
             align_of::<Image>(),
             &[
-                offset_of!(Image, size),
-                offset_of!(Image, vk_image_view),
-                offset_of!(Image, mtl_texture),
-                offset_of!(Image, width),
-                offset_of!(Image, height),
-                offset_of!(Image, format),
+                ("size", core::mem::offset_of!(Image, size)),
+                ("vk_image_view", core::mem::offset_of!(Image, vk_image_view)),
+                ("mtl_texture", core::mem::offset_of!(Image, mtl_texture)),
+                ("width", core::mem::offset_of!(Image, width)),
+                ("height", core::mem::offset_of!(Image, height)),
+                ("format", core::mem::offset_of!(Image, format)),
             ],
         );
         assert_layout(
@@ -755,12 +738,12 @@ mod abi_layout {
             size_of::<Span>(),
             align_of::<Span>(),
             &[
-                offset_of!(Span, size),
-                offset_of!(Span, view),
-                offset_of!(Span, clip_radius_f16),
-                offset_of!(Span, clip),
-                offset_of!(Span, at),
-                offset_of!(Span, end),
+                ("size", core::mem::offset_of!(Span, size)),
+                ("view", core::mem::offset_of!(Span, view)),
+                ("clip_radius_f16", core::mem::offset_of!(Span, clip_radius_f16)),
+                ("clip", core::mem::offset_of!(Span, clip)),
+                ("at", core::mem::offset_of!(Span, at)),
+                ("end", core::mem::offset_of!(Span, end)),
             ],
         );
     }

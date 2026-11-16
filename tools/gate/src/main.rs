@@ -1685,6 +1685,16 @@ fn abi_header(workspace: &Path) -> Result<Vec<String>, String> {
             }
         }
     }
+    // The layout manifest and the header's C asserts are generated from the Rust types; the test fails when either file was edited by hand.
+    let layout = std::process::Command::new("cargo")
+        .current_dir(workspace)
+        .args(["t", "-p", "pxui_types", "abi_layout_rows"])
+        .output()
+        .map_err(|error| format!("cannot run the layout test: {error}"))?;
+    if !layout.status.success() {
+        issues.push(format!("abi-header: abi/layout.v1.txt or the layout asserts in include/pxui.h disagree with the Rust types:\n{}{}",
+            String::from_utf8_lossy(&layout.stdout), String::from_utf8_lossy(&layout.stderr)));
+    }
     Ok(issues)
 }
 
