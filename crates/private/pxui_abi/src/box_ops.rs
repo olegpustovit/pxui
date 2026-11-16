@@ -70,7 +70,7 @@ mod gesture_tests {
             let sentinel = || PxuiGestureOut { flags: 99, swipe: 1.0, back: 2.0, pull: 3.0, ..Default::default() };
             let mut out = sentinel();
             let good = PxuiGestureIn { kinds: 2, reveal: 80.0, ..Default::default() };
-            let bad = [PxuiGestureIn { kinds: 16, ..good }, PxuiGestureIn { reveal: f32::NAN, ..good }, PxuiGestureIn { threshold: f32::INFINITY, ..good }, PxuiGestureIn { size: 8, ..good }];
+            let bad = [PxuiGestureIn { kinds: 16, ..good }, PxuiGestureIn { kinds: 64, ..good }, PxuiGestureIn { reveal: f32::NAN, ..good }, PxuiGestureIn { threshold: f32::INFINITY, ..good }, PxuiGestureIn { size: 8, ..good }];
             for request in &bad {
                 assert_eq!(unsafe { pxui_ui_gesture(raw.cast(), node, request, 0, &mut out) }, PXUI_ERR_ARGUMENT);
             }
@@ -289,7 +289,7 @@ export!(pub unsafe fn pxui_ui_gesture(ui: *mut PxuiUi, box_: *const PxuiBox, in_
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid gesture output") }; };
     let cfg = if in_.is_null() { None } else {
         let request = unsafe { in_.read_unaligned() };
-        if (request.size as usize) < core::mem::size_of::<pxui_types::ffi::PxuiGestureIn>() || request.kinds & !15 != 0 || !request.reveal.is_finite() || !request.threshold.is_finite() {
+        if (request.size as usize) < core::mem::size_of::<pxui_types::ffi::PxuiGestureIn>() || request.kinds & !47 != 0 || !request.reveal.is_finite() || !request.threshold.is_finite() {
             return unsafe { fail(ui, "invalid gesture request") };
         }
         Some(pxui_core::ui::gesture::GestureCfg { kinds: request.kinds, reveal: request.reveal, threshold: request.threshold, ..Default::default() })

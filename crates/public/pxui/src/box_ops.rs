@@ -115,6 +115,8 @@ pub struct GestureOpts {
     pub swipe_actions: Option<SwipeActions>,
     /// vertical drag-to-dismiss for a full-screen player or bottom sheet
     pub dismiss: Option<DismissOpts>,
+    /// take the touch at once as a held press and drag (an index strip, a scrubber): reported like a held mouse button, never scrolling an enclosing scroll view
+    pub touch_drag: bool,
 }
 
 /// Drag-to-dismiss thresholds; 0 picks the default (UIKit sheet: a quarter of the node height, 600 points/s).
@@ -189,7 +191,7 @@ impl Ui {
     /// Take these gestures on `node` (call every build) and read what they did. A stale handle reads as rest.
     #[track_caller]
     pub fn gesture(&mut self, node: &PxuiBox, opts: GestureOpts) -> GestureState {
-        let kinds = u32::from(opts.long_press) | u32::from(opts.row_swipe.is_some()) << 1 | u32::from(opts.edge_back) << 2 | u32::from(opts.refresh.is_some()) << 3;
+        let kinds = u32::from(opts.long_press) | u32::from(opts.row_swipe.is_some()) << 1 | u32::from(opts.edge_back) << 2 | u32::from(opts.refresh.is_some()) << 3 | u32::from(opts.touch_drag) << 5;
         let request = pxui_types::ffi::PxuiGestureIn { kinds, reveal: opts.row_swipe.unwrap_or(0.0), threshold: opts.refresh.unwrap_or(0.0), ..Default::default() };
         let state = self.gesture_call(node, Some(request), 0);
         if let Some(a) = opts.swipe_actions {

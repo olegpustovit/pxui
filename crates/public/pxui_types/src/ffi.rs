@@ -399,7 +399,7 @@ pub struct PxuiScrubOut {
 impl Default for PxuiScrubOut {
     fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, flags: 0, node: PxuiBox::default(), preview: 0.0, commit: 0.0 } }
 }
-/// ABI 1.38 gesture request: `kinds` bits 1 long press, 2 row swipe, 4 edge back, 8 pull to refresh;
+/// ABI 1.38 gesture request: `kinds` bits 1 long press, 2 row swipe, 4 edge back, 8 pull to refresh, 32 touch drag (a held press and drag, ABI 1.42);
 /// `reveal` is the row-swipe action width and `threshold` the pull distance (0: 60), in points.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]

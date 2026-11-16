@@ -1,4 +1,4 @@
-use super::gesture::{DISMISS, EDGE_BACK, HIGHLIGHT_DELAY, LONG_PRESS, LONG_PRESS_DELAY, ROW_SWIPE};
+use super::gesture::{DISMISS, EDGE_BACK, HIGHLIGHT_DELAY, LONG_PRESS, LONG_PRESS_DELAY, ROW_SWIPE, TOUCH_DRAG};
 use super::{Direction, SCROLL, SCROLL_X, Ui, p32};
 use input::{Event, MouseButton, TouchPhase};
 
@@ -220,8 +220,11 @@ impl Ui {
             }
             let owner = self.topmost(p32(t.point));
             let owner = self.modal_target(owner);
-            let vertical = self.scroll_target_flags(p32(t.point), SCROLL);
-            let horizontal = self.scroll_target_flags(p32(t.point), SCROLL_X);
+            // A touch-drag node under the contact takes it now, with no arbitration against scrolls or the swipes and presses of rows beneath it.
+            let claim = self.gesture_at(p32(t.point), TOUCH_DRAG);
+            let claimed = claim != 0 && owner != 0 && self.hit_within(owner, claim);
+            let vertical = if claimed { 0 } else { self.scroll_target_flags(p32(t.point), SCROLL) };
+            let horizontal = if claimed { 0 } else { self.scroll_target_flags(p32(t.point), SCROLL_X) };
             let scroll = [vertical, horizontal].map(|key| {
                 if self.modal_target(key) == key {
                     key
@@ -244,10 +247,9 @@ impl Ui {
                 value.scroll_velocity = (0.0, 0.0);
             }
             let point = p32(t.point);
-            let press = if caught { 0 } else { self.gesture_at(point, LONG_PRESS) };
-            let swipe = self.gesture_at(point, ROW_SWIPE);
-            let edge = self.gesture_at(point, EDGE_BACK);
-            let dismiss = self.gesture_at(point, DISMISS);
+            let at = |ui: &mut Self, kind| if claimed { 0 } else { ui.gesture_at(point, kind) };
+            let press = if caught { 0 } else { at(self, LONG_PRESS) };
+            let (swipe, edge, dismiss) = (at(self, ROW_SWIPE), at(self, EDGE_BACK), at(self, DISMISS));
             // A contact that may become a swipe, back or long press waits like one on a scroll.
             let mode = if scroll == [0, 0] && owner != 0 && press == 0 && swipe == 0 && edge == 0 && dismiss == 0 { 1 } else { 0 };
             self.touches.gesture = Some(Gesture {

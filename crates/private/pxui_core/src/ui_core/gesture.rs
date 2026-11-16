@@ -8,6 +8,8 @@ pub const LONG_PRESS: u32 = 1;
 pub const ROW_SWIPE: u32 = 2;
 pub const EDGE_BACK: u32 = 4;
 pub const REFRESH: u32 = 8;
+/// A node taking the whole touch at once: a held press and drag like a mouse, never a tap, scroll or other gesture.
+pub const TOUCH_DRAG: u32 = 32;
 /// Internal kind bit of a dismiss node (set by `Ui::dismiss`, never by `gesture`).
 pub(super) const DISMISS: u32 = 16;
 /// `Ui::dismiss` flags: finger down or settling, and the release verdict (this frame).

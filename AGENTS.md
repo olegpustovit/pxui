@@ -358,6 +358,8 @@ ABI 1.41 `ui_dismiss` (after `ui_gesture` each build, which resets kinds) adds t
 the axis lock on a downward drag when no inner scroll holds the contact (absent, or at its top and not gliding), keeps
 the offset continuous with a catching spring, rubber-bands upward past 0 and, on release, commits (a fraction of the node
 height, default 0.25, or 600 pt/s downward; never on a cancel) with a one-frame pulse, then settles to the height.
+ABI 1.42 gesture kind 32 (`GestureOpts::touch_drag`) claims a touch at touch-down: mode 1 (the mouse press/drag path) with
+no scroll, long press, swipe, back or dismiss arbitration, for index strips and scrubbers inside scroll views.
 
 The scoped iOS loop delivers Signal::Control for inactive worker wakes and explicit deadlines.
 Keep the display link paused and all Metal drawing disabled in these callbacks. NextFrame defers

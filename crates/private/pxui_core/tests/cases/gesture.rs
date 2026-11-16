@@ -612,5 +612,74 @@ pub const CASES: &[(&str, fn())] = &[
     ("gesture_dismiss_commits_by_distance_or_velocity_and_cancels_otherwise", dismiss_commits_by_distance_or_velocity_and_cancels_otherwise),
     ("gesture_dismiss_hands_over_to_an_inner_scroll_only_at_its_top_and_ignores_horizontal", dismiss_hands_over_to_an_inner_scroll_only_at_its_top_and_ignores_horizontal),
     ("gestures_allocate_nothing_when_warm", gestures_allocate_nothing_when_warm),
+    ("gesture_touch_drag_node_takes_a_held_press_and_drag_without_scrolling", touch_drag_node_takes_a_held_press_and_drag_without_scrolling),
     ("gesture_scroll_physics_trace_rubber_band_spring_back_and_catch", scroll_physics_trace_rubber_band_spring_back_and_catch),
 ];
+
+/// A scroll view with a `TOUCH_DRAG` strip over its right edge: returns the strip's signal and the list's scroll offset.
+fn strip_step(ui: &mut Ui, frame: &mut input::frame::Frame, time: f64, events: &[Event], claim: bool) -> (Signal, f32) {
+    frame.input.t = time;
+    frame.input.events.clear();
+    frame.input.events.extend_from_slice(events);
+    let mut out = None;
+    ui.frame(frame, &mut |ui| {
+        let list = ui.box_("strip-list", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(200.0)).flags(CLIP | SCROLL));
+        let inner = ui.enter(&list);
+        for name in ROWS {
+            let row = ui.box_(name, BoxOpts::default().w(Size::Px(100.0)).h(Size::Px(50.0)).flags(CLICKABLE));
+            // rows under the strip take swipes: without the claim they would hold the touch pending
+            ui.gesture(&row, Some(GestureCfg { kinds: ROW_SWIPE, reveal: 60.0, ..Default::default() }), 0);
+        }
+        ui.leave(inner);
+        let strip = ui.box_("strip", BoxOpts::default().at((80.0, 0.0)).w(Size::Px(20.0)).h(Size::Px(200.0)).flags(CLICKABLE));
+        ui.gesture(&strip, Some(GestureCfg { kinds: if claim { TOUCH_DRAG } else { 0 }, ..Default::default() }), 0);
+        out = Some((ui.signal_state(&strip), list));
+    });
+    let (signal, list) = out.unwrap();
+    (signal, ui.scroll_offset(&list))
+}
+
+fn touch_drag_node_takes_a_held_press_and_drag_without_scrolling() {
+    let mut frame = frame_at(vec![], 2.0, 0.0, Vec::with_capacity(32));
+    let mut ui = new_ui(None);
+    strip_step(&mut ui, &mut frame, 0.0, &[], true);
+    let (s, _) = strip_step(&mut ui, &mut frame, 0.1, &[touch(Began, (90.0, 20.0), 0.1)], true);
+    assert!(s.pressed && s.held && s.pointer == (90.0, 20.0), "press on touch-down, no slop wait");
+    // frame by frame down the strip, then past its edge: capture keeps tracking, the list never scrolls
+    for (i, p) in [(92.0, 50.0), (95.0, 120.0), (200.0, 190.0)].into_iter().enumerate() {
+        let t = 0.116 + 0.016 * i as f64;
+        let (s, off) = strip_step(&mut ui, &mut frame, t, &[touch(Moved, p, t)], true);
+        assert!(s.held && s.dragging && !s.pressed && s.pointer == (p.0 as f32, p.1 as f32), "frame {i}");
+        assert_eq!(off, 0.0, "the vertical drag does not scroll the list");
+    }
+    let (s, off) = strip_step(&mut ui, &mut frame, 0.2, &[touch(Ended, (200.0, 190.0), 0.2)], true);
+    assert!(s.released && !s.held && off == 0.0);
+    let (_, off) = strip_step(&mut ui, &mut frame, 0.4, &[], true);
+    assert_eq!(off, 0.0, "no fling after the lift");
+    // a tap clicks like a mouse
+    strip_step(&mut ui, &mut frame, 1.0, &[touch(Began, (90.0, 20.0), 1.0)], true);
+    let (s, _) = strip_step(&mut ui, &mut frame, 1.03, &[touch(Ended, (90.0, 20.0), 1.03)], true);
+    assert!(s.clicked);
+    // without the kind the touch waits on the row swipe under the strip and is never held
+    strip_step(&mut ui, &mut frame, 1.9, &[], false);
+    let (s, _) = strip_step(&mut ui, &mut frame, 2.0, &[touch(Began, (90.0, 150.0), 2.0)], false);
+    let (s2, _) = strip_step(&mut ui, &mut frame, 2.016, &[touch(Moved, (90.0, 145.0), 2.016)], false);
+    assert!(!s.held && !s2.held, "unclaimed touch is arbitrated {} {} {}", s.held, s2.held, s.pressed);
+    strip_step(&mut ui, &mut frame, 2.05, &[touch(Ended, (90.0, 145.0), 2.05)], false);
+    // mouse behaviour is the same press/drag path
+    strip_step(&mut ui, &mut frame, 5.0, &[Event::PointerMoved((90.0, 20.0)), Event::PointerPressed(input::MouseButton::LeftButton, (90.0, 20.0))], true);
+    let (s, _) = strip_step(&mut ui, &mut frame, 5.016, &[Event::PointerMoved((90.0, 120.0))], true);
+    assert!(s.held && s.dragging && s.pointer == (90.0, 120.0));
+    // warm allocations
+    for round in 0..4 {
+        let t = 10.0 + f64::from(round) * 5.0;
+        mem_sys::local_reset();
+        strip_step(&mut ui, &mut frame, t, &[touch(Began, (90.0, 20.0), t)], true);
+        strip_step(&mut ui, &mut frame, t + 0.016, &[touch(Moved, (90.0, 90.0), t + 0.016)], true);
+        strip_step(&mut ui, &mut frame, t + 0.032, &[touch(Ended, (90.0, 90.0), t + 0.032)], true);
+        if round >= 2 {
+            assert_eq!(mem_sys::local_alloc_count(), 0, "warm touch drag round {round}");
+        }
+    }
+    ui.destroy();
+}

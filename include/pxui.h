@@ -264,7 +264,8 @@ typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t ge
 /* ABI 1.31: flags bit 0 preview, bit 1 commit, bit 2 held. Initialize size before calling. */
 typedef struct { uint32_t size, flags; PxuiBox node; float preview, commit; } PxuiScrubOut;
 _Static_assert(sizeof(PxuiScrubOut) == 48, "PxuiScrubOut layout");
-/* ABI 1.38: kinds bit 0 long press, 1 row swipe, 2 edge back, 3 pull to refresh; reveal is the row-swipe action
+/* ABI 1.38: kinds bit 0 long press, 1 row swipe, 2 edge back, 3 pull to refresh, 5 touch drag (ABI 1.42: the node takes the touch at once as a held press and drag, never a tap, scroll or
+   other gesture; PxuiGestureIn kinds & ~47 is refused); reveal is the row-swipe action
    width and threshold the pull distance (0: 60), in points. Initialize size before calling. */
 typedef struct { uint32_t size, kinds; float reveal, threshold; } PxuiGestureIn;
 _Static_assert(sizeof(PxuiGestureIn) == 16, "PxuiGestureIn layout");
