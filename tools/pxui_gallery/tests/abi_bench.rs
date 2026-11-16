@@ -218,18 +218,12 @@ fn abi_bench_pages() {
 /// Containers per frame of the authoring-helper page, each with `AUTHOR_CHILDREN` leaves.
 const AUTHOR_ROWS: usize = 200;
 const AUTHOR_CHILDREN: usize = 2;
-/// Plan: a container built through the authoring layer's thin shim retires at most 1% more instructions than `node` + `within`.
+/// Plan: a container built through the authoring layer's `ui.row` retires at most 1% more instructions than `node` + `within`.
 const GATE_AUTHOR_RATIO: f64 = 1.01;
 
-/// The shape the authoring layer (`author/`) will have: an inlined generic forwarding to one non-generic body.
+/// The node-rebuilding variant of an authoring helper: an inlined generic forwarding to one non-generic body, as `ui.row` is.
 struct Shim;
 impl Shim {
-    #[inline]
-    fn row<F: FnMut(&mut pxui::Ui)>(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, mut f: F) { self.row_body(ui, key, node, &mut f); }
-    fn row_body(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, f: &mut dyn FnMut(&mut pxui::Ui)) {
-        let b = ui.node(key, node);
-        ui.within(&b, f);
-    }
     /// The variant under test: the helper takes the node by value and rebuilds a modified copy before using it.
     #[inline]
     fn rebuilding<F: FnMut(&mut pxui::Ui)>(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, mut f: F) { self.rebuilding_body(ui, key, node, &mut f); }
@@ -244,20 +238,22 @@ impl Shim {
 /// direct calls; the node-rebuilding helper is measured and reported.
 fn abi_bench_author() {
     if !slow() { return; }
-    let labels: Vec<String> = (0..AUTHOR_ROWS).map(|i| format!("row{i}")).collect();
+    // `Key` labels are `&'static str`: the page's 200 row labels live for the test process.
+    let labels: Vec<&'static str> = (0..AUTHOR_ROWS).map(|i| &*format!("row{i}").leak()).collect();
     let leaves: Vec<String> = (0..AUTHOR_CHILDREN).map(|i| format!("leaf{i}")).collect();
-    let row = pxui::Node { w: Size::Grow, h: Size::Px(24.0), ..pxui::Node::DEFAULT };
+    // a row in all three paths, so `ui.row` setting the axis lays out the same tree
+    let row = pxui::Node { axis: pxui::ui::Axis::Row, w: Size::Grow, h: Size::Px(24.0), ..pxui::Node::DEFAULT };
     let leaf = pxui::Node { w: Size::Px(10.0), h: Size::Px(10.0), ..pxui::Node::DEFAULT };
     let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[DEPARTURE_MONO]);
     let shim = Shim;
-    // kind 0: node + within; 1: the thin shim; 2: the node-rebuilding helper
+    // kind 0: node + within; 1: `ui.row` (the authoring layer); 2: the node-rebuilding helper
     let mut build = |kind: u8, count: u64| {
         let input = FrameIn { width: PAGE_W as f32, height: PAGE_H as f32, scale: 1.0, time: count as f64 / 60.0, ..FrameIn::default() };
         ui.frame(&input, &mut |ui: &mut pxui::Ui| for label in &labels {
             let mut children = |ui: &mut pxui::Ui| for l in &leaves { ui.node(l, leaf); };
             match kind {
                 0 => { let b = ui.node(label, row); ui.within(&b, &mut children); }
-                1 => shim.row(ui, label, row, children),
+                1 => { ui.row(*label, row, children); }
                 _ => shim.rebuilding(ui, label, row, children),
             }
         }).expect("frame");
