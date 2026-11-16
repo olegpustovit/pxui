@@ -2,7 +2,7 @@ use crate::state::{Build, PxuiUi, call_build, checked, fail, get};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::ffi::c_void;
 use pxui_core::{Theme, ui::Ui};
-use pxui_types::{ffi::ThemeTokens, theme::ThemeSnapshot};
+use pxui_types::{ffi::ThemeTokens, geom::Rgba, theme::{ColorToken, ThemeSnapshot}};
 
 // The engine's theme is the snapshot's bytes: both are generated from `theme_widgets!` with C layout.
 const _: () = assert!(core::mem::size_of::<Theme>() == core::mem::size_of::<ThemeSnapshot>() && core::mem::align_of::<Theme>() == core::mem::align_of::<ThemeSnapshot>()
@@ -28,6 +28,20 @@ export!(pub unsafe fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->
     unsafe { &mut *state.engine }.set_theme(theme.theme);
     0
 });
+
+// Installs the app's colour tokens between frames: `light[i]`/`dark[i]` are token `i`, `count` at most 64 (0 clears the table).
+// A changed table rebuilds every view once; reads pick the dark side while the theme in effect is dark.
+export!(pub unsafe fn pxui_ui_set_colors(ui:*mut PxuiUi,light:*const Rgba,dark:*const Rgba,count:usize)->i32 {
+    let Some(state)=(unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
+    if !state.owner || state.shared().in_frame { return crate::PXUI_ERR_STATE; }
+    if count>ColorToken::LIMIT || (count!=0 && (light.is_null() || dark.is_null())) { return unsafe { fail(ui,"invalid colour token table") }; }
+    let (light,dark)=if count==0 { (&[][..],&[][..]) } else { unsafe { (core::slice::from_raw_parts(light,count),core::slice::from_raw_parts(dark,count)) } };
+    unsafe { &mut *state.engine }.set_colors(light,dark);
+    0
+});
+
+// Colour token `token` for the theme in effect (a `themed` scope's inside one); transparent past the table or on a dead handle.
+export!(pub unsafe fn pxui_ui_color(ui:*mut PxuiUi,token:u16)->Rgba { unsafe { crate::state::engine(ui) }.map_or(Rgba::default(),|e| e.color(token)) });
 
 impl PxuiTheme {
     /// Applies `text` (a theme file) over the theme, or records why it cannot be and changes nothing.
@@ -103,3 +117,24 @@ export!(pub unsafe fn pxui_ui_theme_apply(ui: *mut PxuiUi, theme: *mut PxuiTheme
     let Some(text) = (unsafe { checked(text) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
     theme.apply(text, Some(unsafe { &*state.engine }))
 });
+
+#[cfg(test)]
+#[test]
+fn set_colors_validates_the_whole_table_before_installing() {
+    let c = |v: u8| Rgba { r: v, g: v, b: v, a: 255 };
+    let (light, dark) = ([c(1); 65], [c(2); 65]);
+    assert_eq!(unsafe { pxui_ui_set_colors(core::ptr::null_mut(), light.as_ptr(), dark.as_ptr(), 1) }, PXUI_ERR_ARGUMENT);
+    assert_eq!(unsafe { pxui_ui_color(core::ptr::null_mut(), 0) }, Rgba::default());
+    let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+    assert_eq!(unsafe { pxui_ui_set_colors(ui, light.as_ptr(), dark.as_ptr(), 64) }, 0);
+    let side = |token| unsafe { pxui_ui_color(ui, token) };
+    let expected = if pxui_types::theme::dark(&unsafe { &*get(ui).unwrap().engine }.theme().tokens) { c(2) } else { c(1) };
+    assert_eq!((side(0), side(63), side(64), side(u16::MAX)), (expected, expected, Rgba::default(), Rgba::default()));
+    for (l, d, n) in [(light.as_ptr(), dark.as_ptr(), 65), (core::ptr::null(), dark.as_ptr(), 1), (light.as_ptr(), core::ptr::null(), 1)] {
+        assert_ne!(unsafe { pxui_ui_set_colors(ui, l, d, n) }, 0);
+        assert_eq!(side(0), expected, "a refused table leaves the installed one");
+    }
+    assert_eq!(unsafe { pxui_ui_set_colors(ui, core::ptr::null(), core::ptr::null(), 0) }, 0);
+    assert_eq!(side(0), Rgba::default(), "an empty table clears every token");
+    assert_eq!(unsafe { crate::pxui_ui_destroy(ui) }, 0);
+}

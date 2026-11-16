@@ -227,6 +227,18 @@ impl BodyId {
     pub const DEFAULT: BodyId = BodyId(0);
 }
 
+/// An app-defined colour token: an index into the light/dark colour table a `Ui` installs (`Ui::set_colors`,
+/// `pxui_ui_set_colors`). Reads (`Ui::color`, `Paint::color`) return the light or dark entry for the theme in effect
+/// (dark when `dark(&tokens)` holds); a token at or past `ColorToken::LIMIT`, or past the installed count, reads transparent.
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct ColorToken(pub u16);
+
+impl ColorToken {
+    /// The table's fixed capacity: tokens 0..64.
+    pub const LIMIT: usize = 64;
+}
+
 /// The widget kinds that have a replaceable body: `kind register_fn BodyType AbiConfig` (the config as it crosses the C ABI, `pxui_types::ffi`), one line each. `Bodies` here, the registry and its
 /// `Ui::register_*_body` functions and the theme file's `KIND.body = NAME` are all generated from it (`pxui_core::bodies`), so a
 /// kind is added by one line here plus its config, default body and dispatch. Append only: a kind's place is its field's offset.

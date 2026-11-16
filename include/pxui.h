@@ -397,6 +397,11 @@ int32_t pxui_ui_table(PxuiUi *ui, const PxuiTableDesc *desc, int64_t *clicked_ro
    theme between frames, avoiding reparsing source when appearance changes. */
 int32_t pxui_ui_system_appearance(PxuiUi *ui, uint32_t *out);
 int32_t pxui_ui_use_theme(PxuiUi *ui, const PxuiTheme *theme);
+/* ABI 1.43: app colour tokens. set_colors installs light[i]/dark[i] as token i between frames (count at most 64, 0 clears;
+   a changed table rebuilds every view once). color reads a token for the theme in effect: the dark entry while that theme
+   is dark (panel channel sum below 384), else the light one; transparent past the table or on a dead handle. */
+int32_t pxui_ui_set_colors(PxuiUi *ui, const PxuiColor *light, const PxuiColor *dark, size_t count);
+PxuiColor pxui_ui_color(PxuiUi *ui, uint16_t token);
 int32_t pxui_ui_set_theme(PxuiUi *ui, const PxuiThemeSource *source);
 int32_t pxui_ui_set_dir(PxuiUi *ui, uint32_t dir);
 int32_t pxui_ui_set_a11y(PxuiUi *ui, uint8_t on);
@@ -619,6 +624,8 @@ void pxui_paint_ratio(PxuiPaint *paint, float x, float y, int64_t a, int64_t b);
 void pxui_paint_input_region(PxuiPaint *paint, float cursor, float x, float y, float w, float h);
 /* The scroll offset of the retained slot `slot` (a box handle's box_slot) as the painter reads it; 0 out of range. */
 float pxui_paint_scroll_y(PxuiPaint *paint, uint64_t slot);
+/* ABI 1.43: colour token `token` resolved for the painter's theme, as pxui_ui_color; transparent past the table. */
+PxuiColor pxui_paint_color(PxuiPaint *paint, uint16_t token);
 void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
 /* Shared GPU: the renderer records into the app's command buffers and passes and never submits, waits,
  * presents or destroys what the app created. create takes the lease in gpu->owner_token (also on failure).

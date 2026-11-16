@@ -93,6 +93,11 @@ export!(pub unsafe fn pxui_paint_scroll_y(p: *mut PxuiPaint, slot: u64) -> f32 {
     paint.scroll_y.get(slot as usize).copied().unwrap_or(0.0)
 });
 
+// Colour token `token` resolved for the painter's theme (`pxui_ui_color`); transparent past the table or for a null painter.
+export!(pub unsafe fn pxui_paint_color(p: *mut PxuiPaint, token: u16) -> Rgba {
+    unsafe { p.as_ref().and_then(|h| h.paint.as_ref()) }.map_or(Rgba::default(), |paint| paint.color(token))
+});
+
 // What a paint callback reads once, handed to it with the callback: sizes, clip and theme tokens.
 fn info_of(paint: &EnginePaint) -> PxuiPaintInfo {
     PxuiPaintInfo {

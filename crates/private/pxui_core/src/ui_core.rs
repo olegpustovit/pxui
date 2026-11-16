@@ -951,6 +951,8 @@ pub struct Ui {
     keyboard: pxui_types::Keyboard,
     system_appearance:u32,
     system_reduced_motion:bool,
+    /// the app's colour tokens, `[light, dark]` per index (`set_colors`); unset entries are transparent
+    colors: [[Color; 2]; pxui_types::theme::ColorToken::LIMIT],
     theme_reduced_motion:bool,
     font_size: i64,
     platform: Platform,
@@ -1220,6 +1222,7 @@ impl Ui {
             keyboard: pxui_types::Keyboard::default(),
             system_appearance:0,
             system_reduced_motion:false,
+            colors: [[Color::default(); 2]; pxui_types::theme::ColorToken::LIMIT],
             theme_reduced_motion:false,
             font_size,
             platform,
@@ -1456,6 +1459,22 @@ impl Ui {
         if reduced_motion && !self.system_reduced_motion { self.snap_motion(); }
         (self.system_appearance,self.system_reduced_motion)=(appearance,reduced_motion);
         self.theme.tokens.reduced_motion=self.theme_reduced_motion||reduced_motion;
+    }
+
+    /// Installs the app's colour tokens: entry `i` of `light`/`dark` is token `i`; the rest read transparent.
+    /// False (nothing changes) when the lengths differ or pass `ColorToken::LIMIT`. A changed table rebuilds every view once.
+    pub fn set_colors(&mut self, light: &[Color], dark: &[Color]) -> bool {
+        if light.len() != dark.len() || light.len() > self.colors.len() { return false; }
+        let mut colors = [[Color::default(); 2]; pxui_types::theme::ColorToken::LIMIT];
+        for (to, (l, d)) in colors.iter_mut().zip(light.iter().zip(dark)) { *to = [*l, *d]; }
+        if colors != self.colors { self.colors = colors; self.epoch += 1; }
+        true
+    }
+
+    /// Colour token `token` for the theme in effect (`theme()`, so a `themed` scope picks its own side): the dark entry
+    /// when that theme is dark (`theme::dark`), else the light one; transparent past the table.
+    #[inline] pub fn color(&self, token: u16) -> Color {
+        self.colors.get(token as usize).map_or(Color::default(), |pair| pair[theme::dark(&self.theme().tokens) as usize])
     }
 
     pub fn set_environment(&mut self, value:pxui_types::Environment) {
@@ -4937,6 +4956,8 @@ pub struct Paint {
     pub row_height: i64,
     /// device pixels per point
     pub density: i64,
+    /// the `Ui`'s colour tokens resolved for `theme` (`Ui::color`), transparent past the table
+    pub colors: [Color; pxui_types::theme::ColorToken::LIMIT],
     pub text: Text,
     /// the focused text's input area and caret offset
     pub ime: Option<((i64, i64, i64, i64), i64)>,
@@ -4959,6 +4980,9 @@ pub struct Paint {
 }
 
 impl Paint {
+    /// Colour token `token` resolved for this painter's theme; transparent past the table.
+    #[inline] pub fn color(&self, token: u16) -> Color { self.colors.get(token as usize).copied().unwrap_or_default() }
+
     /// Start the next layer (a floating root's), reusing a layer vector a previous frame left.
     fn next_layer(&mut self, key: i64) {
         self.layer = self.layer.wrapping_add(1);
@@ -5688,6 +5712,7 @@ impl Ui {
             font_size: self.font_size,
             row_height: self.kit_row_height,
             density: self.density,
+            colors: { let dark = theme::dark(&self.theme.tokens) as usize; self.colors.map(|pair| pair[dark]) },
             text: self.text.take().expect("Ui: painting re-entered"),
             ime: None,
             label: std::mem::take(&mut self.label),

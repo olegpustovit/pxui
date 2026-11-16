@@ -3,7 +3,7 @@ use crate::composite::call;
 use crate::sys::PxuiTheme;
 use crate::{as_str, check, Ui};
 use core::{ffi::c_void, ptr::NonNull};
-use pxui_types::{ffi::ThemeTokens, theme::Tokens, Str};
+use pxui_types::{ffi::ThemeTokens, geom::Rgba, theme::{ColorToken, Tokens}, Str};
 
 library!(lib {
     fn pxui_theme_create(tokens: *const ThemeTokens) -> *mut PxuiTheme;
@@ -14,6 +14,8 @@ library!(lib {
     fn pxui_ui_theme_apply(ui: *mut PxuiUi, theme: *mut PxuiTheme, text: Str) -> i32;
     fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->i32;
+    fn pxui_ui_set_colors(ui:*mut PxuiUi,light:*const Rgba,dark:*const Rgba,count:usize)->i32;
+    fn pxui_ui_color(ui:*mut PxuiUi,token:u16)->Rgba;
 });
 
 /// A theme owned by the library. `set` and `load` apply over what the theme holds, as a theme file applies over its base: a
@@ -47,6 +49,48 @@ impl Ui {
     pub fn use_theme(&mut self,theme:&Theme) {
         check(self,unsafe { lib::pxui_ui_use_theme(self.0.as_ptr(),theme.0.as_ptr()) });
     }
+
+    /// Installs the app's colour tokens: `light[i]` and `dark[i]` are `ColorToken(i)`, every later token reads transparent.
+    ///
+    /// Call between frames, like `use_theme` (install the table once, beside the themes). Reads (`color`, `Paint::color`)
+    /// pick the dark entry while the theme in effect is dark (`pxui::theme::dark` of its tokens), so swapping a light theme
+    /// for a dark one changes what they return without the app rebuilding its state. A table that differs from the
+    /// installed one rebuilds every view once; an equal one changes nothing.
+    /// Allocates: never.
+    /// Panics: when `light` and `dark` differ in length or hold more than `ColorToken::LIMIT` (64) entries, inside a
+    /// frame, or when the `Ui` has failed.
+    ///
+    /// ```
+    /// use pxui::{geom::Rgba, theme::ColorToken};
+    /// let (paper, night) = (Rgba { r: 250, g: 250, b: 250, a: 255 }, Rgba { r: 16, g: 16, b: 16, a: 255 });
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.set_colors(&[paper], &[night]);
+    /// let light = !pxui::theme::dark(&ui.tokens());
+    /// assert_eq!(ui.color(ColorToken(0)), if light { paper } else { night });
+    /// assert_eq!(ui.color(ColorToken(1)), Rgba::default());
+    /// ```
+    #[track_caller]
+    pub fn set_colors(&mut self, light: &[Rgba], dark: &[Rgba]) {
+        assert!(light.len() == dark.len() && light.len() <= ColorToken::LIMIT, "pxui: set_colors takes equal light and dark tables of at most 64 entries");
+        check(self, unsafe { lib::pxui_ui_set_colors(self.0.as_ptr(), light.as_ptr(), dark.as_ptr(), light.len()) });
+    }
+
+    /// Colour token `token` for the theme in effect: its dark entry while that theme is dark, else its light one.
+    ///
+    /// Inside `themed` the scope's theme decides. A token past the installed table (or past `ColorToken::LIMIT`) reads
+    /// transparent, as does every token before `set_colors`. Read it while building, or between frames.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{geom::Rgba, theme::ColorToken};
+    /// let ink = Rgba { r: 20, g: 20, b: 20, a: 255 };
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.set_colors(&[ink], &[ink]);
+    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| assert_eq!(ui.color(ColorToken(0)), ink)).unwrap();
+    /// ```
+    #[inline]
+    pub fn color(&self, token: ColorToken) -> Rgba { unsafe { lib::pxui_ui_color(self.0.as_ptr(), token.0) } }
 
     /// Builds `f`'s subtree under `theme`; the `Ui`'s own theme is back afterwards.
     #[track_caller]

@@ -2909,3 +2909,45 @@ fn text_into_forms_match_and_allocate_nothing_with_capacity() {
     drop(scope);
     assert!(mem_sys::take_reports().is_empty());
 }
+
+#[test]
+fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allocations() {
+    use std::{cell::Cell, rc::Rc};
+    use pxui_types::{geom::Rgba, theme::ColorToken};
+    mem_sys::set_peer(crate::library_counter);
+    let c = |v: u8| Rgba { r: v, g: v, b: v, a: 255 };
+    let (light_table, dark_table) = ([c(240), c(200)], [c(16), c(60)]);
+    let mut light = crate::Theme::default();
+    light.set("tokens.panel", "#f4f5f0").unwrap();
+    let mut dark = crate::Theme::default();
+    dark.set("tokens.panel", "#101010").unwrap();
+    let mut ui = Ui::new().unwrap();
+    ui.set_colors(&light_table, &dark_table);
+    ui.use_theme(&light);
+    // what the app reads while building (inside a retained view whose revision never changes), painting and in a scope
+    let (built, painted, scoped) = (Cell::new(Rgba::default()), Rc::new(Cell::new(Rgba::default())), Cell::new(Rgba::default()));
+    let mut build = |ui: &mut Ui| {
+        ui.view("tokens", 1, Size::Px(100.0), Size::Px(60.0), &mut |ui| {
+            built.set(ui.color(ColorToken(1)));
+            let b = ui.node("canvas", crate::Node { w: Size::Px(20.0), h: Size::Px(10.0), ..crate::Node::DEFAULT });
+            let painted = painted.clone();
+            ui.draw(&b, move |p, _| painted.set(p.color(ColorToken(0))));
+        });
+        ui.themed(&dark, &mut |ui| scoped.set(ui.color(ColorToken(0))));
+    };
+    for round in 0..4 {
+        ui.frame(&input(), &mut build).unwrap();
+        assert_eq!((ui.color(ColorToken(0)), built.get(), painted.get(), scoped.get()), (c(240), c(200), c(240), c(16)), "light theme: light entries; a dark scope reads dark");
+        mem_sys::local_reset();
+        ui.use_theme(&dark);
+        assert_eq!(ui.color(ColorToken(0)), c(16), "reads change at the swap, before any frame");
+        ui.frame(&input(), &mut build).unwrap();
+        assert_eq!((built.get(), painted.get()), (c(60), c(16)), "the unchanged-revision view and its canvas follow the dark theme");
+        let mut sum = 0u32;
+        for token in 0..(ColorToken::LIMIT as u16 + 8) { sum += ui.color(ColorToken(token)).r as u32; }
+        assert_eq!(sum, 16 + 60, "unset and out-of-range tokens read transparent");
+        ui.use_theme(&light);
+        if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm swaps, frames and reads allocate nothing"); }
+    }
+    assert_eq!(ui.color(ColorToken(64)), Rgba::default());
+}

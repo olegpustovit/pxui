@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 42
+minor 43
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -17,6 +17,7 @@ function pxui_last_error PxuiStr pxui_last_error ( const PxuiUi * ui ) ;
 function pxui_paint_cap void pxui_paint_cap ( PxuiPaint * paint , float x , float y , uint8_t has_color , PxuiColor color , PxuiStr text ) ;
 function pxui_paint_cap_width float pxui_paint_cap_width ( PxuiPaint * paint , PxuiStr text ) ;
 function pxui_paint_caret_x float pxui_paint_caret_x ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text , size_t index ) ;
+function pxui_paint_color PxuiColor pxui_paint_color ( PxuiPaint * paint , uint16_t token ) ;
 function pxui_paint_icon float pxui_paint_icon ( PxuiPaint * paint , float x , float y , uint16_t font , float size , uint32_t codepoint , PxuiColor color ) ;
 function pxui_paint_image void pxui_paint_image ( PxuiPaint * paint , const PxuiImage * image , float x , float y , float width , float height , uint32_t fit , PxuiColor tint ) ;
 function pxui_paint_input_region void pxui_paint_input_region ( PxuiPaint * paint , float cursor , float x , float y , float w , float h ) ;
@@ -91,6 +92,7 @@ function pxui_ui_captured uint8_t pxui_ui_captured ( PxuiUi * ui ) ;
 function pxui_ui_carry int32_t pxui_ui_carry ( PxuiUi * ui , uint8_t has_from , const PxuiBox * from , PxuiStr kind , PxuiStr value ) ;
 function pxui_ui_carrying int32_t pxui_ui_carrying ( PxuiUi * ui , uint8_t * present , PxuiStr * kind , PxuiStr * value ) ;
 function pxui_ui_checkbox int32_t pxui_ui_checkbox ( PxuiUi * ui , PxuiStr label , uint8_t value , uint8_t * out ) ;
+function pxui_ui_color PxuiColor pxui_ui_color ( PxuiUi * ui , uint16_t token ) ;
 function pxui_ui_content_rect int32_t pxui_ui_content_rect ( PxuiUi * ui , PxuiRect * out ) ;
 function pxui_ui_context_at int32_t pxui_ui_context_at ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
 function pxui_ui_context_menu int32_t pxui_ui_context_menu ( PxuiUi * ui , float x , float y , PxuiStr label , PxuiStrSpan items , PxuiU8Span enabled , uint8_t has_width , float width , uint8_t has_selected , int64_t selected , const PxuiMenuExtra * extra , uint32_t * out_tag , int64_t * out_index ) ;
@@ -188,6 +190,7 @@ function pxui_ui_section_list_measured int32_t pxui_ui_section_list_measured ( P
 function pxui_ui_segmented int32_t pxui_ui_segmented ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
 function pxui_ui_set_a11y int32_t pxui_ui_set_a11y ( PxuiUi * ui , uint8_t on ) ;
 function pxui_ui_set_at int32_t pxui_ui_set_at ( PxuiUi * ui , const PxuiBox * box , float x , float y ) ;
+function pxui_ui_set_colors int32_t pxui_ui_set_colors ( PxuiUi * ui , const PxuiColor * light , const PxuiColor * dark , size_t count ) ;
 function pxui_ui_set_dir int32_t pxui_ui_set_dir ( PxuiUi * ui , uint32_t dir ) ;
 function pxui_ui_set_font_size int32_t pxui_ui_set_font_size ( PxuiUi * ui , int64_t size ) ;
 function pxui_ui_set_look int32_t pxui_ui_set_look ( PxuiUi * ui , const PxuiBox * box , const PxuiLookDesc * look , const PxuiStateDesc * state ) ;

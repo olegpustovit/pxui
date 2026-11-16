@@ -26,6 +26,7 @@ library!(lib {
     fn pxui_paint_cap_width(p: *mut RawPaint, s: Str) -> f32;
     fn pxui_paint_ratio(p: *mut RawPaint, x: f32, y: f32, a: i64, b: i64);
     fn pxui_paint_scroll_y(p: *mut RawPaint, slot: u64) -> f32;
+    fn pxui_paint_color(p: *mut RawPaint, token: u16) -> Rgba;
     fn pxui_paint_input_region(p: *mut RawPaint, cursor: f32, x: f32, y: f32, w: f32, h: f32);
 });
 
@@ -82,6 +83,28 @@ impl<'a> Paint<'a> {
 
     /// The scroll offset of the retained slot `slot` (a handle's `box_slot`).
     #[inline] pub fn scroll_y(&mut self, slot: u64) -> f32 { unsafe { lib::pxui_paint_scroll_y(self.raw(), slot) } }
+    /// Colour token `token` (`Ui::set_colors`) resolved for this painter's theme, as `Ui::color` reads it.
+    ///
+    /// The painter resolves the table once when painting starts, from the `Ui`'s root theme; a token past the table reads
+    /// transparent. A theme swap repaints, so a canvas that reads tokens follows light and dark without app changes.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{geom::Rgba, theme::ColorToken, Node, Size};
+    /// use std::{cell::Cell, rc::Rc};
+    /// let ink = Rgba { r: 20, g: 20, b: 20, a: 255 };
+    /// let seen = Rc::new(Cell::new(Rgba::default()));
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.set_colors(&[ink], &[ink]);
+    /// ui.frame(&pxui::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, &mut |ui| {
+    ///     let b = ui.node("canvas", Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+    ///     let seen = seen.clone();
+    ///     ui.draw(&b, move |p, _| seen.set(p.color(ColorToken(0))));
+    /// }).unwrap();
+    /// assert_eq!(seen.get(), ink);
+    /// ```
+    #[inline] pub fn color(&self, token: pxui_types::theme::ColorToken) -> Rgba { unsafe { lib::pxui_paint_color(self.raw.as_ptr(), token.0) } }
     #[inline] pub fn label_size(&self) -> i64 { 8.max(self.font_size - 2) }
     #[inline] pub fn cap_tracking(&self) -> f32 { 0.08 * self.label_size() as f32 }
     #[inline] pub fn text_top(&self, size: Option<i64>, y: f32, h: f32) -> f32 { text_top_for(self.font_size, size, y, h) }
