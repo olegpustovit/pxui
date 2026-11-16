@@ -98,7 +98,7 @@ pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
-pub use author::{text_style, Key};
+pub use author::{hash_of, text_style, Key};
 #[cfg(test)]
 mod settled;
 #[cfg(test)]

@@ -2,4 +2,6 @@
 mod layout;
 mod text;
 pub use layout::Key;
+mod view;
 pub use text::text_style;
+pub use view::hash_of;
