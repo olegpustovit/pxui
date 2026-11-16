@@ -581,7 +581,7 @@ pub fn window_pxui_modal_3() {
         let mut out = MenuResult::Open;
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
             let o = MenuOpts { width: Some(240.0), selected: Some(1), ..MenuOpts::default() };
-            out = ui.context_menu((20.0, 20.0), &o, "choices", &[("First".to_owned(), true), ("Second".to_owned(), true)]);
+            out = ui.context_menu((20.0, 20.0), &o, "choices", &[("First", true), ("Second", true)]);
         });
         out
     };
@@ -635,12 +635,12 @@ pub fn window_pxui_two_widgets() {
         clock.set(clock.get() + dt);
         ui.frame(&frame_at(keys, 1.0, clock.get(), events), &mut |ui| {
             let w = words.borrow().clone();
-            *words.borrow_mut() = ui.value_field((20.0, 20.0), 100.0, 21.0, &ValueFieldOpts::default(), &|_| true, "words", &w).0;
+            if let Some(text) = ui.value_field((20.0, 20.0), 100.0, 21.0, &ValueFieldOpts::default(), &|_| true, "words", &w).0 { *words.borrow_mut() = text.to_owned(); }
             let n = number.borrow().clone();
             let o = ValueFieldOpts { scrub: Some(Rc::new(|origin, _, _| origin.to_owned())), ..ValueFieldOpts::default() };
-            *number.borrow_mut() = ui
-                .value_field((20.0, 60.0), 100.0, 21.0, &o, &|text| text.parse::<i64>().is_ok(), "number", &n)
-                .0;
+            if let Some(text) = ui.value_field((20.0, 60.0), 100.0, 21.0, &o, &|text| text.parse::<i64>().is_ok(), "number", &n).0 {
+                *number.borrow_mut() = text.to_owned();
+            }
         });
     };
     tick(&mut ui, vec![], 0.05, vec![]);

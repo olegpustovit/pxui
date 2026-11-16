@@ -81,8 +81,9 @@ fn scale_3(scale: f64) {
             slide: Some(Rc::new(|fraction: f32| cfmt::g(f64::from(fraction), 17))),
             ..ValueFieldOpts::default()
         };
-        let (value, _) = ui.value_field((20.0, 20.0), 101.0, 21.0, &o, &|text| parse(text).is_some(), "compact", &current);
-        *compact.borrow_mut() = value;
+        if let (Some(value), _) = ui.value_field((20.0, 20.0), 101.0, 21.0, &o, &|text| parse(text).is_some(), "compact", &current) {
+            *compact.borrow_mut() = value.to_owned();
+        }
     };
     let mut ui = field_ui();
     ui.frame(&frame_at(vec![], scale, 0.0, vec![]), &mut build);
@@ -211,8 +212,9 @@ fn scale_6(scale: f64) {
     let count = RefCell::new("2".to_owned());
     let mut build = |ui: &mut Ui| {
         let current = count.borrow().clone();
-        let (value, _) = ui.value_field((20.0, 20.0), 101.0, 21.0, &ValueFieldOpts::default(), &|text| parse(text).is_some(), "count", &current);
-        *count.borrow_mut() = value;
+        if let (Some(value), _) = ui.value_field((20.0, 20.0), 101.0, 21.0, &ValueFieldOpts::default(), &|text| parse(text).is_some(), "count", &current) {
+            *count.borrow_mut() = value.to_owned();
+        }
     };
     let mut ui = field_ui();
     let clock = Cell::new(0.0);
@@ -698,7 +700,7 @@ fn scale_11(scale: f64) {
         let current = number.borrow().clone();
         let o = ValueFieldOpts { scrub: Some(Rc::new(|origin, _, _| origin.to_owned())), ..ValueFieldOpts::default() };
         let (value, open) = ui.value_field((20.0, 20.0), 100.0, 21.0, &o, &|_| true, "scrub-field", &current);
-        *number.borrow_mut() = value;
+        if let Some(value) = value { *number.borrow_mut() = value.to_owned(); }
         typing.set(open);
     };
     let mut ui = field_ui();
@@ -730,8 +732,9 @@ fn scale_11(scale: f64) {
     let field = RefCell::new(long_value.to_owned());
     let mut build = |ui: &mut Ui| {
         let current = field.borrow().clone();
-        let (value, _) = ui.value_field((20.0, 20.0), 100.0, 21.0, &ValueFieldOpts::default(), &|_| true, "long-field", &current);
-        *field.borrow_mut() = value;
+        if let (Some(value), _) = ui.value_field((20.0, 20.0), 100.0, 21.0, &ValueFieldOpts::default(), &|_| true, "long-field", &current) {
+            *field.borrow_mut() = value.to_owned();
+        }
     };
     let mut ui = field_ui();
     let field_time = Cell::new(0.0);

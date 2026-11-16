@@ -125,24 +125,15 @@ fn encode_look(value: Look) -> PxuiLookDesc {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AnimationTarget {
-    Offset(f32, f32),
-    Opacity(f32),
-    Look(Look),
-    Scale { x: f32, y: f32, anchor: (f32, f32) },
-}
+/// What a keyframe moves a node to: the same type as `ui::Target`, which `Ui::animate` takes.
+pub use pxui_types::ui::Target as AnimationTarget;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Repeat {
     Count(u16),
     Forever,
 }
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Keyframe {
-    pub time: f32,
-    pub target: AnimationTarget,
-    pub curve: Curve,
-}
+/// One stop of `animate_keys`, shared with the engine.
+pub use pxui_types::ui::Keyframe;
 pub(crate) fn encode_curve(value: Curve) -> PxuiCurveDesc {
     match value {
         Curve::Bezier { duration, points } => PxuiCurveDesc { kind: PxuiCurveDesc::BEZIER, duration, points, ..PxuiCurveDesc::default() },

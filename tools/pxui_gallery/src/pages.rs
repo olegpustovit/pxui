@@ -1,9 +1,9 @@
 // The gallery pages, against the wrapper `pxui`.
 use pxui::{collections::TreeNode, DialogOut, Image, MenuOpts, MenuResult, Pick, PickerOpts, PxuiBox as Handle, ui_kit::PanelOpts, TextAreaOpts, Ui, ValueFieldOpts};
-use super::compat;
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Node, Size, Str};
-use pxui_types::theme::Font;
+use pxui_types::theme::{Curve, Font};
+use pxui_types::ui::{Keyframe, Target};
 use std::fmt::Write;
 
 const SCROLL: i64 = 4;
@@ -50,7 +50,7 @@ pub struct Gallery {
     pub snap: bool,
     pub scale: String,
     pub notes: String,
-    pub hints: Vec<(String, String)>,
+    pub hints: &'static [(&'static str, &'static str)],
     // controls page
     pub check: bool,
     pub radio: usize,
@@ -90,7 +90,7 @@ impl Gallery {
         Gallery {
             page: 0, dusk: false, compact: false, rtl: false, reduced: false, host_dirty: false, chrome_rev: 0, page_rev: 0, quit: false, reload: false,
             animate: true, wire: false, caption: "Functional UI".to_owned(), snap: true, scale: "1.5".to_owned(), notes: "(circle 4)\n(grid 8 8)".to_owned(),
-            hints: vec![("enter".to_owned(), "apply".to_owned()), ("esc".to_owned(), "close".to_owned())],
+            hints: &[("enter", "apply"), ("esc", "close")],
             check: true, radio: 1, slider: 0.4, tab: 0, segment: 1, choice: 2, search: String::new(), adds: 0, image: None,
             list: vec![0; ROWS], nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
             open: (0..ROWS).map(|i| (i < 6) as u8).collect(), tree_sel: Some(2), visible: vec![0; ROWS], widths: [96.0, 72.0, 72.0], table_sel: Some(1), sort: (0, true), split: 0.34,
@@ -160,8 +160,9 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
             let _ = ui.inspector_readout(None, "count", "Points", "1,024");
             let (row, cx, cy, cw) = ui.inspector_row(None, None, "scale", "Scale");
             ui.within(&row, &mut |ui: &mut Ui| {
-                let (v, _) = ui.value_field((cx, cy), cw, 20.0, &ValueFieldOpts::default(), &|t: &str| t.parse::<f64>().is_ok(), "scale-value", &s.scale);
-                super::take_value(v, &mut s.scale);
+                if let (Some(v), _) = ui.value_field((cx, cy), cw, 20.0, &ValueFieldOpts::default(), &|t: &str| t.parse::<f64>().is_ok(), "scale-value", &s.scale) {
+                    s.scale = v.to_owned();
+                }
             });
             if ui.inspector_button("reset", "Reset") {
                 s.scale = "1.5".to_owned();
@@ -169,16 +170,15 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         });
         let notes = node(ui, "notes", Node { h: Size::Px(64.0), ..Node::DEFAULT });
         ui.within(&notes, &mut |ui: &mut Ui| {
-            // None: unchanged. Some: borrowed (wrapper) or owned (engine, abi_bench) new text.
+            // None: unchanged. Some: the new text, borrowed until the next call on `ui`.
             if let (Some(text), _) = ui.text_area_submit((12.0, 4.0), 270.0, 56.0, &TextAreaOpts::default(), "notes-area", &s.notes) {
                 s.notes = text.to_owned();
             }
         });
-        compat::footer(ui, Some("2 keys"), &s.hints);
+        ui.footer(Some("2 keys"), s.hints);
     });
     column(ui, "old-table", (332.0, 250.0), 296.0, Size::Px(200.0), &mut |ui: &mut Ui| {
-        let headers = [String::from("row"), String::from("name"), String::from("x")];
-        let _ = compat::table(ui, (0.0, 0.0), 296.0, 200.0, &headers, 1000, &mut |r, c| if c == 0 { r.to_string() } else if c == 1 { NAMES[r as usize % NAMES.len()].to_owned() } else { format!("{:.2}", r as f64 * 0.25) }, "old-table");
+        let _ = ui.table((0.0, 0.0), 296.0, 200.0, &["row", "name", "x"], 1000, &mut |r: i64, c: i64| if c == 0 { r.to_string() } else if c == 1 { NAMES[r as usize % NAMES.len()].to_owned() } else { format!("{:.2}", r as f64 * 0.25) }, "old-table");
     });
 }
 
@@ -297,8 +297,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         }
     }
     if let Some(at) = s.menu_at {
-        let items = [("Cut".to_owned(), true), ("Copy".to_owned(), true), (String::new(), true), ("Delete".to_owned(), true)];
-        match compat::context_menu(ui, at, &MenuOpts::default(), "context", &items) {
+        match ui.context_menu(at, &MenuOpts::default(), "context", &[("Cut", true), ("Copy", true), ("", true), ("Delete", true)]) {
             MenuResult::Open => {}
             MenuResult::Pick(_) => (s.menu_at, s.said) = (None, "Picked from the menu"),
             MenuResult::Dismiss => s.menu_at = None,
@@ -452,7 +451,14 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         anchor = Some(ui.rect(&a));
         let c = chip(ui, "bouncer", 0, px(16.0, 16.0));
         if std::mem::take(&mut s.bounce) {
-            compat::bounce(ui, &c);
+            let ease = Curve::Bezier { duration: 0.0, points: [0.25, 0.1, 0.25, 1.0] };
+            let keys = [
+                Keyframe { time: 0.2, target: Target::Offset(120.0, 0.0), curve: ease },
+                Keyframe { time: 0.35, target: Target::Opacity(0.3), curve: ease },
+                Keyframe { time: 0.6, target: Target::Offset(0.0, 0.0), curve: Curve::Spring { omega: 18.0 } },
+                Keyframe { time: 0.7, target: Target::Opacity(1.0), curve: ease },
+            ];
+            let _ = ui.animate_keys(&c, &keys);
         }
     });
     // the popup sits by the anchor's last laid-out rectangle, outside the page's flow (the first

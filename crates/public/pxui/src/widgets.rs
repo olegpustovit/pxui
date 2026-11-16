@@ -162,7 +162,7 @@ impl Ui {
 
     /// A search field: the text it changed to, or none; borrowed from the library, valid until the next call on `ui`.
     ///
-    /// Allocates: the engine allocates the text when it changed; the wrapper nothing.
+    /// Allocates: nothing once warm; the changed text is copied into buffers the library reuses.
     /// Identity: `label` keys the field; fields with the same label in one parent collide.
     /// Panics: when the `Ui` has failed, like every `Ui` call.
     ///

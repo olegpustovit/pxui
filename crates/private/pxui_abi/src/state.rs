@@ -59,7 +59,8 @@ pub(crate) struct Shared {
     pub spare_input: Option<Box<input::frame::Frame>>,
     /// key codes of a box's held keys, valid until the next frame
     pub key_codes: Vec<u32>,
-    pub menu: Vec<(String, bool)>,
+    /// a context menu's rows borrowed from the caller for one call: empty between calls
+    pub menu: Vec<(&'static str, bool)>,
     /// the input frame `pxui_ui_input` last handed out, and its wire form (the events point into the frame's own strings)
     pub routed: Option<input::frame::Frame>,
     pub routed_events: Vec<FfiEvent>,
@@ -67,7 +68,8 @@ pub(crate) struct Shared {
     pub routed_touches:Vec<pxui_types::Touch>,
     pub routed_keys: Vec<u32>,
     pub routed_buttons: Vec<u32>,
-    pub hints: Vec<(String, String)>,
+    /// a footer's or inspector bar's rows borrowed from the caller for one call: empty between calls
+    pub hints: Vec<(&'static str, &'static str)>,
     /// hit callbacks the engine holds or has let go of, kept to reuse (see `box_ops::hit_closure`)
     pub hits: Vec<(Rc<dyn Fn(pxui_types::geom::Rect) -> pxui_types::geom::Rect>, Rc<crate::box_ops::HitSlot>)>,
     /// an inspector head's actions, reused between frames like the hints

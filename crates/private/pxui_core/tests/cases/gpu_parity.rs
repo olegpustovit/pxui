@@ -5,7 +5,6 @@ use crate::gpu;
 use crate::png;
 use input::{frame, Event, Platform};
 use pxui_core::ui::*;
-use std::rc::Rc;
 
 const WIDTH: i64 = 320;
 const DENSITIES: [i64; 2] = [1, 2];
@@ -107,13 +106,13 @@ fn overlays(ui: &mut Ui) {
         (12.0, 200.0),
         &MenuOpts::default(),
         "context",
-        &[("View".to_owned(), true), ("Set active camera".to_owned(), false), ("Delete".to_owned(), true)],
+        &[("View", true), ("Set active camera", false), ("Delete", true)],
     );
 }
 
 fn table(ui: &mut Ui) {
-    let headers: Vec<String> = ["index", "P.x", "weight", "group"].iter().map(|s| s.to_string()).collect();
-    let cell = Rc::new(|row: i64, column: i64| -> String {
+    let headers = ["index", "P.x", "weight", "group"];
+    let mut cell = |row: i64, column: i64| -> String {
         if column == 0 {
             row.to_string()
         } else if column == 3 {
@@ -121,8 +120,8 @@ fn table(ui: &mut Ui) {
         } else {
             cfmt::g((row + column) as f64 * 0.125, 6)
         }
-    });
-    ui.table((8.0, 8.0), 304.0, 280.0, &headers, 1000000, cell, "table");
+    };
+    ui.table((8.0, 8.0), 304.0, 280.0, &headers, 1000000, &mut cell, "table");
 }
 
 fn parity(name: &str, golden: &str, height: i64, build: fn(&mut Ui)) {
@@ -449,7 +448,7 @@ fn gpu_plain_keyframe_cached_owner_visibility() {
                         builds.set(builds.get() + 1);
                         let fill = ui.node("fill", Node { w: Size::Grow, h: Size::Grow, look: Look { fill: pxui_core::geom::color::rgb(220, 20, 20), ..Look::NONE }, ..Node::DEFAULT });
                         let curve = Curve::Bezier { duration: 1.0, points: [0.0, 0.0, 1.0, 1.0] };
-                        ui.animate_keys_repeat(&fill, &[(0.0, Target::Opacity(1.0), curve), (1.0, Target::Opacity(1.0), curve)], 0, false, 0.0);
+                        ui.animate_keys_repeat(&fill, &[Keyframe { time: 0.0, target: Target::Opacity(1.0), curve }, Keyframe { time: 1.0, target: Target::Opacity(1.0), curve }], 0, false, 0.0);
                     });
                     ui.node_mut(&cached).at = Some((0.0, offset)).into();
                     ui.view_opacity(&cached, opacity);

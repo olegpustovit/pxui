@@ -112,7 +112,7 @@ pub struct FooterConfig {
     pub row: Handle,
 }
 
-pub type FooterBody = fn(&mut Ui, &FooterConfig, Option<&str>, &[(String, String)]);
+pub type FooterBody = fn(&mut Ui, &FooterConfig, Option<&str>, &[(&str, &str)]);
 
 /// What a grip body is given. It runs with the grip's `grip` box entered: the line between panes, which carries the role and takes
 /// the cursor and the drag; its place is the caller's (`floating`: at a rectangle the caller gave, else a 1-point flow child that

@@ -23,13 +23,13 @@ pub fn window_pxui_table() {
         let (cells, first, clicked) = (cells.clone(), first.clone(), clicked.clone());
         move |ui: &mut Ui| {
             let (cells, first) = (cells.clone(), first.clone());
-            let headers = vec!["index".to_owned(), "value".to_owned()];
-            let cell = Rc::new(move |row: i64, column: i64| {
+            let headers = ["index", "value"];
+            let mut cell = move |row: i64, column: i64| {
                 cells.set(cells.get() + 1);
                 first.set(first.get().min(row));
                 (row + column).to_string()
-            });
-            let (c, _) = ui.table((0.0, 0.0), 300.0, 168.0, &headers, 1_000_000, cell, "table");
+            };
+            let c = ui.table((0.0, 0.0), 300.0, 168.0, &headers, 1_000_000, &mut cell, "table");
             clicked.set(c);
         }
     };
@@ -172,7 +172,7 @@ pub fn window_pxui_keyboard() {
             (100.0, 100.0),
             &MenuOpts::default(),
             "menu",
-            &[("Disabled".to_owned(), false), ("Enabled".to_owned(), true)],
+            &[("Disabled", false), ("Enabled", true)],
         );
         ui.panel(PanelOpts::default(), "background", &mut |ui| background = ui.button("Background"));
     };

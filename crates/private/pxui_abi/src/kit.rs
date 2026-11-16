@@ -2,7 +2,7 @@ use crate::state::{boxed, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_s
 use crate::style::decode_look;
 use crate::ui::translate_event;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
-use pxui_core::ui::{Axis, Target, MAX_KEYS};
+use pxui_core::ui::{Axis, Keyframe, Target, MAX_KEYS};
 use pxui_types::ffi::{PxuiCurveDesc, PxuiGridListDesc, Slice};
 pub use pxui_types::ffi::{PxuiFooterDesc, PxuiHintDesc, PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiMenuBarDesc, PxuiMenuOut, PxuiSplitDesc, PxuiTableDesc};
 
@@ -79,7 +79,7 @@ mod curve_tests {
         let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
         let key = PxuiKeyframeDesc { size: core::mem::size_of::<PxuiKeyframeDesc>() as u32, target: 3,
             values: [2.0, 0.5, 1.0, 0.0], curve: PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, duration: 0.14, count: 2, ..PxuiCurveDesc::default() }, ..PxuiKeyframeDesc::default() };
-        assert_eq!(unsafe { decode_key(ui, &key, -1.0) }, Ok((0.0, Target::Scale { x: 2.0, y: 0.5, anchor: (1.0, 0.0) }, pxui_types::Curve::Steps { duration: 0.14, count: 2 })));
+        assert_eq!(unsafe { decode_key(ui, &key, -1.0) }, Ok(Keyframe { time: 0.0, target: Target::Scale { x: 2.0, y: 0.5, anchor: (1.0, 0.0) }, curve: pxui_types::Curve::Steps { duration: 0.14, count: 2 } }));
         for at in 0..4 { for value in [f32::NAN, f32::INFINITY, f32::NEG_INFINITY] {
             let mut bad = key; bad.values[at] = value;
             assert_eq!(unsafe { decode_key(ui, &bad, -1.0) }, Err(PXUI_ERR_ARGUMENT));
@@ -170,23 +170,20 @@ export!(trusted pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiF
     let right = if desc.has_right != 0 { let Some(s) = (unsafe { checked(desc.right) }) else { return unsafe { fail(ui, "invalid footer text") }; }; Some(s) } else { None };
     let raw = if desc.hints.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(desc.hints.ptr, desc.hints.len) } };
     if !raw.iter().all(|hint| hint.size as usize == core::mem::size_of_val(hint)) { return unsafe { fail(ui, "invalid footer hint") }; }
-    // the engine takes owned rows; the strings are reused between frames, so a settled footer allocates nothing
+    // the rows borrow the caller's strings for this call, in a vector reused between frames: a settled footer allocates nothing
     let mut hints = core::mem::take(&mut state.shared().hints);
-    hints.truncate(raw.len());
-    for (at, hint) in raw.iter().enumerate() {
-        let (Some(key), Some(value)) = (unsafe { checked(hint.key) }, unsafe { checked(hint.value) }) else { state.shared().hints = hints; return unsafe { fail(ui, "invalid footer hint") }; };
-        match hints.get_mut(at) {
-            Some(row) => { row.0.clear(); row.0.push_str(key); row.1.clear(); row.1.push_str(value); }
-            None => hints.push((key.to_owned(), value.to_owned())),
-        }
+    for hint in raw {
+        let (Some(key), Some(value)) = (unsafe { checked(hint.key) }, unsafe { checked(hint.value) }) else { hints.clear(); state.shared().hints = hints; return unsafe { fail(ui, "invalid footer hint") }; };
+        hints.push((key, value));
     }
-    let rc = unsafe { crate::trusted::footer_rows(ui, right, &hints) };
+    let rc = unsafe { crate::trusted::footer(ui, right, &hints) };
+    hints.clear();
     state.shared().hints = hints;
     rc
 });
 
 // One keyframe checked and decoded: its time, target (an offset, an opacity in 0..=1 or a look) and curve.
-unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> Result<(f32, Target, pxui_types::Curve), i32> {
+unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> Result<Keyframe, i32> {
     if !key.time.is_finite() || key.time < 0.0 || key.time < previous || key.reserved != 0 || !key.values.iter().all(|v| v.is_finite()) {
         return Err(unsafe { fail(ui, "invalid animation keyframe") });
     }
@@ -198,7 +195,7 @@ unsafe fn decode_key(ui: *mut PxuiUi, key: &PxuiKeyframeDesc, previous: f32) -> 
         _ => return Err(unsafe { fail(ui, "invalid animation target") }),
     };
     let Some(curve) = curve(key.curve) else { return Err(unsafe { fail(ui, "invalid animation curve") }); };
-    Ok((key.time, target, curve))
+    Ok(Keyframe { time: key.time, target, curve })
 }
 
 export!(pub unsafe fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKeyframeDesc>, out: *mut u8) -> i32 {
@@ -216,10 +213,10 @@ unsafe fn animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<PxuiKe
     let raw = unsafe { core::slice::from_raw_parts(keys.ptr, keys.len) };
     if !raw.iter().all(|key| key.size as usize == core::mem::size_of_val(key)) { return unsafe { fail(ui, "invalid animation keyframe span") }; }
     // Decode the complete bounded packet before changing the running animation.
-    let mut decoded = [(0.0, Target::Opacity(1.0), pxui_types::Curve::Spring { omega: 1.0 }); MAX_KEYS];
+    let mut decoded = [Keyframe { time: 0.0, target: Target::Opacity(1.0), curve: pxui_types::Curve::Spring { omega: 1.0 } }; MAX_KEYS];
     let mut previous = -1.0f32;
     for (slot, key) in decoded.iter_mut().zip(raw) {
-        match unsafe { decode_key(ui, key, previous) } { Ok(key) => { previous = key.0; *slot = key; } Err(code) => return code }
+        match unsafe { decode_key(ui, key, previous) } { Ok(key) => { previous = key.time; *slot = key; } Err(code) => return code }
     }
     let running = match repeat {
         None => engine.animate_keys(&target_box, &decoded[..raw.len()]),
@@ -238,7 +235,7 @@ export!(pub unsafe fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key
     if key.is_null() || out.is_null() { return unsafe { fail(ui, "invalid animation argument") }; }
     // a keyframe passed alone is read at its own size (a newer, longer one is fine); `decode_key` then checks it whole
     let Some(key) = sized!(key) else { return unsafe { fail(ui, "invalid animation keyframe") }; };
-    let (_, target, curve) = match unsafe { decode_key(ui, key, -1.0) } { Ok(key) => key, Err(code) => return code };
+    let Keyframe { target, curve, .. } = match unsafe { decode_key(ui, key, -1.0) } { Ok(key) => key, Err(code) => return code };
     unsafe { *out = engine.animate(&target_box, target, curve) as u8; }
     0
 });

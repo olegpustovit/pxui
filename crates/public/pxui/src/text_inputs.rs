@@ -216,7 +216,7 @@ impl Ui {
     /// A compact field: the new text when it changed (else none) and whether a text editor is open. Only text `valid` accepts
     /// commits. The text is borrowed from the library, valid until the next call on `ui`.
     ///
-    /// Allocates: the engine allocates the result text each call; the wrapper nothing.
+    /// Allocates: nothing on an idle warm frame; editing, sliding or scrubbing allocates the text.
     /// Identity: `label` keys the field; fields with the same label in one parent collide.
     /// Panics: when the `Ui` has failed, like every `Ui` call.
     ///

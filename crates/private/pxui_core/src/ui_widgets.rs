@@ -1013,9 +1013,9 @@ impl Ui {
 
     /// A search row: a well holding `icon`, the query (`placeholder` while empty) and, with a query, a
     /// clear button. A click focuses it and the text widgets' editing applies; Escape clears it.
-    /// Returns the new query on the frames that change it.
-    pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<String> {
-        search_field_body(self, label, icon, value, placeholder)
+    /// Returns the new query on the frames that change it, borrowed until the next call on the Ui.
+    pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<&str> {
+        search_field_body(self, label, icon, value, placeholder).then_some(self.returned.as_str())
     }
 
     /// An image `w` x `h` placed by `fit` (CSS `object-fit`) in the image look's frame.
@@ -1111,12 +1111,13 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
     sorted
 }
 
-fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<String> {
+/// True when the query changed: the new one is in `returned`.
+fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeholder: &str) -> bool {
     let key = key_of(this.current_seed(), label);
     let row = this.kit_line(key, NO_FLAGS, Role::Unknown);
     let saved = this.enter(&row);
     let well = this.node_keyed(int_key(key, 0), Node::DEFAULT);
-    let mut changed = None;
+    let mut changed = false;
     let mut editor = |ui: &mut Ui| -> bool {
         let field = ui.node_keyed(int_key(key, 1), Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK, h: Size::Grow, inset: Edges { l: 2.0, ..Edges::ZERO }, role: Role::TextField, a11y: st::EDITABLE, ..Node::DEFAULT });
         let s = ui.signal(&field);
@@ -1137,7 +1138,9 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             }
             ui.save_text_edit(&e);
             if e.text != value {
-                changed = Some(e.text.clone());
+                ui.returned.clear();
+                ui.returned.push_str(&e.text);
+                changed = true;
             }
             edit = Some(e);
         }
@@ -1147,7 +1150,9 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         let t = ui.theme();
         let (states, hint) = (t.search, t.placeholder.idle);
         let look = *states.pick(State { focused, ..State::default() });
-        let current = changed.as_deref().unwrap_or(value);
+        // a focused field's edit holds the query, changed or not
+        let current = edit.as_ref().map_or(value, |e| e.text.as_str());
+        let filled = !current.is_empty();
         ui.a11y_name(&field, shown(label));
         ui.a11y_value(&field, current, (0, 0));
         ui.node_mut(&field).look = Look { text: if current.is_empty() { hint.text } else { look.text }, ..text_only(&look) };
@@ -1163,7 +1168,7 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
             }
             None => ui.text(&field, if value.is_empty() { placeholder } else { value }),
         }
-        !current.is_empty()
+        filled
     };
     let config = SearchFieldConfig { state: State { focused: this.focus_key() == int_key(key, 1), ..State::default() }, well, key };
     in_body!(this, key, well, search_field, default_search_field(&config, icon, &mut editor));
@@ -1171,7 +1176,8 @@ fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeh
         this.set_role(&clear, Role::Button, 0);
         this.a11y_name(&clear, "Clear");
         if this.signal(&clear).clicked {
-            changed = Some(String::new());
+            this.returned.clear();
+            changed = true;
         }
     }
     this.leave(saved);

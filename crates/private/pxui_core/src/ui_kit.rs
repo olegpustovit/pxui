@@ -95,7 +95,7 @@ pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
 }
 
 /// The built-in footer: the hairline under 4 points of space, the hints and the key at the end.
-pub(crate) fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &[(String, String)]) {
+pub(crate) fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &[(&str, &str)]) {
     let row = c.row;
     let rh = this.row_height() as f32;
     let t = this.theme();
@@ -266,20 +266,10 @@ impl Ui {
     }
 
     /// Read-only table with a fixed 24-point header and rows, hairlines and right-aligned values.
-    /// Only visible rows request cells or build hit boxes. Returns a clicked row index and the
-    /// body's shared scroll signal.
-    pub fn table(
-        &mut self,
-        at: (f32, f32),
-        w: f32,
-        h: f32,
-        headers: &[String],
-        rows: i64,
-        cell: Rc<dyn Fn(i64, i64) -> String>,
-        label: &str,
-    ) -> (Option<i64>, Signal) {
-        let titles: Vec<&str> = headers.iter().map(String::as_str).collect();
-        table_body(self, at, w, h, &titles, rows, &mut |row, column, emit| emit(&cell(row, column)), label)
+    /// Only visible rows request cells (`cell(row, column)`) or build hit boxes. Returns a clicked row index.
+    #[allow(clippy::too_many_arguments)]
+    pub fn table(&mut self, at: (f32, f32), w: f32, h: f32, headers: &[&str], rows: i64, cell: &mut dyn FnMut(i64, i64) -> String, label: &str) -> Option<i64> {
+        table_body(self, at, w, h, headers, rows, &mut |row, column, emit| emit(&cell(row, column)), label).0
     }
 
     /// `table` over borrowed headers and cells: `cell(row, column, emit)` calls `emit` with the text of one cell, which
@@ -705,7 +695,7 @@ impl Ui {
     /// The bar under an inspector (inspector.html): a line-2 hairline and a 24-point bar of hints,
     /// each a key in ink-3 at the label size and what it does in ink-2, and at the right a 6-point
     /// dot and a count as a label.
-    pub fn inspector_bar(&mut self, hints: &[(String, String)], count: i64) {
+    pub fn inspector_bar(&mut self, hints: &[(&str, &str)], count: i64) {
         let small = 8.max(self.font_size() - 2);
         let font_size = self.font_size();
         let line = self.row_height() as f32;
@@ -844,7 +834,7 @@ impl Ui {
 
     /// A window's foot: a line-2 hairline under 4 points of space, then the keys in ink-3 each
     /// followed by what it does in ink-2, 8 points apart, and `right` (a key or a count) at the end.
-    pub fn footer(&mut self, right: Option<&str>, hints: &[(String, String)]) {
+    pub fn footer(&mut self, right: Option<&str>, hints: &[(&str, &str)]) {
         let row = self.node("footer", Node { role: Role::StatusBar, ..Node::DEFAULT });
         in_body!(self, row.box_key, row, footer, default_footer(&FooterConfig { row }, right, hints));
     }

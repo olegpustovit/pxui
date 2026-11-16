@@ -100,7 +100,7 @@ export!(pub unsafe fn pxui_ui_text_area_submit(
     let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit((d.x, d.y), d.width, d.height, &opts, label, value) };
     unsafe { *out_changed = text.is_some() as u8; *out_submitted = submitted as u8; }
     // an unchanged text is the caller's own value: nothing is copied into the library's storage
-    unsafe { *out_text = match text { Some(text) => state.give(text), None => d.value }; }
+    unsafe { *out_text = match text { Some(text) => state.lend(text), None => d.value }; }
     0
 });
 
@@ -196,8 +196,9 @@ export!(pub unsafe fn pxui_ui_value_field(
     };
     let (text, editing) = unsafe { (&mut *state.engine).value_field((d.x, d.y), d.width, d.height, &opts, &accept, label, value) };
     if ctx.invalid.get() { return unsafe { fail(ui, "invalid value field callback result") }; }
-    unsafe { *out_changed = (text != value) as u8; *out_editing = editing as u8; }
-    unsafe { *out_text = state.give(text); }
+    unsafe { *out_changed = text.is_some() as u8; *out_editing = editing as u8; }
+    // the field's text, changed or not, kept by the library until the next frame
+    unsafe { *out_text = state.lend(text.unwrap_or(value)); }
     0
 });
 

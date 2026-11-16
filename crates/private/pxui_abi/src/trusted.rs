@@ -229,7 +229,7 @@ pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str
     enter!(ui);
     if long(label) || long(icon) || long(value) || long(placeholder) { return unsafe { fail(ui, "invalid search field text") }; }
     let found = unsafe { engine(ui) }.search_field(label, icon, value, placeholder);
-    *out = found.map(|text| unsafe { get(ui) }.map_or(Str::default(), |state| state.give(text)));
+    *out = found.map(|text| unsafe { get(ui) }.map_or(Str::default(), |state| state.lend(text)));
     0
 }
 
@@ -312,29 +312,9 @@ pub unsafe fn inspector_section(ui: *mut PxuiUi, key: &str, expanded: bool, set_
     0
 }
 
-/// The footer over the caller's borrowed rows: the engine keeps owned rows, copied into strings reused between frames, so a settled footer allocates nothing.
+/// The footer over the caller's borrowed rows: nothing is copied.
 #[inline]
 pub unsafe fn footer(ui: *mut PxuiUi, right: Option<&str>, hints: &[(&str, &str)]) -> i32 {
-    enter!(ui);
-    let total = right.map_or(0, str::len) + hints.iter().fold(0usize, |total, (k, v)| total.saturating_add(k.len()).saturating_add(v.len()));
-    if hints.len() > 4096 || total > MAX_TOTAL_TEXT_BYTES || right.is_some_and(long) { return unsafe { fail(ui, "invalid footer text") }; }
-    let shared = unsafe { &mut *(*ui).shared };
-    let mut rows = core::mem::take(&mut shared.hints);
-    rows.truncate(hints.len());
-    for (at, (key, value)) in hints.iter().enumerate() {
-        match rows.get_mut(at) {
-            Some(row) => { row.0.clear(); row.0.push_str(key); row.1.clear(); row.1.push_str(value); }
-            None => rows.push(((*key).to_owned(), (*value).to_owned())),
-        }
-    }
-    unsafe { engine(ui) }.footer(right, &rows);
-    shared.hints = rows;
-    0
-}
-
-/// The footer over rows the engine can keep as they are.
-#[inline]
-pub unsafe fn footer_rows(ui: *mut PxuiUi, right: Option<&str>, hints: &[(String, String)]) -> i32 {
     enter!(ui);
     let total = right.map_or(0, str::len) + hints.iter().fold(0usize, |total, (k, v)| total.saturating_add(k.len()).saturating_add(v.len()));
     if hints.len() > 4096 || total > MAX_TOTAL_TEXT_BYTES || right.is_some_and(long) { return unsafe { fail(ui, "invalid footer text") }; }

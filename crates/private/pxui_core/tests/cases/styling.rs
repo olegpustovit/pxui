@@ -294,7 +294,7 @@ pub fn styling_animate_keys() {
     let chip = chip.get().expect("chip");
     let shown = |ui: &Ui| ui.output().draw[0].instances.iter().find(|i| i.color[0] == 200).map(|i| (i.rect[0], i.color[3] as i32));
     let linear = Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] };
-    let keys = [(0.1, Target::Opacity(0.0), linear), (0.3, Target::Opacity(1.0), linear), (0.4, Target::Offset(20.0, 0.0), linear)];
+    let keys = [Keyframe { time: 0.1, target: Target::Opacity(0.0), curve: linear }, Keyframe { time: 0.3, target: Target::Opacity(1.0), curve: linear }, Keyframe { time: 0.4, target: Target::Offset(20.0, 0.0), curve: linear }];
     let built = runs.get();
     let mut t0 = 0.1;
     for round in 0..2 {
@@ -371,7 +371,8 @@ pub fn styling_animate_scale() {
     };
     let target = Target::Scale { x: 2.0, y: 0.5, anchor: (1.0, 1.0) };
     assert!(!ui.animate(&button, target, linear) && !ui.animate(&flat, target, linear));
-    assert!(!ui.animate_keys(&button, &[(0.2, target, linear)]) && !ui.animate_keys(&flat, &[(0.2, target, linear)]));
+    let key = Keyframe { time: 0.2, target: target, curve: linear };
+    assert!(!ui.animate_keys(&button, &[key]) && !ui.animate_keys(&flat, &[key]));
     assert!(ui.animate(&outer, target, linear));
     ui.frame(&at(0.2, vec![]), &mut build);
     shown(&ui, Rect::new(40.0, 67.5, 30.0, 7.5));

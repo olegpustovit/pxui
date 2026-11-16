@@ -700,11 +700,13 @@ impl Ui {
     /// aligns text values to the left (default false for numeric fields). `lead` and `trail` frame
     /// the value at the left and right with 6 points between; `line` is the idle hairline's colour;
     /// `bare` leaves the hairline out until the field is edited or invalid; `placeholder` is shown
-    /// in ink-3 where an empty value would be. Only valid text commits; the boolean reports an open
-    /// text editor.
+    /// in ink-3 where an empty value would be. Only valid text commits. Returns the new text on the
+    /// frames it differs from `value` (borrowed until the next call on the Ui) and whether a text
+    /// editor is open.
     #[allow(clippy::too_many_arguments)]
-    pub fn value_field(&mut self, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (String, bool) {
-        value_field_body(self, at, w, h, o, valid, label, value)
+    pub fn value_field(&mut self, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (Option<&str>, bool) {
+        let (changed, editing) = value_field_body(self, at, w, h, o, valid, label, value);
+        (changed.then_some(self.returned.as_str()), editing)
     }
 
     /// A `kept_drag` slider field held and dragged by the left button this frame, its view kept: the
@@ -1192,10 +1194,12 @@ impl Ui {
     /// ends. `reveal` scrolls the offset into view once per (offset, text length, `reveal_nonce`);
     /// `select` (anchor, caret) takes the keyboard for the area and places the selection; `splice`
     /// is a list of (start, stop, replacement) byte ranges of the given text applied together as
-    /// one undo step before `select`.
+    /// one undo step before `select`. Returns the new text on the frames it changed (borrowed until
+    /// the next call on the Ui) and the submit.
     #[allow(clippy::too_many_arguments)]
-    pub fn text_area_submit(&mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<String>, bool) {
-        text_area_submit_body(self, at, w, h, o, label, text)
+    pub fn text_area_submit(&mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<&str>, bool) {
+        let (changed, submitted) = text_area_submit_body(self, at, w, h, o, label, text);
+        (changed.then_some(self.returned.as_str()), submitted)
     }
 }
 
@@ -1496,14 +1500,15 @@ impl Ui {
     /// the menu, in the order the submenus are given. With `selected`, the rows from `lead_from`
     /// (default 0) on keep a slot for the accent square before their label. A press outside the
     /// menu in the frame that first builds it dismisses it.
-    pub fn context_menu(&mut self, at: (f32, f32), o: &MenuOpts, label: &str, items: &[(String, bool)]) -> MenuResult {
+    pub fn context_menu(&mut self, at: (f32, f32), o: &MenuOpts, label: &str, items: &[(&str, bool)]) -> MenuResult {
         context_menu_body(self, at, o, label, items)
     }
 }
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<String>, bool) {
+/// Whether the text changed (the new one is in `returned`) and whether it was submitted.
+fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (bool, bool) {
     // a line of code is one and a half times its text, as code editors set it (17 points at
     // 11, 20 at 13): the 24-point row is a control's, twice the text
     let row = this.text_line_height() as f32;
@@ -1968,7 +1973,11 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     };
     this.draw(&body, move |paint, rect| painted.paint(paint, rect));
     // an unfocused area's edit holds no text and nothing changed
-    ((focused && edit.text != text).then_some(edit.text), st.submitted)
+    let changed = focused && edit.text != text;
+    if changed {
+        this.returned = edit.text;
+    }
+    (changed, st.submitted)
 }
 
 fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language: &Option<Language>, suggest: &UiBox, open: i64, items: &[Completion], shown: usize, st: &mut AreaState, edit: &mut TextEdit) {
@@ -2460,7 +2469,8 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
     }
 }
 
-fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (String, bool) {
+/// Whether the text changed (the new one is in `returned`) and whether a text editor is open.
+fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (bool, bool) {
     let slider = o.slide.is_some() || o.scrub.is_some();
     let drag = if slider && o.kept_drag { DRAG_FREE } else { NO_FLAGS };
     let bx = this.box_(
@@ -2478,7 +2488,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
         alt_to_edit: slider,
         align_right: false,
     };
-    // (an idle field allocates nothing but the value it returns)
+    // (an idle field allocates nothing)
     let (typed, editing) = this.numeric_editor(
         &np,
         &|_| true,
@@ -2496,6 +2506,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
     }
     let press_keys = this.press_keys(&bx);
     let typed_is_some = typed.is_some();
+    let given = value;
     let value: std::borrow::Cow<str> = match typed {
         Some(text) => std::borrow::Cow::Owned(text),
         None if !editing
@@ -2541,7 +2552,14 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
             paint_text_edit(paint, size, false, 2.0, Some((selection, caret)), ints(rect), rect.y as i64 + ty, &composition, &edit);
         });
     }
-    (value.into_owned(), editing)
+    let changed = match value {
+        std::borrow::Cow::Owned(text) if text != given => {
+            this.returned = text;
+            true
+        }
+        _ => false,
+    };
+    (changed, editing)
 }
 
 /// The look a value field's box takes: the invalid one, the focused field's while editing, else the field's own.
@@ -2659,6 +2677,7 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
                 &format!("{}-name", key),
                 title,
             );
+            let t = t.map_or_else(|| title.to_owned(), str::to_owned);
             this.leave(saved);
             t
         }
@@ -3013,7 +3032,10 @@ pub(crate) fn default_text_field(this: &mut Ui, c: &TextFieldConfig, text: &str,
     }
 }
 
-fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, items: &[(String, bool)]) -> MenuResult {
+fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, items: &[(&str, bool)]) -> MenuResult {
+    // the rows the menu's build keeps, owned like a submenu's
+    let menu_items: Vec<(String, bool)> = items.iter().map(|&(text, enabled)| (text.to_owned(), enabled)).collect();
+    let items = &menu_items[..];
     let (x, y) = at;
     let submenu_key = key_of(this.current_seed(), &format!("{}-sub", label));
     // the width follows the longest row; an empty label is a separator line; `keys` are the
@@ -3055,7 +3077,6 @@ fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, i
     let popts = PopupOpts { look: Some(sheet), keep, related, role: Role::Menu, ..PopupOpts::default() };
     let mut opened: Option<i64> = None;
     let mut picked: Option<i64> = None;
-    let menu_items = items.to_vec();
     let shown = this.popup_with_related(popts, (x, y), width, height, label, &mut |ui: &mut Ui| {
         let top = ui.box_("menu-top", BoxOpts::default().flags(BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
         let open_row = ui.state(&top, -1);

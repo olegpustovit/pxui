@@ -49,20 +49,17 @@ export!(pub unsafe fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<PxuiHi
     if hints.len > 4096 || (hints.len != 0 && hints.ptr.is_null()) { return unsafe { fail(ui, "invalid inspector bar hints") }; }
     let raw = if hints.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(hints.ptr, hints.len) } };
     if !raw.iter().all(|hint| hint.size as usize == core::mem::size_of_val(hint)) { return unsafe { fail(ui, "invalid inspector bar hints") }; }
-    // the strings are reused between frames, like the footer's, so a settled bar allocates nothing
+    // the rows borrow the caller's strings for this call, in a vector reused between frames, like the footer's: a settled bar allocates nothing
     let mut rows = core::mem::take(&mut state.shared().hints);
-    rows.truncate(raw.len());
     let mut total = 0usize;
-    for (at, hint) in raw.iter().enumerate() {
-        let (Some(key), Some(value)) = (unsafe { checked(hint.key) }, unsafe { checked(hint.value) }) else { state.shared().hints = rows; return unsafe { fail(ui, "invalid inspector bar hint") }; };
+    for hint in raw {
+        let (Some(key), Some(value)) = (unsafe { checked(hint.key) }, unsafe { checked(hint.value) }) else { rows.clear(); state.shared().hints = rows; return unsafe { fail(ui, "invalid inspector bar hint") }; };
         total += key.len() + value.len();
-        if total > MAX_TOTAL_TEXT_BYTES { state.shared().hints = rows; return unsafe { fail(ui, "inspector bar text limit exceeded") }; }
-        match rows.get_mut(at) {
-            Some(row) => { row.0.clear(); row.0.push_str(key); row.1.clear(); row.1.push_str(value); }
-            None => rows.push((key.to_owned(), value.to_owned())),
-        }
+        if total > MAX_TOTAL_TEXT_BYTES { rows.clear(); state.shared().hints = rows; return unsafe { fail(ui, "inspector bar text limit exceeded") }; }
+        rows.push((key, value));
     }
     unsafe { (&mut *state.engine).inspector_bar(&rows, count); }
+    rows.clear();
     state.shared().hints = rows;
     0
 });

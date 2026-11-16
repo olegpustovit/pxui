@@ -116,6 +116,17 @@ pub enum Target {
     Scale { x: f32, y: f32, anchor: (f32, f32) },
 }
 
+/// One stop of `Ui::animate_keys`: the node reaches `target` `time` seconds after the start, the segment before it shaped by `curve`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Keyframe {
+    /// Seconds after the start; the stops' times ascend from 0.
+    pub time: f32,
+    /// Where the stop moves its channel; the other channels keep the stop before's.
+    pub target: Target,
+    /// The shape of the segment that ends at this stop.
+    pub curve: crate::theme::Curve,
+}
+
 /// The result of a `picker` for a frame.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Pick {

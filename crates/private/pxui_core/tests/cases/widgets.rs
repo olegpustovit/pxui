@@ -137,7 +137,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             s.add = ui.box_of_key(key_of(holder.box_key, "Add"));
             ui.badge("count", "12");
             if let Some(q) = ui.search_field("Search", "/", &s.search, "Search") {
-                s.search = q;
+                s.search = q.to_owned();
             }
             s.scroll = Some(ui.scroll_view("Scroll", Size::Grow, Size::Px(60.0), &mut |ui| {
                 for name in NAMES {

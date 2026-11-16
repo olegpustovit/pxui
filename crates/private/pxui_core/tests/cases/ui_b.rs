@@ -155,7 +155,7 @@ pub fn window_pxui_context_menu() {
                 (20.0, 20.0),
                 &MenuOpts::default(),
                 "ctx",
-                &[("One".to_owned(), true), ("Two".to_owned(), false), ("Three".to_owned(), true)],
+                &[("One", true), ("Two", false), ("Three", true)],
             ));
         });
     };
@@ -199,7 +199,7 @@ pub fn window_pxui_submenu() {
                 }],
                 ..MenuOpts::default()
             };
-            out = ui.context_menu((20.0, 20.0), &o, "submenu", &[("New graph".to_owned(), true), ("Delete".to_owned(), true)]);
+            out = ui.context_menu((20.0, 20.0), &o, "submenu", &[("New graph", true), ("Delete", true)]);
         });
         out
     };
@@ -270,7 +270,7 @@ impl Rig {
         let submitted = &mut self.submitted;
         host_frame(&mut self.ui, &frame_at(o.keys, 1.0, self.time, events), &mut |ui| {
             let (text, submit) = ui.text_area_submit((0.0, 0.0), 300.0, 96.0, &opts, "area", area);
-            if let Some(text) = text { *area = text; }
+            if let Some(text) = text { *area = text.to_owned(); }
             *submitted = submit;
         });
     }

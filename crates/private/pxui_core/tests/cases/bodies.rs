@@ -589,7 +589,7 @@ pub fn label_rule_body() {
 }
 
 /// A footer that is just its end key, with no rule and no hints.
-fn bare_footer(ui: &mut Ui, c: &FooterConfig, right: Option<&str>, _hints: &[(String, String)]) {
+fn bare_footer(ui: &mut Ui, c: &FooterConfig, right: Option<&str>, _hints: &[(&str, &str)]) {
     ui.node_mut(&c.row).h = Size::Px(24.0);
     let end = ui.node("end", Node { w: Size::Px(60.0), h: Size::Px(24.0), ..Node::DEFAULT });
     ui.text(&end, right.unwrap_or(""));
@@ -597,7 +597,7 @@ fn bare_footer(ui: &mut Ui, c: &FooterConfig, right: Option<&str>, _hints: &[(St
 
 pub fn footer_bare_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.footer = id, &|ui| ui.register_footer_body("bare", bare_footer));
-    let hints = [("Esc".to_owned(), "close".to_owned())];
+    let hints = [("Esc", "close")];
     swap_static("footer", &install, &|ui| ui.footer(Some("3 items"), &hints));
 }
 
@@ -1169,7 +1169,7 @@ fn bar_row(ui: &mut Ui, c: &MenuRowConfig, text: &str, _key: Option<&str>) {
 
 pub fn context_menu_bar_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.context_menu = id, &|ui| ui.register_context_menu_body("bar", bar_row));
-    let items = vec![("Alpha".to_owned(), true), ("Beta".to_owned(), true), ("Gamma".to_owned(), false)];
+    let items = vec![("Alpha", true), ("Beta", true), ("Gamma", false)];
     let opts = MenuOpts { selected: Some(0), keys: vec![String::new(), "Ctrl B".to_owned(), String::new()], danger: vec![2], ..MenuOpts::default() };
     let got = swap_root("context_menu", &install, 0, true, &|ui| click_on(ui, Role::MenuItem, "Beta"), &|ui, c| {
         if let MenuResult::Pick(i) = ui.context_menu((20.0, 20.0), &opts, "menu", &items) {
@@ -1563,7 +1563,7 @@ fn value_build(ui: &mut Ui, c: &Cells) {
     let now = text_of(c);
     let o = ValueFieldOpts { fraction: Some(0.5), ..ValueFieldOpts::default() };
     let (text, _) = ui.value_field((10.0, 10.0), 120.0, 20.0, &o, &|_| true, "Amount", &now);
-    keep_text(c, &text);
+    keep_text(c, text.unwrap_or(&now));
 }
 
 pub fn value_field_topped_body() {

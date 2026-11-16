@@ -53,26 +53,22 @@ export!(pub unsafe fn pxui_ui_context_menu(
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid context menu enabled flags") };
     }
-    // the engine takes owned rows; the buffers are reused, so an open menu allocates only while it grows
+    // the rows borrow the caller's strings for this call, in a vector reused between frames
     let mut menu = core::mem::take(&mut state.shared().menu);
-    menu.truncate(list.len());
-    for (at, (label, enabled)) in list.iter().zip(enabled).enumerate() {
-        match menu.get_mut(at) {
-            Some(row) => { row.0.clear(); row.0.push_str(label); row.1 = *enabled != 0; }
-            None => menu.push(((*label).to_owned(), *enabled != 0)),
-        }
-    }
+    menu.extend(list.iter().zip(enabled).map(|(label, enabled)| (*label, *enabled != 0)));
     let mut opts = MenuOpts { width: (has_width != 0).then_some(width), selected: (has_selected != 0).then_some(selected), ..MenuOpts::default() };
     if !extra.is_null() {
         // the size is read before the descriptor is copied
         let size = unsafe { (*extra).size } as usize;
         if size < core::mem::size_of::<PxuiMenuExtra>() || !unsafe { decode_extra(&*extra, &mut opts) } {
+            menu.clear();
             state.shared().menu = menu;
             state.shared().put_strs(list);
             return unsafe { fail(ui, "invalid context menu extras") };
         }
     }
     let result = unsafe { (&mut *state.engine).context_menu((x, y), &opts, label, &menu) };
+    menu.clear();
     state.shared().menu = menu;
     state.shared().put_strs(list);
     let (tag, index) = match result { MenuResult::Open => (0, -1), MenuResult::Pick(index) => (1, index), MenuResult::Dismiss => (2, -1) };

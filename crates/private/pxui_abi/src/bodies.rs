@@ -118,7 +118,7 @@ mod tramps {
     tramp!(spinner, |ui, sh, c: &SpinnerConfig, label: &str| PxuiSpinnerConfig { node: bx(c.node), label: pair(label) });
     tramp!(badge, |ui, sh, c: &BadgeConfig, label: &str, text: &str| PxuiBadgeConfig { node: bx(c.node), label: pair(label), text: pair(text) });
     tramp!(label, |ui, sh, c: &LabelConfig, text: &str| PxuiLabelConfig { first: c.first as u8, node: bx(c.node), text: pair(text) });
-    tramp_span!(footer, hints, |ui, sh, span, c: &FooterConfig, right: Option<&str>, hints: &[(String, String)]| {
+    tramp_span!(footer, hints, |ui, sh, span, c: &FooterConfig, right: Option<&str>, hints: &[(&str, &str)]| {
         span.extend(hints.iter().map(|(k, v)| PxuiHintDesc { size: core::mem::size_of::<PxuiHintDesc>() as u32, reserved: 0, key: pair(k), value: pair(v) }));
     }, PxuiFooterConfig { row: bx(c.row), has_right: right.is_some() as u8, right: opt(right), hints: Slice { ptr: span.as_ptr(), len: span.len() } });
     tramp!(grip, |ui, sh, c: &GripConfig| PxuiGripConfig { state: st(c.state), vertical: c.vertical as u8, floating: c.floating as u8, grip: bx(c.grip) });

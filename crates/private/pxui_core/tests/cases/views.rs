@@ -664,7 +664,7 @@ pub fn window_pxui_field_kept_drag() {
             builds.set(builds.get() + 1);
             let wrap = ui.box_("wrap", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(40.0)));
             key.set(pxui_core::ui_core::key_of(wrap.box_key, "field"));
-            ui.within(&wrap, &mut |ui| *value.borrow_mut() = ui.value_field((20.0, 10.0), 100.0, 20.0, &opts(&current), &|_| true, "field", &current).0);
+            ui.within(&wrap, &mut |ui| if let Some(text) = ui.value_field((20.0, 10.0), 100.0, 20.0, &opts(&current), &|_| true, "field", &current).0 { *value.borrow_mut() = text.to_owned(); });
         });
     };
     let at = |x: i64| ((x, 20), (x as f64, 20.0));
@@ -958,8 +958,8 @@ pub fn window_pxui_view_entrance_channels() {
     ui.frame(&at(0.0,vec![]),&mut build);
     let original=ui.output().draw[0].instances.clone();
     let curve=Curve::Bezier {duration:0.24,points:[0.0,0.0,1.0,1.0]};
-    let keys=[(0.0,Target::Opacity(0.0),curve),(0.0,Target::Offset(32.0,10.0),curve),
-        (0.24,Target::Opacity(1.0),curve),(0.24,Target::Offset(0.0,0.0),curve)];
+    let keys=[Keyframe{time:0.0,target:Target::Opacity(0.0),curve},Keyframe{time:0.0,target:Target::Offset(32.0,10.0),curve},
+        Keyframe{time:0.24,target:Target::Opacity(1.0),curve},Keyframe{time:0.24,target:Target::Offset(0.0,0.0),curve}];
     assert!(ui.animate_keys(&view.get().unwrap(),&keys));
     for (time,x,y,alpha) in [(0.0,32.0,10.0,0.0),(0.12,16.0,5.0,0.5),(0.24,0.0,0.0,1.0)] {
         ui.frame(&at(time,vec![]),&mut build);
