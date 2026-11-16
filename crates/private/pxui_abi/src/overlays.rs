@@ -1,7 +1,8 @@
 use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, core_box, fail, finite, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui_text::{MenuOpts, MenuResult, Pick, PickerOpts, Submenu};
+use pxui_core::ui_text::{Menu, MenuItem, MenuResponse, Pick, PickerOpts};
+use pxui_types::ui::Key as NodeKey;
 use pxui_types::ffi::{PxuiMenuExtra, Slice};
 use std::rc::Rc;
 
@@ -32,7 +33,7 @@ export!(pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<S
     0
 });
 
-export!(pub unsafe fn pxui_ui_context_menu(
+export!(trusted pub unsafe fn pxui_ui_context_menu(
     ui: *mut PxuiUi, x: f32, y: f32, label: Str, items: Slice<Str>, enabled: Slice<u8>,
     has_width: u8, width: f32, has_selected: u8, selected: i64, extra: *const PxuiMenuExtra,
     out_tag: *mut u32, out_index: *mut i64,
@@ -53,45 +54,91 @@ export!(pub unsafe fn pxui_ui_context_menu(
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid context menu enabled flags") };
     }
-    // the rows borrow the caller's strings for this call, in a vector reused between frames
-    let mut menu = core::mem::take(&mut state.shared().menu);
-    menu.extend(list.iter().zip(enabled).map(|(label, enabled)| (*label, *enabled != 0)));
-    let mut opts = MenuOpts { width: (has_width != 0).then_some(width), selected: (has_selected != 0).then_some(selected), ..MenuOpts::default() };
+    // the rows borrow the caller's strings for this call, in vectors reused between frames
+    let (mut menu, mut subs) = { let shared = state.shared(); (core::mem::take(&mut shared.menu), core::mem::take(&mut shared.menu_sub)) };
+    menu.extend(list.iter().zip(enabled).map(|(text, enabled)| MenuItem::new(text).enabled(*enabled != 0)));
+    let mut options = Menu::DEFAULT;
+    if has_width != 0 { options = options.width(width); }
+    let mut marks = false;
+    let mut valid = true;
     if !extra.is_null() {
         // the size is read before the descriptor is copied
         let size = unsafe { (*extra).size } as usize;
-        if size < core::mem::size_of::<PxuiMenuExtra>() || !unsafe { decode_extra(&*extra, &mut opts) } {
-            menu.clear();
-            state.shared().menu = menu;
-            state.shared().put_strs(list);
-            return unsafe { fail(ui, "invalid context menu extras") };
+        valid = size >= MENU_EXTRA_V1 && unsafe { decode_extra(&*extra, size, &mut menu, &mut subs, &mut options, &mut marks) };
+    }
+    if valid && has_selected != 0 && !marks {
+        // the current choice: the rows from `lead_from` keep the mark slot, the chosen one is marked
+        let lead_from = if extra.is_null() { 0 } else { unsafe { (*extra).lead_from } };
+        for (row, item) in menu.iter_mut().enumerate() {
+            if row as i64 >= lead_from || row as i64 == selected { item.checked = Some(row as i64 == selected); }
         }
     }
-    let result = unsafe { (&mut *state.engine).context_menu((x, y), &opts, label, &menu) };
+    let mut result = MenuResponse::default();
+    let status = if valid { unsafe { crate::trusted::menu(ui, NodeKey::Label(label), (x, y), &menu, &options, &mut result) } } else { 0 };
     menu.clear();
-    state.shared().menu = menu;
+    subs.clear();
+    { let shared = state.shared(); (shared.menu, shared.menu_sub) = (menu, subs); }
     state.shared().put_strs(list);
-    let (tag, index) = match result { MenuResult::Open => (0, -1), MenuResult::Pick(index) => (1, index), MenuResult::Dismiss => (2, -1) };
+    if !valid { return unsafe { fail(ui, "invalid context menu extras") }; }
+    if status != 0 { return status; }
+    let (tag, index) = match (result.dismissed, result.chosen) { (true, _) => (2, -1), (_, Some(index)) => (1, index as i64), _ => (0, -1) };
     unsafe { *out_tag = tag; *out_index = index; }
     0
 });
 
-// Owned copies of a menu's extras: keys and swatches, the destructive rows and the submenus, or false when a span or text is invalid.
-unsafe fn decode_extra(extra: &PxuiMenuExtra, opts: &mut MenuOpts) -> bool {
+// `PxuiMenuExtra` as ABI 1.0 had it: the fields before `row_h`.
+const MENU_EXTRA_V1: usize = 80;
+
+// Applies a menu's extras to its rows (shortcuts, swatches, destructive rows, marks, submenus) and options, borrowing the caller's
+// strings: false when a span, text or row is invalid. The submenus' rows go flat into `subs` first, then each opening row points
+// into it (`subs` does not grow after that).
+unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<'static>], subs: &mut Vec<MenuItem<'static>>, options: &mut Menu, marks: &mut bool) -> bool {
     fn span<'a, T>(s: Slice<T>, max: usize) -> Option<&'a [T]> {
         if s.len > max || (s.len != 0 && s.ptr.is_null()) { return None; }
         Some(if s.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(s.ptr, s.len) } })
     }
-    let own = |values: Slice<Str>| -> Option<Vec<String>> { span(values, MAX_ROWS)?.iter().map(|v| unsafe { checked(*v) }.map(str::to_owned)).collect() };
-    let (Some(keys), Some(swatches), Some(danger), Some(submenus)) = (own(extra.keys), span(extra.swatches, MAX_ROWS), span(extra.danger, MAX_ROWS), span(extra.submenus, 64)) else { return false };
-    opts.lead_from = extra.lead_from;
-    opts.keys = keys;
-    opts.swatches = swatches.iter().map(|s| (s.has != 0).then_some(s.color)).collect();
-    opts.danger = danger.to_vec();
-    for sub in submenus {
-        let (Some(rows), Some(enabled), Some(keys)) = (own(sub.rows), span(sub.enabled, MAX_ROWS), own(sub.keys)) else { return false };
-        if enabled.len() != rows.len() { return false; }
-        opts.submenus.push(Submenu { row: sub.row, rows: rows.into_iter().zip(enabled).map(|(r, e)| (r, *e != 0)).collect(), keys, current: (sub.has_current != 0).then_some(sub.current) });
+    let texts = |values: Slice<Str>| -> Option<&'static [Str]> { span(values, MAX_ROWS) };
+    let (Some(keys), Some(swatches), Some(danger), Some(submenus)) = (texts(extra.keys), span(extra.swatches, MAX_ROWS), span(extra.danger, MAX_ROWS), span(extra.submenus, 64)) else { return false };
+    if keys.len() > menu.len() || swatches.len() > menu.len() { return false; }
+    for (item, key) in menu.iter_mut().zip(keys) {
+        let Some(key) = (unsafe { checked(*key) }) else { return false };
+        item.shortcut = key;
+    }
+    for (item, swatch) in menu.iter_mut().zip(swatches) { item.swatch = (swatch.has != 0).then_some(swatch.color); }
+    for row in danger {
+        let Some(item) = usize::try_from(*row).ok().and_then(|row| menu.get_mut(row)) else { return false };
+        item.danger = true;
+    }
+    // ABI 1.49: the row height and the marks per row
+    if size >= core::mem::size_of::<PxuiMenuExtra>() {
+        if !extra.row_h.is_finite() || extra.row_h < 0.0 { return false; }
+        if extra.row_h > 0.0 { *options = options.row_h(extra.row_h); }
+        if extra.max_rows > 0 { *options = options.max_rows(extra.max_rows as usize); }
+        let Some(checked) = span(extra.checked, MAX_ROWS) else { return false };
+        if checked.len() > menu.len() || checked.iter().any(|mark| *mark > 2) { return false; }
+        *marks = !checked.is_empty();
+        for (item, mark) in menu.iter_mut().zip(checked) { item.checked = (*mark != 0).then_some(*mark == 2); }
+    }
+    subs.clear();
+    let mut at = [(0usize, 0usize, 0usize); 64];
+    let mut last = -1i64;
+    for (n, sub) in submenus.iter().enumerate() {
+        let (Some(rows), Some(enabled), Some(keys)) = (texts(sub.rows), span(sub.enabled, MAX_ROWS), texts(sub.keys)) else { return false };
+        // one submenu per row, in row order: the rows of the submenus are numbered after the menu's in the order given
+        if enabled.len() != rows.len() || keys.len() > rows.len() || sub.row <= last || sub.row >= menu.len() as i64 { return false; }
+        last = sub.row;
+        let start = subs.len();
+        for (i, text) in rows.iter().enumerate() {
+            let (Some(text), Some(shortcut)) = (unsafe { checked(*text) }, keys.get(i).map_or(Some(""), |key| unsafe { checked(*key) })) else { return false };
+            let mut item = MenuItem::new(text).enabled(enabled[i] != 0).key(shortcut);
+            if sub.has_current != 0 { item = item.checked(i as i64 == sub.current); }
+            subs.push(item);
+        }
+        at[n] = (sub.row as usize, start, rows.len());
+    }
+    for (row, start, count) in &at[..submenus.len()] {
+        // the pointer outlives the borrow: `subs` is neither pushed to nor dropped until the call that reads the rows has returned
+        menu[*row].submenu = unsafe { core::slice::from_raw_parts(subs.as_ptr().add(*start), *count) };
     }
     true
 }

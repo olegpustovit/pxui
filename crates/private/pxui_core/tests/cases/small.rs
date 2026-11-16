@@ -165,20 +165,16 @@ pub fn window_pxui_keyboard() {
     step(&mut ui, &mut model, vec![], vec![key_down(Key::Tab)]);
     step(&mut ui, &mut model, vec![], vec![Event::FocusLost, key_down(Key::Enter)]);
     check(model.clicks == 2 && !ui.text_input_focused(), "focus loss did not cancel keyboard activation");
-    let mut menu = MenuResult::Open;
+    const ITEMS: [MenuItem; 2] = [MenuItem::new("Disabled").enabled(false), MenuItem::new("Enabled")];
+    let mut menu = MenuResponse::default();
     let mut background = false;
     let mut popup = |ui: &mut Ui| {
-        menu = ui.context_menu(
-            (100.0, 100.0),
-            &MenuOpts::default(),
-            "menu",
-            &[("Disabled", false), ("Enabled", true)],
-        );
+        menu = ui.menu("menu".into(), (100.0, 100.0), &ITEMS, &Menu::DEFAULT);
         ui.panel(PanelOpts::default(), "background", &mut |ui| background = ui.button("Background"));
     };
     ui.frame(&keyboard_frame(vec![], vec![]), &mut popup);
     ui.frame(&keyboard_frame(vec![], vec![key_down(Key::Tab), key_down(Key::Enter)]), &mut popup);
-    check(menu == MenuResult::Pick(1) && !background, "modal traversal reached a disabled row or escaped to the background");
+    check(menu.chosen == Some(1) && !background, "modal traversal reached a disabled row or escaped to the background");
     ui.frame(&keyboard_frame(vec![], vec![Event::FocusLost]), &mut |_| {});
     let picked = std::cell::RefCell::new(None);
     let mut picker = |ui: &mut Ui| {

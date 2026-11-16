@@ -280,7 +280,8 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
             let generic_index = if token.text == "impl" { index + 1 } else { name_index + 1 };
             if tokens.get(generic_index).is_some_and(|next| next.text == "<") {
                 // Borrow lifetimes do not monomorphize functions or impls; only type parameters do.
-                let borrow_lifetimes_only = matches!(token.text.as_str(), "fn" | "impl")
+                let borrow_lifetimes_only = (matches!(token.text.as_str(), "fn" | "impl")
+                    || (matches!(token.text.as_str(), "struct" | "enum") && policy::wrapper_allows(path, "struct lifetime", &[])))
                     && generic_end(&tokens, generic_index).is_some_and(|end| {
                         let parameters = &tokens[generic_index + 1..end];
                         !parameters.is_empty() && parameters.iter().enumerate().all(|(at, parameter)| {
@@ -2177,6 +2178,16 @@ mod author_shim_tests {
         assert_eq!(generic_issues("crates/host/pxui_host/src/lib.rs", thin), 1);
         assert_eq!(generic_issues("crates/public/pxui/src/widgets.rs", "#[inline] pub fn row<T: Hash>(ui: &mut Ui, t: &T) { ui.row_body(t) }"), 1);
         assert_eq!(generic_issues(AUTHOR, "#[must_use] pub fn row<F: FnMut(&mut Ui)>(ui: &mut Ui, mut f: F) { ui.row_body(&mut f) }"), 1);
+    }
+
+    #[test]
+    fn lifetime_only_public_types_pass_and_type_parameters_still_fail() {
+        for path in ["crates/public/pxui_types/src/ui.rs", "crates/public/pxui/src/overlays.rs"] {
+            assert_eq!(shape_source("pxui", path, "pub struct Item<'a> { text: &'a str }\nimpl<'a> Item<'a> { pub const fn new(text: &'a str) -> Item<'a> { Item { text } } }").len(), 0, "{path}");
+            assert_eq!(generic_issues(path, "pub struct X<T> { value: T }"), 1, "{path}");
+            assert_eq!(generic_issues(path, "pub struct X<'a, T> { value: &'a T }"), 1, "{path}");
+        }
+        assert_eq!(generic_issues("crates/private/pxui_core/src/ui.rs", "struct Item<'a> { text: &'a str }"), 1);
     }
 
     #[test]

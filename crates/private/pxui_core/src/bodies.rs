@@ -300,6 +300,8 @@ pub struct MenuRowConfig {
     pub lead: f32,
     pub swatch_pad: f32,
     pub swatch: Option<crate::geom::Rgba>,
+    /// the row's height in points (the menu's `row_h`; the theme's row by default): the node is this high
+    pub row_h: f32,
 }
 
 pub type MenuRowBody = fn(&mut Ui, &MenuRowConfig, &str, Option<&str>);

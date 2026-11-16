@@ -45,8 +45,8 @@ pub mod ui_text {
         let ((px, py), (rx, ry)) = (signal.press_point, signal.release_point);
         signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
     }
-    pub use pxui_types::ui::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
-    pub use crate::{Language, MenuOpts, PickerOpts, ScrubPhase, Submenu, TextAreaOpts, ValueFieldOpts};
+    pub use pxui_types::ui::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, Menu, MenuItem, MenuResponse, Pick};
+    pub use crate::{Language, PickerOpts, ScrubPhase, TextAreaOpts, ValueFieldOpts};
 }
 pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
 pub mod ui_widgets { pub use crate::{DialogOut, Scrub, TreeNode}; }
@@ -76,8 +76,8 @@ pub use widgets::Scrub;
 pub mod composite;
 pub use composite::DialogOut;
 pub mod overlays;
-pub use overlays::{MenuOpts, PickerOpts, Submenu};
-pub use pxui_types::ui::{MenuResult, Pick};
+pub use overlays::PickerOpts;
+pub use pxui_types::ui::{Menu, MenuItem, MenuResponse, Pick};
 pub mod collections;
 pub mod bodies;
 pub use collections::TreeNode;

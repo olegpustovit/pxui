@@ -59,8 +59,9 @@ pub(crate) struct Shared {
     pub spare_input: Option<Box<input::frame::Frame>>,
     /// key codes of a box's held keys, valid until the next frame
     pub key_codes: Vec<u32>,
-    /// a context menu's rows borrowed from the caller for one call: empty between calls
-    pub menu: Vec<(&'static str, bool)>,
+    /// a menu's rows and its submenus' rows borrowed from the caller for one call: empty between calls
+    pub menu: Vec<pxui_types::ui::MenuItem<'static>>,
+    pub menu_sub: Vec<pxui_types::ui::MenuItem<'static>>,
     /// the input frame `pxui_ui_input` last handed out, and its wire form (the events point into the frame's own strings)
     pub routed: Option<input::frame::Frame>,
     pub routed_events: Vec<FfiEvent>,
@@ -96,7 +97,7 @@ impl Shared {
         Self {
             error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), lent: Vec::new(), lent_used: 0,
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
-            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
+            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(),
         }
     }

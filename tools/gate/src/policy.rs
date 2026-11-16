@@ -198,6 +198,8 @@ fn generic_parameters<'a>(tokens: &[&'a str]) -> Vec<Vec<&'a str>> {
 ///   the closure, `F: FnMut(..)`/`Fn`/`FnOnce` on the function, or `F: ?Sized` over a `dyn` closure) or `R`, the closure's result.
 ///   Any other generic item there still fails.
 pub fn wrapper_allows(path: &str, rule: &str, generics: &[&str]) -> bool {
+    // a lifetime-only struct or enum borrows its inputs and does not monomorphise: public types may have them
+    if rule == "struct lifetime" && path.starts_with("crates/public/pxui_types/src/") { return true; }
     if !path.starts_with("crates/public/pxui/src/") { return false; }
     match rule {
         "catch_unwind" | "struct lifetime" => true,

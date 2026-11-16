@@ -6,7 +6,7 @@ pub mod pxui {
     pub use pxui_core::ui::*;
     pub use pxui_core::ui_kit::PanelOpts;
     pub use pxui_core::ui_widgets::{DialogOut, TreeNode};
-    pub use pxui_types::ui::{MenuOpts, MenuResult, Pick};
+    pub use pxui_types::ui::{Menu, MenuItem, MenuResponse, Pick};
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub mod ui_kit { pub use pxui_core::ui_kit::PanelOpts; }
     pub use pxui_types::theme;

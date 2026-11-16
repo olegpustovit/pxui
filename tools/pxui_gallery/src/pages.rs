@@ -1,5 +1,5 @@
 // The gallery pages, against the wrapper `pxui`.
-use pxui::{collections::TreeNode, DialogOut, Image, MenuOpts, MenuResult, Pick, PickerOpts, PxuiBox as Handle, ui_kit::PanelOpts, TextAreaOpts, Ui, ValueFieldOpts};
+use pxui::{collections::TreeNode, DialogOut, Image, Menu, MenuItem, Pick, PickerOpts, PxuiBox as Handle, ui_kit::PanelOpts, TextAreaOpts, Ui, ValueFieldOpts};
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
@@ -292,10 +292,12 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         }
     }
     if let Some(at) = s.menu_at {
-        match ui.context_menu(at, &MenuOpts::default(), "context", &[("Cut", true), ("Copy", true), ("", true), ("Delete", true)]) {
-            MenuResult::Open => {}
-            MenuResult::Pick(_) => (s.menu_at, s.said) = (None, "Picked from the menu"),
-            MenuResult::Dismiss => s.menu_at = None,
+        const ITEMS: [MenuItem; 4] = [MenuItem::new("Cut"), MenuItem::new("Copy"), MenuItem::new(""), MenuItem::new("Delete")];
+        let menu = ui.menu(Key::from("context"), at, &ITEMS, &Menu::DEFAULT);
+        if menu.chosen.is_some() {
+            (s.menu_at, s.said) = (None, "Picked from the menu");
+        } else if menu.dismissed {
+            s.menu_at = None;
         }
     }
     if s.picker {

@@ -102,12 +102,8 @@ fn overlays(ui: &mut Ui) {
         };
         ui.picker(&PickerOpts { limit: 3, ..PickerOpts::default() }, "Search presets", "", &rows);
     });
-    ui.context_menu(
-        (12.0, 200.0),
-        &MenuOpts::default(),
-        "context",
-        &[("View", true), ("Set active camera", false), ("Delete", true)],
-    );
+    const ITEMS: [MenuItem; 3] = [MenuItem::new("View"), MenuItem::new("Set active camera").enabled(false), MenuItem::new("Delete")];
+    ui.menu("context".into(), (12.0, 200.0), &ITEMS, &Menu::DEFAULT);
 }
 
 fn table(ui: &mut Ui) {

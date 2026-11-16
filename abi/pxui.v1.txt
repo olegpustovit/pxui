@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 49
+minor 50
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -345,10 +345,10 @@ layout PxuiMaybeRange 24 8 0 1 8 16
 layout PxuiMeasuredSectionDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
 layout PxuiMenuBarDesc 40 8 0 4 8 24
 layout PxuiMenuDesc 40 8 0 4 8 24
-layout PxuiMenuExtra 80 8 0 4 8 16 32 48 64
+layout PxuiMenuExtra 104 8 0 4 8 16 32 48 64 80 84 88
 layout PxuiMenuItemConfig 72 8 0 4 16 24 56
 layout PxuiMenuOut 24 8 0 4 8 16
-layout PxuiMenuRowConfig 104 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88
+layout PxuiMenuRowConfig 112 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88 104
 layout PxuiMotion 28 4 0 4 8 12
 layout PxuiNode 488 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
 layout PxuiNodeFields 192 8 0 4 8 160 176

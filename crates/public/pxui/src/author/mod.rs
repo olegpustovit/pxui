@@ -2,6 +2,7 @@
 mod button;
 mod icon_button;
 mod layout;
+mod menu;
 mod press;
 mod state;
 mod text;

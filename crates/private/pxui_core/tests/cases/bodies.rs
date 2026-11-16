@@ -1383,11 +1383,10 @@ fn bar_row(ui: &mut Ui, c: &MenuRowConfig, text: &str, _key: Option<&str>) {
 
 pub fn context_menu_bar_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.context_menu = id, &|ui| ui.register_context_menu_body("bar", bar_row));
-    let items = vec![("Alpha", true), ("Beta", true), ("Gamma", false)];
-    let opts = MenuOpts { selected: Some(0), keys: vec![String::new(), "Ctrl B".to_owned(), String::new()], danger: vec![2], ..MenuOpts::default() };
+    const ITEMS: [MenuItem; 3] = [MenuItem::new("Alpha").checked(true), MenuItem::new("Beta").checked(false).key("Ctrl B"), MenuItem::new("Gamma").enabled(false).danger()];
     let got = swap_root("context_menu", &install, 0, true, &|ui| click_on(ui, Role::MenuItem, "Beta"), &|ui, c| {
-        if let MenuResult::Pick(i) = ui.context_menu((20.0, 20.0), &opts, "menu", &items) {
-            c.a.set(i + 1);
+        if let Some(i) = ui.menu("menu".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT).chosen {
+            c.a.set(i as i64 + 1);
         }
     });
     check(got.0 == 2, &format!("context_menu: the click on the second row picked {}", got.0));

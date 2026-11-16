@@ -577,17 +577,17 @@ pub fn window_pxui_modal_2() {
 
 pub fn window_pxui_modal_3() {
     let mut ui = ui11();
-    let menu = |ui: &mut Ui, events: Vec<Event>| -> MenuResult {
-        let mut out = MenuResult::Open;
+    const ITEMS: [MenuItem; 2] = [MenuItem::new("First").checked(false), MenuItem::new("Second").checked(true)];
+    let menu = |ui: &mut Ui, events: Vec<Event>| -> MenuResponse {
+        let mut out = MenuResponse::default();
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            let o = MenuOpts { width: Some(240.0), selected: Some(1), ..MenuOpts::default() };
-            out = ui.context_menu((20.0, 20.0), &o, "choices", &[("First", true), ("Second", true)]);
+            out = ui.menu("choices".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT.width(240.0));
         });
         out
     };
     menu(&mut ui, vec![]);
     menu(&mut ui, vec![]);
-    if menu(&mut ui, vec![press((240, 58)), release((240, 58))]) != MenuResult::Pick(1) {
+    if menu(&mut ui, vec![press((240, 58)), release((240, 58))]).chosen != Some(1) {
         fail("dropdown rows did not extend to the requested control width");
     }
     ui.destroy();

@@ -86,7 +86,7 @@ Ui|checkbox|Gallery|done
 Ui|clipboard_request|Rays|done
 Ui|col|Rays|done
 Ui|context_at|Rays|done
-Ui|context_menu|Gallery,Rays|done
+Ui|menu|Gallery,Rays|done: pxui_ui_context_menu (the export stays; Menu and MenuItem cross as its extra)
 Ui|create|Rays,Gallery|done: platform, font size and fonts; checks the ABI major
 Ui|destroy|Gallery,Rays|replaced: dropping the Ui destroys it (the library refuses while a Renderer of it lives)
 Ui|dialog|Gallery|done

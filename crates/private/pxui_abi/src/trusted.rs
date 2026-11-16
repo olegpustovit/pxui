@@ -339,6 +339,18 @@ pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str
     0
 }
 
+/// `Ui::menu` of Rust rows: the position and the widths are finite by the checks below, the rows and the key are Rust values. The
+/// static wrapper's entry; the `pxui_ui_context_menu` export decodes its columns into rows and calls this.
+#[inline]
+pub unsafe fn menu(ui: *mut PxuiUi, key: pxui_types::ui::Key, at: (f32, f32), items: &[pxui_types::ui::MenuItem], menu: &pxui_types::ui::Menu, out: &mut pxui_types::ui::MenuResponse) -> i32 {
+    enter!(ui);
+    let width_ok = menu.width.is_none_or(|width| width.is_finite() && width >= 0.0);
+    let row_ok = menu.row_h.is_none_or(|row| row.is_finite() && row > 0.0);
+    if !at.0.is_finite() || !at.1.is_finite() || !width_ok || !row_ok { return unsafe { fail(ui, "invalid context menu arguments") }; }
+    *out = unsafe { engine(ui) }.menu(key, at, items, menu);
+    0
+}
+
 #[inline]
 pub unsafe fn tip(ui: *mut PxuiUi, box_: &PxuiBox, label: &str) -> i32 {
     enter!(ui);

@@ -148,37 +148,33 @@ pub fn window_pxui_context_menu() {
     // Context menu: rows commit on release inside, disabled rows are inert, a press outside
     // dismisses; the host keeps it open on Open.
     let mut ui = field_ui();
-    let result = Cell::new(MenuResult::Open);
+    const ITEMS: [MenuItem; 3] = [MenuItem::new("One"), MenuItem::new("Two").enabled(false), MenuItem::new("Three")];
+    let result = Cell::new(MenuResponse::default());
     let menu = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            result.set(ui.context_menu(
-                (20.0, 20.0),
-                &MenuOpts::default(),
-                "ctx",
-                &[("One", true), ("Two", false), ("Three", true)],
-            ));
+            result.set(ui.menu("ctx".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT));
         });
     };
     let row = |index: i64| (60, 20 + 3 + index * 24 + 12);
     menu(&mut ui, vec![]);
     menu(&mut ui, vec![press(row(0))]);
-    if result.get() != MenuResult::Open {
+    if result.get() != MenuResponse::default() {
         fail("context menu committed on press");
     }
     menu(&mut ui, vec![release(row(0))]);
-    if result.get() != MenuResult::Pick(0) {
+    if result.get().chosen != Some(0) {
         fail("context menu did not commit on release");
     }
     menu(&mut ui, vec![press(row(1)), release(row(1))]);
-    if result.get() != MenuResult::Open {
+    if result.get() != MenuResponse::default() {
         fail("disabled context menu row committed");
     }
     menu(&mut ui, vec![press(row(2)), release((300, 200))]);
-    if result.get() != MenuResult::Open {
+    if result.get() != MenuResponse::default() {
         fail("context menu committed after release outside");
     }
     menu(&mut ui, vec![press((300, 200))]);
-    if result.get() != MenuResult::Dismiss {
+    if !result.get().dismissed {
         fail("press outside did not dismiss the context menu");
     }
     ui.destroy();
@@ -186,36 +182,28 @@ pub fn window_pxui_context_menu() {
 
 pub fn window_pxui_submenu() {
     let mut ui = field_ui();
-    let submenu = |ui: &mut Ui, events: Vec<Event>| -> MenuResult {
-        let mut out = MenuResult::Open;
+    const KINDS: [MenuItem; 2] = [MenuItem::new("Draw"), MenuItem::new("Value")];
+    const ITEMS: [MenuItem; 2] = [MenuItem::new("New graph").submenu(&KINDS), MenuItem::new("Delete")];
+    let submenu = |ui: &mut Ui, events: Vec<Event>| -> MenuResponse {
+        let mut out = MenuResponse::default();
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            let o = MenuOpts {
-                width: Some(150.0),
-                submenus: vec![Submenu {
-                    row: 0,
-                    rows: vec![("Draw".to_owned(), true), ("Value".to_owned(), true)],
-                    keys: vec![],
-                    current: None,
-                }],
-                ..MenuOpts::default()
-            };
-            out = ui.context_menu((20.0, 20.0), &o, "submenu", &[("New graph", true), ("Delete", true)]);
+            out = ui.menu("submenu".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT.width(150.0));
         });
         out
     };
     submenu(&mut ui, vec![]);
     submenu(&mut ui, vec![move_to((60, 38))]);
     submenu(&mut ui, vec![move_to((190, 62))]);
-    if submenu(&mut ui, vec![press((190, 62))]) != MenuResult::Open {
+    if submenu(&mut ui, vec![press((190, 62))]) != MenuResponse::default() {
         fail("submenu committed on press");
     }
-    if submenu(&mut ui, vec![]) != MenuResult::Open {
+    if submenu(&mut ui, vec![]) != MenuResponse::default() {
         fail("submenu lost capture between frames");
     }
-    if submenu(&mut ui, vec![release((190, 62))]) != MenuResult::Pick(3) {
+    if submenu(&mut ui, vec![release((190, 62))]).chosen != Some(3) {
         fail("submenu did not commit on release");
     }
-    if submenu(&mut ui, vec![press((300, 200))]) != MenuResult::Dismiss {
+    if !submenu(&mut ui, vec![press((300, 200))]).dismissed {
         fail("submenu did not dismiss outside");
     }
     ui.destroy();

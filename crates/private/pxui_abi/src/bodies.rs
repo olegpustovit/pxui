@@ -169,7 +169,7 @@ mod tramps {
     tramp!(menu_item, |ui, sh, c: &MenuItemConfig, text: &str| PxuiMenuItemConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });
     tramp!(context_menu, |ui, sh, c: &MenuRowConfig, text: &str, shortcut: Option<&str>| PxuiMenuRowConfig {
         state: st(c.state), selected: c.selected as u8, chevron: c.chevron as u8, danger: c.danger as u8, has_swatch: c.swatch.is_some() as u8, swatch: c.swatch.unwrap_or_default(),
-        has_shortcut: shortcut.is_some() as u8, index: c.index, lead: c.lead, swatch_pad: c.swatch_pad, row: bx(c.row), text: pair(text), shortcut: opt(shortcut)
+        has_shortcut: shortcut.is_some() as u8, index: c.index, lead: c.lead, swatch_pad: c.swatch_pad, row: bx(c.row), text: pair(text), shortcut: opt(shortcut), row_h: c.row_h
     });
     tramp!(list_view, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body) });
     tramp!(table_view, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body) });

@@ -401,8 +401,10 @@ pub struct PxuiSubmenu {
     pub keys: Slice<Str>,
 }
 
-/// What a context menu has beyond its rows (`MenuOpts`): keys and swatches are per row (shorter than the rows is fine),
-/// `danger` the destructive rows, `lead_from` the first row that is not drawn with a leading mark.
+/// What a menu has beyond its rows (`Ui::menu`): keys and swatches are per row (shorter than the rows is fine),
+/// `danger` the destructive rows, `lead_from` the first row that is not drawn with a leading mark. From ABI 1.49 (a `size` that
+/// covers them): `row_h` the row height in points (0: the theme's), `max_rows` the rows shown before the column scrolls (0: all), and `checked` per row 0 no mark slot, 1 a slot, 2 a slot with
+/// the mark, which replaces `has_selected`/`selected` and `lead_from` when it is not empty.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiMenuExtra {
@@ -413,6 +415,9 @@ pub struct PxuiMenuExtra {
     pub swatches: Slice<PxuiSwatch>,
     pub danger: Slice<i64>,
     pub submenus: Slice<PxuiSubmenu>,
+    pub row_h: f32,
+    pub max_rows: u32,
+    pub checked: Slice<u8>,
 }
 
 /// A label's style as it crosses the ABI (`pxui_ui_label`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
@@ -1417,7 +1422,7 @@ configs! {
     PxuiMenuItemConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str }
     PxuiMenuRowConfig {
         state: PxuiStateDesc, selected: u8, chevron: u8, danger: u8, has_swatch: u8, swatch: Rgba, has_shortcut: u8, index: i64, lead: f32, swatch_pad: f32,
-        row: PxuiBox, text: Str, shortcut: Str
+        row: PxuiBox, text: Str, shortcut: Str, row_h: f32
     }
     /// A `list_view` or `table_view` row; `content` is the text or the caller's cells.
     PxuiRowConfig { state: PxuiStateDesc, index: usize, row: PxuiBox, content: PxuiSlot }
@@ -1487,7 +1492,7 @@ pub(crate) mod layout {
         check("PxuiAreaCallbacks", size_of::<PxuiAreaCallbacks>(), align_of::<PxuiAreaCallbacks>(), &[("size", core::mem::offset_of!(PxuiAreaCallbacks, size)), ("reserved", core::mem::offset_of!(PxuiAreaCallbacks, reserved)), ("user", core::mem::offset_of!(PxuiAreaCallbacks, user)), ("on_context", core::mem::offset_of!(PxuiAreaCallbacks, on_context)), ("on_scrub", core::mem::offset_of!(PxuiAreaCallbacks, on_scrub)), ("on_scrub_edit", core::mem::offset_of!(PxuiAreaCallbacks, on_scrub_edit)), ("on_click", core::mem::offset_of!(PxuiAreaCallbacks, on_click)), ("on_caret", core::mem::offset_of!(PxuiAreaCallbacks, on_caret)), ("on_caret_move", core::mem::offset_of!(PxuiAreaCallbacks, on_caret_move)), ("on_select", core::mem::offset_of!(PxuiAreaCallbacks, on_select)), ("on_drop", core::mem::offset_of!(PxuiAreaCallbacks, on_drop)), ("colorize", core::mem::offset_of!(PxuiAreaCallbacks, colorize)), ("brackets", core::mem::offset_of!(PxuiAreaCallbacks, brackets)), ("indent", core::mem::offset_of!(PxuiAreaCallbacks, indent)), ("complete", core::mem::offset_of!(PxuiAreaCallbacks, complete)), ("describe", core::mem::offset_of!(PxuiAreaCallbacks, describe)), ("number_at", core::mem::offset_of!(PxuiAreaCallbacks, number_at)), ("context_at", core::mem::offset_of!(PxuiAreaCallbacks, context_at)), ("rewrite", core::mem::offset_of!(PxuiAreaCallbacks, rewrite))]);
         check("PxuiSwatch", size_of::<PxuiSwatch>(), align_of::<PxuiSwatch>(), &[("has", core::mem::offset_of!(PxuiSwatch, has)), ("reserved", core::mem::offset_of!(PxuiSwatch, reserved)), ("color", core::mem::offset_of!(PxuiSwatch, color))]);
         check("PxuiSubmenu", size_of::<PxuiSubmenu>(), align_of::<PxuiSubmenu>(), &[("row", core::mem::offset_of!(PxuiSubmenu, row)), ("current", core::mem::offset_of!(PxuiSubmenu, current)), ("has_current", core::mem::offset_of!(PxuiSubmenu, has_current)), ("reserved", core::mem::offset_of!(PxuiSubmenu, reserved)), ("rows", core::mem::offset_of!(PxuiSubmenu, rows)), ("enabled", core::mem::offset_of!(PxuiSubmenu, enabled)), ("keys", core::mem::offset_of!(PxuiSubmenu, keys))]);
-        check("PxuiMenuExtra", size_of::<PxuiMenuExtra>(), align_of::<PxuiMenuExtra>(), &[("size", core::mem::offset_of!(PxuiMenuExtra, size)), ("reserved", core::mem::offset_of!(PxuiMenuExtra, reserved)), ("lead_from", core::mem::offset_of!(PxuiMenuExtra, lead_from)), ("keys", core::mem::offset_of!(PxuiMenuExtra, keys)), ("swatches", core::mem::offset_of!(PxuiMenuExtra, swatches)), ("danger", core::mem::offset_of!(PxuiMenuExtra, danger)), ("submenus", core::mem::offset_of!(PxuiMenuExtra, submenus))]);
+        check("PxuiMenuExtra", size_of::<PxuiMenuExtra>(), align_of::<PxuiMenuExtra>(), &[("size", core::mem::offset_of!(PxuiMenuExtra, size)), ("reserved", core::mem::offset_of!(PxuiMenuExtra, reserved)), ("lead_from", core::mem::offset_of!(PxuiMenuExtra, lead_from)), ("keys", core::mem::offset_of!(PxuiMenuExtra, keys)), ("swatches", core::mem::offset_of!(PxuiMenuExtra, swatches)), ("danger", core::mem::offset_of!(PxuiMenuExtra, danger)), ("submenus", core::mem::offset_of!(PxuiMenuExtra, submenus)), ("row_h", core::mem::offset_of!(PxuiMenuExtra, row_h)), ("max_rows", core::mem::offset_of!(PxuiMenuExtra, max_rows)), ("checked", core::mem::offset_of!(PxuiMenuExtra, checked))]);
         check("Slice", size_of::<Slice<u32>>(), align_of::<Slice<u32>>(), &[("ptr", core::mem::offset_of!(Slice<u32>, ptr)), ("len", core::mem::offset_of!(Slice<u32>, len))]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[("size", core::mem::offset_of!(Input, size)), ("time", core::mem::offset_of!(Input, time)), ("dt", core::mem::offset_of!(Input, dt)), ("frame", core::mem::offset_of!(Input, frame)), ("tick", core::mem::offset_of!(Input, tick)), ("logical_size", core::mem::offset_of!(Input, logical_size)), ("pointer", core::mem::offset_of!(Input, pointer)), ("keys", core::mem::offset_of!(Input, keys)), ("buttons", core::mem::offset_of!(Input, buttons)), ("events", core::mem::offset_of!(Input, events)), ("pixel_scale", core::mem::offset_of!(Input, pixel_scale)), ("mouse_delta", core::mem::offset_of!(Input, mouse_delta)), ("fps", core::mem::offset_of!(Input, fps))]);
         check("PlatformOut", size_of::<PlatformOut>(), align_of::<PlatformOut>(), &[("size", core::mem::offset_of!(PlatformOut, size)), ("cursor", core::mem::offset_of!(PlatformOut, cursor)), ("has_cursor", core::mem::offset_of!(PlatformOut, has_cursor)), ("has_ime", core::mem::offset_of!(PlatformOut, has_ime)), ("has_background", core::mem::offset_of!(PlatformOut, has_background)), ("has_clipboard", core::mem::offset_of!(PlatformOut, has_clipboard)), ("ime_rect", core::mem::offset_of!(PlatformOut, ime_rect)), ("ime_caret", core::mem::offset_of!(PlatformOut, ime_caret)), ("clipboard", core::mem::offset_of!(PlatformOut, clipboard)), ("background", core::mem::offset_of!(PlatformOut, background)), ("paste", core::mem::offset_of!(PlatformOut, paste)), ("reserved", core::mem::offset_of!(PlatformOut, reserved))]);

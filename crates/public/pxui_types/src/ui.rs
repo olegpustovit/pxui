@@ -90,11 +90,158 @@ pub enum Pick {
     Cancel,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum MenuResult {
-    Open,
-    Pick(i64),
-    Dismiss,
+/// One row of a `Ui::menu`, a `Copy` value built with `const fn` builders from `MenuItem::new`.
+///
+/// Empty text is a separator line (never chosen, drawn at the menu's separator height).
+#[derive(Clone, Copy, Debug)]
+pub struct MenuItem<'a> {
+    /// The row's label.
+    pub text: &'a str,
+    /// Whether the row can be chosen; a disabled row shows the disabled look and takes no press.
+    pub enabled: bool,
+    /// Whether the row reads in the error ink (a delete).
+    pub danger: bool,
+    /// `Some` keeps a slot before the label for the current-choice mark; `Some(true)` draws the accent square in it.
+    pub checked: Option<bool>,
+    /// The shortcut text at the row's end (empty for none).
+    pub shortcut: &'a str,
+    /// A small colour square before the label.
+    pub swatch: Option<Color>,
+    /// The rows of the second menu this row opens beside the menu while the pointer is on it (empty for none).
+    pub submenu: &'a [MenuItem<'a>],
+}
+
+impl<'a> MenuItem<'a> {
+    /// An enabled row with `text` and nothing else.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::MenuItem;
+    /// const PLAY: MenuItem = MenuItem::new("Play next");
+    /// assert!(PLAY.enabled && !PLAY.danger);
+    /// ```
+    pub const fn new(text: &'a str) -> MenuItem<'a> { MenuItem { text, enabled: true, danger: false, checked: None, shortcut: "", swatch: None, submenu: &[] } }
+
+    /// Sets whether the row can be chosen.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let off = pxui_types::ui::MenuItem::new("Paste").enabled(false);
+    /// assert!(!off.enabled);
+    /// ```
+    pub const fn enabled(mut self, enabled: bool) -> MenuItem<'a> { self.enabled = enabled; self }
+
+    /// Inks the row in the theme's error colour.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const DELETE: pxui_types::ui::MenuItem = pxui_types::ui::MenuItem::new("Delete").danger();
+    /// assert!(DELETE.danger);
+    /// ```
+    pub const fn danger(mut self) -> MenuItem<'a> { self.danger = true; self }
+
+    /// Gives the row the mark slot, marked when `checked`; the menu keeps the slot on every row that has one.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let row = pxui_types::ui::MenuItem::new("Small").checked(true);
+    /// assert_eq!(row.checked, Some(true));
+    /// ```
+    pub const fn checked(mut self, checked: bool) -> MenuItem<'a> { self.checked = Some(checked); self }
+
+    /// Shows `shortcut` at the row's end in the secondary ink (display only; the menu binds no key).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let row = pxui_types::ui::MenuItem::new("Copy").key("Ctrl C");
+    /// assert_eq!(row.shortcut, "Ctrl C");
+    /// ```
+    pub const fn key(mut self, shortcut: &'a str) -> MenuItem<'a> { self.shortcut = shortcut; self }
+
+    /// Draws a small colour square before the label.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, ui::MenuItem};
+    /// let row = MenuItem::new("Red").swatch(Rgba { r: 255, g: 0, b: 0, a: 255 });
+    /// assert!(row.swatch.is_some());
+    /// ```
+    pub const fn swatch(mut self, color: Color) -> MenuItem<'a> { self.swatch = Some(color); self }
+
+    /// Gives the row a chevron and a second menu of `rows` (rows of its own, no deeper submenus) while the pointer is on it.
+    /// The rows of the submenus are numbered after the rows of the menu, in the order of the rows that open them.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::MenuItem;
+    /// const SIZES: [MenuItem; 2] = [MenuItem::new("Small"), MenuItem::new("Large")];
+    /// let row = MenuItem::new("Size").submenu(&SIZES);
+    /// assert_eq!(row.submenu.len(), 2);
+    /// ```
+    pub const fn submenu(mut self, rows: &'a [MenuItem<'a>]) -> MenuItem<'a> { self.submenu = rows; self }
+}
+
+/// How `Ui::menu` varies the kit's menu, as a `Copy` value built with `const fn` builders from `Menu::DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Menu {
+    /// A row's height in points (`None`: the theme's row).
+    pub row_h: Option<f32>,
+    /// The least width in points (`None`: 150); the menu is as wide as its longest row.
+    pub width: Option<f32>,
+    /// The most rows shown at once (`None`: all); a menu with more rows scrolls its row column.
+    pub max_rows: Option<usize>,
+}
+
+impl Menu {
+    /// The plain kit menu: the theme's row height, at least 150 points wide, every row shown.
+    pub const DEFAULT: Menu = Menu { row_h: None, width: None, max_rows: None };
+
+    /// Sets a row's height in points; the label, mark, swatch and shortcut centre in it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const TALL: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.row_h(36.0);
+    /// assert_eq!(TALL.row_h, Some(36.0));
+    /// ```
+    pub const fn row_h(mut self, row_h: f32) -> Menu { self.row_h = Some(row_h); self }
+
+    /// Sets the least width in points.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const WIDE: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.width(200.0);
+    /// assert_eq!(WIDE.width, Some(200.0));
+    /// ```
+    pub const fn width(mut self, width: f32) -> Menu { self.width = Some(width); self }
+
+    /// Shows at most `rows` rows at once: a menu with more rows is that tall and its row column scrolls (wheel, drag or touch).
+    /// The submenu of a row is not limited, and is placed level with its row unscrolled.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SHORT: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.max_rows(8);
+    /// assert_eq!(SHORT.max_rows, Some(8));
+    /// ```
+    pub const fn max_rows(mut self, rows: usize) -> Menu { self.max_rows = Some(rows); self }
+}
+
+/// What a `Ui::menu` call reports for the frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct MenuResponse {
+    /// The index of the row chosen this frame (a click, or Enter on the focused row); the menu has closed itself.
+    pub chosen: Option<usize>,
+    /// The menu closed without a choice (Escape, window focus loss or a press outside): stop calling `menu`.
+    pub dismissed: bool,
 }
 
 /// One ranked suggestion of `Language::complete`.
@@ -399,28 +546,6 @@ pub enum ScrubPhase {
 
 
 
-
-/// A submenu of a `context_menu`.
-#[derive(Clone, Debug, PartialEq)]
-pub struct Submenu {
-    /// the row of the menu that opens it (drawn with a chevron)
-    pub row: i64,
-    pub rows: Vec<(String, bool)>,
-    pub keys: Vec<String>,
-    /// the row marked with the accent square
-    pub current: Option<i64>,
-}
-
-#[derive(Clone, Default)]
-pub struct MenuOpts {
-    pub width: Option<f32>,
-    pub selected: Option<i64>,
-    pub swatches: Vec<Option<Color>>,
-    pub keys: Vec<String>,
-    pub danger: Vec<i64>,
-    pub submenus: Vec<Submenu>,
-    pub lead_from: i64,
-}
 
 /// A number literal dragged `dx` points: a float moves a tenth of its last decimal place per
 /// point (Shift: ten times that) and keeps one more decimal; an integer moves one per six points,

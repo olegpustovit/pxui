@@ -89,7 +89,7 @@ PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
 PxuiAreaCallbacks 144 8 0 4 8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 128 136
 PxuiSwatch 8 1 0 1 4
 PxuiSubmenu 72 8 0 8 16 17 24 40 56
-PxuiMenuExtra 80 8 0 4 8 16 32 48 64
+PxuiMenuExtra 104 8 0 4 8 16 32 48 64 80 84 88
 PxuiLayerInfo 48 8 0 8 12 16 32
 PxuiDirty 8 4 0 4
 PxuiSize 16 8
@@ -140,7 +140,7 @@ PxuiTabConfig 72 8 0 4 16 24 56
 PxuiSegmentConfig 88 8 0 4 16 24 32 40 72
 PxuiDropdownConfig 72 8 0 4 12 16 24 56
 PxuiMenuItemConfig 72 8 0 4 16 24 56
-PxuiMenuRowConfig 104 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88
+PxuiMenuRowConfig 112 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88 104
 PxuiRowConfig 64 8 0 4 16 24 56
 PxuiTreeRowConfig 80 8 0 4 12 13 16 24 32 40 72
 PxuiTableHeadConfig 72 8 0 4 12 13 16 24 56

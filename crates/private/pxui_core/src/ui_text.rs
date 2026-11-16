@@ -12,7 +12,8 @@ const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
 use crate::ui_core::*;
 use crate::ui_kit::*;
 pub use crate::opts::{Language, PickerOpts, TextAreaOpts, ValueFieldOpts};
-pub use pxui_types::ui::{scrubbed, ScrubPhase, MenuOpts, Submenu, TextEdit, LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, MenuResult, Pick};
+pub use pxui_types::ui::{scrubbed, ScrubPhase, Menu, MenuItem, MenuResponse, TextEdit, LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, Pick};
+use pxui_types::ui::Key as NodeKey;
 use input::{Event, Key, MouseButton};
 use crate::geom::{color, Rgba as Color};
 use std::rc::Rc;
@@ -1456,52 +1457,53 @@ impl Ui {
 
 // ------------------------------------------------------------------ context menu
 
-struct MenuRows {
-    items: Vec<(String, bool)>,
-    keys: Vec<String>,
-    selected: Option<i64>,
-    swatches: Vec<Option<Color>>,
-    danger: Vec<i64>,
+/// The measures of one menu's rows, as `menu_rows_body` builds them.
+struct MenuLook {
+    /// the row whose submenu is open
     opened: Option<i64>,
-    chevrons: Vec<i64>,
-    lead_from: i64,
+    /// the menu itself, not a submenu: its rows with submenus have a chevron
+    top: bool,
     swatch_pad: f32,
     gap: f32,
+    row_h: f32,
 }
+
+/// The mark slot of a row that keeps one: the accent square sits in it before the label.
+const MENU_LEAD: f32 = 14.0;
 
 impl Ui {
     /// the rows of one menu: the row picked, and the row the pointer is on
-    fn menu_rows(&mut self, m: &MenuRows) -> (Option<i64>, Option<i64>) {
-        menu_rows_body(self, m)
+    fn menu_rows(&mut self, items: &[MenuItem], m: &MenuLook) -> (Option<i64>, Option<i64>) {
+        menu_rows_body(self, items, m)
     }
 
-    fn menu_measure(&mut self, lead: f32, keys: &[String], chevrons: &[i64], base: f32, items: &[(String, bool)], swatch_pad: f32, key_size: i64) -> f32 {
-        // the 1-point edge, 12 points of padding, then the label, 24 points and the key or chevron
+    fn menu_measure(&mut self, base: f32, items: &[MenuItem], top: bool, swatch_pad: f32, key_size: i64) -> f32 {
+        // the 1-point edge, 12 points of padding, then the label, 24 points and the key or chevron; every row counts the mark slot
+        // when any row keeps one
+        let lead = if items.iter().any(|i| i.checked.is_some()) { MENU_LEAD } else { 0.0 };
         let mut w = base;
-        for (index, (text, _)) in items.iter().enumerate() {
-            let extra = match keys.get(index).filter(|k| !k.is_empty()) {
-                Some(key) => 24.0 + self.text_width(Some(key_size), key),
-                None => if chevrons.contains(&(index as i64)) { 32.5 } else { 0.0 },
+        for item in items {
+            let extra = if !item.shortcut.is_empty() {
+                24.0 + self.text_width(Some(key_size), item.shortcut)
+            } else if top && !item.submenu.is_empty() {
+                32.5
+            } else {
+                0.0
             };
-            w = w.max(self.text_width(None, text) + 26.0 + lead + swatch_pad + extra);
+            w = w.max(self.text_width(None, item.text) + 26.0 + lead + swatch_pad + extra);
         }
         w
     }
 
-    /// A floating menu at `at` with `(label, enabled)` rows, as wide as its longest row and at
-    /// least `width` wide, capped to the frame. An empty label is a separator line (never picked).
-    /// `selected` marks the current choice; `swatches` gives a row a small colour square before its
-    /// label. The host keeps it open while this returns `Open`; a row commits on press and release
-    /// inside it, and Escape, focus loss, or a press outside return `Dismiss`. Build it before
-    /// content it shields; it floats at the root regardless of its parent. `keys` are the shortcuts
-    /// in ink-2 at the right; `danger` rows (a delete) read in the error ink. A row named by a
-    /// `Submenu` has a chevron and, while the pointer is on it, opens a second menu overlapping the
-    /// first by a point, level with the row; the rows of the submenus are numbered after those of
-    /// the menu, in the order the submenus are given. With `selected`, the rows from `lead_from`
-    /// (default 0) on keep a slot for the accent square before their label. A press outside the
-    /// menu in the frame that first builds it dismisses it.
-    pub fn context_menu(&mut self, at: (f32, f32), o: &MenuOpts, label: &str, items: &[(&str, bool)]) -> MenuResult {
-        context_menu_body(self, at, o, label, items)
+    /// A floating menu of `items` at `at`, as wide as its longest row and at least `menu.width` (150) wide, capped to the frame.
+    /// Empty text is a separator line (never chosen). `key` names it (identity, and its accessible name). The host keeps it open
+    /// while `dismissed` is false; a row commits on press and release inside it (or Enter on the focused row) and `chosen` is its
+    /// index, the menu then closed; Escape, focus loss, or a press outside set `dismissed`. Build it before content it shields; it
+    /// floats at the root regardless of its parent. A row with a submenu has a chevron and, while the pointer is on it, opens a
+    /// second menu overlapping the first by a point, level with the row; the rows of the submenus are numbered after those of the
+    /// menu, in the order of the rows that open them. A press outside the menu in the frame that first builds it dismisses it.
+    pub fn menu(&mut self, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+        menu_body(self, key, at, items, menu)
     }
 }
 
@@ -2859,13 +2861,13 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
     }
 }
 
-fn menu_rows_body(this: &mut Ui, m: &MenuRows) -> (Option<i64>, Option<i64>) {
+fn menu_rows_body(this: &mut Ui, items: &[MenuItem], m: &MenuLook) -> (Option<i64>, Option<i64>) {
     let mut hovered = None;
     let mut picked = None;
     let body = body_of!(this, context_menu);
-    let lead_of = |index: i64| if m.selected.is_none() || index < m.lead_from { 0 } else { 14 };
-    for (index, (text, enabled)) in m.items.iter().enumerate() {
+    for (index, item) in items.iter().enumerate() {
         let index = index as i64;
+        let (text, enabled) = (item.text, item.enabled);
         let t = this.theme();
         if text.is_empty() {
             let look = t.separator.idle;
@@ -2875,19 +2877,22 @@ fn menu_rows_body(this: &mut Ui, m: &MenuRows) -> (Option<i64>, Option<i64>) {
             this.set_role(&line, Role::Separator, 0);
             this.node_mut(&line).margin = Edges { t: 4.0, b: m.gap - 5.0, ..Edges::ZERO };
         } else {
-            let enabled = *enabled;
-            let danger = m.danger.contains(&index);
             let row = this.kit_row(Some(if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY } else { Flags::BLOCKING }), None, text);
+            this.node_mut(&row).h = Size::Px(m.row_h);
             let signal = this.signal_owned(&row);
             if enabled && signal.hovered {
                 hovered = Some(index);
             }
-            let chevron = m.chevrons.contains(&index);
+            let chevron = m.top && !item.submenu.is_empty();
             let state = State { hovered: signal.hovered || m.opened == Some(index), disabled: !enabled, ..State::default() };
-            this.set_role(&row, Role::MenuItem, if m.selected == Some(index) { crate::a11y::state::CHECKED } else { 0 } | if chevron { crate::a11y::state::EXPANDABLE } else { 0 });
+            let selected = item.checked == Some(true);
+            this.set_role(&row, Role::MenuItem, if selected { crate::a11y::state::CHECKED } else { 0 } | if chevron { crate::a11y::state::EXPANDABLE } else { 0 });
             this.a11y_name(&row, shown(text));
-            let config = MenuRowConfig { state, index, row, selected: m.selected == Some(index), chevron, danger, lead: lead_of(index) as f32, swatch_pad: m.swatch_pad, swatch: m.swatches.get(index as usize).copied().flatten() };
-            let key = m.keys.get(index as usize).map(String::as_str).filter(|k| !k.is_empty());
+            let config = MenuRowConfig {
+                state, index, row, selected, chevron, danger: item.danger, lead: if item.checked.is_some() { MENU_LEAD } else { 0.0 },
+                swatch_pad: m.swatch_pad, swatch: item.swatch, row_h: m.row_h,
+            };
+            let key = Some(item.shortcut).filter(|k| !k.is_empty());
             in_item!(this, body, row.box_key, row, default_menu_row(&config, text, key));
             if enabled && signal.clicked && !chevron && picked.is_none() {
                 picked = Some(index);
@@ -2903,7 +2908,7 @@ pub(crate) fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key
     let t = this.theme();
     let look = *(if c.danger { t.menu_danger } else { t.menu }).pick(c.state);
     let (mark, swatch_look, chevron_look, key_look) = (t.mark.idle, t.swatch.idle, t.hint.idle, t.menu_key.idle);
-    let (font_size, rh) = (this.font_size(), this.row_height() as f32);
+    let (font_size, rh) = (this.font_size(), c.row_h);
     this.set_look(&c.row, look, c.state);
     this.node_mut(&c.row).inset = Edges { l: this.space(2) + c.lead + c.swatch_pad, ..Edges::default() };
     this.text(&c.row, shown(text));
@@ -3032,48 +3037,42 @@ pub(crate) fn default_text_field(this: &mut Ui, c: &TextFieldConfig, text: &str,
     }
 }
 
-fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, items: &[(&str, bool)]) -> MenuResult {
-    // the rows the menu's build keeps, owned like a submenu's
-    let menu_items: Vec<(String, bool)> = items.iter().map(|&(text, enabled)| (text.to_owned(), enabled)).collect();
-    let items = &menu_items[..];
+fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+    let mut label_buf = [0u8; 17];
+    let label = key.label(&mut label_buf);
     let (x, y) = at;
-    let submenu_key = key_of(this.current_seed(), &format!("{}-sub", label));
-    // the width follows the longest row; an empty label is a separator line; `keys` are the
-    // shortcuts at the right of the rows, in ink-2 at the label size
-    let row_height = this.row_height() as f32;
+    // the width follows the longest row; an empty text is a separator line; shortcuts are at the right of the rows, in ink-2 at the
+    // label size
+    let row_height = menu.row_h.unwrap_or(this.row_height() as f32);
     let gap = 9.0;
     let key_size = 8.max(this.font_size() - 2);
-    let swatch_pad = if o.swatches.iter().any(|s| s.is_some()) { 14.0 } else { 0.0 };
-    let lead = if o.selected.is_none() { 0.0 } else { 14.0 };
+    let has_submenus = items.iter().any(|i| !i.submenu.is_empty());
+    let swatch_pad = if items.iter().chain(items.iter().flat_map(|i| i.submenu)).any(|i| i.swatch.is_some()) { 14.0 } else { 0.0 };
     let (view_w, view_h) = this.view_size();
-    let chevrons: Vec<i64> = o.submenus.iter().map(|s| s.row).collect();
-    let width = view_w.min(this.menu_measure(lead, &o.keys, &chevrons, o.width.unwrap_or(150.0), items, swatch_pad, key_size));
-    let height_of = |items: &[(String, bool)]| items.iter().fold(14.0, |h, (text, _)| h + if text.is_empty() { gap } else { row_height });
-    let height = height_of(items);
+    let width = view_w.min(this.menu_measure(menu.width.unwrap_or(150.0), items, true, swatch_pad, key_size));
+    let height_of = |items: &[MenuItem]| items.iter().fold(14.0, |h, i| h + if i.text.is_empty() { gap } else { row_height });
+    // past `max_rows` rows the row column scrolls inside a popup as tall as the first `max_rows` rows
+    let shown_rows = menu.max_rows.map_or(items.len(), |rows| rows.min(items.len()));
+    let scrolls = shown_rows < items.len();
+    let height = height_of(&items[..shown_rows]);
     // a menu opens at the point, moved inside the window
     let bounds = Rect::new(0.0, 0.0, view_w, view_h);
     let Rect { x, y, .. } = place_anchored(Rect::new(x, y, 0.0, 0.0), (width, height), Placement { flip: false, ..Placement::BELOW }, bounds);
     // the submenu of a row: a second menu overlapping this one by a point, level with its row
-    let row_top = |index: i64| {
-        y + 7.0 + items.iter().take(0.max(index) as usize).fold(0.0, |top, (text, _)| top + if text.is_empty() { gap } else { row_height })
-    };
-    let sub_geometry = |ui: &mut Ui, sub: &Submenu| -> Rect {
-        let sub_width = view_w.min(ui.menu_measure(if sub.current.is_none() { 0.0 } else { 14.0 }, &sub.keys, &[], 0.0, &sub.rows, swatch_pad, key_size));
-        let sub_height = height_of(&sub.rows);
+    let row_top = |index: usize| y + 7.0 + items.iter().take(index).fold(0.0, |top, i| top + if i.text.is_empty() { gap } else { row_height });
+    let sub_geometry = |ui: &mut Ui, row: usize| -> Rect {
+        let sub = items[row].submenu;
+        let sub_width = view_w.min(ui.menu_measure(0.0, sub, false, swatch_pad, key_size));
+        let sub_height = height_of(sub);
         // beside the menu, overlapping it by a point, level with its row; left when no room right
         let beside = Placement { side: Side::Right, align: Align::Start, gap: -1.0, margin: 0.0, flip: true };
-        place_anchored(Rect::new(x, row_top(sub.row) - 7.0, width, 0.0), (sub_width, sub_height), beside, bounds)
+        place_anchored(Rect::new(x, row_top(row) - 7.0, width, 0.0), (sub_width, sub_height), beside, bounds)
     };
     // the rows of the submenus are numbered after those of this menu, in order
-    let mut bases = Vec::new();
-    let mut n = items.len() as i64;
-    for sub in &o.submenus {
-        bases.push(n);
-        n += sub.rows.len() as i64;
-    }
-    let keep: Vec<Rect> = o.submenus.iter().map(|s| sub_geometry(this, s)).collect();
+    let base_of = |row: usize| items.len() + items[..row].iter().map(|i| i.submenu.len()).sum::<usize>();
+    let keep: Vec<Rect> = items.iter().enumerate().filter(|(_, i)| !i.submenu.is_empty()).map(|(row, _)| sub_geometry(this, row)).collect();
     let sheet = this.theme().popup.idle;
-    let related = if o.submenus.is_empty() { Vec::new() } else { vec![submenu_key] };
+    let related = if has_submenus { vec![key_of(this.current_seed(), &format!("{}-sub", label))] } else { Vec::new() };
     let popts = PopupOpts { look: Some(sheet), keep, related, role: Role::Menu, ..PopupOpts::default() };
     let mut opened: Option<i64> = None;
     let mut picked: Option<i64> = None;
@@ -3081,23 +3080,17 @@ fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, i
         let top = ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
         let open_row = ui.state(&top, -1);
         opened = if open_row >= 0 { Some(open_row) } else { None };
-        let m = MenuRows {
-            items: menu_items.clone(),
-            keys: o.keys.clone(),
-            selected: o.selected,
-            swatches: o.swatches.clone(),
-            danger: o.danger.clone(),
-            opened,
-            chevrons: chevrons.clone(),
-            lead_from: o.lead_from,
-            swatch_pad,
-            gap,
-        };
-        let (p, hovered) = ui.menu_rows(&m);
+        let m = MenuLook { opened, top: true, swatch_pad, gap, row_h: row_height };
+        let (mut p, mut hovered) = (None, None);
+        if scrolls {
+            ui.scroll_view("menu-rows", Size::Grow, Size::Px(height - 14.0), &mut |ui: &mut Ui| (p, hovered) = ui.menu_rows(items, &m));
+        } else {
+            (p, hovered) = ui.menu_rows(items, &m);
+        }
         picked = p;
         // the pointer opens the submenu of a row, or closes it on any other
         if let Some(index) = hovered {
-            let now = if o.submenus.iter().any(|s| s.row == index) { index } else { -1 };
+            let now = if items.get(index as usize).is_some_and(|i| !i.submenu.is_empty()) { index } else { -1 };
             if now != open_row {
                 ui.set_state(&top, now);
             }
@@ -3107,45 +3100,30 @@ fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, i
     });
     if !shown {
         this.dismiss_popup();
-        return MenuResult::Dismiss;
+        return MenuResponse { chosen: None, dismissed: true };
     }
     if let Some(index) = picked {
         this.dismiss_popup();
-        return MenuResult::Pick(index);
+        return MenuResponse { chosen: Some(index as usize), dismissed: false };
     }
-    let sub = opened.and_then(|row| o.submenus.iter().position(|s| s.row == row));
-    match sub {
-        None => MenuResult::Open,
-        Some(si) => {
-            let sub = o.submenus[si].clone();
-            let Rect { x: sx, y: sy, w: sw, h: sh } = sub_geometry(this, &sub);
-            let mut sub_picked: Option<i64> = None;
-            let sub_opts = PopupOpts { look: Some(sheet), attached: true, role: Role::Menu, ..PopupOpts::default() };
-            this.popup_with_related(sub_opts, (sx, sy), sw, sh, &format!("{}-sub", label), &mut |ui: &mut Ui| {
-                ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
-                let m = MenuRows {
-                    items: sub.rows.clone(),
-                    keys: sub.keys.clone(),
-                    selected: sub.current,
-                    swatches: Vec::new(),
-                    danger: Vec::new(),
-                    opened: None,
-                    chevrons: Vec::new(),
-                    lead_from: 0,
-                    swatch_pad,
-                    gap,
-                };
-                let (p, _) = ui.menu_rows(&m);
-                sub_picked = p;
-                ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
-            });
-            match sub_picked {
-                Some(index) => {
-                    this.dismiss_popup();
-                    MenuResult::Pick(bases[si] + index)
-                }
-                None => MenuResult::Open,
-            }
+    let open = MenuResponse::default();
+    let Some(row) = opened.map(|row| row as usize).filter(|row| items.get(*row).is_some_and(|i| !i.submenu.is_empty())) else { return open };
+    let sub = items[row].submenu;
+    let Rect { x: sx, y: sy, w: sw, h: sh } = sub_geometry(this, row);
+    let mut sub_picked: Option<i64> = None;
+    let sub_opts = PopupOpts { look: Some(sheet), attached: true, role: Role::Menu, ..PopupOpts::default() };
+    this.popup_with_related(sub_opts, (sx, sy), sw, sh, &format!("{}-sub", label), &mut |ui: &mut Ui| {
+        ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+        let m = MenuLook { opened: None, top: false, swatch_pad, gap, row_h: row_height };
+        let (p, _) = ui.menu_rows(sub, &m);
+        sub_picked = p;
+        ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+    });
+    match sub_picked {
+        Some(index) => {
+            this.dismiss_popup();
+            MenuResponse { chosen: Some(base_of(row) + index as usize), dismissed: false }
         }
+        None => open,
     }
 }
