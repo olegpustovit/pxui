@@ -109,7 +109,7 @@ pub(crate) fn metrics(value: pxui_text::Metrics) -> TextMetrics {
 }
 
 /// A text shaper of its own, for text laid out off the `Ui` (on any thread): its own font system and no GPU atlas.
-pub struct PxuiShaper { text: Text }
+pub struct PxuiShaper { text: Text, raster_glyphs: Vec<pxui_text::Glyph> }
 
 /// Owned entirely by the library. Installation replaces its contents with retired UI storage.
 pub struct PxuiPreparedText { prepared: pxui_text::Prepared }
@@ -118,7 +118,7 @@ export!(pub unsafe fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper {
     let Some(state)=(unsafe { crate::state::get(ui) }) else { return core::ptr::null_mut() };
     if state.shared().in_frame { return core::ptr::null_mut(); }
     let text=unsafe { &mut *state.engine }.text_mut().preparer();
-    Box::into_raw(Box::new(PxuiShaper { text }))
+    Box::into_raw(Box::new(PxuiShaper { text, raster_glyphs: Vec::new() }))
 });
 
 export!(bare pub unsafe fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32 {
@@ -241,7 +241,7 @@ export!(bare pub unsafe fn pxui_shaper_create(fonts: *const Str, count: usize) -
     let mut text = Text::new(&font_bytes);
     // the same default as `Ui` (ui.rs `platform`), so a standalone shaper rasterises like the UI's
     text.set_apple_raster(cfg!(any(target_os = "macos", target_os = "ios")));
-    Box::into_raw(Box::new(PxuiShaper { text }))
+    Box::into_raw(Box::new(PxuiShaper { text, raster_glyphs: Vec::new() }))
 });
 
 export!(bare pub unsafe fn pxui_shaper_destroy(shaper: *mut PxuiShaper) { if !shaper.is_null() { drop(unsafe { Box::from_raw(shaper) }); } });
@@ -273,7 +273,7 @@ export!(bare pub unsafe fn pxui_shaper_rasterize_rgba(
     color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize,
 ) -> usize {
     let Some(shaper) = (unsafe { shaper.as_mut() }) else { return usize::MAX; };
-    unsafe { rasterize(&mut shaper.text, true, key, value, style_, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
+    unsafe { rasterize(&mut shaper.text, &mut shaper.raster_glyphs, true, key, value, style_, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
 });
 
 // The default font (Pragmasevka) the library embeds: its bytes live as long as the library.
@@ -339,6 +339,7 @@ unsafe fn quads(
 // dimensions and required byte count are still returned. The caller retries with that capacity.
 unsafe fn rasterize(
     text: &mut Text,
+    scratch: &mut Vec<pxui_text::Glyph>,
     standalone: bool,
     key: u64,
     value: Str,
@@ -380,9 +381,10 @@ unsafe fn rasterize(
         if value.is_empty() { return required; }
 
         let (ink, alpha) = ([color_r, color_g, color_b], color_a as u32);
-        let mut glyphs = Vec::new();
+        let mut glyphs = core::mem::take(scratch);
+        glyphs.clear();
         text.glyphs(key, (0.0, 0.0), scale, &mut |glyph| glyphs.push(glyph));
-        for glyph in glyphs {
+        for &glyph in &glyphs {
             let (atlas_w, atlas_h) = text.atlas_size(glyph.atlas);
             let atlas = text.atlas_pixels(glyph.atlas);
             let (u, v) = ((glyph.uv.x * atlas_w as f32).round() as i64, (glyph.uv.y * atlas_h as f32).round() as i64);
@@ -409,6 +411,7 @@ unsafe fn rasterize(
         }
         // a shaper nothing draws from keeps no uploads pending; the Ui's text leaves them to its renderer
         if standalone { text.drain_uploads(&mut |_, _, _, _, _, _, _| {}); }
+        *scratch = glyphs;
         required
     }
 }
@@ -444,8 +447,9 @@ export!(failing(usize::MAX) pub unsafe fn pxui_text_rasterize_rgba(
     ui: *mut PxuiUi, key: u64, value: Str, style_: *const TextStyle, max_width: f32, scale: f32,
     color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize,
 ) -> usize {
-    let Some(engine) = (unsafe { engine(ui) }) else { return usize::MAX; };
-    unsafe { rasterize(engine.text_mut(), false, key, value, style_, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
+    let Some(state) = (unsafe { crate::state::get(ui) }) else { return usize::MAX; };
+    let (engine, shared) = (unsafe { &mut *state.engine }, state.shared());
+    unsafe { rasterize(engine.text_mut(), &mut shared.raster_glyphs, false, key, value, style_, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
 });
 
 #[cfg(test)]

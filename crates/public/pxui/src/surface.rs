@@ -2879,3 +2879,33 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
         }
     }
 }
+
+#[test]
+fn text_into_forms_match_and_allocate_nothing_with_capacity() {
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().unwrap();
+    let mut shaper = crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let style = pxui_types::TextStyle::default();
+    let color = [1, 2, 3, 255];
+    let mut glyphs = Vec::new();
+    let mut ui_pixels = Vec::new();
+    let mut shaper_pixels = Vec::new();
+    for _ in 0..2 {
+        ui.text_service().quads_into("abc def", &style, 0.0, (3.0, 4.0), 1.0, &mut glyphs).unwrap();
+        ui.text_service().rasterize_rgba_into("abc def", &style, 0.0, 1.0, color, &mut ui_pixels).unwrap();
+        shaper.rasterize_rgba_into("abc def", &style, 0.0, 1.0, color, &mut shaper_pixels).unwrap();
+    }
+    assert_eq!(glyphs, ui.text_service().quads("abc def", &style, 0.0, (3.0, 4.0), 1.0).unwrap());
+    let (w, h, old) = ui.text_service().rasterize_rgba("abc def", &style, 0.0, 1.0, color).unwrap();
+    assert_eq!(ui.text_service().rasterize_rgba_into("abc def", &style, 0.0, 1.0, color, &mut ui_pixels), Ok((w, h)));
+    assert_eq!(ui_pixels, old);
+    assert_eq!(shaper.rasterize_rgba("abc def", &style, 0.0, 1.0, color).unwrap(), (w, h, shaper_pixels.clone()));
+    let scope = mem_sys::warm_scope();
+    mem_sys::local_reset();
+    ui.text_service().quads_into("abc def", &style, 0.0, (3.0, 4.0), 1.0, &mut glyphs).unwrap();
+    ui.text_service().rasterize_rgba_into("abc def", &style, 0.0, 1.0, color, &mut ui_pixels).unwrap();
+    shaper.rasterize_rgba_into("abc def", &style, 0.0, 1.0, color, &mut shaper_pixels).unwrap();
+    assert_eq!(mem_sys::local_alloc_count(), 0);
+    drop(scope);
+    assert!(mem_sys::take_reports().is_empty());
+}

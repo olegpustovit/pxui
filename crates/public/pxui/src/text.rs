@@ -75,19 +75,19 @@ impl Backing {
         if rc==0 { Ok(out) } else { Err(rc) }
     }
 
-    fn rasterize_rgba(self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
+    fn rasterize_rgba_into(self, key: u64, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], pixels: &mut Vec<u8>) -> Result<(u32, u32), TextError> {
         let (mut width, mut height) = (0, 0);
         let mut call = |out, capacity| unsafe { match self {
             Backing::Shaper(s) => lib::pxui_shaper_rasterize_rgba(s, key, as_str(value), style, max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, out, capacity),
             Backing::Ui(u) => lib::pxui_text_rasterize_rgba(u, key, as_str(value), style, max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, out, capacity),
         } };
+        pixels.clear();
         let required = call(core::ptr::null_mut(), 0);
         if required == usize::MAX { return Err(TextError::InvalidInput); }
-        let mut pixels = Vec::new();
         pixels.try_reserve_exact(required).map_err(|_| TextError::Allocation)?;
         pixels.resize(required, 0);
-        if call(pixels.as_mut_ptr(), pixels.len()) != required { return Err(TextError::Engine); }
-        Ok((width, height, pixels))
+        if call(pixels.as_mut_ptr(), pixels.len()) != required { pixels.clear(); return Err(TextError::Engine); }
+        Ok((width, height))
     }
 }
 
@@ -147,7 +147,24 @@ impl Text {
     pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(value, style, max_width).map(|m| m.width) }
     /// The text as straight-alpha RGBA8: width, height and pixels.
     pub fn rasterize_rgba(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
-        Backing::Shaper(self.0.as_ptr()).rasterize_rgba(0, value, style, max_width, scale, color)
+        let mut pixels = Vec::new();
+        let (width, height) = self.rasterize_rgba_into(value, style, max_width, scale, color, &mut pixels)?;
+        Ok((width, height, pixels))
+    }
+    /// The text as straight-alpha RGBA8 written into `out` (cleared first): width and height; `out` holds `width * height * 4` bytes.
+    /// Reuses `out`'s capacity.
+    ///
+    /// Allocates: only when `out`'s capacity is too small.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let mut pixels = Vec::new();
+    /// let (w, h) = text.rasterize_rgba_into("abc", &Default::default(), 0.0, 1.0, [255; 4], &mut pixels).unwrap();
+    /// assert_eq!(pixels.len(), (w * h * 4) as usize);
+    /// ```
+    pub fn rasterize_rgba_into(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), TextError> {
+        Backing::Shaper(self.0.as_ptr()).rasterize_rgba_into(0, value, style, max_width, scale, color, out)
     }
 }
 
@@ -199,21 +216,57 @@ impl UiText<'_> {
     pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,i32> { self.backing().measure_spans(0,value,style,max_width,spans) }
     pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, i32> { self.measure(value, style, max_width).map(|m| m.width) }
     pub fn rasterize_rgba(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4]) -> Result<(u32, u32, Vec<u8>), TextError> {
-        self.backing().rasterize_rgba(0, value, style, max_width, scale, color)
+        let mut pixels = Vec::new();
+        let (width, height) = self.rasterize_rgba_into(value, style, max_width, scale, color, &mut pixels)?;
+        Ok((width, height, pixels))
+    }
+    /// The text as straight-alpha RGBA8 written into `out` (cleared first): width and height; `out` holds `width * height * 4` bytes.
+    /// Reuses `out`'s capacity.
+    ///
+    /// Allocates: only when `out`'s capacity is too small.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x"));
+    /// let mut text = ui.text_service();
+    /// let mut pixels = Vec::new();
+    /// let (w, h) = text.rasterize_rgba_into("abc", &Default::default(), 0.0, 1.0, [255; 4], &mut pixels).unwrap();
+    /// assert_eq!(pixels.len(), (w * h * 4) as usize);
+    /// ```
+    pub fn rasterize_rgba_into(&mut self, value: &str, style: &TextStyle, max_width: f32, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), TextError> {
+        self.backing().rasterize_rgba_into(0, value, style, max_width, scale, color, out)
     }
 
     /// The glyph quads of `value`, positioned at `origin` and scaled by `scale`.
     pub fn quads(&mut self, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32) -> Result<Vec<TextGlyph>, i32> {
+        let mut glyphs = Vec::new();
+        self.quads_into(value, style, max_width, origin, scale, &mut glyphs)?;
+        Ok(glyphs)
+    }
+
+    /// The glyph quads of `value`, positioned at `origin` and scaled by `scale`, written into `out` (cleared first); the count.
+    /// Reuses `out`'s capacity.
+    ///
+    /// Allocates: only when `out`'s capacity is too small.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x"));
+    /// let mut glyphs = Vec::new();
+    /// let n = ui.text_service().quads_into("abc", &Default::default(), 0.0, (0.0, 0.0), 1.0, &mut glyphs).unwrap();
+    /// assert_eq!((n, glyphs.len()), (3, 3));
+    /// ```
+    pub fn quads_into(&mut self, value: &str, style: &TextStyle, max_width: f32, origin: (f32, f32), scale: f32, out: &mut Vec<TextGlyph>) -> Result<usize, i32> {
         let ui = self.0.0.as_ptr();
         let call = |out, capacity| unsafe { lib::pxui_text_quads(ui, 0, as_str(value), style, max_width, origin.0, origin.1, scale, out, capacity) };
+        out.clear();
         let count = call(core::ptr::null_mut(), 0);
         if count == usize::MAX { return Err(-1); }
-        let mut glyphs = Vec::new();
-        glyphs.try_reserve_exact(count).map_err(|_| -1)?;
-        glyphs.resize(count, TextGlyph::default());
-        let written = call(glyphs.as_mut_ptr(), glyphs.len());
-        if written == usize::MAX { return Err(-1); }
-        glyphs.truncate(written.min(glyphs.len()));
-        Ok(glyphs)
+        out.try_reserve_exact(count).map_err(|_| -1)?;
+        out.resize(count, TextGlyph::default());
+        let written = call(out.as_mut_ptr(), out.len());
+        if written == usize::MAX { out.clear(); return Err(-1); }
+        out.truncate(written.min(out.len()));
+        Ok(out.len())
     }
 }

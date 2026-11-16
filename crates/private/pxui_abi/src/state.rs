@@ -77,6 +77,8 @@ pub(crate) struct Shared {
     /// the value field's callback context and the two closures over it, made once: a field call fills the context instead of allocating closures
     pub field: Option<crate::text_inputs::FieldCallbacks>,
     pub strs: Vec<Vec<&'static str>>,
+    /// the glyph list `rasterize` composites from, kept for its capacity
+    pub raster_glyphs: Vec<pxui_text::Glyph>,
     pub menus: Vec<(&'static str, &'static [&'static str])>,
     /// the bodies the app registered and the slots of the body calls in progress (`bodies.rs`)
     pub bodies: crate::bodies::BodyState,
@@ -93,7 +95,7 @@ impl Shared {
             error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), lent: Vec::new(), lent_used: 0,
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
-            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), menus: Vec::new(), bodies: Default::default(),
+            hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(),
         }
     }
 }

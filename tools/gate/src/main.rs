@@ -244,7 +244,8 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
                 issue(&mut issues, path, token.line, "impl Trait is not allowed in product crates");
             }
         }
-        // A public pxui function borrows its inputs: no owned String or Vec in a parameter (return types and generic bounds are not in scope).
+        // A public pxui function borrows its inputs: no owned String or Vec in a parameter (return types and generic bounds are not in scope;
+        // a `&mut Vec<T>` output buffer is allowed).
         if token.text == "fn" && path.starts_with("crates/public/pxui/src/") && !test_ranges.iter().any(|(start, end)| *start <= index && index <= *end)
             && index > 0 && tokens[index - 1].text == "pub" && tokens.get(index + 1).is_some_and(|name| is_identifier(&name.text)) {
             let mut open = index + 2;
@@ -253,7 +254,9 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
             }
             if tokens.get(open).is_some_and(|next| next.text == "(") {
                 if let Some(close) = matching(&tokens, open, "(", ")") {
-                    if let Some(owned) = tokens[open..close].iter().find(|part| matches!(part.text.as_str(), "String" | "Vec")) {
+                    // `&mut Vec<T>` is a caller-supplied output buffer the call refills (the `_into` forms), not an owned input.
+                    let out_buffer = |at: usize| at >= 2 && tokens[at].text == "Vec" && tokens[at - 1].text == "mut" && tokens[at - 2].text == "&";
+                    if let Some(owned) = (open..close).find(|&at| matches!(tokens[at].text.as_str(), "String" | "Vec") && !out_buffer(at)).map(|at| &tokens[at]) {
                         issue(&mut issues, path, owned.line, format!("public parameter of `{}` owns a `{}`; borrow a &str or a slice", tokens[index + 1].text, owned.text));
                     }
                 }
@@ -2168,7 +2171,8 @@ mod author_shim_tests {
         assert_eq!(owned("impl Ui { pub fn footer(&mut self, hints: &[(String, String)]) {} }"), 1);
         assert_eq!(owned("pub fn a(items: Vec<u8>) {}"), 1);
         assert_eq!(owned("pub fn a<F: Fn() -> String>(name: &String, f: F) {}"), 1);
-        assert_eq!(owned("pub fn a(out: &mut Vec<u8>) {}"), 1);
+        assert_eq!(owned("pub fn a(out: &mut Vec<u8>) {}"), 0);
+        assert_eq!(owned("pub fn a(items: &Vec<u8>, out: &mut Vec<u8>) {}"), 1);
         assert_eq!(owned("pub fn a(items: &[(&str, bool)], text: &str) -> String { String::new() }"), 0);
         assert_eq!(owned("pub fn a<F: Fn() -> Vec<u8>>(f: F) -> Vec<u8> { Vec::new() }"), 0);
         assert_eq!(owned("fn private(items: Vec<u8>) {}\npub(crate) fn crate_only(items: Vec<u8>) {}\n#[cfg(test)]\nmod t { pub fn x(v: Vec<u8>) {} }"), 0);
