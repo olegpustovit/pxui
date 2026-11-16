@@ -64,8 +64,8 @@ fn clamp_step(i: usize, by: i64, n: usize) -> usize {
     if n == 0 { 0 } else { (i as i64 + by).clamp(0, n as i64 - 1) as usize }
 }
 
-const ROW_FLAGS: Flags = CLICKABLE | BLOCKING;
-const STOP_FLAGS: Flags = CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY;
+const ROW_FLAGS: i64 = CLICKABLE | BLOCKING;
+const STOP_FLAGS: i64 = CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY;
 
 /// The built-in dialog: the title bar, the content, then the buttons at the end of a row, the last the default. Each button is a
 /// 20-point box with its text 7 points in, in the button looks; behaviour finds it as `Part::button(i)`.
@@ -225,7 +225,7 @@ impl Ui {
     }
 
     /// A kit row `rh` high laid out as a row: `space(2)` in from both ends, children centred, 8 apart.
-    fn kit_line(&mut self, key: i64, flags: Flags, role: Role) -> Handle {
+    fn kit_line(&mut self, key: i64, flags: i64, role: Role) -> Handle {
         let rh = self.row_height() as f32;
         let side = self.space(2);
         self.node_keyed(key, Node { flags, h: Size::Px(rh), axis: Axis::Row, align: Align::Center, padding: Edges { l: side, r: side, ..Edges::ZERO }, gap: self.space(1), role, ..Node::DEFAULT })

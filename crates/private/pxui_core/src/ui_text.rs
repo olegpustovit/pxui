@@ -1081,7 +1081,7 @@ impl Ui {
 
     /// A box at the root, laid out and painted after every pane (like a tooltip), so a popup under
     /// a caret is never clipped by its pane.
-    fn overlay_box(&mut self, flags: Flags, at: (f32, f32), w: f32, h: f32, label: &str) -> UiBox {
+    fn overlay_box(&mut self, flags: i64, at: (f32, f32), w: f32, h: f32, label: &str) -> UiBox {
         let saved = self.enter_root();
         let overlay = self.box_(label, BoxOpts::default().flags(flags).w(Size::Px(w)).h(Size::Px(h)).at(at));
         self.push_overlay(overlay.index);

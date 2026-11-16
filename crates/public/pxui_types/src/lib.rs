@@ -20,8 +20,101 @@ pub use node::{Axis, Bar, Dir, Mark, Node};
 pub use text::{TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
 pub use theme::{Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens};
 
-/// Node behavior bits. Kept as an integer so unknown future bits remain representable.
-pub type Flags = i64;
+/// Node behavior bits as a typed value; the record stores the raw integer (`bits`), so unknown future bits stay representable.
+///
+/// Combine with `|` or the `const fn or`. `Flags::FOCUSABLE` is the node flag; the accessibility state of the same name is
+/// `a11y::state::FOCUSABLE`.
+///
+/// ```
+/// use pxui_types::{Flags, Node};
+/// const N: Node = Node::row().flags(Flags::CLICKABLE.or(Flags::TAB_STOP));
+/// assert_eq!(N.flags, Flags::CLICKABLE.bits() | Flags::TAB_STOP.bits());
+/// assert_eq!(Flags::CLICKABLE | Flags::CLIP, Flags(9));
+/// ```
+#[repr(transparent)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub struct Flags(pub i64);
+
+impl Flags {
+    /// No flags.
+    pub const NONE: Flags = Flags(0);
+    /// Same bit as `ui::CLICKABLE`.
+    pub const CLICKABLE: Flags = Flags(ui::CLICKABLE);
+    /// Same bit as `ui::FOCUSABLE`.
+    pub const FOCUSABLE: Flags = Flags(ui::FOCUSABLE);
+    /// Same bit as `ui::SCROLL`.
+    pub const SCROLL: Flags = Flags(ui::SCROLL);
+    /// Same bit as `ui::CLIP`.
+    pub const CLIP: Flags = Flags(ui::CLIP);
+    /// Same bit as `ui::BLOCKING`.
+    pub const BLOCKING: Flags = Flags(ui::BLOCKING);
+    /// Same bit as `ui::TAB_ONLY`.
+    pub const TAB_ONLY: Flags = Flags(ui::TAB_ONLY);
+    /// Same bit as `ui::TAB_STOP`.
+    pub const TAB_STOP: Flags = Flags(ui::TAB_STOP);
+    /// Same bit as `ui::KEEP_TAB`.
+    pub const KEEP_TAB: Flags = Flags(ui::KEEP_TAB);
+    /// Same bit as `ui::KEEP_FOCUS`.
+    pub const KEEP_FOCUS: Flags = Flags(ui::KEEP_FOCUS);
+    /// Same bit as `ui::OVER_THUMB`.
+    pub const OVER_THUMB: Flags = Flags(ui::OVER_THUMB);
+    /// Same bit as `ui::CAPTURE_UNCLAIMED`.
+    pub const CAPTURE_UNCLAIMED: Flags = Flags(ui::CAPTURE_UNCLAIMED);
+    /// Same bit as `ui::FOCUS_MARK`.
+    pub const FOCUS_MARK: Flags = Flags(ui::FOCUS_MARK);
+    /// Same bit as `ui::TAB_STOP_MARKED`.
+    pub const TAB_STOP_MARKED: Flags = Flags(ui::TAB_STOP_MARKED);
+    /// Same bit as `ui::FIT_TEXT`.
+    pub const FIT_TEXT: Flags = Flags(ui::FIT_TEXT);
+    /// Same bit as `ui::FIT_TEXT_PIXEL`.
+    pub const FIT_TEXT_PIXEL: Flags = Flags(ui::FIT_TEXT_PIXEL);
+    /// Same bit as `ui::SCROLL_X`.
+    pub const SCROLL_X: Flags = Flags(ui::SCROLL_X);
+    /// Same bit as `ui::STICKY`.
+    pub const STICKY: Flags = Flags(ui::STICKY);
+    /// Same bit as `ui::ROUND_CLIP`.
+    pub const ROUND_CLIP: Flags = Flags(ui::ROUND_CLIP);
+    /// Same bit as `ui::HOVER_FREE`.
+    pub const HOVER_FREE: Flags = Flags(ui::HOVER_FREE);
+    /// Same bit as `ui::KEEP_ROOM`.
+    pub const KEEP_ROOM: Flags = Flags(ui::KEEP_ROOM);
+    /// Same bit as `ui::DRAG_FREE`.
+    pub const DRAG_FREE: Flags = Flags(ui::DRAG_FREE);
+    /// The union of two flag sets.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Flags;
+    /// assert_eq!(Flags::CLICKABLE.or(Flags::CLIP).bits(), 9);
+    /// ```
+    #[inline]
+    pub const fn or(self, other: Flags) -> Flags {
+        Flags(self.0 | other.0)
+    }
+    /// The raw bits, as stored in `Node::flags`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Flags;
+    /// assert_eq!(Flags::FOCUSABLE.bits(), 2);
+    /// ```
+    #[inline]
+    pub const fn bits(self) -> i64 {
+        self.0
+    }
+}
+
+impl core::ops::BitOr for Flags {
+    type Output = Flags;
+    #[inline]
+    fn bitor(self, other: Flags) -> Flags {
+        self.or(other)
+    }
+}
 
 /// Box sizing accepted by the UI.
 #[repr(C)]
@@ -760,7 +853,7 @@ mod builders {
     const FONT: Font = Font::BODY.size(14).weight(700);
     const LOOK: Look = Look::NONE.fill(INK).radius(6.0).border(INK, 1.0).text(INK).font(FONT);
     const NODE: Node = Node::row().w(Size::Px(44.0)).h_px(30.0).grow(0.0).gap(8.0).pad(2.0).pad_x(4.0).pad_y(6.0)
-        .center().align(Align::End).role(Role::Button).flags(5);
+        .center().align(Align::End).role(Role::Button).flags(Flags(5));
     const COLUMN: Node = Node::column();
     const STACK: Node = Node::stack().w(Size::Fit).h(Size::Grow);
 
@@ -803,5 +896,17 @@ mod builders {
     fn pad_after_pad_x_keeps_the_later_edge() {
         let n = Node::row().pad_x(4.0).pad(2.0);
         assert_eq!(n.padding, Edges::all(2.0));
+    }
+
+    #[test]
+    fn node_focusable_and_a11y_focusable_are_distinct_names() {
+        assert_eq!(Flags::FOCUSABLE.bits(), 2);
+        assert_eq!(a11y::state::FOCUSABLE, 1);
+        assert_eq!(Flags::FOCUSABLE.bits(), ui::FOCUSABLE);
+        assert_eq!(Flags::CLICKABLE | Flags::TAB_ONLY | Flags::FOCUSABLE, Flags(ui::TAB_STOP | ui::CLICKABLE));
+        assert_eq!(size_of::<Flags>(), size_of::<i64>());
+        let n = Node::row().flags(Flags::FOCUSABLE);
+        assert_eq!(n.flags, ui::FOCUSABLE);
+        assert_eq!(n.a11y, 0, "a node flag does not set an a11y state");
     }
 }

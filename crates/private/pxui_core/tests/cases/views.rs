@@ -9,7 +9,7 @@ fn at(t: f64, events: Vec<Event>) -> input::frame::Frame {
     frame_at(vec![], 2.0, t, events)
 }
 
-fn chip(ui: &mut Ui, key: &str, fill: color::T, flags: Flags) -> Handle {
+fn chip(ui: &mut Ui, key: &str, fill: color::T, flags: i64) -> Handle {
     ui.node(key, Node { flags, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT })
 }
 

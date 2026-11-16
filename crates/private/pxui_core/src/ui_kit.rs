@@ -252,7 +252,7 @@ impl Ui {
     }
 
 
-    pub(crate) fn kit_row(&mut self, flags: Option<Flags>, hit: Option<HitFn>, label: &str) -> UiBox {
+    pub(crate) fn kit_row(&mut self, flags: Option<i64>, hit: Option<HitFn>, label: &str) -> UiBox {
         let flags = flags.unwrap_or(CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY);
         let mut opts = BoxOpts::default().flags(flags).w(Size::Grow).h(Size::Px(self.row_height() as f32));
         opts.hit = hit;

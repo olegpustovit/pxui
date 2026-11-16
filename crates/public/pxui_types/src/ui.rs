@@ -3,7 +3,6 @@
 //! are not ABI types, and the engine and the wrapper each keep theirs (`opts` in both).
 use crate::geom::{hash, Rect, Rgba as Color};
 use crate::theme::Look;
-use crate::Flags;
 use std::borrow::Cow;
 
 /// Fixed rows in one scroll region, with a scrolling lead-in and a sticky column heading.
@@ -24,53 +23,53 @@ pub enum SectionPart {
     Row(usize),
 }
 
-pub const NO_FLAGS: Flags = 0;
-pub const CLICKABLE: Flags = 1;
-pub const FOCUSABLE: Flags = 2;
-pub const SCROLL: Flags = 4;
-pub const CLIP: Flags = 8;
-pub const BLOCKING: Flags = 16;
+pub const NO_FLAGS: i64 = 0;
+pub const CLICKABLE: i64 = 1;
+pub const FOCUSABLE: i64 = 2;
+pub const SCROLL: i64 = 4;
+pub const CLIP: i64 = 8;
+pub const BLOCKING: i64 = 16;
 /// Kit controls enter keyboard mode through Tab; pointer editing retains the existing host
 /// shortcut behavior. Text-entry rows also focus on a press.
-pub const TAB_ONLY: Flags = 32;
+pub const TAB_ONLY: i64 = 32;
 /// Keyboard traversal focus for a control whose pointer interaction leaves keyboard input with its
 /// host. Escape relinquishes this keyboard focus.
-pub const TAB_STOP: Flags = FOCUSABLE | TAB_ONLY;
+pub const TAB_STOP: i64 = FOCUSABLE | TAB_ONLY;
 /// a multiline editor keeps Tab for itself (two spaces) instead of moving the focus
-pub const KEEP_TAB: Flags = 64;
+pub const KEEP_TAB: i64 = 64;
 /// a press on such a box leaves the keyboard focus where it is (a completion row under an editor)
-pub const KEEP_FOCUS: Flags = 128;
+pub const KEEP_FOCUS: i64 = 128;
 /// a scrolling box whose thumb is drawn over its content (an inspector body): no gutter
-pub const OVER_THUMB: Flags = 4096;
+pub const OVER_THUMB: i64 = 4096;
 /// A press whose topmost hit box is not clickable is captured by the nearest ancestor with this
 /// flag.
-pub const CAPTURE_UNCLAIMED: Flags = 8192;
+pub const CAPTURE_UNCLAIMED: i64 = 8192;
 /// the control marks its own keyboard focus: the engine strokes no ring round it
-pub const FOCUS_MARK: Flags = 256;
-pub const TAB_STOP_MARKED: Flags = TAB_STOP | FOCUS_MARK;
+pub const FOCUS_MARK: i64 = 256;
+pub const TAB_STOP_MARKED: i64 = TAB_STOP | FOCUS_MARK;
 /// The node's text is cut with an ellipsis to the room its look leaves (the placed width less the
 /// text inset) when it does not fit.
-pub const FIT_TEXT: Flags = 16384;
+pub const FIT_TEXT: i64 = 16384;
 /// Fit text width, including text insets, rounded up to the frame's physical-pixel density.
-pub const FIT_TEXT_PIXEL: Flags = 2097152;
+pub const FIT_TEXT_PIXEL: i64 = 2097152;
 /// scrolls sideways (the wheel's and the trackpad's horizontal motion); with `SCROLL` on both axes
-pub const SCROLL_X: Flags = 32768;
+pub const SCROLL_X: i64 = 32768;
 /// a flow child of a scroll box that stops at its top edge instead of scrolling out (CSS sticky);
 /// it paints over its siblings
-pub const STICKY: Flags = 65536;
+pub const STICKY: i64 = 65536;
 /// with `CLIP`: the children's clip takes the corner radius of the node's look (CSS `overflow:
 /// hidden` with `border-radius`); without it a clip is square
-pub const ROUND_CLIP: Flags = 131072;
+pub const ROUND_CLIP: i64 = 131072;
 /// Nothing the node's view builds follows its hover: the pointer moving onto or off it dirties no
 /// view (the app reads `hovered_within` between frames and patches what shows it).
-pub const HOVER_FREE: Flags = 262144;
+pub const HOVER_FREE: i64 = 262144;
 /// The node's square look paints its fill and border instances even when they are clear, so a
 /// patch to a look that shows them rewrites its range in place (it never grows the layer).
-pub const KEEP_ROOM: Flags = 524288;
+pub const KEEP_ROOM: i64 = 524288;
 /// Nothing the node's view builds follows a drag of it: while the pointer holds it and only moves
 /// (no press, release or key), its view is not dirtied. The owner reads the drag between builds
 /// (`signal` on the kept handle; `field_drag` for a `value_field`) and patches what shows it.
-pub const DRAG_FREE: Flags = 1048576;
+pub const DRAG_FREE: i64 = 1048576;
 
 /// Points a pressed pointer travels before a press is a drag: a carry starts, a click ends.
 pub const DRAG_THRESHOLD: f32 = 4.0;

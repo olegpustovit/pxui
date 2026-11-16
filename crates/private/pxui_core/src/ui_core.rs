@@ -157,7 +157,7 @@ impl SlotTable {
 
 // ------------------------------------------------------------- boxes
 
-const HIT_FLAGS: Flags = CLICKABLE | FOCUSABLE | SCROLL | SCROLL_X | BLOCKING | CAPTURE_UNCLAIMED;
+const HIT_FLAGS: i64 = CLICKABLE | FOCUSABLE | SCROLL | SCROLL_X | BLOCKING | CAPTURE_UNCLAIMED;
 
 pub use crate::theme::{Bodies, BodyId, Curve, Font, Look, Part, Ring, Shadow, State, States, Theme, Tokens};
 pub use crate::a11y::{A11yAction, A11yTree, Role};
@@ -756,7 +756,7 @@ impl Slot {
 struct HitRec {
     key: i64,
     parent: i64,
-    flags: Flags,
+    flags: i64,
     x: f32,
     y: f32,
     w: f32,
@@ -904,7 +904,7 @@ fn lay_out_spans(t:&mut Text,style:&Style,width:f32,text:&str,spans:&[TextSpan])
     t.layout_spans(key,text,style,width,spans).map(|metrics|(key,metrics))
 }
 
-fn plain_style(look:&Look,size:i64,flags:Flags)->Style {
+fn plain_style(look:&Look,size:i64,flags:i64)->Style {
     Style {font:look.font.family,size:size as f32,weight:look.font.weight,
         tracking:look.font.tracking*size as f32,
         ellipsis:if flags & FIT_TEXT!=0 {pxui_text::Ellipsis::End} else {pxui_text::Ellipsis::None},
@@ -2335,7 +2335,7 @@ impl Ui {
         last
     }
 
-    fn flags_of_key(&self, key: i64) -> Flags {
+    fn flags_of_key(&self, key: i64) -> i64 {
         match self.hit_index(key) {
             Some(index) => self.hits[index].flags,
             None => 0,
@@ -2349,7 +2349,7 @@ impl Ui {
         self.scroll_target_flags(point, SCROLL | SCROLL_X)
     }
 
-    fn scroll_target_flags(&mut self, point: (f32, f32), wanted: Flags) -> i64 {
+    fn scroll_target_flags(&mut self, point: (f32, f32), wanted: i64) -> i64 {
         let mut blocker = 0;
         let mut index = self.hit_count as i64 - 1;
         while index >= 0 {
@@ -4827,7 +4827,7 @@ fn keep_frame(kept: &mut Option<rframe::Frame>, f: &rframe::Frame) {
 
 /// What `arrange` reads of a child while placing it (not the whole node).
 struct Placed {
-    flags: Flags,
+    flags: i64,
     margin_t: f32,
     anchor: Option<Anchor>,
     w_grow: bool,
@@ -7919,11 +7919,11 @@ impl Ui {
         self.slots[slot].rw
     }
 
-    pub(crate) fn box_flags(&self, b: &UiBox) -> Flags {
+    pub(crate) fn box_flags(&self, b: &UiBox) -> i64 {
         self.slots[b.box_slot].node.flags
     }
 
-    pub(crate) fn set_flags_of_box(&mut self, b: &UiBox, flags: Flags) {
+    pub(crate) fn set_flags_of_box(&mut self, b: &UiBox, flags: i64) {
         self.slots[b.box_slot].node.flags = flags;
     }
 

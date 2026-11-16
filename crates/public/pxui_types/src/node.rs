@@ -128,7 +128,7 @@ pub struct Node {
     pub role: Role,
     pub state: State,
     pub z: i16,
-    pub flags: Flags,
+    pub flags: i64,
     pub w: Size,
     pub h: Size,
     pub min_w: f32,
@@ -438,13 +438,13 @@ impl Node {
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::{Node};
-    /// const N: Node = Node::row().flags(3);
-    /// assert_eq!(N.flags, 3);
+    /// use pxui_types::{Flags, Node};
+    /// const N: Node = Node::row().flags(Flags::CLICKABLE.or(Flags::CLIP));
+    /// assert_eq!(N.flags, 9);
     /// ```
     #[inline]
     pub const fn flags(mut self, flags: Flags) -> Node {
-        self.flags = flags;
+        self.flags = flags.bits();
         self
     }
 }
