@@ -646,14 +646,6 @@ impl Strs {
         else { strs.heap=values.iter().map(|v|as_str(v)).collect(); }
         strs
     }
-    #[cfg(not(feature = "static"))]
-    #[inline]
-    pub(crate) fn owned(values:&[String])->Self {
-        let mut strs=Self { stack:[Str::default();32], heap:Vec::new(), len:values.len() };
-        if values.len()<=32 { for (out,v) in strs.stack.iter_mut().zip(values) { *out=as_str(v); } }
-        else { strs.heap=values.iter().map(|v|as_str(v)).collect(); }
-        strs
-    }
     #[inline]
     pub(crate) fn span(&self)->pxui_types::ffi::Slice<Str> {
         let ptr=if self.len<=32 { self.stack.as_ptr() } else { self.heap.as_ptr() };

@@ -86,7 +86,7 @@ impl Ui {
     }
 
     #[inline]
-    #[track_caller] pub fn context_menu(&mut self, at: (f32, f32), options: &MenuOpts, label: &str, items: &[(String, bool)]) -> MenuResult {
+    #[track_caller] pub fn context_menu(&mut self, at: (f32, f32), options: &MenuOpts, label: &str, items: &[(&str, bool)]) -> MenuResult {
         // up to 32 rows live on the stack, more on the heap
         let (mut labels, mut enabled) = ([Str::default(); 32], [0u8; 32]);
         let (heap_labels, heap_enabled): (Vec<Str>, Vec<u8>);

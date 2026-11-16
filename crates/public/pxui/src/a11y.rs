@@ -54,11 +54,11 @@ impl A11yBridge {
     pub fn fd(&self) -> i32 { unsafe { sys::pxui_a11y_fd(self.0.as_ptr()) } }
     /// Publishes a frame's accessibility tree (`Ui::output().a11y`).
     pub fn update(&mut self, tree: &pxui_types::ffi::A11yTree) -> bool { unsafe { sys::pxui_a11y_update(self.0.as_ptr(), tree) == 0 } }
-    /// Handles pending traffic and appends the actions assistive technology asked for to `out`; false when the connection is gone.
-    pub fn pump(&mut self, out: &mut Vec<pxui_types::ffi::A11yAction>) -> bool {
+    /// Handles pending traffic and passes each action assistive technology asked for to `out`; false when the connection is gone.
+    pub fn pump(&mut self, out: &mut dyn FnMut(pxui_types::ffi::A11yAction)) -> bool {
         let mut actions = pxui_types::ffi::Slice::default();
         let alive = unsafe { sys::pxui_a11y_pump(self.0.as_ptr(), &mut actions) } == 1;
-        if actions.len != 0 { out.extend_from_slice(unsafe { core::slice::from_raw_parts(actions.ptr, actions.len) }); }
+        if actions.len != 0 { for action in unsafe { core::slice::from_raw_parts(actions.ptr, actions.len) } { out(*action); } }
         alive
     }
 }

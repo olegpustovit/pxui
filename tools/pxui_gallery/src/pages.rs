@@ -174,7 +174,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
                 s.notes = text.to_owned();
             }
         });
-        let _ = ui.footer(Some("2 keys"), &s.hints);
+        compat::footer(ui, Some("2 keys"), &s.hints);
     });
     column(ui, "old-table", (332.0, 250.0), 296.0, Size::Px(200.0), &mut |ui: &mut Ui| {
         let headers = [String::from("row"), String::from("name"), String::from("x")];
@@ -298,7 +298,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     }
     if let Some(at) = s.menu_at {
         let items = [("Cut".to_owned(), true), ("Copy".to_owned(), true), (String::new(), true), ("Delete".to_owned(), true)];
-        match ui.context_menu(at, &MenuOpts::default(), "context", &items) {
+        match compat::context_menu(ui, at, &MenuOpts::default(), "context", &items) {
             MenuResult::Open => {}
             MenuResult::Pick(_) => (s.menu_at, s.said) = (None, "Picked from the menu"),
             MenuResult::Dismiss => s.menu_at = None,

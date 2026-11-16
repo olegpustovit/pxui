@@ -73,7 +73,7 @@ mod host {
     pub fn a11y_update(b: &mut A11y, tree: &A11yTree) {
         if !b.update(tree) { eprintln!("pxui_gallery: accessibility tree refused"); }
     }
-    pub fn a11y_pump(b: &mut A11y, out: &mut Vec<A11yAction>) -> bool { b.pump(out) }
+    pub fn a11y_pump(b: &mut A11y, out: &mut Vec<A11yAction>) -> bool { b.pump(&mut |a| out.push(a)) }
 }
 
 fn env(name: &str) -> Option<String> { std::env::var(name).ok().filter(|v| !v.is_empty()) }

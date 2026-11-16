@@ -180,7 +180,7 @@ export!(trusted pub unsafe fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const PxuiF
             None => hints.push((key.to_owned(), value.to_owned())),
         }
     }
-    let rc = unsafe { crate::trusted::footer(ui, right, &hints) };
+    let rc = unsafe { crate::trusted::footer_rows(ui, right, &hints) };
     state.shared().hints = hints;
     rc
 });

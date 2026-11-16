@@ -24,6 +24,12 @@ mod compat {
         ui.table_with(at, w, h, &headers.iter().map(String::as_str).collect::<Vec<_>>(), rows, &mut |r, c, emit| emit(&cell(r, c)), label).0
     }
 
+    pub fn footer(ui: &mut Ui, right: Option<&str>, hints: &[(String, String)]) { ui.footer(right, hints) }
+
+    pub fn context_menu(ui: &mut Ui, at: (f32, f32), o: &pxui_types::ui::MenuOpts, label: &str, items: &[(String, bool)]) -> pxui_types::ui::MenuResult {
+        ui.context_menu(at, o, label, items)
+    }
+
     pub fn bounce(ui: &mut Ui, c: &UiBox) {
         let ease = Curve::Bezier { duration: 0.0, points: [0.25, 0.1, 0.25, 1.0] };
         let keys = [

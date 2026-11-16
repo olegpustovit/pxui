@@ -1,11 +1,26 @@
-//! The two calls whose shape differs between the wrapper and the engine (a generic closure against an `Rc`, keyframe structs against
+//! The calls whose shape differs between the wrapper and the engine (a generic closure against an `Rc`, keyframe structs against
 //! tuples). The A7 bench compiles the pages against the engine with its own version of these in `tools/abi_bench`.
 use pxui::kit::{AnimationTarget, Keyframe};
 use pxui::{PxuiBox, Ui};
 use pxui_types::theme::Curve;
 
+// The pages keep owned rows (the engine takes them); the wrapper borrows, so each call lends them through a stack array.
 pub fn table(ui: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[String], rows: i64, cell: &mut dyn FnMut(i64, i64) -> String, label: &str) -> Option<i64> {
-    ui.table(at, w, h, headers, rows, cell, label)
+    let mut lent = [""; 16];
+    for (slot, header) in lent.iter_mut().zip(headers) { *slot = header; }
+    ui.table(at, w, h, &lent[..headers.len().min(16)], rows, cell, label)
+}
+
+pub fn footer(ui: &mut Ui, right: Option<&str>, hints: &[(String, String)]) {
+    let mut lent = [("", ""); 8];
+    for (slot, (key, text)) in lent.iter_mut().zip(hints) { *slot = (key, text); }
+    ui.footer(right, &lent[..hints.len().min(8)])
+}
+
+pub fn context_menu(ui: &mut Ui, at: (f32, f32), o: &pxui::MenuOpts, label: &str, items: &[(String, bool)]) -> pxui::MenuResult {
+    let mut lent = [("", false); 16];
+    for (slot, (text, enabled)) in lent.iter_mut().zip(items) { *slot = (text, *enabled); }
+    ui.context_menu(at, o, label, &lent[..items.len().min(16)])
 }
 
 pub fn bounce(ui: &mut Ui, c: &PxuiBox) {

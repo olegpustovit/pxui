@@ -324,8 +324,8 @@ impl Ui {
         (present != 0).then(|| crate::lent_str(out))
     }
     #[track_caller]
-    pub fn set_text_state(&mut self, b: &PxuiBox, value: Option<String>) {
-        let text = value.as_deref().unwrap_or("");
+    pub fn set_text_state(&mut self, b: &PxuiBox, value: Option<&str>) {
+        let text = value.unwrap_or("");
         check(self, unsafe { lib::pxui_ui_set_text_state(self.0.as_ptr(), b, value.is_some() as u8, as_str(text)) })
     }
     /// The text kept in the box's slot under `index`, set to `text` when it differs: borrowed from the library until the

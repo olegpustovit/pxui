@@ -161,7 +161,7 @@ pub(crate) struct Hints {
     len: usize,
 }
 impl Hints {
-    pub(crate) fn new(hints: &[(String, String)]) -> Hints {
+    pub(crate) fn new(hints: &[(&str, &str)]) -> Hints {
         let mut out = Hints { stack: [HINT_NONE; 16], heap: Vec::new(), len: hints.len() };
         let values: &mut [HintDesc] = if hints.len() <= 16 { &mut out.stack[..hints.len()] } else { out.heap = vec![HINT_NONE; hints.len()]; &mut out.heap[..] };
         for (out, (key, value)) in values.iter_mut().zip(hints) { *out = HintDesc { size: core::mem::size_of::<HintDesc>() as u32, reserved: 0, key: as_str(key), value: as_str(value) }; }
@@ -354,7 +354,7 @@ impl Ui {
         out != 0
     }
     #[inline]
-    #[track_caller] pub fn footer(&mut self, right: Option<&str>, hints: &[(String, String)])  {
+    #[track_caller] pub fn footer(&mut self, right: Option<&str>, hints: &[(&str, &str)])  {
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::footer(self.0.as_ptr(), right, hints) });
         #[cfg(not(feature = "static"))]
@@ -421,19 +421,16 @@ impl Ui {
     }
 
     #[track_caller]
-    pub fn table<F: FnMut(i64, i64) -> String>(&mut self, at: (f32, f32), width: f32, height: f32, headers: &[String], rows: i64, cell: F, label: &str) -> Option<i64> {
+    pub fn table<F: FnMut(i64, i64) -> String>(&mut self, at: (f32, f32), width: f32, height: f32, headers: &[&str], rows: i64, cell: F, label: &str) -> Option<i64> {
         #[cfg(feature = "static")]
         {
-            // up to 32 headers are viewed on the stack, more on the heap
-            let (mut stack, heap): ([&str; 32], Vec<&str>);
-            let list: &[&str] = if headers.len() <= 32 { stack = [""; 32]; for (slot, header) in stack.iter_mut().zip(headers) { *slot = header; } &stack[..headers.len()] } else { heap = headers.iter().map(String::as_str).collect(); &heap };
             let (mut cell, mut out) = (cell, None);
-            check(self, unsafe { pxui_abi_link::trusted::table(self.0.as_ptr(), at, width, height, list, rows, &mut |row: i64, column: i64, put: &mut dyn FnMut(&str)| put(&cell(row, column)), label, &mut out) });
+            check(self, unsafe { pxui_abi_link::trusted::table(self.0.as_ptr(), at, width, height, headers, rows, &mut |row: i64, column: i64, put: &mut dyn FnMut(&str)| put(&cell(row, column)), label, &mut out) });
             out
         }
         #[cfg(not(feature = "static"))]
         {
-            let header_values = Strs::owned(headers);
+            let header_values = Strs::new(headers);
             let mut callback = CellText { f: cell, value: String::new() };
             let (cell, user) = callback.erased();
             let desc = TableDesc { size: core::mem::size_of::<TableDesc>() as u32, reserved: 0, label: as_str(label), at: [at.0, at.1], width, height, headers: header_values.span(), rows, cell, user };

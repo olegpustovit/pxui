@@ -80,7 +80,7 @@ impl Ui {
         out != 0
     }
     #[track_caller]
-    pub fn inspector_bar(&mut self, hints: &[(String, String)], count: i64) {
+    pub fn inspector_bar(&mut self, hints: &[(&str, &str)], count: i64) {
         let hints = crate::kit::Hints::new(hints);
         check(self, unsafe { lib::pxui_ui_inspector_bar(self.0.as_ptr(), hints.span(), count) })
     }

@@ -1199,7 +1199,7 @@ fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
 fn kit_extras_build_and_report_through_the_engine_shapes() {
     use pxui_types::{theme::Curve, ui::{HeadAction, LineStep, Target}, Axis};
     let mut ui = Ui::new().expect("library");
-    let hints = [("Esc".to_string(), "close".to_string())];
+    let hints = [("Esc", "close")];
     let actions = [HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true }];
     for round in 0..3 {
         ui.frame(&input(), &mut |ui: &mut Ui| {

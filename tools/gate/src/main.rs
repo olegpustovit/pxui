@@ -244,6 +244,21 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
                 issue(&mut issues, path, token.line, "impl Trait is not allowed in product crates");
             }
         }
+        // A public pxui function borrows its inputs: no owned String or Vec in a parameter (return types and generic bounds are not in scope).
+        if token.text == "fn" && path.starts_with("crates/public/pxui/src/") && !test_ranges.iter().any(|(start, end)| *start <= index && index <= *end)
+            && index > 0 && tokens[index - 1].text == "pub" && tokens.get(index + 1).is_some_and(|name| is_identifier(&name.text)) {
+            let mut open = index + 2;
+            if tokens.get(open).is_some_and(|next| next.text == "<") {
+                open = generic_end(&tokens, open).map_or(tokens.len(), |end| end + 1);
+            }
+            if tokens.get(open).is_some_and(|next| next.text == "(") {
+                if let Some(close) = matching(&tokens, open, "(", ")") {
+                    if let Some(owned) = tokens[open..close].iter().find(|part| matches!(part.text.as_str(), "String" | "Vec")) {
+                        issue(&mut issues, path, owned.line, format!("public parameter of `{}` owns a `{}`; borrow a &str or a slice", tokens[index + 1].text, owned.text));
+                    }
+                }
+            }
+        }
         if token.text == "proc_macro" || token.text == "proc_macro_derive" || token.text == "proc_macro_attribute" {
             issue(&mut issues, path, token.line, "procedural macros are not allowed in product crates");
         }
@@ -2145,6 +2160,19 @@ mod author_shim_tests {
         assert_eq!(generic_issues("crates/host/pxui_host/src/lib.rs", thin), 1);
         assert_eq!(generic_issues("crates/public/pxui/src/widgets.rs", "#[inline] pub fn row<T: Hash>(ui: &mut Ui, t: &T) { ui.row_body(t) }"), 1);
         assert_eq!(generic_issues(AUTHOR, "#[must_use] pub fn row<F: FnMut(&mut Ui)>(ui: &mut Ui, mut f: F) { ui.row_body(&mut f) }"), 1);
+    }
+
+    #[test]
+    fn public_pxui_parameters_borrow_their_inputs() {
+        let owned = |source: &str| shape_source("pxui", "crates/public/pxui/src/kit.rs", source).iter().filter(|issue| issue.contains("owns a")).count();
+        assert_eq!(owned("impl Ui { pub fn footer(&mut self, hints: &[(String, String)]) {} }"), 1);
+        assert_eq!(owned("pub fn a(items: Vec<u8>) {}"), 1);
+        assert_eq!(owned("pub fn a<F: Fn() -> String>(name: &String, f: F) {}"), 1);
+        assert_eq!(owned("pub fn a(out: &mut Vec<u8>) {}"), 1);
+        assert_eq!(owned("pub fn a(items: &[(&str, bool)], text: &str) -> String { String::new() }"), 0);
+        assert_eq!(owned("pub fn a<F: Fn() -> Vec<u8>>(f: F) -> Vec<u8> { Vec::new() }"), 0);
+        assert_eq!(owned("fn private(items: Vec<u8>) {}\npub(crate) fn crate_only(items: Vec<u8>) {}\n#[cfg(test)]\nmod t { pub fn x(v: Vec<u8>) {} }"), 0);
+        assert!(shape_source("pxui_core", "crates/private/pxui_core/src/x.rs", "pub fn a(items: Vec<u8>) {}").is_empty());
     }
 
     #[test]
