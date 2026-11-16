@@ -208,7 +208,8 @@ export!(pub unsafe fn pxui_renderer_resize(renderer:*mut PxuiRenderer, width:u32
 });
 
 /// What the blur recording callback of one split reaches.
-struct Recording<'a> { painter: &'a mut Painter, renderer_device: &'a Device, queue: &'a Queue, commands: &'a mut Option<gpu_backend::Commands>, sources: &'a mut std::collections::HashMap<crate::image::TextureKey, CachedTexture>, serial: u64, native: [*mut c_void; 2], rect: [u32; 4], sigma: f32, saturation: f32, blurred: Option<Blurred>, error: Option<ogpu_core::error::Error> }
+/// The pointers borrow from the split call that builds it and outlive neither it nor the callback.
+struct Recording { painter: *mut Painter, renderer_device: *const Device, queue: *const Queue, commands: *mut Option<gpu_backend::Commands>, sources: *mut std::collections::HashMap<crate::image::TextureKey, CachedTexture>, serial: u64, native: [*mut c_void; 2], rect: [u32; 4], sigma: f32, saturation: f32, blurred: Option<Blurred>, error: Option<ogpu_core::error::Error> }
 
 /// The app has ended its pass: record the blur of `rect` of the target it drew so far into its command buffer.
 extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -> i32 {
@@ -216,20 +217,20 @@ extern "C" fn record_blur(user: *mut c_void, target: *const pxui_types::Image) -
     if target.is_null() || unsafe { (*target).size } < core::mem::size_of::<pxui_types::Image>() as u32 { return PXUI_ERR_ARGUMENT; }
     let t = unsafe { *target };
     let result = (|| {
-        let entry=match rec.sources.entry(crate::image::image_key(&t)) {
+        let entry=match unsafe { &mut *rec.sources }.entry(crate::image::image_key(&t)) {
             std::collections::hash_map::Entry::Occupied(entry)=>entry.into_mut(),
             std::collections::hash_map::Entry::Vacant(entry)=>{
-                let texture=gpu_backend::wrap_texture(rec.renderer_device, ogpu_core::backend::NativeTexture { size: core::mem::size_of::<ogpu_core::backend::NativeTexture>() as u32, vk_image_view: t.vk_image_view, mtl_texture: t.mtl_texture, width: t.width, height: t.height, format: t.format })?;
+                let texture=gpu_backend::wrap_texture(unsafe { &*rec.renderer_device }, ogpu_core::backend::NativeTexture { size: core::mem::size_of::<ogpu_core::backend::NativeTexture>() as u32, vk_image_view: t.vk_image_view, mtl_texture: t.mtl_texture, width: t.width, height: t.height, format: t.format })?;
                 entry.insert(CachedTexture { texture, used:rec.serial, image:None })
             }
         };
         entry.used=rec.serial;
         let native = ogpu_core::backend::NativeCommands { size: core::mem::size_of::<ogpu_core::backend::NativeCommands>() as u32, vk_command_buffer: rec.native[0], mtl_command_buffer: rec.native[1], frame_serial: rec.serial, inside_pass: 0 };
-        let commands=adopt_again(rec.queue,rec.commands.take(),native)?;
-        let blurred=rec.painter.blur_in_with_saturation(&commands,&entry.texture,rec.rect,rec.sigma,rec.saturation);
+        let commands=adopt_again(unsafe { &*rec.queue },unsafe { &mut *rec.commands }.take(),native)?;
+        let blurred=unsafe { &mut *rec.painter }.blur_in_with_saturation(&commands,&entry.texture,rec.rect,rec.sigma,rec.saturation);
         gpu_backend::settle_commands(&commands);
         rec.blurred=Some(blurred?);
-        *rec.commands=Some(commands);
+        unsafe { *rec.commands=Some(commands); }
         Ok(())
     })();
     match result { Ok(()) => 0, Err(e) => { rec.error = Some(e); PXUI_ERR_GPU } }
@@ -339,7 +340,7 @@ export!(pub unsafe fn pxui_renderer_draw(renderer:*mut PxuiRenderer, pass:*const
                     // this copy of the pass ends here; the app ends its own, records the blur and reopens one
                     let open=latest.clone().or_else(||reopened.clone()).unwrap_or_else(||current.clone());
                     gpu_backend::end_render(&open)?;
-                    let mut rec=Recording { painter, renderer_device:device, queue, commands:&mut renderer.blur_commands, sources:&mut renderer.blur_sources, serial, native:native_commands, rect:[x0,y0,x1,y1], sigma:b.sigma*scale, saturation:b.saturation, blurred:None, error:None };
+                    let mut rec=Recording { painter:&mut *painter, renderer_device:device, queue, commands:&mut renderer.blur_commands, sources:&mut renderer.blur_sources, serial, native:native_commands, rect:[x0,y0,x1,y1], sigma:b.sigma*scale, saturation:b.saturation, blurred:None, error:None };
                     let mut next=pass;
                     let rc=split(pass.split_user,record_blur,(&mut rec as *mut Recording).cast(),&mut next);
                     if let Some(e)=rec.error.take() { return Err(e); }

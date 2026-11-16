@@ -593,31 +593,29 @@ pub fn paint_text_edit(
     composition: &str,
     edit: &TextEdit,
 ) {
-    paint_text_edit_ref(paint,size,right,inset,marks,control,y,composition,&EditRef { text:&edit.text,caret:edit.caret,anchor:edit.anchor });
+    paint_text_edit_ref(paint,size,right,inset,marks,control,y,composition,&edit.text,edit.caret,edit.anchor);
 }
 
-struct EditRef<'a> { text:&'a str,caret:usize,anchor:usize }
-
 #[allow(clippy::too_many_arguments)]
-fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Color,Color)>,control:IRect,y:i64,composition:&str,edit:&EditRef<'_>) {
+fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Color,Color)>,control:IRect,y:i64,composition:&str,text:&str,caret:usize,anchor:usize) {
     let (cx, cy, cw, ch) = control;
     // the selection and caret colours (the field look's); `None` hides the caret
-    let (tint, caret) = match marks {
+    let (tint, caret_color) = match marks {
         Some((selection, caret)) => (selection, Some(caret)),
         None => (theme::tint(&paint.theme), None),
     };
     let composing = !composition.is_empty();
-    let (start,end) = if composing {(edit.caret.min(edit.anchor),edit.caret.max(edit.anchor))} else {(edit.caret,edit.caret)};
-    let before = &edit.text[..start];
-    let after = &edit.text[end..];
+    let (start,end) = if composing {(caret.min(anchor),caret.max(anchor))} else {(caret,caret)};
+    let before = &text[..start];
+    let after = &text[end..];
     let byte = |at:i64|composition.char_indices().nth(at.max(0) as usize).map_or(composition.len(),|(byte,_)|byte);
     let (selected,count) = paint.composition_selection;
     let marked = (byte(selected),byte(selected.max(0).saturating_add(count.max(0))));
     let visible = 1.max(cw - 4) as f32;
     let preedit_width = if composing {paint.text_width(size,composition)} else {0.0};
-    let full = if composing {paint.text_width(size,before)+preedit_width+paint.text_width(size,after)} else {paint.text_width(size,&edit.text)};
+    let full = if composing {paint.text_width(size,before)+preedit_width+paint.text_width(size,after)} else {paint.text_width(size,&text)};
     let scroll = 0.0f32.max(paint.edit_scroll_x.min(0.0f32.max(full - visible)));
-    let insertion_width = paint.caret_x(size, &edit.text, start);
+    let insertion_width = paint.caret_x(size, &text, start);
     let caret_width = insertion_width + if composing {paint.caret_x(size,composition,marked.1)} else {0.0};
     let scroll = if caret_width < scroll {
         caret_width
@@ -635,18 +633,18 @@ fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,ma
     paint.input_region(caret_x - cx as f32, cx as f32, cy as f32, cw as f32, ch as f32);
     let previous_clip = paint.clip_rect;
     paint.clip_rect = intersect(previous_clip, Rect::new(cx as f32, cy as f32, cw as f32, ch as f32));
-    if !composing && edit.caret != edit.anchor {
-        let (start, stop) = (edit.caret.min(edit.anchor),edit.caret.max(edit.anchor));
-        paint.selection_fill(size,&edit.text,(start,stop),(text_x,cy as f32+0.5),1.max(ch-2) as f32,tint);
+    if !composing && caret != anchor {
+        let (start, stop) = (caret.min(anchor),caret.max(anchor));
+        paint.selection_fill(size,&text,(start,stop),(text_x,cy as f32+0.5),1.max(ch-2) as f32,tint);
     }
     if composition.is_empty() {
-        paint.text_with((text_x, y as f32), size, 0.0, None, &edit.text);
+        paint.text_with((text_x, y as f32), size, 0.0, None, &text);
     } else {
         paint.text_with((text_x, y as f32), size, 0.0, None, &before);
         paint.selection_fill(size,composition,marked,(insertion_x,cy as f32+0.5),1.max(ch-2) as f32,tint);
         paint.text_with((insertion_x, y as f32), size, 0.0, None, composition);
         paint.text_with((insertion_x + preedit_width, y as f32), size, 0.0, None, after);
-        paint.fill(insertion_x,(cy+ch-2) as f32,preedit_width,1.0,caret.unwrap_or(paint.theme.foreground));
+        paint.fill(insertion_x,(cy+ch-2) as f32,preedit_width,1.0,caret_color.unwrap_or(paint.theme.foreground));
     }
     // the caret is the line of the text it sits in: 14 of a 20-point field at body size
     let (caret_y, caret_h) = match size {
@@ -656,7 +654,7 @@ fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,ma
             (cy as f32 + (ch as f32 - h) / 2.0, h)
         }
     };
-    if let Some(color) = caret {
+    if let Some(color) = caret_color {
         paint.fill(caret_x, caret_y, 1.0, caret_h, color);
     }
     paint.clip_rect = previous_clip;
@@ -2972,9 +2970,12 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str, options: pxui_types::
             let font_size = size.unwrap_or(this.font_size());
             let marks = Some((field.selection, field.caret));
             let (caret, anchor) = (edit.caret, edit.anchor);
-            this.canvas_edit(&control, &edit.text, move |paint, rect, text, composition| {
+            this.canvas(&control, move |paint, rect| {
                 let (x, y, w, h) = ints(rect);
-                paint_text_edit_ref(paint,size,false,2.0,marks,(x,y,w,h),label_y(font_size,y-2,h+4),composition,&EditRef { text,caret,anchor })
+                // the frame's edit text and composition travel in the painter (`paint_begin`): moved out and back, no copy
+                let (text, composition) = (std::mem::take(&mut paint.edit_text), std::mem::take(&mut paint.composition));
+                paint_text_edit_ref(paint,size,false,2.0,marks,(x,y,w,h),label_y(font_size,y-2,h+4),&composition,&text,caret,anchor);
+                (paint.edit_text, paint.composition) = (text, composition);
             });
         }
         this.edit_work = edit.text;

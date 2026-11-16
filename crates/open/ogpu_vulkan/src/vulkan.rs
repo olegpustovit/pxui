@@ -140,15 +140,11 @@ impl Commands {
     pub fn blit_buffer_to_texture(&mut self, buffer: &Buffer, texture: &Texture, args: BlitDescriptor) -> Result<(), Error> { self.0.blit_buffer_to_texture(&buffer.0, &texture.0, args).map_err(|failure| error("blit_buffer_to_texture", failure)) }
     pub fn render_begin(&mut self, colors: &[ColorAttachment], depth: Option<DepthAttachment>, size: Size) -> Result<(), Error> {
         let depth = depth.as_ref().map(DepthAttachment::native);
-        macro_rules! begin {
-            ($($i:literal),*) => { self.0.render_begin(&[$(colors[$i].native()),*],depth,size) };
+        if colors.len() > 8 {
+            return Err(error("render_begin",sys::Error::InvalidInput("at most eight color attachments are supported")));
         }
-        let result=match colors.len() {
-            0=>begin!(), 1=>begin!(0), 2=>begin!(0,1), 3=>begin!(0,1,2),
-            4=>begin!(0,1,2,3), 5=>begin!(0,1,2,3,4), 6=>begin!(0,1,2,3,4,5),
-            7=>begin!(0,1,2,3,4,5,6), 8=>begin!(0,1,2,3,4,5,6,7),
-            _=>return Err(error("render_begin",sys::Error::InvalidInput("at most eight color attachments are supported"))),
-        };
+        let native: [_; 8] = std::array::from_fn(|i| colors[i.min(colors.len().saturating_sub(1))].native());
+        let result = if colors.is_empty() { self.0.render_begin(&[],depth,size) } else { self.0.render_begin(&native[..colors.len()],depth,size) };
         result.map_err(|failure| error("render_begin",failure))
     }
     pub fn render_end(&mut self) { self.0.render_end() }

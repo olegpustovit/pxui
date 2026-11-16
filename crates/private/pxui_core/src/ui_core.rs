@@ -3774,13 +3774,6 @@ impl Ui {
         self.arena.add(&mut self.boxes[b.index].paint, f);
     }
 
-    pub(crate) fn canvas_edit<F: Fn(&mut Paint, Rect, &str, &str) + 'static>(&mut self, b: &UiBox, text: &str, f: F) {
-        assert!(b.index < self.count && self.boxes[b.index].slot == b.box_slot, "Ui.canvas_edit: the node was not built this frame");
-        let text = self.arena.fmt(format_args!("{text}"));
-        let composition = self.arena.fmt(format_args!("{}", self.composition));
-        self.arena.add_lent(&mut self.boxes[b.index].paint, move |arena, paint, rect| f(paint, rect, arena.str(text), arena.str(composition)));
-    }
-
     /// A canvas that draws after the node's children, outside its content clip.
     pub fn canvas_over<F: Fn(&mut Paint, Rect) + 'static>(&mut self, b: &UiBox, f: F) {
         assert!(b.index < self.count && self.boxes[b.index].slot == b.box_slot, "Ui.canvas_over: the node was not built this frame");
@@ -4948,6 +4941,9 @@ pub struct Paint {
     /// the focused text's input area and caret offset
     pub ime: Option<((i64, i64, i64, i64), i64)>,
     label: String,
+    /// the focused text field's value and the IME composition this frame's edit canvas paints, lent by `Ui`
+    pub(crate) edit_text: String,
+    pub(crate) composition: String,
     /// the horizontal scroll of the focused text; painters adjust it
     pub edit_scroll_x: f32,
     pub(crate) composition_selection: (i64, i64),
@@ -5695,6 +5691,8 @@ impl Ui {
             text: self.text.take().expect("Ui: painting re-entered"),
             ime: None,
             label: std::mem::take(&mut self.label),
+            edit_text: std::mem::take(&mut self.edit_work),
+            composition: std::mem::take(&mut self.composition),
             edit_scroll_x: self.edit_scroll_x,
             composition_selection: self.composition_selection,
             l_content: std::mem::take(&mut self.l_content),
@@ -5708,9 +5706,11 @@ impl Ui {
     }
 
     fn paint_end(&mut self, paint: Paint) -> Vec<Layer> {
-        let Paint { layers, text, label, l_content, scroll_y, l_content_w, scroll_x, .. } = paint;
+        let Paint { layers, text, label, edit_text, composition, l_content, scroll_y, l_content_w, scroll_x, .. } = paint;
         self.text = Some(text);
         self.label = label;
+        self.edit_work = edit_text;
+        self.composition = composition;
         self.l_content = l_content;
         self.scroll_y = scroll_y;
         self.l_content_w = l_content_w;

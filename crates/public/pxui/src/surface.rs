@@ -123,13 +123,13 @@ fn framework_hash_preserves_caller_identities_borrows_once_and_allocates_nothing
         value.hash(&mut old);
         let expected=old.finish();
         let mut calls=0;
-        assert_eq!(crate::hash!({calls+=1;value}),expected);
+        assert_eq!(crate::hash(|state|{calls+=1;value.hash(state)}),expected);
         assert_eq!(calls,1);
         let owned=text.to_owned();
-        assert_eq!(crate::hash!(&owned),crate::hash!(&text));
+        assert_eq!(crate::hash(|state|(&owned).hash(state)),crate::hash(|state|(&text).hash(state)));
         assert_eq!(owned,text,"the expression stays borrowed");
         mem_sys::local_reset();
-        for _ in 0..100 {assert_eq!(crate::hash!(value),expected);}
+        for _ in 0..100 {assert_eq!(crate::hash(|state|value.hash(state)),expected);}
         assert_eq!(mem_sys::local_alloc_count(),0);
     }
 }

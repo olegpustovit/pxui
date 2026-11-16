@@ -120,9 +120,9 @@ impl Ui {
     /// Raw held state, including modifiers while a field or popup owns keyboard focus.
     #[inline]
     #[track_caller]
-    pub fn key_down(&self, key: impl Into<u32>) -> bool {
+    pub fn key_down(&self, key: u32) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_key_down(self.0.as_ptr(), key.into(), &mut out) });
+        check(self, unsafe { lib::pxui_ui_key_down(self.0.as_ptr(), key, &mut out) });
         out != 0
     }
     /// Raw press query with Shift/Ctrl/Alt/Meta held at the event, even if released in the same frame.

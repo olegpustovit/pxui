@@ -267,7 +267,7 @@ Apps retain their own path and import-policy validation. Actual file payloads al
 empty/hover/cancel pumps reuse storage. Legacy single-file wire events remain available.
 
 
-`hash!(value)` derives transient UI identities/revisions using the framework's existing fast hash,
+`hash(|state| value.hash(state))` (the gate allows no `macro_rules!`, so a closure feeds the hasher) derives transient UI identities/revisions using the framework's existing fast hash,
 evaluating the expression once and borrowing it. Applications supply the facts, rather than
 constructing hashers. Values remain identical to the previous FastHasher calls; this is not a
 DoS-resistant map hash. It adds no C ABI surface.
