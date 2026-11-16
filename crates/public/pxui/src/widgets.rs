@@ -25,7 +25,6 @@ mod sys {
     pub fn pxui_ui_checkbox(ui: *mut PxuiUi, label: Str, value: u8, out: *mut u8) -> i32;
     pub fn pxui_ui_radio(ui: *mut PxuiUi, label: Str, options: Slice<Str>, selected: usize, out: *mut usize) -> i32;
     pub fn pxui_ui_tabs(ui: *mut PxuiUi, label: Str, options: Slice<Str>, selected: usize, out: *mut usize) -> i32;
-    pub fn pxui_ui_segmented(ui: *mut PxuiUi, label: Str, options: Slice<Str>, selected: usize, out: *mut usize) -> i32;
     pub fn pxui_ui_dropdown(ui: *mut PxuiUi, label: Str, options: Slice<Str>, selected: usize, out: *mut usize) -> i32;
     pub fn pxui_ui_slider(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, out: *mut f32) -> i32;
     pub fn pxui_ui_progress(ui: *mut PxuiUi, label: Str, has_value: u8, value: f32, out: *mut PxuiBox) -> i32;
@@ -81,19 +80,6 @@ impl Ui {
             let tabs = Strs::new(tabs);
             let mut out = 0;
             check(self, unsafe { sys::pxui_ui_tabs(self.0.as_ptr(), as_str(label), tabs.span(), selected, &mut out) });
-            out
-        }
-    }
-
-    #[inline]
-    #[track_caller] pub fn segmented(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
-        #[cfg(feature = "static")]
-        { let mut out = 0; check(self, unsafe { pxui_abi_link::trusted::choice(self.0.as_ptr(), 2, label, options, selected, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        {
-            let options = Strs::new(options);
-            let mut out = 0;
-            check(self, unsafe { sys::pxui_ui_segmented(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) });
             out
         }
     }

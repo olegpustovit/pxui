@@ -11,13 +11,24 @@ use std::collections::HashMap;
 
 /// What a toggle body is given. It runs with the widget's row entered (`row`, whose `box_key` owns the parts) and builds the row's
 /// look, label and switch. Behaviour reads one part: `Part::HIT`, the area that takes presses (the whole row when the body builds none).
+///
+/// What the caller's `Toggle` asked for, which the body honours or not: `row_h` the row's height (0 the kit's) and `switch_w` and `switch_h`
+/// the switch's size (0 the kit's 28 x 14), `inset` the distance of the label and the switch from the row's sides (0 the kit's), `press_row` that a press on the whole row
+/// toggles it (behaviour then ignores `Part::HIT`) and `detail` a secondary line under the label (empty: none); the looks of the switch and of its knob (`pick(State { checked: on })`) come beside the config when the caller
+/// gave its own (`None`: the theme's `switch` and `knob`). `state.disabled`: the toggle takes no input.
 pub struct ToggleConfig {
     pub state: State,
     pub on: bool,
     pub row: Handle,
+    pub row_h: f32,
+    pub switch_w: f32,
+    pub switch_h: f32,
+    pub inset: f32,
+    pub press_row: bool,
+    pub detail: &'static str,
 }
 
-pub type ToggleBody = fn(&mut Ui, &ToggleConfig, &str);
+pub type ToggleBody = fn(&mut Ui, &ToggleConfig, Option<&States>, Option<&States>, &str);
 
 /// What a slider body is given (and the label beside it, as a `&str`; the label itself is built by behaviour). It runs with `track` entered: the node that takes the pointer and keys (a 20-point stack the
 /// full width of the row), and builds the rail, the filled part and the thumb inside it. Behaviour reads two parts to turn the
@@ -250,15 +261,19 @@ pub type TabBody = fn(&mut Ui, &TabConfig, &str);
 /// keyed by its place in the strip, checked when it is the choice; behaviour reads its presses. `selected` is the choice's index and
 /// `group` the strip's key, so a body can find the choice's segment (`Ui::part_rect(int_key(group, selected), part)`) and move a
 /// marker to it. The body gives the segment its width, inset, look for `state` (`checked`) and text.
+///
+/// the look per state the caller asked for comes beside the config (`None`: the theme's `segment`); `grow`: the caller asked each
+/// segment to share the strip's width (the strip fills its line) instead of the text's. `state.disabled`: the strip takes no input.
 pub struct SegmentConfig {
     pub state: State,
     pub index: usize,
     pub selected: usize,
     pub group: i64,
     pub node: Handle,
+    pub grow: bool,
 }
 
-pub type SegmentBody = fn(&mut Ui, &SegmentConfig, &str);
+pub type SegmentBody = fn(&mut Ui, &SegmentConfig, Option<&States>, &str);
 
 /// What a dropdown body is given (the chosen option's text beside it). It runs inside the `button` (entered): the combo box that takes
 /// the presses and keys, with its role, expanded state and name; `key` is the dropdown's own key (the built-in body keys its text and

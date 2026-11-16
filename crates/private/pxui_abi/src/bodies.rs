@@ -120,7 +120,9 @@ mod tramps {
     use pxui_types::theme::States;
     use pxui_core::ui::Justify;
 
-    tramp!(toggle, |ui, sh, c: &ToggleConfig, label: &str| PxuiToggleConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });
+    tramp!(toggle, |ui, sh, c: &ToggleConfig, track: Option<&States>, knob: Option<&States>, label: &str| PxuiToggleConfig {
+        state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label), row_h: c.row_h, switch_w: c.switch_w, switch_h: c.switch_h, inset: c.inset, press_row: c.press_row as u8, detail: pair(c.detail), track: track.unwrap_or(unsafe { &*(&ui.theme().switch as *const States) }), knob: knob.unwrap_or(unsafe { &*(&ui.theme().knob as *const States) })
+    });
     tramp!(slider, |ui, sh, c: &SliderConfig, label: &str| PxuiSliderConfig { state: st(c.state), fraction: c.fraction, track: bx(c.track), label: pair(label) });
     tramp!(progress, |ui, sh, c: &ProgressConfig, label: &str| PxuiProgressConfig { has_value: c.value.is_some() as u8, value: c.value.unwrap_or(0.0), row: bx(c.row), label: pair(label) });
     tramp!(button, |ui, sh, c: &ButtonConfig, states: &States, label: &str| PxuiButtonConfig {
@@ -163,7 +165,9 @@ mod tramps {
         span.extend(lines.iter().map(|l| pair(l)));
     }, PxuiTipConfig { width: c.width, height: c.height, tip: bx(c.tip), lines: Slice { ptr: span.as_ptr(), len: span.len() } });
     tramp!(tab, |ui, sh, c: &TabConfig, text: &str| PxuiTabConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });
-    tramp!(segment, |ui, sh, c: &SegmentConfig, text: &str| PxuiSegmentConfig { state: st(c.state), index: c.index, selected: c.selected, group: c.group, node: bx(c.node), text: pair(text) });
+    tramp!(segment, |ui, sh, c: &SegmentConfig, states: Option<&States>, text: &str| PxuiSegmentConfig {
+        state: st(c.state), index: c.index, selected: c.selected, group: c.group, node: bx(c.node), text: pair(text), states: states.unwrap_or(unsafe { &*(&ui.theme().segment as *const States) }), grow: c.grow as u8
+    });
     tramp!(dropdown, |ui, sh, c: &DropdownConfig, text: &str| PxuiDropdownConfig { state: st(c.state), open: c.open as u8, key: c.key, button: bx(c.button), text: pair(text) });
     tramp!(menu_bar, |ui, sh, c: &MenuItemConfig, text: &str| PxuiMenuItemConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });
     tramp!(menu_item, |ui, sh, c: &MenuItemConfig, text: &str| PxuiMenuItemConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });

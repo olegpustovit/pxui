@@ -146,12 +146,28 @@ pub(crate) fn default_tab(this: &mut Ui, c: &TabConfig, text: &str) {
     this.text(&c.node, text);
 }
 
-/// The built-in segment: the text's width and 16, 8 in, a point over the one before it.
-pub(crate) fn default_segment(this: &mut Ui, c: &SegmentConfig, text: &str) {
-    let w = this.text_width(None, text) + 16.0;
+/// How `segmented_opts` varies the kit's segmented control; `DEFAULT` is the plain `segmented`.
+pub struct SegmentedOpts {
+    /// A disabled strip takes no press, key or focus, shows its segments' `disabled` look and reports disabled to accessibility.
+    pub enabled: bool,
+    /// The strip's height in points (the theme's control height when `None`).
+    pub h: Option<f32>,
+    /// The strip fills its line and its segments share its width, instead of each being as wide as its text.
+    pub grow: bool,
+    /// The look per state of every segment (`checked` for the choice); `None` is the theme's `segment`.
+    pub states: Option<States>,
+}
+
+impl SegmentedOpts {
+    pub const DEFAULT: SegmentedOpts = SegmentedOpts { enabled: true, h: None, grow: false, states: None };
+}
+
+/// The built-in segment: the text's width and 16 (or its share of the strip with `grow`), 8 in, a point over the one before it.
+pub(crate) fn default_segment(this: &mut Ui, c: &SegmentConfig, states: Option<&States>, text: &str) {
+    let w = if c.grow { Size::Grow } else { Size::Px(this.text_width(None, text) + 16.0) };
     let n = this.node_new(&c.node);
-    (n.w, n.margin, n.inset) = (Size::Px(w), Edges { l: if c.index == 0 { 0.0 } else { -1.0 }, ..Edges::ZERO }, Edges { l: 8.0, ..Edges::ZERO });
-    let look = *this.theme().segment.pick(c.state);
+    (n.w, n.margin, n.inset) = (w, Edges { l: if c.index == 0 { 0.0 } else { -1.0 }, ..Edges::ZERO }, Edges { l: 8.0, ..Edges::ZERO });
+    let look = *states.unwrap_or(&this.theme().segment).pick(c.state);
     this.set_look(&c.node, look, c.state);
     this.text(&c.node, text);
 }
@@ -486,31 +502,48 @@ impl Ui {
     /// A segmented control: the options side by side in one outlined strip, the chosen one filled.
     /// One Tab stop; Left and Right move the choice. Returns the choice.
     pub fn segmented(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
-        let key = key_of(self.current_seed(), label);
-        let line = self.kit_line(key, Flags::NONE, Role::Unknown);
-        let ch = self.control_h();
+        self.segmented_opts(label, label, options, selected, &SegmentedOpts::DEFAULT).1
+    }
+
+    /// `segmented` keyed by `key` (hashed under the parent's seed, duplicates in order), the strip named `name` to accessibility, varied by
+    /// `opts`; reports what happened to the strip and the choice.
+    pub fn segmented_opts(&mut self, key: &str, name: &str, options: &[&str], selected: usize, opts: &SegmentedOpts) -> (Response, usize) {
+        let enabled = opts.enabled && !self.scope_disabled();
+        self.require_building();
+        let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
+        let key = unique.0;
+        let ch = opts.h.filter(|h| *h > 0.0).unwrap_or_else(|| self.control_h());
+        let rh = self.row_height() as f32;
+        let (side, gap) = (self.space(2), self.space(1));
+        let line = self.node_unique(unique, &Node { flags: Flags::NONE, h: Size::Px(rh.max(ch)), axis: Axis::Row, align: Align::Center, padding: Edges { l: side, r: side, ..Edges::ZERO }, gap, role: Role::Unknown, ..Node::DEFAULT });
         let body = body_of!(self, segment);
         let saved = self.enter(&line);
-        let strip = self.node_keyed(int_key(key, 0), Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, w: Size::Fit, h: Size::Px(ch), axis: Axis::Row, role: Role::Group, ..Node::DEFAULT });
-        self.a11y_name(&strip, shown(label));
+        let strip_flags = if enabled { Flags::FOCUSABLE | Flags::TAB_ONLY } else { Flags::NONE };
+        let strip = self.node_keyed(int_key(key, 0), Node { flags: strip_flags, w: if opts.grow { Size::Grow } else { Size::Fit }, h: Size::Px(ch), axis: Axis::Row, role: Role::Group, ..Node::DEFAULT });
+        self.a11y_name(&strip, shown(name));
         let s = self.signal_owned(&strip);
+        let focused = self.focused(&strip);
         let mut sel = selected.min(options.len().saturating_sub(1));
         pressed(&s.keys, &mut |k| sel = clamp_step(sel, self.along(k), options.len()));
         let inner = self.enter(&strip);
         for (i, option) in options.iter().enumerate() {
-            let n = self.node_keyed(int_key(strip.box_key, i as i64), Node { flags: ROW_FLAGS, h: Size::Grow, role: Role::Radio, ..Node::DEFAULT });
-            let ns = self.signal_owned(&n);
+            let flags = if enabled { ROW_FLAGS } else { Flags::BLOCKING };
+            let n = self.node_keyed(int_key(strip.box_key, i as i64), Node { flags, h: Size::Grow, role: Role::Radio, ..Node::DEFAULT });
+            let ns = self.signal(&n);
             if ns.clicked {
                 sel = i;
             }
-            let config = SegmentConfig { state: State { hovered: ns.hovered, pressed: ns.held, checked: sel == i, ..State::default() }, index: i, selected: sel, group: strip.box_key, node: n };
+            let state = State { hovered: enabled && ns.hovered, pressed: enabled && ns.held, checked: sel == i, disabled: !enabled, ..State::default() };
+            let config = SegmentConfig { state, index: i, selected: sel, group: strip.box_key, node: n, grow: opts.grow };
             self.set_role(&n, Role::Radio, st::CHECKABLE | if sel == i { st::CHECKED } else { 0 });
             self.a11y_name(&n, option);
-            in_item!(flat; self, body, n.box_key, n, default_segment(&config, option));
+            in_item!(flat; self, body, n.box_key, n, default_segment(&config, opts.states.as_ref(), option));
+            if !enabled { self.node_new(&n).state.disabled = true; }
         }
         self.leave(inner);
         self.leave(saved);
-        sel
+        if !enabled { self.node_new(&strip).state.disabled = true; }
+        (Response::of(&s, focused, strip), sel)
     }
 
     /// Menu rows in an anchored sheet below `anchor`, `current` lit: the row clicked, if any.

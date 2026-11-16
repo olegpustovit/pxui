@@ -7,7 +7,7 @@ use crate::node::declare;
 use crate::state::{get, Inner, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_inner, fail, note_call, to_abi_box};
 use crate::{PxuiBox, PxuiSignal, Str};
 use pxui_types::ffi::PxuiResponse;
-use pxui_core::ui::Ui;
+use pxui_core::ui::{SegmentedOpts, ToggleOpts, Ui};
 use pxui_types::{FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::Justify, theme::{States, ThemeSnapshot}};
 
 
@@ -99,6 +99,69 @@ pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, out: *mut u8) -> 
     0
 }
 
+/// The plain kit toggle (`Toggle::DEFAULT`) keyed by `key`, `pxui_ui_toggle_plain`'s body: the engine's own default options, nothing built or checked
+/// for them. A click is the flip of `on`, which the caller keeps.
+#[inline(always)]
+pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out: &mut PxuiResponse) -> i32 {
+    enter!(ui);
+    if long(key) || long(text) { return unsafe { fail(ui, "invalid toggle text") }; }
+    let r = unsafe { engine(ui) }.toggle_opts(key, text, on, &ToggleOpts::DEFAULT);
+    respond(&r, out);
+    0
+}
+
+/// The kit toggle with options, the body of `pxui_ui_toggle_response` and `pxui_ui_toggle_plain`: `track` and `knob` in place of the theme's
+/// `switch` and `knob`, `row_h`, `switch_w`, `switch_h` and `inset` (finite, non-negative; 0 the kit's), `press_row` (a press anywhere on the row
+/// toggles), `detail` a line under the text, `enabled`. `detail` is only read for the call.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, track: Option<&States>, knob: Option<&States>, row_h: f32, switch_w: f32, switch_h: f32, inset: f32,
+    press_row: bool, detail: &str, enabled: bool, out: &mut PxuiResponse) -> i32 {
+    enter!(ui);
+    if long(key) || long(text) || long(detail) { return unsafe { fail(ui, "invalid toggle text") }; }
+    // finite and not negative: NaN and infinity fail one of the two compares
+    if ![row_h, switch_w, switch_h, inset].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid toggle descriptor") }; }
+    // the looks are copied only when given
+    // SAFETY: the engine reads `detail` while this call builds the row (it copies the text into its node); nothing keeps the reference
+    let detail: &'static str = unsafe { core::mem::transmute::<&str, &'static str>(detail) };
+    let mut opts = ToggleOpts { enabled, row_h: (row_h > 0.0).then_some(row_h), switch: (switch_w > 0.0 || switch_h > 0.0).then_some((switch_w, switch_h)), track: None, knob: None,
+        detail, inset: (inset > 0.0).then_some(inset), press_row };
+    if let Some(track) = track { opts.track = Some(*track); }
+    if let Some(knob) = knob { opts.knob = Some(*knob); }
+    let r = unsafe { engine(ui) }.toggle_opts(key, text, on, &opts);
+    respond(&r, out);
+    0
+}
+
+/// The plain kit segmented control (`Segmented::DEFAULT`) keyed by `key`, named `name`, `pxui_ui_segmented_plain`'s body. `chosen` is the choice
+/// (`selected` clamped to `options`, moved by a press or a key); `options` are within the engine's limits (`options_ok`).
+#[inline(always)]
+pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &[&str], selected: usize, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
+    enter!(ui);
+    if long(key) || long(name) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
+    let (r, at) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &SegmentedOpts::DEFAULT);
+    respond(&r, out);
+    *chosen = at;
+    0
+}
+
+/// The kit segmented control with options, the body of `pxui_ui_segmented_response` and `pxui_ui_segmented_plain`: `h` (finite, non-negative; 0 the
+/// theme's control height), `grow`, `states` in place of the theme's `segment`, `enabled`.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub unsafe fn segmented_with(ui: *mut PxuiUi, key: &str, name: &str, options: &[&str], selected: usize, enabled: bool, h: f32, grow: bool, states: Option<&States>,
+    out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
+    enter!(ui);
+    if long(key) || long(name) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
+    if !(0.0..=f32::MAX).contains(&h) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
+    let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None };
+    if let Some(states) = states { opts.states = Some(*states); }
+    let (r, at) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &opts);
+    respond(&r, out);
+    *chosen = at;
+    0
+}
+
 /// A text field: `out_changed` says whether the user changed the text, `changed` then holds the new text (borrowed until the next frame).
 #[inline]
 pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
@@ -170,7 +233,7 @@ pub unsafe fn input_frame(ui: *mut PxuiUi, input: &Input, f: Inner, out: &mut Fr
 
 // ---- widgets: Rust types in, so the wrapper passes its own `&str` and slices (no `Str` span to build, nothing to decode)
 
-const MAX_OPTIONS: usize = 4096;
+pub(crate) const MAX_OPTIONS: usize = 4096;
 
 #[inline]
 fn long(value: &str) -> bool { value.len() > MAX_TEXT_BYTES }

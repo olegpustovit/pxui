@@ -123,7 +123,7 @@ fn rays(t: &Tokens) -> Theme {
         badge: States::all(Look { text: t.accent, font: label_font, ..n }),
         button: button(t.foreground),
         button_bare: button(ink_2(t)),
-        toggle: States { hover: Look { fill: faint_border(t), text: t.foreground, ..n }, ..States::all(ink(t.foreground)) },
+        toggle: States { hover: Look { fill: faint_border(t), text: t.foreground, ..n }, disabled: ink(ink_3(t)), ..States::all(ink(t.foreground)) },
         switch: States {
             checked: Look { fill: t.input, border: border(t), border_w: 1.0, radius: [t.radius[0]; 4], ..n },
             ..States::all(Look { fill: t.track, border: border(t), border_w: 1.0, radius: [t.radius[0]; 4], ..n })

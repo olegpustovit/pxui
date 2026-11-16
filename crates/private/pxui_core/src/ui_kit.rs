@@ -26,24 +26,70 @@ pub fn part_key(owner: i64, part: Part) -> i64 {
     int_key(owner, PART_BASE + part.0 as i64)
 }
 
-/// The built-in toggle: the label on its row and the 28 x 14 switch 12 from the row's end, the knob 3 in from its side.
-pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, label: &str) {
+/// The built-in toggle: the label on its row (with a `detail` line under it, in the theme's label look) and the switch (28 x 14 unless the
+/// caller sized it) 12 (or `inset`) from the row's end, the knob 3 in from its side and `switch_h - 6` square.
+pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, track: Option<&States>, knob: Option<&States>, label: &str) {
     let t = this.theme();
     let on = State { checked: c.on, ..State::default() };
-    let (look, track, knob) = (*t.toggle.pick(c.state), *t.switch.pick(on), *t.knob.pick(on));
-    this.set_look(&c.row, look, c.state);
+    let look = *t.toggle.pick(c.state);
+    let (track, knob) = (*track.unwrap_or(&t.switch).pick(on), *knob.unwrap_or(&t.knob).pick(on));
+    let (rh, w, h) = (if c.row_h > 0.0 { c.row_h } else { this.row_height() as f32 }, if c.switch_w > 0.0 { c.switch_w } else { 28.0 }, if c.switch_h > 0.0 { c.switch_h } else { 14.0 });
     // the switch's end is `space(2)` from the row's end at any density
-    this.node_new(&c.row).inset = Edges { l: this.space(2), ..Edges::default() };
-    this.text(&c.row, shown(label));
-    let top = ((this.row_height() - 14) / 2) as f32;
-    this.end_row(&c.row, this.space(2));
-    let s = this.part(Part::HIT, Node { w: Size::Px(28.0), h: Size::Px(14.0), margin: Edges { t: top, ..Edges::ZERO }, look: track, ..Node::DEFAULT });
+    let side = if c.inset > 0.0 { c.inset } else { this.space(2) };
+    this.set_look(&c.row, look, c.state);
+    let mut top = ((rh - h) / 2.0).floor();
+    if c.detail.is_empty() {
+        this.node_new(&c.row).inset = Edges { l: side, ..Edges::default() };
+        this.text(&c.row, shown(label));
+    } else {
+        // two lines in a growing column, the switch centred beside them
+        this.a11y_name(&c.row, shown(label));
+        let n = this.node_new(&c.row);
+        (n.padding.l, n.align) = (side, Align::Center);
+        top = 0.0;
+        let ink = |l: Look| Look { text: l.text, font: l.font, ..Look::NONE };
+        let column = this.node_keyed(int_key(c.row.box_key, 2), Node { w: Size::Grow, h: Size::Fit, axis: Axis::Column, shrink: 1.0, ..Node::DEFAULT });
+        let inside = this.enter(&column);
+        for (at, (text, look)) in [(label, ink(look)), (c.detail, ink(this.theme().label.idle))].into_iter().enumerate() {
+            let size = look.font.points(this.font_size());
+            let width = this.text_width(Some(size), text).max(1.0);
+            let line = this.node_keyed(int_key(c.row.box_key, 3 + at as i64), Node { w: Size::Px(width), h: Size::Px((size + 4) as f32), shrink: 1.0, flags: Flags::FIT_TEXT, look, ..Node::DEFAULT });
+            this.text(&line, text);
+        }
+        this.leave(inside);
+    }
+    this.end_row(&c.row, side);
+    let s = this.part(Part::HIT, Node { w: Size::Px(w), h: Size::Px(h), margin: Edges { t: top, ..Edges::ZERO }, look: track, ..Node::DEFAULT });
     this.text(&s, "");
     this.node_new(&s).state = on;
     let inner = this.enter(&s);
-    let k = this.placed(int_key(c.row.box_key, 1), (if c.on { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
+    let d = (h - 6.0).max(1.0);
+    let k = this.placed(int_key(c.row.box_key, 1), (if c.on { w - 3.0 - d } else { 3.0 }, 3.0), Size::Px(d), d, knob, Edges::default(), "");
     this.node_new(&k).state = on;
     this.leave(inner);
+}
+
+/// How `toggle_opts` varies the kit's toggle; `DEFAULT` is the plain `toggle`.
+pub struct ToggleOpts {
+    /// A disabled toggle takes no press or focus, shows its `disabled` look and reports disabled to accessibility; it still blocks what is under it.
+    pub enabled: bool,
+    /// The row's height in points (the kit's row height when `None`).
+    pub row_h: Option<f32>,
+    /// The switch's width and height in points (28 x 14 when `None`); the knob is 6 less than its height.
+    pub switch: Option<(f32, f32)>,
+    /// The looks of the switch and of its knob, picked by `checked`; `None` is the theme's `switch` and `knob`.
+    pub track: Option<States>,
+    pub knob: Option<States>,
+    /// A secondary line under the label (empty: none).
+    pub detail: &'static str,
+    /// The label's and the switch's distance from the row's sides in points (the theme's second space step when `None`).
+    pub inset: Option<f32>,
+    /// A press anywhere on the row toggles it (else only on the switch the body builds as `Part::HIT`).
+    pub press_row: bool,
+}
+
+impl ToggleOpts {
+    pub const DEFAULT: ToggleOpts = ToggleOpts { enabled: true, row_h: None, switch: None, track: None, knob: None, detail: "", inset: None, press_row: false };
 }
 
 /// How `button_opts` varies the kit's button; `DEFAULT` is the plain `button`.
@@ -1027,17 +1073,18 @@ impl Ui {
         // centred in the row's height; the box is the button (its key, its hit area)
         // the box's key is resolved first (one key on several buttons, as `button(text)` gives, takes its duplicates), so the line's,
         // derived from it, is unique without a second resolution
+        let enabled = opts.enabled && !self.scope_disabled();
         self.require_building();
         let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
         let line = self.node_keyed(int_key(unique.0, 0x6c69), Node::DEFAULT);
         let saved = self.enter(&line);
-        let flags = if opts.enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY | Flags::FOCUS_MARK } else { Flags::BLOCKING | Flags::TAB_ONLY };
+        let flags = if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY | Flags::FOCUS_MARK } else { Flags::BLOCKING | Flags::TAB_ONLY };
         let row = self.node_unique(unique, &Node { flags, role: Role::Button, ..Node::DEFAULT });
         self.a11y_name(&row, name.unwrap_or(text));
         self.leave(saved);
         let signal = self.signal(&row);
         let focused = self.focused(&row);
-        let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !opts.enabled, checked: opts.selected };
+        let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !enabled, checked: opts.selected };
         let mut states = match opts.states { Some(s) => s, None if opts.bare => self.theme().button_bare, None => self.theme().button };
         if let Some(ink) = opts.ink {
             for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.checked] {
@@ -1049,7 +1096,7 @@ impl Ui {
         in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, shown_text));
         // size, placement and padding went to the body in its config; the accessible states are the engine's
         let n = self.node_new(&row);
-        n.state.disabled = !opts.enabled;
+        n.state.disabled = !enabled;
         self.set_role(&row, Role::Button, if opts.selected { st::SELECTED } else { 0 });
         if let Some(f) = content {
             let inside = self.enter(&row);
@@ -1064,14 +1111,29 @@ impl Ui {
     /// A switch row: the label and the 28 x 14 switch at the end (the default body; a theme's `body.toggle` picks another).
     /// Behaviour: the row, a press on the part its body builds as `Part::HIT` (the whole row without one), the value, the role.
     pub fn toggle(&mut self, text: &str, value: bool) -> bool {
-        let row = self.kit_row(Some(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY), None, text);
-        self.hit_part(&row, Part::HIT);
-        let signal = self.signal_owned(&row);
-        let value = if signal.clicked { !value } else { value };
+        value ^ self.toggle_opts(text, text, value, &ToggleOpts::DEFAULT).clicked
+    }
+
+    /// `toggle` keyed by `key` (hashed under the parent's seed, duplicates in order) with the accessible name `text`, varied by `opts`;
+    /// reports what happened to the row (a click flips `value`: the caller owns it).
+    pub fn toggle_opts(&mut self, key: &str, text: &str, value: bool, opts: &ToggleOpts) -> Response {
+        let enabled = opts.enabled && !self.scope_disabled();
+        let flags = if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY } else { Flags::BLOCKING | Flags::TAB_ONLY };
+        let row_h = opts.row_h.unwrap_or(0.0);
+        let h = if row_h > 0.0 { row_h } else { self.row_height() as f32 };
+        self.require_building();
+        let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
+        let row = self.node_unique(unique, &Node { flags, w: Size::Grow, h: Size::Px(h), ..Node::DEFAULT });
+        if !opts.press_row { self.hit_part(&row, Part::HIT); }
+        let signal = self.signal(&row);
+        let value = value ^ signal.clicked;
         self.set_role(&row, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
-        let config = ToggleConfig { state: State { hovered: signal.hovered, ..State::default() }, on: value, row };
-        in_body!(self, row.box_key, row, toggle, default_toggle(&config, text));
-        value
+        let (switch_w, switch_h) = opts.switch.unwrap_or((0.0, 0.0));
+        let config = ToggleConfig { state: State { hovered: enabled && signal.hovered, disabled: !enabled, ..State::default() }, on: value, row, row_h, switch_w, switch_h,
+            inset: opts.inset.unwrap_or(0.0), press_row: opts.press_row, detail: opts.detail };
+        in_body!(self, row.box_key, row, toggle, default_toggle(&config, opts.track.as_ref(), opts.knob.as_ref(), text));
+        if !enabled { self.node_new(&row).state.disabled = true; }
+        Response::of(&signal, self.focused(&row), row)
     }
 
     /// A splitter's grip: a node across `axis` (`Row`: a vertical line between side-by-side panes)

@@ -2,7 +2,7 @@
 use crate::box_ops::Label;
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::interaction::decode_signal;
-use crate::{Button, Icon, IconButton};
+use crate::{Button, Icon, IconButton, Segmented, Toggle};
 use crate::kit::{encode_curve, HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
@@ -19,6 +19,11 @@ library!(lib {
     fn pxui_ui_button_response(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: Str, icon: Str, name: Str, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_response(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, text: Str, on: u8, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiToggleDesc, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_segmented_plain(ui: *mut PxuiUi, key: Str, name: Str, options: Slice<Str>, selected: usize, out: *mut PxuiResponse, chosen: *mut usize) -> i32;
+    fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiSegmentedDesc, options: Slice<Str>, out: *mut PxuiResponse, chosen: *mut usize) -> i32;
+    fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32;
     fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8) -> i32;
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
@@ -51,11 +56,15 @@ fn keyframe(target: Target, curve: Curve) -> KeyframeDesc {
     KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: 0.0, target: kind, reserved: 0, values, look: shape, curve: encode_curve(curve) }
 }
 
+/// The six looks of `states` (idle, hover, pressed, focus, disabled, checked) as the descriptors carry them.
+#[cfg(not(feature = "static"))]
+fn six(s: &pxui_types::theme::States) -> [pxui_types::ffi::PxuiLookDesc; 6] { [look(s.idle), look(s.hover), look(s.pressed), look(s.focus), look(s.disabled), look(s.checked)] }
+
 /// The wrapper's `Response` of a button call's record.
 #[inline(always)]
 fn response(out: &PxuiResponse) -> Response {
     let on = |bit: u32| out.flags & bit != 0;
-    Response { clicked: on(PxuiResponse::CLICKED), hovered: on(PxuiResponse::HOVERED), held: on(PxuiResponse::HELD), focused: on(PxuiResponse::FOCUSED), activated: on(PxuiResponse::ACTIVATED), handle: out.node }
+    Response { clicked: on(PxuiResponse::CLICKED), hovered: on(PxuiResponse::HOVERED), held: on(PxuiResponse::HELD), focused: on(PxuiResponse::FOCUSED), activated: on(PxuiResponse::ACTIVATED), changed: false, handle: out.node }
 }
 
 impl Ui {
@@ -140,6 +149,78 @@ impl Ui {
         };
         check(self, rc);
         response(&out)
+    }
+    /// The one body of `toggle` and `toggle_with`; a click is the flip of `on`. Linked statically, the library's trusted entry with the options
+    /// as they are; else the plain call for `Toggle::DEFAULT`, or the options as a descriptor. One `PxuiResponse` comes back either way.
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn toggle_keyed(&mut self, key: &str, text: &str, on: bool, toggle: &Toggle) -> Response {
+        let mut out = PxuiResponse::EMPTY;
+        let plain = toggle.row_h.is_none() && toggle.switch.is_none() && toggle.track.is_none() && toggle.knob.is_none() && toggle.enabled && toggle.detail.is_empty()
+            && toggle.inset.is_none() && !toggle.press_row;
+        let (switch_w, switch_h) = toggle.switch.unwrap_or((0.0, 0.0));
+        #[cfg(feature = "static")]
+        let rc = if plain {
+            unsafe { pxui_abi_link::trusted::toggle_plain(self.0.as_ptr(), key, text, on, &mut out) }
+        } else {
+            unsafe { pxui_abi_link::trusted::toggle_with(self.0.as_ptr(), key, text, on, toggle.track.as_ref(), toggle.knob.as_ref(), toggle.row_h.unwrap_or(0.0), switch_w, switch_h,
+                toggle.inset.unwrap_or(0.0), toggle.press_row, toggle.detail, toggle.enabled, &mut out) }
+        };
+        #[cfg(not(feature = "static"))]
+        let rc = if plain {
+            unsafe { lib::pxui_ui_toggle_plain(self.0.as_ptr(), as_str(key), as_str(text), on as u8, &mut out) }
+        } else {
+            let (track, knob) = (toggle.track.as_ref().map(six), toggle.knob.as_ref().map(six));
+            let desc = pxui_types::ffi::PxuiToggleDesc {
+                size: core::mem::size_of::<pxui_types::ffi::PxuiToggleDesc>() as u32, enabled: toggle.enabled as u8, on: on as u8, press_row: toggle.press_row as u8, reserved: 0,
+                row_h: toggle.row_h.unwrap_or(0.0), switch_w, switch_h, inset: toggle.inset.unwrap_or(0.0),
+                track: track.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), knob: knob.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
+                key: as_str(key), text: as_str(text), detail: as_str(toggle.detail),
+            };
+            unsafe { lib::pxui_ui_toggle_response(self.0.as_ptr(), &desc, &mut out) }
+        };
+        check(self, rc);
+        let mut r = response(&out);
+        r.changed = r.clicked;
+        r
+    }
+    /// The one body of `segmented` and `segmented_with`, as `toggle_keyed`: the response is the strip's and the choice is returned beside it.
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn segmented_keyed(&mut self, key: &str, name: &str, options: &[&str], selected: usize, segmented: &Segmented) -> (Response, usize) {
+        let mut out = PxuiResponse::EMPTY;
+        let mut chosen = 0usize;
+        let plain = segmented.h.is_none() && !segmented.grow && segmented.look.is_none() && segmented.enabled;
+        #[cfg(feature = "static")]
+        let rc = if plain {
+            unsafe { pxui_abi_link::trusted::segmented_plain(self.0.as_ptr(), key, name, options, selected, &mut out, &mut chosen) }
+        } else {
+            unsafe { pxui_abi_link::trusted::segmented_with(self.0.as_ptr(), key, name, options, selected, segmented.enabled, segmented.h.unwrap_or(0.0), segmented.grow,
+                segmented.look.as_ref(), &mut out, &mut chosen) }
+        };
+        #[cfg(not(feature = "static"))]
+        let rc = {
+            let options = crate::Strs::new(options);
+            if plain {
+                unsafe { lib::pxui_ui_segmented_plain(self.0.as_ptr(), as_str(key), as_str(name), options.span(), selected, &mut out, &mut chosen) }
+            } else {
+                let states = segmented.look.as_ref().map(six);
+                let desc = pxui_types::ffi::PxuiSegmentedDesc {
+                    size: core::mem::size_of::<pxui_types::ffi::PxuiSegmentedDesc>() as u32, enabled: segmented.enabled as u8, grow: segmented.grow as u8, reserved: [0; 2], h: segmented.h.unwrap_or(0.0),
+                    states: states.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), selected,
+                };
+                unsafe { lib::pxui_ui_segmented_response(self.0.as_ptr(), &desc, options.span(), &mut out, &mut chosen) }
+            }
+        };
+        check(self, rc);
+        let mut r = response(&out);
+        r.changed = chosen != selected;
+        (r, chosen)
+    }
+    /// The one body of `disabled`: `f` runs under the library's scope.
+    #[track_caller]
+    pub(crate) fn disabled_scope(&mut self, disabled: bool, mut f: &mut dyn FnMut(&mut Ui)) {
+        check(self, unsafe { lib::pxui_ui_disabled(self.0.as_ptr(), disabled as u8, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
     }
     /// A 1-point splitter line (see the engine): its box and what happened to it.
     #[track_caller]

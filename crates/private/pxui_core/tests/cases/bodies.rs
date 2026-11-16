@@ -8,7 +8,7 @@ use pxui_core::ui::*;
 use std::cell::Cell;
 
 /// A toggle as a checkbox: a 12-point box at the row's start is the hit area, the label after it.
-fn checkbox_body(ui: &mut Ui, c: &ToggleConfig, label: &str) {
+fn checkbox_body(ui: &mut Ui, c: &ToggleConfig, _track: Option<&States>, _knob: Option<&States>, label: &str) {
     let t = ui.theme();
     let (look, boxes) = (*t.toggle.pick(c.state), t.checkbox);
     ui.set_look(&c.row, look, c.state);
@@ -284,7 +284,7 @@ pub fn a_theme_from_another_ui_never_selects_another_body() {
     let theme = a.parse_theme("toggle.body = second\n", &Theme::default()).expect("a names its body");
     check(theme.body.toggle == second, "the parse picked the id of its name");
     let mut b = new_ui(None);
-    let (other, extra) = (b.register_toggle_body("other", |_, _, _| panic!("a body of another name ran")), b.register_toggle_body("extra", |_, _, _| panic!("a body of another name ran")));
+    let (other, extra) = (b.register_toggle_body("other", |_, _, _, _, _| panic!("a body of another name ran")), b.register_toggle_body("extra", |_, _, _, _, _| panic!("a body of another name ran")));
     check(other != second && extra != second, &format!("ids {other:?} {extra:?} {second:?}: another Ui's names share the id of a name"));
     check(b.parse_theme("toggle.body = second\n", &Theme::default()).is_err(), "b knows no body second");
     b.set_theme(theme);
@@ -1271,7 +1271,7 @@ thread_local! { static FIRST_SEGMENT: Cell<i64> = const { Cell::new(0) }; }
 
 /// Segments with no outline of their own and, the sliding proof, one node (`Part::THUMB`, built by the first segment) that is placed
 /// over whichever segment is chosen, from that segment's rectangle last frame.
-fn sliding_segment(ui: &mut Ui, c: &SegmentConfig, text: &str) {
+fn sliding_segment(ui: &mut Ui, c: &SegmentConfig, _states: Option<&States>, text: &str) {
     ui.node_mut(&c.node).w = Size::Px(70.0);
     ui.set_look(&c.node, Look::NONE, c.state);
     ui.text(&c.node, text);

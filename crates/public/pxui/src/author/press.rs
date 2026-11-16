@@ -18,6 +18,9 @@ pub struct Response {
     pub focused: bool,
     /// The click came from the keyboard (Enter or Space on the focused node), not the pointer; implies `clicked`.
     pub activated: bool,
+    /// The value the widget edits changed this frame: a toggle flipped, a segmented control's choice moved. Always false for a button
+    /// or a pressable node, which hold no value.
+    pub changed: bool,
     /// The node, valid this frame: style it, read more of its signal.
     pub handle: PxuiBox,
 }
@@ -46,6 +49,28 @@ impl Ui {
     #[track_caller]
     pub fn pressable<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, look: &Look, mut f: F) -> Response { self.press(key.into(), node, look, &mut f) }
 
+    /// Builds `f` with every interactive node it declares disabled when `disabled`: no press, no focus, and the accessible disabled state.
+    ///
+    /// It covers whatever `f` declares (`button_with`, `toggle_with`, `segmented_with`, `pressable`, any node with `CLICKABLE` or
+    /// `FOCUSABLE`); the kit widgets also show their `disabled` look. Scopes nest: a node is disabled when any scope around it is. A node
+    /// still blocks what is under it. A view cached inside rebuilds when the flag flips. `f` runs even when `disabled` is false.
+    /// Allocates: never (the scope is a flag in the library's frame state, nothing is pushed).
+    /// Panics: when `f` panics, or when the library refuses the call (outside a frame).
+    ///
+    /// ```
+    /// use pxui::Button;
+    /// let mut clicked = false;
+    /// let mut build = |ui: &mut pxui::Ui| {
+    ///     ui.disabled(true, |ui| { clicked |= ui.button_with("clear", "Clear cache", &Button::DEFAULT.danger()).clicked; });
+    /// };
+    /// let mut ui = pxui::doc::frames(1, &mut build);
+    /// pxui::testing::click(&mut ui, 30.0, 12.0, &mut build);
+    /// assert!(!clicked);
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn disabled<F: FnMut(&mut Ui)>(&mut self, disabled: bool, mut f: F) { self.disabled_scope(disabled, &mut f) }
+
     /// The one body of `pressable`: the node with its flags, its signal, its look by state, then `f` inside it.
     #[inline]
     #[track_caller]
@@ -56,7 +81,7 @@ impl Ui {
         let focused = self.focused(&b);
         self.set_look(&b, *look, State { hovered: signal.hovered, pressed: signal.held, focused, ..State::default() });
         self.within(&b, f);
-        Response { clicked: signal.clicked, hovered: signal.hovered, held: signal.held, focused, activated: signal.clicked && !signal.released, handle: b }
+        Response { clicked: signal.clicked, hovered: signal.hovered, held: signal.held, focused, activated: signal.clicked && !signal.released, changed: false, handle: b }
     }
 }
 

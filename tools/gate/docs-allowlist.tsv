@@ -299,7 +299,6 @@ crates/public/pxui/src/widgets.rs	pxui_ui_dropdown	example,Allocates,Panics,Iden
 crates/public/pxui/src/widgets.rs	pxui_ui_progress	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_radio	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_search_field	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_segmented	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_slider	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_spinner	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_tabs	example,Allocates,Panics,Identity

@@ -649,6 +649,9 @@ impl NodeText {
     }
 }
 
+/// The bit of `theme_id` set inside a `disabled` scope (the low byte numbers `themed` overrides).
+const DISABLED_ID: u32 = 0x100;
+
 struct Slot {
     key: i64,
     new_identity: bool,
@@ -1433,7 +1436,7 @@ impl Ui {
     /// `themed` override). A cache of the theme keyed by this is never stale; it may be refilled more often than needed.
     // ponytail: 24 bits of `Ui` number and 32 of epoch; a process that makes 16 million `Ui`s or changes one's theme 4 billion times
     // wraps into a repeat, so widen the key (a second output) then.
-    pub fn theme_key(&self) -> u64 { self.serial << 40 | (self.epoch & 0xffff_ffff) << 8 | (self.theme_id & 0xff) as u64 }
+    pub fn theme_key(&self) -> u64 { self.serial << 40 | (self.epoch & 0x7fff_ffff) << 9 | (self.theme_id & 0x1ff) as u64 }
 
     /// The theme in effect's tokens, by value: what a canvas closure captures.
     pub fn tokens(&self) -> Tokens {
@@ -1531,7 +1534,7 @@ impl Ui {
         } else { theme };
         let saved = self.theme_id;
         // ids by search over the distinct themes seen, at most 32 (specification/pxui.md, designed limits)
-        self.theme_id = match self.theme_ids.iter().position(|t| t == theme) {
+        self.theme_id = saved & DISABLED_ID | match self.theme_ids.iter().position(|t| t == theme) {
             Some(i) => i as u32 + 1,
             None => {
                 if self.theme_ids.len() >= 32 {
@@ -1552,6 +1555,27 @@ impl Ui {
         f(self);
         self.theme_depth -= 1;
         self.theme_id = saved;
+    }
+
+    /// Build `f` with every interactive node it declares disabled (no press, no focus, accessibility `disabled`) when `disabled`;
+    /// scopes nest by OR. The flag is part of the view cache's theme id, so a view built inside rebuilds when it flips; nothing allocates.
+    /// The nodes `f` declared are marked when it returns, so a widget inside sees the scope (`scope_disabled`) while it builds.
+    pub fn disabled(&mut self, disabled: bool, f: &mut dyn FnMut(&mut Ui)) {
+        let (saved, start) = (self.theme_id, self.count);
+        if disabled { self.theme_id |= DISABLED_ID; }
+        f(self);
+        self.theme_id = saved;
+        if !disabled { return; }
+        for index in start..self.count {
+            let n = &mut self.slots[self.boxes[index].slot].node;
+            n.flags.0 &= !(Flags::CLICKABLE.0 | Flags::FOCUSABLE.0);
+            n.state.disabled = true;
+        }
+    }
+
+    /// Whether a `disabled` scope is open.
+    pub(crate) fn scope_disabled(&self) -> bool {
+        self.theme_id & DISABLED_ID != 0
     }
 
     pub fn font_size(&self) -> i64 {

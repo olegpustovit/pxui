@@ -7,7 +7,7 @@ use crate::trusted;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui::{Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, States, Ui};
-use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonDesc, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
+use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonDesc, PxuiIconButtonDesc, PxuiResponse, PxuiSegmentedDesc, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
@@ -110,6 +110,69 @@ unsafe fn looks(states: *const pxui_types::ffi::PxuiLookDesc) -> Result<Option<S
         _ => Err(()),
     }
 }
+
+// ABI 1.51: the plain kit toggle (`Toggle::DEFAULT`) keyed by `key`; a click is the flip of `on`, which the caller keeps.
+export!(trusted pub unsafe fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, text: Str, on: u8, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short toggle response") } };
+    let (Some(key), Some(text)) = (unsafe { checked(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid toggle text") } };
+    if on > 1 { return unsafe { fail(ui, "invalid toggle value") }; }
+    unsafe { trusted::toggle_plain(ui, key, text, on != 0, out) }
+});
+
+// ABI 1.51: the kit toggle with options, reporting into one `PxuiResponse`.
+export!(trusted pub unsafe fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *const PxuiToggleDesc, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() { return unsafe { fail(ui, "null toggle argument") }; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short toggle response") } };
+    let Some(d) = read_desc!(desc, PxuiToggleDesc) else { return unsafe { fail(ui, "invalid toggle descriptor") }; };
+    if d.enabled > 1 || d.on > 1 || d.press_row > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid toggle descriptor") }; }
+    let (Some(key), Some(text), Some(detail)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.detail) }) else { return unsafe { fail(ui, "invalid toggle text") } };
+    let (Ok(track), Ok(knob)) = (unsafe { looks(d.track) }, unsafe { looks(d.knob) }) else { return unsafe { fail(ui, "invalid toggle looks") } };
+    unsafe { trusted::toggle_with(ui, key, text, d.on != 0, track.as_ref(), knob.as_ref(), d.row_h, d.switch_w, d.switch_h, d.inset, d.press_row != 0, detail, d.enabled != 0, out) }
+});
+
+// ABI 1.51: the plain kit segmented control (`Segmented::DEFAULT`) keyed by `key`, named `name`; `chosen` receives the choice.
+export!(trusted pub unsafe fn pxui_ui_segmented_plain(ui: *mut PxuiUi, key: Str, name: Str, options: Slice<Str>, selected: usize, out: *mut PxuiResponse, chosen: *mut usize) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short segmented response") } };
+    if chosen.is_null() { return unsafe { fail(ui, "null segmented choice") }; }
+    let mut list = state.shared().take_strs();
+    let (Some(key), Some(name), true) = (unsafe { checked(key) }, unsafe { checked(name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid segmented strings") };
+    };
+    let rc = unsafe { trusted::segmented_plain(ui, key, name, &list, selected, out, &mut *chosen) };
+    state.shared().put_strs(list);
+    rc
+});
+
+// ABI 1.51: the kit segmented control with options, reporting into one `PxuiResponse`; `chosen` receives the choice.
+export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, options: Slice<Str>, out: *mut PxuiResponse, chosen: *mut usize) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || chosen.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short segmented response") } };
+    let Some(d) = read_desc!(desc, PxuiSegmentedDesc) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
+    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] { return unsafe { fail(ui, "invalid segmented descriptor") }; }
+    let Ok(states) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid segmented looks") } };
+    let mut list = state.shared().take_strs();
+    let (Some(key), Some(name), true) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid segmented strings") };
+    };
+    let rc = unsafe { trusted::segmented_with(ui, key, name, &list, d.selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), out, &mut *chosen) };
+    state.shared().put_strs(list);
+    rc
+});
+
+// Builds a subtree with every interactive node in it disabled when `disabled` is 1 (scopes nest by OR); the Ui is back as it was when the call returns.
+export!(pub unsafe fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: Build, user: *mut c_void) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if disabled > 1 { return unsafe { fail(ui, "invalid disabled flag") }; }
+    let shared = state.shared;
+    unsafe { (&mut *state.engine).disabled(disabled != 0, &mut |engine: &mut Ui| call_build(shared, engine, build, user)); }
+    0
+});
 
 // `axis` 0 is a row (a vertical grip), 1 a column; `rect` places the grip in its parent when `has_rect` is set.
 export!(pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32 {

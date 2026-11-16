@@ -100,7 +100,7 @@ pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
-pub use author::{hash_of, Button, Icon, IconButton, Key, Response};
+pub use author::{hash_of, Button, Icon, IconButton, Key, Response, Segmented, Toggle};
 #[cfg(test)]
 mod settled;
 #[cfg(test)]
@@ -114,7 +114,7 @@ pub use pxui_types::Node;
 mod sys {
     pub use pxui_abi_link::*;
     // what the library's trusted entries replace: this wrapper's arguments are valid Rust values (see `pxui_abi::trusted`)
-    pub use pxui_abi_link::trusted::{pxui_text_field, pxui_toggle, pxui_ui_text, pxui_ui_theme};
+    pub use pxui_abi_link::trusted::{pxui_text_field, pxui_ui_text, pxui_ui_theme};
 }
 
 #[cfg(not(feature = "static"))]
@@ -165,7 +165,6 @@ mod sys {
         pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_col(ui:*mut PxuiUi,padding:f32,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_panel(ui:*mut PxuiUi,panel:*const PxuiPanel,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
-        pub fn pxui_toggle(ui:*mut PxuiUi,label:Str,on:u8,out:*mut u8)->i32;
         pub fn pxui_text_field(ui:*mut PxuiUi,label:Str,value:Str,changed:*mut Str,out_changed:*mut u8)->i32;
         pub fn pxui_text_field_with_options(ui:*mut PxuiUi,label:Str,value:Str,options:*const pxui_types::TextInputOptions,changed:*mut Str,out_changed:*mut u8)->i32;
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
@@ -637,7 +636,6 @@ impl Ui {
     /// assert!(clicked);
     /// ```
     #[inline] #[track_caller] pub fn button(&mut self, text:&str) -> bool { self.button_with("button", text, &Button::DEFAULT).clicked }
-    #[inline] #[track_caller] pub fn toggle(&mut self, text:&str, on:bool) -> bool { let mut out = 0; check(self, unsafe { sys::pxui_toggle(self.0.as_ptr(), as_str(text), on as u8, &mut out) }); out != 0 }
     #[track_caller]
     pub fn text_field(&mut self, label:&str, value:&str) -> Option<&str> {
         let (mut changed, mut did_change) = (Str::default(), 0);
