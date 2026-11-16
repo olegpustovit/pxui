@@ -593,15 +593,13 @@ mod sized_records {
         });
         unsafe { pxui_ui_destroy(ui); }
     }
-    // BUG: `pxui_ui_gesture` copies the whole PxuiGestureIn (`in_.read_unaligned()`) before it checks `size`, so a shorter record faults;
-    // only the accepted cases run until the read follows the size check (the refusals fault on the guard page).
     #[test]
     fn gesture_in() {
         let ui = create();
         let mut value: PxuiGestureIn = unsafe { core::mem::zeroed() };
         let fix: fn(&mut PxuiGestureIn) = |_| {};
         fix(&mut value);
-        four(ui, ((&value as *const PxuiGestureIn).cast(), size_of_val(&value), align_of_val(&value)), false, &mut |p| {
+        four(ui, ((&value as *const PxuiGestureIn).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<PxuiGestureIn>();
             in_frame(ui, &mut |ui| { let b = a_box(ui); unsafe { pxui_ui_gesture(ui, &b, p, 0, &mut PxuiGestureOut::default()) } })
         });
@@ -1006,8 +1004,6 @@ mod sized_records {
         });
         unsafe { pxui_ui_destroy(ui); }
     }
-    // BUG: `pxui_ui_leave` copies the whole PxuiSaved (`*saved`) before it checks `size`: an over-read in the source that the optimizer
-    // happens to turn into loads after the size check, so the refusals pass today but may fault when codegen changes.
     #[test]
     fn saved_in() {
         let ui = create();

@@ -288,8 +288,8 @@ export!(pub unsafe fn pxui_ui_gesture(ui: *mut PxuiUi, box_: *const PxuiBox, in_
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid gesture output") }; };
     let cfg = if in_.is_null() { None } else {
-        let request = unsafe { in_.read_unaligned() };
-        if (request.size as usize) < core::mem::size_of::<pxui_types::ffi::PxuiGestureIn>() || request.kinds & !47 != 0 || !request.reveal.is_finite() || !request.threshold.is_finite() {
+        let Some(request) = read_desc!(in_, pxui_types::ffi::PxuiGestureIn) else { return unsafe { fail(ui, "invalid gesture request") }; };
+        if request.kinds & !47 != 0 || !request.reveal.is_finite() || !request.threshold.is_finite() {
             return unsafe { fail(ui, "invalid gesture request") };
         }
         Some(pxui_core::ui::gesture::GestureCfg { kinds: request.kinds, reveal: request.reveal, threshold: request.threshold, ..Default::default() })

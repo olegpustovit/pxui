@@ -20,8 +20,8 @@ export!(pub unsafe fn pxui_ui_enter(ui: *mut PxuiUi, box_: *const PxuiBox, out: 
 export!(pub unsafe fn pxui_ui_leave(ui: *mut PxuiUi, saved: *const PxuiSaved) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if saved.is_null() { return unsafe { fail(ui, "null leave state") }; }
-    let saved = unsafe { *saved };
-    if saved.size < core::mem::size_of::<PxuiSaved>() as u32 || saved.parents > 1 << 20 || saved.seeds > 1 << 20 {
+    let Some(saved) = read_desc!(saved, PxuiSaved) else { return unsafe { fail(ui, "invalid leave state") }; };
+    if saved.parents > 1 << 20 || saved.seeds > 1 << 20 {
         return unsafe { fail(ui, "invalid leave state") };
     }
     unsafe { (&mut *state.engine).leave(Saved::Depths(saved.parents, saved.seeds)); }
