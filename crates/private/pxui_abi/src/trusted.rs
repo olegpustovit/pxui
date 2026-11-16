@@ -63,7 +63,15 @@ pub(crate) unsafe fn text(ui: *mut PxuiUi, box_: *const PxuiBox, value: &str) ->
 pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
     enter!(ui);
     let Some(label) = (unsafe { utf8(label) }) else { return unsafe { fail(ui, "invalid label text") } };
-    unsafe { engine(ui) }.label(label);
+    unsafe { engine(ui) }.label(label, pxui_core::ui::Label::DEFAULT);
+    0
+}
+
+#[inline]
+pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: &pxui_types::Label, digits: bool) -> i32 {
+    enter!(ui);
+    let Some(text) = (unsafe { utf8(text) }) else { return unsafe { fail(ui, "invalid label text") } };
+    if !unsafe { engine(ui) }.label_styled(text, style, digits) { return unsafe { fail(ui, "invalid label style: a size, line height, wrap, align, ellipsis or feature no style has, or a font not loaded") }; }
     0
 }
 

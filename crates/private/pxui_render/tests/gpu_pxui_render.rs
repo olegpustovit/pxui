@@ -936,7 +936,7 @@ fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32,
         width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
     ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel(pxui_types::ui::PanelOpts::default(), "panel", &mut |ui: &mut pxui::Ui| {
-        ui.label("PXUI");
+        ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
         ui.toggle("Animate", true);
         ui.toggle("Wire", false);
         ui.text_field("Caption", caption);
@@ -1042,14 +1042,16 @@ fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
     let mut renderer=shared_renderer(&device,&ui);
     assert!(matches!(renderer.atlas(pxui::AtlasKind::Mask2),Err(pxui::Error::State)));
     let first=renderer.atlas(pxui::AtlasKind::Mask).unwrap();
-    let style=pxui::TextStyle { size_points:600.0,..Default::default() };
+    let black=pxui::geom::color::rgba(0,0,0,255);
+    ui.set_colors(&[black],&[black]);
+    let style=pxui::Label::BODY.size(600.0).color(pxui::theme::ColorToken(0));
     let mut first_pixels:Option<Vec<u8>>=None;
     let mut first_glyph=None;
     for frame in 1..=7 {
         mem_sys::local_reset();
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let b=ui.node("page-growth",pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(300.0),..pxui::Node::DEFAULT });
-            ui.canvas(&b,move |paint,_| { paint.text_styled((0.0,0.0),&style,0.0,Some(pxui::geom::color::rgba(0,0,0,255)),if frame==1 { "A" } else { "ABCDEF" }); });
+            ui.canvas(&b,move |paint,_| { paint.text_styled((0.0,0.0),&style,0.0,if frame==1 { "A" } else { "ABCDEF" }); });
         }).unwrap();
         let allocations=mem_sys::local_alloc_count();
         let glyphs:Vec<_>=ui.layers().flat_map(|l|l.instances.iter().copied()).collect();
@@ -1205,13 +1207,14 @@ fn shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations() {
     let mut ui=pxui::Ui::new().unwrap();
     ui.enable_system_fonts().unwrap();
     let style=pxui::TextStyle { size_points:24.0,..Default::default() };
+    let emoji=pxui::Label::BODY.size(24.0);
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
         mem_sys::local_reset();
         ui.frame(&pxui_types::FrameIn { width:320.0,height:150.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let b=ui.node("native-fonts",pxui::Node { w:pxui::ui::Size::Px(300.0),h:pxui::ui::Size::Px(80.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
             ui.text_spans(&b,"漢字 العربية",&style,&[]).unwrap();
-            ui.canvas(&b,move |paint,_| { paint.text_styled((10.0,100.0),&style,100.0,None,"😀"); });
+            ui.canvas(&b,move |paint,_| { paint.text_styled((10.0,100.0),&emoji,100.0,"😀"); });
         }).unwrap();
         let build_allocations=mem_sys::local_alloc_count();
         let draws=renderer.draw_calls();
@@ -1677,7 +1680,7 @@ fn shared_frame_serials() {
 fn rows_ui(ui: &mut pxui::Ui, rows: usize, caption: &str) {
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
     ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel(pxui_types::ui::PanelOpts::default(), "panel", &mut |ui: &mut pxui::Ui| {
-        for row in 0..rows { ui.label(&format!("row {row} {caption}")); }
+        for row in 0..rows { ui.label(&format!("row {row} {caption}"), pxui_core::ui::Label::DEFAULT); }
         ui.button("Quit");
     })).expect("build a frame of rows");
 }
@@ -1689,7 +1692,7 @@ fn views_ui(ui: &mut pxui::Ui, views: usize, rows: usize, revision: u64) {
     ui.frame(&input, &mut |ui: &mut pxui::Ui| {
         for v in 0..views {
             let name = format!("view {v}");
-            ui.view(&name, revision + v as u64 % 2, Size::Px(300.0), Size::Px(20.0 * rows as f32), &mut |ui: &mut pxui::Ui| for row in 0..rows { ui.label(&format!("row {row} of {name}")); });
+            ui.view(&name, revision + v as u64 % 2, Size::Px(300.0), Size::Px(20.0 * rows as f32), &mut |ui: &mut pxui::Ui| for row in 0..rows { ui.label(&format!("row {row} of {name}"), pxui_core::ui::Label::DEFAULT); });
         }
     }).expect("build a frame of views");
 }

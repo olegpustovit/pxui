@@ -80,7 +80,7 @@ fn dusk_panel(ui: &mut Ui) {
 
 fn new_panel(ui: &mut Ui) {
     ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-        ui.label("PXUI");
+        ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
         ui.toggle("Animate", true);
         ui.toggle("Wire", false);
         ui.text_field("Caption", "Functional UI");
@@ -91,7 +91,7 @@ fn new_panel(ui: &mut Ui) {
 /// The floating widgets: a modal with a picker, and a context menu.
 fn overlays(ui: &mut Ui) {
     ui.modal(Some(220.0), "modal", &mut |ui| {
-        ui.label("Presets");
+        ui.label("Presets", pxui_core::ui::Label::DEFAULT);
         let rows = |_: &str| {
             vec![
                 ("wall".to_owned(), "09-24".to_owned()),
@@ -482,7 +482,7 @@ fn gpu_text_cost() {
         let mut ui = Ui::create(platform, None, crate::support::golden_text());
         let mut build = |ui: &mut Ui| {
             for _ in 0..12 {
-                ui.label("The quick brown fox jumps over the lazy dog 0123456789 -- pack my box");
+                ui.label("The quick brown fox jumps over the lazy dog 0123456789 -- pack my box", pxui_core::ui::Label::DEFAULT);
             }
         };
         for count in 0..2 {

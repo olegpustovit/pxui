@@ -144,7 +144,7 @@ fn column(ui: &mut Ui, label: &str, at: (f32, f32), w: f32, h: Size, f: &mut dyn
 /// and the read-only table.
 pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
     ui.panel(PanelOpts::default(), "panel", &mut |ui: &mut Ui| {
-        ui.label("PXUI");
+        ui.label("PXUI", pxui::Label::DEFAULT);
         s.animate = ui.toggle("Animate", s.animate);
         s.wire = ui.toggle("Wire", s.wire);
         if let Some(v) = ui.text_field("Caption", &s.caption) {
@@ -186,7 +186,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
 pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     s.busy.clear();
     ui.panel(PanelOpts::default().width(296.0), "values", &mut |ui: &mut Ui| {
-        ui.label("Values");
+        ui.label("Values", pxui::Label::DEFAULT);
         s.check = ui.checkbox("Snap to grid", s.check);
         s.radio = ui.radio("Quality", &["Draft", "Normal", "Final"], s.radio);
         s.slider = ui.slider("Opacity", s.slider, 0.0..=1.0);
@@ -265,7 +265,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
 /// toast; a tooltip on a resting pointer.
 pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     ui.panel(PanelOpts::default().width(296.0), "overlays", &mut |ui: &mut Ui| {
-        ui.label("Overlays");
+        ui.label("Overlays", pxui::Label::DEFAULT);
         if ui.button("Open dialog") {
             s.dialog = true;
         }
@@ -306,7 +306,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     if s.picker {
         let mut close = false;
         let _ = ui.modal(Some(240.0), "presets", &mut |ui: &mut Ui| {
-            ui.label("Presets");
+            ui.label("Presets", pxui::Label::DEFAULT);
             let rows = |_: &str| NAMES[..5].iter().map(|n| (n.to_string(), "09-24".to_owned())).collect();
             let (_, pick) = ui.picker(&PickerOpts { limit: 4, ..PickerOpts::default() }, "Search presets", "", &rows);
             close = !matches!(pick, Pick::None);

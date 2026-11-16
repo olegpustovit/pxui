@@ -14,7 +14,7 @@ pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str, Touch, TextInputOpt
 pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
-pub use pxui_types::{TextStyle,TextSpan};
+pub use pxui_types::{Label,TextStyle,TextSpan};
 
 pub use pxui_types::{draw, geom};
 pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};
@@ -100,7 +100,7 @@ pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
-pub use author::{hash_of, text_style, Button, Key, LabelOpts, Response};
+pub use author::{hash_of, Button, Key, Response};
 #[cfg(test)]
 mod settled;
 #[cfg(test)]
@@ -114,7 +114,7 @@ pub use pxui_types::Node;
 mod sys {
     pub use pxui_abi_link::*;
     // what the library's trusted entries replace: this wrapper's arguments are valid Rust values (see `pxui_abi::trusted`)
-    pub use pxui_abi_link::trusted::{pxui_label, pxui_text_field, pxui_toggle, pxui_ui_text, pxui_ui_theme};
+    pub use pxui_abi_link::trusted::{pxui_text_field, pxui_toggle, pxui_ui_text, pxui_ui_theme};
 }
 
 #[cfg(not(feature = "static"))]
@@ -165,7 +165,6 @@ mod sys {
         pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_col(ui:*mut PxuiUi,padding:f32,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_panel(ui:*mut PxuiUi,panel:*const PxuiPanel,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
-        pub fn pxui_label(ui:*mut PxuiUi,label:Str)->i32;
         pub fn pxui_toggle(ui:*mut PxuiUi,label:Str,on:u8,out:*mut u8)->i32;
         pub fn pxui_text_field(ui:*mut PxuiUi,label:Str,value:Str,changed:*mut Str,out_changed:*mut u8)->i32;
         pub fn pxui_text_field_with_options(ui:*mut PxuiUi,label:Str,value:Str,options:*const pxui_types::TextInputOptions,changed:*mut Str,out_changed:*mut u8)->i32;
@@ -392,8 +391,8 @@ impl Ui {
     /// library and resumed here, after the call returns.
     ///
     /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("a"));
-    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| ui.label("b")).unwrap();
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("a", pxui::Label::DEFAULT));
+    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| ui.label("b", pxui::Label::DEFAULT)).unwrap();
     /// assert_eq!(ui.frame_index(), 2);
     /// ```
     ///
@@ -440,7 +439,7 @@ impl Ui {
     /// The accessibility nodes of the last frame (parents before children), when `set_a11y(true)`.
     ///
     /// ```
-    /// let ui = pxui::doc::frames(1, &mut |ui| ui.label("hi"));
+    /// let ui = pxui::doc::frames(1, &mut |ui| ui.label("hi", pxui::Label::DEFAULT));
     /// assert!(!ui.a11y_nodes().is_empty());
     /// ```
     pub fn a11y_nodes(&self) -> &[A11yNode] {
@@ -623,7 +622,6 @@ impl Ui {
         let rc = unsafe { sys::pxui_panel(self.0.as_ptr(), &panel, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
         check(self, rc)
     }
-    #[inline] #[track_caller] pub fn label(&mut self, text:&str) { check(self, unsafe { sys::pxui_label(self.0.as_ptr(), as_str(text)) }) }
     /// A kit button with the theme's look: `true` on the frame a press and release both land inside it.
     ///
     /// It is `button_with("button", text, &Button::DEFAULT).clicked`; use `button_with` for any option or a fixed key.
@@ -707,9 +705,6 @@ fn check(ui: &Ui, rc: i32) { if rc != 0 { refused(ui, rc) } }
 #[inline(never)]
 #[track_caller]
 fn refused(ui: &Ui, rc: i32) -> ! { panic!("pxui: {} ({rc})", ui.last_error()) }
-/// `check` for a wrapper call that returns its refusal as an `Error`.
-#[track_caller]
-fn check_error(ui: &Ui, result: Result<(), Error>) { if let Err(error) = result { refused(ui, error.code()) } }
 /// The library's process counters, for the performance gate: calls made into it (this one included) and heap allocations its
 /// allocator has made. In a static build both are the app's own allocator and the calls of the same process.
 #[cfg(feature="static")]

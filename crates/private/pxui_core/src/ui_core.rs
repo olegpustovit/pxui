@@ -3389,6 +3389,17 @@ impl Ui {
         true
     }
 
+    /// `text_line_box` with no spans, of `text` in capitals when `caps` (through the reused label buffer: no allocation once grown).
+    pub(crate) fn text_line_box_caps(&mut self, b: &Handle, text: &str, style: &Style, caps: bool) -> bool {
+        if !caps { return self.text_line_box(b, text, style, &[]); }
+        let mut buffer = core::mem::take(&mut self.label);
+        buffer.clear();
+        buffer.extend(text.chars().map(|c| c.to_ascii_uppercase()));
+        let done = self.text_line_box(b, &buffer, style, &[]);
+        self.label = buffer;
+        done
+    }
+
     /// Start building children of `b`; give the result to `leave`.
     pub fn enter(&mut self, b: &UiBox) -> Saved {
         self.require_building();
@@ -4964,6 +4975,8 @@ pub struct Paint {
     pub density: i64,
     /// the `Ui`'s colour tokens resolved for `theme` (`Ui::color`), transparent past the table
     pub colors: [Color; pxui_types::theme::ColorToken::LIMIT],
+    /// the root theme's label look, which a `Label`'s unset fields resolve from (`Paint::label`)
+    pub label_look: Look,
     pub text: Text,
     /// the focused text's input area and caret offset
     pub ime: Option<((i64, i64, i64, i64), i64)>,
@@ -4988,6 +5001,39 @@ pub struct Paint {
 impl Paint {
     /// Colour token `token` resolved for this painter's theme; transparent past the table.
     #[inline] pub fn color(&self, token: u16) -> Color { self.colors.get(token as usize).copied().unwrap_or_default() }
+
+    /// `text` in `label` at `at`, laid out within `width` (0: unbounded), its unset fields resolved as a label body resolves them
+    /// against this painter's theme (`label_look`, its rows and colour tokens); the label's box fields (width, pad) do not apply.
+    /// `None`, drawing nothing, when the style does not resolve.
+    pub fn label(&mut self, at: (f32, f32), label: &crate::ui_kit::Label, width: f32, text: &str) -> Option<Metrics> {
+        let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
+        if !resolved.caps { return Some(self.text_styled(at, &resolved.style, width, Some(resolved.color), text)); }
+        let mut buffer = core::mem::take(&mut self.label);
+        buffer.clear();
+        buffer.extend(text.chars().map(|c| c.to_ascii_uppercase()));
+        let m = self.text_styled(at, &resolved.style, width, Some(resolved.color), &buffer);
+        self.label = buffer;
+        Some(m)
+    }
+
+    /// `text` in `label` one cached character layout at a time, digits on the advance of `0`, resolved as `label`; the width drawn.
+    pub fn label_chars(&mut self, at: (f32, f32), label: &crate::ui_kit::Label, text: &str) -> Option<f32> {
+        let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
+        Some(self.chars(at, &resolved.style, Some(resolved.color), resolved.caps, text))
+    }
+
+    /// Draws `text` one character at a time from one-character layouts in `style` (capitals when `caps`), digits on the advance of
+    /// `0`: a number that changes every frame shapes nothing after the first use of its characters. Returns the width drawn.
+    pub fn chars(&mut self, at: (f32, f32), style: &Style, color: Option<Color>, caps: bool, text: &str) -> f32 {
+        let zero = self.text_metrics(style, 0.0, "0").w;
+        let (mut x, mut utf8) = (at.0, [0u8; 4]);
+        for ch in text.chars() {
+            let ch = if caps { ch.to_ascii_uppercase() } else { ch };
+            let advance = self.text_styled((x, at.1), style, 0.0, color, ch.encode_utf8(&mut utf8)).w;
+            x += if ch.is_ascii_digit() { zero } else { advance };
+        }
+        x - at.0
+    }
 
     /// Start the next layer (a floating root's), reusing a layer vector a previous frame left.
     fn next_layer(&mut self, key: i64) {
@@ -5726,6 +5772,7 @@ impl Ui {
             row_height: self.kit_row_height,
             density: self.density,
             colors: { let dark = theme::dark(&self.theme.tokens) as usize; self.colors.map(|pair| pair[dark]) },
+            label_look: self.theme.label.idle,
             text: self.text.take().expect("Ui: painting re-entered"),
             ime: None,
             label: std::mem::take(&mut self.label),

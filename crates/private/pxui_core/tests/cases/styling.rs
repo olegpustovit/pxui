@@ -151,7 +151,7 @@ pub fn styling_theme_swap_transition() {
         ui.view("v", 1, Size::Px(300.0), Size::Px(200.0), &mut |ui| {
             runs.set(runs.get() + 1);
             ui.panel(PanelOpts::default(), "p", &mut |ui| {
-                ui.label("Swap");
+                ui.label("Swap", pxui_core::ui::Label::DEFAULT);
                 ui.button("Go");
                 ui.toggle("On", true);
                 ui.text_field("Name", "value");
@@ -166,7 +166,7 @@ pub fn styling_theme_swap_transition() {
         let mut b = |ui: &mut Ui| {
             ui.view("v", 1, Size::Px(300.0), Size::Px(200.0), &mut |ui| {
                 ui.panel(PanelOpts::default(), "p", &mut |ui| {
-                    ui.label("Swap");
+                    ui.label("Swap", pxui_core::ui::Label::DEFAULT);
                     ui.button("Go");
                     ui.toggle("On", true);
                     ui.text_field("Name", "value");

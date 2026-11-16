@@ -17,7 +17,7 @@ pub mod theme;
 pub mod ui;
 
 pub use node::{Axis, Bar, Dir, Mark, Node};
-pub use text::{TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
+pub use text::{Label, TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
 pub use theme::{Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens};
 
 /// Node behavior bits as a typed value; the record stores the raw integer (`bits`), so unknown future bits stay representable.

@@ -54,7 +54,7 @@ impl Ui {
     /// ```
     /// use std::cell::Cell;
     /// let runs = Cell::new(0);
-    /// pxui::doc::frames(3, &mut |ui| { ui.view_of("title", &("Songs", 12u32), |ui| { runs.set(runs.get() + 1); ui.label("Songs"); }); });
+    /// pxui::doc::frames(3, &mut |ui| { ui.view_of("title", &("Songs", 12u32), |ui| { runs.set(runs.get() + 1); ui.label("Songs", crate::Label::DEFAULT); }); });
     /// assert_eq!(runs.get(), 1);
     /// ```
     #[inline]
@@ -99,7 +99,7 @@ mod tests {
         let mut ui = crate::Ui::new().expect("library");
         let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
         let frame = |ui: &mut crate::Ui, n: u32| {
-            ui.frame(&input, &mut |ui| { ui.view_of("v", &("title", n), |ui| { runs.set(runs.get() + 1); ui.label("title"); }); }).expect("frame");
+            ui.frame(&input, &mut |ui| { ui.view_of("v", &("title", n), |ui| { runs.set(runs.get() + 1); ui.label("title", crate::Label::DEFAULT); }); }).expect("frame");
         };
         for _ in 0..10 { frame(&mut ui, 1); }
         assert_eq!(runs.get(), 1);

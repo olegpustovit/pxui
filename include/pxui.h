@@ -439,6 +439,10 @@ int32_t pxui_scope(PxuiUi *ui, PxuiStr label, PxuiBuild build, void *user);
 int32_t pxui_col(PxuiUi *ui, float padding, PxuiStr label, PxuiBuild build, void *user);
 int32_t pxui_panel(PxuiUi *ui, const PxuiPanel *panel, PxuiStr label, PxuiBuild build, void *user);
 int32_t pxui_label(PxuiUi *ui, PxuiStr text);
+/* ABI 1.45: a label in `style` through the label body (PxuiLabelConfig.style), keyed by its place among its siblings (as
+   pxui_label now is). A null or short style, unknown set bits, invalid UTF-8, a non-finite or non-positive size, an invalid
+   wrap, align, ellipsis, feature or width, or a font the Ui lacks is refused before anything is built. */
+int32_t pxui_ui_label(PxuiUi *ui, PxuiStr text, const PxuiLabelStyle *style);
 int32_t pxui_button(PxuiUi *ui, PxuiStr label, uint8_t *out);
 int32_t pxui_toggle(PxuiUi *ui, PxuiStr label, uint8_t on, uint8_t *out);
 int32_t pxui_text_field(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiStr *changed, uint8_t *out_changed); /* changed: the new text, borrowed until the next frame, when out_changed */
@@ -497,7 +501,15 @@ typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox node; PxuiStr label
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t on; PxuiBox row; PxuiStr label; } PxuiCheckConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; } PxuiSpinnerConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiStr text; } PxuiBadgeConfig;
-typedef struct { uint32_t size; uint8_t first; PxuiBox node; PxuiStr text; } PxuiLabelConfig;
+/* ABI 1.45: a label's style. A field whose PXUI_LABEL_SET_* bit in `set` is clear is the theme's label style (font, size,
+   weight, tracking in ems, capitals, colour; width full; line height the row height, 0 for 1.2 times the size; pad 12 with 4
+   above a first child). color is an app colour token; digits 1 draws one cached character at a time, digits on the advance of 0. */
+enum { PXUI_LABEL_SET_FONT = 1, PXUI_LABEL_SET_SIZE = 2, PXUI_LABEL_SET_WEIGHT = 4, PXUI_LABEL_SET_TRACKING = 8, PXUI_LABEL_SET_CAPS = 16,
+       PXUI_LABEL_SET_COLOR = 32, PXUI_LABEL_SET_WIDTH = 64, PXUI_LABEL_SET_LINE_HEIGHT = 128, PXUI_LABEL_SET_PAD = 256 };
+typedef struct { uint32_t size, set; uint16_t font, weight, color, max_lines; uint8_t caps, digits, ellipsis, reserved;
+                 float size_points, tracking, line_height, pad; uint32_t wrap, align, features; PxuiSizeDesc width; } PxuiLabelStyle;
+/* ABI 1.45: grows at its end by style, the label's style as given (unset fields: the theme's); read it only when size covers it. */
+typedef struct { uint32_t size; uint8_t first; PxuiBox node; PxuiStr text; PxuiLabelStyle style; } PxuiLabelConfig;
 typedef struct { uint32_t size; PxuiBox row; uint8_t has_right; PxuiStr right; PxuiHintSpan hints; } PxuiFooterConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t vertical; uint8_t floating; PxuiBox grip; } PxuiGripConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiSlot content; } PxuiPanelConfig;
@@ -628,6 +640,11 @@ void pxui_paint_input_region(PxuiPaint *paint, float cursor, float x, float y, f
 float pxui_paint_scroll_y(PxuiPaint *paint, uint64_t slot);
 /* ABI 1.43: colour token `token` resolved for the painter's theme, as pxui_ui_color; transparent past the table. */
 PxuiColor pxui_paint_color(PxuiPaint *paint, uint16_t token);
+/* ABI 1.45: text in a label style, resolved as a label body resolves it against the painter's theme (its label look, rows and
+   colour tokens). paint_label lays out within width (0: unbounded) and draws; paint_label_chars draws one cached character
+   layout at a time, digits on the advance of 0, and returns the width drawn. An invalid style draws nothing and returns 0. */
+PxuiTextMetrics pxui_paint_label(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, float width, PxuiStr text);
+float pxui_paint_label_chars(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, PxuiStr text);
 void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
 /* Shared GPU: the renderer records into the app's command buffers and passes and never submits, waits,
  * presents or destroys what the app created. create takes the lease in gpu->owner_token (also on failure).
@@ -921,7 +938,7 @@ _Static_assert(sizeof(PxuiIconButtonConfig) == 80 && offsetof(PxuiIconButtonConf
 _Static_assert(sizeof(PxuiCheckConfig) == 64 && offsetof(PxuiCheckConfig, size) == 0 && offsetof(PxuiCheckConfig, state) == 4 && offsetof(PxuiCheckConfig, on) == 12 && offsetof(PxuiCheckConfig, row) == 16 && offsetof(PxuiCheckConfig, label) == 48, "PxuiCheckConfig layout");
 _Static_assert(sizeof(PxuiSpinnerConfig) == 56 && offsetof(PxuiSpinnerConfig, size) == 0 && offsetof(PxuiSpinnerConfig, node) == 8 && offsetof(PxuiSpinnerConfig, label) == 40, "PxuiSpinnerConfig layout");
 _Static_assert(sizeof(PxuiBadgeConfig) == 72 && offsetof(PxuiBadgeConfig, size) == 0 && offsetof(PxuiBadgeConfig, node) == 8 && offsetof(PxuiBadgeConfig, label) == 40 && offsetof(PxuiBadgeConfig, text) == 56, "PxuiBadgeConfig layout");
-_Static_assert(sizeof(PxuiLabelConfig) == 56 && offsetof(PxuiLabelConfig, size) == 0 && offsetof(PxuiLabelConfig, first) == 4 && offsetof(PxuiLabelConfig, node) == 8 && offsetof(PxuiLabelConfig, text) == 40, "PxuiLabelConfig layout");
+_Static_assert(sizeof(PxuiLabelConfig) == 120 && offsetof(PxuiLabelConfig, size) == 0 && offsetof(PxuiLabelConfig, first) == 4 && offsetof(PxuiLabelConfig, node) == 8 && offsetof(PxuiLabelConfig, text) == 40 && offsetof(PxuiLabelConfig, style) == 56, "PxuiLabelConfig layout");
 _Static_assert(sizeof(PxuiFooterConfig) == 80 && offsetof(PxuiFooterConfig, size) == 0 && offsetof(PxuiFooterConfig, row) == 8 && offsetof(PxuiFooterConfig, has_right) == 40 && offsetof(PxuiFooterConfig, right) == 48 && offsetof(PxuiFooterConfig, hints) == 64, "PxuiFooterConfig layout");
 _Static_assert(sizeof(PxuiGripConfig) == 48 && offsetof(PxuiGripConfig, size) == 0 && offsetof(PxuiGripConfig, state) == 4 && offsetof(PxuiGripConfig, vertical) == 12 && offsetof(PxuiGripConfig, floating) == 13 && offsetof(PxuiGripConfig, grip) == 16, "PxuiGripConfig layout");
 _Static_assert(sizeof(PxuiPanelConfig) == 64 && offsetof(PxuiPanelConfig, size) == 0 && offsetof(PxuiPanelConfig, node) == 8 && offsetof(PxuiPanelConfig, label) == 40 && offsetof(PxuiPanelConfig, content) == 56, "PxuiPanelConfig layout");
@@ -969,6 +986,7 @@ _Static_assert(sizeof(PxuiSwipeIn) == 16 && offsetof(PxuiSwipeIn, size) == 0 && 
 _Static_assert(sizeof(PxuiDismissIn) == 12 && offsetof(PxuiDismissIn, size) == 0 && offsetof(PxuiDismissIn, fraction) == 4 && offsetof(PxuiDismissIn, velocity) == 8, "PxuiDismissIn layout");
 _Static_assert(sizeof(PxuiDismissOut) == 12 && offsetof(PxuiDismissOut, size) == 0 && offsetof(PxuiDismissOut, flags) == 4 && offsetof(PxuiDismissOut, offset) == 8, "PxuiDismissOut layout");
 _Static_assert(sizeof(PxuiButtonDesc) == 96 && offsetof(PxuiButtonDesc, size) == 0 && offsetof(PxuiButtonDesc, enabled) == 4 && offsetof(PxuiButtonDesc, selected) == 5 && offsetof(PxuiButtonDesc, danger) == 6 && offsetof(PxuiButtonDesc, justify) == 7 && offsetof(PxuiButtonDesc, w_kind) == 8 && offsetof(PxuiButtonDesc, h_kind) == 9 && offsetof(PxuiButtonDesc, has_name) == 10 && offsetof(PxuiButtonDesc, reserved) == 11 && offsetof(PxuiButtonDesc, w) == 12 && offsetof(PxuiButtonDesc, h) == 16 && offsetof(PxuiButtonDesc, padding) == 20 && offsetof(PxuiButtonDesc, states) == 40 && offsetof(PxuiButtonDesc, key) == 48 && offsetof(PxuiButtonDesc, text) == 64 && offsetof(PxuiButtonDesc, name) == 80, "PxuiButtonDesc layout");
+_Static_assert(sizeof(PxuiLabelStyle) == 64 && offsetof(PxuiLabelStyle, size) == 0 && offsetof(PxuiLabelStyle, set) == 4 && offsetof(PxuiLabelStyle, font) == 8 && offsetof(PxuiLabelStyle, weight) == 10 && offsetof(PxuiLabelStyle, color) == 12 && offsetof(PxuiLabelStyle, max_lines) == 14 && offsetof(PxuiLabelStyle, caps) == 16 && offsetof(PxuiLabelStyle, digits) == 17 && offsetof(PxuiLabelStyle, ellipsis) == 18 && offsetof(PxuiLabelStyle, reserved) == 19 && offsetof(PxuiLabelStyle, size_points) == 20 && offsetof(PxuiLabelStyle, tracking) == 24 && offsetof(PxuiLabelStyle, line_height) == 28 && offsetof(PxuiLabelStyle, pad) == 32 && offsetof(PxuiLabelStyle, wrap) == 36 && offsetof(PxuiLabelStyle, align) == 40 && offsetof(PxuiLabelStyle, features) == 44 && offsetof(PxuiLabelStyle, width) == 48, "PxuiLabelStyle layout");
 /* abi-layout end */
 
 #endif

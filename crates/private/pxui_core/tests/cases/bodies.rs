@@ -612,7 +612,7 @@ fn ruled_label(ui: &mut Ui, c: &LabelConfig, text: &str) {
 
 pub fn label_rule_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.label = id, &|ui| ui.register_label_body("rule", ruled_label));
-    swap_static("label", &install, &|ui| ui.label("Section"));
+    swap_static("label", &install, &|ui| ui.label("Section", pxui_core::ui::Label::DEFAULT));
 }
 
 /// A footer that is just its end key, with no rule and no hints.
@@ -1334,7 +1334,7 @@ pub fn table_view_with_widget_cell() {
             ui.frame(&frame(t, e), &mut |ui| {
                 ui.table_view_with("Table", &["Name", "Action"], &mut widths.borrow_mut(), 3, None, &mut selected, &mut |ui, row, col| {
                     if col == 0 {
-                        ui.label(["row 0", "row 1", "row 2"][row]);
+                        ui.label(["row 0", "row 1", "row 2"][row], pxui_core::ui::Label::DEFAULT);
                     } else if ui.button("Go") {
                         goes.set(goes.get() * 10 + row as i64 + 1);
                     }

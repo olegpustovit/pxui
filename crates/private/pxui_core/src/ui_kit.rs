@@ -6,6 +6,9 @@
 use crate::ui_core::*;
 use crate::bodies::{body_of, in_body, in_item, in_place, TableCellConfig, ButtonConfig, FooterConfig, GripConfig, InspectorRowConfig, LabelConfig, PanelConfig, SectionConfig, SplitConfig, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
+pub use pxui_types::Label;
+use pxui_text::{Align as TextAlign, Ellipsis, Style, Wrap};
+use pxui_types::TextStyle;
 use crate::a11y::state as st;
 use input::{Event, Key};
 use crate::geom::Rgba as Color;
@@ -116,16 +119,95 @@ pub(crate) fn default_grip(this: &mut Ui, c: &GripConfig) {
     this.hit_outset(&c.grip, if c.vertical { Edges { l: 3.0, r: 3.0, ..Edges::ZERO } } else { Edges { t: 3.0, b: 3.0, ..Edges::ZERO } });
 }
 
-/// The built-in label: ink-2 capitals 12 points from the left, a row high (4 more above it when it is the first thing of its parent).
-pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
-    let gap = if c.first { 4.0 } else { 0.0 };
-    let look = this.theme().label.idle;
-    let h = gap + this.row_height() as f32;
-    let inset = Edges { l: this.space(2), t: gap, r: 0.0, b: 0.0 };
-    let n = this.node_new(&c.node);
-    (n.h, n.look, n.inset) = (Size::Px(h), look, inset);
-    this.text(&c.node, shown(text));
+/// A label's text as drawn: its style, colour and capitals, with every unset field of the `Label` taken from the theme.
+pub(crate) struct LabelText {
+    pub style: Style,
+    pub color: Color,
+    pub caps: bool,
 }
+
+/// `label` with its unset fields from the theme's label `look` (font, size, weight, tracking, capitals, colour) and `row_height`
+/// (the line height when unset; 0 is 1.2 times the size); `token` is its colour token already resolved. `None` for a size that
+/// is not positive and finite, a non-finite tracking or line height, or a wrap, align, ellipsis or feature value no style has.
+pub(crate) fn resolve_label(label: &Label, look: &Look, font_size: i64, row_height: f32, token: Option<Color>) -> Option<LabelText> {
+    let size = label.size.unwrap_or(look.font.points(font_size) as f32);
+    let tracking = label.tracking.unwrap_or(look.font.tracking);
+    let line_height = label.line_height.unwrap_or(row_height);
+    if !size.is_finite() || size <= 0.0 || !tracking.is_finite() || !line_height.is_finite() || line_height < 0.0 || label.features & !TextStyle::FEATURE_TABULAR_NUMBERS != 0 { return None; }
+    let style = Style {
+        font: label.font.unwrap_or(look.font.family), size, weight: label.weight.unwrap_or(look.font.weight), italic: false, line_height,
+        wrap: match label.wrap { TextStyle::WRAP_NONE => Wrap::None, TextStyle::WRAP_WORD => Wrap::Word, TextStyle::WRAP_GLYPH => Wrap::Glyph, TextStyle::WRAP_WORD_SPACES => Wrap::WordSpaces, _ => return None },
+        align: match label.align { TextStyle::ALIGN_LEFT => TextAlign::Left, TextStyle::ALIGN_CENTER => TextAlign::Center, TextStyle::ALIGN_RIGHT => TextAlign::Right, _ => return None },
+        max_lines: label.max_lines,
+        ellipsis: match label.ellipsis { TextStyle::ELLIPSIS_NONE => Ellipsis::None, TextStyle::ELLIPSIS_END => Ellipsis::End, TextStyle::ELLIPSIS_MIDDLE => Ellipsis::Middle, TextStyle::ELLIPSIS_HEAD => Ellipsis::Head, _ => return None },
+        tracking: tracking * size,
+        features: label.features,
+    };
+    Some(LabelText { style, color: token.unwrap_or(look.text), caps: label.caps.unwrap_or(look.font.caps) })
+}
+
+/// Whether `label` is kit text, one line in the label look's font a row high: nothing set that only line-box text draws (wrap, a
+/// line limit, an ellipsis, an alignment, features, a line height, a width) and a whole-point size.
+fn kit_label(label: &Label) -> bool {
+    label.wrap == TextStyle::WRAP_NONE && label.max_lines == 0 && label.ellipsis == TextStyle::ELLIPSIS_NONE && label.align == TextStyle::ALIGN_LEFT
+        && label.features == 0 && label.line_height.is_none() && label.width.is_none() && label.size.is_none_or(|s| s >= 1.0 && s.fract() == 0.0)
+}
+
+/// The built-in label, one meaning for every `Label`: what it leaves unset is the theme's label (ink-2 capitals in the label font, a
+/// full-width row 12 points in, 4 more above it when it is the first thing of its parent). Kit text when it asks for nothing
+/// more (`Label::DEFAULT` is exactly the theme's label); otherwise line-box text as tall as the lines it shows, or with `digits`
+/// one cached character layout at a time, as wide as the characters with digits on the advance of `0`.
+pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
+    let label = &c.style;
+    let look = this.theme().label.idle;
+    let token = label.color.map(|t| this.color(t.0));
+    let gap = if c.first && label.pad.is_none() { 4.0 } else { 0.0 };
+    let inset = Edges { l: label.pad.unwrap_or(this.space(2)), t: gap, r: 0.0, b: 0.0 };
+    let text = shown(text);
+    if !c.digits && kit_label(label) {
+        let mut look = Look { text: token.unwrap_or(look.text), ..look };
+        if let Some(family) = label.font { look.font.family = family; }
+        if let Some(size) = label.size { look.font.size = size as i64; }
+        if let Some(weight) = label.weight { look.font.weight = weight; }
+        if let Some(tracking) = label.tracking { look.font.tracking = tracking; }
+        if let Some(caps) = label.caps { look.font.caps = caps; }
+        let h = gap + this.row_height() as f32;
+        let n = this.node_new(&c.node);
+        (n.h, n.look, n.inset) = (Size::Px(h), look, inset);
+        this.text(&c.node, text);
+        return;
+    }
+    // `label_styled` resolved it before building the node
+    let Some(resolved) = resolve_label(label, &look, this.font_size(), this.row_height() as f32, token) else { return };
+    let mut style = resolved.style;
+    if style.line_height <= 0.0 { style.line_height = style.size * 1.2; }
+    if !c.digits {
+        let n = this.node_new(&c.node);
+        (n.w, n.look, n.inset) = (label.width.unwrap_or(Size::Grow), Look { text: resolved.color, ..Look::NONE }, inset);
+        this.text_line_box_caps(&c.node, text, &style, resolved.caps);
+        return;
+    }
+    let (zero, line) = { let m = this.text_metrics(&style, 0.0, "0"); (m.w, m.h) };
+    let mut width = 0.0;
+    let mut utf8 = [0u8; 4];
+    for ch in text.chars() {
+        let ch = if resolved.caps { ch.to_ascii_uppercase() } else { ch };
+        width += if ch.is_ascii_digit() { zero } else { this.text_metrics(&style, 0.0, ch.encode_utf8(&mut utf8)).w };
+    }
+    let n = this.node_new(&c.node);
+    (n.w, n.h) = (Size::Px(width + inset.l), Size::Px(line + gap));
+    let mut shown = [0u8; LABEL_DIGITS];
+    let mut len = text.len().min(LABEL_DIGITS);
+    while !text.is_char_boundary(len) { len -= 1; }
+    shown[..len].copy_from_slice(&text.as_bytes()[..len]);
+    let (color, caps, at) = (resolved.color, resolved.caps, (inset.l, gap));
+    this.canvas(&c.node, move |paint, rect| {
+        if let Ok(text) = core::str::from_utf8(&shown[..len]) { paint.chars((rect.x + at.0, rect.y + at.1), &style, Some(color), caps, text); }
+    });
+}
+
+/// The bytes of a digits label the built-in body draws; the rest is dropped at a character boundary.
+pub(crate) const LABEL_DIGITS: usize = 128;
 
 /// The built-in footer: the hairline under 4 points of space, the hints and the key at the end.
 pub(crate) fn default_footer(this: &mut Ui, c: &FooterConfig, right: Option<&str>, hints: &[(&str, &str)]) {
@@ -857,12 +939,29 @@ impl Ui {
         self.popup_with_related(opts, (x, y), width, height, label, f)
     }
 
-    /// A window's title or a panel's caption: ink-2 capitals 12 points from the left, with 4 points
-    /// above it when it is the first thing of its parent.
-    pub fn label(&mut self, text: &str) {
+    /// A label: `text` in `style` through the label body, identity by its place among its siblings (every label has the one key
+    /// "\0label", so the n-th takes its n-th `#dup`), role `Label`. `Label::DEFAULT` is the theme's label: a window's title or a
+    /// panel's caption, ink-2 capitals 12 points from the left, 4 points above it when it is the first thing of its parent.
+    pub fn label(&mut self, text: &str, style: Label) {
+        assert!(self.label_styled(text, &style, false), "Ui.label: invalid style {style:?}");
+    }
+
+    /// `label`, or with `digits` a number drawn one cached character layout at a time (its accessible value the text). `false`, with
+    /// nothing built, when the style does not resolve (`resolve_label`) or its font is not loaded.
+    pub fn label_styled(&mut self, text: &str, style: &Label, digits: bool) -> bool {
+        // kit text needs only a finite tracking and a loaded font when it names one; anything else resolves in full
+        if kit_label(style) && !digits {
+            if !style.tracking.is_none_or(f32::is_finite) || style.font.is_some_and(|font| self.text_mut().font_metrics(font).is_none()) { return false; }
+        } else {
+            let look = self.theme().label.idle;
+            let Some(resolved) = resolve_label(style, &look, self.font_size(), self.row_height() as f32, None) else { return false };
+            if self.text_mut().font_metrics(resolved.style.font).is_none() { return false; }
+        }
         let first = self.last_child_of_parent() == NONE;
-        let node = self.node(text, Node { role: Role::Label, ..Node::DEFAULT });
-        in_body!(flat; self, node.box_key, node, label, default_label(&LabelConfig { node, first }, text));
+        let node = self.node("\0label", Node { role: Role::Label, ..Node::DEFAULT });
+        if digits { self.a11y_value(&node, shown(text), (0, 0)); }
+        in_body!(flat; self, node.box_key, node, label, default_label(&LabelConfig { node, first, style: *style, digits }, text));
+        true
     }
 
     /// A window's foot: a line-2 hairline under 4 points of space, then the keys in ink-3 each

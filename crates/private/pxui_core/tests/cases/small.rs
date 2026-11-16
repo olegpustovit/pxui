@@ -226,7 +226,7 @@ pub fn window_pxui_input() {
         let mut out = None;
         ui.frame(&f, &mut |ui| {
             if popup {
-                ui.modal(None, "modal", &mut |ui| ui.label("Popup"));
+                ui.modal(None, "modal", &mut |ui| ui.label("Popup", pxui_core::ui::Label::DEFAULT));
             }
             out = Some(body(ui));
         });

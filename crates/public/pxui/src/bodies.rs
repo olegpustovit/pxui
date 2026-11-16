@@ -167,7 +167,7 @@ mod tests {
         let refused = catch_unwind(AssertUnwindSafe(|| ui.part(Part::HIT, Node::DEFAULT)));
         assert!(refused.is_err());
         assert!(ui.last_error().contains("inside a body"), "{}", ui.last_error());
-        ui.frame(&input(1.0), &mut |ui: &mut Ui| ui.label("still usable")).expect("the Ui is not poisoned");
+        ui.frame(&input(1.0), &mut |ui: &mut Ui| ui.label("still usable", crate::Label::DEFAULT)).expect("the Ui is not poisoned");
     }
 
     fn boom(_: &mut Ui, _: &crate::bodies::PxuiToggleConfig) {
@@ -203,12 +203,12 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.register_scroll_view_body("probe", scroll).expect("registered");
         ui.set_theme(&source("scroll_view.body = probe")).expect("theme");
-        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.scroll_view("list", Size::Grow, Size::Grow, &mut |ui: &mut Ui| { CONTENT.with(|c| c.set(c.get() + 1)); ui.label("row"); }); }).expect("frame");
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.scroll_view("list", Size::Grow, Size::Grow, &mut |ui: &mut Ui| { CONTENT.with(|c| c.set(c.get() + 1)); ui.label("row", crate::Label::DEFAULT); }); }).expect("frame");
         assert_eq!(CONTENT.with(Cell::get), 1);
         let stale = catch_unwind(AssertUnwindSafe(|| ui.slot(SLOT.with(Cell::get))));
         assert!(stale.is_err());
         assert!(ui.last_error().contains("stale slot"), "{}", ui.last_error());
-        ui.frame(&input(1.0), &mut |ui: &mut Ui| ui.label("still usable")).expect("the Ui is not poisoned");
+        ui.frame(&input(1.0), &mut |ui: &mut Ui| ui.label("still usable", crate::Label::DEFAULT)).expect("the Ui is not poisoned");
     }
 
     /// Content run through a slot that panics follows the callback panic rule too (in the static build it unwinds through the slot to
@@ -255,10 +255,10 @@ mod tests {
         let (rows, cells, nodes_built) = (Cell::new(0), Cell::new(0), Cell::new(0));
         for n in 0..3 {
             ui.frame(&input(n as f64), &mut |ui: &mut Ui| {
-                ui.list_view_with("list", 5, false, &mut list, &mut |ui: &mut Ui, row| { rows.set(rows.get() + 1); ui.label(&format!("row {row}")); });
-                let shown = ui.tree_with("tree", &nodes, &mut open, &mut tree_selected, &mut visible, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}")); }).1;
+                ui.list_view_with("list", 5, false, &mut list, &mut |ui: &mut Ui, row| { rows.set(rows.get() + 1); ui.label(&format!("row {row}"), crate::Label::DEFAULT); });
+                let shown = ui.tree_with("tree", &nodes, &mut open, &mut tree_selected, &mut visible, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}"), crate::Label::DEFAULT); }).1;
                 assert_eq!(shown, 2, "the first node's child is closed");
-                let _ = ui.table_view_with("table", &["a", "b"], &mut widths, 3, None, &mut selected, &mut |ui: &mut Ui, row, column| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}")); });
+                let _ = ui.table_view_with("table", &["a", "b"], &mut widths, 3, None, &mut selected, &mut |ui: &mut Ui, row, column| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}"), crate::Label::DEFAULT); });
             }).expect("frame");
         }
         assert!(rows.get() > 0 && nodes_built.get() > 0 && cells.get() > 0, "rows {}, nodes {}, cells {}", rows.get(), nodes_built.get(), cells.get());

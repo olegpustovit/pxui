@@ -128,7 +128,7 @@ const NAMES: [&str; 3] = ["Wi-Fi", "Bluetooth", "Hotspot"];
 /// The page: the widgets the proof bodies replace, as plain calls.
 pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
     ui.panel(PanelOpts::default().width(296.0), "bodies", &mut |ui: &mut Ui| {
-        ui.label("Bodies");
+        ui.label("Bodies", pxui::Label::DEFAULT);
         let custom = ui.toggle("Custom bodies", s.custom);
         if custom != s.custom { (s.custom, s.dirty) = (custom, true); }
         s.wifi = ui.toggle("Wi-Fi", s.wifi);
@@ -142,7 +142,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         let frame = ui.node("frame", Node { h: Size::Px(140.0), ..Node::DEFAULT });
         ui.within(&frame, &mut |ui: &mut Ui| {
             let _ = ui.table_view_with("Settings", &["Name", "On"], widths, 3, None, selected, &mut |ui: &mut Ui, row, column| {
-                if column == 0 { ui.label(NAMES[row]); } else { flags[row] = ui.toggle(NAMES[row], flags[row]); }
+                if column == 0 { ui.label(NAMES[row], pxui::Label::DEFAULT); } else { flags[row] = ui.toggle(NAMES[row], flags[row]); }
             });
         });
     });

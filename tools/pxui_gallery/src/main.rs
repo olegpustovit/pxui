@@ -291,7 +291,7 @@ fn main() {
             let a0 = mem_sys::local_alloc_count();
             let t0 = Instant::now();
             // the frame borrows the Ui until it is dropped, so the error text is read after it
-            if let Err(code) = ui.input_frame(&input, &mut |ui: &mut Ui| if label_only { ui.label("PXUI"); } else if bodies_mode { bodies_page::page(ui, &mut bodies) } else { app(ui, &mut s) }).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
+            if let Err(code) = ui.input_frame(&input, &mut |ui: &mut Ui| if label_only { ui.label("PXUI", pxui::Label::DEFAULT); } else if bodies_mode { bodies_page::page(ui, &mut bodies) } else { app(ui, &mut s) }).map(|_| ()) { eprintln!("pxui_gallery: frame failed ({code}): {}", ui.last_error()); std::process::exit(1) }
             cost.us = t0.elapsed().as_secs_f64() * 1e6;
             if std::mem::take(&mut bodies.dirty) { s.host_dirty = true; }
             cost.allocs = Some(mem_sys::local_alloc_count() - a0);

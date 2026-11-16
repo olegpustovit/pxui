@@ -555,6 +555,31 @@ export!(trusted pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
     unsafe { trusted::pxui_label(ui, pair(label)) }
 });
 
+export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let (Some(text), false) = (unsafe { checked(text) }, style.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
+    let Some((style, digits)) = label_style(style) else { return unsafe { fail(ui, "invalid label style") } };
+    unsafe { trusted::pxui_ui_label(ui, pair(text), &style, digits) }
+});
+
+/// The `Label` and `digits` flag a caller's record holds; `None` for a null or short record, unknown `set` bits, a flag past 1, a
+/// non-finite set value or an invalid set width. Enumerations and sizes are the engine's to check (`resolve_label`).
+pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Option<(pxui_types::Label, bool)> {
+    use pxui_types::ffi::PxuiLabelStyle as S;
+    if style.is_null() { return None; }
+    let r = read_desc!(style, S)?;
+    if r.set & !S::SET_ALL != 0 || r.caps > 1 || r.digits > 1 || ![r.size_points, r.tracking, r.line_height, r.pad].iter().all(|v| v.is_finite()) { return None; }
+    let on = |bit: u32| r.set & bit != 0;
+    let width = if on(S::SET_WIDTH) { Some(crate::node::size(r.width)?) } else { None };
+    Some((pxui_types::Label {
+        font: on(S::SET_FONT).then_some(r.font), size: on(S::SET_SIZE).then_some(r.size_points), weight: on(S::SET_WEIGHT).then_some(r.weight),
+        tracking: on(S::SET_TRACKING).then_some(r.tracking), caps: on(S::SET_CAPS).then_some(r.caps != 0),
+        color: on(S::SET_COLOR).then_some(pxui_types::theme::ColorToken(r.color)), width,
+        line_height: on(S::SET_LINE_HEIGHT).then_some(r.line_height), pad: on(S::SET_PAD).then_some(r.pad),
+        wrap: r.wrap, max_lines: r.max_lines, ellipsis: r.ellipsis, align: r.align, features: r.features,
+    }, r.digits != 0))
+}
+
 export!(trusted pub unsafe fn pxui_button(ui: *mut PxuiUi, label: Str, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let (Some(label), false) = (unsafe { checked(label) }, out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") } };

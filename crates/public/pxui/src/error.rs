@@ -45,6 +45,7 @@ impl Error {
     }
 }
 
+#[cfg(test)]
 impl Error {
     /// The ABI status code of this error; the two wrapper-raised variants report the generic engine refusal.
     pub(crate) fn code(self) -> i32 {

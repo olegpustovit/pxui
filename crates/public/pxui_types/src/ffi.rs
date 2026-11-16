@@ -415,6 +415,70 @@ pub struct PxuiMenuExtra {
     pub submenus: Slice<PxuiSubmenu>,
 }
 
+/// A label's style as it crosses the ABI (`pxui_ui_label`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
+/// each optional field's bit in `set` (`SET_*`); a field whose bit is clear is the theme's label style. `color` is an app colour
+/// token; `digits` 1 draws the text one cached character at a time with every digit on the advance of `0`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiLabelStyle {
+    pub size: u32,
+    pub set: u32,
+    pub font: u16,
+    pub weight: u16,
+    pub color: u16,
+    pub max_lines: u16,
+    pub caps: u8,
+    pub digits: u8,
+    pub ellipsis: u8,
+    pub reserved: u8,
+    pub size_points: f32,
+    pub tracking: f32,
+    pub line_height: f32,
+    pub pad: f32,
+    pub wrap: u32,
+    pub align: u32,
+    pub features: u32,
+    pub width: PxuiSizeDesc,
+}
+
+impl PxuiLabelStyle {
+    pub const SET_FONT: u32 = 1;
+    pub const SET_SIZE: u32 = 2;
+    pub const SET_WEIGHT: u32 = 4;
+    pub const SET_TRACKING: u32 = 8;
+    pub const SET_CAPS: u32 = 16;
+    pub const SET_COLOR: u32 = 32;
+    pub const SET_WIDTH: u32 = 64;
+    pub const SET_LINE_HEIGHT: u32 = 128;
+    pub const SET_PAD: u32 = 256;
+    /// Every bit a 1.45 library knows.
+    pub const SET_ALL: u32 = 511;
+}
+
+impl From<&crate::Label> for PxuiLabelStyle {
+    /// The record of `label`, with `digits` 0.
+    fn from(l: &crate::Label) -> PxuiLabelStyle {
+        let bit = |on: bool, b: u32| if on { b } else { 0 };
+        let set = bit(l.font.is_some(), Self::SET_FONT) | bit(l.size.is_some(), Self::SET_SIZE) | bit(l.weight.is_some(), Self::SET_WEIGHT)
+            | bit(l.tracking.is_some(), Self::SET_TRACKING) | bit(l.caps.is_some(), Self::SET_CAPS) | bit(l.color.is_some(), Self::SET_COLOR)
+            | bit(l.width.is_some(), Self::SET_WIDTH) | bit(l.line_height.is_some(), Self::SET_LINE_HEIGHT) | bit(l.pad.is_some(), Self::SET_PAD);
+        let width = match l.width {
+            Some(crate::Size::Px(value)) => PxuiSizeDesc { kind: PxuiSizeDesc::PX, value, relative: None },
+            Some(crate::Size::Pct(value)) => PxuiSizeDesc { kind: PxuiSizeDesc::PCT, value, relative: None },
+            Some(crate::Size::Rel(relative)) => PxuiSizeDesc { kind: PxuiSizeDesc::REL, value: 0.0, relative: Some(relative) },
+            Some(crate::Size::Fit) => PxuiSizeDesc { kind: PxuiSizeDesc::FIT, value: 0.0, relative: None },
+            Some(crate::Size::Grow) | None => PxuiSizeDesc { kind: PxuiSizeDesc::GROW, value: 0.0, relative: None },
+        };
+        PxuiLabelStyle {
+            size: core::mem::size_of::<PxuiLabelStyle>() as u32, set,
+            font: l.font.unwrap_or(0), weight: l.weight.unwrap_or(0), color: l.color.map_or(0, |c| c.0), max_lines: l.max_lines,
+            caps: l.caps.unwrap_or(false) as u8, digits: 0, ellipsis: l.ellipsis, reserved: 0,
+            size_points: l.size.unwrap_or(0.0), tracking: l.tracking.unwrap_or(0.0), line_height: l.line_height.unwrap_or(0.0), pad: l.pad.unwrap_or(0.0),
+            wrap: l.wrap, align: l.align, features: l.features, width,
+        }
+    }
+}
+
 /// C mirror of `Size`; kinds are Px=0, Pct=1, Rel=2, Grow=3, Fit=4.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -1236,7 +1300,9 @@ configs! {
     PxuiCheckConfig { state: PxuiStateDesc, on: u8, row: PxuiBox, label: Str }
     PxuiSpinnerConfig { node: PxuiBox, label: Str }
     PxuiBadgeConfig { node: PxuiBox, label: Str, text: Str }
-    PxuiLabelConfig { first: u8, node: PxuiBox, text: Str }
+    /// The record grows at its end in ABI 1.45 by `style`, the label's style as the caller gave it (unset fields: the theme's);
+    /// a body reads it only when `size` covers it.
+    PxuiLabelConfig { first: u8, node: PxuiBox, text: Str, style: PxuiLabelStyle }
     PxuiFooterConfig { row: PxuiBox, has_right: u8, right: Str, hints: Slice<PxuiHintDesc> }
     PxuiGripConfig { state: PxuiStateDesc, vertical: u8, floating: u8, grip: PxuiBox }
     /// A panel, window, popup or modal sheet.
@@ -1286,6 +1352,7 @@ pub(crate) mod layout {
     /// Every ffi row, collected into the layout rows by `test_layout_rows`.
     pub(crate) fn ffi_rows() {
         config_layouts(&mut |name, size, align, offsets| check(name, size, align, offsets));
+        check("PxuiLabelStyle", size_of::<PxuiLabelStyle>(), align_of::<PxuiLabelStyle>(), &[("size", core::mem::offset_of!(PxuiLabelStyle, size)), ("set", core::mem::offset_of!(PxuiLabelStyle, set)), ("font", core::mem::offset_of!(PxuiLabelStyle, font)), ("weight", core::mem::offset_of!(PxuiLabelStyle, weight)), ("color", core::mem::offset_of!(PxuiLabelStyle, color)), ("max_lines", core::mem::offset_of!(PxuiLabelStyle, max_lines)), ("caps", core::mem::offset_of!(PxuiLabelStyle, caps)), ("digits", core::mem::offset_of!(PxuiLabelStyle, digits)), ("ellipsis", core::mem::offset_of!(PxuiLabelStyle, ellipsis)), ("reserved", core::mem::offset_of!(PxuiLabelStyle, reserved)), ("size_points", core::mem::offset_of!(PxuiLabelStyle, size_points)), ("tracking", core::mem::offset_of!(PxuiLabelStyle, tracking)), ("line_height", core::mem::offset_of!(PxuiLabelStyle, line_height)), ("pad", core::mem::offset_of!(PxuiLabelStyle, pad)), ("wrap", core::mem::offset_of!(PxuiLabelStyle, wrap)), ("align", core::mem::offset_of!(PxuiLabelStyle, align)), ("features", core::mem::offset_of!(PxuiLabelStyle, features)), ("width", core::mem::offset_of!(PxuiLabelStyle, width))]);
         check("PxuiMenuDesc", size_of::<PxuiMenuDesc>(), align_of::<PxuiMenuDesc>(), &[("size", core::mem::offset_of!(PxuiMenuDesc, size)), ("reserved", core::mem::offset_of!(PxuiMenuDesc, reserved)), ("title", core::mem::offset_of!(PxuiMenuDesc, title)), ("items", core::mem::offset_of!(PxuiMenuDesc, items))]);
         check("PxuiGridListDesc", size_of::<PxuiGridListDesc>(), align_of::<PxuiGridListDesc>(), &[("size", core::mem::offset_of!(PxuiGridListDesc, size)), ("reserved", core::mem::offset_of!(PxuiGridListDesc, reserved)), ("label", core::mem::offset_of!(PxuiGridListDesc, label)), ("count", core::mem::offset_of!(PxuiGridListDesc, count)), ("cell_w", core::mem::offset_of!(PxuiGridListDesc, cell_w)), ("cell_h", core::mem::offset_of!(PxuiGridListDesc, cell_h)), ("build", core::mem::offset_of!(PxuiGridListDesc, build)), ("user", core::mem::offset_of!(PxuiGridListDesc, user))]);
         check("PxuiSectionListDesc", size_of::<PxuiSectionListDesc>(), align_of::<PxuiSectionListDesc>(), &[("size", core::mem::offset_of!(PxuiSectionListDesc, size)), ("overlay_scrollbar", core::mem::offset_of!(PxuiSectionListDesc, overlay_scrollbar)), ("reserved", core::mem::offset_of!(PxuiSectionListDesc, reserved)), ("label", core::mem::offset_of!(PxuiSectionListDesc, label)), ("count", core::mem::offset_of!(PxuiSectionListDesc, count)), ("row_height", core::mem::offset_of!(PxuiSectionListDesc, row_height)), ("leading_height", core::mem::offset_of!(PxuiSectionListDesc, leading_height)), ("header_height", core::mem::offset_of!(PxuiSectionListDesc, header_height)), ("trailing_height", core::mem::offset_of!(PxuiSectionListDesc, trailing_height)), ("build", core::mem::offset_of!(PxuiSectionListDesc, build)), ("user", core::mem::offset_of!(PxuiSectionListDesc, user))]);

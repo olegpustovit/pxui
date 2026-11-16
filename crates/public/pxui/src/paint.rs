@@ -6,7 +6,7 @@ use crate::composite::{defer_callback_panic, deferred};
 use crate::sys::PxuiPaint as RawPaint;
 use core::{ffi::c_void, marker::PhantomData, ptr::NonNull};
 use std::alloc::Layout;
-use pxui_types::{node::Dir, draw::Instance, ffi::PxuiPaintInfo, geom::{Rect, Rgba as Color, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, ui::text_top_for, PxuiBox, Span, Str, TextMetrics, TextStyle};
+use pxui_types::{node::Dir, draw::Instance, ffi::{PxuiLabelStyle, PxuiPaintInfo}, Label, geom::{Rect, Rgba as Color, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, ui::text_top_for, PxuiBox, Span, Str, TextMetrics, TextStyle};
 
 library!(lib {
     fn pxui_paint_text_spans(p:*mut RawPaint,x:f32,y:f32,style:*const TextStyle,width:f32,has_color:u8,color:Rgba,text:Str,spans:*const pxui_types::TextSpans,out:*mut TextMetrics)->i32;
@@ -17,7 +17,8 @@ library!(lib {
     fn pxui_paint_text_color(p: *mut RawPaint, x: f32, y: f32, c: Rgba, s: Str);
     fn pxui_paint_text_size(p: *mut RawPaint, x: f32, y: f32, size: i64, c: Rgba, s: Str);
     fn pxui_paint_text_with(p: *mut RawPaint, x: f32, y: f32, has_size: u8, size: i64, tracking: f32, has_color: u8, color: Rgba, s: Str);
-    fn pxui_paint_text_styled(p: *mut RawPaint, x: f32, y: f32, style: *const TextStyle, width: f32, has_color: u8, color: Rgba, s: Str) -> TextMetrics;
+    fn pxui_paint_label(p: *mut RawPaint, x: f32, y: f32, style: *const PxuiLabelStyle, width: f32, s: Str) -> TextMetrics;
+    fn pxui_paint_label_chars(p: *mut RawPaint, x: f32, y: f32, style: *const PxuiLabelStyle, s: Str) -> f32;
     fn pxui_paint_text_width(p: *mut RawPaint, has_size: u8, size: i64, s: Str) -> f32;
     fn pxui_paint_text_metrics(p: *mut RawPaint, style: *const TextStyle, width: f32, s: Str) -> TextMetrics;
     fn pxui_paint_caret_x(p: *mut RawPaint, has_size: u8, size: i64, s: Str, index: usize) -> f32;
@@ -119,14 +120,33 @@ impl<'a> Paint<'a> {
         let (has_color, color) = some(color);
         unsafe { lib::pxui_paint_text_with(self.raw(), at.0, at.1, size.is_some() as u8, size.unwrap_or_default(), tracking, has_color, color, crate::as_str(s)) }
     }
-    #[inline]
-    pub fn text_styled(&mut self, at: (f32, f32), style: &TextStyle, width: f32, color: Option<Rgba>, s: &str) -> TextMetrics {
-        let (has_color, color) = some(color);
-        unsafe { lib::pxui_paint_text_styled(self.raw(), at.0, at.1, style, width, has_color, color, crate::as_str(s)) }
-    }
-    /// Draws `s` one character at a time from one-character layouts, digits on the advance of `0` (tabular): a number that changes every frame shapes nothing after the first use of its characters in `style`.
+    /// Draws `s` in `style` at `at` (its top-left, in points), laid out within `width` points (0: unbounded); returns its metrics.
     ///
-    /// Each distinct character is shaped once per style and then hit in the text cache; there is no kerning between characters and no wrapping. Returns the width drawn. `0`-`9`, `:` `.` `,` `-` `/` `+` `%` and space are the intended set; any other character is drawn with its own advance.
+    /// The style's unset fields resolve as a label body resolves them, against this painter's theme (the root theme's label look,
+    /// its rows and the app's colour tokens); the box fields (`width`, `pad`) are the caller's here. A style that does not resolve
+    /// (a size that is not positive, an unknown wrap or align) draws nothing and returns zero metrics.
+    /// Allocates: never when warm; text it has not shaped before is shaped once.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::Label;
+    /// let ui = pxui::doc::frames(2, &mut |ui| {
+    ///     let node = ui.node("title", pxui::Node::DEFAULT);
+    ///     ui.canvas(&node, |paint, rect| assert!(paint.text_styled((rect.x, rect.y), &Label::TITLE, 0.0, "Songs").width > 0.0));
+    /// });
+    /// assert!(ui.text_layout_count() > 0);
+    /// ```
+    #[inline]
+    pub fn text_styled(&mut self, at: (f32, f32), style: &Label, width: f32, s: &str) -> TextMetrics {
+        let style = PxuiLabelStyle::from(style);
+        unsafe { lib::pxui_paint_label(self.raw(), at.0, at.1, &style, width, crate::as_str(s)) }
+    }
+    /// Draws `s` in `style` one character at a time from one-character layouts, digits on the advance of `0` (tabular): a number
+    /// that changes every frame shapes nothing after the first use of its characters in that style.
+    ///
+    /// Each distinct character is shaped once per style and then hit in the text cache; there is no kerning between characters and
+    /// no wrapping. Returns the width drawn. `0`-`9`, `:` `.` `,` `-` `/` `+` `%` and space are the intended set; any other character
+    /// is drawn with its own advance. `style` resolves as in `text_styled`.
     /// Allocates: never when warm; the first use of a character in a style shapes it.
     /// Panics: never.
     ///
@@ -134,22 +154,15 @@ impl<'a> Paint<'a> {
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     let node = ui.node("clock", pxui::Node::DEFAULT);
     ///     ui.canvas(&node, |paint, rect| {
-    ///         let w = paint.text_chars((rect.x, rect.y), &pxui::TextStyle::default(), None, "1:23.4");
+    ///         let w = paint.text_chars((rect.x, rect.y), &pxui::Label::MONO, "1:23.4");
     ///         assert!(w > 0.0);
     ///     });
     /// });
     /// assert!(ui.text_layout_count() > 0);
     /// ```
-    pub fn text_chars(&mut self, at: (f32, f32), style: &TextStyle, color: Option<Rgba>, s: &str) -> f32 {
-        let zero = self.text_metrics(style, 0.0, "0").width;
-        let mut x = at.0;
-        let mut utf8 = [0u8; 4];
-        for ch in s.chars() {
-            let one = ch.encode_utf8(&mut utf8);
-            let advance = self.text_styled((x, at.1), style, 0.0, color, one).width;
-            x += if ch.is_ascii_digit() { zero } else { advance };
-        }
-        x - at.0
+    pub fn text_chars(&mut self, at: (f32, f32), style: &Label, s: &str) -> f32 {
+        let style = PxuiLabelStyle::from(style);
+        unsafe { lib::pxui_paint_label_chars(self.raw(), at.0, at.1, &style, crate::as_str(s)) }
     }
     #[inline] pub fn text_width(&mut self, size: Option<i64>, s: &str) -> f32 { unsafe { lib::pxui_paint_text_width(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s)) } }
     /// Draws one shaped layout with up to eight inline spans; invalid ranges or flags return an argument error.
@@ -296,41 +309,6 @@ impl crate::Ui {
     #[inline] #[track_caller] pub fn canvas<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 0, f) }
     /// A canvas that draws after the node's children, outside its content clip.
     #[inline] #[track_caller] pub fn canvas_over<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 1, f) }
-    /// A fixed-size label for a number that changes every frame (a stopwatch, a clock, "1:23"): `value` is drawn by `Paint::text_chars`, so no text is shaped once its characters have been seen.
-    ///
-    /// The node is as wide as the characters (digits on the advance of `0`) and as tall as one line of `style`. Only the first 32 bytes of `value` are used. Its accessible value is `value`, as a label.
-    /// Allocates: never when warm; the first use of a character in a style shapes it.
-    /// Identity: `key` is the node's label, derived as for `node`; two labels with one key in a frame collide.
-    /// Panics: never.
-    ///
-    /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label_digits("elapsed", "0:00.0", &pxui::TextStyle::default(), None); });
-    /// let layouts = ui.text_layout_count();
-    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| { ui.label_digits("elapsed", "0:01.5", &pxui::TextStyle::default(), None); }).unwrap();
-    /// assert_eq!(ui.text_layout_count(), layouts, "no new layout for new digits");
-    /// ```
-    #[track_caller]
-    pub fn label_digits(&mut self, key: &str, value: &str, style: &TextStyle, color: Option<Rgba>) -> PxuiBox {
-        let mut text = [0u8; 32];
-        let mut len = value.len().min(32);
-        while !value.is_char_boundary(len) { len -= 1; }
-        text[..len].copy_from_slice(&value.as_bytes()[..len]);
-        let shown = core::str::from_utf8(&text[..len]).unwrap_or_default();
-        let (zero, line) = { let m = self.text_service().measure("0", style, 0.0).unwrap_or_default(); (m.width, m.height) };
-        let mut width = 0.0;
-        let mut utf8 = [0u8; 4];
-        for ch in shown.chars() {
-            width += if ch.is_ascii_digit() { zero } else { self.text_service().measure(ch.encode_utf8(&mut utf8), style, 0.0).map_or(0.0, |m| m.width) };
-        }
-        let node = self.node(key, pxui_types::Node { w: pxui_types::Size::Px(width), h: pxui_types::Size::Px(line), ..pxui_types::Node::DEFAULT });
-        self.set_role(&node, pxui_types::a11y::Role::Label, 0);
-        self.a11y_value(&node, shown, (0, 0));
-        let style = *style;
-        self.draw(&node, move |paint, rect| {
-            if let Ok(shown) = core::str::from_utf8(&text[..len]) { paint.text_chars((rect.x, rect.y), &style, color, shown); }
-        });
-        node
-    }
     #[inline] #[track_caller] pub fn draw<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 0, f) }
     #[inline] #[track_caller] pub fn draw_over<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 1, f) }
 }
@@ -406,27 +384,5 @@ mod tests {
         let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let _ = frame_with(&mut ui, move |p, _| { p.fill(0.0, 0.0, 4.0, 4.0, ink); panic!("with a span open"); }); }));
         assert!(result.is_err());
         assert!(frame_with(&mut ui, move |p, _| p.fill(0.0, 0.0, 4.0, 4.0, ink)).is_ok(), "the Ui draws again");
-    }
-
-    /// A stopwatch (every frame a new value) and a 120 fps clock (frame counter as m:ss.ff) shape nothing and allocate nothing once warm.
-    #[test]
-    fn a_label_that_changes_every_frame_makes_no_layout_and_no_allocation() {
-        mem_sys::set_peer(crate::library_counter);
-        let style = TextStyle::default();
-        let mut ui = crate::Ui::new().expect("library");
-        let mut layouts = 0;
-        for n in 0..400u32 {
-            let t = n * 7 + 11;
-            let (a, b, c) = if n % 2 == 0 { (t / 6000, t / 100 % 60, t % 100) } else { (t / 120 / 60, t / 120 % 60, t % 120 * 100 / 120) };
-            let value = format!("{a}:{b:02}.{c:02}");
-            let value = value.as_str();
-            mem_sys::local_reset();
-            ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| { ui.label_digits("watch", value, &style, None); }).unwrap();
-            if n == 100 { layouts = ui.text_layout_count(); }
-            if n > 100 {
-                assert_eq!(ui.text_layout_count(), layouts, "frame {n}: {value}");
-                assert_eq!(mem_sys::local_alloc_count(), 0, "frame {n}: {value}");
-            }
-        }
     }
 }

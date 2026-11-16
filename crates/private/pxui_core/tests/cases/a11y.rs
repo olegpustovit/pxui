@@ -21,7 +21,7 @@ struct Kit {
 
 fn kit(ui: &mut Ui, k: &mut Kit) {
     ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-        ui.label("PXUI");
+        ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
         k.on = ui.toggle("Animate", k.on);
         if let Some(v) = ui.text_field("Caption", &k.caption) {
             k.caption = v;

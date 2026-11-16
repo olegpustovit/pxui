@@ -202,12 +202,12 @@ pub fn window_pxui_view_kept_atlas_break() {
     let rev = Cell::new(1u64);
     let mut build = |ui: &mut Ui| {
         let img = image.clone();
-        ui.label(&format!("before {}", rev.get()));
+        ui.label(&format!("before {}", rev.get()), pxui_core::ui::Label::DEFAULT);
         ui.view("v", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
             let h = ui.node("pic", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
             let img = img.clone();
             ui.canvas(&h, move |paint, r| paint.image(r.x, r.y, r.w, r.h, &img));
-            ui.label("\u{1f600}");
+            ui.label("\u{1f600}", pxui_core::ui::Label::DEFAULT);
         });
     };
     for t in 0..2 {
@@ -263,7 +263,7 @@ pub fn window_pxui_view_kit_cached() {
         ui.view("kit", rev, Size::Px(310.0), Size::Px(220.0), &mut |ui| {
             runs.set(runs.get() + 1);
             ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-                ui.label("PXUI");
+                ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
                 ui.toggle("Animate", true);
                 ui.text_field("Caption", "Functional UI");
                 ui.button("Quit");
@@ -339,7 +339,7 @@ pub fn window_pxui_view_costs() {
         for (v, rev) in revisions.iter().enumerate() {
             ui.view(NAMES[v], *rev, Size::Px(300.0), Size::Px(25.0 * 24.0), &mut |ui| {
                 for w in 0..25 {
-                    ui.label("LABEL");
+                    ui.label("LABEL", pxui_core::ui::Label::DEFAULT);
                     ui.button(if w % 2 == 0 { "Even" } else { "Odd" });
                 }
             });
@@ -393,7 +393,7 @@ pub fn window_pxui_budget_counts() {
         for (v, name) in NAMES.iter().enumerate() {
             ui.view(name, if v == 0 { rev.get() } else { 1 }, Size::Px(300.0), Size::Px(25.0 * 24.0), &mut |ui| {
                 for w in 0..25 {
-                    ui.label("LABEL");
+                    ui.label("LABEL", pxui_core::ui::Label::DEFAULT);
                     ui.button(if w % 2 == 0 { "Even" } else { "Odd" });
                 }
             });

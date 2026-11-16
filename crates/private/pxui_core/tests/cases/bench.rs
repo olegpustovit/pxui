@@ -66,7 +66,7 @@ pub fn pxui_bench() {
     };
     bench("kit baseline", &mut ui, 200, &mut |ui, _| step(ui, &mut |ui| {
         ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-            ui.label("PXUI");
+            ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.toggle("Animate", true);
             ui.text_field("Caption", "Functional UI");
             ui.button("Quit");
@@ -85,7 +85,7 @@ pub fn pxui_bench() {
                 let rev = if (v as u64) < bump { tick } else { 1 };
                 ui.view(label, rev, Size::Px(300.0), Size::Px(25.0 * 24.0), &mut |ui| {
                     for w in 0..25 {
-                        ui.label("LABEL");
+                        ui.label("LABEL", pxui_core::ui::Label::DEFAULT);
                         ui.button(if w % 2 == 0 { "Even" } else { "Odd" });
                     }
                 });

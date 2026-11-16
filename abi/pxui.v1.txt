@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 44
+minor 45
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -21,6 +21,8 @@ function pxui_paint_color PxuiColor pxui_paint_color ( PxuiPaint * paint , uint1
 function pxui_paint_icon float pxui_paint_icon ( PxuiPaint * paint , float x , float y , uint16_t font , float size , uint32_t codepoint , PxuiColor color ) ;
 function pxui_paint_image void pxui_paint_image ( PxuiPaint * paint , const PxuiImage * image , float x , float y , float width , float height , uint32_t fit , PxuiColor tint ) ;
 function pxui_paint_input_region void pxui_paint_input_region ( PxuiPaint * paint , float cursor , float x , float y , float w , float h ) ;
+function pxui_paint_label PxuiTextMetrics pxui_paint_label ( PxuiPaint * paint , float x , float y , const PxuiLabelStyle * style , float width , PxuiStr text ) ;
+function pxui_paint_label_chars float pxui_paint_label_chars ( PxuiPaint * paint , float x , float y , const PxuiLabelStyle * style , PxuiStr text ) ;
 function pxui_paint_ratio void pxui_paint_ratio ( PxuiPaint * paint , float x , float y , int64_t a , int64_t b ) ;
 function pxui_paint_scroll_y float pxui_paint_scroll_y ( PxuiPaint * paint , uint64_t slot ) ;
 function pxui_paint_selection int32_t pxui_paint_selection ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text , size_t a , size_t b , PxuiSpanBuild build , void * user ) ;
@@ -143,6 +145,7 @@ function pxui_ui_key_down int32_t pxui_ui_key_down ( PxuiUi * ui , uint32_t code
 function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_key_pressed_with int32_t pxui_ui_key_pressed_with ( PxuiUi * ui , uint32_t code , uint32_t modifier , uint8_t * out ) ;
 function pxui_ui_keyboard int32_t pxui_ui_keyboard ( PxuiUi * ui , PxuiKeyboard * out ) ;
+function pxui_ui_label int32_t pxui_ui_label ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style ) ;
 function pxui_ui_layer_drawn int32_t pxui_ui_layer_drawn ( PxuiUi * ui , uint64_t layer ) ;
 function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
 function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr * text , uint32_t * step ) ;
@@ -320,7 +323,8 @@ layout PxuiInspectorSectionDesc 64 8 0 4 5 6 7 8 24 40 48 56
 layout PxuiInspectorTextDesc 40 8 0 4 8 24
 layout PxuiInspectorValueDesc 64 8 0 4 5 8 24 40 56
 layout PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
-layout PxuiLabelConfig 56 8 0 4 8 40
+layout PxuiLabelConfig 120 8 0 4 8 40 56
+layout PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
 layout PxuiLayerInfo 48 8 0 8 12 16 32
 layout PxuiLineFieldConfig 64 8 0 4 12 16 48
 layout PxuiListViewDesc 64 8 0 4 5 8 24 32 48 56

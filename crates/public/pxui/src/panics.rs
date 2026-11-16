@@ -19,7 +19,7 @@ fn a_callback_panic_resumes_at_frame_skips_later_siblings_and_leaves_the_ui_usab
     assert_eq!(payload.downcast_ref::<&str>(), Some(&"first callback"));
     assert!(!second_ran, "a callback after the panic must not run on the half-built tree");
     let mut built = false;
-    ui.frame(&input(), &mut |ui: &mut Ui| { ui.label("fine"); built = true; }).expect("the next frame renders");
+    ui.frame(&input(), &mut |ui: &mut Ui| { ui.label("fine", crate::Label::DEFAULT); built = true; }).expect("the next frame renders");
     assert!(built);
 }
 
@@ -40,7 +40,7 @@ fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
 #[test]
 fn the_output_borrows_the_ui() {
     let mut ui = Ui::new().expect("library");
-    ui.frame(&input(), &mut |ui: &mut Ui| ui.label("x")).expect("frame");
+    ui.frame(&input(), &mut |ui: &mut Ui| ui.label("x", crate::Label::DEFAULT)).expect("frame");
     let revision = ui.output().draw_revision;
     assert_eq!(revision, ui.draw_revision());
 }

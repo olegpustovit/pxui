@@ -176,7 +176,7 @@ pub fn window_pxui_arena_first_frame() {
     let mut ui = new_ui(None);
     let kit = |ui: &mut Ui, extra: Option<&str>| {
         ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-            ui.label("PXUI");
+            ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.button("Quit");
             if let Some(key) = extra {
                 let h = ui.node(key, Node { h: Size::Px(10.0), ..Node::DEFAULT });

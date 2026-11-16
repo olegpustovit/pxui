@@ -1,44 +1,8 @@
-//! Text authoring: `ui.label_fmt` formats into a fixed stack buffer, `ui.label_with` and `ui.label_fmt_with` show text in a keyed node
-//! with an explicit style and `LabelOpts`, and `text_style` names the usual styles.
+//! Text authoring: `ui.label`, `ui.label_fmt` and `ui.label_digits` show text in a `Label` style (a `Copy` value with const builders),
+//! through the label widget body, formatting into a fixed stack buffer where they take `format_args!`.
 use core::fmt::{Arguments, Write};
-use pxui_types::{a11y::Role, geom::Rgba as Color, Look, Node, PxuiBox, Size, TextStyle};
-use super::layout::{id_text, Key};
+use pxui_types::{ffi::PxuiLabelStyle, Label};
 use crate::Ui;
-
-/// Named text styles for `label_with`: `BODY`, `CAPTION`, `TITLE` and `MONO`. Spread one to change a field:
-/// `TextStyle { weight: 700, ..text_style::BODY }`.
-pub mod text_style {
-    use pxui_types::TextStyle;
-    const BASE: TextStyle = TextStyle {
-        size: core::mem::size_of::<TextStyle>() as u32, font: 0, weight: 400, size_points: 14.0, line_height: 0.0, wrap: 0, align: 0,
-        max_lines: 0, italic: 0, ellipsis: 0, features: 0, tracking: 0.0,
-    };
-    /// Running text: the default font at 14 points, regular weight.
-    pub const BODY: TextStyle = BASE;
-    /// Secondary text: 11 points, regular weight.
-    pub const CAPTION: TextStyle = TextStyle { size_points: 11.0, ..BASE };
-    /// Headings: 20 points, bold.
-    pub const TITLE: TextStyle = TextStyle { size_points: 20.0, weight: 700, ..BASE };
-    /// Figures and counters: body size in the default font with tabular numbers, so digits keep one width.
-    pub const MONO: TextStyle = TextStyle { features: TextStyle::FEATURE_TABULAR_NUMBERS, ..BASE };
-}
-
-/// What a label's `TextStyle` does not carry: the text colour and the node's width.
-///
-/// Wrapping (`wrap`), `max_lines`, `ellipsis`, `align` and `line_height` are `TextStyle` fields; the label's height follows from
-/// them (lines shown times the line height). `LabelOpts::default()` is the theme's foreground at full width.
-#[derive(Clone, Copy, Debug)]
-pub struct LabelOpts {
-    /// The text colour; `None` is the theme's foreground.
-    pub color: Option<Color>,
-    /// The node's width: `Size::Grow` (the default) fills the parent and wraps there, `Size::Fit` is the text's own width,
-    /// `Size::Px` is fixed.
-    pub width: Size,
-}
-
-impl Default for LabelOpts {
-    fn default() -> Self { LabelOpts { color: None, width: Size::Grow } }
-}
 
 /// The bytes a formatted label keeps; the rest is dropped at a character boundary.
 const CAPACITY: usize = 128;
@@ -68,89 +32,104 @@ impl Stack {
 }
 
 impl Ui {
-    /// Shows formatted text as `label` does, formatting into a 128-byte stack buffer.
+    /// Shows `text` in `style`, a leaf node built through the theme's label body (an app-registered `label` body replaces it).
+    ///
+    /// A typographic style's node is `style`'s width (`Fit` unless a builder changed it) and as tall as the lines it shows (lines
+    /// times the line height, 1.2 times the size); wrapping, line limit, ellipsis and alignment apply inside that width.
+    /// `Label::DEFAULT` is the theme's kit label.
+    /// Allocates: never on a warm frame.
+    /// Identity: no key; every label is the n-th `"\0label"` among its siblings. Labels hold no state, so moving one costs nothing.
+    /// Panics: when the library refuses the label (outside a frame, a style with a non-finite or non-positive size, an unloaded font).
+    ///
+    /// ```
+    /// use pxui::{theme::ColorToken, Label, Node};
+    /// let (paper, ink) = (pxui::geom::Rgba { r: 250, g: 250, b: 250, a: 255 }, pxui::geom::Rgba { r: 90, g: 90, b: 90, a: 255 });
+    /// const DIM_INK: ColorToken = ColorToken(0);
+    /// const ROW: Node = Node::row().h_px(44.0).gap(8.0).center();
+    /// const TITLE: Label = Label::BODY.size(15.0).bold();
+    /// const DIM: Label = Label::BODY.color(DIM_INK);
+    /// const CLOCK: Label = Label::MONO;
+    /// let (title, duration_text, index, total, m, s) = (String::from("Song"), String::from("3:07"), 4, 12, 3, 7);
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.set_colors(&[ink], &[paper]);
+    /// ui.set_a11y(true);
+    /// for _ in 0..2 {
+    ///     ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| {
+    ///         ui.row("song", ROW, |ui| {
+    ///             ui.label(&title, TITLE.grow());
+    ///             ui.label(&duration_text, DIM);
+    ///         });
+    ///         ui.label_fmt(format_args!("{} of {}", index + 1, total), DIM);
+    ///         ui.label_digits(format_args!("{m}:{s:02}"), CLOCK);
+    ///         ui.label("Section", Label::DEFAULT);
+    ///     }).unwrap();
+    /// }
+    /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "5 of 12"));
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn label(&mut self, text: &str, style: Label) { self.label_body(text, &style, false) }
+
+    /// Shows formatted text in `style` as `label` does, formatting into a 128-byte stack buffer.
     ///
     /// Text past 128 bytes is dropped at a UTF-8 character boundary, so the label never holds a partial character.
     /// Allocates: never; a warm frame with a repeating value allocates nothing.
-    /// Panics: when the library refuses the label (outside a frame).
+    /// Identity: as `label`.
+    /// Panics: as `label`.
     ///
     /// ```
-    /// let ui = pxui::doc::frames(2, &mut |ui| ui.label_fmt(format_args!("{} songs", 10_000)));
-    /// assert!(ui.a11y_nodes().iter().any(|n| n.label == "10000 songs"));
+    /// let ui = pxui::doc::frames(2, &mut |ui| ui.label_fmt(format_args!("{} songs", 10_000), pxui::Label::DEFAULT));
+    /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "10000 songs"));
     /// ```
     #[inline]
     #[track_caller]
-    pub fn label_fmt(&mut self, args: Arguments) { self.label(Stack::new(args).as_str()) }
+    pub fn label_fmt(&mut self, args: Arguments, style: Label) { self.label_body(Stack::new(args).as_str(), &style, false) }
 
-    /// Declares a node under `key` showing `text` in `style` and `opts`, and returns its handle.
+    /// Shows a number that changes every frame (a clock, a stopwatch, "1:23") in `style`: formatted into a 128-byte stack buffer
+    /// and drawn one cached character layout at a time, digits on the advance of `0`, so no new text is shaped once its characters
+    /// have been seen.
     ///
-    /// The node is `Node::DEFAULT` with `opts.width` and role `Label`; its height is the lines shown times
-    /// `style.line_height` (`1.2` times the size when that is 0), so a wrapped or `max_lines`-limited label takes the room it
-    /// needs. `style.wrap`, `style.max_lines`, `style.ellipsis` and `style.align` apply inside the node's width; text cut by
-    /// `max_lines` or a width too small for a `WRAP_NONE` line ends in an ellipsis when `style.ellipsis` is on.
-    /// Allocates: as `node` and `text_spans` (never on a warm frame).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`).
-    /// Panics: when the library refuses the node or the text (outside a frame), or `style` holds a non-finite value.
+    /// The node is as wide as the characters and one line tall; its accessible value is the text. There is no kerning between
+    /// characters and no wrapping; `Label::DEFAULT` is the theme's label here too. A registered `label` body is given the style with
+    /// `digits` set.
+    /// Allocates: never when warm; the first use of a character in a style shapes it.
+    /// Identity: as `label`.
+    /// Panics: as `label`.
     ///
     /// ```
-    /// use pxui::{text_style, LabelOpts, TextStyle};
-    /// let style = TextStyle { wrap: TextStyle::WRAP_WORD, max_lines: 2, ellipsis: TextStyle::ELLIPSIS_END, ..text_style::BODY };
-    /// let mut note = None;
-    /// let ui = pxui::doc::frames(3, &mut |ui| {
-    ///     note = Some(ui.label_with("note", "a long note that needs more than one line to show", &style, &LabelOpts::default()));
-    /// });
-    /// assert!(ui.rect(&note.unwrap()).h > 0.0);
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label_digits(format_args!("{}:{:02}", 0, 0), pxui::Label::MONO));
+    /// let layouts = ui.text_layout_count();
+    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| ui.label_digits(format_args!("{}:{:02}", 1, 5), pxui::Label::MONO)).unwrap();
+    /// assert_eq!(ui.text_layout_count(), layouts, "no new layout for new digits");
     /// ```
     #[inline]
     #[track_caller]
-    pub fn label_with<K: Into<Key>>(&mut self, key: K, text: &str, style: &TextStyle, opts: &LabelOpts) -> PxuiBox { self.label_body(key.into(), text, style, opts) }
+    pub fn label_digits(&mut self, args: Arguments, style: Label) { self.label_body(Stack::new(args).as_str(), &style, true) }
 
-    /// Declares a keyed node showing formatted text in `style`, formatting into a 128-byte stack buffer as `label_fmt` does.
-    ///
-    /// Text past 128 bytes is dropped at a UTF-8 character boundary.
-    /// Allocates: never on a warm frame.
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`).
-    /// Panics: when the library refuses the node or the text (outside a frame).
-    ///
-    /// ```
-    /// use pxui::{text_style, LabelOpts};
-    /// let mut count = None;
-    /// let ui = pxui::doc::frames(2, &mut |ui| { count = Some(ui.label_fmt_with(7u64, format_args!("{} songs", 10_000), &text_style::MONO, &LabelOpts::default())); });
-    /// assert!(ui.rect(&count.unwrap()).h > 0.0);
-    /// ```
+    /// The one body of `label`, `label_fmt` and `label_digits`: `style` as its record, through the label body.
     #[inline]
     #[track_caller]
-    pub fn label_fmt_with<K: Into<Key>>(&mut self, key: K, args: Arguments, style: &TextStyle, opts: &LabelOpts) -> PxuiBox { self.label_body(key.into(), Stack::new(args).as_str(), style, opts) }
-
-    /// The one body of `label_with` and `label_fmt_with`.
-    #[track_caller]
-    fn label_body(&mut self, key: Key, text: &str, style: &TextStyle, opts: &LabelOpts) -> PxuiBox {
-        let mut id_label = [0u8; 17];
-        let label = match key { Key::Label(label) => label, Key::Id(id) => id_text(id, &mut id_label) };
-        let color = opts.color.unwrap_or(self.tokens().foreground);
-        let b = self.node(label, Node { w: opts.width, role: Role::Label, look: Look { text: color, ..Look::NONE }, ..Node::DEFAULT });
-        // a line box needs a positive line height; the engine's own default is 1.2 times the size
-        let style = TextStyle { line_height: if style.line_height > 0.0 { style.line_height } else { style.size_points * 1.2 }, ..*style };
-        let result = self.text_line_box(&b, text, &style, &[]);
-        crate::check_error(self, result);
-        b
+    fn label_body(&mut self, text: &str, style: &Label, digits: bool) {
+        self.label_call(text, &PxuiLabelStyle { digits: digits as u8, ..PxuiLabelStyle::from(style) });
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{text_style, LabelOpts, Stack};
-    use crate::{FrameIn, TextStyle};
+    use super::{Label, Stack};
+    use crate::FrameIn;
+    use pxui_types::{geom::Rgba, theme::ColorToken, Node, PxuiBox, Size};
 
-    /// 100 frames of `label_fmt` and `label_fmt_with` with a repeating value allocate nothing once warm.
+    /// 100 frames of kit, typographic and digits labels with a repeating value allocate nothing once warm.
     #[test]
     fn label_fmt_allocates_nothing_on_warm_frames() {
         mem_sys::set_peer(crate::library_counter);
         let mut ui = crate::Ui::new().unwrap();
         let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
         let mut build = |ui: &mut crate::Ui| {
-            ui.label_fmt(format_args!("{} songs", 10_000));
-            ui.label_fmt_with("count", format_args!("{} songs", 10_000), &text_style::MONO, &LabelOpts::default());
+            ui.label_fmt(format_args!("{} songs", 10_000), Label::DEFAULT);
+            ui.label_fmt(format_args!("{} songs", 10_000), Label::MONO);
+            ui.label("Songs", Label::TITLE.grow());
         };
         for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); }
         let scope = mem_sys::warm_scope();
@@ -163,35 +142,42 @@ mod tests {
         assert!(mem_sys::take_reports().is_empty());
     }
 
-    /// Frames `build` in a 160-point-wide `Ui`, five times, and returns the `Ui` with the last frame's tree.
+    /// Frames `build` in a 160-point-wide `Ui` with red as colour token 0 and accessibility on, five times, and returns the `Ui` with the last frame's tree.
     fn settle(build: &mut dyn FnMut(&mut crate::Ui)) -> crate::Ui {
         let mut ui = crate::Ui::new().unwrap();
+        ui.set_colors(&[RED], &[RED]);
+        ui.set_a11y(true);
         for _ in 0..5 { ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, build).unwrap(); }
         ui
     }
 
+    const RED: Rgba = Rgba { r: 255, g: 0, b: 0, a: 255 };
     const LONG: &str = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
+
+    /// `label` inside a column (`Fit` tall, `w` wide), returning the column's handle: its rectangle is the label's.
+    fn boxed(ui: &mut crate::Ui, key: &'static str, w: Size, text: &str, style: Label) -> PxuiBox {
+        ui.column(key, Node { w, ..Node::DEFAULT }, |ui| ui.label(text, style))
+    }
 
     /// `kit::text`: one line, end ellipsis, height one line, however long the text; `settings::paragraph`: word wrap with
     /// the height of every wrapped line; `max_lines` clips the height at that many lines.
     #[test]
     fn labels_wrap_clip_and_ellipsize_to_their_lines() {
-        let line = TextStyle { size_points: 14.0, line_height: 20.0, ..text_style::BODY };
-        let one = TextStyle { max_lines: 1, ellipsis: TextStyle::ELLIPSIS_END, ..line };
-        let wrapped = TextStyle { wrap: TextStyle::WRAP_WORD, ..line };
-        let two = TextStyle { max_lines: 2, ellipsis: TextStyle::ELLIPSIS_END, ..wrapped };
-        let opts = LabelOpts::default();
+        let line = 14.0f32 * 1.2;
+        let one = Label::BODY.grow().lines(1).ellipsis();
+        let wrapped = Label::BODY.grow().wrap();
+        let two = wrapped.lines(2).ellipsis();
         let (mut a, mut b, mut c, mut d) = (None, None, None, None);
         let ui = settle(&mut |ui| {
-            a = Some(ui.label_with("a", LONG, &one, &opts));
-            b = Some(ui.label_with("b", LONG, &wrapped, &opts));
-            c = Some(ui.label_with("c", LONG, &two, &opts));
-            d = Some(ui.label_with("d", "short", &one, &opts));
+            a = Some(boxed(ui, "a", Size::Grow, LONG, one));
+            b = Some(boxed(ui, "b", Size::Grow, LONG, wrapped));
+            c = Some(boxed(ui, "c", Size::Grow, LONG, two));
+            d = Some(boxed(ui, "d", Size::Grow, "short", one));
         });
         let (a, b, c, d) = (ui.rect(&a.unwrap()), ui.rect(&b.unwrap()), ui.rect(&c.unwrap()), ui.rect(&d.unwrap()));
-        assert_eq!((a.w, a.h, d.h), (160.0, 20.0, 20.0));
-        assert!(b.h >= 60.0 && b.h % 20.0 == 0.0, "word wrap grows the node: {b:?}");
-        assert_eq!(c.h, 40.0);
+        assert_eq!((a.w, a.h, d.h), (160.0, line, line));
+        assert!(b.h >= 3.0 * line && (b.h / line).fract() < 1e-3, "word wrap grows the node: {b:?}");
+        assert_eq!(c.h, 2.0 * line);
     }
 
     /// Settled wrapped, clipped and aligned labels, one static and one alternating between two texts, allocate nothing per frame.
@@ -200,11 +186,11 @@ mod tests {
         mem_sys::set_peer(crate::library_counter);
         let mut ui = crate::Ui::new().unwrap();
         let input = FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() };
-        let wrapped = TextStyle { wrap: TextStyle::WRAP_WORD, max_lines: 3, ellipsis: TextStyle::ELLIPSIS_END, align: TextStyle::ALIGN_CENTER, ..text_style::BODY };
+        let wrapped = Label::BODY.grow().wrap().lines(3).ellipsis().center();
         let frame = core::cell::Cell::new(0usize);
         let mut build = |ui: &mut crate::Ui| {
-            ui.label_with("static", LONG, &wrapped, &LabelOpts::default());
-            ui.label_with("dynamic", if frame.get() % 2 == 0 { LONG } else { "a shorter note" }, &wrapped, &LabelOpts::default());
+            ui.label(LONG, wrapped);
+            ui.label(if frame.get() % 2 == 0 { LONG } else { "a shorter note" }, wrapped);
         };
         for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); frame.set(frame.get() + 1); }
         let scope = mem_sys::warm_scope();
@@ -228,36 +214,142 @@ mod tests {
     /// `kit::text`'s end ellipsis keeps one line inside the width, `align` places a short line at the start, centre or end.
     #[test]
     fn ellipsis_keeps_ink_inside_the_width_and_align_places_it() {
-        let red = Some(pxui_types::geom::Rgba { r: 255, g: 0, b: 0, a: 255 });
-        let opts = LabelOpts { color: red, ..LabelOpts::default() };
-        let cut = TextStyle { max_lines: 1, ellipsis: TextStyle::ELLIPSIS_END, ..text_style::BODY };
-        let ui = settle(&mut |ui| { ui.label_with("cut", LONG, &cut, &opts); });
+        let red = Label::BODY.grow().color(ColorToken(0));
+        let ui = settle(&mut |ui| ui.label(LONG, red.lines(1).ellipsis()));
         let (lo, hi) = ink(&ui);
         assert!(lo >= 0.0 && hi <= 160.0 && hi > 120.0, "ellipsized line fills but never passes the width: {lo} {hi}");
-        let ui = settle(&mut |ui| { ui.label_with("clip", LONG, &TextStyle { ellipsis: TextStyle::ELLIPSIS_NONE, max_lines: 1, ..text_style::BODY }, &opts); });
+        let ui = settle(&mut |ui| ui.label(LONG, red.lines(1)));
         assert!(ink(&ui).1 > 160.0, "without an ellipsis the line runs on");
         let mut edges = Vec::new();
-        for align in [TextStyle::ALIGN_LEFT, TextStyle::ALIGN_CENTER, TextStyle::ALIGN_RIGHT] {
-            let ui = settle(&mut |ui| { ui.label_with("hi", "hi", &TextStyle { align, ..text_style::BODY }, &opts); });
+        for style in [red, red.center(), red.end()] {
+            let ui = settle(&mut |ui| ui.label("hi", style));
             edges.push(ink(&ui));
         }
         let mid = |(lo, hi): (f32, f32)| (lo + hi) / 2.0;
         assert!(edges[0].0 < 2.0 && (mid(edges[1]) - 80.0).abs() < 2.0 && edges[2].1 > 158.0, "{edges:?}");
     }
 
-    /// `Size::Fit` takes the text's width and `Size::Px` a fixed one; a colour is the text colour.
+    /// `Fit` (the presets' width) takes the text's width, `w(Size::Px)` a fixed one and `grow` the parent's; a colour token is the
+    /// text colour.
     #[test]
     fn label_width_and_colour_options_apply() {
-        let red = pxui_types::geom::Rgba { r: 255, g: 0, b: 0, a: 255 };
-        let (mut fit, mut fixed) = (None, None);
+        let (mut fit, mut fixed, mut grown) = (None, None, None);
         let ui = settle(&mut |ui| {
-            fit = Some(ui.label_with("fit", "hi", &text_style::BODY, &LabelOpts { width: pxui_types::Size::Fit, color: Some(red) }));
-            fixed = Some(ui.label_with("fixed", "hi", &text_style::BODY, &LabelOpts { width: pxui_types::Size::Px(50.0), ..LabelOpts::default() }));
+            fit = Some(ui.row("fit", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| ui.label("hi", Label::BODY.color(ColorToken(0)))));
+            fixed = Some(ui.row("fixed", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| ui.label("hi", Label::BODY.w(Size::Px(50.0)))));
+            grown = Some(ui.row("grown", Node::DEFAULT, |ui| ui.label("hi", Label::BODY.grow())));
         });
-        let (fit, fixed) = (ui.rect(&fit.unwrap()), ui.rect(&fixed.unwrap()));
+        let (fit, fixed, grown) = (ui.rect(&fit.unwrap()), ui.rect(&fixed.unwrap()), ui.rect(&grown.unwrap()));
         assert!(fit.w > 0.0 && fit.w < 40.0, "{fit:?}");
-        assert_eq!(fixed.w, 50.0);
+        assert_eq!((fixed.w, grown.w), (50.0, 160.0));
         assert!(fixed.h > 0.0);
+        assert!(ink(&ui).1 > ink(&ui).0, "the token's red is the text colour");
+    }
+
+    /// Two labels with one text under one parent are two nodes in build order, and each keeps its node when a label is added after them.
+    #[test]
+    fn labels_are_identified_by_position() {
+        let (mut first, mut second) = (Vec::new(), Vec::new());
+        let mut ui = crate::doc::frames(1, &mut |ui| { ui.label("same", Label::BODY); ui.label("same", Label::BODY); });
+        for n in 0..2 {
+            ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, &mut |ui| {
+                ui.label("same", Label::BODY);
+                ui.label("same", Label::BODY);
+                if n == 1 { ui.label("more", Label::BODY); }
+            }).unwrap();
+            let ids: Vec<u64> = ui.a11y_nodes().iter().filter(|a| ui.a11y_name_of(a) == "same").map(|a| a.id).collect();
+            if n == 0 { first = ids; } else { second = ids; }
+        }
+        assert_eq!(first.len(), 2);
+        assert_ne!(first[0], first[1]);
+        assert_eq!(first, second);
+    }
+
+    /// A stopwatch (every frame a new value) and a 120 fps clock (frame counter as m:ss.ff) shape nothing and allocate nothing once warm.
+    #[test]
+    fn a_label_that_changes_every_frame_makes_no_layout_and_no_allocation() {
+        mem_sys::set_peer(crate::library_counter);
+        let mut ui = crate::Ui::new().expect("library");
+        let mut layouts = 0;
+        for n in 0..400u32 {
+            let t = n * 7 + 11;
+            let (a, b, c) = if n % 2 == 0 { (t / 6000, t / 100 % 60, t % 100) } else { (t / 120 / 60, t / 120 % 60, t % 120 * 100 / 120) };
+            mem_sys::local_reset();
+            ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| ui.label_digits(format_args!("{a}:{b:02}.{c:02}"), Label::BODY)).unwrap();
+            if n == 100 { layouts = ui.text_layout_count(); }
+            if n > 100 {
+                assert_eq!(ui.text_layout_count(), layouts, "frame {n}");
+                assert_eq!(mem_sys::local_alloc_count(), 0, "frame {n}");
+            }
+        }
+    }
+
+    /// A digits label is as wide as its characters with every digit on the advance of `0`, so "1:11" and "8:88" are one width.
+    #[test]
+    fn digits_take_one_width_whatever_the_digits() {
+        let width = |value: u32| {
+            let mut b = None;
+            let ui = settle(&mut |ui| b = Some(ui.row("clock", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| ui.label_digits(format_args!("{}:{}", value, value * 11), Label::BODY))));
+            ui.rect(&b.unwrap()).w
+        };
+        assert!(width(1) > 0.0);
+        assert_eq!(width(1), width(8));
+    }
+
+    thread_local! {
+        static SEEN: core::cell::RefCell<Vec<(String, u32, u8, f32, u16)>> = const { core::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// A label body that records its config and fills the label's node with one 30-point-tall child of its own, no text.
+    fn boxed_label(ui: &mut crate::Ui, c: &crate::bodies::PxuiLabelConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiLabelConfig>(), "this library carries the style");
+        SEEN.with(|s| s.borrow_mut().push((crate::bodies::text_of(&c.text).to_owned(), c.style.set, c.style.digits, c.style.size_points, c.style.color)));
+        ui.node("mark", Node { h: Size::Px(30.0), ..Node::DEFAULT });
+    }
+
+    /// With a registered label body every label goes through it with its style as given: the theme's label with nothing set, a
+    /// preset with every field but the colour set (and the colour token when `color` sets it), a digits one with `digits`; what the
+    /// body builds is what shows (no text of the built-in body).
+    #[test]
+    fn a_registered_label_body_builds_every_label() {
+        let mut ui = crate::Ui::new().unwrap();
+        ui.set_colors(&[RED], &[RED]);
+        let id = ui.register_label_body("boxed", boxed_label).expect("registered");
+        let text = "label.body = boxed";
+        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        assert_eq!(ui.theme().body.label, id);
+        let (mut kit, mut styled, mut digits) = (None, None, None);
+        for _ in 0..2 {
+            SEEN.with(|s| s.borrow_mut().clear());
+            ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, &mut |ui| {
+                kit = Some(ui.column("kit", Node::DEFAULT, |ui| ui.label("Kit", Label::DEFAULT)));
+                styled = Some(ui.column("styled", Node::DEFAULT, |ui| ui.label("Styled", Label::TITLE.color(ColorToken(0)))));
+                digits = Some(ui.column("digits", Node::DEFAULT, |ui| ui.label_digits(format_args!("{}:{:02}", 1, 5), Label::MONO)));
+            }).unwrap();
+        }
+        let seen = SEEN.with(|s| s.borrow().clone());
+        use pxui_types::ffi::PxuiLabelStyle as S;
+        assert_eq!(seen, vec![("Kit".into(), 0, 0, 0.0, 0), ("Styled".into(), S::SET_ALL, 0, 20.0, 0), ("1:05".into(), S::SET_ALL & !S::SET_COLOR, 1, 14.0, 0)]);
+        for b in [kit, styled, digits] { assert_eq!(ui.rect(&b.unwrap()).h, 30.0, "the body's node height"); }
+        assert!(ui.layers().flat_map(|l| l.instances.iter()).all(|i| i.color != [255, 0, 0, 255]), "the built-in body drew no text");
+    }
+
+    /// `Label::DEFAULT` is the theme's label: a builder on it changes only its own field (bold keeps the theme's size, capitals and
+    /// row), and theme labels are keyed by position like every label, so two with one text are two nodes.
+    #[test]
+    fn default_is_the_theme_label_and_builders_set_one_field() {
+        let mut rows = Vec::new();
+        let ui = settle(&mut |ui| {
+            rows.clear();
+            for (key, style) in [("plain", Label::DEFAULT), ("bold", Label::DEFAULT.bold()), ("again", Label::DEFAULT)] {
+                rows.push(ui.column(key, Node::DEFAULT, |ui| { ui.node("before", Node::DEFAULT); ui.label("Same", style); }));
+            }
+        });
+        let rects: Vec<_> = rows.iter().map(|b| ui.rect(b)).collect();
+        assert!(rects.iter().all(|r| r.h == 24.0), "one theme row each, no gap after a sibling: {rects:?}");
+        let ids: Vec<u64> = ui.a11y_nodes().iter().filter(|a| ui.a11y_name_of(a) == "Same").map(|a| a.id).collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2], "{ids:?}");
     }
 
     /// A 200-byte string of 3-byte characters keeps 126 bytes: 42 whole characters, never half of the 43rd.

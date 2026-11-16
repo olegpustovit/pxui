@@ -8,5 +8,4 @@ mod view;
 pub use button::Button;
 pub use layout::Key;
 pub use press::Response;
-pub use text::{text_style, LabelOpts};
 pub use view::hash_of;

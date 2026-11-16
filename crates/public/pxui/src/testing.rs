@@ -9,8 +9,8 @@ use crate::{Event, FrameIn, Handle, Ui};
 /// Events are in points, window space. Allocates: as any frame. Panics: when the frame fails.
 ///
 /// ```
-/// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x"));
-/// pxui::testing::frame(&mut ui, &[], &mut |ui| ui.label("x"));
+/// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x", pxui::Label::DEFAULT));
+/// pxui::testing::frame(&mut ui, &[], &mut |ui| ui.label("x", pxui::Label::DEFAULT));
 /// assert_eq!(ui.frame_index(), 2);
 /// ```
 pub fn frame(ui: &mut Ui, events: &[Event], build: &mut dyn FnMut(&mut Ui)) {
@@ -66,7 +66,7 @@ pub fn click_node(ui: &mut Ui, node: &Handle, build: &mut dyn FnMut(&mut Ui)) {
 /// Allocates: as one frame. Panics: when the frame fails.
 ///
 /// ```
-/// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x"));
+/// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x", pxui::Label::DEFAULT));
 /// pxui::testing::key(&mut ui, 'a' as u32, &mut |ui| { let _ = ui.key_pressed('a' as u32); });
 /// ```
 pub fn key(ui: &mut Ui, code: u32, build: &mut dyn FnMut(&mut Ui)) {

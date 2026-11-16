@@ -17,6 +17,7 @@ library!(lib {
     fn pxui_text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_ui_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const TextStyle,spans:*const TextSpans)->i32;
     fn pxui_ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const TextStyle,spans:*const TextSpans)->i32;
+    fn pxui_ui_label(ui:*mut PxuiUi,text:Str,style:*const pxui_types::ffi::PxuiLabelStyle)->i32;
     fn pxui_default_font() -> Str;
     fn pxui_shaper_create(fonts: *const Str, count: usize) -> *mut PxuiShaper;
     fn pxui_shaper_destroy(shaper: *mut PxuiShaper);
@@ -204,6 +205,12 @@ impl Ui {
         if rc==0 {Ok(())} else {Err(Error::from_code(rc))}
     }
     pub fn text_service(&mut self) -> UiText<'_> { UiText(self) }
+
+    /// The label call of `label`, `label_fmt` and `label_digits`.
+    #[track_caller]
+    pub(crate) fn label_call(&mut self, text: &str, style: &pxui_types::ffi::PxuiLabelStyle) {
+        crate::check(self, unsafe { lib::pxui_ui_label(self.0.as_ptr(), as_str(text), style) })
+    }
 }
 
 impl UiText<'_> {
@@ -245,7 +252,7 @@ impl UiText<'_> {
     /// Panics: never.
     ///
     /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x"));
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x", pxui::Label::DEFAULT));
     /// let mut text = ui.text_service();
     /// let mut pixels = Vec::new();
     /// let (w, h) = text.rasterize_rgba_into("abc", &Default::default(), 0.0, 1.0, [255; 4], &mut pixels).unwrap();
@@ -273,7 +280,7 @@ impl UiText<'_> {
     /// Panics: never.
     ///
     /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x"));
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x", pxui::Label::DEFAULT));
     /// let mut glyphs = Vec::new();
     /// let n = ui.text_service().quads_into("abc", &Default::default(), 0.0, (0.0, 0.0), 1.0, &mut glyphs).unwrap();
     /// assert_eq!((n, glyphs.len()), (3, 3));

@@ -595,7 +595,7 @@ fn widgets_dialog() {
     let mut out = DialogOut::Open;
     let mut run = |ui: &mut Ui, t: f64, events: Vec<Event>| {
         ui.frame(&at(t, events), &mut |ui| {
-            out = ui.dialog("Delete file", &["Cancel", "Delete"], &mut |ui| ui.label("This cannot be undone"));
+            out = ui.dialog("Delete file", &["Cancel", "Delete"], &mut |ui| ui.label("This cannot be undone", pxui_core::ui::Label::DEFAULT));
         });
         out
     };

@@ -8,7 +8,7 @@ use crate::{FrameIn, Ui};
 /// Panics: when the library cannot create a `Ui` (an ABI of another major version), or a frame fails.
 ///
 /// ```
-/// let ui = pxui::doc::frames(2, &mut |ui| ui.label("hello"));
+/// let ui = pxui::doc::frames(2, &mut |ui| ui.label("hello", pxui::Label::DEFAULT));
 /// assert_eq!(ui.frame_index(), 2);
 /// ```
 pub fn frames(n: usize, build: &mut dyn FnMut(&mut Ui)) -> Ui {

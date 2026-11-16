@@ -104,10 +104,14 @@ pub struct BadgeConfig {
 pub type BadgeBody = fn(&mut Ui, &BadgeConfig, &str, &str);
 
 /// What a label body is given (its text beside it). It runs with the label's `node` entered; `first` is whether it is the first
-/// thing of its parent (the default body gives it 4 points above).
+/// thing of its parent (the default body gives it 4 points above when the style leaves the inset to the theme). `style` is the
+/// label's style as the caller gave it: a `None` field is the theme's label style (`ui_kit::resolve_label`). `digits` asks for a
+/// number drawn one cached character at a time.
 pub struct LabelConfig {
     pub node: Handle,
     pub first: bool,
+    pub style: pxui_types::Label,
+    pub digits: bool,
 }
 
 pub type LabelBody = fn(&mut Ui, &LabelConfig, &str);

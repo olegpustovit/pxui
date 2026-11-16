@@ -86,7 +86,7 @@ impl Scene {
             }
             ui.leave(saved);
             if modal {
-                modal_open = ui.modal(Some(80.0), "touch-blocker", &mut |ui| ui.label("modal"));
+                modal_open = ui.modal(Some(80.0), "touch-blocker", &mut |ui| ui.label("modal", pxui_core::ui::Label::DEFAULT));
             }
             out = Some((root, inner, signal));
         });

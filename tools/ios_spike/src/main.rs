@@ -388,7 +388,7 @@ mod ios {
                                 if let Some(touch) = self.touch.as_mut() {
                                     touch.view(ui);
                                 } else if self.keyboard_check {
-                                    ui.label("PXUI native keyboard");
+                                    ui.label("PXUI native keyboard", pxui::Label::DEFAULT);
                                     ui.node("field spacer", Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
                                     if let Some(text) = self.text.as_mut() {text.view(ui,self.frames);}
                                     else {ui.text_field("Mobile input", "café track");}

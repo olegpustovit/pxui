@@ -900,7 +900,7 @@ pub fn window_pxui_tooltip_rest() {
     }
     let mut ready = false;
     ui.frame(&frame_at(vec![], 1.0, 1.5, vec![]), &mut |ui| {
-        ui.modal(None, "hover-modal", &mut |ui| ui.label("Modal"));
+        ui.modal(None, "hover-modal", &mut |ui| ui.label("Modal", pxui_core::ui::Label::DEFAULT));
         ready = ui.hover_delay("a");
     });
     if ready {
@@ -984,7 +984,7 @@ pub fn window_pxui_fit_box() {
 pub fn window_pxui_baseline() {
     let build = |ui: &mut Ui| {
         ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-            ui.label("PXUI");
+            ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.toggle("Animate", true);
             ui.text_field("Caption", "Functional UI");
             ui.button("Quit");
@@ -1017,7 +1017,7 @@ pub fn window_pxui_batches() {
     let mut ui = field_ui();
     ui.frame(&frame_at(vec![], 2.0, 0.0, vec![]), &mut |ui| {
         ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-            ui.label("PXUI");
+            ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.toggle("Animate", true);
             ui.text_field("Caption", "Functional UI");
             ui.button("Quit");

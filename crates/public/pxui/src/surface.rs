@@ -1208,7 +1208,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 let head = ui.inspector_head_for_test(&actions);
                 assert_eq!(head.renamed, "Title");
                 ui.inspector_body(&mut |ui: &mut Ui| {
-                    assert!(ui.inspector_section_view("section", round, true, None, "Section", &mut |ui: &mut Ui| { ui.label("inside"); }));
+                    assert!(ui.inspector_section_view("section", round, true, None, "Section", &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); }));
                     assert!(!ui.inspector_toggle_value("toggle", (0.0, 0.0), false));
                 });
                 ui.inspector_bar(&hints, 3);
@@ -1219,7 +1219,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 assert_eq!(ui.field_drag(&grip), None);
                 if round == 0 { assert!(ui.animate(&grip, Target::Opacity(0.5), Curve::Spring { omega: 30.0 }), "a new target starts moving"); }
                 let mut ran = false;
-                let open = ui.popup(None, Some(100.0), true, false, (10.0, 10.0), 100.0, 40.0, "pop", &mut |ui: &mut Ui| { ran = true; ui.label("popped"); });
+                let open = ui.popup(None, Some(100.0), true, false, (10.0, 10.0), 100.0, 40.0, "pop", &mut |ui: &mut Ui| { ran = true; ui.label("popped", crate::Label::DEFAULT); });
                 assert_eq!(open, ran, "the build runs exactly while the popup is open");
             });
         }).expect("frame");
@@ -1438,8 +1438,8 @@ fn canvas_feature_styles_have_distinct_warm_cache_entries() {
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
             let bounds=ui.node("numbers",crate::Node { w:Size::Px(240.0),h:Size::Px(80.0),..crate::Node::DEFAULT });
             ui.canvas(&bounds,move |paint,rect| {
-                assert_eq!(paint.text_styled((rect.x,rect.y),&plain,0.0,None,"1111"),a);
-                assert_eq!(paint.text_styled((rect.x,rect.y+30.0),&tabular,0.0,None,"1111"),b);
+                assert_eq!(paint.text_styled((rect.x,rect.y),&crate::Label::BODY.size(20.0),0.0,"1111"),a);
+                assert_eq!(paint.text_styled((rect.x,rect.y+30.0),&crate::Label::MONO.size(20.0),0.0,"1111"),b);
             });
         }).unwrap();
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed feature styles must keep separate warm layout/glyph caches"); }
@@ -1674,7 +1674,7 @@ fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
             let b=ui.node("native-fonts",crate::Node { role:crate::ui::Role::Label,w:Size::Px(300.0),h:Size::Px(40.0),..crate::Node::DEFAULT });
             ui.text_spans(&b,source,&style,&[]).unwrap();
-            ui.canvas(&b,move |paint,rect| { paint.text_styled((rect.x,rect.y+50.0),&style,300.0,None,source); });
+            ui.canvas(&b,move |paint,rect| { paint.text_styled((rect.x,rect.y+50.0),&crate::Label::BODY.size(20.0),300.0,source); });
         }).unwrap();
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed-script nodes and canvas reuse warm layouts and glyphs"); }
         assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==source));
@@ -1853,7 +1853,7 @@ fn measured_list_validation_and_callback_panics_leave_frames_reusable() {
     assert!(catch_unwind(AssertUnwindSafe(|| {
         ui.frame(&input(),&mut |ui| { ui.list_measured("panic",1,20.0,&mut |_,_|panic!("row callback")); }).unwrap();
     })).is_err());
-    ui.frame(&input(),&mut |ui| { ui.list_measured("recovered",1,20.0,&mut |ui,_| { ui.label("Recovered"); }); }).unwrap();
+    ui.frame(&input(),&mut |ui| { ui.list_measured("recovered",1,20.0,&mut |ui,_| { ui.label("Recovered", crate::Label::DEFAULT); }); }).unwrap();
 }
 
 #[test]
@@ -1861,7 +1861,7 @@ fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
     use pxui_types::Event;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
-    let mut build = |ui: &mut Ui| { ui.label("Lifecycle"); };
+    let mut build = |ui: &mut Ui| { ui.label("Lifecycle", crate::Label::DEFAULT); };
     let first = Event { kind: Event::FOCUS_GAINED, ..Event::default() };
     ui.frame(&FrameIn { events: &first, event_count: 1, ..input() }, &mut build).unwrap();
     for frame in 0..82 {
@@ -2529,7 +2529,7 @@ fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
     let seen=Cell::new(crate::Environment::default());
     let mut build=|ui:&mut Ui| {
         ui.view("environment",1,Size::Grow,Size::Grow,&mut |ui| {
-            builds.set(builds.get()+1); seen.set(ui.environment()); ui.label("Environment");
+            builds.set(builds.get()+1); seen.set(ui.environment()); ui.label("Environment", crate::Label::DEFAULT);
         });
     };
     for round in 0..100 {
