@@ -45,11 +45,18 @@ library!(lib {
 
 /// The platform whose editing conventions the `Ui` follows.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub enum Platform { Apple, #[default] Other }
+pub enum Platform {
+    Apple,
+    #[default] Other,
+}
 
 /// The heap a `Ui` holds, for the host to account for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Bytes { pub atlas: i64, pub glyph_lists: i64, pub text_undo: i64 }
+pub struct Bytes {
+    pub atlas: i64,
+    pub glyph_lists: i64,
+    pub text_undo: i64,
+}
 
 impl Ui {
     /// `verify_views(true)` for every `Ui` created from now on: a test harness turns it on once.

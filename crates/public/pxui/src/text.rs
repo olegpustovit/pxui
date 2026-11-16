@@ -30,7 +30,11 @@ library!(lib {
 });
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum TextError { InvalidInput, Allocation, Engine }
+pub enum TextError {
+    InvalidInput,
+    Allocation,
+    Engine,
+}
 
 /// The default font (Pragmasevka) the library embeds.
 pub fn pragmasevka() -> &'static [u8] {
@@ -40,7 +44,10 @@ pub fn pragmasevka() -> &'static [u8] {
 
 /// What a shaping call talks to: a shaper of its own or a `Ui`'s text service.
 #[derive(Clone, Copy)]
-enum Backing { Shaper(*mut PxuiShaper), Ui(*mut PxuiUi) }
+enum Backing {
+    Shaper(*mut PxuiShaper),
+    Ui(*mut PxuiUi),
+}
 
 impl Backing {
     fn add_font(self, bytes: &[u8]) -> Option<u32> {
@@ -95,7 +102,10 @@ pub struct Text(NonNull<PxuiShaper>);
 unsafe impl Send for Text {}
 
 /// A worker-owned layout. Move it to its originating UI for installation between frames.
-pub struct PreparedText { raw: NonNull<PxuiPreparedText>, metrics: TextMetrics }
+pub struct PreparedText {
+    raw: NonNull<PxuiPreparedText>,
+    metrics: TextMetrics,
+}
 
 /// Replaced UI storage. Return it to the worker for destruction; it cannot be installed again.
 pub struct RetiredText(NonNull<PxuiPreparedText>);

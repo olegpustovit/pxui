@@ -4,7 +4,10 @@ use crate::{check, Ui};
 /// these crosses the ABI as it is.
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub struct TreeNode { pub depth: u16, pub children: u8 }
+pub struct TreeNode {
+    pub depth: u16,
+    pub children: u8,
+}
 
 use pxui_types::ffi::PxuiTreeNode as TreeNodeDesc;
 const _: () = assert!(core::mem::size_of::<TreeNode>() == core::mem::size_of::<TreeNodeDesc>() && core::mem::align_of::<TreeNode>() == core::mem::align_of::<TreeNodeDesc>());

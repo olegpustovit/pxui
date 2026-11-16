@@ -2,14 +2,35 @@ use crate::{PxuiBox, Ui, check};
 use pxui_types::{Event as FfiEvent, ffi::{PxuiSaved, PxuiSignal, Slice}};
 
 #[derive(Clone, Debug, Default, PartialEq)]
-pub struct SignalEvent { pub kind: u32, pub code: u32, pub x: f64, pub y: f64, pub value: f64, pub text: String }
+pub struct SignalEvent {
+    pub kind: u32,
+    pub code: u32,
+    pub x: f64,
+    pub y: f64,
+    pub value: f64,
+    pub text: String,
+}
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Signal {
-    pub hovered: bool, pub pressed: bool, pub held: bool, pub released: bool, pub clicked: bool,
-    pub double_clicked: bool, pub dragging: bool, pub subtree_press: Option<i64>, pub clicks: i64,
-    pub drag: (f32,f32), pub pointer: (f32,f32), pub press_point: (f32,f32), pub release_point: (f32,f32),
-    pub button: Option<u8>, pub scroll: (f32,f32), pub pinch: f64, pub keys: Vec<SignalEvent>,
-    pub a11y_value: Option<f64>, pub a11y_select: Option<[u32;2]>,
+    pub hovered: bool,
+    pub pressed: bool,
+    pub held: bool,
+    pub released: bool,
+    pub clicked: bool,
+    pub double_clicked: bool,
+    pub dragging: bool,
+    pub subtree_press: Option<i64>,
+    pub clicks: i64,
+    pub drag: (f32,f32),
+    pub pointer: (f32,f32),
+    pub press_point: (f32,f32),
+    pub release_point: (f32,f32),
+    pub button: Option<u8>,
+    pub scroll: (f32,f32),
+    pub pinch: f64,
+    pub keys: Vec<SignalEvent>,
+    pub a11y_value: Option<f64>,
+    pub a11y_select: Option<[u32;2]>,
 }
 
 #[cfg(feature = "static")]

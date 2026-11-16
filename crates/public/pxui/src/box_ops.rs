@@ -49,7 +49,11 @@ library!(lib {
 });
 
 /// A label written from `format_args!`: up to 128 bytes on the stack, longer ones on the heap.
-pub(crate) struct Label { stack: [u8; 128], len: usize, heap: String }
+pub(crate) struct Label {
+    stack: [u8; 128],
+    len: usize,
+    heap: String,
+}
 
 impl Label {
     pub(crate) fn new(args: Arguments) -> Label {
@@ -96,9 +100,15 @@ fn hit_box(hit: HitFn) -> *mut c_void {
 
 /// A carry query borrowed until the next mutable UI call, without owned string copies.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct PayloadRef<'a> { pub kind: &'a str, pub value: &'a str }
+pub struct PayloadRef<'a> {
+    pub kind: &'a str,
+    pub value: &'a str,
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DropRef<'a> { Hover(PayloadRef<'a>), Dropped(PayloadRef<'a>) }
+pub enum DropRef<'a> {
+    Hover(PayloadRef<'a>),
+    Dropped(PayloadRef<'a>),
+}
 
 /// Touch gestures a node takes (touch only: a mouse or trackpad never starts one).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -458,4 +468,8 @@ fn owned(value: Str) -> String { if value.len == 0 { String::new() } else { Stri
 
 /// What `Ui::node_mut` edits of a node.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct NodeFields { pub look: Look, pub mark: Mark, pub inset: pxui_types::geom::Edges }
+pub struct NodeFields {
+    pub look: Look,
+    pub mark: Mark,
+    pub inset: pxui_types::geom::Edges,
+}

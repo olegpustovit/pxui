@@ -122,7 +122,13 @@ impl TextInputOptions {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Touch {
-    pub device:u64, pub finger:u64, pub x:f64, pub y:f64, pub time:f64, pub pressure:f32, pub phase:u32,
+    pub device:u64,
+    pub finger:u64,
+    pub x:f64,
+    pub y:f64,
+    pub time:f64,
+    pub pressure:f32,
+    pub phase:u32,
 }
 
 #[repr(C)]
@@ -359,15 +365,31 @@ impl Image {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiBox { pub index: u64, pub box_key: i64, pub box_slot: u64, pub generation: u32 }
+pub struct PxuiBox {
+    pub index: u64,
+    pub box_key: i64,
+    pub box_slot: u64,
+    pub generation: u32,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiPanel {
-    pub size: u32, pub x: f32, pub y: f32, pub width: f32, pub height: f32,
-    pub padding: i64, pub has_height: u8, pub window: u8,
-    pub has_max_height: u8, pub has_stroke: u8, pub has_look: u8, pub reserved: [u8; 3],
-    pub max_height: f32, pub stroke: geom::Rgba, pub look: ffi::PxuiLookDesc,
+    pub size: u32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub padding: i64,
+    pub has_height: u8,
+    pub window: u8,
+    pub has_max_height: u8,
+    pub has_stroke: u8,
+    pub has_look: u8,
+    pub reserved: [u8; 3],
+    pub max_height: f32,
+    pub stroke: geom::Rgba,
+    pub look: ffi::PxuiLookDesc,
 }
 impl Default for PxuiPanel {
     fn default() -> Self {
@@ -379,15 +401,25 @@ impl Default for PxuiPanel {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiTargetDesc {
-    pub size: u32, pub format: u32, pub samples: u8, pub reserved: [u8; 3],
-    pub mask_width: u32, pub mask_height: u32, pub color_width: u32, pub color_height: u32,
+    pub size: u32,
+    pub format: u32,
+    pub samples: u8,
+    pub reserved: [u8; 3],
+    pub mask_width: u32,
+    pub mask_height: u32,
+    pub color_width: u32,
+    pub color_height: u32,
     pub reserved_tail: u32,
 }
 impl Default for PxuiTargetDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, format: 0, samples: 1, reserved: [0; 3], mask_width: 0, mask_height: 0, color_width: 0, color_height: 0, reserved_tail: 0 } } }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiUiDesc { pub size: u32, pub platform: u32, pub font_size: i32 }
+pub struct PxuiUiDesc {
+    pub size: u32,
+    pub platform: u32,
+    pub font_size: i32,
+}
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0 } } }
 
 #[cfg(test)]

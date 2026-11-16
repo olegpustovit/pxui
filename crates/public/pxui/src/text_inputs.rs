@@ -17,7 +17,12 @@ library!(lib {
 
 // What the library's callbacks reach during one `value_field` call: the app's closures and the text a callback produced
 // (lent to the library until the next callback).
-struct Field<'a> { valid: &'a dyn Fn(&str) -> bool, slide: Option<&'a dyn Fn(f32) -> String>, scrub: Option<&'a dyn Fn(&str, f32, bool) -> String>, produced: String }
+struct Field<'a> {
+    valid: &'a dyn Fn(&str) -> bool,
+    slide: Option<&'a dyn Fn(f32) -> String>,
+    scrub: Option<&'a dyn Fn(&str, f32, bool) -> String>,
+    produced: String,
+}
 
 fn text<'a>(value: Str) -> Option<&'a str> {
     if value.len != 0 && value.ptr.is_null() { return None; }

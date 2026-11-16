@@ -14,7 +14,15 @@ const SHAPES: usize = 300;
 use mem_sys as _;
 use pxui_types::{Axis, FrameIn, Size, layout::{Cell, Grid, Track}};
 
-struct State { clicks: u32, night: bool, check: bool, volume: f32, mode: usize, seen: u64, hit: HitFn }
+struct State {
+    clicks: u32,
+    night: bool,
+    check: bool,
+    volume: f32,
+    mode: usize,
+    seen: u64,
+    hit: HitFn,
+}
 
 fn panel(ui: &mut Ui, s: &mut State) {
     ui.panel(pxui_types::ui::PanelOpts::default(), "settings", &mut |ui: &mut Ui| {

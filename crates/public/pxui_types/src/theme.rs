@@ -313,7 +313,10 @@ macro_rules! body_kind_numbers {
         #[repr(u32)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #[allow(non_camel_case_types)]
-        pub enum BodyKind { $($kind),* }
+        pub enum BodyKind {
+            $($kind),
+            *,
+        }
     };
 }
 body_kinds!(body_kind_numbers);

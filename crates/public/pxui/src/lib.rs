@@ -176,7 +176,10 @@ mod sys {
 }
 
 #[derive(Clone, Copy, Default)]
-pub struct TargetDesc { pub format:u32, pub samples:u8 }
+pub struct TargetDesc {
+    pub format:u32,
+    pub samples:u8,
+}
 
 /// A renderer on the app's device, bound to the `Ui` it was made from. Either may drop first: a `Ui` dropped while its renderer lives
 /// is destroyed when the renderer drops.
@@ -221,12 +224,21 @@ impl Renderer {
 /// A layer of the last frame: the key of its root box, its retained id, its instances, how many texture breaks they hold and the
 /// instance ranges changed since it was last drawn.
 #[derive(Clone, Copy, Debug)]
-pub struct Layer<'a> { pub key: i64, pub id: u32, pub breaks: usize, pub instances: &'a [pxui_types::draw::Instance], pub dirty: &'a [pxui_types::ffi::PxuiDirty] }
+pub struct Layer<'a> {
+    pub key: i64,
+    pub id: u32,
+    pub breaks: usize,
+    pub instances: &'a [pxui_types::draw::Instance],
+    pub dirty: &'a [pxui_types::ffi::PxuiDirty],
+}
 
 /// What a pass split hands the app's recorder: the colour target of the pass the app just ended.
 pub type Recorder<'a> = &'a mut dyn FnMut(&pxui_types::Image) -> Result<(), i32>;
 
-struct Split<'a> { f: &'a mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, i32>, error: i32 }
+struct Split<'a> {
+    f: &'a mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, i32>,
+    error: i32,
+}
 
 extern "C" fn split_pass(user: *mut c_void, record: pxui_types::PassRecord, record_user: *mut c_void, out: *mut pxui_types::Pass) -> i32 {
     if deferred_panic() { return -1; }
@@ -261,7 +273,12 @@ impl Renderer {
 
 /// A glyph atlas of the renderer, for an app pass that draws text quads.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum AtlasKind { Mask, Color, Mask2, Color2 }
+pub enum AtlasKind {
+    Mask,
+    Color,
+    Mask2,
+    Color2,
+}
 
 impl Renderer {
     /// The renderer's atlas: R8 for `Mask`/`Mask2`, RGBA8 for `Color`/`Color2`.
@@ -290,7 +307,10 @@ fn sweep_orphans() {
 
 /// The input of a frame as routed to one owner: its scalars and the wire form of its keys, buttons and events (the numbering of
 /// `input::wire`), borrowed from the `Ui`.
-pub struct Routed<'a> { raw: Input, _ui: PhantomData<&'a mut Ui> }
+pub struct Routed<'a> {
+    raw: Input,
+    _ui: PhantomData<&'a mut Ui>,
+}
 
 impl Routed<'_> {
     /// Numeric touch payload borrowed from this routed frame. Non-touch events return None.
@@ -313,7 +333,10 @@ pub fn event_text(event: &Event) -> &str {
 
 /// One built frame: the draw output and damage of `pxui_frame`. It borrows the `Ui` it came from, so the
 /// layer pointers it holds cannot be read after the next frame invalidates them.
-pub struct Frame<'a> { out:FrameOut, _ui:PhantomData<&'a mut Ui> }
+pub struct Frame<'a> {
+    out:FrameOut,
+    _ui:PhantomData<&'a mut Ui>,
+}
 
 impl core::ops::Deref for Frame<'_> { type Target=FrameOut; #[inline] fn deref(&self)->&FrameOut { &self.out } }
 
@@ -594,7 +617,11 @@ impl Drop for Ui {
 }
 
 /// A `&[&str]` as a span of `Str` for one call: up to 32 strings live on the stack, more on the heap.
-pub(crate) struct Strs { stack:[Str;32], heap:Vec<Str>, len:usize }
+pub(crate) struct Strs {
+    stack:[Str;32],
+    heap:Vec<Str>,
+    len:usize,
+}
 
 impl Strs {
     #[inline]

@@ -97,7 +97,10 @@ extern "C" fn call_cell_str<'a, F: FnMut(i64, i64) -> &'a str>(user: *mut c_void
     }
 }
 
-struct CellText<F> { f: F, value: String }
+struct CellText<F> {
+    f: F,
+    value: String,
+}
 impl<F: FnMut(i64, i64) -> String> CellText<F> {
     fn erased(&mut self) -> (CellFn, *mut c_void) { (Some(call_cell::<F>), (self as *mut Self).cast()) }
 }
@@ -123,11 +126,23 @@ fn encode_look(value: Look) -> PxuiLookDesc {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum AnimationTarget { Offset(f32, f32), Opacity(f32), Look(Look), Scale { x: f32, y: f32, anchor: (f32, f32) } }
+pub enum AnimationTarget {
+    Offset(f32, f32),
+    Opacity(f32),
+    Look(Look),
+    Scale { x: f32, y: f32, anchor: (f32, f32) },
+}
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Repeat { Count(u16), Forever }
+pub enum Repeat {
+    Count(u16),
+    Forever,
+}
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Keyframe { pub time: f32, pub target: AnimationTarget, pub curve: Curve }
+pub struct Keyframe {
+    pub time: f32,
+    pub target: AnimationTarget,
+    pub curve: Curve,
+}
 pub(crate) fn encode_curve(value: Curve) -> PxuiCurveDesc {
     match value {
         Curve::Bezier { duration, points } => PxuiCurveDesc { kind: PxuiCurveDesc::BEZIER, duration, points, ..PxuiCurveDesc::default() },
@@ -140,7 +155,11 @@ pub(crate) fn encode_curve(value: Curve) -> PxuiCurveDesc {
 const HINT_NONE: HintDesc = HintDesc { size: core::mem::size_of::<HintDesc>() as u32, reserved: 0, key: Str { ptr: core::ptr::null(), len: 0 }, value: Str { ptr: core::ptr::null(), len: 0 } };
 
 /// Hint rows as descriptors for one call: up to 16 on the stack, more on the heap.
-pub(crate) struct Hints { stack: [HintDesc; 16], heap: Vec<HintDesc>, len: usize }
+pub(crate) struct Hints {
+    stack: [HintDesc; 16],
+    heap: Vec<HintDesc>,
+    len: usize,
+}
 impl Hints {
     pub(crate) fn new(hints: &[(String, String)]) -> Hints {
         let mut out = Hints { stack: [HINT_NONE; 16], heap: Vec::new(), len: hints.len() };

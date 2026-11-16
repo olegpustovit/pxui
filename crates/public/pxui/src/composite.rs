@@ -5,7 +5,11 @@ use crate::node::size;
 use crate::{sys, Strs, Ui, check};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DialogOut { Open, Closed, Button(usize) }
+pub enum DialogOut {
+    Open,
+    Closed,
+    Button(usize),
+}
 
 // A panic in an app callback must not unwind through the library. The first one is kept here and every later callback
 // of the call is skipped; the outermost call that can run callbacks (frame, prepare, draw) resumes it after it returns.

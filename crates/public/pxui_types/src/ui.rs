@@ -18,7 +18,11 @@ pub struct SectionList {
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum SectionPart { Leading, Header, Row(usize) }
+pub enum SectionPart {
+    Leading,
+    Header,
+    Row(usize),
+}
 
 pub const NO_FLAGS: Flags = 0;
 pub const CLICKABLE: Flags = 1;

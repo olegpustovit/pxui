@@ -5,7 +5,12 @@ library!(scrub_lib {
 });
 
 #[derive(Clone, Copy, Debug)]
-pub struct Scrub { pub node: PxuiBox, pub preview: Option<f32>, pub commit: Option<f32>, pub held: bool }
+pub struct Scrub {
+    pub node: PxuiBox,
+    pub preview: Option<f32>,
+    pub commit: Option<f32>,
+    pub held: bool,
+}
 #[cfg(not(feature = "static"))]
 use crate::Strs;
 #[cfg(not(feature = "static"))]

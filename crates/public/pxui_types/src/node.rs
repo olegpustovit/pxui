@@ -11,7 +11,10 @@ macro_rules! opt {
         $(#[$doc])*
         #[repr(C, u8)]
         #[derive(Clone, Copy, Debug, Default, PartialEq)]
-        pub enum $name { #[default] None, Some($($t),+) }
+        pub enum $name {
+            #[default] None,
+            Some($($t),+),
+        }
         impl $name {
             #[inline] pub const fn get(self) -> Option<$get> { match self { Self::Some($($v),+) => Some($some), Self::None => None } }
             #[inline] pub const fn is_some(&self) -> bool { matches!(self, Self::Some(..)) }
@@ -31,7 +34,10 @@ opt!(/** `Option<Bar>` */ OptBar(Bar) Bar, |v| v, |v| Self::Some(v));
 /// inline it made every `Node` copy 112 bytes longer, so `Ui::animate` and keyframes take tables and a node does not.
 #[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub enum Transition { Bezier { duration: f32, points: [f32; 4] }, Spring { omega: f32 } }
+pub enum Transition {
+    Bezier { duration: f32, points: [f32; 4] },
+    Spring { omega: f32 },
+}
 impl Transition {
     /// `None` for a table or steps, which a node does not carry.
     pub fn of(curve: Curve) -> Option<Self> {

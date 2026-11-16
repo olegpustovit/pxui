@@ -59,18 +59,31 @@ impl Default for PlatformOut {
 /// Instances `start..end` of a layer changed since it was last drawn.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct PxuiDirty { pub start: u32, pub end: u32 }
+pub struct PxuiDirty {
+    pub start: u32,
+    pub end: u32,
+}
 
 /// One layer of the last frame (a floating root's, drawn in order): the key of its root box, its retained id, its instances (an
 /// empty layer draws nothing), how many texture breaks they hold and the instance ranges changed since it was last drawn. Borrowed
 /// until the next frame.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiLayerInfo { pub key: i64, pub id: u32, pub breaks: u32, pub instances: Slice<crate::draw::Instance>, pub dirty: Slice<PxuiDirty> }
+pub struct PxuiLayerInfo {
+    pub key: i64,
+    pub id: u32,
+    pub breaks: u32,
+    pub instances: Slice<crate::draw::Instance>,
+    pub dirty: Slice<PxuiDirty>,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct Damage { pub has_damage: u8, pub reserved: [u8; 3], pub rect: Rect }
+pub struct Damage {
+    pub has_damage: u8,
+    pub reserved: [u8; 3],
+    pub rect: Rect,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
@@ -115,7 +128,14 @@ pub struct A11yNode {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct A11yAction { pub id: u64, pub action_code: u32, pub reserved: u32, pub payload: f64, pub end: u32, pub reserved_tail: u32 }
+pub struct A11yAction {
+    pub id: u64,
+    pub action_code: u32,
+    pub reserved: u32,
+    pub payload: f64,
+    pub end: u32,
+    pub reserved_tail: u32,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
@@ -155,12 +175,21 @@ impl Default for Output {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct ThemeSource { pub size: u32, pub flags: u32, pub source: Str }
+pub struct ThemeSource {
+    pub size: u32,
+    pub flags: u32,
+    pub source: Str,
+}
 impl Default for ThemeSource { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, flags: 0, source: Str::default() } } }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiMotion { pub fast: f32, pub normal: f32, pub slow: f32, pub ease: [f32; 4] }
+pub struct PxuiMotion {
+    pub fast: f32,
+    pub normal: f32,
+    pub slow: f32,
+    pub ease: [f32; 4],
+}
 
 /// Stable snapshot of Gallery paint tokens; independent of the private theme graph.
 #[repr(C)]
@@ -190,61 +219,123 @@ pub struct ThemeTokens {
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiDialogOut { pub tag: u32, pub index: usize }
+pub struct PxuiDialogOut {
+    pub tag: u32,
+    pub index: usize,
+}
 
 /// The fields of a declared node an app edits in place after its signal is known (`Ui::node_mut`): its look, its mark and the
 /// inset of its text.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiNodeFields { pub size: u32, pub reserved: u32, pub look: PxuiLookDesc, pub mark: PxuiMarkDesc, pub inset: Edges }
+pub struct PxuiNodeFields {
+    pub size: u32,
+    pub reserved: u32,
+    pub look: PxuiLookDesc,
+    pub mark: PxuiMarkDesc,
+    pub inset: Edges,
+}
 
 /// A byte range `start..end` of a text.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiRange { pub start: i64, pub end: i64 }
+pub struct PxuiRange {
+    pub start: i64,
+    pub end: i64,
+}
 
 /// A byte range with a colour: a syntax span or a chip.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiColorSpan { pub start: i64, pub end: i64, pub color: Rgba, pub reserved: u32 }
+pub struct PxuiColorSpan {
+    pub start: i64,
+    pub end: i64,
+    pub color: Rgba,
+    pub reserved: u32,
+}
 
 /// A message under a line of a text area, optionally pointing at a byte range of it.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiNote { pub line: i64, pub start: i64, pub end: i64, pub has_range: u8, pub reserved: [u8; 7], pub text: Str }
+pub struct PxuiNote {
+    pub line: i64,
+    pub start: i64,
+    pub end: i64,
+    pub has_range: u8,
+    pub reserved: [u8; 7],
+    pub text: Str,
+}
 
 /// A replacement of bytes `start..end` of the text with `text`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiSplice { pub start: i64, pub end: i64, pub text: Str }
+pub struct PxuiSplice {
+    pub start: i64,
+    pub end: i64,
+    pub text: Str,
+}
 
 /// One suggestion of a language's `complete`: the byte range `insert` replaces, the row, its detail and its doc line.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiCompletion { pub start: i64, pub end: i64, pub insert: Str, pub label: Str, pub detail: Str, pub doc: Str }
+pub struct PxuiCompletion {
+    pub start: i64,
+    pub end: i64,
+    pub insert: Str,
+    pub label: Str,
+    pub detail: Str,
+    pub doc: Str,
+}
 
 /// A token's byte range and its description (`has` is 0 for none).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiDescription { pub has: u8, pub reserved: [u8; 7], pub start: i64, pub end: i64, pub text: Str }
+pub struct PxuiDescription {
+    pub has: u8,
+    pub reserved: [u8; 7],
+    pub start: i64,
+    pub end: i64,
+    pub text: Str,
+}
 
 /// An optional byte range (`has` is 0 for none).
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiMaybeRange { pub has: u8, pub reserved: [u8; 7], pub start: i64, pub end: i64 }
+pub struct PxuiMaybeRange {
+    pub has: u8,
+    pub reserved: [u8; 7],
+    pub start: i64,
+    pub end: i64,
+}
 
 /// What a language's `rewrite` returns: the text it keeps and where the caret lands in it.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiRewrite { pub text: Str, pub caret: i64 }
+pub struct PxuiRewrite {
+    pub text: Str,
+    pub caret: i64,
+}
 
 /// A text area (`TextAreaOpts`): its place, its text and the data options. `flags` are the `PxuiTextAreaDesc::*` bits.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiTextAreaDesc {
-    pub size: u32, pub flags: u32, pub x: f32, pub y: f32, pub width: f32, pub height: f32,
-    pub reveal: i64, pub reveal_nonce: i64, pub select: PxuiRange, pub label: Str, pub value: Str,
-    pub errors: Slice<i64>, pub messages: Slice<PxuiNote>, pub spans: Slice<PxuiRange>, pub splice: Slice<PxuiSplice>, pub chips: Slice<PxuiColorSpan>,
+    pub size: u32,
+    pub flags: u32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub reveal: i64,
+    pub reveal_nonce: i64,
+    pub select: PxuiRange,
+    pub label: Str,
+    pub value: Str,
+    pub errors: Slice<i64>,
+    pub messages: Slice<PxuiNote>,
+    pub spans: Slice<PxuiRange>,
+    pub splice: Slice<PxuiSplice>,
+    pub chips: Slice<PxuiColorSpan>,
     /// what starts a line comment (the language's `comment`)
     pub comment: Str,
     /// the language's bracket pairs, opener then closer, as Unicode scalar values
@@ -266,7 +357,9 @@ pub type AreaNotify = Option<extern "C" fn(*mut core::ffi::c_void, i64, i64)>;
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiAreaCallbacks {
-    pub size: u32, pub reserved: u32, pub user: *mut core::ffi::c_void,
+    pub size: u32,
+    pub reserved: u32,
+    pub user: *mut core::ffi::c_void,
     pub on_context: Option<extern "C" fn(*mut core::ffi::c_void, f32, f32)>,
     pub on_scrub: Option<extern "C" fn(*mut core::ffi::c_void, u32)>,
     pub on_scrub_edit: Option<extern "C" fn(*mut core::ffi::c_void, i64, i64, Str)>,
@@ -288,79 +381,182 @@ pub struct PxuiAreaCallbacks {
 /// A menu row's colour swatch: none while `has` is 0.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiSwatch { pub has: u8, pub reserved: [u8; 3], pub color: Rgba }
+pub struct PxuiSwatch {
+    pub has: u8,
+    pub reserved: [u8; 3],
+    pub color: Rgba,
+}
 
 /// A submenu of a context menu: the row of the menu that opens it, its rows (`enabled` is as long as `rows`), their keys
 /// and the row marked with the accent square (when `has_current`).
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiSubmenu { pub row: i64, pub current: i64, pub has_current: u8, pub reserved: [u8; 7], pub rows: Slice<Str>, pub enabled: Slice<u8>, pub keys: Slice<Str> }
+pub struct PxuiSubmenu {
+    pub row: i64,
+    pub current: i64,
+    pub has_current: u8,
+    pub reserved: [u8; 7],
+    pub rows: Slice<Str>,
+    pub enabled: Slice<u8>,
+    pub keys: Slice<Str>,
+}
 
 /// What a context menu has beyond its rows (`MenuOpts`): keys and swatches are per row (shorter than the rows is fine),
 /// `danger` the destructive rows, `lead_from` the first row that is not drawn with a leading mark.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
-pub struct PxuiMenuExtra { pub size: u32, pub reserved: u32, pub lead_from: i64, pub keys: Slice<Str>, pub swatches: Slice<PxuiSwatch>, pub danger: Slice<i64>, pub submenus: Slice<PxuiSubmenu> }
+pub struct PxuiMenuExtra {
+    pub size: u32,
+    pub reserved: u32,
+    pub lead_from: i64,
+    pub keys: Slice<Str>,
+    pub swatches: Slice<PxuiSwatch>,
+    pub danger: Slice<i64>,
+    pub submenus: Slice<PxuiSubmenu>,
+}
 
 /// C mirror of `Size`; kinds are Px=0, Pct=1, Rel=2, Grow=3, Fit=4.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiSizeDesc { pub kind: u32, pub value: f32, pub relative: Option<extern "C" fn(f32) -> f32> }
-impl PxuiSizeDesc { pub const PX: u32 = 0; pub const PCT: u32 = 1; pub const REL: u32 = 2; pub const GROW: u32 = 3; pub const FIT: u32 = 4; }
+pub struct PxuiSizeDesc {
+    pub kind: u32,
+    pub value: f32,
+    pub relative: Option<extern "C" fn(f32) -> f32>,
+}
+impl PxuiSizeDesc {
+    pub const PX: u32 = 0;
+    pub const PCT: u32 = 1;
+    pub const REL: u32 = 2;
+    pub const GROW: u32 = 3;
+    pub const FIT: u32 = 4;
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiAnchorDesc {
-    pub has_anchor: u8, pub reserved: [u8; 3], pub rect: Rect, pub side: u32, pub align: u32,
-    pub gap: f32, pub margin: f32, pub flip: u8, pub reserved_tail: [u8; 3],
+    pub has_anchor: u8,
+    pub reserved: [u8; 3],
+    pub rect: Rect,
+    pub side: u32,
+    pub align: u32,
+    pub gap: f32,
+    pub margin: f32,
+    pub flip: u8,
+    pub reserved_tail: [u8; 3],
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiFontDesc { pub family: u16, pub weight: u16, pub size: i64, pub tracking: f32, pub caps: u8, pub reserved: [u8; 3] }
+pub struct PxuiFontDesc {
+    pub family: u16,
+    pub weight: u16,
+    pub size: i64,
+    pub tracking: f32,
+    pub caps: u8,
+    pub reserved: [u8; 3],
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiShadowDesc { pub color: Rgba, pub offset: [f32; 2], pub blur: f32, pub spread: f32, pub inner: u8, pub reserved: [u8; 3] }
+pub struct PxuiShadowDesc {
+    pub color: Rgba,
+    pub offset: [f32; 2],
+    pub blur: f32,
+    pub spread: f32,
+    pub inner: u8,
+    pub reserved: [u8; 3],
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiRingDesc { pub color: Rgba, pub width: f32, pub sides: u32 }
+pub struct PxuiRingDesc {
+    pub color: Rgba,
+    pub width: f32,
+    pub sides: u32,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiLookDesc {
-    pub fill: Rgba, pub gradient: Rgba, pub has_gradient: u8, pub reserved: [u8; 3], pub angle: f32,
-    pub border: Rgba, pub border_w: f32, pub sides: u32, pub radius: [f32; 4], pub shadows: [PxuiShadowDesc; 2],
-    pub text: Rgba, pub font: PxuiFontDesc, pub opacity: f32, pub ring: PxuiRingDesc,
-    pub selection: Rgba, pub caret: Rgba, pub dashed: u8, pub reserved_tail: [u8; 3],
+    pub fill: Rgba,
+    pub gradient: Rgba,
+    pub has_gradient: u8,
+    pub reserved: [u8; 3],
+    pub angle: f32,
+    pub border: Rgba,
+    pub border_w: f32,
+    pub sides: u32,
+    pub radius: [f32; 4],
+    pub shadows: [PxuiShadowDesc; 2],
+    pub text: Rgba,
+    pub font: PxuiFontDesc,
+    pub opacity: f32,
+    pub ring: PxuiRingDesc,
+    pub selection: Rgba,
+    pub caret: Rgba,
+    pub dashed: u8,
+    pub reserved_tail: [u8; 3],
 }
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiMarkDesc { pub kind: u32, pub direction: u32, pub width: f32, pub rising: u8, pub reserved: [u8; 3] }
+pub struct PxuiMarkDesc {
+    pub kind: u32,
+    pub direction: u32,
+    pub width: f32,
+    pub rising: u8,
+    pub reserved: [u8; 3],
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiStateDesc { pub hovered: u8, pub pressed: u8, pub focused: u8, pub disabled: u8, pub checked: u8, pub reserved: [u8; 3] }
+pub struct PxuiStateDesc {
+    pub hovered: u8,
+    pub pressed: u8,
+    pub focused: u8,
+    pub disabled: u8,
+    pub checked: u8,
+    pub reserved: [u8; 3],
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct PxuiCurveDesc {
-    pub kind: u32, pub duration: f32, pub points: [f32; 4], pub omega: f32,
-    pub count: u32, pub positions: [f32; 16], pub values: [f32; 16],
+    pub kind: u32,
+    pub duration: f32,
+    pub points: [f32; 4],
+    pub omega: f32,
+    pub count: u32,
+    pub positions: [f32; 16],
+    pub values: [f32; 16],
 }
-impl PxuiCurveDesc { pub const NONE: u32 = 0; pub const BEZIER: u32 = 1; pub const SPRING: u32 = 2; pub const TABLE: u32 = 3; pub const STEPS: u32 = 4; }
+impl PxuiCurveDesc {
+    pub const NONE: u32 = 0;
+    pub const BEZIER: u32 = 1;
+    pub const SPRING: u32 = 2;
+    pub const TABLE: u32 = 3;
+    pub const STEPS: u32 = 4;
+}
 
 impl PxuiMarkDesc {
-    pub const NONE: u32 = 0; pub const CHEVRON: u32 = 1; pub const LINE: u32 = 2;
-    pub const DIR_DOWN: u32 = 0; pub const DIR_UP: u32 = 1; pub const DIR_LEFT: u32 = 2; pub const DIR_RIGHT: u32 = 3;
+    pub const NONE: u32 = 0;
+    pub const CHEVRON: u32 = 1;
+    pub const LINE: u32 = 2;
+    pub const DIR_DOWN: u32 = 0;
+    pub const DIR_UP: u32 = 1;
+    pub const DIR_LEFT: u32 = 2;
+    pub const DIR_RIGHT: u32 = 3;
 }
 
 /// Opaque `enter` state: pass it back to `leave` unchanged.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
-pub struct PxuiSaved { pub size: u32, pub reserved: u32, pub parents: usize, pub seeds: usize }
+pub struct PxuiSaved {
+    pub size: u32,
+    pub reserved: u32,
+    pub parents: usize,
+    pub seeds: usize,
+}
 
 /// What `pxui_ui_signal` reports for one box. `keys` is borrowed from the `Ui` and valid until the next frame.
 #[repr(C)]
@@ -476,8 +672,13 @@ impl Default for PxuiSignal {
     }
 }
 impl PxuiSignal {
-    pub const HOVERED: u32 = 1; pub const PRESSED: u32 = 2; pub const HELD: u32 = 4; pub const RELEASED: u32 = 8;
-    pub const CLICKED: u32 = 16; pub const DOUBLE_CLICKED: u32 = 32; pub const DRAGGING: u32 = 64;
+    pub const HOVERED: u32 = 1;
+    pub const PRESSED: u32 = 2;
+    pub const HELD: u32 = 4;
+    pub const RELEASED: u32 = 8;
+    pub const CLICKED: u32 = 16;
+    pub const DOUBLE_CLICKED: u32 = 32;
+    pub const DRAGGING: u32 = 64;
 }
 
 pub type PxuiInput = Input;
@@ -497,8 +698,15 @@ pub type PxuiThemeTokens = ThemeTokens;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiPaintInfo {
-    pub size: u32, pub rtl: u8, pub reserved: [u8; 3], pub font_size: i64, pub row_height: i64, pub density: i64,
-    pub clip: Rect, pub clip_radius: f32, pub theme: ThemeTokens,
+    pub size: u32,
+    pub rtl: u8,
+    pub reserved: [u8; 3],
+    pub font_size: i64,
+    pub row_height: i64,
+    pub density: i64,
+    pub clip: Rect,
+    pub clip_radius: f32,
+    pub theme: ThemeTokens,
 }
 
 /// `value_field`'s place, text and options. Each `HAS_*` flag says whether the option next to it is set; `lead` and `trail` are
@@ -506,10 +714,25 @@ pub struct PxuiPaintInfo {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiValueFieldDesc {
-    pub size: u32, pub flags: u32, pub font_size: i64, pub fraction: f32, pub tracking: f32,
-    pub line: Rgba, pub lead_color: Rgba, pub trail_color: Rgba, pub reserved: [u8; 4],
-    pub x: f32, pub y: f32, pub width: f32, pub height: f32,
-    pub display: Str, pub placeholder: Str, pub lead: Str, pub trail: Str, pub label: Str, pub value: Str,
+    pub size: u32,
+    pub flags: u32,
+    pub font_size: i64,
+    pub fraction: f32,
+    pub tracking: f32,
+    pub line: Rgba,
+    pub lead_color: Rgba,
+    pub trail_color: Rgba,
+    pub reserved: [u8; 4],
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub display: Str,
+    pub placeholder: Str,
+    pub lead: Str,
+    pub trail: Str,
+    pub label: Str,
+    pub value: Str,
 }
 
 impl PxuiValueFieldDesc {
@@ -532,38 +755,86 @@ impl PxuiValueFieldDesc {
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiPopupDesc {
-    pub size: u32, pub has_stroke: u8, pub has_max_height: u8, pub dismiss_initial: u8, pub attached: u8,
-    pub stroke: Rgba, pub max_height: f32, pub x: f32, pub y: f32, pub width: f32, pub height: f32, pub label: Str,
+    pub size: u32,
+    pub has_stroke: u8,
+    pub has_max_height: u8,
+    pub dismiss_initial: u8,
+    pub attached: u8,
+    pub stroke: Rgba,
+    pub max_height: f32,
+    pub x: f32,
+    pub y: f32,
+    pub width: f32,
+    pub height: f32,
+    pub label: Str,
 }
 
 /// One text button of an inspector head.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PxuiHeadActionDesc { pub size: u32, pub active: u8, pub usable: u8, pub reserved: [u8; 2], pub caption: Str, pub keycap: Str }
+pub struct PxuiHeadActionDesc {
+    pub size: u32,
+    pub active: u8,
+    pub usable: u8,
+    pub reserved: [u8; 2],
+    pub caption: Str,
+    pub keycap: Str,
+}
 
 /// An inspector head. `kind`, `badge`, `index` and `reset` are read when their flag is set.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiHeaderDesc {
-    pub size: u32, pub has_kind: u8, pub has_badge: u8, pub has_index: u8, pub has_reset: u8, pub reset_enabled: u8, pub reserved: [u8; 3],
-    pub key: Str, pub kind: Str, pub badge: Str, pub index: Str, pub reset: Str, pub title: Str, pub detail: Str, pub actions: Slice<PxuiHeadActionDesc>,
+    pub size: u32,
+    pub has_kind: u8,
+    pub has_badge: u8,
+    pub has_index: u8,
+    pub has_reset: u8,
+    pub reset_enabled: u8,
+    pub reserved: [u8; 3],
+    pub key: Str,
+    pub kind: Str,
+    pub badge: Str,
+    pub index: Str,
+    pub reset: Str,
+    pub title: Str,
+    pub detail: Str,
+    pub actions: Slice<PxuiHeadActionDesc>,
 }
 
 /// What a head reports: the name as edited (borrowed until the next frame), the pressed action (`chosen` when `has_chosen`)
 /// and whether `reset` was pressed.
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PxuiHeadOut { pub size: u32, pub has_chosen: u8, pub reset_pressed: u8, pub reserved: [u8; 2], pub renamed: Str, pub chosen: i64 }
+pub struct PxuiHeadOut {
+    pub size: u32,
+    pub has_chosen: u8,
+    pub reset_pressed: u8,
+    pub reserved: [u8; 2],
+    pub renamed: Str,
+    pub chosen: i64,
+}
 
 /// `BoxOpts` crossing: `axis` is 0 row, 1 column, 2 stack. `hit` (with `hit_user` and `hit_release`, called once when the
 /// box's slot lets go of it) replaces the box's hit rectangle by the one it returns for the laid-out rectangle.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiBoxDesc {
-    pub size: u32, pub axis: u32, pub flags: i64, pub w: PxuiSizeDesc, pub h: PxuiSizeDesc,
-    pub max_h: f32, pub padding: f32, pub scroll_step: f32, pub has_at: u8, pub has_hit_rect: u8, pub reserved: [u8; 2],
-    pub at: [f32; 2], pub hit_rect: Rect,
-    pub hit: Option<extern "C" fn(*mut core::ffi::c_void, Rect) -> Rect>, pub hit_user: *mut core::ffi::c_void,
+    pub size: u32,
+    pub axis: u32,
+    pub flags: i64,
+    pub w: PxuiSizeDesc,
+    pub h: PxuiSizeDesc,
+    pub max_h: f32,
+    pub padding: f32,
+    pub scroll_step: f32,
+    pub has_at: u8,
+    pub has_hit_rect: u8,
+    pub reserved: [u8; 2],
+    pub at: [f32; 2],
+    pub hit_rect: Rect,
+    pub hit: Option<extern "C" fn(*mut core::ffi::c_void, Rect) -> Rect>,
+    pub hit_user: *mut core::ffi::c_void,
     pub hit_release: Option<extern "C" fn(*mut core::ffi::c_void)>,
 }
 
@@ -584,69 +855,199 @@ pub type PxuiGridBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core:
 
 #[repr(C)]
 #[derive(Clone, Copy)]
-pub struct PxuiMenuDesc { pub size: u32, pub reserved: u32, pub title: Str, pub items: Slice<Str> }
+pub struct PxuiMenuDesc {
+    pub size: u32,
+    pub reserved: u32,
+    pub title: Str,
+    pub items: Slice<Str>,
+}
 #[repr(C)]
-pub struct PxuiGridListDesc { pub size: u32, pub reserved: u32, pub label: Str, pub count: usize, pub cell_w: f32, pub cell_h: f32, pub build: PxuiGridBuild, pub user: *mut core::ffi::c_void }
+pub struct PxuiGridListDesc {
+    pub size: u32,
+    pub reserved: u32,
+    pub label: Str,
+    pub count: usize,
+    pub cell_w: f32,
+    pub cell_h: f32,
+    pub build: PxuiGridBuild,
+    pub user: *mut core::ffi::c_void,
+}
 
 /// The callback receives usize::MAX for the lead-in, MAX-1 for the heading, and an index for rows.
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiSectionListDesc {
-    pub size:u32, pub overlay_scrollbar:u8, pub reserved:[u8;3],
-    pub label:Str, pub count:usize,
-    pub row_height:f32, pub leading_height:f32, pub header_height:f32, pub trailing_height:f32,
-    pub build:PxuiGridBuild, pub user:*mut core::ffi::c_void,
+    pub size:u32,
+    pub overlay_scrollbar:u8,
+    pub reserved:[u8;3],
+    pub label:Str,
+    pub count:usize,
+    pub row_height:f32,
+    pub leading_height:f32,
+    pub header_height:f32,
+    pub trailing_height:f32,
+    pub build:PxuiGridBuild,
+    pub user:*mut core::ffi::c_void,
 }
 pub type PxuiMeasuredSectionBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, f32)>;
 #[repr(C)]
 #[derive(Clone, Copy)]
 pub struct PxuiMeasuredSectionDesc {
-    pub size:u32, pub overlay_scrollbar:u8, pub reserved:[u8;3],
-    pub label:Str, pub count:usize,
-    pub row_height:f32, pub leading_height:f32, pub header_height:f32, pub trailing_height:f32,
-    pub build:PxuiMeasuredSectionBuild, pub user:*mut core::ffi::c_void,
+    pub size:u32,
+    pub overlay_scrollbar:u8,
+    pub reserved:[u8;3],
+    pub label:Str,
+    pub count:usize,
+    pub row_height:f32,
+    pub leading_height:f32,
+    pub header_height:f32,
+    pub trailing_height:f32,
+    pub build:PxuiMeasuredSectionBuild,
+    pub user:*mut core::ffi::c_void,
 }
 #[repr(C)]
-pub struct PxuiSplitDesc { pub size: u32, pub axis: u32, pub label: Str, pub ratio: f32, pub min_a: f32, pub min_b: f32, pub reserved: u32, pub build_a: PxuiBuild, pub user_a: *mut core::ffi::c_void, pub build_b: PxuiBuild, pub user_b: *mut core::ffi::c_void }
+pub struct PxuiSplitDesc {
+    pub size: u32,
+    pub axis: u32,
+    pub label: Str,
+    pub ratio: f32,
+    pub min_a: f32,
+    pub min_b: f32,
+    pub reserved: u32,
+    pub build_a: PxuiBuild,
+    pub user_a: *mut core::ffi::c_void,
+    pub build_b: PxuiBuild,
+    pub user_b: *mut core::ffi::c_void,
+}
 #[repr(C)]
-pub struct PxuiMenuBarDesc { pub size: u32, pub reserved: u32, pub label: Str, pub menus: Slice<PxuiMenuDesc> }
+pub struct PxuiMenuBarDesc {
+    pub size: u32,
+    pub reserved: u32,
+    pub label: Str,
+    pub menus: Slice<PxuiMenuDesc>,
+}
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiMenuOut { pub size: u32, pub reserved: u32, pub menu: usize, pub item: usize }
+pub struct PxuiMenuOut {
+    pub size: u32,
+    pub reserved: u32,
+    pub menu: usize,
+    pub item: usize,
+}
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiHintDesc { pub size: u32, pub reserved: u32, pub key: Str, pub value: Str }
+pub struct PxuiHintDesc {
+    pub size: u32,
+    pub reserved: u32,
+    pub key: Str,
+    pub value: Str,
+}
 #[repr(C)]
-pub struct PxuiFooterDesc { pub size: u32, pub has_right: u8, pub reserved: [u8; 3], pub right: Str, pub hints: Slice<PxuiHintDesc> }
+pub struct PxuiFooterDesc {
+    pub size: u32,
+    pub has_right: u8,
+    pub reserved: [u8; 3],
+    pub right: Str,
+    pub hints: Slice<PxuiHintDesc>,
+}
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiKeyframeDesc { pub size: u32, pub time: f32, pub target: u32, pub reserved: u32, pub values: [f32; 4], pub look: PxuiLookDesc, pub curve: PxuiCurveDesc }
+pub struct PxuiKeyframeDesc {
+    pub size: u32,
+    pub time: f32,
+    pub target: u32,
+    pub reserved: u32,
+    pub values: [f32; 4],
+    pub look: PxuiLookDesc,
+    pub curve: PxuiCurveDesc,
+}
 
 #[repr(C)]
-pub struct PxuiInspectorRowDesc { pub size: u32, pub has_width: u8, pub has_pin: u8, pub pin: u8, pub reserved: u8, pub key: Str, pub label: Str, pub width: f32, pub reserved_tail: u32, pub row: PxuiBox, pub control_x: f32, pub control_y: f32, pub control_w: f32 }
+pub struct PxuiInspectorRowDesc {
+    pub size: u32,
+    pub has_width: u8,
+    pub has_pin: u8,
+    pub pin: u8,
+    pub reserved: u8,
+    pub key: Str,
+    pub label: Str,
+    pub width: f32,
+    pub reserved_tail: u32,
+    pub row: PxuiBox,
+    pub control_x: f32,
+    pub control_y: f32,
+    pub control_w: f32,
+}
 #[repr(C)]
-pub struct PxuiInspectorSectionDesc { pub size: u32, pub expanded: u8, pub has_set: u8, pub set_expanded: u8, pub reserved: u8, pub key: Str, pub label: Str, pub build: PxuiBuild, pub user: *mut core::ffi::c_void, pub out_open: u8 }
+pub struct PxuiInspectorSectionDesc {
+    pub size: u32,
+    pub expanded: u8,
+    pub has_set: u8,
+    pub set_expanded: u8,
+    pub reserved: u8,
+    pub key: Str,
+    pub label: Str,
+    pub build: PxuiBuild,
+    pub user: *mut core::ffi::c_void,
+    pub out_open: u8,
+}
 #[repr(C)]
-pub struct PxuiInspectorValueDesc { pub size: u32, pub has_width: u8, pub reserved: [u8; 3], pub key: Str, pub label: Str, pub value: Str, pub width: f32 }
+pub struct PxuiInspectorValueDesc {
+    pub size: u32,
+    pub has_width: u8,
+    pub reserved: [u8; 3],
+    pub key: Str,
+    pub label: Str,
+    pub value: Str,
+    pub width: f32,
+}
 #[repr(C)]
-pub struct PxuiInspectorTextDesc { pub size: u32, pub reserved: u32, pub key: Str, pub text: Str }
+pub struct PxuiInspectorTextDesc {
+    pub size: u32,
+    pub reserved: u32,
+    pub key: Str,
+    pub text: Str,
+}
 pub type PxuiTableCell = Option<extern "C" fn(*mut core::ffi::c_void, i64, i64) -> Str>;
 #[repr(C)]
-pub struct PxuiTableDesc { pub size: u32, pub reserved: u32, pub label: Str, pub at: [f32; 2], pub width: f32, pub height: f32, pub headers: Slice<Str>, pub rows: i64, pub cell: PxuiTableCell, pub user: *mut core::ffi::c_void }
+pub struct PxuiTableDesc {
+    pub size: u32,
+    pub reserved: u32,
+    pub label: Str,
+    pub at: [f32; 2],
+    pub width: f32,
+    pub height: f32,
+    pub headers: Slice<Str>,
+    pub rows: i64,
+    pub cell: PxuiTableCell,
+    pub user: *mut core::ffi::c_void,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiU8MutSpan { pub ptr: *mut u8, pub len: usize }
+pub struct PxuiU8MutSpan {
+    pub ptr: *mut u8,
+    pub len: usize,
+}
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiF32MutSpan { pub ptr: *mut f32, pub len: usize }
+pub struct PxuiF32MutSpan {
+    pub ptr: *mut f32,
+    pub len: usize,
+}
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiU32MutSpan { pub ptr: *mut u32, pub len: usize }
+pub struct PxuiU32MutSpan {
+    pub ptr: *mut u32,
+    pub len: usize,
+}
 
 #[repr(C)]
 #[derive(Clone, Copy, Default)]
-pub struct PxuiTreeNode { pub depth: u16, pub children: u8 }
+pub struct PxuiTreeNode {
+    pub depth: u16,
+    pub children: u8,
+}
 
 pub type PxuiCollectionEmit = Option<extern "C" fn(*mut core::ffi::c_void, Str)>;
 pub type PxuiCollectionText = Option<extern "C" fn(*mut core::ffi::c_void, usize, usize, PxuiCollectionEmit, *mut core::ffi::c_void)>;
@@ -713,18 +1114,45 @@ pub type PxuiBodyFn = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ff
 pub type PxuiCellBuild = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, usize, usize)>;
 
 #[repr(C)]
-pub struct PxuiListViewWithDesc { pub size: u32, pub multi: u8, pub reserved: [u8; 3], pub label: Str, pub count: usize, pub selected: PxuiU8MutSpan, pub build: PxuiCellBuild, pub user: *mut core::ffi::c_void }
+pub struct PxuiListViewWithDesc {
+    pub size: u32,
+    pub multi: u8,
+    pub reserved: [u8; 3],
+    pub label: Str,
+    pub count: usize,
+    pub selected: PxuiU8MutSpan,
+    pub build: PxuiCellBuild,
+    pub user: *mut core::ffi::c_void,
+}
 
 #[repr(C)]
 pub struct PxuiTreeViewWithDesc {
-    pub size: u32, pub reserved: u32, pub label: Str, pub nodes: Slice<PxuiTreeNode>, pub open: PxuiU8MutSpan, pub selected: *mut usize,
-    pub visible: PxuiU32MutSpan, pub visible_len: *mut usize, pub build: PxuiCellBuild, pub user: *mut core::ffi::c_void,
+    pub size: u32,
+    pub reserved: u32,
+    pub label: Str,
+    pub nodes: Slice<PxuiTreeNode>,
+    pub open: PxuiU8MutSpan,
+    pub selected: *mut usize,
+    pub visible: PxuiU32MutSpan,
+    pub visible_len: *mut usize,
+    pub build: PxuiCellBuild,
+    pub user: *mut core::ffi::c_void,
 }
 
 #[repr(C)]
 pub struct PxuiTableViewWithDesc {
-    pub size: u32, pub has_sort: u8, pub ascending: u8, pub reserved: [u8; 2], pub label: Str, pub titles: Slice<Str>, pub widths: PxuiF32MutSpan,
-    pub rows: usize, pub sort_column: usize, pub selected: *mut usize, pub build: PxuiCellBuild, pub user: *mut core::ffi::c_void,
+    pub size: u32,
+    pub has_sort: u8,
+    pub ascending: u8,
+    pub reserved: [u8; 2],
+    pub label: Str,
+    pub titles: Slice<Str>,
+    pub widths: PxuiF32MutSpan,
+    pub rows: usize,
+    pub sort_column: usize,
+    pub selected: *mut usize,
+    pub build: PxuiCellBuild,
+    pub user: *mut core::ffi::c_void,
 }
 
 use crate::theme::States as PxuiStates;

@@ -34,7 +34,12 @@ fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 // settled picker allocates nothing here. Taken for the call and put back, so a picker built inside a picker's callback finds them empty.
 thread_local! { static ROWS: Cell<(Vec<(String, String)>, Vec<Str>)> = const { Cell::new((Vec::new(), Vec::new())) }; }
 
-struct Rows<'a, F: ?Sized> { fill: &'a mut F, owned: Vec<(String, String)>, raw: Vec<Str>, options: &'a PickerOpts }
+struct Rows<'a, F: ?Sized> {
+    fill: &'a mut F,
+    owned: Vec<(String, String)>,
+    raw: Vec<Str>,
+    options: &'a PickerOpts,
+}
 extern "C" fn mark<F: ?Sized>(user: *mut c_void, row: i64, out: *mut pxui_types::geom::Rgba) -> u8 {
     if user.is_null() || out.is_null() || deferred() { return 0; }
     let ctx = unsafe { &*user.cast::<Rows<F>>() };
