@@ -19,6 +19,8 @@ pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, Platfor
 
 pub use pxui_types::theme;
 pub mod images;
+pub mod doc;
+pub mod testing;
 
 /// The engine's module paths, so an app moves to the wrapper by swapping its dependency.
 pub mod a11y {
@@ -375,6 +377,12 @@ impl Ui {
 
     /// Builds one frame. A panic in `build` (or in any callback of a widget it called) is carried out of the
     /// library and resumed here, after the call returns.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("a"));
+    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| ui.label("b")).unwrap();
+    /// assert_eq!(ui.frame_index(), 2);
+    /// ```
     pub fn frame(&mut self, input: &FrameIn, mut build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, i32> {
         let mut out = FrameOut::default();
         #[cfg(feature = "static")]
@@ -414,6 +422,11 @@ impl Ui {
     }
 
     /// The accessibility nodes of the last frame (parents before children), when `set_a11y(true)`.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |ui| ui.label("hi"));
+    /// assert!(!ui.a11y_nodes().is_empty());
+    /// ```
     pub fn a11y_nodes(&self) -> &[A11yNode] {
         let nodes = self.output().a11y.nodes;
         if nodes.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(nodes.ptr, nodes.len) } }
