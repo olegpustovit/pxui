@@ -6,7 +6,7 @@ pub mod windows_process;
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
-use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI64, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Mutex, OnceLock};
 
 static LIVE: AtomicU64 = AtomicU64::new(0);
@@ -78,6 +78,75 @@ pub fn local_reset() {
 pub fn local_peak_bytes() -> i64 { LOCAL.with(|local| local.get().1) + peer(COUNT_LOCAL_PEAK) as i64 }
 pub fn local_alloc_count() -> u64 { LOCAL.with(|local| local.get().2) + peer(COUNT_LOCAL_ALLOCS) }
 
+// Warm-scope tripwire. `WARM_ON` counts live scopes process-wide (the only cost when none is active); per thread the state is
+// 0 off, 1 recording, 2 capturing (the backtrace allocates: kept in the live byte totals so frees balance, never counted as an allocation or
+// recorded, so it cannot recurse).
+static WARM_ON: AtomicUsize = AtomicUsize::new(0);
+static REPORTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+thread_local! { static WARM: Cell<u8> = const { Cell::new(0) }; }
+
+/// Ends its thread's warm scope on drop.
+pub struct WarmScope(());
+
+impl Drop for WarmScope {
+    fn drop(&mut self) {
+        if WARM.try_with(|state| state.replace(0)).is_ok_and(|was| was != 0) {
+            WARM_ON.fetch_sub(1, Ordering::Relaxed);
+        }
+    }
+}
+
+/// Starts recording a backtrace for every allocation this thread makes until the returned guard drops.
+/// Read the result with [`take_reports`]; scopes do not nest (a second call on the same thread is a no-op).
+/// Allocates: nothing on the calling thread; reports are stored apart from the counters.
+/// Panics: never.
+///
+/// ```
+/// let scope = mem_sys::warm_scope();
+/// drop(scope);
+/// assert!(mem_sys::take_reports().is_empty());
+/// ```
+pub fn warm_scope() -> WarmScope {
+    if WARM.try_with(|state| state.replace(1)).is_ok_and(|was| was == 0) {
+        WARM_ON.fetch_add(1, Ordering::Relaxed);
+    }
+    WarmScope(())
+}
+
+/// Returns and clears the backtraces recorded so far by any thread's warm scope, one string per allocation.
+/// Allocates: only the returned vector. Reports are dropped, not stored, if the store is busy.
+pub fn take_reports() -> Vec<String> {
+    match REPORTS.lock() {
+        Ok(mut reports) => std::mem::take(&mut *reports),
+        Err(error) => std::mem::take(&mut *error.into_inner()),
+    }
+}
+
+fn note_alloc(size: usize) {
+    if WARM_ON.load(Ordering::Relaxed) != 0 {
+        match WARM.try_with(Cell::get) {
+            // Capture allocations keep the live byte totals balanced (their frees subtract) but are not counted as allocations.
+            Ok(2) => {
+                note_local(size as i64, 0);
+                LIVE.fetch_add(size as u64, Ordering::Relaxed);
+                return;
+            }
+            Ok(1) => {
+                add_live(size);
+                let _ = WARM.try_with(|state| state.set(2));
+                let report = std::backtrace::Backtrace::force_capture().to_string();
+                if let Ok(mut reports) = REPORTS.try_lock() {
+                    reports.push(report);
+                }
+                let _ = WARM.try_with(|state| state.set(1));
+                return;
+            }
+            _ => {}
+        }
+    }
+    add_live(size);
+}
+
 fn add_live(size: usize) {
     note_local(size as i64, 1);
     let size = size as u64;
@@ -108,7 +177,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc(layout) };
         if !pointer.is_null() {
-            add_live(layout.size());
+            note_alloc(layout.size());
         }
         pointer
     }
@@ -116,7 +185,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
     unsafe fn alloc_zeroed(&self, layout: Layout) -> *mut u8 {
         let pointer = unsafe { System.alloc_zeroed(layout) };
         if !pointer.is_null() {
-            add_live(layout.size());
+            note_alloc(layout.size());
         }
         pointer
     }
@@ -130,7 +199,7 @@ unsafe impl GlobalAlloc for CountingAllocator {
         let replacement = unsafe { System.realloc(pointer, layout, new_size) };
         if !replacement.is_null() {
             if new_size >= layout.size() {
-                add_live(new_size - layout.size());
+                note_alloc(new_size - layout.size());
             } else {
                 subtract_live(layout.size() - new_size);
             }
