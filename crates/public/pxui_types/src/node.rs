@@ -205,4 +205,246 @@ impl Node {
         },
         transition: OptTransition::None,
     };
+
+    /// A default node whose children flow as a row.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Axis, Node};
+    /// const N: Node = Node::row();
+    /// assert!(matches!(N.axis, Axis::Row));
+    /// ```
+    #[inline]
+    pub const fn row() -> Node {
+        Node { axis: Axis::Row, ..Node::DEFAULT }
+    }
+    /// A default node whose children flow as a column.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Axis, Node};
+    /// const N: Node = Node::column();
+    /// assert!(matches!(N.axis, Axis::Column));
+    /// ```
+    #[inline]
+    pub const fn column() -> Node {
+        Node { axis: Axis::Column, ..Node::DEFAULT }
+    }
+    /// A default node whose children flow as a stack.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Axis, Node};
+    /// const N: Node = Node::stack();
+    /// assert!(matches!(N.axis, Axis::Stack));
+    /// ```
+    #[inline]
+    pub const fn stack() -> Node {
+        Node { axis: Axis::Stack, ..Node::DEFAULT }
+    }
+    /// Sets the width rule.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node, Size};
+    /// const N: Node = Node::row().w(Size::Px(44.0));
+    /// assert!(matches!(N.w, Size::Px(v) if v == 44.0));
+    /// ```
+    #[inline]
+    pub const fn w(mut self, size: Size) -> Node {
+        self.w = size;
+        self
+    }
+    /// Sets the height rule.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node, Size};
+    /// const N: Node = Node::row().h(Size::Grow);
+    /// assert!(N.h.is_grow());
+    /// ```
+    #[inline]
+    pub const fn h(mut self, size: Size) -> Node {
+        self.h = size;
+        self
+    }
+    /// Sets the width to `points` fixed points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node, Size};
+    /// const N: Node = Node::row().w_px(44.0);
+    /// assert!(matches!(N.w, Size::Px(v) if v == 44.0));
+    /// ```
+    #[inline]
+    pub const fn w_px(mut self, points: f32) -> Node {
+        self.w = Size::Px(points);
+        self
+    }
+    /// Sets the height to `points` fixed points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node, Size};
+    /// const N: Node = Node::row().h_px(44.0);
+    /// assert!(matches!(N.h, Size::Px(v) if v == 44.0));
+    /// ```
+    #[inline]
+    pub const fn h_px(mut self, points: f32) -> Node {
+        self.h = Size::Px(points);
+        self
+    }
+    /// Sets the node's `grow` shares of the room its line leaves.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node};
+    /// const N: Node = Node::row().grow(2.0);
+    /// assert_eq!(N.grow, 2.0);
+    /// ```
+    #[inline]
+    pub const fn grow(mut self, share: f32) -> Node {
+        self.grow = share;
+        self
+    }
+    /// Sets the gap between children, in points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node};
+    /// const N: Node = Node::row().gap(8.0);
+    /// assert_eq!(N.gap, 8.0);
+    /// ```
+    #[inline]
+    pub const fn gap(mut self, points: f32) -> Node {
+        self.gap = points;
+        self
+    }
+    /// Sets the padding on all four edges, in points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Node;
+    /// const N: Node = Node::row().pad(4.0);
+    /// assert_eq!(N.padding.t, 4.0);
+    /// ```
+    #[inline]
+    pub const fn pad(mut self, points: f32) -> Node {
+        self.padding = Edges::all(points);
+        self
+    }
+    /// Sets the left and right padding, in points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node};
+    /// const N: Node = Node::row().pad_x(4.0);
+    /// assert_eq!((N.padding.l, N.padding.r, N.padding.t), (4.0, 4.0, 0.0));
+    /// ```
+    #[inline]
+    pub const fn pad_x(mut self, points: f32) -> Node {
+        self.padding.l = points;
+        self.padding.r = points;
+        self
+    }
+    /// Sets the top and bottom padding, in points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node};
+    /// const N: Node = Node::row().pad_y(4.0);
+    /// assert_eq!((N.padding.t, N.padding.b, N.padding.l), (4.0, 4.0, 0.0));
+    /// ```
+    #[inline]
+    pub const fn pad_y(mut self, points: f32) -> Node {
+        self.padding.t = points;
+        self.padding.b = points;
+        self
+    }
+    /// Centres children along and across the axis.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::layout::{Align, Justify};
+    /// use pxui_types::Node;
+    /// const N: Node = Node::row().center();
+    /// assert!(matches!((N.justify, N.align), (Justify::Center, Align::Center)));
+    /// ```
+    #[inline]
+    pub const fn center(mut self) -> Node {
+        self.justify = Justify::Center;
+        self.align = Align::Center;
+        self
+    }
+    /// Sets where children sit across the axis.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{layout::Align, Node};
+    /// const N: Node = Node::row().align(Align::End);
+    /// assert!(matches!(N.align, Align::End));
+    /// ```
+    #[inline]
+    pub const fn align(mut self, align: Align) -> Node {
+        self.align = align;
+        self
+    }
+    /// Sets what the node is to a screen reader.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{a11y::Role, Node};
+    /// const N: Node = Node::row().role(Role::Button);
+    /// assert!(matches!(N.role, Role::Button));
+    /// ```
+    #[inline]
+    pub const fn role(mut self, role: Role) -> Node {
+        self.role = role;
+        self
+    }
+    /// Sets the node's flag bits.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node};
+    /// const N: Node = Node::row().flags(3);
+    /// assert_eq!(N.flags, 3);
+    /// ```
+    #[inline]
+    pub const fn flags(mut self, flags: Flags) -> Node {
+        self.flags = flags;
+        self
+    }
 }

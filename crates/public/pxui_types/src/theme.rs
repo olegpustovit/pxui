@@ -497,6 +497,36 @@ impl Font {
         tracking: 0.0,
         caps: false,
     };
+    /// Sets the size in points (0 the UI body size, negative relative to it).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Font;
+    /// const F: Font = Font::BODY.size(14);
+    /// assert_eq!(F.size, 14);
+    /// ```
+    #[inline]
+    pub const fn size(mut self, points: i64) -> Font {
+        self.size = points;
+        self
+    }
+    /// Sets the weight (400 regular, 700 bold).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Font;
+    /// const F: Font = Font::BODY.weight(700);
+    /// assert_eq!(F.weight, 700);
+    /// ```
+    #[inline]
+    pub const fn weight(mut self, weight: u16) -> Font {
+        self.weight = weight;
+        self
+    }
     /// The size in points at UI font size `body`.
     pub fn points(&self, body: i64) -> i64 {
         if self.size > 0 {
@@ -572,6 +602,83 @@ impl Look {
         caret: CLEAR,
         dashed: false,
     };
+
+    /// Sets the fill colour.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look};
+    /// const L: Look = Look::NONE.fill(Rgba { r: 1, g: 2, b: 3, a: 255 });
+    /// assert_eq!(L.fill.g, 2);
+    /// ```
+    #[inline]
+    pub const fn fill(mut self, color: Color) -> Look {
+        self.fill = color;
+        self
+    }
+    /// Sets all four corner radii, in points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Look;
+    /// const L: Look = Look::NONE.radius(6.0);
+    /// assert_eq!(L.radius, [6.0; 4]);
+    /// ```
+    #[inline]
+    pub const fn radius(mut self, points: f32) -> Look {
+        self.radius = [points; 4];
+        self
+    }
+    /// Sets the border colour and its width in points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look};
+    /// const L: Look = Look::NONE.border(Rgba { r: 9, g: 9, b: 9, a: 255 }, 1.0);
+    /// assert_eq!(L.border_w, 1.0);
+    /// ```
+    #[inline]
+    pub const fn border(mut self, color: Color, width: f32) -> Look {
+        self.border = color;
+        self.border_w = width;
+        self
+    }
+    /// Sets the text colour.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look};
+    /// const L: Look = Look::NONE.text(Rgba { r: 1, g: 2, b: 3, a: 255 });
+    /// assert_eq!(L.text.b, 3);
+    /// ```
+    #[inline]
+    pub const fn text(mut self, color: Color) -> Look {
+        self.text = color;
+        self
+    }
+    /// Sets the text font.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Font, Look};
+    /// const L: Look = Look::NONE.font(Font::BODY.size(14));
+    /// assert_eq!(L.font.size, 14);
+    /// ```
+    #[inline]
+    pub const fn font(mut self, font: Font) -> Look {
+        self.font = font;
+        self
+    }
 
     /// The look `t` of the way from `self` to `to`: colours and sizes interpolate, the rest (font,
     /// sides) is `to`'s from the start.

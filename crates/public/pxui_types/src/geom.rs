@@ -38,6 +38,20 @@ pub struct Rgba {
 impl Edges {
     pub const ZERO: Edges = Edges { l: 0.0, t: 0.0, r: 0.0, b: 0.0 };
     pub const fn all(v: f32) -> Edges { Edges { l: v, t: v, r: v, b: v } }
+    /// Edges with `x` on the left and right and `y` on the top and bottom.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Edges;
+    /// const E: Edges = Edges::xy(2.0, 3.0);
+    /// assert_eq!(E, Edges { l: 2.0, t: 3.0, r: 2.0, b: 3.0 });
+    /// ```
+    #[inline]
+    pub const fn xy(x: f32, y: f32) -> Edges {
+        Edges { l: x, t: y, r: x, b: y }
+    }
 }
 
 impl Rect {

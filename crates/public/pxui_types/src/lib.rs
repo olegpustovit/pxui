@@ -748,3 +748,60 @@ mod abi_layout {
         );
     }
 }
+
+#[cfg(test)]
+mod builders {
+    use super::*;
+    use crate::a11y::Role;
+    use crate::geom::{Edges, Rgba};
+    use crate::layout::{Align, Justify};
+
+    const INK: Rgba = Rgba { r: 10, g: 20, b: 30, a: 255 };
+    const FONT: Font = Font::BODY.size(14).weight(700);
+    const LOOK: Look = Look::NONE.fill(INK).radius(6.0).border(INK, 1.0).text(INK).font(FONT);
+    const NODE: Node = Node::row().w(Size::Px(44.0)).h_px(30.0).grow(0.0).gap(8.0).pad(2.0).pad_x(4.0).pad_y(6.0)
+        .center().align(Align::End).role(Role::Button).flags(5);
+    const COLUMN: Node = Node::column();
+    const STACK: Node = Node::stack().w(Size::Fit).h(Size::Grow);
+
+    // Node has no PartialEq (Size holds a fn pointer, the record has padding): compare the Debug text of every field.
+    fn same(a: &Node, b: &Node) {
+        assert_eq!(format!("{a:?}"), format!("{b:?}"));
+    }
+
+    #[test]
+    fn builder_chains_equal_struct_literals() {
+        same(&NODE, &Node {
+            axis: Axis::Row,
+            w: Size::Px(44.0),
+            h: Size::Px(30.0),
+            grow: 0.0,
+            gap: 8.0,
+            padding: Edges { l: 4.0, t: 6.0, r: 4.0, b: 6.0 },
+            justify: Justify::Center,
+            align: Align::End,
+            role: Role::Button,
+            flags: 5,
+            ..Node::DEFAULT
+        });
+        same(&COLUMN, &Node { axis: Axis::Column, ..Node::DEFAULT });
+        same(&STACK, &Node { axis: Axis::Stack, w: Size::Fit, h: Size::Grow, ..Node::DEFAULT });
+        assert_eq!(Edges::xy(1.0, 2.0), Edges { l: 1.0, t: 2.0, r: 1.0, b: 2.0 });
+        assert_eq!(FONT, Font { size: 14, weight: 700, ..Font::BODY });
+        assert_eq!(LOOK, Look {
+            fill: INK,
+            radius: [6.0; 4],
+            border: INK,
+            border_w: 1.0,
+            text: INK,
+            font: Font { size: 14, weight: 700, ..Font::BODY },
+            ..Look::NONE
+        });
+    }
+
+    #[test]
+    fn pad_after_pad_x_keeps_the_later_edge() {
+        let n = Node::row().pad_x(4.0).pad(2.0);
+        assert_eq!(n.padding, Edges::all(2.0));
+    }
+}
