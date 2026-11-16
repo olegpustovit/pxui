@@ -41,7 +41,8 @@ impl Transition {
         match self { Self::Bezier { duration, points } => Curve::Bezier { duration, points }, Self::Spring { omega } => Curve::Spring { omega } }
     }
     /// Valid finite parameters, as `Curve::valid`. Checked at the ABI boundary.
-    pub fn valid(&self) -> bool { self.curve().valid() }
+    #[inline]
+    pub fn valid(&self) -> bool { match self { Self::Bezier { duration, points } => Curve::bezier_valid(*duration, points), Self::Spring { omega } => Curve::spring_valid(*omega) } }
 }
 opt!(/** `Option<Transition>` */ OptTransition(Transition) Transition, |v| v, |v| Self::Some(v));
 opt!(/** `Option<Color>` */ OptColor(Color) Color, |v| v, |v| Self::Some(v));

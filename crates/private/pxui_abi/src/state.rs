@@ -56,7 +56,7 @@ pub(crate) struct Shared {
     pub chunks: Vec<KeyChunk>,
     pub chunks_used: usize,
     /// the engine's input record of the last frame, kept for its vectors' capacity: a frame's events refill it without allocating
-    pub spare_input: Option<input::Frame>,
+    pub spare_input: Option<Box<input::frame::Frame>>,
     /// key codes of a box's held keys, valid until the next frame
     pub key_codes: Vec<u32>,
     pub menu: Vec<(String, bool)>,

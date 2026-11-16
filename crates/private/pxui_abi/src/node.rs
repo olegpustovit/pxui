@@ -223,9 +223,14 @@ export!(pub unsafe fn pxui_ui_set_node_layout(ui: *mut PxuiUi, box_: *const Pxui
 /// Ends a frame: frees replaced grid tracks and those of boxes that are gone. The output is built when it is read.
 pub(crate) fn finish_frame(shared: &mut Shared, engine: &Ui) {
     shared.grid_retired.clear();
-    if !shared.grid_tracks.is_empty() { shared.grid_tracks.retain(|key, _| engine.box_of_key(*key).is_some()); }
+    if !shared.grid_tracks.is_empty() { retire_gone_tracks(shared, engine); }
     shared.frame_ended = true;
 }
+
+/// Out of line: a frame without a grid node (most of them) never enters it, and this keeps its registers out of `finish_frame`'s entry.
+#[cold]
+#[inline(never)]
+fn retire_gone_tracks(shared: &mut Shared, engine: &Ui) { shared.grid_tracks.retain(|key, _| engine.box_of_key(*key).is_some()); }
 
 export!(trusted pub unsafe fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut Rect)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};

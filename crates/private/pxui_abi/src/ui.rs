@@ -243,6 +243,8 @@ fn touch_event(e:&pxui_types::Event)->Option<input::Touch> {
 
 pub(crate) fn translate_event(e: &pxui_types::Event) -> Option<Event> {
     if e.kind==pxui_types::Event::TOUCH {return touch_event(e).map(Event::Touch);}
+    // the commonest event of a frame carries no text or code: no wire record to build and decode
+    if e.kind==pxui_types::Event::POINTER_MOVED {return Some(Event::PointerMoved((e.x,e.y)));}
     Event::from_raw(&input::wire::Raw { kind: e.kind, code: e.code, x: e.x, y: e.y, value: e.value, text: unsafe { text(e.text) },touch:None })
 }
 
@@ -270,17 +272,46 @@ unsafe fn push_events(base: &mut input::Frame, events: Slice<pxui_types::Event>)
     true
 }
 
-/// Reuse input buffers; the event-only entry retains keys, and the snapshot entry replaces them.
-unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> input::Frame {
+/// Reuse input buffers (the whole frame record, boxed so a frame moves a pointer, not the record); the event-only entry retains keys,
+/// and the snapshot entry replaces them.
+unsafe fn take_input(ui: *mut PxuiUi, time: f64) -> Box<frame::Frame> {
     let mut base = unsafe { (*(*ui).shared).spare_input.take() }.unwrap_or_else(|| {
-        let mut base=input::at_time(time);
-        base.events.reserve(input::EVENT_RESERVE);
-        base
+        let mut input=input::at_time(time);
+        input.events.reserve(input::EVENT_RESERVE);
+        Box::new(frame::Frame { input, pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) })
     });
-    (base.t, base.dt, base.frame, base.tick, base.size, base.pointer) = (time, 0.0, 0, 0, (0, 0), (0.0, 0.0));
-    base.buttons.clear();
-    base.events.clear();
+    let input=&mut base.input;
+    (input.t, input.dt, input.frame, input.tick, input.size, input.pointer) = (time, 0.0, 0, 0, (0, 0), (0.0, 0.0));
+    input.buttons.clear();
+    input.events.clear();
     base
+}
+
+const NO_ENVIRONMENT: pxui_types::Environment = pxui_types::Environment { safe_area: [0.0; 4], keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4], keyboard_started: 0.0, keyboard_duration: 0.0, keyboard_curve: 0, keyboard_visible: 0 };
+const NO_KEYBOARD: pxui_types::Keyboard = pxui_types::Keyboard { frame: [0.0; 4], flags: 0 };
+
+/// Whether `len` bytes (a whole number of 4-byte words) at `a` and `b` are equal: a few wide compares where a float-by-float `==` is a
+/// branch each. Used on values with no padding, one of which the engine holds: it was validated when it was set, so identical bytes
+/// are valid (NaN included: it never was).
+#[inline(always)]
+unsafe fn same_bytes(a: *const u8, b: *const u8, len: usize) -> bool {
+    debug_assert!(len % 4 == 0);
+    let (mut diff, mut at) = (0u64, 0);
+    while at + 8 <= len { diff |= unsafe { a.add(at).cast::<u64>().read_unaligned() ^ b.add(at).cast::<u64>().read_unaligned() }; at += 8; }
+    if at < len { diff |= unsafe { u64::from(a.add(at).cast::<u32>().read_unaligned() ^ b.add(at).cast::<u32>().read_unaligned()) }; }
+    diff == 0
+}
+
+/// `same_bytes` of the host environment on two records.
+#[inline(always)]
+fn same_environment(a: &pxui_types::Environment, b: &pxui_types::Environment) -> bool {
+    unsafe { same_bytes((a as *const pxui_types::Environment).cast(), (b as *const pxui_types::Environment).cast(), core::mem::size_of::<pxui_types::Environment>()) }
+}
+
+/// `same_bytes` of the keyboard geometry on two records.
+#[inline(always)]
+fn same_keyboard(a: &pxui_types::Keyboard, b: &pxui_types::Keyboard) -> bool {
+    unsafe { same_bytes((a as *const pxui_types::Keyboard).cast(), (b as *const pxui_types::Keyboard).cast(), core::mem::size_of::<pxui_types::Keyboard>()) }
 }
 
 fn valid_environment(value:&pxui_types::Environment)->bool {
@@ -339,28 +370,37 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
     if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
-    let events=if input.event_count==0 {&[]} else {unsafe {core::slice::from_raw_parts(input.events,input.event_count)}};
-    if !valid_touches(events) {return unsafe {fail(ui,"invalid touch payload")};}
     let legacy=core::mem::offset_of!(FrameIn,appearance) as u32;
     let previous=core::mem::offset_of!(FrameIn,environment) as u32;
     let (appearance,reduced)=if input.size==legacy { (0,0) } else if input.size>=previous {
         (input.appearance,input.reduced_motion)
     } else { return unsafe { fail(ui,"invalid frame descriptor size") }; };
-    let environment=if input.size>=core::mem::offset_of!(FrameIn,keyboard) as u32 { input.environment } else { pxui_types::Environment::default() };
-    if !valid_environment(&environment) { return unsafe { fail(ui,"invalid host environment") }; }
-    let keyboard = if input.size >= core::mem::size_of::<FrameIn>() as u32 { input.keyboard } else { pxui_types::Keyboard::default() };
-    if !keyboard.valid() { return unsafe { fail(ui,"invalid keyboard geometry") }; }
+    // read where they lie: what the engine holds was validated when it was set (the default is valid), so a frame that repeats it
+    // compares bytes and checks nothing, and only a changed value is validated (a NaN never matches)
+    let environment=if input.size>=core::mem::offset_of!(FrameIn,keyboard) as u32 { &input.environment } else { &NO_ENVIRONMENT };
+    let keyboard=if input.size>=core::mem::size_of::<FrameIn>() as u32 { &input.keyboard } else { &NO_KEYBOARD };
+    let engine=unsafe { &mut *(*ui).engine };
+    let environment_changed=!same_environment(environment,engine.environment_ref());
+    if environment_changed && !valid_environment(environment) { return unsafe { fail(ui,"invalid host environment") }; }
+    let keyboard_changed=!same_keyboard(keyboard,engine.keyboard_ref());
+    if keyboard_changed && !keyboard.valid() { return unsafe { fail(ui,"invalid keyboard geometry") }; }
     if appearance>FrameIn::APPEARANCE_DARK || reduced>1 { return unsafe { fail(ui,"invalid system preferences") }; }
     let mut base = unsafe { take_input(ui, input.time) };
-    base.size = (input.width as i64, input.height as i64);
-    base.frame = input.time.to_bits() as i64;
-    if !unsafe { push_events(&mut base, Slice { ptr: input.events, len: input.event_count }) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
+    base.input.size = (input.width as i64, input.height as i64);
+    base.input.frame = input.time.to_bits() as i64;
+    // decoding checks every event (a touch's payload too) before the engine is changed; the input buffers go back for the next frame
+    if !unsafe { push_events(&mut base.input, Slice { ptr: input.events, len: input.event_count }) } {
+        let events=unsafe { core::slice::from_raw_parts(input.events,input.event_count) };
+        let message=if valid_touches(events) { "invalid event kind, code, or UTF-8 payload" } else { "invalid touch payload" };
+        unsafe { (*(*ui).shared).spare_input = Some(base); }
+        return unsafe { fail(ui, message) };
+    }
     unsafe { &mut *(*ui).engine }.set_system_preferences(appearance,reduced!=0);
-    unsafe { &mut *(*ui).engine }.set_environment(environment);
-    unsafe { &mut *(*ui).engine }.set_keyboard(keyboard);
-    let frame = frame::Frame { input: base, pixel_scale: (input.scale as f64, input.scale as f64), fps: 60.0, mouse_delta: (0.0, 0.0) };
-    let rc = unsafe { run_frame(ui, &frame, build, out) };
-    unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
+    if environment_changed { engine.set_environment(*environment); }
+    if keyboard_changed { engine.set_keyboard(*keyboard); }
+    (base.pixel_scale, base.fps, base.mouse_delta) = ((input.scale as f64, input.scale as f64), 60.0, (0.0, 0.0));
+    let rc = unsafe { run_frame(ui, &base, build, out) };
+    unsafe { (*(*ui).shared).spare_input = Some(base); }
     rc
 }
 
@@ -397,7 +437,8 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
     let events=if input.events.len==0 {&[]} else {unsafe {core::slice::from_raw_parts(input.events.ptr,input.events.len)}};
     if !valid_touches(events) {return unsafe {fail(ui,"invalid touch payload")};}
-    let mut base = unsafe { take_input(ui, input.time) };
+    let mut held = unsafe { take_input(ui, input.time) };
+    let base = &mut held.input;
     base.dt = input.dt; base.frame = input.frame; base.tick = input.tick;
     base.keys.clear(); // This entry receives the host's authoritative held-key snapshot.
     base.size = (input.logical_size[0], input.logical_size[1]);
@@ -409,12 +450,12 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
             base.buttons.push(value);
         }
     }
-    if !unsafe { push_events(&mut base, input.events) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
+    if !unsafe { push_events(base, input.events) } { return unsafe { fail(ui, "invalid event kind, code, or UTF-8 payload") }; }
     unsafe { &mut *(*ui).engine }.set_environment(pxui_types::Environment::default());
     unsafe { &mut *(*ui).engine }.set_keyboard(pxui_types::Keyboard::default());
-    let frame = frame::Frame { input: base, pixel_scale: (input.pixel_scale[0], input.pixel_scale[1]), fps: input.fps, mouse_delta: (input.mouse_delta[0], input.mouse_delta[1]) };
-    let rc = unsafe { run_frame(ui, &frame, build, out) };
-    unsafe { (*(*ui).shared).spare_input = Some(frame.input); }
+    (held.pixel_scale, held.fps, held.mouse_delta) = ((input.pixel_scale[0], input.pixel_scale[1]), input.fps, (input.mouse_delta[0], input.mouse_delta[1]));
+    let rc = unsafe { run_frame(ui, &held, build, out) };
+    unsafe { (*(*ui).shared).spare_input = Some(held); }
     rc
 }
 
@@ -569,6 +610,28 @@ mod tests {
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(core::ptr::null_mut(),&mut options)},PXUI_ERR_ARGUMENT);
         assert_eq!(options,pxui_types::TextInputOptions::SEARCH_FIELD);
         assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
+    }
+
+    /// The frame entry's fast paths answer what the general ones do: a repeated environment or keyboard is recognised bytewise (and a
+    /// changed one, a NaN one included, is not), and a moved pointer decodes as the wire record does.
+    #[test]
+    fn frame_fast_paths_match_the_general_decoding_and_comparison() {
+        use pxui_types::{Environment, Keyboard};
+        let env = Environment { safe_area: [47.0, 0.0, 34.0, 0.0], keyboard_frame: [0.0, 500.0, 390.0, 344.0], keyboard_started: 1.0, keyboard_duration: 0.25, keyboard_curve: 7, keyboard_visible: 1, ..Environment::default() };
+        assert!(super::same_environment(&env, &env.clone()) && super::same_environment(&Environment::default(), &super::NO_ENVIRONMENT));
+        for change in 0..4 {
+            let mut other = env;
+            match change { 0 => other.safe_area[0] = 48.0, 1 => other.keyboard_started = 1.5, 2 => other.keyboard_visible = 0, _ => other.keyboard_from[3] = f32::NAN }
+            assert!(!super::same_environment(&env, &other), "change {change}");
+        }
+        let keyboard = Keyboard { frame: [0.0, 500.0, 390.0, 344.0], flags: Keyboard::VALID };
+        assert!(super::same_keyboard(&keyboard, &keyboard.clone()) && !super::same_keyboard(&keyboard, &Keyboard { flags: 0, ..keyboard }));
+        for (x, y) in [(1.5, -2.0), (f64::NAN, 0.0), (f64::INFINITY, -0.0)] {
+            let event = C { kind: C::POINTER_MOVED, x, y, ..Default::default() };
+            let general = input::Event::from_raw(&input::wire::Raw { kind: event.kind, code: event.code, x, y, value: event.value, text: unsafe { super::text(event.text) }, touch: None });
+            let got = super::translate_event(&event);
+            assert_eq!(format!("{got:?}"), format!("{general:?}"));
+        }
     }
 
     #[test]

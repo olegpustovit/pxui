@@ -638,9 +638,8 @@ impl Curve {
     /// Valid finite parameters, including table endpoints and ordering. Checked at the ABI boundary.
     pub fn valid(&self) -> bool {
         match self {
-            Self::Bezier { duration, points } => duration.is_finite() && *duration >= 0.0
-                && points.iter().all(|v| v.is_finite()) && (0.0..=1.0).contains(&points[0]) && (0.0..=1.0).contains(&points[2]),
-            Self::Spring { omega } => omega.is_finite() && *omega > 0.0,
+            Self::Bezier { duration, points } => Self::bezier_valid(*duration, points),
+            Self::Spring { omega } => Self::spring_valid(*omega),
             Self::Table { duration, count, positions, values } => {
                 if !duration.is_finite() || *duration < 0.0 || !(2..=16).contains(count) { return false; }
                 let n = *count as usize;
@@ -651,6 +650,15 @@ impl Curve {
             Self::Steps { duration, count } => duration.is_finite() && *duration >= 0.0 && *count > 0,
         }
     }
+
+    /// The finite parameters of a `Bezier` (what `valid` checks, for a node's transition without building a whole `Curve`).
+    #[inline]
+    pub fn bezier_valid(duration: f32, points: &[f32; 4]) -> bool {
+        duration.is_finite() && duration >= 0.0 && points.iter().all(|v| v.is_finite()) && (0.0..=1.0).contains(&points[0]) && (0.0..=1.0).contains(&points[2])
+    }
+    /// The frequency of a `Spring` (what `valid` checks).
+    #[inline]
+    pub fn spring_valid(omega: f32) -> bool { omega.is_finite() && omega > 0.0 }
 
     /// A run that is over before it starts.
     pub fn instant(&self) -> bool {

@@ -55,8 +55,7 @@ const GATE_DYNAMIC_SMALL_PAGE_US: f64 = 1.5;
 /// of them nodes through the C boundary's checks; docs/abi-baseline.md lists what each call still costs and why).
 const GATE_STATIC_KIT_INSTRUCTION_RATIO: f64 = 1.013;
 const GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.045; // the wrapper is 37,676 instructions over the engine's 855,031 (4.41%). The ratio rose from 4.02% because the page stopped copying the theme (the engine frame was 975,138, the wrapper 39,201 over it); 3.84% before the current-handle check of every call (OPEN_ISSUES.md)
-const GATE_STATIC_LAYOUT_INSTRUCTION_RATIO: f64 = 1.012; // measured 1.01118 (897,374 over 887,455 the engine's) after the same text features (owner-approved); the plan's 1.01 before
-const GATE_STATIC_OVERLAYS_INSTRUCTION_RATIO: f64 = 1.017; // measured 1.01592 (1,068 over the engine's 67,047) after the text features of the bodies baseline (owner-approved); 1.011 before: 1.01 before the current-handle check: about 118 instructions on a 60,429-instruction frame (1.0102)
+const GATE_STATIC_OVERLAYS_INSTRUCTION_RATIO: f64 = 1.011; // 1.01 before the current-handle check: about 118 instructions on a 60,429-instruction frame (1.0102)
 /// Plan: the dynamic build's resident memory no higher than the static build's. A second OGPU, `metal_sys` and `input` copy is the
 /// design (section 5), so the gate is its private (dirty) footprint, within a tolerance, and the clean shared code pages apart.
 const GATE_PRIVATE_TOLERANCE_KIB: f64 = 512.0;
@@ -202,7 +201,7 @@ fn abi_bench_pages() {
         if STATIC && ratio > static_ratio { failures.push(format!("{name}: wrapper static build {mw:.2} us (paired x{ratio:.4}) is over {:.0}% above the direct engine's {md:.2} us (plan {:.0}%)", (static_ratio - 1.0) * 100.0, (PLAN_STATIC_RATIO - 1.0) * 100.0)); }
         let dynamic_over = if large { per_thousand > GATE_DYNAMIC_US_PER_1000_NODES } else { delta > GATE_DYNAMIC_SMALL_PAGE_US };
         let plan = if STATIC { PLAN_STATIC_RATIO } else { PLAN_DYNAMIC_RATIO };
-        let instruction_limit = match (STATIC, *name) { (true, "Kit") => GATE_STATIC_KIT_INSTRUCTION_RATIO, (true, "Overlays") => GATE_STATIC_OVERLAYS_INSTRUCTION_RATIO, (false, "Layout") => GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO, (true, "Layout") => GATE_STATIC_LAYOUT_INSTRUCTION_RATIO, _ => plan };
+        let instruction_limit = match (STATIC, *name) { (true, "Kit") => GATE_STATIC_KIT_INSTRUCTION_RATIO, (true, "Overlays") => GATE_STATIC_OVERLAYS_INSTRUCTION_RATIO, (false, "Layout") => GATE_DYNAMIC_LAYOUT_INSTRUCTION_RATIO, _ => plan };
         match counted {
             Some((iw, id)) => {
                 println!("PXUI abi_bench {MODE} page={name} direct_instructions={id:.0} wrapper_instructions={iw:.0} instruction_ratio={:.5} limit={instruction_limit}", iw / id);

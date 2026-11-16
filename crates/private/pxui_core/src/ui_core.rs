@@ -1462,10 +1462,14 @@ impl Ui {
         if self.environment!=value { self.environment=value; self.epoch+=1; }
     }
     pub fn environment(&self)->pxui_types::Environment { self.environment }
+    /// The environment the engine holds, by reference: what a frame entry compares a new one against.
+    #[inline] pub fn environment_ref(&self)->&pxui_types::Environment { &self.environment }
     pub fn set_keyboard(&mut self, value: pxui_types::Keyboard) {
         if self.keyboard != value { self.keyboard = value; self.epoch += 1; }
     }
     pub fn keyboard(&self) -> pxui_types::Keyboard { self.keyboard }
+    /// The keyboard geometry the engine holds, by reference: what a frame entry compares a new one against.
+    #[inline] pub fn keyboard_ref(&self) -> &pxui_types::Keyboard { &self.keyboard }
     pub fn text_input_options(&self) -> pxui_types::TextInputOptions {
         if self.text_input_focused() {self.text_input_options} else {pxui_types::TextInputOptions::default()}
     }
