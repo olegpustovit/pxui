@@ -276,6 +276,10 @@ pub const KEEP_FRAMES: u32 = 600;
 pub const SWEEP_FRAMES: u32 = 64;
 /// Bound retained layouts even for standalone shapers without a frame clock.
 const MAX_LAYOUTS: usize = 4096;
+/// Rows past a virtual list's built window whose layouts are never age-evicted; farther ones go first.
+pub const LIST_KEEP_ROWS: u32 = 64;
+/// Lists whose windows are tracked; the least recently built one is replaced by another.
+const LIST_WINDOWS: usize = 8;
 
 /// The bundled UI face (the PXUI default theme's font).
 pub const PRAGMASEVKA: &[u8] = include_bytes!("../../../../assets/fonts/Pragmasevka-Regular.ttf");
@@ -676,6 +680,9 @@ struct Entry {
     rich: Option<Box<Rich>>,
     width: u32,
     frame: u32,
+    /// the virtual list (0: none) and row that last asked for this layout
+    list: u64,
+    row: u32,
     m: Metrics,
     /// The glyph list `glyphs` replays: valid while `cached`, for `cached_scale` (f32 bits), until
     /// the atlas evicts past `cached_evictions`.
@@ -693,7 +700,7 @@ impl Entry {
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         Self {
             buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
-            text: String::new(), style: *style, rich: None, width: 0, frame,
+            text: String::new(), style: *style, rich: None, width: 0, frame, list: 0, row: 0,
             m: Metrics::default(), glyphs: Vec::new(), cached: false, cacheable: true,
             cached_scale: 0, cached_evictions: 0, shelves: [0; 8],
         }
@@ -711,6 +718,10 @@ pub struct Text {
     keys: Vec<u64>,
     sweep: usize,
     frame: u32,
+    /// built row windows `(list, first, last)` of up to `LIST_WINDOWS` lists, in build order
+    windows: [(u64, u32, u32); LIST_WINDOWS],
+    /// the list and row being built (list 0: none)
+    scope: (u64, u32),
     walks: u64,
     layouts: u64,
     cache_on: bool,
@@ -769,6 +780,8 @@ impl Text {
             keys: Vec::new(),
             sweep: 0,
             frame: 1,
+            windows: [(0, 0, 0); LIST_WINDOWS],
+            scope: (0, 0),
             walks: 0,
             layouts: 0,
             cache_on: true,
@@ -874,14 +887,15 @@ impl Text {
         let frame = self.frame;
         if let Some(e) = self.entries.get_mut(&key) {
             e.frame = frame;
+            if self.scope.0 != 0 { (e.list, e.row) = self.scope; }
             if e.width == width.to_bits() && e.style == *style && e.text == text
                 && e.rich.as_ref().and_then(|r|r.spans.as_slice()).unwrap_or(&[])==spans {
                 return e.m;
             }
         } else if self.keys.len() >= MAX_LAYOUTS {
-            self.sweep %= self.keys.len();
-            let old = self.keys.swap_remove(self.sweep);
-            self.sweep = (self.sweep + 1) % MAX_LAYOUTS;
+            let at = self.victim();
+            let old = self.keys.swap_remove(at);
+            self.sweep = (at + 1) % MAX_LAYOUTS;
             if let Some(entry) = self.entries.remove(&old) {
                 self.cache_bytes -= entry.glyphs.capacity() * size_of::<CachedGlyph>();
             }
@@ -896,6 +910,7 @@ impl Text {
             Entry::empty(style, frame)
         });
         e.frame = frame;
+        if self.scope.0 != 0 { (e.list, e.row) = self.scope; }
         e.cached = false;
         e.cacheable = true;
         e.style = *style;
@@ -1247,6 +1262,60 @@ impl Text {
         self.g.pinned = shelves;
     }
 
+    /// A virtual list builds rows `first..last` (call each time it builds). Layouts asked for inside
+    /// `list_row`..`list_end` are list-owned: while within `LIST_KEEP_ROWS` rows of the window they are
+    /// never age-evicted, so frames that do not build keep them; farther ones are dropped first by the
+    /// sweep and by a full cache. Windows persist until the list builds again.
+    /// Allocates: never.
+    pub fn list_window(&mut self, list: u64, first: usize, last: usize) {
+        let list = list.max(1);
+        let w = (list, first.min(u32::MAX as usize) as u32, last.min(u32::MAX as usize) as u32);
+        match self.windows.iter().position(|x| x.0 == list) {
+            Some(i) => self.windows[i] = w,
+            None => {
+                // the first free slot, else drop the oldest (slot 0) and append, keeping build order
+                let at = self.windows.iter().position(|x| x.0 == 0).unwrap_or_else(|| { self.windows.rotate_left(1); LIST_WINDOWS - 1 });
+                self.windows[at] = w;
+            }
+        }
+    }
+
+    /// The layouts requested until `list_end` belong to row `row` of `list` (see `list_window`).
+    pub fn list_row(&mut self, list: u64, row: usize) {
+        self.scope = (list.max(1), row.min(u32::MAX as usize) as u32);
+    }
+
+    /// Ends `list_row`.
+    pub fn list_end(&mut self) {
+        self.scope = (0, 0);
+    }
+
+    /// Rows between an entry's row and its list's window (0 inside it); `None` when not list-owned or its list is untracked.
+    fn list_distance(&self, e: &Entry) -> Option<u32> {
+        if e.list == 0 { return None; }
+        let &(_, first, last) = self.windows.iter().find(|w| w.0 == e.list)?;
+        Some(if e.row < first { first - e.row } else if e.row >= last { e.row - last + 1 } else { 0 })
+    }
+
+    /// The index in `keys` to evict from a full cache: of the next 64 entries from the sweep, the
+    /// farthest list row beyond its keep window, else the first aged or unprotected one, else the sweep's own.
+    fn victim(&mut self) -> usize {
+        let n = self.keys.len();
+        self.sweep %= n;
+        let (mut best, mut best_rank) = (self.sweep, 0u64);
+        for step in 0..n.min(64) {
+            let at = (self.sweep + step) % n;
+            let Some(e) = self.entries.get(&self.keys[at]) else { return at };
+            let rank = match self.list_distance(e) {
+                Some(d) if d > LIST_KEEP_ROWS => 1 << 40 | d as u64,
+                Some(_) => 0,
+                None => 1 << 20 | self.frame.wrapping_sub(e.frame) as u64,
+            };
+            if rank > best_rank { (best, best_rank) = (at, rank); }
+        }
+        best
+    }
+
     /// Call once per frame: drops layouts not laid out in the last `KEEP_FRAMES` frames. A cached
     /// view's text is not laid out while the view is kept; its layouts outlive a short keep, so the
     /// view's next rebuild is a cache hit, not a re-shape. The sweep is incremental: each frame looks
@@ -1262,7 +1331,10 @@ impl Text {
                 self.sweep = 0;
             }
             let key = self.keys[self.sweep];
-            let stale = self.entries.get(&key).is_none_or(|e| frame.wrapping_sub(e.frame) >= KEEP_FRAMES);
+            let stale = self.entries.get(&key).is_none_or(|e| match self.list_distance(e) {
+                Some(d) => d > LIST_KEEP_ROWS,
+                None => frame.wrapping_sub(e.frame) >= KEEP_FRAMES,
+            });
             if !stale {
                 self.sweep += 1;
                 continue;
@@ -1301,5 +1373,47 @@ mod layout_cache_tests {
         assert!(text.entries.is_empty());
         assert!(text.keys.is_empty());
         assert_eq!(text.cache_bytes, 0);
+    }
+
+    fn row(text: &mut Text, row: usize) {
+        text.list_row(7, row);
+        text.layout(1000 + row as u64, "row", &Style::default(), 0.0);
+        text.list_end();
+    }
+
+    #[test]
+    fn list_rows_outlive_idle_age_and_far_rows_go_first() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        text.layout(1, "plain", &Style::default(), 0.0);
+        text.list_window(7, 0, 20);
+        (0..20).for_each(|r| row(&mut text, r));
+        // frames that build nothing: the plain layout ages out, the visible rows do not
+        for _ in 0..3 * KEEP_FRAMES {
+            text.end_frame();
+        }
+        assert!(!text.entries.contains_key(&1));
+        assert!((0..20).all(|r| text.entries.contains_key(&(1000 + r))));
+        // scrolled far away: the old rows are beyond the keep window, dropped regardless of age
+        text.list_window(7, 5000, 5020);
+        for _ in 0..4 * SWEEP_FRAMES {
+            text.end_frame();
+        }
+        assert!((0..20).all(|r| !text.entries.contains_key(&(1000 + r))));
+    }
+
+    #[test]
+    fn a_long_scroll_stays_bounded_and_keeps_the_window() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        for top in (0..20_000).step_by(3) {
+            text.list_window(7, top, top + 20);
+            for r in top..top + 20 {
+                row(&mut text, r);
+            }
+            text.end_frame();
+            assert!(text.entries.len() <= MAX_LAYOUTS);
+        }
+        // the last window's rows are all still cached
+        assert!((19_998..20_018).all(|r| text.entries.contains_key(&(1000 + r as u64))));
+        assert!(text.entries.len() < 4 * LIST_KEEP_ROWS as usize + 200, "{} layouts after a scroll", text.entries.len());
     }
 }

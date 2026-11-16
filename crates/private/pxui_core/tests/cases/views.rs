@@ -478,6 +478,37 @@ pub fn window_pxui_budget_cached_per_view() {
     check(best[1] < best[0] * 1.5, &format!("a cached frame grew with the nodes per view: {:.0} -> {:.0} ns", best[0], best[1]));
 }
 
+/// The idle-600 pattern: a list of kept row views, 700 frames with no input (the layouts of their
+/// text are never asked for, so age alone would drop them), then every row rebuilds: list-owned
+/// layouts survived, so the return allocates nothing.
+pub fn window_pxui_list_text_survives_idle() {
+    let names: Vec<String> = (0..64).map(|i| format!("Row title number {i}")).collect();
+    let rev = Cell::new(1u64);
+    let mut ui = new_ui(None);
+    let mut list = |ui: &mut Ui| {
+        ui.list("rows", 10_000, 24.0, &mut |ui, i| {
+            ui.view("row", rev.get(), Size::Grow, Size::Px(24.0), &mut |ui| {
+                let row = ui.node("name", Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+                ui.text(&row, &names[i % 64]);
+            });
+        });
+    };
+    ui.frame(&at(0.0, vec![move_to((100, 100))]), &mut list);
+    for k in 2..4 {
+        rev.set(k);
+        ui.frame(&at(k as f64, vec![]), &mut list);
+    }
+    let idle: Vec<_> = (0..700).map(|t| at(10.0 + t as f64, vec![])).collect();
+    for f in &idle {
+        ui.frame(f, &mut list);
+    }
+    rev.set(9);
+    let after = at(2000.0, vec![]);
+    let n = allocs(&mut || { ui.frame(&after, &mut list); });
+    check(n == 0, &format!("{n} allocations rebuilding the rows after 700 idle frames"));
+    ui.destroy();
+}
+
 /// No allocation once warm: a virtual list scrolled a row per frame, and a hover entering and leaving
 /// a kept view's button with the theme's transition running.
 pub fn window_pxui_budget_zero_alloc() {
@@ -904,6 +935,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_budget_counts", window_pxui_budget_counts),
     ("window_pxui_budget_cached_per_view", window_pxui_budget_cached_per_view),
     ("window_pxui_budget_zero_alloc", window_pxui_budget_zero_alloc),
+    ("window_pxui_list_text_survives_idle", window_pxui_list_text_survives_idle),
     ("window_pxui_view_rebuilds_one", window_pxui_view_rebuilds_one),
     ("window_pxui_shrunk_layer_clips_dirty", window_pxui_shrunk_layer_clips_dirty),
     ("window_pxui_view_nested", window_pxui_view_nested),

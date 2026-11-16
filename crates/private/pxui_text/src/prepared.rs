@@ -71,8 +71,8 @@ impl Text {
         }
         if !self.entries.contains_key(&record.key) {
             let empty = if self.keys.len() == MAX_LAYOUTS {
-                self.sweep %= self.keys.len();
-                let old = self.keys.swap_remove(self.sweep);
+                let at = self.victim();
+                let old = self.keys.swap_remove(at);
                 self.entries.remove(&old).expect("layout keys match their entries")
             } else {
                 Entry::empty(&record.entry.style, self.frame)

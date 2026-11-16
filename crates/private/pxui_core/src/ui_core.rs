@@ -675,6 +675,8 @@ struct Slot {
     /// the view that declares the node, and the view the node holds (`NO_VIEW`)
     owner: u32,
     view: u32,
+    /// the virtual list (box key; 0: none) and row this node is the box of, for the text cache's list ownership
+    row_of: (i64, u32),
     rx: f32,
     ry: f32,
     rw: f32,
@@ -725,6 +727,7 @@ impl Slot {
             painted: -1,
             owner: 0,
             view: NO_VIEW,
+            row_of: (0, 0),
             rx: 0.0,
             ry: 0.0,
             rw: 0.0,
@@ -5548,6 +5551,10 @@ impl Ui {
             s.rw = w;
             s.rh = h;
         }
+        let (list, row) = self.slots[slot].row_of;
+        if list != 0 {
+            paint.text.list_row(list as u64, row as usize);
+        }
         let shape = self.boxes[index].shape;
         let hit = self.boxes[index].hit_rect.unwrap_or_else(|| match (&self.boxes[index].hit, shape) {
             (Some(f), _) => f(screen_rect),
@@ -5632,6 +5639,9 @@ impl Ui {
         } else {
             // Culled: keep retained rectangles current for `rect` queries.
             self.retain_rects(index, clip_rect);
+        }
+        if list != 0 {
+            paint.text.list_end();
         }
     }
 
@@ -6798,8 +6808,10 @@ impl Ui {
         let saved = self.enter(&body);
         let extent = self.node_keyed(int_key(body.box_key, -1), Node { h: Size::Px(count as f32 * row_h), ..Node::DEFAULT });
         let inner = self.enter(&extent);
+        self.text_mut().list_window(body.box_key as u64, first, last);
         for i in first..last {
             let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Px(row_h), at: Some((0.0, i as f32 * row_h)).into(), role: Role::ListItem, ..Node::DEFAULT });
+            self.slots[row.box_slot].row_of = (body.box_key, i as u32);
             let saved = self.enter(&row);
             f(self, i);
             self.leave(saved);
@@ -6840,8 +6852,10 @@ impl Ui {
         }
         let extent=self.node("rows",Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
         let inner=self.enter(&extent);
+        self.text_mut().list_window(body.box_key as u64,first,last);
         for index in first..last {
             let row=self.node_keyed(int_key(body.box_key,index as i64),Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,index as f32*section.row_height)).into(),role:Role::ListItem,..Node::DEFAULT});
+            self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             let part=self.enter(&row); f(self,index); self.leave(part);
         }
         self.leave(inner);
@@ -6890,8 +6904,10 @@ impl Ui {
         }
         let extent=self.node("rows",Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
         let inner=self.enter(&extent);
+        self.text_mut().list_window(body.box_key as u64,first,last);
         for index in first..last {
             let row=self.node_keyed(int_key(body.box_key,index as i64),Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,cache.tops[index])).into(),role:Role::ListItem,..Node::DEFAULT});
+            self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             self.list_rows.push((body.box_key,index,row.box_slot));
             let part=self.enter(&row); f(self,index,before+cache.tops[index]); self.leave(part);
         }
@@ -6943,8 +6959,10 @@ impl Ui {
         let saved = self.enter(&body);
         let extent = self.node_keyed(int_key(body.box_key, -1), Node { h: Size::Px(cache.tops[count]), ..Node::DEFAULT });
         let inner = self.enter(&extent);
+        self.text_mut().list_window(body.box_key as u64, first, last);
         for i in first..last {
             let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Fit, at: Some((0.0, cache.tops[i])).into(), role: Role::ListItem, ..Node::DEFAULT });
+            self.slots[row.box_slot].row_of = (body.box_key, i as u32);
             self.list_rows.push((body.box_key, i, row.box_slot));
             let saved = self.enter(&row);
             f(self, i);
@@ -7015,6 +7033,7 @@ impl Ui {
         let (ew, eh) = if sideways { (extent, per as f32 * across) } else { (per as f32 * across, extent) };
         let holder = self.node_keyed(int_key(body.box_key, -1), Node { w: Size::Px(ew), h: Size::Px(eh), ..Node::DEFAULT });
         let inner = self.enter(&holder);
+        self.text_mut().list_window(body.box_key as u64, first * per, (last * per).min(count));
         for i in first * per..(last * per).min(count) {
             let (line, k) = (i / per, i % per);
             // the holder is a flow child, mirrored right to left; cells are `at` children, physical
@@ -7023,6 +7042,7 @@ impl Ui {
                 x = ew - x - cell.0;
             }
             let c = self.node_keyed(int_key(body.box_key, i as i64), Node { w: Size::Px(cell.0), h: Size::Px(cell.1), at: Some((x, y)).into(), role: Role::ListItem, ..Node::DEFAULT });
+            self.slots[c.box_slot].row_of = (body.box_key, i as u32);
             let saved = self.enter(&c);
             f(self, i);
             self.leave(saved);
