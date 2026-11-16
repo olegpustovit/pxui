@@ -105,8 +105,8 @@ pub const NO_DIRECT: &[(&str, &str, &str)] = &[];
 pub const TESTS_INCLUDED: &[&str] = &["pxui_core", "pxui_text", "pxui_render"];
 pub const TESTS_INCLUDED_FORBIDDEN: &[&str] = &["sdl3", "sdl3_sys", "pxui_sdl"];
 
-/// No registry checks here.
-pub const DOCS_CHECKS: &[(&str, &str, Option<&str>)] = &[];
+/// Doctests of the public API run with the docs checks.
+pub const DOCS_CHECKS: &[(&str, &str, Option<&str>)] = &[("pxui", "--doc", None)];
 
 /// Crates besides `*_sys` that may use `unsafe`.
 pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their C shims (Wayland, libdbus-1) and the extern blocks over them, like *_sys crates

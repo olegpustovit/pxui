@@ -1350,7 +1350,84 @@ fn install_smoke(workspace: &Path) -> Result<Vec<String>, String> {
     Ok(if status.success() { Vec::new() } else { vec![format!("install-smoke: {} failed ({status})", script.display())] })
 }
 
+/// Public fns missing documentation parts: (item, comma-separated missing parts), by the rule in AGENTS.md.
+fn docs_source(source: &str) -> Vec<(String, String)> {
+    let lines: Vec<&str> = source.lines().collect();
+    let (mut found, mut context) = (Vec::new(), String::new());
+    for (at, line) in lines.iter().enumerate() {
+        if line.starts_with("#[cfg(test)]") { break; }
+        if line.starts_with(|c: char| c.is_alphabetic() || c == '#') && !line.starts_with("#[") {
+            context = match line.strip_prefix("impl") {
+                Some(rest) => {
+                    let rest = rest.rsplit(" for ").next().unwrap_or(rest);
+                    let rest = if rest.starts_with('<') && !line.contains(" for ") { rest.split_once("> ").map_or(rest, |(_, tail)| tail) } else { rest };
+                    let name: String = rest.trim_start().chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+                    format!("{name}::")
+                }
+                None => String::new(),
+            };
+        }
+        let mut rest = match line.trim_start().strip_prefix("pub ") { Some(rest) => rest, None => continue };
+        for prefix in ["const ", "unsafe ", "async ", "extern \"C\" "] { rest = rest.strip_prefix(prefix).unwrap_or(rest); }
+        let Some(rest) = rest.strip_prefix("fn ") else { continue };
+        let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
+        let mut signature = String::new();
+        for next in &lines[at..] {
+            signature.push_str(next);
+            if next.contains('{') || next.trim_end().ends_with(';') { break; }
+        }
+        let mut doc = Vec::new();
+        for before in lines[..at].iter().rev() {
+            let trimmed = before.trim_start();
+            if let Some(text) = trimmed.strip_prefix("///") { doc.push(text.trim()); } else if !trimmed.starts_with("#[") { break; }
+        }
+        doc.reverse();
+        let (mut fences, mut bad, mut open) = (0, false, false);
+        for text in &doc {
+            if let Some(info) = text.strip_prefix("```") {
+                if open { open = false; } else { open = true; fences += 1; bad |= !matches!(info.trim(), "" | "rust"); }
+            }
+        }
+        let takes = |param: &str| signature.match_indices(param).any(|(i, _)| !signature[..i].ends_with(|c: char| c.is_alphanumeric() || c == '_'));
+        let mut missing = Vec::new();
+        if fences == 0 { missing.push("example"); }
+        if bad { missing.push("fence"); }
+        for (label, wanted) in [("Allocates:", true), ("Panics:", true), ("Identity:", takes("label:") || takes("key:"))] {
+            if wanted && !doc.iter().any(|text| text.starts_with(label)) { missing.push(label.trim_end_matches(':')); }
+        }
+        if !missing.is_empty() { found.push((format!("{context}{name}"), missing.join(","))); }
+    }
+    found
+}
+
+/// Errors for gaps not in the allowlist and allowlist entries that no longer match; both print in allowlist format.
+fn docs_compare(found: &BTreeSet<(String, String, String)>, allowed: &BTreeSet<(String, String, String)>) -> Vec<String> {
+    let new = found.difference(allowed).map(|(path, item, missing)| format!("docs gate: undocumented, add the missing parts: {path}\t{item}\t{missing}"));
+    let stale = allowed.difference(found).map(|(path, item, missing)| format!("docs gate: stale allowlist entry, remove or shrink it: {path}\t{item}\t{missing}"));
+    new.chain(stale).collect()
+}
+
+fn docs_allowlist(workspace: &Path) -> Result<Vec<String>, String> {
+    let allowed: BTreeSet<_> = include_str!("../docs-allowlist.tsv").lines().filter(|row| !row.starts_with('#') && !row.is_empty()).map(|row| {
+        let columns: Vec<_> = row.split('\t').collect();
+        if columns.len() == 3 { Ok((columns[0].to_owned(), columns[1].to_owned(), columns[2].to_owned())) } else { Err(format!("invalid docs allowlist row: {row}")) }
+    }).collect::<Result<_, _>>()?;
+    let mut files = Vec::new();
+    for dir in ["crates/public/pxui/src", "crates/public/pxui_types/src"] {
+        rust_sources(&workspace.join(dir), &mut files).map_err(|error| format!("cannot read {dir}: {error}"))?;
+    }
+    let mut found = BTreeSet::new();
+    for file in files {
+        let source = fs::read_to_string(&file).map_err(|error| format!("cannot read {}: {error}", file.display()))?;
+        let path = file.strip_prefix(workspace).unwrap_or(&file).to_string_lossy().replace('\\', "/");
+        found.extend(docs_source(&source).into_iter().map(|(item, missing)| (path.clone(), item, missing)));
+    }
+    Ok(docs_compare(&found, &allowed))
+}
+
 fn docs(workspace: &Path) -> Result<Vec<String>, String> {
+    let shape_errors = docs_allowlist(workspace)?;
+    if !shape_errors.is_empty() { return Ok(shape_errors); }
     // rays-t bounds setup/build, each case and the test run. Gate checks never refresh fixtures.
     for (package, filter, target) in policy::DOCS_CHECKS.iter().copied() {
         let mut command = std::process::Command::new("cargo");
@@ -1826,6 +1903,53 @@ fn main() {
             eprintln!("gate: {error}");
             process::exit(2);
         }
+    }
+}
+
+#[cfg(test)]
+mod docs_tests {
+    use super::{docs_compare, docs_source};
+    use std::collections::BTreeSet;
+
+    const FULL: &str = "/// Does it.\n/// Allocates: never.\n/// Panics: never.\n///\n/// ```\n/// assert!(true);\n/// ```\npub fn go() {}\n";
+
+    #[test]
+    fn complete_comment_passes_and_new_function_fails() {
+        assert!(docs_source(FULL).is_empty());
+        assert_eq!(docs_source("pub fn bare() {}"), [("bare".to_owned(), "example,Allocates,Panics".to_owned())]);
+    }
+
+    #[test]
+    fn non_runnable_fences_fail() {
+        for fence in ["ignore", "no_run", "text", "compile_fail"] {
+            let source = FULL.replace("/// ```\n/// assert", &format!("/// ```{fence}\n/// assert"));
+            assert_eq!(docs_source(&source), [("go".to_owned(), "fence".to_owned())], "{fence}");
+        }
+    }
+
+    #[test]
+    fn missing_allocates_and_identity_fail() {
+        assert_eq!(docs_source(&FULL.replace("/// Allocates: never.\n", "")), [("go".to_owned(), "Allocates".to_owned())]);
+        let keyed = FULL.replace("go()", "go(&mut self, key: Key)");
+        assert_eq!(docs_source(&keyed), [("go".to_owned(), "Identity".to_owned())]);
+        assert!(docs_source(&FULL.replace("go()", "go(monkey: u8)")).is_empty());
+    }
+
+    #[test]
+    fn crate_private_and_test_items_are_skipped_and_methods_carry_their_type() {
+        assert!(docs_source("pub(crate) fn hidden() {}\n#[cfg(test)]\nmod t { pub fn x() {} }").is_empty());
+        assert_eq!(docs_source("impl<'a> Ui {\n    pub fn m(&self) {}\n}")[0].0, "Ui::m");
+    }
+
+    #[test]
+    fn unneeded_allowlist_entries_fail() {
+        let row = ("a.rs".to_owned(), "go".to_owned(), "example".to_owned());
+        let allowed = BTreeSet::from([row.clone()]);
+        assert!(docs_compare(&allowed, &allowed).is_empty());
+        let stale = docs_compare(&BTreeSet::new(), &allowed);
+        assert!(stale.len() == 1 && stale[0].contains("stale"));
+        let new = docs_compare(&allowed, &BTreeSet::new());
+        assert!(new.len() == 1 && new[0].contains("undocumented"));
     }
 }
 
