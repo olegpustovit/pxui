@@ -6667,7 +6667,10 @@ impl Ui {
             NO_VIEW => {
                 // Reopen the same view kind with its warmed node/hit buffers.
                 let matching = self.free_views.iter().rposition(|&v| self.views[v as usize].name == label);
-                let reused = matching.map(|i| self.free_views.swap_remove(i)).or_else(|| self.free_views.pop());
+                // No label match: take the smallest record, so a newcomer does not strip a named view's big
+                // warmed buffers that its own label (a layout flipped away and back) reopens later.
+                let smallest = (0..self.free_views.len()).min_by_key(|&i| { let r = &self.views[self.free_views[i] as usize]; r.nodes.capacity() + r.prev.capacity() });
+                let reused = matching.or(smallest).map(|i| self.free_views.swap_remove(i));
                 let v = reused.unwrap_or_else(|| {
                     // Recycled records change labels as adaptive subtrees enter and leave.
                     self.views.push(ViewRec { name: String::with_capacity(label.len().max(32)), ..ViewRec::new() });

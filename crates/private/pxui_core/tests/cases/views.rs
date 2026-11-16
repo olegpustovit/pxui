@@ -760,6 +760,34 @@ pub fn window_pxui_more_kept_views_reuse_compaction_scratch() {
     ui.destroy();
 }
 
+/// A newcomer view without a label match must not take the record that holds another label's
+/// warmed node buffers (a relayout away and back, LocalWave compact/wide), or that label regrows them.
+pub fn window_pxui_view_newcomer_keeps_warm_buffers() {
+    let names: Vec<String> = (0..300).map(|i| format!("n{i}")).collect();
+    for big_first in [true, false] {
+        let mut ui = new_ui(None);
+        let mut run = |frame: usize, labels: &[(&str, usize)]| {
+            ui.frame(&at(frame as f64 / 60.0, vec![]), &mut |ui| {
+                for &(label, n) in labels {
+                    ui.view(label, 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
+                        for name in &names[..n] { ui.node(name, Node { w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT }); }
+                    });
+                }
+            });
+        };
+        let both = if big_first { [("big", 300), ("small", 2)] } else { [("small", 2), ("big", 300)] };
+        run(0, &both);
+        run(1, &both);
+        run(2, &[("other", 2)]);
+        run(3, &[("other", 2)]);
+        run(4, &[("another", 2)]);
+        mem_sys::local_reset();
+        run(5, &both);
+        assert_eq!(mem_sys::local_alloc_count(), 0, "big_first={big_first}: the returning view regrew its nodes");
+        ui.destroy();
+    }
+}
+
 /// Covering one transformed clip must not suppress damage outside that clip or instance uploads.
 pub fn window_pxui_damage_containment_preserves_other_views() {
     let mut ui = new_ui(None);
@@ -866,6 +894,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_view_newcomer_keeps_warm_buffers", window_pxui_view_newcomer_keeps_warm_buffers),
     ("window_pxui_streaming_rows_reuse_retained_gaps", window_pxui_streaming_rows_reuse_retained_gaps),
     ("window_pxui_damage_containment_preserves_other_views", window_pxui_damage_containment_preserves_other_views),
     ("window_pxui_view_entrance_channels", window_pxui_view_entrance_channels),
