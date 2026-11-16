@@ -41,6 +41,7 @@ struct Args {
     test_args: Vec<OsString>,
     ignored: bool,
     list: bool,
+    doc: bool,
     test_timeout: Duration,
 }
 
@@ -364,6 +365,7 @@ fn run_tests(
     timings: &mut Vec<TestTiming>,
 ) -> i32 {
     if let Err(code) = ensure_libpxui(args) { return code; }
+    if args.doc { return run_doctests(args, timeout); }
     // The build has its own bounded budget; the whole-run limit (60 s) covers listing and tests only,
     // so a cold compile of a large crate cannot eat the test budget. Slow builds are G2 (buildtime).
     let build_started = Instant::now();
@@ -528,6 +530,59 @@ fn run_tests(
     }
 }
 
+
+/// `--doc`: rustdoc doctests, which have no test executables. Runs them in the default link mode and again with the `static` feature
+/// (the mode PXUI's `pxui_abi` links statically); each doctest is its own `cargo test --doc` case under the per-case limit,
+/// and listing plus all cases share the whole-run limit. Compilation of the crate is the build step, before the run clock starts.
+fn run_doctests(args: &Args, timeout: Option<Duration>) -> i32 {
+    let mut failure_code = 0;
+    for mode in [None, Some("static")] {
+        let doc = |extra: &[&str]| {
+            let mut command = Command::new("cargo");
+            command.args(["test", "--doc"]).args(&args.cargo);
+            if let Some(mode) = mode { command.args(["--features", mode]); }
+            command.arg("--").args(extra);
+            command
+        };
+        let label = mode.unwrap_or("dynamic");
+        let mut list = doc(&["--list"]);
+        let listing = match run_command(&mut list, Instant::now(), Some(BUILD_TIMEOUT), None, true) {
+            Ok(RunResult::Finished(output)) => output,
+            Ok(RunResult::TimedOut { elapsed, .. }) => return report_timeout(elapsed, "doctest listing"),
+            Err(error) => { eprintln!("rays-t: failed to list doctests: {error}"); return 1; }
+        };
+        print_bytes(io::stderr(), &listing.stderr);
+        if !listing.status.success() { print_bytes(io::stdout(), &listing.stdout); return status_code(listing.status); }
+        let names = match test_names(&listing.stdout, args.filter.as_deref()) {
+            Ok(names) => names,
+            Err(error) => { eprintln!("rays-t: could not read doctests: {error}"); return 1; }
+        };
+        if args.list { for name in &names { println!("{label}::{name}: test"); } continue; }
+        let run_started = Instant::now();
+        let mut passed = 0;
+        for name in &names {
+            let mut command = doc(&["--exact", name]);
+            match run_command(&mut command, run_started, timeout, Some(args.test_timeout), true) {
+                Ok(RunResult::Finished(output)) => {
+                    if output.status.success() { passed += 1; } else {
+                        print_bytes(io::stdout(), &output.stdout);
+                        print_bytes(io::stderr(), &output.stderr);
+                        eprintln!("rays-t: doctest {label}::{name} failed ({})", output.status);
+                        failure_code = status_code(output.status);
+                    }
+                }
+                Ok(RunResult::TimedOut { elapsed, whole_run, .. }) => {
+                    if whole_run { return report_whole_timeout(run_started); }
+                    eprintln!("rays-t: doctest {label}::{name} exceeded the {}s limit (elapsed {:.3}s)", args.test_timeout.as_secs(), elapsed.as_secs_f64());
+                    failure_code = 124;
+                }
+                Err(error) => { eprintln!("rays-t: failed to run doctest {label}::{name}: {error}"); return 1; }
+            }
+        }
+        eprintln!("rays-t: doctests ({label}): {passed}/{} passed in {:.3}s", names.len(), run_started.elapsed().as_secs_f64());
+    }
+    failure_code
+}
 
 fn is_serial_test(name: &str) -> bool {
     name.rsplit("::")
@@ -808,6 +863,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Args, String> {
     let mut test_args = Vec::new();
     let mut ignored = false;
     let mut list = false;
+    let mut doc = false;
     // RAYS_SLOW=1 (AGENTS.md) or `--profile slow` selects the 60s per-test limit without a separate Cargo profile.
     let mut test_timeout =
         if env::var("RAYS_SLOW").is_ok_and(|value| value == "1") { SLOW_TEST_TIMEOUT } else { TEST_TIMEOUT };
@@ -832,6 +888,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Args, String> {
             break;
         }
         if text == "--all" { all = true; continue; }
+        if text == "--doc" { doc = true; continue; }
         if text == "--list" {
             list = true;
             continue;
@@ -926,7 +983,7 @@ fn parse_args(args: impl Iterator<Item = OsString>) -> Result<Args, String> {
         }
     }
 
-    Ok(Args { cargo, all, filter, target_dir, test_args, ignored, list, test_timeout })
+    Ok(Args { cargo, all, filter, target_dir, test_args, ignored, list, doc, test_timeout })
 }
 
 fn default_target_dir() -> PathBuf {
