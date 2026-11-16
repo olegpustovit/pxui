@@ -228,6 +228,8 @@ pub fn window_pxui_node_duplicate_keys() {
     check(distinct.len() == 6, &format!("repeated labels share keys: {first:?}"));
     check(first.iter().map(|k| k.0).eq(second.iter().map(|k| k.0)), &format!("keys moved between frames: {first:?} / {second:?}"));
     check(second.iter().map(|k| k.1).eq([0, 0, 0, 42, 0, 0]), &format!("the fourth repeat lost its state: {second:?}"));
+    // the n-th repeat's key is the (n-1)-th's `#dup` hash, however the lookup reaches it
+    check(first.windows(2).all(|w| w[1].0 == hash_range(w[0].0, "#dup", 0, 4)), &format!("repeats do not chain `#dup` hashes: {first:?}"));
     ui.destroy();
 }
 

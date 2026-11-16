@@ -441,7 +441,7 @@ pub fn button_opts_uses_a_registered_body() {
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("recording", recording_button));
     let opts = ButtonOpts { w: Size::Px(50.0), h: Size::Px(30.0), justify: Justify::Center, padding: Edges { l: 3.0, ..Edges::ZERO }, ..ButtonOpts::DEFAULT };
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.button_opts("Go", "Go", None, &opts, None); }));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.button_opts("Go", "Go", None, &opts, None, None); }));
     }
     check(SEEN.with(|s| s.get()) == (50.0, 30.0, 1, 3.0), &format!("the body's config is {:?}", SEEN.with(|s| s.get())));
     let row = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
@@ -464,7 +464,7 @@ pub fn duplicate_key_buttons_own_their_parts() {
     let mut rows = [0i64; 2];
     for k in 0..2 {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-            for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, None).handle.box_key; }
+            for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, None, None).handle.box_key; }
         }));
     }
     check(rows[0] != rows[1], "the two buttons share a key");

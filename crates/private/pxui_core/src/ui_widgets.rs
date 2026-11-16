@@ -995,25 +995,28 @@ impl Ui {
     pub fn icon_button(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton) -> Response {
         let mut glyph = [0u8; 4];
         match icon {
-            Icon::Glyph(ch) => self.icon_button_text(key, ch.encode_utf8(&mut glyph), None, name, button),
-            Icon::Draw(f, data) => self.icon_button_text(key, "", Some((f, data)), name, button),
+            Icon::Glyph(ch) => self.icon_button_text(key, ch.encode_utf8(&mut glyph), None, name, button, None),
+            Icon::Draw(f, data) => self.icon_button_text(key, "", Some((f, data)), name, button, None),
         }
     }
 
-    /// `icon_button` with the glyph as any string (the C ABI's) beside an optional drawing, which wins.
-    pub fn icon_button_text(&mut self, key: &str, glyph: &str, draw: Option<(IconDraw, [usize; 3])>, name: &str, button: &IconButton) -> Response {
+    /// `icon_button` with the glyph as any string (the C ABI's) beside an optional drawing, which wins; `signal`, when given, receives
+    /// the box's signal as it was read for it, without its key events (`key_events_ref`): the C ABI's signal without a second read.
+    pub fn icon_button_text(&mut self, key: &str, glyph: &str, draw: Option<(IconDraw, [usize; 3])>, name: &str, button: &IconButton, signal: Option<&mut Signal>) -> Response {
         let flags = if button.enabled { STOP_FLAGS } else { BLOCKING | TAB_ONLY };
         let b = self.node(key, Node { flags, role: Role::Button, ..Node::DEFAULT });
-        let s = self.signal(&b);
+        let s = self.signal_state(&b);
         let focused = self.focused(&b);
         let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !button.enabled, ..State::default() };
         self.a11y_name(&b, shown(name));
-        let states = button.states.unwrap_or(self.theme().icon_button);
+        let states = match button.states { Some(states) => states, None => self.theme().icon_button };
         let ink = states.pick(state).text;
         let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
         self.node_new(&b).state.disabled = !button.enabled;
-        Response::of(&s, focused, b)
+        let response = Response::of(&s, focused, b);
+        if let Some(out) = signal { *out = s; }
+        response
     }
 
     /// A small label in the badge look (`text`, keyed by `label` so `patch_text` can update a count

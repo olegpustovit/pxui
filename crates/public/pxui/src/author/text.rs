@@ -1,7 +1,7 @@
 //! Text authoring: `ui.label`, `ui.label_fmt` and `ui.label_digits` show text in a `Label` style (a `Copy` value with const builders),
 //! through the label widget body, formatting into a fixed stack buffer where they take `format_args!`.
 use core::fmt::{Arguments, Write};
-use pxui_types::{ffi::PxuiLabelStyle, Label};
+use pxui_types::Label;
 use crate::Ui;
 
 /// The bytes a formatted label keeps; the rest is dropped at a character boundary.
@@ -106,11 +106,11 @@ impl Ui {
     #[track_caller]
     pub fn label_digits(&mut self, args: Arguments, style: Label) { self.label_body(Stack::new(args).as_str(), &style, true) }
 
-    /// The one body of `label`, `label_fmt` and `label_digits`: `style` as its record, through the label body.
+    /// The one body of `label`, `label_fmt` and `label_digits`, through the label body.
     #[inline]
     #[track_caller]
     fn label_body(&mut self, text: &str, style: &Label, digits: bool) {
-        self.label_call(text, &PxuiLabelStyle { digits: digits as u8, ..PxuiLabelStyle::from(style) });
+        self.label_call(text, style, digits);
     }
 }
 

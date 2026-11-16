@@ -180,7 +180,7 @@ pub(crate) fn write_signal(state: &PxuiUi, signal: &Signal, output: &mut PxuiSig
 }
 
 // Borrow routed events rather than constructing an owned core Signal's event vector.
-fn write_borrowed_signal(state: &PxuiUi, signal: &Signal, keys: &[(Event, Vec<input::Key>)], output: &mut PxuiSignal) {
+pub(crate) fn write_borrowed_signal(state: &PxuiUi, signal: &Signal, keys: &[(Event, Vec<input::Key>)], output: &mut PxuiSignal) {
     *output = PxuiSignal::default();
     copy_signal(signal, output);
     if !keys.is_empty() {

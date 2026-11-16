@@ -120,6 +120,7 @@ impl Ui {
     pub fn icon_button<K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton) -> Response { self.icon_button_key(key.into(), icon, name, button) }
 
     /// The one body of `icon_button`: the key's label and the glyph's text, then the engine call.
+    #[inline(always)]
     #[track_caller]
     fn icon_button_key(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton) -> Response {
         let mut id_label = [0u8; 17];

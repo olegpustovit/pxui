@@ -5,9 +5,10 @@
 //! a number that is not finite). Each entry counts itself as one call into the library.
 use crate::node::declare;
 use crate::state::{get, Inner, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_inner, fail, note_call, to_abi_box};
-use crate::{PxuiBox, Str};
+use crate::{PxuiBox, PxuiSignal, Str};
+use pxui_types::ffi::PxuiResponse;
 use pxui_core::ui::Ui;
-use pxui_types::{FrameIn, FrameOut, Node, Size, ffi::Input, theme::ThemeSnapshot};
+use pxui_types::{FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::Justify, theme::{States, ThemeSnapshot}};
 
 
 /// `value` as text the caller promises is UTF-8 (the checked length is the one the exports refuse above). Its pointer is never null:
@@ -67,11 +68,11 @@ pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
     0
 }
 
-#[inline]
+#[inline(always)]
 pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: &pxui_types::Label, digits: bool) -> i32 {
     enter!(ui);
     let Some(text) = (unsafe { utf8(text) }) else { return unsafe { fail(ui, "invalid label text") } };
-    if !unsafe { engine(ui) }.label_styled(text, style, digits) { return unsafe { fail(ui, "invalid label style: a size, line height, wrap, align, ellipsis or feature no style has, or a font not loaded") }; }
+    if !unsafe { engine(ui) }.label_styled(text, style, digits) { return unsafe { fail(ui, "invalid label style: a size, line height, padding, width, wrap, align, ellipsis or feature no style has, or a font not loaded") }; }
     0
 }
 
@@ -215,11 +216,101 @@ pub unsafe fn spinner(ui: *mut PxuiUi, label: &str, out: &mut PxuiBox) -> i32 {
     0
 }
 
+/// A button size `Button` and `IconButton` allow: the kit's (`Fit`), finite non-negative points or filling the line.
+fn button_size(size: Size) -> bool { match size { Size::Fit | Size::Grow => true, Size::Px(v) => (0.0..=f32::MAX).contains(&v), _ => false } }
+
+/// The engine's response as the record the wrapper's `Response` is read from.
+#[inline(always)]
+fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
+    out.node = to_abi_box(r.handle);
+    out.flags = r.clicked as u32 * PxuiResponse::CLICKED | r.hovered as u32 * PxuiResponse::HOVERED | r.held as u32 * PxuiResponse::HELD
+        | r.focused as u32 * PxuiResponse::FOCUSED | r.activated as u32 * PxuiResponse::ACTIVATED;
+}
+
+/// The kit button with options, the body of `pxui_ui_button_with`, `pxui_ui_button_response` and `pxui_ui_button_plain`: `states` in
+/// place of the theme's button, `w` and `h` (`button_size`), `justify` its place in the line, `pad` (finite, non-negative) inside the
+/// box, `content` built in the box in place of `text`. What happened goes to `out`; with `signal`, the box's whole signal too.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&str>, states: Option<&States>, w: Size, h: Size, justify: Justify, pad: Edges,
+    enabled: bool, selected: bool, danger: bool, content: Option<Inner>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    enter!(ui);
+    if long(key) || long(text) || name.is_some_and(long) { return unsafe { fail(ui, "invalid button text") }; }
+    if !button_size(w) || !button_size(h) || ![pad.l, pad.t, pad.r, pad.b].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid button descriptor") }; }
+    let (e, shared) = (unsafe { engine(ui) }, unsafe { (*ui).shared });
+    let ink = if danger { Some(e.theme().tokens.invalid) } else { None };
+    // the looks are copied only when given: `states.copied()` copies the whole record either way
+    let mut opts = pxui_core::ui::ButtonOpts { states: None, w, h, enabled, selected, justify, padding: pad, ink, bare: false, icon: false };
+    if let Some(states) = states { opts.states = Some(*states); }
+    let mut run = content.map(|f| move |engine: &mut Ui| call_inner(shared, engine, &mut *f));
+    let body = run.as_mut().map(|f| f as &mut dyn FnMut(&mut Ui));
+    let r = match signal {
+        None => e.button_opts(key, text, name, &opts, body, None),
+        Some(signal) => {
+            let mut read = pxui_core::ui::Signal::default();
+            let r = e.button_opts(key, text, name, &opts, body, Some(&mut read));
+            crate::interaction::write_borrowed_signal(unsafe { &*ui }, &read, unsafe { engine(ui) }.key_events_ref(&r.handle), signal);
+            r
+        }
+    };
+    respond(&r, out);
+    0
+}
+
+/// The plain kit button (`Button::DEFAULT`) keyed by `key`, `pxui_ui_button_plain`'s body: `button_with` with the engine's own
+/// default options, so nothing is built or checked for them.
+#[inline(always)]
+pub unsafe fn button_plain(ui: *mut PxuiUi, key: &str, text: &str, out: &mut PxuiResponse) -> i32 {
+    enter!(ui);
+    if long(key) || long(text) { return unsafe { fail(ui, "invalid button text") }; }
+    let r = unsafe { engine(ui) }.button_opts(key, text, None, &pxui_core::ui::ButtonOpts::DEFAULT, None, None);
+    respond(&r, out);
+    0
+}
+
+/// The plain kit icon button (`IconButton::DEFAULT`) showing the glyph `glyph`, `pxui_ui_icon_button_plain`'s body: as
+/// `button_plain`.
+#[inline(always)]
+pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &str, out: &mut PxuiResponse) -> i32 {
+    enter!(ui);
+    if long(key) || long(glyph) || long(name) { return unsafe { fail(ui, "invalid icon button text") }; }
+    let r = unsafe { engine(ui) }.icon_button_text(key, glyph, None, name, &pxui_core::ui::IconButton::DEFAULT, None);
+    respond(&r, out);
+    0
+}
+
+/// The kit icon button with options, the body of `pxui_ui_icon_button_with`, `_response` and `_plain`: the `glyph`, or the app's
+/// drawing `draw` (a C callback and its `user`), named `name`; `states` in place of the theme's icon button, `w` and `h`
+/// (`button_size`), `press_scale` finite and positive. What happened goes to `out`; with `signal`, the box's whole signal too.
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub unsafe fn icon_button_with(ui: *mut PxuiUi, key: &str, glyph: &str, draw: pxui_types::ffi::PxuiIconDraw, user: *mut core::ffi::c_void, name: &str, states: Option<&States>,
+    w: Size, h: Size, enabled: bool, press_scale: f32, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    enter!(ui);
+    if long(key) || long(glyph) || long(name) { return unsafe { fail(ui, "invalid icon button text") }; }
+    if !button_size(w) || !button_size(h) || !press_scale.is_finite() || press_scale <= 0.0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
+    let draw = draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, user as usize, unsafe { (*ui).shared } as usize]));
+    let mut button = pxui_core::ui::IconButton { states: None, w, h, enabled, press_scale };
+    if let Some(states) = states { button.states = Some(*states); }
+    let e = unsafe { engine(ui) };
+    let r = match signal {
+        None => e.icon_button_text(key, glyph, draw, name, &button, None),
+        Some(signal) => {
+            let mut read = pxui_core::ui::Signal::default();
+            let r = e.icon_button_text(key, glyph, draw, name, &button, Some(&mut read));
+            crate::interaction::write_borrowed_signal(unsafe { &*ui }, &read, unsafe { engine(ui) }.key_events_ref(&r.handle), signal);
+            r
+        }
+    };
+    respond(&r, out);
+    0
+}
+
 #[inline]
 pub unsafe fn icon_button(ui: *mut PxuiUi, label: &str, icon: &str, out: &mut bool) -> i32 {
     enter!(ui);
     if long(label) || long(icon) { return unsafe { fail(ui, "invalid icon button text") }; }
-    *out = unsafe { engine(ui) }.icon_button_text(label, icon, None, label, &pxui_core::ui::IconButton::DEFAULT).clicked;
+    *out = unsafe { engine(ui) }.icon_button_text(label, icon, None, label, &pxui_core::ui::IconButton::DEFAULT, None).clicked;
     0
 }
 

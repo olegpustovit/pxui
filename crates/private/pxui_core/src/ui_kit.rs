@@ -178,7 +178,8 @@ pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
     let inset = Edges { l: label.pad.unwrap_or(this.space(2)), t: gap, r: 0.0, b: 0.0 };
     let text = shown(text);
     if !c.digits && kit_label(label) {
-        let mut look = Look { text: token.unwrap_or(look.text), ..look };
+        let mut look = look;
+        if let Some(token) = token { look.text = token; }
         if let Some(family) = label.font { look.font.family = family; }
         if let Some(size) = label.size { look.font.size = size as i64; }
         if let Some(weight) = label.weight { look.font.weight = weight; }
@@ -960,18 +961,23 @@ impl Ui {
     }
 
     /// `label`, or with `digits` a number drawn one cached character layout at a time (its accessible value the text). `false`, with
-    /// nothing built, when the style does not resolve (`resolve_label`) or its font is not loaded.
+    /// nothing built, when the style does not resolve (`resolve_label`), its padding or width is not finite, or its font is not loaded.
     pub fn label_styled(&mut self, text: &str, style: &Label, digits: bool) -> bool {
-        // kit text needs only a finite tracking and a loaded font when it names one; anything else resolves in full
+        // kit text needs only a finite tracking and padding and a loaded font when it names one; anything else resolves in full
         if kit_label(style) && !digits {
-            if !style.tracking.is_none_or(f32::is_finite) || style.font.is_some_and(|font| self.text_mut().font_metrics(font).is_none()) { return false; }
+            if !style.tracking.is_none_or(f32::is_finite) || !style.pad.is_none_or(f32::is_finite) || style.font.is_some_and(|font| self.text_mut().font_metrics(font).is_none()) { return false; }
         } else {
+            let width = match style.width { Some(Size::Px(v) | Size::Pct(v)) => v.is_finite(), _ => true };
+            if !width || !style.pad.is_none_or(f32::is_finite) { return false; }
             let look = self.theme().label.idle;
             let Some(resolved) = resolve_label(style, &look, self.font_size(), self.row_height() as f32, None) else { return false };
             if self.text_mut().font_metrics(resolved.style.font).is_none() { return false; }
         }
         let first = self.last_child_of_parent() == NONE;
-        let node = self.node("\0label", Node { role: Role::Label, ..Node::DEFAULT });
+        // every label is "\0label": siblings in a row resolve their duplicates without looking the key up again
+        self.require_building();
+        let unique = self.unique_key_repeated(key_of(self.current_seed(), "\0label"));
+        let node = self.node_unique(unique, &Node { role: Role::Label, ..Node::DEFAULT });
         if digits { self.a11y_value(&node, shown(text), (0, 0)); }
         in_body!(flat; self, node.box_key, node, label, default_label(&LabelConfig { node, first, style: *style, digits }, text));
         true
@@ -986,30 +992,36 @@ impl Ui {
 
     /// `true` on the frame a press and release both land inside the button.
     pub fn button(&mut self, text: &str) -> bool {
-        self.button_opts(text, text, None, &ButtonOpts::DEFAULT, None).clicked
+        self.button_opts(text, text, None, &ButtonOpts::DEFAULT, None, None).clicked
     }
 
     /// `button_opts` in the theme's button (`button_bare` when `bare`) with its text in `ink`.
     pub fn button_styled(&mut self, text: &str, bare: bool, icon: bool, at_end: bool, ink: Option<Color>) -> bool {
         let opts = ButtonOpts { bare, icon, justify: if at_end { Justify::End } else { Justify::Start }, ink, ..ButtonOpts::DEFAULT };
-        self.button_opts(text, text, None, &opts, None).clicked
+        self.button_opts(text, text, None, &opts, None, None).clicked
     }
 
     /// A button is its text on a 20-point box (6 points of padding in a transparent 1-point edge):
     /// a fill on hover and press, an accent line inside the bottom edge with the keyboard. The box
     /// starts 5 points in so that its text lines up with the labels at 12. `opts` varies it (see `ButtonOpts`); `key` is hashed
-    /// under the parent's seed, `content` replaces the text (which stays the accessible name unless `name` is set).
-    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, content: Option<&mut dyn FnMut(&mut Ui)>) -> Response {
+    /// under the parent's seed, `content` replaces the text (which stays the accessible name unless `name` is set). `signal`, when
+    /// given, receives the box's signal as it was read for it, without its key events (`key_events_ref`): the C ABI's signal
+    /// without a second read.
+    #[allow(clippy::too_many_arguments)]
+    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, content: Option<&mut dyn FnMut(&mut Ui)>, signal_out: Option<&mut Signal>) -> Response {
         // the row lays the box out: 5 in from the start (8 from the end at the end), the control
         // centred in the row's height; the box is the button (its key, its hit area)
-        let key = key_of(self.current_seed(), key);
-        let line = self.node_keyed(int_key(key, 0x6c69), Node::DEFAULT);
+        // the box's key is resolved first (one key on several buttons, as `button(text)` gives, takes its duplicates), so the line's,
+        // derived from it, is unique without a second resolution
+        self.require_building();
+        let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
+        let line = self.node_keyed(int_key(unique.0, 0x6c69), Node::DEFAULT);
         let saved = self.enter(&line);
         let flags = if opts.enabled { CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY | FOCUS_MARK } else { BLOCKING | TAB_ONLY };
-        let row = self.node_keyed(key, Node { flags, role: Role::Button, ..Node::DEFAULT });
+        let row = self.node_unique(unique, &Node { flags, role: Role::Button, ..Node::DEFAULT });
         self.a11y_name(&row, name.unwrap_or(text));
         self.leave(saved);
-        let signal = self.signal(&row);
+        let signal = self.signal_state(&row);
         let focused = self.focused(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !opts.enabled, checked: opts.selected };
         let mut states = match opts.states { Some(s) => s, None if opts.bare => self.theme().button_bare, None => self.theme().button };
@@ -1030,7 +1042,9 @@ impl Ui {
             f(self);
             self.leave(inside);
         }
-        Response::of(&signal, focused, row)
+        let response = Response::of(&signal, focused, row);
+        if let Some(out) = signal_out { *out = signal; }
+        response
     }
 
     /// A switch row: the label and the 28 x 14 switch at the end (the default body; a theme's `body.toggle` picks another).

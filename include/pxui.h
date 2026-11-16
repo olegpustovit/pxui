@@ -256,6 +256,10 @@ typedef struct {
     float max_height; PxuiColor stroke; PxuiLookDesc look;
 } PxuiPanel;
 typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
+/* ABI 1.48: what happened to a kit button or icon button this frame, in one record: PXUI_RESPONSE_* bits and the button's box.
+   The caller sets size; a null or shorter record is refused. */
+typedef struct { uint32_t size, flags; PxuiBox node; } PxuiResponse;
+enum { PXUI_RESPONSE_CLICKED = 1, PXUI_RESPONSE_HOVERED = 2, PXUI_RESPONSE_HELD = 4, PXUI_RESPONSE_FOCUSED = 8, PXUI_RESPONSE_ACTIVATED = 16 };
 /* ABI 1.31: flags bit 0 preview, bit 1 commit, bit 2 held. Initialize size before calling. */
 typedef struct { uint32_t size, flags; PxuiBox node; float preview, commit; } PxuiScrubOut;
 /* ABI 1.38: kinds bit 0 long press, 1 row swipe, 2 edge back, 3 pull to refresh, 5 touch drag (ABI 1.42: the node takes the touch at once as a held press and drag, never a tap, scroll or
@@ -781,6 +785,13 @@ int32_t pxui_ui_grip(PxuiUi *ui, PxuiStr label, uint32_t axis, uint8_t has_rect,
 /* ABI 1.46: the icon button with options (PxuiIconButtonDesc); replaces pxui_ui_icon_button. */
 int32_t pxui_ui_icon_button_with(PxuiUi *ui, const PxuiIconButtonDesc *desc, PxuiBox *out, PxuiSignal *signal, uint8_t *focused);
 int32_t pxui_ui_button_with(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiBuild build, void *user, PxuiBox *out, PxuiSignal *signal, uint8_t *focused);
+/* ABI 1.48: the same calls reporting one PxuiResponse instead of the box, the whole signal and the focus; the _plain forms are the
+   kit button keyed by key (the theme's look, the kit's size, at the start of its line) and the kit icon button showing the glyph
+   icon named name (the theme's look, the kit's square), with no descriptor. */
+int32_t pxui_ui_button_response(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiBuild build, void *user, PxuiResponse *out);
+int32_t pxui_ui_button_plain(PxuiUi *ui, PxuiStr key, PxuiStr text, PxuiResponse *out);
+int32_t pxui_ui_icon_button_response(PxuiUi *ui, const PxuiIconButtonDesc *desc, PxuiResponse *out);
+int32_t pxui_ui_icon_button_plain(PxuiUi *ui, PxuiStr key, PxuiStr icon, PxuiStr name, PxuiResponse *out);
 int32_t pxui_ui_popup(PxuiUi *ui, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_inspector_bar(PxuiUi *ui, PxuiHintSpan hints, int64_t count);
 int32_t pxui_ui_inspector_body(PxuiUi *ui, PxuiBuild build, void *user);
@@ -995,6 +1006,7 @@ _Static_assert(sizeof(PxuiDismissOut) == 12 && offsetof(PxuiDismissOut, size) ==
 _Static_assert(sizeof(PxuiButtonDesc) == 96 && offsetof(PxuiButtonDesc, size) == 0 && offsetof(PxuiButtonDesc, enabled) == 4 && offsetof(PxuiButtonDesc, selected) == 5 && offsetof(PxuiButtonDesc, danger) == 6 && offsetof(PxuiButtonDesc, justify) == 7 && offsetof(PxuiButtonDesc, w_kind) == 8 && offsetof(PxuiButtonDesc, h_kind) == 9 && offsetof(PxuiButtonDesc, has_name) == 10 && offsetof(PxuiButtonDesc, reserved) == 11 && offsetof(PxuiButtonDesc, w) == 12 && offsetof(PxuiButtonDesc, h) == 16 && offsetof(PxuiButtonDesc, padding) == 20 && offsetof(PxuiButtonDesc, states) == 40 && offsetof(PxuiButtonDesc, key) == 48 && offsetof(PxuiButtonDesc, text) == 64 && offsetof(PxuiButtonDesc, name) == 80, "PxuiButtonDesc layout");
 _Static_assert(sizeof(PxuiLabelStyle) == 64 && offsetof(PxuiLabelStyle, size) == 0 && offsetof(PxuiLabelStyle, set) == 4 && offsetof(PxuiLabelStyle, font) == 8 && offsetof(PxuiLabelStyle, weight) == 10 && offsetof(PxuiLabelStyle, color) == 12 && offsetof(PxuiLabelStyle, max_lines) == 14 && offsetof(PxuiLabelStyle, caps) == 16 && offsetof(PxuiLabelStyle, digits) == 17 && offsetof(PxuiLabelStyle, ellipsis) == 18 && offsetof(PxuiLabelStyle, reserved) == 19 && offsetof(PxuiLabelStyle, size_points) == 20 && offsetof(PxuiLabelStyle, tracking) == 24 && offsetof(PxuiLabelStyle, line_height) == 28 && offsetof(PxuiLabelStyle, pad) == 32 && offsetof(PxuiLabelStyle, wrap) == 36 && offsetof(PxuiLabelStyle, align) == 40 && offsetof(PxuiLabelStyle, features) == 44 && offsetof(PxuiLabelStyle, width) == 48, "PxuiLabelStyle layout");
 _Static_assert(sizeof(PxuiIconButtonDesc) == 96 && offsetof(PxuiIconButtonDesc, size) == 0 && offsetof(PxuiIconButtonDesc, enabled) == 4 && offsetof(PxuiIconButtonDesc, w_kind) == 5 && offsetof(PxuiIconButtonDesc, h_kind) == 6 && offsetof(PxuiIconButtonDesc, reserved) == 7 && offsetof(PxuiIconButtonDesc, w) == 8 && offsetof(PxuiIconButtonDesc, h) == 12 && offsetof(PxuiIconButtonDesc, press_scale) == 16 && offsetof(PxuiIconButtonDesc, states) == 24 && offsetof(PxuiIconButtonDesc, key) == 32 && offsetof(PxuiIconButtonDesc, name) == 48 && offsetof(PxuiIconButtonDesc, icon) == 64 && offsetof(PxuiIconButtonDesc, draw) == 80 && offsetof(PxuiIconButtonDesc, draw_user) == 88, "PxuiIconButtonDesc layout");
+_Static_assert(sizeof(PxuiResponse) == 40 && offsetof(PxuiResponse, size) == 0 && offsetof(PxuiResponse, flags) == 4 && offsetof(PxuiResponse, node) == 8, "PxuiResponse layout");
 /* abi-layout end */
 
 #endif

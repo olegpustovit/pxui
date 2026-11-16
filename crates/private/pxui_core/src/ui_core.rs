@@ -677,6 +677,8 @@ struct Slot {
     view: u32,
     /// the virtual list (box key; 0: none) and row this node is the box of, for the text cache's list ownership
     row_of: (i64, u32),
+    /// whether this node's children are a virtual list's rows (`row_of`): only its paint scopes the text cache per child
+    holds_rows: bool,
     rx: f32,
     ry: f32,
     rw: f32,
@@ -728,6 +730,7 @@ impl Slot {
             owner: 0,
             view: NO_VIEW,
             row_of: (0, 0),
+            holds_rows: false,
             rx: 0.0,
             ry: 0.0,
             rw: 0.0,
@@ -954,8 +957,8 @@ pub struct Ui {
     keyboard: pxui_types::Keyboard,
     system_appearance:u32,
     system_reduced_motion:bool,
-    /// the app's colour tokens, `[light, dark]` per index (`set_colors`); unset entries are transparent
-    colors: [[Color; 2]; pxui_types::theme::ColorToken::LIMIT],
+    /// the app's colour tokens, the light table then the dark one (`set_colors`): a painter copies one whole; unset entries are transparent
+    colors: [[Color; pxui_types::theme::ColorToken::LIMIT]; 2],
     theme_reduced_motion:bool,
     font_size: i64,
     platform: Platform,
@@ -1080,6 +1083,8 @@ pub struct Ui {
     pub(crate) bodies: Box<BodyTable>,
     /// the key of the widget whose body is building: `part` derives its keys from it
     pub(crate) part_owner: i64,
+    /// the last duplicate key taken: (frame, the key duplicated, its first slot, the duplicate taken), for `unique_key_repeated`
+    last_dup: (i64, i64, usize, i64),
     pub(crate) edit_unit: Option<(usize, usize, i64)>,
     pub(crate) edit_column: f32,
     pub(crate) scrub_origin: Option<(i64, String)>,
@@ -1227,7 +1232,7 @@ impl Ui {
             keyboard: pxui_types::Keyboard::default(),
             system_appearance:0,
             system_reduced_motion:false,
-            colors: [[Color::default(); 2]; pxui_types::theme::ColorToken::LIMIT],
+            colors: [[Color::default(); pxui_types::theme::ColorToken::LIMIT]; 2],
             theme_reduced_motion:false,
             font_size,
             platform,
@@ -1323,6 +1328,7 @@ impl Ui {
             table_stops: Vec::new(),
             bodies: Box::default(),
             part_owner: 0,
+            last_dup: (-1, 0, 0, 0),
             edit_unit: None,
             edit_column: -1.0,
             scrub_origin: None,
@@ -1470,9 +1476,10 @@ impl Ui {
     /// Installs the app's colour tokens: entry `i` of `light`/`dark` is token `i`; the rest read transparent.
     /// False (nothing changes) when the lengths differ or pass `ColorToken::LIMIT`. A changed table rebuilds every view once.
     pub fn set_colors(&mut self, light: &[Color], dark: &[Color]) -> bool {
-        if light.len() != dark.len() || light.len() > self.colors.len() { return false; }
-        let mut colors = [[Color::default(); 2]; pxui_types::theme::ColorToken::LIMIT];
-        for (to, (l, d)) in colors.iter_mut().zip(light.iter().zip(dark)) { *to = [*l, *d]; }
+        if light.len() != dark.len() || light.len() > pxui_types::theme::ColorToken::LIMIT { return false; }
+        let mut colors = [[Color::default(); pxui_types::theme::ColorToken::LIMIT]; 2];
+        colors[0][..light.len()].copy_from_slice(light);
+        colors[1][..dark.len()].copy_from_slice(dark);
         if colors != self.colors { self.colors = colors; self.epoch += 1; }
         true
     }
@@ -1480,7 +1487,7 @@ impl Ui {
     /// Colour token `token` for the theme in effect (`theme()`, so a `themed` scope picks its own side): the dark entry
     /// when that theme is dark (`theme::dark`), else the light one; transparent past the table.
     #[inline] pub fn color(&self, token: u16) -> Color {
-        self.colors.get(token as usize).map_or(Color::default(), |pair| pair[theme::dark(&self.theme().tokens) as usize])
+        self.colors[theme::dark(&self.theme().tokens) as usize].get(token as usize).copied().unwrap_or_default()
     }
 
     pub fn set_environment(&mut self, value:pxui_types::Environment) {
@@ -3081,7 +3088,7 @@ pub enum Saved {
     Depths(usize, usize),
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct Signal {
     /// topmost box under the pointer, or captured
     pub hovered: bool,
@@ -3122,7 +3129,7 @@ pub struct Signal {
 }
 
 impl Ui {
-    fn require_building(&self) {
+    pub(crate) fn require_building(&self) {
         if !self.building {
             panic!("Ui: boxes must be built inside Ui.frame");
         }
@@ -3138,11 +3145,24 @@ impl Ui {
 
     /// Two boxes with one key in a frame get distinct, order-stable keys: the n-th takes the key's
     /// n-th `#dup` hash. The first key's slot remembers the last duplicate taken this frame, so the
-    /// n-th starts there (n repeated labels cost n lookups, not n squared). With the key, its slot
-    /// when it has one.
-    fn unique_key(&mut self, first: i64) -> (i64, Option<usize>) {
+    /// n-th hashes on from there without looking it up again: two lookups and one hash, whatever n.
+    /// With the key, its slot when it has one.
+    #[inline(always)]
+    pub(crate) fn unique_key(&mut self, first: i64) -> (i64, Option<usize>) {
+        self.unique_key_from(first, first, None)
+    }
+
+    /// `unique_key` for a widget whose siblings repeat its key (`button(text)` keys by position, every label is "\0label"): when
+    /// `first` is the key duplicated last this frame, the next duplicate is hashed on from the one taken, with no lookup of `first`.
+    pub(crate) fn unique_key_repeated(&mut self, first: i64) -> (i64, Option<usize>) {
+        let last = self.last_dup;
+        if last.0 == self.frame_number && last.1 == first { self.unique_key_from(first, hash_range(last.3, "#dup", 0, 4), Some(last.2)) } else { self.unique_key_from(first, first, None) }
+    }
+
+    /// `unique_key` from candidate `key`, the slot of `first` (`head`) when it is known to be taken.
+    #[inline(always)]
+    fn unique_key_from(&mut self, first: i64, mut key: i64, mut head: Option<usize>) -> (i64, Option<usize>) {
         assert!(first != 0 && first != 1, "Ui: keys 0 and 1 are reserved; derive integer keys with int_key");
-        let (mut key, mut head) = (first, None);
         loop {
             match self.table.find(key) {
                 Some(slot) if self.slots[slot].touched == self.frame_number => {
@@ -3150,7 +3170,8 @@ impl Ui {
                     if head.is_none() {
                         head = Some(slot);
                         if dup.0 == self.frame_number {
-                            key = dup.1;
+                            // the last duplicate taken this frame is taken: hash on from it
+                            key = hash_range(dup.1, "#dup", 0, 4);
                             continue;
                         }
                     }
@@ -3159,6 +3180,7 @@ impl Ui {
                 found => {
                     if let Some(head) = head {
                         self.slots[head].dup = (self.frame_number, key);
+                        self.last_dup = (self.frame_number, first, head, key);
                     }
                     return (key, found);
                 }
@@ -3241,7 +3263,14 @@ impl Ui {
     /// `node_keyed` of a node the caller keeps: it is copied once, into the box.
     pub fn node_keyed_ref(&mut self, key: i64, node: &Node) -> Handle {
         self.require_building();
-        let (key, found) = self.unique_key(key);
+        let unique = self.unique_key(key);
+        self.node_unique(unique, node)
+    }
+
+    /// `node_keyed_ref` of a key `unique_key` already resolved this frame (with its slot): a widget that derives another node's key
+    /// from its own resolves it first, so the derived one is unique too.
+    #[inline(always)]
+    pub(crate) fn node_unique(&mut self, (key, found): (i64, Option<usize>), node: &Node) -> Handle {
         let parent = self.current_parent();
         let index = self.append_box(key, found, parent);
         self.set_box(index, node);
@@ -5597,10 +5626,6 @@ impl Ui {
             s.rw = w;
             s.rh = h;
         }
-        let (list, row) = self.slots[slot].row_of;
-        if list != 0 {
-            paint.text.list_row(list as u64, row as usize);
-        }
         let shape = self.boxes[index].shape;
         let hit = self.boxes[index].hit_rect.unwrap_or_else(|| match (&self.boxes[index].hit, shape) {
             (Some(f), _) => f(screen_rect),
@@ -5655,6 +5680,16 @@ impl Ui {
                 self.visit_view(paint, index, view, child_clip, parent_hit);
             } else {
                 let mut child = self.boxes[index].first;
+                if child != NONE && self.slots[slot].holds_rows {
+                    // a virtual list's rows: the text each lays out belongs to its row (`Text::list_row`)
+                    while child != NONE {
+                        let (list, row) = self.slots[self.boxes[child].slot].row_of;
+                        if list != 0 { paint.text.list_row(list as u64, row as usize); } else { paint.text.list_end(); }
+                        self.visit(paint, child, child_clip, parent_hit);
+                        child = self.boxes[child].next;
+                    }
+                    paint.text.list_end();
+                }
                 while child != NONE {
                     self.visit(paint, child, child_clip, parent_hit);
                     child = self.boxes[child].next;
@@ -5685,9 +5720,6 @@ impl Ui {
         } else {
             // Culled: keep retained rectangles current for `rect` queries.
             self.retain_rects(index, clip_rect);
-        }
-        if list != 0 {
-            paint.text.list_end();
         }
     }
 
@@ -5771,7 +5803,7 @@ impl Ui {
             font_size: self.font_size,
             row_height: self.kit_row_height,
             density: self.density,
-            colors: { let dark = theme::dark(&self.theme.tokens) as usize; self.colors.map(|pair| pair[dark]) },
+            colors: self.colors[theme::dark(&self.theme.tokens) as usize],
             label_look: self.theme.label.idle,
             text: self.text.take().expect("Ui: painting re-entered"),
             ime: None,
@@ -6855,6 +6887,7 @@ impl Ui {
         let saved = self.enter(&body);
         let extent = self.node_keyed(int_key(body.box_key, -1), Node { h: Size::Px(count as f32 * row_h), ..Node::DEFAULT });
         let inner = self.enter(&extent);
+        self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first, last);
         for i in first..last {
             let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Px(row_h), at: Some((0.0, i as f32 * row_h)).into(), role: Role::ListItem, ..Node::DEFAULT });
@@ -6899,6 +6932,7 @@ impl Ui {
         }
         let extent=self.node("rows",Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
         let inner=self.enter(&extent);
+        self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
         for index in first..last {
             let row=self.node_keyed(int_key(body.box_key,index as i64),Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,index as f32*section.row_height)).into(),role:Role::ListItem,..Node::DEFAULT});
@@ -6951,6 +6985,7 @@ impl Ui {
         }
         let extent=self.node("rows",Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
         let inner=self.enter(&extent);
+        self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
         for index in first..last {
             let row=self.node_keyed(int_key(body.box_key,index as i64),Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,cache.tops[index])).into(),role:Role::ListItem,..Node::DEFAULT});
@@ -7006,6 +7041,7 @@ impl Ui {
         let saved = self.enter(&body);
         let extent = self.node_keyed(int_key(body.box_key, -1), Node { h: Size::Px(cache.tops[count]), ..Node::DEFAULT });
         let inner = self.enter(&extent);
+        self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first, last);
         for i in first..last {
             let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Fit, at: Some((0.0, cache.tops[i])).into(), role: Role::ListItem, ..Node::DEFAULT });
@@ -7080,6 +7116,7 @@ impl Ui {
         let (ew, eh) = if sideways { (extent, per as f32 * across) } else { (per as f32 * across, extent) };
         let holder = self.node_keyed(int_key(body.box_key, -1), Node { w: Size::Px(ew), h: Size::Px(eh), ..Node::DEFAULT });
         let inner = self.enter(&holder);
+        self.slots[holder.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first * per, (last * per).min(count));
         for i in first * per..(last * per).min(count) {
             let (line, k) = (i / per, i % per);

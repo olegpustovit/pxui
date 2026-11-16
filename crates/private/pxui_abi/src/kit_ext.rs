@@ -3,10 +3,11 @@ use crate::interaction::write_signal;
 use crate::kit::PxuiHintDesc;
 use crate::state::{Build, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_build, checked, engine, fail, get, to_abi_box};
 use crate::text_inputs::TextValid;
+use crate::trusted;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui::{Axis, ButtonOpts, IconButton, Edges, HeadAction, Justify, LineStep, Rect, Size, Ui};
-use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonDesc, PxuiIconButtonDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
+use pxui_core::ui::{Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, States, Ui};
+use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonDesc, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
@@ -19,61 +20,96 @@ export!(pub unsafe fn pxui_ui_button_styled(ui: *mut PxuiUi, text: Str, bare: u8
 });
 
 // The kit button with options; `build` (when set) replaces its text, run inside the box. `states` is null (the theme's button) or six looks.
-export!(pub unsafe fn pxui_ui_button_with(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: Build, user: *mut c_void, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+export!(trusted pub unsafe fn pxui_ui_button_with(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: Build, user: *mut c_void, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || out.is_null() || signal.is_null() || focused.is_null() { return unsafe { fail(ui, "null button argument") }; }
-    let Some(d) = read_desc!(desc, PxuiButtonDesc) else { return unsafe { fail(ui, "invalid button descriptor") }; };
-    let size = |kind: u8, value: f32| match kind { 0 => Some(Size::Fit), 1 if value.is_finite() && value >= 0.0 => Some(Size::Px(value)), 2 => Some(Size::Grow), _ => None };
-    let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
-    let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
-    if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.padding.iter().any(|v| !v.is_finite() || *v < 0.0) {
-        return unsafe { fail(ui, "invalid button descriptor") };
-    }
-    let (Some(key), Some(text), Some(name)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
-    let looks = if d.states.is_null() { None } else {
-        let raw = unsafe { core::slice::from_raw_parts(d.states, 6) };
-        let mut it = raw.iter().copied().map(crate::style::decode_look);
-        let mut next = || it.next().flatten();
-        match (next(), next(), next(), next(), next(), next()) {
-            (Some(idle), Some(hover), Some(pressed), Some(focus), Some(disabled), Some(checked)) => Some(pxui_core::ui::States { idle, hover, pressed, focus, disabled, checked }),
-            _ => return unsafe { fail(ui, "invalid button looks") },
-        }
-    };
-    let engine = unsafe { &mut *state.engine };
-    let ink = (d.danger != 0).then(|| engine.theme().tokens.invalid);
-    let opts = ButtonOpts { states: looks, w, h, enabled: d.enabled != 0, selected: d.selected != 0, justify,
-        padding: Edges { l: d.padding[0], t: d.padding[1], r: d.padding[2], b: d.padding[3] }, ink, ..ButtonOpts::DEFAULT };
-    let shared = state.shared;
-    let mut content = |engine: &mut Ui| call_build(shared, engine, build, user);
-    let result = engine.button_opts(key, text, (d.has_name != 0).then_some(name), &opts, if build.is_some() { Some(&mut content) } else { None });
-    unsafe { *out = to_abi_box(result.handle); write_signal(state, &engine.signal(&result.handle), &mut *signal); *focused = result.focused as u8; }
-    0
+    let mut response = PxuiResponse::EMPTY;
+    let rc = unsafe { button_call(ui, desc, build, user, &mut response, Some(&mut *signal)) };
+    if rc == 0 { unsafe { (*out, *focused) = (response.node, (response.flags & PxuiResponse::FOCUSED != 0) as u8); } }
+    rc
 });
 
-// The kit icon button with options; `states` is null (the theme's icon button) or six looks.
-export!(pub unsafe fn pxui_ui_icon_button_with(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || out.is_null() || signal.is_null() || focused.is_null() { return unsafe { fail(ui, "null icon button argument") }; }
-    let Some(d) = read_desc!(desc, PxuiIconButtonDesc) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
-    let size = |kind: u8, value: f32| match kind { 0 => Some(Size::Fit), 1 if value.is_finite() && value >= 0.0 => Some(Size::Px(value)), 2 => Some(Size::Grow), _ => None };
-    let (Some(w), Some(h)) = (size(d.w_kind, d.w), size(d.h_kind, d.h)) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
-    if d.enabled > 1 || d.reserved != 0 || !d.press_scale.is_finite() || d.press_scale <= 0.0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
-    let (Some(key), Some(name), Some(icon)) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
-    let looks = if d.states.is_null() { None } else {
-        let raw = unsafe { core::slice::from_raw_parts(d.states, 6) };
-        let mut it = raw.iter().copied().map(crate::style::decode_look);
-        let mut next = || it.next().flatten();
-        match (next(), next(), next(), next(), next(), next()) {
-            (Some(idle), Some(hover), Some(pressed), Some(focus), Some(disabled), Some(checked)) => Some(pxui_core::ui::States { idle, hover, pressed, focus, disabled, checked }),
-            _ => return unsafe { fail(ui, "invalid icon button looks") },
-        }
-    };
-    let draw = d.draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, d.draw_user as usize, state.shared as usize]));
-    let engine = unsafe { &mut *state.engine };
-    let result = engine.icon_button_text(key, icon, draw, name, &IconButton { states: looks, w, h, enabled: d.enabled != 0, press_scale: d.press_scale });
-    unsafe { *out = to_abi_box(result.handle); write_signal(state, &engine.signal(&result.handle), &mut *signal); *focused = result.focused as u8; }
-    0
+// ABI 1.48: `pxui_ui_button_with` reporting into one `PxuiResponse` (no `PxuiSignal`).
+export!(trusted pub unsafe fn pxui_ui_button_response(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: Build, user: *mut c_void, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() { return unsafe { fail(ui, "null button argument") }; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
+    unsafe { button_call(ui, desc, build, user, out, None) }
 });
+
+// ABI 1.48: the plain kit button (`Button::DEFAULT`: the theme's look, the kit's size, at the start of its line) keyed by `key`.
+export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, text: Str, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
+    let (Some(key), Some(text)) = (unsafe { checked(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid button text") } };
+    unsafe { trusted::button_plain(ui, key, text, out) }
+});
+
+/// The checked `PxuiButtonDesc` behind `desc` (not null) through the trusted entry: what happened to `out`, the whole signal to
+/// `signal` when given.
+unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: Build, user: *mut c_void, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    let Some(d) = read_desc!(desc, PxuiButtonDesc) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+    let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
+    let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+    if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid button descriptor") }; }
+    let (Some(key), Some(text), Some(name)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
+    let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid button looks") } };
+    let mut content = |ui: *mut PxuiUi| if let Some(build) = build { build(user, ui.cast()) };
+    let pad = Edges { l: d.padding[0], t: d.padding[1], r: d.padding[2], b: d.padding[3] };
+    unsafe { trusted::button_with(ui, key, text, (d.has_name != 0).then_some(name), looks.as_ref(), w, h, justify, pad, d.enabled != 0, d.selected != 0, d.danger != 0,
+        if build.is_some() { Some(&mut content) } else { None }, out, signal) }
+}
+
+// The kit icon button with options; `states` is null (the theme's icon button) or six looks.
+export!(trusted pub unsafe fn pxui_ui_icon_button_with(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() || out.is_null() || signal.is_null() || focused.is_null() { return unsafe { fail(ui, "null icon button argument") }; }
+    let mut response = PxuiResponse::EMPTY;
+    let rc = unsafe { icon_button_call(ui, desc, &mut response, Some(&mut *signal)) };
+    if rc == 0 { unsafe { (*out, *focused) = (response.node, (response.flags & PxuiResponse::FOCUSED != 0) as u8); } }
+    rc
+});
+
+// ABI 1.48: `pxui_ui_icon_button_with` reporting into one `PxuiResponse` (no `PxuiSignal`).
+export!(trusted pub unsafe fn pxui_ui_icon_button_response(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() { return unsafe { fail(ui, "null icon button argument") }; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short icon button response") } };
+    unsafe { icon_button_call(ui, desc, out, None) }
+});
+
+// ABI 1.48: the plain kit icon button (`IconButton::DEFAULT`: the theme's look, the kit's square) showing the glyph `icon`, named `name`.
+export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: Str, icon: Str, name: Str, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short icon button response") } };
+    let (Some(key), Some(icon), Some(name)) = (unsafe { checked(key) }, unsafe { checked(icon) }, unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid icon button text") } };
+    unsafe { trusted::icon_button_plain(ui, key, icon, name, out) }
+});
+
+/// The checked `PxuiIconButtonDesc` behind `desc` (not null) through the trusted entry, as `button_call`.
+unsafe fn icon_button_call(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    let Some(d) = read_desc!(desc, PxuiIconButtonDesc) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
+    let (Some(w), Some(h)) = (size(d.w_kind, d.w), size(d.h_kind, d.h)) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
+    if d.enabled > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
+    let (Some(key), Some(name), Some(icon)) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
+    let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid icon button looks") } };
+    unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, out, signal) }
+}
+
+/// A button size as a descriptor writes it (kind 0 the kit's, 1 points, 2 fill); the points are the trusted entry's to check.
+fn size(kind: u8, value: f32) -> Option<Size> { match kind { 0 => Some(Size::Fit), 1 => Some(Size::Px(value)), 2 => Some(Size::Grow), _ => None } }
+
+/// The six looks behind `states` (none when null); `Err` when one does not decode.
+unsafe fn looks(states: *const pxui_types::ffi::PxuiLookDesc) -> Result<Option<States>, ()> {
+    if states.is_null() { return Ok(None); }
+    let raw = unsafe { core::slice::from_raw_parts(states, 6) };
+    let mut it = raw.iter().copied().map(crate::style::decode_look);
+    let mut next = || it.next().flatten();
+    match (next(), next(), next(), next(), next(), next()) {
+        (Some(idle), Some(hover), Some(pressed), Some(focus), Some(disabled), Some(checked)) => Ok(Some(States { idle, hover, pressed, focus, disabled, checked })),
+        _ => Err(()),
+    }
+}
 
 // `axis` 0 is a row (a vertical grip), 1 a column; `rect` places the grip in its parent when `has_rect` is set.
 export!(pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32 {

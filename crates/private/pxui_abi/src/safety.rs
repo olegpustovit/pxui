@@ -697,6 +697,39 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
+    /// ABI 1.48: the response calls check their descriptors as the `_with` ones do, and refuse a null or short `PxuiResponse`; a plain
+    /// call fills the record with the box it declared.
+    #[test]
+    fn response_calls() {
+        let ui = create();
+        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let mut value: PxuiButtonDesc = unsafe { core::mem::zeroed() };
+        (value.enabled, value.key, value.text) = (1, k, k);
+        four(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<PxuiButtonDesc>();
+            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_response(ui, p, None, core::ptr::null_mut(), &mut out) } })
+        });
+        let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
+        (icon.enabled, icon.press_scale, icon.key, icon.name, icon.icon) = (1, 1.0, k, k, k);
+        four(ui, ((&icon as *const PxuiIconButtonDesc).cast(), size_of_val(&icon), align_of_val(&icon)), true, &mut |p| {
+            let p = p.cast::<PxuiIconButtonDesc>();
+            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button_response(ui, p, &mut out) } })
+        });
+        let short = PxuiResponse { size: 8, ..PxuiResponse::EMPTY };
+        for out in [core::ptr::null_mut(), &short as *const PxuiResponse as *mut PxuiResponse] {
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_plain(ui, k, k, out) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_icon_button_plain(ui, k, k, k, out) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_response(ui, &value, None, core::ptr::null_mut(), out) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_icon_button_response(ui, &icon, out) }), PXUI_ERR_ARGUMENT);
+        }
+        let bad = Str { ptr: [0xffu8].as_ptr(), len: 1 };
+        assert_eq!(in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_plain(ui, k, bad, &mut out) } }), PXUI_ERR_ARGUMENT);
+        let mut plain = (PxuiResponse::EMPTY, PxuiResponse::EMPTY);
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_plain(ui, k, k, &mut plain.0) + pxui_ui_icon_button_plain(ui, Str { ptr: b"i".as_ptr(), len: 1 }, k, k, &mut plain.1) }), 0);
+        assert!(plain.0.node.box_key != 0 && plain.1.node.box_key != 0 && plain.0.node.box_key != plain.1.node.box_key, "{plain:?}");
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
     #[test]
     fn header_desc() {
         let ui = create();

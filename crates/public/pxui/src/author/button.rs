@@ -160,6 +160,7 @@ impl Ui {
     }
 
     /// The one body of `button_with` and `button_content`: the key's label, then the engine call (`text` is empty for contents).
+    #[inline(always)]
     #[track_caller]
     fn button_key(&mut self, key: Key, text: &str, button: &Button, content: Option<&mut dyn FnMut(&mut Ui)>) -> Response {
         let mut id_label = [0u8; 17];
