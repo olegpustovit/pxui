@@ -5,8 +5,8 @@ use crate::state::{Build, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_build, check
 use crate::text_inputs::TextValid;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui::{Axis, ButtonOpts, Edges, HeadAction, Justify, LineStep, Rect, Size, Ui};
-use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
+use pxui_core::ui::{Axis, ButtonOpts, IconButton, Edges, HeadAction, Justify, LineStep, Rect, Size, Ui};
+use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonDesc, PxuiIconButtonDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
@@ -46,7 +46,32 @@ export!(pub unsafe fn pxui_ui_button_with(ui: *mut PxuiUi, desc: *const PxuiButt
     let shared = state.shared;
     let mut content = |engine: &mut Ui| call_build(shared, engine, build, user);
     let result = engine.button_opts(key, text, (d.has_name != 0).then_some(name), &opts, if build.is_some() { Some(&mut content) } else { None });
-    unsafe { *out = to_abi_box(result.handle); write_signal(state, &result.signal, &mut *signal); *focused = result.focused as u8; }
+    unsafe { *out = to_abi_box(result.handle); write_signal(state, &engine.signal(&result.handle), &mut *signal); *focused = result.focused as u8; }
+    0
+});
+
+// The kit icon button with options; `states` is null (the theme's icon button) or six looks.
+export!(pub unsafe fn pxui_ui_icon_button_with(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() || out.is_null() || signal.is_null() || focused.is_null() { return unsafe { fail(ui, "null icon button argument") }; }
+    let Some(d) = read_desc!(desc, PxuiIconButtonDesc) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
+    let size = |kind: u8, value: f32| match kind { 0 => Some(Size::Fit), 1 if value.is_finite() && value >= 0.0 => Some(Size::Px(value)), 2 => Some(Size::Grow), _ => None };
+    let (Some(w), Some(h)) = (size(d.w_kind, d.w), size(d.h_kind, d.h)) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
+    if d.enabled > 1 || d.reserved != 0 || !d.press_scale.is_finite() || d.press_scale <= 0.0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
+    let (Some(key), Some(name), Some(icon)) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
+    let looks = if d.states.is_null() { None } else {
+        let raw = unsafe { core::slice::from_raw_parts(d.states, 6) };
+        let mut it = raw.iter().copied().map(crate::style::decode_look);
+        let mut next = || it.next().flatten();
+        match (next(), next(), next(), next(), next(), next()) {
+            (Some(idle), Some(hover), Some(pressed), Some(focus), Some(disabled), Some(checked)) => Some(pxui_core::ui::States { idle, hover, pressed, focus, disabled, checked }),
+            _ => return unsafe { fail(ui, "invalid icon button looks") },
+        }
+    };
+    let draw = d.draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, d.draw_user as usize, state.shared as usize]));
+    let engine = unsafe { &mut *state.engine };
+    let result = engine.icon_button_text(key, icon, draw, name, &IconButton { states: looks, w, h, enabled: d.enabled != 0, press_scale: d.press_scale });
+    unsafe { *out = to_abi_box(result.handle); write_signal(state, &engine.signal(&result.handle), &mut *signal); *focused = result.focused as u8; }
     0
 });
 

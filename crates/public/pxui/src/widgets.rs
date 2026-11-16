@@ -30,7 +30,6 @@ mod sys {
     pub fn pxui_ui_slider(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, out: *mut f32) -> i32;
     pub fn pxui_ui_progress(ui: *mut PxuiUi, label: Str, has_value: u8, value: f32, out: *mut PxuiBox) -> i32;
     pub fn pxui_ui_spinner(ui: *mut PxuiUi, label: Str, out: *mut PxuiBox) -> i32;
-    pub fn pxui_ui_icon_button(ui: *mut PxuiUi, label: Str, icon: Str, out: *mut u8) -> i32;
     pub fn pxui_ui_badge(ui: *mut PxuiUi, label: Str, value: Str, out: *mut PxuiBox) -> i32;
     pub fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, changed: *mut u8, out: *mut Str) -> i32;
     }
@@ -142,13 +141,6 @@ impl Ui {
         out
     }
 
-    #[inline]
-    #[track_caller] pub fn icon_button(&mut self, label: &str, icon: &str) -> bool {
-        #[cfg(feature = "static")]
-        { let mut out = false; check(self, unsafe { pxui_abi_link::trusted::icon_button(self.0.as_ptr(), label, icon, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        { let mut out = 0; check(self, unsafe { sys::pxui_ui_icon_button(self.0.as_ptr(), as_str(label), as_str(icon), &mut out) }); out != 0 }
-    }
 
     #[inline]
     #[track_caller] pub fn badge(&mut self, label: &str, value: &str) -> PxuiBox {

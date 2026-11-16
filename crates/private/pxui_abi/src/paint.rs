@@ -71,6 +71,16 @@ export!(bare pub unsafe fn pxui_ui_draw(ui: *mut crate::PxuiUi, box_: *const Pxu
 });
 
 
+/// The engine drawing of an icon whose app drawing is a C callback: `data` is the callback, its user data and the library state.
+pub(crate) fn icon_bridge(paint: &mut EnginePaint, rect: pxui_core::ui::Rect, ink: Rgba, data: [usize; 3]) {
+    let Some(build) = (unsafe { core::mem::transmute::<usize, pxui_types::ffi::PxuiIconDraw>(data[0]) }) else { return };
+    let shared = data[2] as *mut Shared;
+    let info = info_of(paint);
+    let mut borrowed = PxuiPaint { paint, shared, window: Window { base: core::ptr::null_mut(), base_len: 0, room: 0, open: false } };
+    build(data[1] as *mut c_void, (&mut borrowed as *mut PxuiPaint).cast(), Rect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, ink, &info);
+    if borrowed.window.open { unsafe { refuse(shared, "an icon drawing returned with its span uncommitted: commit it (pxui_paint_span with at_least 0) before returning") }; }
+}
+
 export!(pub unsafe fn pxui_paint_icon(p:*mut PxuiPaint,x:f32,y:f32,font:u16,size:f32,codepoint:u32,c:Rgba)->f32 { if !finite(&[x,y,size])||size<=0.0{return 0.0} let (Some(p),Some(ch))=(unsafe{value(p)},char::from_u32(codepoint)) else{return 0.0}; p.icon((x,y),font,size,ch,c) });
 
 export!(pub unsafe fn pxui_paint_text(p:*mut PxuiPaint,x:f32,y:f32,s:Str) { if finite(&[x,y]) { if let (Some(p),Some(s))=(unsafe{value(p)},unsafe{string(s)}) { p.text((x,y),s); } } });

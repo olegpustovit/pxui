@@ -258,6 +258,18 @@ extern "C" fn draw<F: FnMut(&mut Paint<'_>, Rect)>(user: *mut c_void, raw: *mut 
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
 
+/// The C callback of an `Icon::Draw`: `user` is the app's drawing function itself (a plain `fn` pointer, so nothing to release).
+pub(crate) extern "C" fn icon_draw(user: *mut c_void, raw: *mut c_void, rect: Rect, ink: Rgba, info: *const PxuiPaintInfo) {
+    if deferred() { return; }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let Some(mut paint) = (unsafe { info.as_ref().and_then(|info| Paint::from_raw(raw.cast(), info)) }) else { return };
+        let f = unsafe { core::mem::transmute::<*mut c_void, fn(&mut Paint<'_>, Rect, Rgba)>(user) };
+        f(&mut paint, rect, ink);
+        paint.flush();
+    }));
+    if let Err(panic) = result { defer_callback_panic(panic); }
+}
+
 // A boxed closure (a canvas, a hit shape) is released when the library lets go of it. Released storage waits in a small pool and
 // the next closure of the same layout (a canvas rebuilt each frame is always the same type) takes it: a settled frame allocates
 // nothing. A zero-sized closure has no storage at all.

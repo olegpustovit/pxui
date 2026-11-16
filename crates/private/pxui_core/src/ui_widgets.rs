@@ -14,7 +14,7 @@ use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body,
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
-use crate::ui_kit::{part_key, text_only};
+use crate::ui_kit::{part_key, text_only, Response};
 use input::{Event, Key};
 use std::ops::RangeInclusive;
 
@@ -990,15 +990,30 @@ impl Ui {
         gone
     }
 
-    /// A 20-point square button showing `icon` (a glyph of any loaded font) centred, named `label`.
-    pub fn icon_button(&mut self, label: &str, icon: &str) -> bool {
-        let b = self.node(label, Node { flags: STOP_FLAGS, role: Role::Button, ..Node::DEFAULT });
+    /// An icon button as the wrapper declares it: `key` is hashed under the parent's seed, `icon` is what the body draws (a glyph, or
+    /// the app's own drawing in the look's text ink), `name` the accessible name and `icon_button` the variation (see `IconButton`).
+    pub fn icon_button(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton) -> Response {
+        let mut glyph = [0u8; 4];
+        match icon {
+            Icon::Glyph(ch) => self.icon_button_text(key, ch.encode_utf8(&mut glyph), None, name, button),
+            Icon::Draw(f, data) => self.icon_button_text(key, "", Some((f, data)), name, button),
+        }
+    }
+
+    /// `icon_button` with the glyph as any string (the C ABI's) beside an optional drawing, which wins.
+    pub fn icon_button_text(&mut self, key: &str, glyph: &str, draw: Option<(IconDraw, [usize; 3])>, name: &str, button: &IconButton) -> Response {
+        let flags = if button.enabled { STOP_FLAGS } else { BLOCKING | TAB_ONLY };
+        let b = self.node(key, Node { flags, role: Role::Button, ..Node::DEFAULT });
         let s = self.signal(&b);
-        let state = State { hovered: s.hovered, pressed: s.held, ..State::default() };
-        self.a11y_name(&b, shown(label));
-        let config = IconButtonConfig { state, node: b };
-        in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, label, icon));
-        s.clicked
+        let focused = self.focused(&b);
+        let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !button.enabled, ..State::default() };
+        self.a11y_name(&b, shown(name));
+        let states = button.states.unwrap_or(self.theme().icon_button);
+        let ink = states.pick(state).text;
+        let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw };
+        in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
+        self.node_new(&b).state.disabled = !button.enabled;
+        Response::of(&s, focused, b)
     }
 
     /// A small label in the badge look (`text`, keyed by `label` so `patch_text` can update a count
@@ -1222,18 +1237,90 @@ pub(crate) fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: 
     this.text(&c.node, text);
 }
 
-/// The built-in icon button: the 20-point square, the glyph centred.
-pub(crate) fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, _label: &str, icon: &str) {
+/// An app drawing of an icon: paints into the 20-point square `rect` in `ink` (the look's text colour for the button's state). The
+/// three words are the caller's (the C ABI's callback, its user data and its library state); a plain Rust drawing ignores them.
+pub type IconDraw = fn(&mut Paint, Rect, crate::geom::Rgba, [usize; 3]);
+
+/// What an icon button shows: a glyph of the icon font its look names, or the app's own drawing.
+#[derive(Clone, Copy)]
+pub enum Icon {
+    Glyph(char),
+    Draw(IconDraw, [usize; 3]),
+}
+
+/// How `icon_button` varies the kit's icon button; `DEFAULT` is the plain one.
+pub struct IconButton {
+    /// The look per state; `None` is the theme's `icon_button`.
+    pub states: Option<States>,
+    /// Width and height in points (`Px`) or filling the line (`Grow`); `Fit` is the kit's control square.
+    pub w: Size,
+    pub h: Size,
+    /// A disabled button takes no press or focus, shows its `disabled` look and reports disabled to accessibility.
+    pub enabled: bool,
+    /// The scale the button's contents spring to while pressed (1.0: no animation, no view).
+    pub press_scale: f32,
+}
+
+impl IconButton {
+    pub const DEFAULT: IconButton = IconButton { states: None, w: Size::Fit, h: Size::Fit, enabled: true, press_scale: 1.0 };
+}
+
+impl Ui {
+    /// Paints the app's drawing of an icon button's `c` (when it has one) on `node`: its 20-point (`control_h`) square at the centre of
+    /// the node's rectangle, in `c.ink`. For a body that builds its own plate; the built-in body calls it on its plate.
+    pub fn icon_draw(&mut self, node: &Handle, c: &IconButtonConfig) {
+        if let Some((f, data)) = c.draw {
+            let (ch, ink) = (self.control_h(), c.ink);
+            self.draw(node, move |paint, rect| f(paint, Rect { x: rect.x + (rect.w - ch) / 2.0, y: rect.y + (rect.h - ch) / 2.0, w: ch, h: ch }, ink, data));
+        }
+    }
+}
+
+/// Spring rates of a pressed icon button's scale: fast in, slower out.
+const PRESS_IN: f32 = 60.0;
+const PRESS_OUT: f32 = 20.0;
+
+/// The built-in icon button: a square (the kit's 20 points, or the caller's size), the glyph centred. With a press scale below or above
+/// 1 the plate and glyph sit in a view that springs to that scale while the button is held and back on release.
+pub(crate) fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, icon: &str) {
     let ch = this.control_h();
     let tw = this.text_width(None, icon);
+    let size = |s: Size| match s { Size::Fit => Size::Px(ch), s => s };
     let n = this.node_new(&c.node);
-    (n.w, n.h) = (Size::Px(ch), Size::Px(ch));
-    let look = *this.theme().icon_button.pick(c.state);
-    this.set_look(&c.node, look, c.state);
-    let n = this.node_new(&c.node);
-    n.look.ring = Ring::NONE;
-    n.inset = Edges { l: ((ch - tw) / 2.0).floor(), ..Edges::ZERO };
-    this.text(&c.node, icon);
+    (n.w, n.h) = (size(c.w), size(c.h));
+    let look = *states.pick(c.state);
+    let width = match c.w { Size::Px(w) => w, _ => ch };
+    let inset = Edges { l: ((width - tw) / 2.0).floor(), ..Edges::ZERO };
+    if c.press_scale == 1.0 {
+        this.set_look(&c.node, look, c.state);
+        let n = this.node_new(&c.node);
+        n.look.ring = Ring::NONE;
+        n.inset = inset;
+        if c.draw.is_some() { this.icon_draw(&c.node, c); } else { this.text(&c.node, icon); }
+        return;
+    }
+    let word = |color: crate::geom::Rgba| u32::from_le_bytes([color.r, color.g, color.b, color.a]) as i64;
+    let bits = (c.state.hovered as i64) | (c.state.pressed as i64) << 1 | (c.state.focused as i64) << 2 | (c.state.disabled as i64) << 3;
+    let art = c.draw.map_or(0, |(f, data)| (f as usize as i64) ^ (data[0] as i64).rotate_left(16) ^ (data[1] as i64).rotate_left(32));
+    let mut revision = key_of(word(look.fill) | word(look.text) << 32 ^ art, icon);
+    revision = key_of(revision ^ word(look.border) ^ bits << 40 ^ (width.to_bits() as i64) << 8 ^ look.font.size.rotate_left(20) ^ i64::from(look.font.family) << 52, "icon_button");
+    let saved = this.enter(&c.node);
+    let state = c.state;
+    let visual = this.view("visual", revision as u64, Size::Grow, Size::Grow, &mut |ui| {
+        let surface = ui.node("surface", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+        ui.set_look(&surface, look, state);
+        let n = ui.node_new(&surface);
+        n.look.ring = Ring::NONE;
+        n.inset = inset;
+        if c.draw.is_some() { ui.icon_draw(&surface, c); } else { ui.text(&surface, icon); }
+    });
+    this.leave(saved);
+    let held = i64::from(c.state.pressed);
+    if this.state(&visual, 0) != held {
+        this.set_state(&visual, held);
+        let scale = if c.state.pressed { c.press_scale } else { 1.0 };
+        this.animate(&visual, Target::Scale { x: scale, y: scale, anchor: (0.5, 0.5) }, Curve::Spring { omega: if c.state.pressed { PRESS_IN } else { PRESS_OUT } });
+    }
 }
 
 /// The built-in checkbox and radio: the 12-point box (an accent square inside when on) or ring, then the label, in the row's hover look.

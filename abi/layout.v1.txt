@@ -121,7 +121,7 @@ PxuiToggleConfig 64 8 0 4 12 16 48
 PxuiSliderConfig 64 8 0 4 12 16 48
 PxuiProgressConfig 64 8 0 4 8 16 48
 PxuiButtonConfig 136 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116
-PxuiIconButtonConfig 80 8 0 4 16 48 64
+PxuiIconButtonConfig 128 8 0 4 16 48 64 80 88 89 90 92 96 100 104 112 120
 PxuiCheckConfig 64 8 0 4 12 16 48
 PxuiSpinnerConfig 56 8 0 8 40
 PxuiBadgeConfig 72 8 0 8 40 56
@@ -176,3 +176,4 @@ PxuiDismissIn 12 4 0 4 8
 PxuiDismissOut 12 4 0 4 8
 PxuiButtonDesc 96 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80
 PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
+PxuiIconButtonDesc 96 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88

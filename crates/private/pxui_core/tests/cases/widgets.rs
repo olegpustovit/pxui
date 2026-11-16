@@ -130,7 +130,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             s.drop = ui.dropdown("Pick", &NAMES, s.drop);
             let holder = ui.node("add-row", Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
             ui.within(&holder, &mut |ui| {
-                if ui.icon_button("Add", "+") {
+                if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT).clicked {
                     s.icon += 1;
                 }
             });

@@ -309,7 +309,6 @@ crates/public/pxui/src/ui_state.rs	Ui::text_input_options	example,Allocates,Pani
 crates/public/pxui/src/widgets.rs	pxui_ui_badge	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_checkbox	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_dropdown	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_icon_button	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_progress	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_radio	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_search_field	example,Allocates,Panics,Identity

@@ -1,0 +1,225 @@
+//! The kit icon button: `ui.icon_button(key, icon, name, &IconButton)` reports a `Response`.
+use super::{layout::id_text, Key, Response};
+use crate::{Paint, Ui};
+use pxui_types::geom::{Rect, Rgba};
+use pxui_types::{theme::States, Size};
+
+/// What an icon button shows: a glyph of the icon font its look names, or the app's own drawing.
+///
+/// The app owns its icon set: pxui names none. A drawing is a plain function that paints into the 20-point square it is given, in the
+/// ink it is given (the look's text colour for the button's state); a stateful icon (a filled heart) is one function per state.
+#[derive(Clone, Copy)]
+pub enum Icon {
+    /// A character of the icon font.
+    Glyph(char),
+    /// The app's drawing: painter, the square to draw in, the ink.
+    Draw(fn(&mut Paint<'_>, Rect, Rgba)),
+}
+
+impl Icon {
+    /// The glyph `ch`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const PLAY: pxui::Icon = pxui::Icon::glyph('\u{e000}');
+    /// let _ = PLAY;
+    /// ```
+    pub const fn glyph(ch: char) -> Icon { Icon::Glyph(ch) }
+
+    /// The drawing `f`: called at paint time with the painter, the 20-point square at the centre of the plate and the ink.
+    /// Allocates: never.
+    /// Panics: never (a panic inside `f` is re-raised from the frame).
+    ///
+    /// ```
+    /// use pxui::{geom::{Rect, Rgba}, Icon, Paint};
+    /// fn dot(paint: &mut Paint<'_>, rect: Rect, ink: Rgba) { paint.fill(rect.x + 8.0, rect.y + 8.0, 4.0, 4.0, ink); }
+    /// const DOT: Icon = Icon::draw(dot);
+    /// let _ = DOT;
+    /// ```
+    pub const fn draw(f: fn(&mut Paint<'_>, Rect, Rgba)) -> Icon { Icon::Draw(f) }
+}
+
+/// How `Ui::icon_button` varies the kit's icon button, as a `Copy` value built with `const fn` builders from `IconButton::DEFAULT`.
+///
+/// The default is the theme's 20-point square with its glyph centred.
+#[derive(Clone, Copy)]
+pub struct IconButton {
+    pub(crate) w: Size,
+    pub(crate) h: Size,
+    pub(crate) look: Option<States>,
+    pub(crate) enabled: bool,
+    pub(crate) press_scale: f32,
+}
+
+impl IconButton {
+    /// The plain kit icon button.
+    pub const DEFAULT: IconButton = IconButton { w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0 };
+
+    /// A button `w` by `h` points.
+    /// Allocates: never.
+    /// Panics: never (a negative or non-finite size is refused when the button is declared).
+    ///
+    /// ```
+    /// const KEY: pxui::IconButton = pxui::IconButton::sized(36.0, 36.0);
+    /// let _ = KEY;
+    /// ```
+    pub const fn sized(w: f32, h: f32) -> IconButton { IconButton { w: Size::Px(w), h: Size::Px(h), ..IconButton::DEFAULT } }
+
+    /// Sets the look per state (idle, hover, pressed, focus, disabled, checked) in place of the theme's `icon_button`; its font draws the glyph.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{ui::{Look, States}, IconButton};
+    /// const PLATE: States = States::all(Look::NONE);
+    /// const B: IconButton = IconButton::DEFAULT.look(&PLATE);
+    /// let _ = B;
+    /// ```
+    pub const fn look(mut self, look: &States) -> IconButton { self.look = Some(*look); self }
+
+    /// Sets the scale the plate and glyph spring to while the button is held (0.96 is a slight dip) and back to on release.
+    /// Reduced motion makes it instant. 1.0 is no animation.
+    /// Allocates: never.
+    /// Panics: never (a scale that is not finite and above zero is refused when the button is declared).
+    ///
+    /// ```
+    /// const B: pxui::IconButton = pxui::IconButton::sized(36.0, 36.0).press_scale(0.96);
+    /// let _ = B;
+    /// ```
+    pub const fn press_scale(mut self, scale: f32) -> IconButton { self.press_scale = scale; self }
+
+    /// Sets whether the button takes input: disabled takes no press or focus, shows the `disabled` look and reads as disabled to accessibility.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let b = pxui::IconButton::DEFAULT.enabled(false);
+    /// let _ = b;
+    /// ```
+    pub const fn enabled(mut self, enabled: bool) -> IconButton { self.enabled = enabled; self }
+}
+
+impl Ui {
+    /// Declares an icon button under the current parent drawing `icon`, named `name` to accessibility, and reports what happened to it.
+    ///
+    /// `clicked` is the press and release inside it or Enter/Space while focused. The icon-only control needs `name`: it is the only text it has.
+    /// Allocates: never on a warm frame.
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display name.
+    /// Panics: when the library refuses the arguments (outside a frame, a `Pct` or `Rel` size, a press scale that is not above zero).
+    ///
+    /// ```
+    /// use pxui::{Icon, IconButton};
+    /// let mut clicked = false;
+    /// let mut build = |ui: &mut pxui::Ui| { clicked |= ui.icon_button("help", Icon::Glyph('?'), "Help", &IconButton::DEFAULT).clicked; };
+    /// let mut ui = pxui::doc::frames(1, &mut build);
+    /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "Help"));
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn icon_button<K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton) -> Response { self.icon_button_key(key.into(), icon, name, button) }
+
+    /// The one body of `icon_button`: the key's label and the glyph's text, then the engine call.
+    #[track_caller]
+    fn icon_button_key(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton) -> Response {
+        let mut id_label = [0u8; 17];
+        let label = match key { Key::Label(label) => label, Key::Id(id) => id_text(id, &mut id_label) };
+        self.icon_button_keyed(label, icon, name, button)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{Icon, IconButton};
+    use crate::a11y::state;
+    use crate::ui::Role;
+    use crate::{testing, Response, Ui};
+    use std::cell::Cell;
+
+    const KEY: IconButton = IconButton::sized(36.0, 36.0).press_scale(0.96);
+    const PLAY: Icon = Icon::glyph('>');
+
+    /// The transport key: 36 points square, a button named by its third argument, clicks reported through `Response`.
+    #[test]
+    fn transport_key_is_a_named_square_button() {
+        let hits = Cell::new(0);
+        let last: Cell<Option<Response>> = Cell::new(None);
+        let mut build = |ui: &mut Ui| {
+            let r = ui.icon_button("play", PLAY, "Play", &KEY);
+            if r.clicked { hits.set(hits.get() + 1); }
+            last.set(Some(r));
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let n = *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Play").expect("named Play");
+        assert!(n.is_role(Role::Button) && (n.rect.w, n.rect.h) == (36.0, 36.0));
+        assert!(n.states & state::ENABLED != 0 && n.states & state::FOCUSABLE != 0);
+        let r = ui.rect(&last.get().unwrap().handle);
+        testing::click(&mut ui, f64::from(r.x + r.w / 2.0), f64::from(r.y + r.h / 2.0), &mut build);
+        assert_eq!(hits.get(), 1);
+    }
+
+    /// A disabled key reads as disabled and takes no press; the default key is the kit's 20-point square; ids key like labels.
+    #[test]
+    fn disabled_blocks_input_and_default_is_the_kit_square() {
+        let hits = Cell::new(0);
+        let mut build = |ui: &mut Ui| {
+            if ui.icon_button(7i64, PLAY, "Off", &KEY.enabled(false)).clicked { hits.set(hits.get() + 1); }
+            ui.icon_button("on", Icon::Glyph('?'), "Help", &IconButton::DEFAULT);
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let off = *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Off").unwrap();
+        assert!(off.states & state::ENABLED == 0 && off.states & state::FOCUSABLE == 0);
+        testing::click(&mut ui, f64::from(off.rect.x + 18.0), f64::from(off.rect.y + 18.0), &mut build);
+        assert_eq!(hits.get(), 0);
+        let on = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Help").unwrap();
+        assert_eq!((on.rect.w, on.rect.h), (20.0, 20.0));
+    }
+
+    thread_local! { static SEEN: Cell<(u32, f32, f32, u8)> = const { Cell::new((0, 0.0, 0.0, 0)) }; }
+
+    /// LocalWave's play drawing, through the C ABI: the app's function is called with the 20-point square at the centre of the plate and
+    /// the look's text ink, and paints one triangle.
+    fn play(paint: &mut crate::Paint<'_>, rect: crate::geom::Rect, ink: crate::geom::Rgba) {
+        SEEN.with(|s| s.set((s.get().0 + 1, rect.w, rect.h, ink.r)));
+        let scale = rect.w.min(rect.h) / 24.0;
+        let at = |(x, y): (f32, f32)| (rect.x + x * scale, rect.y + y * scale);
+        paint.triangle(at((7.0, 4.6)), at((7.0, 19.4)), at((19.4, 12.0)), ink);
+    }
+
+    #[test]
+    fn a_drawn_icon_is_painted_in_the_plate_with_the_states_ink() {
+        use crate::ui::{Look, States};
+        let looks = States::all(Look { text: crate::geom::Rgba { r: 33, g: 0, b: 0, a: 255 }, ..Look::NONE });
+        let key = KEY.look(&looks);
+        let mut build = |ui: &mut Ui| { ui.icon_button("play", Icon::draw(play), "Play", &key); };
+        let mut ui = crate::doc::frames(1, &mut build);
+        let n = *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Play").expect("named Play");
+        assert_eq!((n.rect.w, n.rect.h), (36.0, 36.0));
+        SEEN.with(|s| s.set((0, 0.0, 0.0, 0)));
+        testing::frame(&mut ui, &[], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        let (calls, w, h, ink) = SEEN.with(|s| s.get());
+        assert!(calls > 0 && (w, h, ink) == (20.0, 20.0, 33), "{:?}", (calls, w, h, ink));
+        for round in 0..20 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            if round > 2 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        }
+    }
+
+    #[test]
+    fn warm_frames_allocate_nothing() {
+        let looks = crate::doc::frames(1, &mut |_| {}).theme().icon_button;
+        let mut ui = crate::doc::frames(1, &mut |_| {});
+        let mut build = |ui: &mut Ui| {
+            ui.icon_button("a", PLAY, "Play", &KEY.look(&looks));
+            ui.icon_button(2i64, Icon::Glyph('x'), "Close", &IconButton::DEFAULT);
+            ui.icon_button("off", PLAY, "Off", &KEY.enabled(false));
+        };
+        for round in 0..20 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            if round > 2 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        }
+    }
+}

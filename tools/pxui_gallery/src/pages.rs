@@ -210,8 +210,8 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
         }
         let row = node(ui, "icons", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 4.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
-            for (label, glyph) in [("Add", "+"), ("Remove", "-"), ("Close", "\u{d7}")] {
-                if ui.icon_button(label, glyph) {
+            for (key, name, glyph) in [("add", "Add", '+'), ("remove", "Remove", '-'), ("close", "Close", '\u{d7}')] {
+                if ui.icon_button(key, pxui::Icon::Glyph(glyph), name, &pxui::IconButton::DEFAULT).clicked {
                     s.adds += 1;
                 }
             }
@@ -280,7 +280,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         }
         let row = node(ui, "tip-row", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
-            let _ = ui.icon_button("Help", "?");
+            let _ = ui.icon_button("Help", pxui::Icon::Glyph('?'), "Help", &pxui::IconButton::DEFAULT);
         });
         if let Some(help) = ui.box_of_key(pxui_types::ui::key_of(row.box_key, "Help")) {
             let _ = ui.tip(&help, "Rest the pointer on a control to see its tip");

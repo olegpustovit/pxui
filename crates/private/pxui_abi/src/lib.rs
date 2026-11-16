@@ -63,4 +63,4 @@ pub use pxui_types::{FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, Pxui
 pub use pxui_types::ffi::{PxuiSaved, PxuiSignal};
 pub use pxui_types::{PXUI_ERR_ARGUMENT, PXUI_ERR_GPU, PXUI_ERR_PANIC, PXUI_ERR_STALE, PXUI_ERR_STATE};
 pub use pxui_types::ffi::PxuiDialogOut;
-pub const ABI_VERSION: u32 = 65581; // major 1 (high 16 bits), minor 45: labels through the label body (`ui_label`, `paint_label`, `PxuiLabelConfig.style`)
+pub const ABI_VERSION: u32 = 65582; // major 1 (high 16 bits), minor 46: `ui_icon_button_with` (icon button options)

@@ -71,11 +71,24 @@ impl ButtonOpts {
     pub const DEFAULT: ButtonOpts = ButtonOpts { states: None, w: Size::Fit, h: Size::Fit, enabled: true, selected: false, justify: Justify::Start, padding: Edges::ZERO, ink: None, bare: false, icon: false };
 }
 
-/// What `button_opts` reports: the box's signal and focus, and the box (the node a press lands on).
-pub struct ButtonOut {
-    pub signal: Signal,
+/// What happened to a button this frame, as the wrapper's `Response` says it.
+#[derive(Clone, Copy, Debug)]
+pub struct Response {
+    /// Pointer released over it after a press on it, or Enter/Space while focused.
+    pub clicked: bool,
+    pub hovered: bool,
+    pub held: bool,
     pub focused: bool,
+    /// The click came from the keyboard; implies `clicked`.
+    pub activated: bool,
+    /// The box a press lands on.
     pub handle: Handle,
+}
+
+impl Response {
+    pub(crate) fn of(signal: &Signal, focused: bool, handle: Handle) -> Response {
+        Response { clicked: signal.clicked, hovered: signal.hovered, held: signal.held, focused, activated: signal.clicked && !signal.released, handle }
+    }
 }
 
 /// The built-in button: its text on a 20-point box (6 points of padding in a transparent 1-point edge; 4 when `bare`), the glyph
@@ -973,20 +986,20 @@ impl Ui {
 
     /// `true` on the frame a press and release both land inside the button.
     pub fn button(&mut self, text: &str) -> bool {
-        self.button_opts(text, text, None, &ButtonOpts::DEFAULT, None).signal.clicked
+        self.button_opts(text, text, None, &ButtonOpts::DEFAULT, None).clicked
     }
 
     /// `button_opts` in the theme's button (`button_bare` when `bare`) with its text in `ink`.
     pub fn button_styled(&mut self, text: &str, bare: bool, icon: bool, at_end: bool, ink: Option<Color>) -> bool {
         let opts = ButtonOpts { bare, icon, justify: if at_end { Justify::End } else { Justify::Start }, ink, ..ButtonOpts::DEFAULT };
-        self.button_opts(text, text, None, &opts, None).signal.clicked
+        self.button_opts(text, text, None, &opts, None).clicked
     }
 
     /// A button is its text on a 20-point box (6 points of padding in a transparent 1-point edge):
     /// a fill on hover and press, an accent line inside the bottom edge with the keyboard. The box
     /// starts 5 points in so that its text lines up with the labels at 12. `opts` varies it (see `ButtonOpts`); `key` is hashed
     /// under the parent's seed, `content` replaces the text (which stays the accessible name unless `name` is set).
-    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, content: Option<&mut dyn FnMut(&mut Ui)>) -> ButtonOut {
+    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, content: Option<&mut dyn FnMut(&mut Ui)>) -> Response {
         // the row lays the box out: 5 in from the start (8 from the end at the end), the control
         // centred in the row's height; the box is the button (its key, its hit area)
         let key = key_of(self.current_seed(), key);
@@ -1017,7 +1030,7 @@ impl Ui {
             f(self);
             self.leave(inside);
         }
-        ButtonOut { signal, focused, handle: row }
+        Response::of(&signal, focused, row)
     }
 
     /// A switch row: the label and the 28 x 14 switch at the end (the default body; a theme's `body.toggle` picks another).

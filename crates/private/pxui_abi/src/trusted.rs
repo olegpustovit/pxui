@@ -219,7 +219,7 @@ pub unsafe fn spinner(ui: *mut PxuiUi, label: &str, out: &mut PxuiBox) -> i32 {
 pub unsafe fn icon_button(ui: *mut PxuiUi, label: &str, icon: &str, out: &mut bool) -> i32 {
     enter!(ui);
     if long(label) || long(icon) { return unsafe { fail(ui, "invalid icon button text") }; }
-    *out = unsafe { engine(ui) }.icon_button(label, icon);
+    *out = unsafe { engine(ui) }.icon_button_text(label, icon, None, label, &pxui_core::ui::IconButton::DEFAULT).clicked;
     0
 }
 

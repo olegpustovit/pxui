@@ -106,6 +106,14 @@ fn size_kind(size: pxui_core::ui::Size) -> (u8, f32) {
     match size { pxui_core::ui::Size::Px(v) => (1, v), pxui_core::ui::Size::Grow => (2, 0.0), _ => (0, 0.0) }
 }
 
+/// The C callback and user data of an icon drawing that crossed the ABI as `paint::icon_bridge` (null for a Rust drawing of the engine).
+fn foreign_draw(draw: Option<(pxui_core::ui::IconDraw, [usize; 3])>) -> (pxui_types::ffi::PxuiIconDraw, *mut c_void) {
+    match draw {
+        Some((f, d)) if f as usize == crate::paint::icon_bridge as *const () as usize => (unsafe { core::mem::transmute::<usize, pxui_types::ffi::PxuiIconDraw>(d[0]) }, d[1] as *mut c_void),
+        _ => (None, core::ptr::null_mut()),
+    }
+}
+
 mod tramps {
     use super::*;
     use pxui_core::ui_text::ValueFieldOpts;
@@ -120,7 +128,11 @@ mod tramps {
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, justify: match c.justify { Justify::Center => 1, Justify::End => 2, _ => 0 },
         reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, padding: [c.pad.l, c.pad.t, c.pad.r, c.pad.b]
     });
-    tramp!(icon_button, |ui, sh, c: &IconButtonConfig, label: &str, icon: &str| PxuiIconButtonConfig { state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon) });
+    tramp!(icon_button, |ui, sh, c: &IconButtonConfig, states: &States, label: &str, icon: &str| PxuiIconButtonConfig {
+        state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon), states: states,
+        w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, press_scale: c.press_scale,
+        draw: foreign_draw(c.draw).0, draw_user: foreign_draw(c.draw).1, ink: c.ink
+    });
     tramp!(checkbox, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });
     tramp!(radio, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });
     tramp!(spinner, |ui, sh, c: &SpinnerConfig, label: &str| PxuiSpinnerConfig { node: bx(c.node), label: pair(label) });

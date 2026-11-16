@@ -685,6 +685,19 @@ mod sized_records {
     }
 
     #[test]
+    fn icon_button_desc() {
+        let ui = create();
+        let mut value: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
+        let fix: fn(&mut PxuiIconButtonDesc) = |d| { d.enabled = 1; d.press_scale = 1.0; d.key = Str { ptr: b"k".as_ptr(), len: 1 }; d.name = d.key; d.icon = d.key; };
+        fix(&mut value);
+        four(ui, ((&value as *const PxuiIconButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<PxuiIconButtonDesc>();
+            in_frame(ui, &mut |ui| { let (mut out, mut signal, mut focused) = (PxuiBox::default(), PxuiSignal::default(), 0u8); unsafe { pxui_ui_icon_button_with(ui, p, &mut out, &mut signal, &mut focused) } })
+        });
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
+    #[test]
     fn header_desc() {
         let ui = create();
         let mut value: PxuiHeaderDesc = unsafe { core::mem::zeroed() };

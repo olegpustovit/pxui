@@ -100,7 +100,7 @@ pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
-pub use author::{hash_of, Button, Key, Response};
+pub use author::{hash_of, Button, Icon, IconButton, Key, Response};
 #[cfg(test)]
 mod settled;
 #[cfg(test)]

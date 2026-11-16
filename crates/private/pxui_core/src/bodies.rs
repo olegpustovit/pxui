@@ -64,15 +64,24 @@ pub struct ButtonConfig {
 
 pub type ButtonBody = fn(&mut Ui, &ButtonConfig, &States, &str);
 
-/// What an icon button body is given (its label, then its icon, beside it). It runs with the button's `node` entered, which carries
-/// the key, the hit area and the accessible name; the body sets its size and look (the theme's `icon_button` for `state`) and draws
-/// the icon.
+/// What an icon button body is given (the look per state, then its label and its icon, beside it). It runs with the button's `node`
+/// entered, which carries the key, the hit area and the accessible name; the body sets its size and look (`states.pick(state)`: the
+/// caller's looks or the theme's `icon_button`) and draws the icon.
 pub struct IconButtonConfig {
     pub state: State,
     pub node: Handle,
+    /// What the caller's `IconButton` asked for, which the body honours or not: width and height (`Fit` is the kit's square) and the
+    /// scale its contents spring to while pressed (1.0 for none).
+    pub w: Size,
+    pub h: Size,
+    pub press_scale: f32,
+    /// The look's text colour for `state`, and the app's drawing when the icon is not a glyph (the `icon` argument is then empty): the
+    /// body paints it in the 20-point square (`control_h`) at the centre of its plate with `Ui::icon_draw`.
+    pub ink: crate::geom::Rgba,
+    pub draw: Option<(crate::ui_widgets::IconDraw, [usize; 3])>,
 }
 
-pub type IconButtonBody = fn(&mut Ui, &IconButtonConfig, &str, &str);
+pub type IconButtonBody = fn(&mut Ui, &IconButtonConfig, &States, &str, &str);
 
 /// What a checkbox or radio body is given (the option's text beside it). It runs with the `row` entered, which takes the presses
 /// and carries the role, the checked state and the accessible name; the body sets the row's look and builds the box or ring and

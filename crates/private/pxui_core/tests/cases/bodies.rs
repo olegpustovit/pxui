@@ -469,8 +469,8 @@ pub fn button_outside_panel_takes_theme_row_h() {
     ui.destroy();
 }
 
-fn round_icon(ui: &mut Ui, c: &IconButtonConfig, _label: &str, _icon: &str) {
-    let look = *ui.theme().icon_button.pick(c.state);
+fn round_icon(ui: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, _icon: &str) {
+    let look = *states.pick(c.state);
     let n = ui.node_mut(&c.node);
     (n.w, n.h) = (Size::Px(32.0), Size::Px(32.0));
     ui.set_look(&c.node, Look { radius: [16.0; 4], ..look }, c.state);
@@ -479,11 +479,176 @@ fn round_icon(ui: &mut Ui, c: &IconButtonConfig, _label: &str, _icon: &str) {
 
 pub fn icon_button_round_body() {
     let hits = |ui: &mut Ui, v: &Cell<i64>| {
-        if ui.icon_button("Add", "+") {
+        if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT).clicked {
             v.set(v.get() + 1);
         }
     };
     swap("icon_button", &|ui| pick(ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("round", round_icon)), Role::Button, "Add", Key::Space, &hits);
+}
+
+thread_local! { static ICON_SEEN: Cell<(f32, f32, f32, u8)> = const { Cell::new((0.0, 0.0, 0.0, 9)) }; }
+
+fn recording_icon(ui: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, _icon: &str) {
+    let px = |s: Size| if let Size::Px(v) = s { v } else { -1.0 };
+    ICON_SEEN.with(|seen| seen.set((px(c.w), px(c.h), c.press_scale, c.state.disabled as u8)));
+    let n = ui.node_mut(&c.node);
+    (n.w, n.h) = (Size::Px(40.0), Size::Px(40.0));
+    ui.set_look(&c.node, *states.pick(c.state), c.state);
+    ui.node("mine", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
+}
+
+/// `icon_button` builds through the icon button body: a registered body gets the options in its config and replaces the structure.
+pub fn icon_button_uses_a_registered_body() {
+    let mut ui = new_ui(None);
+    pick(&mut ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("recording", recording_icon));
+    let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled: false, ..IconButton::DEFAULT };
+    for k in 0..2 {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("Go", Icon::Glyph('+'), "Go", &opts); }));
+    }
+    check(ICON_SEEN.with(|s| s.get()) == (36.0, 36.0, 0.96, 1), &format!("the body's config is {:?}", ICON_SEEN.with(|s| s.get())));
+    let node = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
+    check(ui.box_of_key(key_of(node, "mine")).is_some(), "the body's own node is missing");
+    ui.destroy();
+}
+
+/// LocalWave's transport key as an icon button: 36 points square, a plate per state, a 0.96 press scale that springs in and out,
+/// the accessible name, and a disabled form that takes no press.
+pub fn icon_button_is_the_transport_key() {
+    use pxui_core::geom::Rgba;
+    let fill = |r: u8| Look { fill: Rgba { r, g: 0, b: 0, a: 255 }, ..Look::NONE };
+    let states = States { idle: fill(10), hover: fill(20), pressed: fill(30), focus: fill(40), disabled: fill(50), checked: fill(60) };
+    for enabled in [true, false] {
+        let mut ui = new_ui(None);
+        ui.set_a11y(true);
+        let (clicks, mut t) = (Cell::new(0), 0.0);
+        let opts = IconButton { states: Some(states), w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled, ..IconButton::DEFAULT };
+        let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { if ui.icon_button("play", Icon::Glyph('+'), "Play", &opts).clicked { clicks.set(clicks.get() + 1); } });
+        let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
+        for _ in 0..3 { step(&mut ui, vec![]); }
+        let n = tree_node(&ui, Role::Button, "Play");
+        check((n.rect.w, n.rect.h) == (36.0, 36.0), &format!("the key is 36 square: {:?}", n.rect));
+        check((n.states & state::ENABLED != 0) == enabled, "the accessible enabled state follows the option");
+        let node = key_of(key_of(0x2c1b3c6d, "panel"), "play");
+        let plate = |ui: &mut Ui| { let b = ui.box_of_key(key_of(key_of(node, "visual"), "surface")).expect("the plate"); (ui.node_mut(&b).look.fill.r, ui.rect(&b)) };
+        check(plate(&mut ui).0 == if enabled { 10 } else { 50 }, &format!("idle plate {}", plate(&mut ui).0));
+        let p = mid(n.rect, 18.0);
+        step(&mut ui, vec![move_to(p)]);
+        step(&mut ui, vec![]);
+        check(plate(&mut ui).0 == if enabled { 20 } else { 50 }, &format!("hover plate {}", plate(&mut ui).0));
+        step(&mut ui, vec![press(p)]);
+        step(&mut ui, vec![]);
+        let (held_fill, mid_rect) = (plate(&mut ui).0, plate(&mut ui).1);
+        if enabled {
+            check(held_fill == 30, &format!("pressed plate {held_fill}"));
+            check(mid_rect.w < 36.0 && mid_rect.w > 34.56, &format!("the press spring is under way: {:?}", mid_rect));
+            for _ in 0..60 { step(&mut ui, vec![]); }
+            check((plate(&mut ui).1.w - 34.56).abs() < 0.05, &format!("pressed scale settles at 0.96: {:?}", plate(&mut ui).1));
+            step(&mut ui, vec![release(p)]);
+            for _ in 0..80 { step(&mut ui, vec![]); }
+            check((plate(&mut ui).1.w - 36.0).abs() < 0.05, &format!("released scale returns to 1: {:?}", plate(&mut ui).1));
+            check(clicks.get() == 1, "the key clicked once");
+        } else {
+            step(&mut ui, vec![release(p)]);
+            check(clicks.get() == 0 && plate(&mut ui).1.w == 36.0, "a disabled key takes no press and does not scale");
+        }
+        ui.destroy();
+    }
+}
+
+/// LocalWave's play icon (`lw_ui/src/icons.rs::play`): one triangle on a 24-unit grid scaled to the square it is given.
+fn play_icon(paint: &mut Paint, rect: Rect, ink: pxui_core::geom::Rgba, _: [usize; 3]) {
+    use pxui_types::shape::Shapes;
+    let scale = rect.w.min(rect.h) / 24.0;
+    let at = |(x, y): (f32, f32)| (rect.x + x * scale, rect.y + y * scale);
+    paint.triangle(at((7.0, 4.6)), at((7.0, 19.4)), at((19.4, 12.0)), ink);
+}
+
+thread_local! { static PLAYED: Cell<(u32, f32, f32, u8)> = const { Cell::new((0, 0.0, 0.0, 0)) }; }
+
+fn recorded_play(paint: &mut Paint, rect: Rect, ink: pxui_core::geom::Rgba, data: [usize; 3]) {
+    PLAYED.with(|p| p.set((p.get().0 + 1, rect.w, rect.h, ink.r)));
+    play_icon(paint, rect, ink, data);
+}
+
+/// The paint-drawn play key of `shell/kit.rs:274`: the icon button with a drawing paints exactly what the hand-built key does (a plate
+/// view with a canvas of the same drawing in a 20-point square), the press spring scales the drawing with the plate, and a drawing gets
+/// the look's ink for the state.
+pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
+    use pxui_core::geom::Rgba;
+    let fill = |r: u8| Look { fill: Rgba { r, g: 0, b: 0, a: 255 }, text: Rgba { r, g: 9, b: 9, a: 255 }, ..Look::NONE };
+    let states = States { idle: fill(10), hover: fill(20), pressed: fill(30), focus: fill(40), disabled: fill(50), checked: fill(60) };
+    let button = IconButton { states: Some(states), w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, ..IconButton::DEFAULT };
+    let run = |hand: bool| {
+        let mut ui = new_ui(None);
+        ui.set_a11y(true);
+        let mut t = 0.0;
+        let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+            if hand {
+                let node = ui.node("play", Node { w: Size::Px(36.0), h: Size::Px(36.0), flags: CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY, role: Role::Button, ..Node::DEFAULT });
+                let signal = ui.signal(&node);
+                ui.a11y_name(&node, "Play");
+                let state = State { hovered: signal.hovered, pressed: signal.held, ..State::default() };
+                ui.within(&node, &mut |ui| {
+                    ui.view("visual", 1 + u64::from(signal.hovered) + 2 * u64::from(signal.held), Size::Grow, Size::Grow, &mut |ui| {
+                        let surface = ui.node("surface", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                        ui.set_look(&surface, *states.pick(state), state);
+                        let ink = states.pick(state).text;
+                        ui.draw(&surface, move |paint, rect| play_icon(paint, Rect { x: rect.x + (rect.w - 20.0) / 2.0, y: rect.y + (rect.h - 20.0) / 2.0, w: 20.0, h: 20.0 }, ink, [0; 3]));
+                    });
+                });
+            } else {
+                ui.icon_button("play", Icon::Draw(play_icon, [0; 3]), "Play", &button);
+            }
+        });
+        let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
+        for _ in 0..3 { step(&mut ui, vec![]); }
+        let rest = ui.output().draw[0].instances.to_vec();
+        let p = mid(tree_node(&ui, Role::Button, "Play").rect, 18.0);
+        step(&mut ui, vec![move_to(p)]);
+        step(&mut ui, vec![]);
+        let hover = ui.output().draw[0].instances.to_vec();
+        step(&mut ui, vec![press(p)]);
+        step(&mut ui, vec![]);
+        let pressed = ui.output().draw[0].instances.to_vec();
+        for _ in 0..60 { step(&mut ui, vec![]); }
+        let settled = (ui.output().draw[0].instances.to_vec(), ui.output().views.iter().map(|(_, v)| v.scale * v.transform[0]).fold(1.0f32, f32::min));
+        ui.destroy();
+        (rest, hover, pressed, settled)
+    };
+    let (hand, ours) = (run(true), run(false));
+    check(ours.0.len() >= 2 && ours.0 == hand.0, &format!("rest: {} instances against the hand-built {}", ours.0.len(), hand.0.len()));
+    check(ours.1 == hand.1, "hover instances differ from the hand-built key");
+    check(ours.2 == hand.2, "pressed instances differ from the hand-built key");
+    check(ours.3 .0 == hand.3 .0, "settled instances differ from the hand-built key");
+    check(ours.0 != ours.1 && ours.1 != ours.2, "the plate and ink follow the state");
+    check((ours.3 .1 - 0.96).abs() < 0.01, &format!("the press spring scales the view the drawing is in: {}", ours.3 .1));
+    // the drawing is told the 20-point square and the ink of the state
+    let mut ui = new_ui(None);
+    let b = IconButton { states: Some(states), press_scale: 1.0, ..IconButton::DEFAULT };
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 3]), "Play", &b); })); }
+    check(PLAYED.with(|p| p.get()) == (PLAYED.with(|p| p.get()).0, 20.0, 20.0, 10) && PLAYED.with(|p| p.get()).0 > 0, &format!("the drawing's square and ink: {:?}", PLAYED.with(|p| p.get())));
+    ui.destroy();
+}
+
+thread_local! { static ICON_ART: Cell<(bool, u8)> = const { Cell::new((false, 0)) }; }
+
+fn art_icon(ui: &mut Ui, c: &IconButtonConfig, _states: &States, _label: &str, glyph: &str) {
+    ICON_ART.with(|a| a.set((c.draw.is_some() && glyph.is_empty(), c.ink.r)));
+    let n = ui.node_mut(&c.node);
+    (n.w, n.h) = (Size::Px(40.0), Size::Px(40.0));
+    ui.icon_draw(&c.node, c);
+}
+
+/// A registered icon button body is given the app's drawing and ink, and paints it where it wants with `icon_draw`.
+pub fn icon_button_body_receives_the_drawing() {
+    let mut ui = new_ui(None);
+    pick(&mut ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("art", art_icon));
+    PLAYED.with(|p| p.set((0, 0.0, 0.0, 0)));
+    let b = IconButton { states: Some(States::all(Look { text: pxui_core::geom::Rgba { r: 77, g: 0, b: 0, a: 255 }, ..Look::NONE })), ..IconButton::DEFAULT };
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 3]), "Go", &b); })); }
+    check(ICON_ART.with(|a| a.get()) == (true, 77), &format!("the body's config: {:?}", ICON_ART.with(|a| a.get())));
+    check(PLAYED.with(|p| p.get()).0 > 0, "the body's own node was not drawn on");
+    ui.destroy();
 }
 
 /// A checkbox or radio row as a label and one 10-point mark that is filled when on.
@@ -1671,6 +1836,10 @@ pub const CASES: &[(&str, fn())] = &[
     ("button_outside_panel_takes_theme_row_h", button_outside_panel_takes_theme_row_h),
     ("button_opts_uses_a_registered_body", button_opts_uses_a_registered_body),
     ("icon_button_round_body", icon_button_round_body),
+    ("icon_button_uses_a_registered_body", icon_button_uses_a_registered_body),
+    ("icon_button_is_the_transport_key", icon_button_is_the_transport_key),
+    ("icon_button_draws_the_apps_icon_like_the_transport_key", icon_button_draws_the_apps_icon_like_the_transport_key),
+    ("icon_button_body_receives_the_drawing", icon_button_body_receives_the_drawing),
     ("checkbox_mark_body", checkbox_mark_body),
     ("radio_mark_body", radio_mark_body),
     ("spinner_three_dots_body", spinner_three_dots_body),

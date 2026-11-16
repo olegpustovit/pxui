@@ -2,12 +2,12 @@
 use crate::box_ops::Label;
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::interaction::decode_signal;
-use crate::Button;
+use crate::{Button, Icon, IconButton};
 use crate::kit::{encode_curve, HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
 use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look}, Axis, PxuiBox, Str};
+use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiIconButtonDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look}, Axis, PxuiBox, Str};
 use pxui_types::{layout::Justify, Size};
 use crate::Response;
 use pxui_types::ui::{Head, HeadAction, LineStep, Target};
@@ -16,6 +16,7 @@ use std::{fmt::Arguments, rc::Rc};
 library!(lib {
     fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const KeyframeDesc, out: *mut u8) -> i32;
     fn pxui_ui_button_with(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32;
+    fn pxui_ui_icon_button_with(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiBox, signal: *mut PxuiSignal, focused: *mut u8) -> i32;
     fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32;
     fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8) -> i32;
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
@@ -55,6 +56,26 @@ impl Ui {
         let mut out = 0;
         let rc = unsafe { lib::pxui_ui_animate(self.0.as_ptr(), b, &keyframe(target, curve), &mut out) };
         crate::live(self, rc) && out != 0
+    }
+    /// The one body of `icon_button`: the options as a descriptor, the glyph and the accessible name as strings.
+    #[track_caller]
+    pub(crate) fn icon_button_keyed(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton) -> Response {
+        let mut buf = [0u8; 4];
+        let dim = |size: Size| match size { Size::Fit => (0, 0.0), Size::Px(v) => (1, v), Size::Grow => (2, 0.0), _ => (3, 0.0) };
+        let ((w_kind, w), (h_kind, h)) = (dim(button.w), dim(button.h));
+        let looks = button.look.map(|s| [look(s.idle), look(s.hover), look(s.pressed), look(s.focus), look(s.disabled), look(s.checked)]);
+        let (glyph, draw, draw_user) = match icon {
+            Icon::Glyph(ch) => (ch.encode_utf8(&mut buf) as &str, None, core::ptr::null_mut()),
+            Icon::Draw(f) => ("", Some(crate::paint::icon_draw as extern "C" fn(*mut c_void, *mut c_void, Rect, Rgba, *const pxui_types::ffi::PxuiPaintInfo)), f as *mut c_void),
+        };
+        let desc = PxuiIconButtonDesc {
+            size: core::mem::size_of::<PxuiIconButtonDesc>() as u32, enabled: button.enabled as u8, w_kind, h_kind, reserved: 0, w, h, press_scale: button.press_scale,
+            states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), icon: as_str(glyph), draw, draw_user,
+        };
+        let (mut out, mut raw, mut focused) = (PxuiBox::default(), PxuiSignal::default(), 0u8);
+        check(self, unsafe { lib::pxui_ui_icon_button_with(self.0.as_ptr(), &desc, &mut out, &mut raw, &mut focused) });
+        let signal = decode_signal(&raw);
+        Response { clicked: signal.clicked, hovered: signal.hovered, held: signal.held, focused: focused != 0, activated: signal.clicked && !signal.released, handle: out }
     }
     /// The one body of `button`, `button_with` and `button_content`: the options as a descriptor, the contents as a callback.
     #[track_caller]
