@@ -385,12 +385,24 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_hovered(self.0.as_ptr(), b, 1, &mut out) });
         out != 0
     }
-    /// The key codes held at the box's captured press, retained through release.
+    /// The key codes held at the box's captured press, retained through release; borrowed from the
+    /// library, valid until the next call on `ui`.
+    ///
+    /// Allocates: nothing.
+    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
+    ///     assert!(ui.press_keys(&b).is_empty());
+    /// }).unwrap();
+    /// ```
     #[track_caller]
-    pub fn press_keys(&self, b: &PxuiBox) -> Vec<u32> {
+    pub fn press_keys(&self, b: &PxuiBox) -> &[u32] {
         let (mut ptr, mut len) = (core::ptr::null(), 0);
         check(self, unsafe { lib::pxui_ui_press_keys(self.0.as_ptr(), b, &mut ptr, &mut len) });
-        if len == 0 { Vec::new() } else { unsafe { core::slice::from_raw_parts(ptr, len) }.to_vec() }
+        if len == 0 || ptr.is_null() { &[] } else { unsafe { core::slice::from_raw_parts(ptr, len) } }
     }
     #[track_caller]
     pub fn root_at(&self, point: (f32, f32), roots: &[i64]) -> Option<i64> {

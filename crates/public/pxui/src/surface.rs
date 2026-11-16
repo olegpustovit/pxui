@@ -1950,7 +1950,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
                 if tick>=8 {assert_eq!(mem_sys::local_alloc_count(),0,"warm custom body, focus, selection and composition");}
                 assert!(ui.ime().is_some());
             }
-            assert_eq!(ui.signal(&ui.box_of_key(ROW.get()).unwrap()).keys.len(),keys.len(),"editing must restore the original key stream for later consumers");
+            assert_eq!(ui.signal_keys(&ui.box_of_key(ROW.get()).unwrap()).len(),keys.len(),"editing must restore the original key stream for later consumers");
             let commit = Event {kind:Event::TEXT_INPUT,text:Str {ptr:composition.as_ptr(),len:composition.len()},..Default::default()};
             let mut changed = false;
             ui.frame(&FrameIn {time:1.0,events:&commit,event_count:1,..frame},&mut |ui| {changed=ui.text_field("Styled",value)==Some("caféétrack 10");}).unwrap();
@@ -1970,8 +1970,9 @@ fn numeric_signal_state_preserves_legacy_keys_without_warm_keyboard_allocations(
     let mut build = |ui: &mut Ui| {
         let node = ui.node("button", crate::Node { flags: CLICKABLE | crate::ui::TAB_STOP, w: Size::Px(120.0), h: Size::Px(32.0), ..crate::Node::DEFAULT });
         let state = ui.signal_state(&node);
-        assert!(state.keys.is_empty());
         clicks.set(clicks.get() + i32::from(state.clicked));
+        // the measured frame below reads the borrowed key slices; warm frames take the same path
+        let _ = ui.signal_keys(&node).len() + ui.press_keys(&node).len();
         button.set(Some(node));
     };
     ui.frame(&input(), &mut build).unwrap();
@@ -1983,12 +1984,22 @@ fn numeric_signal_state_preserves_legacy_keys_without_warm_keyboard_allocations(
         ui.frame(&FrameIn { time: 1.0 + tick as f64 / 60.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
         if tick >= 5 { assert_eq!(mem_sys::local_alloc_count(), 0, "numeric keyboard routing and scalar signal across the ABI"); }
     }
+    // a warm frame whose box has key events: reading them through the borrowed slice allocates nothing
+    let mut seen = 0;
+    let scope = mem_sys::warm_scope();
+    ui.frame(&FrameIn { time: 9.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut |ui: &mut Ui| {
+        let node = ui.node("button", crate::Node { flags: CLICKABLE | crate::ui::TAB_STOP, w: Size::Px(120.0), h: Size::Px(32.0), ..crate::Node::DEFAULT });
+        seen = ui.signal_keys(&node).len() + ui.press_keys(&node).len() + usize::from(ui.signal(&node).clicked);
+    }).unwrap();
+    drop(scope);
+    assert!(seen >= 4);
+    assert!(mem_sys::take_reports().is_empty(), "warm frame with key events must not allocate");
     assert_eq!(clicks.get(), 60);
     let node = button.get().unwrap();
-    let owned = ui.signal(&node);
-    assert!(owned.clicked);
-    assert_eq!(owned.keys.len(), 4);
-    for (actual, expected) in owned.keys.iter().zip(events) {
+    assert!(ui.signal(&node).clicked);
+    let owned = ui.signal_keys(&node);
+    assert_eq!(owned.len(), 4);
+    for (actual, expected) in owned.iter().zip(events) {
         assert_eq!((actual.kind, actual.code), (expected.kind, expected.code));
     }
     let text = "café";
@@ -1996,12 +2007,13 @@ fn numeric_signal_state_preserves_legacy_keys_without_warm_keyboard_allocations(
         text: pxui_types::Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() },
         Event { kind: Event::TEXT_INPUT, text: pxui_types::Str { ptr: text.as_ptr(), len: text.len() }, ..Default::default() }];
     ui.frame(&FrameIn { time: 3.0, events: events.as_ptr(), event_count: events.len(), ..input() }, &mut build).unwrap();
-    let owned = ui.signal(&node);
-    assert_eq!(owned.keys.len(), 2);
-    assert_eq!((owned.keys[0].kind, owned.keys[0].x, owned.keys[0].y, owned.keys[0].text.as_str()), (Event::TEXT_EDITING, 1.0, 2.0, text));
-    assert_eq!((owned.keys[1].kind, owned.keys[1].text.as_str()), (Event::TEXT_INPUT, text));
+    let owned = ui.signal_keys(&node);
+    assert_eq!(owned.len(), 2);
+    let str_of = |e: &Event| e.text.len;
+    assert_eq!((owned[0].kind, owned[0].x, owned[0].y, str_of(&owned[0])), (Event::TEXT_EDITING, 1.0, 2.0, text.len()));
+    assert_eq!((owned[1].kind, str_of(&owned[1])), (Event::TEXT_INPUT, text.len()));
     ui.frame(&FrameIn { time: 3.1, ..input() }, &mut |_| {}).unwrap();
-    assert!(ui.signal_state(&node).keys.is_empty() && !ui.signal_state(&node).clicked);
+    assert!(ui.signal_keys(&node).is_empty() && !ui.signal_state(&node).clicked);
 }
 
 #[test]
@@ -2106,7 +2118,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
             let count = if events[0].kind == 0 { 0 } else { 1 + usize::from(events[1].kind != 0) };
             ui.frame(&FrameIn { time, events: events.as_ptr(), event_count: count, ..input() }, &mut build).unwrap();
             if round == 0 && events[0].kind == Event::POINTER_RELEASED {
-                assert_eq!(ui.press_keys(&list.get().unwrap()), vec![KEY_SPECIAL + 9], "capture transfer preserves the press modifiers through release");
+                assert_eq!(ui.press_keys(&list.get().unwrap()), &[KEY_SPECIAL + 9], "capture transfer preserves the press modifiers through release");
             }
             if events[0].kind == Event::SCROLLED && events[0].y < 0.0 {
                 assert!(!ui.transfer_carry(&source.get().unwrap()), "a virtualized child is stale");

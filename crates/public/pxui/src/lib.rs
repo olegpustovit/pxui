@@ -103,7 +103,7 @@ mod settled;
 mod surface;
 #[cfg(test)]
 mod panics;
-pub use interaction::{Signal, SignalEvent, UiSaved};
+pub use interaction::{Signal, UiSaved};
 pub use pxui_types::Node;
 
 #[cfg(feature = "static")]

@@ -42,8 +42,7 @@ fn panel(ui: &mut Ui, s: &mut State) {
             s.clicks += signal.clicked as u32;
             ui.text(&cell, "custom");
         });
-        let signal = ui.signal(&row);
-        s.clicks += signal.keys.len() as u32;
+        s.clicks += ui.signal_keys(&row).len() as u32;
         engine_shaped(ui, s);
     });
 }

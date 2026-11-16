@@ -157,7 +157,6 @@ crates/public/pxui/src/box_ops.rs	Ui::node_mut	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::patch_look	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::patch_mark	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::patch_rect	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::press_keys	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::reveal	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::root_at	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::scroll_offset	example,Allocates,Panics
