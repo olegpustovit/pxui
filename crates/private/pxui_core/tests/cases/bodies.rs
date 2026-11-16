@@ -424,6 +424,24 @@ pub fn button_pill_body() {
     ui.destroy();
 }
 
+/// A button in a plain column, outside any panel, is a row of the theme's `row_h` high.
+pub fn button_outside_panel_takes_theme_row_h() {
+    let mut ui = new_ui(None);
+    for row_h in [24.0, 40.0] {
+        let mut theme = *ui.theme();
+        theme.row_h = row_h;
+        ui.set_theme(theme);
+        for k in 0..2 {
+            ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| {
+                ui.col(0.0, "column", &mut |ui| { ui.button("Go"); });
+            });
+        }
+        let line = ui.box_of_key(int_key(key_of(key_of(0x2c1b3c6d, "column"), "Go"), 0x6c69)).map(|b| ui.rect(&b).h);
+        check(line == Some(row_h), &format!("row_h {row_h}: the button's row is {line:?}"));
+    }
+    ui.destroy();
+}
+
 fn round_icon(ui: &mut Ui, c: &IconButtonConfig, _label: &str, _icon: &str) {
     let look = *ui.theme().icon_button.pick(c.state);
     let n = ui.node_mut(&c.node);
@@ -1623,6 +1641,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("a_theme_from_another_ui_never_selects_another_body", a_theme_from_another_ui_never_selects_another_body),
     ("registering_a_name_again_consumes_no_id", registering_a_name_again_consumes_no_id),
     ("button_pill_body", button_pill_body),
+    ("button_outside_panel_takes_theme_row_h", button_outside_panel_takes_theme_row_h),
     ("icon_button_round_body", icon_button_round_body),
     ("checkbox_mark_body", checkbox_mark_body),
     ("radio_mark_body", radio_mark_body),

@@ -6041,6 +6041,8 @@ impl Ui {
             self.epoch += 1;
         }
         self.density = density;
+        // outside a panel the kit row is the theme's row (a panel sets its own while it builds)
+        self.kit_row_height = (self.theme.row_h * self.theme.tokens.density).round() as i64;
         self.frame_number += 1;
         // a request made between frames is this frame; one made while building is the next
         self.frame_requested = false;
