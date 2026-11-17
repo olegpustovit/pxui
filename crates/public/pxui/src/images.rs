@@ -451,7 +451,7 @@ impl Images {
     /// images.requests(None, &mut request);
     /// assert_eq!((request.wants()[0].id(), request.path(0), request.wants().len()), (1, "a.png", 2));
     /// ```
-    pub fn get(&self, id: usize, path: &str, points: f32, node: Option<&crate::PxuiBox>) -> Option<Image> {
+    pub fn get(&self, id: usize, path: &str, points: f32, node: Option<&crate::Handle>) -> Option<Image> {
         let node = node.map(|node| node.box_key);
         let quality = ((points.max(1.0) * self.density).ceil() as u32)
             .div_ceil(32)

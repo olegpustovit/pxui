@@ -115,7 +115,7 @@ impl Ui {
     /// ```
     #[track_caller]
     pub fn image(&mut self, name: &str, image: &Image, style: &ImageStyle) -> Result<Handle, Error> {
-        let mut out = PxuiBox::default();
+        let mut out = Handle::default();
         let rc = unsafe { lib::pxui_ui_image_node(self.0.as_ptr(), as_str(name), image, fit(style.fit), size(style.w), size(style.h), &mut out) };
         if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }

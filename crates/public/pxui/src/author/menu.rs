@@ -1,6 +1,6 @@
-//! The kit menu: `ui.menu(key, at, &ITEMS, &Menu::DEFAULT)` reports a `MenuResponse`.
+//! The kit menu: `ui.menu(key, at, &ITEMS, &Menu::DEFAULT)` reports a `Chosen`.
 use super::Key;
-use crate::{ui::{Menu, MenuItem, MenuResponse}, Ui};
+use crate::{ui::{Menu, MenuItem, Chosen}, Ui};
 
 impl Ui {
     /// Shows a floating menu of `items` at `at` (window points, moved inside the window) and reports what happened to it this frame.
@@ -8,7 +8,7 @@ impl Ui {
     /// Call it every frame the menu is open and stop when `dismissed` or `chosen` comes back: a `chosen` index is the row clicked (or
     /// Enter on the focused row) and the menu has closed itself, `chosen_id` that row's `MenuItem::id`; Escape, focus loss or a press
     /// outside set `dismissed`. A disabled row is never chosen and empty text is a separator. Build it before the content it shields; it
-    /// floats at the root, moved inside the view (`at` needs no clamping). The menu is as wide as its longest row (`Menu::width` is the
+    /// floats at the root, moved inside the view (`at` needs no clamping). The menu is as wide as its longest row (`Menu::w_px` is the
     /// least). Rows with a submenu open it beside the menu; its rows are numbered after the menu's own. Rows are drawn by the registered
     /// `menu_row` body; a `MenuItem::selected` row reads as the current choice. The sheet is built by the registered `popup` body, which
     /// may give it a role of its own (else it is a Menu); it is named `Menu::name` (none without), has `Menu::padding` above its first row
@@ -30,14 +30,14 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn menu<K: Into<Key>>(&mut self, key: K, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+    pub fn menu<K: Into<Key>>(&mut self, key: K, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
         self.menu_call(key.into(), at, items, menu)
     }
 
     /// The one body of `menu`: the engine call, with the menu's variant set around it, then the chosen row's id.
     #[inline(always)]
     #[track_caller]
-    fn menu_call(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+    fn menu_call(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
         if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::menu_row, menu.variant); }
         let mut response = self.menu_keyed(key, at, items, menu);
         if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::menu_row, 0); }
@@ -53,13 +53,13 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use crate::bodies::MenuRowConfig;
-    use crate::ui::{Menu, MenuItem, MenuResponse, Role};
+    use crate::ui::{Menu, MenuItem, Chosen, Role};
     use crate::{testing, FrameIn, Ui};
     use pxui_types::{Event, KEY_SPECIAL};
     use std::cell::{Cell, RefCell};
     use crate::bodies::BodyConfig;
 
-    const ITEMS: [MenuItem; 4] = [MenuItem::new("Play next"), MenuItem::new("Add to playlist").enabled(false), MenuItem::new("Delete").danger(), MenuItem::new("Size").checked(true).key("Ctrl S")];
+    const ITEMS: [MenuItem; 4] = [MenuItem::new("Play next"), MenuItem::new("Add to playlist").enabled(false), MenuItem::new("Delete").danger(), MenuItem::new("Size").checked(true).shortcut("Ctrl S")];
     const TAB: u32 = KEY_SPECIAL + 8;
     const ENTER: u32 = KEY_SPECIAL + 5;
     const ESCAPE: u32 = KEY_SPECIAL + 6;
@@ -72,33 +72,33 @@ mod tests {
     /// A click on a row chooses it and the menu closes itself; a disabled row takes no click; the separator is not a row.
     #[test]
     fn a_click_chooses_a_row_and_a_disabled_row_is_not_choosable() {
-        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT.row_h(36.0));
-        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != MenuResponse::default() { last.set(got); } };
+        let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT.row_h(36.0));
+        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let r = testing::find(&ui, Role::MenuItem, "Play next").unwrap();
         assert_eq!(r.h, 36.0, "Menu::row_h is the row's height");
         let (x, y) = centre(&ui, "Add to playlist");
         testing::click(&mut ui, x, y, &mut build);
-        assert_eq!(last.get(), MenuResponse::default(), "a disabled row is inert");
+        assert_eq!(last.get(), Chosen::default(), "a disabled row is inert");
         let (x, y) = centre(&ui, "Delete");
         testing::click(&mut ui, x, y, &mut build);
-        assert_eq!(last.get(), MenuResponse { chosen: Some(2), ..MenuResponse::default() });
+        assert_eq!(last.get(), Chosen { chosen: Some(2), ..Chosen::default() });
     }
 
     /// Tab then Enter chooses the first enabled row (never the disabled one before it); Escape and a press outside dismiss.
     #[test]
     fn enter_chooses_the_focused_row_and_escape_or_an_outside_press_dismisses() {
-        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT);
-        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != MenuResponse::default() { last.set(got); } };
+        let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
+        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         testing::key(&mut ui, TAB, &mut build);
         testing::key(&mut ui, ENTER, &mut build);
         assert_eq!(last.get().chosen, Some(0));
-        last.set(MenuResponse::default());
+        last.set(Chosen::default());
         let mut ui = crate::doc::frames(3, &mut build);
         testing::key(&mut ui, ESCAPE, &mut build);
-        assert_eq!(last.get(), MenuResponse { dismissed: true, ..MenuResponse::default() });
-        last.set(MenuResponse::default());
+        assert_eq!(last.get(), Chosen { dismissed: true, ..Chosen::default() });
+        last.set(Chosen::default());
         let mut ui = crate::doc::frames(3, &mut build);
         testing::click(&mut ui, 300.0, 230.0, &mut build);
         assert!(last.get().dismissed && last.get().chosen.is_none());
@@ -107,7 +107,7 @@ mod tests {
     /// The danger row is inked in the theme's menu_danger text, the others in the menu's; a checked row keeps its slot and shows its shortcut.
     #[test]
     fn the_danger_row_reads_in_the_error_ink() {
-        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT);
+        let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
         let mut danger_ink = None;
         let mut build = |ui: &mut Ui| { danger_ink = Some(ui.theme().menu_danger.idle.text); last.set(ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu)); };
         let ui = crate::doc::frames(3, &mut build);
@@ -155,8 +155,8 @@ mod tests {
     fn submenus_and_long_menus_choose_by_index() {
         const KINDS: [MenuItem; 2] = [MenuItem::new("Draw"), MenuItem::new("Value").checked(true)];
         const ITEMS: [MenuItem; 2] = [MenuItem::new("New").submenu(&KINDS), MenuItem::new("Quit")];
-        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT);
-        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != MenuResponse::default() { last.set(got); } };
+        let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
+        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let (x, y) = centre(&ui, "New");
         testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
@@ -167,8 +167,8 @@ mod tests {
         testing::click(&mut ui, x, y, &mut build);
         assert_eq!(last.get().chosen, Some(3));
         let long = [MenuItem::new("Row"); 40];
-        last.set(MenuResponse::default());
-        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &long, &menu); if got != MenuResponse::default() { last.set(got); } };
+        last.set(Chosen::default());
+        let mut build = |ui: &mut Ui| { let got = ui.menu("song-menu", (10.0, 10.0), &long, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         testing::key(&mut ui, TAB, &mut build);
         testing::key(&mut ui, ENTER, &mut build);
@@ -182,9 +182,9 @@ mod tests {
         mem_sys::set_peer(crate::library_counter);
         let mut ui = Ui::new().unwrap();
         let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
-        let (shown, menu) = (Cell::new(true), Menu::DEFAULT.row_h(36.0).width(200.0));
+        let (shown, menu) = (Cell::new(true), Menu::DEFAULT.row_h(36.0).w_px(200.0));
         const LONG: [MenuItem; 40] = [MenuItem::new("Row"); 40];
-        const SIZES: [MenuItem; 2] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected()];
+        const SIZES: [MenuItem; 2] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(true)];
         let mut build = |ui: &mut Ui| {
             ui.label("Songs", crate::Label::DEFAULT);
             if shown.get() {
@@ -215,8 +215,8 @@ mod tests {
     fn a_menu_past_max_rows_scrolls_its_rows() {
         let names: Vec<String> = (0..40).map(|n| format!("Row {n}")).collect();
         let items: Vec<MenuItem> = names.iter().map(|name| MenuItem::new(name)).collect();
-        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT.max_rows(8));
-        let mut build = |ui: &mut Ui| { let got = ui.menu("long", (10.0, 10.0), &items, &menu); if got != MenuResponse::default() { last.set(got); } };
+        let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT.max_rows(8));
+        let mut build = |ui: &mut Ui| { let got = ui.menu("long", (10.0, 10.0), &items, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let top = |ui: &Ui, name: &str| testing::find(ui, Role::MenuItem, name).unwrap().y;
         let bottom = 10.0 + 7.0 + 8.0 * 24.0;
@@ -248,8 +248,8 @@ mod tests {
             assert_eq!(sheet.h, h, "{menu:?}");
         }
         // the bounded sheet scrolls its rows: the wheel brings the last row into view
-        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT.max_h(120.0));
-        let mut build = |ui: &mut Ui| { let got = ui.menu("m", (10.0, 10.0), &LONG, &menu); if got != MenuResponse::default() { last.set(got); } };
+        let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT.max_h(120.0));
+        let mut build = |ui: &mut Ui| { let got = ui.menu("m", (10.0, 10.0), &LONG, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: 60.0, y: 60.0, ..Default::default() }], &mut build);
         for _ in 0..40 { testing::frame(&mut ui, &[Event { kind: Event::SCROLLED, x: 0.0, y: -1.0, ..Default::default() }], &mut build); }
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn a_registered_row_body_gets_the_current_choice_and_the_sheet_its_name() {
         use crate::a11y::state;
-        const SIZES: [MenuItem; 3] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(), MenuItem::new("16 GB").checked(true)];
+        const SIZES: [MenuItem; 3] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(true), MenuItem::new("16 GB").checked(true)];
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
         ui.register_menu_row_body("current", current_row).expect("row body");
@@ -304,17 +304,17 @@ mod tests {
     fn rows_of_one_text_are_distinct_and_report_their_ids() {
         const MIXES: [MenuItem; 2] = [MenuItem::new("Mix").id(70), MenuItem::new("Mix").id(71)];
         const ITEMS: [MenuItem; 4] = [MenuItem::new("Mix"), MenuItem::new("Mix"), MenuItem::new("Mix").id(9), MenuItem::new("Add to").submenu(&MIXES)];
-        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT);
-        let mut build = |ui: &mut Ui| { let got = ui.menu("m", (10.0, 10.0), &ITEMS, &menu); if got != MenuResponse::default() { last.set(got); } };
+        let (last, menu) = (Cell::new(Chosen::default()), Menu::DEFAULT);
+        let mut build = |ui: &mut Ui| { let got = ui.menu("m", (10.0, 10.0), &ITEMS, &menu); if got != Chosen::default() { last.set(got); } };
         let mut ui = crate::doc::frames(3, &mut build);
         let rows: Vec<crate::geom::Rect> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == "Mix").map(|n| n.rect).collect();
         assert_eq!(rows.len(), 3, "three rows named Mix: {rows:?}");
         assert!(rows[0].y < rows[1].y && rows[1].y < rows[2].y, "each its own row: {rows:?}");
         testing::click(&mut ui, f64::from(rows[1].x + 20.0), f64::from(rows[1].y + rows[1].h / 2.0), &mut build);
-        assert_eq!(last.get(), MenuResponse { chosen: Some(1), ..MenuResponse::default() }, "the second Mix, which has no id");
+        assert_eq!(last.get(), Chosen { chosen: Some(1), ..Chosen::default() }, "the second Mix, which has no id");
         let mut ui = crate::doc::frames(3, &mut build);
         testing::click(&mut ui, f64::from(rows[2].x + 20.0), f64::from(rows[2].y + rows[2].h / 2.0), &mut build);
-        assert_eq!(last.get(), MenuResponse { chosen: Some(2), chosen_id: Some(9), dismissed: false });
+        assert_eq!(last.get(), Chosen { chosen: Some(2), chosen_id: Some(9), dismissed: false });
         let mut ui = crate::doc::frames(3, &mut build);
         let (x, y) = centre(&ui, "Add to");
         testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
@@ -323,7 +323,7 @@ mod tests {
         let (x, y) = (f64::from(second.x + 20.0), f64::from(second.y + second.h / 2.0));
         testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
         testing::click(&mut ui, x, y, &mut build);
-        assert_eq!(last.get(), MenuResponse { chosen: Some(5), chosen_id: Some(71), dismissed: false });
+        assert_eq!(last.get(), Chosen { chosen: Some(5), chosen_id: Some(71), dismissed: false });
     }
 
     /// Rows keyed by id keep their focus when rows move: the focused row's id, not its place, decides it.

@@ -1,5 +1,6 @@
 //! Text widgets with options: the text field, line field, value field (slide, scrub and validity callbacks), the text area, and the text edit the `Ui` keeps.
 //! The non-generic bodies of the key-first calls in `author/fields.rs`.
+use crate::Handle;
 use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, as_text, check, lent_str, lent_string, live, AreaCallbacks, Key, LineField, LineFieldResponse, Response, TextArea, TextAreaResponse, TextField, TextFieldResponse, Ui, ValueCallbacks, ValueField, ValueFieldResponse};
 use core::ffi::c_void;
@@ -173,7 +174,7 @@ impl Ui {
     /// named `name` for a screen reader when one is given (a field without a name is unnamed).
     #[track_caller]
     pub(crate) fn input_response(&mut self, changed: bool, name: Option<&str>) -> Response {
-        let mut raw = PxuiBox::default();
+        let mut raw = Handle::default();
         check(self, unsafe { lib::pxui_ui_input_box(self.0.as_ptr(), &mut raw) });
         if let Some(name) = name { self.a11y_name(&raw, name); }
         let signal = self.signal(&raw);
@@ -300,7 +301,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn patch_field(&mut self, field: &PxuiBox, o: &ValueField<'_>, value_text: &str) -> bool {
+    pub fn patch_field(&mut self, field: &Handle, o: &ValueField<'_>, value_text: &str) -> bool {
         let desc = value_desc(Rect::new(0.0, 0.0, 0.0, 0.0), o, "", value_text);
         let mut out = 0;
         let rc = unsafe { lib::pxui_ui_patch_field(self.0.as_ptr(), field, &desc, as_str(value_text), &mut out) };

@@ -1100,11 +1100,11 @@ fn shared_system_preferences_change_native_pixels_without_warm_allocations() {
         mem_sys::local_reset();
         ui.use_theme(if is_dark { &dark } else { &light });
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,appearance,reduced_motion:1,..Default::default() },&mut |ui| {
-            ui.view("appearance",1,pxui::ui::Size::Px(100.0),pxui::ui::Size::Px(40.0),&mut |ui| {
+            ui.column("appearance", pxui::Node::column().w_px(100.0).h_px(40.0), |ui| { ui.view_of("appearance", &1, |ui| {
                 assert_eq!(ui.system_appearance(),appearance);
                 assert!(ui.tokens().reduced_motion);
                 ui.node("block".into(),pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(24.0),look:pxui::ui::Look { fill:ui.tokens().foreground,..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
-            });
+            }); });
         }).unwrap();
         if frame>=4 { assert_eq!(mem_sys::local_alloc_count(),0,"warm parsed theme selection and frame preferences allocate nothing"); }
         assert!(ui.repaint_at().is_none());
@@ -1347,7 +1347,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
     let build = |ui: &mut pxui::Ui| {
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
-            glass.set(Some(ui.view("glass", 1, Size::Px(160.0), Size::Px(80.0), &mut |ui: &mut pxui::Ui| {
+            glass.set(Some({ let enclosing = ui.node("glass".into(), pxui::Node::column().w_px(160.0).h_px(80.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("glass", &1, |ui: &mut pxui::Ui| {
                 let pane=ui.node("pane".into(), Node { w: Size::Px(160.0), h: Size::Px(80.0), look: Look { fill: pxui::geom::Rgba::rgba(0, 0, 0, 1), ..Look::NONE }, ..Node::DEFAULT });
                 if large {
                     let images=[images[0],images[1]];
@@ -1355,10 +1355,10 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
                         for i in 0..96 { paint.image(pxui::geom::Rect::new(rect.x+(i%16) as f32, rect.y+(i/16) as f32, 1.0, 1.0), &images[i%2], Fit::Fill, pxui::geom::Rgba::rgb(255, 255, 255)).unwrap(); }
                     });
                 }
-            })));
-            second.set(Some(ui.view("second glass", 1, Size::Px(60.0), Size::Px(30.0), &mut |ui: &mut pxui::Ui| {
+            })); view }));
+            second.set(Some({ let enclosing = ui.node("second glass".into(), pxui::Node::column().w_px(60.0).h_px(30.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("second glass", &1, |ui: &mut pxui::Ui| {
                 ui.node("pane".into(), Node { w: Size::Px(60.0), h: Size::Px(30.0), look: Look { fill:pxui::geom::Rgba::rgba(0,0,0,1), ..Look::NONE }, ..Node::DEFAULT });
-            })));
+            })); view }));
         }).expect("build blur view");
     };
     build(&mut ui);
@@ -1516,10 +1516,10 @@ fn shared_backdrop_blur_bgra() {
     let mut ui=pxui::Ui::new().unwrap();
     let glass=std::cell::Cell::new(None);
     let mut build=|ui: &mut pxui::Ui| {
-        glass.set(Some(ui.view("BGRA glass",1,pxui::ui::Size::Px(160.0),pxui::ui::Size::Px(80.0),&mut |ui| {
+        glass.set(Some({ let enclosing = ui.node("BGRA glass".into(), pxui::Node::column().w_px(160.0).h_px(80.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("BGRA glass", &1, |ui| {
             ui.node("pane".into(),pxui::ui::Node { w:pxui::ui::Size::Px(160.0),h:pxui::ui::Size::Px(80.0),
                 look:pxui::ui::Look { fill:pxui::geom::Rgba::rgba(0,0,0,1),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
-        })));
+        })); view }));
     };
     let input=pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,..Default::default() };
     ui.frame(&input,&mut build).unwrap();
@@ -1692,12 +1692,11 @@ fn rows_ui(ui: &mut pxui::Ui, rows: usize, caption: &str) {
 
 /// Views of `rows` labels each, kept by revision: frames that move kept runs inside a layer.
 fn views_ui(ui: &mut pxui::Ui, views: usize, rows: usize, revision: u64) {
-    use pxui::ui::Size;
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
     ui.frame(&input, &mut |ui: &mut pxui::Ui| {
         for v in 0..views {
             let name = format!("view {v}");
-            ui.view(&name, revision + v as u64 % 2, Size::Px(300.0), Size::Px(20.0 * rows as f32), &mut |ui: &mut pxui::Ui| for row in 0..rows { ui.label(&format!("row {row} of {name}"), pxui_core::ui::Label::DEFAULT); });
+            ui.column(v as i64, pxui::Node::column().w_px(300.0).h_px(20.0 * rows as f32), |ui| { ui.view_of(v as i64, &(revision + v as u64 % 2), |ui: &mut pxui::Ui| for row in 0..rows { ui.label(&format!("row {row} of {name}"), pxui_core::ui::Label::DEFAULT); }); });
         }
     }).expect("build a frame of views");
 }
@@ -1779,16 +1778,17 @@ fn shared_public_view_controls_keep_native_draws_and_instances() {
         let clip=(frame%3==0).then_some(Rect::new(60.0,40.0,60.0,60.0));
         mem_sys::local_reset();
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            let view=ui.view("outer",1,pxui::ui::Size::Px(100.0),pxui::ui::Size::Px(80.0),&mut |ui| {
+            let outer_box = ui.node("outer".into(), pxui::Node::column().w_px(100.0).h_px(80.0));
+            ui.set_at(&outer_box,(40.0,30.0));
+            let view={ let enclosing = outer_box; let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("outer", &1, |ui| {
                 builds.set(builds.get()+1);
-                inner.set(Some(ui.view("inner",1,pxui::ui::Size::Px(100.0),pxui::ui::Size::Px(80.0),&mut |ui| {
+                inner.set(Some({ let enclosing = ui.node("inner".into(), pxui::Node::column().w_px(100.0).h_px(80.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("inner", &1, |ui| {
                     for (key,rect) in [("base",Rect::new(0.0,0.0,100.0,80.0)),("overlap",Rect::new(20.0,20.0,40.0,20.0))] {
                         ui.node(key.into(),pxui::Node { w:pxui::ui::Size::Px(rect.w),h:pxui::ui::Size::Px(rect.h),at:Some((rect.x,rect.y)).into(),
                             look:pxui::ui::Look { fill:Rgba::rgb(255,0,0),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
                     }
-                })));
-            });
-            ui.set_at(&view,(40.0,30.0));
+                })); view }));
+            })); view };
             outer.set(Some(view));
         }).unwrap();
         let view=outer.get().unwrap();
@@ -1989,7 +1989,7 @@ fn shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations() 
                     let build=|ui:&mut pxui::Ui,part| {
                         let (r,g,b)=match part {pxui::ui::SectionPart::Leading=>(255,0,0),pxui::ui::SectionPart::Header=>(255,255,255),pxui::ui::SectionPart::Row(_)=>(0,0,255)};
                         let mut paint=|ui:&mut pxui::Ui| {ui.node("paint".into(),pxui::ui::Node {w:pxui::ui::Size::Grow,h:pxui::ui::Size::Px(if part==pxui::ui::SectionPart::Leading {100.0} else if part==pxui::ui::SectionPart::Header {30.0} else if measured && matches!(part,pxui::ui::SectionPart::Row(index) if index%2==0) {40.0} else {20.0}),look:pxui::ui::Look {fill:pxui::geom::Rgba {r,g,b,a:255},..pxui::ui::Look::NONE},..pxui::ui::Node::DEFAULT});};
-                        if part==pxui::ui::SectionPart::Leading {ui.view("heading-cache",0,pxui::ui::Size::Grow,pxui::ui::Size::Fit,&mut paint);} else {paint(ui);}
+                        if part==pxui::ui::SectionPart::Leading {{ let enclosing = ui.node("heading-cache".into(), pxui::Node::column()); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("heading-cache", &0, &mut paint)); view };} else {paint(ui);}
                     };
                     body=Some(if measured {ui.section_list("section",&section.measured(),&|i| i as i64,&mut |ui,part,_| build(ui,part))} else {ui.section_list("section",&section,&|i| i as i64,&mut |ui,part,_| build(ui,part))});
                 }).unwrap();

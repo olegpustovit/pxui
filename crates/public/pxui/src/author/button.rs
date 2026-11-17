@@ -6,7 +6,8 @@ use pxui_types::{geom::Edges, layout::{Along, Justify}, theme::{BodyKind, State,
 /// How `Ui::button_with` varies the kit's button, as a `Copy` value built with `const fn` builders from `Button::DEFAULT`.
 ///
 /// The default is the plain `Ui::button`: the theme's look, 20 points high, as wide as its text plus 14, 5 points in from the start of its line.
-/// `'a` is the borrow of a `name`, `detail` or `accessory` given at run time (`'static` for a const button).
+/// `'a` is the borrow of a `name`, `detail` or `accessory` given at run time and of the looks given to `look` (`'static` for a const
+/// button).
 ///
 /// A button can carry a leading `icon`, a `detail` line under its text and a trailing `accessory` (a shortcut such as "⌘K"), each drawn by
 /// the default body and handed to a registered body in its config. A link is a button too: a const with a look that has no fill or
@@ -26,7 +27,7 @@ use pxui_types::{geom::Edges, layout::{Along, Justify}, theme::{BodyKind, State,
 pub struct Button<'a> {
     pub(crate) w: Size,
     pub(crate) h: Size,
-    pub(crate) look: Option<States>,
+    pub(crate) look: Option<&'a States>,
     pub(crate) enabled: bool,
     pub(crate) selected: bool,
     pub(crate) danger: bool,
@@ -88,7 +89,8 @@ impl<'a> Button<'a> {
     pub const fn size(mut self, w: Size, h: Size) -> Button<'a> { self.w = w; self.h = h; self }
 
     /// Sets the look per state (idle, hover, pressed, focus, disabled, checked) in place of the theme's button. Its font draws the
-    /// kit's text; to style the text (size, weight, line box) use `label`, which then takes only the look's text colour.
+    /// kit's text; to style the text (size, weight, line box) use `label`, which then takes only the look's text colour. The looks are
+    /// borrowed, not copied.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -98,7 +100,7 @@ impl<'a> Button<'a> {
     /// const B: Button = Button::DEFAULT.look(&PLATE);
     /// let _ = B;
     /// ```
-    pub const fn look(mut self, look: &States) -> Button<'a> { self.look = Some(*look); self }
+    pub const fn look(mut self, look: &'a States) -> Button<'a> { self.look = Some(look); self }
 
     /// Sets whether the button takes input: disabled takes no press or focus, shows the `disabled` look and reads as disabled to
     /// accessibility (its node lacks the ENABLED and FOCUSABLE states), and still blocks what is under it. A disabled button never

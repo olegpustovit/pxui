@@ -8,7 +8,7 @@ use pxui::{Renderer, Ui};
 use pxui_gallery::gpu::{self, Gpu};
 use pxui_gallery::*;
 use pxui_gallery::bodies_page::{self, BodiesPage};
-use pxui_types::{Event, Str, Size, ffi::{Input, Slice, ThemeSource}};
+use pxui_types::{Event, Str, ffi::{Input, Slice, ThemeSource}};
 use std::time::Instant;
 
 const DEPARTURE_MONO: &[u8] = include_bytes!("../../../assets/fonts/DepartureMono-Regular.otf");
@@ -51,7 +51,7 @@ fn shoot_setup(gpu: &mut Gpu, theme: &ThemeSource, rtl: bool, size: (i64, i64), 
     let events = [pointer_event()];
     for count in 0..if rebuild { 3 } else { 2 } {
         let input = frame_at(count, size, density, &events);
-        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", if rebuild { count as u64 + 1 } else { 1 }, Size::Grow, Size::Grow, &mut *build); }).expect("frame");
+        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view_of("page", &(if rebuild { count as u64 + 1 } else { 1 }), &mut *build); }).expect("frame");
     }
     let clear = ground.unwrap_or_else(|| panel(&ui.theme()));
     let mut renderer: Renderer = gpu.renderer(&ui).expect("PXUI renderer");
@@ -75,7 +75,7 @@ fn abi_baseline_pages() {
             let allocated = gpu::allocations();
             let started = Instant::now();
             ui.input_frame(&input, &mut |ui: &mut Ui| {
-                ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, &mut state, index));
+                ui.view_of("page", &revision, |ui: &mut Ui| page(ui, &mut state, index));
             }).expect("frame");
             if count >= 10 {
                 times.push(started.elapsed().as_secs_f64() * 1e6);
@@ -112,7 +112,7 @@ fn gpu_gallery_pages() {
                 s.image = Some(image);
                 (s.dialog, s.menu_at) = (*i == 3, (*i == 3).then_some((360.0, 40.0)));
                 let pixels = shoot(&mut gpu, theme, *rtl, (PAGE_W, PAGE_H), density, None, &mut |ui: &mut Ui| {
-                    ui.view("page", 1, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, &mut s, *i));
+                    ui.view_of("page", &1, |ui: &mut Ui| page(ui, &mut s, *i));
                 });
                 let path = format!("{}/fixtures/gallery_{page_name}_{name}_{density}x.png", env!("CARGO_MANIFEST_DIR"));
                 let worst = compare(&path, (PAGE_W, PAGE_H), density, &pixels, true);
@@ -165,7 +165,7 @@ fn bodies_page_settled() {
         for count in 0..40 {
             let input = frame_at(count, (PAGE_W, PAGE_H), 1, &events);
             let before = gpu::allocations();
-            ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", count as u64 + 1, Size::Grow, Size::Grow, &mut |ui: &mut Ui| bodies_page::page(ui, &mut page)); }).expect("frame");
+            ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view_of("page", &(count as u64 + 1), |ui: &mut Ui| bodies_page::page(ui, &mut page)); }).expect("frame");
             if count >= 10 { worst = worst.max(gpu::allocations() - before); }
         }
         println!("PXUI Bodies page custom {custom}: {} nodes built, {worst} allocations in the worst warm frame", ui.built_nodes());
@@ -221,7 +221,7 @@ fn renderer_draw_settled() {
     let events = [pointer_event()];
     for count in 0..3 {
         let input = frame_at(count, (PAGE_W, PAGE_H), 1, &events);
-        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view("page", 1, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, &mut state, 0)); }).expect("frame");
+        ui.input_frame(&input, &mut |ui: &mut Ui| { ui.view_of("page", &1, |ui: &mut Ui| page(ui, &mut state, 0)); }).expect("frame");
     }
     let clear = panel(&ui.theme());
     let mut renderer: Renderer = gpu.renderer(&ui).expect("PXUI renderer");

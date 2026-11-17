@@ -137,7 +137,7 @@ takes `const` `[DialogButton]`, a `Dialog`, and a body closure; `chosen` is the 
 use pxui::{ui::{Menu, MenuItem}, Dialog, DialogButton, Label};
 const ITEMS: [MenuItem; 3] = [MenuItem::new("Play next"), MenuItem::new("Add to playlist"), MenuItem::new("Delete").danger()];
 const MENU: Menu = Menu::DEFAULT.row_h(36.0);
-const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").default().danger()];
+const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").primary().danger()];
 let (mut chosen, mut confirmed) = (None, None);
 pxui::doc::frames(2, &mut |ui| {
     chosen = ui.menu("song-menu", (10.0, 10.0), &ITEMS, &MENU).chosen;

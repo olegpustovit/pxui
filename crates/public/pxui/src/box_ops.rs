@@ -1,11 +1,9 @@
 //! Boxes and what hangs off them, with the engine's names and shapes (see `ui_state` for how failures surface).
-use crate::composite::{call, defer_callback_panic, deferred};
-use crate::node::{look, mark, size};
-use crate::opts::{BoxOpts, HitFn};
+use crate::Handle;
+use crate::node::{look, mark};
 use crate::{as_str, as_text, check, Ui};
-use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Dir, Size, Mark, PxuiBox, Str};
-use std::{alloc::Layout, fmt::{Arguments, Write}};
+use pxui_types::{geom::{Point, Rect}, ffi::{PxuiLookDesc, PxuiMarkDesc, Slice}, theme::Look, Dir, Mark, PxuiBox, Str};
+use std::fmt::{Arguments, Write};
 
 library!(lib {
     fn pxui_ui_text_layout_count(ui: *mut PxuiUi, out: *mut u64) -> i32;
@@ -13,7 +11,6 @@ library!(lib {
     fn pxui_ui_dismiss(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiDismissIn, out: *mut pxui_types::ffi::PxuiDismissOut) -> i32;
     fn pxui_ui_swipe_actions(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiSwipeIn) -> i32;
     fn pxui_ui_gesture(ui: *mut PxuiUi, box_: *const PxuiBox, request: *const pxui_types::ffi::PxuiGestureIn, commands: u32, out: *mut pxui_types::ffi::PxuiGestureOut) -> i32;
-    fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32;
     fn pxui_ui_node_fields(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::ffi::PxuiNodeFields) -> i32;
     fn pxui_ui_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut pxui_types::Node) -> i32;
@@ -38,7 +35,6 @@ library!(lib {
     fn pxui_ui_hovered(ui: *mut PxuiUi, box_: *const PxuiBox, within: u8, out: *mut u8) -> i32;
     fn pxui_ui_press_keys(ui: *mut PxuiUi, box_: *const PxuiBox, ptr: *mut *const u32, len: *mut usize) -> i32;
     fn pxui_ui_root_at(ui: *mut PxuiUi, x: f32, y: f32, roots: Slice<i64>, present: *mut u8, out: *mut i64) -> i32;
-    fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
     fn pxui_ui_view_offset(ui: *mut PxuiUi, box_: *const PxuiBox, dx: f32, dy: f32) -> i32;
     fn pxui_ui_view_opacity(ui:*mut PxuiUi,box_:*const PxuiBox,opacity:f32)->i32;
     fn pxui_ui_view_scale(ui:*mut PxuiUi,box_:*const PxuiBox,scale:f32)->i32;
@@ -77,25 +73,6 @@ impl Write for Label {
         }
         Ok(())
     }
-}
-
-// The box's hit shape is an app closure: it crosses as a callback, the closure's `Rc` boxed behind the user pointer
-// and released by the library exactly once.
-extern "C" fn hit_call(user: *mut c_void, rect: Rect) -> Rect {
-    if user.is_null() || deferred() { return rect; }
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (unsafe { &*user.cast::<HitFn>() })(rect))) {
-        Ok(hit) => hit,
-        Err(panic) => { defer_callback_panic(panic); rect }
-    }
-}
-extern "C" fn hit_release(user: *mut c_void) {
-    crate::paint::dropped(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { core::ptr::drop_in_place(user.cast::<HitFn>()) })));
-    crate::paint::pool_give(Layout::new::<HitFn>(), user.cast());
-}
-fn hit_box(hit: HitFn) -> *mut c_void {
-    let at = crate::paint::pool_take(Layout::new::<HitFn>()).cast::<HitFn>();
-    unsafe { at.write(hit); }
-    at.cast()
 }
 
 /// The payload a drag or key carry holds, borrowed from the library until the next mutable call on the `Ui`.
@@ -341,7 +318,7 @@ pub struct GestureState {
 }
 
 impl Ui {
-    fn gesture_call(&mut self, node: &PxuiBox, request: Option<pxui_types::ffi::PxuiGestureIn>, commands: u32) -> GestureState {
+    fn gesture_call(&mut self, node: &Handle, request: Option<pxui_types::ffi::PxuiGestureIn>, commands: u32) -> GestureState {
         let mut out = pxui_types::ffi::PxuiGestureOut::default();
         let request_ptr = request.as_ref().map_or(core::ptr::null(), |r| r as *const _);
         crate::live(self, unsafe { lib::pxui_ui_gesture(self.0.as_ptr(), node, request_ptr, commands, &mut out) });
@@ -368,7 +345,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn gesture(&mut self, node: &PxuiBox, opts: GestureOpts) -> GestureState {
+    pub fn gesture(&mut self, node: &Handle, opts: GestureOpts) -> GestureState {
         let kinds = u32::from(opts.long_press) | u32::from(opts.row_swipe.is_some()) << 1 | u32::from(opts.edge_back) << 2 | u32::from(opts.refresh.is_some()) << 3 | u32::from(opts.touch_drag) << 5;
         // the C record reads a 0 threshold as the default (UIKit's 60 points)
         let request = pxui_types::ffi::PxuiGestureIn { kinds, reveal: opts.row_swipe.unwrap_or(0.0), threshold: opts.refresh.unwrap_or(0.0), ..Default::default() };
@@ -394,7 +371,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn gesture_state(&mut self, node: &PxuiBox) -> GestureState { self.gesture_call(node, None, 0) }
+    pub fn gesture_state(&mut self, node: &Handle) -> GestureState { self.gesture_call(node, None, 0) }
     /// Closes a swiped-open row `node`: the content slides back to rest.
     /// A row that is not open, or a stale handle, does nothing.
     /// Allocates: never.
@@ -407,7 +384,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn close_swipe(&mut self, node: &PxuiBox) { self.gesture_call(node, None, 1); }
+    pub fn close_swipe(&mut self, node: &Handle) { self.gesture_call(node, None, 1); }
     /// Ends a held pull to refresh on the scroll node `node`: `refreshing` drops and the content returns to the top.
     /// Call it when the load that `refresh_fired` started has finished. A node that is not refreshing, or a stale handle, does nothing.
     /// Allocates: never.
@@ -420,55 +397,10 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn end_refresh(&mut self, node: &PxuiBox) { self.gesture_call(node, None, 2); }
+    pub fn end_refresh(&mut self, node: &Handle) { self.gesture_call(node, None, 2); }
 }
 
 impl Ui {
-    /// Declares a box under the current parent by `label` and returns its handle, valid this frame; children go in with `within`.
-    ///
-    /// `opts` sets its flags, size, axis, padding, scroll step and optional free position and hit shape (see `BoxOpts`).
-    /// Allocates: never on a warm frame; a new identity takes a slot the first time, and a `hit` closure takes a pooled box once per call.
-    /// Identity: `label` hashes under the parent's seed as `key_of` does; two boxes with one label in one parent collide and the second takes a `#dup` key, so label boxes that can reorder by something unique.
-    /// Panics: when the library refuses the box (outside a frame, an invalid size or a `label` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
-    ///
-    /// ```
-    /// use pxui::ui::BoxOpts;
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     let panel = ui.box_("panel", BoxOpts::default().padding(4.0));
-    ///     ui.within(&panel, &mut |ui| { ui.label("inside", pxui::Label::DEFAULT); });
-    /// });
-    /// ```
-    #[track_caller]
-    pub fn box_(&mut self, label: &str, opts: BoxOpts) -> PxuiBox {
-        let (hit, hit_user, hit_release_fn) = match &opts.hit {
-            Some(hit) => (Some(hit_call as extern "C" fn(*mut c_void, Rect) -> Rect), hit_box(hit.clone()), Some(hit_release as extern "C" fn(*mut c_void))),
-            None => (None, core::ptr::null_mut(), None),
-        };
-        let desc = PxuiBoxDesc {
-            size: core::mem::size_of::<PxuiBoxDesc>() as u32, axis: opts.axis as u32, flags: opts.flags.0, w: size(opts.w), h: size(opts.h),
-            max_h: opts.max_h, padding: opts.padding, scroll_step: opts.scroll_step, has_at: opts.at.is_some() as u8,
-            has_hit_rect: opts.hit_rect.is_some() as u8, reserved: [0; 2], at: opts.at.map_or([0.0; 2], |(x, y)| [x, y]),
-            hit_rect: opts.hit_rect.unwrap_or_default(), hit, hit_user, hit_release: hit_release_fn,
-        };
-        let mut out = PxuiBox::default();
-        check(self, unsafe { lib::pxui_ui_box(self.0.as_ptr(), as_str(label), &desc, &mut out) });
-        out
-    }
-    /// `box_` with the label written by `format_args!`, so a per-row label needs no `String`.
-    ///
-    /// The label is formatted into a 128-byte stack buffer; a longer one goes to the heap.
-    /// Allocates: nothing for a label up to 128 bytes, one `String` for a longer one; otherwise as `box_`.
-    /// Identity: as `box_` for the formatted text: `format_args!("row {}", id)` keys the box by `id`.
-    /// Panics: as `box_`.
-    ///
-    /// ```
-    /// use pxui::ui::BoxOpts;
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     for id in 0..3 { ui.box_fmt(format_args!("row {id}"), BoxOpts::default()); }
-    /// });
-    /// ```
-    #[track_caller]
-    pub fn box_fmt(&mut self, label: Arguments, opts: BoxOpts) -> PxuiBox { self.box_(Label::new(label).as_str(), opts) }
     /// Between builds, gives `b` the look `value` and repaints only its instances; true when the change is applied or held for the next paint, false for a stale handle or when it must wait for the next frame.
     ///
     /// Inside a build the look is recorded and the frame paints it; the owner's next declaration of the node wins over a patch.
@@ -481,9 +413,9 @@ impl Ui {
     ///     assert!(ui.patch_look(&b, &pxui::ui::Look::NONE));
     /// });
     /// ```
-    #[inline] #[track_caller] pub fn set_at(&mut self, b: &PxuiBox, at: (f32, f32)) { check(self, unsafe { lib::pxui_ui_set_at(self.0.as_ptr(), b, at.0, at.1) }) }
+    #[inline] #[track_caller] pub fn set_at(&mut self, b: &Handle, at: (f32, f32)) { check(self, unsafe { lib::pxui_ui_set_at(self.0.as_ptr(), b, at.0, at.1) }) }
     #[track_caller]
-    pub fn patch_look(&mut self, b: &PxuiBox, value: &Look) -> bool {
+    pub fn patch_look(&mut self, b: &Handle, value: &Look) -> bool {
         let mut out = 0;
         let rc = unsafe { lib::pxui_ui_patch_look(self.0.as_ptr(), b, &look(*value), &mut out) };
         crate::live(self, rc) && out != 0
@@ -503,7 +435,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn patch_rect(&mut self, b: &PxuiBox, value: Rect) -> bool {
+    pub fn patch_rect(&mut self, b: &Handle, value: Rect) -> bool {
         let mut out = 0;
         let rc = unsafe { lib::pxui_ui_patch_rect(self.0.as_ptr(), b, value, &mut out) };
         crate::live(self, rc) && out != 0
@@ -520,7 +452,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn patch_mark(&mut self, b: &PxuiBox, value: Mark) -> bool {
+    pub fn patch_mark(&mut self, b: &Handle, value: Mark) -> bool {
         let mut out = 0;
         let rc = unsafe { lib::pxui_ui_patch_mark(self.0.as_ptr(), b, &mark(value), &mut out) };
         crate::live(self, rc) && out != 0
@@ -537,7 +469,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn local_rect(&self, b: &PxuiBox) -> Rect {
+    pub fn local_rect(&self, b: &Handle) -> Rect {
         let mut out = Rect::default();
         let rc = unsafe { lib::pxui_ui_local_rect(self.0.as_ptr(), b, &mut out) };
         if !crate::live(self, rc) { return Rect::default(); }
@@ -572,7 +504,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn reveal(&mut self, list: &PxuiBox, index: usize) {
+    pub fn reveal(&mut self, list: &Handle, index: usize) {
         crate::live(self, unsafe { lib::pxui_ui_reveal(self.0.as_ptr(), list, index) });
     }
     /// The scroll offset of `b` in points: where it has settled and where it is painted now.
@@ -587,16 +519,17 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn scroll(&self, b: &PxuiBox) -> Scroll {
+    pub fn scroll(&self, b: &Handle) -> Scroll {
         let (mut settled, mut painted) = (0.0, 0.0);
         check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 0, &mut settled) });
         check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 1, &mut painted) });
         Scroll { settled, painted }
     }
-    #[inline] #[track_caller] pub fn set_scroll_offset(&mut self, b: &PxuiBox, value: f32) { check(self, unsafe { lib::pxui_ui_set_scroll_offset(self.0.as_ptr(), b, value) }) }
+    #[inline] #[track_caller] pub fn set_scroll_offset(&mut self, b: &Handle, value: f32) { check(self, unsafe { lib::pxui_ui_set_scroll_offset(self.0.as_ptr(), b, value) }) }
     /// The text kept in the box's slot, or none when it holds none; borrowed from the library, valid until the
     /// next call on `ui`.
     ///
+    /// The text counterpart of `state`: a handle of a node that has gone reads none (no panic).
     /// Allocates: nothing in the wrapper.
     /// Panics: when the `Ui` has failed, like every `Ui` call.
     ///
@@ -610,14 +543,15 @@ impl Ui {
     /// }).unwrap();
     /// ```
     #[track_caller]
-    pub fn text_state(&self, b: &PxuiBox) -> Option<&str> {
+    pub fn text_state(&self, b: &Handle) -> Option<&str> {
         let (mut present, mut out) = (0, Str::default());
-        check(self, unsafe { lib::pxui_ui_text_state(self.0.as_ptr(), b, &mut present, &mut out) });
+        if !crate::live(self, unsafe { lib::pxui_ui_text_state(self.0.as_ptr(), b, &mut present, &mut out) }) { return None; }
         (present != 0).then(|| crate::lent_str(out))
     }
     /// Keeps `value` in `b`'s text slot (`None` clears it); it lives as long as the node and shows through `text_state`.
     /// Allocates: the library copies `value` into the slot when it is longer than what the slot held.
-    /// Panics: when the library refuses the call (a stale handle or text over the limit).
+    /// A handle of a node that has gone stores nothing (no panic), as `set_state`.
+    /// Panics: when the library refuses the call (text over the limit).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
@@ -629,9 +563,9 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn set_text_state(&mut self, b: &PxuiBox, value: Option<&str>) {
+    pub fn set_text_state(&mut self, b: &Handle, value: Option<&str>) {
         let text = value.unwrap_or("");
-        check(self, unsafe { lib::pxui_ui_set_text_state(self.0.as_ptr(), b, value.is_some() as u8, as_text(text)) })
+        let _ = crate::live(self, unsafe { lib::pxui_ui_set_text_state(self.0.as_ptr(), b, value.is_some() as u8, as_text(text)) });
     }
     /// The text kept in `b`'s slot number `index`, replaced by `text` when it differs: stable text for paint callbacks without a per-frame `String`.
     ///
@@ -646,13 +580,13 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn cached_label(&mut self, b: &PxuiBox, index: usize, text: &str) -> &str {
+    pub fn cached_label(&mut self, b: &Handle, index: usize, text: &str) -> &str {
         let mut out = Str::default();
         check(self, unsafe { lib::pxui_ui_cached_label(self.0.as_ptr(), b, index as u64, as_str(text), &mut out) });
         if out.len == 0 { return ""; }
         unsafe { core::str::from_utf8_unchecked(core::slice::from_raw_parts(out.ptr, out.len)) }
     }
-    #[inline] #[track_caller] pub fn to_front(&mut self, order: i64, b: &PxuiBox) { check(self, unsafe { lib::pxui_ui_to_front(self.0.as_ptr(), order, b) }) }
+    #[inline] #[track_caller] pub fn to_front(&mut self, order: i64, b: &Handle) { check(self, unsafe { lib::pxui_ui_to_front(self.0.as_ptr(), order, b) }) }
 
     /// The payload a drag or key carry is holding, borrowed from the library until the next mutable call on the `Ui`, or `None` when nothing is carried.
     /// Allocates: never.
@@ -686,8 +620,8 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn carry(&mut self, from: Option<&PxuiBox>, kind: &str, value: &str) {
-        let raw = from.map_or(core::ptr::null(), |b| b as *const PxuiBox);
+    pub fn carry(&mut self, from: Option<&Handle>, kind: &str, value: &str) {
+        let raw = from.map_or(core::ptr::null(), |b| b as *const Handle);
         check(self, unsafe { lib::pxui_ui_carry(self.0.as_ptr(), from.is_some() as u8, raw, as_str(kind), as_str(value)) })
     }
     /// Moves an active pointer carry's capture to `to`, a live hit ancestor of the box that started it, so a virtualized source row can scroll away without ending the drag.
@@ -702,7 +636,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn transfer_carry(&mut self, to: &PxuiBox) -> bool {
+    pub fn transfer_carry(&mut self, to: &Handle) -> bool {
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_transfer_carry(self.0.as_ptr(), to, &mut out) });
         out != 0
@@ -731,7 +665,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn drop_target(&mut self, b: &PxuiBox) -> Option<DropRef<'_>> {
+    pub fn drop_target(&mut self, b: &Handle) -> Option<DropRef<'_>> {
         let (mut tag, mut kind, mut value) = (0, Str::default(), Str::default());
         check(self, unsafe { lib::pxui_ui_drop_target(self.0.as_ptr(), b, &mut tag, &mut kind, &mut value) });
         let payload = || PayloadRef { kind: crate::lent_str(kind), value: crate::lent_str(value) };
@@ -749,7 +683,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn context_at(&mut self, b: &PxuiBox) -> Option<(f32, f32)> {
+    pub fn context_at(&mut self, b: &Handle) -> Option<(f32, f32)> {
         let (mut present, mut out) = (0, Point::default());
         check(self, unsafe { lib::pxui_ui_context_at(self.0.as_ptr(), b, &mut present, &mut out) });
         (present != 0).then_some((out.x, out.y))
@@ -770,7 +704,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn hovered_exactly(&self, b: &PxuiBox) -> bool {
+    pub fn hovered_exactly(&self, b: &Handle) -> bool {
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_hovered(self.0.as_ptr(), b, 0, &mut out) });
         out != 0
@@ -790,7 +724,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn hovered_within(&mut self, b: &PxuiBox) -> bool {
+    pub fn hovered_within(&mut self, b: &Handle) -> bool {
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_hovered(self.0.as_ptr(), b, 1, &mut out) });
         out != 0
@@ -809,7 +743,7 @@ impl Ui {
     /// }).unwrap();
     /// ```
     #[track_caller]
-    pub fn press_keys(&self, b: &PxuiBox) -> &[u32] {
+    pub fn press_keys(&self, b: &Handle) -> &[u32] {
         let (mut ptr, mut len) = (core::ptr::null(), 0);
         check(self, unsafe { lib::pxui_ui_press_keys(self.0.as_ptr(), b, &mut ptr, &mut len) });
         if len == 0 || ptr.is_null() { &[] } else { unsafe { core::slice::from_raw_parts(ptr, len) } }
@@ -833,24 +767,6 @@ impl Ui {
         let (mut present, mut out) = (0, 0);
         check(self, unsafe { lib::pxui_ui_root_at(self.0.as_ptr(), point.0, point.1, Slice { ptr: roots.as_ptr(), len: roots.len() }, &mut present, &mut out) });
         (present != 0).then_some(out)
-    }
-    /// `view` that takes no painter table entry of its own: its instances ride the parent's, so many small views that move with their parent (one per list item) cost no table row each.
-    ///
-    /// `revision` and `build` behave as for `view`: the view's build is kept while `revision` is unchanged. `view_offset` and the other table changes on it take effect by a rebuild instead.
-    /// Allocates: never on a warm frame; a new identity takes a slot the first time.
-    /// Identity: `label` keys the view under its parent as for `box_`; two views with one label in one parent collide.
-    /// Panics: when the library refuses the call (outside a frame, an invalid size, or a `label` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
-    ///
-    /// ```
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     ui.view_flat("row-7", 1, pxui::ui::Size::Grow, pxui::ui::Size::Px(24.0), &mut |ui| { ui.label("seven", pxui::Label::DEFAULT); });
-    /// });
-    /// ```
-    #[track_caller]
-    pub fn view_flat(&mut self, label: &str, revision: u64, w: Size, h: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
-        let mut out = PxuiBox::default();
-        check(self, unsafe { lib::pxui_ui_view_flat(self.0.as_ptr(), as_str(label), revision, size(w), size(h), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
-        out
     }
     /// The last of `roots` (box keys) that a pointer press among `events` landed on or under, by the previous frame's hit tree; `None` when no press hit one.
     /// Window points; call it before the frame that takes `events` replaces the tree, to see which panel a press belongs to.
@@ -880,15 +796,17 @@ impl Ui {
     /// Panics: when an offset, scale or matrix value is not finite, the opacity is outside 0 to 1, or the library refuses the call (a stale or non-view box).
     ///
     /// ```
-    /// use pxui::ui::{Size, ViewTransform};
+    /// use pxui::ui::ViewTransform;
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let v = ui.view("v", 1, Size::Px(40.0), Size::Px(40.0), &mut |_| {});
+    ///     let mut v = None;
+    ///     ui.column("frame", pxui::Node::column().w_px(40.0).h_px(40.0), |ui| v = Some(ui.view_of("v", &1, |_| {})));
+    ///     let v = v.unwrap();
     ///     ui.set_view(&v, &ViewTransform::DEFAULT.offset(4.0, 0.0).opacity(0.5).about(1.5, [1.0, 0.0, 0.0, 1.0], (20.0, 20.0)));
     /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn set_view(&mut self, b: &PxuiBox, view: &ViewTransform) {
+    pub fn set_view(&mut self, b: &Handle, view: &ViewTransform) {
         let finite = |values: &[f32]| values.iter().all(|v| v.is_finite());
         assert!(view.offset.is_none_or(|(x, y)| finite(&[x, y])), "pxui: the view offset must be finite");
         assert!(view.opacity.is_none_or(|o| (0.0..=1.0).contains(&o)), "pxui: the view opacity must be in 0 to 1");
@@ -907,12 +825,14 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let v = ui.view("v", 1, pxui::ui::Size::Px(40.0), pxui::ui::Size::Px(40.0), &mut |_| {});
+    ///     let mut v = None;
+    ///     ui.column("frame", pxui::Node::column().w_px(40.0).h_px(40.0), |ui| v = Some(ui.view_of("v", &1, |_| {})));
+    ///     let v = v.unwrap();
     ///     ui.view_clip(&v, Some(pxui::ui::Rect::new(0.0, 0.0, 20.0, 20.0)));
     ///     ui.view_clip(&v, None);
     /// });
     /// ```
-    #[inline] #[track_caller] pub fn view_clip(&mut self,b:&PxuiBox,clip:Option<Rect>) { check(self,unsafe { lib::pxui_ui_view_clip(self.0.as_ptr(),b,clip.as_ref().map_or(core::ptr::null(),|r|r)) }) }
+    #[inline] #[track_caller] pub fn view_clip(&mut self,b:&Handle,clip:Option<Rect>) { check(self,unsafe { lib::pxui_ui_view_clip(self.0.as_ptr(),b,clip.as_ref().map_or(core::ptr::null(),|r|r)) }) }
     /// Edits what a widget finishes of a node it declared this frame: `edit` gets the node's look, mark and inset, and what it leaves there is written back; returns what `edit` returns.
     /// `edit` must not call the `Ui`. For a stale handle the library refuses.
     /// Allocates: never.
@@ -927,7 +847,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn node_mut<R>(&mut self, b: &PxuiBox, edit: impl FnOnce(&mut NodeFields) -> R) -> R {
+    pub fn node_mut<R>(&mut self, b: &Handle, edit: impl FnOnce(&mut NodeFields) -> R) -> R {
         let mut raw = pxui_types::ffi::PxuiNodeFields { size: core::mem::size_of::<pxui_types::ffi::PxuiNodeFields>() as u32, reserved: 0, look: Default::default(), mark: Default::default(), inset: Default::default() };
         check(self, unsafe { lib::pxui_ui_node_fields(self.0.as_ptr(), b, &mut raw) });
         let direction = |d: u32| match d { 0 => Dir::Down, 1 => Dir::Up, 2 => Dir::Left, _ => Dir::Right };
@@ -953,7 +873,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn node_layout(&self, b: &PxuiBox) -> pxui_types::Node {
+    pub fn node_layout(&self, b: &Handle) -> pxui_types::Node {
         let mut out = pxui_types::Node::DEFAULT;
         check(self, unsafe { lib::pxui_ui_node_layout(self.0.as_ptr(), b, &mut out) });
         out
@@ -973,12 +893,12 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn set_node_layout(&mut self, b: &PxuiBox, node: &pxui_types::Node) {
+    pub fn set_node_layout(&mut self, b: &Handle, node: &pxui_types::Node) {
         check(self, unsafe { lib::pxui_ui_set_node_layout(self.0.as_ptr(), b, node) });
     }
-    #[inline] #[track_caller] pub fn view_backdrop_blur(&mut self, b: &PxuiBox, sigma: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_blur(self.0.as_ptr(), b, sigma) }) }
+    #[inline] #[track_caller] pub fn view_backdrop_blur(&mut self, b: &Handle, sigma: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_blur(self.0.as_ptr(), b, sigma) }) }
     /// Blurred backdrop saturation: 0 is grayscale, 1 preserves colour (the default).
-    #[inline] #[track_caller] pub fn view_backdrop_saturation(&mut self, b: &PxuiBox, saturation: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_saturation(self.0.as_ptr(), b, saturation) }) }
+    #[inline] #[track_caller] pub fn view_backdrop_saturation(&mut self, b: &Handle, saturation: f32) { check(self, unsafe { lib::pxui_ui_view_backdrop_saturation(self.0.as_ptr(), b, saturation) }) }
 }
 
 /// A string the library lent: copied, since it only lives until the next frame.

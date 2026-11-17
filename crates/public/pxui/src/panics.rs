@@ -11,8 +11,8 @@ fn a_callback_panic_resumes_at_frame_skips_later_siblings_and_leaves_the_ui_usab
     let mut second_ran = false;
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), &mut |ui: &mut Ui| {
-            ui.col(0.0, "first", &mut |_: &mut Ui| panic!("first callback"));
-            ui.col(0.0, "second", &mut |_: &mut Ui| second_ran = true);
+            ui.column("first", Node::DEFAULT, |_: &mut Ui| panic!("first callback"));
+            ui.column("second", Node::DEFAULT, |_: &mut Ui| second_ran = true);
         });
     }));
     let payload = result.expect_err("the panic surfaces at frame()");
@@ -50,7 +50,7 @@ fn the_output_borrows_the_ui() {
 #[test]
 fn a_builder_outside_a_frame_panics_with_the_library_message_and_leaves_the_ui_usable() {
     let mut ui = Ui::new().expect("library");
-    let message = refusal("box_ outside a frame must panic", &mut || { ui.box_("outside a frame", Default::default()); });
+    let message = refusal("node outside a frame must panic", &mut || { ui.node("outside a frame".into(), Node::DEFAULT); });
     assert!(message.contains("frame callback") && message.ends_with("(-3)"), "{message}");
     let _ = ui.view_size();
     ui.frame(&input(), &mut |ui: &mut Ui| { ui.label("fine", crate::Label::DEFAULT); }).expect("the Ui is not poisoned");

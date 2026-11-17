@@ -149,7 +149,7 @@ pub fn window_pxui_context_menu() {
     // dismisses; the host keeps it open on Open.
     let mut ui = field_ui();
     const ITEMS: [MenuItem; 3] = [MenuItem::new("One"), MenuItem::new("Two").enabled(false), MenuItem::new("Three")];
-    let result = Cell::new(MenuResponse::default());
+    let result = Cell::new(Chosen::default());
     let menu = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
             result.set(ui.menu("ctx".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT));
@@ -158,7 +158,7 @@ pub fn window_pxui_context_menu() {
     let row = |index: i64| (60, 20 + 3 + index * 24 + 12);
     menu(&mut ui, vec![]);
     menu(&mut ui, vec![press(row(0))]);
-    if result.get() != MenuResponse::default() {
+    if result.get() != Chosen::default() {
         fail("context menu committed on press");
     }
     menu(&mut ui, vec![release(row(0))]);
@@ -166,11 +166,11 @@ pub fn window_pxui_context_menu() {
         fail("context menu did not commit on release");
     }
     menu(&mut ui, vec![press(row(1)), release(row(1))]);
-    if result.get() != MenuResponse::default() {
+    if result.get() != Chosen::default() {
         fail("disabled context menu row committed");
     }
     menu(&mut ui, vec![press(row(2)), release((300, 200))]);
-    if result.get() != MenuResponse::default() {
+    if result.get() != Chosen::default() {
         fail("context menu committed after release outside");
     }
     menu(&mut ui, vec![press((300, 200))]);
@@ -184,20 +184,20 @@ pub fn window_pxui_submenu() {
     let mut ui = field_ui();
     const KINDS: [MenuItem; 2] = [MenuItem::new("Draw"), MenuItem::new("Value")];
     const ITEMS: [MenuItem; 2] = [MenuItem::new("New graph").submenu(&KINDS), MenuItem::new("Delete")];
-    let submenu = |ui: &mut Ui, events: Vec<Event>| -> MenuResponse {
-        let mut out = MenuResponse::default();
+    let submenu = |ui: &mut Ui, events: Vec<Event>| -> Chosen {
+        let mut out = Chosen::default();
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            out = ui.menu("submenu".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT.width(150.0));
+            out = ui.menu("submenu".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT.w_px(150.0));
         });
         out
     };
     submenu(&mut ui, vec![]);
     submenu(&mut ui, vec![move_to((60, 38))]);
     submenu(&mut ui, vec![move_to((190, 62))]);
-    if submenu(&mut ui, vec![press((190, 62))]) != MenuResponse::default() {
+    if submenu(&mut ui, vec![press((190, 62))]) != Chosen::default() {
         fail("submenu committed on press");
     }
-    if submenu(&mut ui, vec![]) != MenuResponse::default() {
+    if submenu(&mut ui, vec![]) != Chosen::default() {
         fail("submenu lost capture between frames");
     }
     if submenu(&mut ui, vec![release((190, 62))]).chosen != Some(3) {

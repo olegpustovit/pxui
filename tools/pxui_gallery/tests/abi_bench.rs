@@ -112,7 +112,7 @@ fn direct() -> Direct {
 fn wrapped_frame(w: &mut Wrapped, index: usize, revision: u64, count: u64) {
     let input = FrameIn { width: PAGE_W as f32, height: PAGE_H as f32, scale: 1.0, time: count as f64 / 60.0, events: w.events.as_ptr(), event_count: w.moved as usize, ..FrameIn::default() };
     let state = &mut w.state;
-    w.ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut pxui::Ui| page(ui, state, index)); }).expect("frame");
+    w.ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.view_of("page", &revision, |ui: &mut pxui::Ui| page(ui, state, index)); }).expect("frame");
 }
 
 fn direct_frame(d: &mut Direct, index: usize, revision: u64, count: u64) {

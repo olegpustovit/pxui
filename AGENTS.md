@@ -69,6 +69,8 @@ reference to keep in step; `specification/` describes behaviour, not signatures.
 A type that crosses the C ABI as a record, and a type the engine shares (a style value both sides take, such as `Overlay` or `Choice`), lives in `pxui_types`; an authoring-only style value, callback set or response struct lives in `pxui` (`author/`).
 Style-value builders name sizes one way: a length in points ends in `_px` (`w_px`, `h_px`), a `Size` takes the bare
 name (`w`, `h`), and alignment is one builder taking its enum (`Label::align(TextAlign::Center)`).
+A style value holds a table of per-state looks (`States`) by reference (`look(&'a States)`, borrowed for the value's `'a`) and every
+other setting by value; a flag with no value is a no-arg builder (`danger()`), a state that varies takes a `bool` (`enabled(bool)`).
 
 Every public item in `pxui` and `pxui_types` has a `///` comment. For a function
 or method the comment has, in this order:

@@ -3,7 +3,7 @@ use crate::state::{Build, PxuiUi, checked, fail, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiDialogOut, Str};
 use core::ffi::c_void;
 use pxui_types::ffi::{PxuiAnchorDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSizeDesc, Slice};
-use pxui_types::ui::{shown, Dialog, DialogButton, DialogResponse, Overlay};
+use pxui_types::ui::{shown, Dialog, DialogButton, Chosen, Overlay};
 use pxui_types::ffi::PxuiKeyedDesc;
 
 const MAX_BUTTONS: usize = 64;
@@ -16,7 +16,7 @@ fn dialog_buttons<'a, 'b>(texts: &[&'a str], details: &[&'a str], (default_at, c
     if n > MAX_BUTTONS || !(-1..n as i64).contains(&default_at) || !(-1..n as i64).contains(&cancel_at) || beyond(danger) || beyond(disabled) { return None; }
     if !details.is_empty() && details.len() != n { return None; }
     for (i, (b, text)) in buf.iter_mut().zip(texts).enumerate() {
-        *b = DialogButton { text, default: i as i64 == default_at, cancel: i as i64 == cancel_at, danger: danger >> i & 1 != 0, enabled: disabled >> i & 1 == 0, detail: details.get(i).copied().unwrap_or("") };
+        *b = DialogButton { text, primary: i as i64 == default_at, cancel: i as i64 == cancel_at, danger: danger >> i & 1 != 0, enabled: disabled >> i & 1 == 0, detail: details.get(i).copied().unwrap_or("") };
     }
     Some(&buf[..n])
 }
@@ -84,6 +84,15 @@ export!(trusted pub unsafe fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, rev
     unsafe { view_with(ui, label, revision, width, height, callback, user, out, true) }
 });
 
+// ABI 1.72: the authoring view keyed by `keyed.key` (a view has no name: a non-empty `keyed.name` is refused). It fills its parent,
+// or takes its content's size on the main axis of a row or column that is `Fit` there; `revision` is the hash of the inputs.
+export!(trusted pub unsafe fn pxui_ui_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if out.is_null() { return unsafe { fail(ui, "null view output") }; }
+    let Some((key, "")) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { crate::trusted::view_of(ui, key, revision, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, out) }
+});
+
 /// `anchor`'s placement, or `None` for an invalid descriptor. `align` 3 and 4 (PXUI_ALIGN_STRETCH, _BASELINE) are accepted for 1.x
 /// and align as Start, as they always did; 2.0 refuses them (abi2_cut: validation tightened).
 fn placement(anchor: &PxuiAnchorDesc) -> Option<pxui_types::layout::Placement> {
@@ -137,11 +146,11 @@ export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, title: Str, button
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid dialog arguments") };
     };
-    let mut result = DialogResponse { chosen: None, dismissed: false };
+    let mut result = Chosen { chosen: None, chosen_id: None, dismissed: false };
     let rc = unsafe { crate::trusted::dialog(ui, title, title, buttons, &Dialog::DEFAULT, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut result) };
     state.shared().put_strs(list);
     if rc == 0 {
-        unsafe { *out = match result { DialogResponse { chosen: Some(index), .. } => PxuiDialogOut { tag: 2, index }, DialogResponse { dismissed: true, .. } => PxuiDialogOut { tag: 1, index: 0 }, _ => PxuiDialogOut { tag: 0, index: 0 } }; }
+        unsafe { *out = match result { Chosen { chosen: Some(index), .. } => PxuiDialogOut { tag: 2, index }, Chosen { dismissed: true, .. } => PxuiDialogOut { tag: 1, index: 0 }, _ => PxuiDialogOut { tag: 0, index: 0 } }; }
     }
     rc
 });
@@ -165,8 +174,8 @@ export!(trusted pub unsafe fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *co
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid dialog descriptor") };
     };
-    let mut result = DialogResponse { chosen: None, dismissed: false };
-    let rc = unsafe { crate::trusted::dialog(ui, key, title, buttons, &Dialog::DEFAULT.width(d.width), &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut result) };
+    let mut result = Chosen { chosen: None, chosen_id: None, dismissed: false };
+    let rc = unsafe { crate::trusted::dialog(ui, key, title, buttons, &Dialog::DEFAULT.w_px(d.width), &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut result) };
     state.shared().put_strs(list);
     if rc == 0 {
         (out.has_chosen, out.chosen, out.dismissed) = (result.chosen.is_some() as u8, result.chosen.unwrap_or(0) as u64, result.dismissed as u8);

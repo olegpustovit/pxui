@@ -369,7 +369,7 @@ impl Ui {
     /// ```
     ///
     /// Errors: InvalidInput for more than eight or overlapping spans or a style that does not resolve; Stale for a gone box.
-    pub fn text_spans(&mut self,box_:&crate::PxuiBox,text:&str,style:&Label,spans:&[TextSpan])->Result<(),Error> {
+    pub fn text_spans(&mut self,box_:&crate::Handle,text:&str,style:&Label,spans:&[TextSpan])->Result<(),Error> {
         let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let rc={
             #[cfg(feature = "static")]
@@ -395,7 +395,7 @@ impl Ui {
     /// ```
     ///
     /// Errors: InvalidInput for a non-positive line height, bad spans or a style that does not resolve; Stale for a gone box.
-    pub fn text_line_box(&mut self,box_:&crate::PxuiBox,text:&str,style:&Label,spans:&[TextSpan])->Result<(),Error> {
+    pub fn text_line_box(&mut self,box_:&crate::Handle,text:&str,style:&Label,spans:&[TextSpan])->Result<(),Error> {
         let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let rc={
             #[cfg(feature = "static")]
@@ -479,8 +479,8 @@ impl Ui {
     /// the style as its record and, when it sets one, its box as a `PxuiLabelBox`.
     #[inline(always)]
     #[track_caller]
-    pub(crate) fn label_call(&mut self, text: &str, style: &pxui_types::Label, digits: bool) -> crate::PxuiBox {
-        let mut out = crate::PxuiBox::default();
+    pub(crate) fn label_call(&mut self, text: &str, style: &pxui_types::Label, digits: bool) -> crate::Handle {
+        let mut out = crate::Handle::default();
         let variant = style.body_variant();
         if variant != 0 { self.set_variant(pxui_types::theme::BodyKind::label, variant); }
         #[cfg(feature = "static")]

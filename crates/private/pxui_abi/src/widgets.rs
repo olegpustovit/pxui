@@ -56,7 +56,7 @@ mod keyed_tests {
     use super::*;
 
     /// The 1.68 keyed calls validate before building: a short or reserved-bit `PxuiKeyedDesc`, a choice kind other than 0, 1 or 3, a
-    /// checkbox value over 1 and a reversed slider range are refused; valid calls key by `key` (not the name) and report a response.
+    /// checkbox value over 1, a reversed slider range, a named view and a view without an output are refused; valid calls key by `key` (not the name) and report a response.
     #[test]
     fn keyed_calls_validate_and_key_by_key() {
         extern "C" fn build(user: *mut core::ffi::c_void, raw: *mut core::ffi::c_void) {
@@ -85,6 +85,11 @@ mod keyed_tests {
             assert_eq!(b.box_key, pxui_types::ui::key_of(pxui_types::ui::ROOT_KEY, "p"), "the name is never parsed for a key");
             assert_eq!(unsafe { pxui_ui_spinner_keyed(ui, &k("s", "Loading"), &mut b) }, 0);
             assert_eq!(unsafe { pxui_ui_badge_keyed(ui, &k("b", "Unread"), s("3"), &mut b) }, 0);
+            // 1.72: a view has no name, and its output is required; a valid one keys by `key` and runs its build
+            assert_eq!(unsafe { crate::composite::pxui_ui_view_keyed(ui, &k("view", "Named"), 1, None, core::ptr::null_mut(), &mut b) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { crate::composite::pxui_ui_view_keyed(ui, &k("view", ""), 1, None, core::ptr::null_mut(), core::ptr::null_mut()) }, PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe { crate::composite::pxui_ui_view_keyed(ui, &k("view", ""), 1, None, core::ptr::null_mut(), &mut b) }, 0);
+            assert_eq!(b.box_key, pxui_types::ui::key_of(pxui_types::ui::ROOT_KEY, "view"));
             let _ = user;
         }
         let mut ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };

@@ -171,7 +171,7 @@ mod tramps {
         span.extend(buttons.iter().map(|b| pair(b.detail)));
     }, PxuiDialogConfig {
         title: pair(title), buttons: Slice { ptr: span.as_ptr(), len: buttons.len() }, details: Slice { ptr: span[buttons.len()..].as_ptr(), len: buttons.len() }, content: content(sh, body),
-        default_at: buttons.iter().position(|b| b.default).map_or(-1, |i| i as i64), cancel_at: buttons.iter().position(|b| b.cancel).map_or(-1, |i| i as i64),
+        default_at: buttons.iter().position(|b| b.primary).map_or(-1, |i| i as i64), cancel_at: buttons.iter().position(|b| b.cancel).map_or(-1, |i| i as i64),
         danger: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (b.danger as u64) << i), disabled: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (!b.enabled as u64) << i)
     });
     tramp!(inspector_section, |ui, sh, c: &SectionConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiSectionConfig { open: c.open as u8, gap: c.gap, title: bx(c.title), label: pair(label), content: content(sh, body) });

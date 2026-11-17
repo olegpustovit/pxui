@@ -1,6 +1,6 @@
 //! Cached views keyed by their inputs: `ui.view_of(key, &inputs, build)` rebuilds only when `hash_of(&inputs)` changes.
+use crate::Handle;
 use core::hash::{Hash, Hasher};
-use pxui_types::{PxuiBox, Size};
 use crate::Ui;
 use super::Key;
 
@@ -42,11 +42,14 @@ fn hash_run(f: &mut dyn FnMut(&mut FixedHasher)) -> u64 {
 pub fn hash_of<T: Hash + ?Sized>(value: &T) -> u64 { hash_run(&mut |hasher| value.hash(hasher)) }
 
 impl Ui {
-    /// Declares a view that fills its parent and runs `f` only when `hash_of(inputs)` differs from its last build; otherwise the retained subtree is reused.
+    /// Declares a view that fills its parent and runs `f` only when `hash_of(inputs)` differs from its last build; otherwise the retained
+    /// subtree is reused.
     ///
-    /// `inputs` must contain everything `f` reads (data, sizes, flags): a value it reads but `inputs` omits goes stale. Same as `view` with
-    /// `Size::Grow` on both axes and `hash_of(inputs)` as the revision.
-    /// Allocates: as `view` (never on a warm frame, kept or rebuilt).
+    /// `inputs` must contain everything `f` reads (data, sizes, flags): a value it reads but `inputs` omits goes stale. A hand-kept
+    /// revision number is an input like any other (`&revision`). The view's size comes from the enclosing node: it fills it, except on
+    /// the main axis of a row or column whose size there is `Fit`, where it takes its content's size (a content-sized view). The
+    /// returned handle is the view's, valid this frame (`set_view`, `animate_keys`, `reveal` take it).
+    /// Allocates: never on a warm frame, kept or rebuilt; a new identity takes a slot the first time.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); an id never collides with a
     /// printable label.
     /// Panics: when the library refuses the view (outside a frame), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
@@ -59,16 +62,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn view_of<K: Into<Key>, T: Hash + ?Sized, F: FnMut(&mut Ui)>(&mut self, key: K, inputs: &T, mut f: F) -> PxuiBox { self.view_keyed(key.into(), hash_of(inputs), &mut f) }
-
-    /// The one body of `view_of`: a view of `revision` declared by `key`, filling its parent.
-    #[inline]
-    #[track_caller]
-    fn view_keyed(&mut self, key: Key, revision: u64, f: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
-        let mut id_label = [0u8; 17];
-        let label = key.label(&mut id_label);
-        self.view(label, revision, Size::Grow, Size::Grow, f)
-    }
+    pub fn view_of<K: Into<Key>, T: Hash + ?Sized, F: FnMut(&mut Ui)>(&mut self, key: K, inputs: &T, mut f: F) -> Handle { self.view_key(key.into(), hash_of(inputs), &mut f) }
 }
 
 #[cfg(test)]
@@ -110,5 +104,32 @@ mod tests {
         for _ in 0..4 { frame(&mut ui, 2); }
         assert_eq!(mem_sys::local_alloc_count(), 0, "kept frames allocate nothing");
         assert_eq!(runs.get(), 2);
+    }
+
+    /// A view fills its enclosing node, and on the main axis of a `Fit` column it takes its content's size, kept or rebuilt; the kept
+    /// frames allocate nothing.
+    #[test]
+    fn view_of_fills_its_parent_and_fits_a_fit_column() {
+        use crate::{Node, ui::Size};
+        let (fixed, fitted) = (Cell::new(None), Cell::new(None));
+        let mut ui = crate::Ui::new().expect("library");
+        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let mut build = |ui: &mut crate::Ui| {
+            ui.column("fixed", Node { w: Size::Px(120.0), h: Size::Px(40.0), ..Node::DEFAULT }, |ui| {
+                fixed.set(Some(ui.view_of("v", &1u8, |ui| { ui.node("a".into(), Node { h: Size::Px(10.0), ..Node::DEFAULT }); })));
+            });
+            ui.column("fit", Node { w: Size::Px(80.0), ..Node::DEFAULT }, |ui| {
+                fitted.set(Some(ui.view_of("v", &1u8, |ui| { ui.node("a".into(), Node { h: Size::Px(17.0), ..Node::DEFAULT }); })));
+            });
+        };
+        for _ in 0..4 { ui.frame(&input, &mut build).expect("frame"); }
+        let (f, g) = (ui.rect(&fixed.get().unwrap()), ui.rect(&fitted.get().unwrap()));
+        assert_eq!((f.w, f.h), (120.0, 40.0), "fills a fixed parent");
+        assert_eq!((g.w, g.h), (80.0, 17.0), "takes its content's height in a Fit column, the parent's width across");
+        mem_sys::local_reset();
+        for _ in 0..4 { ui.frame(&input, &mut build).expect("frame"); }
+        assert_eq!(mem_sys::local_alloc_count(), 0, "kept frames allocate nothing");
+        let g = ui.rect(&fitted.get().unwrap());
+        assert_eq!((g.w, g.h), (80.0, 17.0), "kept, it keeps its measured height");
     }
 }

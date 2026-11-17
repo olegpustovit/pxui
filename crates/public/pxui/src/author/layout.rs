@@ -1,5 +1,6 @@
 //! Containers that declare a node with its axis set and build their children inside it: `ui.row`, `ui.column`, `ui.stack`.
-use pxui_types::{Node, PxuiBox};
+use crate::Handle;
+use pxui_types::Node;
 use pxui_types::node::Axis;
 use pxui_types::ui::{SectionList, SectionPart};
 use crate::Ui;
@@ -28,7 +29,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn row<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> PxuiBox { self.container(key.into(), Axis::Row, node, &mut f) }
+    pub fn row<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> Handle { self.container(key.into(), Axis::Row, node, &mut f) }
 
     /// Declares `node` laid out as a column under the current parent and runs `f` to build its children inside it.
     ///
@@ -53,7 +54,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn column<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> PxuiBox { self.container(key.into(), Axis::Column, node, &mut f) }
+    pub fn column<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> Handle { self.container(key.into(), Axis::Column, node, &mut f) }
 
     /// Declares `node` as a stack under the current parent and runs `f` to build its children inside it, overlapping.
     ///
@@ -77,20 +78,22 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn stack<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> PxuiBox { self.container(key.into(), Axis::Stack, node, &mut f) }
+    pub fn stack<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> Handle { self.container(key.into(), Axis::Stack, node, &mut f) }
 
     /// Declares a virtual list of `count` rows `row_h` points high that fills its parent; `f(ui, i)` builds row `i` inside its row box,
-    /// which is keyed by the item id `id(i)`.
+    /// which is keyed by the item id `row_key(i)`.
     ///
-    /// Only the rows in view (and a few past each edge) are built, so the list costs the same at ten rows or a million. Like React's
-    /// row key, `id(i)` is the item's own id (never its index or text): a row's state and its children's identities follow the item
-    /// when the items reorder. The returned handle is the list's scroll box (`reveal(&list, i)` scrolls row `i` into view). Rows of
-    /// differing heights: `section_list` with `SectionList::measured`.
+    /// The fixed-height list of app-built rows. Only the rows in view (and a few past each edge) are built, so the list costs the same
+    /// at ten rows or a million. Like React's row key, `row_key(i)` is the item's own id (never its index or text): a row's state and
+    /// its children's identities follow the item when the items reorder; the rows are the app's own structure, so `list` has no body
+    /// kind. The returned handle is the list's scroll box (`reveal(&list, i)` scrolls row `i` into view). The other list jobs:
+    /// `section_list` (a lead-in, a sticky heading, rows of differing heights with `SectionList::measured`), `grid_list` (cells in
+    /// columns), `selection_list` (kit rows that keep a selection), `tree` and `table_view`.
     /// Allocates: never on a warm frame.
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); each row box is `Key::Id(id(i))`
-    /// under the list, so ids must be unique among the rows (a repeated id takes a `#dup` key).
-    /// Panics: when the library refuses the list (outside a frame, `row_h` not positive and finite, more than a million rows), or when A key or identity label over 256 bytes panics (a programmer error).
-    /// `id` or `f` panics.
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); each row box is
+    /// `Key::Id(row_key(i))` under the list, so ids must be unique among the rows (a repeated id takes a `#dup` key).
+    /// Panics: when the library refuses the list (outside a frame, `row_h` not positive and finite, more than a million rows), or when
+    /// `row_key` or `f` panics. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use std::cell::Cell;
@@ -103,12 +106,12 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn list<K: Into<Key>, F: FnMut(&mut Ui, usize)>(&mut self, key: K, count: usize, row_h: f32, id: &dyn Fn(usize) -> i64, mut f: F) -> PxuiBox { self.list_rows(key.into(), count, row_h, id, &mut f) }
+    pub fn list<K: Into<Key>, F: FnMut(&mut Ui, usize)>(&mut self, key: K, count: usize, row_h: f32, row_key: &dyn Fn(usize) -> i64, mut f: F) -> Handle { self.list_rows(key.into(), count, row_h, row_key, &mut f) }
 
     /// The one body of `list`: a section list with no lead-in, heading or trailer, its rows handed to `f`.
     #[track_caller]
-    fn list_rows(&mut self, key: Key, count: usize, row_h: f32, id: &dyn Fn(usize) -> i64, f: &mut dyn FnMut(&mut Ui, usize)) -> PxuiBox {
-        self.section_list_key(key, &SectionList::new(count).row_h(row_h), id, &mut |ui, part, _| if let SectionPart::Row(i) = part { f(ui, i) })
+    fn list_rows(&mut self, key: Key, count: usize, row_h: f32, row_key: &dyn Fn(usize) -> i64, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
+        self.section_list_key(key, &SectionList::new(count).row_h(row_h), row_key, &mut |ui, part, _| if let SectionPart::Row(i) = part { f(ui, i) })
     }
 
     /// The one body of `row`, `column` and `stack`: `node` with `axis` set, declared by `key`, then `f` inside it.
@@ -116,7 +119,7 @@ impl Ui {
     // Author page, over its 1% limit), because the node checks and the frame-entry loads no longer fold at the call site.
     #[inline]
     #[track_caller]
-    fn container(&mut self, key: Key, axis: Axis, mut node: Node, f: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
+    fn container(&mut self, key: Key, axis: Axis, mut node: Node, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         node.axis = axis;
         let b = self.node(key.into(), node);
         self.within(&b, f);
@@ -147,7 +150,7 @@ mod tests {
     #[test]
     fn list_builds_the_rows_in_view_without_warm_allocations() {
         use std::cell::Cell;
-        let rows: Vec<Cell<Option<pxui_types::PxuiBox>>> = (0..10_000).map(|_| Cell::new(None)).collect();
+        let rows: Vec<Cell<Option<crate::Handle>>> = (0..10_000).map(|_| Cell::new(None)).collect();
         let (built, list) = (Cell::new(0), Cell::new(None));
         let mut ui = crate::Ui::new().expect("library");
         let mut build = |ui: &mut crate::Ui| {

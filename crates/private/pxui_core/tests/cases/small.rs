@@ -166,7 +166,7 @@ pub fn window_pxui_keyboard() {
     step(&mut ui, &mut model, vec![], vec![Event::FocusLost, key_down(Key::Enter)]);
     check(model.clicks == 2 && !ui.text_input_focused(), "focus loss did not cancel keyboard activation");
     const ITEMS: [MenuItem; 2] = [MenuItem::new("Disabled").enabled(false), MenuItem::new("Enabled")];
-    let mut menu = MenuResponse::default();
+    let mut menu = Chosen::default();
     let mut background = false;
     let mut popup = |ui: &mut Ui| {
         menu = ui.menu("menu".into(), (100.0, 100.0), &ITEMS, &Menu::DEFAULT);
@@ -623,7 +623,7 @@ fn paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline() {
 /// key); a `MenuItem::selected` row reads CHECKED and SELECTED and the built-in row shows the theme's `checked` menu look.
 fn menu_padding_name_and_the_current_choice() {
     use pxui_core::a11y::state as st;
-    const ITEMS: [MenuItem; 2] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected()];
+    const ITEMS: [MenuItem; 2] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(true)];
     let mut ui = new_ui(None);
     ui.set_a11y(true);
     let seen = |ui: &mut Ui, menu: Menu<'static>| {

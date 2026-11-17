@@ -469,7 +469,7 @@ ui.frame(&FrameIn, &mut Text, |ui| ...) -> FrameOut
    text instances in the last frame's layer and bumps `draw_revision` (no build, no layout,
    `wants_frame` stays false); its next declaration wins over the patch. Canvas closures and formatted
    keys live in a per-frame bump arena.
-2. Hybrid views. `ui.view(label, revision, w, h, f) -> Handle` skips `f` while its revision is unchanged
+2. Hybrid views. `ui.view_of(key, &inputs, &View, f) -> Handle` skips `f` while the hash of its inputs is unchanged
    and nothing dirtied it; its nodes stay alive undeclared (a node lives until its view drops it), with
    their layout, hit areas and instance run. Its size comes from outside (`Px`, `Pct`, `Rel`, `Grow`)
    or from its content (`Fit`, see content-sized views below). It also rebuilds on a theme, font size, density or window size change; when input
@@ -658,7 +658,7 @@ Down, Enter, Escape), `tooltip(&h, text)`, `scroll_view(key, w, h, f)` (both axe
 &mut selected, &mut visible, cell) -> TreeResponse` (`visible`: a row per node, the shown rows written first), `table_view(key, titles,
 &mut widths, rows, &mut selected, &TableView, cell) -> TableResponse` (`TableView::text(rect)`: the fixed text table, its cells' text through `item_text`)
 (virtual through `ui.list`; the table's header stays, grips resize columns, a header click is the sort
-intent), `dialog(key, title, &[DialogButton], &Dialog, body) -> DialogResponse` (the key is a static string or an id, never the title), `toasts(key, &[Toast], seconds)` (each toast keyed by its id) (the lower end corner;
+intent), `dialog(key, title, &[DialogButton], &Dialog, body) -> Chosen` (the key is a static string or an id, never the title), `toasts(key, &[Toast], seconds)` (each toast keyed by its id) (the lower end corner;
 each goes `seconds` after it first showed, timed by the engine through `repaint_at_time` and keyed by
 its id, and is returned once for the caller to drop), `icon_button(key, Icon, name, &IconButton) -> Response`,
 `search_field(key, value, &SearchField)` and `image(label, &Image, Fit, w, h)`. Every widget is

@@ -3,7 +3,8 @@
 //! `pxui_body_register`; a theme (`theme.body.toggle = id`, or `toggle.body = NAME` in a theme file applied with `Theme::apply`) then picks
 //! it. The body runs as a callback from the library under the callback panic rule: a panic in it is carried to the call that can run
 //! callbacks (the frame) and the body calls after it are skipped. The config is the kind's C record behind its wrapper: borrowed until the body returns,
-//! text fields are read with the wrapper's `text_of` (`BodyConfig`), handles are `PxuiBox`es the body may restyle and enter, and slots run the caller's content.
+//! text fields are read with the wrapper's `text_of` (`BodyConfig`), handles are `Handle`s the body may restyle and enter, and slots run the caller's content.
+use crate::Handle;
 use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, check, Ui};
 use core::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
@@ -164,15 +165,15 @@ impl Ui {
     /// Builds a node as `part` of the widget whose body is running: behaviour finds it again by role (see the config's documentation
     /// for the parts its widget reads). Only inside a body.
     #[track_caller]
-    pub fn part(&mut self, part: Part, node: Node) -> PxuiBox {
-        let mut out = PxuiBox::default();
+    pub fn part(&mut self, part: Part, node: Node) -> Handle {
+        let mut out = Handle::default();
         check(self, unsafe { sys::pxui_part(self.0.as_ptr(), part.0, &node, &mut out) });
         out
     }
 
     /// The box of `part` of the widget keyed `owner`, as the last build left it; `None` if its body built none.
-    pub fn part_box(&self, owner: i64, part: Part) -> Option<PxuiBox> {
-        let mut out = PxuiBox::default();
+    pub fn part_box(&self, owner: i64, part: Part) -> Option<Handle> {
+        let mut out = Handle::default();
         (unsafe { sys::pxui_part_box(self.0.as_ptr(), owner, part.0, &mut out) } == 0).then_some(out)
     }
 
@@ -207,7 +208,7 @@ mod tests {
         static HINTS: RefCell<Option<(Option<(String, String)>, bool, bool, bool, bool)>> = const { RefCell::new(None) };
         static FORGED: Cell<(bool, bool)> = const { Cell::new((false, false)) };
         static BOOM: Cell<bool> = const { Cell::new(true) };
-        static TAB: RefCell<Option<PxuiBox>> = const { RefCell::new(None) };
+        static TAB: RefCell<Option<Handle>> = const { RefCell::new(None) };
     }
 
     fn input(time: f64) -> FrameIn { FrameIn { width: 320.0, height: 240.0, time, ..FrameIn::default() } }

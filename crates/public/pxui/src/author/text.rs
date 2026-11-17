@@ -78,7 +78,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn label(&mut self, text: &str, style: Label) -> Handle { self.label_body(text, &style, false) }
+    pub fn label(&mut self, text: &str, style: Label) -> crate::Handle { self.label_body(text, &style, false) }
 
     /// Shows formatted text in `style` as `label` does (returning its node), formatting into a 128-byte stack buffer.
     ///
@@ -129,7 +129,7 @@ impl Ui {
 mod tests {
     use super::{Label, Stack};
     use crate::FrameIn;
-    use pxui_types::{geom::Rgba, theme::ColorToken, Node, PxuiBox, Size};
+    use pxui_types::{geom::Rgba, theme::ColorToken, Node, Size};
     use crate::bodies::BodyConfig;
 
     /// 100 frames of kit, typographic and digits labels with a repeating value allocate nothing once warm.
@@ -190,7 +190,7 @@ mod tests {
     const LONG: &str = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau";
 
     /// `label` inside a column (`Fit` tall, `w` wide), returning the column's handle: its rectangle is the label's.
-    fn boxed(ui: &mut crate::Ui, key: &'static str, w: Size, text: &str, style: Label) -> PxuiBox {
+    fn boxed(ui: &mut crate::Ui, key: &'static str, w: Size, text: &str, style: Label) -> crate::Handle {
         ui.column(key, Node { w, ..Node::DEFAULT }, |ui| { ui.label(text, style); })
     }
 

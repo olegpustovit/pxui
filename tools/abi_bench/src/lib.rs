@@ -5,10 +5,10 @@ pub mod pxui {
     pub use pxui_core::text;
     pub use pxui_core::ui::*;
     pub use pxui_core::ui_widgets::TreeNode;
-    pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Menu, MenuItem, MenuResponse, Pick};
+    pub use pxui_types::ui::{Dialog, DialogButton, Chosen, Menu, MenuItem, Pick};
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
     pub use pxui_types::theme;
-    pub type PxuiBox = pxui_core::ui::UiBox;
+    pub use pxui_core::ui::Handle;
 }
 
 /// The gallery's text inputs over the engine (the wrapper's version is `pxui_gallery::inputs`).

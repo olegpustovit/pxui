@@ -229,7 +229,7 @@ fuzz!(
     pxui_ui_animate_keys/4, pxui_ui_animate_keys_repeat/7, pxui_ui_badge/4, pxui_ui_box/4, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
     pxui_ui_button_content/5, pxui_ui_button_plain/4, pxui_ui_button_response/5, pxui_ui_button_styled/8, pxui_ui_button_with/7, pxui_ui_bytes/3,
     pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_checkbox/4, pxui_ui_checkbox_keyed/4, pxui_ui_choice_keyed/7, pxui_ui_slider_keyed/7, pxui_ui_progress_keyed/5, pxui_ui_spinner_keyed/3,
-    pxui_ui_badge_keyed/4, pxui_ui_panel_keyed/5, pxui_ui_popup_keyed/6, pxui_ui_modal_keyed/7, pxui_ui_anchored_keyed/8, pxui_ui_scroll_view_keyed/7,
+    pxui_ui_badge_keyed/4, pxui_ui_panel_keyed/5, pxui_ui_popup_keyed/6, pxui_ui_modal_keyed/7, pxui_ui_anchored_keyed/8, pxui_ui_scroll_view_keyed/7, pxui_ui_view_keyed/6,
     pxui_ui_toasts_keyed/6, pxui_ui_table_view_keyed/6, pxui_ui_picker_keyed/13,
     pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/13, pxui_ui_density/1,
     pxui_ui_dialog/6, pxui_ui_dialog_response/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,

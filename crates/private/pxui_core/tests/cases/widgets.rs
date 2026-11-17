@@ -590,12 +590,12 @@ fn widgets_table() {
     ui.destroy();
 }
 
-const DIALOG_BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").default().danger()];
+const DIALOG_BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").primary().danger()];
 
 fn widgets_dialog() {
     let mut ui = new_ui(None);
     ui.set_a11y(true);
-    let mut out = DialogResponse { chosen: None, dismissed: false };
+    let mut out = Chosen::default();
     let mut run = |ui: &mut Ui, t: f64, events: Vec<Event>| {
         ui.frame(&at(t, events), &mut |ui| {
             out = ui.dialog("delete", "Delete file", &DIALOG_BUTTONS, &Dialog::DEFAULT, &mut |ui| ui.label("This cannot be undone", pxui_core::ui::Label::DEFAULT));
@@ -610,9 +610,9 @@ fn widgets_dialog() {
     let cancel = centre(&node(&ui, Role::Button, "Cancel"));
     run(&mut ui, 0.2, vec![move_to(cancel)]);
     run(&mut ui, 0.3, vec![press(cancel)]);
-    check(run(&mut ui, 0.4, vec![release(cancel)]) == DialogResponse { chosen: Some(0), dismissed: false }, "Cancel clicks");
-    check(run(&mut ui, 0.5, vec![Event::KeyPressed(Key::Enter)]) == DialogResponse { chosen: Some(1), dismissed: false }, "Enter presses the default");
-    check(run(&mut ui, 0.6, vec![Event::KeyPressed(Key::Escape)]) == DialogResponse { chosen: Some(0), dismissed: true }, "Escape chooses the cancel button");
+    check(run(&mut ui, 0.4, vec![release(cancel)]) == Chosen { chosen: Some(0), ..Chosen::default() }, "Cancel clicks");
+    check(run(&mut ui, 0.5, vec![Event::KeyPressed(Key::Enter)]) == Chosen { chosen: Some(1), chosen_id: None, dismissed: false }, "Enter presses the default");
+    check(run(&mut ui, 0.6, vec![Event::KeyPressed(Key::Escape)]) == Chosen { chosen: Some(0), chosen_id: None, dismissed: true }, "Escape chooses the cancel button");
     ui.destroy();
 }
 
@@ -621,7 +621,7 @@ fn widgets_dialog_danger() {
     let invalid = |danger: bool| {
         let mut ui = new_ui(None);
         let invalid = ui.theme().tokens.invalid;
-        let buttons = [DialogButton::new("Delete").default()];
+        let buttons = [DialogButton::new("Delete").primary()];
         let buttons = if danger { [buttons[0].danger()] } else { buttons };
         for k in 0..3 {
             ui.frame(&at(f64::from(k) * 0.1, vec![]), &mut |ui| { ui.dialog("d", "Title", &buttons, &Dialog::DEFAULT, &mut |_| {}); });

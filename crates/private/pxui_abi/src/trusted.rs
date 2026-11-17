@@ -232,6 +232,17 @@ pub unsafe fn view(ui: *mut PxuiUi, label: &str, revision: u64, width: Size, hei
     0
 }
 
+/// The body of `pxui_ui_view_keyed`: the engine's `view_of` (sized by its parent).
+#[inline]
+pub unsafe fn view_of(ui: *mut PxuiUi, key: &str, revision: u64, f: Inner, out: *mut PxuiBox) -> i32 {
+    enter!(ui);
+    if long_key(key) { return unsafe { fail(ui, "invalid view arguments") }; }
+    let shared = unsafe { (*ui).shared };
+    let handle = unsafe { engine(ui) }.view_of(key, &revision, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    unsafe { *out = to_abi_box(handle); }
+    0
+}
+
 /// A size whose length is a number (`size` of the descriptor refuses the same).
 fn finite(size: Size) -> bool { !matches!(size, Size::Px(v) | Size::Pct(v) if !v.is_finite()) }
 
@@ -498,9 +509,9 @@ pub unsafe fn search_field(ui: *mut PxuiUi, label: &str, icon: &str, value: &str
 /// `Ui::menu` of Rust rows: the position and the widths are finite by the checks below, the rows and the key are Rust values. The
 /// static wrapper's entry; the `pxui_ui_context_menu` export decodes its columns into rows and calls this.
 #[inline]
-pub unsafe fn menu(ui: *mut PxuiUi, key: pxui_types::ui::Key, at: (f32, f32), items: &[pxui_types::ui::MenuItem], menu: &pxui_types::ui::Menu, out: &mut pxui_types::ui::MenuResponse) -> i32 {
+pub unsafe fn menu(ui: *mut PxuiUi, key: pxui_types::ui::Key, at: (f32, f32), items: &[pxui_types::ui::MenuItem], menu: &pxui_types::ui::Menu, out: &mut pxui_types::ui::Chosen) -> i32 {
     enter!(ui);
-    let width_ok = menu.width.is_none_or(|width| width.is_finite() && width >= 0.0);
+    let width_ok = menu.w.is_none_or(|width| width.is_finite() && width >= 0.0);
     let row_ok = menu.row_h.is_none_or(|row| row.is_finite() && row > 0.0);
     let menu = &pxui_types::ui::Menu { name: menu.name.map(clip), ..*menu };
     if !at.0.is_finite() || !at.1.is_finite() || !width_ok || !row_ok || !(0.0..=f32::MAX).contains(&menu.padding) { return unsafe { fail(ui, "invalid context menu arguments") }; }
@@ -805,12 +816,12 @@ pub unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: &[pxui_types::ui::Toast]
 
 /// A modal dialog: `buttons` (at most 64) as `Ui::dialog` takes them, `style` its sheet; what the frame did goes to `out`.
 #[inline]
-pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_types::ui::DialogButton], style: &pxui_types::ui::Dialog, f: Inner, out: &mut pxui_types::ui::DialogResponse) -> i32 {
+pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_types::ui::DialogButton], style: &pxui_types::ui::Dialog, f: Inner, out: &mut pxui_types::ui::Chosen) -> i32 {
     enter!(ui);
     let title = clip(title);
     let mut spare = Vec::new();
     let buttons = if buttons.iter().all(|b| !long(b.text) && !long(b.detail)) { buttons } else { spare.extend(buttons.iter().map(|b| pxui_types::ui::DialogButton { text: clip(b.text), detail: clip(b.detail), ..*b })); &spare[..] };
-    if long_key(key) || buttons.len() > 64 || !style.width.is_finite() || style.width < 0.0 { return unsafe { fail(ui, "invalid dialog arguments") }; }
+    if long_key(key) || buttons.len() > 64 || !style.w.is_finite() || style.w < 0.0 { return unsafe { fail(ui, "invalid dialog arguments") }; }
     let shared = unsafe { (*ui).shared };
     *out = unsafe { engine(ui) }.dialog(key, title, buttons, style, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     0

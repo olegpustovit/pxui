@@ -1,5 +1,6 @@
+use crate::Handle;
 use core::{cell::Cell, ffi::c_void};
-use pxui_types::{PxuiBox, Str, ffi::{PxuiKeyedDesc, PxuiPopupDesc, Slice}, ui::{Key, Menu, MenuItem, MenuResponse, Overlay, Pick, PickRows, PickerResponse, Toast}};
+use pxui_types::{Str, ffi::{PxuiKeyedDesc, PxuiPopupDesc, Slice}, ui::{Key, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, Toast}};
 #[cfg(not(feature = "static"))]
 use pxui_types::ffi::{PxuiMenuExtra, PxuiSubmenu, PxuiSwatch};
 use crate::{composite::{defer_callback_panic, deferred}, check, Strs, Ui};
@@ -141,7 +142,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn tooltip(&mut self, box_: &PxuiBox, text: &str) {
+    pub fn tooltip(&mut self, box_: &Handle, text: &str) {
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::tooltip(self.0.as_ptr(), box_, text) });
         #[cfg(not(feature = "static"))]
@@ -186,10 +187,10 @@ impl Ui {
     /// The one body of `menu`: linked statically, the library's trusted entry with the rows as they are; else the rows as the C export's
     /// columns (on the stack up to 32 rows, in buffers kept on the thread past that; submenus always on the heap), then the call.
     #[track_caller]
-    pub(crate) fn menu_keyed(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+    pub(crate) fn menu_keyed(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
         #[cfg(feature = "static")]
         {
-            let mut out = MenuResponse::default();
+            let mut out = Chosen::default();
             check(self, unsafe { pxui_abi_link::trusted::menu(self.0.as_ptr(), key, at, items, menu, &mut out) });
             out
         }
@@ -199,7 +200,7 @@ impl Ui {
 
     #[cfg(not(feature = "static"))]
     #[track_caller]
-    fn menu_columns(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+    fn menu_columns(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         const ROWS: usize = 32;
@@ -258,14 +259,14 @@ impl Ui {
             ids: Slice { ptr: ids.as_ptr(), len: if with_ids { n } else { 0 } }, has_id: Slice { ptr: has_id.as_ptr(), len: if with_ids { n } else { 0 } },
             max_h: menu.max_h.unwrap_or(0.0), reserved4: 0,
         };
-        let (has_width, width) = menu.width.map_or((0, 0.0), |width| (1, width));
+        let (has_width, width) = menu.w.map_or((0, 0.0), |width| (1, width));
         let (mut tag, mut index) = (0, -1i64);
         check(self, unsafe { raw::pxui_ui_context_menu(
             self.0.as_ptr(), at.0, at.1, as_str(label), Slice { ptr: labels.as_ptr(), len: n },
             Slice { ptr: enabled.as_ptr(), len: n }, has_width, width, 0, 0, if extras { &extra } else { core::ptr::null() }, &mut tag, &mut index,
         ) });
         if n > ROWS { MENU_COLUMNS.set((hl, he, hk, hs, hm, hd, hc, hi, hh)); }
-        match tag { 0 => MenuResponse::default(), 1 => MenuResponse { chosen: Some(index as usize), ..MenuResponse::default() }, 2 => MenuResponse { dismissed: true, ..MenuResponse::default() }, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
+        match tag { 0 => Chosen::default(), 1 => Chosen { chosen: Some(index as usize), ..Chosen::default() }, 2 => Chosen { dismissed: true, ..Chosen::default() }, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
     }
 
     /// The one body of `picker`: key and placeholder apart in a `PxuiKeyedDesc`; the rows the app pushes kept on the thread between calls.

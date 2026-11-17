@@ -310,7 +310,7 @@ impl Ui {
     /// Panics: when the library refuses the call (a null `Ui` or a `prefix` over the text limit).
     ///
     /// ```
-    /// let mut build = |ui: &mut pxui::Ui| { ui.view("list", 1, pxui::ui::Size::Grow, pxui::ui::Size::Grow, &mut |_| {}); };
+    /// let mut build = |ui: &mut pxui::Ui| { ui.view_of("list", &1, |_| {}); };
     /// let mut ui = pxui::doc::frames(1, &mut build);
     /// assert_eq!(ui.rebuilt_named("list"), 1);
     /// pxui::testing::frame(&mut ui, &[], &mut build);

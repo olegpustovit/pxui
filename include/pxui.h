@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 71u)
+#define PXUI_ABI_BUILT ((1u << 16) | 72u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -472,7 +472,8 @@ enum {
     PXUI_FEATURE_WIDGETS_KEYED = 25,     /* 1.68: PxuiKeyedDesc and the pxui_ui_*_keyed widget and container calls */
     PXUI_FEATURE_SEGMENTED_STORED_FOCUS = 26, /* 1.69: PxuiSegmentedDesc.focus_on_click, PxuiSegmentConfig.stored */
     PXUI_FEATURE_IMAGE_CHECKED = 27,     /* 1.70: pxui_ui_image_node, pxui_paint_image_checked */
-    PXUI_FEATURE_BUTTON_PARTS = 28       /* 1.71: PxuiButtonDesc/Config lead, detail, accessory; PxuiIconButtonDesc.checkable/checked; PxuiDialogDesc/Config.details */
+    PXUI_FEATURE_BUTTON_PARTS = 28,      /* 1.71: PxuiButtonDesc/Config lead, detail, accessory; PxuiIconButtonDesc.checkable/checked; PxuiDialogDesc/Config.details */
+    PXUI_FEATURE_VIEW_KEYED = 29         /* 1.72: pxui_ui_view_keyed */
 };
 /* Process counters for performance gates: which 1 = heap allocations the library's allocator has made (a counting build); anything else
    reads 0, and so does 0 since 1.66 (calls are counted per Ui: pxui_ui_calls). */
@@ -565,6 +566,7 @@ int32_t pxui_ui_style(PxuiUi *ui, const PxuiBox *box, const PxuiLookDesc states[
 float pxui_ui_text_width(PxuiUi *ui, uint8_t has_size, int64_t size, PxuiStr text);
 int32_t pxui_ui_draw(PxuiUi *ui, const PxuiBox *box, uint8_t over, PxuiPaintBuild build, void *user, PxuiPaintRelease release); /* a span must be committed (pxui_paint_span with at_least 0) before the callback returns; one left open, or a pxui_paint_* call made under an open span, is refused and the frame that ran the callback returns PXUI_ERR_STATE */
 int32_t pxui_within(PxuiUi *ui, const PxuiBox *box, PxuiBuild build, void *user);
+/* Legacy, cut at 2.0: pxui_scope and pxui_col are pxui_ui_node + pxui_within; kept for the append-only ABI. */
 int32_t pxui_scope(PxuiUi *ui, PxuiStr label, PxuiBuild build, void *user);
 int32_t pxui_col(PxuiUi *ui, float padding, PxuiStr label, PxuiBuild build, void *user);
 int32_t pxui_panel(PxuiUi *ui, const PxuiPanel *panel, PxuiStr label, PxuiBuild build, void *user);
@@ -619,6 +621,7 @@ int32_t pxui_ui_image(PxuiUi *ui, PxuiStr label, const PxuiImage *image, uint32_
 int32_t pxui_ui_image_node(PxuiUi *ui, PxuiStr name, const PxuiImage *image, uint32_t fit, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBox *out);
 int32_t pxui_ui_modal(PxuiUi *ui, PxuiStr label, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_scroll_view(PxuiUi *ui, PxuiStr label, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
+/* Legacy, cut at 2.0: superseded by pxui_ui_view_keyed (1.72); size the enclosing node instead of the view. */
 int32_t pxui_ui_view(PxuiUi *ui, PxuiStr label, uint64_t revision, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_anchored(PxuiUi *ui, PxuiStr label, const PxuiAnchorDesc *anchor, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_dialog(PxuiUi *ui, PxuiStr title, PxuiStrSpan buttons, PxuiBuild build, void *user, PxuiDialogOut *out);
@@ -977,6 +980,7 @@ int32_t pxui_ui_context_at(PxuiUi *ui, const PxuiBox *box, uint8_t *present, Pxu
 int32_t pxui_ui_hovered(PxuiUi *ui, const PxuiBox *box, uint8_t within, uint8_t *out);
 int32_t pxui_ui_press_keys(PxuiUi *ui, const PxuiBox *box, const uint32_t **ptr, size_t *len); /* key codes, borrowed until the next frame */
 int32_t pxui_ui_root_at(PxuiUi *ui, float x, float y, PxuiI64Span roots, uint8_t *present, int64_t *out);
+/* Legacy, cut at 2.0: superseded by pxui_ui_view_keyed (1.72); size the enclosing node instead of the view. */
 int32_t pxui_ui_view_flat(PxuiUi *ui, PxuiStr label, uint64_t revision, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_view_offset(PxuiUi *ui, const PxuiBox *box, float dx, float dy);
 /* Per-instance alpha in [0,1], finite uniform centre scale (zero/negative allowed), and an additional
@@ -1047,6 +1051,9 @@ int32_t pxui_ui_popup_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPo
 int32_t pxui_ui_modal_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_anchored_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiAnchorDesc *anchor, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_scroll_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
+/* ABI 1.72: the authoring view keyed by keyed->key (keyed->name must be empty). It fills its parent, or takes its content's size on the
+   main axis of a row or column whose size there is fit; build runs only when revision (a hash of what it reads) changed. */
+int32_t pxui_ui_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint64_t revision, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_toasts_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiStrSpan items, PxuiI64Span ids, double seconds, int64_t *out_index);
 int32_t pxui_ui_table_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiTableViewWithDesc *desc, const PxuiRect *text, size_t *sort, size_t *row);
 int32_t pxui_ui_picker_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, int64_t limit, uint8_t slash, uint8_t at_rest, PxuiStr query, PxuiPickerRows rows, PxuiPickerMark mark, PxuiPickerOff off, void *user, PxuiStr *out_query, uint32_t *out_tag, int64_t *out_index);

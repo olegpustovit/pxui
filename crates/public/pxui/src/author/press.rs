@@ -1,5 +1,6 @@
 //! A pressable node: `ui.pressable` declares a clickable, focusable node, looks it by its state and reports what happened to it.
-use pxui_types::{a11y::state::SELECTED, Node, PxuiBox};
+use crate::Handle;
+use pxui_types::{a11y::state::SELECTED, Node};
 use pxui_types::theme::{State, States};
 use super::Key;
 use crate::Ui;
@@ -7,6 +8,10 @@ use pxui_types::Flags;
 
 /// What happened to a widget this frame (a pressable node, a button, a toggle, a segmented control), read from its signal when it was
 /// declared.
+///
+/// It is the widget-level summary of `Signal`, the raw per-node record: `clicked`, `hovered` and `held` are the signal's, the rest is what
+/// the widget adds (focus, keyboard activation, an edited value, a context request). `ui.signal(&response.handle)` reads the rest of the
+/// raw record (drag, wheel, pinch, press points, click count). A one-off choice (`menu`, `dialog`) answers with `Chosen` instead.
 #[derive(Clone, Copy, Debug)]
 pub struct Response {
     /// The node was clicked: the primary button released over it after a press on it, or keyboard activation (Enter or Space) while focused.
@@ -26,7 +31,7 @@ pub struct Response {
     /// frame: the request for its context menu. It never clicks; `ui.signal(&handle).press_point` is where it landed.
     pub secondary: bool,
     /// The node, valid this frame: style it, read more of its signal.
-    pub handle: PxuiBox,
+    pub handle: Handle,
 }
 
 /// How `Ui::pressable` varies its node, as a `Copy` value built with `const fn` builders from `Pressable::DEFAULT`.

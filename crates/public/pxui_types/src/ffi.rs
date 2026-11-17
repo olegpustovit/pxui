@@ -1388,7 +1388,7 @@ pub struct PxuiHeadOut {
     pub chosen: i64,
 }
 
-/// `BoxOpts` crossing: `axis` is 0 row, 1 column, 2 stack. `hit` (with `hit_user` and `hit_release`, called once when the
+/// `pxui_ui_box`'s descriptor (a box with an optional hit callback): `axis` is 0 row, 1 column, 2 stack. `hit` (with `hit_user` and `hit_release`, called once when the
 /// box's slot lets go of it) replaces the box's hit rectangle by the one it returns for the laid-out rectangle.
 #[repr(C)]
 #[derive(Clone, Copy)]

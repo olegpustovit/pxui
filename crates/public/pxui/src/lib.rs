@@ -9,13 +9,15 @@ pub use error::Error;
 use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
-pub use pxui_types::{Environment, Keyboard, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
+pub use pxui_types::{Environment, Keyboard, FrameIn, FrameOut, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
+// the C record `Handle` names; the wrapper's own signatures say `Handle`
+use pxui_types::PxuiBox;
 pub use pxui_types::{Capitalize, Commands, Event, Gpu, Image, Pass, ReturnKey, Str, TextTraits, Touch};
 pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
 pub use pxui_types::{Label,TextSpan};
-pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse};
+pub use pxui_types::ui::{Dialog, DialogButton};
 
 pub use pxui_types::{draw, geom};
 pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};
@@ -33,13 +35,11 @@ pub mod a11y {
 }
 pub mod ui_core {
     pub use pxui_types::ui::*;
-    pub use crate::opts::{BoxOpts, HitFn};
     pub use crate::{GestureOpts, GestureState, Scroll, SwipeActions, DismissOpts, ViewTransform, Paint, Ui};
-    pub use pxui_types::PxuiBox as UiBox;
     pub use pxui_types::{Flags, Size};
     pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
     /// The key of a node handle.
-    #[inline] pub fn key(b: &UiBox) -> i64 { b.box_key }
+    #[inline] pub fn key(b: &crate::Handle) -> i64 { b.box_key }
 }
 pub mod ui_text {
     /// Whether `signal` is a right click: released with the right button within 4 points of its press.
@@ -57,11 +57,12 @@ pub mod ui_text {
         signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
     }
     pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
-    pub use pxui_types::ui::{CodeContext, Completion, Menu, MenuItem, MenuResponse, Pick};
+    pub use pxui_types::ui::{CodeContext, Completion, Menu, MenuItem, Chosen, Pick};
     pub use crate::{Language, ScrubPhase, TextArea, ValueField};
 }
-pub mod ui_widgets { pub use crate::{Dialog, DialogButton, DialogResponse, Scrub, Segment, TreeNode}; }
-/// The node handle `box_`, `node` and the views return.
+pub mod ui_widgets { pub use crate::{Dialog, DialogButton, Chosen, Scrub, Segment, TreeNode}; }
+/// The node handle `node`, the containers (`row`, `column`, `stack`), `view_of` and the widgets' `Response::handle` give: the one
+/// name of a node in the wrapper (the C record is `PxuiBox`).
 pub type Handle = pxui_types::PxuiBox;
 
 pub mod ui {
@@ -86,7 +87,7 @@ pub mod widgets;
 pub use widgets::Scrub;
 pub mod composite;
 pub mod overlays;
-pub use pxui_types::ui::{Checkbox, Choice, Dropdown, ListResponse, Menu, MenuItem, MenuResponse, Overlay, Pick, PickRows, PickerResponse, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
+pub use pxui_types::ui::{Checkbox, Choice, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
 pub mod collections;
 pub mod bodies;
 pub use collections::TreeNode;
@@ -94,7 +95,6 @@ pub mod image;
 pub use image::ImageStyle;
 mod text_inputs;
 pub use text_inputs::ScrubPhase;
-pub mod opts;
 pub mod kit;
 pub use pxui_types::ui::{Keyframes, Repeat};
 #[path = "a11y.rs"]
@@ -167,13 +167,10 @@ mod sys {
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_box_of_a11y(ui:*mut PxuiUi,id:u64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->i32;
-        pub fn pxui_ui_view(ui:*mut PxuiUi,label:Str,revision:u64,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32;
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
-        pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
-        pub fn pxui_col(ui:*mut PxuiUi,padding:f32,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
@@ -550,11 +547,11 @@ impl Ui {
     #[track_caller] pub fn set_dir(&mut self,rtl:bool) {check(self, unsafe{sys::pxui_ui_set_dir(self.0.as_ptr(),rtl as u32)})}
     #[track_caller] pub fn set_a11y(&mut self,on:bool) {check(self, unsafe{sys::pxui_ui_set_a11y(self.0.as_ptr(),on as u8)})}
     #[track_caller] pub fn inject_a11y(&mut self,actions:&[A11yAction]) {check(self, unsafe{sys::pxui_ui_inject_a11y(self.0.as_ptr(),actions.as_ptr(),actions.len())})}
-    #[inline] #[track_caller] pub fn patch_text(&mut self,box_:&PxuiBox,value:&str)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value),&mut out)};live(self,rc)&&out!=0}
-    #[inline] #[track_caller] pub fn busy_step(&mut self,box_:&PxuiBox,now:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now,&mut out)};live(self,rc)&&out!=0}
+    #[inline] #[track_caller] pub fn patch_text(&mut self,box_:&Handle,value:&str)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_patch_text(self.0.as_ptr(),box_,as_str(value),&mut out)};live(self,rc)&&out!=0}
+    #[inline] #[track_caller] pub fn busy_step(&mut self,box_:&Handle,now:f64)->bool{let mut out=0;let rc=unsafe{sys::pxui_ui_busy_step(self.0.as_ptr(),box_,now,&mut out)};live(self,rc)&&out!=0}
     #[track_caller] pub fn request_frame(&mut self) {check(self, unsafe{sys::pxui_ui_request_frame(self.0.as_ptr())})}
     #[inline]
-    #[track_caller] pub fn rect(&self,box_:&PxuiBox)-> geom::Rect {
+    #[track_caller] pub fn rect(&self,box_:&Handle)-> geom::Rect {
         let mut out=geom::Rect::default();
         #[cfg(feature = "static")]
         check(self, unsafe{pxui_abi_link::trusted::rect(self.0.as_ptr(),box_,&mut out)});
@@ -562,8 +559,8 @@ impl Ui {
         check(self, unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)});
         out
     }
-    #[inline] pub fn box_of_key(&self,key:i64)->Option<PxuiBox>{
-        let mut out=PxuiBox::default();
+    #[inline] pub fn box_of_key(&self,key:i64)->Option<Handle>{
+        let mut out=Handle::default();
         #[cfg(feature = "static")]
         let found=unsafe{pxui_abi_link::trusted::box_of_key(self.0.as_ptr(),key,&mut out)};
         #[cfg(not(feature = "static"))]
@@ -571,19 +568,19 @@ impl Ui {
         found.then_some(out)
     }
     /// The live node for a published accessibility identity; `None` after it retires.
-    #[inline] pub fn box_of_a11y(&self,id:u64)->Option<PxuiBox> {
-        let mut out=PxuiBox::default();
+    #[inline] pub fn box_of_a11y(&self,id:u64)->Option<Handle> {
+        let mut out=Handle::default();
         #[cfg(feature = "static")]
         let found=unsafe {pxui_abi_link::pxui_ui_box_of_a11y(self.0.as_ptr(),id,&mut out)};
         #[cfg(not(feature = "static"))]
         let found=unsafe {sys::pxui_ui_box_of_a11y(self.0.as_ptr(),id,&mut out)};
         (found!=0).then_some(out)
     }
-    #[inline] #[track_caller] pub fn text(&mut self,box_:&PxuiBox,value:&str) {check(self, unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
+    #[inline] #[track_caller] pub fn text(&mut self,box_:&Handle,value:&str) {check(self, unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
 
     #[inline]
     #[track_caller]
-    pub fn within(&mut self, box_: &PxuiBox, mut f: &mut dyn FnMut(&mut Ui)) {
+    pub fn within(&mut self, box_: &Handle, mut f: &mut dyn FnMut(&mut Ui)) {
         #[cfg(feature = "static")]
         let rc = unsafe { pxui_abi_link::trusted::within(self.0.as_ptr(), box_, inner!(|ui: &mut Ui| f(ui))) };
         #[cfg(not(feature = "static"))]
@@ -591,24 +588,6 @@ impl Ui {
         check(self, rc)
     }
 
-    #[inline]
-    #[track_caller]
-    pub fn scope(&mut self, label: &str, mut f: &mut dyn FnMut(&mut Ui)) {
-        #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::scope(self.0.as_ptr(), label, inner!(|ui: &mut Ui| f(ui))) };
-        #[cfg(not(feature = "static"))]
-        let rc = unsafe { sys::pxui_scope(self.0.as_ptr(), as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
-        check(self, rc)
-    }
-    #[inline]
-    #[track_caller]
-    pub fn col(&mut self, padding:f32, label:&str, mut f: &mut dyn FnMut(&mut Ui)) {
-        #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::col(self.0.as_ptr(), padding, label, inner!(|ui: &mut Ui| f(ui))) };
-        #[cfg(not(feature = "static"))]
-        let rc = unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
-        check(self, rc)
-    }
     /// A kit button with the theme's look: `true` on the frame a press and release both land inside it.
     ///
     /// It is `button_with("button", text, &Button::DEFAULT).clicked`; use `button_with` for any option or a fixed key.
@@ -774,6 +753,8 @@ pub enum Feature {
     ImageChecked = pxui_types::feature::IMAGE_CHECKED,
     /// ABI 1.71: `Button::icon`/`detail`/`accessory`, `IconButton::selected` and `DialogButton::detail` (and their body config fields).
     ButtonParts = pxui_types::feature::BUTTON_PARTS,
+    /// ABI 1.72: `pxui_ui_view_keyed`, the authoring view `Ui::view_of` (sized by its parent).
+    ViewKeyed = pxui_types::feature::VIEW_KEYED,
 }
 
 /// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.

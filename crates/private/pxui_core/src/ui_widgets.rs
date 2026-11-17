@@ -27,7 +27,7 @@ pub struct TreeNode {
     pub children: u8,
 }
 
-pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Segment, Segmented};
+pub use pxui_types::ui::{Dialog, DialogButton, Chosen, Segment, Segmented};
 use pxui_types::theme::BodyKind;
 
 pub use pxui_types::ui::{Checkbox, Choice, Dropdown, Slider, Toast};
@@ -549,7 +549,7 @@ impl Ui {
     /// The wrapper's `segmented_with` shape over `segmented_opts`: `segmented` (a `Segmented` value) varies the strip and its variant
     /// reaches the registered segment body; `response.changed` is not the engine's (the caller compares `chosen`).
     pub fn segmented_with(&mut self, key: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> SegmentedResponse {
-        let opts = SegmentedOpts { enabled: segmented.enabled, h: segmented.h, grow: segmented.grow, states: segmented.look, w: segmented.w, padding: segmented.padding, min_segment: segmented.min_segment, focus_on_click: segmented.focus_on_click };
+        let opts = SegmentedOpts { enabled: segmented.enabled, h: segmented.h, grow: segmented.grow, states: segmented.look.copied(), w: segmented.w, padding: segmented.padding, min_segment: segmented.min_segment, focus_on_click: segmented.focus_on_click };
         let kind = pxui_types::theme::BodyKind::segmented as u32;
         if segmented.variant != 0 { self.set_variant(kind, segmented.variant); }
         let (response, chosen, secondary) = self.segmented_opts(key, segmented.name.unwrap_or(""), options, selected, &opts);
@@ -1079,10 +1079,10 @@ impl Ui {
     /// A modal dialog titled `title`: its title bar, `body`, then `buttons` at the end of a row, built through the dialog body and
     /// the button body. Return chooses the `default` button, Escape the `cancel` one (a press outside it and a lost window focus
     /// too, with `dismissed` set), a click the button clicked; a disabled button is none of these. `key` names the sheet.
-    pub fn dialog(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
+    pub fn dialog(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         let mut chosen = None;
         let enter = self.key_pressed(Key::Enter, None);
-        let shown_now = self.modal_named(Some(style.width), key, None, &mut |ui| {
+        let shown_now = self.modal_named(Some(style.w), key, None, &mut |ui| {
             let owner = ui.current_seed();
             in_place!(ui, owner, dialog, default_dialog(title, buttons, body));
             // the heading and the buttons are the body's nodes: their presses are read here, and a role or a name only where the body
@@ -1107,12 +1107,12 @@ impl Ui {
         }
         let first = |pick: fn(&DialogButton) -> bool| buttons.iter().position(|b| pick(b) && b.enabled);
         if !shown_now {
-            return DialogResponse { chosen: first(|b| b.cancel), dismissed: true };
+            return Chosen { chosen: first(|b| b.cancel), chosen_id: None, dismissed: true };
         }
         if enter && chosen.is_none() {
-            chosen = first(|b| b.default);
+            chosen = first(|b| b.primary);
         }
-        DialogResponse { chosen, dismissed: false }
+        Chosen { chosen, chosen_id: None, dismissed: false }
     }
 
     /// Toasts stacked in the window's lower end corner (the newest lowest), 12 points from its

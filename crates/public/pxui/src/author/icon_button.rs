@@ -54,12 +54,13 @@ impl Icon {
 
 /// How `Ui::icon_button` varies the kit's icon button, as a `Copy` value built with `const fn` builders from `IconButton::DEFAULT`.
 ///
-/// The default is the theme's 20-point square with its glyph centred.
+/// The default is the theme's 20-point square with its glyph centred. `'a` is the borrow of the looks given to `look` (`'static` for a
+/// const): a style value holds a table of per-state looks by reference, every other setting by value.
 #[derive(Clone, Copy)]
-pub struct IconButton {
+pub struct IconButton<'a> {
     pub(crate) w: Size,
     pub(crate) h: Size,
-    pub(crate) look: Option<States>,
+    pub(crate) look: Option<&'a States>,
     pub(crate) enabled: bool,
     pub(crate) press_scale: f32,
     pub(crate) variant: u16,
@@ -67,9 +68,9 @@ pub struct IconButton {
     pub(crate) selected: Option<bool>,
 }
 
-impl IconButton {
+impl<'a> IconButton<'a> {
     /// The plain kit icon button.
-    pub const DEFAULT: IconButton = IconButton {
+    pub const DEFAULT: IconButton<'a> = IconButton {
         w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0, press: None, variant: 0, selected: None,
     };
 
@@ -81,7 +82,7 @@ impl IconButton {
     /// const KEY: pxui::IconButton = pxui::IconButton::sized(36.0, 36.0);
     /// let _ = KEY;
     /// ```
-    pub const fn sized(w: f32, h: f32) -> IconButton { IconButton::DEFAULT.size(Size::Px(w), Size::Px(h)) }
+    pub const fn sized(w: f32, h: f32) -> IconButton<'a> { IconButton::DEFAULT.size(Size::Px(w), Size::Px(h)) }
 
     /// Sets the box's width and height: `Size::Px` points, `Size::Grow` to fill its line, `Size::Fit` the kit's (the theme's 20-point
     /// square); `IconButton::sized(w, h)` is `DEFAULT.size(Size::Px(w), Size::Px(h))`. `Pct` and `Rel` are refused when the button is declared.
@@ -93,9 +94,10 @@ impl IconButton {
     /// const WIDE: IconButton = IconButton::DEFAULT.size(Size::Grow, Size::Px(44.0));
     /// let _ = WIDE;
     /// ```
-    pub const fn size(mut self, w: Size, h: Size) -> IconButton { self.w = w; self.h = h; self }
+    pub const fn size(mut self, w: Size, h: Size) -> IconButton<'a> { self.w = w; self.h = h; self }
 
     /// Sets the look per state (idle, hover, pressed, focus, disabled, checked) in place of the theme's `icon_button`; its font draws the glyph.
+    /// The looks are borrowed, not copied.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -105,7 +107,7 @@ impl IconButton {
     /// const B: IconButton = IconButton::DEFAULT.look(&PLATE);
     /// let _ = B;
     /// ```
-    pub const fn look(mut self, look: &States) -> IconButton { self.look = Some(*look); self }
+    pub const fn look(mut self, look: &'a States) -> IconButton<'a> { self.look = Some(look); self }
 
     /// Sets the scale the plate and glyph spring to while the button is held (0.96 is a slight dip) and back to on release.
     /// Reduced motion makes it instant. 1.0 is no animation.
@@ -116,7 +118,7 @@ impl IconButton {
     /// const B: pxui::IconButton = pxui::IconButton::sized(36.0, 36.0).press_scale(0.96);
     /// let _ = B;
     /// ```
-    pub const fn press_scale(mut self, scale: f32) -> IconButton { self.press_scale = scale; self }
+    pub const fn press_scale(mut self, scale: f32) -> IconButton<'a> { self.press_scale = scale; self }
 
     /// Sets the curves the press scale runs: `curves[0]` from rest to `press_scale` when the button is pressed, `curves[1]` back on
     /// release, in place of the kit's springs (`Curve::Spring` of 60 in, 20 out); reduced motion still makes both instant. The pair is
@@ -130,7 +132,7 @@ impl IconButton {
     /// const KEY: IconButton = IconButton::sized(36.0, 36.0).press_scale(0.96).press_curves(&[Curve::Spring { omega: 80.0 }, EASE]);
     /// let _ = KEY;
     /// ```
-    pub const fn press_curves(mut self, curves: &'static [Curve; 2]) -> IconButton { self.press = Some(curves); self }
+    pub const fn press_curves(mut self, curves: &'static [Curve; 2]) -> IconButton<'a> { self.press = Some(curves); self }
 
     /// Sets whether the button takes input: disabled takes no press or focus, shows the `disabled` look and reads as disabled to accessibility
     /// (its node lacks the ENABLED and FOCUSABLE states). A disabled button never reports `clicked` or `activated`, from any input.
@@ -141,7 +143,7 @@ impl IconButton {
     /// let b = pxui::IconButton::DEFAULT.enabled(false);
     /// let _ = b;
     /// ```
-    pub const fn enabled(mut self, enabled: bool) -> IconButton { self.enabled = enabled; self }
+    pub const fn enabled(mut self, enabled: bool) -> IconButton<'a> { self.enabled = enabled; self }
 
     /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
     /// picks per call without comparing text. The built-in body ignores it.
@@ -152,7 +154,7 @@ impl IconButton {
     /// const B: pxui::IconButton = pxui::IconButton::sized(36.0, 36.0).variant(1);
     /// let _ = B;
     /// ```
-    pub const fn variant(mut self, variant: u16) -> IconButton { self.variant = variant; self }
+    pub const fn variant(mut self, variant: u16) -> IconButton<'a> { self.variant = variant; self }
 
     /// Makes the button an on/off key (shuffle, repeat, a panel's toggle) that is on when `on`: it shows its look's `checked` state while
     /// on and reads to accessibility as checkable, checked while on; a registered body sees it as `state.checked`. A click still only
@@ -170,7 +172,7 @@ impl IconButton {
     /// let node = *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Shuffle").unwrap();
     /// assert!(node.states & pxui::a11y::state::CHECKABLE != 0 && node.states & pxui::a11y::state::CHECKED == 0);
     /// ```
-    pub const fn selected(mut self, on: bool) -> IconButton { self.selected = Some(on); self }
+    pub const fn selected(mut self, on: bool) -> IconButton<'a> { self.selected = Some(on); self }
 }
 
 impl Ui {
@@ -190,12 +192,12 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn icon_button<K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton) -> Response { self.icon_button_key(key.into(), icon, name, button) }
+    pub fn icon_button<K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton<'_>) -> Response { self.icon_button_key(key.into(), icon, name, button) }
 
     /// The one body of `icon_button`: the key's label and the glyph's text, then the engine call.
     #[inline(always)]
     #[track_caller]
-    fn icon_button_key(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton) -> Response {
+    fn icon_button_key(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton<'_>) -> Response {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         if button.variant == 0 { return self.icon_button_keyed(label, icon, name, button); }

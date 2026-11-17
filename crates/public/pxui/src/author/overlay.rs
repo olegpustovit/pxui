@@ -1,8 +1,9 @@
 //! The overlay family: `ui.panel`, `ui.popup`, `ui.modal` and `ui.anchored` take a key and one `Overlay` style; `ui.scroll_view`,
 //! `ui.toasts` and `ui.picker` take a key. Each is built through its body (panel, window, popup, modal, scroll_view, toast,
 //! picker_field), so a registered body replaces its structure.
+use crate::Handle;
 use super::Key;
-use crate::{PickerOpts, PxuiBox, Ui};
+use crate::{PickerOpts, Ui};
 use pxui_types::{geom::Rect, ui::{Overlay, PickRows, PickerResponse, Toast}, Size};
 
 impl Ui {
@@ -78,7 +79,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn anchored<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, mut f: F) -> PxuiBox {
+    pub fn anchored<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, mut f: F) -> Handle {
         self.anchored_key(key.into(), anchor, overlay, &mut f)
     }
 
@@ -94,7 +95,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn scroll_view<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, w: Size, h: Size, mut f: F) -> PxuiBox { self.scroll_view_key(key.into(), w, h, &mut f) }
+    pub fn scroll_view<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, w: Size, h: Size, mut f: F) -> Handle { self.scroll_view_key(key.into(), w, h, &mut f) }
 
     /// Stacks the toasts `items` in the window's lower end corner (the newest lowest) and returns the index of one clicked away or expired
     /// this frame (the caller drops it), or none.

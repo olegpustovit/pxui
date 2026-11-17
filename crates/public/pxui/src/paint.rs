@@ -2,6 +2,7 @@
 //! layer's instance storage (one 64-byte store each, no library call); the library is called when the span is full, and for
 //! what needs the engine: text, images and measurement. Every library call commits the span first, so instances land in call
 //! order.
+use crate::Handle;
 use crate::composite::{defer_callback_panic, deferred};
 use crate::sys::PxuiPaint as RawPaint;
 use core::{ffi::c_void, marker::PhantomData, ptr::NonNull};
@@ -670,7 +671,7 @@ extern "C" fn release<F>(user: *mut c_void) {
 }
 
 impl crate::Ui {
-    fn canvas_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, over: u8, f: F) {
+    fn canvas_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &Handle, over: u8, f: F) {
         let user = boxed(f);
         crate::check(self, unsafe { lib::pxui_ui_draw(self.0.as_ptr(), b, over, Some(draw::<F>), user, Some(release::<F>)) });
     }
@@ -687,7 +688,7 @@ impl crate::Ui {
     ///     ui.canvas(&node, |paint, rect| paint.fill(rect, pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
-    #[inline] #[track_caller] pub fn canvas<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 0, f) }
+    #[inline] #[track_caller] pub fn canvas<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &Handle, f: F) { self.canvas_with(b, 0, f) }
     /// Like `canvas`, but `f` draws after the node's children, outside its content clip (an underline, a focus ring, an overlay).
     ///
     /// Allocates: as `canvas`.
@@ -699,7 +700,7 @@ impl crate::Ui {
     ///     ui.canvas_over(&node, |paint, r| paint.fill(pxui::geom::Rect::new(r.x, r.y + r.h - 1.0, r.w, 1.0), pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
-    #[inline] #[track_caller] pub fn canvas_over<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &PxuiBox, f: F) { self.canvas_with(b, 1, f) }
+    #[inline] #[track_caller] pub fn canvas_over<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &Handle, f: F) { self.canvas_with(b, 1, f) }
 }
 
 #[cfg(test)]

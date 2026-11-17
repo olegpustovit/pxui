@@ -1,4 +1,5 @@
 //! Kit and text widgets beyond the first set, with the engine's names and shapes (see `ui_state` for failures).
+use crate::Handle;
 use crate::box_ops::Label;
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::interaction::decode_signal;
@@ -10,7 +11,7 @@ use core::ffi::c_void;
 use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiSignal, Slice}, theme::{Curve, Look, State}, Axis, PxuiBox, Str};
 use pxui_types::{layout::Justify, Size};
 use crate::Response;
-use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Head, HeadAction, Target};
+use pxui_types::ui::{Dialog, DialogButton, Chosen, Head, HeadAction, Target};
 use std::{fmt::Arguments, rc::Rc};
 
 library!(lib {
@@ -93,7 +94,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn animate(&mut self, b: &PxuiBox, target: Target, curve: Curve) -> bool {
+    pub fn animate(&mut self, b: &Handle, target: Target, curve: Curve) -> bool {
         let mut out = 0;
         let rc = unsafe { lib::pxui_ui_animate(self.0.as_ptr(), b, &keyframe(target, curve), &mut out) };
         crate::live(self, rc) && out != 0
@@ -102,7 +103,7 @@ impl Ui {
     /// for `IconButton::DEFAULT` with a glyph, or the options as a descriptor. One `PxuiResponse` comes back either way.
     #[inline(always)]
     #[track_caller]
-    pub(crate) fn icon_button_keyed(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton) -> Response {
+    pub(crate) fn icon_button_keyed(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton<'_>) -> Response {
         let mut buf = [0u8; 4];
         let (glyph, draw, user, word) = match icon {
             Icon::Glyph(ch) => (ch.encode_utf8(&mut buf) as &str, None, core::ptr::null_mut(), 0),
@@ -116,7 +117,7 @@ impl Ui {
         let rc = if plain {
             unsafe { pxui_abi_link::trusted::icon_button_plain(self.0.as_ptr(), key, glyph, name, &mut out) }
         } else {
-            unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, word, name, button.look.as_ref(), button.w, button.h, button.enabled, button.press_scale, button.press, button.selected, &mut out, None) }
+            unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, word, name, button.look, button.w, button.h, button.enabled, button.press_scale, button.press, button.selected, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {
@@ -165,7 +166,7 @@ impl Ui {
                 let mut ui = core::mem::ManuallyDrop::new(Ui(unsafe { core::ptr::NonNull::new_unchecked(raw) }));
                 f(&mut ui, state)
             };
-            unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look.as_ref(), button.w, button.h, button.align, button.pad,
+            unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look, button.w, button.h, button.align, button.pad,
                 button.enabled, button.selected, button.danger, button.centered, button.label.as_ref().map(|l| l.fields()), button.axis, button.gap, button.content_align, button.focus_on_click,
                 lead, lead_draw, lead_user, lead_word, button.detail, button.accessory, button.detail_label.as_ref().map(|l| l.fields()), button.accessory_label.as_ref().map(|l| l.fields()),
                 if has_content { Some(&mut run) } else { None }, &mut out, None) }
@@ -212,14 +213,14 @@ impl Ui {
         let rc = if plain {
             unsafe { pxui_abi_link::trusted::toggle_plain(self.0.as_ptr(), key, text, on, &mut out) }
         } else {
-            unsafe { pxui_abi_link::trusted::toggle_with(self.0.as_ptr(), key, text, on, toggle.track.as_ref(), toggle.knob.as_ref(), toggle.row_h.unwrap_or(0.0), switch_w, switch_h,
+            unsafe { pxui_abi_link::trusted::toggle_with(self.0.as_ptr(), key, text, on, toggle.track, toggle.knob, toggle.row_h.unwrap_or(0.0), switch_w, switch_h,
                 toggle.inset.unwrap_or(0.0), toggle.press_row, toggle.detail, toggle.label.as_ref().map(|l| l.fields()), toggle.enabled, &mut out) }
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {
             unsafe { lib::pxui_ui_toggle_plain(self.0.as_ptr(), as_str(key), as_str(text), on as u8, &mut out) }
         } else {
-            let (track, knob) = (toggle.track.as_ref().map(six), toggle.knob.as_ref().map(six));
+            let (track, knob) = (toggle.track.map(six), toggle.knob.map(six));
             let desc = pxui_types::ffi::PxuiToggleDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiToggleDesc>() as u32, enabled: toggle.enabled as u8, on: on as u8, press_row: toggle.press_row as u8, reserved: 0,
                 row_h: toggle.row_h.unwrap_or(0.0), switch_w, switch_h, inset: toggle.inset.unwrap_or(0.0),
@@ -243,14 +244,14 @@ impl Ui {
         let (chosen, secondary, rc) = {
             let (mut chosen, mut secondary) = (None, None);
             let rc = unsafe { pxui_abi_link::trusted::segmented_with(self.0.as_ptr(), key, name, options, selected, segmented.enabled, segmented.h.unwrap_or(0.0), segmented.grow,
-                segmented.look.as_ref(), segmented.w.unwrap_or(0.0), segmented.padding, segmented.min_segment, segmented.focus_on_click, &mut out, &mut chosen, &mut secondary) };
+                segmented.look, segmented.w.unwrap_or(0.0), segmented.padding, segmented.min_segment, segmented.focus_on_click, &mut out, &mut chosen, &mut secondary) };
             (chosen, secondary, rc)
         };
         #[cfg(not(feature = "static"))]
         let (chosen, secondary, rc) = {
             let named = options.iter().any(|o| o.name.is_some());
             let texts = crate::Strs::each(options.len(), &|i| options[i].text);
-            let states = segmented.look.as_ref().map(six);
+            let states = segmented.look.map(six);
             let names = crate::Strs::each(if named { options.len() } else { 0 }, &|i| options[i].name.unwrap_or(""));
             let desc = pxui_types::ffi::PxuiSegmentedDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiSegmentedDesc>() as u32, enabled: segmented.enabled as u8, grow: segmented.grow as u8, reserved: [0; 2], h: segmented.h.unwrap_or(0.0),
@@ -276,10 +277,10 @@ impl Ui {
     /// descriptor (their labels and flags) and the body as a callback.
     #[inline(always)]
     #[track_caller]
-    pub(crate) fn dialog_keyed(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, mut body: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
+    pub(crate) fn dialog_keyed(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, mut body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         #[cfg(feature = "static")]
         {
-            let mut out = DialogResponse { chosen: None, dismissed: false };
+            let mut out = Chosen::default();
             check(self, unsafe { pxui_abi_link::trusted::dialog(self.0.as_ptr(), key, title, buttons, style, inner!(|ui: &mut Ui| body(ui)), &mut out) });
             out
         }
@@ -290,20 +291,20 @@ impl Ui {
             let mask = |pick: fn(&DialogButton) -> bool| buttons.iter().take(64).enumerate().fold(0u64, |m, (i, b)| m | (pick(b) as u64) << i);
             for ((text, detail), b) in texts.iter_mut().zip(details.iter_mut()).zip(buttons) { (*text, *detail) = (as_str(b.text), as_str(b.detail)); }
             let desc = PxuiDialogDesc {
-                size: core::mem::size_of::<PxuiDialogDesc>() as u32, width: style.width, key: as_str(key), title: as_str(title),
-                buttons: Slice { ptr: texts.as_ptr(), len: buttons.len() }, default_at: at(|b| b.default), cancel_at: at(|b| b.cancel),
+                size: core::mem::size_of::<PxuiDialogDesc>() as u32, width: style.w, key: as_str(key), title: as_str(title),
+                buttons: Slice { ptr: texts.as_ptr(), len: buttons.len() }, default_at: at(|b| b.primary), cancel_at: at(|b| b.cancel),
                 danger: mask(|b| b.danger), disabled: mask(|b| !b.enabled),
                 details: Slice { ptr: details.as_ptr(), len: buttons.len() },
             };
             let mut result = PxuiDialogResult::EMPTY;
             check(self, unsafe { lib::pxui_ui_dialog_response(self.0.as_ptr(), &desc, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut body as *mut _ as *mut c_void, &mut result) });
-            DialogResponse { chosen: (result.has_chosen != 0).then_some(result.chosen as usize), dismissed: result.dismissed != 0 }
+            Chosen { chosen: (result.has_chosen != 0).then_some(result.chosen as usize), chosen_id: None, dismissed: result.dismissed != 0 }
         }
     }
     /// A 1-point splitter line (see the engine): its box and what happened to it.
     #[track_caller]
-    pub fn grip(&mut self, label: Arguments, axis: Axis, rect: Option<Rect>) -> (PxuiBox, Signal) {
-        let (mut out, mut raw) = (PxuiBox::default(), PxuiSignal::default());
+    pub fn grip(&mut self, label: Arguments, axis: Axis, rect: Option<Rect>) -> (Handle, Signal) {
+        let (mut out, mut raw) = (Handle::default(), PxuiSignal::default());
         let label = Label::new(label);
         let code = match axis { Axis::Row => 0, _ => 1 };
         check(self, unsafe { lib::pxui_ui_grip(self.0.as_ptr(), as_str(label.as_str()), code, rect.is_some() as u8, rect.unwrap_or_default(), &mut out, &mut raw) });
@@ -344,7 +345,7 @@ impl Ui {
     }
     /// The fraction of a dragged `kept_drag` field's track under the pointer, and the pointer's points from the press.
     #[track_caller]
-    pub fn field_drag(&self, field: &PxuiBox) -> Option<(f32, f32)> {
+    pub fn field_drag(&self, field: &Handle) -> Option<(f32, f32)> {
         let (mut present, mut out) = (0, Point::default());
         let rc = unsafe { lib::pxui_ui_field_drag(self.0.as_ptr(), field, &mut present, &mut out) };
         (crate::live(self, rc) && present != 0).then_some((out.x, out.y))

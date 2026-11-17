@@ -1,8 +1,9 @@
 //! The kit's small widgets keyed apart from their text: `ui.checkbox(key, text, on, &Checkbox)`, `ui.radio`, `ui.tabs`,
 //! `ui.dropdown` and `ui.slider` report a `Response` (and the choice or value); `ui.progress`, `ui.spinner` and `ui.badge` declare
 //! stateless leaves and return their node. Each is built through its widget body, so a registered body replaces its structure.
+use crate::Handle;
 use super::{Key, Response};
-use crate::{PxuiBox, Ui};
+use crate::Ui;
 use pxui_types::{theme::BodyKind, ui::{Checkbox, Choice, Dropdown, Slider}};
 
 impl Ui {
@@ -130,7 +131,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn progress<K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>) -> PxuiBox { self.progress_key(key.into(), text, value) }
+    pub fn progress<K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>) -> Handle { self.progress_key(key.into(), text, value) }
 
     /// Declares a kit spinner (eight dots round a 16-point circle) named `name` and returns its node, which `busy_step` turns.
     ///
@@ -144,7 +145,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn spinner<K: Into<Key>>(&mut self, key: K, name: &str) -> PxuiBox { self.spinner_key(key.into(), name) }
+    pub fn spinner<K: Into<Key>>(&mut self, key: K, name: &str) -> Handle { self.spinner_key(key.into(), name) }
 
     /// Declares a kit badge (`text` on a 16-point pill in the badge look) named `name` and returns its node; `patch_text` on it updates a
     /// count without a rebuild.
@@ -159,7 +160,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn badge<K: Into<Key>>(&mut self, key: K, name: &str, text: &str) -> PxuiBox { self.badge_key(key.into(), name, text) }
+    pub fn badge<K: Into<Key>>(&mut self, key: K, name: &str, text: &str) -> Handle { self.badge_key(key.into(), name, text) }
 }
 
 #[cfg(test)]

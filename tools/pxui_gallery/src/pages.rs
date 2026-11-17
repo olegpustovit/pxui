@@ -1,6 +1,6 @@
 // The gallery pages, against the wrapper `pxui`.
 use super::inputs;
-use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Overlay, Pick, PxuiBox as Handle, Ui};
+use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Overlay, Pick, Handle, Ui};
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, ffi::ThemeSource, geom::Edges, layout::{Align, Along, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
@@ -284,7 +284,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         }
     });
     if s.dialog {
-        const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").default()];
+        const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").primary()];
         let answer = ui.dialog("delete-layer", "Delete layer", &BUTTONS, &Dialog::DEFAULT, &mut |ui: &mut Ui| { let _ = ui.inspector_message("body", "This cannot be undone."); });
         if answer.chosen.is_some() || answer.dismissed {
             (s.dialog, s.said) = (false, if answer.chosen == Some(1) { "Deleted the layer" } else { "Kept the layer" });
@@ -514,7 +514,8 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
         }
         let body = node(ui, "body", Node { w: Size::Px(w), h: Size::Px(h - 24.0), at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
         ui.within(&body, &mut |ui: &mut Ui| {
-            let _ = ui.view("chrome", s.chrome_rev, Size::Grow, Size::Px(CHROME_H), &mut |ui: &mut Ui| {
+            let chrome = node(ui, "chrome", Node { h: Size::Px(CHROME_H), ..Node::DEFAULT });
+            ui.within(&chrome, &mut |ui: &mut Ui| { ui.view_of("chrome", &s.chrome_rev, &mut |ui: &mut Ui| {
                 let page = ui.tabs("pages", &PAGES, s.page, &pxui::Choice::DEFAULT.name("Pages")).1;
                 if page != s.page {
                     (s.page, s.page_rev) = (page, s.page_rev + 1); // the tabs show the click in this build
@@ -529,17 +530,18 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
                         (s.dusk, s.compact, s.rtl, s.reduced, s.host_dirty) = (theme, compact, rtl, reduced, true);
                     }
                 });
-            });
+            }); });
             let rev = s.page_rev;
             let index = s.page;
-            let _ = ui.view("page", rev, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, s, index));
-            let _ = ui.view("readout", 0, Size::Grow, Size::Px(24.0), &mut |ui: &mut Ui| {
+            ui.view_of("page", &rev, &mut |ui: &mut Ui| page(ui, s, index));
+            let readout = node(ui, "readout-bar", Node { h: Size::Px(24.0), ..Node::DEFAULT });
+            ui.within(&readout, &mut |ui: &mut Ui| { ui.view_of("readout", &0, &mut |ui: &mut Ui| {
                 let look = ui.theme().footer.idle;
                 let hint = ui.theme().hint.idle;
                 let n = node(ui, "readout", Node { h: Size::Px(24.0), look: Look { text: hint.text, font: hint.font, ..look }, inset: Edges { l: 12.0, t: 1.0, ..Edges::ZERO }, role: Role::StatusBar, ..Node::DEFAULT });
                 let _ = ui.text(&n, "-");
                 s.readout = Some(n);
-            });
+            }); });
         });
     });
     if let Some(i) = ui.toasts("toasts", &s.toasts, TOAST_SECONDS) {

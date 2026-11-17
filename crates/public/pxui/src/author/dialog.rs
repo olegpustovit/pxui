@@ -1,6 +1,6 @@
-//! The modal dialog: `ui.dialog(key, title, &buttons, &Dialog, body)` reports a `DialogResponse`.
+//! The modal dialog: `ui.dialog(key, title, &buttons, &Dialog, body)` reports a `Chosen`.
 use super::Key;
-use crate::{Dialog, DialogButton, DialogResponse, Ui};
+use crate::{Dialog, DialogButton, Chosen, Ui};
 
 impl Ui {
     /// Shows a modal dialog titled `title` with `body` between its title bar and its `buttons`, and reports what the frame did.
@@ -14,7 +14,7 @@ impl Ui {
     ///
     /// ```
     /// use pxui::{Dialog, DialogButton};
-    /// const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").default().danger()];
+    /// const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").primary().danger()];
     /// let mut chosen = None;
     /// let mut ui = pxui::doc::frames(2, &mut |ui: &mut pxui::Ui| {
     ///     chosen = ui.dialog("delete", "Delete layer", &BUTTONS, &Dialog::DEFAULT, &mut |ui: &mut pxui::Ui| { ui.label("This cannot be undone.", pxui::Label::DEFAULT); }).chosen;
@@ -23,14 +23,14 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn dialog<K: Into<Key>>(&mut self, key: K, title: &str, buttons: &[DialogButton], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
+    pub fn dialog<K: Into<Key>>(&mut self, key: K, title: &str, buttons: &[DialogButton], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         self.dialog_call(key.into(), title, buttons, dialog, body)
     }
 
     /// The one body of `dialog`: the engine call, with the dialog's variant set around it.
     #[inline(always)]
     #[track_caller]
-    fn dialog_call(&mut self, key: Key, title: &str, buttons: &[DialogButton], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
+    fn dialog_call(&mut self, key: Key, title: &str, buttons: &[DialogButton], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         if dialog.variant == 0 { return self.dialog_key(key, title, buttons, dialog, body); }
         self.set_variant(crate::BodyKind::dialog, dialog.variant);
         let response = self.dialog_key(key, title, buttons, dialog, body);
@@ -41,7 +41,7 @@ impl Ui {
     /// The one body of `dialog`: the key's label, then the engine call.
     #[inline(always)]
     #[track_caller]
-    fn dialog_key(&mut self, key: Key, title: &str, buttons: &[DialogButton], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
+    fn dialog_key(&mut self, key: Key, title: &str, buttons: &[DialogButton], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         let mut id_label = [0u8; 17];
         self.dialog_keyed(key.label(&mut id_label), title, buttons, dialog, body)
     }
@@ -51,21 +51,21 @@ impl Ui {
 mod tests {
     use crate::bodies::DialogConfig;
     use crate::ui::{Flags, Node, Role, Size};
-    use crate::{testing, Dialog, DialogButton, DialogResponse, Event, FrameIn, Part, Ui};
+    use crate::{testing, Dialog, DialogButton, Chosen, Event, FrameIn, Part, Ui};
     use core::cell::{Cell, RefCell};
     use crate::bodies::BodyConfig;
 
     const ENTER: u32 = pxui_types::KEY_SPECIAL + 5;
     const ESCAPE: u32 = pxui_types::KEY_SPECIAL + 6;
 
-    fn key(ui: &mut Ui, code: u32, build: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
+    fn key(ui: &mut Ui, code: u32, build: &mut dyn FnMut(&mut Ui)) -> Chosen {
         let events = [Event { kind: Event::KEY_PRESSED, code, ..Default::default() }, Event { kind: Event::KEY_RELEASED, code, ..Default::default() }];
         testing::frame(ui, &events, build);
         LAST.with(Cell::get)
     }
 
     thread_local! {
-        static LAST: Cell<DialogResponse> = const { Cell::new(DialogResponse { chosen: None, dismissed: false }) };
+        static LAST: Cell<Chosen> = const { Cell::new(Chosen { chosen: None, chosen_id: None, dismissed: false }) };
         static BUILT: Cell<u32> = const { Cell::new(0) };
         static SAVE: Cell<bool> = const { Cell::new(true) };
         static SEEN: RefCell<Vec<(usize, u64, u64, i64, i64)>> = const { RefCell::new(Vec::new()) };
@@ -73,13 +73,13 @@ mod tests {
 
     /// Delete layer: Cancel (Escape), Save (Return, off while `save` is false), Delete in the danger ink.
     fn build_with(ui: &mut Ui) {
-        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("Save").default().enabled(SAVE.get()), DialogButton::new("Delete").danger()];
+        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("Save").primary().enabled(SAVE.get()), DialogButton::new("Delete").danger()];
         let r = ui.dialog("layer", "Delete layer", &buttons, &Dialog::DEFAULT, &mut |ui: &mut Ui| { BUILT.set(BUILT.get() + 1); ui.label("This cannot be undone.", crate::Label::DEFAULT); });
         if r.chosen.is_some() || r.dismissed { LAST.set(r); }
     }
 
-    fn click_button(ui: &mut Ui, name: &str, build: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
-        LAST.set(DialogResponse { chosen: None, dismissed: false });
+    fn click_button(ui: &mut Ui, name: &str, build: &mut dyn FnMut(&mut Ui)) -> Chosen {
+        LAST.set(Chosen { chosen: None, chosen_id: None, dismissed: false });
         let r = testing::find(ui, Role::Button, name).unwrap_or_else(|| panic!("no button {name}"));
         testing::click(ui, f64::from(r.x + r.w / 2.0), f64::from(r.y + r.h / 2.0), build);
         LAST.with(Cell::get)
@@ -94,13 +94,13 @@ mod tests {
         let mut ui = crate::doc::frames(3, &mut build);
         assert!(BUILT.get() > 0 && testing::find(&ui, Role::Dialog, "Delete layer").is_some(), "the body builds inside the modal sheet");
         assert!(testing::find(&ui, Role::Heading, "Delete layer").is_some());
-        let none = DialogResponse { chosen: None, dismissed: false };
-        assert_eq!(click_button(&mut ui, "Delete", &mut build), DialogResponse { chosen: Some(2), dismissed: false });
-        assert_eq!(click_button(&mut ui, "Cancel", &mut build), DialogResponse { chosen: Some(0), dismissed: false });
+        let none = Chosen { chosen: None, chosen_id: None, dismissed: false };
+        assert_eq!(click_button(&mut ui, "Delete", &mut build), Chosen { chosen: Some(2), chosen_id: None, dismissed: false });
+        assert_eq!(click_button(&mut ui, "Cancel", &mut build), Chosen { chosen: Some(0), chosen_id: None, dismissed: false });
         LAST.set(none);
-        assert_eq!(key(&mut ui, ENTER, &mut build), DialogResponse { chosen: Some(1), dismissed: false });
+        assert_eq!(key(&mut ui, ENTER, &mut build), Chosen { chosen: Some(1), chosen_id: None, dismissed: false });
         LAST.set(none);
-        assert_eq!(key(&mut ui, ESCAPE, &mut build), DialogResponse { chosen: Some(0), dismissed: true });
+        assert_eq!(key(&mut ui, ESCAPE, &mut build), Chosen { chosen: Some(0), chosen_id: None, dismissed: true });
         let mut ui = crate::doc::frames(3, &mut build);
         // Save off: no click, and Return finds no enabled default
         SAVE.set(false);
@@ -116,11 +116,11 @@ mod tests {
     #[test]
     fn escape_without_a_cancel_button_only_dismisses() {
         let mut build = |ui: &mut Ui| {
-            let r = ui.dialog("d", "Title", &[DialogButton::new("OK").default()], &Dialog::DEFAULT.width(200.0), &mut |_: &mut Ui| {});
+            let r = ui.dialog("d", "Title", &[DialogButton::new("OK").primary()], &Dialog::DEFAULT.w_px(200.0), &mut |_: &mut Ui| {});
             if r.chosen.is_some() || r.dismissed { LAST.set(r); }
         };
         let mut ui = crate::doc::frames(3, &mut build);
-        assert_eq!(key(&mut ui, ESCAPE, &mut build), DialogResponse { chosen: None, dismissed: true });
+        assert_eq!(key(&mut ui, ESCAPE, &mut build), Chosen { chosen: None, chosen_id: None, dismissed: true });
     }
 
     fn column(ui: &mut Ui, c: &DialogConfig) {
@@ -153,8 +153,8 @@ mod tests {
         assert!(seen.len() >= 3 && seen[seen.len() - 3..] == [(0, 4, 2, 1, 0), (1, 4, 2, 1, 0), (2, 4, 2, 1, 0)], "{seen:?}");
         let cancel = testing::find(&ui, Role::Button, "Cancel").unwrap();
         assert!(cancel.w > 200.0, "the body's structure shows: {cancel:?}");
-        let none = DialogResponse { chosen: None, dismissed: false };
-        assert_eq!(click_button(&mut ui, "Delete", &mut build), DialogResponse { chosen: Some(2), dismissed: false });
+        let none = Chosen { chosen: None, chosen_id: None, dismissed: false };
+        assert_eq!(click_button(&mut ui, "Delete", &mut build), Chosen { chosen: Some(2), chosen_id: None, dismissed: false });
         assert_eq!(click_button(&mut ui, "Save", &mut build), none, "a disabled part's press is ignored");
     }
 
@@ -191,7 +191,7 @@ mod tests {
         assert_ne!(states(&ui, "Save") & state::DEFAULT, 0, "the body's DEFAULT state stands on the unnamed Save, which behaviour named");
         assert_eq!(states(&ui, "Cancel") & state::DEFAULT, 0);
         assert!(testing::find(&ui, Role::Button, "Delete").is_none(), "the body's own name stands");
-        assert_eq!(click_button(&mut ui, "Delete the layer", &mut build), DialogResponse { chosen: Some(2), dismissed: false });
+        assert_eq!(click_button(&mut ui, "Delete the layer", &mut build), Chosen { chosen: Some(2), chosen_id: None, dismissed: false });
     }
 
     thread_local! { static VARIANTS: RefCell<Vec<(&'static str, u16)>> = const { RefCell::new(Vec::new()) }; }
@@ -213,7 +213,7 @@ mod tests {
         let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "dialog.body = v\nlabel.body = l").expect("theme"); theme };
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
             for (key, style) in [("a", Dialog::DEFAULT.variant(3)), ("b", Dialog::DEFAULT)] {
-                ui.dialog(key, "T", &[DialogButton::new("OK").default()], &style, &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); });
+                ui.dialog(key, "T", &[DialogButton::new("OK").primary()], &style, &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); });
             }
         });
         for _ in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() }, &mut build).unwrap(); }
@@ -227,8 +227,8 @@ mod tests {
 
     /// Add music: two choices with a sentence of explanation each.
     fn build_details(ui: &mut Ui) {
-        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("Add folder").detail("Keeps watching it for new music"), DialogButton::new("Add files").default()];
-        let r = ui.dialog("add", "Add music", &buttons, &Dialog::DEFAULT.width(320.0), &mut |_: &mut Ui| {});
+        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("Add folder").detail("Keeps watching it for new music"), DialogButton::new("Add files").primary()];
+        let r = ui.dialog("add", "Add music", &buttons, &Dialog::DEFAULT.w_px(320.0), &mut |_: &mut Ui| {});
         if r.chosen.is_some() || r.dismissed { LAST.set(r); }
     }
 
@@ -255,7 +255,7 @@ mod tests {
         // the theme's label style draws capitals: accessibility reads what is drawn
         let detail = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Label) && ui.a11y_name_of(n).eq_ignore_ascii_case("Keeps watching it for new music")).expect("the detail label").rect;
         assert!(button.h > 20.0 && detail.y > button.y && detail.y + detail.h <= button.y + button.h && detail.x >= button.x, "{button:?} {detail:?}");
-        assert_eq!(click_button(&mut ui, "Add folder", &mut build), DialogResponse { chosen: Some(1), dismissed: false });
+        assert_eq!(click_button(&mut ui, "Add folder", &mut build), Chosen { chosen: Some(1), chosen_id: None, dismissed: false });
         let mut ui = crate::doc::frames(1, &mut |_| {});
         for round in 0..20 {
             mem_sys::local_reset();

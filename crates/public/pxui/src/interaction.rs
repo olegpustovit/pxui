@@ -1,27 +1,50 @@
-use crate::{PxuiBox, Ui, check};
+use crate::Handle;
+use crate::{Ui, check};
 use pxui_types::{Event, ffi::{PxuiSaved, PxuiSignal}};
 
+/// What input did to one node this frame: the raw record `Ui::signal` reads, field for field the engine's.
+///
+/// The widgets' `Response` is the summary of the same frame's signal of `Response::handle` (`clicked`, `hovered`, `held`) plus what only
+/// the widget knows (`focused`, `activated`, `changed`, `secondary`); read `ui.signal(&response.handle)` for the rest (drag, wheel,
+/// pinch, press points, click count). Points are window points.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Signal {
+    /// The node is the topmost one under the pointer, or holds the pointer capture.
     pub hovered: bool,
+    /// A press on the node began this frame.
     pub pressed: bool,
+    /// The node holds the pointer capture after this frame's events (a press on it is down).
     pub held: bool,
+    /// The capture ended this frame (the press was released, anywhere).
     pub released: bool,
+    /// A primary press and its release both landed inside the node's hit rectangle this frame.
     pub clicked: bool,
+    /// The click this frame was the second of a double click.
     pub double_clicked: bool,
+    /// The node holds the capture and the pointer moved this frame.
     pub dragging: bool,
+    /// The ordinal of the last press this frame on the node or on any descendant hit under it; `None` with no such press.
     pub subtree_press: Option<i64>,
+    /// On the frame of a primary press: 1, or 2 and 3 for the second and third press within 0.35 s and 5 points; 0 otherwise.
     pub clicks: i64,
+    /// The captured pointer's motion this frame (x, y).
     pub drag: (f32,f32),
+    /// The latest pointer position.
     pub pointer: (f32,f32),
+    /// Where the current or last press began.
     pub press_point: (f32,f32),
+    /// Where the last press was released.
     pub release_point: (f32,f32),
     /// The mouse button of the press or release this frame, or of the held press: `Signal::BUTTON_PRIMARY`, `Signal::BUTTON_SECONDARY`,
     /// 2 the middle button, 3 and 4 the side buttons; `None` with no press.
     pub button: Option<u8>,
+    /// The wheel steps routed to the node this frame (x, y).
     pub scroll: (f32,f32),
+    /// The product of the trackpad pinch factors routed to the node this frame (1 when none was).
     pub pinch: f64,
+    /// A value an assistive technology set on the node this frame: the widget applies it as one edit.
     pub a11y_value: Option<f64>,
+    /// A selection (anchor, caret, in characters) an assistive technology set this frame on a focused text field.
     pub a11y_select: Option<[u32;2]>,
 }
 
@@ -135,16 +158,18 @@ pub type UiSaved = PxuiSaved;
 
 impl Ui {
     #[inline]
-    #[track_caller] pub fn enter(&mut self,box_:&PxuiBox)-> UiSaved {
+    #[track_caller] pub fn enter(&mut self,box_:&Handle)-> UiSaved {
         let mut out=PxuiSaved::default();
         check(self, unsafe{sys::pxui_ui_enter(self.0.as_ptr(),box_,&mut out)});out
     }
     #[inline] #[track_caller] pub fn leave(&mut self,saved:UiSaved) {check(self, unsafe{sys::pxui_ui_leave(self.0.as_ptr(),&saved)})}
-    #[inline] #[track_caller] pub fn focus_box(&mut self,box_:&PxuiBox) {check(self, unsafe{sys::pxui_ui_focus_box(self.0.as_ptr(),box_)})}
-    #[inline] #[track_caller] pub fn focused(&self,box_:&PxuiBox)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}
-    /// `box_`'s state slot, or `default` while it was never set.
+    #[inline] #[track_caller] pub fn focus_box(&mut self,box_:&Handle) {check(self, unsafe{sys::pxui_ui_focus_box(self.0.as_ptr(),box_)})}
+    #[inline] #[track_caller] pub fn focused(&self,box_:&Handle)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}
+    /// `box_`'s state slot, or `default` while it was never set: the one per-node value a build keeps across frames.
     ///
-    /// A handle of a node that has gone reads `default` (no panic), like every query on a stale handle.
+    /// The slot is an `i64`; store a bool as `0`/`1` and an `f32`/`f64` as its bits (`value.to_bits() as i64`). Its text counterpart
+    /// is `text_state` (a separate slot of the same node). A handle of a node that has gone reads `default` (no panic), like every
+    /// query on a stale handle.
     /// Allocates: never.
     /// Panics: outside a frame, or when the `Ui` has failed.
     ///
@@ -158,7 +183,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn state(&self,box_:&PxuiBox,default:i64)-> i64 {
+    pub fn state(&self,box_:&Handle,default:i64)-> i64 {
         let mut out=default;
         if !crate::live(self, unsafe{sys::pxui_ui_state(self.0.as_ptr(),box_,default,&mut out)}) { return default; }
         out
@@ -178,7 +203,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn set_state(&mut self,box_:&PxuiBox,value:i64) { let _ = crate::live(self, unsafe{sys::pxui_ui_set_state(self.0.as_ptr(),box_,value)}); }
+    pub fn set_state(&mut self,box_:&Handle,value:i64) { let _ = crate::live(self, unsafe{sys::pxui_ui_set_state(self.0.as_ptr(),box_,value)}); }
 
     /// What happened to `box_` this frame: one library call that fills scalars on the stack.
     ///
@@ -193,7 +218,7 @@ impl Ui {
     /// }).unwrap();
     /// ```
     #[inline]
-    #[track_caller] pub fn signal(&self,box_:&PxuiBox)-> Signal {
+    #[track_caller] pub fn signal(&self,box_:&Handle)-> Signal {
         let mut raw=PxuiSignal::default();
         let rc=unsafe{sys::pxui_ui_signal(self.0.as_ptr(),box_,&mut raw)};
         // a node that has gone has no signal: the engine's `signal` answers with an all-quiet one
@@ -215,7 +240,7 @@ impl Ui {
     /// }).unwrap();
     /// ```
     #[inline]
-    #[track_caller] pub fn signal_keys(&self,box_:&PxuiBox)-> &[Event] {
+    #[track_caller] pub fn signal_keys(&self,box_:&Handle)-> &[Event] {
         let mut raw=PxuiSignal::default();
         let rc=unsafe{sys::pxui_ui_signal(self.0.as_ptr(),box_,&mut raw)};
         if !crate::live(self, rc) || raw.keys.len==0 || raw.keys.ptr.is_null() { return &[]; }

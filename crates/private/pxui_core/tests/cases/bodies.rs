@@ -1073,7 +1073,7 @@ pub fn dialog_column_body() {
         frames
     };
     let got = swap_root("dialog", &install, 1, false, &script, &|ui, c| {
-        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("OK").default()];
+        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("OK").primary()];
         let out = ui.dialog("title", "Title", &buttons, &Dialog::DEFAULT, &mut |ui| {
             c.built();
             ui.node("text".into(), Node { h: Size::Px(30.0), ..Node::DEFAULT });
@@ -1420,7 +1420,7 @@ fn bar_row(ui: &mut Ui, c: &MenuRowConfig, text: &str, _key: Option<&str>) {
 
 pub fn context_menu_bar_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.menu_row = id, &|ui| ui.register_menu_row_body("bar", bar_row));
-    const ITEMS: [MenuItem; 3] = [MenuItem::new("Alpha").checked(true), MenuItem::new("Beta").checked(false).key("Ctrl B"), MenuItem::new("Gamma").enabled(false).danger()];
+    const ITEMS: [MenuItem; 3] = [MenuItem::new("Alpha").checked(true), MenuItem::new("Beta").checked(false).shortcut("Ctrl B"), MenuItem::new("Gamma").enabled(false).danger()];
     let got = swap_root("context_menu", &install, 0, true, &|ui| click_on(ui, Role::MenuItem, "Beta"), &|ui, c| {
         if let Some(i) = ui.menu("menu".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT).chosen {
             c.a.set(i as i64 + 1);

@@ -1,3 +1,4 @@
+use crate::Handle;
 use crate::{Key, PxuiBox, Response, Scrubber, SearchField, SearchFieldResponse, Ui, check};
 use pxui_types::{ffi::{PxuiKeyedDesc, PxuiResponse, Slice}, theme::BodyKind, ui::Checkbox, Str};
 
@@ -18,7 +19,7 @@ library!(scrub_lib {
 #[derive(Clone, Copy, Debug)]
 pub struct Scrub {
     /// The scrubber's node, valid this frame: size it with `set_node_layout` and paint it with `draw`.
-    pub node: PxuiBox,
+    pub node: Handle,
     /// The provisional value while the pointer drags, or none.
     pub preview: Option<f32>,
     /// The final value: the pointer's release, or a key or accessibility adjustment; none otherwise.
@@ -96,30 +97,30 @@ impl Ui {
 
     /// The one body of `progress`.
     #[track_caller]
-    pub(crate) fn progress_key(&mut self, key: Key, text: &str, value: Option<f32>) -> PxuiBox {
+    pub(crate) fn progress_key(&mut self, key: Key, text: &str, value: Option<f32>) -> Handle {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(text));
-        let mut out = PxuiBox::default();
+        let mut out = Handle::default();
         check(self, unsafe { keyed_lib::pxui_ui_progress_keyed(self.0.as_ptr(), &keyed, value.is_some() as u8, value.unwrap_or_default(), &mut out) });
         out
     }
 
     /// The one body of `spinner`.
     #[track_caller]
-    pub(crate) fn spinner_key(&mut self, key: Key, name: &str) -> PxuiBox {
+    pub(crate) fn spinner_key(&mut self, key: Key, name: &str) -> Handle {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(name));
-        let mut out = PxuiBox::default();
+        let mut out = Handle::default();
         check(self, unsafe { keyed_lib::pxui_ui_spinner_keyed(self.0.as_ptr(), &keyed, &mut out) });
         out
     }
 
     /// The one body of `badge`.
     #[track_caller]
-    pub(crate) fn badge_key(&mut self, key: Key, name: &str, text: &str) -> PxuiBox {
+    pub(crate) fn badge_key(&mut self, key: Key, name: &str, text: &str) -> Handle {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(name));
-        let mut out = PxuiBox::default();
+        let mut out = Handle::default();
         check(self, unsafe { keyed_lib::pxui_ui_badge_keyed(self.0.as_ptr(), &keyed, crate::as_str(text), &mut out) });
         out
     }

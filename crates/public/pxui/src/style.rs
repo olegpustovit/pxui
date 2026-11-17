@@ -1,4 +1,5 @@
-use pxui_types::{PxuiBox, ffi::PxuiStateDesc, theme::{Look, State, States}};
+use crate::Handle;
+use pxui_types::{ffi::PxuiStateDesc, theme::{Look, State, States}};
 use crate::{node, Ui, check};
 
 #[cfg(feature="static")]
@@ -20,14 +21,14 @@ fn encode_state(value:State)->PxuiStateDesc { node::state(value) }
 impl Ui {
     /// Applies one look to a live node and records its interaction state for transitions.
     #[inline]
-    #[track_caller] pub fn set_look(&mut self,box_:&PxuiBox,look:Look,state:State) {
+    #[track_caller] pub fn set_look(&mut self,box_:&Handle,look:Look,state:State) {
         let look=node::look(look); let state=encode_state(state);
         check(self, unsafe{sys::pxui_ui_set_look(self.0.as_ptr(),box_,&look,&state)})
     }
 
     /// Picks and applies the matching interaction look to a live node.
     #[inline]
-    #[track_caller] pub fn style(&mut self,box_:&PxuiBox,states:&States,state:State) {
+    #[track_caller] pub fn style(&mut self,box_:&Handle,states:&States,state:State) {
         let values=[node::look(states.idle),node::look(states.hover),node::look(states.pressed),node::look(states.focus),node::look(states.disabled),node::look(states.checked)];
         let state=encode_state(state);
         check(self, unsafe{sys::pxui_ui_style(self.0.as_ptr(),box_,values.as_ptr(),&state)})

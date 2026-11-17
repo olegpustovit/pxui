@@ -7067,6 +7067,17 @@ impl Ui {
         self.view_entry(label, revision, w, h, false, f)
     }
 
+    /// The authoring view (the wrapper's `Ui::view_of`): a `view` keyed by `key` that fills its parent, so its size comes from the
+    /// enclosing node. On the main axis of a row or column whose size there is `Fit` (where filling leaves nothing to fill) it takes
+    /// its content's size instead, as a content-sized view. `revision` is the hash of what `f` reads; the view keeps its build while it
+    /// is unchanged. It always has its own painter table entry.
+    pub fn view_of(&mut self, key: &str, revision: &u64, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+        let parent = self.nd(self.current_parent());
+        let along = |axis: Axis, size: Size| if parent.axis == axis && matches!(size, Size::Fit) { Size::Fit } else { Size::Grow };
+        let (w, h) = (along(Axis::Row, parent.w), along(Axis::Column, parent.h));
+        self.view_entry(key, *revision, w, h, true, f)
+    }
+
     fn view_entry(&mut self, label: &str, revision: u64, w: Size, h: Size, entry: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let b = self.node_ref(label, &Node { w, h, ..Node::DEFAULT });
         let parent = self.view_cur;

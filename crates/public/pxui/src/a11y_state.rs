@@ -1,4 +1,5 @@
-use crate::{PxuiBox, Ui};
+use crate::Handle;
+use crate::{Ui};
 
 #[cfg(feature = "static")]
 mod sys {
@@ -47,7 +48,7 @@ impl Ui {
     /// });
     /// ```
     #[inline]
-    #[track_caller] pub fn a11y_number(&mut self, box_: &PxuiBox, now: f64, min: f64, max: f64, step: f64)  {
+    #[track_caller] pub fn a11y_number(&mut self, box_: &Handle, now: f64, min: f64, max: f64, step: f64)  {
         let rc = unsafe { sys::pxui_ui_a11y_number(self.0.as_ptr(), box_, now, min, max, step) };
         crate::live(self, rc);
     }
@@ -66,7 +67,7 @@ impl Ui {
     /// assert!(ui.a11y_nodes().iter().any(|n| n.role == Role::Button as u32));
     /// ```
     #[inline]
-    #[track_caller] pub fn set_role(&mut self, box_: &PxuiBox, role: pxui_types::a11y::Role, states: u32)  {
+    #[track_caller] pub fn set_role(&mut self, box_: &Handle, role: pxui_types::a11y::Role, states: u32)  {
         let rc = unsafe { sys::pxui_ui_set_role(self.0.as_ptr(), box_, role as u32, states) };
         crate::live(self, rc);
     }

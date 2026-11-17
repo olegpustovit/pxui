@@ -1,11 +1,10 @@
 //! A settled frame allocates nothing: a small widget panel built through the wrapper, with a signal read per interactive box, a
-//! box with a hit callback, a canvas that fills more than one span and every output accessor,
+//! canvas that fills more than one span and every output accessor,
 //! between two counted points. The counting allocator is `mem_sys`, installed for the test binary by the `use`: linked statically
 //! (`--features static`) it counts the library's allocations too; linked dynamically it counts the wrapper's own.
 use crate::{Fill, Label, Node, Stroke, Ui};
-use pxui_types::{geom::{Rect, Rgba}};
-use crate::opts::{BoxOpts, HitFn};
-use std::{rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
+use pxui_types::geom::{Rect, Rgba};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 /// How many times the canvas callback ran and how many shapes it stored (a span holds 256: it refills)
 static CANVAS_RUNS: AtomicUsize = AtomicUsize::new(0);
@@ -22,7 +21,6 @@ struct State {
     volume: f32,
     mode: usize,
     seen: u64,
-    hit: HitFn,
 }
 
 fn panel(ui: &mut Ui, s: &mut State) {
@@ -52,11 +50,11 @@ fn panel(ui: &mut Ui, s: &mut State) {
 // list, a table and a popup.
 fn engine_shaped(ui: &mut Ui, s: &mut State) {
     s.seen += (ui.font_size() + ui.row_height()) as u64 + ui.frame_index() + ui.captured() as u64;
-    let scroller = ui.box_fmt(format_args!("scroller"), BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)).at((4.0, 4.0)));
+    let scroller = ui.node("scroller".into(), Node { at: Some((4.0, 4.0)).into(), ..Node::DEFAULT.flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)) });
     s.seen += ui.scroll(&scroller).settled as u64 + ui.local_rect(&scroller).w as u64 + ui.cached_label(&scroller, 0, "cached").len() as u64;
     ui.set_text_state(&scroller, None);
     s.seen += ui.text_state(&scroller).is_some() as u64 + ui.hovered_exactly(&scroller) as u64 + ui.drop_target(&scroller).is_some() as u64;
-    let canvas = ui.box_("canvas", BoxOpts::default().w(Size::Px(80.0)).h(Size::Px(30.0)));
+    let canvas = ui.node("canvas".into(), Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(30.0)));
     let origin = s.clicks as f32;
     ui.canvas(&canvas, move |p, _| {
         CANVAS_RUNS.fetch_add(1, Ordering::Relaxed);
@@ -68,8 +66,6 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
         p.text((2.0, 12.0), &Label::BODY, 0.0, "span");
         p.fill(Rect::new(40.0, 0.0, 8.0, 8.0), Fill::new(Rgba { r: 9, g: 9, b: 9, a: 255 }));
     });
-    let hit = ui.box_("hit", BoxOpts { hit: Some(Rc::clone(&s.hit)), ..BoxOpts::default().w(Size::Px(20.0)).h(Size::Px(20.0)) });
-    s.seen += hit.box_key as u64 & 1;
     s.seen += ui.selection_list("items", 3, &mut [0; 3], &crate::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["one", "two", "three"][row])).activated.is_some() as u64;
     s.seen += ui.table_view("table", &["Name", "Size"], &mut [], 3, &mut None, &crate::TableView::text(crate::ui::Rect::new(0.0, 0.0, 120.0, 60.0)), &mut |ui, _, column| ui.item_text(if column == 0 { "row" } else { "1" })).row.is_some() as u64;
     s.seen += ui.popup("popup", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(80.0).h(30.0).dismiss_initial(), &mut |ui: &mut Ui| { ui.label("popped", crate::Label::DEFAULT); }) as u64;
@@ -82,16 +78,15 @@ fn a_settled_frame_through_the_wrapper_allocates_nothing() {
     drop(std::hint::black_box(Box::new(1u64)));
     assert!(mem_sys::local_alloc_count() > counted, "the counting allocator is installed");
     let mut ui = Ui::new().expect("library");
-    let hit: HitFn = Rc::new(|rect: Rect| rect);
     let mut state = State {
-        clicks: 0, night: false, check: false, volume: 0.5, mode: 0, seen: 0, hit,
+        clicks: 0, night: false, check: false, volume: 0.5, mode: 0, seen: 0,
     };
     let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
     // `revision` is the page view's when there is one: a changing one rebuilds the whole page (every canvas callback runs and
     // refills its spans); without a view the retained frame is left alone
     let frame = |ui: &mut Ui, state: &mut State, revision: Option<u64>| {
         ui.frame(&input, &mut |ui: &mut Ui| match revision {
-            Some(revision) => { ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut Ui| panel(ui, state)); }
+            Some(revision) => { ui.view_of("page", &revision, |ui: &mut Ui| panel(ui, state)); }
             None => panel(ui, state),
         }).expect("frame");
         // the stat accessors read the cached output: no rebuild, no allocation

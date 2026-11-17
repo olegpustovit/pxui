@@ -1,8 +1,7 @@
 //! The engine-shaped surface through the wrapper: queries, boxes, patches, scroll and text state, carries, view calls
 //! and the loud failure of a caller bug.
 use crate::{Fill, Stroke, Ui};
-use crate::opts::BoxOpts;
-use pxui_types::{geom::Rect, ui::{Cursor, UndoKind}, FrameIn, Mark, Size};
+use pxui_types::{geom::Rect, ui::{Cursor, UndoKind}, FrameIn, Mark, Node, Size};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 
@@ -194,7 +193,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
         let keys:Vec<Cell<i64>>=(0..10_000).map(|_| Cell::new(0)).collect();
         let row_key=|index:usize| keys[index].get();
         let mut build=|ui:&mut Ui| {
-            ui.view("reveal-page",count.get() as u64,Size::Px(size.get()),Size::Px(size.get()),&mut |ui| {
+            ui.column("reveal-page", Node::column().w_px(size.get()).h_px(size.get()), |ui| { ui.view_of("reveal-page", &(count.get() as u64), |ui| {
                 let mut row=|ui:&mut Ui,index:usize| {
                     calls.set(calls.get()+1);
                     let h=if kind==1 || kind==2 {10.0+(index%3) as f32*20.0} else {20.0};
@@ -211,7 +210,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
                 ui.set_node_layout(&list,&Node::DEFAULT.w(Size::Grow).h(Size::Grow).padding(crate::geom::Edges::all(6.0)));
                 body.set(Some(list));
                 if let Some(index)=requested.take() {ui.reveal(&list,index);}
-            });
+            }); });
         };
         ui.frame(&input(),&mut build).unwrap();
         ui.frame(&input(),&mut build).unwrap();
@@ -263,7 +262,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
 
 #[test]
 fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allocations() {
-    use crate::{Event, GestureOpts, GestureState, SwipeActions, Touch, Str, ui::{BoxOpts, Size}};
+    use crate::{Event, GestureOpts, GestureState, SwipeActions, Touch, Str, ui::Size};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
@@ -271,7 +270,7 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
     let node = Cell::new(None);
     let mut time = 0.0;
     let mut build = |ui: &mut Ui| {
-        let row = ui.box_("row", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(50.0)).flags(pxui_types::Flags::CLICKABLE));
+        let row = ui.node("row".into(), Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(50.0)).flags(pxui_types::Flags::CLICKABLE) });
         node.set(Some(row));
         state.set(ui.gesture(&row, GestureOpts::DEFAULT.long_press().swipe_actions(SwipeActions::DEFAULT.leading(60.0).trailing(80.0).full(120.0))));
     };
@@ -341,13 +340,13 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
 
 #[test]
 fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocations() {
-    use crate::{DismissOpts, Event, GestureOpts, GestureState, Touch, Str, ui::{BoxOpts, Size}};
+    use crate::{DismissOpts, Event, GestureOpts, GestureState, Touch, Str, ui::Size};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
     let state = Cell::new(GestureState::default());
     let mut build = |ui: &mut Ui| {
-        let sheet = ui.box_("sheet", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(200.0)).flags(pxui_types::Flags::CLICKABLE));
+        let sheet = ui.node("sheet".into(), Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(200.0)).flags(pxui_types::Flags::CLICKABLE) });
         state.set(ui.gesture(&sheet, GestureOpts::DEFAULT.dismiss(DismissOpts::DEFAULT)));
     };
     let touch = |ui: &mut Ui, phase: u32, y: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
@@ -541,12 +540,12 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
     let child = Cell::new(None);
     let builds = Cell::new(0);
     let mut build = |ui: &mut Ui| {
-        view.set(Some(ui.view("repeat", 1, Size::Px(20.0), Size::Px(10.0), &mut |ui| {
+        view.set(Some({ let enclosing = ui.node("repeat".into(), Node::column().w_px(20.0).h_px(10.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("repeat", &1, |ui| {
             builds.set(builds.get() + 1);
             let bar = ui.node("bar".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow).role(crate::ui::Role::Image).look(Look::NONE.fill(crate::geom::Rgba::rgb(255, 0, 0))));
             ui.a11y_name(&bar, "Repeated bar");
             child.set(Some(bar));
-        })));
+        })); view }));
     };
     let curve = Curve::Bezier { duration: 99.0, points: [0.0, 0.0, 1.0, 1.0] };
     let keys = [Keyframe::scale(0.0, 1.0, 0.4).anchor(0.5, 1.0).curve(curve), Keyframe::scale(0.5, 1.0, 1.0).anchor(0.5, 1.0).curve(curve)];
@@ -655,7 +654,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
     use std::cell::Cell;
     use crate::ui::{Node,SectionList,SectionPart,Role};
     mem_sys::set_peer(crate::library_counter);
-    for flat in [false,true] {
+    {
     let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
     let section=SectionList::new(10_000).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar();
     let body=Cell::new(None); let lead=Cell::new(None); let header=Cell::new(None); let first=Cell::new(None);
@@ -668,8 +667,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
                 SectionPart::Leading=>{
                     let clip=ui.node("heading-clip".into(),Node::DEFAULT.flags(pxui_types::Flags::CLIP).w(Size::Grow).h_px(100.0));
                     ui.within(&clip,&mut |ui| {
-                        let view=if flat {Ui::view_flat} else {Ui::view};
-                        view(ui,"heading-cache",0,Size::Grow,Size::Fit,&mut |ui| {
+                        ui.view_of("heading-cache",&0,|ui| {
                             let node=ui.node("title".into(),Node::DEFAULT.role(Role::Label).w(Size::Grow).h_px(100.0));
                             ui.a11y_name(&node,"Page heading"); lead.set(Some(node));
                         });
@@ -702,7 +700,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
             let previous_builds=frame_builds.get();
             ui.inject_a11y(&[crate::A11yAction {id,action_code:8,payload:(offset-previous) as f64,..Default::default()}]);
             ui.frame(&input(),&mut build).unwrap();
-            if !flat {assert_eq!(frame_builds.get()-previous_builds,1,"indexed heading return must not settle an extra frame build");}
+            assert_eq!(frame_builds.get()-previous_builds,1,"indexed heading return must not settle an extra frame build");
             assert!((ui.scroll(&body.get().unwrap()).settled-offset).abs()<0.001,"scroll offset");
             assert!((ui.rect(&lead.get().unwrap()).y+offset).abs()<0.001,"retained heading rect: {:?}",ui.rect(&lead.get().unwrap()));
             let heading=ui.a11y_nodes().iter().find(|n|ui.a11y_name_of(n)=="Page heading").unwrap();
@@ -776,12 +774,12 @@ fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() 
         for scale in [1.0,2.0,3.0,3.0] {
             ui.frame(&FrameIn {scale,..input()},&mut |ui| {
                 assert_eq!(ui.density(),scale as i64);
-                ui.view("density",0,Size::Px(40.0),Size::Px(40.0),&mut |ui| {
+                ui.column("density", Node::column().w_px(40.0).h_px(40.0), |ui| { ui.view_of("density", &0, |ui| {
                     builds.set(builds.get()+1);
                     let density=ui.density();
                     let node=ui.node("paint".into(),crate::Node::DEFAULT.w_px(40.0).h_px(40.0));
                     ui.canvas(&node,move |paint,_| {assert_eq!(paint.density(),density);});
-                });
+                }); });
             }).unwrap();
             assert_eq!(ui.density(),scale as i64,"owner keeps the last frame's density");
         }
@@ -995,9 +993,9 @@ fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
     let mut ui = Ui::new().unwrap();
     let view = Cell::new(None);
     let mut build = |ui: &mut Ui| {
-        view.set(Some(ui.view("glass", 1, Size::Px(120.0), Size::Px(40.0), &mut |ui| {
+        view.set(Some({ let enclosing = ui.node("glass".into(), Node::column().w_px(120.0).h_px(40.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("glass", &1, |ui| {
             ui.node("pane".into(), crate::Node::DEFAULT.w_px(120.0).h_px(40.0).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::WHITE)));
-        })));
+        })); view }));
     };
     ui.frame(&input(), &mut build).unwrap();
     let view = view.get().unwrap();
@@ -1025,16 +1023,18 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
     ui.set_a11y(true);
     let (child, view, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
     let mut content = |ui: &mut Ui| {
-        let v = ui.view("scale", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
+        let v_box = ui.node("scale".into(), Node::column().w_px(100.0).h_px(80.0));
+        ui.set_at(&v_box, (100.0, 40.0));
+        let mut v = v_box;
+        ui.within(&v_box, &mut |ui| v = ui.view_of("scale", &1, |ui| {
             builds.set(builds.get() + 1);
             let b = ui.node("child".into(), Node::DEFAULT.w_px(20.0).h_px(10.0).role(Role::Button).at(20.0, 10.0).look(Look::NONE.fill(pxui_types::geom::Rgba::rgb(9, 9, 9))));
             ui.a11y_name(&b, "Scaled");
             child.set(Some(b));
-        });
-        ui.set_at(&v, (100.0, 40.0));
+        }));
         view.set(Some(v));
     };
-    let mut build=|ui:&mut Ui| {if nested {ui.view("outer",0,Size::Grow,Size::Grow,&mut content);} else {content(ui);}};
+    let mut build=|ui:&mut Ui| {if nested {ui.view_of("outer", &0, &mut content);} else {content(ui);}};
     for time in [0.0, 0.1] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
     let (view, child, built) = (view.get().unwrap(), child.get().unwrap(), builds.get());
     let instances = ui.layer(0).instances.to_vec();
@@ -1108,10 +1108,10 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
     let builds = Cell::new(0);
     let mut ui = Ui::new().expect("library");
     let mut build = |ui: &mut Ui| {
-        ui.view("animation", 1, Size::Px(250.0), Size::Px(50.0), &mut |ui| {
+        ui.column("animation", Node::column().w_px(250.0).h_px(50.0), |ui| { ui.view_of("animation", &1, |ui| {
             builds.set(builds.get() + 1);
             chip.set(Some(ui.node("chip".into(), Node::DEFAULT.w_px(40.0).h_px(20.0).look(Look::NONE.fill(pxui_types::geom::Rgba::rgb(200, 40, 40))))));
-        });
+        }); });
     };
     for time in [0.0, 0.1] { ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap(); }
     let chip = chip.get().unwrap();
@@ -1161,8 +1161,7 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
     ui.frame(&input(), &mut |ui: &mut Ui| {
         assert!(!ui.captured() && !ui.text_input_focused() && !ui.verifying());
         assert_eq!(ui.passed_undo(), None::<UndoKind>);
-        let b = ui.box_("scroller", BoxOpts::default().flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::SCROLL | pxui_types::Flags::CLIP).w(Size::Px(100.0)).h(Size::Px(60.0)).at((10.0, 20.0)).scroll_step(12.0));
-        ui.box_fmt(format_args!("{}-fmt", "fmt"), BoxOpts::default().w(Size::Px(10.0)).h(Size::Px(10.0)));
+        let b = ui.node("scroller".into(), Node { at: Some((10.0, 20.0)).into(), scroll_step: 12.0, ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::SCROLL | pxui_types::Flags::CLIP).w(Size::Px(100.0)).h(Size::Px(60.0)) });
         assert_eq!(ui.scroll(&b).settled, 0.0);
         ui.set_scroll_offset(&b, 5.0);
         assert_eq!((ui.scroll(&b).settled, ui.scroll(&b).painted), (5.0, 5.0));
@@ -1199,7 +1198,7 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
 #[test]
 fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
     let mut ui = Ui::new().expect("library");
-    let stale = pxui_types::PxuiBox { index: 0, box_key: 1, box_slot: 99, generation: 7 };
+    let stale = crate::Handle { index: 0, box_key: 1, box_slot: 99, generation: 7 };
     let err = catch_unwind(AssertUnwindSafe(|| { let _ = ui.scroll(&stale).settled; })).expect_err("a stale box is refused");
     let message = err.downcast_ref::<String>().expect("a formatted message");
     assert!(message.contains("stale box"), "{message}");
@@ -1356,7 +1355,7 @@ fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
 fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     use pxui_types::ui::TextEdit;
     let mut ui = Ui::new().expect("library");
-    let stale = pxui_types::PxuiBox { index: 0, box_key: 1, box_slot: 99, generation: 7 };
+    let stale = crate::Handle { index: 0, box_key: 1, box_slot: 99, generation: 7 };
     // the engine answers a stale handle with false, so does the one export that replaced the wrapper's several calls
     assert!(!ui.patch_field(&stale, &crate::ValueField::DEFAULT, "1.5"));
     assert!(!ui.patch_text(&stale, "x"));
@@ -1750,11 +1749,11 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
     let builds=Cell::new(0);
     let seen=Cell::new(0);
     let mut build=|ui:&mut Ui| {
-        handle.set(Some(ui.view("system",1,Size::Px(100.0),Size::Px(60.0),&mut |ui| {
+        handle.set(Some({ let enclosing = ui.node("system".into(), Node::column().w_px(100.0).h_px(60.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("system", &1, |ui| {
             builds.set(builds.get()+1);
             seen.set(ui.system_appearance());
             child.set(Some(ui.node("child".into(),crate::Node::DEFAULT.w_px(20.0).h_px(10.0).at(10.0,10.0))));
-        })));
+        })); view }));
         let reduced=ui.tokens().reduced_motion;
         ui.themed(&scoped,&mut |ui|assert_eq!(ui.tokens().reduced_motion,reduced,"a scoped theme cannot bypass OS motion policy"));
     };
@@ -1802,11 +1801,12 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     let builds=Cell::new(0);
     let mut ui=Ui::new().unwrap();
     let mut build=|ui:&mut Ui| {
-        let v=ui.view("controlled",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {
+        let enclosing = ui.node("controlled".into(), Node::column().w_px(100.0).h_px(80.0));
+        ui.set_at(&enclosing,(40.0,30.0));
+        let v={ let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("controlled", &1, |ui| {
             builds.set(builds.get()+1);
             child.set(Some(ui.node("child".into(),crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(20.0).h_px(10.0).at(10.0,10.0).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::rgb(255,0,0))))));
-        });
-        ui.set_at(&v,(40.0,30.0));
+        })); view };
         view.set(Some(v));
     };
     for time in [0.0,0.1] { ui.frame(&FrameIn { time,..input() },&mut build).unwrap(); }
@@ -1853,7 +1853,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
 fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
-    let rows:[Cell<Option<pxui_types::PxuiBox>>;200]=std::array::from_fn(|_|Cell::new(None));
+    let rows:[Cell<Option<crate::Handle>>;200]=std::array::from_fn(|_|Cell::new(None));
     let calls=Cell::new(0);
     let list=Cell::new(None);
     let count=Cell::new(200);
@@ -2113,8 +2113,8 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
     let mut deliveries = 0;
     let payload = PayloadRef { kind: "queue-occurrence", value: "18446744073709551615" };
     let mut build = |ui: &mut Ui| {
-        let source = ui.box_("carry-source", BoxOpts::default().flags(pxui_types::Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
-        let target = ui.box_("carry-target", BoxOpts::default().flags(pxui_types::Flags::CLICKABLE).at((0.0, 100.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
+        let source = ui.node("carry-source".into(), Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(40.0)) });
+        let target = ui.node("carry-target".into(), Node { at: Some((0.0, 100.0)).into(), ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(40.0)) });
         if ui.signal(&source).held { ui.carry(Some(&source), payload.kind, payload.value); }
         if let Some(p) = ui.carrying() { assert_eq!(p, payload); }
         hover = false; dropped = false;
@@ -2279,16 +2279,16 @@ fn output_partitions_reuse_the_engine_dirty_capacity_after_unchanged_frames() {
     use crate::ui::{Node,Look};
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
-    let names:Vec<_>=(0..32).map(|index|format!("part-{index}")).collect();
+    let names:Vec<&'static str>=(0..32).map(|index|&*format!("part-{index}").leak()).collect();
     for frame in 0..8 {
         ui.frame(&FrameIn{time:frame as f64,..input()},&mut |ui| {
             for (index,name) in names.iter().enumerate() {
                 let phase=if frame<3 {frame.min(1)} else {frame-1};
                 let changed=index%2==0 && phase%2==1;
                 let revision=if index%2==0 {phase as u64} else {0};
-                ui.view(name.as_str(),revision,Size::Px(20.0),Size::Px(4.0),&mut |ui| {
+                ui.column(*name, Node::column().w_px(20.0).h_px(4.0), |ui| { ui.view_of(*name, &revision, |ui| {
                     ui.node("quad".into(),Node::DEFAULT.w_px(20.0).h_px(4.0).look(Look::NONE.fill(if changed {pxui_types::geom::Rgba::rgb(0, 0, 255)} else {pxui_types::geom::Rgba::WHITE})));
-                });
+                }); });
             }
         }).unwrap();
         if frame<2 { ui.drawn(0); continue; }
@@ -2312,11 +2312,11 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
     ui.set_a11y(true);
     let (view, child, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
     let mut build = |ui: &mut Ui| {
-        let v=ui.view("entrance",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {
+        let v={ let enclosing = ui.node("entrance".into(), Node::column().w_px(100.0).h_px(80.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("entrance", &1, |ui| {
             builds.set(builds.get()+1);
             let b=ui.node("child".into(),Node::DEFAULT.w_px(20.0).h_px(10.0).role(Role::Button).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::rgb(20,30,40))));
             ui.a11y_name(&b,"Moving child"); child.set(Some(b));
-        });
+        })); view };
         ui.set_at(&v,(20.0,20.0)); view.set(Some(v));
     };
     ui.frame(&input(),&mut build).unwrap();
@@ -2354,10 +2354,10 @@ fn recycled_view_records_reserve_short_name_storage_without_losing_diagnostics()
     use crate::ui::Node;
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
-    let seed=|ui:&mut Ui,label:&str| {
+    let seed=|ui:&mut Ui,label:&'static str| {
         for index in 0..16 {
             let parent=ui.node(crate::ui::int_key(0x91b17,index).into(),Node::DEFAULT.w_px(10.0).h_px(10.0));
-            ui.within(&parent,&mut |ui| {ui.view(label,1,Size::Grow,Size::Grow,&mut |_| {});});
+            ui.within(&parent,&mut |ui| {ui.view_of(label, &1, |_| {});});
         }
     };
     for _ in 0..2 {ui.frame(&input(),&mut |ui| seed(ui,"x")).unwrap();}
@@ -2379,14 +2379,14 @@ fn reopening_nested_view_kinds_reuses_their_node_and_hit_capacities() {
     let shown=Cell::new(true);
     let mut build=|ui:&mut Ui| {
         if shown.get() {
-            ui.view("panel",1,Size::Grow,Size::Grow,&mut |ui| {
+            ui.view_of("panel", &1, |ui| {
                 for (label,count) in [("header",2),("information",10),("clock",1),("queue",24)] {
-                    ui.view(label,1,Size::Grow,Size::Px(40.0),&mut |ui| {
+                    ui.column(label, Node::column().h_px(40.0), |ui| { ui.view_of(label, &1, |ui| {
                         for _index in 0..count {
                             let b=ui.node("item".into(),Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(10.0).h_px(1.0).role(Role::Button));
                             ui.a11y_name(&b,"item");
                         }
-                    });
+                    }); });
                 }
             });
         }
@@ -2443,11 +2443,11 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
         for (index,width) in [80.0,200.0].into_iter().enumerate() {
             for empty in [false,true] {
                 ui.frame(&FrameIn {time:round as f64,..input()},&mut |ui| {
-                    ui.view("wrapper",(width as u64)*2+u64::from(empty),Size::Px(width),Size::Fit,&mut |ui| {
+                    ui.column("wrapper", Node::column().w_px(width), |ui| { ui.view_of("wrapper", &((width as u64)*2+u64::from(empty)), |ui| {
                         let node=ui.node("line".into(),Node::DEFAULT.role(Role::Label).w(Size::Grow).h(Size::Fit));
                         ui.text_line_box(&node,if empty {""} else {value},&style,&[]).unwrap();
                         handle.set(Some(node));
-                    });
+                    }); });
                 }).unwrap();
                 let rect=ui.rect(&handle.get().unwrap());
                 assert!((rect.w-width).abs()<0.001);
@@ -2561,7 +2561,7 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
         ui.a11y_value(&node,"one",(0,0));ui.a11y_number(&node,1.0,0.0,2.0,1.0);
     }).unwrap();
     let node=ui.a11y_nodes().iter().find(|node|node.is_role(crate::ui::Role::Slider)).unwrap();assert_eq!(node.value.tag,2);assert_eq!(ui.a11y_value_of(node),None);
-    let stale=pxui_types::PxuiBox {index:0,box_key:1,box_slot:99,generation:99};ui.a11y_value(&stale,"stale",(0,0));
+    let stale=crate::Handle {index:0,box_key:1,box_slot:99,generation:99};ui.a11y_value(&stale,"stale",(0,0));
     assert!(ui.last_error().contains("stale"));
     for (value,selection,expected) in [("é",(1,0),[0,0]),("aé",(2,99),[1,2]),("🎵x",(3,1),[0,0])] {
         ui.frame(&input(),&mut |ui| {
@@ -2580,7 +2580,7 @@ fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
     let builds=Cell::new(0);
     let seen=Cell::new(crate::Environment::default());
     let mut build=|ui:&mut Ui| {
-        ui.view("environment",1,Size::Grow,Size::Grow,&mut |ui| {
+        ui.view_of("environment", &1, |ui| {
             builds.set(builds.get()+1); seen.set(ui.environment()); ui.label("Environment", crate::Label::DEFAULT);
         });
     };
@@ -2648,7 +2648,7 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
     let built = Cell::new(0);
     let mut build = |ui: &mut Ui| {
         built.set(0);
-        ui.view("touch-page", 0, Size::Grow, Size::Grow, &mut |ui| {
+        ui.view_of("touch-page", &0, |ui| {
             body.set(Some(ui.section_list("touch-list", &SectionList::new(10_000).row_h(24.0).overlay_scrollbar(),&|i| i as i64, &mut |ui, part,_| {
                 if let SectionPart::Row(index) = part {
                     built.set(built.get() + 1);
@@ -2702,7 +2702,7 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
     let builds = Cell::new(0);
     let expected = Cell::new([0.0, 47.0, 390.0, 763.0]);
     let mut build = |ui: &mut Ui| {
-        ui.view("keyboard-content", 0, Size::Grow, Size::Grow, &mut |ui| {
+        ui.view_of("keyboard-content", &0, |ui| {
             builds.set(builds.get()+1);
             let rect = ui.content_rect();
             assert_eq!([rect.x, rect.y, rect.w, rect.h], expected.get());
@@ -2772,7 +2772,7 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
     let show_search=Cell::new(true);
     let done=Options::SEARCH.action(crate::ReturnKey::Done);
     let mut build=|ui:&mut Ui| {
-        ui.view("input options",show_search.get() as u64,Size::Grow,Size::Grow,&mut |ui| {
+        ui.view_of("input options", &(show_search.get() as u64), |ui| {
             if show_search.get() { assert!(ui.text_field("Search","café",&TextField::SEARCH).changed.is_none()); }
             assert!(ui.text_field("Name","café",&TextField::SEARCH.action(crate::ReturnKey::Done)).changed.is_none());
         });
@@ -2974,12 +2974,12 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     // what the app reads while building (inside a retained view whose revision never changes), painting and in a scope
     let (built, painted, scoped) = (Cell::new(Rgba::default()), Rc::new(Cell::new(Rgba::default())), Cell::new(Rgba::default()));
     let mut build = |ui: &mut Ui| {
-        ui.view("tokens", 1, Size::Px(100.0), Size::Px(60.0), &mut |ui| {
+        ui.column("tokens", Node::column().w_px(100.0).h_px(60.0), |ui| { ui.view_of("tokens", &1, |ui| {
             built.set(ui.color(ColorToken(1)));
             let b = ui.node("canvas".into(), crate::Node::DEFAULT.w_px(20.0).h_px(10.0));
             let painted = painted.clone();
             ui.canvas(&b, move |p, _| painted.set(p.color(ColorToken(0))));
-        });
+        }); });
         ui.themed(&dark, &mut |ui| scoped.set(ui.color(ColorToken(0))));
     };
     for round in 0..4 {
@@ -3030,7 +3030,7 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     let (node, pressed, button) = (Cell::new(Look::NONE), Cell::new(Look::NONE), Cell::new(Look::NONE));
     // a retained view whose revision never changes: the engine rebuilds it at the swap, the app changes nothing
     let mut build = |ui: &mut Ui| {
-        ui.view("tokens", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
+        ui.column("tokens", Node::column().w_px(200.0).h_px(100.0), |ui| { ui.view_of("tokens", &1, |ui| {
             let b = ui.node("plain".into(), crate::Node::DEFAULT.w_px(20.0).h_px(10.0).look(ROW));
             node.set(ui.node_mut(&b, |f| f.look));
             let p = ui.pressable("row", crate::Node::DEFAULT.w_px(20.0).h_px(10.0), &crate::Pressable::DEFAULT.look(&PLATE), |_, _| {});
@@ -3038,7 +3038,7 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
             ui.icon_button("key", crate::Icon::glyph('>'), "Key", &KEY);
             let b = ui.button_with("button", "Button", &crate::Button::DEFAULT.look(&PLATE));
             button.set(ui.node_mut(&b.handle, |f| f.look));
-        });
+        }); });
     };
     for round in 0..4 {
         for (theme, paper, ink) in [(&light, c(240), c(30)), (&dark, c(16), c(220))] {

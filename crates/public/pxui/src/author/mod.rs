@@ -10,6 +10,7 @@ mod layout;
 mod menu;
 mod overlay;
 mod press;
+#[cfg(test)]
 mod state;
 mod text;
 mod toggle;

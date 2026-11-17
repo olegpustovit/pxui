@@ -1,7 +1,7 @@
 use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, core_box, fail, finite, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui_text::{Menu, MenuItem, MenuResponse, Pick, PickerOpts, PickRows};
+use pxui_core::ui_text::{Menu, MenuItem, Chosen, Pick, PickerOpts, PickRows};
 use std::rc::Rc;
 use pxui_types::{ffi::PxuiKeyedDesc, ui::{shown, Toast}};
 use pxui_types::ui::Key as NodeKey;
@@ -86,7 +86,7 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
     let (mut menu, mut subs) = { let shared = state.shared(); (core::mem::take(&mut shared.menu), core::mem::take(&mut shared.menu_sub)) };
     menu.extend(list.iter().zip(enabled).map(|(text, enabled)| MenuItem::new(text).enabled(*enabled != 0)));
     let mut options = Menu::DEFAULT;
-    if has_width != 0 { options = options.width(width); }
+    if has_width != 0 { options = options.w_px(width); }
     let mut marks = false;
     let mut valid = true;
     if !extra.is_null() {
@@ -101,7 +101,7 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
             if row as i64 >= lead_from || row as i64 == selected { item.checked = Some(row as i64 == selected); }
         }
     }
-    let mut result = MenuResponse::default();
+    let mut result = Chosen::default();
     let status = if valid { unsafe { crate::trusted::menu(ui, NodeKey::Label(label), (x, y), &menu, &options, &mut result) } } else { 0 };
     menu.clear();
     subs.clear();
@@ -189,7 +189,7 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         let start = subs.len();
         for (i, text) in rows.iter().enumerate() {
             let (Some(text), Some(shortcut)) = (unsafe { checked(*text) }, keys.get(i).map_or(Some(""), |key| unsafe { checked(*key) })) else { return false };
-            let mut item = MenuItem::new(text).enabled(enabled[i] != 0).key(shortcut);
+            let mut item = MenuItem::new(text).enabled(enabled[i] != 0).shortcut(shortcut);
             if sub.has_current != 0 { item = item.checked(i as i64 == sub.current); }
             subs.push(item);
         }

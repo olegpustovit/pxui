@@ -1,3 +1,4 @@
+use crate::Handle;
 use pxui_types::{Str, Mark, Node, PxuiBox, Size, theme::{Font, Look, Shadow}, ffi::{PxuiFontDesc, PxuiLookDesc, PxuiMarkDesc, PxuiRingDesc, PxuiShadowDesc, PxuiSizeDesc, PxuiStateDesc}};
 use crate::{check, Ui};
 
@@ -34,9 +35,9 @@ impl Ui {
     /// ```
     #[inline(always)]
     #[track_caller]
-    pub fn node(&mut self,key:crate::Key,node:Node)->PxuiBox {
+    pub fn node(&mut self,key:crate::Key,node:Node)->Handle {
         // written by the library whenever it returns 0; `check` does not return otherwise
-        let mut out=core::mem::MaybeUninit::<PxuiBox>::uninit();
+        let mut out=core::mem::MaybeUninit::<Handle>::uninit();
         let rc=match key {
             crate::Key::Label(label)=>self.node_call(label,&node,out.as_mut_ptr()),
             crate::Key::Id(id)=>{ let mut id_label=[0u8;17]; self.node_call(crate::Key::Id(id).label(&mut id_label),&node,out.as_mut_ptr()) }
@@ -47,7 +48,7 @@ impl Ui {
 
     /// The library call of `node`. Static: a Rust label is UTF-8 by its type, so the trusted entry checks only its length.
     #[inline(always)]
-    fn node_call(&mut self,label:&str,node:&Node,out:*mut PxuiBox)->i32 {
+    fn node_call(&mut self,label:&str,node:&Node,out:*mut Handle)->i32 {
         #[cfg(feature="static")]
         return unsafe{pxui_abi_link::trusted::node_str(self.0.as_ptr(),label,node,out)};
         #[cfg(not(feature="static"))]

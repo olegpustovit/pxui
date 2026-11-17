@@ -1,4 +1,5 @@
-use crate::{PxuiBox, Str, Ui, check};
+use crate::Handle;
+use crate::{Str, Ui, check};
 
 #[cfg(feature = "static")]
 mod sys {
@@ -106,7 +107,7 @@ impl Ui {
     /// assert!(ui.a11y_tree().0.windows("héllo".len()).any(|w| w == "héllo".as_bytes()));
     /// ```
     #[track_caller]
-    pub fn a11y_value(&mut self,box_:&PxuiBox,value:&str,selection:(u32,u32)) {
+    pub fn a11y_value(&mut self,box_:&Handle,value:&str,selection:(u32,u32)) {
         let boundary=|offset:u32|{let mut at=(offset as usize).min(value.len());while !value.is_char_boundary(at) {at-=1;}at as u32};
         let (anchor,caret)=(boundary(selection.0),boundary(selection.1));
         let value=Str {ptr:value.as_ptr(),len:value.len()};
@@ -126,7 +127,7 @@ impl Ui {
     /// assert!(ui.a11y_tree().0.windows(4).any(|w| w == b"Play"));
     /// ```
     #[inline]
-    #[track_caller] pub fn a11y_name(&mut self, box_: &PxuiBox, name: &str)  {
+    #[track_caller] pub fn a11y_name(&mut self, box_: &Handle, name: &str)  {
         let name = Str { ptr: name.as_ptr(), len: name.len() };
         let rc = unsafe { sys::pxui_ui_a11y_name(self.0.as_ptr(), box_, name) };
         check(self, rc)

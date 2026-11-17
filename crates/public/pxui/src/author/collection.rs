@@ -1,22 +1,23 @@
 //! The collections keyed apart from their text: `ui.section_list` (fixed or measured rows, one call), `ui.grid_list`,
 //! `ui.selection_list`, `ui.tree`, `ui.table_view` and `ui.table`. Each reports a small result and is built through its bodies
 //! (`selection_list`/`tree`/`table_row`/`table_head` rows and `table_cell` cells), so a registered body replaces its structure.
+use crate::Handle;
 use super::Key;
-use crate::{collections::TreeNode, PxuiBox, Ui};
+use crate::{collections::TreeNode, Ui};
 use pxui_types::{ui::{ListResponse, SectionList, SectionPart, SelectionList, TableResponse, TableView, TreeResponse}};
 
 impl Ui {
     /// Declares a scrolling lead-in, a sticky heading and virtual rows in one scroll region filling its parent, and returns the scroll box.
     ///
     /// `build(ui, part, y)` builds the lead-in, the heading and each row in view (`y` is the part's logical content Y). Row `i`'s box is
-    /// keyed by the item id `id(i)`, so a row's state follows its item when the items reorder (React's row key); ids must be unique
+    /// keyed by the item id `row_key(i)`, so a row's state follows its item when the items reorder (React's row key); ids must be unique
     /// among the rows (a repeated id takes a `#dup` key). With `SectionList::measured` each row takes the height it lays out to (the
     /// row height its estimate until built). `reveal(&returned_box, row)` scrolls a row into view (minimum scroll, heading respected).
     /// Allocates: never on a warm frame (a measured list's height cache grows with the count).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); row boxes are `Key::Id(id(i))` under
-    /// the list's rows.
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); row boxes are `Key::Id(row_key(i))`
+    /// under the list's rows.
     /// Panics: when the library refuses the geometry (a row height that is not positive and finite, more than a million rows), or when
-    /// `build` or `id` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// `build` or `row_key` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::ui::{SectionList, SectionPart};
@@ -29,8 +30,8 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn section_list<K: Into<Key>>(&mut self, key: K, section: &SectionList, id: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> PxuiBox {
-        self.section_list_key(key.into(), section, id, build)
+    pub fn section_list<K: Into<Key>>(&mut self, key: K, section: &SectionList, row_key: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> Handle {
+        self.section_list_key(key.into(), section, row_key, build)
     }
 
     /// Declares a virtual grid of `count` cells, each `cell_w` by `cell_h` points, filling its parent: as many columns as fit, rows
@@ -44,7 +45,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn grid_list<K: Into<Key>>(&mut self, key: K, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> PxuiBox {
+    pub fn grid_list<K: Into<Key>>(&mut self, key: K, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
         self.grid_list_key(key.into(), count, cell_w, cell_h, build)
     }
 

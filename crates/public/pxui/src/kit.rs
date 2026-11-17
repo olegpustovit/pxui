@@ -1,6 +1,7 @@
+use crate::Handle;
 use crate::{composite::{defer_callback_panic, deferred}, check, Ui};
 use core::{ffi::c_void, mem::ManuallyDrop, panic::AssertUnwindSafe, ptr::NonNull};
-use pxui_types::{ui::Target, Axis, Look, PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
+use pxui_types::{ui::Target, Axis, Look, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
 use pxui_types::ui::{Key, SectionList, SectionPart};
 
 #[cfg_attr(feature = "static", allow(unused_imports))]
@@ -152,7 +153,7 @@ impl Ui {
     /// The one body of `section_list` (and of `list`): keyed by `key`, measured or fixed rows as `section` says; `build` is given the part's
     /// logical content Y (fixed rows: the lead-in and heading heights and the rows above it).
     #[track_caller]
-    pub(crate) fn section_list_key(&mut self, key: Key, section: &SectionList, id: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> PxuiBox {
+    pub(crate) fn section_list_key(&mut self, key: Key, section: &SectionList, id: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> Handle {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         let part = |index| match index { usize::MAX => SectionPart::Leading, index if index == usize::MAX - 1 => SectionPart::Header, index => SectionPart::Row(index) };
@@ -161,7 +162,7 @@ impl Ui {
         let fixed_y = |index: usize| match part(index) { SectionPart::Leading => 0.0, SectionPart::Header => section.leading_height, SectionPart::Row(i) => section.leading_height + section.header_height + i as f32 * section.row_height };
         #[cfg(not(feature = "static"))]
         let measured = section.measured;
-        let mut out = PxuiBox::default();
+        let mut out = Handle::default();
         #[cfg(feature = "static")]
         {
             let mut invoke = |raw: *mut crate::sys::PxuiUi, index, y| { let mut ui = ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(raw)) }); build(&mut ui, part(index), y) };
@@ -187,10 +188,10 @@ impl Ui {
 
     /// The one body of `grid_list`: keyed by `key`.
     #[track_caller]
-    pub(crate) fn grid_list_key(&mut self, key: Key, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> PxuiBox {
+    pub(crate) fn grid_list_key(&mut self, key: Key, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
-        let mut out = PxuiBox::default();
+        let mut out = Handle::default();
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::grid_list(self.0.as_ptr(), label, count, cell_w, cell_h, &mut |raw: *mut crate::sys::PxuiUi, index: usize| { let mut ui = ManuallyDrop::new(Ui(NonNull::new_unchecked(raw))); build(&mut ui, index) }, &mut out) });
         #[cfg(not(feature = "static"))]
@@ -246,12 +247,12 @@ impl Ui {
     }
 
     #[inline]
-    #[track_caller] pub fn inspector_row(&mut self, width: Option<f32>, pin: Option<bool>, key: &str, label: &str) -> (PxuiBox, f32, f32, f32) {
+    #[track_caller] pub fn inspector_row(&mut self, width: Option<f32>, pin: Option<bool>, key: &str, label: &str) -> (Handle, f32, f32, f32) {
         #[cfg(feature = "static")]
-        { let mut out = (PxuiBox::default(), 0.0, 0.0, 0.0); check(self, unsafe { pxui_abi_link::trusted::inspector_row(self.0.as_ptr(), width, pin, key, label, &mut out) }); out }
+        { let mut out = (Handle::default(), 0.0, 0.0, 0.0); check(self, unsafe { pxui_abi_link::trusted::inspector_row(self.0.as_ptr(), width, pin, key, label, &mut out) }); out }
         #[cfg(not(feature = "static"))]
         {
-            let mut desc = InspectorRowDesc { size: core::mem::size_of::<InspectorRowDesc>() as u32, has_width: width.is_some() as u8, has_pin: pin.is_some() as u8, pin: pin.unwrap_or(false) as u8, reserved: 0, key: as_str(key), label: as_str(label), width: width.unwrap_or_default(), reserved_tail: 0, row: PxuiBox::default(), control_x: 0.0, control_y: 0.0, control_w: 0.0 };
+            let mut desc = InspectorRowDesc { size: core::mem::size_of::<InspectorRowDesc>() as u32, has_width: width.is_some() as u8, has_pin: pin.is_some() as u8, pin: pin.unwrap_or(false) as u8, reserved: 0, key: as_str(key), label: as_str(label), width: width.unwrap_or_default(), reserved_tail: 0, row: Handle::default(), control_x: 0.0, control_y: 0.0, control_w: 0.0 };
             check(self, unsafe { sys::pxui_ui_inspector_row(self.0.as_ptr(), &mut desc) });
             (desc.row, desc.control_x, desc.control_y, desc.control_w)
         }
@@ -340,7 +341,7 @@ impl Ui {
     /// });
     /// ```
     #[track_caller]
-    pub fn animate_keys(&mut self, box_: &PxuiBox, keys: &[Keyframe], play: &Keyframes) -> bool {
+    pub fn animate_keys(&mut self, box_: &Handle, keys: &[Keyframe], play: &Keyframes) -> bool {
         assert!(play.cycles() != Repeat::Count(0), "pxui: repeat count must be positive");
         assert!(!keys.is_empty() && keys.len() <= 8, "pxui: animate_keys accepts 1..=8 keyframes");
         let mut descriptors = [KeyframeDesc::default(); 8];

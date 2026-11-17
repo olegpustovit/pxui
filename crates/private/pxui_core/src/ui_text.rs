@@ -10,7 +10,7 @@ use crate::bodies::{body_of, in_body, in_item, MenuRowConfig, TextFieldConfig};
 use crate::ui_core::*;
 use crate::ui_kit::*;
 pub use crate::opts::{Language, PickerOpts, TextAreaOpts, ValueFieldOpts};
-pub use pxui_types::ui::{ScrubPhase, Menu, MenuItem, MenuResponse, TextEdit, LineStep, CodeContext, Completion, Pick};
+pub use pxui_types::ui::{ScrubPhase, Menu, MenuItem, Chosen, TextEdit, LineStep, CodeContext, Completion, Pick};
 pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
 pub use pxui_types::ui::PickRows;
 use pxui_types::ui::Key as NodeKey;
@@ -1339,7 +1339,7 @@ impl Ui {
         w
     }
 
-    /// A floating menu of `items` at `at`, as wide as its longest row and at least `menu.width` (150) wide, capped to the frame.
+    /// A floating menu of `items` at `at`, as wide as its longest row and at least `menu.w` (150) wide, capped to the frame.
     /// Empty text is a separator line (never chosen). `key` names it (identity, and its accessible name). The host keeps it open
     /// while `dismissed` is false; a row commits on press and release inside it (or Enter on the focused row) and `chosen` is its
     /// index, the menu then closed; Escape, focus loss, or a press outside set `dismissed`. Build it before content it shields; it
@@ -1347,7 +1347,7 @@ impl Ui {
     /// second menu overlapping the first by a point, level with the row; the rows of the submenus are numbered after those of the
     /// menu, in the order of the rows that open them. A press outside the menu in the frame that first builds it dismisses it. A row is
     /// keyed by its `id` (a submenu's rows by place), else by its place, never by its text; past `max_rows` or `max_h` the sheet itself scrolls.
-    pub fn menu(&mut self, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+    pub fn menu(&mut self, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
         menu_body(self, key, at, items, menu)
     }
 }
@@ -2370,7 +2370,7 @@ pub(crate) fn default_text_field(this: &mut Ui, c: &TextFieldConfig, text: &str,
     }
 }
 
-fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
     let mut label_buf = [0u8; 17];
     let label = key.label(&mut label_buf);
     let (x, y) = at;
@@ -2384,7 +2384,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let has_submenus = items.iter().any(|i| !i.submenu.is_empty());
     let swatch_pad = if items.iter().chain(items.iter().flat_map(|i| i.submenu)).any(|i| i.swatch.is_some()) { 14.0 } else { 0.0 };
     let (view_w, view_h) = this.view_size();
-    let width = view_w.min(this.menu_measure(menu.width.unwrap_or(150.0), items, true, swatch_pad, key_size));
+    let width = view_w.min(this.menu_measure(menu.w.unwrap_or(150.0), items, true, swatch_pad, key_size));
     let height_of = |items: &[MenuItem]| items.iter().fold(2.0 * pad + 2.0, |h, i| h + if i.text.is_empty() { gap } else { row_height });
     // past `max_rows` rows or `max_h` points (the smaller) the sheet scrolls, as tall as the first `max_rows` rows or `max_h`
     let shown_rows = menu.max_rows.map_or(items.len(), |rows| rows.min(items.len()));
@@ -2435,13 +2435,13 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     });
     if !shown {
         this.dismiss_popup();
-        return MenuResponse { dismissed: true, ..MenuResponse::default() };
+        return Chosen { dismissed: true, ..Chosen::default() };
     }
     if let Some(index) = picked {
         this.dismiss_popup();
-        return MenuResponse { chosen: Some(index as usize), ..MenuResponse::default() };
+        return Chosen { chosen: Some(index as usize), ..Chosen::default() };
     }
-    let open = MenuResponse::default();
+    let open = Chosen::default();
     let Some(row) = opened.map(|row| row as usize).filter(|row| items.get(*row).is_some_and(|i| !i.submenu.is_empty())) else { return open };
     let sub = items[row].submenu;
     let Rect { x: sx, y: sy, w: sw, h: sh } = sub_geometry(this, row);
@@ -2457,7 +2457,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     match sub_picked {
         Some(index) => {
             this.dismiss_popup();
-            MenuResponse { chosen: Some(base_of(row) + index as usize), ..MenuResponse::default() }
+            Chosen { chosen: Some(base_of(row) + index as usize), ..Chosen::default() }
         }
         None => open,
     }

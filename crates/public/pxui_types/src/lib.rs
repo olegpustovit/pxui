@@ -739,10 +739,12 @@ pub mod feature {
     /// ABI 1.71: `PxuiButtonDesc` leading icon, detail and accessory (and `PxuiButtonConfig`'s), `PxuiIconButtonDesc.checkable`/`checked`
     /// and `PxuiDialogDesc.details` (and `PxuiDialogConfig`'s).
     pub const BUTTON_PARTS: u32 = 28;
+    /// ABI 1.72: `pxui_ui_view_keyed`, the authoring view sized by its parent (`Ui::view_of`).
+    pub const VIEW_KEYED: u32 = 29;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 71;
+pub const ABI_BUILT: u32 = 1 << 16 | 72;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

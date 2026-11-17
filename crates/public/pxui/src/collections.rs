@@ -225,7 +225,7 @@ mod tests {
         for count in 0..3 {
             let input = pxui_types::FrameIn { width: 640.0, height: 464.0, time: count as f64 / 60.0, ..Default::default() };
             ui.frame(&input, &mut |ui: &mut Ui| {
-                ui.view("page", count, pxui_types::Size::Grow, pxui_types::Size::Grow, &mut |ui: &mut Ui| {
+                ui.view_of("page", &count, |ui: &mut Ui| {
                     let ratio = ui.split("split", pxui_types::Axis::Row, 0.34, 120.0, 200.0, &mut |ui: &mut Ui| {
                         let _ = ui.selection_list("files", ROWS, &mut list, &crate::SelectionList::DEFAULT.multi(), &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
                     }, &mut |ui: &mut Ui| {

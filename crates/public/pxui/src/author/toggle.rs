@@ -8,12 +8,13 @@ use pxui_types::{theme::States, Label};
 /// How `Ui::toggle_with` varies the kit's toggle, as a `Copy` value built with `const fn` builders from `Toggle::DEFAULT`.
 ///
 /// The default is the plain `Ui::toggle`: the theme's row height, the label at its start, a 28 x 14 switch at its end that takes the press.
+/// `'a` is the borrow of `detail` and of the looks given to `track` and `knob` (`'static` for a const).
 #[derive(Clone, Copy)]
 pub struct Toggle<'a> {
     pub(crate) row_h: Option<f32>,
     pub(crate) switch: Option<(f32, f32)>,
-    pub(crate) track: Option<States>,
-    pub(crate) knob: Option<States>,
+    pub(crate) track: Option<&'a States>,
+    pub(crate) knob: Option<&'a States>,
     pub(crate) enabled: bool,
     pub(crate) detail: &'a str,
     pub(crate) inset: Option<f32>,
@@ -56,7 +57,7 @@ impl<'a> Toggle<'a> {
     /// const T: Toggle = Toggle::DEFAULT.track(&TRACK);
     /// let _ = T;
     /// ```
-    pub const fn track(mut self, look: &States) -> Toggle<'a> { self.track = Some(*look); self }
+    pub const fn track(mut self, look: &'a States) -> Toggle<'a> { self.track = Some(look); self }
 
     /// Sets the knob's look per state (the `checked` look is on) in place of the theme's `knob`.
     /// Allocates: never.
@@ -68,7 +69,7 @@ impl<'a> Toggle<'a> {
     /// const T: Toggle = Toggle::DEFAULT.knob(&KNOB);
     /// let _ = T;
     /// ```
-    pub const fn knob(mut self, look: &States) -> Toggle<'a> { self.knob = Some(*look); self }
+    pub const fn knob(mut self, look: &'a States) -> Toggle<'a> { self.knob = Some(look); self }
 
     /// Sets whether the toggle takes input: disabled takes no press or focus, shows the theme's `disabled` look and reads as disabled to
     /// accessibility, and still blocks what is under it.
@@ -830,7 +831,7 @@ mod tests {
         let owner = Cell::new(0);
         let mut build = |ui: &mut Ui| {
             owner.set(ui.toggle_with("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More").label(crate::Label::BODY.size(15.0))).handle.box_key);
-            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B").name("Use B")], Some(0), &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));
+            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B").name("Use B")], Some(0), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
         };
         for n in 0..3 { ui.frame(&crate::FrameIn { width: 320.0, height: 240.0, time: n as f64, ..crate::FrameIn::default() }, &mut build).expect("frame"); }
         let (size, on, row_h, w, h) = TOGGLE_SEEN.with(Cell::get);
@@ -928,7 +929,7 @@ mod tests {
         const OPTIONS: [Segment; 3] = [Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB"), Segment::new("A")];
         let mut build = |ui: &mut Ui| {
             ui.segmented_with("plain", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Plain"));
-            ui.segmented_with("sized", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Sized").size(240.0));
+            ui.segmented_with("sized", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Sized").w_px(240.0));
             ui.segmented_with("roomy", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Roomy").padding(12.0).min_segment(50.0));
         };
         let ui = crate::doc::frames(3, &mut build);
@@ -955,7 +956,7 @@ mod tests {
             ui.segmented_with("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], Some(0), &Segmented::DEFAULT.h_px(28.0).grow().look(&looks).name("Cache").enabled(false));
             ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented_with("inner", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT.name("Inner")); }); });
             ui.toggle_with("detail", "Download ahead", true, &SETTING.detail("Fetch the next two cloud songs in the queue before they play").label(crate::Label::BODY.size(15.0)).press_row(true));
-            ui.segmented_with("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], Some(1), &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));
+            ui.segmented_with("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], Some(1), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
         };
         for round in 0..20 {
             mem_sys::local_reset();

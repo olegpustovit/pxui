@@ -833,7 +833,7 @@ pub struct MenuItem<'a> {
     /// Whether the row is the current choice of a settings menu: it reads CHECKED and SELECTED and shows the theme's `checked` menu look
     /// (rows of the menu itself, not of a submenu).
     pub selected: bool,
-    /// The row's identity (`None`: its position among the menu's rows), never its text; `MenuResponse::chosen_id` reports it.
+    /// The row's identity (`None`: its position among the menu's rows), never its text; `Chosen::chosen_id` reports it.
     pub id: Option<i64>,
 }
 
@@ -884,10 +884,10 @@ impl<'a> MenuItem<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let row = pxui_types::ui::MenuItem::new("Copy").key("Ctrl C");
+    /// let row = pxui_types::ui::MenuItem::new("Copy").shortcut("Ctrl C");
     /// assert_eq!(row.shortcut, "Ctrl C");
     /// ```
-    pub const fn key(mut self, shortcut: &'a str) -> MenuItem<'a> { self.shortcut = shortcut; self }
+    pub const fn shortcut(mut self, shortcut: &'a str) -> MenuItem<'a> { self.shortcut = shortcut; self }
 
     /// Draws a small colour square before the label.
     /// Allocates: never.
@@ -913,20 +913,20 @@ impl<'a> MenuItem<'a> {
     /// ```
     pub const fn submenu(mut self, rows: &'a [MenuItem<'a>]) -> MenuItem<'a> { self.submenu = rows; self }
 
-    /// Marks the row as the current choice of a settings menu: it reads CHECKED and SELECTED to accessibility, the built-in row shows the
+    /// Sets whether the row is the current choice of a settings menu: it reads CHECKED and SELECTED to accessibility, the built-in row shows the
     /// theme's `checked` menu look (a registered row body gets `state.checked`). It keeps no mark slot; that is `checked`'s accent square.
     /// A row of a submenu ignores it (mark a submenu's choice with `checked`).
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const SIZES: [pxui_types::ui::MenuItem; 2] = [pxui_types::ui::MenuItem::new("4 GB").selected(), pxui_types::ui::MenuItem::new("8 GB")];
+    /// const SIZES: [pxui_types::ui::MenuItem; 2] = [pxui_types::ui::MenuItem::new("4 GB").selected(true), pxui_types::ui::MenuItem::new("8 GB")];
     /// assert!(SIZES[0].selected && !SIZES[1].selected);
     /// ```
-    pub const fn selected(mut self) -> MenuItem<'a> { self.selected = true; self }
+    pub const fn selected(mut self, selected: bool) -> MenuItem<'a> { self.selected = selected; self }
 
     /// Keys the row by `id` instead of its position, so its focus and hover follow it when rows move, and reports `id` as
-    /// `MenuResponse::chosen_id` when it is chosen. Rows of one menu with the same text are distinct rows either way.
+    /// `Chosen::chosen_id` when it is chosen. Rows of one menu with the same text are distinct rows either way.
     /// Allocates: never.
     /// Identity: the row is keyed by `id` under the menu (as `Key::Id`); two rows of one menu with one id collide. A submenu's rows are
     /// keyed by their position; their ids are only reported.
@@ -945,7 +945,7 @@ pub struct Menu<'a> {
     /// A row's height in points (`None`: the theme's row).
     pub row_h: Option<f32>,
     /// The least width in points (`None`: 150); the menu is as wide as its longest row.
-    pub width: Option<f32>,
+    pub w: Option<f32>,
     /// The most rows shown at once (`None`: all); a menu with more rows scrolls its sheet.
     pub max_rows: Option<usize>,
     /// What the registered bodies of the menu's rows read from their config (`PxuiMenuRowConfig::variant`); 0 for none.
@@ -962,7 +962,7 @@ pub struct Menu<'a> {
 
 impl<'a> Menu<'a> {
     /// The plain kit menu: the theme's row height, at least 150 points wide, every row shown, 6 points above and below the rows, no name.
-    pub const DEFAULT: Menu<'a> = Menu { row_h: None, width: None, max_rows: None, variant: 0, padding: 6.0, name: None, focus_on_click: false, max_h: None };
+    pub const DEFAULT: Menu<'a> = Menu { row_h: None, w: None, max_rows: None, variant: 0, padding: 6.0, name: None, focus_on_click: false, max_h: None };
 
     /// Sets a row's height in points; the label, mark, swatch and shortcut centre in it.
     /// Allocates: never.
@@ -979,10 +979,10 @@ impl<'a> Menu<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// const WIDE: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.width(200.0);
-    /// assert_eq!(WIDE.width, Some(200.0));
+    /// const WIDE: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.w_px(200.0);
+    /// assert_eq!(WIDE.w, Some(200.0));
     /// ```
-    pub const fn width(mut self, width: f32) -> Menu<'a> { self.width = Some(width); self }
+    pub const fn w_px(mut self, w: f32) -> Menu<'a> { self.w = Some(w); self }
 
     /// Shows at most `rows` rows at once: a menu with more rows is that tall and its sheet scrolls (wheel, drag or touch), the space
     /// above the first row and below the last with the rows.
@@ -1093,7 +1093,7 @@ pub struct Segmented<'a> {
     /// The strip fills its line and its segments share its width.
     pub grow: bool,
     /// Every segment's look per state (`None`: the theme's `segment`).
-    pub look: Option<States>,
+    pub look: Option<&'a States>,
     /// The strip takes input.
     pub enabled: bool,
     /// The strip's accessible name (`None`: none).
@@ -1135,6 +1135,7 @@ impl<'a> Segmented<'a> {
     pub const fn grow(mut self) -> Segmented<'a> { self.grow = true; self }
 
     /// Sets every segment's look per state (idle, hover, pressed, focus, disabled, checked for the choice) in place of the theme's `segment`.
+    /// The looks are borrowed, not copied.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -1144,7 +1145,7 @@ impl<'a> Segmented<'a> {
     /// const S: Segmented = Segmented::DEFAULT.look(&CHIP);
     /// let _ = S;
     /// ```
-    pub const fn look(mut self, look: &States) -> Segmented<'a> { self.look = Some(*look); self }
+    pub const fn look(mut self, look: &'a States) -> Segmented<'a> { self.look = Some(look); self }
 
     /// Sets whether the strip takes input: disabled takes no press, key or focus, shows the `disabled` look and reads as disabled to
     /// accessibility.
@@ -1183,10 +1184,10 @@ impl<'a> Segmented<'a> {
     /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
     ///
     /// ```
-    /// const STRIP: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.size(240.0);
+    /// const STRIP: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.w_px(240.0);
     /// let _ = STRIP;
     /// ```
-    pub const fn size(mut self, w: f32) -> Segmented<'a> { self.w = Some(w); self }
+    pub const fn w_px(mut self, w: f32) -> Segmented<'a> { self.w = Some(w); self }
 
     /// Sets a segment's text inset in points, and half the room around its text when segments are as wide as their text (8 by default).
     /// Allocates: never.
@@ -1220,14 +1221,19 @@ impl<'a> Segmented<'a> {
     pub const fn focus_on_click(mut self, focus: bool) -> Segmented<'a> { self.focus_on_click = focus; self }
 }
 
-/// What a `Ui::menu` call reports for the frame.
+/// What a choosing overlay reports for the frame: `Ui::menu` (a row) and `Ui::dialog` (a button) both answer with it.
+///
+/// It is the result struct of the calls whose job is a one-off choice; widgets that edit a value they keep on screen (a toggle, a
+/// segmented control) report `Response` instead.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct MenuResponse {
-    /// The index of the row chosen this frame (a click, or Enter on the focused row); the menu has closed itself.
+pub struct Chosen {
+    /// The index of the row or button chosen this frame (a click, Return or Enter on the focused one; a dialog's Escape picks its cancel
+    /// button); the overlay has closed itself.
     pub chosen: Option<usize>,
-    /// The `MenuItem::id` of the chosen row (`None` when nothing was chosen or the row has none).
+    /// The `MenuItem::id` of the chosen menu row (`None` when nothing was chosen, the row has none, or the overlay is a dialog).
     pub chosen_id: Option<i64>,
-    /// The menu closed without a choice (Escape, window focus loss or a press outside): stop calling `menu`.
+    /// The overlay closed (Escape, window focus loss or a press outside): stop calling it. A dialog's `chosen` is then its cancel button,
+    /// when it has an enabled one; a menu's is `None`.
     pub dismissed: bool,
 }
 
@@ -1235,7 +1241,7 @@ pub struct MenuResponse {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Dialog {
     /// The sheet's width in points.
-    pub width: f32,
+    pub w: f32,
     /// What the registered dialog body reads from its config (`PxuiDialogConfig::variant`); 0 for none. Only the dialog's body is given
     /// it: the buttons and the widgets of the dialog's content see 0.
     pub variant: u16,
@@ -1243,7 +1249,7 @@ pub struct Dialog {
 
 impl Dialog {
     /// The plain dialog: a 320-point sheet.
-    pub const DEFAULT: Dialog = Dialog { width: 320.0, variant: 0 };
+    pub const DEFAULT: Dialog = Dialog { w: 320.0, variant: 0 };
 
     /// Sets the sheet's width in points; it must be finite and not negative.
     ///
@@ -1251,10 +1257,10 @@ impl Dialog {
     /// Panics: never.
     ///
     /// ```
-    /// const WIDE: pxui_types::ui::Dialog = pxui_types::ui::Dialog::DEFAULT.width(420.0);
-    /// assert_eq!(WIDE.width, 420.0);
+    /// const WIDE: pxui_types::ui::Dialog = pxui_types::ui::Dialog::DEFAULT.w_px(420.0);
+    /// assert_eq!(WIDE.w, 420.0);
     /// ```
-    pub const fn width(mut self, width: f32) -> Dialog { self.width = width; self }
+    pub const fn w_px(mut self, w: f32) -> Dialog { self.w = w; self }
 
     /// Sets the variant the registered dialog body reads from its config (`variant`, 0 by default): one body builds different
     /// structures by it, so the app picks per call without comparing text. The built-in body ignores it.
@@ -1270,13 +1276,13 @@ impl Dialog {
 }
 
 /// One button of `Ui::dialog`, a `Copy` value built with `const fn` builders from `DialogButton::new`; the buttons sit at the end of
-/// the dialog's last row in the order given. Return presses the `default` one, Escape the `cancel` one.
+/// the dialog's last row in the order given. Return presses the `primary` one, Escape the `cancel` one.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DialogButton<'a> {
     /// The label, which is also the accessible name.
     pub text: &'a str,
     /// Return presses this button (the first one marked when several are).
-    pub default: bool,
+    pub primary: bool,
     /// Escape, and a press outside the dialog, choose this button (the first one marked when several are).
     pub cancel: bool,
     /// The label shows in the theme's invalid colour.
@@ -1295,20 +1301,20 @@ impl<'a> DialogButton<'a> {
     ///
     /// ```
     /// const KEEP: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("Keep");
-    /// assert!(KEEP.enabled && !KEEP.default);
+    /// assert!(KEEP.enabled && !KEEP.primary);
     /// ```
-    pub const fn new(text: &'a str) -> DialogButton<'a> { DialogButton { text, default: false, cancel: false, danger: false, enabled: true, detail: "" } }
+    pub const fn new(text: &'a str) -> DialogButton<'a> { DialogButton { text, primary: false, cancel: false, danger: false, enabled: true, detail: "" } }
 
-    /// Marks the button Return presses.
+    /// Marks the button Return presses: the primary action (not `Default::default`; a button has no default value of its own).
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const OK: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("OK").default();
-    /// assert!(OK.default);
+    /// const OK: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("OK").primary();
+    /// assert!(OK.primary);
     /// ```
-    pub const fn default(mut self) -> DialogButton<'a> { self.default = true; self }
+    pub const fn primary(mut self) -> DialogButton<'a> { self.primary = true; self }
 
     /// Marks the button Escape (and a press outside the dialog) chooses.
     ///
@@ -1355,16 +1361,6 @@ impl<'a> DialogButton<'a> {
     /// assert_eq!(FOLDER.detail, "Keeps watching it for new music");
     /// ```
     pub const fn detail(mut self, detail: &'a str) -> DialogButton<'a> { self.detail = detail; self }
-}
-
-/// What a dialog's frame did.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct DialogResponse {
-    /// The index of the button pressed, or chosen by Return or Escape.
-    pub chosen: Option<usize>,
-    /// Escape, a press outside the dialog or a lost window focus closed it: the caller stops calling `dialog`. `chosen` is then the
-    /// cancel button, when there is an enabled one.
-    pub dismissed: bool,
 }
 
 /// One ranked suggestion of `Language::complete`.
