@@ -17,6 +17,15 @@ const STATIC: bool = cfg!(feature = "static");
 const MODE: &str = if STATIC { "static" } else { "dynamic" };
 /// Samples per page and side, interleaved so drift and thermal state hit both alike.
 const SAMPLES: usize = 600;
+/// A page whose direct frame (the median of the `SAMPLES` pairs) is under this many microseconds is a few hundred ticks of the
+/// clock (41.7 ns on Apple Silicon) and its `SAMPLES` pairs span a few milliseconds, so one burst or a tick's rounding moves its
+/// paired median by up to 2% between runs of identical code. Its wall ratio and delta come from `SMALL_PAIRS` more pairs, built the
+/// same way (one frame each side, interleaved, the order alternating), summed in blocks of `SMALL_BLOCK` pairs: the median of the
+/// blocks' ratios (and differences per frame) keeps the paired median's immunity to a burst while each block's sum averages the
+/// rounding away. Only the estimate is finer; every limit stays the same.
+const SMALL_PAGE_US: f64 = 20.0;
+const SMALL_PAIRS: usize = 40_000;
+const SMALL_BLOCK: usize = 100;
 /// Untimed frames before the first page: the start-up ramp measured at most about 50 ms.
 const WARM_UP: Duration = Duration::from_millis(200);
 /// Rounds and frames per round of the instruction count; its revisions start here, past the timed ones.
@@ -185,12 +194,28 @@ fn abi_bench_pages() {
         }
         // paired: sample i of each side ran back to back, so the medians of their ratios and differences cancel the load, frequency
         // and core both saw; the two medians apart let a burst on one side through (Kit +10% with the other cases contending)
-        let ratio = median(&mut tw.iter().zip(&td).map(|(w, d)| w / d).collect::<Vec<_>>());
-        let delta = median(&mut tw.iter().zip(&td).map(|(w, d)| w - d).collect::<Vec<_>>());
+        let mut ratio = median(&mut tw.iter().zip(&td).map(|(w, d)| w / d).collect::<Vec<_>>());
+        let mut delta = median(&mut tw.iter().zip(&td).map(|(w, d)| w - d).collect::<Vec<_>>());
         let (mw, md) = (median(&mut tw), median(&mut td));
+        let small = md < SMALL_PAGE_US;
+        if small {
+            // as the samples above: a pointer event every frame and a new revision (past the settled one), so each frame rebuilds
+            (w.moved, d.moved) = (true, true);
+            let (mut bw, mut bd) = (Vec::with_capacity(SMALL_PAIRS / SMALL_BLOCK), Vec::with_capacity(SMALL_PAIRS / SMALL_BLOCK));
+            let (mut sum_w, mut sum_d) = (0.0, 0.0);
+            for i in 0..SMALL_PAIRS as u64 {
+                let count = SAMPLES as u64 + 40 + i;
+                let revision = count + 1;
+                let (mut build_w, mut build_d) = (|| wrapped_frame(&mut w, index, revision, count), || direct_frame(&mut d, index, revision, count));
+                if i % 2 == 0 { sum_w += timed(&mut build_w); sum_d += timed(&mut build_d); } else { sum_d += timed(&mut build_d); sum_w += timed(&mut build_w); }
+                if (i as usize + 1) % SMALL_BLOCK == 0 { bw.push(sum_w); bd.push(sum_d); (sum_w, sum_d) = (0.0, 0.0); }
+            }
+            ratio = median(&mut bw.iter().zip(&bd).map(|(w, d)| w / d).collect::<Vec<_>>());
+            delta = median(&mut bw.iter().zip(&bd).map(|(w, d)| (w - d) / SMALL_BLOCK as f64).collect::<Vec<_>>());
+        }
         let per_thousand = delta / (nodes.max(1) as f64 / 1000.0);
         worst_per_thousand = worst_per_thousand.max(per_thousand);
-        println!("PXUI abi_bench {MODE} page={name} direct_us={md:.2} wrapper_us={mw:.2} ratio={ratio:.4} delta_us={delta:.2} delta_us_per_1000_nodes={per_thousand:.2} nodes={nodes} rebuild_allocs direct={ad} wrapper={aw} settled_allocs direct={sd} wrapper={sw}");
+        println!("PXUI abi_bench {MODE} page={name} direct_us={md:.2} wrapper_us={mw:.2} ratio={ratio:.4} delta_us={delta:.2} estimate={} delta_us_per_1000_nodes={per_thousand:.2} nodes={nodes} rebuild_allocs direct={ad} wrapper={aw} settled_allocs direct={sd} wrapper={sw}", if small { "blocks" } else { "pairs" });
         // ponytail: the Layout page's anchored popup is a root box, which the engine rebuilds the view for on every frame (by design, see
         // `Ui::escape`), so that page never settles in any build; there the wrapper must only match the engine. Move the popup out of
         // the cached view to gate it at zero too.
@@ -499,19 +524,38 @@ fn noop(exe: &std::path::Path) -> f64 {
     started.elapsed().as_secs_f64() * 1e3
 }
 
-/// Launches in each link mode: the fastest first frame, the median resident and private sizes. Start-up noise (other processes, the
-/// page cache) only ever adds, so the fastest launch is the one to compare. The static run leaves a copy of its gallery binary in the
-/// build directory; the dynamic run launches the two alternately, so load drifts through both alike. Without the copy the static
-/// run's recorded numbers stand in.
+/// Launches in each link mode: the median resident and private sizes and the fastest first frame (printed). The static run leaves
+/// a copy of its gallery binary in the build directory; the dynamic run launches the two in pairs, each pair in the other order from
+/// the last, so load drifts through both alike and neither build always starts after the other (whose exit leaves caches and the
+/// window server warm). Without the copy the static run's recorded numbers stand in.
 const LAUNCHES: usize = 41;
 const NOOPS: usize = 101;
-/// The dynamic first frame may trail the static by this much (the plan: 2 ms). Run to run the fastest of 41 interleaved launches
-/// differs by a few ms on a loaded machine (process start is 145 to 190 ms): see docs/abi-baseline.md "Deferred performance work".
+/// The dynamic first frame may trail the static by this much (the plan: 2 ms): the median of the paired differences of the presented
+/// frame (window included). The fastest-of-41 difference this gate compared before moved by -10 to +16 ms between consecutive runs of
+/// identical code (process start is 145 to 190 ms), so it is printed, not gated: see docs/abi-baseline.md "Deferred performance work".
 const PLAN_START_MS: f64 = 2.0;
 const GATE_START_MS: f64 = 8.0;
 /// The same bound on the paired median of the window-free first frame (`launch`'s last number): the pairs share the load, the
 /// window system is subtracted, so this is the library's own cost: the plan's 2 ms held in every run (worst 1.78) and the gate is the worst run plus 40%, because the in-process span is noise about zero (-0.5 to +1.2 ms).
 const GATE_START_PAIRED_MS: f64 = 2.5;
+/// A machine whose one-minute load average is at least this is not quiet: its start-up timings are reported as such, and a timing
+/// gate that fails there says so instead of naming a regression (the bench lock's rule: `RAYS_SLOW` timing runs wait for load < 8).
+const QUIET_LOAD: f64 = 8.0;
+
+/// The one-minute load average (Linux `/proc/loadavg`, macOS `sysctl vm.loadavg`); `None` where neither answers.
+fn load_average() -> Option<f64> {
+    let text = std::fs::read_to_string("/proc/loadavg").ok()
+        .or_else(|| Command::new("sysctl").args(["-n", "vm.loadavg"]).output().ok().map(|out| String::from_utf8_lossy(&out.stdout).into_owned()))?;
+    text.split_whitespace().find_map(|v| v.parse().ok())
+}
+
+/// The median of `values` and its distribution-free 95% interval (the order statistics `n/2 -+ 0.98 sqrt(n)`).
+fn median_interval(values: &mut [f64]) -> (f64, f64, f64) {
+    values.sort_by(f64::total_cmp);
+    let n = values.len();
+    let k = ((n as f64 - 1.96 * (n as f64).sqrt()) / 2.0).floor().max(0.0) as usize;
+    (values[n / 2], values[k.min(n - 1)], values[(n - 1).saturating_sub(k)])
+}
 
 fn abi_bench_start() {
     if !slow() { return; }
@@ -520,10 +564,14 @@ fn abi_bench_start() {
     let copy = dir.join("abi_bench_static_gallery");
     if STATIC { std::fs::copy(&own, &copy).expect("keep the static gallery"); }
     let rival = (!STATIC && copy.exists()).then_some(&copy);
+    let load_before = load_average();
     let (mut mine, mut theirs) = (Vec::new(), Vec::new());
-    for _ in 0..LAUNCHES {
-        mine.push(launch(&own));
-        if let Some(copy) = rival { theirs.push(launch(copy)); }
+    for i in 0..LAUNCHES {
+        match rival {
+            Some(copy) if i % 2 == 1 => { theirs.push(launch(copy)); mine.push(launch(&own)); }
+            Some(copy) => { mine.push(launch(&own)); theirs.push(launch(copy)); }
+            None => mine.push(launch(&own)),
+        }
     }
     let summary = |runs: &[(f64, f64, f64, f64)]| {
         let first = runs.iter().map(|r| r.0).fold(f64::MAX, f64::min);
@@ -542,23 +590,34 @@ fn abi_bench_start() {
             text.split_whitespace().filter_map(|v| v.parse().ok()).collect()
         };
         println!("PXUI abi_bench static label app: first frame {:.1} ms, resident {:.0} KiB, private {:.0} KiB ({})", numbers[0], numbers[1], numbers[2], if rival.is_some() { "interleaved" } else { "recorded" });
-        // paired: launch i of each build ran back to back, so the median of the differences cancels the load both saw
-        let paired = |pick: fn(&(f64, f64, f64, f64)) -> f64| median(&mut mine.iter().zip(&theirs).map(|(a, b)| pick(a) - pick(b)).collect::<Vec<_>>());
         if rival.is_some() {
+            // paired: launch i of each build ran back to back, so the median of the differences cancels the load both saw
+            let paired = |pick: fn(&(f64, f64, f64, f64)) -> f64| median_interval(&mut mine.iter().zip(&theirs).map(|(a, b)| pick(a) - pick(b)).collect::<Vec<_>>());
             let (all, span) = (paired(|r| r.0), paired(|r| r.3));
-            let load = median(&mut (0..NOOPS).map(|_| noop(&own) - noop(&copy)).collect::<Vec<_>>());
-            let lib = load + span;
-            println!("PXUI abi_bench dynamic over static, medians of paired launches: presented frame {all:+.2} ms; library {lib:+.2} ms = exec and load {load:+.2} ({NOOPS} pairs) + main to first frame without window and GPU opening {span:+.2} ({LAUNCHES} pairs); gate {GATE_START_PAIRED_MS:.1}, plan {PLAN_START_MS:.1}");
-            assert!(lib <= GATE_START_PAIRED_MS, "dynamic first frame is {lib:.2} ms over static, gate {GATE_START_PAIRED_MS} ms");
+            let mut loads: Vec<f64> = (0..NOOPS).map(|i| if i % 2 == 0 { let a = noop(&own); a - noop(&copy) } else { let b = noop(&copy); noop(&own) - b }).collect();
+            let load = median_interval(&mut loads);
+            let lib = load.0 + span.0;
+            let worst_load = [load_before, load_average()].into_iter().flatten().fold(0.0, f64::max);
+            let quiet = worst_load < QUIET_LOAD;
+            let machine = format!("machine {} (load {worst_load:.1}, quiet below {QUIET_LOAD})", if quiet { "quiet" } else { "NOT QUIET: timings below are not qualified" });
+            println!("PXUI abi_bench start-up {machine}");
+            println!("PXUI abi_bench dynamic over static, medians of paired launches [95% interval]: presented frame {:+.2} ms [{:+.2}, {:+.2}]; library {lib:+.2} ms = exec and load {:+.2} [{:+.2}, {:+.2}] ({NOOPS} pairs) + main to first frame without window and GPU opening {:+.2} [{:+.2}, {:+.2}] ({LAUNCHES} pairs); gate {GATE_START_PAIRED_MS:.1}, plan {PLAN_START_MS:.1}",
+                all.0, all.1, all.2, load.0, load.1, load.2, span.0, span.1, span.2);
+            let why = |low: f64, gate: f64| if !quiet { format!("on a {machine}: rerun on a quiet machine") } else if low > gate { "its whole 95% interval is above the gate".to_owned() } else { "its 95% interval reaches below the gate".to_owned() };
+            assert!(lib <= GATE_START_PAIRED_MS, "dynamic first frame is {lib:.2} ms over static, gate {GATE_START_PAIRED_MS} ms ({})", why(load.1 + span.1, GATE_START_PAIRED_MS));
+            println!("PXUI abi_bench dynamic first frame paired median {:+.1} ms over static, fastest of {LAUNCHES} {:+.1} ms (gate {GATE_START_MS:.1} on the paired median; plan {PLAN_START_MS:.1})", all.0, first_ms - numbers[0]);
+            assert!(all.0 <= GATE_START_MS, "dynamic first frame is {:.1} ms over static (paired median), gate {GATE_START_MS} ms ({})", all.0, why(all.1, GATE_START_MS));
+        } else {
+            println!("PXUI abi_bench dynamic first frame {:+.1} ms over static (gate {GATE_START_MS:.1}; plan {PLAN_START_MS:.1})", first_ms - numbers[0]);
+            assert!(first_ms <= numbers[0] + GATE_START_MS, "dynamic first frame {first_ms:.1} ms is over {GATE_START_MS} ms past static {:.1} ms", numbers[0]);
         }
-        println!("PXUI abi_bench dynamic first frame {:+.1} ms over static (gate {GATE_START_MS:.1}; plan {PLAN_START_MS:.1})", first_ms - numbers[0]);
-        assert!(first_ms <= numbers[0] + GATE_START_MS, "dynamic first frame {first_ms:.1} ms is over {GATE_START_MS} ms past static {:.1} ms", numbers[0]);
         let (private_delta, clean_delta) = (private_kib - numbers[2], (rss_kib - private_kib) - (numbers[1] - numbers[2]));
         println!("PXUI abi_bench dynamic over static: private {private_delta:+.0} KiB (gate {GATE_PRIVATE_TOLERANCE_KIB:.0}), clean shared pages {clean_delta:+.0} KiB (gate {GATE_CLEAN_DELTA_KIB:.0}); plan: resident not above static");
         assert!(private_delta <= GATE_PRIVATE_TOLERANCE_KIB, "dynamic private footprint {private_kib:.0} KiB is {private_delta:.0} KiB over static {:.0} KiB", numbers[2]);
         assert!(clean_delta <= GATE_CLEAN_DELTA_KIB, "dynamic clean shared pages are {clean_delta:.0} KiB over static's");
     }
 }
+
 
 fn main() {
     run::run(&[
