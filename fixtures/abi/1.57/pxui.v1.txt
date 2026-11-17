@@ -1,0 +1,432 @@
+# Append-only PXUI ABI snapshot.
+minor 57
+function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
+function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
+function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
+function pxui_a11y_stop void pxui_a11y_stop ( PxuiA11y * a11y ) ;
+function pxui_a11y_update int32_t pxui_a11y_update ( PxuiA11y * a11y , const PxuiA11yTree * tree ) ;
+function pxui_abi_version uint32_t pxui_abi_version ( void ) ;
+function pxui_body_register uint16_t pxui_body_register ( PxuiUi * ui , uint32_t kind , PxuiStr name , PxuiBodyFn body , void * user ) ;
+function pxui_button int32_t pxui_button ( PxuiUi * ui , PxuiStr label , uint8_t * out ) ;
+function pxui_col int32_t pxui_col ( PxuiUi * ui , float padding , PxuiStr label , PxuiBuild build , void * user ) ;
+function pxui_counter uint64_t pxui_counter ( uint32_t which ) ;
+function pxui_default_font PxuiStr pxui_default_font ( void ) ;
+function pxui_frame int32_t pxui_frame ( PxuiUi * ui , const PxuiFrameIn * in , PxuiBuild build , void * user , PxuiFrameOut * out ) ;
+function pxui_label int32_t pxui_label ( PxuiUi * ui , PxuiStr text ) ;
+function pxui_last_error PxuiStr pxui_last_error ( const PxuiUi * ui ) ;
+function pxui_paint_cap void pxui_paint_cap ( PxuiPaint * paint , float x , float y , uint8_t has_color , PxuiColor color , PxuiStr text ) ;
+function pxui_paint_cap_width float pxui_paint_cap_width ( PxuiPaint * paint , PxuiStr text ) ;
+function pxui_paint_caret_x float pxui_paint_caret_x ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text , size_t index ) ;
+function pxui_paint_color PxuiColor pxui_paint_color ( PxuiPaint * paint , uint16_t token ) ;
+function pxui_paint_icon float pxui_paint_icon ( PxuiPaint * paint , float x , float y , uint16_t font , float size , uint32_t codepoint , PxuiColor color ) ;
+function pxui_paint_image void pxui_paint_image ( PxuiPaint * paint , const PxuiImage * image , float x , float y , float width , float height , uint32_t fit , PxuiColor tint ) ;
+function pxui_paint_input_region void pxui_paint_input_region ( PxuiPaint * paint , float cursor , float x , float y , float w , float h ) ;
+function pxui_paint_label PxuiTextMetrics pxui_paint_label ( PxuiPaint * paint , float x , float y , const PxuiLabelStyle * style , float width , PxuiStr text ) ;
+function pxui_paint_label_chars float pxui_paint_label_chars ( PxuiPaint * paint , float x , float y , const PxuiLabelStyle * style , PxuiStr text ) ;
+function pxui_paint_ratio void pxui_paint_ratio ( PxuiPaint * paint , float x , float y , int64_t a , int64_t b ) ;
+function pxui_paint_scroll_y float pxui_paint_scroll_y ( PxuiPaint * paint , uint64_t slot ) ;
+function pxui_paint_selection int32_t pxui_paint_selection ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text , size_t a , size_t b , PxuiSpanBuild build , void * user ) ;
+function pxui_paint_span int32_t pxui_paint_span ( PxuiPaint * paint , size_t at_least , PxuiSpan * span ) ;
+function pxui_paint_text void pxui_paint_text ( PxuiPaint * paint , float x , float y , PxuiStr text ) ;
+function pxui_paint_text_color void pxui_paint_text_color ( PxuiPaint * paint , float x , float y , PxuiColor color , PxuiStr text ) ;
+function pxui_paint_text_metrics PxuiTextMetrics pxui_paint_text_metrics ( PxuiPaint * paint , const PxuiTextStyle * style , float width , PxuiStr text ) ;
+function pxui_paint_text_size void pxui_paint_text_size ( PxuiPaint * paint , float x , float y , int64_t size , PxuiColor color , PxuiStr text ) ;
+function pxui_paint_text_spans int32_t pxui_paint_text_spans ( PxuiPaint * p , float x , float y , const PxuiTextStyle * style , float width , uint8_t has_color , PxuiColor color , PxuiStr text , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
+function pxui_paint_text_styled PxuiTextMetrics pxui_paint_text_styled ( PxuiPaint * paint , float x , float y , const PxuiTextStyle * style , float width , uint8_t has_color , PxuiColor color , PxuiStr text ) ;
+function pxui_paint_text_width float pxui_paint_text_width ( PxuiPaint * paint , uint8_t has_size , int64_t size , PxuiStr text ) ;
+function pxui_paint_text_with void pxui_paint_text_with ( PxuiPaint * paint , float x , float y , uint8_t has_size , int64_t size , float tracking , uint8_t has_color , PxuiColor color , PxuiStr text ) ;
+function pxui_panel int32_t pxui_panel ( PxuiUi * ui , const PxuiPanel * panel , PxuiStr label , PxuiBuild build , void * user ) ;
+function pxui_part int32_t pxui_part ( PxuiUi * ui , uint32_t part , const PxuiNode * node , PxuiBox * out ) ;
+function pxui_part_box int32_t pxui_part_box ( PxuiUi * ui , int64_t owner , uint32_t part , PxuiBox * out ) ;
+function pxui_prepared_destroy void pxui_prepared_destroy ( PxuiPreparedText * record ) ;
+function pxui_renderer_atlas int32_t pxui_renderer_atlas ( PxuiRenderer * renderer , uint32_t kind , PxuiImage * out ) ;
+function pxui_renderer_create PxuiRenderer * pxui_renderer_create ( PxuiUi * ui , const PxuiGpu * gpu , const PxuiTargetDesc * target ) ;
+function pxui_renderer_destroy void pxui_renderer_destroy ( PxuiRenderer * renderer ) ;
+function pxui_renderer_draw int32_t pxui_renderer_draw ( PxuiRenderer * renderer , const PxuiPass * pass ) ;
+function pxui_renderer_draw_calls uint64_t pxui_renderer_draw_calls ( PxuiRenderer * renderer ) ;
+function pxui_renderer_forget_image int32_t pxui_renderer_forget_image ( PxuiRenderer * renderer , const PxuiImage * image , uint64_t completed ) ;
+function pxui_renderer_prepare int32_t pxui_renderer_prepare ( PxuiRenderer * renderer , const PxuiCommands * commands , uint64_t frame , uint64_t completed ) ;
+function pxui_renderer_resize int32_t pxui_renderer_resize ( PxuiRenderer * renderer , uint32_t width , uint32_t height ) ;
+function pxui_scope int32_t pxui_scope ( PxuiUi * ui , PxuiStr label , PxuiBuild build , void * user ) ;
+function pxui_shaper_add_font uint32_t pxui_shaper_add_font ( PxuiShaper * shaper , PxuiStr font ) ;
+function pxui_shaper_create PxuiShaper * pxui_shaper_create ( const PxuiStr * fonts , size_t count ) ;
+function pxui_shaper_destroy void pxui_shaper_destroy ( PxuiShaper * shaper ) ;
+function pxui_shaper_prepare int32_t pxui_shaper_prepare ( PxuiShaper * shaper , PxuiStr value , const PxuiTextStyle * style , float max_width , const PxuiTextSpans * spans , PxuiPreparedText * * out , PxuiTextMetrics * out_metrics ) ;
+function pxui_shaper_rasterize_rgba size_t pxui_shaper_rasterize_rgba ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
+function pxui_shaper_system_fonts int32_t pxui_shaper_system_fonts ( PxuiShaper * shaper ) ;
+function pxui_shaper_width int32_t pxui_shaper_width ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , PxuiTextMetrics * out ) ;
+function pxui_shaper_width_spans int32_t pxui_shaper_width_spans ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
+function pxui_slot int32_t pxui_slot ( PxuiUi * ui , PxuiSlot slot , uint8_t * out ) ;
+function pxui_text_add_font uint32_t pxui_text_add_font ( PxuiUi * ui , PxuiStr font ) ;
+function pxui_text_field int32_t pxui_text_field ( PxuiUi * ui , PxuiStr label , PxuiStr value , PxuiStr * changed , uint8_t * out_changed ) ;
+function pxui_text_field_with_options int32_t pxui_text_field_with_options ( PxuiUi * ui , PxuiStr label , PxuiStr value , const PxuiTextInputOptions * options , PxuiStr * changed , uint8_t * out_changed ) ;
+function pxui_text_fork PxuiShaper * pxui_text_fork ( PxuiUi * ui ) ;
+function pxui_text_install int32_t pxui_text_install ( PxuiUi * ui , PxuiPreparedText * record ) ;
+function pxui_text_quads size_t pxui_text_quads ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float x , float y , float scale , PxuiTextGlyph * out , size_t capacity ) ;
+function pxui_text_rasterize_rgba size_t pxui_text_rasterize_rgba ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
+function pxui_text_system_fonts int32_t pxui_text_system_fonts ( PxuiUi * ui ) ;
+function pxui_text_width int32_t pxui_text_width ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , PxuiTextMetrics * out ) ;
+function pxui_text_width_spans int32_t pxui_text_width_spans ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
+function pxui_theme_create PxuiTheme * pxui_theme_create ( const PxuiThemeTokens * tokens ) ;
+function pxui_theme_destroy void pxui_theme_destroy ( PxuiTheme * theme ) ;
+function pxui_theme_last_error PxuiStr pxui_theme_last_error ( const PxuiTheme * theme ) ;
+function pxui_theme_load int32_t pxui_theme_load ( PxuiTheme * theme , PxuiStr path ) ;
+function pxui_theme_set int32_t pxui_theme_set ( PxuiTheme * theme , PxuiStr key , PxuiStr value ) ;
+function pxui_toggle int32_t pxui_toggle ( PxuiUi * ui , PxuiStr label , uint8_t on , uint8_t * out ) ;
+function pxui_ui_a11y_name int32_t pxui_ui_a11y_name ( PxuiUi * ui , const PxuiBox * box , PxuiStr name ) ;
+function pxui_ui_a11y_number int32_t pxui_ui_a11y_number ( PxuiUi * ui , const PxuiBox * box , double now , double min , double max , double step ) ;
+function pxui_ui_a11y_value int32_t pxui_ui_a11y_value ( PxuiUi * ui , const PxuiBox * box , PxuiStr value , uint32_t anchor , uint32_t caret ) ;
+function pxui_ui_anchored int32_t pxui_ui_anchored ( PxuiUi * ui , PxuiStr label , const PxuiAnchorDesc * anchor , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
+function pxui_ui_animate int32_t pxui_ui_animate ( PxuiUi * ui , const PxuiBox * box , const PxuiKeyframeDesc * key , uint8_t * out ) ;
+function pxui_ui_animate_keys int32_t pxui_ui_animate_keys ( PxuiUi * ui , const PxuiBox * box , PxuiKeyframeSpan keys , uint8_t * out ) ;
+function pxui_ui_animate_keys_repeat int32_t pxui_ui_animate_keys_repeat ( PxuiUi * ui , const PxuiBox * box , PxuiKeyframeSpan keys , uint32_t repeat , uint8_t autoreverse , float start_offset , uint8_t * out ) ;
+function pxui_ui_badge int32_t pxui_ui_badge ( PxuiUi * ui , PxuiStr label , PxuiStr value , PxuiBox * out ) ;
+function pxui_ui_box int32_t pxui_ui_box ( PxuiUi * ui , PxuiStr label , const PxuiBoxDesc * desc , PxuiBox * out ) ;
+function pxui_ui_box_of_a11y uint8_t pxui_ui_box_of_a11y ( PxuiUi * ui , uint64_t id , PxuiBox * out ) ;
+function pxui_ui_box_of_key uint8_t pxui_ui_box_of_key ( PxuiUi * ui , int64_t key , PxuiBox * out ) ;
+function pxui_ui_busy_step int32_t pxui_ui_busy_step ( PxuiUi * ui , const PxuiBox * box , double now , uint8_t * out ) ;
+function pxui_ui_button_content int32_t pxui_ui_button_content ( PxuiUi * ui , const PxuiButtonDesc * desc , PxuiButtonBuild build , void * user , PxuiResponse * out ) ;
+function pxui_ui_button_plain int32_t pxui_ui_button_plain ( PxuiUi * ui , PxuiStr key , PxuiStr text , PxuiResponse * out ) ;
+function pxui_ui_button_response int32_t pxui_ui_button_response ( PxuiUi * ui , const PxuiButtonDesc * desc , PxuiBuild build , void * user , PxuiResponse * out ) ;
+function pxui_ui_button_styled int32_t pxui_ui_button_styled ( PxuiUi * ui , PxuiStr text , uint8_t bare , uint8_t icon , uint8_t at_end , uint8_t has_ink , PxuiColor ink , uint8_t * out ) ;
+function pxui_ui_button_with int32_t pxui_ui_button_with ( PxuiUi * ui , const PxuiButtonDesc * desc , PxuiBuild build , void * user , PxuiBox * out , PxuiSignal * signal , uint8_t * focused ) ;
+function pxui_ui_bytes int32_t pxui_ui_bytes ( PxuiUi * ui , int64_t * out , size_t len ) ;
+function pxui_ui_cached_label int32_t pxui_ui_cached_label ( PxuiUi * ui , const PxuiBox * box , uint64_t index , PxuiStr text , PxuiStr * out ) ;
+function pxui_ui_cancel_carry int32_t pxui_ui_cancel_carry ( PxuiUi * ui ) ;
+function pxui_ui_cap_width int32_t pxui_ui_cap_width ( PxuiUi * ui , PxuiStr text , float * out ) ;
+function pxui_ui_captured uint8_t pxui_ui_captured ( PxuiUi * ui ) ;
+function pxui_ui_carry int32_t pxui_ui_carry ( PxuiUi * ui , uint8_t has_from , const PxuiBox * from , PxuiStr kind , PxuiStr value ) ;
+function pxui_ui_carrying int32_t pxui_ui_carrying ( PxuiUi * ui , uint8_t * present , PxuiStr * kind , PxuiStr * value ) ;
+function pxui_ui_checkbox int32_t pxui_ui_checkbox ( PxuiUi * ui , PxuiStr label , uint8_t value , uint8_t * out ) ;
+function pxui_ui_color PxuiColor pxui_ui_color ( PxuiUi * ui , uint16_t token ) ;
+function pxui_ui_content_rect int32_t pxui_ui_content_rect ( PxuiUi * ui , PxuiRect * out ) ;
+function pxui_ui_context_at int32_t pxui_ui_context_at ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
+function pxui_ui_context_menu int32_t pxui_ui_context_menu ( PxuiUi * ui , float x , float y , PxuiStr label , PxuiStrSpan items , PxuiU8Span enabled , uint8_t has_width , float width , uint8_t has_selected , int64_t selected , const PxuiMenuExtra * extra , uint32_t * out_tag , int64_t * out_index ) ;
+function pxui_ui_create PxuiUi * pxui_ui_create ( const PxuiUiDesc * desc ) ;
+function pxui_ui_create_with_fonts PxuiUi * pxui_ui_create_with_fonts ( const PxuiUiDesc * desc , const PxuiStr * fonts , size_t count ) ;
+function pxui_ui_density int64_t pxui_ui_density ( PxuiUi * ui ) ;
+function pxui_ui_destroy int32_t pxui_ui_destroy ( PxuiUi * ui ) ;
+function pxui_ui_dialog int32_t pxui_ui_dialog ( PxuiUi * ui , PxuiStr title , PxuiStrSpan buttons , PxuiBuild build , void * user , PxuiDialogOut * out ) ;
+function pxui_ui_dialog_response int32_t pxui_ui_dialog_response ( PxuiUi * ui , const PxuiDialogDesc * desc , PxuiBuild build , void * user , PxuiDialogResult * out ) ;
+function pxui_ui_disabled int32_t pxui_ui_disabled ( PxuiUi * ui , uint8_t disabled , PxuiBuild build , void * user ) ;
+function pxui_ui_dismiss int32_t pxui_ui_dismiss ( PxuiUi * ui , const PxuiBox * box , const PxuiDismissIn * in , PxuiDismissOut * out ) ;
+function pxui_ui_dismiss_popup int32_t pxui_ui_dismiss_popup ( PxuiUi * ui ) ;
+function pxui_ui_draw int32_t pxui_ui_draw ( PxuiUi * ui , const PxuiBox * box , uint8_t over , PxuiPaintBuild build , void * user , PxuiPaintRelease release ) ;
+function pxui_ui_drop_target int32_t pxui_ui_drop_target ( PxuiUi * ui , const PxuiBox * box , uint32_t * tag , PxuiStr * kind , PxuiStr * value ) ;
+function pxui_ui_dropdown int32_t pxui_ui_dropdown ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
+function pxui_ui_enter int32_t pxui_ui_enter ( PxuiUi * ui , const PxuiBox * box , PxuiSaved * out ) ;
+function pxui_ui_environment int32_t pxui_ui_environment ( PxuiUi * ui , PxuiEnvironment * out ) ;
+function pxui_ui_expanded int32_t pxui_ui_expanded ( PxuiUi * ui , PxuiStr key , uint8_t * out ) ;
+function pxui_ui_field_drag int32_t pxui_ui_field_drag ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiPoint * out ) ;
+function pxui_ui_focus_box int32_t pxui_ui_focus_box ( PxuiUi * ui , const PxuiBox * box ) ;
+function pxui_ui_focused int32_t pxui_ui_focused ( PxuiUi * ui , const PxuiBox * box , uint8_t * out ) ;
+function pxui_ui_font_size int64_t pxui_ui_font_size ( PxuiUi * ui ) ;
+function pxui_ui_footer int32_t pxui_ui_footer ( PxuiUi * ui , const PxuiFooterDesc * desc ) ;
+function pxui_ui_frame int32_t pxui_ui_frame ( PxuiUi * ui , const PxuiInput * in , PxuiBuild build , void * user , PxuiFrameOut * out ) ;
+function pxui_ui_frame_index uint64_t pxui_ui_frame_index ( PxuiUi * ui ) ;
+function pxui_ui_gesture int32_t pxui_ui_gesture ( PxuiUi * ui , const PxuiBox * box , const PxuiGestureIn * in , uint32_t commands , PxuiGestureOut * out ) ;
+function pxui_ui_grid_list int32_t pxui_ui_grid_list ( PxuiUi * ui , const PxuiGridListDesc * desc , PxuiBox * out ) ;
+function pxui_ui_grip int32_t pxui_ui_grip ( PxuiUi * ui , PxuiStr label , uint32_t axis , uint8_t has_rect , PxuiRect rect , PxuiBox * out , PxuiSignal * signal ) ;
+function pxui_ui_hover_delay int32_t pxui_ui_hover_delay ( PxuiUi * ui , PxuiStr key , uint8_t * out ) ;
+function pxui_ui_hovered int32_t pxui_ui_hovered ( PxuiUi * ui , const PxuiBox * box , uint8_t within , uint8_t * out ) ;
+function pxui_ui_icon_button int32_t pxui_ui_icon_button ( PxuiUi * ui , PxuiStr label , PxuiStr icon , uint8_t * out ) ;
+function pxui_ui_icon_button_plain int32_t pxui_ui_icon_button_plain ( PxuiUi * ui , PxuiStr key , PxuiStr icon , PxuiStr name , PxuiResponse * out ) ;
+function pxui_ui_icon_button_response int32_t pxui_ui_icon_button_response ( PxuiUi * ui , const PxuiIconButtonDesc * desc , PxuiResponse * out ) ;
+function pxui_ui_icon_button_with int32_t pxui_ui_icon_button_with ( PxuiUi * ui , const PxuiIconButtonDesc * desc , PxuiBox * out , PxuiSignal * signal , uint8_t * focused ) ;
+function pxui_ui_image int32_t pxui_ui_image ( PxuiUi * ui , PxuiStr label , const PxuiImage * image , uint32_t fit , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBox * out ) ;
+function pxui_ui_inject_a11y int32_t pxui_ui_inject_a11y ( PxuiUi * ui , const PxuiA11yAction * actions , size_t count ) ;
+function pxui_ui_input int32_t pxui_ui_input ( PxuiUi * ui , uint8_t has_owner , int64_t owner , PxuiInput * out ) ;
+function pxui_ui_item_text int32_t pxui_ui_item_text ( PxuiUi * ui , PxuiStr text ) ;
+function pxui_ui_key_down int32_t pxui_ui_key_down ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
+function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
+function pxui_ui_key_pressed_with int32_t pxui_ui_key_pressed_with ( PxuiUi * ui , uint32_t code , uint32_t modifier , uint8_t * out ) ;
+function pxui_ui_keyboard int32_t pxui_ui_keyboard ( PxuiUi * ui , PxuiKeyboard * out ) ;
+function pxui_ui_label int32_t pxui_ui_label ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style ) ;
+function pxui_ui_label_node int32_t pxui_ui_label_node ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style , const PxuiLabelBox * label_box , PxuiBox * out ) ;
+function pxui_ui_layer_drawn int32_t pxui_ui_layer_drawn ( PxuiUi * ui , uint64_t layer ) ;
+function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
+function pxui_ui_list_measured int32_t pxui_ui_list_measured ( PxuiUi * ui , PxuiStr label , size_t count , float estimate_h , PxuiGridBuild build , void * user , PxuiBox * out ) ;
+function pxui_ui_list_view int32_t pxui_ui_list_view ( PxuiUi * ui , const PxuiListViewDesc * desc , size_t * activated ) ;
+function pxui_ui_list_view_with int32_t pxui_ui_list_view_with ( PxuiUi * ui , const PxuiListViewWithDesc * desc , size_t * activated ) ;
+function pxui_ui_load_text_edit int32_t pxui_ui_load_text_edit ( PxuiUi * ui , int64_t key , PxuiStr text , PxuiStr * out_text , uint64_t * caret , uint64_t * anchor ) ;
+function pxui_ui_local_rect int32_t pxui_ui_local_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect * out ) ;
+function pxui_ui_menu_bar int32_t pxui_ui_menu_bar ( PxuiUi * ui , const PxuiMenuBarDesc * desc , PxuiMenuOut * out ) ;
+function pxui_ui_modal int32_t pxui_ui_modal ( PxuiUi * ui , PxuiStr label , uint8_t has_width , float width , PxuiBuild build , void * user , uint8_t * out ) ;
+function pxui_ui_node int32_t pxui_ui_node ( PxuiUi * ui , PxuiStr label , const PxuiNode * node , PxuiBox * out ) ;
+function pxui_ui_node_fields int32_t pxui_ui_node_fields ( PxuiUi * ui , const PxuiBox * box , PxuiNodeFields * out ) ;
+function pxui_ui_node_keyed int32_t pxui_ui_node_keyed ( PxuiUi * ui , int64_t key , const PxuiNode * node , PxuiBox * out ) ;
+function pxui_ui_node_layout int32_t pxui_ui_node_layout ( PxuiUi * ui , const PxuiBox * box , PxuiNode * out ) ;
+function pxui_ui_now double pxui_ui_now ( PxuiUi * ui ) ;
+function pxui_ui_output const PxuiOutput * pxui_ui_output ( PxuiUi * ui ) ;
+function pxui_ui_passed_undo uint32_t pxui_ui_passed_undo ( PxuiUi * ui ) ;
+function pxui_ui_patch_field int32_t pxui_ui_patch_field ( PxuiUi * ui , const PxuiBox * field , const PxuiValueFieldDesc * desc , PxuiStr text , uint8_t * out ) ;
+function pxui_ui_patch_look int32_t pxui_ui_patch_look ( PxuiUi * ui , const PxuiBox * box , const PxuiLookDesc * value , uint8_t * out ) ;
+function pxui_ui_patch_mark int32_t pxui_ui_patch_mark ( PxuiUi * ui , const PxuiBox * box , const PxuiMarkDesc * value , uint8_t * out ) ;
+function pxui_ui_patch_rect int32_t pxui_ui_patch_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect value , uint8_t * out ) ;
+function pxui_ui_patch_text int32_t pxui_ui_patch_text ( PxuiUi * ui , const PxuiBox * box , PxuiStr value , uint8_t * out ) ;
+function pxui_ui_phase_cpu_times int32_t pxui_ui_phase_cpu_times ( PxuiUi * ui , uint64_t * out , size_t len ) ;
+function pxui_ui_phase_times int32_t pxui_ui_phase_times ( PxuiUi * ui , uint64_t * out , size_t len ) ;
+function pxui_ui_platform uint32_t pxui_ui_platform ( PxuiUi * ui ) ;
+function pxui_ui_popup int32_t pxui_ui_popup ( PxuiUi * ui , const PxuiPopupDesc * desc , PxuiBuild build , void * user , uint8_t * out ) ;
+function pxui_ui_press_keys int32_t pxui_ui_press_keys ( PxuiUi * ui , const PxuiBox * box , const uint32_t * * ptr , size_t * len ) ;
+function pxui_ui_progress int32_t pxui_ui_progress ( PxuiUi * ui , PxuiStr label , uint8_t has_value , float value , PxuiBox * out ) ;
+function pxui_ui_radio int32_t pxui_ui_radio ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
+function pxui_ui_rebuilt_named int32_t pxui_ui_rebuilt_named ( PxuiUi * ui , PxuiStr prefix , uint64_t * out ) ;
+function pxui_ui_rect int32_t pxui_ui_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect * out ) ;
+function pxui_ui_remember int32_t pxui_ui_remember ( PxuiUi * ui , PxuiStr text , uint64_t caret , uint64_t anchor , uint8_t typing ) ;
+function pxui_ui_repaint_after int32_t pxui_ui_repaint_after ( PxuiUi * ui , double seconds ) ;
+function pxui_ui_request_cursor int32_t pxui_ui_request_cursor ( PxuiUi * ui , uint32_t shape ) ;
+function pxui_ui_request_frame int32_t pxui_ui_request_frame ( PxuiUi * ui ) ;
+function pxui_ui_resolve_label int32_t pxui_ui_resolve_label ( PxuiUi * ui , const PxuiLabelStyle * style , PxuiTextStyle * out ) ;
+function pxui_ui_reveal int32_t pxui_ui_reveal ( PxuiUi * ui , const PxuiBox * list , size_t index ) ;
+function pxui_ui_root_at int32_t pxui_ui_root_at ( PxuiUi * ui , float x , float y , PxuiI64Span roots , uint8_t * present , int64_t * out ) ;
+function pxui_ui_row_height int64_t pxui_ui_row_height ( PxuiUi * ui ) ;
+function pxui_ui_scroll_offset int32_t pxui_ui_scroll_offset ( PxuiUi * ui , const PxuiBox * box , uint32_t which , float * out ) ;
+function pxui_ui_scroll_view int32_t pxui_ui_scroll_view ( PxuiUi * ui , PxuiStr label , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
+function pxui_ui_scrub int32_t pxui_ui_scrub ( PxuiUi * ui , PxuiStr label , float value , float min , float max , float step , PxuiScrubOut * out ) ;
+function pxui_ui_search_field int32_t pxui_ui_search_field ( PxuiUi * ui , PxuiStr label , PxuiStr icon , PxuiStr value , PxuiStr placeholder , uint8_t * changed , PxuiStr * out ) ;
+function pxui_ui_section_list int32_t pxui_ui_section_list ( PxuiUi * ui , const PxuiSectionListDesc * desc , PxuiBox * out ) ;
+function pxui_ui_section_list_measured int32_t pxui_ui_section_list_measured ( PxuiUi * ui , const PxuiMeasuredSectionDesc * desc , PxuiBox * out ) ;
+function pxui_ui_segmented int32_t pxui_ui_segmented ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
+function pxui_ui_segmented_plain int32_t pxui_ui_segmented_plain ( PxuiUi * ui , PxuiStr key , PxuiStr name , PxuiStrSpan options , size_t selected , PxuiResponse * out , size_t * chosen ) ;
+function pxui_ui_segmented_response int32_t pxui_ui_segmented_response ( PxuiUi * ui , const PxuiSegmentedDesc * desc , PxuiStrSpan options , PxuiResponse * out , size_t * chosen ) ;
+function pxui_ui_set_a11y int32_t pxui_ui_set_a11y ( PxuiUi * ui , uint8_t on ) ;
+function pxui_ui_set_at int32_t pxui_ui_set_at ( PxuiUi * ui , const PxuiBox * box , float x , float y ) ;
+function pxui_ui_set_colors int32_t pxui_ui_set_colors ( PxuiUi * ui , const PxuiColor * light , const PxuiColor * dark , size_t count ) ;
+function pxui_ui_set_dir int32_t pxui_ui_set_dir ( PxuiUi * ui , uint32_t dir ) ;
+function pxui_ui_set_font_size int32_t pxui_ui_set_font_size ( PxuiUi * ui , int64_t size ) ;
+function pxui_ui_set_look int32_t pxui_ui_set_look ( PxuiUi * ui , const PxuiBox * box , const PxuiLookDesc * look , const PxuiStateDesc * state ) ;
+function pxui_ui_set_node_fields int32_t pxui_ui_set_node_fields ( PxuiUi * ui , const PxuiBox * box , const PxuiNodeFields * fields ) ;
+function pxui_ui_set_node_layout int32_t pxui_ui_set_node_layout ( PxuiUi * ui , const PxuiBox * box , const PxuiNode * node ) ;
+function pxui_ui_set_role int32_t pxui_ui_set_role ( PxuiUi * ui , const PxuiBox * box , uint32_t role , uint32_t states ) ;
+function pxui_ui_set_scroll_offset int32_t pxui_ui_set_scroll_offset ( PxuiUi * ui , const PxuiBox * box , float value ) ;
+function pxui_ui_set_state int32_t pxui_ui_set_state ( PxuiUi * ui , const PxuiBox * box , int64_t value ) ;
+function pxui_ui_set_text_state int32_t pxui_ui_set_text_state ( PxuiUi * ui , const PxuiBox * box , uint8_t present , PxuiStr value ) ;
+function pxui_ui_set_theme int32_t pxui_ui_set_theme ( PxuiUi * ui , const PxuiThemeSource * source ) ;
+function pxui_ui_set_timing int32_t pxui_ui_set_timing ( PxuiUi * ui , uint8_t on ) ;
+function pxui_ui_signal int32_t pxui_ui_signal ( PxuiUi * ui , const PxuiBox * box , PxuiSignal * out ) ;
+function pxui_ui_slider int32_t pxui_ui_slider ( PxuiUi * ui , PxuiStr label , float value , float min , float max , float * out ) ;
+function pxui_ui_spinner int32_t pxui_ui_spinner ( PxuiUi * ui , PxuiStr label , PxuiBox * out ) ;
+function pxui_ui_split int32_t pxui_ui_split ( PxuiUi * ui , const PxuiSplitDesc * desc , uint8_t * changed , float * ratio ) ;
+function pxui_ui_state int32_t pxui_ui_state ( PxuiUi * ui , const PxuiBox * box , int64_t default_value , int64_t * out ) ;
+function pxui_ui_style int32_t pxui_ui_style ( PxuiUi * ui , const PxuiBox * box , const PxuiLookDesc states [ 6 ] , const PxuiStateDesc * state ) ;
+function pxui_ui_swipe_actions int32_t pxui_ui_swipe_actions ( PxuiUi * ui , const PxuiBox * box , const PxuiSwipeIn * in ) ;
+function pxui_ui_system_appearance int32_t pxui_ui_system_appearance ( PxuiUi * ui , uint32_t * out ) ;
+function pxui_ui_table int32_t pxui_ui_table ( PxuiUi * ui , const PxuiTableDesc * desc , int64_t * clicked_row ) ;
+function pxui_ui_table_view int32_t pxui_ui_table_view ( PxuiUi * ui , const PxuiTableViewDesc * desc , size_t * sort_column ) ;
+function pxui_ui_table_view_with int32_t pxui_ui_table_view_with ( PxuiUi * ui , const PxuiTableViewWithDesc * desc , size_t * sort_column ) ;
+function pxui_ui_tabs int32_t pxui_ui_tabs ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
+function pxui_ui_text int32_t pxui_ui_text ( PxuiUi * ui , const PxuiBox * box , PxuiStr value ) ;
+function pxui_ui_text_area_submit int32_t pxui_ui_text_area_submit ( PxuiUi * ui , const PxuiTextAreaDesc * desc , const PxuiAreaCallbacks * callbacks , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_submitted ) ;
+function pxui_ui_text_input_focused uint8_t pxui_ui_text_input_focused ( PxuiUi * ui ) ;
+function pxui_ui_text_input_options int32_t pxui_ui_text_input_options ( PxuiUi * ui , PxuiTextInputOptions * out ) ;
+function pxui_ui_text_layout_count int32_t pxui_ui_text_layout_count ( PxuiUi * ui , uint64_t * out ) ;
+function pxui_ui_text_line_box int32_t pxui_ui_text_line_box ( PxuiUi * ui , const PxuiBox * box_ , PxuiStr value , const PxuiTextStyle * style , const PxuiTextSpans * spans ) ;
+function pxui_ui_text_spans int32_t pxui_ui_text_spans ( PxuiUi * ui , const PxuiBox * box_ , PxuiStr value , const PxuiTextStyle * style , const PxuiTextSpans * spans ) ;
+function pxui_ui_text_state int32_t pxui_ui_text_state ( PxuiUi * ui , const PxuiBox * box , uint8_t * present , PxuiStr * out ) ;
+function pxui_ui_text_top float pxui_ui_text_top ( PxuiUi * ui , uint8_t has_size , int64_t size , float y , float h ) ;
+function pxui_ui_text_undo_bytes uint64_t pxui_ui_text_undo_bytes ( PxuiUi * ui ) ;
+function pxui_ui_text_width float pxui_ui_text_width ( PxuiUi * ui , uint8_t has_size , int64_t size , PxuiStr text ) ;
+function pxui_ui_theme const PxuiThemeSnapshot * pxui_ui_theme ( PxuiUi * ui ) ;
+function pxui_ui_theme_apply int32_t pxui_ui_theme_apply ( PxuiUi * ui , PxuiTheme * theme , PxuiStr text ) ;
+function pxui_ui_themed int32_t pxui_ui_themed ( PxuiUi * ui , const PxuiTheme * theme , PxuiBuild build , void * user ) ;
+function pxui_ui_tip int32_t pxui_ui_tip ( PxuiUi * ui , const PxuiBox * box , PxuiStr label ) ;
+function pxui_ui_to_front int32_t pxui_ui_to_front ( PxuiUi * ui , int64_t order , const PxuiBox * box ) ;
+function pxui_ui_toasts int32_t pxui_ui_toasts ( PxuiUi * ui , PxuiStr label , PxuiStrSpan items , double seconds , int64_t * out_index ) ;
+function pxui_ui_toggle_plain int32_t pxui_ui_toggle_plain ( PxuiUi * ui , PxuiStr key , PxuiStr text , uint8_t on , PxuiResponse * out ) ;
+function pxui_ui_toggle_response int32_t pxui_ui_toggle_response ( PxuiUi * ui , const PxuiToggleDesc * desc , PxuiResponse * out ) ;
+function pxui_ui_tooltip int32_t pxui_ui_tooltip ( PxuiUi * ui , PxuiStr key , PxuiStr text ) ;
+function pxui_ui_transfer_carry int32_t pxui_ui_transfer_carry ( PxuiUi * ui , const PxuiBox * to , uint8_t * out ) ;
+function pxui_ui_tree int32_t pxui_ui_tree ( PxuiUi * ui , const PxuiTreeViewDesc * desc , size_t * activated ) ;
+function pxui_ui_tree_with int32_t pxui_ui_tree_with ( PxuiUi * ui , const PxuiTreeViewWithDesc * desc , size_t * activated ) ;
+function pxui_ui_unfocus int32_t pxui_ui_unfocus ( PxuiUi * ui ) ;
+function pxui_ui_use_theme int32_t pxui_ui_use_theme ( PxuiUi * ui , const PxuiTheme * theme ) ;
+function pxui_ui_variant int32_t pxui_ui_variant ( PxuiUi * ui , uint32_t kind , uint16_t variant ) ;
+function pxui_ui_verify_views int32_t pxui_ui_verify_views ( PxuiUi * ui , uint8_t on ) ;
+function pxui_ui_verifying uint8_t pxui_ui_verifying ( PxuiUi * ui ) ;
+function pxui_ui_view int32_t pxui_ui_view ( PxuiUi * ui , PxuiStr label , uint64_t revision , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
+function pxui_ui_view_backdrop_blur int32_t pxui_ui_view_backdrop_blur ( PxuiUi * ui , const PxuiBox * box , float sigma ) ;
+function pxui_ui_view_backdrop_saturation int32_t pxui_ui_view_backdrop_saturation ( PxuiUi * ui , const PxuiBox * box , float saturation ) ;
+function pxui_ui_view_clip int32_t pxui_ui_view_clip ( PxuiUi * ui , const PxuiBox * box , const PxuiRect * clip ) ;
+function pxui_ui_view_flat int32_t pxui_ui_view_flat ( PxuiUi * ui , PxuiStr label , uint64_t revision , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBuild build , void * user , PxuiBox * out ) ;
+function pxui_ui_view_offset int32_t pxui_ui_view_offset ( PxuiUi * ui , const PxuiBox * box , float dx , float dy ) ;
+function pxui_ui_view_opacity int32_t pxui_ui_view_opacity ( PxuiUi * ui , const PxuiBox * box , float opacity ) ;
+function pxui_ui_view_scale int32_t pxui_ui_view_scale ( PxuiUi * ui , const PxuiBox * box , float scale ) ;
+function pxui_ui_view_size int32_t pxui_ui_view_size ( PxuiUi * ui , PxuiPoint * out ) ;
+function pxui_ui_view_transform_about int32_t pxui_ui_view_transform_about ( PxuiUi * ui , const PxuiBox * box , float scale , const float * transform , float px , float py ) ;
+function pxui_ui_wants_frame int32_t pxui_ui_wants_frame ( PxuiUi * ui , PxuiEventSpan events , double now , uint8_t * out ) ;
+function pxui_verify_new_views int32_t pxui_verify_new_views ( uint8_t on ) ;
+function pxui_within int32_t pxui_within ( PxuiUi * ui , const PxuiBox * box , PxuiBuild build , void * user ) ;
+layout A11yAction 32 8 0 8 12 16 24 28
+layout A11yNode 128 8 0 8 12 16 20 24 28 32 80 96 100 104 112 116 120 124
+layout A11yTree 64 8 0 16 32 40 44 48 56
+layout A11yValue 48 8 0 4 8 12 16 24 32 40
+layout Commands 24 8 0 8 16
+layout Damage 20 4 0 1 4
+layout Edges 16 4 0 4 8 12
+layout Environment 72 8 0 16 32 48 56 64 68
+layout Event 48 8 0 4 8 16 24 32
+layout Flags 8 8
+layout FrameIn 48 8 0 8 16 24 28 32 40
+layout FrameInV1_24 128 8 0 8 16 24 28 32 40 48 52 56
+layout FrameInV1_26 152 8 0 8 16 24 28 32 40 48 52 56 128
+layout FrameInV1_57 160 8 0 8 16 24 28 32 40 48 52 56 128 152
+layout FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
+layout FrameOut 40 8 0 4 20 21 24 32
+layout Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
+layout Image 40 8 0 8 16 24 28 32
+layout Input 160 8 0 8 16 24 32 40 56 72 88 104 120 136 152
+layout Instance 64 4 0 16 24 28 32 40 48 50 51 52 54 56
+layout Keyboard 20 4 0 16
+layout Output 240 8 0 4 8 16 24 32 40 48 136 160 224
+layout Pass 72 8 0 8 16 24 28 32 40 48 52 56 64
+layout PlatformOut 88 8 0 4 8 9 10 11 16 48 56 72 76 77
+layout Point 8 4 0 4
+layout PxuiAnchor 32 4 0 16
+layout PxuiAnchorDesc 40 4 0 4 20 24 28 32 36 37
+layout PxuiAreaCallbacks 144 8 0 4 8 16 24 32 40 48 56 64 72 80 88 96 104 112 120 128 136
+layout PxuiBadgeConfig 80 8 0 8 40 56 72
+layout PxuiBar 24 4 0 4 8 12 16 20
+layout PxuiBox 32 8 0 8 16 24
+layout PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
+layout PxuiButtonConfig 232 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135 144 145 146 147 148 152 216
+layout PxuiButtonDesc 192 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 104 105 106 107 108 112 176
+layout PxuiCell 8 2 0 2 4 6
+layout PxuiCheckConfig 72 8 0 4 12 16 48 64
+layout PxuiColorSpan 24 8 0 8 16 20
+layout PxuiCompletion 80 8 0 8 16 32 48 64
+layout PxuiCurve 140 4 0 4
+layout PxuiCurveDesc 160 4 0 4 8 24 28 32 96
+layout PxuiDescription 40 8 0 1 8 16 24
+layout PxuiDialogConfig 88 8 0 8 24 40 48 56 64 72 80
+layout PxuiDialogDesc 88 8 0 4 8 24 40 56 64 72 80
+layout PxuiDialogOut 16 8 0 8
+layout PxuiDialogResult 16 8 0 4 5 6 8
+layout PxuiDirty 8 4 0 4
+layout PxuiDismissIn 12 4 0 4 8
+layout PxuiDismissOut 12 4 0 4 8
+layout PxuiDropdownConfig 80 8 0 4 12 16 24 56 72
+layout PxuiF32MutSpan 16 8 0 8
+layout PxuiFont 32 8 0 8 16 20 24
+layout PxuiFontDesc 24 8 0 2 8 16 20 21
+layout PxuiFooterConfig 88 8 0 8 40 48 64 80
+layout PxuiFooterDesc 40 8 0 4 5 8 24
+layout PxuiGestureIn 16 4 0 4 8 12
+layout PxuiGestureOut 20 4 0 4 8 12 16
+layout PxuiGrid 32 8
+layout PxuiGridListDesc 56 8 0 4 8 24 32 36 40 48
+layout PxuiGripConfig 56 8 0 4 12 13 16 48
+layout PxuiHeadActionDesc 40 8 0 4 5 6 8 24
+layout PxuiHintDesc 40 8 0 4 8 24
+layout PxuiIconButtonConfig 136 8 0 4 16 48 64 80 88 89 90 92 96 100 104 112 120 124 128
+layout PxuiIconButtonDesc 104 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96
+layout PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
+layout PxuiLabelBox 16 4 0 4 8 12 13 14
+layout PxuiLabelConfig 144 8 0 4 8 40 56 120 124
+layout PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
+layout PxuiLayerInfo 48 8 0 8 12 16 32
+layout PxuiLineFieldConfig 72 8 0 4 12 16 48 64
+layout PxuiListViewDesc 64 8 0 4 5 8 24 32 48 56
+layout PxuiListViewWithDesc 64 8 0 4 5 8 24 32 48 56
+layout PxuiLook 160 8 0 4 12 16 20 24 28 44 92 96 128 132 144 148 152
+layout PxuiLookDesc 152 8 0 4 8 12 16 20 24 28 44 92 96 120 124 136 140 144 145
+layout PxuiMark 12 4
+layout PxuiMarkDesc 16 4 0 4 8 12 13
+layout PxuiMaybeRange 24 8 0 1 8 16
+layout PxuiMeasuredSectionDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
+layout PxuiMenuBarDesc 40 8 0 4 8 24
+layout PxuiMenuDesc 40 8 0 4 8 24
+layout PxuiMenuExtra 144 8 0 4 8 16 32 48 64 80 84 88 104 108 109 112 128
+layout PxuiMenuItemConfig 80 8 0 4 16 24 56 72
+layout PxuiMenuOut 24 8 0 4 8 16
+layout PxuiMenuRowConfig 112 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88 104 108
+layout PxuiMotion 28 4 0 4 8 12
+layout PxuiNode 488 8 0 4 5 6 7 8 9 14 16 24 40 56 60 64 68 72 76 80 84 100 116 120 128 168 176 180 216 220 232 240 400 416 428 456
+layout PxuiNodeFields 192 8 0 4 8 160 176
+layout PxuiNote 48 8 0 8 16 24 25 32
+layout PxuiOptAlign 2 1
+layout PxuiOptAnchor 36 4
+layout PxuiOptBar 28 4
+layout PxuiOptColor 5 1
+layout PxuiOptGrid 40 8
+layout PxuiOptPoint 12 4
+layout PxuiOptTransition 28 4
+layout PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56
+layout PxuiPanel 200 8 0 4 8 12 16 24 32 33 34 35 36 37 40 44 48
+layout PxuiPanelConfig 72 8 0 8 40 56 64
+layout PxuiPlacement 16 4 0 1 4 8 12
+layout PxuiPoint 8 4 0 4
+layout PxuiPopupDesc 48 8 0 4 5 6 7 8 12 16 20 24 28 32
+layout PxuiProgressConfig 72 8 0 4 8 16 48 64
+layout PxuiRange 16 8 0 8
+layout PxuiResponse 40 8 0 4 8
+layout PxuiRewrite 24 8 0 16
+layout PxuiRing 12 4 0 4 8
+layout PxuiRingDesc 12 4 0 4 8
+layout PxuiRowConfig 72 8 0 4 16 24 56 64
+layout PxuiSaved 24 8 0 4 8 16
+layout PxuiScrollConfig 56 8 0 8 40 48
+layout PxuiScrubOut 48 8 0 4 8 40 44
+layout PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
+layout PxuiSectionConfig 80 8 0 4 8 16 48 64 72
+layout PxuiSectionListDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
+layout PxuiSegmentConfig 112 8 0 4 16 24 32 40 72 88 96 98 100 104
+layout PxuiSegmentedDesc 96 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80
+layout PxuiShadow 24 4 0 4 12 16 20
+layout PxuiShadowDesc 24 4 0 4 12 16 20 21
+layout PxuiSignal 112 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96
+layout PxuiSize 16 8
+layout PxuiSizeDesc 16 8 0 4 8
+layout PxuiSliderConfig 72 8 0 4 12 16 48 64
+layout PxuiSlot 8 8 0
+layout PxuiSpinnerConfig 64 8 0 8 40 56
+layout PxuiSplice 32 8 0 8 16
+layout PxuiSplitConfig 80 8 0 4 8 12 16 24 56 64 72
+layout PxuiSplitDesc 72 8 0 4 8 24 28 32 36 40 48 56 64
+layout PxuiState 5 1 0 1 2 3 4
+layout PxuiStateDesc 8 1 0 1 2 3 4 5
+layout PxuiStates 960 8 0 160 320 480 640 800
+layout PxuiSubmenu 72 8 0 8 16 17 24 40 56
+layout PxuiSwatch 8 1 0 1 4
+layout PxuiSwipeIn 16 4 0 4 8 12
+layout PxuiTabConfig 80 8 0 4 16 24 56 72
+layout PxuiTableCellConfig 72 8 0 4 8 12 16 24 32 40 48 64
+layout PxuiTableDesc 80 8 0 4 8 24 32 36 40 56 64 72
+layout PxuiTableHeadConfig 80 8 0 4 12 13 16 24 56 72
+layout PxuiTableViewDesc 96 8 0 4 5 6 8 24 40 56 64 72 80 88
+layout PxuiTableViewWithDesc 96 8 0 4 5 6 8 24 40 56 64 72 80 88
+layout PxuiTargetDesc 32 4 0 4 8 9 12 16 20 24 28
+layout PxuiTextAreaDesc 200 8 0 4 8 12 16 20 24 32 40 56 72 88 104 120 136 152 168 184
+layout PxuiTextFieldConfig 88 8 0 4 16 48 64 80
+layout PxuiThemeSnapshot 56888 8 0 136 140 144 156 160 168 56808
+layout PxuiThemeTokens 136 8 0 4 8 12 16 20 24 28 32 33 36 52 64 72 80 88 96 124 125 128
+layout PxuiTipConfig 72 8 0 4 8 16 48 64
+layout PxuiToastConfig 72 8 0 4 16 48 64
+layout PxuiToggleConfig 192 8 0 4 12 16 48 64 68 72 80 88 96 100 104 120 122 123 128
+layout PxuiToggleDesc 160 8 0 4 5 6 7 8 12 16 20 24 32 40 56 72 88 89 96
+layout PxuiTokens 136 8 0 4 8 12 16 20 24 28 36 52 64 72 80 88 96 124 128
+layout PxuiTrack 8 4
+layout PxuiTransition 24 4
+layout PxuiTreeNode 4 2 0 2
+layout PxuiTreeRowConfig 88 8 0 4 12 13 16 24 32 40 72 80
+layout PxuiTreeViewDesc 104 8 0 4 8 24 40 56 64 80 88 96
+layout PxuiTreeViewWithDesc 104 8 0 4 8 24 40 56 64 80 88 96
+layout PxuiU32MutSpan 16 8 0 8
+layout PxuiU8MutSpan 16 8 0 8
+layout PxuiUiDesc 12 4 0 4 8
+layout Rect 16 4 0 4 8 12
+layout Rgba 4 1 0 1 2 3
+layout Role 1 1
+layout Size 16 8
+layout Slice 16 8 0 8
+layout Span 32 8 0 4 6 8 16 24
+layout Str 16 8 0 8
+layout TextGlyph 40 4 0 16 32 36
+layout TextInputOptions 12 4 0 4 8
+layout TextMetrics 16 4 0 4 8 12
+layout TextSpan 24 4 0 4 8 10 12 16 20
+layout TextSpans 200 4 0 4 8
+layout TextStyle 36 4 0 4 6 8 12 16 20 24 26 27 28 32
+layout ThemeSource 24 8 0 4 8
+layout Touch 48 8 0 8 16 24 32 40 44
+layout View 56 4 0 8 12 28 32 48

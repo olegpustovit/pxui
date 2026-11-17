@@ -1885,20 +1885,26 @@ fn abi_snapshot_lines(workspace: &Path) -> Result<(u32, BTreeMap<String, String>
     Ok((minor, lines, ext))
 }
 
-fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>) -> Vec<String> {
-    let mut issues = Vec::new();
-    let mut old_minor = None;
-    let mut old_lines = BTreeMap::new();
-    for line in old.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
+/// The `minor N` line and the rows by `kind name` key of a manifest text.
+fn snapshot_rows(text: &str) -> (Option<u32>, BTreeMap<String, String>) {
+    let mut minor = None;
+    let mut rows = BTreeMap::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
         if let Some(value) = line.strip_prefix("minor ") {
-            old_minor = value.parse::<u32>().ok();
+            minor = value.parse::<u32>().ok();
         } else {
             let mut words = line.split_whitespace();
             if let (Some(kind), Some(name)) = (words.next(), words.next()) {
-                old_lines.insert(format!("{kind} {name}"), line.to_owned());
+                rows.insert(format!("{kind} {name}"), line.to_owned());
             }
         }
     }
+    (minor, rows)
+}
+
+fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>) -> Vec<String> {
+    let mut issues = Vec::new();
+    let (old_minor, old_lines) = snapshot_rows(old);
     let Some(old_minor) = old_minor else { return vec!["abi-snapshot: snapshot has no valid `minor N` line".to_owned()] };
     if minor < old_minor {
         issues.push(format!("abi-snapshot: ABI minor decreased from {old_minor} to {minor}"));
@@ -1950,6 +1956,65 @@ fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
     }
 }
 
+/// The release directories under `fixtures/abi/` (`1.57`, ...), oldest first.
+fn abi_fixtures(workspace: &Path) -> Result<Vec<PathBuf>, String> {
+    let root = workspace.join("fixtures/abi");
+    let mut dirs: Vec<(u32, PathBuf)> = Vec::new();
+    for entry in fs::read_dir(&root).map_err(|error| format!("{}: {error}", root.display()))? {
+        let path = entry.map_err(|error| error.to_string())?.path();
+        let minor = path.file_name().and_then(|n| n.to_str()).and_then(|n| n.strip_prefix("1.")).and_then(|n| n.parse().ok());
+        if let (true, Some(minor)) = (path.is_dir(), minor) { dirs.push((minor, path)); }
+    }
+    dirs.sort();
+    Ok(dirs.into_iter().map(|(_, path)| path).collect())
+}
+
+/// Every row a released minor froze is still in the current manifest, unchanged, and anything new came with a later minor. The check is
+/// against the copy kept in `fixtures/abi/1.N/`, which editing `abi/pxui.v1.txt` to match changed code does not touch.
+fn abi_frozen(workspace: &Path) -> Result<Vec<String>, String> {
+    let current_path = workspace.join("abi/pxui.v1.txt");
+    let current = fs::read_to_string(&current_path).map_err(|error| format!("{}: {error}", current_path.display()))?;
+    let (Some(minor), rows) = snapshot_rows(&current) else { return Ok(vec!["abi-frozen: abi/pxui.v1.txt has no valid `minor N` line".to_owned()]) };
+    let mut issues = Vec::new();
+    for dir in abi_fixtures(workspace)? {
+        let path = dir.join("pxui.v1.txt");
+        let frozen = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+        issues.extend(compare_abi_snapshot(&frozen, minor, &rows).into_iter().map(|issue| issue.replacen("abi-snapshot", &format!("abi-frozen ({})", dir.display()), 1)));
+    }
+    Ok(issues)
+}
+
+/// Each kept old-app binary for this platform runs against the library built from this tree and exits 0.
+fn abi_compat(workspace: &Path) -> Result<Vec<String>, String> {
+    if cfg!(windows) {
+        println!("abi-compat: skipped on Windows (the old-app fixtures are macOS and Linux binaries)");
+        return Ok(Vec::new());
+    }
+    let target_dir = env::var_os("CARGO_TARGET_DIR").map(PathBuf::from).unwrap_or_else(|| workspace.join("target"));
+    let build = std::process::Command::new("cargo").args(["build", "-q", "-p", "pxui_dylib"]).current_dir(workspace).status()
+        .map_err(|error| format!("cannot run cargo: {error}"))?;
+    if !build.success() { return Ok(vec!["abi-compat: cargo build -p pxui_dylib failed".to_owned()]); }
+    let (library, installed, path_var) = if cfg!(target_os = "macos") { ("libpxui.dylib", "libpxui.1.dylib", "DYLD_LIBRARY_PATH") } else { ("libpxui.so", "libpxui.so.1", "LD_LIBRARY_PATH") };
+    let lib_dir = target_dir.join("abi-compat");
+    fs::create_dir_all(&lib_dir).map_err(|error| format!("{}: {error}", lib_dir.display()))?;
+    fs::copy(target_dir.join("debug").join(library), lib_dir.join(installed)).map_err(|error| format!("cannot stage {library}: {error}"))?;
+    let suffix = format!("old_app-{}-{}", if cfg!(target_os = "macos") { "Darwin" } else { "Linux" }, env::consts::ARCH.replace("aarch64", "arm64"));
+    let (mut issues, mut ran) = (Vec::new(), 0);
+    for dir in abi_fixtures(workspace)? {
+        let app = dir.join(&suffix);
+        if !app.exists() { continue; }
+        ran += 1;
+        let output = std::process::Command::new(&app).env(path_var, &lib_dir).output().map_err(|error| format!("cannot run {}: {error}", app.display()))?;
+        if output.status.success() {
+            print!("{}", String::from_utf8_lossy(&output.stdout));
+        } else {
+            issues.push(format!("abi-compat: {} failed ({}): {}{}", app.display(), output.status, String::from_utf8_lossy(&output.stdout), String::from_utf8_lossy(&output.stderr)));
+        }
+    }
+    if ran == 0 { issues.push(format!("abi-compat: no fixtures/abi/1.N/{suffix} for this platform; run tools/abi-fixture.sh on it")); }
+    Ok(issues)
+}
+
 const EXTENSION_HEADER: &str = "# PXUI extension set: no stability guarantee (docs/abi.md, Extension set). Rows may change or disappear between minors.\n# The set is the names listed here; add a name to move a call out of the frozen manifest, then run `cargo run -p gate -- abi-snapshot --write`.\n";
 
 fn workspace_root() -> Result<PathBuf, String> {
@@ -1965,8 +2030,8 @@ fn main() {
     let command = args.next().unwrap_or_else(|| "all".into());
     let option = args.next();
     let write_snapshot = option.as_deref() == Some("--write");
-    if args.next().is_some() || (option.is_some() && !write_snapshot) || (write_snapshot && command != "abi-snapshot") || !matches!(command.as_str(), "shape" | "deps" | "tiers" | "docs" | "pxui" | "abi-exports" | "abi-header" | "abi-snapshot" | "install-smoke" | "all") {
-        eprintln!("usage: cargo run -p gate -- <shape|deps|tiers|docs|pxui|abi-exports|abi-header|abi-snapshot [--write]|install-smoke|all>");
+    if args.next().is_some() || (option.is_some() && !write_snapshot) || (write_snapshot && command != "abi-snapshot") || !matches!(command.as_str(), "shape" | "deps" | "tiers" | "docs" | "pxui" | "abi-exports" | "abi-header" | "abi-snapshot" | "abi-frozen" | "abi-compat" | "install-smoke" | "all") {
+        eprintln!("usage: cargo run -p gate -- <shape|deps|tiers|docs|pxui|abi-exports|abi-header|abi-snapshot [--write]|abi-frozen|abi-compat|install-smoke|all>");
         process::exit(2);
     }
     let workspace = match workspace_root() {
@@ -1985,6 +2050,8 @@ fn main() {
         "abi-exports" => abi_exports(&workspace),
         "abi-header" => abi_header(&workspace),
         "abi-snapshot" => abi_snapshot(&workspace, write_snapshot),
+        "abi-frozen" => abi_frozen(&workspace),
+        "abi-compat" => abi_compat(&workspace),
         "install-smoke" => install_smoke(&workspace),
         _ => shape(&workspace).and_then(|mut errors| {
             errors.extend(deps(&workspace)?);
@@ -1993,6 +2060,8 @@ fn main() {
             if errors.is_empty() { errors.extend(abi_exports(&workspace)?); }
             if errors.is_empty() { errors.extend(abi_header(&workspace)?); }
             if errors.is_empty() { errors.extend(abi_snapshot(&workspace, false)?); }
+            if errors.is_empty() { errors.extend(abi_frozen(&workspace)?); }
+            if errors.is_empty() { errors.extend(abi_compat(&workspace)?); }
             if errors.is_empty() { errors.extend(install_smoke(&workspace)?); }
             if errors.is_empty() { errors.extend(docs(&workspace)?); }
             Ok(errors)

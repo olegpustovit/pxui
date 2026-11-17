@@ -36,6 +36,11 @@ The set is the names in that file; the `abi-snapshot` gate keeps its rows curren
 `abi/pxui.v1.txt` and `abi/layout.v1.txt` carry none of them. Moving a call into the set is an edit of that file, reviewed as one; a row
 left in the frozen manifest is frozen.
 
+**Old-app fixture.** At each release `tools/abi-fixture.sh <minor>` (on macOS and on Linux) keeps the release's header, its manifest and a C
+app built against it in `fixtures/abi/1.<minor>/`. `cargo run -p gate -- abi-compat` runs every kept binary against the library built from
+the tree, and `abi-frozen` fails when a row the fixture's manifest froze is missing or changed in `abi/pxui.v1.txt`, or when the manifest
+gained a row without a later minor: editing `abi/pxui.v1.txt` to match changed code does not touch the fixture's copy.
+
 **Adding a call.** In one commit: the `pxui_abi` export; the wrapper method in `pxui`; the declaration in `include/pxui.h`;
 the appended row in `abi/pxui.v1.txt` (and `abi/layout.v1.txt` for a new record); the row in the table below; the
 `ABI_VERSION` bump with the `minor` line. Then run the `abi-header` and `abi-snapshot` gates.
