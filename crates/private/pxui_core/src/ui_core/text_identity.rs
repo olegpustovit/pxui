@@ -11,7 +11,9 @@ pub(super) fn lay_out_node(t:&mut Text,memo:&std::cell::Cell<Option<(u64,u64)>>,
         // the node's last layout (a measure at another width), or the cached natural one (prewarmed), when this width cannot change it
         let natural=pxui_text::layout_key(style,0.0,fingerprint,&[]);
         let last=memo.get().map(|(key,_)|key).filter(|key|*key!=natural);
-        for key in last.into_iter().chain(Some(natural)) {
+        // a node that never laid this text out: the widths it was last shaped at, e.g. by a measure (`Text::recent_widths`)
+        let recent=t.recent_widths(natural).map(|w|if w>=width {pxui_text::layout_key(style,w,fingerprint,&[])} else {natural});
+        for key in last.into_iter().chain(Some(natural)).chain(recent) {
             if let Some(metrics)=t.reusable_layout(key,value,style,width) {
                 if flags.any(Flags::FIT_TEXT_PIXEL) {memo.set(Some((key,fingerprint)));}
                 return Some((key,metrics));

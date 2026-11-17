@@ -298,6 +298,12 @@ const MAX_LAYOUTS: usize = 4096;
 /// `SPARE_TEXT_BYTES`; a larger layout is dropped.
 const SPARE_LAYOUTS: usize = 2 * SWEEP_FRAMES as usize;
 const SPARE_TEXT_BYTES: usize = 1024;
+/// Slots of the recent-width index (`Text::recent_widths`): direct-mapped by the plain text's natural key, each holding that text's last two
+/// laid-out widths. A fixed table of `RECENT_SLOTS * 24` bytes made at construction: never grows, a colliding text overwrites, and a stale
+/// width only names a layout `reusable_layout` then fails to find or validate.
+const RECENT_SLOTS: usize = 512;
+#[derive(Clone, Copy)]
+struct Recent { key: u64, widths: [f32; 2] }
 /// Text storage a new layout starts with, so ordinary labels never regrow a pooled layout.
 const LABEL_BYTES: usize = 64;
 /// Glyph slots a new layout starts with, for the same reason.
@@ -769,6 +775,8 @@ pub struct Text {
     /// every entry's key, and where the incremental sweep goes on
     keys: Vec<u64>,
     sweep: usize,
+    /// per plain text (by `layout_key` at width 0) the widths it was last shaped at, for a node that never laid it out (`recent_widths`)
+    recent: Box<[Recent]>,
     frame: u32,
     /// built row windows `(list, first, last)` of up to `LIST_WINDOWS` lists, in build order
     windows: [(u64, u32, u32); LIST_WINDOWS],
@@ -840,6 +848,7 @@ impl Text {
             spare: Vec::with_capacity(SPARE_LAYOUTS),
             keys: Vec::new(),
             sweep: 0,
+            recent: vec![Recent { key: 0, widths: [0.0; 2] }; RECENT_SLOTS].into_boxed_slice(),
             frame: 1,
             windows: [(0, 0, 0); LIST_WINDOWS],
             scope: (0, 0),
@@ -989,6 +998,21 @@ impl Text {
         Some(e.m)
     }
 
+    /// The last two widths (newest first, 0.0: none) plain text of natural key `natural` (`layout_key` at width 0, no spans) was shaped at. A node
+    /// that never laid the text out tries each through `reusable_layout`: a measure at W serves a draw at its measured width. Bounded by
+    /// `RECENT_SLOTS` (direct-mapped, overwritten by a colliding text; entries are never swept because a stale one is validated on use).
+    /// Allocates: never.
+    pub fn recent_widths(&self, natural: u64) -> [f32; 2] {
+        let slot = &self.recent[natural as usize % RECENT_SLOTS];
+        if slot.key == natural { slot.widths } else { [0.0; 2] }
+    }
+
+    fn note_width(&mut self, natural: u64, width: f32) {
+        let slot = &mut self.recent[natural as usize % RECENT_SLOTS];
+        if slot.key != natural { *slot = Recent { key: natural, widths: [width, 0.0] }; }
+        else if slot.widths[0] != width { slot.widths = [width, slot.widths[0]]; }
+    }
+
     pub fn layout(&mut self, key: u64, text: &str, style: &Style, max_width: f32) -> Metrics {
         self.layout_inner(key,text,style,max_width,&[])
     }
@@ -1019,6 +1043,8 @@ impl Text {
         #[cfg(debug_assertions)]
         self.report_style_mismatch(key, text, style, width);
         self.layouts = self.layouts.saturating_add(1);
+        // shaping dwarfs one hash of the text
+        if spans.is_empty() && width.is_finite() { self.note_width(layout_key(style, 0.0, text_hash(text), &[]), width); }
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         let css = self.css_baseline(style);
         let before = self.entries.get(&key).map_or(0, |e| layout_cost(e.text.len()));

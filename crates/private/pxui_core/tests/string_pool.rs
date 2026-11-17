@@ -135,4 +135,35 @@ mod text_identity_cases {
         assert_ne!(own,key);
         assert_eq!(text.layout_count(),layouts+1);
     }
+
+    #[test]
+    fn a_new_node_drawing_text_measured_elsewhere_hits_the_measure_layout_without_shaping() {
+        let glyphs=|text:&mut Text,key:u64|{
+            let mut rects=Vec::with_capacity(64);
+            text.glyphs(key,(3.0,5.0),1.0,&mut |g|rects.push(g.rect));
+            rects
+        };
+        let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
+        let style=Style { wrap: pxui_text::Wrap::Word, ..Style::default() };
+        let (value,w)=("1234567 plays",40.0);
+        // measured as UiText::measure does: no node, no memo
+        let key=pxui_text::content_key(&style,w,value,&[]);
+        let m=text.layout(key,value,&style,w);
+        assert!(m.lines>1 && m.w<w);
+        let mut alone=Text::new(&[pxui_text::PRAGMASEVKA]);
+        let at=pxui_text::content_key(&style,m.w,value,&[]);
+        alone.layout(at,value,&style,m.w);
+        let reference=glyphs(&mut alone,at);
+        let layouts=text.layout_count();
+        let memo=std::cell::Cell::new(None);
+        mem_sys::local_reset();
+        let (hit,hm)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,m.w,value,&[],false).unwrap();
+        assert_eq!(mem_sys::local_alloc_count(),0);
+        assert_eq!((hit,hm,text.layout_count()),(key,m,layouts),"a fresh node at the measured width shapes nothing");
+        assert_eq!(glyphs(&mut text,hit),reference,"identical glyphs");
+        let fresh=std::cell::Cell::new(None);
+        let (own,_)=lay_out_node(&mut text,&fresh,Flags::FIT_TEXT_PIXEL,&style,m.w-1.0,value,&[],false).unwrap();
+        assert_ne!(own,key);
+        assert_eq!(text.layout_count(),layouts+1,"a narrower draw lays out its own");
+    }
 }
