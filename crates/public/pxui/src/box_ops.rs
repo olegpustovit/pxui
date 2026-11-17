@@ -225,6 +225,20 @@ impl Ui {
 }
 
 impl Ui {
+    /// Declares a box under the current parent by `label` and returns its handle, valid this frame; children go in with `within`.
+    ///
+    /// `opts` sets its flags, size, axis, padding, scroll step and optional free position and hit shape (see `BoxOpts`).
+    /// Allocates: never on a warm frame; a new identity takes a slot the first time, and a `hit` closure takes a pooled box once per call.
+    /// Identity: `label` hashes under the parent's seed as `key_of` does; two boxes with one label in one parent collide and the second takes a `#dup` key, so label boxes that can reorder by something unique.
+    /// Panics: when the library refuses the box (outside a frame, an invalid size or a `label` over the text limit).
+    ///
+    /// ```
+    /// use pxui::ui::BoxOpts;
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let panel = ui.box_("panel", BoxOpts::default().padding(4.0));
+    ///     ui.within(&panel, &mut |ui| { ui.label("inside", pxui::Label::DEFAULT); });
+    /// });
+    /// ```
     #[track_caller]
     pub fn box_(&mut self, label: &str, opts: BoxOpts) -> PxuiBox {
         let (hit, hit_user, hit_release_fn) = match &opts.hit {
@@ -241,8 +255,33 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_box(self.0.as_ptr(), as_str(label), &desc, &mut out) });
         out
     }
+    /// `box_` with the label written by `format_args!`, so a per-row label needs no `String`.
+    ///
+    /// The label is formatted into a 128-byte stack buffer; a longer one goes to the heap.
+    /// Allocates: nothing for a label up to 128 bytes, one `String` for a longer one; otherwise as `box_`.
+    /// Identity: as `box_` for the formatted text: `format_args!("row {}", id)` keys the box by `id`.
+    /// Panics: as `box_`.
+    ///
+    /// ```
+    /// use pxui::ui::BoxOpts;
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     for id in 0..3 { ui.box_fmt(format_args!("row {id}"), BoxOpts::default()); }
+    /// });
+    /// ```
     #[track_caller]
     pub fn box_fmt(&mut self, label: Arguments, opts: BoxOpts) -> PxuiBox { self.box_(Label::new(label).as_str(), opts) }
+    /// Between builds, gives `b` the look `value` and repaints only its instances; true when the change is applied or held for the next paint, false for a stale handle or when it must wait for the next frame.
+    ///
+    /// Inside a build the look is recorded and the frame paints it; the owner's next declaration of the node wins over a patch.
+    /// Allocates: never when the node's instance count is unchanged; the draw layer may grow when it changes.
+    /// Panics: when the library refuses the call (a null `Ui` or a look with a non-finite number).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     assert!(ui.patch_look(&b, &pxui::ui::Look::NONE));
+    /// });
+    /// ```
     #[inline] #[track_caller] pub fn set_at(&mut self, b: &PxuiBox, at: (f32, f32)) { check(self, unsafe { lib::pxui_ui_set_at(self.0.as_ptr(), b, at.0, at.1) }) }
     #[track_caller]
     pub fn patch_look(&mut self, b: &PxuiBox, value: &Look) -> bool {
@@ -250,6 +289,19 @@ impl Ui {
         let rc = unsafe { lib::pxui_ui_patch_look(self.0.as_ptr(), b, &look(*value), &mut out) };
         crate::live(self, rc) && out != 0
     }
+    /// Between builds, moves and resizes `b`'s look and text to `value`, a rectangle in the space `local_rect` reports; true as for `patch_look`.
+    ///
+    /// Children, canvases and the hit area stay where the last frame put them until the next frame.
+    /// Allocates: as `patch_look`.
+    /// Panics: when the library refuses the call (a null `Ui` or a non-finite rectangle).
+    ///
+    /// ```
+    /// use pxui::ui::Rect;
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     assert!(ui.patch_rect(&b, Rect::new(0.0, 0.0, 10.0, 10.0)));
+    /// });
+    /// ```
     #[inline]
     #[track_caller]
     pub fn patch_rect(&mut self, b: &PxuiBox, value: Rect) -> bool {
@@ -257,12 +309,33 @@ impl Ui {
         let rc = unsafe { lib::pxui_ui_patch_rect(self.0.as_ptr(), b, value, &mut out) };
         crate::live(self, rc) && out != 0
     }
+    /// Between builds, gives `b` the mark `value` (a chevron's direction, a line's rising edge) and repaints it; true as for `patch_look`.
+    /// Allocates: as `patch_look`.
+    /// Panics: when the library refuses the call (a null `Ui` or a non-finite line width).
+    ///
+    /// ```
+    /// use pxui::ui::{Dir, Mark};
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     assert!(ui.patch_mark(&b, Mark::Chevron(Dir::Down)));
+    /// });
+    /// ```
     #[track_caller]
     pub fn patch_mark(&mut self, b: &PxuiBox, value: Mark) -> bool {
         let mut out = 0;
         let rc = unsafe { lib::pxui_ui_patch_mark(self.0.as_ptr(), b, &mark(value), &mut out) };
         crate::live(self, rc) && out != 0
     }
+    /// The rectangle of `b` as its view lays it out, in the space `patch_rect` takes (`rect` is where the window shows it); empty for a stale handle.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let mut b = None;
+    /// let ui = pxui::doc::frames(2, &mut |ui| b = Some(ui.node("n".into(), pxui::Node { w: pxui::ui::Size::Px(30.0), h: pxui::ui::Size::Px(10.0), ..pxui::Node::DEFAULT })));
+    /// let r = ui.local_rect(&b.unwrap());
+    /// assert_eq!((r.w, r.h), (30.0, 10.0));
+    /// ```
     #[inline]
     #[track_caller]
     pub fn local_rect(&self, b: &PxuiBox) -> Rect {
@@ -271,6 +344,16 @@ impl Ui {
         if !crate::live(self, rc) { return Rect::default(); }
         out
     }
+    /// The settled scroll offset of `b` in points, without elastic overscroll (`scroll_position` is the painted one).
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui` or a stale handle).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.scroll_view("s", pxui::ui::Size::Px(100.0), pxui::ui::Size::Px(100.0), &mut |_| {});
+    ///     assert_eq!(ui.scroll_offset(&b), 0.0);
+    /// });
+    /// ```
     #[inline]
     #[track_caller]
     pub fn scroll_offset(&self, b: &PxuiBox) -> f32 {
@@ -278,22 +361,48 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 0, &mut out) });
         out
     }
-    /// Cumulative text cache misses for warm-up qualification; unchanged layouts do not advance it.
-    /// Read between frames. This counts layout work, not native allocations or glyph rasterization.
+    /// The cumulative number of text layouts the cache had to compute, for warm-up checks; an unchanged layout does not advance it.
+    /// Read between frames. It counts layout work, not native allocations or glyph rasterization.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("warm", pxui::Label::DEFAULT); });
+    /// let warm = ui.text_layout_count();
+    /// pxui::testing::frame(&mut ui, &[], &mut |ui| { ui.label("warm", pxui::Label::DEFAULT); });
+    /// assert_eq!(ui.text_layout_count(), warm);
+    /// ```
     #[track_caller]
     pub fn text_layout_count(&self) -> u64 {
         let mut out=0;
         check(self, unsafe { lib::pxui_ui_text_layout_count(self.0.as_ptr(), &mut out) });
         out
     }
-    /// Reveal a fixed/measured list item (or grid cell) with the smallest scroll adjustment.
-    /// Unvisited measured rows use the list's estimates and settle when measured. Stale handles
-    /// and out-of-range indices do nothing; no storage is allocated by the request.
+    /// Scrolls the list `list` by the least amount that shows item (or grid cell) `index`.
+    /// Unvisited measured rows use the list's estimates and settle once measured. A stale handle or an index out of range does nothing.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     ui.reveal(&b, 7); // not a list: nothing to scroll
+    /// });
+    /// ```
     #[track_caller]
     pub fn reveal(&mut self, list: &PxuiBox, index: usize) {
         crate::live(self, unsafe { lib::pxui_ui_reveal(self.0.as_ptr(), list, index) });
     }
-    /// The painted scroll position, including elastic edge movement.
+    /// The painted scroll offset of `b` in points, elastic overscroll included (`scroll_offset` is the settled one).
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui` or a stale handle).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.scroll_view("s", pxui::ui::Size::Px(100.0), pxui::ui::Size::Px(100.0), &mut |_| {});
+    ///     assert_eq!(ui.scroll_position(&b), 0.0);
+    /// });
+    /// ```
     #[inline]
     #[track_caller]
     pub fn scroll_position(&self, b: &PxuiBox) -> f32 {
@@ -323,13 +432,36 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_text_state(self.0.as_ptr(), b, &mut present, &mut out) });
         (present != 0).then(|| crate::lent_str(out))
     }
+    /// Keeps `value` in `b`'s text slot (`None` clears it); it lives as long as the node and shows through `text_state`.
+    /// Allocates: the library copies `value` into the slot when it is longer than what the slot held.
+    /// Panics: when the library refuses the call (a stale handle or text over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     ui.set_text_state(&b, Some("draft"));
+    ///     assert_eq!(ui.text_state(&b), Some("draft"));
+    ///     ui.set_text_state(&b, None);
+    ///     assert_eq!(ui.text_state(&b), None);
+    /// });
+    /// ```
     #[track_caller]
     pub fn set_text_state(&mut self, b: &PxuiBox, value: Option<&str>) {
         let text = value.unwrap_or("");
         check(self, unsafe { lib::pxui_ui_set_text_state(self.0.as_ptr(), b, value.is_some() as u8, as_str(text)) })
     }
-    /// The text kept in the box's slot under `index`, set to `text` when it differs: borrowed from the library until the
-    /// next call on this box or the next frame.
+    /// The text kept in `b`'s slot number `index`, replaced by `text` when it differs: stable text for paint callbacks without a per-frame `String`.
+    ///
+    /// Borrowed from the library until the next call on this box or the next frame. The slots follow the node and go with it.
+    /// Allocates: when `text` differs from the kept text (a new string); never for an unchanged one.
+    /// Panics: when the library refuses the call (a stale handle or text over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     assert_eq!(ui.cached_label(&b, 0, "12 songs"), "12 songs");
+    /// });
+    /// ```
     #[track_caller]
     pub fn cached_label(&mut self, b: &PxuiBox, index: usize, text: &str) -> &str {
         let mut out = Str::default();
@@ -419,6 +551,20 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_press_keys(self.0.as_ptr(), b, &mut ptr, &mut len) });
         if len == 0 || ptr.is_null() { &[] } else { unsafe { core::slice::from_raw_parts(ptr, len) } }
     }
+    /// The first of `roots` (box keys) that is the topmost box under `point`, or one of its ancestors, in the previous frame's hit tree; `None` when none is.
+    /// Window points; call it while handling input, before this frame's tree replaces the last one.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let mut key = 0;
+    /// let ui = pxui::doc::frames(2, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node { flags: pxui::ui::Flags::CLICKABLE, w: pxui::ui::Size::Px(50.0), h: pxui::ui::Size::Px(50.0), ..pxui::Node::DEFAULT });
+    ///     key = b.box_key;
+    /// });
+    /// assert_eq!(ui.root_at((10.0, 10.0), &[key]), Some(key));
+    /// assert_eq!(ui.root_at((200.0, 200.0), &[key]), None);
+    /// ```
     #[track_caller]
     pub fn root_at(&self, point: (f32, f32), roots: &[i64]) -> Option<i64> {
         let (mut present, mut out) = (0, 0);
@@ -453,8 +599,19 @@ impl Ui {
     pub fn view_transform_about(&mut self, b: &PxuiBox, scale: f32, transform: [f32; 4], pivot: (f32, f32)) {
         check(self, unsafe { lib::pxui_ui_view_transform_about(self.0.as_ptr(), b, scale, transform.as_ptr(), pivot.0, pivot.1) })
     }
-    /// Edits what a widget finishes of a node it declared this frame (the engine's `node_mut`): `edit` gets the node's look, mark
-    /// and inset, and what it leaves there is written back.
+    /// Edits what a widget finishes of a node it declared this frame: `edit` gets the node's look, mark and inset, and what it leaves there is written back; returns what `edit` returns.
+    /// `edit` must not call the `Ui`. For a stale handle the library refuses.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a stale handle, or a look or inset with a non-finite number).
+    ///
+    /// ```
+    /// use pxui::ui::Mark;
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let had_mark = ui.node_mut(&b, |fields| { let had = fields.mark != Mark::None; fields.mark = Mark::None; had });
+    ///     assert!(!had_mark);
+    /// });
+    /// ```
     #[track_caller]
     pub fn node_mut<R>(&mut self, b: &PxuiBox, edit: impl FnOnce(&mut NodeFields) -> R) -> R {
         let mut raw = pxui_types::ffi::PxuiNodeFields { size: core::mem::size_of::<pxui_types::ffi::PxuiNodeFields>() as u32, reserved: 0, look: Default::default(), mark: Default::default(), inset: Default::default() };
@@ -471,16 +628,36 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_set_node_fields(self.0.as_ptr(), b, &raw) });
         result
     }
-    /// The node its widget declared this frame as the engine holds it: change the layout fields and give it back to `set_node_layout`.
+    /// The node `b` as the engine holds it this frame: change its layout fields and give it back to `set_node_layout`.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a stale handle or outside a frame).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node { w: pxui::ui::Size::Px(5.0), ..pxui::Node::DEFAULT });
+    ///     assert!(matches!(ui.node_layout(&b).w, pxui::ui::Size::Px(5.0)));
+    /// });
+    /// ```
     #[track_caller]
     pub fn node_layout(&self, b: &PxuiBox) -> pxui_types::Node {
         let mut out = pxui_types::Node::DEFAULT;
         check(self, unsafe { lib::pxui_ui_node_layout(self.0.as_ptr(), b, &mut out) });
         out
     }
-    /// Sets the layout of a node its widget declared this frame, as a body sizes the node it was given: `node`'s axis, justify, align,
-    /// wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment and offset. Its other fields are ignored
-    /// (behaviour keeps the flags and the role; the look is `set_look`'s).
+    /// Sets the layout of a node its widget declared this frame, as a body sizes the node it was given.
+    ///
+    /// Only `node`'s axis, justify, align, wrap, size, minimum and maximum, grow, shrink, aspect, padding, margin, gaps, own alignment and offset are taken; its other fields are ignored (behaviour keeps the flags and role, the look is `node_mut`'s).
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a stale handle, or a layout field that is not finite).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let wide = pxui::Node { w: pxui::ui::Size::Px(80.0), ..ui.node_layout(&b) };
+    ///     ui.set_node_layout(&b, &wide);
+    ///     assert!(matches!(ui.node_layout(&b).w, pxui::ui::Size::Px(80.0)));
+    /// });
+    /// ```
     #[track_caller]
     pub fn set_node_layout(&mut self, b: &PxuiBox, node: &pxui_types::Node) {
         check(self, unsafe { lib::pxui_ui_set_node_layout(self.0.as_ptr(), b, node) });

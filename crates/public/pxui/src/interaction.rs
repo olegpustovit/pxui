@@ -33,12 +33,90 @@ mod sys {
     use pxui_types::ffi::{PxuiSaved, PxuiSignal};
     #[link(name = "pxui")]
     unsafe extern "C" {
+        /// The C entry `Ui::enter` calls: makes `box_` (declared this frame) the parent of the nodes declared next and writes the depths to restore into `out`; an error code for a stale box or one not in the current build.
+        /// Pair it with `pxui_ui_leave`.
+        /// Allocates: never.
+        /// Panics: never.
+        ///
+        /// ```
+        /// pxui::doc::frames(1, &mut |ui| {
+        ///     let parent = ui.node("p".into(), pxui::Node::DEFAULT);
+        ///     let saved = ui.enter(&parent);
+        ///     ui.node("child".into(), pxui::Node::DEFAULT); // a child of `parent`
+        ///     ui.leave(saved);
+        /// });
+        /// ```
         pub fn pxui_ui_enter(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut PxuiSaved)->i32;
+        /// The C entry `Ui::leave` calls: restores the parent and key seed depths `saved` (what `pxui_ui_enter` wrote) recorded; an error code for a null or oversize record.
+        /// Allocates: never.
+        /// Panics: never.
+        ///
+        /// ```
+        /// pxui::doc::frames(1, &mut |ui| {
+        ///     let parent = ui.node("p".into(), pxui::Node::DEFAULT);
+        ///     let saved = ui.enter(&parent);
+        ///     ui.leave(saved);
+        /// });
+        /// ```
         pub fn pxui_ui_leave(ui:*mut PxuiUi,saved:*const PxuiSaved)->i32;
+        /// The C entry `Ui::focus_box` calls: gives keyboard focus to `box_`, ending any text composition; an error code for a stale box.
+        /// Allocates: never.
+        /// Panics: never.
+        ///
+        /// ```
+        /// pxui::doc::frames(1, &mut |ui| {
+        ///     let b = ui.node("n".into(), pxui::Node { flags: pxui::ui::Flags::FOCUSABLE, ..pxui::Node::DEFAULT });
+        ///     ui.focus_box(&b);
+        ///     assert!(ui.focused(&b));
+        /// });
+        /// ```
         pub fn pxui_ui_focus_box(ui:*mut PxuiUi,box_:*const PxuiBox)->i32;
+        /// The C entry `Ui::focused` calls: writes 1 to `out` when `box_` holds keyboard focus, else 0; an error code for a stale box.
+        /// Allocates: never.
+        /// Panics: never.
+        ///
+        /// ```
+        /// pxui::doc::frames(1, &mut |ui| {
+        ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+        ///     assert!(!ui.focused(&b));
+        /// });
+        /// ```
         pub fn pxui_ui_focused(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut u8)->i32;
+        /// The C entry `Ui::state` calls: writes `box_`'s state slot to `out`, or `default` when never set; the stale code for a node that has gone.
+        /// Allocates: never.
+        /// Panics: never.
+        ///
+        /// ```
+        /// pxui::doc::frames(1, &mut |ui| {
+        ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+        ///     assert_eq!(ui.state(&b, 3), 3);
+        /// });
+        /// ```
         pub fn pxui_ui_state(ui:*mut PxuiUi,box_:*const PxuiBox,default:i64,out:*mut i64)->i32;
+        /// The C entry `Ui::set_state` calls: stores `value` in `box_`'s state slot, where it persists while the node lives; the stale code for a node that has gone.
+        /// Allocates: never.
+        /// Panics: never.
+        ///
+        /// ```
+        /// pxui::doc::frames(2, &mut |ui| {
+        ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+        ///     let n = ui.state(&b, 0);
+        ///     ui.set_state(&b, n + 1);
+        /// });
+        /// ```
         pub fn pxui_ui_set_state(ui:*mut PxuiUi,box_:*const PxuiBox,value:i64)->i32;
+        /// The C entry `Ui::signal` and `Ui::signal_keys` call: writes what input did to `box_` this frame (hover, press, click, drag, scroll, pinch, the keys routed to it) into `out`; the stale code for a node that has gone.
+        /// The key events in `out` are borrowed from the frame buffer until the next call on the `Ui`.
+        /// Allocates: never.
+        /// Panics: never.
+        ///
+        /// ```
+        /// pxui::doc::frames(1, &mut |ui| {
+        ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+        ///     let signal = ui.signal(&b);
+        ///     assert!(!signal.clicked && !signal.hovered);
+        /// });
+        /// ```
         pub fn pxui_ui_signal(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut PxuiSignal)->i32;
     }
 }
