@@ -141,22 +141,23 @@ impl Ui {
 
 #[cfg(test)]
 mod tests {
-    use crate::bodies::{text_of, PxuiPanelConfig, PxuiPickerFieldConfig, PxuiScrollConfig, PxuiToastConfig};
+    use crate::bodies::{ModalConfig, PanelConfig, PickerFieldConfig, PopupConfig, ScrollViewConfig, ToastsConfig};
     use crate::ui::{Node, Rect, Role, Size};
     use crate::{testing, FrameIn, Overlay, PickerOpts, Ui};
     use std::cell::RefCell;
+    use crate::bodies::BodyConfig;
 
     thread_local! { static SEEN: RefCell<Vec<(&'static str, String)>> = const { RefCell::new(Vec::new()) }; }
     fn seen(kind: &'static str, text: &str) { SEEN.with(|s| s.borrow_mut().push((kind, text.to_owned()))); }
     /// Each registered body builds one marker node of its own, named by its kind, so the custom structure shows in the tree.
     fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind.into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
-    fn sheet(ui: &mut Ui, c: &PxuiPanelConfig, kind: &'static str) { seen(kind, text_of(&c.label)); marker(ui, kind); ui.slot(c.content); }
-    fn panel(ui: &mut Ui, c: &PxuiPanelConfig) { sheet(ui, c, "panel") }
-    fn popup(ui: &mut Ui, c: &PxuiPanelConfig) { sheet(ui, c, "popup") }
-    fn modal(ui: &mut Ui, c: &PxuiPanelConfig) { sheet(ui, c, "modal") }
-    fn scroll(ui: &mut Ui, c: &PxuiScrollConfig) { seen("scroll_view", ""); marker(ui, "scroll_view"); ui.slot(c.content); }
-    fn toast(ui: &mut Ui, c: &PxuiToastConfig) { seen("toast", text_of(&c.text)); marker(ui, "toast"); }
-    fn picker(ui: &mut Ui, c: &PxuiPickerFieldConfig) { seen("picker_field", text_of(&c.placeholder)); marker(ui, "picker_field"); }
+    fn sheet(ui: &mut Ui, label: &str, content: pxui_types::ffi::PxuiSlot, kind: &'static str) { seen(kind, label); marker(ui, kind); ui.slot(content); }
+    fn panel(ui: &mut Ui, c: &PanelConfig) { sheet(ui, c.text_of(&c.label), c.content, "panel") }
+    fn popup(ui: &mut Ui, c: &PopupConfig) { sheet(ui, c.text_of(&c.label), c.content, "popup") }
+    fn modal(ui: &mut Ui, c: &ModalConfig) { sheet(ui, c.text_of(&c.label), c.content, "modal") }
+    fn scroll(ui: &mut Ui, c: &ScrollViewConfig) { seen("scroll_view", ""); marker(ui, "scroll_view"); ui.slot(c.content); }
+    fn toast(ui: &mut Ui, c: &ToastsConfig) { seen("toast", c.text_of(&c.text)); marker(ui, "toast"); }
+    fn picker(ui: &mut Ui, c: &PickerFieldConfig) { seen("picker_field", c.text_of(&c.placeholder)); marker(ui, "picker_field"); }
 
     fn build(ui: &mut Ui) {
         ui.panel("settings", &Overlay::DEFAULT.name("Settings"), |ui| { ui.label("in panel", crate::Label::BODY); });
@@ -177,9 +178,9 @@ mod tests {
         ui.register_popup_body("c", popup).unwrap();
         ui.register_modal_body("c", modal).unwrap();
         ui.register_scroll_view_body("c", scroll).unwrap();
-        ui.register_toast_body("c", toast).unwrap();
+        ui.register_toasts_body("c", toast).unwrap();
         ui.register_picker_field_body("c", picker).unwrap();
-        let text = "panel.body = c\npopup.body = c\nmodal.body = c\nscroll_view.body = c\ntoast.body = c\npicker_field.body = c";
+        let text = "panel.body = c\npopup.body = c\nmodal.body = c\nscroll_view.body = c\ntoasts.body = c\npicker_field.body = c";
         ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
         SEEN.with(|s| s.borrow_mut().clear());
         ui.frame(&FrameIn { width: 400.0, height: 400.0, ..FrameIn::default() }, &mut build).unwrap();

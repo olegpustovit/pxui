@@ -1,6 +1,6 @@
 //! The collections keyed apart from their text: `ui.section_list` (fixed or measured rows, one call), `ui.grid_list`,
 //! `ui.selection_list`, `ui.tree`, `ui.table_view` and `ui.table`. Each reports a small result and is built through its bodies
-//! (`list_view`/`tree`/`table_view`/`table_head` rows and cells, `table`), so a registered body replaces its structure.
+//! (`selection_list`/`tree`/`table_row`/`table_head` rows and `table_cell` cells), so a registered body replaces its structure.
 use super::Key;
 use crate::{collections::TreeNode, PxuiBox, Ui};
 use pxui_types::{ui::{ListResponse, SectionList, SectionPart, SelectionList, TableResponse, TableView, TreeResponse}};
@@ -49,7 +49,7 @@ impl Ui {
     }
 
     /// Declares a selectable virtual list of `count` rows filling its parent: `cell(ui, row)` builds each row in view inside the row
-    /// node the `list_view` body shapes (`item_text` for the kit's text row; any widgets otherwise); reports the row a double click or
+    /// node the `selection_list` body shapes (`item_text` for the kit's text row; any widgets otherwise); reports the row a double click or
     /// Enter activated.
     ///
     /// `selected` holds one flag a row (not 0: selected), updated in place: a click selects a row alone; with `SelectionList::multi`,
@@ -123,20 +123,21 @@ impl Ui {
 
 #[cfg(test)]
 mod tests {
-    use crate::bodies::{text_of, PxuiRowConfig, PxuiTableCellConfig, PxuiTableHeadConfig, PxuiTreeRowConfig};
+    use crate::bodies::{SelectionListConfig, TableCellConfig, TableHeadConfig, TableRowConfig, TreeConfig};
     use crate::ui::{Node, Rect, Role, SectionList, SectionPart, Size};
     use crate::{testing, FrameIn, SelectionList, TableView, TreeNode, Ui};
     use std::cell::{Cell, RefCell};
+    use crate::bodies::BodyConfig;
 
     thread_local! { static SEEN: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) }; }
     fn seen(what: String) { SEEN.with(|s| s.borrow_mut().push(what)); }
     /// Each registered row body builds one marker node of its own, named by its kind, so the custom structure shows in the tree.
     fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind.into(), Node { w: Size::Px(4.0), h: Size::Px(4.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
-    fn list_row(ui: &mut Ui, c: &PxuiRowConfig) { seen(format!("list {}", c.index)); marker(ui, "custom list row"); ui.slot(c.content); }
-    fn tree_row(ui: &mut Ui, c: &PxuiTreeRowConfig) { seen(format!("tree {}", c.node)); marker(ui, "custom tree row"); ui.slot(c.content); }
-    fn table_row(ui: &mut Ui, c: &PxuiRowConfig) { seen(format!("table row {}", c.index)); marker(ui, "custom table row"); ui.slot(c.content); }
-    fn head(ui: &mut Ui, c: &PxuiTableHeadConfig) { seen(format!("head {}", text_of(&c.title))); marker(ui, "custom head"); }
-    fn cell(_: &mut Ui, c: &PxuiTableCellConfig) { if c.header == 0 { seen(format!("cell {}:{} {}", c.row, c.column, text_of(&c.text))); } }
+    fn list_row(ui: &mut Ui, c: &SelectionListConfig) { seen(format!("list {}", c.index)); marker(ui, "custom list row"); ui.slot(c.content); }
+    fn tree_row(ui: &mut Ui, c: &TreeConfig) { seen(format!("tree {}", c.node)); marker(ui, "custom tree row"); ui.slot(c.content); }
+    fn table_row(ui: &mut Ui, c: &TableRowConfig) { seen(format!("table row {}", c.index)); marker(ui, "custom table row"); ui.slot(c.content); }
+    fn head(ui: &mut Ui, c: &TableHeadConfig) { seen(format!("head {}", c.text_of(&c.title))); marker(ui, "custom head"); }
+    fn cell(_: &mut Ui, c: &TableCellConfig) { if c.header == 0 { seen(format!("cell {}:{} {}", c.row, c.column, c.text_of(&c.text))); } }
 
     /// The collections are built through their bodies: with a registered body for each kind, the custom structure is in the tree, the
     /// caller's cells run through the row bodies' slots, and the text table's cells are given the text the caller wrote.
@@ -144,12 +145,12 @@ mod tests {
     fn each_collection_is_built_through_its_registered_bodies() {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
-        ui.register_list_view_body("c", list_row).unwrap();
+        ui.register_selection_list_body("c", list_row).unwrap();
         ui.register_tree_body("c", tree_row).unwrap();
-        ui.register_table_view_body("c", table_row).unwrap();
+        ui.register_table_row_body("c", table_row).unwrap();
         ui.register_table_head_body("c", head).unwrap();
-        ui.register_table_body("c", cell).unwrap();
-        let text = "list_view.body = c\ntree.body = c\ntable_view.body = c\ntable_head.body = c\ntable.body = c";
+        ui.register_table_cell_body("c", cell).unwrap();
+        let text = "selection_list.body = c\ntree.body = c\ntable_row.body = c\ntable_head.body = c\ntable_cell.body = c";
         ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
         let nodes = [TreeNode { depth: 0, children: 0 }];
         let (mut list, mut open, mut visible, mut selected, mut table_sel, mut widths) = ([0u8; 1], [0u8; 1], [0u32; 1], None, None, [60.0f32]);

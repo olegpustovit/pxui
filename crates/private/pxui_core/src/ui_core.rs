@@ -6657,7 +6657,7 @@ impl Ui {
         self.a11y_name(&tip, text);
         self.overlays.push((tip.index, LayerRole::Tooltip));
         let config = TipConfig { tip, width, height };
-        in_body!(self, tip.box_key, tip, tip, default_tip(&config, &lines));
+        in_body!(self, tip.box_key, tip, tooltip, default_tip(&config, &lines));
         self.leave(saved);
     }
 

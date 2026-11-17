@@ -1051,7 +1051,7 @@ pub(crate) fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers:
         stops[i + 1] = stops[i] + width;
     }
     let (head_look, row_look) = (this.theme().table_head.idle, this.theme().table_row.idle);
-    let cell_body = body_of!(this, table);
+    let cell_body = body_of!(this, table_cell);
     let root = this.box_(label, BoxOpts::default().flags(Flags::CLIP).at(at).w(Size::Px(w)).h(Size::Px(h)));
     let saved = this.enter(&root);
     let header = this.box_fmt(format_args!("{}-header", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(row_h)));

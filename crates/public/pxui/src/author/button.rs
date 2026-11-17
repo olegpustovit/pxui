@@ -428,8 +428,8 @@ mod tests {
     thread_local! { static SIZED: Cell<(u8, u8, f32, f32)> = const { Cell::new((9, 9, 0.0, 0.0)) }; }
 
     /// A body that records the size kinds and `centered` its config carries.
-    fn recording(_ui: &mut Ui, c: &crate::bodies::PxuiButtonConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiButtonConfig>(), "this library carries `centered`");
+    fn recording(_ui: &mut Ui, c: &crate::bodies::ButtonConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::ButtonConfig>(), "this library carries `centered`");
         SIZED.with(|s| s.set((c.centered, c.w_kind, c.w, c.h)));
     }
 
@@ -634,8 +634,8 @@ mod tests {
     thread_local! { static LAID: Cell<(u8, u8, u8, f32, f32, u32)> = const { Cell::new((9, 9, 9, 0.0, 0.0, 0)) }; }
 
     /// A body that records the label and the content layout its config carries, and builds a structure of its own: one 33-point node.
-    fn laid_out(ui: &mut Ui, c: &crate::bodies::PxuiButtonConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiButtonConfig>(), "this library carries the label and the layout");
+    fn laid_out(ui: &mut Ui, c: &crate::bodies::ButtonConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::ButtonConfig>(), "this library carries the label and the layout");
         LAID.with(|s| s.set((c.has_label, c.axis, c.content_align, c.gap, c.text_style.size_points, c.text_box.set)));
         let mut row = ui.node_layout(&c.row);
         (row.w, row.h) = (Size::Px(33.0), Size::Px(33.0));

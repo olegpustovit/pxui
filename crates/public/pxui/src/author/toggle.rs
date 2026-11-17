@@ -249,9 +249,9 @@ impl Ui {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         if segmented.variant == 0 { return self.segmented_keyed(label, segmented.name.unwrap_or(""), options, selected, segmented); }
-        self.set_variant(pxui_types::theme::BodyKind::segment, segmented.variant);
+        self.set_variant(pxui_types::theme::BodyKind::segmented, segmented.variant);
         let result = self.segmented_keyed(label, segmented.name.unwrap_or(""), options, selected, segmented);
-        self.set_variant(pxui_types::theme::BodyKind::segment, 0);
+        self.set_variant(pxui_types::theme::BodyKind::segmented, 0);
         result
     }
 }
@@ -263,6 +263,7 @@ mod tests {
     use crate::ui::{Look, Node, Rect, Role, Size, States};
     use crate::{testing, Part, Response, Ui};
     use std::cell::Cell;
+    use crate::bodies::BodyConfig;
 
     /// LocalWave's settings switch: a 60 point row with a 48 x 28 switch.
     const SETTING: Toggle = Toggle::DEFAULT.row_h(60.0).switch(48.0, 28.0);
@@ -559,8 +560,8 @@ mod tests {
     }
 
     /// A segment body that records the choice and the focus it is given, and builds its own node.
-    fn choice_body(ui: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiSegmentConfig>(), "this library carries `has_selected`");
+    fn choice_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::SegmentedConfig>(), "this library carries `has_selected`");
         SELECTED_SEEN.with(|s| s.borrow_mut().push((c.index, c.has_selected, c.selected, c.state.focused)));
         let segment = Node { w: Size::Px(21.0), ..ui.node_layout(&c.node) };
         ui.set_node_layout(&c.node, &segment);
@@ -573,8 +574,8 @@ mod tests {
     fn a_segment_body_sees_no_choice_and_the_focus() {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
-        ui.register_segment_body("choice", choice_body).expect("segment body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segment.body = choice").expect("theme"); theme };
+        ui.register_segmented_body("choice", choice_body).expect("segment body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segmented.body = choice").expect("theme"); theme };
         let chosen = Cell::new(None);
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT); });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
@@ -595,8 +596,8 @@ mod tests {
     }
 
     /// A segment body that records the caller's choice (`has_stored`, `stored`) beside the current one as the last option sees them (an earlier option of the click frame is built before the press is read), and builds its own node.
-    fn chosen_stored_body(ui: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiSegmentConfig>(), "this library carries `stored`");
+    fn chosen_stored_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::SegmentedConfig>(), "this library carries `stored`");
         if c.index == 2 { STORED_SEEN.with(|s| s.borrow_mut().push((c.has_stored, c.stored, c.has_selected, c.selected))); }
         let segment = Node { w: Size::Px(21.0), ..ui.node_layout(&c.node) };
         ui.set_node_layout(&c.node, &segment);
@@ -609,8 +610,8 @@ mod tests {
     fn a_segment_body_sees_the_callers_stored_choice() {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
-        ui.register_segment_body("chosen_stored", chosen_stored_body).expect("segment body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segment.body = chosen_stored").expect("theme"); theme };
+        ui.register_segmented_body("chosen_stored", chosen_stored_body).expect("segment body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segmented.body = chosen_stored").expect("theme"); theme };
         let chosen = Cell::new(Some(0));
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT); if r.response.changed { chosen.set(r.chosen); } });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
@@ -653,8 +654,8 @@ mod tests {
         }
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
-        ui.register_segment_body("chosen_stored", chosen_stored_body).expect("segment body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segment.body = chosen_stored").expect("theme"); theme };
+        ui.register_segmented_body("chosen_stored", chosen_stored_body).expect("segment body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segmented.body = chosen_stored").expect("theme"); theme };
         let chosen = Cell::new(Some(0));
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT.focus_on_click(true)); if r.response.changed { chosen.set(r.chosen); } });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
@@ -803,7 +804,7 @@ mod tests {
         static STYLE_SEEN: Cell<(u8, f32, f32, f32)> = const { Cell::new((9, 0.0, 0.0, 0.0)) };
     }
 
-    fn toggle_body(ui: &mut Ui, c: &crate::bodies::PxuiToggleConfig) {
+    fn toggle_body(ui: &mut Ui, c: &crate::bodies::ToggleConfig) {
         TOGGLE_SEEN.with(|s| s.set((c.size, c.on, c.row_h, c.switch_w, c.switch_h)));
         TOGGLE_MORE.with(|s| s.set((c.inset, c.press_row, c.detail.len)));
         STYLE_SEEN.with(|s| { let (_, _, p, m) = s.get(); s.set((c.has_style, c.style.size_points, p, m)); });
@@ -811,7 +812,7 @@ mod tests {
         ui.text(&b, "custom toggle");
     }
 
-    fn segment_body(ui: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) {
+    fn segment_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
         SEGMENT_SEEN.with(|s| s.set((c.size, c.grow, c.index)));
         STYLE_SEEN.with(|s| { let (h, z, _, _) = s.get(); s.set((h, z, c.padding, c.min_segment)); });
         ui.node("custom".into(), Node { w: Size::Px(33.0), h: Size::Grow, ..Node::DEFAULT });
@@ -823,8 +824,8 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
         ui.register_toggle_body("probe", toggle_body).expect("toggle body");
-        ui.register_segment_body("probe", segment_body).expect("segment body");
-        let source = "toggle.body = probe\nsegment.body = probe\n";
+        ui.register_segmented_body("probe", segment_body).expect("segment body");
+        let source = "toggle.body = probe\nsegmented.body = probe\n";
         ui.set_theme(&crate::ThemeSource { size: core::mem::size_of::<crate::ThemeSource>() as u32, flags: 0, source: crate::Str { ptr: source.as_ptr(), len: source.len() } }).expect("theme");
         let owner = Cell::new(0);
         let mut build = |ui: &mut Ui| {
@@ -851,16 +852,16 @@ mod tests {
     }
 
     /// A toggle body that records the value after the flip, the stored value and the click, and draws its own switch part.
-    fn stored_body(ui: &mut Ui, c: &crate::bodies::PxuiToggleConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiToggleConfig>(), "this library carries `stored` and `clicked`");
+    fn stored_body(ui: &mut Ui, c: &crate::bodies::ToggleConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::ToggleConfig>(), "this library carries `stored` and `clicked`");
         FLIPS.with(|f| f.borrow_mut().push((c.on, c.stored, c.clicked)));
-        assert!(crate::bodies::states_of(&c.track).is_some() && crate::bodies::states_of(&c.knob).is_some(), "the theme's looks, read without unsafe");
+        assert!(c.states_of(&c.track).is_some() && c.states_of(&c.knob).is_some(), "the theme's looks, read without unsafe");
         ui.part(Part::HIT, Node { w: Size::Px(20.0), h: Size::Px(20.0), ..Node::DEFAULT });
     }
 
     /// A segment body that owns the container: the first segment takes the line's padding away and gives the strip a fill.
-    fn container_body(ui: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) {
-        assert_eq!(crate::bodies::states_of(&c.states).map(|s| s.checked.fill), Some(ui.theme().segment.checked.fill), "the theme's segment looks");
+    fn container_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
+        assert_eq!(c.states_of(&c.states).map(|s| s.checked.fill), Some(ui.theme().segment.checked.fill), "the theme's segment looks");
         if c.index == 0 {
             let line = Node { padding: crate::ui::Edges::ZERO, ..ui.node_layout(&c.line) };
             ui.set_node_layout(&c.line, &line);
@@ -877,8 +878,8 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
         ui.register_toggle_body("stored", stored_body).expect("toggle body");
-        ui.register_segment_body("container", container_body).expect("segment body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "toggle.body = stored\nsegment.body = container").expect("theme"); theme };
+        ui.register_segmented_body("container", container_body).expect("segment body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "toggle.body = stored\nsegmented.body = container").expect("theme"); theme };
         // the app applies the flip a frame late: the body sees the stored value until it does
         let (on, owner) = (Cell::new(false), Cell::new(0));
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {

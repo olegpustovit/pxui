@@ -1202,7 +1202,7 @@ fn chip_toast(ui: &mut Ui, c: &ToastConfig, text: &str) {
 }
 
 pub fn toast_chip_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.toast = id, &|ui| ui.register_toast_body("chip", chip_toast));
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.toasts = id, &|ui| ui.register_toasts_body("chip", chip_toast));
     let got = swap_root("toast", &install, 0, false, &|ui| click_on(ui, Role::StatusBar, "one"), &|ui, c| {
         if let Some(i) = ui.toasts("t", &[pxui_core::ui::Toast::new(1, "one"), pxui_core::ui::Toast::new(2, "two")], 1000.0) {
             c.a.set(c.a.get() * 10 + i as i64 + 1);
@@ -1221,7 +1221,7 @@ fn dark_tip(ui: &mut Ui, c: &TipConfig, lines: &[String]) {
 }
 
 pub fn tip_dark_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.tip = id, &|ui| ui.register_tip_body("dark", dark_tip));
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.tooltip = id, &|ui| ui.register_tooltip_body("dark", dark_tip));
     let text = "a tooltip long enough to wrap onto a second line of the sheet";
     let script = |_: &Ui| {
         let mut frames = vec![vec![move_to((30, 20))]];
@@ -1299,7 +1299,7 @@ fn fixed_tab(ui: &mut Ui, c: &TabConfig, text: &str) {
 }
 
 pub fn tab_fixed_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.tab = id, &|ui| ui.register_tab_body("fixed", fixed_tab));
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.tabs = id, &|ui| ui.register_tabs_body("fixed", fixed_tab));
     // a click on "B" chooses 1; Tab then Right moves on to 2
     swap_all("tab", &install, Role::Tab, "B", Key::ArrowRight, &|ui, v| v.set(ui.tabs("Tabs", &["A", "B", "C"], v.get() as usize, &pxui_core::ui::Choice::DEFAULT.name("Tabs")).1 as i64));
 }
@@ -1326,7 +1326,7 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentConfig, _states: Option<&States>, tex
 }
 
 pub fn segment_sliding_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.segment = id, &|ui| ui.register_segment_body("sliding", sliding_segment));
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.segmented = id, &|ui| ui.register_segmented_body("sliding", sliding_segment));
     let build = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.segmented_opts("Align", "Align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], Some(v.get() as usize), &SegmentedOpts::DEFAULT).1.map_or(v.get(), |i| i as i64));
     swap_all("segment", &install, Role::Radio, "Centre", Key::ArrowRight, &build);
     // the marker is one node and follows the choice: after a click on "Right" it sits over "Right"
@@ -1419,7 +1419,7 @@ fn bar_row(ui: &mut Ui, c: &MenuRowConfig, text: &str, _key: Option<&str>) {
 }
 
 pub fn context_menu_bar_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.context_menu = id, &|ui| ui.register_context_menu_body("bar", bar_row));
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.menu_row = id, &|ui| ui.register_menu_row_body("bar", bar_row));
     const ITEMS: [MenuItem; 3] = [MenuItem::new("Alpha").checked(true), MenuItem::new("Beta").checked(false).key("Ctrl B"), MenuItem::new("Gamma").enabled(false).danger()];
     let got = swap_root("context_menu", &install, 0, true, &|ui| click_on(ui, Role::MenuItem, "Beta"), &|ui, c| {
         if let Some(i) = ui.menu("menu".into(), (20.0, 20.0), &ITEMS, &Menu::DEFAULT).chosen {
@@ -1449,7 +1449,7 @@ fn bullet_list_row(ui: &mut Ui, c: &RowConfig, content: &mut dyn FnMut(&mut Ui))
 }
 
 pub fn list_view_bullet_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.list_view = id, &|ui| ui.register_list_view_body("bullet", bullet_list_row));
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.selection_list = id, &|ui| ui.register_selection_list_body("bullet", bullet_list_row));
     // a click on the second row selects it; Down moves the selection to the third; Enter activates it
     let script = |_: &Ui| {
         let p = (60, 1 + 24 + 12);
@@ -1530,7 +1530,7 @@ fn table_script(ui: &Ui) -> Vec<Vec<Event>> {
 }
 
 pub fn table_view_ruled_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.table_view = id, &|ui| ui.register_table_view_body("ruled", ruled_table_row));
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.table_row = id, &|ui| ui.register_table_row_body("ruled", ruled_table_row));
     let got = swap_root("table_view", &install, 0, false, &table_script, &table_view_build);
     check(got == (2, 2), &format!("table_view: the clicks gave {got:?}"));
 }
@@ -1548,7 +1548,7 @@ pub fn table_view_with_widget_cell() {
         let mut ui = new_ui(None);
         ui.set_a11y(true);
         if custom {
-            pick(&mut ui, &|t, id| t.body.table_view = id, &|ui| ui.register_table_view_body("ruled", ruled_table_row));
+            pick(&mut ui, &|t, id| t.body.table_row = id, &|ui| ui.register_table_row_body("ruled", ruled_table_row));
         }
         let (goes, widths, mut selected) = (Cell::new(0), std::cell::RefCell::new(vec![120.0, 120.0]), None);
         let mut t = 0.0;
@@ -1601,7 +1601,7 @@ fn left_cell(ui: &mut Ui, c: &TableCellConfig, text: &str) {
 }
 
 pub fn table_left_cell_body() {
-    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.table = id, &|ui| ui.register_table_body("left", left_cell));
+    let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.table_cell = id, &|ui| ui.register_table_cell_body("left", left_cell));
     // a click on the second row (below the 24-point header)
     let got = swap_root("table", &install, 0, false, &|_| click_on_at((50, 24 + 24 + 12)), &read_only_table);
     check(got.0 == 2, &format!("table: the click on the second row gave {}", got.0));
@@ -1862,7 +1862,7 @@ fn counting_tab(ui: &mut Ui, c: &TabConfig, text: &str) {
 /// A tab inside a kept view runs no body while the view is kept.
 pub fn kept_view_runs_no_item_body() {
     let mut ui = new_ui(None);
-    pick(&mut ui, &|t, id| t.body.tab = id, &|ui| ui.register_tab_body("counting", counting_tab));
+    pick(&mut ui, &|t, id| t.body.tabs = id, &|ui| ui.register_tabs_body("counting", counting_tab));
     let mut counts = Vec::new();
     for k in 0..12 {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| {

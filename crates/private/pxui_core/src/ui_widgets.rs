@@ -491,11 +491,11 @@ impl Ui {
     /// bar's response and the tab in use.
     pub fn tabs(&mut self, key: &str, tabs: &[&str], selected: usize, choice: &Choice) -> (Response, usize) {
         let variant = choice.variant;
-        if variant != 0 { self.set_variant(BodyKind::tab as u32, variant); }
+        if variant != 0 { self.set_variant(BodyKind::tabs as u32, variant); }
         let name = choice.name;
         let rh = self.row_height() as f32;
         let bar_look = self.theme().header.idle;
-        let body = body_of!(self, tab);
+        let body = body_of!(self, tabs);
         let bar = self.node_ref(key, &Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, h: Size::Px(rh), axis: Axis::Row, padding: Edges { l: self.space(2), r: self.space(2), ..Edges::ZERO }, gap: self.space(2), look: bar_look, role: Role::TabList, ..Node::DEFAULT });
         self.a11y_name(&bar, name);
         let s = self.signal_owned(&bar);
@@ -532,7 +532,7 @@ impl Ui {
             self.set_role(&n, Role::Tab, st::SELECTABLE);
         }
         self.leave(saved);
-        if variant != 0 { self.set_variant(BodyKind::tab as u32, 0); }
+        if variant != 0 { self.set_variant(BodyKind::tabs as u32, 0); }
         (Response::of(&s, self.focused(&bar), bar), sel)
     }
 
@@ -547,7 +547,7 @@ impl Ui {
     /// reaches the registered segment body; `response.changed` is not the engine's (the caller compares `chosen`).
     pub fn segmented_with(&mut self, key: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> SegmentedResponse {
         let opts = SegmentedOpts { enabled: segmented.enabled, h: segmented.h, grow: segmented.grow, states: segmented.look, w: segmented.w, padding: segmented.padding, min_segment: segmented.min_segment, focus_on_click: segmented.focus_on_click };
-        let kind = pxui_types::theme::BodyKind::segment as u32;
+        let kind = pxui_types::theme::BodyKind::segmented as u32;
         if segmented.variant != 0 { self.set_variant(kind, segmented.variant); }
         let (response, chosen, secondary) = self.segmented_opts(key, segmented.name.unwrap_or(""), options, selected, &opts);
         if segmented.variant != 0 { self.set_variant(0, 0); }
@@ -574,7 +574,7 @@ impl Ui {
         let rh = self.row_height() as f32;
         let (side, gap) = (self.space(2), self.space(1));
         let line = self.node_unique(unique, &Node { flags: Flags::NONE, h: Size::Px(rh.max(ch)), axis: Axis::Row, align: Align::Center, padding: Edges { l: side, r: side, ..Edges::ZERO }, gap, role: Role::Unknown, ..Node::DEFAULT });
-        let body = body_of!(self, segment);
+        let body = body_of!(self, segmented);
         let saved = self.enter(&line);
         let strip_w = match opts.w { Some(w) => Size::Px(w), None if opts.grow => Size::Grow, None => Size::Fit };
         let grow = opts.grow || opts.w.is_some();
@@ -904,7 +904,7 @@ impl Ui {
         }
         let mut activated = enter.then_some(c).filter(|_| count > 0);
         let states = self.theme().listbox;
-        let row_body = body_of!(self, list_view);
+        let row_body = body_of!(self, selection_list);
         let saved = self.enter(&frame);
         let body = self.list("rows", count, rh, &mut |ui, i| {
             let (n, rs, state) = ui.virtual_row(&states, selected[i] != 0, focused && i == c, ui.space(2), Role::ListItem, st::SELECTABLE | if selected[i] != 0 { st::SELECTED } else { 0 });
@@ -1133,7 +1133,7 @@ impl Ui {
                 let s = ui.signal_owned(&n);
                 ui.a11y_name(&n, item.text);
                 let config = ToastConfig { state: State { hovered: s.hovered, ..State::default() }, node: n };
-                in_body!(flat; ui, n.box_key, n, toast, default_toast(&config, item.text));
+                in_body!(flat; ui, n.box_key, n, toasts, default_toast(&config, item.text));
                 let born = f64::from_bits(ui.state(&n, now.to_bits() as i64) as u64);
                 ui.set_state(&n, born.to_bits() as i64);
                 if s.clicked || now >= born + seconds {
@@ -1224,7 +1224,7 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
     let columns = titles.len().min(widths.len());
     let t = this.theme();
     let (frame_look, head_look, states) = (t.scroll_view.idle, t.table_head.idle, t.listbox);
-    let (head_body, row_body) = (body_of!(this, table_head), body_of!(this, table_view));
+    let (head_body, row_body) = (body_of!(this, table_head), body_of!(this, table_row));
     let bar = this.thumb();
     let frame = this.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::SCROLL_X | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar).into(), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
     let s = this.signal_owned(&frame);

@@ -1975,7 +1975,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
         static SIZE: Cell<i64> = const { Cell::new(20) };
         static ROW: Cell<i64> = const { Cell::new(0) };
     }
-    fn body(ui: &mut Ui, c: &crate::bodies::PxuiTextFieldConfig) {
+    fn body(ui: &mut Ui, c: &crate::bodies::TextFieldConfig) { use crate::bodies::BodyConfig;
         ROW.set(c.row.box_key);
         let mut row = ui.node_layout(&c.row);
         row.h = Size::Px(59.0);
@@ -1987,7 +1987,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             look: Look {text:ui.theme().tokens.foreground,font:Font {size:SIZE.get(),..Font::BODY},..Look::NONE},
             ..Node::DEFAULT
         });
-        if c.state.focused == 0 { ui.text(&editor, crate::bodies::text_of(&c.value)); }
+        if c.state.focused == 0 { ui.text(&editor, c.text_of(&c.value)); }
     }
     mem_sys::set_peer(crate::library_counter);
     for size in [20,-3,0] {
@@ -2805,11 +2805,11 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
 #[test]
 fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allocations() {
     use crate::{Event,Part,Str};
-    fn body(ui:&mut Ui,c:&crate::bodies::PxuiTextFieldConfig) {
+    fn body(ui:&mut Ui,c:&crate::bodies::TextFieldConfig) { use crate::bodies::BodyConfig;
         ui.set_look(&c.row,crate::theme::Look::NONE,crate::theme::State::default());
         let editor=ui.part(Part::EDITOR,crate::Node {w:Size::Px(240.0),h:Size::Px(30.0),
             look:crate::theme::Look {font:crate::theme::Font {size:18,..crate::theme::Font::BODY},..crate::theme::Look::NONE},..crate::Node::DEFAULT});
-        if c.state.focused==0 {ui.text(&editor,crate::bodies::text_of(&c.value));}
+        if c.state.focused==0 {ui.text(&editor,c.text_of(&c.value));}
     }
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
@@ -3009,7 +3009,7 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
 thread_local! { static TOKEN_BODY_INK: std::cell::Cell<pxui_types::geom::Rgba> = const { std::cell::Cell::new(pxui_types::geom::Rgba { r: 0, g: 0, b: 0, a: 0 }) }; }
 
 /// A registered icon button body that records the ink (its states' text colour) it was given.
-fn token_body(_ui: &mut Ui, c: &crate::bodies::PxuiIconButtonConfig) {
+fn token_body(_ui: &mut Ui, c: &crate::bodies::IconButtonConfig) {
     TOKEN_BODY_INK.with(|s| s.set(c.ink));
 }
 
@@ -3064,7 +3064,7 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
 thread_local! { static SWATCH_SEEN: std::cell::Cell<pxui_types::geom::Rgba> = const { std::cell::Cell::new(pxui_types::geom::Rgba { r: 0, g: 0, b: 0, a: 0 }) }; }
 
 /// A registered context-menu row body that records the swatch it was given.
-fn swatch_row(_ui: &mut Ui, c: &crate::bodies::PxuiMenuRowConfig) {
+fn swatch_row(_ui: &mut Ui, c: &crate::bodies::MenuRowConfig) {
     if c.has_swatch != 0 { SWATCH_SEEN.with(|s| s.set(c.swatch)); }
 }
 
@@ -3074,11 +3074,11 @@ fn a_registered_menu_row_body_is_given_a_swatch_token_resolved_for_the_theme() {
     const ITEMS: [MenuItem; 1] = [MenuItem::new("Accent").swatch(Color::token(ColorToken(0)))];
     let c = |v: u8| Rgba { r: v, g: v, b: v, a: 255 };
     let mut ui = Ui::new().unwrap();
-    ui.register_context_menu_body("swatch_row", swatch_row).unwrap();
+    ui.register_menu_row_body("swatch_row", swatch_row).unwrap();
     let (mut light, mut dark) = (crate::Theme::default(), crate::Theme::default());
     light.set("tokens.panel", "#f4f5f0").unwrap();
     dark.set("tokens.panel", "#101010").unwrap();
-    for theme in [&mut light, &mut dark] { theme.apply(&ui, "context_menu.body = swatch_row").unwrap(); }
+    for theme in [&mut light, &mut dark] { theme.apply(&ui, "menu_row.body = swatch_row").unwrap(); }
     ui.set_colors(&[(c(240), c(16))]);
     for (theme, want) in [(&light, c(240)), (&dark, c(16)), (&light, c(240))] {
         ui.use_theme(theme);

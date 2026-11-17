@@ -73,7 +73,7 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn tabs<K: Into<Key>>(&mut self, key: K, tabs: &[&str], selected: usize, choice: &Choice<'_>) -> (Response, usize) {
-        self.choice_key(1, BodyKind::tab, key.into(), choice.name, tabs, selected, choice.variant)
+        self.choice_key(1, BodyKind::tabs, key.into(), choice.name, tabs, selected, choice.variant)
     }
 
     /// Declares a kit dropdown (`text`, then a button showing the chosen option and a chevron) and reports the button's response and
@@ -165,7 +165,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use pxui_types::ui::{Checkbox, Choice, Dropdown, Slider};
-    use crate::bodies::{PxuiBadgeConfig, PxuiCheckConfig, PxuiDropdownConfig, PxuiProgressConfig, PxuiSliderConfig, PxuiSpinnerConfig, PxuiTabConfig};
+    use crate::bodies::{BadgeConfig, CheckboxConfig, DropdownConfig, RadioConfig, ProgressConfig, SliderConfig, SpinnerConfig, TabsConfig};
     use crate::ui::{Node, Role, Size};
     use crate::{testing, FrameIn, Ui};
     use std::cell::RefCell;
@@ -174,14 +174,14 @@ mod tests {
     fn seen(kind: &'static str, variant: u16) { SEEN.with(|s| s.borrow_mut().push((kind, variant))); }
     /// Each registered body builds one marker node of its own, named by its kind, so the custom structure shows in the tree.
     fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind.into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
-    fn check(ui: &mut Ui, c: &PxuiCheckConfig) { seen("checkbox", c.variant); marker(ui, "custom checkbox"); }
-    fn radio(ui: &mut Ui, c: &PxuiCheckConfig) { seen("radio", c.variant); marker(ui, "custom radio"); }
-    fn tab(ui: &mut Ui, c: &PxuiTabConfig) { seen("tab", c.variant); marker(ui, "custom tab"); }
-    fn dropdown(ui: &mut Ui, c: &PxuiDropdownConfig) { seen("dropdown", c.variant); marker(ui, "custom dropdown"); }
-    fn slider(ui: &mut Ui, c: &PxuiSliderConfig) { seen("slider", c.variant); marker(ui, "custom slider"); }
-    fn progress(ui: &mut Ui, c: &PxuiProgressConfig) { seen("progress", c.variant); marker(ui, "custom progress"); }
-    fn spinner(ui: &mut Ui, c: &PxuiSpinnerConfig) { seen("spinner", c.variant); marker(ui, "custom spinner"); }
-    fn badge(ui: &mut Ui, c: &PxuiBadgeConfig) { seen("badge", c.variant); marker(ui, "custom badge"); }
+    fn check(ui: &mut Ui, c: &CheckboxConfig) { seen("checkbox", c.variant); marker(ui, "custom checkbox"); }
+    fn radio(ui: &mut Ui, c: &RadioConfig) { seen("radio", c.variant); marker(ui, "custom radio"); }
+    fn tab(ui: &mut Ui, c: &TabsConfig) { seen("tab", c.variant); marker(ui, "custom tab"); }
+    fn dropdown(ui: &mut Ui, c: &DropdownConfig) { seen("dropdown", c.variant); marker(ui, "custom dropdown"); }
+    fn slider(ui: &mut Ui, c: &SliderConfig) { seen("slider", c.variant); marker(ui, "custom slider"); }
+    fn progress(ui: &mut Ui, c: &ProgressConfig) { seen("progress", c.variant); marker(ui, "custom progress"); }
+    fn spinner(ui: &mut Ui, c: &SpinnerConfig) { seen("spinner", c.variant); marker(ui, "custom spinner"); }
+    fn badge(ui: &mut Ui, c: &BadgeConfig) { seen("badge", c.variant); marker(ui, "custom badge"); }
 
     fn build(ui: &mut Ui) {
         ui.checkbox("check", "Check", false, &Checkbox::DEFAULT.variant(1));
@@ -202,13 +202,13 @@ mod tests {
         ui.set_a11y(true);
         ui.register_checkbox_body("c", check).unwrap();
         ui.register_radio_body("c", radio).unwrap();
-        ui.register_tab_body("c", tab).unwrap();
+        ui.register_tabs_body("c", tab).unwrap();
         ui.register_dropdown_body("c", dropdown).unwrap();
         ui.register_slider_body("c", slider).unwrap();
         ui.register_progress_body("c", progress).unwrap();
         ui.register_spinner_body("c", spinner).unwrap();
         ui.register_badge_body("c", badge).unwrap();
-        let text = "checkbox.body = c\nradio.body = c\ntab.body = c\ndropdown.body = c\nslider.body = c\nprogress.body = c\nspinner.body = c\nbadge.body = c";
+        let text = "checkbox.body = c\nradio.body = c\ntabs.body = c\ndropdown.body = c\nslider.body = c\nprogress.body = c\nspinner.body = c\nbadge.body = c";
         ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
         SEEN.with(|s| s.borrow_mut().clear());
         ui.frame(&FrameIn { width: 400.0, height: 400.0, ..FrameIn::default() }, &mut build).unwrap();

@@ -10,7 +10,7 @@ impl Ui {
     /// outside set `dismissed`. A disabled row is never chosen and empty text is a separator. Build it before the content it shields; it
     /// floats at the root, moved inside the view (`at` needs no clamping). The menu is as wide as its longest row (`Menu::width` is the
     /// least). Rows with a submenu open it beside the menu; its rows are numbered after the menu's own. Rows are drawn by the registered
-    /// `context_menu` body; a `MenuItem::selected` row reads as the current choice. The sheet is built by the registered `popup` body, which
+    /// `menu_row` body; a `MenuItem::selected` row reads as the current choice. The sheet is built by the registered `popup` body, which
     /// may give it a role of its own (else it is a Menu); it is named `Menu::name` (none without), has `Menu::padding` above its first row
     /// and below its last, and past `Menu::max_rows` or `Menu::max_h` (the smaller) it scrolls itself.
     /// Allocates: never on a warm frame, except that rows with a submenu allocate per call.
@@ -38,9 +38,9 @@ impl Ui {
     #[inline(always)]
     #[track_caller]
     fn menu_call(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
-        if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::context_menu, menu.variant); }
+        if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::menu_row, menu.variant); }
         let mut response = self.menu_keyed(key, at, items, menu);
-        if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::context_menu, 0); }
+        if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::menu_row, 0); }
         // a chosen index past the menu's rows is a submenu's row, numbered in the order of the rows that open them
         response.chosen_id = response.chosen.and_then(|index| match items.get(index) {
             Some(item) => item.id,
@@ -52,11 +52,12 @@ impl Ui {
 
 #[cfg(test)]
 mod tests {
-    use crate::bodies::PxuiMenuRowConfig;
+    use crate::bodies::MenuRowConfig;
     use crate::ui::{Menu, MenuItem, MenuResponse, Role};
     use crate::{testing, FrameIn, Ui};
     use pxui_types::{Event, KEY_SPECIAL};
     use std::cell::{Cell, RefCell};
+    use crate::bodies::BodyConfig;
 
     const ITEMS: [MenuItem; 4] = [MenuItem::new("Play next"), MenuItem::new("Add to playlist").enabled(false), MenuItem::new("Delete").danger(), MenuItem::new("Size").checked(true).key("Ctrl S")];
     const TAB: u32 = KEY_SPECIAL + 8;
@@ -121,20 +122,20 @@ mod tests {
     thread_local! { static SEEN: RefCell<Vec<(String, bool, bool, bool, bool, f32, f32)>> = const { RefCell::new(Vec::new()) }; }
 
     /// A context-menu body that records its config and builds one node of its own.
-    fn marker(ui: &mut Ui, c: &PxuiMenuRowConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<PxuiMenuRowConfig>(), "this library carries the row height");
-        SEEN.with(|s| s.borrow_mut().push((crate::bodies::text_of(&c.text).to_owned(), c.state.disabled != 0, c.danger != 0, c.selected != 0, c.has_shortcut != 0, c.lead, c.row_h)));
+    fn marker(ui: &mut Ui, c: &MenuRowConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<MenuRowConfig>(), "this library carries the row height");
+        SEEN.with(|s| s.borrow_mut().push((c.text_of(&c.text).to_owned(), c.state.disabled != 0, c.danger != 0, c.selected != 0, c.has_shortcut != 0, c.lead, c.row_h)));
         ui.node("custom".into(), pxui_types::Node { w: pxui_types::Size::Px(7.0), h: pxui_types::Size::Px(9.0), ..pxui_types::Node::DEFAULT });
     }
 
-    /// With a registered `context_menu` body every row goes through it, with the item's flags and the menu's row height; its
+    /// With a registered `menu_row` body every row goes through it, with the item's flags and the menu's row height; its
     /// structure is what shows.
     #[test]
     fn a_registered_row_body_builds_the_rows() {
         let mut ui = Ui::new().unwrap();
         ui.set_a11y(true);
-        ui.register_context_menu_body("marker", marker).expect("registered");
-        let text = "context_menu.body = marker\n";
+        ui.register_menu_row_body("marker", marker).expect("registered");
+        let text = "menu_row.body = marker\n";
         ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
         let menu = Menu::DEFAULT.row_h(30.0);
         for _ in 0..3 {
@@ -262,9 +263,9 @@ mod tests {
 
     thread_local! { static CURRENT: RefCell<Vec<(String, u8, u8)>> = const { RefCell::new(Vec::new()) }; }
 
-    fn current_row(ui: &mut Ui, c: &PxuiMenuRowConfig) {
-        CURRENT.with(|seen| seen.borrow_mut().push((crate::bodies::text_of(&c.text).to_owned(), c.state.checked, c.selected)));
-        ui.text(&c.row, crate::bodies::text_of(&c.text));
+    fn current_row(ui: &mut Ui, c: &MenuRowConfig) {
+        CURRENT.with(|seen| seen.borrow_mut().push((c.text_of(&c.text).to_owned(), c.state.checked, c.selected)));
+        ui.text(&c.row, c.text_of(&c.text));
     }
 
     /// A `selected` row reaches a registered row body as `state.checked` (apart from `checked`'s mark, `selected` in the record) and reads
@@ -275,8 +276,8 @@ mod tests {
         const SIZES: [MenuItem; 3] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(), MenuItem::new("16 GB").checked(true)];
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
-        ui.register_context_menu_body("current", current_row).expect("row body");
-        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "context_menu.body = current").expect("theme"); theme };
+        ui.register_menu_row_body("current", current_row).expect("row body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "menu_row.body = current").expect("theme"); theme };
         let menu = Cell::new(Menu::DEFAULT);
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("cache-size-menu", (10.0, 10.0), &SIZES, &menu.get()); });
         let run = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui)| for n in 0..3 { CURRENT.with(|s| s.borrow_mut().clear()); ui.frame(&FrameIn { width: 320.0, height: 240.0, time: n as f64, ..FrameIn::default() }, build).expect("frame"); };
@@ -358,12 +359,12 @@ mod tests {
 
     thread_local! { static SCROLL_BODIES: Cell<u32> = const { Cell::new(0) }; }
 
-    fn listing_sheet(ui: &mut Ui, c: &crate::bodies::PxuiPanelConfig) {
+    fn listing_sheet(ui: &mut Ui, c: &crate::bodies::PopupConfig) {
         ui.set_role(&c.node, Role::List, 0);
         ui.slot(c.content);
     }
 
-    fn counted_scroll(ui: &mut Ui, c: &crate::bodies::PxuiScrollConfig) {
+    fn counted_scroll(ui: &mut Ui, c: &crate::bodies::ScrollViewConfig) {
         SCROLL_BODIES.with(|n| n.set(n.get() + 1));
         ui.slot(c.content);
     }

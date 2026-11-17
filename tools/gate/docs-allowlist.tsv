@@ -1,6 +1,5 @@
 # Public fns still missing documentation parts: path, item, missing parts. May only shrink; the docs gate fails on new gaps and on stale rows.
 crates/public/pxui/src/bodies.rs		example,Allocates,Panics
-crates/public/pxui/src/bodies.rs	text_of	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::part	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::part_box	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::part_rect	example,Allocates,Panics

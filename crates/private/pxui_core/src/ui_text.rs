@@ -2187,7 +2187,7 @@ fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bo
 fn menu_rows_body(this: &mut Ui, items: &[MenuItem], m: &MenuLook) -> (Option<i64>, Option<i64>) {
     let mut hovered = None;
     let mut picked = None;
-    let body = body_of!(this, context_menu);
+    let body = body_of!(this, menu_row);
     for (index, item) in items.iter().enumerate() {
         let index = index as i64;
         let (text, enabled) = (item.text, item.enabled);

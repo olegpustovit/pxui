@@ -3,14 +3,14 @@
 //! whose marker slides, a table whose rows are ruled and whose cells hold widgets, and a search field with an icon and a clear button.
 //! The page itself is plain widget calls: with the bodies not selected it draws the built-in widgets, with them the proof bodies.
 //! Not in `PAGES`: it needs the wrapper (the pages there also compile against the engine for the A7 bench).
-use pxui::bodies::{text_of, PxuiSearchFieldConfig, PxuiSegmentConfig, PxuiSliderConfig, PxuiToggleConfig, PxuiRowConfig};
+use pxui::bodies::{BodyConfig, SearchFieldConfig, SegmentedConfig, SliderConfig, ToggleConfig, TableRowConfig};
 use pxui::theme::{Look, State};
 use pxui::{Overlay, Part, SearchField, Ui};
 use pxui_types::Flags;
 use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, ui::int_key, Axis, Node, Size};
 
 /// The theme lines that select the proof bodies, on top of any base theme text.
-pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegment.body = sliding\ntable_view.body = ruled\nsearch_field.body = boxed\n";
+pub const THEME_LINES: &str = "toggle.body = checkbox\nslider.body = round\nsegmented.body = sliding\ntable_row.body = ruled\nsearch_field.body = boxed\n";
 
 /// The page's state.
 pub struct BodiesPage {
@@ -45,18 +45,18 @@ fn state_of(s: &PxuiStateDesc) -> State {
 fn ink(ui: &Ui) -> Look { Look { fill: ui.theme().tokens.accent, ..Look::NONE } }
 
 /// A toggle as a checkbox: a 12-point box at the row's start is the hit area, the label after it.
-fn checkbox_toggle(ui: &mut Ui, c: &PxuiToggleConfig) {
+fn checkbox_toggle(ui: &mut Ui, c: &ToggleConfig) {
     let state = state_of(&c.state);
     let (look, boxes) = { let t = ui.theme(); (*t.toggle.pick(state), t.checkbox) };
     ui.set_look(&c.row, look, state);
     ui.node_mut(&c.row, |n| n.inset = Edges { l: 24.0, ..Edges::ZERO });
-    ui.text(&c.row, text_of(&c.label));
+    ui.text(&c.row, c.text_of(&c.label));
     let b = ui.part(Part::HIT, Node { at: Some((6.0, 6.0)).into(), w: Size::Px(12.0), h: Size::Px(12.0), ..Node::DEFAULT });
     ui.style(&b, &boxes, State { hovered: state.hovered, checked: c.on != 0, ..State::default() });
 }
 
 /// A slider with a round 24-point thumb on a 4-point rail: behaviour maps the pointer across the rail, half the thumb kept at each end.
-fn round_slider(ui: &mut Ui, c: &PxuiSliderConfig) {
+fn round_slider(ui: &mut Ui, c: &SliderConfig) {
     let state = state_of(&c.state);
     let (rail, fill, thumb) = { let t = ui.theme(); (t.separator.idle, t.mark.idle, t.slider) };
     let fraction = c.fraction;
@@ -73,14 +73,14 @@ fn round_slider(ui: &mut Ui, c: &PxuiSliderConfig) {
 
 /// Segments with no outline of their own and one marker (`Part::THUMB`, built by the first segment) placed over the chosen segment from
 /// that segment's rectangle last frame, so it follows the choice a frame later.
-fn sliding_segment(ui: &mut Ui, c: &PxuiSegmentConfig) {
+fn sliding_segment(ui: &mut Ui, c: &SegmentedConfig) {
     let state = state_of(&c.state);
     let look = *ui.theme().segment.pick(state);
     let mut node = ui.node_layout(&c.node);
     node.w = Size::Px(70.0);
     ui.set_node_layout(&c.node, &node);
     ui.set_look(&c.node, Look { text: look.text, font: look.font, ..Look::NONE }, state);
-    ui.text(&c.node, text_of(&c.text));
+    ui.text(&c.node, c.text_of(&c.text));
     if c.index == 0 {
         let rect_of = |ui: &Ui, key: i64| ui.box_of_key(key).map(|b| ui.rect(&b)).filter(|r| r.w > 0.0);
         let (first, chosen) = (rect_of(ui, c.node.box_key), rect_of(ui, int_key(c.group, c.selected as i64)));
@@ -91,7 +91,7 @@ fn sliding_segment(ui: &mut Ui, c: &PxuiSegmentConfig) {
 }
 
 /// A table row with a hairline, the caller's cells inside.
-fn ruled_row(ui: &mut Ui, c: &PxuiRowConfig) {
+fn ruled_row(ui: &mut Ui, c: &TableRowConfig) {
     let state = state_of(&c.state);
     let accent = ui.theme().tokens.accent;
     let look = if state.checked { Look { fill: accent, ..Look::NONE } } else { Look { border: accent, border_w: 1.0, ..Look::NONE } };
@@ -100,7 +100,7 @@ fn ruled_row(ui: &mut Ui, c: &PxuiRowConfig) {
 }
 
 /// A search field as a 24-point well (the row the kit gives it): a 14-point round icon, the editing surface (the slot) and, with a query, a 20-point clear button.
-fn boxed_search(ui: &mut Ui, c: &PxuiSearchFieldConfig) {
+fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig) {
     let state = state_of(&c.state);
     let (look, hint, accent) = { let t = ui.theme(); (*t.search.pick(state), t.placeholder.idle, t.tokens.accent) };
     let mut well = ui.node_layout(&c.well);
@@ -118,8 +118,8 @@ fn boxed_search(ui: &mut Ui, c: &PxuiSearchFieldConfig) {
 pub fn register(ui: &mut Ui) -> Result<(), String> {
     ui.register_toggle_body("checkbox", checkbox_toggle)?;
     ui.register_slider_body("round", round_slider)?;
-    ui.register_segment_body("sliding", sliding_segment)?;
-    ui.register_table_view_body("ruled", ruled_row)?;
+    ui.register_segmented_body("sliding", sliding_segment)?;
+    ui.register_table_row_body("ruled", ruled_row)?;
     ui.register_search_field_body("boxed", boxed_search)?;
     Ok(())
 }

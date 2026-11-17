@@ -49,10 +49,11 @@ impl Ui {
 
 #[cfg(test)]
 mod tests {
-    use crate::bodies::PxuiDialogConfig;
+    use crate::bodies::DialogConfig;
     use crate::ui::{Flags, Node, Role, Size};
     use crate::{testing, Dialog, DialogButton, DialogResponse, Event, FrameIn, Part, Ui};
     use core::cell::{Cell, RefCell};
+    use crate::bodies::BodyConfig;
 
     const ENTER: u32 = pxui_types::KEY_SPECIAL + 5;
     const ESCAPE: u32 = pxui_types::KEY_SPECIAL + 6;
@@ -122,16 +123,17 @@ mod tests {
         assert_eq!(key(&mut ui, ESCAPE, &mut build), DialogResponse { chosen: None, dismissed: true });
     }
 
-    fn column(ui: &mut Ui, c: &PxuiDialogConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<PxuiDialogConfig>(), "this library carries the flags");
+    fn column(ui: &mut Ui, c: &DialogConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<DialogConfig>(), "this library carries the flags");
         ui.slot(c.content);
         for i in 0..c.buttons.len {
             SEEN.with(|s| s.borrow_mut().push((i, c.danger, c.disabled, c.default_at, c.cancel_at)));
             let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
             // the labels come from the config's list without `unsafe`
-            ui.text(&n, crate::bodies::text_at(&c.buttons, i));
+            assert!(!c.text_at(&c.buttons, i).is_empty(), "a list item reads its real text");
+            ui.text(&n, c.text_at(&c.buttons, i));
         }
-        assert_eq!(crate::bodies::text_at(&c.buttons, c.buttons.len), "", "past the end");
+        assert_eq!(c.text_at(&c.buttons, c.buttons.len), "", "past the end");
     }
 
     /// A registered dialog body builds the dialog: it is given the buttons' flags, its structure is what shows (full-width buttons), a
@@ -158,10 +160,10 @@ mod tests {
 
     /// A body that gives its parts their own accessibility: the title a Label, each button ENABLED (and DEFAULT on Return's), the last
     /// one named apart from its label; the second button is left unnamed.
-    fn self_described(ui: &mut Ui, c: &PxuiDialogConfig) {
+    fn self_described(ui: &mut Ui, c: &DialogConfig) {
         use crate::a11y::state;
         let title = ui.part(Part::TITLE, Node { role: Role::Label, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
-        ui.text(&title, crate::bodies::text_of(&c.title));
+        ui.text(&title, c.text_of(&c.title));
         ui.slot(c.content);
         for i in 0..c.buttons.len {
             let a11y = state::ENABLED | if i as i64 == c.default_at { state::DEFAULT } else { 0 };
@@ -194,12 +196,12 @@ mod tests {
 
     thread_local! { static VARIANTS: RefCell<Vec<(&'static str, u16)>> = const { RefCell::new(Vec::new()) }; }
 
-    fn variant_dialog(ui: &mut Ui, c: &PxuiDialogConfig) {
+    fn variant_dialog(ui: &mut Ui, c: &DialogConfig) {
         VARIANTS.with(|v| v.borrow_mut().push(("dialog", c.variant)));
         ui.slot(c.content);
     }
 
-    fn variant_label(_: &mut Ui, c: &crate::bodies::PxuiLabelConfig) { VARIANTS.with(|v| v.borrow_mut().push(("label", c.variant))); }
+    fn variant_label(_: &mut Ui, c: &crate::bodies::LabelConfig) { VARIANTS.with(|v| v.borrow_mut().push(("label", c.variant))); }
 
     /// `Dialog::variant` reaches the registered dialog body's config and nothing else: the label built in the dialog's content, inside
     /// the body, sees 0, and a dialog without a variant is given 0.

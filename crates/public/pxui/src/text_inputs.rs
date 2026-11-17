@@ -349,11 +349,12 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::bodies::BodyConfig;
     use std::cell::RefCell;
 
     thread_local! { static LABELS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) }; }
     /// A registered text field body that records the label its config carries.
-    fn label_probe(_: &mut Ui, c: &crate::bodies::PxuiTextFieldConfig) { LABELS.with(|l| l.borrow_mut().push(crate::bodies::text_of(&c.label).to_owned())); }
+    fn label_probe(_: &mut Ui, c: &crate::bodies::TextFieldConfig) { LABELS.with(|l| l.borrow_mut().push(c.text_of(&c.label).to_owned())); }
 
     /// A text field is identified by its key, named by `TextField::name` (unnamed without one: never by its key) in the tree and in a registered
     /// body's config, and reports what happened to its row; two fields of one name under different keys do not collide.

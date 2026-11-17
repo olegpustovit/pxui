@@ -1,15 +1,115 @@
 //! Widget bodies: an app builds a widget kind's nodes itself. `Ui::register_toggle_body(name, f)` and its siblings (one per kind,
-//! generated from `pxui_types::body_kinds!`) register `f`, a plain `fn(&mut Ui, &Config)`, through the one export
+//! generated from `pxui_types::body_kinds!`) register `f`, a plain `fn(&mut Ui, &KindConfig)` (`ToggleConfig`, `MenuRowConfig`, ...: one wrapper per kind, named for the kind), through the one export
 //! `pxui_body_register`; a theme (`theme.body.toggle = id`, or `toggle.body = NAME` in a theme file applied with `Theme::apply`) then picks
 //! it. The body runs as a callback from the library under the callback panic rule: a panic in it is carried to the call that can run
-//! callbacks (the frame) and the body calls after it are skipped. The config is the kind's C record: borrowed until the body returns,
-//! text fields are read with `text_of`, handles are `PxuiBox`es the body may restyle and enter, and slots run the caller's content.
+//! callbacks (the frame) and the body calls after it are skipped. The config is the kind's C record behind its wrapper: borrowed until the body returns,
+//! text fields are read with the wrapper's `text_of` (`BodyConfig`), handles are `PxuiBox`es the body may restyle and enter, and slots run the caller's content.
 use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, check, Ui};
 use core::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 use pxui_types::{geom::Rect, theme::{BodyId, BodyKind, Curve, Part, States}, ffi::{PxuiBodyFn, PxuiHintDesc, PxuiSlot, Slice}, Node, PxuiBox, Str};
 
-pub use pxui_types::ffi::{PxuiToggleConfig, PxuiSliderConfig, PxuiProgressConfig, PxuiButtonConfig, PxuiIconButtonConfig, PxuiCheckConfig, PxuiSpinnerConfig, PxuiBadgeConfig, PxuiLabelConfig, PxuiFooterConfig, PxuiGripConfig, PxuiPanelConfig, PxuiDialogConfig, PxuiSectionConfig, PxuiInspectorRowConfig, PxuiSplitConfig, PxuiScrollConfig, PxuiToastConfig, PxuiTipConfig, PxuiTabConfig, PxuiSegmentConfig, PxuiDropdownConfig, PxuiMenuItemConfig, PxuiMenuRowConfig, PxuiRowConfig, PxuiTreeRowConfig, PxuiTableHeadConfig, PxuiTableCellConfig, PxuiPickerRowConfig, PxuiSearchFieldConfig, PxuiTextFieldConfig, PxuiLineFieldConfig, PxuiValueFieldConfig, PxuiPickerFieldConfig};
+use pxui_types::ffi::{PxuiToggleConfig, PxuiSliderConfig, PxuiProgressConfig, PxuiButtonConfig, PxuiIconButtonConfig, PxuiCheckConfig, PxuiSpinnerConfig, PxuiBadgeConfig, PxuiLabelConfig, PxuiFooterConfig, PxuiGripConfig, PxuiPanelConfig, PxuiDialogConfig, PxuiSectionConfig, PxuiInspectorRowConfig, PxuiSplitConfig, PxuiScrollConfig, PxuiToastConfig, PxuiTipConfig, PxuiTabConfig, PxuiSegmentConfig, PxuiDropdownConfig, PxuiMenuItemConfig, PxuiMenuRowConfig, PxuiRowConfig, PxuiTreeRowConfig, PxuiTableHeadConfig, PxuiTableCellConfig, PxuiPickerRowConfig, PxuiSearchFieldConfig, PxuiTextFieldConfig, PxuiLineFieldConfig, PxuiValueFieldConfig, PxuiPickerFieldConfig};
+
+mod sealed {
+    pub trait Sealed { fn bounds(&self) -> (usize, usize); }
+}
+
+/// What a registered Rust body reads a config through: the config wrapper (`ToggleConfig`, `MenuRowConfig`, ... one per C record,
+/// `Deref` to its `Pxui*Config` record for the plain fields) and the accessors for its pointer fields. A wrapper cannot be built by
+/// safe code and its record cannot be changed through it, and an accessor reads only a field that lies inside the wrapper's own
+/// record (a copy of a field elsewhere reads as empty), so a body needs no `unsafe` and safe code cannot point one at memory.
+///
+/// ```
+/// use pxui::bodies::{BodyConfig, ToggleConfig};
+/// fn toggle(_ui: &mut pxui::Ui, config: &ToggleConfig) { let _label: &str = config.text_of(&config.label); }
+/// let _register: fn(&mut pxui::Ui, &str) -> Result<_, String> = |ui, name| ui.register_toggle_body(name, toggle);
+/// ```
+pub trait BodyConfig: sealed::Sealed {
+    /// The text of a config field (`config.text_of(&config.label)`), borrowed from the config (valid until the body returns).
+    ///
+    /// Allocates: never.
+    /// Panics: never; a field that is not part of this config, or text that is not UTF-8, reads as "".
+    ///
+    /// ```
+    /// use pxui::bodies::BodyConfig;
+    /// fn label(_ui: &mut pxui::Ui, config: &pxui::bodies::LabelConfig) { let _ = config.text_of(&config.text); }
+    /// ```
+    fn text_of(&self, field: &Str) -> &str {
+        if !inside(self.bounds(), field as *const _ as usize, core::mem::size_of_val(field)) { return ""; }
+        str_of(field)
+    }
+
+    /// Item `index` of a config's text list (a dialog body's `buttons`, a tooltip body's `lines`), borrowed from the config (valid until
+    /// the body returns); "" past the end, for text that is not UTF-8 and for a list that is not part of this config.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::{BodyConfig, DialogConfig};
+    /// fn dialog(_ui: &mut pxui::Ui, config: &DialogConfig) { let _ = config.text_at(&config.buttons, 1); }
+    /// ```
+    fn text_at(&self, list: &Slice<Str>, index: usize) -> &str {
+        if !inside(self.bounds(), list as *const _ as usize, core::mem::size_of_val(list)) || index >= list.len || list.ptr.is_null() { return ""; }
+        str_of(unsafe { &*list.ptr.add(index) })
+    }
+
+    /// Item `index` of a footer body's `hints` as (key, value) text, borrowed from the config; `None` past the end or for a list that is
+    /// not part of this config.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::{BodyConfig, FooterConfig};
+    /// fn footer(_ui: &mut pxui::Ui, config: &FooterConfig) { let _ = config.hint_at(&config.hints, 0); }
+    /// ```
+    fn hint_at(&self, list: &Slice<PxuiHintDesc>, index: usize) -> Option<(&str, &str)> {
+        if !inside(self.bounds(), list as *const _ as usize, core::mem::size_of_val(list)) || index >= list.len || list.ptr.is_null() { return None; }
+        let hint = unsafe { &*list.ptr.add(index) };
+        Some((str_of(&hint.key), str_of(&hint.value)))
+    }
+
+    /// The looks per state a config field points at (`states` of a button, icon button or segmented config, `track` and `knob` of a
+    /// toggle config: the caller's or the theme's), borrowed from the config; `None` for a null field or one that is not part of this config.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::{BodyConfig, ButtonConfig};
+    /// fn button(_ui: &mut pxui::Ui, config: &ButtonConfig) { let _ = config.states_of(&config.states); }
+    /// ```
+    fn states_of(&self, field: &*const States) -> Option<&States> {
+        if !inside(self.bounds(), field as *const _ as usize, core::mem::size_of_val(field)) || field.is_null() { return None; }
+        Some(unsafe { &**field })
+    }
+
+    /// The press curves an icon button config's `press` points at (the scale's in on press and out on release), borrowed from the
+    /// config; `None` when it is null (the kit's springs) or not part of this config.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::bodies::{BodyConfig, IconButtonConfig};
+    /// fn icon_button(_ui: &mut pxui::Ui, config: &IconButtonConfig) { let _ = config.curves_of(&config.press); }
+    /// ```
+    fn curves_of(&self, field: &*const Curve) -> Option<&[Curve; 2]> {
+        if !inside(self.bounds(), field as *const _ as usize, core::mem::size_of_val(field)) || field.is_null() { return None; }
+        Some(unsafe { &*field.cast::<[Curve; 2]>() })
+    }
+}
+
+/// The text a library-written `Str` names; "" when empty or not UTF-8. Callers vouch that `field` came from the config's records or lists.
+fn str_of<'a>(field: &Str) -> &'a str {
+    if field.len == 0 || field.ptr.is_null() { return ""; }
+    core::str::from_utf8(unsafe { core::slice::from_raw_parts(field.ptr, field.len) }).unwrap_or("")
+}
+
+/// Whether the `size` bytes at address `at` lie wholly inside the record `bounds` (start, length) names.
+fn inside((start, len): (usize, usize), at: usize, size: usize) -> bool { at >= start && at + size <= start + len }
 
 library!(sys {
     fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void) -> u16;
@@ -17,89 +117,6 @@ library!(sys {
     fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out: *mut PxuiBox) -> i32;
     #[trusted] fn pxui_slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32;
 });
-
-/// The text of a config field, borrowed from the config (valid until the body returns).
-pub fn text_of(value: &Str) -> &str {
-    if value.len == 0 || value.ptr.is_null() { return ""; }
-    core::str::from_utf8(unsafe { core::slice::from_raw_parts(value.ptr, value.len) }).unwrap_or("")
-}
-
-/// Item `index` of a config's text list (a dialog body's `buttons`, a tooltip body's `lines`), borrowed from the config (valid until the
-/// body returns); "" past the end or for text that is not UTF-8.
-///
-/// One of the body accessors (`text_of`, `text_at`, `hint_at`, `states_of`, `curves_of`): every pointer field of a `Pxui*Config` is read
-/// through one of them, so a registered Rust body needs no `unsafe`. A menu row's and a segment's text come in their own config's `text`.
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::{ffi::Slice, Str};
-/// let texts = [Str { ptr: "Cancel".as_ptr(), len: 6 }, Str { ptr: "Delete".as_ptr(), len: 6 }];
-/// let buttons = Slice { ptr: texts.as_ptr(), len: texts.len() };
-/// assert_eq!((pxui::bodies::text_at(&buttons, 1), pxui::bodies::text_at(&buttons, 2)), ("Delete", ""));
-/// ```
-pub fn text_at(values: &Slice<Str>, index: usize) -> &str {
-    if index >= values.len || values.ptr.is_null() { return ""; }
-    text_of(unsafe { &*values.ptr.add(index) })
-}
-
-/// Item `index` of a footer body's `hints` (its key and value read with `text_of`), borrowed from the config; `None` past the end.
-///
-/// A body accessor, as `text_at`.
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::{ffi::{PxuiHintDesc, Slice}, Str};
-/// let hints = [PxuiHintDesc { size: 40, reserved: 0, key: Str { ptr: "Esc".as_ptr(), len: 3 }, value: Str { ptr: "close".as_ptr(), len: 5 } }];
-/// let span = Slice { ptr: hints.as_ptr(), len: 1 };
-/// assert_eq!(pxui::bodies::hint_at(&span, 0).map(|h| pxui::bodies::text_of(&h.key)), Some("Esc"));
-/// assert!(pxui::bodies::hint_at(&span, 1).is_none());
-/// ```
-pub fn hint_at(values: &Slice<PxuiHintDesc>, index: usize) -> Option<&PxuiHintDesc> {
-    if index >= values.len || values.ptr.is_null() { return None; }
-    Some(unsafe { &*values.ptr.add(index) })
-}
-
-/// The looks per state a config field points at (`states` of a button, icon button or segment config, `track` and `knob` of a toggle
-/// config: the caller's or the theme's), borrowed from the config; `None` for a null field.
-///
-/// A body accessor, as `text_at`: pass the field itself (`states_of(&config.states)`).
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui::ui::States;
-/// pxui::doc::frames(1, &mut |ui| {
-///     let looks = ui.theme().segment;
-///     let field: *const States = &looks;
-///     assert_eq!(pxui::bodies::states_of(&field), Some(&looks));
-///     assert!(pxui::bodies::states_of(&core::ptr::null()).is_none());
-/// });
-/// ```
-pub fn states_of(field: &*const States) -> Option<&States> {
-    if field.is_null() { return None; }
-    Some(unsafe { &**field })
-}
-
-/// The press curves an icon button config's `press` points at (the scale's in on press and out on release), borrowed from the config;
-/// `None` when it is null (the kit's springs).
-///
-/// A body accessor, as `text_at`: pass the field itself (`curves_of(&config.press)`).
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui::ui::Curve;
-/// let curves = [Curve::Spring { omega: 60.0 }, Curve::Spring { omega: 20.0 }];
-/// let field: *const Curve = curves.as_ptr();
-/// assert_eq!(pxui::bodies::curves_of(&field), Some(&curves));
-/// assert!(pxui::bodies::curves_of(&core::ptr::null()).is_none());
-/// ```
-pub fn curves_of(field: &*const Curve) -> Option<&[Curve; 2]> {
-    if field.is_null() { return None; }
-    Some(unsafe { &*field.cast::<[Curve; 2]>() })
-}
 
 /// What every registered body's C entry does: skip once a panic is pending, otherwise run `body` on the borrowed `Ui` under `catch_unwind`.
 fn enter(raw: *mut c_void, config: *const c_void, body: &mut dyn FnMut(&mut Ui)) {
@@ -112,13 +129,21 @@ fn enter(raw: *mut c_void, config: *const c_void, body: &mut dyn FnMut(&mut Ui))
 }
 
 macro_rules! typed {
-    ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
+    ($($kind:ident $register:ident $body:ident $config:ident $wrapper:ident),* $(,)?) => {
+        $(
+            #[doc = concat!("The `", stringify!($config), "` record a registered `", stringify!($kind), "` body receives (borrowed until the body returns): its plain fields read through `Deref`, its text, lists and looks through `BodyConfig`.")]
+            #[repr(transparent)]
+            pub struct $wrapper($config);
+            impl core::ops::Deref for $wrapper { type Target = $config; fn deref(&self) -> &$config { &self.0 } }
+            impl sealed::Sealed for $wrapper { fn bounds(&self) -> (usize, usize) { (self as *const Self as usize, core::mem::size_of::<$config>()) } }
+            impl BodyConfig for $wrapper {}
+        )*
         impl Ui {
             $(
                 #[doc = concat!("Registers `body` as the ", stringify!($kind), " body called `name`, for a theme's `body.", stringify!($kind), "` (`", stringify!($kind), ".body = NAME` in a theme file). Registering a name again replaces its function and keeps its id; ids are this `Ui`'s, numbered from 1 in its order of first registration, and freed with it (a theme carried to another `Ui` selects that name's body there, the built-in body where it has none; a kind takes 65,535 names at most, so choose names statically and register one again to change its body); the error is the library's reason (`default`, names longer than 64 bytes and names with a space, `=` or `#` are refused, and so is a call inside a frame).")]
-                pub fn $register(&mut self, name: &str, body: fn(&mut Ui, &$config)) -> Result<BodyId, String> {
+                pub fn $register(&mut self, name: &str, body: fn(&mut Ui, &$wrapper)) -> Result<BodyId, String> {
                     extern "C" fn entry(user: *mut c_void, raw: *mut c_void, config: *const c_void) {
-                        enter(raw, config, &mut |ui| (unsafe { core::mem::transmute::<*mut c_void, fn(&mut Ui, &$config)>(user) })(ui, unsafe { &*config.cast::<$config>() }));
+                        enter(raw, config, &mut |ui| (unsafe { core::mem::transmute::<*mut c_void, fn(&mut Ui, &$wrapper)>(user) })(ui, unsafe { &*config.cast::<$wrapper>() }));
                     }
                     self.register_body(BodyKind::$kind, name, entry, body as *mut c_void)
                 }
@@ -179,6 +204,8 @@ mod tests {
         static ROWS: Cell<i64> = const { Cell::new(0) };
         static CONTENT: Cell<u32> = const { Cell::new(0) };
         static SLOT: Cell<PxuiSlot> = const { Cell::new(PxuiSlot { serial: 0 }) };
+        static HINTS: RefCell<Option<(Option<(String, String)>, bool, bool, bool, bool)>> = const { RefCell::new(None) };
+        static FORGED: Cell<(bool, bool)> = const { Cell::new((false, false)) };
         static BOOM: Cell<bool> = const { Cell::new(true) };
         static TAB: RefCell<Option<PxuiBox>> = const { RefCell::new(None) };
     }
@@ -186,8 +213,8 @@ mod tests {
     fn input(time: f64) -> FrameIn { FrameIn { width: 320.0, height: 240.0, time, ..FrameIn::default() } }
     fn source(text: &str) -> ThemeSource { ThemeSource { size: core::mem::size_of::<ThemeSource>() as u32, flags: 0, source: Str { ptr: text.as_ptr(), len: text.len() } } }
 
-    fn probe(ui: &mut Ui, c: &crate::bodies::PxuiToggleConfig) {
-        TOGGLES.with(|t| t.borrow_mut().push((text_of(&c.label).to_owned(), c.on != 0, c.state.hovered != 0)));
+    fn probe(ui: &mut Ui, c: &crate::bodies::ToggleConfig) {
+        TOGGLES.with(|t| t.borrow_mut().push((c.text_of(&c.label).to_owned(), c.on != 0, c.state.hovered != 0)));
         ROWS.with(|r| r.set(c.row.box_key));
         let b = ui.part(Part::HIT, Node { w: Size::Px(12.0), h: Size::Px(12.0), ..Node::DEFAULT });
         ui.text(&b, "x");
@@ -247,7 +274,7 @@ mod tests {
         ui.frame(&input(1.0), &mut |ui: &mut Ui| { ui.label("still usable", crate::Label::DEFAULT); }).expect("the Ui is not poisoned");
     }
 
-    fn boom(_: &mut Ui, _: &crate::bodies::PxuiToggleConfig) {
+    fn boom(_: &mut Ui, _: &crate::bodies::ToggleConfig) {
         TOGGLES.with(|t| t.borrow_mut().push((String::new(), false, false)));
         if BOOM.with(Cell::get) { panic!("boom") }
     }
@@ -269,7 +296,44 @@ mod tests {
         assert_eq!(TOGGLES.with(|t| t.borrow().len()), 3);
     }
 
-    fn scroll(ui: &mut Ui, c: &crate::bodies::PxuiScrollConfig) {
+    fn forger(_: &mut Ui, c: &crate::bodies::ToggleConfig) {
+        let mut copy: pxui_types::ffi::PxuiToggleConfig = **c;
+        copy.label = Str { ptr: "forged".as_ptr(), len: 6 };
+        FORGED.with(|f| f.set((c.text_of(&c.label) == "Real", c.text_of(&copy.label).is_empty())));
+    }
+
+    /// An accessor reads only fields inside the config the library gave: a forged or copied field reads as empty.
+    #[test]
+    fn accessors_refuse_fields_outside_their_config() {
+        let mut ui = Ui::new().expect("library");
+        ui.register_toggle_body("forger", forger).expect("registered");
+        ui.set_theme(&source("toggle.body = forger")).expect("theme");
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.toggle("Real", true); }).expect("frame");
+        assert_eq!(FORGED.with(Cell::get), (true, true));
+    }
+
+    fn hinter(_: &mut Ui, c: &crate::bodies::FooterConfig) {
+        let real = c.hint_at(&c.hints, 0).map(|(k, v)| (k.to_owned(), v.to_owned()));
+        let past = c.hint_at(&c.hints, c.hints.len).is_none();
+        let copy = c.hints;
+        let texts = [Str { ptr: "forged".as_ptr(), len: 6 }];
+        let forged = pxui_types::ffi::Slice { ptr: texts.as_ptr(), len: 1 };
+        let forged_hints = pxui_types::ffi::Slice::<pxui_types::ffi::PxuiHintDesc> { ptr: c.hints.ptr, len: c.hints.len };
+        HINTS.with(|h| *h.borrow_mut() = Some((real, past, c.hint_at(&copy, 0).is_none(), c.text_at(&forged, 0).is_empty(), c.hint_at(&forged_hints, 0).is_none())));
+    }
+
+    /// A footer body reads its hints' real text; a list copied out of the config, or built by the app, reads as nothing.
+    #[test]
+    fn hint_and_list_accessors_read_library_lists_and_refuse_forged_ones() {
+        let mut ui = Ui::new().expect("library");
+        ui.register_footer_body("hinter", hinter).expect("registered");
+        ui.set_theme(&source("footer.body = hinter")).expect("theme");
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.footer(None, &[("Esc", "close")]); }).expect("frame");
+        let seen = HINTS.with(|h| h.borrow().clone()).expect("the body ran");
+        assert_eq!(seen, (Some(("Esc".to_owned(), "close".to_owned())), true, true, true, true));
+    }
+
+    fn scroll(ui: &mut Ui, c: &crate::bodies::ScrollViewConfig) {
         SLOT.with(|s| s.set(c.content));
         assert!(!ui.slot(c.content), "a content slot answers false");
     }
@@ -303,11 +367,11 @@ mod tests {
         assert_eq!(ran.get(), 2, "the slot ran again the frame after");
     }
 
-    fn wide_tab(ui: &mut Ui, c: &crate::bodies::PxuiTabConfig) {
+    fn wide_tab(ui: &mut Ui, c: &crate::bodies::TabsConfig) {
         let mut node = ui.node_layout(&c.node);
         node.w = Size::Px(100.0);
         ui.set_node_layout(&c.node, &node);
-        ui.text(&c.node, text_of(&c.text));
+        ui.text(&c.node, c.text_of(&c.text));
         if c.index == 1 { TAB.with(|t| *t.borrow_mut() = Some(c.node)); }
     }
 
@@ -315,8 +379,8 @@ mod tests {
     #[test]
     fn a_body_sizes_its_node_with_node_layout() {
         let mut ui = Ui::new().expect("library");
-        ui.register_tab_body("wide", wide_tab).expect("registered");
-        ui.set_theme(&source("tab.body = wide")).expect("theme");
+        ui.register_tabs_body("wide", wide_tab).expect("registered");
+        ui.set_theme(&source("tabs.body = wide")).expect("theme");
         for n in 0..3 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.tabs("t", &["a", "b"], 0, &crate::Choice::DEFAULT); }).expect("frame"); }
         let tab = TAB.with(|t| t.borrow().expect("the body ran"));
         assert_eq!(ui.rect(&tab).w, 100.0);
@@ -345,21 +409,21 @@ mod tests {
     thread_local! { static VARIANTS: RefCell<Vec<(&'static str, u16)>> = const { RefCell::new(Vec::new()) }; }
 
     /// One body per kind that builds two structures by `variant`: variant 1 a 120-point node, else a 40-point one.
-    fn sized_label(ui: &mut Ui, c: &crate::bodies::PxuiLabelConfig) {
+    fn sized_label(ui: &mut Ui, c: &crate::bodies::LabelConfig) {
         VARIANTS.with(|v| v.borrow_mut().push(("label", c.variant)));
         let mut node = ui.node_layout(&c.node);
         node.w = Size::Px(if c.variant == 1 { 120.0 } else { 40.0 });
         ui.set_node_layout(&c.node, &node);
     }
-    fn sized_button(ui: &mut Ui, c: &crate::bodies::PxuiButtonConfig) {
+    fn sized_button(ui: &mut Ui, c: &crate::bodies::ButtonConfig) {
         VARIANTS.with(|v| v.borrow_mut().push(("button", c.variant)));
         let mut node = ui.node_layout(&c.row);
         node.w = Size::Px(if c.variant == 1 { 120.0 } else { 40.0 });
         ui.set_node_layout(&c.row, &node);
-        ui.text(&c.row, text_of(&c.label));
+        ui.text(&c.row, c.text_of(&c.label));
     }
-    fn sized_field(_: &mut Ui, c: &crate::bodies::PxuiTextFieldConfig) { VARIANTS.with(|v| v.borrow_mut().push(("field", c.variant))); }
-    fn sized_icon_button(_: &mut Ui, c: &crate::bodies::PxuiIconButtonConfig) { VARIANTS.with(|v| v.borrow_mut().push(("icon", c.variant))); }
+    fn sized_field(_: &mut Ui, c: &crate::bodies::TextFieldConfig) { VARIANTS.with(|v| v.borrow_mut().push(("field", c.variant))); }
+    fn sized_icon_button(_: &mut Ui, c: &crate::bodies::IconButtonConfig) { VARIANTS.with(|v| v.borrow_mut().push(("icon", c.variant))); }
 
     /// A call's style `variant` reaches the registered body's config (labels, buttons, icon buttons, text fields; 0 when the call sets none), so one body
     /// builds two structures and the app picks per call without comparing text; the variant never reaches a later widget, a built-in body
@@ -405,21 +469,21 @@ mod tests {
         assert!(mem_sys::take_reports().is_empty());
     }
 
-    fn menu_row(_: &mut Ui, c: &crate::bodies::PxuiMenuRowConfig) { VARIANTS.with(|v| v.borrow_mut().push(("row", c.variant))); }
-    fn toggle_probe(_: &mut Ui, c: &crate::bodies::PxuiToggleConfig) { VARIANTS.with(|v| v.borrow_mut().push(("toggle", c.variant))); }
-    fn segment_probe(_: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) { VARIANTS.with(|v| v.borrow_mut().push(("segment", c.variant))); }
-    fn nested_label(_: &mut Ui, c: &crate::bodies::PxuiLabelConfig) { VARIANTS.with(|v| v.borrow_mut().push(("nested", c.variant))); }
+    fn menu_row(_: &mut Ui, c: &crate::bodies::MenuRowConfig) { VARIANTS.with(|v| v.borrow_mut().push(("row", c.variant))); }
+    fn toggle_probe(_: &mut Ui, c: &crate::bodies::ToggleConfig) { VARIANTS.with(|v| v.borrow_mut().push(("toggle", c.variant))); }
+    fn segment_probe(_: &mut Ui, c: &crate::bodies::SegmentedConfig) { VARIANTS.with(|v| v.borrow_mut().push(("segment", c.variant))); }
+    fn nested_label(_: &mut Ui, c: &crate::bodies::LabelConfig) { VARIANTS.with(|v| v.borrow_mut().push(("nested", c.variant))); }
 
     /// A menu's variant reaches every row's body, a toggle's and a segmented control's reach theirs (every segment); the contents of a button with a variant are given none.
     #[test]
     fn a_variant_reaches_every_menu_row_and_never_a_nested_widget() {
         use crate::{ui::{Menu, MenuItem}, Button, Label};
         let mut ui = Ui::new().expect("library");
-        ui.register_context_menu_body("rows", menu_row).expect("row body");
+        ui.register_menu_row_body("rows", menu_row).expect("row body");
         ui.register_label_body("nested", nested_label).expect("label body");
         ui.register_toggle_body("t", toggle_probe).expect("toggle body");
-        ui.register_segment_body("s", segment_probe).expect("segment body");
-        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "context_menu.body = rows\nlabel.body = nested\ntoggle.body = t\nsegment.body = s").expect("theme"); theme };
+        ui.register_segmented_body("s", segment_probe).expect("segment body");
+        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "menu_row.body = rows\nlabel.body = nested\ntoggle.body = t\nsegmented.body = s").expect("theme"); theme };
         const ITEMS: [MenuItem; 3] = [MenuItem::new("A"), MenuItem::new("B"), MenuItem::new("C")];
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
             ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.variant(2));
@@ -441,7 +505,7 @@ mod tests {
         assert_eq!(nested, [0, 5], "the label in the button's contents sees 0, the label with its own variant 5: {seen:?}");
     }
 
-    fn scroll_probe(ui: &mut Ui, c: &crate::bodies::PxuiScrollConfig) {
+    fn scroll_probe(ui: &mut Ui, c: &crate::bodies::ScrollViewConfig) {
         VARIANTS.with(|v| v.borrow_mut().push(("scroll", c.variant)));
         ui.slot(c.content);
     }
@@ -452,9 +516,9 @@ mod tests {
     fn a_menu_variant_is_for_its_rows_and_a_long_menu_builds_no_scroll_view() {
         use crate::ui::{Menu, MenuItem};
         let mut ui = Ui::new().expect("library");
-        ui.register_context_menu_body("rows", menu_row).expect("row body");
+        ui.register_menu_row_body("rows", menu_row).expect("row body");
         ui.register_scroll_view_body("scroll", scroll_probe).expect("scroll body");
-        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "context_menu.body = rows\nscroll_view.body = scroll").expect("theme"); theme };
+        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "menu_row.body = rows\nscroll_view.body = scroll").expect("theme"); theme };
         const ITEMS: [MenuItem; 5] = [MenuItem::new("A"), MenuItem::new("B"), MenuItem::new("C"), MenuItem::new("D"), MenuItem::new("E")];
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.max_rows(2).variant(1)); });
         for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }

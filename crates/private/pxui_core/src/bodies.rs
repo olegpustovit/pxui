@@ -643,19 +643,19 @@ macro_rules! builtin {
     (inspector_row) => { crate::kit_ext::default_inspector_row };
     (split) => { crate::ui_kit::default_split };
     (scroll_view) => { crate::ui_widgets::default_scroll };
-    (toast) => { crate::ui_widgets::default_toast };
-    (tip) => { crate::ui_core::default_tip };
-    (tab) => { crate::ui_widgets::default_tab };
-    (segment) => { crate::ui_widgets::default_segment };
+    (toasts) => { crate::ui_widgets::default_toast };
+    (tooltip) => { crate::ui_core::default_tip };
+    (tabs) => { crate::ui_widgets::default_tab };
+    (segmented) => { crate::ui_widgets::default_segment };
     (dropdown) => { crate::ui_widgets::default_dropdown };
     (menu_bar) => { crate::ui_widgets::default_menu_title };
     (menu_item) => { crate::ui_widgets::default_menu_item };
-    (context_menu) => { crate::ui_text::default_menu_row };
-    (list_view) => { crate::ui_widgets::default_row };
+    (menu_row) => { crate::ui_text::default_menu_row };
+    (selection_list) => { crate::ui_widgets::default_row };
     (tree) => { crate::ui_widgets::default_tree_row };
-    (table_view) => { crate::ui_widgets::default_row };
+    (table_row) => { crate::ui_widgets::default_row };
     (table_head) => { crate::ui_widgets::default_table_head };
-    (table) => { crate::ui_kit::default_table_cell };
+    (table_cell) => { crate::ui_kit::default_table_cell };
     (picker) => { crate::kit_ext::default_picker_row };
     (search_field) => { crate::ui_widgets::default_search_field };
     (text_field) => { crate::ui_text::default_text_field };
@@ -665,7 +665,7 @@ macro_rules! builtin {
 }
 
 macro_rules! registry {
-    ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
+    ($($kind:ident $register:ident $body:ident $config:ident $wrapper:ident),* $(,)?) => {
         /// The bodies an app registered in this `Ui`, one list per widget kind: a theme's `BodyId` n picks entry n - 1, and
         /// `names[kind]` maps the names registered here to their ids, numbered from 1 in this `Ui`'s order of first registration (ids
         /// are per `Ui`; a theme carried to another `Ui` is resolved there by name, `Ui::named_body`). Bounded: 65,535 names a kind of

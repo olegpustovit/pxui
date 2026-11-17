@@ -297,59 +297,59 @@ impl ColorToken {
     pub const LIMIT: usize = 64;
 }
 
-/// The widget kinds that have a replaceable body: `kind register_fn BodyType AbiConfig` (the config as it crosses the C ABI, `pxui_types::ffi`), one line each. `Bodies` here, the registry and its
+/// The widget kinds that have a replaceable body: `kind register_fn BodyType AbiConfig RustConfig` (the config as it crosses the C ABI, `pxui_types::ffi`, and the wrapper a Rust body receives, `pxui::bodies`), one line each. A kind is named for the public call it replaces the body of (`menu_row` is a row of `ui.menu`, `selection_list` and `table_row` the rows of those lists) and has its own wrapper (`ToggleConfig`, `MenuRowConfig`, ...); kinds of one shape share one C record (`PxuiCheckConfig`: checkbox and radio, `PxuiPanelConfig`: panel, window, popup and modal, `PxuiMenuItemConfig`: menu_bar and menu_item, `PxuiRowConfig`: selection_list and table_row), which a Rust body reads through its own kind's wrapper. `Bodies` here, the registry and its
 /// `Ui::register_*_body` functions and the theme file's `KIND.body = NAME` are all generated from it (`pxui_core::bodies`), so a
 /// kind is added by one line here plus its config, default body and dispatch. Append only: a kind's place is its field's offset.
 #[macro_export]
 macro_rules! body_kinds {
     ($m:ident) => {
         $m! {
-            toggle register_toggle_body ToggleBody PxuiToggleConfig,
-            slider register_slider_body SliderBody PxuiSliderConfig,
-            progress register_progress_body ProgressBody PxuiProgressConfig,
-            button register_button_body ButtonBody PxuiButtonConfig,
-            icon_button register_icon_button_body IconButtonBody PxuiIconButtonConfig,
-            checkbox register_checkbox_body CheckBody PxuiCheckConfig,
-            radio register_radio_body CheckBody PxuiCheckConfig,
-            spinner register_spinner_body SpinnerBody PxuiSpinnerConfig,
-            badge register_badge_body BadgeBody PxuiBadgeConfig,
-            label register_label_body LabelBody PxuiLabelConfig,
-            footer register_footer_body FooterBody PxuiFooterConfig,
-            grip register_grip_body GripBody PxuiGripConfig,
-            panel register_panel_body PanelBody PxuiPanelConfig,
-            window register_window_body PanelBody PxuiPanelConfig,
-            popup register_popup_body PanelBody PxuiPanelConfig,
-            modal register_modal_body PanelBody PxuiPanelConfig,
-            dialog register_dialog_body DialogBody PxuiDialogConfig,
-            inspector_section register_inspector_section_body SectionBody PxuiSectionConfig,
-            inspector_row register_inspector_row_body InspectorRowBody PxuiInspectorRowConfig,
-            split register_split_body SplitBody PxuiSplitConfig,
-            scroll_view register_scroll_view_body ScrollBody PxuiScrollConfig,
-            toast register_toast_body ToastBody PxuiToastConfig,
-            tip register_tip_body TipBody PxuiTipConfig,
-            tab register_tab_body TabBody PxuiTabConfig,
-            segment register_segment_body SegmentBody PxuiSegmentConfig,
-            dropdown register_dropdown_body DropdownBody PxuiDropdownConfig,
-            menu_bar register_menu_bar_body MenuItemBody PxuiMenuItemConfig,
-            menu_item register_menu_item_body MenuItemBody PxuiMenuItemConfig,
-            context_menu register_context_menu_body MenuRowBody PxuiMenuRowConfig,
-            list_view register_list_view_body RowBody PxuiRowConfig,
-            tree register_tree_body TreeRowBody PxuiTreeRowConfig,
-            table_view register_table_view_body RowBody PxuiRowConfig,
-            table_head register_table_head_body TableHeadBody PxuiTableHeadConfig,
-            table register_table_body TableCellBody PxuiTableCellConfig,
-            picker register_picker_body PickerRowBody PxuiPickerRowConfig,
-            search_field register_search_field_body SearchFieldBody PxuiSearchFieldConfig,
-            text_field register_text_field_body TextFieldBody PxuiTextFieldConfig,
-            line_field register_line_field_body LineFieldBody PxuiLineFieldConfig,
-            value_field register_value_field_body ValueFieldBody PxuiValueFieldConfig,
-            picker_field register_picker_field_body PickerFieldBody PxuiPickerFieldConfig,
+            toggle register_toggle_body ToggleBody PxuiToggleConfig ToggleConfig,
+            slider register_slider_body SliderBody PxuiSliderConfig SliderConfig,
+            progress register_progress_body ProgressBody PxuiProgressConfig ProgressConfig,
+            button register_button_body ButtonBody PxuiButtonConfig ButtonConfig,
+            icon_button register_icon_button_body IconButtonBody PxuiIconButtonConfig IconButtonConfig,
+            checkbox register_checkbox_body CheckBody PxuiCheckConfig CheckboxConfig,
+            radio register_radio_body CheckBody PxuiCheckConfig RadioConfig,
+            spinner register_spinner_body SpinnerBody PxuiSpinnerConfig SpinnerConfig,
+            badge register_badge_body BadgeBody PxuiBadgeConfig BadgeConfig,
+            label register_label_body LabelBody PxuiLabelConfig LabelConfig,
+            footer register_footer_body FooterBody PxuiFooterConfig FooterConfig,
+            grip register_grip_body GripBody PxuiGripConfig GripConfig,
+            panel register_panel_body PanelBody PxuiPanelConfig PanelConfig,
+            window register_window_body PanelBody PxuiPanelConfig WindowConfig,
+            popup register_popup_body PanelBody PxuiPanelConfig PopupConfig,
+            modal register_modal_body PanelBody PxuiPanelConfig ModalConfig,
+            dialog register_dialog_body DialogBody PxuiDialogConfig DialogConfig,
+            inspector_section register_inspector_section_body SectionBody PxuiSectionConfig InspectorSectionConfig,
+            inspector_row register_inspector_row_body InspectorRowBody PxuiInspectorRowConfig InspectorRowConfig,
+            split register_split_body SplitBody PxuiSplitConfig SplitConfig,
+            scroll_view register_scroll_view_body ScrollBody PxuiScrollConfig ScrollViewConfig,
+            toasts register_toasts_body ToastBody PxuiToastConfig ToastsConfig,
+            tooltip register_tooltip_body TipBody PxuiTipConfig TooltipConfig,
+            tabs register_tabs_body TabBody PxuiTabConfig TabsConfig,
+            segmented register_segmented_body SegmentBody PxuiSegmentConfig SegmentedConfig,
+            dropdown register_dropdown_body DropdownBody PxuiDropdownConfig DropdownConfig,
+            menu_bar register_menu_bar_body MenuItemBody PxuiMenuItemConfig MenuBarConfig,
+            menu_item register_menu_item_body MenuItemBody PxuiMenuItemConfig MenuItemConfig,
+            menu_row register_menu_row_body MenuRowBody PxuiMenuRowConfig MenuRowConfig,
+            selection_list register_selection_list_body RowBody PxuiRowConfig SelectionListConfig,
+            tree register_tree_body TreeRowBody PxuiTreeRowConfig TreeConfig,
+            table_row register_table_row_body RowBody PxuiRowConfig TableRowConfig,
+            table_head register_table_head_body TableHeadBody PxuiTableHeadConfig TableHeadConfig,
+            table_cell register_table_cell_body TableCellBody PxuiTableCellConfig TableCellConfig,
+            picker register_picker_body PickerRowBody PxuiPickerRowConfig PickerConfig,
+            search_field register_search_field_body SearchFieldBody PxuiSearchFieldConfig SearchFieldConfig,
+            text_field register_text_field_body TextFieldBody PxuiTextFieldConfig TextFieldConfig,
+            line_field register_line_field_body LineFieldBody PxuiLineFieldConfig LineFieldConfig,
+            value_field register_value_field_body ValueFieldBody PxuiValueFieldConfig ValueFieldConfig,
+            picker_field register_picker_field_body PickerFieldBody PxuiPickerFieldConfig PickerFieldConfig,
         }
     };
 }
 
 macro_rules! bodies {
-    ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
+    ($($kind:ident $register:ident $body:ident $config:ident $wrapper:ident),* $(,)?) => {
         /// The body each widget kind builds with, in a theme: ids, never function pointers, so a `Theme` stays `Copy` and comparable
         /// and a theme file can pick one by name (`toggle.body = checkbox`). One field per `body_kinds!` line, in its order; grows at
         /// the end only.
@@ -389,7 +389,7 @@ macro_rules! bodies {
 body_kinds!(bodies);
 
 macro_rules! body_kind_numbers {
-    ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
+    ($($kind:ident $register:ident $body:ident $config:ident $wrapper:ident),* $(,)?) => {
         /// The number of each widget kind in `pxui_body_register`: `Bodies`' field order, numbered once and never renumbered.
         #[repr(u32)]
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]

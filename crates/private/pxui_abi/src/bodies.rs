@@ -176,12 +176,12 @@ mod tramps {
         axis: c.axis as u32, ratio: c.ratio, min_a: c.min_a, min_b: c.min_b, split: bx(c.split), first: content(sh, a), second: content(sh, b)
     });
     tramp!(scroll_view, |ui, sh, c: &ScrollConfig, body: &mut dyn FnMut(&mut Ui)| PxuiScrollConfig { node: bx(c.node), content: content(sh, body) });
-    tramp!(toast, |ui, sh, c: &ToastConfig, text: &str| PxuiToastConfig { state: st(c.state), node: bx(c.node), text: pair(text) });
-    tramp_span!(tip, strs, |ui, sh, span, c: &TipConfig, lines: &[String]| {
+    tramp!(toasts, |ui, sh, c: &ToastConfig, text: &str| PxuiToastConfig { state: st(c.state), node: bx(c.node), text: pair(text) });
+    tramp_span!(tooltip, strs, |ui, sh, span, c: &TipConfig, lines: &[String]| {
         span.extend(lines.iter().map(|l| pair(l)));
     }, PxuiTipConfig { width: c.width, height: c.height, tip: bx(c.tip), lines: Slice { ptr: span.as_ptr(), len: span.len() } });
-    tramp!(tab, |ui, sh, c: &TabConfig, text: &str| PxuiTabConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });
-    tramp!(segment, |ui, sh, c: &SegmentConfig, states: Option<&States>, text: &str| PxuiSegmentConfig {
+    tramp!(tabs, |ui, sh, c: &TabConfig, text: &str| PxuiTabConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });
+    tramp!(segmented, |ui, sh, c: &SegmentConfig, states: Option<&States>, text: &str| PxuiSegmentConfig {
         state: st(c.state), index: c.index, selected: c.selected.unwrap_or(0), group: c.group, node: bx(c.node), text: pair(text), states: states.unwrap_or(unsafe { &*(&ui.theme().segment as *const States) }), grow: c.grow as u8,
         padding: c.padding, min_segment: c.min_segment, line: bx(c.line), strip: bx(c.strip), has_selected: c.selected.is_some() as u8, reserved3: [0; 7],
         stored: c.stored.unwrap_or(0), has_stored: c.stored.is_some() as u8, reserved4: [0; 7]
@@ -189,19 +189,19 @@ mod tramps {
     tramp!(dropdown, |ui, sh, c: &DropdownConfig, text: &str| PxuiDropdownConfig { state: st(c.state), open: c.open as u8, key: c.key, button: bx(c.button), text: pair(text) });
     tramp!(menu_bar, |ui, sh, c: &MenuItemConfig, text: &str| PxuiMenuItemConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });
     tramp!(menu_item, |ui, sh, c: &MenuItemConfig, text: &str| PxuiMenuItemConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });
-    tramp!(context_menu, |ui, sh, c: &MenuRowConfig, text: &str, shortcut: Option<&str>| PxuiMenuRowConfig {
+    tramp!(menu_row, |ui, sh, c: &MenuRowConfig, text: &str, shortcut: Option<&str>| PxuiMenuRowConfig {
         state: st(c.state), selected: c.selected as u8, chevron: c.chevron as u8, danger: c.danger as u8, has_swatch: c.swatch.is_some() as u8, swatch: c.swatch.unwrap_or_default(),
         has_shortcut: shortcut.is_some() as u8, index: c.index, lead: c.lead, swatch_pad: c.swatch_pad, row: bx(c.row), text: pair(text), shortcut: opt(shortcut), row_h: c.row_h
     });
-    tramp!(list_view, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body) });
-    tramp!(table_view, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body) });
+    tramp!(selection_list, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body) });
+    tramp!(table_row, |ui, sh, c: &RowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiRowConfig { state: st(c.state), index: c.index, row: bx(c.row), content: content(sh, body) });
     tramp!(tree, |ui, sh, c: &TreeRowConfig, body: &mut dyn FnMut(&mut Ui)| PxuiTreeRowConfig {
         state: st(c.state), has: c.has as u8, open: c.open as u8, index: c.index, node: c.node, depth: c.depth, row: bx(c.row), content: content(sh, body)
     });
     tramp!(table_head, |ui, sh, c: &TableHeadConfig, title: &str| PxuiTableHeadConfig {
         state: st(c.state), has_ascending: flag(c.ascending).0, ascending: flag(c.ascending).1, index: c.index, node: bx(c.node), title: pair(title)
     });
-    tramp!(table, |ui, sh, c: &TableCellConfig, text: &str| PxuiTableCellConfig {
+    tramp!(table_cell, |ui, sh, c: &TableCellConfig, text: &str| PxuiTableCellConfig {
         header: c.header as u8, left: c.left, right: c.right, height: c.height, row: c.row, column: c.column, key: c.key, text: pair(text)
     });
     tramp!(picker, |ui, sh, c: &PickerRowConfig, label: &str, detail: &str, query: &str| PxuiPickerRowConfig {
@@ -237,7 +237,7 @@ fn value_opts(o: &pxui_core::ui_text::ValueFieldOpts) -> PxuiValueFieldDesc {
 }
 
 macro_rules! registrars {
-    ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
+    ($($kind:ident $register:ident $body:ident $config:ident $wrapper:ident),* $(,)?) => {
         /// Register kind n's trampoline under a name: the same list, in the same order, as `BodyKind`.
         static REGISTER: &[fn(&mut Ui, &str) -> BodyId] = &[$(|ui, name| ui.$register(name, tramps::$kind)),*];
     };
@@ -485,7 +485,7 @@ mod tests {
     /// numbers its own names from 1, and a name longer than 64 bytes is refused.
     #[test]
     fn a_name_again_keeps_its_id_and_consumes_none() {
-        let kind = BodyKind::tab as u32;
+        let kind = BodyKind::tabs as u32;
         let (a, b) = unsafe { (pxui_ui_create(&PxuiUiDesc::default()), pxui_ui_create(&PxuiUiDesc::default())) };
         let register = |ui, name| unsafe { pxui_body_register(ui, kind, text(name), Some(toggle_body), core::ptr::null_mut()) };
         let kept = register(a, "kept_name");

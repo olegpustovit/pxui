@@ -130,6 +130,7 @@ mod tests {
     use super::{Label, Stack};
     use crate::FrameIn;
     use pxui_types::{geom::Rgba, theme::ColorToken, Node, PxuiBox, Size};
+    use crate::bodies::BodyConfig;
 
     /// 100 frames of kit, typographic and digits labels with a repeating value allocate nothing once warm.
     #[test]
@@ -336,9 +337,9 @@ mod tests {
     }
 
     /// A label body that records its config and fills the label's node with one 30-point-tall child of its own, no text.
-    fn boxed_label(ui: &mut crate::Ui, c: &crate::bodies::PxuiLabelConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiLabelConfig>(), "this library carries the style and the box");
-        SEEN.with(|s| s.borrow_mut().push((crate::bodies::text_of(&c.text).to_owned(), c.style.set, c.style.digits, c.style.size_points, c.style.color)));
+    fn boxed_label(ui: &mut crate::Ui, c: &crate::bodies::LabelConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::LabelConfig>(), "this library carries the style and the box");
+        SEEN.with(|s| s.borrow_mut().push((c.text_of(&c.text).to_owned(), c.style.set, c.style.digits, c.style.size_points, c.style.color)));
         GROWN.with(|g| g.borrow_mut().push((c.label_box.set, c.label_box.height, c.label_box.role, c.label_box.whole_pixels)));
         ui.node("mark".into(), Node { h: Size::Px(30.0), ..Node::DEFAULT });
     }

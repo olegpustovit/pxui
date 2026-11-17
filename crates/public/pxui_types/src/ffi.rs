@@ -1889,7 +1889,7 @@ configs! {
         state: PxuiStateDesc, selected: u8, chevron: u8, danger: u8, has_swatch: u8, swatch: Rgba, has_shortcut: u8, index: i64, lead: f32, swatch_pad: f32,
         row: PxuiBox, text: Str, shortcut: Str, row_h: f32
     }
-    /// A `list_view` or `table_view` row; `content` is the text or the caller's cells.
+    /// A `selection_list` or `table_row` row; `content` is the text or the caller's cells.
     PxuiRowConfig { state: PxuiStateDesc, index: usize, row: PxuiBox, content: PxuiSlot }
     PxuiTreeRowConfig { state: PxuiStateDesc, has: u8, open: u8, index: usize, node: usize, depth: usize, row: PxuiBox, content: PxuiSlot }
     PxuiTableHeadConfig { state: PxuiStateDesc, has_ascending: u8, ascending: u8, index: usize, node: PxuiBox, title: Str }

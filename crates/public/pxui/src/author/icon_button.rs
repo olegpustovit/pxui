@@ -303,8 +303,8 @@ mod tests {
     thread_local! { static CURVES: Cell<*const crate::theme::Curve> = const { Cell::new(core::ptr::null()) }; }
 
     /// A body that records the press curves pointer its config carries (null: none, the kit's).
-    fn recording(_ui: &mut Ui, c: &crate::bodies::PxuiIconButtonConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiIconButtonConfig>(), "this library carries the curves");
+    fn recording(_ui: &mut Ui, c: &crate::bodies::IconButtonConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::IconButtonConfig>(), "this library carries the curves");
         CURVES.with(|s| s.set(c.press));
     }
 
