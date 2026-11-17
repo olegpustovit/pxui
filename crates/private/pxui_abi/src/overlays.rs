@@ -90,6 +90,8 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
 const MENU_EXTRA_V1: usize = 80;
 // `PxuiMenuExtra` as ABI 1.49 had it: the fields before `padding`.
 const MENU_EXTRA_V149: usize = 104;
+// `PxuiMenuExtra` as ABI 1.55 had it: the fields before `focus_on_click`.
+const MENU_EXTRA_V155: usize = 144;
 
 // Applies a menu's extras to its rows (shortcuts, swatches, destructive rows, marks, submenus) and options, borrowing the caller's
 // strings: false when a span, text or row is invalid. The submenus' rows go flat into `subs` first, then each opening row points
@@ -122,7 +124,7 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         for (item, mark) in menu.iter_mut().zip(checked) { item.checked = (*mark != 0).then_some(*mark == 2); }
     }
     // ABI 1.55: the padding, the sheet's name and the current choice per row
-    if size >= core::mem::size_of::<PxuiMenuExtra>() {
+    if size >= MENU_EXTRA_V155 {
         if !(0.0..=f32::MAX).contains(&extra.padding) || extra.has_name > 1 || extra.reserved2 != [0; 3] { return false; }
         *options = options.padding(extra.padding);
         if extra.has_name == 1 {
@@ -132,6 +134,14 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         let Some(selected) = span(extra.selected, MAX_ROWS) else { return false };
         if selected.len() > menu.len() || selected.iter().any(|on| *on > 1) { return false; }
         for (item, on) in menu.iter_mut().zip(selected) { item.selected = *on == 1; }
+    }
+    // ABI 1.58: a press focuses its row, and the rows' ids
+    if size >= core::mem::size_of::<PxuiMenuExtra>() {
+        if extra.focus_on_click > 1 || extra.reserved3 != [0; 7] { return false; }
+        *options = options.focus_on_click(extra.focus_on_click == 1);
+        let (Some(ids), Some(has_id)) = (span(extra.ids, MAX_ROWS), span(extra.has_id, MAX_ROWS)) else { return false };
+        if has_id.len() > menu.len() || has_id.len() > ids.len() || has_id.iter().any(|on| *on > 1) { return false; }
+        for ((item, on), id) in menu.iter_mut().zip(has_id).zip(ids) { item.id = (*on == 1).then_some(*id); }
     }
     subs.clear();
     let mut at = [(0usize, 0usize, 0usize); 64];

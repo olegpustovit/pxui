@@ -1466,6 +1466,8 @@ struct MenuLook {
     swatch_pad: f32,
     gap: f32,
     row_h: f32,
+    /// a press focuses its row (`Menu::focus_on_click`)
+    focus_on_click: bool,
 }
 
 /// The mark slot of a row that keeps one: the accent square sits in it before the label.
@@ -1501,7 +1503,8 @@ impl Ui {
     /// index, the menu then closed; Escape, focus loss, or a press outside set `dismissed`. Build it before content it shields; it
     /// floats at the root regardless of its parent. A row with a submenu has a chevron and, while the pointer is on it, opens a
     /// second menu overlapping the first by a point, level with the row; the rows of the submenus are numbered after those of the
-    /// menu, in the order of the rows that open them. A press outside the menu in the frame that first builds it dismisses it.
+    /// menu, in the order of the rows that open them. A press outside the menu in the frame that first builds it dismisses it. A row is
+    /// keyed by its `id` (a submenu's rows by place), else by its place, never by its text; past `max_rows` the sheet itself scrolls.
     pub fn menu(&mut self, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
         menu_body(self, key, at, items, menu)
     }
@@ -2877,8 +2880,14 @@ fn menu_rows_body(this: &mut Ui, items: &[MenuItem], m: &MenuLook) -> (Option<i6
             this.set_role(&line, Role::Separator, 0);
             this.node_mut(&line).margin = Edges { t: 4.0, b: m.gap - 5.0, ..Edges::ZERO };
         } else {
-            let row = this.kit_row(Some(if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY } else { Flags::BLOCKING }), None, text);
-            this.node_mut(&row).h = Size::Px(m.row_h);
+            // a row is keyed by its id, else by its place: never by its text, so rows of one text are distinct (a submenu's by place)
+            let key = match item.id.filter(|_| m.top) {
+                Some(id) => key_of(this.current_seed(), pxui_types::ui::Key::Id(id).label(&mut [0u8; 17])),
+                None => int_key(this.current_seed(), index),
+            };
+            let tab = if m.focus_on_click { Flags::NONE } else { Flags::TAB_ONLY };
+            let flags = if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | tab } else { Flags::BLOCKING };
+            let row = this.box_keyed(key, BoxOpts::default().flags(flags).w(Size::Grow).h(Size::Px(m.row_h)));
             let signal = this.signal_owned(&row);
             if enabled && signal.hovered {
                 hovered = Some(index);
@@ -3057,13 +3066,14 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let (view_w, view_h) = this.view_size();
     let width = view_w.min(this.menu_measure(menu.width.unwrap_or(150.0), items, true, swatch_pad, key_size));
     let height_of = |items: &[MenuItem]| items.iter().fold(2.0 * pad + 2.0, |h, i| h + if i.text.is_empty() { gap } else { row_height });
-    // past `max_rows` rows the row column scrolls inside a popup as tall as the first `max_rows` rows
+    // past `max_rows` rows the sheet scrolls, as tall as the first `max_rows` rows
     let shown_rows = menu.max_rows.map_or(items.len(), |rows| rows.min(items.len()));
     let scrolls = shown_rows < items.len();
     let height = height_of(&items[..shown_rows]);
     // a menu opens at the point, moved inside the window
     let bounds = Rect::new(0.0, 0.0, view_w, view_h);
-    let Rect { x, y, .. } = place_anchored(Rect::new(x, y, 0.0, 0.0), (width, height), Placement { flip: false, ..Placement::BELOW }, bounds);
+    // the sheet is at least a panel's 180 points wide (`panel_enter`): placed at that width, it stays inside the window
+    let Rect { x, y, .. } = place_anchored(Rect::new(x, y, 0.0, 0.0), (width.max(180.0), height), Placement { flip: false, ..Placement::BELOW }, bounds);
     // the submenu of a row: a second menu overlapping this one by a point, level with its row
     let row_top = |index: usize| y + pad + 1.0 + items.iter().take(index).fold(0.0, |top, i| top + if i.text.is_empty() { gap } else { row_height });
     let sub_geometry = |ui: &mut Ui, row: usize| -> Rect {
@@ -3081,20 +3091,16 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let related = if has_submenus { vec![key_of(this.current_seed(), &format!("{}-sub", label))] } else { Vec::new() };
     // the sheet is named by `Menu::name` (none without), never by its key
     let name = Some(menu.name.unwrap_or(""));
-    let popts = PopupOpts { look: Some(sheet), keep, related, role: Role::Menu, ..PopupOpts::default() };
+    // past `max_rows` the sheet itself scrolls (its spacers with the rows): no scroll view of its own inside it
+    let popts = PopupOpts { look: Some(sheet), keep, related, role: Role::Menu, max_height: scrolls.then_some(height), ..PopupOpts::default() };
     let mut opened: Option<i64> = None;
     let mut picked: Option<i64> = None;
     let shown = this.popup_with_related(popts, (x, y), width, height, label, name, &mut |ui: &mut Ui| {
         let top = ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
         let open_row = ui.state(&top, -1);
         opened = if open_row >= 0 { Some(open_row) } else { None };
-        let m = MenuLook { opened, top: true, swatch_pad, gap, row_h: row_height };
-        let (mut p, mut hovered) = (None, None);
-        if scrolls {
-            ui.scroll_view("menu-rows", Size::Grow, Size::Px(height - 2.0 * pad - 2.0), &mut |ui: &mut Ui| (p, hovered) = ui.menu_rows(items, &m));
-        } else {
-            (p, hovered) = ui.menu_rows(items, &m);
-        }
+        let m = MenuLook { opened, top: true, swatch_pad, gap, row_h: row_height, focus_on_click: menu.focus_on_click };
+        let (p, hovered) = ui.menu_rows(items, &m);
         picked = p;
         // the pointer opens the submenu of a row, or closes it on any other
         if let Some(index) = hovered {
@@ -3108,11 +3114,11 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     });
     if !shown {
         this.dismiss_popup();
-        return MenuResponse { chosen: None, dismissed: true };
+        return MenuResponse { dismissed: true, ..MenuResponse::default() };
     }
     if let Some(index) = picked {
         this.dismiss_popup();
-        return MenuResponse { chosen: Some(index as usize), dismissed: false };
+        return MenuResponse { chosen: Some(index as usize), ..MenuResponse::default() };
     }
     let open = MenuResponse::default();
     let Some(row) = opened.map(|row| row as usize).filter(|row| items.get(*row).is_some_and(|i| !i.submenu.is_empty())) else { return open };
@@ -3122,7 +3128,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let sub_opts = PopupOpts { look: Some(sheet), attached: true, role: Role::Menu, ..PopupOpts::default() };
     this.popup_with_related(sub_opts, (sx, sy), sw, sh, &format!("{}-sub", label), Some(""), &mut |ui: &mut Ui| {
         ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
-        let m = MenuLook { opened: None, top: false, swatch_pad, gap, row_h: row_height };
+        let m = MenuLook { opened: None, top: false, swatch_pad, gap, row_h: row_height, focus_on_click: menu.focus_on_click };
         let (p, _) = ui.menu_rows(sub, &m);
         sub_picked = p;
         ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
@@ -3130,7 +3136,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     match sub_picked {
         Some(index) => {
             this.dismiss_popup();
-            MenuResponse { chosen: Some(base_of(row) + index as usize), dismissed: false }
+            MenuResponse { chosen: Some(base_of(row) + index as usize), ..MenuResponse::default() }
         }
         None => open,
     }

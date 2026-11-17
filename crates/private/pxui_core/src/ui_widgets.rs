@@ -542,7 +542,7 @@ impl Ui {
                 sel = i;
             }
             let state = State { hovered: enabled && ns.hovered, pressed: enabled && ns.held, checked: sel == i, disabled: !enabled, ..State::default() };
-            let config = SegmentConfig { state, index: i, selected: sel, group: strip.box_key, node: n, grow, padding: opts.padding, min_segment: opts.min_segment };
+            let config = SegmentConfig { state, index: i, selected: sel, group: strip.box_key, node: n, grow, padding: opts.padding, min_segment: opts.min_segment, line, strip };
             self.set_role(&n, Role::Radio, st::CHECKABLE | if sel == i { st::CHECKED } else { 0 });
             self.a11y_name(&n, option.name.unwrap_or(option.text));
             in_item!(flat; self, body, n.box_key, n, default_segment(&config, opts.states.as_ref(), option.text));

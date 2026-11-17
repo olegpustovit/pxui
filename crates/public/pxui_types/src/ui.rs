@@ -138,6 +138,8 @@ pub struct MenuItem<'a> {
     /// Whether the row is the current choice of a settings menu: it reads CHECKED and SELECTED and shows the theme's `checked` menu look
     /// (rows of the menu itself, not of a submenu).
     pub selected: bool,
+    /// The row's identity (`None`: its position among the menu's rows), never its text; `MenuResponse::chosen_id` reports it.
+    pub id: Option<i64>,
 }
 
 impl<'a> MenuItem<'a> {
@@ -150,7 +152,7 @@ impl<'a> MenuItem<'a> {
     /// const PLAY: MenuItem = MenuItem::new("Play next");
     /// assert!(PLAY.enabled && !PLAY.danger);
     /// ```
-    pub const fn new(text: &'a str) -> MenuItem<'a> { MenuItem { text, enabled: true, danger: false, checked: None, shortcut: "", swatch: None, submenu: &[], selected: false } }
+    pub const fn new(text: &'a str) -> MenuItem<'a> { MenuItem { text, enabled: true, danger: false, checked: None, shortcut: "", swatch: None, submenu: &[], selected: false, id: None } }
 
     /// Sets whether the row can be chosen.
     /// Allocates: never.
@@ -227,6 +229,19 @@ impl<'a> MenuItem<'a> {
     /// assert!(SIZES[0].selected && !SIZES[1].selected);
     /// ```
     pub const fn selected(mut self) -> MenuItem<'a> { self.selected = true; self }
+
+    /// Keys the row by `id` instead of its position, so its focus and hover follow it when rows move, and reports `id` as
+    /// `MenuResponse::chosen_id` when it is chosen. Rows of one menu with the same text are distinct rows either way.
+    /// Allocates: never.
+    /// Identity: the row is keyed by `id` under the menu (as `Key::Id`); two rows of one menu with one id collide. A submenu's rows are
+    /// keyed by their position; their ids are only reported.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const MIX: pxui_types::ui::MenuItem = pxui_types::ui::MenuItem::new("Mix").id(42);
+    /// assert_eq!(MIX.id, Some(42));
+    /// ```
+    pub const fn id(mut self, id: i64) -> MenuItem<'a> { self.id = Some(id); self }
 }
 
 /// How `Ui::menu` varies the kit's menu, as a `Copy` value built with `const fn` builders from `Menu::DEFAULT`.
@@ -236,7 +251,7 @@ pub struct Menu<'a> {
     pub row_h: Option<f32>,
     /// The least width in points (`None`: 150); the menu is as wide as its longest row.
     pub width: Option<f32>,
-    /// The most rows shown at once (`None`: all); a menu with more rows scrolls its row column.
+    /// The most rows shown at once (`None`: all); a menu with more rows scrolls its sheet.
     pub max_rows: Option<usize>,
     /// What the registered bodies of the menu's rows read from their config (`PxuiMenuRowConfig::variant`); 0 for none.
     pub variant: u16,
@@ -244,11 +259,13 @@ pub struct Menu<'a> {
     pub padding: f32,
     /// The sheet's accessible name (`None`: none; the key is only the menu's identity).
     pub name: Option<&'a str>,
+    /// A press focuses the row it lands on (as `Tab` does), instead of the rows being Tab stops only.
+    pub focus_on_click: bool,
 }
 
 impl<'a> Menu<'a> {
     /// The plain kit menu: the theme's row height, at least 150 points wide, every row shown, 6 points above and below the rows, no name.
-    pub const DEFAULT: Menu<'a> = Menu { row_h: None, width: None, max_rows: None, variant: 0, padding: 6.0, name: None };
+    pub const DEFAULT: Menu<'a> = Menu { row_h: None, width: None, max_rows: None, variant: 0, padding: 6.0, name: None, focus_on_click: false };
 
     /// Sets a row's height in points; the label, mark, swatch and shortcut centre in it.
     /// Allocates: never.
@@ -270,7 +287,8 @@ impl<'a> Menu<'a> {
     /// ```
     pub const fn width(mut self, width: f32) -> Menu<'a> { self.width = Some(width); self }
 
-    /// Shows at most `rows` rows at once: a menu with more rows is that tall and its row column scrolls (wheel, drag or touch).
+    /// Shows at most `rows` rows at once: a menu with more rows is that tall and its sheet scrolls (wheel, drag or touch), the space
+    /// above the first row and below the last with the rows.
     /// The submenu of a row is not limited, and is placed level with its row unscrolled.
     /// Allocates: never.
     /// Panics: never.
@@ -311,6 +329,16 @@ impl<'a> Menu<'a> {
     /// assert_eq!(SIZES.name, Some("Cache size"));
     /// ```
     pub const fn name(mut self, name: &'a str) -> Menu<'a> { self.name = Some(name); self }
+
+    /// Sets whether a press on a row focuses it (false by default: the rows take the focus from Tab alone, as buttons do).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const TOUCH: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.focus_on_click(true);
+    /// assert!(TOUCH.focus_on_click);
+    /// ```
+    pub const fn focus_on_click(mut self, focus: bool) -> Menu<'a> { self.focus_on_click = focus; self }
 }
 
 /// One option of a segmented control (`Ui::segmented_with`), a `Copy` value built with `const fn` builders from `Segment::new`.
@@ -349,6 +377,8 @@ impl<'a> Segment<'a> {
 pub struct MenuResponse {
     /// The index of the row chosen this frame (a click, or Enter on the focused row); the menu has closed itself.
     pub chosen: Option<usize>,
+    /// The `MenuItem::id` of the chosen row (`None` when nothing was chosen or the row has none).
+    pub chosen_id: Option<i64>,
     /// The menu closed without a choice (Escape, window focus loss or a press outside): stop calling `menu`.
     pub dismissed: bool,
 }

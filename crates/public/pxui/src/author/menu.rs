@@ -6,13 +6,16 @@ impl Ui {
     /// Shows a floating menu of `items` at `at` (window points, moved inside the window) and reports what happened to it this frame.
     ///
     /// Call it every frame the menu is open and stop when `dismissed` or `chosen` comes back: a `chosen` index is the row clicked (or
-    /// Enter on the focused row) and the menu has closed itself; Escape, focus loss or a press outside set `dismissed`. A disabled row
-    /// is never chosen and empty text is a separator. Build it before the content it shields; it floats at the root. The menu is as wide
-    /// as its longest row (`Menu::width` is the least). Rows with a submenu open it beside the menu; its rows are numbered after the
-    /// menu's own. Rows are drawn by the registered `context_menu` body; a `MenuItem::selected` row reads as the current choice. The sheet
-    /// is named `Menu::name` (none without) and has `Menu::padding` above its first row and below its last.
+    /// Enter on the focused row) and the menu has closed itself, `chosen_id` that row's `MenuItem::id`; Escape, focus loss or a press
+    /// outside set `dismissed`. A disabled row is never chosen and empty text is a separator. Build it before the content it shields; it
+    /// floats at the root, moved inside the view (`at` needs no clamping). The menu is as wide as its longest row (`Menu::width` is the
+    /// least). Rows with a submenu open it beside the menu; its rows are numbered after the menu's own. Rows are drawn by the registered
+    /// `context_menu` body; a `MenuItem::selected` row reads as the current choice. The sheet is built by the registered `popup` body, which
+    /// may give it a role of its own (else it is a Menu); it is named `Menu::name` (none without), has `Menu::padding` above its first row
+    /// and below its last, and past `Menu::max_rows` it scrolls itself.
     /// Allocates: never on a warm frame, except that rows with a submenu allocate per call.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); it is never the accessible name (`Menu::name`).
+    /// A row is keyed under the menu by its `MenuItem::id`, else by its position, never by its text: rows of one text are distinct.
     /// Panics: when the library refuses the arguments (outside a frame, a non-finite position or width, a negative or non-finite padding).
     ///
     /// ```
@@ -30,14 +33,18 @@ impl Ui {
         self.menu_call(key.into(), at, items, menu)
     }
 
-    /// The one body of `menu`: the engine call, with the menu's variant set around it.
+    /// The one body of `menu`: the engine call, with the menu's variant set around it, then the chosen row's id.
     #[inline(always)]
     #[track_caller]
     fn menu_call(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
-        if menu.variant == 0 { return self.menu_keyed(key, at, items, menu); }
-        self.set_variant(pxui_types::theme::BodyKind::context_menu, menu.variant);
-        let response = self.menu_keyed(key, at, items, menu);
-        self.set_variant(pxui_types::theme::BodyKind::context_menu, 0);
+        if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::context_menu, menu.variant); }
+        let mut response = self.menu_keyed(key, at, items, menu);
+        if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::context_menu, 0); }
+        // a chosen index past the menu's rows is a submenu's row, numbered in the order of the rows that open them
+        response.chosen_id = response.chosen.and_then(|index| match items.get(index) {
+            Some(item) => item.id,
+            None => items.iter().flat_map(|item| item.submenu).nth(index - items.len()).and_then(|item| item.id),
+        });
         response
     }
 }
@@ -73,7 +80,7 @@ mod tests {
         assert_eq!(last.get(), MenuResponse::default(), "a disabled row is inert");
         let (x, y) = centre(&ui, "Delete");
         testing::click(&mut ui, x, y, &mut build);
-        assert_eq!(last.get(), MenuResponse { chosen: Some(2), dismissed: false });
+        assert_eq!(last.get(), MenuResponse { chosen: Some(2), ..MenuResponse::default() });
     }
 
     /// Tab then Enter chooses the first enabled row (never the disabled one before it); Escape and a press outside dismiss.
@@ -88,7 +95,7 @@ mod tests {
         last.set(MenuResponse::default());
         let mut ui = crate::doc::frames(3, &mut build);
         testing::key(&mut ui, ESCAPE, &mut build);
-        assert_eq!(last.get(), MenuResponse { chosen: None, dismissed: true });
+        assert_eq!(last.get(), MenuResponse { dismissed: true, ..MenuResponse::default() });
         last.set(MenuResponse::default());
         let mut ui = crate::doc::frames(3, &mut build);
         testing::click(&mut ui, 300.0, 230.0, &mut build);
@@ -258,5 +265,106 @@ mod tests {
         let (name, roomy) = sheet(&ui);
         assert_eq!(name, "Cache size");
         assert_eq!((testing::find(&ui, Role::MenuItem, "4 GB").unwrap().y - top, roomy.h - plain.h), (6.0, 12.0), "padding 12 moves the rows 6 down and grows the sheet 12");
+    }
+
+    /// Two rows of one text (two playlists named alike) are distinct rows with distinct answers: rows are keyed by place, or by
+    /// `MenuItem::id`, never by text; the chosen row's id comes back as `chosen_id` (a submenu row's too).
+    #[test]
+    fn rows_of_one_text_are_distinct_and_report_their_ids() {
+        const MIXES: [MenuItem; 2] = [MenuItem::new("Mix").id(70), MenuItem::new("Mix").id(71)];
+        const ITEMS: [MenuItem; 4] = [MenuItem::new("Mix"), MenuItem::new("Mix"), MenuItem::new("Mix").id(9), MenuItem::new("Add to").submenu(&MIXES)];
+        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT);
+        let mut build = |ui: &mut Ui| { let got = ui.menu("m", (10.0, 10.0), &ITEMS, &menu); if got != MenuResponse::default() { last.set(got); } };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let rows: Vec<crate::geom::Rect> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == "Mix").map(|n| n.rect).collect();
+        assert_eq!(rows.len(), 3, "three rows named Mix: {rows:?}");
+        assert!(rows[0].y < rows[1].y && rows[1].y < rows[2].y, "each its own row: {rows:?}");
+        testing::click(&mut ui, f64::from(rows[1].x + 20.0), f64::from(rows[1].y + rows[1].h / 2.0), &mut build);
+        assert_eq!(last.get(), MenuResponse { chosen: Some(1), ..MenuResponse::default() }, "the second Mix, which has no id");
+        let mut ui = crate::doc::frames(3, &mut build);
+        testing::click(&mut ui, f64::from(rows[2].x + 20.0), f64::from(rows[2].y + rows[2].h / 2.0), &mut build);
+        assert_eq!(last.get(), MenuResponse { chosen: Some(2), chosen_id: Some(9), dismissed: false });
+        let mut ui = crate::doc::frames(3, &mut build);
+        let (x, y) = centre(&ui, "Add to");
+        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        let second = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == "Mix").map(|n| n.rect).nth(4).expect("the submenu's second Mix");
+        let (x, y) = (f64::from(second.x + 20.0), f64::from(second.y + second.h / 2.0));
+        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x, y, ..Default::default() }], &mut build);
+        testing::click(&mut ui, x, y, &mut build);
+        assert_eq!(last.get(), MenuResponse { chosen: Some(5), chosen_id: Some(71), dismissed: false });
+    }
+
+    /// Rows keyed by id keep their focus when rows move: the focused row's id, not its place, decides it.
+    #[test]
+    fn a_row_keyed_by_id_keeps_its_focus_when_rows_move() {
+        let order = Cell::new(false);
+        let (a, b) = (MenuItem::new("A").id(1), MenuItem::new("B").id(2));
+        let mut build = |ui: &mut Ui| { let items = if order.get() { [b, a] } else { [a, b] }; ui.menu("m", (10.0, 10.0), &items, &Menu::DEFAULT); };
+        let mut ui = crate::doc::frames(3, &mut build);
+        testing::key(&mut ui, TAB, &mut build);
+        let focused = |ui: &Ui| ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem) && n.states & crate::a11y::state::FOCUSED != 0).map(|n| ui.a11y_name_of(n).to_owned());
+        assert_eq!(focused(&ui).as_deref(), Some("A"));
+        order.set(true);
+        testing::frame(&mut ui, &[], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(focused(&ui).as_deref(), Some("A"), "the focus followed row A to its new place");
+    }
+
+    /// `focus_on_click` makes a press focus the row it lands on; without it a press leaves the rows to Tab.
+    #[test]
+    fn focus_on_click_focuses_the_pressed_row() {
+        const ITEMS: [MenuItem; 2] = [MenuItem::new("One"), MenuItem::new("Two")];
+        for (menu, focuses) in [(Menu::DEFAULT, false), (Menu::DEFAULT.focus_on_click(true), true)] {
+            let mut build = |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), &ITEMS, &menu); };
+            let mut ui = crate::doc::frames(3, &mut build);
+            let (x, y) = centre(&ui, "Two");
+            testing::frame(&mut ui, &[Event { kind: Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
+            testing::frame(&mut ui, &[], &mut build);
+            let states = ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == "Two").map(|n| n.states).expect("row");
+            assert_eq!(states & crate::a11y::state::FOCUSED != 0, focuses, "focus_on_click {}", menu.focus_on_click);
+        }
+    }
+
+    thread_local! { static SCROLL_BODIES: Cell<u32> = const { Cell::new(0) }; }
+
+    fn listing_sheet(ui: &mut Ui, c: &crate::bodies::PxuiPanelConfig) {
+        ui.set_role(&c.node, Role::List, 0);
+        ui.slot(c.content);
+    }
+
+    fn counted_scroll(ui: &mut Ui, c: &crate::bodies::PxuiScrollConfig) {
+        SCROLL_BODIES.with(|n| n.set(n.get() + 1));
+        ui.slot(c.content);
+    }
+
+    /// A registered popup body sets the menu sheet's role (behaviour gives Menu only to a sheet whose body set none); a menu past
+    /// `max_rows` scrolls in the sheet itself, building no scroll view of its own.
+    #[test]
+    fn a_sheet_body_keeps_its_role_and_a_long_menu_scrolls_in_the_sheet() {
+        let mut ui = Ui::new().expect("library");
+        ui.set_a11y(true);
+        ui.register_popup_body("listing", listing_sheet).expect("popup body");
+        ui.register_scroll_view_body("counted", counted_scroll).expect("scroll body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "popup.body = listing\nscroll_view.body = counted").expect("theme"); theme };
+        const LONG: [MenuItem; 20] = [MenuItem::new("Row"); 20];
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(4)); });
+        for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
+        assert!(ui.a11y_nodes().iter().any(|n| n.is_role(Role::List)) && !ui.a11y_nodes().iter().any(|n| n.is_role(Role::Menu)), "the body's role stays");
+        assert_eq!(SCROLL_BODIES.with(Cell::get), 0, "no scroll view inside the sheet");
+        let sheet = ui.a11y_nodes().iter().find(|n| n.is_role(Role::List)).map(|n| n.rect).expect("sheet");
+        assert_eq!(sheet.h, 2.0 + 12.0 + 4.0 * 24.0, "four rows tall");
+        let plain = crate::doc::frames(3, &mut |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(4)); });
+        assert!(plain.a11y_nodes().iter().any(|n| n.is_role(Role::Menu)), "the built-in sheet is a Menu");
+    }
+
+    /// A menu asked for at the view's far corner is moved inside the view, so the caller clamps nothing.
+    #[test]
+    fn a_menu_at_the_corner_stays_inside_the_view() {
+        let mut build = |ui: &mut Ui| { ui.menu("m", (315.0, 235.0), &ITEMS, &Menu::DEFAULT.row_h(36.0)); };
+        let ui = crate::doc::frames(3, &mut build);
+        let sheet = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Menu)).map(|n| n.rect).expect("sheet");
+        let (w, h) = ui.view_size();
+        assert!(sheet.x >= 0.0 && sheet.y >= 0.0 && sheet.x + sheet.w <= w && sheet.y + sheet.h <= h, "{sheet:?} inside {w} x {h}");
     }
 }

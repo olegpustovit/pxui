@@ -726,13 +726,15 @@ impl Ui {
     /// otherwise content sets the height. Rows beyond the height or `max_height` use the shared
     /// elastic scroll. `window` lays inspector rows and heads out as a floating window's.
     pub fn panel(&mut self, opts: PanelOpts, label: &str, f: &mut dyn FnMut(&mut Ui)) {
-        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, label, None, f);
+        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, label, None, None, f);
     }
 
-    /// A sheet of `kind`: its node (named `name`, the label when `None`), then the body of that kind around the caller's content.
-    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) {
+    /// A sheet of `kind`: its node (named `name`, the label when `None`; given `role` and its states before the body runs, so a
+    /// registered body may set another), then the body of that kind around the caller's content.
+    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, name: Option<&str>, role: Option<(Role, u32)>, f: &mut dyn FnMut(&mut Ui)) {
         let (node, previous) = self.panel_enter(opts, label);
         if let Some(name) = name { self.a11y_name(&node, name); }
+        if let Some((role, states)) = role { self.set_role(&node, role, states); }
         let c = PanelConfig { node };
         match kind {
             Sheet::Panel => in_body!(self, node.box_key, node, panel, default_panel(&c, label, f)),
@@ -1075,11 +1077,9 @@ impl Ui {
         popts.look = opts.look;
         popts.max_height = opts.max_height;
         popts.padding = if opts.stroke.is_none() && opts.look.is_none() { 0 } else { 1 };
-        self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, f);
-        if let Some(sheet) = self.box_of_key(key) {
-            let modal = if opts.role == Role::Dialog { st::MODAL } else { 0 };
-            self.set_role(&sheet, opts.role, modal);
-        }
+        // the sheet's role (a menu, a dialog) is set before its body runs: a registered body's own role stays
+        let modal = if opts.role == Role::Dialog { st::MODAL } else { 0 };
+        self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, Some((opts.role, modal)), f);
         self.leave(saved);
         self.push_overlay(index);
         if opts.attached {
@@ -1276,11 +1276,11 @@ impl Ui {
         if !opts.press_row { self.hit_part(&row, Part::HIT); }
         let mut signal = self.signal(&row);
         signal.clicked &= enabled;
-        let value = value ^ signal.clicked;
+        let (stored, value) = (value, value ^ signal.clicked);
         self.set_role(&row, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
         let (switch_w, switch_h) = opts.switch.unwrap_or((0.0, 0.0));
         let config = ToggleConfig { state: State { hovered: enabled && signal.hovered, disabled: !enabled, ..State::default() }, on: value, row, row_h, switch_w, switch_h,
-            inset: opts.inset.unwrap_or(0.0), press_row: opts.press_row, detail: opts.detail, label: opts.label };
+            inset: opts.inset.unwrap_or(0.0), press_row: opts.press_row, detail: opts.detail, label: opts.label, stored, clicked: signal.clicked };
         in_body!(self, row.box_key, row, toggle, default_toggle(&config, opts.track.as_ref(), opts.knob.as_ref(), text));
         if !enabled { self.node_new(&row).state.disabled = true; }
         Response::of(&signal, self.focused(&row), row)

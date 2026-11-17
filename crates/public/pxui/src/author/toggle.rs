@@ -692,6 +692,59 @@ mod tests {
         assert_eq!(node(&ui, Role::Group, "").1.w, 200.0, "the strip is `size` wide");
     }
 
+    thread_local! {
+        static FLIPS: std::cell::RefCell<Vec<(u8, u8, u8)>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// A toggle body that records the value after the flip, the stored value and the click, and draws its own switch part.
+    fn stored_body(ui: &mut Ui, c: &crate::bodies::PxuiToggleConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiToggleConfig>(), "this library carries `stored` and `clicked`");
+        FLIPS.with(|f| f.borrow_mut().push((c.on, c.stored, c.clicked)));
+        assert!(crate::bodies::states_of(&c.track).is_some() && crate::bodies::states_of(&c.knob).is_some(), "the theme's looks, read without unsafe");
+        ui.part(Part::HIT, Node { w: Size::Px(20.0), h: Size::Px(20.0), ..Node::DEFAULT });
+    }
+
+    /// A segment body that owns the container: the first segment takes the line's padding away and gives the strip a fill.
+    fn container_body(ui: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) {
+        assert_eq!(crate::bodies::states_of(&c.states).map(|s| s.checked.fill), Some(ui.theme().segment.checked.fill), "the theme's segment looks");
+        if c.index == 0 {
+            let line = Node { padding: crate::ui::Edges::ZERO, ..ui.node_layout(&c.line) };
+            ui.set_node_layout(&c.line, &line);
+            ui.set_look(&c.strip, Look { fill: crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 }, ..Look::NONE }, crate::ui::State::default());
+        }
+        let segment = Node { w: Size::Px(30.0), ..ui.node_layout(&c.node) };
+        ui.set_node_layout(&c.node, &segment);
+    }
+
+    /// A registered toggle body is given the stored (pre-click) value and the click beside the new value, so it can show the value
+    /// the app applied; a registered segment body is given the line and the strip and may restyle them (the built-in body leaves them).
+    #[test]
+    fn a_toggle_body_sees_the_stored_value_and_a_segment_body_owns_its_container() {
+        let mut ui = Ui::new().expect("library");
+        ui.set_a11y(true);
+        ui.register_toggle_body("stored", stored_body).expect("toggle body");
+        ui.register_segment_body("container", container_body).expect("segment body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "toggle.body = stored\nsegment.body = container").expect("theme"); theme };
+        // the app applies the flip a frame late: the body sees the stored value until it does
+        let (on, owner) = (Cell::new(false), Cell::new(0));
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
+            let r = ui.toggle_with("t", "Offline", on.get(), &SETTING);
+            owner.set(r.handle.box_key);
+            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B")], 0, &Segmented::DEFAULT);
+        });
+        for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
+        FLIPS.with(|f| f.borrow_mut().clear());
+        let hit = ui.part_rect(owner.get(), Part::HIT).expect("the body's switch");
+        testing::click(&mut ui, f64::from(hit.x + 5.0), f64::from(hit.y + 5.0), &mut build);
+        let flips = FLIPS.with(|f| f.borrow().clone());
+        assert!(flips.contains(&(1, 0, 1)), "the click frame: on 1, stored 0, clicked 1: {flips:?}");
+        assert!(flips.iter().all(|&(on, stored, clicked)| on == stored ^ clicked), "{flips:?}");
+        let (strip, row) = (node(&ui, Role::Group, "").1, ui.a11y_nodes().iter().find(|n| n.is_role(Role::Toggle)).expect("toggle").rect);
+        assert_eq!(strip.x, row.x, "the body took the line's padding away: the strip starts where its sibling row does");
+        let fill = [1u8, 2, 3, 255];
+        assert!(ui.layers().flat_map(|l| l.instances.iter()).any(|i| i.color == fill), "the strip has the body's fill");
+    }
+
     /// `detail` wraps to the room the switch leaves and the row grows to fit it; the detail is its own Label node; with a short detail
     /// the row keeps its height. `label` restyles the title (the row keeps its name and height).
     #[test]

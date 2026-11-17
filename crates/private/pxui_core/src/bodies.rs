@@ -17,7 +17,8 @@ use std::collections::HashMap;
 /// the switch's size (0 the kit's 28 x 14), `inset` the distance of the label and the switch from the row's sides (0 the kit's), `press_row` that a press on the whole row
 /// toggles it (behaviour then ignores `Part::HIT`), `detail` a secondary line under the label (empty: none) and `label` the title's text style
 /// (`None`: the theme's toggle font; unset fields are the toggle's look); the looks of the switch and of its knob (`pick(State { checked: on })`) come beside the config when the caller
-/// gave its own (`None`: the theme's `switch` and `knob`). `state.disabled`: the toggle takes no input.
+/// gave its own (`None`: the theme's `switch` and `knob`). `state.disabled`: the toggle takes no input. `on` is the value after this frame's
+/// flip, `stored` the value the caller passed and `clicked` whether it flipped this frame.
 pub struct ToggleConfig {
     pub state: State,
     pub on: bool,
@@ -29,6 +30,8 @@ pub struct ToggleConfig {
     pub press_row: bool,
     pub detail: &'static str,
     pub label: Option<pxui_types::Label>,
+    pub stored: bool,
+    pub clicked: bool,
 }
 
 pub type ToggleBody = fn(&mut Ui, &ToggleConfig, Option<&States>, Option<&States>, &str);
@@ -278,7 +281,8 @@ pub type TabBody = fn(&mut Ui, &TabConfig, &str);
 ///
 /// the look per state the caller asked for comes beside the config (`None`: the theme's `segment`); `grow`: the caller asked each
 /// segment to share the strip's width (the strip fills its line or is `Segmented::size` wide) instead of the text's; `padding` the text's
-/// inset and half the room around it, `min_segment` a segment's least width (0: none). `state.disabled`: the strip takes no input.
+/// inset and half the room around it, `min_segment` a segment's least width (0: none). `state.disabled`: the strip takes no input. `line`
+/// (the row the strip sits in) and `strip` (the group of segments) are the container, which a body may restyle; the built-in one does not.
 pub struct SegmentConfig {
     pub state: State,
     pub index: usize,
@@ -288,6 +292,8 @@ pub struct SegmentConfig {
     pub grow: bool,
     pub padding: f32,
     pub min_segment: f32,
+    pub line: Handle,
+    pub strip: Handle,
 }
 
 pub type SegmentBody = fn(&mut Ui, &SegmentConfig, Option<&States>, &str);

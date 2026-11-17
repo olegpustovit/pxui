@@ -128,8 +128,10 @@ mod tests {
         for i in 0..c.buttons.len {
             SEEN.with(|s| s.borrow_mut().push((i, c.danger, c.disabled, c.default_at, c.cancel_at)));
             let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
-            ui.text(&n, "");
+            // the labels come from the config's list without `unsafe`
+            ui.text(&n, crate::bodies::text_at(&c.buttons, i));
         }
+        assert_eq!(crate::bodies::text_at(&c.buttons, c.buttons.len), "", "past the end");
     }
 
     /// A registered dialog body builds the dialog: it is given the buttons' flags, its structure is what shows (full-width buttons), a

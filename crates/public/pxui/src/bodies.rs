@@ -7,7 +7,7 @@
 use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, check, Ui};
 use core::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
-use pxui_types::{geom::Rect, theme::{BodyId, BodyKind, Part}, ffi::{PxuiBodyFn, PxuiSlot}, Node, PxuiBox, Str};
+use pxui_types::{geom::Rect, theme::{BodyId, BodyKind, Curve, Part, States}, ffi::{PxuiBodyFn, PxuiHintDesc, PxuiSlot, Slice}, Node, PxuiBox, Str};
 
 pub use pxui_types::ffi::{PxuiToggleConfig, PxuiSliderConfig, PxuiProgressConfig, PxuiButtonConfig, PxuiIconButtonConfig, PxuiCheckConfig, PxuiSpinnerConfig, PxuiBadgeConfig, PxuiLabelConfig, PxuiFooterConfig, PxuiGripConfig, PxuiPanelConfig, PxuiDialogConfig, PxuiSectionConfig, PxuiInspectorRowConfig, PxuiSplitConfig, PxuiScrollConfig, PxuiToastConfig, PxuiTipConfig, PxuiTabConfig, PxuiSegmentConfig, PxuiDropdownConfig, PxuiMenuItemConfig, PxuiMenuRowConfig, PxuiRowConfig, PxuiTreeRowConfig, PxuiTableHeadConfig, PxuiTableCellConfig, PxuiPickerRowConfig, PxuiSearchFieldConfig, PxuiTextFieldConfig, PxuiLineFieldConfig, PxuiValueFieldConfig, PxuiPickerFieldConfig};
 
@@ -22,6 +22,83 @@ library!(sys {
 pub fn text_of(value: &Str) -> &str {
     if value.len == 0 || value.ptr.is_null() { return ""; }
     core::str::from_utf8(unsafe { core::slice::from_raw_parts(value.ptr, value.len) }).unwrap_or("")
+}
+
+/// Item `index` of a config's text list (a dialog body's `buttons`, a tooltip body's `lines`), borrowed from the config (valid until the
+/// body returns); "" past the end or for text that is not UTF-8.
+///
+/// One of the body accessors (`text_of`, `text_at`, `hint_at`, `states_of`, `curves_of`): every pointer field of a `Pxui*Config` is read
+/// through one of them, so a registered Rust body needs no `unsafe`. A menu row's and a segment's text come in their own config's `text`.
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::{ffi::Slice, Str};
+/// let texts = [Str { ptr: "Cancel".as_ptr(), len: 6 }, Str { ptr: "Delete".as_ptr(), len: 6 }];
+/// let buttons = Slice { ptr: texts.as_ptr(), len: texts.len() };
+/// assert_eq!((pxui::bodies::text_at(&buttons, 1), pxui::bodies::text_at(&buttons, 2)), ("Delete", ""));
+/// ```
+pub fn text_at(values: &Slice<Str>, index: usize) -> &str {
+    if index >= values.len || values.ptr.is_null() { return ""; }
+    text_of(unsafe { &*values.ptr.add(index) })
+}
+
+/// Item `index` of a footer body's `hints` (its key and value read with `text_of`), borrowed from the config; `None` past the end.
+///
+/// A body accessor, as `text_at`.
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::{ffi::{PxuiHintDesc, Slice}, Str};
+/// let hints = [PxuiHintDesc { size: 40, reserved: 0, key: Str { ptr: "Esc".as_ptr(), len: 3 }, value: Str { ptr: "close".as_ptr(), len: 5 } }];
+/// let span = Slice { ptr: hints.as_ptr(), len: 1 };
+/// assert_eq!(pxui::bodies::hint_at(&span, 0).map(|h| pxui::bodies::text_of(&h.key)), Some("Esc"));
+/// assert!(pxui::bodies::hint_at(&span, 1).is_none());
+/// ```
+pub fn hint_at(values: &Slice<PxuiHintDesc>, index: usize) -> Option<&PxuiHintDesc> {
+    if index >= values.len || values.ptr.is_null() { return None; }
+    Some(unsafe { &*values.ptr.add(index) })
+}
+
+/// The looks per state a config field points at (`states` of a button, icon button or segment config, `track` and `knob` of a toggle
+/// config: the caller's or the theme's), borrowed from the config; `None` for a null field.
+///
+/// A body accessor, as `text_at`: pass the field itself (`states_of(&config.states)`).
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui::ui::States;
+/// pxui::doc::frames(1, &mut |ui| {
+///     let looks = ui.theme().segment;
+///     let field: *const States = &looks;
+///     assert_eq!(pxui::bodies::states_of(&field), Some(&looks));
+///     assert!(pxui::bodies::states_of(&core::ptr::null()).is_none());
+/// });
+/// ```
+pub fn states_of(field: &*const States) -> Option<&States> {
+    if field.is_null() { return None; }
+    Some(unsafe { &**field })
+}
+
+/// The press curves an icon button config's `press` points at (the scale's in on press and out on release), borrowed from the config;
+/// `None` when it is null (the kit's springs).
+///
+/// A body accessor, as `text_at`: pass the field itself (`curves_of(&config.press)`).
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui::ui::Curve;
+/// let curves = [Curve::Spring { omega: 60.0 }, Curve::Spring { omega: 20.0 }];
+/// let field: *const Curve = curves.as_ptr();
+/// assert_eq!(pxui::bodies::curves_of(&field), Some(&curves));
+/// assert!(pxui::bodies::curves_of(&core::ptr::null()).is_none());
+/// ```
+pub fn curves_of(field: &*const Curve) -> Option<&[Curve; 2]> {
+    if field.is_null() { return None; }
+    Some(unsafe { &*field.cast::<[Curve; 2]>() })
 }
 
 /// What every registered body's C entry does: skip once a panic is pending, otherwise run `body` on the borrowed `Ui` under `catch_unwind`.
@@ -369,10 +446,10 @@ mod tests {
         ui.slot(c.content);
     }
 
-    /// A menu that scrolls (`max_rows`) builds a `scroll_view` inside its call: the pending variant is for the menu's rows only, so the scroll
-    /// view's registered body sees 0 and every row sees the variant; and a variant left pending is gone at the next frame.
+    /// A menu that scrolls (`max_rows`) scrolls its sheet and builds no `scroll_view` inside its call (ABI 1.58); the pending variant is for
+    /// the menu's rows, so every row sees it.
     #[test]
-    fn a_menu_variant_is_for_its_rows_and_not_the_scroll_view_it_builds() {
+    fn a_menu_variant_is_for_its_rows_and_a_long_menu_builds_no_scroll_view() {
         use crate::ui::{Menu, MenuItem};
         let mut ui = Ui::new().expect("library");
         ui.register_context_menu_body("rows", menu_row).expect("row body");
@@ -382,8 +459,7 @@ mod tests {
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.max_rows(2).variant(1)); });
         for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }
         let seen = VARIANTS.with(|v| v.borrow().clone());
-        assert!(seen.iter().any(|s| s.0 == "scroll"), "the menu scrolls through the registered scroll view body: {seen:?}");
-        assert!(seen.iter().filter(|s| s.0 == "scroll").all(|s| s.1 == 0), "the scroll view sees 0: {seen:?}");
+        assert!(!seen.iter().any(|s| s.0 == "scroll"), "the sheet scrolls, no scroll view body runs: {seen:?}");
         let rows: Vec<u16> = seen.iter().filter(|s| s.0 == "row").map(|s| s.1).collect();
         assert!(!rows.is_empty() && rows.iter().all(|v| *v == 1), "every row sees 1: {seen:?}");
     }
