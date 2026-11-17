@@ -15,6 +15,7 @@ pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
 pub use pxui_types::{Label,TextStyle,TextSpan};
+pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse};
 
 pub use pxui_types::{draw, geom};
 pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};
@@ -49,7 +50,7 @@ pub mod ui_text {
     pub use crate::{Language, PickerOpts, ScrubPhase, TextAreaOpts, ValueFieldOpts};
 }
 pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
-pub mod ui_widgets { pub use crate::{DialogOut, Scrub, TreeNode}; }
+pub mod ui_widgets { pub use crate::{Dialog, DialogButton, DialogResponse, Scrub, TreeNode}; }
 /// The node handle `box_`, `node` and the views return.
 pub type Handle = pxui_types::PxuiBox;
 
@@ -74,7 +75,6 @@ pub use paint::Paint;
 pub mod widgets;
 pub use widgets::Scrub;
 pub mod composite;
-pub use composite::DialogOut;
 pub mod overlays;
 pub use overlays::PickerOpts;
 pub use pxui_types::ui::{Menu, MenuItem, MenuResponse, Pick};
@@ -157,7 +157,6 @@ mod sys {
         pub fn pxui_ui_scroll_view(ui:*mut PxuiUi,label:Str,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_view(ui:*mut PxuiUi,label:Str,revision:u64,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_anchored(ui:*mut PxuiUi,label:Str,anchor:*const pxui_types::ffi::PxuiAnchorDesc,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
-        pub fn pxui_ui_dialog(ui:*mut PxuiUi,title:Str,buttons:pxui_types::ffi::Slice<Str>,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut pxui_types::ffi::PxuiDialogOut)->i32;
         pub fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32;
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;

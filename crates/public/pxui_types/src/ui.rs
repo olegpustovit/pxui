@@ -257,6 +257,127 @@ pub struct MenuResponse {
     pub dismissed: bool,
 }
 
+/// How `Ui::dialog` varies the modal dialog, as a `Copy` value built with `const fn` builders from `Dialog::DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Dialog {
+    /// The sheet's width in points.
+    pub width: f32,
+    /// What the registered dialog body reads from its config (`PxuiDialogConfig::variant`); 0 for none. Only the dialog's body is given
+    /// it: the buttons and the widgets of the dialog's content see 0.
+    pub variant: u16,
+}
+
+impl Dialog {
+    /// The plain dialog: a 320-point sheet.
+    pub const DEFAULT: Dialog = Dialog { width: 320.0, variant: 0 };
+
+    /// Sets the sheet's width in points; it must be finite and not negative.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const WIDE: pxui_types::ui::Dialog = pxui_types::ui::Dialog::DEFAULT.width(420.0);
+    /// assert_eq!(WIDE.width, 420.0);
+    /// ```
+    pub const fn width(mut self, width: f32) -> Dialog { self.width = width; self }
+
+    /// Sets the variant the registered dialog body reads from its config (`variant`, 0 by default): one body builds different
+    /// structures by it, so the app picks per call without comparing text. The built-in body ignores it.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const ALERT: pxui_types::ui::Dialog = pxui_types::ui::Dialog::DEFAULT.variant(1);
+    /// assert_eq!(ALERT.variant, 1);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Dialog { self.variant = variant; self }
+}
+
+/// One button of `Ui::dialog`, a `Copy` value built with `const fn` builders from `DialogButton::new`; the buttons sit at the end of
+/// the dialog's last row in the order given. Return presses the `default` one, Escape the `cancel` one.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct DialogButton<'a> {
+    /// The label, which is also the accessible name.
+    pub text: &'a str,
+    /// Return presses this button (the first one marked when several are).
+    pub default: bool,
+    /// Escape, and a press outside the dialog, choose this button (the first one marked when several are).
+    pub cancel: bool,
+    /// The label shows in the theme's invalid colour.
+    pub danger: bool,
+    /// A disabled button takes no press, shows its disabled look and is skipped by Return and Escape.
+    pub enabled: bool,
+}
+
+impl<'a> DialogButton<'a> {
+    /// A plain, enabled button labelled `text`, which it borrows (a literal or a runtime string).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const KEEP: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("Keep");
+    /// assert!(KEEP.enabled && !KEEP.default);
+    /// ```
+    pub const fn new(text: &'a str) -> DialogButton<'a> { DialogButton { text, default: false, cancel: false, danger: false, enabled: true } }
+
+    /// Marks the button Return presses.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const OK: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("OK").default();
+    /// assert!(OK.default);
+    /// ```
+    pub const fn default(mut self) -> DialogButton<'a> { self.default = true; self }
+
+    /// Marks the button Escape (and a press outside the dialog) chooses.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const NO: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("Cancel").cancel();
+    /// assert!(NO.cancel);
+    /// ```
+    pub const fn cancel(mut self) -> DialogButton<'a> { self.cancel = true; self }
+
+    /// Inks the label in the theme's invalid colour (a destructive choice).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const DELETE: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("Delete").danger();
+    /// assert!(DELETE.danger);
+    /// ```
+    pub const fn danger(mut self) -> DialogButton<'a> { self.danger = true; self }
+
+    /// Sets whether the button takes input.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let b = pxui_types::ui::DialogButton::new("Save").enabled(false);
+    /// assert!(!b.enabled);
+    /// ```
+    pub const fn enabled(mut self, enabled: bool) -> DialogButton<'a> { self.enabled = enabled; self }
+}
+
+/// What a dialog's frame did.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DialogResponse {
+    /// The index of the button pressed, or chosen by Return or Escape.
+    pub chosen: Option<usize>,
+    /// Escape, a press outside the dialog or a lost window focus closed it: the caller stops calling `dialog`. `chosen` is then the
+    /// cancel button, when there is an enabled one.
+    pub dismissed: bool,
+}
+
 /// One ranked suggestion of `Language::complete`.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Completion {

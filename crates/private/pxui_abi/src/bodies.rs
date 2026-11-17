@@ -154,10 +154,14 @@ mod tramps {
     tramp!(window, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
     tramp!(popup, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
     tramp!(modal, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
-    // a dialog has no engine config: its title, buttons and content are the whole record
-    tramp_span!(dialog, strs, |ui, sh, span, title: &str, buttons: &[&str], body: &mut dyn FnMut(&mut Ui)| {
-        span.extend(buttons.iter().map(|b| pair(b)));
-    }, PxuiDialogConfig { title: pair(title), buttons: Slice { ptr: span.as_ptr(), len: span.len() }, content: content(sh, body) });
+    // a dialog has no engine config: its title, buttons (their flags as masks) and content are the whole record
+    tramp_span!(dialog, strs, |ui, sh, span, title: &str, buttons: &[pxui_types::ui::DialogButton], body: &mut dyn FnMut(&mut Ui)| {
+        span.extend(buttons.iter().map(|b| pair(b.text)));
+    }, PxuiDialogConfig {
+        title: pair(title), buttons: Slice { ptr: span.as_ptr(), len: span.len() }, content: content(sh, body),
+        default_at: buttons.iter().position(|b| b.default).map_or(-1, |i| i as i64), cancel_at: buttons.iter().position(|b| b.cancel).map_or(-1, |i| i as i64),
+        danger: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (b.danger as u64) << i), disabled: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (!b.enabled as u64) << i)
+    });
     tramp!(inspector_section, |ui, sh, c: &SectionConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiSectionConfig { open: c.open as u8, gap: c.gap, title: bx(c.title), label: pair(label), content: content(sh, body) });
     tramp!(inspector_row, |ui, sh, c: &InspectorRowConfig, label: &str| PxuiInspectorRowConfig {
         state: st(c.state), has_pin: flag(c.pin).0, pin: flag(c.pin).1, label_w: c.label_w, row: bx(c.row), label: pair(label)

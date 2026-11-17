@@ -7,15 +7,16 @@ use crate::kit::{encode_curve, HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
 use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look}, Axis, PxuiBox, Str};
+use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look}, Axis, PxuiBox, Str};
 use pxui_types::{layout::Justify, Size};
 use crate::Response;
-use pxui_types::ui::{Head, HeadAction, LineStep, Target};
+use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Head, HeadAction, LineStep, Target};
 use std::{fmt::Arguments, rc::Rc};
 
 library!(lib {
     fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const KeyframeDesc, out: *mut u8) -> i32;
     fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, text: Str, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *const PxuiDialogDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiDialogResult) -> i32;
     fn pxui_ui_button_response(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: Str, icon: Str, name: Str, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_response(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiResponse) -> i32;
@@ -221,6 +222,33 @@ impl Ui {
     #[track_caller]
     pub(crate) fn disabled_scope(&mut self, disabled: bool, mut f: &mut dyn FnMut(&mut Ui)) {
         check(self, unsafe { lib::pxui_ui_disabled(self.0.as_ptr(), disabled as u8, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
+    }
+    /// The one body of `dialog`: linked statically, the library's trusted entry with the buttons as they are; else the buttons as a
+    /// descriptor (their labels and flags) and the body as a callback.
+    #[inline(always)]
+    #[track_caller]
+    pub(crate) fn dialog_keyed(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, mut body: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
+        #[cfg(feature = "static")]
+        {
+            let mut out = DialogResponse { chosen: None, dismissed: false };
+            check(self, unsafe { pxui_abi_link::trusted::dialog(self.0.as_ptr(), key, title, buttons, style, inner!(|ui: &mut Ui| body(ui)), &mut out) });
+            out
+        }
+        #[cfg(not(feature = "static"))]
+        {
+            let mut texts = [Str::default(); 64];
+            let at = |pick: fn(&DialogButton) -> bool| buttons.iter().position(pick).map_or(-1, |i| i as i64);
+            let mask = |pick: fn(&DialogButton) -> bool| buttons.iter().take(64).enumerate().fold(0u64, |m, (i, b)| m | (pick(b) as u64) << i);
+            for (text, b) in texts.iter_mut().zip(buttons) { *text = as_str(b.text); }
+            let desc = PxuiDialogDesc {
+                size: core::mem::size_of::<PxuiDialogDesc>() as u32, width: style.width, key: as_str(key), title: as_str(title),
+                buttons: Slice { ptr: texts.as_ptr(), len: buttons.len() }, default_at: at(|b| b.default), cancel_at: at(|b| b.cancel),
+                danger: mask(|b| b.danger), disabled: mask(|b| !b.enabled),
+            };
+            let mut result = PxuiDialogResult::EMPTY;
+            check(self, unsafe { lib::pxui_ui_dialog_response(self.0.as_ptr(), &desc, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut body as *mut _ as *mut c_void, &mut result) });
+            DialogResponse { chosen: (result.has_chosen != 0).then_some(result.chosen as usize), dismissed: result.dismissed != 0 }
+        }
     }
     /// A 1-point splitter line (see the engine): its box and what happened to it.
     #[track_caller]

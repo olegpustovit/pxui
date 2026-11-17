@@ -7,6 +7,7 @@
 use crate::ui_core::*;
 use crate::opts::ValueFieldOpts;
 use crate::ui_kit::part_key;
+use pxui_types::ui::DialogButton;
 use std::collections::HashMap;
 
 /// What a toggle body is given. It runs with the widget's row entered (`row`, whose `box_key` owns the parts) and builds the row's
@@ -168,12 +169,12 @@ pub struct PanelConfig {
 
 pub type PanelBody = fn(&mut Ui, &PanelConfig, &str, &mut dyn FnMut(&mut Ui));
 
-/// What a dialog body is given (its title, its button labels, then the caller's content, beside it). It runs inside the modal's sheet
+/// What a dialog body is given (its title, its buttons (label, default, cancel, danger, enabled), then the caller's content, beside it). It runs inside the modal's sheet
 /// (entered) and builds the title bar, calls `content` once, then builds the buttons; the sheet itself is the `modal` body's.
 /// Behaviour reads three kinds of part: the title bar built as `Part::TITLE` (it gets the heading role and the title as name; none, no
 /// heading), and button `i` built as `Part::button(i)`, a clickable node (it gets the button role, its label as name and a press on it
-/// is the dialog's answer). Escape, a press outside and Enter (the last button) are behaviour's.
-pub type DialogBody = fn(&mut Ui, &str, &[&str], &mut dyn FnMut(&mut Ui));
+/// is the dialog's answer; a disabled button's press is ignored). Escape, a press outside and Enter are behaviour's.
+pub type DialogBody = fn(&mut Ui, &str, &[DialogButton], &mut dyn FnMut(&mut Ui));
 
 /// What an inspector section body is given (its label, then the caller's content, beside it). It runs in the section's parent, not
 /// entered: `title` is the header box (a full-width row that takes the click, carries the heading role, the expandable and

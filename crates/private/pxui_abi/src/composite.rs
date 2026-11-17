@@ -1,11 +1,22 @@
 use crate::node::size;
-use crate::state::{Build, PxuiUi, call_build, checked, fail, get, strings};
+use crate::state::{Build, PxuiUi, checked, fail, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiDialogOut, Str};
 use core::ffi::c_void;
-use pxui_core::{ui::Ui, ui_widgets::DialogOut};
-use pxui_types::ffi::{PxuiAnchorDesc, PxuiSizeDesc, Slice};
+use pxui_types::ffi::{PxuiAnchorDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSizeDesc, Slice};
+use pxui_types::ui::{Dialog, DialogButton, DialogResponse};
 
-const MAX_BUTTONS: usize = 256;
+const MAX_BUTTONS: usize = 64;
+
+/// The buttons of `texts` with the flags a dialog record carries (`PxuiDialogDesc`): `buf` holds them for the call.
+fn dialog_buttons<'a, 'b>(texts: &[&'a str], (default_at, cancel_at, danger, disabled): (i64, i64, u64, u64), buf: &'b mut [DialogButton<'a>; MAX_BUTTONS]) -> Option<&'b [DialogButton<'a>]> {
+    let n = texts.len();
+    let beyond = |mask: u64| n < MAX_BUTTONS && mask >> n != 0;
+    if n > MAX_BUTTONS || !(-1..n as i64).contains(&default_at) || !(-1..n as i64).contains(&cancel_at) || beyond(danger) || beyond(disabled) { return None; }
+    for (i, (b, text)) in buf.iter_mut().zip(texts).enumerate() {
+        *b = DialogButton { text, default: i as i64 == default_at, cancel: i as i64 == cancel_at, danger: danger >> i & 1 != 0, enabled: disabled >> i & 1 == 0 };
+    }
+    Some(&buf[..n])
+}
 
 export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, label: Str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
@@ -58,17 +69,52 @@ export!(trusted pub unsafe fn pxui_ui_anchored(ui: *mut PxuiUi, label: Str, anch
     unsafe { crate::trusted::anchored(ui, label, anchor.rect, placement, width, height, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
 });
 
-export!(pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, title: Str, buttons: Slice<Str>, callback: Build, user: *mut c_void, out: *mut PxuiDialogOut) -> i32 {
+// A dialog with the plain buttons of its labels: the last is the default, none cancels, the sheet is keyed by the title.
+export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, title: Str, buttons: Slice<Str>, callback: Build, user: *mut c_void, out: *mut PxuiDialogOut) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null dialog output") }; }
     let mut list = state.shared().take_strs();
-    let Some(title) = (unsafe { checked(title) }).filter(|_| unsafe { strings(buttons, MAX_BUTTONS, &mut list) }) else {
+    let mut buf = [DialogButton::new(""); MAX_BUTTONS];
+    let n = buttons.len as i64;
+    let flags = (n - 1, -1, 0, 0);
+    let decoded = match unsafe { checked(title) } {
+        Some(title) if unsafe { strings(buttons, MAX_BUTTONS, &mut list) } => dialog_buttons(&list, flags, &mut buf).map(|b| (title, b)),
+        _ => None,
+    };
+    let Some((title, buttons)) = decoded else {
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid dialog arguments") };
     };
-    let shared = state.shared;
-    let result = unsafe { (&mut *state.engine).dialog(title, &list, &mut |engine: &mut Ui| call_build(shared, engine, callback, user)) };
+    let mut result = DialogResponse { chosen: None, dismissed: false };
+    let rc = unsafe { crate::trusted::dialog(ui, title, title, buttons, &Dialog::DEFAULT, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut result) };
     state.shared().put_strs(list);
-    unsafe { *out = match result { DialogOut::Open => PxuiDialogOut { tag: 0, index: 0 }, DialogOut::Closed => PxuiDialogOut { tag: 1, index: 0 }, DialogOut::Button(index) => PxuiDialogOut { tag: 2, index } }; }
-    0
+    if rc == 0 {
+        unsafe { *out = match result { DialogResponse { chosen: Some(index), .. } => PxuiDialogOut { tag: 2, index }, DialogResponse { dismissed: true, .. } => PxuiDialogOut { tag: 1, index: 0 }, _ => PxuiDialogOut { tag: 0, index: 0 } }; }
+    }
+    rc
+});
+
+// ABI 1.53: a dialog with flagged buttons (`PxuiDialogDesc`) answering a `PxuiDialogResult`.
+export!(trusted pub unsafe fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *const PxuiDialogDesc, callback: Build, user: *mut c_void, out: *mut PxuiDialogResult) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if desc.is_null() { return unsafe { fail(ui, "null dialog argument") }; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short dialog result") } };
+    let Some(d) = read_desc!(desc, PxuiDialogDesc) else { return unsafe { fail(ui, "invalid dialog descriptor") } };
+    let mut list = state.shared().take_strs();
+    let mut buf = [DialogButton::new(""); MAX_BUTTONS];
+    let decoded = match (unsafe { checked(d.key) }, unsafe { checked(d.title) }) {
+        (Some(key), Some(title)) if unsafe { strings(d.buttons, MAX_BUTTONS, &mut list) } => dialog_buttons(&list, (d.default_at, d.cancel_at, d.danger, d.disabled), &mut buf).map(|b| (key, title, b)),
+        _ => None,
+    };
+    let Some((key, title, buttons)) = decoded else {
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid dialog descriptor") };
+    };
+    let mut result = DialogResponse { chosen: None, dismissed: false };
+    let rc = unsafe { crate::trusted::dialog(ui, key, title, buttons, &Dialog::DEFAULT.width(d.width), &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut result) };
+    state.shared().put_strs(list);
+    if rc == 0 {
+        (out.has_chosen, out.chosen, out.dismissed) = (result.chosen.is_some() as u8, result.chosen.unwrap_or(0) as u64, result.dismissed as u8);
+    }
+    rc
 });

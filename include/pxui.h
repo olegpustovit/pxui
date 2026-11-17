@@ -259,6 +259,9 @@ typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t ge
 /* ABI 1.48: what happened to a kit button or icon button this frame, in one record: PXUI_RESPONSE_* bits and the button's box.
    The caller sets size; a null or shorter record is refused. */
 typedef struct { uint32_t size, flags; PxuiBox node; } PxuiResponse;
+/* ABI 1.53: a modal dialog (at most 64 buttons; masks as PxuiDialogConfig) and what its frame did (chosen is valid when has_chosen) */
+typedef struct { uint32_t size; float width; PxuiStr key, title; PxuiStrSpan buttons; int64_t default_at, cancel_at; uint64_t danger, disabled; } PxuiDialogDesc;
+typedef struct { uint32_t size; uint8_t has_chosen, dismissed, reserved[2]; uint64_t chosen; } PxuiDialogResult;
 enum { PXUI_RESPONSE_CLICKED = 1, PXUI_RESPONSE_HOVERED = 2, PXUI_RESPONSE_HELD = 4, PXUI_RESPONSE_FOCUSED = 8, PXUI_RESPONSE_ACTIVATED = 16 };
 /* ABI 1.31: flags bit 0 preview, bit 1 commit, bit 2 held. Initialize size before calling. */
 typedef struct { uint32_t size, flags; PxuiBox node; float preview, commit; } PxuiScrubOut;
@@ -530,7 +533,8 @@ typedef struct { uint32_t size; uint8_t first; PxuiBox node; PxuiStr text; PxuiL
 typedef struct { uint32_t size; PxuiBox row; uint8_t has_right; PxuiStr right; PxuiHintSpan hints; uint16_t variant; } PxuiFooterConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t vertical; uint8_t floating; PxuiBox grip; uint16_t variant; } PxuiGripConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiSlot content; uint16_t variant; } PxuiPanelConfig;
-typedef struct { uint32_t size; PxuiStr title; PxuiStrSpan buttons; PxuiSlot content; uint16_t variant; } PxuiDialogConfig;
+/* ABI 1.53 appends default_at, cancel_at (a button index or -1) and bitmasks danger, disabled (bit i: button i), before variant */
+typedef struct { uint32_t size; PxuiStr title; PxuiStrSpan buttons; PxuiSlot content; int64_t default_at, cancel_at; uint64_t danger, disabled; uint16_t variant; } PxuiDialogConfig;
 typedef struct { uint32_t size; uint8_t open; float gap; PxuiBox title; PxuiStr label; PxuiSlot content; uint16_t variant; } PxuiSectionConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t has_pin; uint8_t pin; float label_w; PxuiBox row; PxuiStr label; uint16_t variant; } PxuiInspectorRowConfig;
 typedef struct { uint32_t size; uint32_t axis; float ratio; float min_a; float min_b; PxuiBox split; PxuiSlot first; PxuiSlot second; uint16_t variant; } PxuiSplitConfig;
@@ -813,6 +817,8 @@ int32_t pxui_ui_segmented_plain(PxuiUi *ui, PxuiStr key, PxuiStr name, PxuiStrSp
 int32_t pxui_ui_segmented_response(PxuiUi *ui, const PxuiSegmentedDesc *desc, PxuiStrSpan options, PxuiResponse *out, size_t *chosen);
 int32_t pxui_ui_disabled(PxuiUi *ui, uint8_t disabled, PxuiBuild build, void *user);
 int32_t pxui_ui_icon_button_plain(PxuiUi *ui, PxuiStr key, PxuiStr icon, PxuiStr name, PxuiResponse *out);
+/* ABI 1.53: pxui_ui_dialog with the buttons' default, cancel, danger and disabled flags, the sheet's key and width, and a PxuiDialogResult. */
+int32_t pxui_ui_dialog_response(PxuiUi *ui, const PxuiDialogDesc *desc, PxuiBuild build, void *user, PxuiDialogResult *out);
 int32_t pxui_ui_popup(PxuiUi *ui, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_inspector_bar(PxuiUi *ui, PxuiHintSpan hints, int64_t count);
 int32_t pxui_ui_inspector_body(PxuiUi *ui, PxuiBuild build, void *user);
@@ -981,7 +987,7 @@ _Static_assert(sizeof(PxuiLabelConfig) == 128 && offsetof(PxuiLabelConfig, size)
 _Static_assert(sizeof(PxuiFooterConfig) == 88 && offsetof(PxuiFooterConfig, size) == 0 && offsetof(PxuiFooterConfig, row) == 8 && offsetof(PxuiFooterConfig, has_right) == 40 && offsetof(PxuiFooterConfig, right) == 48 && offsetof(PxuiFooterConfig, hints) == 64 && offsetof(PxuiFooterConfig, variant) == 80, "PxuiFooterConfig layout");
 _Static_assert(sizeof(PxuiGripConfig) == 56 && offsetof(PxuiGripConfig, size) == 0 && offsetof(PxuiGripConfig, state) == 4 && offsetof(PxuiGripConfig, vertical) == 12 && offsetof(PxuiGripConfig, floating) == 13 && offsetof(PxuiGripConfig, grip) == 16 && offsetof(PxuiGripConfig, variant) == 48, "PxuiGripConfig layout");
 _Static_assert(sizeof(PxuiPanelConfig) == 72 && offsetof(PxuiPanelConfig, size) == 0 && offsetof(PxuiPanelConfig, node) == 8 && offsetof(PxuiPanelConfig, label) == 40 && offsetof(PxuiPanelConfig, content) == 56 && offsetof(PxuiPanelConfig, variant) == 64, "PxuiPanelConfig layout");
-_Static_assert(sizeof(PxuiDialogConfig) == 56 && offsetof(PxuiDialogConfig, size) == 0 && offsetof(PxuiDialogConfig, title) == 8 && offsetof(PxuiDialogConfig, buttons) == 24 && offsetof(PxuiDialogConfig, content) == 40 && offsetof(PxuiDialogConfig, variant) == 48, "PxuiDialogConfig layout");
+_Static_assert(sizeof(PxuiDialogConfig) == 88 && offsetof(PxuiDialogConfig, size) == 0 && offsetof(PxuiDialogConfig, title) == 8 && offsetof(PxuiDialogConfig, buttons) == 24 && offsetof(PxuiDialogConfig, content) == 40 && offsetof(PxuiDialogConfig, default_at) == 48 && offsetof(PxuiDialogConfig, cancel_at) == 56 && offsetof(PxuiDialogConfig, danger) == 64 && offsetof(PxuiDialogConfig, disabled) == 72 && offsetof(PxuiDialogConfig, variant) == 80, "PxuiDialogConfig layout");
 _Static_assert(sizeof(PxuiSectionConfig) == 80 && offsetof(PxuiSectionConfig, size) == 0 && offsetof(PxuiSectionConfig, open) == 4 && offsetof(PxuiSectionConfig, gap) == 8 && offsetof(PxuiSectionConfig, title) == 16 && offsetof(PxuiSectionConfig, label) == 48 && offsetof(PxuiSectionConfig, content) == 64 && offsetof(PxuiSectionConfig, variant) == 72, "PxuiSectionConfig layout");
 _Static_assert(sizeof(PxuiInspectorRowConfig) == 80 && offsetof(PxuiInspectorRowConfig, size) == 0 && offsetof(PxuiInspectorRowConfig, state) == 4 && offsetof(PxuiInspectorRowConfig, has_pin) == 12 && offsetof(PxuiInspectorRowConfig, pin) == 13 && offsetof(PxuiInspectorRowConfig, label_w) == 16 && offsetof(PxuiInspectorRowConfig, row) == 24 && offsetof(PxuiInspectorRowConfig, label) == 56 && offsetof(PxuiInspectorRowConfig, variant) == 72, "PxuiInspectorRowConfig layout");
 _Static_assert(sizeof(PxuiSplitConfig) == 80 && offsetof(PxuiSplitConfig, size) == 0 && offsetof(PxuiSplitConfig, axis) == 4 && offsetof(PxuiSplitConfig, ratio) == 8 && offsetof(PxuiSplitConfig, min_a) == 12 && offsetof(PxuiSplitConfig, min_b) == 16 && offsetof(PxuiSplitConfig, split) == 24 && offsetof(PxuiSplitConfig, first) == 56 && offsetof(PxuiSplitConfig, second) == 64 && offsetof(PxuiSplitConfig, variant) == 72, "PxuiSplitConfig layout");
@@ -1030,6 +1036,8 @@ _Static_assert(sizeof(PxuiIconButtonDesc) == 96 && offsetof(PxuiIconButtonDesc, 
 _Static_assert(sizeof(PxuiResponse) == 40 && offsetof(PxuiResponse, size) == 0 && offsetof(PxuiResponse, flags) == 4 && offsetof(PxuiResponse, node) == 8, "PxuiResponse layout");
 _Static_assert(sizeof(PxuiToggleDesc) == 88 && offsetof(PxuiToggleDesc, size) == 0 && offsetof(PxuiToggleDesc, enabled) == 4 && offsetof(PxuiToggleDesc, on) == 5 && offsetof(PxuiToggleDesc, press_row) == 6 && offsetof(PxuiToggleDesc, reserved) == 7 && offsetof(PxuiToggleDesc, row_h) == 8 && offsetof(PxuiToggleDesc, switch_w) == 12 && offsetof(PxuiToggleDesc, switch_h) == 16 && offsetof(PxuiToggleDesc, inset) == 20 && offsetof(PxuiToggleDesc, track) == 24 && offsetof(PxuiToggleDesc, knob) == 32 && offsetof(PxuiToggleDesc, key) == 40 && offsetof(PxuiToggleDesc, text) == 56 && offsetof(PxuiToggleDesc, detail) == 72, "PxuiToggleDesc layout");
 _Static_assert(sizeof(PxuiSegmentedDesc) == 64 && offsetof(PxuiSegmentedDesc, size) == 0 && offsetof(PxuiSegmentedDesc, enabled) == 4 && offsetof(PxuiSegmentedDesc, grow) == 5 && offsetof(PxuiSegmentedDesc, reserved) == 6 && offsetof(PxuiSegmentedDesc, h) == 8 && offsetof(PxuiSegmentedDesc, states) == 16 && offsetof(PxuiSegmentedDesc, key) == 24 && offsetof(PxuiSegmentedDesc, name) == 40 && offsetof(PxuiSegmentedDesc, selected) == 56, "PxuiSegmentedDesc layout");
+_Static_assert(sizeof(PxuiDialogDesc) == 88 && offsetof(PxuiDialogDesc, size) == 0 && offsetof(PxuiDialogDesc, width) == 4 && offsetof(PxuiDialogDesc, key) == 8 && offsetof(PxuiDialogDesc, title) == 24 && offsetof(PxuiDialogDesc, buttons) == 40 && offsetof(PxuiDialogDesc, default_at) == 56 && offsetof(PxuiDialogDesc, cancel_at) == 64 && offsetof(PxuiDialogDesc, danger) == 72 && offsetof(PxuiDialogDesc, disabled) == 80, "PxuiDialogDesc layout");
+_Static_assert(sizeof(PxuiDialogResult) == 16 && offsetof(PxuiDialogResult, size) == 0 && offsetof(PxuiDialogResult, has_chosen) == 4 && offsetof(PxuiDialogResult, dismissed) == 5 && offsetof(PxuiDialogResult, reserved) == 6 && offsetof(PxuiDialogResult, chosen) == 8, "PxuiDialogResult layout");
 /* abi-layout end */
 
 #endif

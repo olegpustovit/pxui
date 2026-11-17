@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 52
+minor 53
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -106,6 +106,7 @@ function pxui_ui_create_with_fonts PxuiUi * pxui_ui_create_with_fonts ( const Px
 function pxui_ui_density int64_t pxui_ui_density ( PxuiUi * ui ) ;
 function pxui_ui_destroy int32_t pxui_ui_destroy ( PxuiUi * ui ) ;
 function pxui_ui_dialog int32_t pxui_ui_dialog ( PxuiUi * ui , PxuiStr title , PxuiStrSpan buttons , PxuiBuild build , void * user , PxuiDialogOut * out ) ;
+function pxui_ui_dialog_response int32_t pxui_ui_dialog_response ( PxuiUi * ui , const PxuiDialogDesc * desc , PxuiBuild build , void * user , PxuiDialogResult * out ) ;
 function pxui_ui_disabled int32_t pxui_ui_disabled ( PxuiUi * ui , uint8_t disabled , PxuiBuild build , void * user ) ;
 function pxui_ui_dismiss int32_t pxui_ui_dismiss ( PxuiUi * ui , const PxuiBox * box , const PxuiDismissIn * in , PxuiDismissOut * out ) ;
 function pxui_ui_dismiss_popup int32_t pxui_ui_dismiss_popup ( PxuiUi * ui ) ;
@@ -309,8 +310,10 @@ layout PxuiColorSpan 24 8 0 8 16 20
 layout PxuiCompletion 80 8 0 8 16 32 48 64
 layout PxuiCurveDesc 160 4 0 4 8 24 28 32 96
 layout PxuiDescription 40 8 0 1 8 16 24
-layout PxuiDialogConfig 56 8 0 8 24 40 48
+layout PxuiDialogConfig 88 8 0 8 24 40 48 56 64 72 80
+layout PxuiDialogDesc 88 8 0 4 8 24 40 56 64 72 80
 layout PxuiDialogOut 16 8 0 8
+layout PxuiDialogResult 16 8 0 4 5 6 8
 layout PxuiDirty 8 4 0 4
 layout PxuiDismissIn 12 4 0 4 8
 layout PxuiDismissOut 12 4 0 4 8

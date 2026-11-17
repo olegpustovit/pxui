@@ -1,15 +1,10 @@
 use core::{any::Any, ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
-use pxui_types::{PxuiBox, Size, Str, geom::Rect, layout::{Align, Placement, Side}, ffi::{PxuiAnchorDesc, PxuiDialogOut}};
+use pxui_types::{PxuiBox, Size, Str, geom::Rect, layout::{Align, Placement, Side}, ffi::PxuiAnchorDesc};
 #[cfg(not(feature = "static"))]
 use crate::node::size;
-use crate::{sys, Strs, Ui, check};
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DialogOut {
-    Open,
-    Closed,
-    Button(usize),
-}
+#[cfg(not(feature = "static"))]
+use crate::sys;
+use crate::{Ui, check};
 
 // A panic in an app callback must not unwind through the library. The first one is kept here and every later callback
 // of the call is skipped; the outermost call that can run callbacks (frame, prepare, draw) resumes it after it returns.
@@ -89,14 +84,6 @@ impl Ui {
             check(self, unsafe { sys::pxui_ui_anchored(self.0.as_ptr(), as_str(label), &descriptor, size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         }
         out
-    }
-
-    #[inline]
-    #[track_caller] pub fn dialog(&mut self, title: &str, buttons: &[&str], mut body: &mut dyn FnMut(&mut Ui)) -> DialogOut {
-        let buttons = Strs::new(buttons);
-        let mut out = PxuiDialogOut::default();
-        check(self, unsafe { sys::pxui_ui_dialog(self.0.as_ptr(), as_str(title), buttons.span(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut body as *mut _ as *mut c_void, &mut out) });
-        match out.tag { 0 => DialogOut::Open, 1 => DialogOut::Closed, 2 => DialogOut::Button(out.index), _ => unreachable!("the library answers a dialog with tag 0, 1 or 2") }
     }
 }
 

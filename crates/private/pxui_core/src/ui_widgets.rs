@@ -14,7 +14,7 @@ use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body,
 use crate::draw::Fit;
 use crate::geom::color;
 use crate::ui_core::*;
-use crate::ui_kit::{part_key, text_only, Response};
+use crate::ui_kit::{part_key, text_only, ButtonOpts, Response};
 use input::{Event, Key};
 use std::ops::RangeInclusive;
 
@@ -27,13 +27,7 @@ pub struct TreeNode {
     pub children: u8,
 }
 
-/// What a dialog's frame did: still open, dismissed (Escape, a press outside), or a button pressed.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum DialogOut {
-    Open,
-    Closed,
-    Button(usize),
-}
+pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse};
 
 /// Behavior for a caller-painted horizontal adjustable value. Pointer motion previews; only a
 /// captured left-button release commits. Keyboard and accessibility adjustments commit directly.
@@ -72,25 +66,21 @@ const ITEM_TABLE: u8 = 3;
 const ROW_FLAGS: Flags = Flags::CLICKABLE.or(Flags::BLOCKING);
 const STOP_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::BLOCKING).or(Flags::TAB_ONLY);
 
-/// The built-in dialog: the title bar, the content, then the buttons at the end of a row, the last the default. Each button is a
-/// 20-point box with its text 7 points in, in the button looks; behaviour finds it as `Part::button(i)`.
-pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[&str], content: &mut dyn FnMut(&mut Ui)) {
+/// The built-in dialog: the title bar, the content, then the buttons at the end of a row. Each button is built through the button
+/// body as `Part::button(i)` of the dialog, in the row (the body's `line`), which is the 20-point row of the buttons with 6 points above
+/// and below; behaviour finds a button by its part and ignores the presses of a disabled one.
+pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton], content: &mut dyn FnMut(&mut Ui)) {
     let t = this.theme();
-    let (bar, states) = (t.dialog.idle, t.button);
+    let (bar, invalid) = (t.dialog.idle, t.tokens.invalid);
     let rh = this.row_height() as f32;
     let head = this.part(Part::TITLE, Node { h: Size::Px(rh + 8.0), look: bar, inset: Edges { l: this.space(2), ..Edges::ZERO }, ..Node::DEFAULT });
     this.text(&head, shown(title));
     content(this);
-    let row = this.node("buttons".into(), Node { h: Size::Px(rh + 12.0), axis: Axis::Row, align: Align::Center, justify: Justify::End, gap: 4.0, padding: Edges { r: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
+    let row = this.node("buttons".into(), Node { h: Size::Px(rh), axis: Axis::Row, align: Align::Center, justify: Justify::End, gap: 4.0, margin: Edges { t: 6.0, b: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
     let saved = this.enter(&row);
-    for (i, text) in buttons.iter().enumerate() {
-        let w = this.text_width(None, text) + 14.0;
-        let ch = this.control_h();
-        let b = this.part(Part::button(i as u8), Node { flags: STOP_FLAGS, w: Size::Px(w), h: Size::Px(ch), shrink: 1.0, min_w: 1.0, inset: Edges { l: 7.0, ..Edges::ZERO }, ..Node::DEFAULT });
-        let s = this.signal_owned(&b);
-        this.style(&b, &states, State { hovered: s.hovered, pressed: s.held, ..State::default() });
-        this.node_mut(&b).look.ring = Ring::NONE;
-        this.text(&b, text);
+    for (i, b) in buttons.iter().enumerate() {
+        let opts = ButtonOpts { enabled: b.enabled, justify: Justify::End, ink: b.danger.then_some(invalid), ..ButtonOpts::DEFAULT };
+        this.button_in(&row, this.own_part_key(Part::button(i as u8)), b.text, &opts);
     }
     this.leave(saved);
 }
@@ -958,12 +948,13 @@ impl Ui {
         table_view_body(self, label, titles, widths, rows, sort, selected, cell)
     }
 
-    /// A modal dialog titled `title`: its title bar, `body`, then `buttons` at the end of a row (the
-    /// last is the default: Enter presses it). Escape or a press outside closes it.
-    pub fn dialog(&mut self, title: &str, buttons: &[&str], body: &mut dyn FnMut(&mut Ui)) -> DialogOut {
-        let mut out = DialogOut::Open;
+    /// A modal dialog titled `title`: its title bar, `body`, then `buttons` at the end of a row, built through the dialog body and
+    /// the button body. Return chooses the `default` button, Escape the `cancel` one (a press outside it and a lost window focus
+    /// too, with `dismissed` set), a click the button clicked; a disabled button is none of these. `key` names the sheet.
+    pub fn dialog(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
+        let mut chosen = None;
         let enter = self.key_pressed(Key::Enter, None);
-        let shown_now = self.modal(Some(320.0), title, &mut |ui| {
+        let shown_now = self.modal(Some(style.width), key, &mut |ui| {
             let owner = ui.current_seed();
             in_place!(ui, owner, dialog, default_dialog(title, buttons, body));
             // the heading and the buttons are the body's nodes; their roles, names and presses are read here
@@ -971,23 +962,30 @@ impl Ui {
                 ui.set_role(&head, Role::Heading, 0);
                 ui.a11y_name(&head, shown(title));
             }
-            for (i, text) in buttons.iter().enumerate() {
-                if let Some(b) = ui.part_box(owner, Part::button(i as u8)) {
-                    ui.set_role(&b, Role::Button, 0);
-                    ui.a11y_name(&b, shown(text));
-                    if ui.signal_owned(&b).clicked {
-                        out = DialogOut::Button(i);
+            for (i, b) in buttons.iter().enumerate() {
+                if let Some(part) = ui.part_box(owner, Part::button(i as u8)) {
+                    ui.set_role(&part, Role::Button, 0);
+                    ui.a11y_name(&part, shown(b.text));
+                    if b.enabled && chosen.is_none() && ui.signal(&part).clicked {
+                        chosen = Some(i);
                     }
                 }
             }
         });
+        // the sheet is named by the title, not by the key it is found by
+        if shown_now {
+            if let Some(sheet) = self.box_of_key(key_of(self.current_seed(), key)) {
+                self.a11y_name(&sheet, shown(title));
+            }
+        }
+        let first = |pick: fn(&DialogButton) -> bool| buttons.iter().position(|b| pick(b) && b.enabled);
         if !shown_now {
-            return DialogOut::Closed;
+            return DialogResponse { chosen: first(|b| b.cancel), dismissed: true };
         }
-        if enter && out == DialogOut::Open && !buttons.is_empty() {
-            out = DialogOut::Button(buttons.len() - 1);
+        if enter && chosen.is_none() {
+            chosen = first(|b| b.default);
         }
-        out
+        DialogResponse { chosen, dismissed: false }
     }
 
     /// Toasts stacked in the window's lower end corner (the newest lowest), 12 points from its

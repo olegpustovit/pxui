@@ -129,7 +129,7 @@ PxuiLabelConfig 128 8 0 4 8 40 56 120
 PxuiFooterConfig 88 8 0 8 40 48 64 80
 PxuiGripConfig 56 8 0 4 12 13 16 48
 PxuiPanelConfig 72 8 0 8 40 56 64
-PxuiDialogConfig 56 8 0 8 24 40 48
+PxuiDialogConfig 88 8 0 8 24 40 48 56 64 72 80
 PxuiSectionConfig 80 8 0 4 8 16 48 64 72
 PxuiInspectorRowConfig 80 8 0 4 12 13 16 24 56 72
 PxuiSplitConfig 80 8 0 4 8 12 16 24 56 64 72
@@ -180,3 +180,5 @@ PxuiIconButtonDesc 96 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88
 PxuiResponse 40 8 0 4 8
 PxuiToggleDesc 88 8 0 4 5 6 7 8 12 16 20 24 32 40 56 72
 PxuiSegmentedDesc 64 8 0 4 5 6 8 16 24 40 56
+PxuiDialogDesc 88 8 0 4 8 24 40 56 64 72 80
+PxuiDialogResult 16 8 0 4 5 6 8

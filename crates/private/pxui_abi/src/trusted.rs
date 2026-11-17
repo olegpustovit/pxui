@@ -670,6 +670,16 @@ pub unsafe fn modal(ui: *mut PxuiUi, label: &str, width: Option<f32>, f: Inner, 
     0
 }
 
+/// A modal dialog: `buttons` (at most 64) as `Ui::dialog` takes them, `style` its sheet; what the frame did goes to `out`.
+#[inline]
+pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_types::ui::DialogButton], style: &pxui_types::ui::Dialog, f: Inner, out: &mut pxui_types::ui::DialogResponse) -> i32 {
+    enter!(ui);
+    if long(key) || long(title) || buttons.len() > 64 || buttons.iter().any(|b| long(b.text)) || !style.width.is_finite() || style.width < 0.0 { return unsafe { fail(ui, "invalid dialog arguments") }; }
+    let shared = unsafe { (*ui).shared };
+    *out = unsafe { engine(ui) }.dialog(key, title, buttons, style, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    0
+}
+
 /// A table of text cells at `at`; the clicked row, if any. `cell` writes a cell's text through `put`.
 #[inline]
 pub unsafe fn table(ui: *mut PxuiUi, at: (f32, f32), width: f32, height: f32, headers: &[&str], rows: i64, cell: &mut dyn FnMut(i64, i64, &mut dyn FnMut(&str)), label: &str, out: &mut Option<i64>) -> i32 {

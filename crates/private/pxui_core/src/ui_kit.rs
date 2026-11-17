@@ -139,6 +139,7 @@ impl Response {
 
 /// The built-in button: its text on a 20-point box (6 points of padding in a transparent 1-point edge; 4 when `bare`), the glyph
 /// centred in the 20-point square of an `icon`, the box 5 points in from the start of its line (8 from the end with `at_end`).
+#[inline(always)]
 pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
     let measure = this.text_width(None, shown(text));
     let control_h = this.control_h();
@@ -1106,6 +1107,29 @@ impl Ui {
         let response = Response::of(&signal, focused, row);
         if let Some(out) = signal_out { *out = signal; }
         response
+    }
+
+    /// A button of a body that builds its own row of buttons (the dialog's): the box keyed `key` is a child of `line`, the entered row,
+    /// named `text` and built through the button body as `button_opts` builds it, without contents.
+    pub(crate) fn button_in(&mut self, line: &Handle, key: i64, text: &str, opts: &ButtonOpts) -> Response {
+        let unique = self.unique_key(key);
+        let flags = if opts.enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY | Flags::FOCUS_MARK } else { Flags::BLOCKING | Flags::TAB_ONLY };
+        let row = self.node_unique(unique, &Node { flags, role: Role::Button, ..Node::DEFAULT });
+        self.a11y_name(&row, text);
+        let signal = self.signal(&row);
+        let focused = self.focused(&row);
+        let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !opts.enabled, checked: opts.selected };
+        let mut states = self.theme().button;
+        if let Some(ink) = opts.ink {
+            for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.checked] {
+                look.text = ink;
+            }
+        }
+        let config = ButtonConfig { state, bare: false, icon: false, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, line: *line, row };
+        in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, text));
+        self.node_mut(&row).state.disabled = !opts.enabled;
+        self.set_role(&row, Role::Button, 0);
+        Response::of(&signal, focused, row)
     }
 
     /// A switch row: the label and the 28 x 14 switch at the end (the default body; a theme's `body.toggle` picks another).

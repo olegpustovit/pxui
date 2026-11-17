@@ -764,6 +764,37 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
+    /// ABI 1.53: `pxui_ui_dialog_response` checks its descriptor as the other sized records (size word, text, masks naming a button
+    /// that is not there, an index out of range, a bad width) and refuses a null or short `PxuiDialogResult`; a good call answers.
+    #[test]
+    fn dialog_response_desc() {
+        let ui = create();
+        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let buttons = [k, k];
+        let mut value: PxuiDialogDesc = unsafe { core::mem::zeroed() };
+        value.size = size_of_val(&value) as u32;
+        (value.width, value.key, value.title, value.buttons, value.default_at, value.cancel_at) = (320.0, k, k, Slice { ptr: buttons.as_ptr(), len: 2 }, 1, 0);
+        four(ui, ((&value as *const PxuiDialogDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<PxuiDialogDesc>();
+            in_frame(ui, &mut |ui| { let mut out = PxuiDialogResult::EMPTY; unsafe { pxui_ui_dialog_response(ui, p, None, core::ptr::null_mut(), &mut out) } })
+        });
+        let mut out = PxuiDialogResult::EMPTY;
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &value, None, core::ptr::null_mut(), &mut out) }), 0, "{}", error(ui));
+        assert_eq!((out.has_chosen, out.dismissed), (0, 0), "an open dialog chose nothing");
+        let short = PxuiDialogResult { size: 4, ..PxuiDialogResult::EMPTY };
+        for bad_out in [core::ptr::null_mut(), &short as *const PxuiDialogResult as *mut PxuiDialogResult] {
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &value, None, core::ptr::null_mut(), bad_out) }), PXUI_ERR_ARGUMENT);
+        }
+        let fixes: [fn(&mut PxuiDialogDesc); 7] = [|d| d.default_at = 2, |d| d.cancel_at = -2, |d| d.danger = 4, |d| d.disabled = 1 << 40, |d| d.width = f32::NAN, |d| d.width = -1.0, |d| d.buttons.len = 65];
+        for fix in fixes {
+            let mut bad = value;
+            fix(&mut bad);
+            let mut sink = PxuiDialogResult::EMPTY;
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &bad, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
+        }
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
     #[test]
     fn header_desc() {
         let ui = create();

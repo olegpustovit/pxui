@@ -1017,13 +1017,13 @@ pub fn modal_banded_body() {
 }
 
 /// A dialog with a 30-point title bar and its buttons stacked in a column, each a full-width clickable part.
-fn column_dialog(ui: &mut Ui, title: &str, buttons: &[&str], content: &mut dyn FnMut(&mut Ui)) {
+fn column_dialog(ui: &mut Ui, title: &str, buttons: &[DialogButton], content: &mut dyn FnMut(&mut Ui)) {
     let head = ui.part(Part::TITLE, Node { h: Size::Px(30.0), look: ink_look(), ..Node::DEFAULT });
     ui.text(&head, title);
     content(ui);
-    for (i, text) in buttons.iter().enumerate() {
+    for (i, b) in buttons.iter().enumerate() {
         let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
-        ui.text(&n, text);
+        ui.text(&n, b.text);
     }
 }
 
@@ -1037,14 +1037,15 @@ pub fn dialog_column_body() {
         frames
     };
     let got = swap_root("dialog", &install, 1, false, &script, &|ui, c| {
-        let out = ui.dialog("Title", &["Cancel", "OK"], &mut |ui| {
+        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("OK").default()];
+        let out = ui.dialog("title", "Title", &buttons, &Dialog::DEFAULT, &mut |ui| {
             c.built();
             ui.node("text".into(), Node { h: Size::Px(30.0), ..Node::DEFAULT });
         });
-        let code = match out {
-            DialogOut::Open => 0,
-            DialogOut::Closed => -1,
-            DialogOut::Button(i) => i as i64 + 1,
+        let code = match out.chosen {
+            None if out.dismissed => -1,
+            None => 0,
+            Some(i) => i as i64 + 1,
         };
         if code != 0 {
             if c.a.get() == 0 {

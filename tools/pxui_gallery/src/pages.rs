@@ -1,5 +1,5 @@
 // The gallery pages, against the wrapper `pxui`.
-use pxui::{collections::TreeNode, DialogOut, Image, Menu, MenuItem, Pick, PickerOpts, PxuiBox as Handle, ui_kit::PanelOpts, TextAreaOpts, Ui, ValueFieldOpts};
+use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Pick, PickerOpts, PxuiBox as Handle, ui_kit::PanelOpts, TextAreaOpts, Ui, ValueFieldOpts};
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
@@ -285,10 +285,10 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         }
     });
     if s.dialog {
-        match ui.dialog("Delete layer", &["Cancel", "Delete"], &mut |ui: &mut Ui| { let _ = ui.inspector_message("body", "This cannot be undone."); }) {
-            DialogOut::Open => {}
-            DialogOut::Closed | DialogOut::Button(0) => (s.dialog, s.said) = (false, "Kept the layer"),
-            DialogOut::Button(_) => (s.dialog, s.said) = (false, "Deleted the layer"),
+        const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").default()];
+        let answer = ui.dialog("delete-layer", "Delete layer", &BUTTONS, &Dialog::DEFAULT, &mut |ui: &mut Ui| { let _ = ui.inspector_message("body", "This cannot be undone."); });
+        if answer.chosen.is_some() || answer.dismissed {
+            (s.dialog, s.said) = (false, if answer.chosen == Some(1) { "Deleted the layer" } else { "Kept the layer" });
         }
     }
     if let Some(at) = s.menu_at {
