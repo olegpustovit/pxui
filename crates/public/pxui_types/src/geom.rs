@@ -253,17 +253,6 @@ pub mod color {
             _ => Err("Color.hex: invalid hexadecimal digit".to_owned()),
         }
     }
-    /// The same as `hex`, kept for callers that used the Rays name: it returns the `Result` and never panics despite the `_exn` suffix.
-    ///
-    /// Allocates: as `hex`.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::color;
-    /// assert_eq!(color::hex_exn("#000"), Ok(color::black()));
-    /// assert!(color::hex_exn("nope").is_err());
-    /// ```
-    pub fn hex_exn(value: &str) -> Result<Rgba, String> { hex(value) }
 
     /// The colour as lower-case `#rrggbb`, or `#rrggbbaa` when it is not fully opaque; `hex` reads it back.
     ///

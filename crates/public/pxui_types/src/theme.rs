@@ -556,7 +556,7 @@ pub const DISPLAY_SIZE: i64 = 40;
 /// assert!(!theme::dark(&tokens));
 /// ```
 pub fn default() -> Tokens {
-    let hex = |s| color::hex_exn(s).expect("valid theme color constant");
+    let hex = |s| color::hex(s).expect("valid theme color constant");
     Tokens {
         panel: hex("#f4f5f0"), foreground: hex("#222b2b"), control: hex("#dce3de"),
         input: hex("#ffffff"), track: hex("#e3e8e4"), accent: hex("#f0481f"),
@@ -681,7 +681,7 @@ pub fn tint(theme: &Tokens) -> Color { color::with_alpha(theme.accent, 41) }
 /// ```
 /// assert_eq!(pxui_types::theme::invalid(), pxui_types::geom::color::rgb(0xc2, 0x25, 0x5c));
 /// ```
-pub fn invalid() -> Color { color::hex_exn("#c2255c").expect("valid invalid color constant") }
+pub fn invalid() -> Color { color::hex("#c2255c").expect("valid invalid color constant") }
 /// Whether the theme is dark: the `panel` colour's red, green and blue sum to under 384 (an average below 128); `ink_ground` is not read.
 ///
 /// Allocates: never.
