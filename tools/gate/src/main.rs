@@ -1902,7 +1902,20 @@ fn snapshot_rows(text: &str) -> (Option<u32>, BTreeMap<String, String>) {
     (minor, rows)
 }
 
-fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>) -> Vec<String> {
+/// Whether layout row `new` is frozen row `old` grown at its end behind its size prefix (docs/abi.md): the same name and alignment, every
+/// frozen field offset unchanged and in place, any new field at or past the frozen size, and a size not smaller.
+fn layout_grown(old: &str, new: &str) -> bool {
+    let words = |line: &str| line.split_whitespace().map(str::to_owned).collect::<Vec<_>>();
+    let (old, new) = (words(old), words(new));
+    let number = |word: &String| word.parse::<u64>().ok();
+    if old.len() < 4 || new.len() < old.len() || old[0] != "layout" || new[..2] != old[..2] || new[3] != old[3] { return false; }
+    let (Some(old_size), Some(new_size)) = (number(&old[2]), number(&new[2])) else { return false };
+    new_size >= old_size && new[4..old.len()] == old[4..] && new[old.len()..].iter().all(|word| number(word).is_some_and(|at| at >= old_size && at < new_size))
+}
+
+/// `old` against the current rows: a row removed or changed fails, and new rows need a later minor. With `grow`, a layout row grown at
+/// its end (`layout_grown`) is not a change: frozen releases accept append-only growth, while the working manifest must match exactly.
+fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>, grow: bool) -> Vec<String> {
     let mut issues = Vec::new();
     let (old_minor, old_lines) = snapshot_rows(old);
     let Some(old_minor) = old_minor else { return vec!["abi-snapshot: snapshot has no valid `minor N` line".to_owned()] };
@@ -1912,7 +1925,7 @@ fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String
     for (key, old_line) in &old_lines {
         match current.get(key) {
             None => issues.push(format!("abi-snapshot: removed {old_line}")),
-            Some(new_line) if new_line != old_line => issues.push(format!("abi-snapshot: changed `{old_line}` to `{new_line}`")),
+            Some(new_line) if new_line != old_line && !(grow && layout_grown(old_line, new_line)) => issues.push(format!("abi-snapshot: changed `{old_line}` to `{new_line}`")),
             _ => (),
         }
     }
@@ -1937,7 +1950,7 @@ fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
         let mut words = line.split_whitespace();
         !matches!((words.next(), words.next()), (Some(kind), Some(name)) if ext.contains_key(&format!("{kind} {name}")))
     }).map(|line| format!("{line}\n")).collect();
-    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&frozen, minor, &lines) };
+    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&frozen, minor, &lines, false) };
     if !issues.is_empty() { return Ok(issues); }
     if write {
         let mut snapshot = format!("# Append-only PXUI ABI snapshot.\nminor {minor}\n");
@@ -1969,7 +1982,8 @@ fn abi_fixtures(workspace: &Path) -> Result<Vec<PathBuf>, String> {
     Ok(dirs.into_iter().map(|(_, path)| path).collect())
 }
 
-/// Every row a released minor froze is still in the current manifest, unchanged, and anything new came with a later minor. The check is
+/// Every row a released minor froze is still in the current manifest, unchanged (a record may have grown at its end behind its size
+/// prefix, its frozen offsets in place), and anything new came with a later minor. The check is
 /// against the copy kept in `fixtures/abi/1.N/`, which editing `abi/pxui.v1.txt` to match changed code does not touch.
 fn abi_frozen(workspace: &Path) -> Result<Vec<String>, String> {
     let current_path = workspace.join("abi/pxui.v1.txt");
@@ -1979,7 +1993,7 @@ fn abi_frozen(workspace: &Path) -> Result<Vec<String>, String> {
     for dir in abi_fixtures(workspace)? {
         let path = dir.join("pxui.v1.txt");
         let frozen = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
-        issues.extend(compare_abi_snapshot(&frozen, minor, &rows).into_iter().map(|issue| issue.replacen("abi-snapshot", &format!("abi-frozen ({})", dir.display()), 1)));
+        issues.extend(compare_abi_snapshot(&frozen, minor, &rows, true).into_iter().map(|issue| issue.replacen("abi-snapshot", &format!("abi-frozen ({})", dir.display()), 1)));
     }
     Ok(issues)
 }
@@ -2243,14 +2257,32 @@ mod abi_tests {
             ("function pxui_b".to_owned(), "function pxui_b void pxui_b ( void ) ;".to_owned()),
             ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned()),
         ]);
-        assert!(!compare_abi_snapshot(old, 2, &current).is_empty());
-        assert!(compare_abi_snapshot(old, 3, &current).is_empty());
+        assert!(!compare_abi_snapshot(old, 2, &current, false).is_empty());
+        assert!(compare_abi_snapshot(old, 3, &current, false).is_empty());
 
         let changed = BTreeMap::from([
             ("function pxui_a".to_owned(), "function pxui_a int32_t pxui_a ( int32_t ) ;".to_owned()),
             ("layout Rect".to_owned(), "layout Rect 16 4 0 4 8 12".to_owned()),
         ]);
-        assert!(!compare_abi_snapshot(old, 4, &changed).is_empty());
+        assert!(!compare_abi_snapshot(old, 4, &changed, false).is_empty());
+    }
+
+    /// A frozen layout row accepts growth at its end behind the size prefix and nothing else: a moved offset, a smaller size, a field
+    /// gone, a new field inside the frozen size, another alignment or name all fail; the working manifest (no `grow`) must match exactly.
+    #[test]
+    fn frozen_layouts_accept_only_growth_at_the_end() {
+        let old = "minor 2\nlayout Rec 16 8 0 4 8\n";
+        let check = |line: &str, grow: bool| compare_abi_snapshot(old, 3, &BTreeMap::from([("layout Rec".to_owned(), line.to_owned())]), grow);
+        assert!(check("layout Rec 16 8 0 4 8", true).is_empty(), "unchanged");
+        assert!(check("layout Rec 32 8 0 4 8 16 24", true).is_empty(), "grown at the end");
+        assert!(!check("layout Rec 32 8 0 4 8 16 24", false).is_empty(), "the working manifest matches exactly");
+        assert!(!check("layout Rec 32 8 0 4 12 16", true).is_empty(), "a moved offset");
+        assert!(!check("layout Rec 8 8 0 4 8", true).is_empty(), "a shrink");
+        assert!(!check("layout Rec 16 8 0 4", true).is_empty(), "a removed field");
+        assert!(!check("layout Rec 24 8 0 4 8 12", true).is_empty(), "a new field inside the frozen size");
+        assert!(!check("layout Rec 32 4 0 4 8 16", true).is_empty(), "another alignment");
+        let renamed = BTreeMap::from([("layout Other".to_owned(), "layout Other 32 8 0 4 8 16".to_owned())]);
+        assert!(!compare_abi_snapshot(old, 3, &renamed, true).is_empty(), "a renamed record is a removed one");
     }
 
     #[test]
