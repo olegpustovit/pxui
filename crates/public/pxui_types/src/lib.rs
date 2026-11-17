@@ -642,8 +642,52 @@ pub struct PxuiUiDesc {
     pub size: u32,
     pub platform: u32,
     pub font_size: i32,
+    /// ABI 1.60 tail: the version (`major << 16 | minor`) the caller was built against; only its major is checked (a newer minor may run on an older
+    /// library and ask `pxui_supports`); 0 (a 12-byte record from before 1.60) means "unstated".
+    pub abi_built: u32,
 }
-impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0 } } }
+/// The ids `pxui_supports` answers for (`PXUI_FEATURE_*` in `pxui.h`). Append only: an id is never reused or renumbered, 0 is never an id, and a
+/// library answers 0 for an id it does not know. The three backend ids depend on the build; the rest are present in every build of the minor that added them.
+pub mod feature {
+    /// The accessibility bridge of a window the app owns (`pxui_a11y_*`): present on Linux (AT-SPI2); elsewhere the platform's own bridge is the host's.
+    pub const A11Y_BRIDGE: u32 = 1;
+    /// The Metal renderer backend. Answers from the target today (Apple); must switch to `cfg!(feature = ..)` if a backend becomes optional.
+    pub const METAL: u32 = 2;
+    /// The Vulkan renderer backend. Answers from the target today (Windows, Linux); must switch to `cfg!(feature = ..)` if a backend becomes optional.
+    pub const VULKAN: u32 = 3;
+    /// The extension set (`abi/pxui.ext.txt`: Rays inspector vocabulary): exported, with no stability promise.
+    pub const EXTENSION_SET: u32 = 4;
+    /// ABI 1.56: `ui_button_content` and the button's label, axis, gap and place fields.
+    pub const BUTTON_CONTENT: u32 = 5;
+    /// ABI 1.54: the icon button's press curves.
+    pub const ICON_BUTTON_CURVES: u32 = 6;
+    /// ABI 1.51: `ui_toggle_response` and the toggle's options.
+    pub const TOGGLE_RESPONSE: u32 = 7;
+    /// ABI 1.51: `ui_segmented_response` and the segmented control's options.
+    pub const SEGMENTED_RESPONSE: u32 = 8;
+    /// ABI 1.53: `ui_dialog_response`.
+    pub const DIALOG_RESPONSE: u32 = 9;
+    /// ABI 1.52: `ui_variant`, a per-call variant for widget bodies.
+    pub const WIDGET_VARIANTS: u32 = 10;
+    /// ABI 1.54: `ui_label_node`.
+    pub const LABEL_NODE: u32 = 11;
+    /// ABI 1.58: menu rows keyed by id (`PxuiMenuExtra.ids`).
+    pub const MENU_ITEM_IDS: u32 = 12;
+    /// ABI 1.57: `FrameIn.surface`.
+    pub const FRAME_SURFACE: u32 = 13;
+    /// ABI 1.49: `ui_item_text`.
+    pub const ITEM_TEXT: u32 = 14;
+    /// ABI 1.43: app colour tokens (`ui_set_colors`).
+    pub const COLOR_TOKENS: u32 = 15;
+    /// ABI 1.40: `ui_swipe_actions`.
+    pub const SWIPE_ACTIONS: u32 = 16;
+    /// ABI 1.41: `ui_dismiss`.
+    pub const DISMISS: u32 = 17;
+}
+
+/// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
+pub const ABI_BUILT: u32 = 1 << 16 | 60;
+impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
 mod abi_layout {
@@ -666,8 +710,11 @@ mod abi_layout {
             ("reserved", core::mem::offset_of!(PxuiTargetDesc, reserved)), ("mask_width", core::mem::offset_of!(PxuiTargetDesc, mask_width)), ("mask_height", core::mem::offset_of!(PxuiTargetDesc, mask_height)),
             ("color_width", core::mem::offset_of!(PxuiTargetDesc, color_width)), ("color_height", core::mem::offset_of!(PxuiTargetDesc, color_height)), ("reserved_tail", core::mem::offset_of!(PxuiTargetDesc, reserved_tail)),
         ]);
-        assert_layout("PxuiUiDesc", size_of::<PxuiUiDesc>(), align_of::<PxuiUiDesc>(), &[
+        assert_layout("PxuiUiDesc", core::mem::offset_of!(PxuiUiDesc, abi_built), align_of::<PxuiUiDesc>(), &[
             ("size", core::mem::offset_of!(PxuiUiDesc, size)), ("platform", core::mem::offset_of!(PxuiUiDesc, platform)), ("font_size", core::mem::offset_of!(PxuiUiDesc, font_size)),
+        ]);
+        assert_layout("PxuiUiDescV1_60", size_of::<PxuiUiDesc>(), align_of::<PxuiUiDesc>(), &[
+            ("size", core::mem::offset_of!(PxuiUiDesc, size)), ("platform", core::mem::offset_of!(PxuiUiDesc, platform)), ("font_size", core::mem::offset_of!(PxuiUiDesc, font_size)), ("abi_built", core::mem::offset_of!(PxuiUiDesc, abi_built)),
         ]);
         assert_layout("TextStyle", size_of::<TextStyle>(), align_of::<TextStyle>(), &[
             ("size", core::mem::offset_of!(TextStyle, size)), ("font", core::mem::offset_of!(TextStyle, font)), ("weight", core::mem::offset_of!(TextStyle, weight)),

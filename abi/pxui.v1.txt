@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 59
+minor 60
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -57,6 +57,7 @@ function pxui_shaper_system_fonts int32_t pxui_shaper_system_fonts ( PxuiShaper 
 function pxui_shaper_width int32_t pxui_shaper_width ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , PxuiTextMetrics * out ) ;
 function pxui_shaper_width_spans int32_t pxui_shaper_width_spans ( PxuiShaper * shaper , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
 function pxui_slot int32_t pxui_slot ( PxuiUi * ui , PxuiSlot slot , uint8_t * out ) ;
+function pxui_supports uint32_t pxui_supports ( uint32_t id ) ;
 function pxui_text_add_font uint32_t pxui_text_add_font ( PxuiUi * ui , PxuiStr font ) ;
 function pxui_text_field int32_t pxui_text_field ( PxuiUi * ui , PxuiStr label , PxuiStr value , PxuiStr * changed , uint8_t * out_changed ) ;
 function pxui_text_field_with_options int32_t pxui_text_field_with_options ( PxuiUi * ui , PxuiStr label , PxuiStr value , const PxuiTextInputOptions * options , PxuiStr * changed , uint8_t * out_changed ) ;
@@ -414,6 +415,7 @@ layout PxuiTreeViewWithDesc 104 8 0 4 8 24 40 56 64 80 88 96
 layout PxuiU32MutSpan 16 8 0 8
 layout PxuiU8MutSpan 16 8 0 8
 layout PxuiUiDesc 12 4 0 4 8
+layout PxuiUiDescV1_60 16 4 0 4 8 12
 layout Rect 16 4 0 4 8 12
 layout Rgba 4 1 0 1 2 3
 layout Role 1 1

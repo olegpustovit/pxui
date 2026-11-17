@@ -62,8 +62,8 @@ export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, te
 /// The checked `PxuiButtonDesc` behind `desc` (not null) through the trusted entry: what happened to `out`, the whole signal to
 /// `signal` when given.
 unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
-    // the 96-byte record of 1.48 and the 104-byte one of 1.54 are read with their grown fields zero
-    let Some((d, grown)) = read_desc!(desc, PxuiButtonDesc, 96).or_else(|| read_desc!(desc, PxuiButtonDesc, 104)) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+    // the 96-byte record of 1.48, the 104-byte one of 1.54 and the whole one: no other size; the fields the caller's size does not cover are zero and `grown` gates the label
+    let Some((d, grown)) = read_desc!(desc, PxuiButtonDesc, [96, 104]) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
     let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.centered > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid button descriptor") }; }
@@ -111,9 +111,9 @@ export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: St
 
 /// The checked `PxuiIconButtonDesc` behind `desc` (not null) through the trusted entry, as `button_call`.
 unsafe fn icon_button_call(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
-    let Some((d, _)) = read_desc!(desc, PxuiIconButtonDesc, 96) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
-    // null (and a 96-byte record) is the kit's springs
-    let Some(press) = (unsafe { press_curves(d.press) }) else { return unsafe { fail(ui, "invalid icon button press curves") }; };
+    let Some((d, grown)) = read_desc!(desc, PxuiIconButtonDesc, [96]) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
+    // null (and a 96-byte record, whose `press` the caller never had) is the kit's springs
+    let Some(press) = (if grown { unsafe { press_curves(d.press) } } else { Some(None) }) else { return unsafe { fail(ui, "invalid icon button press curves") }; };
     let (Some(w), Some(h)) = (size(d.w_kind, d.w), size(d.h_kind, d.h)) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
     if d.enabled > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
     let (Some(key), Some(name), Some(icon)) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
@@ -164,11 +164,11 @@ export!(trusted pub unsafe fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *co
     if desc.is_null() { return unsafe { fail(ui, "null toggle argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short toggle response") } };
     // an 88-byte record is the 1.51 one: no title style
-    let Some((d, _)) = read_desc!(desc, PxuiToggleDesc, 88) else { return unsafe { fail(ui, "invalid toggle descriptor") }; };
-    if d.enabled > 1 || d.on > 1 || d.press_row > 1 || d.reserved != 0 || d.has_style > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid toggle descriptor") }; }
+    let Some((d, grown)) = read_desc!(desc, PxuiToggleDesc, [88]) else { return unsafe { fail(ui, "invalid toggle descriptor") }; };
+    if d.enabled > 1 || d.on > 1 || d.press_row > 1 || d.reserved != 0 || (grown && (d.has_style > 1 || d.reserved2 != [0; 7])) { return unsafe { fail(ui, "invalid toggle descriptor") }; }
     let (Some(key), Some(text), Some(detail)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.detail) }) else { return unsafe { fail(ui, "invalid toggle text") } };
     let (Ok(track), Ok(knob)) = (unsafe { looks(d.track) }, unsafe { looks(d.knob) }) else { return unsafe { fail(ui, "invalid toggle looks") } };
-    let label = match d.has_style {
+    let label = match if grown { d.has_style } else { 0 } {
         0 => None,
         _ => match crate::ui::label_style(&d.style) { Some((label, false)) => Some(label), _ => return unsafe { fail(ui, "invalid toggle label style") } },
     };
@@ -199,9 +199,9 @@ export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: 
     if desc.is_null() || chosen.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short segmented response") } };
     // a 64-byte record is the 1.51 one: the kit's padding, no width, least width or names
-    let Some((mut d, grown)) = read_desc!(desc, PxuiSegmentedDesc, 64) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
+    let Some((mut d, grown)) = read_desc!(desc, PxuiSegmentedDesc, [64]) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
     if !grown { d.padding = 8.0; }
-    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || d.reserved2 != 0 { return unsafe { fail(ui, "invalid segmented descriptor") }; }
+    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || (grown && d.reserved2 != 0) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     let Ok(states) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid segmented looks") } };
     let mut list = state.shared().take_strs();
     let (Some(key), Some(name), true) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
@@ -210,7 +210,8 @@ export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: 
     };
     // the names, each borrowed for the call: none, or one per option (an empty one is the option's text)
     let mut names = state.shared().take_strs();
-    if (d.names.len != 0 && d.names.len != list.len()) || !unsafe { crate::state::strings(d.names, trusted::MAX_OPTIONS, &mut names) } {
+    let given = if grown { d.names } else { Slice { ptr: core::ptr::null(), len: 0 } };
+    if (given.len != 0 && given.len != list.len()) || !unsafe { crate::state::strings(given, trusted::MAX_OPTIONS, &mut names) } {
         state.shared().put_strs(names);
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid segmented names") };

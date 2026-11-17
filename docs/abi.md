@@ -18,9 +18,13 @@ frozen by a released minor. A call added after N is simply absent from an older 
 **Append-only rules.**
 
 - Exports are never removed, renamed or re-signatured. A different shape is a new export.
-- Records are `repr(C)` with `size: u32` first. A record grows only at its end (a record that grows at its end updates its own size row and appends its new field offsets; existing offsets never change); the library reads the caller's `size`, refuses a
-  shorter record (`read_desc!`, `sized!`) and copies no more than it knows, so a caller built against a larger or smaller
-  layout is never over-read. Existing fields keep offset, size and meaning.
+- Records are `repr(C)` with `size: u32` first. A record grows only at its end (a record that grows at its end updates its own size row and appends its new field offsets; existing offsets never change); the library reads the caller's `size` and copies no more than it knows, so a caller built against a larger or smaller
+  layout is never over-read. **Recorded sizes:** a record that grew is read only at a size it has had (`read_desc!(ptr, T, [old sizes])`: each earlier
+  layout, e.g. `PxuiButtonDesc` 96, 104 and the whole record) or at the whole record and more; a size below the first or ending inside a field
+  is refused. The bytes the size covers are read, every grown field is zero, and a grown field or pointer (the icon button's `press`, the toggle's
+  `style`, the segmented control's `names`, the button's label) is never read, validated or dereferenced unless the size covers it. A record that has never grown has
+  its whole size as its only size. An output record is written only up to the caller's `size`; none has grown yet, so each is refused below its whole size
+  (`sized_mut!`), and the first output to grow gets a copy-out of `min(size, whole)` bytes. Existing fields keep offset, size and meaning.
 - Enum and flag values are never reused or renumbered. A retired value stays reserved.
 - `abi/pxui.v1.txt` and `abi/layout.v1.txt` change only by appending lines; each appended line has a row in the table below, and
   the `abi-snapshot` and `abi-header` gates check them. Historical rows stay frozen.
@@ -28,6 +32,34 @@ frozen by a released minor. A call added after N is simply absent from an older 
 
 **Reserved flag bits.** Node flags (`Flags`, `u64`) use bits 0-21 today (highest is `FIT_TEXT_PIXEL`, 1 << 21). Bits 22-62 are
 reserved for future minors and must be passed as zero. Bit 63 is unassigned.
+
+**Version and features.** `PxuiUiDesc.abi_built` (the record's 1.60 tail) is the `major << 16 | minor` the app was built against (`PXUI_ABI_BUILT`;
+`pxui_types::ABI_BUILT`, kept equal to `ABI_VERSION` by a test). Create checks the major only, against the library's own (nothing is fixed to major 1):
+another major returns null; 0, a 12-byte record, is unstated. The minor is not compared: an app built for a newer minor runs on an older library, which reads
+its larger records up to the size it knows (the size rule) and answers `pxui_supports` for what the app may use. The wrapper compares the library's major with its own.
+`pxui_supports(id)` returns 1 when the library, as built, has the feature with that id and 0 otherwise or for an id it does not know. Ids (`PXUI_FEATURE_*` in
+`pxui.h`, `pxui_types::feature`, `pxui::Feature`) are append-only, never reused or renumbered, and 0 is never an id; a feature whose presence depends on the build
+(the accessibility bridge on Linux, the Metal and Vulkan backends) answers for the library that was built; a feature of a minor is present in every build of it.
+
+| Id | Name | Since / meaning |
+| --- | --- | --- |
+| 1 | `A11Y_BRIDGE` | `pxui_a11y_*`: the AT-SPI2 bridge (Linux builds) |
+| 2 | `METAL` | the Metal backend (Apple targets; answers from the target today, switch to `cfg!(feature)` if a backend becomes optional) |
+| 3 | `VULKAN` | the Vulkan backend (Windows and Linux targets; same note) |
+| 4 | `EXTENSION_SET` | `abi/pxui.ext.txt` exported (no stability promise) |
+| 5 | `BUTTON_CONTENT` | 1.56 |
+| 6 | `ICON_BUTTON_CURVES` | 1.54 |
+| 7 | `TOGGLE_RESPONSE` | 1.51 |
+| 8 | `SEGMENTED_RESPONSE` | 1.51 |
+| 9 | `DIALOG_RESPONSE` | 1.53 |
+| 10 | `WIDGET_VARIANTS` | 1.52 |
+| 11 | `LABEL_NODE` | 1.54 |
+| 12 | `MENU_ITEM_IDS` | 1.58 |
+| 13 | `FRAME_SURFACE` | 1.57 |
+| 14 | `ITEM_TEXT` | 1.49 |
+| 15 | `COLOR_TOKENS` | 1.43 |
+| 16 | `SWIPE_ACTIONS` | 1.40 |
+| 17 | `DISMISS` | 1.41 |
 
 **Extension set.** The Rays vocabulary and diagnostics (`inspector_*`, `line_field`, `value_field`, `picker`, `diagnostics`, with the
 records only they use) are not part of the promise. They are listed in `abi/pxui.ext.txt`, which carries no stability guarantee: they may
@@ -113,6 +145,7 @@ wrapper) and name the replacement; nothing is removed from the manifest.
 | 1.57 | `FrameIn.surface` (152 -> 160 bytes), `PxuiFrameIn` | The id of the surface a frame is for, reserved before the freeze: the library has one surface per `Ui`, ignores the value and a host passes 0 (a 152-byte record, from before 1.57, is read without it). Events carry no surface: they belong to the frame's. `Event` is an unsized 48-byte array element, so it cannot grow; a later minor that needs per-event surfaces adds a new event record. |
 | 1.58 | At the end: `PxuiMenuExtra.focus_on_click`/`ids`/`has_id` (144 -> 184); after `variant`: `PxuiToggleConfig.stored`/`clicked` (192 -> 200), `PxuiSegmentConfig.line`/`strip` (112 -> 176) | What LocalWave's menus, settings and sheets need (DX3.13). Menu rows are keyed by `MenuItem::id` when given, else by their position, never by their text (two rows of one text are distinct); `MenuResponse::chosen_id` (wrapper) reports the chosen row's id; `Menu::focus_on_click` lets a press focus its row. The menu sheet's role is set before the popup body runs, so a registered body's role stays (a dialog's sheet likewise); past `max_rows` the sheet itself scrolls (no scroll view node inside it); the menu is placed at the sheet's least width (180), so it stays inside the view. A toggle body gets the stored value and whether it flipped beside `on`; a segment body gets the line and the strip it sits in and may restyle them. Registered Rust bodies read every pointer field of their config without `unsafe` through one accessor family in `pxui::bodies`: `text_of` (a `Str`), `text_at` (a `Slice<Str>`: dialog buttons, tooltip lines), `hint_at` (footer hints), `states_of` (`states`, `track`, `knob`) and `curves_of` (an icon button's `press`). The 144-byte menu extra is still read; other short sizes are refused. |
 | 1.59 | `PXUI_RESPONSE_SECONDARY` (32) in `PxuiResponse.flags` | A secondary (right-button, or the two-finger or control click the platform reports as one) press began on the box this frame: the wrapper's `Response::secondary`, a context-menu request, for every widget reporting a `PxuiResponse`. No record or call changes. The wrapper's `pressable` (no export: node, signal, focus, gesture state and look) takes a `Pressable` style (`look(&States)`, `enabled`, `tab_stop`, `selected`) and gives its contents the state; `Signal::BUTTON_PRIMARY`/`BUTTON_SECONDARY` name `Signal.button`. |
+| 1.60 | `PxuiUiDesc.abi_built` (12 -> 16 bytes), `pxui_supports`, `PXUI_FEATURE_*` | The major the app was built against, checked once at create (minor not compared); the feature registry. Grown input records (`PxuiButtonDesc`, `PxuiIconButtonDesc`, `PxuiToggleDesc`, `PxuiSegmentedDesc`, `PxuiMenuExtra`, `PxuiUiDesc`, and `FrameIn` at 48, 56, 128, 152) are read only at a size they have had or at the whole record and more; grown fields and pointers are gated on the size. |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

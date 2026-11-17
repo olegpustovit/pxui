@@ -41,14 +41,14 @@ export!(pub unsafe fn pxui_ui_view_size(ui: *mut PxuiUi, out: *mut pxui_types::g
 
 export!(bare pub unsafe fn pxui_ui_create(desc: *const PxuiUiDesc) -> *mut PxuiUi {
     if desc.is_null() { return core::ptr::null_mut(); }
-    let Some(desc) = read_desc!(desc, PxuiUiDesc) else { return core::ptr::null_mut(); };
+    let Some((desc, _)) = read_desc!(desc, PxuiUiDesc, [12]) else { return core::ptr::null_mut(); };
     if !valid_desc(&desc) { return core::ptr::null_mut(); }
     unsafe { create_ui(desc, &[pxui_core::text::PRAGMASEVKA]) }
 });
 
 export!(bare pub unsafe fn pxui_ui_create_with_fonts(desc: *const PxuiUiDesc, fonts: *const Str, count: usize) -> *mut PxuiUi {
     if desc.is_null() || count == 0 || count > 128 || fonts.is_null() { return core::ptr::null_mut(); }
-    let Some(desc) = read_desc!(desc, PxuiUiDesc) else { return core::ptr::null_mut(); };
+    let Some((desc, _)) = read_desc!(desc, PxuiUiDesc, [12]) else { return core::ptr::null_mut(); };
     if !valid_desc(&desc) { return core::ptr::null_mut(); }
     let mut bytes = Vec::with_capacity(count);
     for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
@@ -58,7 +58,24 @@ export!(bare pub unsafe fn pxui_ui_create_with_fonts(desc: *const PxuiUiDesc, fo
     unsafe { create_ui(desc, &bytes) }
 });
 
-fn valid_desc(desc: &PxuiUiDesc) -> bool { desc.size >= core::mem::size_of::<PxuiUiDesc>() as u32 && desc.font_size >= 0 && desc.platform <= 2 }
+/// A `PxuiUiDesc` is read at its 12 bytes (before `abi_built`) or whole. The library's own major is the only one it serves: `abi_built` 0 is unstated, any
+/// other value must carry that major. The minor is not compared: an app built for a newer minor than this library may run on it and ask `pxui_supports`.
+fn valid_desc(desc: &PxuiUiDesc) -> bool {
+    desc.font_size >= 0 && desc.platform <= 2 && (desc.abi_built == 0 || desc.abi_built >> 16 == crate::ABI_VERSION >> 16)
+}
+
+// 1 when the library, as built, has the feature `id` (`PXUI_FEATURE_*`: ids are never reused); 0 for an id it does not know.
+export!(bare pub unsafe fn pxui_supports(id: u32) -> u32 {
+    use pxui_types::feature as f;
+    (match id {
+        f::A11Y_BRIDGE => cfg!(target_os = "linux"),
+        f::METAL => cfg!(any(target_os = "macos", target_os = "ios")),
+        f::VULKAN => cfg!(any(windows, target_os = "linux")),
+        f::EXTENSION_SET | f::BUTTON_CONTENT | f::ICON_BUTTON_CURVES | f::TOGGLE_RESPONSE | f::SEGMENTED_RESPONSE | f::DIALOG_RESPONSE | f::WIDGET_VARIANTS
+            | f::LABEL_NODE | f::MENU_ITEM_IDS | f::FRAME_SURFACE | f::ITEM_TEXT | f::COLOR_TOKENS | f::SWIPE_ACTIONS | f::DISMISS => true,
+        _ => false,
+    }) as u32
+});
 
 unsafe fn create_ui(desc: PxuiUiDesc, fonts: &[&[u8]]) -> *mut PxuiUi {
     #[allow(unused_mut)]
@@ -413,7 +430,8 @@ unsafe fn read_frame(input:*const FrameIn)->Option<FrameIn> {
     let size=unsafe { input.cast::<u32>().read_unaligned() } as usize;
     let legacy=core::mem::offset_of!(FrameIn,appearance);
     let previous=core::mem::offset_of!(FrameIn,environment);
-    if size!=legacy && size<previous { return None; }
+    // the sizes FrameIn has had (48, 56, 128, 152) or the whole record and more; no other
+    if !(matches!(size,48|56|128|152) || size>=core::mem::size_of::<FrameIn>()) { return None; }
     let mut value=FrameIn::default();
     let copied=if size>=core::mem::size_of::<FrameIn>() { core::mem::size_of::<FrameIn>() } else if size>=core::mem::offset_of!(FrameIn,surface) { core::mem::offset_of!(FrameIn,surface) } else if size>=core::mem::offset_of!(FrameIn,keyboard) { core::mem::offset_of!(FrameIn,keyboard) } else if size>=previous { previous } else { legacy };
     unsafe { core::ptr::copy_nonoverlapping(input.cast::<u8>(),(&mut value as *mut FrameIn).cast::<u8>(),copied); }
@@ -776,7 +794,7 @@ mod tests {
             assert_eq!(unsafe {crate::ui_state::pxui_ui_environment(ui,&mut got)},0);
             assert_eq!(got,value);
         }
-        for size in 56..128 {
+        for size in [56] {
             let raw=FrameIn { size,environment:Environment {keyboard_visible:2,..value},..input };
             let decoded=unsafe {super::read_frame(&raw)}.unwrap();
             assert_eq!(decoded.environment,Environment::default());
@@ -809,7 +827,7 @@ mod tests {
             let input=FrameIn { size,..Default::default() };
             assert_eq!(unsafe { super::read_frame(&input) }.is_some(),size==48);
         }
-        for size in [56,64,u32::MAX] {
+        for size in [56,128,152,160,u32::MAX] {
             let input=FrameIn { size,appearance:2,reduced_motion:1,..Default::default() };
             let decoded=unsafe { super::read_frame(&input) }.unwrap();
             assert_eq!((decoded.appearance,decoded.reduced_motion),(2,1));
@@ -880,7 +898,7 @@ mod keyboard_tests {
             assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
             assert_eq!(got,keyboard);
         }
-        for size in 128..core::mem::offset_of!(FrameIn,surface) as u32 {
+        for size in [128] {
             let current=FrameIn {size,keyboard:Keyboard {flags:2,..keyboard},..input};
             let mut prefix=[0u8;128];
             unsafe {core::ptr::copy_nonoverlapping((&current as *const FrameIn).cast::<u8>(),prefix.as_mut_ptr(),128)};

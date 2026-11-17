@@ -15,7 +15,9 @@ typedef struct PxuiPaint PxuiPaint;
 typedef struct PxuiShaper PxuiShaper;
 typedef struct PxuiPreparedText PxuiPreparedText;
 typedef struct PxuiTheme PxuiTheme;
-typedef struct { uint32_t size, platform; int32_t font_size; } PxuiUiDesc;
+/* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
+typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
+#define PXUI_ABI_BUILT ((1u << 16) | 60u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -395,6 +397,27 @@ enum PxuiSplitAxis { PXUI_SPLIT_ROW=0, PXUI_SPLIT_COLUMN=1 };
 enum PxuiKeyframeTarget { PXUI_KEY_OFFSET=0, PXUI_KEY_OPACITY=1, PXUI_KEY_LOOK=2, PXUI_KEY_SCALE=3 }; /* scale values: x, y, fractional anchor x/y; requires a view with its own painter entry */
 
 uint32_t pxui_abi_version(void);
+/* 1 when this library, as built, has the feature `id` (PXUI_FEATURE_*), else 0 (also for an id it does not know). Ids are append-only and never reused. */
+uint32_t pxui_supports(uint32_t id);
+enum {
+    PXUI_FEATURE_A11Y_BRIDGE = 1,        /* pxui_a11y_*: the AT-SPI2 bridge (Linux builds) */
+    PXUI_FEATURE_METAL = 2,              /* the Metal renderer backend (answers from the target; becomes cfg!(feature) if a backend turns optional) */
+    PXUI_FEATURE_VULKAN = 3,             /* the Vulkan renderer backend (same) */
+    PXUI_FEATURE_EXTENSION_SET = 4,      /* abi/pxui.ext.txt: no stability promise */
+    PXUI_FEATURE_BUTTON_CONTENT = 5,     /* 1.56 */
+    PXUI_FEATURE_ICON_BUTTON_CURVES = 6, /* 1.54 */
+    PXUI_FEATURE_TOGGLE_RESPONSE = 7,    /* 1.51 */
+    PXUI_FEATURE_SEGMENTED_RESPONSE = 8, /* 1.51 */
+    PXUI_FEATURE_DIALOG_RESPONSE = 9,    /* 1.53 */
+    PXUI_FEATURE_WIDGET_VARIANTS = 10,   /* 1.52 */
+    PXUI_FEATURE_LABEL_NODE = 11,        /* 1.54 */
+    PXUI_FEATURE_MENU_ITEM_IDS = 12,     /* 1.58 */
+    PXUI_FEATURE_FRAME_SURFACE = 13,     /* 1.57 */
+    PXUI_FEATURE_ITEM_TEXT = 14,         /* 1.49 */
+    PXUI_FEATURE_COLOR_TOKENS = 15,      /* 1.43 */
+    PXUI_FEATURE_SWIPE_ACTIONS = 16,     /* 1.40 */
+    PXUI_FEATURE_DISMISS = 17            /* 1.41 */
+};
 /* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */
 uint64_t pxui_counter(uint32_t which);
 PxuiUi *pxui_ui_create(const PxuiUiDesc *desc);
@@ -918,7 +941,7 @@ _Static_assert(sizeof(PxuiSpan) == 32 && offsetof(PxuiSpan, size) == 0 && offset
 _Static_assert(sizeof(PxuiBox) == 32 && offsetof(PxuiBox, index) == 0 && offsetof(PxuiBox, box_key) == 8 && offsetof(PxuiBox, box_slot) == 16 && offsetof(PxuiBox, generation) == 24, "PxuiBox layout");
 _Static_assert(sizeof(PxuiPanel) == 200 && offsetof(PxuiPanel, size) == 0 && offsetof(PxuiPanel, x) == 4 && offsetof(PxuiPanel, y) == 8 && offsetof(PxuiPanel, width) == 12 && offsetof(PxuiPanel, height) == 16 && offsetof(PxuiPanel, padding) == 24 && offsetof(PxuiPanel, has_height) == 32 && offsetof(PxuiPanel, window) == 33 && offsetof(PxuiPanel, has_max_height) == 34 && offsetof(PxuiPanel, has_stroke) == 35 && offsetof(PxuiPanel, has_look) == 36 && offsetof(PxuiPanel, reserved) == 37 && offsetof(PxuiPanel, max_height) == 40 && offsetof(PxuiPanel, stroke) == 44 && offsetof(PxuiPanel, look) == 48, "PxuiPanel layout");
 _Static_assert(sizeof(PxuiTargetDesc) == 32 && offsetof(PxuiTargetDesc, size) == 0 && offsetof(PxuiTargetDesc, format) == 4 && offsetof(PxuiTargetDesc, samples) == 8 && offsetof(PxuiTargetDesc, reserved) == 9 && offsetof(PxuiTargetDesc, mask_width) == 12 && offsetof(PxuiTargetDesc, mask_height) == 16 && offsetof(PxuiTargetDesc, color_width) == 20 && offsetof(PxuiTargetDesc, color_height) == 24 && offsetof(PxuiTargetDesc, reserved_tail) == 28, "PxuiTargetDesc layout");
-_Static_assert(sizeof(PxuiUiDesc) == 12 && offsetof(PxuiUiDesc, size) == 0 && offsetof(PxuiUiDesc, platform) == 4 && offsetof(PxuiUiDesc, font_size) == 8, "PxuiUiDesc layout");
+_Static_assert(offsetof(PxuiUiDesc, abi_built) == 12 && offsetof(PxuiUiDesc, size) == 0 && offsetof(PxuiUiDesc, platform) == 4 && offsetof(PxuiUiDesc, font_size) == 8, "PxuiUiDesc layout");
 _Static_assert(sizeof(PxuiInput) == 160 && offsetof(PxuiInput, size) == 0 && offsetof(PxuiInput, time) == 8 && offsetof(PxuiInput, dt) == 16 && offsetof(PxuiInput, frame) == 24 && offsetof(PxuiInput, tick) == 32 && offsetof(PxuiInput, logical_size) == 40 && offsetof(PxuiInput, pointer) == 56 && offsetof(PxuiInput, keys) == 72 && offsetof(PxuiInput, buttons) == 88 && offsetof(PxuiInput, events) == 104 && offsetof(PxuiInput, pixel_scale) == 120 && offsetof(PxuiInput, mouse_delta) == 136 && offsetof(PxuiInput, fps) == 152, "Input layout");
 _Static_assert(sizeof(PxuiPlatformOut) == 88 && offsetof(PxuiPlatformOut, size) == 0 && offsetof(PxuiPlatformOut, cursor) == 4 && offsetof(PxuiPlatformOut, has_cursor) == 8 && offsetof(PxuiPlatformOut, has_ime) == 9 && offsetof(PxuiPlatformOut, has_background) == 10 && offsetof(PxuiPlatformOut, has_clipboard) == 11 && offsetof(PxuiPlatformOut, ime_rect) == 16 && offsetof(PxuiPlatformOut, ime_caret) == 48 && offsetof(PxuiPlatformOut, clipboard) == 56 && offsetof(PxuiPlatformOut, background) == 72 && offsetof(PxuiPlatformOut, paste) == 76 && offsetof(PxuiPlatformOut, reserved) == 77, "PlatformOut layout");
 _Static_assert(sizeof(PxuiDamage) == 20 && offsetof(PxuiDamage, has_damage) == 0 && offsetof(PxuiDamage, reserved) == 1 && offsetof(PxuiDamage, rect) == 4, "Damage layout");
@@ -1068,6 +1091,7 @@ _Static_assert(sizeof(PxuiDialogResult) == 16 && offsetof(PxuiDialogResult, size
 _Static_assert(sizeof(PxuiCurve) == 140 && offsetof(PxuiCurve, kind) == 0 && offsetof(PxuiCurve, data) == 4, "PxuiCurve layout");
 _Static_assert(sizeof(PxuiLabelBox) == 16 && offsetof(PxuiLabelBox, size) == 0 && offsetof(PxuiLabelBox, set) == 4 && offsetof(PxuiLabelBox, height) == 8 && offsetof(PxuiLabelBox, role) == 12 && offsetof(PxuiLabelBox, whole_pixels) == 13 && offsetof(PxuiLabelBox, reserved) == 14, "PxuiLabelBox layout");
 _Static_assert(sizeof(PxuiFrameIn) == 160 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 128 && offsetof(PxuiFrameIn, surface) == 152, "FrameInV1_57 layout");
+_Static_assert(sizeof(PxuiUiDesc) == 16 && offsetof(PxuiUiDesc, size) == 0 && offsetof(PxuiUiDesc, platform) == 4 && offsetof(PxuiUiDesc, font_size) == 8 && offsetof(PxuiUiDesc, abi_built) == 12, "PxuiUiDescV1_60 layout");
 _Static_assert(sizeof(PxuiHeadOut) == 32 && offsetof(PxuiHeadOut, size) == 0 && offsetof(PxuiHeadOut, has_chosen) == 4 && offsetof(PxuiHeadOut, reset_pressed) == 5 && offsetof(PxuiHeadOut, reserved) == 6 && offsetof(PxuiHeadOut, renamed) == 8 && offsetof(PxuiHeadOut, chosen) == 24, "PxuiHeadOut layout");
 _Static_assert(sizeof(PxuiHeaderDesc) == 144 && offsetof(PxuiHeaderDesc, size) == 0 && offsetof(PxuiHeaderDesc, has_kind) == 4 && offsetof(PxuiHeaderDesc, has_badge) == 5 && offsetof(PxuiHeaderDesc, has_index) == 6 && offsetof(PxuiHeaderDesc, has_reset) == 7 && offsetof(PxuiHeaderDesc, reset_enabled) == 8 && offsetof(PxuiHeaderDesc, reserved) == 9 && offsetof(PxuiHeaderDesc, key) == 16 && offsetof(PxuiHeaderDesc, kind) == 32 && offsetof(PxuiHeaderDesc, badge) == 48 && offsetof(PxuiHeaderDesc, index) == 64 && offsetof(PxuiHeaderDesc, reset) == 80 && offsetof(PxuiHeaderDesc, title) == 96 && offsetof(PxuiHeaderDesc, detail) == 112 && offsetof(PxuiHeaderDesc, actions) == 128, "PxuiHeaderDesc layout");
 _Static_assert(sizeof(PxuiInspectorRowConfig) == 80 && offsetof(PxuiInspectorRowConfig, size) == 0 && offsetof(PxuiInspectorRowConfig, state) == 4 && offsetof(PxuiInspectorRowConfig, has_pin) == 12 && offsetof(PxuiInspectorRowConfig, pin) == 13 && offsetof(PxuiInspectorRowConfig, label_w) == 16 && offsetof(PxuiInspectorRowConfig, row) == 24 && offsetof(PxuiInspectorRowConfig, label) == 56 && offsetof(PxuiInspectorRowConfig, variant) == 72, "PxuiInspectorRowConfig layout");

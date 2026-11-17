@@ -144,6 +144,7 @@ mod sys {
     #[link(name = "pxui")]
     unsafe extern "C" {
         pub safe fn pxui_abi_version()->u32;
+        pub safe fn pxui_supports(id:u32)->u32;
         pub safe fn pxui_counter(which:u32)->u64;
         pub fn pxui_ui_create(desc:*const PxuiUiDesc) -> *mut PxuiUi;
         pub fn pxui_ui_create_with_fonts(desc:*const PxuiUiDesc,fonts:*const Str,count:usize)->*mut PxuiUi;
@@ -377,11 +378,11 @@ impl Ui {
     /// font when empty). A caller bug (an unusable font, a library of another ABI major) panics with the library's message.
     #[track_caller]
     pub fn create(platform: Platform, font_size: Option<i64>, fonts: &[&[u8]]) -> Self {
-        Self::try_create(platform, font_size, fonts).expect("pxui: the library refused to create a Ui (a font it cannot read, or an ABI of another major version)")
+        Self::try_create(platform, font_size, fonts).expect("pxui: the library refused to create a Ui (a font it cannot read, or a library of another ABI major version than this wrapper's)")
     }
 
     fn try_create(platform: Platform, font_size: Option<i64>, fonts: &[&[u8]]) -> Option<Self> {
-        if abi_version() >> 16 != 1 { return None; }
+        if abi_version() >> 16 != pxui_types::ABI_BUILT >> 16 { return None; }
         let desc = sys::PxuiUiDesc { platform: match platform { Platform::Apple => 1, Platform::Other => 2 }, font_size: font_size.map_or(0, |size| size as i32), ..sys::PxuiUiDesc::default() };
         if fonts.is_empty() { return NonNull::new(unsafe { sys::pxui_ui_create(&desc) }).map(Self); }
         let fonts: Vec<Str> = fonts.iter().map(|bytes| Str { ptr: bytes.as_ptr(), len: bytes.len() }).collect();
@@ -740,6 +741,58 @@ pub fn library_counter(which:u32)->u64 { unsafe { sys::pxui_counter(which) } }
 pub fn library_counter(which:u32)->u64 { sys::pxui_counter(which) }
 pub const COUNTER_CALLS:u32=0;
 pub const COUNTER_ALLOCATIONS:u32=1;
+/// A capability a library may or may not have, as `pxui_supports` numbers them (`PXUI_FEATURE_*`; ids are append-only and mirror `pxui_types::feature`).
+#[repr(u32)]
+#[non_exhaustive]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Feature {
+    /// The accessibility bridge of a window the app owns (Linux).
+    A11yBridge = pxui_types::feature::A11Y_BRIDGE,
+    /// The Metal renderer backend. Answers from the target today (Apple); must switch to `cfg!(feature = ..)` if a backend becomes optional.
+    Metal = pxui_types::feature::METAL,
+    /// The Vulkan renderer backend. Answers from the target today (Windows, Linux); must switch to `cfg!(feature = ..)` if a backend becomes optional.
+    Vulkan = pxui_types::feature::VULKAN,
+    /// The extension set (no stability promise).
+    ExtensionSet = pxui_types::feature::EXTENSION_SET,
+    /// `Button` contents, label, axis, gap and place (1.56).
+    ButtonContent = pxui_types::feature::BUTTON_CONTENT,
+    /// The icon button's press curves (1.54).
+    IconButtonCurves = pxui_types::feature::ICON_BUTTON_CURVES,
+    /// `Toggle` options and response (1.51).
+    ToggleResponse = pxui_types::feature::TOGGLE_RESPONSE,
+    /// `Segmented` options and response (1.51).
+    SegmentedResponse = pxui_types::feature::SEGMENTED_RESPONSE,
+    /// The dialog response call (1.53).
+    DialogResponse = pxui_types::feature::DIALOG_RESPONSE,
+    /// Widget body variants (1.52).
+    WidgetVariants = pxui_types::feature::WIDGET_VARIANTS,
+    /// `ui_label_node` (1.54).
+    LabelNode = pxui_types::feature::LABEL_NODE,
+    /// Menu rows keyed by id (1.58).
+    MenuItemIds = pxui_types::feature::MENU_ITEM_IDS,
+    /// `FrameIn.surface` (1.57).
+    FrameSurface = pxui_types::feature::FRAME_SURFACE,
+    /// `ui_item_text` (1.49).
+    ItemText = pxui_types::feature::ITEM_TEXT,
+    /// App colour tokens (1.43).
+    ColorTokens = pxui_types::feature::COLOR_TOKENS,
+    /// Row swipe actions (1.40).
+    SwipeActions = pxui_types::feature::SWIPE_ACTIONS,
+    /// Drag-to-dismiss (1.41).
+    Dismiss = pxui_types::feature::DISMISS,
+}
+
+/// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.
+///
+/// ```
+/// let _ = pxui::supports(pxui::Feature::ExtensionSet);
+/// ```
+///
+/// Allocates: nothing. Panics: never.
+#[cfg(feature="static")]
+pub fn supports(feature:Feature)->bool { unsafe { sys::pxui_supports(feature as u32) != 0 } }
+#[cfg(not(feature="static"))]
+pub fn supports(feature:Feature)->bool { sys::pxui_supports(feature as u32) != 0 }
 #[cfg(feature="static")]
 #[inline]
 fn abi_version()->u32 { unsafe { sys::pxui_abi_version() } }

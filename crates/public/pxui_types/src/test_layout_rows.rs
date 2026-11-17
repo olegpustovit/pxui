@@ -38,12 +38,13 @@ fn manifest_line(r: &Row) -> String {
 fn c_name(row: &str) -> Option<String> {
     if ["Rgba", "Flags", "Role", "View", "Slice"].contains(&row) { return None }
     if row.starts_with("FrameInV1_") { return Some("PxuiFrameIn".to_owned()) }
+    if row == "PxuiUiDescV1_60" { return Some("PxuiUiDesc".to_owned()) }
     Some(if row.starts_with("Pxui") { row.to_owned() } else { format!("Pxui{row}") })
 }
 
-/// The frozen `FrameIn` prefixes are as long as the offset of the field that follows them; `FrameInV1_57` is the whole struct.
+/// The frozen `FrameIn` prefixes are as long as the offset of the field that follows them; `FrameInV1_57` is the whole struct; so is `PxuiUiDescV1_60` (`PxuiUiDesc` is its prefix).
 fn c_size(row: &str, c: &str) -> String {
-    let next = match row { "FrameIn" => "appearance", "FrameInV1_8" => "environment", "FrameInV1_24" => "keyboard", "FrameInV1_26" => "surface", _ => return format!("sizeof({c})") };
+    let next = match row { "FrameIn" => "appearance", "FrameInV1_8" => "environment", "FrameInV1_24" => "keyboard", "FrameInV1_26" => "surface", "PxuiUiDesc" => "abi_built", _ => return format!("sizeof({c})") };
     format!("offsetof({c}, {next})")
 }
 

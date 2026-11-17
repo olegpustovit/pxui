@@ -62,9 +62,9 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
     let mut marks = false;
     let mut valid = true;
     if !extra.is_null() {
-        // the size is read before the descriptor is copied
+        // the size is read before the descriptor is copied; only a size the record has had is read (one that ends inside a field is refused)
         let size = unsafe { (*extra).size } as usize;
-        valid = size >= MENU_EXTRA_V1 && unsafe { decode_extra(&*extra, size, &mut menu, &mut subs, &mut options, &mut marks) };
+        valid = (matches!(size, MENU_EXTRA_V1 | MENU_EXTRA_V149 | MENU_EXTRA_V155) || size >= core::mem::size_of::<PxuiMenuExtra>()) && unsafe { decode_extra(&*extra, size, &mut menu, &mut subs, &mut options, &mut marks) };
     }
     if valid && has_selected != 0 && !marks {
         // the current choice: the rows from `lead_from` keep the mark slot, the chosen one is marked

@@ -75,16 +75,17 @@ macro_rules! export {
 }
 
 /// A copy of the descriptor behind `$ptr` (of type `$ty`, whose first field is `size: u32`): the size is read before
-/// anything else, a descriptor shorter than `$ty` is refused (`None`) and at most `size_of::<$ty>()` bytes are copied,
+/// anything else, a descriptor shorter than `$ty` is refused (`None`) unless it is a size the record has had and at most `size_of::<$ty>()` bytes are copied,
 /// so a caller that grew its struct later is fine and a shorter one is never over-read.
 macro_rules! read_desc {
-    // a record that grew at its end: a `size` of exactly `$old` (the record before it grew) is read too, its prefix copied and the
-    // grown fields zero. `Some((value, grown))`, `grown` false for the old record; `None` for any other short size.
-    ($ptr:expr, $ty:ty, $old:expr) => {{
+    // a record that grew at its end: only a `size` the record has had (`$old`, each earlier layout, listed oldest first) or the whole record
+    // and more is read; a size that ends inside a field is refused. The bytes it covers are copied and every grown field is zero.
+    // `Some((value, grown))`, `grown` false for an earlier layout: its grown fields (and pointers) are never read.
+    ($ptr:expr, $ty:ty, [$($old:expr),+]) => {{
         let p: *const $ty = $ptr;
         let size = unsafe { p.cast::<u32>().read_unaligned() } as usize;
         let full = core::mem::size_of::<$ty>();
-        if size < full && size != $old as usize { None } else {
+        if size < full && !(false $(|| size == $old as usize)+) { None } else {
             let mut value: $ty = unsafe { core::mem::zeroed() };
             unsafe { core::ptr::copy_nonoverlapping(p.cast::<u8>(), (&mut value as *mut $ty).cast::<u8>(), size.min(full)); }
             Some((value, size >= full))
