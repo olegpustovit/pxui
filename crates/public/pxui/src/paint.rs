@@ -190,7 +190,23 @@ impl<'a> Paint<'a> {
     }
     #[inline] pub fn text_metrics(&mut self, style: &TextStyle, width: f32, s: &str) -> TextMetrics { unsafe { lib::pxui_paint_text_metrics(self.raw(), style, width, crate::as_str(s)) } }
     #[inline] pub fn caret_x(&mut self, size: Option<i64>, s: &str, index: usize) -> f32 { unsafe { lib::pxui_paint_caret_x(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s), index) } }
-    /// Calls `f(x, width)` for each run of the selection `a..b` of `s`.
+    /// Calls `f(x, width)` for each run of the selection `a..b` (byte offsets into `s`), in points from the start of `s`, so the caller can paint the highlight itself.
+    ///
+    /// `size` is the font size in points, `None` for the kit's. A selection that crosses a wrap or a bidirectional boundary gives one call per run. `f` must not call the `Ui`; a panic in it surfaces at the frame call.
+    /// Allocates: never when warm; text it has not shaped before is shaped once.
+    /// Panics: when the library refuses the call (an offset past the end of `s` or inside a character).
+    ///
+    /// ```
+    /// use std::{cell::Cell, rc::Rc};
+    /// let runs = Rc::new(Cell::new(0));
+    /// let out = runs.clone();
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let node = ui.node("sel".into(), pxui::Node { w: pxui::ui::Size::Px(200.0), h: pxui::ui::Size::Px(30.0), ..pxui::Node::DEFAULT });
+    ///     let out = out.clone();
+    ///     ui.canvas(&node, move |paint, _| paint.selection(None, "hello", 1, 4, |_x, w| { assert!(w > 0.0); out.set(out.get() + 1); }));
+    /// });
+    /// assert_eq!(runs.get(), 2); // one call per frame that painted: a single run each
+    /// ```
     #[track_caller]
     pub fn selection<F: FnMut(f32, f32)>(&mut self, size: Option<i64>, s: &str, a: usize, b: usize, mut f: F) {
         extern "C" fn call<F: FnMut(f32, f32)>(user: *mut c_void, x: f32, w: f32) {
@@ -199,7 +215,21 @@ impl<'a> Paint<'a> {
         }
         refused("selection", unsafe { lib::pxui_paint_selection(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s), a, b, Some(call::<F>), &mut f as *mut F as *mut c_void) })
     }
-    /// A label: upper case at the label size, ink-2 by default.
+    /// Draws `s` in capitals at the label size with its top-left at `at` (points), in `color` or the default secondary ink.
+    /// Allocates: never when warm; text it has not shaped before is shaped once.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use std::{cell::Cell, rc::Rc};
+    /// let drawn = Rc::new(Cell::new(false));
+    /// let out = drawn.clone();
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let node = ui.node("cap".into(), pxui::Node { w: pxui::ui::Size::Px(200.0), h: pxui::ui::Size::Px(30.0), ..pxui::Node::DEFAULT });
+    ///     let out = out.clone();
+    ///     ui.canvas(&node, move |paint, rect| { paint.cap((rect.x, rect.y), None, "Albums"); out.set(true); });
+    /// });
+    /// assert!(drawn.get());
+    /// ```
     #[inline]
     pub fn cap(&mut self, at: (f32, f32), color: Option<Rgba>, s: &str) {
         let (has_color, color) = some(color);

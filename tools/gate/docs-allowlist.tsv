@@ -46,8 +46,6 @@ crates/public/pxui/src/kit.rs	pxui_ui_wants_frame	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	Ui::table	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit.rs	Ui::table_str	example,Allocates,Panics,Identity
 crates/public/pxui/src/lib.rs	context_clicked	example,Allocates,Panics
-crates/public/pxui/src/paint.rs	Paint::cap	example,Allocates,Panics
-crates/public/pxui/src/paint.rs	Paint::selection	example,Allocates,Panics
 crates/public/pxui/src/style.rs	pxui_ui_set_look	example,Allocates,Panics
 crates/public/pxui/src/style.rs	pxui_ui_style	example,Allocates,Panics
 crates/public/pxui/src/testing.rs	click	Panics
