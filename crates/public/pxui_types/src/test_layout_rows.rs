@@ -41,9 +41,9 @@ fn c_name(row: &str) -> Option<String> {
     Some(if row.starts_with("Pxui") { row.to_owned() } else { format!("Pxui{row}") })
 }
 
-/// The frozen `FrameIn` prefixes are as long as the offset of the field that follows them; `FrameInV1_26` is the whole struct.
+/// The frozen `FrameIn` prefixes are as long as the offset of the field that follows them; `FrameInV1_57` is the whole struct.
 fn c_size(row: &str, c: &str) -> String {
-    let next = match row { "FrameIn" => "appearance", "FrameInV1_8" => "environment", "FrameInV1_24" => "keyboard", _ => return format!("sizeof({c})") };
+    let next = match row { "FrameIn" => "appearance", "FrameInV1_8" => "environment", "FrameInV1_24" => "keyboard", "FrameInV1_26" => "surface", _ => return format!("sizeof({c})") };
     format!("offsetof({c}, {next})")
 }
 

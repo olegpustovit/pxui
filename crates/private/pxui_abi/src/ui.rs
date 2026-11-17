@@ -381,7 +381,7 @@ pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, 
     // read where they lie: what the engine holds was validated when it was set (the default is valid), so a frame that repeats it
     // compares bytes and checks nothing, and only a changed value is validated (a NaN never matches)
     let environment=if input.size>=core::mem::offset_of!(FrameIn,keyboard) as u32 { &input.environment } else { &NO_ENVIRONMENT };
-    let keyboard=if input.size>=core::mem::size_of::<FrameIn>() as u32 { &input.keyboard } else { &NO_KEYBOARD };
+    let keyboard=if input.size>=core::mem::offset_of!(FrameIn,surface) as u32 { &input.keyboard } else { &NO_KEYBOARD };
     let engine=unsafe { &mut *(*ui).engine };
     let environment_changed=!same_environment(environment,engine.environment_ref());
     if environment_changed && !valid_environment(environment) { return unsafe { fail(ui,"invalid host environment") }; }
@@ -415,7 +415,7 @@ unsafe fn read_frame(input:*const FrameIn)->Option<FrameIn> {
     let previous=core::mem::offset_of!(FrameIn,environment);
     if size!=legacy && size<previous { return None; }
     let mut value=FrameIn::default();
-    let copied=if size>=core::mem::size_of::<FrameIn>() { core::mem::size_of::<FrameIn>() } else if size>=core::mem::offset_of!(FrameIn,keyboard) { core::mem::offset_of!(FrameIn,keyboard) } else if size>=previous { previous } else { legacy };
+    let copied=if size>=core::mem::size_of::<FrameIn>() { core::mem::size_of::<FrameIn>() } else if size>=core::mem::offset_of!(FrameIn,surface) { core::mem::offset_of!(FrameIn,surface) } else if size>=core::mem::offset_of!(FrameIn,keyboard) { core::mem::offset_of!(FrameIn,keyboard) } else if size>=previous { previous } else { legacy };
     unsafe { core::ptr::copy_nonoverlapping(input.cast::<u8>(),(&mut value as *mut FrameIn).cast::<u8>(),copied); }
     Some(value)
 }
@@ -835,6 +835,28 @@ mod tests {
 mod keyboard_tests {
     use super::*;
     #[test]
+    fn surface_is_reserved_and_the_152_byte_record_still_carries_its_keyboard() {
+        use pxui_types::Keyboard;
+        let ui=unsafe {super::pxui_ui_create(&crate::PxuiUiDesc::default())};
+        let keyboard=Keyboard {frame:[0.0,508.0,390.0,336.0],flags:Keyboard::VALID};
+        let input=FrameIn {width:390.0,height:844.0,keyboard,..FrameIn::default()};
+        assert_eq!(core::mem::offset_of!(FrameIn,surface),152);
+        let mut out=FrameOut::default();
+        let mut got=Keyboard::default();
+        // a 152-byte caller (built before `surface`): its keyboard is read, the surface is absent
+        let old=FrameIn {size:152,surface:9,..input};
+        assert_eq!(unsafe {super::pxui_frame(ui,&old,None,core::ptr::null_mut(),&mut out)},0);
+        assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
+        assert_eq!(got,keyboard);
+        // a full record with any surface behaves as surface 0
+        for surface in [0,1,u64::MAX] {
+            assert_eq!(unsafe {super::pxui_frame(ui,&FrameIn {surface,..input},None,core::ptr::null_mut(),&mut out)},0);
+            assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
+            assert_eq!(got,keyboard);
+        }
+    }
+
+    #[test]
     fn keyboard_tail_validates_before_mutation_and_preserves_all_legacy_prefixes() {
         use pxui_types::{Environment, Keyboard};
         let ui=unsafe {super::pxui_ui_create(&crate::PxuiUiDesc::default())};
@@ -858,7 +880,7 @@ mod keyboard_tests {
             assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(ui,&mut got)},0);
             assert_eq!(got,keyboard);
         }
-        for size in 128..core::mem::size_of::<FrameIn>() as u32 {
+        for size in 128..core::mem::offset_of!(FrameIn,surface) as u32 {
             let current=FrameIn {size,keyboard:Keyboard {flags:2,..keyboard},..input};
             let mut prefix=[0u8;128];
             unsafe {core::ptr::copy_nonoverlapping((&current as *const FrameIn).cast::<u8>(),prefix.as_mut_ptr(),128)};

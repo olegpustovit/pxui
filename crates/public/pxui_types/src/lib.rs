@@ -445,9 +445,11 @@ pub struct FrameIn {
     pub environment: Environment,
     /// ABI 1.26 tail: current native keyboard geometry, including intermediate animation frames.
     pub keyboard: Keyboard,
+    /// ABI 1.57 tail: the surface this frame is for. Reserved: the library has one surface, ignores the value and the host passes 0.
+    pub surface: u64,
 }
 impl Default for FrameIn {
-    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0,appearance:0,reduced_motion:0,environment:Environment::default(),keyboard:Keyboard::default() } }
+    fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, events: core::ptr::null(), event_count: 0, width: 0.0, height: 0.0, scale: 1.0, time: 0.0,appearance:0,reduced_motion:0,environment:Environment::default(),keyboard:Keyboard::default(),surface:0 } }
 }
 impl FrameIn {
     pub const APPEARANCE_UNKNOWN:u32=0;
@@ -868,9 +870,13 @@ mod abi_layout {
         ]);
         assert_layout("Keyboard",size_of::<Keyboard>(),align_of::<Keyboard>(),&[("frame", core::mem::offset_of!(Keyboard, frame)),("flags", core::mem::offset_of!(Keyboard, flags))]);
         assert_layout("TextInputOptions",size_of::<PxuiTextInputOptions>(),align_of::<PxuiTextInputOptions>(),&[("autocorrect", core::mem::offset_of!(PxuiTextInputOptions, autocorrect)),("capitalization", core::mem::offset_of!(PxuiTextInputOptions, capitalization)),("action", core::mem::offset_of!(PxuiTextInputOptions, action))]);
-        assert_layout("FrameInV1_26",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
+        assert_layout("FrameInV1_26",core::mem::offset_of!(FrameIn,surface),align_of::<FrameIn>(),&[
             ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),("width", core::mem::offset_of!(FrameIn, width)),
             ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),("keyboard", core::mem::offset_of!(FrameIn, keyboard)),
+        ]);
+        assert_layout("FrameInV1_57",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
+            ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),("width", core::mem::offset_of!(FrameIn, width)),
+            ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),("keyboard", core::mem::offset_of!(FrameIn, keyboard)),("surface", core::mem::offset_of!(FrameIn, surface)),
         ]);
         assert_layout(
             "FrameOut",

@@ -207,6 +207,8 @@ typedef struct {
     /* Read only when size includes this complete tail; otherwise defaults to zero. */
     PxuiEnvironment environment;
     PxuiKeyboard keyboard;
+    /* ABI 1.57 tail, reserved: the surface this frame is for. The library has one surface and ignores the value; pass 0. */
+    uint64_t surface;
 } PxuiFrameIn;
 #define PXUI_APPEARANCE_UNKNOWN 0u
 #define PXUI_APPEARANCE_LIGHT 1u
@@ -1053,7 +1055,7 @@ _Static_assert(sizeof(PxuiEnvironment) == 72 && offsetof(PxuiEnvironment, safe_a
 _Static_assert(offsetof(PxuiFrameIn, keyboard) == 128 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56, "FrameInV1_24 layout");
 _Static_assert(sizeof(PxuiTouch) == 48 && offsetof(PxuiTouch, device) == 0 && offsetof(PxuiTouch, finger) == 8 && offsetof(PxuiTouch, x) == 16 && offsetof(PxuiTouch, y) == 24 && offsetof(PxuiTouch, time) == 32 && offsetof(PxuiTouch, pressure) == 40 && offsetof(PxuiTouch, phase) == 44, "Touch layout");
 _Static_assert(sizeof(PxuiKeyboard) == 20 && offsetof(PxuiKeyboard, frame) == 0 && offsetof(PxuiKeyboard, flags) == 16, "Keyboard layout");
-_Static_assert(sizeof(PxuiFrameIn) == 152 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 128, "FrameInV1_26 layout");
+_Static_assert(offsetof(PxuiFrameIn, surface) == 152 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 128, "FrameInV1_26 layout");
 _Static_assert(sizeof(PxuiTextInputOptions) == 12 && offsetof(PxuiTextInputOptions, autocorrect) == 0 && offsetof(PxuiTextInputOptions, capitalization) == 4 && offsetof(PxuiTextInputOptions, action) == 8, "TextInputOptions layout");
 _Static_assert(sizeof(PxuiScrubOut) == 48 && offsetof(PxuiScrubOut, size) == 0 && offsetof(PxuiScrubOut, flags) == 4 && offsetof(PxuiScrubOut, node) == 8 && offsetof(PxuiScrubOut, preview) == 40 && offsetof(PxuiScrubOut, commit) == 44, "PxuiScrubOut layout");
 _Static_assert(sizeof(PxuiGestureIn) == 16 && offsetof(PxuiGestureIn, size) == 0 && offsetof(PxuiGestureIn, kinds) == 4 && offsetof(PxuiGestureIn, reveal) == 8 && offsetof(PxuiGestureIn, threshold) == 12, "PxuiGestureIn layout");
@@ -1071,6 +1073,7 @@ _Static_assert(sizeof(PxuiDialogDesc) == 88 && offsetof(PxuiDialogDesc, size) ==
 _Static_assert(sizeof(PxuiDialogResult) == 16 && offsetof(PxuiDialogResult, size) == 0 && offsetof(PxuiDialogResult, has_chosen) == 4 && offsetof(PxuiDialogResult, dismissed) == 5 && offsetof(PxuiDialogResult, reserved) == 6 && offsetof(PxuiDialogResult, chosen) == 8, "PxuiDialogResult layout");
 _Static_assert(sizeof(PxuiCurve) == 140 && offsetof(PxuiCurve, kind) == 0 && offsetof(PxuiCurve, data) == 4, "PxuiCurve layout");
 _Static_assert(sizeof(PxuiLabelBox) == 16 && offsetof(PxuiLabelBox, size) == 0 && offsetof(PxuiLabelBox, set) == 4 && offsetof(PxuiLabelBox, height) == 8 && offsetof(PxuiLabelBox, role) == 12 && offsetof(PxuiLabelBox, whole_pixels) == 13 && offsetof(PxuiLabelBox, reserved) == 14, "PxuiLabelBox layout");
+_Static_assert(sizeof(PxuiFrameIn) == 160 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 128 && offsetof(PxuiFrameIn, surface) == 152, "FrameInV1_57 layout");
 /* abi-layout end */
 
 #endif

@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 56
+minor 57
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -286,6 +286,7 @@ layout Flags 8 8
 layout FrameIn 48 8 0 8 16 24 28 32 40
 layout FrameInV1_24 128 8 0 8 16 24 28 32 40 48 52 56
 layout FrameInV1_26 152 8 0 8 16 24 28 32 40 48 52 56 128
+layout FrameInV1_57 160 8 0 8 16 24 28 32 40 48 52 56 128 152
 layout FrameInV1_8 56 8 0 8 16 24 28 32 40 48 52
 layout FrameOut 40 8 0 4 20 21 24 32
 layout Gpu 128 8 0 4 8 16 24 32 40 44 48 56 64 72 80 88 96 104 112 120
