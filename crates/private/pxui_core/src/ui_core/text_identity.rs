@@ -8,11 +8,14 @@ pub(super) fn lay_out_node(t:&mut Text,memo:&std::cell::Cell<Option<(u64,u64)>>,
     let fingerprint=memo.get().filter(|(key,_)|flags.any(Flags::FIT_TEXT_PIXEL) && t.has_text(*key,value))
         .map_or_else(||pxui_text::text_hash(value),|(_,fingerprint)|fingerprint);
     if spans.is_empty() && width>0.0 {
-        // the cached natural layout (prewarmed, or measured) that this width cannot change is the layout drawn
+        // the node's last layout (a measure at another width), or the cached natural one (prewarmed), when this width cannot change it
         let natural=pxui_text::layout_key(style,0.0,fingerprint,&[]);
-        if let Some(metrics)=t.natural_layout(natural,value,style,width) {
-            if flags.any(Flags::FIT_TEXT_PIXEL) {memo.set(Some((natural,fingerprint)));}
-            return Some((natural,metrics));
+        let last=memo.get().map(|(key,_)|key).filter(|key|*key!=natural);
+        for key in last.into_iter().chain(Some(natural)) {
+            if let Some(metrics)=t.reusable_layout(key,value,style,width) {
+                if flags.any(Flags::FIT_TEXT_PIXEL) {memo.set(Some((key,fingerprint)));}
+                return Some((key,metrics));
+            }
         }
     }
     let key=pxui_text::layout_key(style,width,fingerprint,spans);

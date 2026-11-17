@@ -965,18 +965,25 @@ impl Text {
         self.entries.get(&key).is_some_and(|entry| entry.text == text)
     }
 
-    /// The cached unbounded layout `key` (width 0) of plain `text`, when it is also the layout at `max_width`: no line is wider
-    /// than `max_width`, so no wrap or ellipsis can change it, and left-aligned text (or a width exactly the natural one)
-    /// places every glyph where the bounded layout would. `None` for any other width, style, text or an uncached key.
+    /// The cached layout `key` of plain `text`, when it is also the layout at `max_width`: prepared unbounded, or at a width W >= `max_width`
+    /// with every line already no wider than `max_width` (`Metrics::w`). Greedy wrapping breaks only where the next word does not fit, and a
+    /// word that did not fit W does not fit a narrower width, while every line that fit W and is no wider than `max_width` still fits: the
+    /// breaks, and so the glyphs of left-aligned text, are identical. Other alignments place glyphs by the width: only an unbounded layout at
+    /// exactly its natural width, or the width it was laid out at. An ellipsizing style reuses a bounded layout only when it has fewer lines
+    /// than its limit, so nothing was cut. `None` for any other width, style, text, or an uncached key.
     /// Allocates: never.
-    pub fn natural_layout(&mut self, key: u64, text: &str, style: &Style, max_width: f32) -> Option<Metrics> {
+    pub fn reusable_layout(&mut self, key: u64, text: &str, style: &Style, max_width: f32) -> Option<Metrics> {
         if !(max_width.is_finite() && max_width > 0.0) { return None; }
         let frame = self.frame;
         let e = self.entries.get_mut(&key)?;
-        if e.width != f32::INFINITY.to_bits() || e.style != *style || e.text != text || e.rich.is_some()
-            || e.m.w > max_width || (style.align != Align::Left && e.m.w != max_width) {
-            return None;
-        }
+        if e.style != *style || e.text != text || e.rich.is_some() || e.m.w > max_width { return None; }
+        let built = f32::from_bits(e.width);
+        let fits = if built.is_infinite() { style.align == Align::Left || e.m.w == max_width }
+            else {
+                max_width <= built && (max_width == built || (style.align == Align::Left
+                    && (style.ellipsis == Ellipsis::None || (e.m.lines as u32) < style.max_lines.max(1) as u32)))
+            };
+        if !fits { return None; }
         e.frame = frame;
         if self.scope.0 != 0 { (e.list, e.row) = self.scope; }
         Some(e.m)

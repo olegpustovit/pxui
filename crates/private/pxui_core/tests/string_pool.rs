@@ -96,7 +96,7 @@ mod text_identity_cases {
         let style=Style::default();
         let (key,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,0.0,"a label",&[],false).unwrap();
         memo.set(Some((key,7)));
-        // narrower than the natural layout (a wider width would show the natural one, `Text::natural_layout`)
+        // narrower than the natural layout (a wider width would show the natural one, `Text::reusable_layout`)
         let (next,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,10.0,"a label",&[],false).unwrap();
         assert_eq!(next,pxui_text::layout_key(&style,10.0,7,&[]),"unchanged text must reuse the retained fingerprint, including across widths");
         text.layout(next,"a different label",&style,10.0);
@@ -105,7 +105,7 @@ mod text_identity_cases {
     }
 
     #[test]
-    fn a_node_served_by_the_natural_layout_keeps_its_fingerprint() {
+    fn a_node_served_by_a_reusable_layout_keeps_its_fingerprint() {
         let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
         let style=Style::default();
         let natural=pxui_text::content_key(&style,0.0,"a label",&[]);
@@ -114,9 +114,25 @@ mod text_identity_cases {
         let (key,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,500.0,"a label",&[],false).unwrap();
         assert_eq!(key,natural,"a wider width is served by the natural layout");
         assert_eq!(memo.get(),Some((natural,pxui_text::text_hash("a label"))),"the node remembers the natural key and fingerprint");
-        // the next frame takes the fingerprint from the memo instead of hashing the bytes: a marker one shows in the key asked for
+        // the next frame takes the fingerprint from the memo instead of hashing the bytes: a marker one stays in the memo
         memo.set(Some((natural,7)));
         let (again,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,500.0,"a label",&[],false).unwrap();
-        assert_eq!(again,pxui_text::layout_key(&style,500.0,7,&[]),"the memo's fingerprint was used, not a fresh hash");
+        assert_eq!((again,memo.get()),(natural,Some((natural,7))),"the memo's fingerprint was used, not a fresh hash");
+    }
+
+    #[test]
+    fn a_draw_at_the_measured_width_is_served_by_the_measure_layout_without_shaping() {
+        let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
+        let style=Style { wrap: pxui_text::Wrap::Word, ..Style::default() };
+        let memo=std::cell::Cell::new(None);
+        let (key,m)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,40.0,"1234567 plays",&[],false).unwrap();
+        assert!(m.lines>1 && m.w<40.0);
+        let layouts=text.layout_count();
+        let (drawn,dm)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,m.w,"1234567 plays",&[],false).unwrap();
+        assert_eq!((drawn,dm,text.layout_count()),(key,m,layouts));
+        assert_eq!(memo.get().map(|x|x.0),Some(key),"the memo keeps the layout");
+        let (own,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,m.w-1.0,"1234567 plays",&[],false).unwrap();
+        assert_ne!(own,key);
+        assert_eq!(text.layout_count(),layouts+1);
     }
 }

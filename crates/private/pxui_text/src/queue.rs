@@ -444,49 +444,109 @@ mod tests {
     /// centred or right-aligned text places glyphs by the width, so only the natural width itself; a narrower width, another
     /// style or text, or a bounded entry never.
     #[test]
-    fn natural_layout_serves_only_widths_that_cannot_change_it() {
+    fn reusable_layout_serves_only_widths_that_cannot_change_it() {
         let mut text = Text::new(&[PRAGMASEVKA]);
         let style = Style { size: 14.0, wrap: Wrap::Word, ellipsis: Ellipsis::End, max_lines: 1, ..Style::default() };
         let key = content_key(&style, 0.0, "1234567 plays", &[]);
-        assert!(text.natural_layout(key, "1234567 plays", &style, 500.0).is_none(), "uncached");
+        assert!(text.reusable_layout(key, "1234567 plays", &style, 500.0).is_none(), "uncached");
         let natural = text.layout(key, "1234567 plays", &style, 0.0);
-        assert_eq!(text.natural_layout(key, "1234567 plays", &style, natural.w), Some(natural));
-        assert_eq!(text.natural_layout(key, "1234567 plays", &style, 500.0), Some(natural));
+        assert_eq!(text.reusable_layout(key, "1234567 plays", &style, natural.w), Some(natural));
+        assert_eq!(text.reusable_layout(key, "1234567 plays", &style, 500.0), Some(natural));
         let layouts = text.layout_count();
         let narrow = natural.w - 1.0;
-        assert!(text.natural_layout(key, "1234567 plays", &style, narrow).is_none());
+        assert!(text.reusable_layout(key, "1234567 plays", &style, narrow).is_none());
         let cut = text.layout(content_key(&style, narrow, "1234567 plays", &[]), "1234567 plays", &style, narrow);
         assert!(cut.w <= narrow && cut.w < natural.w && text.layout_count() == layouts + 1, "a narrower width lays out its own cut");
-        assert!(text.natural_layout(key, "other", &style, 500.0).is_none() && text.natural_layout(key, "1234567 plays", &style, 0.0).is_none());
-        assert!(text.natural_layout(key, "1234567 plays", &Style { size: 15.0, ..style }, 500.0).is_none());
+        assert!(text.reusable_layout(key, "other", &style, 500.0).is_none() && text.reusable_layout(key, "1234567 plays", &style, 0.0).is_none());
+        assert!(text.reusable_layout(key, "1234567 plays", &Style { size: 15.0, ..style }, 500.0).is_none());
         let centred = Style { align: Align::Center, ..style };
         let ckey = content_key(&centred, 0.0, "1234567 plays", &[]);
         let cnat = text.layout(ckey, "1234567 plays", &centred, 0.0);
-        assert!(text.natural_layout(ckey, "1234567 plays", &centred, 500.0).is_none());
-        assert_eq!(text.natural_layout(ckey, "1234567 plays", &centred, cnat.w), Some(cnat));
+        assert!(text.reusable_layout(ckey, "1234567 plays", &centred, 500.0).is_none());
+        assert_eq!(text.reusable_layout(ckey, "1234567 plays", &centred, cnat.w), Some(cnat));
         // right-to-left plain text is right-aligned by the engine: only its natural width
         let rtl = Style { align: Align::Right, ..style };
         let rkey = content_key(&rtl, 0.0, "1234567 plays", &[]);
         let rnat = text.layout(rkey, "1234567 plays", &rtl, 0.0);
-        assert!(text.natural_layout(rkey, "1234567 plays", &rtl, 500.0).is_none());
-        assert_eq!(text.natural_layout(rkey, "1234567 plays", &rtl, rnat.w), Some(rnat));
+        assert!(text.reusable_layout(rkey, "1234567 plays", &rtl, 500.0).is_none());
+        assert_eq!(text.reusable_layout(rkey, "1234567 plays", &rtl, rnat.w), Some(rnat));
         // hard newlines: the widest line is the natural width, every line fits a width of at least that
         let lines = Style { max_lines: 0, ellipsis: Ellipsis::None, ..style };
         let lkey = content_key(&lines, 0.0, "1234567 plays\n12", &[]);
         let lnat = text.layout(lkey, "1234567 plays\n12", &lines, 0.0);
         assert_eq!(lnat.lines, 2);
-        assert_eq!(text.natural_layout(lkey, "1234567 plays\n12", &lines, lnat.w + 1.0), Some(lnat));
-        assert!(text.natural_layout(lkey, "1234567 plays\n12", &lines, lnat.w - 1.0).is_none());
+        assert_eq!(text.reusable_layout(lkey, "1234567 plays\n12", &lines, lnat.w + 1.0), Some(lnat));
+        assert!(text.reusable_layout(lkey, "1234567 plays\n12", &lines, lnat.w - 1.0).is_none());
         // a middle ellipsis at exactly the natural width cuts nothing
         let mid = Style { ellipsis: Ellipsis::Middle, ..style };
         let mkey = content_key(&mid, 0.0, "1234567 plays", &[]);
         let mnat = text.layout(mkey, "1234567 plays", &mid, 0.0);
-        assert_eq!(text.natural_layout(mkey, "1234567 plays", &mid, mnat.w), Some(mnat));
+        assert_eq!(text.reusable_layout(mkey, "1234567 plays", &mid, mnat.w), Some(mnat));
         let exact = text.layout(content_key(&mid, mnat.w, "1234567 plays", &[]), "1234567 plays", &mid, mnat.w);
         assert_eq!((exact.w, exact.lines), (mnat.w, mnat.lines), "the bounded layout at the natural width is not cut");
         let bounded = content_key(&style, 500.0, "1234567 plays", &[]);
         text.layout(bounded, "1234567 plays", &style, 500.0);
-        assert!(text.natural_layout(bounded, "1234567 plays", &style, 600.0).is_none(), "only an unbounded entry is natural");
+        assert!(text.reusable_layout(bounded, "1234567 plays", &style, 600.0).is_none(), "only an unbounded entry is natural");
+    }
+
+    fn drawn(text: &mut Text, key: u64) -> Vec<Rect> {
+        let mut rects = Vec::new();
+        text.glyphs(key, (3.0, 5.0), 1.0, &mut |g| rects.push(g.rect));
+        rects
+    }
+
+    /// A layout prepared at a width W also serves every draw width D with its measured width <= D <= W for left-aligned text, with the
+    /// glyphs a fresh layout at D has; a narrower D, other alignments, and cut ellipsized layouts lay out their own.
+    #[test]
+    fn a_bounded_layout_serves_the_widths_between_its_measure_and_itself() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        let sentence = "1234567 plays today and also yesterday";
+        let mut served = 0;
+        for (style, w) in [
+            (Style { size: 14.0, wrap: Wrap::Word, ..Style::default() }, 90.0),
+            (Style { size: 14.0, wrap: Wrap::Glyph, ..Style::default() }, 77.0),
+            (Style { size: 14.0, wrap: Wrap::Word, max_lines: 5, ellipsis: Ellipsis::End, ..Style::default() }, 90.0),
+            (Style { size: 14.0, wrap: Wrap::Word, max_lines: 2, ellipsis: Ellipsis::End, ..Style::default() }, 90.0),
+            (Style { size: 14.0, wrap: Wrap::Word, max_lines: 2, ellipsis: Ellipsis::Middle, ..Style::default() }, 90.0),
+            (Style { size: 14.0, wrap: Wrap::Word, max_lines: 2, ellipsis: Ellipsis::Head, ..Style::default() }, 90.0),
+            (Style { size: 14.0, wrap: Wrap::Word, max_lines: 1, ellipsis: Ellipsis::End, ..Style::default() }, 400.0),
+        ] {
+            let key = content_key(&style, w, sentence, &[]);
+            let m = text.layout(key, sentence, &style, w);
+            let mut d = w;
+            while d > 8.0 {
+                let before = text.layout_count();
+                let hit = text.reusable_layout(key, sentence, &style, d);
+                assert_eq!(text.layout_count(), before);
+                let fresh_key = content_key(&style, d + 0.25, sentence, &[]);
+                let fresh = text.layout(fresh_key, sentence, &style, d);
+                if let Some(hit) = hit {
+                    served += 1;
+                    assert!(m.w <= d && hit == m && fresh.lines == m.lines && fresh.w == m.w, "{style:?} {w} {d}");
+                    let (a, b) = (drawn(&mut text, key), drawn(&mut text, fresh_key));
+                    assert_eq!(a, b, "the glyphs at {d} are the ones laid out at {w} ({style:?})");
+                } else {
+                    assert!(d < m.w || style.ellipsis != Ellipsis::None, "plain text with m.w <= d must be served ({d} vs {})", m.w);
+                }
+                d -= 0.5;
+            }
+        }
+        assert!(served > 30);
+        // the measured width itself is served: the numeric cell case
+        let style = Style { size: 14.0, wrap: Wrap::Word, ..Style::default() };
+        let key = content_key(&style, 40.0, "1234567 plays", &[]);
+        let m = text.layout(key, "1234567 plays", &style, 40.0);
+        assert!(m.lines > 1 && m.w < 40.0);
+        assert_eq!(text.reusable_layout(key, "1234567 plays", &style, m.w), Some(m));
+        assert!(text.reusable_layout(key, "1234567 plays", &style, m.w - 0.5).is_none());
+        assert!(text.reusable_layout(key, "1234567 plays", &style, 41.0).is_none(), "wider than prepared");
+        for align in [Align::Center, Align::Right] {
+            let style = Style { align, ..style };
+            let key = content_key(&style, 40.0, "1234567 plays", &[]);
+            let m = text.layout(key, "1234567 plays", &style, 40.0);
+            assert!(text.reusable_layout(key, "1234567 plays", &style, m.w).is_none());
+            assert_eq!(text.reusable_layout(key, "1234567 plays", &style, 40.0), Some(m));
+        }
     }
 
     /// A deferred layout is shaped on the worker, flushed after the frame, installed before the next one (no allocation, no
