@@ -181,8 +181,8 @@ mod tramps {
     }, PxuiTipConfig { width: c.width, height: c.height, tip: bx(c.tip), lines: Slice { ptr: span.as_ptr(), len: span.len() } });
     tramp!(tab, |ui, sh, c: &TabConfig, text: &str| PxuiTabConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });
     tramp!(segment, |ui, sh, c: &SegmentConfig, states: Option<&States>, text: &str| PxuiSegmentConfig {
-        state: st(c.state), index: c.index, selected: c.selected, group: c.group, node: bx(c.node), text: pair(text), states: states.unwrap_or(unsafe { &*(&ui.theme().segment as *const States) }), grow: c.grow as u8,
-        padding: c.padding, min_segment: c.min_segment, line: bx(c.line), strip: bx(c.strip)
+        state: st(c.state), index: c.index, selected: c.selected.unwrap_or(0), group: c.group, node: bx(c.node), text: pair(text), states: states.unwrap_or(unsafe { &*(&ui.theme().segment as *const States) }), grow: c.grow as u8,
+        padding: c.padding, min_segment: c.min_segment, line: bx(c.line), strip: bx(c.strip), has_selected: c.selected.is_some() as u8, reserved3: [0; 7]
     });
     tramp!(dropdown, |ui, sh, c: &DropdownConfig, text: &str| PxuiDropdownConfig { state: st(c.state), open: c.open as u8, key: c.key, button: bx(c.button), text: pair(text) });
     tramp!(menu_bar, |ui, sh, c: &MenuItemConfig, text: &str| PxuiMenuItemConfig { state: st(c.state), index: c.index, node: bx(c.node), text: pair(text) });

@@ -111,7 +111,7 @@ pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
-pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, PickerOpts, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
+pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, PickerOpts, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SegmentedResponse, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
 pub use pxui_types::ui::Segment;
 #[cfg(test)]
 mod settled;
@@ -789,6 +789,11 @@ pub enum Feature {
     IconWord = pxui_types::feature::ICON_WORD,
     /// ABI 1.62: `TextWorker`, `Ui::set_text_worker`, `Ui::prewarm_text` (the prepare queue).
     TextWorker = pxui_types::feature::TEXT_WORKER,
+    /// ABI 1.67: `Menu::max_h` bounds the sheet's height.
+    MenuMaxH = pxui_types::feature::MENU_MAX_H,
+    /// ABI 1.67: a segmented control with no choice, reporting the option a secondary press began on; 1.67 also changes the keyboard
+    /// model of every segmented control (one Tab stop, the chosen option; every option focusable to assistive technology).
+    SegmentedResult = pxui_types::feature::SEGMENTED_RESULT,
 }
 
 /// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.

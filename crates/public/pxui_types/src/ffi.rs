@@ -408,7 +408,9 @@ pub struct PxuiSubmenu {
 /// above the first row and below the last (finite, not negative; a smaller record is 6), `name` the sheet's accessible name when
 /// `has_name` is 1 (else none), and `selected` per row 1 for the current choice of a settings menu (CHECKED and SELECTED, the `checked`
 /// look; shorter than the rows is fine). From ABI 1.58: `focus_on_click` 1 for a press to focus its row (`Menu::focus_on_click`), and per row
-/// `has_id` 1 with `ids` the row's `MenuItem::id` (its key in place of its position; both shorter than the rows is fine).
+/// `has_id` 1 with `ids` the row's `MenuItem::id` (its key in place of its position; both shorter than the rows is fine). From ABI 1.67:
+/// `max_h` the most height of the sheet in points, its edges and padding included (finite, not negative; 0 no bound; a smaller record is
+/// none), the smaller of it and `max_rows` bounding the sheet.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct PxuiMenuExtra {
@@ -431,6 +433,8 @@ pub struct PxuiMenuExtra {
     pub reserved3: [u8; 7],
     pub ids: Slice<i64>,
     pub has_id: Slice<u8>,
+    pub max_h: f32,
+    pub reserved4: u32,
 }
 
 /// A label's style as it crosses the ABI (`pxui_ui_label`, `pxui_paint_label`, `PxuiLabelConfig::style`; ABI 1.45): `Label` with
@@ -1092,6 +1096,31 @@ impl PxuiResponse {
     pub const EMPTY: PxuiResponse = PxuiResponse { size: core::mem::size_of::<PxuiResponse>() as u32, flags: 0, node: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 } };
 }
 
+/// What a segmented control's frame chose (ABI 1.67, `pxui_ui_segmented_result`): `chosen` is the choice when `has_chosen` is 1 (0: no
+/// option is chosen), `secondary` the option a secondary press began on this frame when `has_secondary` is 1. The caller sets `size`; a
+/// shorter record is refused.
+#[repr(C)]
+#[derive(Clone, Copy, Debug)]
+pub struct PxuiSegmentedResult {
+    /// Size of this record in bytes.
+    pub size: u32,
+    /// 1 when `chosen` is the choice; 0 when no option is chosen.
+    pub has_chosen: u8,
+    /// 1 when `secondary` is the option a secondary press began on this frame.
+    pub has_secondary: u8,
+    /// Zero.
+    pub reserved: [u8; 2],
+    /// The chosen option's index.
+    pub chosen: u64,
+    /// The index of the option a secondary press began on.
+    pub secondary: u64,
+}
+
+impl PxuiSegmentedResult {
+    /// An empty record of this size, for a call to fill.
+    pub const EMPTY: PxuiSegmentedResult = PxuiSegmentedResult { size: core::mem::size_of::<PxuiSegmentedResult>() as u32, has_chosen: 0, has_secondary: 0, reserved: [0; 2], chosen: 0, secondary: 0 };
+}
+
 /// An icon drawing callback: `(user, paint, rect, ink, info)`. `paint` is the `PxuiPaint` of a paint callback and `info` is valid for the call.
 pub type PxuiIconDraw = Option<extern "C" fn(*mut core::ffi::c_void, *mut core::ffi::c_void, Rect, Rgba, *const PxuiPaintInfo)>;
 
@@ -1200,7 +1229,7 @@ pub struct PxuiToggleDesc {
     pub style: PxuiLabelStyle,
 }
 
-/// A kit segmented control with options (`segmented_response`); the options go beside it as a slice of strings. `h` 0 is the theme's control
+/// A kit segmented control with options (`segmented_result`, `segmented_response`); the options go beside it as a slice of strings. `h` 0 is the theme's control
 /// height; `states` null is the theme's segment, else six looks (idle, hover, pressed, focus, disabled, checked).
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -1221,7 +1250,7 @@ pub struct PxuiSegmentedDesc {
     pub key: Str,
     /// The strip's accessible name.
     pub name: Str,
-    /// The current choice (clamped to the options).
+    /// The current choice, clamped to the options; read only when `has_selected` is 1 (or the record is older than 1.67).
     pub selected: usize,
     /// ABI 1.55 (a 64-byte record is the 1.51 one, read without it): the strip's width in points, its segments sharing it (0: as `grow` says).
     pub w: f32,
@@ -1233,6 +1262,11 @@ pub struct PxuiSegmentedDesc {
     pub reserved2: u32,
     /// Per option its accessible name (an empty one is the option's text); empty for all named by their text, else as long as the options.
     pub names: Slice<Str>,
+    /// ABI 1.67 (a 64- or 96-byte record is read without it, as 1): 1 when `selected` is the choice, 0 for no choice (final; `selected`
+    /// then not read). `pxui_ui_segmented_response` refuses 0; `pxui_ui_segmented_result` reports none.
+    pub has_selected: u8,
+    /// Zero.
+    pub reserved3: [u8; 7],
 }
 
 /// One text button of an inspector head.
@@ -1779,6 +1813,9 @@ configs! {
     PxuiToastConfig { state: PxuiStateDesc, node: PxuiBox, text: Str }
     PxuiTipConfig { width: f32, height: f32, tip: PxuiBox, lines: Slice<Str> }
     PxuiTabConfig { state: PxuiStateDesc, index: usize, node: PxuiBox, text: Str }
+    /// `selected` is the chosen option's index when `has_selected` is 1 (ABI 1.67, read when `size` covers it; 0 with `selected` 0 for no
+    /// choice, final); `state.focused` the segment holding the keyboard focus (from ABI 1.67 the strip's one Tab stop is the chosen
+    /// segment, else the first).
     PxuiSegmentConfig {
         state: PxuiStateDesc, index: usize, selected: usize, group: i64, node: PxuiBox, text: Str,
         /// The look per state of a segment: the caller's or the theme's; valid for the call.
@@ -1794,6 +1831,10 @@ configs! {
         /// strip (a group holding the segments, no look of its own): a body may restyle or resize both, so it owns the container.
         line: PxuiBox,
         strip: PxuiBox,
+        /// ABI 1.67 (read when `size` covers it): 1 when `selected` is the choice, 0 when no option is chosen (`selected` then 0).
+        has_selected: u8,
+        /// Zero.
+        reserved3: [u8; 7],
     }
     PxuiDropdownConfig { state: PxuiStateDesc, open: u8, key: i64, button: PxuiBox, text: Str }
     /// A menu bar title or a row of an open menu.
@@ -1875,7 +1916,7 @@ pub(crate) mod layout {
         check("PxuiAreaCallbacks", size_of::<PxuiAreaCallbacks>(), align_of::<PxuiAreaCallbacks>(), &[("size", core::mem::offset_of!(PxuiAreaCallbacks, size)), ("reserved", core::mem::offset_of!(PxuiAreaCallbacks, reserved)), ("user", core::mem::offset_of!(PxuiAreaCallbacks, user)), ("on_context", core::mem::offset_of!(PxuiAreaCallbacks, on_context)), ("on_scrub", core::mem::offset_of!(PxuiAreaCallbacks, on_scrub)), ("on_scrub_edit", core::mem::offset_of!(PxuiAreaCallbacks, on_scrub_edit)), ("on_click", core::mem::offset_of!(PxuiAreaCallbacks, on_click)), ("on_caret", core::mem::offset_of!(PxuiAreaCallbacks, on_caret)), ("on_caret_move", core::mem::offset_of!(PxuiAreaCallbacks, on_caret_move)), ("on_select", core::mem::offset_of!(PxuiAreaCallbacks, on_select)), ("on_drop", core::mem::offset_of!(PxuiAreaCallbacks, on_drop)), ("colorize", core::mem::offset_of!(PxuiAreaCallbacks, colorize)), ("brackets", core::mem::offset_of!(PxuiAreaCallbacks, brackets)), ("indent", core::mem::offset_of!(PxuiAreaCallbacks, indent)), ("complete", core::mem::offset_of!(PxuiAreaCallbacks, complete)), ("describe", core::mem::offset_of!(PxuiAreaCallbacks, describe)), ("number_at", core::mem::offset_of!(PxuiAreaCallbacks, number_at)), ("context_at", core::mem::offset_of!(PxuiAreaCallbacks, context_at)), ("rewrite", core::mem::offset_of!(PxuiAreaCallbacks, rewrite))]);
         check("PxuiSwatch", size_of::<PxuiSwatch>(), align_of::<PxuiSwatch>(), &[("has", core::mem::offset_of!(PxuiSwatch, has)), ("reserved", core::mem::offset_of!(PxuiSwatch, reserved)), ("color", core::mem::offset_of!(PxuiSwatch, color))]);
         check("PxuiSubmenu", size_of::<PxuiSubmenu>(), align_of::<PxuiSubmenu>(), &[("row", core::mem::offset_of!(PxuiSubmenu, row)), ("current", core::mem::offset_of!(PxuiSubmenu, current)), ("has_current", core::mem::offset_of!(PxuiSubmenu, has_current)), ("reserved", core::mem::offset_of!(PxuiSubmenu, reserved)), ("rows", core::mem::offset_of!(PxuiSubmenu, rows)), ("enabled", core::mem::offset_of!(PxuiSubmenu, enabled)), ("keys", core::mem::offset_of!(PxuiSubmenu, keys))]);
-        check("PxuiMenuExtra", size_of::<PxuiMenuExtra>(), align_of::<PxuiMenuExtra>(), &[("size", core::mem::offset_of!(PxuiMenuExtra, size)), ("reserved", core::mem::offset_of!(PxuiMenuExtra, reserved)), ("lead_from", core::mem::offset_of!(PxuiMenuExtra, lead_from)), ("keys", core::mem::offset_of!(PxuiMenuExtra, keys)), ("swatches", core::mem::offset_of!(PxuiMenuExtra, swatches)), ("danger", core::mem::offset_of!(PxuiMenuExtra, danger)), ("submenus", core::mem::offset_of!(PxuiMenuExtra, submenus)), ("row_h", core::mem::offset_of!(PxuiMenuExtra, row_h)), ("max_rows", core::mem::offset_of!(PxuiMenuExtra, max_rows)), ("checked", core::mem::offset_of!(PxuiMenuExtra, checked)), ("padding", core::mem::offset_of!(PxuiMenuExtra, padding)), ("has_name", core::mem::offset_of!(PxuiMenuExtra, has_name)), ("reserved2", core::mem::offset_of!(PxuiMenuExtra, reserved2)), ("name", core::mem::offset_of!(PxuiMenuExtra, name)), ("selected", core::mem::offset_of!(PxuiMenuExtra, selected)), ("focus_on_click", core::mem::offset_of!(PxuiMenuExtra, focus_on_click)), ("reserved3", core::mem::offset_of!(PxuiMenuExtra, reserved3)), ("ids", core::mem::offset_of!(PxuiMenuExtra, ids)), ("has_id", core::mem::offset_of!(PxuiMenuExtra, has_id))]);
+        check("PxuiMenuExtra", size_of::<PxuiMenuExtra>(), align_of::<PxuiMenuExtra>(), &[("size", core::mem::offset_of!(PxuiMenuExtra, size)), ("reserved", core::mem::offset_of!(PxuiMenuExtra, reserved)), ("lead_from", core::mem::offset_of!(PxuiMenuExtra, lead_from)), ("keys", core::mem::offset_of!(PxuiMenuExtra, keys)), ("swatches", core::mem::offset_of!(PxuiMenuExtra, swatches)), ("danger", core::mem::offset_of!(PxuiMenuExtra, danger)), ("submenus", core::mem::offset_of!(PxuiMenuExtra, submenus)), ("row_h", core::mem::offset_of!(PxuiMenuExtra, row_h)), ("max_rows", core::mem::offset_of!(PxuiMenuExtra, max_rows)), ("checked", core::mem::offset_of!(PxuiMenuExtra, checked)), ("padding", core::mem::offset_of!(PxuiMenuExtra, padding)), ("has_name", core::mem::offset_of!(PxuiMenuExtra, has_name)), ("reserved2", core::mem::offset_of!(PxuiMenuExtra, reserved2)), ("name", core::mem::offset_of!(PxuiMenuExtra, name)), ("selected", core::mem::offset_of!(PxuiMenuExtra, selected)), ("focus_on_click", core::mem::offset_of!(PxuiMenuExtra, focus_on_click)), ("reserved3", core::mem::offset_of!(PxuiMenuExtra, reserved3)), ("ids", core::mem::offset_of!(PxuiMenuExtra, ids)), ("has_id", core::mem::offset_of!(PxuiMenuExtra, has_id)), ("max_h", core::mem::offset_of!(PxuiMenuExtra, max_h)), ("reserved4", core::mem::offset_of!(PxuiMenuExtra, reserved4))]);
         check("Slice", size_of::<Slice<u32>>(), align_of::<Slice<u32>>(), &[("ptr", core::mem::offset_of!(Slice<u32>, ptr)), ("len", core::mem::offset_of!(Slice<u32>, len))]);
         check("Input", size_of::<Input>(), align_of::<Input>(), &[("size", core::mem::offset_of!(Input, size)), ("time", core::mem::offset_of!(Input, time)), ("dt", core::mem::offset_of!(Input, dt)), ("frame", core::mem::offset_of!(Input, frame)), ("tick", core::mem::offset_of!(Input, tick)), ("logical_size", core::mem::offset_of!(Input, logical_size)), ("pointer", core::mem::offset_of!(Input, pointer)), ("keys", core::mem::offset_of!(Input, keys)), ("buttons", core::mem::offset_of!(Input, buttons)), ("events", core::mem::offset_of!(Input, events)), ("pixel_scale", core::mem::offset_of!(Input, pixel_scale)), ("mouse_delta", core::mem::offset_of!(Input, mouse_delta)), ("fps", core::mem::offset_of!(Input, fps))]);
         check("PlatformOut", size_of::<PlatformOut>(), align_of::<PlatformOut>(), &[("size", core::mem::offset_of!(PlatformOut, size)), ("cursor", core::mem::offset_of!(PlatformOut, cursor)), ("has_cursor", core::mem::offset_of!(PlatformOut, has_cursor)), ("has_ime", core::mem::offset_of!(PlatformOut, has_ime)), ("has_background", core::mem::offset_of!(PlatformOut, has_background)), ("has_clipboard", core::mem::offset_of!(PlatformOut, has_clipboard)), ("ime_rect", core::mem::offset_of!(PlatformOut, ime_rect)), ("ime_caret", core::mem::offset_of!(PlatformOut, ime_caret)), ("clipboard", core::mem::offset_of!(PlatformOut, clipboard)), ("background", core::mem::offset_of!(PlatformOut, background)), ("paste", core::mem::offset_of!(PlatformOut, paste)), ("reserved", core::mem::offset_of!(PlatformOut, reserved))]);
@@ -1915,11 +1956,12 @@ pub(crate) mod layout {
         check("PxuiButtonDesc", size_of::<PxuiButtonDesc>(), align_of::<PxuiButtonDesc>(), &[("size", core::mem::offset_of!(PxuiButtonDesc, size)), ("enabled", core::mem::offset_of!(PxuiButtonDesc, enabled)), ("selected", core::mem::offset_of!(PxuiButtonDesc, selected)), ("danger", core::mem::offset_of!(PxuiButtonDesc, danger)), ("justify", core::mem::offset_of!(PxuiButtonDesc, justify)), ("w_kind", core::mem::offset_of!(PxuiButtonDesc, w_kind)), ("h_kind", core::mem::offset_of!(PxuiButtonDesc, h_kind)), ("has_name", core::mem::offset_of!(PxuiButtonDesc, has_name)), ("reserved", core::mem::offset_of!(PxuiButtonDesc, reserved)), ("w", core::mem::offset_of!(PxuiButtonDesc, w)), ("h", core::mem::offset_of!(PxuiButtonDesc, h)), ("padding", core::mem::offset_of!(PxuiButtonDesc, padding)), ("states", core::mem::offset_of!(PxuiButtonDesc, states)), ("key", core::mem::offset_of!(PxuiButtonDesc, key)), ("text", core::mem::offset_of!(PxuiButtonDesc, text)), ("name", core::mem::offset_of!(PxuiButtonDesc, name)), ("centered", core::mem::offset_of!(PxuiButtonDesc, centered)), ("reserved2", core::mem::offset_of!(PxuiButtonDesc, reserved2)), ("has_label", core::mem::offset_of!(PxuiButtonDesc, has_label)), ("axis", core::mem::offset_of!(PxuiButtonDesc, axis)), ("content_align", core::mem::offset_of!(PxuiButtonDesc, content_align)), ("focus_on_click", core::mem::offset_of!(PxuiButtonDesc, focus_on_click)), ("gap", core::mem::offset_of!(PxuiButtonDesc, gap)), ("label", core::mem::offset_of!(PxuiButtonDesc, label)), ("label_box", core::mem::offset_of!(PxuiButtonDesc, label_box))]);
         check("PxuiDialogDesc", size_of::<PxuiDialogDesc>(), align_of::<PxuiDialogDesc>(), &[("size", core::mem::offset_of!(PxuiDialogDesc, size)), ("width", core::mem::offset_of!(PxuiDialogDesc, width)), ("key", core::mem::offset_of!(PxuiDialogDesc, key)), ("title", core::mem::offset_of!(PxuiDialogDesc, title)), ("buttons", core::mem::offset_of!(PxuiDialogDesc, buttons)), ("default_at", core::mem::offset_of!(PxuiDialogDesc, default_at)), ("cancel_at", core::mem::offset_of!(PxuiDialogDesc, cancel_at)), ("danger", core::mem::offset_of!(PxuiDialogDesc, danger)), ("disabled", core::mem::offset_of!(PxuiDialogDesc, disabled))]);
         check("PxuiDialogResult", size_of::<PxuiDialogResult>(), align_of::<PxuiDialogResult>(), &[("size", core::mem::offset_of!(PxuiDialogResult, size)), ("has_chosen", core::mem::offset_of!(PxuiDialogResult, has_chosen)), ("dismissed", core::mem::offset_of!(PxuiDialogResult, dismissed)), ("reserved", core::mem::offset_of!(PxuiDialogResult, reserved)), ("chosen", core::mem::offset_of!(PxuiDialogResult, chosen))]);
+        check("PxuiSegmentedResult", size_of::<PxuiSegmentedResult>(), align_of::<PxuiSegmentedResult>(), &[("size", core::mem::offset_of!(PxuiSegmentedResult, size)), ("has_chosen", core::mem::offset_of!(PxuiSegmentedResult, has_chosen)), ("has_secondary", core::mem::offset_of!(PxuiSegmentedResult, has_secondary)), ("reserved", core::mem::offset_of!(PxuiSegmentedResult, reserved)), ("chosen", core::mem::offset_of!(PxuiSegmentedResult, chosen)), ("secondary", core::mem::offset_of!(PxuiSegmentedResult, secondary))]);
         check("PxuiResponse", size_of::<PxuiResponse>(), align_of::<PxuiResponse>(), &[("size", core::mem::offset_of!(PxuiResponse, size)), ("flags", core::mem::offset_of!(PxuiResponse, flags)), ("node", core::mem::offset_of!(PxuiResponse, node))]);
         check("PxuiIconButtonDesc", size_of::<PxuiIconButtonDesc>(), align_of::<PxuiIconButtonDesc>(), &[("size", core::mem::offset_of!(PxuiIconButtonDesc, size)), ("enabled", core::mem::offset_of!(PxuiIconButtonDesc, enabled)), ("w_kind", core::mem::offset_of!(PxuiIconButtonDesc, w_kind)), ("h_kind", core::mem::offset_of!(PxuiIconButtonDesc, h_kind)), ("reserved", core::mem::offset_of!(PxuiIconButtonDesc, reserved)), ("w", core::mem::offset_of!(PxuiIconButtonDesc, w)), ("h", core::mem::offset_of!(PxuiIconButtonDesc, h)), ("press_scale", core::mem::offset_of!(PxuiIconButtonDesc, press_scale)), ("states", core::mem::offset_of!(PxuiIconButtonDesc, states)), ("key", core::mem::offset_of!(PxuiIconButtonDesc, key)), ("name", core::mem::offset_of!(PxuiIconButtonDesc, name)), ("icon", core::mem::offset_of!(PxuiIconButtonDesc, icon)), ("draw", core::mem::offset_of!(PxuiIconButtonDesc, draw)), ("draw_user", core::mem::offset_of!(PxuiIconButtonDesc, draw_user)), ("press", core::mem::offset_of!(PxuiIconButtonDesc, press))]);
         check("PxuiTextFieldDesc", size_of::<PxuiTextFieldDesc>(), align_of::<PxuiTextFieldDesc>(), &[("size", core::mem::offset_of!(PxuiTextFieldDesc, size)), ("autocorrect", core::mem::offset_of!(PxuiTextFieldDesc, autocorrect)), ("capitalization", core::mem::offset_of!(PxuiTextFieldDesc, capitalization)), ("action", core::mem::offset_of!(PxuiTextFieldDesc, action)), ("reserved", core::mem::offset_of!(PxuiTextFieldDesc, reserved)), ("key", core::mem::offset_of!(PxuiTextFieldDesc, key)), ("name", core::mem::offset_of!(PxuiTextFieldDesc, name)), ("value", core::mem::offset_of!(PxuiTextFieldDesc, value))]);
         check("PxuiToggleDesc", size_of::<PxuiToggleDesc>(), align_of::<PxuiToggleDesc>(), &[("size", core::mem::offset_of!(PxuiToggleDesc, size)), ("enabled", core::mem::offset_of!(PxuiToggleDesc, enabled)), ("on", core::mem::offset_of!(PxuiToggleDesc, on)), ("press_row", core::mem::offset_of!(PxuiToggleDesc, press_row)), ("reserved", core::mem::offset_of!(PxuiToggleDesc, reserved)), ("row_h", core::mem::offset_of!(PxuiToggleDesc, row_h)), ("switch_w", core::mem::offset_of!(PxuiToggleDesc, switch_w)), ("switch_h", core::mem::offset_of!(PxuiToggleDesc, switch_h)), ("inset", core::mem::offset_of!(PxuiToggleDesc, inset)), ("track", core::mem::offset_of!(PxuiToggleDesc, track)), ("knob", core::mem::offset_of!(PxuiToggleDesc, knob)), ("key", core::mem::offset_of!(PxuiToggleDesc, key)), ("text", core::mem::offset_of!(PxuiToggleDesc, text)), ("detail", core::mem::offset_of!(PxuiToggleDesc, detail)), ("has_style", core::mem::offset_of!(PxuiToggleDesc, has_style)), ("reserved2", core::mem::offset_of!(PxuiToggleDesc, reserved2)), ("style", core::mem::offset_of!(PxuiToggleDesc, style))]);
-        check("PxuiSegmentedDesc", size_of::<PxuiSegmentedDesc>(), align_of::<PxuiSegmentedDesc>(), &[("size", core::mem::offset_of!(PxuiSegmentedDesc, size)), ("enabled", core::mem::offset_of!(PxuiSegmentedDesc, enabled)), ("grow", core::mem::offset_of!(PxuiSegmentedDesc, grow)), ("reserved", core::mem::offset_of!(PxuiSegmentedDesc, reserved)), ("h", core::mem::offset_of!(PxuiSegmentedDesc, h)), ("states", core::mem::offset_of!(PxuiSegmentedDesc, states)), ("key", core::mem::offset_of!(PxuiSegmentedDesc, key)), ("name", core::mem::offset_of!(PxuiSegmentedDesc, name)), ("selected", core::mem::offset_of!(PxuiSegmentedDesc, selected)), ("w", core::mem::offset_of!(PxuiSegmentedDesc, w)), ("padding", core::mem::offset_of!(PxuiSegmentedDesc, padding)), ("min_segment", core::mem::offset_of!(PxuiSegmentedDesc, min_segment)), ("reserved2", core::mem::offset_of!(PxuiSegmentedDesc, reserved2)), ("names", core::mem::offset_of!(PxuiSegmentedDesc, names))]);
+        check("PxuiSegmentedDesc", size_of::<PxuiSegmentedDesc>(), align_of::<PxuiSegmentedDesc>(), &[("size", core::mem::offset_of!(PxuiSegmentedDesc, size)), ("enabled", core::mem::offset_of!(PxuiSegmentedDesc, enabled)), ("grow", core::mem::offset_of!(PxuiSegmentedDesc, grow)), ("reserved", core::mem::offset_of!(PxuiSegmentedDesc, reserved)), ("h", core::mem::offset_of!(PxuiSegmentedDesc, h)), ("states", core::mem::offset_of!(PxuiSegmentedDesc, states)), ("key", core::mem::offset_of!(PxuiSegmentedDesc, key)), ("name", core::mem::offset_of!(PxuiSegmentedDesc, name)), ("selected", core::mem::offset_of!(PxuiSegmentedDesc, selected)), ("w", core::mem::offset_of!(PxuiSegmentedDesc, w)), ("padding", core::mem::offset_of!(PxuiSegmentedDesc, padding)), ("min_segment", core::mem::offset_of!(PxuiSegmentedDesc, min_segment)), ("reserved2", core::mem::offset_of!(PxuiSegmentedDesc, reserved2)), ("names", core::mem::offset_of!(PxuiSegmentedDesc, names)), ("has_selected", core::mem::offset_of!(PxuiSegmentedDesc, has_selected)), ("reserved3", core::mem::offset_of!(PxuiSegmentedDesc, reserved3))]);
         check("PxuiHeadActionDesc", size_of::<PxuiHeadActionDesc>(), align_of::<PxuiHeadActionDesc>(), &[("size", core::mem::offset_of!(PxuiHeadActionDesc, size)), ("active", core::mem::offset_of!(PxuiHeadActionDesc, active)), ("usable", core::mem::offset_of!(PxuiHeadActionDesc, usable)), ("reserved", core::mem::offset_of!(PxuiHeadActionDesc, reserved)), ("caption", core::mem::offset_of!(PxuiHeadActionDesc, caption)), ("keycap", core::mem::offset_of!(PxuiHeadActionDesc, keycap))]);
         check("PxuiHeaderDesc", size_of::<PxuiHeaderDesc>(), align_of::<PxuiHeaderDesc>(), &[("size", core::mem::offset_of!(PxuiHeaderDesc, size)), ("has_kind", core::mem::offset_of!(PxuiHeaderDesc, has_kind)), ("has_badge", core::mem::offset_of!(PxuiHeaderDesc, has_badge)), ("has_index", core::mem::offset_of!(PxuiHeaderDesc, has_index)), ("has_reset", core::mem::offset_of!(PxuiHeaderDesc, has_reset)), ("reset_enabled", core::mem::offset_of!(PxuiHeaderDesc, reset_enabled)), ("reserved", core::mem::offset_of!(PxuiHeaderDesc, reserved)), ("key", core::mem::offset_of!(PxuiHeaderDesc, key)), ("kind", core::mem::offset_of!(PxuiHeaderDesc, kind)), ("badge", core::mem::offset_of!(PxuiHeaderDesc, badge)), ("index", core::mem::offset_of!(PxuiHeaderDesc, index)), ("reset", core::mem::offset_of!(PxuiHeaderDesc, reset)), ("title", core::mem::offset_of!(PxuiHeaderDesc, title)), ("detail", core::mem::offset_of!(PxuiHeaderDesc, detail)), ("actions", core::mem::offset_of!(PxuiHeaderDesc, actions))]);
         check("PxuiHeadOut", size_of::<PxuiHeadOut>(), align_of::<PxuiHeadOut>(), &[("size", core::mem::offset_of!(PxuiHeadOut, size)), ("has_chosen", core::mem::offset_of!(PxuiHeadOut, has_chosen)), ("reset_pressed", core::mem::offset_of!(PxuiHeadOut, reset_pressed)), ("reserved", core::mem::offset_of!(PxuiHeadOut, reserved)), ("renamed", core::mem::offset_of!(PxuiHeadOut, renamed)), ("chosen", core::mem::offset_of!(PxuiHeadOut, chosen))]);

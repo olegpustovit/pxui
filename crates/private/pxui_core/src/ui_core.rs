@@ -1978,8 +1978,11 @@ impl Ui {
                 if local.w > 0.0 && local.h > 0.0 && shown.w > 0.0 && shown.h > 0.0 {
                     states |= a11y_state::VISIBLE;
                 }
+                // a node focusable to assistive technology alone (a radio group's options past its one Tab stop) offers Focus too
                 if n.flags.any(Flags::FOCUSABLE) {
                     states |= a11y_state::FOCUSABLE;
+                }
+                if states & a11y_state::FOCUSABLE != 0 {
                     acts |= a11y_actions::FOCUS;
                 }
                 if s.key == self.focus {
@@ -3699,6 +3702,11 @@ impl Ui {
 
     pub fn key_events_ref(&self, b: &UiBox) -> &[(Event, Vec<Key>)] {
         let key = if self.live(b) { b.box_key } else { 0 };
+        self.signals.get(&key).filter(|_| key != 0).map_or(&[], |value| &value.keys)
+    }
+
+    /// The key events routed to the node keyed `key` this frame (the focused one), read without its handle.
+    pub(crate) fn key_events_of(&self, key: i64) -> &[(Event, Vec<Key>)] {
         self.signals.get(&key).filter(|_| key != 0).map_or(&[], |value| &value.keys)
     }
 

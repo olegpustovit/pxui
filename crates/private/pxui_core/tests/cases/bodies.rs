@@ -1312,7 +1312,7 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentConfig, _states: Option<&States>, tex
     if c.index == 0 {
         FIRST_SEGMENT.with(|f| f.set(c.node.box_key));
         let first = ui.part_rect(c.node.box_key, Part::HIT);
-        let chosen = ui.part_rect(int_key(c.group, c.selected as i64), Part::HIT);
+        let chosen = c.selected.and_then(|at| ui.part_rect(int_key(c.group, at as i64), Part::HIT));
         let at = match (first, chosen) {
             (Some(f), Some(s)) => (s.x - f.x, 0.0),
             _ => (0.0, 0.0),
@@ -1323,7 +1323,7 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentConfig, _states: Option<&States>, tex
 
 pub fn segment_sliding_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.segment = id, &|ui| ui.register_segment_body("sliding", sliding_segment));
-    let build = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.segmented("Align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], v.get() as usize) as i64);
+    let build = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.segmented_opts("Align", "Align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], Some(v.get() as usize), &SegmentedOpts::DEFAULT).1.map_or(v.get(), |i| i as i64));
     swap_all("segment", &install, Role::Radio, "Centre", Key::ArrowRight, &build);
     // the marker is one node and follows the choice: after a click on "Right" it sits over "Right"
     let mut ui = new_ui(None);

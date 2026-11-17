@@ -64,7 +64,7 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
     if !extra.is_null() {
         // the size is read before the descriptor is copied; only a size the record has had is read (one that ends inside a field is refused)
         let size = unsafe { (*extra).size } as usize;
-        valid = (matches!(size, MENU_EXTRA_V1 | MENU_EXTRA_V149 | MENU_EXTRA_V155) || size >= core::mem::size_of::<PxuiMenuExtra>()) && unsafe { decode_extra(&*extra, size, &mut menu, &mut subs, &mut options, &mut marks) };
+        valid = (matches!(size, MENU_EXTRA_V1 | MENU_EXTRA_V149 | MENU_EXTRA_V155 | MENU_EXTRA_V158) || size >= core::mem::size_of::<PxuiMenuExtra>()) && unsafe { decode_extra(&*extra, size, &mut menu, &mut subs, &mut options, &mut marks) };
     }
     if valid && has_selected != 0 && !marks {
         // the current choice: the rows from `lead_from` keep the mark slot, the chosen one is marked
@@ -92,6 +92,8 @@ const MENU_EXTRA_V1: usize = 80;
 const MENU_EXTRA_V149: usize = 104;
 // `PxuiMenuExtra` as ABI 1.55 had it: the fields before `focus_on_click`.
 const MENU_EXTRA_V155: usize = 144;
+// `PxuiMenuExtra` as ABI 1.58 had it: the fields before `max_h`.
+const MENU_EXTRA_V158: usize = 184;
 
 // Applies a menu's extras to its rows (shortcuts, swatches, destructive rows, marks, submenus) and options, borrowing the caller's
 // strings: false when a span, text or row is invalid. The submenus' rows go flat into `subs` first, then each opening row points
@@ -136,12 +138,17 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         for (item, on) in menu.iter_mut().zip(selected) { item.selected = *on == 1; }
     }
     // ABI 1.58: a press focuses its row, and the rows' ids
-    if size >= core::mem::size_of::<PxuiMenuExtra>() {
+    if size >= MENU_EXTRA_V158 {
         if extra.focus_on_click > 1 || extra.reserved3 != [0; 7] { return false; }
         *options = options.focus_on_click(extra.focus_on_click == 1);
         let (Some(ids), Some(has_id)) = (span(extra.ids, MAX_ROWS), span(extra.has_id, MAX_ROWS)) else { return false };
         if has_id.len() > menu.len() || has_id.len() > ids.len() || has_id.iter().any(|on| *on > 1) { return false; }
         for ((item, on), id) in menu.iter_mut().zip(has_id).zip(ids) { item.id = (*on == 1).then_some(*id); }
+    }
+    // ABI 1.67: the sheet's most height
+    if size >= core::mem::size_of::<PxuiMenuExtra>() {
+        if !(0.0..=f32::MAX).contains(&extra.max_h) || extra.reserved4 != 0 { return false; }
+        if extra.max_h > 0.0 { *options = options.max_h(extra.max_h); }
     }
     subs.clear();
     let mut at = [(0usize, 0usize, 0usize); 64];

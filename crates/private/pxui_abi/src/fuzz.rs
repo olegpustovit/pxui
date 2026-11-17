@@ -88,7 +88,7 @@ arg!(int: u8, u16, u32, u64, usize);
 arg!(signed: i32, i64);
 arg!(float: f32, f64);
 arg!(span: Str, u8, i64, Event, A11yAction, PxuiHintDesc, PxuiKeyframeDesc);
-arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::TextSpans, Commands, A11yAction, Input, PxuiBoxDesc, PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult,
+arg!(sized: PxuiTextFieldDesc, Environment, Gpu, Keyboard, Pass, pxui_text::TextSpans, Commands, A11yAction, Input, PxuiBoxDesc, PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSegmentedResult,
     PxuiDismissIn, PxuiDismissOut, PxuiFooterDesc, PxuiGestureIn, PxuiGestureOut, PxuiGridListDesc, PxuiHeaderDesc, PxuiHeadOut, PxuiIconButtonDesc,
     PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiLabelStyle, PxuiListViewDesc,
     PxuiListViewWithDesc, PxuiLookDesc, PxuiMeasuredSectionDesc, PxuiMenuBarDesc, PxuiMenuExtra, PxuiMenuOut, PxuiNodeFields, PxuiPopupDesc, PxuiResponse,
@@ -225,7 +225,7 @@ fuzz!(
     pxui_ui_popup/5, pxui_ui_press_keys/4, pxui_ui_progress/5, pxui_ui_radio/5, pxui_ui_rebuilt_named/3, pxui_ui_rect/3, pxui_ui_remember/5,
     pxui_ui_repaint_after/2, pxui_ui_request_cursor/2, pxui_ui_request_frame/1, pxui_ui_resolve_label/3, pxui_ui_reveal/3, pxui_ui_root_at/6, pxui_ui_row_height/1,
     pxui_ui_scroll_offset/4, pxui_ui_scroll_view/7, pxui_ui_scrub/7, pxui_ui_search_field/7, pxui_ui_section_list/3, pxui_ui_section_list_measured/3,
-    pxui_ui_segmented/5, pxui_ui_segmented_plain/7, pxui_ui_segmented_response/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_colors/4, pxui_ui_set_dir/2,
+    pxui_ui_segmented/5, pxui_ui_segmented_plain/7, pxui_ui_segmented_response/5, pxui_ui_segmented_result/5, pxui_ui_set_a11y/2, pxui_ui_set_at/4, pxui_ui_set_colors/4, pxui_ui_set_dir/2,
     pxui_ui_set_font_size/2, pxui_ui_set_look/4, pxui_ui_set_node_fields/3, pxui_ui_set_node_layout/3, pxui_ui_set_role/4, pxui_ui_set_scroll_offset/3,
     pxui_ui_set_state/3, pxui_ui_set_text_state/4, pxui_ui_set_text_worker/2, pxui_ui_set_theme/2, pxui_ui_set_timing/2, pxui_ui_signal/3, pxui_ui_slider/6,
     pxui_ui_spinner/3, pxui_ui_split/4, pxui_ui_state/4, pxui_ui_style/4, pxui_ui_swipe_actions/3, pxui_ui_system_appearance/2, pxui_ui_table/3,

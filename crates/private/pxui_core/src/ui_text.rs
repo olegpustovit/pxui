@@ -1578,7 +1578,7 @@ impl Ui {
     /// floats at the root regardless of its parent. A row with a submenu has a chevron and, while the pointer is on it, opens a
     /// second menu overlapping the first by a point, level with the row; the rows of the submenus are numbered after those of the
     /// menu, in the order of the rows that open them. A press outside the menu in the frame that first builds it dismisses it. A row is
-    /// keyed by its `id` (a submenu's rows by place), else by its place, never by its text; past `max_rows` the sheet itself scrolls.
+    /// keyed by its `id` (a submenu's rows by place), else by its place, never by its text; past `max_rows` or `max_h` the sheet itself scrolls.
     pub fn menu(&mut self, key: NodeKey, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
         menu_body(self, key, at, items, menu)
     }
@@ -3127,10 +3127,11 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let (view_w, view_h) = this.view_size();
     let width = view_w.min(this.menu_measure(menu.width.unwrap_or(150.0), items, true, swatch_pad, key_size));
     let height_of = |items: &[MenuItem]| items.iter().fold(2.0 * pad + 2.0, |h, i| h + if i.text.is_empty() { gap } else { row_height });
-    // past `max_rows` rows the sheet scrolls, as tall as the first `max_rows` rows
+    // past `max_rows` rows or `max_h` points (the smaller) the sheet scrolls, as tall as the first `max_rows` rows or `max_h`
     let shown_rows = menu.max_rows.map_or(items.len(), |rows| rows.min(items.len()));
-    let scrolls = shown_rows < items.len();
-    let height = height_of(&items[..shown_rows]);
+    let rows_h = height_of(&items[..shown_rows]);
+    let height = menu.max_h.filter(|h| *h > 0.0).map_or(rows_h, |h| rows_h.min(h));
+    let scrolls = shown_rows < items.len() || height < rows_h;
     // a menu opens at the point, moved inside the window
     let bounds = Rect::new(0.0, 0.0, view_w, view_h);
     // the sheet is at least a panel's 180 points wide (`panel_enter`): placed at that width, it stays inside the window
@@ -3152,7 +3153,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let related = if has_submenus { vec![key_of(this.current_seed(), &format!("{}-sub", label))] } else { Vec::new() };
     // the sheet is named by `Menu::name` (none without), never by its key
     let name = Some(menu.name.unwrap_or(""));
-    // past `max_rows` the sheet itself scrolls (its spacers with the rows): no scroll view of its own inside it
+    // past `max_rows` or `max_h` the sheet itself scrolls (its spacers with the rows): no scroll view of its own inside it
     let popts = PopupOpts { look: Some(sheet), keep, related, role: Role::Menu, max_height: scrolls.then_some(height), ..PopupOpts::default() };
     let mut opened: Option<i64> = None;
     let mut picked: Option<i64> = None;

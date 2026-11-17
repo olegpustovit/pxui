@@ -42,11 +42,12 @@ pub struct Pressable<'a> {
     enabled: bool,
     tab_stop: bool,
     selected: bool,
+    focus_on_click: bool,
 }
 
 impl<'a> Pressable<'a> {
-    /// A pressable that keeps its node's look: enabled, a tab stop, not selected.
-    pub const DEFAULT: Pressable<'a> = Pressable { look: None, enabled: true, tab_stop: true, selected: false };
+    /// A pressable that keeps its node's look: enabled, a tab stop that only Tab focuses, not selected.
+    pub const DEFAULT: Pressable<'a> = Pressable { look: None, enabled: true, tab_stop: true, selected: false, focus_on_click: false };
 
     /// Sets the look per state (idle, hover, pressed, focus, disabled, checked), applied by the node's state each frame so the theme's
     /// state transitions run; without one the node keeps the look it was declared with. The looks are borrowed, not copied.
@@ -94,14 +95,25 @@ impl<'a> Pressable<'a> {
     /// let _ = p;
     /// ```
     pub const fn selected(mut self, selected: bool) -> Pressable<'a> { self.selected = selected; self }
+
+    /// Sets whether a press on the node focuses it (false by default: only Tab focuses it, as a kit button), as `Button::focus_on_click`
+    /// and `Menu::focus_on_click` do. It applies to a tab stop only: with `tab_stop(false)` the node takes no focus at all.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const ROW: pxui::Pressable = pxui::Pressable::DEFAULT.focus_on_click(true);
+    /// let _ = ROW;
+    /// ```
+    pub const fn focus_on_click(mut self, focus: bool) -> Pressable<'a> { self.focus_on_click = focus; self }
 }
 
 impl Ui {
     /// Declares `node` as a pressable under the current parent, looks it by its state, runs `f` inside it with that state and reports
     /// what happened.
     ///
-    /// `node` is used as given, except that `pressable` owns its input flags: `CLICKABLE`, plus `TAB_STOP` unless `tab_stop(false)`;
-    /// disabled, `BLOCKING` only. The state (hovered, pressed, focused, disabled, checked) is what input did to the node before `f`
+    /// `node` is used as given, except that `pressable` owns its input flags: `CLICKABLE`, plus `TAB_STOP` unless `tab_stop(false)`
+    /// (`FOCUSABLE` alone with `focus_on_click(true)`, so a press focuses it); disabled, `BLOCKING` only. The state (hovered, pressed, focused, disabled, checked) is what input did to the node before `f`
     /// ran; `pressed` is also on while a touch gesture's highlight shows (a `long_press` row). The look `pressable.look` picks for it
     /// is applied before `f` runs. A gesture is taken on `handle` with `ui.gesture`, in this build after `pressable` returns (call
     /// order does not matter: gestures route the next input). There is no body kind: the structure is the caller's `node` and `f`,
@@ -158,6 +170,7 @@ impl Ui {
         let input = Flags(Flags::CLICKABLE.0 | Flags::TAB_STOP.0 | Flags::BLOCKING.0);
         node.flags = Flags(node.flags.0 & !input.0) | match (p.enabled, p.tab_stop) {
             (false, _) => Flags::BLOCKING,
+            (true, true) if p.focus_on_click => Flags::CLICKABLE | Flags::FOCUSABLE,
             (true, true) => Flags::CLICKABLE | Flags::TAB_STOP,
             (true, false) => Flags::CLICKABLE,
         };
@@ -336,6 +349,23 @@ mod tests {
         touch(&mut ui, 0, 3.0, &mut build);
         assert!(held.get(), "a touch drag taken after pressable holds it at once");
         touch(&mut ui, 2, 3.1, &mut build);
+    }
+
+    /// `focus_on_click(true)`: a click focuses the node (and its response says so); by default only Tab does, and with `tab_stop(false)`
+    /// nothing does.
+    #[test]
+    fn focus_on_click_focuses_the_pressed_node() {
+        for (p, focuses) in [(P, false), (P.focus_on_click(true), true), (P.focus_on_click(true).tab_stop(false), false)] {
+            let last = Cell::new(None);
+            let mut build = |ui: &mut Ui| { last.set(Some(ui.pressable("p", node(), &p, |_, _| {}))); };
+            let mut ui = crate::doc::frames(2, &mut build);
+            testing::click(&mut ui, 10.0, 10.0, &mut build);
+            testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(last.get().unwrap().focused, focuses, "{p:?}");
+            let states = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Button)).unwrap().states;
+            assert_eq!(states & state::FOCUSED != 0, focuses, "{p:?}");
+            assert_eq!(states & state::FOCUSABLE != 0, p.tab_stop, "{p:?}: a tab stop either way");
+        }
     }
 
     /// The pressable is one node: same count as the hand-written node, signal, within.

@@ -108,18 +108,22 @@ pxui::doc::frames(2, &mut |ui| {
 ## Toggles and segmented controls
 
 `toggle_with(key, text, on, &Toggle)` returns a `Response`: the new value is `on != response.changed`; the app owns
-the value. `segmented_with(key, &[Segment], selected, &Segmented)` returns `(Response, chosen)`. Segments are
-`Segment::new(text)` values in a `const` array, never `&[&str]`.
+the value. `segmented_with(key, &[Segment], selected, &Segmented)` takes the choice as `Option<usize>` (`None`: none
+chosen) and returns a `SegmentedResponse`: `response` (`changed` when the choice moved), `chosen`, and `secondary`, the
+option a right/two-finger press began on (a context-menu request, never a choice). The strip is one Tab stop, the
+chosen option; Left/Right move the focus and the choice. Segments are `Segment::new(text)` values in a `const` array,
+never `&[&str]`.
 
 ```rust
 use pxui::{Segment, Segmented, Toggle};
 const SETTING: Toggle = Toggle::DEFAULT.row_h(52.0);
 const LOOKS: Segmented = Segmented::DEFAULT.h_px(28.0).name("Appearance");
 const OPTIONS: [Segment; 3] = [Segment::new("System"), Segment::new("Light"), Segment::new("Dark")];
-let (mut offline, mut look) = (false, 0usize);
+let (mut offline, mut look) = (false, Some(0));
 pxui::doc::frames(2, &mut |ui| {
     if ui.toggle_with("offline", "Offline mode", offline, &SETTING).changed { offline = !offline; }
-    look = ui.segmented_with("appearance", &OPTIONS, look, &LOOKS).1;
+    let strip = ui.segmented_with("appearance", &OPTIONS, look, &LOOKS);
+    if strip.response.changed { look = strip.chosen; }
 });
 ```
 

@@ -1,7 +1,8 @@
-//! The kit toggle and segmented control with options: `ui.toggle_with(key, text, on, &Toggle)` and `ui.segmented_with(key, options, selected,
-//! &Segmented)` report a `Response` (`changed` when the value moved); `ui.toggle(text, on)` and `ui.segmented(label, options, selected)` are the defaults.
+//! The kit toggle and segmented control with options: `ui.toggle_with(key, text, on, &Toggle)` reports a `Response` and `ui.segmented_with(key,
+//! options, selected, &Segmented)` a `SegmentedResponse` (`changed` when the value moved); `ui.toggle(text, on)` is the toggle's default.
 use super::{Key, Response};
 use crate::{Segment, Ui};
+use pxui_types::ui::Segmented;
 use pxui_types::{theme::States, Label};
 
 /// How `Ui::toggle_with` varies the kit's toggle, as a `Copy` value built with `const fn` builders from `Toggle::DEFAULT`.
@@ -139,119 +140,17 @@ impl<'a> Toggle<'a> {
     pub const fn label(mut self, label: Label) -> Toggle<'a> { self.label = Some(label); self }
 }
 
-/// How `Ui::segmented_with` varies the kit's segmented control, as a `Copy` value built with `const fn` builders from `Segmented::DEFAULT`.
-///
-/// The default is the plain `Ui::segmented`: the theme's control height, each segment as wide as its text plus 16, the text 8 in.
-#[derive(Clone, Copy)]
-pub struct Segmented<'a> {
-    pub(crate) h: Option<f32>,
-    pub(crate) grow: bool,
-    pub(crate) look: Option<States>,
-    pub(crate) enabled: bool,
-    pub(crate) name: Option<&'a str>,
-    pub(crate) variant: u16,
-    pub(crate) w: Option<f32>,
-    pub(crate) padding: f32,
-    pub(crate) min_segment: f32,
-}
-
-impl<'a> Segmented<'a> {
-    /// The plain kit segmented control.
-    pub const DEFAULT: Segmented<'a> = Segmented { h: None, grow: false, look: None, enabled: true, name: None, variant: 0, w: None, padding: 8.0, min_segment: 0.0 };
-
-    /// Sets the strip's height in points.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// const CHIPS: pxui::Segmented = pxui::Segmented::DEFAULT.h_px(28.0);
-    /// let _ = CHIPS;
-    /// ```
-    pub const fn h_px(mut self, h: f32) -> Segmented<'a> { self.h = Some(h); self }
-
-    /// Makes the strip fill its line, its segments sharing the width equally, instead of each being as wide as its text.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// const WIDE: pxui::Segmented = pxui::Segmented::DEFAULT.grow();
-    /// let _ = WIDE;
-    /// ```
-    pub const fn grow(mut self) -> Segmented<'a> { self.grow = true; self }
-
-    /// Sets every segment's look per state (idle, hover, pressed, focus, disabled, checked for the choice) in place of the theme's `segment`.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui::{ui::{Look, States}, Segmented};
-    /// const CHIP: States = States::all(Look::NONE);
-    /// const S: Segmented = Segmented::DEFAULT.look(&CHIP);
-    /// let _ = S;
-    /// ```
-    pub const fn look(mut self, look: &States) -> Segmented<'a> { self.look = Some(*look); self }
-
-    /// Sets whether the strip takes input: disabled takes no press, key or focus, shows the `disabled` look and reads as disabled to
-    /// accessibility.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// let s = pxui::Segmented::DEFAULT.enabled(false);
-    /// let _ = s;
-    /// ```
-    pub const fn enabled(mut self, enabled: bool) -> Segmented<'a> { self.enabled = enabled; self }
-
-    /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
-    /// picks per call without comparing text. The built-in body ignores it.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// const V: pxui::Segmented = pxui::Segmented::DEFAULT.variant(1);
-    /// let _ = V;
-    /// ```
-    pub const fn variant(mut self, variant: u16) -> Segmented<'a> { self.variant = variant; self }
-
-    /// Sets the strip's accessible name; without it the strip has none (each option is named by its text).
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// const S: pxui::Segmented = pxui::Segmented::DEFAULT.name("Appearance");
-    /// let _ = S;
-    /// ```
-    pub const fn name(mut self, name: &'a str) -> Segmented<'a> { self.name = Some(name); self }
-
-    /// Sets the strip's width in points, its segments sharing it equally (as `grow` shares its line's).
-    /// Allocates: never.
-    /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
-    ///
-    /// ```
-    /// const STRIP: pxui::Segmented = pxui::Segmented::DEFAULT.size(240.0);
-    /// let _ = STRIP;
-    /// ```
-    pub const fn size(mut self, w: f32) -> Segmented<'a> { self.w = Some(w); self }
-
-    /// Sets a segment's text inset in points, and half the room around its text when segments are as wide as their text (8 by default).
-    /// Allocates: never.
-    /// Panics: never (a negative or non-finite padding panics at the `segmented_with` call).
-    ///
-    /// ```
-    /// const ROOMY: pxui::Segmented = pxui::Segmented::DEFAULT.padding(12.0);
-    /// let _ = ROOMY;
-    /// ```
-    pub const fn padding(mut self, padding: f32) -> Segmented<'a> { self.padding = padding; self }
-
-    /// Sets the least width of a segment in points (none by default), whether it is as wide as its text or shares the strip.
-    /// Allocates: never.
-    /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
-    ///
-    /// ```
-    /// const EVEN: pxui::Segmented = pxui::Segmented::DEFAULT.min_segment(56.0);
-    /// let _ = EVEN;
-    /// ```
-    pub const fn min_segment(mut self, w: f32) -> Segmented<'a> { self.min_segment = w; self }
+/// What `Ui::segmented_with` reports: the strip's response, the choice and the option a secondary press began on.
+#[derive(Clone, Copy, Debug)]
+pub struct SegmentedResponse {
+    /// The strip's response: `clicked` (and `activated`) for a press or Space/Enter on an option, `changed` when `chosen` differs from the
+    /// `selected` given, `hovered`, `held` and `focused` for the strip or any option, `secondary` as `secondary` below; `handle` the strip.
+    pub response: Response,
+    /// The choice after this frame's input; `None` when no option is chosen (a press or an arrow key chooses one).
+    pub chosen: Option<usize>,
+    /// The option a secondary press (the right button, or the two-finger or control click the platform reports as one) began on this
+    /// frame: the request for its context menu. It never changes the choice.
+    pub secondary: Option<usize>,
 }
 
 impl Ui {
@@ -299,54 +198,38 @@ impl Ui {
     pub fn toggle(&mut self, text: &str, on: bool) -> bool { on != self.toggle_keyed("toggle", text, on, &Toggle::DEFAULT).changed }
 
     /// Declares a kit segmented control (`options` side by side in one strip, the choice filled) under the current parent and reports the
-    /// strip's response and the choice.
+    /// strip's response, the choice and the option a secondary press began on.
     ///
-    /// One Tab stop: Left and Right move the choice, a press on an option chooses it. `selected` is clamped to the options; `changed` says
-    /// the returned choice differs from `selected`. The strip is named `Segmented::name` (none without), each option by its `Segment::name`
-    /// (its text without), role Radio.
+    /// A radio group (the standard pattern): every option is a Radio that assistive technology can focus (FOCUSABLE, with the Focus
+    /// action), but only one is a Tab stop, the chosen option (the first when `selected` is `None`). Left and Right on the focused option
+    /// move the focus and the choice to its neighbour (reversed right to left), Space or Enter chooses the focused option, and a press
+    /// chooses the option under it without focusing it. When the choice changes while an option holds the focus (by a key or by the caller
+    /// changing `selected`), the focus moves to the new choice; when the options shrink below the focused one, the focus moves to the Tab
+    /// stop (to the strip itself when no option is left). `selected` `None` is no choice: no option is checked until a press or a key
+    /// chooses one; an index past the options is clamped to the last. A secondary press on an option is `secondary` (its index), never a
+    /// choice. The strip is named `Segmented::name` (none without), each option by its `Segment::name` (its text without).
     /// Allocates: never on a warm frame (up to 32 options; more allocate a span).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never an option's text.
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never an option's text. The options are
+    /// keyed by their place in the strip.
     /// Panics: when the library refuses the arguments (outside a frame, more than 4096 options, a negative height, width, padding or least width). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::{Segment, Segmented};
-    /// let mut chosen = 0;
+    /// let mut chosen = None;
     /// let mut build = |ui: &mut pxui::Ui| {
     ///     const CHIPS: Segmented = Segmented::DEFAULT.h_px(28.0).name("Appearance");
     ///     const OPTIONS: [Segment; 3] = [Segment::new("System"), Segment::new("Light"), Segment::new("Dark").name("Use the dark theme")];
-    ///     let (_, i) = ui.segmented_with("appearance", &OPTIONS, chosen, &CHIPS);
-    ///     chosen = i;
+    ///     let strip = ui.segmented_with("appearance", &OPTIONS, chosen, &CHIPS);
+    ///     if strip.response.changed { chosen = strip.chosen; }
     /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
     /// let dark = pxui::testing::find(&ui, pxui::a11y::Role::Radio, "Use the dark theme").expect("the Dark option, by its name");
     /// pxui::testing::click(&mut ui, f64::from(dark.x + 4.0), f64::from(dark.y + 4.0), &mut build);
-    /// assert_eq!(chosen, 2);
+    /// assert_eq!(chosen, Some(2));
     /// ```
     #[inline]
     #[track_caller]
-    pub fn segmented_with<K: Into<Key>>(&mut self, key: K, options: &[Segment], selected: usize, segmented: &Segmented<'_>) -> (Response, usize) { self.segmented_key(key.into(), options, selected, segmented) }
-
-    /// Declares a kit segmented control as `segmented_with` does with `Segmented::DEFAULT`, named `label`, and returns the choice.
-    ///
-    /// It is `segmented_with("segmented", options, selected, ..)` with `label` as the strip's accessible name: its identity is its place
-    /// among its siblings, not `label`.
-    /// Allocates: never on a warm frame (up to 32 options).
-    /// Identity: by position among the parent's children (the key `"segmented"`, made unique in order).
-    /// Panics: as `segmented_with`. Display text past 64 KiB is clipped at a character boundary, never refused.
-    ///
-    /// ```
-    /// let mut chosen = 0;
-    /// use pxui::Segment;
-    /// const ALIGN: [Segment; 3] = [Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")];
-    /// let mut build = |ui: &mut pxui::Ui| { chosen = ui.segmented("Align", &ALIGN, chosen); };
-    /// let _ = pxui::doc::frames(1, &mut build);
-    /// assert_eq!(chosen, 0);
-    /// ```
-    #[inline]
-    #[track_caller]
-    pub fn segmented(&mut self, label: &str, options: &[Segment], selected: usize) -> usize {
-        self.segmented_keyed("segmented", label, options, selected, &Segmented::DEFAULT).1
-    }
+    pub fn segmented_with<K: Into<Key>>(&mut self, key: K, options: &[Segment], selected: Option<usize>, segmented: &Segmented<'_>) -> SegmentedResponse { self.segmented_key(key.into(), options, selected, segmented) }
 
     /// The one body of `toggle_with`: the key's label, then the engine call.
     #[track_caller]
@@ -362,7 +245,7 @@ impl Ui {
 
     /// The one body of `segmented_with`: the key's label, then the engine call.
     #[track_caller]
-    fn segmented_key(&mut self, key: Key, options: &[Segment], selected: usize, segmented: &Segmented<'_>) -> (Response, usize) {
+    fn segmented_key(&mut self, key: Key, options: &[Segment], selected: Option<usize>, segmented: &Segmented<'_>) -> SegmentedResponse {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         if segmented.variant == 0 { return self.segmented_keyed(label, segmented.name.unwrap_or(""), options, selected, segmented); }
@@ -467,15 +350,16 @@ mod tests {
         let chosen = Cell::new(1usize);
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
-            let (r, i) = ui.segmented_with("cache", &OPTIONS, chosen.get(), &CHIPS);
-            chosen.set(i);
-            last.set(Some(r));
+            let r = ui.segmented_with("cache", &OPTIONS, Some(chosen.get()), &CHIPS);
+            chosen.set(r.chosen.unwrap());
+            last.set(Some(r.response));
         };
         let mut ui = crate::doc::frames(3, &mut build);
         let (strip, strip_rect) = node(&ui, Role::Group, "Cache size");
         assert_eq!(strip_rect.h, 28.0);
-        assert!(strip & state::FOCUSABLE != 0);
+        assert!(strip & state::FOCUSABLE == 0, "the options take the focus, not the strip");
         let chips: Vec<(u32, Rect)> = OPTIONS.iter().map(|o| node(&ui, Role::Radio, o.text)).collect();
+        assert!(chips.iter().all(|c| c.0 & state::FOCUSABLE != 0), "every option is focusable to assistive technology: {chips:?}");
         assert!(chips.iter().all(|c| c.1.h == 28.0 && c.1.w == chips[0].1.w), "equal shares of the strip: {chips:?}");
         assert!(chips[0].1.w * 3.0 > 0.9 * strip_rect.w, "the strip fills its line: {chips:?} of {strip_rect:?}");
         let checked: Vec<bool> = chips.iter().map(|c| c.0 & state::CHECKED != 0).collect();
@@ -490,25 +374,220 @@ mod tests {
         assert!(!last.get().unwrap().changed);
     }
 
-    /// `segmented(label, options, selected)` is `segmented_with("segmented", ..)` named by the label, the theme's size, identity by position.
+    /// The default strip is the theme's control height; a disabled strip takes no press and no option is focusable.
     #[test]
-    fn segmented_forwards_and_a_disabled_strip_blocks_input() {
+    fn default_height_and_a_disabled_strip_blocks_input() {
         let (chosen, enabled) = (Cell::new(0usize), Cell::new(false));
-        let mut short = |ui: &mut Ui| { chosen.set(ui.segmented("Align", &[Segment::new("Left"), Segment::new("Right")], chosen.get())); };
-        let mut ui = crate::doc::frames(3, &mut short);
+        let mut plain = |ui: &mut Ui| { chosen.set(ui.segmented_with("align", &[Segment::new("Left"), Segment::new("Right")], Some(chosen.get()), &Segmented::DEFAULT.name("Align")).chosen.unwrap()); };
+        let mut ui = crate::doc::frames(3, &mut plain);
         let (_, strip) = node(&ui, Role::Group, "Align");
         assert_eq!(strip.h, 20.0);
         let right = node(&ui, Role::Radio, "Right").1;
-        click_centre(&mut ui, right, &mut short);
+        click_centre(&mut ui, right, &mut plain);
         assert_eq!(chosen.get(), 1);
         chosen.set(0);
-        let mut off = |ui: &mut Ui| { chosen.set(ui.segmented_with("seg", &[Segment::new("Left"), Segment::new("Right")], chosen.get(), &Segmented::DEFAULT.enabled(enabled.get()).name("Align")).1); };
+        let mut off = |ui: &mut Ui| { chosen.set(ui.segmented_with("seg", &[Segment::new("Left"), Segment::new("Right")], Some(chosen.get()), &Segmented::DEFAULT.enabled(enabled.get()).name("Align")).chosen.unwrap()); };
         let mut ui = crate::doc::frames(3, &mut off);
         let (states, _) = node(&ui, Role::Group, "Align");
         let (radio, right) = node(&ui, Role::Radio, "Right");
-        assert!(states & (state::ENABLED | state::FOCUSABLE) == 0 && radio & state::ENABLED == 0, "{states:#x} {radio:#x}");
+        let left = node(&ui, Role::Radio, "Left").0;
+        assert!(states & (state::ENABLED | state::FOCUSABLE) == 0 && radio & (state::ENABLED | state::FOCUSABLE) == 0 && left & state::FOCUSABLE == 0, "{states:#x} {radio:#x} {left:#x}");
         click_centre(&mut ui, right, &mut off);
         assert_eq!(chosen.get(), 0);
+    }
+
+    fn key(code: u32) -> pxui_types::Event { pxui_types::Event { kind: pxui_types::Event::KEY_PRESSED, code: pxui_types::KEY_SPECIAL + code, ..Default::default() } }
+    const RIGHT: u32 = 3;
+    const SPACE: u32 = 4;
+    const TAB: u32 = 8;
+    const THREE: [Segment; 3] = [Segment::new("One"), Segment::new("Two"), Segment::new("Three")];
+
+    /// The states of the three options, in order.
+    fn radios(ui: &Ui) -> [u32; 3] { [node(ui, Role::Radio, "One").0, node(ui, Role::Radio, "Two").0, node(ui, Role::Radio, "Three").0] }
+
+    /// `None` is no choice: nothing checked, the first option the Tab stop; a press chooses (`changed`), as does Space on the focused first
+    /// option; an index past the options is clamped to the last.
+    #[test]
+    fn no_choice_checks_nothing_until_a_press_or_key_chooses() {
+        let (chosen, last) = (Cell::new(None), Cell::new(None));
+        let mut build = |ui: &mut Ui| {
+            let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT.name("Mode"));
+            if r.response.changed { chosen.set(r.chosen); }
+            last.set(Some(r));
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let states = radios(&ui);
+        assert!(states.iter().all(|s| s & state::CHECKED == 0), "nothing checked: {states:x?}");
+        assert!(states.iter().all(|s| s & state::FOCUSABLE != 0), "every option focusable to assistive technology: {states:x?}");
+        assert_eq!((last.get().unwrap().chosen, last.get().unwrap().response.changed), (None, false));
+        let at = node(&ui, Role::Radio, "Three").1;
+        click_centre(&mut ui, at, &mut build);
+        assert_eq!(chosen.get(), Some(2));
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(radios(&ui).map(|s| s & state::CHECKED != 0), [false, false, true], "the choice is checked");
+        chosen.set(Some(7));
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(radios(&ui).map(|s| s & state::CHECKED != 0), [false, false, true], "past the options is clamped to the last");
+        // Tab reaches the first option of an unchosen strip and Space chooses it
+        chosen.set(None);
+        testing::frame(&mut ui, &[], &mut build);
+        assert!(radios(&ui).iter().all(|s| s & state::CHECKED == 0), "no choice");
+        testing::frame(&mut ui, &[key(TAB)], &mut build);
+        assert!(last.get().unwrap().response.focused && radios(&ui)[0] & state::FOCUSED != 0);
+        testing::frame(&mut ui, &[key(SPACE)], &mut build);
+        assert_eq!(chosen.get(), Some(0));
+        assert!(last.get().unwrap().response.activated);
+    }
+
+    /// The strip is one Tab stop, the chosen option: Right moves the focus and the choice together; the focus follows a choice the app
+    /// makes while an option holds it; a press chooses without focusing.
+    #[test]
+    fn arrows_move_the_focus_with_the_choice() {
+        let (chosen, last) = (Cell::new(Some(0)), Cell::new(None));
+        let mut build = |ui: &mut Ui| {
+            ui.button_with("before", "Before", &crate::Button::DEFAULT);
+            let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT);
+            if r.response.changed { chosen.set(r.chosen); }
+            last.set(Some(r));
+            ui.button_with("after", "After", &crate::Button::DEFAULT);
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let focused = |ui: &Ui| radios(ui).map(|s| s & state::FOCUSED != 0);
+        testing::frame(&mut ui, &[key(TAB)], &mut build);
+        assert_ne!(node(&ui, Role::Button, "Before").0 & state::FOCUSED, 0);
+        testing::frame(&mut ui, &[key(TAB)], &mut build);
+        assert_eq!(focused(&ui), [true, false, false], "Tab lands on the chosen option");
+        testing::frame(&mut ui, &[key(RIGHT)], &mut build);
+        assert_eq!((chosen.get(), last.get().unwrap().response.changed), (Some(1), true));
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(focused(&ui), [false, true, false], "the focus moved with the choice");
+        assert!(last.get().unwrap().response.focused);
+        testing::frame(&mut ui, &[key(TAB)], &mut build);
+        assert_ne!(node(&ui, Role::Button, "After").0 & state::FOCUSED, 0, "one Tab stop: the next Tab leaves the strip");
+        // the app's choice moves a held focus with it
+        for _ in 0..8 {
+            if focused(&ui) != [false; 3] { break; }
+            testing::frame(&mut ui, &[key(TAB)], &mut build);
+        }
+        assert_eq!(focused(&ui), [false, true, false], "Tab comes back to the chosen option");
+        chosen.set(Some(2));
+        testing::frame(&mut ui, &[], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(focused(&ui), [false, false, true], "the focus follows the app's choice");
+        let at = node(&ui, Role::Radio, "One").1;
+        click_centre(&mut ui, at, &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!((chosen.get(), focused(&ui)), (Some(0), [false; 3]), "a press chooses without focusing");
+    }
+
+    /// Assistive technology may focus any option (the Focus action), not only the Tab stop: the focus stays there and does not choose;
+    /// an arrow from it moves the focus and the choice from that option.
+    #[test]
+    fn assistive_technology_focuses_any_option() {
+        let chosen = Cell::new(Some(0));
+        let mut build = |ui: &mut Ui| {
+            let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT);
+            if r.response.changed { chosen.set(r.chosen); }
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let three = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Radio) && ui.a11y_name_of(n) == "Three").expect("Three");
+        assert_ne!(three.actions & 2, 0, "the Focus action on an option past the Tab stop");
+        let id = three.id;
+        ui.inject_a11y(&[crate::A11yAction { id, action_code: 2, ..Default::default() }]);
+        testing::frame(&mut ui, &[], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!((radios(&ui).map(|s| s & state::FOCUSED != 0), chosen.get()), ([false, false, true], Some(0)), "focused, not chosen");
+        testing::frame(&mut ui, &[key(RIGHT - 1)], &mut build); // Left
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!((radios(&ui).map(|s| s & state::FOCUSED != 0), chosen.get()), ([false, true, false], Some(1)), "Left from the focused option");
+    }
+
+    /// When the options shrink below the focused one, the focus moves to the Tab stop (the choice, clamped); with no option left it
+    /// moves to the strip.
+    #[test]
+    fn the_focus_moves_to_the_tab_stop_when_its_option_goes() {
+        let (chosen, count, last) = (Cell::new(Some(2)), Cell::new(3usize), Cell::new(None));
+        let mut build = |ui: &mut Ui| {
+            let r = ui.segmented_with("s", &THREE[..count.get()], chosen.get(), &Segmented::DEFAULT.name("Mode"));
+            if r.response.changed { chosen.set(r.chosen); }
+            last.set(Some(r));
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        for _ in 0..6 {
+            if radios(&ui)[2] & state::FOCUSED != 0 { break; }
+            testing::frame(&mut ui, &[key(TAB)], &mut build);
+        }
+        assert_ne!(radios(&ui)[2] & state::FOCUSED, 0);
+        count.set(2);
+        testing::frame(&mut ui, &[], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        let two = |ui: &Ui| [node(ui, Role::Radio, "One").0, node(ui, Role::Radio, "Two").0];
+        assert_eq!((two(&ui).map(|s| s & state::FOCUSED != 0), last.get().unwrap().chosen), ([false, true], Some(1)), "the clamped choice holds the focus");
+        assert!(last.get().unwrap().response.focused);
+        count.set(0);
+        testing::frame(&mut ui, &[], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_ne!(node(&ui, Role::Group, "Mode").0 & state::FOCUSED, 0, "no option left: the strip holds the focus");
+        assert_eq!(last.get().unwrap().chosen, None);
+    }
+
+    /// A secondary press on an option reports it (`secondary` and its index), never choosing it; a primary press reports none.
+    #[test]
+    fn a_secondary_press_reports_its_option() {
+        let (chosen, last) = (Cell::new(Some(0)), Cell::new(None));
+        let mut build = |ui: &mut Ui| {
+            let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT);
+            if r.response.changed { chosen.set(r.chosen); }
+            last.set(Some(r));
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let r = node(&ui, Role::Radio, "Two").1;
+        let (x, y) = (f64::from(r.x + r.w / 2.0), f64::from(r.y + r.h / 2.0));
+        let right = |kind| pxui_types::Event { kind, code: 1, x, y, ..Default::default() };
+        testing::frame(&mut ui, &[right(pxui_types::Event::POINTER_PRESSED)], &mut build);
+        let seen = last.get().unwrap();
+        assert!(seen.response.secondary && !seen.response.changed && !seen.response.clicked);
+        assert_eq!((seen.secondary, seen.chosen), (Some(1), Some(0)));
+        testing::frame(&mut ui, &[right(pxui_types::Event::POINTER_RELEASED)], &mut build);
+        assert_eq!((last.get().unwrap().secondary, chosen.get()), (None, Some(0)), "the release chooses nothing");
+        click_centre(&mut ui, r, &mut build);
+        assert_eq!((last.get().unwrap().secondary, chosen.get()), (None, Some(1)));
+    }
+
+    thread_local! {
+        static SELECTED_SEEN: std::cell::RefCell<Vec<(usize, u8, usize, u8)>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// A segment body that records the choice and the focus it is given, and builds its own node.
+    fn choice_body(ui: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiSegmentConfig>(), "this library carries `has_selected`");
+        SELECTED_SEEN.with(|s| s.borrow_mut().push((c.index, c.has_selected, c.selected, c.state.focused)));
+        let segment = Node { w: Size::Px(21.0), ..ui.node_layout(&c.node) };
+        ui.set_node_layout(&c.node, &segment);
+        ui.node("mine".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+    }
+
+    /// A registered segment body builds the options: with no choice it is given `has_selected` 0 (and `selected` 0), with one
+    /// `has_selected` 1 and its index; the focused option's state says so.
+    #[test]
+    fn a_segment_body_sees_no_choice_and_the_focus() {
+        let mut ui = Ui::new().expect("library");
+        ui.set_a11y(true);
+        ui.register_segment_body("choice", choice_body).expect("segment body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segment.body = choice").expect("theme"); theme };
+        let chosen = Cell::new(None);
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT); });
+        for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
+        SELECTED_SEEN.with(|s| s.borrow_mut().clear());
+        testing::frame(&mut ui, &[key(TAB)], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        let seen = SELECTED_SEEN.with(|s| s.borrow().clone());
+        assert_eq!(&seen[seen.len() - 3..], &[(0, 0, 0, 1), (1, 0, 0, 0), (2, 0, 0, 0)], "{seen:?}");
+        chosen.set(Some(2));
+        testing::frame(&mut ui, &[], &mut build);
+        let seen = SELECTED_SEEN.with(|s| s.borrow().clone());
+        assert_eq!(&seen[seen.len() - 3..], &[(0, 1, 2, 0), (1, 1, 2, 0), (2, 1, 2, 1)], "the focus followed the caller's choice: {seen:?}");
+        assert_eq!(node(&ui, Role::Radio, "Two").1.w, 21.0, "the body's structure");
     }
 
     /// `disabled` blocks every kit widget and a pressable built inside, reads as disabled to accessibility, nests by OR and ends with its scope.
@@ -675,7 +754,7 @@ mod tests {
         let owner = Cell::new(0);
         let mut build = |ui: &mut Ui| {
             owner.set(ui.toggle_with("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More").label(crate::Label::BODY.size(15.0))).handle.box_key);
-            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B").name("Use B")], 0, &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));
+            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B").name("Use B")], Some(0), &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));
         };
         for n in 0..3 { ui.frame(&crate::FrameIn { width: 320.0, height: 240.0, time: n as f64, ..crate::FrameIn::default() }, &mut build).expect("frame"); }
         let (size, on, row_h, w, h) = TOGGLE_SEEN.with(Cell::get);
@@ -730,7 +809,7 @@ mod tests {
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
             let r = ui.toggle_with("t", "Offline", on.get(), &SETTING);
             owner.set(r.handle.box_key);
-            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B")], 0, &Segmented::DEFAULT);
+            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT);
         });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
         FLIPS.with(|f| f.borrow_mut().clear());
@@ -772,9 +851,9 @@ mod tests {
     fn segmented_size_padding_least_width_and_names() {
         const OPTIONS: [Segment; 3] = [Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB"), Segment::new("A")];
         let mut build = |ui: &mut Ui| {
-            ui.segmented_with("plain", &OPTIONS, 0, &Segmented::DEFAULT.name("Plain"));
-            ui.segmented_with("sized", &OPTIONS, 0, &Segmented::DEFAULT.name("Sized").size(240.0));
-            ui.segmented_with("roomy", &OPTIONS, 0, &Segmented::DEFAULT.name("Roomy").padding(12.0).min_segment(50.0));
+            ui.segmented_with("plain", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Plain"));
+            ui.segmented_with("sized", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Sized").size(240.0));
+            ui.segmented_with("roomy", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Roomy").padding(12.0).min_segment(50.0));
         };
         let ui = crate::doc::frames(3, &mut build);
         let radios: Vec<Rect> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::Radio)).map(|n| n.rect).collect();
@@ -793,18 +872,30 @@ mod tests {
         let looks = States::all(Look::NONE);
         let mut ui = crate::doc::frames(1, &mut |_| {});
         let mut build = |ui: &mut Ui| {
+            ui.segmented_with("none", &THREE, None, &Segmented::DEFAULT);
             ui.toggle("Plain", true);
             ui.toggle_with(3i64, "Big", false, &SETTING.track(&looks).knob(&looks).enabled(false));
-            ui.segmented("Align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], 1);
-            ui.segmented_with("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], 0, &Segmented::DEFAULT.h_px(28.0).grow().look(&looks).name("Cache").enabled(false));
-            ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented("Inner", &[Segment::new("A"), Segment::new("B")], 0); }); });
+            ui.segmented_with("align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], Some(1), &Segmented::DEFAULT.name("Align"));
+            ui.segmented_with("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], Some(0), &Segmented::DEFAULT.h_px(28.0).grow().look(&looks).name("Cache").enabled(false));
+            ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented_with("inner", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT.name("Inner")); }); });
             ui.toggle_with("detail", "Download ahead", true, &SETTING.detail("Fetch the next two cloud songs in the queue before they play").label(crate::Label::BODY.size(15.0)).press_row(true));
-            ui.segmented_with("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], 1, &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));
+            ui.segmented_with("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], Some(1), &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));
         };
         for round in 0..20 {
             mem_sys::local_reset();
             testing::frame(&mut ui, &[], &mut build);
             if round > 2 { assert_eq!(mem_sys::local_alloc_count(), 0); }
+        }
+        // an option holding the focus (the strip with no choice: its first) keeps warm frames free of allocations
+        for _ in 0..12 {
+            if radios(&ui)[0] & state::FOCUSED != 0 { break; }
+            testing::frame(&mut ui, &[key(TAB)], &mut build);
+        }
+        assert_ne!(radios(&ui)[0] & state::FOCUSED, 0);
+        for round in 0..6 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "focused round {round}"); }
         }
     }
 }

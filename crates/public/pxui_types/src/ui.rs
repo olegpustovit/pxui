@@ -2,7 +2,7 @@
 //! definition each; `pxui_core` and `pxui` re-export them. The option records that hold closures (`Rc<dyn Fn>`) are not here: they
 //! are not ABI types, and the engine and the wrapper each keep theirs (`opts` in both).
 use crate::geom::{hash, Rect, Rgba as Color};
-use crate::theme::Look;
+use crate::theme::{Look, States};
 use std::borrow::Cow;
 
 /// Fixed rows in one scroll region, with a scrolling lead-in and a sticky column heading.
@@ -421,11 +421,13 @@ pub struct Menu<'a> {
     pub name: Option<&'a str>,
     /// A press focuses the row it lands on (as `Tab` does), instead of the rows being Tab stops only.
     pub focus_on_click: bool,
+    /// The most height of the sheet in points, its edge and padding included (`None`: no bound); a menu taller scrolls its sheet.
+    pub max_h: Option<f32>,
 }
 
 impl<'a> Menu<'a> {
     /// The plain kit menu: the theme's row height, at least 150 points wide, every row shown, 6 points above and below the rows, no name.
-    pub const DEFAULT: Menu<'a> = Menu { row_h: None, width: None, max_rows: None, variant: 0, padding: 6.0, name: None, focus_on_click: false };
+    pub const DEFAULT: Menu<'a> = Menu { row_h: None, width: None, max_rows: None, variant: 0, padding: 6.0, name: None, focus_on_click: false, max_h: None };
 
     /// Sets a row's height in points; the label, mark, swatch and shortcut centre in it.
     /// Allocates: never.
@@ -458,6 +460,20 @@ impl<'a> Menu<'a> {
     /// assert_eq!(SHORT.max_rows, Some(8));
     /// ```
     pub const fn max_rows(mut self, rows: usize) -> Menu<'a> { self.max_rows = Some(rows); self }
+
+    /// Bounds the whole sheet's height in points, its 1-point edges and the padding above and below the rows included: a menu taller
+    /// than `h` is `h` tall and its sheet scrolls, as past `max_rows`. With `max_rows` too the smaller height wins. A sheet is never
+    /// shorter than one of the theme's rows; 0 is no bound (stored as `None`). The submenu of a row is not bounded. `Ui::menu` refuses
+    /// a negative or non-finite height.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SHEET: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.max_rows(8).max_h(240.0);
+    /// assert_eq!(SHEET.max_h, Some(240.0));
+    /// assert_eq!(pxui_types::ui::Menu::DEFAULT.max_h(0.0).max_h, None);
+    /// ```
+    pub const fn max_h(mut self, h: f32) -> Menu<'a> { self.max_h = if h == 0.0 { None } else { Some(h) }; self }
 
     /// Sets the variant the registered body of each row reads from its config (`variant`, 0 by default): one body builds different
     /// structures by it, so the app picks per call without comparing text. The built-in body ignores it.
@@ -530,6 +546,130 @@ impl<'a> Segment<'a> {
     /// assert_eq!(FOUR.name, Some("Use 4 GB"));
     /// ```
     pub const fn name(mut self, name: &'a str) -> Segment<'a> { self.name = Some(name); self }
+}
+
+/// How `Ui::segmented_with` varies the kit's segmented control, as a `Copy` value built with `const fn` builders from `Segmented::DEFAULT`.
+///
+/// The default is the kit's plain strip: the theme's control height, each segment as wide as its text plus 16, the text 8 in.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Segmented<'a> {
+    /// The strip's height in points (`None`: the theme's control height).
+    pub h: Option<f32>,
+    /// The strip fills its line and its segments share its width.
+    pub grow: bool,
+    /// Every segment's look per state (`None`: the theme's `segment`).
+    pub look: Option<States>,
+    /// The strip takes input.
+    pub enabled: bool,
+    /// The strip's accessible name (`None`: none).
+    pub name: Option<&'a str>,
+    /// What a registered segment body reads from its config (`variant`); 0 for none.
+    pub variant: u16,
+    /// The strip's width in points, its segments sharing it (`None`: as `grow` says).
+    pub w: Option<f32>,
+    /// A segment's text inset, and half the room around its text, in points (8 by default).
+    pub padding: f32,
+    /// The least width of a segment in points (0: none).
+    pub min_segment: f32,
+}
+
+impl<'a> Segmented<'a> {
+    /// The plain kit segmented control.
+    pub const DEFAULT: Segmented<'a> = Segmented { h: None, grow: false, look: None, enabled: true, name: None, variant: 0, w: None, padding: 8.0, min_segment: 0.0 };
+
+    /// Sets the strip's height in points.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const CHIPS: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.h_px(28.0);
+    /// let _ = CHIPS;
+    /// ```
+    pub const fn h_px(mut self, h: f32) -> Segmented<'a> { self.h = Some(h); self }
+
+    /// Makes the strip fill its line, its segments sharing the width equally, instead of each being as wide as its text.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const WIDE: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.grow();
+    /// let _ = WIDE;
+    /// ```
+    pub const fn grow(mut self) -> Segmented<'a> { self.grow = true; self }
+
+    /// Sets every segment's look per state (idle, hover, pressed, focus, disabled, checked for the choice) in place of the theme's `segment`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::{Look, States}, ui::Segmented};
+    /// const CHIP: States = States::all(Look::NONE);
+    /// const S: Segmented = Segmented::DEFAULT.look(&CHIP);
+    /// let _ = S;
+    /// ```
+    pub const fn look(mut self, look: &States) -> Segmented<'a> { self.look = Some(*look); self }
+
+    /// Sets whether the strip takes input: disabled takes no press, key or focus, shows the `disabled` look and reads as disabled to
+    /// accessibility.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let s = pxui_types::ui::Segmented::DEFAULT.enabled(false);
+    /// let _ = s;
+    /// ```
+    pub const fn enabled(mut self, enabled: bool) -> Segmented<'a> { self.enabled = enabled; self }
+
+    /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
+    /// picks per call without comparing text. The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const V: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.variant(1);
+    /// let _ = V;
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Segmented<'a> { self.variant = variant; self }
+
+    /// Sets the strip's accessible name; without it the strip has none (each option is named by its text).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const S: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.name("Appearance");
+    /// let _ = S;
+    /// ```
+    pub const fn name(mut self, name: &'a str) -> Segmented<'a> { self.name = Some(name); self }
+
+    /// Sets the strip's width in points, its segments sharing it equally (as `grow` shares its line's).
+    /// Allocates: never.
+    /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
+    ///
+    /// ```
+    /// const STRIP: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.size(240.0);
+    /// let _ = STRIP;
+    /// ```
+    pub const fn size(mut self, w: f32) -> Segmented<'a> { self.w = Some(w); self }
+
+    /// Sets a segment's text inset in points, and half the room around its text when segments are as wide as their text (8 by default).
+    /// Allocates: never.
+    /// Panics: never (a negative or non-finite padding panics at the `segmented_with` call).
+    ///
+    /// ```
+    /// const ROOMY: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.padding(12.0);
+    /// let _ = ROOMY;
+    /// ```
+    pub const fn padding(mut self, padding: f32) -> Segmented<'a> { self.padding = padding; self }
+
+    /// Sets the least width of a segment in points (none by default), whether it is as wide as its text or shares the strip.
+    /// Allocates: never.
+    /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
+    ///
+    /// ```
+    /// const EVEN: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.min_segment(56.0);
+    /// let _ = EVEN;
+    /// ```
+    pub const fn min_segment(mut self, w: f32) -> Segmented<'a> { self.min_segment = w; self }
 }
 
 /// What a `Ui::menu` call reports for the frame.

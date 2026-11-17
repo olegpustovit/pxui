@@ -16,5 +16,6 @@ pub use field_types::{AreaCallbacks, AreaNote, BracketsFn, CompleteFn, ColorizeF
 pub use icon_button::{Icon, IconButton};
 pub use layout::Key;
 pub use press::{Pressable, Response};
-pub use toggle::{Segmented, Toggle};
+pub use pxui_types::ui::Segmented;
+pub use toggle::{SegmentedResponse, Toggle};
 pub use view::hash_of;

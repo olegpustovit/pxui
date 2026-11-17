@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 66
+minor 67
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -203,6 +203,7 @@ function pxui_ui_section_list_measured int32_t pxui_ui_section_list_measured ( P
 function pxui_ui_segmented int32_t pxui_ui_segmented ( PxuiUi * ui , PxuiStr label , PxuiStrSpan options , size_t selected , size_t * out ) ;
 function pxui_ui_segmented_plain int32_t pxui_ui_segmented_plain ( PxuiUi * ui , PxuiStr key , PxuiStr name , PxuiStrSpan options , size_t selected , PxuiResponse * out , size_t * chosen ) ;
 function pxui_ui_segmented_response int32_t pxui_ui_segmented_response ( PxuiUi * ui , const PxuiSegmentedDesc * desc , PxuiStrSpan options , PxuiResponse * out , size_t * chosen ) ;
+function pxui_ui_segmented_result int32_t pxui_ui_segmented_result ( PxuiUi * ui , const PxuiSegmentedDesc * desc , PxuiStrSpan options , PxuiResponse * out , PxuiSegmentedResult * result ) ;
 function pxui_ui_set_a11y int32_t pxui_ui_set_a11y ( PxuiUi * ui , uint8_t on ) ;
 function pxui_ui_set_at int32_t pxui_ui_set_at ( PxuiUi * ui , const PxuiBox * box , float x , float y ) ;
 function pxui_ui_set_colors int32_t pxui_ui_set_colors ( PxuiUi * ui , const PxuiColor * light , const PxuiColor * dark , size_t count ) ;
@@ -351,7 +352,7 @@ layout PxuiMaybeRange 24 8 0 1 8 16
 layout PxuiMeasuredSectionDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
 layout PxuiMenuBarDesc 40 8 0 4 8 24
 layout PxuiMenuDesc 40 8 0 4 8 24
-layout PxuiMenuExtra 184 8 0 4 8 16 32 48 64 80 84 88 104 108 109 112 128 144 145 152 168
+layout PxuiMenuExtra 192 8 0 4 8 16 32 48 64 80 84 88 104 108 109 112 128 144 145 152 168 184 188
 layout PxuiMenuItemConfig 80 8 0 4 16 24 56 72
 layout PxuiMenuOut 24 8 0 4 8 16
 layout PxuiMenuRowConfig 112 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88 104 108
@@ -385,8 +386,9 @@ layout PxuiScrubOut 48 8 0 4 8 40 44
 layout PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
 layout PxuiSectionConfig 80 8 0 4 8 16 48 64 72
 layout PxuiSectionListDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
-layout PxuiSegmentConfig 176 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144
-layout PxuiSegmentedDesc 96 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80
+layout PxuiSegmentConfig 184 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177
+layout PxuiSegmentedDesc 104 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97
+layout PxuiSegmentedResult 24 8 0 4 5 6 8 16
 layout PxuiShadow 24 4 0 4 12 16 20
 layout PxuiShadowDesc 24 4 0 4 12 16 20 21
 layout PxuiSignal 112 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96

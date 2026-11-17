@@ -190,7 +190,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
             let b = ui.badge("count", "NEW");
             let _ = ui.tip(&b, "A badge: a small label in the accent");
         });
-        s.segment = ui.segmented("Align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], s.segment);
+        s.segment = ui.segmented_with("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.segment), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.segment);
         s.choice = ui.dropdown("Blend", &["Normal", "Multiply", "Screen", "Overlay", "Add"], s.choice);
     });
     ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0), "more", &mut |ui: &mut Ui| {
@@ -515,7 +515,7 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
                 }
                 let row = node(ui, "switches", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
                 ui.within(&row, &mut |ui: &mut Ui| {
-                    let theme = ui.segmented("Theme", &[pxui::Segment::new("Rays"), pxui::Segment::new("Dusk")], s.dusk as usize) == 1;
+                    let theme = ui.segmented_with("theme", &[pxui::Segment::new("Rays"), pxui::Segment::new("Dusk")], Some(s.dusk as usize), &pxui::Segmented::DEFAULT.name("Theme")).chosen == Some(1);
                     let compact = ui.checkbox("Compact", s.compact);
                     let rtl = ui.checkbox("RTL", s.rtl);
                     let reduced = ui.checkbox("Still", s.reduced);

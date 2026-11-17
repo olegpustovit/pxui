@@ -704,10 +704,16 @@ pub mod feature {
     /// ABI 1.65: `ui_label_text_spans`, `ui_label_text_line_box`, `ui_label_measure`, `ui_label_quads`, `ui_label_rasterize_rgba`,
     /// `ui_label_prewarm` (text calls that take the label record and resolve it in the same call).
     pub const LABEL_TEXT: u32 = 22;
+    /// ABI 1.67: `PxuiMenuExtra.max_h`, the menu sheet's most height (`Menu::max_h`).
+    pub const MENU_MAX_H: u32 = 23;
+    /// ABI 1.67: `ui_segmented_result` and `has_selected`, a segmented control with no choice and the option a secondary press began on;
+    /// 1.67 also changes the keyboard model of every segmented call (one Tab stop, the chosen option; every option focusable to
+    /// assistive technology).
+    pub const SEGMENTED_RESULT: u32 = 24;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 66;
+pub const ABI_BUILT: u32 = 1 << 16 | 67;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

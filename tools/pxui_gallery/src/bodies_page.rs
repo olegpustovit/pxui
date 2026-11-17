@@ -134,7 +134,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         if custom != s.custom { (s.custom, s.dirty) = (custom, true); }
         s.wifi = ui.toggle("Wi-Fi", s.wifi);
         s.volume = ui.slider("Volume", s.volume, 0.0..=1.0);
-        s.align = ui.segmented("Align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], s.align);
+        s.align = ui.segmented_with("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
     });
     ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true), "table", &mut |ui: &mut Ui| {

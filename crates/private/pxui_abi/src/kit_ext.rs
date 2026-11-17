@@ -7,7 +7,7 @@ use crate::trusted;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui::{Align, Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, State, States, Ui};
-use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonBuild, PxuiButtonDesc, PxuiIconButtonDesc, PxuiStateDesc, PxuiResponse, PxuiSegmentedDesc, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
+use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonBuild, PxuiButtonDesc, PxuiIconButtonDesc, PxuiStateDesc, PxuiResponse, PxuiSegmentedDesc, PxuiSegmentedResult, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
@@ -196,15 +196,45 @@ export!(trusted pub unsafe fn pxui_ui_segmented_plain(ui: *mut PxuiUi, key: Str,
     rc
 });
 
-// ABI 1.51: the kit segmented control with options, reporting into one `PxuiResponse`; `chosen` receives the choice.
+// ABI 1.51: the kit segmented control with options, reporting into one `PxuiResponse`; `chosen` receives the choice (`selected` clamped to the
+// options). A 1.67 descriptor with `has_selected` 0 (no choice) is refused: this call cannot report none (`pxui_ui_segmented_result` can).
 export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, options: Slice<Str>, out: *mut PxuiResponse, chosen: *mut usize) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if chosen.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
+    let (mut at, mut secondary) = (None, None);
+    let rc = unsafe { segmented_desc(ui, desc, options, out, false, &mut at, &mut secondary) };
+    if rc == 0 { unsafe { *chosen = at.unwrap_or(0); } }
+    rc
+});
+
+// ABI 1.67: the kit segmented control with options, reporting into one `PxuiResponse` and a `PxuiSegmentedResult`: no choice when the
+// descriptor's `has_selected` is 0; the result has the choice (none when no option is chosen) and the option a secondary press began on.
+export!(trusted pub unsafe fn pxui_ui_segmented_result(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, options: Slice<Str>, out: *mut PxuiResponse, result: *mut PxuiSegmentedResult) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short segmented result") } };
+    let (mut at, mut secondary) = (None, None);
+    let rc = unsafe { segmented_desc(ui, desc, options, out, true, &mut at, &mut secondary) };
+    if rc == 0 {
+        (result.has_chosen, result.chosen, result.has_secondary, result.secondary) = (at.is_some() as u8, at.unwrap_or(0) as u64, secondary.is_some() as u8, secondary.unwrap_or(0) as u64);
+        result.reserved = [0; 2];
+    }
+    rc
+});
+
+// The body of `pxui_ui_segmented_response` and `pxui_ui_segmented_result` (`none`: the caller can be told no option is chosen).
+unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, options: Slice<Str>, out: *mut PxuiResponse, none: bool, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || chosen.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
+    if desc.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short segmented response") } };
-    // a 64-byte record is the 1.51 one: the kit's padding, no width, least width or names
-    let Some((mut d, grown)) = read_desc!(desc, PxuiSegmentedDesc, [64]) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
+    // a 64-byte record is the 1.51 one: the kit's padding, no width, least width or names; a 96-byte one the 1.55 one, its `selected` always
+    // the choice (as `has_selected` 1)
+    let size = unsafe { desc.cast::<u32>().read_unaligned() } as usize;
+    let Some((mut d, whole)) = read_desc!(desc, PxuiSegmentedDesc, [64, 96]) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
+    let grown = size >= 96;
     if !grown { d.padding = 8.0; }
-    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || (grown && d.reserved2 != 0) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
+    if !whole { d.has_selected = 1; }
+    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || (grown && d.reserved2 != 0) || d.has_selected > 1 || d.reserved3 != [0; 7] { return unsafe { fail(ui, "invalid segmented descriptor") }; }
+    if d.has_selected == 0 && !none { return unsafe { fail(ui, "no segmented choice: use pxui_ui_segmented_result") }; }
     let Ok(states) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid segmented looks") } };
     let mut list = state.shared().take_strs();
     let (Some(key), Some(name), true) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
@@ -221,12 +251,13 @@ export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: 
     }
     let mut segments = state.shared().take_segments();
     segments.extend(list.iter().enumerate().map(|(i, text)| pxui_types::ui::Segment { text, name: names.get(i).copied().filter(|n| !n.is_empty()) }));
-    let rc = unsafe { trusted::segmented_with(ui, key, name, &segments, d.selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, out, &mut *chosen) };
+    let selected = (d.has_selected == 1).then_some(d.selected);
+    let rc = unsafe { trusted::segmented_with(ui, key, name, &segments, selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, out, chosen, secondary) };
     state.shared().put_segments(segments);
     state.shared().put_strs(names);
     state.shared().put_strs(list);
     rc
-});
+}
 
 // Builds a subtree with every interactive node in it disabled when `disabled` is 1 (scopes nest by OR); the Ui is back as it was when the call returns.
 export!(build pub unsafe fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: Build, user: *mut c_void) -> i32 {

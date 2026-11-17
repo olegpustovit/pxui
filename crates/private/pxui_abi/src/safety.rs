@@ -715,13 +715,13 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
-    // PxuiMenuExtra has had 80, 104 and 144 bytes: only those and the whole record (and more) are read.
+    // PxuiMenuExtra has had 80, 104, 144 and 184 bytes: only those and the whole record (and more) are read.
     #[test]
     fn menu_extra() {
         let ui = create();
         let mut value: PxuiMenuExtra = unsafe { core::mem::zeroed() };
         value.size = size_of::<PxuiMenuExtra>() as u32;
-        four_min(ui, ((&value as *const PxuiMenuExtra).cast(), size_of_val(&value), align_of_val(&value)), &[80, 104, 144], &mut |p| {
+        four_min(ui, ((&value as *const PxuiMenuExtra).cast(), size_of_val(&value), align_of_val(&value)), &[80, 104, 144, 184], &mut |p| {
             let p = p.cast::<PxuiMenuExtra>();
             in_frame(ui, &mut |ui| {
                 let (mut tag, mut index) = (0u32, 0i64);
@@ -1088,6 +1088,47 @@ mod sized_records {
             let mut sink = PxuiDialogResult::EMPTY;
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &bad, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
         }
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
+    /// ABI 1.67: `pxui_ui_segmented_result` reads its descriptor as `pxui_ui_segmented_response` does (64, 96 and 104 bytes; the older
+    /// sizes always carry a choice), refuses a null ui, descriptor or out, a null or short `PxuiSegmentedResult`, `has_selected` over 1
+    /// or a reserved byte set; `has_selected` 0 answers no choice there and is refused by the 1.51 call, which cannot report none.
+    #[test]
+    fn segmented_result_desc() {
+        let ui = create();
+        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let options = [k, k];
+        let span = Slice { ptr: options.as_ptr(), len: 2 };
+        let mut value: PxuiSegmentedDesc = unsafe { core::mem::zeroed() };
+        (value.size, value.enabled, value.key, value.name, value.padding, value.selected) = (size_of_val(&value) as u32, 1, k, k, 8.0, 5);
+        four_min(ui, ((&value as *const PxuiSegmentedDesc).cast(), size_of_val(&value), align_of_val(&value)), &[64, 96], &mut |p| {
+            let p = p.cast::<PxuiSegmentedDesc>();
+            in_frame(ui, &mut |ui| { let (mut out, mut result) = (PxuiResponse::EMPTY, PxuiSegmentedResult::EMPTY); unsafe { pxui_ui_segmented_result(ui, p, span, &mut out, &mut result) } })
+        });
+        let (mut out, mut result) = (PxuiResponse::EMPTY, PxuiSegmentedResult { has_chosen: 9, has_secondary: 9, reserved: [9; 2], ..PxuiSegmentedResult::EMPTY });
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &value, span, &mut out, &mut result) }), 0, "{}", error(ui));
+        assert_eq!((result.has_chosen, result.has_secondary, result.reserved), (0, 0, [0; 2]), "has_selected 0 is no choice");
+        let mut chosen = 7usize;
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_response(ui, &value, span, &mut out, &mut chosen) }), PXUI_ERR_ARGUMENT, "the 1.51 call cannot report none");
+        let old = PxuiSegmentedDesc { size: 96, ..value };
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_response(ui, &old, span, &mut out, &mut chosen) }), 0);
+        assert_eq!(chosen, 1, "a 1.55 record's `selected` is the choice, clamped");
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &old, span, &mut out, &mut result) }), 0);
+        assert_eq!((result.has_chosen, result.chosen), (1, 1));
+        let fine = PxuiSegmentedDesc { selected: 0, has_selected: 1, ..value };
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &fine, span, &mut out, &mut result) }), 0);
+        assert_eq!((result.has_chosen, result.chosen), (1, 0));
+        for bad in [PxuiSegmentedDesc { has_selected: 2, ..value }, PxuiSegmentedDesc { reserved3: [0, 0, 1, 0, 0, 0, 0], ..value }] {
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &bad, span, &mut out, &mut result) }), PXUI_ERR_ARGUMENT);
+        }
+        let short = PxuiSegmentedResult { size: 4, ..PxuiSegmentedResult::EMPTY };
+        for bad in [core::ptr::null_mut(), &short as *const PxuiSegmentedResult as *mut PxuiSegmentedResult] {
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &value, span, &mut out, bad) }), PXUI_ERR_ARGUMENT);
+        }
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, core::ptr::null(), span, &mut out, &mut result) }), PXUI_ERR_ARGUMENT);
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &value, span, core::ptr::null_mut(), &mut result) }), PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_segmented_result(core::ptr::null_mut(), &value, span, &mut out, &mut result) }, PXUI_ERR_ARGUMENT);
         unsafe { pxui_ui_destroy(ui); }
     }
 
@@ -1501,9 +1542,9 @@ fn the_library_checks_the_major_the_app_was_built_against_once_at_create() {
 fn supports_answers_from_the_feature_registry_of_this_build() {
     use pxui_types::feature as f;
     let has = |id: u32| unsafe { pxui_supports(id) };
-    assert_eq!((has(0), has(23), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
+    assert_eq!((has(0), has(25), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
     assert_eq!((has(f::A11Y_BRIDGE) == 1, has(f::METAL) == 1, has(f::VULKAN) == 1), (cfg!(target_os = "linux"), cfg!(any(target_os = "macos", target_os = "ios")), cfg!(any(windows, target_os = "linux"))));
-    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED, f::LABEL_TEXT] {
+    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED, f::LABEL_TEXT, f::MENU_MAX_H, f::SEGMENTED_RESULT] {
         assert_eq!(has(id), 1, "feature {id}");
     }
     // pxui.h numbers the same ids
@@ -1513,7 +1554,7 @@ fn supports_answers_from_the_feature_registry_of_this_build() {
     assert_eq!(1 << 16 | built, ABI_VERSION, "pxui.h PXUI_ABI_BUILT");
     for (name, id) in [("A11Y_BRIDGE", f::A11Y_BRIDGE), ("METAL", f::METAL), ("VULKAN", f::VULKAN), ("EXTENSION_SET", f::EXTENSION_SET), ("BUTTON_CONTENT", f::BUTTON_CONTENT), ("ICON_BUTTON_CURVES", f::ICON_BUTTON_CURVES),
         ("TOGGLE_RESPONSE", f::TOGGLE_RESPONSE), ("SEGMENTED_RESPONSE", f::SEGMENTED_RESPONSE), ("DIALOG_RESPONSE", f::DIALOG_RESPONSE), ("WIDGET_VARIANTS", f::WIDGET_VARIANTS), ("LABEL_NODE", f::LABEL_NODE),
-        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED), ("LABEL_TEXT", f::LABEL_TEXT)] {
+        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED), ("LABEL_TEXT", f::LABEL_TEXT), ("MENU_MAX_H", f::MENU_MAX_H), ("SEGMENTED_RESULT", f::SEGMENTED_RESULT)] {
         assert!(header.contains(&format!("PXUI_FEATURE_{name} = {id}")), "{name}");
     }
 }
@@ -1533,12 +1574,14 @@ fn grown_fields_are_read_only_when_the_callers_size_covers_them() {
     assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle_response(ui, &PxuiToggleDesc { size: 88, has_style: 7, reserved2: [9; 7], ..toggle }, &mut response) }), 0);
     assert_eq!(build(&mut |ui| unsafe { pxui_ui_toggle_response(ui, &PxuiToggleDesc { has_style: 7, ..toggle }, &mut response) }), PXUI_ERR_ARGUMENT);
     let mut seg: PxuiSegmentedDesc = unsafe { core::mem::zeroed() };
-    (seg.size, seg.enabled, seg.key, seg.name) = (size_of::<PxuiSegmentedDesc>() as u32, 1, k, k);
+    (seg.size, seg.enabled, seg.key, seg.name, seg.has_selected) = (size_of::<PxuiSegmentedDesc>() as u32, 1, k, k, 1);
     let options = [k, k];
     let mut chosen = 0usize;
     let names = [k];
     let bad = Slice { ptr: names.as_ptr(), len: 1 }; // one name for two options: invalid only when read
     assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented_response(ui, &PxuiSegmentedDesc { size: 64, names: bad, reserved2: 5, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut chosen) }), 0);
+    // a 96-byte (1.55) record: the 1.67 `has_selected` and reserved bytes after it are never read
+    assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented_response(ui, &PxuiSegmentedDesc { size: 96, has_selected: 7, reserved3: [9; 7], ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut chosen) }), 0);
     assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented_response(ui, &PxuiSegmentedDesc { names: bad, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut chosen) }), PXUI_ERR_ARGUMENT);
     unsafe { pxui_ui_destroy(ui); }
 }

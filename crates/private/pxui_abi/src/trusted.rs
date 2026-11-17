@@ -145,24 +145,20 @@ pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, trac
 /// (`selected` clamped to `options`, moved by a press or a key); `options` are within the engine's limits (`segments_ok`).
 #[inline(always)]
 pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: usize, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
-    enter!(ui);
-    let name = clip(name);
-    let mut spare = Vec::new();
-    let options = clip_segments(options, &mut spare);
-    if long_key(key) || !segments_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
-    let (r, at) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &SegmentedOpts::DEFAULT);
-    respond(&r, out);
-    *chosen = at;
-    0
+    let (mut at, mut secondary) = (None, None);
+    let rc = unsafe { segmented_with(ui, key, name, options, Some(selected), true, 0.0, false, None, 0.0, 8.0, 0.0, out, &mut at, &mut secondary) };
+    *chosen = at.unwrap_or(0);
+    rc
 }
 
-/// The kit segmented control with options, the body of `pxui_ui_segmented_response` and `pxui_ui_segmented_plain`: `h` (0 the theme's control
-/// height), `grow`, `states` in place of the theme's `segment`, `enabled`, `w` the strip's width (0: as `grow` says), `padding` the text's
-/// inset, `min_segment` a segment's least width (each finite and not negative).
+/// The kit segmented control with options, the body of `pxui_ui_segmented_result`, `pxui_ui_segmented_response` and `pxui_ui_segmented_plain`:
+/// `selected` the choice (`None`: none; past the options: the last), `h` (0 the theme's control height), `grow`, `states` in place of the
+/// theme's `segment`, `enabled`, `w` the strip's width (0: as `grow` says), `padding` the text's inset, `min_segment` a segment's least width
+/// (each finite and not negative). `chosen` is the choice after this frame's input, `secondary` the option a secondary press began on.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-pub unsafe fn segmented_with(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: usize, enabled: bool, h: f32, grow: bool, states: Option<&States>,
-    w: f32, padding: f32, min_segment: f32, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
+pub unsafe fn segmented_with(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: Option<usize>, enabled: bool, h: f32, grow: bool, states: Option<&States>,
+    w: f32, padding: f32, min_segment: f32, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
     let name = clip(name);
     let mut spare = Vec::new();
@@ -171,9 +167,9 @@ pub unsafe fn segmented_with(ui: *mut PxuiUi, key: &str, name: &str, options: &[
     if ![h, w, padding, min_segment].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None, w: (w > 0.0).then_some(w), padding, min_segment };
     if let Some(states) = states { opts.states = Some(*states); }
-    let (r, at) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &opts);
+    let (r, at, pressed) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &opts);
     respond(&r, out);
-    *chosen = at;
+    (*chosen, *secondary) = (at, pressed);
     0
 }
 
@@ -302,7 +298,7 @@ pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, label: &str, options: &[&str], 
     let options = clip_strs(options, &mut spare);
     if !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
     let engine = unsafe { engine(ui) };
-    *out = match kind { 0 => engine.radio(label, options, selected), 1 => engine.tabs(label, options, selected), 2 => engine.segmented_options(label, label, options.len(), &|i| Segment::new(options[i]), selected, &SegmentedOpts::DEFAULT).1, _ => engine.dropdown(label, options, selected) };
+    *out = match kind { 0 => engine.radio(label, options, selected), 1 => engine.tabs(label, options, selected), 2 => engine.segmented_options(label, label, options.len(), &|i| Segment::new(options[i]), Some(selected), &SegmentedOpts::DEFAULT).1.unwrap_or(0), _ => engine.dropdown(label, options, selected) };
     0
 }
 

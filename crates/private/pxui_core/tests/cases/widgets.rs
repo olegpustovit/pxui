@@ -126,7 +126,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             let sp = ui.spinner("Spin");
             s.busy.push(sp);
             s.tab = ui.tabs("Tabs", &["Alpha", "Beta", "Gamma"], s.tab);
-            s.seg = ui.segmented("Mode", &[Segment::new("A"), Segment::new("B"), Segment::new("C")], s.seg);
+            s.seg = ui.segmented_opts("Mode", "Mode", &[Segment::new("A"), Segment::new("B"), Segment::new("C")], Some(s.seg), &SegmentedOpts::DEFAULT).1.unwrap_or(s.seg);
             s.drop = ui.dropdown("Pick", &NAMES, s.drop);
             let holder = ui.node("add-row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
             ui.within(&holder, &mut |ui| {
@@ -339,7 +339,7 @@ fn widgets_tabs_segmented() {
     check(s.tab == 2 && selected == ["Gamma"], &format!("the release frame's selection: {selected:?}"));
     { let p = centre(&node(&ui, Role::Radio, "B")); click(&mut ui, &mut s, 4.0, p); }
     check(s.seg == 1, "a click picks segment B");
-    tab_to(&mut ui, &mut s, 5.0, Role::Group, "Mode");
+    tab_to(&mut ui, &mut s, 5.0, Role::Radio, "B");
     keys(&mut ui, &mut s, 6.0, &[Key::ArrowRight, Key::ArrowRight]);
     check(s.seg == 2, "Right moves to C and holds there");
     ui.destroy();
@@ -728,7 +728,7 @@ fn widgets_tab_order() {
         }
     }
     let order: Vec<&str> = seen.iter().map(|(_, n)| n.as_str()).collect();
-    let want = ["menus", "Check", "Radio", "Level", "Tabs", "Mode", "Pick", "Add"];
+    let want = ["menus", "Check", "Radio", "Level", "Tabs", "A", "Pick", "Add"]; // the segmented control's one Tab stop is its chosen option
     check(order.len() >= want.len() && order[..want.len()] == want, &format!("Tab order {order:?}"));
     let mut back = Vec::new();
     for i in 0..2 {

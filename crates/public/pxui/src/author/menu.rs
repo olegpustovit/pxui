@@ -12,11 +12,12 @@ impl Ui {
     /// least). Rows with a submenu open it beside the menu; its rows are numbered after the menu's own. Rows are drawn by the registered
     /// `context_menu` body; a `MenuItem::selected` row reads as the current choice. The sheet is built by the registered `popup` body, which
     /// may give it a role of its own (else it is a Menu); it is named `Menu::name` (none without), has `Menu::padding` above its first row
-    /// and below its last, and past `Menu::max_rows` it scrolls itself.
+    /// and below its last, and past `Menu::max_rows` or `Menu::max_h` (the smaller) it scrolls itself.
     /// Allocates: never on a warm frame, except that rows with a submenu allocate per call.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); it is never the accessible name (`Menu::name`).
     /// A row is keyed under the menu by its `MenuItem::id`, else by its position, never by its text: rows of one text are distinct.
-    /// Panics: when the library refuses the arguments (outside a frame, a non-finite position or width, a negative or non-finite padding). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Panics: when the library refuses the arguments (outside a frame, a non-finite position or width, a negative or non-finite padding or
+    /// `max_h`). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::ui::{Menu, MenuItem};
@@ -189,6 +190,7 @@ mod tests {
                 ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu);
                 ui.menu("long-menu", (200.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(8));
                 ui.menu("sizes", (100.0, 120.0), &SIZES, &Menu::DEFAULT.padding(10.0).name("Cache size"));
+                ui.menu("bounded", (40.0, 60.0), &LONG, &Menu::DEFAULT.max_h(150.0));
             }
         };
         for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); }
@@ -226,6 +228,34 @@ mod tests {
         for _ in 0..30 { testing::frame(&mut ui, &[], &mut build); }
         assert!(top(&ui, "Row 39") < bottom, "the last row scrolled into view: {}", top(&ui, "Row 39"));
         let r = testing::find(&ui, Role::MenuItem, "Row 39").unwrap();
+        testing::click(&mut ui, f64::from(r.x + 20.0), f64::from(r.y + 12.0), &mut build);
+        assert_eq!(last.get().chosen, Some(39));
+    }
+
+    /// `max_h` bounds the whole sheet (edges and padding included) and it scrolls; with `max_rows` the smaller height wins; a menu
+    /// shorter than the bound keeps its height and does not scroll.
+    #[test]
+    fn max_h_bounds_the_sheet_and_the_smaller_bound_wins() {
+        const LONG: [MenuItem; 40] = [MenuItem::new("Row"); 40];
+        const TWO: [MenuItem; 2] = [MenuItem::new("A"), MenuItem::new("B")];
+        // a row is 24, the padding 6 above and below, the edge a point at each end: n rows are 14 + 24 n
+        for (items, menu, h) in [(&LONG[..], Menu::DEFAULT.max_h(120.0), 120.0), (&LONG[..], Menu::DEFAULT.max_rows(3).max_h(200.0), 86.0),
+            (&LONG[..], Menu::DEFAULT.max_rows(8).max_h(120.0), 120.0), (&TWO[..], Menu::DEFAULT.max_h(200.0), 62.0), (&LONG[..], Menu::DEFAULT.max_h(0.0).max_rows(2), 62.0)] {
+            let mut build = |ui: &mut Ui| { ui.menu("m", (10.0, 10.0), items, &menu.name("Sheet")); };
+            let ui = crate::doc::frames(3, &mut build);
+            let sheet = testing::find(&ui, Role::Menu, "Sheet").expect("the sheet");
+            assert_eq!(sheet.h, h, "{menu:?}");
+        }
+        // the bounded sheet scrolls its rows: the wheel brings the last row into view
+        let (last, menu) = (Cell::new(MenuResponse::default()), Menu::DEFAULT.max_h(120.0));
+        let mut build = |ui: &mut Ui| { let got = ui.menu("m", (10.0, 10.0), &LONG, &menu); if got != MenuResponse::default() { last.set(got); } };
+        let mut ui = crate::doc::frames(3, &mut build);
+        testing::frame(&mut ui, &[Event { kind: Event::POINTER_MOVED, x: 60.0, y: 60.0, ..Default::default() }], &mut build);
+        for _ in 0..40 { testing::frame(&mut ui, &[Event { kind: Event::SCROLLED, x: 0.0, y: -1.0, ..Default::default() }], &mut build); }
+        for _ in 0..30 { testing::frame(&mut ui, &[], &mut build); }
+        let rows: Vec<_> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::MenuItem)).map(|n| n.rect).collect();
+        let r = *rows.last().unwrap();
+        assert!(r.y + r.h <= 10.0 + 120.0, "the last row scrolled into the sheet: {r:?}");
         testing::click(&mut ui, f64::from(r.x + 20.0), f64::from(r.y + 12.0), &mut build);
         assert_eq!(last.get().chosen, Some(39));
     }

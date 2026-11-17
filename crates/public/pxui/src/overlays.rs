@@ -163,7 +163,7 @@ impl Ui {
             (hl.resize(n, Str::default()), he.resize(n, 0), hk.resize(n, Str::default()), hs.resize(n, PxuiSwatch::default()), hm.resize(n, 0), hd.resize(n, 0), hc.resize(n, 0), hi.resize(n, 0), hh.resize(n, 0));
             (&mut hl, &mut he, &mut hk, &mut hs, &mut hm, &mut hd, &mut hc, &mut hi, &mut hh)
         };
-        let (mut dangers, mut extras) = (0, menu.row_h.is_some() || menu.max_rows.is_some() || menu.padding != 6.0 || menu.name.is_some() || menu.focus_on_click);
+        let (mut dangers, mut extras) = (0, menu.row_h.is_some() || menu.max_rows.is_some() || menu.padding != 6.0 || menu.name.is_some() || menu.focus_on_click || menu.max_h.is_some());
         let (mut selected, mut with_ids) = (false, false);
         let mut with_submenus = false;
         for (row, item) in items.iter().enumerate() {
@@ -205,6 +205,7 @@ impl Ui {
             selected: Slice { ptr: current.as_ptr(), len: if selected { n } else { 0 } },
             focus_on_click: menu.focus_on_click as u8, reserved3: [0; 7],
             ids: Slice { ptr: ids.as_ptr(), len: if with_ids { n } else { 0 } }, has_id: Slice { ptr: has_id.as_ptr(), len: if with_ids { n } else { 0 } },
+            max_h: menu.max_h.unwrap_or(0.0), reserved4: 0,
         };
         let (has_width, width) = menu.width.map_or((0, 0.0), |width| (1, width));
         let (mut tag, mut index) = (0, -1i64);
@@ -288,6 +289,7 @@ mod tests {
             submenus: Slice { ptr: core::ptr::null(), len: 0 }, row_h: 0.0, max_rows: 0, checked: Slice { ptr: core::ptr::null(), len: 0 },
             padding: 6.0, has_name: 0, reserved2: [0; 3], name: Str::default(), selected: Slice { ptr: core::ptr::null(), len: 0 },
             focus_on_click: 0, reserved3: [0; 7], ids: Slice { ptr: core::ptr::null(), len: 0 }, has_id: Slice { ptr: core::ptr::null(), len: 0 },
+            max_h: 0.0, reserved4: 0,
         }
     }
 
@@ -301,7 +303,7 @@ mod tests {
     /// A caller built before 1.49 passes the 80-byte extra and is served (and one of 1.49, 104 bytes); a shorter one, a negative row height,
     /// a submenu on a row that is not there or out of order, a mark byte over 2, and from 1.55 a negative padding, a name flag or a
     /// current-choice byte over 1 or more choices than rows are refused; from 1.58 an id flag or focus flag over 1, more id flags than ids,
-    /// or a reserved byte set.
+    /// or a reserved byte set; from 1.67 a negative or non-finite `max_h` or a reserved word set (the 1.58 record is still read).
     #[test]
     fn the_extra_is_read_by_its_size_and_validated_whole() {
         let mut ui = Ui::new().unwrap();
@@ -339,8 +341,17 @@ mod tests {
             results.push(call(ui, &PxuiMenuExtra { ids: Slice { ptr: ids.as_ptr(), len: 1 }, has_id: Slice { ptr: has.as_ptr(), len: 2 }, ..extra(full) }));
             results.push(call(ui, &PxuiMenuExtra { focus_on_click: 2, ..extra(full) }));
             results.push(call(ui, &PxuiMenuExtra { reserved3: [0, 1, 0, 0, 0, 0, 0], ..extra(full) }));
+            // 1.67: the 184-byte record of 1.58 is still read (its tail never), one ending inside `max_h` is refused; a negative or
+            // non-finite height and a non-zero reserved word are refused
+            results.push(call(ui, &PxuiMenuExtra { focus_on_click: 1, max_h: -1.0, reserved4: 9, ..extra(184) }));
+            results.push(call(ui, &extra(186)));
+            results.push(call(ui, &PxuiMenuExtra { max_h: 120.0, ..extra(full) }));
+            results.push(call(ui, &PxuiMenuExtra { max_h: -1.0, ..extra(full) }));
+            results.push(call(ui, &PxuiMenuExtra { max_h: f32::INFINITY, ..extra(full) }));
+            results.push(call(ui, &PxuiMenuExtra { max_h: 120.0, reserved4: 1, ..extra(full) }));
         }).ok();
         let accepted: Vec<bool> = results.iter().map(|status| *status == 0).collect();
-        assert_eq!(accepted, [true, false, false, true, false, false, false, true, true, false, false, false, false, true, true, false, false, false, false]);
+        assert_eq!(accepted, [true, false, false, true, false, false, false, true, true, false, false, false, false, true, true, false, false, false, false,
+            true, false, true, false, false, false]);
     }
 }

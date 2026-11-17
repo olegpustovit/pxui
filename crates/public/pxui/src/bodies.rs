@@ -429,7 +429,7 @@ mod tests {
             ui.label("after", Label::DEFAULT.variant(5));
             ui.toggle_with("t", "T", true, &crate::Toggle::DEFAULT.variant(4));
             ui.toggle_with("t0", "T", true, &crate::Toggle::DEFAULT);
-            ui.segmented_with("s", &[crate::Segment::new("a"), crate::Segment::new("b")], 0, &crate::Segmented::DEFAULT.variant(6));
+            ui.segmented_with("s", &[crate::Segment::new("a"), crate::Segment::new("b")], Some(0), &crate::Segmented::DEFAULT.variant(6));
         });
         for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }
         let seen = VARIANTS.with(|v| v.borrow().clone());
