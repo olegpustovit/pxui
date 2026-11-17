@@ -547,7 +547,7 @@ zero collapses the view and negative factors reflect it. A scale-only run update
 without rebuilding or rewriting instance runs. Ordinary nodes and flat views reject scale targets.
 A theme is a flat `key = value` file (`Theme::parse(text, &base) -> Result<Theme,
 Vec<ThemeError>>`, `Theme::write`): `tokens.*` keys re-derive the looks, then `PART.STATE.FIELD` or
-`PART.FIELD` keys override them; `assets/themes/rays.theme` is the default written out and
+`PART.FIELD` keys override them; `assets/themes/kit.theme` is the default written out and
 `dusk.theme` a second theme (golden `kit_dusk_{1,2}x.png`). Views also take `view_transform` /
 `view_scale` (hit testing through the inverse; nested views inherit the transforms around them, composed
 into their table entries as offset, opacity and clip are, and `rect`, hit testing and damage go through

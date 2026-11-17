@@ -2,5 +2,6 @@
 pub use crate::bodies::*;
 pub use crate::ui_core::*;
 pub use crate::ui_kit::*;
+pub use crate::kit_ext::*;
 pub use crate::ui_text::*;
 pub use crate::ui_widgets::*;

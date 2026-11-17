@@ -147,10 +147,14 @@ export!(pub unsafe fn pxui_ui_repaint_after(ui: *mut PxuiUi, seconds: f64) -> i3
     0
 });
 
+/// What `pxui_verify_new_views` set: `pxui_ui_create` turns `verify_views` on for a new `Ui` while it holds. Process-wide only because
+/// that frozen export is; the engine keeps the flag per `Ui` (`pxui_ui_verify_views`), and 2.0 drops this one.
+pub(crate) static VERIFY_NEW_VIEWS: core::sync::atomic::AtomicBool = core::sync::atomic::AtomicBool::new(false);
+
 // `verify_views(true)` for every `Ui` created from now on: a test harness turns it on once, for the UIs its code under test creates.
 export!(bare pub unsafe fn pxui_verify_new_views(on: u8) -> i32 {
     if on > 1 { return PXUI_ERR_ARGUMENT; }
-    pxui_core::ui::Ui::verify_new_views(on != 0);
+    VERIFY_NEW_VIEWS.store(on != 0, core::sync::atomic::Ordering::Relaxed);
     0
 });
 

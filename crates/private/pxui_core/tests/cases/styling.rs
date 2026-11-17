@@ -4,7 +4,7 @@ use pxui_core::geom::color;
 use pxui_core::ui::*;
 use std::cell::Cell;
 
-const RAYS: &str = include_str!("../../../../../assets/themes/rays.theme");
+const KIT: &str = include_str!("../../../../../assets/themes/kit.theme");
 const DUSK: &str = include_str!("../../../../../assets/themes/dusk.theme");
 
 fn at(t: f64, events: Vec<input::Event>) -> input::frame::Frame {
@@ -16,12 +16,12 @@ fn at(t: f64, events: Vec<input::Event>) -> input::frame::Frame {
 pub fn styling_theme_file_round_trip() {
     let base = Theme::default();
     let written = base.write();
-    let path = format!("{}/../../../assets/themes/rays.theme", env!("CARGO_MANIFEST_DIR"));
+    let path = format!("{}/../../../assets/themes/kit.theme", env!("CARGO_MANIFEST_DIR"));
     if std::env::var("RAYS_UPDATE_FIXTURES").as_deref() == Ok("1") {
-        std::fs::write(&path, &written).expect("rays.theme");
+        std::fs::write(&path, &written).expect("kit.theme");
     }
-    check(written == RAYS, "themes/rays.theme is not Theme::default().write()");
-    check(Theme::parse(RAYS, &base) == Ok(base), "rays.theme does not parse back to Theme::default()");
+    check(written == KIT, "themes/kit.theme is not Theme::default().write()");
+    check(Theme::parse(KIT, &base) == Ok(base), "kit.theme does not parse back to Theme::default()");
     let dusk = Theme::parse(DUSK, &base).unwrap_or_else(|e| panic!("dusk.theme: {e:?}"));
     check(dusk != base && dusk.tokens.accent == color::rgb(0x3b, 0x82, 0xf6), "dusk.theme did not restyle");
     check(dusk.button.idle.gradient == Some(color::rgb(0x1d, 0x4e, 0xd8)).into() && dusk.button.idle.radius == [5.0; 4], "dusk button");
@@ -183,10 +183,10 @@ pub fn styling_theme_swap_transition() {
     ui.frame(&at(0.0, vec![]), &mut build);
     ui.frame(&at(0.1, vec![]), &mut build);
     let mut t = 1.0;
-    // the Rays theme has no motion (a swap to it snaps); give it some
-    let mut rays = Theme::default();
-    rays.tokens.motion.normal = 0.2;
-    for (round, theme) in [dusk, rays, dusk].into_iter().enumerate() {
+    // the kit theme has no motion (a swap to it snaps); give it some
+    let mut kit = Theme::default();
+    kit.tokens.motion.normal = 0.2;
+    for (round, theme) in [dusk, kit, dusk].into_iter().enumerate() {
         let duration = theme.tokens.motion.normal as f64;
         let before = instances(&ui);
         ui.set_theme(theme);
@@ -212,7 +212,7 @@ pub fn styling_theme_swap_transition() {
         t += 1.0;
     }
     // reduced motion snaps
-    let mut still = rays;
+    let mut still = kit;
     still.tokens.reduced_motion = true;
     ui.set_theme(still);
     ui.frame(&at(t, vec![]), &mut build);

@@ -1,7 +1,7 @@
 //! The design kit as data (kit rev 3, specification/pxui.md). `Tokens` are the colour roles, scales and
 //! motion; a `Look` is what one node looks like (plain `Copy` data the engine paints with no closure);
 //! `States` picks a look per interaction state; a `Theme` is the tokens plus one `States` per kit part.
-//! The Rays look (Pragmasevka, 24-point rows, 20-point controls, six colours) is `Theme::default()`:
+//! The PXUI kit's look (Pragmasevka, 24-point rows, 20-point controls, six colours) is `Theme::default()`:
 //! separation comes from space first, a hairline second, a rectangle last; nothing is filled with ink.
 //! A theme is also a flat `key = value` file (`Theme::parse`, `Theme::write`, `assets/themes/`).
 use crate::draw::flags::{BOTTOM, LEFT, RIGHT, TOP};
@@ -58,8 +58,8 @@ impl Default for Theme {
     }
 }
 
-/// The Rays kit's looks from `t`.
-fn rays(t: &Tokens) -> Theme {
+/// The PXUI kit's looks from `t`.
+fn kit(t: &Tokens) -> Theme {
     let n = Look::NONE;
     let label_font = Font { size: t.label_size - t.font_size, tracking: 0.08, caps: true, ..Font::BODY };
     let small = Font { size: t.label_size - t.font_size, ..Font::BODY };
@@ -216,9 +216,9 @@ fn rays(t: &Tokens) -> Theme {
 }
 
 impl Theme {
-    /// Every look derived from `tokens` the way the Rays kit derives them.
+    /// Every look derived from `tokens` the way the PXUI kit derives them.
     pub fn from_tokens(tokens: Tokens) -> Theme {
-        rays(&tokens)
+        kit(&tokens)
     }
 }
 
@@ -490,7 +490,8 @@ impl Theme {
     }
 
     /// `parse` with `bodies` resolving the names of `KIND.body = NAME` (any `Bodies::KINDS`): `bodies(kind, name)` is
-    /// the registered body's id, `None` for a name that is not registered (a `ThemeError`). `default` is always the built-in one.
+    /// the registered body's id, `None` for a name that is not registered (a `ThemeError`). `default` is always the built-in one
+    /// (`bodies` is still called with it, whatever it answers).
     /// `Ui::parse_theme` passes its own registry.
     pub fn parse_bodies(text: &str, base: &Theme, bodies: &dyn Fn(&str, &str) -> Option<BodyId>) -> Result<Theme, Vec<ThemeError>> {
         let (tf, thf, lf) = (token_fields(), theme_fields(), look_fields());
@@ -524,7 +525,9 @@ impl Theme {
                 continue;
             }
             if let Some(kind) = key.strip_suffix(".body").filter(|k| Bodies::KINDS.contains(k)) {
-                match if value == "default" { Some(BodyId::DEFAULT) } else { bodies(kind, value) } {
+                // `bodies` sees every name, `default` too (a caller that remembers the names a theme selects forgets the kind's)
+                let id = bodies(kind, value);
+                match if value == "default" { Some(BodyId::DEFAULT) } else { id } {
                     Some(id) => drop(theme.body.set(kind, id)),
                     None => errors.push(ThemeError { line, message: format!("{key}: no {kind} body is registered as `{value}`") }),
                 }

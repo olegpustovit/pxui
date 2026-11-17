@@ -1,10 +1,10 @@
 //! Kit widgets: a panel stacks rows of the PXUI design kit (rev 3): 24-point rows with 12 points at
-//! each side, a label column (0.3 of the panel less 16, for inspector rows), 20-point controls and
-//! the kit face. Every widget reads its appearance from the theme in effect (`Ui::theme`): it declares
+//! each side, 20-point controls and the kit face (the inspector sheet's rows and sections are the
+//! extension's, `kit_ext`). Every widget reads its appearance from the theme in effect (`Ui::theme`): it declares
 //! nodes, picks each node's look from its `States` for the node's state, and the engine paints them;
 //! no standard widget paints with a closure. Widgets must be built inside a `panel`.
 use crate::ui_core::*;
-use crate::bodies::{body_of, in_body, in_item, in_place, TableCellConfig, ButtonConfig, FooterConfig, GripConfig, InspectorRowConfig, LabelConfig, PanelConfig, SectionConfig, SplitConfig, ToggleConfig};
+use crate::bodies::{body_of, in_body, in_item, TableCellConfig, ButtonConfig, FooterConfig, GripConfig, LabelConfig, PanelConfig, SplitConfig, ToggleConfig};
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 pub use pxui_types::Label;
 use pxui_text::{Align as TextAlign, Ellipsis, Style, Wrap};
@@ -12,7 +12,6 @@ use pxui_types::{ffi::PxuiTextStyle as TextStyle, text::LabelFields};
 use crate::a11y::state as st;
 use input::{Event, Key};
 use crate::geom::Rgba as Color;
-use std::rc::Rc;
 use std::borrow::Cow;
 
 pub type IRect = (i64, i64, i64, i64);
@@ -420,39 +419,6 @@ pub(crate) fn default_panel(this: &mut Ui, _c: &PanelConfig, _label: &str, conte
     content(this);
 }
 
-/// The built-in inspector row: the hover fill, the label fitted to its column and the pin dot.
-pub(crate) fn default_inspector_row(this: &mut Ui, c: &InspectorRowConfig, label: &str) {
-    let (look, dot) = (*this.theme().row.pick(c.state), this.theme().pin);
-    this.set_look(&c.row, look, c.state);
-    let shown = this.fit_text(this.font_size(), c.label_w, label);
-    this.text(&c.row, &shown);
-    // the pin dot: filled ink when the row is on its card, an ink-3 ring when it is not
-    if let Some(on) = c.pin {
-        let rh = this.row_height() as f32;
-        let saved = this.enter(&c.row);
-        this.placed(int_key(c.row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, *dot.pick(State { checked: on, ..State::default() }), Edges::default(), "");
-        this.leave(saved);
-    }
-}
-
-/// The built-in section header: the section look, the label, the disclosure chevron at the end, then the content when open.
-pub(crate) fn default_section(this: &mut Ui, c: &SectionConfig, label: &str, content: &mut dyn FnMut(&mut Ui)) {
-    let (title, rh) = (c.title, this.row_height() as f32);
-    // the sheet has no hover state on a section header
-    let (look, chevron) = (this.theme().section.idle, this.theme().chevron.idle);
-    this.set_look(&title, look, State::default());
-    this.node_mut(&title).inset = Edges { l: this.space(2), t: c.gap, ..Edges::default() };
-    this.text(&title, label);
-    this.end_row(&title, this.space(2));
-    let saved = this.enter(&title);
-    let mark = this.flow_part(int_key(title.box_key, 0), 6.0, rh, Edges { t: c.gap, ..Edges::ZERO }, chevron, "");
-    this.node_mut(&mark).mark = Mark::Chevron(if c.open { Dir::Down } else { Dir::Right });
-    this.leave(saved);
-    if c.open {
-        content(this);
-    }
-}
-
 /// One pane of the built-in split: it grows by its share of the room and holds at its minimum along the split.
 pub(crate) fn default_pane(this: &mut Ui, c: &SplitConfig, label: &str, grow: f32, min: f32, content: &mut dyn FnMut(&mut Ui)) {
     let row = c.axis == Axis::Row;
@@ -632,20 +598,6 @@ pub fn toggle_control_at(r: IRect, side: i64) -> IRect {
     (x + w - side - 28, y + (h - 14) / 2, 28, 14)
 }
 
-/// The hit shape of a control on its row; one closure per shape for the thread's life.
-pub fn control_hit(shape: fn(IRect) -> IRect) -> HitFn {
-    thread_local! { static HITS: std::cell::RefCell<Vec<(usize, HitFn)>> = const { std::cell::RefCell::new(Vec::new()) }; }
-    HITS.with(|hits| {
-        let mut hits = hits.borrow_mut();
-        if let Some((_, hit)) = hits.iter().find(|(key, _)| *key == shape as usize) {
-            return hit.clone();
-        }
-        let hit: HitFn = Rc::new(move |rect| floats(shape(ints(rect))));
-        hits.push((shape as usize, hit.clone()));
-        hit
-    })
-}
-
 pub fn fraction_at(r: IRect, pointer_x: f32) -> f32 {
     let (x, _, w, _) = r;
     0.0f32.max(1.0f32.min((pointer_x - x as f32) / 1.max(w - 1) as f32))
@@ -653,16 +605,6 @@ pub fn fraction_at(r: IRect, pointer_x: f32) -> f32 {
 
 pub fn cap_y(paint: &Paint, y: f32, h: f32) -> f32 {
     paint.text_top(Some(8.max(paint.font_size - 2)), y, h)
-}
-
-/// The label column is 0.3 of the panel less 16 (98 at 380 wide, 80 at 320); a longer label
-/// ellipsizes in it, never stacks.
-pub fn inspector_label_width(width: f32) -> f32 {
-    56.0f32.max((width * 0.3).floor() - 16.0)
-}
-
-pub fn inspector_control_x(width: f32) -> f32 {
-    12.0 + 6.0 + 8.0 + inspector_label_width(width) + 8.0
 }
 
 /// The width the kit's CSS gives `text` of `size` points: the face is monospaced at half an em
@@ -692,18 +634,6 @@ impl Default for PopupOpts {
 }
 
 impl Ui {
-    /// The space above a section header: 4 at the top of its parent (16 under a window's head), 16
-    /// after anything else, none when this closed section directly follows a closed one.
-    fn section_gap(&self, next_closed: bool, (top, after_closed): (bool, bool)) -> i64 {
-        if top {
-            if self.kit_window_flag() { 16 } else { 4 }
-        } else if after_closed && next_closed {
-            0
-        } else {
-            16
-        }
-    }
-
     /// A light panel at `(x, y)` (default `(12, 12)`, width 280). `height` fills a fixed pane;
     /// otherwise content sets the height. Rows beyond the height or `max_height` use the shared
     /// elastic scroll. `window` lays inspector rows and heads out as a floating window's.
@@ -784,235 +714,6 @@ impl Ui {
         self.set_kit_window(previous.1);
     }
 
-    /// The width of the panel being built: what an inspector row lays its columns out in.
-    pub fn inspector_width(&self) -> f32 {
-        let mut index = self.current_parent();
-        loop {
-            if index == 0 {
-                return 280.0;
-            }
-            match self.box_w_px(index) {
-                Some(width) => return width,
-                None => index = self.box_parent(index),
-            }
-        }
-    }
-
-    /// Where an inspector row's label starts: 26 (after the pin slot), 12 in a window.
-    pub fn inspector_label_x(&self) -> f32 {
-        if self.kit_window_flag() { 12.0 } else { 26.0 }
-    }
-
-    /// The 4 points between a head's rule and the first element of the body, when it is not a
-    /// section.
-    fn lead_gap(&mut self) {
-        if self.last_child_of_parent() == NONE {
-            self.box_("lead-gap", BoxOpts::default().w(Size::Grow).h(Size::Px(4.0)));
-        }
-    }
-
-    /// An inspector row of the kit's inspector sheet and the local x, y, width of its value control
-    /// (always 20 high at y 2): 12 of padding, a 6-point slot for the pin dot (drawn when `pin` is
-    /// given: filled ink for a row on its card, an ink-3 ring for one that is not), 8, the label
-    /// column, 8, the control to 12 from the right edge. The hovered row has the line-1 fill.
-    pub fn inspector_row(&mut self, width: Option<f32>, pin: Option<bool>, key: &str, label: &str) -> (UiBox, f32, f32, f32) {
-        let width = width.unwrap_or_else(|| self.inspector_width());
-        let label_x = self.inspector_label_x();
-        let window = self.kit_window_flag();
-        let label_w = if window { 88.0 } else { inspector_label_width(width) };
-        let control_x = if window { 12.0 + 88.0 + 8.0 } else { inspector_control_x(width) };
-        let pin = if window { None } else { pin };
-        self.lead_gap();
-        let rh = self.row_height() as f32;
-        let row = self.node_ref(key, &Node { flags: Flags::CLICKABLE, h: Size::Px(rh), inset: Edges { l: label_x, ..Edges::default() }, ..Node::DEFAULT });
-        let state = State { hovered: self.hovered_within(&row), ..State::default() };
-        self.set_role(&row, Role::Label, 0);
-        self.a11y_name(&row, label);
-        let config = InspectorRowConfig { row, state, label_w, pin };
-        in_body!(flat; self, row.box_key, row, inspector_row, default_inspector_row(&config, label));
-        (row, control_x, 2.0, 40.0f32.max(width - control_x - 12.0))
-    }
-
-    /// A collapsible inspector section. Returns whether it is open (and `f` ran).
-    pub fn inspector_section(&mut self, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
-        let at = self.section_place();
-        self.section_at(at, key, expanded, set_expanded, label, f)
-    }
-
-    /// Where a section starts: first in its parent, and right after a closed section.
-    fn section_place(&self) -> (bool, bool) {
-        let last = self.last_child_of_parent();
-        (last == NONE, last != NONE && last == self.closed_section_index())
-    }
-
-    /// `inspector_section` as a content-sized cached view (`Ui::view`, `Fit` high): `f` runs only
-    /// when `revision` (what the section shows), its place among its siblings, its label or
-    /// `set_expanded` change, or input reaches it; kept, its rows hand back nothing. While a payload
-    /// is carried it builds every frame (its controls report their drop targets as they build).
-    /// `ui.expanded(key)` reads its state as it reads a plain section's.
-    pub fn inspector_section_view(&mut self, key: &str, revision: u64, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
-        let at = self.section_place();
-        let carrying = self.carry_frame();
-        let flags = at.0 as u64 | (at.1 as u64) << 1 | (expanded as u64) << 2 | (set_expanded.map_or(0, |o| 2 + o as u64)) << 3;
-        let revision = key_of(key_of(revision as i64 ^ (flags as i64).rotate_left(48) ^ carrying as i64, label), "") as u64;
-        let mut built = None;
-        let view = self.view(key, revision, Size::Grow, Size::Fit, &mut |ui| {
-            built = Some(ui.section_at(at, key, expanded, set_expanded, label, f));
-        });
-        let open = match built {
-            Some(open) => {
-                self.set_state(&view, open as i64);
-                open
-            }
-            None => self.state(&view, expanded as i64) != 0,
-        };
-        if !open {
-            self.set_closed_section(view.index);
-        }
-        open
-    }
-
-    fn section_at(&mut self, at: (bool, bool), key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
-        let rh = self.row_height() as f32;
-        let title = self.box_(key, BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP).w(Size::Grow).h(Size::Px(rh)));
-        let open = self.state(&title, if expanded { 1 } else { 0 }) != 0;
-        let open = set_expanded.unwrap_or(open);
-        let signal = self.signal_owned(&title);
-        let open = if signal.clicked { !open } else { open };
-        // the gap above depends on this section's own state, known only now
-        let gap = self.section_gap(!open, at) as f32;
-        self.set_box_h(&title, Size::Px(gap + rh));
-        self.set_state(&title, if open { 1 } else { 0 });
-        if !open {
-            self.set_closed_section(title.index);
-        }
-        self.a11y_name(&title, label);
-        self.set_role(&title, Role::Heading, st::EXPANDABLE | if open { st::EXPANDED } else { 0 });
-        let config = SectionConfig { title, open, gap };
-        in_place!(self, title.box_key, inspector_section, default_section(&config, label, f));
-        open
-    }
-
-    /// The retained state of an inspector section built in the current parent, by its key.
-    pub fn expanded(&self, text: &str) -> Option<bool> {
-        let key = key_of(self.current_seed(), text);
-        let slot = self.slot_for(key)?;
-        self.slot_state(slot).map(|value| value == 1)
-    }
-
-    /// The value control inside an inspector row.
-    pub fn inspector_toggle_value(&mut self, key: &str, at: (f32, f32), value: bool) -> bool {
-        let control = self.box_(key, BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP).at(at).w(Size::Px(28.0)).h(Size::Px(self.control_h())));
-        let value = if self.signal_owned(&control).clicked { !value } else { value };
-        self.set_role(&control, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
-        self.a11y_name(&control, key);
-        let on = State { checked: value, ..State::default() };
-        let (track, knob) = (*self.theme().switch.pick(on), *self.theme().knob.pick(on));
-        let saved = self.enter(&control);
-        let switch = self.placed(int_key(control.box_key, 0), (0.0, 3.0), Size::Px(28.0), 14.0, track, Edges::default(), "");
-        self.node_mut(&switch).state = on;
-        let inner = self.enter(&switch);
-        let k = self.placed(int_key(control.box_key, 1), (if value { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
-        self.node_mut(&k).state = on;
-        self.leave(inner);
-        self.leave(saved);
-        value
-    }
-
-    /// A switch row: the switch sits at the start of the control column, not at the row's end.
-    pub fn inspector_toggle(&mut self, key: &str, label: &str, value: bool) -> bool {
-        let (row, cx, cy, _) = self.inspector_row(None, None, key, label);
-        let saved = self.enter(&row);
-        let v = self.inspector_toggle_value(&format!("{}-value", key), (cx, cy), value);
-        self.leave(saved);
-        v
-    }
-
-    /// A text button on a row of its own.
-    pub fn inspector_button(&mut self, key: &str, label: &str) -> bool {
-        self.lead_gap();
-        let pad = (self.row_height() as f32 - self.control_h()) / 2.0;
-        let row = self.node_ref(key, &Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, h: Size::Px(self.row_height() as f32), axis: Axis::Row, padding: Edges { l: 6.0, t: pad, r: 6.0, b: pad }, ..Node::DEFAULT });
-        let signal = self.signal_owned(&row);
-        // the ground is the label and 6 points each side, from 6 in; the label is cut to the row less 24
-        let tw = self.text_width(None, label);
-        let state = State { hovered: signal.hovered, pressed: signal.held, ..State::default() };
-        let look = Look { ring: Ring::NONE, ..*self.theme().button.pick(state) };
-        let saved = self.enter(&row);
-        let ground = self.node_keyed(int_key(row.box_key, 0), Node { flags: Flags::FIT_TEXT, w: Size::Px(tw + 12.0), shrink: 1.0, min_w: 1.0, h: Size::Grow, inset: Edges { l: 6.0, r: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
-        self.leave(saved);
-        self.set_look(&ground, look, state);
-        self.text(&ground, label);
-        self.set_role(&row, Role::Button, 0);
-        self.a11y_name(&row, label);
-        signal.clicked
-    }
-
-    /// A read-only value in the same responsive inspector row.
-    pub fn inspector_readout(&mut self, width: Option<f32>, key: &str, label: &str, value: &str) {
-        let (row, control_x, _, control_width) = self.inspector_row(width, None, key, label);
-        let look = self.theme().value.idle;
-        self.a11y_value(&row, value, (0, 0));
-        let shown = self.fit_text(self.font_size(), control_width, value);
-        let tw = self.text_width(None, &shown);
-        let rh = self.row_height() as f32;
-        let saved = self.enter(&row);
-        self.placed(int_key(row.box_key, 1), (control_x + control_width - tw, 0.0), Size::Px(tw.max(1.0)), rh, look, Edges::default(), &shown);
-        self.leave(saved);
-    }
-
-    /// The scrolling part of an inspector under its head (the head stays): a column that takes the
-    /// rest of the panel and scrolls, its 4-point line-3 thumb 2 from the right edge.
-    pub fn inspector_body(&mut self, f: &mut dyn FnMut(&mut Ui)) {
-        let rh = self.row_height() as f32;
-        let t = self.theme();
-        let bar = Bar { color: t.scrollbar.idle.fill, radius: t.scrollbar.idle.radius[0], width: t.scrollbar_w, gap: t.scrollbar_gap, margin: 6.0, whole: false };
-        let body = self.node("inspector-body".into(), Node { flags: Flags::SCROLL | Flags::CLIP | Flags::OVER_THUMB, h: Size::Grow, scroll_step: rh, bar: Some(bar).into(), role: Role::ScrollArea, ..Node::DEFAULT });
-        self.within(&body, f);
-    }
-
-    /// The bar under an inspector (inspector.html): a line-2 hairline and a 24-point bar of hints,
-    /// each a key in ink-3 at the label size and what it does in ink-2, and at the right a 6-point
-    /// dot and a count as a label.
-    pub fn inspector_bar(&mut self, hints: &[(&str, &str)], count: i64) {
-        let small = 8.max(self.font_size() - 2);
-        let font_size = self.font_size();
-        let line = self.row_height() as f32;
-        let bar = self.box_("inspector-bar", BoxOpts::default().w(Size::Grow).h(Size::Px(line + 1.0)));
-        let t = self.theme();
-        let (rule, key, hint, label, dot) = (t.footer.idle, t.key.idle, t.hint.idle, t.label.idle, *t.pin.pick(State { checked: true, ..State::default() }));
-        self.set_look(&bar, rule, State::default());
-        self.set_role(&bar, Role::StatusBar, 0);
-        let saved = self.enter(&bar);
-        let mut at = 12.0;
-        for (i, (k, what)) in hints.iter().enumerate() {
-            let kw = mono_width(0.0, small, k);
-            self.placed(int_key(bar.box_key, 2 * i as i64), (at, 1.0), Size::Px(kw.max(1.0)), line, key, Edges::default(), k);
-            at += kw + 8.0;
-            let ww = mono_width(0.0, font_size, what);
-            self.placed(int_key(bar.box_key, 2 * i as i64 + 1), (at, 1.0), Size::Px(ww.max(1.0)), line, hint, Edges::default(), what);
-            at += ww + 8.0;
-        }
-        let text = format!("{} on card", count);
-        // the sheet's tracking follows the last letter too: the ink ends that much before the 12
-        let label_w = self.cap_width(&text) + 0.08 * small as f32;
-        self.end_row(&bar, 12.0);
-        self.flow_part(int_key(bar.box_key, -2), 6.0, 6.0, Edges { t: 1.0 + line / 2.0 - 3.0, r: 8.0, ..Edges::ZERO }, dot, "");
-        self.flow_part(int_key(bar.box_key, -1), label_w, line, Edges { t: 1.0, ..Edges::ZERO }, label, &text);
-        self.leave(saved);
-    }
-
-    pub fn inspector_message(&mut self, key: &str, message: &str) {
-        self.lead_gap();
-        let rh = self.row_height() as f32;
-        let (dot, hint) = (self.theme().notice.idle, self.theme().hint.idle);
-        let row = self.node_ref(key, &Node { flags: Flags::FIT_TEXT, h: Size::Px(rh), look: hint, inset: Edges { l: 26.0, r: 12.0, ..Edges::default() }, role: Role::Label, ..Node::DEFAULT });
-        self.text(&row, message);
-        let saved = self.enter(&row);
-        self.placed(int_key(row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, dot, Edges::default(), "");
-        self.leave(saved);
-    }
-
     /// A floating panel dismissed by Escape, focus loss, or a press outside its last laid-out
     /// bounds. `height` supplies the first-frame hit area. Build it before the body it shields; it
     /// paints on top and consumes underlying input, including its opening/dismissal frame. An
@@ -1068,7 +769,7 @@ impl Ui {
         let modal = if opts.role == Role::Dialog { st::MODAL } else { 0 };
         self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, Some((opts.role, modal)), f);
         self.leave(saved);
-        self.push_overlay(index);
+        self.push_overlay(index, if opts.role == Role::Dialog { LayerRole::Modal } else { LayerRole::Popup });
         if opts.attached {
             self.push_modal_extra(key);
         } else {

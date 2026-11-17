@@ -639,8 +639,6 @@ pub struct UiBox {
 
 pub type Handle = UiBox;
 
-static VERIFY_NEW_VIEWS: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
 pub fn key(b: &UiBox) -> i64 {
     b.box_key
 }
@@ -873,6 +871,12 @@ pub struct Image {
 pub struct Layer {
     pub key: i64,
     pub id: u32,
+    /// what the layer is (`LayerRole::Base` for layer 0 and an app's `to_front` root): a host may present a popup, modal, tooltip or
+    /// drag layer in a surface of its own instead of the window's
+    pub role: LayerRole,
+    /// where a floating layer is placed, in window points: the rectangle its root was anchored to (`Node::anchor`), else the root's
+    /// own rectangle; empty for the base
+    pub anchor: Rect,
     pub instances: Vec<Instance>,
     pub breaks: Vec<Break>,
     pub images: Vec<Image>,
@@ -883,8 +887,30 @@ pub struct Layer {
 
 impl Layer {
     fn new(key: i64, id: u32) -> Layer {
-        Layer { key, id, instances: Vec::with_capacity(256), breaks: Vec::new(), images: Vec::new(), dirty: Vec::new(), pieces: Vec::new(), live: false }
+        Layer { key, id, role: LayerRole::Base, anchor: Rect::default(), instances: Vec::with_capacity(256), breaks: Vec::new(), images: Vec::new(), dirty: Vec::new(), pieces: Vec::new(), live: false }
     }
+}
+
+/// What a paint layer holds: the window's content, or a floating root the engine raised over it. Every popup, modal, tooltip and drag
+/// root is a layer of its own, so a host that can (a compositor) presents it in a child surface that may overflow the window; one
+/// that cannot draws the layers in order into the window, which looks the same. Bounded by `pxui_types::MAX_LAYERS`: the roots from
+/// the last layer's on share it, as `LayerRole::Merged`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LayerRole {
+    /// the window's content, and a root an app raised with `Ui::to_front`
+    #[default]
+    Base,
+    /// a popup or menu (`Ui::popup`, `Ui::anchored`, a menu or completion list): dismissed by a press outside it
+    Popup,
+    /// a modal sheet (`Ui::modal`, a dialog): it takes the input while open
+    Modal,
+    /// a tooltip near the pointer
+    Tooltip,
+    /// what a drag carries, under the pointer
+    Drag,
+    /// the last layer when more floating roots than `pxui_types::MAX_LAYERS` allows paint in a frame: every root from the one that opened
+    /// it on, in order, whatever their roles; its anchor is the union of theirs. A host presents it in the window.
+    Merged,
 }
 
 /// Add `[a, b)` to sorted, disjoint `ranges` (`draw::add_range`).
@@ -971,7 +997,8 @@ pub struct Ui {
     /// colour table change resolves it again
     theme_raw: Option<Box<Theme>>,
     theme_id: u32,
-    /// this `Ui`'s number among the process's, for `theme_key`
+    /// this `Ui`'s number among the process's, for `theme_key`: from one process-wide counter, per process by design (an atomic `u64`
+    /// taken once per `Ui`, so thread-safe and never wrapping; it holds no other state)
     serial: u64,
     /// running transitions, the frame's time, and whether a theme in effect animates
     tweens: Vec<Tween>,
@@ -1048,8 +1075,10 @@ pub struct Ui {
     z_order: Vec<(i16, u32, usize)>,
     // build state
     parents: Vec<usize>,
-    overlays: Vec<usize>,
-    foreground: Vec<(i64, usize)>,
+    /// the frame's floating roots and their layer roles, kept until its paint: raised by the engine (painted last, in call order)
+    /// and by `to_front` (order, root, role)
+    overlays: Vec<(usize, LayerRole)>,
+    foreground: Vec<(i64, usize, LayerRole)>,
     seeds: Vec<i64>,
     building: bool,
     /// the rows being built are past the viewport (`BoxRec::ahead`)
@@ -1414,7 +1443,7 @@ impl Ui {
             view_cur: 0,
             paint_xf: 0,
             epoch: 0,
-            verify: VERIFY_NEW_VIEWS.load(std::sync::atomic::Ordering::Relaxed),
+            verify: false,
             stamp: 0,
             seen: (0, 0, false, false),
             marks: Vec::new(),
@@ -2094,12 +2123,6 @@ impl Ui {
 
     pub fn dir(&self) -> Direction {
         self.dir
-    }
-
-    /// `verify_views(on)` for every `Ui` created from now on: a test harness turns it on once, for the
-    /// UIs its code under test creates.
-    pub fn verify_new_views(on: bool) {
-        VERIFY_NEW_VIEWS.store(on, std::sync::atomic::Ordering::Relaxed);
     }
 
     /// Re-run every clean view's build and panic, naming the view, when its output differs from the
@@ -3987,7 +4010,7 @@ impl Ui {
             panic!("Ui.to_front: expected a root box");
         }
         self.escape();
-        self.foreground.push((order, b.index));
+        self.foreground.push((order, b.index, LayerRole::Base));
     }
 
 
@@ -4020,9 +4043,9 @@ impl Ui {
         self.count
     }
 
-    pub(crate) fn push_overlay(&mut self, index: usize) {
+    pub(crate) fn push_overlay(&mut self, index: usize, role: LayerRole) {
         self.escape();
-        self.overlays.push(index);
+        self.overlays.push((index, role));
     }
 
 
@@ -5205,14 +5228,14 @@ impl Paint {
         x - at.0
     }
 
-    /// Start the next layer (a floating root's), reusing a layer vector a previous frame left.
-    fn next_layer(&mut self, key: i64) {
+    /// Start the next layer (a floating root's, or the base with key 0), reusing a layer vector a previous frame left.
+    fn next_layer(&mut self, key: i64, role: LayerRole, anchor: Rect) {
         self.layer = self.layer.wrapping_add(1);
         if self.layer == self.layers.len() {
             self.layers.push(Layer::new(key, 0));
         }
         let layer = &mut self.layers[self.layer];
-        layer.key = key;
+        (layer.key, layer.role, layer.anchor) = (key, role, anchor);
         layer.instances.clear();
         layer.breaks.clear();
         layer.images.clear();
@@ -5807,8 +5830,19 @@ impl Ui {
     }
 
     fn visit(&mut self, paint: &mut Paint, index: usize, clip_rect: Rect, parent_hit: i64) {
-        if self.boxes[index].parent == 0 && self.foreground.iter().any(|(_, root)| *root == index) {
-            paint.next_layer(self.boxes[index].key);
+        if self.boxes[index].parent == 0 {
+            let floating = self.foreground.iter().map(|f| (f.1, f.2)).chain(self.overlays.iter().copied()).find(|f| f.0 == index);
+            if let Some((_, role)) = floating {
+                let anchor = self.nd(index).anchor.get().map_or_else(|| self.screen(index), |a| a.rect);
+                if paint.layer + 1 < pxui_types::MAX_LAYERS {
+                    paint.next_layer(self.boxes[index].key, role, anchor);
+                } else {
+                    // past the renderer's layer limit the remaining floating roots paint into the last layer: `Merged`, anchored at
+                    // the union of its roots' anchors
+                    let last = &mut paint.layers[paint.layer];
+                    (last.role, last.anchor) = (LayerRole::Merged, union(Some(last.anchor), anchor));
+                }
+            }
         }
         let screen_rect = self.screen(index);
         let slot = self.boxes[index].slot;
@@ -6033,7 +6067,7 @@ impl Ui {
             rtl: self.dir == Direction::Rtl,
             ahead: false,
         };
-        paint.next_layer(0);
+        paint.next_layer(0, LayerRole::Base, Rect::default());
         paint
     }
 
@@ -6289,8 +6323,8 @@ impl Ui {
         self.text(&k, tip_key);
         self.leave(inner);
         // Tooltip and ghost layers precede existing foreground entries at maximum priority.
-        self.foreground.push((i64::MAX, tip.index));
-        self.foreground.push((i64::MAX, ghost.index));
+        self.foreground.push((i64::MAX, tip.index, LayerRole::Drag));
+        self.foreground.push((i64::MAX, ghost.index, LayerRole::Drag));
         self.leave(saved);
         self.payload = Some((payload, origin));
     }
@@ -6442,7 +6476,7 @@ impl Ui {
             let index = if position < self.foreground.len() {
                 self.foreground[position].1
             } else {
-                self.overlays[position - self.foreground.len()]
+                self.overlays[position - self.foreground.len()].0
             };
             if self.boxes[index].parent == 0 && self.boxes[0].last != index {
                 let mut previous = NONE;
@@ -6465,7 +6499,6 @@ impl Ui {
                 self.boxes[0].last = index;
             }
         }
-        self.overlays.clear();
         self.phase(1);
         self.intrinsic();
         self.phase(2);
@@ -6532,6 +6565,7 @@ impl Ui {
             self.frame_requested = true;
         }
         self.foreground.clear();
+        self.overlays.clear();
         self.prune();
         if self.focus != 0 && self.table.find(self.focus).is_none() {
             self.focus = 0;
@@ -6621,7 +6655,7 @@ impl Ui {
         let tip = self.box_("ui-tooltip", BoxOpts::default().w(Size::Px(width)).h(Size::Px(height)).at((x, y)));
         self.set_role(&tip, Role::Tooltip, 0);
         self.a11y_name(&tip, text);
-        self.overlays.push(tip.index);
+        self.overlays.push((tip.index, LayerRole::Tooltip));
         let config = TipConfig { tip, width, height };
         in_body!(self, tip.box_key, tip, tip, default_tip(&config, &lines));
         self.leave(saved);
@@ -6640,7 +6674,7 @@ impl Ui {
     pub(crate) fn anchored_label(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let saved = self.enter_root_parent();
         let b = self.node_ref(label, &Node { w, h, anchor: Some(Anchor { rect: anchor, placement }).into(), ..Node::DEFAULT });
-        self.overlays.push(b.index);
+        self.overlays.push((b.index, LayerRole::Popup));
         self.within(&b, f);
         self.leave(saved);
         b
@@ -7950,6 +7984,7 @@ impl Ui {
                 changed = true;
                 self.draw.swap(i, j);
             }
+            (self.draw[i].role, self.draw[i].anchor) = (scratch[i].role, scratch[i].anchor);
             self.draw[i].live = true;
             changed |= self.place(&mut scratch[i], i);
         }

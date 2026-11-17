@@ -4,6 +4,7 @@
 pub mod a11y;
 mod arena;
 pub mod bodies;
+pub mod kit_ext;
 pub mod layout;
 pub mod theme;
 pub mod ui_core;

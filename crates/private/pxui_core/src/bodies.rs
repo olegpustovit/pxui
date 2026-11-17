@@ -494,30 +494,9 @@ pub struct PickerFieldConfig {
 
 pub type PickerFieldBody = fn(&mut Ui, &PickerFieldConfig, &str);
 
-/// A kind's body names, numbered once for the process: a name has the same `BodyId` in every `Ui`, so a `Theme` (which holds ids)
-/// carried from the `Ui` that parsed it to another selects the body of that name there, or the built-in body where the other `Ui`
-/// registered none. Ids are `u16` and 0 is the built-in body: past 65,535 names of one kind a new name has no id (it would wrap onto
-/// body 1). Locked only to register a name, never by a frame.
-static NAMES: std::sync::Mutex<Vec<HashMap<String, BodyId>>> = std::sync::Mutex::new(Vec::new());
-
-/// The id of `name` for kind number `kind`, numbered when new; `None` for `default`, which is no registered body, and for a new name
-/// once the kind has 65,535.
-fn body_id(kind: usize, name: &str) -> Option<BodyId> {
-    if name == "default" {
-        return None;
-    }
-    let mut kinds = NAMES.lock().unwrap_or_else(|e| e.into_inner());
-    if kinds.is_empty() {
-        kinds.resize_with(Bodies::KINDS.len(), HashMap::new);
-    }
-    let names = &mut kinds[kind];
-    if let Some(&id) = names.get(name) {
-        return Some(id);
-    }
-    let id = BodyId(u16::try_from(names.len() + 1).ok()?);
-    names.insert(name.to_owned(), id);
-    Some(id)
-}
+/// The longest body name, in bytes: a longer one registers nothing (the registry's memory is bounded per `Ui`: 65,535 names a
+/// kind, each at most this long).
+pub const MAX_BODY_NAME: usize = 64;
 
 fn kind_index(kind: &str) -> usize {
     Bodies::KINDS.iter().position(|k| *k == kind).unwrap_or(0)
@@ -660,8 +639,8 @@ macro_rules! builtin {
     (popup) => { crate::ui_kit::default_panel };
     (modal) => { crate::ui_kit::default_panel };
     (dialog) => { crate::ui_widgets::default_dialog };
-    (inspector_section) => { crate::ui_kit::default_section };
-    (inspector_row) => { crate::ui_kit::default_inspector_row };
+    (inspector_section) => { crate::kit_ext::default_section };
+    (inspector_row) => { crate::kit_ext::default_inspector_row };
     (split) => { crate::ui_kit::default_split };
     (scroll_view) => { crate::ui_widgets::default_scroll };
     (toast) => { crate::ui_widgets::default_toast };
@@ -677,19 +656,20 @@ macro_rules! builtin {
     (table_view) => { crate::ui_widgets::default_row };
     (table_head) => { crate::ui_widgets::default_table_head };
     (table) => { crate::ui_kit::default_table_cell };
-    (picker) => { crate::ui_text::default_picker_row };
+    (picker) => { crate::kit_ext::default_picker_row };
     (search_field) => { crate::ui_widgets::default_search_field };
     (text_field) => { crate::ui_text::default_text_field };
-    (line_field) => { crate::ui_text::default_line_field };
-    (value_field) => { crate::ui_text::default_value_field };
-    (picker_field) => { crate::ui_text::default_picker_field };
+    (line_field) => { crate::kit_ext::default_line_field };
+    (value_field) => { crate::kit_ext::default_value_field };
+    (picker_field) => { crate::kit_ext::default_picker_field };
 }
 
 macro_rules! registry {
     ($($kind:ident $register:ident $body:ident $config:ident),* $(,)?) => {
-        /// The bodies an app registered, one list per widget kind: a theme's `BodyId` n picks entry n - 1 (`None` where this `Ui`
-        /// registered nothing under the process-wide id of a name another `Ui` did), and `names[kind]` maps the names registered here
-        /// to their ids. Filled at start-up; a frame only reads it.
+        /// The bodies an app registered in this `Ui`, one list per widget kind: a theme's `BodyId` n picks entry n - 1, and
+        /// `names[kind]` maps the names registered here to their ids, numbered from 1 in this `Ui`'s order of first registration (ids
+        /// are per `Ui`; a theme carried to another `Ui` is resolved there by name, `Ui::named_body`). Bounded: 65,535 names a kind of
+        /// at most `MAX_BODY_NAME` bytes, freed with the `Ui`. Filled at start-up; a frame only reads it.
         pub(crate) struct BodyTable {
             $(pub(crate) $kind: Vec<Option<$body>>,)*
             names: Vec<HashMap<String, BodyId>>,
@@ -710,19 +690,35 @@ macro_rules! registry {
             }
         }
 
+        impl BodyTable {
+            /// The id of `name` for kind number `kind` in this `Ui`, numbered when new; `None` for `default` (the built-in body), for a
+            /// name longer than `MAX_BODY_NAME` and for a new name once the kind has 65,535.
+            fn id_of(&mut self, kind: usize, name: &str) -> Option<BodyId> {
+                if name == "default" || name.len() > MAX_BODY_NAME {
+                    return None;
+                }
+                let names = &mut self.names[kind];
+                if let Some(&id) = names.get(name) {
+                    return Some(id);
+                }
+                let id = BodyId(u16::try_from(names.len() + 1).ok()?);
+                names.insert(name.to_owned(), id);
+                Some(id)
+            }
+        }
+
         impl Ui {
             $(
                 #[doc = concat!("Register `body` as the ", stringify!($kind), " body called `name`, for a theme's `body.", stringify!($kind), "` (or `", stringify!($kind), ".body = NAME` in a theme file).")]
                 /// Registering a name again replaces its body and keeps its id; `default` is the built-in body and registers nothing.
-                /// A name has one id for the whole process (not one per `Ui`). At most 65,535 names a kind in the process: a new one past
-                /// that registers nothing and returns `BodyId::DEFAULT`.
+                /// A name's id is this `Ui`'s (numbered from 1 in its order of first registration). At most 65,535 names a kind, each
+                /// at most `MAX_BODY_NAME` bytes: a new one past that, or a longer one, registers nothing and returns `BodyId::DEFAULT`.
                 pub fn $register(&mut self, name: &str, body: $body) -> BodyId {
                     let kind = kind_index(stringify!($kind));
-                    let Some(id) = body_id(kind, name) else { return BodyId::DEFAULT };
+                    let Some(id) = self.bodies.id_of(kind, name) else { return BodyId::DEFAULT };
                     let at = id.0 as usize - 1;
                     if self.bodies.$kind.len() <= at { self.bodies.$kind.resize(at + 1, None) }
                     self.bodies.$kind[at] = Some(body);
-                    self.bodies.names[kind].insert(name.to_owned(), id);
                     id
                 }
             )*
@@ -767,8 +763,17 @@ impl Ui {
 
     /// `Theme::parse` where `KIND.body = NAME` names the bodies this `Ui` registered; an unregistered name is a `ThemeError`.
     pub fn parse_theme(&self, text: &str, base: &Theme) -> Result<Theme, Vec<crate::theme::ThemeError>> {
-        let named = |kind: &str, name: &str| self.bodies.names[kind_index(kind)].get(name).copied();
-        Theme::parse_bodies(text, base, &named)
+        Theme::parse_bodies(text, base, &|kind, name| self.named_body(kind, name))
+    }
+
+    /// The id this `Ui` registered `name` under for the widget kind named `kind` (one of `Bodies::KINDS`): `BodyId::DEFAULT` for
+    /// `default`, `None` for a name it has not registered. Ids are per `Ui`: a theme whose names were resolved in another `Ui` is
+    /// resolved again here by name. Allocates nothing.
+    pub fn named_body(&self, kind: &str, name: &str) -> Option<BodyId> {
+        if name == "default" {
+            return Some(BodyId::DEFAULT);
+        }
+        self.bodies.names[kind_index(kind)].get(name).copied()
     }
 
     /// A node of the widget whose body is building, found again by its role: keyed from the widget and `part`, so behaviour

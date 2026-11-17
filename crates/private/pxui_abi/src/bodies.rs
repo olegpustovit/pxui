@@ -18,7 +18,7 @@ enum Slot { Content(*mut (dyn FnMut(&mut Ui) + 'static)), Editor(*mut (dyn FnMut
 /// The app's bodies and the slots of the body calls in progress, in `Shared`.
 #[derive(Default)]
 pub(crate) struct BodyState {
-    /// `(fn, user)` of body id n + 1 of kind k at `table[k][n]` (`None` where only another `Ui` registered that name), filled by `pxui_body_register`
+    /// `(fn, user)` of body id n + 1 of kind k at `table[k][n]`, filled by `pxui_body_register`
     table: Vec<Vec<Option<(Body, *mut c_void)>>>,
     /// the slots of the body calls in progress, innermost last, with the depth of the body call each was given to: a slot is live
     /// while it is here and runs only at that depth (not from a nested body, not inside its own content)
@@ -47,7 +47,8 @@ fn invoke(ui: &mut Ui, sh: *mut Shared, kind: BodyKind, id: BodyId, cfg: *const 
     unsafe { (*sh).bodies.depth = depth };
 }
 
-/// Slot serials, one count for every `Ui`: a slot of one `Ui` never names a live slot of another.
+/// Slot serials, one count for every `Ui`: a slot of one `Ui` never names a live slot of another. Per process by design: an atomic
+/// `u64` counter, thread-safe and never wrapping in practice (one increment per body call), holding no other state.
 static SERIAL: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
 
 /// A slot of the body call the trampoline is about to make (one deeper than now).
@@ -243,13 +244,14 @@ macro_rules! registrars {
 }
 pxui_types::body_kinds!(registrars);
 
-/// A body name a theme file can select: not `default`, no space and none of `=` or `#`.
-fn name_ok(name: &str) -> bool { !name.is_empty() && name != "default" && !name.contains(|c: char| c.is_whitespace() || c.is_control() || c == '=' || c == '#') }
+/// A body name a theme file can select: 1 to `MAX_BODY_NAME` (64) bytes, not `default`, no space and none of `=` or `#`.
+fn name_ok(name: &str) -> bool { !name.is_empty() && name.len() <= MAX_BODY_NAME && name != "default" && !name.contains(|c: char| c.is_whitespace() || c.is_control() || c == '=' || c == '#') }
 
 // Registers `body` (called as `body(user, ui, config)`, the config the record of `kind`, a `BodyKind` number) as the body of `kind`
 // called `name`, for a theme's `KIND.body = NAME`; returns its id, or 0 with `pxui_last_error` set when it is refused (an unknown kind,
-// a name that is empty, `default` or holds a space, `=` or `#`, a null function, or a call inside a frame). Registering a name again
-// replaces its function and keeps its id. Register at start-up: `user` must outlive the `Ui`.
+// a name that is empty, longer than 64 bytes, `default` or holds a space, `=` or `#`, a null function, or a call inside a frame).
+// Registering a name again replaces its function and keeps its id. Ids are this `Ui`'s (a theme used in another `Ui` is resolved there
+// by name). Register at start-up: `user` must outlive the `Ui`.
 export!(pub unsafe fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void) -> u16 {
     let Some(state) = (unsafe { get(ui) }) else { return 0 };
     let (Some(body), Some(name)) = (body, unsafe { crate::state::checked_key(name) }) else { unsafe { fail(ui, "invalid body registration") }; return 0 };
@@ -479,7 +481,8 @@ mod tests {
         assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
     }
 
-    /// A name registered again, in the same `Ui` or another, answers the id it had and uses up none: a new name is the next number.
+    /// A name registered again answers the id it had and uses up none: a new name is the next number. Ids are per `Ui`: another `Ui`
+    /// numbers its own names from 1, and a name longer than 64 bytes is refused.
     #[test]
     fn a_name_again_keeps_its_id_and_consumes_none() {
         let kind = BodyKind::tab as u32;
@@ -487,11 +490,16 @@ mod tests {
         let register = |ui, name| unsafe { pxui_body_register(ui, kind, text(name), Some(toggle_body), core::ptr::null_mut()) };
         let kept = register(a, "kept_name");
         assert_ne!(kept, 0);
+        assert_eq!(register(b, "other_name"), 1, "b numbers its own names");
         for _ in 0..50 {
             assert_eq!(register(a, "kept_name"), kept);
-            assert_eq!(register(b, "kept_name"), kept);
+            assert_eq!(register(b, "other_name"), 1);
         }
-        assert_eq!(register(b, "next_name"), kept + 1, "the repeats used up no ids");
+        assert_eq!(register(a, "next_name"), kept + 1, "the repeats used up no ids");
+        let long = "n".repeat(65);
+        let register_long = |len| unsafe { pxui_body_register(a, kind, text(&long[..len]), Some(toggle_body), core::ptr::null_mut()) };
+        assert_eq!(register_long(64), kept + 2);
+        assert_eq!(register_long(65), 0, "a name past 64 bytes is refused");
         assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
     }
 
@@ -599,14 +607,14 @@ mod tests {
     }
 
     /// A theme applied against one `Ui` and used in another selects the body of that name there: another `Ui`'s bodies, which hold the
-    /// same number in its own registration order, never run.
+    /// same numbers in its own registration order, never run for it.
     #[test]
     fn a_theme_applied_against_one_ui_never_selects_another_uis_body() {
         let (a, b) = (unsafe { pxui_ui_create(&PxuiUiDesc::default()) }, unsafe { pxui_ui_create(&PxuiUiDesc::default()) });
         let reg = |ui, name: &str, body: PxuiBodyFn| unsafe { pxui_body_register(ui, BodyKind::toggle as u32, text(name), body, core::ptr::null_mut()) };
         let (alpha, beta) = (reg(a, "alpha", Some(toggle_body)), reg(a, "beta", Some(toggle_body)));
         let (gamma, delta) = (reg(b, "gamma", Some(wrong_body)), reg(b, "delta", Some(wrong_body)));
-        assert!(![alpha, beta].iter().any(|id| [gamma, delta].contains(id)), "ids {alpha} {beta} {gamma} {delta}: a name is one id process-wide");
+        assert_eq!((alpha, beta, gamma, delta), (1, 2, 1, 2), "ids are per Ui");
         let theme = unsafe { crate::theme::pxui_theme_create(core::ptr::null()) };
         assert_eq!(unsafe { crate::theme::pxui_ui_theme_apply(a, theme, text("toggle.body = beta")) }, 0, "{}", error(a));
         assert_eq!(unsafe { crate::theme::pxui_ui_theme_apply(b, theme, text("toggle.body = beta")) }, PXUI_ERR_ARGUMENT, "b registered no beta");

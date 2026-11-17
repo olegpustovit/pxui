@@ -275,38 +275,42 @@ pub fn unknown_body_is_error() {
     ui.destroy();
 }
 
-/// A body name has one id in the whole process, so a theme carried to another `Ui` selects the body of that name there, never whatever
-/// that `Ui` registered under the same number: where it registered none the built-in body builds.
+/// Body ids are per `Ui`: another `Ui` numbers its own names from 1, so a theme carried to it is resolved there by name
+/// (`Ui::named_body`, what the library's theme handle does), never by the number: where it registered no such name the built-in body
+/// builds, and where it did, its own body.
 pub fn a_theme_from_another_ui_never_selects_another_body() {
     let mut a = new_ui(None);
     a.register_toggle_body("checkbox", checkbox_body);
     let second = a.register_toggle_body("second", checkbox_body);
-    let theme = a.parse_theme("toggle.body = second\n", &Theme::default()).expect("a names its body");
+    let mut theme = a.parse_theme("toggle.body = second\n", &Theme::default()).expect("a names its body");
     check(theme.body.toggle == second, "the parse picked the id of its name");
     let mut b = new_ui(None);
     let (other, extra) = (b.register_toggle_body("other", |_, _, _, _, _| panic!("a body of another name ran")), b.register_toggle_body("extra", |_, _, _, _, _| panic!("a body of another name ran")));
-    check(other != second && extra != second, &format!("ids {other:?} {extra:?} {second:?}: another Ui's names share the id of a name"));
-    check(b.parse_theme("toggle.body = second\n", &Theme::default()).is_err(), "b knows no body second");
+    check((other.0, extra.0, second.0) == (1, 2, 2), &format!("ids {other:?} {extra:?} {second:?}: each Ui numbers its own names"));
+    check(b.parse_theme("toggle.body = second\n", &Theme::default()).is_err() && b.named_body("toggle", "second").is_none(), "b knows no body second");
+    theme.body.toggle = b.named_body("toggle", "second").unwrap_or_default();
     b.set_theme(theme);
     for k in 0..2 {
         b.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); }));
     }
-    // and the same name registered in both is the same id, whose body each Ui runs
-    check(b.register_toggle_body("second", checkbox_body) == second, "a name is one id in every Ui");
+    let own = b.register_toggle_body("second", checkbox_body);
+    check(own.0 == 3 && b.named_body("toggle", "second") == Some(own), "the same name registered in b is b's own id");
     a.destroy();
     b.destroy();
 }
 
-/// Registering a name again, in the same `Ui` or another, keeps its id and uses up none: the next new name is the next number.
+/// Registering a name again keeps its id and uses up none: the next new name is the next number. Another `Ui` numbers from 1.
 pub fn registering_a_name_again_consumes_no_id() {
     fn nothing(_: &mut Ui, _: &SpinnerConfig, _: &str) {}
     let (mut a, mut b) = (new_ui(None), new_ui(None));
     let kept = a.register_spinner_body("kept_name", nothing);
+    check(b.register_spinner_body("other_name", nothing).0 == 1, "b numbers its own names");
     for _ in 0..50 {
         check(a.register_spinner_body("kept_name", nothing) == kept, "a name again in the same Ui keeps its id");
-        check(b.register_spinner_body("kept_name", nothing) == kept, "a name in another Ui has the same id");
     }
-    check(b.register_spinner_body("next_name", nothing).0 == kept.0 + 1, "the repeats used up no ids");
+    check(a.register_spinner_body("next_name", nothing).0 == kept.0 + 1, "the repeats used up no ids");
+    check(a.register_spinner_body(&"n".repeat(64), nothing).0 == kept.0 + 2, "a 64-byte name registers");
+    check(a.register_spinner_body(&"n".repeat(65), nothing) == BodyId::DEFAULT, "a longer name registers nothing");
     a.destroy();
     b.destroy();
 }
@@ -540,7 +544,7 @@ pub fn icon_button_uses_a_registered_body() {
     ui.destroy();
 }
 
-/// LocalWave's transport key as an icon button: 36 points square, a plate per state, a 0.96 press scale that springs in and out,
+/// An app's transport key as an icon button: 36 points square, a plate per state, a 0.96 press scale that springs in and out,
 /// the accessible name, and a disabled form that takes no press.
 pub fn icon_button_is_the_transport_key() {
     use pxui_core::geom::Rgba;
@@ -609,7 +613,7 @@ pub fn icon_button_press_runs_the_callers_curves() {
     ui.destroy();
 }
 
-/// LocalWave's play icon (`lw_ui/src/icons.rs::play`): one triangle on a 24-unit grid scaled to the square it is given.
+/// An app's play icon: one triangle on a 24-unit grid scaled to the square it is given.
 fn play_icon(paint: &mut Paint, rect: Rect, ink: pxui_core::geom::Rgba, _: [usize; 4]) {
     use pxui_types::shape::Shapes;
     let scale = rect.w.min(rect.h) / 24.0;

@@ -54,7 +54,7 @@ pub fn window_pxui_view_rebuilds_one() {
 }
 
 /// A layer that shrinks before the host drew it keeps its dirty ranges inside its instances: the painter
-/// refuses a range past the layer's length (Rays' graph pane built six frames, shrinking, before one draw).
+/// refuses a range past the layer's length (an app's graph pane built six frames, shrinking, before one draw).
 pub fn window_pxui_shrunk_layer_clips_dirty() {
     let mut ui = new_ui(None);
     let (count, rev) = (Cell::new(6), Cell::new(1u64));
@@ -1112,7 +1112,7 @@ pub fn window_pxui_more_kept_views_reuse_compaction_scratch() {
 }
 
 /// A newcomer view without a label match must not take the record that holds another label's
-/// warmed node buffers (a relayout away and back, LocalWave compact/wide), or that label regrows them.
+/// warmed node buffers (a relayout away and back, an app's compact/wide layouts), or that label regrows them.
 pub fn window_pxui_view_newcomer_keeps_warm_buffers() {
     let names: Vec<String> = (0..300).map(|i| format!("n{i}")).collect();
     for big_first in [true, false] {

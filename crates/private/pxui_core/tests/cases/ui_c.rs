@@ -329,7 +329,7 @@ pub fn text_area_3(rig: &mut Rig) {
 pub fn text_area_4(rig: &mut Rig) {
     // a number dragged sideways follows the pointer: an integer one per six points, a float a
     // tenth of its last place per point; the host hears Live frames and one Done
-    // (the rule against Rays' param::number::scrub is checked in rays_shell's host cases)
+    // (an app's own scrub rule is checked in that app's host cases)
     assert_eq!((scrubbed("10", -20.0, false), scrubbed("10", 6.0, false)), ("7".to_owned(), "11".to_owned()));
     rig.area = String::new();
     rig.plain(vec![press((150, 12)), release((150, 12))]);
@@ -551,6 +551,63 @@ pub fn window_pxui_modal_1() {
     ui.destroy();
 }
 
+/// Every floating root the engine raises is a paint layer of its own, tagged with what it is and where it is anchored, so a host may
+/// present it in a surface of its own: the base, a popup, a modal and an anchored popup (its anchor the rectangle it was placed against).
+pub fn floating_roots_are_layers_with_their_roles() {
+    let mut ui = ui11();
+    let anchor = Rect::new(40.0, 30.0, 20.0, 10.0);
+    let placement = Placement { side: Side::Below, align: Align::Start, gap: 2.0, margin: 4.0, flip: true };
+    for _ in 0..2 {
+        ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| {
+            ui.label("Base", pxui_core::ui::Label::DEFAULT);
+            ui.popup("popup", &Overlay::DEFAULT.at(20.0, 20.0).w(120.0).h(40.0).dismiss_initial(), &mut |ui| ui.label("One", pxui_core::ui::Label::DEFAULT));
+            ui.modal("modal", &Overlay::DEFAULT.w(160.0), &mut |ui| ui.label("Two", pxui_core::ui::Label::DEFAULT));
+            ui.anchored("anchored", anchor, &Overlay::DEFAULT.place(placement).w(60.0).h(20.0), &mut |_| {});
+        });
+    }
+    let roles: Vec<(LayerRole, Rect)> = ui.output().draw.iter().map(|l| (l.role, l.anchor)).collect();
+    let kinds: Vec<LayerRole> = roles.iter().map(|r| r.0).collect();
+    check(kinds == [LayerRole::Base, LayerRole::Popup, LayerRole::Modal, LayerRole::Popup], &format!("layers {kinds:?}"));
+    check(roles[3].1 == anchor, &format!("anchored layer's anchor {:?}", roles[3].1));
+    check((roles[1].1.x, roles[1].1.y) == (20.0, 20.0) && roles[1].1.w > 0.0, &format!("popup layer's anchor is its own rectangle: {:?}", roles[1].1));
+    check(ui.output().draw[1..].iter().all(|l| l.key != 0) && ui.output().draw[1..3].iter().all(|l| !l.instances.is_empty()), "each floating layer holds its root's paint");
+    ui.destroy();
+}
+
+/// Past `MAX_LAYERS` the floating roots share the last layer: its role is `Merged` and its anchor the union of its roots' anchors.
+pub fn floating_roots_past_the_layer_limit_share_a_merged_layer() {
+    let mut ui = ui11();
+    let roots = pxui_types::MAX_LAYERS + 6;
+    let anchor = |i: usize| Rect::new(i as f32, 0.0, 1.0, 1.0);
+    for _ in 0..2 {
+        ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| {
+            for i in 0..roots {
+                ui.anchored(&format!("root{i}"), anchor(i), &Overlay::DEFAULT.w(4.0).h(4.0), &mut |_| {});
+            }
+        });
+    }
+    let draw = ui.output().draw;
+    check(draw.len() == pxui_types::MAX_LAYERS, &format!("{} layers for {roots} roots", draw.len()));
+    check(draw[..draw.len() - 1].iter().skip(1).all(|l| l.role == LayerRole::Popup), "the layers under the limit keep their roles");
+    let last = &draw[draw.len() - 1];
+    // layer 0 is the base: the last layer opened with root MAX_LAYERS - 2 and took every root after it
+    let first = pxui_types::MAX_LAYERS - 2;
+    let expected = Rect::new(first as f32, 0.0, (roots - first) as f32, 1.0);
+    check(last.role == LayerRole::Merged && last.anchor == expected, &format!("last layer {:?} {:?}, expected Merged {expected:?}", last.role, last.anchor));
+    ui.destroy();
+}
+
+/// A tooltip shown after the hover delay is a `Tooltip` layer.
+pub fn a_tooltip_is_a_tooltip_layer() {
+    let mut ui = ui11();
+    for (t, events) in [(0.0, vec![move_to((10, 10))]), (0.1, vec![]), (1.0, vec![]), (1.1, vec![])] {
+        ui.frame(&frame_at(vec![], 1.0, t, events), &mut |ui| ui.tooltip_legacy("tip", "Hello"));
+    }
+    let kinds: Vec<LayerRole> = ui.output().draw.iter().map(|l| l.role).collect();
+    check(kinds == [LayerRole::Base, LayerRole::Tooltip], &format!("layers {kinds:?}"));
+    ui.destroy();
+}
+
 pub fn window_pxui_modal_2() {
     let mut ui = ui11();
     let shown = Cell::new(false);
@@ -614,12 +671,14 @@ pub fn window_pxui_modal_4() {
     if raised(&mut ui, vec![press((20, 20)), release((20, 20))]) != (true, false) {
         fail("a later body covered a raised floating control");
     }
-    // the raised control paints its own layer over the base (rays_shell's host cases stage the
-    // native content between them)
+    // the raised control paints its own layer over the base (an app's host stages native content
+    // between them)
     let keys: Vec<i64> = ui.output().draw.iter().map(|l| l.key).collect();
     if keys != [0, front_key.get()] {
         fail(&format!("the raised control is not a layer of its own: {keys:?}"));
     }
+    let roles: Vec<LayerRole> = ui.output().draw.iter().map(|l| l.role).collect();
+    check(roles == [LayerRole::Base, LayerRole::Base], &format!("an app's to_front root is a Base layer: {roles:?}"));
     ui.destroy();
 }
 
@@ -703,6 +762,8 @@ pub fn window_pxui_carry() {
         (Some(held), Some(Drop::Hover(over)), true) if held == payload && over == payload => {}
         _ => fail("a box that does not own the press did not see the carry hover"),
     }
+    let roles: Vec<LayerRole> = ui.output().draw.iter().map(|l| l.role).collect();
+    check(roles == [LayerRole::Base, LayerRole::Drag, LayerRole::Drag], &format!("a carry's chip and ghost are Drag layers: {roles:?}"));
     match carried(&mut ui, vec![move_to((10, 110))]) {
         (Some(_), Some(Drop::Hover(_)), _) => {}
         _ => fail("the carry did not follow the pointer"),
@@ -937,6 +998,9 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_text_area_windows", window_pxui_text_area_windows),
     ("window_pxui_modal_1", window_pxui_modal_1),
     ("window_pxui_modal_2", window_pxui_modal_2),
+    ("floating_roots_are_layers_with_their_roles", floating_roots_are_layers_with_their_roles),
+    ("floating_roots_past_the_layer_limit_share_a_merged_layer", floating_roots_past_the_layer_limit_share_a_merged_layer),
+    ("a_tooltip_is_a_tooltip_layer", a_tooltip_is_a_tooltip_layer),
     ("window_pxui_modal_3", window_pxui_modal_3),
     ("window_pxui_modal_4", window_pxui_modal_4),
     ("window_pxui_two_widgets", window_pxui_two_widgets),
