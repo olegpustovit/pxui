@@ -248,13 +248,21 @@ pub(crate) unsafe fn text(value: Str) -> Option<&'static str> {
     if ascii(bytes) { Some(unsafe { std::str::from_utf8_unchecked(bytes) }) } else { std::str::from_utf8(bytes).ok() }
 }
 
-/// Whether `bytes` are ASCII. Up to 16 of them (a label) are two loads that may overlap, not a loop; longer ones `is_ascii`.
+/// Whether `bytes` are ASCII. Up to 16 of them (a label) are two loads that may overlap, up to 64 (a tip, a sentence) four or eight,
+/// not a loop; longer ones `is_ascii`.
 #[inline(always)]
 pub(crate) fn ascii(bytes: &[u8]) -> bool {
     let (n, p) = (bytes.len(), bytes.as_ptr());
     let word = |at: usize| unsafe { p.add(at).cast::<u64>().read_unaligned() };
     let half = |at: usize| unsafe { p.add(at).cast::<u32>().read_unaligned() };
-    if n >= 8 { if n <= 16 { (word(0) | word(n - 8)) & 0x8080_8080_8080_8080 == 0 } else { bytes.is_ascii() } }
+    // the first and the last `k` words cover all `n` bytes when `n <= 16k`
+    let ends = |k: usize| (0..k).fold(0, |all, i| all | word(8 * i) | word(n - 8 * (i + 1)));
+    if n >= 8 {
+        if n <= 16 { (word(0) | word(n - 8)) & 0x8080_8080_8080_8080 == 0 }
+        else if n <= 32 { ends(2) & 0x8080_8080_8080_8080 == 0 }
+        else if n <= 64 { ends(4) & 0x8080_8080_8080_8080 == 0 }
+        else { bytes.is_ascii() }
+    }
     else if n >= 4 { (half(0) | half(n - 4)) & 0x8080_8080 == 0 }
     // one to three bytes: the first, the middle and the last are all of them
     else { n == 0 || unsafe { *p | *p.add(n / 2) | *p.add(n - 1) } & 0x80 == 0 }
@@ -309,4 +317,22 @@ pub(crate) unsafe fn boxed<'a>(ui: *mut PxuiUi, raw: *const PxuiBox) -> Result<(
 pub(crate) fn live_box(engine: &Ui, raw: PxuiBox) -> Option<UiBox> {
     let b = core_box(raw)?;
     engine.has_slot(&b).then_some(b)
+}
+
+#[cfg(test)]
+mod tests {
+    /// `ascii` never calls a text with a byte past 0x7f ASCII (an export would then take it unchecked as UTF-8), at every length its
+    /// overlapping loads cover and every position of that byte, and accepts all-ASCII text.
+    #[test]
+    fn ascii_sees_every_byte_of_every_length() {
+        let mut bytes = [b'a'; 80];
+        for n in 0..=80 {
+            assert!(super::ascii(&bytes[..n]), "{n} ASCII bytes");
+            for at in 0..n {
+                bytes[at] = 0xc3;
+                assert!(!super::ascii(&bytes[..n]), "byte {at} of {n}");
+                bytes[at] = b'a';
+            }
+        }
+    }
 }

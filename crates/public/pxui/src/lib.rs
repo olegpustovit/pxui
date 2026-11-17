@@ -606,13 +606,14 @@ impl Ui {
     #[track_caller]
     pub fn panel(&mut self, opts: pxui_types::ui::PanelOpts, label: &str, mut f: &mut dyn FnMut(&mut Ui)) {
         #[cfg(not(feature = "static"))]
-        let panel = PxuiPanel {
-            x: opts.x, y: opts.y, width: opts.width, height: opts.height.unwrap_or_default(), padding: opts.padding,
-            has_height: opts.height.is_some() as u8, window: opts.window as u8,
-            has_max_height: opts.max_height.is_some() as u8, max_height: opts.max_height.unwrap_or_default(),
-            has_stroke: opts.stroke.is_some() as u8, stroke: opts.stroke.unwrap_or_default(),
-            has_look: opts.look.is_some() as u8, look: opts.look.map(crate::node::look).unwrap_or_default(),
-            ..PxuiPanel::default()
+        let panel = {
+            // the options a panel usually has are written as they are; each optional part only when it is there
+            let mut panel = PxuiPanel { x: opts.x, y: opts.y, width: opts.width, padding: opts.padding, window: opts.window as u8, ..PxuiPanel::default() };
+            if let Some(height) = opts.height { (panel.has_height, panel.height) = (1, height); }
+            if let Some(height) = opts.max_height { (panel.has_max_height, panel.max_height) = (1, height); }
+            if let Some(stroke) = opts.stroke { (panel.has_stroke, panel.stroke) = (1, stroke); }
+            if let Some(look) = opts.look { panel_look(&mut panel, look); }
+            panel
         };
         #[cfg(feature = "static")]
         let rc = unsafe { pxui_abi_link::trusted::panel(self.0.as_ptr(), opts, label, inner!(|ui: &mut Ui| f(ui))) };
@@ -652,6 +653,12 @@ impl Ui {
     }
 }
 
+
+/// A panel descriptor's look, out of line: inlined, its encoding made the plain panel's descriptor a select of every field.
+#[cfg(not(feature = "static"))]
+#[cold]
+#[inline(never)]
+fn panel_look(panel: &mut PxuiPanel, look: pxui_types::theme::Look) { (panel.has_look, panel.look) = (1, crate::node::look(look)); }
 
 impl Drop for Ui {
     fn drop(&mut self) {

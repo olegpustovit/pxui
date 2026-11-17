@@ -429,8 +429,12 @@ export!(pub unsafe fn pxui_ui_system_appearance(ui:*mut PxuiUi,out:*mut u32)->i3
 
 export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const FrameIn, build: Build, user: *mut c_void, out: *mut FrameOut) -> i32 {
     if input.is_null() || out.is_null() { return unsafe { fail(ui, "null frame argument") }; }
+    let mut build = |ui: *mut PxuiUi| if let Some(build) = build { build(user, ui.cast()) };
+    // a whole record is read where it lies (`frame_body` reads it before the build runs, so the caller cannot change it under the
+    // engine); an older, shorter one is copied over the defaults
+    if unsafe { input.cast::<u32>().read_unaligned() } as usize >= core::mem::size_of::<FrameIn>() { return unsafe { frame_body(ui, &*input, &mut build, &mut *out) }; }
     let Some(input) = (unsafe { read_frame(input) }) else { return unsafe { fail(ui, "invalid frame descriptor") }; };
-    unsafe { frame_body(ui, &input, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut *out) }
+    unsafe { frame_body(ui, &input, &mut build, &mut *out) }
 });
 
 pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inner, out: &mut FrameOut) -> i32 {
@@ -540,10 +544,10 @@ export!(trusted pub unsafe fn pxui_col(ui: *mut PxuiUi, padding: f32, label: Str
 export!(trusted pub unsafe fn pxui_panel(ui: *mut PxuiUi, panel: *const PxuiPanel, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid panel label") }; };
-    let Some(panel) = read_desc!(panel, PxuiPanel) else { return unsafe { fail(ui, "invalid panel descriptor") }; };
-    let mut opts = PanelOpts::default().at(panel.x, panel.y).width(panel.width).padding(panel.padding).window(panel.window != 0);
-    if panel.has_height != 0 { opts = opts.height(panel.height); }
-    if panel.has_max_height != 0 { opts = opts.max_height(panel.max_height); }
+    // read where it lies (a record at least as long as ours), the look only when it has one
+    let Some(panel) = sized!(panel) else { return unsafe { fail(ui, "invalid panel descriptor") }; };
+    let mut opts = PanelOpts { stroke: None, look: None, window: panel.window != 0, x: panel.x, y: panel.y, width: panel.width,
+        height: (panel.has_height != 0).then_some(panel.height), max_height: (panel.has_max_height != 0).then_some(panel.max_height), padding: panel.padding };
     if panel.has_stroke != 0 { opts.stroke = Some(panel.stroke); }
     if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; opts.look = Some(look); }
     unsafe { trusted::panel(ui, opts, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }

@@ -46,12 +46,12 @@ unsafe fn view_with(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeD
     unsafe { crate::trusted::view(ui, label, revision, width, height, flat, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, out) }
 }
 
-export!(pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_view(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     unsafe { view_with(ui, label, revision, width, height, callback, user, out, false) }
 });
 
 // A view that takes no entry of its own in the painter view table: its instances ride its parent entry.
-export!(pub unsafe fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+export!(trusted pub unsafe fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     unsafe { view_with(ui, label, revision, width, height, callback, user, out, true) }
 });
 
