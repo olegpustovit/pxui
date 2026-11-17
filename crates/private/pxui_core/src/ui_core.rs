@@ -377,10 +377,11 @@ struct ViewRec {
     verify: bool,
     /// Rebuild descendants together when this view's available size changes.
     reflow: bool,
-    /// `run` in layer `layer` holds its output
+    /// `run` in layer `layer` holds its output, painted at frame and time `kept_paint`
     valid: bool,
     layer: i64,
     run: (u32, u32),
+    kept_paint: (i64, f64),
     /// this frame's pieces of it: scratch layer, first and end piece
     pieces: (usize, usize, usize),
     /// the texture in effect at the run's start, and the breaks inside it
@@ -465,6 +466,7 @@ impl ViewRec {
             valid: false,
             layer: 0,
             run: (0, 0),
+            kept_paint: (-1, 0.0),
             pieces: (0, 0, 0),
             tex0: None,
             breaks: Vec::new(),
@@ -5611,7 +5613,8 @@ impl Ui {
             let look = self.slots[slot].node.look;
             self.tweens[t].to.look = look;
         }
-        let (pose, steady) = self.pose(slot);
+        let at = self.verify_time(slot);
+        let (pose, steady) = self.pose_at(slot, at);
         let focused = self.marks_focus(slot);
         let r = self.screen(index);
         let s = &self.slots[slot];
@@ -6478,11 +6481,16 @@ impl Ui {
 
     /// What the node shows now, and whether a transition is running (its instances stay steady).
     fn pose(&self, slot: usize) -> (Pose, bool) {
+        self.pose_at(slot, self.now)
+    }
+
+    /// `pose` at time `at`.
+    fn pose_at(&self, slot: usize, at: f64) -> (Pose, bool) {
         match self.tween_of(slot) {
             None => (self.rest(slot), false),
             Some(i) => {
                 let t = &self.tweens[i];
-                let elapsed = self.now - t.start;
+                let elapsed = at - t.start;
                 let (from, to, p) = match self.keyframes.get(t.keys as usize) {
                     None => (&t.from, &t.to, t.curve.at(elapsed as f32)),
                     Some(k) => {
@@ -6553,8 +6561,16 @@ impl Ui {
             } else {
                 i += 1;
             }
-            if !t.view_only && (done || self.slots[t.slot].painted != self.frame_number) {
+            // a node of a view verified this frame was painted as of the kept build (`verify_time`):
+            // it shows now what a fresh paint would, which is no patch for the next check to skip
+            let owner = self.slots[t.slot].owner as usize;
+            let verified = owner != 0 && self.views[owner].verify && self.views[owner].built == self.frame_number;
+            if !t.view_only && (done || verified || self.slots[t.slot].painted != self.frame_number) {
+                let patched = self.views[owner].patched;
                 self.repaint_node(t.slot);
+                if verified {
+                    self.views[owner].patched = patched;
+                }
             }
         }
         self.damage = match (damage, self.damage) {
@@ -7527,7 +7543,6 @@ impl Ui {
         }
         r.built_rect = rect;
         r.delta = (0.0, 0.0);
-        r.layer = layer;
         let (table, xf) = (r.index, r.xf);
         // the text this build paints belongs to the view while it is not painted again
         let owner = paint.text.paint_view(v);
@@ -7613,6 +7628,21 @@ impl Ui {
             let same = old.filter(|i| **i != EMPTY).eq(new.filter(|i| **i != EMPTY));
             assert!(same, "Ui.verify_views: view {:?} built different output under an unchanged revision: its revision misses an input", r.name);
         }
+    }
+
+    /// When a node of a view being checked (`verify_views`) paints its running transition: as its
+    /// kept build painted it, so the check compares like with like (`step_tweens` brings it to now
+    /// after). A transition shows a look declared unlike the kept build's only in later frames, so
+    /// that look is named here. Any other node paints now.
+    fn verify_time(&self, slot: usize) -> f64 {
+        let s = &self.slots[slot];
+        let r = &self.views[s.owner as usize];
+        if !(r.verify && r.valid && !r.patched && s.painted == r.kept_paint.0) || self.tween_of(slot).is_none() {
+            return self.now;
+        }
+        // `seen` is the look the kept build declared (painting keeps it only while the theme moves)
+        assert!(!self.motion || s.node.look == s.seen, "Ui.verify_views: view {:?} built different output under an unchanged revision: its revision misses an input", r.name);
+        r.kept_paint.1
     }
 
     /// Merge the frame's scratch layers into the retained ones: fresh pieces land where they fall,
@@ -7972,7 +8002,9 @@ impl Ui {
                     }
                 }
                 let r = &mut self.views[v];
-                (r.run, r.valid, r.tex0, r.breaks) = ((start, stop), true, tex0, breaks);
+                // the layer moves with the run: until now `verify_runs` reads the kept run where it was
+                (r.layer, r.run, r.valid, r.tex0, r.breaks) = (key, (start, stop), true, tex0, breaks);
+                r.kept_paint = (painted, self.now);
             } else if !self.shown(v as u32) {
                 self.views[v].valid = false;
             }

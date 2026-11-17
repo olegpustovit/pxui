@@ -324,9 +324,116 @@ pub fn window_pxui_view_verify() {
     ui.verify_views(true);
     ui.frame(&at(0.1, vec![]), &mut build);
     fill.set(BLUE);
-    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { ui.frame(&at(0.2, vec![]), &mut build); }));
-    let message = result.err().and_then(|e| e.downcast_ref::<String>().cloned()).unwrap_or_default();
+    let message = verify_failure(&mut ui, 0.2, &mut build);
     check(message.contains("stale-view"), &format!("verify did not name the stale view: {message:?}"));
+}
+
+/// The panic message of a frame that is expected to fail verification ("" when it passed).
+fn verify_failure(ui: &mut Ui, t: f64, build: &mut dyn FnMut(&mut Ui)) -> String {
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { ui.frame(&at(t, vec![]), build); }));
+    result.err().and_then(|e| e.downcast_ref::<String>().cloned()).unwrap_or_default()
+}
+
+/// Verify mode with a look transition running in a view: the build that started it is compared as
+/// it painted (no false report while the fade runs, and the output still moves frame by frame). A
+/// look the build declares unlike the kept build's is named: under a running fade, as a stale state
+/// that starts one, and after a fade came to rest.
+pub fn window_pxui_view_verify_transition() {
+    const GREEN: color::T = color::T { r: 0, g: 200, b: 0, a: 255 };
+    let (hot, fill, rev) = (Cell::new(false), Cell::new(BLUE), Cell::new(1u64));
+    let mut build = |ui: &mut Ui| {
+        ui.view("fade", rev.get(), Size::Px(100.0), Size::Px(50.0), &mut |ui| {
+            let n = chip(ui, "x", RED, Flags::NONE);
+            let look = Look { fill: if hot.get() { fill.get() } else { RED }, ..Look::NONE };
+            ui.set_look(&n, look, State { hovered: hot.get(), ..State::default() });
+        });
+    };
+    let fresh = || {
+        let mut ui = new_ui(None);
+        let mut theme = Theme::default();
+        theme.tokens.motion.normal = 0.2;
+        ui.set_theme(theme);
+        ui.verify_views(true);
+        ui
+    };
+    let blue = |ui: &Ui| ui.output().draw[0].instances.iter().filter(|i| i.color[1] == 0 && i.color[2] > 0).map(|i| i.color[2]).max().unwrap_or(0);
+    let hover = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui)| {
+        ui.frame(&at(0.0, vec![]), build);
+        ui.frame(&at(0.1, vec![]), build);
+        (hot.set(true), rev.set(2));
+        ui.frame(&at(1.0, vec![]), build);
+    };
+    let mut ui = fresh();
+    hover(&mut ui, &mut build);
+    check(ui.transitions() == 1, &format!("{} transitions after the hover", ui.transitions()));
+    let mut seen = vec![blue(&ui)];
+    for k in 1..=3 {
+        let message = verify_failure(&mut ui, 1.0 + 0.04 * k as f64, &mut build);
+        check(message.is_empty(), &format!("a running fade was reported: {message:?}"));
+        seen.push(blue(&ui));
+    }
+    check(seen.windows(2).all(|w| w[0] < w[1]), &format!("the fill did not move toward the hover look: {seen:?}"));
+    fill.set(GREEN);
+    let message = verify_failure(&mut ui, 1.16, &mut build);
+    check(message.contains("\"fade\""), &format!("a stale look under a running fade was not named: {message:?}"));
+    // at rest, a stale fill is still checked: finishing the fade is no patch that skips the view
+    (hot.set(false), fill.set(BLUE), rev.set(1));
+    let mut ui = fresh();
+    hover(&mut ui, &mut build);
+    for k in 1..=8 {
+        let message = verify_failure(&mut ui, 1.0 + 0.05 * k as f64, &mut build);
+        check(message.is_empty(), &format!("a fade to rest was reported: {message:?}"));
+    }
+    check(ui.transitions() == 0 && blue(&ui) == BLUE.b, "the fade did not come to rest on the hover look");
+    fill.set(GREEN);
+    let message = verify_failure(&mut ui, 1.5, &mut build);
+    check(message.contains("\"fade\""), &format!("a stale fill after a fade was not named: {message:?}"));
+    // a stale state starts a fade whose first frame still shows the kept look
+    (hot.set(false), fill.set(BLUE), rev.set(1));
+    let mut ui = fresh();
+    hover(&mut ui, &mut build);
+    for k in 1..=8 {
+        ui.frame(&at(1.0 + 0.05 * k as f64, vec![]), &mut build);
+    }
+    hot.set(false);
+    let message = verify_failure(&mut ui, 1.5, &mut build);
+    check(message.contains("\"fade\""), &format!("a stale state starting a fade was not named: {message:?}"));
+}
+
+/// Verify mode across a layer change: a clean view that its parent moves into a raised layer and
+/// back is checked against the run it kept in its old layer, not the same range of the new one; a
+/// stale fill there is still named.
+pub fn window_pxui_view_verify_layer() {
+    const BASE: [&str; 4] = ["b0", "b1", "b2", "b3"];
+    let (front, fill) = (Cell::new(true), Cell::new(RED));
+    let mut build = |ui: &mut Ui| {
+        for key in BASE {
+            chip(ui, key, BLUE, Flags::NONE);
+        }
+        let holder = ui.box_("holder", BoxOpts::default().at((0.0, 100.0)).w(Size::Px(200.0)).h(Size::Px(100.0)));
+        if front.get() {
+            ui.to_front(0, &holder);
+        }
+        ui.within(&holder, &mut |ui| {
+            ui.view("moved", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
+                chip(ui, "x", fill.get(), Flags::NONE);
+            });
+        });
+    };
+    let mut ui = new_ui(None);
+    ui.verify_views(true);
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    check(ui.output().draw.len() == 2, &format!("{} layers with the holder raised", ui.output().draw.len()));
+    for (k, raised) in [false, true, false].into_iter().enumerate() {
+        front.set(raised);
+        let message = verify_failure(&mut ui, 0.2 + 0.1 * k as f64, &mut build);
+        check(message.is_empty(), &format!("a view moved to another layer was reported: {message:?}"));
+    }
+    check(ui.output().draw.len() == 1, &format!("{} layers with the holder lowered", ui.output().draw.len()));
+    (front.set(true), fill.set(BLUE));
+    let message = verify_failure(&mut ui, 0.6, &mut build);
+    check(message.contains("\"moved\""), &format!("a stale view moved to another layer was not named: {message:?}"));
 }
 
 /// Allocations and CPU per frame for ten views of 50 kit widgets: all kept, one rebuilt, all
@@ -982,6 +1089,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_view_kit_cached", window_pxui_view_kit_cached),
     ("window_pxui_list", window_pxui_list),
     ("window_pxui_view_verify", window_pxui_view_verify),
+    ("window_pxui_view_verify_transition", window_pxui_view_verify_transition),
+    ("window_pxui_view_verify_layer", window_pxui_view_verify_layer),
     ("window_pxui_view_costs", window_pxui_view_costs),
 ];
 
