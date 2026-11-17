@@ -1847,10 +1847,25 @@ fn abi_header(workspace: &Path) -> Result<Vec<String>, String> {
     Ok(issues)
 }
 
-fn abi_snapshot_lines(workspace: &Path) -> Result<(u32, BTreeMap<String, String>), String> {
+/// The extension manifest's rows by `kind name` key (`abi/pxui.ext.txt`): what the policy leaves out of the frozen manifest.
+fn abi_extension_lines(workspace: &Path) -> Result<BTreeMap<String, String>, String> {
+    let path = workspace.join("abi/pxui.ext.txt");
+    let text = fs::read_to_string(&path).map_err(|error| format!("{}: {error}", path.display()))?;
+    let mut lines = BTreeMap::new();
+    for line in text.lines().map(str::trim).filter(|line| !line.is_empty() && !line.starts_with('#')) {
+        let mut words = line.split_whitespace();
+        if let (Some(kind), Some(name)) = (words.next(), words.next()) { lines.insert(format!("{kind} {name}"), line.to_owned()); }
+    }
+    Ok(lines)
+}
+
+/// The minor, the frozen rows and the extension rows as they stand now. An extension function row is read from the header like any
+/// other; an extension layout row is the extension file's own (the layout test keeps it equal to the Rust type).
+fn abi_snapshot_lines(workspace: &Path) -> Result<(u32, BTreeMap<String, String>, BTreeMap<String, String>), String> {
     let (minor, exports, _) = abi_declarations(workspace)?;
     let layout_path = workspace.join("abi/layout.v1.txt");
     let layout = fs::read_to_string(&layout_path).map_err(|error| format!("{}: {error}", layout_path.display()))?;
+    let extension = abi_extension_lines(workspace)?;
     let mut lines = BTreeMap::new();
     for (name, declaration) in exports {
         lines.insert(format!("function {name}"), format!("function {name} {declaration}"));
@@ -1859,7 +1874,15 @@ fn abi_snapshot_lines(workspace: &Path) -> Result<(u32, BTreeMap<String, String>
         let name = row.split_whitespace().next().unwrap();
         lines.insert(format!("layout {name}"), format!("layout {row}"));
     }
-    Ok((minor, lines))
+    let mut ext = BTreeMap::new();
+    for (key, line) in extension {
+        match lines.remove(&key) {
+            Some(current) => ext.insert(key, current),
+            None if key.starts_with("layout ") => ext.insert(key, line),
+            None => return Err(format!("abi/pxui.ext.txt lists `{key}`, which the header does not export")),
+        };
+    }
+    Ok((minor, lines, ext))
 }
 
 fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String>) -> Vec<String> {
@@ -1895,27 +1918,39 @@ fn compare_abi_snapshot(old: &str, minor: u32, current: &BTreeMap<String, String
 }
 
 fn abi_snapshot(workspace: &Path, write: bool) -> Result<Vec<String>, String> {
-    let (minor, lines) = abi_snapshot_lines(workspace)?;
+    let (minor, lines, ext) = abi_snapshot_lines(workspace)?;
     let path = workspace.join("abi/pxui.v1.txt");
+    let ext_path = workspace.join("abi/pxui.ext.txt");
     let old = match fs::read_to_string(&path) {
         Ok(old) => old,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => String::new(),
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
-    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&old, minor, &lines) };
+    // a row that moved to the extension manifest leaves the frozen one; every other old row still has to be there
+    let frozen: String = old.lines().filter(|line| {
+        let mut words = line.split_whitespace();
+        !matches!((words.next(), words.next()), (Some(kind), Some(name)) if ext.contains_key(&format!("{kind} {name}")))
+    }).map(|line| format!("{line}\n")).collect();
+    let issues = if old.is_empty() { Vec::new() } else { compare_abi_snapshot(&frozen, minor, &lines) };
     if !issues.is_empty() { return Ok(issues); }
     if write {
         let mut snapshot = format!("# Append-only PXUI ABI snapshot.\nminor {minor}\n");
         for line in lines.values() { snapshot.push_str(line); snapshot.push('\n'); }
         fs::write(&path, snapshot).map_err(|error| format!("{}: {error}", path.display()))?;
+        let mut snapshot = EXTENSION_HEADER.to_owned();
+        for line in ext.values() { snapshot.push_str(line); snapshot.push('\n'); }
+        fs::write(&ext_path, snapshot).map_err(|error| format!("{}: {error}", ext_path.display()))?;
         Ok(Vec::new())
     } else if old.is_empty() {
         Ok(vec!["abi-snapshot: abi/pxui.v1.txt is missing; create the initial baseline with `cargo run -p gate -- abi-snapshot --write`".to_owned()])
     } else {
-        Ok(Vec::new())
+        let have = abi_extension_lines(workspace)?;
+        Ok(ext.iter().filter(|(key, line)| have.get(*key) != Some(*line))
+            .map(|(_, line)| format!("abi-snapshot: abi/pxui.ext.txt is out of date at `{line}`; rerun with --write (extension rows carry no stability promise)")).collect())
     }
 }
 
+const EXTENSION_HEADER: &str = "# PXUI extension set: no stability guarantee (docs/abi.md, Extension set). Rows may change or disappear between minors.\n# The set is the names listed here; add a name to move a call out of the frozen manifest, then run `cargo run -p gate -- abi-snapshot --write`.\n";
 
 fn workspace_root() -> Result<PathBuf, String> {
     Path::new(env!("CARGO_MANIFEST_DIR"))

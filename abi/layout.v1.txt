@@ -52,10 +52,6 @@ PxuiMenuOut 24 8 0 4 8 16
 PxuiHintDesc 40 8 0 4 8 24
 PxuiFooterDesc 40 8 0 4 5 8 24
 PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
-PxuiInspectorRowDesc 96 8 0 4 5 6 7 8 24 40 44 48 80 84 88
-PxuiInspectorSectionDesc 64 8 0 4 5 6 7 8 24 40 48 56
-PxuiInspectorValueDesc 64 8 0 4 5 8 24 40 56
-PxuiInspectorTextDesc 40 8 0 4 8 24
 PxuiTableDesc 80 8 0 4 8 24 32 36 40 56 64 72
 PxuiSaved 24 8 0 4 8 16
 PxuiSignal 112 8 0 4 8 9 10 11 12 16 24 32 40 48 56 64 72 80 88 96
@@ -65,10 +61,7 @@ TextGlyph 40 4 0 16 32 36
 PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
 PxuiPopupDesc 48 8 0 4 5 6 7 8 12 16 20 24 28 32
 PxuiHeadActionDesc 40 8 0 4 5 6 8 24
-PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
-PxuiHeadOut 32 8 0 4 5 6 8 24
 PxuiPaintInfo 192 8 0 4 5 8 16 24 32 48 56
-PxuiValueFieldDesc 152 8 0 4 8 16 20 24 28 32 36 40 44 48 52 56 72 88 104 120 136
 PxuiU8MutSpan 16 8 0 8
 PxuiF32MutSpan 16 8 0 8
 PxuiU32MutSpan 16 8 0 8
@@ -131,7 +124,6 @@ PxuiGripConfig 56 8 0 4 12 13 16 48
 PxuiPanelConfig 72 8 0 8 40 56 64
 PxuiDialogConfig 88 8 0 8 24 40 48 56 64 72 80
 PxuiSectionConfig 80 8 0 4 8 16 48 64 72
-PxuiInspectorRowConfig 80 8 0 4 12 13 16 24 56 72
 PxuiSplitConfig 80 8 0 4 8 12 16 24 56 64 72
 PxuiScrollConfig 56 8 0 8 40 48
 PxuiToastConfig 72 8 0 4 16 48 64
@@ -145,12 +137,9 @@ PxuiRowConfig 72 8 0 4 16 24 56 64
 PxuiTreeRowConfig 88 8 0 4 12 13 16 24 32 40 72 80
 PxuiTableHeadConfig 80 8 0 4 12 13 16 24 56 72
 PxuiTableCellConfig 72 8 0 4 8 12 16 24 32 40 48 64
-PxuiPickerRowConfig 120 8 0 4 12 13 14 15 16 17 24 32 64 80 96 112
 PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
 PxuiTextFieldConfig 88 8 0 4 16 48 64 80
 PxuiLineFieldConfig 72 8 0 4 12 16 48 64
-PxuiValueFieldConfig 232 8 0 4 12 16 20 24 56 208 224
-PxuiPickerFieldConfig 80 8 0 4 12 13 16 20 24 56 72
 PxuiSlot 8 8 0
 PxuiListViewWithDesc 64 8 0 4 5 8 24 32 48 56
 PxuiTreeViewWithDesc 104 8 0 4 8 24 40 56 64 80 88 96

@@ -93,6 +93,29 @@ fn render_manifest(old: &str, rows: &[Row]) -> Result<String, String> {
     Ok(out)
 }
 
+/// The extension manifest (`abi/pxui.ext.txt`) with each `layout` row regenerated; its function rows and comments are kept.
+/// The rows it names are the extension set: `layout.v1.txt` carries none of them.
+fn render_extension(old: &str, rows: &[Row]) -> Result<String, String> {
+    let mut out = String::new();
+    for line in old.lines() {
+        match line.strip_prefix("layout ").and_then(|row| row.split_whitespace().next()) {
+            Some(name) => {
+                let r = rows.iter().find(|r| r.name == name).ok_or_else(|| format!("extension row `{name}` has no Rust type reporting it"))?;
+                out.push_str("layout ");
+                out.push_str(&manifest_line(r));
+            }
+            None => out.push_str(line),
+        }
+        out.push('\n');
+    }
+    Ok(out)
+}
+
+/// The names of the extension set's layout rows.
+fn extension_names(ext: &str) -> Vec<String> {
+    ext.lines().filter_map(|l| l.strip_prefix("layout ")).filter_map(|r| r.split_whitespace().next()).map(str::to_owned).collect()
+}
+
 /// `pxui.h` with the block between the markers regenerated, in manifest order; the block is added before the final `#endif` when absent.
 fn render_header(old: &str, manifest: &str, rows: &[Row]) -> String {
     let mut block = format!("{BEGIN}\n");
@@ -122,15 +145,21 @@ fn abi_layout_rows_match_the_files() {
     crate::abi_layout::frozen_rows();
     let rows = ROWS.with(|rows| std::mem::take(&mut *rows.borrow_mut()));
     let root = concat!(env!("CARGO_MANIFEST_DIR"), "/../../..");
-    let (manifest_path, header_path) = (format!("{root}/abi/layout.v1.txt"), format!("{root}/include/pxui.h"));
-    let manifest = render_manifest(&std::fs::read_to_string(&manifest_path).unwrap(), &rows).unwrap();
-    let header = render_header(&std::fs::read_to_string(&header_path).unwrap(), &manifest, &rows);
+    let (manifest_path, header_path, ext_path) = (format!("{root}/abi/layout.v1.txt"), format!("{root}/include/pxui.h"), format!("{root}/abi/pxui.ext.txt"));
+    let extension = render_extension(&std::fs::read_to_string(&ext_path).unwrap(), &rows).unwrap();
+    let extended = extension_names(&extension);
+    let frozen: Vec<Row> = rows.iter().filter(|r| !extended.contains(&r.name)).map(|r| Row { name: r.name.clone(), size: r.size, align: r.align, fields: r.fields.clone() }).collect();
+    let manifest = render_manifest(&std::fs::read_to_string(&manifest_path).unwrap(), &frozen).unwrap();
+    // the C asserts follow the frozen rows, then the extension's
+    let order: String = manifest.lines().map(|l| format!("{l}\n")).chain(extension.lines().filter_map(|l| l.strip_prefix("layout ")).map(|l| format!("{l}\n"))).collect();
+    let header = render_header(&std::fs::read_to_string(&header_path).unwrap(), &order, &rows);
     if std::env::var_os("PXUI_LAYOUT_WRITE").is_some() {
         std::fs::write(&manifest_path, &manifest).unwrap();
         std::fs::write(&header_path, &header).unwrap();
+        std::fs::write(&ext_path, &extension).unwrap();
         return;
     }
-    for (path, text) in [(&manifest_path, &manifest), (&header_path, &header)] {
+    for (path, text) in [(&manifest_path, &manifest), (&header_path, &header), (&ext_path, &extension)] {
         let old = std::fs::read_to_string(path).unwrap();
         if let Some((n, (have, want))) = old.lines().zip(text.lines()).enumerate().find(|(_, (a, b))| a != b) {
             panic!("{path} line {} disagrees with the Rust types:\n  file: {have}\n  types: {want}\nrerun with PXUI_LAYOUT_WRITE=1 only if the type change is intended", n + 1);

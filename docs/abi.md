@@ -29,10 +29,12 @@ frozen by a released minor. A call added after N is simply absent from an older 
 **Reserved flag bits.** Node flags (`Flags`, `u64`) use bits 0-21 today (highest is `FIT_TEXT_PIXEL`, 1 << 21). Bits 22-62 are
 reserved for future minors and must be passed as zero. Bit 63 is unassigned.
 
-**Extension set.** The Rays vocabulary and diagnostics (`inspector_*`, `line_field`, `value_field`, `picker`, `diagnostics`)
-are not part of the promise. They are to live in a separate manifest, `abi/pxui.ext.txt` (moved there by DX7.8), which carries
-no stability guarantee: they may change or disappear between minors, and an app pins the commit if it uses them.
-Until DX7.8 lands they are still listed in `abi/pxui.v1.txt` and are frozen like the rest.
+**Extension set.** The Rays vocabulary and diagnostics (`inspector_*`, `line_field`, `value_field`, `picker`, `diagnostics`, with the
+records only they use) are not part of the promise. They are listed in `abi/pxui.ext.txt`, which carries no stability guarantee: they may
+change or disappear between minors, and an app pins the commit if it uses them. The calls stay exported and declared in `include/pxui.h`.
+The set is the names in that file; the `abi-snapshot` gate keeps its rows current (`cargo run -p gate -- abi-snapshot --write`) and
+`abi/pxui.v1.txt` and `abi/layout.v1.txt` carry none of them. Moving a call into the set is an edit of that file, reviewed as one; a row
+left in the frozen manifest is frozen.
 
 **Adding a call.** In one commit: the `pxui_abi` export; the wrapper method in `pxui`; the declaration in `include/pxui.h`;
 the appended row in `abi/pxui.v1.txt` (and `abi/layout.v1.txt` for a new record); the row in the table below; the

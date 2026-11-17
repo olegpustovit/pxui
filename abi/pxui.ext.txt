@@ -1,0 +1,29 @@
+# PXUI extension set: no stability guarantee (docs/abi.md, Extension set). Rows may change or disappear between minors.
+# The set is the names listed here; add a name to move a call out of the frozen manifest, then run `cargo run -p gate -- abi-snapshot --write`.
+function pxui_ui_inspector_bar int32_t pxui_ui_inspector_bar ( PxuiUi * ui , PxuiHintSpan hints , int64_t count ) ;
+function pxui_ui_inspector_body int32_t pxui_ui_inspector_body ( PxuiUi * ui , PxuiBuild build , void * user ) ;
+function pxui_ui_inspector_button int32_t pxui_ui_inspector_button ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t * out ) ;
+function pxui_ui_inspector_header int32_t pxui_ui_inspector_header ( PxuiUi * ui , const PxuiHeaderDesc * desc , PxuiTextValid rename , void * user , PxuiHeadOut * out ) ;
+function pxui_ui_inspector_label_x float pxui_ui_inspector_label_x ( PxuiUi * ui ) ;
+function pxui_ui_inspector_message int32_t pxui_ui_inspector_message ( PxuiUi * ui , const PxuiInspectorTextDesc * desc ) ;
+function pxui_ui_inspector_readout int32_t pxui_ui_inspector_readout ( PxuiUi * ui , const PxuiInspectorValueDesc * desc ) ;
+function pxui_ui_inspector_row int32_t pxui_ui_inspector_row ( PxuiUi * ui , PxuiInspectorRowDesc * desc ) ;
+function pxui_ui_inspector_section int32_t pxui_ui_inspector_section ( PxuiUi * ui , PxuiInspectorSectionDesc * desc ) ;
+function pxui_ui_inspector_section_view int32_t pxui_ui_inspector_section_view ( PxuiUi * ui , PxuiStr key , uint64_t revision , uint8_t expanded , uint8_t has_set , uint8_t set_expanded , PxuiStr label , PxuiBuild build , void * user , uint8_t * out ) ;
+function pxui_ui_inspector_toggle int32_t pxui_ui_inspector_toggle ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t value , uint8_t * out ) ;
+function pxui_ui_inspector_toggle_value int32_t pxui_ui_inspector_toggle_value ( PxuiUi * ui , PxuiStr key , float x , float y , uint8_t value , uint8_t * out ) ;
+function pxui_ui_inspector_width float pxui_ui_inspector_width ( PxuiUi * ui ) ;
+function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr * text , uint32_t * step ) ;
+function pxui_ui_picker int32_t pxui_ui_picker ( PxuiUi * ui , int64_t limit , uint8_t slash , uint8_t at_rest , PxuiStr label , PxuiStr query , PxuiPickerRows rows , PxuiPickerMark mark , PxuiPickerOff off , void * user , PxuiStr * out_query , uint32_t * out_tag , int64_t * out_index ) ;
+function pxui_ui_value_field int32_t pxui_ui_value_field ( PxuiUi * ui , const PxuiValueFieldDesc * desc , PxuiTextValid valid , PxuiSlideText slide , PxuiScrubText scrub , void * user , PxuiStr * out_text , uint8_t * out_changed , uint8_t * out_editing ) ;
+layout PxuiHeadOut 32 8 0 4 5 6 8 24
+layout PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
+layout PxuiInspectorRowConfig 80 8 0 4 12 13 16 24 56 72
+layout PxuiInspectorRowDesc 96 8 0 4 5 6 7 8 24 40 44 48 80 84 88
+layout PxuiInspectorSectionDesc 64 8 0 4 5 6 7 8 24 40 48 56
+layout PxuiInspectorTextDesc 40 8 0 4 8 24
+layout PxuiInspectorValueDesc 64 8 0 4 5 8 24 40 56
+layout PxuiPickerFieldConfig 80 8 0 4 12 13 16 20 24 56 72
+layout PxuiPickerRowConfig 120 8 0 4 12 13 14 15 16 17 24 32 64 80 96 112
+layout PxuiValueFieldConfig 232 8 0 4 12 16 20 24 56 208 224
+layout PxuiValueFieldDesc 152 8 0 4 8 16 20 24 28 32 36 40 44 48 52 56 72 88 104 120 136
