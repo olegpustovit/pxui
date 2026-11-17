@@ -12,9 +12,13 @@ const CLEAR: Color = Color {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Motion {
+    /// Seconds for a press change (`Tokens::transition` uses it when only `pressed` differs).
     pub fast: f32,
+    /// Seconds for every other state change.
     pub normal: f32,
+    /// Seconds for slow movement (the engine's longer transitions; `Tokens::transition` does not read it).
     pub slow: f32,
+    /// CSS cubic-bezier control points `[x1, y1, x2, y2]`; x1 and x2 must lie in 0 to 1.
     pub ease: [f32; 4],
 }
 
@@ -29,30 +33,71 @@ impl From<crate::ffi::PxuiMotion> for Motion {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
+    /// The ground colour of docked panels.
     pub panel: Color,
+    /// Text and line ink.
     pub foreground: Color,
+    /// The fill of buttons and other controls.
     pub control: Color,
+    /// The fill of fields and floating sheets.
     pub input: Color,
+    /// The fill of slider and progress tracks.
     pub track: Color,
+    /// The highlight colour (focus, selection, marks).
     pub accent: Color,
+    /// The error colour; always `theme::invalid()`, never read from the C snapshot.
     pub invalid: Color,
+    /// The ground text sits on when it is not `panel`; `None` means `panel`.
     pub ink_ground: crate::node::OptColor,
+    /// The spacing scale in points, smallest to largest.
     pub space: [f32; 4],
+    /// The corner radii in points: small, medium, large.
     pub radius: [f32; 3],
+    /// Point size of display text.
     pub display_size: i64,
+    /// Point size of titles.
     pub title_size: i64,
+    /// Point size of body text.
     pub font_size: i64,
+    /// Point size of captions.
     pub label_size: i64,
+    /// Durations and easing for state transitions.
     pub motion: Motion,
+    /// When set, transitions are instant.
     pub reduced_motion: bool,
+    /// Device pixels per point.
     pub density: f32,
 }
 
 impl Tokens {
-    /// Convert the ABI-safe snapshot into its Rust-facing form.
+    /// Converts the ABI-safe snapshot into its Rust form (`invalid` is filled with `theme::invalid()`; the snapshot has no such colour).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{ffi::ThemeTokens, theme::Tokens};
+    /// let tokens = Tokens::default();
+    /// assert_eq!(Tokens::from_ffi(ThemeTokens::from(tokens)), tokens);
+    /// ```
     pub fn from_ffi(value: crate::ffi::ThemeTokens) -> Self { value.into() }
 
-    /// State transition timing in this theme; reduced motion makes it instantaneous.
+    /// The curve a widget follows when its interaction state goes `from` to `to`: instant for reduced motion or no change,
+    /// `motion.fast` when only `pressed` differs, else `motion.normal`, with the `motion.ease` bezier.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::{Curve, State, Tokens};
+    /// let idle = State::default();
+    /// let down = State { pressed: true, ..idle };
+    /// let mut tokens = Tokens::default();
+    /// tokens.motion.fast = 0.1;
+    /// let Curve::Bezier { duration, .. } = tokens.transition(idle, down) else { unreachable!() };
+    /// assert_eq!(duration, 0.1);
+    /// assert!(tokens.transition(idle, idle).instant());
+    /// ```
     pub fn transition(&self, from: State, to: State) -> Curve {
         let duration = if self.reduced_motion || from == to {
             0.0
@@ -64,6 +109,18 @@ impl Tokens {
         Curve::Bezier { duration, points: self.motion.ease }
     }
 
+    /// Whether state changes animate at all: reduced motion is off and `motion.fast` or `motion.normal` is above zero (`slow` is not read).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// let mut tokens = Tokens::default();
+    /// assert!(!tokens.moves());
+    /// tokens.motion.normal = 0.2;
+    /// assert!(tokens.moves());
+    /// ```
     pub fn moves(&self) -> bool {
         !self.reduced_motion && (self.motion.fast > 0.0 || self.motion.normal > 0.0)
     }
@@ -224,6 +281,7 @@ macro_rules! theme_widgets {
 pub struct BodyId(pub u16);
 
 impl BodyId {
+    /// The built-in body.
     pub const DEFAULT: BodyId = BodyId(0);
 }
 
@@ -298,14 +356,25 @@ macro_rules! bodies {
         #[repr(C)]
         #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
         pub struct Bodies {
-            $(pub $kind: BodyId,)*
+            $(#[doc = concat!("Body id for the `", stringify!($kind), "` widget kind.")] pub $kind: BodyId,)*
         }
 
         impl Bodies {
             /// The kind names, in field order: what a theme file's `KIND.body` may name.
             pub const KINDS: &'static [&'static str] = &[$(stringify!($kind)),*];
 
-            /// Set kind `kind`'s body; `false` for a name that is no kind.
+            /// Sets the body of the widget kind named `kind` (one of `Bodies::KINDS`) to `id`; false, changing nothing, for a name that is no kind.
+            ///
+            /// Allocates: never.
+            /// Panics: never.
+            ///
+            /// ```
+            /// use pxui_types::theme::{Bodies, BodyId};
+            /// let mut bodies = Bodies::default();
+            /// assert!(bodies.set("toggle", BodyId(1)));
+            /// assert_eq!(bodies.toggle, BodyId(1));
+            /// assert!(!bodies.set("no_such_kind", BodyId(1)));
+            /// ```
             pub fn set(&mut self, kind: &str, id: BodyId) -> bool {
                 match kind {
                     $(stringify!($kind) => self.$kind = id,)*
@@ -326,7 +395,7 @@ macro_rules! body_kind_numbers {
         #[derive(Clone, Copy, Debug, PartialEq, Eq)]
         #[allow(non_camel_case_types)]
         pub enum BodyKind {
-            $($kind),
+            $(#[doc = concat!("The `", stringify!($kind), "` widget kind.")] $kind),
             *,
         }
     };
@@ -353,6 +422,14 @@ impl Part {
     pub const BAR: Part = Part(5);
     /// Dialog button `i` (the dialog's body builds one clickable node for each of its buttons; behaviour reads which was pressed
     /// and sets its role and name).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Part;
+    /// assert!(Part::valid(Part::button(3).0));
+    /// ```
     pub const fn button(i: u8) -> Part {
         Part(1024 + i as u32)
     }
@@ -368,10 +445,27 @@ impl Part {
     /// presses (the field's own box when a body builds none).
     pub const EDITOR: Part = Part(9);
     /// Dot `i` of a spinner, which `busy_step` turns.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Part;
+    /// assert_eq!(Part::dot(0), Part(16));
+    /// ```
     pub const fn dot(i: u8) -> Part {
         Part(16 + i as u32)
     }
-    /// Whether the number names a part (what `pxui_part` accepts): the named ones, the dots and the dialog buttons.
+    /// Whether the number names a part (what `pxui_part` accepts): the named ones (1 to 9), the dots (16 to 271) and the dialog buttons (1024 to 1279).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Part;
+    /// assert!(Part::valid(Part::HIT.0));
+    /// assert!(!Part::valid(0) && !Part::valid(10));
+    /// ```
     pub const fn valid(n: u32) -> bool {
         matches!(n, 1..=9 | 16..=271 | 1024..=1279)
     }
@@ -383,11 +477,17 @@ macro_rules! snapshot {
         #[repr(C)]
         #[derive(Clone, Copy, Debug, PartialEq)]
         pub struct ThemeSnapshot {
+            /// The colour, size and motion tokens.
             pub tokens: Tokens,
+            /// Height of a list or inspector row in points.
             pub row_h: f32,
+            /// Height of a button or field in points.
             pub control_h: f32,
+            /// The focus ring shared by the kit.
             pub ring: Ring,
+            /// Width of the scroll thumb in points.
             pub scrollbar_w: f32,
+            /// Gap between the scroll thumb and the view's edge in points.
             pub scrollbar_gap: f32,
             $($(#[$doc])* pub $name: States,)*
             /// The body each widget kind builds with; after the parts, so their array keeps its offsets.
@@ -399,6 +499,7 @@ macro_rules! snapshot {
 }
 theme_widgets!(snapshot);
 
+/// The engine's theme under its short name: the same type as `ThemeSnapshot`.
 pub type Theme = ThemeSnapshot;
 
 impl From<Look> for crate::ffi::PxuiLookDesc {
@@ -434,12 +535,26 @@ impl Default for Tokens {
     fn default() -> Self { self::default() }
 }
 
+/// Default body text size in points.
 pub const FONT_SIZE: i64 = 13;
+/// Default caption size in points.
 pub const LABEL_SIZE: i64 = 11;
+/// Default title size in points.
 pub const TITLE_SIZE: i64 = 20;
+/// Default display text size in points.
 pub const DISPLAY_SIZE: i64 = 40;
 
-/// Rays' default tokens.
+/// The default tokens: a light theme with orange accent, 13-point body text, 0 radii and all motion durations 0 (nothing animates until `motion` is set).
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme;
+/// let tokens = theme::default();
+/// assert_eq!(tokens.font_size, theme::FONT_SIZE);
+/// assert!(!theme::dark(&tokens));
+/// ```
 pub fn default() -> Tokens {
     let hex = |s| color::hex_exn(s).expect("valid theme color constant");
     Tokens {
@@ -452,17 +567,130 @@ pub fn default() -> Tokens {
     }
 }
 
+/// The colour text sits on: `ink_ground` when set, else `panel`.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// let tokens = Tokens::default();
+/// assert_eq!(theme::ground(&tokens), tokens.panel);
+/// ```
 pub fn ground(theme: &Tokens) -> Color { theme.ink_ground.get().unwrap_or(theme.panel) }
+/// Secondary text ink: the foreground 32% of the way toward the ground.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// let tokens = Tokens::default();
+/// assert_ne!(theme::ink_2(&tokens), tokens.foreground);
+/// ```
 pub fn ink_2(theme: &Tokens) -> Color { color::blend(theme.foreground, ground(theme), 0.32) }
+/// Tertiary text ink: the foreground 52.1% of the way toward the ground, fainter than `ink_2`.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// let tokens = Tokens::default();
+/// assert_ne!(theme::ink_3(&tokens), theme::ink_2(&tokens));
+/// ```
 pub fn ink_3(theme: &Tokens) -> Color { color::blend(theme.foreground, ground(theme), 0.521) }
+/// Muted text ink: the same colour as `ink_2`.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// let tokens = Tokens::default();
+/// assert_eq!(theme::muted(&tokens), theme::ink_2(&tokens));
+/// ```
 pub fn muted(theme: &Tokens) -> Color { ink_2(theme) }
+/// The standard border colour: the foreground at alpha 77 of 255.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// assert_eq!(theme::border(&Tokens::default()).a, 77);
+/// ```
 pub fn border(theme: &Tokens) -> Color { color::with_alpha(theme.foreground, 77) }
+/// A lighter edge colour: the foreground at alpha 38 of 255.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// assert_eq!(theme::edge(&Tokens::default()).a, 38);
+/// ```
 pub fn edge(theme: &Tokens) -> Color { color::with_alpha(theme.foreground, 38) }
+/// The faintest line colour: the foreground at alpha 20 of 255.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// assert_eq!(theme::faint_border(&Tokens::default()).a, 20);
+/// ```
 pub fn faint_border(theme: &Tokens) -> Color { color::with_alpha(theme.foreground, 20) }
+/// The fill of a hovered field: `input` 11% of the way toward `accent`.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// let tokens = Tokens::default();
+/// assert_ne!(theme::hover_fill(&tokens), tokens.input);
+/// ```
 pub fn hover_fill(theme: &Tokens) -> Color { color::blend(theme.input, theme.accent, 0.11) }
+/// The fill of a pressed control: `control` 18% of the way toward `accent`.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// let tokens = Tokens::default();
+/// assert_ne!(theme::pressed_fill(&tokens), tokens.control);
+/// ```
 pub fn pressed_fill(theme: &Tokens) -> Color { color::blend(theme.control, theme.accent, 0.18) }
+/// A translucent wash of the accent: `accent` at alpha 41 of 255.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// assert_eq!(theme::tint(&Tokens::default()).a, 41);
+/// ```
 pub fn tint(theme: &Tokens) -> Color { color::with_alpha(theme.accent, 41) }
+/// The fixed error colour `#c2255c`, the same in every theme (a theme cannot change it).
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// assert_eq!(pxui_types::theme::invalid(), pxui_types::geom::color::rgb(0xc2, 0x25, 0x5c));
+/// ```
 pub fn invalid() -> Color { color::hex_exn("#c2255c").expect("valid invalid color constant") }
+/// Whether the theme is dark: the `panel` colour's red, green and blue sum to under 384 (an average below 128); `ink_ground` is not read.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::theme::{self, Tokens};
+/// assert!(!theme::dark(&Tokens::default()));
+/// ```
 pub fn dark(theme: &Tokens) -> bool {
     (theme.panel.r as u32 + theme.panel.g as u32 + theme.panel.b as u32) < 384
 }
@@ -471,14 +699,20 @@ pub fn dark(theme: &Tokens) -> bool {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
+    /// The shadow colour; transparent draws nothing.
     pub color: Color,
+    /// Horizontal and vertical offset in points.
     pub offset: [f32; 2],
+    /// Blur radius in points.
     pub blur: f32,
+    /// Points the shadow grows (negative: shrinks) before blurring.
     pub spread: f32,
+    /// An inset shadow, drawn inside the box.
     pub inner: bool,
 }
 
 impl Shadow {
+    /// No shadow (transparent).
     pub const NONE: Shadow = Shadow {
         color: CLEAR,
         offset: [0.0, 0.0],
@@ -494,14 +728,20 @@ impl Shadow {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Font {
+    /// The `pxui_text` font index.
     pub family: u16,
+    /// Points: 0 is the UI font size, negative is that many points below it (at least 8).
     pub size: i64,
+    /// Weight, 400 regular, 700 bold.
     pub weight: u16,
+    /// Extra spacing after every glyph, in ems.
     pub tracking: f32,
+    /// Upper-case the text.
     pub caps: bool,
 }
 
 impl Font {
+    /// Font 0 at the UI body size, regular weight, no tracking, no caps.
     pub const BODY: Font = Font {
         family: 0,
         size: 0,
@@ -539,7 +779,19 @@ impl Font {
         self.weight = weight;
         self
     }
-    /// The size in points at UI font size `body`.
+    /// The size in points this font draws at when the UI body size is `body`: its own `size` if positive, `body` for 0, else `body` less
+    /// its magnitude, never below 8.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Font;
+    /// assert_eq!(Font::BODY.points(13), 13);
+    /// assert_eq!(Font::BODY.size(20).points(13), 20);
+    /// assert_eq!(Font::BODY.size(-2).points(13), 11);
+    /// assert_eq!(Font::BODY.size(-9).points(13), 8);
+    /// ```
     pub fn points(&self, body: i64) -> i64 {
         if self.size > 0 {
             self.size
@@ -556,12 +808,16 @@ impl Font {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ring {
+    /// The ring colour; transparent draws nothing.
     pub color: Color,
+    /// Width in points, inside the box.
     pub width: f32,
+    /// `draw::flags::TOP | ...` sides to draw; 0 is all four.
     pub sides: u8,
 }
 
 impl Ring {
+    /// No ring (transparent).
     pub const NONE: Ring = Ring {
         color: CLEAR,
         width: 0.0,
@@ -579,24 +835,40 @@ impl Ring {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
+    /// The background colour (the gradient's start).
     pub fill: Color,
+    /// The gradient's end colour; `None` for a solid fill.
     pub gradient: crate::node::OptColor,
+    /// Gradient direction in degrees, CSS-style (180 runs top to bottom).
     pub angle: f32,
+    /// The border colour.
     pub border: Color,
+    /// Border width in points, inside the box.
     pub border_w: f32,
+    /// Border sides as `draw::flags` bits; 0 is all four.
     pub sides: u8,
+    /// Corner radii in points: top left, top right, bottom right, bottom left.
     pub radius: [f32; 4],
+    /// Two shadows, each outer or inner by its own `inner` flag.
     pub shadows: [Shadow; 2],
+    /// The text colour.
     pub text: Color,
+    /// The text font.
     pub font: Font,
+    /// Multiplies every alpha, 0 to 1.
     pub opacity: f32,
+    /// The outline drawn while the node holds focus.
     pub ring: Ring,
+    /// The selection colour of a text widget.
     pub selection: Color,
+    /// The caret colour of a text widget.
     pub caret: Color,
+    /// A dashed square border (4 points on, 3 off).
     pub dashed: bool,
 }
 
 impl Look {
+    /// Paints nothing: transparent colours, 180 degree angle, full opacity, the body font.
     pub const NONE: Look = Look {
         fill: CLEAR,
         gradient: crate::node::OptColor::None,
@@ -692,8 +964,22 @@ impl Look {
         self
     }
 
-    /// The look `t` of the way from `self` to `to`: colours and sizes interpolate, the rest (font,
-    /// sides) is `to`'s from the start.
+    /// The look `t` of the way from `self` to `to`: colours, widths, radii, angle, opacity and shadow geometry interpolate; the rest
+    /// (font, border and ring sides, `dashed`) is `to`'s from the start.
+    ///
+    /// `t` is not clamped: an overshooting curve extrapolates, and colour channels saturate at 0 and 255. A gradient present on either
+    /// look is interpolated, the other side standing in its `fill`. A shadow's `inner` flag is `to`'s once `to`'s shadow is visible.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::color, Look};
+    /// let a = Look::NONE.fill(color::rgb(0, 0, 0));
+    /// let b = Look::NONE.fill(color::rgb(255, 255, 255));
+    /// assert_eq!(a.lerp(&b, 0.0).fill, color::rgb(0, 0, 0));
+    /// assert_eq!(a.lerp(&b, 1.0).fill, color::rgb(255, 255, 255));
+    /// assert_eq!(a.lerp(&b, 0.5).fill, color::rgb(128, 128, 128));
+    /// ```
     pub fn lerp(&self, to: &Look, t: f32) -> Look {
         let c = |a: Color, b: Color| {
             // an overshooting curve saturates at the channel's ends
@@ -750,14 +1036,29 @@ impl Look {
 #[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Curve {
+    /// A CSS cubic-bezier over `duration` seconds with control points `[x1, y1, x2, y2]`.
     Bezier { duration: f32, points: [f32; 4] },
+    /// A critically damped spring of angular frequency `omega` per second; it has no fixed duration.
     Spring { omega: f32 },
+    /// Piecewise linear: `count` (2 to 16) samples of `values` at `positions` (0 to 1) over `duration` seconds.
     Table { duration: f32, count: u32, positions: [f32; 16], values: [f32; 16] },
+    /// `count` equal end-steps over `duration` seconds, as CSS `steps(count, jump-end)`.
     Steps { duration: f32, count: u32 },
 }
 
 impl Curve {
-    /// Valid finite parameters, including table endpoints and ordering. Checked at the ABI boundary.
+    /// Whether every parameter is usable: finite, durations not negative, bezier x values in 0 to 1, a spring `omega` above 0, steps at
+    /// least 1, and a table of 2 to 16 samples that start at position 0 and value 0, end at 1 and 1, with strictly increasing positions.
+    ///
+    /// The ABI boundary rejects a curve that is not valid.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Curve;
+    /// assert!(Curve::Spring { omega: 12.0 }.valid());
+    /// assert!(!Curve::Steps { duration: 1.0, count: 0 }.valid());
+    /// ```
     pub fn valid(&self) -> bool {
         match self {
             Self::Bezier { duration, points } => Self::bezier_valid(*duration, points),
@@ -773,16 +1074,43 @@ impl Curve {
         }
     }
 
-    /// The finite parameters of a `Bezier` (what `valid` checks, for a node's transition without building a whole `Curve`).
+    /// Whether bezier parameters are usable: `duration` finite and not negative, all four points finite, and x1 and x2 within 0 to 1
+    /// (what `valid` checks for a `Bezier`, without building a `Curve`).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Curve;
+    /// assert!(Curve::bezier_valid(0.2, &[0.25, 0.1, 0.25, 1.0]));
+    /// assert!(!Curve::bezier_valid(0.2, &[1.5, 0.0, 0.0, 1.0]));
+    /// ```
     #[inline]
     pub fn bezier_valid(duration: f32, points: &[f32; 4]) -> bool {
         duration.is_finite() && duration >= 0.0 && points.iter().all(|v| v.is_finite()) && (0.0..=1.0).contains(&points[0]) && (0.0..=1.0).contains(&points[2])
     }
-    /// The frequency of a `Spring` (what `valid` checks).
+    /// Whether a spring frequency is usable: finite and above 0 (what `valid` checks for a `Spring`).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Curve;
+    /// assert!(Curve::spring_valid(8.0) && !Curve::spring_valid(0.0));
+    /// ```
     #[inline]
     pub fn spring_valid(omega: f32) -> bool { omega.is_finite() && omega > 0.0 }
 
-    /// A run that is over before it starts.
+    /// Whether the run is over before it starts: a timed curve whose duration is not above 0 (a NaN counts); a spring never is.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Curve;
+    /// assert!(Curve::Steps { duration: 0.0, count: 4 }.instant());
+    /// assert!(!Curve::Spring { omega: 10.0 }.instant());
+    /// ```
     pub fn instant(&self) -> bool {
         match self {
             Self::Bezier { duration, .. } | Self::Table { duration, .. } | Self::Steps { duration, .. } => !(*duration > 0.0),
@@ -790,7 +1118,17 @@ impl Curve {
         }
     }
 
-    /// Completion follows time, not a progress value that may overshoot or reach 1 early.
+    /// Whether the run has ended `t` seconds in: a timed curve when `t` reaches its duration (whatever `at` returns by then); a spring
+    /// when its progress has settled to 1.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Curve;
+    /// let curve = Curve::Bezier { duration: 0.5, points: [0.25, 0.1, 0.25, 1.0] };
+    /// assert!(!curve.finished(0.4) && curve.finished(0.5));
+    /// ```
     pub fn finished(&self, t: f32) -> bool {
         match self {
             Self::Bezier { duration, .. } | Self::Table { duration, .. } | Self::Steps { duration, .. } => !(t < *duration),
@@ -798,7 +1136,16 @@ impl Curve {
         }
     }
 
-    /// A keyframe segment supplies the duration; a physical spring keeps its own frequency.
+    /// The curve with its duration set to `seconds` (any value, not validated); a `Spring` is returned unchanged.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Curve;
+    /// let curve = Curve::Steps { duration: 1.0, count: 4 }.with_duration(2.0);
+    /// assert_eq!(curve, Curve::Steps { duration: 2.0, count: 4 });
+    /// ```
     pub fn with_duration(mut self, seconds: f32) -> Self {
         match &mut self {
             Self::Bezier { duration, .. } | Self::Table { duration, .. } | Self::Steps { duration, .. } => *duration = seconds,
@@ -807,7 +1154,19 @@ impl Curve {
         self
     }
 
-    /// Progress `t` seconds in; exactly 1 once the run is over.
+    /// The progress `t` seconds into the run: 0 at the start, exactly 1 once it is over or when a duration is 0; a bezier, table or spring
+    /// curve may pass 1 in between (an overshoot) and `Steps` jumps in whole steps.
+    ///
+    /// A negative `t` reads as 0 seconds. A spring is treated as over once it is within 0.1% of 1.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Curve;
+    /// let curve = Curve::Steps { duration: 1.0, count: 4 };
+    /// assert_eq!(curve.at(0.3), 0.25);
+    /// assert_eq!(curve.at(1.0), 1.0);
+    /// ```
     pub fn at(&self, t: f32) -> f32 {
         match *self {
             Curve::Bezier {
@@ -867,10 +1226,15 @@ impl Curve {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct State {
+    /// The pointer is over the widget.
     pub hovered: bool,
+    /// A press is held on the widget.
     pub pressed: bool,
+    /// The widget holds keyboard focus.
     pub focused: bool,
+    /// The widget does not respond.
     pub disabled: bool,
+    /// The widget is on, current or selected.
     pub checked: bool,
 }
 
@@ -878,16 +1242,32 @@ pub struct State {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct States {
+    /// The resting look.
     pub idle: Look,
+    /// The look while hovered.
     pub hover: Look,
+    /// The look while pressed.
     pub pressed: Look,
+    /// The look while focused.
     pub focus: Look,
+    /// The look while disabled.
     pub disabled: Look,
+    /// The look while on, current or selected.
     pub checked: Look,
 }
 
 impl States {
-    /// Every state the same look.
+    /// A `States` whose six looks are all `look`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::{State, States};
+    /// use pxui_types::Look;
+    /// let states = States::all(Look::NONE.radius(4.0));
+    /// assert_eq!(states.pick(State { hovered: true, ..Default::default() }).radius, [4.0; 4]);
+    /// ```
     pub const fn all(look: Look) -> States {
         States {
             idle: look,
@@ -898,7 +1278,19 @@ impl States {
             checked: look,
         }
     }
-    /// disabled, then pressed, hovered, checked, focused, idle: the first that holds.
+    /// The look for state `s`: disabled, else pressed, hovered, checked, focused, idle, whichever holds first.
+    ///
+    /// So a focused and checked widget shows `checked`, and a hovered and pressed one shows `pressed`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::{State, States}, Look};
+    /// let mut states = States::all(Look::NONE);
+    /// states.pressed = Look::NONE.radius(2.0);
+    /// let both = State { hovered: true, pressed: true, ..Default::default() };
+    /// assert_eq!(states.pick(both).radius, [2.0; 4]);
+    /// ```
     pub fn pick(&self, s: State) -> &Look {
         if s.disabled {
             &self.disabled
