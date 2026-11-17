@@ -158,9 +158,29 @@ impl<'a> Paint<'a> {
         unsafe { lib::pxui_paint_label_chars(self.raw(), at.0, at.1, &style, crate::as_str(s)) }
     }
     #[inline] pub fn text_width(&mut self, size: Option<i64>, s: &str) -> f32 { unsafe { lib::pxui_paint_text_width(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s)) } }
-    /// Draws one shaped layout with up to eight inline spans; invalid ranges or flags return an argument error.
+    /// Draws `text` at `at` (its top-left, in points) in one shaped layout, wrapped within `width` points (0: unbounded), with up to eight styled byte ranges `spans`; returns its metrics.
     ///
-    /// Errors: InvalidInput for more than eight or overlapping spans or a non-finite size; State when a span is open.
+    /// `style` is the shaper's own `TextStyle` (not the theme-relative `Label`); `color` overrides the ink colour of the whole text, `None` keeps the theme's. Spans are ordered, non-overlapping and nonempty, as UTF-8 byte ranges of `text` on character boundaries.
+    /// Allocates: never when warm; text it has not shaped before is shaped once.
+    /// Panics: never; a bad argument is the `Err` below.
+    /// Errors: `Error::InvalidInput` for more than eight or overlapping spans, a bad range or a non-finite size; `Error::State` when a span is open.
+    ///
+    /// ```
+    /// use pxui::{TextSpan, TextStyle};
+    /// use std::{cell::Cell, rc::Rc};
+    /// let width = Rc::new(Cell::new(0.0));
+    /// let out = width.clone();
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let node = ui.node("rich".into(), pxui::Node { w: pxui::ui::Size::Px(200.0), h: pxui::ui::Size::Px(30.0), ..pxui::Node::DEFAULT });
+    ///     let out = out.clone();
+    ///     ui.canvas(&node, move |paint, rect| {
+    ///         let style = TextStyle { size_points: 14.0, ..Default::default() };
+    ///         let bold = TextSpan { start: 0, end: 5, weight: 700, ..Default::default() };
+    ///         out.set(paint.text_spans((rect.x, rect.y), &style, 0.0, None, "Hello world", &[bold]).unwrap().width);
+    ///     });
+    /// });
+    /// assert!(width.get() > 0.0);
+    /// ```
     pub fn text_spans(&mut self,at:(f32,f32),style:&TextStyle,width:f32,color:Option<Rgba>,text:&str,spans:&[pxui_types::TextSpan])->Result<TextMetrics,crate::Error> {
         let spans=pxui_types::TextSpans::new(spans).ok_or(crate::Error::InvalidInput)?;
         let (has_color,color)=some(color);
