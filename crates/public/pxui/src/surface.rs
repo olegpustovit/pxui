@@ -1,6 +1,6 @@
 //! The engine-shaped surface through the wrapper: queries, boxes, patches, scroll and text state, carries, view calls
 //! and the loud failure of a caller bug.
-use crate::Ui;
+use crate::{Fill, Stroke, Ui};
 use crate::opts::BoxOpts;
 use pxui_types::{geom::Rect, ui::{Cursor, UndoKind}, FrameIn, Mark, Size};
 use std::panic::{catch_unwind, AssertUnwindSafe};
@@ -17,7 +17,7 @@ fn em_top_to_layout_top(points:f32)->f32 {
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("probe".into(),crate::Node::DEFAULT.w_px(200.0).h_px(points));
         ui.text_spans(&b,"H",&label,&[]).unwrap();
-        ui.canvas(&b,move |paint,rect| {paint.text_spans((rect.x,rect.y),&style,0.0,None,"H",&[]).unwrap();});
+        ui.canvas(&b,move |paint,rect| {paint.text_spans((rect.x,rect.y),&style,0.0,"H",&[]).unwrap();});
     }).unwrap();
     let ys:Vec<f32>=ui.layers().flat_map(|layer|layer.instances.iter().map(|i|i.rect[1])).collect();
     assert_eq!(ys.len(),2,"one node glyph and one canvas glyph");
@@ -780,7 +780,7 @@ fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() 
                     builds.set(builds.get()+1);
                     let density=ui.density();
                     let node=ui.node("paint".into(),crate::Node::DEFAULT.w_px(40.0).h_px(40.0));
-                    ui.draw(&node,move |paint,_| {assert_eq!(paint.density,density);});
+                    ui.canvas(&node,move |paint,_| {assert_eq!(paint.density(),density);});
                 });
             }).unwrap();
             assert_eq!(ui.density(),scale as i64,"owner keeps the last frame's density");
@@ -799,16 +799,16 @@ fn analytic_curves_preserve_fractional_geometry_validate_and_reuse_warm_storage(
         for scale in [1.0,2.0] {
             ui.frame(&FrameIn {scale,..input()},&mut |ui| {
                 let node=ui.node("curves".into(),crate::Node::DEFAULT.w_px(100.0).h_px(100.0));
-                ui.draw(&node,|paint,_| {
+                ui.canvas(&node,|paint,_| {
                     let color=crate::geom::Rgba::rgb(12, 34, 56);
-                    paint.curve((1.25,2.75),(3.5,4.25),(5.75,6.5),1.6,color);
-                    paint.cubic([(7.0,7.0),(11.5,7.0),(12.5,17.0),(17.0,17.0)],1.6,color);
+                    paint.curve((1.25,2.75), (3.5,4.25), (5.75,6.5), Stroke::new(color).width(1.6));
+                    paint.cubic([(7.0,7.0),(11.5,7.0),(12.5,17.0),(17.0,17.0)], Stroke::new(color).width(1.6));
                     for width in [0.0,-1.0,f32::NAN,f32::INFINITY,f32::MAX] {
-                        paint.curve((0.0,0.0),(1.0,1.0),(2.0,2.0),width,color);
-                        paint.cubic([(0.0,0.0);4],width,color);
+                        paint.curve((0.0,0.0), (1.0,1.0), (2.0,2.0), Stroke::new(color).width(width));
+                        paint.cubic([(0.0,0.0);4], Stroke::new(color).width(width));
                     }
-                    paint.curve((f32::INFINITY,0.0),(1.0,1.0),(2.0,2.0),1.0,color);
-                    paint.cubic([(f32::NAN,0.0);4],1.0,color);
+                    paint.curve((f32::INFINITY,0.0), (1.0,1.0), (2.0,2.0), Stroke::new(color).width(1.0));
+                    paint.cubic([(f32::NAN,0.0);4], Stroke::new(color).width(1.0));
                 });
             }).unwrap();
             let mut instances=ui.layers().flat_map(|layer|layer.instances.iter());
@@ -1485,8 +1485,8 @@ fn canvas_feature_styles_have_distinct_warm_cache_entries() {
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
             let bounds=ui.node("numbers".into(),crate::Node::DEFAULT.w_px(240.0).h_px(80.0));
             ui.canvas(&bounds,move |paint,rect| {
-                assert_eq!(paint.text_styled((rect.x,rect.y),&crate::Label::BODY.size(20.0),0.0,"1111"),a);
-                assert_eq!(paint.text_styled((rect.x,rect.y+30.0),&crate::Label::MONO.size(20.0),0.0,"1111"),b);
+                assert_eq!(paint.text((rect.x,rect.y), &crate::Label::BODY.size(20.0), 0.0, "1111"),a);
+                assert_eq!(paint.text((rect.x,rect.y+30.0), &crate::Label::MONO.size(20.0), 0.0, "1111"),b);
             });
         }).unwrap();
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed feature styles must keep separate warm layout/glyph caches"); }
@@ -1549,8 +1549,8 @@ fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
             let b=ui.node("canvas".into(),crate::Node::DEFAULT.w_px(200.0).h_px(80.0));
             ui.canvas(&b,move |paint,rect| {
-                let a=paint.text_spans((rect.x,rect.y),&style,0.0,None,"ab cd",&[red]).unwrap();
-                let b=paint.text_spans((rect.x,rect.y+30.0),&style,0.0,None,"ab cd",&[green]).unwrap();
+                let a=paint.text_spans((rect.x,rect.y),&style,0.0,"ab cd",&[red]).unwrap();
+                let b=paint.text_spans((rect.x,rect.y+30.0),&style,0.0,"ab cd",&[green]).unwrap();
                 assert_eq!(a,b,"decoration colour changes preserve text geometry");
             });
         }).unwrap();
@@ -1564,7 +1564,8 @@ fn inline_node_fractional_font_alignment_matches_canvas_text() {
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
     let mut ui=Ui::new().unwrap();
-    let label=crate::Label::BODY.size(20.25);
+    ui.set_colors(&[(Rgba::rgba(0,0,0,255),Rgba::rgba(0,0,0,255))]);
+    let label=crate::Label::BODY.size(20.25).color(crate::theme::ColorToken(0));
     let style=ui.resolve(&label);
     let span=TextSpan { start:0,end:2,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
     let shift=em_top_to_layout_top(20.25);
@@ -1573,7 +1574,7 @@ fn inline_node_fractional_font_alignment_matches_canvas_text() {
         ui.text_spans(&b,"ab cd",&label,&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
             let top=rect.y+((rect.h-20.25)/2.0).floor()+shift;
-            paint.text_spans((rect.x,top),&style,200.0,Some(Rgba::rgba(0,0,0,255)),"ab cd",&[span]).unwrap();
+            paint.text_spans((rect.x,top),&style,200.0,"ab cd",&[span]).unwrap();
         });
     }).unwrap();
     let instances:Vec<_>=ui.layers().flat_map(|layer|layer.instances.iter().copied()).collect();
@@ -1591,7 +1592,8 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
     use crate::TextSpan;
     use pxui_types::geom::Rgba;
     let mut ui=Ui::new().unwrap();
-    let label=crate::Label::BODY.size(20.0).line_height(24.0).wrap();
+    ui.set_colors(&[(Rgba::rgba(0,0,0,255),Rgba::rgba(0,0,0,255))]);
+    let label=crate::Label::BODY.size(20.0).line_height(24.0).wrap().color(crate::theme::ColorToken(0));
     let style=ui.resolve(&label);
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
     let metrics=ui.text_service().measure_spans("aa bb cc",&label,45.0,&[span]).unwrap();
@@ -1603,7 +1605,7 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
         ui.canvas(&b,move |paint,rect| {
             let block=20.0+(metrics.lines-1) as f32*24.0;
             let top=rect.y+((rect.h-block)/2.0).floor()+shift;
-            paint.text_spans((rect.x,top),&style,45.0,Some(Rgba::rgba(0,0,0,255)),"aa bb cc",&[span]).unwrap();
+            paint.text_spans((rect.x,top),&style,45.0,"aa bb cc",&[span]).unwrap();
         });
     }).unwrap();
     let instances:Vec<_>=ui.layers().flat_map(|layer|layer.instances.iter().copied()).collect();
@@ -1649,7 +1651,8 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
     let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() },
         TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:Rgba::rgba(0,0,255,255),..Default::default() }];
     let shift=em_top_to_layout_top(20.0);
-    let body=crate::Label::BODY.size(20.0);
+    ui.set_colors(&[(Rgba::rgba(0,0,0,255),Rgba::rgba(0,0,0,255))]);
+    let body=crate::Label::BODY.size(20.0).color(crate::theme::ColorToken(0));
     let labels=[body.ellipsis(),body.ellipsis_middle(),body.ellipsis_head()];
     let styles=labels.map(|label| ui.resolve(&label));
     for frame in 0..15 {
@@ -1660,7 +1663,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
             ui.text_spans(&b,source,&label,&spans).unwrap();
             ui.canvas(&b,move |paint,rect| {
                 let top=rect.y+((rect.h-20.0)/2.0).floor()+shift;
-                paint.text_spans((rect.x,top),&style,100.0,Some(Rgba::rgba(0,0,0,255)),source,&spans).unwrap();
+                paint.text_spans((rect.x,top),&style,100.0,source,&spans).unwrap();
             });
         }).unwrap();
         if frame>=9 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed modes retain independent layout/glyph caches"); }
@@ -1724,7 +1727,7 @@ fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
             let b=ui.node("native-fonts".into(),crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(300.0).h_px(40.0));
             ui.text_spans(&b,source,&label,&[]).unwrap();
-            ui.canvas(&b,move |paint,rect| { paint.text_styled((rect.x,rect.y+50.0),&crate::Label::BODY.size(20.0),300.0,source); });
+            ui.canvas(&b,move |paint,rect| { paint.text((rect.x,rect.y+50.0), &crate::Label::BODY.size(20.0), 300.0, source); });
         }).unwrap();
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed-script nodes and canvas reuse warm layouts and glyphs"); }
         assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==source));
@@ -2254,9 +2257,9 @@ fn fractional_fills_preserve_subpixel_quads_refuse_invalid_bounds_and_allocate_n
             let node=ui.node("fractional".into(),crate::Node::DEFAULT.w_px(320.0).h_px(40.0));
             ui.canvas(&node,|paint,rect| {
                 let white=pxui_types::geom::Rgba::WHITE;
-                for i in 0..200 { paint.fill_fractional(rect.x+i as f32*1.5+0.25,rect.y+1.25,0.5,4.0,white); }
+                for i in 0..200 { paint.fill(Rect::new(rect.x+i as f32*1.5+0.25, rect.y+1.25, 0.5, 4.0), Fill::new(white).fractional()); }
                 for (x,y,w,h) in [(f32::NAN,0.0,1.0,1.0),(0.0,f32::INFINITY,1.0,1.0),(f32::MAX,0.0,f32::MAX,1.0),(f32::MAX,0.0,1.0,1.0),(0.0,0.0,0.0,1.0),(0.0,0.0,1.0,-1.0)] {
-                    paint.fill_fractional(x,y,w,h,white);
+                    paint.fill(Rect::new(x, y, w, h), Fill::new(white).fractional());
                 }
             });
         }).unwrap();
@@ -2516,16 +2519,16 @@ fn filled_triangles_preserve_vertices_winding_validate_and_allocate_nothing_when
         for scale in [1.0,2.0] {
             ui.frame(&FrameIn {scale,..input()},&mut |ui| {
                 let node=ui.node("triangles".into(),crate::Node::DEFAULT.w_px(100.0).h_px(100.0));
-                ui.draw(&node,|paint,_| {
+                ui.canvas(&node,|paint,_| {
                     let color=crate::geom::Rgba::rgba(12, 34, 56, 128);
-                    paint.triangle((1.25,2.75),(5.75,2.75),(3.5,6.5),color);
-                    paint.triangle((1.25,2.75),(3.5,6.5),(5.75,2.75),color);
+                    paint.triangle((1.25,2.75), (5.75,2.75), (3.5,6.5), Fill::new(color));
+                    paint.triangle((1.25,2.75), (3.5,6.5), (5.75,2.75), Fill::new(color));
                     for points in [
                         [(0.0,0.0);3],[(0.0,0.0),(1.0,1.0),(2.0,2.0)],
                         [(f32::NAN,0.0),(1.0,0.0),(2.0,2.0)],[(0.0,0.0),(f32::INFINITY,1.0),(2.0,2.0)],
                         [(-f32::MAX,0.0),(f32::MAX,0.0),(0.0,1.0)],
                         [(0.0,0.0),(1e-30,0.0),(0.0,1.0)],[(0.0,0.0),(1e30,0.0),(0.0,1e30)],
-                    ] {paint.triangle(points[0],points[1],points[2],color);}
+                    ] {paint.triangle(points[0], points[1], points[2], Fill::new(color));}
                 });
             }).unwrap();
             let mut instances=ui.layers().flat_map(|layer|layer.instances.iter());
@@ -2975,7 +2978,7 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
             built.set(ui.color(ColorToken(1)));
             let b = ui.node("canvas".into(), crate::Node::DEFAULT.w_px(20.0).h_px(10.0));
             let painted = painted.clone();
-            ui.draw(&b, move |p, _| painted.set(p.color(ColorToken(0))));
+            ui.canvas(&b, move |p, _| painted.set(p.color(ColorToken(0))));
         });
         ui.themed(&dark, &mut |ui| scoped.set(ui.color(ColorToken(0))));
     };

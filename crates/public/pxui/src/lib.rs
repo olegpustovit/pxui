@@ -70,7 +70,7 @@ pub mod ui {
     pub use pxui_types::Image;
     pub use crate::ui_text::*;
     pub use crate::ui_widgets::*;
-    pub use crate::{Paint, Signal, Ui};
+    pub use crate::{Fill, ImageStyle, Paint, Signal, Stroke, Ui};
     pub use pxui_types::draw::*;
     pub use pxui_types::geom::*;
     pub use pxui_types::layout::*;
@@ -81,7 +81,7 @@ pub mod text;
 pub use text::{PreparedText, RetiredText, Text, TextStyle, TextWorker, UiText};
 pub use box_ops::{NodeFields, PayloadRef, DropRef, GestureOpts, GestureState, Scroll, SwipeActions, DismissOpts, ViewTransform};
 pub mod paint;
-pub use paint::Paint;
+pub use paint::{Fill, Paint, Stroke};
 pub mod widgets;
 pub use widgets::Scrub;
 pub mod composite;
@@ -91,6 +91,7 @@ pub mod collections;
 pub mod bodies;
 pub use collections::TreeNode;
 pub mod image;
+pub use image::ImageStyle;
 mod text_inputs;
 pub use text_inputs::ScrubPhase;
 pub mod opts;
@@ -768,6 +769,9 @@ pub enum Feature {
     WidgetsKeyed = pxui_types::feature::WIDGETS_KEYED,
     /// ABI 1.69: `Segmented::focus_on_click`, and `PxuiSegmentConfig::stored` for a registered segment body.
     SegmentedStoredFocus = pxui_types::feature::SEGMENTED_STORED_FOCUS,
+    /// ABI 1.70: images without a key whose name is accessibility only (`Ui::image`) and painted images that report a refusal
+    /// (`Paint::image`).
+    ImageChecked = pxui_types::feature::IMAGE_CHECKED,
 }
 
 /// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.

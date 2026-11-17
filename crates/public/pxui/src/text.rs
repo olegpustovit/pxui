@@ -57,10 +57,10 @@ pub fn pragmasevka() -> &'static [u8] {
 /// A resolved text style: what a `Label` shapes with on this `Ui` (its unset fields the theme's, tracking in points), made only by
 /// `Ui::resolve`. A worker's `Text` (`prepare`, `measure`, `width`, `rasterize_rgba`) and the painter's span calls take it, so text
 /// prepared off the UI thread matches what the `Ui` draws. Opaque, `Copy` and `Send`: resolve on the UI thread (at setup and when
-/// the theme changes), hand the value to the worker; C callers fill its record, `ffi::PxuiTextStyle`.
-#[repr(transparent)]
+/// the theme changes), hand the value to the worker; C callers fill its record, `ffi::PxuiTextStyle`. It keeps the label's colour
+/// token, which the painter resolves for its theme (`Paint::text_spans`); shaping ignores it.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct TextStyle(pub(crate) PxuiTextStyle);
+pub struct TextStyle(pub(crate) PxuiTextStyle, pub(crate) Option<pxui_types::theme::ColorToken>);
 
 impl TextStyle {
     /// The height of one line in points: the label's line height, or 1.2 times its size when it left it 0.
@@ -351,7 +351,7 @@ impl Ui {
     pub fn resolve(&self,style:&Label)->TextStyle {
         let mut out=PxuiTextStyle::default();
         crate::check(self,unsafe { lib::pxui_ui_resolve_label(self.0.as_ptr(),&pxui_types::ffi::PxuiLabelStyle::from(style),&mut out) });
-        TextStyle(out)
+        TextStyle(out, style.fields().color)
     }
     /// Sets a frame's node text in `style` with up to eight inline spans, preserving the complete accessibility label; the style
     /// resolves as `resolve` resolves it. Plain `text`/`patch_text` clears the spans.

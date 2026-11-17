@@ -85,7 +85,7 @@ export!(bare pub unsafe fn pxui_supports(id: u32) -> u32 {
         f::VULKAN => cfg!(any(windows, target_os = "linux")),
         f::EXTENSION_SET | f::BUTTON_CONTENT | f::ICON_BUTTON_CURVES | f::TOGGLE_RESPONSE | f::SEGMENTED_RESPONSE | f::DIALOG_RESPONSE | f::WIDGET_VARIANTS
             | f::LABEL_NODE | f::MENU_ITEM_IDS | f::FRAME_SURFACE | f::ITEM_TEXT | f::COLOR_TOKENS | f::SWIPE_ACTIONS | f::DISMISS
-            | f::LOOK_TOKENS | f::ICON_WORD | f::TEXT_WORKER | f::TEXT_FIELD_KEYED | f::LABEL_TEXT | f::MENU_MAX_H | f::SEGMENTED_RESULT | f::WIDGETS_KEYED | f::SEGMENTED_STORED_FOCUS => true,
+            | f::LOOK_TOKENS | f::ICON_WORD | f::TEXT_WORKER | f::TEXT_FIELD_KEYED | f::LABEL_TEXT | f::MENU_MAX_H | f::SEGMENTED_RESULT | f::WIDGETS_KEYED | f::SEGMENTED_STORED_FOCUS | f::IMAGE_CHECKED => true,
         _ => false,
     }) as u32
 });

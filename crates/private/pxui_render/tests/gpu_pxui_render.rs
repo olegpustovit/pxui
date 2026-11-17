@@ -1052,7 +1052,7 @@ fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
         mem_sys::local_reset();
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let b=ui.node("page-growth".into(),pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(300.0),..pxui::Node::DEFAULT });
-            ui.canvas(&b,move |paint,_| { paint.text_styled((0.0,0.0),&style,0.0,if frame==1 { "A" } else { "ABCDEF" }); });
+            ui.canvas(&b,move |paint,_| { paint.text((0.0,0.0), &style, 0.0, if frame==1 { "A" } else { "ABCDEF" }); });
         }).unwrap();
         let allocations=mem_sys::local_alloc_count();
         let glyphs:Vec<_>=ui.layers().flat_map(|l|l.instances.iter().copied()).collect();
@@ -1163,7 +1163,8 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let spans=[pxui::TextSpan { start:0,end:1,flags:pxui::TextSpan::COLOR,color:pxui::geom::Rgba::rgba(255,0,0,255),..Default::default() },
         pxui::TextSpan { start:25,end:26,flags:pxui::TextSpan::COLOR,color:pxui::geom::Rgba::rgba(0,0,255,255),..Default::default() }];
-    let body=pxui::Label::BODY.size(20.0);
+    ui.set_colors(&[(pxui::geom::Rgba::rgba(0,0,0,255),pxui::geom::Rgba::rgba(0,0,0,255))]);
+    let body=pxui::Label::BODY.size(20.0).color(pxui::theme::ColorToken(0));
     let modes=[body.ellipsis(),body.ellipsis_middle(),body.ellipsis_head()].map(|label| ui.resolve(&label));
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
@@ -1171,7 +1172,7 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
             let b=ui.node("truncation".into(),pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(160.0),..pxui::Node::DEFAULT });
             ui.canvas(&b,move |paint,_| {
                 for (i,style) in modes.into_iter().enumerate() {
-                    paint.text_spans((10.0,10.0+i as f32*40.0),&style,100.0,Some(pxui::geom::Rgba::rgba(0,0,0,255)),source,&spans).unwrap();
+                    paint.text_spans((10.0,10.0+i as f32*40.0),&style,100.0,source,&spans).unwrap();
                 }
             });
         }).unwrap();
@@ -1215,7 +1216,7 @@ fn shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations() {
         ui.frame(&pxui_types::FrameIn { width:320.0,height:150.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let b=ui.node("native-fonts".into(),pxui::Node { w:pxui::ui::Size::Px(300.0),h:pxui::ui::Size::Px(80.0),look:pxui::ui::Look { text:pxui::geom::Rgba::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
             ui.text_spans(&b,"漢字 العربية",&style,&[]).unwrap();
-            ui.canvas(&b,move |paint,_| { paint.text_styled((10.0,100.0),&emoji,100.0,"😀"); });
+            ui.canvas(&b,move |paint,_| { paint.text((10.0,100.0), &emoji, 100.0, "😀"); });
         }).unwrap();
         let build_allocations=mem_sys::local_alloc_count();
         let draws=renderer.draw_calls();
@@ -1351,7 +1352,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
                 if large {
                     let images=[images[0],images[1]];
                     ui.canvas(&pane,move |paint,rect| {
-                        for i in 0..96 { paint.image(rect.x+(i%16) as f32,rect.y+(i/16) as f32,1.0,1.0,&images[i%2]); }
+                        for i in 0..96 { paint.image(pxui::geom::Rect::new(rect.x+(i%16) as f32, rect.y+(i/16) as f32, 1.0, 1.0), &images[i%2], Fit::Fill, pxui::geom::Rgba::rgb(255, 255, 255)).unwrap(); }
                     });
                 }
             })));
@@ -1578,7 +1579,7 @@ fn shared_foreign_image_wrappers_retire_without_leaking_or_destroying_the_source
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=9 {
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            if frame<=4 { ui.image("photo",&image,Fit::Fill,pxui::ui::Size::Px(64.0),pxui::ui::Size::Px(48.0)); }
+            if frame<=4 { ui.image("photo",&image,&pxui::ImageStyle::DEFAULT.fit(Fit::Fill).w_px(64.0).h_px(48.0)).unwrap(); }
         }).expect("image frame");
         shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
         if frame<=4 {
@@ -1612,7 +1613,7 @@ fn shared_large_image_layer_allocates_nothing() {
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let bounds=ui.node("images".into(),pxui::ui::Node { w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(256.0),..pxui::ui::Node::DEFAULT });
             ui.canvas(&bounds,move |paint,rect| {
-                for i in 0..count { paint.image(rect.x,rect.y+i as f32*2.0,64.0,2.0,&images[i%2]); }
+                for i in 0..count { paint.image(pxui::geom::Rect::new(rect.x, rect.y+i as f32*2.0, 64.0, 2.0), &images[i%2], Fit::Fill, pxui::geom::Rgba::rgb(255, 255, 255)).unwrap(); }
             });
         }).expect("image layer");
         assert!(ui.layers().any(|layer|layer.breaks==count),"exercise every boundary across growth/shrink and the old stack limit");
@@ -1891,7 +1892,7 @@ fn shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_imag
         ui.frame(&pxui_types::FrameIn{width:128.0,height:64.0,time:frame as f64/60.0,..Default::default()},&mut |ui| {
             let bounds=ui.node("gallery".into(),pxui::ui::Node{w:pxui::ui::Size::Px(128.0),h:pxui::ui::Size::Px(64.0),..pxui::ui::Node::DEFAULT});
             ui.canvas(&bounds,move |paint,rect| {
-                for index in 0..32 { paint.image(rect.x+(index%8) as f32*16.0,rect.y+(index/8) as f32*16.0,16.0,16.0,&images[start+index]); }
+                for index in 0..32 { paint.image(pxui::geom::Rect::new(rect.x+(index%8) as f32*16.0, rect.y+(index/8) as f32*16.0, 16.0, 16.0), &images[start+index], Fit::Fill, pxui::geom::Rgba::rgb(255, 255, 255)).unwrap(); }
             });
         }).expect("gallery frame");
         let build_allocations=mem_sys::local_alloc_count();
@@ -1934,7 +1935,7 @@ fn shared_fractional_fills_render_thin_bars_in_one_warm_draw() {
             ui.frame(&pxui_types::FrameIn{width:640.0,height:32.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
                 let node=ui.node("bars".into(),pxui::ui::Node{w:pxui::ui::Size::Px(640.0),h:pxui::ui::Size::Px(32.0),..pxui::ui::Node::DEFAULT});
                 ui.canvas(&node,|paint,rect| {
-                    for i in 0..200 { paint.fill_fractional(rect.x+1.25+i as f32*3.0,rect.y+1.25,0.5,12.0,pxui::geom::Rgba{r:0,g:255,b:0,a:255}); }
+                    for i in 0..200 { paint.fill(pxui::geom::Rect::new(rect.x+1.25+i as f32*3.0, rect.y+1.25, 0.5, 12.0), pxui::Fill::new(pxui::geom::Rgba{r:0,g:255,b:0,a:255}).fractional()); }
                 });
             }).unwrap();
             let build_allocations=mem_sys::local_alloc_count();
@@ -2053,11 +2054,11 @@ fn shared_filled_triangle_pixels_cover_both_windings_in_one_warm_draw() {
             mem_sys::local_reset();
             ui.frame(&pxui_types::FrameIn {width:64.0,height:32.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
                 let node=ui.node("triangles".into(),pxui::ui::Node {w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(32.0),..pxui::Node::DEFAULT});
-                ui.draw(&node,|paint,_| {
+                ui.canvas(&node,|paint,_| {
                     for index in 0..3 {
                         let points=[(7.0,4.6),(7.0,19.4),(19.4,12.0)].map(|p|(4.25+index as f32*20.0+p.0*(2.0/3.0),4.5+p.1*(2.0/3.0)));
                         let color=pxui::geom::Rgba {r:0,g:255,b:0,a:if index==2 {128} else {255}};
-                        paint.triangle(points[0],points[if index==1 {2} else {1}],points[if index==1 {1} else {2}],color);
+                        paint.triangle(points[0], points[if index==1 {2} else {1}], points[if index==1 {1} else {2}], pxui::Fill::new(color));
                     }
                 });
             }).unwrap();

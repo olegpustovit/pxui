@@ -8,7 +8,7 @@ fn release_keepalive() {}
 
 #[cfg(target_os = "macos")]
 fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release() {
-    use pxui::images::{Key, Path};
+    use pxui::images::Want;
     use pxui::ui::{Fit, Node, Rgba, Size};
     use pxui::{FrameIn, Ui};
     use crate::{Graphics, Window};
@@ -20,18 +20,9 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     graphics.configure_images(1.0, 64).unwrap();
     graphics.sync_images(1).unwrap();
     let epoch = graphics.images().epoch();
-    let key = Key {
-        id: 1,
-        path: Path::new("memory:rgba").unwrap(),
-        max_pixels: 64,
-    };
+    let key = Want::new(1, 64).unwrap();
     let mut pixels: [u8; 8*4*4] = std::array::from_fn(|index| index as u8);
     pixels[3] = 255;
-    assert!(
-        graphics
-            .upload_image(Key::default(), epoch, 1, None)
-            .is_err()
-    );
     for (width, height, bytes) in [
         (0, 1, &pixels[..]),
         (1025, 1, &pixels[..]),
@@ -53,7 +44,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
     for id in 2..=8 {
         let mut delivered = pixels;
         delivered[0] = id as u8;
-        assert!(graphics.upload_image(Key {id,..key},epoch,id as u64,Some((8,4,&delivered))).unwrap());
+        assert!(graphics.upload_image(Want::new(id, key.max_pixels()).unwrap(),epoch,id as u64,Some((8,4,&delivered))).unwrap());
     }
     // Read the entire batch after every upload, so aliasing the last source cannot pass.
     for id in 1..=8 {
@@ -88,23 +79,10 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
                 );
                 let image = graphics
                     .images()
-                    .get_at(1, "memory:rgba", 32.0, node.box_key)
+                    .get(1, "memory:rgba", 32.0, Some(&node))
                     .unwrap();
-                ui.draw(&node, move |paint, r| {
-                    paint.image_fit(
-                        r.x,
-                        r.y,
-                        r.w,
-                        r.h,
-                        &image,
-                        Fit::Cover,
-                        Rgba {
-                            r: 255,
-                            g: 255,
-                            b: 255,
-                            a: 255,
-                        },
-                    )
+                ui.canvas(&node, move |paint, r| {
+                    paint.image(r, &image, Fit::Cover, Rgba::rgb(255, 255, 255)).unwrap();
                 });
             },
         )
@@ -124,7 +102,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
         "in-flight images must survive namespace changes"
     );
     for id in 1..=8 {
-        assert!(!graphics.upload_image(Key {id,..key},epoch,id as u64,Some((8,4,&pixels))).unwrap(),"old epochs cannot resurrect images");
+        assert!(!graphics.upload_image(Want::new(id, key.max_pixels()).unwrap(),epoch,id as u64,Some((8,4,&pixels))).unwrap(),"old epochs cannot resurrect images");
         assert!(graphics.images().quality(id).is_none());
     }
     for frame in 0..3 {

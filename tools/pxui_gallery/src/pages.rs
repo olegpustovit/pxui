@@ -2,7 +2,7 @@
 use super::inputs;
 use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Overlay, Pick, PxuiBox as Handle, Ui};
 use pxui::theme::Look;
-use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Along, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
+use pxui_types::{a11y::Role, ffi::ThemeSource, geom::Edges, layout::{Align, Along, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
 use pxui_types::ui::{Key, Keyframe, Keyframes};
 use std::fmt::Write;
@@ -222,9 +222,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
         if let Some(image) = s.image.clone() {
             let row = node(ui, "images", Node { h: Size::Px(56.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
             ui.within(&row, &mut |ui: &mut Ui| {
-                for (label, fit) in [("Contain", Fit::Contain), ("Cover", Fit::Cover), ("Fill", Fit::Fill), ("None", Fit::None)] {
-                    let _ = ui.image(label, &image, fit, Size::Px(40.0), Size::Px(40.0));
-                }
+                inputs::images(ui, &image);
             });
         }
     });

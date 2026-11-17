@@ -5345,7 +5345,7 @@ impl Paint {
                     self.fill(x, y, w, h, fade(look.fill));
                 }
                 if look.dashed && (bordered || room) {
-                    self.dashed_rect(x + 0.5, y + 0.5, w - 1.0, h - 1.0, fade(look.border));
+                    self.dashed_rect(x + 0.5, y + 0.5, w - 1.0, h - 1.0, 1.0, fade(look.border));
                 } else if bordered || (room && look.border_w > 0.0) {
                     self.bands(placed, look.border_w, look.sides, fade(look.border));
                 }
@@ -5421,7 +5421,7 @@ impl Paint {
             self.label = buffer;
         }
         match node.mark {
-            Mark::Chevron(direction) => self.chevron((x + w / 2.0, y + h / 2.0), direction, fade(look.text)),
+            Mark::Chevron(direction) => self.chevron((x + w / 2.0, y + h / 2.0), direction, 1.0, fade(look.text)),
             Mark::Line { width, rising } => {
                 let half = width / 2.0;
                 let (left, top, right, bottom) = (x + half, y + half, x + w - half, y + h - half);

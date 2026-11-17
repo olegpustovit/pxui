@@ -41,7 +41,7 @@ pub enum TextAlign {
     End = 2,
 }
 
-/// The authoring text style (`Ui::label`, `label_fmt`, `label_digits`, `Ui::text_line_box`/`text_spans`, `Paint::text_styled`/
+/// The authoring text style (`Ui::label`, `label_fmt`, `label_digits`, `Ui::text_line_box`/`text_spans`, `Paint::text`/
 /// `text_chars`): a theme-relative text style, colour and box. `Ui::resolve` turns it into the `TextStyle` the shaper sees. App styles
 /// are consts built from a preset with the const builders: `const TITLE: Label = Label::BODY.size(15.0).bold();`.
 ///
@@ -393,7 +393,7 @@ impl Label {
 
     /// This style in a node `points` high with its lines centred in it (a 12-point heading in a 30-point row), whatever its line height.
     ///
-    /// The line height still spaces the lines; the box only places them. The painter (`Paint::text_styled`) has no box and ignores it.
+    /// The line height still spaces the lines; the box only places them. The painter (`Paint::text`) has no box and ignores it.
     /// Allocates: never.
     /// Panics: never (a height that is not finite and at least zero is refused when the label is shown).
     ///
@@ -448,7 +448,7 @@ impl Label {
 pub struct TextMetrics {
     pub width: f32,
     pub height: f32,
-    /// Distance, in points, from the top of the layout to its first line's baseline: `Paint::text_styled`, `text_spans` and `text_chars` put
+    /// Distance, in points, from the top of the layout to its first line's baseline: `Paint::text`, `text_spans` and `text_chars` put
     /// the first baseline this far below `at`.
     pub baseline: f32,
     pub lines: u32,

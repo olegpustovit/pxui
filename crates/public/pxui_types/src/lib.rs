@@ -594,6 +594,23 @@ impl Image {
     pub const FORMAT_RGBA16F: u32 = 4;
     pub const FORMAT_RGBA32F: u32 = 5;
     pub const FORMAT_DEPTH32F: u32 = 6;
+
+    /// Whether PXUI can sample this descriptor: a `size` covering this record, a nonzero width and height, a native handle
+    /// (`vk_image_view` or `mtl_texture`) and a colour format (below `FORMAT_DEPTH32F`).
+    ///
+    /// The one rule the library and the wrapper both apply; it does not check that the handle is alive.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Image;
+    /// assert!(!Image::default().valid());
+    /// assert!(Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: Image::FORMAT_RGBA8, ..Default::default() }.valid());
+    /// ```
+    pub fn valid(&self) -> bool {
+        self.size >= core::mem::size_of::<Image>() as u32 && self.width != 0 && self.height != 0
+            && (!self.vk_image_view.is_null() || !self.mtl_texture.is_null()) && self.format < Image::FORMAT_DEPTH32F
+    }
 }
 
 #[repr(C)]
@@ -716,10 +733,13 @@ pub mod feature {
     /// ABI 1.69: `PxuiSegmentedDesc.focus_on_click` (`Segmented::focus_on_click`) and `PxuiSegmentConfig.stored` (the caller's choice, as a
     /// segment body sees it on the frame a press moves it).
     pub const SEGMENTED_STORED_FOCUS: u32 = 26;
+    /// ABI 1.70: `ui_image_node` (an image with no key, its name for accessibility only) and `paint_image_checked` (a refused image is
+    /// reported, not dropped).
+    pub const IMAGE_CHECKED: u32 = 27;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 69;
+pub const ABI_BUILT: u32 = 1 << 16 | 70;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

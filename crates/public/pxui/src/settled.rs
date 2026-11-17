@@ -2,7 +2,7 @@
 //! box with a hit callback, a canvas that fills more than one span and every output accessor,
 //! between two counted points. The counting allocator is `mem_sys`, installed for the test binary by the `use`: linked statically
 //! (`--features static`) it counts the library's allocations too; linked dynamically it counts the wrapper's own.
-use crate::{Node, Ui};
+use crate::{Fill, Label, Node, Stroke, Ui};
 use pxui_types::{geom::{Rect, Rgba}};
 use crate::opts::{BoxOpts, HitFn};
 use std::{rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
@@ -60,13 +60,13 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
     let origin = s.clicks as f32;
     ui.canvas(&canvas, move |p, _| {
         CANVAS_RUNS.fetch_add(1, Ordering::Relaxed);
-        for i in 0..SHAPES { p.fill(i as f32 * 0.25, 0.0, 1.0, 1.0, Rgba { r: 5, g: 5, b: 5, a: 255 }); }
+        for i in 0..SHAPES { p.fill(Rect::new(i as f32 * 0.25, 0.0, 1.0, 1.0), Fill::new(Rgba { r: 5, g: 5, b: 5, a: 255 })); }
         CANVAS_SHAPES.fetch_add(SHAPES, Ordering::Relaxed);
-        p.fill(origin, 0.0, 8.0, 8.0, Rgba { r: 9, g: 9, b: 9, a: 255 });
-        p.line_w((0.0, 0.0), (20.0, 9.0), 1.5, Rgba { r: 1, g: 2, b: 3, a: 255 });
-        p.circle((30.0, 10.0), 4.0, Some(Rgba { r: 7, g: 7, b: 7, a: 255 }), None);
-        p.text((2.0, 12.0), "span");
-        p.fill(40.0, 0.0, 8.0, 8.0, Rgba { r: 9, g: 9, b: 9, a: 255 });
+        p.fill(Rect::new(origin, 0.0, 8.0, 8.0), Fill::new(Rgba { r: 9, g: 9, b: 9, a: 255 }));
+        p.line((0.0, 0.0), (20.0, 9.0), Stroke::new(Rgba { r: 1, g: 2, b: 3, a: 255 }).width(1.5));
+        p.circle((30.0, 10.0), 4.0, Some(Fill::new(Rgba { r: 7, g: 7, b: 7, a: 255 })), None);
+        p.text((2.0, 12.0), &Label::BODY, 0.0, "span");
+        p.fill(Rect::new(40.0, 0.0, 8.0, 8.0), Fill::new(Rgba { r: 9, g: 9, b: 9, a: 255 }));
     });
     let hit = ui.box_("hit", BoxOpts { hit: Some(Rc::clone(&s.hit)), ..BoxOpts::default().w(Size::Px(20.0)).h(Size::Px(20.0)) });
     s.seen += hit.box_key as u64 & 1;

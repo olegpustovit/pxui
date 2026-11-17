@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 69
+minor 70
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -21,6 +21,7 @@ function pxui_paint_color PxuiColor pxui_paint_color ( PxuiPaint * paint , uint1
 function pxui_paint_icon float pxui_paint_icon ( PxuiPaint * paint , float x , float y , uint16_t font , float size , uint32_t codepoint , PxuiColor color ) ;
 function pxui_paint_icon_word uint32_t pxui_paint_icon_word ( PxuiPaint * paint ) ;
 function pxui_paint_image void pxui_paint_image ( PxuiPaint * paint , const PxuiImage * image , float x , float y , float width , float height , uint32_t fit , PxuiColor tint ) ;
+function pxui_paint_image_checked int32_t pxui_paint_image_checked ( PxuiPaint * paint , const PxuiImage * image , float x , float y , float width , float height , uint32_t fit , PxuiColor tint ) ;
 function pxui_paint_input_region void pxui_paint_input_region ( PxuiPaint * paint , float cursor , float x , float y , float w , float h ) ;
 function pxui_paint_label PxuiTextMetrics pxui_paint_label ( PxuiPaint * paint , float x , float y , const PxuiLabelStyle * style , float width , PxuiStr text ) ;
 function pxui_paint_label_chars float pxui_paint_label_chars ( PxuiPaint * paint , float x , float y , const PxuiLabelStyle * style , PxuiStr text ) ;
@@ -144,6 +145,7 @@ function pxui_ui_icon_button_response int32_t pxui_ui_icon_button_response ( Pxu
 function pxui_ui_icon_button_with int32_t pxui_ui_icon_button_with ( PxuiUi * ui , const PxuiIconButtonDesc * desc , PxuiBox * out , PxuiSignal * signal , uint8_t * focused ) ;
 function pxui_ui_icon_word int32_t pxui_ui_icon_word ( PxuiUi * ui , uint32_t word ) ;
 function pxui_ui_image int32_t pxui_ui_image ( PxuiUi * ui , PxuiStr label , const PxuiImage * image , uint32_t fit , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBox * out ) ;
+function pxui_ui_image_node int32_t pxui_ui_image_node ( PxuiUi * ui , PxuiStr name , const PxuiImage * image , uint32_t fit , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBox * out ) ;
 function pxui_ui_inject_a11y int32_t pxui_ui_inject_a11y ( PxuiUi * ui , const PxuiA11yAction * actions , size_t count ) ;
 function pxui_ui_input int32_t pxui_ui_input ( PxuiUi * ui , uint8_t has_owner , int64_t owner , PxuiInput * out ) ;
 function pxui_ui_input_box int32_t pxui_ui_input_box ( PxuiUi * ui , PxuiBox * out ) ;

@@ -37,13 +37,13 @@ impl Icon {
     /// Panics: never (a panic inside `f` is re-raised from the frame).
     ///
     /// ```
-    /// use pxui::{geom::{Rect, Rgba}, Icon, Paint};
+    /// use pxui::{geom::{Rect, Rgba}, Fill, Icon, Paint};
     /// const DOT: u32 = 0;
     /// const BAR: u32 = 1;
     /// fn icon(paint: &mut Paint<'_>, rect: Rect, ink: Rgba, word: u32) {
     ///     match word {
-    ///         DOT => paint.fill(rect.x + 8.0, rect.y + 8.0, 4.0, 4.0, ink),
-    ///         _ => paint.fill(rect.x + 4.0, rect.y + 9.0, 12.0, 2.0, ink),
+    ///         DOT => paint.fill(Rect::new(rect.x + 8.0, rect.y + 8.0, 4.0, 4.0), Fill::new(ink)),
+    ///         _ => paint.fill(Rect::new(rect.x + 4.0, rect.y + 9.0, 12.0, 2.0), Fill::new(ink)),
     ///     }
     /// }
     /// const ICONS: [Icon; 2] = [Icon::draw(icon, DOT), Icon::draw(icon, BAR)];
@@ -258,13 +258,13 @@ mod tests {
         SEEN.with(|s| s.set((s.get().0 + 1, rect.w, rect.h, ink.r)));
         let scale = rect.w.min(rect.h) / 24.0;
         let at = |(x, y): (f32, f32)| (rect.x + x * scale, rect.y + y * scale);
-        paint.triangle(at((7.0, 4.6)), at((7.0, 19.4)), at((19.4, 12.0)), ink);
+        paint.triangle(at((7.0, 4.6)), at((7.0, 19.4)), at((19.4, 12.0)), crate::Fill::new(ink));
     }
 
     /// A second drawing function, so each must be called with its own icon's word.
     fn bar(paint: &mut crate::Paint<'_>, rect: crate::geom::Rect, ink: crate::geom::Rgba, word: u32) {
         WORDS.with(|w| w.set([w.get()[0], word]));
-        paint.fill(rect.x + 4.0, rect.y + 9.0, 12.0, 2.0, ink);
+        paint.fill(crate::geom::Rect::new(rect.x + 4.0, rect.y + 9.0, 12.0, 2.0), crate::Fill::new(ink));
     }
 
     #[test]

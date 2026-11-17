@@ -9,22 +9,26 @@ use ogpu_core::{
     backend as be,
     types::{Extent, Origin, TextureDescriptor, TextureFormat, TextureUsage},
 };
-use pxui::images::{BYTE_LIMIT, CAPACITY, Images, Key};
+use pxui::images::{BYTE_LIMIT, CAPACITY, Images, Want};
+use pxui::Error;
 
 const RETIRED_LIMIT: usize = CAPACITY * 3;
 struct Texture {
+    id: usize,
     value: be::Texture,
     bytes: usize,
     serial: u64,
     image: pxui::Image,
 }
-fn error(value: ogpu_core::error::Error) -> String {
-    ogpu_core::error::to_string(&value)
+/// A GPU refusal: the backend's own detail stays in its log; the caller gets the typed error.
+fn error(_: ogpu_core::error::Error) -> Error {
+    Error::Gpu
 }
 
 pub struct ImageCache {
     pub descriptors: Images,
-    textures: Vec<Option<Texture>>,
+    /// One texture per cached id that holds pixels, at most `CAPACITY` (the descriptors' bound).
+    textures: Vec<Texture>,
     retired: Vec<Texture>,
     bytes: usize,
     namespace: usize,
@@ -34,7 +38,7 @@ impl Default for ImageCache {
     fn default() -> Self {
         Self {
             descriptors: Images::default(),
-            textures: (0..CAPACITY).map(|_| None).collect(),
+            textures: Vec::with_capacity(CAPACITY),
             retired: Vec::with_capacity(RETIRED_LIMIT),
             bytes: 0,
             namespace: 0,
@@ -43,12 +47,9 @@ impl Default for ImageCache {
     }
 }
 impl ImageCache {
-    pub(crate) fn configure(&mut self, density: f32, max_pixels: u32) -> Result<(), String> {
+    pub(crate) fn configure(&mut self, density: f32, max_pixels: u32) -> Result<(), Error> {
         if self.descriptors.configure(density, max_pixels) {
-            for index in 0..CAPACITY {
-                self.evict(index)?;
-            }
-            self.descriptors.clear();
+            self.evict_all()?;
         }
         Ok(())
     }
@@ -57,23 +58,19 @@ impl ImageCache {
     }
     #[cfg(test)]
     pub(crate) fn texture(&self, id: usize) -> Option<&be::Texture> {
-        self.descriptors
-            .index(id)
-            .and_then(|index| self.textures[index].as_ref())
-            .map(|texture| &texture.value)
+        self.textures.iter().find(|texture| texture.id == id).map(|texture| &texture.value)
     }
     pub(crate) fn retire_completed(
         &mut self,
         completed: u64,
         renderer: &mut pxui::Renderer,
-    ) -> Result<(), String> {
+    ) -> Result<(), Error> {
         let mut index = 0;
         while index < self.retired.len() {
             let entry = &self.retired[index];
             if entry.serial <= completed {
                 renderer
-                    .forget_image(&entry.image, completed)
-                    .map_err(|code| format!("Image release failed ({code})"))?;
+                    .forget_image(&entry.image, completed)?;
                 be::destroy_texture(&entry.value).map_err(error)?;
                 self.retired.swap_remove(index);
             } else {
@@ -82,40 +79,47 @@ impl ImageCache {
         }
         Ok(())
     }
-    fn evict(&mut self, index: usize) -> Result<(), String> {
-        if let Some(entry) = &self.textures[index] {
-            let bytes = entry.bytes;
+    /// Retires image `id`'s texture (if it has one) for release after its last sampling frame.
+    fn retire(&mut self, id: usize) -> Result<(), Error> {
+        if let Some(index) = self.textures.iter().position(|texture| texture.id == id) {
             if self.retired.len() == RETIRED_LIMIT {
-                return Err("Image retirement exceeded its three-frame bound".into());
+                return Err(Error::State);
             }
-            self.retired.push(self.textures[index].take().unwrap());
-            self.bytes -= bytes;
+            let texture = self.textures.swap_remove(index);
+            self.bytes -= texture.bytes;
+            self.retired.push(texture);
         }
-        self.descriptors.remove(index);
         Ok(())
     }
-    pub(crate) fn sync_namespace(&mut self, namespace: usize) -> Result<bool, String> {
+    /// Retires image `id`'s texture and forgets its descriptor.
+    fn evict(&mut self, id: usize) -> Result<(), Error> {
+        self.retire(id)?;
+        self.descriptors.remove(id);
+        Ok(())
+    }
+    fn evict_all(&mut self) -> Result<(), Error> {
+        while let Some(texture) = self.textures.last() {
+            self.retire(texture.id)?;
+        }
+        self.descriptors.clear();
+        Ok(())
+    }
+    pub(crate) fn sync_namespace(&mut self, namespace: usize) -> Result<bool, Error> {
         if self.namespace == namespace {
             return Ok(false);
         }
-        for index in 0..CAPACITY {
-            self.evict(index)?;
-        }
-        self.descriptors.clear();
+        self.evict_all()?;
         self.namespace = namespace;
         Ok(true)
     }
     pub(crate) fn upload(
         &mut self,
         device: &be::Device,
-        key: Key,
+        key: Want,
         epoch: u64,
         revision: u64,
         pixels: Option<(u32, u32, &[u8])>,
-    ) -> Result<bool, String> {
-        if key.id == 0 || key.path.as_str().is_empty() || !(1..=1024).contains(&key.max_pixels) {
-            return Err("Invalid image source key".into());
-        }
+    ) -> Result<bool, Error> {
         if revision <= self.seen {
             return Ok(false);
         }
@@ -125,8 +129,8 @@ impl ImageCache {
         }
         if self
             .descriptors
-            .quality(key.id)
-            .is_some_and(|quality| quality >= key.max_pixels)
+            .quality(key.id())
+            .is_some_and(|quality| quality >= key.max_pixels())
         {
             self.seen = revision;
             return Ok(false);
@@ -139,14 +143,11 @@ impl ImageCache {
                 || height > 1024
                 || pixels.len() != width as usize * height as usize * 4
             {
-                return Err("Invalid decoded images dimensions".into());
+                return Err(Error::InvalidInput);
             }
             bytes = pixels.len();
             while self.bytes + bytes > BYTE_LIMIT {
-                let oldest = (0..CAPACITY)
-                    .filter(|index| self.textures[*index].is_some())
-                    .min_by_key(|index| self.descriptors.last_used(*index))
-                    .ok_or("Invalid images byte accounting")?;
+                let oldest = self.descriptors.oldest_image().ok_or(Error::State)?;
                 self.evict(oldest)?;
             }
             let texture = be::create_texture(
@@ -196,41 +197,40 @@ impl ImageCache {
                 ..Default::default()
             });
             owned = Some(Texture {
+                id: key.id(),
                 value: texture,
                 bytes,
                 serial: 0,
                 image: image.unwrap(),
             });
         }
-        let index = self
-            .descriptors
-            .index(key.id)
-            .unwrap_or_else(|| self.descriptors.oldest());
-        if let Err(failure) = self.evict(index) {
+        // the id's old texture and the image `store` may drop for room retire at most one each: room for both, before any change
+        if self.retired.len() + 2 > RETIRED_LIMIT {
             if let Some(owned) = owned {
                 let _ = be::destroy_texture(&owned.value);
             }
-            return Err(failure);
+            return Err(Error::State);
         }
-        self.textures[index] = owned;
+        self.evict(key.id())?;
+        if let Some(dropped) = self.descriptors.store(key, image) {
+            self.retire(dropped)?;
+        }
+        self.textures.extend(owned);
         self.bytes += bytes;
-        self.descriptors.insert(index, key, image);
         self.seen = revision;
         Ok(true)
     }
     pub(crate) fn submitted(&mut self, serial: u64) {
-        for texture in self.textures.iter_mut().flatten() {
+        for texture in &mut self.textures {
             texture.serial = serial;
         }
     }
     /// The owner waits for frames and drops the renderer before destroying this cache.
-    pub(crate) fn destroy(&mut self) -> Result<(), String> {
-        for texture in self.textures.iter().flatten().chain(&self.retired) {
+    pub(crate) fn destroy(&mut self) -> Result<(), Error> {
+        for texture in self.textures.iter().chain(&self.retired) {
             be::destroy_texture(&texture.value).map_err(error)?;
         }
-        for entry in &mut self.textures {
-            entry.take();
-        }
+        self.textures.clear();
         self.retired.clear();
         self.bytes = 0;
         self.descriptors.clear();

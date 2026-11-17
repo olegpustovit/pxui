@@ -28,6 +28,12 @@ pub mod inputs {
     pub fn layer_search(ui: &mut Ui, search: &mut String) {
         if let Some(q) = ui.search_field("Find", "/", search, "Search layers") { *search = q.to_owned(); }
     }
+    pub fn images(ui: &mut Ui, image: &super::pxui::Image) {
+        use super::pxui::{Fit, Size};
+        for (label, fit) in [("Contain", Fit::Contain), ("Cover", Fit::Cover), ("Fill", Fit::Fill), ("None", Fit::None)] {
+            let _ = ui.image(label, image, fit, Size::Px(40.0), Size::Px(40.0));
+        }
+    }
     pub fn presets(ui: &mut Ui, rows: &mut dyn FnMut(&str, &mut pxui_types::ui::PickRows)) -> Pick {
         ui.picker("presets-search", "Search presets", "", &PickerOpts { limit: 4, ..PickerOpts::default() }, rows).pick
     }

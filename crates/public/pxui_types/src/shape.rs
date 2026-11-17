@@ -94,6 +94,10 @@ impl Span {
     }
 }
 
+/// The most dashes one dashed line draws (`Shapes::dashed_w`): about 28 000 points of line, so a huge or hostile coordinate costs bounded
+/// work.
+pub const MAX_DASHES: i64 = 4096;
+
 /// The shape painter: implement the five primitives and every shape below is built from them as 64-byte instances.
 pub trait Shapes {
     /// Appends `instance` under the current clip and view.
@@ -265,22 +269,42 @@ pub trait Shapes {
         }
     }
 
-    /// A disc with a one-point stroke centred on its edge.
-    fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Rgba>, stroke: Option<Rgba>) {
+    /// A disc of `radius` around `at` filled with `fill` and/or edged by `stroke` (its width and colour) centred on its edge, as one
+    /// instance; with neither, or a radius that is not positive, it draws nothing.
+    ///
+    /// The caller checks the stroke width (the wrapper's `Stroke` rule); a radius past the instance range is clipped by the GPU.
+    /// Allocates: never (the implementor's `push` may).
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{draw::Instance, geom::{Rect, Rgba}, shape::Shapes, theme::Tokens};
+    /// struct Count(usize);
+    /// impl Shapes for Count {
+    ///     fn push(&mut self, _: Instance) { self.0 += 1; }
+    ///     fn density(&self) -> i64 { 1 }
+    ///     fn theme(&self) -> Tokens { Tokens::default() }
+    ///     fn clip_rect(&self) -> Rect { Rect::new(0.0, 0.0, 100.0, 100.0) }
+    ///     fn set_clip_rect(&mut self, _: Rect) {}
+    /// }
+    /// let mut shapes = Count(0);
+    /// shapes.circle((10.0, 10.0), 4.0, Some(Rgba::rgb(0, 0, 0)), Some((2.0, Rgba::rgb(9, 9, 9))));
+    /// shapes.circle((10.0, 10.0), 4.0, None, None);
+    /// assert_eq!(shapes.0, 1);
+    /// ```
+    fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Rgba>, stroke: Option<(f32, Rgba)>) {
         if !(radius > 0.0) {
             return;
         }
-        let fill = match (fill, stroke) {
-            (None, None) => Some(Rgba::WHITE),
-            _ => fill,
-        };
+        if fill.is_none() && stroke.is_none() {
+            return;
+        }
         let fill = fill.map(rgba).unwrap_or([0; 4]);
         let (cx, cy) = at;
         self.push(match stroke {
             None => Instance::rect([cx - radius, cy - radius, cx + radius, cy + radius], fill).radii([radius; 4]),
-            Some(stroke) => {
-                let r = radius + 0.5;
-                Instance::rect([cx - r, cy - r, cx + r, cy + r], fill).radii([r; 4]).border(1.0, rgba(stroke))
+            Some((width, stroke)) => {
+                let r = radius + width / 2.0;
+                Instance::rect([cx - r, cy - r, cx + r, cy + r], fill).radii([r; 4]).border(width, rgba(stroke))
             }
         });
     }
@@ -297,9 +321,27 @@ pub trait Shapes {
         self.set_clip_rect(saved);
     }
 
-    /// A chevron centred on `at`: its strokes span 7 x 3.5, which with the 1-point line is the
-    /// sheet's 9 x 5.5 of ink.
-    fn chevron(&mut self, at: (f32, f32), direction: Dir, color: Rgba) {
+    /// A chevron pointing `direction`, centred on `at`, drawn with `width`-point lines: its strokes span 7 x 3.5, which with a 1-point
+    /// line is the sheet's 9 x 5.5 of ink.
+    ///
+    /// Allocates: never (the implementor's `push` may).
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{draw::Instance, geom::{Rect, Rgba}, shape::Shapes, theme::Tokens};
+    /// struct Count(usize);
+    /// impl Shapes for Count {
+    ///     fn push(&mut self, _: Instance) { self.0 += 1; }
+    ///     fn density(&self) -> i64 { 1 }
+    ///     fn theme(&self) -> Tokens { Tokens::default() }
+    ///     fn clip_rect(&self) -> Rect { Rect::new(0.0, 0.0, 100.0, 100.0) }
+    ///     fn set_clip_rect(&mut self, _: Rect) {}
+    /// }
+    /// let mut shapes = Count(0);
+    /// shapes.chevron((10.0, 10.0), pxui_types::node::Dir::Down, 1.0, Rgba::rgb(0, 0, 0));
+    /// assert_eq!(shapes.0, 2);
+    /// ```
+    fn chevron(&mut self, at: (f32, f32), direction: Dir, width: f32, color: Rgba) {
         let (a, b) = match direction {
             Dir::Down => ((-3.5, -1.75), (3.5, -1.75)),
             Dir::Up => ((-3.5, 1.75), (3.5, 1.75)),
@@ -313,8 +355,8 @@ pub trait Shapes {
             Dir::Left => (-1.75, 0.0),
         };
         let p = |d: (f32, f32)| (at.0 + d.0, at.1 + d.1);
-        self.line(p(a), p(tip), color);
-        self.line(p(tip), p(b), color);
+        self.line_w(p(a), p(tip), width, color);
+        self.line_w(p(tip), p(b), width, color);
     }
 
     /// Selection: four corner brackets `offset` outside the rectangle.
@@ -341,12 +383,39 @@ pub trait Shapes {
         }
     }
 
-    /// A line of 4-point dashes every 7 points along `from` to `to`, `width` thick (nothing for a zero-length line).
+    /// A line of 4-point dashes every 7 points along `from` to `to`, `width` thick: nothing for a zero-length or non-finite line, and
+    /// at most `MAX_DASHES` dashes (the first ones from `from`), so the work per call is bounded whatever the coordinates.
+    ///
+    /// Allocates: never (the implementor's `push` may).
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{draw::Instance, geom::{Rect, Rgba}, shape::{Shapes, MAX_DASHES}, theme::Tokens};
+    /// struct Count(usize);
+    /// impl Shapes for Count {
+    ///     fn push(&mut self, _: Instance) { self.0 += 1; }
+    ///     fn density(&self) -> i64 { 1 }
+    ///     fn theme(&self) -> Tokens { Tokens::default() }
+    ///     fn clip_rect(&self) -> Rect { Rect::new(0.0, 0.0, 100.0, 100.0) }
+    ///     fn set_clip_rect(&mut self, _: Rect) {}
+    /// }
+    /// let mut shapes = Count(0);
+    /// shapes.dashed_w((0.0, 0.0), (21.0, 0.0), 1.0, Rgba::rgb(0, 0, 0));
+    /// assert_eq!(shapes.0, 3);
+    /// shapes.dashed_w((0.0, 0.0), (1e30, 0.0), 1.0, Rgba::rgb(0, 0, 0));
+    /// assert_eq!(shapes.0, 3 + MAX_DASHES as usize, "capped");
+    /// shapes.dashed_w((0.0, 0.0), (f32::INFINITY, 0.0), 1.0, Rgba::rgb(0, 0, 0));
+    /// shapes.dashed_w((f32::NAN, 0.0), (5.0, 0.0), 1.0, Rgba::rgb(0, 0, 0));
+    /// assert_eq!(shapes.0, 3 + MAX_DASHES as usize, "a non-finite line draws nothing");
+    /// ```
     fn dashed_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Rgba) {
         let (x0, y0) = from;
         let (x1, y1) = to;
         let length = (x1 - x0).hypot(y1 - y0);
-        let steps = (length / 7.0).ceil() as i64;
+        if !length.is_finite() || !width.is_finite() {
+            return;
+        }
+        let steps = ((length / 7.0).ceil() as i64).min(MAX_DASHES);
         for step in 0..steps {
             let a = step as f32 * 7.0 / length;
             let b = 1.0f32.min((step as f32 * 7.0 + 4.0) / length);
@@ -359,12 +428,33 @@ pub trait Shapes {
         self.dashed_w(from, to, 1.0, color);
     }
 
-    /// 4 on, 3 off: a zone, a drop target.
-    fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
-        self.dashed((x, y), (x + w, y), color);
-        self.dashed((x, y + h), (x + w, y + h), color);
-        self.dashed((x, y), (x, y + h), color);
-        self.dashed((x + w, y), (x + w, y + h), color);
+    /// The four edges of the rectangle `x`, `y`, `w`, `h` as dashes 4 on and 3 off, `width` thick (`dashed_w`'s rules per edge): a
+    /// zone, a drop target.
+    ///
+    /// Allocates: never (the implementor's `push` may).
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{draw::Instance, geom::{Rect, Rgba}, shape::Shapes, theme::Tokens};
+    /// struct Count(usize);
+    /// impl Shapes for Count {
+    ///     fn push(&mut self, _: Instance) { self.0 += 1; }
+    ///     fn density(&self) -> i64 { 1 }
+    ///     fn theme(&self) -> Tokens { Tokens::default() }
+    ///     fn clip_rect(&self) -> Rect { Rect::new(0.0, 0.0, 100.0, 100.0) }
+    ///     fn set_clip_rect(&mut self, _: Rect) {}
+    /// }
+    /// let mut shapes = Count(0);
+    /// shapes.dashed_rect(0.0, 0.0, 14.0, 7.0, 1.0, Rgba::rgb(0, 0, 0));
+    /// assert_eq!(shapes.0, 2 + 2 + 1 + 1);
+    /// shapes.dashed_rect(0.0, 0.0, 1e30, 7.0, 1.0, Rgba::rgb(0, 0, 0));
+    /// assert!(shapes.0 <= 6 + 2 * pxui_types::shape::MAX_DASHES as usize + 2);
+    /// ```
+    fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Rgba) {
+        self.dashed_w((x, y), (x + w, y), width, color);
+        self.dashed_w((x, y + h), (x + w, y + h), width, color);
+        self.dashed_w((x, y), (x, y + h), width, color);
+        self.dashed_w((x + w, y), (x + w, y + h), width, color);
     }
 
     /// An outline flag centred at `at`: 12 points, the input fill, a line-3 edge inside the box
@@ -373,7 +463,7 @@ pub trait Shapes {
         let theme = self.theme();
         let (cx, cy) = at;
         if round {
-            self.circle((cx, cy), 5.5, Some(theme.input), Some(theme.border()));
+            self.circle((cx, cy), 5.5, Some(theme.input), Some((1.0, theme.border())));
             if on {
                 self.circle((cx, cy), 3.0, Some(theme.ink_2()), None);
             }

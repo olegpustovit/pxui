@@ -450,7 +450,7 @@ fn abi_bench_paint_calls() {
         let before = ui.library_calls();
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             let b = ui.node("canvas".into(), pxui::Node { w: Size::Px(300.0), h: Size::Px(200.0), ..pxui::Node::DEFAULT });
-            ui.canvas(&b, move |p, _| for i in 0..shapes { p.fill((i % 300) as f32, (i / 300) as f32, 1.0, 1.0, ink); });
+            ui.canvas(&b, move |p, _| for i in 0..shapes { p.fill(pxui_types::geom::Rect::new((i % 300) as f32, (i / 300) as f32, 1.0, 1.0), pxui::Fill::new(ink)); });
         }).expect("frame");
         ui.library_calls() - before
     };

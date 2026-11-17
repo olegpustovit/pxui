@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 69u)
+#define PXUI_ABI_BUILT ((1u << 16) | 70u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -459,7 +459,8 @@ enum {
     PXUI_FEATURE_MENU_MAX_H = 23,        /* 1.67: PxuiMenuExtra.max_h */
     PXUI_FEATURE_SEGMENTED_RESULT = 24,  /* 1.67: pxui_ui_segmented_result */
     PXUI_FEATURE_WIDGETS_KEYED = 25,     /* 1.68: PxuiKeyedDesc and the pxui_ui_*_keyed widget and container calls */
-    PXUI_FEATURE_SEGMENTED_STORED_FOCUS = 26 /* 1.69: PxuiSegmentedDesc.focus_on_click, PxuiSegmentConfig.stored */
+    PXUI_FEATURE_SEGMENTED_STORED_FOCUS = 26, /* 1.69: PxuiSegmentedDesc.focus_on_click, PxuiSegmentConfig.stored */
+    PXUI_FEATURE_IMAGE_CHECKED = 27      /* 1.70: pxui_ui_image_node, pxui_paint_image_checked */
 };
 /* Process counters for performance gates: which 1 = heap allocations the library's allocator has made (a counting build); anything else
    reads 0, and so does 0 since 1.66 (calls are counted per Ui: pxui_ui_calls). */
@@ -598,7 +599,12 @@ int32_t pxui_ui_badge(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiBox *out);
 /* Legacy (cut at 2.0): pxui_ui_search_field and pxui_ui_text_area_submit stay as they are; the Rust wrapper reads the box they built through
    pxui_ui_input_box and names it itself. */
 int32_t pxui_ui_search_field(PxuiUi *ui, PxuiStr label, PxuiStr icon, PxuiStr value, PxuiStr placeholder, uint8_t *changed, PxuiStr *out);
+/* Legacy, cut at 2.0: keys and names the image by one label (`##`/`###` rules); superseded by pxui_ui_image_node (ABI 1.70). */
 int32_t pxui_ui_image(PxuiUi *ui, PxuiStr label, const PxuiImage *image, uint32_t fit, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBox *out);
+/* ABI 1.70: an image with no key (the n-th image among its siblings, as a label is), `name` its accessible name only (never parsed for a
+   key). PXUI_ERR_ARGUMENT, nothing added, for an invalid descriptor (zero size, no native handle, a depth format, a short size), an
+   unknown fit, a size or a name the library refuses. */
+int32_t pxui_ui_image_node(PxuiUi *ui, PxuiStr name, const PxuiImage *image, uint32_t fit, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBox *out);
 int32_t pxui_ui_modal(PxuiUi *ui, PxuiStr label, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_scroll_view(PxuiUi *ui, PxuiStr label, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_view(PxuiUi *ui, PxuiStr label, uint64_t revision, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
@@ -828,7 +834,11 @@ uint32_t pxui_paint_icon_word(PxuiPaint *paint);
    layout at a time, digits on the advance of 0, and returns the width drawn. An invalid style draws nothing and returns 0. */
 PxuiTextMetrics pxui_paint_label(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, float width, PxuiStr text);
 float pxui_paint_label_chars(PxuiPaint *paint, float x, float y, const PxuiLabelStyle *style, PxuiStr text);
+/* Legacy, cut at 2.0: drops bad input silently; superseded by pxui_paint_image_checked (ABI 1.70). */
 void pxui_paint_image(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
+/* ABI 1.70: pxui_paint_image that reports a refusal: PXUI_ERR_ARGUMENT (nothing drawn) for a null painter or descriptor, an invalid
+   descriptor, an unknown fit or a non-finite rectangle; 0 when drawn. */
+int32_t pxui_paint_image_checked(PxuiPaint *paint, const PxuiImage *image, float x, float y, float width, float height, uint32_t fit, PxuiColor tint);
 /* Shared GPU: the renderer records into the app's command buffers and passes and never submits, waits,
  * presents or destroys what the app created. create takes the lease in gpu->owner_token (also on failure).
  * prepare(commands, frame, completed): frame grows by at least 1 per call; completed (the last frame the app

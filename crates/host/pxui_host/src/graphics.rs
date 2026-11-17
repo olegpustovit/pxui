@@ -93,7 +93,8 @@ impl Graphics {
         self.images.texture(id)
     }
 
-    pub fn configure_images(&mut self, density: f32, max_pixels: u32) -> Result<(), String> {
+    /// Errors: `Error::Gpu` or `Error::State` when an image could not be retired (see `upload_image`).
+    pub fn configure_images(&mut self, density: f32, max_pixels: u32) -> Result<(), pxui::Error> {
         self.images.configure(density, max_pixels)
     }
 
@@ -166,7 +167,7 @@ impl Graphics {
         if !frames.submit()? { return Ok(false); }
         self.images.submitted(frames.serial());
         let completed = frames.completed();
-        self.retire_images(completed)?;
+        self.retire_images(completed).map_err(|error| format!("Image retirement failed ({error})"))?;
         let submitted = count();
         if let Some(trace) = trace {
             *trace = [
@@ -188,13 +189,13 @@ impl Graphics {
     pub fn close(mut self) -> Result<(), String> {
         self.frames.as_mut().expect("Live frame context").wait()
     }
-    fn retire_images(&mut self, completed: u64) -> Result<(), String> {
+    fn retire_images(&mut self, completed: u64) -> Result<(), pxui::Error> {
         self.images.retire_completed(
             completed,
             self.renderer.as_mut().expect("Live graphics renderer"),
         )
     }
-    pub fn sync_images(&mut self, namespace: usize) -> Result<bool, String> {
+    pub fn sync_images(&mut self, namespace: usize) -> Result<bool, pxui::Error> {
         let completed = self
             .frames
             .as_ref()
@@ -205,15 +206,17 @@ impl Graphics {
     }
     /// Deliver decoded RGBA pixels (or a cached miss), with a globally increasing delivery revision.
     /// An obsolete epoch or replayed delivery is ignored; no worker record or pixels are retained.
+    /// Errors: `Error::InvalidInput` for pixels that are not `width * height * 4` bytes or a side of 0 or past 1024; `Error::Gpu` when
+    /// the texture cannot be made; `Error::State` when retirement passes its three-frame bound (or, on iOS, without an active host).
     pub fn upload_image(
         &mut self,
-        key: pxui::images::Key,
+        key: pxui::images::Want,
         epoch: u64,
         revision: u64,
         pixels: Option<(u32, u32, &[u8])>,
-    ) -> Result<bool, String> {
+    ) -> Result<bool, pxui::Error> {
         #[cfg(target_os = "ios")]
-        if !self.can_draw() { return Err("Image upload requires an active UI host".into()); }
+        if !self.can_draw() { return Err(pxui::Error::State); }
         self.images
             .upload(&self.device, key, epoch, revision, pixels)
     }

@@ -1,6 +1,6 @@
 //! The gallery's text inputs through the wrapper: the one place the pages' inputs are called, so `abi_bench` can supply the same functions over
 //! the engine and compile the page source against either.
-use pxui::{ui::{Pick, Rect}, AreaCallbacks, PickerOpts, SearchField, TextArea, TextField, Ui, ValueCallbacks, ValueField};
+use pxui::{draw::Fit, ui::{Pick, Rect}, AreaCallbacks, Image, ImageStyle, PickerOpts, SearchField, TextArea, TextField, Ui, ValueCallbacks, ValueField};
 
 /// The caption field: edits `caption` in place.
 pub fn caption(ui: &mut Ui, caption: &mut String) {
@@ -33,4 +33,13 @@ pub fn layer_search(ui: &mut Ui, search: &mut String) {
 pub fn presets(ui: &mut Ui, rows: &mut dyn FnMut(&str, &mut pxui::PickRows)) -> Pick {
     const PICKER: PickerOpts = PickerOpts::DEFAULT.limit(4);
     ui.picker("presets-search", "Search presets", "", &PICKER, rows).pick
+}
+
+/// The image row: `image` once per fit mode, 40 points square.
+pub fn images(ui: &mut Ui, image: &Image) {
+    const THUMB: ImageStyle = ImageStyle::DEFAULT.w_px(40.0).h_px(40.0);
+    const FITS: [(&str, ImageStyle); 4] = [("Contain", THUMB.fit(Fit::Contain)), ("Cover", THUMB.fit(Fit::Cover)), ("Fill", THUMB.fit(Fit::Fill)), ("None", THUMB.fit(Fit::None))];
+    for (name, style) in &FITS {
+        let _ = ui.image(name, image, style);
+    }
 }

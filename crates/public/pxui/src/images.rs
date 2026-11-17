@@ -1,4 +1,16 @@
 //! Bounded host-owned image descriptors and coalesced requests; no decoding or GPU ownership.
+//!
+//! Draw code asks `Images::get` for an image by the app's id; what is missing becomes a `Want` that the host drains with
+//! `Images::requests`, decodes on a worker and answers with `Images::store`. Everything is bounded: `CAPACITY` cached descriptors
+//! (the least recently used makes room), `CAPACITY` waiting wants (extra ones are dropped) and `REQUEST_CAPACITY` wants per packet.
+//! App data never panics here: an id, path or size that does not make a `Want` is `None` (`Want::new`) or not recorded (`get`); slots
+//! are internal.
+//!
+//! Memory: an `Images` is a fixed budget made at `Default` and never grown: `CAPACITY` descriptors (72 bytes each, 72 KiB), an id
+//! index sized for `CAPACITY` ids (2048 buckets of 16 bytes and their control bytes, about 34 KiB), `CAPACITY` waiting wants (40 bytes
+//! each, 40 KiB) and `PATH_ARENA_BYTES` (64 KiB) of their paths: about 210 KiB in all, pinned by
+//! `tests::the_memory_budget_is_what_the_module_says`. A `Request` is a fixed 4272-byte value (`REQUEST_PATH_BYTES` of paths); it is
+//! filled in place, never allocated.
 
 use crate::Image;
 use std::cell::{Cell, RefCell};
@@ -10,95 +22,100 @@ pub const CAPACITY: usize = 1024;
 pub const BYTE_LIMIT: usize = 128 * 1024 * 1024;
 /// Number of images one `Request` packet can name.
 pub const REQUEST_CAPACITY: usize = 8;
+/// Longest image source path, in bytes, a want can carry.
+pub const PATH_LIMIT: usize = 1024;
+/// Bytes of source paths one `Request` packet holds, all its wants together (at least one path of `PATH_LIMIT`).
+pub const REQUEST_PATH_BYTES: usize = 4096;
+/// Bytes of source paths `Images` keeps for its waiting wants, all together; a want whose path does not fit (after compaction) is
+/// dropped, as one past `CAPACITY` is.
+pub const PATH_ARENA_BYTES: usize = 64 * 1024;
 
-/// A bounded UTF-8 image source path copied into worker requests without heap allocation.
+/// One wanted image: which image the worker should decode and how large. Its source path travels beside it in the `Request`.
+/// Made only by `Want::new`, so it is always valid. 16 bytes, `Copy`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct Path {
-    bytes: [u8; 1024],
-    len: u16,
+pub struct Want {
+    id: usize,
+    max_pixels: u32,
 }
-impl Default for Path {
-    fn default() -> Self {
-        Self {
-            bytes: [0; 1024],
-            len: 0,
-        }
-    }
-}
-impl Path {
-    /// Copies `text` into a fixed-size path; `None` when it is longer than 1024 bytes (an empty path is allowed).
-    ///
-    /// The path is not checked against the filesystem, and `Images` ignores empty ones.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui::images::Path;
-    /// assert_eq!(Path::new("CoverArt/a.png").unwrap().as_str(), "CoverArt/a.png");
-    /// assert!(Path::new(&"x".repeat(1025)).is_none());
-    /// ```
-    pub fn new(text: &str) -> Option<Self> {
-        if text.len() > 1024 {
-            return None;
-        }
-        let mut path = Self::default();
-        path.bytes[..text.len()].copy_from_slice(text.as_bytes());
-        path.len = text.len() as u16;
-        Some(path)
-    }
-    /// The path text exactly as given to `Path::new`, borrowed from the path itself.
+impl Want {
+    const NONE: Want = Want { id: 0, max_pixels: 0 };
+    /// The want of image `id` decoded to at most `max_pixels` on its longest side; `None` for `id` 0 or `max_pixels` outside 1 to 1024.
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::images::Path;
-    /// assert_eq!(Path::new("é.png").unwrap().as_str(), "é.png");
-    /// assert_eq!(Path::default().as_str(), "");
+    /// use pxui::images::Want;
+    /// let want = Want::new(7, 256).unwrap();
+    /// assert_eq!((want.id(), want.max_pixels()), (7, 256));
+    /// assert!(Want::new(0, 256).is_none() && Want::new(7, 0).is_none() && Want::new(7, 2048).is_none());
     /// ```
-    pub fn as_str(&self) -> &str {
-        std::str::from_utf8(&self.bytes[..self.len as usize])
-            .expect("image path was copied from UTF-8")
+    pub fn new(id: usize, max_pixels: u32) -> Option<Want> {
+        (id != 0 && (1..=1024).contains(&max_pixels)).then_some(Want { id, max_pixels })
+    }
+    /// The app's image id (never 0); one cached image per id.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui::images::Want::new(7, 64).unwrap().id(), 7);
+    /// ```
+    pub fn id(&self) -> usize {
+        self.id
+    }
+    /// The longest side, in pixels, the worker should decode to: 1 to 1024, a multiple of 32 when `Images` asked for it.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui::images::Want::new(7, 64).unwrap().max_pixels(), 64);
+    /// ```
+    pub fn max_pixels(&self) -> u32 {
+        self.max_pixels
     }
 }
 
-/// One wanted image: what the worker should decode and how large.
-#[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
-pub struct Key {
-    /// The app's image id (never 0); one cached image per id.
-    pub id: usize,
-    /// Where the worker reads the source image from.
-    pub path: Path,
-    /// Longest side, in pixels, the worker should decode to (1 to 1024; a multiple of 32 when `Images` made it).
-    pub max_pixels: u32,
-}
-/// A packet of up to `REQUEST_CAPACITY` wanted images for a worker, stamped with the `Images` epoch it was built in.
-#[derive(Clone, Copy, Default, Debug, Eq)]
+/// A packet of up to `REQUEST_CAPACITY` wanted images and their source paths (`REQUEST_PATH_BYTES` in all) for a worker, stamped with
+/// the `Images` epoch it was built in. A fixed-size value: fill one in place (`Images::requests`) and hand it to the worker.
+#[derive(Clone, Debug)]
 pub struct Request {
     epoch: u64,
-    keys: [Key; REQUEST_CAPACITY],
+    wants: [Want; REQUEST_CAPACITY],
+    /// Each want's path as `(start, len)` in `bytes`.
+    paths: [(u16, u16); REQUEST_CAPACITY],
+    bytes: [u8; REQUEST_PATH_BYTES],
     count: u8,
+    used: u16,
+}
+impl Default for Request {
+    fn default() -> Self {
+        Request { epoch: 0, wants: [Want::NONE; REQUEST_CAPACITY], paths: [(0, 0); REQUEST_CAPACITY], bytes: [0; REQUEST_PATH_BYTES], count: 0, used: 0 }
+    }
 }
 impl PartialEq for Request {
     fn eq(&self, other: &Self) -> bool {
-        self.epoch == other.epoch && self.keys() == other.keys()
+        self.epoch == other.epoch && self.wants() == other.wants() && (0..self.wants().len()).all(|i| self.path(i) == other.path(i))
     }
 }
+impl Eq for Request {}
 impl Request {
-    /// Empties the packet of its keys; the epoch stays.
+    /// Empties the packet of its wants and paths; the epoch stays.
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::images::Request;
+    /// use pxui::images::{Request, Want};
     /// let mut request = Request::default();
-    /// assert!(request.insert(1, "a.png", 64));
+    /// assert!(request.insert(Want::new(1, 64).unwrap(), "a.png"));
     /// request.clear();
-    /// assert!(request.keys().is_empty());
+    /// assert!(request.wants().is_empty());
     /// ```
     pub fn clear(&mut self) {
         self.count = 0;
+        self.used = 0;
     }
     /// The `Images::epoch` this packet was built in; 0 for a packet made with `Request::default`.
     ///
@@ -108,75 +125,116 @@ impl Request {
     ///
     /// ```
     /// use pxui::images::{Images, Request};
-    /// let mut images = Images::default();
-    /// assert_eq!(images.requests().epoch(), 0);
+    /// let (mut images, mut request) = (Images::default(), Request::default());
     /// images.clear();
-    /// assert_eq!(images.requests().epoch(), 1);
+    /// images.requests(None, &mut request);
+    /// assert_eq!(request.epoch(), 1);
     /// assert_eq!(Request::default().epoch(), 0);
     /// ```
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
-    /// The wanted images in this packet, in the order they were added.
+    /// The wanted images in this packet, in the order they were added; `path(i)` is where `wants()[i]` is read from.
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::images::Request;
+    /// use pxui::images::{Request, Want};
     /// let mut request = Request::default();
-    /// request.insert(7, "a.png", 64);
-    /// assert_eq!(request.keys()[0].id, 7);
+    /// request.insert(Want::new(7, 64).unwrap(), "a.png");
+    /// assert_eq!(request.wants()[0].id(), 7);
     /// ```
-    pub fn keys(&self) -> &[Key] {
-        &self.keys[..usize::from(self.count)]
+    pub fn wants(&self) -> &[Want] {
+        &self.wants[..usize::from(self.count)]
     }
-    /// Adds image `id` read from `path` at up to `max_pixels` to the packet; false when it was not added.
+    /// The source path of the `index`-th want, exactly as given to `insert`; empty past the last want.
     ///
-    /// An `id` already in the packet is not added twice: its `max_pixels` becomes the larger of the two (its first path stays) and the
-    /// call is true, even when the packet is full. False for `id` 0, an empty or over-1024-byte `path`, `max_pixels` outside 1 to 1024,
-    /// or a full packet (`REQUEST_CAPACITY` keys) and a new `id`.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::images::Request;
+    /// use pxui::images::{Request, Want};
     /// let mut request = Request::default();
-    /// assert!(request.insert(1, "a.png", 64));
-    /// assert!(request.insert(1, "a.png", 128));
-    /// assert_eq!((request.keys().len(), request.keys()[0].max_pixels), (1, 128));
-    /// assert!(!request.insert(0, "a.png", 64));
+    /// request.insert(Want::new(7, 64).unwrap(), "é.png");
+    /// assert_eq!((request.path(0), request.path(1)), ("é.png", ""));
     /// ```
-    pub fn insert(&mut self, id: usize, path: &str, max_pixels: u32) -> bool {
-        if id == 0 || path.is_empty() || !(1..=1024).contains(&max_pixels) {
+    pub fn path(&self, index: usize) -> &str {
+        if index >= usize::from(self.count) { return ""; }
+        let (start, len) = self.paths[index];
+        // copied from a `&str` whole
+        std::str::from_utf8(&self.bytes[usize::from(start)..usize::from(start) + usize::from(len)]).unwrap_or_default()
+    }
+    /// Adds `want`, read from `path`, to the packet; false when it was not added.
+    ///
+    /// An id already in the packet is not added twice: its `max_pixels` becomes the larger of the two (its first path stays) and the
+    /// call is true, even when the packet is full. False for an empty `path` or one longer than `PATH_LIMIT` bytes, and for a new id
+    /// when the packet holds `REQUEST_CAPACITY` wants or its path does not fit the `REQUEST_PATH_BYTES` left.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::{Request, Want};
+    /// let mut request = Request::default();
+    /// assert!(request.insert(Want::new(1, 64).unwrap(), "a.png"));
+    /// assert!(request.insert(Want::new(1, 128).unwrap(), "b.png"));
+    /// assert_eq!((request.wants().len(), request.wants()[0].max_pixels(), request.path(0)), (1, 128, "a.png"));
+    /// assert!(!request.insert(Want::new(2, 64).unwrap(), ""));
+    /// ```
+    pub fn insert(&mut self, want: Want, path: &str) -> bool {
+        if path.is_empty() || path.len() > PATH_LIMIT {
             return false;
         }
-        if let Some(key) = self.keys[..usize::from(self.count)]
-            .iter_mut()
-            .find(|key| key.id == id)
-        {
-            key.max_pixels = key.max_pixels.max(max_pixels);
+        if let Some(wanted) = self.wants[..usize::from(self.count)].iter_mut().find(|wanted| wanted.id == want.id) {
+            wanted.max_pixels = wanted.max_pixels.max(want.max_pixels);
             return true;
         }
-        if usize::from(self.count) == REQUEST_CAPACITY {
+        let start = usize::from(self.used);
+        if usize::from(self.count) == REQUEST_CAPACITY || start + path.len() > REQUEST_PATH_BYTES {
             return false;
         }
-        let Some(path) = Path::new(path) else {
-            return false;
-        };
-        self.keys[usize::from(self.count)] = Key {
-            id,
-            path,
-            max_pixels,
-        };
+        self.bytes[start..start + path.len()].copy_from_slice(path.as_bytes());
+        self.wants[usize::from(self.count)] = want;
+        self.paths[usize::from(self.count)] = (start as u16, path.len() as u16);
         self.count += 1;
+        self.used = (start + path.len()) as u16;
         true
     }
 }
 
 struct Pending {
-    key: Key,
+    want: Want,
     node: Option<i64>,
+    /// The source path as `(start, len)` in `Queue::bytes`.
+    path: (u32, u16),
+}
+/// The waiting wants and their source paths in one arena. Paths are appended in want order and wants leave in order, so the arena is
+/// compacted in place (no allocation) when a new path does not fit.
+struct Queue {
+    pending: Vec<Pending>,
+    bytes: Vec<u8>,
+}
+impl Queue {
+    fn path(&self, (start, len): (u32, u16)) -> &str {
+        std::str::from_utf8(&self.bytes[start as usize..start as usize + usize::from(len)]).unwrap_or_default()
+    }
+    fn clear(&mut self) {
+        self.pending.clear();
+        self.bytes.clear();
+    }
+    /// Room for `len` more path bytes, compacting the arena first when needed; false when even a compacted arena lacks it.
+    fn room(&mut self, len: usize) -> bool {
+        if self.bytes.len() + len <= PATH_ARENA_BYTES { return true; }
+        let mut at = 0usize;
+        for wanted in &mut self.pending {
+            let (start, len) = (wanted.path.0 as usize, usize::from(wanted.path.1));
+            self.bytes.copy_within(start..start + len, at);
+            wanted.path.0 = at as u32;
+            at += len;
+        }
+        self.bytes.truncate(at);
+        at + len <= PATH_ARENA_BYTES
+    }
 }
 struct Entry {
     id: usize,
@@ -186,13 +244,14 @@ struct Entry {
 }
 /// The app's table of image descriptors by id: up to `CAPACITY` host-decoded images, plus the decodes still wanted.
 ///
-/// It holds `pxui::Image` descriptors only; the host decodes, uploads and destroys the pixels. Draw code asks with `get` (or `get_at`),
-/// which returns what is cached and queues what is missing; the host drains `requests` or `visible_requests` and answers with `insert`.
+/// It holds `pxui::Image` descriptors only; the host decodes, uploads and destroys the pixels. Draw code asks with `get`, which returns
+/// what is cached and queues what is missing; the host drains `requests` and answers with `store`. When `store` needs room it drops the
+/// least recently used descriptor and names it, so the host can release that image's pixels.
 pub struct Images {
     entries: Vec<Entry>,
     by_id: HashMap<usize, usize>,
     clock: Cell<u64>,
-    pending: RefCell<Vec<Pending>>,
+    queue: RefCell<Queue>,
     revision: u64,
     epoch: u64,
     density: f32,
@@ -211,7 +270,7 @@ impl Default for Images {
                 .collect(),
             by_id: HashMap::with_capacity(CAPACITY),
             clock: Cell::new(0),
-            pending: RefCell::new(Vec::with_capacity(CAPACITY)),
+            queue: RefCell::new(Queue { pending: Vec::with_capacity(CAPACITY), bytes: Vec::with_capacity(PATH_ARENA_BYTES) }),
             revision: 0,
             epoch: 0,
             density: 1.0,
@@ -249,7 +308,7 @@ impl Images {
         }
         false
     }
-    /// A counter that changes whenever what `get` returns may have changed: `configure` with new values, `insert`, `remove`, `clear`.
+    /// A counter that changes whenever what `get` returns may have changed: `configure` with new values, `store`, `remove`, `clear`.
     ///
     /// Compare it with the last value seen to know when a cached view must rebuild. It wraps at `u64::MAX`.
     /// Allocates: never.
@@ -278,22 +337,6 @@ impl Images {
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
-    /// The use tick of slot `index`: larger is more recent, 0 when never used.
-    ///
-    /// Each `get` or `get_at` that finds its id cached, and each `insert`, gives that slot the next tick; `oldest` picks the smallest.
-    /// Allocates: never.
-    /// Panics: when `index` is `CAPACITY` or more.
-    ///
-    /// ```
-    /// use pxui::images::Images;
-    /// let mut images = Images::default();
-    /// assert_eq!(images.last_used(0), 0);
-    /// images.insert(0, Default::default(), None);
-    /// assert!(images.last_used(0) > 0);
-    /// ```
-    pub fn last_used(&self, index: usize) -> u64 {
-        self.entries[index].used.get()
-    }
     /// Forgets every wanted image not yet delivered; cached images stay.
     ///
     /// A later `get` of a missing image queues it again.
@@ -302,59 +345,49 @@ impl Images {
     ///
     /// ```
     /// let images = pxui::images::Images::default();
-    /// images.get(1, "a.png", 100.0);
+    /// images.get(1, "a.png", 100.0, None);
     /// images.cancel_requests();
-    /// assert!(images.requests().keys().is_empty());
+    /// let mut request = pxui::images::Request::default();
+    /// images.requests(None, &mut request);
+    /// assert!(request.wants().is_empty());
     /// ```
     pub fn cancel_requests(&self) {
-        self.pending.borrow_mut().clear();
+        self.queue.borrow_mut().clear();
     }
-    /// The first `REQUEST_CAPACITY` wanted images, in the order they were first asked for, with no check of where they are on screen.
+    /// Fills `out` with the first wanted images that fit it (`REQUEST_CAPACITY` wants, `REQUEST_PATH_BYTES` of paths), in the order
+    /// they were first asked for, stamped with the current epoch; with `ui`, only those worth decoding now, judged from its last
+    /// laid-out frame.
     ///
-    /// Asking does not remove them: they stay wanted until `insert` delivers the id or `cancel_requests` / `clear` runs, so a
-    /// full queue is served over several calls. Wants for one id from several `get_at` nodes merge into the largest size.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// let images = pxui::images::Images::default();
-    /// images.get(1, "a.png", 100.0);
-    /// let request = images.requests();
-    /// assert_eq!((request.keys()[0].id, request.keys()[0].max_pixels), (1, 128));
-    /// ```
-    pub fn requests(&self) -> Request {
-        self.packet(None)
-    }
-    /// Like `requests`, but only the wants worth decoding now, judged from `ui`'s last laid-out frame.
-    ///
-    /// A want made with `get_at` counts only while its node is on screen or within two of its heights above or below the view; one
-    /// whose node is not in the tree is dropped for good, so cells that were only provisional leave no work. Wants made with `get`
+    /// Asking does not remove them: they stay wanted until `store` delivers the id or `cancel_requests` / `clear` runs, so a full queue
+    /// is served over several calls. Wants for one id from several nodes merge into the largest size. With `ui`, a want made for a node
+    /// (`get` with `Some(node)`) counts only while that node is on screen or within two of its heights above or below the view, and one
+    /// whose node is not in the tree is dropped for good, so cells that were only provisional leave no work; wants made without a node
     /// always count. Call it after `Ui::frame`, so geometry is final.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::images::Images;
+    /// use pxui::images::{Images, Request};
     /// let images = Images::default();
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     let node = ui.node("cover".into(), pxui::Node::DEFAULT);
-    ///     images.get_at(1, "a.png", 50.0, node.box_key);
+    ///     images.get(1, "a.png", 50.0, Some(&node));
     /// });
-    /// assert!(images.visible_requests(&ui).keys().len() <= 1);
+    /// images.get(2, "b.png", 100.0, None);
+    /// let mut request = Request::default();
+    /// images.requests(None, &mut request);
+    /// assert_eq!((request.wants()[1].id(), request.wants()[1].max_pixels(), request.path(1)), (2, 128, "b.png"));
+    /// images.requests(Some(&ui), &mut request);
+    /// assert!(request.wants().len() <= 2);
     /// ```
-    pub fn visible_requests(&self, ui: &crate::Ui) -> Request {
-        self.packet(Some(ui))
-    }
-    fn packet(&self, ui: Option<&crate::Ui>) -> Request {
-        let mut pending = self.pending.borrow_mut();
+    pub fn requests(&self, ui: Option<&crate::Ui>, out: &mut Request) {
+        let mut queue = self.queue.borrow_mut();
         if let Some(ui) = ui {
-            pending.retain(|wanted| wanted.node.is_none_or(|key| ui.box_of_key(key).is_some()));
+            queue.pending.retain(|wanted| wanted.node.is_none_or(|key| ui.box_of_key(key).is_some()));
         }
-        let mut request = Request {
-            epoch: self.epoch,
-            ..Default::default()
-        };
-        for wanted in pending.iter() {
+        out.clear();
+        out.epoch = self.epoch;
+        for wanted in queue.pending.iter() {
             if let (Some(ui), Some(key)) = (ui, wanted.node) {
                 let Some(node) = ui.box_of_key(key) else {
                     continue;
@@ -372,28 +405,11 @@ impl Images {
                     continue;
                 }
             }
-            request.insert(
-                wanted.key.id,
-                wanted.key.path.as_str(),
-                wanted.key.max_pixels,
-            );
+            out.insert(wanted.want, queue.path(wanted.path));
         }
-        request
     }
     /// The slot holding image `id`, or `None` when it is not cached (a failed decode stored as `None` still has a slot).
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui::images::Images;
-    /// let mut images = Images::default();
-    /// assert_eq!(images.index(5), None);
-    /// let key = pxui::images::Key { id: 5, ..Default::default() };
-    /// images.insert(3, key, None);
-    /// assert_eq!(images.index(5), Some(3));
-    /// ```
-    pub fn index(&self, id: usize) -> Option<usize> {
+    fn index(&self, id: usize) -> Option<usize> {
         self.by_id.get(&id).copied()
     }
     /// The `max_pixels` image `id` was delivered at, or `None` when it is not cached.
@@ -403,9 +419,9 @@ impl Images {
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::images::{Images, Key};
+    /// use pxui::images::{Images, Want};
     /// let mut images = Images::default();
-    /// images.insert(0, Key { id: 5, max_pixels: 256, ..Default::default() }, None);
+    /// images.store(Want::new(5, 256).unwrap(), None);
     /// assert_eq!(images.quality(5), Some(256));
     /// assert_eq!(images.quality(6), None);
     /// ```
@@ -414,42 +430,29 @@ impl Images {
     }
     /// The cached image `id`, if any, and a request for a better one when the cached one is smaller than `points` needs.
     ///
-    /// `points` is the logical size the image is drawn at; the wanted decode size is `points` times the configured density,
-    /// rounded up to a multiple of 32 and clamped to 32 up to the `configure` maximum. A cached image is returned whatever its
-    /// quality (a placeholder until the better one arrives); `None` when `id` was never delivered or its decode failed. The want is
-    /// recorded when `id` is not 0 and `path` is not empty or longer than 1024 bytes; up to `CAPACITY` wants wait at once,
-    /// extra ones are dropped. Takes `&self`, so draw code can call it.
+    /// `points` is the logical size the image is drawn at; the wanted decode size is `points` times the configured density, rounded up
+    /// to a multiple of 32 and clamped to 32 up to the `configure` maximum. `node` is the widget that shows the image, so `requests`
+    /// with a `Ui` can skip it while off screen; one id wanted from several nodes keeps one want per node. A cached image is returned
+    /// whatever its quality (a placeholder until the better one arrives); `None` when `id` was never delivered or its decode failed.
+    /// The want is recorded when `id` and the size make a `Want` (`Want::new`) and `path` is not empty or past `PATH_LIMIT` bytes; up to
+    /// `CAPACITY` wants (and `PATH_ARENA_BYTES` of their paths) wait at once, extra ones are dropped. Takes `&self`, so draw code can call it.
     /// Allocates: never.
     /// Identity: `id` is the app's own number for the image; two paths with one `id` share one slot and the first delivered wins.
     /// Panics: never.
     ///
     /// ```
     /// let images = pxui::images::Images::default();
-    /// assert!(images.get(1, "a.png", 100.0).is_none());
-    /// assert_eq!(images.requests().keys()[0].id, 1);
-    /// ```
-    pub fn get(&self, id: usize, path: &str, points: f32) -> Option<Image> {
-        self.lookup(id, path, points, None)
-    }
-    /// Like `get`, for an image drawn in layout node `node` (a `PxuiBox::box_key`), so `visible_requests` can skip it while off screen.
-    ///
-    /// One id wanted from several nodes keeps one want per node; the cached image and the size rule are those of `get`.
-    /// Allocates: never.
-    /// Identity: `id` as in `get`; `node` is the box key of the widget that shows the image.
-    /// Panics: never.
-    ///
-    /// ```
-    /// let images = pxui::images::Images::default();
+    /// assert!(images.get(1, "a.png", 100.0, None).is_none());
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let node = ui.node("cover".into(), pxui::Node::DEFAULT);
-    ///     assert!(images.get_at(1, "a.png", 50.0, node.box_key).is_none());
+    ///     assert!(images.get(2, "b.png", 50.0, Some(&node)).is_none());
     /// });
-    /// assert_eq!(images.requests().keys().len(), 1);
+    /// let mut request = pxui::images::Request::default();
+    /// images.requests(None, &mut request);
+    /// assert_eq!((request.wants()[0].id(), request.path(0), request.wants().len()), (1, "a.png", 2));
     /// ```
-    pub fn get_at(&self, id: usize, path: &str, points: f32, node: i64) -> Option<Image> {
-        self.lookup(id, path, points, Some(node))
-    }
-    fn lookup(&self, id: usize, path: &str, points: f32, node: Option<i64>) -> Option<Image> {
+    pub fn get(&self, id: usize, path: &str, points: f32, node: Option<&crate::PxuiBox>) -> Option<Image> {
+        let node = node.map(|node| node.box_key);
         let quality = ((points.max(1.0) * self.density).ceil() as u32)
             .div_ceil(32)
             .saturating_mul(32)
@@ -466,41 +469,27 @@ impl Images {
         } else {
             None
         };
-        let mut pending = self.pending.borrow_mut();
-        if let Some(key) = pending
+        let mut queue = self.queue.borrow_mut();
+        if let Some(wanted) = queue
+            .pending
             .iter_mut()
-            .find(|wanted| wanted.key.id == id && wanted.node == node)
+            .find(|wanted| wanted.want.id == id && wanted.node == node)
         {
-            key.key.max_pixels = key.key.max_pixels.max(quality);
-        } else if id != 0
+            wanted.want.max_pixels = wanted.want.max_pixels.max(quality);
+        } else if queue.pending.len() < CAPACITY
             && !path.is_empty()
-            && pending.len() < CAPACITY
-            && let Some(path) = Path::new(path)
+            && path.len() <= PATH_LIMIT
+            && let Some(want) = Want::new(id, quality)
+            && queue.room(path.len())
         {
-            pending.push(Pending {
-                key: Key {
-                    id,
-                    path,
-                    max_pixels: quality,
-                },
-                node,
-            });
+            let start = queue.bytes.len() as u32;
+            queue.bytes.extend_from_slice(path.as_bytes());
+            queue.pending.push(Pending { want, node, path: (start, path.len() as u16) });
         }
         image
     }
-    /// The slot to fill next: the first empty slot, else the least recently used one (smallest `last_used`).
-    ///
-    /// It evicts nothing; `insert` into the slot replaces what is there.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// let mut images = pxui::images::Images::default();
-    /// assert_eq!(images.oldest(), 0);
-    /// images.insert(0, pxui::images::Key { id: 1, ..Default::default() }, None);
-    /// assert_eq!(images.oldest(), 1);
-    /// ```
-    pub fn oldest(&self) -> usize {
+    /// The slot to fill next: the first empty slot, else the least recently used one.
+    fn oldest(&self) -> usize {
         self.entries
             .iter()
             .position(|entry| entry.id == 0)
@@ -509,48 +498,70 @@ impl Images {
                     .iter()
                     .enumerate()
                     .min_by_key(|(_, entry)| entry.used.get())
-                    .unwrap()
-                    .0
+                    .map_or(0, |(index, _)| index)
             })
     }
-    /// Stores the worker's result for `key` in slot `index` (`None` records a failed decode so it is not retried), replacing that slot.
+    /// The id of the least recently used cached image that holds pixels (a failed decode holds none), or `None` when none does.
     ///
-    /// Pending wants for `key.id` are cleared, except when `image` is present and a want asked for more pixels than `key.max_pixels`.
-    /// The slot's previous image is only forgotten here: the host still owns and destroys it. Moves `revision` on. An id maps to
-    /// one slot: when `key.id` is already cached in another slot, that slot is emptied (as `remove` does), so `index(key.id)` is `index`.
+    /// A host over its pixel budget releases that image's pixels and `remove`s it. Each `get` that finds an id cached, and each `store`,
+    /// makes that id the most recently used.
     /// Allocates: never.
-    /// Identity: `key.id` becomes the id `get` finds the image by.
-    /// Panics: when `index` is `CAPACITY` or more.
+    /// Panics: never.
     ///
     /// ```
-    /// use pxui::images::{Images, Key};
+    /// use pxui::{images::{Images, Want}, Image};
     /// let mut images = Images::default();
-    /// images.get(1, "a.png", 100.0);
-    /// let key = images.requests().keys()[0];
-    /// images.insert(images.oldest(), key, None);
-    /// assert!(images.requests().keys().is_empty());
+    /// let pixels = Some(Image { width: 8, height: 4, ..Default::default() });
+    /// images.store(Want::new(1, 64).unwrap(), pixels);
+    /// images.store(Want::new(2, 64).unwrap(), pixels);
+    /// images.store(Want::new(3, 64).unwrap(), None);
+    /// images.get(1, "a.png", 32.0, None);
+    /// assert_eq!(images.oldest_image(), Some(2));
+    /// ```
+    pub fn oldest_image(&self) -> Option<usize> {
+        self.entries
+            .iter()
+            .filter(|entry| entry.id != 0 && entry.image.is_some())
+            .min_by_key(|entry| entry.used.get())
+            .map(|entry| entry.id)
+    }
+    /// Stores the worker's result for `want` (`None` records a failed decode, so it is not retried), replacing what was cached for
+    /// `want.id()`; returns the id of another image it dropped to make room, if any.
+    ///
+    /// With `CAPACITY` ids cached, the least recently used one is dropped: the host releases its pixels. Pending wants for the id are
+    /// cleared, except when `image` is present and a want asked for more pixels than `want.max_pixels()`. A replaced image is only
+    /// forgotten here: the host still owns and destroys it. Moves `revision` on.
+    /// Allocates: never.
+    /// Identity: `want.id()` becomes the id `get` finds the image by.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::{Images, Request};
+    /// let (mut images, mut request) = (Images::default(), Request::default());
+    /// images.get(1, "a.png", 100.0, None);
+    /// images.requests(None, &mut request);
+    /// assert_eq!(images.store(request.wants()[0], None), None);
+    /// images.requests(None, &mut request);
+    /// assert!(request.wants().is_empty());
     /// assert_eq!(images.quality(1), Some(128));
     /// ```
-    pub fn insert(&mut self, index: usize, key: Key, image: Option<Image>) {
-        let mut pending = self.pending.borrow_mut();
-        pending.retain(|wanted| {
-            wanted.key.id != key.id || (image.is_some() && wanted.key.max_pixels > key.max_pixels)
+    pub fn store(&mut self, want: Want, image: Option<Image>) -> Option<usize> {
+        self.queue.borrow_mut().pending.retain(|wanted| {
+            wanted.want.id != want.id || (image.is_some() && wanted.want.max_pixels > want.max_pixels)
         });
-        drop(pending);
-        self.remove(index);
-        if let Some(other) = self.by_id.get(&key.id).copied() {
-            self.remove(other);
-        }
+        let index = self.index(want.id).unwrap_or_else(|| self.oldest());
+        let dropped = self.entries[index].id;
+        self.remove_at(index);
         let tick = self.clock.get().saturating_add(1);
         self.clock.set(tick);
         self.entries[index] = Entry {
-            id: key.id,
+            id: want.id,
             image,
-            quality: key.max_pixels,
+            quality: want.max_pixels,
             used: Cell::new(tick),
         };
-        self.by_id.insert(key.id, index);
-        self.revision = self.revision.wrapping_add(1);
+        self.by_id.insert(want.id, index);
+        (dropped != 0 && dropped != want.id).then_some(dropped)
     }
     /// Forgets every cached image and every wanted one, and starts a new epoch.
     ///
@@ -559,10 +570,11 @@ impl Images {
     /// Panics: never.
     ///
     /// ```
-    /// let mut images = pxui::images::Images::default();
-    /// images.insert(0, pxui::images::Key { id: 1, ..Default::default() }, None);
+    /// use pxui::images::{Images, Want};
+    /// let mut images = Images::default();
+    /// images.store(Want::new(1, 64).unwrap(), None);
     /// images.clear();
-    /// assert_eq!(images.index(1), None);
+    /// assert_eq!(images.quality(1), None);
     /// ```
     pub fn clear(&mut self) {
         self.by_id.clear();
@@ -574,19 +586,27 @@ impl Images {
         self.epoch = self.epoch.wrapping_add(1);
         self.cancel_requests();
     }
-    /// Empties slot `index`, so its id is no longer cached and `get` asks for it again; pending wants are untouched.
+    /// Forgets image `id`, so `get` asks for it again; false when it was not cached. Pending wants are untouched.
     ///
-    /// The host still owns and destroys the image. Moves `revision` on. Removing an empty slot is harmless.
+    /// The host still owns and destroys the image. Moves `revision` on when it removed one.
     /// Allocates: never.
-    /// Panics: when `index` is `CAPACITY` or more.
+    /// Panics: never.
     ///
     /// ```
-    /// let mut images = pxui::images::Images::default();
-    /// images.insert(0, pxui::images::Key { id: 1, ..Default::default() }, None);
-    /// images.remove(0);
-    /// assert_eq!(images.index(1), None);
+    /// use pxui::images::{Images, Want};
+    /// let mut images = Images::default();
+    /// images.store(Want::new(1, 64).unwrap(), None);
+    /// assert!(images.remove(1));
+    /// assert!(!images.remove(1));
+    /// assert_eq!(images.quality(1), None);
     /// ```
-    pub fn remove(&mut self, index: usize) {
+    pub fn remove(&mut self, id: usize) -> bool {
+        let Some(index) = self.index(id) else { return false };
+        self.remove_at(index);
+        true
+    }
+    /// Empties slot `index` (an empty slot stays empty) and moves `revision` on.
+    fn remove_at(&mut self, index: usize) {
         self.by_id.remove(&self.entries[index].id);
         self.entries[index].id = 0;
         self.entries[index].image = None;
@@ -597,47 +617,81 @@ impl Images {
 #[cfg(test)]
 mod tests {
     use super::*;
+    fn packet(images: &Images, ui: Option<&crate::Ui>) -> Request {
+        let mut request = Request::default();
+        images.requests(ui, &mut request);
+        request
+    }
     #[test]
     fn image_paths_preserve_bounded_utf8_without_allocating() {
         let boundary = "é".repeat(512);
         let overflow = format!("{boundary}x");
+        let want = Want::new(1, 64).unwrap();
+        let mut request = Request::default();
         for _ in 0..8 {
             mem_sys::local_reset();
-            assert_eq!(Path::new(&boundary).unwrap().as_str(), boundary);
-            assert!(Path::new(&overflow).is_none());
+            request.clear();
+            assert!(request.insert(want, &boundary));
+            assert_eq!(request.path(0), boundary);
+            assert!(!request.insert(Want::new(2, 64).unwrap(), &overflow));
             assert_eq!(mem_sys::local_alloc_count(), 0);
         }
+    }
+    /// Paths of waiting wants live in one bounded arena: wants that leave leave holes, and a new path that does not fit compacts the
+    /// arena in place (paths still read back right) instead of growing it; a path that does not fit even then drops the want.
+    #[test]
+    fn the_path_arena_compacts_in_place_and_never_grows() {
+        let images = Images::default();
+        let path = "p".repeat(PATH_LIMIT);
+        let fill = PATH_ARENA_BYTES / PATH_LIMIT;
+        for id in 1..=fill { images.get(id, &path, 64.0, None); }
+        assert_eq!(images.queue.borrow().bytes.len(), PATH_ARENA_BYTES);
+        assert!(images.get(999, "late.png", 64.0, None).is_none());
+        assert_eq!(images.queue.borrow().pending.len(), fill, "a full arena drops the new want");
+        // deliver every other one: holes in the arena
+        let mut images = images;
+        for id in (1..=fill).step_by(2) { images.store(Want::new(id, 64).unwrap(), None); }
+        mem_sys::local_reset();
+        images.get(999, "late.png", 64.0, None);
+        assert_eq!(mem_sys::local_alloc_count(), 0, "compaction moves bytes, it does not allocate");
+        let queue = images.queue.borrow();
+        assert_eq!(queue.bytes.capacity(), PATH_ARENA_BYTES);
+        assert_eq!(queue.path(queue.pending.last().unwrap().path), "late.png");
+        assert!(queue.pending[..queue.pending.len() - 1].iter().all(|wanted| queue.path(wanted.path) == path));
+    }
+    #[test]
+    fn the_memory_budget_is_what_the_module_says() {
+        use core::mem::size_of;
+        assert_eq!((size_of::<Entry>(), size_of::<Pending>(), size_of::<Want>(), size_of::<Request>()), (72, 40, 16, 4272));
+        let images = Images::default();
+        assert!(images.by_id.capacity() >= CAPACITY && images.by_id.capacity() < 2 * CAPACITY, "one table for CAPACITY ids, never regrown");
+        let queue = images.queue.borrow();
+        assert_eq!((queue.pending.capacity(), queue.bytes.capacity()), (CAPACITY, PATH_ARENA_BYTES));
+        let total = CAPACITY * size_of::<Entry>() + 2048 * (2 * size_of::<usize>() + 1) + CAPACITY * size_of::<Pending>() + PATH_ARENA_BYTES;
+        assert!(total > 205 * 1024 && total < 215 * 1024, "about 210 KiB: {total}");
     }
     #[test]
     fn requests_deduplicate_and_cached_or_missing_images_allocate_nothing() {
         let mut images = Images::default();
-        let path = Path::new("CoverArt/cover.png").unwrap();
-        images.insert(
-            0,
-            Key {
-                id: 1,
-                path,
-                max_pixels: 512,
-            },
-            None,
-        );
+        let path = "CoverArt/cover.png";
+        images.store(Want::new(1, 512).unwrap(), None);
         mem_sys::local_reset();
         for _ in 0..1000 {
             images.cancel_requests();
-            assert!(images.get(1, path.as_str(), 184.0).is_none());
+            assert!(images.get(1, path, 184.0, None).is_none());
             assert!(
-                images.requests().keys().is_empty(),
+                packet(&images, None).wants().is_empty(),
                 "failed images are cached too"
             );
-            assert!(images.get(2, "CoverArt/pending.png", 30.0).is_none());
-            assert!(images.get(2, "CoverArt/pending.png", 184.0).is_none());
-            assert_eq!(images.requests().keys().len(), 1);
-            assert_eq!(images.requests().keys()[0].max_pixels, 192);
+            assert!(images.get(2, "CoverArt/pending.png", 30.0, None).is_none());
+            assert!(images.get(2, "CoverArt/pending.png", 184.0, None).is_none());
+            assert_eq!(packet(&images, None).wants().len(), 1);
+            assert_eq!(packet(&images, None).wants()[0].max_pixels(), 192);
         }
         assert_eq!(mem_sys::local_alloc_count(), 0);
         images.clear();
         assert_eq!(images.oldest(), 0);
-        assert!(!Request::default().insert(1, &"x".repeat(1025), 512));
+        assert!(!Request::default().insert(Want::new(1, 512).unwrap(), &"x".repeat(1025)));
     }
     #[test]
     fn only_final_visible_image_nodes_request_decodes_and_cached_nodes_keep_their_requests() {
@@ -671,19 +725,19 @@ mod tests {
                             },
                         );
                         if frame == 0 {
-                            images.get_at(id, "cover.png", 30.0, node.box_key);
+                            images.get(id, "cover.png", 30.0, Some(&node));
                         }
                     }
                 },
             )
             .unwrap();
-            let packet = images.visible_requests(&ui);
-            assert_eq!(packet.keys().len(), if frame == 0 { 2 } else { 3 });
-            assert_eq!(packet.keys()[0].id, 1);
+            let packet = packet(&images, Some(&ui));
+            assert_eq!(packet.wants().len(), if frame == 0 { 2 } else { 3 });
+            assert_eq!(packet.wants()[0].id, 1);
         }
         mem_sys::local_reset();
         for _ in 0..1000 {
-            assert_eq!(images.visible_requests(&ui).keys().len(), 3);
+            assert_eq!(packet(&images, Some(&ui)).wants().len(), 3);
         }
         assert_eq!(mem_sys::local_alloc_count(), 0);
         ui.frame(
@@ -697,7 +751,7 @@ mod tests {
         )
         .unwrap();
         assert!(
-            images.visible_requests(&ui).keys().is_empty(),
+            packet(&images, Some(&ui)).wants().is_empty(),
             "retired provisional cells leave no pending work"
         );
     }
@@ -705,43 +759,38 @@ mod tests {
     fn retained_views_keep_pending_covers_until_completion_instead_of_starving_other_panels() {
         let mut images = Images::default();
         for id in 1..=12 {
-            images.get(id, "cover.png", 184.0);
+            images.get(id, "cover.png", 184.0, None);
         }
-        assert_eq!(images.requests().keys().len(), REQUEST_CAPACITY);
+        assert_eq!(packet(&images, None).wants().len(), REQUEST_CAPACITY);
         // A cached album view makes no calls on this frame; a live player still asks for its cover.
-        images.get(100, "player.png", 30.0);
-        assert_eq!(images.requests().keys()[0].id, 1);
+        images.get(100, "player.png", 30.0, None);
+        assert_eq!(packet(&images, None).wants()[0].id(), 1);
         for id in 1..=8 {
-            let key = images.requests().keys()[0];
-            assert_eq!(key.id, id);
-            images.insert(id - 1, key, None);
+            let want = packet(&images, None).wants()[0];
+            assert_eq!(want.id(), id);
+            images.store(want, None);
         }
         assert_eq!(
-            images.requests().keys()[0].id,
+            packet(&images, None).wants()[0].id(),
             9,
             "visible requests beyond the first packet survive until delivery"
         );
         for id in 9..=12 {
-            images.get(id, "cover.png", 184.0);
+            images.get(id, "cover.png", 184.0, None);
         }
-        images.get(100, "player.png", 30.0);
-        assert_eq!(images.requests().keys().len(), 5);
-        assert_eq!(images.requests().keys()[4].id, 100);
+        images.get(100, "player.png", 30.0, None);
+        assert_eq!(packet(&images, None).wants().len(), 5);
+        assert_eq!(packet(&images, None).wants()[4].id(), 100);
         images.cancel_requests();
-        assert!(images.requests().keys().is_empty());
+        assert!(packet(&images, None).wants().is_empty());
     }
     #[test]
     fn visible_galleries_larger_than_sixty_four_keep_all_descriptors_without_warm_allocations() {
         let mut images = Images::default();
-        let path = Path::new("cover.png").unwrap();
+        let path = "cover.png";
         for index in 0..768 {
-            images.insert(
-                index,
-                Key {
-                    id: index + 1,
-                    path,
-                    max_pixels: 512,
-                },
+            images.store(
+                Want::new(index + 1, 512).unwrap(),
                 Some(Image {
                     width: 8,
                     height: 4,
@@ -752,50 +801,49 @@ mod tests {
         mem_sys::local_reset();
         for _ in 0..10 {
             for id in 1..=768 {
-                assert!(images.get(id, path.as_str(), 184.0).is_some());
+                assert!(images.get(id, path, 184.0, None).is_some());
             }
         }
-        assert!(images.requests().keys().is_empty());
+        assert!(packet(&images, None).wants().is_empty());
         assert_eq!(mem_sys::local_alloc_count(), 0);
     }
     #[test]
-    fn an_id_inserted_into_a_second_slot_leaves_its_first_slot_and_removing_that_slot_keeps_the_mapping() {
+    fn an_id_stored_again_keeps_one_slot_and_a_full_table_drops_and_names_the_least_recently_used() {
         let mut images = Images::default();
-        let key = Key {
-            id: 7,
-            max_pixels: 64,
-            ..Default::default()
-        };
-        images.insert(0, key, None);
-        images.insert(3, key, None);
-        assert_eq!(images.index(7), Some(3));
-        images.remove(0);
-        assert_eq!(images.index(7), Some(3), "removing the old slot must not drop the new mapping");
-        assert_eq!(images.quality(7), Some(64));
-        images.insert(3, Key { id: 8, ..key }, None);
-        assert_eq!((images.index(7), images.index(8)), (None, Some(3)));
+        let pixels = Some(Image { width: 8, height: 4, ..Default::default() });
+        for id in 1..=CAPACITY {
+            assert_eq!(images.store(Want::new(id, 64).unwrap(), pixels), None, "free slots drop nothing");
+        }
+        // storing a cached id again replaces it in place: no second slot, nothing else dropped
+        assert_eq!(images.store(Want::new(7, 128).unwrap(), pixels), None);
+        assert_eq!(images.by_id.len(), CAPACITY);
+        assert_eq!(images.entries.iter().filter(|entry| entry.id == 7).count(), 1);
+        assert_eq!(images.quality(7), Some(128));
+        // id 1 is now the least recently used; a get of it makes 2 the oldest instead
+        assert!(images.get(1, "cover.png", 32.0, None).is_some());
+        assert_eq!(images.oldest_image(), Some(2));
+        assert_eq!(images.store(Want::new(CAPACITY + 1, 64).unwrap(), None), Some(2), "the dropped id is named");
+        assert_eq!((images.quality(2), images.quality(CAPACITY + 1)), (None, Some(64)));
+        // removing by id clears exactly that id's mapping
+        assert!(images.remove(7));
+        assert!(!images.remove(7));
+        assert_eq!((images.quality(7), images.quality(8)), (None, Some(64)));
     }
     #[test]
     fn cached_quality_does_not_retry_small_sources() {
         let mut images = Images::default();
         images.configure(2.0, 384);
-        let key = Key {
-            id: 1,
-            path: Path::new("tiny.png").unwrap(),
-            max_pixels: 384,
-        };
-        images.insert(
-            0,
-            key,
+        images.store(
+            Want::new(1, 384).unwrap(),
             Some(Image {
                 width: 8,
                 height: 4,
                 ..Default::default()
             }),
         );
-        assert!(images.get(1, "tiny.png", 184.0).is_some());
+        assert!(images.get(1, "tiny.png", 184.0, None).is_some());
         assert!(
-            images.requests().keys().is_empty(),
+            packet(&images, None).wants().is_empty(),
             "record requested quality, not source dimensions"
         );
     }

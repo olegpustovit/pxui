@@ -9,51 +9,27 @@ PreparedText|drop|LocalWave|done: pxui_prepared_destroy
 RetiredText|drop|LocalWave|done: pxui_prepared_destroy
 A11yBridge|connect|Gallery|done: pxui_a11y_start, fd, update, pump, stop (Linux AT-SPI2 through the library)
 Paint|brackets|Rays|inlined
-Paint|cap_tracking|Rays|inlined
-Paint|cap_width|Rays|done
-Paint|cap|Rays|done
-Paint|caret_x|Rays|done
 Paint|chevron|Rays|inlined
 Paint|circle|Rays|inlined
 Paint|curve|LocalWave|inlined: existing analytic CURVE instances
 Paint|cubic|LocalWave|inlined: four existing CURVE instances
-Paint|clip_radius|Rays|inlined: the pub field, read once with the painter's info
-Paint|clip_rect|Rays|inlined
+Paint|clip_radius|Rays|inlined: an accessor over the painter's info
 Paint|dashed_rect|Rays|inlined
-Paint|dashed_w|Rays|inlined
 Paint|dashed|Rays|inlined
 Paint|density|Rays|inlined
 Paint|fill|Rays|inlined
-Paint|fill_fractional|LocalWave|inlined
 Paint|flag|Rays|inlined
-Paint|font_size|Rays|inlined
-Paint|frame_w|Rays|inlined
 Paint|frame|Rays|inlined
 Paint|grid|Rays|inlined
 Paint|icon|Rays|done
-Paint|image_fit|Rays|done
-Paint|image|Rays|done
-Paint|input_region|Rays|done
-Paint|label_size|Rays|inlined
-Paint|line_w|Rays|inlined
+Paint|image|Rays|done: pxui_paint_image_checked
 Paint|line|Rays|inlined
 Paint|method|source|status
-Paint|ratio|Rays|done
-Paint|rect|Rays|inlined
-Paint|row_height|Rays|inlined
 Paint|rtl|Rays|inlined
 Paint|scroll_y|Rays|done: pxui_paint_scroll_y, a call (the engine's pub vector is the library's)
-Paint|selection|Rays|done
-Paint|stroke_w|Rays|inlined
 Paint|stroke|Rays|inlined
-Paint|text_c|Rays|done
 Paint|text_metrics|Rays|done
-Paint|text_styled|Rays|done
-Paint|text_s|Rays|done
-Paint|text_top|Rays|inlined
-Paint|text_width|Rays|done
-Paint|text_with|Rays|done
-Paint|text|Rays|done
+Paint|text|Rays|done: pxui_paint_label (a Label)
 Paint|theme|Rays|inlined
 Renderer|draw|Gallery,Rays|done: layers first_layer.. of Pass, split callback for a backdrop blur
 Renderer|resize|LocalWave|done: prepare blur targets before frame recording
@@ -112,7 +88,7 @@ Ui|hovered_exactly|Rays|done
 Ui|hovered_within|Rays|done
 Ui|icon_button|Gallery|done
 Ui|id|Rays|done: the library handle, a stable key for app state per Ui
-Ui|image|Gallery|done
+Ui|image|Gallery|done: pxui_ui_image_node
 Ui|ime|Rays|done
 Ui|inject_a11y|Gallery|done
 Ui|input|Rays|replaced: frame takes the host's input as FrameIn/Input

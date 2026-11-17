@@ -56,7 +56,7 @@ pub mod flags {
     }
     /// Flags of a `kind::IMAGE` (colour glyph or picture) instance.
     pub mod image {
-        /// Sampled with the painter's linear filter: a picture drawn at any size (`Paint::image_fit`); without it images
+        /// Sampled with the painter's linear filter: a picture drawn at any size (`Paint::image`); without it images
         /// sample nearest, as glyphs do (bit 0).
         pub const SMOOTH: u8 = 1;
         /// The colour glyph is on the second fixed colour atlas page, independent of image breaks (bit 1).
