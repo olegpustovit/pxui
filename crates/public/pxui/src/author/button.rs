@@ -157,14 +157,17 @@ impl Ui {
     ///
     /// ```
     /// use pxui::{ui::{Size, Justify}, Button};
-    /// let mut clicked = false;
+    /// use std::cell::Cell;
+    /// let (clicked, node) = (Cell::new(false), Cell::new(None));
     /// let mut build = |ui: &mut pxui::Ui| {
     ///     let save = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).align(Justify::Center).selected(true);
-    ///     clicked |= ui.button_with("save", "Save", &save).clicked;
+    ///     let response = ui.button_with("save", "Save", &save);
+    ///     clicked.set(clicked.get() | response.clicked);
+    ///     node.set(Some(response.handle));
     /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
-    /// pxui::testing::click(&mut ui, 60.0, 12.0, &mut build);
-    /// assert!(clicked);
+    /// pxui::testing::click_node(&mut ui, &node.get().unwrap(), &mut build);
+    /// assert!(clicked.get());
     /// ```
     #[inline]
     #[track_caller]

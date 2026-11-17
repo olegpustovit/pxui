@@ -54,7 +54,7 @@ impl Ui {
     /// ```
     /// use std::cell::Cell;
     /// let runs = Cell::new(0);
-    /// pxui::doc::frames(3, &mut |ui| { ui.view_of("title", &("Songs", 12u32), |ui| { runs.set(runs.get() + 1); ui.label("Songs", crate::Label::DEFAULT); }); });
+    /// pxui::doc::frames(3, &mut |ui| { ui.view_of("title", &("Songs", 12u32), |ui| { runs.set(runs.get() + 1); ui.label("Songs", pxui::Label::DEFAULT); }); });
     /// assert_eq!(runs.get(), 1);
     /// ```
     #[inline]

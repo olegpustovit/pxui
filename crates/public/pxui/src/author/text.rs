@@ -103,10 +103,11 @@ impl Ui {
     /// Panics: as `label`.
     ///
     /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label_digits(format_args!("{}:{:02}", 0, 0), pxui::Label::MONO); });
+    /// // once every digit and the colon have been shown, a changing clock shapes nothing new
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label_digits(format_args!("0123456789:"), pxui::Label::MONO); });
     /// let layouts = ui.text_layout_count();
-    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| { ui.label_digits(format_args!("{}:{:02}", 1, 5), pxui::Label::MONO); }).unwrap();
-    /// assert_eq!(ui.text_layout_count(), layouts, "no new layout for new digits");
+    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| { ui.label_digits(format_args!("{}:{:02}", 3, 47), pxui::Label::MONO); }).unwrap();
+    /// assert_eq!(ui.text_layout_count(), layouts, "no new layout for digits already shown");
     /// ```
     #[inline]
     #[track_caller]

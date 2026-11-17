@@ -23,10 +23,10 @@ pub fn frame(ui: &mut Ui, events: &[Event], build: &mut dyn FnMut(&mut Ui)) {
 /// Allocates: as two frames. Panics: when a frame fails.
 ///
 /// ```
-/// use pxui::ui::{Node, Size, CLICKABLE, Role};
+/// use pxui::ui::{Flags, Node, Size, Role};
 /// let mut clicked = false;
 /// let mut build = |ui: &mut pxui::Ui| {
-///     let b = ui.node("b".into(), Node { flags: CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
+///     let b = ui.node("b".into(), Node { flags: Flags::CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
 ///     clicked |= ui.signal(&b).clicked;
 /// };
 /// let mut ui = pxui::doc::frames(1, &mut build);
@@ -44,11 +44,11 @@ pub fn click(ui: &mut Ui, x: f64, y: f64, build: &mut dyn FnMut(&mut Ui)) {
 /// Allocates: as two frames. Panics: when a frame fails.
 ///
 /// ```
-/// use pxui::ui::{Node, Size, CLICKABLE, Role};
+/// use pxui::ui::{Flags, Node, Size, Role};
 /// use std::cell::Cell;
 /// let (clicked, node) = (Cell::new(false), Cell::new(None));
 /// let mut build = |ui: &mut pxui::Ui| {
-///     let b = ui.node("b".into(), Node { flags: CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
+///     let b = ui.node("b".into(), Node { flags: Flags::CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
 ///     clicked.set(clicked.get() | ui.signal(&b).clicked);
 ///     node.set(Some(b));
 /// };

@@ -43,7 +43,7 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// let ui = pxui::doc::frames(1, &mut |ui| ui.label("hi", pxui::Label::DEFAULT));
+        /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
         /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc") { assert!(bridge.update(&ui.output().a11y)); }
         /// ```
         pub fn pxui_a11y_update(a11y: *mut PxuiA11y, tree: *const A11yTree) -> i32;
@@ -73,7 +73,7 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("play".into(), pxui::Node::DEFAULT); ui.a11y_name(&b, "Play"); });
+        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("play".into(), pxui::Node { role: pxui::a11y::Role::Button, ..pxui::Node::DEFAULT }); ui.a11y_name(&b, "Play"); });
         /// ```
         pub fn pxui_ui_a11y_name(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32;
         /// The C entry `Ui::a11y_value` calls: sets a box's accessible text `value` and selection (`anchor`, `caret` as UTF-8 byte offsets,
@@ -98,8 +98,8 @@ impl Ui {
     /// Panics: when an offset is past the end of `value` or inside a character.
     ///
     /// ```
-    /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("name".into(), pxui::Node::DEFAULT);
+    /// let ui = pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("name".into(), pxui::Node { role: pxui::a11y::Role::TextField, ..pxui::Node::DEFAULT });
     ///     ui.a11y_value(&b, "héllo", (0, 3));
     /// });
     /// assert!(ui.a11y_tree().0.windows("héllo".len()).any(|w| w == "héllo".as_bytes()));
@@ -116,8 +116,8 @@ impl Ui {
     /// Panics: when the library refuses the call (an invalid box or name), or outside a frame.
     ///
     /// ```
-    /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("play".into(), pxui::Node::DEFAULT);
+    /// let ui = pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("play".into(), pxui::Node { role: pxui::a11y::Role::Button, ..pxui::Node::DEFAULT });
     ///     ui.a11y_name(&b, "Play");
     /// });
     /// assert!(ui.a11y_tree().0.windows(4).any(|w| w == b"Play"));
@@ -163,7 +163,7 @@ impl A11yBridge {
     /// Panics: never.
     ///
     /// ```
-    /// let ui = pxui::doc::frames(1, &mut |ui| ui.label("hi", pxui::Label::DEFAULT));
+    /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
     /// if let Some(mut bridge) = pxui::A11yBridge::connect("doc-example") { assert!(bridge.update(&ui.output().a11y)); }
     /// ```
     pub fn update(&mut self, tree: &pxui_types::ffi::A11yTree) -> bool { unsafe { sys::pxui_a11y_update(self.0.as_ptr(), tree) == 0 } }

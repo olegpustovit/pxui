@@ -130,8 +130,8 @@ impl Ui {
     /// Whether `key` (a `KEY_*` code or a character) was pressed in this frame's events; with `modifier` (Shift, Ctrl, Alt or Meta
     /// code), only a press made while that modifier was held, even if it was released in the same frame.
     ///
-    /// A raw query: it neither filters modal or widget ownership nor consumes the press. A modifier that is not one of the four never
-    /// matches.
+    /// A raw query: it neither filters modal or widget ownership nor consumes the press. A `modifier` that is not one of the four is
+    /// refused (the call panics).
     /// Allocates: never.
     /// Identity: `key` is a key code, not a node key.
     /// Panics: when the `Ui` has failed, like every `Ui` call.
@@ -139,8 +139,9 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |_| {});
     /// let mut seen = (false, false);
-    /// // 'x' is not a modifier, so the second query never matches
-    /// pxui::testing::key(&mut ui, 'k' as u32, &mut |ui| { seen = (ui.key_pressed('k', None), ui.key_pressed('k', Some('x' as u32))); });
+    /// // no modifier was held for the press, so the query with Shift (special key 12) does not match
+    /// let shift = pxui_types::KEY_SPECIAL + 12;
+    /// pxui::testing::key(&mut ui, 'k' as u32, &mut |ui| { seen = (ui.key_pressed('k', None), ui.key_pressed('k', Some(shift))); });
     /// assert_eq!(seen, (true, false));
     /// ```
     #[inline]

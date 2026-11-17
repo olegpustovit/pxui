@@ -24,7 +24,7 @@ impl Ui {
     /// Panics: when the image is invalid (zero width or height, no native texture handle, an unknown format, a short `size`), or outside a frame.
     ///
     /// ```
-    /// use pxui::{draw::Fit, Image, Size};
+    /// use pxui::{draw::Fit, ui::Size, Image};
     /// let image = Image { mtl_texture: std::ptr::dangling_mut(), width: 8, height: 4, format: Image::FORMAT_RGBA8, ..Default::default() };
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     ui.image("Cover", &image, Fit::Contain, Size::Px(40.0), Size::Px(40.0));

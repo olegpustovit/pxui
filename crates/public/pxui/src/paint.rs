@@ -89,7 +89,7 @@ impl<'a> Paint<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::{geom::Rgba, theme::ColorToken, Node, Size};
+    /// use pxui::{geom::Rgba, theme::ColorToken, ui::Size, Node};
     /// use std::{cell::Cell, rc::Rc};
     /// let ink = Rgba { r: 20, g: 20, b: 20, a: 255 };
     /// let seen = Rc::new(Cell::new(Rgba::default()));
@@ -120,11 +120,14 @@ impl<'a> Paint<'a> {
     ///
     /// ```
     /// use pxui::Label;
-    /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("title".into(), pxui::Node::DEFAULT);
-    ///     ui.canvas(&node, |paint, rect| assert!(paint.text_styled((rect.x, rect.y), &Label::TITLE, 0.0, "Songs").width > 0.0));
+    /// use std::{cell::Cell, rc::Rc};
+    /// let width = Rc::new(Cell::new(0.0));
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let node = ui.node("title".into(), pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
+    ///     let width = width.clone();
+    ///     ui.draw(&node, move |paint, rect| width.set(paint.text_styled((rect.x, rect.y), &Label::TITLE, 0.0, "Songs").width));
     /// });
-    /// assert!(ui.text_layout_count() > 0);
+    /// assert!(width.get() > 0.0);
     /// ```
     #[inline]
     pub fn text_styled(&mut self, at: (f32, f32), style: &Label, width: f32, s: &str) -> TextMetrics {
@@ -141,14 +144,14 @@ impl<'a> Paint<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("clock".into(), pxui::Node::DEFAULT);
-    ///     ui.canvas(&node, |paint, rect| {
-    ///         let w = paint.text_chars((rect.x, rect.y), &pxui::Label::MONO, "1:23.4");
-    ///         assert!(w > 0.0);
-    ///     });
+    /// use std::{cell::Cell, rc::Rc};
+    /// let width = Rc::new(Cell::new(0.0));
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let node = ui.node("clock".into(), pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
+    ///     let width = width.clone();
+    ///     ui.draw(&node, move |paint, rect| width.set(paint.text_chars((rect.x, rect.y), &pxui::Label::MONO, "1:23.4")));
     /// });
-    /// assert!(ui.text_layout_count() > 0);
+    /// assert!(width.get() > 0.0);
     /// ```
     pub fn text_chars(&mut self, at: (f32, f32), style: &Label, s: &str) -> f32 {
         let style = PxuiLabelStyle::from(style);

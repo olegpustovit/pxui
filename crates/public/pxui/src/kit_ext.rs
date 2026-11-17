@@ -328,7 +328,7 @@ impl Ui {
     /// let mut ui = pxui::Ui::new().unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     let (changed, step) = ui.line_field((0.0, 0.0), 120.0, 20.0, false, "find", "line", "abc");
-    ///     assert_eq!((changed, step), (None, pxui::LineStep::None));
+    ///     assert_eq!((changed, step), (None, pxui::ui::LineStep::None));
     /// }).unwrap();
     /// ```
     #[allow(clippy::too_many_arguments)]
