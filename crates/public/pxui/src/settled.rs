@@ -33,7 +33,7 @@ fn panel(ui: &mut Ui, s: &mut State) {
         s.check = ui.checkbox("Check", s.check);
         s.volume = ui.slider("Volume", s.volume, 0.0..=1.0);
         s.mode = ui.radio("Mode", &["Auto", "Light", "Dark"], s.mode);
-        let _ = ui.text_field("Name", "abc");
+        let _ = ui.text_field("Name", "abc", &crate::TextField::DEFAULT);
         let row = ui.node("row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
             // a keyed node of a grid, as a custom widget declares it

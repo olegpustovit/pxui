@@ -311,7 +311,7 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   own shortcuts. Long values scroll horizontally to keep the caret visible;
   Command-Left/Right reveal the start/end, and dragging past either edge
   extends the selection while scrolling.
-- `text_field_with_options` selects native autocorrection, capitalization and Return/Done/Search.
+- `text_field(key, value, &TextField)` selects native autocorrection, capitalization and Return/Done/Search.
   Done clears focus/IME output during the build; Search leaves submission to the app. Raw key
   queries remain non-consuming. Marked text replaces the selected base range, and its Unicode
   scalar selection determines the preedit highlight and caret. Commit plus Done paints the new
@@ -335,7 +335,7 @@ the title bar of a PXUI host is the ground its chrome is painted on.
   carrying again before its next press. The ghost (the value as a label by the pointer) is a root
   box raised with `to_front ~order:max_int` and painted with `draw_over` at the end of `Ui.frame`;
   a frame with nothing carried builds and paints nothing new, so the parity fixtures do not move.
-  `Ui.text_area_submit ~on_drop` reports, while a payload is held over the area, the byte under the
+  `Ui.text_area ~on_drop` reports, while a payload is held over the area, the byte under the
   pointer and whether it hovers or was released there (the carry's text caret). There is still one hit
   list and one capture. See `flow.md` §7.12.
 
@@ -658,7 +658,7 @@ Down, Enter, Escape), `tip(&h, text)`, `scroll_view(label, w, h, f)` (both axes)
 intent), `dialog(key, title, &[DialogButton], &Dialog, body) -> DialogResponse` (the key is a static string or an id, never the title), `toasts(label, &[&str], seconds)` (the lower end corner;
 each goes `seconds` after it first showed, timed by the engine through `repaint_at_time` and keyed by
 its text, and is returned once for the caller to drop), `icon_button(key, Icon, name, &IconButton) -> Response`, `badge(label, text) -> Handle`,
-`search_field(label, icon, value, placeholder)` and `image(label, &Image, Fit, w, h)`. Every widget is
+`search_field(key, value, &SearchField)` and `image(label, &Image, Fit, w, h)`. Every widget is
 one Tab stop. A click focuses as on macOS: the nearest focusable box at or around the press takes the
 keyboard focus unless it is `TAB_ONLY` (buttons, checkboxes, radios, tabs, segments, dropdowns, menus,
 icon buttons: the kit's buttons and toggles keep that rule); text fields, the search field, the slider
@@ -821,7 +821,7 @@ IME composition, clipboard and edit events; it adds Enter, Up/Down, line-scoped
 Home/End, Escape to leave, `?readonly`, `?errors` (gutter marks) and `?spans`
 (tinted ranges). It draws only additive pixels, so no kit fixture changed. Tab inserts (two
 spaces; Shift-Tab takes them off; the box carries `Ui.keep_tab`, so focus traversal leaves it alone),
-`~wrap` (rows of a monospaced line, the gutter numbers logical lines) and `text_area_submit`, which also
+`~wrap` (rows of a monospaced line, the gutter numbers logical lines) and `text_area`, which also
 reports Command/Ctrl-Enter (the text pane's apply). `Ui.key_pressed` lets a dialog see its Enter.
 A `?language` (`Ui.language`: `colorize`, `brackets`, `indent`, `pairs`) makes it a code editor without
 teaching it a language: coloured runs by byte span, the bracket pair at the caret lit, Enter followed by

@@ -3,6 +3,7 @@
 //! (`tests/gpu_gallery.rs`); the host loop and the GPU half are in `main.rs` and `gpu.rs`.
 pub mod bodies_page;
 pub mod gpu;
+mod inputs;
 mod pages;
 
 pub use pages::*;

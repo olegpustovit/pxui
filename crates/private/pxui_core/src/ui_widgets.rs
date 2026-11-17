@@ -1186,11 +1186,13 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
 fn search_field_body(this: &mut Ui, label: &str, icon: &str, value: &str, placeholder: &str) -> bool {
     let key = key_of(this.current_seed(), label);
     let row = this.kit_line(key, Flags::NONE, Role::Unknown);
+    this.input_box = Some(row);
     let saved = this.enter(&row);
     let well = this.node_keyed(int_key(key, 0), Node::DEFAULT);
     let mut changed = false;
     let mut editor = |ui: &mut Ui| -> bool {
         let field = ui.node_keyed(int_key(key, 1), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK, h: Size::Grow, inset: Edges { l: 2.0, ..Edges::ZERO }, role: Role::TextField, a11y: st::EDITABLE, ..Node::DEFAULT });
+        ui.input_box = Some(field);
         let s = ui.signal_owned(&field);
         let focused = ui.focused(&field);
         let mut edit = None;

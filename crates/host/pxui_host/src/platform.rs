@@ -68,9 +68,9 @@ impl Platform {
                 out.ime_caret,
             )
         });
-        let options=if ime.is_some() {ui.text_input_options()} else {pxui::TextInputOptions::default()};
+        let options=if ime.is_some() {ui.text_input_options()} else {pxui::TextTraits::default()};
         window.set_text_input_with_options(ime,pxui_sdl::TextInputOptions {
-            autocorrect:options.autocorrect_mode(),capitalization:options.capitalization_mode(),action:options.return_action(),
+            autocorrect:options.autocorrects() as u32,capitalization:options.capitalizes() as u32,action:options.return_key() as u32,
         })?;
         let frame = (ui.id(), ui.frame_index());
         if self.applied == Some(frame) {

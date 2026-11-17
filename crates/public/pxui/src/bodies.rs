@@ -385,8 +385,8 @@ mod tests {
                 handles.set((Some(ui.button_with("narrow", "Narrow", &Button::DEFAULT).handle), Some(ui.button_with("wide", "Wide", &Button::DEFAULT.variant(1)).handle)));
                 ui.icon_button("icon", Icon::Glyph('x'), "Icon", &IconButton::DEFAULT.variant(7));
                 ui.icon_button("icon2", Icon::Glyph('x'), "Icon", &IconButton::DEFAULT);
-                ui.text_field_with_options("Find", "", crate::TextInputOptions::SEARCH_FIELD.variant(3));
-                ui.text_field_with_options("Other", "", crate::TextInputOptions::SEARCH_FIELD);
+                ui.text_field("Find", "", &crate::TextField::SEARCH.variant(3));
+                ui.text_field("Other", "", &crate::TextField::SEARCH);
             });
         };
         for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }

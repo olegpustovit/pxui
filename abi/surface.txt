@@ -195,7 +195,7 @@ Ui|style|A4-required|done
 Ui|table_view|Gallery|done
 Ui|table|Gallery,Rays|done
 Ui|tabs|Gallery|done
-Ui|text_area_submit|Gallery,Rays|done
+Ui|text_area|Gallery,Rays|done
 Ui|text_field|Gallery,Rays|done
 Ui|text_input_focused|Rays|done
 Ui|text_mut|Rays|replaced: Ui::text_service

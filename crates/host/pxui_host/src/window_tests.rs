@@ -208,7 +208,7 @@ fn framework_platform_applies_focused_ime_reuses_warm_frames_and_rejects_dead_wi
     let mut window = crate::Window::open_with("PXUI platform output", 320, 240, false, true, true).unwrap();
     let mut platform = crate::Platform::default();
     let mut ui = Ui::new().unwrap();
-    let mut build = |ui: &mut Ui| { assert!(ui.text_field("Caption", "café track 10").is_none()); };
+    let mut build = |ui: &mut Ui| { assert!(ui.text_field("Caption", "café track 10", &pxui::TextField::DEFAULT).changed.is_none()); };
     let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
     ui.frame(&input, &mut build).unwrap();
     let focus = Event { kind: Event::KEY_PRESSED, code: input::Key::Tab.code(), ..Event::default() };

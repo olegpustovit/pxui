@@ -12,7 +12,8 @@ const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
 use crate::ui_core::*;
 use crate::ui_kit::*;
 pub use crate::opts::{Language, PickerOpts, TextAreaOpts, ValueFieldOpts};
-pub use pxui_types::ui::{scrubbed, ScrubPhase, Menu, MenuItem, MenuResponse, TextEdit, LineStep, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, Pick};
+pub use pxui_types::ui::{ScrubPhase, Menu, MenuItem, MenuResponse, TextEdit, LineStep, CodeContext, Completion, Pick};
+pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
 use pxui_types::ui::Key as NodeKey;
 use input::{Event, Key, MouseButton};
 use crate::geom::{color, Rgba as Color};
@@ -835,12 +836,15 @@ impl Ui {
     /// delete by words, Command-arrows (Apple) and Home/End move by lines, Command-A/C/X/V select
     /// all, copy, cut and paste, and Command-Z, Shift-Command-Z (or Command-Y) undo and redo the
     /// focused text. The result is the new value on the frames that change it.
+    /// A text field keyed and named `text` with the default traits: the new text when it changed.
     pub fn text_field(&mut self, text: &str, value: &str) -> Option<String> {
-        self.text_field_with_options(text, value, pxui_types::TextInputOptions::default())
+        text_field_body(self, text, text, value, pxui_types::TextTraits::default())
     }
 
-    pub fn text_field_with_options(&mut self, text: &str, value: &str, options: pxui_types::TextInputOptions) -> Option<String> {
-        text_field_body(self, text, value, options)
+    /// A text field keyed by `key` and named `name` to a screen reader (unnamed when `name` is empty) with the traits `options`: the new text
+    /// when it changed.
+    pub fn text_field_keyed(&mut self, key: &str, name: &str, value: &str, options: pxui_types::TextTraits) -> Option<String> {
+        text_field_body(self, key, name, value, options)
     }
 
     /// A one-line search field at `at` (the first string is its key, the second its value) with a
@@ -850,6 +854,7 @@ impl Ui {
     pub fn line_field(&mut self, at: (f32, f32), w: f32, h: f32, grab: bool, placeholder: &str, label: &str, value: &str) -> (String, LineStep) {
         let field_box = self.box_(label, BoxOpts::default().flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK).at(at).w(Size::Px(w)).h(Size::Px(h)));
         let field = field_box;
+        self.input_box = Some(field);
         if grab {
             self.focus_box(&field);
         }
@@ -925,6 +930,75 @@ pub fn context_clicked(signal: &Signal) -> bool {
 
 type Rows = Rc<Vec<(usize, usize, usize)>>;
 type Notes = Vec<(usize, Option<(i64, i64)>, String)>;
+type AreaMessage = (i64, Option<(i64, i64)>, String);
+
+/// What one text area keeps between frames so a warm frame with the same data copies nothing: the data as shared lists, and the note rows for
+/// the last text rows. Bounded: `AREA_CACHE` areas, the oldest slot replaced.
+pub(crate) struct AreaCacheEntry {
+    key: i64,
+    messages: Rc<Vec<AreaMessage>>,
+    chips: Rc<Vec<(i64, i64, Color)>>,
+    spans: Rc<Vec<(i64, i64)>>,
+    errors: Rc<Vec<i64>>,
+    rows: Option<Rows>,
+    notes: Rc<Notes>,
+}
+const AREA_CACHE: usize = 16;
+
+/// A text area's painted data, shared with its cache entry.
+struct AreaData {
+    messages: Rc<Vec<AreaMessage>>,
+    chips: Rc<Vec<(i64, i64, Color)>>,
+    spans: Rc<Vec<(i64, i64)>>,
+    errors: Rc<Vec<i64>>,
+}
+
+impl Ui {
+    fn area_entry(&mut self, key: i64) -> &mut AreaCacheEntry {
+        let at = match self.area_cache.iter().position(|e| e.key == key) {
+            Some(at) => at,
+            None => {
+                let fresh = AreaCacheEntry { key, messages: Rc::default(), chips: Rc::default(), spans: Rc::default(), errors: Rc::default(), rows: None, notes: Rc::default() };
+                if self.area_cache.len() < AREA_CACHE { self.area_cache.push(fresh); self.area_cache.len() - 1 } else { let at = key.unsigned_abs() as usize % AREA_CACHE; self.area_cache[at] = fresh; at }
+            }
+        };
+        &mut self.area_cache[at]
+    }
+
+    /// The area's data as shared lists: the lists of the last frame when `o` holds the same data, else new ones.
+    fn area_data(&mut self, key: i64, o: &TextAreaOpts) -> AreaData {
+        let e = self.area_entry(key);
+        if *e.messages != o.messages { e.messages = Rc::new(o.messages.clone()); e.rows = None; }
+        if *e.chips != o.chips { e.chips = Rc::new(o.chips.clone()); }
+        if *e.spans != o.spans { e.spans = Rc::new(o.spans.clone()); }
+        if *e.errors != o.errors { e.errors = Rc::new(o.errors.clone()); }
+        AreaData { messages: Rc::clone(&e.messages), chips: Rc::clone(&e.chips), spans: Rc::clone(&e.spans), errors: Rc::clone(&e.errors) }
+    }
+
+    /// The note rows of `messages` under `rows`: one per message whose line has a row, after that line's last row, in row order; kept while
+    /// the messages and rows are the same.
+    fn area_notes(&mut self, key: i64, messages: &[AreaMessage], rows: &Rows) -> Rc<Notes> {
+        let e = self.area_entry(key);
+        if e.messages.as_slice() != messages { e.messages = Rc::new(messages.to_vec()); e.rows = None; }
+        if e.rows.as_ref().is_some_and(|r| Rc::ptr_eq(r, rows) || **r == **rows) { return Rc::clone(&e.notes); }
+        let mut found: Notes = Vec::new();
+        for (line, span, message) in messages {
+            let mut last: Option<usize> = None;
+            for (i, (_, _, logical)) in rows.iter().enumerate() {
+                if *logical as i64 == line - 1 {
+                    last = Some(i);
+                }
+            }
+            if let Some(l) = last {
+                found.push((l, *span, message.clone()));
+            }
+        }
+        found.sort_by(|a, b| a.0.cmp(&b.0));
+        e.notes = Rc::new(found);
+        e.rows = Some(Rc::clone(rows));
+        Rc::clone(&e.notes)
+    }
+}
 
 fn start_of(rows: &Rows, i: usize) -> usize {
     rows[i].0
@@ -1207,14 +1281,14 @@ impl Ui {
 struct AreaPaint {
     colors: Option<Rc<Vec<(i64, i64, Color)>>>,
     composition: String,
-    messages: Vec<(i64, Option<(i64, i64)>, String)>,
-    chips: Vec<(i64, i64, Color)>,
+    messages: Rc<Vec<AreaMessage>>,
+    chips: Rc<Vec<(i64, i64, Color)>>,
     hovered_number: Option<(usize, usize)>,
     scrubbing: bool,
     matched: Option<(usize, usize)>,
-    spans: Vec<(i64, i64)>,
-    errors: Vec<i64>,
-    notes: Notes,
+    spans: Rc<Vec<(i64, i64)>>,
+    errors: Rc<Vec<i64>>,
+    notes: Rc<Notes>,
     char_w: f32,
     final_text: Rc<str>,
     rows: Rows,
@@ -1306,7 +1380,7 @@ impl AreaPaint {
                 );
             }
             clip(paint, bx + gutter, bw - gutter);
-            for (a, b) in &self.spans {
+            for (a, b) in self.spans.iter() {
                 band(paint, lu, clamp_pos(*a), clamp_pos(*b), look.selection, y);
             }
             if selected {
@@ -1343,7 +1417,7 @@ impl AreaPaint {
             let ls = start_of(rows, lu);
             let le = stop_of(rows, lu);
             // a colour literal wears its colour as a bar under it
-            for (a, b, c) in &self.chips {
+            for (a, b, c) in self.chips.iter() {
                 let (a, b) = (clamp_pos(*a), clamp_pos(*b));
                 if a >= ls && a < le && b <= final_text.len() {
                     let x0 = at(paint, ls, le, a);
@@ -1352,7 +1426,7 @@ impl AreaPaint {
                 }
             }
             // the wrong span of a diagnostic is underlined in the error colour
-            for (_, span, _) in &self.messages {
+            for (_, span, _) in self.messages.iter() {
                 if let Some((a, b)) = span {
                     let (a, b) = (clamp_pos(*a), clamp_pos(*b));
                     if a < le && b > ls && b > a && b <= final_text.len() {
@@ -1521,6 +1595,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         label,
         BoxOpts::default().flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::SCROLL | Flags::CLIP | Flags::KEEP_TAB).at(at).w(Size::Px(w)).h(Size::Px(h)).scroll_step(row),
     );
+    this.input_box = Some(body);
     // a `select` request takes the keyboard for the area
     if o.select.is_some() {
         this.focus_box(&body);
@@ -1534,34 +1609,17 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let cfg = Wrap { wrap: o.wrap, w, char_w };
     let rows = this.area_rows(cfg, text);
     let count = rows.len();
-    let language = o.language.clone();
-    // a diagnostic's message is a row of its own under the last row of its line
-    let note_rows = |rows: &Rows| -> Notes {
-        if o.messages.is_empty() {
-            return Vec::new();
-        }
-        let mut found: Notes = Vec::new();
-        for (line, span, message) in &o.messages {
-            let mut last: Option<usize> = None;
-            for (i, (_, _, logical)) in rows.iter().enumerate() {
-                if *logical as i64 == line - 1 {
-                    last = Some(i);
-                }
-            }
-            if let Some(l) = last {
-                found.push((l, *span, message.clone()));
-            }
-        }
-        found.sort_by(|a, b| a.0.cmp(&b.0));
-        found
-    };
+    let language = &o.language;
+    // a diagnostic's message is a row of its own under the last row of its line (`Ui::area_notes`)
+    let area_key = body.box_key;
     let logical_count = |rows: &Rows| rows[rows.len() - 1].2 + 1;
     // the content box scrolls; two empty boxes keep the completion popup's and the number
     // scrub's state between frames
     let saved = this.enter(&body);
+    let note_count = this.area_notes(area_key, &o.messages, &rows).len();
     let content = this.box_fmt(
         format_args!("{}-content", label),
-        BoxOpts::default().w(Size::Px(w)).h(Size::Px((count + note_rows(&rows).len()) as f32 * row + pad)),
+        BoxOpts::default().w(Size::Px(w)).h(Size::Px((count + note_count) as f32 * row + pad)),
     );
     let suggest = this.box_fmt(format_args!("{}-suggest", label), BoxOpts::default().w(Size::Px(0.0)).h(Size::Px(0.0)).at((0.0, 0.0)));
     let scrub = this.box_fmt(format_args!("{}-scrub", label), BoxOpts::default().w(Size::Px(0.0)).h(Size::Px(0.0)).at((0.0, 0.0)));
@@ -1580,7 +1638,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     // the byte at a point; `strict` answers only over the row's glyphs
     let point_in = |ui: &mut Ui, strict: bool, text: &str, rows: &Rows, (px, py): (f32, f32)| -> Option<usize> {
         let count = rows.len();
-        let notes = note_rows(rows);
+        let notes = ui.area_notes(area_key, &o.messages, rows);
         let line = row_at_slot(&notes, count, ((py - by + scroll_pos - pad) / row).floor() as i64);
         let x = px - bx - gutter + horizontal0;
         let line_text = row_text(text, rows, line);
@@ -1757,8 +1815,8 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
             if st.typed || (open != 0 && !st.closed) {
                 let found = (l.complete)(&edit.text, edit.caret as i64);
                 match found.first() {
-                    Some(c) if st.typed => this.set_state(&suggest, (c.replace.0 + 1) * 512),
-                    Some(c) if c.replace.0 == (((open as u64 >> 9) as i64)) - 1 => {
+                    Some(c) if st.typed => this.set_state(&suggest, (c.replace.0 as i64 + 1) * 512),
+                    Some(c) if c.replace.0 as i64 == (((open as u64 >> 9) as i64)) - 1 => {
                         this.set_state(&suggest, (((open as u64 >> 9) as i64)) * 512 + if st.chosen { 256 } else { 0 } + st.selected as i64)
                     }
                     _ => this.set_state(&suggest, 0),
@@ -1819,7 +1877,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     }
     let rows = if &*final_text == text { rows } else { this.area_rows(cfg, &final_text) };
     let count = rows.len();
-    let notes = note_rows(&rows);
+    let notes = this.area_notes(area_key, &o.messages, &rows);
     // `reveal` scrolls once per (offset, length, nonce): the content box remembers it, and
     // forgets it while there is nothing to reveal
     let revealed = match o.reveal {
@@ -1913,7 +1971,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let text_x0 = bx + gutter - horizontal;
     if let Some((container, boxes, width, height)) = &popup {
         let caret_line = row_at(&rows, edit.caret);
-        let index = clamp_pos(items[st.selected].replace.0);
+        let index = clamp_pos(items[st.selected].replace.0 as i64);
         let line = row_at(&rows, index);
         let (ls, le) = (start_of(&rows, line), stop_of(&rows, line));
         let anchor = text_x0 + this.caret_x(None, &final_text[ls..le], index.min(le) - ls);
@@ -1951,16 +2009,17 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         }
     }
     // the text area's painting: gutter, selection, runs, diagnostics, caret
+    let data = this.area_data(area_key, o);
     let painted = AreaPaint {
         colors,
         composition,
-        messages: o.messages.clone(),
-        chips: o.chips.clone(),
+        messages: data.messages,
+        chips: data.chips,
         hovered_number,
         scrubbing: scrubbing.is_some(),
         matched,
-        spans: o.spans.clone(),
-        errors: o.errors.clone(),
+        spans: data.spans,
+        errors: data.errors,
         notes,
         char_w,
         final_text,
@@ -2482,6 +2541,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
         label,
         BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP | Flags::BLOCKING | Flags::CLIP | drag).at(at).w(Size::Px(w)).h(Size::Px(h)),
     );
+    this.input_box = Some(bx);
     let signal = this.signal_owned(&bx);
     let bounds = ints(this.rect(&bx));
     let keys = this.key_events(&bx);
@@ -2944,11 +3004,12 @@ pub(crate) fn default_menu_row(this: &mut Ui, c: &MenuRowConfig, text: &str, key
     }
 }
 
-fn text_field_body(this: &mut Ui, text: &str, value: &str, options: pxui_types::TextInputOptions) -> Option<String> {
+fn text_field_body(this: &mut Ui, key: &str, text: &str, value: &str, options: pxui_types::TextTraits) -> Option<String> {
     // the control, its hit shape and its text sit `space(2)` in from the row's ends at any density (until the body's own editor part has
     // been laid out)
     let side = this.space(2) as i64;
-    let row = this.kit_row(Some(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK), None, text);
+    let row = this.kit_row(Some(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK), None, key);
+    this.input_box = Some(row);
     this.hit_part(&row, Part::EDITOR);
     let signal = this.signal(&row);
     let mut focused = this.focused(&row);
@@ -2969,7 +3030,7 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str, options: pxui_types::
         this.with_key_events(&row, &mut |ui, keys| {
             for (event, modifiers) in keys {
                 ui.edit_text_event(false, &mut edit, &|_| true, modifiers, event);
-                if options.return_action() == pxui_types::TextInputOptions::DONE && matches!(event, Event::KeyPressed(Key::Enter))
+                if options.return_key() == pxui_types::ReturnKey::Done && matches!(event, Event::KeyPressed(Key::Enter))
                     && !ui.command_modifiers(modifiers) && ui.composition().is_empty() {
                     ui.unfocus();
                 }

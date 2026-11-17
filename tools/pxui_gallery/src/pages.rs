@@ -1,5 +1,6 @@
 // The gallery pages, against the wrapper `pxui`.
-use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Pick, PickerOpts, PxuiBox as Handle, ui_kit::PanelOpts, TextAreaOpts, Ui, ValueFieldOpts};
+use super::inputs;
+use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Pick, PxuiBox as Handle, ui_kit::PanelOpts, Ui};
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
@@ -142,9 +143,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         ui.label("PXUI", pxui::Label::DEFAULT);
         s.animate = ui.toggle("Animate", s.animate);
         s.wire = ui.toggle("Wire", s.wire);
-        if let Some(v) = ui.text_field("Caption", &s.caption) {
-            s.caption = v.to_owned();
-        }
+        inputs::caption(ui, &mut s.caption);
         if ui.button("Quit") {
             s.quit = true;
         }
@@ -155,9 +154,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
             let _ = ui.inspector_readout(None, "count", "Points", "1,024");
             let (row, cx, cy, cw) = ui.inspector_row(None, None, "scale", "Scale");
             ui.within(&row, &mut |ui: &mut Ui| {
-                if let (Some(v), _) = ui.value_field((cx, cy), cw, 20.0, &ValueFieldOpts::default(), &|t: &str| t.parse::<f64>().is_ok(), "scale-value", &s.scale) {
-                    s.scale = v.to_owned();
-                }
+                inputs::scale(ui, (cx, cy, cw), &mut s.scale);
             });
             if ui.inspector_button("reset", "Reset") {
                 s.scale = "1.5".to_owned();
@@ -166,9 +163,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         let notes = node(ui, "notes", Node { h: Size::Px(64.0), ..Node::DEFAULT });
         ui.within(&notes, &mut |ui: &mut Ui| {
             // None: unchanged. Some: the new text, borrowed until the next call on `ui`.
-            if let (Some(text), _) = ui.text_area_submit((12.0, 4.0), 270.0, 56.0, &TextAreaOpts::default(), "notes-area", &s.notes) {
-                s.notes = text.to_owned();
-            }
+            inputs::notes(ui, &mut s.notes);
         });
         ui.footer(Some("2 keys"), s.hints);
     });
@@ -200,9 +195,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     });
     ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0), "more", &mut |ui: &mut Ui| {
         s.tab = ui.tabs("Sections", &["Layer", "Mask", "Effects"], s.tab);
-        if let Some(q) = ui.search_field("Find", "/", &s.search, "Search layers") {
-            s.search = q.to_owned();
-        }
+        inputs::layer_search(ui, &mut s.search);
         let row = node(ui, "icons", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 4.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
             for (key, name, glyph) in [("add", "Add", '+'), ("remove", "Remove", '-'), ("close", "Close", '\u{d7}')] {
@@ -305,7 +298,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         let _ = ui.modal(Some(240.0), "presets", &mut |ui: &mut Ui| {
             ui.label("Presets", pxui::Label::DEFAULT);
             let rows = |_: &str| NAMES[..5].iter().map(|n| (n.to_string(), "09-24".to_owned())).collect();
-            let (_, pick) = ui.picker(&PickerOpts { limit: 4, ..PickerOpts::default() }, "Search presets", "", &rows);
+            let pick = inputs::presets(ui, &rows);
             close = !matches!(pick, Pick::None);
         });
         if close {

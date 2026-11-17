@@ -10,7 +10,7 @@ use core::ffi::c_void;
 use core::marker::PhantomData;
 use core::ptr::NonNull;
 pub use pxui_types::{Environment, Keyboard, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
-pub use pxui_types::{Commands, Event, Gpu, Image, Pass, Str, Touch, TextInputOptions};
+pub use pxui_types::{Capitalize, Commands, Event, Gpu, Image, Pass, ReturnKey, Str, TextTraits, Touch};
 pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
@@ -56,8 +56,9 @@ pub mod ui_text {
         let ((px, py), (rx, ry)) = (signal.press_point, signal.release_point);
         signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
     }
-    pub use pxui_types::ui::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start, CodeContext, Completion, Menu, MenuItem, MenuResponse, Pick};
-    pub use crate::{Language, PickerOpts, ScrubPhase, TextAreaOpts, ValueFieldOpts};
+    pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
+    pub use pxui_types::ui::{CodeContext, Completion, Menu, MenuItem, MenuResponse, Pick};
+    pub use crate::{Language, PickerOpts, ScrubPhase, TextArea, ValueField};
 }
 pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
 pub mod ui_widgets { pub use crate::{Dialog, DialogButton, DialogResponse, Scrub, Segment, TreeNode}; }
@@ -86,14 +87,13 @@ pub mod widgets;
 pub use widgets::Scrub;
 pub mod composite;
 pub mod overlays;
-pub use overlays::PickerOpts;
 pub use pxui_types::ui::{Menu, MenuItem, MenuResponse, Pick};
 pub mod collections;
 pub mod bodies;
 pub use collections::TreeNode;
 pub mod image;
 mod text_inputs;
-pub use text_inputs::{Language, ScrubPhase, TextAreaOpts, ValueFieldOpts};
+pub use text_inputs::ScrubPhase;
 pub mod opts;
 pub mod kit;
 pub use pxui_types::ui::{Keyframes, Repeat};
@@ -111,7 +111,7 @@ pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
-pub use author::{hash_of, Button, Icon, IconButton, Key, Pressable, Response, Segmented, Toggle};
+pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, PickerOpts, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
 pub use pxui_types::ui::Segment;
 #[cfg(test)]
 mod settled;
@@ -126,7 +126,7 @@ pub use pxui_types::Node;
 mod sys {
     pub use pxui_abi_link::*;
     // what the library's trusted entries replace: this wrapper's arguments are valid Rust values (see `pxui_abi::trusted`)
-    pub use pxui_abi_link::trusted::{pxui_text_field, pxui_ui_text, pxui_ui_theme};
+    pub use pxui_abi_link::trusted::{pxui_ui_text, pxui_ui_theme};
 }
 
 #[cfg(not(feature = "static"))]
@@ -178,8 +178,6 @@ mod sys {
         pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_col(ui:*mut PxuiUi,padding:f32,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_panel(ui:*mut PxuiUi,panel:*const PxuiPanel,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
-        pub fn pxui_text_field(ui:*mut PxuiUi,label:Str,value:Str,changed:*mut Str,out_changed:*mut u8)->i32;
-        pub fn pxui_text_field_with_options(ui:*mut PxuiUi,label:Str,value:Str,options:*const pxui_types::PxuiTextInputOptions,changed:*mut Str,out_changed:*mut u8)->i32;
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
@@ -650,21 +648,6 @@ impl Ui {
     /// assert!(clicked);
     /// ```
     #[inline] #[track_caller] pub fn button(&mut self, text:&str) -> bool { self.button_with("button", text, &Button::DEFAULT).clicked }
-    #[track_caller]
-    pub fn text_field(&mut self, label:&str, value:&str) -> Option<&str> {
-        let (mut changed, mut did_change) = (Str::default(), 0);
-        check(self, unsafe { sys::pxui_text_field(self.0.as_ptr(), as_str(label), as_str(value), &mut changed, &mut did_change) });
-        if did_change == 0 { None } else { Some(lent_str(changed)) }
-    }
-    #[track_caller]
-    pub fn text_field_with_options(&mut self, label:&str, value:&str, options:pxui_types::TextInputOptions) -> Option<&str> {
-        let (mut changed, mut did_change)=(Str::default(),0);
-        let variant=options.body_variant();
-        if variant!=0 {self.set_variant(pxui_types::theme::BodyKind::text_field,variant);}
-        check(self,unsafe {sys::pxui_text_field_with_options(self.0.as_ptr(),as_str(label),as_str(value),&options.into(),&mut changed,&mut did_change)});
-        if variant!=0 {self.set_variant(pxui_types::theme::BodyKind::text_field,0);}
-        if did_change==0 {None} else {Some(lent_str(changed))}
-    }
 }
 
 

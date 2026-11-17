@@ -1,6 +1,6 @@
 //! Native UITextInput fixtures; real IME/dictation interaction still needs device qualification.
 use input::Event;
-use pxui::{TextInputOptions as Options, Ui};
+use pxui::{TextField as Options, Ui};
 
 pub struct Probe {
     value: String,
@@ -15,9 +15,9 @@ impl Probe {
     }
     pub fn options(frame: usize) -> Options {
         if frame >= 32 {
-            Options::SEARCH_FIELD.action(Options::DONE)
+            Options::SEARCH.action(pxui::ReturnKey::Done)
         } else {
-            Options::SEARCH_FIELD
+            Options::SEARCH
         }
     }
     pub fn inject(&mut self, frame: usize) -> Result<(), String> {
@@ -57,7 +57,7 @@ impl Probe {
     }
     pub fn view(&mut self, ui: &mut Ui, frame: usize) {
         if let Some(value) =
-            ui.text_field_with_options("Mobile input", &self.value, Self::options(frame))
+            ui.text_field("Mobile input", &self.value, &Self::options(frame)).changed
         {
             self.value.clear();
             self.value.push_str(value);

@@ -391,7 +391,7 @@ mod ios {
                                     ui.label("PXUI native keyboard", pxui::Label::DEFAULT);
                                     ui.node("field spacer".into(), Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
                                     if let Some(text) = self.text.as_mut() {text.view(ui,self.frames);}
-                                    else {ui.text_field("Mobile input", "café track");}
+                                    else {ui.text_field("Mobile input", "café track", &pxui::TextField::DEFAULT);}
                                 } else {
                                     pxui_gallery::app(ui, &mut self.gallery);
                                 }

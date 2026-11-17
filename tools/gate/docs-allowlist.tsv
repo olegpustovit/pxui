@@ -49,4 +49,3 @@ crates/public/pxui/src/widgets.rs	pxui_ui_search_field	example,Allocates,Panics,
 crates/public/pxui/src/widgets.rs	pxui_ui_slider	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_spinner	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_tabs	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	Ui::scrub	example,Allocates,Panics,Identity

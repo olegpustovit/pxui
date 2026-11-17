@@ -1,16 +1,22 @@
-use crate::{PxuiBox, Ui, check};
+use crate::{Key, PxuiBox, Scrubber, SearchField, SearchFieldResponse, Ui, check};
 
 library!(scrub_lib {
     fn pxui_ui_scrub(ui: *mut PxuiUi, label: pxui_types::Str, value: f32, min: f32, max: f32, step: f32, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
 });
 
+/// What `Ui::scrub` reports for a caller-painted scrubber.
 #[derive(Clone, Copy, Debug)]
 pub struct Scrub {
+    /// The scrubber's node, valid this frame: size it with `set_node_layout` and paint it with `draw`.
     pub node: PxuiBox,
+    /// The provisional value while the pointer drags, or none.
     pub preview: Option<f32>,
+    /// The final value: the pointer's release, or a key or accessibility adjustment; none otherwise.
     pub commit: Option<f32>,
+    /// The pointer holds the scrubber.
     pub held: bool,
 }
+
 #[cfg(not(feature = "static"))]
 use crate::Strs;
 #[cfg(not(feature = "static"))]
@@ -40,13 +46,15 @@ mod sys {
 fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
 impl Ui {
-    /// Behavior for a caller-painted scrubber. Pointer capture previews until release; routed
-    /// arrows/Page/Home/End and accessibility adjustments take over capture and commit. A collapsed range is
-    /// read-only. Use `set_node_layout` to size the returned node and `draw` to paint its body.
+
+    /// The one body of `scrub`.
     #[track_caller]
-    pub fn scrub(&mut self, label: &str, value: f32, range: core::ops::RangeInclusive<f32>, step: f32) -> Scrub {
+    pub(crate) fn scrub_key(&mut self, key: Key, value: f32, range: core::ops::RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> Scrub {
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
         let mut out = pxui_types::ffi::PxuiScrubOut::default();
-        check(self, unsafe { scrub_lib::pxui_ui_scrub(self.0.as_ptr(), crate::as_str(label), value, *range.start(), *range.end(), step, &mut out) });
+        check(self, unsafe { scrub_lib::pxui_ui_scrub(self.0.as_ptr(), crate::as_str(label), value, *range.start(), *range.end(), scrubber.step, &mut out) });
+        self.a11y_name(&out.node, scrubber.name);
         Scrub { node: out.node, preview: (out.flags & 1 != 0).then_some(out.preview), commit: (out.flags & 2 != 0).then_some(out.commit), held: out.flags & 4 != 0 }
     }
 
@@ -138,29 +146,22 @@ impl Ui {
         out
     }
 
-    /// A search field: the text it changed to, or none; borrowed from the library, valid until the next call on `ui`.
-    ///
-    /// Allocates: nothing once warm; the changed text is copied into buffers the library reuses.
-    /// Identity: `label` keys the field; fields with the same label in one parent collide.
-    /// Panics: when the `Ui` has failed, like every `Ui` call.
-    ///
-    /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
-    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     assert_eq!(ui.search_field("find", "?", "", "Search"), None);
-    /// }).unwrap();
-    /// ```
-    #[inline]
-    #[track_caller] pub fn search_field(&mut self, label: &str, icon: &str, value: &str, placeholder: &str) -> Option<&str> {
+
+    /// The one body of `search_field`.
+    #[track_caller]
+    pub(crate) fn search_field_key(&mut self, key: Key, value: &str, field: &SearchField<'_>) -> SearchFieldResponse<'_> {
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
         #[cfg(feature = "static")]
-        { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, icon, value, placeholder, &mut out) }); out.map(crate::lent_str) }
+        let changed = { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::search_field(self.0.as_ptr(), label, field.icon, value, field.placeholder, &mut out) }); out };
         #[cfg(not(feature = "static"))]
-        {
+        let changed = {
             let mut changed = 0;
             let mut out = Str::default();
-            check(self, unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(icon), as_str(value), as_str(placeholder), &mut changed, &mut out) });
-            if changed == 0 { return None; }
-            Some(crate::lent_str(out))
-        }
+            check(self, unsafe { sys::pxui_ui_search_field(self.0.as_ptr(), as_str(label), as_str(field.icon), as_str(value), as_str(field.placeholder), &mut changed, &mut out) });
+            (changed != 0).then_some(out)
+        };
+        let response = self.input_response(changed.is_some(), Some(field.name));
+        SearchFieldResponse { response, changed: changed.map(crate::lent_str) }
     }
 }

@@ -18,10 +18,12 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 63u)
+#define PXUI_ABI_BUILT ((1u << 16) | 64u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
+/* ABI 1.64: a text field: key, accessible name (empty: none) and value, with the traits as PxuiTextInputOptions numbers as bytes. */
+typedef struct { uint32_t size; uint8_t autocorrect, capitalization, action, reserved; PxuiStr key, name, value; } PxuiTextFieldDesc;
 typedef struct { const PxuiStr *ptr; size_t len; } PxuiStrSpan;
 typedef struct { uint32_t tag; size_t index; } PxuiDialogOut;
 /* ABI 1.25: TOUCH borrows this numeric payload through Event.text; len is sizeof(PxuiTouch).
@@ -423,7 +425,8 @@ enum {
     PXUI_FEATURE_DISMISS = 17,           /* 1.41 */
     PXUI_FEATURE_LOOK_TOKENS = 18,       /* 1.61: look colours naming colour tokens */
     PXUI_FEATURE_ICON_WORD = 19,         /* 1.61: pxui_ui_icon_word / pxui_paint_icon_word */
-    PXUI_FEATURE_TEXT_WORKER = 20        /* 1.62: pxui_text_worker_create/_destroy, pxui_ui_set_text_worker, pxui_text_prewarm */
+    PXUI_FEATURE_TEXT_WORKER = 20,       /* 1.62: pxui_text_worker_create/_destroy, pxui_ui_set_text_worker, pxui_text_prewarm */
+    PXUI_FEATURE_TEXT_FIELD_KEYED = 21   /* 1.64: pxui_ui_text_field_keyed, pxui_ui_input_box */
 };
 /* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */
 uint64_t pxui_counter(uint32_t which);
@@ -531,8 +534,15 @@ int32_t pxui_ui_label_node(PxuiUi *ui, PxuiStr text, const PxuiLabelStyle *style
 int32_t pxui_ui_resolve_label(PxuiUi *ui, const PxuiLabelStyle *style, PxuiTextStyle *out);
 int32_t pxui_button(PxuiUi *ui, PxuiStr label, uint8_t *out);
 int32_t pxui_toggle(PxuiUi *ui, PxuiStr label, uint8_t on, uint8_t *out);
+/* Legacy: pxui_text_field and pxui_text_field_with_options are superseded by pxui_ui_text_field_keyed (key, name); cut at 2.0. */
 int32_t pxui_text_field(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiStr *changed, uint8_t *out_changed); /* changed: the new text, borrowed until the next frame, when out_changed */
 int32_t pxui_text_field_with_options(PxuiUi *ui, PxuiStr label, PxuiStr value, const PxuiTextInputOptions *options, PxuiStr *changed, uint8_t *out_changed);
+/* ABI 1.64: a text field keyed by desc->key and named desc->name to a screen reader (empty: unnamed). changed receives the new text (borrowed
+   until the next call) when out_changed is 1. */
+int32_t pxui_ui_text_field_keyed(PxuiUi *ui, const PxuiTextFieldDesc *desc, PxuiStr *changed, uint8_t *out_changed);
+/* ABI 1.64: the box of the text input (text field, line field, search field, text area or value field) the last such call built; PXUI_ERR_STATE
+   before the first call. Read its signal and focus for what happened to it. */
+int32_t pxui_ui_input_box(PxuiUi *ui, PxuiBox *out);
 int32_t pxui_ui_checkbox(PxuiUi *ui, PxuiStr label, uint8_t value, uint8_t *out);
 int32_t pxui_ui_radio(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
 int32_t pxui_ui_tabs(PxuiUi *ui, PxuiStr label, PxuiStrSpan options, size_t selected, size_t *out);
@@ -545,6 +555,8 @@ int32_t pxui_ui_progress(PxuiUi *ui, PxuiStr label, uint8_t has_value, float val
 int32_t pxui_ui_spinner(PxuiUi *ui, PxuiStr label, PxuiBox *out);
 int32_t pxui_ui_icon_button(PxuiUi *ui, PxuiStr label, PxuiStr icon, uint8_t *out);
 int32_t pxui_ui_badge(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiBox *out);
+/* Legacy (cut at 2.0): pxui_ui_search_field and pxui_ui_text_area_submit stay as they are; the Rust wrapper reads the box they built through
+   pxui_ui_input_box and names it itself. */
 int32_t pxui_ui_search_field(PxuiUi *ui, PxuiStr label, PxuiStr icon, PxuiStr value, PxuiStr placeholder, uint8_t *changed, PxuiStr *out);
 int32_t pxui_ui_image(PxuiUi *ui, PxuiStr label, const PxuiImage *image, uint32_t fit, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBox *out);
 int32_t pxui_ui_modal(PxuiUi *ui, PxuiStr label, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out);
@@ -1132,6 +1144,7 @@ _Static_assert(sizeof(PxuiCurve) == 140 && offsetof(PxuiCurve, kind) == 0 && off
 _Static_assert(sizeof(PxuiLabelBox) == 16 && offsetof(PxuiLabelBox, size) == 0 && offsetof(PxuiLabelBox, set) == 4 && offsetof(PxuiLabelBox, height) == 8 && offsetof(PxuiLabelBox, role) == 12 && offsetof(PxuiLabelBox, whole_pixels) == 13 && offsetof(PxuiLabelBox, reserved) == 14, "PxuiLabelBox layout");
 _Static_assert(sizeof(PxuiFrameIn) == 160 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, keyboard) == 128 && offsetof(PxuiFrameIn, surface) == 152, "FrameInV1_57 layout");
 _Static_assert(sizeof(PxuiUiDesc) == 16 && offsetof(PxuiUiDesc, size) == 0 && offsetof(PxuiUiDesc, platform) == 4 && offsetof(PxuiUiDesc, font_size) == 8 && offsetof(PxuiUiDesc, abi_built) == 12, "PxuiUiDescV1_60 layout");
+_Static_assert(sizeof(PxuiTextFieldDesc) == 56 && offsetof(PxuiTextFieldDesc, size) == 0 && offsetof(PxuiTextFieldDesc, autocorrect) == 4 && offsetof(PxuiTextFieldDesc, capitalization) == 5 && offsetof(PxuiTextFieldDesc, action) == 6 && offsetof(PxuiTextFieldDesc, reserved) == 7 && offsetof(PxuiTextFieldDesc, key) == 8 && offsetof(PxuiTextFieldDesc, name) == 24 && offsetof(PxuiTextFieldDesc, value) == 40, "PxuiTextFieldDesc layout");
 _Static_assert(sizeof(PxuiHeadOut) == 32 && offsetof(PxuiHeadOut, size) == 0 && offsetof(PxuiHeadOut, has_chosen) == 4 && offsetof(PxuiHeadOut, reset_pressed) == 5 && offsetof(PxuiHeadOut, reserved) == 6 && offsetof(PxuiHeadOut, renamed) == 8 && offsetof(PxuiHeadOut, chosen) == 24, "PxuiHeadOut layout");
 _Static_assert(sizeof(PxuiHeaderDesc) == 144 && offsetof(PxuiHeaderDesc, size) == 0 && offsetof(PxuiHeaderDesc, has_kind) == 4 && offsetof(PxuiHeaderDesc, has_badge) == 5 && offsetof(PxuiHeaderDesc, has_index) == 6 && offsetof(PxuiHeaderDesc, has_reset) == 7 && offsetof(PxuiHeaderDesc, reset_enabled) == 8 && offsetof(PxuiHeaderDesc, reserved) == 9 && offsetof(PxuiHeaderDesc, key) == 16 && offsetof(PxuiHeaderDesc, kind) == 32 && offsetof(PxuiHeaderDesc, badge) == 48 && offsetof(PxuiHeaderDesc, index) == 64 && offsetof(PxuiHeaderDesc, reset) == 80 && offsetof(PxuiHeaderDesc, title) == 96 && offsetof(PxuiHeaderDesc, detail) == 112 && offsetof(PxuiHeaderDesc, actions) == 128, "PxuiHeaderDesc layout");
 _Static_assert(sizeof(PxuiInspectorRowConfig) == 80 && offsetof(PxuiInspectorRowConfig, size) == 0 && offsetof(PxuiInspectorRowConfig, state) == 4 && offsetof(PxuiInspectorRowConfig, has_pin) == 12 && offsetof(PxuiInspectorRowConfig, pin) == 13 && offsetof(PxuiInspectorRowConfig, label_w) == 16 && offsetof(PxuiInspectorRowConfig, row) == 24 && offsetof(PxuiInspectorRowConfig, label) == 56 && offsetof(PxuiInspectorRowConfig, variant) == 72, "PxuiInspectorRowConfig layout");

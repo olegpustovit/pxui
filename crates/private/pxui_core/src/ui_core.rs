@@ -1078,11 +1078,15 @@ pub struct Ui {
     frame_modifiers: [bool; 4],
     pub(crate) edit_focus: i64,
     pub(crate) edit_owner: i64,
-    pub(crate) text_input_options: pxui_types::TextInputOptions,
+    pub(crate) text_input_options: pxui_types::TextTraits,
     pub edit_value: String,
     pub(crate) edit_work: String,
     /// the text `search_field`, `value_field` and `text_area_submit` return borrowed: valid until the next call on the Ui
     pub(crate) returned: String,
+    /// The box of the text input widget (text field, line field, search field, text area, value field) built last.
+    pub(crate) input_box: Option<Handle>,
+    /// What each text area keeps between frames (bounded, see `AreaCacheEntry`).
+    pub(crate) area_cache: Vec<crate::ui_text::AreaCacheEntry>,
     pub(crate) edit_caret: usize,
     pub(crate) edit_anchor: usize,
     pub(crate) edit_scroll_x: f32,
@@ -1334,10 +1338,12 @@ impl Ui {
             frame_modifiers: [false; 4],
             edit_focus: 0,
             edit_owner: 0,
-            text_input_options: pxui_types::TextInputOptions::default(),
+            text_input_options: pxui_types::TextTraits::default(),
             edit_value: String::new(),
             edit_work: String::new(),
             returned: String::new(),
+            input_box: None,
+            area_cache: Vec::new(),
             edit_caret: 0,
             edit_anchor: 0,
             edit_scroll_x: 0.0,
@@ -1569,8 +1575,10 @@ impl Ui {
     pub fn keyboard(&self) -> pxui_types::Keyboard { self.keyboard }
     /// The keyboard geometry the engine holds, by reference: what a frame entry compares a new one against.
     #[inline] pub fn keyboard_ref(&self) -> &pxui_types::Keyboard { &self.keyboard }
-    pub fn text_input_options(&self) -> pxui_types::TextInputOptions {
-        if self.text_input_focused() {self.text_input_options} else {pxui_types::TextInputOptions::default()}
+    /// The box of the text input widget built last (`text_field`, `line_field`, `search_field`, `text_area`, `value_field`), or none before one.
+    pub fn input_box(&self) -> Option<Handle> { self.input_box }
+    pub fn text_input_options(&self) -> pxui_types::TextTraits {
+        if self.text_input_focused() {self.text_input_options} else {pxui_types::TextTraits::default()}
     }
     /// Safe content bounds, reduced by a full-width docked keyboard's current presentation frame.
     pub fn content_rect(&self) -> Rect {
@@ -6361,7 +6369,7 @@ impl Ui {
         self.frame_requested = false;
         self.out.clipboard = None;
         self.out.paste = false;
-        self.text_input_options = pxui_types::TextInputOptions::default();
+        self.text_input_options = pxui_types::TextTraits::default();
         // a variant a host forgot to clear does not reach this frame's widgets
         self.set_variant(0, 0);
         self.out.background = None;

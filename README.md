@@ -160,12 +160,12 @@ Manual touch editing, interactive IME candidates, microphone dictation, floating
 avoidance and external-screen/device behavior remain unqualified. A floating keyboard is exposed
 by `keyboard()` without shrinking global content.
 
-ABI 1.27 adds `Ui::text_field_with_options` and `Ui::text_input_options`. `TextInputOptions` selects
-autocorrection (0/1), capitalization (none/sentences/words/letters, 0..=3) and Return/Done/Search
-(0..=2). `SEARCH_FIELD` disables autocorrection and capitalization. Done clears focus and IME
+Native text traits: `Ui::text_field(key, value, &TextField)` and `Ui::text_input_options`. `TextField` selects
+autocorrection (a bool), capitalization (`Capitalize`: none/sentences/words/letters) and the return key (`ReturnKey`:
+Return/Done/Search). `TextField::SEARCH` disables autocorrection and capitalization. Done clears focus and IME
 output in the same frame; Search leaves submission to the app. Raw key queries remain
 non-consuming, so applications must arbitrate shortcuts against focus at the start of the frame.
-The original `text_field` keeps its default traits. No existing descriptor layout changes.
+`TextField::DEFAULT` keeps the default traits. The C record `PxuiTextInputOptions` is unchanged.
 
 The iOS host observes SDL's hidden UIKit field for marked-text updates; pxui still paints the
 visible editor. It preserves Unicode scalar selection offsets, replaces the selected base text

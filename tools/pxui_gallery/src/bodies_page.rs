@@ -5,7 +5,7 @@
 //! Not in `PAGES`: it needs the wrapper (the pages there also compile against the engine for the A7 bench).
 use pxui::bodies::{text_of, PxuiSearchFieldConfig, PxuiSegmentConfig, PxuiSliderConfig, PxuiToggleConfig, PxuiRowConfig};
 use pxui::theme::{Look, State};
-use pxui::{ui_kit::PanelOpts, Part, Ui};
+use pxui::{ui_kit::PanelOpts, Part, SearchField, Ui};
 use pxui_types::Flags;
 use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, ui::int_key, Axis, Node, Size};
 
@@ -135,7 +135,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         s.wifi = ui.toggle("Wi-Fi", s.wifi);
         s.volume = ui.slider("Volume", s.volume, 0.0..=1.0);
         s.align = ui.segmented("Align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], s.align);
-        if let Some(v) = ui.search_field("Find", "?", &s.query, "Search") { s.query = v.to_owned(); }
+        if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
     });
     ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true), "table", &mut |ui: &mut Ui| {
         let (widths, selected, flags) = (&mut s.widths, &mut s.selected, &mut s.flags);

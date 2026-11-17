@@ -1,6 +1,8 @@
 //! The authoring layer: thin generic shims over one non-generic body each, so a call site costs one call and the body is compiled once.
 mod button;
 mod dialog;
+mod field_types;
+mod fields;
 mod icon_button;
 mod layout;
 mod menu;
@@ -10,6 +12,7 @@ mod text;
 mod toggle;
 mod view;
 pub use button::Button;
+pub use field_types::{AreaCallbacks, AreaNote, BracketsFn, CompleteFn, ColorizeFn, ContextAtFn, DescribeFn, IndentFn, Language, LineField, LineFieldResponse, NumberAtFn, PickerOpts, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
 pub use icon_button::{Icon, IconButton};
 pub use layout::Key;
 pub use press::{Pressable, Response};

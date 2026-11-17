@@ -124,12 +124,12 @@ impl Ui {
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |_| {});
-    /// assert_eq!(ui.text_input_options(), pxui::TextInputOptions::DEFAULT);
+    /// assert_eq!(ui.text_input_options(), pxui::TextTraits::DEFAULT);
     /// ```
-    pub fn text_input_options(&self) -> pxui_types::TextInputOptions {
+    pub fn text_input_options(&self) -> pxui_types::TextTraits {
         let mut value=pxui_types::PxuiTextInputOptions::default();
         check(self,unsafe {lib::pxui_ui_text_input_options(self.0.as_ptr(),&mut value)});
-        value.into()
+        pxui_types::TextTraits::from_numbers(value.autocorrect, value.capitalization, value.action).unwrap_or_default()
     }
     /// The window area left above a docked keyboard, in window points: the whole window while no keyboard is shown.
     /// Allocates: never.

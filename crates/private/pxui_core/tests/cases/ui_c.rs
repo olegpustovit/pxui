@@ -92,7 +92,7 @@ pub fn text_area_3(rig: &mut Rig) {
                 .iter()
                 .filter(|w| w.starts_with(prefix))
                 .map(|w| Completion {
-                    replace: (start as i64, caret as i64),
+                    replace: (start as usize, caret as usize),
                     insert: w.to_string(),
                     label: w.to_string(),
                     detail: "word".to_owned(),

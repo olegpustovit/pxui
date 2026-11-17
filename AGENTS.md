@@ -66,6 +66,8 @@ nothing may reach outside this repository (no `../../..` paths past the root).
 The code is the documentation. There is no separate guide, tutorial or API
 reference to keep in step; `specification/` describes behaviour, not signatures.
 
+A type that crosses the C ABI as a record lives in `pxui_types`; an authoring-only style value, callback set or response struct lives in `pxui` (`author/`).
+
 Every public item in `pxui` and `pxui_types` has a `///` comment. For a function
 or method the comment has, in this order:
 

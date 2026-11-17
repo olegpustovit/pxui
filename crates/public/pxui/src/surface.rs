@@ -400,7 +400,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         if popup.get() { ui.popup(None,None,false,false,(0.0,0.0),200.0,30.0,"scrub-popup",&mut |_| {}); }
         if !present.get() { result.set(None); return; }
         let (lo, hi) = range.get();
-        let scrub = ui.scrub("Position", value.get(), lo..=hi, 5.0);
+        let scrub = ui.scrub("position", value.get(), lo..=hi, &crate::Scrubber::DEFAULT.step(5.0).name("Position"));
         ui.set_node_layout(&scrub.node, &Node { w: Size::Px(200.0), h: Size::Px(20.0), ..Node::DEFAULT });
         result.set(Some(scrub));
     };
@@ -1230,7 +1230,8 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                     assert!(!ui.inspector_toggle("toggle", "Toggle", false));
                 });
                 ui.inspector_bar(&hints, 3);
-                let (text, step) = ui.line_field((0.0, 0.0), 120.0, 20.0, false, "find", "line", "abc");
+                let line = ui.line_field("find", "abc", pxui_types::geom::Rect::new(0.0, 0.0, 120.0, 20.0), &crate::LineField::DEFAULT.placeholder("line"));
+                let (text, step) = (line.changed, line.step);
                 assert_eq!((text, step), (None, LineStep::None));
                 let (grip, signal) = ui.grip(format_args!("grip-{}", 1), Axis::Row, None);
                 assert!(!signal.clicked);
@@ -1317,18 +1318,17 @@ fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
 
 #[test]
 fn value_fields_take_their_options_and_text_edits_are_kept() {
-    use crate::opts::ValueFieldOpts;
+    use crate::{ValueCallbacks, ValueField};
     use pxui_types::ui::TextEdit;
-    use std::rc::Rc;
     let mut ui = Ui::new().expect("library");
-    let opts = ValueFieldOpts {
-        fraction: Some(0.5), left: true, kept_drag: true, trail: Some(("px".into(), pxui_types::geom::Rgba { r: 1, g: 2, b: 3, a: 255 })),
-        slide: Some(Rc::new(|f| format!("{f:.2}"))), scrub: Some(Rc::new(|origin, dx, _| format!("{origin}{dx}"))), ..ValueFieldOpts::default()
-    };
+    let opts = ValueField::DEFAULT.fraction(0.5).left(true).kept_drag(true).trail("px", pxui_types::geom::Rgba { r: 1, g: 2, b: 3, a: 255 });
+    let (accept, slide, scrub) = (|t: &str| t.parse::<f32>().is_ok(), |f: f32| format!("{f:.2}"), |origin: &str, dx: f32, _: bool| format!("{origin}{dx}"));
+    let callbacks = ValueCallbacks::DEFAULT.valid(&accept).slide(&slide).scrub(&scrub);
     for _ in 0..2 {
         ui.frame(&input(), &mut |ui: &mut Ui| {
             ui.panel(pxui_types::ui::PanelOpts::default(), "fields", &mut |ui: &mut Ui| {
-                let (text, editing) = ui.value_field((10.0, 10.0), 120.0, 20.0, &opts, &|t: &str| t.parse::<f32>().is_ok(), "amount", "0.25");
+                let field = ui.value_field("amount", "0.25", pxui_types::geom::Rect::new(10.0, 10.0, 120.0, 20.0), &opts, &callbacks);
+                let (text, editing) = (field.changed, field.editing);
                 assert_eq!((text, editing), (None, false));
                 let edit = ui.load_text_edit(7, "abc");
                 assert_eq!((edit.text.as_str(), edit.caret, edit.anchor), ("abc", 3, 3));
@@ -1359,12 +1359,11 @@ fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
 
 #[test]
 fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
-    use crate::opts::ValueFieldOpts;
     use pxui_types::ui::TextEdit;
     let mut ui = Ui::new().expect("library");
     let stale = pxui_types::PxuiBox { index: 0, box_key: 1, box_slot: 99, generation: 7 };
     // the engine answers a stale handle with false, so does the one export that replaced the wrapper's several calls
-    assert!(!ui.patch_field(&stale, &ValueFieldOpts::default(), "1.5"));
+    assert!(!ui.patch_field(&stale, &crate::ValueField::DEFAULT, "1.5"));
     assert!(!ui.patch_text(&stale, "x"));
     // text far over the old 1 MiB limit crosses whole in both directions, and a refused call is a loud one
     let source = "(graph g)\n".repeat(300_000);
@@ -1372,46 +1371,86 @@ fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     ui.frame(&input(), &mut |ui: &mut Ui| {
         let edit: TextEdit = ui.load_text_edit(9, &source);
         assert_eq!(edit.text.len(), source.len(), "the edit holds the whole text");
-        let (text, _) = ui.text_area_submit((0.0, 0.0), 100.0, 100.0, &Default::default(), "area", &source);
+        let text = ui.text_area("area", &source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &crate::TextArea::DEFAULT, &crate::AreaCallbacks::DEFAULT).changed;
         assert_eq!(text, None, "the whole text crossed and compared equal");
     }).expect("frame");
 }
 
 
 #[test]
-fn text_area_submit_borrows_its_text_and_allocates_nothing_on_warm_frames() {
-    use crate::opts::TextAreaOpts;
+fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
+    use crate::{AreaCallbacks, Splice, TextArea};
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().expect("library");
     let source = "alpha\nbeta\ngamma";
-    let plain = TextAreaOpts::default();
+    let plain = TextArea::DEFAULT;
     for tick in 0..12 {
         // warm-up and measured frames make the same call; the first 8 only warm the caches
         mem_sys::local_reset();
         let scope = (tick >= 8).then(mem_sys::warm_scope);
         ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
             ui.panel(pxui_types::ui::PanelOpts::default(), "borrowed", &mut |ui: &mut Ui| {
-                assert_eq!(ui.text_area_submit((0.0, 0.0), 100.0, 100.0, &plain, "area", source), (None, false));
+                let area = ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &plain, &AreaCallbacks::DEFAULT);
+                assert_eq!((area.changed, area.submitted), (None, false));
             });
         }).expect("frame");
         let allocated = mem_sys::local_alloc_count();
         drop(scope);
         if tick >= 8 {
-            assert_eq!(allocated, 0, "text_area_submit on warm frame {tick}");
+            assert_eq!(allocated, 0, "text_area on warm frame {tick}");
             assert!(mem_sys::take_reports().is_empty(), "warm frame {tick} allocated");
         }
     }
     // a splice into the focused area changes the text: it comes back borrowed
-    let edit = TextAreaOpts { select: Some((0, 0)), splice: vec![(0, 5, "ALPHA".into())], ..TextAreaOpts::default() };
+    let splices = [Splice::new(0, 5, "ALPHA")];
+    let edit = TextArea::DEFAULT.select(0, 0).splices(&splices);
     let mut changed = None;
     for tick in 12..16 {
         ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
             ui.panel(pxui_types::ui::PanelOpts::default(), "borrowed", &mut |ui: &mut Ui| {
-                changed = changed.take().or(ui.text_area_submit((0.0, 0.0), 100.0, 100.0, &edit, "area", source).0.map(str::to_owned));
+                changed = changed.take().or(ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &edit, &AreaCallbacks::DEFAULT).changed.map(str::to_owned));
             });
         }).expect("frame");
     }
     assert_eq!(changed.as_deref(), Some("ALPHA\nbeta\ngamma"));
+}
+
+#[test]
+fn a_text_area_with_data_callbacks_and_a_language_and_a_value_field_with_callbacks_allocate_nothing_on_warm_frames() {
+    use crate::{AreaCallbacks, AreaNote, Language, TextArea, ValueCallbacks, ValueField};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new().expect("library");
+    let source = "alpha\nbeta\ngamma";
+    let notes = [AreaNote::new(1, "unused"), AreaNote::new(2, "shadowed").range(0, 3)];
+    let chips = [(0, 5, pxui_types::geom::Rgba { r: 90, g: 140, b: 220, a: 255 })];
+    let (errors, spans) = ([2usize], [(6usize, 10usize)]);
+    let area = TextArea::DEFAULT.notes(&notes).chips(&chips).errors(&errors).spans(&spans).wrap(true);
+    // closures borrowing locals, a language with pairs and a comment, and a value field with valid and slide
+    let clicks = std::cell::Cell::new(0usize);
+    let click = |_at: usize, _modified: bool| clicks.set(clicks.get() + 1);
+    let caret = |_at: usize| {};
+    let callbacks = AreaCallbacks::DEFAULT.on_click(&click).on_caret(&caret).language(Language::DEFAULT.pairs(&[('(', ')'), ('[', ']')]).comment("//"));
+    let accept = |t: &str| t.parse::<f32>().is_ok();
+    let slide = |f: f32| format!("{f:.2}");
+    let value_callbacks = ValueCallbacks::DEFAULT.valid(&accept).slide(&slide);
+    for tick in 0..12 {
+        mem_sys::local_reset();
+        let scope = (tick >= 8).then(mem_sys::warm_scope);
+        ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
+            ui.panel(pxui_types::ui::PanelOpts::default(), "data", &mut |ui: &mut Ui| {
+                let r = ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &area, &callbacks);
+                assert_eq!((r.changed, r.submitted), (None, false));
+                let v = ui.value_field("amount", "0.25", pxui_types::geom::Rect::new(0.0, 110.0, 100.0, 20.0), &ValueField::DEFAULT.fraction(0.5), &value_callbacks);
+                assert_eq!((v.changed, v.editing), (None, false));
+            });
+        }).expect("frame");
+        let allocated = mem_sys::local_alloc_count();
+        drop(scope);
+        if tick >= 8 {
+            assert_eq!(allocated, 0, "a text area with data, callbacks and a language, and a value field with callbacks, allocated on warm frame {tick}");
+            assert!(mem_sys::take_reports().is_empty(), "warm frame {tick} allocated");
+        }
+    }
 }
 
 #[test]
@@ -1909,7 +1948,7 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
     let mut build = |ui: &mut Ui| {
-        assert!(ui.text_field("Caption", "café track 10").is_none());
+        assert!(ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed.is_none());
     };
     ui.frame(&input(), &mut build).unwrap();
     let key = |kind, code| Event { kind, code: KEY_SPECIAL + code, ..Event::default() };
@@ -1931,7 +1970,7 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     let commit = Event { kind: Event::TEXT_INPUT, text: Str { ptr: composition.as_ptr(), len: composition.len() }, ..Event::default() };
     let mut changed = false;
     ui.frame(&FrameIn { time: 2.0, events: &commit, event_count: 1, ..input() }, &mut |ui| {
-        changed = ui.text_field("Caption", "café track 10") == Some("café track 1é");
+        changed = ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed == Some("café track 1é");
     }).unwrap();
     assert!(changed, "composition commit must replace the retained selection");
 }
@@ -1970,7 +2009,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             let source = "text_field.body = font-sized-editor";
             ui.set_theme(&crate::ThemeSource {source:Str {ptr:source.as_ptr(),len:source.len()},..Default::default()}).unwrap();
             let value = "café track 10";
-            let mut build = |ui: &mut Ui| assert!(ui.text_field("Styled",value).is_none());
+            let mut build = |ui: &mut Ui| assert!(ui.text_field("Styled",value,&crate::TextField::DEFAULT).changed.is_none());
             let frame = FrameIn {scale,..input()};
             for tick in 0..3 { ui.frame(&FrameIn {time:tick as f64/60.0,..frame},&mut build).unwrap(); }
             let glyphs = ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).map(|quad|(quad.rect,quad.aux)).collect::<Vec<_>>();
@@ -2012,7 +2051,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             assert_eq!(ui.signal_keys(&ui.box_of_key(ROW.get()).unwrap()).len(),keys.len(),"editing must restore the original key stream for later consumers");
             let commit = Event {kind:Event::TEXT_INPUT,text:Str {ptr:composition.as_ptr(),len:composition.len()},..Default::default()};
             let mut changed = false;
-            ui.frame(&FrameIn {time:1.0,events:&commit,event_count:1,..frame},&mut |ui| {changed=ui.text_field("Styled",value)==Some("caféétrack 10");}).unwrap();
+            ui.frame(&FrameIn {time:1.0,events:&commit,event_count:1,..frame},&mut |ui| {changed=ui.text_field("Styled",value,&crate::TextField::DEFAULT).changed==Some("caféétrack 10");}).unwrap();
             assert!(changed,"composition commit replaces exactly the selected UTF-8 range");
         }
     }
@@ -2722,7 +2761,7 @@ fn text_field_refocus_reuses_its_warm_editor_storage() {
     use pxui_types::{Event, KEY_SPECIAL};
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
-    let mut build = |ui: &mut Ui| assert!(ui.text_field("Caption", "café track 10").is_none());
+    let mut build = |ui: &mut Ui| assert!(ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed.is_none());
     let focus = [
         Event {kind:Event::KEY_PRESSED,code:KEY_SPECIAL+8,..Event::default()},
         Event {kind:Event::KEY_RELEASED,code:KEY_SPECIAL+8,..Event::default()},
@@ -2746,16 +2785,16 @@ fn text_field_refocus_reuses_its_warm_editor_storage() {
 
 #[test]
 fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
-    use crate::{Event, TextInputOptions as Options};
+    use crate::{Event, TextField, TextTraits as Options};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
     let show_search=Cell::new(true);
-    let done=Options::SEARCH_FIELD.action(Options::DONE);
+    let done=Options::SEARCH.action(crate::ReturnKey::Done);
     let mut build=|ui:&mut Ui| {
         ui.view("input options",show_search.get() as u64,Size::Grow,Size::Grow,&mut |ui| {
-            if show_search.get() { assert!(ui.text_field_with_options("Search","café",Options::SEARCH_FIELD).is_none()); }
-            assert!(ui.text_field_with_options("Name","café",done).is_none());
+            if show_search.get() { assert!(ui.text_field("Search","café",&TextField::SEARCH).changed.is_none()); }
+            assert!(ui.text_field("Name","café",&TextField::SEARCH.action(crate::ReturnKey::Done)).changed.is_none());
         });
     };
     ui.frame(&input(),&mut build).unwrap();
@@ -2766,7 +2805,7 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
         let active=matches!(step,0|2|4);
         mem_sys::local_reset();
         ui.frame(&FrameIn {time:frame as f64,events:events.as_ptr(),event_count:if active {2} else {0},..input()},&mut build).unwrap();
-        let expected=match step {0|1=>Options::SEARCH_FIELD,2|3=>done,_=>Options::default()};
+        let expected=match step {0|1=>Options::SEARCH,2|3=>done,_=>Options::default()};
         assert_eq!(ui.text_input_options(),expected,"frame {frame}");
         assert_eq!(ui.ime().is_some(),step<4,"Done must dismiss native input in the same frame");
         if step==4 {assert!(ui.key_pressed(code, None),"raw key queries remain non-consuming");}
@@ -2791,7 +2830,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
     ui.register_text_field_body("marked-editor",body).unwrap();
     let source="text_field.body = marked-editor";
     ui.set_theme(&crate::ThemeSource {source:Str {ptr:source.as_ptr(),len:source.len()},..Default::default()}).unwrap();
-    let mut build=|ui:&mut Ui|assert!(ui.text_field("Marked","café track").is_none());
+    let mut build=|ui:&mut Ui|assert!(ui.text_field("Marked","café track",&crate::TextField::DEFAULT).changed.is_none());
     ui.frame(&input(),&mut build).unwrap();
     let key=|kind,n|Event {kind,code:pxui_types::KEY_SPECIAL+n,..Default::default()};
     let focus=[key(Event::KEY_PRESSED,8),key(Event::KEY_RELEASED,8),key(Event::KEY_PRESSED,12),
@@ -2815,7 +2854,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
     let commit=[Event {kind:Event::TEXT_INPUT,text:Str {ptr:value.as_ptr(),len:value.len()},..Default::default()},key(Event::KEY_PRESSED,5),key(Event::KEY_RELEASED,5)];
     let mut changed=false;
     ui.frame(&FrameIn {events:commit.as_ptr(),event_count:commit.len(),..input()},&mut |ui| {
-        changed=ui.text_field_with_options("Marked","café track",crate::TextInputOptions::DEFAULT.action(crate::TextInputOptions::DONE))==Some(value);
+        changed=ui.text_field("Marked","café track",&crate::TextField::DEFAULT.action(crate::ReturnKey::Done)).changed==Some(value);
     }).unwrap();
     assert!(changed,"commit replaces precisely the original UTF-8 selection");
     assert!(ui.ime().is_none());

@@ -947,7 +947,7 @@ fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
         ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
         ui.toggle("Animate", true);
         ui.toggle("Wire", false);
-        ui.text_field("Caption", caption);
+        ui.text_field("caption", caption, &pxui::TextField::DEFAULT.name("Caption"));
         ui.button("Quit");
     })).expect("build shared-device panel");
 }

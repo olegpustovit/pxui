@@ -10,7 +10,7 @@ use core::ffi::c_void;
 use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look, State}, Axis, PxuiBox, Str};
 use pxui_types::{layout::Justify, Size};
 use crate::Response;
-use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Head, HeadAction, LineStep, Target};
+use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Head, HeadAction, Target};
 use std::{fmt::Arguments, rc::Rc};
 
 library!(lib {
@@ -31,7 +31,6 @@ library!(lib {
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
     fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const PxuiHeaderDesc, rename: Option<extern "C" fn(*mut c_void, Str) -> u8>, user: *mut c_void, out: *mut PxuiHeadOut) -> i32;
-    fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32) -> i32;
     fn pxui_ui_field_drag(ui: *mut PxuiUi, box_: *const PxuiBox, present: *mut u8, out: *mut Point) -> i32;
 });
 
@@ -76,7 +75,7 @@ fn six(s: &pxui_types::theme::States) -> [pxui_types::ffi::PxuiLookDesc; 6] { [l
 
 /// The wrapper's `Response` of a button call's record.
 #[inline(always)]
-fn response(out: &PxuiResponse) -> Response {
+pub(crate) fn response(out: &PxuiResponse) -> Response {
     let on = |bit: u32| out.flags & bit != 0;
     Response { clicked: on(PxuiResponse::CLICKED), hovered: on(PxuiResponse::HOVERED), held: on(PxuiResponse::HELD), focused: on(PxuiResponse::FOCUSED), activated: on(PxuiResponse::ACTIVATED), changed: false,
         secondary: on(PxuiResponse::SECONDARY), handle: out.node }
@@ -344,29 +343,6 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_inspector_header(self.0.as_ptr(), &desc, rename.is_some().then_some(rename_call as extern "C" fn(*mut c_void, Str) -> u8), user, &mut out) });
         let renamed = if out.renamed.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(out.renamed.ptr, out.renamed.len) }).into_owned() };
         Head { renamed, chosen: (out.has_chosen != 0).then_some(out.chosen), reset_pressed: out.reset_pressed != 0 }
-    }
-    /// A one-line search field at `at`: the new value when it differs from `value` (else none) and what its keys asked. The
-    /// text is borrowed from the library, valid until the next call on `ui`.
-    ///
-    /// Allocates: the engine allocates the result text each call; the wrapper nothing.
-    /// Identity: `label` keys the field; fields with the same label in one parent collide.
-    /// Panics: when the `Ui` has failed, like every `Ui` call.
-    ///
-    /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
-    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let (changed, step) = ui.line_field((0.0, 0.0), 120.0, 20.0, false, "find", "line", "abc");
-    ///     assert_eq!((changed, step), (None, pxui::ui::LineStep::None));
-    /// }).unwrap();
-    /// ```
-    #[allow(clippy::too_many_arguments)]
-    #[track_caller]
-    pub fn line_field(&mut self, at: (f32, f32), w: f32, h: f32, grab: bool, placeholder: &str, label: &str, value: &str) -> (Option<&str>, LineStep) {
-        let (mut text, mut step) = (Str::default(), 0);
-        check(self, unsafe { lib::pxui_ui_line_field(self.0.as_ptr(), at.0, at.1, w, h, grab as u8, as_str(placeholder), as_str(label), as_str(value), &mut text, &mut step) });
-        let edited = crate::lent_str(text);
-        let edited = (edited != value).then_some(edited);
-        (edited, match step { 1 => LineStep::Next, 2 => LineStep::Previous, 3 => LineStep::Close, _ => LineStep::None })
     }
     /// The fraction of a dragged `kept_drag` field's track under the pointer, and the pointer's points from the press.
     #[track_caller]

@@ -51,7 +51,7 @@ fn wrapper_allocations() -> u64 {
         let mut measured = 0;
         ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel(pxui::ui::PanelOpts::default(), "panel", &mut |ui: &mut pxui::Ui| {
             let before = mem_sys::local_alloc_count();
-            let _ = ui.picker_filled(&pxui::ui::PickerOpts::default(), "filter", "", &mut fill);
+            let _ = ui.picker_filled(&pxui::PickerOpts::DEFAULT, "filter", "", &mut fill);
             let _ = ui.inspector_header("head", Some("kind"), None, Some("1"), Some(Rc::clone(&rename)), &actions, Some("reset"), true, "Title", "detail");
             measured = mem_sys::local_alloc_count() - before;
         })).expect("frame");

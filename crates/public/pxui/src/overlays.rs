@@ -4,7 +4,7 @@ use pxui_types::{PxuiBox, Str, ffi::Slice, ui::{Key, Menu, MenuItem, MenuRespons
 use pxui_types::ffi::{PxuiMenuExtra, PxuiSubmenu, PxuiSwatch};
 use crate::{composite::{defer_callback_panic, deferred}, check, Strs, Ui};
 
-pub use crate::opts::PickerOpts;
+use crate::PickerOpts;
 
 #[cfg(feature = "static")]
 mod raw {
@@ -61,7 +61,7 @@ mod raw {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     ui.picker(&pxui::PickerOpts::default(), "find", "", &|_query| vec![("Song".to_owned(), String::new())]);
+    ///     ui.picker(&pxui::PickerOpts::DEFAULT, "find", "", &|_query| vec![("Song".to_owned(), String::new())]);
     /// });
     /// ```
     pub fn pxui_ui_picker(ui:*mut PxuiUi,limit:i64,slash:u8,at_rest:u8,label:Str,query:Str,rows:PickerRows,mark:PickerMark,off:PickerOff,user:*mut c_void,out_query:*mut Str,out_tag:*mut u32,out_index:*mut i64)->i32;
@@ -85,13 +85,13 @@ struct Rows<'a, F: ?Sized> {
     fill: &'a mut F,
     owned: Vec<(String, String)>,
     raw: Vec<Str>,
-    options: &'a PickerOpts,
+    options: &'a PickerOpts<'a>,
 }
 extern "C" fn mark<F: ?Sized>(user: *mut c_void, row: i64, out: *mut pxui_types::geom::Rgba) -> u8 {
     if user.is_null() || out.is_null() || deferred() { return 0; }
     let ctx = unsafe { &*user.cast::<Rows<F>>() };
-    let Some(mark) = &ctx.options.mark else { return 0 };
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mark(row))) {
+    let Some(mark) = ctx.options.mark else { return 0 };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| mark(row.max(0) as usize))) {
         Ok(Some(color)) => { unsafe { *out = color; } 1 }
         Ok(None) => 0,
         Err(panic) => { defer_callback_panic(panic); 0 }
@@ -100,8 +100,8 @@ extern "C" fn mark<F: ?Sized>(user: *mut c_void, row: i64, out: *mut pxui_types:
 extern "C" fn off<F: ?Sized>(user: *mut c_void, row: i64) -> u8 {
     if user.is_null() || deferred() { return 0; }
     let ctx = unsafe { &*user.cast::<Rows<F>>() };
-    let Some(off) = &ctx.options.off else { return 0 };
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| off(row))) { Ok(v) => v as u8, Err(panic) => { defer_callback_panic(panic); 0 } }
+    let Some(off) = ctx.options.off else { return 0 };
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| off(row.max(0) as usize))) { Ok(v) => v as u8, Err(panic) => { defer_callback_panic(panic); 0 } }
 }
 extern "C" fn rows<F: FnMut(&str, &mut Vec<(String, String)>) + ?Sized>(user: *mut c_void, query: Str, out: *mut Slice<Str>) {
     if user.is_null() || out.is_null() || deferred() { return; }
@@ -226,13 +226,13 @@ impl Ui {
     /// use pxui::ui::Pick;
     /// let mut ui = pxui::doc::frames(1, &mut |_| {});
     /// pxui::testing::frame(&mut ui, &[], &mut |ui| {
-    ///     let (query, pick) = ui.picker(&pxui::PickerOpts::default(), "find", "", &|_q| vec![("Song".to_owned(), "Artist".to_owned())]);
+    ///     let (query, pick) = ui.picker(&pxui::PickerOpts::DEFAULT, "find", "", &|_q| vec![("Song".to_owned(), "Artist".to_owned())]);
     ///     assert_eq!((query.as_str(), pick), ("", Pick::None));
     /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn picker<F: Fn(&str) -> Vec<(String, String)> + ?Sized>(&mut self, options: &PickerOpts, label: &str, query: &str, rows_of: &F) -> (String, Pick) {
+    pub fn picker<F: Fn(&str) -> Vec<(String, String)> + ?Sized>(&mut self, options: &PickerOpts<'_>, label: &str, query: &str, rows_of: &F) -> (String, Pick) {
         self.picker_filled(options, label, query, &mut |query: &str, rows: &mut Vec<(String, String)>| *rows = rows_of(query))
     }
 
@@ -244,7 +244,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |_| {});
     /// pxui::testing::frame(&mut ui, &[], &mut |ui| {
-    ///     ui.picker_filled(&pxui::PickerOpts::default(), "find", "", &mut |_query, rows| {
+    ///     ui.picker_filled(&pxui::PickerOpts::DEFAULT, "find", "", &mut |_query, rows| {
     ///         rows.clear();
     ///         rows.push(("Song".to_owned(), "Artist".to_owned()));
     ///     });
@@ -252,15 +252,15 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn picker_filled<F: FnMut(&str, &mut Vec<(String, String)>) + ?Sized>(&mut self, options: &PickerOpts, label: &str, query: &str, fill: &mut F) -> (String, Pick) {
+    pub fn picker_filled<F: FnMut(&str, &mut Vec<(String, String)>) + ?Sized>(&mut self, options: &PickerOpts<'_>, label: &str, query: &str, fill: &mut F) -> (String, Pick) {
         let (owned, raw) = ROWS.take();
         let mut rows_ctx = Rows { fill, owned, raw, options };
         let mut out_query = Str::default();
         let mut tag = 0;
         let mut index: i64 = -1;
         check(self, unsafe { raw::pxui_ui_picker(
-            self.0.as_ptr(), options.limit, options.slash as u8, options.at_rest as u8,
-            as_str(label), as_str(query), Some(rows::<F>), options.mark.as_ref().map(|_| mark::<F> as extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8), options.off.as_ref().map(|_| off::<F> as extern "C" fn(*mut c_void, i64) -> u8), &mut rows_ctx as *mut _ as *mut c_void,
+            self.0.as_ptr(), i64::try_from(options.limit).expect("pxui: a picker row limit over i64::MAX"), options.slash as u8, options.at_rest as u8,
+            as_str(label), as_str(query), Some(rows::<F>), options.mark.map(|_| mark::<F> as extern "C" fn(*mut c_void, i64, *mut pxui_types::geom::Rgba) -> u8), options.off.map(|_| off::<F> as extern "C" fn(*mut c_void, i64) -> u8), &mut rows_ctx as *mut _ as *mut c_void,
             &mut out_query, &mut tag, &mut index,
         ) });
         let Rows { mut owned, mut raw, .. } = rows_ctx;

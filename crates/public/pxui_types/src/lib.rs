@@ -13,6 +13,7 @@ pub mod node;
 pub mod shape;
 pub use shape::Span;
 pub mod text;
+pub mod text_edit;
 pub mod theme;
 pub mod ui;
 
@@ -223,22 +224,47 @@ pub struct Str {
     pub len: usize,
 }
 
-/// Single-line native keyboard traits and the per-call body variant of a text field, as a `Copy` value built with `const fn` builders from
-/// `TextInputOptions::DEFAULT` or `SEARCH_FIELD`. Capitalization: none, sentences, words, letters (0..=3).
-/// Action: Return (0), Done (1, dismisses focus), Search (2, leaves submission to the app).
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct TextInputOptions {
-    pub(crate) autocorrect: u32,
-    pub(crate) capitalization: u32,
-    pub(crate) action: u32,
-    /// What a registered text field body reads from its config (`PxuiTextFieldConfig::variant`); 0 for none.
-    pub(crate) variant: u16,
+/// How the platform keyboard capitalizes what is typed into a text field (`TextTraits::capitalization`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum Capitalize {
+    /// Nothing is capitalized for the user.
+    None = 0,
+    /// The first letter of each sentence.
+    #[default]
+    Sentences = 1,
+    /// The first letter of each word.
+    Words = 2,
+    /// Every letter.
+    Letters = 3,
 }
-impl Default for TextInputOptions {
+
+/// What the return key of a text field's keyboard reads and does (`TextTraits::action`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[repr(u32)]
+pub enum ReturnKey {
+    /// The ordinary return key: the kit's default.
+    #[default]
+    Return = 0,
+    /// Enter ends editing: it dismisses focus and the keyboard.
+    Done = 1,
+    /// The key reads Search; submission is the app's.
+    Search = 2,
+}
+
+/// The native keyboard traits of a single-line text field (the part of `pxui::TextField` the platform reads), as a `Copy` value built with
+/// `const fn` builders from `TextTraits::DEFAULT` or `TextTraits::SEARCH`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TextTraits {
+    pub(crate) autocorrect: bool,
+    pub(crate) capitalization: Capitalize,
+    pub(crate) action: ReturnKey,
+}
+impl Default for TextTraits {
     fn default() -> Self { Self::DEFAULT }
 }
-/// The C record of the text input traits (`pxui_text_field_with_options`, `pxui_ui_text_input_options`): `TextInputOptions` without its variant,
-/// which goes through `pxui_ui_variant` like every widget's. For C callers and the library's own conversions, not for authoring.
+/// The C record of the text input traits (`pxui_text_field_with_options`, `pxui_ui_text_input_options`): `TextTraits` as three numbers. For C
+/// callers and the library's own conversions, not for authoring.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct PxuiTextInputOptions {
@@ -249,83 +275,67 @@ pub struct PxuiTextInputOptions {
     /// The return key: 0 Return, 1 Done (Enter ends editing), 2 Search (submission is the app's).
     pub action: u32,
 }
-impl From<TextInputOptions> for PxuiTextInputOptions {
-    fn from(o: TextInputOptions) -> Self { Self {autocorrect:o.autocorrect,capitalization:o.capitalization,action:o.action} }
+impl From<TextTraits> for PxuiTextInputOptions {
+    fn from(o: TextTraits) -> Self { Self {autocorrect:o.autocorrect as u32,capitalization:o.capitalization as u32,action:o.action as u32} }
 }
-impl From<PxuiTextInputOptions> for TextInputOptions {
-    fn from(o: PxuiTextInputOptions) -> Self { Self {autocorrect:o.autocorrect,capitalization:o.capitalization,action:o.action,variant:0} }
-}
-impl TextInputOptions {
-    /// The return key keeps its ordinary action (`action`): the kit's default.
-    pub const RETURN: u32 = 0;
-    /// The return key ends editing: Enter dismisses focus and the keyboard (`action`).
-    pub const DONE: u32 = 1;
-    /// The return key reads Search and leaves submission to the app (`action`).
-    pub const SEARCH: u32 = 2;
+impl TextTraits {
+    /// The traits of three numbers as the C records carry them, or none when one is out of range (autocorrect over 1, capitalization over 3,
+    /// action over 2).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::TextTraits;
+    /// assert_eq!(TextTraits::from_numbers(0, 0, 2), Some(TextTraits::SEARCH));
+    /// assert_eq!(TextTraits::from_numbers(2, 0, 0), None);
+    /// ```
+    pub const fn from_numbers(autocorrect: u32, capitalization: u32, action: u32) -> Option<TextTraits> {
+        let capitalization = match capitalization { 0 => Capitalize::None, 1 => Capitalize::Sentences, 2 => Capitalize::Words, 3 => Capitalize::Letters, _ => return None };
+        let action = match action { 0 => ReturnKey::Return, 1 => ReturnKey::Done, 2 => ReturnKey::Search, _ => return None };
+        if autocorrect > 1 { return None; }
+        Some(TextTraits { autocorrect: autocorrect == 1, capitalization, action })
+    }
     /// The kit's text field: autocorrect on, sentence capitalization, Return.
-    pub const DEFAULT: Self = Self {autocorrect:1,capitalization:1,action:Self::RETURN,variant:0};
+    pub const DEFAULT: Self = Self {autocorrect:true,capitalization:Capitalize::Sentences,action:ReturnKey::Return};
     /// A search box: no autocorrect, no capitalization, the Search key.
-    pub const SEARCH_FIELD: Self = Self {autocorrect:0,capitalization:0,action:Self::SEARCH,variant:0};
-    /// Whether every trait is in range: autocorrect 0 or 1, capitalization 0..=3, action `RETURN`, `DONE` or `SEARCH`; the library refuses others.
+    pub const SEARCH: Self = Self {autocorrect:false,capitalization:Capitalize::None,action:ReturnKey::Search};
+    /// These traits with autocorrect on or off.
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::TextInputOptions;
-    /// assert!(TextInputOptions::SEARCH_FIELD.valid() && !TextInputOptions::DEFAULT.action(7).valid());
+    /// use pxui_types::TextTraits;
+    /// assert!(!TextTraits::DEFAULT.autocorrect(false).autocorrects());
     /// ```
-    pub fn valid(&self) -> bool {self.autocorrect<=1 && self.capitalization<=3 && self.action<=2}
-    /// These options with autocorrect on (1) or off (0).
+    pub const fn autocorrect(mut self, autocorrect: bool) -> Self { self.autocorrect = autocorrect; self }
+    /// These traits with the keyboard's capitalization.
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::TextInputOptions;
-    /// assert_eq!(TextInputOptions::DEFAULT.autocorrect(0).autocorrect_mode(), 0);
+    /// use pxui_types::{Capitalize, TextTraits};
+    /// assert_eq!(TextTraits::DEFAULT.capitalization(Capitalize::Words).capitalizes(), Capitalize::Words);
     /// ```
-    pub const fn autocorrect(mut self, autocorrect: u32) -> Self { self.autocorrect = autocorrect; self }
-    /// These options with capitalization none, sentences, words or letters (0..=3).
+    pub const fn capitalization(mut self, capitalization: Capitalize) -> Self { self.capitalization = capitalization; self }
+    /// These traits with the return key's action.
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::TextInputOptions;
-    /// assert_eq!(TextInputOptions::DEFAULT.capitalization(2).capitalization_mode(), 2);
+    /// use pxui_types::{ReturnKey, TextTraits};
+    /// assert_eq!(TextTraits::SEARCH.action(ReturnKey::Done).return_key(), ReturnKey::Done);
     /// ```
-    pub const fn capitalization(mut self, capitalization: u32) -> Self { self.capitalization = capitalization; self }
-    /// These options with the return key's action: `RETURN`, `DONE` or `SEARCH`.
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::TextInputOptions;
-    /// assert_eq!(TextInputOptions::SEARCH_FIELD.action(TextInputOptions::DONE).return_action(), TextInputOptions::DONE);
-    /// ```
-    pub const fn action(mut self, action: u32) -> Self { self.action = action; self }
-    /// These options with the variant a registered text field body reads from its config (`variant`, 0 by default): one body builds
-    /// different structures by it, so the app picks per call without comparing text. The built-in body ignores it.
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::TextInputOptions;
-    /// const FIND: TextInputOptions = TextInputOptions::SEARCH_FIELD.action(TextInputOptions::DONE).variant(1);
-    /// assert_eq!(FIND.body_variant(), 1);
-    /// ```
-    pub const fn variant(mut self, variant: u16) -> Self { self.variant = variant; self }
-    /// Whether the platform keyboard corrects words: 1 on, 0 off.
-    pub const fn autocorrect_mode(&self) -> u32 { self.autocorrect }
-    /// The platform keyboard's capitalization: 0 none, 1 sentences, 2 words, 3 letters.
-    pub const fn capitalization_mode(&self) -> u32 { self.capitalization }
-    /// The variant a registered text field body reads from its config; 0 for none.
-    pub const fn body_variant(&self) -> u16 { self.variant }
-    /// The return key's action: `RETURN`, `DONE` or `SEARCH`.
-    pub const fn return_action(&self) -> u32 { self.action }
+    pub const fn action(mut self, action: ReturnKey) -> Self { self.action = action; self }
+    /// Whether the platform keyboard corrects words.
+    pub const fn autocorrects(&self) -> bool { self.autocorrect }
+    /// The platform keyboard's capitalization.
+    pub const fn capitalizes(&self) -> Capitalize { self.capitalization }
+    /// The return key's action.
+    pub const fn return_key(&self) -> ReturnKey { self.action }
 }
 
 /// ABI 1.25 TOUCH payload, borrowed through Event::text (len = size_of::<Touch>()).
@@ -411,14 +421,14 @@ pub struct Keyboard {
 impl Keyboard {
     pub const VALID: u32 = 1;
     pub const ANIMATING: u32 = 2;
-    /// Whether every trait is in range: autocorrect 0 or 1, capitalization 0..=3, action `RETURN`, `DONE` or `SEARCH`; the library refuses others.
+    /// Whether the geometry is valid: flags 0..=3 without ANIMATING alone, finite non-negative frame.
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::TextInputOptions;
-    /// assert!(TextInputOptions::SEARCH_FIELD.valid() && !TextInputOptions::DEFAULT.action(7).valid());
+    /// use pxui_types::Keyboard;
+    /// assert!(Keyboard::default().valid() && !Keyboard { flags: Keyboard::ANIMATING, ..Keyboard::default() }.valid());
     /// ```
     pub fn valid(&self) -> bool {
         self.flags <= 3 && self.flags != Self::ANIMATING
@@ -689,10 +699,12 @@ pub mod feature {
     pub const ICON_WORD: u32 = 19;
     /// ABI 1.62: the prepare queue's `text_worker_create`/`text_worker_destroy`, `ui_set_text_worker`, `text_prewarm`.
     pub const TEXT_WORKER: u32 = 20;
+    /// ABI 1.64: `ui_text_field_keyed` and `ui_input_box`.
+    pub const TEXT_FIELD_KEYED: u32 = 21;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 63;
+pub const ABI_BUILT: u32 = 1 << 16 | 64;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
