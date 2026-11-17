@@ -239,8 +239,17 @@ impl Ui {
         ((changed != 0).then(|| lent_str(out)), editing != 0)
     }
 
-    /// A value field's value and soft-range line written by patches, as its build lays them out without a lead: false when a
-    /// patch cannot show it (a lead, a value too wide beside its trail, the line had no width when built, a stale handle).
+    /// Between builds, rewrites the value text and the soft-range line of the value field `field` to `value_text`, as its build lays them out without a lead; true when the patch shows it.
+    /// False when a patch cannot show it: a `lead` in `o`, a value too wide beside its trail, a line that had no width when built, or `field` not being a built value field (or gone). Then build the field's view instead. `o` must be the options the field was built with.
+    /// Allocates: never when the text fits what the field's nodes held; a longer text grows them.
+    /// Panics: when the library refuses the call (a null `Ui`, or `value_text` over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let plain = ui.node("n".into(), pxui::Node::DEFAULT); // not a value field
+    ///     assert!(!ui.patch_field(&plain, &pxui::ValueFieldOpts::default(), "1.0"));
+    /// });
+    /// ```
     #[track_caller]
     pub fn patch_field(&mut self, field: &PxuiBox, o: &ValueFieldOpts, value_text: &str) -> bool {
         let desc = value_desc((0.0, 0.0), 0.0, 0.0, o, "", value_text);
@@ -249,7 +258,19 @@ impl Ui {
         live(self, rc) && out != 0
     }
 
-    /// The edit the `Ui` keeps for the field under `key`, loaded with `text`.
+    /// The edit the `Ui` keeps for the field under `key`, loaded with `text`: its caret, selection and undo history follow the key while the text is unchanged.
+    /// When `key` or `text` differs from the last load, the previous edit's undo history is shelved (the three latest are kept) and this one starts at the end of `text`, or resumes a shelved history for the same key and text.
+    /// Allocates: the returned `TextEdit` owns a copy of the text.
+    /// Identity: `key` is the field's box key (`Handle::box_key`), not a label; two fields with one key share one edit.
+    /// Panics: when the library refuses the call (a null `Ui`, or `text` over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let field = ui.node("field".into(), pxui::Node::DEFAULT);
+    ///     let edit = ui.load_text_edit(field.box_key, "hello");
+    ///     assert_eq!((edit.text.as_str(), edit.caret, edit.anchor), ("hello", 5, 5));
+    /// });
+    /// ```
     #[track_caller]
     pub fn load_text_edit(&mut self, key: i64, text: &str) -> TextEdit {
         let (mut out, mut caret, mut anchor) = (Str::default(), 0, 0);
@@ -257,7 +278,19 @@ impl Ui {
         TextEdit { text: lent_string(out), caret: caret as usize, anchor: anchor as usize }
     }
 
-    /// Snapshots `edit` for undo; `typing` joins consecutive typing into one step.
+    /// Snapshots `edit` for undo; with `typing`, consecutive typing at one caret joins the previous snapshot into one step.
+    /// Taking a snapshot clears the redo history. The history holds the latest 200 steps and is bounded in bytes overall (`text_undo_bytes`).
+    /// Allocates: a copy of the text for each snapshot that is not joined.
+    /// Panics: when the library refuses the call (a null `Ui`, or `edit.text` over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let field = ui.node("field".into(), pxui::Node::DEFAULT);
+    ///     let edit = ui.load_text_edit(field.box_key, "hello");
+    ///     ui.remember(&edit, false);
+    ///     assert!(ui.text_undo_bytes() > 0);
+    /// });
+    /// ```
     #[track_caller]
     pub fn remember(&mut self, edit: &TextEdit, typing: bool) {
         check(self, unsafe { lib::pxui_ui_remember(self.0.as_ptr(), as_str(&edit.text), edit.caret as u64, edit.anchor as u64, typing as u8) })

@@ -15,7 +15,14 @@ mod sys {
 fn as_str(value:&str)->Str { Str{ptr:value.as_ptr(),len:value.len()} }
 
 impl Ui {
-    /// Measures single-line kit text in logical points using the UI's font and theme.
+    /// The width in points of single-line kit text at `size` (`None`: the kit's font size), in the `Ui`'s font and theme, for layout during a build.
+    /// Allocates: the first measurement of a text shapes and caches it; never for a cached one.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// assert!(ui.text_width(None, "Songs") < ui.text_width(None, "Songs and albums"));
+    /// ```
     #[inline]
     pub fn text_width(&mut self,size:Option<i64>,text:&str)->f32 {
         unsafe{sys::pxui_ui_text_width(self.0.as_ptr(),size.is_some() as u8,size.unwrap_or_default(),as_str(text))}

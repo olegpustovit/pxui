@@ -402,6 +402,17 @@ impl Default for TextSpans {
 }
 impl TextSpans {
     pub const MAX: usize=8;
+    /// Packs `spans` into the fixed record the library takes; `None` for more than eight (`TextSpans::MAX`).
+    /// This checks the count only; the library checks that ranges are ordered, nonempty, disjoint and on character boundaries.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{TextSpan, TextSpans};
+    /// let bold = TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
+    /// assert!(TextSpans::new(&[bold]).is_some());
+    /// assert!(TextSpans::new(&[bold; 9]).is_none());
+    /// ```
     pub fn new(spans: &[TextSpan]) -> Option<Self> {
         if spans.len()>Self::MAX { return None; }
         let mut value=Self::default();
@@ -409,5 +420,15 @@ impl TextSpans {
         value.spans[..spans.len()].copy_from_slice(spans);
         Some(value)
     }
+    /// The spans the record holds, in order; `None` when its count is over eight (a record built by hand, not by `new`).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{TextSpan, TextSpans};
+    /// let bold = TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
+    /// let spans = TextSpans::new(&[bold, TextSpan { start: 5, end: 8, ..bold }]).unwrap();
+    /// assert_eq!(spans.as_slice().map(|s| s.len()), Some(2));
+    /// ```
     pub fn as_slice(&self) -> Option<&[TextSpan]> { self.spans.get(..self.count as usize) }
 }

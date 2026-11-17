@@ -1,6 +1,4 @@
 # Public fns still missing documentation parts: path, item, missing parts. May only shrink; the docs gate fails on new gaps and on stale rows.
-crates/public/pxui_types/src/text.rs	TextSpans::as_slice	example,Allocates,Panics
-crates/public/pxui_types/src/text.rs	TextSpans::new	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs		example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	text_of	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::part	example,Allocates,Panics
@@ -38,26 +36,6 @@ crates/public/pxui/src/testing.rs	click_node	Panics
 crates/public/pxui/src/testing.rs	find	Allocates,Panics
 crates/public/pxui/src/testing.rs	frame	Allocates,Panics
 crates/public/pxui/src/testing.rs	key	Panics
-crates/public/pxui/src/text_inputs.rs	Ui::load_text_edit	example,Allocates,Panics,Identity
-crates/public/pxui/src/text_inputs.rs	Ui::patch_field	example,Allocates,Panics
-crates/public/pxui/src/text_inputs.rs	Ui::remember	example,Allocates,Panics
-crates/public/pxui/src/text_width.rs	Ui::text_width	example,Allocates,Panics
-crates/public/pxui/src/text.rs	pragmasevka	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Text::add_font	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Text::enable_system_fonts	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Text::measure	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Text::measure_spans	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Text::new	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Text::prepare	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Text::width	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Ui::enable_system_fonts	example,Allocates,Panics
-crates/public/pxui/src/text.rs	Ui::text_service	example,Allocates,Panics
-crates/public/pxui/src/text.rs	UiText::add_font	example,Allocates,Panics
-crates/public/pxui/src/text.rs	UiText::fork	example,Allocates,Panics
-crates/public/pxui/src/text.rs	UiText::install	example,Allocates,Panics
-crates/public/pxui/src/text.rs	UiText::measure	example,Allocates,Panics
-crates/public/pxui/src/text.rs	UiText::measure_spans	example,Allocates,Panics
-crates/public/pxui/src/text.rs	UiText::width	example,Allocates,Panics
 crates/public/pxui/src/theme_scope.rs	Theme::apply	example,Allocates,Panics
 crates/public/pxui/src/theme_scope.rs	Theme::from_tokens	example,Allocates,Panics
 crates/public/pxui/src/theme_scope.rs	Theme::load	example,Allocates,Panics

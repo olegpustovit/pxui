@@ -31,7 +31,13 @@ library!(lib {
     fn pxui_text_rasterize_rgba(ui: *mut PxuiUi, key: u64, value: Str, style: *const TextStyle, max_width: f32, scale: f32, color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize) -> usize;
 });
 
-/// The default font (Pragmasevka) the library embeds.
+/// The font the library embeds (Pragmasevka), as bytes for `Text::new` or `UiText::add_font`; valid for the life of the process.
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// assert!(!pxui::text::pragmasevka().is_empty());
+/// ```
 pub fn pragmasevka() -> &'static [u8] {
     let font = unsafe { lib::pxui_default_font() };
     unsafe { core::slice::from_raw_parts(font.ptr, font.len) }
@@ -114,11 +120,17 @@ impl Drop for PreparedText { fn drop(&mut self) { unsafe { lib::pxui_prepared_de
 impl Drop for RetiredText { fn drop(&mut self) { unsafe { lib::pxui_prepared_destroy(self.0.as_ptr()) } } }
 
 impl Text {
-    /// Shape and reserve glyph-list storage on the worker. Installation requires a shaper forked
-    /// from that UI; font additions or newly discovered fallback fonts invalidate its deliveries.
-    /// At most 1 MiB of UTF-8 and 4 MiB of glyph-list storage per record; rasterization stays cold.
+    /// Shapes `value` in `style` within `max_width` points (0: unbounded) with up to eight `spans` on this shaper, ready to install into the `Ui` it was forked from; do the work on a worker, install between frames.
+    /// Installation needs a shaper forked from that `Ui` (`UiText::fork`); adding fonts or discovering fallback fonts afterwards invalidates the delivery. At most 1 MiB of UTF-8 and 4 MiB of glyph-list storage per record; rasterization stays cold.
+    /// Allocates: the record and its glyph-list storage, once per call.
+    /// Panics: never.
+    /// Errors: `Error::InvalidInput` for more than eight or overlapping spans or text over the limits; `Error::Engine` when shaping fails.
     ///
-    /// Errors: InvalidInput for more than eight or overlapping spans, or text over the 1 MiB / 4 MiB limits; Engine when shaping fails.
+    /// ```
+    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let prepared = text.prepare("Song title", &Default::default(), 0.0, &[]).unwrap();
+    /// assert!(prepared.metrics().width > 0.0);
+    /// ```
     pub fn prepare(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<PreparedText,Error> {
         let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let mut raw=core::ptr::null_mut();
@@ -127,26 +139,75 @@ impl Text {
         if rc!=0 { return Err(Error::from_code(rc)); }
         Ok(PreparedText { raw:NonNull::new(raw).expect("pxui: preparation succeeded without storage"),metrics })
     }
-    /// Enable native font fallback (Apple). A first missing cluster can discover/map a font file.
+    /// Enables the platform's font fallback for this shaper (Apple); the first missing character can discover and map a font file.
+    /// Call it before the first use. A shaper with explicit fonts only stays deterministic without it.
+    /// Allocates: nothing until a fallback font is first needed.
+    /// Panics: never.
+    /// Errors: `Error::State` once the shaper has been used or when the platform has no system fonts.
     ///
-    /// Errors: State once a frame has run or the platform has no system fonts.
+    /// ```
+    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let _ = text.enable_system_fonts(); // `Err(State)` where the platform has none
+    /// ```
     pub fn enable_system_fonts(&mut self)->Result<(),Error> {
         let rc=unsafe { lib::pxui_shaper_system_fonts(self.0.as_ptr()) };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
+    /// Creates a shaper of its own holding `fonts` (each the bytes of a font file, copied), the first being the default; `None` when a font cannot be read.
+    /// A `Text` may move to another thread, but one thread at a time uses it.
+    /// Allocates: the font system and caches, once; the font bytes are copied.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let text = pxui::Text::new(&[pxui::text::pragmasevka()]);
+    /// assert!(text.is_some());
+    /// ```
     pub fn new(fonts: &[&[u8]]) -> Option<Self> {
         let fonts: Vec<Str> = fonts.iter().map(|font| Str { ptr: font.as_ptr(), len: font.len() }).collect();
         NonNull::new(unsafe { lib::pxui_shaper_create(fonts.as_ptr(), fonts.len()) }).map(Self)
     }
-    /// Adds a font (the bytes are copied); its index.
-    pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { Backing::Shaper(self.0.as_ptr()).add_font(bytes) }
-    /// Errors: InvalidInput for a non-finite width or an oversized text.
-    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, Error> { Backing::Shaper(self.0.as_ptr()).measure(0, value, style, max_width) }
-    /// Measures one layout with up to eight ordered, disjoint UTF-8 byte ranges.
+    /// Adds the font `bytes` (copied) to this shaper and returns its index; the bytes are not validated here, so `None` only when the library cannot register another font.
+    /// Allocates: a copy of the font bytes and its tables.
+    /// Panics: never.
     ///
-    /// Errors: InvalidInput for bad spans or an oversized text.
+    /// ```
+    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// assert!(text.add_font(pxui::text::pragmasevka()).is_some());
+    /// assert!(text.add_font(b"not a font").is_some()); // the bytes are not validated here
+    /// ```
+    pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { Backing::Shaper(self.0.as_ptr()).add_font(bytes) }
+    /// Lays `value` out in `style` within `max_width` points (0: unbounded) and returns its size and line count, without drawing.
+    /// Layouts are cached by content, so measuring the same text and style again shapes nothing.
+    /// Allocates: the first measurement of a text and style shapes and caches it; never for a cached one.
+    /// Panics: never.
+    /// Errors: `Error::InvalidInput` for a non-finite `max_width` or oversized text.
+    ///
+    /// ```
+    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let m = text.measure("Song title", &Default::default(), 0.0).unwrap();
+    /// assert!(m.width > 0.0 && m.height > 0.0);
+    /// ```
+    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, Error> { Backing::Shaper(self.0.as_ptr()).measure(0, value, style, max_width) }
+    /// `measure` for one layout with up to eight ordered, disjoint UTF-8 byte ranges `spans` (a bold word shapes wider than a plain one).
+    /// Allocates: as `measure`.
+    /// Panics: never.
+    /// Errors: `Error::InvalidInput` for bad spans (more than eight, overlapping, or off a character boundary) or oversized text.
+    ///
+    /// ```
+    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
+    /// assert!(text.measure_spans("Song title", &Default::default(), 0.0, &[bold]).unwrap().width > 0.0);
+    /// ```
     pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> { Backing::Shaper(self.0.as_ptr()).measure_spans(0,value,style,max_width,spans) }
-    /// Errors: As `measure`.
+    /// `measure` returning only the width in points.
+    /// Allocates: as `measure`.
+    /// Panics: never.
+    /// Errors: as `measure`.
+    ///
+    /// ```
+    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// assert!(text.width("Song title", &Default::default(), 0.0).unwrap() > 0.0);
+    /// ```
     pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, Error> { self.measure(value, style, max_width).map(|m| m.width) }
     /// The text as straight-alpha RGBA8 written into `out` (cleared first): width and height; `out` holds `width * height * 4` bytes.
     /// Reuses `out`'s capacity.
@@ -173,9 +234,16 @@ impl Drop for Text { fn drop(&mut self) { unsafe { lib::pxui_shaper_destroy(self
 pub struct UiText<'ui>(&'ui mut Ui);
 
 impl Ui {
-    /// Enable native font fallback before the first frame. Explicit-font UIs stay deterministic.
+    /// Enables the platform's font fallback for this `Ui` (Apple) before its first frame; a `Ui` with explicit fonts stays deterministic without it.
+    /// A first missing character can then discover and map a font file.
+    /// Allocates: nothing until a fallback font is first needed.
+    /// Panics: never.
+    /// Errors: `Error::State` once a frame has run or when the platform has no system fonts.
     ///
-    /// Errors: State once a frame has run or the platform has no system fonts.
+    /// ```
+    /// let mut ui = pxui::Ui::new().unwrap();
+    /// let _ = ui.enable_system_fonts(); // `Err(State)` where the platform has none
+    /// ```
     pub fn enable_system_fonts(&mut self)->Result<(),Error> {
         let rc=unsafe { lib::pxui_text_system_fonts(self.0.as_ptr()) };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
@@ -250,6 +318,15 @@ impl Ui {
         let rc=unsafe { lib::pxui_ui_resolve_label(self.0.as_ptr(),&pxui_types::ffi::PxuiLabelStyle::from(style),&mut out) };
         if rc==0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
+    /// The `Ui`'s own text service: its font system and glyph atlas, for measuring, preparing and rasterizing outside a frame's build.
+    /// Measurements through it share the caches the frames draw with.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// assert!(ui.text_service().width("abc", &Default::default(), 0.0).unwrap() > 0.0);
+    /// ```
     pub fn text_service(&mut self) -> UiText<'_> { UiText(self) }
 
     /// The label call of `label`, `label_fmt` and `label_digits`, returning the label's node: linked statically, the library's trusted
@@ -283,14 +360,30 @@ impl Ui {
 }
 
 impl UiText<'_> {
-    /// Between frames, clone the font database and reserve this UI's bounded receiving cache.
-    /// Move the returned shaper to a worker; its font sources preserve this UI's font identities.
-    pub fn fork(&mut self)->Option<Text> { NonNull::new(unsafe { lib::pxui_text_fork(self.0.0.as_ptr()) }).map(Text) }
-    /// Between frames, adopt a matching prepared layout without shaping or allocating. Ordinary
-    /// text calls with identical content/style/width use it. Glyph rasterization/atlas growth may
-    /// still allocate. Failure returns the original record; success returns storage to retire on the worker.
+    /// Between frames, clones the `Ui`'s font database into a `Text` for a worker, with a bounded cache for delivering layouts back; `None` when it cannot.
+    /// The fork keeps this `Ui`'s font identities, so what it prepares installs here. Move it to the worker thread.
+    /// Allocates: the cloned font sources and the receiving cache, once.
+    /// Panics: never.
     ///
-    /// Errors: State when the record was prepared by a shaper not forked from this UI or the fonts changed; the record comes back with the error.
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// let worker_text = ui.text_service().fork();
+    /// assert!(worker_text.is_some());
+    /// ```
+    pub fn fork(&mut self)->Option<Text> { NonNull::new(unsafe { lib::pxui_text_fork(self.0.0.as_ptr()) }).map(Text) }
+    /// Between frames, adopts a layout a forked shaper prepared, without shaping or allocating; ordinary text with the same content, style and width then uses it.
+    /// Glyph rasterization and atlas growth may still allocate. Success returns storage to hand back to the worker to destroy; failure returns the record with the error.
+    /// Allocates: never.
+    /// Panics: never.
+    /// Errors: `Error::State` when the record was prepared by a shaper not forked from this `Ui`, or the fonts changed since; the record comes back with it.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// let mut worker = ui.text_service().fork().unwrap();
+    /// let prepared = worker.prepare("Song title", &Default::default(), 0.0, &[]).unwrap();
+    /// let retired = ui.text_service().install(prepared);
+    /// assert!(retired.is_ok()); // send the `RetiredText` back to the worker to drop
+    /// ```
     pub fn install(&mut self,prepared:PreparedText)->Result<RetiredText,(Error,PreparedText)> {
         let rc=unsafe { lib::pxui_text_install(self.0.0.as_ptr(),prepared.raw.as_ptr()) };
         if rc!=0 { return Err((Error::from_code(rc),prepared)); }
@@ -299,14 +392,47 @@ impl UiText<'_> {
         Ok(RetiredText(raw))
     }
     fn backing(&self) -> Backing { Backing::Ui(self.0.0.as_ptr()) }
-    pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { self.backing().add_font(bytes) }
-    /// Errors: InvalidInput for a non-finite width or an oversized text.
-    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, Error> { self.backing().measure(0, value, style, max_width) }
-    /// Measures one layout with up to eight ordered, disjoint UTF-8 byte ranges.
+    /// Adds the font `bytes` (copied) to the `Ui`'s font system and returns its index; the bytes are not validated here, so `None` only when the library cannot register another font.
+    /// Fonts that layouts prepared on a fork were shaped with are no longer valid afterwards.
+    /// Allocates: a copy of the font bytes and its tables.
+    /// Panics: never.
     ///
-    /// Errors: InvalidInput for bad spans or an oversized text.
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// assert!(ui.text_service().add_font(pxui::text::pragmasevka()).is_some());
+    /// ```
+    pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { self.backing().add_font(bytes) }
+    /// `Text::measure` on the `Ui`'s font system: the size of `value` in `style` within `max_width` points (0: unbounded), without drawing.
+    /// Allocates: the first measurement of a text and style shapes and caches it; never for a cached one.
+    /// Panics: never.
+    /// Errors: `Error::InvalidInput` for a non-finite `max_width` or oversized text.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// let m = ui.text_service().measure("Song title", &Default::default(), 0.0).unwrap();
+    /// assert!(m.width > 0.0);
+    /// ```
+    pub fn measure(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<TextMetrics, Error> { self.backing().measure(0, value, style, max_width) }
+    /// `Text::measure_spans` on the `Ui`'s font system: one layout with up to eight ordered, disjoint byte ranges `spans`.
+    /// Allocates: as `measure`.
+    /// Panics: never.
+    /// Errors: `Error::InvalidInput` for bad spans or oversized text.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
+    /// assert!(ui.text_service().measure_spans("Song title", &Default::default(), 0.0, &[bold]).unwrap().width > 0.0);
+    /// ```
     pub fn measure_spans(&mut self,value:&str,style:&TextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> { self.backing().measure_spans(0,value,style,max_width,spans) }
-    /// Errors: As `measure`.
+    /// `measure` returning only the width in points.
+    /// Allocates: as `measure`.
+    /// Panics: never.
+    /// Errors: as `measure`.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// assert!(ui.text_service().width("Song title", &Default::default(), 0.0).unwrap() > 0.0);
+    /// ```
     pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, Error> { self.measure(value, style, max_width).map(|m| m.width) }
     /// The text as straight-alpha RGBA8 written into `out` (cleared first): width and height; `out` holds `width * height * 4` bytes.
     /// Reuses `out`'s capacity.
