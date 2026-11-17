@@ -1371,14 +1371,14 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
     let mut renderer = shared_renderer(&device, &ui);
     let mut nested = reenter.then(|| shared_renderer(&device, &ui));
     if prepared { renderer.resize(640, 600).expect("prepare blur targets before recording"); }
-    ui.view_offset(&glass.get().unwrap(), 80.0, 40.0);
+    ui.set_view(&glass.get().unwrap(), &pxui::ViewTransform::DEFAULT.offset(80.0, 40.0));
     ui.view_backdrop_blur(&glass.get().unwrap(), 8.0);
     ui.view_backdrop_saturation(&glass.get().unwrap(), 0.9);
-    ui.view_offset(&second.get().unwrap(), 220.0, 60.0);
+    ui.set_view(&second.get().unwrap(), &pxui::ViewTransform::DEFAULT.offset(220.0, 60.0));
     ui.view_backdrop_blur(&second.get().unwrap(), 1.5);
     ui.view_backdrop_saturation(&second.get().unwrap(), 0.9);
     build(&mut ui);
-    ui.view_offset(&glass.get().unwrap(), 40.0, 20.0);
+    ui.set_view(&glass.get().unwrap(), &pxui::ViewTransform::DEFAULT.offset(40.0, 20.0));
     build(&mut ui);
     build(&mut ui);
     if large { assert!(ui.layers().any(|layer|layer.breaks>64),"large blurred layer crosses the old stack limit"); }
@@ -1405,7 +1405,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
         let mut open_pass = first.clone();
         let mut splits = 0;
         mem_sys::local_reset();
-        ui.view_transform_about(&glass.get().unwrap(),if frame%2==0 { 1.0 } else { 0.8 },[1.0,0.0,0.0,1.0],(80.0,40.0));
+        ui.set_view(&glass.get().unwrap(), &pxui::ViewTransform::DEFAULT.about(if frame%2==0 { 1.0 } else { 0.8 }, [1.0,0.0,0.0,1.0], (80.0,40.0)));
         ui.view_backdrop_blur(&glass.get().unwrap(),if frame%2==0 { 8.0 } else { 0.5 });
         let layers = ui.layers().count();
         for layer in 0..layers as u32 {
@@ -1795,9 +1795,9 @@ fn shared_public_view_controls_keep_native_draws_and_instances() {
             outer.set(Some(view));
         }).unwrap();
         let view=outer.get().unwrap();
-        ui.view_opacity(&view,0.5);
-        ui.view_opacity(&inner.get().unwrap(),0.5);
-        ui.view_scale(&view,scale);
+        ui.set_view(&view, &pxui::ViewTransform::DEFAULT.opacity(0.5));
+        ui.set_view(&inner.get().unwrap(), &pxui::ViewTransform::DEFAULT.opacity(0.5));
+        ui.set_view(&view, &pxui::ViewTransform::DEFAULT.scale(scale));
         ui.view_clip(&view,clip);
         if frame>=5 { assert_eq!(mem_sys::local_alloc_count(),0,"warm public view updates keep their table storage"); }
         let instances=ui.layer(0).instances;
