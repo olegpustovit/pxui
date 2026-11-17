@@ -42,6 +42,15 @@ pub mod ui_core {
 }
 pub mod ui_text {
     /// Whether `signal` is a right click: released with the right button within 4 points of its press.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{ui::context_clicked, Signal};
+    /// let click = Signal { released: true, button: Some(1), press_point: (10.0, 10.0), release_point: (11.0, 10.0), ..Signal::default() };
+    /// assert!(context_clicked(&click));
+    /// assert!(!context_clicked(&Signal { release_point: (40.0, 10.0), ..click }));
+    /// ```
     pub fn context_clicked(signal: &crate::Signal) -> bool {
         let ((px, py), (rx, ry)) = (signal.press_point, signal.release_point);
         signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0

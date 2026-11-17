@@ -198,7 +198,19 @@ impl Ui {
             swipe_commit_leading: f & 512 != 0, swipe_commit_trailing: f & 1024 != 0, swipe_open_leading: f & 2048 != 0, swipe_open_trailing: f & 4096 != 0,
         }
     }
-    /// Take these gestures on `node` (call every build) and read what they did. A stale handle reads as rest.
+    /// Takes the touch gestures `opts` on `node` (long press, row swipe, edge back, pull to refresh, swipe actions, drag to dismiss) and returns what they did to it.
+    /// Call it every build; what `opts` leaves out is not taken. Gestures are touch only: a mouse or trackpad never starts one. The one-frame bits of `GestureState` (`long_pressed`, `*_committed`, `refresh_fired`, `*_cancelled`) read true only in the frame they happen. A stale handle reads as rest (every field zero or false).
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`, or a non-finite width or threshold in `opts`).
+    ///
+    /// ```
+    /// use pxui::{ui::Size, GestureOpts, Node};
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let row = ui.node("row".into(), Node { h: Size::Px(44.0), ..Node::DEFAULT });
+    ///     let state = ui.gesture(&row, GestureOpts { long_press: true, row_swipe: Some(80.0), ..GestureOpts::default() });
+    ///     assert!(!state.long_pressed && !state.swiping);
+    /// });
+    /// ```
     #[track_caller]
     pub fn gesture(&mut self, node: &PxuiBox, opts: GestureOpts) -> GestureState {
         let kinds = u32::from(opts.long_press) | u32::from(opts.row_swipe.is_some()) << 1 | u32::from(opts.edge_back) << 2 | u32::from(opts.refresh.is_some()) << 3 | u32::from(opts.touch_drag) << 5;
@@ -213,13 +225,43 @@ impl Ui {
         crate::live(self, unsafe { lib::pxui_ui_dismiss(self.0.as_ptr(), node, &request, &mut out) });
         GestureState { dismissing: out.flags & 8192 != 0, dismiss_committed: out.flags & 16384 != 0, dismiss_cancelled: out.flags & 32768 != 0, dismiss: out.offset, ..state }
     }
-    /// Read a node's gesture state without changing what it takes.
+    /// Reads `node`'s gesture state without changing which gestures it takes; for code that runs before or apart from the `gesture` call.
+    /// A stale handle reads as rest.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let row = ui.node("row".into(), pxui::Node::DEFAULT);
+    ///     assert!(!ui.gesture_state(&row).swipe_open);
+    /// });
+    /// ```
     #[track_caller]
     pub fn gesture_state(&mut self, node: &PxuiBox) -> GestureState { self.gesture_call(node, None, 0) }
-    /// Close a swiped-open row.
+    /// Closes a swiped-open row `node`: the content slides back to rest.
+    /// A row that is not open, or a stale handle, does nothing.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let row = ui.node("row".into(), pxui::Node::DEFAULT);
+    ///     ui.close_swipe(&row);
+    /// });
+    /// ```
     #[track_caller]
     pub fn close_swipe(&mut self, node: &PxuiBox) { self.gesture_call(node, None, 1); }
-    /// End a held refresh: the content returns to the top.
+    /// Ends a held pull to refresh on the scroll node `node`: `refreshing` drops and the content returns to the top.
+    /// Call it when the load that `refresh_fired` started has finished. A node that is not refreshing, or a stale handle, does nothing.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let list = ui.node("list".into(), pxui::Node::DEFAULT);
+    ///     ui.end_refresh(&list);
+    /// });
+    /// ```
     #[track_caller]
     pub fn end_refresh(&mut self, node: &PxuiBox) { self.gesture_call(node, None, 2); }
 }
@@ -471,31 +513,86 @@ impl Ui {
     }
     #[inline] #[track_caller] pub fn to_front(&mut self, order: i64, b: &PxuiBox) { check(self, unsafe { lib::pxui_ui_to_front(self.0.as_ptr(), order, b) }) }
 
+    /// The payload a drag or key carry is holding as an owned copy, or `None` when nothing is carried.
+    /// Prefer `carrying_ref` when a borrow does; this one copies the two strings.
+    /// Allocates: the copies of `kind` and `value`; never when nothing is carried.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// use pxui::ui::Payload;
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     assert_eq!(ui.carrying(), None);
+    ///     ui.carry(None, "song", "42");
+    ///     assert_eq!(ui.carrying(), Some(Payload { kind: "song".into(), value: "42".into() }));
+    /// });
+    /// ```
     #[track_caller]
     pub fn carrying(&self) -> Option<Payload> {
         self.carrying_ref().map(|p| Payload { kind: p.kind.to_owned(), value: p.value.to_owned() })
     }
+    /// The payload being carried, borrowed from the library until the next mutable call on the `Ui`, or `None` when nothing is carried.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     ui.carry(None, "song", "42");
+    ///     let held = ui.carrying_ref().unwrap();
+    ///     assert_eq!((held.kind, held.value), ("song", "42"));
+    /// });
+    /// ```
     #[track_caller]
     pub fn carrying_ref(&self) -> Option<PayloadRef<'_>> {
         let (mut present, mut kind, mut value) = (0, Str::default(), Str::default());
         check(self, unsafe { lib::pxui_ui_carrying(self.0.as_ptr(), &mut present, &mut kind, &mut value) });
         (present != 0).then(|| PayloadRef { kind: crate::lent_str(kind), value: crate::lent_str(value) })
     }
+    /// Holds a payload of `kind` and `value` for a drag or a key-driven move; drop targets read it with `drop_target` and everyone with `carrying`.
+    /// With `from` (the box that owns the pressed left button) the payload is held once the pointer has moved 4 points from the press, so a widget calls it every frame while pressed. With `None` (a key) it is held at once, with no capture, and `cancel_carry` ends it. A new payload replaces the one held.
+    /// Allocates: copies `kind` and `value` into storage the `Ui` reuses between carries; allocates only when a string outgrows it.
+    /// Panics: when the library refuses the call (a stale `from`, or text over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     ui.carry(None, "row", "7");
+    ///     assert!(ui.carrying().is_some());
+    ///     ui.cancel_carry();
+    ///     assert!(ui.carrying().is_none());
+    /// });
+    /// ```
     #[track_caller]
     pub fn carry(&mut self, from: Option<&PxuiBox>, kind: &str, value: &str) {
         let raw = from.map_or(core::ptr::null(), |b| b as *const PxuiBox);
         check(self, unsafe { lib::pxui_ui_carry(self.0.as_ptr(), from.is_some() as u8, raw, as_str(kind), as_str(value)) })
     }
-    /// Move an active pointer carry's capture to a live hit ancestor, retaining it when virtual
-    /// source rows disappear. Removing that ancestor, losing capture or cancellation still ends it.
-    /// Scroll containers follow the pointer at their edges. Returns false for key carries,
-    /// stale/unrelated targets or no active pointer carry.
+    /// Moves an active pointer carry's capture to `to`, a live hit ancestor of the box that started it, so a virtualized source row can scroll away without ending the drag.
+    /// Scroll containers follow the pointer at their edges. Removing `to`, losing the capture or cancelling still ends the carry. False for a key carry, a stale or unrelated `to`, or no pointer carry.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let list = ui.node("list".into(), pxui::Node::DEFAULT);
+    ///     assert!(!ui.transfer_carry(&list)); // nothing is being carried
+    /// });
+    /// ```
     #[track_caller]
     pub fn transfer_carry(&mut self, to: &PxuiBox) -> bool {
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_transfer_carry(self.0.as_ptr(), to, &mut out) });
         out != 0
     }
+    /// What a drag looks like to the drop target `b` as an owned `Drop`: `Hover` while a payload is held over it or one of its descendants, `Dropped` in the frame the payload was released there, `None` otherwise.
+    /// A drop stays readable by the target and its ancestors for the whole frame it happened in.
+    /// Allocates: copies the payload's two strings; never when it returns `None`.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let slot = ui.node("slot".into(), pxui::Node::DEFAULT);
+    ///     assert_eq!(ui.drop_target(&slot), None);
+    /// });
+    /// ```
     #[inline] #[track_caller] pub fn cancel_carry(&mut self) { check(self, unsafe { lib::pxui_ui_cancel_carry(self.0.as_ptr()) }) }
     #[track_caller]
     pub fn drop_target(&mut self, b: &PxuiBox) -> Option<Drop> {
@@ -504,6 +601,16 @@ impl Ui {
             DropRef::Dropped(p) => Drop::Dropped(Payload { kind: p.kind.to_owned(), value: p.value.to_owned() }),
         })
     }
+    /// `drop_target` with the payload borrowed from the library until the next mutable call on the `Ui`, so no string is copied.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let slot = ui.node("slot".into(), pxui::Node::DEFAULT);
+    ///     assert!(ui.drop_target_ref(&slot).is_none());
+    /// });
+    /// ```
     #[track_caller]
     pub fn drop_target_ref(&mut self, b: &PxuiBox) -> Option<DropRef<'_>> {
         let (mut tag, mut kind, mut value) = (0, Str::default(), Str::default());
@@ -511,7 +618,17 @@ impl Ui {
         let payload = || PayloadRef { kind: crate::lent_str(kind), value: crate::lent_str(value) };
         match tag { 1 => Some(DropRef::Hover(payload())), 2 => Some(DropRef::Dropped(payload())), _ => None }
     }
-    /// The released right-click in this box or a descendant, through shared capture.
+    /// Where the right button was released in `b` or a descendant this frame, in window points, or `None`.
+    /// Reads through the shared capture, so a press that began in `b` and was released over it counts. It reports the release, not the press; `context_clicked` also checks that the pointer did not travel between them.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("b".into(), pxui::Node::DEFAULT);
+    ///     assert_eq!(ui.context_at(&b), None);
+    /// });
+    /// ```
     #[track_caller]
     pub fn context_at(&mut self, b: &PxuiBox) -> Option<(f32, f32)> {
         let (mut present, mut out) = (0, Point::default());

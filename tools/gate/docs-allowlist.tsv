@@ -7,17 +7,6 @@ crates/public/pxui/src/bodies.rs	Ui::part	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::part_box	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::part_rect	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs	Ui::slot	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::carry	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::carrying	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::carrying_ref	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::close_swipe	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::context_at	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::drop_target	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::drop_target_ref	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::end_refresh	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::gesture	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::gesture_state	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::transfer_carry	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::field_drag	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::grip	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_bar	example,Allocates,Panics
@@ -42,7 +31,6 @@ crates/public/pxui/src/kit.rs	pxui_ui_table	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_wants_frame	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	Ui::table	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit.rs	Ui::table_str	example,Allocates,Panics,Identity
-crates/public/pxui/src/lib.rs	context_clicked	example,Allocates,Panics
 crates/public/pxui/src/style.rs	pxui_ui_set_look	example,Allocates,Panics
 crates/public/pxui/src/style.rs	pxui_ui_style	example,Allocates,Panics
 crates/public/pxui/src/testing.rs	click	Panics
