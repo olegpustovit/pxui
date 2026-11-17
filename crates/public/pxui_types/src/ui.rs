@@ -1106,11 +1106,13 @@ pub struct Segmented<'a> {
     pub padding: f32,
     /// The least width of a segment in points (0: none).
     pub min_segment: f32,
+    /// A press on an option focuses it (false: a press chooses without focusing, as the kit's buttons leave the focus).
+    pub focus_on_click: bool,
 }
 
 impl<'a> Segmented<'a> {
     /// The plain kit segmented control.
-    pub const DEFAULT: Segmented<'a> = Segmented { h: None, grow: false, look: None, enabled: true, name: None, variant: 0, w: None, padding: 8.0, min_segment: 0.0 };
+    pub const DEFAULT: Segmented<'a> = Segmented { h: None, grow: false, look: None, enabled: true, name: None, variant: 0, w: None, padding: 8.0, min_segment: 0.0, focus_on_click: false };
 
     /// Sets the strip's height in points.
     /// Allocates: never.
@@ -1205,6 +1207,17 @@ impl<'a> Segmented<'a> {
     /// let _ = EVEN;
     /// ```
     pub const fn min_segment(mut self, w: f32) -> Segmented<'a> { self.min_segment = w; self }
+
+    /// Sets whether a press on an option focuses it (false by default: a press chooses without focusing, as `Button`, `Menu` and `Pressable`
+    /// do). A pressed option is the choice, so it becomes the strip's one Tab stop; a strip with `enabled(false)` takes no press.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const CHIPS: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.focus_on_click(true);
+    /// assert!(CHIPS.focus_on_click);
+    /// ```
+    pub const fn focus_on_click(mut self, focus: bool) -> Segmented<'a> { self.focus_on_click = focus; self }
 }
 
 /// What a `Ui::menu` call reports for the frame.

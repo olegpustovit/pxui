@@ -156,10 +156,12 @@ pub struct SegmentedOpts {
     pub padding: f32,
     /// The least width of a segment in points (0: none).
     pub min_segment: f32,
+    /// A press on an option focuses it, and it is then the strip's Tab stop (the chosen option); by default a press chooses without focusing.
+    pub focus_on_click: bool,
 }
 
 impl SegmentedOpts {
-    pub const DEFAULT: SegmentedOpts = SegmentedOpts { enabled: true, h: None, grow: false, states: None, w: None, padding: 8.0, min_segment: 0.0 };
+    pub const DEFAULT: SegmentedOpts = SegmentedOpts { enabled: true, h: None, grow: false, states: None, w: None, padding: 8.0, min_segment: 0.0, focus_on_click: false };
 }
 
 /// What `segmented_with` reports: the strip's response, the choice (`None`: none) and the option a secondary press began on.
@@ -544,7 +546,7 @@ impl Ui {
     /// The wrapper's `segmented_with` shape over `segmented_opts`: `segmented` (a `Segmented` value) varies the strip and its variant
     /// reaches the registered segment body; `response.changed` is not the engine's (the caller compares `chosen`).
     pub fn segmented_with(&mut self, key: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> SegmentedResponse {
-        let opts = SegmentedOpts { enabled: segmented.enabled, h: segmented.h, grow: segmented.grow, states: segmented.look, w: segmented.w, padding: segmented.padding, min_segment: segmented.min_segment };
+        let opts = SegmentedOpts { enabled: segmented.enabled, h: segmented.h, grow: segmented.grow, states: segmented.look, w: segmented.w, padding: segmented.padding, min_segment: segmented.min_segment, focus_on_click: segmented.focus_on_click };
         let kind = pxui_types::theme::BodyKind::segment as u32;
         if segmented.variant != 0 { self.set_variant(kind, segmented.variant); }
         let (response, chosen, secondary) = self.segmented_opts(key, segmented.name.unwrap_or(""), options, selected, &opts);
@@ -560,7 +562,8 @@ impl Ui {
     /// option holds the focus (a key, or the caller's `selected`), the focus moves to the new choice; when the options shrink below the
     /// focused one, the focus moves to the Tab stop (the strip itself when no option is left). `selected` past the options is clamped to
     /// the last. The response is the strip's, with `clicked` (and `activated`) for a press or key on an option, `hovered`, `held` and
-    /// `focused` for the strip or any option and `secondary` for a secondary press on an option, whose index is the third value.
+    /// `focused` for the strip or any option and `secondary` for a secondary press on an option, whose index is the third value. With `opts.focus_on_click` a press on an
+    /// option also focuses it (the chosen option, so the Tab stop).
     #[allow(clippy::too_many_arguments)]
     pub fn segmented_options<'a>(&mut self, key: &str, name: &str, count: usize, option: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, opts: &SegmentedOpts) -> (Response, Option<usize>, Option<usize>) {
         let enabled = opts.enabled && !self.scope_disabled();
@@ -579,6 +582,8 @@ impl Ui {
         self.a11y_name(&strip, shown(name));
         let s = self.signal(&strip);
         let mut sel = selected.filter(|_| count > 0).map(|i| i.min(count - 1));
+        // the caller's choice, before this frame's keys and presses move it
+        let stored = sel;
         // the option holding the focus, if one does: its arrows move the focus and the choice
         let focus = self.focus_key();
         let held = (0..count).find(|i| int_key(strip.box_key, *i as i64) == focus);
@@ -610,9 +615,9 @@ impl Ui {
                 (sel, clicked, by_key) = (Some(i), true, !ns.released);
             }
             if enabled && ns.pressed && ns.button == Some(input::MouseButton::RightButton) { secondary = Some(i); }
-            let focused = enabled && if follow { i == sel.unwrap_or(0) } else { at == Some(i) };
+            let focused = enabled && (if follow { i == sel.unwrap_or(0) } else { at == Some(i) } || (opts.focus_on_click && ns.clicked));
             let state = State { hovered: enabled && ns.hovered, pressed: enabled && ns.held, checked: sel == Some(i), disabled: !enabled, focused };
-            let config = SegmentConfig { state, index: i, selected: sel, group: strip.box_key, node: n, grow, padding: opts.padding, min_segment: opts.min_segment, line, strip };
+            let config = SegmentConfig { state, index: i, selected: sel, stored, group: strip.box_key, node: n, grow, padding: opts.padding, min_segment: opts.min_segment, line, strip };
             let at_focusable = if enabled { st::FOCUSABLE } else { 0 };
             self.set_role(&n, Role::Radio, st::CHECKABLE | at_focusable | if sel == Some(i) { st::CHECKED } else { 0 });
             self.a11y_name(&n, option.name.unwrap_or(option.text));

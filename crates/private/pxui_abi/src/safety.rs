@@ -1102,7 +1102,7 @@ mod sized_records {
         let span = Slice { ptr: options.as_ptr(), len: 2 };
         let mut value: PxuiSegmentedDesc = unsafe { core::mem::zeroed() };
         (value.size, value.enabled, value.key, value.name, value.padding, value.selected) = (size_of_val(&value) as u32, 1, k, k, 8.0, 5);
-        four_min(ui, ((&value as *const PxuiSegmentedDesc).cast(), size_of_val(&value), align_of_val(&value)), &[64, 96], &mut |p| {
+        four_min(ui, ((&value as *const PxuiSegmentedDesc).cast(), size_of_val(&value), align_of_val(&value)), &[64, 96, 104], &mut |p| {
             let p = p.cast::<PxuiSegmentedDesc>();
             in_frame(ui, &mut |ui| { let (mut out, mut result) = (PxuiResponse::EMPTY, PxuiSegmentedResult::EMPTY); unsafe { pxui_ui_segmented_result(ui, p, span, &mut out, &mut result) } })
         });
@@ -1116,10 +1116,14 @@ mod sized_records {
         assert_eq!(chosen, 1, "a 1.55 record's `selected` is the choice, clamped");
         assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &old, span, &mut out, &mut result) }), 0);
         assert_eq!((result.has_chosen, result.chosen), (1, 1));
-        let fine = PxuiSegmentedDesc { selected: 0, has_selected: 1, ..value };
+        // a 1.67 record (104 bytes) has its own has_selected (0 here: none) and never has its `focus_on_click` bytes read
+        let v67 = PxuiSegmentedDesc { size: 104, focus_on_click: 9, reserved4: [9; 7], ..value };
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &v67, span, &mut out, &mut result) }), 0, "{}", error(ui));
+        assert_eq!((result.has_chosen, result.chosen), (0, 0), "has_selected 0 at 104 bytes is no choice");
+        let fine = PxuiSegmentedDesc { selected: 0, has_selected: 1, focus_on_click: 1, ..value };
         assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &fine, span, &mut out, &mut result) }), 0);
         assert_eq!((result.has_chosen, result.chosen), (1, 0));
-        for bad in [PxuiSegmentedDesc { has_selected: 2, ..value }, PxuiSegmentedDesc { reserved3: [0, 0, 1, 0, 0, 0, 0], ..value }] {
+        for bad in [PxuiSegmentedDesc { has_selected: 2, ..value }, PxuiSegmentedDesc { reserved3: [0, 0, 1, 0, 0, 0, 0], ..value }, PxuiSegmentedDesc { focus_on_click: 2, ..value }, PxuiSegmentedDesc { reserved4: [0, 1, 0, 0, 0, 0, 0], ..value }] {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_segmented_result(ui, &bad, span, &mut out, &mut result) }), PXUI_ERR_ARGUMENT);
         }
         let short = PxuiSegmentedResult { size: 4, ..PxuiSegmentedResult::EMPTY };
@@ -1542,9 +1546,9 @@ fn the_library_checks_the_major_the_app_was_built_against_once_at_create() {
 fn supports_answers_from_the_feature_registry_of_this_build() {
     use pxui_types::feature as f;
     let has = |id: u32| unsafe { pxui_supports(id) };
-    assert_eq!((has(0), has(26), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
+    assert_eq!((has(0), has(27), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
     assert_eq!((has(f::A11Y_BRIDGE) == 1, has(f::METAL) == 1, has(f::VULKAN) == 1), (cfg!(target_os = "linux"), cfg!(any(target_os = "macos", target_os = "ios")), cfg!(any(windows, target_os = "linux"))));
-    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED, f::LABEL_TEXT, f::MENU_MAX_H, f::SEGMENTED_RESULT, f::WIDGETS_KEYED] {
+    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED, f::LABEL_TEXT, f::MENU_MAX_H, f::SEGMENTED_RESULT, f::WIDGETS_KEYED, f::SEGMENTED_STORED_FOCUS] {
         assert_eq!(has(id), 1, "feature {id}");
     }
     // pxui.h numbers the same ids
@@ -1554,7 +1558,7 @@ fn supports_answers_from_the_feature_registry_of_this_build() {
     assert_eq!(1 << 16 | built, ABI_VERSION, "pxui.h PXUI_ABI_BUILT");
     for (name, id) in [("A11Y_BRIDGE", f::A11Y_BRIDGE), ("METAL", f::METAL), ("VULKAN", f::VULKAN), ("EXTENSION_SET", f::EXTENSION_SET), ("BUTTON_CONTENT", f::BUTTON_CONTENT), ("ICON_BUTTON_CURVES", f::ICON_BUTTON_CURVES),
         ("TOGGLE_RESPONSE", f::TOGGLE_RESPONSE), ("SEGMENTED_RESPONSE", f::SEGMENTED_RESPONSE), ("DIALOG_RESPONSE", f::DIALOG_RESPONSE), ("WIDGET_VARIANTS", f::WIDGET_VARIANTS), ("LABEL_NODE", f::LABEL_NODE),
-        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED), ("LABEL_TEXT", f::LABEL_TEXT), ("MENU_MAX_H", f::MENU_MAX_H), ("SEGMENTED_RESULT", f::SEGMENTED_RESULT), ("WIDGETS_KEYED", f::WIDGETS_KEYED)] {
+        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED), ("LABEL_TEXT", f::LABEL_TEXT), ("MENU_MAX_H", f::MENU_MAX_H), ("SEGMENTED_RESULT", f::SEGMENTED_RESULT), ("WIDGETS_KEYED", f::WIDGETS_KEYED), ("SEGMENTED_STORED_FOCUS", f::SEGMENTED_STORED_FOCUS)] {
         assert!(header.contains(&format!("PXUI_FEATURE_{name} = {id}")), "{name}");
     }
 }

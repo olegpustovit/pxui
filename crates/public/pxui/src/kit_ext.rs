@@ -228,7 +228,7 @@ impl Ui {
         let (chosen, secondary, rc) = {
             let (mut chosen, mut secondary) = (None, None);
             let rc = unsafe { pxui_abi_link::trusted::segmented_with(self.0.as_ptr(), key, name, options, selected, segmented.enabled, segmented.h.unwrap_or(0.0), segmented.grow,
-                segmented.look.as_ref(), segmented.w.unwrap_or(0.0), segmented.padding, segmented.min_segment, &mut out, &mut chosen, &mut secondary) };
+                segmented.look.as_ref(), segmented.w.unwrap_or(0.0), segmented.padding, segmented.min_segment, segmented.focus_on_click, &mut out, &mut chosen, &mut secondary) };
             (chosen, secondary, rc)
         };
         #[cfg(not(feature = "static"))]
@@ -241,7 +241,7 @@ impl Ui {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiSegmentedDesc>() as u32, enabled: segmented.enabled as u8, grow: segmented.grow as u8, reserved: [0; 2], h: segmented.h.unwrap_or(0.0),
                 states: states.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), selected: selected.unwrap_or(0),
                 w: segmented.w.unwrap_or(0.0), padding: segmented.padding, min_segment: segmented.min_segment, reserved2: 0,
-                names: if named { names.span() } else { Slice { ptr: core::ptr::null(), len: 0 } }, has_selected: selected.is_some() as u8, reserved3: [0; 7],
+                names: if named { names.span() } else { Slice { ptr: core::ptr::null(), len: 0 } }, has_selected: selected.is_some() as u8, reserved3: [0; 7], focus_on_click: segmented.focus_on_click as u8, reserved4: [0; 7],
             };
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
             let rc = unsafe { lib::pxui_ui_segmented_result(self.0.as_ptr(), &desc, texts.span(), &mut out, &mut result) };

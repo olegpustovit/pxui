@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 68
+minor 69
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -400,8 +400,8 @@ layout PxuiScrubOut 48 8 0 4 8 40 44
 layout PxuiSearchFieldConfig 88 8 0 4 16 24 56 72 80
 layout PxuiSectionConfig 80 8 0 4 8 16 48 64 72
 layout PxuiSectionListDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
-layout PxuiSegmentConfig 184 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177
-layout PxuiSegmentedDesc 104 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97
+layout PxuiSegmentConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 192 193
+layout PxuiSegmentedDesc 112 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97 104 105
 layout PxuiSegmentedResult 24 8 0 4 5 6 8 16
 layout PxuiShadow 24 4 0 4 12 16 20
 layout PxuiShadowDesc 24 4 0 4 12 16 20 21

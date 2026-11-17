@@ -227,13 +227,13 @@ unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, option
     if desc.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short segmented response") } };
     // a 64-byte record is the 1.51 one: the kit's padding, no width, least width or names; a 96-byte one the 1.55 one, its `selected` always
-    // the choice (as `has_selected` 1)
+    // the choice (as `has_selected` 1); a 104-byte one the 1.67 one, its presses never focus (`focus_on_click` 0)
     let size = unsafe { desc.cast::<u32>().read_unaligned() } as usize;
-    let Some((mut d, whole)) = read_desc!(desc, PxuiSegmentedDesc, [64, 96]) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
+    let Some((mut d, _)) = read_desc!(desc, PxuiSegmentedDesc, [64, 96, 104]) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
     let grown = size >= 96;
     if !grown { d.padding = 8.0; }
-    if !whole { d.has_selected = 1; }
-    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || (grown && d.reserved2 != 0) || d.has_selected > 1 || d.reserved3 != [0; 7] { return unsafe { fail(ui, "invalid segmented descriptor") }; }
+    if size < 104 { d.has_selected = 1; }
+    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || (grown && d.reserved2 != 0) || d.has_selected > 1 || d.reserved3 != [0; 7] || d.focus_on_click > 1 || d.reserved4 != [0; 7] { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     if d.has_selected == 0 && !none { return unsafe { fail(ui, "no segmented choice: use pxui_ui_segmented_result") }; }
     let Ok(states) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid segmented looks") } };
     let mut list = state.shared().take_strs();
@@ -252,7 +252,7 @@ unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, option
     let mut segments = state.shared().take_segments();
     segments.extend(list.iter().enumerate().map(|(i, text)| pxui_types::ui::Segment { text, name: names.get(i).copied().filter(|n| !n.is_empty()) }));
     let selected = (d.has_selected == 1).then_some(d.selected);
-    let rc = unsafe { trusted::segmented_with(ui, key, name, &segments, selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, out, chosen, secondary) };
+    let rc = unsafe { trusted::segmented_with(ui, key, name, &segments, selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, d.focus_on_click != 0, out, chosen, secondary) };
     state.shared().put_segments(segments);
     state.shared().put_strs(names);
     state.shared().put_strs(list);

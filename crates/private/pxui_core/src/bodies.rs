@@ -289,6 +289,8 @@ pub struct SegmentConfig {
     pub state: State,
     pub index: usize,
     pub selected: Option<usize>,
+    /// The choice the caller passed (clamped to the options), before this frame's press or key moved `selected`; `None` for no choice.
+    pub stored: Option<usize>,
     pub group: i64,
     pub node: Handle,
     pub grow: bool,

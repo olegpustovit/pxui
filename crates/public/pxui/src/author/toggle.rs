@@ -590,6 +590,81 @@ mod tests {
         assert_eq!(node(&ui, Role::Radio, "Two").1.w, 21.0, "the body's structure");
     }
 
+    thread_local! {
+        static STORED_SEEN: std::cell::RefCell<Vec<(u8, usize, u8, usize)>> = const { std::cell::RefCell::new(Vec::new()) };
+    }
+
+    /// A segment body that records the caller's choice (`has_stored`, `stored`) beside the current one as the last option sees them (an earlier option of the click frame is built before the press is read), and builds its own node.
+    fn chosen_stored_body(ui: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiSegmentConfig>(), "this library carries `stored`");
+        if c.index == 2 { STORED_SEEN.with(|s| s.borrow_mut().push((c.has_stored, c.stored, c.has_selected, c.selected))); }
+        let segment = Node { w: Size::Px(21.0), ..ui.node_layout(&c.node) };
+        ui.set_node_layout(&c.node, &segment);
+        ui.node("mine".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+    }
+
+    /// A registered segment body is given the choice the caller passed (`stored`): on the frame a press moves the choice it still reads the
+    /// caller's value beside the new `selected`; with no choice `has_stored` is 0; an index past the options arrives clamped.
+    #[test]
+    fn a_segment_body_sees_the_callers_stored_choice() {
+        let mut ui = Ui::new().expect("library");
+        ui.set_a11y(true);
+        ui.register_segment_body("chosen_stored", chosen_stored_body).expect("segment body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segment.body = chosen_stored").expect("theme"); theme };
+        let chosen = Cell::new(Some(0));
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT); if r.response.changed { chosen.set(r.chosen); } });
+        for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
+        let last = || STORED_SEEN.with(|s| *s.borrow().last().unwrap());
+        assert_eq!(last(), (1, 0, 1, 0), "idle: the caller's choice is the current one");
+        let at = node(&ui, Role::Radio, "Three").1;
+        STORED_SEEN.with(|s| s.borrow_mut().clear());
+        click_centre(&mut ui, at, &mut build);
+        let seen = STORED_SEEN.with(|s| s.borrow().clone());
+        assert!(seen.contains(&(1, 0, 1, 2)), "the click frame shows the caller's 0 beside the new 2: {seen:?}");
+        assert_eq!(chosen.get(), Some(2));
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(last(), (1, 2, 1, 2), "the caller stored the press");
+        chosen.set(None);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(last(), (0, 0, 0, 0), "no choice");
+        chosen.set(Some(9));
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(last(), (1, 2, 1, 2), "clamped to the last option");
+    }
+
+    /// `focus_on_click(true)`: a press on an option focuses it and it becomes the strip's Tab stop (the response says focused); by default a
+    /// press chooses without focusing. A registered body still builds the structure.
+    #[test]
+    fn focus_on_click_focuses_the_pressed_option() {
+        for (strip, focuses) in [(Segmented::DEFAULT, false), (Segmented::DEFAULT.focus_on_click(true), true)] {
+            let (chosen, last) = (Cell::new(Some(0)), Cell::new(None));
+            let mut build = |ui: &mut Ui| {
+                let r = ui.segmented_with("s", &THREE, chosen.get(), &strip);
+                if r.response.changed { chosen.set(r.chosen); }
+                last.set(Some(r));
+            };
+            let mut ui = crate::doc::frames(3, &mut build);
+            let at = node(&ui, Role::Radio, "Three").1;
+            click_centre(&mut ui, at, &mut build);
+            testing::frame(&mut ui, &[], &mut build);
+            assert_eq!(chosen.get(), Some(2), "the press chooses either way");
+            assert_eq!(radios(&ui).map(|s| s & state::FOCUSED != 0), [false, false, focuses], "focus_on_click({focuses})");
+            assert_eq!(last.get().unwrap().response.focused, focuses);
+        }
+        let mut ui = Ui::new().expect("library");
+        ui.set_a11y(true);
+        ui.register_segment_body("chosen_stored", chosen_stored_body).expect("segment body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "segment.body = chosen_stored").expect("theme"); theme };
+        let chosen = Cell::new(Some(0));
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT.focus_on_click(true)); if r.response.changed { chosen.set(r.chosen); } });
+        for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
+        let at = node(&ui, Role::Radio, "Two").1;
+        click_centre(&mut ui, at, &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_ne!(node(&ui, Role::Radio, "Two").0 & state::FOCUSED, 0, "a body-built option takes the focus too");
+        assert_eq!(node(&ui, Role::Radio, "Two").1.w, 21.0, "the body's structure");
+    }
+
     /// `disabled` blocks every kit widget and a pressable built inside, reads as disabled to accessibility, nests by OR and ends with its scope.
     #[test]
     fn disabled_scope_blocks_input_and_nests() {

@@ -147,7 +147,7 @@ pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, trac
 #[inline(always)]
 pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: usize, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
     let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { segmented_with(ui, key, name, options, Some(selected), true, 0.0, false, None, 0.0, 8.0, 0.0, out, &mut at, &mut secondary) };
+    let rc = unsafe { segmented_with(ui, key, name, options, Some(selected), true, 0.0, false, None, 0.0, 8.0, 0.0, false, out, &mut at, &mut secondary) };
     *chosen = at.unwrap_or(0);
     rc
 }
@@ -155,18 +155,18 @@ pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &
 /// The kit segmented control with options, the body of `pxui_ui_segmented_result`, `pxui_ui_segmented_response` and `pxui_ui_segmented_plain`:
 /// `selected` the choice (`None`: none; past the options: the last), `h` (0 the theme's control height), `grow`, `states` in place of the
 /// theme's `segment`, `enabled`, `w` the strip's width (0: as `grow` says), `padding` the text's inset, `min_segment` a segment's least width
-/// (each finite and not negative). `chosen` is the choice after this frame's input, `secondary` the option a secondary press began on.
+/// (each finite and not negative), `focus_on_click` a press on an option focusing it. `chosen` is the choice after this frame's input, `secondary` the option a secondary press began on.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn segmented_with(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: Option<usize>, enabled: bool, h: f32, grow: bool, states: Option<&States>,
-    w: f32, padding: f32, min_segment: f32, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+    w: f32, padding: f32, min_segment: f32, focus_on_click: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
     let name = clip(name);
     let mut spare = Vec::new();
     let options = clip_segments(options, &mut spare);
     if long_key(key) || !segments_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
     if ![h, w, padding, min_segment].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
-    let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None, w: (w > 0.0).then_some(w), padding, min_segment };
+    let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None, w: (w > 0.0).then_some(w), padding, min_segment, focus_on_click };
     if let Some(states) = states { opts.states = Some(*states); }
     let (r, at, pressed) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &opts);
     respond(&r, out);

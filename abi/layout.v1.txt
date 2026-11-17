@@ -129,7 +129,7 @@ PxuiScrollConfig 56 8 0 8 40 48
 PxuiToastConfig 72 8 0 4 16 48 64
 PxuiTipConfig 72 8 0 4 8 16 48 64
 PxuiTabConfig 80 8 0 4 16 24 56 72
-PxuiSegmentConfig 184 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177
+PxuiSegmentConfig 200 8 0 4 16 24 32 40 72 88 96 98 100 104 112 144 176 177 184 192 193
 PxuiDropdownConfig 80 8 0 4 12 16 24 56 72
 PxuiMenuItemConfig 80 8 0 4 16 24 56 72
 PxuiMenuRowConfig 112 8 0 4 12 13 14 15 16 20 24 32 36 40 72 88 104 108
@@ -168,7 +168,7 @@ PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
 PxuiIconButtonDesc 104 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96
 PxuiResponse 40 8 0 4 8
 PxuiToggleDesc 160 8 0 4 5 6 7 8 12 16 20 24 32 40 56 72 88 89 96
-PxuiSegmentedDesc 104 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97
+PxuiSegmentedDesc 112 8 0 4 5 6 8 16 24 40 56 64 68 72 76 80 96 97 104 105
 PxuiDialogDesc 88 8 0 4 8 24 40 56 64 72 80
 PxuiDialogResult 16 8 0 4 5 6 8
 PxuiCurve 140 4 0 4
