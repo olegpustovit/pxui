@@ -305,7 +305,7 @@ fn button_size(size: Size) -> bool { match size { Size::Fit | Size::Grow => true
 fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
     out.node = to_abi_box(r.handle);
     out.flags = r.clicked as u32 * PxuiResponse::CLICKED | r.hovered as u32 * PxuiResponse::HOVERED | r.held as u32 * PxuiResponse::HELD
-        | r.focused as u32 * PxuiResponse::FOCUSED | r.activated as u32 * PxuiResponse::ACTIVATED;
+        | r.focused as u32 * PxuiResponse::FOCUSED | r.activated as u32 * PxuiResponse::ACTIVATED | r.secondary as u32 * PxuiResponse::SECONDARY;
 }
 
 /// The kit button with options, the body of `pxui_ui_button_with`, `pxui_ui_button_response`, `pxui_ui_button_content` and

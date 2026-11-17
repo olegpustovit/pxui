@@ -521,7 +521,7 @@ mod tests {
             ui.disabled(flag_outer.get(), |ui| {
                 bump(0, ui.button_with("b", "Button", &crate::Button::DEFAULT).clicked);
                 let node = Node { w: Size::Px(60.0), h: Size::Px(20.0), role: Role::Button, ..Node::DEFAULT };
-                bump(1, ui.pressable("p", node, &Look::NONE, |ui| { ui.label("Pressable", crate::Label::DEFAULT); }).clicked);
+                bump(1, ui.pressable("p", node, &crate::Pressable::DEFAULT, |ui, _| { ui.label("Pressable", crate::Label::DEFAULT); }).clicked);
                 ui.disabled(flag_inner.get(), |ui| { bump(2, ui.toggle_with("t", "Toggle", false, &Toggle::DEFAULT).changed); });
             });
             bump(3, ui.button_with("after", "After", &crate::Button::DEFAULT).clicked);

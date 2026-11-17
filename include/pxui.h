@@ -259,12 +259,13 @@ typedef struct {
 } PxuiPanel;
 typedef struct { uint64_t index; int64_t box_key; uint64_t box_slot; uint32_t generation; } PxuiBox;
 /* ABI 1.48: what happened to a kit button or icon button this frame, in one record: PXUI_RESPONSE_* bits and the button's box.
-   The caller sets size; a null or shorter record is refused. */
+   The caller sets size; a null or shorter record is refused. ABI 1.59: PXUI_RESPONSE_SECONDARY, a secondary (right-button) press began
+   on the box this frame. */
 typedef struct { uint32_t size, flags; PxuiBox node; } PxuiResponse;
 /* ABI 1.53: a modal dialog (at most 64 buttons; masks as PxuiDialogConfig) and what its frame did (chosen is valid when has_chosen) */
 typedef struct { uint32_t size; float width; PxuiStr key, title; PxuiStrSpan buttons; int64_t default_at, cancel_at; uint64_t danger, disabled; } PxuiDialogDesc;
 typedef struct { uint32_t size; uint8_t has_chosen, dismissed, reserved[2]; uint64_t chosen; } PxuiDialogResult;
-enum { PXUI_RESPONSE_CLICKED = 1, PXUI_RESPONSE_HOVERED = 2, PXUI_RESPONSE_HELD = 4, PXUI_RESPONSE_FOCUSED = 8, PXUI_RESPONSE_ACTIVATED = 16 };
+enum { PXUI_RESPONSE_CLICKED = 1, PXUI_RESPONSE_HOVERED = 2, PXUI_RESPONSE_HELD = 4, PXUI_RESPONSE_FOCUSED = 8, PXUI_RESPONSE_ACTIVATED = 16, PXUI_RESPONSE_SECONDARY = 32 };
 /* ABI 1.31: flags bit 0 preview, bit 1 commit, bit 2 held. Initialize size before calling. */
 typedef struct { uint32_t size, flags; PxuiBox node; float preview, commit; } PxuiScrubOut;
 /* ABI 1.38: kinds bit 0 long press, 1 row swipe, 2 edge back, 3 pull to refresh, 5 touch drag (ABI 1.42: the node takes the touch at once as a held press and drag, never a tap, scroll or

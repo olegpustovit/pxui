@@ -79,7 +79,8 @@ fn six(s: &pxui_types::theme::States) -> [pxui_types::ffi::PxuiLookDesc; 6] { [l
 #[inline(always)]
 fn response(out: &PxuiResponse) -> Response {
     let on = |bit: u32| out.flags & bit != 0;
-    Response { clicked: on(PxuiResponse::CLICKED), hovered: on(PxuiResponse::HOVERED), held: on(PxuiResponse::HELD), focused: on(PxuiResponse::FOCUSED), activated: on(PxuiResponse::ACTIVATED), changed: false, handle: out.node }
+    Response { clicked: on(PxuiResponse::CLICKED), hovered: on(PxuiResponse::HOVERED), held: on(PxuiResponse::HELD), focused: on(PxuiResponse::FOCUSED), activated: on(PxuiResponse::ACTIVATED), changed: false,
+        secondary: on(PxuiResponse::SECONDARY), handle: out.node }
 }
 
 impl Ui {

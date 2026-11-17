@@ -174,13 +174,16 @@ pub struct Response {
     pub focused: bool,
     /// The click came from the keyboard; implies `clicked`.
     pub activated: bool,
+    /// A secondary (right-button) press began on it this frame: a context-menu request.
+    pub secondary: bool,
     /// The box a press lands on.
     pub handle: Handle,
 }
 
 impl Response {
     pub(crate) fn of(signal: &Signal, focused: bool, handle: Handle) -> Response {
-        Response { clicked: signal.clicked, hovered: signal.hovered, held: signal.held, focused, activated: signal.clicked && !signal.released, handle }
+        Response { clicked: signal.clicked, hovered: signal.hovered, held: signal.held, focused, activated: signal.clicked && !signal.released,
+            secondary: signal.pressed && signal.button == Some(input::MouseButton::RightButton), handle }
     }
 }
 

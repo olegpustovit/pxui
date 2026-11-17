@@ -1020,6 +1020,8 @@ impl PxuiResponse {
     pub const FOCUSED: u32 = 8;
     /// The click came from the keyboard (implies `CLICKED`).
     pub const ACTIVATED: u32 = 16;
+    /// A secondary (right-button) press began on the box this frame (ABI 1.59).
+    pub const SECONDARY: u32 = 32;
     /// An empty record of this size, for a call to fill.
     pub const EMPTY: PxuiResponse = PxuiResponse { size: core::mem::size_of::<PxuiResponse>() as u32, flags: 0, node: PxuiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 } };
 }

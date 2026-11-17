@@ -110,7 +110,7 @@ pub use theme_scope::Theme;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
-pub use author::{hash_of, Button, Icon, IconButton, Key, Response, Segmented, Toggle};
+pub use author::{hash_of, Button, Icon, IconButton, Key, Pressable, Response, Segmented, Toggle};
 pub use pxui_types::ui::Segment;
 #[cfg(test)]
 mod settled;

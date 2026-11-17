@@ -29,9 +29,10 @@ collide. A list row is keyed by its model id, so reordering moves its state with
 ## Rows, labels and pressables
 
 ```rust
-use pxui::{theme::ColorToken, ui::{Node, Look, Role, Size}, Label};
+use pxui::{theme::ColorToken, ui::{Node, Look, Role, Size, States}, Label, Pressable};
 
-const ROW: Node = Node::row().h(Size::Px(44.0));
+const ROW: Node = Node::row().h(Size::Px(44.0)).role(Role::Button);
+const LIST_ROW: States = States::all(Look::NONE); // the app's theme look per state
 const TITLE: Label = Label::BODY.size(15.0).bold();
 const DIM: Label = Label::BODY.color(ColorToken(3));
 
@@ -41,8 +42,7 @@ let songs = [Song { id: 7, title: "Blue in Green".into(), duration: "5:37".into(
 let mut played = None;
 let mut build = |ui: &mut pxui::Ui| {
     for song in &songs {
-        let node = Node { role: Role::Button, ..ROW };
-        let row = ui.pressable(song.id, node, &Look::NONE, |ui| {
+        let row = ui.pressable(song.id, ROW, &Pressable::DEFAULT.look(&LIST_ROW), |ui, _state| {
             ui.label(&song.title, TITLE.grow());
             ui.label(&song.duration, DIM);
         });
@@ -54,7 +54,9 @@ pxui::testing::click(&mut ui, 20.0, 20.0, &mut build);
 assert_eq!(played, Some(7));
 ```
 
-`pressable` returns a `Response` (`clicked`, `hovered`, `held`, `focused`, `handle`). The app reads it and
+`pressable` looks the row by its state (`Pressable::look`, `selected`, `enabled`, `tab_stop`), gives the
+contents that state, and returns a `Response` (`clicked`, `hovered`, `held`, `focused`, `secondary` for a
+context menu, `handle`; take a gesture with `ui.gesture(&row.handle, ..)`). The app reads it and
 records an intent; it does not mutate the model inside the build.
 
 ## No formatting and no Vec per frame

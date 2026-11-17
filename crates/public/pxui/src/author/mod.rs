@@ -12,6 +12,6 @@ mod view;
 pub use button::Button;
 pub use icon_button::{Icon, IconButton};
 pub use layout::Key;
-pub use press::Response;
+pub use press::{Pressable, Response};
 pub use toggle::{Segmented, Toggle};
 pub use view::hash_of;

@@ -16,11 +16,20 @@ pub struct Signal {
     pub pointer: (f32,f32),
     pub press_point: (f32,f32),
     pub release_point: (f32,f32),
+    /// The mouse button of the press or release this frame, or of the held press: `Signal::BUTTON_PRIMARY`, `Signal::BUTTON_SECONDARY`,
+    /// 2 the middle button, 3 and 4 the side buttons; `None` with no press.
     pub button: Option<u8>,
     pub scroll: (f32,f32),
     pub pinch: f64,
     pub a11y_value: Option<f64>,
     pub a11y_select: Option<[u32;2]>,
+}
+
+impl Signal {
+    /// `button` of the primary (left) button, the one that clicks.
+    pub const BUTTON_PRIMARY: u8 = 0;
+    /// `button` of the secondary (right) button, or the two-finger or control click the platform reports as it: a context-menu request.
+    pub const BUTTON_SECONDARY: u8 = 1;
 }
 
 #[cfg(feature = "static")]
