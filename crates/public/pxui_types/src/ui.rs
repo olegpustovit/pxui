@@ -197,11 +197,13 @@ pub struct Menu {
     pub width: Option<f32>,
     /// The most rows shown at once (`None`: all); a menu with more rows scrolls its row column.
     pub max_rows: Option<usize>,
+    /// What the registered bodies of the menu's rows read from their config (`PxuiMenuRowConfig::variant`); 0 for none.
+    pub variant: u16,
 }
 
 impl Menu {
     /// The plain kit menu: the theme's row height, at least 150 points wide, every row shown.
-    pub const DEFAULT: Menu = Menu { row_h: None, width: None, max_rows: None };
+    pub const DEFAULT: Menu = Menu { row_h: None, width: None, max_rows: None, variant: 0 };
 
     /// Sets a row's height in points; the label, mark, swatch and shortcut centre in it.
     /// Allocates: never.
@@ -233,6 +235,17 @@ impl Menu {
     /// assert_eq!(SHORT.max_rows, Some(8));
     /// ```
     pub const fn max_rows(mut self, rows: usize) -> Menu { self.max_rows = Some(rows); self }
+
+    /// Sets the variant the registered body of each row reads from its config (`variant`, 0 by default): one body builds different
+    /// structures by it, so the app picks per call without comparing text. The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const COMPACT: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.variant(1);
+    /// assert_eq!(COMPACT.variant, 1);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Menu { self.variant = variant; self }
 }
 
 /// What a `Ui::menu` call reports for the frame.

@@ -97,13 +97,15 @@ pub struct Label {
     pub align: u32,
     /// OpenType feature bits (`TextStyle::FEATURE_TABULAR_NUMBERS`).
     pub features: u32,
+    /// What a registered label body reads from its config (`PxuiLabelConfig::variant`); 0 for none.
+    pub variant: u16,
 }
 
 impl Label {
     /// The theme's label: every field unset.
     pub const DEFAULT: Label = Label {
         font: None, size: None, weight: None, tracking: None, caps: None, color: None, width: None, line_height: None, pad: None,
-        wrap: TextStyle::WRAP_NONE, max_lines: 0, ellipsis: TextStyle::ELLIPSIS_NONE, align: TextStyle::ALIGN_LEFT, features: 0,
+        wrap: TextStyle::WRAP_NONE, max_lines: 0, ellipsis: TextStyle::ELLIPSIS_NONE, align: TextStyle::ALIGN_LEFT, features: 0, variant: 0,
     };
     /// Running text: the UI face at 14 points, regular, as wide as the text, lines 1.2 times the size, no inset.
     pub const BODY: Label = Label {
@@ -287,6 +289,18 @@ impl Label {
     /// ```
     #[inline]
     pub const fn end(mut self) -> Label { self.align = TextStyle::ALIGN_RIGHT; self }
+    /// This style with the variant a registered label body reads from its config (`variant`, 0 by default): one body builds different
+    /// structures by it, so the app picks per call without comparing text. The built-in body ignores it.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Label;
+    /// assert_eq!(Label::BODY.variant(2).variant, 2);
+    /// ```
+    #[inline]
+    pub const fn variant(mut self, variant: u16) -> Label { self.variant = variant; self }
 }
 
 #[repr(C)]

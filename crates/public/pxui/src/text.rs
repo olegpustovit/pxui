@@ -258,6 +258,7 @@ impl Ui {
     #[inline(always)]
     #[track_caller]
     pub(crate) fn label_call(&mut self, text: &str, style: &pxui_types::Label, digits: bool) {
+        if style.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::label, style.variant); }
         #[cfg(feature = "static")]
         let rc = unsafe { pxui_abi_link::trusted::pxui_ui_label(self.0.as_ptr(), as_str(text), style, digits) };
         #[cfg(not(feature = "static"))]
@@ -269,6 +270,7 @@ impl Ui {
             if plain { unsafe { lib::pxui_label(self.0.as_ptr(), as_str(text)) } }
             else { unsafe { lib::pxui_ui_label(self.0.as_ptr(), as_str(text), &pxui_types::ffi::PxuiLabelStyle { digits: digits as u8, ..pxui_types::ffi::PxuiLabelStyle::from(style) }) } }
         };
+        if style.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::label, 0); }
         crate::check(self, rc)
     }
 }

@@ -2729,7 +2729,7 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
     let show_search=Cell::new(true);
-    let done=Options {autocorrect:0,capitalization:0,action:Options::DONE};
+    let done=Options::SEARCH_FIELD.action(Options::DONE);
     let mut build=|ui:&mut Ui| {
         ui.view("input options",show_search.get() as u64,Size::Grow,Size::Grow,&mut |ui| {
             if show_search.get() { assert!(ui.text_field_with_options("Search","café",Options::SEARCH_FIELD).is_none()); }
@@ -2793,7 +2793,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
     let commit=[Event {kind:Event::TEXT_INPUT,text:Str {ptr:value.as_ptr(),len:value.len()},..Default::default()},key(Event::KEY_PRESSED,5),key(Event::KEY_RELEASED,5)];
     let mut changed=false;
     ui.frame(&FrameIn {events:commit.as_ptr(),event_count:commit.len(),..input()},&mut |ui| {
-        changed=ui.text_field_with_options("Marked","café track",crate::TextInputOptions {action:crate::TextInputOptions::DONE,..Default::default()})==Some(value);
+        changed=ui.text_field_with_options("Marked","café track",crate::TextInputOptions::DEFAULT.action(crate::TextInputOptions::DONE))==Some(value);
     }).unwrap();
     assert!(changed,"commit replaces precisely the original UTF-8 selection");
     assert!(ui.ime().is_none());

@@ -10,7 +10,7 @@ library!(lib {
     fn pxui_ui_environment(ui: *mut PxuiUi, out: *mut pxui_types::Environment) -> i32;
     fn pxui_ui_keyboard(ui: *mut PxuiUi, out: *mut pxui_types::Keyboard) -> i32;
     fn pxui_ui_content_rect(ui: *mut PxuiUi, out: *mut pxui_types::geom::Rect) -> i32;
-    fn pxui_ui_text_input_options(ui: *mut PxuiUi, out: *mut pxui_types::TextInputOptions) -> i32;
+    fn pxui_ui_text_input_options(ui: *mut PxuiUi, out: *mut pxui_types::PxuiTextInputOptions) -> i32;
     fn pxui_ui_now(ui: *mut PxuiUi) -> f64;
     fn pxui_ui_density(ui: *mut PxuiUi) -> i64;
     fn pxui_ui_frame_index(ui: *mut PxuiUi) -> u64;
@@ -24,6 +24,7 @@ library!(lib {
     fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
     fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
     fn pxui_ui_key_pressed_with(ui: *mut PxuiUi, code: u32, modifier: u32, out: *mut u8) -> i32;
+    fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) -> i32;
     fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32;
     fn pxui_ui_unfocus(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_dismiss_popup(ui: *mut PxuiUi) -> i32;
@@ -76,6 +77,9 @@ impl Ui {
     #[inline] pub fn ime(&self) -> Option<((i64, i64, i64, i64), i64)> { let p = &self.output().platform; (p.has_ime != 0).then(|| ((p.ime_rect[0], p.ime_rect[1], p.ime_rect[2], p.ime_rect[3]), p.ime_caret)) }
     #[inline] pub fn font_size(&self) -> i64 { unsafe { lib::pxui_ui_font_size(self.0.as_ptr()) } }
     #[inline] pub fn row_height(&self) -> i64 { unsafe { lib::pxui_ui_row_height(self.0.as_ptr()) } }
+    /// Hands the registered bodies of kind `kind` that the widget call in progress builds `variant` (0 clears it); called only for a non-zero style variant, around that call.
+    #[inline(never)]
+    pub(crate) fn set_variant(&mut self, kind: pxui_types::theme::BodyKind, variant: u16) { unsafe { lib::pxui_ui_variant(self.0.as_ptr(), kind as u32, variant) }; }
     /// Integer rendering density shared with Paint: host scale rounded to at least one.
     #[inline] pub fn density(&self) -> i64 { unsafe { lib::pxui_ui_density(self.0.as_ptr()) } }
     /// The current frame's host geometry and keyboard timing, available inside cached views.
@@ -91,9 +95,9 @@ impl Ui {
         value
     }
     pub fn text_input_options(&self) -> pxui_types::TextInputOptions {
-        let mut value=pxui_types::TextInputOptions::default();
+        let mut value=pxui_types::PxuiTextInputOptions::default();
         check(self,unsafe {lib::pxui_ui_text_input_options(self.0.as_ptr(),&mut value)});
-        value
+        value.into()
     }
     /// Safe window content above a docked keyboard, following its native presentation geometry.
     pub fn content_rect(&self) -> pxui_types::geom::Rect {

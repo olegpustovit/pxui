@@ -15,10 +15,7 @@ impl Probe {
     }
     pub fn options(frame: usize) -> Options {
         if frame >= 32 {
-            Options {
-                action: Options::DONE,
-                ..Options::SEARCH_FIELD
-            }
+            Options::SEARCH_FIELD.action(Options::DONE)
         } else {
             Options::SEARCH_FIELD
         }

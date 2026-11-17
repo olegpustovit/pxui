@@ -17,11 +17,12 @@ pub struct Toggle<'a> {
     pub(crate) detail: &'a str,
     pub(crate) inset: Option<f32>,
     pub(crate) press_row: bool,
+    pub(crate) variant: u16,
 }
 
 impl<'a> Toggle<'a> {
     /// The plain kit toggle.
-    pub const DEFAULT: Toggle<'a> = Toggle { row_h: None, switch: None, track: None, knob: None, enabled: true, detail: "", inset: None, press_row: false };
+    pub const DEFAULT: Toggle<'a> = Toggle { row_h: None, switch: None, track: None, knob: None, enabled: true, detail: "", inset: None, press_row: false, variant: 0 };
 
     /// Sets the row's height in points; the switch stays centred in it.
     /// Allocates: never.
@@ -110,6 +111,17 @@ impl<'a> Toggle<'a> {
     /// let _ = SETTING;
     /// ```
     pub const fn press_row(mut self, press_row: bool) -> Toggle<'a> { self.press_row = press_row; self }
+
+    /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
+    /// picks per call without comparing text. The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const V: pxui::Toggle = pxui::Toggle::DEFAULT.variant(1);
+    /// let _ = V;
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Toggle<'a> { self.variant = variant; self }
 }
 
 /// How `Ui::segmented_with` varies the kit's segmented control, as a `Copy` value built with `const fn` builders from `Segmented::DEFAULT`.
@@ -122,11 +134,12 @@ pub struct Segmented<'a> {
     pub(crate) look: Option<States>,
     pub(crate) enabled: bool,
     pub(crate) name: Option<&'a str>,
+    pub(crate) variant: u16,
 }
 
 impl<'a> Segmented<'a> {
     /// The plain kit segmented control.
-    pub const DEFAULT: Segmented<'a> = Segmented { h: None, grow: false, look: None, enabled: true, name: None };
+    pub const DEFAULT: Segmented<'a> = Segmented { h: None, grow: false, look: None, enabled: true, name: None, variant: 0 };
 
     /// Sets the strip's height in points.
     /// Allocates: never.
@@ -170,6 +183,17 @@ impl<'a> Segmented<'a> {
     /// let _ = s;
     /// ```
     pub const fn enabled(mut self, enabled: bool) -> Segmented<'a> { self.enabled = enabled; self }
+
+    /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
+    /// picks per call without comparing text. The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const V: pxui::Segmented = pxui::Segmented::DEFAULT.variant(1);
+    /// let _ = V;
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Segmented<'a> { self.variant = variant; self }
 
     /// Sets the strip's accessible name; without it the strip has none (each option is named by its text).
     /// Allocates: never.
@@ -276,14 +300,24 @@ impl Ui {
     #[track_caller]
     fn toggle_key(&mut self, key: Key, text: &str, on: bool, toggle: &Toggle<'_>) -> Response {
         let mut id_label = [0u8; 17];
-        self.toggle_keyed(key.label(&mut id_label), text, on, toggle)
+        let label = key.label(&mut id_label);
+        if toggle.variant == 0 { return self.toggle_keyed(label, text, on, toggle); }
+        self.set_variant(pxui_types::theme::BodyKind::toggle, toggle.variant);
+        let response = self.toggle_keyed(label, text, on, toggle);
+        self.set_variant(pxui_types::theme::BodyKind::toggle, 0);
+        response
     }
 
     /// The one body of `segmented_with`: the key's label, then the engine call.
     #[track_caller]
     fn segmented_key(&mut self, key: Key, options: &[&str], selected: usize, segmented: &Segmented<'_>) -> (Response, usize) {
         let mut id_label = [0u8; 17];
-        self.segmented_keyed(key.label(&mut id_label), segmented.name.unwrap_or(""), options, selected, segmented)
+        let label = key.label(&mut id_label);
+        if segmented.variant == 0 { return self.segmented_keyed(label, segmented.name.unwrap_or(""), options, selected, segmented); }
+        self.set_variant(pxui_types::theme::BodyKind::segment, segmented.variant);
+        let result = self.segmented_keyed(label, segmented.name.unwrap_or(""), options, selected, segmented);
+        self.set_variant(pxui_types::theme::BodyKind::segment, 0);
+        result
     }
 }
 

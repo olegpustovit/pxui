@@ -264,4 +264,140 @@ mod tests {
         assert!(rows.get() > 0 && nodes_built.get() > 0 && cells.get() > 0, "rows {}, nodes {}, cells {}", rows.get(), nodes_built.get(), cells.get());
         assert_eq!(visible[..2], [0, 2]);
     }
+
+    thread_local! { static VARIANTS: RefCell<Vec<(&'static str, u16)>> = const { RefCell::new(Vec::new()) }; }
+
+    /// One body per kind that builds two structures by `variant`: variant 1 a 120-point node, else a 40-point one.
+    fn sized_label(ui: &mut Ui, c: &crate::bodies::PxuiLabelConfig) {
+        VARIANTS.with(|v| v.borrow_mut().push(("label", c.variant)));
+        let mut node = ui.node_layout(&c.node);
+        node.w = Size::Px(if c.variant == 1 { 120.0 } else { 40.0 });
+        ui.set_node_layout(&c.node, &node);
+    }
+    fn sized_button(ui: &mut Ui, c: &crate::bodies::PxuiButtonConfig) {
+        VARIANTS.with(|v| v.borrow_mut().push(("button", c.variant)));
+        let mut node = ui.node_layout(&c.row);
+        node.w = Size::Px(if c.variant == 1 { 120.0 } else { 40.0 });
+        ui.set_node_layout(&c.row, &node);
+        ui.text(&c.row, text_of(&c.label));
+    }
+    fn sized_field(_: &mut Ui, c: &crate::bodies::PxuiTextFieldConfig) { VARIANTS.with(|v| v.borrow_mut().push(("field", c.variant))); }
+    fn sized_icon_button(_: &mut Ui, c: &crate::bodies::PxuiIconButtonConfig) { VARIANTS.with(|v| v.borrow_mut().push(("icon", c.variant))); }
+
+    /// A call's style `variant` reaches the registered body's config (labels, buttons, icon buttons, text fields; 0 when the call sets none), so one body
+    /// builds two structures and the app picks per call without comparing text; the variant never reaches a later widget, a built-in body
+    /// ignores it, and warm frames allocate nothing.
+    #[test]
+    fn a_style_variant_reaches_the_registered_body_and_picks_its_structure() {
+        use crate::{Button, Icon, IconButton, Label};
+        mem_sys::set_peer(crate::library_counter);
+        let mut ui = Ui::new().expect("library");
+        ui.register_label_body("sized", sized_label).expect("label body");
+        ui.register_button_body("sized", sized_button).expect("button body");
+        ui.register_icon_button_body("sized", sized_icon_button).expect("icon body");
+        ui.register_text_field_body("sized", sized_field).expect("field body");
+        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "label.body = sized\nbutton.body = sized\nicon_button.body = sized\ntext_field.body = sized").expect("theme"); theme };
+        let (plain, wide) = (Label::DEFAULT, Label::DEFAULT.variant(1));
+        let handles = Cell::new((None, None));
+        let mut build = |ui: &mut Ui| {
+            // built-in bodies ignore the variant and leave nothing behind for the next widget
+            ui.label("built-in", wide);
+            ui.themed(&scoped, &mut |ui: &mut Ui| {
+                ui.label("plain", plain);
+                ui.label("wide", wide);
+                handles.set((Some(ui.button_with("narrow", "Narrow", &Button::DEFAULT).handle), Some(ui.button_with("wide", "Wide", &Button::DEFAULT.variant(1)).handle)));
+                ui.icon_button("icon", Icon::Glyph('x'), "Icon", &IconButton::DEFAULT.variant(7));
+                ui.icon_button("icon2", Icon::Glyph('x'), "Icon", &IconButton::DEFAULT);
+                ui.text_field_with_options("Find", "", crate::TextInputOptions::SEARCH_FIELD.variant(3));
+                ui.text_field_with_options("Other", "", crate::TextInputOptions::SEARCH_FIELD);
+            });
+        };
+        for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }
+        let seen = VARIANTS.with(|v| v.borrow().clone());
+        assert_eq!(seen, vec![("label", 0), ("label", 1), ("button", 0), ("button", 1), ("icon", 7), ("icon", 0), ("field", 3), ("field", 0)], "each call's own variant, none leaked");
+        let (narrow, wide) = handles.get();
+        assert_eq!((ui.rect(&narrow.unwrap()).w, ui.rect(&wide.unwrap()).w), (40.0, 120.0), "one body, two structures by variant");
+        let scope = mem_sys::warm_scope();
+        for n in 3..60 {
+            VARIANTS.with(|v| v.borrow_mut().clear());
+            mem_sys::local_reset();
+            ui.frame(&input(n as f64), &mut build).expect("frame");
+            assert_eq!(mem_sys::local_alloc_count(), 0, "warm frames with variants allocate nothing");
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
+    fn menu_row(_: &mut Ui, c: &crate::bodies::PxuiMenuRowConfig) { VARIANTS.with(|v| v.borrow_mut().push(("row", c.variant))); }
+    fn toggle_probe(_: &mut Ui, c: &crate::bodies::PxuiToggleConfig) { VARIANTS.with(|v| v.borrow_mut().push(("toggle", c.variant))); }
+    fn segment_probe(_: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) { VARIANTS.with(|v| v.borrow_mut().push(("segment", c.variant))); }
+    fn nested_label(_: &mut Ui, c: &crate::bodies::PxuiLabelConfig) { VARIANTS.with(|v| v.borrow_mut().push(("nested", c.variant))); }
+
+    /// A menu's variant reaches every row's body, a toggle's and a segmented control's reach theirs (every segment); the contents of a button with a variant are given none.
+    #[test]
+    fn a_variant_reaches_every_menu_row_and_never_a_nested_widget() {
+        use crate::{ui::{Menu, MenuItem}, Button, Label};
+        let mut ui = Ui::new().expect("library");
+        ui.register_context_menu_body("rows", menu_row).expect("row body");
+        ui.register_label_body("nested", nested_label).expect("label body");
+        ui.register_toggle_body("t", toggle_probe).expect("toggle body");
+        ui.register_segment_body("s", segment_probe).expect("segment body");
+        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "context_menu.body = rows\nlabel.body = nested\ntoggle.body = t\nsegment.body = s").expect("theme"); theme };
+        const ITEMS: [MenuItem; 3] = [MenuItem::new("A"), MenuItem::new("B"), MenuItem::new("C")];
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
+            ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.variant(2));
+            ui.menu("plain", (100.0, 10.0), &ITEMS, &Menu::DEFAULT);
+            // the built-in button body runs the contents; the registered label inside is given no variant
+            ui.button_content("pill", &Button::DEFAULT.variant(1).size(Size::Px(60.0), Size::Px(30.0)).name("Pill"), |ui| { ui.label("inside", Label::DEFAULT); });
+            ui.label("after", Label::DEFAULT.variant(5));
+            ui.toggle_with("t", "T", true, &crate::Toggle::DEFAULT.variant(4));
+            ui.toggle_with("t0", "T", true, &crate::Toggle::DEFAULT);
+            ui.segmented_with("s", &["a", "b"], 0, &crate::Segmented::DEFAULT.variant(6));
+        });
+        for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }
+        let seen = VARIANTS.with(|v| v.borrow().clone());
+        let rows: Vec<u16> = seen.iter().filter(|s| s.0 == "row").map(|s| s.1).collect();
+        assert_eq!(rows, [2, 2, 2, 0, 0, 0], "the menu's three rows, then the plain menu's: {seen:?}");
+        let others: Vec<(&str, u16)> = seen.iter().filter(|s| s.0 == "toggle" || s.0 == "segment").copied().collect();
+        assert_eq!(others, [("toggle", 4), ("toggle", 0), ("segment", 6), ("segment", 6)], "a toggle's and every segment's body: {seen:?}");
+        let nested: Vec<u16> = seen.iter().filter(|s| s.0 == "nested").map(|s| s.1).collect();
+        assert_eq!(nested, [0, 5], "the label in the button's contents sees 0, the label with its own variant 5: {seen:?}");
+    }
+
+    fn scroll_probe(ui: &mut Ui, c: &crate::bodies::PxuiScrollConfig) {
+        VARIANTS.with(|v| v.borrow_mut().push(("scroll", c.variant)));
+        ui.slot(c.content);
+    }
+
+    /// A menu that scrolls (`max_rows`) builds a `scroll_view` inside its call: the pending variant is for the menu's rows only, so the scroll
+    /// view's registered body sees 0 and every row sees the variant; and a variant left pending is gone at the next frame.
+    #[test]
+    fn a_menu_variant_is_for_its_rows_and_not_the_scroll_view_it_builds() {
+        use crate::ui::{Menu, MenuItem};
+        let mut ui = Ui::new().expect("library");
+        ui.register_context_menu_body("rows", menu_row).expect("row body");
+        ui.register_scroll_view_body("scroll", scroll_probe).expect("scroll body");
+        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "context_menu.body = rows\nscroll_view.body = scroll").expect("theme"); theme };
+        const ITEMS: [MenuItem; 5] = [MenuItem::new("A"), MenuItem::new("B"), MenuItem::new("C"), MenuItem::new("D"), MenuItem::new("E")];
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.max_rows(2).variant(1)); });
+        for n in 0..3 { VARIANTS.with(|v| v.borrow_mut().clear()); ui.frame(&input(n as f64), &mut build).expect("frame"); }
+        let seen = VARIANTS.with(|v| v.borrow().clone());
+        assert!(seen.iter().any(|s| s.0 == "scroll"), "the menu scrolls through the registered scroll view body: {seen:?}");
+        assert!(seen.iter().filter(|s| s.0 == "scroll").all(|s| s.1 == 0), "the scroll view sees 0: {seen:?}");
+        let rows: Vec<u16> = seen.iter().filter(|s| s.0 == "row").map(|s| s.1).collect();
+        assert!(!rows.is_empty() && rows.iter().all(|v| *v == 1), "every row sees 1: {seen:?}");
+    }
+
+    /// A variant a caller left pending between frames is gone when the next frame starts.
+    #[test]
+    fn a_pending_variant_does_not_survive_into_the_next_frame() {
+        use pxui_types::theme::BodyKind;
+        let mut ui = Ui::new().expect("library");
+        ui.register_label_body("nested", nested_label).expect("label body");
+        let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "label.body = nested").expect("theme"); theme };
+        ui.set_variant(BodyKind::label, 9);
+        VARIANTS.with(|v| v.borrow_mut().clear());
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| ui.label("x", crate::Label::DEFAULT))).expect("frame");
+        assert_eq!(VARIANTS.with(|v| v.borrow().clone()), [("nested", 0)]);
+    }
 }

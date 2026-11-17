@@ -223,24 +223,109 @@ pub struct Str {
     pub len: usize,
 }
 
-/// Single-line native keyboard traits. Capitalization: none, sentences, words, letters (0..=3).
+/// Single-line native keyboard traits and the per-call body variant of a text field, as a `Copy` value built with `const fn` builders from
+/// `TextInputOptions::DEFAULT` or `SEARCH_FIELD`. Capitalization: none, sentences, words, letters (0..=3).
 /// Action: Return (0), Done (1, dismisses focus), Search (2, leaves submission to the app).
-#[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TextInputOptions {
-    pub autocorrect: u32,
-    pub capitalization: u32,
-    pub action: u32,
+    pub(crate) autocorrect: u32,
+    pub(crate) capitalization: u32,
+    pub(crate) action: u32,
+    /// What a registered text field body reads from its config (`PxuiTextFieldConfig::variant`); 0 for none.
+    pub(crate) variant: u16,
 }
 impl Default for TextInputOptions {
-    fn default() -> Self { Self {autocorrect:1,capitalization:1,action:0} }
+    fn default() -> Self { Self::DEFAULT }
+}
+/// The C record of the text input traits (`pxui_text_field_with_options`, `pxui_ui_text_input_options`): `TextInputOptions` without its variant,
+/// which goes through `pxui_ui_variant` like every widget's. For C callers and the library's own conversions, not for authoring.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct PxuiTextInputOptions {
+    /// 0 or 1: the platform keyboard corrects words while typing.
+    pub autocorrect: u32,
+    /// 0 none, 1 sentences, 2 words, 3 letters.
+    pub capitalization: u32,
+    /// The return key: 0 Return, 1 Done (Enter ends editing), 2 Search (submission is the app's).
+    pub action: u32,
+}
+impl From<TextInputOptions> for PxuiTextInputOptions {
+    fn from(o: TextInputOptions) -> Self { Self {autocorrect:o.autocorrect,capitalization:o.capitalization,action:o.action} }
+}
+impl From<PxuiTextInputOptions> for TextInputOptions {
+    fn from(o: PxuiTextInputOptions) -> Self { Self {autocorrect:o.autocorrect,capitalization:o.capitalization,action:o.action,variant:0} }
 }
 impl TextInputOptions {
+    /// The return key keeps its ordinary action (`action`): the kit's default.
     pub const RETURN: u32 = 0;
+    /// The return key ends editing: Enter dismisses focus and the keyboard (`action`).
     pub const DONE: u32 = 1;
+    /// The return key reads Search and leaves submission to the app (`action`).
     pub const SEARCH: u32 = 2;
-    pub const SEARCH_FIELD: Self = Self {autocorrect:0,capitalization:0,action:Self::SEARCH};
+    /// The kit's text field: autocorrect on, sentence capitalization, Return.
+    pub const DEFAULT: Self = Self {autocorrect:1,capitalization:1,action:Self::RETURN,variant:0};
+    /// A search box: no autocorrect, no capitalization, the Search key.
+    pub const SEARCH_FIELD: Self = Self {autocorrect:0,capitalization:0,action:Self::SEARCH,variant:0};
+    /// Whether every trait is in range: autocorrect 0 or 1, capitalization 0..=3, action `RETURN`, `DONE` or `SEARCH`; the library refuses others.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::TextInputOptions;
+    /// assert!(TextInputOptions::SEARCH_FIELD.valid() && !TextInputOptions::DEFAULT.action(7).valid());
+    /// ```
     pub fn valid(&self) -> bool {self.autocorrect<=1 && self.capitalization<=3 && self.action<=2}
+    /// These options with autocorrect on (1) or off (0).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::TextInputOptions;
+    /// assert_eq!(TextInputOptions::DEFAULT.autocorrect(0).autocorrect_mode(), 0);
+    /// ```
+    pub const fn autocorrect(mut self, autocorrect: u32) -> Self { self.autocorrect = autocorrect; self }
+    /// These options with capitalization none, sentences, words or letters (0..=3).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::TextInputOptions;
+    /// assert_eq!(TextInputOptions::DEFAULT.capitalization(2).capitalization_mode(), 2);
+    /// ```
+    pub const fn capitalization(mut self, capitalization: u32) -> Self { self.capitalization = capitalization; self }
+    /// These options with the return key's action: `RETURN`, `DONE` or `SEARCH`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::TextInputOptions;
+    /// assert_eq!(TextInputOptions::SEARCH_FIELD.action(TextInputOptions::DONE).return_action(), TextInputOptions::DONE);
+    /// ```
+    pub const fn action(mut self, action: u32) -> Self { self.action = action; self }
+    /// These options with the variant a registered text field body reads from its config (`variant`, 0 by default): one body builds
+    /// different structures by it, so the app picks per call without comparing text. The built-in body ignores it.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::TextInputOptions;
+    /// const FIND: TextInputOptions = TextInputOptions::SEARCH_FIELD.action(TextInputOptions::DONE).variant(1);
+    /// assert_eq!(FIND.body_variant(), 1);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Self { self.variant = variant; self }
+    /// Whether the platform keyboard corrects words: 1 on, 0 off.
+    pub const fn autocorrect_mode(&self) -> u32 { self.autocorrect }
+    /// The platform keyboard's capitalization: 0 none, 1 sentences, 2 words, 3 letters.
+    pub const fn capitalization_mode(&self) -> u32 { self.capitalization }
+    /// The variant a registered text field body reads from its config; 0 for none.
+    pub const fn body_variant(&self) -> u16 { self.variant }
+    /// The return key's action: `RETURN`, `DONE` or `SEARCH`.
+    pub const fn return_action(&self) -> u32 { self.action }
 }
 
 /// ABI 1.25 TOUCH payload, borrowed through Event::text (len = size_of::<Touch>()).
@@ -326,6 +411,15 @@ pub struct Keyboard {
 impl Keyboard {
     pub const VALID: u32 = 1;
     pub const ANIMATING: u32 = 2;
+    /// Whether every trait is in range: autocorrect 0 or 1, capitalization 0..=3, action `RETURN`, `DONE` or `SEARCH`; the library refuses others.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::TextInputOptions;
+    /// assert!(TextInputOptions::SEARCH_FIELD.valid() && !TextInputOptions::DEFAULT.action(7).valid());
+    /// ```
     pub fn valid(&self) -> bool {
         self.flags <= 3 && self.flags != Self::ANIMATING
             && self.frame.iter().all(|v| v.is_finite()) && self.frame[2] >= 0.0 && self.frame[3] >= 0.0
@@ -773,7 +867,7 @@ mod abi_layout {
             ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),
         ]);
         assert_layout("Keyboard",size_of::<Keyboard>(),align_of::<Keyboard>(),&[("frame", core::mem::offset_of!(Keyboard, frame)),("flags", core::mem::offset_of!(Keyboard, flags))]);
-        assert_layout("TextInputOptions",size_of::<TextInputOptions>(),align_of::<TextInputOptions>(),&[("autocorrect", core::mem::offset_of!(TextInputOptions, autocorrect)),("capitalization", core::mem::offset_of!(TextInputOptions, capitalization)),("action", core::mem::offset_of!(TextInputOptions, action))]);
+        assert_layout("TextInputOptions",size_of::<PxuiTextInputOptions>(),align_of::<PxuiTextInputOptions>(),&[("autocorrect", core::mem::offset_of!(PxuiTextInputOptions, autocorrect)),("capitalization", core::mem::offset_of!(PxuiTextInputOptions, capitalization)),("action", core::mem::offset_of!(PxuiTextInputOptions, action))]);
         assert_layout("FrameInV1_26",size_of::<FrameIn>(),align_of::<FrameIn>(),&[
             ("size", core::mem::offset_of!(FrameIn, size)),("events", core::mem::offset_of!(FrameIn, events)),("event_count", core::mem::offset_of!(FrameIn, event_count)),("width", core::mem::offset_of!(FrameIn, width)),
             ("height", core::mem::offset_of!(FrameIn, height)),("scale", core::mem::offset_of!(FrameIn, scale)),("time", core::mem::offset_of!(FrameIn, time)),("appearance", core::mem::offset_of!(FrameIn, appearance)),("reduced_motion", core::mem::offset_of!(FrameIn, reduced_motion)),("environment", core::mem::offset_of!(FrameIn, environment)),("keyboard", core::mem::offset_of!(FrameIn, keyboard)),

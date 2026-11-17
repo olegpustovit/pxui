@@ -2956,7 +2956,7 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str, options: pxui_types::
         this.with_key_events(&row, &mut |ui, keys| {
             for (event, modifiers) in keys {
                 ui.edit_text_event(false, &mut edit, &|_| true, modifiers, event);
-                if options.action == pxui_types::TextInputOptions::DONE && matches!(event, Event::KeyPressed(Key::Enter))
+                if options.return_action() == pxui_types::TextInputOptions::DONE && matches!(event, Event::KeyPressed(Key::Enter))
                     && !ui.command_modifiers(modifiers) && ui.composition().is_empty() {
                     ui.unfocus();
                 }

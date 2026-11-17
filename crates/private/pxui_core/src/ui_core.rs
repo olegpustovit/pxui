@@ -6191,6 +6191,8 @@ impl Ui {
         self.out.clipboard = None;
         self.out.paste = false;
         self.text_input_options = pxui_types::TextInputOptions::default();
+        // a variant a host forgot to clear does not reach this frame's widgets
+        self.set_variant(0, 0);
         self.out.background = None;
         // the window's title bar shows the ground the UI is painted on
         if self.window_ground != Some(self.theme.tokens.panel) {

@@ -75,8 +75,11 @@ macro_rules! tramp {
             let $sh = shared($ui);
             if $sh.is_null() { return }
             let mark = unsafe { (*$sh).bodies.slots.len() };
-            let cfg = $cfg { size: core::mem::size_of::<$cfg>() as u32, $($f: $v),* };
+            let variant = $ui.variant_of(BodyKind::$kind as u32);
+            let cfg = $cfg { size: core::mem::size_of::<$cfg>() as u32, $($f: $v,)* variant };
+            if variant != 0 { $ui.set_variant(0, 0); }
             invoke($ui, $sh, BodyKind::$kind, id, (&cfg as *const $cfg).cast());
+            if variant != 0 { $ui.set_variant(BodyKind::$kind as u32, variant); }
             unsafe { (*$sh).bodies.slots.truncate(mark) };
         }
     };
@@ -93,8 +96,11 @@ macro_rules! tramp_span {
             let mut $span = unsafe { (*$sh).bodies.$scratch.pop() }.unwrap_or_default();
             $span.clear();
             $fill
-            let cfg = $cfg { size: core::mem::size_of::<$cfg>() as u32, $($f: $v),* };
+            let variant = $ui.variant_of(BodyKind::$kind as u32);
+            let cfg = $cfg { size: core::mem::size_of::<$cfg>() as u32, $($f: $v,)* variant };
+            if variant != 0 { $ui.set_variant(0, 0); }
             invoke($ui, $sh, BodyKind::$kind, id, (&cfg as *const $cfg).cast());
+            if variant != 0 { $ui.set_variant(BodyKind::$kind as u32, variant); }
             unsafe { (*$sh).bodies.slots.truncate(mark) };
             unsafe { (*$sh).bodies.$scratch.push($span) };
         }

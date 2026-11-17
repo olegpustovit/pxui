@@ -1402,11 +1402,16 @@ use crate::theme::States as PxuiStates;
 
 macro_rules! configs {
     ($($(#[$doc:meta])* $name:ident { $($(#[$fdoc:meta])* $f:ident: $t:ty),* $(,)? })*) => {
-        $($(#[$doc])* #[repr(C)] #[derive(Clone, Copy)] pub struct $name { pub size: u32, $($(#[$fdoc])* pub $f: $t),* })*
+        $($(#[$doc])* #[repr(C)] #[derive(Clone, Copy)] pub struct $name {
+            pub size: u32, $($(#[$fdoc])* pub $f: $t,)*
+            /// The variant the widget call asked for (`Button::variant` and its siblings; ABI 1.52), 0 when it asked for none: one registered body
+            /// builds different structures by it. Read it only when `size` covers it.
+            pub variant: u16,
+        })*
         #[cfg(test)]
         fn config_layouts(check: &mut dyn FnMut(&str, usize, usize, &[(&str, usize)])) {
             use core::mem::{align_of, size_of};
-            $(check(stringify!($name), size_of::<$name>(), align_of::<$name>(), &[("size", core::mem::offset_of!($name, size)), $((stringify!($f), core::mem::offset_of!($name, $f))),*]);)*
+            $(check(stringify!($name), size_of::<$name>(), align_of::<$name>(), &[("size", core::mem::offset_of!($name, size)), $((stringify!($f), core::mem::offset_of!($name, $f)),)* ("variant", core::mem::offset_of!($name, variant))]);)*
         }
     };
 }

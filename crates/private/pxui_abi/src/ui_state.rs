@@ -19,10 +19,10 @@ export!(pub unsafe fn pxui_ui_keyboard(ui:*mut PxuiUi,out:*mut pxui_types::Keybo
     unsafe { out.write(e.keyboard()); }
     0
 });
-export!(pub unsafe fn pxui_ui_text_input_options(ui:*mut PxuiUi,out:*mut pxui_types::TextInputOptions)->i32 {
+export!(pub unsafe fn pxui_ui_text_input_options(ui:*mut PxuiUi,out:*mut pxui_types::PxuiTextInputOptions)->i32 {
     let Some(e)=(unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui,"null text input options output") }; }
-    unsafe { out.write(e.text_input_options()); }
+    unsafe { out.write(e.text_input_options().into()); }
     0
 });
 export!(pub unsafe fn pxui_ui_content_rect(ui:*mut PxuiUi,out:*mut pxui_types::geom::Rect)->i32 {
@@ -100,6 +100,12 @@ mod held_key_tests {
     }
 }
 
+export!(pub unsafe fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) -> i32 {
+    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if kind as usize >= pxui_types::theme::Bodies::KINDS.len() { return unsafe { fail(ui, "unknown body kind") }; }
+    e.set_variant(kind, variant);
+    0
+});
 export!(pub unsafe fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if !(1..=1024).contains(&size) { return unsafe { fail(ui, "font size out of range") }; }

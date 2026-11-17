@@ -26,7 +26,18 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn menu<K: Into<Key>>(&mut self, key: K, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
-        self.menu_keyed(key.into(), at, items, menu)
+        self.menu_call(key.into(), at, items, menu)
+    }
+
+    /// The one body of `menu`: the engine call, with the menu's variant set around it.
+    #[inline(always)]
+    #[track_caller]
+    fn menu_call(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> MenuResponse {
+        if menu.variant == 0 { return self.menu_keyed(key, at, items, menu); }
+        self.set_variant(pxui_types::theme::BodyKind::context_menu, menu.variant);
+        let response = self.menu_keyed(key, at, items, menu);
+        self.set_variant(pxui_types::theme::BodyKind::context_menu, 0);
+        response
     }
 }
 

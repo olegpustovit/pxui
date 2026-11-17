@@ -50,11 +50,12 @@ pub struct IconButton {
     pub(crate) look: Option<States>,
     pub(crate) enabled: bool,
     pub(crate) press_scale: f32,
+    pub(crate) variant: u16,
 }
 
 impl IconButton {
     /// The plain kit icon button.
-    pub const DEFAULT: IconButton = IconButton { w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0 };
+    pub const DEFAULT: IconButton = IconButton { w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0, variant: 0 };
 
     /// A button `w` by `h` points.
     /// Allocates: never.
@@ -98,6 +99,17 @@ impl IconButton {
     /// let _ = b;
     /// ```
     pub const fn enabled(mut self, enabled: bool) -> IconButton { self.enabled = enabled; self }
+
+    /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
+    /// picks per call without comparing text. The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const B: pxui::IconButton = pxui::IconButton::sized(36.0, 36.0).variant(1);
+    /// let _ = B;
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> IconButton { self.variant = variant; self }
 }
 
 impl Ui {
@@ -125,7 +137,11 @@ impl Ui {
     fn icon_button_key(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton) -> Response {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
-        self.icon_button_keyed(label, icon, name, button)
+        if button.variant == 0 { return self.icon_button_keyed(label, icon, name, button); }
+        self.set_variant(pxui_types::theme::BodyKind::icon_button, button.variant);
+        let response = self.icon_button_keyed(label, icon, name, button);
+        self.set_variant(pxui_types::theme::BodyKind::icon_button, 0);
+        response
     }
 }
 

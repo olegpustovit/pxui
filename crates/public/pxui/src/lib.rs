@@ -166,7 +166,7 @@ mod sys {
         pub fn pxui_col(ui:*mut PxuiUi,padding:f32,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_panel(ui:*mut PxuiUi,panel:*const PxuiPanel,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_text_field(ui:*mut PxuiUi,label:Str,value:Str,changed:*mut Str,out_changed:*mut u8)->i32;
-        pub fn pxui_text_field_with_options(ui:*mut PxuiUi,label:Str,value:Str,options:*const pxui_types::TextInputOptions,changed:*mut Str,out_changed:*mut u8)->i32;
+        pub fn pxui_text_field_with_options(ui:*mut PxuiUi,label:Str,value:Str,options:*const pxui_types::PxuiTextInputOptions,changed:*mut Str,out_changed:*mut u8)->i32;
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
@@ -645,7 +645,10 @@ impl Ui {
     #[track_caller]
     pub fn text_field_with_options(&mut self, label:&str, value:&str, options:pxui_types::TextInputOptions) -> Option<&str> {
         let (mut changed, mut did_change)=(Str::default(),0);
-        check(self,unsafe {sys::pxui_text_field_with_options(self.0.as_ptr(),as_str(label),as_str(value),&options,&mut changed,&mut did_change)});
+        let variant=options.body_variant();
+        if variant!=0 {self.set_variant(pxui_types::theme::BodyKind::text_field,variant);}
+        check(self,unsafe {sys::pxui_text_field_with_options(self.0.as_ptr(),as_str(label),as_str(value),&options.into(),&mut changed,&mut did_change)});
+        if variant!=0 {self.set_variant(pxui_types::theme::BodyKind::text_field,0);}
         if did_change==0 {None} else {Some(lent_str(changed))}
     }
 }

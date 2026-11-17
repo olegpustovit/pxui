@@ -587,7 +587,7 @@ pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Opti
         tracking: on(S::SET_TRACKING).then_some(r.tracking), caps: on(S::SET_CAPS).then_some(r.caps != 0),
         color: on(S::SET_COLOR).then_some(pxui_types::theme::ColorToken(r.color)), width,
         line_height: on(S::SET_LINE_HEIGHT).then_some(r.line_height), pad: on(S::SET_PAD).then_some(r.pad),
-        wrap: r.wrap, max_lines: r.max_lines, ellipsis: r.ellipsis, align: r.align, features: r.features,
+        wrap: r.wrap, max_lines: r.max_lines, ellipsis: r.ellipsis, align: r.align, features: r.features, variant: 0,
     }, r.digits != 0))
 }
 
@@ -610,10 +610,10 @@ export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value
     unsafe { trusted::pxui_text_field(ui, pair(label), pair(value), changed, out_changed) }
 });
 
-export!(pub unsafe fn pxui_text_field_with_options(ui: *mut PxuiUi, label: Str, value: Str, options: *const pxui_types::TextInputOptions, changed: *mut Str, out_changed: *mut u8) -> i32 {
+export!(pub unsafe fn pxui_text_field_with_options(ui: *mut PxuiUi, label: Str, value: Str, options: *const pxui_types::PxuiTextInputOptions, changed: *mut Str, out_changed: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if options.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui,"null text field options or output") }; }
-    let options=unsafe { *options };
+    let options=pxui_types::TextInputOptions::from(unsafe { *options });
     let (Some(label),Some(value))=(unsafe { checked(label) },unsafe { checked(value) }) else { return unsafe { fail(ui,"invalid text field text") }; };
     if !options.valid() { return unsafe { fail(ui,"invalid text input options") }; }
     unsafe { *out_changed=0; *changed=Str::default(); }
@@ -634,9 +634,9 @@ mod tests {
         let mut changed=Str {ptr:b"sentinel".as_ptr(),len:8};
         let mut flag=77;
         for options in [
-            pxui_types::TextInputOptions {autocorrect:2,..Default::default()},
-            pxui_types::TextInputOptions {capitalization:4,..Default::default()},
-            pxui_types::TextInputOptions {action:3,..Default::default()},
+            pxui_types::PxuiTextInputOptions {autocorrect:2,..Default::default()},
+            pxui_types::PxuiTextInputOptions {capitalization:4,..Default::default()},
+            pxui_types::PxuiTextInputOptions {action:3,..Default::default()},
         ] {
             assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),&options,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
             assert_eq!(changed.len,8); assert_eq!(flag,77);
@@ -645,9 +645,9 @@ mod tests {
         assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),core::ptr::null(),&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
         assert_eq!(changed.len,8); assert_eq!(flag,77);
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
-        let mut options=pxui_types::TextInputOptions::SEARCH_FIELD;
+        let mut options=pxui_types::PxuiTextInputOptions::from(pxui_types::TextInputOptions::SEARCH_FIELD);
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(core::ptr::null_mut(),&mut options)},PXUI_ERR_ARGUMENT);
-        assert_eq!(options,pxui_types::TextInputOptions::SEARCH_FIELD);
+        assert_eq!(options,pxui_types::PxuiTextInputOptions::from(pxui_types::TextInputOptions::SEARCH_FIELD));
         assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
     }
 

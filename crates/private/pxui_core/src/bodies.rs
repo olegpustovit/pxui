@@ -671,11 +671,14 @@ macro_rules! registry {
             pub(crate) item_kind: u8,
             /// an opaque pointer of the host that registered bodies (the C ABI's state): what a registered body's trampoline finds its caller's data by
             host: *mut core::ffi::c_void,
+            /// the variant the widget call in progress asked for (`Ui::set_variant`) and the body kind it is for
+            variant: u16,
+            variant_kind: u32,
         }
 
         impl Default for BodyTable {
             fn default() -> BodyTable {
-                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| HashMap::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, item_kind: crate::ui_widgets::ITEM_NONE, host: core::ptr::null_mut() }
+                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| HashMap::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, item_kind: crate::ui_widgets::ITEM_NONE, host: core::ptr::null_mut(), variant: 0, variant_kind: 0 }
             }
         }
 
@@ -710,6 +713,20 @@ macro_rules! registry {
 pxui_types::body_kinds!(registry);
 
 impl Ui {
+    /// Sets the variant the widget call in progress hands its registered bodies of kind number `kind` (0: none). The wrapper sets it
+    /// before the call and clears it after; only a trampoline of that kind reads it (into its config), and it keeps it 0 while the app's
+    /// body runs, so no other kind built inside the call, and no widget built inside a body, is given it.
+    pub fn set_variant(&mut self, kind: u32, variant: u16) {
+        self.bodies.variant = variant;
+        self.bodies.variant_kind = kind;
+    }
+
+    /// The variant `set_variant` left for body kind number `kind`; 0 for any other kind.
+    #[inline(always)]
+    pub fn variant_of(&self, kind: u32) -> u16 {
+        if self.bodies.variant_kind == kind { self.bodies.variant } else { 0 }
+    }
+
     /// Keep `host` for the registered bodies' trampolines (`body_host`).
     pub fn set_body_host(&mut self, host: *mut core::ffi::c_void) {
         self.bodies.host = host;

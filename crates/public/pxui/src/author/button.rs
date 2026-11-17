@@ -1,7 +1,7 @@
 //! The kit button with options: `ui.button_with(key, text, &Button)` reports a `Response`; `ui.button(text)` is `Button::DEFAULT`.
 use super::{Key, Response};
 use crate::Ui;
-use pxui_types::{geom::Edges, layout::Justify, theme::States, Size};
+use pxui_types::{geom::Edges, layout::Justify, theme::{BodyKind, States}, Size};
 
 /// How `Ui::button_with` varies the kit's button, as a `Copy` value built with `const fn` builders from `Button::DEFAULT`.
 ///
@@ -17,11 +17,12 @@ pub struct Button {
     pub(crate) name: Option<&'static str>,
     pub(crate) align: Justify,
     pub(crate) pad: Edges,
+    pub(crate) variant: u16,
 }
 
 impl Button {
     /// The plain kit button.
-    pub const DEFAULT: Button = Button { w: Size::Fit, h: Size::Fit, look: None, enabled: true, selected: false, danger: false, name: None, align: Justify::Start, pad: Edges::ZERO };
+    pub const DEFAULT: Button = Button { w: Size::Fit, h: Size::Fit, look: None, enabled: true, selected: false, danger: false, name: None, align: Justify::Start, pad: Edges::ZERO, variant: 0 };
 
     /// Sets the box's width and height: `Size::Px` points, `Size::Grow` to fill its line, `Size::Fit` the kit's (text plus 14 wide, 20 high).
     /// `Pct` and `Rel` are refused when the button is declared.
@@ -109,6 +110,17 @@ impl Button {
     /// let _ = B;
     /// ```
     pub const fn pad(mut self, pad: Edges) -> Button { self.pad = pad; self }
+
+    /// Sets the variant a registered body reads from its config (`variant`, 0 by default): one body builds different structures by it, so the app
+    /// picks per call without comparing text. The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const PILL: pxui::Button = pxui::Button::DEFAULT.variant(1);
+    /// let _ = PILL;
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Button { self.variant = variant; self }
 }
 
 impl Ui {
@@ -165,7 +177,15 @@ impl Ui {
     fn button_key(&mut self, key: Key, text: &str, button: &Button, content: Option<&mut dyn FnMut(&mut Ui)>) -> Response {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
-        self.button_keyed(label, text, button, content)
+        if button.variant == 0 { return self.button_keyed(label, text, button, content); }
+        self.set_variant(BodyKind::button, button.variant);
+        // the caller's contents are not part of the button: widgets built in them are given no variant
+        let response = match content {
+            Some(f) => self.button_keyed(label, text, button, Some(&mut |ui: &mut Ui| { ui.set_variant(BodyKind::button, 0); f(ui) })),
+            None => self.button_keyed(label, text, button, None),
+        };
+        self.set_variant(BodyKind::button, 0);
+        response
     }
 }
 
