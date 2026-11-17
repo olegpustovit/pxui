@@ -1780,6 +1780,20 @@ fn abi_header(workspace: &Path) -> Result<Vec<String>, String> {
             }
         }
     }
+    // The header must compile on its own, as C11 and as C++17, so an undeclared type or a typedef that lost a field fails here.
+    let include = workspace.join("include");
+    for (compiler, flags) in [("cc", &["-std=c11", "-Wall", "-Werror", "-x", "c"][..]), ("c++", &["-std=c++17", "-x", "c++"][..])] {
+        let compiled = std::process::Command::new(compiler)
+            .args(flags)
+            .args(["-fsyntax-only", "-I"])
+            .arg(&include)
+            .arg(include.join("pxui.h"))
+            .output()
+            .map_err(|error| format!("cannot run {compiler}: {error}"))?;
+        if !compiled.status.success() {
+            issues.push(format!("abi-header: include/pxui.h does not compile with {compiler}:\n{}", String::from_utf8_lossy(&compiled.stderr)));
+        }
+    }
     // The layout manifest and the header's C asserts are generated from the Rust types; the test fails when either file was edited by hand.
     let layout = std::process::Command::new("cargo")
         .current_dir(workspace)

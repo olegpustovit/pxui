@@ -281,6 +281,15 @@ typedef struct { uint32_t size; float fraction, velocity; } PxuiDismissIn;
 typedef struct { uint32_t size, flags; float offset; } PxuiDismissOut;
 typedef struct { uint16_t depth; uint8_t children; } PxuiTreeNode;
 typedef struct { uint32_t size; uint8_t has_stroke,has_max_height,dismiss_initial,attached; PxuiColor stroke; float max_height,x,y,width,height; PxuiStr label; } PxuiPopupDesc;
+typedef struct { uint32_t size; uint8_t rtl,reserved[3]; int64_t font_size,row_height,density; PxuiRect clip; float clip_radius; PxuiThemeTokens theme; } PxuiPaintInfo;
+typedef void (*PxuiIconDraw)(void *user, PxuiPaint *paint, PxuiRect rect, PxuiColor ink, const PxuiPaintInfo *info); /* an icon drawing, called at paint time; info: valid during the call */
+/* ABI 1.45: a label's style. A field whose PXUI_LABEL_SET_* bit in `set` is clear is the theme's label style (font, size,
+   weight, tracking in ems, capitals, colour; width full; line height the row height, 0 for 1.2 times the size; pad 12 with 4
+   above a first child). color is an app colour token; digits 1 draws one cached character at a time, digits on the advance of 0. */
+enum { PXUI_LABEL_SET_FONT = 1, PXUI_LABEL_SET_SIZE = 2, PXUI_LABEL_SET_WEIGHT = 4, PXUI_LABEL_SET_TRACKING = 8, PXUI_LABEL_SET_CAPS = 16,
+       PXUI_LABEL_SET_COLOR = 32, PXUI_LABEL_SET_WIDTH = 64, PXUI_LABEL_SET_LINE_HEIGHT = 128, PXUI_LABEL_SET_PAD = 256 };
+typedef struct { uint32_t size, set; uint16_t font, weight, color, max_lines; uint8_t caps, digits, ellipsis, reserved;
+                 float size_points, tracking, line_height, pad; uint32_t wrap, align, features; PxuiSizeDesc width; } PxuiLabelStyle;
 /* ABI 1.46: a kit icon button with options. w_kind/h_kind 0 the kit square, 1 points, 2 fill; states NULL is the theme's icon button, else six
    PxuiLookDesc (idle, hover, pressed, focus, disabled, checked); press_scale is the plate's scale while held (1 = none); the icon is the
    glyph `icon`, or, when `draw` is set, the app's drawing called at paint time with draw_user, the 20-point square and the look's ink. */
@@ -304,7 +313,6 @@ typedef struct { uint32_t size,reserved; uint64_t draw_revision; double repaint_
 /* A window into a layer's instance storage: the caller stores 64-byte instances at at (stamping clip, clip_radius_f16 and view) and
    advances it; pxui_paint_span commits what was written (at is where it stopped) and hands out the next window. */
 typedef struct { uint32_t size; uint16_t view,clip_radius_f16; int16_t clip[4]; PxuiInstance *at,*end; } PxuiSpan;
-typedef struct { uint32_t size; uint8_t rtl,reserved[3]; int64_t font_size,row_height,density; PxuiRect clip; float clip_radius; PxuiThemeTokens theme; } PxuiPaintInfo;
 typedef void (*PxuiSlideText)(void *user, float fraction, PxuiStr *out);
 typedef void (*PxuiScrubText)(void *user, PxuiStr origin, float dx, uint8_t coarse, PxuiStr *out);
 /* flags: 1 left, 2 edit, 4 bare, 8 kept_drag, 16 has_size, 32 has_fraction, 64 has_tracking, 128 has_line, 256 has_lead, 512 has_trail, 1024 has_display, 2048 has_placeholder */
@@ -323,7 +331,6 @@ typedef struct { uint32_t size, axis; int64_t flags; PxuiSizeDesc w,h; float max
 typedef void (*PxuiBuild)(void *user, PxuiUi *ui);
 typedef void (*PxuiPaintBuild)(void *user, PxuiPaint *paint, PxuiRect rect, const PxuiPaintInfo *info); /* info: valid during the call */
 typedef void (*PxuiPaintRelease)(void *user);
-typedef void (*PxuiIconDraw)(void *user, PxuiPaint *paint, PxuiRect rect, PxuiColor ink, const PxuiPaintInfo *info); /* an icon drawing, called at paint time; info: valid during the call */
 typedef void (*PxuiSpanBuild)(void *user, float x, float width);
 typedef void (*PxuiPickerRows)(void *user, PxuiStr query, PxuiStrSpan *out);
 typedef uint8_t (*PxuiTextValid)(void *user, PxuiStr value);
@@ -511,18 +518,11 @@ typedef void (*PxuiCellBuild)(void *user, PxuiUi *ui, size_t row, size_t column)
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t on; PxuiBox row; PxuiStr label; } PxuiToggleConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; float fraction; PxuiBox track; PxuiStr label; } PxuiSliderConfig;
 typedef struct { uint32_t size; uint8_t has_value; float value; PxuiBox row; PxuiStr label; } PxuiProgressConfig;
-typedef struct { uint32_t size; PxuiStateDesc state; uint8_t bare; uint8_t icon; uint8_t at_end; PxuiBox line; PxuiBox row; const PxuiStates * states; PxuiStr label; } PxuiButtonConfig;
+typedef struct { uint32_t size; PxuiStateDesc state; uint8_t bare; uint8_t icon; uint8_t at_end; PxuiBox line; PxuiBox row; const PxuiStates * states; PxuiStr label; uint8_t w_kind,h_kind,justify,reserved; float w,h,padding[4]; } PxuiButtonConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; PxuiBox node; PxuiStr label; PxuiStr icon; const PxuiStates *states; uint8_t w_kind,h_kind,reserved; float w,h,press_scale; PxuiIconDraw draw; void *draw_user; PxuiColor ink; } PxuiIconButtonConfig;
 typedef struct { uint32_t size; PxuiStateDesc state; uint8_t on; PxuiBox row; PxuiStr label; } PxuiCheckConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; } PxuiSpinnerConfig;
 typedef struct { uint32_t size; PxuiBox node; PxuiStr label; PxuiStr text; } PxuiBadgeConfig;
-/* ABI 1.45: a label's style. A field whose PXUI_LABEL_SET_* bit in `set` is clear is the theme's label style (font, size,
-   weight, tracking in ems, capitals, colour; width full; line height the row height, 0 for 1.2 times the size; pad 12 with 4
-   above a first child). color is an app colour token; digits 1 draws one cached character at a time, digits on the advance of 0. */
-enum { PXUI_LABEL_SET_FONT = 1, PXUI_LABEL_SET_SIZE = 2, PXUI_LABEL_SET_WEIGHT = 4, PXUI_LABEL_SET_TRACKING = 8, PXUI_LABEL_SET_CAPS = 16,
-       PXUI_LABEL_SET_COLOR = 32, PXUI_LABEL_SET_WIDTH = 64, PXUI_LABEL_SET_LINE_HEIGHT = 128, PXUI_LABEL_SET_PAD = 256 };
-typedef struct { uint32_t size, set; uint16_t font, weight, color, max_lines; uint8_t caps, digits, ellipsis, reserved;
-                 float size_points, tracking, line_height, pad; uint32_t wrap, align, features; PxuiSizeDesc width; } PxuiLabelStyle;
 /* ABI 1.45: grows at its end by style, the label's style as given (unset fields: the theme's); read it only when size covers it. */
 typedef struct { uint32_t size; uint8_t first; PxuiBox node; PxuiStr text; PxuiLabelStyle style; } PxuiLabelConfig;
 typedef struct { uint32_t size; PxuiBox row; uint8_t has_right; PxuiStr right; PxuiHintSpan hints; } PxuiFooterConfig;
