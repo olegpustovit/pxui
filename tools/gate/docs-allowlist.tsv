@@ -1,7 +1,4 @@
 # Public fns still missing documentation parts: path, item, missing parts. May only shrink; the docs gate fails on new gaps and on stale rows.
-crates/public/pxui_types/src/node.rs	Transition::curve	example,Allocates,Panics
-crates/public/pxui_types/src/node.rs	Transition::of	example,Allocates,Panics
-crates/public/pxui_types/src/node.rs	Transition::valid	example,Allocates,Panics
 crates/public/pxui_types/src/text.rs	TextSpans::as_slice	example,Allocates,Panics
 crates/public/pxui_types/src/text.rs	TextSpans::new	example,Allocates,Panics
 crates/public/pxui/src/bodies.rs		example,Allocates,Panics
@@ -24,9 +21,6 @@ crates/public/pxui/src/box_ops.rs	Ui::hovered_exactly	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::hovered_within	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::last_press_within	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::transfer_carry	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::view_flat	example,Allocates,Panics,Identity
-crates/public/pxui/src/box_ops.rs	Ui::view_transform_about	example,Allocates,Panics
-crates/public/pxui/src/kit_ext.rs	Ui::animate	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::field_drag	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::grip	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_bar	example,Allocates,Panics
@@ -35,8 +29,6 @@ crates/public/pxui/src/kit_ext.rs	Ui::inspector_header	example,Allocates,Panics,
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_section_view	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_toggle_value	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::popup	example,Allocates,Panics,Identity
-crates/public/pxui/src/kit.rs	pxui_ui_animate_keys	example,Allocates,Panics
-crates/public/pxui/src/kit.rs	pxui_ui_animate_keys_repeat	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_footer	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_grid_list	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_inspector_button	example,Allocates,Panics,Identity
@@ -51,16 +43,9 @@ crates/public/pxui/src/kit.rs	pxui_ui_section_list_measured	example,Allocates,Pa
 crates/public/pxui/src/kit.rs	pxui_ui_split	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_table	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_wants_frame	example,Allocates,Panics
-crates/public/pxui/src/kit.rs	Ui::animate_keys_repeat	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	Ui::table	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit.rs	Ui::table_str	example,Allocates,Panics,Identity
 crates/public/pxui/src/lib.rs	context_clicked	example,Allocates,Panics
-crates/public/pxui/src/overlays.rs	pxui_ui_context_menu	example,Allocates,Panics,Identity
-crates/public/pxui/src/overlays.rs	pxui_ui_picker	example,Allocates,Panics,Identity
-crates/public/pxui/src/overlays.rs	pxui_ui_tip	example,Allocates,Panics,Identity
-crates/public/pxui/src/overlays.rs	pxui_ui_toasts	example,Allocates,Panics,Identity
-crates/public/pxui/src/overlays.rs	Ui::picker	example,Allocates,Panics,Identity
-crates/public/pxui/src/overlays.rs	Ui::picker_filled	example,Allocates,Panics,Identity
 crates/public/pxui/src/paint.rs	Paint::cap	example,Allocates,Panics
 crates/public/pxui/src/paint.rs	Paint::selection	example,Allocates,Panics
 crates/public/pxui/src/paint.rs	Paint::text_spans	example,Allocates,Panics

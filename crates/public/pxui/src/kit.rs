@@ -31,7 +31,31 @@ mod sys {
     pub fn pxui_ui_inspector_message(ui: *mut PxuiUi, desc: *const InspectorTextDesc) -> i32;
     pub fn pxui_ui_wants_frame(ui: *mut PxuiUi, events: Slice<pxui_types::Event>, now: f64, out: *mut u8) -> i32;
     pub fn pxui_ui_footer(ui: *mut PxuiUi, desc: *const FooterDesc) -> i32;
+    /// The C entry `Ui::animate_keys` calls: plays the 1 to 8 keyframes `keys` on `box_` once and writes 1 to `out` while the run is going; an error code for an invalid keyframe or a stale box.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::ui::{Curve, Keyframe, Target};
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     ui.animate_keys(&b, &[Keyframe { time: 0.0, target: Target::Offset(0.0, 8.0), curve: Curve::Spring { omega: 10.0 } }]);
+    /// });
+    /// ```
     pub fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, out: *mut u8) -> i32;
+    /// The C entry `Ui::animate_keys_repeat` calls: plays `keys` (1 to 8) on `box_` `repeat` times (0 is forever; a count includes the reverse leg), reversing every other cycle when `autoreverse` is non-zero, starting `start_offset` seconds in; writes 1 to `out` while it runs.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::ui::{Curve, Keyframe, Target};
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let curve = Curve::Bezier { duration: 0.4, points: [0.0, 0.0, 1.0, 1.0] };
+    ///     let keys = [Keyframe { time: 0.0, target: Target::Opacity(1.0), curve }, Keyframe { time: 0.4, target: Target::Opacity(0.5), curve }];
+    ///     ui.animate_keys_repeat(&b, &keys, pxui::kit::Repeat::Count(2), false, 0.0);
+    /// });
+    /// ```
     pub fn pxui_ui_animate_keys_repeat(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32;
     pub fn pxui_ui_table(ui: *mut PxuiUi, desc: *const TableDesc, clicked_row: *mut i64) -> i32;
     }
@@ -374,8 +398,21 @@ impl Ui {
         self.animate_keyframes(box_, keys, None)
     }
 
-    /// Repeat a positive-duration keyframe run. A count includes the reverse leg; the start
-    /// offset is seconds into its first cycle. Hidden runs request no frames. Retarget to stop.
+    /// Runs the keyframes `keys` (1 to 8, times ascending from 0) on the box `box_` and repeats them: `repeat` cycles (a count includes the reverse leg) or forever, optionally playing each cycle back after it (`autoreverse`), starting `start_offset` seconds into the first cycle.
+    /// The run needs a positive duration; hidden runs request no frames. Call `animate_keys` with another run, or `animate`, to stop it. True while it runs; false for a stale handle.
+    /// Allocates: never.
+    /// Panics: when `keys` is empty or over 8, the count is `Repeat::Count(0)`, or the library refuses the run.
+    ///
+    /// ```
+    /// use pxui::ui::{Curve, Keyframe, Target};
+    /// use pxui::kit::Repeat;
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let b = ui.node("pulse".into(), pxui::Node::DEFAULT);
+    ///     let keys = [Keyframe { time: 0.0, target: Target::Opacity(1.0), curve: Curve::Spring { omega: 8.0 } },
+    ///         Keyframe { time: 0.5, target: Target::Opacity(0.4), curve: Curve::Bezier { duration: 0.5, points: [0.4, 0.0, 0.2, 1.0] } }];
+    ///     ui.animate_keys_repeat(&b, &keys, Repeat::Forever, true, 0.0);
+    /// });
+    /// ```
     #[track_caller]
     pub fn animate_keys_repeat(&mut self, box_: &PxuiBox, keys: &[Keyframe], repeat: Repeat, autoreverse: bool, start_offset: f32) -> bool {
         assert!(repeat != Repeat::Count(0), "pxui: repeat count must be positive");

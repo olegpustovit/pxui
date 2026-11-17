@@ -39,14 +39,38 @@ pub enum Transition {
     Spring { omega: f32 },
 }
 impl Transition {
-    /// `None` for a table or steps, which a node does not carry.
+    /// The node-carriable `Transition` of `curve`: `Some` for a Bezier or Spring, `None` for a table or steps (a node does not carry those).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::Curve, node::Transition};
+    /// assert_eq!(Transition::of(Curve::Spring { omega: 12.0 }), Some(Transition::Spring { omega: 12.0 }));
+    /// assert_eq!(Transition::of(Curve::Steps { duration: 1.0, count: 4 }), None);
+    /// ```
     pub fn of(curve: Curve) -> Option<Self> {
         match curve { Curve::Bezier { duration, points } => Some(Self::Bezier { duration, points }), Curve::Spring { omega } => Some(Self::Spring { omega }), _ => None }
     }
+    /// The `Curve` this transition runs, with the same parameters.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::Curve, node::Transition};
+    /// assert_eq!(Transition::Spring { omega: 12.0 }.curve(), Curve::Spring { omega: 12.0 });
+    /// ```
     pub fn curve(self) -> Curve {
         match self { Self::Bezier { duration, points } => Curve::Bezier { duration, points }, Self::Spring { omega } => Curve::Spring { omega } }
     }
-    /// Valid finite parameters, as `Curve::valid`. Checked at the ABI boundary.
+    /// Whether the parameters are usable (finite, a Bezier's x values in 0 to 1, a spring `omega` above 0), as `Curve::valid`; the ABI boundary refuses an invalid one.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::node::Transition;
+    /// assert!(Transition::Spring { omega: 12.0 }.valid());
+    /// assert!(!Transition::Spring { omega: 0.0 }.valid());
+    /// ```
     #[inline]
     pub fn valid(&self) -> bool { match self { Self::Bezier { duration, points } => Curve::bezier_valid(*duration, points), Self::Spring { omega } => Curve::spring_valid(*omega) } }
 }

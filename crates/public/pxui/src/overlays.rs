@@ -21,9 +21,49 @@ mod raw {
     pub type PickerOff = Option<extern "C" fn(*mut c_void, i64) -> u8>;
     #[link(name = "pxui")]
     unsafe extern "C" {
+    /// The C entry `Ui::tip` calls: shows the tooltip `label` for `box_` while the pointer rests on it; an error code for a stale box or invalid text.
+    /// Allocates: never on a warm frame.
+    /// Identity: the tooltip is keyed by its text, so two tooltips of one text share one.
+    /// Panics: never.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     ui.tip(&b, "Shuffle");
+    /// });
+    /// ```
     pub fn pxui_ui_tip(ui:*mut PxuiUi,box_:*const PxuiBox,label:Str)->i32;
+    /// The C entry `Ui::toasts` calls: stacks the toast texts `items` in the window's lower end corner and writes the index of one clicked away or expired to `out_index`, or -1; an error code for a non-finite or negative `seconds`.
+    /// Allocates: never on a warm frame.
+    /// Identity: `label` names the stack (its accessible name); one stack per label in a parent.
+    /// Panics: never.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| { ui.toasts("toasts", &["Saved"], 3.0); });
+    /// ```
     pub fn pxui_ui_toasts(ui:*mut PxuiUi,label:Str,items:Slice<Str>,seconds:f64,out_index:*mut i64)->i32;
+    /// The C entry `Ui::menu` calls (the dynamic-link path): shows the menu `items` at (`x`, `y`) with the enabled flags, optional width and selected row and the `extra` columns (keys, swatches, danger rows, submenus, marks); writes the outcome tag (0 open, 1 chosen, 2 dismissed) and the chosen row to the outputs; an error code for invalid arguments.
+    /// `extra` is read by its `size` field, so an older caller's shorter record is served.
+    /// Allocates: never on a warm frame.
+    /// Identity: `label` keys the menu and is its accessible name.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::ui::{Menu, MenuItem};
+    /// pxui::doc::frames(1, &mut |ui| { ui.menu("m", (10.0, 10.0), &[MenuItem::new("Open")], &Menu::DEFAULT); });
+    /// ```
     pub fn pxui_ui_context_menu(ui:*mut PxuiUi,x:f32,y:f32,label:Str,items:Slice<Str>,enabled:Slice<u8>,has_width:u8,width:f32,has_selected:u8,selected:i64,extra:*const PxuiMenuExtra,out_tag:*mut u32,out_index:*mut i64)->i32;
+    /// The C entry `Ui::picker` and `Ui::picker_filled` call: a search field over the rows `rows` computes for the query, windowed to `limit` rows; writes the edited query, the outcome tag (0 none, 1 pick, 2 delete, 3 submit, 4 back, 5 cancel) and the row index; an error code for invalid arguments.
+    /// The callbacks run during the call with `user`; the query and the rows they hand over are borrowed until the call returns.
+    /// Allocates: never on a warm frame.
+    /// Identity: `label` is the field's placeholder and its key.
+    /// Panics: never.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     ui.picker(&pxui::PickerOpts::default(), "find", "", &|_query| vec![("Song".to_owned(), String::new())]);
+    /// });
+    /// ```
     pub fn pxui_ui_picker(ui:*mut PxuiUi,limit:i64,slash:u8,at_rest:u8,label:Str,query:Str,rows:PickerRows,mark:PickerMark,off:PickerOff,user:*mut c_void,out_query:*mut Str,out_tag:*mut u32,out_index:*mut i64)->i32;
     }
 }
@@ -172,15 +212,40 @@ impl Ui {
         match tag { 0 => MenuResponse::default(), 1 => MenuResponse { chosen: Some(index as usize), dismissed: false }, 2 => MenuResponse { chosen: None, dismissed: true }, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
     }
 
-    /// A picker whose rows come from `rows_of(query)`, a fresh vector each call.
+    /// A focused search row over the `(label, detail)` rows `rows_of(query)` returns for the current query, windowed to `options.limit` (10) around the cursor; returns the edited query and what happened to it.
+    /// Indices in `Pick` refer to the rows of the returned query. `Pick::Pick` comes on Enter or a row click, `Submit` on Enter with no rows, `Delete` on a second Delete over the same armed row, `Back` on Backspace or Left with an empty query, `Cancel` on Escape. Build it inside a panel or `modal`.
+    /// Allocates: a fresh row vector and the strings in it on every call; use `picker_filled` to reuse them.
+    /// Identity: `label` is the placeholder and keys the field; fields with the same label in one parent collide.
+    /// Panics: when the library refuses the call (outside a frame, or text over the limit).
+    ///
+    /// ```
+    /// use pxui::ui::Pick;
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// pxui::testing::frame(&mut ui, &[], &mut |ui| {
+    ///     let (query, pick) = ui.picker(&pxui::PickerOpts::default(), "find", "", &|_q| vec![("Song".to_owned(), "Artist".to_owned())]);
+    ///     assert_eq!((query.as_str(), pick), ("", Pick::None));
+    /// });
+    /// ```
     #[inline]
     #[track_caller]
     pub fn picker<F: Fn(&str) -> Vec<(String, String)> + ?Sized>(&mut self, options: &PickerOpts, label: &str, query: &str, rows_of: &F) -> (String, Pick) {
         self.picker_filled(options, label, query, &mut |query: &str, rows: &mut Vec<(String, String)>| *rows = rows_of(query))
     }
 
-    /// `picker` that asks for its rows by filling a vector kept between frames: `fill(query, rows)` replaces `rows` with the rows
-    /// for `query`, reusing the strings already in it, so a settled picker allocates nothing.
+    /// `picker` that gets its rows by filling a vector kept between frames: `fill(query, rows)` replaces `rows` with the rows for `query`, reusing the strings already in it.
+    /// Allocates: never once the rows have settled (the row strings and their span are kept on the thread); a first fill allocates them.
+    /// Identity: as `picker`.
+    /// Panics: as `picker`.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// pxui::testing::frame(&mut ui, &[], &mut |ui| {
+    ///     ui.picker_filled(&pxui::PickerOpts::default(), "find", "", &mut |_query, rows| {
+    ///         rows.clear();
+    ///         rows.push(("Song".to_owned(), "Artist".to_owned()));
+    ///     });
+    /// });
+    /// ```
     #[inline]
     #[track_caller]
     pub fn picker_filled<F: FnMut(&str, &mut Vec<(String, String)>) + ?Sized>(&mut self, options: &PickerOpts, label: &str, query: &str, fill: &mut F) -> (String, Pick) {

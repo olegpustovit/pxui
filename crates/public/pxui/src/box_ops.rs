@@ -571,7 +571,18 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_root_at(self.0.as_ptr(), point.0, point.1, Slice { ptr: roots.as_ptr(), len: roots.len() }, &mut present, &mut out) });
         (present != 0).then_some(out)
     }
-    /// `view` that takes no entry of its own in the painter's view table: its instances ride its parent's.
+    /// `view` that takes no painter table entry of its own: its instances ride the parent's, so many small views that move with their parent (one per list item) cost no table row each.
+    ///
+    /// `revision` and `build` behave as for `view`: the view's build is kept while `revision` is unchanged. `view_offset` and the other table changes on it take effect by a rebuild instead.
+    /// Allocates: never on a warm frame; a new identity takes a slot the first time.
+    /// Identity: `label` keys the view under its parent as for `box_`; two views with one label in one parent collide.
+    /// Panics: when the library refuses the call (outside a frame, an invalid size, or a `label` over the text limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     ui.view_flat("row-7", 1, pxui::ui::Size::Grow, pxui::ui::Size::Px(24.0), &mut |ui| { ui.label("seven", pxui::Label::DEFAULT); });
+    /// });
+    /// ```
     #[track_caller]
     pub fn view_flat(&mut self, label: &str, revision: u64, w: Size, h: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
         let mut out = PxuiBox::default();
@@ -592,7 +603,17 @@ impl Ui {
     #[inline] #[track_caller] pub fn view_opacity(&mut self,b:&PxuiBox,opacity:f32) { check(self,unsafe { lib::pxui_ui_view_opacity(self.0.as_ptr(),b,opacity) }) }
     /// Uniform scale about the view box's centre. Zero hides it; negative values reflect both axes.
     #[inline] #[track_caller] pub fn view_scale(&mut self,b:&PxuiBox,scale:f32) { check(self,unsafe { lib::pxui_ui_view_scale(self.0.as_ptr(),b,scale) }) }
-    /// Additional clip in window points (finite, nonnegative extent); None removes it. Use a regular view's own table entry.
+    /// Maps the view `b`'s output through `pivot + scale * transform * (p - pivot)` about the window point `pivot`, which stays put when the view moves.
+    /// `transform` is a row-major 2x2 matrix (`[1.0, 0.0, 0.0, 1.0]` is the identity; rotation, skew and flips go here); one table entry, no rebuild. Unchanged values change nothing, and a scale of 1 leaves every point exact.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a stale or non-view box, or a non-finite value).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let v = ui.view("v", 1, pxui::ui::Size::Px(40.0), pxui::ui::Size::Px(40.0), &mut |_| {});
+    ///     ui.view_transform_about(&v, 1.5, [1.0, 0.0, 0.0, 1.0], (20.0, 20.0));
+    /// });
+    /// ```
     #[inline] #[track_caller] pub fn view_clip(&mut self,b:&PxuiBox,clip:Option<Rect>) { check(self,unsafe { lib::pxui_ui_view_clip(self.0.as_ptr(),b,clip.as_ref().map_or(core::ptr::null(),|r|r)) }) }
     #[inline]
     #[track_caller]

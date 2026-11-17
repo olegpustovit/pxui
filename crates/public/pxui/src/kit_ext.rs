@@ -83,7 +83,18 @@ fn response(out: &PxuiResponse) -> Response {
 }
 
 impl Ui {
-    /// Moves the box towards `target` along `curve`; whether it is still moving.
+    /// Moves the box `b` towards `target` along `curve`; true while it is still moving.
+    /// Call it every build with the node's goal: a new goal starts a new segment from where the node is, an unchanged one keeps the running one. A stale handle returns false.
+    /// Allocates: never on a warm frame; the first animation of a node takes its animation record.
+    /// Panics: when the library refuses the call (an invalid curve, a non-finite target, or a target the node cannot take).
+    ///
+    /// ```
+    /// use pxui::ui::{Curve, Target};
+    /// pxui::doc::frames(2, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     ui.animate(&b, Target::Opacity(0.5), Curve::Spring { omega: 12.0 });
+    /// });
+    /// ```
     #[track_caller]
     pub fn animate(&mut self, b: &PxuiBox, target: Target, curve: Curve) -> bool {
         let mut out = 0;
