@@ -65,6 +65,14 @@ impl Text {
     /// Between frames. On success the record owns retired storage and can only be destroyed.
     /// Failed validation leaves both the cache and record unchanged.
     pub fn install(&mut self, record: &mut Prepared) -> bool {
+        self.install_record(record, true)
+    }
+
+    /// `install`; `named`: debug builds remember its style to report a draw that asks for another (an app's prepared text, not
+    /// the engine's prepare queue, whose text lays out at every width a node asks for).
+    pub(crate) fn install_record(&mut self, record: &mut Prepared, named: bool) -> bool {
+        #[cfg(not(debug_assertions))]
+        let _ = named;
         if !record.ready || !Arc::ptr_eq(&self.font_generation, &record.font_generation)
             || self.entries.capacity() < MAX_LAYOUTS || self.keys.capacity() < MAX_LAYOUTS {
             return false;
@@ -96,7 +104,7 @@ impl Text {
         (slot.list, slot.row, slot.view, slot.frame) = owner;
         self.cache_bytes = retained + slot.glyphs.capacity() * size_of::<CachedGlyph>();
         #[cfg(debug_assertions)]
-        if self.installed.capacity() >= MAX_INSTALLED {
+        if named && self.installed.capacity() >= MAX_INSTALLED {
             let item = (text_hash(&slot.text), record.key, slot.style, f32::from_bits(slot.width));
             match self.installed.iter().position(|old| old.1 == record.key) {
                 Some(at) => self.installed[at] = item,

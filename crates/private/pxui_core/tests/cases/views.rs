@@ -647,6 +647,139 @@ pub fn window_pxui_kept_view_text_survives_idle() {
     ui.destroy();
 }
 
+/// The worst frame of the fling workload (`window_pxui_fling_shaping_stays_under_its_ceiling`): Rust allocations on the UI
+/// thread while a fling brings rows the text cache has never seen into view faster than the prepare queue's worker delivers
+/// them. The one named exception of the warm-allocation contract (first-time shaping, pxui/AGENTS.md "Contracts"). This
+/// ceiling may only go down: lower it when a change measures less, never raise it.
+const FLING_CEILING: u64 = 116;
+
+/// A list of `count` song rows: each a view row holding a plain text node and a one-line ellipsized label, every row's text
+/// its own (no row repeats another's), so a row the list has not shown before is first-time shaping.
+fn song_rows(ui: &mut Ui, names: &[String], second: &[String], measured: bool) {
+    let mut row = |ui: &mut Ui, i: usize| {
+        ui.view("row", 1, Size::Grow, Size::Px(24.0), &mut |ui| {
+            let title = ui.node("title".into(), Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            ui.text(&title, &names[i]);
+            ui.label(&second[i], Label::BODY.line_height(20.0).lines(1).ellipsis().w(Size::Px(120.0)));
+        });
+    };
+    if measured {
+        ui.list_measured("songs", names.len(), 24.0, &mut row);
+    } else {
+        ui.list("songs", names.len(), 24.0, &mut row);
+    }
+}
+
+/// Allocations and UI-thread layouts of each of `frames`, waiting between frames until the prepare queue's worker has
+/// delivered what the frame requested (a deterministic worker: the measurement does not depend on its speed).
+fn queue_frames(ui: &mut Ui, frames: &[input::frame::Frame], list: &mut dyn FnMut(&mut Ui)) -> Vec<(u64, u64)> {
+    let mut out = Vec::with_capacity(frames.len());
+    for f in frames {
+        let layouts = ui.text_mut().layout_count();
+        let n = allocs(&mut || { ui.frame(f, &mut *list); });
+        out.push((n, ui.text_mut().layout_count() - layouts));
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        while !ui.text_mut().queue_delivered() {
+            check(std::time::Instant::now() < deadline, "the prepare queue delivered nothing for a second");
+            std::thread::yield_now();
+        }
+    }
+    out
+}
+
+fn song_names(count: usize) -> (Vec<String>, Vec<String>) {
+    ((0..count).map(|i| format!("Song title {i:05}")).collect(), (0..count).map(|i| format!("{:02}:{:02} Artist {i:05}", i % 60, i % 7)).collect())
+}
+
+/// The prepare queue keeps a scrolling list's first-time shaping off the UI thread: scrolled two rows a frame down through
+/// rows it has never shown, then back up through other unseen rows, every row a view whose text is new, a frame shapes and
+/// allocates nothing; the rows past the viewport were requested (deferred), prepared on the worker and installed between
+/// frames. Without a worker attached the same scroll shapes every row on the UI thread. A measured list queues its rows below the
+/// viewport: scrolling it down shapes nothing either.
+pub fn window_pxui_prepare_queue_scrolls_unseen_rows_without_shaping() {
+    let (names, second) = song_names(10_000);
+    // one worker for every Ui of the case, as a host with several windows attaches one
+    let worker = pxui_core::text::Worker::start().unwrap();
+    for queued in [true, false] {
+        let mut ui = new_ui(None);
+        let mut list = |ui: &mut Ui| song_rows(ui, &names, &second, false);
+        if queued {
+            ui.set_text_worker(Some(&worker));
+        }
+        // the warm-up scrolls the top rows as the measurement scrolls: every character the rows use is rasterized and the
+        // retained storage (slots, view records, text buffers) reaches the size this scroll keeps
+        let warm: Vec<_> = (0..60).map(|t| at(t as f64 * 0.05, vec![Event::Scrolled((0.0, -2.0))])).collect();
+        queue_frames(&mut ui, &warm, &mut list);
+        // far down (a jump, not measured), then two rows a frame down and later up, through rows never shown
+        queue_frames(&mut ui, &[at(3.0, vec![Event::Scrolled((0.0, -4000.0))]), at(3.1, vec![])], &mut list);
+        let down: Vec<_> = (0..60).map(|t| at(4.0 + t as f64 * 0.1, vec![Event::Scrolled((0.0, -2.0))])).collect();
+        queue_frames(&mut ui, &down[..2], &mut list);
+        let measured_down = queue_frames(&mut ui, &down[2..], &mut list);
+        queue_frames(&mut ui, &[at(20.0, vec![Event::Scrolled((0.0, -2000.0))]), at(20.1, vec![])], &mut list);
+        let up: Vec<_> = (0..60).map(|t| at(21.0 + t as f64 * 0.1, vec![Event::Scrolled((0.0, 2.0))])).collect();
+        queue_frames(&mut ui, &up[..2], &mut list);
+        let measured_up = queue_frames(&mut ui, &up[2..], &mut list);
+        let (allocated, shaped) = measured_down.iter().chain(&measured_up).fold((0, 0), |(a, l), &(n, k)| (a + n, l + k));
+        let (deferred, installed) = ui.text_mut().queue_counts();
+        eprintln!("prepare queue {queued}: {allocated} allocations, {shaped} UI-thread layouts over 116 scrolled frames; {deferred} deferred, {installed} installed");
+        if queued {
+            check(allocated == 0 && shaped == 0, &format!("{allocated} allocations and {shaped} layouts scrolling unseen rows with the prepare queue"));
+            check(installed > 0, "nothing was prepared on the worker");
+        } else {
+            check(shaped > 0 && allocated > 0, "the scroll without the queue did not shape: the workload does not exercise the queue");
+        }
+        ui.destroy();
+    }
+    // a measured list queues the rows below the viewport: scrolling down through unseen rows shapes nothing
+    let mut ui = new_ui(None);
+    let mut list = |ui: &mut Ui| song_rows(ui, &names, &second, true);
+    ui.set_text_worker(Some(&worker));
+    let warm: Vec<_> = (0..60).map(|t| at(t as f64 * 0.05, vec![Event::Scrolled((0.0, -2.0))])).collect();
+    queue_frames(&mut ui, &warm, &mut list);
+    queue_frames(&mut ui, &[at(3.0, vec![Event::Scrolled((0.0, -4000.0))]), at(3.1, vec![])], &mut list);
+    let down: Vec<_> = (0..60).map(|t| at(4.0 + t as f64 * 0.1, vec![Event::Scrolled((0.0, -2.0))])).collect();
+    queue_frames(&mut ui, &down[..2], &mut list);
+    let (allocated, shaped) = queue_frames(&mut ui, &down[2..], &mut list).iter().fold((0, 0), |(a, l), &(n, k)| (a + n, l + k));
+    eprintln!("measured list, prepare queue: {allocated} allocations, {shaped} UI-thread layouts over 58 scrolled frames");
+    check(allocated == 0 && shaped == 0, &format!("{allocated} allocations and {shaped} layouts scrolling a measured list's unseen rows"));
+    ui.destroy();
+}
+
+/// The fling workload and its ceiling: six rows a frame (a fast fling: rows cross the four-row overscan in under a frame)
+/// through rows never shown. Rows the worker delivered in time draw from the cache; the rest shape on the UI thread, the
+/// named exception. A frame allocates only when it shaped on the UI thread, and the worst frame stays under
+/// `FLING_CEILING`; the queue shapes fewer rows on the UI thread than no queue.
+pub fn window_pxui_fling_shaping_stays_under_its_ceiling() {
+    let (names, second) = song_names(10_000);
+    let worker = pxui_core::text::Worker::start().unwrap();
+    let mut worst = [0u64; 2];
+    let mut layouts = [0u64; 2];
+    for (k, queued) in [true, false].into_iter().enumerate() {
+        let mut ui = new_ui(None);
+        let mut list = |ui: &mut Ui| song_rows(ui, &names, &second, false);
+        if queued {
+            ui.set_text_worker(Some(&worker));
+        }
+        // the warm-up flings the top rows as the measurement does (glyphs rasterized, retained storage at its size)
+        let warm: Vec<_> = (0..60).map(|t| at(t as f64 * 0.05, vec![Event::Scrolled((0.0, -6.0))])).collect();
+        queue_frames(&mut ui, &warm, &mut list);
+        queue_frames(&mut ui, &[at(3.0, vec![Event::Scrolled((0.0, -4000.0))]), at(3.1, vec![])], &mut list);
+        let fling: Vec<_> = (0..62).map(|t| at(4.0 + t as f64 * 0.1, vec![Event::Scrolled((0.0, -6.0))])).collect();
+        queue_frames(&mut ui, &fling[..2], &mut list);
+        let measured = queue_frames(&mut ui, &fling[2..], &mut list);
+        for &(n, shaped) in &measured {
+            check(n == 0 || shaped > 0, &format!("a fling frame allocated {n} times without shaping: only first-time shaping may allocate"));
+        }
+        worst[k] = measured.iter().map(|m| m.0).max().unwrap_or(0);
+        layouts[k] = measured.iter().map(|m| m.1).sum();
+        let total: u64 = measured.iter().map(|m| m.0).sum();
+        eprintln!("fling, prepare queue {queued}: worst frame {} allocations, {total} over 60 frames, {} UI-thread layouts", worst[k], layouts[k]);
+        ui.destroy();
+    }
+    check(worst[0] <= FLING_CEILING, &format!("the fling's worst frame allocated {}, over its ceiling {FLING_CEILING}", worst[0]));
+    check(layouts[0] < layouts[1], &format!("the prepare queue shaped {} layouts on the UI thread, no fewer than {} without it", layouts[0], layouts[1]));
+}
+
 /// No allocation once warm: a virtual list scrolled a row per frame, and a hover entering and leaving
 /// a kept view's button with the theme's transition running.
 pub fn window_pxui_budget_zero_alloc() {
@@ -1074,6 +1207,8 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_budget_cached_per_view", window_pxui_budget_cached_per_view),
     ("window_pxui_budget_zero_alloc", window_pxui_budget_zero_alloc),
     ("window_pxui_list_text_survives_idle", window_pxui_list_text_survives_idle),
+    ("window_pxui_prepare_queue_scrolls_unseen_rows_without_shaping", window_pxui_prepare_queue_scrolls_unseen_rows_without_shaping),
+    ("window_pxui_fling_shaping_stays_under_its_ceiling", window_pxui_fling_shaping_stays_under_its_ceiling),
     ("window_pxui_kept_view_text_survives_idle", window_pxui_kept_view_text_survives_idle),
     ("window_pxui_view_rebuilds_one", window_pxui_view_rebuilds_one),
     ("window_pxui_shrunk_layer_clips_dirty", window_pxui_shrunk_layer_clips_dirty),

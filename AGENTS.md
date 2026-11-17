@@ -32,7 +32,9 @@ nothing may reach outside this repository (no `../../..` paths past the root).
 
 - Dependencies are std and `cc`. The one exception is cosmic-text, in `pxui_text` only.
 - A warm frame allocates nothing; `mem_sys`'s counting allocator is what the tests assert against. One named exception: shaping a string the text cache has never seen during a fast fling may
-  allocate inside the shaping library; it has its own measured workload whose ceiling may only go down.
+  allocate inside the shaping library; it has its own measured workload whose ceiling may only go down (pxui_core
+  `window_pxui_fling_shaping_stays_under_its_ceiling`, `FLING_CEILING`). The prepare queue (a host-owned `TextWorker` attached to
+  any number of `Ui`s; virtual lists' rows past the viewport, `Ui::prewarm_text`) keeps other first-time shaping off the UI thread.
   A UI draws with a small fixed number of draw calls (one instanced pipeline); a change that adds
   draw calls or per-frame allocations needs a measurement and a test that pins the new number.
 - A leaf's bounds come from its parent; skip its child-placement pass only without children and

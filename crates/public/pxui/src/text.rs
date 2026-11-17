@@ -1,7 +1,7 @@
 //! Text shaping outside the widget tree. A `Text` is a shaper of its own for text laid out off the `Ui` (on any thread): it measures
 //! and rasterizes to RGBA. `Ui::text_service` is the `Ui`'s own: the one font system and glyph atlas it draws with, whose glyph quads
 //! sample the atlases `Renderer::atlas` hands out.
-use crate::sys::{PxuiPreparedText, PxuiShaper, PxuiUi};
+use crate::sys::{PxuiPreparedText, PxuiShaper, PxuiTextWorker, PxuiUi};
 use crate::{as_str, Error, Ui};
 use core::ptr::NonNull;
 use pxui_types::{Label, Str, TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
@@ -10,6 +10,10 @@ library!(lib {
     fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper;
     fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32;
     fn pxui_text_install(ui:*mut PxuiUi,record:*mut PxuiPreparedText)->i32;
+    fn pxui_text_prewarm(ui:*mut PxuiUi,value:Str,style:*const TextStyle,max_width:f32)->i32;
+    fn pxui_text_worker_create()->*mut PxuiTextWorker;
+    fn pxui_text_worker_destroy(worker:*mut PxuiTextWorker);
+    fn pxui_ui_set_text_worker(ui:*mut PxuiUi,worker:*const PxuiTextWorker)->i32;
     fn pxui_prepared_destroy(record:*mut PxuiPreparedText);
     fn pxui_shaper_system_fonts(shaper:*mut PxuiShaper)->i32;
     fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32;
@@ -230,6 +234,37 @@ impl Text {
 
 impl Drop for Text { fn drop(&mut self) { unsafe { lib::pxui_shaper_destroy(self.0.as_ptr()) } } }
 
+/// The prepare queue's worker: one thread, owned by the host, that shapes text ahead of need for every `Ui` attached to it
+/// (`Ui::set_text_worker`). There is no hidden or per-`Ui` thread: a host with many windows attaches them all to one worker.
+/// Cost: the thread, and per attached `Ui` a fork of its font database (font bytes shared) and fixed buffers (128 requests,
+/// 16 KiB of text, 32 installs a frame); at most 64 `Ui`s at once. Dropping it waits for at most one shaping call; `Ui`s still
+/// attached shape inline.
+///
+/// Threads: a `TextWorker` may be created, shared (`&TextWorker` from `Ui`s on several threads) and dropped on any thread; each
+/// `Ui` attaches on its own thread. The borrow in `Ui::set_text_worker` keeps a drop from racing an attach.
+pub struct TextWorker(NonNull<PxuiTextWorker>);
+
+// SAFETY: the library's worker object is internally synchronized (its mailbox is behind a mutex; attaching clones a reference
+// under it), and it holds no pointer into the caller or any `Ui`; dropping it needs `&mut`/ownership, which no attach can hold.
+unsafe impl Send for TextWorker {}
+unsafe impl Sync for TextWorker {}
+
+impl TextWorker {
+    /// Starts the worker's thread; `Error::Engine` when the platform cannot start one.
+    /// Allocates: the thread and its mailbox, once.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let worker = pxui::TextWorker::new();
+    /// assert!(worker.is_ok());
+    /// ```
+    pub fn new()->Result<TextWorker,Error> {
+        NonNull::new(unsafe { lib::pxui_text_worker_create() }).map(TextWorker).ok_or(Error::Engine)
+    }
+}
+
+impl Drop for TextWorker { fn drop(&mut self) { unsafe { lib::pxui_text_worker_destroy(self.0.as_ptr()) } } }
+
 /// The text service of a `Ui`: its one font system and glyph atlas.
 pub struct UiText<'ui>(&'ui mut Ui);
 
@@ -311,6 +346,52 @@ impl Ui {
         let style=self.resolved(style)?;
         let rc=unsafe {lib::pxui_ui_text_line_box(self.0.as_ptr(),box_,as_str(text),&style,&spans)};
         if rc==0 {Ok(())} else {Err(Error::from_code(rc))}
+    }
+    /// Attaches this `Ui` to `worker`, the prepare queue's thread, which any number of `Ui`s share (`None` detaches). Attached,
+    /// the `Ui`'s virtual lists (`list`, sectioned lists, grids; measured lists below the viewport only) request the unseen text
+    /// of the rows they build past the viewport, and `prewarm_text` requests text: it is shaped on the worker and installed
+    /// before a later frame builds, so scrolling does not shape on the UI thread. Without a worker the `Ui` shapes inline. The
+    /// `Ui` keeps no reference to `worker`: dropping the worker first leaves the `Ui` shaping inline. A worker serves at most 64
+    /// `Ui`s at once. Call it between frames, on this `Ui`'s thread (the worker may be shared with `Ui`s on other threads).
+    /// Allocates: a fork of this `Ui`'s font database (font bytes shared) and its lane's fixed buffers (128 requests, 16 KiB of
+    /// text), once per attach; detaching frees them on the worker without waiting.
+    /// Panics: never.
+    /// Errors: `Error::State` inside a frame, or when the worker serves 64 `Ui`s already (this `Ui` is left detached).
+    ///
+    /// ```
+    /// let worker = pxui::TextWorker::new().unwrap();
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
+    /// ui.set_text_worker(Some(&worker)).unwrap();
+    /// ui.set_text_worker(None).unwrap();
+    /// ```
+    pub fn set_text_worker(&mut self,worker:Option<&TextWorker>)->Result<(),Error> {
+        let worker=worker.map_or(core::ptr::null(),|worker|worker.0.as_ptr().cast_const());
+        let rc=unsafe { lib::pxui_ui_set_text_worker(self.0.as_ptr(),worker) };
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
+    }
+    /// Asks the attached worker (`set_text_worker`) for `text` in `style` (resolved as `resolve`) within `max_width` points
+    /// (0: unbounded, as `UiText::width`), the layout a label draws when it shows that text, style and width: it is shaped on
+    /// the worker and installed before a later frame builds, so that frame does not shape it. Call it for text a coming frame
+    /// will show (rows ahead of a scroll). Without a worker, or for cached or already requested text, it does nothing and
+    /// returns `Ok`; a full lane (128 requests in flight) drops the request. Text a fast fling shows before its delivery still
+    /// shapes on the frame: the contract's one named exception.
+    /// Allocates: never (the worker's fork of the fonts is renewed once after a font change, at the end of that frame).
+    /// Panics: never.
+    /// Errors: `Error::InvalidInput` for a negative or non-finite `max_width`, text over 16 KiB, or a style that does not
+    /// resolve.
+    ///
+    /// ```
+    /// const TITLE: pxui::Label = pxui::Label::BODY.line_height(20.0).lines(1).ellipsis();
+    /// let worker = pxui::TextWorker::new().unwrap();
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("Song title", TITLE); });
+    /// ui.set_text_worker(Some(&worker)).unwrap();
+    /// ui.prewarm_text("Next song title", &TITLE, 240.0).unwrap();
+    /// assert!(ui.prewarm_text("x", &TITLE, -1.0).is_err());
+    /// ```
+    pub fn prewarm_text(&mut self,text:&str,style:&Label,max_width:f32)->Result<(),Error> {
+        let style=self.resolved(style)?;
+        let rc=unsafe { lib::pxui_text_prewarm(self.0.as_ptr(),as_str(text),&style,max_width) };
+        if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
     /// `resolve` as a result: a style that does not resolve is InvalidInput.
     fn resolved(&self,style:&Label)->Result<TextStyle,Error> {

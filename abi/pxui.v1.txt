@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 61
+minor 62
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -64,11 +64,14 @@ function pxui_text_field int32_t pxui_text_field ( PxuiUi * ui , PxuiStr label ,
 function pxui_text_field_with_options int32_t pxui_text_field_with_options ( PxuiUi * ui , PxuiStr label , PxuiStr value , const PxuiTextInputOptions * options , PxuiStr * changed , uint8_t * out_changed ) ;
 function pxui_text_fork PxuiShaper * pxui_text_fork ( PxuiUi * ui ) ;
 function pxui_text_install int32_t pxui_text_install ( PxuiUi * ui , PxuiPreparedText * record ) ;
+function pxui_text_prewarm int32_t pxui_text_prewarm ( PxuiUi * ui , PxuiStr value , const PxuiTextStyle * style , float max_width ) ;
 function pxui_text_quads size_t pxui_text_quads ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float x , float y , float scale , PxuiTextGlyph * out , size_t capacity ) ;
 function pxui_text_rasterize_rgba size_t pxui_text_rasterize_rgba ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
 function pxui_text_system_fonts int32_t pxui_text_system_fonts ( PxuiUi * ui ) ;
 function pxui_text_width int32_t pxui_text_width ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , PxuiTextMetrics * out ) ;
 function pxui_text_width_spans int32_t pxui_text_width_spans ( PxuiUi * ui , uint64_t key , PxuiStr value , const PxuiTextStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
+function pxui_text_worker_create PxuiTextWorker * pxui_text_worker_create ( void ) ;
+function pxui_text_worker_destroy void pxui_text_worker_destroy ( PxuiTextWorker * worker ) ;
 function pxui_theme_create PxuiTheme * pxui_theme_create ( const PxuiThemeTokens * tokens ) ;
 function pxui_theme_destroy void pxui_theme_destroy ( PxuiTheme * theme ) ;
 function pxui_theme_last_error PxuiStr pxui_theme_last_error ( const PxuiTheme * theme ) ;
@@ -205,6 +208,7 @@ function pxui_ui_set_role int32_t pxui_ui_set_role ( PxuiUi * ui , const PxuiBox
 function pxui_ui_set_scroll_offset int32_t pxui_ui_set_scroll_offset ( PxuiUi * ui , const PxuiBox * box , float value ) ;
 function pxui_ui_set_state int32_t pxui_ui_set_state ( PxuiUi * ui , const PxuiBox * box , int64_t value ) ;
 function pxui_ui_set_text_state int32_t pxui_ui_set_text_state ( PxuiUi * ui , const PxuiBox * box , uint8_t present , PxuiStr value ) ;
+function pxui_ui_set_text_worker int32_t pxui_ui_set_text_worker ( PxuiUi * ui , const PxuiTextWorker * worker ) ;
 function pxui_ui_set_theme int32_t pxui_ui_set_theme ( PxuiUi * ui , const PxuiThemeSource * source ) ;
 function pxui_ui_set_timing int32_t pxui_ui_set_timing ( PxuiUi * ui , uint8_t on ) ;
 function pxui_ui_signal int32_t pxui_ui_signal ( PxuiUi * ui , const PxuiBox * box , PxuiSignal * out ) ;

@@ -78,7 +78,7 @@ pub mod ui {
     pub use pxui_types::a11y::Role;
 }
 pub mod text;
-pub use text::{PreparedText, RetiredText, Text, UiText};
+pub use text::{PreparedText, RetiredText, Text, TextWorker, UiText};
 pub use box_ops::{NodeFields, PayloadRef, DropRef, GestureOpts, GestureState, Scroll, SwipeActions, DismissOpts, ViewTransform};
 pub mod paint;
 pub use paint::Paint;
@@ -141,6 +141,7 @@ mod sys {
     #[repr(C)] pub struct PxuiPaint { _private:[u8;0] }
     #[repr(C)] pub struct PxuiShaper { _private:[u8;0] }
     #[repr(C)] pub struct PxuiPreparedText { _private:[u8;0] }
+    #[repr(C)] pub struct PxuiTextWorker { _private:[u8;0] }
     #[link(name = "pxui")]
     unsafe extern "C" {
         pub safe fn pxui_abi_version()->u32;
@@ -784,6 +785,8 @@ pub enum Feature {
     LookTokens = pxui_types::feature::LOOK_TOKENS,
     /// ABI 1.61: `Icon::draw(f, word)` passes the word to the drawing.
     IconWord = pxui_types::feature::ICON_WORD,
+    /// ABI 1.62: `TextWorker`, `Ui::set_text_worker`, `Ui::prewarm_text` (the prepare queue).
+    TextWorker = pxui_types::feature::TEXT_WORKER,
 }
 
 /// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.

@@ -434,6 +434,38 @@ export!(pub unsafe fn pxui_text_width(ui: *mut PxuiUi, key: u64, value: Str, sty
     unsafe { measure(engine.text_mut(), key, value, style_, max_width, out) }
 });
 
+/// The prepare queue's worker: one thread the host owns, shaping for every `Ui` attached to it.
+pub struct PxuiTextWorker { worker: pxui_text::Worker }
+
+// Starts a prepare-queue worker (one thread); null when the platform cannot start one.
+export!(bare pub unsafe fn pxui_text_worker_create() -> *mut PxuiTextWorker {
+    pxui_text::Worker::start().map_or(core::ptr::null_mut(), |worker| Box::into_raw(Box::new(PxuiTextWorker { worker })))
+});
+
+// Stops a worker (waiting for at most one shaping call); the Uis still attached shape inline from then on. Null is allowed.
+export!(bare pub unsafe fn pxui_text_worker_destroy(worker: *mut PxuiTextWorker) {
+    if !worker.is_null() { drop(unsafe { Box::from_raw(worker) }); }
+});
+
+// Between frames, on the Ui's thread, attaches the Ui to `worker` (null: detaches); a Ui keeps no pointer to the worker object.
+// PXUI_ERR_STATE inside a frame or when the worker serves MAX_LANES Uis (the Ui is left detached). The worker pointer is unchecked:
+// one pxui_text_worker_create returned and not destroyed (destroy is serialized against this call by the host).
+export!(pub unsafe fn pxui_ui_set_text_worker(ui: *mut PxuiUi, worker: *const PxuiTextWorker) -> i32 {
+    let Some(state) = (unsafe { crate::state::get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if state.shared().in_frame { return crate::PXUI_ERR_STATE; }
+    let worker = unsafe { worker.as_ref() }.map(|worker| &worker.worker);
+    if unsafe { &mut *state.engine }.set_text_worker(worker) { 0 } else { crate::PXUI_ERR_STATE }
+});
+
+// Requests `value` in `style` within `max_width` points (0: unbounded) from the attached worker: shaped there and installed
+// before a later frame builds. Nothing without a worker, or when cached or already requested.
+export!(pub unsafe fn pxui_text_prewarm(ui: *mut PxuiUi, value: Str, style_: *const TextStyle, max_width: f32) -> i32 {
+    if style_.is_null() { return PXUI_ERR_ARGUMENT; }
+    let Some(engine) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let (Some(value), Some(style)) = (unsafe { utf8(value) }, unsafe { read_style(style_) }) else { return PXUI_ERR_ARGUMENT; };
+    if engine.prewarm_text(value, &style, max_width) { 0 } else { PXUI_ERR_ARGUMENT }
+});
+
 // The glyph quads of `value` in the Ui's text service, for an app pass that samples the atlases of `pxui_renderer_atlas`. Returns
 // the total glyph count, or `usize::MAX` for invalid arguments; when `capacity` is smaller only the first `capacity` are written.
 export!(failing(usize::MAX) pub unsafe fn pxui_text_quads(

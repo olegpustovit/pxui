@@ -201,6 +201,9 @@ struct BoxRec {
     kept: bool,
     /// the `grow_line` pass that froze it at its min or max (`Ui::grow_pass`)
     frozen: u32,
+    /// built in a virtual list's row past the viewport while the prepare queue runs: text the cache has not seen goes to
+    /// the queue instead of shaping (`Ui::ahead`)
+    ahead: bool,
 }
 
 /// A box's hit shape without a closure: its own rectangle, a rectangle relative to it (a body's part, `Ui::hit_part`) or its own
@@ -214,7 +217,7 @@ enum HitShape {
 
 impl BoxRec {
     fn blank() -> BoxRec {
-        BoxRec { key: 0, slot: 0, parent: NONE, first: NONE, last: NONE, next: NONE, hit: None, hit_rect: None, shape: HitShape::Own, paint: arena::EMPTY, over: arena::EMPTY, view: NO_VIEW, kept: false, frozen: 0 }
+        BoxRec { key: 0, slot: 0, parent: NONE, first: NONE, last: NONE, next: NONE, hit: None, hit_rect: None, shape: HitShape::Own, paint: arena::EMPTY, over: arena::EMPTY, view: NO_VIEW, kept: false, frozen: 0, ahead: false }
     }
 }
 
@@ -1049,6 +1052,8 @@ pub struct Ui {
     foreground: Vec<(i64, usize)>,
     seeds: Vec<i64>,
     building: bool,
+    /// the rows being built are past the viewport (`BoxRec::ahead`)
+    ahead: bool,
     /// the frame a theme swap transitions in (`set_theme`)
     swap_frame: i64,
     frame_number: i64,
@@ -1306,6 +1311,7 @@ impl Ui {
             foreground: Vec::new(),
             seeds: Vec::new(),
             building: false,
+            ahead: false,
             swap_frame: -1,
             frame_number: 0,
             density: 1,
@@ -3303,6 +3309,7 @@ impl Ui {
         b.slot = slot;
         b.view = NO_VIEW;
         b.kept = false;
+        b.ahead = self.ahead;
         b.parent = parent;
         b.first = NONE;
         b.last = NONE;
@@ -4060,6 +4067,8 @@ impl Ui {
             let pad = n.padding;
             let (mut cw, mut ch) = (content_w + pad.l + pad.r, content_h + pad.t + pad.b);
             let slot=self.boxes[index].slot;
+            // measured without its text (`BoxRec::ahead`): the view holding it builds again rather than keep the size
+            let mut unmeasured=false;
             let rich=self.slots[slot].rich.as_deref().filter(|r|r.active);
             let line_box=rich.is_some_and(|r|r.line_box);
             let pixel=n.flags.any(Flags::FIT_TEXT_PIXEL);
@@ -4075,8 +4084,10 @@ impl Ui {
                 } else {stored.text.as_str()};
                 let text=self.text.as_mut().expect("Ui: the text engine is lent out");
                 let spans=rich.and_then(|r|r.spans.as_slice()).unwrap_or(&[]);
+                let ahead=self.boxes[index].ahead;
+                let deferred=text.queue_counts().0;
                 let mut natural=if matches!(n.w,Size::Fit) {
-                    lay_out_node(text,&stored.text_layout,n.flags,&style,0.0,value,spans).unwrap().1.w+inset.l+inset.r
+                    lay_out_node(text,&stored.text_layout,n.flags,&style,0.0,value,spans,ahead).unwrap().1.w+inset.l+inset.r
                 } else {0.0};
                 if pixel { natural=(natural*self.density as f32).ceil()/self.density as f32; }
                 if matches!(n.w,Size::Fit) {cw=cw.max(natural);}
@@ -4087,9 +4098,14 @@ impl Ui {
                         Size::Fit=>clamp(natural,n.min_w,n.max_w),
                         _=>self.view_w,
                     };
-                    let m=lay_out_node(text,&stored.text_layout,n.flags,&style,(width-inset.l-inset.r).max(0.0),value,spans).unwrap().1;
+                    // an ahead row's first layout guesses the width (the window's): nothing to prepare until it is placed
+                    let guess=ahead && text.queue_running() && !matches!(n.w,Size::Px(_)|Size::Fit) && stored.rw<=0.0;
+                    let m=if guess {Metrics::default()} else {lay_out_node(text,&stored.text_layout,n.flags,&style,(width-inset.l-inset.r).max(0.0),value,spans,ahead).unwrap().1};
                     ch=ch.max(style.line_height*m.lines.max(1) as f32+inset.t+inset.b);
+                    unmeasured=guess || text.queue_counts().0!=deferred;
                     self.expect(slot,width,f32::NAN);
+                } else {
+                    unmeasured=text.queue_counts().0!=deferred;
                 }
             }
             // a view's box: kept, its content is the size its last build measured (its children are
@@ -4117,6 +4133,9 @@ impl Ui {
             (self.l_w[index], self.l_h[index]) = (w, h);
             if v != NO_VIEW && !kept {
                 self.views[v as usize].fit = (cw, ch);
+            }
+            if unmeasured {
+                self.mark_view(self.slots[slot].owner);
             }
         }
     }
@@ -4644,8 +4663,9 @@ impl Ui {
             self.label.clear();self.label.extend(stored.text.chars().map(|c|c.to_ascii_uppercase()));self.label.as_str()
         } else {stored.text.as_str()};
         let text=self.text.as_mut().expect("Ui: the text engine is lent out");
-        let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans.as_slice().unwrap()).unwrap().1}
-            else {lay_out_node(text,&stored.text_layout,flags,&style,0.0,value,&[]).unwrap().1};
+        let ahead=self.boxes[c].ahead;
+        let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans.as_slice().unwrap(),ahead).unwrap().1}
+            else {lay_out_node(text,&stored.text_layout,flags,&style,0.0,value,&[],ahead).unwrap().1};
         if let Some(rich)=rich.filter(|r|r.line_box) { return rich.line_box_baseline(inset.t,h-inset.t-inset.b,m); }
         let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m,text));
         top+m.baseline
@@ -5122,6 +5142,9 @@ pub struct Paint {
     pub scroll_x: Vec<f32>,
     /// right to left: node text sits its start inset from the right, scroll thumbs mirror
     pub rtl: bool,
+    /// the node being painted is in a list row past the viewport and out of view: text the cache has not seen goes to the
+    /// prepare queue (`Text::defer`) and draws nothing
+    ahead: bool,
 }
 
 impl Paint {
@@ -5194,6 +5217,38 @@ impl Paint {
         layer.pieces.push(Piece { view: NO_VIEW, a: n, b: n, at: 0 });
     }
 
+    /// The text `look` would lay out for a node `w` points wide, deferred to the prepare queue when unseen (`Text::defer`):
+    /// rich text at its inner width, plain text at its natural width, in capitals when its font says so (as `look`). Fitted
+    /// plain text's cut depends on its natural layout: only the natural one is requested. Shapes nothing, draws nothing.
+    fn defer_text(&mut self, w: f32, node: &Node, text: &str, rich: Option<&NodeText>, memo: &std::cell::Cell<Option<(u64, u64)>>) {
+        if let Some(rich) = rich {
+            let style = rich.style(node, self.rtl);
+            let spans = rich.spans.as_slice().unwrap();
+            let width = w - node.inset.l - node.inset.r;
+            // not placed yet (its natural width is still on its way): nothing to request at this width
+            if width <= 0.0 {
+                return;
+            }
+            let fingerprint = memo.get().filter(|(key, _)| node.flags.any(Flags::FIT_TEXT_PIXEL) && self.text.has_text(*key, text))
+                .map_or_else(|| pxui_text::text_hash(text), |(_, fingerprint)| fingerprint);
+            self.text.defer(pxui_text::layout_key(&style, width, fingerprint, spans), text, &style, width, spans);
+            return;
+        }
+        if text.is_empty() {
+            return;
+        }
+        let look = &node.look;
+        let size = look.font.points(self.font_size);
+        let style = if node.flags.any(Flags::FIT_TEXT_PIXEL) { plain_style(look, size, node.flags) }
+            else { Style { font: look.font.family, size: size as f32, weight: look.font.weight, tracking: look.font.tracking * size as f32, ..Style::default() } };
+        let mut buffer = std::mem::take(&mut self.label);
+        buffer.clear();
+        if look.font.caps { buffer.extend(text.chars().map(|c| c.to_ascii_uppercase())); }
+        let value = if look.font.caps { buffer.as_str() } else { text };
+        self.text.defer(pxui_text::content_key(&style, 0.0, value, &[]), value, &style, 0.0, &[]);
+        self.label = buffer;
+    }
+
     /// A node's look, text and mark in `r` (its ring too when `focused`): what the engine paints for it
     /// with no closure. Square, solid looks paint as hard rectangles on the pixel grid; rounded,
     /// gradient and shadowed ones as distance fields. `steady` (a running transition) emits the same
@@ -5253,7 +5308,7 @@ impl Paint {
         if let Some(rich)=rich {
             let width=w-node.inset.l-node.inset.r;
             let style=rich.style(node,self.rtl);
-            if let Some((key,metrics))=lay_out_node(&mut self.text,memo,node.flags,&style,width,text,rich.spans.as_slice().unwrap()) {
+            if let Some((key,metrics))=lay_out_node(&mut self.text,memo,node.flags,&style,width,text,rich.spans.as_slice().unwrap(),self.ahead) {
                 let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics,&self.text));
                 let below=self.text.ascent(style.font)*style.size;
                 self.text_laid(at,below,&style,Some(look.text),key,metrics,o,true);
@@ -5266,10 +5321,10 @@ impl Paint {
             buffer.clear();
             if look.font.caps {buffer.extend(text.chars().map(|c|c.to_ascii_uppercase()));}
             let value=if look.font.caps {buffer.as_str()} else {text};
-            let (mut key,mut metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,0.0,value,&[]).unwrap();
+            let (mut key,mut metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,0.0,value,&[],self.ahead).unwrap();
             let limit=w-inset.l-inset.r;
             if node.flags.any(Flags::FIT_TEXT) && metrics.w>limit {
-                (key,metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,limit,value,&[]).unwrap();
+                (key,metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,limit,value,&[],self.ahead).unwrap();
             }
             let at=(if self.rtl {x+w-inset.l-metrics.w} else {x+inset.l},text_top_for(self.font_size,Some(size),y+inset.t,h-inset.t-inset.b));
             let below=self.text.ascent(style.font)*style.size;
@@ -5310,11 +5365,13 @@ impl Paint {
                 else { buffer.extend(text.chars().map(|c| c.to_ascii_uppercase())); }
             }
             let text = if fitted || look.font.caps { buffer.as_str() } else { text };
-            // right to left the start inset is at the right: the text ends there
-            let (key, m) = lay_out(&mut self.text, &style, 0.0, text);
-            let at = if self.rtl { (x + w - inset.l - m.w, at.1) } else { at };
-            let below=self.text.ascent(style.font)*style.size;
-            self.text_laid(at, below, &style, ink, key, m,1.0,false);
+            if !(self.ahead && self.text.defer(pxui_text::content_key(&style, 0.0, text, &[]), text, &style, 0.0, &[])) {
+                // right to left the start inset is at the right: the text ends there
+                let (key, m) = lay_out(&mut self.text, &style, 0.0, text);
+                let at = if self.rtl { (x + w - inset.l - m.w, at.1) } else { at };
+                let below=self.text.ascent(style.font)*style.size;
+                self.text_laid(at, below, &style, ink, key, m,1.0,false);
+            }
             self.label = buffer;
         }
         match node.mark {
@@ -5708,7 +5765,13 @@ impl Ui {
             Pose { dx: 0.0, dy: 0.0, opacity: 1.0, ..pose }
         } else { pose };
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
+        // an ahead row's node out of view (a view row paints wherever it is) leaves unseen text to the prepare queue
+        paint.ahead = self.boxes[index].ahead && { let seen = intersect(r, clip_rect); seen.w <= 0.0 || seen.h <= 0.0 };
+        let deferred = paint.ahead.then(|| paint.text.queue_counts().0);
         paint.look(Rect::new(r.x + pose.dx, r.y + pose.dy, r.w, r.h), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), &s.text_layout, focused, steady);
+        // its kept output would lack that text: the view builds again
+        if deferred.is_some_and(|before| paint.text.queue_counts().0 != before) { self.mark_view(self.slots[slot].owner); }
+        paint.ahead = false;
         let s = &mut self.slots[slot];
         if self.motion {
             (s.seen, s.seen_state) = (s.node.look, s.node.state);
@@ -5830,6 +5893,26 @@ impl Ui {
         } else {
             // Culled: keep retained rectangles current for `rect` queries.
             self.retain_rects(index, clip_rect);
+            if self.boxes[index].ahead {
+                self.defer_culled(paint, index);
+            }
+        }
+    }
+
+    /// A culled box of a list row past the viewport and its subtree: the text each would draw, unseen, goes to the prepare
+    /// queue (`Paint::defer_text`), ready when the row scrolls into view. Its view, if any, builds again once it has arrived.
+    fn defer_culled(&mut self, paint: &mut Paint, index: usize) {
+        let slot = self.boxes[index].slot;
+        let before = paint.text.queue_counts().0;
+        let s = &self.slots[slot];
+        paint.defer_text(s.rw, &s.node, &s.text, s.rich.as_deref().filter(|r| r.active), &s.text_layout);
+        if paint.text.queue_counts().0 != before {
+            self.mark_view(self.slots[slot].owner);
+        }
+        let mut child = self.boxes[index].first;
+        while child != NONE {
+            self.defer_culled(paint, child);
+            child = self.boxes[child].next;
         }
     }
 
@@ -5927,6 +6010,7 @@ impl Ui {
             l_content_w: std::mem::take(&mut self.l_content_w),
             scroll_x: std::mem::take(&mut self.scroll_xs),
             rtl: self.dir == Direction::Rtl,
+            ahead: false,
         };
         paint.next_layer(0);
         paint
@@ -6259,6 +6343,8 @@ impl Ui {
         }
         self.phase_at = self.timing.then(std::time::Instant::now);
         self.cpu_at = self.cpu_clock.and_then(|clock| clock());
+        // text the prepare queue delivered since the last frame: this frame draws it
+        if let Some(text) = &mut self.text { text.install_queued(); }
         if self.cpu_at.is_none() { self.cpu_phases = None; }
         self.empty_strings.begin_frame();
         let (scale_x, scale_y) = frame.pixel_scale;
@@ -7013,13 +7099,17 @@ impl Ui {
         let inner = self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first, last);
+        let outer = self.ahead;
+        let shown = top..top + (height / row_h).ceil() as usize + 1;
         for i in first..last {
+            self.ahead_row(outer, &shown, i);
             let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Px(row_h), at: Some((0.0, i as f32 * row_h)).into(), role: Role::ListItem, ..Node::DEFAULT });
             self.slots[row.box_slot].row_of = (body.box_key, i as u32);
             let saved = self.enter(&row);
             f(self, i);
             self.leave(saved);
         }
+        self.ahead = outer;
         self.leave(inner);
         self.leave(saved);
         self.remember_list(&body, ListGeometry::rows(&body, count, row_h, 0.0, 0.0, 0.0, padding));
@@ -7060,17 +7150,50 @@ impl Ui {
         let inner=self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
+        let outer=self.ahead;
         for index in first..last {
+            self.ahead_row(outer,&(top..bottom),index);
             let node=Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,index as f32*section.row_height)).into(),role:Role::ListItem,..Node::DEFAULT};
             let row=self.list_row(body.box_key,index,row_key,node);
             self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             let part=self.enter(&row); f(self,index); self.leave(part);
         }
+        self.ahead=outer;
         self.leave(inner);
         if section.trailing_height>0.0 {self.node("trailing".into(),Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
         self.leave(saved);
         self.remember_list(&body,ListGeometry::rows(&body,section.count,section.row_height,before,section.header_height,section.trailing_height,padding));
         body
+    }
+
+    /// Row (or grid line) `index` of a virtual list builds past the viewport rows `shown` while the prepare queue runs (or
+    /// inside such a row, `outer`): its nodes' unseen text goes to the queue instead of shaping (`BoxRec::ahead`), so it is
+    /// ready when the row scrolls into view.
+    fn ahead_row(&mut self, outer: bool, shown: &core::ops::Range<usize>, index: usize) {
+        self.ahead = outer || (!shown.contains(&index) && self.text.as_ref().is_some_and(Text::queue_running));
+    }
+
+    /// Attaches this `Ui` to the prepare queue's `worker` (shared with any number of `Ui`s; `None` detaches): from then on its
+    /// virtual lists queue the unseen text of the rows they build past the viewport, and `prewarm_text` queues. Allocates: a
+    /// fork of this `Ui`'s fonts and the lane's fixed buffers, once per attach; detaching does not wait for the worker. `false`:
+    /// the worker serves `pxui_text::MAX_LANES` `Ui`s already (this one is left detached).
+    pub fn set_text_worker(&mut self, worker: Option<&pxui_text::Worker>) -> bool {
+        self.text_mut().attach(worker)
+    }
+
+    /// Text a coming frame will draw, prepared now on the attached worker (`set_text_worker`) and installed before a later
+    /// frame builds: `text` in `style` within `width` points (0: unbounded), the layout a node shows when it lays out the same
+    /// text, style and width. Nothing when no worker is attached, the text is cached or already requested; a full lane drops
+    /// the request. `false` (nothing done) for a negative or non-finite width, or text over `pxui_text::QUEUE_BYTES`.
+    /// Allocates: never (the lane's fonts refork after a font change, at the end of the frame).
+    pub fn prewarm_text(&mut self, text: &str, style: &Style, width: f32) -> bool {
+        if !width.is_finite() || width < 0.0 || text.len() > pxui_text::QUEUE_BYTES {
+            return false;
+        }
+        if !text.is_empty() {
+            self.text_mut().defer(pxui_text::content_key(style, width, text, &[]), text, style, width, &[]);
+        }
+        true
     }
 
     /// Row `index`'s box of the section list `list`: keyed by its item id when the list has `key`, else by its index.
@@ -7122,13 +7245,17 @@ impl Ui {
         let inner=self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
+        let outer=self.ahead;
         for index in first..last {
+            // measured rows: only rows below the viewport, whose heights do not move the rows in view
+            self.ahead_row(outer,&(0..bottom),index);
             let node=Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,cache.tops[index])).into(),role:Role::ListItem,..Node::DEFAULT};
             let row=self.list_row(body.box_key,index,row_key,node);
             self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             self.list_rows.push((body.box_key,index,row.box_slot));
             let part=self.enter(&row); f(self,index,before+cache.tops[index]); self.leave(part);
         }
+        self.ahead=outer;
         self.leave(inner);
         if section.trailing_height>0.0 {self.node("trailing".into(),Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
         self.leave(saved);
@@ -7179,7 +7306,10 @@ impl Ui {
         let inner = self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first, last);
+        let outer = self.ahead;
         for i in first..last {
+            // measured rows: only rows below the viewport, whose heights do not move the rows in view
+            self.ahead_row(outer, &(0..bottom), i);
             let row = self.node_keyed(int_key(body.box_key, i as i64), Node { h: Size::Fit, at: Some((0.0, cache.tops[i])).into(), role: Role::ListItem, ..Node::DEFAULT });
             self.slots[row.box_slot].row_of = (body.box_key, i as u32);
             self.list_rows.push((body.box_key, i, row.box_slot));
@@ -7187,6 +7317,7 @@ impl Ui {
             f(self, i);
             self.leave(saved);
         }
+        self.ahead = outer;
         self.leave(inner);
         self.leave(saved);
         cache.geometry = ListGeometry::rows(&body, count, 0.0, 0.0, 0.0, 0.0, padding);
@@ -7254,8 +7385,11 @@ impl Ui {
         let inner = self.enter(&holder);
         self.slots[holder.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64, first * per, (last * per).min(count));
+        let outer = self.ahead;
+        let shown = top..top + (room / along).ceil() as usize + 1;
         for i in first * per..(last * per).min(count) {
             let (line, k) = (i / per, i % per);
+            self.ahead_row(outer, &shown, line);
             // the holder is a flow child, mirrored right to left; cells are `at` children, physical
             let (mut x, y) = if sideways { (line as f32 * cell.0, k as f32 * cell.1) } else { (k as f32 * cell.0, line as f32 * cell.1) };
             if rtl {
@@ -7267,6 +7401,7 @@ impl Ui {
             f(self, i);
             self.leave(saved);
         }
+        self.ahead = outer;
         self.leave(inner);
         self.leave(saved);
         let mut geometry = ListGeometry::rows(&body, count, along, 0.0, 0.0, 0.0, padding);

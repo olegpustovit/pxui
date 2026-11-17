@@ -687,10 +687,12 @@ pub mod feature {
     pub const LOOK_TOKENS: u32 = 18;
     /// ABI 1.61: `ui_icon_word` / `paint_icon_word`, an icon drawing's word.
     pub const ICON_WORD: u32 = 19;
+    /// ABI 1.62: the prepare queue's `text_worker_create`/`text_worker_destroy`, `ui_set_text_worker`, `text_prewarm`.
+    pub const TEXT_WORKER: u32 = 20;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 61;
+pub const ABI_BUILT: u32 = 1 << 16 | 62;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

@@ -64,7 +64,9 @@ use std::hash::BuildHasherDefault;
 use std::sync::Arc;
 mod system;
 mod prepared;
+mod queue;
 pub use prepared::Prepared;
+pub use queue::{Worker, INSTALLS_PER_FRAME, MAX_LANES, QUEUE_BYTES, QUEUE_ROWS};
 
 pub use pxui_types::geom::hash::FastHasher;
 /// `HashMap`'s hasher parameter for `FastHasher`.
@@ -763,6 +765,8 @@ pub struct Text {
     /// Capacity of every layout's glyph list, in bytes.
     cache_bytes: usize,
     font_generation: Arc<()>,
+    /// The prepare queue's lane (`attach`): text shaped ahead of need on a worker.
+    queue: Option<Box<queue::Queue>>,
     /// Debug builds: (text hash, key, style, width) of the last installed prepared layouts, to name a draw that asks for another style.
     #[cfg(debug_assertions)]
     installed: Vec<(u64, u64, Style, f32)>,
@@ -825,6 +829,7 @@ impl Text {
             cache_on: true,
             cache_bytes: 0,
             font_generation: Arc::new(()),
+            queue: None,
             #[cfg(debug_assertions)]
             installed: Vec::new(),
             #[cfg(debug_assertions)]
@@ -1448,8 +1453,10 @@ impl Text {
     /// text is not laid out while the view is kept; its owned layouts outlive any keep, so the
     /// view's next rebuild is a cache hit, not a re-shape. The sweep is incremental: each frame looks
     /// at 1/`SWEEP_FRAMES` of the remaining layouts plus one, so no frame walks them all.
-    /// Removing entries reduces the following frame's budget.
+    /// Removing entries reduces the following frame's budget. With the prepare queue running it first flushes the frame's
+    /// requests to the worker (`queue.rs`).
     pub fn end_frame(&mut self) {
+        self.flush_queue();
         let frame = self.frame;
         self.g.frame = frame + 1;
         let mut budget = self.keys.len() / SWEEP_FRAMES as usize + 1;

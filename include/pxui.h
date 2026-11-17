@@ -14,10 +14,11 @@ typedef struct PxuiRenderer PxuiRenderer;
 typedef struct PxuiPaint PxuiPaint;
 typedef struct PxuiShaper PxuiShaper;
 typedef struct PxuiPreparedText PxuiPreparedText;
+typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 61u)
+#define PXUI_ABI_BUILT ((1u << 16) | 62u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -421,7 +422,8 @@ enum {
     PXUI_FEATURE_SWIPE_ACTIONS = 16,     /* 1.40 */
     PXUI_FEATURE_DISMISS = 17,           /* 1.41 */
     PXUI_FEATURE_LOOK_TOKENS = 18,       /* 1.61: look colours naming colour tokens */
-    PXUI_FEATURE_ICON_WORD = 19          /* 1.61: pxui_ui_icon_word / pxui_paint_icon_word */
+    PXUI_FEATURE_ICON_WORD = 19,         /* 1.61: pxui_ui_icon_word / pxui_paint_icon_word */
+    PXUI_FEATURE_TEXT_WORKER = 20        /* 1.62: pxui_text_worker_create/_destroy, pxui_ui_set_text_worker, pxui_text_prewarm */
 };
 /* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */
 uint64_t pxui_counter(uint32_t which);
@@ -703,6 +705,26 @@ PxuiStr pxui_default_font(void); /* Pragmasevka, embedded: valid as long as the 
 uint32_t pxui_text_add_font(PxuiUi *ui, PxuiStr font);
 int32_t pxui_text_width(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, PxuiTextMetrics *out);
 size_t pxui_text_quads(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float x, float y, float scale, PxuiTextGlyph *out, size_t capacity);
+/* ABI 1.62 (PXUI_FEATURE_TEXT_WORKER): the prepare queue. A worker is one thread the host owns and attaches to any number of Uis; each attached Ui
+   gets a lane: a fork of its fonts on the worker (font bytes shared) and fixed buffers (128 requests in flight, 16 KiB of text per
+   flush, 32 installs per frame). Attached, a Ui's virtual lists request the unseen text of rows they build past the viewport; it is
+   shaped on the worker and installed before a later frame builds, without shaping or allocating on the UI thread. A Ui without a
+   worker shapes inline. pxui_text_worker_create answers null when no thread can start; destroying a worker waits for at most one
+   shaping call, and the Uis still attached shape inline from then on. pxui_ui_set_text_worker (between frames; null detaches,
+   without waiting) keeps no pointer to the worker object. pxui_text_prewarm requests value in style within max_width points
+   (0: unbounded): nothing without a worker or for cached or requested text, a full lane drops it; PXUI_ERR_ARGUMENT for a null
+   style, a negative or non-finite width, invalid UTF-8 or text over 16 KiB.
+   Lanes: a worker serves at most 64 Uis; pxui_ui_set_text_worker answers PXUI_ERR_STATE past that (the Ui is left detached) and
+   inside a frame. A preparation that panics is delivered as a failure (shaped inline) and the lane's font fork is renewed.
+   Threads: pxui_text_worker_create and pxui_text_worker_destroy may run on any thread; pxui_ui_set_text_worker and
+   pxui_text_prewarm run on the Ui's thread, like every pxui_ui_* call. Several threads may attach their Uis to one worker at once,
+   but the host must not destroy a worker concurrently with pxui_ui_set_text_worker on it: serialize destroy against attach.
+   Handles: the worker pointer is not validated (as a shaper's). It must be one pxui_text_worker_create returned and not destroyed;
+   using it after pxui_text_worker_destroy is undefined. A Ui attached to a destroyed worker stays valid and shapes inline. */
+PxuiTextWorker *pxui_text_worker_create(void);
+void pxui_text_worker_destroy(PxuiTextWorker *worker);
+int32_t pxui_ui_set_text_worker(PxuiUi *ui, const PxuiTextWorker *worker);
+int32_t pxui_text_prewarm(PxuiUi *ui, PxuiStr value, const PxuiTextStyle *style, float max_width);
 size_t pxui_text_rasterize_rgba(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
 /* ABI 1.14: bit 2 on plain, unstroked RECTs selects pixel-area coverage; no layout change. */
 int32_t pxui_paint_span(PxuiPaint *paint, size_t at_least, PxuiSpan *span); /* at_least 0 only commits; call it before any other pxui_paint_* call */
