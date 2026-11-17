@@ -7191,7 +7191,8 @@ impl Ui {
 
     /// Text a coming frame will draw, prepared now on the attached worker (`set_text_worker`) and installed before a later
     /// frame builds: `text` in `style` within `width` points (0: unbounded), the layout a node shows when it lays out the same
-    /// text, style and width. Nothing when no worker is attached, the text is cached or already requested; a full lane drops
+    /// text, style and width. Width 0 is the natural layout, which a node drawn at a
+    /// width of at least the natural one shows too (`Text::natural_layout`). Nothing when no worker is attached, the text is cached or already requested; a full lane drops
     /// the request. `false` (nothing done) for a negative or non-finite width, or text over `pxui_text::QUEUE_BYTES`.
     /// Allocates: never (the lane's fonts refork after a font change, at the end of the frame).
     pub fn prewarm_text(&mut self, text: &str, style: &Style, width: f32) -> bool {

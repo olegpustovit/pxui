@@ -780,6 +780,55 @@ pub fn window_pxui_fling_shaping_stays_under_its_ceiling() {
     check(layouts[0] < layouts[1], &format!("the prepare queue shaped {} layouts on the UI thread, no fewer than {} without it", layouts[0], layouts[1]));
 }
 
+/// A label drawn at a width of at least its natural one (a numeric cell wider than its column's measure) shows the layout
+/// `prewarm_text(text, style, 0)` prepared: no layout on the UI thread, no allocation; at a narrower width it lays out its own.
+pub fn window_pxui_prewarmed_natural_text_is_the_layout_drawn_at_a_wider_width() {
+    let worker = pxui_core::text::Worker::start().unwrap();
+    let mut ui = new_ui(None);
+    ui.set_text_worker(Some(&worker));
+    let label = Label::BODY.line_height(20.0).lines(1).ellipsis();
+    let resolved = ui.resolve(&label).expect("the label resolves");
+    // the engine's own style of the label (`pxui_abi` reads a resolved `TextStyle` the same way)
+    let style = pxui_text::Style {
+        font: resolved.font, size: resolved.size_points, weight: resolved.weight, italic: resolved.italic != 0, line_height: resolved.line_height,
+        wrap: match resolved.wrap { 0 => pxui_text::Wrap::None, 1 => pxui_text::Wrap::Word, 2 => pxui_text::Wrap::Glyph, _ => pxui_text::Wrap::WordSpaces },
+        align: pxui_text::Align::Left, max_lines: resolved.max_lines, ellipsis: pxui_text::Ellipsis::End, tracking: resolved.tracking, features: resolved.features,
+    };
+    check(resolved.align == 0 && resolved.ellipsis == 1, "the label is left-aligned and ellipsized at its end");
+    let texts: Vec<String> = (0..40).map(|i| format!("{:05} plays", 12345 + i * 1111 % 80000)).collect();
+    let shown = Cell::new(0usize);
+    let wide = Cell::new(200.0f32);
+    let mut draw = |ui: &mut Ui| {
+        ui.label(&texts[shown.get()], label.w(Size::Px(wide.get())));
+    };
+    // every digit rasterized, then prepared texts through the queue until its retained storage is at size
+    queue_frames(&mut ui, &[at(0.0, vec![]), at(0.1, vec![])], &mut draw);
+    let natural = ui.text_mut().layout(pxui_text::content_key(&style, 0.0, &texts[0], &[]), &texts[0], &style, 0.0).w;
+    check(natural > 0.0 && natural < 100.0, "the sample text fits its column");
+    let mut t = 0.2;
+    let mut show = |ui: &mut Ui, draw: &mut dyn FnMut(&mut Ui), i: usize, width: f32| {
+        check(ui.prewarm_text(&texts[i], &style, 0.0), "prewarm refused");
+        t += 0.1;
+        queue_frames(ui, &[at(t, vec![])], draw);
+        shown.set(i);
+        wide.set(width);
+        t += 0.1;
+        queue_frames(ui, &[at(t, vec![])], draw)[0]
+    };
+    for i in 1..24 {
+        show(&mut ui, &mut draw, i, 200.0);
+    }
+    // wider than the natural width, and exactly the natural width: the prepared layout, nothing shaped or allocated
+    for (i, width) in [(24, 200.0), (25, natural.ceil() + 0.5), (26, 1000.0)] {
+        let (n, layouts) = show(&mut ui, &mut draw, i, width);
+        check(layouts == 0 && n == 0, &format!("{} at width {width}: {layouts} UI-thread layouts and {n} allocations after prewarm", texts[i]));
+    }
+    // narrower than the natural width: its own cut layout, shaped on the UI thread
+    let (_, layouts) = show(&mut ui, &mut draw, 27, natural * 0.5);
+    check(layouts > 0, "a width under the natural one must lay out its own layout");
+    ui.destroy();
+}
+
 /// No allocation once warm: a virtual list scrolled a row per frame, and a hover entering and leaving
 /// a kept view's button with the theme's transition running.
 pub fn window_pxui_budget_zero_alloc() {
@@ -1209,6 +1258,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_list_text_survives_idle", window_pxui_list_text_survives_idle),
     ("window_pxui_prepare_queue_scrolls_unseen_rows_without_shaping", window_pxui_prepare_queue_scrolls_unseen_rows_without_shaping),
     ("window_pxui_fling_shaping_stays_under_its_ceiling", window_pxui_fling_shaping_stays_under_its_ceiling),
+    ("window_pxui_prewarmed_natural_text_is_the_layout_drawn_at_a_wider_width", window_pxui_prewarmed_natural_text_is_the_layout_drawn_at_a_wider_width),
     ("window_pxui_kept_view_text_survives_idle", window_pxui_kept_view_text_survives_idle),
     ("window_pxui_view_rebuilds_one", window_pxui_view_rebuilds_one),
     ("window_pxui_shrunk_layer_clips_dirty", window_pxui_shrunk_layer_clips_dirty),

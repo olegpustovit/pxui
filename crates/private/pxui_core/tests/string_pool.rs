@@ -96,10 +96,27 @@ mod text_identity_cases {
         let style=Style::default();
         let (key,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,0.0,"a label",&[],false).unwrap();
         memo.set(Some((key,7)));
-        let (next,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,100.0,"a label",&[],false).unwrap();
-        assert_eq!(next,pxui_text::layout_key(&style,100.0,7,&[]),"unchanged text must reuse the retained fingerprint, including across widths");
-        text.layout(next,"a different label",&style,100.0);
-        let (fresh,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,100.0,"a label",&[],false).unwrap();
-        assert_eq!(fresh,pxui_text::content_key(&style,100.0,"a label",&[]),"a stale layout must revalidate its text");
+        // narrower than the natural layout (a wider width would show the natural one, `Text::natural_layout`)
+        let (next,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,10.0,"a label",&[],false).unwrap();
+        assert_eq!(next,pxui_text::layout_key(&style,10.0,7,&[]),"unchanged text must reuse the retained fingerprint, including across widths");
+        text.layout(next,"a different label",&style,10.0);
+        let (fresh,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,10.0,"a label",&[],false).unwrap();
+        assert_eq!(fresh,pxui_text::content_key(&style,10.0,"a label",&[]),"a stale layout must revalidate its text");
+    }
+
+    #[test]
+    fn a_node_served_by_the_natural_layout_keeps_its_fingerprint() {
+        let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
+        let style=Style::default();
+        let natural=pxui_text::content_key(&style,0.0,"a label",&[]);
+        text.layout(natural,"a label",&style,0.0);
+        let memo=std::cell::Cell::new(None);
+        let (key,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,500.0,"a label",&[],false).unwrap();
+        assert_eq!(key,natural,"a wider width is served by the natural layout");
+        assert_eq!(memo.get(),Some((natural,pxui_text::text_hash("a label"))),"the node remembers the natural key and fingerprint");
+        // the next frame takes the fingerprint from the memo instead of hashing the bytes: a marker one shows in the key asked for
+        memo.set(Some((natural,7)));
+        let (again,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,500.0,"a label",&[],false).unwrap();
+        assert_eq!(again,pxui_text::layout_key(&style,500.0,7,&[]),"the memo's fingerprint was used, not a fresh hash");
     }
 }

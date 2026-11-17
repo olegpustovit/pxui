@@ -375,6 +375,12 @@ impl Ui {
     /// will show (rows ahead of a scroll). Without a worker, or for cached or already requested text, it does nothing and
     /// returns `Ok`; a full lane (128 requests in flight) drops the request. Text a fast fling shows before its delivery still
     /// shapes on the frame: the contract's one named exception.
+    ///
+    /// Natural width: a `max_width` of 0 prepares the unbounded layout, which a label drawn at any width of at least its natural
+    /// one (the widest line the unbounded layout measures) shows, with no layout on the UI thread: no line is wider than the
+    /// width, so no wrap or ellipsis can change it. Physically left-aligned text only (equal to the bounded layout up to float rounding); centred or
+    /// right-aligned text (right-to-left text too) places its glyphs by the width, so the unbounded layout serves exactly the natural width (a drawn width less than the natural one, or any
+    /// finite `max_width`, is its own layout, found only at that same width). Prewarm a cell drawn at its measured width with 0.
     /// Allocates: never (the worker's fork of the fonts is renewed once after a font change, at the end of that frame).
     /// Panics: never.
     /// Errors: `Error::InvalidInput` for a negative or non-finite `max_width`, text over 16 KiB, or a style that does not

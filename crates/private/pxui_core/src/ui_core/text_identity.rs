@@ -7,6 +7,14 @@ use pxui_text::{Text,Metrics,Style,TextSpan};
 pub(super) fn lay_out_node(t:&mut Text,memo:&std::cell::Cell<Option<(u64,u64)>>,flags:Flags,style:&Style,width:f32,value:&str,spans:&[TextSpan],ahead:bool)->Option<(u64,Metrics)> {
     let fingerprint=memo.get().filter(|(key,_)|flags.any(Flags::FIT_TEXT_PIXEL) && t.has_text(*key,value))
         .map_or_else(||pxui_text::text_hash(value),|(_,fingerprint)|fingerprint);
+    if spans.is_empty() && width>0.0 {
+        // the cached natural layout (prewarmed, or measured) that this width cannot change is the layout drawn
+        let natural=pxui_text::layout_key(style,0.0,fingerprint,&[]);
+        if let Some(metrics)=t.natural_layout(natural,value,style,width) {
+            if flags.any(Flags::FIT_TEXT_PIXEL) {memo.set(Some((natural,fingerprint)));}
+            return Some((natural,metrics));
+        }
+    }
     let key=pxui_text::layout_key(style,width,fingerprint,spans);
     if ahead && t.defer(key,value,style,width,spans) { return Some((key,Metrics::default())); }
     let metrics=t.layout_spans(key,value,style,width,spans)?;

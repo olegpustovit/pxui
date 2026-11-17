@@ -440,6 +440,55 @@ mod tests {
         text.install_queued();
     }
 
+    /// The unbounded layout stands for every width at least its natural one (nothing can wrap or be cut), for left-aligned text;
+    /// centred or right-aligned text places glyphs by the width, so only the natural width itself; a narrower width, another
+    /// style or text, or a bounded entry never.
+    #[test]
+    fn natural_layout_serves_only_widths_that_cannot_change_it() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        let style = Style { size: 14.0, wrap: Wrap::Word, ellipsis: Ellipsis::End, max_lines: 1, ..Style::default() };
+        let key = content_key(&style, 0.0, "1234567 plays", &[]);
+        assert!(text.natural_layout(key, "1234567 plays", &style, 500.0).is_none(), "uncached");
+        let natural = text.layout(key, "1234567 plays", &style, 0.0);
+        assert_eq!(text.natural_layout(key, "1234567 plays", &style, natural.w), Some(natural));
+        assert_eq!(text.natural_layout(key, "1234567 plays", &style, 500.0), Some(natural));
+        let layouts = text.layout_count();
+        let narrow = natural.w - 1.0;
+        assert!(text.natural_layout(key, "1234567 plays", &style, narrow).is_none());
+        let cut = text.layout(content_key(&style, narrow, "1234567 plays", &[]), "1234567 plays", &style, narrow);
+        assert!(cut.w <= narrow && cut.w < natural.w && text.layout_count() == layouts + 1, "a narrower width lays out its own cut");
+        assert!(text.natural_layout(key, "other", &style, 500.0).is_none() && text.natural_layout(key, "1234567 plays", &style, 0.0).is_none());
+        assert!(text.natural_layout(key, "1234567 plays", &Style { size: 15.0, ..style }, 500.0).is_none());
+        let centred = Style { align: Align::Center, ..style };
+        let ckey = content_key(&centred, 0.0, "1234567 plays", &[]);
+        let cnat = text.layout(ckey, "1234567 plays", &centred, 0.0);
+        assert!(text.natural_layout(ckey, "1234567 plays", &centred, 500.0).is_none());
+        assert_eq!(text.natural_layout(ckey, "1234567 plays", &centred, cnat.w), Some(cnat));
+        // right-to-left plain text is right-aligned by the engine: only its natural width
+        let rtl = Style { align: Align::Right, ..style };
+        let rkey = content_key(&rtl, 0.0, "1234567 plays", &[]);
+        let rnat = text.layout(rkey, "1234567 plays", &rtl, 0.0);
+        assert!(text.natural_layout(rkey, "1234567 plays", &rtl, 500.0).is_none());
+        assert_eq!(text.natural_layout(rkey, "1234567 plays", &rtl, rnat.w), Some(rnat));
+        // hard newlines: the widest line is the natural width, every line fits a width of at least that
+        let lines = Style { max_lines: 0, ellipsis: Ellipsis::None, ..style };
+        let lkey = content_key(&lines, 0.0, "1234567 plays\n12", &[]);
+        let lnat = text.layout(lkey, "1234567 plays\n12", &lines, 0.0);
+        assert_eq!(lnat.lines, 2);
+        assert_eq!(text.natural_layout(lkey, "1234567 plays\n12", &lines, lnat.w + 1.0), Some(lnat));
+        assert!(text.natural_layout(lkey, "1234567 plays\n12", &lines, lnat.w - 1.0).is_none());
+        // a middle ellipsis at exactly the natural width cuts nothing
+        let mid = Style { ellipsis: Ellipsis::Middle, ..style };
+        let mkey = content_key(&mid, 0.0, "1234567 plays", &[]);
+        let mnat = text.layout(mkey, "1234567 plays", &mid, 0.0);
+        assert_eq!(text.natural_layout(mkey, "1234567 plays", &mid, mnat.w), Some(mnat));
+        let exact = text.layout(content_key(&mid, mnat.w, "1234567 plays", &[]), "1234567 plays", &mid, mnat.w);
+        assert_eq!((exact.w, exact.lines), (mnat.w, mnat.lines), "the bounded layout at the natural width is not cut");
+        let bounded = content_key(&style, 500.0, "1234567 plays", &[]);
+        text.layout(bounded, "1234567 plays", &style, 500.0);
+        assert!(text.natural_layout(bounded, "1234567 plays", &style, 600.0).is_none(), "only an unbounded entry is natural");
+    }
+
     /// A deferred layout is shaped on the worker, flushed after the frame, installed before the next one (no allocation, no
     /// shaping on this thread) and then laid out from the cache; a font added since reforks the lane and its deliveries
     /// install; text that cannot be prepared is not requested again; a detached text shapes inline.
