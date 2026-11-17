@@ -834,6 +834,7 @@ int32_t pxui_ui_button_with(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiBuild bu
 /* ABI 1.48: the same calls reporting one PxuiResponse instead of the box, the whole signal and the focus; the _plain forms are the
    kit button keyed by key (the theme's look, the kit's size, at the start of its line) and the kit icon button showing the glyph
    icon named name (the theme's look, the kit's square), with no descriptor. */
+/* Legacy: pxui_ui_button_response is superseded by pxui_ui_button_content; kept for the append-only ABI. */
 int32_t pxui_ui_button_response(PxuiUi *ui, const PxuiButtonDesc *desc, PxuiBuild build, void *user, PxuiResponse *out);
 int32_t pxui_ui_button_plain(PxuiUi *ui, PxuiStr key, PxuiStr text, PxuiResponse *out);
 /* ABI 1.56: pxui_ui_button_response whose content callback is also given the button's interaction state (hovered, pressed, focused,

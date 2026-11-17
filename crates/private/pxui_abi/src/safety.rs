@@ -741,7 +741,7 @@ mod sized_records {
         (button.size, button.enabled, button.key, button.text, button.centered) = (size_of::<PxuiButtonDesc>() as u32, 1, k, k, 1);
         let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
         (icon.size, icon.enabled, icon.press_scale, icon.key, icon.name, icon.icon) = (size_of::<PxuiIconButtonDesc>() as u32, 1, 0.96, k, k, k);
-        let press = |b: &PxuiButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_response(ui, b, None, core::ptr::null_mut(), &mut out) } });
+        let press = |b: &PxuiButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_content(ui, b, None, core::ptr::null_mut(), &mut out) } });
         let tap = |b: &PxuiIconButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button_response(ui, b, &mut out) } });
         assert_eq!(press(&button), 0);
         assert_eq!(press(&PxuiButtonDesc { size: 96, centered: 7, ..button }), 0, "a 96-byte record's tail is not read");

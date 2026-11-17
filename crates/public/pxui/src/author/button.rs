@@ -44,6 +44,7 @@ impl<'a> Button<'a> {
 
     /// Makes the box exactly its size (`size`) with nothing around it in its line and its text centred across and down on a node of
     /// its own, as wide as the text in whole pixels (a tab, a sheet's action); `align` still places the box in a line wider than it.
+    /// `content_align` overrides the centring across the box (down it the contents stay centred).
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -66,7 +67,8 @@ impl<'a> Button<'a> {
     /// ```
     pub const fn size(mut self, w: Size, h: Size) -> Button<'a> { self.w = w; self.h = h; self }
 
-    /// Sets the look per state (idle, hover, pressed, focus, disabled, checked) in place of the theme's button.
+    /// Sets the look per state (idle, hover, pressed, focus, disabled, checked) in place of the theme's button. Its font draws the
+    /// kit's text; to style the text (size, weight, line box) use `label`, which then takes only the look's text colour.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -134,7 +136,8 @@ impl<'a> Button<'a> {
     /// ```
     pub const fn align(mut self, align: Justify) -> Button<'a> { self.align = align; self }
 
-    /// Adds padding inside the box (left, top, right, bottom); with a `Fit` width it widens the box by left and right.
+    /// Adds padding inside the box (left, top, right, bottom); with a `Fit` width it widens the box by left and right. It insets the
+    /// box's contents; a `label`'s own `pad` and width are the text node's, inside that padding.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -159,6 +162,10 @@ impl<'a> Button<'a> {
     /// Draws the button's text through the label line box in `style`, as `Ui::label` draws it (its size, weight, `h`, `line_height`,
     /// `whole_pixels` apply), in place of the kit's text: an unset width is the text's own, an unset pad none and an unset colour the
     /// look's text colour for the button's state. The text sits on a node of its own placed by `content_align`.
+    ///
+    /// Once a label is set the look's font is not used: the label's style is the text's, and the look gives only its per-state text
+    /// colour (the theme's invalid ink with `danger`) when the label sets no colour. The label's `pad` and width are the text node's
+    /// (its inset and width inside the box); the box's are `Button::pad` and `size`.
     /// Allocates: never.
     /// Panics: never (a style that does not resolve is refused when the button is declared).
     ///
@@ -246,8 +253,8 @@ impl Ui {
     /// Declares a kit button as `button_with` does, with `f` building its contents instead of a text.
     ///
     /// `f` runs inside the box, laid out by `Button::axis`, `gap` and `content_align`, and is given the button's interaction state
-    /// this frame (hovered, pressed, focused, disabled, checked: what input did to it before `f` runs), so the contents can follow the
-    /// press (`states.pick(state)`). Give the box a size (`Button::size`), since the kit's fit width is that of an empty text, and an
+    /// this frame by value (hovered, pressed, focused, disabled, checked): a snapshot of what input did to it, read before `f` runs,
+    /// so the contents can follow the press (`states.pick(state)`). A disabled button's contents get `disabled: true`. Give the box a size (`Button::size`), since the kit's fit width is that of an empty text, and an
     /// accessible name (`Button::name`): without one the node has none.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
