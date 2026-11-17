@@ -14,7 +14,7 @@ pub use pxui_types::{Capitalize, Commands, Event, Gpu, Image, Pass, ReturnKey, S
 pub use pxui_types::ffi::Slice;
 pub use pxui_types::theme::{BodyId, BodyKind, Part};
 pub use a11y_ffi::A11yBridge;
-pub use pxui_types::{Label,TextStyle,TextSpan};
+pub use pxui_types::{Label,TextSpan};
 pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse};
 
 pub use pxui_types::{draw, geom};
@@ -79,7 +79,7 @@ pub mod ui {
     pub use pxui_types::a11y::Role;
 }
 pub mod text;
-pub use text::{PreparedText, RetiredText, Text, TextWorker, UiText};
+pub use text::{PreparedText, RetiredText, Text, TextStyle, TextWorker, UiText};
 pub use box_ops::{NodeFields, PayloadRef, DropRef, GestureOpts, GestureState, Scroll, SwipeActions, DismissOpts, ViewTransform};
 pub mod paint;
 pub use paint::Paint;

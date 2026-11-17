@@ -787,7 +787,7 @@ pub fn window_pxui_prewarmed_natural_text_is_the_layout_drawn_at_a_wider_width()
     let mut ui = new_ui(None);
     ui.set_text_worker(Some(&worker));
     let label = Label::BODY.line_height(20.0).lines(1).ellipsis();
-    let resolved = ui.resolve(&label).expect("the label resolves");
+    let resolved = ui.resolve(label.fields()).expect("the label resolves");
     // the engine's own style of the label (`pxui_abi` reads a resolved `TextStyle` the same way)
     let style = pxui_text::Style {
         font: resolved.font, size: resolved.size_points, weight: resolved.weight, italic: resolved.italic != 0, line_height: resolved.line_height,

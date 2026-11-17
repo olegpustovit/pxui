@@ -8,7 +8,7 @@
 use pxui_text::{Align, AtlasKind, Ellipsis, Style, Text, Wrap};
 use crate::state::{PxuiUi, engine};
 use crate::PXUI_ERR_ARGUMENT;
-use pxui_types::{Str, TextGlyph, TextMetrics, TextSpans, TextStyle};
+use pxui_types::{ffi::PxuiTextStyle as TextStyle, text as T, Str, TextGlyph, TextMetrics, TextSpans};
 
 unsafe fn bytes<'a>(value: Str) -> Option<&'a [u8]> {
     if value.len == 0 { return Some(&[]); }
@@ -40,10 +40,10 @@ pub(crate) fn style(value: TextStyle) -> Option<Style> {
         weight: value.weight,
         italic: value.italic != 0,
         line_height: value.line_height,
-        wrap: match value.wrap { TextStyle::WRAP_NONE => Wrap::None, TextStyle::WRAP_WORD => Wrap::Word, TextStyle::WRAP_GLYPH => Wrap::Glyph, TextStyle::WRAP_WORD_SPACES => Wrap::WordSpaces, _ => return None },
-        align: match value.align { TextStyle::ALIGN_LEFT => Align::Left, TextStyle::ALIGN_CENTER => Align::Center, TextStyle::ALIGN_RIGHT => Align::Right, _ => return None },
+        wrap: match crate::ui::wrap_of(value.wrap)? { T::Wrap::None => Wrap::None, T::Wrap::Word => Wrap::Word, T::Wrap::Glyph => Wrap::Glyph, T::Wrap::WordSpaces => Wrap::WordSpaces },
+        align: match crate::ui::align_of(value.align)? { T::TextAlign::Start => Align::Left, T::TextAlign::Center => Align::Center, T::TextAlign::End => Align::Right },
         max_lines: value.max_lines,
-        ellipsis: match value.ellipsis { TextStyle::ELLIPSIS_NONE=>Ellipsis::None, TextStyle::ELLIPSIS_END=>Ellipsis::End, TextStyle::ELLIPSIS_MIDDLE=>Ellipsis::Middle, TextStyle::ELLIPSIS_HEAD=>Ellipsis::Head, _=>return None },
+        ellipsis: match crate::ui::ellipsis_of(value.ellipsis)? { T::Ellipsis::None=>Ellipsis::None, T::Ellipsis::End=>Ellipsis::End, T::Ellipsis::Middle=>Ellipsis::Middle, T::Ellipsis::Head=>Ellipsis::Head },
         tracking: value.tracking,
         features: value.features,
     })
@@ -497,7 +497,7 @@ export!(failing(usize::MAX) pub unsafe fn pxui_text_rasterize_rgba(
 #[cfg(test)]
 mod tests {
     use super::{over, style};
-    use pxui_types::TextStyle;
+    use pxui_types::ffi::PxuiTextStyle as TextStyle;
 
     #[test]
     fn text_style_validates_codes_and_numbers() {
@@ -515,11 +515,12 @@ mod tests {
 
     #[test]
     fn ellipsis_modes_preserve_existing_codes_and_refuse_unknown_values() {
-        for (ellipsis,expected) in [(TextStyle::ELLIPSIS_NONE,pxui_text::Ellipsis::None),
-            (TextStyle::ELLIPSIS_END,pxui_text::Ellipsis::End),
-            (TextStyle::ELLIPSIS_MIDDLE,pxui_text::Ellipsis::Middle),
-            (TextStyle::ELLIPSIS_HEAD,pxui_text::Ellipsis::Head)] {
-            assert_eq!(style(TextStyle { ellipsis,..Default::default() }).unwrap().ellipsis,expected);
+        use pxui_types::text::Ellipsis as E;
+        for (ellipsis,expected) in [(E::None,pxui_text::Ellipsis::None),
+            (E::End,pxui_text::Ellipsis::End),
+            (E::Middle,pxui_text::Ellipsis::Middle),
+            (E::Head,pxui_text::Ellipsis::Head)] {
+            assert_eq!(style(TextStyle { ellipsis:ellipsis as u8,..Default::default() }).unwrap().ellipsis,expected);
         }
         for ellipsis in 4..=u8::MAX {
             assert!(style(TextStyle { ellipsis,..Default::default() }).is_none());
@@ -562,3 +563,46 @@ mod tests {
         assert_eq!(pixel, [220, 40, 10, 128]);
     }
 }
+
+// ABI 1.65: the text calls on a label style (`PxuiLabelStyle`; `digits` ignored), resolved against the Ui's theme as
+// `pxui_ui_resolve_label` resolves it, in the same call. A null, invalid or unresolvable style is refused like an invalid style of
+// the resolved-style twin (`pxui_ui_text_spans`, `pxui_ui_text_line_box`, `pxui_text_width`/`_spans`, `pxui_text_quads`,
+// `pxui_text_rasterize_rgba`, `pxui_text_prewarm`); the layout key is the content's (key 0).
+
+export!(pub unsafe fn pxui_ui_label_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const pxui_types::ffi::PxuiLabelStyle,spans:*const TextSpans)->i32 {
+    if unsafe { crate::state::get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some((style,_))=crate::ui::label_style(style) else { return unsafe { crate::fail(ui,"invalid label style") } };
+    unsafe { crate::trusted::label_text_spans(ui,box_,value,&style,spans) }
+});
+
+export!(pub unsafe fn pxui_ui_label_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const pxui_types::ffi::PxuiLabelStyle,spans:*const TextSpans)->i32 {
+    if unsafe { crate::state::get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some((style,_))=crate::ui::label_style(style) else { return unsafe { crate::fail(ui,"invalid label style") } };
+    unsafe { crate::trusted::label_text_line_box(ui,box_,value,&style,spans) }
+});
+
+// `spans` may be null: the plain measurement.
+export!(pub unsafe fn pxui_ui_label_measure(ui:*mut PxuiUi,value:Str,style:*const pxui_types::ffi::PxuiLabelStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
+    let Some((style,_))=crate::ui::label_style(style) else { return PXUI_ERR_ARGUMENT };
+    unsafe { crate::trusted::label_measure(ui,value,&style,max_width,spans,out) }
+});
+
+export!(failing(usize::MAX) pub unsafe fn pxui_ui_label_quads(
+    ui: *mut PxuiUi, value: Str, style: *const pxui_types::ffi::PxuiLabelStyle, max_width: f32, origin_x: f32, origin_y: f32, scale: f32, out: *mut TextGlyph, capacity: usize,
+) -> usize {
+    let Some((style, _)) = crate::ui::label_style(style) else { return usize::MAX };
+    unsafe { crate::trusted::label_quads(ui, value, &style, max_width, origin_x, origin_y, scale, out, capacity) }
+});
+
+export!(failing(usize::MAX) pub unsafe fn pxui_ui_label_rasterize_rgba(
+    ui: *mut PxuiUi, value: Str, style: *const pxui_types::ffi::PxuiLabelStyle, max_width: f32, scale: f32,
+    color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize,
+) -> usize {
+    let Some((style, _)) = crate::ui::label_style(style) else { return usize::MAX };
+    unsafe { crate::trusted::label_rasterize_rgba(ui, value, &style, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
+});
+
+export!(pub unsafe fn pxui_ui_label_prewarm(ui: *mut PxuiUi, value: Str, style: *const pxui_types::ffi::PxuiLabelStyle, max_width: f32) -> i32 {
+    let Some((style, _)) = crate::ui::label_style(style) else { return PXUI_ERR_ARGUMENT };
+    unsafe { crate::trusted::label_prewarm(ui, value, &style, max_width) }
+});

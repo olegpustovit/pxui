@@ -171,7 +171,7 @@ impl<'a> Button<'a> {
     ///
     /// ```
     /// use pxui::{Button, Label};
-    /// const ROW: Button = Button::sized(200.0, 32.0).label(Label::BODY.size(14.0).h(19.6)).content_align(pxui::ui::Align::Start);
+    /// const ROW: Button = Button::sized(200.0, 32.0).label(Label::BODY.size(14.0).h_px(19.6)).content_align(pxui::ui::Align::Start);
     /// let _ = ROW;
     /// ```
     pub const fn label(mut self, style: Label) -> Button<'a> { self.label = Some(style); self }
@@ -539,7 +539,7 @@ mod tests {
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             let b = if centered.get() { Button::sized(200.0, 32.0) } else { Button::DEFAULT.size(Size::Px(200.0), Size::Px(32.0)) };
-            last.set(Some(ui.button_with("save", "Save", &b.look(&plate).label(Label::BODY.size(14.0).h(20.0)).content_align(align.get()))));
+            last.set(Some(ui.button_with("save", "Save", &b.look(&plate).label(Label::BODY.size(14.0).h_px(20.0)).content_align(align.get()))));
         };
         let mut ui = crate::doc::frames(2, &mut build);
         let text = a11y(&ui, Role::Label, "Save");
@@ -652,7 +652,7 @@ mod tests {
         let text = "button.body = laid_out";
         ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
         assert_eq!(ui.theme().body.button, id);
-        let styled = Button::sized(120.0, 44.0).label(crate::Label::BODY.size(14.0).h(20.0)).axis(Axis::Column).gap(6.0).content_align(Align::End);
+        let styled = Button::sized(120.0, 44.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).axis(Axis::Column).gap(6.0).content_align(Align::End);
         for (button, seen) in [(styled, (1, 2, 3, 6.0, 14.0, 1)), (Button::sized(120.0, 44.0), (0, 0, 0, 0.0, 0.0, 0))] {
             testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
             testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
@@ -674,7 +674,7 @@ mod tests {
             ui.button_content(1i64, &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).look(&states).danger(), &content);
             ui.button_with("off", "Off", &Button::DEFAULT.enabled(false).selected(true).name("Off button").align(Justify::End));
             ui.button_with("tab", "Songs", &Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().selected(true));
-            ui.button_with("label", "Label", &Button::sized(90.0, 30.0).label(crate::Label::BODY.size(14.0).h(20.0)).content_align(crate::ui::Align::Start).focus_on_click(true));
+            ui.button_with("label", "Label", &Button::sized(90.0, 30.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).content_align(crate::ui::Align::Start).focus_on_click(true));
             ui.button_with("row", "Row", &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).gap(4.0).content_align(crate::ui::Align::End).name(name));
             ui.button_content("state", &Button::sized(90.0, 30.0).axis(crate::ui::Axis::Column), |ui, state| {
                 let w = if state.hovered { 6.0 } else { 8.0 };

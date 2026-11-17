@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 64
+minor 65
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -149,7 +149,13 @@ function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_
 function pxui_ui_key_pressed_with int32_t pxui_ui_key_pressed_with ( PxuiUi * ui , uint32_t code , uint32_t modifier , uint8_t * out ) ;
 function pxui_ui_keyboard int32_t pxui_ui_keyboard ( PxuiUi * ui , PxuiKeyboard * out ) ;
 function pxui_ui_label int32_t pxui_ui_label ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style ) ;
+function pxui_ui_label_measure int32_t pxui_ui_label_measure ( PxuiUi * ui , PxuiStr value , const PxuiLabelStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
 function pxui_ui_label_node int32_t pxui_ui_label_node ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style , const PxuiLabelBox * label_box , PxuiBox * out ) ;
+function pxui_ui_label_prewarm int32_t pxui_ui_label_prewarm ( PxuiUi * ui , PxuiStr value , const PxuiLabelStyle * style , float max_width ) ;
+function pxui_ui_label_quads size_t pxui_ui_label_quads ( PxuiUi * ui , PxuiStr value , const PxuiLabelStyle * style , float max_width , float origin_x , float origin_y , float scale , PxuiTextGlyph * out , size_t capacity ) ;
+function pxui_ui_label_rasterize_rgba size_t pxui_ui_label_rasterize_rgba ( PxuiUi * ui , PxuiStr value , const PxuiLabelStyle * style , float max_width , float scale , uint8_t color_r , uint8_t color_g , uint8_t color_b , uint8_t color_a , uint32_t * width , uint32_t * height , uint8_t * out , size_t capacity ) ;
+function pxui_ui_label_text_line_box int32_t pxui_ui_label_text_line_box ( PxuiUi * ui , const PxuiBox * box_ , PxuiStr value , const PxuiLabelStyle * style , const PxuiTextSpans * spans ) ;
+function pxui_ui_label_text_spans int32_t pxui_ui_label_text_spans ( PxuiUi * ui , const PxuiBox * box_ , PxuiStr value , const PxuiLabelStyle * style , const PxuiTextSpans * spans ) ;
 function pxui_ui_layer_drawn int32_t pxui_ui_layer_drawn ( PxuiUi * ui , uint64_t layer ) ;
 function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
 function pxui_ui_list_measured int32_t pxui_ui_list_measured ( PxuiUi * ui , PxuiStr label , size_t count , float estimate_h , PxuiGridBuild build , void * user , PxuiBox * out ) ;

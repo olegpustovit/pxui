@@ -164,10 +164,10 @@ impl<'a> Segmented<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// const CHIPS: pxui::Segmented = pxui::Segmented::DEFAULT.h(28.0);
+    /// const CHIPS: pxui::Segmented = pxui::Segmented::DEFAULT.h_px(28.0);
     /// let _ = CHIPS;
     /// ```
-    pub const fn h(mut self, h: f32) -> Segmented<'a> { self.h = Some(h); self }
+    pub const fn h_px(mut self, h: f32) -> Segmented<'a> { self.h = Some(h); self }
 
     /// Makes the strip fill its line, its segments sharing the width equally, instead of each being as wide as its text.
     /// Allocates: never.
@@ -312,7 +312,7 @@ impl Ui {
     /// use pxui::{Segment, Segmented};
     /// let mut chosen = 0;
     /// let mut build = |ui: &mut pxui::Ui| {
-    ///     const CHIPS: Segmented = Segmented::DEFAULT.h(28.0).name("Appearance");
+    ///     const CHIPS: Segmented = Segmented::DEFAULT.h_px(28.0).name("Appearance");
     ///     const OPTIONS: [Segment; 3] = [Segment::new("System"), Segment::new("Light"), Segment::new("Dark").name("Use the dark theme")];
     ///     let (_, i) = ui.segmented_with("appearance", &OPTIONS, chosen, &CHIPS);
     ///     chosen = i;
@@ -462,7 +462,7 @@ mod tests {
     /// press on one moves the choice and reports `changed`.
     #[test]
     fn chips_have_their_sizes_states_and_choose_on_click() {
-        const CHIPS: Segmented = Segmented::DEFAULT.h(28.0).grow().name("Cache size");
+        const CHIPS: Segmented = Segmented::DEFAULT.h_px(28.0).grow().name("Cache size");
         const OPTIONS: [Segment; 3] = [Segment::new("5 GB"), Segment::new("10 GB"), Segment::new("20 GB")];
         let chosen = Cell::new(1usize);
         let last: Cell<Option<Response>> = Cell::new(None);
@@ -796,7 +796,7 @@ mod tests {
             ui.toggle("Plain", true);
             ui.toggle_with(3i64, "Big", false, &SETTING.track(&looks).knob(&looks).enabled(false));
             ui.segmented("Align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], 1);
-            ui.segmented_with("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], 0, &Segmented::DEFAULT.h(28.0).grow().look(&looks).name("Cache").enabled(false));
+            ui.segmented_with("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], 0, &Segmented::DEFAULT.h_px(28.0).grow().look(&looks).name("Cache").enabled(false));
             ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented("Inner", &[Segment::new("A"), Segment::new("B")], 0); }); });
             ui.toggle_with("detail", "Download ahead", true, &SETTING.detail("Fetch the next two cloud songs in the queue before they play").label(crate::Label::BODY.size(15.0)).press_row(true));
             ui.segmented_with("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], 1, &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));

@@ -159,7 +159,7 @@ impl Ui {
                 f(&mut ui, state)
             };
             unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look.as_ref(), button.w, button.h, button.align, button.pad,
-                button.enabled, button.selected, button.danger, button.centered, button.label.as_ref(), button.axis, button.gap, button.content_align, button.focus_on_click,
+                button.enabled, button.selected, button.danger, button.centered, button.label.as_ref().map(|l| l.fields()), button.axis, button.gap, button.content_align, button.focus_on_click,
                 if has_content { Some(&mut run) } else { None }, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
@@ -200,7 +200,7 @@ impl Ui {
             unsafe { pxui_abi_link::trusted::toggle_plain(self.0.as_ptr(), key, text, on, &mut out) }
         } else {
             unsafe { pxui_abi_link::trusted::toggle_with(self.0.as_ptr(), key, text, on, toggle.track.as_ref(), toggle.knob.as_ref(), toggle.row_h.unwrap_or(0.0), switch_w, switch_h,
-                toggle.inset.unwrap_or(0.0), toggle.press_row, toggle.detail, toggle.label.as_ref(), toggle.enabled, &mut out) }
+                toggle.inset.unwrap_or(0.0), toggle.press_row, toggle.detail, toggle.label.as_ref().map(|l| l.fields()), toggle.enabled, &mut out) }
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {

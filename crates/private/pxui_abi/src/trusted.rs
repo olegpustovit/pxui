@@ -6,9 +6,10 @@
 use crate::node::declare;
 use crate::state::{get, Inner, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_inner, fail, note_call, to_abi_box};
 use crate::{PxuiBox, PxuiSignal, Str};
-use pxui_types::ffi::PxuiResponse;
+use pxui_types::ffi::{PxuiResponse, PxuiTextStyle};
+use pxui_types::{text::LabelFields, TextGlyph, TextMetrics, TextSpans};
 use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
-use pxui_types::{Axis, FrameIn, FrameOut, Label, Node, Size, ffi::Input, geom::Edges, layout::{Align, Justify}, theme::{State, States, ThemeSnapshot}};
+use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::{Align, Justify}, theme::{State, States, ThemeSnapshot}};
 
 
 /// `value` as text the caller promises is UTF-8 (the checked length is the one the exports refuse above). Its pointer is never null:
@@ -76,7 +77,7 @@ pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {
 }
 
 #[inline(always)]
-pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: &pxui_types::Label, digits: bool, out: &mut PxuiBox) -> i32 {
+pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: &pxui_types::text::LabelFields, digits: bool, out: &mut PxuiBox) -> i32 {
     enter!(ui);
     let Some(text) = (unsafe { utf8(text) }) else { return unsafe { fail(ui, "invalid label text") } };
     let Some(node) = unsafe { engine(ui) }.label_styled(text, style, digits) else { return unsafe { fail(ui, "invalid label style: a size, line height, box height, padding, width, wrap, align, ellipsis or feature no style has, or a font not loaded") }; };
@@ -118,7 +119,7 @@ pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, track: Option<&States>, knob: Option<&States>, row_h: f32, switch_w: f32, switch_h: f32, inset: f32,
-    press_row: bool, detail: &str, label: Option<&pxui_types::Label>, enabled: bool, out: &mut PxuiResponse) -> i32 {
+    press_row: bool, detail: &str, label: Option<&pxui_types::text::LabelFields>, enabled: bool, out: &mut PxuiResponse) -> i32 {
     enter!(ui);
     if long(key) || long(text) || long(detail) { return unsafe { fail(ui, "invalid toggle text") }; }
     // finite and not negative: NaN and infinity fail one of the two compares
@@ -317,7 +318,7 @@ fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&str>, states: Option<&States>, w: Size, h: Size, justify: Justify, pad: Edges,
-    enabled: bool, selected: bool, danger: bool, centered: bool, label: Option<&Label>, axis: Option<Axis>, gap: f32, content_align: Option<Align>, focus_on_click: bool,
+    enabled: bool, selected: bool, danger: bool, centered: bool, label: Option<&pxui_types::text::LabelFields>, axis: Option<Axis>, gap: f32, content_align: Option<Align>, focus_on_click: bool,
     content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     enter!(ui);
     if long(key) || long(text) || name.is_some_and(long) { return unsafe { fail(ui, "invalid button text") }; }
@@ -756,4 +757,52 @@ pub unsafe fn table_view(ui: *mut PxuiUi, label: &str, titles: &[&str], widths: 
     let shared = unsafe { (*ui).shared };
     *out = unsafe { engine(ui) }.table_view(label, titles, widths, rows, sort, selected, &mut |engine, row, column| { let mut borrowed = PxuiUi::borrowed(engine, shared); let _current = crate::state::Current::set(shared, &mut borrowed); cell(&mut borrowed, row, column) });
     0
+}
+
+// ABI 1.65: the text calls that take a label style and resolve it in the same call (no `pxui_ui_resolve_label` round trip): the
+// style resolves against the Ui's theme as `pxui_ui_resolve_label` resolves it, then the call runs as its resolved-style twin.
+
+/// The resolved C style of `style` on `ui`; `None` for a gone Ui or a style that does not resolve.
+#[inline(always)]
+unsafe fn resolved(ui: *mut PxuiUi, style: &LabelFields) -> Option<PxuiTextStyle> { unsafe { crate::state::engine(ui) }?.resolve(style) }
+
+#[inline(always)]
+pub unsafe fn label_text_spans(ui: *mut PxuiUi, box_: *const PxuiBox, value: Str, style: &LabelFields, spans: *const TextSpans) -> i32 {
+    let Some(style) = (unsafe { resolved(ui, style) }) else { return unsafe { fail(ui, "label style does not resolve") } };
+    unsafe { crate::text::pxui_ui_text_spans(ui, box_, value, &style, spans) }
+}
+
+#[inline(always)]
+pub unsafe fn label_text_line_box(ui: *mut PxuiUi, box_: *const PxuiBox, value: Str, style: &LabelFields, spans: *const TextSpans) -> i32 {
+    let Some(style) = (unsafe { resolved(ui, style) }) else { return unsafe { fail(ui, "label style does not resolve") } };
+    unsafe { crate::text::pxui_ui_text_line_box(ui, box_, value, &style, spans) }
+}
+
+/// `spans` null: the plain measurement (`pxui_text_width`); else `pxui_text_width_spans`.
+#[inline(always)]
+pub unsafe fn label_measure(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32, spans: *const TextSpans, out: *mut TextMetrics) -> i32 {
+    let Some(style) = (unsafe { resolved(ui, style) }) else { return crate::PXUI_ERR_ARGUMENT };
+    if spans.is_null() { unsafe { crate::text::pxui_text_width(ui, 0, value, &style, max_width, out) } }
+    else { unsafe { crate::text::pxui_text_width_spans(ui, 0, value, &style, max_width, spans, out) } }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub unsafe fn label_quads(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32, x: f32, y: f32, scale: f32, out: *mut TextGlyph, capacity: usize) -> usize {
+    let Some(style) = (unsafe { resolved(ui, style) }) else { return usize::MAX };
+    unsafe { crate::text::pxui_text_quads(ui, 0, value, &style, max_width, x, y, scale, out, capacity) }
+}
+
+#[allow(clippy::too_many_arguments)]
+#[inline(always)]
+pub unsafe fn label_rasterize_rgba(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32, scale: f32, color_r: u8, color_g: u8, color_b: u8,
+    color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize) -> usize {
+    let Some(style) = (unsafe { resolved(ui, style) }) else { return usize::MAX };
+    unsafe { crate::text::pxui_text_rasterize_rgba(ui, 0, value, &style, max_width, scale, color_r, color_g, color_b, color_a, width, height, out, capacity) }
+}
+
+#[inline(always)]
+pub unsafe fn label_prewarm(ui: *mut PxuiUi, value: Str, style: &LabelFields, max_width: f32) -> i32 {
+    let Some(style) = (unsafe { resolved(ui, style) }) else { return crate::PXUI_ERR_ARGUMENT };
+    unsafe { crate::text::pxui_text_prewarm(ui, value, &style, max_width) }
 }

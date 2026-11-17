@@ -8,7 +8,7 @@ use crate::bodies::{body_of, in_body, in_item, in_place, TableCellConfig, Button
 pub use pxui_types::ui::{Head, HeadAction, PanelOpts};
 pub use pxui_types::Label;
 use pxui_text::{Align as TextAlign, Ellipsis, Style, Wrap};
-use pxui_types::TextStyle;
+use pxui_types::{ffi::PxuiTextStyle as TextStyle, text::LabelFields};
 use crate::a11y::state as st;
 use input::{Event, Key};
 use crate::geom::Rgba as Color;
@@ -68,9 +68,9 @@ pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, track: Option<&Sta
             Some(style) => { toggle_line(this, int_key(c.row.box_key, 3), &style, &ink(look), label); }
         }
         if !c.detail.is_empty() {
-            const DETAIL: Label = Label { wrap: TextStyle::WRAP_WORD, ..Label::DEFAULT };
+            const DETAIL: Label = Label::DEFAULT.wrap();
             let look = ink(this.theme().label.idle);
-            if let Some(line) = toggle_line(this, int_key(c.row.box_key, 4), &DETAIL, &look, c.detail) {
+            if let Some(line) = toggle_line(this, int_key(c.row.box_key, 4), DETAIL.fields(), &look, c.detail) {
                 this.set_role(&line, Role::Label, 0);
                 this.a11y_name(&line, shown(c.detail));
             }
@@ -90,7 +90,7 @@ pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, track: Option<&Sta
 
 /// One line-box text node of a toggle's column keyed `key`: `text` in `style`, its unset fields `look`'s (lines 1.2 times the size unless
 /// it sets them), as wide as the column unless it sets a width; `None` for a style that does not resolve.
-fn toggle_line(this: &mut Ui, key: i64, style: &Label, look: &Look, text: &str) -> Option<Handle> {
+fn toggle_line(this: &mut Ui, key: i64, style: &LabelFields, look: &Look, text: &str) -> Option<Handle> {
     let token = style.color.map(|t| this.color(t.0));
     let resolved = resolve_label(style, look, this.font_size(), 0.0, token)?;
     let mut text_style = resolved.style;
@@ -119,7 +119,7 @@ pub struct ToggleOpts {
     /// Space then flips it as a row of a list does; a plain toggle is a Tab stop only.
     pub press_row: bool,
     /// The title's text style; `None` is the theme's toggle font.
-    pub label: Option<Label>,
+    pub label: Option<LabelFields>,
 }
 
 impl ToggleOpts {
@@ -148,7 +148,7 @@ pub struct ButtonOpts {
     /// The box is exactly `w` by `h` with nothing around it in its line, its text centred in it (`Button::centered`).
     pub centered: bool,
     /// The text drawn through the label line box in this style (`Button::label`); `None` is the kit's text.
-    pub label: Option<Label>,
+    pub label: Option<LabelFields>,
     /// The contents' axis (`Button::axis`); `None` is the kit's.
     pub axis: Option<Axis>,
     /// The space between the contents in points (`Button::gap`).
@@ -299,18 +299,19 @@ pub(crate) struct LabelText {
 
 /// `label` with its unset fields from the theme's label `look` (font, size, weight, tracking, capitals, colour) and `row_height`
 /// (the line height when unset; 0 is 1.2 times the size); `token` is its colour token already resolved. `None` for a size that
-/// is not positive and finite, a non-finite tracking or line height, or a wrap, align, ellipsis or feature value no style has.
-pub(crate) fn resolve_label(label: &Label, look: &Look, font_size: i64, row_height: f32, token: Option<Color>) -> Option<LabelText> {
+/// is not positive and finite, a non-finite tracking or line height, or a feature bit no style has.
+pub(crate) fn resolve_label(label: &LabelFields, look: &Look, font_size: i64, row_height: f32, token: Option<Color>) -> Option<LabelText> {
+    use pxui_types::text as T;
     let size = label.size.unwrap_or(look.font.points(font_size) as f32);
     let tracking = label.tracking.unwrap_or(look.font.tracking);
     let line_height = label.line_height.unwrap_or(row_height);
     if !size.is_finite() || size <= 0.0 || !tracking.is_finite() || !line_height.is_finite() || line_height < 0.0 || label.features & !TextStyle::FEATURE_TABULAR_NUMBERS != 0 { return None; }
     let style = Style {
         font: label.font.unwrap_or(look.font.family), size, weight: label.weight.unwrap_or(look.font.weight), italic: false, line_height,
-        wrap: match label.wrap { TextStyle::WRAP_NONE => Wrap::None, TextStyle::WRAP_WORD => Wrap::Word, TextStyle::WRAP_GLYPH => Wrap::Glyph, TextStyle::WRAP_WORD_SPACES => Wrap::WordSpaces, _ => return None },
-        align: match label.align { TextStyle::ALIGN_LEFT => TextAlign::Left, TextStyle::ALIGN_CENTER => TextAlign::Center, TextStyle::ALIGN_RIGHT => TextAlign::Right, _ => return None },
+        wrap: match label.wrap { T::Wrap::None => Wrap::None, T::Wrap::Word => Wrap::Word, T::Wrap::Glyph => Wrap::Glyph, T::Wrap::WordSpaces => Wrap::WordSpaces },
+        align: match label.align { T::TextAlign::Start => TextAlign::Left, T::TextAlign::Center => TextAlign::Center, T::TextAlign::End => TextAlign::Right },
         max_lines: label.max_lines,
-        ellipsis: match label.ellipsis { TextStyle::ELLIPSIS_NONE => Ellipsis::None, TextStyle::ELLIPSIS_END => Ellipsis::End, TextStyle::ELLIPSIS_MIDDLE => Ellipsis::Middle, TextStyle::ELLIPSIS_HEAD => Ellipsis::Head, _ => return None },
+        ellipsis: match label.ellipsis { T::Ellipsis::None => Ellipsis::None, T::Ellipsis::End => Ellipsis::End, T::Ellipsis::Middle => Ellipsis::Middle, T::Ellipsis::Head => Ellipsis::Head },
         tracking: tracking * size,
         features: label.features,
     };
@@ -319,8 +320,9 @@ pub(crate) fn resolve_label(label: &Label, look: &Look, font_size: i64, row_heig
 
 /// Whether `label` is kit text, one line in the label look's font a row high: nothing set that only line-box text draws (wrap, a
 /// line limit, an ellipsis, an alignment, features, a line height, a width, a box height, whole pixels) and a whole-point size.
-fn kit_label(label: &Label) -> bool {
-    label.wrap == TextStyle::WRAP_NONE && label.max_lines == 0 && label.ellipsis == TextStyle::ELLIPSIS_NONE && label.align == TextStyle::ALIGN_LEFT
+fn kit_label(label: &LabelFields) -> bool {
+    use pxui_types::text as T;
+    label.wrap == T::Wrap::None && label.max_lines == 0 && label.ellipsis == T::Ellipsis::None && label.align == T::TextAlign::Start
         && label.features == 0 && label.line_height.is_none() && label.width.is_none() && label.size.is_none_or(|s| s >= 1.0 && s.fract() == 0.0)
         && label.height.is_none() && !label.whole_pixels
 }
@@ -1123,27 +1125,29 @@ impl Ui {
     /// "\0label", so the n-th takes its n-th `#dup`), role `Label`. `Label::DEFAULT` is the theme's label: a window's title or a
     /// panel's caption, ink-2 capitals 12 points from the left, 4 points above it when it is the first thing of its parent.
     pub fn label(&mut self, text: &str, style: Label) {
+        let style = *style.fields();
         assert!(self.label_styled(text, &style, false).is_some(), "Ui.label: invalid style {style:?}");
     }
 
     /// The text style `label` shapes with, resolved against this `Ui`'s theme label as `label` resolves it (unset fields are the
     /// theme label's; tracking becomes points): what `label` would shape. `None` for a style that does not resolve.
-    pub fn resolve(&self, label: &Label) -> Option<TextStyle> {
+    pub fn resolve(&self, label: &LabelFields) -> Option<TextStyle> {
         let look = self.theme().label.idle;
         let s = resolve_label(label, &look, self.font_size(), self.row_height() as f32, None)?.style;
+        use pxui_types::text as T;
         Some(TextStyle {
             size: core::mem::size_of::<TextStyle>() as u32, font: s.font, weight: s.weight, size_points: s.size, line_height: s.line_height,
-            wrap: match s.wrap { Wrap::None => TextStyle::WRAP_NONE, Wrap::Word => TextStyle::WRAP_WORD, Wrap::Glyph => TextStyle::WRAP_GLYPH, Wrap::WordSpaces => TextStyle::WRAP_WORD_SPACES },
-            align: match s.align { TextAlign::Left => TextStyle::ALIGN_LEFT, TextAlign::Center => TextStyle::ALIGN_CENTER, TextAlign::Right => TextStyle::ALIGN_RIGHT },
+            wrap: match s.wrap { Wrap::None => T::Wrap::None, Wrap::Word => T::Wrap::Word, Wrap::Glyph => T::Wrap::Glyph, Wrap::WordSpaces => T::Wrap::WordSpaces } as u32,
+            align: match s.align { TextAlign::Left => T::TextAlign::Start, TextAlign::Center => T::TextAlign::Center, TextAlign::Right => T::TextAlign::End } as u32,
             max_lines: s.max_lines, italic: s.italic as u8,
-            ellipsis: match s.ellipsis { Ellipsis::None => TextStyle::ELLIPSIS_NONE, Ellipsis::End => TextStyle::ELLIPSIS_END, Ellipsis::Middle => TextStyle::ELLIPSIS_MIDDLE, Ellipsis::Head => TextStyle::ELLIPSIS_HEAD },
+            ellipsis: match s.ellipsis { Ellipsis::None => T::Ellipsis::None, Ellipsis::End => T::Ellipsis::End, Ellipsis::Middle => T::Ellipsis::Middle, Ellipsis::Head => T::Ellipsis::Head } as u8,
             features: s.features, tracking: s.tracking,
         })
     }
 
     /// `label`, or with `digits` a number drawn one cached character layout at a time (its accessible value the text). `false`, with
     /// nothing built, when the style does not resolve (`resolve_label`), its padding or width is not finite, or its font is not loaded.
-    pub fn label_styled(&mut self, text: &str, style: &Label, digits: bool) -> Option<Handle> {
+    pub fn label_styled(&mut self, text: &str, style: &LabelFields, digits: bool) -> Option<Handle> {
         // kit text needs only a finite tracking and padding and a loaded font when it names one; anything else resolves in full
         if kit_label(style) && !digits {
             if !style.tracking.is_none_or(f32::is_finite) || !style.pad.is_none_or(f32::is_finite) || style.font.is_some_and(|font| self.text_mut().font_metrics(font).is_none()) { return None; }

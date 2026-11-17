@@ -29,7 +29,7 @@ pub struct ToggleConfig {
     pub inset: f32,
     pub press_row: bool,
     pub detail: &'static str,
-    pub label: Option<pxui_types::Label>,
+    pub label: Option<pxui_types::text::LabelFields>,
     pub stored: bool,
     pub clicked: bool,
 }
@@ -80,7 +80,7 @@ pub struct ButtonConfig {
     pub line: Handle,
     pub row: Handle,
     /// The caller's `Button::label`: the text drawn through the label line box in this style (`None`: the kit's text).
-    pub label: Option<pxui_types::Label>,
+    pub label: Option<pxui_types::text::LabelFields>,
     /// The caller's `Button::axis`, `Button::gap` and `Button::content_align`: how `row` lays out its contents (`None`: the kit's), the
     /// contents placed across the box by `content_align` and centred down it.
     pub axis: Option<Axis>,
@@ -147,7 +147,7 @@ pub type BadgeBody = fn(&mut Ui, &BadgeConfig, &str, &str);
 pub struct LabelConfig {
     pub node: Handle,
     pub first: bool,
-    pub style: pxui_types::Label,
+    pub style: pxui_types::text::LabelFields,
     pub digits: bool,
 }
 

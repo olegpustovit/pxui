@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 64u)
+#define PXUI_ABI_BUILT ((1u << 16) | 65u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -426,7 +426,8 @@ enum {
     PXUI_FEATURE_LOOK_TOKENS = 18,       /* 1.61: look colours naming colour tokens */
     PXUI_FEATURE_ICON_WORD = 19,         /* 1.61: pxui_ui_icon_word / pxui_paint_icon_word */
     PXUI_FEATURE_TEXT_WORKER = 20,       /* 1.62: pxui_text_worker_create/_destroy, pxui_ui_set_text_worker, pxui_text_prewarm */
-    PXUI_FEATURE_TEXT_FIELD_KEYED = 21   /* 1.64: pxui_ui_text_field_keyed, pxui_ui_input_box */
+    PXUI_FEATURE_TEXT_FIELD_KEYED = 21,  /* 1.64: pxui_ui_text_field_keyed, pxui_ui_input_box */
+    PXUI_FEATURE_LABEL_TEXT = 22         /* 1.65: pxui_ui_label_text_spans/_text_line_box/_measure/_quads/_rasterize_rgba/_prewarm */
 };
 /* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */
 uint64_t pxui_counter(uint32_t which);
@@ -742,6 +743,18 @@ PxuiTextWorker *pxui_text_worker_create(void);
 void pxui_text_worker_destroy(PxuiTextWorker *worker);
 int32_t pxui_ui_set_text_worker(PxuiUi *ui, const PxuiTextWorker *worker);
 int32_t pxui_text_prewarm(PxuiUi *ui, PxuiStr value, const PxuiTextStyle *style, float max_width);
+/* ABI 1.65 (PXUI_FEATURE_LABEL_TEXT): the text calls on a label style, resolved against the Ui's theme as pxui_ui_resolve_label
+   resolves it, in the same call (no resolve round trip): each runs as its resolved-style twin (pxui_ui_text_spans,
+   pxui_ui_text_line_box, pxui_text_width or pxui_text_width_spans, pxui_text_quads, pxui_text_rasterize_rgba, pxui_text_prewarm)
+   with the content's layout key. The style's digits byte is ignored. A null, short or invalid label record (unknown set bits, wrap,
+   align or ellipsis numbers, feature bits) or one that does not resolve is refused as the twin refuses an invalid style.
+   pxui_ui_label_measure's spans may be null (the plain measurement). */
+int32_t pxui_ui_label_text_spans(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiLabelStyle *style, const PxuiTextSpans *spans);
+int32_t pxui_ui_label_text_line_box(PxuiUi *ui, const PxuiBox *box_, PxuiStr value, const PxuiLabelStyle *style, const PxuiTextSpans *spans);
+int32_t pxui_ui_label_measure(PxuiUi *ui, PxuiStr value, const PxuiLabelStyle *style, float max_width, const PxuiTextSpans *spans, PxuiTextMetrics *out);
+size_t pxui_ui_label_quads(PxuiUi *ui, PxuiStr value, const PxuiLabelStyle *style, float max_width, float origin_x, float origin_y, float scale, PxuiTextGlyph *out, size_t capacity);
+size_t pxui_ui_label_rasterize_rgba(PxuiUi *ui, PxuiStr value, const PxuiLabelStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
+int32_t pxui_ui_label_prewarm(PxuiUi *ui, PxuiStr value, const PxuiLabelStyle *style, float max_width);
 size_t pxui_text_rasterize_rgba(PxuiUi *ui, uint64_t key, PxuiStr value, const PxuiTextStyle *style, float max_width, float scale, uint8_t color_r, uint8_t color_g, uint8_t color_b, uint8_t color_a, uint32_t *width, uint32_t *height, uint8_t *out, size_t capacity);
 /* ABI 1.14: bit 2 on plain, unstroked RECTs selects pixel-area coverage; no layout change. */
 int32_t pxui_paint_span(PxuiPaint *paint, size_t at_least, PxuiSpan *span); /* at_least 0 only commits; call it before any other pxui_paint_* call */

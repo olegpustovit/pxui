@@ -6,23 +6,17 @@ use pxui_types::{geom::Rect, ui::{Cursor, UndoKind}, FrameIn, Mark, Size};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 
-/// The `Label` that resolves to `style` (every field set; tracking back to ems): the text calls take the authoring style.
-#[allow(dead_code)]
-fn label_of(style:&crate::TextStyle)->crate::Label {
-    crate::Label {font:Some(style.font),size:Some(style.size_points),weight:Some(style.weight),tracking:Some(style.tracking/style.size_points),caps:Some(false),
-        line_height:Some(style.line_height),wrap:style.wrap,max_lines:style.max_lines,ellipsis:style.ellipsis,align:style.align,features:style.features,..crate::Label::BODY}
-}
-
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
 /// How far below a canvas draw's `at` (the layout's top) the same style's node text starts: node text is placed by its em box, so a
 /// canvas that must land on the same pixels draws at the node's top plus this.
-fn em_top_to_layout_top(style:&crate::TextStyle)->f32 {
+fn em_top_to_layout_top(points:f32)->f32 {
     let mut ui=Ui::new().unwrap();
-    let style=crate::TextStyle {wrap:crate::TextStyle::WRAP_NONE,ellipsis:crate::TextStyle::ELLIPSIS_NONE,max_lines:0,..*style};
+    let label=crate::Label::BODY.size(points);
+    let style=ui.resolve(&label);
     ui.frame(&input(),&mut |ui| {
-        let b=ui.node("probe".into(),crate::Node { w:Size::Px(200.0),h:Size::Px(style.size_points),..crate::Node::DEFAULT });
-        ui.text_spans(&b,"H",&label_of(&style),&[]).unwrap();
+        let b=ui.node("probe".into(),crate::Node { w:Size::Px(200.0),h:Size::Px(points),..crate::Node::DEFAULT });
+        ui.text_spans(&b,"H",&label,&[]).unwrap();
         ui.canvas(&b,move |paint,rect| {paint.text_spans((rect.x,rect.y),&style,0.0,None,"H",&[]).unwrap();});
     }).unwrap();
     let ys:Vec<f32>=ui.layers().flat_map(|layer|layer.instances.iter().map(|i|i.rect[1])).collect();
@@ -32,11 +26,12 @@ fn em_top_to_layout_top(style:&crate::TextStyle)->f32 {
 
 #[test]
 fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_install() {
-    use crate::{PreparedText,RetiredText,TextStyle,TextSpan};
+    use crate::{PreparedText,RetiredText,TextSpan};
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
     let mut worker=ui.text_service().fork().unwrap();
-    let style=TextStyle::default();
+    let label=crate::Label::BODY;
+    let style=ui.resolve(&label);
     let spans=[TextSpan {start:0,end:1,weight:700,..Default::default()}];
     let records=std::thread::spawn(move || {
         let (width,height,pixels)={ let mut px=Vec::new(); worker.rasterize_rgba("forked",&style,200.0,1.0,[255;4], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
@@ -62,20 +57,20 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
         let expected=record.metrics();
         let storage=match ui.text_service().install(record) {Ok(storage)=>storage,Err((code,_))=>panic!("installation failed: {code}")};
         retired.push(storage);
-        let actual=ui.text_service().measure_spans(&text,&style,200.0,&spans).unwrap();
+        let actual=ui.text_service().measure_spans(&text,&label,200.0,&spans).unwrap();
         assert_eq!((actual.width,actual.height,actual.baseline,actual.lines),(expected.width,expected.height,expected.baseline,expected.lines));
     }
     assert_eq!(ui.text_layout_count(),layouts);
     assert_eq!(mem_sys::local_alloc_count(),0);
     ui.frame(&input(),&mut |ui| {
         let node=ui.node("prepared-label".into(),crate::Node {w:Size::Px(200.0),h:Size::Px(30.0),..crate::Node::DEFAULT});
-        ui.text_spans(&node,"Track 00000",&label_of(&style),&spans).unwrap();
+        ui.text_spans(&node,"Track 00000",&label,&spans).unwrap();
     }).unwrap();
     assert_eq!(ui.text_layout_count(),layouts,"ordinary node drawing must use the prepared content key");
     std::thread::spawn(move || drop(retired)).join().unwrap();
     let mut worker=ui.text_service().fork().unwrap();
     let stale:PreparedText=std::thread::spawn(move || worker.prepare("stale",&style,200.0,&[]).unwrap()).join().unwrap();
-    assert!(ui.text_service().add_font(crate::text::pragmasevka()).is_some());
+    assert!(ui.text_service().add_font(crate::text::pragmasevka()).is_ok());
     let (code,stale)=match ui.text_service().install(stale) {Err(error)=>error,Ok(_)=>panic!("stale fonts accepted")};
     assert_eq!(code,crate::Error::State);
     std::thread::spawn(move || drop(stale)).join().unwrap();
@@ -836,8 +831,8 @@ fn soft_wrap_separator_widths_preserve_glyphs_and_cached_measurements() {
         mem_sys::local_reset();
         ui.frame(&input(),&mut |ui| {
             for (index,value) in values.into_iter().enumerate() {
-                let plain=crate::TextStyle {size_points:12.0,line_height:20.0,wrap:crate::TextStyle::WRAP_WORD,..Default::default()};
-                let logical=crate::TextStyle {wrap:crate::TextStyle::WRAP_WORD_SPACES,..plain};
+                let plain=crate::Label::BODY.size(12.0).line_height(20.0).wrap();
+                let logical=crate::Label::BODY.size(12.0).line_height(20.0).wrap_spaces();
                 let a=ui.text_service().measure(value,&plain,50.0).unwrap();
                 let b=ui.text_service().measure(value,&logical,50.0).unwrap();
                 assert_eq!((a.height,a.lines,a.baseline),(b.height,b.lines,b.baseline));
@@ -851,8 +846,8 @@ fn soft_wrap_separator_widths_preserve_glyphs_and_cached_measurements() {
                     let b={ let mut glyphs=Vec::new(); ui.text_service().quads(value,&logical,50.0,(0.0,0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
                     assert_eq!(a,b,"separator metrics leave visible glyphs unchanged");
                 }
-                let plain=crate::TextStyle {max_lines:1,..plain};
-                let logical=crate::TextStyle {max_lines:1,..logical};
+                let plain=plain.lines(1);
+                let logical=logical.lines(1);
                 assert_eq!(ui.text_service().measure(value,&plain,50.0).unwrap(),ui.text_service().measure(value,&logical,50.0).unwrap(),"hidden paragraphs must not contribute trailing spaces");
             }
         }).unwrap();
@@ -1275,7 +1270,7 @@ fn a_theme_built_from_key_values_scopes_over_a_subtree_and_refuses_bad_keys() {
 #[test]
 fn canvas_text_goes_through_the_uis_own_text_service() {
     let mut ui = Ui::new().expect("library");
-    let style = pxui_types::TextStyle::default();
+    let style = crate::Label::BODY;
     let mut text = ui.text_service();
     let metrics = text.measure("abc", &style, 0.0).expect("measure");
     assert!(metrics.width > 0.0 && metrics.lines == 1);
@@ -1284,15 +1279,15 @@ fn canvas_text_goes_through_the_uis_own_text_service() {
     assert!(glyphs.iter().all(|g| g.rect[0] >= 10.0));
     let (w, h, pixels) = { let mut px=Vec::new(); text.rasterize_rgba("abc", &style, 0.0, 1.0, [255, 255, 255, 255], &mut px).map(|(w,h)|(w,h,px)) }.expect("rasterize");
     assert_eq!(pixels.len(), (w * h * 4) as usize);
-    let mut bad = style;
-    bad.size_points = f32::NAN;
+    let bad = style.size(f32::NAN);
     assert!(text.measure("abc", &bad, 0.0).is_err(), "a NaN size is refused");
 }
 
 #[test]
 fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
     let mut ui=Ui::new().unwrap();
-    let style=crate::TextStyle { size_points:600.0,..Default::default() };
+    let style=crate::Label::BODY.size(600.0);
+    let resolved=ui.resolve(&style);
     let mut text=ui.text_service();
     let first={ let mut glyphs=Vec::new(); text.quads("A",&style,0.0,(0.0,0.0),2.0, &mut glyphs).map(|_|glyphs) }.unwrap();
     let glyphs={ let mut glyphs=Vec::new(); text.quads("ABCDEF",&style,0.0,(0.0,0.0),2.0, &mut glyphs).map(|_|glyphs) }.unwrap();
@@ -1302,7 +1297,7 @@ fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
     assert!(glyphs.iter().all(|g|g.atlas==0 || g.atlas==2));
     let (w,h,pixels)={ let mut px=Vec::new(); text.rasterize_rgba("ABCDEF",&style,0.0,2.0,[17,33,65,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
     let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
-    let (sw,sh,rgba)={ let mut px=Vec::new(); shaper.rasterize_rgba("ABCDEF",&style,0.0,2.0,[17,33,65,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
+    let (sw,sh,rgba)={ let mut px=Vec::new(); shaper.rasterize_rgba("ABCDEF",&resolved,0.0,2.0,[17,33,65,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
     assert_eq!((w,h),(sw,sh));
     assert_eq!(pixels,rgba,"standalone and UI mirrors sample both pages identically");
     for glyph in &glyphs {
@@ -1345,13 +1340,13 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
 
 #[test]
 fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
+    let mut ui = Ui::new().expect("library");
+    let style = ui.resolve(&crate::Label::BODY);
     let mut text = crate::Text::new(&[crate::text::pragmasevka()]).expect("a shaper");
-    let style = pxui_types::TextStyle::default();
     let metrics = text.measure("abc", &style, 0.0).expect("measure");
     assert!(metrics.width > 0.0);
     // the same text measures the same in the Ui's own service: one font, two homes
-    let mut ui = Ui::new().expect("library");
-    assert_eq!(ui.text_service().measure("abc", &style, 0.0).expect("service").width, metrics.width);
+    assert_eq!(ui.text_service().measure("abc", &crate::Label::BODY, 0.0).expect("service").width, metrics.width);
     let (w, h, pixels) = { let mut px=Vec::new(); text.rasterize_rgba("abc", &style, 0.0, 1.0, [255, 255, 255, 255], &mut px).map(|(w,h)|(w,h,px)) }.expect("rasterize");
     assert_eq!(pixels.len(), (w * h * 4) as usize);
     assert!(pixels.chunks(4).any(|p| p[3] != 0), "something was inked");
@@ -1458,8 +1453,9 @@ fn tabular_digits_reach_shaping_and_keep_warm_layouts_allocation_free() {
     const FONT: &[u8]=include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
     mem_sys::set_peer(crate::library_counter);
     let mut text=crate::Text::new(&[FONT]).expect("shaper");
-    let plain=pxui_types::TextStyle { size_points:20.0,..Default::default() };
-    let tabular=pxui_types::TextStyle { features:pxui_types::TextStyle::FEATURE_TABULAR_NUMBERS,..plain };
+    let ui=Ui::create(crate::Platform::Apple,None,&[FONT]);
+    let plain=ui.resolve(&crate::Label::BODY.size(20.0));
+    let tabular=ui.resolve(&crate::Label::BODY.size(20.0).tabular());
     let proportional=text.measure("1111",&plain,0.0).unwrap();
     let tabular_one=text.measure("1111",&tabular,0.0).expect("tabular feature is accepted");
     let tabular_eight=text.measure("8888",&tabular,0.0).unwrap();
@@ -1478,18 +1474,12 @@ fn tabular_digits_reach_shaping_and_keep_warm_layouts_allocation_free() {
 
 #[test]
 fn canvas_feature_styles_have_distinct_warm_cache_entries() {
-    use pxui_types::TextStyle;
     const FONT: &[u8]=include_bytes!("../../../../assets/fonts/Inter-Regular.ttf");
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::create(crate::Platform::Apple,None,&[FONT]);
-    let plain=TextStyle { size_points:20.0,..Default::default() };
-    let tabular=TextStyle { features:TextStyle::FEATURE_TABULAR_NUMBERS,..plain };
-    let a=ui.text_service().measure("1111",&plain,0.0).unwrap();
-    let b=ui.text_service().measure("1111",&tabular,0.0).unwrap();
+    let a=ui.text_service().measure("1111",&crate::Label::BODY.size(20.0),0.0).unwrap();
+    let b=ui.text_service().measure("1111",&crate::Label::BODY.size(20.0).tabular(),0.0).unwrap();
     assert!((a.width-b.width).abs()>1.0);
-    for features in [2,3,u32::MAX] {
-        assert_eq!(ui.text_service().measure("1111",&TextStyle { features,..plain },0.0),Err(crate::Error::InvalidInput));
-    }
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
@@ -1506,25 +1496,26 @@ fn canvas_feature_styles_have_distinct_warm_cache_entries() {
 
 #[test]
 fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() {
-    use crate::{TextSpan,TextStyle};
+    use crate::TextSpan;
     use pxui_types::geom::color;
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
     ui.set_a11y(true);
     let text="ab CD ef";
-    let style=TextStyle { size_points:20.0,line_height:24.0,..Default::default() };
+    let label=crate::Label::BODY.size(20.0).line_height(24.0);
+    let style=ui.resolve(&label);
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
         color:color::rgba(255,0,0,255),background:color::rgba(0,0,255,64),underline:color::rgba(0,255,0,255),..Default::default() };
     let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
     let measured=shaper.measure_spans(text,&style,200.0,&[span]).unwrap();
-    assert_eq!(ui.text_service().measure_spans(text,&style,200.0,&[span]).unwrap(),measured);
+    assert_eq!(ui.text_service().measure_spans(text,&label,200.0,&[span]).unwrap(),measured);
     for frame in 0..10 {
         let plain=frame%3==0;
         let opacity=if frame%2==0 { 0.5 } else { 1.0 };
         mem_sys::local_reset();
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
             let b=ui.node("label".into(),crate::Node { role:crate::ui::Role::Label,w:Size::Px(200.0),h:Size::Px(40.0),look:crate::ui::Look { text:color::rgba(30,30,30,255),opacity,..crate::ui::Look::NONE },..crate::Node::DEFAULT });
-            if plain { ui.text(&b,text); } else { ui.text_spans(&b,text,&label_of(&style),&[span]).unwrap(); }
+            if plain { ui.text(&b,text); } else { ui.text_spans(&b,text,&label,&[span]).unwrap(); }
         }).unwrap();
         if frame>=6 { assert_eq!(mem_sys::local_alloc_count(),0,"warm rich/plain rebuilds retain their span storage and glyph caches"); }
         let alpha=if opacity==0.5 { 128 } else { 255 };
@@ -1541,17 +1532,18 @@ fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() 
 
 #[test]
 fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
-    use crate::{TextSpan,TextStyle};
+    use crate::TextSpan;
     use pxui_types::geom::color;
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
-    let style=TextStyle { size_points:20.0,..Default::default() };
+    let label=crate::Label::BODY.size(20.0);
+    let style=ui.resolve(&label);
     let red=TextSpan { start:0,end:2,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:color::rgba(255,0,0,255),underline:color::rgba(255,0,0,255),..Default::default() };
     let green=TextSpan { color:color::rgba(0,255,0,255),underline:color::rgba(0,255,0,255),..red };
     for bad in [TextSpan { start:1,end:2,..red },TextSpan { end:99,..red },TextSpan { flags:8,..red }] {
-        assert!(ui.text_service().measure_spans("é!",&style,0.0,&[bad]).is_err());
+        assert!(ui.text_service().measure_spans("é!",&label,0.0,&[bad]).is_err());
     }
-    assert!(ui.text_service().measure_spans("abcdefghij",&style,0.0,&[red;9]).is_err());
+    assert!(ui.text_service().measure_spans("abcdefghij",&label,0.0,&[red;9]).is_err());
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
@@ -1569,17 +1561,18 @@ fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
 
 #[test]
 fn inline_node_fractional_font_alignment_matches_canvas_text() {
-    use crate::{TextSpan,TextStyle};
+    use crate::TextSpan;
     use pxui_types::geom::color;
     let mut ui=Ui::new().unwrap();
-    let style=TextStyle { size_points:20.25,..Default::default() };
+    let label=crate::Label::BODY.size(20.25);
+    let style=ui.resolve(&label);
     let span=TextSpan { start:0,end:2,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
-    let shift=em_top_to_layout_top(&style);
+    let shift=em_top_to_layout_top(20.25);
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("fractional".into(),crate::Node { w:Size::Px(200.0),h:Size::Px(40.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
-        ui.text_spans(&b,"ab cd",&label_of(&style),&[span]).unwrap();
+        ui.text_spans(&b,"ab cd",&label,&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
-            let top=rect.y+((rect.h-style.size_points)/2.0).floor()+shift;
+            let top=rect.y+((rect.h-20.25)/2.0).floor()+shift;
             paint.text_spans((rect.x,top),&style,200.0,Some(color::rgba(0,0,0,255)),"ab cd",&[span]).unwrap();
         });
     }).unwrap();
@@ -1595,19 +1588,20 @@ fn inline_node_fractional_font_alignment_matches_canvas_text() {
 
 #[test]
 fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
-    use crate::{TextSpan,TextStyle};
+    use crate::TextSpan;
     use pxui_types::geom::color;
     let mut ui=Ui::new().unwrap();
-    let style=TextStyle { size_points:20.0,line_height:24.0,wrap:TextStyle::WRAP_WORD,..Default::default() };
+    let label=crate::Label::BODY.size(20.0).line_height(24.0).wrap();
+    let style=ui.resolve(&label);
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
-    let metrics=ui.text_service().measure_spans("aa bb cc",&style,45.0,&[span]).unwrap();
+    let metrics=ui.text_service().measure_spans("aa bb cc",&label,45.0,&[span]).unwrap();
     assert_eq!(metrics.lines,3);
-    let shift=em_top_to_layout_top(&style);
+    let shift=em_top_to_layout_top(20.0);
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("wrapped".into(),crate::Node { w:Size::Px(45.0),h:Size::Px(80.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
-        ui.text_spans(&b,"aa bb cc",&label_of(&style),&[span]).unwrap();
+        ui.text_spans(&b,"aa bb cc",&label,&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
-            let block=style.size_points+(metrics.lines-1) as f32*style.line_height;
+            let block=20.0+(metrics.lines-1) as f32*24.0;
             let top=rect.y+((rect.h-block)/2.0).floor()+shift;
             paint.text_spans((rect.x,top),&style,45.0,Some(color::rgba(0,0,0,255)),"aa bb cc",&[span]).unwrap();
         });
@@ -1623,35 +1617,30 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
 
 #[test]
 fn ellipsis_modes_match_standalone_ui_measurement_quads_and_rasterization() {
-    use crate::TextStyle;
     let mut ui=Ui::new().unwrap();
     let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let mut previous=None;
-    for ellipsis in [TextStyle::ELLIPSIS_NONE,TextStyle::ELLIPSIS_END,TextStyle::ELLIPSIS_MIDDLE,TextStyle::ELLIPSIS_HEAD] {
-        let style=TextStyle { ellipsis,size_points:20.0,..Default::default() };
+    let body=crate::Label::BODY.size(20.0);
+    for (cut,label) in [(false,body),(true,body.ellipsis()),(true,body.ellipsis_middle()),(true,body.ellipsis_head())] {
+        let style=ui.resolve(&label);
         let a=shaper.measure(source,&style,100.0).unwrap();
-        assert_eq!(a,ui.text_service().measure(source,&style,100.0).unwrap());
+        assert_eq!(a,ui.text_service().measure(source,&label,100.0).unwrap());
         let raster={ let mut px=Vec::new(); shaper.rasterize_rgba(source,&style,100.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
-        assert_eq!(raster,{ let mut px=Vec::new(); ui.text_service().rasterize_rgba(source,&style,100.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap());
-        let glyphs={ let mut glyphs=Vec::new(); ui.text_service().quads(source,&style,100.0,(0.0,0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
+        assert_eq!(raster,{ let mut px=Vec::new(); ui.text_service().rasterize_rgba(source,&label,100.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap());
+        let glyphs={ let mut glyphs=Vec::new(); ui.text_service().quads(source,&label,100.0,(0.0,0.0),1.0, &mut glyphs).map(|_|glyphs) }.unwrap();
         assert!(!glyphs.is_empty());
-        if ellipsis!=TextStyle::ELLIPSIS_NONE { assert!(a.width<=100.001 && glyphs.len()<26); }
+        if cut { assert!(a.width<=100.001 && glyphs.len()<26); }
         if let Some(previous)=previous { assert_ne!(raster,previous,"mode changes select distinct cached layouts"); }
         previous=Some(raster);
     }
-    for ellipsis in [4,255] {
-        let style=TextStyle { ellipsis,..Default::default() };
-        assert_eq!(shaper.measure(source,&style,100.0),Err(crate::Error::InvalidInput));
-        assert_eq!(ui.text_service().measure(source,&style,100.0),Err(crate::Error::InvalidInput));
-        assert!({ let mut px=Vec::new(); shaper.rasterize_rgba(source,&style,100.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.is_err());
-        assert!({ let mut glyphs=Vec::new(); ui.text_service().quads(source,&style,100.0,(0.0,0.0),1.0, &mut glyphs).map(|_|glyphs) }.is_err());
-    }
+    // a `Label` holds an `Ellipsis` and a `TextStyle` comes only from `resolve`: an unknown number exists only in a C record, refused
+    // where the library reads it (pxui_abi `ellipsis_modes_preserve_existing_codes_and_refuse_unknown_values`)
 }
 
 #[test]
 fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage() {
-    use crate::{TextStyle,TextSpan};
+    use crate::TextSpan;
     use pxui_types::geom::color;
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
@@ -1659,16 +1648,18 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() },
         TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:color::rgba(0,0,255,255),..Default::default() }];
-    let shift=em_top_to_layout_top(&TextStyle { size_points:20.0,..Default::default() });
+    let shift=em_top_to_layout_top(20.0);
+    let body=crate::Label::BODY.size(20.0);
+    let labels=[body.ellipsis(),body.ellipsis_middle(),body.ellipsis_head()];
+    let styles=labels.map(|label| ui.resolve(&label));
     for frame in 0..15 {
-        let ellipsis=[TextStyle::ELLIPSIS_END,TextStyle::ELLIPSIS_MIDDLE,TextStyle::ELLIPSIS_HEAD][frame%3];
-        let style=TextStyle { ellipsis,size_points:20.0,..Default::default() };
+        let (label,style)=(labels[frame%3],styles[frame%3]);
         mem_sys::local_reset();
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
             let b=ui.node("ellipsis".into(),crate::Node { flags:pxui_types::Flags::FIT_TEXT,role:crate::ui::Role::Label,w:Size::Px(100.0),h:Size::Px(40.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
-            ui.text_spans(&b,source,&label_of(&style),&spans).unwrap();
+            ui.text_spans(&b,source,&label,&spans).unwrap();
             ui.canvas(&b,move |paint,rect| {
-                let top=rect.y+((rect.h-style.size_points)/2.0).floor()+shift;
+                let top=rect.y+((rect.h-20.0)/2.0).floor()+shift;
                 paint.text_spans((rect.x,top),&style,100.0,Some(color::rgba(0,0,0,255)),source,&spans).unwrap();
             });
         }).unwrap();
@@ -1681,7 +1672,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
         }
         let red=instances[..n].iter().any(|i|i.color==[255,0,0,255]);
         let blue=instances[..n].iter().any(|i|i.color==[0,0,255,255]);
-        assert_eq!((red,blue),match ellipsis { TextStyle::ELLIPSIS_END=>(true,false),TextStyle::ELLIPSIS_HEAD=>(false,true),_=>(true,true) });
+        assert_eq!((red,blue),[(true,false),(true,true),(false,true)][frame%3],"end/middle/head keep the right endpoints");
         assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==source),"truncation keeps the complete accessible source");
     }
 }
@@ -1689,11 +1680,11 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
 #[cfg(target_os="macos")]
 #[test]
 fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
-    use crate::TextStyle;
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
     let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
-    let style=TextStyle { size_points:20.0,..Default::default() };
+    let label=crate::Label::BODY.size(20.0);
+    let style=ui.resolve(&label);
     let old={ let mut px=Vec::new(); text.rasterize_rgba("漢字",&style,300.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
     text.enable_system_fonts().unwrap();
     ui.enable_system_fonts().unwrap();
@@ -1703,7 +1694,7 @@ fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
     let mut measured=[pxui_types::TextMetrics::default();3];
     for (i,source) in cases.into_iter().enumerate() {
         measured[i]=text.measure(source,&style,300.0).unwrap();
-        assert_eq!(measured[i],ui.text_service().measure(source,&style,300.0).unwrap());
+        assert_eq!(measured[i],ui.text_service().measure(source,&label,300.0).unwrap());
         let (w,h,rgba)={ let mut px=Vec::new(); text.rasterize_rgba(source,&style,300.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
         assert!(w>0 && h>0 && rgba.chunks_exact(4).any(|p|p[3]>0),"native fallback rasterizes {source}");
     }
@@ -1713,7 +1704,7 @@ fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
         ui.enable_system_fonts().unwrap();
         for (i,source) in cases.into_iter().enumerate() {
             assert_eq!(text.measure(source,&style,300.0).unwrap(),measured[i]);
-            assert_eq!(ui.text_service().measure(source,&style,300.0).unwrap(),measured[i]);
+            assert_eq!(ui.text_service().measure(source,&label,300.0).unwrap(),measured[i]);
         }
         assert_eq!(mem_sys::local_alloc_count(),0,"warm fallback measurement crosses both ABI paths without allocating");
     }
@@ -1722,18 +1713,17 @@ fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
 #[cfg(target_os="macos")]
 #[test]
 fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
-    use crate::TextStyle;
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
     ui.enable_system_fonts().unwrap();
     ui.set_a11y(true);
     let source="漢字 العربية 😀";
-    let style=TextStyle { size_points:20.0,..Default::default() };
+    let label=crate::Label::BODY.size(20.0);
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&FrameIn { time:frame as f64/60.0,..input() },&mut |ui| {
             let b=ui.node("native-fonts".into(),crate::Node { role:crate::ui::Role::Label,w:Size::Px(300.0),h:Size::Px(40.0),..crate::Node::DEFAULT });
-            ui.text_spans(&b,source,&label_of(&style),&[]).unwrap();
+            ui.text_spans(&b,source,&label,&[]).unwrap();
             ui.canvas(&b,move |paint,rect| { paint.text_styled((rect.x,rect.y+50.0),&crate::Label::BODY.size(20.0),300.0,source); });
         }).unwrap();
         if frame>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"mixed-script nodes and canvas reuse warm layouts and glyphs"); }
@@ -2442,14 +2432,13 @@ fn accessibility_action_batches_keep_order_without_warm_allocations() {
 
 #[test]
 fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() {
-    use crate::{TextStyle, ui::{Node, Role}};
+    use crate::ui::{Node, Role};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
-    let style=TextStyle {size_points:12.0,line_height:20.0,wrap:TextStyle::WRAP_WORD,..Default::default()};
+    let style=crate::Label::BODY.size(12.0).line_height(20.0).wrap();
     let value="one two three four";
-    let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
-    let expected=[80.0,200.0].map(|width| text.measure(value,&style,width).unwrap().lines as f32*20.0);
+    let expected=[80.0,200.0].map(|width| ui.text_service().measure(value,&style,width).unwrap().lines as f32*20.0);
     assert!(expected[0]>expected[1],"fixture must wrap");
     let handle=Cell::new(None);
     for round in 0..6 {
@@ -2459,7 +2448,7 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
                 ui.frame(&FrameIn {time:round as f64,..input()},&mut |ui| {
                     ui.view("wrapper",(width as u64)*2+u64::from(empty),Size::Px(width),Size::Fit,&mut |ui| {
                         let node=ui.node("line".into(),Node {role:Role::Label,w:Size::Grow,h:Size::Fit,..Node::DEFAULT});
-                        ui.text_line_box(&node,if empty {""} else {value},&label_of(&style),&[]).unwrap();
+                        ui.text_line_box(&node,if empty {""} else {value},&style,&[]).unwrap();
                         handle.set(Some(node));
                     });
                 }).unwrap();
@@ -2472,11 +2461,11 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
     }
     ui.frame(&input(),&mut |ui| {
         let node=ui.node("checked".into(),Node {role:Role::Label,w:Size::Px(200.0),h:Size::Px(20.0),..Node::DEFAULT});
-        ui.text_line_box(&node,value,&label_of(&style),&[]).unwrap();
-        for invalid in [TextStyle {line_height:0.0,..style},TextStyle {line_height:f32::NAN,..style},TextStyle {font:u16::MAX,..style}] {
-            assert!(ui.text_line_box(&node,"wrong",&label_of(&invalid),&[]).is_err());
+        ui.text_line_box(&node,value,&style,&[]).unwrap();
+        for invalid in [style.line_height(0.0),style.line_height(f32::NAN),style.font(u16::MAX)] {
+            assert!(ui.text_line_box(&node,"wrong",&invalid,&[]).is_err());
         }
-        assert!(ui.text_line_box(&node,"é",&label_of(&style),&[crate::TextSpan {start:1,end:2,..Default::default()}]).is_err());
+        assert!(ui.text_line_box(&node,"é",&style,&[crate::TextSpan {start:1,end:2,..Default::default()}]).is_err());
     }).unwrap();
     assert!(ui.a11y_nodes().iter().any(|node|ui.a11y_name_of(node)==value));
 }
@@ -2866,29 +2855,30 @@ fn keyless_text_measurement_retains_interleaved_values_styles_widths_and_spans()
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
     let mut text = crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
-    let plain = crate::TextStyle { size_points:14.0, line_height:20.0, wrap:crate::TextStyle::WRAP_WORD, ..Default::default() };
+    let plain = crate::Label::BODY.size(14.0).line_height(20.0).wrap();
     let cases = [
         ("1111", plain, 0.0),
         ("88888", plain, 0.0),
-        ("1111", crate::TextStyle { features:crate::TextStyle::FEATURE_TABULAR_NUMBERS, ..plain }, 0.0),
+        ("1111", plain.tabular(), 0.0),
         ("office café words", plain, 40.0),
         ("office café words", plain, 90.0),
-        ("office café words", crate::TextStyle { weight:700, tracking:0.2, ..plain }, 40.0),
+        ("office café words", plain.weight(700).tracking(0.2 / 14.0), 40.0),
     ];
-    let expected = cases.map(|(value,style,width)| text.measure(value,&style,width).unwrap());
+    let resolved = cases.map(|(_,label,_)| ui.resolve(&label));
+    let expected = cases.map(|(value,label,width)| text.measure(value,&ui.resolve(&label),width).unwrap());
     assert_ne!(expected[0].width,expected[1].width);
     assert_ne!(expected[3].lines,expected[4].lines);
     let spans = [crate::TextSpan { start:0, end:6, weight:700, ..Default::default() }];
-    let rich = text.measure_spans(cases[3].0,&plain,40.0,&spans).unwrap();
+    let rich = text.measure_spans(cases[3].0,&resolved[3],40.0,&spans).unwrap();
     for round in 0..6 {
         mem_sys::local_reset();
         ui.frame(&input(), &mut |ui| {
-            for (index,(value,style,width)) in cases.into_iter().enumerate() {
-                assert_eq!(text.measure(value,&style,width).unwrap(),expected[index]);
-                assert_eq!(text.width(value,&style,width).unwrap(),expected[index].width);
-                assert_eq!(ui.text_service().measure(value,&style,width).unwrap(),expected[index]);
+            for (index,(value,label,width)) in cases.into_iter().enumerate() {
+                assert_eq!(text.measure(value,&resolved[index],width).unwrap(),expected[index]);
+                assert_eq!(text.width(value,&resolved[index],width).unwrap(),expected[index].width);
+                assert_eq!(ui.text_service().measure(value,&label,width).unwrap(),expected[index]);
             }
-            assert_eq!(text.measure_spans(cases[3].0,&plain,40.0,&spans).unwrap(),rich);
+            assert_eq!(text.measure_spans(cases[3].0,&resolved[3],40.0,&spans).unwrap(),rich);
             assert_eq!(ui.text_service().measure_spans(cases[3].0,&plain,40.0,&spans).unwrap(),rich);
         }).unwrap();
         if round>=3 { assert_eq!(mem_sys::local_alloc_count(),0,"keyless layout identity must retain every interleaved variant"); }
@@ -2897,7 +2887,7 @@ fn keyless_text_measurement_retains_interleaved_values_styles_widths_and_spans()
 
 #[test]
 fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_layouts() {
-    use crate::{TextStyle,TextSpan,ui::{Node,Look,Font,Role}};
+    use crate::{TextSpan,ui::{Node,Look,Font,Role}};
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();ui.set_a11y(true);
     let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
@@ -2905,10 +2895,10 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
     let mut nodes=[None;9];
     let look=Look {text:crate::geom::color::rgba(0,0,0,255),..Look::NONE};
     let values=["ab cd","écho","a slightly longer label",""];
-    let styles=[TextStyle {size_points:14.25,line_height:20.0,..Default::default()},TextStyle {size_points:16.5,line_height:22.0,tracking:0.15,..Default::default()}];
-    let widths=styles.map(|style|values.map(|value| text.measure(value,&style,0.0).unwrap().width));
-    let span_width=text.measure_spans(values[0],&styles[0],0.0,&span).unwrap().width;
-    let plain_width=text.width("AB CD",&TextStyle {size_points:14.0,..Default::default()},0.0).unwrap();
+    let styles=[crate::Label::BODY.size(14.25).line_height(20.0),crate::Label::BODY.size(16.5).line_height(22.0).tracking(0.15/16.5)];
+    let widths=styles.map(|style|values.map(|value| text.measure(value,&ui.resolve(&style),0.0).unwrap().width));
+    let span_width=text.measure_spans(values[0],&ui.resolve(&styles[0]),0.0,&span).unwrap().width;
+    let plain_width=text.width("AB CD",&ui.resolve(&crate::Label::BODY.size(14.0)),0.0).unwrap();
     let mut serial=0;
     for round in 0..8 {
         for scale in [1.0,2.0,1.25,1.75] {
@@ -2917,16 +2907,16 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
                 ui.frame(&FrameIn {scale,time:serial as f64/60.0,..input()},&mut |ui| {
                     for (index,value) in values.into_iter().enumerate() {
                         let node=ui.node((index as i64+100+100*(round%2) as i64).into(),Node {flags:pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL,w:Size::Fit,h:Size::Px(24.0),role:Role::Label,look,..Node::DEFAULT});
-                        ui.text_line_box(&node,value,&label_of(&style),&[]).unwrap();nodes[index]=Some(node);
+                        ui.text_line_box(&node,value,&style,&[]).unwrap();nodes[index]=Some(node);
                     }
                     let node=ui.node("spans".into(),Node {flags:pxui_types::Flags::FIT_TEXT_PIXEL,w:Size::Fit,h:Size::Px(24.0),look,..Node::DEFAULT});
-                    ui.text_spans(&node,values[0],&label_of(&styles[0]),&span).unwrap();nodes[4]=Some(node);
+                    ui.text_spans(&node,values[0],&styles[0],&span).unwrap();nodes[4]=Some(node);
                     let node=ui.node("plain-caps".into(),Node {flags:pxui_types::Flags::FIT_TEXT_PIXEL,w:Size::Fit,h:Size::Px(24.0),role:Role::Label,look:Look {font:Font {size:14,caps:true,..Font::BODY},..look},..Node::DEFAULT});
                     ui.text(&node,values[0]);nodes[5]=Some(node);
                     let node=ui.node("limited".into(),Node {flags:pxui_types::Flags::FIT_TEXT_PIXEL,w:Size::Fit,max_w:10.25,h:Size::Px(24.0),look,..Node::DEFAULT});
-                    ui.text_line_box(&node,values[2],&label_of(&style),&[]).unwrap();nodes[6]=Some(node);
+                    ui.text_line_box(&node,values[2],&style,&[]).unwrap();nodes[6]=Some(node);
                     let node=ui.node("insets".into(),Node {flags:pxui_types::Flags::FIT_TEXT_PIXEL,w:Size::Fit,h:Size::Px(24.0),inset:crate::ui::Edges {l:0.2,r:0.3,..Default::default()},look,..Node::DEFAULT});
-                    ui.text_line_box(&node,values[0],&label_of(&style),&[]).unwrap();nodes[7]=Some(node);
+                    ui.text_line_box(&node,values[0],&style,&[]).unwrap();nodes[7]=Some(node);
                     let node=ui.node("plain-limited".into(),Node {flags:pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL,w:Size::Fit,max_w:10.25,h:Size::Px(24.0),look:Look {text:crate::geom::color::rgba(255,0,0,255),font:Font {size:14,..Font::BODY},..Look::NONE},..Node::DEFAULT});
                     ui.text(&node,values[0]);nodes[8]=Some(node);
                 }).unwrap();
@@ -2951,25 +2941,26 @@ fn text_into_forms_match_and_allocate_nothing_with_capacity() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
     let mut shaper = crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
-    let style = pxui_types::TextStyle::default();
+    let label = crate::Label::BODY;
+    let style = ui.resolve(&label);
     let color = [1, 2, 3, 255];
     let mut glyphs = Vec::new();
     let mut ui_pixels = Vec::new();
     let mut shaper_pixels = Vec::new();
     for _ in 0..2 {
-        ui.text_service().quads("abc def", &style, 0.0, (3.0, 4.0), 1.0, &mut glyphs).unwrap();
-        ui.text_service().rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut ui_pixels).unwrap();
+        ui.text_service().quads("abc def", &label, 0.0, (3.0, 4.0), 1.0, &mut glyphs).unwrap();
+        ui.text_service().rasterize_rgba("abc def", &label, 0.0, 1.0, color, &mut ui_pixels).unwrap();
         shaper.rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut shaper_pixels).unwrap();
     }
-    assert_eq!(glyphs, { let mut glyphs=Vec::new(); ui.text_service().quads("abc def", &style, 0.0, (3.0, 4.0), 1.0, &mut glyphs).map(|_|glyphs) }.unwrap());
-    let (w, h, old) = { let mut px=Vec::new(); ui.text_service().rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
-    assert_eq!(ui.text_service().rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut ui_pixels), Ok((w, h)));
+    assert_eq!(glyphs, { let mut glyphs=Vec::new(); ui.text_service().quads("abc def", &label, 0.0, (3.0, 4.0), 1.0, &mut glyphs).map(|_|glyphs) }.unwrap());
+    let (w, h, old) = { let mut px=Vec::new(); ui.text_service().rasterize_rgba("abc def", &label, 0.0, 1.0, color, &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
+    assert_eq!(ui.text_service().rasterize_rgba("abc def", &label, 0.0, 1.0, color, &mut ui_pixels), Ok((w, h)));
     assert_eq!(ui_pixels, old);
     assert_eq!({ let mut px=Vec::new(); shaper.rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut px).map(|(w,h)|(w,h,px)) }.unwrap(), (w, h, shaper_pixels.clone()));
     let scope = mem_sys::warm_scope();
     mem_sys::local_reset();
-    ui.text_service().quads("abc def", &style, 0.0, (3.0, 4.0), 1.0, &mut glyphs).unwrap();
-    ui.text_service().rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut ui_pixels).unwrap();
+    ui.text_service().quads("abc def", &label, 0.0, (3.0, 4.0), 1.0, &mut glyphs).unwrap();
+    ui.text_service().rasterize_rgba("abc def", &label, 0.0, 1.0, color, &mut ui_pixels).unwrap();
     shaper.rasterize_rgba("abc def", &style, 0.0, 1.0, color, &mut shaper_pixels).unwrap();
     assert_eq!(mem_sys::local_alloc_count(), 0);
     drop(scope);
@@ -3099,19 +3090,20 @@ fn a_registered_menu_row_body_is_given_a_swatch_token_resolved_for_the_theme() {
     }
 }
 
-/// `resolve` is what the label shapes with: `Label::BODY` is exactly the default `TextStyle`, unset fields take the theme label's,
+/// `resolve` is what the label shapes with: `Label::BODY` is exactly the default C record, unset fields take the theme label's,
 /// tracking becomes points, and an invalid style is refused by `text_line_box` without failing the `Ui`.
 #[test]
 fn resolve_gives_the_style_a_label_shapes_with() {
     let mut ui=Ui::new().unwrap();
-    let body=ui.resolve(&crate::Label::BODY);
-    let plain=crate::TextStyle::default();
+    use pxui_types::ffi::PxuiTextStyle;
+    let body=ui.resolve(&crate::Label::BODY).0;
+    let plain=PxuiTextStyle::default();
     assert_eq!((body.font,body.weight,body.size_points.to_bits(),body.line_height.to_bits(),body.wrap,body.align,body.max_lines,body.ellipsis,body.features,body.tracking.to_bits()),
         (plain.font,plain.weight,plain.size_points.to_bits(),plain.line_height.to_bits(),plain.wrap,plain.align,plain.max_lines,plain.ellipsis,plain.features,plain.tracking.to_bits()));
-    let tracked=ui.resolve(&crate::Label::BODY.size(18.0).tracking(-0.04).weight(500).line_height(25.2).wrap_spaces().lines(2).ellipsis());
+    let tracked=(ui.resolve(&crate::Label::BODY.size(18.0).tracking(-0.04).weight(500).line_height(25.2).wrap_spaces().lines(2).ellipsis())).0;
     assert_eq!((tracked.size_points,tracked.tracking,tracked.weight,tracked.line_height,tracked.wrap,tracked.max_lines,tracked.ellipsis),
-        (18.0,-0.04f32*18.0,500,25.2,crate::TextStyle::WRAP_WORD_SPACES,2,crate::TextStyle::ELLIPSIS_END));
-    let theme=ui.resolve(&crate::Label::DEFAULT);
+        (18.0,-0.04f32*18.0,500,25.2,(crate::text::Wrap::WordSpaces as u32),2,(crate::text::Ellipsis::End as u8)));
+    let theme=ui.resolve(&crate::Label::DEFAULT).0;
     assert!(theme.size_points>0.0,"the theme label's size");
     ui.frame(&input(),&mut |ui| {
         let node=ui.node("n".into(),crate::Node::DEFAULT);

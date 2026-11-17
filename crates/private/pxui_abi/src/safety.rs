@@ -796,7 +796,7 @@ mod sized_records {
         assert_eq!(press(&PxuiButtonDesc { size: 104, axis: 9, gap: f32::NAN, has_label: 7, ..button }), 0, "a 104-byte record's tail is not read");
         assert_eq!(press(&PxuiButtonDesc { size: 150, ..button }), PXUI_ERR_ARGUMENT);
         let label = pxui_types::ffi::PxuiLabelStyle::from(&pxui_types::Label::BODY.size(14.0));
-        let label_box = pxui_types::ffi::PxuiLabelBox::from(&pxui_types::Label::BODY.h(20.0));
+        let label_box = pxui_types::ffi::PxuiLabelBox::from(&pxui_types::Label::BODY.h_px(20.0));
         let laid = PxuiButtonDesc { has_label: 1, label, label_box, axis: 2, content_align: 3, gap: 4.0, focus_on_click: 1, ..button };
         assert_eq!(press(&laid), 0);
         for bad in [PxuiButtonDesc { axis: 4, ..laid }, PxuiButtonDesc { content_align: 4, ..laid }, PxuiButtonDesc { gap: -1.0, ..laid }, PxuiButtonDesc { gap: f32::INFINITY, ..laid },
@@ -1194,11 +1194,11 @@ mod sized_records {
     #[test]
     fn text_style() {
         let ui = create();
-        let mut value: pxui_types::TextStyle = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut pxui_types::TextStyle) = |s| *s = pxui_types::TextStyle::default();
+        let mut value: pxui_types::ffi::PxuiTextStyle = unsafe { core::mem::zeroed() };
+        let fix: fn(&mut pxui_types::ffi::PxuiTextStyle) = |s| *s = pxui_types::ffi::PxuiTextStyle::default();
         fix(&mut value);
-        four(ui, ((&value as *const pxui_types::TextStyle).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            let p = p.cast::<pxui_types::TextStyle>();
+        four(ui, ((&value as *const pxui_types::ffi::PxuiTextStyle).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<pxui_types::ffi::PxuiTextStyle>();
             {
         let mut out = pxui_types::TextMetrics::default();
         unsafe { pxui_text_width(ui, 0, Str::default(), p, 100.0, &mut out) }
@@ -1214,13 +1214,13 @@ mod sized_records {
     #[test]
     fn text_prewarm() {
         let (ui, other) = (create(), create());
-        let mut value: pxui_types::TextStyle = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut pxui_types::TextStyle) = |s| *s = pxui_types::TextStyle::default();
+        let mut value: pxui_types::ffi::PxuiTextStyle = unsafe { core::mem::zeroed() };
+        let fix: fn(&mut pxui_types::ffi::PxuiTextStyle) = |s| *s = pxui_types::ffi::PxuiTextStyle::default();
         fix(&mut value);
-        four(ui, ((&value as *const pxui_types::TextStyle).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
-            unsafe { pxui_text_prewarm(ui, Str { ptr: b"Song".as_ptr(), len: 4 }, p.cast::<pxui_types::TextStyle>(), 0.0) }
+        four(ui, ((&value as *const pxui_types::ffi::PxuiTextStyle).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            unsafe { pxui_text_prewarm(ui, Str { ptr: b"Song".as_ptr(), len: 4 }, p.cast::<pxui_types::ffi::PxuiTextStyle>(), 0.0) }
         });
-        let (style, title) = (pxui_types::TextStyle::default(), Str { ptr: b"Song title".as_ptr(), len: 10 });
+        let (style, title) = (pxui_types::ffi::PxuiTextStyle::default(), Str { ptr: b"Song title".as_ptr(), len: 10 });
         let long = vec![b'a'; pxui_core::text::QUEUE_BYTES + 1];
         unsafe {
             let worker = pxui_text_worker_create();
@@ -1256,7 +1256,7 @@ mod sized_records {
         four(ui, ((&value as *const pxui_types::TextSpans).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<pxui_types::TextSpans>();
             {
-        let (style, mut out) = (pxui_types::TextStyle::default(), pxui_types::TextMetrics::default());
+        let (style, mut out) = (pxui_types::ffi::PxuiTextStyle::default(), pxui_types::TextMetrics::default());
         unsafe { pxui_text_width_spans(ui, 0, Str::default(), &style, 100.0, p, &mut out) }
     }
         });
@@ -1299,9 +1299,9 @@ fn the_library_checks_the_major_the_app_was_built_against_once_at_create() {
 fn supports_answers_from_the_feature_registry_of_this_build() {
     use pxui_types::feature as f;
     let has = |id: u32| unsafe { pxui_supports(id) };
-    assert_eq!((has(0), has(22), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
+    assert_eq!((has(0), has(23), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
     assert_eq!((has(f::A11Y_BRIDGE) == 1, has(f::METAL) == 1, has(f::VULKAN) == 1), (cfg!(target_os = "linux"), cfg!(any(target_os = "macos", target_os = "ios")), cfg!(any(windows, target_os = "linux"))));
-    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED] {
+    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED, f::LABEL_TEXT] {
         assert_eq!(has(id), 1, "feature {id}");
     }
     // pxui.h numbers the same ids
@@ -1311,7 +1311,7 @@ fn supports_answers_from_the_feature_registry_of_this_build() {
     assert_eq!(1 << 16 | built, ABI_VERSION, "pxui.h PXUI_ABI_BUILT");
     for (name, id) in [("A11Y_BRIDGE", f::A11Y_BRIDGE), ("METAL", f::METAL), ("VULKAN", f::VULKAN), ("EXTENSION_SET", f::EXTENSION_SET), ("BUTTON_CONTENT", f::BUTTON_CONTENT), ("ICON_BUTTON_CURVES", f::ICON_BUTTON_CURVES),
         ("TOGGLE_RESPONSE", f::TOGGLE_RESPONSE), ("SEGMENTED_RESPONSE", f::SEGMENTED_RESPONSE), ("DIALOG_RESPONSE", f::DIALOG_RESPONSE), ("WIDGET_VARIANTS", f::WIDGET_VARIANTS), ("LABEL_NODE", f::LABEL_NODE),
-        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED)] {
+        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED), ("LABEL_TEXT", f::LABEL_TEXT)] {
         assert!(header.contains(&format!("PXUI_FEATURE_{name} = {id}")), "{name}");
     }
 }
@@ -1368,7 +1368,7 @@ fn fonts_and_renderer_records_are_validated() {
 fn every_text_entry_refuses_text_over_the_cap() {
     let ui = create();
     let over = Str { ptr: b"x".as_ptr(), len: crate::state::MAX_TEXT_BYTES + 1 };
-    let style = pxui_types::TextStyle::default();
+    let style = pxui_types::ffi::PxuiTextStyle::default();
     let mut out = pxui_types::TextMetrics::default();
     unsafe {
         let shaper = pxui_shaper_create(core::ptr::null(), 0);
@@ -1385,5 +1385,34 @@ fn every_text_entry_refuses_text_over_the_cap() {
         assert_eq!(pxui_text_quads(ui, 0, over, &style, 100.0, 0.0, 0.0, 1.0, core::ptr::null_mut(), 0), usize::MAX);
         pxui_shaper_destroy(shaper);
         assert_eq!(pxui_ui_destroy(ui), 0);
+    }
+}
+
+// ABI 1.65: a text call on a label style measures what the resolved style measures, in one call; a null, invalid or unresolvable
+// label record, a null Ui or a null output is refused, never read.
+#[test]
+fn label_text_calls_resolve_in_the_same_call_and_refuse_bad_records() {
+    use pxui_types::{ffi::{PxuiLabelStyle, PxuiTextStyle}, Label, TextMetrics};
+    let ui = create();
+    let value = Str { ptr: b"Song title".as_ptr(), len: 10 };
+    let label = PxuiLabelStyle::from(&Label::BODY.size(15.0).bold());
+    let mut resolved = PxuiTextStyle::default();
+    assert_eq!(unsafe { crate::ui::pxui_ui_resolve_label(ui, &label, &mut resolved) }, 0);
+    let (mut a, mut b) = (TextMetrics::default(), TextMetrics::default());
+    assert_eq!(unsafe { pxui_ui_label_measure(ui, value, &label, 0.0, core::ptr::null(), &mut a) }, 0);
+    assert_eq!(unsafe { pxui_text_width(ui, 0, value, &resolved, 0.0, &mut b) }, 0);
+    assert!(a == b && a.width > 0.0, "{a:?} {b:?}");
+    let bad = [PxuiLabelStyle { wrap: 9, ..label }, PxuiLabelStyle { size: 8, ..label }, PxuiLabelStyle { set: PxuiLabelStyle::SET_SIZE, size_points: -1.0, ..label }];
+    for bad in &bad { assert_eq!(unsafe { pxui_ui_label_measure(ui, value, bad, 0.0, core::ptr::null(), &mut a) }, PXUI_ERR_ARGUMENT, "{bad:?}"); }
+    unsafe {
+        assert_eq!(pxui_ui_label_measure(ui, value, core::ptr::null(), 0.0, core::ptr::null(), &mut a), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_ui_label_measure(core::ptr::null_mut(), value, &label, 0.0, core::ptr::null(), &mut a), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_ui_label_measure(ui, value, &label, 0.0, core::ptr::null(), core::ptr::null_mut()), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_ui_label_quads(ui, value, core::ptr::null(), 0.0, 0.0, 0.0, 1.0, core::ptr::null_mut(), 0), usize::MAX);
+        assert_eq!(pxui_ui_label_rasterize_rgba(ui, value, &bad[0], 0.0, 1.0, 0, 0, 0, 255, core::ptr::null_mut(), core::ptr::null_mut(), core::ptr::null_mut(), 0), usize::MAX);
+        assert_eq!(pxui_ui_label_prewarm(ui, value, core::ptr::null(), 0.0), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_ui_label_text_spans(ui, core::ptr::null(), value, core::ptr::null(), core::ptr::null()), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_ui_label_text_line_box(core::ptr::null_mut(), core::ptr::null(), value, &label, core::ptr::null()), PXUI_ERR_ARGUMENT);
+        pxui_ui_destroy(ui);
     }
 }

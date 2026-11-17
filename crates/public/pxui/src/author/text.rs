@@ -1,5 +1,9 @@
 //! Text authoring: `ui.label`, `ui.label_fmt` and `ui.label_digits` show text in a `Label` style (a `Copy` value with const builders),
 //! through the label widget body, formatting into a fixed stack buffer where they take `format_args!`.
+//!
+//! Labels are leaves without a key and return their node (a `Handle`), not a `Response`: they hold no state and take no input, so
+//! there is nothing to report; the node is there for the rare tweak a style does not cover. Interactive calls take a key first and
+//! return a `Response`.
 use core::fmt::{Arguments, Write};
 use pxui_types::Label;
 use crate::{Handle, Ui};
@@ -193,7 +197,7 @@ mod tests {
         mem_sys::set_peer(crate::library_counter);
         let mut ui = crate::Ui::new().unwrap();
         let input = FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() };
-        let wrapped = Label::BODY.grow().wrap().lines(3).ellipsis().center();
+        let wrapped = Label::BODY.grow().wrap().lines(3).ellipsis().align(crate::text::TextAlign::Center);
         let frame = core::cell::Cell::new(0usize);
         let mut build = |ui: &mut crate::Ui| {
             ui.label(LONG, wrapped);
@@ -228,7 +232,7 @@ mod tests {
         let ui = settle(&mut |ui| { ui.label(LONG, red.lines(1)); });
         assert!(ink(&ui).1 > 160.0, "without an ellipsis the line runs on");
         let mut edges = Vec::new();
-        for style in [red, red.center(), red.end()] {
+        for style in [red, red.align(crate::text::TextAlign::Center), red.align(crate::text::TextAlign::End)] {
             let ui = settle(&mut |ui| { ui.label("hi", style); });
             edges.push(ink(&ui));
         }
@@ -335,7 +339,7 @@ mod tests {
                 kit = Some(ui.column("kit", Node::DEFAULT, |ui| { ui.label("Kit", Label::DEFAULT); }));
                 styled = Some(ui.column("styled", Node::DEFAULT, |ui| { ui.label("Styled", Label::TITLE.color(ColorToken(0))); }));
                 digits = Some(ui.column("digits", Node::DEFAULT, |ui| { ui.label_digits(format_args!("{}:{:02}", 1, 5), Label::MONO); }));
-                boxed = Some(ui.column("boxed", Node::DEFAULT, |ui| { ui.label("Boxed", Label::BODY.h(44.0).whole_pixels().role(crate::ui::Role::Paragraph)); }));
+                boxed = Some(ui.column("boxed", Node::DEFAULT, |ui| { ui.label("Boxed", Label::BODY.h_px(44.0).whole_pixels().role(crate::ui::Role::Paragraph)); }));
             }).unwrap();
         }
         let seen = SEEN.with(|s| s.borrow().clone());
@@ -376,7 +380,7 @@ mod tests {
         const HEADING: Label = Label::BODY.size(13.0).line_height(18.2).lines(1).ellipsis();
         let (mut boxed, mut plain, mut lined, mut hidden) = (None, None, None, None);
         let ui = settle(&mut |ui| {
-            boxed = Some(ui.row("boxed", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("Heading", HEADING.h(30.0).whole_pixels().role(Role::Paragraph)); }));
+            boxed = Some(ui.row("boxed", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("Heading", HEADING.h_px(30.0).whole_pixels().role(Role::Paragraph)); }));
             plain = Some(ui.label("Heading", HEADING));
             lined = Some(ui.label("Heading", HEADING.line_height(30.0)));
             hidden = Some(ui.label("Caption", HEADING.role(Role::Unknown)));

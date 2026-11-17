@@ -499,7 +499,12 @@ impl PxuiLabelBox {
 
 impl From<&crate::Label> for PxuiLabelBox {
     /// The box record of `label`: nothing set (and `whole_pixels` 0) for a label that leaves its box to the style.
-    fn from(l: &crate::Label) -> PxuiLabelBox {
+    fn from(l: &crate::Label) -> PxuiLabelBox { PxuiLabelBox::from(l.fields()) }
+}
+
+impl From<&crate::text::LabelFields> for PxuiLabelBox {
+    /// The box record of a label's fields.
+    fn from(l: &crate::text::LabelFields) -> PxuiLabelBox {
         let role = l.role != crate::a11y::Role::Label;
         PxuiLabelBox {
             size: core::mem::size_of::<PxuiLabelBox>() as u32,
@@ -511,7 +516,12 @@ impl From<&crate::Label> for PxuiLabelBox {
 
 impl From<&crate::Label> for PxuiLabelStyle {
     /// The record of `label`, with `digits` 0.
-    fn from(l: &crate::Label) -> PxuiLabelStyle {
+    fn from(l: &crate::Label) -> PxuiLabelStyle { PxuiLabelStyle::from(l.fields()) }
+}
+
+impl From<&crate::text::LabelFields> for PxuiLabelStyle {
+    /// The record of a label's fields, with `digits` 0.
+    fn from(l: &crate::text::LabelFields) -> PxuiLabelStyle {
         let bit = |on: bool, b: u32| if on { b } else { 0 };
         let set = bit(l.font.is_some(), Self::SET_FONT) | bit(l.size.is_some(), Self::SET_SIZE) | bit(l.weight.is_some(), Self::SET_WEIGHT)
             | bit(l.tracking.is_some(), Self::SET_TRACKING) | bit(l.caps.is_some(), Self::SET_CAPS) | bit(l.color.is_some(), Self::SET_COLOR)
@@ -526,11 +536,67 @@ impl From<&crate::Label> for PxuiLabelStyle {
         PxuiLabelStyle {
             size: core::mem::size_of::<PxuiLabelStyle>() as u32, set,
             font: l.font.unwrap_or(0), weight: l.weight.unwrap_or(0), color: l.color.map_or(0, |c| c.0), max_lines: l.max_lines,
-            caps: l.caps.unwrap_or(false) as u8, digits: 0, ellipsis: l.ellipsis, reserved: 0,
+            caps: l.caps.unwrap_or(false) as u8, digits: 0, ellipsis: l.ellipsis as u8, reserved: 0,
             size_points: l.size.unwrap_or(0.0), tracking: l.tracking.unwrap_or(0.0), line_height: l.line_height.unwrap_or(0.0), pad: l.pad.unwrap_or(0.0),
-            wrap: l.wrap, align: l.align, features: l.features, width,
+            wrap: l.wrap as u32, align: l.align as u32, features: l.features, width,
         }
     }
+}
+
+/// The C record of a resolved text style (`pxui_shaper_*`, `pxui_text_*`, `pxui_paint_text_*`, `pxui_ui_resolve_label`): every field
+/// concrete, tracking in points, `wrap`/`align`/`ellipsis` the numbers of `text::Wrap`/`TextAlign`/`Ellipsis`. For C callers and the
+/// library's own conversions; Rust code gets an opaque `pxui::TextStyle` from `Ui::resolve`.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct PxuiTextStyle {
+    /// The record's size in bytes (`size_of::<PxuiTextStyle>()`).
+    pub size: u32,
+    /// The font family: an index into the shaper's font order.
+    pub font: u16,
+    /// The weight (400 regular, 700 bold).
+    pub weight: u16,
+    /// The size in points.
+    pub size_points: f32,
+    /// The height of one line in points, 0 for 1.2 times the size.
+    pub line_height: f32,
+    /// `Wrap as u32`: how lines break inside the width.
+    pub wrap: u32,
+    /// `TextAlign as u32`: where lines sit inside the width.
+    pub align: u32,
+    /// The most lines shown, 0 for all.
+    pub max_lines: u16,
+    /// 1 for italic.
+    pub italic: u8,
+    /// `Ellipsis as u8`: how cut text ends. max_lines 0 uses one visible line when enabled.
+    pub ellipsis: u8,
+    /// OpenType feature bits (`FEATURE_TABULAR_NUMBERS`); 0 preserves the font defaults.
+    pub features: u32,
+    /// Extra space after every glyph, in points.
+    pub tracking: f32,
+}
+
+impl Default for PxuiTextStyle {
+    fn default() -> Self {
+        Self {
+            size: core::mem::size_of::<Self>() as u32,
+            font: 0,
+            weight: 400,
+            size_points: 14.0,
+            line_height: 0.0,
+            wrap: 0,
+            align: 0,
+            max_lines: 0,
+            italic: 0,
+            ellipsis: 0,
+            features: 0,
+            tracking: 0.0,
+        }
+    }
+}
+
+impl PxuiTextStyle {
+    /// The `features` bit for tabular numbers: every digit one width (`Label::tabular`).
+    pub const FEATURE_TABULAR_NUMBERS: u32 = 1;
 }
 
 /// C mirror of `Size`; kinds are Px=0, Pct=1, Rel=2, Grow=3, Fit=4.

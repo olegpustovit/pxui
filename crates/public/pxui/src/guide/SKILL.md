@@ -114,7 +114,7 @@ the value. `segmented_with(key, &[Segment], selected, &Segmented)` returns `(Res
 ```rust
 use pxui::{Segment, Segmented, Toggle};
 const SETTING: Toggle = Toggle::DEFAULT.row_h(52.0);
-const LOOKS: Segmented = Segmented::DEFAULT.h(28.0).name("Appearance");
+const LOOKS: Segmented = Segmented::DEFAULT.h_px(28.0).name("Appearance");
 const OPTIONS: [Segment; 3] = [Segment::new("System"), Segment::new("Light"), Segment::new("Dark")];
 let (mut offline, mut look) = (false, 0usize);
 pxui::doc::frames(2, &mut |ui| {

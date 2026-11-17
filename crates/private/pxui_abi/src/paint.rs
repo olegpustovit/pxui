@@ -5,7 +5,7 @@ use pxui_core::ui::Paint as EnginePaint;
 use crate::state::{Shared, finite};
 use crate::text::{metrics, read_style};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_STATE};
-use pxui_types::{draw::Instance, geom::{Rect, Rgba}, PxuiBox, Span, Str, TextMetrics, TextStyle, ffi::PxuiPaintInfo};
+use pxui_types::{draw::Instance, geom::{Rect, Rgba}, PxuiBox, Span, Str, TextMetrics, ffi::{PxuiPaintInfo, PxuiTextStyle as TextStyle}};
 
 // A span asks for 1..=MAX_SPAN instances; the library gives at least MIN_SPAN so a drawing makes few calls.
 const MAX_SPAN: usize = 1 << 20;

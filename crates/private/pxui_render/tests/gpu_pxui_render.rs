@@ -10,13 +10,6 @@ use ogpu_core::types::{Extent, Origin, TextureDescriptor, TextureFormat, Texture
 use pxui_core::draw::{fit, nine_slice, Fit};
 use pxui_render::{flags, ramp, AtlasKind, Blurred, Break, Instance, Painter, View};
 
-/// The `Label` that resolves to `style` (every field set; tracking back to ems): the text calls take the authoring style.
-#[allow(dead_code)]
-fn label_of(style:&pxui::TextStyle)->pxui::Label {
-    pxui::Label {font:Some(style.font),size:Some(style.size_points),weight:Some(style.weight),tracking:Some(style.tracking/style.size_points),caps:Some(false),
-        line_height:Some(style.line_height),wrap:style.wrap,max_lines:style.max_lines,ellipsis:style.ellipsis,align:style.align,features:style.features,..pxui::Label::BODY}
-}
-
 #[path = "../../../../tools/t/png.rs"]
 mod png;
 
@@ -1133,14 +1126,14 @@ fn shared_inline_spans_render_colors_background_and_rule() {
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
     let mut ui=pxui::Ui::new().unwrap();
-    let style=pxui::TextStyle { size_points:20.0,line_height:24.0,..Default::default() };
+    let style=pxui::Label::BODY.size(20.0).line_height(24.0);
     let span=pxui::TextSpan { start:3,end:5,weight:700,flags:pxui::TextSpan::COLOR|pxui::TextSpan::BACKGROUND|pxui::TextSpan::UNDERLINE,
         color:pxui::geom::color::rgba(255,0,0,255),background:pxui::geom::color::rgba(0,0,255,64),underline:pxui::geom::color::rgba(0,255,0,255) };
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let b=ui.node("label".into(),pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(40.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
-            ui.text_spans(&b,"ab CD ef",&label_of(&style),&[span]).unwrap();
+            ui.text_spans(&b,"ab CD ef",&style,&[span]).unwrap();
         }).unwrap();
         let rect=|color|ui.layers().find_map(|layer|layer.instances.iter().find(|i|i.kind==pxui_types::draw::kind::RECT && i.color==color).map(|i|i.rect)).expect("decoration instance");
         let background=rect([0,0,255,64]);
@@ -1170,14 +1163,14 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let spans=[pxui::TextSpan { start:0,end:1,flags:pxui::TextSpan::COLOR,color:pxui::geom::color::rgba(255,0,0,255),..Default::default() },
         pxui::TextSpan { start:25,end:26,flags:pxui::TextSpan::COLOR,color:pxui::geom::color::rgba(0,0,255,255),..Default::default() }];
-    let modes=[pxui::TextStyle::ELLIPSIS_END,pxui::TextStyle::ELLIPSIS_MIDDLE,pxui::TextStyle::ELLIPSIS_HEAD];
+    let body=pxui::Label::BODY.size(20.0);
+    let modes=[body.ellipsis(),body.ellipsis_middle(),body.ellipsis_head()].map(|label| ui.resolve(&label));
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
         ui.frame(&pxui_types::FrameIn { width:320.0,height:160.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let b=ui.node("truncation".into(),pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(160.0),..pxui::Node::DEFAULT });
             ui.canvas(&b,move |paint,_| {
-                for (i,ellipsis) in modes.into_iter().enumerate() {
-                    let style=pxui::TextStyle { ellipsis,size_points:20.0,..Default::default() };
+                for (i,style) in modes.into_iter().enumerate() {
                     paint.text_spans((10.0,10.0+i as f32*40.0),&style,100.0,Some(pxui::geom::color::rgba(0,0,0,255)),source,&spans).unwrap();
                 }
             });
@@ -1214,14 +1207,14 @@ fn shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations() {
     let target=texture(&device,640,300,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
     let mut ui=pxui::Ui::new().unwrap();
     ui.enable_system_fonts().unwrap();
-    let style=pxui::TextStyle { size_points:24.0,..Default::default() };
+    let style=pxui::Label::BODY.size(24.0);
     let emoji=pxui::Label::BODY.size(24.0);
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
         mem_sys::local_reset();
         ui.frame(&pxui_types::FrameIn { width:320.0,height:150.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let b=ui.node("native-fonts".into(),pxui::Node { w:pxui::ui::Size::Px(300.0),h:pxui::ui::Size::Px(80.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
-            ui.text_spans(&b,"漢字 العربية",&label_of(&style),&[]).unwrap();
+            ui.text_spans(&b,"漢字 العربية",&style,&[]).unwrap();
             ui.canvas(&b,move |paint,_| { paint.text_styled((10.0,100.0),&emoji,100.0,"😀"); });
         }).unwrap();
         let build_allocations=mem_sys::local_alloc_count();
@@ -1245,7 +1238,7 @@ fn shared_inline_ligature_color_preserves_native_coverage() {
     let queue=ok(be::create_queue(&device));
     let target=texture(&device,640,600,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
     let mut ui=pxui::Ui::create(pxui::Platform::Apple,None,&[FONT]);
-    let style=pxui::TextStyle { size_points:30.0,line_height:36.0,..Default::default() };
+    let style=pxui::Label::BODY.size(30.0).line_height(36.0);
     let span=pxui::TextSpan { start:2,end:4,flags:pxui::TextSpan::COLOR,color:pxui::geom::color::rgba(255,0,0,255),..Default::default() };
     let mut renderer=shared_renderer(&device,&ui);
     let mut original:Option<Vec<u8>>=None;
@@ -1253,7 +1246,7 @@ fn shared_inline_ligature_color_preserves_native_coverage() {
         let colored=frame%2==0;
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let b=ui.node("ligature".into(),pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(60.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
-            ui.text_spans(&b,"لا",&label_of(&style),if colored { std::slice::from_ref(&span) } else { &[] }).unwrap();
+            ui.text_spans(&b,"لا",&style,if colored { std::slice::from_ref(&span) } else { &[] }).unwrap();
         }).unwrap();
         let draws=renderer.draw_calls();
         let allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
@@ -2104,12 +2097,12 @@ fn shared_pixel_fit_text_matches_explicit_width_pixels() {
         let target=texture(&device,320*density,100*density,&[TextureUsage::RenderAttachment,TextureUsage::TextureCopySrc]);
         let mut ui=pxui::Ui::new().unwrap();
         let mut renderer=shared_renderer(&device,&ui);
-        let style=pxui::TextStyle {size_points:14.25,line_height:20.0,max_lines:1,..Default::default()};
+        let style=pxui::Label::BODY.size(14.25).line_height(20.0).lines(1);
         let value="ab CD café";
         let span=[pxui::TextSpan {start:3,end:5,weight:700,..Default::default()}];
         let mut text=pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
-        let width=(text.measure_spans(value,&style,0.0,&span).unwrap().width*density as f32).ceil()/density as f32;
-        let plain_width=((text.width("AB CD",&pxui::TextStyle {size_points:14.0,..Default::default()},0.0).unwrap()+4.75)*density as f32).ceil()/density as f32;
+        let width=(text.measure_spans(value,&ui.resolve(&style),0.0,&span).unwrap().width*density as f32).ceil()/density as f32;
+        let plain_width=((text.width("AB CD",&ui.resolve(&pxui::Label::BODY.size(14.0)),0.0).unwrap()+4.75)*density as f32).ceil()/density as f32;
         for rtl in [false,true] {
             ui.set_dir(rtl);
             let mut reference=None;
@@ -2119,7 +2112,7 @@ fn shared_pixel_fit_text_matches_explicit_width_pixels() {
                 mem_sys::local_reset();
                 ui.frame(&pxui::FrameIn {width:320.0,height:100.0,scale:density as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
                     let label=ui.node("rich".into(),pxui::Node {flags:pxui_types::Flags::FIT_TEXT|if fitted {pxui_types::Flags::FIT_TEXT_PIXEL} else {pxui_types::Flags::NONE},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,10.0)).into(),look,..pxui::Node::DEFAULT});
-                    ui.text_line_box(&label,value,&label_of(&style),&span).unwrap();
+                    ui.text_line_box(&label,value,&style,&span).unwrap();
                     let label=ui.node("plain".into(),pxui::Node {flags:if fitted {pxui_types::Flags::FIT_TEXT_PIXEL} else {pxui_types::Flags::NONE},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(plain_width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,40.0)).into(),inset:pxui::ui::Edges {l:1.25,r:3.5,..Default::default()},look:pxui::ui::Look {font:pxui::ui::Font {size:14,caps:true,..pxui::ui::Font::BODY},..look},..pxui::Node::DEFAULT});
                     ui.text(&label,"ab cd");
                 }).unwrap();

@@ -18,7 +18,7 @@ pub mod theme;
 pub mod ui;
 
 pub use node::{Axis, Bar, Dir, Mark, Node};
-pub use text::{Label, TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
+pub use text::{Label, TextGlyph, TextMetrics, TextSpan, TextSpans};
 pub use theme::{Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens};
 
 /// Node behavior bits as a typed value over the raw integer (`bits`), so unknown future bits stay representable.
@@ -701,10 +701,13 @@ pub mod feature {
     pub const TEXT_WORKER: u32 = 20;
     /// ABI 1.64: `ui_text_field_keyed` and `ui_input_box`.
     pub const TEXT_FIELD_KEYED: u32 = 21;
+    /// ABI 1.65: `ui_label_text_spans`, `ui_label_text_line_box`, `ui_label_measure`, `ui_label_quads`, `ui_label_rasterize_rgba`,
+    /// `ui_label_prewarm` (text calls that take the label record and resolve it in the same call).
+    pub const LABEL_TEXT: u32 = 22;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 64;
+pub const ABI_BUILT: u32 = 1 << 16 | 65;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]
@@ -734,11 +737,11 @@ mod abi_layout {
         assert_layout("PxuiUiDescV1_60", size_of::<PxuiUiDesc>(), align_of::<PxuiUiDesc>(), &[
             ("size", core::mem::offset_of!(PxuiUiDesc, size)), ("platform", core::mem::offset_of!(PxuiUiDesc, platform)), ("font_size", core::mem::offset_of!(PxuiUiDesc, font_size)), ("abi_built", core::mem::offset_of!(PxuiUiDesc, abi_built)),
         ]);
-        assert_layout("TextStyle", size_of::<TextStyle>(), align_of::<TextStyle>(), &[
-            ("size", core::mem::offset_of!(TextStyle, size)), ("font", core::mem::offset_of!(TextStyle, font)), ("weight", core::mem::offset_of!(TextStyle, weight)),
-            ("size_points", core::mem::offset_of!(TextStyle, size_points)), ("line_height", core::mem::offset_of!(TextStyle, line_height)), ("wrap", core::mem::offset_of!(TextStyle, wrap)),
-            ("align", core::mem::offset_of!(TextStyle, align)), ("max_lines", core::mem::offset_of!(TextStyle, max_lines)), ("italic", core::mem::offset_of!(TextStyle, italic)),
-            ("ellipsis", core::mem::offset_of!(TextStyle, ellipsis)), ("features", core::mem::offset_of!(TextStyle, features)), ("tracking", core::mem::offset_of!(TextStyle, tracking)),
+        assert_layout("TextStyle", size_of::<crate::ffi::PxuiTextStyle>(), align_of::<crate::ffi::PxuiTextStyle>(), &[
+            ("size", core::mem::offset_of!(crate::ffi::PxuiTextStyle, size)), ("font", core::mem::offset_of!(crate::ffi::PxuiTextStyle, font)), ("weight", core::mem::offset_of!(crate::ffi::PxuiTextStyle, weight)),
+            ("size_points", core::mem::offset_of!(crate::ffi::PxuiTextStyle, size_points)), ("line_height", core::mem::offset_of!(crate::ffi::PxuiTextStyle, line_height)), ("wrap", core::mem::offset_of!(crate::ffi::PxuiTextStyle, wrap)),
+            ("align", core::mem::offset_of!(crate::ffi::PxuiTextStyle, align)), ("max_lines", core::mem::offset_of!(crate::ffi::PxuiTextStyle, max_lines)), ("italic", core::mem::offset_of!(crate::ffi::PxuiTextStyle, italic)),
+            ("ellipsis", core::mem::offset_of!(crate::ffi::PxuiTextStyle, ellipsis)), ("features", core::mem::offset_of!(crate::ffi::PxuiTextStyle, features)), ("tracking", core::mem::offset_of!(crate::ffi::PxuiTextStyle, tracking)),
         ]);
         assert_layout("TextSpan",size_of::<TextSpan>(),align_of::<TextSpan>(),&[
             ("start", core::mem::offset_of!(TextSpan, start)),("end", core::mem::offset_of!(TextSpan, end)),("weight", core::mem::offset_of!(TextSpan, weight)),("flags", core::mem::offset_of!(TextSpan, flags)),("color", core::mem::offset_of!(TextSpan, color)),("background", core::mem::offset_of!(TextSpan, background)),("underline", core::mem::offset_of!(TextSpan, underline)),

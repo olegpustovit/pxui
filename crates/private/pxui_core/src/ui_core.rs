@@ -5162,7 +5162,7 @@ impl Paint {
     /// `text` in `label` at `at`, laid out within `width` (0: unbounded), its unset fields resolved as a label body resolves them
     /// against this painter's theme (`label_look`, its rows and colour tokens); the label's box fields (width, pad) do not apply.
     /// `None`, drawing nothing, when the style does not resolve.
-    pub fn label(&mut self, at: (f32, f32), label: &crate::ui_kit::Label, width: f32, text: &str) -> Option<Metrics> {
+    pub fn label(&mut self, at: (f32, f32), label: &pxui_types::text::LabelFields, width: f32, text: &str) -> Option<Metrics> {
         let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
         if !resolved.caps { return Some(self.text_styled(at, &resolved.style, width, Some(resolved.color), text)); }
         let mut buffer = core::mem::take(&mut self.label);
@@ -5174,7 +5174,7 @@ impl Paint {
     }
 
     /// `text` in `label` one cached character layout at a time, digits on the advance of `0`, resolved as `label`; the width drawn.
-    pub fn label_chars(&mut self, at: (f32, f32), label: &crate::ui_kit::Label, text: &str) -> Option<f32> {
+    pub fn label_chars(&mut self, at: (f32, f32), label: &pxui_types::text::LabelFields, text: &str) -> Option<f32> {
         let resolved = crate::ui_kit::resolve_label(label, &self.label_look, self.font_size, self.row_height as f32, label.color.map(|t| self.color(t.0)))?;
         Some(self.chars(at, &resolved.style, Some(resolved.color), resolved.caps, text))
     }

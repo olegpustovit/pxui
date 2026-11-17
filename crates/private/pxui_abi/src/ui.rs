@@ -77,7 +77,7 @@ export!(bare pub unsafe fn pxui_supports(id: u32) -> u32 {
         f::VULKAN => cfg!(any(windows, target_os = "linux")),
         f::EXTENSION_SET | f::BUTTON_CONTENT | f::ICON_BUTTON_CURVES | f::TOGGLE_RESPONSE | f::SEGMENTED_RESPONSE | f::DIALOG_RESPONSE | f::WIDGET_VARIANTS
             | f::LABEL_NODE | f::MENU_ITEM_IDS | f::FRAME_SURFACE | f::ITEM_TEXT | f::COLOR_TOKENS | f::SWIPE_ACTIONS | f::DISMISS
-            | f::LOOK_TOKENS | f::ICON_WORD | f::TEXT_WORKER | f::TEXT_FIELD_KEYED => true,
+            | f::LOOK_TOKENS | f::ICON_WORD | f::TEXT_WORKER | f::TEXT_FIELD_KEYED | f::LABEL_TEXT => true,
         _ => false,
     }) as u32
 });
@@ -597,7 +597,7 @@ export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *
 export!(trusted pub unsafe fn pxui_ui_label_node(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle, label_box: *const pxui_types::ffi::PxuiLabelBox, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let (Some(text), false) = (unsafe { checked(text) }, out.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
-    let (mut style, digits) = if style.is_null() { (pxui_types::Label::DEFAULT, false) } else {
+    let (mut style, digits) = if style.is_null() { (pxui_types::text::LabelFields::UNSET, false) } else {
         let Some(read) = label_style(style) else { return unsafe { fail(ui, "invalid label style") } };
         read
     };
@@ -606,21 +606,38 @@ export!(trusted pub unsafe fn pxui_ui_label_node(ui: *mut PxuiUi, text: Str, sty
 });
 
 /// Applies the caller's `PxuiLabelBox` (not null) to `label`: false, leaving `label` as it was, for a short record, unknown `set` bits,
-/// a non-finite height, a role past the last one, `whole_pixels` past 1 or nonzero reserved bytes.
-pub(crate) fn read_label_box(label_box: *const pxui_types::ffi::PxuiLabelBox, label: &mut pxui_types::Label) -> bool {
+/// a non-finite height, a role past the last one, `whole_pixels` past 1 or nonzero reserved bytes. What the record leaves unset stays
+/// as `label` has it.
+pub(crate) fn read_label_box(label_box: *const pxui_types::ffi::PxuiLabelBox, label: &mut pxui_types::text::LabelFields) -> bool {
     use pxui_types::ffi::PxuiLabelBox as B;
     let Some(b) = read_desc!(label_box, B) else { return false };
     if b.set & !B::SET_ALL != 0 || !b.height.is_finite() || b.role > pxui_types::a11y::Role::Separator as u8 || b.whole_pixels > 1 || b.reserved != [0; 2] { return false; }
-    label.height = (b.set & B::SET_HEIGHT != 0).then_some(b.height);
+    if b.set & B::SET_HEIGHT != 0 { label.height = Some(b.height); }
     // the role was checked against the last one above
     if b.set & B::SET_ROLE != 0 { label.role = unsafe { core::mem::transmute::<u8, pxui_types::a11y::Role>(b.role) }; }
-    label.whole_pixels = b.whole_pixels != 0;
+    label.whole_pixels |= b.whole_pixels != 0;
     true
+}
+
+/// The `Wrap` a C record's number names (`None`: no wrap has it).
+pub(crate) fn wrap_of(value: u32) -> Option<pxui_types::text::Wrap> {
+    use pxui_types::text::Wrap as W;
+    [W::None, W::Word, W::Glyph, W::WordSpaces].into_iter().find(|w| *w as u32 == value)
+}
+/// The `Ellipsis` a C record's number names.
+pub(crate) fn ellipsis_of(value: u8) -> Option<pxui_types::text::Ellipsis> {
+    use pxui_types::text::Ellipsis as E;
+    [E::None, E::End, E::Middle, E::Head].into_iter().find(|e| *e as u8 == value)
+}
+/// The `TextAlign` a C record's number names.
+pub(crate) fn align_of(value: u32) -> Option<pxui_types::text::TextAlign> {
+    use pxui_types::text::TextAlign as A;
+    [A::Start, A::Center, A::End].into_iter().find(|a| *a as u32 == value)
 }
 
 // ABI 1.49: the text style `style` shapes with, resolved against the Ui's theme label (what `pxui_ui_label` would shape), written to
 // `out` (its `size` set). `digits` is ignored. Refused for a null or invalid style or one that does not resolve.
-export!(pub unsafe fn pxui_ui_resolve_label(ui: *mut PxuiUi, style: *const pxui_types::ffi::PxuiLabelStyle, out: *mut pxui_types::TextStyle) -> i32 {
+export!(pub unsafe fn pxui_ui_resolve_label(ui: *mut PxuiUi, style: *const pxui_types::ffi::PxuiLabelStyle, out: *mut pxui_types::ffi::PxuiTextStyle) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out.is_null() { return unsafe { fail(ui, "null resolve output") }; }
     let Some((style, _)) = label_style(style) else { return unsafe { fail(ui, "invalid label style") } };
@@ -630,22 +647,32 @@ export!(pub unsafe fn pxui_ui_resolve_label(ui: *mut PxuiUi, style: *const pxui_
 });
 
 /// The `Label` and `digits` flag a caller's record holds; `None` for a null or short record, unknown `set` bits, a flag past 1, a
-/// non-finite set value or an invalid set width. Enumerations and sizes are the engine's to check (`resolve_label`).
-pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Option<(pxui_types::Label, bool)> {
-    use pxui_types::ffi::PxuiLabelStyle as S;
+/// non-finite set value, an invalid set width, a wrap, align or ellipsis number no style has or a feature bit past tabular numbers.
+/// Sizes are the engine's to check (`resolve_label`).
+pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Option<(pxui_types::text::LabelFields, bool)> {
+    use pxui_types::{ffi::{PxuiLabelStyle as S, PxuiTextStyle as TextStyle}, text::LabelFields};
     if style.is_null() { return None; }
     let r = read_desc!(style, S)?;
-    if r.set & !S::SET_ALL != 0 || r.caps > 1 || r.digits > 1 || ![r.size_points, r.tracking, r.line_height, r.pad].iter().all(|v| v.is_finite()) { return None; }
+    if r.set & !S::SET_ALL != 0 || r.caps > 1 || r.digits > 1 || ![r.size_points, r.tracking, r.line_height, r.pad].iter().all(|v| v.is_finite())
+        || r.features & !TextStyle::FEATURE_TABULAR_NUMBERS != 0 { return None; }
     let on = |bit: u32| r.set & bit != 0;
-    let width = if on(S::SET_WIDTH) { Some(crate::node::size(r.width)?) } else { None };
-    Some((pxui_types::Label {
-        font: on(S::SET_FONT).then_some(r.font), size: on(S::SET_SIZE).then_some(r.size_points), weight: on(S::SET_WEIGHT).then_some(r.weight),
-        tracking: on(S::SET_TRACKING).then_some(r.tracking), caps: on(S::SET_CAPS).then_some(r.caps != 0),
-        color: on(S::SET_COLOR).then_some(pxui_types::theme::ColorToken(r.color)), width,
-        line_height: on(S::SET_LINE_HEIGHT).then_some(r.line_height), pad: on(S::SET_PAD).then_some(r.pad),
-        wrap: r.wrap, max_lines: r.max_lines, ellipsis: r.ellipsis, align: r.align, features: r.features, variant: 0,
-        height: None, whole_pixels: false, role: pxui_types::a11y::Role::Label,
-    }, r.digits != 0))
+    // decoded straight into the fields the engine reads: one pass, no builder chain
+    let mut l = LabelFields::UNSET;
+    l.font = on(S::SET_FONT).then_some(r.font);
+    l.size = on(S::SET_SIZE).then_some(r.size_points);
+    l.weight = on(S::SET_WEIGHT).then_some(r.weight);
+    l.tracking = on(S::SET_TRACKING).then_some(r.tracking);
+    l.caps = on(S::SET_CAPS).then_some(r.caps != 0);
+    l.color = on(S::SET_COLOR).then_some(pxui_types::theme::ColorToken(r.color));
+    l.width = if on(S::SET_WIDTH) { Some(crate::node::size(r.width)?) } else { None };
+    l.line_height = on(S::SET_LINE_HEIGHT).then_some(r.line_height);
+    l.pad = on(S::SET_PAD).then_some(r.pad);
+    l.wrap = wrap_of(r.wrap)?;
+    l.ellipsis = ellipsis_of(r.ellipsis)?;
+    l.align = align_of(r.align)?;
+    l.features = r.features;
+    l.max_lines = r.max_lines;
+    Some((l, r.digits != 0))
 }
 
 export!(trusted pub unsafe fn pxui_button(ui: *mut PxuiUi, label: Str, out: *mut u8) -> i32 {
@@ -1016,24 +1043,41 @@ mod keyboard_tests {
 
 #[cfg(test)]
 mod label_records {
-    use super::read_label_box;
+    use super::{label_style, read_label_box};
     use pxui_types::{a11y::Role, ffi::PxuiLabelBox as B, Label};
 
     /// A label's box record carries its height, role and whole pixels; nothing set leaves the style's; a short record, unknown bits,
     /// an out-of-range role, a non-finite height, `whole_pixels` past 1 or a nonzero reserved byte is refused and changes nothing.
     #[test]
     fn label_box_record_applies_or_is_refused_whole() {
-        let full = B::from(&Label::BODY.h(30.0).whole_pixels().role(Role::Paragraph));
+        let full = B::from(&Label::BODY.h_px(30.0).whole_pixels().role(Role::Paragraph));
         assert_eq!(full.set, B::SET_HEIGHT | B::SET_ROLE);
-        let mut label = Label::BODY.size(12.0);
-        assert!(read_label_box(&full, &mut label));
-        assert!(label.height == Some(30.0) && label.whole_pixels && label.role == Role::Paragraph && label.size == Some(12.0));
+        let mut read = *Label::BODY.size(12.0).fields();
+        assert!(read_label_box(&full, &mut read));
+        assert!(read.height == Some(30.0) && read.whole_pixels && read.role == Role::Paragraph && read.size == Some(12.0));
         assert_eq!(B::from(&Label::BODY), B { size: core::mem::size_of::<B>() as u32, ..B::default() }, "a plain label sets nothing");
         for bad in [B { size: 12, ..full }, B { set: 4, ..full }, B { role: Role::Separator as u8 + 1, ..full }, B { height: f32::NAN, ..full },
             B { whole_pixels: 2, ..full }, B { reserved: [0, 1], ..full }] {
-            let mut label = Label::BODY;
-            assert!(!read_label_box(&bad, &mut label), "{bad:?}");
-            assert!(label.height.is_none() && !label.whole_pixels && label.role == Role::Label);
+            let mut read = *Label::BODY.fields();
+            assert!(!read_label_box(&bad, &mut read), "{bad:?}");
+            assert!(read.height.is_none() && !read.whole_pixels && read.role == Role::Label);
+        }
+    }
+
+    /// A C label record reads back as the `Label` it came from (its wrap, ellipsis, alignment and tabular numbers as enumerations), and
+    /// a number no `Wrap`, `Ellipsis` or `TextAlign` has, or a feature bit past tabular numbers, is refused where the record is read.
+    #[test]
+    fn label_records_round_trip_and_refuse_unknown_numbers() {
+        use pxui_types::{ffi::PxuiLabelStyle as S, text::{Ellipsis, TextAlign, Wrap}};
+        let label = Label::BODY.size(13.0).wrap_glyph().lines(2).ellipsis_head().align(TextAlign::End).tabular().caps(true).pad(3.0);
+        let record = S::from(&label);
+        let (read, digits) = label_style(&record).expect("a label's own record");
+        assert!(!digits);
+        let (a, b) = (read, *label.fields());
+        assert_eq!((a.wrap, a.ellipsis, a.align, a.features, a.max_lines, a.caps, a.pad), (Wrap::Glyph, Ellipsis::Head, TextAlign::End, 1, 2, Some(true), Some(3.0)));
+        assert_eq!((a.wrap, a.ellipsis, a.align, a.features, a.size), (b.wrap, b.ellipsis, b.align, b.features, b.size));
+        for bad in [S { wrap: 4, ..record }, S { ellipsis: 4, ..record }, S { align: 3, ..record }, S { features: 2, ..record }] {
+            assert!(label_style(&bad).is_none(), "{bad:?}");
         }
     }
 }
