@@ -21,7 +21,7 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 
 | Job | Signature (target) | Body kind | Step |
 |---|---|---|---|
-| Containers | `row/column/stack<F>(node: Node, f: F) -> Handle` (keyless, D25.1); `id<K, F>(key, f)` keys a subtree; `node<K>(key: K, node: Node) -> Handle` (HEAD takes `Key`; becomes key-first generic like every other call, codemod drops `.into()`); `within(&Handle, &mut dyn FnMut(&mut Ui))` | — | keyless + `id` U1b.6; `node` U1b.2; `enter/leave` → crate-private U1a.3 |
+| Containers | `row/column/stack<F>(node: Node, f: F) -> Handle` (keyless, D25.1); `id<K, F>(key, f)` keys a subtree; the handle getter `id() -> usize` is renamed `instance_id() -> usize` (D26) so `id` names one thing; `node<K>(key: K, node: Node) -> Handle` (HEAD takes `Key`; becomes key-first generic like every other call, codemod drops `.into()`); `within(&Handle, &mut dyn FnMut(&mut Ui))` | — | keyless + `id` U1b.6; `node` U1b.2; `enter/leave` → crate-private U1a.3 |
 | Pressable / disabled | `pressable<K, F>(key, node: Node, &Pressable, f: F /* (ui, State) */) -> Response`; `disabled<F>(bool, f)` | — | HEAD |
 | Retained view | `view_of<K, T: Hash, F>(key, inputs: &T, f) -> Handle`; `set_view(&Handle, &ViewTransform)` (clip, blur, saturation become fields) | — | U1b.4 |
 | Scroll | `scroll_view<K, F>(key, node: Node, f) -> Handle`; `scroll(&Handle) -> Scroll`; `set_scroll_offset`; `reveal` | scroll_view | U1b.5 |
@@ -930,6 +930,7 @@ pxui::Ui::id fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, f: F) -> Ha
 pxui::Ui::image fn <K: Into<Key>>(&mut self, key: K, image: &Image, style: &ImageStyle) -> Result<Handle, Error> @U1b.2
 pxui::Ui::ime fn (&self) -> Option<Ime> @U1b.2
 pxui::Ui::inject_a11y fn (&mut self, actions: &[A11yAction]) @HEAD
+pxui::Ui::instance_id fn (&self) -> usize @U1b.6
 -pxui::Ui::input_frame fn (&mut self, input: &Input, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 -pxui::Ui::inspector_bar fn (&mut self, hints: &[(&str, &str)], count: i64) @U1c.3
 -pxui::Ui::inspector_body fn (&mut self, f: &mut dyn FnMut(&mut Ui)) @U1c.3
@@ -1807,6 +1808,7 @@ pxui::ui::Ui::id fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, f: F) -
 pxui::ui::Ui::image fn <K: Into<Key>>(&mut self, key: K, image: &Image, style: &ImageStyle) -> Result<Handle, Error> @U1b.2
 pxui::ui::Ui::ime fn (&self) -> Option<Ime> @U1b.2
 pxui::ui::Ui::inject_a11y fn (&mut self, actions: &[A11yAction]) @HEAD
+pxui::ui::Ui::instance_id fn (&self) -> usize @U1b.6
 -pxui::ui::Ui::input_frame fn (&mut self, input: &Input, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 -pxui::ui::Ui::inspector_bar fn (&mut self, hints: &[(&str, &str)], count: i64) @U1c.3
 -pxui::ui::Ui::inspector_body fn (&mut self, f: &mut dyn FnMut(&mut Ui)) @U1c.3
