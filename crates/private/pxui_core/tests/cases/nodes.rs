@@ -341,7 +341,28 @@ pub fn window_pxui_node_patch_damage_accumulates() {
     ui.destroy();
 }
 
+/// Integer keys are scoped to the parent: two components that use the same id under different parents get distinct nodes, and
+/// both keep their state across frames.
+pub fn window_pxui_integer_keys_are_scoped_to_the_parent() {
+    let mut ui = new_ui(None);
+    let mut keys = Vec::new();
+    for t in [0.0, 0.1] {
+        let mut now = Vec::new();
+        frame(&mut ui, t, &mut |ui| {
+            for parent in ["left", "right"] {
+                let p = ui.node(parent.into(), Node::DEFAULT);
+                ui.within(&p, &mut |ui| now.push(ui.node(7i64.into(), Node::DEFAULT).box_key));
+            }
+        });
+        keys.push(now);
+    }
+    check(keys[0][0] != keys[0][1], "one integer key under two parents collided");
+    check(keys[0] == keys[1], "an integer key under a parent changed between frames");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("window_pxui_integer_keys_are_scoped_to_the_parent", window_pxui_integer_keys_are_scoped_to_the_parent),
     ("window_pxui_retired_rich_text_donates_before_slot_reassignment", window_pxui_retired_rich_text_donates_before_slot_reassignment),
     ("window_pxui_current_build_box_rejects_forged_index", window_pxui_current_build_box_rejects_forged_index),
     ("window_pxui_node_patch_colour_glyph", window_pxui_node_patch_colour_glyph),

@@ -1034,3 +1034,50 @@ mod builders {
         assert_eq!(n.a11y, 0, "a node flag does not set an a11y state");
     }
 }
+
+/// Frozen identity vectors (ABI policy: identity hashes are part of the promise). A change to any value here changes every saved
+/// node identity; deliberately changing one means a new major, never an edit of this table.
+#[cfg(test)]
+mod identity_vectors {
+    use crate::geom::hash;
+    use crate::ui::{hash_range, int_key, key_of, Key, ROOT_KEY};
+
+    #[test]
+    fn hashes_match_the_published_vectors() {
+        assert_eq!(hash::bytes(0, b""), 16294208416658607535);
+        assert_eq!(hash::bytes(1, b"abc"), 2202381260512884014);
+        assert_eq!(hash::bytes(1, b"abcdefghi"), 408265595569890452);
+        assert_eq!(hash::mix(0, 0), -2152535657050944081);
+        assert_eq!(hash::mix(5, 1), 7958955049054603978);
+        assert_eq!(hash_range(7, "xxcdxx", 2, 4), 5608514096287000090);
+    }
+
+    #[test]
+    fn labels_and_integer_keys_match_the_published_vectors() {
+        assert_eq!(key_of(ROOT_KEY, "panel"), 440531318097480381);
+        assert_eq!(key_of(ROOT_KEY, ""), -6041832124274164334);
+        assert_eq!(key_of(ROOT_KEY, "Play##hot"), 1891176646085460787);
+        assert_eq!(key_of(ROOT_KEY, "Play###a"), 3246571133750751553);
+        assert_eq!(key_of(7, "Za\u{17c}\u{f3}\u{142}\u{107}"), 663447996966360505);
+        assert_eq!(int_key(5, 1), 7958955049054603978);
+        assert_eq!(int_key(5, -1), -1659232436457042047);
+        assert_eq!(int_key(ROOT_KEY, 0), -6041832124274164334);
+        assert_eq!(int_key(0, 0), -2152535657050944081);
+    }
+
+    #[test]
+    fn an_id_key_is_its_nul_and_hex_label_under_the_parent() {
+        let mut buf = [0u8; 17];
+        let label = Key::Id(0x1234).label(&mut buf);
+        assert_eq!(key_of(7, label), -3152285460647825701);
+    }
+
+    #[test]
+    fn one_integer_under_two_parents_gives_two_keys() {
+        for n in [-1, 0, 1, 2, 1 << 40] {
+            assert_ne!(int_key(5, n), int_key(6, n));
+            assert_ne!(key_of(5, "row"), key_of(6, "row"));
+        }
+        assert_eq!(int_key(5, 3), int_key(5, 3));
+    }
+}
