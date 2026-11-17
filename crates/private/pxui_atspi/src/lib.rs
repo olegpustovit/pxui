@@ -8,4 +8,4 @@ pub mod wire;
 #[cfg(target_os = "linux")]
 mod bridge;
 #[cfg(target_os = "linux")]
-pub use bridge::{Bridge, Error, NODE_PREFIX, NULL_PATH, ROOT_PATH, a11y_bus_address};
+pub use bridge::{Bridge, Error, MAX_SURFACES, NODE_PREFIX, NULL_PATH, ROOT_PATH, a11y_bus_address};

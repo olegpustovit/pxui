@@ -1,6 +1,7 @@
 use crate::Window;
 
-/// One UI/window pair's platform output and pending clipboard input.
+/// One UI/window pair's platform output and pending clipboard input: one per surface. The clipboard
+/// itself is the system's (`pxui_sdl::clipboard_*`), shared by every window of the process.
 #[derive(Default)]
 pub struct Platform {
     applied: Option<(usize, u64)>,

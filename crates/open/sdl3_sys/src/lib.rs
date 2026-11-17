@@ -60,14 +60,14 @@ unsafe fn owned_string(pointer: *mut c_char) -> Option<String> {
         // SAFETY: this pointer is returned by an SDL allocation function and is freed below.
         let value = unsafe { string(pointer) };
         // SAFETY: SDL allocated the text; the C bridge frees it with SDL_free.
-        unsafe { ffi::rays_sdl3_free(pointer.cast()) };
+        unsafe { ffi::pxui_sdl3_free(pointer.cast()) };
         Some(value)
     }
 }
 
 fn sdl_error(kind: ErrorKind, fallback: &str) -> Error {
     // SAFETY: SDL_GetError returns a borrowed, NUL-terminated thread-local string.
-    let message = unsafe { string(ffi::rays_sdl3_get_error()) };
+    let message = unsafe { string(ffi::pxui_sdl3_get_error()) };
     Error { kind, message: if message.is_empty() { fallback.to_owned() } else { message } }
 }
 
@@ -84,53 +84,53 @@ fn version(number: i32) -> Version {
 
 pub fn linked_version() -> Version {
     // SAFETY: this is a pure SDL version query.
-    version(unsafe { ffi::rays_sdl3_linked_version() })
+    version(unsafe { ffi::pxui_sdl3_linked_version() })
 }
 
 pub fn compiled_version() -> Version {
     // SAFETY: this returns the version macro from the checked SDL headers.
-    version(unsafe { ffi::rays_sdl3_compiled_version() })
+    version(unsafe { ffi::pxui_sdl3_compiled_version() })
 }
 
 pub fn platform_name() -> String {
     // SAFETY: SDL_GetPlatform returns a borrowed, NUL-terminated string.
-    unsafe { string(ffi::rays_sdl3_platform_name()) }
+    unsafe { string(ffi::pxui_sdl3_platform_name()) }
 }
 
 pub fn pref_path(org: &str, app: &str) -> std::result::Result<Option<String>, Error> {
     let org = input(org, "organization")?;
     let app = input(app, "application")?;
     // SAFETY: both CString arguments stay alive for the call; SDL returns an SDL_free allocation.
-    Ok(unsafe { owned_string(ffi::rays_sdl3_pref_path(org.as_ptr(), app.as_ptr())) })
+    Ok(unsafe { owned_string(ffi::pxui_sdl3_pref_path(org.as_ptr(), app.as_ptr())) })
 }
 
 pub fn is_main_thread() -> bool {
     // SAFETY: the platform bridge compares the current thread to the process main thread.
-    unsafe { ffi::rays_sdl3_is_main_thread() }
+    unsafe { ffi::pxui_sdl3_is_main_thread() }
 }
 
 /// Sets the native binary's fatal-error policy without initializing or owning SDL.
 pub fn configure_fatal_errors() {
     // SAFETY: the bridge only sets process error-reporting flags; the safe SDL layer
     // requires the initial thread before exposing this process-wide startup operation.
-    unsafe { ffi::rays_sdl3_configure_fatal_errors() }
+    unsafe { ffi::pxui_sdl3_configure_fatal_errors() }
 }
 
 /// Enters UIKit through SDL on the process main thread, once for the app's lifetime.
 #[cfg(target_os = "ios")]
 pub fn run_app(main: extern "C" fn() -> i32) -> i32 {
     // SAFETY: the native bridge retains this static function pointer until process termination.
-    unsafe { ffi::rays_sdl3_run_app(main) }
+    unsafe { ffi::pxui_sdl3_run_app(main) }
 }
 
 pub fn clear_error() {
     // SAFETY: clears SDL's thread-local error text.
-    unsafe { ffi::rays_sdl3_clear_error() }
+    unsafe { ffi::pxui_sdl3_clear_error() }
 }
 
 pub fn init_subsystems(bits: u32) -> std::result::Result<(), Error> {
     // SAFETY: subsystem bits are translated to SDL flags in the C bridge.
-    if unsafe { ffi::rays_sdl3_init_subsystem(bits) } {
+    if unsafe { ffi::pxui_sdl3_init_subsystem(bits) } {
         Ok(())
     } else {
         Err(sdl_error(ErrorKind::Sdl, "SDL initialization failed without an error"))
@@ -139,12 +139,12 @@ pub fn init_subsystems(bits: u32) -> std::result::Result<(), Error> {
 
 pub fn quit_subsystems(bits: u32) {
     // SAFETY: subsystem bits are translated to SDL flags in the C bridge.
-    unsafe { ffi::rays_sdl3_quit_subsystem(bits) }
+    unsafe { ffi::pxui_sdl3_quit_subsystem(bits) }
 }
 
 pub fn set_control_click_right_click(enabled: bool) -> std::result::Result<(), Error> {
     // SAFETY: passes a boolean to SDL's named hint.
-    if unsafe { ffi::rays_sdl3_set_control_click_right_click(enabled) } {
+    if unsafe { ffi::pxui_sdl3_set_control_click_right_click(enabled) } {
         Ok(())
     } else {
         Err(sdl_error(ErrorKind::Sdl, "SDL rejected the Control-click hint"))
@@ -153,7 +153,7 @@ pub fn set_control_click_right_click(enabled: bool) -> std::result::Result<(), E
 
 pub fn set_mouse_relative_system_scale(enabled: bool) -> std::result::Result<(), Error> {
     // SAFETY: passes a boolean to SDL's named hint.
-    if unsafe { ffi::rays_sdl3_set_mouse_relative_system_scale(enabled) } {
+    if unsafe { ffi::pxui_sdl3_set_mouse_relative_system_scale(enabled) } {
         Ok(())
     } else {
         Err(sdl_error(ErrorKind::Sdl, "SDL rejected the relative-mouse scaling hint"))
@@ -164,7 +164,7 @@ pub fn set_hint(name: &str, value: &str) -> std::result::Result<(), Error> {
     let name = input(name, "hint name")?;
     let value = input(value, "hint value")?;
     // SAFETY: both CStrings live through SDL's copying call.
-    if unsafe { ffi::rays_sdl3_set_hint(name.as_ptr(), value.as_ptr()) } {
+    if unsafe { ffi::pxui_sdl3_set_hint(name.as_ptr(), value.as_ptr()) } {
         Ok(())
     } else {
         Err(sdl_error(ErrorKind::Sdl, "SDL rejected the hint"))
@@ -174,7 +174,7 @@ pub fn set_hint(name: &str, value: &str) -> std::result::Result<(), Error> {
 pub fn clipboard_set_text(text: &str) -> std::result::Result<(), Error> {
     let text = input(text, "clipboard text")?;
     // SAFETY: the CString lives through SDL's copying call.
-    if unsafe { ffi::rays_sdl3_clipboard_set_text(text.as_ptr()) } {
+    if unsafe { ffi::pxui_sdl3_clipboard_set_text(text.as_ptr()) } {
         Ok(())
     } else {
         Err(sdl_error(ErrorKind::Sdl, "SDL clipboard write failed"))
@@ -183,7 +183,7 @@ pub fn clipboard_set_text(text: &str) -> std::result::Result<(), Error> {
 
 pub fn clipboard_get_text() -> std::result::Result<String, Error> {
     // SAFETY: SDL returns an SDL_free allocation, copied and freed immediately.
-    unsafe { owned_string(ffi::rays_sdl3_clipboard_get_text()) }
+    unsafe { owned_string(ffi::pxui_sdl3_clipboard_get_text()) }
         .ok_or_else(|| sdl_error(ErrorKind::Sdl, "SDL clipboard read failed"))
 }
 
@@ -210,7 +210,7 @@ impl Cursor {
     pub fn create(shape: CursorShape) -> std::result::Result<Self, Error> {
         clear_error();
         // SAFETY: shape is mapped to a checked native cursor enum in the bridge.
-        let raw = unsafe { ffi::rays_sdl3_create_cursor(shape.code()) };
+        let raw = unsafe { ffi::pxui_sdl3_create_cursor(shape.code()) };
         let raw = NonNull::new(raw)
             .ok_or_else(|| sdl_error(ErrorKind::Unsupported, "system cursors are unavailable"))?;
         Ok(Self { raw: Some(raw), _main_thread_only: PhantomData })
@@ -220,7 +220,7 @@ impl Cursor {
         let raw = self.raw.ok_or_else(|| destroyed("cursor is destroyed"))?;
         clear_error();
         // SAFETY: this owned cursor remains live through the call.
-        if unsafe { ffi::rays_sdl3_set_cursor(raw.as_ptr()) } {
+        if unsafe { ffi::pxui_sdl3_set_cursor(raw.as_ptr()) } {
             Ok(())
         } else {
             Err(sdl_error(ErrorKind::Sdl, "SDL could not set the cursor"))
@@ -230,7 +230,7 @@ impl Cursor {
     pub fn destroy(&mut self) {
         if let Some(raw) = self.raw.take() {
             // SAFETY: this cursor is uniquely owned and destroyed exactly once.
-            unsafe { ffi::rays_sdl3_destroy_cursor(raw.as_ptr()) }
+            unsafe { ffi::pxui_sdl3_destroy_cursor(raw.as_ptr()) }
         }
     }
 }
@@ -239,7 +239,7 @@ impl Drop for Cursor {
     fn drop(&mut self) {
         if let Some(raw) = self.raw.take() {
             // SAFETY: this cursor is uniquely owned and destroyed exactly once.
-            unsafe { ffi::rays_sdl3_destroy_cursor(raw.as_ptr()) }
+            unsafe { ffi::pxui_sdl3_destroy_cursor(raw.as_ptr()) }
         }
     }
 }
@@ -274,7 +274,7 @@ impl WindowHandle {
     fn destroy(&self) {
         if let Some(raw) = self.raw.take() {
             // SAFETY: this shared handle stores one SDL window and clears it before destruction.
-            unsafe { ffi::rays_sdl3_destroy_window(raw.as_ptr()) }
+            unsafe { ffi::pxui_sdl3_destroy_window(raw.as_ptr()) }
         }
     }
 }
@@ -301,7 +301,7 @@ impl Window {
         });
         clear_error();
         // SAFETY: the title is a live CString and dimensions/flags are valid for SDL.
-        let raw = unsafe { ffi::rays_sdl3_create_window(title.as_ptr(), width, height, bits) };
+        let raw = unsafe { ffi::pxui_sdl3_create_window(title.as_ptr(), width, height, bits) };
         let raw = NonNull::new(raw)
             .ok_or_else(|| sdl_error(ErrorKind::Sdl, "SDL window creation failed without an error"))?;
         Ok(Self {
@@ -332,7 +332,7 @@ impl Window {
         let (mut width, mut height) = (0, 0);
         clear_error();
         // SAFETY: valid output pointers are supplied for the live window.
-        if unsafe { ffi::rays_sdl3_window_size(raw.as_ptr(), &mut width, &mut height) } {
+        if unsafe { ffi::pxui_sdl3_window_size(raw.as_ptr(), &mut width, &mut height) } {
             Ok((width, height))
         } else {
             Err(sdl_error(ErrorKind::Sdl, "SDL could not read the window size"))
@@ -344,7 +344,7 @@ impl Window {
         let (mut width, mut height) = (0, 0);
         clear_error();
         // SAFETY: valid output pointers are supplied for the live window.
-        if unsafe { ffi::rays_sdl3_window_size_in_pixels(raw.as_ptr(), &mut width, &mut height) } {
+        if unsafe { ffi::pxui_sdl3_window_size_in_pixels(raw.as_ptr(), &mut width, &mut height) } {
             Ok((width, height))
         } else {
             Err(sdl_error(ErrorKind::Sdl, "SDL could not read drawable size"))
@@ -354,13 +354,13 @@ impl Window {
     pub fn state(&self) -> std::result::Result<WindowState, Error> {
         let raw = self.raw()?;
         // SAFETY: the window handle is live.
-        let bits = unsafe { ffi::rays_sdl3_window_state(raw.as_ptr()) };
+        let bits = unsafe { ffi::pxui_sdl3_window_state(raw.as_ptr()) };
         Ok(WindowState { hidden: bits & 1 != 0, minimized: bits & 2 != 0, occluded: bits & 4 != 0 })
     }
 
     pub fn id(&self) -> std::result::Result<u32, Error> {
         let raw = self.raw()?;
-        Ok(unsafe { ffi::rays_sdl3_window_id(raw.as_ptr()) })
+        Ok(unsafe { ffi::pxui_sdl3_window_id(raw.as_ptr()) })
     }
 
 
@@ -368,14 +368,14 @@ impl Window {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: the window handle is live.
-        Ok(unsafe { ffi::rays_sdl3_window_pixel_density(raw.as_ptr()) })
+        Ok(unsafe { ffi::pxui_sdl3_window_pixel_density(raw.as_ptr()) })
     }
 
     pub fn display_scale(&self) -> std::result::Result<f32, Error> {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: the window handle is live.
-        Ok(unsafe { ffi::rays_sdl3_window_display_scale(raw.as_ptr()) })
+        Ok(unsafe { ffi::pxui_sdl3_window_display_scale(raw.as_ptr()) })
     }
 
     pub fn position(&self) -> std::result::Result<(i32, i32), Error> {
@@ -383,7 +383,7 @@ impl Window {
         let (mut x, mut y) = (0, 0);
         clear_error();
         // SAFETY: valid output pointers are supplied for the live window.
-        if unsafe { ffi::rays_sdl3_window_position(raw.as_ptr(), &mut x, &mut y) } {
+        if unsafe { ffi::pxui_sdl3_window_position(raw.as_ptr(), &mut x, &mut y) } {
             Ok((x, y))
         } else {
             Err(sdl_error(ErrorKind::Sdl, "SDL could not read the window position"))
@@ -394,7 +394,7 @@ impl Window {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: SDL returns a borrowed, NUL-terminated title for a live window.
-        Ok(unsafe { string(ffi::rays_sdl3_window_title(raw.as_ptr())) })
+        Ok(unsafe { string(ffi::pxui_sdl3_window_title(raw.as_ptr())) })
     }
 
     fn boolean(&self, operation: unsafe extern "C" fn(*mut ffi::SDLWindow) -> bool, fallback: &str) -> std::result::Result<(), Error> {
@@ -405,27 +405,27 @@ impl Window {
     }
 
     pub fn center(&self) -> std::result::Result<(), Error> {
-        self.boolean(ffi::rays_sdl3_center_window, "SDL could not center the window")
+        self.boolean(ffi::pxui_sdl3_center_window, "SDL could not center the window")
     }
 
     pub fn show(&self) -> std::result::Result<(), Error> {
-        self.boolean(ffi::rays_sdl3_show_window, "SDL could not show the window")
+        self.boolean(ffi::pxui_sdl3_show_window, "SDL could not show the window")
     }
 
     pub fn raise(&self) -> std::result::Result<(), Error> {
-        self.boolean(ffi::rays_sdl3_raise_window, "SDL could not raise the window")
+        self.boolean(ffi::pxui_sdl3_raise_window, "SDL could not raise the window")
     }
 
     pub fn hide(&self) -> std::result::Result<(), Error> {
-        self.boolean(ffi::rays_sdl3_hide_window, "SDL could not hide the window")
+        self.boolean(ffi::pxui_sdl3_hide_window, "SDL could not hide the window")
     }
 
     pub fn restore(&self) -> std::result::Result<(), Error> {
-        self.boolean(ffi::rays_sdl3_restore_window, "SDL could not restore the window")
+        self.boolean(ffi::pxui_sdl3_restore_window, "SDL could not restore the window")
     }
 
     pub fn sync(&self) -> std::result::Result<(), Error> {
-        self.boolean(ffi::rays_sdl3_sync_window, "SDL could not synchronize the window")
+        self.boolean(ffi::pxui_sdl3_sync_window, "SDL could not synchronize the window")
     }
 
     pub fn set_size(&self, width: i32, height: i32) -> std::result::Result<(), Error> {
@@ -433,7 +433,7 @@ impl Window {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: the window is live and dimensions are positive.
-        if unsafe { ffi::rays_sdl3_set_window_size(raw.as_ptr(), width, height) } {
+        if unsafe { ffi::pxui_sdl3_set_window_size(raw.as_ptr(), width, height) } {
             Ok(())
         } else {
             Err(sdl_error(ErrorKind::Sdl, "SDL could not resize the window"))
@@ -444,7 +444,7 @@ impl Window {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: the window handle is live.
-        if unsafe { ffi::rays_sdl3_set_window_resizable(raw.as_ptr(), enabled) } {
+        if unsafe { ffi::pxui_sdl3_set_window_resizable(raw.as_ptr(), enabled) } {
             Ok(())
         } else {
             Err(sdl_error(ErrorKind::Sdl, "SDL could not change window resizability"))
@@ -455,7 +455,7 @@ impl Window {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: the window handle is live.
-        if unsafe { ffi::rays_sdl3_set_window_relative_mouse(raw.as_ptr(), enabled) } {
+        if unsafe { ffi::pxui_sdl3_set_window_relative_mouse(raw.as_ptr(), enabled) } {
             Ok(())
         } else {
             Err(sdl_error(ErrorKind::Unsupported, "relative mouse mode is unavailable"))
@@ -465,7 +465,7 @@ impl Window {
     pub fn set_background(&self, red: f32, green: f32, blue: f32) -> std::result::Result<(), Error> {
         let raw = self.raw()?;
         // SAFETY: the window handle is live; this platform operation is a no-op off Cocoa.
-        unsafe { ffi::rays_sdl3_set_window_background(raw.as_ptr(), red.into(), green.into(), blue.into()) };
+        unsafe { ffi::pxui_sdl3_set_window_background(raw.as_ptr(), red.into(), green.into(), blue.into()) };
         Ok(())
     }
 
@@ -473,7 +473,7 @@ impl Window {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: the window handle is live.
-        if unsafe { ffi::rays_sdl3_start_text_input(raw.as_ptr()) } { Ok(()) }
+        if unsafe { ffi::pxui_sdl3_start_text_input(raw.as_ptr()) } { Ok(()) }
         else { Err(sdl_error(ErrorKind::Sdl, "SDL could not start text input")) }
     }
     pub fn start_text_input_with_options(&self, options: TextInputOptions) -> std::result::Result<(), Error> {
@@ -482,7 +482,7 @@ impl Window {
             return Err(Error {kind:ErrorKind::InvalidArgument,message:"invalid text input options".into()});
         }
         clear_error();
-        if unsafe {ffi::rays_sdl3_start_text_input_with_options(raw.as_ptr(),options.autocorrect,options.capitalization,options.action)} {Ok(())}
+        if unsafe {ffi::pxui_sdl3_start_text_input_with_options(raw.as_ptr(),options.autocorrect,options.capitalization,options.action)} {Ok(())}
         else {Err(sdl_error(ErrorKind::Sdl,"SDL could not configure text input"))}
     }
 
@@ -490,7 +490,7 @@ impl Window {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: the window handle is live.
-        if unsafe { ffi::rays_sdl3_stop_text_input(raw.as_ptr()) } { Ok(()) }
+        if unsafe { ffi::pxui_sdl3_stop_text_input(raw.as_ptr()) } { Ok(()) }
         else { Err(sdl_error(ErrorKind::Sdl, "SDL could not stop text input")) }
     }
 
@@ -498,7 +498,7 @@ impl Window {
         let raw=self.raw()?;
         clear_error();
         // SAFETY: the live window is validated; SDL explicitly accepts a null area.
-        if unsafe {ffi::rays_sdl3_clear_text_input_area(raw.as_ptr())} {Ok(())}
+        if unsafe {ffi::pxui_sdl3_clear_text_input_area(raw.as_ptr())} {Ok(())}
         else {Err(sdl_error(ErrorKind::Sdl,"could not clear text-input area"))}
     }
 
@@ -508,7 +508,7 @@ impl Window {
         let raw = self.raw()?;
         clear_error();
         // SAFETY: the window is live and the rectangle/cursor have been validated.
-        if unsafe { ffi::rays_sdl3_set_text_input_area(raw.as_ptr(), area.x, area.y, area.width, area.height, cursor) } {
+        if unsafe { ffi::pxui_sdl3_set_text_input_area(raw.as_ptr(), area.x, area.y, area.width, area.height, cursor) } {
             Ok(())
         } else {
             Err(sdl_error(ErrorKind::Sdl, "SDL could not set the text-input area"))
@@ -533,7 +533,7 @@ impl Window {
         clear_error();
         // SAFETY: arrays and C strings stay live through the native call; SDL copies them into its slots.
         let id = unsafe {
-            ffi::rays_sdl3_show_dialog(raw.as_ptr(), kind.code(), names.as_ptr(), patterns.as_ptr(),
+            ffi::pxui_sdl3_show_dialog(raw.as_ptr(), kind.code(), names.as_ptr(), patterns.as_ptr(),
                 filters.len() as i32, location.as_ref().map_or(std::ptr::null(), |text| text.as_ptr()))
         };
         if id == 0 { Err(sdl_error(ErrorKind::Sdl, "SDL could not open the file dialog")) }
@@ -578,7 +578,7 @@ impl MetalView {
         let window = parent.raw()?;
         clear_error();
         // SAFETY: the retained parent window remains live through this view's destruction.
-        let raw = unsafe { ffi::rays_sdl3_create_metal_view(window.as_ptr()) };
+        let raw = unsafe { ffi::pxui_sdl3_create_metal_view(window.as_ptr()) };
         let raw = NonNull::new(raw)
             .ok_or_else(|| sdl_error(ErrorKind::Sdl, "SDL could not create a native presentation view"))?;
         Ok(Self { raw: Some(raw), parent: Some(parent), tokens: Vec::new(), _main_thread_only: PhantomData })
@@ -589,12 +589,12 @@ impl MetalView {
         let parent = self.parent.as_ref().ok_or_else(|| destroyed("Metal view is destroyed"))?;
         let window = parent.raw()?;
         // SAFETY: both native handles are live; the ID is used only for token identity.
-        let owner_id = unsafe { ffi::rays_sdl3_window_id(window.as_ptr()) as i64 };
+        let owner_id = unsafe { ffi::pxui_sdl3_window_id(window.as_ptr()) as i64 };
         // SAFETY: this view is live and the returned native layer remains retained by the view.
-        let layer = unsafe { ffi::rays_sdl3_metal_layer(view.as_ptr()) };
+        let layer = unsafe { ffi::pxui_sdl3_metal_layer(view.as_ptr()) };
         if layer.is_null() { return Err(sdl_error(ErrorKind::Sdl, "SDL could not read the native layer")); }
         let (retain, release): (Option<Retain>, Option<Release>) = if cfg!(any(target_os = "macos", target_os = "ios")) {
-            (Some(ffi::rays_sdl3_retain_layer), Some(ffi::rays_sdl3_release_layer))
+            (Some(ffi::pxui_sdl3_retain_layer), Some(ffi::pxui_sdl3_release_layer))
         } else {
             (None, None)
         };
@@ -611,7 +611,7 @@ impl MetalView {
         self.tokens.clear();
         if let Some(raw) = self.raw.take() {
             // SAFETY: this view is uniquely owned and destroyed exactly once.
-            unsafe { ffi::rays_sdl3_destroy_metal_view(raw.as_ptr()) }
+            unsafe { ffi::pxui_sdl3_destroy_metal_view(raw.as_ptr()) }
         }
         drop(self.parent.take());
     }
@@ -676,7 +676,10 @@ pub enum Event {
 #[repr(C)]
 struct RawEvent {
     tag: i32,
-    a: i32, b: i32, c: i32, d: i32, e: i32, _f: i32, _g: i32, _h: i32,
+    a: i32, b: i32, c: i32, d: i32, e: i32,
+    /// the SDL window the event names; 0: none
+    window: u32,
+    _g: i32, _h: i32,
     integer_x: i32,
     integer_y: i32,
     id: i32,
@@ -694,8 +697,8 @@ struct RawEvent {
 struct EventBuffer(*mut RawEvent);
 impl Drop for EventBuffer {
     fn drop(&mut self) {
-        // SAFETY: the buffer was filled by rays_sdl3_poll_event and its payload is malloc-owned.
-        unsafe { ffi::rays_sdl3_event_free(self.0) }
+        // SAFETY: the buffer was filled by pxui_sdl3_poll_event and its payload is malloc-owned.
+        unsafe { ffi::pxui_sdl3_event_free(self.0) }
     }
 }
 
@@ -788,32 +791,37 @@ unsafe fn decode(event: &mut RawEvent) -> Option<Event> {
     })
 }
 
-pub fn set_live_resize_callback(callback: Option<extern "C" fn()>) {
+/// One process callback, run inside the event pump on the initial thread with the id of the SDL
+/// window being resized (0: a synthetic event naming none); the caller dispatches by that id.
+pub fn set_live_resize_callback(callback: Option<extern "C" fn(u32)>) {
     // SAFETY: SDL invokes this callback only while polling events on the main thread.
-    unsafe { ffi::rays_sdl3_set_live_resize_callback(callback) }
+    unsafe { ffi::pxui_sdl3_set_live_resize_callback(callback) }
 }
-pub fn poll_event() -> Option<Event> {
+/// The next translated event of the process queue with the id of the SDL window it names (0: none, as
+/// for quit, synthetic events and dialogs without a parent window).
+pub fn poll_event() -> Option<(u32, Event)> {
     // SAFETY: every zeroed field is valid in the C-compatible event buffer; SDL fills it on success.
     let mut raw: RawEvent = unsafe { std::mem::zeroed() };
     // SAFETY: a writable, correctly laid out event buffer is supplied.
-    if !unsafe { ffi::rays_sdl3_poll_event(&mut raw) } { return None; }
+    if !unsafe { ffi::pxui_sdl3_poll_event(&mut raw) } { return None; }
+    let window = raw.window;
     let guard = EventBuffer(&mut raw);
     // SAFETY: string pointers and payload lengths are owned and initialized by the bridge.
     let event = unsafe { decode(&mut raw) };
     drop(guard);
-    event
+    event.map(|event| (window, event))
 }
 
 
 pub fn wait_event_timeout(timeout_ms: i32) -> bool {
     // SAFETY: negative timeouts are normalized before SDL is called.
-    unsafe { ffi::rays_sdl3_wait_event_timeout(timeout_ms.max(0)) }
+    unsafe { ffi::pxui_sdl3_wait_event_timeout(timeout_ms.max(0)) }
 }
 
 /// Thread-safe while the caller retains the SDL events subsystem.
 pub fn wake() -> bool {
     // SAFETY: the bridge supplies its own initialized event; SDL_PushEvent is thread-safe.
-    unsafe { ffi::rays_sdl3_wake() }
+    unsafe { ffi::pxui_sdl3_wake() }
 }
 
 /// Raw bridges to the SDL3_image and SDL3_mixer satellites (built and linked with SDL3).
@@ -836,104 +844,108 @@ mod ffi {
 
     unsafe extern "C" {
         #[cfg(target_os = "ios")]
-        pub fn rays_sdl3_run_app(main: extern "C" fn() -> i32) -> i32;
-        pub fn rays_sdl3_linked_version() -> i32;
-        pub fn rays_sdl3_compiled_version() -> i32;
-        pub fn rays_sdl3_get_error() -> *const c_char;
-        pub fn rays_sdl3_clear_error();
-        pub fn rays_sdl3_platform_name() -> *const c_char;
-        pub fn rays_sdl3_pref_path(org: *const c_char, app: *const c_char) -> *mut c_char;
-        pub fn rays_sdl3_free(value: *mut c_void);
-        pub fn rays_sdl3_is_main_thread() -> bool;
-        pub fn rays_sdl3_configure_fatal_errors();
-        pub fn rays_sdl3_init_subsystem(bits: u32) -> bool;
-        pub fn rays_sdl3_quit_subsystem(bits: u32);
-        pub fn rays_sdl3_set_control_click_right_click(enabled: bool) -> bool;
-        pub fn rays_sdl3_set_mouse_relative_system_scale(enabled: bool) -> bool;
-        pub fn rays_sdl3_set_hint(name: *const c_char, value: *const c_char) -> bool;
-        pub fn rays_sdl3_clipboard_set_text(text: *const c_char) -> bool;
-        pub fn rays_sdl3_clipboard_get_text() -> *mut c_char;
-        pub fn rays_sdl3_create_cursor(shape: c_int) -> *mut SDLCursor;
-        pub fn rays_sdl3_set_cursor(cursor: *mut SDLCursor) -> bool;
-        pub fn rays_sdl3_destroy_cursor(cursor: *mut SDLCursor);
-        pub fn rays_sdl3_create_window(title: *const c_char, width: c_int, height: c_int, flags: u32) -> *mut SDLWindow;
-        pub fn rays_sdl3_destroy_window(window: *mut SDLWindow);
-        pub fn rays_sdl3_window_size(window: *mut SDLWindow, width: *mut c_int, height: *mut c_int) -> bool;
-        pub fn rays_sdl3_window_size_in_pixels(window: *mut SDLWindow, width: *mut c_int, height: *mut c_int) -> bool;
-        pub fn rays_sdl3_window_state(window: *mut SDLWindow) -> u32;
-        pub fn rays_sdl3_window_id(window: *mut SDLWindow) -> u32;
-        pub fn rays_sdl3_window_pixel_density(window: *mut SDLWindow) -> f32;
-        pub fn rays_sdl3_window_display_scale(window: *mut SDLWindow) -> f32;
-        pub fn rays_sdl3_window_position(window: *mut SDLWindow, x: *mut c_int, y: *mut c_int) -> bool;
-        pub fn rays_sdl3_window_title(window: *mut SDLWindow) -> *const c_char;
-        pub fn rays_sdl3_center_window(window: *mut SDLWindow) -> bool;
-        pub fn rays_sdl3_set_window_size(window: *mut SDLWindow, width: c_int, height: c_int) -> bool;
-        pub fn rays_sdl3_set_window_resizable(window: *mut SDLWindow, enabled: bool) -> bool;
-        pub fn rays_sdl3_set_window_relative_mouse(window: *mut SDLWindow, enabled: bool) -> bool;
-        pub fn rays_sdl3_show_window(window: *mut SDLWindow) -> bool;
-        pub fn rays_sdl3_raise_window(window: *mut SDLWindow) -> bool;
-        pub fn rays_sdl3_hide_window(window: *mut SDLWindow) -> bool;
-        pub fn rays_sdl3_restore_window(window: *mut SDLWindow) -> bool;
-        pub fn rays_sdl3_sync_window(window: *mut SDLWindow) -> bool;
-        pub fn rays_sdl3_set_window_background(window: *mut SDLWindow, red: f64, green: f64, blue: f64);
-        pub fn rays_sdl3_start_text_input(window: *mut SDLWindow) -> bool;
-        pub fn rays_sdl3_start_text_input_with_options(window:*mut SDLWindow,autocorrect:u32,capitalization:u32,action:u32)->bool;
-        pub fn rays_sdl3_stop_text_input(window: *mut SDLWindow) -> bool;
-        pub fn rays_sdl3_clear_text_input_area(window:*mut SDLWindow)->bool;
-        pub fn rays_sdl3_set_text_input_area(window: *mut SDLWindow, x: c_int, y: c_int, width: c_int, height: c_int, cursor: c_int) -> bool;
-        pub fn rays_sdl3_show_dialog(window: *mut SDLWindow, kind: c_int, names: *const *const c_char,
+        pub fn pxui_sdl3_run_app(main: extern "C" fn() -> i32) -> i32;
+        pub fn pxui_sdl3_linked_version() -> i32;
+        pub fn pxui_sdl3_compiled_version() -> i32;
+        pub fn pxui_sdl3_get_error() -> *const c_char;
+        pub fn pxui_sdl3_clear_error();
+        pub fn pxui_sdl3_platform_name() -> *const c_char;
+        pub fn pxui_sdl3_pref_path(org: *const c_char, app: *const c_char) -> *mut c_char;
+        pub fn pxui_sdl3_free(value: *mut c_void);
+        pub fn pxui_sdl3_is_main_thread() -> bool;
+        pub fn pxui_sdl3_configure_fatal_errors();
+        pub fn pxui_sdl3_init_subsystem(bits: u32) -> bool;
+        pub fn pxui_sdl3_quit_subsystem(bits: u32);
+        pub fn pxui_sdl3_set_control_click_right_click(enabled: bool) -> bool;
+        pub fn pxui_sdl3_set_mouse_relative_system_scale(enabled: bool) -> bool;
+        pub fn pxui_sdl3_set_hint(name: *const c_char, value: *const c_char) -> bool;
+        pub fn pxui_sdl3_clipboard_set_text(text: *const c_char) -> bool;
+        pub fn pxui_sdl3_clipboard_get_text() -> *mut c_char;
+        pub fn pxui_sdl3_create_cursor(shape: c_int) -> *mut SDLCursor;
+        pub fn pxui_sdl3_set_cursor(cursor: *mut SDLCursor) -> bool;
+        pub fn pxui_sdl3_destroy_cursor(cursor: *mut SDLCursor);
+        pub fn pxui_sdl3_create_window(title: *const c_char, width: c_int, height: c_int, flags: u32) -> *mut SDLWindow;
+        pub fn pxui_sdl3_destroy_window(window: *mut SDLWindow);
+        pub fn pxui_sdl3_window_size(window: *mut SDLWindow, width: *mut c_int, height: *mut c_int) -> bool;
+        pub fn pxui_sdl3_window_size_in_pixels(window: *mut SDLWindow, width: *mut c_int, height: *mut c_int) -> bool;
+        pub fn pxui_sdl3_window_state(window: *mut SDLWindow) -> u32;
+        pub fn pxui_sdl3_window_id(window: *mut SDLWindow) -> u32;
+        pub fn pxui_sdl3_window_pixel_density(window: *mut SDLWindow) -> f32;
+        pub fn pxui_sdl3_window_display_scale(window: *mut SDLWindow) -> f32;
+        pub fn pxui_sdl3_window_position(window: *mut SDLWindow, x: *mut c_int, y: *mut c_int) -> bool;
+        pub fn pxui_sdl3_window_title(window: *mut SDLWindow) -> *const c_char;
+        pub fn pxui_sdl3_center_window(window: *mut SDLWindow) -> bool;
+        pub fn pxui_sdl3_set_window_size(window: *mut SDLWindow, width: c_int, height: c_int) -> bool;
+        pub fn pxui_sdl3_set_window_resizable(window: *mut SDLWindow, enabled: bool) -> bool;
+        pub fn pxui_sdl3_set_window_relative_mouse(window: *mut SDLWindow, enabled: bool) -> bool;
+        pub fn pxui_sdl3_show_window(window: *mut SDLWindow) -> bool;
+        pub fn pxui_sdl3_raise_window(window: *mut SDLWindow) -> bool;
+        pub fn pxui_sdl3_hide_window(window: *mut SDLWindow) -> bool;
+        pub fn pxui_sdl3_restore_window(window: *mut SDLWindow) -> bool;
+        pub fn pxui_sdl3_sync_window(window: *mut SDLWindow) -> bool;
+        pub fn pxui_sdl3_set_window_background(window: *mut SDLWindow, red: f64, green: f64, blue: f64);
+        pub fn pxui_sdl3_start_text_input(window: *mut SDLWindow) -> bool;
+        pub fn pxui_sdl3_start_text_input_with_options(window:*mut SDLWindow,autocorrect:u32,capitalization:u32,action:u32)->bool;
+        pub fn pxui_sdl3_stop_text_input(window: *mut SDLWindow) -> bool;
+        pub fn pxui_sdl3_clear_text_input_area(window:*mut SDLWindow)->bool;
+        pub fn pxui_sdl3_set_text_input_area(window: *mut SDLWindow, x: c_int, y: c_int, width: c_int, height: c_int, cursor: c_int) -> bool;
+        pub fn pxui_sdl3_show_dialog(window: *mut SDLWindow, kind: c_int, names: *const *const c_char,
             patterns: *const *const c_char, count: c_int, default_location: *const c_char) -> c_int;
-        pub fn rays_sdl3_create_metal_view(window: *mut SDLWindow) -> *mut c_void;
-        pub fn rays_sdl3_destroy_metal_view(view: *mut c_void);
-        pub fn rays_sdl3_metal_layer(view: *mut c_void) -> *mut c_void;
-        pub fn rays_sdl3_retain_layer(layer: *mut c_void);
-        pub fn rays_sdl3_release_layer(layer: *mut c_void);
-        pub fn rays_sdl3_poll_event(event: *mut super::RawEvent) -> bool;
-        pub fn rays_sdl3_event_free(event: *mut super::RawEvent);
-        pub fn rays_sdl3_wait_event_timeout(timeout_ms: c_int) -> bool;
-        pub fn rays_sdl3_wake() -> bool;
-        pub fn rays_sdl3_set_live_resize_callback(callback: Option<extern "C" fn()>);
+        pub fn pxui_sdl3_create_metal_view(window: *mut SDLWindow) -> *mut c_void;
+        pub fn pxui_sdl3_destroy_metal_view(view: *mut c_void);
+        pub fn pxui_sdl3_metal_layer(view: *mut c_void) -> *mut c_void;
+        pub fn pxui_sdl3_retain_layer(layer: *mut c_void);
+        pub fn pxui_sdl3_release_layer(layer: *mut c_void);
+        pub fn pxui_sdl3_poll_event(event: *mut super::RawEvent) -> bool;
+        pub fn pxui_sdl3_event_free(event: *mut super::RawEvent);
+        pub fn pxui_sdl3_wait_event_timeout(timeout_ms: c_int) -> bool;
+        pub fn pxui_sdl3_wake() -> bool;
+        pub fn pxui_sdl3_set_live_resize_callback(callback: Option<extern "C" fn(u32)>);
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_polling_event_queue() -> bool;
+        pub fn pxui_sdl3_test_polling_event_queue() -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_queue_resize_during_poll();
+        pub fn pxui_sdl3_test_queue_resize_during_poll();
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_push_event_trace() -> bool;
+        pub fn pxui_sdl3_test_push_event_trace() -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_push_drop(phase: c_int) -> bool;
+        pub fn pxui_sdl3_test_push_drop(phase: c_int) -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_mutate_event_sources();
+        pub fn pxui_sdl3_test_mutate_event_sources();
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_push_resize_burst() -> bool;
+        pub fn pxui_sdl3_test_push_resize_burst() -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_push_numeric_trace() -> bool;
+        pub fn pxui_sdl3_test_push_numeric_trace() -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_touch_mouse_emulation_disabled() -> bool;
+        pub fn pxui_sdl3_test_push_window_event(window: u32, kind: c_int) -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_push_finger(phase: c_int, x: f64, y: f64) -> bool;
+        pub fn pxui_sdl3_test_touch_mouse_emulation_disabled() -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_push_touch_trace(window:u32)->bool;
+        pub fn pxui_sdl3_test_push_finger(phase: c_int, x: f64, y: f64) -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_dialog_reserve() -> c_int;
+        pub fn pxui_sdl3_test_push_touch_trace(window:u32)->bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_dialog_abandon(id: c_int);
+        pub fn pxui_sdl3_test_dialog_reserve() -> c_int;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_dialog_finish(id: c_int, paths: *const *const c_char,
+        pub fn pxui_sdl3_test_dialog_reserve_for(window: u32) -> c_int;
+        #[cfg(feature = "test-util")]
+        pub fn pxui_sdl3_test_dialog_abandon(id: c_int);
+        #[cfg(feature = "test-util")]
+        pub fn pxui_sdl3_test_dialog_finish(id: c_int, paths: *const *const c_char,
             count: c_int, failed: bool) -> bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_dialog_finish_huge(id: c_int) -> bool;
+        pub fn pxui_sdl3_test_dialog_finish_huge(id: c_int) -> bool;
         #[cfg(all(feature = "test-util", target_os = "ios"))]
-        pub fn rays_dialog_ios_test_ready() -> bool;
+        pub fn pxui_dialog_ios_test_ready() -> bool;
         #[cfg(all(feature = "test-util", target_os = "ios"))]
-        pub fn rays_dialog_ios_test_idle() -> bool;
+        pub fn pxui_dialog_ios_test_idle() -> bool;
         #[cfg(all(feature = "test-util", target_os = "ios"))]
-        pub fn rays_dialog_ios_test_finish(mode: c_int, path: *const c_char) -> usize;
+        pub fn pxui_dialog_ios_test_finish(mode: c_int, path: *const c_char) -> usize;
         #[cfg(all(feature = "test-util", target_os = "ios"))]
-        pub fn rays_dialog_ios_test_close() -> bool;
+        pub fn pxui_dialog_ios_test_close() -> bool;
         #[cfg(all(target_os="ios",feature="test-util"))]
-        pub fn rays_sdl3_ios_test_text_step(step:c_int)->bool;
+        pub fn pxui_sdl3_ios_test_text_step(step:c_int)->bool;
         #[cfg(feature = "test-util")]
-        pub fn rays_sdl3_test_post_scroll(points: c_int, phase: c_int);
+        pub fn pxui_sdl3_test_post_scroll(points: c_int, phase: c_int);
     }
 }
 
@@ -957,7 +969,7 @@ mod tests {
     #[test]
     fn event_wire_record_decodes_without_exposing_native_tags() {
         let mut raw = RawEvent {
-            tag: 2, a: 0, b: b'a' as i32, c: 1 | 8, d: 1, e: 0, _f: 0, _g: 0, _h: 0,
+            tag: 2, a: 0, b: b'a' as i32, c: 1 | 8, d: 1, e: 0, window: 0, _g: 0, _h: 0,
             integer_x: 0, integer_y: 0, id: 0, x: 0.0, y: 0.0, z: 0.0, w: 0.0,
             text: std::ptr::null_mut(), text_len: 0,touch_id:0,finger_id:0, dialog_urls: std::ptr::null_mut(),
         };

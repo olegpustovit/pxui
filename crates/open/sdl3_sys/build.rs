@@ -117,7 +117,7 @@ fn satellite(root: &std::path::Path, out: &std::path::Path, lock: &str, key: &st
     fs::write(
         dir.join("floor.h"),
         format!(
-            "#define RAYS_FLOOR_MAJOR {}\n#define RAYS_FLOOR_MINOR {}\n#define RAYS_FLOOR_PATCH {}\n",
+            "#define PXUI_FLOOR_MAJOR {}\n#define PXUI_FLOOR_MINOR {}\n#define PXUI_FLOOR_PATCH {}\n",
             v[0], v[1], v[2]
         ),
     )
@@ -125,7 +125,7 @@ fn satellite(root: &std::path::Path, out: &std::path::Path, lock: &str, key: &st
     let mut c = cc::Build::new();
     c.file(root.join(&source)).include(&dir).std("c11").warnings(true).flag_if_supported("-Werror");
     apply_cflags(&mut c, &run_pkg_config(pkg, lib, "--cflags"));
-    c.compile(&format!("rays_{key}_sys"));
+    c.compile(&format!("pxui_{key}_sys"));
     emit_link_flags(&run_pkg_config(pkg, lib, "--libs"));
 }
 
@@ -201,9 +201,9 @@ fn main() {
         let mut preferences = cc::Build::new();
         preferences.file("src/preferences.m").flag("-fobjc-arc").flag("-fblocks")
             .warnings(true).flag_if_supported("-Werror");
-        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { preferences.define("RAYS_SDL3_TEST_UTIL", None); }
+        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { preferences.define("PXUI_SDL3_TEST_UTIL", None); }
         apply_cflags(&mut preferences, &run_pkg_config("sdl3", "SDL3", "--cflags"));
-        preferences.compile("rays_sdl3_preferences");
+        preferences.compile("pxui_sdl3_preferences");
     }
     let mut c = cc::Build::new();
     c.files(["src/bridge.c", "src/dialog.c", "src/platform.c", "src/test_helpers.c"])
@@ -214,11 +214,11 @@ fn main() {
         .flag_if_supported("-Werror");
     apply_cflags(&mut c, &run_pkg_config("sdl3", "SDL3", "--cflags"));
     if target == "macos" {
-        c.define("RAYS_SDL3_MACOS", None).flag_if_supported("-fblocks");
+        c.define("PXUI_SDL3_MACOS", None).flag_if_supported("-fblocks");
     } else if target == "ios" {
-        c.define("RAYS_SDL3_IOS", None);
+        c.define("PXUI_SDL3_IOS", None);
     }
-    c.compile("rays_sdl3_sys");
+    c.compile("pxui_sdl3_sys");
 
     emit_link_flags(&run_pkg_config("sdl3", "SDL3", "--libs"));
     for (key, pkg, lib) in [("sdl3_image", "sdl3-image", "SDL3_image"), ("sdl3_mixer", "sdl3-mixer", "SDL3_mixer")] {
@@ -233,8 +233,8 @@ fn main() {
         println!("cargo:rerun-if-changed=src/ax.h");
         let mut chrome = cc::Build::new();
         chrome.files(["src/chrome.m", "src/ax.m"]).flag("-fobjc-arc").warnings(true).flag_if_supported("-Werror");
-        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { chrome.define("RAYS_SDL3_TEST_UTIL", None); }
-        chrome.compile("rays_sdl3_chrome");
+        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { chrome.define("PXUI_SDL3_TEST_UTIL", None); }
+        chrome.compile("pxui_sdl3_chrome");
         println!("cargo:rustc-link-lib=framework=AppKit");
         println!("cargo:rustc-link-lib=framework=QuartzCore");
         println!("cargo:rustc-link-lib=objc");
@@ -248,11 +248,11 @@ fn main() {
         println!("cargo:rerun-if-changed=src/text_ios.h");
         println!("cargo:rerun-if-changed=src/ios.h");
         let mut native = cc::Build::new();
-        native.file("src/ios.m").file("src/dialog_ios.m").file("src/text_ios.m").include("src").define("RAYS_SDL3_IOS", None)
+        native.file("src/ios.m").file("src/dialog_ios.m").file("src/text_ios.m").include("src").define("PXUI_SDL3_IOS", None)
             .flag("-fobjc-arc").flag("-fblocks").warnings(true).flag_if_supported("-Werror");
-        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { native.define("RAYS_SDL3_TEST_UTIL", None); }
+        if env::var_os("CARGO_FEATURE_TEST_UTIL").is_some() { native.define("PXUI_SDL3_TEST_UTIL", None); }
         apply_cflags(&mut native, &run_pkg_config("sdl3", "SDL3", "--cflags"));
-        native.compile("rays_sdl3_ios");
+        native.compile("pxui_sdl3_ios");
     }
 }
 

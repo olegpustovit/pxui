@@ -72,7 +72,7 @@ static bool push_pinch(Uint32 type, float scale)
   return push(&event);
 }
 
-bool rays_sdl3_test_push_event_trace(void)
+bool pxui_sdl3_test_push_event_trace(void)
 {
   SDL_Event event;
   bool ok = true;
@@ -161,7 +161,7 @@ bool rays_sdl3_test_push_event_trace(void)
   return ok;
 }
 
-bool rays_sdl3_test_push_drop(int phase)
+bool pxui_sdl3_test_push_drop(int phase)
 {
   if (phase == 0)
     return push_drop(SDL_EVENT_DROP_BEGIN, NULL, 32.f, 16.f) &&
@@ -177,14 +177,14 @@ bool rays_sdl3_test_push_drop(int phase)
   return false;
 }
 
-void rays_sdl3_test_mutate_event_sources(void)
+void pxui_sdl3_test_mutate_event_sources(void)
 {
   input_text[0] = 'x';
   editing_text[0] = 'x';
   drop_path[0] = 'x';
 }
 
-bool rays_sdl3_test_push_resize_burst(void)
+bool pxui_sdl3_test_push_resize_burst(void)
 {
   bool ok = true;
   ok = push_window(SDL_EVENT_WINDOW_RESIZED, 640, 480) && ok;
@@ -193,7 +193,7 @@ bool rays_sdl3_test_push_resize_burst(void)
   return ok;
 }
 
-bool rays_sdl3_test_push_numeric_trace(void)
+bool pxui_sdl3_test_push_numeric_trace(void)
 {
   SDL_Event event;
   bool ok = true;
@@ -205,7 +205,7 @@ bool rays_sdl3_test_push_numeric_trace(void)
   event.motion.x = 12.f; event.motion.y = 24.f;
   event.motion.xrel = 2.f; event.motion.yrel = 4.f;
   ok = push(&event) && ok;
-  ok = rays_sdl3_test_push_resize_burst() && ok;
+  ok = pxui_sdl3_test_push_resize_burst() && ok;
   ok = push_key(SDL_EVENT_KEY_DOWN, SDLK_RIGHT, SDL_SCANCODE_RIGHT, SDL_KMOD_LSHIFT | SDL_KMOD_LCTRL | SDL_KMOD_LGUI, true, false) && ok;
   ok = push_key(SDL_EVENT_KEY_UP, SDLK_RIGHT, SDL_SCANCODE_RIGHT, 0, false, false) && ok;
   ok = push_button(SDL_EVENT_MOUSE_BUTTON_DOWN, SDL_BUTTON_LEFT, true, 12.f, 24.f) && ok;
@@ -223,12 +223,12 @@ bool rays_sdl3_test_push_numeric_trace(void)
 static void *test_slots[TEST_SLOTS];
 static int test_ids[TEST_SLOTS];
 
-int rays_sdl3_test_dialog_reserve(void)
+int pxui_sdl3_test_dialog_reserve(void)
 {
   static const char *names[] = { "Images", "All" };
   static const char *patterns[] = { "png;jpg", "*" };
   int id = 0, index;
-  void *slot = rays_dialog_reserve(names, patterns, 2, "/tmp/\xC5\xBE", &id);
+  void *slot = pxui_dialog_reserve(names, patterns, 2, "/tmp/\xC5\xBE", &id);
   if (slot == NULL) return 0;
   for (index = 0; index < TEST_SLOTS; index++) {
     if (test_slots[index] == NULL) {
@@ -237,7 +237,7 @@ int rays_sdl3_test_dialog_reserve(void)
       return id;
     }
   }
-  rays_dialog_abandon(slot);
+  pxui_dialog_abandon(slot);
   return 0;
 }
 
@@ -254,10 +254,10 @@ static void *take_test_slot(int id)
   return NULL;
 }
 
-void rays_sdl3_test_dialog_abandon(int id)
+void pxui_sdl3_test_dialog_abandon(int id)
 {
   void *slot = take_test_slot(id);
-  if (slot != NULL) rays_dialog_abandon(slot);
+  if (slot != NULL) pxui_dialog_abandon(slot);
 }
 
 typedef struct {
@@ -270,7 +270,7 @@ static int SDLCALL finish_on_thread(void *data)
 {
   finish_request *request = (finish_request *)data;
   if (request->error != NULL) SDL_SetError("%s", request->error);
-  rays_dialog_callback(request->slot, request->paths, -1);
+  pxui_dialog_callback(request->slot, request->paths, -1);
   return 0;
 }
 
@@ -282,7 +282,16 @@ static bool finish_in_thread(finish_request *request)
   return true;
 }
 
-bool rays_sdl3_test_dialog_finish(int id, const char *const *paths, int count, bool failed)
+/* Like pxui_sdl3_test_dialog_reserve, for a dialog opened by `window`. */
+int pxui_sdl3_test_dialog_reserve_for(Uint32 window)
+{
+  int id = pxui_sdl3_test_dialog_reserve(), index;
+  for (index = 0; id != 0 && index < TEST_SLOTS; index++)
+    if (test_ids[index] == id && test_slots[index] != NULL) pxui_dialog_set_owner(test_slots[index], window);
+  return id;
+}
+
+bool pxui_sdl3_test_dialog_finish(int id, const char *const *paths, int count, bool failed)
 {
   finish_request request;
   const char *list[8];
@@ -300,13 +309,13 @@ bool rays_sdl3_test_dialog_finish(int id, const char *const *paths, int count, b
     request.paths = list;
   }
   if (!finish_in_thread(&request)) {
-    rays_dialog_abandon(slot);
+    pxui_dialog_abandon(slot);
     return false;
   }
   return true;
 }
 
-bool rays_sdl3_test_dialog_finish_huge(int id)
+bool pxui_sdl3_test_dialog_finish_huge(int id)
 {
   enum { HUGE_COUNT = 5000 };
   finish_request request;
@@ -324,16 +333,16 @@ bool rays_sdl3_test_dialog_finish_huge(int id)
   request.error = NULL;
   success = finish_in_thread(&request);
   free(list);
-  if (!success) rays_dialog_abandon(slot);
+  if (!success) pxui_dialog_abandon(slot);
   return success;
 }
 
-#ifdef RAYS_SDL3_MACOS
+#ifdef PXUI_SDL3_MACOS
 #include <ApplicationServices/ApplicationServices.h>
 #include <objc/message.h>
 #include <objc/runtime.h>
 
-void rays_sdl3_test_post_scroll(int points, int phase)
+void pxui_sdl3_test_post_scroll(int points, int phase)
 {
   CGEventRef event = CGEventCreateScrollWheelEvent(NULL, kCGScrollEventUnitPixel, 1, (int32_t)points);
   id native, app;
@@ -347,10 +356,10 @@ void rays_sdl3_test_post_scroll(int points, int phase)
   CFRelease(event);
 }
 #else
-void rays_sdl3_test_post_scroll(int points, int phase) { (void)points; (void)phase; }
+void pxui_sdl3_test_post_scroll(int points, int phase) { (void)points; (void)phase; }
 #endif
 
-bool rays_sdl3_test_push_touch_trace(uint32_t id) {
+bool pxui_sdl3_test_push_touch_trace(uint32_t id) {
   if (!SDL_GetWindowFromID(id)) return false;
   const SDL_EventType types[]={SDL_EVENT_FINGER_DOWN,SDL_EVENT_FINGER_MOTION,SDL_EVENT_FINGER_UP,SDL_EVENT_FINGER_CANCELED};
   for (unsigned i=0;i<4;i++) {
@@ -364,12 +373,12 @@ bool rays_sdl3_test_push_touch_trace(uint32_t id) {
   return true;
 }
 
-bool rays_sdl3_test_touch_mouse_emulation_disabled(void) {
+bool pxui_sdl3_test_touch_mouse_emulation_disabled(void) {
   return !SDL_GetHintBoolean(SDL_HINT_TOUCH_MOUSE_EVENTS, true) &&
          !SDL_GetHintBoolean(SDL_HINT_MOUSE_TOUCH_EVENTS, true);
 }
 
-bool rays_sdl3_test_push_finger(int phase, double x, double y) {
+bool pxui_sdl3_test_push_finger(int phase, double x, double y) {
   SDL_Window *window = SDL_GetKeyboardFocus();
   int width = 0, height = 0;
   if (!window || phase < 0 || phase > 3 || !SDL_GetWindowSize(window, &width, &height) || width <= 0 || height <= 0) return false;
@@ -383,5 +392,37 @@ bool rays_sdl3_test_push_finger(int phase, double x, double y) {
   event.tfinger.x = (float)(x / width);
   event.tfinger.y = (float)(y / height);
   event.tfinger.pressure = 0.5f;
+  return push(&event);
+}
+
+/* One event that names `window`: 0 key A down, 1 pointer motion, 2 focus gained, 3 focus lost,
+   4 close requested, 5 text input, 6 quit (names no window). */
+bool pxui_sdl3_test_push_window_event(Uint32 window, int kind)
+{
+  SDL_Event event;
+  SDL_zero(event);
+  switch (kind) {
+  case 0:
+    event.key.type = SDL_EVENT_KEY_DOWN; event.key.key = SDLK_A; event.key.scancode = SDL_SCANCODE_A;
+    event.key.down = true; event.key.windowID = window;
+    break;
+  case 1:
+    event.motion.type = SDL_EVENT_MOUSE_MOTION; event.motion.x = 5.f; event.motion.y = 6.f;
+    event.motion.windowID = window;
+    break;
+  case 2: case 3: case 4:
+    event.window.type = kind == 2 ? SDL_EVENT_WINDOW_FOCUS_GAINED
+        : kind == 3 ? SDL_EVENT_WINDOW_FOCUS_LOST : SDL_EVENT_WINDOW_CLOSE_REQUESTED;
+    event.window.windowID = window;
+    break;
+  case 5:
+    event.text.type = SDL_EVENT_TEXT_INPUT; event.text.text = input_text; event.text.windowID = window;
+    break;
+  case 6:
+    event.quit.type = SDL_EVENT_QUIT;
+    break;
+  default:
+    return false;
+  }
   return push(&event);
 }

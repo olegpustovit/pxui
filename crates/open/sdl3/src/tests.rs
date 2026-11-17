@@ -82,9 +82,9 @@ fn sdl_calls_are_refused_from_worker_threads() {
         assert_eq!(crate::clipboard::get_text().unwrap_err().kind, ErrorKind::WrongDomain);
         assert_eq!(crate::hint::control_click_is_right_click(true).unwrap_err().kind, ErrorKind::WrongDomain);
         assert_eq!(crate::event::poll_coalesced().unwrap_err().kind, ErrorKind::WrongDomain);
-        let mut retained = vec![crate::Event::Quit];
+        let mut retained = vec![(0, crate::Event::Quit)];
         assert_eq!(crate::event::poll_coalesced_into(&mut retained).unwrap_err().kind, ErrorKind::WrongDomain);
-        assert_eq!(retained, vec![crate::Event::Quit]);
+        assert_eq!(retained, vec![(0, crate::Event::Quit)]);
         assert!(matches!(crate::Window::create("wrong domain", 8, 8, &[]),
             Err(error) if error.kind == ErrorKind::WrongDomain));
     }).join().unwrap();
@@ -208,7 +208,7 @@ fn typed_event_trace_and_async_dialog_outcomes_match_native_bridge() {
     crate::init::init(&[crate::init::Subsystem::Events]).unwrap();
     let _ = crate::event::poll_coalesced().unwrap();
     assert!(sdl3_sys::test_util::push_event_trace());
-    let events = crate::event::poll_coalesced().unwrap();
+    let events: Vec<_> = crate::event::poll_coalesced().unwrap().into_iter().map(|(_, event)| event).collect();
     use crate::Key as K;
     use crate::KeyModifier as M;
     use crate::WindowChange as W;
@@ -262,7 +262,7 @@ fn typed_event_trace_and_async_dialog_outcomes_match_native_bridge() {
         crate::Event::Drop { change: crate::DropChange::File(path), .. } if path == "/tmp/žaba.png")));
 
     let outcomes = || -> Vec<(i32, crate::DialogOutcome)> {
-        crate::event::poll_coalesced().unwrap().into_iter().filter_map(|event| match event {
+        crate::event::poll_coalesced().unwrap().into_iter().filter_map(|(_, event)| match event {
             crate::Event::Dialog { id, outcome } => Some((id, outcome)),
             _ => None,
         }).collect()
@@ -301,7 +301,7 @@ fn typed_event_trace_and_async_dialog_outcomes_match_native_bridge() {
     assert_ne!(recovered, 0);
     sdl3_sys::test_util::dialog_abandon(recovered);
     assert!(sdl3_sys::test_util::push_resize_burst());
-    assert_eq!(crate::event::poll_coalesced().unwrap(), vec![
+    assert_eq!(crate::event::poll_coalesced().unwrap().into_iter().map(|(_, event)| event).collect::<Vec<_>>(), vec![
         crate::Event::Window(W::Resized(800, 600)),
         crate::Event::Window(W::PixelSizeChanged(1280, 960)),
     ]);
@@ -309,13 +309,14 @@ fn typed_event_trace_and_async_dialog_outcomes_match_native_bridge() {
     let inside_pump = std::rc::Rc::new(std::cell::Cell::new(false));
     let observed_redraws = std::rc::Rc::clone(&redraws);
     let observed_pump = std::rc::Rc::clone(&inside_pump);
-    crate::event::set_live_resize_callback(Some(Box::new(move || {
+    crate::event::set_live_resize_callback(Some(Box::new(move |window| {
+        assert_eq!(window, 0, "the synthetic resize names no window");
         observed_pump.set(sdl3_sys::test_util::polling_event_queue());
         observed_redraws.set(observed_redraws.get() + 1);
         Ok(())
     }))).unwrap();
     sdl3_sys::test_util::queue_resize_during_poll();
-    assert_eq!(crate::event::poll_coalesced().unwrap(), vec![
+    assert_eq!(crate::event::poll_coalesced().unwrap().into_iter().map(|(_, event)| event).collect::<Vec<_>>(), vec![
         crate::Event::Window(W::PixelSizeChanged(640, 480)),
     ]);
     assert!(inside_pump.get(), "resize callback ran after the native pump returned");
@@ -334,14 +335,16 @@ fn live_resize_callback_runs_during_the_window_event_pump() {
     let callback_window = std::rc::Rc::clone(&window);
     let callback_ran = std::rc::Rc::new(std::cell::Cell::new(false));
     let observed = std::rc::Rc::clone(&callback_ran);
-    crate::event::set_live_resize_callback(Some(Box::new(move || {
+    crate::event::set_live_resize_callback(Some(Box::new(move |window| {
+        assert_eq!(window, 0, "the synthetic resize names no window");
         assert!(sdl3_sys::test_util::polling_event_queue());
         callback_window.size()?;
         observed.set(true);
         Ok(())
     }))).unwrap();
     sdl3_sys::test_util::queue_resize_during_poll();
-    assert_eq!(crate::event::poll_coalesced().unwrap(), vec![
+    // the window's own size events name it and do not merge with the synthetic one, which names none
+    assert_eq!(crate::event::poll_coalesced().unwrap().into_iter().filter(|(id, _)| *id == 0).map(|(_, event)| event).collect::<Vec<_>>(), vec![
         crate::Event::Window(crate::WindowChange::PixelSizeChanged(640, 480)),
     ]);
     assert!(callback_ran.get());

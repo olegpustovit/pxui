@@ -1,48 +1,51 @@
-#ifndef RAYS_SDL3_SYS_DIALOG_H
-#define RAYS_SDL3_SYS_DIALOG_H
+#ifndef PXUI_SDL3_SYS_DIALOG_H
+#define PXUI_SDL3_SYS_DIALOG_H
 
 #include <SDL3/SDL.h>
 #include <stdbool.h>
 #include <stddef.h>
 
-enum { RAYS_DIALOG_SLOTS = 8 };
+enum { PXUI_DIALOG_SLOTS = 8 };
 
 typedef enum {
-  RAYS_DIALOG_OPEN_FILE,
-  RAYS_DIALOG_OPEN_FILES,
-  RAYS_DIALOG_SAVE_FILE,
-  RAYS_DIALOG_OPEN_FOLDER
-} rays_dialog_kind;
+  PXUI_DIALOG_OPEN_FILE,
+  PXUI_DIALOG_OPEN_FILES,
+  PXUI_DIALOG_SAVE_FILE,
+  PXUI_DIALOG_OPEN_FOLDER
+} pxui_dialog_kind;
 
 typedef enum {
-  RAYS_OUTCOME_CHOSEN,
-  RAYS_OUTCOME_CANCELLED,
-  RAYS_OUTCOME_FAILED
-} rays_dialog_outcome_kind;
+  PXUI_OUTCOME_CHOSEN,
+  PXUI_OUTCOME_CANCELLED,
+  PXUI_OUTCOME_FAILED
+} pxui_dialog_outcome_kind;
 
 typedef struct {
   int id;
-  rays_dialog_outcome_kind outcome;
+  SDL_WindowID window;
+  pxui_dialog_outcome_kind outcome;
   char *payload;
   size_t payload_length;
   void *urls;
-} rays_dialog_result;
+} pxui_dialog_result;
 
-int rays_dialog_show(rays_dialog_kind kind, SDL_Window *window,
+int pxui_dialog_show(pxui_dialog_kind kind, SDL_Window *window,
     const char *const *names, const char *const *patterns, int count,
     const char *default_location);
-bool rays_dialog_take(rays_dialog_result *result);
+bool pxui_dialog_take(pxui_dialog_result *result);
 
-void *rays_dialog_reserve(const char *const *names, const char *const *patterns,
+void *pxui_dialog_reserve(const char *const *names, const char *const *patterns,
     int count, const char *default_location, int *id);
-void rays_dialog_abandon(void *slot);
-#if defined(RAYS_SDL3_IOS)
-void rays_dialog_set_urls(void *slot, void *urls);
-void rays_dialog_release_urls(void *urls);
-bool rays_dialog_ios_show(void *slot, SDL_Window *window, rays_dialog_kind kind,
+void pxui_dialog_abandon(void *slot);
+/* The window whose pump receives the slot's outcome (0: none, routed like any window-less event). */
+void pxui_dialog_set_owner(void *slot, SDL_WindowID window);
+#if defined(PXUI_SDL3_IOS)
+void pxui_dialog_set_urls(void *slot, void *urls);
+void pxui_dialog_release_urls(void *urls);
+bool pxui_dialog_ios_show(void *slot, SDL_Window *window, pxui_dialog_kind kind,
     const SDL_DialogFileFilter *filters, int count, const char *location);
-void rays_dialog_ios_close(SDL_WindowID window);
-void rays_dialog_close(SDL_WindowID window);
+void pxui_dialog_ios_close(SDL_WindowID window);
+void pxui_dialog_close(SDL_WindowID window);
 #endif
-void SDLCALL rays_dialog_callback(void *slot, const char *const *filelist, int filter);
+void SDLCALL pxui_dialog_callback(void *slot, const char *const *filelist, int filter);
 #endif

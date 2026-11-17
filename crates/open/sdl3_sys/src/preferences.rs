@@ -20,7 +20,7 @@ pub struct Preferences {
 impl Preferences {
     /// Create after the window and drop before it, so notifications can safely wake its event loop.
     pub fn open(window: u32, wake: extern "C" fn()) -> io::Result<Self> {
-        let raw = unsafe { rays_sdl3_preferences_create(window, wake) };
+        let raw = unsafe { pxui_sdl3_preferences_create(window, wake) };
         NonNull::new(raw)
             .map(|raw| Self {
                 raw,
@@ -32,27 +32,27 @@ impl Preferences {
     }
     pub fn snapshot(&self) -> Snapshot {
         let mut value = Snapshot::default();
-        unsafe { rays_sdl3_preferences_read(self.raw.as_ptr(), &mut value) };
+        unsafe { pxui_sdl3_preferences_read(self.raw.as_ptr(), &mut value) };
         value
     }
 }
 impl Drop for Preferences {
     fn drop(&mut self) {
-        unsafe { rays_sdl3_preferences_release(self.raw.as_ptr()) };
+        unsafe { pxui_sdl3_preferences_release(self.raw.as_ptr()) };
     }
 }
 unsafe extern "C" {
-    fn rays_sdl3_preferences_create(window: u32, wake: extern "C" fn()) -> *mut c_void;
-    fn rays_sdl3_preferences_read(environment: *mut c_void, state: *mut Snapshot);
-    fn rays_sdl3_preferences_release(environment: *mut c_void);
+    fn pxui_sdl3_preferences_create(window: u32, wake: extern "C" fn()) -> *mut c_void;
+    fn pxui_sdl3_preferences_read(environment: *mut c_void, state: *mut Snapshot);
+    fn pxui_sdl3_preferences_release(environment: *mut c_void);
 }
 
 #[cfg(all(feature = "test-util", target_os = "macos"))]
 pub fn verify_notifications() -> bool {
     unsafe extern "C" {
-        fn rays_sdl3_preferences_test_notifications() -> i32;
+        fn pxui_sdl3_preferences_test_notifications() -> i32;
     }
-    unsafe { rays_sdl3_preferences_test_notifications() != 0 }
+    unsafe { pxui_sdl3_preferences_test_notifications() != 0 }
 }
 
 #[cfg(test)]

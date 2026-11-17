@@ -8,6 +8,18 @@
 //! The SDL3 window host: window lifecycle, the event pump translated to `input` events, cursor,
 //! text input, clipboard and the native layer token a GPU backend presents to. A leaf: it knows
 //! nothing of the UI engine or the renderer; callers pass plain values.
+//!
+//! Many windows per process: SDL's one process queue is drained by whichever window pumps and routed
+//! by SDL window id (`router`), so each `Window::pump` returns only its own window's events. Focus,
+//! text input (IME) and dialog outcomes are per window; the clipboard is the system's (per seat).
+//!
+//! Per-process state, all on the initial thread: the router (one queue per open window, 4096 events
+//! each), SDL's dialog table (8 open dialogs; each outcome returns to the window that opened it), the
+//! macOS trackpad monitor (a 256-sample ring) and `sdl3::event`'s one live-resize callback, which is
+//! given the resized window's id to dispatch by.
+//!
+//! Threading: SDL, every `Window` and the router belong to the initial thread; only `wake` may be
+//! called from others.
 pub use sdl3::{FileSelection, TextInputOptions};
 
 use sdl3::cursor::{Cursor, Shape};
@@ -22,6 +34,7 @@ pub use sdl3::ax;
 
 pub mod translate;
 mod drops;
+mod router;
 pub mod app;
 #[cfg(target_os = "ios")]
 pub mod ios;
@@ -38,6 +51,9 @@ pub use sdl3::init::run_app;
 pub fn wake() -> bool { sdl3::event::wake() }
 
 pub type Error = String;
+
+/// Most failures a window keeps between `take_failure` calls; later ones are counted.
+pub const FAILURE_CAP: usize = 8;
 
 /// Window size in logical points and drawable size in pixels.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -102,6 +118,8 @@ pub struct DialogFilter {
 
 pub struct Window {
     handle: SdlWindow,
+    /// SDL's id for the window: the key the process router delivers its events by
+    id: u32,
     view: NativeView,
     vsync: bool,
     cursors: Vec<(CursorShape, Cursor)>,
@@ -115,8 +133,12 @@ pub struct Window {
     extent: Extent,
     started: Instant,
     dead: bool,
-    /// the last event-poll or extent re-read failure (`take_failure`); the next pump tries again
-    failure: Option<Error>,
+    /// event-poll and extent re-read failures since `take_failure` (the next pump tries again), at most
+    /// `FAILURE_CAP`; later ones are only counted in `failures_dropped`
+    failures: Vec<Error>,
+    failures_dropped: usize,
+    /// events this window lost since `take_failure`
+    lost: router::Lost,
     polled: Vec<sdl3::Event>,
     drops: drops::Drops,
     dialog_selections: Vec<(i64, Vec<FileSelection>)>,
@@ -126,10 +148,13 @@ fn fail(failure: sdl3::Error) -> Error {
     failure.to_string()
 }
 
+/// Offers `text` on the system clipboard. SDL's clipboard belongs to the seat, not to a window, so
+/// every window of the process shares it.
 pub fn clipboard_set_text(text: &str) -> Result<(), Error> {
     sdl3::clipboard::set_text(text).map_err(fail)
 }
 
+/// The system clipboard's text (the seat's, shared by every window).
 pub fn clipboard_get_text() -> Result<String, Error> {
     sdl3::clipboard::get_text().map_err(fail)
 }
@@ -230,8 +255,11 @@ impl Window {
             }
             // Size the target for the actual drawable once, rather than resizing it after.
             let extent = extent_in(unit, &handle)?;
+            let id = handle.id().map_err(fail)?;
+            router::register(id);
             Ok(Window {
                 handle,
+                id,
                 view,
                 vsync,
                 cursors: Vec::new(),
@@ -244,7 +272,9 @@ impl Window {
                 extent,
                 started: Instant::now(),
                 dead: false,
-                failure: None,
+                failures: Vec::new(),
+                failures_dropped: 0,
+                lost: router::Lost::default(),
                 polled: Vec::with_capacity(256),
                 drops: drops::Drops::default(),
                 dialog_selections: Vec::with_capacity(8),
@@ -261,51 +291,90 @@ impl Window {
         if self.dead { Err("window is destroyed".to_owned()) } else { Ok(()) }
     }
 
-    /// Appends the frame's events (positions in logical points) and says whether the window is
-    /// still open: false once a close request or quit arrived.
+    /// Appends this window's events (positions in logical points) and says whether the window is still
+    /// open: false once a close request or quit arrived. Events of the process's other windows stay
+    /// queued for their own pumps.
     pub fn pump(&mut self, events: &mut Vec<input::Event>) -> bool {
         self.dialog_selections.clear();
         let mut open = true;
-        if let Err(error) = sdl3::event::poll_coalesced_into(&mut self.polled) {
-            self.failure = Some(fail(error));
-        } else {
-            for raw in self.polled.drain(..) {
-                if matches!(raw, sdl3::Event::Window(sdl3::WindowChange::Resized(..) | sdl3::WindowChange::PixelSizeChanged(..))) {
-                    change_flag::announce(&mut self.changed);
-                }
-                let event = match raw {
-                    sdl3::Event::Dialog { id, outcome: sdl3::DialogOutcome::Chosen(files) } => {
-                        let paths = files.iter().map(|file| file.path().to_string_lossy().into_owned()).collect();
-                        self.dialog_selections.push((i64::from(id), files));
-                        Some(input::Event::FileDialog { id: i64::from(id), result: Ok(paths) })
+        match router::pump(self.id, &mut self.polled) {
+            Err(error) => self.record(fail(error)),
+            Ok(lost) => {
+                self.lost.overflow += lost.overflow;
+                self.lost.unrouted += lost.unrouted;
+                for raw in self.polled.drain(..) {
+                    if matches!(raw, sdl3::Event::Window(sdl3::WindowChange::Resized(..) | sdl3::WindowChange::PixelSizeChanged(..))) {
+                        change_flag::announce(&mut self.changed);
                     }
-                    raw => self.drops.translate(translate::in_points(self.unit, raw)),
-                };
-                if let Some(event) = event {
-                    open &= !matches!(event, input::Event::Closed);
-                    events.push(event);
+                    let event = match raw {
+                        sdl3::Event::Dialog { id, outcome: sdl3::DialogOutcome::Chosen(files) } => {
+                            let paths = files.iter().map(|file| file.path().to_string_lossy().into_owned()).collect();
+                            self.dialog_selections.push((i64::from(id), files));
+                            Some(input::Event::FileDialog { id: i64::from(id), result: Ok(paths) })
+                        }
+                        raw => self.drops.translate(translate::in_points(self.unit, raw)),
+                    };
+                    if let Some(event) = event {
+                        open &= !matches!(event, input::Event::Closed);
+                        events.push(event);
+                    }
                 }
             }
         }
         // a failed re-read keeps the last extent, is reported by `take_failure` and is retried
         if let Err(error) = self.sync() {
             change_flag::announce(&mut self.changed);
-            self.failure = Some(error);
+            self.record(error);
         }
         open
     }
 
-    /// The last failure to re-read the window's extent after a resize (the extent kept the last
-    /// good one), taken.
+    fn record(&mut self, failure: Error) {
+        if self.failures.len() < FAILURE_CAP {
+            self.failures.push(failure);
+        } else {
+            self.failures_dropped += 1;
+        }
+    }
+
+    /// Everything that went wrong since the last call, as one message, taken: failures to re-read the
+    /// extent after a resize (the extent kept the last good one) or to poll events, in order (at most
+    /// `FAILURE_CAP`, then a count), and how many events this window lost: past the router's
+    /// 4096-event queue while it went unpumped, or window-less events that reached no window because
+    /// two or more windows were open and none had focus. `None` when nothing went wrong.
     pub fn take_failure(&mut self) -> Option<Error> {
-        self.failure.take()
+        let lost = std::mem::take(&mut self.lost);
+        let more = std::mem::take(&mut self.failures_dropped);
+        if self.failures.is_empty() && more == 0 && lost == router::Lost::default() {
+            return None;
+        }
+        let mut parts: Vec<String> = self.failures.drain(..).collect();
+        if more > 0 {
+            parts.push(format!("{more} more failures"));
+        }
+        if lost.overflow > 0 {
+            parts.push(format!("{} events dropped: the window was not pumped for {} events", lost.overflow, router::QUEUE_CAP));
+        }
+        if lost.unrouted > 0 {
+            parts.push(format!("{} window-less events reached no window: several windows open and none focused", lost.unrouted));
+        }
+        Some(parts.join("; "))
     }
 
     /// Sleeps until an event arrives or `deadline` (seconds on the `time` clock) passes; `None` waits
     /// for an event. The events stay queued for the next `pump` (`pxui_wayland::Window::wait`).
     pub fn wait(&mut self, deadline: Option<f64>) {
+        // another window's pump may already have routed events here
+        if router::pending(self.id) {
+            return;
+        }
         let ms = deadline.map_or(i32::MAX, |at| ((at - self.time()).max(0.0) * 1000.0).ceil().min(f64::from(i32::MAX)) as i32);
         let _ = sdl3::event::wait(ms);
+    }
+
+    /// SDL's id for this window: the surface id its events are routed by, unique for the process's life.
+    pub fn id(&self) -> u32 {
+        self.id
     }
 
     /// Logical size in points.
@@ -511,6 +580,7 @@ impl Window {
             return Ok(());
         }
         self.dead = true;
+        router::unregister(self.id);
         self.dialog_selections.clear();
         let mut failure: Option<Error> = None;
         let mut record = |result: Result<(), sdl3::Error>| {
@@ -531,5 +601,12 @@ impl Window {
         record(self.handle.destroy());
         record(sdl3::init::quit_subsystems(&[sdl3::init::Subsystem::Video]));
         failure.map_or(Ok(()), Err)
+    }
+}
+
+impl Drop for Window {
+    /// A window dropped without `destroy` stops receiving events; its native handles release themselves.
+    fn drop(&mut self) {
+        router::unregister(self.id);
     }
 }

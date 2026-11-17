@@ -6,7 +6,7 @@
 #include <stdlib.h>
 #endif
 
-void rays_sdl3_configure_fatal_errors(void)
+void pxui_sdl3_configure_fatal_errors(void)
 {
 #ifdef _WIN32
   /* Rust leaves stack overflow to Windows. Keep fatal reporting noninteractive;
@@ -16,7 +16,7 @@ void rays_sdl3_configure_fatal_errors(void)
 #endif
 }
 
-#if defined(RAYS_SDL3_MACOS)
+#if defined(PXUI_SDL3_MACOS)
 #include <CoreFoundation/CoreFoundation.h>
 #include <pthread.h>
 #include <string.h>
@@ -26,14 +26,17 @@ void rays_sdl3_configure_fatal_errors(void)
 extern void *objc_autoreleasePoolPush(void);
 extern void objc_autoreleasePoolPop(void *pool);
 
-bool rays_sdl3_is_main_thread(void)
+bool pxui_sdl3_is_main_thread(void)
 {
   return pthread_main_np() && SDL_IsMainThread();
 }
 
-void rays_sdl3_retain_layer(void *layer) { CFRetain(layer); }
-void rays_sdl3_release_layer(void *layer) { CFRelease(layer); }
+void pxui_sdl3_retain_layer(void *layer) { CFRetain(layer); }
+void pxui_sdl3_release_layer(void *layer) { CFRelease(layer); }
 
+/* The trackpad scroll monitor is per process by design (one AppKit local monitor): installed once,
+   fed and drained on the initial thread, a ring of SCROLL_QUEUE samples that drops the oldest when
+   full. A sample names the SDL window under the pointer when it is taken (see take_scroll_event). */
 #define SCROLL_QUEUE 256
 typedef struct { double x, y, seconds; int phase; } scroll_item;
 static scroll_item scroll_queue[SCROLL_QUEUE];
@@ -91,7 +94,7 @@ static void scroll_push(id event)
   scroll_count++;
 }
 
-void rays_sdl3_scroll_monitor_install(void)
+void pxui_sdl3_scroll_monitor_install(void)
 {
   const unsigned long long scroll_wheel_mask = 1ULL << 22;
   Class events = objc_getClass("NSEvent");
@@ -112,7 +115,7 @@ void rays_sdl3_scroll_monitor_install(void)
   objc_autoreleasePoolPop(pool);
 }
 
-bool rays_sdl3_scroll_take(double *x, double *y, int *phase, double *seconds)
+bool pxui_sdl3_scroll_take(double *x, double *y, int *phase, double *seconds)
 {
   scroll_item item;
   if (scroll_count == 0) return false;
@@ -133,7 +136,7 @@ static id cocoa_window(SDL_Window *window)
       SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, NULL);
 }
 
-void rays_sdl3_window_plain_titlebar(SDL_Window *window)
+void pxui_sdl3_window_plain_titlebar(SDL_Window *window)
 {
   id native = cocoa_window(window);
   void *pool;
@@ -146,7 +149,7 @@ void rays_sdl3_window_plain_titlebar(SDL_Window *window)
   objc_autoreleasePoolPop(pool);
 }
 
-void rays_sdl3_app_activate(void)
+void pxui_sdl3_app_activate(void)
 {
   Class app_class = objc_getClass("NSApplication");
   id app;
@@ -159,7 +162,7 @@ void rays_sdl3_app_activate(void)
   objc_autoreleasePoolPop(pool);
 }
 
-void rays_sdl3_platform_set_window_background(SDL_Window *window,
+void pxui_sdl3_platform_set_window_background(SDL_Window *window,
     double red, double green, double blue)
 {
   id native = cocoa_window(window);
@@ -170,7 +173,7 @@ void rays_sdl3_platform_set_window_background(SDL_Window *window,
   pool = objc_autoreleasePoolPush();
   color = ((id (*)(id, SEL, double, double, double, double))objc_msgSend)(
       (id)colors, sel_getUid("colorWithSRGBRed:green:blue:alpha:"), red, green, blue, 1.);
-  if (!rays_sdl3_chrome_update_background(native, color)) {
+  if (!pxui_sdl3_chrome_update_background(native, color)) {
     ((void (*)(id, SEL, id))objc_msgSend)(native, sel_getUid("setBackgroundColor:"), color);
   }
   objc_autoreleasePoolPop(pool);
@@ -178,62 +181,62 @@ void rays_sdl3_platform_set_window_background(SDL_Window *window,
 
 #else
 
-#if defined(RAYS_SDL3_IOS)
+#if defined(PXUI_SDL3_IOS)
 #include <CoreFoundation/CoreFoundation.h>
 #include <pthread.h>
 #define SDL_MAIN_HANDLED
 #include <SDL3/SDL_main.h>
 
 static int (*ios_main)(void);
-static int rays_sdl3_ios_main(int argc, char **argv)
+static int pxui_sdl3_ios_main(int argc, char **argv)
 {
   (void)argc; (void)argv;
   return ios_main();
 }
-int rays_sdl3_run_app(int (*main_function)(void))
+int pxui_sdl3_run_app(int (*main_function)(void))
 {
   if (!pthread_main_np() || ios_main != NULL || main_function == NULL) return -1;
   ios_main = main_function;
-  return SDL_RunApp(0, NULL, rays_sdl3_ios_main, NULL);
+  return SDL_RunApp(0, NULL, pxui_sdl3_ios_main, NULL);
 }
-bool rays_sdl3_is_main_thread(void) { return pthread_main_np() && SDL_IsMainThread(); }
-void rays_sdl3_retain_layer(void *layer) { CFRetain(layer); }
-void rays_sdl3_release_layer(void *layer) { CFRelease(layer); }
+bool pxui_sdl3_is_main_thread(void) { return pthread_main_np() && SDL_IsMainThread(); }
+void pxui_sdl3_retain_layer(void *layer) { CFRetain(layer); }
+void pxui_sdl3_release_layer(void *layer) { CFRelease(layer); }
 #else
 static SDL_ThreadID initial_thread;
 
 #if defined(_MSC_VER)
-static void __cdecl rays_sdl3_record_initial_thread(void)
+static void __cdecl pxui_sdl3_record_initial_thread(void)
 {
   initial_thread = SDL_GetCurrentThreadID();
 }
 #pragma section(".CRT$XCU", read)
-__declspec(allocate(".CRT$XCU")) static void (__cdecl *rays_sdl3_initializer)(void) = rays_sdl3_record_initial_thread;
+__declspec(allocate(".CRT$XCU")) static void (__cdecl *pxui_sdl3_initializer)(void) = pxui_sdl3_record_initial_thread;
 #elif defined(__GNUC__) || defined(__clang__)
-__attribute__((constructor)) static void rays_sdl3_record_initial_thread(void)
+__attribute__((constructor)) static void pxui_sdl3_record_initial_thread(void)
 {
   initial_thread = SDL_GetCurrentThreadID();
 }
 #endif
 
-bool rays_sdl3_is_main_thread(void)
+bool pxui_sdl3_is_main_thread(void)
 {
   if (initial_thread == 0) initial_thread = SDL_GetCurrentThreadID();
   return SDL_GetCurrentThreadID() == initial_thread;
 }
 
-void rays_sdl3_retain_layer(void *layer) { (void)layer; }
-void rays_sdl3_release_layer(void *layer) { (void)layer; }
+void pxui_sdl3_retain_layer(void *layer) { (void)layer; }
+void pxui_sdl3_release_layer(void *layer) { (void)layer; }
 #endif
-void rays_sdl3_scroll_monitor_install(void) {}
-bool rays_sdl3_scroll_take(double *x, double *y, int *phase, double *seconds)
+void pxui_sdl3_scroll_monitor_install(void) {}
+bool pxui_sdl3_scroll_take(double *x, double *y, int *phase, double *seconds)
 {
   (void)x; (void)y; (void)phase; (void)seconds;
   return false;
 }
-void rays_sdl3_window_plain_titlebar(SDL_Window *window) { (void)window; }
-void rays_sdl3_app_activate(void) {}
-void rays_sdl3_platform_set_window_background(SDL_Window *window,
+void pxui_sdl3_window_plain_titlebar(SDL_Window *window) { (void)window; }
+void pxui_sdl3_app_activate(void) {}
+void pxui_sdl3_platform_set_window_background(SDL_Window *window,
     double red, double green, double blue)
 {
   (void)window; (void)red; (void)green; (void)blue;
@@ -241,7 +244,7 @@ void rays_sdl3_platform_set_window_background(SDL_Window *window,
 
 #endif
 
-SDL_MetalView rays_sdl3_create_metal_view(SDL_Window *window)
+SDL_MetalView pxui_sdl3_create_metal_view(SDL_Window *window)
 {
 #ifdef _WIN32
   return (SDL_MetalView)SDL_GetPointerProperty(SDL_GetWindowProperties(window),
@@ -251,7 +254,7 @@ SDL_MetalView rays_sdl3_create_metal_view(SDL_Window *window)
 #endif
 }
 
-void rays_sdl3_destroy_metal_view(SDL_MetalView view)
+void pxui_sdl3_destroy_metal_view(SDL_MetalView view)
 {
 #ifndef _WIN32
   SDL_Metal_DestroyView(view);
@@ -260,7 +263,7 @@ void rays_sdl3_destroy_metal_view(SDL_MetalView view)
 #endif
 }
 
-void *rays_sdl3_metal_layer(SDL_MetalView view)
+void *pxui_sdl3_metal_layer(SDL_MetalView view)
 {
 #ifdef _WIN32
   return (void *)view;

@@ -7,6 +7,12 @@ fn message(error: ogpu_core::error::Error) -> String {
     ogpu_core::error::to_string(&error)
 }
 
+/// One surface's GPU state: its own device, queue, frame pacing (`Frames` on the window's layer),
+/// renderer and bounded image cache (`images`: 1,024 entries, 128 MiB). Owned per surface, so N windows
+/// hold N devices; sharing one device across surfaces is a later step. Main thread only.
+///
+/// The GPU backend choice (`ogpu_core::impl_::select`) is per thread by design, held by the main
+/// thread: every `open` selects Metal, so all surfaces drive the same backend.
 pub struct Graphics {
     images: crate::images::ImageCache,
     renderer: Option<Renderer>,

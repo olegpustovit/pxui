@@ -12,7 +12,7 @@
 - (void)finish:(NSArray<NSURL *> *)urls;
 @end
 static NSMutableArray<PXUIDocumentPicker *> *activePickers;
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
 static __weak UIViewController *testPickerParent;
 #endif
 
@@ -36,16 +36,16 @@ static __weak UIViewController *testPickerParent;
             if (valid) { paths[index] = path.UTF8String; bytes += strlen(paths[index]) + 1; valid = bytes <= 1024 * 1024; }
         }
         if (valid) {
-            rays_dialog_set_urls(_slot, (__bridge_retained void *)[urls copy]);
-            rays_dialog_callback(_slot, paths, -1);
+            pxui_dialog_set_urls(_slot, (__bridge_retained void *)[urls copy]);
+            pxui_dialog_callback(_slot, paths, -1);
         } else {
             SDL_SetError("Invalid or oversized document selection");
-            rays_dialog_callback(_slot, NULL, -1);
+            pxui_dialog_callback(_slot, NULL, -1);
         }
         free(paths);
     } else {
         const char *empty[] = {NULL};
-        rays_dialog_callback(_slot, empty, -1);
+        pxui_dialog_callback(_slot, empty, -1);
     }
     [_picker dismissViewControllerAnimated:NO completion:nil];
     [activePickers removeObjectIdenticalTo:self];
@@ -55,21 +55,21 @@ static __weak UIViewController *testPickerParent;
 - (void)presentationControllerDidDismiss:(UIPresentationController *)controller { (void)controller; [self finish:nil]; }
 @end
 
-bool rays_dialog_ios_show(void *slot, SDL_Window *window, rays_dialog_kind kind,
+bool pxui_dialog_ios_show(void *slot, SDL_Window *window, pxui_dialog_kind kind,
     const SDL_DialogFileFilter *filters, int count, const char *location) {
     @autoreleasepool {
         if (!NSThread.isMainThread) return SDL_SetError("Document pickers require the main thread");
-        if (kind < RAYS_DIALOG_OPEN_FILE || kind > RAYS_DIALOG_OPEN_FOLDER) return SDL_SetError("Invalid document picker kind");
+        if (kind < PXUI_DIALOG_OPEN_FILE || kind > PXUI_DIALOG_OPEN_FOLDER) return SDL_SetError("Invalid document picker kind");
         // shortcut: open-only dialogs, add source-URL export when the sharing API is implemented.
-        if (kind == RAYS_DIALOG_SAVE_FILE) return SDL_SetError("iOS export requires a prepared source URL");
+        if (kind == PXUI_DIALOG_SAVE_FILE) return SDL_SetError("iOS export requires a prepared source URL");
         UIWindow *native = (__bridge UIWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
         UIViewController *parent = native.rootViewController;
         if (!parent || parent.presentedViewController) return SDL_SetError("The window cannot present another document picker");
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
         testPickerParent = parent;
 #endif
         NSMutableArray<UTType *> *types = [NSMutableArray new];
-        if (kind == RAYS_DIALOG_OPEN_FOLDER) [types addObject:UTTypeFolder];
+        if (kind == PXUI_DIALOG_OPEN_FOLDER) [types addObject:UTTypeFolder];
         else {
             for (int index = 0; index < count; index++) {
                 NSString *pattern = [NSString stringWithUTF8String:filters[index].pattern];
@@ -82,7 +82,7 @@ bool rays_dialog_ios_show(void *slot, SDL_Window *window, rays_dialog_kind kind,
         }
         UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initForOpeningContentTypes:types asCopy:NO];
         if (!picker) return SDL_SetError("Could not create the document picker");
-        picker.allowsMultipleSelection = kind == RAYS_DIALOG_OPEN_FILES;
+        picker.allowsMultipleSelection = kind == PXUI_DIALOG_OPEN_FILES;
         if (location) {
             NSString *path = [NSString stringWithUTF8String:location];
             if (path.isAbsolutePath) picker.directoryURL = [NSURL fileURLWithPath:path];
@@ -102,27 +102,27 @@ bool rays_dialog_ios_show(void *slot, SDL_Window *window, rays_dialog_kind kind,
         return true;
     }
 }
-void rays_dialog_ios_close(SDL_WindowID window) {
+void pxui_dialog_ios_close(SDL_WindowID window) {
     @autoreleasepool {
         for (PXUIDocumentPicker *handler in [activePickers copy]) if (handler.window == window) [handler finish:nil];
     }
 }
-void rays_dialog_release_urls(void *raw) { @autoreleasepool { id urls = (__bridge_transfer id)raw; (void)urls; } }
+void pxui_dialog_release_urls(void *raw) { @autoreleasepool { id urls = (__bridge_transfer id)raw; (void)urls; } }
 
-#ifdef RAYS_SDL3_TEST_UTIL
-bool rays_dialog_ios_test_idle(void) {
+#ifdef PXUI_SDL3_TEST_UTIL
+bool pxui_dialog_ios_test_idle(void) {
     return !activePickers.count && (!testPickerParent || !testPickerParent.presentedViewController);
 }
-bool rays_dialog_ios_test_ready(void) {
+bool pxui_dialog_ios_test_ready(void) {
     @autoreleasepool {
         PXUIDocumentPicker *handler = activePickers.firstObject;
         return handler && handler.picker.viewIfLoaded.window && !handler.picker.isBeingPresented;
     }
 }
-uintptr_t rays_dialog_ios_test_finish(int mode, const char *path) {
+uintptr_t pxui_dialog_ios_test_finish(int mode, const char *path) {
     @autoreleasepool {
         PXUIDocumentPicker *handler = activePickers.firstObject;
-        if (!NSThread.isMainThread || !handler || !rays_dialog_ios_test_ready()) return 0;
+        if (!NSThread.isMainThread || !handler || !pxui_dialog_ios_test_ready()) return 0;
         if (mode == 0) {
             [handler documentPickerWasCancelled:handler.picker];
             [handler presentationControllerDidDismiss:handler.picker.presentationController];
@@ -135,11 +135,11 @@ uintptr_t rays_dialog_ios_test_finish(int mode, const char *path) {
         return identity;
     }
 }
-bool rays_dialog_ios_test_close(void) {
+bool pxui_dialog_ios_test_close(void) {
     @autoreleasepool {
         PXUIDocumentPicker *handler = activePickers.firstObject;
         if (!NSThread.isMainThread || !handler) return false;
-        rays_dialog_close(handler.window);
+        pxui_dialog_close(handler.window);
         return activePickers.count == 0;
     }
 }

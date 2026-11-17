@@ -62,7 +62,8 @@ fn cocoa_layer_ownership_and_trackpad_phases() {
         touches.clear();
         sdl3::event::poll_coalesced_into(&mut touches).unwrap();
         assert_eq!(touches.len(),4);
-        for (index,event) in touches.iter().enumerate() {
+        for (index,(id,event)) in touches.iter().enumerate() {
+            assert_eq!(*id,window.id().unwrap(),"a touch names its window");
             let sdl3::Event::Touch {device,finger,phase,x,y,pressure,seconds}=event else {panic!("expected touch, got {event:?}");};
             assert_eq!((*device,*finger),(u64::MAX,0xfedcba9876543210));
             assert_eq!((*x,*y,*pressure),(-20.0,75.0,0.375));
@@ -77,7 +78,7 @@ fn cocoa_layer_ownership_and_trackpad_phases() {
     let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
     let mut phases = Vec::new();
     while phases.len() < 3 && std::time::Instant::now() < deadline {
-        phases.extend(sdl3::event::poll_coalesced().unwrap().into_iter().filter_map(|event| {
+        phases.extend(sdl3::event::poll_coalesced().unwrap().into_iter().filter_map(|(_, event)| {
             if let sdl3::Event::Scroll { phase, y, .. } = event { Some((phase, y)) } else { None }
         }));
         if phases.len() < 3 { std::thread::sleep(std::time::Duration::from_millis(10)); }

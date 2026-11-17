@@ -22,7 +22,7 @@ static void installBackground(NSWindow *window, CALayer *layer) {
     window.backgroundColor = dynamic;
 }
 
-int rays_sdl3_chrome_update_background(void *rawWindow, void *rawColor) {
+int pxui_sdl3_chrome_update_background(void *rawWindow, void *rawColor) {
     if (!NSThread.isMainThread || !rawWindow || !rawColor) return 0;
     NSWindow *window = (__bridge NSWindow *)rawWindow;
     void (^update)(NSColor *) = objc_getAssociatedObject(window, &backgroundKey);
@@ -37,7 +37,7 @@ static NSView *windowView(void *raw) {
     return [delegate isKindOfClass:NSView.class] ? delegate : nil;
 }
 
-int rays_sdl3_chrome_configure(void *raw, double minimum_width, double minimum_height) {
+int pxui_sdl3_chrome_configure(void *raw, double minimum_width, double minimum_height) {
     @autoreleasepool {
         NSView *view = windowView(raw);
         NSWindow *window = view.window;
@@ -57,20 +57,20 @@ int rays_sdl3_chrome_configure(void *raw, double minimum_width, double minimum_h
     }
 }
 
-int rays_sdl3_chrome_read(void *raw, RaysSDL3ChromeState *state) {
+int pxui_sdl3_chrome_read(void *raw, PxuiSDL3ChromeState *state) {
     @autoreleasepool {
         NSView *view = windowView(raw);
         NSWindow *window = view.window;
         if (!window || !state) return 0;
         NSRect layout = [view convertRect:window.contentLayoutRect fromView:nil];
         double top = view.isFlipped ? NSMinY(layout) - NSMinY(view.bounds) : NSMaxY(view.bounds) - NSMaxY(layout);
-        *state = (RaysSDL3ChromeState){ MAX(0, top), NSWidth(view.bounds), NSHeight(view.bounds), (window.styleMask & NSWindowStyleMaskResizable) != 0, [window standardWindowButton:NSWindowZoomButton].enabled, (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0, (window.collectionBehavior & NSWindowCollectionBehaviorFullScreenPrimary) != 0 };
+        *state = (PxuiSDL3ChromeState){ MAX(0, top), NSWidth(view.bounds), NSHeight(view.bounds), (window.styleMask & NSWindowStyleMaskResizable) != 0, [window standardWindowButton:NSWindowZoomButton].enabled, (window.styleMask & NSWindowStyleMaskFullSizeContentView) != 0, (window.collectionBehavior & NSWindowCollectionBehaviorFullScreenPrimary) != 0 };
         return 1;
     }
 }
 
-#ifdef RAYS_SDL3_TEST_UTIL
-int rays_sdl3_chrome_background_state(void *raw, double rgb[3]) {
+#ifdef PXUI_SDL3_TEST_UTIL
+int pxui_sdl3_chrome_background_state(void *raw, double rgb[3]) {
     @autoreleasepool {
         NSWindow *window = windowView(raw).window;
         NSColor *color = [window.backgroundColor colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
@@ -102,7 +102,7 @@ static NSColor *fallbackViewPixel(NSWindow *window) {
     return [[image colorAtX:0 y:0] colorUsingColorSpace:NSColorSpace.sRGBColorSpace];
 }
 
-int rays_sdl3_chrome_background_check(uint64_t (*clock)(void), uint64_t times[2]) {
+int pxui_sdl3_chrome_background_check(uint64_t (*clock)(void), uint64_t times[2]) {
     if (!NSThread.isMainThread) return 0;
     __weak id weakColor = nil, weakUpdate = nil;
     @autoreleasepool {
@@ -113,7 +113,7 @@ int rays_sdl3_chrome_background_check(uint64_t (*clock)(void), uint64_t times[2]
         window.releasedWhenClosed = NO;
         window.titlebarAppearsTransparent = YES;
         NSColor *red = [NSColor colorWithSRGBRed:1 green:0 blue:0 alpha:1];
-        if (rays_sdl3_chrome_update_background((__bridge void *)window, (__bridge void *)red)) return 0;
+        if (pxui_sdl3_chrome_update_background((__bridge void *)window, (__bridge void *)red)) return 0;
         NSColor *blue = [NSColor colorWithSRGBRed:0 green:0 blue:1 alpha:1];
         for (unsigned i=0; i<10; i++) window.backgroundColor = i%2 ? red : blue;
         uint64_t begin = clock();
@@ -134,7 +134,7 @@ int rays_sdl3_chrome_background_check(uint64_t (*clock)(void), uint64_t times[2]
         partial.wantsLayer = YES;
         partial.layer = layer;
         [window.contentView addSubview:partial];
-        rays_sdl3_chrome_configure((__bridge void *)layer, 10, 10);
+        pxui_sdl3_chrome_configure((__bridge void *)layer, 10, 10);
         if (objc_getAssociatedObject(window, &backgroundKey)) return 0;
         [partial removeFromSuperview];
         partial.layer = nil;
@@ -151,7 +151,7 @@ int rays_sdl3_chrome_background_check(uint64_t (*clock)(void), uint64_t times[2]
             const double *c = colors[i];
             window.viewsNeedDisplay = NO;
             NSColor *next = [NSColor colorWithSRGBRed:c[0] green:c[1] blue:c[2] alpha:1];
-            passed &= rays_sdl3_chrome_update_background((__bridge void *)window, (__bridge void *)next) != 0;
+            passed &= pxui_sdl3_chrome_update_background((__bridge void *)window, (__bridge void *)next) != 0;
             passed &= !window.viewsNeedDisplay;
             for (NSAppearanceName name in @[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]) {
                 [[NSAppearance appearanceNamed:name] performAsCurrentDrawingAppearance:^{
@@ -162,13 +162,13 @@ int rays_sdl3_chrome_background_check(uint64_t (*clock)(void), uint64_t times[2]
         begin = clock();
         for (unsigned i=0; i<100; i++) {
             NSColor *next = i%2 ? red : blue;
-            passed &= rays_sdl3_chrome_update_background((__bridge void *)window, (__bridge void *)next) != 0;
+            passed &= pxui_sdl3_chrome_update_background((__bridge void *)window, (__bridge void *)next) != 0;
         }
         end = clock();
         if (!begin || begin == UINT64_MAX || end == UINT64_MAX || end < begin) return 0;
         times[1] = end - begin;
         NSColor *green = [NSColor colorWithSRGBRed:0.1 green:0.7 blue:0.2 alpha:1];
-        passed &= rays_sdl3_chrome_update_background((__bridge void *)window, (__bridge void *)green) != 0;
+        passed &= pxui_sdl3_chrome_update_background((__bridge void *)window, (__bridge void *)green) != 0;
         [window setContentSize:NSMakeSize(120, 110)];
         NSColor *optimized = fallbackViewPixel(window);
         window.backgroundColor = green;

@@ -3,6 +3,10 @@
 //! or integer scale and the native layer token (`WaylandLayer`) a Vulkan backend presents to. Optional protocols
 //! (fractional scale, viewporter, cursor shape, decorations, text input, data device) degrade to no-ops.
 //! Empty on other targets.
+//!
+//! Many windows per process: each `Window` owns its own compositor connection, so its input, focus, text
+//! input and clipboard (set and read through that window's seat) are its own; nothing is shared between
+//! windows. Threading: a `Window` stays on the thread that opened it (it is not `Send`).
 #![cfg(target_os = "linux")]
 use native_layer_token_sys::WaylandLayer;
 use std::ffi::{CStr, CString, c_char, c_void};
@@ -73,41 +77,6 @@ pub const NO_FILE_DIALOG: &str = "file dialogs need the XDG desktop portal (org.
 /// Native binary startup policy: nothing to configure for a Wayland client.
 pub fn configure_native_process() -> Result<(), Error> {
     Ok(())
-}
-
-thread_local! {
-    /// The open windows' shim handles, newest last: the clipboard free functions use the newest.
-    static OPEN: std::cell::RefCell<Vec<NonNull<c_void>>> = const { std::cell::RefCell::new(Vec::new()) };
-    /// The clipboard while no window is open: a Wayland client reaches the selection only through a surface.
-    // designed limit (specification/pxui.md): process-local until a window opens (not handed to it); a windowless clipboard needs a seat focus anyway.
-    static LOCAL: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
-}
-
-fn newest() -> Option<*mut c_void> {
-    OPEN.with(|open| open.borrow().last().map(|w| w.as_ptr()))
-}
-
-/// Offers `text` as the clipboard selection through the newest open window; without one it stays in this process.
-pub fn clipboard_set_text(text: &str) -> Result<(), Error> {
-    match newest() {
-        Some(raw) => clipboard_set(raw, text),
-        None if text.contains('\0') => Err("clipboard text contains a NUL byte".to_owned()),
-        None => Ok(LOCAL.with(|local| *local.borrow_mut() = text.to_owned())),
-    }
-}
-
-/// The clipboard's text, read synchronously through the newest open window (waiting at most a second for the
-/// owning client); empty when the clipboard holds no text. `Window::request_paste` is the non-blocking form.
-pub fn clipboard_get_text() -> Result<String, Error> {
-    let Some(raw) = newest() else { return Ok(LOCAL.with(|local| local.borrow().clone())) };
-    // SAFETY: a live window from the registry; the returned text is copied, then released to the shim.
-    let text = unsafe { rw_clipboard_get(raw, 1000) };
-    if text.is_null() {
-        return Ok(String::new());
-    }
-    let copied = unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
-    unsafe { rw_event_free(text) };
-    Ok(copied)
 }
 
 fn clipboard_set(raw: *mut c_void, text: &str) -> Result<(), Error> {
@@ -287,7 +256,6 @@ impl Window {
             portal: None,
             surrounding: None,
         };
-        OPEN.with(|open| open.borrow_mut().push(raw));
         window.read_state();
         // SAFETY: a live window; the first swapchain is made at this drawable size.
         unsafe { rw_buffer_scale(raw.as_ptr(), window.scale120 / 120) };
@@ -578,6 +546,19 @@ impl Window {
         clipboard_set(self.live()?, text)
     }
 
+    /// The clipboard's text read synchronously through this window's seat, waiting at most a second for the
+    /// owning client; empty when the clipboard holds no text. `request_paste` is the non-blocking form.
+    pub fn clipboard_get_text(&mut self) -> Result<String, Error> {
+        // SAFETY: a live window; the returned text is copied, then released to the shim.
+        let text = unsafe { rw_clipboard_get(self.live()?, 1000) };
+        if text.is_null() {
+            return Ok(String::new());
+        }
+        let copied = unsafe { CStr::from_ptr(text) }.to_string_lossy().into_owned();
+        unsafe { rw_event_free(text) };
+        Ok(copied)
+    }
+
     /// Asks for the clipboard's text: exactly one `Event::Paste` arrives with a later `pump` (empty when the
     /// clipboard holds no text). Wayland reads the selection through a pipe, so the paste cannot be synchronous.
     pub fn request_paste(&mut self) -> Result<PasteSource, Error> {
@@ -656,7 +637,6 @@ impl Window {
     /// Invalidates the token and closes the window. GPU surfaces made from the token must be destroyed first.
     pub fn destroy(&mut self) -> Result<(), Error> {
         if let Some(raw) = self.raw.take() {
-            OPEN.with(|open| open.borrow_mut().retain(|w| *w != raw));
             self.token.invalidate();
             // SAFETY: the window is live and no longer reachable from self.
             unsafe { rw_close(raw.as_ptr()) };

@@ -7,7 +7,7 @@
 use pxui_core::a11y::{A11yAction, A11yTree, Action, NO_PARENT, Role, actions, node_id, state};
 use pxui_core::geom::Rect;
 use pxui_atspi::wire::{Conn, ERROR, METHOD_RETURN, Msg, SIGNAL};
-use pxui_atspi::{Bridge, NODE_PREFIX, ROOT_PATH, a11y_bus_address};
+use pxui_atspi::{Bridge, MAX_SURFACES, NODE_PREFIX, ROOT_PATH, a11y_bus_address};
 use std::io::{BufRead, BufReader};
 use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
@@ -15,6 +15,7 @@ use std::time::{Duration, Instant};
 const ACCESSIBLE: &str = "org.a11y.atspi.Accessible";
 const PROPS: &str = "org.freedesktop.DBus.Properties";
 const CACHE_PATH: &str = "/org/a11y/atspi/cache";
+const CACHE: &str = "org.a11y.atspi.Cache";
 
 /// A spawned daemon, terminated (SIGTERM, so it can clean up its own children) on drop.
 struct Daemon(Child);
@@ -45,14 +46,21 @@ fn private_bus() -> Option<(Daemon, String)> {
     Some((Daemon(child), line.trim().to_owned()))
 }
 
+/// The surface the walk publishes its tree as.
+const SURFACE: u64 = 7;
+
 fn path(id: u64) -> String {
-    format!("{NODE_PREFIX}{id}")
+    path_in(SURFACE, id)
+}
+
+fn path_in(surface: u64, id: u64) -> String {
+    format!("{NODE_PREFIX}{surface}/{id}")
 }
 
 struct Client {
     conn: Conn,
     bridge: Bridge,
-    actions: Vec<A11yAction>,
+    actions: Vec<(u64, A11yAction)>,
     /// (path, member, detail, detail1, any as text)
     signals: Vec<(String, String, String, i32, String)>,
 }
@@ -78,7 +86,7 @@ impl Client {
             assert!(self.bridge.pump(&mut self.actions), "bridge lost its bus");
             match self.conn.wait(5).expect("client connected") {
                 Some(r) if r.reply_serial() == serial && (r.kind() == METHOD_RETURN || r.kind() == ERROR) => return r,
-                Some(r) if r.kind() == SIGNAL && r.interface().starts_with("org.a11y.atspi.Event") => self.record(r),
+                Some(r) if r.kind() == SIGNAL && (r.interface().starts_with("org.a11y.atspi.Event") || r.interface() == CACHE) => self.record(r),
                 _ => {}
             }
         }
@@ -126,7 +134,7 @@ impl Client {
         while Instant::now() < deadline {
             self.bridge.pump(&mut self.actions);
             if let Some(m) = self.conn.wait(5).unwrap() {
-                if m.kind() == SIGNAL && m.interface().starts_with("org.a11y.atspi.Event") {
+                if m.kind() == SIGNAL && (m.interface().starts_with("org.a11y.atspi.Event") || m.interface() == CACHE) {
                     self.record(m);
                 }
             }
@@ -173,6 +181,7 @@ fn tree_moved(t: &mut A11yTree, button: &str, checked: bool, text: &str, caret: 
     t.end();
 }
 
+// Over one second: it starts a real dbus-daemon and at-spi-bus-launcher and waits for signals on the bus.
 #[test]
 fn atspi_bus_walk_actions_and_events() {
     let started = Instant::now();
@@ -220,7 +229,7 @@ fn atspi_bus_walk_actions_and_events() {
     conn.add_match("type='signal',interface='org.a11y.atspi.Event.Object'").unwrap();
     conn.add_match("type='signal',interface='org.a11y.atspi.Event.Focus'").unwrap();
     let mut c = Client { conn, bridge, actions: Vec::new(), signals: Vec::new() };
-    c.bridge.update(&t);
+    c.bridge.update(SURFACE, &t).unwrap();
     c.drain_signals(50);
     c.signals.clear();
 
@@ -326,9 +335,9 @@ fn atspi_bus_walk_actions_and_events() {
     });
     let id = |slot: u64| node_id(slot as usize, 1);
     assert_eq!(c.actions, vec![
-        A11yAction { id: id(BUTTON), action: Action::Press, payload: 0.0, end: 0.0 },
-        A11yAction { id: id(BUTTON), action: Action::Focus, payload: 0.0, end: 0.0 },
-        A11yAction { id: id(SLIDER), action: Action::SetValue, payload: 0.8, end: 0.0 },
+        (SURFACE, A11yAction { id: id(BUTTON), action: Action::Press, payload: 0.0, end: 0.0 }),
+        (SURFACE, A11yAction { id: id(BUTTON), action: Action::Focus, payload: 0.0, end: 0.0 }),
+        (SURFACE, A11yAction { id: id(SLIDER), action: Action::SetValue, payload: 0.8, end: 0.0 }),
     ]);
     let dest = c.bridge.bus_name().to_owned();
     let unknown = c.call_to(&dest, &path(999), ACCESSIBLE, "GetRole", &|_| {});
@@ -343,8 +352,8 @@ fn atspi_bus_walk_actions_and_events() {
         m.i(99);
     }).read_bool(), Some(true));
     assert_eq!(c.actions, vec![
-        A11yAction { id: id(FIELD), action: Action::Select, payload: 1.0, end: 3.0 },
-        A11yAction { id: id(FIELD), action: Action::Select, payload: 5.0, end: 5.0 },
+        (SURFACE, A11yAction { id: id(FIELD), action: Action::Select, payload: 1.0, end: 3.0 }),
+        (SURFACE, A11yAction { id: id(FIELD), action: Action::Select, payload: 5.0, end: 5.0 }),
     ], "the offset is clamped to the text");
     let mut run = c.call(&field, "org.a11y.atspi.Text", "GetAttributeRun", &|m| {
         m.i(2).b(true);
@@ -371,7 +380,7 @@ fn atspi_bus_walk_actions_and_events() {
     // Change events from the diff.
     c.signals.clear();
     tree(&mut t, "Apply all", true, "hello!", 6);
-    c.bridge.update(&t);
+    c.bridge.update(SURFACE, &t).unwrap();
     c.drain_signals(150);
     let has = |c: &Client, p: &str, member: &str, detail: &str, d1: i32, any: &str| {
         c.signals.iter().any(|s| s.0 == p && s.1 == member && s.2 == detail && s.3 == d1 && s.4 == any)
@@ -385,7 +394,7 @@ fn atspi_bus_walk_actions_and_events() {
     assert_eq!(n, 4, "checked, name, text insert, caret: {:?}", c.signals);
 
     // An unchanged revision sends nothing; a removed node is announced on its parent.
-    c.bridge.update(&t);
+    c.bridge.update(SURFACE, &t).unwrap();
     c.drain_signals(50);
     assert_eq!(c.signals.len(), n);
     t.begin();
@@ -393,26 +402,27 @@ fn atspi_bus_walk_actions_and_events() {
     t.set_name(w, "Demo window");
     t.set_states(w, state::ENABLED | state::VISIBLE | state::ACTIVE);
     t.end();
-    c.bridge.update(&t);
+    c.bridge.update(SURFACE, &t).unwrap();
     c.drain_signals(150);
     assert!(has(&c, &window, "ChildrenChanged", "remove", 0, ""), "{:?}", c.signals);
     assert_eq!(c.signals.len(), n + 1, "only the subtree's top is announced");
     tree(&mut t, "Apply all", true, "hello!", 6);
-    c.bridge.update(&t);
+    c.bridge.update(SURFACE, &t).unwrap();
     c.drain_signals(50);
 
     // Bounds, role and parent changes.
     c.signals.clear();
     tree_moved(&mut t, "Apply all", true, "hello!", 6, true);
-    c.bridge.update(&t);
+    c.bridge.update(SURFACE, &t).unwrap();
     c.drain_signals(150);
     assert!(has(&c, &button, "BoundsChanged", "", 0, ""), "{:?}", c.signals);
     assert!(has(&c, &toggle, "PropertyChange", "accessible-role", 0, ""), "{:?}", c.signals);
     assert!(has(&c, &slider, "PropertyChange", "accessible-parent", 0, ""), "{:?}", c.signals);
     tree(&mut t, "Apply all", true, "hello!", 6);
-    c.bridge.update(&t);
+    c.bridge.update(SURFACE, &t).unwrap();
 
     atspi_python_walk(&mut c, &address);
+    second_surface(&mut c, &t);
     drop(c);
     drop(launcher);
     drop(session);
@@ -462,5 +472,76 @@ else:
     }
     assert!(text.contains("application: pxui test") && text.contains("push button: Apply all") && text.contains("entry: Title"), "{text}");
     assert!(text.contains("ACTION click True"), "{text}");
-    assert_eq!(c.actions.last().map(|a| (a.id, a.action)), Some((node_id(BUTTON as usize, 1), Action::Press)));
+    assert_eq!(c.actions.last().map(|(surface, a)| (*surface, a.id, a.action)), Some((SURFACE, node_id(BUTTON as usize, 1), Action::Press)));
+}
+
+/// A second window of the same app: its tree (with the very same node ids) is served beside the first under
+/// its own surface, its window is the root's second child, its actions name it, and closing it removes it.
+fn second_surface(c: &mut Client, first: &A11yTree) {
+    const OTHER: u64 = 9;
+    let id = |slot: u64| node_id(slot as usize, 1);
+    let mut t = A11yTree::new();
+    tree(&mut t, "Other", false, "", 0);
+    c.signals.clear();
+    c.bridge.update(OTHER, &t).unwrap();
+    c.drain_signals(150);
+    let window = path_in(OTHER, id(WINDOW));
+    assert!(c.signals.iter().any(|s| s.0 == ROOT_PATH && s.1 == "ChildrenChanged" && s.2 == "add" && s.3 == 1), "{:?}", c.signals);
+    assert_eq!(c.children(ROOT_PATH), vec![path(id(WINDOW)), window.clone()]);
+    assert_eq!(c.prop(ROOT_PATH, ACCESSIBLE, "ChildCount").read_i32(), Some(2));
+    assert_eq!(c.call(&window, ACCESSIBLE, "GetIndexInParent", &|_| {}).read_i32(), Some(1));
+    let mut second = c.call(ROOT_PATH, ACCESSIBLE, "GetChildAtIndex", &|m| {
+        m.i(1);
+    });
+    second.enter();
+    second.read_str();
+    assert_eq!(second.read_str(), Some(window.as_str()));
+    // equal node ids, distinct objects
+    let (mine, theirs) = (path_in(OTHER, id(BUTTON)), path(id(BUTTON)));
+    assert_eq!((c.name(&mine), c.name(&theirs)), ("Other".to_owned(), "Apply all".to_owned()));
+    c.actions.clear();
+    assert_eq!(c.call(&mine, "org.a11y.atspi.Action", "DoAction", &|m| {
+        m.i(0);
+    }).read_bool(), Some(true));
+    assert_eq!(c.actions, vec![(OTHER, A11yAction { id: id(BUTTON), action: Action::Press, payload: 0.0, end: 0.0 })]);
+    // updating one surface leaves the other alone
+    c.bridge.update(SURFACE, first).unwrap();
+    assert_eq!(c.name(&theirs), "Apply all");
+
+    // a third window after it moves from index 2 to 1 when the second closes
+    const THIRD: u64 = 11;
+    c.bridge.update(THIRD, &t).unwrap();
+    let third = path_in(THIRD, id(WINDOW));
+    assert_eq!(c.call(&third, ACCESSIBLE, "GetIndexInParent", &|_| {}).read_i32(), Some(2));
+    // from here the cache's announcements are recorded too
+    c.conn.add_match("type='signal',interface='org.a11y.atspi.Cache'").unwrap();
+    c.drain_signals(50);
+    c.signals.clear();
+    c.bridge.remove_surface(OTHER);
+    c.drain_signals(150);
+    assert!(c.signals.iter().any(|s| s.0 == ROOT_PATH && s.1 == "ChildrenChanged" && s.2 == "remove" && s.3 == 1), "{:?}", c.signals);
+    assert_eq!(c.signals.iter().filter(|s| s.0 == CACHE_PATH && s.1 == "AddAccessible").count(), 1, "the moved window is re-announced: {:?}", c.signals);
+    assert_eq!(c.children(ROOT_PATH), vec![path(id(WINDOW)), third.clone()]);
+    assert_eq!(c.call(&third, ACCESSIBLE, "GetIndexInParent", &|_| {}).read_i32(), Some(1));
+    c.bridge.remove_surface(THIRD);
+    assert_eq!(c.children(ROOT_PATH), vec![path(id(WINDOW))]);
+    let dest = c.bridge.bus_name().to_owned();
+    let gone = c.call_to(&dest, &mine, ACCESSIBLE, "GetRole", &|_| {});
+    assert_eq!((gone.kind(), gone.error_name()), (ERROR, "org.freedesktop.DBus.Error.UnknownObject"));
+
+    // the surface count is bounded
+    let mut tiny = A11yTree::new();
+    tiny.begin();
+    tiny.push(NO_PARENT, 1, Role::Window, Rect::new(0.0, 0.0, 1.0, 1.0));
+    tiny.end();
+    for surface in 100..100 + MAX_SURFACES as u64 - 1 {
+        c.bridge.update(surface, &tiny).unwrap();
+    }
+    assert!(c.bridge.update(1, &tiny).is_err(), "a surface past MAX_SURFACES is refused");
+    for surface in 100..100 + MAX_SURFACES as u64 - 1 {
+        c.bridge.remove_surface(surface);
+    }
+    c.bridge.update(1, &tiny).unwrap();
+    c.bridge.remove_surface(1);
+    c.drain_signals(50);
 }

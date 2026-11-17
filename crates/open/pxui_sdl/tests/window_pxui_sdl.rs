@@ -155,6 +155,83 @@ fn window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump() {
     assert!(window.take_dialog_selection(i64::from(id)).is_err());
 }
 
+// Two windows share SDL's one process queue: each pump returns only events naming its own window,
+// whichever window drains the queue first; focus, close and quit are per window.
+fn two_windows_take_only_their_own_events() {
+    use input::{Event, Key};
+    use sdl3_sys::test_util::push_window_event as push;
+    let (key, motion, focus, unfocus, close, text, quit) = (0, 1, 2, 3, 4, 5, 6);
+    let mut a = Window::open_with("router a", 40, 30, false, true, true).unwrap();
+    let mut b = Window::open_with("router b", 40, 30, false, true, true).unwrap();
+    assert_ne!(a.id(), b.id());
+    let (mut ea, mut eb) = (Vec::with_capacity(64), Vec::with_capacity(64));
+    a.pump(&mut ea);
+    b.pump(&mut eb);
+    let pumped = |window: &mut Window, events: &mut Vec<Event>| { events.clear(); window.pump(events) };
+    let key_a = |events: &[Event]| events.iter().any(|e| *e == Event::KeyPressed(Key::KeyChar('a')));
+    let moved = |events: &[Event]| events.iter().any(|e| matches!(e, Event::PointerMoved(_)));
+    let typed = |events: &[Event]| events.iter().any(|e| matches!(e, Event::TextInput(_)));
+
+    // b pumps first and drains the queue: a's events wait for a
+    assert!(push(a.id(), key) && push(b.id(), motion) && push(a.id(), text) && push(b.id(), close));
+    assert!(!pumped(&mut b, &mut eb), "b's close request closes b");
+    assert!(moved(&eb) && eb.contains(&Event::Closed) && !key_a(&eb) && !typed(&eb), "b got {eb:?}");
+    assert!(pumped(&mut a, &mut ea), "b's close request must not close a");
+    assert!(key_a(&ea) && typed(&ea) && !moved(&ea) && !ea.contains(&Event::Closed), "a got {ea:?}");
+
+    // focus is per window, and an event naming no window goes to the focused one
+    assert!(push(b.id(), focus) && push(0, key));
+    assert!(pumped(&mut a, &mut ea));
+    assert!(ea.is_empty(), "a got {ea:?}");
+    assert!(pumped(&mut b, &mut eb));
+    assert_eq!(eb, [Event::FocusGained, Event::KeyPressed(Key::KeyChar('a'))]);
+    assert!(push(b.id(), unfocus) && push(a.id(), focus) && push(0, motion));
+    assert!(pumped(&mut b, &mut eb) && eb == [Event::FocusLost], "b got {eb:?}");
+    assert!(pumped(&mut a, &mut ea) && ea.contains(&Event::FocusGained) && moved(&ea), "a got {ea:?}");
+
+    // a dialog's outcome returns to the window that opened it, even while another has focus
+    assert!(push(a.id(), unfocus) && push(b.id(), focus));
+    assert!(pumped(&mut a, &mut ea) && pumped(&mut b, &mut eb));
+    let dialog = sdl3_sys::test_util::dialog_reserve_for(a.id());
+    assert!(dialog > 0 && sdl3_sys::test_util::dialog_finish(dialog, Some(&["/tmp/opened-by-a"])));
+    let chose = |events: &[Event]| events.iter().any(|e| matches!(e, Event::FileDialog { id, .. } if *id == i64::from(dialog)));
+    assert!(pumped(&mut b, &mut eb) && !chose(&eb), "b got a's dialog: {eb:?}");
+    assert!(pumped(&mut a, &mut ea) && chose(&ea), "a got {ea:?}");
+    assert_eq!(a.take_dialog_selection(i64::from(dialog)).unwrap().len(), 1);
+
+    // with two windows and none focused a window-less event reaches neither, and both report it;
+    // past the queue cap events are counted, a close request is still delivered, and the two losses
+    // are reported together rather than one overwriting the other
+    assert!(push(b.id(), unfocus) && push(0, key));
+    for _ in 0..4100 { assert!(push(a.id(), key)); }
+    assert!(push(a.id(), close));
+    assert!(pumped(&mut b, &mut eb) && eb == [Event::FocusLost], "b got {eb:?}");
+    assert!(!pumped(&mut a, &mut ea), "a's close request survives the full queue");
+    assert_eq!((ea.len(), ea.last()), (4097, Some(&Event::Closed)));
+    let report = a.take_failure().unwrap();
+    assert!(report.contains("4 events dropped") && report.contains("1 window-less events"), "{report}");
+    assert!(b.take_failure().unwrap().contains("1 window-less events"));
+    assert!(a.take_failure().is_none(), "the report is taken once");
+
+    // quit closes every window
+    assert!(push(0, quit));
+    assert!(!pumped(&mut a, &mut ea) && !pumped(&mut b, &mut eb));
+
+    // events for a closed window are dropped, not handed to the survivor
+    let closed = b.id();
+    b.destroy().unwrap();
+    assert!(push(closed, key) && push(closed, motion));
+    assert!(pumped(&mut a, &mut ea) && ea.is_empty(), "a got {ea:?}");
+    // warm routing allocates nothing
+    for round in 0..8 {
+        assert!(push(a.id(), key) && push(a.id(), motion));
+        mem_sys::local_reset();
+        assert!(pumped(&mut a, &mut ea) && key_a(&ea) && moved(&ea));
+        if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm routed pump allocated"); }
+    }
+    a.destroy().unwrap();
+}
+
 #[cfg(target_os = "macos")]
 fn original_url_bookmarks_refuse_the_initial_thread() {
     let (selected, _) = sdl3_sys::test_util::file_selection(&std::env::temp_dir()).unwrap();
@@ -316,6 +393,7 @@ fn main() {
         ("window_completed_drop_spans_pumps_and_cancel_reuses_buffers", window_completed_drop_spans_pumps_and_cancel_reuses_buffers),
         ("window_visibility", window_visibility),
         ("window_numeric_input_zero_alloc", window_numeric_input_zero_alloc),
+        ("two_windows_take_only_their_own_events", two_windows_take_only_their_own_events),
         ("window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump", window_dialog_capabilities_are_taken_once_and_expire_on_the_next_pump),
         #[cfg(target_os = "macos")]
         ("original_url_bookmarks_refuse_the_initial_thread", original_url_bookmarks_refuse_the_initial_thread),

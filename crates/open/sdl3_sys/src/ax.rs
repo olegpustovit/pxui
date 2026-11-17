@@ -61,37 +61,37 @@ impl Bridge {
     /// `wake` runs on the main thread when an assistive client queues an action, to end the host's wait.
     pub fn open(layer: &Token, wake: extern "C" fn()) -> io::Result<Self> {
         let guard = layer.borrow_raw(layer.owner_id(), layer.generation()).ok_or_else(unavailable)?;
-        NonNull::new(unsafe { rays_sdl3_ax_open(guard.as_ptr(), wake) })
+        NonNull::new(unsafe { pxui_sdl3_ax_open(guard.as_ptr(), wake) })
             .map(|raw| Self { raw, _main: PhantomData })
             .ok_or_else(unavailable)
     }
     /// Whether VoiceOver is running (read from the system; call at a low rate).
     pub fn voiceover() -> bool {
-        unsafe { rays_sdl3_ax_voiceover() != 0 }
+        unsafe { pxui_sdl3_ax_voiceover() != 0 }
     }
     /// Publishes a tree: `strings` is the text its ranges point into, `first_top` its first top-level
     /// node (`NONE` for an empty tree). Malformed input is refused and leaves the previous tree.
     pub fn sync(&mut self, nodes: &[Node], strings: &[u8], first_top: u32) -> io::Result<()> {
         let (Ok(count), Ok(length)) = (u32::try_from(nodes.len()), u32::try_from(strings.len())) else { return Err(refused()) };
-        let done = unsafe { rays_sdl3_ax_sync(self.raw.as_ptr(), nodes.as_ptr(), count, strings.as_ptr(), length, first_top) };
+        let done = unsafe { pxui_sdl3_ax_sync(self.raw.as_ptr(), nodes.as_ptr(), count, strings.as_ptr(), length, first_top) };
         if done == 0 { Err(refused()) } else { Ok(()) }
     }
     /// Drops every element: the client sees an empty window.
     pub fn clear(&mut self) {
-        unsafe { rays_sdl3_ax_clear(self.raw.as_ptr()) }
+        unsafe { pxui_sdl3_ax_clear(self.raw.as_ptr()) }
     }
     /// Moves queued client requests into `out` (oldest first) and returns how many.
     pub fn take(&mut self, out: &mut [Action]) -> usize {
-        unsafe { rays_sdl3_ax_take(self.raw.as_ptr(), out.as_mut_ptr(), out.len() as u32) as usize }
+        unsafe { pxui_sdl3_ax_take(self.raw.as_ptr(), out.as_mut_ptr(), out.len() as u32) as usize }
     }
     /// NSAccessibility notifications posted so far.
     pub fn notifications(&self) -> u64 {
-        unsafe { rays_sdl3_ax_notifications(self.raw.as_ptr()) }
+        unsafe { pxui_sdl3_ax_notifications(self.raw.as_ptr()) }
     }
 }
 impl Drop for Bridge {
     fn drop(&mut self) {
-        unsafe { rays_sdl3_ax_close(self.raw.as_ptr()) }
+        unsafe { pxui_sdl3_ax_close(self.raw.as_ptr()) }
     }
 }
 fn unavailable() -> io::Error {
@@ -102,13 +102,13 @@ fn refused() -> io::Error {
 }
 const _: () = assert!(size_of::<Node>() == 128 && size_of::<Action>() == 24);
 unsafe extern "C" {
-    fn rays_sdl3_ax_open(layer: *mut c_void, wake: extern "C" fn()) -> *mut c_void;
-    fn rays_sdl3_ax_close(host: *mut c_void);
-    fn rays_sdl3_ax_voiceover() -> i32;
-    fn rays_sdl3_ax_sync(host: *mut c_void, nodes: *const Node, count: u32, strings: *const u8, length: u32, first_top: u32) -> i32;
-    fn rays_sdl3_ax_clear(host: *mut c_void);
-    fn rays_sdl3_ax_take(host: *mut c_void, out: *mut Action, capacity: u32) -> u32;
-    fn rays_sdl3_ax_notifications(host: *mut c_void) -> u64;
+    fn pxui_sdl3_ax_open(layer: *mut c_void, wake: extern "C" fn()) -> *mut c_void;
+    fn pxui_sdl3_ax_close(host: *mut c_void);
+    fn pxui_sdl3_ax_voiceover() -> i32;
+    fn pxui_sdl3_ax_sync(host: *mut c_void, nodes: *const Node, count: u32, strings: *const u8, length: u32, first_top: u32) -> i32;
+    fn pxui_sdl3_ax_clear(host: *mut c_void);
+    fn pxui_sdl3_ax_take(host: *mut c_void, out: *mut Action, capacity: u32) -> u32;
+    fn pxui_sdl3_ax_notifications(host: *mut c_void) -> u64;
 }
 
 /// What an assistive client reads from one element, queried through the NSAccessibility protocol.
@@ -146,8 +146,8 @@ pub mod test {
         pub fn value(&self) -> &str { text(&self.value) }
     }
     unsafe extern "C" {
-        fn rays_sdl3_ax_test_find(host: *mut c_void, label: *const c_char, info: *mut Info) -> i32;
-        fn rays_sdl3_ax_test_perform(host: *mut c_void, label: *const c_char, kind: i32, number: f64) -> i32;
+        fn pxui_sdl3_ax_test_find(host: *mut c_void, label: *const c_char, info: *mut Info) -> i32;
+        fn pxui_sdl3_ax_test_perform(host: *mut c_void, label: *const c_char, kind: i32, number: f64) -> i32;
     }
     fn zeroed() -> Info {
         Info { role: [0; 64], label: [0; 128], value: [0; 128], has_number: 0, enabled: 0, selected: 0, expanded: 0, focused: 0,
@@ -157,12 +157,12 @@ pub mod test {
     pub fn find(bridge: &Bridge, label: &str) -> Option<Info> {
         let label = CString::new(label).ok()?;
         let mut info = zeroed();
-        (unsafe { rays_sdl3_ax_test_find(bridge.raw.as_ptr(), label.as_ptr(), &mut info) } != 0).then_some(info)
+        (unsafe { pxui_sdl3_ax_test_find(bridge.raw.as_ptr(), label.as_ptr(), &mut info) } != 0).then_some(info)
     }
     /// How many top-level elements the content view reports.
     pub fn top_level(bridge: &Bridge) -> i32 {
         let mut info = zeroed();
-        unsafe { rays_sdl3_ax_test_find(bridge.raw.as_ptr(), std::ptr::null(), &mut info) };
+        unsafe { pxui_sdl3_ax_test_find(bridge.raw.as_ptr(), std::ptr::null(), &mut info) };
         info.children
     }
     pub const PRESS: i32 = 0;
@@ -174,7 +174,7 @@ pub mod test {
     /// Calls the protocol method; `None` when there is no such element, else its BOOL result.
     pub fn perform(bridge: &Bridge, label: &str, kind: i32, number: f64) -> Option<bool> {
         let label = CString::new(label).ok()?;
-        match unsafe { rays_sdl3_ax_test_perform(bridge.raw.as_ptr(), label.as_ptr(), kind, number) } {
+        match unsafe { pxui_sdl3_ax_test_perform(bridge.raw.as_ptr(), label.as_ptr(), kind, number) } {
             -1 => None,
             r => Some(r != 0),
         }

@@ -27,7 +27,7 @@ impl Chrome {
         let raw = layer
             .borrow_raw(layer.owner_id(), layer.generation())
             .ok_or_else(unavailable)?;
-        if unsafe { rays_sdl3_chrome_configure(raw.as_ptr(), minimum.0, minimum.1) } == 0 {
+        if unsafe { pxui_sdl3_chrome_configure(raw.as_ptr(), minimum.0, minimum.1) } == 0 {
             return Err(unavailable());
         }
         Ok(Self {
@@ -41,7 +41,7 @@ impl Chrome {
             .borrow_raw(self.layer.owner_id(), self.layer.generation())
             .ok_or_else(unavailable)?;
         let mut state = Snapshot::default();
-        if unsafe { rays_sdl3_chrome_read(raw.as_ptr(), &mut state) } == 0
+        if unsafe { pxui_sdl3_chrome_read(raw.as_ptr(), &mut state) } == 0
             || !state.top_inset.is_finite()
             || state.top_inset < 0.0
         {
@@ -54,25 +54,25 @@ fn unavailable() -> io::Error {
     io::Error::other("Window chrome needs a live main-thread AppKit view")
 }
 unsafe extern "C" {
-    fn rays_sdl3_chrome_configure(
+    fn pxui_sdl3_chrome_configure(
         layer: *mut c_void,
         minimum_width: f64,
         minimum_height: f64,
     ) -> i32;
-    fn rays_sdl3_chrome_read(layer: *mut c_void, state: *mut Snapshot) -> i32;
+    fn pxui_sdl3_chrome_read(layer: *mut c_void, state: *mut Snapshot) -> i32;
 }
 
 #[cfg(feature = "test-util")]
 pub fn check_native_background(clock: extern "C" fn() -> u64, times: &mut [u64; 2]) -> bool {
-    unsafe extern "C" { fn rays_sdl3_chrome_background_check(clock: extern "C" fn() -> u64, times: *mut u64) -> i32; }
-    unsafe { rays_sdl3_chrome_background_check(clock, times.as_mut_ptr()) != 0 }
+    unsafe extern "C" { fn pxui_sdl3_chrome_background_check(clock: extern "C" fn() -> u64, times: *mut u64) -> i32; }
+    unsafe { pxui_sdl3_chrome_background_check(clock, times.as_mut_ptr()) != 0 }
 }
 
 #[cfg(feature = "test-util")]
 pub fn background_state(layer: &Token) -> Option<([f64; 3], bool)> {
-    unsafe extern "C" { fn rays_sdl3_chrome_background_state(layer: *mut c_void, rgb: *mut f64) -> i32; }
+    unsafe extern "C" { fn pxui_sdl3_chrome_background_state(layer: *mut c_void, rgb: *mut f64) -> i32; }
     let raw = layer.borrow_raw(layer.owner_id(), layer.generation())?;
     let mut rgb = [0.0; 3];
-    let state = unsafe { rays_sdl3_chrome_background_state(raw.as_ptr(), rgb.as_mut_ptr()) };
+    let state = unsafe { pxui_sdl3_chrome_background_state(raw.as_ptr(), rgb.as_mut_ptr()) };
     (state >= 0).then_some((rgb, state != 0))
 }

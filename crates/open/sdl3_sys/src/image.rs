@@ -3,11 +3,11 @@ use std::ffi::{CStr, CString, c_char, c_int, c_void};
 mod ffi {
     use super::{c_char, c_int, c_void};
     unsafe extern "C" {
-        pub fn rays_img_get_error() -> *const c_char;
-        pub fn rays_img_free(pointer: *mut c_void);
-        pub fn rays_image_version() -> c_int;
-        pub fn rays_image_compiled_version() -> c_int;
-        pub fn rays_image_decode(
+        pub fn pxui_img_get_error() -> *const c_char;
+        pub fn pxui_img_free(pointer: *mut c_void);
+        pub fn pxui_image_version() -> c_int;
+        pub fn pxui_image_compiled_version() -> c_int;
+        pub fn pxui_image_decode(
             data: *const c_void, length: usize, kind: *const c_char,
             width: *mut c_int, height: *mut c_int, pixels: *mut *mut u8,
         ) -> bool;
@@ -16,7 +16,7 @@ mod ffi {
 
 fn last_error(fallback: &str) -> String {
     // SAFETY: SDL_GetError returns a borrowed, NUL-terminated thread-local string.
-    let pointer = unsafe { ffi::rays_img_get_error() };
+    let pointer = unsafe { ffi::pxui_img_get_error() };
     if pointer.is_null() {
         return fallback.to_owned();
     }
@@ -27,12 +27,12 @@ fn last_error(fallback: &str) -> String {
 
 pub fn linked_version() -> i32 {
     // SAFETY: pure version query.
-    unsafe { ffi::rays_image_version() }
+    unsafe { ffi::pxui_image_version() }
 }
 
 pub fn compiled_version() -> i32 {
     // SAFETY: returns the header version macro.
-    unsafe { ffi::rays_image_compiled_version() }
+    unsafe { ffi::pxui_image_compiled_version() }
 }
 
 /// Decodes `bytes` to tightly packed RGBA8 `(width, height, pixels)`; `kind` forces a decoder.
@@ -45,7 +45,7 @@ pub fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(i32, i32, Vec<u8>), S
     // SAFETY: `bytes` and `kind` outlive the call; the bridge copies the decoded surface into an
     // SDL_malloc allocation of exactly width * height * 4 bytes, which is copied out and freed below.
     let ok = unsafe {
-        ffi::rays_image_decode(
+        ffi::pxui_image_decode(
             bytes.as_ptr().cast(),
             bytes.len(),
             kind.as_ref().map_or(std::ptr::null(), |kind| kind.as_ptr()),
@@ -61,6 +61,6 @@ pub fn decode(bytes: &[u8], kind: Option<&str>) -> Result<(i32, i32, Vec<u8>), S
     // SAFETY: success guarantees `pixels` points at `length` initialized bytes.
     let copy = unsafe { std::slice::from_raw_parts(pixels, length) }.to_vec();
     // SAFETY: the buffer was allocated with SDL_malloc by the bridge.
-    unsafe { ffi::rays_img_free(pixels.cast()) };
+    unsafe { ffi::pxui_img_free(pixels.cast()) };
     Ok((width, height, copy))
 }

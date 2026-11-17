@@ -17,7 +17,7 @@ static bool ios_event_watch(void *unused, SDL_Event *event);
 static void ios_source(void *context);
 
 @interface PXUIIOSLoop : NSObject {
-    rays_ios_callback callback;
+    pxui_ios_callback callback;
     void *user;
     CADisplayLink *link;
     dispatch_source_t timer;
@@ -32,20 +32,20 @@ static void ios_source(void *context);
     NSUInteger keyboardCurve;
     PXUIKeyboardGeometryView *keyboardGeometry;
     NSArray<NSLayoutConstraint *> *keyboardConstraints;
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
     unsigned suppressedWakes;
 #endif
 }
-- (instancetype)initWithCallback:(rays_ios_callback)function user:(void *)context;
+- (instancetype)initWithCallback:(pxui_ios_callback)function user:(void *)context;
 - (void)begin;
 - (void)wake;
 - (int32_t)requestWake;
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
 - (int32_t)testNestedWake;
 #endif
 - (void)observe:(SDL_Event *)event;
 - (int)shutdown:(int)status;
-- (void)environment:(rays_ios_environment *)out window:(UIWindow *)window;
+- (void)environment:(pxui_ios_environment *)out window:(UIWindow *)window;
 @end
 
 @interface PXUIKeyboardGeometryView : UIView
@@ -70,7 +70,7 @@ static void ios_source(void *context);
 @end
 
 @implementation PXUIIOSLoop
-- (instancetype)initWithCallback:(rays_ios_callback)function user:(void *)context {
+- (instancetype)initWithCallback:(pxui_ios_callback)function user:(void *)context {
     if ((self = [super init])) {
         callback = function; user = context;
         atomic_init(&finished, false); atomic_init(&foreground, false);
@@ -79,9 +79,9 @@ static void ios_source(void *context);
     return self;
 }
 - (void)dealloc { if (source) CFRelease(source); }
-- (rays_ios_step)invoke:(int)signal {
+- (pxui_ios_step)invoke:(int)signal {
     busy = YES;
-    rays_ios_step step = callback(user, signal);
+    pxui_ios_step step = callback(user, signal);
     busy = NO;
     return step;
 }
@@ -113,7 +113,7 @@ static void ios_source(void *context);
     atomic_store(&dirty, true);
     [self post];
 }
-- (void)environment:(rays_ios_environment *)out window:(UIWindow *)window {
+- (void)environment:(pxui_ios_environment *)out window:(UIWindow *)window {
     if (atomic_load(&finished)) return;
     UIView *view = window.rootViewController.view;
     if (keyboardGeometry.superview != view) {
@@ -164,9 +164,9 @@ static void ios_source(void *context);
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboard:) name:UIKeyboardWillChangeFrameNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardVisibility:) name:UIKeyboardDidShowNotification object:nil];
     [NSNotificationCenter.defaultCenter addObserver:self selector:@selector(keyboardVisibility:) name:UIKeyboardDidHideNotification object:nil];
-    rays_ios_step initial = [self invoke:RAYS_IOS_INIT];
-    if (initial.action == RAYS_IOS_FAIL || initial.action == RAYS_IOS_EXIT) {
-        [self finish:initial.action == RAYS_IOS_FAIL]; return;
+    pxui_ios_step initial = [self invoke:PXUI_IOS_INIT];
+    if (initial.action == PXUI_IOS_FAIL || initial.action == PXUI_IOS_EXIT) {
+        [self finish:initial.action == PXUI_IOS_FAIL]; return;
     }
     SDL_Window *window = SDL_GetWindowFromID(initial.window);
     if (!window) { [self failure:"initialization did not supply a live SDL window"]; return; }
@@ -213,7 +213,7 @@ static void ios_source(void *context);
     [self post];
     return 1;
 }
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
 - (int32_t)testNestedWake {
     if (!busy || atomic_load(&foreground)) return 0;
     unsigned before = suppressedWakes;
@@ -246,17 +246,17 @@ static void ios_source(void *context);
     unsigned signals = atomic_exchange(&pending, 0);
     for (unsigned bit = PENDING_PAUSE; bit <= PENDING_MEMORY; bit <<= 1) {
         if (!(signals & bit)) continue;
-        int signal = bit == PENDING_PAUSE ? RAYS_IOS_PAUSE : bit == PENDING_RESUME ? RAYS_IOS_RESUME : RAYS_IOS_MEMORY;
-        rays_ios_step step = [self invoke:signal];
-        if (step.action == RAYS_IOS_FAIL || step.action == RAYS_IOS_EXIT)
-            [self finish:step.action == RAYS_IOS_FAIL];
+        int signal = bit == PENDING_PAUSE ? PXUI_IOS_PAUSE : bit == PENDING_RESUME ? PXUI_IOS_RESUME : PXUI_IOS_MEMORY;
+        pxui_ios_step step = [self invoke:signal];
+        if (step.action == PXUI_IOS_FAIL || step.action == PXUI_IOS_EXIT)
+            [self finish:step.action == PXUI_IOS_FAIL];
     }
     if (signals & PENDING_EXIT) [self finish:0];
 }
 - (void)wake {
     if (atomic_load(&finished)) return;
     if (busy) {
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
         ++suppressedWakes;
 #endif
         return;
@@ -266,12 +266,12 @@ static void ios_source(void *context);
     if (!atomic_load(&foreground)) {
         link.paused = YES;
         atomic_store(&dirty, false);
-        rays_ios_step step = [self invoke:RAYS_IOS_CONTROL];
-        if (step.action == RAYS_IOS_FAIL || step.action == RAYS_IOS_EXIT) {
-            [self finish:step.action == RAYS_IOS_FAIL]; return;
+        pxui_ios_step step = [self invoke:PXUI_IOS_CONTROL];
+        if (step.action == PXUI_IOS_FAIL || step.action == PXUI_IOS_EXIT) {
+            [self finish:step.action == PXUI_IOS_FAIL]; return;
         }
-        if (step.action == RAYS_IOS_WAIT) [self wait:step.delay];
-        else if (step.action != RAYS_IOS_NEXT) [self failure:"unknown iOS control schedule"];
+        if (step.action == PXUI_IOS_WAIT) [self wait:step.delay];
+        else if (step.action != PXUI_IOS_NEXT) [self failure:"unknown iOS control schedule"];
         // A requested frame remains deferred until foreground; control deadlines use only the timer.
         if (atomic_load(&foreground)) link.paused = NO;
         // A nested native run loop can consume a source while the Rust callback is busy.
@@ -286,16 +286,16 @@ static void ios_source(void *context);
     [self drain];
     if (!atomic_load(&foreground)) { link.paused = YES; return; }
     atomic_store(&dirty, false);
-    rays_ios_step step = [self invoke:RAYS_IOS_FRAME];
+    pxui_ios_step step = [self invoke:PXUI_IOS_FRAME];
     [self drain];
-    if (step.action == RAYS_IOS_FAIL || step.action == RAYS_IOS_EXIT) {
-        [self finish:step.action == RAYS_IOS_FAIL]; return;
+    if (step.action == PXUI_IOS_FAIL || step.action == PXUI_IOS_EXIT) {
+        [self finish:step.action == PXUI_IOS_FAIL]; return;
     }
     if (!atomic_load(&foreground)) { link.paused = YES; return; }
-    if (step.action != RAYS_IOS_NEXT && step.action != RAYS_IOS_WAIT) {
+    if (step.action != PXUI_IOS_NEXT && step.action != PXUI_IOS_WAIT) {
         [self failure:"unknown iOS frame schedule"]; return;
     }
-    if (step.action == RAYS_IOS_NEXT || atomic_load(&dirty)) return;
+    if (step.action == PXUI_IOS_NEXT || atomic_load(&dirty)) return;
     if (isnan(step.delay) || step.delay < 0) { [self failure:"invalid iOS repaint deadline"]; return; }
     if (step.delay <= link.duration) return;
     link.paused = YES;
@@ -317,8 +317,8 @@ static void ios_source(void *context);
     keyboardGeometry.loop = nil;
     [NSLayoutConstraint deactivateConstraints:keyboardConstraints]; keyboardConstraints = nil;
     [keyboardGeometry removeFromSuperview]; keyboardGeometry = nil;
-    rays_ios_step step = [self invoke:RAYS_IOS_FINISH];
-    if (step.action == RAYS_IOS_FAIL) status = 1;
+    pxui_ios_step step = [self invoke:PXUI_IOS_FINISH];
+    if (step.action == PXUI_IOS_FAIL) status = 1;
     pthread_mutex_lock(&loop_lock); active_loop = nil; pthread_mutex_unlock(&loop_lock);
     return status;
 }
@@ -335,20 +335,20 @@ static bool ios_event_watch(void *unused, SDL_Event *event) {
 static void ios_source(void *context) { [(__bridge PXUIIOSLoop *)context wake]; }
 static int ios_main_loop(void) { [active_loop begin]; return 0; }
 
-int32_t rays_sdl3_ios_wake(void) {
+int32_t pxui_sdl3_ios_wake(void) {
     @autoreleasepool {
         pthread_mutex_lock(&loop_lock); PXUIIOSLoop *loop = active_loop; pthread_mutex_unlock(&loop_lock);
         return loop ? [loop requestWake] : 0;
     }
 }
-#ifdef RAYS_SDL3_TEST_UTIL
-int32_t rays_sdl3_ios_test_nested_wake(void) {
+#ifdef PXUI_SDL3_TEST_UTIL
+int32_t pxui_sdl3_ios_test_nested_wake(void) {
     if (!pthread_main_np()) return 0;
     return [active_loop testNestedWake];
 }
 #endif
 
-int32_t rays_sdl3_run_ios(rays_ios_callback callback, void *user) {
+int32_t pxui_sdl3_run_ios(pxui_ios_callback callback, void *user) {
     if (!pthread_main_np() || !callback) return -1;
     PXUIIOSLoop *loop = [[PXUIIOSLoop alloc] initWithCallback:callback user:user];
     if (!loop) { SDL_SetError("could not allocate iOS loop"); return -1; }
@@ -357,7 +357,7 @@ int32_t rays_sdl3_run_ios(rays_ios_callback callback, void *user) {
     active_loop = loop;
     pthread_mutex_unlock(&loop_lock);
     @try {
-        int status = rays_sdl3_run_app(ios_main_loop);
+        int status = pxui_sdl3_run_app(ios_main_loop);
         return [loop shutdown:status];
     } @catch (NSException *exception) {
         fprintf(stderr, "PXUI iOS loop: %s\n", exception.reason.UTF8String);
@@ -365,16 +365,16 @@ int32_t rays_sdl3_run_ios(rays_ios_callback callback, void *user) {
     }
 }
 
-int32_t rays_sdl3_ios_environment(uint32_t id, rays_ios_environment *out) {
+int32_t pxui_sdl3_ios_environment(uint32_t id, pxui_ios_environment *out) {
     if (!pthread_main_np() || !out) { SDL_SetError("iOS environment requires main and output"); return 0; }
     SDL_Window *window = SDL_GetWindowFromID(id);
     if (!window) return 0;
-    if (!rays_sdl3_ios_text_status(window)) return 0;
+    if (!pxui_sdl3_ios_text_status(window)) return 0;
     UIWindow *native = (__bridge UIWindow *)SDL_GetPointerProperty(SDL_GetWindowProperties(window), SDL_PROP_WINDOW_UIKIT_WINDOW_POINTER, NULL);
     if (!native) { SDL_SetError("SDL window has no UIKit window"); return 0; }
     SDL_Rect safe; int width, height;
     if (!SDL_GetWindowSafeArea(window,&safe) || !SDL_GetWindowSize(window,&width,&height)) return 0;
-    rays_ios_environment value = {0};
+    pxui_ios_environment value = {0};
     value.safe_area[0] = (float)MAX(0,safe.y);
     value.safe_area[1] = (float)MAX(0,width-safe.x-safe.w);
     value.safe_area[2] = (float)MAX(0,height-safe.y-safe.h);

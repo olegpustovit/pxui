@@ -90,7 +90,19 @@ fn window_wayland_present() {
         };
         println!("pxui_wayland: paste via {source:?}");
         assert_eq!(pasted, text);
-        assert_eq!(pxui_wayland::clipboard_get_text().unwrap(), text, "the synchronous read of the newest window");
+        assert_eq!(window.clipboard_get_text().unwrap(), text, "the synchronous read through this window");
+        // a second window reads and sets the clipboard through its own connection, not the newest one's
+        let mut other = Window::open("pxui_wayland second", 160, 100).unwrap();
+        other.clipboard_set_text("second window").unwrap();
+        for _ in 0..3 {
+            other.wait(Some(other.time() + 0.05));
+            other.pump(&mut events);
+            window.pump(&mut events);
+        }
+        assert_eq!(other.clipboard_get_text().unwrap(), "second window");
+        other.destroy().unwrap();
+        assert!(other.clipboard_get_text().is_err(), "a destroyed window has no clipboard");
+        events.clear();
     } else {
         assert!(window.clipboard_set_text(text).is_err());
     }
@@ -107,8 +119,7 @@ fn window_wayland_present() {
 
     gpu.close();
     window.destroy().unwrap();
-    pxui_wayland::clipboard_set_text("local").unwrap();
-    assert_eq!(pxui_wayland::clipboard_get_text().unwrap(), "local", "without a window the clipboard is process-local");
+    assert!(window.clipboard_set_text("gone").is_err() && window.clipboard_get_text().is_err(), "a destroyed window has no clipboard");
     assert!(window.set_cursor(CursorShape::Default).is_err(), "a destroyed window refuses calls");
     let mut events = Vec::new();
     assert!(!window.pump(&mut events));

@@ -89,12 +89,12 @@ static NSUInteger scalar_count(NSString *text, NSUInteger end) {
     while (index < TEXT_SLOTS && slots[index].text) ++index;
     if (index == TEXT_SLOTS || bytes > TEXT_BYTES - held_bytes) {
         failure = "iOS marked-text queue exceeded 64 events or 1 MiB";
-        rays_sdl3_ios_wake();
+        pxui_sdl3_ios_wake();
         return;
     }
     const char *utf8 = text.UTF8String;
     char *copy = utf8 ? malloc(bytes + 1) : NULL;
-    if (!copy) { failure = "could not copy iOS marked text"; rays_sdl3_ios_wake(); return; }
+    if (!copy) { failure = "could not copy iOS marked text"; pxui_sdl3_ios_wake(); return; }
     memcpy(copy, utf8, bytes + 1);
     TextSlot *slot = &slots[index];
     *slot = (TextSlot){copy, bytes, ++next_token, windowID, start, length};
@@ -107,7 +107,7 @@ static NSUInteger scalar_count(NSString *text, NSUInteger end) {
     if (!SDL_PushEvent(&event)) {
         release_slot(slot);
         failure = "could not queue iOS marked text";
-        rays_sdl3_ios_wake();
+        pxui_sdl3_ios_wake();
     }
 }
 - (void)changed:(NSNotification *)notification {
@@ -152,7 +152,7 @@ static NSUInteger scalar_count(NSString *text, NSUInteger end) {
 
 static void release_observer(void *unused, void *value) { (void)unused; CFRelease(value); }
 
-bool rays_sdl3_ios_text_prepare(SDL_Window *native, uint32_t action) {
+bool pxui_sdl3_ios_text_prepare(SDL_Window *native, uint32_t action) {
     @autoreleasepool {
         SDL_PropertiesID props = SDL_GetWindowProperties(native);
         PXUITextInputObserver *observer = (__bridge PXUITextInputObserver *)SDL_GetPointerProperty(props, TEXT_OBSERVER, NULL);
@@ -168,17 +168,17 @@ bool rays_sdl3_ios_text_prepare(SDL_Window *native, uint32_t action) {
     }
 }
 
-bool rays_sdl3_ios_text_status(SDL_Window *window) {
+bool pxui_sdl3_ios_text_status(SDL_Window *window) {
     PXUITextInputObserver *observer = (__bridge PXUITextInputObserver *)SDL_GetPointerProperty(SDL_GetWindowProperties(window), TEXT_OBSERVER, NULL);
     if (observer && observer->failure) return SDL_SetError("%s", observer->failure);
     return true;
 }
 
-void rays_sdl3_ios_text_close(SDL_Window *window) {
+void pxui_sdl3_ios_text_close(SDL_Window *window) {
     SDL_ClearProperty(SDL_GetWindowProperties(window), TEXT_OBSERVER);
 }
 
-int rays_sdl3_ios_text_translate(const SDL_Event *source, rays_sdl3_event *out) {
+int pxui_sdl3_ios_text_translate(const SDL_Event *source, pxui_sdl3_event *out) {
     if (!text_event || source->type != text_event) return 0;
     if (source->user.code < 0 || source->user.code >= TEXT_SLOTS) return -1;
     TextSlot *slot = &slots[source->user.code];
@@ -189,31 +189,31 @@ int rays_sdl3_ios_text_translate(const SDL_Event *source, rays_sdl3_event *out) 
     return 1;
 }
 
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
 static bool text_queue_check(SDL_Window *native, PXUITextInputObserver *observer) {
     if (held_bytes) return false;
     SDL_Event event;
-    rays_sdl3_event out = {0}, duplicate = {0};
+    pxui_sdl3_event out = {0}, duplicate = {0};
     @autoreleasepool { [observer publish:[NSString stringWithFormat:@"temporary %u", 19] start:2 length:3]; }
     if (SDL_PeepEvents(&event, 1, SDL_GETEVENT, text_event, text_event) != 1) return false;
-    if (rays_sdl3_ios_text_translate(&event, &out) != 1 || strcmp(out.text, "temporary 19") || out.a != 2 || out.b != 3) return false;
+    if (pxui_sdl3_ios_text_translate(&event, &out) != 1 || strcmp(out.text, "temporary 19") || out.a != 2 || out.b != 3) return false;
     free(out.text);
-    if (rays_sdl3_ios_text_translate(&event, &duplicate) != -1 || held_bytes) return false;
+    if (pxui_sdl3_ios_text_translate(&event, &duplicate) != -1 || held_bytes) return false;
     [observer publish:@"identity" start:0 length:0];
     if (SDL_PeepEvents(&event, 1, SDL_GETEVENT, text_event, text_event) != 1) return false;
     void *token = event.user.data1;
     event.user.data1 = (void *)((uintptr_t)token + 1);
-    if (rays_sdl3_ios_text_translate(&event, &duplicate) != -1) return false;
+    if (pxui_sdl3_ios_text_translate(&event, &duplicate) != -1) return false;
     event.user.data1 = token;
-    if (rays_sdl3_ios_text_translate(&event, &out) != 1) return false;
+    if (pxui_sdl3_ios_text_translate(&event, &out) != 1) return false;
     free(out.text);
     for (unsigned i = 0; i <= TEXT_SLOTS; ++i) [observer publish:@"x" start:0 length:0];
-    if (!observer->failure || rays_sdl3_ios_text_status(native) || held_bytes != TEXT_SLOTS) return false;
+    if (!observer->failure || pxui_sdl3_ios_text_status(native) || held_bytes != TEXT_SLOTS) return false;
     observer->failure = NULL;
     SDL_ClearError();
     unsigned drained = 0;
     while (SDL_PeepEvents(&event, 1, SDL_GETEVENT, text_event, text_event) == 1) {
-        if (rays_sdl3_ios_text_translate(&event, &out) != 1) return false;
+        if (pxui_sdl3_ios_text_translate(&event, &out) != 1) return false;
         free(out.text); ++drained;
     }
     if (drained != TEXT_SLOTS || held_bytes) return false;
@@ -224,7 +224,7 @@ static bool text_queue_check(SDL_Window *native, PXUITextInputObserver *observer
     return held_bytes == 7;
 }
 
-bool rays_sdl3_ios_test_text_step(int step) {
+bool pxui_sdl3_ios_test_text_step(int step) {
     @autoreleasepool {
         SDL_Window *native = SDL_GetKeyboardFocus();
         if (!native) return false;
@@ -232,7 +232,7 @@ bool rays_sdl3_ios_test_text_step(int step) {
         if (!observer) return false;
         if (step == 8) {
             if (!text_queue_check(native, observer)) return false;
-            rays_sdl3_ios_text_close(native);
+            pxui_sdl3_ios_text_close(native);
             observer = nil;
             return held_bytes == 0 && observers == 0 && text_event == 0;
         }

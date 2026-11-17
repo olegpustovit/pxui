@@ -27,7 +27,9 @@ pub struct PxuiA11y {
     #[cfg(target_os = "linux")]
     bridge: pxui_atspi::Bridge,
     #[cfg(target_os = "linux")]
-    actions: Vec<pxui_types::ffi::A11yAction>,
+    actions: Vec<(u64, pxui_types::ffi::A11yAction)>,
+    #[cfg(target_os = "linux")]
+    span: Vec<pxui_types::ffi::A11yAction>,
 }
 
 // Connects to the accessibility bus as `name`; null when there is none (the reason is not an error: no assistive technology).
@@ -35,7 +37,7 @@ export!(bare pub unsafe fn pxui_a11y_start(name: Str) -> *mut PxuiA11y {
     #[cfg(target_os = "linux")]
     {
         let Some(name) = (unsafe { checked(name) }) else { return core::ptr::null_mut() };
-        return match pxui_atspi::Bridge::connect(name) { Ok(bridge) => Box::into_raw(Box::new(PxuiA11y { bridge, actions: Vec::new() })), Err(_) => core::ptr::null_mut() };
+        return match pxui_atspi::Bridge::connect(name) { Ok(bridge) => Box::into_raw(Box::new(PxuiA11y { bridge, actions: Vec::new(), span: Vec::new() })), Err(_) => core::ptr::null_mut() };
     }
     #[cfg(not(target_os = "linux"))]
     { let _ = name; core::ptr::null_mut() }
@@ -54,7 +56,8 @@ export!(bare pub unsafe fn pxui_a11y_update(a11y: *mut PxuiA11y, tree: *const px
     #[cfg(target_os = "linux")]
     {
         let (Some(a), Some(tree)) = (unsafe { a11y.as_mut() }, unsafe { tree.as_ref() }) else { return PXUI_ERR_ARGUMENT };
-        return if unsafe { a.bridge.update_ffi(tree) }.is_ok() { 0 } else { crate::PXUI_ERR_STATE };
+        // one surface per bridge until the 2.0 cut names surfaces in this call
+        return if unsafe { a.bridge.update_ffi(0, tree) }.is_ok() { 0 } else { crate::PXUI_ERR_STATE };
     }
     #[cfg(not(target_os = "linux"))]
     { let _ = (a11y, tree); PXUI_ERR_ARGUMENT }
@@ -68,7 +71,9 @@ export!(bare pub unsafe fn pxui_a11y_pump(a11y: *mut PxuiA11y, out: *mut pxui_ty
         let (Some(a), false) = (unsafe { a11y.as_mut() }, out.is_null()) else { return PXUI_ERR_ARGUMENT };
         a.actions.clear();
         let alive = a.bridge.pump_ffi(&mut a.actions);
-        unsafe { *out = pxui_types::ffi::Slice { ptr: a.actions.as_ptr(), len: a.actions.len() }; }
+        a.span.clear();
+        a.span.extend(a.actions.iter().map(|(_, action)| *action));
+        unsafe { *out = pxui_types::ffi::Slice { ptr: a.span.as_ptr(), len: a.span.len() }; }
         return alive as i32;
     }
     #[cfg(not(target_os = "linux"))]

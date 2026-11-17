@@ -1,6 +1,6 @@
 #include "bridge.h"
 #include "sdl3_abi.h"
-#ifdef RAYS_SDL3_IOS
+#ifdef PXUI_SDL3_IOS
 #include "ios.h"
 #include "text_ios.h"
 #endif
@@ -52,15 +52,15 @@ static char *copy_text(const char *source, size_t *length)
   return copy;
 }
 
-int32_t rays_sdl3_linked_version(void) { return SDL_GetVersion(); }
-int32_t rays_sdl3_compiled_version(void) { return SDL_VERSION; }
-const char *rays_sdl3_get_error(void) { return SDL_GetError(); }
-void rays_sdl3_clear_error(void) { SDL_ClearError(); }
-const char *rays_sdl3_platform_name(void) { return SDL_GetPlatform(); }
-char *rays_sdl3_pref_path(const char *org, const char *app) { return SDL_GetPrefPath(org, app); }
-void rays_sdl3_free(void *value) { SDL_free(value); }
+int32_t pxui_sdl3_linked_version(void) { return SDL_GetVersion(); }
+int32_t pxui_sdl3_compiled_version(void) { return SDL_VERSION; }
+const char *pxui_sdl3_get_error(void) { return SDL_GetError(); }
+void pxui_sdl3_clear_error(void) { SDL_ClearError(); }
+const char *pxui_sdl3_platform_name(void) { return SDL_GetPlatform(); }
+char *pxui_sdl3_pref_path(const char *org, const char *app) { return SDL_GetPrefPath(org, app); }
+void pxui_sdl3_free(void *value) { SDL_free(value); }
 
-bool rays_sdl3_init_subsystem(uint32_t bits)
+bool pxui_sdl3_init_subsystem(uint32_t bits)
 {
   SDL_InitFlags flags = 0;
   if ((bits & INIT_VIDEO) != 0) flags |= SDL_INIT_VIDEO;
@@ -68,7 +68,7 @@ bool rays_sdl3_init_subsystem(uint32_t bits)
   return SDL_InitSubSystem(flags);
 }
 
-void rays_sdl3_quit_subsystem(uint32_t bits)
+void pxui_sdl3_quit_subsystem(uint32_t bits)
 {
   SDL_InitFlags flags = 0;
   if ((bits & INIT_VIDEO) != 0) flags |= SDL_INIT_VIDEO;
@@ -76,7 +76,7 @@ void rays_sdl3_quit_subsystem(uint32_t bits)
   SDL_QuitSubSystem(flags);
 }
 
-SDL_Window *rays_sdl3_create_window(const char *title, int width, int height, uint32_t bits)
+SDL_Window *pxui_sdl3_create_window(const char *title, int width, int height, uint32_t bits)
 {
   SDL_WindowFlags flags = 0;
   if ((bits & WINDOW_HIDDEN) != 0) flags |= SDL_WINDOW_HIDDEN;
@@ -85,30 +85,30 @@ SDL_Window *rays_sdl3_create_window(const char *title, int width, int height, ui
   if ((bits & WINDOW_METAL) != 0) flags |= SDL_WINDOW_METAL;
 #endif
   SDL_Window *window = SDL_CreateWindow(title, width, height, flags);
-  rays_sdl3_window_plain_titlebar(window);
-  rays_sdl3_scroll_monitor_install();
+  pxui_sdl3_window_plain_titlebar(window);
+  pxui_sdl3_scroll_monitor_install();
   return window;
 }
 
-void rays_sdl3_destroy_window(SDL_Window *window) {
-#if defined(RAYS_SDL3_IOS)
-  rays_dialog_close(SDL_GetWindowID(window));
-  rays_sdl3_ios_text_close(window);
+void pxui_sdl3_destroy_window(SDL_Window *window) {
+#if defined(PXUI_SDL3_IOS)
+  pxui_dialog_close(SDL_GetWindowID(window));
+  pxui_sdl3_ios_text_close(window);
 #endif
   SDL_DestroyWindow(window);
 }
 
-bool rays_sdl3_window_size(SDL_Window *window, int *width, int *height)
+bool pxui_sdl3_window_size(SDL_Window *window, int *width, int *height)
 {
   return SDL_GetWindowSize(window, width, height);
 }
 
-bool rays_sdl3_window_size_in_pixels(SDL_Window *window, int *width, int *height)
+bool pxui_sdl3_window_size_in_pixels(SDL_Window *window, int *width, int *height)
 {
   return SDL_GetWindowSizeInPixels(window, width, height);
 }
 
-uint32_t rays_sdl3_window_state(SDL_Window *window)
+uint32_t pxui_sdl3_window_state(SDL_Window *window)
 {
   SDL_WindowFlags flags = SDL_GetWindowFlags(window);
   return ((flags & SDL_WINDOW_HIDDEN) != 0 ? 1u : 0u)
@@ -116,45 +116,45 @@ uint32_t rays_sdl3_window_state(SDL_Window *window)
       | ((flags & SDL_WINDOW_OCCLUDED) != 0 ? 4u : 0u);
 }
 
-uint32_t rays_sdl3_window_id(SDL_Window *window) { return SDL_GetWindowID(window); }
-float rays_sdl3_window_pixel_density(SDL_Window *window) { return SDL_GetWindowPixelDensity(window); }
-float rays_sdl3_window_display_scale(SDL_Window *window) { return SDL_GetWindowDisplayScale(window); }
-bool rays_sdl3_window_position(SDL_Window *window, int *x, int *y)
+uint32_t pxui_sdl3_window_id(SDL_Window *window) { return SDL_GetWindowID(window); }
+float pxui_sdl3_window_pixel_density(SDL_Window *window) { return SDL_GetWindowPixelDensity(window); }
+float pxui_sdl3_window_display_scale(SDL_Window *window) { return SDL_GetWindowDisplayScale(window); }
+bool pxui_sdl3_window_position(SDL_Window *window, int *x, int *y)
 {
   return SDL_GetWindowPosition(window, x, y);
 }
-const char *rays_sdl3_window_title(SDL_Window *window) { return SDL_GetWindowTitle(window); }
-bool rays_sdl3_center_window(SDL_Window *window)
+const char *pxui_sdl3_window_title(SDL_Window *window) { return SDL_GetWindowTitle(window); }
+bool pxui_sdl3_center_window(SDL_Window *window)
 {
   return SDL_SetWindowPosition(window, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED);
 }
-bool rays_sdl3_set_window_size(SDL_Window *window, int width, int height)
+bool pxui_sdl3_set_window_size(SDL_Window *window, int width, int height)
 {
   return SDL_SetWindowSize(window, width, height);
 }
-bool rays_sdl3_set_window_resizable(SDL_Window *window, bool enabled)
+bool pxui_sdl3_set_window_resizable(SDL_Window *window, bool enabled)
 {
   return SDL_SetWindowResizable(window, enabled);
 }
-bool rays_sdl3_set_window_relative_mouse(SDL_Window *window, bool enabled)
+bool pxui_sdl3_set_window_relative_mouse(SDL_Window *window, bool enabled)
 {
   return SDL_SetWindowRelativeMouseMode(window, enabled);
 }
-bool rays_sdl3_show_window(SDL_Window *window) { return SDL_ShowWindow(window); }
-bool rays_sdl3_raise_window(SDL_Window *window)
+bool pxui_sdl3_show_window(SDL_Window *window) { return SDL_ShowWindow(window); }
+bool pxui_sdl3_raise_window(SDL_Window *window)
 {
-  rays_sdl3_app_activate();
+  pxui_sdl3_app_activate();
   return SDL_RaiseWindow(window);
 }
-bool rays_sdl3_hide_window(SDL_Window *window) { return SDL_HideWindow(window); }
-bool rays_sdl3_restore_window(SDL_Window *window) { return SDL_RestoreWindow(window); }
-bool rays_sdl3_sync_window(SDL_Window *window) { return SDL_SyncWindow(window); }
-void rays_sdl3_set_window_background(SDL_Window *window, double red, double green, double blue)
+bool pxui_sdl3_hide_window(SDL_Window *window) { return SDL_HideWindow(window); }
+bool pxui_sdl3_restore_window(SDL_Window *window) { return SDL_RestoreWindow(window); }
+bool pxui_sdl3_sync_window(SDL_Window *window) { return SDL_SyncWindow(window); }
+void pxui_sdl3_set_window_background(SDL_Window *window, double red, double green, double blue)
 {
-  rays_sdl3_platform_set_window_background(window, red, green, blue);
+  pxui_sdl3_platform_set_window_background(window, red, green, blue);
 }
 
-SDL_Cursor *rays_sdl3_create_cursor(int shape)
+SDL_Cursor *pxui_sdl3_create_cursor(int shape)
 {
   static const SDL_SystemCursor shapes[] = {
     SDL_SYSTEM_CURSOR_DEFAULT, SDL_SYSTEM_CURSOR_TEXT,
@@ -166,30 +166,30 @@ SDL_Cursor *rays_sdl3_create_cursor(int shape)
   }
   return SDL_CreateSystemCursor(shapes[shape]);
 }
-bool rays_sdl3_set_cursor(SDL_Cursor *cursor) { return SDL_SetCursor(cursor); }
-void rays_sdl3_destroy_cursor(SDL_Cursor *cursor) { SDL_DestroyCursor(cursor); }
-bool rays_sdl3_set_control_click_right_click(bool enabled)
+bool pxui_sdl3_set_cursor(SDL_Cursor *cursor) { return SDL_SetCursor(cursor); }
+void pxui_sdl3_destroy_cursor(SDL_Cursor *cursor) { SDL_DestroyCursor(cursor); }
+bool pxui_sdl3_set_control_click_right_click(bool enabled)
 {
   return SDL_SetHint(SDL_HINT_MAC_CTRL_CLICK_EMULATE_RIGHT_CLICK, enabled ? "1" : "0");
 }
-bool rays_sdl3_set_mouse_relative_system_scale(bool enabled)
+bool pxui_sdl3_set_mouse_relative_system_scale(bool enabled)
 {
   return SDL_SetHint(SDL_HINT_MOUSE_RELATIVE_SYSTEM_SCALE, enabled ? "1" : "0");
 }
-bool rays_sdl3_set_hint(const char *name, const char *value) { return SDL_SetHint(name, value); }
-bool rays_sdl3_clipboard_set_text(const char *text) { return SDL_SetClipboardText(text); }
-char *rays_sdl3_clipboard_get_text(void) { return SDL_GetClipboardText(); }
-bool rays_sdl3_start_text_input(SDL_Window *window) {
-#ifdef RAYS_SDL3_IOS
-  return rays_sdl3_start_text_input_with_options(window, 1, 1, 0);
+bool pxui_sdl3_set_hint(const char *name, const char *value) { return SDL_SetHint(name, value); }
+bool pxui_sdl3_clipboard_set_text(const char *text) { return SDL_SetClipboardText(text); }
+char *pxui_sdl3_clipboard_get_text(void) { return SDL_GetClipboardText(); }
+bool pxui_sdl3_start_text_input(SDL_Window *window) {
+#ifdef PXUI_SDL3_IOS
+  return pxui_sdl3_start_text_input_with_options(window, 1, 1, 0);
 #else
   return SDL_StartTextInput(window);
 #endif
 }
-bool rays_sdl3_start_text_input_with_options(SDL_Window *window, uint32_t autocorrect, uint32_t capitalization, uint32_t action) {
+bool pxui_sdl3_start_text_input_with_options(SDL_Window *window, uint32_t autocorrect, uint32_t capitalization, uint32_t action) {
   if (autocorrect > 1 || capitalization > 3 || action > 2) return SDL_SetError("invalid text input options");
-#ifdef RAYS_SDL3_IOS
-  if (!rays_sdl3_ios_text_prepare(window, action)) return false;
+#ifdef PXUI_SDL3_IOS
+  if (!pxui_sdl3_ios_text_prepare(window, action)) return false;
 #endif
   SDL_PropertiesID props = SDL_CreateProperties();
   if (!props) return false;
@@ -198,27 +198,27 @@ bool rays_sdl3_start_text_input_with_options(SDL_Window *window, uint32_t autoco
       && SDL_SetBooleanProperty(props, SDL_PROP_TEXTINPUT_MULTILINE_BOOLEAN, false);
   bool started = ready && SDL_StartTextInputWithProperties(window, props);
   SDL_DestroyProperties(props);
-#ifdef RAYS_SDL3_IOS
-  if (started) started = rays_sdl3_ios_text_prepare(window, action);
+#ifdef PXUI_SDL3_IOS
+  if (started) started = pxui_sdl3_ios_text_prepare(window, action);
 #endif
   return started;
 }
-bool rays_sdl3_stop_text_input(SDL_Window *window) { return SDL_StopTextInput(window); }
-bool rays_sdl3_clear_text_input_area(SDL_Window *window) { return SDL_SetTextInputArea(window, NULL, 0); }
-bool rays_sdl3_set_text_input_area(SDL_Window *window,
+bool pxui_sdl3_stop_text_input(SDL_Window *window) { return SDL_StopTextInput(window); }
+bool pxui_sdl3_clear_text_input_area(SDL_Window *window) { return SDL_SetTextInputArea(window, NULL, 0); }
+bool pxui_sdl3_set_text_input_area(SDL_Window *window,
     int x, int y, int width, int height, int cursor)
 {
   SDL_Rect area = { x, y, width, height };
   return SDL_SetTextInputArea(window, &area, cursor);
 }
 
-int rays_sdl3_show_dialog(SDL_Window *window, int kind,
+int pxui_sdl3_show_dialog(SDL_Window *window, int kind,
     const char *const *names, const char *const *patterns, int count,
     const char *default_location)
 {
-  return rays_dialog_show((rays_dialog_kind)kind, window, names, patterns, count, default_location);
+  return pxui_dialog_show((pxui_dialog_kind)kind, window, names, patterns, count, default_location);
 }
-bool rays_sdl3_take_dialog(rays_dialog_result *result) { return rays_dialog_take(result); }
+bool pxui_sdl3_take_dialog(pxui_dialog_result *result) { return pxui_dialog_take(result); }
 
 static int key_code(SDL_Keycode keycode, SDL_Scancode scancode, int *value)
 {
@@ -265,7 +265,7 @@ static int key_code(SDL_Keycode keycode, SDL_Scancode scancode, int *value)
   return KEY_UNKNOWN;
 }
 
-static void window_event(const SDL_Event *source, rays_sdl3_event *event)
+static void window_event(const SDL_Event *source, pxui_sdl3_event *event)
 {
   switch (source->type) {
   case SDL_EVENT_WINDOW_SHOWN: event->a = WINDOW_SHOWN; break;
@@ -298,12 +298,42 @@ static void window_event(const SDL_Event *source, rays_sdl3_event *event)
   }
 }
 
-static bool translate_event(const SDL_Event *source, rays_sdl3_event *event)
+/* The window an SDL event names, read from the event itself so an event for a window closed since
+   still names it (SDL_GetWindowFromEvent answers NULL then); 0 for events that name none. */
+static bool translate_known(const SDL_Event *source, pxui_sdl3_event *event);
+
+static SDL_WindowID event_window(const SDL_Event *source)
+{
+  if (source->type >= SDL_EVENT_WINDOW_FIRST && source->type <= SDL_EVENT_WINDOW_LAST) return source->window.windowID;
+  switch (source->type) {
+  case SDL_EVENT_KEY_DOWN: case SDL_EVENT_KEY_UP: return source->key.windowID;
+  case SDL_EVENT_TEXT_INPUT: return source->text.windowID;
+  case SDL_EVENT_TEXT_EDITING: return source->edit.windowID;
+  case SDL_EVENT_MOUSE_MOTION: return source->motion.windowID;
+  case SDL_EVENT_MOUSE_BUTTON_DOWN: case SDL_EVENT_MOUSE_BUTTON_UP: return source->button.windowID;
+  case SDL_EVENT_MOUSE_WHEEL: return source->wheel.windowID;
+  case SDL_EVENT_FINGER_DOWN: case SDL_EVENT_FINGER_MOTION:
+  case SDL_EVENT_FINGER_UP: case SDL_EVENT_FINGER_CANCELED: return source->tfinger.windowID;
+  case SDL_EVENT_PINCH_BEGIN: case SDL_EVENT_PINCH_UPDATE: case SDL_EVENT_PINCH_END: return source->pinch.windowID;
+  case SDL_EVENT_DROP_BEGIN: case SDL_EVENT_DROP_POSITION:
+  case SDL_EVENT_DROP_COMPLETE: case SDL_EVENT_DROP_FILE: return source->drop.windowID;
+  default: return 0;
+  }
+}
+
+static bool translate_event(const SDL_Event *source, pxui_sdl3_event *event)
+{
+  bool translated = translate_known(source, event);
+  if (translated) event->window = event_window(source);
+  return translated;
+}
+
+static bool translate_known(const SDL_Event *source, pxui_sdl3_event *event)
 {
   int value = 0;
   memset(event, 0, sizeof(*event));
-#ifdef RAYS_SDL3_IOS
-  int marked = rays_sdl3_ios_text_translate(source, event);
+#ifdef PXUI_SDL3_IOS
+  int marked = pxui_sdl3_ios_text_translate(source, event);
   if (marked) { event->tag = EVENT_TEXT_EDITING; return marked > 0; }
 #endif
   switch (source->type) {
@@ -412,10 +442,10 @@ static bool translate_event(const SDL_Event *source, rays_sdl3_event *event)
   }
 }
 
-void rays_sdl3_event_free(rays_sdl3_event *event)
+void pxui_sdl3_event_free(pxui_sdl3_event *event)
 {
-#if defined(RAYS_SDL3_IOS)
-  if (event->dialog_urls != NULL) rays_dialog_release_urls(event->dialog_urls);
+#if defined(PXUI_SDL3_IOS)
+  if (event->dialog_urls != NULL) pxui_dialog_release_urls(event->dialog_urls);
 #endif
   event->dialog_urls = NULL;
   free(event->text);
@@ -423,49 +453,53 @@ void rays_sdl3_event_free(rays_sdl3_event *event)
   event->text_len = 0;
 }
 
-static bool take_dialog_event(rays_sdl3_event *event)
+static bool take_dialog_event(pxui_sdl3_event *event)
 {
-  rays_dialog_result result;
-  if (!rays_dialog_take(&result)) return false;
+  pxui_dialog_result result;
+  if (!pxui_dialog_take(&result)) return false;
   memset(event, 0, sizeof(*event));
   event->dialog_urls = result.urls;
   event->tag = EVENT_DIALOG;
   event->id = result.id;
+  event->window = result.window;
   event->a = (int32_t)result.outcome;
   event->text = result.payload;
   event->text_len = result.payload_length;
-  if (result.outcome == RAYS_OUTCOME_FAILED && event->text == NULL) {
+  if (result.outcome == PXUI_OUTCOME_FAILED && event->text == NULL) {
     event->text = copy_text("the file dialog failed", &event->text_len);
   }
-  return event->text != NULL || result.outcome == RAYS_OUTCOME_CANCELLED;
+  return event->text != NULL || result.outcome == PXUI_OUTCOME_CANCELLED;
 }
 
-static bool take_scroll_event(rays_sdl3_event *event)
+static bool take_scroll_event(pxui_sdl3_event *event)
 {
   memset(event, 0, sizeof(*event));
   event->tag = EVENT_SCROLL;
-  if (!rays_sdl3_scroll_take(&event->x, &event->y, &event->a, &event->z)) return false;
+  if (!pxui_sdl3_scroll_take(&event->x, &event->y, &event->a, &event->z)) return false;
+  /* the trackpad monitor sees AppKit events, not SDL windows: the window under the pointer owns them */
+  SDL_Window *under = SDL_GetMouseFocus();
+  event->window = under != NULL ? SDL_GetWindowID(under) : 0;
   return true;
 }
 
 static unsigned int poll_depth;
 static bool in_live_redraw;
 static bool live_watch_installed;
-static _Atomic(rays_sdl3_live_resize_callback) live_resize_callback;
+static _Atomic(pxui_sdl3_live_resize_callback) live_resize_callback;
 static bool test_resize_next_poll;
 
 static bool SDLCALL live_resize_watch(void *userdata, SDL_Event *event)
 {
-  rays_sdl3_live_resize_callback callback;
+  pxui_sdl3_live_resize_callback callback;
   (void)userdata;
   callback = atomic_load_explicit(&live_resize_callback, memory_order_acquire);
-  /* poll_depth is only nonzero inside rays_sdl3_poll_event, which the Rust layer
+  /* poll_depth is only nonzero inside pxui_sdl3_poll_event, which the Rust layer
      calls only on the main thread; no thread check here, so test threads can run it. */
   if (poll_depth == 0 || in_live_redraw
       || event->type != SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED
       || callback == NULL) return true;
   in_live_redraw = true;
-  callback();
+  callback(event->window.windowID);
   in_live_redraw = false;
   return true;
 }
@@ -475,15 +509,15 @@ static void live_resize_install(void)
   if (!live_watch_installed) live_watch_installed = SDL_AddEventWatch(live_resize_watch, NULL);
 }
 
-void rays_sdl3_set_live_resize_callback(rays_sdl3_live_resize_callback callback)
+void pxui_sdl3_set_live_resize_callback(pxui_sdl3_live_resize_callback callback)
 {
   atomic_store_explicit(&live_resize_callback, callback, memory_order_release);
 }
 
-bool rays_sdl3_test_polling_event_queue(void) { return poll_depth != 0; }
-void rays_sdl3_test_queue_resize_during_poll(void) { test_resize_next_poll = true; }
+bool pxui_sdl3_test_polling_event_queue(void) { return poll_depth != 0; }
+void pxui_sdl3_test_queue_resize_during_poll(void) { test_resize_next_poll = true; }
 
-bool rays_sdl3_poll_event(rays_sdl3_event *event)
+bool pxui_sdl3_poll_event(pxui_sdl3_event *event)
 {
   static SDL_Event native_event;
   if (take_dialog_event(event)) return true;
@@ -510,15 +544,15 @@ bool rays_sdl3_poll_event(rays_sdl3_event *event)
   return take_scroll_event(event);
 }
 
-bool rays_sdl3_wait_event_timeout(int timeout_ms)
+bool pxui_sdl3_wait_event_timeout(int timeout_ms)
 {
   return SDL_WaitEventTimeout(NULL, timeout_ms);
 }
 
-bool rays_sdl3_wake(void)
+bool pxui_sdl3_wake(void)
 {
-#ifdef RAYS_SDL3_IOS
-  return rays_sdl3_ios_wake() != 0;
+#ifdef PXUI_SDL3_IOS
+  return pxui_sdl3_ios_wake() != 0;
 #else
   SDL_Event event;
   SDL_zero(event);

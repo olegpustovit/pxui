@@ -4,9 +4,9 @@ use std::ffi::c_void;
 #[cfg(feature = "test-util")]
 pub fn test_nested_wake() -> bool {
     unsafe extern "C" {
-        fn rays_sdl3_ios_test_nested_wake() -> i32;
+        fn pxui_sdl3_ios_test_nested_wake() -> i32;
     }
-    unsafe { rays_sdl3_ios_test_nested_wake() != 0 }
+    unsafe { pxui_sdl3_ios_test_nested_wake() != 0 }
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -60,7 +60,7 @@ impl Step {
 }
 
 unsafe extern "C" {
-    fn rays_sdl3_run_ios(
+    fn pxui_sdl3_run_ios(
         callback: extern "C" fn(*mut c_void, i32) -> Step,
         user: *mut c_void,
     ) -> i32;
@@ -86,7 +86,7 @@ pub fn run(callback: &mut dyn FnMut(Signal) -> Step) -> i32 {
     let mut callback = callback;
     // UIKit owns the nested run loop; this stack slot stays live until SDL_RunApp returns.
     unsafe {
-        rays_sdl3_run_ios(
+        pxui_sdl3_run_ios(
             invoke,
             (&mut callback as *mut &mut dyn FnMut(Signal) -> Step).cast(),
         )
@@ -109,11 +109,11 @@ pub struct Environment {
     pub keyboard_flags: u32,
 }
 unsafe extern "C" {
-    fn rays_sdl3_ios_environment(window: u32, out: *mut Environment) -> i32;
+    fn pxui_sdl3_ios_environment(window: u32, out: *mut Environment) -> i32;
 }
 pub fn environment(window: u32) -> Result<Environment, super::Error> {
     let mut out = Environment::default();
-    if unsafe { rays_sdl3_ios_environment(window, &mut out) } != 1 {
+    if unsafe { pxui_sdl3_ios_environment(window, &mut out) } != 1 {
         return Err(super::sdl_error(
             super::ErrorKind::Sdl,
             "could not read the iOS environment",

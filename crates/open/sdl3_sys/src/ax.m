@@ -10,9 +10,9 @@ enum { StFocused = 1 << 1, StEnabled = 1 << 2, StChecked = 1 << 4, StMixed = 1 <
        StSelected = 1 << 7, StExpandable = 1 << 8, StExpanded = 1 << 9 };
 enum { None = UINT32_MAX, QueueCapacity = 32, RoleCount = 42 };
 
-@class RaysAX;
-@interface RaysAXElement : NSAccessibilityElement
-@property(nonatomic, weak) RaysAX *host;
+@class PxuiAX;
+@interface PxuiAXElement : NSAccessibilityElement
+@property(nonatomic, weak) PxuiAX *host;
 @property(nonatomic) uint64_t nodeId;
 @property(nonatomic) NSRect local;
 @property(nonatomic) uint32_t actions, states, sweep;
@@ -23,17 +23,17 @@ enum { None = UINT32_MAX, QueueCapacity = 32, RoleCount = 42 };
 @property(nonatomic, copy) NSString *shownName;
 @property(nonatomic, strong) id shownValue;
 @end
-@interface RaysAXActionElement : RaysAXElement
+@interface PxuiAXActionElement : PxuiAXElement
 @end
 
-@interface RaysAX : NSObject {
+@interface PxuiAX : NSObject {
 @public
     __weak NSView *view;
-    NSMapTable<id, RaysAXElement *> *elements; // keyed by node id + 1 as an integer, so lookups box nothing
+    NSMapTable<id, PxuiAXElement *> *elements; // keyed by node id + 1 as an integer, so lookups box nothing
     void **order, **previous; // unretained, parallel to the last two trees; the map owns the elements
     uint32_t orderCount, orderCapacity;
     void (*wake)(void);
-    RaysAXAction queue[QueueCapacity];
+    PxuiAXAction queue[QueueCapacity];
     uint32_t queued, sweep;
     uint64_t notes, focused;
 }
@@ -43,9 +43,9 @@ enum { None = UINT32_MAX, QueueCapacity = 32, RoleCount = 42 };
 
 static BOOL isFlag(uint32_t value, uint32_t bit) { return (value & bit) != 0; }
 
-@implementation RaysAXElement
+@implementation PxuiAXElement
 - (NSRect)accessibilityFrame {
-    RaysAX *host = self.host;
+    PxuiAX *host = self.host;
     NSView *v = host ? host->view : nil;
     NSWindow *window = v.window;
     if (!window) return NSZeroRect;
@@ -61,7 +61,7 @@ static BOOL isFlag(uint32_t value, uint32_t bit) { return (value & bit) != 0; }
 - (void)storeValue:(id)value { [super setAccessibilityValue:value]; }
 @end
 
-@implementation RaysAXActionElement
+@implementation PxuiAXActionElement
 - (BOOL)accessibilityPerformPress {
     uint32_t action = isFlag(self.actions, ActPress) ? ActPress
         : isFlag(self.actions, ActExpand | ActCollapse) ? (isFlag(self.states, StExpanded) ? ActCollapse : ActExpand) : 0;
@@ -92,14 +92,14 @@ static BOOL isFlag(uint32_t value, uint32_t bit) { return (value & bit) != 0; }
 }
 @end
 
-@implementation RaysAX
+@implementation PxuiAX
 - (void)post:(id)object name:(NSAccessibilityNotificationName)name {
     notes++;
     NSAccessibilityPostNotification(object, name);
 }
 - (void)push:(uint64_t)identifier action:(uint32_t)action payload:(double)payload {
     if (queued == QueueCapacity) return; // a client that outruns one frame loses the newest request
-    queue[queued++] = (RaysAXAction){ identifier, action, 0, payload };
+    queue[queued++] = (PxuiAXAction){ identifier, action, 0, payload };
     if (wake) wake();
 }
 @end
@@ -148,11 +148,11 @@ static NSView *windowView(void *raw) {
     return [delegate isKindOfClass:NSView.class] ? delegate : nil;
 }
 
-void *rays_sdl3_ax_open(void *layer, void (*wake)(void)) {
+void *pxui_sdl3_ax_open(void *layer, void (*wake)(void)) {
     @autoreleasepool {
         NSView *view = windowView(layer);
         if (!view) return NULL;
-        RaysAX *host = [RaysAX new];
+        PxuiAX *host = [PxuiAX new];
         host->view = view;
         host->elements = [NSMapTable mapTableWithKeyOptions:NSPointerFunctionsOpaqueMemory | NSPointerFunctionsIntegerPersonality valueOptions:NSPointerFunctionsStrongMemory];
         host->wake = wake;
@@ -160,29 +160,29 @@ void *rays_sdl3_ax_open(void *layer, void (*wake)(void)) {
     }
 }
 
-int rays_sdl3_ax_voiceover(void) { return NSThread.isMainThread && NSWorkspace.sharedWorkspace.voiceOverEnabled; }
+int pxui_sdl3_ax_voiceover(void) { return NSThread.isMainThread && NSWorkspace.sharedWorkspace.voiceOverEnabled; }
 
-void rays_sdl3_ax_clear(void *raw) {
+void pxui_sdl3_ax_clear(void *raw) {
     @autoreleasepool {
-        RaysAX *host = (__bridge RaysAX *)raw;
+        PxuiAX *host = (__bridge PxuiAX *)raw;
         if (host->elements.count) [host->view setAccessibilityChildren:nil];
-        for (RaysAXElement *element in host->elements.objectEnumerator) { element.accessibilityChildren = nil; element.accessibilityParent = nil; }
+        for (PxuiAXElement *element in host->elements.objectEnumerator) { element.accessibilityChildren = nil; element.accessibilityParent = nil; }
         [host->elements removeAllObjects];
         host->orderCount = 0;
         host->focused = 0;
     }
 }
 
-void rays_sdl3_ax_close(void *raw) {
-    rays_sdl3_ax_clear(raw);
-    RaysAX *host = (__bridge RaysAX *)raw;
+void pxui_sdl3_ax_close(void *raw) {
+    pxui_sdl3_ax_clear(raw);
+    PxuiAX *host = (__bridge PxuiAX *)raw;
     free(host->order);
     free(host->previous);
     CFRelease(raw);
 }
 
-uint32_t rays_sdl3_ax_take(void *raw, RaysAXAction *out, uint32_t capacity) {
-    RaysAX *host = (__bridge RaysAX *)raw;
+uint32_t pxui_sdl3_ax_take(void *raw, PxuiAXAction *out, uint32_t capacity) {
+    PxuiAX *host = (__bridge PxuiAX *)raw;
     uint32_t n = MIN(capacity, host->queued);
     memcpy(out, host->queue, n * sizeof *out);
     memmove(host->queue, host->queue + n, (host->queued - n) * sizeof *out);
@@ -190,12 +190,12 @@ uint32_t rays_sdl3_ax_take(void *raw, RaysAXAction *out, uint32_t capacity) {
     return n;
 }
 
-uint64_t rays_sdl3_ax_notifications(void *raw) { return ((__bridge RaysAX *)raw)->notes; }
+uint64_t pxui_sdl3_ax_notifications(void *raw) { return ((__bridge PxuiAX *)raw)->notes; }
 
-static BOOL valid(const RaysAXNode *nodes, uint32_t n, uint32_t length, uint32_t first_top) {
+static BOOL valid(const PxuiAXNode *nodes, uint32_t n, uint32_t length, uint32_t first_top) {
     BOOL top = first_top == None || first_top < n;
     for (uint32_t i = 0; i < n && top; i++) {
-        const RaysAXNode *x = &nodes[i];
+        const PxuiAXNode *x = &nodes[i];
         uint32_t ranges[3][2] = { { x->name_start, x->name_end }, { x->description_start, x->description_end }, { x->value.text_start, x->value.text_end } };
         for (int k = 0; k < 3; k++) {
             if (k == 2 && x->value.tag != 1) continue;
@@ -218,7 +218,7 @@ static uint64_t mix(uint64_t h, const void *p, size_t n) {
 }
 
 // Everything the element shows except its rect and links, with text by content (ranges shift when other text changes).
-static uint64_t contentHash(const RaysAXNode *x, const char *strings) {
+static uint64_t contentHash(const PxuiAXNode *x, const char *strings) {
     uint64_t h = 0xcbf29ce484222325ull;
     h = mix(h, &x->id, sizeof x->id);
     h = mix(h, &x->role, sizeof x->role);
@@ -233,13 +233,13 @@ static uint64_t contentHash(const RaysAXNode *x, const char *strings) {
     return mix(h, lengths, sizeof lengths);
 }
 
-static RaysAXElement *elementAt(RaysAX *host, uint32_t i) { return (__bridge RaysAXElement *)host->order[i]; }
+static PxuiAXElement *elementAt(PxuiAX *host, uint32_t i) { return (__bridge PxuiAXElement *)host->order[i]; }
 
 // An unchanged node costs one lookup and one hash: no ObjC objects are created for it, and a
 // tree whose shape did not change leaves the children arrays and the view alone.
-int rays_sdl3_ax_sync(void *raw, const RaysAXNode *nodes, uint32_t n, const char *strings, uint32_t length, uint32_t first_top) {
+int pxui_sdl3_ax_sync(void *raw, const PxuiAXNode *nodes, uint32_t n, const char *strings, uint32_t length, uint32_t first_top) {
     @autoreleasepool {
-        RaysAX *host = (__bridge RaysAX *)raw;
+        PxuiAX *host = (__bridge PxuiAX *)raw;
         NSView *view = host->view;
         if (!NSThread.isMainThread || !view || (n && (!nodes || !strings)) || !valid(nodes, n, length, first_top)) return 0;
         if (n > host->orderCapacity) {
@@ -254,13 +254,13 @@ int rays_sdl3_ax_sync(void *raw, const RaysAXNode *nodes, uint32_t n, const char
         uint32_t previousCount = host->orderCount;
         uint32_t sweep = ++host->sweep;
         BOOL structure = n != previousCount;
-        NSMutableArray<RaysAXElement *> *values = nil, *names = nil;
-        RaysAXElement *focus = nil;
+        NSMutableArray<PxuiAXElement *> *values = nil, *names = nil;
+        PxuiAXElement *focus = nil;
         for (uint32_t i = 0; i < n; i++) {
-            const RaysAXNode *x = &nodes[i];
+            const PxuiAXNode *x = &nodes[i];
             const void *key = (const void *)(uintptr_t)(x->id + 1);
-            Class wanted = isFlag(x->actions, ActPress | ActSet | ActExpand | ActCollapse) ? RaysAXActionElement.class : RaysAXElement.class;
-            RaysAXElement *element = (__bridge RaysAXElement *)NSMapGet(host->elements, key);
+            Class wanted = isFlag(x->actions, ActPress | ActSet | ActExpand | ActCollapse) ? PxuiAXActionElement.class : PxuiAXElement.class;
+            PxuiAXElement *element = (__bridge PxuiAXElement *)NSMapGet(host->elements, key);
             if (element && element.class != wanted) { [host post:element name:NSAccessibilityUIElementDestroyedNotification]; element = nil; }
             if (!element) {
                 element = [wanted new];
@@ -319,9 +319,9 @@ int rays_sdl3_ax_sync(void *raw, const RaysAXNode *nodes, uint32_t n, const char
             }
         }
         if (host->elements.count > n) {
-            NSMutableArray<RaysAXElement *> *gone = [NSMutableArray new];
-            for (RaysAXElement *element in host->elements.objectEnumerator) if (element.sweep != sweep) [gone addObject:element];
-            for (RaysAXElement *element in gone) {
+            NSMutableArray<PxuiAXElement *> *gone = [NSMutableArray new];
+            for (PxuiAXElement *element in host->elements.objectEnumerator) if (element.sweep != sweep) [gone addObject:element];
+            for (PxuiAXElement *element in gone) {
                 [host post:element name:NSAccessibilityUIElementDestroyedNotification];
                 element.accessibilityChildren = nil;
                 element.accessibilityParent = nil;
@@ -332,11 +332,11 @@ int rays_sdl3_ax_sync(void *raw, const RaysAXNode *nodes, uint32_t n, const char
         host->orderCount = n;
         if (structure) {
             for (uint32_t i = 0; i < n; i++) {
-                RaysAXElement *element = elementAt(host, i);
+                PxuiAXElement *element = elementAt(host, i);
                 NSMutableArray *kids = [NSMutableArray arrayWithCapacity:nodes[i].child_count];
                 uint32_t steps = 0;
                 for (uint32_t c = nodes[i].first_child; c != None && steps++ < n; c = nodes[c].next_sibling) {
-                    RaysAXElement *child = elementAt(host, c);
+                    PxuiAXElement *child = elementAt(host, c);
                     [kids addObject:child];
                     if (child.accessibilityParent != element) child.accessibilityParent = element;
                 }
@@ -345,15 +345,15 @@ int rays_sdl3_ax_sync(void *raw, const RaysAXNode *nodes, uint32_t n, const char
             NSMutableArray *top = [NSMutableArray new];
             uint32_t steps = 0;
             for (uint32_t c = first_top; c != None && steps++ < n; c = nodes[c].next_sibling) {
-                RaysAXElement *child = elementAt(host, c);
+                PxuiAXElement *child = elementAt(host, c);
                 [top addObject:child];
                 if (child.accessibilityParent != view) child.accessibilityParent = view;
             }
             if (![top isEqualToArray:view.accessibilityChildren ?: @[]]) [view setAccessibilityChildren:top];
             [host post:view name:NSAccessibilityLayoutChangedNotification];
         }
-        for (RaysAXElement *element in values) [host post:element name:NSAccessibilityValueChangedNotification];
-        for (RaysAXElement *element in names) [host post:element name:NSAccessibilityTitleChangedNotification];
+        for (PxuiAXElement *element in values) [host post:element name:NSAccessibilityValueChangedNotification];
+        for (PxuiAXElement *element in names) [host post:element name:NSAccessibilityTitleChangedNotification];
         uint64_t focusId = focus ? focus.nodeId : 0;
         if (focus && focusId != host->focused) [host post:focus name:NSAccessibilityFocusedUIElementChangedNotification];
         host->focused = focusId;
@@ -361,7 +361,7 @@ int rays_sdl3_ax_sync(void *raw, const RaysAXNode *nodes, uint32_t n, const char
     }
 }
 
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
 // Queries go through the NSAccessibility protocol, as an assistive client's would.
 static id findLabeled(id<NSAccessibility> object, NSString *label) {
     for (id<NSAccessibility> child in object.accessibilityChildren) {
@@ -374,13 +374,13 @@ static id findLabeled(id<NSAccessibility> object, NSString *label) {
 
 static void copy(char *to, size_t size, NSString *from) { snprintf(to, size, "%s", from.UTF8String ?: ""); }
 
-int rays_sdl3_ax_test_find(void *raw, const char *label, RaysAXInfo *info) {
+int pxui_sdl3_ax_test_find(void *raw, const char *label, PxuiAXInfo *info) {
     @autoreleasepool {
-        RaysAX *host = (__bridge RaysAX *)raw;
+        PxuiAX *host = (__bridge PxuiAX *)raw;
         if (!label) { info->children = (int)host->view.accessibilityChildren.count; return 1; }
         id<NSAccessibility> e = findLabeled(host->view, @(label));
         if (!e) return 0;
-        *info = (RaysAXInfo){ 0 };
+        *info = (PxuiAXInfo){ 0 };
         copy(info->role, sizeof info->role, e.accessibilityRole);
         copy(info->label, sizeof info->label, e.accessibilityLabel);
         id value = e.accessibilityValue;
@@ -392,19 +392,19 @@ int rays_sdl3_ax_test_find(void *raw, const char *label, RaysAXInfo *info) {
         info->frame[0] = f.origin.x; info->frame[1] = f.origin.y; info->frame[2] = f.size.width; info->frame[3] = f.size.height;
         info->enabled = e.accessibilityEnabled; info->selected = e.accessibilitySelected;
         info->expanded = e.accessibilityExpanded; info->focused = e.accessibilityFocused;
-        info->actionable = [(NSObject *)e isKindOfClass:RaysAXActionElement.class];
+        info->actionable = [(NSObject *)e isKindOfClass:PxuiAXActionElement.class];
         info->children = (int)e.accessibilityChildren.count;
         info->identity = (uintptr_t)(__bridge void *)e;
         return 1;
     }
 }
 
-int rays_sdl3_ax_test_perform(void *raw, const char *label, int kind, double number) {
+int pxui_sdl3_ax_test_perform(void *raw, const char *label, int kind, double number) {
     @autoreleasepool {
-        id<NSAccessibility> e = findLabeled(((__bridge RaysAX *)raw)->view, @(label));
+        id<NSAccessibility> e = findLabeled(((__bridge PxuiAX *)raw)->view, @(label));
         if (!e) return -1;
         // Only action elements implement these; AppKit's base class throws for them.
-        if (kind >= 0 && kind <= 3 && ![(NSObject *)e isKindOfClass:RaysAXActionElement.class]) return 0;
+        if (kind >= 0 && kind <= 3 && ![(NSObject *)e isKindOfClass:PxuiAXActionElement.class]) return 0;
         switch (kind) {
         case 0: return [e accessibilityPerformPress];
         case 1: return [e accessibilityPerformIncrement];

@@ -34,7 +34,7 @@ _Static_assert(sizeof(PXUIPreferencesState) == 8, "system preference layout");
     if (motion) [NSNotificationCenter.defaultCenter removeObserver:motion];
 }
 @end
-void *rays_sdl3_preferences_create(uint32_t windowID, void (*wake)(void)) {
+void *pxui_sdl3_preferences_create(uint32_t windowID, void (*wake)(void)) {
     if (!NSThread.isMainThread) return NULL;
     SDL_Window *handle = SDL_GetWindowFromID(windowID);
     if (!handle) return NULL;
@@ -55,8 +55,8 @@ void *rays_sdl3_preferences_create(uint32_t windowID, void (*wake)(void)) {
         return (__bridge_retained void *)owner;
     }
 }
-void rays_sdl3_preferences_read(void *raw, PXUIPreferencesState *state) { *state = ((__bridge PXUIPreferences *)raw)->state; }
-void rays_sdl3_preferences_release(void *raw) { @autoreleasepool { (void)CFBridgingRelease(raw); } }
+void pxui_sdl3_preferences_read(void *raw, PXUIPreferencesState *state) { *state = ((__bridge PXUIPreferences *)raw)->state; }
+void pxui_sdl3_preferences_release(void *raw) { @autoreleasepool { (void)CFBridgingRelease(raw); } }
 #else
 #import <AppKit/AppKit.h>
 
@@ -113,18 +113,18 @@ static char PXUIAppearanceContext;
 }
 @end
 
-void *rays_sdl3_preferences_create(uint32_t window, void (*wake)(void)) {
+void *pxui_sdl3_preferences_create(uint32_t window, void (*wake)(void)) {
     if (!NSThread.isMainThread || !NSApp || !SDL_GetWindowFromID(window)) return NULL;
     @autoreleasepool { return (__bridge_retained void *)[[PXUIPreferences alloc] initWithApplication:NSApp workspace:NSWorkspace.sharedWorkspace wake:wake]; }
 }
-void rays_sdl3_preferences_read(void *raw, PXUIPreferencesState *state) {
+void pxui_sdl3_preferences_read(void *raw, PXUIPreferencesState *state) {
     *state = ((__bridge PXUIPreferences *)raw)->state;
 }
-void rays_sdl3_preferences_release(void *raw) {
+void pxui_sdl3_preferences_release(void *raw) {
     @autoreleasepool { (void)CFBridgingRelease(raw); }
 }
 
-#ifdef RAYS_SDL3_TEST_UTIL
+#ifdef PXUI_SDL3_TEST_UTIL
 // These objects affect only this test process, never global preferences or another application instance.
 @interface LWTestWorkspace : NSObject
 @property BOOL accessibilityDisplayShouldReduceMotion;
@@ -134,7 +134,7 @@ void rays_sdl3_preferences_release(void *raw) {
 @end
 static unsigned testWakes;
 static void testWake(void) { ++testWakes; }
-int rays_sdl3_preferences_test_notifications(void) {
+int pxui_sdl3_preferences_test_notifications(void) {
     if (!NSThread.isMainThread || !NSApp) return 0;
     @autoreleasepool {
         NSAppearance *original = NSApp.appearance;

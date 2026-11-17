@@ -4,7 +4,7 @@ typedef struct {
     double top_inset;
     double content_width, content_height;
     uint32_t resizable, zoom_enabled, full_size_content, full_screen_primary;
-} RaysSDL3ChromeState;
-int rays_sdl3_chrome_configure(void *layer, double minimum_width, double minimum_height);
-int rays_sdl3_chrome_read(void *layer, RaysSDL3ChromeState *state);
-int rays_sdl3_chrome_update_background(void *window, void *color);
+} PxuiSDL3ChromeState;
+int pxui_sdl3_chrome_configure(void *layer, double minimum_width, double minimum_height);
+int pxui_sdl3_chrome_read(void *layer, PxuiSDL3ChromeState *state);
+int pxui_sdl3_chrome_update_background(void *window, void *color);

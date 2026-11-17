@@ -1,4 +1,11 @@
 //! The AT-SPI2 server: the application root and one object per tree node on the accessibility bus.
+//!
+//! One bridge per process serves every surface (window) of the app: each surface's tree is published under
+//! its surface id, its top-level nodes (a pxui tree's window node) are the application root's children in
+//! the order the surfaces were added, and node object paths carry the surface (`{NODE_PREFIX}{surface}/{id}`),
+//! so equal node ids of two surfaces never collide. Actions come back with the surface they target.
+//! Bounds: at most `MAX_SURFACES` surfaces; trees are copied into buffers reused across updates.
+//! Threading: a bridge is used on one thread; it starts no threads and holds no app pointers past a call.
 use crate::map;
 use crate::wire::{Conn, ERROR, METHOD_CALL, METHOD_RETURN, Msg};
 use pxui_core::a11y::{A11yAction, A11yDiff, A11yNode, A11yTree, Action, NO_PARENT, Role, Value, actions, change, diff, state};
@@ -22,6 +29,9 @@ const CACHE_PATH: &str = "/org/a11y/atspi/cache";
 const UNKNOWN_METHOD: &str = "org.freedesktop.DBus.Error.UnknownMethod";
 const UNKNOWN_OBJECT: &str = "org.freedesktop.DBus.Error.UnknownObject";
 const INVALID_ARGS: &str = "org.freedesktop.DBus.Error.InvalidArgs";
+
+/// Most surfaces one bridge serves; `update` refuses another.
+pub const MAX_SURFACES: usize = 256;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Error {
@@ -54,22 +64,22 @@ pub fn a11y_bus_address(session: Option<&str>) -> Result<String, Error> {
     reply.read_str().filter(|a| !a.is_empty()).map(str::to_owned).ok_or_else(|| Error::NoBus("org.a11y.Bus gave no address".into()))
 }
 
-/// An object path for a node id, or the root, on the stack.
+/// An object path for a surface's node (surface id, node id), or the root, on the stack.
 struct Path {
-    buf: [u8; 64],
+    buf: [u8; 96],
     len: usize,
 }
 
 impl Path {
-    fn of(id: Option<u64>) -> Path {
-        let mut p = Path { buf: [0; 64], len: 0 };
+    fn of(node: Option<(u64, u64)>) -> Path {
+        let mut p = Path { buf: [0; 96], len: 0 };
         let mut w = &mut p.buf[..];
-        match id {
-            Some(id) => write!(w, "{NODE_PREFIX}{id}"),
+        match node {
+            Some((surface, id)) => write!(w, "{NODE_PREFIX}{surface}/{id}"),
             None => write!(w, "{ROOT_PATH}"),
         }
         .expect("path fits");
-        p.len = 64 - w.len();
+        p.len = 96 - w.len();
         p
     }
     fn as_str(&self) -> &str {
@@ -77,11 +87,17 @@ impl Path {
     }
 }
 
-/// What an object path names.
+/// What an object path names: the application, or (surface index, node index).
 #[derive(Clone, Copy, PartialEq)]
 enum Target {
     Root,
-    Node(u32),
+    Node(u32, u32),
+}
+
+/// One surface's published tree.
+struct Surface {
+    id: u64,
+    tree: A11yTree,
 }
 
 /// An event's variant: an int, a string or a reference to one of our objects (both given as text), a double.
@@ -103,9 +119,15 @@ pub struct Bridge {
     /// the serial of the Socket.Embed call `pump` still waits for (0: answered)
     embed: u32,
     app_id: i32,
-    tree: A11yTree,
+    /// in the order they were added: the root's children follow it
+    surfaces: Vec<Surface>,
+    /// the tree an update replaced, kept to diff against and reused as the next update's buffer
+    previous: A11yTree,
     diff: A11yDiff,
-    action_buf: Vec<A11yAction>,
+    /// `update_ffi`'s reusable copy and id check
+    scratch: A11yTree,
+    ids: std::collections::HashSet<u64>,
+    action_buf: Vec<(u64, A11yAction)>,
 }
 
 impl Bridge {
@@ -124,7 +146,10 @@ impl Bridge {
         embed.open(b'r', "").s(&unique).o(ROOT_PATH).close();
         let embed = conn.send(embed).unwrap_or(0);
         conn.flush();
-        Ok(Bridge { conn, app_name: app_name.to_owned(), unique, parent: None, embed, app_id: 0, tree: A11yTree::new(), diff: A11yDiff::default(), action_buf: Vec::new() })
+        Ok(Bridge {
+            conn, app_name: app_name.to_owned(), unique, parent: None, embed, app_id: 0, surfaces: Vec::new(), previous: A11yTree::new(),
+            diff: A11yDiff::default(), scratch: A11yTree::new(), ids: std::collections::HashSet::new(), action_buf: Vec::new(),
+        })
     }
 
     /// Whether the registry accepted the application (Socket.Embed answered; `pump` reads the answer).
@@ -147,34 +172,72 @@ impl Bridge {
         self.conn.fd()
     }
 
-    /// Serve `tree` from now on and emit the change events against the tree served before. Returns at once,
-    /// allocation-free, when the revision is unchanged.
-    pub fn update(&mut self, tree: &A11yTree) {
-        if tree.revision == self.tree.revision {
-            return;
-        }
-        let mut d = std::mem::take(&mut self.diff);
-        diff(&self.tree, tree, &mut d);
-        self.emit(&self.tree, tree, &d);
-        self.diff = d;
-        self.tree.copy_from(tree);
-        self.conn.flush();
-    }
-
-    /// Serve the public ABI tree while its backing UI output is alive.
-    ///
-    /// # Safety
-    /// Every non-empty pointer in `tree` must reference readable memory for the duration of this call.
-    pub unsafe fn update_ffi(&mut self, tree: &FfiA11yTree) -> Result<(), &'static str> {
-        if tree.revision == self.tree.revision { return Ok(()); }
-        let converted = unsafe { copy_ffi_tree(tree)? };
-        self.update(&converted);
+    /// Serve `tree` as surface `surface`'s from now on (adding the surface on its first update) and emit
+    /// the change events against the tree it served before. Returns at once, allocation-free, when the
+    /// surface's revision is unchanged. Errors (nothing published) when `MAX_SURFACES` are already served.
+    pub fn update(&mut self, surface: u64, tree: &A11yTree) -> Result<(), &'static str> {
+        let index = match self.surfaces.iter().position(|s| s.id == surface) {
+            Some(i) if self.surfaces[i].tree.revision == tree.revision => return Ok(()),
+            Some(i) => i,
+            None if self.surfaces.len() >= MAX_SURFACES => return Err("too many accessibility surfaces"),
+            None => {
+                self.surfaces.push(Surface { id: surface, tree: A11yTree::new() });
+                self.surfaces.len() - 1
+            }
+        };
+        std::mem::swap(&mut self.previous, &mut self.surfaces[index].tree);
+        self.surfaces[index].tree.copy_from(tree);
+        self.publish(index);
         Ok(())
     }
 
-    /// Answer every pending D-Bus call without blocking; requests for the UI are appended to `out`. Returns
-    /// false once the bus has gone.
-    pub fn pump(&mut self, out: &mut Vec<A11yAction>) -> bool {
+    /// Stop serving surface `surface` (its window closed): its nodes are announced removed, and the later
+    /// surfaces' top-level nodes, whose index under the root moved down, are re-announced to the cache with
+    /// their new index. Unknown ids are ignored.
+    pub fn remove_surface(&mut self, surface: u64) {
+        let Some(index) = self.surfaces.iter().position(|s| s.id == surface) else { return };
+        std::mem::swap(&mut self.previous, &mut self.surfaces[index].tree);
+        self.surfaces[index].tree = A11yTree::new();
+        self.publish(index);
+        self.surfaces.remove(index);
+        for s in index..self.surfaces.len() {
+            let tree = &self.surfaces[s].tree;
+            let mut c = tree.first_child(NO_PARENT);
+            while c != NO_PARENT {
+                let mut m = Msg::signal(CACHE_PATH, CACHE, "AddAccessible");
+                self.cache_item(&mut m, Target::Node(s as u32, c));
+                self.conn.send(m);
+                c = tree.nodes[c as usize].next_sibling;
+            }
+        }
+        self.conn.flush();
+    }
+
+    /// Emit the changes from `previous` to surface `index`'s tree.
+    fn publish(&mut self, index: usize) {
+        let mut d = std::mem::take(&mut self.diff);
+        diff(&self.previous, &self.surfaces[index].tree, &mut d);
+        self.emit(index as u32, &d);
+        self.diff = d;
+        self.conn.flush();
+    }
+
+    /// Serve the public ABI tree as surface `surface`'s while its backing UI output is alive; the copy reuses
+    /// the bridge's buffers.
+    ///
+    /// # Safety
+    /// Every non-empty pointer in `tree` must reference readable memory for the duration of this call.
+    pub unsafe fn update_ffi(&mut self, surface: u64, tree: &FfiA11yTree) -> Result<(), &'static str> {
+        if self.surfaces.iter().any(|s| s.id == surface && s.tree.revision == tree.revision) { return Ok(()); }
+        let (mut scratch, mut ids) = (std::mem::replace(&mut self.scratch, A11yTree::new()), std::mem::take(&mut self.ids));
+        let result = unsafe { copy_ffi_tree(tree, &mut scratch, &mut ids) }.and_then(|()| self.update(surface, &scratch));
+        (self.scratch, self.ids) = (scratch, ids);
+        result
+    }
+
+    /// Answer every pending D-Bus call without blocking; requests for the UI are appended to `out` with the
+    /// surface they target. Returns false once the bus has gone.
+    pub fn pump(&mut self, out: &mut Vec<(u64, A11yAction)>) -> bool {
         loop {
             match self.conn.pop() {
                 Err(()) => return false,
@@ -197,13 +260,13 @@ impl Bridge {
     }
 
     /// Public-ABI counterpart to `pump`; actions remain in the bridge's reusable buffer between calls.
-    pub fn pump_ffi(&mut self, out: &mut Vec<pxui_types::ffi::A11yAction>) -> bool {
+    pub fn pump_ffi(&mut self, out: &mut Vec<(u64, pxui_types::ffi::A11yAction)>) -> bool {
         let mut pending = std::mem::take(&mut self.action_buf);
         pending.clear();
         let alive = self.pump(&mut pending);
-        out.extend(pending.iter().map(|a| pxui_types::ffi::A11yAction {
+        out.extend(pending.iter().map(|(surface, a)| (*surface, pxui_types::ffi::A11yAction {
             id: a.id, action_code: a.action as u32, reserved: 0, payload: a.payload, end: a.end as u32, reserved_tail: 0,
-        }));
+        })));
         self.action_buf = pending;
         alive
     }
@@ -224,38 +287,45 @@ impl Bridge {
         self.conn.send(m);
     }
 
-    fn emit(&self, old: &A11yTree, new: &A11yTree, d: &A11yDiff) {
-        let parent_path = |tree: &A11yTree, n: &A11yNode| Path::of((n.parent != NO_PARENT).then(|| tree.nodes[n.parent as usize].id));
+    /// Signals for the diff from `previous` to surface `s`'s tree.
+    fn emit(&self, s: u32, d: &A11yDiff) {
+        let (old, new, surface) = (&self.previous, self.tree(s), self.surfaces[s as usize].id);
+        let parent_path = |tree: &A11yTree, n: &A11yNode| Path::of((n.parent != NO_PARENT).then(|| (surface, tree.nodes[n.parent as usize].id)));
+        // a top-level node's index among the root's children counts the surfaces before this one
+        let index = |tree: &A11yTree, i: u32| {
+            tree.index_in_parent(i) + if tree.nodes[i as usize].parent == NO_PARENT { self.top_offset(s) } else { 0 }
+        };
         // The cache follows every node; a removed or added subtree's events are announced once, at its top.
         for &id in &d.removed {
             let mut m = Msg::signal(CACHE_PATH, CACHE, "RemoveAccessible");
-            m.open(b'r', "").s(&self.unique).o(Path::of(Some(id)).as_str()).close();
+            m.open(b'r', "").s(&self.unique).o(Path::of(Some((surface, id))).as_str()).close();
             self.conn.send(m);
         }
         for &id in &d.added {
             let mut m = Msg::signal(CACHE_PATH, CACHE, "AddAccessible");
-            self.cache_item(&mut m, new, Target::Node(new.find(id).expect("added id is in the new tree")));
+            self.cache_item(&mut m, Target::Node(s, new.find(id).expect("added id is in the new tree")));
             self.conn.send(m);
         }
-        for &id in &d.removed {
+        // last first: each announced index stays valid as the earlier siblings are still there
+        for &id in d.removed.iter().rev() {
             let i = old.find(id).expect("removed id is in the old tree");
             let n = &old.nodes[i as usize];
             if n.parent == NO_PARENT || new.find(old.nodes[n.parent as usize].id).is_some() {
-                let child = Path::of(Some(id));
-                self.signal(parent_path(old, n).as_str(), EVENT_OBJECT, "ChildrenChanged", "remove", old.index_in_parent(i) as i32, 0, Any::Obj, child.as_str());
+                let child = Path::of(Some((surface, id)));
+                self.signal(parent_path(old, n).as_str(), EVENT_OBJECT, "ChildrenChanged", "remove", index(old, i) as i32, 0, Any::Obj, child.as_str());
             }
         }
         for &id in &d.added {
             let i = new.find(id).expect("added id is in the new tree");
             let n = &new.nodes[i as usize];
             if n.parent == NO_PARENT || old.find(new.nodes[n.parent as usize].id).is_some() {
-                let child = Path::of(Some(id));
-                self.signal(parent_path(new, n).as_str(), EVENT_OBJECT, "ChildrenChanged", "add", new.index_in_parent(i) as i32, 0, Any::Obj, child.as_str());
+                let child = Path::of(Some((surface, id)));
+                self.signal(parent_path(new, n).as_str(), EVENT_OBJECT, "ChildrenChanged", "add", index(new, i) as i32, 0, Any::Obj, child.as_str());
             }
         }
         for &(id, mask) in &d.changed {
             let (o, n) = (&old.nodes[old.find(id).unwrap() as usize], &new.nodes[new.find(id).unwrap() as usize]);
-            let path = Path::of(Some(id));
+            let path = Path::of(Some((surface, id)));
             let path = path.as_str();
             if mask & change::NAME != 0 {
                 self.signal(path, EVENT_OBJECT, "PropertyChange", "accessible-name", 0, 0, Any::Str, new.str(n.name));
@@ -315,61 +385,69 @@ impl Bridge {
 
     // ------------------------------------------------------------------ calls
 
-    /// One Cache item of `target` in `tree`: object, application, parent, index in parent, child count,
+    /// One Cache item of `target`: object, application, parent, index in parent, child count,
     /// interfaces, name, role, description, states.
-    fn cache_item(&self, m: &mut Msg, tree: &A11yTree, target: Target) {
-        let node = match target {
-            Target::Root => None,
-            Target::Node(i) => Some(&tree.nodes[i as usize]),
-        };
-        let object = Path::of(node.map(|n| n.id));
+    fn cache_item(&self, m: &mut Msg, target: Target) {
+        let node = self.node(target);
+        let object = self.path(Some(target));
         m.open(b'r', "").open(b'r', "").s(&self.unique).o(object.as_str()).close();
         m.open(b'r', "").s(&self.unique).o(ROOT_PATH).close();
-        match (node, &self.parent) {
-            (None, Some((bus, path))) => m.open(b'r', "").s(bus).o(path).close(),
-            (None, None) => m.open(b'r', "").s(&self.unique).o(NULL_PATH).close(),
-            (Some(n), _) => {
-                let parent = Path::of((n.parent != NO_PARENT).then(|| tree.nodes[n.parent as usize].id));
-                m.open(b'r', "").s(&self.unique).o(parent.as_str()).close()
-            }
-        };
-        let index = match target {
-            Target::Root => -1,
-            Target::Node(i) => tree.index_in_parent(i) as i32,
-        };
-        m.i(index).i(tree.child_count(Bridge::index(target)) as i32);
+        self.put_parent(m, target);
+        m.i(self.index_in_parent(target)).i(self.child_count(target) as i32);
         interfaces(m, node);
-        match node {
-            None => m.s(&self.app_name).u(map::ROLE_APPLICATION).s(""),
-            Some(n) => m.s(tree.str(n.name)).u(map::role(n.role).0).s(tree.str(n.description)),
+        match (target, node) {
+            (Target::Node(s, _), Some(n)) => {
+                let tree = self.tree(s);
+                m.s(tree.str(n.name)).u(map::role(n.role).0).s(tree.str(n.description))
+            }
+            _ => m.s(&self.app_name).u(map::ROLE_APPLICATION).s(""),
         };
         let set = node.map_or([0, 0], map::states);
         m.open(b'a', "u").u(set[0]).u(set[1]).close().close();
+    }
+
+    fn tree(&self, s: u32) -> &A11yTree {
+        &self.surfaces[s as usize].tree
+    }
+
+    /// The surface id `target` belongs to (0: the application root).
+    fn surface_id(&self, target: Target) -> u64 {
+        match target {
+            Target::Root => 0,
+            Target::Node(s, _) => self.surfaces[s as usize].id,
+        }
     }
 
     fn target(&self, path: &str) -> Option<Target> {
         if path == ROOT_PATH {
             return Some(Target::Root);
         }
-        let id = path.strip_prefix(NODE_PREFIX)?.parse::<u64>().ok()?;
-        self.tree.find(id).map(Target::Node)
+        let (surface, id) = path.strip_prefix(NODE_PREFIX)?.split_once('/')?;
+        let (surface, id) = (surface.parse::<u64>().ok()?, id.parse::<u64>().ok()?);
+        let s = self.surfaces.iter().position(|x| x.id == surface)?;
+        self.surfaces[s].tree.find(id).map(|i| Target::Node(s as u32, i))
+    }
+
+    /// The object path of `target`; empty for none.
+    fn path(&self, target: Option<Target>) -> Path {
+        match target {
+            None => Path { buf: [0; 96], len: 0 },
+            Some(Target::Root) => Path::of(None),
+            Some(Target::Node(s, i)) => Path::of(Some((self.surfaces[s as usize].id, self.tree(s).nodes[i as usize].id))),
+        }
     }
 
     fn put_ref(&self, m: &mut Msg, target: Option<Target>) {
-        let path = match target {
-            None => Path { buf: [0; 64], len: 0 },
-            Some(Target::Root) => Path::of(None),
-            Some(Target::Node(i)) => Path::of(Some(self.tree.nodes[i as usize].id)),
-        };
+        let path = self.path(target);
         m.open(b'r', "").s(&self.unique).o(if path.len == 0 { NULL_PATH } else { path.as_str() }).close();
     }
 
     fn parent_of(&self, target: Target) -> Option<Target> {
         match target {
             Target::Root => None,
-            Target::Node(i) => {
-                let p = self.tree.nodes[i as usize].parent;
-                Some(if p == NO_PARENT { Target::Root } else { Target::Node(p) })
+            Target::Node(s, i) => {
+                let p = self.tree(s).nodes[i as usize].parent;
+                Some(if p == NO_PARENT { Target::Root } else { Target::Node(s, p) })
             }
         }
     }
@@ -383,17 +461,62 @@ impl Bridge {
         }
     }
 
-    fn index(target: Target) -> u32 {
+    /// How many top-level nodes the surfaces before surface `s` serve: where its own start among the root's children.
+    fn top_offset(&self, s: u32) -> u32 {
+        self.surfaces[..s as usize].iter().map(|x| x.tree.child_count(NO_PARENT)).sum()
+    }
+
+    fn child_count(&self, target: Target) -> u32 {
         match target {
-            Target::Root => NO_PARENT,
-            Target::Node(i) => i,
+            Target::Root => self.surfaces.iter().map(|x| x.tree.child_count(NO_PARENT)).sum(),
+            Target::Node(s, i) => self.tree(s).child_count(i),
+        }
+    }
+
+    /// The `k`th child of `target`; the root's children are every surface's top-level nodes in surface order.
+    fn child(&self, target: Target, k: u32) -> Option<Target> {
+        match target {
+            Target::Root => {
+                let mut k = k;
+                for (s, surface) in self.surfaces.iter().enumerate() {
+                    let count = surface.tree.child_count(NO_PARENT);
+                    if k < count {
+                        return surface.tree.child(NO_PARENT, k).map(|i| Target::Node(s as u32, i));
+                    }
+                    k -= count;
+                }
+                None
+            }
+            Target::Node(s, i) => self.tree(s).child(i, k).map(|c| Target::Node(s, c)),
+        }
+    }
+
+    fn index_in_parent(&self, target: Target) -> i32 {
+        match target {
+            Target::Root => -1,
+            Target::Node(s, i) => {
+                let tree = self.tree(s);
+                let top = if tree.nodes[i as usize].parent == NO_PARENT { self.top_offset(s) } else { 0 };
+                (tree.index_in_parent(i) + top) as i32
+            }
         }
     }
 
     fn node(&self, target: Target) -> Option<&A11yNode> {
         match target {
             Target::Root => None,
-            Target::Node(i) => Some(&self.tree.nodes[i as usize]),
+            Target::Node(s, i) => Some(&self.tree(s).nodes[i as usize]),
+        }
+    }
+
+    /// The text value of `target` ("" for the root or a node without one).
+    fn text(&self, target: Target) -> &str {
+        match target {
+            Target::Root => "",
+            Target::Node(s, i) => {
+                let tree = self.tree(s);
+                tree.value_text(&tree.nodes[i as usize])
+            }
         }
     }
 
@@ -403,10 +526,10 @@ impl Bridge {
         let text_node = node.is_some_and(is_text);
         match (iface, prop, node.is_some()) {
             (ACCESSIBLE, "Name", _) => {
-                m.open(b'v', "s").s(if node.is_some() { self.tree.str(node.unwrap().name) } else { &self.app_name }).close();
+                m.open(b'v', "s").s(match (target, node) { (Target::Node(s, _), Some(n)) => self.tree(s).str(n.name), _ => &self.app_name }).close();
             }
             (ACCESSIBLE, "Description", _) => {
-                m.open(b'v', "s").s(if node.is_some() { self.tree.str(node.unwrap().description) } else { "" }).close();
+                m.open(b'v', "s").s(match (target, node) { (Target::Node(s, _), Some(n)) => self.tree(s).str(n.description), _ => "" }).close();
             }
             (ACCESSIBLE, "Parent", _) => {
                 m.open(b'v', "(so)");
@@ -414,7 +537,7 @@ impl Bridge {
                 m.close();
             }
             (ACCESSIBLE, "ChildCount", _) => {
-                m.open(b'v', "i").i(self.tree.child_count(Bridge::index(target)) as i32).close();
+                m.open(b'v', "i").i(self.child_count(target) as i32).close();
             }
             (ACCESSIBLE, "Locale" | "AccessibleId" | "HelpText", _) => {
                 m.open(b'v', "s").s("").close();
@@ -446,7 +569,7 @@ impl Bridge {
                 };
             }
             (TEXT, "CharacterCount", true) if text_node => {
-                m.open(b'v', "i").i(self.tree.value_text(node.unwrap()).chars().count() as i32).close();
+                m.open(b'v', "i").i(self.text(target).chars().count() as i32).close();
             }
             (TEXT, "CaretOffset", true) if text_node => {
                 m.open(b'v', "i").i(node.unwrap().selection.1 as i32).close();
@@ -456,14 +579,16 @@ impl Bridge {
         true
     }
 
-    fn handle(&mut self, msg: &mut Msg, out: &mut Vec<A11yAction>) -> Msg {
+    fn handle(&mut self, msg: &mut Msg, out: &mut Vec<(u64, A11yAction)>) -> Msg {
         if msg.path() == "/org/a11y/atspi/cache" && msg.interface() == "org.a11y.atspi.Cache" && msg.member() == "GetItems" {
             // every object, so a reader walks the tree without a call per object; update keeps it current
             let mut r = msg.reply();
             r.open(b'a', "((so)(so)(so)iiassusau)");
-            self.cache_item(&mut r, &self.tree, Target::Root);
-            for i in 0..self.tree.nodes.len() as u32 {
-                self.cache_item(&mut r, &self.tree, Target::Node(i));
+            self.cache_item(&mut r, Target::Root);
+            for (s, surface) in self.surfaces.iter().enumerate() {
+                for i in 0..surface.tree.nodes.len() as u32 {
+                    self.cache_item(&mut r, Target::Node(s as u32, i));
+                }
             }
             r.close();
             return r;
@@ -475,6 +600,7 @@ impl Bridge {
         let mut r = msg.reply();
         let node = self.node(target).copied();
         let id = node.map_or(0, |n| n.id);
+        let surface = self.surface_id(target);
         let ok = match (iface.as_str(), member.as_str()) {
             (PROPERTIES, "Get") => {
                 let (Some(i), Some(p)) = (msg.read_str().map(str::to_owned), msg.read_str().map(str::to_owned)) else {
@@ -514,32 +640,37 @@ impl Bridge {
                     (APPLICATION, "Id", None) => self.app_id = msg.read_i32().unwrap_or(0),
                     (VALUE, "CurrentValue", Some(n)) if n.actions & actions::SET_VALUE != 0 => {
                         let Some(v) = msg.read_f64().filter(|v| v.is_finite()) else { return msg.error(INVALID_ARGS, "CurrentValue is a double") };
-                        out.push(A11yAction { id, action: Action::SetValue, payload: v, end: 0.0 });
+                        out.push((surface, A11yAction { id, action: Action::SetValue, payload: v, end: 0.0 }));
                     }
                     _ => return msg.error(INVALID_ARGS, "property is read-only"),
                 }
                 true
             }
             (ACCESSIBLE, "GetChildAtIndex") => {
-                let child = msg.read_i32().and_then(|k| u32::try_from(k).ok()).and_then(|k| self.tree.child(Bridge::index(target), k));
-                self.put_ref(&mut r, child.map(Target::Node));
+                let child = msg.read_i32().and_then(|k| u32::try_from(k).ok()).and_then(|k| self.child(target, k));
+                self.put_ref(&mut r, child);
                 true
             }
             (ACCESSIBLE, "GetChildren") => {
                 r.open(b'a', "(so)");
-                let mut c = self.tree.first_child(Bridge::index(target));
-                while c != NO_PARENT {
-                    self.put_ref(&mut r, Some(Target::Node(c)));
-                    c = self.tree.nodes[c as usize].next_sibling;
+                // the root's children: every surface's top-level nodes, in surface order
+                let (first, last) = match target {
+                    Target::Root => (0, self.surfaces.len() as u32),
+                    Target::Node(s, _) => (s, s + 1),
+                };
+                for s in first..last {
+                    let (tree, parent) = (self.tree(s), match target { Target::Node(_, i) => i, Target::Root => NO_PARENT });
+                    let mut c = tree.first_child(parent);
+                    while c != NO_PARENT {
+                        self.put_ref(&mut r, Some(Target::Node(s, c)));
+                        c = tree.nodes[c as usize].next_sibling;
+                    }
                 }
                 r.close();
                 true
             }
             (ACCESSIBLE, "GetIndexInParent") => {
-                r.i(match target {
-                    Target::Root => -1,
-                    Target::Node(i) => self.tree.index_in_parent(i) as i32,
-                });
+                r.i(self.index_in_parent(target));
                 true
             }
             (ACCESSIBLE, "GetRelationSet") => {
@@ -576,7 +707,7 @@ impl Bridge {
                 r.s("");
                 true
             }
-            (COMPONENT, _) if node.is_some() => self.component(&member, msg, &mut r, node.unwrap(), out),
+            (COMPONENT, _) if let (Target::Node(s, _), Some(n)) = (target, node) => self.component(&member, msg, &mut r, s, n, out),
             (ACTION, _) if node.is_some_and(|n| map::has_action_interface(&n)) => {
                 let n = node.unwrap();
                 let pick = |msg: &mut Msg| msg.read_i32().and_then(|k| usize::try_from(k).ok()).and_then(|k| map::node_action(&n, k));
@@ -600,7 +731,7 @@ impl Bridge {
                     }
                     "DoAction" => {
                         let Some(a) = pick(msg) else { return msg.error(INVALID_ARGS, "no such action") };
-                        out.push(A11yAction { id, action: a.0, payload: 0.0, end: 0.0 });
+                        out.push((surface, A11yAction { id, action: a.0, payload: 0.0, end: 0.0 }));
                         r.b(true);
                         true
                     }
@@ -609,7 +740,7 @@ impl Bridge {
             }
             (TEXT, _) if node.is_some_and(|n| is_text(&n)) => {
                 let n = node.unwrap();
-                let text = self.tree.value_text(&n);
+                let text = self.text(target);
                 let count = text.chars().count() as i32;
                 match member.as_str() {
                     "GetText" => {
@@ -652,7 +783,7 @@ impl Bridge {
                             _ => return msg.error(INVALID_ARGS, "offsets are ints"),
                         };
                         let clamp = |k: i32| f64::from(k.clamp(0, count));
-                        out.push(A11yAction { id, action: Action::Select, payload: clamp(anchor), end: clamp(to) });
+                        out.push((surface, A11yAction { id, action: Action::Select, payload: clamp(anchor), end: clamp(to) }));
                         r.b(true);
                         true
                     }
@@ -679,11 +810,12 @@ impl Bridge {
         if ok { r } else { msg.error(UNKNOWN_METHOD, "not implemented by the PXUI bridge") }
     }
 
-    fn component(&self, member: &str, msg: &mut Msg, r: &mut Msg, n: A11yNode, out: &mut Vec<A11yAction>) -> bool {
+    fn component(&self, member: &str, msg: &mut Msg, r: &mut Msg, s: u32, n: A11yNode, out: &mut Vec<(u64, A11yAction)>) -> bool {
+        let (tree, surface) = (self.tree(s), self.surfaces[s as usize].id);
         // designed limit (specification/pxui.md): window-relative only; "screen" coordinates equal window ones (Wayland gives no window position).
         let origin = |coord: u32| -> (f32, f32) {
             if coord == 2 && n.parent != NO_PARENT {
-                let p = self.tree.nodes[n.parent as usize].rect;
+                let p = tree.nodes[n.parent as usize].rect;
                 (p.x, p.y)
             } else {
                 (0.0, 0.0)
@@ -709,22 +841,22 @@ impl Bridge {
                     r.b(n.rect.contains(p));
                 } else {
                     // The deepest descendant under the point; later siblings are on top.
-                    let start = self.tree.find(n.id).unwrap();
+                    let start = tree.find(n.id).unwrap();
                     let mut at = n.rect.contains(p).then_some(start);
                     while let Some(i) = at {
-                        let (mut c, mut hit) = (self.tree.first_child(i), None);
+                        let (mut c, mut hit) = (tree.first_child(i), None);
                         while c != NO_PARENT {
-                            if self.tree.nodes[c as usize].rect.contains(p) {
+                            if tree.nodes[c as usize].rect.contains(p) {
                                 hit = Some(c);
                             }
-                            c = self.tree.nodes[c as usize].next_sibling;
+                            c = tree.nodes[c as usize].next_sibling;
                         }
                         if hit.is_none() {
                             break;
                         }
                         at = hit;
                     }
-                    self.put_ref(r, at.map(Target::Node));
+                    self.put_ref(r, at.map(|i| Target::Node(s, i)));
                 }
             }
             "GetLayer" => {
@@ -739,12 +871,12 @@ impl Bridge {
             "GrabFocus" => {
                 let ok = n.actions & actions::FOCUS != 0;
                 if ok {
-                    out.push(A11yAction { id: n.id, action: Action::Focus, payload: 0.0, end: 0.0 });
+                    out.push((surface, A11yAction { id: n.id, action: Action::Focus, payload: 0.0, end: 0.0 }));
                 }
                 r.b(ok);
             }
             "ScrollTo" => {
-                out.push(A11yAction { id: n.id, action: Action::Scroll, payload: 0.0, end: 0.0 });
+                out.push((surface, A11yAction { id: n.id, action: Action::Scroll, payload: 0.0, end: 0.0 }));
                 r.b(true);
             }
             _ => return false,
@@ -788,7 +920,8 @@ fn chars(text: &str, start: i32, end: i32) -> &str {
     if s <= e { &text[s..e] } else { "" }
 }
 
-unsafe fn copy_ffi_tree(raw: &FfiA11yTree) -> Result<A11yTree, &'static str> {
+/// Validates the public ABI tree and copies it into `out`, reusing `out`'s and `ids`' buffers.
+unsafe fn copy_ffi_tree(raw: &FfiA11yTree, out: &mut A11yTree, ids: &mut std::collections::HashSet<u64>) -> Result<(), &'static str> {
     if raw.nodes.len > 1_000_000 || raw.strings.len > 16 * 1024 * 1024
         || (raw.nodes.len != 0 && raw.nodes.ptr.is_null())
         || (raw.strings.len != 0 && raw.strings.ptr.is_null())
@@ -798,9 +931,10 @@ unsafe fn copy_ffi_tree(raw: &FfiA11yTree) -> Result<A11yTree, &'static str> {
     let nodes = if raw.nodes.len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(raw.nodes.ptr, raw.nodes.len) } };
     let bytes = if raw.strings.len == 0 { &[] } else { unsafe { std::slice::from_raw_parts(raw.strings.ptr, raw.strings.len) } };
     let strings = std::str::from_utf8(bytes).map_err(|_| "invalid accessibility strings")?;
-    let mut out = A11yTree::new();
+    out.begin();
     out.strings.push_str(strings);
-    let mut ids = std::collections::HashSet::with_capacity(nodes.len());
+    ids.clear();
+    ids.reserve(nodes.len());
     for (i, n) in nodes.iter().enumerate() {
         if (n.parent != NO_PARENT && n.parent as usize >= i) || n.role > Role::Separator as u32 || !ids.insert(n.id) {
             return Err("invalid accessibility node");
@@ -831,7 +965,7 @@ unsafe fn copy_ffi_tree(raw: &FfiA11yTree) -> Result<A11yTree, &'static str> {
     }
     out.end();
     out.revision = raw.revision;
-    Ok(out)
+    Ok(())
 }
 
 #[cfg(test)]
@@ -845,7 +979,8 @@ mod ffi_tests {
         let nodes = [FfiNode { id: 9, parent: NO_PARENT, role: Role::Button as u32, name_start: 0, name_end: 7, value: A11yValue::default(), ..FfiNode::default() },
             FfiNode { id: 10, parent: 0, role: Role::Label as u32, name_start: 7, name_end: 13, value: A11yValue::default(), ..FfiNode::default() }];
         let raw = FfiA11yTree { nodes: Slice { ptr: nodes.as_ptr(), len: nodes.len() }, strings: Str { ptr: text.as_ptr(), len: text.len() }, revision: 4, first_child: 0, child_count: 1, actions: Slice { ptr: std::ptr::null(), len: 0 } };
-        let tree = unsafe { copy_ffi_tree(&raw) }.unwrap();
+        let (mut tree, mut ids) = (A11yTree::new(), std::collections::HashSet::new());
+        unsafe { copy_ffi_tree(&raw, &mut tree, &mut ids) }.unwrap();
         assert_eq!(tree.revision, 4);
         assert_eq!(tree.child_count(NO_PARENT), 1);
         assert_eq!(tree.str(tree.nodes[1].name), "Button");

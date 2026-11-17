@@ -7,7 +7,7 @@
 
 #include "floor.h"
 
-_Static_assert(SDL_IMAGE_VERSION >= SDL_VERSIONNUM(RAYS_FLOOR_MAJOR, RAYS_FLOOR_MINOR, RAYS_FLOOR_PATCH),
+_Static_assert(SDL_IMAGE_VERSION >= SDL_VERSIONNUM(PXUI_FLOOR_MAJOR, PXUI_FLOOR_MINOR, PXUI_FLOOR_PATCH),
     "SDL3_image headers are below packaging/sdl3.lock floor");
 
 /* Copies a surface into a tightly packed RGBA8 SDL_malloc buffer; always consumes `source`. */
@@ -61,13 +61,13 @@ static bool copy_rgba(SDL_Surface *source, const char *what, int *width, int *he
   return true;
 }
 
-const char *rays_img_get_error(void) { return SDL_GetError(); }
-void rays_img_free(void *pointer) { SDL_free(pointer); }
+const char *pxui_img_get_error(void) { return SDL_GetError(); }
+void pxui_img_free(void *pointer) { SDL_free(pointer); }
 
-int rays_image_version(void) { return IMG_Version(); }
-int rays_image_compiled_version(void) { return SDL_IMAGE_VERSION; }
+int pxui_image_version(void) { return IMG_Version(); }
+int pxui_image_compiled_version(void) { return SDL_IMAGE_VERSION; }
 
-bool rays_image_decode(const void *data, size_t length, const char *kind,
+bool pxui_image_decode(const void *data, size_t length, const char *kind,
     int *width, int *height, uint8_t **pixels)
 {
   SDL_IOStream *stream = SDL_IOFromConstMem(data, length);

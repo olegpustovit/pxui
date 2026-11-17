@@ -544,7 +544,7 @@ pub mod event {
     pub fn wake() -> bool { sys::wake() }
 
     thread_local! {
-        static LIVE_RESIZE_CALLBACK: RefCell<Option<Rc<RefCell<Box<dyn FnMut() -> std::result::Result<(), Error>>>>>> = const { RefCell::new(None) };
+        static LIVE_RESIZE_CALLBACK: RefCell<Option<Rc<RefCell<Box<dyn FnMut(u32) -> std::result::Result<(), Error>>>>>> = const { RefCell::new(None) };
         static LIVE_RESIZE_FAILURE: RefCell<Option<Error>> = const { RefCell::new(None) };
         static IN_LIVE_RESIZE_CALLBACK: Cell<bool> = const { Cell::new(false) };
     }
@@ -555,13 +555,13 @@ pub mod event {
         fn drop(&mut self) { IN_LIVE_RESIZE_CALLBACK.with(|active| active.set(false)); }
     }
 
-    fn notify_live_resize() {
+    fn notify_live_resize(window: u32) {
         if IN_LIVE_RESIZE_CALLBACK.with(|active| active.replace(true)) { return; }
         let _guard = LiveResizeGuard;
         let callback = LIVE_RESIZE_CALLBACK.with(|handler| handler.borrow().clone());
         if let Some(callback) = callback {
             if let Ok(mut callback) = callback.try_borrow_mut() {
-                if let Err(failure) = callback() {
+                if let Err(failure) = callback(window) {
                     LIVE_RESIZE_FAILURE.with(|slot| {
                         let mut slot = slot.borrow_mut();
                         if slot.is_none() { *slot = Some(failure); }
@@ -571,7 +571,7 @@ pub mod event {
         }
     }
 
-    extern "C" fn live_resize_trampoline() { notify_live_resize(); }
+    extern "C" fn live_resize_trampoline(window: u32) { notify_live_resize(window); }
 
     fn take_live_resize_failure() -> std::result::Result<(), Error> {
         match LIVE_RESIZE_FAILURE.with(|failure| failure.borrow_mut().take()) {
@@ -580,7 +580,9 @@ pub mod event {
         }
     }
 
-    pub fn set_live_resize_callback(callback: Option<Box<dyn FnMut() -> std::result::Result<(), Error>>>) -> std::result::Result<(), Error> {
+    /// One process callback (SDL's queue is per process), run inside the event pump on the initial thread
+    /// with the SDL window id being resized (0: a synthetic event naming none); dispatch by that id.
+    pub fn set_live_resize_callback(callback: Option<Box<dyn FnMut(u32) -> std::result::Result<(), Error>>>) -> std::result::Result<(), Error> {
         const OPERATION: &str = "SDL3.Event.set_live_resize_callback";
         before_main(OPERATION)?;
         let installed = callback.is_some();
@@ -588,7 +590,7 @@ pub mod event {
             *current.borrow_mut() = callback.map(|callback| Rc::new(RefCell::new(callback)));
         });
         LIVE_RESIZE_FAILURE.with(|failure| drop(failure.borrow_mut().take()));
-        let native_callback: Option<extern "C" fn()> = if installed { Some(live_resize_trampoline) } else { None };
+        let native_callback: Option<extern "C" fn(u32)> = if installed { Some(live_resize_trampoline) } else { None };
         sys::set_live_resize_callback(native_callback);
         Ok(())
     }
@@ -602,36 +604,45 @@ pub mod event {
             | (Event::Window(super::WindowChange::PixelSizeChanged(..)), Event::Window(super::WindowChange::PixelSizeChanged(..))))
     }
 
-    fn flush(output: &mut Vec<Event>, motion: &mut Option<Event>, sizes: &mut [Option<Event>; 2]) {
+    /// An event with the SDL window id it names (0: none).
+    pub type Routed = (u32, Event);
+
+    fn flush(output: &mut Vec<Routed>, motion: &mut Option<Routed>, sizes: &mut [Option<Routed>; 2]) {
         if let Some(event) = motion.take() { output.push(event); }
         for size in sizes { if let Some(event) = size.take() { output.push(event); } }
     }
 
-    fn coalesce_event(event: Event, output: &mut Vec<Event>, motion: &mut Option<Event>, sizes: &mut [Option<Event>; 2]) {
-        match event {
+    // Samples merge only within one window: an event naming another window flushes them first.
+    fn coalesce_event(routed: Routed, output: &mut Vec<Routed>, motion: &mut Option<Routed>, sizes: &mut [Option<Routed>; 2]) {
+        let window = routed.0;
+        let pending = motion.iter().chain(sizes.iter().flatten()).next().map(|(id, _)| *id);
+        if pending.is_some_and(|id| id != window) {
+            flush(output, motion, sizes);
+        }
+        match routed.1 {
             Event::MouseMotion { x, y, dx, dy } => {
-                *motion = Some(match motion.take() {
-                    Some(Event::MouseMotion { dx: old_dx, dy: old_dy, .. }) => Event::MouseMotion { x, y, dx: dx + old_dx, dy: dy + old_dy },
+                *motion = Some((window, match motion.take() {
+                    Some((_, Event::MouseMotion { dx: old_dx, dy: old_dy, .. })) => Event::MouseMotion { x, y, dx: dx + old_dx, dy: dy + old_dy },
                     _ => Event::MouseMotion { x, y, dx, dy },
-                });
+                }));
             }
             event if is_size(&event) => {
-                let index = if sizes[0].as_ref().is_none_or(|old| same_size_kind(old, &event)) { 0 } else { 1 };
-                sizes[index] = Some(event);
+                let index = if sizes[0].as_ref().is_none_or(|old| same_size_kind(&old.1, &event)) { 0 } else { 1 };
+                sizes[index] = Some((window, event));
             }
             event => {
                 flush(output, motion, sizes);
                 if let Event::Touch {device,finger,phase:super::TouchPhase::Moved,..}=&event
-                    && matches!(output.last(),Some(Event::Touch {device:a,finger:b,phase:super::TouchPhase::Moved,..}) if a==device && b==finger) {
-                    *output.last_mut().unwrap()=event;
+                    && matches!(output.last(),Some((w, Event::Touch {device:a,finger:b,phase:super::TouchPhase::Moved,..})) if *w==window && a==device && b==finger) {
+                    *output.last_mut().unwrap()=(window, event);
                     return;
                 }
-                output.push(event);
+                output.push((window, event));
             }
         }
     }
 
-    pub fn poll_coalesced() -> std::result::Result<Vec<Event>, Error> {
+    pub fn poll_coalesced() -> std::result::Result<Vec<Routed>, Error> {
         const OPERATION: &str = "SDL3.Event.poll_coalesced";
         before_main(OPERATION)?;
         let mut events = Vec::new();
@@ -639,9 +650,10 @@ pub mod event {
         Ok(events)
     }
 
-    /// Clears and reuses `events`; pointer/key/resize/scroll events need no allocations once warm.
-    /// Text, file-drop and dialog events still own their variable-length payloads. Discard output on error.
-    pub fn poll_coalesced_into(events: &mut Vec<Event>) -> std::result::Result<(), Error> {
+    /// Drains the process event queue: clears and reuses `events`, each with the SDL window id it names
+    /// (0: none); pointer/key/resize/scroll events need no allocations once warm. Text, file-drop and
+    /// dialog events still own their variable-length payloads. Discard output on error.
+    pub fn poll_coalesced_into(events: &mut Vec<Routed>) -> std::result::Result<(), Error> {
         before_main("SDL3.Event.poll_coalesced_into")?;
         events.clear();
         let mut motion = None;
@@ -669,13 +681,29 @@ pub mod event {
         use super::*;
         use super::super::WindowChange;
 
-        fn coalesce(events: Vec<Event>) -> Vec<Event> {
+        fn coalesce_routed(events: Vec<Routed>) -> Vec<Routed> {
             let mut output = Vec::new();
             let mut motion = None;
             let mut sizes = [None, None];
             for event in events { coalesce_event(event, &mut output, &mut motion, &mut sizes); }
             flush(&mut output, &mut motion, &mut sizes);
             output
+        }
+
+        fn coalesce(events: Vec<Event>) -> Vec<Event> {
+            coalesce_routed(events.into_iter().map(|event| (1, event)).collect()).into_iter().map(|(_, event)| event).collect()
+        }
+
+        #[test]
+        fn samples_coalesce_only_within_one_window() {
+            let motion = |x: f64| Event::MouseMotion { x, y: 0.0, dx: 1.0, dy: 0.0 };
+            let size = |w: i32| Event::Window(WindowChange::Resized(w, 1));
+            let touch = |window: u32, x: f64| (window, Event::Touch { device: 1, finger: 1, phase: super::super::TouchPhase::Moved, x, y: 0.0, pressure: 1.0, seconds: 0.0 });
+            let events = vec![(1, motion(1.0)), (1, motion(2.0)), (2, motion(3.0)), (2, size(4)), (1, size(5)), (1, size(6)), touch(1, 7.0), touch(2, 8.0), touch(2, 9.0)];
+            assert_eq!(coalesce_routed(events), vec![
+                (1, Event::MouseMotion { x: 2.0, y: 0.0, dx: 2.0, dy: 0.0 }),
+                (2, motion(3.0)), (2, size(4)), (1, size(6)), touch(1, 7.0), touch(2, 9.0),
+            ]);
         }
 
         #[test]

@@ -4,6 +4,11 @@
 
 #include "bridge.h"
 
+/* The dialog table is per process by design: PXUI_DIALOG_SLOTS (8) open dialogs at most, each outcome
+   capped at DIALOG_MAX_PATHS paths and DIALOG_MAX_BYTES bytes. Dialogs are reserved, shown and taken
+   on the initial thread; the platform's completion callback may run on any thread and only fills its
+   own slot, published through the slot's atomic state. Each slot records the window that opened it,
+   so the outcome returns to that window whichever window has focus. */
 enum { DIALOG_MAX_PATHS = 4096, DIALOG_MAX_BYTES = 1 << 20 };
 enum { DIALOG_FREE = 0, DIALOG_OPEN, DIALOG_DONE };
 
@@ -15,19 +20,19 @@ typedef struct {
   int filter_count;
   char *strings;
   char *default_location;
-  rays_dialog_outcome_kind outcome;
+  pxui_dialog_outcome_kind outcome;
   char *payload;
   size_t payload_length;
   void *urls;
 } dialog_slot;
 
-static dialog_slot dialog_slots[RAYS_DIALOG_SLOTS];
+static dialog_slot dialog_slots[PXUI_DIALOG_SLOTS];
 static int next_dialog_id = 1;
 
 static void release_buffers(dialog_slot *slot)
 {
-  #if defined(RAYS_SDL3_IOS)
-  if (slot->urls != NULL) rays_dialog_release_urls(slot->urls);
+  #if defined(PXUI_SDL3_IOS)
+  if (slot->urls != NULL) pxui_dialog_release_urls(slot->urls);
   #endif
   slot->urls = NULL;
   free(slot->filters);
@@ -45,7 +50,7 @@ static void release_buffers(dialog_slot *slot)
 static void fail(dialog_slot *slot, const char *message)
 {
   size_t length = strlen(message);
-  slot->outcome = RAYS_OUTCOME_FAILED;
+  slot->outcome = PXUI_OUTCOME_FAILED;
   slot->payload = (char *)malloc(length + 1);
   if (slot->payload != NULL) {
     memcpy(slot->payload, message, length + 1);
@@ -53,13 +58,13 @@ static void fail(dialog_slot *slot, const char *message)
   }
 }
 
-void *rays_dialog_reserve(const char *const *names, const char *const *patterns,
+void *pxui_dialog_reserve(const char *const *names, const char *const *patterns,
     int count, const char *default_location, int *id)
 {
   dialog_slot *slot = NULL;
   size_t strings_length = 0;
   int index;
-  for (index = 0; index < RAYS_DIALOG_SLOTS && slot == NULL; index++) {
+  for (index = 0; index < PXUI_DIALOG_SLOTS && slot == NULL; index++) {
     int expected = DIALOG_FREE;
     if (atomic_compare_exchange_strong(&dialog_slots[index].state, &expected, DIALOG_OPEN)) {
       slot = &dialog_slots[index];
@@ -76,7 +81,7 @@ void *rays_dialog_reserve(const char *const *names, const char *const *patterns,
   slot->default_location = NULL;
   slot->payload = NULL;
   slot->payload_length = 0;
-  slot->outcome = RAYS_OUTCOME_CANCELLED;
+  slot->outcome = PXUI_OUTCOME_CANCELLED;
   slot->window = 0;
   for (index = 0; index < count; index++) {
     strings_length += strlen(names[index]) + 1 + strlen(patterns[index]) + 1;
@@ -117,14 +122,14 @@ out_of_memory:
   return NULL;
 }
 
-void rays_dialog_abandon(void *raw)
+void pxui_dialog_abandon(void *raw)
 {
   dialog_slot *slot = (dialog_slot *)raw;
   release_buffers(slot);
   atomic_store_explicit(&slot->state, DIALOG_FREE, memory_order_release);
 }
 
-void SDLCALL rays_dialog_callback(void *raw, const char *const *filelist, int filter)
+void SDLCALL pxui_dialog_callback(void *raw, const char *const *filelist, int filter)
 {
   dialog_slot *slot = (dialog_slot *)raw;
   size_t total = 0;
@@ -134,7 +139,7 @@ void SDLCALL rays_dialog_callback(void *raw, const char *const *filelist, int fi
     const char *message = SDL_GetError();
     fail(slot, message != NULL && message[0] != '\0' ? message : "the file dialog failed");
   } else if (filelist[0] == NULL) {
-    slot->outcome = RAYS_OUTCOME_CANCELLED;
+    slot->outcome = PXUI_OUTCOME_CANCELLED;
   } else {
     for (; filelist[count] != NULL; count++) {
       total += strlen(filelist[count]) + 1;
@@ -154,44 +159,46 @@ void SDLCALL rays_dialog_callback(void *raw, const char *const *filelist, int fi
           memcpy(cursor, filelist[index], length);
           cursor += length;
         }
-        slot->outcome = RAYS_OUTCOME_CHOSEN;
+        slot->outcome = PXUI_OUTCOME_CHOSEN;
         slot->payload_length = total;
       }
     }
   }
   atomic_store_explicit(&slot->state, DIALOG_DONE, memory_order_release);
-  (void)rays_sdl3_wake();
+  (void)pxui_sdl3_wake();
 }
 
-int rays_dialog_show(rays_dialog_kind kind, SDL_Window *window,
+void pxui_dialog_set_owner(void *slot, SDL_WindowID window) { ((dialog_slot *)slot)->window = window; }
+
+int pxui_dialog_show(pxui_dialog_kind kind, SDL_Window *window,
     const char *const *names, const char *const *patterns, int count,
     const char *default_location)
 {
   int id = 0;
-  dialog_slot *slot = (dialog_slot *)rays_dialog_reserve(names, patterns, count, default_location, &id);
+  dialog_slot *slot = (dialog_slot *)pxui_dialog_reserve(names, patterns, count, default_location, &id);
   if (slot == NULL) return 0;
-#if defined(RAYS_SDL3_IOS)
-  slot->window = SDL_GetWindowID(window);
-  if (!rays_dialog_ios_show(slot, window, kind, slot->filters, slot->filter_count, slot->default_location)) {
-    rays_dialog_abandon(slot);
+  pxui_dialog_set_owner(slot, SDL_GetWindowID(window));
+#if defined(PXUI_SDL3_IOS)
+  if (!pxui_dialog_ios_show(slot, window, kind, slot->filters, slot->filter_count, slot->default_location)) {
+    pxui_dialog_abandon(slot);
     return 0;
   }
 #else
   switch (kind) {
-  case RAYS_DIALOG_OPEN_FILE:
-  case RAYS_DIALOG_OPEN_FILES:
-    SDL_ShowOpenFileDialog(rays_dialog_callback, slot, window, slot->filters,
-        slot->filter_count, slot->default_location, kind == RAYS_DIALOG_OPEN_FILES);
+  case PXUI_DIALOG_OPEN_FILE:
+  case PXUI_DIALOG_OPEN_FILES:
+    SDL_ShowOpenFileDialog(pxui_dialog_callback, slot, window, slot->filters,
+        slot->filter_count, slot->default_location, kind == PXUI_DIALOG_OPEN_FILES);
     break;
-  case RAYS_DIALOG_SAVE_FILE:
-    SDL_ShowSaveFileDialog(rays_dialog_callback, slot, window, slot->filters,
+  case PXUI_DIALOG_SAVE_FILE:
+    SDL_ShowSaveFileDialog(pxui_dialog_callback, slot, window, slot->filters,
         slot->filter_count, slot->default_location);
     break;
-  case RAYS_DIALOG_OPEN_FOLDER:
-    SDL_ShowOpenFolderDialog(rays_dialog_callback, slot, window, slot->default_location, false);
+  case PXUI_DIALOG_OPEN_FOLDER:
+    SDL_ShowOpenFolderDialog(pxui_dialog_callback, slot, window, slot->default_location, false);
     break;
   default:
-    rays_dialog_abandon(slot);
+    pxui_dialog_abandon(slot);
     SDL_SetError("invalid file dialog kind");
     return 0;
   }
@@ -199,17 +206,18 @@ int rays_dialog_show(rays_dialog_kind kind, SDL_Window *window,
   return id;
 }
 
-bool rays_dialog_take(rays_dialog_result *result)
+bool pxui_dialog_take(pxui_dialog_result *result)
 {
   dialog_slot *found = NULL;
   int index;
-  for (index = 0; index < RAYS_DIALOG_SLOTS; index++) {
+  for (index = 0; index < PXUI_DIALOG_SLOTS; index++) {
     dialog_slot *slot = &dialog_slots[index];
     if (atomic_load_explicit(&slot->state, memory_order_acquire) == DIALOG_DONE
         && (found == NULL || slot->id < found->id)) found = slot;
   }
   if (found == NULL) return false;
   result->id = found->id;
+  result->window = found->window;
   result->outcome = found->outcome;
   result->payload = found->payload;
   result->payload_length = found->payload_length;
@@ -222,14 +230,14 @@ bool rays_dialog_take(rays_dialog_result *result)
   return true;
 }
 
-#if defined(RAYS_SDL3_IOS)
-void rays_dialog_set_urls(void *raw, void *urls) { ((dialog_slot *)raw)->urls = urls; }
-void rays_dialog_close(SDL_WindowID window) {
-  rays_dialog_ios_close(window);
-  for (int index = 0; index < RAYS_DIALOG_SLOTS; index++) {
+#if defined(PXUI_SDL3_IOS)
+void pxui_dialog_set_urls(void *raw, void *urls) { ((dialog_slot *)raw)->urls = urls; }
+void pxui_dialog_close(SDL_WindowID window) {
+  pxui_dialog_ios_close(window);
+  for (int index = 0; index < PXUI_DIALOG_SLOTS; index++) {
     dialog_slot *slot = &dialog_slots[index];
     if (atomic_load_explicit(&slot->state, memory_order_acquire) == DIALOG_DONE && slot->window == window)
-      rays_dialog_abandon(slot);
+      pxui_dialog_abandon(slot);
   }
 }
 #endif
