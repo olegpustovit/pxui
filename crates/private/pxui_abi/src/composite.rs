@@ -82,11 +82,12 @@ export!(trusted pub unsafe fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, rev
     unsafe { view_with(ui, label, revision, width, height, callback, user, out, true) }
 });
 
-/// `anchor`'s placement, or `None` for an invalid descriptor.
+/// `anchor`'s placement, or `None` for an invalid descriptor. `align` 3 and 4 (PXUI_ALIGN_STRETCH, _BASELINE) are accepted for 1.x
+/// and align as Start, as they always did; 2.0 refuses them (abi2_cut: validation tightened).
 fn placement(anchor: &PxuiAnchorDesc) -> Option<pxui_types::layout::Placement> {
     if anchor.has_anchor != 1 || anchor.flip > 1 || anchor.side > 3 || anchor.align > 4 { return None; }
     let side = match anchor.side { 0 => pxui_types::layout::Side::Below, 1 => pxui_types::layout::Side::Above, 2 => pxui_types::layout::Side::Right, _ => pxui_types::layout::Side::Left };
-    let align = match anchor.align { 0 => pxui_types::layout::Align::Start, 1 => pxui_types::layout::Align::Center, 2 => pxui_types::layout::Align::End, 3 => pxui_types::layout::Align::Stretch, _ => pxui_types::layout::Align::Baseline };
+    let align = match anchor.align { 1 => pxui_types::layout::Along::Center, 2 => pxui_types::layout::Along::End, _ => pxui_types::layout::Along::Start };
     Some(pxui_types::layout::Placement { side, align, gap: anchor.gap, margin: anchor.margin, flip: anchor.flip != 0 })
 }
 

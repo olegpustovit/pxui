@@ -1,6 +1,6 @@
 //! Styling: theme files, scoped themes, variants, transitions and animation (headless, no GPU).
 use crate::support::*;
-use pxui_core::geom::color;
+use pxui_core::geom::Rgba;
 use pxui_core::ui::*;
 use std::cell::Cell;
 
@@ -23,12 +23,12 @@ pub fn styling_theme_file_round_trip() {
     check(written == KIT, "themes/kit.theme is not Theme::default().write()");
     check(Theme::parse(KIT, &base) == Ok(base), "kit.theme does not parse back to Theme::default()");
     let dusk = Theme::parse(DUSK, &base).unwrap_or_else(|e| panic!("dusk.theme: {e:?}"));
-    check(dusk != base && dusk.tokens.accent == color::rgb(0x3b, 0x82, 0xf6), "dusk.theme did not restyle");
-    check(dusk.button.idle.gradient == Some(color::rgb(0x1d, 0x4e, 0xd8)).into() && dusk.button.idle.radius == [5.0; 4], "dusk button");
+    check(dusk != base && dusk.tokens.accent == Rgba::rgb(0x3b, 0x82, 0xf6), "dusk.theme did not restyle");
+    check(dusk.button.idle.gradient == Some(Rgba::rgb(0x1d, 0x4e, 0xd8)).into() && dusk.button.idle.radius == [5.0; 4], "dusk button");
     check(Theme::parse(&dusk.write(), &base) == Ok(dusk), "a written theme does not round trip");
     // part keys over a base keep the base's other looks; comments and blank lines are skipped
     let t = Theme::parse("# a comment\n\nbutton.hover.fill = #223344  # trailing\n", &dusk).expect("one key");
-    check(t.button.hover.fill == color::rgb(0x22, 0x33, 0x44) && t.panel == dusk.panel && t.tokens == dusk.tokens, "a part key changed more than its look");
+    check(t.button.hover.fill == Rgba::rgb(0x22, 0x33, 0x44) && t.panel == dusk.panel && t.tokens == dusk.tokens, "a part key changed more than its look");
 }
 
 /// Unknown keys and malformed or out-of-range values are errors with their lines; nothing panics.
@@ -68,7 +68,7 @@ pub fn styling_themed_scope() {
     ui.frame(&at(0.1, vec![]), &mut build);
     check(inside.get() == Some(dusk.tokens.accent) && outside.get() == Some(base.tokens.accent), "the override leaked or did not apply");
     check(runs.get() == 1, &format!("a view under an unchanged override ran {} builds", runs.get()));
-    let has = |ui: &Ui, c: color::T| ui.output().draw.iter().any(|l| l.instances.iter().any(|i| i.color == [c.r as u8, c.g as u8, c.b as u8, c.a as u8]));
+    let has = |ui: &Ui, c: Rgba| ui.output().draw.iter().any(|l| l.instances.iter().any(|i| i.color == [c.r as u8, c.g as u8, c.b as u8, c.a as u8]));
     check(has(&ui, dusk.button.idle.fill), "the view did not paint the override's button");
     which.set(base);
     ui.frame(&at(0.2, vec![]), &mut build);
@@ -80,7 +80,7 @@ pub fn styling_themed_scope() {
 /// A variant is a `States` value: `button_with` paints its looks.
 pub fn styling_variant_states() {
     let mut ui = new_ui(None);
-    let red = color::rgb(220, 30, 40);
+    let red = Rgba::rgb(220, 30, 40);
     let t = *ui.theme();
     let danger = States { idle: Look { fill: red, ..t.button.idle }, ..t.button };
     for k in 0..2 {
@@ -102,7 +102,7 @@ pub fn styling_transition_without_rebuild() {
     let mut ui = new_ui(None);
     let mut theme = Theme::default();
     theme.tokens.motion.normal = 0.2;
-    theme.button.hover.fill = color::rgb(0, 0, 255);
+    theme.button.hover.fill = Rgba::rgb(0, 0, 255);
     ui.set_theme(theme);
     let runs = Cell::new(0);
     let mut build = |ui: &mut Ui| {
@@ -252,8 +252,8 @@ pub fn styling_reduced_motion() {
 pub fn styling_colour_token_looks() {
     use pxui_types::{geom::Rgba, theme::ColorToken};
     let mut ui = new_ui(None);
-    let c = |v: u8| color::rgb(v as i64, v as i64, v as i64);
-    let (marker, never) = (color::rgb(1, 2, 3), color::rgb(4, 5, 6));
+    let c = |v: u8| Rgba::gray(v);
+    let (marker, never) = (Rgba::rgb(1, 2, 3), Rgba::rgb(4, 5, 6));
     check(ui.set_colors(&[c(240), c(200), marker, never], &[c(16), c(60), marker, never]), "set_colors");
     let spelled = Rgba { r: 0x54, g: 0x4b, b: 2, a: 0 };
     let chip = Cell::new(None);
@@ -276,7 +276,7 @@ pub fn styling_colour_token_looks() {
     check(ui.transitions() == 0 && has(&ui, rgba(c(200))), "an animation to a token look rests on its entry");
     let mut dark = Theme::default();
     dark.tokens.panel = c(16);
-    check(pxui_types::theme::dark(&dark.tokens), "a dark theme");
+    check(dark.tokens.is_dark(), "a dark theme");
     ui.set_theme(dark);
     for k in 1..=20 { ui.frame(&at(1.0 + 0.05 * k as f64, vec![]), &mut build); }
     check(has(&ui, rgba(c(16))) && !has(&ui, rgba(c(240))) && !has(&ui, rgba(c(200))), "the swap moves the token look to its dark entry");
@@ -297,7 +297,7 @@ pub fn styling_animate_spring() {
     let chip = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
-            let look = Look { fill: color::rgb(200, 40, 40), ..Look::NONE };
+            let look = Look { fill: Rgba::rgb(200, 40, 40), ..Look::NONE };
             chip.set(Some(ui.node("chip".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), look, ..Node::DEFAULT })));
         });
     };
@@ -330,7 +330,7 @@ pub fn styling_animate_keys() {
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
             runs.set(runs.get() + 1);
-            let look = Look { fill: color::rgb(200, 40, 40), ..Look::NONE };
+            let look = Look { fill: Rgba::rgb(200, 40, 40), ..Look::NONE };
             chip.set(Some(ui.node("chip".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), look, ..Node::DEFAULT })));
         });
     };
@@ -378,7 +378,7 @@ pub fn styling_animate_scale() {
     let mut build = |ui: &mut Ui| {
         let v = ui.view("outer", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
             let inner = ui.view("inner", 1, Size::Px(50.0), Size::Px(40.0), &mut |ui| {
-                let b = ui.node("button".into(), Node { flags: Flags::CLICKABLE, role: Role::Button, w: Size::Px(20.0), h: Size::Px(10.0), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                let b = ui.node("button".into(), Node { flags: Flags::CLICKABLE, role: Role::Button, w: Size::Px(20.0), h: Size::Px(10.0), look: Look { fill: Rgba::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
                 ui.a11y_name(&b, "Scaled");
                 if ui.signal_owned(&b).clicked { clicks.set(clicks.get() + 1); }
                 button.set(Some(b));
@@ -452,7 +452,7 @@ pub fn styling_view_transform_hits() {
     let (view, clicked) = (Cell::new(None), Cell::new(false));
     let mut build = |ui: &mut Ui| {
         view.set(Some(ui.view("v", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
-            let h = ui.node("chip".into(), Node { flags: Flags::CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+            let h = ui.node("chip".into(), Node { flags: Flags::CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill: Rgba::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
             clicked.set(clicked.get() || ui.signal_owned(&h).clicked);
         })));
     };
@@ -480,7 +480,7 @@ pub fn styling_nested_view_transform() {
     let mut build = |ui: &mut Ui| {
         outer.set(Some(ui.view("outer", 1, Size::Px(200.0), Size::Px(150.0), &mut |ui| {
             ui.view("inner", 1, Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-                let h = ui.node("btn".into(), Node { flags: Flags::CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), at: Some((10.0, 10.0)).into(), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                let h = ui.node("btn".into(), Node { flags: Flags::CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), at: Some((10.0, 10.0)).into(), look: Look { fill: Rgba::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
                 btn.set(Some(h));
                 if ui.signal_owned(&h).clicked {
                     clicked.set(clicked.get() + 1);
@@ -513,7 +513,7 @@ pub fn styling_nested_view_transform() {
     check((e.opacity - 0.5).abs() < 1e-6, &format!("the inner entry's opacity {}", e.opacity));
     // a patch damages the drawn rectangle (the host drew the moved view first)
     ui.drawn(0);
-    check(ui.patch_fill(&btn, color::rgb(9, 9, 10)), "patch refused");
+    check(ui.patch_fill(&btn, Rgba::rgb(9, 9, 10)), "patch refused");
     let d = ui.output().damage.expect("a patch damages");
     check(d.x <= 50.0 && d.y <= 40.0 && d.x + d.w >= 130.0 && d.y + d.h >= 80.0 && d.w <= 82.0 && d.h <= 42.0, &format!("damage {d:?}, drawn at {drawn:?}"));
     // a click where it is drawn, outside where layout put it, hits it; one where layout put it misses
@@ -530,9 +530,9 @@ pub fn styling_backdrop_blur_record() {
     let mut ui = new_ui(None);
     let view = Cell::new(None);
     let mut build = |ui: &mut Ui| {
-        ui.node("under".into(), Node { w: Size::Px(300.0), h: Size::Px(30.0), look: Look { fill: color::rgb(1, 2, 3), ..Look::NONE }, ..Node::DEFAULT });
+        ui.node("under".into(), Node { w: Size::Px(300.0), h: Size::Px(30.0), look: Look { fill: Rgba::rgb(1, 2, 3), ..Look::NONE }, ..Node::DEFAULT });
         view.set(Some(ui.view("glass", 1, Size::Px(120.0), Size::Px(40.0), &mut |ui| {
-            ui.node("pane".into(), Node { w: Size::Px(120.0), h: Size::Px(40.0), look: Look { fill: color::rgba(255, 255, 255, 80), ..Look::NONE }, ..Node::DEFAULT });
+            ui.node("pane".into(), Node { w: Size::Px(120.0), h: Size::Px(40.0), look: Look { fill: Rgba::rgba(255, 255, 255, 80), ..Look::NONE }, ..Node::DEFAULT });
         })));
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -566,9 +566,9 @@ pub fn styling_images_and_icons() {
             let b = ui.node("art".into(), Node { w: Size::Px(100.0), h: Size::Px(100.0), ..Node::DEFAULT });
             let image = image.clone();
             ui.canvas(&b, move |p, r| {
-                p.image_fit(r.x, r.y, r.w, r.h, &image, Fit::Contain, color::white());
-                p.image_nine(r.x, r.y, r.w, r.h, &image, [8.0, 8.0, 8.0, 8.0], color::rgba(255, 255, 255, 128));
-                check(p.icon((0.0, 0.0), 0, 13.0, '\u{2192}', color::black()) > 0.0, "an icon with no advance");
+                p.image_fit(r.x, r.y, r.w, r.h, &image, Fit::Contain, Rgba::WHITE);
+                p.image_nine(r.x, r.y, r.w, r.h, &image, [8.0, 8.0, 8.0, 8.0], Rgba::rgba(255, 255, 255, 128));
+                check(p.icon((0.0, 0.0), 0, 13.0, '\u{2192}', Rgba::BLACK) > 0.0, "an icon with no advance");
             });
         });
     }

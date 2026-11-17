@@ -1,22 +1,14 @@
-use crate::geom::Rgba as Color;
-use crate::geom::color;
-
-const CLEAR: Color = Color {
-    r: 0,
-    g: 0,
-    b: 0,
-    a: 0,
-};
+use crate::geom::Rgba;
 
 /// Motion durations in seconds and the CSS cubic-bezier easing curve `[x1, y1, x2, y2]`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Motion {
-    /// Seconds for a press change (`Tokens::transition` uses it when only `pressed` differs).
+    /// Seconds for a press change (`Tokens::transition` uses it whenever `pressed` differs).
     pub fast: f32,
-    /// Seconds for every other state change.
+    /// Seconds for a hover or focus change.
     pub normal: f32,
-    /// Seconds for slow movement (the engine's longer transitions; `Tokens::transition` does not read it).
+    /// Seconds for a change that moves content: `checked` (a switch's knob, the selected tab or row) or `disabled`; 0 makes it instant.
     pub slow: f32,
     /// CSS cubic-bezier control points `[x1, y1, x2, y2]`; x1 and x2 must lie in 0 to 1.
     pub ease: [f32; 4],
@@ -34,19 +26,19 @@ impl From<crate::ffi::PxuiMotion> for Motion {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Tokens {
     /// The ground colour of docked panels.
-    pub panel: Color,
+    pub panel: Rgba,
     /// Text and line ink.
-    pub foreground: Color,
+    pub foreground: Rgba,
     /// The fill of buttons and other controls.
-    pub control: Color,
+    pub control: Rgba,
     /// The fill of fields and floating sheets.
-    pub input: Color,
+    pub input: Rgba,
     /// The fill of slider and progress tracks.
-    pub track: Color,
+    pub track: Rgba,
     /// The highlight colour (focus, selection, marks).
-    pub accent: Color,
-    /// The error colour; always `theme::invalid()`, never read from the C snapshot.
-    pub invalid: Color,
+    pub accent: Rgba,
+    /// The error colour; always `Tokens::DEFAULT.invalid` (`#c2255c`), never read from the C snapshot, so no theme changes it.
+    pub invalid: Rgba,
     /// The ground text sits on when it is not `panel`; `None` means `panel`.
     pub ink_ground: crate::node::OptColor,
     /// The spacing scale in points, smallest to largest.
@@ -70,20 +62,21 @@ pub struct Tokens {
 }
 
 impl Tokens {
-    /// Converts the ABI-safe snapshot into its Rust form (`invalid` is filled with `theme::invalid()`; the snapshot has no such colour).
+    /// Converts the ABI-safe snapshot into its Rust form (`invalid` is filled with the fixed error colour; the snapshot has no such colour).
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// use pxui_types::{ffi::ThemeTokens, theme::Tokens};
-    /// let tokens = Tokens::default();
+    /// let tokens = Tokens::DEFAULT;
     /// assert_eq!(Tokens::from_ffi(ThemeTokens::from(tokens)), tokens);
     /// ```
     pub fn from_ffi(value: crate::ffi::ThemeTokens) -> Self { value.into() }
 
     /// The curve a widget follows when its interaction state goes `from` to `to`: instant for reduced motion or no change,
-    /// `motion.fast` when only `pressed` differs, else `motion.normal`, with the `motion.ease` bezier.
+    /// `motion.fast` when `pressed` differs, else `motion.slow` when `checked` or `disabled` differs, else (hover, focus)
+    /// `motion.normal`, with the `motion.ease` bezier.
     ///
     /// Allocates: never.
     /// Panics: never.
@@ -91,11 +84,12 @@ impl Tokens {
     /// ```
     /// use pxui_types::theme::{Curve, State, Tokens};
     /// let idle = State::default();
-    /// let down = State { pressed: true, ..idle };
-    /// let mut tokens = Tokens::default();
-    /// tokens.motion.fast = 0.1;
-    /// let Curve::Bezier { duration, .. } = tokens.transition(idle, down) else { unreachable!() };
-    /// assert_eq!(duration, 0.1);
+    /// let mut tokens = Tokens::DEFAULT;
+    /// (tokens.motion.fast, tokens.motion.normal, tokens.motion.slow) = (0.1, 0.2, 0.3);
+    /// let seconds = |to: State| match tokens.transition(idle, to) { Curve::Bezier { duration, .. } => duration, _ => unreachable!() };
+    /// assert_eq!(seconds(State { pressed: true, ..idle }), 0.1);
+    /// assert_eq!(seconds(State { hovered: true, ..idle }), 0.2);
+    /// assert_eq!(seconds(State { checked: true, ..idle }), 0.3);
     /// assert!(tokens.transition(idle, idle).instant());
     /// ```
     pub fn transition(&self, from: State, to: State) -> Curve {
@@ -103,26 +97,28 @@ impl Tokens {
             0.0
         } else if from.pressed != to.pressed {
             self.motion.fast
+        } else if from.checked != to.checked || from.disabled != to.disabled {
+            self.motion.slow
         } else {
             self.motion.normal
         };
         Curve::Bezier { duration, points: self.motion.ease }
     }
 
-    /// Whether state changes animate at all: reduced motion is off and `motion.fast` or `motion.normal` is above zero (`slow` is not read).
+    /// Whether state changes animate at all: reduced motion is off and one of `motion.fast`, `motion.normal` or `motion.slow` is above zero.
     ///
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// use pxui_types::theme::Tokens;
-    /// let mut tokens = Tokens::default();
+    /// let mut tokens = Tokens::DEFAULT;
     /// assert!(!tokens.moves());
-    /// tokens.motion.normal = 0.2;
+    /// tokens.motion.slow = 0.2;
     /// assert!(tokens.moves());
     /// ```
     pub fn moves(&self) -> bool {
-        !self.reduced_motion && (self.motion.fast > 0.0 || self.motion.normal > 0.0)
+        !self.reduced_motion && (self.motion.fast > 0.0 || self.motion.normal > 0.0 || self.motion.slow > 0.0)
     }
 }
 
@@ -135,7 +131,7 @@ impl From<crate::ffi::ThemeTokens> for Tokens {
             input: value.input,
             track: value.track,
             accent: value.accent,
-            invalid: invalid(),
+            invalid: INVALID,
             ink_ground: (value.has_ink_ground != 0).then_some(value.ink_ground).into(),
             space: value.space,
             radius: value.radius,
@@ -287,7 +283,7 @@ impl BodyId {
 
 /// An app-defined colour token: an index into the light/dark colour table a `Ui` installs (`Ui::set_colors`,
 /// `pxui_ui_set_colors`). Reads (`Ui::color`, `Paint::color`) return the light or dark entry for the theme in effect
-/// (dark when `dark(&tokens)` holds); a token at or past `ColorToken::LIMIT`, or past the installed count, reads transparent.
+/// (dark when `tokens.is_dark()` holds); a token at or past `ColorToken::LIMIT`, or past the installed count, reads transparent.
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct ColorToken(pub u16);
@@ -532,7 +528,8 @@ impl From<crate::ffi::PxuiLookDesc> for Look {
 }
 
 impl Default for Tokens {
-    fn default() -> Self { self::default() }
+    /// `Tokens::DEFAULT`.
+    fn default() -> Self { Tokens::DEFAULT }
 }
 
 /// Default body text size in points.
@@ -544,155 +541,122 @@ pub const TITLE_SIZE: i64 = 20;
 /// Default display text size in points.
 pub const DISPLAY_SIZE: i64 = 40;
 
-/// The default tokens: a light theme with orange accent, 13-point body text, 0 radii and all motion durations 0 (nothing animates until `motion` is set).
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme;
-/// let tokens = theme::default();
-/// assert_eq!(tokens.font_size, theme::FONT_SIZE);
-/// assert!(!theme::dark(&tokens));
-/// ```
-pub fn default() -> Tokens {
-    let hex = |s| color::hex(s).expect("valid theme color constant");
-    Tokens {
-        panel: hex("#f4f5f0"), foreground: hex("#222b2b"), control: hex("#dce3de"),
-        input: hex("#ffffff"), track: hex("#e3e8e4"), accent: hex("#f0481f"),
-        invalid: invalid(), ink_ground: crate::node::OptColor::None, space: [4.0, 8.0, 12.0, 16.0], radius: [0.0; 3],
+/// The fixed error colour, the same in every theme.
+const INVALID: Rgba = Rgba::hex(0xc2255c);
+
+impl Tokens {
+    /// The default tokens: a light theme with orange accent, 13-point body text, 0 radii and all motion durations 0 (nothing animates until `motion` is set).
+    pub const DEFAULT: Tokens = Tokens {
+        panel: Rgba::hex(0xf4f5f0), foreground: Rgba::hex(0x222b2b), control: Rgba::hex(0xdce3de),
+        input: Rgba::hex(0xffffff), track: Rgba::hex(0xe3e8e4), accent: Rgba::hex(0xf0481f),
+        invalid: INVALID, ink_ground: crate::node::OptColor::None, space: [4.0, 8.0, 12.0, 16.0], radius: [0.0; 3],
         display_size: DISPLAY_SIZE, title_size: TITLE_SIZE, font_size: FONT_SIZE, label_size: LABEL_SIZE,
         motion: Motion { fast: 0.0, normal: 0.0, slow: 0.0, ease: [0.25, 0.1, 0.25, 1.0] },
         reduced_motion: false, density: 1.0,
-    }
-}
+    };
 
-/// The colour text sits on: `ink_ground` when set, else `panel`.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// let tokens = Tokens::default();
-/// assert_eq!(theme::ground(&tokens), tokens.panel);
-/// ```
-pub fn ground(theme: &Tokens) -> Color { theme.ink_ground.get().unwrap_or(theme.panel) }
-/// Secondary text ink: the foreground 32% of the way toward the ground.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// let tokens = Tokens::default();
-/// assert_ne!(theme::ink_2(&tokens), tokens.foreground);
-/// ```
-pub fn ink_2(theme: &Tokens) -> Color { color::blend(theme.foreground, ground(theme), 0.32) }
-/// Tertiary text ink: the foreground 52.1% of the way toward the ground, fainter than `ink_2`.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// let tokens = Tokens::default();
-/// assert_ne!(theme::ink_3(&tokens), theme::ink_2(&tokens));
-/// ```
-pub fn ink_3(theme: &Tokens) -> Color { color::blend(theme.foreground, ground(theme), 0.521) }
-/// Muted text ink: the same colour as `ink_2`.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// let tokens = Tokens::default();
-/// assert_eq!(theme::muted(&tokens), theme::ink_2(&tokens));
-/// ```
-pub fn muted(theme: &Tokens) -> Color { ink_2(theme) }
-/// The standard border colour: the foreground at alpha 77 of 255.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// assert_eq!(theme::border(&Tokens::default()).a, 77);
-/// ```
-pub fn border(theme: &Tokens) -> Color { color::with_alpha(theme.foreground, 77) }
-/// A lighter edge colour: the foreground at alpha 38 of 255.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// assert_eq!(theme::edge(&Tokens::default()).a, 38);
-/// ```
-pub fn edge(theme: &Tokens) -> Color { color::with_alpha(theme.foreground, 38) }
-/// The faintest line colour: the foreground at alpha 20 of 255.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// assert_eq!(theme::faint_border(&Tokens::default()).a, 20);
-/// ```
-pub fn faint_border(theme: &Tokens) -> Color { color::with_alpha(theme.foreground, 20) }
-/// The fill of a hovered field: `input` 11% of the way toward `accent`.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// let tokens = Tokens::default();
-/// assert_ne!(theme::hover_fill(&tokens), tokens.input);
-/// ```
-pub fn hover_fill(theme: &Tokens) -> Color { color::blend(theme.input, theme.accent, 0.11) }
-/// The fill of a pressed control: `control` 18% of the way toward `accent`.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// let tokens = Tokens::default();
-/// assert_ne!(theme::pressed_fill(&tokens), tokens.control);
-/// ```
-pub fn pressed_fill(theme: &Tokens) -> Color { color::blend(theme.control, theme.accent, 0.18) }
-/// A translucent wash of the accent: `accent` at alpha 41 of 255.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// assert_eq!(theme::tint(&Tokens::default()).a, 41);
-/// ```
-pub fn tint(theme: &Tokens) -> Color { color::with_alpha(theme.accent, 41) }
-/// The fixed error colour `#c2255c`, the same in every theme (a theme cannot change it).
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// assert_eq!(pxui_types::theme::invalid(), pxui_types::geom::color::rgb(0xc2, 0x25, 0x5c));
-/// ```
-pub fn invalid() -> Color { color::hex("#c2255c").expect("valid invalid color constant") }
-/// Whether the theme is dark: the `panel` colour's red, green and blue sum to under 384 (an average below 128); `ink_ground` is not read.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::theme::{self, Tokens};
-/// assert!(!theme::dark(&Tokens::default()));
-/// ```
-pub fn dark(theme: &Tokens) -> bool {
-    (theme.panel.r as u32 + theme.panel.g as u32 + theme.panel.b as u32) < 384
+    /// The colour text sits on: `ink_ground` when set, else `panel`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_eq!(Tokens::DEFAULT.ground(), Tokens::DEFAULT.panel);
+    /// ```
+    pub fn ground(&self) -> Rgba { self.ink_ground.get().unwrap_or(self.panel) }
+    /// Secondary text ink: the foreground 32% of the way toward the ground.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_ne!(Tokens::DEFAULT.ink_2(), Tokens::DEFAULT.foreground);
+    /// ```
+    pub fn ink_2(&self) -> Rgba { self.foreground.blend(self.ground(), 0.32) }
+    /// Tertiary text ink: the foreground 52.1% of the way toward the ground, fainter than `ink_2`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_ne!(Tokens::DEFAULT.ink_3(), Tokens::DEFAULT.ink_2());
+    /// ```
+    pub fn ink_3(&self) -> Rgba { self.foreground.blend(self.ground(), 0.521) }
+    /// The standard border colour: the foreground at alpha 77 of 255.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_eq!(Tokens::DEFAULT.border().a, 77);
+    /// ```
+    pub const fn border(&self) -> Rgba { self.foreground.with_alpha(77) }
+    /// A lighter edge colour: the foreground at alpha 38 of 255.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_eq!(Tokens::DEFAULT.edge().a, 38);
+    /// ```
+    pub const fn edge(&self) -> Rgba { self.foreground.with_alpha(38) }
+    /// The faintest line colour: the foreground at alpha 20 of 255.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_eq!(Tokens::DEFAULT.faint_border().a, 20);
+    /// ```
+    pub const fn faint_border(&self) -> Rgba { self.foreground.with_alpha(20) }
+    /// The fill of a hovered field: `input` 11% of the way toward `accent`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_ne!(Tokens::DEFAULT.hover_fill(), Tokens::DEFAULT.input);
+    /// ```
+    pub fn hover_fill(&self) -> Rgba { self.input.blend(self.accent, 0.11) }
+    /// The fill of a pressed control: `control` 18% of the way toward `accent`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_ne!(Tokens::DEFAULT.pressed_fill(), Tokens::DEFAULT.control);
+    /// ```
+    pub fn pressed_fill(&self) -> Rgba { self.control.blend(self.accent, 0.18) }
+    /// A translucent wash of the accent: `accent` at alpha 41 of 255.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert_eq!(Tokens::DEFAULT.tint().a, 41);
+    /// ```
+    pub const fn tint(&self) -> Rgba { self.accent.with_alpha(41) }
+    /// Whether the theme is dark: the `panel` colour's red, green and blue sum to under 384 (an average below 128); `ink_ground` is not read.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::theme::Tokens;
+    /// assert!(!Tokens::DEFAULT.is_dark());
+    /// ```
+    pub const fn is_dark(&self) -> bool {
+        (self.panel.r as u32 + self.panel.g as u32 + self.panel.b as u32) < 384
+    }
 }
 
 /// A box shadow: outer, or `inner` (CSS `inset`); none while `color` is transparent.
@@ -700,7 +664,7 @@ pub fn dark(theme: &Tokens) -> bool {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Shadow {
     /// The shadow colour; transparent draws nothing.
-    pub color: Color,
+    pub color: Rgba,
     /// Horizontal and vertical offset in points.
     pub offset: [f32; 2],
     /// Blur radius in points.
@@ -714,12 +678,88 @@ pub struct Shadow {
 impl Shadow {
     /// No shadow (transparent).
     pub const NONE: Shadow = Shadow {
-        color: CLEAR,
+        color: Rgba::CLEAR,
         offset: [0.0, 0.0],
         blur: 0.0,
         spread: 0.0,
         inner: false,
     };
+
+    /// Sets the shadow's colour (transparent: no shadow).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Shadow};
+    /// const V: Shadow = Shadow::NONE.color(Rgba::BLACK);
+    /// assert!(V.color == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn color(mut self, color: Rgba) -> Shadow {
+        self.color = color;
+        self
+    }
+    /// Sets the shadow's offset in points, right and down.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Shadow};
+    /// const V: Shadow = Shadow::NONE.offset(0.0, 2.0);
+    /// assert!(V.offset == [0.0, 2.0]);
+    /// ```
+    #[inline]
+    pub const fn offset(mut self, x: f32, y: f32) -> Shadow {
+        self.offset = [x, y];
+        self
+    }
+    /// Sets the blur radius in points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Shadow};
+    /// const V: Shadow = Shadow::NONE.blur(8.0);
+    /// assert!(V.blur == 8.0);
+    /// ```
+    #[inline]
+    pub const fn blur(mut self, points: f32) -> Shadow {
+        self.blur = points;
+        self
+    }
+    /// Sets how many points the shadow grows (negative: shrinks) before blurring.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Shadow};
+    /// const V: Shadow = Shadow::NONE.spread(-1.0);
+    /// assert!(V.spread == -1.0);
+    /// ```
+    #[inline]
+    pub const fn spread(mut self, points: f32) -> Shadow {
+        self.spread = points;
+        self
+    }
+    /// Draws the shadow inside the box (CSS `inset`).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Shadow};
+    /// const V: Shadow = Shadow::NONE.inner();
+    /// assert!(V.inner);
+    /// ```
+    #[inline]
+    pub const fn inner(mut self) -> Shadow {
+        self.inner = true;
+        self
+    }
 }
 
 /// Node text: font `family` (the `pxui_text` font index), `size` points (0: the UI's font size; below 0:
@@ -779,6 +819,51 @@ impl Font {
         self.weight = weight;
         self
     }
+    /// Sets the `pxui_text` font index.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Font;
+    /// const V: Font = Font::BODY.family(1);
+    /// assert!(V.family == 1);
+    /// ```
+    #[inline]
+    pub const fn family(mut self, family: u16) -> Font {
+        self.family = family;
+        self
+    }
+    /// Sets the extra spacing after every glyph, in ems.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Font;
+    /// const V: Font = Font::BODY.tracking(0.04);
+    /// assert!(V.tracking == 0.04);
+    /// ```
+    #[inline]
+    pub const fn tracking(mut self, ems: f32) -> Font {
+        self.tracking = ems;
+        self
+    }
+    /// Upper-cases the text.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Font;
+    /// const V: Font = Font::BODY.caps();
+    /// assert!(V.caps);
+    /// ```
+    #[inline]
+    pub const fn caps(mut self) -> Font {
+        self.caps = true;
+        self
+    }
     /// The size in points this font draws at when the UI body size is `body`: its own `size` if positive, `body` for 0, else `body` less
     /// its magnitude, never below 8.
     ///
@@ -804,25 +889,71 @@ impl Font {
 }
 
 /// An outline drawn while the node holds the focus: `width` points inside its box on `sides`
-/// (`draw::flags::TOP | …`; 0 all four). None while `color` is transparent.
+/// (`draw::flags::rect::TOP | …`; 0 all four). None while `color` is transparent.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Ring {
     /// The ring colour; transparent draws nothing.
-    pub color: Color,
+    pub color: Rgba,
     /// Width in points, inside the box.
     pub width: f32,
-    /// `draw::flags::TOP | ...` sides to draw; 0 is all four.
+    /// `draw::flags::rect::TOP | ...` sides to draw; 0 is all four.
     pub sides: u8,
 }
 
 impl Ring {
     /// No ring (transparent).
     pub const NONE: Ring = Ring {
-        color: CLEAR,
+        color: Rgba::CLEAR,
         width: 0.0,
         sides: 0,
     };
+
+    /// Sets the ring's colour (transparent: no ring).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Ring};
+    /// const V: Ring = Ring::NONE.color(Rgba::BLACK);
+    /// assert!(V.color == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn color(mut self, color: Rgba) -> Ring {
+        self.color = color;
+        self
+    }
+    /// Sets the ring's width in points.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Ring};
+    /// const V: Ring = Ring::NONE.width(2.0);
+    /// assert!(V.width == 2.0);
+    /// ```
+    #[inline]
+    pub const fn width(mut self, points: f32) -> Ring {
+        self.width = points;
+        self
+    }
+    /// Limits the ring to `sides` (`draw::flags::rect::TOP | ...`; 0: all four).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Ring};
+    /// const V: Ring = Ring::NONE.sides(pxui_types::draw::flags::rect::LEFT);
+    /// assert!(V.sides == pxui_types::draw::flags::rect::LEFT);
+    /// ```
+    #[inline]
+    pub const fn sides(mut self, sides: u8) -> Ring {
+        self.sides = sides;
+        self
+    }
 }
 
 /// What a node looks like, painted in this order: outer shadows, the fill (solid, or a linear
@@ -831,20 +962,21 @@ impl Ring {
 /// left, top right, bottom right, bottom left), the node's text in `text` and `font`, its mark, then
 /// `ring` while it holds the focus. `opacity` scales every alpha. `selection` and `caret` colour a text
 /// widget's editing marks. Transparent colours paint nothing. A `dashed` square border is one point
-/// of 4-on, 3-off dashes (a drop target, an expression card). Any colour may name a token (`Color::token`): the engine resolves
+/// of 4-on, 3-off dashes (a drop target, an expression card). Any colour may name a token (`Rgba::token`): the engine resolves
 /// it for the theme in effect when the look is applied, so an app's looks are plain `const`s:
-/// `const ROW: Look = Look::NONE.fill(Color::token(PAPER)).text(Color::token(INK));`.
+/// `const ROW: Look = Look::NONE.fill(Rgba::token(PAPER)).text(Rgba::token(INK));`. Build looks (and their `Font`, `Ring`,
+/// `Shadow`, and a part's `States`) with the const builders from `Look::NONE`; the fields are public only because the record is C's.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
     /// The background colour (the gradient's start).
-    pub fill: Color,
+    pub fill: Rgba,
     /// The gradient's end colour; `None` for a solid fill.
     pub gradient: crate::node::OptColor,
     /// Gradient direction in degrees, CSS-style (180 runs top to bottom).
     pub angle: f32,
     /// The border colour.
-    pub border: Color,
+    pub border: Rgba,
     /// Border width in points, inside the box.
     pub border_w: f32,
     /// Border sides as `draw::flags` bits; 0 is all four.
@@ -854,7 +986,7 @@ pub struct Look {
     /// Two shadows, each outer or inner by its own `inner` flag.
     pub shadows: [Shadow; 2],
     /// The text colour.
-    pub text: Color,
+    pub text: Rgba,
     /// The text font.
     pub font: Font,
     /// Multiplies every alpha, 0 to 1.
@@ -862,9 +994,9 @@ pub struct Look {
     /// The outline drawn while the node holds focus.
     pub ring: Ring,
     /// The selection colour of a text widget.
-    pub selection: Color,
+    pub selection: Rgba,
     /// The caret colour of a text widget.
-    pub caret: Color,
+    pub caret: Rgba,
     /// A dashed square border (4 points on, 3 off).
     pub dashed: bool,
 }
@@ -872,20 +1004,20 @@ pub struct Look {
 impl Look {
     /// Paints nothing: transparent colours, 180 degree angle, full opacity, the body font.
     pub const NONE: Look = Look {
-        fill: CLEAR,
+        fill: Rgba::CLEAR,
         gradient: crate::node::OptColor::None,
         angle: 180.0,
-        border: CLEAR,
+        border: Rgba::CLEAR,
         border_w: 0.0,
         sides: 0,
         radius: [0.0; 4],
         shadows: [Shadow::NONE; 2],
-        text: CLEAR,
+        text: Rgba::CLEAR,
         font: Font::BODY,
         opacity: 1.0,
         ring: Ring::NONE,
-        selection: CLEAR,
-        caret: CLEAR,
+        selection: Rgba::CLEAR,
+        caret: Rgba::CLEAR,
         dashed: false,
     };
 
@@ -900,7 +1032,7 @@ impl Look {
     /// assert_eq!(L.fill.g, 2);
     /// ```
     #[inline]
-    pub const fn fill(mut self, color: Color) -> Look {
+    pub const fn fill(mut self, color: Rgba) -> Look {
         self.fill = color;
         self
     }
@@ -930,7 +1062,7 @@ impl Look {
     /// assert_eq!(L.border_w, 1.0);
     /// ```
     #[inline]
-    pub const fn border(mut self, color: Color, width: f32) -> Look {
+    pub const fn border(mut self, color: Rgba, width: f32) -> Look {
         self.border = color;
         self.border_w = width;
         self
@@ -946,7 +1078,7 @@ impl Look {
     /// assert_eq!(L.text.b, 3);
     /// ```
     #[inline]
-    pub const fn text(mut self, color: Color) -> Look {
+    pub const fn text(mut self, color: Rgba) -> Look {
         self.text = color;
         self
     }
@@ -965,29 +1097,194 @@ impl Look {
         self.font = font;
         self
     }
+    /// Fills with a linear gradient from `fill` to `to` along `angle`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.fill(Rgba::BLACK).gradient(Rgba::WHITE);
+    /// assert!(V.gradient.get() == Some(Rgba::WHITE));
+    /// ```
+    #[inline]
+    pub const fn gradient(mut self, to: Rgba) -> Look {
+        self.gradient = crate::node::OptColor::Some(to);
+        self
+    }
+    /// Sets the gradient's direction in degrees, CSS style (180: top to bottom).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.angle(90.0);
+    /// assert!(V.angle == 90.0);
+    /// ```
+    #[inline]
+    pub const fn angle(mut self, degrees: f32) -> Look {
+        self.angle = degrees;
+        self
+    }
+    /// Limits the border to `sides` (`draw::flags::rect::TOP | ...`; 0: all four).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.border(Rgba::BLACK, 1.0).sides(pxui_types::draw::flags::rect::BOTTOM);
+    /// assert!(V.sides == pxui_types::draw::flags::rect::BOTTOM);
+    /// ```
+    #[inline]
+    pub const fn sides(mut self, sides: u8) -> Look {
+        self.sides = sides;
+        self
+    }
+    /// Sets each corner's radius in points: top-left, top-right, bottom-right, bottom-left (`radius` sets all four).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.radii([8.0, 8.0, 0.0, 0.0]);
+    /// assert!(V.radius == [8.0, 8.0, 0.0, 0.0]);
+    /// ```
+    #[inline]
+    pub const fn radii(mut self, points: [f32; 4]) -> Look {
+        self.radius = points;
+        self
+    }
+    /// Sets the first box shadow (`shadows` sets both).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.shadow(Shadow::NONE.color(Rgba::BLACK).blur(6.0));
+    /// assert!(V.shadows[0].blur == 6.0);
+    /// ```
+    #[inline]
+    pub const fn shadow(mut self, shadow: Shadow) -> Look {
+        self.shadows[0] = shadow;
+        self
+    }
+    /// Sets both box shadows, drawn first to last.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.shadows([Shadow::NONE.blur(2.0), Shadow::NONE.inner()]);
+    /// assert!(V.shadows[1].inner);
+    /// ```
+    #[inline]
+    pub const fn shadows(mut self, shadows: [Shadow; 2]) -> Look {
+        self.shadows = shadows;
+        self
+    }
+    /// Sets the factor every alpha of this node's look is multiplied by, 0.0 to 1.0 (its children are not faded; a view's opacity fades a subtree).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.opacity(0.5);
+    /// assert!(V.opacity == 0.5);
+    /// ```
+    #[inline]
+    pub const fn opacity(mut self, opacity: f32) -> Look {
+        self.opacity = opacity;
+        self
+    }
+    /// Sets the ring: an outline drawn `width` points inside the box while the node holds focus.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.ring(Ring::NONE.color(Rgba::BLACK).width(2.0));
+    /// assert!(V.ring.width == 2.0);
+    /// ```
+    #[inline]
+    pub const fn ring(mut self, ring: Ring) -> Look {
+        self.ring = ring;
+        self
+    }
+    /// Sets the fill behind selected text.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.selection(Rgba::rgba(0, 0, 255, 60));
+    /// assert!(V.selection.a == 60);
+    /// ```
+    #[inline]
+    pub const fn selection(mut self, color: Rgba) -> Look {
+        self.selection = color;
+        self
+    }
+    /// Sets the text caret's colour.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.caret(Rgba::BLACK);
+    /// assert!(V.caret == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn caret(mut self, color: Rgba) -> Look {
+        self.caret = color;
+        self
+    }
+    /// Draws the border dashed.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, theme::{Ring, Shadow}, Look};
+    /// const V: Look = Look::NONE.border(Rgba::BLACK, 1.0).dashed();
+    /// assert!(V.dashed);
+    /// ```
+    #[inline]
+    pub const fn dashed(mut self) -> Look {
+        self.dashed = true;
+        self
+    }
 
     /// The look `t` of the way from `self` to `to`: colours, widths, radii, angle, opacity and shadow geometry interpolate; the rest
     /// (font, border and ring sides, `dashed`) is `to`'s from the start.
     ///
     /// `t` is not clamped: an overshooting curve extrapolates, and colour channels saturate at 0 and 255. A gradient present on either
     /// look is interpolated, the other side standing in its `fill`. A shadow's `inner` flag is `to`'s once `to`'s shadow is visible.
-    /// A token colour (`Color::token`) interpolates as the clear colour it is encoded as: the engine lerps looks after resolving them.
+    /// A token colour (`Rgba::token`) interpolates as the clear colour it is encoded as: the engine lerps looks after resolving them.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::{geom::color, Look};
-    /// let a = Look::NONE.fill(color::rgb(0, 0, 0));
-    /// let b = Look::NONE.fill(color::rgb(255, 255, 255));
-    /// assert_eq!(a.lerp(&b, 0.0).fill, color::rgb(0, 0, 0));
-    /// assert_eq!(a.lerp(&b, 1.0).fill, color::rgb(255, 255, 255));
-    /// assert_eq!(a.lerp(&b, 0.5).fill, color::rgb(128, 128, 128));
+    /// use pxui_types::{geom::Rgba, Look};
+    /// let a = Look::NONE.fill(Rgba::rgb(0, 0, 0));
+    /// let b = Look::NONE.fill(Rgba::rgb(255, 255, 255));
+    /// assert_eq!(a.lerp(&b, 0.0).fill, Rgba::rgb(0, 0, 0));
+    /// assert_eq!(a.lerp(&b, 1.0).fill, Rgba::rgb(255, 255, 255));
+    /// assert_eq!(a.lerp(&b, 0.5).fill, Rgba::rgb(128, 128, 128));
     /// ```
     pub fn lerp(&self, to: &Look, t: f32) -> Look {
-        let c = |a: Color, b: Color| {
+        let c = |a: Rgba, b: Rgba| {
             // an overshooting curve saturates at the channel's ends
             let m = |x: u8, y: u8| (x as f32 + (y as f32 - x as f32) * t).round() as u8;
-            Color {
+            Rgba {
                 r: m(a.r, b.r),
                 g: m(a.g, b.g),
                 b: m(a.b, b.b),
@@ -1280,6 +1577,96 @@ impl States {
             disabled: look,
             checked: look,
         }
+    }
+    /// Sets the look with no other state.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look, States};
+    /// const V: States = States::all(Look::NONE).idle(Look::NONE.fill(Rgba::BLACK));
+    /// assert!(V.idle.fill == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn idle(mut self, look: Look) -> States {
+        self.idle = look;
+        self
+    }
+    /// Sets the look under the pointer.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look, States};
+    /// const V: States = States::all(Look::NONE).hover(Look::NONE.fill(Rgba::BLACK));
+    /// assert!(V.hover.fill == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn hover(mut self, look: Look) -> States {
+        self.hover = look;
+        self
+    }
+    /// Sets the look while pressed.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look, States};
+    /// const V: States = States::all(Look::NONE).pressed(Look::NONE.fill(Rgba::BLACK));
+    /// assert!(V.pressed.fill == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn pressed(mut self, look: Look) -> States {
+        self.pressed = look;
+        self
+    }
+    /// Sets the look while focused.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look, States};
+    /// const V: States = States::all(Look::NONE).focus(Look::NONE.fill(Rgba::BLACK));
+    /// assert!(V.focus.fill == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn focus(mut self, look: Look) -> States {
+        self.focus = look;
+        self
+    }
+    /// Sets the look while disabled (it wins over every other state).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look, States};
+    /// const V: States = States::all(Look::NONE).disabled(Look::NONE.fill(Rgba::BLACK));
+    /// assert!(V.disabled.fill == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn disabled(mut self, look: Look) -> States {
+        self.disabled = look;
+        self
+    }
+    /// Sets the look while checked (on, selected).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, Look, States};
+    /// const V: States = States::all(Look::NONE).checked(Look::NONE.fill(Rgba::BLACK));
+    /// assert!(V.checked.fill == Rgba::BLACK);
+    /// ```
+    #[inline]
+    pub const fn checked(mut self, look: Look) -> States {
+        self.checked = look;
+        self
     }
     /// The look for state `s`: disabled, else pressed, hovered, checked, focused, idle, whichever holds first.
     ///

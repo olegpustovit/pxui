@@ -53,7 +53,7 @@ impl Ui {
     /// Installs the app's colour tokens: `colors[i]` is the (light, dark) pair of `ColorToken(i)`, every later token reads transparent.
     ///
     /// Call between frames, like `use_theme` (install the table once, beside the themes). Reads (`color`, `Paint::color`)
-    /// pick the dark entry while the theme in effect is dark (`pxui::theme::dark` of its tokens), so swapping a light theme
+    /// pick the dark entry while the theme in effect is dark (`Tokens::is_dark`), so swapping a light theme
     /// for a dark one changes what they return without the app rebuilding its state. A table that differs from the
     /// installed one rebuilds every view once; an equal one changes nothing.
     /// Allocates: never.
@@ -64,7 +64,7 @@ impl Ui {
     /// let (paper, night) = (Rgba { r: 250, g: 250, b: 250, a: 255 }, Rgba { r: 16, g: 16, b: 16, a: 255 });
     /// let mut ui = pxui::Ui::new().unwrap();
     /// ui.set_colors(&[(paper, night)]);
-    /// let light = !pxui::theme::dark(&ui.tokens());
+    /// let light = !ui.tokens().is_dark();
     /// assert_eq!(ui.color(ColorToken(0)), if light { paper } else { night });
     /// assert_eq!(ui.color(ColorToken(1)), Rgba::default());
     /// ```

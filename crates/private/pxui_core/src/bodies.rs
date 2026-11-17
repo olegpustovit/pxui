@@ -85,7 +85,7 @@ pub struct ButtonConfig {
     /// contents placed across the box by `content_align` and centred down it.
     pub axis: Option<Axis>,
     pub gap: f32,
-    pub content_align: Option<Align>,
+    pub content_align: Option<crate::layout::Along>,
 }
 
 pub type ButtonBody = fn(&mut Ui, &ButtonConfig, &States, &str);

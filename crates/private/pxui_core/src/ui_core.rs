@@ -24,10 +24,12 @@ mod reveal;
 use reveal::Geometry as ListGeometry;
 use text_identity::lay_out_node;
 pub use crate::geom::Rect;
-pub(crate) use crate::geom::p32;
+/// An input point (`f64` window points) as the engine's `f32` point.
+#[inline]
+pub(crate) fn p32(p: (f64, f64)) -> (f32, f32) { (p.0 as f32, p.1 as f32) }
 use input::{Event, Key, MouseButton, Platform, ScrollPhase};
 use input::frame as rframe;
-use crate::geom::{color, Rgba as Color};
+use crate::geom::Rgba;
 use crate::draw::{Break, Instance};
 use crate::layout::MAX_TRACKS;
 pub use crate::draw::Fit;
@@ -55,7 +57,7 @@ pub use pxui_types::{Flags, Size};
 pub use crate::opts::{BoxOpts, HitFn};
 pub use pxui_types::shape::{clip_of, Shapes};
 pub use pxui_types::ui::{
-    ellipsis, text_top_for, contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Keyframe, Keyframes, ListResponse, Overlay, PickerResponse, Repeat, SelectionList, TableResponse, TableView, Target, TreeResponse, UndoKind,
+    ellipsis, text_top_for, display, find_marker, hash_range, int_key, key_of, shown, Cursor, Keyframe, Keyframes, ListResponse, Overlay, PickerResponse, Repeat, SelectionList, TableResponse, TableView, Target, TreeResponse, UndoKind,
     DRAG_THRESHOLD, ROOT_KEY,
 };
 /// What a carry holds: a `kind` and a `value`, both strings (the engine's own storage; the wrapper lends them as `PayloadRef`).
@@ -178,7 +180,7 @@ const HIT_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::SCROLL)
 pub use crate::theme::{Bodies, BodyId, Curve, Font, Look, Part, Ring, Shadow, State, States, Theme, Tokens};
 pub use crate::a11y::{A11yAction, A11yTree, Role};
 use crate::a11y::{actions as a11y_actions, state as a11y_state, Action as A11yKind, NO_PARENT};
-pub use crate::layout::{place_anchored, Align, Anchor, Cell, Direction, Grid, Justify, Placement, Side, Track};
+pub use crate::layout::{place_anchored, Align, Along, Anchor, Cell, Direction, Grid, Justify, Placement, Side, Track};
 
 
 /// One box of this frame's build: its place in the tree, its hit shape and its canvases. What
@@ -284,7 +286,7 @@ impl Keys {
 }
 
 /// A transparent colour.
-const CLEAR_INK: Color = Color { r: 0, g: 0, b: 0, a: 0 };
+const CLEAR_INK: Rgba = Rgba { r: 0, g: 0, b: 0, a: 0 };
 
 /// No view: a box that holds none, a fresh piece of a layer.
 const NO_VIEW: u32 = u32::MAX;
@@ -930,7 +932,7 @@ pub struct PlatformOut {
     /// the focused text's input area and the caret's offset in it, for the input method
     pub ime: Option<((i64, i64, i64, i64), i64)>,
     /// the ground the UI is painted on, on the frame it changed (the macOS title bar)
-    pub background: Option<Color>,
+    pub background: Option<Rgba>,
     /// text to put on the clipboard
     pub clipboard: Option<String>,
     /// the UI wants the clipboard's text: the host sends `Event::Paste` with the next frame
@@ -1012,7 +1014,7 @@ pub struct Ui {
     system_appearance:u32,
     system_reduced_motion:bool,
     /// the app's colour tokens, the light table then the dark one (`set_colors`): a painter copies one whole; unset entries are transparent
-    colors: [[Color; pxui_types::theme::ColorToken::LIMIT]; 2],
+    colors: [[Rgba; pxui_types::theme::ColorToken::LIMIT]; 2],
     theme_reduced_motion:bool,
     font_size: i64,
     platform: Platform,
@@ -1122,7 +1124,7 @@ pub struct Ui {
     pub(crate) edit_caret: usize,
     pub(crate) edit_anchor: usize,
     pub(crate) edit_scroll_x: f32,
-    window_ground: Option<Color>,
+    window_ground: Option<Rgba>,
     gesture_key: i64,
     gesture_time: f64,
     /// the fingers' release velocity, down and sideways
@@ -1134,7 +1136,7 @@ pub struct Ui {
     pub charged: Bytes,
     pub(crate) text_rows_seen: Vec<(Option<usize>, Rc<str>, Rc<Vec<(usize, usize, usize)>>)>,
     pub(crate) text_panes: usize,
-    pub(crate) text_colors_seen: Vec<(Tokens, String, Rc<Vec<(i64, i64, Color)>>)>,
+    pub(crate) text_colors_seen: Vec<(Tokens, String, Rc<Vec<(i64, i64, Rgba)>>)>,
     pub(crate) edit_redo: Vec<(String, usize, usize)>,
     pub(crate) edit_group: i64,
     pub(crate) edit_shelf: Vec<ShelfEntry>,
@@ -1267,7 +1269,7 @@ pub type ShelfEntry = (i64, String, Vec<(String, usize, usize)>, Vec<(String, us
 
 
 
-fn rgba(c: Color) -> [u8; 4] {
+fn rgba(c: Rgba) -> [u8; 4] {
     [c.r, c.g, c.b, c.a]
 }
 
@@ -1298,7 +1300,7 @@ impl Ui {
             keyboard: pxui_types::Keyboard::default(),
             system_appearance:0,
             system_reduced_motion:false,
-            colors: [[Color::default(); pxui_types::theme::ColorToken::LIMIT]; 2],
+            colors: [[Rgba::default(); pxui_types::theme::ColorToken::LIMIT]; 2],
             theme_reduced_motion:false,
             font_size,
             platform,
@@ -1551,12 +1553,12 @@ impl Ui {
     /// names a token (`Rgba::token`) is stored as clear, so a resolved colour never names one and resolving it again changes nothing.
     /// False (nothing changes) when the lengths differ or pass `ColorToken::LIMIT`. A changed table rebuilds every view once and
     /// re-resolves the root theme's token looks.
-    pub fn set_colors(&mut self, light: &[Color], dark: &[Color]) -> bool {
+    pub fn set_colors(&mut self, light: &[Rgba], dark: &[Rgba]) -> bool {
         if light.len() != dark.len() || light.len() > pxui_types::theme::ColorToken::LIMIT { return false; }
-        let mut colors = [[Color::default(); pxui_types::theme::ColorToken::LIMIT]; 2];
+        let mut colors = [[Rgba::default(); pxui_types::theme::ColorToken::LIMIT]; 2];
         colors[0][..light.len()].copy_from_slice(light);
         colors[1][..dark.len()].copy_from_slice(dark);
-        for c in colors.iter_mut().flatten() { if c.as_token().is_some() { *c = Color::default(); } }
+        for c in colors.iter_mut().flatten() { if c.as_token().is_some() { *c = Rgba::default(); } }
         if colors != self.colors {
             self.colors = colors;
             self.epoch += 1;
@@ -1570,9 +1572,9 @@ impl Ui {
     }
 
     /// Colour token `token` for the theme in effect (`theme()`, so a `themed` scope picks its own side): the dark entry
-    /// when that theme is dark (`theme::dark`), else the light one; transparent past the table.
-    #[inline] pub fn color(&self, token: u16) -> Color {
-        self.colors[theme::dark(&self.theme().tokens) as usize].get(token as usize).copied().unwrap_or_default()
+    /// when that theme is dark (`Tokens::is_dark`), else the light one; transparent past the table.
+    #[inline] pub fn color(&self, token: u16) -> Rgba {
+        self.colors[self.theme().tokens.is_dark() as usize].get(token as usize).copied().unwrap_or_default()
     }
 
     /// `look` with every colour that names a token (`Rgba::token`) replaced by `color(token)`, the theme in effect's entry; `None` when
@@ -1582,7 +1584,7 @@ impl Ui {
     pub fn resolve_look(&self, look: &Look) -> Option<Look> {
         if !names_token(look) { return None; }
         let mut out = *look;
-        resolve_with(&mut out, &self.colors[theme::dark(&self.theme().tokens) as usize]);
+        resolve_with(&mut out, &self.colors[self.theme().tokens.is_dark() as usize]);
         Some(out)
     }
 
@@ -1593,7 +1595,7 @@ impl Ui {
     }
 
     /// `color` resolved as a look's colour is (`resolve_look`): a token's entry for the theme in effect, else `color` itself.
-    pub fn resolve_color(&self, color: Color) -> Color {
+    pub fn resolve_color(&self, color: Rgba) -> Rgba {
         match color.as_token() { Some(token) => self.color(token.0), None => color }
     }
 
@@ -2459,7 +2461,7 @@ impl Ui {
             return false;
         }
         let local = if v.flat { Some(point) } else { v.unmap(point) };
-        if !local.is_some_and(|p| contains(Rect::new(h.x, h.y, h.w, h.h), (p.0 - v.shift.0, p.1 - v.shift.1))) { return false; }
+        if !local.is_some_and(|p| (Rect::new(h.x, h.y, h.w, h.h)).contains((p.0 - v.shift.0, p.1 - v.shift.1))) { return false; }
         let mut dismissed = false;
         if !self.dismissed_popups.is_empty() {
             self.hit_ancestors(h.key, &mut |key| dismissed |= self.dismissed_popups.contains(&key));
@@ -5164,7 +5166,7 @@ pub struct Paint {
     /// device pixels per point
     pub density: i64,
     /// the `Ui`'s colour tokens resolved for `theme` (`Ui::color`), transparent past the table
-    pub colors: [Color; pxui_types::theme::ColorToken::LIMIT],
+    pub colors: [Rgba; pxui_types::theme::ColorToken::LIMIT],
     /// the root theme's label look, which a `Label`'s unset fields resolve from (`Paint::label`)
     pub label_look: Look,
     pub text: Text,
@@ -5193,7 +5195,7 @@ pub struct Paint {
 
 impl Paint {
     /// Colour token `token` resolved for this painter's theme; transparent past the table.
-    #[inline] pub fn color(&self, token: u16) -> Color { self.colors.get(token as usize).copied().unwrap_or_default() }
+    #[inline] pub fn color(&self, token: u16) -> Rgba { self.colors.get(token as usize).copied().unwrap_or_default() }
 
     /// `text` in `label` at `at`, laid out within `width` (0: unbounded), its unset fields resolved as a label body resolves them
     /// against this painter's theme (`label_look`, its rows and colour tokens); the label's box fields (width, pad) do not apply.
@@ -5217,7 +5219,7 @@ impl Paint {
 
     /// Draws `text` one character at a time from one-character layouts in `style` (capitals when `caps`), digits on the advance of
     /// `0`: a number that changes every frame shapes nothing after the first use of its characters. Returns the width drawn.
-    pub fn chars(&mut self, at: (f32, f32), style: &Style, color: Option<Color>, caps: bool, text: &str) -> f32 {
+    pub fn chars(&mut self, at: (f32, f32), style: &Style, color: Option<Rgba>, caps: bool, text: &str) -> f32 {
         let zero = self.text_metrics(style, 0.0, "0").w;
         let (mut x, mut utf8) = (at.0, [0u8; 4]);
         for ch in text.chars() {
@@ -5301,11 +5303,11 @@ impl Paint {
         let placed = r;
         let Rect { x, y, w, h } = placed;
         let o = look.opacity.clamp(0.0, 1.0);
-        let fade = |c: Color| if o < 1.0 { Color { a: (c.a as f32 * o).round() as u8, ..c } } else { c };
+        let fade = |c: Rgba| if o < 1.0 { Rgba { a: (c.a as f32 * o).round() as u8, ..c } } else { c };
         let corners = [x, y, x + w, y + h];
         let radii = look.radius;
         let area = w > 0.0 && h > 0.0;
-        let shown = |c: Color| c.a > 0 || steady;
+        let shown = |c: Rgba| c.a > 0 || steady;
         let round = steady || look.gradient.is_some() || radii.iter().any(|r| *r > 0.0) || look.shadows.iter().any(|s| shown(s.color));
         let shadow = |s: &Shadow| Instance::shadow(corners, radii, rgba(fade(s.color)), s.offset, s.blur / 2.0, s.spread, s.inner);
         let bordered = steady || (look.border_w > 0.0 && look.border.a > 0);
@@ -5506,33 +5508,33 @@ impl Paint {
 
     /// Draw a host-owned image for this frame; the layer breaks to its texture.
     pub fn image(&mut self, x: f32, y: f32, w: f32, h: f32, image: &Image) {
-        self.image_fit(x, y, w, h, image, Fit::Fill, color::white());
+        self.image_fit(x, y, w, h, image, Fit::Fill, Rgba::WHITE);
     }
 
     /// An image placed in the box as CSS `object-fit` places it, its texels multiplied by `tint`
-    /// (white keeps it; see `Instance::image`), filtered linearly when scaled (`flags::SMOOTH`).
-    pub fn image_fit(&mut self, x: f32, y: f32, w: f32, h: f32, image: &Image, fit: Fit, tint: Color) {
+    /// (white keeps it; see `Instance::image`), filtered linearly when scaled (`flags::image::SMOOTH`).
+    pub fn image_fit(&mut self, x: f32, y: f32, w: f32, h: f32, image: &Image, fit: Fit, tint: Rgba) {
         if w > 0.0 && h > 0.0 {
             self.bind(image);
             let (rect, uv) = crate::draw::fit(fit, [image.width as f32, image.height as f32], [x, y, x + w, y + h], [0.0, 0.0, 1.0, 1.0]);
-            self.push(Instance { flags: crate::draw::flags::SMOOTH, ..Instance::image(rect, uv, rgba(tint)) });
+            self.push(Instance { flags: crate::draw::flags::image::SMOOTH, ..Instance::image(rect, uv, rgba(tint)) });
         }
     }
 
     /// An image as a nine-slice frame (CSS `border-image`): corners `inset` texels in (`[left, top,
     /// right, bottom]`) stay 1:1, edges and centre stretch over the box.
-    pub fn image_nine(&mut self, x: f32, y: f32, w: f32, h: f32, image: &Image, inset: [f32; 4], tint: Color) {
+    pub fn image_nine(&mut self, x: f32, y: f32, w: f32, h: f32, image: &Image, inset: [f32; 4], tint: Rgba) {
         if w > 0.0 && h > 0.0 {
             self.bind(image);
             for i in crate::draw::nine_slice([x, y, x + w, y + h], [0.0, 0.0, 1.0, 1.0], [image.width as f32, image.height as f32], inset, rgba(tint)) {
-                self.push(Instance { flags: crate::draw::flags::SMOOTH, ..i });
+                self.push(Instance { flags: crate::draw::flags::image::SMOOTH, ..i });
             }
         }
     }
 
     /// One glyph of font `font` (an icon font loaded into the UI's `Text`) at `size` points, its top-left
     /// at `at`, in `color`: its advance.
-    pub fn icon(&mut self, at: (f32, f32), font: u16, size: f32, codepoint: char, color: Color) -> f32 {
+    pub fn icon(&mut self, at: (f32, f32), font: u16, size: f32, codepoint: char, color: Rgba) -> f32 {
         let mut buffer = [0u8; 4];
         let style = Style { font, size, ..Style::default() };
         self.text_em(at, &style, 0.0, Some(color), codepoint.encode_utf8(&mut buffer)).w
@@ -5540,7 +5542,7 @@ impl Paint {
 
     /// Kit text with its top-left corner at `at`. Without `size` it uses the UI's own font; with
     /// `size` the kit face at that size. `tracking` adds points after every glyph.
-    pub fn text_with(&mut self, at: (f32, f32), size: Option<i64>, tracking: f32, color: Option<Color>, text: &str) {
+    pub fn text_with(&mut self, at: (f32, f32), size: Option<i64>, tracking: f32, color: Option<Rgba>, text: &str) {
         if !text.is_empty() {
             let style = kit_style(size.unwrap_or(self.font_size), tracking);
             self.text_em(at, &style, 0.0, color, text);
@@ -5551,27 +5553,27 @@ impl Paint {
     /// unbounded), its layout's top-left corner at `at`: the first baseline sits `Metrics::baseline` below `at`,
     /// on a device pixel, whatever the line height. Mask glyphs take `color` (the theme's foreground by default);
     /// colour glyphs keep their own colours under its alpha.
-    pub fn text_styled(&mut self, at: (f32, f32), style: &Style, width: f32, color: Option<Color>, text: &str) -> Metrics {
+    pub fn text_styled(&mut self, at: (f32, f32), style: &Style, width: f32, color: Option<Rgba>, text: &str) -> Metrics {
         let (key, m) = lay_out(&mut self.text, style, width, text);
         self.text_laid(at, m.baseline, style, color, key, m,1.0,false)
     }
 
     /// `text_styled` placed by its em box: the first baseline sits the font's ascent below `at` (kit text and icons).
-    fn text_em(&mut self, at: (f32, f32), style: &Style, width: f32, color: Option<Color>, text: &str) -> Metrics {
+    fn text_em(&mut self, at: (f32, f32), style: &Style, width: f32, color: Option<Rgba>, text: &str) -> Metrics {
         let (key, m) = lay_out(&mut self.text, style, width, text);
         let below = self.text.ascent(style.font) * style.size;
         self.text_laid(at, below, style, color, key, m,1.0,false)
     }
 
     /// `text_styled` with styled byte ranges; `None` when the spans are invalid.
-    pub fn text_spans(&mut self,at:(f32,f32),style:&Style,width:f32,color:Option<Color>,text:&str,spans:&[TextSpan])->Option<Metrics> {
+    pub fn text_spans(&mut self,at:(f32,f32),style:&Style,width:f32,color:Option<Rgba>,text:&str,spans:&[TextSpan])->Option<Metrics> {
         let (key,metrics)=lay_out_spans(&mut self.text,style,width,text,spans)?;
         Some(self.text_laid(at,metrics.baseline,style,color,key,metrics,1.0,true))
     }
 
     /// Draws a layout already made (`lay_out`'s key and metrics) with its first baseline `below` points under `at.1`, on a device pixel:
     /// the font's ascent for text placed by its em box (`text_em`, node text), `Metrics::baseline` for text placed by its layout top.
-    fn text_laid(&mut self, at: (f32, f32), below: f32, style: &Style, color: Option<Color>, key: u64, m: Metrics, opacity:f32, decorated:bool) -> Metrics {
+    fn text_laid(&mut self, at: (f32, f32), below: f32, style: &Style, color: Option<Rgba>, key: u64, m: Metrics, opacity:f32, decorated:bool) -> Metrics {
         let d = self.density as f32;
         let snap = |v: f32| (v * d).round() / d;
         let baseline = snap(at.1 + below);
@@ -5603,7 +5605,7 @@ impl Paint {
                     Instance::image(r, uv, [255, 255, 255, color[3]])
                 }
             };
-            let flags=instance.flags|if matches!(g.atlas,pxui_text::AtlasKind::Mask2|pxui_text::AtlasKind::Color2) { crate::draw::flags::GLYPH_PAGE_2 } else { 0 };
+            let flags=instance.flags|if matches!(g.atlas,pxui_text::AtlasKind::Mask2|pxui_text::AtlasKind::Color2) { crate::draw::flags::mask::GLYPH_PAGE_2 } else { 0 };
             layer.instances.push(Instance { clip, view,flags, ..instance });
         });
         if decorated { t.decorations(key,true,&mut |deco|decoration(deco,layer)); }
@@ -5614,11 +5616,11 @@ impl Paint {
         self.text_with(at, None, 0.0, None, text);
     }
 
-    pub fn text_c(&mut self, at: (f32, f32), color: Color, text: &str) {
+    pub fn text_c(&mut self, at: (f32, f32), color: Rgba, text: &str) {
         self.text_with(at, None, 0.0, Some(color), text);
     }
 
-    pub fn text_s(&mut self, at: (f32, f32), size: i64, color: Color, text: &str) {
+    pub fn text_s(&mut self, at: (f32, f32), size: i64, color: Rgba, text: &str) {
         self.text_with(at, Some(size), 0.0, Some(color), text);
     }
 
@@ -5646,7 +5648,7 @@ impl Paint {
         self.text.selection(key, a, b, &mut |r| f(r.x, r.w));
     }
 
-    pub(crate) fn selection_fill(&mut self, size: Option<i64>, text: &str, range: (usize,usize), at: (f32,f32), height:f32, color:Color) {
+    pub(crate) fn selection_fill(&mut self, size: Option<i64>, text: &str, range: (usize,usize), at: (f32,f32), height:f32, color:Rgba) {
         let (key, _) = lay_out(&mut self.text, &kit_style(size.unwrap_or(self.font_size),0.0),0.0,text);
         let (clip,clip_radius,view)=self.stamp();
         let density=self.density as f32;
@@ -5676,8 +5678,8 @@ impl Paint {
     }
 
     /// A label: upper case at `label_size` with 0.08 em of tracking, ink-2 by default.
-    pub fn cap(&mut self, at: (f32, f32), color: Option<Color>, label: &str) {
-        let color = color.unwrap_or(theme::ink_2(&self.theme));
+    pub fn cap(&mut self, at: (f32, f32), color: Option<Rgba>, label: &str) {
+        let color = color.unwrap_or(self.theme.ink_2());
         let size = self.label_size();
         let tracking = self.cap_tracking();
         let mut buffer = std::mem::take(&mut self.label);
@@ -5810,7 +5812,7 @@ impl Ui {
         } else { pose };
         let look = Look { opacity: pose.look.opacity * pose.opacity, ..pose.look };
         // an ahead row's node out of view (a view row paints wherever it is) leaves unseen text to the prepare queue
-        paint.ahead = self.boxes[index].ahead && { let seen = intersect(r, clip_rect); seen.w <= 0.0 || seen.h <= 0.0 };
+        paint.ahead = self.boxes[index].ahead && { let seen = r.intersect(clip_rect); seen.w <= 0.0 || seen.h <= 0.0 };
         let deferred = paint.ahead.then(|| paint.text.queue_counts().0);
         paint.look(Rect::new(r.x + pose.dx, r.y + pose.dy, r.w, r.h), &s.node, &look, &s.text, s.rich.as_deref().filter(|r|r.active), &s.text_layout, focused, steady);
         // its kept output would lack that text: the view builds again
@@ -5861,12 +5863,12 @@ impl Ui {
             (None, HitShape::Outset(e)) => Rect::new(x - e.l, y - e.t, w + e.l + e.r, h + e.t + e.b),
             (None, HitShape::Own) => screen_rect,
         });
-        let clipped_hit = intersect(hit, clip_rect);
+        let clipped_hit = hit.intersect(clip_rect);
         let Rect { w: hw, h: hh, .. } = clipped_hit;
         let visible = match (self.boxes[index].hit_rect, &self.boxes[index].hit, shape) {
             (None, None, HitShape::Own) => hw > 0.0 && hh > 0.0,
             _ => {
-                let Rect { w: vw, h: vh, .. } = intersect(screen_rect, clip_rect);
+                let Rect { w: vw, h: vh, .. } = screen_rect.intersect(clip_rect);
                 vw > 0.0 && vh > 0.0
             }
         };
@@ -5889,7 +5891,7 @@ impl Ui {
             }
             let child_clip = if flags.any(Flags::CLIP) {
                 let p = self.nd(index).padding;
-                intersect(clip_rect, Rect::new(x + p.l, y + p.t, 0.0f32.max(w - p.l - p.r), 0.0f32.max(h - p.t - p.b)))
+                clip_rect.intersect(Rect::new(x + p.l, y + p.t, 0.0f32.max(w - p.l - p.r), 0.0f32.max(h - p.t - p.b)))
             } else {
                 clip_rect
             };
@@ -6051,7 +6053,7 @@ impl Ui {
             font_size: self.font_size,
             row_height: self.kit_row_height,
             density: self.density,
-            colors: self.colors[theme::dark(&self.theme.tokens) as usize],
+            colors: self.colors[self.theme.tokens.is_dark() as usize],
             label_look: self.theme.label.idle,
             text: self.text.take().expect("Ui: painting re-entered"),
             ime: None,
@@ -6235,7 +6237,7 @@ impl Ui {
     }
 
     /// `patch_text` for the look's fill colour.
-    pub fn patch_fill(&mut self, b: &Handle, fill: Color) -> bool {
+    pub fn patch_fill(&mut self, b: &Handle, fill: Rgba) -> bool {
         self.patch_look(b, &Look { fill, ..self.slots.get(b.box_slot).map_or(Look::NONE, |s| s.node.look) })
     }
 
@@ -6649,7 +6651,7 @@ impl Ui {
         let height = 20.0 + 14.0 * (lines.len() as f32 - 1.0);
         // 12 right of the pointer and 20 below it, or 8 above it when that does not fit
         let (px, py) = self.pointer;
-        let placement = Placement { side: Side::Below, align: Align::Start, gap: 0.0, margin: 8.0, flip: true };
+        let placement = Placement { side: Side::Below, align: Along::Start, gap: 0.0, margin: 8.0, flip: true };
         let Rect { x, y, .. } = place_anchored(Rect::new(px + 12.0, py - 8.0, 0.0, 28.0), (width, height), placement, Rect::new(0.0, 0.0, self.view_w, self.view_h));
         let saved = self.enter_root();
         let tip = self.box_("ui-tooltip", BoxOpts::default().w(Size::Px(width)).h(Size::Px(height)).at((x, y)));
@@ -6673,7 +6675,7 @@ impl Ui {
 
     pub(crate) fn anchored_label(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let saved = self.enter_root_parent();
-        let b = self.node_ref(label, &Node { w, h, anchor: Some(Anchor { rect: anchor, placement }).into(), ..Node::DEFAULT });
+        let b = self.node_ref(label, &Node { w, h, anchor: Some(Anchor::new(anchor, placement)).into(), ..Node::DEFAULT });
         self.overlays.push((b.index, LayerRole::Popup));
         self.within(&b, f);
         self.leave(saved);
@@ -8446,14 +8448,14 @@ pub(crate) fn default_tip(this: &mut Ui, c: &TipConfig, lines: &[String]) {
 
 /// Whether any colour of `look` names a colour token (`Rgba::token`).
 fn names_token(look: &Look) -> bool {
-    let named = |c: Color| c.as_token().is_some();
+    let named = |c: Rgba| c.as_token().is_some();
     named(look.fill) || matches!(look.gradient, pxui_types::node::OptColor::Some(c) if named(c)) || named(look.border) || named(look.shadows[0].color)
         || named(look.shadows[1].color) || named(look.text) || named(look.ring.color) || named(look.selection) || named(look.caret)
 }
 
 /// Replaces each colour of `look` that names a token by its entry of `table` (transparent at or past `ColorToken::LIMIT`).
-fn resolve_with(look: &mut Look, table: &[Color; pxui_types::theme::ColorToken::LIMIT]) {
-    let ink = |c: &mut Color| if let Some(token) = c.as_token() { *c = table.get(token.0 as usize).copied().unwrap_or_default() };
+fn resolve_with(look: &mut Look, table: &[Rgba; pxui_types::theme::ColorToken::LIMIT]) {
+    let ink = |c: &mut Rgba| if let Some(token) = c.as_token() { *c = table.get(token.0 as usize).copied().unwrap_or_default() };
     let [a, b] = &mut look.shadows;
     for c in [&mut look.fill, &mut look.border, &mut a.color, &mut b.color, &mut look.text, &mut look.ring.color, &mut look.selection, &mut look.caret] { ink(c); }
     if let pxui_types::node::OptColor::Some(c) = &mut look.gradient { ink(c); }
@@ -8468,9 +8470,9 @@ fn theme_names_token(theme: &Theme) -> bool {
 
 /// Resolves every token look of `theme` (its parts' states and its focus ring) against its own side of `colors` (light or dark by its
 /// tokens); a theme naming none is left as it is after one scan.
-fn resolve_theme(theme: &mut Theme, colors: &[[Color; pxui_types::theme::ColorToken::LIMIT]; 2]) {
+fn resolve_theme(theme: &mut Theme, colors: &[[Rgba; pxui_types::theme::ColorToken::LIMIT]; 2]) {
     if !theme_names_token(theme) { return; }
-    let table = &colors[theme::dark(&theme.tokens) as usize];
+    let table = &colors[theme.tokens.is_dark() as usize];
     if let Some(token) = theme.ring.color.as_token() { theme.ring.color = table.get(token.0 as usize).copied().unwrap_or_default(); }
     theme.each_states_mut(&mut |s| for look in [&mut s.idle, &mut s.hover, &mut s.pressed, &mut s.focus, &mut s.disabled, &mut s.checked] { resolve_with(look, table); });
 }

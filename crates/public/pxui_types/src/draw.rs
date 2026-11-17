@@ -24,36 +24,54 @@ pub mod kind {
     /// A filled triangle; rect contains A/B and extra contains C as f32 bits.
     pub const TRIANGLE:u8=9;
 }
-/// Instance flags (byte 51).
+/// Instance flags (byte 51), one module per instance kind: a kind reads only its own bits, so the same bit means
+/// different things to different kinds (bit 0 is a linear gradient on a rect and linear filtering on an image). Take a
+/// flag from the module of the instance's `kind`; the `flags_*` test pins every shared bit.
 pub mod flags {
-    /// Gradient kind 1 in the low two bits: a linear gradient (`Instance::linear`).
-    pub const LINEAR: u8 = 1;
-    /// Gradient kind 2: a radial gradient (`Instance::radial`).
-    pub const RADIAL: u8 = 2;
-    /// Gradient kind 3: a conic gradient (`Instance::conic`).
-    pub const CONIC: u8 = 3;
-    /// An image (kind 2) sampled with the painter's linear filter: a picture drawn at any size
-    /// (`Paint::image_fit`). Without it images sample nearest, as glyphs do.
-    pub const SMOOTH: u8 = 1;
-    /// Mask/image glyphs use the second fixed atlas page, independent of image breaks.
-    pub const GLYPH_PAGE_2: u8 = 2;
-    /// Pixel-area coverage for a plain RECT, preserving the weight of subpixel fills.
-    pub const AREA: u8 = 4;
-    /// A shadow drawn inside its rect (`Instance::shadow` with `inner`); shares bit 2 with `AREA`, which applies to rects.
-    pub const INNER: u8 = 4;
-    /// Round line caps (`Instance::round_caps`).
-    pub const ROUND: u8 = 8;
-    /// Rect border sides (bits 4–7); none set, or all four, borders every side.
-    /// Border on the top side.
-    pub const TOP: u8 = 16;
-    /// Border on the right side.
-    pub const RIGHT: u8 = 32;
-    /// Border on the bottom side.
-    pub const BOTTOM: u8 = 64;
-    /// Border on the left side.
-    pub const LEFT: u8 = 128;
-    /// A mask glyph of the Apple raster (`Instance::light`): the shader adds CoreText's light-on-dark stem growth.
-    pub const LIGHT: u8 = 16;
+    /// Flags of a `kind::RECT` (and `kind::BORDER`) instance.
+    pub mod rect {
+        /// Gradient kind 1 in the low two bits: a linear gradient (`Instance::linear`).
+        pub const LINEAR: u8 = 1;
+        /// Gradient kind 2 in the low two bits: a radial gradient (`Instance::radial`).
+        pub const RADIAL: u8 = 2;
+        /// Gradient kind 3 in the low two bits: a conic gradient (`Instance::conic`).
+        pub const CONIC: u8 = 3;
+        /// Pixel-area coverage for a plain rect, preserving the weight of subpixel fills (bit 2).
+        pub const AREA: u8 = 4;
+        /// Border on the top side (bits 4 to 7 are the border sides; none set, or all four, borders every side).
+        pub const TOP: u8 = 16;
+        /// Border on the right side.
+        pub const RIGHT: u8 = 32;
+        /// Border on the bottom side.
+        pub const BOTTOM: u8 = 64;
+        /// Border on the left side.
+        pub const LEFT: u8 = 128;
+    }
+    /// Flags of a `kind::MASK` (R8 glyph) instance.
+    pub mod mask {
+        /// The glyph is on the second fixed mask atlas page (bit 1).
+        pub const GLYPH_PAGE_2: u8 = 2;
+        /// A glyph of the Apple raster (`Instance::light`): the shader adds CoreText's light-on-dark stem growth (bit 4).
+        pub const LIGHT: u8 = 16;
+    }
+    /// Flags of a `kind::IMAGE` (colour glyph or picture) instance.
+    pub mod image {
+        /// Sampled with the painter's linear filter: a picture drawn at any size (`Paint::image_fit`); without it images
+        /// sample nearest, as glyphs do (bit 0).
+        pub const SMOOTH: u8 = 1;
+        /// The colour glyph is on the second fixed colour atlas page, independent of image breaks (bit 1).
+        pub const GLYPH_PAGE_2: u8 = 2;
+    }
+    /// Flags of a `kind::SHADOW` instance.
+    pub mod shadow {
+        /// The shadow is drawn inside its rect (`Instance::shadow` with `inner`) (bit 2).
+        pub const INNER: u8 = 4;
+    }
+    /// Flags of a stroke: `kind::LINE` and `kind::ARC` (a `kind::CURVE` is always round).
+    pub mod stroke {
+        /// Round caps (`Instance::round_caps`) instead of butt ends (bit 3).
+        pub const ROUND: u8 = 8;
+    }
 }
 /// The clip that cuts nothing: the whole `i16` range.
 pub const NO_CLIP: [i16; 4] = [i16::MIN, i16::MIN, i16::MAX, i16::MAX];
@@ -342,18 +360,18 @@ impl Instance {
     /// ```
     pub fn light_extra(ppem: f32, scale: f32) -> [u32; 2] { [halves(ppem, scale), 0] }
     /// A mask glyph rasterised for CoreText parity; the shader grows its ink by the fill colour's
-    /// luminance level (`flags::LIGHT`, `extra` from [`Instance::light_extra`]).
+    /// luminance level (`flags::mask::LIGHT`, `extra` from [`Instance::light_extra`]).
     ///
-    /// Call it on a `mask` instance; it sets `flags::LIGHT` (which shares its bit with the rect border side `TOP`) and replaces `extra`.
+    /// Call it on a `mask` instance; it sets `flags::mask::LIGHT` and replaces `extra`.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// use pxui_types::draw::{flags, Instance};
     /// let glyph = Instance::mask([0.0; 4], [0.0; 4], [0; 4]).light(Instance::light_extra(26.0, 2.0));
-    /// assert_ne!(glyph.flags & flags::LIGHT, 0);
+    /// assert_ne!(glyph.flags & flags::mask::LIGHT, 0);
     /// ```
-    pub fn light(self, extra: [u32; 2]) -> Self { Instance { flags: self.flags | flags::LIGHT, extra, ..self } }
+    pub fn light(self, extra: [u32; 2]) -> Self { Instance { flags: self.flags | flags::mask::LIGHT, extra, ..self } }
     /// A colour glyph or image from the RGBA atlas (or the texture of the enclosing break). `tint`
     /// multiplies the texel per channel, alpha included: white keeps the image, a grey scales brightness,
     /// a translucent white fades it, a colour tints a white-on-transparent icon. Corner radii (`radii`)
@@ -382,7 +400,7 @@ impl Instance {
     /// ```
     pub fn shadow(rect: [f32; 4], radii: [f32; 4], color: [u8; 4], offset: [f32; 2], sigma: f32, spread: f32, inner: bool) -> Self {
         Instance {
-            rect, color, kind: kind::SHADOW, flags: if inner { flags::INNER } else { 0 },
+            rect, color, kind: kind::SHADOW, flags: if inner { flags::shadow::INNER } else { 0 },
             extra: [halves(offset[0], offset[1]), halves(sigma, spread)], ..Self::DEFAULT
         }.radii(radii)
     }
@@ -479,7 +497,7 @@ impl Instance {
     /// assert_eq!(i.color2, [255; 4]);
     /// ```
     pub fn border(self, width: f32, color: [u8; 4]) -> Self { Instance { width: f16(width), color2: color, ..self } }
-    /// Draw the border (see [`Instance::border`]) only on the sides in `sides` (`flags::TOP | …`).
+    /// Draw the border (see [`Instance::border`]) only on the sides in `sides` (`flags::rect::TOP | …`).
     ///
     /// Only bits 4 to 7 of `sides` are read; none set draws every side. The instance's low flag bits are kept.
     /// Allocates: never.
@@ -487,8 +505,8 @@ impl Instance {
     ///
     /// ```
     /// use pxui_types::draw::{flags, Instance};
-    /// let i = Instance::rect([0.0; 4], [0; 4]).border(1.0, [255; 4]).sides(flags::TOP | flags::LEFT);
-    /// assert_eq!(i.flags, flags::TOP | flags::LEFT);
+    /// let i = Instance::rect([0.0; 4], [0; 4]).border(1.0, [255; 4]).sides(flags::rect::TOP | flags::rect::LEFT);
+    /// assert_eq!(i.flags, flags::rect::TOP | flags::rect::LEFT);
     /// ```
     pub fn sides(self, sides: u8) -> Self { Instance { flags: self.flags & 0x0f | sides & 0xf0, ..self } }
     fn gradient(self, kind: u8, geometry: [f32; 4], to: [u8; 4]) -> Self {
@@ -515,9 +533,9 @@ impl Instance {
     /// ```
     /// use pxui_types::draw::{flags, Instance};
     /// let i = Instance::rect([0.0; 4], [0; 4]).linear([0.0, 0.0], [0.0, 10.0], [255; 4]);
-    /// assert_eq!(i.flags & 3, flags::LINEAR);
+    /// assert_eq!(i.flags & 3, flags::rect::LINEAR);
     /// ```
-    pub fn linear(self, from: [f32; 2], to: [f32; 2], color: [u8; 4]) -> Self { self.gradient(flags::LINEAR, [from[0], from[1], to[0], to[1]], color) }
+    pub fn linear(self, from: [f32; 2], to: [f32; 2], color: [u8; 4]) -> Self { self.gradient(flags::rect::LINEAR, [from[0], from[1], to[0], to[1]], color) }
     /// A radial gradient from the instance's colour at `center` out to `color` at `radius` (x and y radii, points).
     ///
     /// Allocates: never.
@@ -526,9 +544,9 @@ impl Instance {
     /// ```
     /// use pxui_types::draw::{flags, Instance};
     /// let i = Instance::rect([0.0; 4], [0; 4]).radial([5.0, 5.0], [5.0, 5.0], [255; 4]);
-    /// assert_eq!(i.flags & 3, flags::RADIAL);
+    /// assert_eq!(i.flags & 3, flags::rect::RADIAL);
     /// ```
-    pub fn radial(self, center: [f32; 2], radius: [f32; 2], color: [u8; 4]) -> Self { self.gradient(flags::RADIAL, [center[0], center[1], radius[0], radius[1]], color) }
+    pub fn radial(self, center: [f32; 2], radius: [f32; 2], color: [u8; 4]) -> Self { self.gradient(flags::rect::RADIAL, [center[0], center[1], radius[0], radius[1]], color) }
     /// A conic gradient round `center` (points) from the instance's colour to `color`, starting at `start_turns` (a fraction of a turn).
     ///
     /// Allocates: never.
@@ -537,9 +555,9 @@ impl Instance {
     /// ```
     /// use pxui_types::draw::{flags, Instance};
     /// let i = Instance::rect([0.0; 4], [0; 4]).conic([5.0, 5.0], 0.25, [255; 4]);
-    /// assert_eq!(i.flags & 3, flags::CONIC);
+    /// assert_eq!(i.flags & 3, flags::rect::CONIC);
     /// ```
-    pub fn conic(self, center: [f32; 2], start_turns: f32, color: [u8; 4]) -> Self { self.gradient(flags::CONIC, [center[0], center[1], start_turns, 0.0], color) }
+    pub fn conic(self, center: [f32; 2], start_turns: f32, color: [u8; 4]) -> Self { self.gradient(flags::rect::CONIC, [center[0], center[1], start_turns, 0.0], color) }
     // curves have no dashes: specification/pxui.md, designed limits
     /// Dashes for lines and arcs: `on` points drawn, `off` points skipped, starting `phase` points into the pattern (curves do not dash).
     ///
@@ -552,7 +570,7 @@ impl Instance {
     /// assert_ne!(i.aux[0], 0);
     /// ```
     pub fn dash(self, on: f32, off: f32, phase: f32) -> Self { Instance { aux: [halves(on, off), halves(phase, 0.0)], ..self } }
-    /// The instance with round ends (`flags::ROUND`) instead of butt ends.
+    /// The instance with round ends (`flags::stroke::ROUND`) instead of butt ends.
     ///
     /// Allocates: never.
     /// Panics: never.
@@ -560,9 +578,9 @@ impl Instance {
     /// ```
     /// use pxui_types::draw::{flags, Instance};
     /// let i = Instance::line([0.0, 0.0], [5.0, 0.0], 2.0, [0; 4]).round_caps();
-    /// assert_ne!(i.flags & flags::ROUND, 0);
+    /// assert_ne!(i.flags & flags::stroke::ROUND, 0);
     /// ```
-    pub fn round_caps(self) -> Self { Instance { flags: self.flags | flags::ROUND, ..self } }
+    pub fn round_caps(self) -> Self { Instance { flags: self.flags | flags::stroke::ROUND, ..self } }
     /// The instance clipped to `rect` (`[left, top, right, bottom]` whole points) with corners rounded by `radius` points.
     ///
     /// Allocates: never.
@@ -583,4 +601,25 @@ impl Instance {
     /// assert_eq!(Instance::rect([0.0; 4], [0; 4]).view(2).view, 2);
     /// ```
     pub fn view(self, view: u16) -> Self { Instance { view, ..self } }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::flags::{image, mask, rect, shadow, stroke};
+
+    /// Each kind's flags are distinct bits of its own, and the bits two kinds share are the ones the shaders read per kind.
+    #[test]
+    fn flags_are_per_kind_and_their_shared_bits_are_pinned() {
+        let disjoint = |bits: &[u8]| bits.iter().enumerate().all(|(i, a)| bits[i + 1..].iter().all(|b| a & b == 0));
+        // a rect: the gradient kind is a 2-bit number, then AREA and the four sides
+        assert!(disjoint(&[rect::CONIC, rect::AREA, rect::TOP, rect::RIGHT, rect::BOTTOM, rect::LEFT]));
+        assert_eq!((rect::LINEAR, rect::RADIAL, rect::CONIC), (1, 2, 3));
+        assert!(disjoint(&[mask::GLYPH_PAGE_2, mask::LIGHT]) && disjoint(&[image::SMOOTH, image::GLYPH_PAGE_2]));
+        // shared across kinds (never meaningful together: an instance has one kind)
+        assert_eq!(image::SMOOTH, rect::LINEAR);
+        assert_eq!([mask::GLYPH_PAGE_2, image::GLYPH_PAGE_2], [rect::RADIAL; 2]);
+        assert_eq!(shadow::INNER, rect::AREA);
+        assert_eq!(mask::LIGHT, rect::TOP);
+        assert!(disjoint(&[stroke::ROUND, rect::CONIC, rect::AREA, rect::TOP]));
+    }
 }

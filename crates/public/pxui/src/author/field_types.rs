@@ -5,7 +5,7 @@
 //! error the widget calls refuse with a panic. A result names what happened to the field's row (`response`) and the new text (`changed`),
 //! borrowed from the library until the next call on the `Ui`.
 use crate::{DropRef, Response};
-use pxui_types::{geom::Rgba as Color, ui::{CodeContext, Completion, LineStep, ScrubPhase}, Capitalize, ReturnKey, TextTraits};
+use pxui_types::{geom::Rgba, ui::{CodeContext, Completion, LineStep, ScrubPhase}, Capitalize, ReturnKey, TextTraits};
 
 /// How `Ui::text_field` builds the one-line text field: the keyboard traits, the body variant and the accessible name, as a `Copy` value built with `const fn` builders from `TextField::DEFAULT` or `TextField::SEARCH`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -183,9 +183,9 @@ pub struct ValueField<'a> {
     pub(crate) edit: bool,
     pub(crate) bare: bool,
     pub(crate) kept_drag: bool,
-    pub(crate) lead: Option<(&'a str, Color)>,
-    pub(crate) trail: Option<(&'a str, Color)>,
-    pub(crate) line: Option<Color>,
+    pub(crate) lead: Option<(&'a str, Rgba)>,
+    pub(crate) trail: Option<(&'a str, Rgba)>,
+    pub(crate) line: Option<Rgba>,
     pub(crate) placeholder: Option<&'a str>,
     pub(crate) tracking: Option<f32>,
     pub(crate) name: &'a str,
@@ -265,7 +265,7 @@ impl<'a> ValueField<'a> {
     /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.lead("x", pxui::ui::Rgba { r: 200, g: 200, b: 200, a: 255 });
     /// let _ = STYLE;
     /// ```
-    pub const fn lead(mut self, text: &'a str, color: Color) -> ValueField<'a> { self.lead = Some((text, color)); self }
+    pub const fn lead(mut self, text: &'a str, color: Rgba) -> ValueField<'a> { self.lead = Some((text, color)); self }
     /// Sets the text shown in `color` after the value.
     /// Allocates: never.
     /// Panics: never.
@@ -274,7 +274,7 @@ impl<'a> ValueField<'a> {
     /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.trail("px", pxui::ui::Rgba { r: 200, g: 200, b: 200, a: 255 });
     /// let _ = STYLE;
     /// ```
-    pub const fn trail(mut self, text: &'a str, color: Color) -> ValueField<'a> { self.trail = Some((text, color)); self }
+    pub const fn trail(mut self, text: &'a str, color: Rgba) -> ValueField<'a> { self.trail = Some((text, color)); self }
     /// Sets the colour of the soft-range line under the value.
     /// Allocates: never.
     /// Panics: never.
@@ -283,7 +283,7 @@ impl<'a> ValueField<'a> {
     /// const STYLE: pxui::ValueField = pxui::ValueField::DEFAULT.line(pxui::ui::Rgba { r: 200, g: 200, b: 200, a: 255 });
     /// let _ = STYLE;
     /// ```
-    pub const fn line(mut self, color: Color) -> ValueField<'a> { self.line = Some(color); self }
+    pub const fn line(mut self, color: Rgba) -> ValueField<'a> { self.line = Some(color); self }
     /// Sets the text shown while the value is empty.
     /// Allocates: never.
     /// Panics: never.
@@ -440,7 +440,7 @@ pub struct TextArea<'a> {
     pub(crate) notes: &'a [AreaNote<'a>],
     pub(crate) spans: &'a [(usize, usize)],
     pub(crate) splices: &'a [Splice<'a>],
-    pub(crate) chips: &'a [(usize, usize, Color)],
+    pub(crate) chips: &'a [(usize, usize, Rgba)],
     pub(crate) name: &'a str,
 }
 
@@ -524,7 +524,7 @@ impl<'a> TextArea<'a> {
     /// const STYLE: pxui::TextArea = pxui::TextArea::DEFAULT.chips(&CHIPS);
     /// let _ = STYLE;
     /// ```
-    pub const fn chips(mut self, chips: &'a [(usize, usize, Color)]) -> TextArea<'a> { self.chips = chips; self }
+    pub const fn chips(mut self, chips: &'a [(usize, usize, Rgba)]) -> TextArea<'a> { self.chips = chips; self }
     /// Sets what a screen reader calls the area; an area without a name is unnamed.
     /// Allocates: never.
     /// Panics: never.
@@ -537,7 +537,7 @@ impl<'a> TextArea<'a> {
 }
 
 /// What a language colours: sorted, non-overlapping byte spans and their colour; the rest is the foreground.
-pub type ColorizeFn<'a> = dyn Fn(&str) -> Vec<(usize, usize, Color)> + 'a;
+pub type ColorizeFn<'a> = dyn Fn(&str) -> Vec<(usize, usize, Rgba)> + 'a;
 /// What a language matches: the bracket pairs as (open, close) byte positions; the pair at the caret is lit.
 pub type BracketsFn<'a> = dyn Fn(&str) -> Vec<(usize, usize)> + 'a;
 /// What a language indents: `indent(text, caret)` returns the indentation Enter puts after the line break at `caret`.
@@ -767,7 +767,7 @@ pub struct PickerOpts<'a> {
     pub(crate) limit: usize,
     pub(crate) slash: bool,
     pub(crate) at_rest: bool,
-    pub(crate) mark: Option<&'a dyn Fn(usize) -> Option<Color>>,
+    pub(crate) mark: Option<&'a dyn Fn(usize) -> Option<Rgba>>,
     pub(crate) off: Option<&'a dyn Fn(usize) -> bool>,
 }
 
@@ -809,7 +809,7 @@ impl<'a> PickerOpts<'a> {
     /// let f = |_row: usize| None;
     /// let _ = pxui::PickerOpts::DEFAULT.mark(&f);
     /// ```
-    pub const fn mark(mut self, f: &'a dyn Fn(usize) -> Option<Color>) -> PickerOpts<'a> { self.mark = Some(f); self }
+    pub const fn mark(mut self, f: &'a dyn Fn(usize) -> Option<Rgba>) -> PickerOpts<'a> { self.mark = Some(f); self }
     /// Sets `f(row)`: whether row `row` shows off (it cannot be chosen). Call-scoped like `mark`.
     /// Allocates: never.
     /// Panics: never.

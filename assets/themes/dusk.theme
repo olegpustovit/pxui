@@ -12,6 +12,7 @@ tokens.radius.medium = 8
 tokens.radius.large = 10
 tokens.motion.fast = 0.08
 tokens.motion.normal = 0.16
+tokens.motion.slow = 0.16
 
 # a lifted panel
 panel.shadow.color = #00000099

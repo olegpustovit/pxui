@@ -155,7 +155,7 @@ fn text_with_nul_crosses_as_ordinary_text() {
 #[test]
 fn theme_tokens_that_cannot_be_a_theme_make_none() {
     use pxui_types::ffi::ThemeTokens;
-    let good = ThemeTokens::from(pxui_types::theme::default());
+    let good = ThemeTokens::from(pxui_types::theme::Tokens::DEFAULT);
     let made = unsafe { crate::theme::pxui_theme_create(&good) };
     assert!(!made.is_null(), "the default tokens make a theme");
     unsafe { crate::theme::pxui_theme_destroy(made); }
@@ -778,7 +778,7 @@ mod sized_records {
     fn theme_tokens() {
         let ui = create();
         let mut value: ThemeTokens = unsafe { core::mem::zeroed() };
-        let fix: fn(&mut ThemeTokens) = |t| *t = ThemeTokens::from(pxui_types::theme::default());
+        let fix: fn(&mut ThemeTokens) = |t| *t = ThemeTokens::from(pxui_types::theme::Tokens::DEFAULT);
         fix(&mut value);
         four(ui, ((&value as *const ThemeTokens).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
             let p = p.cast::<ThemeTokens>();

@@ -11,7 +11,7 @@ use pxui_text::{Align as TextAlign, Ellipsis, Style, Wrap};
 use pxui_types::{ffi::PxuiTextStyle as TextStyle, text::LabelFields};
 use crate::a11y::state as st;
 use input::{Event, Key};
-use crate::geom::Rgba as Color;
+use crate::geom::Rgba;
 use std::borrow::Cow;
 
 pub type IRect = (i64, i64, i64, i64);
@@ -141,7 +141,7 @@ pub struct ButtonOpts {
     /// Added inside the box; with a `Fit` width it widens the box by its left and right.
     pub padding: Edges,
     /// The text's ink in every state but disabled.
-    pub ink: Option<Color>,
+    pub ink: Option<Rgba>,
     pub bare: bool,
     pub icon: bool,
     /// The box is exactly `w` by `h` with nothing around it in its line, its text centred in it (`Button::centered`).
@@ -153,7 +153,7 @@ pub struct ButtonOpts {
     /// The space between the contents in points (`Button::gap`).
     pub gap: f32,
     /// The contents' place across the box (`Button::content_align`); `None` is the kit's.
-    pub content_align: Option<Align>,
+    pub content_align: Option<crate::layout::Along>,
     /// A press focuses the button (`Button::focus_on_click`); else only Tab does.
     pub focus_on_click: bool,
 }
@@ -195,7 +195,7 @@ pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, t
         let line = this.node_new(&c.line);
         (line.w, line.h, line.axis, line.justify) = (c.w, c.h, Axis::Row, c.justify);
         let axis = c.axis.unwrap_or(Axis::Row);
-        let (justify, align) = content_place(axis, c.content_align.unwrap_or(Align::Center));
+        let (justify, align) = content_place(axis, c.content_align.unwrap_or(crate::layout::Along::Center));
         let row = this.node_new(&c.row);
         (row.w, row.h, row.axis, row.justify, row.align, row.gap) = (c.w, c.h, axis, justify, align, c.gap);
         if c.pad != Edges::ZERO { row.padding = c.pad; }
@@ -215,7 +215,7 @@ pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, t
         line.padding = Edges { l: 5.0, t: pad, r: if c.at_end { 8.0 } else { 5.0 }, b: pad };
         let side = if c.bare { 5.0 } else { 7.0 };
         let axis = c.axis.unwrap_or(Axis::Row);
-        let (justify, align) = content_place(axis, c.content_align.unwrap_or(Align::Start));
+        let (justify, align) = content_place(axis, c.content_align.unwrap_or(crate::layout::Along::Start));
         let row = this.node_new(&c.row);
         (row.w, row.shrink, row.min_w, row.h) = (c.w, 1.0, 1.0, match c.h { Size::Fit => Size::Grow, h => h });
         (row.axis, row.justify, row.align, row.gap) = (axis, justify, align, c.gap);
@@ -256,8 +256,9 @@ pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, t
 
 /// Where a button's contents sit (`Button::content_align`) as the box's justify and align for its `axis`: `align` across the box,
 /// centred down it.
-fn content_place(axis: Axis, align: Align) -> (Justify, Align) {
-    let across = match align { Align::Start => Justify::Start, Align::End => Justify::End, _ => Justify::Center };
+fn content_place(axis: Axis, along: crate::layout::Along) -> (Justify, Align) {
+    let across = match along { crate::layout::Along::Start => Justify::Start, crate::layout::Along::Center => Justify::Center, crate::layout::Along::End => Justify::End };
+    let align = match along { crate::layout::Along::Start => Align::Start, crate::layout::Along::Center => Align::Center, crate::layout::Along::End => Align::End };
     match axis { Axis::Column => (Justify::Center, align), _ => (across, Align::Center) }
 }
 
@@ -292,14 +293,14 @@ pub(crate) fn default_grip(this: &mut Ui, c: &GripConfig) {
 /// A label's text as drawn: its style, colour and capitals, with every unset field of the `Label` taken from the theme.
 pub(crate) struct LabelText {
     pub style: Style,
-    pub color: Color,
+    pub color: Rgba,
     pub caps: bool,
 }
 
 /// `label` with its unset fields from the theme's label `look` (font, size, weight, tracking, capitals, colour) and `row_height`
 /// (the line height when unset; 0 is 1.2 times the size); `token` is its colour token already resolved. `None` for a size that
 /// is not positive and finite, a non-finite tracking or line height, or a feature bit no style has.
-pub(crate) fn resolve_label(label: &LabelFields, look: &Look, font_size: i64, row_height: f32, token: Option<Color>) -> Option<LabelText> {
+pub(crate) fn resolve_label(label: &LabelFields, look: &Look, font_size: i64, row_height: f32, token: Option<Rgba>) -> Option<LabelText> {
     use pxui_types::text as T;
     let size = label.size.unwrap_or(look.font.points(font_size) as f32);
     let tracking = label.tracking.unwrap_or(look.font.tracking);
@@ -615,7 +616,7 @@ pub fn mono_width(tracking: f32, size: i64, text: &str) -> f32 {
 }
 
 pub struct PopupOpts {
-    pub stroke: Option<Color>,
+    pub stroke: Option<Rgba>,
     /// the sheet's look (the theme's popup in `stroke`'s colour by default)
     pub look: Option<Look>,
     pub max_height: Option<f32>,
@@ -686,7 +687,7 @@ impl Ui {
             (None, None) => t.panel.idle,
         };
         let thumb = t.scrollbar.idle;
-        let bar = Bar { color: thumb.fill, radius: thumb.radius[0], width: t.scrollbar_w, gap: t.scrollbar_gap, margin: padding as f32, whole: true };
+        let bar = Bar::new(thumb.fill, t.scrollbar_w).radius(thumb.radius[0]).gap(t.scrollbar_gap).margin(padding as f32).whole();
         let panel = self.node_ref(
             label, &Node {
                 flags: Flags::SCROLL | Flags::CLIP | Flags::BLOCKING,
@@ -743,8 +744,8 @@ impl Ui {
                 Event::KeyPressed(Key::Escape) | Event::FocusLost => dismissed = true,
                 Event::PointerPressed(_, point) => {
                     if (slot.is_some() || opts.dismiss_initial)
-                        && !contains(rect, p32(*point))
-                        && !opts.keep.iter().any(|r| contains(*r, p32(*point)))
+                        && !rect.contains(p32(*point))
+                        && !opts.keep.iter().any(|r| r.contains(p32(*point)))
                     {
                         dismissed = true;
                     }
@@ -872,7 +873,7 @@ impl Ui {
     }
 
     /// `button_opts` in the theme's button (`button_bare` when `bare`) with its text in `ink`.
-    pub fn button_styled(&mut self, text: &str, bare: bool, icon: bool, at_end: bool, ink: Option<Color>) -> bool {
+    pub fn button_styled(&mut self, text: &str, bare: bool, icon: bool, at_end: bool, ink: Option<Rgba>) -> bool {
         let opts = ButtonOpts { bare, icon, justify: if at_end { Justify::End } else { Justify::Start }, ink, ..ButtonOpts::DEFAULT };
         self.button_opts(text, text, None, &opts, None, None).clicked
     }

@@ -2,7 +2,7 @@
 use super::inputs;
 use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Overlay, Pick, PxuiBox as Handle, Ui};
 use pxui::theme::Look;
-use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
+use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Along, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
 use pxui_types::ui::{Key, Keyframe, Keyframes};
 use std::fmt::Write;
@@ -466,7 +466,7 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         let _ = ui.request_frame();
     }
     if let Some(a) = anchor.filter(|a| a.w > 0.0) {
-        let place = Placement { side: Side::Right, align: Align::Center, gap: 4.0, margin: 4.0, flip: true };
+        let place = Placement { side: Side::Right, align: Along::Center, gap: 4.0, margin: 4.0, flip: true };
         let (input, border, foreground) = { let t = ui.theme(); (t.tokens.input, t.field.idle.border, t.tokens.foreground) };
         let _ = ui.anchored("popup", a, &Overlay::DEFAULT.place(place), &mut |ui: &mut Ui| {
             let n = node(ui, "popup-body", Node { w: Size::Px(96.0), h: Size::Px(24.0), look: Look { fill: input, border, border_w: 1.0, text: foreground, ..Look::NONE }, inset: Edges { l: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });

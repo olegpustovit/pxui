@@ -12,7 +12,7 @@
 use crate::a11y::state as st;
 use crate::bodies::{RowConfig, TableHeadConfig, TreeRowConfig, body_of, in_body, in_item, in_place, BadgeConfig, DropdownConfig, MenuItemConfig, SegmentConfig, TabConfig, CheckConfig, IconButtonConfig, ProgressConfig, ScrollConfig, SearchFieldConfig, SliderConfig, SpinnerConfig, ToastConfig};
 use crate::draw::Fit;
-use crate::geom::color;
+use crate::geom::Rgba;
 use crate::ui_core::*;
 use crate::ui_kit::{part_key, text_only, ButtonOpts, Response};
 use input::{Event, Key};
@@ -270,7 +270,7 @@ impl Ui {
     fn thumb(&self) -> Bar {
         let t = self.theme();
         let thumb = t.scrollbar.idle;
-        Bar { color: thumb.fill, radius: thumb.radius[0], width: t.scrollbar_w, gap: t.scrollbar_gap, margin: 2.0, whole: true }
+        Bar::new(thumb.fill, t.scrollbar_w).radius(thumb.radius[0]).gap(t.scrollbar_gap).margin(2.0).whole()
     }
 
     /// A kit row `rh` high laid out as a row: `space(2)` in from both ends, children centred, 8 apart.
@@ -646,7 +646,7 @@ impl Ui {
         let sheet = t.popup.idle;
         let body = body_of!(self, menu_item);
         let rh = self.row_height() as f32;
-        let place = Placement { side: Side::Below, align: Align::Start, gap: 2.0, margin: 4.0, flip: true };
+        let place = Placement { side: Side::Below, align: Along::Start, gap: 2.0, margin: 4.0, flip: true };
         let mut picked = None;
         let menu = self.anchored_label("menu", anchor, place, Size::Px(width), Size::Fit, &mut |ui| {
             for (i, item) in items.iter().enumerate() {
@@ -1123,7 +1123,7 @@ impl Ui {
         }
         let ((w, h), m) = (self.view_size(), self.space(2));
         let x = if self.rtl() { m } else { w - m };
-        let place = Placement { side: Side::Above, align: if self.rtl() { Align::Start } else { Align::End }, gap: 0.0, margin: m, flip: false };
+        let place = Placement { side: Side::Above, align: if self.rtl() { Along::Start } else { Along::End }, gap: 0.0, margin: m, flip: false };
         let mut gone = None;
         let now = self.now();
         let stack = self.anchored_label(label, Rect::new(x, h - m, 0.0, 0.0), place, Size::Px(260.0), Size::Fit, &mut |ui| {
@@ -1210,7 +1210,7 @@ impl Ui {
             if radius > 0.0 {
                 (p.clip_rect, p.clip_radius) = (clip.intersect(inner), radius);
             }
-            p.image_fit(inner.x, inner.y, inner.w, inner.h, &image, fit, color::white());
+            p.image_fit(inner.x, inner.y, inner.w, inner.h, &image, fit, Rgba::WHITE);
             (p.clip_rect, p.clip_radius) = (clip, round);
         });
         n
@@ -1503,7 +1503,7 @@ fn check_parts(this: &mut Ui, c: &CheckConfig, text: &str, round: bool) {
     let (hovered, held, on) = (c.state.hovered, c.state.pressed, c.on);
     let t = this.theme();
     let (states, inner, label) = (if round { t.radio } else { t.checkbox }, if round { t.notice.idle } else { t.mark.idle }, *t.toggle.pick(State { hovered, ..State::default() }));
-    this.set_look(&c.row, Look { text: color::transparent(), ..label }, State { hovered, ..State::default() });
+    this.set_look(&c.row, Look { text: Rgba::CLEAR, ..label }, State { hovered, ..State::default() });
     let rh = this.row_height() as f32;
     let bx = this.node_keyed(int_key(c.row.box_key, 0), Node { w: Size::Px(12.0), h: Size::Px(12.0), padding: Edges::all(3.0), ..Node::DEFAULT });
     this.style(&bx, &states, State { hovered, pressed: held, checked: on, ..State::default() });

@@ -1,7 +1,7 @@
 //! The kit button with options: `ui.button_with(key, text, &Button)` reports a `Response`; `ui.button(text)` is `Button::DEFAULT`.
 use super::{Key, Response};
 use crate::Ui;
-use pxui_types::{geom::Edges, layout::{Align, Justify}, theme::{BodyKind, State, States}, Axis, Label, Size};
+use pxui_types::{geom::Edges, layout::{Along, Justify}, theme::{BodyKind, State, States}, Axis, Label, Size};
 
 /// How `Ui::button_with` varies the kit's button, as a `Copy` value built with `const fn` builders from `Button::DEFAULT`.
 ///
@@ -23,7 +23,7 @@ pub struct Button<'a> {
     pub(crate) label: Option<Label>,
     pub(crate) axis: Option<Axis>,
     pub(crate) gap: f32,
-    pub(crate) content_align: Option<Align>,
+    pub(crate) content_align: Option<Along>,
     pub(crate) focus_on_click: bool,
 }
 
@@ -171,7 +171,7 @@ impl<'a> Button<'a> {
     ///
     /// ```
     /// use pxui::{Button, Label};
-    /// const ROW: Button = Button::sized(200.0, 32.0).label(Label::BODY.size(14.0).h_px(19.6)).content_align(pxui::ui::Align::Start);
+    /// const ROW: Button = Button::sized(200.0, 32.0).label(Label::BODY.size(14.0).h_px(19.6)).content_align(pxui::ui::Along::Start);
     /// let _ = ROW;
     /// ```
     pub const fn label(mut self, style: Label) -> Button<'a> { self.label = Some(style); self }
@@ -204,11 +204,11 @@ impl<'a> Button<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::{ui::Align, Button};
-    /// const ACTION: Button = Button::sized(200.0, 28.0).content_align(Align::Start);
+    /// use pxui::{ui::Along, Button};
+    /// const ACTION: Button = Button::sized(200.0, 28.0).content_align(Along::Start);
     /// let _ = ACTION;
     /// ```
-    pub const fn content_align(mut self, align: Align) -> Button<'a> { self.content_align = Some(align); self }
+    pub const fn content_align(mut self, align: Along) -> Button<'a> { self.content_align = Some(align); self }
 
     /// Sets whether a press focuses the button (`false` by default: only Tab focuses it, so a click leaves the focus where it was).
     /// Allocates: never.
@@ -530,11 +530,11 @@ mod tests {
     /// colour, and `content_align` puts it at the start, centre or end of the box.
     #[test]
     fn label_text_is_placed_by_content_align() {
-        use crate::ui::{Align, Look, States};
+        use crate::ui::{Along, Look, States};
         use crate::Label;
         let ink = crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 };
         let plate = States::all(Look { text: ink, ..Look::NONE });
-        let align = Cell::new(Align::Start);
+        let align = Cell::new(Along::Start);
         let centered = Cell::new(true);
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
@@ -554,7 +554,7 @@ mod tests {
             centered.set(c);
             // the kit's side inset of a button that is not centred
             let side = if c { 0.0 } else { 7.0 };
-            for (a, check) in [(Align::Start, 0), (Align::Center, 1), (Align::End, 2)] {
+            for (a, check) in [(Along::Start, 0), (Along::Center, 1), (Along::End, 2)] {
                 align.set(a);
                 testing::frame(&mut ui, &[], &mut build);
                 testing::frame(&mut ui, &[], &mut build);
@@ -645,14 +645,14 @@ mod tests {
     /// A registered button body is given the caller's label style and content layout, and its structure is the one used.
     #[test]
     fn a_registered_body_is_given_the_label_and_layout() {
-        use crate::ui::{Align, Axis};
+        use crate::ui::{Along, Axis};
         let mut ui = Ui::new().unwrap();
         ui.set_a11y(true);
         let id = ui.register_button_body("laid_out", laid_out).expect("registered");
         let text = "button.body = laid_out";
         ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
         assert_eq!(ui.theme().body.button, id);
-        let styled = Button::sized(120.0, 44.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).axis(Axis::Column).gap(6.0).content_align(Align::End);
+        let styled = Button::sized(120.0, 44.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).axis(Axis::Column).gap(6.0).content_align(Along::End);
         for (button, seen) in [(styled, (1, 2, 3, 6.0, 14.0, 1)), (Button::sized(120.0, 44.0), (0, 0, 0, 0.0, 0.0, 0))] {
             testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
             testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
@@ -674,8 +674,8 @@ mod tests {
             ui.button_content(1i64, &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).look(&states).danger(), &content);
             ui.button_with("off", "Off", &Button::DEFAULT.enabled(false).selected(true).name("Off button").align(Justify::End));
             ui.button_with("tab", "Songs", &Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().selected(true));
-            ui.button_with("label", "Label", &Button::sized(90.0, 30.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).content_align(crate::ui::Align::Start).focus_on_click(true));
-            ui.button_with("row", "Row", &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).gap(4.0).content_align(crate::ui::Align::End).name(name));
+            ui.button_with("label", "Label", &Button::sized(90.0, 30.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).content_align(crate::ui::Along::Start).focus_on_click(true));
+            ui.button_with("row", "Row", &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).gap(4.0).content_align(crate::ui::Along::End).name(name));
             ui.button_content("state", &Button::sized(90.0, 30.0).axis(crate::ui::Axis::Column), |ui, state| {
                 let w = if state.hovered { 6.0 } else { 8.0 };
                 ui.node("i".into(), Node { w: Size::Px(w), h: Size::Px(8.0), ..Node::DEFAULT });

@@ -1,7 +1,7 @@
 //! Plain UI data and pure functions shared by the engine and the wrapper: box flags, keys, small results and text helpers. One
 //! definition each; `pxui_core` and `pxui` re-export them. The option records that hold closures (`Rc<dyn Fn>`) are not here: they
 //! are not ABI types, and the engine and the wrapper each keep theirs (`opts` in both).
-use crate::geom::{hash, Rect, Rgba as Color};
+use crate::geom::{hash, Rect, Rgba};
 use crate::theme::{Look, States};
 use std::borrow::Cow;
 
@@ -409,7 +409,7 @@ pub struct Overlay<'a> {
     /// The tallest the sheet grows in points; past it the content scrolls (panel, popup).
     pub max_h: Option<f32>,
     /// A floating sheet's hairline: the theme's popup look in this colour (panel, popup).
-    pub stroke: Option<Color>,
+    pub stroke: Option<Rgba>,
     /// A look in place of the theme's (panel).
     pub look: Option<Look>,
     /// The inner padding in whole points (panel).
@@ -482,7 +482,7 @@ impl<'a> Overlay<'a> {
     /// const EDGED: Overlay = Overlay::DEFAULT.stroke(Rgba { r: 0, g: 0, b: 0, a: 40 });
     /// assert!(EDGED.stroke.is_some());
     /// ```
-    pub const fn stroke(mut self, color: Color) -> Overlay<'a> { self.stroke = Some(color); self }
+    pub const fn stroke(mut self, color: Rgba) -> Overlay<'a> { self.stroke = Some(color); self }
 
     /// Draws the sheet in `look` in place of the theme's (panel).
     /// Allocates: never.
@@ -827,7 +827,7 @@ pub struct MenuItem<'a> {
     /// The shortcut text at the row's end (empty for none).
     pub shortcut: &'a str,
     /// A small colour square before the label.
-    pub swatch: Option<Color>,
+    pub swatch: Option<Rgba>,
     /// The rows of the second menu this row opens beside the menu while the pointer is on it (empty for none).
     pub submenu: &'a [MenuItem<'a>],
     /// Whether the row is the current choice of a settings menu: it reads CHECKED and SELECTED and shows the theme's `checked` menu look
@@ -898,7 +898,7 @@ impl<'a> MenuItem<'a> {
     /// let row = MenuItem::new("Red").swatch(Rgba { r: 255, g: 0, b: 0, a: 255 });
     /// assert!(row.swatch.is_some());
     /// ```
-    pub const fn swatch(mut self, color: Color) -> MenuItem<'a> { self.swatch = Some(color); self }
+    pub const fn swatch(mut self, color: Rgba) -> MenuItem<'a> { self.swatch = Some(color); self }
 
     /// Gives the row a chevron and a second menu of `rows` (rows of its own, no deeper submenus) while the pointer is on it.
     /// The rows of the submenus are numbered after the rows of the menu, in the order of the rows that open them.
@@ -1385,7 +1385,7 @@ pub enum CodeContext {
 #[derive(Clone)]
 pub struct PanelOpts {
     /// a floating sheet's hairline (the theme's popup look in this colour); `look` replaces both
-    pub stroke: Option<Color>,
+    pub stroke: Option<Rgba>,
     /// A look that replaces the theme's for the sheet.
     pub look: Option<Look>,
     /// A window (title-bar look) rather than a sheet.
@@ -1577,28 +1577,6 @@ pub fn ellipsis<'a>(width: &mut dyn FnMut(&str) -> f32, limit: f32, label: &'a s
     }
     Cow::Borrowed(label)
 }
-
-/// Whether `point` is inside `rect`: `Rect::contains` (left and top edges count, right and bottom do not).
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::{geom::Rect, ui::contains};
-/// assert!(contains(Rect::new(0.0, 0.0, 4.0, 4.0), (1.0, 1.0)));
-/// ```
-pub fn contains(rect: Rect, point: (f32, f32)) -> bool { rect.contains(point) }
-
-/// The overlap of `a` and `b`: `Rect::intersect` (zero width or height when they do not overlap).
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::{geom::Rect, ui::intersect};
-/// assert_eq!(intersect(Rect::new(0.0, 0.0, 4.0, 4.0), Rect::new(2.0, 2.0, 4.0, 4.0)), Rect::new(2.0, 2.0, 2.0, 2.0));
-/// ```
-pub fn intersect(a: Rect, b: Rect) -> Rect { a.intersect(b) }
 
 // ---------------------------------------------------------------- keys
 

@@ -2,7 +2,7 @@ use crate::state::{PxuiUi, Shared, checked, core_box, fail, get};
 use pxui_core::ui::{Ui, UiBox};
 use core::mem::{align_of, offset_of, size_of};
 use std::rc::Rc;
-use pxui_types::{a11y::Role, layout::{Align, Anchor, Grid, Justify, MAX_TRACKS, Side, Track}, node::{OptAlign, OptAnchor, OptBar, OptTransition, OptGrid}, theme::{Font, Look, Ring, Shadow, State}, Axis, Bar, Dir, Mark, Node, Size, geom::Rect, ffi::{PxuiFontDesc, PxuiLookDesc, PxuiShadowDesc, PxuiStateDesc}, PxuiBox};
+use pxui_types::{a11y::Role, layout::{Align, Along, Anchor, Grid, Justify, MAX_TRACKS, Side, Track}, node::{OptAlign, OptAnchor, OptBar, OptTransition, OptGrid}, theme::{Font, Look, Ring, Shadow, State}, Axis, Bar, Dir, Mark, Node, Size, geom::Rect, ffi::{PxuiFontDesc, PxuiLookDesc, PxuiShadowDesc, PxuiStateDesc}, PxuiBox};
 
 pub(crate) fn size(v:pxui_types::ffi::PxuiSizeDesc)->Option<Size>{if !v.value.is_finite(){return None;} Some(match v.kind {0=>Size::Px(v.value),1=>Size::Pct(v.value),2=>Size::Rel(v.relative?),3=>Size::Grow,4=>Size::Fit,_=>return None})}
 fn font(v:PxuiFontDesc)->Font { Font { family:v.family, weight:v.weight, size:v.size, tracking:v.tracking, caps:v.caps!=0 } }
@@ -105,7 +105,7 @@ unsafe fn node_ok(p: *const Node) -> bool {
     let anchor = value(offset_of!(Node, anchor), align_of::<OptAnchor>());
     !(set(offset_of!(Node, align_self)) && unsafe { byte(p, value(offset_of!(Node, align_self), align_of::<OptAlign>())) } > Align::Baseline as u8)
         && !(set(offset_of!(Node, anchor)) && unsafe { byte(p, anchor + offset_of!(Anchor, placement.side)) > Side::Left as u8
-            || byte(p, anchor + offset_of!(Anchor, placement.align)) > Align::Baseline as u8 || byte(p, anchor + offset_of!(Anchor, placement.flip)) > 1 })
+            || byte(p, anchor + offset_of!(Anchor, placement.align)) > Along::End as u8 || byte(p, anchor + offset_of!(Anchor, placement.flip)) > 1 })
         && unsafe { mark_ok(p, offset_of!(Node, mark)) }
         && !(set(offset_of!(Node, bar)) && unsafe { byte(p, value(offset_of!(Node, bar), align_of::<OptBar>()) + offset_of!(Bar, whole)) } > 1)
         && !(set(offset_of!(Node, transition)) && unsafe { byte(p, value(offset_of!(Node, transition), align_of::<OptTransition>())) } > 1)
@@ -168,6 +168,22 @@ unsafe fn grid_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node,
     rc
 }
 
+/// 1.x promise: a C node anchored with `placement.align` 3 or 4 (PXUI_ALIGN_STRETCH, _BASELINE) is accepted and aligns as Start, as it
+/// did before `Along` (whose values stop at End) became the field's type. `node_ok` refuses those bytes, so on that refusal this copies
+/// the node with the byte set to Start and checks the copy. 2.0 refuses them (abi2_cut.md, "Validation tightened at 2.0").
+#[cold]
+#[inline(never)]
+unsafe fn legacy_anchor_align(desc: *const Node) -> Option<Node> {
+    if desc.is_null() || (unsafe { desc.cast::<u32>().read_unaligned() } as usize) < size_of::<Node>() { return None; }
+    let at = offset_of!(Node, anchor) + payload(1, align_of::<OptAnchor>()) + offset_of!(Anchor, placement.align);
+    if unsafe { byte(desc.cast(), offset_of!(Node, anchor)) } != 1 || !(3..=4).contains(&unsafe { byte(desc.cast(), at) }) { return None; }
+    let mut copy = core::mem::MaybeUninit::<Node>::uninit();
+    unsafe { core::ptr::copy_nonoverlapping(desc.cast::<u8>(), copy.as_mut_ptr().cast::<u8>(), size_of::<Node>()) };
+    unsafe { copy.as_mut_ptr().cast::<u8>().add(at).write(Along::Start as u8) };
+    // the copy is a node only if every other byte checks
+    if unsafe { node_ok(copy.as_ptr()) } { Some(unsafe { copy.assume_init() }) } else { None }
+}
+
 /// The node behind `desc` when it is one (see `node_ok`), borrowed for the call.
 #[inline(always)]
 unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
@@ -187,7 +203,8 @@ export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null node argument")};}
     let Some(label)=(unsafe{crate::state::checked_key(label)}) else{return unsafe{fail(ui,"invalid node label")};};
-    let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{invalid_node(ui)};};
+    let legacy;
+    let desc = match unsafe{checked_node(desc)} { Some(desc) => desc, None => match unsafe{legacy_anchor_align(desc)} { Some(node) => { legacy = node; &legacy }, None => return unsafe{invalid_node(ui)} } };
     if desc.grid.is_some() { return unsafe{grid_node(ui,Some(label),0,desc,out)}; }
     unsafe{crate::trusted::node(ui,label,desc,out)}
 });
@@ -196,7 +213,8 @@ export!(trusted pub unsafe fn pxui_ui_node_keyed(ui:*mut PxuiUi,key:i64,desc:*co
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if key == 0 || key == 1 { return unsafe { fail(ui, "reserved node key; derive integer keys with int_key") }; }
     if out.is_null(){return unsafe{fail(ui,"null keyed node argument")};}
-    let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{invalid_keyed(ui)};};
+    let legacy;
+    let desc = match unsafe{checked_node(desc)} { Some(desc) => desc, None => match unsafe{legacy_anchor_align(desc)} { Some(node) => { legacy = node; &legacy }, None => return unsafe{invalid_keyed(ui)} } };
     if desc.grid.is_some() { return unsafe{grid_node(ui,None,key,desc,out)}; }
     unsafe{crate::trusted::pxui_ui_node_keyed(ui,key,desc,out)}
 });
@@ -217,7 +235,8 @@ export!(pub unsafe fn pxui_ui_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox,
 // state, look, text, grid, anchor) are ignored: behaviour keeps them, the look is `pxui_ui_set_look`'s.
 export!(pub unsafe fn pxui_ui_set_node_layout(ui: *mut PxuiUi, box_: *const PxuiBox, desc: *const Node) -> i32 {
     let (e, b) = match unsafe { crate::state::boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
-    let Some(d) = (unsafe { checked_node(desc) }) else { return unsafe { invalid_node(ui) } };
+    let legacy;
+    let d = match unsafe { checked_node(desc) } { Some(d) => d, None => match unsafe { legacy_anchor_align(desc) } { Some(node) => { legacy = node; &legacy }, None => return unsafe { invalid_node(ui) } } };
     // only a node this frame's build declared: a retained one (another frame's, a clean view's) keeps the layout it was built with
     if !e.is_current_build_box(&b) { return unsafe { crate::state::fail_code(ui, "not a node of the frame being built", crate::PXUI_ERR_STALE) } }
     let n = e.node_mut(&b);
@@ -334,12 +353,24 @@ mod tests {
         }
         let place = |node: &Raw| { let mut out = PxuiBox::default(); unsafe { pxui_ui_node_keyed(ui, 7, (node.0.as_ptr()).cast(), &mut out) } };
         let full = Node {
-            align_self: Some(Align::Center).into(), anchor: Some(Anchor { rect: Rect::default(), placement: Placement::BELOW }).into(),
-            at: Some((1.0, 2.0)).into(), mark: Mark::Line { width: 1.0, rising: true }, bar: Some(Bar { color: Default::default(), radius: 0.0, width: 2.0, gap: 0.0, margin: 0.0, whole: true }).into(),
+            align_self: Some(Align::Center).into(), anchor: Some(Anchor::new(Rect::default(), Placement::BELOW)).into(),
+            at: Some((1.0, 2.0)).into(), mark: Mark::Line { width: 1.0, rising: true }, bar: Some(Bar::new(Default::default(), 2.0).whole()).into(),
             transition: Some(Transition::Spring { omega: 9.0 }).into(), ..Node::DEFAULT
         };
         assert_eq!(place(&raw(full)), 0);
         assert_eq!(place(&raw(Node { mark: Mark::Chevron(Dir::Right), ..full })), 0);
+        // 1.x: anchor align 3 and 4 (Stretch and Baseline before `Along`) are accepted and align as Start; refused at 2.0
+        let legacy_at = offset_of!(Node, anchor) + payload(1, align_of::<OptAnchor>()) + offset_of!(Anchor, placement.align);
+        for legacy in [3, 4] {
+            let mut node = raw(full);
+            node.0[legacy_at] = legacy;
+            assert_eq!(place(&node), 0, "legacy anchor align {legacy}");
+            let mut out = PxuiBox::default();
+            let mut layout = Node::DEFAULT;
+            assert_eq!(unsafe { pxui_ui_node_keyed(ui, 10 + legacy as i64, node.0.as_ptr().cast(), &mut out) }, 0);
+            assert_eq!(unsafe { pxui_ui_node_layout(ui, &out, &mut layout) }, 0);
+            assert_eq!(layout.anchor.get().map(|a| a.placement.align), Some(Along::Start));
+        }
         // the head's unchecked bytes take any value (`z` is all ones here)
         assert_eq!(place(&raw(Node { z: -1, ..full })), 0);
         // a table or steps is not a node's transition (the engine picks Bezier); only an animation takes one

@@ -4,13 +4,9 @@
 //! The PXUI kit's look (Pragmasevka, 24-point rows, 20-point controls, six colours) is `Theme::default()`:
 //! separation comes from space first, a hairline second, a rectangle last; nothing is filled with ink.
 //! A theme is also a flat `key = value` file (`Theme::parse`, `Theme::write`, `assets/themes/`).
-use crate::draw::flags::{BOTTOM, LEFT, RIGHT, TOP};
-use crate::geom::{color, Rgba as Color};
-pub use pxui_types::theme::{
-    border, dark, default, edge, Bodies, BodyId, Part, faint_border, ground, hover_fill, ink_2, ink_3, invalid,
-    muted, pressed_fill, tint, Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens,
-    DISPLAY_SIZE, FONT_SIZE, LABEL_SIZE, TITLE_SIZE,
-};
+use crate::draw::flags::rect::{BOTTOM, LEFT, RIGHT, TOP};
+use crate::geom::Rgba;
+pub use pxui_types::theme::{Bodies, BodyId, Part, Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens, DISPLAY_SIZE, FONT_SIZE, LABEL_SIZE, TITLE_SIZE};
 
 // ------------------------------------------------------------------ looks
 
@@ -54,7 +50,7 @@ pxui_types::theme_widgets!(widgets);
 
 impl Default for Theme {
     fn default() -> Theme {
-        Theme::from_tokens(default())
+        Theme::from_tokens(Tokens::DEFAULT)
     }
 }
 
@@ -63,42 +59,42 @@ fn kit(t: &Tokens) -> Theme {
     let n = Look::NONE;
     let label_font = Font { size: t.label_size - t.font_size, tracking: 0.08, caps: true, ..Font::BODY };
     let small = Font { size: t.label_size - t.font_size, ..Font::BODY };
-    let ink = |c: Color| Look { text: c, ..n };
-    let sheet = |edge: Color| Look { fill: t.input, border: edge, border_w: 1.0, radius: [t.radius[1]; 4], ..n };
-    let line = |c: Color, sides: u8| Look { border: c, border_w: 1.0, sides, ..n };
+    let ink = |c: Rgba| Look { text: c, ..n };
+    let sheet = |edge: Rgba| Look { fill: t.input, border: edge, border_w: 1.0, radius: [t.radius[1]; 4], ..n };
+    let line = |c: Rgba, sides: u8| Look { border: c, border_w: 1.0, sides, ..n };
     let accent_line = Ring { color: t.accent, width: 1.0, sides: BOTTOM };
-    let button = |text: Color| {
+    let button = |text: Rgba| {
         let idle = Look { text, ring: accent_line, radius: [t.radius[0]; 4], ..n };
         States {
             idle,
-            hover: Look { fill: hover_fill(t), ..idle },
-            pressed: Look { fill: pressed_fill(t), ..idle },
+            hover: Look { fill: t.hover_fill(), ..idle },
+            pressed: Look { fill: t.pressed_fill(), ..idle },
             focus: idle,
-            disabled: Look { text: ink_3(t), ..idle },
+            disabled: Look { text: t.ink_3(), ..idle },
             checked: Look { fill: t.control, ..idle },
         }
     };
-    let row = Look { text: ink_2(t), ..n };
-    let field = Look { text: t.foreground, selection: tint(t), caret: t.accent, radius: [t.radius[0]; 4], ..line(edge(t), BOTTOM) };
+    let row = Look { text: t.ink_2(), ..n };
+    let field = Look { text: t.foreground, selection: t.tint(), caret: t.accent, radius: [t.radius[0]; 4], ..line(t.edge(), BOTTOM) };
     let dot = Look { radius: [3.0; 4], ..n };
     let check = |r: f32| {
-        let idle = Look { fill: t.input, border: border(t), border_w: 1.0, radius: [r; 4], ..n };
+        let idle = Look { fill: t.input, border: t.border(), border_w: 1.0, radius: [r; 4], ..n };
         States {
             idle,
             hover: Look { border: t.foreground, ..idle },
-            pressed: Look { fill: pressed_fill(t), border: t.foreground, ..idle },
+            pressed: Look { fill: t.pressed_fill(), border: t.foreground, ..idle },
             focus: idle,
-            disabled: Look { border: edge(t), fill: t.track, ..idle },
+            disabled: Look { border: t.edge(), fill: t.track, ..idle },
             checked: Look { border: t.accent, ..idle },
         }
     };
-    let thumb = Look { fill: t.input, border: border(t), border_w: 1.0, radius: [t.radius[0]; 4], ..n };
-    let segment = Look { text: ink_2(t), border: edge(t), border_w: 1.0, ..n };
+    let thumb = Look { fill: t.input, border: t.border(), border_w: 1.0, radius: [t.radius[0]; 4], ..n };
+    let segment = Look { text: t.ink_2(), border: t.edge(), border_w: 1.0, ..n };
     let rows = States {
-        hover: Look { fill: faint_border(t), text: t.foreground, ..n },
+        hover: Look { fill: t.faint_border(), text: t.foreground, ..n },
         checked: Look { fill: t.control, text: t.foreground, ..n },
         focus: Look { text: t.foreground, ..line(t.accent, LEFT) },
-        disabled: ink(ink_3(t)),
+        disabled: ink(t.ink_3()),
         ..States::all(ink(t.foreground))
     };
     Theme {
@@ -109,108 +105,108 @@ fn kit(t: &Tokens) -> Theme {
         scrollbar_w: 4.0,
         scrollbar_gap: 2.0,
         panel: States::all(Look { fill: t.panel, radius: [t.radius[2]; 4], ..n }),
-        popup: States::all(sheet(edge(t))),
-        modal: States::all(sheet(border(t))),
-        scrollbar: States::all(Look { fill: border(t), radius: [t.radius[0]; 4], ..n }),
-        label: States::all(Look { text: ink_2(t), font: label_font, ..n }),
-        section: States::all(Look { text: ink_3(t), font: label_font, ..n }),
+        popup: States::all(sheet(t.edge())),
+        modal: States::all(sheet(t.border())),
+        scrollbar: States::all(Look { fill: t.border(), radius: [t.radius[0]; 4], ..n }),
+        label: States::all(Look { text: t.ink_2(), font: label_font, ..n }),
+        section: States::all(Look { text: t.ink_3(), font: label_font, ..n }),
         chevron: States::all(ink(t.foreground)),
-        row: States { hover: Look { fill: faint_border(t), ..row }, checked: Look { fill: t.control, ..row }, ..States::all(row) },
+        row: States { hover: Look { fill: t.faint_border(), ..row }, checked: Look { fill: t.control, ..row }, ..States::all(row) },
         list: States {
-            hover: Look { fill: faint_border(t), text: t.foreground, ..n },
+            hover: Look { fill: t.faint_border(), text: t.foreground, ..n },
             checked: Look { fill: t.control, text: t.foreground, ..n },
-            disabled: ink(ink_3(t)),
+            disabled: ink(t.ink_3()),
             ..States::all(ink(t.foreground))
         },
-        row_doomed: States::all(Look { fill: pressed_fill(t), text: invalid(), ..n }),
-        pin: States { checked: Look { fill: t.foreground, ..dot }, ..States::all(Look { border: ink_3(t), border_w: 1.0, ..dot }) },
+        row_doomed: States::all(Look { fill: t.pressed_fill(), text: t.invalid, ..n }),
+        pin: States { checked: Look { fill: t.foreground, ..dot }, ..States::all(Look { border: t.ink_3(), border_w: 1.0, ..dot }) },
         mark: States::all(Look { fill: t.accent, ..n }),
         notice: States::all(Look { fill: t.accent, ..dot }),
         badge: States::all(Look { text: t.accent, font: label_font, ..n }),
         button: button(t.foreground),
-        button_bare: button(ink_2(t)),
-        toggle: States { hover: Look { fill: faint_border(t), text: t.foreground, ..n }, disabled: ink(ink_3(t)), ..States::all(ink(t.foreground)) },
+        button_bare: button(t.ink_2()),
+        toggle: States { hover: Look { fill: t.faint_border(), text: t.foreground, ..n }, disabled: ink(t.ink_3()), ..States::all(ink(t.foreground)) },
         switch: States {
-            checked: Look { fill: t.input, border: border(t), border_w: 1.0, radius: [t.radius[0]; 4], ..n },
-            ..States::all(Look { fill: t.track, border: border(t), border_w: 1.0, radius: [t.radius[0]; 4], ..n })
+            checked: Look { fill: t.input, border: t.border(), border_w: 1.0, radius: [t.radius[0]; 4], ..n },
+            ..States::all(Look { fill: t.track, border: t.border(), border_w: 1.0, radius: [t.radius[0]; 4], ..n })
         },
-        knob: States { checked: Look { fill: t.accent, radius: [t.radius[0]; 4], ..n }, ..States::all(Look { fill: ink_3(t), radius: [t.radius[0]; 4], ..n }) },
-        field: States { focus: Look { border: t.accent, ..field }, disabled: Look { text: ink_3(t), ..field }, ..States::all(field) },
+        knob: States { checked: Look { fill: t.accent, radius: [t.radius[0]; 4], ..n }, ..States::all(Look { fill: t.ink_3(), radius: [t.radius[0]; 4], ..n }) },
+        field: States { focus: Look { border: t.accent, ..field }, disabled: Look { text: t.ink_3(), ..field }, ..States::all(field) },
         field_invalid: States::all(Look { border: t.invalid, ..field }),
-        fraction: States::all(Look { fill: ink_2(t), ..n }),
-        placeholder: States::all(ink(ink_3(t))),
+        fraction: States::all(Look { fill: t.ink_2(), ..n }),
+        placeholder: States::all(ink(t.ink_3())),
         value: States::all(ink(t.foreground)),
-        key: States::all(Look { text: ink_3(t), font: small, ..n }),
-        hint: States::all(ink(ink_2(t))),
+        key: States::all(Look { text: t.ink_3(), font: small, ..n }),
+        hint: States::all(ink(t.ink_2())),
         matched: States::all(ink(t.accent)),
-        swatch: States::all(line(edge(t), 0)),
+        swatch: States::all(line(t.edge(), 0)),
         menu: States {
             hover: Look { fill: t.control, text: t.foreground, ..n },
             checked: Look { fill: t.control, text: t.foreground, ..n },
-            disabled: ink(ink_3(t)),
+            disabled: ink(t.ink_3()),
             ..States::all(ink(t.foreground))
         },
         menu_danger: States {
             hover: Look { fill: t.control, text: t.invalid, ..n },
             checked: Look { fill: t.control, text: t.invalid, ..n },
-            disabled: ink(ink_3(t)),
+            disabled: ink(t.ink_3()),
             ..States::all(ink(t.invalid))
         },
-        menu_key: States::all(Look { text: ink_2(t), font: small, ..n }),
-        separator: States::all(Look { fill: edge(t), ..n }),
-        footer: States::all(line(edge(t), TOP)),
-        header: States::all(line(edge(t), BOTTOM)),
+        menu_key: States::all(Look { text: t.ink_2(), font: small, ..n }),
+        separator: States::all(Look { fill: t.edge(), ..n }),
+        footer: States::all(line(t.edge(), TOP)),
+        header: States::all(line(t.edge(), BOTTOM)),
         title: States::all(Look { text: t.foreground, font: Font { tracking: -0.01, ..Font::BODY }, ..n }),
-        index: States::all(Look { text: ink_3(t), font: Font { tracking: 0.04, ..small }, ..n }),
-        table_head: States::all(Look { text: ink_2(t), ..line(border(t), BOTTOM) }),
-        table_row: States::all(Look { text: t.foreground, ..line(faint_border(t), BOTTOM) }),
-        tooltip: States::all(Look { text: t.foreground, font: small, ..sheet(edge(t)) }),
+        index: States::all(Look { text: t.ink_3(), font: Font { tracking: 0.04, ..small }, ..n }),
+        table_head: States::all(Look { text: t.ink_2(), ..line(t.border(), BOTTOM) }),
+        table_row: States::all(Look { text: t.foreground, ..line(t.faint_border(), BOTTOM) }),
+        tooltip: States::all(Look { text: t.foreground, font: small, ..sheet(t.edge()) }),
         ghost: States::all(Look { fill: t.input, text: t.foreground, radius: [t.radius[1]; 4], ..n }),
-        text_area: States::all(Look { fill: t.input, border: faint_border(t), text: t.foreground, selection: tint(t), caret: t.accent, ..n }),
+        text_area: States::all(Look { fill: t.input, border: t.faint_border(), text: t.foreground, selection: t.tint(), caret: t.accent, ..n }),
         checkbox: check(0.0),
         radio: check(6.0),
         slider: States {
             hover: Look { border: t.foreground, ..thumb },
             pressed: Look { fill: t.control, border: t.foreground, ..thumb },
-            disabled: Look { border: edge(t), ..thumb },
+            disabled: Look { border: t.edge(), ..thumb },
             ..States::all(thumb)
         },
         progress: States::all(Look { fill: t.track, radius: [t.radius[0]; 4], ..n }),
-        spinner: States { checked: Look { fill: t.accent, radius: [1.5; 4], ..n }, ..States::all(Look { fill: border(t), radius: [1.5; 4], ..n }) },
+        spinner: States { checked: Look { fill: t.accent, radius: [1.5; 4], ..n }, ..States::all(Look { fill: t.border(), radius: [1.5; 4], ..n }) },
         tab: States {
-            hover: Look { text: t.foreground, ..ink(ink_2(t)) },
+            hover: Look { text: t.foreground, ..ink(t.ink_2()) },
             checked: Look { text: t.foreground, border: t.accent, border_w: 2.0, sides: BOTTOM, ..n },
-            disabled: ink(ink_3(t)),
-            ..States::all(ink(ink_2(t)))
+            disabled: ink(t.ink_3()),
+            ..States::all(ink(t.ink_2()))
         },
         segment: States {
-            hover: Look { fill: hover_fill(t), ..segment },
-            pressed: Look { fill: pressed_fill(t), ..segment },
+            hover: Look { fill: t.hover_fill(), ..segment },
+            pressed: Look { fill: t.pressed_fill(), ..segment },
             checked: Look { fill: t.control, text: t.foreground, ..segment },
-            disabled: Look { text: ink_3(t), ..segment },
+            disabled: Look { text: t.ink_3(), ..segment },
             ..States::all(segment)
         },
         dropdown: States {
-            hover: Look { fill: hover_fill(t), ..field },
-            pressed: Look { fill: pressed_fill(t), ..field },
+            hover: Look { fill: t.hover_fill(), ..field },
+            pressed: Look { fill: t.pressed_fill(), ..field },
             focus: Look { border: t.accent, ..field },
-            disabled: Look { text: ink_3(t), ..field },
+            disabled: Look { text: t.ink_3(), ..field },
             ..States::all(field)
         },
-        menubar: States::all(Look { fill: t.panel, text: t.foreground, ..line(edge(t), BOTTOM) }),
-        scroll_view: States::all(line(edge(t), 0)),
+        menubar: States::all(Look { fill: t.panel, text: t.foreground, ..line(t.edge(), BOTTOM) }),
+        scroll_view: States::all(line(t.edge(), 0)),
         listbox: rows,
         tree: rows,
         column: States {
-            hover: Look { fill: hover_fill(t), text: t.foreground, ..n },
+            hover: Look { fill: t.hover_fill(), text: t.foreground, ..n },
             checked: ink(t.foreground),
-            ..States::all(ink(ink_2(t)))
+            ..States::all(ink(t.ink_2()))
         },
-        dialog: States::all(Look { text: t.foreground, ..line(edge(t), BOTTOM) }),
-        toast: States { hover: Look { border: border(t), ..sheet(edge(t)) }, ..States::all(Look { text: t.foreground, ..sheet(edge(t)) }) },
+        dialog: States::all(Look { text: t.foreground, ..line(t.edge(), BOTTOM) }),
+        toast: States { hover: Look { border: t.border(), ..sheet(t.edge()) }, ..States::all(Look { text: t.foreground, ..sheet(t.edge()) }) },
         icon_button: button(t.foreground),
         search: States { focus: Look { border: t.accent, ..field }, ..States::all(field) },
-        image: States::all(line(edge(t), 0)),
+        image: States::all(line(t.edge(), 0)),
         body: Bodies::default(),
     }
 }
@@ -233,8 +229,8 @@ pub struct ThemeError {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Value {
-    C(Color),
-    O(Option<Color>),
+    C(Rgba),
+    O(Option<Rgba>),
     F(f32),
     I(i64),
     B(bool),
@@ -261,7 +257,7 @@ macro_rules! value_conv {
         impl From<Value> for $t { fn from(v: Value) -> $t { match v { Value::$v(x) => x, _ => unreachable!("theme field kind") } } }
     )*};
 }
-value_conv!(Color => C, Option<Color> => O, f32 => F, i64 => I, bool => B, [f32; 4] => Q, u8 => S);
+value_conv!(Rgba => C, Option<Rgba> => O, f32 => F, i64 => I, bool => B, [f32; 4] => Q, u8 => S);
 
 impl From<pxui_types::node::OptColor> for Value {
     fn from(x: pxui_types::node::OptColor) -> Value {
@@ -271,7 +267,7 @@ impl From<pxui_types::node::OptColor> for Value {
 
 impl From<Value> for pxui_types::node::OptColor {
     fn from(v: Value) -> pxui_types::node::OptColor {
-        Option::<Color>::from(v).into()
+        Option::<Rgba>::from(v).into()
     }
 }
 
@@ -405,7 +401,7 @@ fn parse_value(kind: Kind, text: &str) -> Result<Value, String> {
         let v: f32 = s.parse().map_err(|_| format!("`{s}` is not a number"))?;
         if v.is_finite() && v >= lo && v <= hi { Ok(v) } else { Err(format!("{s} is outside {lo}..={hi}")) }
     };
-    let col = |s: &str| color::hex(s).map_err(|e| format!("`{s}`: {e}"));
+    let col = |s: &str| Rgba::parse(s).map_err(|e| format!("`{s}`: {e}"));
     Ok(match kind {
         Kind::Color => Value::C(col(text)?),
         Kind::OptColor => Value::O(if text == "none" { None } else { Some(col(text)?) }),
@@ -446,9 +442,9 @@ fn parse_value(kind: Kind, text: &str) -> Result<Value, String> {
 
 fn write_value(v: Value) -> String {
     match v {
-        Value::C(c) => color::to_hex_string(c),
+        Value::C(c) => c.to_hex_string(),
         Value::O(None) => "none".to_owned(),
-        Value::O(Some(c)) => color::to_hex_string(c),
+        Value::O(Some(c)) => c.to_hex_string(),
         Value::F(x) => format!("{x}"),
         Value::I(x) => format!("{x}"),
         Value::B(x) => format!("{x}"),

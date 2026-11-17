@@ -12,10 +12,10 @@ use crate::bodies::{body_of, in_body, in_item, in_place, InspectorRowConfig, Sec
 use crate::a11y::state as st;
 use crate::theme;
 use input::{Event, Key, MouseButton};
-use crate::geom::Rgba as Color;
+use crate::geom::Rgba;
 use std::rc::Rc;
 
-const CLEAR: Color = Color { r: 0, g: 0, b: 0, a: 0 };
+const CLEAR: Rgba = Rgba::CLEAR;
 
 /// The built-in inspector row: the hover fill, the label fitted to its column and the pin dot.
 pub(crate) fn default_inspector_row(this: &mut Ui, c: &InspectorRowConfig, label: &str) {
@@ -467,7 +467,7 @@ pub(crate) fn default_value_field(this: &mut Ui, c: &ValueFieldConfig, o: &Value
         }
         _ => {
             // a lead (the expression's f) and a trail (its live value) frame the value: 6 between
-            let part = |ui: &mut Ui, n: i64, right: bool, text: &str, color: Color| -> f32 {
+            let part = |ui: &mut Ui, n: i64, right: bool, text: &str, color: Rgba| -> f32 {
                 let width = text_w(ui, text);
                 let tx = if right { w - 2.0 - width } else { 2.0 };
                 ui.text_part(k(n), (tx, text_y), width, ink(Look { text: color, ..value_look }), text);
@@ -802,7 +802,7 @@ impl Ui {
     pub fn inspector_body(&mut self, f: &mut dyn FnMut(&mut Ui)) {
         let rh = self.row_height() as f32;
         let t = self.theme();
-        let bar = Bar { color: t.scrollbar.idle.fill, radius: t.scrollbar.idle.radius[0], width: t.scrollbar_w, gap: t.scrollbar_gap, margin: 6.0, whole: false };
+        let bar = Bar::new(t.scrollbar.idle.fill, t.scrollbar_w).radius(t.scrollbar.idle.radius[0]).gap(t.scrollbar_gap).margin(6.0);
         let body = self.node("inspector-body".into(), Node { flags: Flags::SCROLL | Flags::CLIP | Flags::OVER_THUMB, h: Size::Grow, scroll_step: rh, bar: Some(bar).into(), role: Role::ScrollArea, ..Node::DEFAULT });
         self.within(&body, f);
     }

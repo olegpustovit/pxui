@@ -1,5 +1,5 @@
 //! The option records of the widgets that take closures (`Rc<dyn Fn>`): Rust-side only, never an ABI type. The engine keeps its own; the wrapper has the same records (`pxui::opts`).
-use pxui_types::{geom::{Rect, Rgba as Color}, node::Axis, ui::{CodeContext, Completion, ScrubPhase}, Flags, Size};
+use pxui_types::{geom::{Rect, Rgba}, node::Axis, ui::{CodeContext, Completion, ScrubPhase}, Flags, Size};
 use crate::ui_core::Drop;
 use std::rc::Rc;
 
@@ -85,9 +85,9 @@ pub struct ValueFieldOpts {
     pub scrub: Option<Rc<dyn Fn(&str, f32, bool) -> String>>,
     pub left: bool,
     pub edit: bool,
-    pub lead: Option<(String, Color)>,
-    pub trail: Option<(String, Color)>,
-    pub line: Option<Color>,
+    pub lead: Option<(String, Rgba)>,
+    pub trail: Option<(String, Rgba)>,
+    pub line: Option<Rgba>,
     pub bare: bool,
     pub placeholder: Option<String>,
     pub tracking: Option<f32>,
@@ -122,7 +122,7 @@ impl Default for ValueFieldOpts {
 #[derive(Clone)]
 pub struct Language {
     /// sorted, non-overlapping byte spans and their colour; the rest is the foreground
-    pub colorize: Rc<dyn Fn(&str) -> Vec<(i64, i64, Color)>>,
+    pub colorize: Rc<dyn Fn(&str) -> Vec<(i64, i64, Rgba)>>,
     /// the matched bracket pairs as (open, close) byte positions: the pair at the caret is lit
     pub brackets: Rc<dyn Fn(&str) -> Vec<(i64, i64)>>,
     /// `indent text caret`: the indentation Enter puts after the line break at `caret`
@@ -165,7 +165,7 @@ pub struct TextAreaOpts {
     pub on_caret_move: Option<Rc<dyn Fn(i64)>>,
     pub on_select: Option<Rc<dyn Fn((i64, i64))>>,
     pub on_drop: Option<Rc<dyn Fn(i64, Drop)>>,
-    pub chips: Vec<(i64, i64, Color)>,
+    pub chips: Vec<(i64, i64, Rgba)>,
 }
 
 impl Default for TextAreaOpts {
@@ -196,7 +196,7 @@ impl Default for TextAreaOpts {
 #[derive(Clone)]
 pub struct PickerOpts {
     pub limit: i64,
-    pub mark: Option<Rc<dyn Fn(i64) -> Option<Color>>>,
+    pub mark: Option<Rc<dyn Fn(i64) -> Option<Rgba>>>,
     pub off: Option<Rc<dyn Fn(i64) -> bool>>,
     pub slash: bool,
     pub at_rest: bool,

@@ -1,6 +1,7 @@
-//! PXUI's own plain f32 geometry, colour and key hash: the engine depends on nothing for them.
+//! PXUI's own plain f32 geometry, colour (`Rgba`) and key hash: the engine depends on nothing for them.
 //! Points and sizes are logical points; colour channels are bytes, as in the Rays colour.
 
+/// A position in logical points (window space unless a call says otherwise): `x` grows right, `y` grows down.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Point {
@@ -10,6 +11,7 @@ pub struct Point {
     pub y: f32,
 }
 
+/// An axis-aligned rectangle in logical points: top-left `x`, `y` and size `w` by `h` (a negative size is kept, and contains nothing).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Rect {
@@ -23,6 +25,7 @@ pub struct Rect {
     pub h: f32,
 }
 
+/// Four insets in logical points (padding, margin, safe area): left, top, right, bottom; under right-to-left flow `l` is the start edge.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Edges {
@@ -82,9 +85,6 @@ impl Edges {
     }
 }
 
-/// The colour a look's fields take (`Look::fill`, `Look::text`, ...): `Color::rgb(..)` or `Color::token(TOKEN)`, the same type as `Rgba`.
-pub type Color = Rgba;
-
 impl Rgba {
     /// Red, green and blue under the token encoding: a clear colour with these two channels carries a token in `b`.
     const TOKEN_RG: (u8, u8) = (0x54, 0x4b);
@@ -95,12 +95,131 @@ impl Rgba {
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::geom::Color;
-    /// const INK: Color = Color::rgb(1, 2, 3);
-    /// assert_eq!(INK, Color { r: 1, g: 2, b: 3, a: 255 });
+    /// use pxui_types::geom::Rgba;
+    /// const INK: Rgba = Rgba::rgb(1, 2, 3);
+    /// assert_eq!(INK, Rgba { r: 1, g: 2, b: 3, a: 255 });
     /// ```
     #[inline]
     pub const fn rgb(r: u8, g: u8, b: u8) -> Rgba { Rgba { r, g, b, a: 255 } }
+
+    /// Opaque black.
+    pub const BLACK: Rgba = Rgba::rgb(0, 0, 0);
+    /// Opaque white.
+    pub const WHITE: Rgba = Rgba::rgb(255, 255, 255);
+    /// Fully transparent black (all four channels 0): paints nothing.
+    pub const CLEAR: Rgba = Rgba::rgba(0, 0, 0, 0);
+
+    /// The colour of channels `r`, `g`, `b` and opacity `a` (0 clear, 255 opaque; not premultiplied).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rgba;
+    /// const SCRIM: Rgba = Rgba::rgba(0, 0, 0, 128);
+    /// assert_eq!(SCRIM, Rgba { r: 0, g: 0, b: 0, a: 128 });
+    /// ```
+    #[inline]
+    pub const fn rgba(r: u8, g: u8, b: u8, a: u8) -> Rgba { Rgba { r, g, b, a } }
+
+    /// The opaque grey with all three channels `v`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rgba;
+    /// assert_eq!(Rgba::gray(128), Rgba::rgb(128, 128, 128));
+    /// ```
+    #[inline]
+    pub const fn gray(v: u8) -> Rgba { Rgba::rgb(v, v, v) }
+
+    /// The opaque colour written `0xRRGGBB` (the bits above the low 24 are ignored).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rgba;
+    /// const ACCENT: Rgba = Rgba::hex(0xf0481f);
+    /// assert_eq!(ACCENT, Rgba::rgb(0xf0, 0x48, 0x1f));
+    /// ```
+    #[inline]
+    pub const fn hex(rgb: u32) -> Rgba { Rgba::rgb((rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8) }
+
+    /// This colour with its opacity replaced by `alpha` (not multiplied into the old one).
+    ///
+    /// A token colour (`Rgba::token`) given an alpha above 0 becomes the plain colour its bytes spell.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rgba;
+    /// const HAZE: Rgba = Rgba::WHITE.with_alpha(40);
+    /// assert_eq!(HAZE, Rgba::rgba(255, 255, 255, 40));
+    /// ```
+    #[inline]
+    pub const fn with_alpha(self, alpha: u8) -> Rgba { Rgba { a: alpha, ..self } }
+
+    /// The colour `t` of the way from this one to `to`, every channel (alpha too) interpolated linearly and rounded to nearest.
+    ///
+    /// `t` is clamped to 0.0 to 1.0, so 0 gives this colour and 1 gives `to`. Token colours blend as their bytes; resolve them first.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rgba;
+    /// assert_eq!(Rgba::BLACK.blend(Rgba::WHITE, 0.5), Rgba::gray(128));
+    /// assert_eq!(Rgba::BLACK.blend(Rgba::WHITE, 9.0), Rgba::WHITE);
+    /// ```
+    pub fn blend(self, to: Rgba, t: f64) -> Rgba {
+        let t = t.clamp(0.0, 1.0);
+        let inv = 1.0 - t;
+        let mix = |a: u8, b: u8| ((a as f64 * inv) + (b as f64 * t) + 0.5) as u8;
+        Rgba { r: mix(self.r, to.r), g: mix(self.g, to.g), b: mix(self.b, to.b), a: mix(self.a, to.a) }
+    }
+
+    /// Parses `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` (the `#` is optional, digits of either case); a missing alpha is opaque.
+    ///
+    /// The short forms repeat each digit (`#f80` is `#ff8800`). Any other length is `ColorParseError::Length`, a non-hex digit
+    /// `ColorParseError::Digit`.
+    /// Use it for text read at run time (theme files); a colour known when writing the code is `Rgba::hex(0xRRGGBB)`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::{ColorParseError, Rgba};
+    /// assert_eq!(Rgba::parse("#f80"), Ok(Rgba::rgb(255, 136, 0)));
+    /// assert_eq!(Rgba::parse("11223380"), Ok(Rgba::rgba(17, 34, 51, 128)));
+    /// assert_eq!(Rgba::parse("#12"), Err(ColorParseError::Length));
+    /// assert_eq!(Rgba::parse("#12345g"), Err(ColorParseError::Digit));
+    /// ```
+    pub fn parse(text: &str) -> Result<Rgba, ColorParseError> {
+        let digits = text.strip_prefix('#').unwrap_or(text).as_bytes();
+        let short = digits.len() == 3 || digits.len() == 4;
+        if !short && digits.len() != 6 && digits.len() != 8 { return Err(ColorParseError::Length); }
+        let nibble = |i: usize| (digits[i] as char).to_digit(16).map(|d| d as u8);
+        let channel = |i: usize| if short { nibble(i).map(|d| d * 17) } else { Some(nibble(2 * i)? * 16 + nibble(2 * i + 1)?) };
+        let alpha = if digits.len() == 4 || digits.len() == 8 { channel(3) } else { Some(255) };
+        match (channel(0), channel(1), channel(2), alpha) {
+            (Some(r), Some(g), Some(b), Some(a)) => Ok(Rgba { r, g, b, a }),
+            _ => Err(ColorParseError::Digit),
+        }
+    }
+
+    /// The colour as lower-case `#rrggbb`, or `#rrggbbaa` when it is not fully opaque; `Rgba::parse` reads it back.
+    ///
+    /// Allocates: one `String`.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rgba;
+    /// assert_eq!(Rgba::rgb(255, 136, 0).to_hex_string(), "#ff8800");
+    /// assert_eq!(Rgba::rgba(0, 0, 0, 1).to_hex_string(), "#00000001");
+    /// ```
+    pub fn to_hex_string(self) -> String {
+        if self.a == 255 { format!("#{:02x}{:02x}{:02x}", self.r, self.g, self.b) } else { format!("#{:02x}{:02x}{:02x}{:02x}", self.r, self.g, self.b, self.a) }
+    }
 
     /// The colour of `token` in the app's light/dark table (`Ui::set_colors`), resolved by the engine for the theme in effect when a
     /// look holding it is applied to a node (a node's look, `set_look`, `pressable`, a button's, icon button's, toggle's or segment's
@@ -115,10 +234,10 @@ impl Rgba {
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::{geom::Color, theme::ColorToken};
-    /// const ACCENT: Color = Color::token(ColorToken(3));
+    /// use pxui_types::{geom::Rgba, theme::ColorToken};
+    /// const ACCENT: Rgba = Rgba::token(ColorToken(3));
     /// assert_eq!(ACCENT.as_token(), Some(ColorToken(3)));
-    /// assert_eq!(Color::rgb(0, 0, 0).as_token(), None);
+    /// assert_eq!(Rgba::BLACK.as_token(), None);
     /// ```
     #[inline]
     pub const fn token(token: crate::theme::ColorToken) -> Rgba {
@@ -131,15 +250,33 @@ impl Rgba {
     /// Panics: never.
     ///
     /// ```
-    /// use pxui_types::{geom::Color, theme::ColorToken};
-    /// assert_eq!(Color::token(ColorToken(1)).as_token(), Some(ColorToken(1)));
-    /// assert_eq!(Color::default().as_token(), None);
+    /// use pxui_types::{geom::Rgba, theme::ColorToken};
+    /// assert_eq!(Rgba::token(ColorToken(1)).as_token(), Some(ColorToken(1)));
+    /// assert_eq!(Rgba::default().as_token(), None);
     /// ```
     #[inline]
     pub const fn as_token(self) -> Option<crate::theme::ColorToken> {
         if self.a == 0 && self.r == Self::TOKEN_RG.0 && self.g == Self::TOKEN_RG.1 { Some(crate::theme::ColorToken(self.b as u16)) } else { None }
     }
 }
+
+/// Why `Rgba::parse` refused a text.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ColorParseError {
+    /// Not 3, 4, 6 or 8 hex digits after the optional `#`.
+    Length,
+    /// A character that is not a hexadecimal digit.
+    Digit,
+}
+
+impl std::fmt::Display for ColorParseError {
+    /// The refusal in words, for a theme file's error message.
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(match self { ColorParseError::Length => "expected #rgb, #rgba, #rrggbb or #rrggbbaa", ColorParseError::Digit => "invalid hexadecimal digit" })
+    }
+}
+
+impl std::error::Error for ColorParseError {}
 
 impl Rect {
     /// The rectangle with top-left `x`, `y` and size `w` by `h`, all in logical points; nothing is checked, so a negative size is kept.
@@ -192,161 +329,6 @@ impl Rect {
         let right = (self.x + self.w).min(o.x + o.w);
         let bottom = (self.y + self.h).min(o.y + o.h);
         Rect { x, y, w: (right - x).max(0.0), h: (bottom - y).max(0.0) }
-    }
-}
-
-/// Colour constructors and blends, with the Rays colour's rounding.
-pub mod color {
-    pub use super::Rgba as T;
-    use super::Rgba;
-
-    fn clamp_byte(value: i64) -> u8 { value.clamp(0, 255) as u8 }
-    /// The colour of channels `r`, `g`, `b` and opacity `a`, each clamped to 0 to 255.
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::{color, Rgba};
-    /// assert_eq!(color::rgba(300, -5, 10, 128), Rgba { r: 255, g: 0, b: 10, a: 128 });
-    /// ```
-    pub fn rgba(r: i64, g: i64, b: i64, a: i64) -> Rgba { Rgba { r: clamp_byte(r), g: clamp_byte(g), b: clamp_byte(b), a: clamp_byte(a) } }
-    /// The opaque colour of channels `r`, `g`, `b`, each clamped to 0 to 255.
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::{color, Rgba};
-    /// assert_eq!(color::rgb(1, 2, 3), Rgba { r: 1, g: 2, b: 3, a: 255 });
-    /// ```
-    pub fn rgb(r: i64, g: i64, b: i64) -> Rgba { rgba(r, g, b, 255) }
-    /// The opaque grey with all three channels `v`, clamped to 0 to 255.
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// assert_eq!(pxui_types::geom::color::gray(128).g, 128);
-    /// ```
-    pub fn gray(v: i64) -> Rgba { rgb(v, v, v) }
-    /// Opaque black.
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// assert_eq!(pxui_types::geom::color::black(), pxui_types::geom::color::rgb(0, 0, 0));
-    /// ```
-    pub fn black() -> Rgba { rgb(0, 0, 0) }
-    /// Opaque white.
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// assert_eq!(pxui_types::geom::color::white().r, 255);
-    /// ```
-    pub fn white() -> Rgba { rgb(255, 255, 255) }
-    /// Fully transparent black (all four channels 0).
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// assert_eq!(pxui_types::geom::color::transparent().a, 0);
-    /// ```
-    pub fn transparent() -> Rgba { rgba(0, 0, 0, 0) }
-    /// The colour `c` with its opacity replaced by `alpha`, clamped to 0 to 255 (not multiplied into the old one).
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::color;
-    /// assert_eq!(color::with_alpha(color::rgb(1, 2, 3), 10), color::rgba(1, 2, 3, 10));
-    /// ```
-    pub fn with_alpha(c: Rgba, alpha: i64) -> Rgba { Rgba { a: clamp_byte(alpha), ..c } }
-    /// The colour from channels in 0.0 to 1.0 (`alpha` `None`: opaque); each is scaled by 255, rounded and clamped, so out-of-range values saturate.
-    ///
-    /// The argument order is alpha first, then red, green, blue.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::color;
-    /// assert_eq!(color::of_unit_floats(None, 1.0, 0.5, 0.0), color::rgb(255, 128, 0));
-    /// ```
-    pub fn of_unit_floats(alpha: Option<f64>, r: f64, g: f64, b: f64) -> Rgba {
-        let byte = |v: f64| (v * 255.0).round() as i64;
-        rgba(byte(r), byte(g), byte(b), byte(alpha.unwrap_or(1.0)))
-    }
-    /// The colour's channels as `(r, g, b, a)`, each divided by 255 into 0.0 to 1.0.
-    ///
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::color;
-    /// assert_eq!(color::to_floats(color::rgba(255, 0, 255, 0)), (1.0, 0.0, 1.0, 0.0));
-    /// ```
-    pub fn to_floats(c: Rgba) -> (f64, f64, f64, f64) { (c.r as f64 / 255.0, c.g as f64 / 255.0, c.b as f64 / 255.0, c.a as f64 / 255.0) }
-
-    /// Parses `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` (the `#` is optional, digits of either case); a missing alpha is opaque.
-    ///
-    /// The short forms repeat each digit (`#f80` is `#ff8800`). Any other length or a non-hex digit is an `Err` with a message.
-    /// Allocates: the short forms allocate a scratch buffer; the long forms do not (an `Err` allocates its message).
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::color;
-    /// assert_eq!(color::hex("#f80"), Ok(color::rgb(255, 136, 0)));
-    /// assert_eq!(color::hex("11223380"), Ok(color::rgba(17, 34, 51, 128)));
-    /// assert!(color::hex("#12").is_err());
-    /// ```
-    pub fn hex(value: &str) -> Result<Rgba, String> {
-        let value = value.strip_prefix('#').unwrap_or(value).as_bytes();
-        let expanded = if value.len() == 3 || value.len() == 4 { Some(value.iter().flat_map(|b| [*b, *b]).collect::<Vec<_>>()) } else { None };
-        let bytes = expanded.as_deref().unwrap_or(value);
-        if bytes.len() != 6 && bytes.len() != 8 { return Err("Color.hex: expected #rgb, #rgba, #rrggbb, or #rrggbbaa".to_owned()); }
-        let nibble = |v: u8| (v as char).to_digit(16).map(|d| d as i64);
-        let channel = |i: usize| Some(nibble(bytes[i])? * 16 + nibble(bytes[i + 1])?);
-        match (channel(0), channel(2), channel(4), if bytes.len() == 8 { channel(6) } else { Some(255) }) {
-            (Some(r), Some(g), Some(b), Some(a)) => Ok(rgba(r, g, b, a)),
-            _ => Err("Color.hex: invalid hexadecimal digit".to_owned()),
-        }
-    }
-
-    /// The colour as lower-case `#rrggbb`, or `#rrggbbaa` when it is not fully opaque; `hex` reads it back.
-    ///
-    /// Allocates: one `String`.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::color;
-    /// assert_eq!(color::to_hex_string(color::rgb(255, 136, 0)), "#ff8800");
-    /// assert_eq!(color::to_hex_string(color::rgba(0, 0, 0, 1)), "#00000001");
-    /// ```
-    pub fn to_hex_string(c: Rgba) -> String {
-        if c.a == 255 { format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b) } else { format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a) }
-    }
-
-    /// The colour `pct` of the way from `c1` to `c2`, every channel (alpha too) interpolated linearly and rounded to nearest.
-    ///
-    /// `pct` is clamped to 0.0 to 1.0, so 0 gives `c1` and 1 gives `c2`.
-    /// Allocates: never.
-    /// Panics: never.
-    ///
-    /// ```
-    /// use pxui_types::geom::color;
-    /// assert_eq!(color::blend(color::black(), color::white(), 0.5), color::gray(128));
-    /// assert_eq!(color::blend(color::black(), color::white(), 9.0), color::white());
-    /// ```
-    pub fn blend(c1: Rgba, c2: Rgba, pct: f64) -> Rgba {
-        let pct = pct.clamp(0.0, 1.0);
-        let inv = 1.0 - pct;
-        let mix = |a: u8, b: u8| ((a as f64 * inv) + (b as f64 * pct) + 0.5) as u8;
-        Rgba { r: mix(c1.r, c2.r), g: mix(c1.g, c2.g), b: mix(c1.b, c2.b), a: mix(c1.a, c2.a) }
     }
 }
 
@@ -433,23 +415,3 @@ pub mod hash {
     /// ```
     pub fn mix(hash: i64, value: i64) -> i64 { word(hash as u64, value as u64) as i64 }
 }
-
-/// The point `p` narrowed from `f64` to `f32` (nearest; large values lose precision).
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// assert_eq!(pxui_types::geom::p32((1.5, -2.0)), (1.5f32, -2.0f32));
-/// ```
-pub fn p32(p: (f64, f64)) -> (f32, f32) { (p.0 as f32, p.1 as f32) }
-
-/// The point `p` widened from `f32` to `f64`, exactly.
-///
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// assert_eq!(pxui_types::geom::p64((1.5, -2.0)), (1.5f64, -2.0f64));
-/// ```
-pub fn p64(p: (f32, f32)) -> (f64, f64) { (p.0 as f64, p.1 as f64) }

@@ -781,7 +781,7 @@ fn three_dots(ui: &mut Ui, c: &SpinnerConfig, _label: &str) {
 }
 
 fn ui_ink() -> pxui_core::geom::Rgba {
-    pxui_core::geom::color::white()
+    pxui_core::geom::Rgba::WHITE
 }
 
 pub fn spinner_three_dots_body() {
@@ -808,7 +808,7 @@ pub fn spinner_three_dots_body() {
 /// A badge as an outlined box that is always 40 wide; the text is still on the node `patch_text` finds.
 fn box_badge(ui: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
     let n = ui.node_mut(&c.node);
-    (n.w, n.h, n.look) = (Size::Px(40.0), Size::Px(20.0), Look { border: pxui_core::geom::color::white(), border_w: 1.0, ..Look::NONE });
+    (n.w, n.h, n.look) = (Size::Px(40.0), Size::Px(20.0), Look { border: pxui_core::geom::Rgba::WHITE, border_w: 1.0, ..Look::NONE });
     ui.text(&c.node, text);
 }
 
@@ -830,7 +830,7 @@ fn ruled_label(ui: &mut Ui, c: &LabelConfig, text: &str) {
     let n = ui.node_mut(&c.node);
     n.h = Size::Px(30.0);
     ui.text(&c.node, shown(text));
-    ui.node("rule".into(), Node { h: Size::Px(1.0), margin: Edges { t: 20.0, ..Edges::ZERO }, look: Look { fill: pxui_core::geom::color::white(), ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("rule".into(), Node { h: Size::Px(1.0), margin: Edges { t: 20.0, ..Edges::ZERO }, look: Look { fill: pxui_core::geom::Rgba::WHITE, ..Look::NONE }, ..Node::DEFAULT });
 }
 
 pub fn label_rule_body() {
@@ -854,7 +854,7 @@ pub fn footer_bare_body() {
 /// A grip with a 21-point press band: 10 points either side of its line.
 fn wide_grip(ui: &mut Ui, c: &GripConfig) {
     ui.node_mut(&c.grip).w = Size::Px(1.0);
-    ui.set_look(&c.grip, Look { fill: pxui_core::geom::color::white(), ..Look::NONE }, c.state);
+    ui.set_look(&c.grip, Look { fill: pxui_core::geom::Rgba::WHITE, ..Look::NONE }, c.state);
     ui.hit_outset(&c.grip, Edges { l: 10.0, r: 10.0, ..Edges::ZERO });
 }
 
@@ -1175,7 +1175,7 @@ pub fn split_spacer_body() {
 fn square_scroll(ui: &mut Ui, c: &ScrollConfig, content: &mut dyn FnMut(&mut Ui)) {
     let n = ui.node_mut(&c.node);
     n.look = ink_look();
-    n.bar = Some(Bar { color: ui_ink(), radius: 0.0, width: 3.0, gap: 1.0, margin: 0.0, whole: true }).into();
+    n.bar = Some(Bar::new(ui_ink(), 3.0).gap(1.0).whole()).into();
     content(ui);
 }
 

@@ -11,7 +11,7 @@ use pxui_types::ffi::{PxuiResponse, PxuiTextStyle};
 use pxui_types::{text::LabelFields, TextGlyph, TextMetrics, TextSpans};
 use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
 use pxui_types::ui::{Checkbox, Choice, Dropdown, Overlay, SelectionList, Slider, TableResponse, TableView};
-use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::{Align, Justify}, theme::{State, States, ThemeSnapshot}};
+use pxui_types::{Axis, FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::{Along, Justify}, theme::{State, States, ThemeSnapshot}};
 
 
 /// `value` as text the caller promises is UTF-8, at most `max` bytes (the role's cap the exports refuse above). Its pointer is never
@@ -371,7 +371,7 @@ fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&str>, states: Option<&States>, w: Size, h: Size, justify: Justify, pad: Edges,
-    enabled: bool, selected: bool, danger: bool, centered: bool, label: Option<&pxui_types::text::LabelFields>, axis: Option<Axis>, gap: f32, content_align: Option<Align>, focus_on_click: bool,
+    enabled: bool, selected: bool, danger: bool, centered: bool, label: Option<&pxui_types::text::LabelFields>, axis: Option<Axis>, gap: f32, content_align: Option<Along>, focus_on_click: bool,
     content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     enter!(ui);
     let text = clip(text);

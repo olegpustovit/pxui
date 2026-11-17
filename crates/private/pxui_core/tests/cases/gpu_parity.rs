@@ -232,9 +232,9 @@ fn gpu_patch() {
     if !gpu::available() {
         return;
     }
-    let chip = |text: &'static str, fill: (i64, i64, i64)| {
+    let chip = |text: &'static str, fill: (u8, u8, u8)| {
         move |ui: &mut Ui| -> Handle {
-            let look = Look { fill: pxui_core::geom::color::rgb(fill.0, fill.1, fill.2), text: pxui_core::geom::color::black(), ..Look::NONE };
+            let look = Look { fill: pxui_core::geom::Rgba::rgb(fill.0, fill.1, fill.2), text: pxui_core::geom::Rgba::BLACK, ..Look::NONE };
             let h = ui.node("clock".into(), Node { w: Size::Px(120.0), h: Size::Px(24.0), at: Some((10.0, 10.0)).into(), look, inset: Edges { l: 6.0, ..Edges::default() }, ..Node::DEFAULT });
             ui.text(&h, text);
             h
@@ -251,7 +251,7 @@ fn gpu_patch() {
     };
     let (mut ui, clock) = built("12:00", (200, 40, 40));
     let before = shot(&mut ui);
-    assert!(ui.patch_fill(&clock, pxui_core::geom::color::rgb(40, 40, 200)) && ui.patch_text(&clock, "12:00:01"), "patch refused");
+    assert!(ui.patch_fill(&clock, pxui_core::geom::Rgba::rgb(40, 40, 200)) && ui.patch_text(&clock, "12:00:01"), "patch refused");
     let patched = shot(&mut ui);
     ui.destroy();
     let (mut fresh, _) = built("12:00:01", (40, 40, 200));
@@ -322,7 +322,7 @@ fn gpu_retained_bytes() {
     let mut build = |ui: &mut Ui| {
         ui.view("kit", 1, Size::Px(WIDTH as f32), Size::Px(200.0), &mut |ui| new_panel(ui));
         ui.view("chip", 1, Size::Px(100.0), Size::Px(30.0), &mut |ui| {
-            let look = Look { fill: pxui_core::geom::color::rgb(200, 40, 40), ..Look::NONE };
+            let look = Look { fill: pxui_core::geom::Rgba::rgb(200, 40, 40), ..Look::NONE };
             chip = Some(ui.node("chip".into(), Node { w: Size::Px(80.0), h: Size::Px(20.0), look, ..Node::DEFAULT }));
         });
     };
@@ -335,7 +335,7 @@ fn gpu_retained_bytes() {
     ui.frame(&frame_at(4, 240, 2), &mut build);
     gpu::render_with(&mut painter, &mut ui, size, 2, [228, 139, 161, 255]);
     assert_eq!(painter.retained_bytes(), 0, "an all-kept frame wrote instances");
-    assert!(ui.patch_fill(&chip.unwrap(), pxui_core::geom::color::rgb(40, 40, 200)), "patch refused");
+    assert!(ui.patch_fill(&chip.unwrap(), pxui_core::geom::Rgba::rgb(40, 40, 200)), "patch refused");
     for frame in 0..4 {
         gpu::render_with(&mut painter, &mut ui, size, 2, [228, 139, 161, 255]);
         let expected = if frame < 3 { 64 } else { 0 };
@@ -350,7 +350,7 @@ fn gpu_round_clip() {
     if !gpu::available() {
         return;
     }
-    let red = pxui_core::geom::color::rgb(220, 20, 20);
+    let red = pxui_core::geom::Rgba::rgb(220, 20, 20);
     let (pixels, _) = render(1, 80, &mut |ui| {
         let clip = ui.node("clip".into(), Node { flags: Flags::CLIP | Flags::ROUND_CLIP, w: Size::Px(100.0), h: Size::Px(60.0), at: Some((10.0, 10.0)).into(), look: Look { radius: [16.0; 4], ..Look::NONE }, ..Node::DEFAULT });
         ui.within(&clip, &mut |ui| {
@@ -442,7 +442,7 @@ fn gpu_plain_keyframe_cached_owner_visibility() {
                 ui.within(&clip, &mut |ui| {
                     let cached = ui.view("cached", 1, Size::Grow, Size::Px(20.0), &mut |ui| {
                         builds.set(builds.get() + 1);
-                        let fill = ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: pxui_core::geom::color::rgb(220, 20, 20), ..Look::NONE }, ..Node::DEFAULT });
+                        let fill = ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: pxui_core::geom::Rgba::rgb(220, 20, 20), ..Look::NONE }, ..Node::DEFAULT });
                         let curve = Curve::Bezier { duration: 1.0, points: [0.0, 0.0, 1.0, 1.0] };
                         ui.animate_keys(&fill, &[Keyframe::opacity(0.0, 1.0).curve(curve), Keyframe::opacity(1.0, 1.0).curve(curve)], &Keyframes::DEFAULT.repeat(Repeat::Forever));
                     });
@@ -468,7 +468,7 @@ fn gpu_plain_keyframe_cached_owner_visibility() {
 }
 
 /// `PXUI_BENCH=1 RAYS_SLOW=1 cargo t -p pxui_core gpu_text_cost`: wall time of drawing and reading back a
-/// screen of text with the Apple raster's light-text shader path (`flags::LIGHT`: four extra taps per
+/// screen of text with the Apple raster's light-text shader path (`flags::mask::LIGHT`: four extra taps per
 /// glyph fragment) and without it (other platform): min and median of 200 frames. Off by default.
 fn gpu_text_cost() {
     if std::env::var_os("PXUI_BENCH").is_none() {

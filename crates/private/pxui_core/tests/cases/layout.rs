@@ -2,7 +2,7 @@
 //! anchored popups, both-axis scroll with sticky headers, right-to-left and the splitter.
 use crate::support::*;
 use input::Event;
-use pxui_core::geom::color;
+use pxui_core::geom::Rgba;
 use pxui_core::ui::*;
 use std::cell::RefCell;
 
@@ -117,7 +117,7 @@ pub fn layout_justify_align() {
 /// Mixed font sizes in a row aligned on their baselines: one baseline.
 pub fn layout_baseline() {
     let mut ui = new_ui(Some(13));
-    let text = |size: i64| Node { w: Size::Px(60.0), h: Size::Px(size as f32 + 4.0), look: Look { font: Font { size, ..Font::BODY }, text: color::black(), ..Look::NONE }, ..Node::DEFAULT };
+    let text = |size: i64| Node { w: Size::Px(60.0), h: Size::Px(size as f32 + 4.0), look: Look { font: Font { size, ..Font::BODY }, text: Rgba::BLACK, ..Look::NONE }, ..Node::DEFAULT };
     let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
         let p = ui.node("p".into(), Node { align: Align::Baseline, ..ROW });
         let saved = ui.enter(&p);
@@ -157,7 +157,7 @@ pub fn layout_baseline() {
 pub fn layout_fit_text_child() {
     let mut ui = new_ui(Some(13));
     let want = ui.text_width(Some(13), "Artist") ;
-    let look = Look { font: Font { size: 13, ..Font::BODY }, text: color::black(), ..Look::NONE };
+    let look = Look { font: Font { size: 13, ..Font::BODY }, text: Rgba::BLACK, ..Look::NONE };
     for (wrap, flags) in [(false, Flags::NONE), (true, Flags::NONE), (false, Flags::FIT_TEXT), (true, Flags::FIT_TEXT), (false, Flags::FIT_TEXT_PIXEL)] {
         let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
             let row = ui.node("row".into(), Node { axis: Axis::Row, wrap, w: Size::Px(300.0), h: Size::Fit, ..Node::DEFAULT });
@@ -184,7 +184,7 @@ pub fn layout_baseline_wrapped() {
         let saved = ui.enter(&p);
         let mut out = vec![];
         for (i, size) in sizes.into_iter().enumerate() {
-            let n = ui.node_ref(&format!("t{i}"), &Node { w: Size::Px(45.0), h: Size::Px(size as f32 + 4.0), look: Look { font: Font { size, ..Font::BODY }, text: color::black(), ..Look::NONE }, ..Node::DEFAULT });
+            let n = ui.node_ref(&format!("t{i}"), &Node { w: Size::Px(45.0), h: Size::Px(size as f32 + 4.0), look: Look { font: Font { size, ..Font::BODY }, text: Rgba::BLACK, ..Look::NONE }, ..Node::DEFAULT });
             ui.text(&n, "Ag");
             out.push(n);
         }
@@ -291,7 +291,7 @@ pub fn layout_grid_spans() {
 /// A stack overlaps its children and paints them in z order.
 pub fn layout_stack_order() {
     let mut ui = new_ui(None);
-    let (red, blue) = (color::rgb(200, 0, 0), color::rgb(0, 0, 200));
+    let (red, blue) = (Rgba::rgb(200, 0, 0), Rgba::rgb(0, 0, 200));
     let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
         let p = ui.node("p".into(), Node { w: Size::Px(100.0), h: Size::Px(60.0), axis: Axis::Stack, justify: Justify::Center, align: Align::End, ..Node::DEFAULT });
         let saved = ui.enter(&p);
@@ -303,7 +303,7 @@ pub fn layout_stack_order() {
     eq(r[0], 30.0, 40.0, 40.0, 20.0, "centred across, at the end down");
     eq(r[1], 0.0, 0.0, 100.0, 60.0, "a Grow child fills the stack");
     let colors: Vec<[u8; 4]> = ui.output().draw[0].instances.iter().map(|i| i.color).collect();
-    let first = |c: color::T| colors.iter().position(|k| *k == [c.r as u8, c.g as u8, c.b as u8, 255]).unwrap();
+    let first = |c: Rgba| colors.iter().position(|k| *k == [c.r as u8, c.g as u8, c.b as u8, 255]).unwrap();
     check(first(blue) < first(red), "the higher z painted first");
     ui.destroy();
 }
@@ -311,7 +311,7 @@ pub fn layout_stack_order() {
 /// A popup by an anchor flips at each window edge and stays inside it.
 pub fn layout_anchored_flip() {
     let bounds = Rect::new(0.0, 0.0, 320.0, 240.0);
-    let p = |side: Side| Placement { side, align: Align::Start, gap: 2.0, margin: 4.0, flip: true };
+    let p = |side: Side| Placement { side, align: Along::Start, gap: 2.0, margin: 4.0, flip: true };
     let size = (100.0, 50.0);
     eq(place_anchored(Rect::new(10.0, 10.0, 30.0, 20.0), size, p(Side::Below), bounds), 10.0, 32.0, 100.0, 50.0, "below");
     eq(place_anchored(Rect::new(10.0, 200.0, 30.0, 20.0), size, p(Side::Below), bounds), 10.0, 148.0, 100.0, 50.0, "bottom edge flips above");
@@ -679,7 +679,7 @@ pub fn stress(ui: &mut Ui, groups: usize) {
     ui.leave(inner);
     for g in 0..groups {
         let mode = g % 6;
-        let look = Look { fill: color::rgb(40 + (g % 7) as i64 * 20, 90, 140), text: color::black(), ..Look::NONE };
+        let look = Look { fill: Rgba::rgb(40 + (g % 7) as u8 * 20, 90, 140), text: Rgba::BLACK, ..Look::NONE };
         let n = match mode {
             0 => Node { axis: Axis::Row, justify: JUSTIFY[g / 5 % 6], align: ALIGN[g / 5 % 5], gap: 1.0, padding: Edges { l: 1.0, t: 2.0, r: 3.0, b: 4.0 }, ..px(110.0, 110.0) },
             1 => Node { axis: Axis::Row, wrap: true, gap: 2.0, row_gap: 1.0, align: Align::Baseline, ..px(110.0, 110.0) },
@@ -736,9 +736,9 @@ pub fn stress(ui: &mut Ui, groups: usize) {
 /// An anchored popup at the window's bottom edge (built outside the cached views: a popup at the
 /// root rebuilds the view that builds it).
 pub fn stress_popup(ui: &mut Ui) {
-    let popup = Placement { side: Side::Below, align: Align::Start, gap: 2.0, margin: 4.0, flip: true };
+    let popup = Placement { side: Side::Below, align: Along::Start, gap: 2.0, margin: 4.0, flip: true };
     ui.anchored("stress-pop", Rect::new(2300.0, 2390.0, 40.0, 20.0), &pxui_core::ui::Overlay::DEFAULT.place(popup), &mut |ui| {
-        ui.node("pop-body".into(), Node { look: Look { fill: color::white(), ..Look::NONE }, ..px(120.0, 60.0) });
+        ui.node("pop-body".into(), Node { look: Look { fill: Rgba::WHITE, ..Look::NONE }, ..px(120.0, 60.0) });
         ui.node("pop-line".into(), Node { w: Size::Grow, h: Size::Px(1.0), ..Node::DEFAULT });
     });
 }

@@ -174,7 +174,7 @@ impl Ui {
                 w, h, padding: [p.l, p.t, p.r, p.b], states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
                 key: as_str(key), text: as_str(text), name: as_str(button.name.unwrap_or("")), centered: button.centered as u8, reserved2: [0; 7],
                 has_label: button.label.is_some() as u8, axis: button.axis.map_or(0, |a| a as u8 + 1),
-                content_align: match button.content_align { None => 0, Some(pxui_types::layout::Align::Start) => 1, Some(pxui_types::layout::Align::End) => 3, Some(_) => 2 }, focus_on_click: button.focus_on_click as u8,
+                content_align: match button.content_align { None => 0, Some(pxui_types::layout::Along::Start) => 1, Some(pxui_types::layout::Along::Center) => 2, Some(pxui_types::layout::Along::End) => 3 }, focus_on_click: button.focus_on_click as u8,
                 gap: button.gap, label: button.label.as_ref().map(pxui_types::ffi::PxuiLabelStyle::from).unwrap_or_default(), label_box: button.label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
             };
             let build = if content.is_some() { Some(button_build as extern "C" fn(*mut c_void, *mut c_void, *const pxui_types::ffi::PxuiStateDesc)) } else { None };

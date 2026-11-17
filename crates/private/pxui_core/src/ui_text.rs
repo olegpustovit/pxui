@@ -7,7 +7,6 @@
 //! Command-A/C/X/V select all, copy, cut and paste, and Command-Z, Shift-Command-Z (or Command-Y)
 //! undo and redo the focused text.
 use crate::bodies::{body_of, in_body, in_item, MenuRowConfig, TextFieldConfig};
-use crate::theme;
 use crate::ui_core::*;
 use crate::ui_kit::*;
 pub use crate::opts::{Language, PickerOpts, TextAreaOpts, ValueFieldOpts};
@@ -16,7 +15,7 @@ pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, li
 pub use pxui_types::ui::PickRows;
 use pxui_types::ui::Key as NodeKey;
 use input::{Event, Key, MouseButton};
-use crate::geom::{color, Rgba as Color};
+use crate::geom::Rgba;
 use std::rc::Rc;
 
 pub fn previous_utf8(text: &str, index: usize) -> usize {
@@ -589,7 +588,7 @@ pub fn paint_text_edit(
     size: Option<i64>,
     right: bool,
     inset: f32,
-    marks: Option<(Color, Color)>,
+    marks: Option<(Rgba, Rgba)>,
     control: IRect,
     y: i64,
     composition: &str,
@@ -599,12 +598,12 @@ pub fn paint_text_edit(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Color,Color)>,control:IRect,y:i64,composition:&str,text:&str,caret:usize,anchor:usize) {
+fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,marks:Option<(Rgba,Rgba)>,control:IRect,y:i64,composition:&str,text:&str,caret:usize,anchor:usize) {
     let (cx, cy, cw, ch) = control;
     // the selection and caret colours (the field look's); `None` hides the caret
     let (tint, caret_color) = match marks {
         Some((selection, caret)) => (selection, Some(caret)),
-        None => (theme::tint(&paint.theme), None),
+        None => (paint.theme.tint(), None),
     };
     let composing = !composition.is_empty();
     let (start,end) = if composing {(caret.min(anchor),caret.max(anchor))} else {(caret,caret)};
@@ -634,7 +633,7 @@ fn paint_text_edit_ref(paint:&mut Paint,size:Option<i64>,right:bool,inset:f32,ma
     let caret_x = text_x + caret_width;
     paint.input_region(caret_x - cx as f32, cx as f32, cy as f32, cw as f32, ch as f32);
     let previous_clip = paint.clip_rect;
-    paint.clip_rect = intersect(previous_clip, Rect::new(cx as f32, cy as f32, cw as f32, ch as f32));
+    paint.clip_rect = previous_clip.intersect(Rect::new(cx as f32, cy as f32, cw as f32, ch as f32));
     if !composing && caret != anchor {
         let (start, stop) = (caret.min(anchor),caret.max(anchor));
         paint.selection_fill(size,&text,(start,stop),(text_x,cy as f32+0.5),1.max(ch-2) as f32,tint);
@@ -730,7 +729,7 @@ type AreaMessage = (i64, Option<(i64, i64)>, String);
 pub(crate) struct AreaCacheEntry {
     key: i64,
     messages: Rc<Vec<AreaMessage>>,
-    chips: Rc<Vec<(i64, i64, Color)>>,
+    chips: Rc<Vec<(i64, i64, Rgba)>>,
     spans: Rc<Vec<(i64, i64)>>,
     errors: Rc<Vec<i64>>,
     rows: Option<Rows>,
@@ -741,7 +740,7 @@ const AREA_CACHE: usize = 16;
 /// A text area's painted data, shared with its cache entry.
 struct AreaData {
     messages: Rc<Vec<AreaMessage>>,
-    chips: Rc<Vec<(i64, i64, Color)>>,
+    chips: Rc<Vec<(i64, i64, Rgba)>>,
     spans: Rc<Vec<(i64, i64)>>,
     errors: Rc<Vec<i64>>,
 }
@@ -937,7 +936,7 @@ impl Ui {
 
     /// A language's colours for a text, kept like its rows: one list a pane on screen. A theme is
     /// part of the colours. Least recently used first out past `set_text_panes`.
-    pub fn text_colors(&mut self, language: &Language, text: &str) -> Rc<Vec<(i64, i64, Color)>> {
+    pub fn text_colors(&mut self, language: &Language, text: &str) -> Rc<Vec<(i64, i64, Rgba)>> {
         let theme = self.tokens();
         if let Some(k) = self.text_colors_seen.iter().position(|(seen, known, _)| *seen == theme && known == text) {
             self.text_colors_seen[..=k].rotate_right(1);
@@ -1072,10 +1071,10 @@ impl Ui {
 }
 
 struct AreaPaint {
-    colors: Option<Rc<Vec<(i64, i64, Color)>>>,
+    colors: Option<Rc<Vec<(i64, i64, Rgba)>>>,
     composition: String,
     messages: Rc<Vec<AreaMessage>>,
-    chips: Rc<Vec<(i64, i64, Color)>>,
+    chips: Rc<Vec<(i64, i64, Rgba)>>,
     hovered_number: Option<(usize, usize)>,
     scrubbing: bool,
     matched: Option<(usize, usize)>,
@@ -1121,8 +1120,8 @@ impl AreaPaint {
         let width = |paint: &mut Paint, t: &str| paint.text_width(None, t);
         // where the caret before byte `i` of the row `ls..le` sits, from the row's start
         let at = |paint: &mut Paint, ls: usize, le: usize, i: usize| paint.caret_x(None, &final_text[ls..le], i.min(le) - ls);
-        let clip = |paint: &mut Paint, x: f32, w: f32| paint.clip_rect = intersect(previous, Rect::new(x, by, w, bh));
-        let band = |paint: &mut Paint, line: usize, start: usize, stop: usize, color: Color, y: f32| {
+        let clip = |paint: &mut Paint, x: f32, w: f32| paint.clip_rect = previous.intersect(Rect::new(x, by, w, bh));
+        let band = |paint: &mut Paint, line: usize, start: usize, stop: usize, color: Rgba, y: f32| {
             let ls = start_of(rows, line);
             let le = stop_of(rows, line);
             // a selection runs on past the end of a row that ends a line
@@ -1137,7 +1136,7 @@ impl AreaPaint {
         };
         // the colours are sorted and the rows come in order: one walk of them, whatever the rows
         let mut colors_ahead = 0usize;
-        let colors: &[(i64, i64, Color)] = self.colors.as_deref().map_or(&[], |colors| colors.as_slice());
+        let colors: &[(i64, i64, Rgba)] = self.colors.as_deref().map_or(&[], |colors| colors.as_slice());
         let mut line = first;
         while line <= last {
             let lu = line as usize;
@@ -1149,25 +1148,25 @@ impl AreaPaint {
             let wrong = self.errors.contains(&(logical as i64 + 1));
             let current = self.focused && lu == caret_line;
             if wrong {
-                paint.fill(bx, y, bw, row, color::with_alpha(theme::invalid(), 18));
+                paint.fill(bx, y, bw, row, theme.invalid.with_alpha(18));
             } else if current {
-                paint.fill(bx, y, bw, row, theme::faint_border(&theme));
+                paint.fill(bx, y, bw, row, theme.faint_border());
             }
             if starts_line {
                 let number = (logical + 1).to_string();
                 let number_x = bx + gutter - 10.0 - paint.text_width(Some(small), &number);
                 if wrong {
-                    paint.fill(number_x - 10.0, y + row / 2.0 - 3.0, 6.0, 6.0, theme::invalid());
+                    paint.fill(number_x - 10.0, y + row / 2.0 - 3.0, 6.0, 6.0, theme.invalid);
                 }
                 paint.text_s(
                     (number_x, text_y + 1.0),
                     small,
                     if wrong {
-                        theme::invalid()
+                        theme.invalid
                     } else if current {
                         theme.foreground
                     } else {
-                        theme::ink_3(&theme)
+                        theme.ink_3()
                     },
                     &number,
                 );
@@ -1203,7 +1202,7 @@ impl AreaPaint {
                         y + row - 4.0,
                         1.0f32.max(x1 - x0),
                         2.0,
-                        if self.scrubbing { theme.accent } else { color::with_alpha(theme.accent, 160) },
+                        if self.scrubbing { theme.accent } else { theme.accent.with_alpha(160) },
                     );
                 }
             }
@@ -1227,7 +1226,7 @@ impl AreaPaint {
                         let b = b.min(le);
                         let x0 = at(paint, ls, le, a);
                         let w1 = 1.0f32.max(at(paint, ls, le, b) - x0);
-                        paint.fill(text_x + x0, y + row - 3.0, w1, 1.0, theme::invalid());
+                        paint.fill(text_x + x0, y + row - 3.0, w1, 1.0, theme.invalid);
                     }
                 }
             }
@@ -1248,7 +1247,7 @@ impl AreaPaint {
                 }
                 let mut pos = ls;
                 let mut k = colors_ahead;
-                let run = |paint: &mut Paint, a: usize, b: usize, c: Color| {
+                let run = |paint: &mut Paint, a: usize, b: usize, c: Rgba| {
                     if a < b {
                         let ax = text_x + at(paint, ls, le, a);
                         paint.text_c((ax, text_y), c, &final_text[a..b]);
@@ -1283,7 +1282,7 @@ impl AreaPaint {
                 }
                 let iw = width(paint, &" ".repeat(indent));
                 let ty = paint.text_top(Some(small), y, row);
-                paint.text_s((text_x + iw, ty), small, theme::invalid(), message);
+                paint.text_s((text_x + iw, ty), small, theme.invalid, message);
             }
         }
         clip(paint, bx + gutter, bw - gutter);
@@ -1696,7 +1695,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let area_look = this.theme().text_area.idle;
     let composition = this.composition().to_owned();
     // the language's colours and the bracket pair at the caret, once per frame
-    let colors: Option<Rc<Vec<(i64, i64, Color)>>> = match &language {
+    let colors: Option<Rc<Vec<(i64, i64, Rgba)>>> = match &language {
         Some(l) => Some(this.text_colors(l, &final_text)),
         None => None,
     };
@@ -1746,7 +1745,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         let anchor = text_x0 + this.caret_x(None, &final_text[ls..le], index.min(le) - ls);
         let (view_w, view_h) = this.view_size();
         let line_top = by - offset + pad + slot_of(&notes, caret_line) as f32 * row;
-        let placement = Placement { side: Side::Below, align: Align::Start, gap: 0.0, margin: 8.0, flip: true };
+        let placement = Placement { side: Side::Below, align: Along::Start, gap: 0.0, margin: 8.0, flip: true };
         let r = place_anchored(Rect::new(anchor - 8.0, line_top, 0.0, row), (*width, *height), placement, Rect::new(0.0, 0.0, view_w, view_h));
         this.set_at(container, (r.x, r.y));
         let selected = st.selected;
@@ -2083,7 +2082,7 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
 fn numeric_editor_body(this: &mut Ui, p: &NumParams, accept: &dyn Fn(&str) -> bool, row: &UiBox, signal: &Signal, keys: &[(Event, Vec<Key>)], current: &dyn Fn() -> String, parse: &dyn Fn(&str) -> Option<String>) -> (Option<String>, bool) {
     let bounds = ints(this.rect(row));
     let control = p.control.unwrap_or_else(|| value_control_at(bounds, this.space(2) as i64));
-    let inside_control = |point: (f32, f32)| contains(floats(control), point);
+    let inside_control = |point: (f32, f32)| floats(control).contains(point);
     let editing = this.text_state(row);
     let state = this.state(row, 1);
     match editing {
@@ -2403,7 +2402,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
         let sub_width = view_w.min(ui.menu_measure(0.0, sub, false, swatch_pad, key_size));
         let sub_height = height_of(sub);
         // beside the menu, overlapping it by a point, level with its row; left when no room right
-        let beside = Placement { side: Side::Right, align: Align::Start, gap: -1.0, margin: 0.0, flip: true };
+        let beside = Placement { side: Side::Right, align: Along::Start, gap: -1.0, margin: 0.0, flip: true };
         place_anchored(Rect::new(x, row_top(row) - pad - 1.0, width, 0.0), (sub_width, sub_height), beside, bounds)
     };
     // the rows of the submenus are numbered after those of this menu, in order

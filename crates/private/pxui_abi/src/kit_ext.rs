@@ -6,7 +6,7 @@ use crate::text_inputs::TextValid;
 use crate::trusted;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui::{Align, Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, State, States, Ui};
+use pxui_core::ui::{Along, Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, State, States, Ui};
 use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonBuild, PxuiButtonDesc, PxuiIconButtonDesc, PxuiStateDesc, PxuiResponse, PxuiSegmentedDesc, PxuiSegmentedResult, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
@@ -70,7 +70,7 @@ unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Opt
     let (Some(key), Some(text), Some(name)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid button looks") } };
     let axis = match d.axis { 0 => Some(None), 1 => Some(Some(Axis::Row)), 2 => Some(Some(Axis::Column)), 3 => Some(Some(Axis::Stack)), _ => None };
-    let content_align = match d.content_align { 0 => Some(None), 1 => Some(Some(Align::Start)), 2 => Some(Some(Align::Center)), 3 => Some(Some(Align::End)), _ => None };
+    let content_align = match d.content_align { 0 => Some(None), 1 => Some(Some(Along::Start)), 2 => Some(Some(Along::Center)), 3 => Some(Some(Along::End)), _ => None };
     let (Some(axis), Some(content_align)) = (axis, content_align) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     if d.has_label > 1 || d.focus_on_click > 1 { return unsafe { fail(ui, "invalid button descriptor") }; }
     let label = if grown && d.has_label == 1 {

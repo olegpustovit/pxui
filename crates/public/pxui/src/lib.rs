@@ -578,7 +578,6 @@ impl Ui {
         let found=unsafe {sys::pxui_ui_box_of_a11y(self.0.as_ptr(),id,&mut out)};
         (found!=0).then_some(out)
     }
-    #[inline] pub fn key_of(seed:i64,label:&str)->i64{pxui_types::ui::key_of(seed,label)}
     #[inline] #[track_caller] pub fn text(&mut self,box_:&PxuiBox,value:&str) {check(self, unsafe{sys::pxui_ui_text(self.0.as_ptr(),box_,as_str(value))})}
 
     #[inline]
@@ -753,7 +752,7 @@ pub enum Feature {
     SwipeActions = pxui_types::feature::SWIPE_ACTIONS,
     /// Drag-to-dismiss (1.41).
     Dismiss = pxui_types::feature::DISMISS,
-    /// ABI 1.61: look colours that name colour tokens (`Color::token`).
+    /// ABI 1.61: look colours that name colour tokens (`Rgba::token`).
     LookTokens = pxui_types::feature::LOOK_TOKENS,
     /// ABI 1.61: `Icon::draw(f, word)` passes the word to the drawing.
     IconWord = pxui_types::feature::ICON_WORD,

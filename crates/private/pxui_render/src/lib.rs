@@ -40,7 +40,7 @@
 //!   kit strokes centre a border of width w on the edge: emit the rect grown by w/2 (radius + w/2).
 //! - Mask glyphs: colour with alpha × R8 coverage. Images: colour (tint) × RGBA texel, straight alpha.
 //!   uv are normalised (0..1) for both atlases. Sampling is nearest/clamp; an image with
-//!   [`flags::SMOOTH`] samples linear/clamp (a scaled picture: no texel ties between GPUs, no blocks).
+//!   [`flags::image::SMOOTH`] samples linear/clamp (a scaled picture: no texel ties between GPUs, no blocks).
 //!   At 1:1 on whole pixels a sample lands on a texel centre, where linear returns the texel.
 //!
 //! # Instance layout (64 bytes, little-endian; f16 = IEEE half bits, see [`f16`])
@@ -54,7 +54,7 @@
 //! | 40–47 | `radii` f16×4 | corners tl tr br bl       | image corners        | caster corners               | –                     | –                         | –                  |
 //! | 48–49 | `width` f16   | border width              | –                    | –                            | stroke width          | stroke width              | stroke width       |
 //! | 50    | `kind` u8     | see [`kind`]                                                                                                                              |||||||
-//! | 51    | `flags` u8    | bits 0–1 gradient (1 linear, 2 radial, 3 conic); bits 4–7 border sides [`flags::TOP`]… | image: [`flags::SMOOTH`] | [`flags::INNER`]           | [`flags::ROUND`] caps | [`flags::ROUND`] caps     | (always round)     |
+//! | 51    | `flags` u8    | bits 0–1 gradient (1 linear, 2 radial, 3 conic); bits 4–7 border sides [`flags::rect::TOP`]… | image: [`flags::image::SMOOTH`] | [`flags::shadow::INNER`]           | [`flags::stroke::ROUND`] caps | [`flags::stroke::ROUND`] caps     | (always round)     |
 //! | 52–53 | `view` u16    | index into the view table; 0 = identity                                                                                                   |||||||
 //! | 54–55 | `clip_radius` f16 | corner radius of `clip`                                                                                                               |||||||
 //! | 56–63 | `extra`       | gradient geometry f16×4   | –                    | offset x y, sigma, spread f16 | –                    | start, sweep f32 (radians, + = clockwise) | control x y f32 |
@@ -159,7 +159,7 @@ pub struct Painter {
     device: Device,
     pipeline: Pipeline,
     sampler: Sampler,
-    /// linear, for `flags::SMOOTH` images (scaled pictures); glyphs and the atlas stay nearest
+    /// linear, for `flags::image::SMOOTH` images (scaled pictures); glyphs and the atlas stay nearest
     smooth: Sampler,
     mask: Texture,
     color: Texture,

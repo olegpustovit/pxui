@@ -242,7 +242,7 @@ fn covered_glyph_damage_preserves_instances_and_uploads() {
         mem_sys::local_reset();
         ui.frame(&frame, &mut |ui| {
             ui.view("page", tick as u64, Size::Px(1000.0), Size::Px(1400.0), &mut |ui| {
-                let fill = pxui_core::geom::color::rgb(20 + variant as i64, 20, 20);
+                let fill = pxui_core::geom::Rgba::rgb(20 + variant as u8, 20, 20);
                 let node = ui.node("text".into(), Node { w: Size::Px(1000.0), h: Size::Px(1400.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT });
                 ui.canvas(&node, move |paint, _| {
                     for row in 0..100 {

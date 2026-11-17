@@ -807,7 +807,7 @@ pub fn window_pxui_frame_gate() {
             if ui.hovered_within(&b) && ui.hover_delay("gate") {
                 ui.tooltip_legacy("gate", "Tip");
             }
-            ui.draw(&b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, pxui_core::geom::color::white()));
+            ui.draw(&b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, pxui_core::geom::Rgba::WHITE));
         });
     };
     step(&mut ui, 0.0, vec![]);

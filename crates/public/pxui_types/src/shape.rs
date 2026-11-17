@@ -3,9 +3,9 @@
 //! `Shapes` (a push, the display density, the theme tokens and the clip) and get every shape from it, so the instances
 //! they produce are the same bytes.
 use crate::draw::Instance;
-use crate::geom::{color, Rect, Rgba as Color};
+use crate::geom::{Rgba, Rect};
 use crate::node::Dir;
-use crate::theme::{self, Tokens};
+use crate::theme::Tokens;
 
 /// The instance clip of `rect` as `[left, top, right, bottom]` whole points that cover it (edges rounded outward, clamped to `i16`).
 ///
@@ -21,7 +21,7 @@ pub fn clip_of(Rect { x, y, w, h }: Rect) -> [i16; 4] {
     [whole(x.floor()), whole(y.floor()), whole((x + w).ceil()), whole((y + h).ceil())]
 }
 
-fn rgba(c: Color) -> [u8; 4] {
+fn rgba(c: Rgba) -> [u8; 4] {
     [c.r, c.g, c.b, c.a]
 }
 
@@ -123,8 +123,8 @@ pub trait Shapes {
     }
 
     /// Bands `width` wide inside `r` on `sides` (0: all four, the stroke `frame_w` draws).
-    fn bands(&mut self, Rect { x, y, w, h }: Rect, width: f32, sides: u8, color: Color) {
-        use crate::draw::flags::{BOTTOM, LEFT, RIGHT, TOP};
+    fn bands(&mut self, Rect { x, y, w, h }: Rect, width: f32, sides: u8, color: Rgba) {
+        use crate::draw::flags::rect::{BOTTOM, LEFT, RIGHT, TOP};
         if sides & 0xf0 == 0 || sides & 0xf0 == 0xf0 {
             self.frame_w(x, y, w, h, width, color);
             return;
@@ -144,22 +144,22 @@ pub trait Shapes {
     }
 
     /// Square fills cover exactly the pixels of the equivalent triangle rectangle.
-    fn fill(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    fn fill(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
         if w > 0.0 && h > 0.0 {
             self.hard(x, y, x + w, y + h, rgba(color));
         }
     }
 
     /// An unsnapped fill with pixel-area coverage for axis-aligned rectangles.
-    fn fill_fractional(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    fn fill_fractional(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
         let rect = [x, y, x + w, y + h];
         if rect[2] > rect[0] && rect[3] > rect[1] && rect.iter().all(|v| v.is_finite()) {
-            self.push(Instance { flags: crate::draw::flags::AREA, ..Instance::rect(rect, rgba(color)) });
+            self.push(Instance { flags: crate::draw::flags::rect::AREA, ..Instance::rect(rect, rgba(color)) });
         }
     }
 
     /// A band of `width` centred on the rectangle's edges.
-    fn stroke_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) {
+    fn stroke_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Rgba) {
         if !(w > 0.0 && h > 0.0) {
             return;
         }
@@ -184,27 +184,27 @@ pub trait Shapes {
     }
 
     /// A one-point `stroke_w`.
-    fn stroke(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    fn stroke(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
         self.stroke_w(x, y, w, h, 1.0, color);
     }
 
     /// A border drawn inside its box, as CSS draws one: `stroke` centres its line on the
     /// rectangle's edge, so a box of whole points gets the line half a width in; the border then
     /// covers whole points.
-    fn frame_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) {
+    fn frame_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Rgba) {
         let half = width / 2.0;
         self.stroke_w(x + half, y + half, w - width, h - width, width, color);
     }
 
     /// A one-point `frame_w`.
-    fn frame(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    fn frame(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
         self.frame_w(x, y, w, h, 1.0, color);
     }
 
     /// A filled and/or stroked rectangle; with neither colour it fills white.
-    fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, fill: Option<Color>, stroke: Option<Color>) {
+    fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, fill: Option<Rgba>, stroke: Option<Rgba>) {
         let fill = match (fill, stroke) {
-            (None, None) => Some(color::white()),
+            (None, None) => Some(Rgba::WHITE),
             _ => fill,
         };
         if let Some(c) = fill {
@@ -216,7 +216,7 @@ pub trait Shapes {
     }
 
     /// Butt-capped; axis-aligned lines are exact rectangles.
-    fn line_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) {
+    fn line_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Rgba) {
         let (x0, y0) = from;
         let (x1, y1) = to;
         let half = width / 2.0;
@@ -230,12 +230,12 @@ pub trait Shapes {
     }
 
     /// A one-point `line_w`.
-    fn line(&mut self, from: (f32, f32), to: (f32, f32), color: Color) {
+    fn line(&mut self, from: (f32, f32), to: (f32, f32), color: Rgba) {
         self.line_w(from, to, 1.0, color);
     }
 
     /// One analytic filled triangle; degenerate, nonfinite or overflowing edges draw nothing.
-    fn triangle(&mut self,a:(f32,f32),b:(f32,f32),c:(f32,f32),color:Color) {
+    fn triangle(&mut self,a:(f32,f32),b:(f32,f32),c:(f32,f32),color:Rgba) {
         if [a.0,a.1,b.0,b.1,c.0,c.1].iter().any(|v|!v.is_finite()) {return;}
         let edges=[(b.0-a.0,b.1-a.1),(c.0-b.0,c.1-b.1),(a.0-c.0,a.1-c.1)];
         let area=edges[0].0*edges[2].1-edges[0].1*edges[2].0;
@@ -244,7 +244,7 @@ pub trait Shapes {
     }
 
     /// An unsnapped quadratic Bezier with round caps, written as one analytic instance.
-    fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Color) {
+    fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Rgba) {
         if width>0.0 && width<=65504.0 && [from.0,from.1,control.0,control.1,to.0,to.1].iter().all(|v|v.is_finite()) {
             self.push(Instance::curve([from.0,from.1],[control.0,control.1],[to.0,to.1],width,rgba(color)));
         }
@@ -252,7 +252,7 @@ pub trait Shapes {
 
     /// Four midpoint-matched quadratics approximate a cubic, without a tessellation buffer.
     // shortcut: four segments suit small icons, use adaptive splitting for large paths.
-    fn cubic(&mut self, points:[(f32,f32);4], width:f32, color:Color) {
+    fn cubic(&mut self, points:[(f32,f32);4], width:f32, color:Rgba) {
         if !(width>0.0 && width<=65504.0) || points.iter().any(|p|!p.0.is_finite() || !p.1.is_finite()) {return;}
         let at=|t:f32| {
             let s=1.0-t;
@@ -266,12 +266,12 @@ pub trait Shapes {
     }
 
     /// A disc with a one-point stroke centred on its edge.
-    fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Color>, stroke: Option<Color>) {
+    fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Rgba>, stroke: Option<Rgba>) {
         if !(radius > 0.0) {
             return;
         }
         let fill = match (fill, stroke) {
-            (None, None) => Some(color::white()),
+            (None, None) => Some(Rgba::WHITE),
             _ => fill,
         };
         let fill = fill.map(rgba).unwrap_or([0; 4]);
@@ -287,7 +287,7 @@ pub trait Shapes {
 
     /// `dot`-point squares every `spacing` points from `origin`, inside the rectangle: one instance
     /// (`kind::GRID`) whatever the number of dots.
-    fn grid(&mut self, x: f32, y: f32, w: f32, h: f32, origin: (f32, f32), spacing: f32, dot: f32, color: Color) {
+    fn grid(&mut self, x: f32, y: f32, w: f32, h: f32, origin: (f32, f32), spacing: f32, dot: f32, color: Rgba) {
         if !(w > 0.0 && h > 0.0 && spacing > 0.0) {
             return;
         }
@@ -299,7 +299,7 @@ pub trait Shapes {
 
     /// A chevron centred on `at`: its strokes span 7 x 3.5, which with the 1-point line is the
     /// sheet's 9 x 5.5 of ink.
-    fn chevron(&mut self, at: (f32, f32), direction: Dir, color: Color) {
+    fn chevron(&mut self, at: (f32, f32), direction: Dir, color: Rgba) {
         let (a, b) = match direction {
             Dir::Down => ((-3.5, -1.75), (3.5, -1.75)),
             Dir::Up => ((-3.5, 1.75), (3.5, 1.75)),
@@ -318,7 +318,7 @@ pub trait Shapes {
     }
 
     /// Selection: four corner brackets `offset` outside the rectangle.
-    fn brackets(&mut self, x: f32, y: f32, w: f32, h: f32, offset: f32, length: f32, width: f32, color: Color) {
+    fn brackets(&mut self, x: f32, y: f32, w: f32, h: f32, offset: f32, length: f32, width: f32, color: Rgba) {
         let x = x - offset;
         let y = y - offset;
         let w = w + 2.0 * offset;
@@ -342,7 +342,7 @@ pub trait Shapes {
     }
 
     /// A line of 4-point dashes every 7 points along `from` to `to`, `width` thick (nothing for a zero-length line).
-    fn dashed_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) {
+    fn dashed_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Rgba) {
         let (x0, y0) = from;
         let (x1, y1) = to;
         let length = (x1 - x0).hypot(y1 - y0);
@@ -355,12 +355,12 @@ pub trait Shapes {
     }
 
     /// A one-point `dashed_w`.
-    fn dashed(&mut self, from: (f32, f32), to: (f32, f32), color: Color) {
+    fn dashed(&mut self, from: (f32, f32), to: (f32, f32), color: Rgba) {
         self.dashed_w(from, to, 1.0, color);
     }
 
     /// 4 on, 3 off: a zone, a drop target.
-    fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
+    fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) {
         self.dashed((x, y), (x + w, y), color);
         self.dashed((x, y + h), (x + w, y + h), color);
         self.dashed((x, y), (x, y + h), color);
@@ -373,15 +373,15 @@ pub trait Shapes {
         let theme = self.theme();
         let (cx, cy) = at;
         if round {
-            self.circle((cx, cy), 5.5, Some(theme.input), Some(theme::border(&theme)));
+            self.circle((cx, cy), 5.5, Some(theme.input), Some(theme.border()));
             if on {
-                self.circle((cx, cy), 3.0, Some(theme::ink_2(&theme)), None);
+                self.circle((cx, cy), 3.0, Some(theme.ink_2()), None);
             }
         } else {
             self.fill(cx - 6.0, cy - 6.0, 12.0, 12.0, theme.input);
-            self.frame(cx - 6.0, cy - 6.0, 12.0, 12.0, theme::border(&theme));
+            self.frame(cx - 6.0, cy - 6.0, 12.0, 12.0, theme.border());
             if on {
-                self.fill(cx - 3.0, cy - 3.0, 6.0, 6.0, theme::ink_2(&theme));
+                self.fill(cx - 3.0, cy - 3.0, 6.0, 6.0, theme.ink_2());
             }
         }
     }

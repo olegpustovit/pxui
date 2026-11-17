@@ -69,6 +69,8 @@ typedef struct { uint32_t size,flags; PxuiStr source; } PxuiThemeSource;
 typedef struct { float l,t,r,b; } PxuiEdges;
 typedef struct { uint32_t kind; float value; float (*relative)(float); } PxuiSizeDesc;
 typedef struct { uint8_t has_anchor,reserved[3]; PxuiRect rect; uint32_t side,align; float gap,margin; uint8_t flip,reserved_tail[3]; } PxuiAnchorDesc;
+/* PxuiAnchorDesc.align and PxuiPlacement.align: PXUI_ALIGN_START, _CENTER or _END. STRETCH and BASELINE are accepted for 1.x and align
+   as START; 2.0 refuses them. */
 typedef struct { uint16_t family,weight; int64_t size; float tracking; uint8_t caps,reserved[3]; } PxuiFontDesc;
 typedef struct { PxuiColor color; float offset[2],blur,spread; uint8_t inner,reserved[3]; } PxuiShadowDesc;
 typedef struct { PxuiColor color; float width; uint32_t sides; } PxuiRingDesc;

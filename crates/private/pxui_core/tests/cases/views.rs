@@ -1,7 +1,7 @@
 //! Hybrid views (layer 2): cached builds, retained runs, damage, view offsets and virtual lists.
 use crate::support::*;
 use input::Event;
-use pxui_core::geom::color;
+use pxui_core::geom::Rgba;
 use pxui_core::ui::*;
 use std::cell::Cell;
 
@@ -9,12 +9,12 @@ fn at(t: f64, events: Vec<Event>) -> input::frame::Frame {
     frame_at(vec![], 2.0, t, events)
 }
 
-fn chip(ui: &mut Ui, key: &str, fill: color::T, flags: Flags) -> Handle {
+fn chip(ui: &mut Ui, key: &str, fill: Rgba, flags: Flags) -> Handle {
     ui.node_ref(key, &Node { flags, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT })
 }
 
-const RED: color::T = color::T { r: 200, g: 0, b: 0, a: 255 };
-const BLUE: color::T = color::T { r: 0, g: 0, b: 200, a: 255 };
+const RED: Rgba = Rgba { r: 200, g: 0, b: 0, a: 255 };
+const BLUE: Rgba = Rgba { r: 0, g: 0, b: 200, a: 255 };
 
 /// The P5 exit criterion: bumping one view's revision runs only that view's build.
 pub fn window_pxui_view_rebuilds_one() {
@@ -246,7 +246,7 @@ pub fn window_pxui_view_damage() {
     for i in 0..ui.output().draw.len() {
         ui.drawn(i);
     }
-    (fill.set(color::rgb(0, 160, 0)), rev.set(2));
+    (fill.set(Rgba::rgb(0, 160, 0)), rev.set(2));
     ui.frame(&at(0.2, vec![]), &mut build);
     check(ui.output().damage == Some(Rect::new(0.0, 20.0, 40.0, 20.0)), &format!("one node's damage {:?}", ui.output().damage));
     check(ui.output().draw[0].dirty.len() == 1 && ui.output().draw[0].dirty[0].1 - ui.output().draw[0].dirty[0].0 == 1, &format!("dirty {:?}", ui.output().draw[0].dirty));
@@ -339,7 +339,7 @@ fn verify_failure(ui: &mut Ui, t: f64, build: &mut dyn FnMut(&mut Ui)) -> String
 /// look the build declares unlike the kept build's is named: under a running fade, as a stale state
 /// that starts one, and after a fade came to rest.
 pub fn window_pxui_view_verify_transition() {
-    const GREEN: color::T = color::T { r: 0, g: 200, b: 0, a: 255 };
+    const GREEN: Rgba = Rgba { r: 0, g: 200, b: 0, a: 255 };
     let (hot, fill, rev) = (Cell::new(false), Cell::new(BLUE), Cell::new(1u64));
     let mut build = |ui: &mut Ui| {
         ui.view("fade", rev.get(), Size::Px(100.0), Size::Px(50.0), &mut |ui| {
@@ -900,7 +900,7 @@ pub fn window_pxui_budget_zero_alloc() {
 pub fn window_pxui_view_resize_settles() {
     let mut ui = new_ui(None);
     let (parent_h, runs) = (Cell::new(100.0f32), Cell::new(0));
-    let ink = color::rgb(1, 2, 3);
+    let ink = Rgba::rgb(1, 2, 3);
     let mut build = |ui: &mut Ui| {
         let col = ui.node("col".into(), Node { w: Size::Px(200.0), h: Size::Px(parent_h.get()), ..Node::DEFAULT });
         ui.within(&col, &mut |ui| {
@@ -1006,7 +1006,7 @@ pub fn window_pxui_field_kept_drag() {
         fraction: current.parse::<f32>().ok(),
         slide: Some(Rc::new(|f: f32| cfmt::g(f64::from(f), 3))),
         kept_drag: true,
-        trail: Some(("mm".to_owned(), pxui_core::geom::color::white())),
+        trail: Some(("mm".to_owned(), pxui_core::geom::Rgba::WHITE)),
         ..ValueFieldOpts::default()
     };
     let mut build = |ui: &mut Ui| {
@@ -1099,7 +1099,7 @@ pub fn window_pxui_more_kept_views_reuse_compaction_scratch() {
             ui.view("outer", frame, Size::Px(200.0), Size::Px(200.0), &mut |ui| {
                 for (i, label) in labels.iter().enumerate() {
                     ui.view(label, if i < 3 { 1 } else { phase }, Size::Px(20.0), Size::Px(10.0), &mut |ui| {
-                        ui.node("tile".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                        ui.node("tile".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: Rgba::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
                     });
                 }
             });
@@ -1206,7 +1206,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
                             let view = ui.view("row", if fresh { tick as u64 } else { 1 }, Size::Grow, Size::Grow, &mut |ui| {
                                 let node = ui.node("tiles".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
                                 ui.canvas(&node, move |paint, rect| {
-                                    for tile in 0..TILES { paint.fill(rect.x + tile as f32 * 8.0, rect.y, 8.0, 20.0, color::rgb(20 + (row % 200) as i64, 10, 10)); }
+                                    for tile in 0..TILES { paint.fill(rect.x + tile as f32 * 8.0, rect.y, 8.0, 20.0, Rgba::rgb(20 + (row % 200) as u8, 10, 10)); }
                                 });
                             });
                             if row == first { ends[0] = Some(view); }

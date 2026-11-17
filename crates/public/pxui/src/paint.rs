@@ -6,7 +6,7 @@ use crate::composite::{defer_callback_panic, deferred};
 use crate::sys::PxuiPaint as RawPaint;
 use core::{ffi::c_void, marker::PhantomData, ptr::NonNull};
 use std::alloc::Layout;
-use pxui_types::{node::Dir, draw::Instance, ffi::{PxuiLabelStyle, PxuiPaintInfo}, Label, geom::{Rect, Rgba as Color, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, ui::text_top_for, PxuiBox, Span, Str, TextMetrics};
+use pxui_types::{node::Dir, draw::Instance, ffi::{PxuiLabelStyle, PxuiPaintInfo}, Label, geom::{Rect, Rgba}, shape::{clip_of, Shapes}, theme::Tokens, ui::text_top_for, PxuiBox, Span, Str, TextMetrics};
 use pxui_types::ffi::PxuiTextStyle;
 use crate::TextStyle;
 
@@ -249,29 +249,29 @@ impl<'a> Paint<'a> {
 // `pxui_types::shape`.
 #[allow(clippy::too_many_arguments)]
 impl Paint<'_> {
-    #[inline] pub fn fill(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::fill(self, x, y, w, h, color) }
+    #[inline] pub fn fill(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) { Shapes::fill(self, x, y, w, h, color) }
     /// Fractional bounds with analytic antialiasing; invalid/empty rectangles draw nothing.
-    #[inline] pub fn fill_fractional(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::fill_fractional(self, x, y, w, h, color) }
-    #[inline] pub fn stroke_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) { Shapes::stroke_w(self, x, y, w, h, width, color) }
-    #[inline] pub fn stroke(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::stroke(self, x, y, w, h, color) }
-    #[inline] pub fn frame_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Color) { Shapes::frame_w(self, x, y, w, h, width, color) }
-    #[inline] pub fn frame(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::frame(self, x, y, w, h, color) }
-    #[inline] pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, fill: Option<Color>, stroke: Option<Color>) { Shapes::rect(self, x, y, w, h, fill, stroke) }
-    #[inline] pub fn brackets(&mut self, x: f32, y: f32, w: f32, h: f32, offset: f32, length: f32, width: f32, color: Color) { Shapes::brackets(self, x, y, w, h, offset, length, width, color) }
-    #[inline] pub fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) { Shapes::dashed_rect(self, x, y, w, h, color) }
-    #[inline] pub fn line_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) { Shapes::line_w(self, from, to, width, color) }
-    #[inline] pub fn line(&mut self, from: (f32, f32), to: (f32, f32), color: Color) { Shapes::line(self, from, to, color) }
+    #[inline] pub fn fill_fractional(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) { Shapes::fill_fractional(self, x, y, w, h, color) }
+    #[inline] pub fn stroke_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Rgba) { Shapes::stroke_w(self, x, y, w, h, width, color) }
+    #[inline] pub fn stroke(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) { Shapes::stroke(self, x, y, w, h, color) }
+    #[inline] pub fn frame_w(&mut self, x: f32, y: f32, w: f32, h: f32, width: f32, color: Rgba) { Shapes::frame_w(self, x, y, w, h, width, color) }
+    #[inline] pub fn frame(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) { Shapes::frame(self, x, y, w, h, color) }
+    #[inline] pub fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, fill: Option<Rgba>, stroke: Option<Rgba>) { Shapes::rect(self, x, y, w, h, fill, stroke) }
+    #[inline] pub fn brackets(&mut self, x: f32, y: f32, w: f32, h: f32, offset: f32, length: f32, width: f32, color: Rgba) { Shapes::brackets(self, x, y, w, h, offset, length, width, color) }
+    #[inline] pub fn dashed_rect(&mut self, x: f32, y: f32, w: f32, h: f32, color: Rgba) { Shapes::dashed_rect(self, x, y, w, h, color) }
+    #[inline] pub fn line_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Rgba) { Shapes::line_w(self, from, to, width, color) }
+    #[inline] pub fn line(&mut self, from: (f32, f32), to: (f32, f32), color: Rgba) { Shapes::line(self, from, to, color) }
     /// An unsnapped filled triangle, as one analytic instance.
-    #[inline] pub fn triangle(&mut self,a:(f32,f32),b:(f32,f32),c:(f32,f32),color:Color) {Shapes::triangle(self,a,b,c,color)}
+    #[inline] pub fn triangle(&mut self,a:(f32,f32),b:(f32,f32),c:(f32,f32),color:Rgba) {Shapes::triangle(self,a,b,c,color)}
     /// An unsnapped analytic quadratic Bezier, with round caps.
-    #[inline] pub fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Color) { Shapes::curve(self,from,control,to,width,color) }
+    #[inline] pub fn curve(&mut self, from:(f32,f32), control:(f32,f32), to:(f32,f32), width:f32, color:Rgba) { Shapes::curve(self,from,control,to,width,color) }
     /// Four midpoint-matched quadratics approximate a cubic; no tessellation buffer is allocated.
-    #[inline] pub fn cubic(&mut self, points:[(f32,f32);4], width:f32, color:Color) { Shapes::cubic(self,points,width,color) }
-    #[inline] pub fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Color>, stroke: Option<Color>) { Shapes::circle(self, at, radius, fill, stroke) }
-    #[inline] pub fn grid(&mut self, x: f32, y: f32, w: f32, h: f32, origin: (f32, f32), spacing: f32, dot: f32, color: Color) { Shapes::grid(self, x, y, w, h, origin, spacing, dot, color) }
-    #[inline] pub fn chevron(&mut self, at: (f32, f32), direction: Dir, color: Color) { Shapes::chevron(self, at, direction, color) }
-    #[inline] pub fn dashed_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) { Shapes::dashed_w(self, from, to, width, color) }
-    #[inline] pub fn dashed(&mut self, from: (f32, f32), to: (f32, f32), color: Color) { Shapes::dashed(self, from, to, color) }
+    #[inline] pub fn cubic(&mut self, points:[(f32,f32);4], width:f32, color:Rgba) { Shapes::cubic(self,points,width,color) }
+    #[inline] pub fn circle(&mut self, at: (f32, f32), radius: f32, fill: Option<Rgba>, stroke: Option<Rgba>) { Shapes::circle(self, at, radius, fill, stroke) }
+    #[inline] pub fn grid(&mut self, x: f32, y: f32, w: f32, h: f32, origin: (f32, f32), spacing: f32, dot: f32, color: Rgba) { Shapes::grid(self, x, y, w, h, origin, spacing, dot, color) }
+    #[inline] pub fn chevron(&mut self, at: (f32, f32), direction: Dir, color: Rgba) { Shapes::chevron(self, at, direction, color) }
+    #[inline] pub fn dashed_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Rgba) { Shapes::dashed_w(self, from, to, width, color) }
+    #[inline] pub fn dashed(&mut self, from: (f32, f32), to: (f32, f32), color: Rgba) { Shapes::dashed(self, from, to, color) }
     #[inline] pub fn flag(&mut self, at: (f32, f32), round: bool, on: bool) { Shapes::flag(self, at, round, on) }
 
 }

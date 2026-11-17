@@ -1,6 +1,6 @@
 //! Retained nodes (layer 1): stable handles, direct patches between builds, and the frame arena.
 use crate::support::*;
-use pxui_core::geom::color;
+use pxui_core::geom::Rgba;
 use pxui_core::ui::*;
 use std::cell::Cell;
 use std::rc::Rc;
@@ -9,14 +9,14 @@ fn frame(ui: &mut Ui, t: f64, f: &mut dyn FnMut(&mut Ui)) {
     ui.frame(&frame_at(vec![], 2.0, t, vec![]), f);
 }
 
-fn chip(ui: &mut Ui, key: &str, text: &str, fill: color::T) -> Handle {
-    let look = Look { fill, text: color::black(), ..Look::NONE };
+fn chip(ui: &mut Ui, key: &str, text: &str, fill: Rgba) -> Handle {
+    let look = Look { fill, text: Rgba::BLACK, ..Look::NONE };
     let h = ui.node_ref(key, &Node { w: Size::Px(80.0), h: Size::Px(20.0), look, inset: Edges { l: 4.0, ..Edges::default() }, ..Node::DEFAULT });
     ui.text(&h, text);
     h
 }
 
-fn has_color(ui: &Ui, c: color::T) -> bool {
+fn has_color(ui: &Ui, c: Rgba) -> bool {
     ui.output().draw[0].instances.iter().any(|i| i.color == [c.r as u8, c.g as u8, c.b as u8, c.a as u8])
 }
 
@@ -35,18 +35,18 @@ pub fn window_pxui_current_build_box_rejects_forged_index() {
 pub fn window_pxui_node_handles() {
     let mut ui = new_ui(None);
     let (mut first, mut again) = (None, None);
-    frame(&mut ui, 0.0, &mut |ui| first = Some(chip(ui, "a", "one", color::white())));
-    frame(&mut ui, 0.1, &mut |ui| again = Some(chip(ui, "a", "one", color::white())));
+    frame(&mut ui, 0.0, &mut |ui| first = Some(chip(ui, "a", "one", Rgba::WHITE)));
+    frame(&mut ui, 0.1, &mut |ui| again = Some(chip(ui, "a", "one", Rgba::WHITE)));
     let (a, again) = (first.unwrap(), again.unwrap());
     check(a.box_slot == again.box_slot && a.generation == again.generation && ui.live(&a), "a node's handle changed across frames");
     // the owner stops declaring it: the handle is stale, and a new node in its slot is not reached
     frame(&mut ui, 0.2, &mut |_| {});
     check(!ui.live(&a) && !ui.patch_text(&a, "x") && ui.rect(&a).w == 0.0, "a stale handle reached its old slot");
     let mut b = None;
-    frame(&mut ui, 0.3, &mut |ui| b = Some(chip(ui, "b", "two", color::white())));
+    frame(&mut ui, 0.3, &mut |ui| b = Some(chip(ui, "b", "two", Rgba::WHITE)));
     let b = b.unwrap();
     check(b.box_slot == a.box_slot && !ui.live(&a) && ui.live(&b), "the slot was not reused under a new generation");
-    check(!ui.patch_fill(&a, color::rgb(1, 2, 3)) && !has_color(&ui, color::rgb(1, 2, 3)), "a stale patch reached the new node");
+    check(!ui.patch_fill(&a, Rgba::rgb(1, 2, 3)) && !has_color(&ui, Rgba::rgb(1, 2, 3)), "a stale patch reached the new node");
     check(!ui.signal_owned(&a).hovered, "a stale handle has a signal");
     ui.destroy();
 }
@@ -57,11 +57,11 @@ pub fn window_pxui_retired_rich_text_donates_before_slot_reassignment() {
     let mut retired = None;
     for phase in 0..3 {
         frame(&mut ui, phase as f64, &mut |ui| {
-            let target = chip(ui, "target", "label", color::white());
-            let live = chip(ui, "live", "keep", color::white());
+            let target = chip(ui, "target", "label", Rgba::WHITE);
+            let live = chip(ui, "live", "keep", Rgba::WHITE);
             check(ui.text_spans(&live, "keep", &style, &[]), "live rich text");
             if phase == 0 {
-                let donor = chip(ui, "donor", "label", color::white());
+                let donor = chip(ui, "donor", "label", Rgba::WHITE);
                 check(ui.text_spans(&donor, "label", &style, &[]), "donor rich text");
                 retired = Some(donor);
             } else if phase == 2 {
@@ -78,11 +78,11 @@ pub fn window_pxui_retired_rich_text_donates_before_slot_reassignment() {
 pub fn window_pxui_node_patch() {
     let mut ui = new_ui(None);
     let builds = Cell::new(0);
-    let (red, blue) = (color::rgb(200, 0, 0), color::rgb(0, 0, 200));
+    let (red, blue) = (Rgba::rgb(200, 0, 0), Rgba::rgb(0, 0, 200));
     let handles = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         builds.set(builds.get() + 1);
-        handles.set(Some((chip(ui, "clock", "12:00", red), chip(ui, "after", "x", color::white()))));
+        handles.set(Some((chip(ui, "clock", "12:00", red), chip(ui, "after", "x", Rgba::WHITE))));
     };
     frame(&mut ui, 0.0, &mut build);
     frame(&mut ui, 0.1, &mut build);
@@ -104,7 +104,7 @@ pub fn window_pxui_node_patch() {
     }
     check(ui.layer_rewrites().0 == shifts && ui.output().draw[0].instances.len() == len, "a growth within the room shifted the layer");
     check(ui.patch_text(&clock, "12:00:01"), "patch_text");
-    let green = color::rgb(0, 160, 0);
+    let green = Rgba::rgb(0, 160, 0);
     check(ui.patch_fill(&after, green) && has_color(&ui, green) && has_color(&ui, blue), "a shifted range missed its node");
     check(builds.get() == built && ui.draw_revision() > revision, "a patch ran the build or kept the revision");
     check(!ui.wants_frame(&[], 10.0), "a pure patch asked for a frame");
@@ -118,7 +118,7 @@ pub fn window_pxui_node_patch() {
 /// frame), is written after the paint.
 pub fn window_pxui_node_patch_nested_kept() {
     let mut ui = new_ui(None);
-    let (red, blue) = (color::rgb(200, 0, 0), color::rgb(0, 0, 200));
+    let (red, blue) = (Rgba::rgb(200, 0, 0), Rgba::rgb(0, 0, 200));
     let handle = Cell::new(None);
     let build = |ui: &mut Ui, patch: bool| {
         ui.view("outer", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
@@ -180,7 +180,7 @@ pub fn window_pxui_arena_first_frame() {
             ui.button("Quit");
             if let Some(key) = extra {
                 let h = ui.node_ref(key, &Node { h: Size::Px(10.0), ..Node::DEFAULT });
-                let ink = color::rgb(1, 2, 3);
+                let ink = Rgba::rgb(1, 2, 3);
                 ui.canvas(&h, move |paint, r| paint.fill(r.x, r.y, r.w, r.h, ink));
             }
         });
@@ -195,7 +195,7 @@ pub fn window_pxui_arena_first_frame() {
     let before = mem_sys::local_alloc_count();
     frame(&mut ui, 20.0, &mut |ui| kit(ui, Some("new")));
     let allocs = mem_sys::local_alloc_count() - before;
-    check(has_color(&ui, color::rgb(1, 2, 3)), "the new canvas did not paint");
+    check(has_color(&ui, Rgba::rgb(1, 2, 3)), "the new canvas did not paint");
     check(allocs == 0, &format!("the first frame of a new canvas node allocated {allocs} times"));
     ui.destroy();
 }
@@ -245,11 +245,11 @@ pub fn window_pxui_arena_over_aligned() {
             let h = ui.node("wide".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
             ui.canvas(&h, move |paint, r| {
                 assert_eq!(&ink as *const Wide as usize % 32, 0, "a capture lost its alignment");
-                paint.fill(r.x, r.y, r.w, r.h, color::rgb(ink.0[0] as i64, ink.0[1] as i64, ink.0[2] as i64));
+                paint.fill(r.x, r.y, r.w, r.h, Rgba::rgb(ink.0[0], ink.0[1], ink.0[2]));
             });
         });
     }
-    check(has_color(&ui, color::rgb(9, 8, 7)), "the over-aligned canvas did not paint");
+    check(has_color(&ui, Rgba::rgb(9, 8, 7)), "the over-aligned canvas did not paint");
     ui.destroy();
 }
 
@@ -258,7 +258,7 @@ pub fn window_pxui_paint_grid_one_instance() {
     let mut ui = new_ui(None);
     frame(&mut ui, 0.0, &mut |ui| {
         let h = ui.node("ground".into(), Node { w: Size::Px(600.0), h: Size::Px(400.0), ..Node::DEFAULT });
-        ui.canvas(&h, |paint, r| paint.grid(r.x, r.y, r.w, r.h, (0.0, 0.0), 24.0, 2.0, color::rgb(9, 9, 9)));
+        ui.canvas(&h, |paint, r| paint.grid(r.x, r.y, r.w, r.h, (0.0, 0.0), 24.0, 2.0, Rgba::rgb(9, 9, 9)));
     });
     let grids = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui_core::draw::kind::GRID).count();
     check(grids == 1, &format!("{grids} grid instances for 425 dots"));
@@ -279,7 +279,7 @@ pub fn window_pxui_node_patch_colour_glyph() {
             let h = ui.node("pic".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
             let img = img.clone();
             ui.canvas(&h, move |paint, r| paint.image(r.x, r.y, r.w, r.h, &img));
-            label.set(Some(chip(ui, "label", "plain", color::white())));
+            label.set(Some(chip(ui, "label", "plain", Rgba::WHITE)));
         });
     };
     frame(&mut ui, 0.0, &mut build);
@@ -300,7 +300,7 @@ pub fn window_pxui_node_line_patch() {
     let handle = Cell::new(None);
     let mut build = |ui: &mut Ui| {
         builds.set(builds.get() + 1);
-        let look = Look { text: color::rgb(0, 0, 200), ..Look::NONE };
+        let look = Look { text: Rgba::rgb(0, 0, 200), ..Look::NONE };
         handle.set(Some(ui.node("line".into(), Node { w: Size::Px(21.0), h: Size::Px(11.0), at: Some((10.0, 20.0)).into(), look, mark: Mark::Line { width: 1.0, rising: false }, ..Node::DEFAULT })));
     };
     frame(&mut ui, 0.0, &mut build);
@@ -319,20 +319,20 @@ pub fn window_pxui_node_patch_damage_accumulates() {
     let mut ui = new_ui(None);
     let handles = Cell::new(None);
     let mut build = |ui: &mut Ui| {
-        let top = chip(ui, "top", "a", color::white());
+        let top = chip(ui, "top", "a", Rgba::WHITE);
         ui.node("gap".into(), Node { w: Size::Px(80.0), h: Size::Px(150.0), ..Node::DEFAULT });
-        handles.set(Some((top, chip(ui, "bottom", "b", color::white()))));
+        handles.set(Some((top, chip(ui, "bottom", "b", Rgba::WHITE))));
     };
     frame(&mut ui, 0.0, &mut build);
     frame(&mut ui, 0.1, &mut build);
     let (top, bottom) = handles.get().unwrap();
     // one warm-up round sizes the patch scratch and dirty ranges, then a draw consumes its damage
-    check(ui.patch_fill(&top, color::rgb(7, 7, 7)) && ui.patch_fill(&bottom, color::rgb(8, 8, 8)), "warm-up patch");
+    check(ui.patch_fill(&top, Rgba::rgb(7, 7, 7)) && ui.patch_fill(&bottom, Rgba::rgb(8, 8, 8)), "warm-up patch");
     ui.drawn(0);
     check(ui.output().damage.is_none(), "a draw left damage");
     mem_sys::local_reset();
-    check(ui.patch_fill(&top, color::rgb(1, 2, 3)), "patch top");
-    check(ui.patch_fill(&bottom, color::rgb(4, 5, 6)), "patch bottom");
+    check(ui.patch_fill(&top, Rgba::rgb(1, 2, 3)), "patch top");
+    check(ui.patch_fill(&bottom, Rgba::rgb(4, 5, 6)), "patch bottom");
     let allocs = mem_sys::local_alloc_count();
     let d = ui.output().damage.expect("patches left no damage");
     let (t, b) = (ui.rect(&top), ui.rect(&bottom));

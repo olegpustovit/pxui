@@ -38,6 +38,20 @@ pub enum Align {
     Baseline,
 }
 
+/// Where a thing sits when stretching and baselines do not apply: a popup along its anchor's edge (`Placement::align`), a
+/// button's contents across its box (`Button::content_align`). Its numbers are those of `Align::Start`, `Center` and `End`.
+#[repr(u8)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Along {
+    #[default]
+    /// At the start (left, or top).
+    Start,
+    /// Centred.
+    Center,
+    /// At the end (right, or bottom).
+    End,
+}
+
 /// Row flow direction: `Rtl` mirrors flow children inside their parent (`Edges::l` is the start edge,
 /// `Justify::Start` the right). `at` offsets stay physical.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -81,7 +95,9 @@ pub struct Grid {
 impl Grid {
     /// Grid tracks from `'static` column and row lists (`rows` may be empty: rows are then added as children need them).
     ///
-    /// Only `'static` slices are accepted because the grid keeps their addresses. At most `MAX_TRACKS` columns are used.
+    /// Only `'static` slices are accepted: the engine keeps the node, and these addresses, past the call (layout runs after the
+    /// build, and an unchanged node is compared with the next frame's), so tracks are `const`s or statics (`const COLS: [Track; 2]`).
+    /// A C caller's tracks, which can be temporary, are copied by the library instead. At most `MAX_TRACKS` columns are used.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -210,16 +226,15 @@ pub enum Side {
     Left,
 }
 
-/// How a popup sits by its anchor: on `side`, `gap` points off it, `align`ed along it (Start, Center,
-/// End), kept `margin` points inside the bounds. With `flip` it opens on the opposite side when its
+/// How a popup sits by its anchor: on `side`, `gap` points off it, `align`ed along it, kept `margin` points inside the bounds. With `flip` it opens on the opposite side when its
 /// own does not fit and that one does; without, it is moved inside the bounds.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
     /// The side of the anchor the popup opens on.
     pub side: Side,
-    /// Alignment along the anchor's edge; only `Start`, `Center` and `End` differ (any other value aligns as `Start`).
-    pub align: Align,
+    /// Where the popup sits along the anchor's edge.
+    pub align: Along,
     /// Points between the anchor and the popup.
     pub gap: f32,
     /// Points the popup keeps inside the bounds.
@@ -232,7 +247,7 @@ impl Placement {
     /// Opens under the anchor, left edges aligned, no gap or margin, flipping above when it does not fit.
     pub const BELOW: Placement = Placement {
         side: Side::Below,
-        align: Align::Start,
+        align: Along::Start,
         gap: 0.0,
         margin: 0.0,
         flip: true,
@@ -247,6 +262,21 @@ pub struct Anchor {
     pub rect: Rect,
     /// How the node sits by it.
     pub placement: Placement,
+}
+
+impl Anchor {
+    /// A node placed by `rect` (window points) as `placement` says.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rect, layout::{Anchor, Placement}};
+    /// const BY: Anchor = Anchor::new(Rect::new(10.0, 10.0, 40.0, 20.0), Placement::BELOW);
+    /// assert_eq!(BY.placement, Placement::BELOW);
+    /// ```
+    #[inline]
+    pub const fn new(rect: Rect, placement: Placement) -> Anchor { Anchor { rect, placement } }
 }
 
 /// The rectangle a popup of `size` (width, height in points) takes by `anchor` inside `bounds` under placement `p`.
@@ -299,9 +329,9 @@ pub fn place_anchored(anchor: Rect, size: (f32, f32), p: Placement, bounds: Rect
         (anchor.y, anchor.h, h)
     };
     let cross = match p.align {
-        Align::Center => lo + (len - extent) / 2.0,
-        Align::End => lo + len - extent,
-        _ => lo,
+        Along::Start => lo,
+        Along::Center => lo + (len - extent) / 2.0,
+        Along::End => lo + len - extent,
     };
     let clamp = |v: f32, start: f32, room: f32, extent: f32| {
         v.min(start + room - m - extent).max(start + m)

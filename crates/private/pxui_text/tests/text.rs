@@ -117,11 +117,11 @@ fn wrap_ellipsis_and_max_lines() {
 #[test]
 fn ellipsis_modes_preserve_endpoints_and_independent_warm_caches() {
     use pxui_text::TextSpan;
-    use pxui_types::geom::color;
+    use pxui_types::geom::Rgba;
     let mut t=Text::new(&[&pragma()]);
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-    let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() },
-        TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:color::rgba(0,0,255,255),..Default::default() }];
+    let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() },
+        TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:Rgba::rgba(0,0,255,255),..Default::default() }];
     let modes=[Ellipsis::None,Ellipsis::End,Ellipsis::Middle,Ellipsis::Head];
     let mut expected=Vec::new();
     t.layout(100,source,&Style { size:20.0,..Default::default() },1000.0);
@@ -484,12 +484,12 @@ fn tabular_digits_shape_equal_advances_and_reuse_warm_glyphs() {
 #[test]
 fn inline_spans_validate_ranges_and_keep_colors_rules_and_warm_replay() {
     use pxui_text::{TextSpan,TextSpans};
-    use pxui_types::geom::color;
+    use pxui_types::geom::Rgba;
     let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
     let style=Style { size:20.0,..Default::default() };
     let content="ab CD ef";
     let span=TextSpan { start:3,end:5,weight:700,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
-        color:color::rgba(255,0,0,255),background:color::rgba(0,0,255,64),underline:color::rgba(0,255,0,255) };
+        color:Rgba::rgba(255,0,0,255),background:Rgba::rgba(0,0,255,64),underline:Rgba::rgba(0,255,0,255) };
     let metrics=text.layout_spans(1,content,&style,0.0,&[span]).unwrap();
     let glyphs=emitted(&mut text,1);
     assert_eq!(glyphs.iter().filter(|g|g.color==Some([255,0,0,255])).count(),2);
@@ -528,7 +528,7 @@ fn inline_spans_validate_ranges_and_keep_colors_rules_and_warm_replay() {
 #[test]
 fn inline_spans_split_ligature_color_without_reshaping_or_losing_marks() {
     use pxui_text::TextSpan;
-    use pxui_types::geom::color;
+    use pxui_types::geom::Rgba;
     const FONT:&[u8]=include_bytes!("../../../../assets/fonts/NotoSansArabic.ttf");
     let mut text=Text::new(&[FONT]);
     let style=Style { size:30.0,..Default::default() };
@@ -536,7 +536,7 @@ fn inline_spans_split_ligature_color_without_reshaping_or_losing_marks() {
     let original=emitted(&mut text,1);
     assert_eq!(original.len(),1,"fixture must form a ligature");
     let span=TextSpan { start:2,end:4,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
-        color:color::rgba(255,0,0,255),background:color::rgba(0,0,255,255),underline:color::rgba(0,255,0,255),..Default::default() };
+        color:Rgba::rgba(255,0,0,255),background:Rgba::rgba(0,0,255,255),underline:Rgba::rgba(0,255,0,255),..Default::default() };
     text.layout_spans(1,"لا",&style,0.0,&[span]).unwrap();
     let pieces=emitted(&mut text,1);
     assert_eq!(pieces.len(),2,"one bitmap clipped into inherited and span-coloured pieces");
@@ -561,11 +561,11 @@ fn inline_spans_split_ligature_color_without_reshaping_or_losing_marks() {
 #[test]
 fn inline_spans_use_source_offsets_across_crlf_and_wrapped_lines() {
     use pxui_text::TextSpan;
-    use pxui_types::geom::color;
+    use pxui_types::geom::Rgba;
     let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
     let content="ab\r\nββ cd ef";
     assert_eq!(&content.as_bytes()[2..4],&[13,10],"exercise actual CRLF offsets");
-    let span=TextSpan { start:4,end:content.len() as u32,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:color::rgba(255,0,0,255),underline:color::rgba(0,255,0,255),..Default::default() };
+    let span=TextSpan { start:4,end:content.len() as u32,flags:TextSpan::COLOR|TextSpan::UNDERLINE,color:Rgba::rgba(255,0,0,255),underline:Rgba::rgba(0,255,0,255),..Default::default() };
     let style=Style { size:20.0,wrap:Wrap::Word,..Default::default() };
     let metrics=text.layout_spans(1,content,&style,45.0,&[span]).unwrap();
     assert!(metrics.lines>=3);
@@ -579,14 +579,14 @@ fn inline_spans_use_source_offsets_across_crlf_and_wrapped_lines() {
 #[test]
 fn inline_spans_preserve_ellipsized_glyph_output() {
     use pxui_text::TextSpan;
-    use pxui_types::geom::color;
+    use pxui_types::geom::Rgba;
     let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
     let style=Style { ellipsis:Ellipsis::End,max_lines:1,size:20.0,..Default::default() };
     let content="a much longer label";
     text.layout(1,content,&style,60.0);
     let plain=emitted(&mut text,1);
     assert!(!plain.is_empty());
-    let span=TextSpan { start:0,end:content.len() as u32,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
+    let span=TextSpan { start:0,end:content.len() as u32,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
     text.layout_spans(1,content,&style,60.0,&[span]).unwrap();
     let rich=emitted(&mut text,1);
     assert_eq!(plain.len(),rich.len());
@@ -597,11 +597,11 @@ fn inline_spans_preserve_ellipsized_glyph_output() {
 #[test]
 fn inline_spans_keep_mixed_bidi_marks_disjoint() {
     use pxui_text::TextSpan;
-    use pxui_types::geom::color;
+    use pxui_types::geom::Rgba;
     const ARABIC:&[u8]=include_bytes!("../../../../assets/fonts/NotoSansArabic.ttf");
     let mut text=Text::new(&[ARABIC,pxui_text::PRAGMASEVKA]);
     let style=Style { size:20.0,..Default::default() };
-    let span=TextSpan { start:1,end:5,flags:TextSpan::BACKGROUND,background:color::rgba(0,0,255,64),..Default::default() };
+    let span=TextSpan { start:1,end:5,flags:TextSpan::BACKGROUND,background:Rgba::rgba(0,0,255,64),..Default::default() };
     text.layout_spans(1,"ab لا cd",&style,0.0,&[span]).unwrap();
     let mut marks=Vec::new();
     text.decorations(1,false,&mut |d|marks.push(d.rect));

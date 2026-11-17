@@ -3,7 +3,7 @@ use crate::support::*;
 use crate::ui_b::*;
 use input::{Event, Key, MouseButton, Platform};
 use pxui_core::ui::*;
-use pxui_core::geom::color;
+use pxui_core::geom::Rgba;
 use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
@@ -556,7 +556,7 @@ pub fn window_pxui_modal_1() {
 pub fn floating_roots_are_layers_with_their_roles() {
     let mut ui = ui11();
     let anchor = Rect::new(40.0, 30.0, 20.0, 10.0);
-    let placement = Placement { side: Side::Below, align: Align::Start, gap: 2.0, margin: 4.0, flip: true };
+    let placement = Placement { side: Side::Below, align: Along::Start, gap: 2.0, margin: 4.0, flip: true };
     for _ in 0..2 {
         ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| {
             ui.label("Base", pxui_core::ui::Label::DEFAULT);
@@ -661,7 +661,7 @@ pub fn window_pxui_modal_4() {
             ui.to_front(0, &front);
             let back = ui.box_("back", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
             for b in [&front, &back] {
-                ui.draw(b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, color::white()));
+                ui.draw(b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, Rgba::WHITE));
             }
             out = (ui.signal_owned(&front).clicked, ui.signal_owned(&back).clicked);
         });

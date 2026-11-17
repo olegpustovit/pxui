@@ -80,7 +80,7 @@ signed-distance fragment stage:
   top-left rule on half-integer edges at every integer density. Rounded
   rects, circles, and borders on them use an anti-aliased rounded-box SDF.
 - **Textured.** Glyphs and images sample one texture with nearest filtering; a picture drawn through
-  `Paint::image_fit` or `image_nine` carries `flags::SMOOTH` and samples linearly (a scaled image has
+  `Paint::image_fit` or `image_nine` carries `flags::image::SMOOTH` and samples linearly (a scaled image has
   no texel ties for GPUs to break differently, and at 1:1 on whole pixels a sample lands on a texel
   centre, so it equals nearest).
   Instances carry texel coordinates, normalized by the texture's size in the
@@ -797,7 +797,7 @@ theme in `rays_graph::scope_paint`: `zone_for`, `zone_fold`, `zone_sum`,
 `zone_fn` and `zone_let` (fill, edge, dashed; light and dark from the study's
 palette), and `ports` entries `text`, `fn` and `record` (a list draws its
 element colour on a stacked socket, a function a diamond, a record a wide
-pill). `theme::dark` tells the two palettes apart.
+pill). `Tokens::is_dark` tells the two palettes apart.
 rays_shell's `window_host_zones_parity` guards them, through the Rays renderer, with
 `crates/rays_shell/fixtures/kit_zones_{1,2}x.png`. The
 iteration selector is built from ordinary boxes; no widget was added to `Ui`.

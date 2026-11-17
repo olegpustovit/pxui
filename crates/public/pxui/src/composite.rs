@@ -1,5 +1,5 @@
 use core::{any::Any, ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
-use pxui_types::{PxuiBox, Size, Str, geom::Rect, layout::{Align, Placement, Side}, ffi::PxuiAnchorDesc};
+use pxui_types::{PxuiBox, Size, Str, geom::Rect, layout::{Along, Placement, Side}, ffi::PxuiAnchorDesc};
 #[cfg(not(feature = "static"))]
 use crate::node::size;
 #[cfg(not(feature = "static"))]
@@ -51,7 +51,7 @@ pub(crate) extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut c_
 
 fn encode_placement(value: Placement) -> PxuiAnchorDesc {
     let side = match value.side { Side::Below => 0, Side::Above => 1, Side::Right => 2, Side::Left => 3 };
-    let align = match value.align { Align::Start => 0, Align::Center => 1, Align::End => 2, Align::Stretch => 3, Align::Baseline => 4 };
+    let align = match value.align { Along::Start => 0, Along::Center => 1, Along::End => 2 };
     PxuiAnchorDesc { has_anchor: 1, reserved: [0; 3], rect: Rect::default(), side, align, gap: value.gap, margin: value.margin, flip: value.flip as u8, reserved_tail: [0; 3] }
 }
 
