@@ -26,8 +26,10 @@ pub fn part_key(owner: i64, part: Part) -> i64 {
     int_key(owner, PART_BASE + part.0 as i64)
 }
 
-/// The built-in toggle: the label on its row (with a `detail` line under it, in the theme's label look) and the switch (28 x 14 unless the
-/// caller sized it) 12 (or `inset`) from the row's end, the knob 3 in from its side and `switch_h - 6` square.
+/// The built-in toggle: the label on its row and the switch (28 x 14 unless the caller sized it) 12 (or `inset`) from the row's end, the
+/// knob 3 in from its side and `switch_h - 6` square. With a `label` style the title is line-box text in it (unset fields the toggle's
+/// look); with a `detail` the title sits over the detail, a Label node in the theme's label look wrapped to the room the switch leaves,
+/// and the row grows past its height to fit them (`space(1)` above and below).
 pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, track: Option<&States>, knob: Option<&States>, label: &str) {
     let t = this.theme();
     let on = State { checked: c.on, ..State::default() };
@@ -38,23 +40,40 @@ pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, track: Option<&Sta
     let side = if c.inset > 0.0 { c.inset } else { this.space(2) };
     this.set_look(&c.row, look, c.state);
     let mut top = ((rh - h) / 2.0).floor();
-    if c.detail.is_empty() {
+    if c.detail.is_empty() && c.label.is_none() {
         this.node_new(&c.row).inset = Edges { l: side, ..Edges::default() };
         this.text(&c.row, shown(label));
     } else {
-        // two lines in a growing column, the switch centred beside them
+        // the title (and the detail under it) in a growing column, the switch centred beside them
         this.a11y_name(&c.row, shown(label));
         let n = this.node_new(&c.row);
         (n.padding.l, n.align) = (side, Align::Center);
+        if !c.detail.is_empty() {
+            let pad = this.space(1);
+            let n = this.node_new(&c.row);
+            (n.h, n.min_h, n.padding.t, n.padding.b) = (Size::Fit, rh, pad, pad);
+        }
         top = 0.0;
         let ink = |l: Look| Look { text: l.text, font: l.font, ..Look::NONE };
         let column = this.node_keyed(int_key(c.row.box_key, 2), Node { w: Size::Grow, h: Size::Fit, axis: Axis::Column, shrink: 1.0, ..Node::DEFAULT });
         let inside = this.enter(&column);
-        for (at, (text, look)) in [(label, ink(look)), (c.detail, ink(this.theme().label.idle))].into_iter().enumerate() {
-            let size = look.font.points(this.font_size());
-            let width = this.text_width(Some(size), text).max(1.0);
-            let line = this.node_keyed(int_key(c.row.box_key, 3 + at as i64), Node { w: Size::Px(width), h: Size::Px((size + 4) as f32), shrink: 1.0, flags: Flags::FIT_TEXT, look, ..Node::DEFAULT });
-            this.text(&line, text);
+        match c.label {
+            None => {
+                let look = ink(look);
+                let size = look.font.points(this.font_size());
+                let width = this.text_width(Some(size), label).max(1.0);
+                let line = this.node_keyed(int_key(c.row.box_key, 3), Node { w: Size::Px(width), h: Size::Px((size + 4) as f32), shrink: 1.0, flags: Flags::FIT_TEXT, look, ..Node::DEFAULT });
+                this.text(&line, label);
+            }
+            Some(style) => { toggle_line(this, int_key(c.row.box_key, 3), &style, &ink(look), label); }
+        }
+        if !c.detail.is_empty() {
+            const DETAIL: Label = Label { wrap: TextStyle::WRAP_WORD, ..Label::DEFAULT };
+            let look = ink(this.theme().label.idle);
+            if let Some(line) = toggle_line(this, int_key(c.row.box_key, 4), &DETAIL, &look, c.detail) {
+                this.set_role(&line, Role::Label, 0);
+                this.a11y_name(&line, shown(c.detail));
+            }
         }
         this.leave(inside);
     }
@@ -67,6 +86,18 @@ pub(crate) fn default_toggle(this: &mut Ui, c: &ToggleConfig, track: Option<&Sta
     let k = this.placed(int_key(c.row.box_key, 1), (if c.on { w - 3.0 - d } else { 3.0 }, 3.0), Size::Px(d), d, knob, Edges::default(), "");
     this.node_new(&k).state = on;
     this.leave(inner);
+}
+
+/// One line-box text node of a toggle's column keyed `key`: `text` in `style`, its unset fields `look`'s (lines 1.2 times the size unless
+/// it sets them), as wide as the column unless it sets a width; `None` for a style that does not resolve.
+fn toggle_line(this: &mut Ui, key: i64, style: &Label, look: &Look, text: &str) -> Option<Handle> {
+    let token = style.color.map(|t| this.color(t.0));
+    let resolved = resolve_label(style, look, this.font_size(), 0.0, token)?;
+    let mut text_style = resolved.style;
+    if text_style.line_height <= 0.0 { text_style.line_height = text_style.size * 1.2; }
+    let line = this.node_keyed(key, Node { w: style.width.unwrap_or(Size::Grow), shrink: 1.0, look: Look { text: resolved.color, ..Look::NONE }, ..Node::DEFAULT });
+    this.text_line_box_caps(&line, text, &text_style, resolved.caps);
+    Some(line)
 }
 
 /// How `toggle_opts` varies the kit's toggle; `DEFAULT` is the plain `toggle`.
@@ -84,12 +115,15 @@ pub struct ToggleOpts {
     pub detail: &'static str,
     /// The label's and the switch's distance from the row's sides in points (the theme's second space step when `None`).
     pub inset: Option<f32>,
-    /// A press anywhere on the row toggles it (else only on the switch the body builds as `Part::HIT`).
+    /// A press anywhere on the row toggles it (else only on the switch the body builds as `Part::HIT`) and focuses it, so Enter or
+    /// Space then flips it as a row of a list does; a plain toggle is a Tab stop only.
     pub press_row: bool,
+    /// The title's text style; `None` is the theme's toggle font.
+    pub label: Option<Label>,
 }
 
 impl ToggleOpts {
-    pub const DEFAULT: ToggleOpts = ToggleOpts { enabled: true, row_h: None, switch: None, track: None, knob: None, detail: "", inset: None, press_row: false };
+    pub const DEFAULT: ToggleOpts = ToggleOpts { enabled: true, row_h: None, switch: None, track: None, knob: None, detail: "", inset: None, press_row: false, label: None };
 }
 
 /// How `button_opts` varies the kit's button; `DEFAULT` is the plain `button`.
@@ -638,12 +672,13 @@ impl Ui {
     /// otherwise content sets the height. Rows beyond the height or `max_height` use the shared
     /// elastic scroll. `window` lays inspector rows and heads out as a floating window's.
     pub fn panel(&mut self, opts: PanelOpts, label: &str, f: &mut dyn FnMut(&mut Ui)) {
-        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, label, f);
+        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, label, None, f);
     }
 
-    /// A sheet of `kind`: its node, then the body of that kind around the caller's content.
-    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, f: &mut dyn FnMut(&mut Ui)) {
+    /// A sheet of `kind`: its node (named `name`, the label when `None`), then the body of that kind around the caller's content.
+    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) {
         let (node, previous) = self.panel_enter(opts, label);
+        if let Some(name) = name { self.a11y_name(&node, name); }
         let c = PanelConfig { node };
         match kind {
             Sheet::Panel => in_body!(self, node.box_key, node, panel, default_panel(&c, label, f)),
@@ -940,7 +975,9 @@ impl Ui {
     /// paints on top and consumes underlying input, including its opening/dismissal frame. An
     /// `attached` popup (a submenu, built after the popup it belongs to) shares that popup's events
     /// and is never dismissed by itself. Returns whether it is open (and `f` ran).
-    pub fn popup_with_related(&mut self, opts: PopupOpts, at: (f32, f32), width: f32, height: f32, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
+    /// `name` is the sheet's accessible name, given before its body runs (`None`: the label).
+    #[allow(clippy::too_many_arguments)]
+    pub fn popup_with_related(&mut self, opts: PopupOpts, at: (f32, f32), width: f32, height: f32, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> bool {
         let (x, y) = at;
         let key = key_of(self.current_seed(), label);
         // Build a popup before the body it shields. Previous popups arbitrate in `route`; this also
@@ -984,7 +1021,7 @@ impl Ui {
         popts.look = opts.look;
         popts.max_height = opts.max_height;
         popts.padding = if opts.stroke.is_none() && opts.look.is_none() { 0 } else { 1 };
-        self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, f);
+        self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, f);
         if let Some(sheet) = self.box_of_key(key) {
             let modal = if opts.role == Role::Dialog { st::MODAL } else { 0 };
             self.set_role(&sheet, opts.role, modal);
@@ -1001,7 +1038,7 @@ impl Ui {
 
     pub fn popup(&mut self, stroke: Option<Color>, max_height: Option<f32>, dismiss_initial: bool, attached: bool, at: (f32, f32), width: f32, height: f32, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
         let opts = PopupOpts { stroke, look: None, max_height, dismiss_initial, attached, ..PopupOpts::default() };
-        self.popup_with_related(opts, at, width, height, label, f)
+        self.popup_with_related(opts, at, width, height, label, None, f)
     }
 
     /// A kit panel centered in the frame, outlined in the accent colour. Build it before the body
@@ -1022,7 +1059,7 @@ impl Ui {
         let y = content.y + (0.0f32.max((view_h - height) / 2.0)).round();
         let look = self.theme().modal.idle;
         let opts = PopupOpts { look: Some(look), max_height: Some(48.0f32.max(view_h - 32.0)), dismiss_initial: false, role: Role::Dialog, ..PopupOpts::default() };
-        self.popup_with_related(opts, (x, y), width, height, label, f)
+        self.popup_with_related(opts, (x, y), width, height, label, None, f)
     }
 
     /// A label: `text` in `style` through the label body, identity by its place among its siblings (every label has the one key
@@ -1168,7 +1205,9 @@ impl Ui {
     /// reports what happened to the row (a click flips `value`: the caller owns it).
     pub fn toggle_opts(&mut self, key: &str, text: &str, value: bool, opts: &ToggleOpts) -> Response {
         let enabled = opts.enabled && !self.scope_disabled();
-        let flags = if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY } else { Flags::BLOCKING | Flags::TAB_ONLY };
+        // a whole-row toggle takes the focus on a press, as a row does; the switch alone is a Tab stop, as a button is
+        let tab = if opts.press_row { Flags::NONE } else { Flags::TAB_ONLY };
+        let flags = if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | tab } else { Flags::BLOCKING | tab };
         let row_h = opts.row_h.unwrap_or(0.0);
         let h = if row_h > 0.0 { row_h } else { self.row_height() as f32 };
         self.require_building();
@@ -1180,7 +1219,7 @@ impl Ui {
         self.set_role(&row, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
         let (switch_w, switch_h) = opts.switch.unwrap_or((0.0, 0.0));
         let config = ToggleConfig { state: State { hovered: enabled && signal.hovered, disabled: !enabled, ..State::default() }, on: value, row, row_h, switch_w, switch_h,
-            inset: opts.inset.unwrap_or(0.0), press_row: opts.press_row, detail: opts.detail };
+            inset: opts.inset.unwrap_or(0.0), press_row: opts.press_row, detail: opts.detail, label: opts.label };
         in_body!(self, row.box_key, row, toggle, default_toggle(&config, opts.track.as_ref(), opts.knob.as_ref(), text));
         if !enabled { self.node_new(&row).state.disabled = true; }
         Response::of(&signal, self.focused(&row), row)

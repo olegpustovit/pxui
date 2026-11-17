@@ -88,11 +88,13 @@ export!(trusted pub unsafe fn pxui_ui_context_menu(
 
 // `PxuiMenuExtra` as ABI 1.0 had it: the fields before `row_h`.
 const MENU_EXTRA_V1: usize = 80;
+// `PxuiMenuExtra` as ABI 1.49 had it: the fields before `padding`.
+const MENU_EXTRA_V149: usize = 104;
 
 // Applies a menu's extras to its rows (shortcuts, swatches, destructive rows, marks, submenus) and options, borrowing the caller's
 // strings: false when a span, text or row is invalid. The submenus' rows go flat into `subs` first, then each opening row points
 // into it (`subs` does not grow after that).
-unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<'static>], subs: &mut Vec<MenuItem<'static>>, options: &mut Menu, marks: &mut bool) -> bool {
+unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<'static>], subs: &mut Vec<MenuItem<'static>>, options: &mut Menu<'static>, marks: &mut bool) -> bool {
     fn span<'a, T>(s: Slice<T>, max: usize) -> Option<&'a [T]> {
         if s.len > max || (s.len != 0 && s.ptr.is_null()) { return None; }
         Some(if s.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(s.ptr, s.len) } })
@@ -110,7 +112,7 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         item.danger = true;
     }
     // ABI 1.49: the row height and the marks per row
-    if size >= core::mem::size_of::<PxuiMenuExtra>() {
+    if size >= MENU_EXTRA_V149 {
         if !extra.row_h.is_finite() || extra.row_h < 0.0 { return false; }
         if extra.row_h > 0.0 { *options = options.row_h(extra.row_h); }
         if extra.max_rows > 0 { *options = options.max_rows(extra.max_rows as usize); }
@@ -118,6 +120,18 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
         if checked.len() > menu.len() || checked.iter().any(|mark| *mark > 2) { return false; }
         *marks = !checked.is_empty();
         for (item, mark) in menu.iter_mut().zip(checked) { item.checked = (*mark != 0).then_some(*mark == 2); }
+    }
+    // ABI 1.55: the padding, the sheet's name and the current choice per row
+    if size >= core::mem::size_of::<PxuiMenuExtra>() {
+        if !(0.0..=f32::MAX).contains(&extra.padding) || extra.has_name > 1 || extra.reserved2 != [0; 3] { return false; }
+        *options = options.padding(extra.padding);
+        if extra.has_name == 1 {
+            let Some(name) = (unsafe { checked(extra.name) }) else { return false };
+            *options = options.name(name);
+        }
+        let Some(selected) = span(extra.selected, MAX_ROWS) else { return false };
+        if selected.len() > menu.len() || selected.iter().any(|on| *on > 1) { return false; }
+        for (item, on) in menu.iter_mut().zip(selected) { item.selected = *on == 1; }
     }
     subs.clear();
     let mut at = [(0usize, 0usize, 0usize); 64];

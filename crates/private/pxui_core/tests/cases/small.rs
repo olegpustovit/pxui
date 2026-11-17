@@ -527,6 +527,7 @@ fn window_pxui_keyboard_signal_reuses_routing_storage() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("menu_padding_name_and_the_current_choice", menu_padding_name_and_the_current_choice),
     ("line_box_glyphs_keep_their_half_leading", line_box_glyphs_keep_their_half_leading),
     ("window_pxui_keyboard_signal_reuses_routing_storage", window_pxui_keyboard_signal_reuses_routing_storage),
     ("window_pxui_focused_text_field_warm_ime", window_pxui_focused_text_field_warm_ime),
@@ -568,4 +569,29 @@ fn line_box_glyphs_keep_their_half_leading() {
     // the em box centred in the 30-point box: the cap height of the golden face around its middle
     let top = natural[0][1];
     check((9.0..=12.0).contains(&top), &format!("centred glyph top {top}"));
+}
+
+/// `Menu::padding` moves the first row down and grows the sheet by twice the change; `Menu::name` names the sheet (none without, never the
+/// key); a `MenuItem::selected` row reads CHECKED and SELECTED and the built-in row shows the theme's `checked` menu look.
+fn menu_padding_name_and_the_current_choice() {
+    use pxui_core::a11y::state as st;
+    const ITEMS: [MenuItem; 2] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected()];
+    let mut ui = new_ui(None);
+    ui.set_a11y(true);
+    let seen = |ui: &mut Ui, menu: Menu<'static>| {
+        for _ in 0..2 { ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| { ui.menu("sizes".into(), (20.0, 20.0), &ITEMS, &menu); }); }
+        let tree = ui.output().a11y;
+        let sheet = *tree.nodes.iter().find(|n| n.role == Role::Menu).expect("the sheet");
+        let row = |name: &str| *tree.nodes.iter().find(|n| n.role == Role::MenuItem && tree.str(n.name) == name).expect("a row");
+        (tree.str(sheet.name).to_owned(), sheet.rect, row("4 GB"), row("8 GB"))
+    };
+    let (name, sheet, plain, current) = seen(&mut ui, Menu::DEFAULT);
+    check(name.is_empty(), &format!("an unnamed menu is named {name:?}"));
+    check(plain.states & (st::CHECKED | st::SELECTED) == 0 && current.states & (st::CHECKED | st::SELECTED) == st::CHECKED | st::SELECTED, "the current choice's states");
+    let b = ui.box_of_a11y(current.id).expect("the current row's node");
+    let checked = ui.theme().menu.checked;
+    check(ui.node_mut(&b).look == checked, "the built-in row shows the theme's checked menu look");
+    let (named, roomy, first, _) = seen(&mut ui, Menu::DEFAULT.padding(10.0).name("Cache size"));
+    check(named == "Cache size", &format!("the named menu is {named:?}"));
+    check(first.rect.y - plain.rect.y == 4.0 && roomy.h - sheet.h == 8.0, &format!("padding 10: rows {} -> {}, sheet {} -> {}", plain.rect.y, first.rect.y, sheet.h, roomy.h));
 }

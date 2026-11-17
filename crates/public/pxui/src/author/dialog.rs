@@ -154,6 +154,42 @@ mod tests {
         assert_eq!(click_button(&mut ui, "Save", &mut build), none, "a disabled part's press is ignored");
     }
 
+    /// A body that gives its parts their own accessibility: the title a Label, each button ENABLED (and DEFAULT on Return's), the last
+    /// one named apart from its label; the second button is left unnamed.
+    fn self_described(ui: &mut Ui, c: &PxuiDialogConfig) {
+        use crate::a11y::state;
+        let title = ui.part(Part::TITLE, Node { role: Role::Label, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+        ui.text(&title, crate::bodies::text_of(&c.title));
+        ui.slot(c.content);
+        for i in 0..c.buttons.len {
+            let a11y = state::ENABLED | if i as i64 == c.default_at { state::DEFAULT } else { 0 };
+            let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::BLOCKING, role: Role::Button, a11y, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            if i == 2 { ui.a11y_name(&n, "Delete the layer"); }
+            if i == 0 { ui.text(&n, "Cancel"); }
+        }
+    }
+
+    /// Behaviour adds the presses to a body's parts and never overwrites what the body set: its Label title stays a Label (no Heading),
+    /// its buttons keep their states (DEFAULT on Save) and their own name; a part the body left unnamed or without a role gets the kit's.
+    #[test]
+    fn a_registered_dialog_body_keeps_its_roles_states_and_names() {
+        use crate::a11y::state;
+        let mut ui = Ui::new().unwrap();
+        ui.set_a11y(true);
+        ui.register_dialog_body("described", self_described).expect("registered");
+        let text = "dialog.body = described";
+        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        SAVE.set(true);
+        let mut build = build_with;
+        for _ in 0..3 { ui.frame(&FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() }, &mut build).unwrap(); }
+        assert!(testing::find(&ui, Role::Label, "Delete layer").is_some() && testing::find(&ui, Role::Heading, "Delete layer").is_none(), "the body's Label title stays a Label");
+        let states = |ui: &Ui, name: &str| ui.a11y_nodes().iter().find(|n| n.is_role(Role::Button) && ui.a11y_name_of(n) == name).map(|n| n.states).unwrap_or_else(|| panic!("no button {name}"));
+        assert_ne!(states(&ui, "Save") & state::DEFAULT, 0, "the body's DEFAULT state stands on the unnamed Save, which behaviour named");
+        assert_eq!(states(&ui, "Cancel") & state::DEFAULT, 0);
+        assert!(testing::find(&ui, Role::Button, "Delete").is_none(), "the body's own name stands");
+        assert_eq!(click_button(&mut ui, "Delete the layer", &mut build), DialogResponse { chosen: Some(2), dismissed: false });
+    }
+
     thread_local! { static VARIANTS: RefCell<Vec<(&'static str, u16)>> = const { RefCell::new(Vec::new()) }; }
 
     fn variant_dialog(ui: &mut Ui, c: &PxuiDialogConfig) {

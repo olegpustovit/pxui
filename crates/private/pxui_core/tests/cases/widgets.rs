@@ -126,7 +126,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             let sp = ui.spinner("Spin");
             s.busy.push(sp);
             s.tab = ui.tabs("Tabs", &["Alpha", "Beta", "Gamma"], s.tab);
-            s.seg = ui.segmented("Mode", &["A", "B", "C"], s.seg);
+            s.seg = ui.segmented("Mode", &[Segment::new("A"), Segment::new("B"), Segment::new("C")], s.seg);
             s.drop = ui.dropdown("Pick", &NAMES, s.drop);
             let holder = ui.node("add-row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
             ui.within(&holder, &mut |ui| {

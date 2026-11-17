@@ -9,10 +9,11 @@ impl Ui {
     /// Enter on the focused row) and the menu has closed itself; Escape, focus loss or a press outside set `dismissed`. A disabled row
     /// is never chosen and empty text is a separator. Build it before the content it shields; it floats at the root. The menu is as wide
     /// as its longest row (`Menu::width` is the least). Rows with a submenu open it beside the menu; its rows are numbered after the
-    /// menu's own. Rows are drawn by the registered `context_menu` body.
+    /// menu's own. Rows are drawn by the registered `context_menu` body; a `MenuItem::selected` row reads as the current choice. The sheet
+    /// is named `Menu::name` (none without) and has `Menu::padding` above its first row and below its last.
     /// Allocates: never on a warm frame, except that rows with a submenu allocate per call.
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`) and is the menu's accessible name.
-    /// Panics: when the library refuses the arguments (outside a frame, a non-finite position or width).
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); it is never the accessible name (`Menu::name`).
+    /// Panics: when the library refuses the arguments (outside a frame, a non-finite position or width, a negative or non-finite padding).
     ///
     /// ```
     /// use pxui::ui::{Menu, MenuItem};
@@ -174,9 +175,14 @@ mod tests {
         let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
         let (shown, menu) = (Cell::new(true), Menu::DEFAULT.row_h(36.0).width(200.0));
         const LONG: [MenuItem; 40] = [MenuItem::new("Row"); 40];
+        const SIZES: [MenuItem; 2] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected()];
         let mut build = |ui: &mut Ui| {
             ui.label("Songs", crate::Label::DEFAULT);
-            if shown.get() { ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu); ui.menu("long-menu", (200.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(8)); }
+            if shown.get() {
+                ui.menu("song-menu", (10.0, 10.0), &ITEMS, &menu);
+                ui.menu("long-menu", (200.0, 10.0), &LONG, &Menu::DEFAULT.max_rows(8));
+                ui.menu("sizes", (100.0, 120.0), &SIZES, &Menu::DEFAULT.padding(10.0).name("Cache size"));
+            }
         };
         for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); }
         shown.set(false);
@@ -215,5 +221,42 @@ mod tests {
         let r = testing::find(&ui, Role::MenuItem, "Row 39").unwrap();
         testing::click(&mut ui, f64::from(r.x + 20.0), f64::from(r.y + 12.0), &mut build);
         assert_eq!(last.get().chosen, Some(39));
+    }
+
+    thread_local! { static CURRENT: RefCell<Vec<(String, u8, u8)>> = const { RefCell::new(Vec::new()) }; }
+
+    fn current_row(ui: &mut Ui, c: &PxuiMenuRowConfig) {
+        CURRENT.with(|seen| seen.borrow_mut().push((crate::bodies::text_of(&c.text).to_owned(), c.state.checked, c.selected)));
+        ui.text(&c.row, crate::bodies::text_of(&c.text));
+    }
+
+    /// A `selected` row reaches a registered row body as `state.checked` (apart from `checked`'s mark, `selected` in the record) and reads
+    /// CHECKED and SELECTED; the sheet is named `Menu::name`, never by its key, and `padding` moves the first row down by its change.
+    #[test]
+    fn a_registered_row_body_gets_the_current_choice_and_the_sheet_its_name() {
+        use crate::a11y::state;
+        const SIZES: [MenuItem; 3] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(), MenuItem::new("16 GB").checked(true)];
+        let mut ui = Ui::new().expect("library");
+        ui.set_a11y(true);
+        ui.register_context_menu_body("current", current_row).expect("row body");
+        let scoped = { let mut theme = crate::Theme::default(); theme.apply(&ui, "context_menu.body = current").expect("theme"); theme };
+        let menu = Cell::new(Menu::DEFAULT);
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.menu("cache-size-menu", (10.0, 10.0), &SIZES, &menu.get()); });
+        let run = |ui: &mut Ui, build: &mut dyn FnMut(&mut Ui)| for n in 0..3 { CURRENT.with(|s| s.borrow_mut().clear()); ui.frame(&FrameIn { width: 320.0, height: 240.0, time: n as f64, ..FrameIn::default() }, build).expect("frame"); };
+        run(&mut ui, &mut build);
+        let seen = CURRENT.with(|s| s.borrow().clone());
+        assert_eq!(seen, [("4 GB".to_owned(), 0, 0), ("8 GB".to_owned(), 1, 0), ("16 GB".to_owned(), 0, 1)], "state.checked is the current choice, selected the mark");
+        let states = |ui: &Ui, name: &str| ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == name).map(|n| n.states).expect("row");
+        assert_eq!(states(&ui, "8 GB") & (state::CHECKED | state::SELECTED), state::CHECKED | state::SELECTED);
+        assert_eq!(states(&ui, "4 GB") & (state::CHECKED | state::SELECTED), 0);
+        let sheet = |ui: &Ui| ui.a11y_nodes().iter().find(|n| n.is_role(Role::Menu)).map(|n| (ui.a11y_name_of(n).to_owned(), n.rect)).expect("sheet");
+        let (name, plain) = sheet(&ui);
+        assert_eq!(name, "", "no name without Menu::name, never the key");
+        let top = testing::find(&ui, Role::MenuItem, "4 GB").unwrap().y;
+        menu.set(Menu::DEFAULT.name("Cache size").padding(12.0));
+        run(&mut ui, &mut build);
+        let (name, roomy) = sheet(&ui);
+        assert_eq!(name, "Cache size");
+        assert_eq!((testing::find(&ui, Role::MenuItem, "4 GB").unwrap().y - top, roomy.h - plain.h), (6.0, 12.0), "padding 12 moves the rows 6 down and grows the sheet 12");
     }
 }

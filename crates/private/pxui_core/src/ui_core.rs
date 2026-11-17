@@ -1656,6 +1656,15 @@ impl Ui {
         }
     }
 
+    /// Gives `b` `role` when its builder left it `Role::Unknown` (its states as they are) and the accessible `name` when it has none:
+    /// behaviour's part of a node a body built, which never overwrites what the body set.
+    pub fn default_role(&mut self, b: &Handle, role: Role, name: &str) {
+        if !self.live(b) { return; }
+        let n = &mut self.slots[b.box_slot].node;
+        if n.role == Role::Unknown { n.role = role; }
+        if self.slots[b.box_slot].a11y_name.is_empty() { self.a11y_name(b, name); }
+    }
+
     // Recycled view containers can hold the buffer a newly visible text node needs.
     fn cleared_strings(&mut self, slot: usize) {
         if !self.empty_strings.active() {return;}

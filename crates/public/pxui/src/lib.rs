@@ -50,7 +50,7 @@ pub mod ui_text {
     pub use crate::{Language, PickerOpts, ScrubPhase, TextAreaOpts, ValueFieldOpts};
 }
 pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
-pub mod ui_widgets { pub use crate::{Dialog, DialogButton, DialogResponse, Scrub, TreeNode}; }
+pub mod ui_widgets { pub use crate::{Dialog, DialogButton, DialogResponse, Scrub, Segment, TreeNode}; }
 /// The node handle `box_`, `node` and the views return.
 pub type Handle = pxui_types::PxuiBox;
 
@@ -101,6 +101,7 @@ pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
 pub use author::{hash_of, Button, Icon, IconButton, Key, Response, Segmented, Toggle};
+pub use pxui_types::ui::Segment;
 #[cfg(test)]
 mod settled;
 #[cfg(test)]
@@ -680,6 +681,14 @@ impl Strs {
         let mut strs=Self { stack:[Str::default();32], heap:Vec::new(), len:values.len() };
         if values.len()<=32 { for (out,v) in strs.stack.iter_mut().zip(values) { *out=as_str(v); } }
         else { strs.heap=values.iter().map(|v|as_str(v)).collect(); }
+        strs
+    }
+    /// `len` strings, the `i`-th `value(i)`, as `new` keeps them.
+    #[inline]
+    pub(crate) fn each<'a>(len:usize, value:&dyn Fn(usize)->&'a str)->Self {
+        let mut strs=Self { stack:[Str::default();32], heap:Vec::new(), len };
+        if len<=32 { for (i,out) in strs.stack[..len].iter_mut().enumerate() { *out=as_str(value(i)); } }
+        else { strs.heap=(0..len).map(|i|as_str(value(i))).collect(); }
         strs
     }
     #[inline]

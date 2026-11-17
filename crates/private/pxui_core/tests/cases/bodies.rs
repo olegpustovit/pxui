@@ -1323,7 +1323,7 @@ fn sliding_segment(ui: &mut Ui, c: &SegmentConfig, _states: Option<&States>, tex
 
 pub fn segment_sliding_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.segment = id, &|ui| ui.register_segment_body("sliding", sliding_segment));
-    let build = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.segmented("Align", &["Left", "Centre", "Right"], v.get() as usize) as i64);
+    let build = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.segmented("Align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], v.get() as usize) as i64);
     swap_all("segment", &install, Role::Radio, "Centre", Key::ArrowRight, &build);
     // the marker is one node and follows the choice: after a click on "Right" it sits over "Right"
     let mut ui = new_ui(None);

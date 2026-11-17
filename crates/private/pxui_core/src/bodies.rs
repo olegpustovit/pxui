@@ -15,7 +15,8 @@ use std::collections::HashMap;
 ///
 /// What the caller's `Toggle` asked for, which the body honours or not: `row_h` the row's height (0 the kit's) and `switch_w` and `switch_h`
 /// the switch's size (0 the kit's 28 x 14), `inset` the distance of the label and the switch from the row's sides (0 the kit's), `press_row` that a press on the whole row
-/// toggles it (behaviour then ignores `Part::HIT`) and `detail` a secondary line under the label (empty: none); the looks of the switch and of its knob (`pick(State { checked: on })`) come beside the config when the caller
+/// toggles it (behaviour then ignores `Part::HIT`), `detail` a secondary line under the label (empty: none) and `label` the title's text style
+/// (`None`: the theme's toggle font; unset fields are the toggle's look); the looks of the switch and of its knob (`pick(State { checked: on })`) come beside the config when the caller
 /// gave its own (`None`: the theme's `switch` and `knob`). `state.disabled`: the toggle takes no input.
 pub struct ToggleConfig {
     pub state: State,
@@ -27,6 +28,7 @@ pub struct ToggleConfig {
     pub inset: f32,
     pub press_row: bool,
     pub detail: &'static str,
+    pub label: Option<pxui_types::Label>,
 }
 
 pub type ToggleBody = fn(&mut Ui, &ToggleConfig, Option<&States>, Option<&States>, &str);
@@ -268,7 +270,8 @@ pub type TabBody = fn(&mut Ui, &TabConfig, &str);
 /// marker to it. The body gives the segment its width, inset, look for `state` (`checked`) and text.
 ///
 /// the look per state the caller asked for comes beside the config (`None`: the theme's `segment`); `grow`: the caller asked each
-/// segment to share the strip's width (the strip fills its line) instead of the text's. `state.disabled`: the strip takes no input.
+/// segment to share the strip's width (the strip fills its line or is `Segmented::size` wide) instead of the text's; `padding` the text's
+/// inset and half the room around it, `min_segment` a segment's least width (0: none). `state.disabled`: the strip takes no input.
 pub struct SegmentConfig {
     pub state: State,
     pub index: usize,
@@ -276,6 +279,8 @@ pub struct SegmentConfig {
     pub group: i64,
     pub node: Handle,
     pub grow: bool,
+    pub padding: f32,
+    pub min_segment: f32,
 }
 
 pub type SegmentBody = fn(&mut Ui, &SegmentConfig, Option<&States>, &str);
@@ -309,7 +314,8 @@ pub type MenuItemBody = fn(&mut Ui, &MenuItemConfig, &str);
 /// height that takes the click and the pointer when it is enabled, with the menu-item role and its checked and expandable states.
 /// The body gives it the look for `state` (`hovered`: the pointer, or its submenu is open; `disabled`) with `danger` picking the
 /// error look, its inset, text and what sits in it: the current-choice mark (`selected`), a colour `swatch`, a submenu `chevron`, the
-/// shortcut. `lead` and `swatch_pad` are the menu's room for the mark and the swatches. Separators are behaviour's.
+/// shortcut. `lead` and `swatch_pad` are the menu's room for the mark and the swatches. `state.checked` is the row being the current
+/// choice of a settings menu (`MenuItem::selected`; the theme's `checked` menu look). Separators are behaviour's.
 pub struct MenuRowConfig {
     pub state: State,
     pub index: i64,

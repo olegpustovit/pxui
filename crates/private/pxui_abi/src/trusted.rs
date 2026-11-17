@@ -7,7 +7,7 @@ use crate::node::declare;
 use crate::state::{get, Inner, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, call_inner, fail, note_call, to_abi_box};
 use crate::{PxuiBox, PxuiSignal, Str};
 use pxui_types::ffi::PxuiResponse;
-use pxui_core::ui::{SegmentedOpts, ToggleOpts, Ui};
+use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
 use pxui_types::{FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::Justify, theme::{States, ThemeSnapshot}};
 
 
@@ -113,20 +113,22 @@ pub unsafe fn toggle_plain(ui: *mut PxuiUi, key: &str, text: &str, on: bool, out
 
 /// The kit toggle with options, the body of `pxui_ui_toggle_response` and `pxui_ui_toggle_plain`: `track` and `knob` in place of the theme's
 /// `switch` and `knob`, `row_h`, `switch_w`, `switch_h` and `inset` (finite, non-negative; 0 the kit's), `press_row` (a press anywhere on the row
-/// toggles), `detail` a line under the text, `enabled`. `detail` is only read for the call.
+/// toggles), `detail` a line under the text, `label` the title's text style (`None`: the theme's toggle font; one that does not resolve is
+/// refused), `enabled`. `detail` is only read for the call.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, track: Option<&States>, knob: Option<&States>, row_h: f32, switch_w: f32, switch_h: f32, inset: f32,
-    press_row: bool, detail: &str, enabled: bool, out: &mut PxuiResponse) -> i32 {
+    press_row: bool, detail: &str, label: Option<&pxui_types::Label>, enabled: bool, out: &mut PxuiResponse) -> i32 {
     enter!(ui);
     if long(key) || long(text) || long(detail) { return unsafe { fail(ui, "invalid toggle text") }; }
     // finite and not negative: NaN and infinity fail one of the two compares
     if ![row_h, switch_w, switch_h, inset].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid toggle descriptor") }; }
+    if label.is_some_and(|l| unsafe { engine(ui) }.resolve(l).is_none()) { return unsafe { fail(ui, "invalid toggle label style") }; }
     // the looks are copied only when given
     // SAFETY: the engine reads `detail` while this call builds the row (it copies the text into its node); nothing keeps the reference
     let detail: &'static str = unsafe { core::mem::transmute::<&str, &'static str>(detail) };
     let mut opts = ToggleOpts { enabled, row_h: (row_h > 0.0).then_some(row_h), switch: (switch_w > 0.0 || switch_h > 0.0).then_some((switch_w, switch_h)), track: None, knob: None,
-        detail, inset: (inset > 0.0).then_some(inset), press_row };
+        detail, inset: (inset > 0.0).then_some(inset), press_row, label: label.copied() };
     if let Some(track) = track { opts.track = Some(*track); }
     if let Some(knob) = knob { opts.knob = Some(*knob); }
     let r = unsafe { engine(ui) }.toggle_opts(key, text, on, &opts);
@@ -135,27 +137,28 @@ pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, trac
 }
 
 /// The plain kit segmented control (`Segmented::DEFAULT`) keyed by `key`, named `name`, `pxui_ui_segmented_plain`'s body. `chosen` is the choice
-/// (`selected` clamped to `options`, moved by a press or a key); `options` are within the engine's limits (`options_ok`).
+/// (`selected` clamped to `options`, moved by a press or a key); `options` are within the engine's limits (`segments_ok`).
 #[inline(always)]
-pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &[&str], selected: usize, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
+pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: usize, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
     enter!(ui);
-    if long(key) || long(name) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
+    if long(key) || long(name) || !segments_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
     let (r, at) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &SegmentedOpts::DEFAULT);
     respond(&r, out);
     *chosen = at;
     0
 }
 
-/// The kit segmented control with options, the body of `pxui_ui_segmented_response` and `pxui_ui_segmented_plain`: `h` (finite, non-negative; 0 the
-/// theme's control height), `grow`, `states` in place of the theme's `segment`, `enabled`.
+/// The kit segmented control with options, the body of `pxui_ui_segmented_response` and `pxui_ui_segmented_plain`: `h` (0 the theme's control
+/// height), `grow`, `states` in place of the theme's `segment`, `enabled`, `w` the strip's width (0: as `grow` says), `padding` the text's
+/// inset, `min_segment` a segment's least width (each finite and not negative).
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-pub unsafe fn segmented_with(ui: *mut PxuiUi, key: &str, name: &str, options: &[&str], selected: usize, enabled: bool, h: f32, grow: bool, states: Option<&States>,
-    out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
+pub unsafe fn segmented_with(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: usize, enabled: bool, h: f32, grow: bool, states: Option<&States>,
+    w: f32, padding: f32, min_segment: f32, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
     enter!(ui);
-    if long(key) || long(name) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
-    if !(0.0..=f32::MAX).contains(&h) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
-    let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None };
+    if long(key) || long(name) || !segments_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
+    if ![h, w, padding, min_segment].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
+    let mut opts = SegmentedOpts { enabled, h: (h > 0.0).then_some(h), grow, states: None, w: (w > 0.0).then_some(w), padding, min_segment };
     if let Some(states) = states { opts.states = Some(*states); }
     let (r, at) = unsafe { engine(ui) }.segmented_opts(key, name, options, selected, &opts);
     respond(&r, out);
@@ -245,6 +248,13 @@ fn options_ok(options: &[&str]) -> bool {
     options.len() <= MAX_OPTIONS && options.iter().fold(0usize, |total, o| total.saturating_add(o.len())) <= MAX_TOTAL_TEXT_BYTES && options.iter().all(|o| !long(o))
 }
 
+/// Whether segmented `options` are within the engine's limits: as `options_ok`, their names counted with their texts.
+#[inline]
+fn segments_ok(options: &[Segment]) -> bool {
+    let total = options.iter().fold(0usize, |total, o| total.saturating_add(o.text.len()).saturating_add(o.name.map_or(0, str::len)));
+    options.len() <= MAX_OPTIONS && total <= MAX_TOTAL_TEXT_BYTES && options.iter().all(|o| !long(o.text) && !o.name.is_some_and(long))
+}
+
 #[inline]
 pub unsafe fn checkbox(ui: *mut PxuiUi, label: &str, value: bool, out: &mut bool) -> i32 {
     enter!(ui);
@@ -259,7 +269,7 @@ pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, label: &str, options: &[&str], 
     enter!(ui);
     if long(label) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
     let engine = unsafe { engine(ui) };
-    *out = match kind { 0 => engine.radio(label, options, selected), 1 => engine.tabs(label, options, selected), 2 => engine.segmented(label, options, selected), _ => engine.dropdown(label, options, selected) };
+    *out = match kind { 0 => engine.radio(label, options, selected), 1 => engine.tabs(label, options, selected), 2 => engine.segmented_options(label, label, options.len(), &|i| Segment::new(options[i]), selected, &SegmentedOpts::DEFAULT).1, _ => engine.dropdown(label, options, selected) };
     0
 }
 
@@ -411,7 +421,8 @@ pub unsafe fn menu(ui: *mut PxuiUi, key: pxui_types::ui::Key, at: (f32, f32), it
     enter!(ui);
     let width_ok = menu.width.is_none_or(|width| width.is_finite() && width >= 0.0);
     let row_ok = menu.row_h.is_none_or(|row| row.is_finite() && row > 0.0);
-    if !at.0.is_finite() || !at.1.is_finite() || !width_ok || !row_ok { return unsafe { fail(ui, "invalid context menu arguments") }; }
+    let name_ok = menu.name.is_none_or(|name| !long(name));
+    if !at.0.is_finite() || !at.1.is_finite() || !width_ok || !row_ok || !(0.0..=f32::MAX).contains(&menu.padding) || !name_ok { return unsafe { fail(ui, "invalid context menu arguments") }; }
     *out = unsafe { engine(ui) }.menu(key, at, items, menu);
     0
 }

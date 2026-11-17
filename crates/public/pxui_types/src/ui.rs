@@ -135,6 +135,9 @@ pub struct MenuItem<'a> {
     pub swatch: Option<Color>,
     /// The rows of the second menu this row opens beside the menu while the pointer is on it (empty for none).
     pub submenu: &'a [MenuItem<'a>],
+    /// Whether the row is the current choice of a settings menu: it reads CHECKED and SELECTED and shows the theme's `checked` menu look
+    /// (rows of the menu itself, not of a submenu).
+    pub selected: bool,
 }
 
 impl<'a> MenuItem<'a> {
@@ -147,7 +150,7 @@ impl<'a> MenuItem<'a> {
     /// const PLAY: MenuItem = MenuItem::new("Play next");
     /// assert!(PLAY.enabled && !PLAY.danger);
     /// ```
-    pub const fn new(text: &'a str) -> MenuItem<'a> { MenuItem { text, enabled: true, danger: false, checked: None, shortcut: "", swatch: None, submenu: &[] } }
+    pub const fn new(text: &'a str) -> MenuItem<'a> { MenuItem { text, enabled: true, danger: false, checked: None, shortcut: "", swatch: None, submenu: &[], selected: false } }
 
     /// Sets whether the row can be chosen.
     /// Allocates: never.
@@ -212,11 +215,23 @@ impl<'a> MenuItem<'a> {
     /// assert_eq!(row.submenu.len(), 2);
     /// ```
     pub const fn submenu(mut self, rows: &'a [MenuItem<'a>]) -> MenuItem<'a> { self.submenu = rows; self }
+
+    /// Marks the row as the current choice of a settings menu: it reads CHECKED and SELECTED to accessibility, the built-in row shows the
+    /// theme's `checked` menu look (a registered row body gets `state.checked`). It keeps no mark slot; that is `checked`'s accent square.
+    /// A row of a submenu ignores it (mark a submenu's choice with `checked`).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SIZES: [pxui_types::ui::MenuItem; 2] = [pxui_types::ui::MenuItem::new("4 GB").selected(), pxui_types::ui::MenuItem::new("8 GB")];
+    /// assert!(SIZES[0].selected && !SIZES[1].selected);
+    /// ```
+    pub const fn selected(mut self) -> MenuItem<'a> { self.selected = true; self }
 }
 
 /// How `Ui::menu` varies the kit's menu, as a `Copy` value built with `const fn` builders from `Menu::DEFAULT`.
 #[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Menu {
+pub struct Menu<'a> {
     /// A row's height in points (`None`: the theme's row).
     pub row_h: Option<f32>,
     /// The least width in points (`None`: 150); the menu is as wide as its longest row.
@@ -225,11 +240,15 @@ pub struct Menu {
     pub max_rows: Option<usize>,
     /// What the registered bodies of the menu's rows read from their config (`PxuiMenuRowConfig::variant`); 0 for none.
     pub variant: u16,
+    /// The space in points above the first row and below the last (6 by default).
+    pub padding: f32,
+    /// The sheet's accessible name (`None`: none; the key is only the menu's identity).
+    pub name: Option<&'a str>,
 }
 
-impl Menu {
-    /// The plain kit menu: the theme's row height, at least 150 points wide, every row shown.
-    pub const DEFAULT: Menu = Menu { row_h: None, width: None, max_rows: None, variant: 0 };
+impl<'a> Menu<'a> {
+    /// The plain kit menu: the theme's row height, at least 150 points wide, every row shown, 6 points above and below the rows, no name.
+    pub const DEFAULT: Menu<'a> = Menu { row_h: None, width: None, max_rows: None, variant: 0, padding: 6.0, name: None };
 
     /// Sets a row's height in points; the label, mark, swatch and shortcut centre in it.
     /// Allocates: never.
@@ -239,7 +258,7 @@ impl Menu {
     /// const TALL: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.row_h(36.0);
     /// assert_eq!(TALL.row_h, Some(36.0));
     /// ```
-    pub const fn row_h(mut self, row_h: f32) -> Menu { self.row_h = Some(row_h); self }
+    pub const fn row_h(mut self, row_h: f32) -> Menu<'a> { self.row_h = Some(row_h); self }
 
     /// Sets the least width in points.
     /// Allocates: never.
@@ -249,7 +268,7 @@ impl Menu {
     /// const WIDE: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.width(200.0);
     /// assert_eq!(WIDE.width, Some(200.0));
     /// ```
-    pub const fn width(mut self, width: f32) -> Menu { self.width = Some(width); self }
+    pub const fn width(mut self, width: f32) -> Menu<'a> { self.width = Some(width); self }
 
     /// Shows at most `rows` rows at once: a menu with more rows is that tall and its row column scrolls (wheel, drag or touch).
     /// The submenu of a row is not limited, and is placed level with its row unscrolled.
@@ -260,7 +279,7 @@ impl Menu {
     /// const SHORT: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.max_rows(8);
     /// assert_eq!(SHORT.max_rows, Some(8));
     /// ```
-    pub const fn max_rows(mut self, rows: usize) -> Menu { self.max_rows = Some(rows); self }
+    pub const fn max_rows(mut self, rows: usize) -> Menu<'a> { self.max_rows = Some(rows); self }
 
     /// Sets the variant the registered body of each row reads from its config (`variant`, 0 by default): one body builds different
     /// structures by it, so the app picks per call without comparing text. The built-in body ignores it.
@@ -271,7 +290,58 @@ impl Menu {
     /// const COMPACT: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.variant(1);
     /// assert_eq!(COMPACT.variant, 1);
     /// ```
-    pub const fn variant(mut self, variant: u16) -> Menu { self.variant = variant; self }
+    pub const fn variant(mut self, variant: u16) -> Menu<'a> { self.variant = variant; self }
+
+    /// Sets the space in points above the first row and below the last (and so of the submenus); finite and not negative.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const ROOMY: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.padding(10.0);
+    /// assert_eq!(ROOMY.padding, 10.0);
+    /// ```
+    pub const fn padding(mut self, padding: f32) -> Menu<'a> { self.padding = padding; self }
+
+    /// Sets the sheet's accessible name; without it the sheet has none. The key stays the menu's identity only, never display text.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SIZES: pxui_types::ui::Menu = pxui_types::ui::Menu::DEFAULT.name("Cache size");
+    /// assert_eq!(SIZES.name, Some("Cache size"));
+    /// ```
+    pub const fn name(mut self, name: &'a str) -> Menu<'a> { self.name = Some(name); self }
+}
+
+/// One option of a segmented control (`Ui::segmented_with`), a `Copy` value built with `const fn` builders from `Segment::new`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Segment<'a> {
+    /// The text the segment shows; also its accessible name unless `name` is set.
+    pub text: &'a str,
+    /// The accessible name when it differs from the text (`None`: the text).
+    pub name: Option<&'a str>,
+}
+
+impl<'a> Segment<'a> {
+    /// An option showing `text`, named by it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const FOUR: pxui_types::ui::Segment = pxui_types::ui::Segment::new("4 GB");
+    /// assert_eq!((FOUR.text, FOUR.name), ("4 GB", None));
+    /// ```
+    pub const fn new(text: &'a str) -> Segment<'a> { Segment { text, name: None } }
+
+    /// Sets the accessible name, read in place of the text (what the option does, when the text alone is terse).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const FOUR: pxui_types::ui::Segment = pxui_types::ui::Segment::new("4 GB").name("Use 4 GB");
+    /// assert_eq!(FOUR.name, Some("Use 4 GB"));
+    /// ```
+    pub const fn name(mut self, name: &'a str) -> Segment<'a> { self.name = Some(name); self }
 }
 
 /// What a `Ui::menu` call reports for the frame.

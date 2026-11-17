@@ -27,7 +27,7 @@ pub struct TreeNode {
     pub children: u8,
 }
 
-pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse};
+pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Segment};
 
 /// Behavior for a caller-painted horizontal adjustable value. Pointer motion previews; only a
 /// captured left-button release commits. Keyboard and accessibility adjustments commit directly.
@@ -146,17 +146,25 @@ pub struct SegmentedOpts {
     pub grow: bool,
     /// The look per state of every segment (`checked` for the choice); `None` is the theme's `segment`.
     pub states: Option<States>,
+    /// The strip's width in points, its segments sharing it as with `grow`; `None` is as `grow` says.
+    pub w: Option<f32>,
+    /// A segment's text inset, and half the room around its text, in points (8 the kit's).
+    pub padding: f32,
+    /// The least width of a segment in points (0: none).
+    pub min_segment: f32,
 }
 
 impl SegmentedOpts {
-    pub const DEFAULT: SegmentedOpts = SegmentedOpts { enabled: true, h: None, grow: false, states: None };
+    pub const DEFAULT: SegmentedOpts = SegmentedOpts { enabled: true, h: None, grow: false, states: None, w: None, padding: 8.0, min_segment: 0.0 };
 }
 
-/// The built-in segment: the text's width and 16 (or its share of the strip with `grow`), 8 in, a point over the one before it.
+/// The built-in segment: the text's width and twice `padding` (or its share of the strip with `grow`), at least `min_segment`, `padding`
+/// in, a point over the one before it.
 pub(crate) fn default_segment(this: &mut Ui, c: &SegmentConfig, states: Option<&States>, text: &str) {
-    let w = if c.grow { Size::Grow } else { Size::Px(this.text_width(None, text) + 16.0) };
+    let w = if c.grow { Size::Grow } else { Size::Px((this.text_width(None, text) + 2.0 * c.padding).max(c.min_segment)) };
     let n = this.node_new(&c.node);
-    (n.w, n.margin, n.inset) = (w, Edges { l: if c.index == 0 { 0.0 } else { -1.0 }, ..Edges::ZERO }, Edges { l: 8.0, ..Edges::ZERO });
+    (n.w, n.margin, n.inset) = (w, Edges { l: if c.index == 0 { 0.0 } else { -1.0 }, ..Edges::ZERO }, Edges { l: c.padding, ..Edges::ZERO });
+    if c.grow { n.min_w = c.min_segment; }
     let look = *states.unwrap_or(&this.theme().segment).pick(c.state);
     this.set_look(&c.node, look, c.state);
     this.text(&c.node, text);
@@ -491,13 +499,19 @@ impl Ui {
 
     /// A segmented control: the options side by side in one outlined strip, the chosen one filled.
     /// One Tab stop; Left and Right move the choice. Returns the choice.
-    pub fn segmented(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
+    pub fn segmented(&mut self, label: &str, options: &[Segment], selected: usize) -> usize {
         self.segmented_opts(label, label, options, selected, &SegmentedOpts::DEFAULT).1
     }
 
-    /// `segmented` keyed by `key` (hashed under the parent's seed, duplicates in order), the strip named `name` to accessibility, varied by
-    /// `opts`; reports what happened to the strip and the choice.
-    pub fn segmented_opts(&mut self, key: &str, name: &str, options: &[&str], selected: usize, opts: &SegmentedOpts) -> (Response, usize) {
+    /// `segmented` keyed by `key` (hashed under the parent's seed, duplicates in order), the strip named `name` to accessibility and each
+    /// option by its `Segment` (its name, else its text), varied by `opts`; reports what happened to the strip and the choice.
+    pub fn segmented_opts(&mut self, key: &str, name: &str, options: &[Segment], selected: usize, opts: &SegmentedOpts) -> (Response, usize) {
+        self.segmented_options(key, name, options.len(), &|i| options[i], selected, opts)
+    }
+
+    /// The one body of `segmented` and `segmented_opts`: `count` options, option `i` being `option(i)` (the C ABI's texts without a copy).
+    #[allow(clippy::too_many_arguments)]
+    pub fn segmented_options<'a>(&mut self, key: &str, name: &str, count: usize, option: &dyn Fn(usize) -> Segment<'a>, selected: usize, opts: &SegmentedOpts) -> (Response, usize) {
         let enabled = opts.enabled && !self.scope_disabled();
         self.require_building();
         let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
@@ -509,14 +523,17 @@ impl Ui {
         let body = body_of!(self, segment);
         let saved = self.enter(&line);
         let strip_flags = if enabled { Flags::FOCUSABLE | Flags::TAB_ONLY } else { Flags::NONE };
-        let strip = self.node_keyed(int_key(key, 0), Node { flags: strip_flags, w: if opts.grow { Size::Grow } else { Size::Fit }, h: Size::Px(ch), axis: Axis::Row, role: Role::Group, ..Node::DEFAULT });
+        let strip_w = match opts.w { Some(w) => Size::Px(w), None if opts.grow => Size::Grow, None => Size::Fit };
+        let grow = opts.grow || opts.w.is_some();
+        let strip = self.node_keyed(int_key(key, 0), Node { flags: strip_flags, w: strip_w, h: Size::Px(ch), axis: Axis::Row, role: Role::Group, ..Node::DEFAULT });
         self.a11y_name(&strip, shown(name));
         let s = self.signal_owned(&strip);
         let focused = self.focused(&strip);
-        let mut sel = selected.min(options.len().saturating_sub(1));
-        pressed(&s.keys, &mut |k| sel = clamp_step(sel, self.along(k), options.len()));
+        let mut sel = selected.min(count.saturating_sub(1));
+        pressed(&s.keys, &mut |k| sel = clamp_step(sel, self.along(k), count));
         let inner = self.enter(&strip);
-        for (i, option) in options.iter().enumerate() {
+        for i in 0..count {
+            let option = option(i);
             let flags = if enabled { ROW_FLAGS } else { Flags::BLOCKING };
             let n = self.node_keyed(int_key(strip.box_key, i as i64), Node { flags, h: Size::Grow, role: Role::Radio, ..Node::DEFAULT });
             let ns = self.signal(&n);
@@ -524,10 +541,10 @@ impl Ui {
                 sel = i;
             }
             let state = State { hovered: enabled && ns.hovered, pressed: enabled && ns.held, checked: sel == i, disabled: !enabled, ..State::default() };
-            let config = SegmentConfig { state, index: i, selected: sel, group: strip.box_key, node: n, grow: opts.grow };
+            let config = SegmentConfig { state, index: i, selected: sel, group: strip.box_key, node: n, grow, padding: opts.padding, min_segment: opts.min_segment };
             self.set_role(&n, Role::Radio, st::CHECKABLE | if sel == i { st::CHECKED } else { 0 });
-            self.a11y_name(&n, option);
-            in_item!(flat; self, body, n.box_key, n, default_segment(&config, opts.states.as_ref(), option));
+            self.a11y_name(&n, option.name.unwrap_or(option.text));
+            in_item!(flat; self, body, n.box_key, n, default_segment(&config, opts.states.as_ref(), option.text));
             if !enabled { self.node_new(&n).state.disabled = true; }
         }
         self.leave(inner);
@@ -957,15 +974,14 @@ impl Ui {
         let shown_now = self.modal(Some(style.width), key, &mut |ui| {
             let owner = ui.current_seed();
             in_place!(ui, owner, dialog, default_dialog(title, buttons, body));
-            // the heading and the buttons are the body's nodes; their roles, names and presses are read here
+            // the heading and the buttons are the body's nodes: their presses are read here, and a role or a name only where the body
+            // left it unset (a body's own role, states and name stand)
             if let Some(head) = ui.part_box(owner, Part::TITLE) {
-                ui.set_role(&head, Role::Heading, 0);
-                ui.a11y_name(&head, shown(title));
+                ui.default_role(&head, Role::Heading, shown(title));
             }
             for (i, b) in buttons.iter().enumerate() {
                 if let Some(part) = ui.part_box(owner, Part::button(i as u8)) {
-                    ui.set_role(&part, Role::Button, 0);
-                    ui.a11y_name(&part, shown(b.text));
+                    ui.default_role(&part, Role::Button, shown(b.text));
                     if b.enabled && chosen.is_none() && ui.signal(&part).clicked {
                         chosen = Some(i);
                     }

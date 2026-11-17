@@ -2884,9 +2884,13 @@ fn menu_rows_body(this: &mut Ui, items: &[MenuItem], m: &MenuLook) -> (Option<i6
                 hovered = Some(index);
             }
             let chevron = m.top && !item.submenu.is_empty();
-            let state = State { hovered: signal.hovered || m.opened == Some(index), disabled: !enabled, ..State::default() };
+            // `checked` on the state is the current choice of a settings menu (`MenuItem::selected`, a row of the menu itself, not of a
+            // submenu, whose rows cross the C ABI without it), its look the menu's `checked`
+            let current = item.selected && m.top;
+            let state = State { hovered: signal.hovered || m.opened == Some(index), disabled: !enabled, checked: current, ..State::default() };
             let selected = item.checked == Some(true);
-            this.set_role(&row, Role::MenuItem, if selected { crate::a11y::state::CHECKED } else { 0 } | if chevron { crate::a11y::state::EXPANDABLE } else { 0 });
+            let current = if current { crate::a11y::state::CHECKED | crate::a11y::state::SELECTED } else { 0 };
+            this.set_role(&row, Role::MenuItem, current | if selected { crate::a11y::state::CHECKED } else { 0 } | if chevron { crate::a11y::state::EXPANDABLE } else { 0 });
             this.a11y_name(&row, shown(text));
             let config = MenuRowConfig {
                 state, index, row, selected, chevron, danger: item.danger, lead: if item.checked.is_some() { MENU_LEAD } else { 0.0 },
@@ -3044,13 +3048,15 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     // the width follows the longest row; an empty text is a separator line; shortcuts are at the right of the rows, in ink-2 at the
     // label size
     let row_height = menu.row_h.unwrap_or(this.row_height() as f32);
+    // `pad` above the first row and below the last, inside the sheet's 1-point edge
+    let pad = menu.padding;
     let gap = 9.0;
     let key_size = 8.max(this.font_size() - 2);
     let has_submenus = items.iter().any(|i| !i.submenu.is_empty());
     let swatch_pad = if items.iter().chain(items.iter().flat_map(|i| i.submenu)).any(|i| i.swatch.is_some()) { 14.0 } else { 0.0 };
     let (view_w, view_h) = this.view_size();
     let width = view_w.min(this.menu_measure(menu.width.unwrap_or(150.0), items, true, swatch_pad, key_size));
-    let height_of = |items: &[MenuItem]| items.iter().fold(14.0, |h, i| h + if i.text.is_empty() { gap } else { row_height });
+    let height_of = |items: &[MenuItem]| items.iter().fold(2.0 * pad + 2.0, |h, i| h + if i.text.is_empty() { gap } else { row_height });
     // past `max_rows` rows the row column scrolls inside a popup as tall as the first `max_rows` rows
     let shown_rows = menu.max_rows.map_or(items.len(), |rows| rows.min(items.len()));
     let scrolls = shown_rows < items.len();
@@ -3059,31 +3065,33 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let bounds = Rect::new(0.0, 0.0, view_w, view_h);
     let Rect { x, y, .. } = place_anchored(Rect::new(x, y, 0.0, 0.0), (width, height), Placement { flip: false, ..Placement::BELOW }, bounds);
     // the submenu of a row: a second menu overlapping this one by a point, level with its row
-    let row_top = |index: usize| y + 7.0 + items.iter().take(index).fold(0.0, |top, i| top + if i.text.is_empty() { gap } else { row_height });
+    let row_top = |index: usize| y + pad + 1.0 + items.iter().take(index).fold(0.0, |top, i| top + if i.text.is_empty() { gap } else { row_height });
     let sub_geometry = |ui: &mut Ui, row: usize| -> Rect {
         let sub = items[row].submenu;
         let sub_width = view_w.min(ui.menu_measure(0.0, sub, false, swatch_pad, key_size));
         let sub_height = height_of(sub);
         // beside the menu, overlapping it by a point, level with its row; left when no room right
         let beside = Placement { side: Side::Right, align: Align::Start, gap: -1.0, margin: 0.0, flip: true };
-        place_anchored(Rect::new(x, row_top(row) - 7.0, width, 0.0), (sub_width, sub_height), beside, bounds)
+        place_anchored(Rect::new(x, row_top(row) - pad - 1.0, width, 0.0), (sub_width, sub_height), beside, bounds)
     };
     // the rows of the submenus are numbered after those of this menu, in order
     let base_of = |row: usize| items.len() + items[..row].iter().map(|i| i.submenu.len()).sum::<usize>();
     let keep: Vec<Rect> = items.iter().enumerate().filter(|(_, i)| !i.submenu.is_empty()).map(|(row, _)| sub_geometry(this, row)).collect();
     let sheet = this.theme().popup.idle;
     let related = if has_submenus { vec![key_of(this.current_seed(), &format!("{}-sub", label))] } else { Vec::new() };
+    // the sheet is named by `Menu::name` (none without), never by its key
+    let name = Some(menu.name.unwrap_or(""));
     let popts = PopupOpts { look: Some(sheet), keep, related, role: Role::Menu, ..PopupOpts::default() };
     let mut opened: Option<i64> = None;
     let mut picked: Option<i64> = None;
-    let shown = this.popup_with_related(popts, (x, y), width, height, label, &mut |ui: &mut Ui| {
-        let top = ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+    let shown = this.popup_with_related(popts, (x, y), width, height, label, name, &mut |ui: &mut Ui| {
+        let top = ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
         let open_row = ui.state(&top, -1);
         opened = if open_row >= 0 { Some(open_row) } else { None };
         let m = MenuLook { opened, top: true, swatch_pad, gap, row_h: row_height };
         let (mut p, mut hovered) = (None, None);
         if scrolls {
-            ui.scroll_view("menu-rows", Size::Grow, Size::Px(height - 14.0), &mut |ui: &mut Ui| (p, hovered) = ui.menu_rows(items, &m));
+            ui.scroll_view("menu-rows", Size::Grow, Size::Px(height - 2.0 * pad - 2.0), &mut |ui: &mut Ui| (p, hovered) = ui.menu_rows(items, &m));
         } else {
             (p, hovered) = ui.menu_rows(items, &m);
         }
@@ -3096,7 +3104,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
             }
             opened = if now >= 0 { Some(now) } else { None };
         }
-        ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+        ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
     });
     if !shown {
         this.dismiss_popup();
@@ -3112,12 +3120,12 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
     let Rect { x: sx, y: sy, w: sw, h: sh } = sub_geometry(this, row);
     let mut sub_picked: Option<i64> = None;
     let sub_opts = PopupOpts { look: Some(sheet), attached: true, role: Role::Menu, ..PopupOpts::default() };
-    this.popup_with_related(sub_opts, (sx, sy), sw, sh, &format!("{}-sub", label), &mut |ui: &mut Ui| {
-        ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+    this.popup_with_related(sub_opts, (sx, sy), sw, sh, &format!("{}-sub", label), Some(""), &mut |ui: &mut Ui| {
+        ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
         let m = MenuLook { opened: None, top: false, swatch_pad, gap, row_h: row_height };
         let (p, _) = ui.menu_rows(sub, &m);
         sub_picked = p;
-        ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+        ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
     });
     match sub_picked {
         Some(index) => {

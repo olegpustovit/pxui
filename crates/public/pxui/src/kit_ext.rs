@@ -2,7 +2,7 @@
 use crate::box_ops::Label;
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::interaction::decode_signal;
-use crate::{Button, Icon, IconButton, Segmented, Toggle};
+use crate::{Button, Icon, IconButton, Segment, Segmented, Toggle};
 use crate::kit::{HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
@@ -160,14 +160,14 @@ impl Ui {
     pub(crate) fn toggle_keyed(&mut self, key: &str, text: &str, on: bool, toggle: &Toggle) -> Response {
         let mut out = PxuiResponse::EMPTY;
         let plain = toggle.row_h.is_none() && toggle.switch.is_none() && toggle.track.is_none() && toggle.knob.is_none() && toggle.enabled && toggle.detail.is_empty()
-            && toggle.inset.is_none() && !toggle.press_row;
+            && toggle.inset.is_none() && !toggle.press_row && toggle.label.is_none();
         let (switch_w, switch_h) = toggle.switch.unwrap_or((0.0, 0.0));
         #[cfg(feature = "static")]
         let rc = if plain {
             unsafe { pxui_abi_link::trusted::toggle_plain(self.0.as_ptr(), key, text, on, &mut out) }
         } else {
             unsafe { pxui_abi_link::trusted::toggle_with(self.0.as_ptr(), key, text, on, toggle.track.as_ref(), toggle.knob.as_ref(), toggle.row_h.unwrap_or(0.0), switch_w, switch_h,
-                toggle.inset.unwrap_or(0.0), toggle.press_row, toggle.detail, toggle.enabled, &mut out) }
+                toggle.inset.unwrap_or(0.0), toggle.press_row, toggle.detail, toggle.label.as_ref(), toggle.enabled, &mut out) }
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {
@@ -179,6 +179,7 @@ impl Ui {
                 row_h: toggle.row_h.unwrap_or(0.0), switch_w, switch_h, inset: toggle.inset.unwrap_or(0.0),
                 track: track.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), knob: knob.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
                 key: as_str(key), text: as_str(text), detail: as_str(toggle.detail),
+                has_style: toggle.label.is_some() as u8, reserved2: [0; 7], style: toggle.label.as_ref().map_or_else(Default::default, pxui_types::ffi::PxuiLabelStyle::from),
             };
             unsafe { lib::pxui_ui_toggle_response(self.0.as_ptr(), &desc, &mut out) }
         };
@@ -190,29 +191,34 @@ impl Ui {
     /// The one body of `segmented` and `segmented_with`, as `toggle_keyed`: the response is the strip's and the choice is returned beside it.
     #[inline(always)]
     #[track_caller]
-    pub(crate) fn segmented_keyed(&mut self, key: &str, name: &str, options: &[&str], selected: usize, segmented: &Segmented) -> (Response, usize) {
+    pub(crate) fn segmented_keyed(&mut self, key: &str, name: &str, options: &[Segment], selected: usize, segmented: &Segmented) -> (Response, usize) {
         let mut out = PxuiResponse::EMPTY;
         let mut chosen = 0usize;
-        let plain = segmented.h.is_none() && !segmented.grow && segmented.look.is_none() && segmented.enabled;
+        let named = options.iter().any(|o| o.name.is_some());
+        let plain = segmented.h.is_none() && !segmented.grow && segmented.look.is_none() && segmented.enabled && segmented.w.is_none() && segmented.padding == 8.0
+            && segmented.min_segment == 0.0 && !named;
         #[cfg(feature = "static")]
         let rc = if plain {
             unsafe { pxui_abi_link::trusted::segmented_plain(self.0.as_ptr(), key, name, options, selected, &mut out, &mut chosen) }
         } else {
             unsafe { pxui_abi_link::trusted::segmented_with(self.0.as_ptr(), key, name, options, selected, segmented.enabled, segmented.h.unwrap_or(0.0), segmented.grow,
-                segmented.look.as_ref(), &mut out, &mut chosen) }
+                segmented.look.as_ref(), segmented.w.unwrap_or(0.0), segmented.padding, segmented.min_segment, &mut out, &mut chosen) }
         };
         #[cfg(not(feature = "static"))]
         let rc = {
-            let options = crate::Strs::new(options);
+            let texts = crate::Strs::each(options.len(), &|i| options[i].text);
             if plain {
-                unsafe { lib::pxui_ui_segmented_plain(self.0.as_ptr(), as_str(key), as_str(name), options.span(), selected, &mut out, &mut chosen) }
+                unsafe { lib::pxui_ui_segmented_plain(self.0.as_ptr(), as_str(key), as_str(name), texts.span(), selected, &mut out, &mut chosen) }
             } else {
                 let states = segmented.look.as_ref().map(six);
+                let names = crate::Strs::each(if named { options.len() } else { 0 }, &|i| options[i].name.unwrap_or(""));
                 let desc = pxui_types::ffi::PxuiSegmentedDesc {
                     size: core::mem::size_of::<pxui_types::ffi::PxuiSegmentedDesc>() as u32, enabled: segmented.enabled as u8, grow: segmented.grow as u8, reserved: [0; 2], h: segmented.h.unwrap_or(0.0),
                     states: states.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), selected,
+                    w: segmented.w.unwrap_or(0.0), padding: segmented.padding, min_segment: segmented.min_segment, reserved2: 0,
+                    names: if named { names.span() } else { Slice { ptr: core::ptr::null(), len: 0 } },
                 };
-                unsafe { lib::pxui_ui_segmented_response(self.0.as_ptr(), &desc, options.span(), &mut out, &mut chosen) }
+                unsafe { lib::pxui_ui_segmented_response(self.0.as_ptr(), &desc, texts.span(), &mut out, &mut chosen) }
             }
         };
         check(self, rc);

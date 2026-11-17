@@ -37,9 +37,9 @@ thread_local! { static ROWS: Cell<(Vec<(String, String)>, Vec<Str>)> = const { C
 
 // The columns of a menu of more than 32 rows, kept on this thread between calls so a settled long menu allocates nothing here.
 #[cfg(not(feature = "static"))]
-type MenuColumns = (Vec<Str>, Vec<u8>, Vec<Str>, Vec<PxuiSwatch>, Vec<u8>, Vec<i64>);
+type MenuColumns = (Vec<Str>, Vec<u8>, Vec<Str>, Vec<PxuiSwatch>, Vec<u8>, Vec<i64>, Vec<u8>);
 #[cfg(not(feature = "static"))]
-thread_local! { static MENU_COLUMNS: Cell<MenuColumns> = const { Cell::new((Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())) }; }
+thread_local! { static MENU_COLUMNS: Cell<MenuColumns> = const { Cell::new((Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new(), Vec::new())) }; }
 
 struct Rows<'a, F: ?Sized> {
     fill: &'a mut F,
@@ -113,22 +113,24 @@ impl Ui {
         let label = key.label(&mut id_label);
         const ROWS: usize = 32;
         let n = items.len();
-        let (mut sl, mut se, mut sk, mut ss, mut sm, mut sd) = ([Str::default(); ROWS], [0u8; ROWS], [Str::default(); ROWS], [PxuiSwatch::default(); ROWS], [0u8; ROWS], [0i64; ROWS]);
-        let (mut hl, mut he, mut hk, mut hs, mut hm, mut hd) = if n > ROWS { MENU_COLUMNS.take() } else { Default::default() };
-        let (labels, enabled, keys, swatches, marks, danger): (&mut [Str], &mut [u8], &mut [Str], &mut [PxuiSwatch], &mut [u8], &mut [i64]) = if n <= ROWS {
-            (&mut sl[..n], &mut se[..n], &mut sk[..n], &mut ss[..n], &mut sm[..n], &mut sd[..n])
+        let (mut sl, mut se, mut sk, mut ss, mut sm, mut sd, mut sc) = ([Str::default(); ROWS], [0u8; ROWS], [Str::default(); ROWS], [PxuiSwatch::default(); ROWS], [0u8; ROWS], [0i64; ROWS], [0u8; ROWS]);
+        let (mut hl, mut he, mut hk, mut hs, mut hm, mut hd, mut hc) = if n > ROWS { MENU_COLUMNS.take() } else { Default::default() };
+        let (labels, enabled, keys, swatches, marks, danger, current): (&mut [Str], &mut [u8], &mut [Str], &mut [PxuiSwatch], &mut [u8], &mut [i64], &mut [u8]) = if n <= ROWS {
+            (&mut sl[..n], &mut se[..n], &mut sk[..n], &mut ss[..n], &mut sm[..n], &mut sd[..n], &mut sc[..n])
         } else {
-            (hl.clear(), he.clear(), hk.clear(), hs.clear(), hm.clear(), hd.clear());
-            (hl.resize(n, Str::default()), he.resize(n, 0), hk.resize(n, Str::default()), hs.resize(n, PxuiSwatch::default()), hm.resize(n, 0), hd.resize(n, 0));
-            (&mut hl, &mut he, &mut hk, &mut hs, &mut hm, &mut hd)
+            (hl.clear(), he.clear(), hk.clear(), hs.clear(), hm.clear(), hd.clear(), hc.clear());
+            (hl.resize(n, Str::default()), he.resize(n, 0), hk.resize(n, Str::default()), hs.resize(n, PxuiSwatch::default()), hm.resize(n, 0), hd.resize(n, 0), hc.resize(n, 0));
+            (&mut hl, &mut he, &mut hk, &mut hs, &mut hm, &mut hd, &mut hc)
         };
-        let (mut dangers, mut extras) = (0, menu.row_h.is_some() || menu.max_rows.is_some());
+        let (mut dangers, mut extras) = (0, menu.row_h.is_some() || menu.max_rows.is_some() || menu.padding != 6.0 || menu.name.is_some());
+        let mut selected = false;
         let mut with_submenus = false;
         for (row, item) in items.iter().enumerate() {
             (labels[row], enabled[row], keys[row]) = (as_str(item.text), item.enabled as u8, as_str(item.shortcut));
             if let Some(color) = item.swatch { swatches[row] = PxuiSwatch { has: 1, color, ..PxuiSwatch::default() }; extras = true; }
             if let Some(mark) = item.checked { marks[row] = 1 + mark as u8; extras = true; }
             if item.danger { danger[dangers] = row as i64; dangers += 1; extras = true; }
+            if item.selected { current[row] = 1; selected = true; extras = true; }
             extras |= !item.shortcut.is_empty();
             with_submenus |= !item.submenu.is_empty();
         }
@@ -157,6 +159,8 @@ impl Ui {
             keys: Slice { ptr: keys.as_ptr(), len: n }, swatches: Slice { ptr: swatches.as_ptr(), len: n },
             danger: Slice { ptr: danger.as_ptr(), len: dangers }, submenus: Slice { ptr: descriptors.as_ptr(), len: descriptors.len() },
             row_h: menu.row_h.unwrap_or(0.0), max_rows: menu.max_rows.map_or(0, |rows| rows.min(u32::MAX as usize) as u32), checked: Slice { ptr: marks.as_ptr(), len: marks_len },
+            padding: menu.padding, has_name: menu.name.is_some() as u8, reserved2: [0; 3], name: as_str(menu.name.unwrap_or("")),
+            selected: Slice { ptr: current.as_ptr(), len: if selected { n } else { 0 } },
         };
         let (has_width, width) = menu.width.map_or((0, 0.0), |width| (1, width));
         let (mut tag, mut index) = (0, -1i64);
@@ -164,7 +168,7 @@ impl Ui {
             self.0.as_ptr(), at.0, at.1, as_str(label), Slice { ptr: labels.as_ptr(), len: n },
             Slice { ptr: enabled.as_ptr(), len: n }, has_width, width, 0, 0, if extras { &extra } else { core::ptr::null() }, &mut tag, &mut index,
         ) });
-        if n > ROWS { MENU_COLUMNS.set((hl, he, hk, hs, hm, hd)); }
+        if n > ROWS { MENU_COLUMNS.set((hl, he, hk, hs, hm, hd, hc)); }
         match tag { 0 => MenuResponse::default(), 1 => MenuResponse { chosen: Some(index as usize), dismissed: false }, 2 => MenuResponse { chosen: None, dismissed: true }, _ => unreachable!("the library answers a menu with tag 0, 1 or 2") }
     }
 
@@ -213,6 +217,7 @@ mod tests {
         PxuiMenuExtra {
             size, reserved: 0, lead_from: 0, keys: none, swatches: Slice { ptr: core::ptr::null(), len: 0 }, danger: Slice { ptr: core::ptr::null(), len: 0 },
             submenus: Slice { ptr: core::ptr::null(), len: 0 }, row_h: 0.0, max_rows: 0, checked: Slice { ptr: core::ptr::null(), len: 0 },
+            padding: 6.0, has_name: 0, reserved2: [0; 3], name: Str::default(), selected: Slice { ptr: core::ptr::null(), len: 0 },
         }
     }
 
@@ -223,8 +228,9 @@ mod tests {
         unsafe { pxui_ui_context_menu(ui.0.as_ptr(), 10.0, 10.0, as_str("m"), Slice { ptr: rows.as_ptr(), len: 2 }, Slice { ptr: enabled.as_ptr(), len: 2 }, 0, 0.0, 0, 0, extra, &mut tag, &mut index) }
     }
 
-    /// A caller built before 1.49 passes the 80-byte extra and is served; a shorter one, a negative row height, a submenu on a
-    /// row that is not there or out of order, and a mark byte over 2 are refused.
+    /// A caller built before 1.49 passes the 80-byte extra and is served (and one of 1.49, 104 bytes); a shorter one, a negative row height,
+    /// a submenu on a row that is not there or out of order, a mark byte over 2, and from 1.55 a negative padding, a name flag or a
+    /// current-choice byte over 1 or more choices than rows are refused.
     #[test]
     fn the_extra_is_read_by_its_size_and_validated_whole() {
         let mut ui = Ui::new().unwrap();
@@ -246,8 +252,15 @@ mod tests {
             results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 1 }, ..extra(104) }));
             let subs = [sub(0), sub(1)];
             results.push(call(ui, &PxuiMenuExtra { submenus: Slice { ptr: subs.as_ptr(), len: 2 }, ..extra(104) }));
+            let full = core::mem::size_of::<PxuiMenuExtra>() as u32;
+            let (on, over, three) = ([0u8, 1], [2u8], [1u8, 0, 0]);
+            results.push(call(ui, &PxuiMenuExtra { padding: 10.0, has_name: 1, name: as_str("Sizes"), selected: Slice { ptr: on.as_ptr(), len: 2 }, ..extra(full) }));
+            results.push(call(ui, &PxuiMenuExtra { padding: -1.0, ..extra(full) }));
+            results.push(call(ui, &PxuiMenuExtra { has_name: 2, ..extra(full) }));
+            results.push(call(ui, &PxuiMenuExtra { selected: Slice { ptr: over.as_ptr(), len: 1 }, ..extra(full) }));
+            results.push(call(ui, &PxuiMenuExtra { selected: Slice { ptr: three.as_ptr(), len: 3 }, ..extra(full) }));
         }).ok();
         let accepted: Vec<bool> = results.iter().map(|status| *status == 0).collect();
-        assert_eq!(accepted, [true, false, false, true, false, false, false, true]);
+        assert_eq!(accepted, [true, false, false, true, false, false, false, true, true, false, false, false, false]);
     }
 }

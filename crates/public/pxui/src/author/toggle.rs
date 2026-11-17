@@ -1,8 +1,8 @@
 //! The kit toggle and segmented control with options: `ui.toggle_with(key, text, on, &Toggle)` and `ui.segmented_with(key, options, selected,
 //! &Segmented)` report a `Response` (`changed` when the value moved); `ui.toggle(text, on)` and `ui.segmented(label, options, selected)` are the defaults.
 use super::{Key, Response};
-use crate::Ui;
-use pxui_types::theme::States;
+use crate::{Segment, Ui};
+use pxui_types::{theme::States, Label};
 
 /// How `Ui::toggle_with` varies the kit's toggle, as a `Copy` value built with `const fn` builders from `Toggle::DEFAULT`.
 ///
@@ -18,11 +18,12 @@ pub struct Toggle<'a> {
     pub(crate) inset: Option<f32>,
     pub(crate) press_row: bool,
     pub(crate) variant: u16,
+    pub(crate) label: Option<Label>,
 }
 
 impl<'a> Toggle<'a> {
     /// The plain kit toggle.
-    pub const DEFAULT: Toggle<'a> = Toggle { row_h: None, switch: None, track: None, knob: None, enabled: true, detail: "", inset: None, press_row: false, variant: 0 };
+    pub const DEFAULT: Toggle<'a> = Toggle { row_h: None, switch: None, track: None, knob: None, enabled: true, detail: "", inset: None, press_row: false, variant: 0, label: None };
 
     /// Sets the row's height in points; the switch stays centred in it.
     /// Allocates: never.
@@ -79,8 +80,9 @@ impl<'a> Toggle<'a> {
     /// ```
     pub const fn enabled(mut self, enabled: bool) -> Toggle<'a> { self.enabled = enabled; self }
 
-    /// Adds a secondary line under the text, in the theme's label look; the row's accessible name stays the text. `detail` is borrowed
-    /// (a literal, a constant or text the frame owns) for as long as the `Toggle` value lives.
+    /// Adds a secondary line under the text, in the theme's label look, wrapped to the room the switch leaves: the row grows past its
+    /// height to fit both. The detail is its own Label node to accessibility; the row's accessible name stays the text. `detail` is
+    /// borrowed (a literal, a constant or text the frame owns) for as long as the `Toggle` value lives.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -102,7 +104,8 @@ impl<'a> Toggle<'a> {
     /// ```
     pub const fn inset(mut self, inset: f32) -> Toggle<'a> { self.inset = Some(inset); self }
 
-    /// Sets whether a press anywhere on the row toggles it; by default only a press on the switch does.
+    /// Sets whether a press anywhere on the row toggles it; by default only a press on the switch does. Such a row also takes the focus
+    /// on a press (Enter or Space then flip it), as a row does; a plain toggle is a Tab stop only, as a button is.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -122,11 +125,23 @@ impl<'a> Toggle<'a> {
     /// let _ = V;
     /// ```
     pub const fn variant(mut self, variant: u16) -> Toggle<'a> { self.variant = variant; self }
+
+    /// Sets the title's text style: what `label` leaves unset is the toggle's look (the theme's toggle font, its ink for the state), its
+    /// lines 1.2 times the size unless it sets a line height. The default draws the title in the theme's toggle font.
+    /// Allocates: never.
+    /// Identity: none; `label` is a text style, never a key.
+    /// Panics: never (a style that does not resolve, such as a negative size, panics at the `toggle_with` call).
+    ///
+    /// ```
+    /// const SETTING: pxui::Toggle = pxui::Toggle::DEFAULT.row_h(52.0).label(pxui::Label::BODY.size(15.0));
+    /// let _ = SETTING;
+    /// ```
+    pub const fn label(mut self, label: Label) -> Toggle<'a> { self.label = Some(label); self }
 }
 
 /// How `Ui::segmented_with` varies the kit's segmented control, as a `Copy` value built with `const fn` builders from `Segmented::DEFAULT`.
 ///
-/// The default is the plain `Ui::segmented`: the theme's control height, each segment as wide as its text plus 16.
+/// The default is the plain `Ui::segmented`: the theme's control height, each segment as wide as its text plus 16, the text 8 in.
 #[derive(Clone, Copy)]
 pub struct Segmented<'a> {
     pub(crate) h: Option<f32>,
@@ -135,11 +150,14 @@ pub struct Segmented<'a> {
     pub(crate) enabled: bool,
     pub(crate) name: Option<&'a str>,
     pub(crate) variant: u16,
+    pub(crate) w: Option<f32>,
+    pub(crate) padding: f32,
+    pub(crate) min_segment: f32,
 }
 
 impl<'a> Segmented<'a> {
     /// The plain kit segmented control.
-    pub const DEFAULT: Segmented<'a> = Segmented { h: None, grow: false, look: None, enabled: true, name: None, variant: 0 };
+    pub const DEFAULT: Segmented<'a> = Segmented { h: None, grow: false, look: None, enabled: true, name: None, variant: 0, w: None, padding: 8.0, min_segment: 0.0 };
 
     /// Sets the strip's height in points.
     /// Allocates: never.
@@ -204,6 +222,36 @@ impl<'a> Segmented<'a> {
     /// let _ = S;
     /// ```
     pub const fn name(mut self, name: &'a str) -> Segmented<'a> { self.name = Some(name); self }
+
+    /// Sets the strip's width in points, its segments sharing it equally (as `grow` shares its line's).
+    /// Allocates: never.
+    /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
+    ///
+    /// ```
+    /// const STRIP: pxui::Segmented = pxui::Segmented::DEFAULT.size(240.0);
+    /// let _ = STRIP;
+    /// ```
+    pub const fn size(mut self, w: f32) -> Segmented<'a> { self.w = Some(w); self }
+
+    /// Sets a segment's text inset in points, and half the room around its text when segments are as wide as their text (8 by default).
+    /// Allocates: never.
+    /// Panics: never (a negative or non-finite padding panics at the `segmented_with` call).
+    ///
+    /// ```
+    /// const ROOMY: pxui::Segmented = pxui::Segmented::DEFAULT.padding(12.0);
+    /// let _ = ROOMY;
+    /// ```
+    pub const fn padding(mut self, padding: f32) -> Segmented<'a> { self.padding = padding; self }
+
+    /// Sets the least width of a segment in points (none by default), whether it is as wide as its text or shares the strip.
+    /// Allocates: never.
+    /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
+    ///
+    /// ```
+    /// const EVEN: pxui::Segmented = pxui::Segmented::DEFAULT.min_segment(56.0);
+    /// let _ = EVEN;
+    /// ```
+    pub const fn min_segment(mut self, w: f32) -> Segmented<'a> { self.min_segment = w; self }
 }
 
 impl Ui {
@@ -214,7 +262,7 @@ impl Ui {
     /// (`Toggle::enabled(false)`, or inside `Ui::disabled`) takes no press or focus.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: when the library refuses the arguments (outside a frame, a negative size, text too long).
+    /// Panics: when the library refuses the arguments (outside a frame, a negative size, text too long, a title style that does not resolve).
     ///
     /// ```
     /// use pxui::Toggle;
@@ -254,27 +302,29 @@ impl Ui {
     /// strip's response and the choice.
     ///
     /// One Tab stop: Left and Right move the choice, a press on an option chooses it. `selected` is clamped to the options; `changed` says
-    /// the returned choice differs from `selected`. The strip is named `Segmented::name` (none without), each option by its text, role Radio.
+    /// the returned choice differs from `selected`. The strip is named `Segmented::name` (none without), each option by its `Segment::name`
+    /// (its text without), role Radio.
     /// Allocates: never on a warm frame (up to 32 options; more allocate a span).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never an option's text.
-    /// Panics: when the library refuses the arguments (outside a frame, more than 4096 options, a negative height).
+    /// Panics: when the library refuses the arguments (outside a frame, more than 4096 options, a negative height, width, padding or least width).
     ///
     /// ```
-    /// use pxui::Segmented;
+    /// use pxui::{Segment, Segmented};
     /// let mut chosen = 0;
     /// let mut build = |ui: &mut pxui::Ui| {
     ///     const CHIPS: Segmented = Segmented::DEFAULT.h(28.0).name("Appearance");
-    ///     let (_, i) = ui.segmented_with("appearance", &["System", "Light", "Dark"], chosen, &CHIPS);
+    ///     const OPTIONS: [Segment; 3] = [Segment::new("System"), Segment::new("Light"), Segment::new("Dark").name("Use the dark theme")];
+    ///     let (_, i) = ui.segmented_with("appearance", &OPTIONS, chosen, &CHIPS);
     ///     chosen = i;
     /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
-    /// let dark = pxui::testing::find(&ui, pxui::a11y::Role::Radio, "Dark").expect("the Dark option");
+    /// let dark = pxui::testing::find(&ui, pxui::a11y::Role::Radio, "Use the dark theme").expect("the Dark option, by its name");
     /// pxui::testing::click(&mut ui, f64::from(dark.x + 4.0), f64::from(dark.y + 4.0), &mut build);
     /// assert_eq!(chosen, 2);
     /// ```
     #[inline]
     #[track_caller]
-    pub fn segmented_with<K: Into<Key>>(&mut self, key: K, options: &[&str], selected: usize, segmented: &Segmented<'_>) -> (Response, usize) { self.segmented_key(key.into(), options, selected, segmented) }
+    pub fn segmented_with<K: Into<Key>>(&mut self, key: K, options: &[Segment], selected: usize, segmented: &Segmented<'_>) -> (Response, usize) { self.segmented_key(key.into(), options, selected, segmented) }
 
     /// Declares a kit segmented control as `segmented_with` does with `Segmented::DEFAULT`, named `label`, and returns the choice.
     ///
@@ -286,13 +336,15 @@ impl Ui {
     ///
     /// ```
     /// let mut chosen = 0;
-    /// let mut build = |ui: &mut pxui::Ui| { chosen = ui.segmented("Align", &["Left", "Centre", "Right"], chosen); };
+    /// use pxui::Segment;
+    /// const ALIGN: [Segment; 3] = [Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")];
+    /// let mut build = |ui: &mut pxui::Ui| { chosen = ui.segmented("Align", &ALIGN, chosen); };
     /// let _ = pxui::doc::frames(1, &mut build);
     /// assert_eq!(chosen, 0);
     /// ```
     #[inline]
     #[track_caller]
-    pub fn segmented(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
+    pub fn segmented(&mut self, label: &str, options: &[Segment], selected: usize) -> usize {
         self.segmented_keyed("segmented", label, options, selected, &Segmented::DEFAULT).1
     }
 
@@ -310,7 +362,7 @@ impl Ui {
 
     /// The one body of `segmented_with`: the key's label, then the engine call.
     #[track_caller]
-    fn segmented_key(&mut self, key: Key, options: &[&str], selected: usize, segmented: &Segmented<'_>) -> (Response, usize) {
+    fn segmented_key(&mut self, key: Key, options: &[Segment], selected: usize, segmented: &Segmented<'_>) -> (Response, usize) {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         if segmented.variant == 0 { return self.segmented_keyed(label, segmented.name.unwrap_or(""), options, selected, segmented); }
@@ -323,7 +375,7 @@ impl Ui {
 
 #[cfg(test)]
 mod tests {
-    use super::{Segmented, Toggle};
+    use super::{Segment, Segmented, Toggle};
     use crate::a11y::state;
     use crate::ui::{Look, Node, Rect, Role, Size, States};
     use crate::{testing, Part, Response, Ui};
@@ -411,7 +463,7 @@ mod tests {
     #[test]
     fn chips_have_their_sizes_states_and_choose_on_click() {
         const CHIPS: Segmented = Segmented::DEFAULT.h(28.0).grow().name("Cache size");
-        const OPTIONS: [&str; 3] = ["5 GB", "10 GB", "20 GB"];
+        const OPTIONS: [Segment; 3] = [Segment::new("5 GB"), Segment::new("10 GB"), Segment::new("20 GB")];
         let chosen = Cell::new(1usize);
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
@@ -423,7 +475,7 @@ mod tests {
         let (strip, strip_rect) = node(&ui, Role::Group, "Cache size");
         assert_eq!(strip_rect.h, 28.0);
         assert!(strip & state::FOCUSABLE != 0);
-        let chips: Vec<(u32, Rect)> = OPTIONS.iter().map(|o| node(&ui, Role::Radio, o)).collect();
+        let chips: Vec<(u32, Rect)> = OPTIONS.iter().map(|o| node(&ui, Role::Radio, o.text)).collect();
         assert!(chips.iter().all(|c| c.1.h == 28.0 && c.1.w == chips[0].1.w), "equal shares of the strip: {chips:?}");
         assert!(chips[0].1.w * 3.0 > 0.9 * strip_rect.w, "the strip fills its line: {chips:?} of {strip_rect:?}");
         let checked: Vec<bool> = chips.iter().map(|c| c.0 & state::CHECKED != 0).collect();
@@ -442,7 +494,7 @@ mod tests {
     #[test]
     fn segmented_forwards_and_a_disabled_strip_blocks_input() {
         let (chosen, enabled) = (Cell::new(0usize), Cell::new(false));
-        let mut short = |ui: &mut Ui| { chosen.set(ui.segmented("Align", &["Left", "Right"], chosen.get())); };
+        let mut short = |ui: &mut Ui| { chosen.set(ui.segmented("Align", &[Segment::new("Left"), Segment::new("Right")], chosen.get())); };
         let mut ui = crate::doc::frames(3, &mut short);
         let (_, strip) = node(&ui, Role::Group, "Align");
         assert_eq!(strip.h, 20.0);
@@ -450,7 +502,7 @@ mod tests {
         click_centre(&mut ui, right, &mut short);
         assert_eq!(chosen.get(), 1);
         chosen.set(0);
-        let mut off = |ui: &mut Ui| { chosen.set(ui.segmented_with("seg", &["Left", "Right"], chosen.get(), &Segmented::DEFAULT.enabled(enabled.get()).name("Align")).1); };
+        let mut off = |ui: &mut Ui| { chosen.set(ui.segmented_with("seg", &[Segment::new("Left"), Segment::new("Right")], chosen.get(), &Segmented::DEFAULT.enabled(enabled.get()).name("Align")).1); };
         let mut ui = crate::doc::frames(3, &mut off);
         let (states, _) = node(&ui, Role::Group, "Align");
         let (radio, right) = node(&ui, Role::Radio, "Right");
@@ -504,6 +556,33 @@ mod tests {
         testing::frame(&mut ui, &[], &mut build);
         let toggle = flags(&ui, Role::Toggle, "Toggle");
         assert_eq!((toggle.0, toggle.1), (false, false), "an inner false inside an outer true stays disabled");
+    }
+
+    /// Enter and Space on a focused toggle row flip it (keyboard activation), focused by Tab; a whole-row toggle (`press_row`) is also
+    /// focused by a press on it, as a row is, so Enter after a click flips it again; a plain toggle stays a Tab stop only.
+    #[test]
+    fn enter_or_space_on_the_focused_toggle_flips_it() {
+        const TAB: u32 = pxui_types::KEY_SPECIAL + 8;
+        const ENTER: u32 = pxui_types::KEY_SPECIAL + 5;
+        for toggle in [Toggle::DEFAULT, Toggle::DEFAULT.press_row(true), SETTING.detail("More").press_row(true), SETTING] {
+            let on = Cell::new(false);
+            let mut build = |ui: &mut Ui| { if ui.toggle_with("t", "Wi-Fi", on.get(), &toggle).changed { on.set(!on.get()); } };
+            let mut ui = crate::doc::frames(3, &mut build);
+            testing::key(&mut ui, TAB, &mut build);
+            assert!(node(&ui, Role::Toggle, "Wi-Fi").0 & state::FOCUSED != 0, "Tab focuses the row");
+            testing::key(&mut ui, ENTER, &mut build);
+            assert!(on.get(), "Enter flips it");
+            testing::key(&mut ui, ' ' as u32, &mut build);
+            assert!(!on.get(), "Space flips it back");
+            let mut ui = crate::doc::frames(3, &mut build);
+            let r = node(&ui, Role::Toggle, "Wi-Fi").1;
+            click_switch(&mut ui, r, &mut build);
+            assert!(on.get(), "the click flips it");
+            let focused = node(&ui, Role::Toggle, "Wi-Fi").0 & state::FOCUSED != 0;
+            assert_eq!(focused, toggle.press_row, "a press focuses a whole-row toggle only");
+            testing::key(&mut ui, ENTER, &mut build);
+            assert_eq!(on.get(), !toggle.press_row, "Enter after the click flips a whole-row toggle");
+        }
     }
 
     /// `press_row(true)`: a press on the label side of the row toggles it; by default only the switch does.
@@ -567,17 +646,20 @@ mod tests {
         static TOGGLE_SEEN: Cell<(u32, u8, f32, f32, f32)> = const { Cell::new((0, 9, 0.0, 0.0, 0.0)) };
         static TOGGLE_MORE: Cell<(f32, u8, usize)> = const { Cell::new((0.0, 9, 0)) };
         static SEGMENT_SEEN: Cell<(u32, u8, usize)> = const { Cell::new((0, 9, 0)) };
+        static STYLE_SEEN: Cell<(u8, f32, f32, f32)> = const { Cell::new((9, 0.0, 0.0, 0.0)) };
     }
 
     fn toggle_body(ui: &mut Ui, c: &crate::bodies::PxuiToggleConfig) {
         TOGGLE_SEEN.with(|s| s.set((c.size, c.on, c.row_h, c.switch_w, c.switch_h)));
         TOGGLE_MORE.with(|s| s.set((c.inset, c.press_row, c.detail.len)));
+        STYLE_SEEN.with(|s| { let (_, _, p, m) = s.get(); s.set((c.has_style, c.style.size_points, p, m)); });
         let b = ui.part(Part::HIT, Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
         ui.text(&b, "custom toggle");
     }
 
     fn segment_body(ui: &mut Ui, c: &crate::bodies::PxuiSegmentConfig) {
         SEGMENT_SEEN.with(|s| s.set((c.size, c.grow, c.index)));
+        STYLE_SEEN.with(|s| { let (h, z, _, _) = s.get(); s.set((h, z, c.padding, c.min_segment)); });
         ui.node("custom".into(), Node { w: Size::Px(33.0), h: Size::Grow, ..Node::DEFAULT });
     }
 
@@ -592,8 +674,8 @@ mod tests {
         ui.set_theme(&crate::ThemeSource { size: core::mem::size_of::<crate::ThemeSource>() as u32, flags: 0, source: crate::Str { ptr: source.as_ptr(), len: source.len() } }).expect("theme");
         let owner = Cell::new(0);
         let mut build = |ui: &mut Ui| {
-            owner.set(ui.toggle_with("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More")).handle.box_key);
-            ui.segmented_with("s", &["A", "B"], 0, &Segmented::DEFAULT.grow());
+            owner.set(ui.toggle_with("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More").label(crate::Label::BODY.size(15.0))).handle.box_key);
+            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B").name("Use B")], 0, &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));
         };
         for n in 0..3 { ui.frame(&crate::FrameIn { width: 320.0, height: 240.0, time: n as f64, ..crate::FrameIn::default() }, &mut build).expect("frame"); }
         let (size, on, row_h, w, h) = TOGGLE_SEEN.with(Cell::get);
@@ -605,6 +687,51 @@ mod tests {
         assert!(size >= 72 && grow == 1 && last == 1, "the segment body ran for both options with the record's grow: {size} {grow} {last}");
         let toggle = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Toggle)).expect("toggle").rect;
         assert_eq!(toggle.h, 60.0, "the row height is behaviour's");
+        assert_eq!(STYLE_SEEN.with(Cell::get), (1, 15.0, 10.0, 40.0), "the title style reaches the toggle body, padding and least width the segment body");
+        node(&ui, Role::Radio, "Use B");
+        assert_eq!(node(&ui, Role::Group, "").1.w, 200.0, "the strip is `size` wide");
+    }
+
+    /// `detail` wraps to the room the switch leaves and the row grows to fit it; the detail is its own Label node; with a short detail
+    /// the row keeps its height. `label` restyles the title (the row keeps its name and height).
+    #[test]
+    fn a_long_detail_wraps_and_grows_the_row() {
+        const LONG: &str = "Fetch the next two cloud songs in the queue so they play without a connection, on any network";
+        let mut build = |ui: &mut Ui| {
+            ui.toggle_with("a", "Download ahead", false, &SETTING.detail(LONG));
+            ui.toggle_with("b", "Short", false, &SETTING.detail("One line"));
+            ui.toggle_with("c", "Styled", false, &SETTING.label(crate::Label::BODY.size(15.0)));
+        };
+        let ui = crate::doc::frames(3, &mut build);
+        let (_, row) = node(&ui, Role::Toggle, "Download ahead");
+        let (_, detail) = node(&ui, Role::Label, LONG);
+        assert!(row.h > 60.0 && detail.h > 20.0, "the row grew to fit the wrapped detail: {row:?} {detail:?}");
+        assert!(detail.y >= row.y && detail.y + detail.h <= row.y + row.h, "the detail sits inside the row: {detail:?} in {row:?}");
+        assert!(detail.x + detail.w <= row.x + row.w - 12.0 - 48.0, "the detail wraps before the switch: {detail:?} in {row:?}");
+        assert_eq!(node(&ui, Role::Toggle, "Short").1.h, 60.0, "a one-line detail keeps the row's height");
+        assert!(node(&ui, Role::Label, "One line").1.h > 0.0);
+        assert_eq!(node(&ui, Role::Toggle, "Styled").1.h, 60.0);
+    }
+
+    /// `size` makes the strip that wide with equal segments, `padding` widens a text-wide segment by twice the change, `min_segment` keeps a
+    /// segment at least that wide; `Segment::name` is the option's accessible name, its text what it shows.
+    #[test]
+    fn segmented_size_padding_least_width_and_names() {
+        const OPTIONS: [Segment; 3] = [Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB"), Segment::new("A")];
+        let mut build = |ui: &mut Ui| {
+            ui.segmented_with("plain", &OPTIONS, 0, &Segmented::DEFAULT.name("Plain"));
+            ui.segmented_with("sized", &OPTIONS, 0, &Segmented::DEFAULT.name("Sized").size(240.0));
+            ui.segmented_with("roomy", &OPTIONS, 0, &Segmented::DEFAULT.name("Roomy").padding(12.0).min_segment(50.0));
+        };
+        let ui = crate::doc::frames(3, &mut build);
+        let radios: Vec<Rect> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::Radio)).map(|n| n.rect).collect();
+        let names: Vec<&str> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::Radio)).map(|n| ui.a11y_name_of(n)).collect();
+        assert_eq!(names[..3], ["Use 4 GB", "Use 8 GB", "A"], "named by `Segment::name`, else the text");
+        let (plain, sized, roomy) = (&radios[0..3], &radios[3..6], &radios[6..9]);
+        assert_eq!(node(&ui, Role::Group, "Sized").1.w, 240.0);
+        assert!(sized.iter().all(|r| (r.w - sized[0].w).abs() < 1.0), "equal shares: {sized:?}");
+        assert_eq!(roomy[0].w - plain[0].w, 8.0, "padding 12 is 8 wider than 8's");
+        assert!(plain[2].w < 50.0 && roomy[2].w == 50.0, "the least width: {:?} {:?}", plain[2], roomy[2]);
     }
 
     /// Every option and scope on a warm frame allocates nothing.
@@ -615,9 +742,11 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             ui.toggle("Plain", true);
             ui.toggle_with(3i64, "Big", false, &SETTING.track(&looks).knob(&looks).enabled(false));
-            ui.segmented("Align", &["Left", "Centre", "Right"], 1);
-            ui.segmented_with("chips", &["5 GB", "10 GB"], 0, &Segmented::DEFAULT.h(28.0).grow().look(&looks).name("Cache").enabled(false));
-            ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented("Inner", &["A", "B"], 0); }); });
+            ui.segmented("Align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], 1);
+            ui.segmented_with("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], 0, &Segmented::DEFAULT.h(28.0).grow().look(&looks).name("Cache").enabled(false));
+            ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented("Inner", &[Segment::new("A"), Segment::new("B")], 0); }); });
+            ui.toggle_with("detail", "Download ahead", true, &SETTING.detail("Fetch the next two cloud songs in the queue before they play").label(crate::Label::BODY.size(15.0)).press_row(true));
+            ui.segmented_with("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], 1, &Segmented::DEFAULT.size(200.0).padding(10.0).min_segment(40.0));
         };
         for round in 0..20 {
             mem_sys::local_reset();

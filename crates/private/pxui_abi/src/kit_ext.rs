@@ -140,11 +140,16 @@ export!(trusted pub unsafe fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *co
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() { return unsafe { fail(ui, "null toggle argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short toggle response") } };
-    let Some(d) = read_desc!(desc, PxuiToggleDesc) else { return unsafe { fail(ui, "invalid toggle descriptor") }; };
-    if d.enabled > 1 || d.on > 1 || d.press_row > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid toggle descriptor") }; }
+    // an 88-byte record is the 1.51 one: no title style
+    let Some((d, _)) = read_desc!(desc, PxuiToggleDesc, 88) else { return unsafe { fail(ui, "invalid toggle descriptor") }; };
+    if d.enabled > 1 || d.on > 1 || d.press_row > 1 || d.reserved != 0 || d.has_style > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid toggle descriptor") }; }
     let (Some(key), Some(text), Some(detail)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.detail) }) else { return unsafe { fail(ui, "invalid toggle text") } };
     let (Ok(track), Ok(knob)) = (unsafe { looks(d.track) }, unsafe { looks(d.knob) }) else { return unsafe { fail(ui, "invalid toggle looks") } };
-    unsafe { trusted::toggle_with(ui, key, text, d.on != 0, track.as_ref(), knob.as_ref(), d.row_h, d.switch_w, d.switch_h, d.inset, d.press_row != 0, detail, d.enabled != 0, out) }
+    let label = match d.has_style {
+        0 => None,
+        _ => match crate::ui::label_style(&d.style) { Some((label, false)) => Some(label), _ => return unsafe { fail(ui, "invalid toggle label style") } },
+    };
+    unsafe { trusted::toggle_with(ui, key, text, d.on != 0, track.as_ref(), knob.as_ref(), d.row_h, d.switch_w, d.switch_h, d.inset, d.press_row != 0, detail, label.as_ref(), d.enabled != 0, out) }
 });
 
 // ABI 1.51: the plain kit segmented control (`Segmented::DEFAULT`) keyed by `key`, named `name`; `chosen` receives the choice.
@@ -157,7 +162,10 @@ export!(trusted pub unsafe fn pxui_ui_segmented_plain(ui: *mut PxuiUi, key: Str,
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid segmented strings") };
     };
-    let rc = unsafe { trusted::segmented_plain(ui, key, name, &list, selected, out, &mut *chosen) };
+    let mut segments = state.shared().take_segments();
+    segments.extend(list.iter().map(|text| pxui_types::ui::Segment::new(text)));
+    let rc = unsafe { trusted::segmented_plain(ui, key, name, &segments, selected, out, &mut *chosen) };
+    state.shared().put_segments(segments);
     state.shared().put_strs(list);
     rc
 });
@@ -167,15 +175,28 @@ export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: 
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || chosen.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short segmented response") } };
-    let Some(d) = read_desc!(desc, PxuiSegmentedDesc) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
-    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] { return unsafe { fail(ui, "invalid segmented descriptor") }; }
+    // a 64-byte record is the 1.51 one: the kit's padding, no width, least width or names
+    let Some((mut d, grown)) = read_desc!(desc, PxuiSegmentedDesc, 64) else { return unsafe { fail(ui, "invalid segmented descriptor") }; };
+    if !grown { d.padding = 8.0; }
+    if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || d.reserved2 != 0 { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     let Ok(states) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid segmented looks") } };
     let mut list = state.shared().take_strs();
     let (Some(key), Some(name), true) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid segmented strings") };
     };
-    let rc = unsafe { trusted::segmented_with(ui, key, name, &list, d.selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), out, &mut *chosen) };
+    // the names, each borrowed for the call: none, or one per option (an empty one is the option's text)
+    let mut names = state.shared().take_strs();
+    if (d.names.len != 0 && d.names.len != list.len()) || !unsafe { crate::state::strings(d.names, trusted::MAX_OPTIONS, &mut names) } {
+        state.shared().put_strs(names);
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid segmented names") };
+    }
+    let mut segments = state.shared().take_segments();
+    segments.extend(list.iter().enumerate().map(|(i, text)| pxui_types::ui::Segment { text, name: names.get(i).copied().filter(|n| !n.is_empty()) }));
+    let rc = unsafe { trusted::segmented_with(ui, key, name, &segments, d.selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, out, &mut *chosen) };
+    state.shared().put_segments(segments);
+    state.shared().put_strs(names);
     state.shared().put_strs(list);
     rc
 });
