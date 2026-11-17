@@ -4,8 +4,11 @@ use crate::Image;
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 
+/// Number of image slots in `Images`, and of wanted images it remembers at once.
 pub const CAPACITY: usize = 1024;
+/// Byte budget for decoded pixels the host keeps resident for these images (the host enforces it; `Images` only holds descriptors).
 pub const BYTE_LIMIT: usize = 128 * 1024 * 1024;
+/// Number of images one `Request` packet can name.
 pub const REQUEST_CAPACITY: usize = 8;
 
 /// A bounded UTF-8 image source path copied into worker requests without heap allocation.
@@ -23,6 +26,17 @@ impl Default for Path {
     }
 }
 impl Path {
+    /// Copies `text` into a fixed-size path; `None` when it is longer than 1024 bytes (an empty path is allowed).
+    ///
+    /// The path is not checked against the filesystem, and `Images` ignores empty ones.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::Path;
+    /// assert_eq!(Path::new("CoverArt/a.png").unwrap().as_str(), "CoverArt/a.png");
+    /// assert!(Path::new(&"x".repeat(1025)).is_none());
+    /// ```
     pub fn new(text: &str) -> Option<Self> {
         if text.len() > 1024 {
             return None;
@@ -32,18 +46,33 @@ impl Path {
         path.len = text.len() as u16;
         Some(path)
     }
+    /// The path text exactly as given to `Path::new`, borrowed from the path itself.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::Path;
+    /// assert_eq!(Path::new("é.png").unwrap().as_str(), "é.png");
+    /// assert_eq!(Path::default().as_str(), "");
+    /// ```
     pub fn as_str(&self) -> &str {
         std::str::from_utf8(&self.bytes[..self.len as usize])
             .expect("image path was copied from UTF-8")
     }
 }
 
+/// One wanted image: what the worker should decode and how large.
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct Key {
+    /// The app's image id (never 0); one cached image per id.
     pub id: usize,
+    /// Where the worker reads the source image from.
     pub path: Path,
+    /// Longest side, in pixels, the worker should decode to (1 to 1024; a multiple of 32 when `Images` made it).
     pub max_pixels: u32,
 }
+/// A packet of up to `REQUEST_CAPACITY` wanted images for a worker, stamped with the `Images` epoch it was built in.
 #[derive(Clone, Copy, Default, Debug, Eq)]
 pub struct Request {
     epoch: u64,
@@ -56,15 +85,68 @@ impl PartialEq for Request {
     }
 }
 impl Request {
+    /// Empties the packet of its keys; the epoch stays.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::Request;
+    /// let mut request = Request::default();
+    /// assert!(request.insert(1, "a.png", 64));
+    /// request.clear();
+    /// assert!(request.keys().is_empty());
+    /// ```
     pub fn clear(&mut self) {
         self.count = 0;
     }
+    /// The `Images::epoch` this packet was built in; 0 for a packet made with `Request::default`.
+    ///
+    /// A host compares it with the current epoch to drop results that were decoded before an `Images::clear`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::{Images, Request};
+    /// let mut images = Images::default();
+    /// assert_eq!(images.requests().epoch(), 0);
+    /// images.clear();
+    /// assert_eq!(images.requests().epoch(), 1);
+    /// assert_eq!(Request::default().epoch(), 0);
+    /// ```
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
+    /// The wanted images in this packet, in the order they were added.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::Request;
+    /// let mut request = Request::default();
+    /// request.insert(7, "a.png", 64);
+    /// assert_eq!(request.keys()[0].id, 7);
+    /// ```
     pub fn keys(&self) -> &[Key] {
         &self.keys[..usize::from(self.count)]
     }
+    /// Adds image `id` read from `path` at up to `max_pixels` to the packet; false when it was not added.
+    ///
+    /// An `id` already in the packet is not added twice: its `max_pixels` becomes the larger of the two (its first path stays) and the
+    /// call is true, even when the packet is full. False for `id` 0, an empty or over-1024-byte `path`, `max_pixels` outside 1 to 1024,
+    /// or a full packet (`REQUEST_CAPACITY` keys) and a new `id`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::Request;
+    /// let mut request = Request::default();
+    /// assert!(request.insert(1, "a.png", 64));
+    /// assert!(request.insert(1, "a.png", 128));
+    /// assert_eq!((request.keys().len(), request.keys()[0].max_pixels), (1, 128));
+    /// assert!(!request.insert(0, "a.png", 64));
+    /// ```
     pub fn insert(&mut self, id: usize, path: &str, max_pixels: u32) -> bool {
         if id == 0 || path.is_empty() || !(1..=1024).contains(&max_pixels) {
             return false;
@@ -102,6 +184,10 @@ struct Entry {
     quality: u32,
     used: Cell<u64>,
 }
+/// The app's table of image descriptors by id: up to `CAPACITY` host-decoded images, plus the decodes still wanted.
+///
+/// It holds `pxui::Image` descriptors only; the host decodes, uploads and destroys the pixels. Draw code asks with `get` (or `get_at`),
+/// which returns what is cached and queues what is missing; the host drains `requests` or `visible_requests` and answers with `insert`.
 pub struct Images {
     entries: Vec<Entry>,
     by_id: HashMap<usize, usize>,
@@ -134,7 +220,20 @@ impl Default for Images {
     }
 }
 impl Images {
-    /// Select density and maximum requested source pixels; changing them invalidates cached images.
+    /// Sets the screen density and the largest decode size `get` will ask for; true when either value changed.
+    ///
+    /// `density` (device pixels per point) is clamped to 1 to 4, a non-finite one becomes 1; `max_pixels` is clamped to 32 to 1024.
+    /// A change bumps `revision` but drops nothing: cached images stay returned, and `get` asks again only when its size now needs more
+    /// pixels than the cached image was decoded at.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut images = pxui::images::Images::default();
+    /// assert!(images.configure(2.0, 384));
+    /// assert!(!images.configure(2.0, 384));
+    /// assert!(images.configure(f32::NAN, 384));
+    /// ```
     pub fn configure(&mut self, density: f32, max_pixels: u32) -> bool {
         let density = if density.is_finite() {
             density.clamp(1.0, 4.0)
@@ -150,22 +249,99 @@ impl Images {
         }
         false
     }
+    /// A counter that changes whenever what `get` returns may have changed: `configure` with new values, `insert`, `remove`, `clear`.
+    ///
+    /// Compare it with the last value seen to know when a cached view must rebuild. It wraps at `u64::MAX`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut images = pxui::images::Images::default();
+    /// let before = images.revision();
+    /// images.clear();
+    /// assert_ne!(images.revision(), before);
+    /// ```
     pub fn revision(&self) -> u64 {
         self.revision
     }
+    /// A counter that `clear` advances; each `Request` carries the value it was built in.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut images = pxui::images::Images::default();
+    /// assert_eq!(images.epoch(), 0);
+    /// images.clear();
+    /// assert_eq!(images.epoch(), 1);
+    /// ```
     pub fn epoch(&self) -> u64 {
         self.epoch
     }
+    /// The use tick of slot `index`: larger is more recent, 0 when never used.
+    ///
+    /// Each `get` or `get_at` that finds its id cached, and each `insert`, gives that slot the next tick; `oldest` picks the smallest.
+    /// Allocates: never.
+    /// Panics: when `index` is `CAPACITY` or more.
+    ///
+    /// ```
+    /// use pxui::images::Images;
+    /// let mut images = Images::default();
+    /// assert_eq!(images.last_used(0), 0);
+    /// images.insert(0, Default::default(), None);
+    /// assert!(images.last_used(0) > 0);
+    /// ```
     pub fn last_used(&self, index: usize) -> u64 {
         self.entries[index].used.get()
     }
+    /// Forgets every wanted image not yet delivered; cached images stay.
+    ///
+    /// A later `get` of a missing image queues it again.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let images = pxui::images::Images::default();
+    /// images.get(1, "a.png", 100.0);
+    /// images.cancel_requests();
+    /// assert!(images.requests().keys().is_empty());
+    /// ```
     pub fn cancel_requests(&self) {
         self.pending.borrow_mut().clear();
     }
+    /// The first `REQUEST_CAPACITY` wanted images, in the order they were first asked for, with no check of where they are on screen.
+    ///
+    /// Asking does not remove them: they stay wanted until `insert` delivers the id or `cancel_requests` / `clear` runs, so a
+    /// full queue is served over several calls. Wants for one id from several `get_at` nodes merge into the largest size.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let images = pxui::images::Images::default();
+    /// images.get(1, "a.png", 100.0);
+    /// let request = images.requests();
+    /// assert_eq!((request.keys()[0].id, request.keys()[0].max_pixels), (1, 128));
+    /// ```
     pub fn requests(&self) -> Request {
         self.packet(None)
     }
-    /// Resolve final geometry and nearby rows after layout; provisional cells must not delay covers.
+    /// Like `requests`, but only the wants worth decoding now, judged from `ui`'s last laid-out frame.
+    ///
+    /// A want made with `get_at` counts only while its node is on screen or within two of its heights above or below the view; one
+    /// whose node is not in the tree is dropped for good, so cells that were only provisional leave no work. Wants made with `get`
+    /// always count. Call it after `Ui::frame`, so geometry is final.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::Images;
+    /// let images = Images::default();
+    /// let ui = pxui::doc::frames(2, &mut |ui| {
+    ///     let node = ui.node("cover".into(), pxui::Node::DEFAULT);
+    ///     images.get_at(1, "a.png", 50.0, node.box_key);
+    /// });
+    /// assert!(images.visible_requests(&ui).keys().len() <= 1);
+    /// ```
     pub fn visible_requests(&self, ui: &crate::Ui) -> Request {
         self.packet(Some(ui))
     }
@@ -204,15 +380,72 @@ impl Images {
         }
         request
     }
+    /// The slot holding image `id`, or `None` when it is not cached (a failed decode stored as `None` still has a slot).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::Images;
+    /// let mut images = Images::default();
+    /// assert_eq!(images.index(5), None);
+    /// let key = pxui::images::Key { id: 5, ..Default::default() };
+    /// images.insert(3, key, None);
+    /// assert_eq!(images.index(5), Some(3));
+    /// ```
     pub fn index(&self, id: usize) -> Option<usize> {
         self.by_id.get(&id).copied()
     }
+    /// The `max_pixels` image `id` was delivered at, or `None` when it is not cached.
+    ///
+    /// It is the size that was asked for, not the decoded image's dimensions; a failed decode keeps its quality too.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::images::{Images, Key};
+    /// let mut images = Images::default();
+    /// images.insert(0, Key { id: 5, max_pixels: 256, ..Default::default() }, None);
+    /// assert_eq!(images.quality(5), Some(256));
+    /// assert_eq!(images.quality(6), None);
+    /// ```
     pub fn quality(&self, id: usize) -> Option<u32> {
         self.index(id).map(|index| self.entries[index].quality)
     }
+    /// The cached image `id`, if any, and a request for a better one when the cached one is smaller than `points` needs.
+    ///
+    /// `points` is the logical size the image is drawn at; the wanted decode size is `points` times the configured density,
+    /// rounded up to a multiple of 32 and clamped to 32 up to the `configure` maximum. A cached image is returned whatever its
+    /// quality (a placeholder until the better one arrives); `None` when `id` was never delivered or its decode failed. The want is
+    /// recorded when `id` is not 0 and `path` is not empty or longer than 1024 bytes; up to `CAPACITY` wants wait at once,
+    /// extra ones are dropped. Takes `&self`, so draw code can call it.
+    /// Allocates: never.
+    /// Identity: `id` is the app's own number for the image; two paths with one `id` share one slot and the first delivered wins.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let images = pxui::images::Images::default();
+    /// assert!(images.get(1, "a.png", 100.0).is_none());
+    /// assert_eq!(images.requests().keys()[0].id, 1);
+    /// ```
     pub fn get(&self, id: usize, path: &str, points: f32) -> Option<Image> {
         self.lookup(id, path, points, None)
     }
+    /// Like `get`, for an image drawn in layout node `node` (a `PxuiBox::box_key`), so `visible_requests` can skip it while off screen.
+    ///
+    /// One id wanted from several nodes keeps one want per node; the cached image and the size rule are those of `get`.
+    /// Allocates: never.
+    /// Identity: `id` as in `get`; `node` is the box key of the widget that shows the image.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let images = pxui::images::Images::default();
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let node = ui.node("cover".into(), pxui::Node::DEFAULT);
+    ///     assert!(images.get_at(1, "a.png", 50.0, node.box_key).is_none());
+    /// });
+    /// assert_eq!(images.requests().keys().len(), 1);
+    /// ```
     pub fn get_at(&self, id: usize, path: &str, points: f32, node: i64) -> Option<Image> {
         self.lookup(id, path, points, Some(node))
     }
@@ -255,6 +488,18 @@ impl Images {
         }
         image
     }
+    /// The slot to fill next: the first empty slot, else the least recently used one (smallest `last_used`).
+    ///
+    /// It evicts nothing; `insert` into the slot replaces what is there.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut images = pxui::images::Images::default();
+    /// assert_eq!(images.oldest(), 0);
+    /// images.insert(0, pxui::images::Key { id: 1, ..Default::default() }, None);
+    /// assert_eq!(images.oldest(), 1);
+    /// ```
     pub fn oldest(&self) -> usize {
         self.entries
             .iter()
@@ -268,6 +513,24 @@ impl Images {
                     .0
             })
     }
+    /// Stores the worker's result for `key` in slot `index` (`None` records a failed decode so it is not retried), replacing that slot.
+    ///
+    /// Pending wants for `key.id` are cleared, except when `image` is present and a want asked for more pixels than `key.max_pixels`.
+    /// The slot's previous image is only forgotten here: the host still owns and destroys it. Moves `revision` on. An id that
+    /// is already cached in another slot is not removed from it; pick `index` with `index(key.id)` or `oldest`.
+    /// Allocates: never.
+    /// Identity: `key.id` becomes the id `get` finds the image by.
+    /// Panics: when `index` is `CAPACITY` or more.
+    ///
+    /// ```
+    /// use pxui::images::{Images, Key};
+    /// let mut images = Images::default();
+    /// images.get(1, "a.png", 100.0);
+    /// let key = images.requests().keys()[0];
+    /// images.insert(images.oldest(), key, None);
+    /// assert!(images.requests().keys().is_empty());
+    /// assert_eq!(images.quality(1), Some(128));
+    /// ```
     pub fn insert(&mut self, index: usize, key: Key, image: Option<Image>) {
         let mut pending = self.pending.borrow_mut();
         pending.retain(|wanted| {
@@ -286,6 +549,18 @@ impl Images {
         self.by_id.insert(key.id, index);
         self.revision = self.revision.wrapping_add(1);
     }
+    /// Forgets every cached image and every wanted one, and starts a new epoch.
+    ///
+    /// The host still owns the pixels it handed over. Moves both `revision` and `epoch` on.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut images = pxui::images::Images::default();
+    /// images.insert(0, pxui::images::Key { id: 1, ..Default::default() }, None);
+    /// images.clear();
+    /// assert_eq!(images.index(1), None);
+    /// ```
     pub fn clear(&mut self) {
         self.by_id.clear();
         for entry in &mut self.entries {
@@ -296,6 +571,18 @@ impl Images {
         self.epoch = self.epoch.wrapping_add(1);
         self.cancel_requests();
     }
+    /// Empties slot `index`, so its id is no longer cached and `get` asks for it again; pending wants are untouched.
+    ///
+    /// The host still owns and destroys the image. Moves `revision` on. Removing an empty slot is harmless.
+    /// Allocates: never.
+    /// Panics: when `index` is `CAPACITY` or more.
+    ///
+    /// ```
+    /// let mut images = pxui::images::Images::default();
+    /// images.insert(0, pxui::images::Key { id: 1, ..Default::default() }, None);
+    /// images.remove(0);
+    /// assert_eq!(images.index(1), None);
+    /// ```
     pub fn remove(&mut self, index: usize) {
         self.by_id.remove(&self.entries[index].id);
         self.entries[index].id = 0;
