@@ -128,7 +128,7 @@ pub struct Node {
     pub role: Role,
     pub state: State,
     pub z: i16,
-    pub flags: i64,
+    pub flags: Flags,
     pub w: Size,
     pub h: Size,
     pub min_w: f32,
@@ -160,7 +160,7 @@ pub struct Node {
 impl Node {
     pub const DEFAULT: Node = Node {
         size: core::mem::size_of::<Node>() as u32,
-        flags: 0,
+        flags: Flags::NONE,
         w: Size::Grow,
         h: Size::Fit,
         min_w: 0.0,
@@ -440,11 +440,11 @@ impl Node {
     /// ```
     /// use pxui_types::{Flags, Node};
     /// const N: Node = Node::row().flags(Flags::CLICKABLE.or(Flags::CLIP));
-    /// assert_eq!(N.flags, 9);
+    /// assert_eq!(N.flags.bits(), 9);
     /// ```
     #[inline]
     pub const fn flags(mut self, flags: Flags) -> Node {
-        self.flags = flags.bits();
+        self.flags = flags;
         self
     }
 }

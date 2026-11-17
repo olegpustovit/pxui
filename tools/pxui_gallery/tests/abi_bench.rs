@@ -226,10 +226,10 @@ struct Shim;
 impl Shim {
     /// The variant under test: the helper takes the node by value and rebuilds a modified copy before using it.
     #[inline]
-    fn rebuilding<F: FnMut(&mut pxui::Ui)>(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, mut f: F) { self.rebuilding_body(ui, key, node, &mut f); }
-    fn rebuilding_body(&self, ui: &mut pxui::Ui, key: &str, node: pxui::Node, f: &mut dyn FnMut(&mut pxui::Ui)) {
+    fn rebuilding<F: FnMut(&mut pxui::Ui)>(&self, ui: &mut pxui::Ui, key: &'static str, node: pxui::Node, mut f: F) { self.rebuilding_body(ui, key, node, &mut f); }
+    fn rebuilding_body(&self, ui: &mut pxui::Ui, key: &'static str, node: pxui::Node, f: &mut dyn FnMut(&mut pxui::Ui)) {
         let rebuilt = pxui::Node { w: node.w, h: node.h, padding: node.padding, gap: node.gap, axis: node.axis, ..pxui::Node::DEFAULT };
-        let b = ui.node(key, std::hint::black_box(rebuilt));
+        let b = ui.node(key.into(), std::hint::black_box(rebuilt));
         ui.within(&b, f);
     }
 }
@@ -240,7 +240,7 @@ fn abi_bench_author() {
     if !slow() { return; }
     // `Key` labels are `&'static str`: the page's 200 row labels live for the test process.
     let labels: Vec<&'static str> = (0..AUTHOR_ROWS).map(|i| &*format!("row{i}").leak()).collect();
-    let leaves: Vec<String> = (0..AUTHOR_CHILDREN).map(|i| format!("leaf{i}")).collect();
+    let leaves: Vec<&'static str> = (0..AUTHOR_CHILDREN).map(|i| &*format!("leaf{i}").leak()).collect();
     // a row in all three paths, so `ui.row` setting the axis lays out the same tree
     let row = pxui::Node { axis: pxui::ui::Axis::Row, w: Size::Grow, h: Size::Px(24.0), ..pxui::Node::DEFAULT };
     let leaf = pxui::Node { w: Size::Px(10.0), h: Size::Px(10.0), ..pxui::Node::DEFAULT };
@@ -250,9 +250,9 @@ fn abi_bench_author() {
     let mut build = |kind: u8, count: u64| {
         let input = FrameIn { width: PAGE_W as f32, height: PAGE_H as f32, scale: 1.0, time: count as f64 / 60.0, ..FrameIn::default() };
         ui.frame(&input, &mut |ui: &mut pxui::Ui| for label in &labels {
-            let mut children = |ui: &mut pxui::Ui| for l in &leaves { ui.node(l, leaf); };
+            let mut children = |ui: &mut pxui::Ui| for l in &leaves { ui.node((*l).into(), leaf); };
             match kind {
-                0 => { let b = ui.node(label, row); ui.within(&b, &mut children); }
+                0 => { let b = ui.node((*label).into(), row); ui.within(&b, &mut children); }
                 1 => { ui.row(*label, row, children); }
                 _ => shim.rebuilding(ui, label, row, children),
             }
@@ -424,7 +424,7 @@ fn abi_bench_paint_calls() {
         let input = FrameIn { width: 300.0, height: 200.0, scale: 1.0, time: count as f64 / 60.0, ..FrameIn::default() };
         let before = pxui::library_counter(pxui::COUNTER_CALLS);
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
-            let b = ui.node("canvas", pxui::Node { w: Size::Px(300.0), h: Size::Px(200.0), ..pxui::Node::DEFAULT });
+            let b = ui.node("canvas".into(), pxui::Node { w: Size::Px(300.0), h: Size::Px(200.0), ..pxui::Node::DEFAULT });
             ui.canvas(&b, move |p, _| for i in 0..shapes { p.fill((i % 300) as f32, (i / 300) as f32, 1.0, 1.0, ink); });
         }).expect("frame");
         pxui::library_counter(pxui::COUNTER_CALLS) - before - 1

@@ -50,7 +50,7 @@ export!(pub unsafe fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, out: *mut 
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(k) = key(code) else { return unsafe { fail(ui, "unknown key code") }; };
     if out.is_null() { return unsafe { fail(ui, "null key output") }; }
-    unsafe { *out = e.key_pressed(k) as u8; }
+    unsafe { *out = e.key_pressed(k, None) as u8; }
     0
 });
 
@@ -67,7 +67,7 @@ export!(pub unsafe fn pxui_ui_key_pressed_with(ui: *mut PxuiUi, code: u32, modif
     let Some(k) = key(code) else { return unsafe { fail(ui, "unknown key code") }; };
     let Some(m) = key(modifier).filter(|m| matches!(m, input::Key::Shift | input::Key::Ctrl | input::Key::Alt | input::Key::Meta)) else { return unsafe { fail(ui, "expected Shift, Ctrl, Alt or Meta modifier") }; };
     if out.is_null() { return unsafe { fail(ui, "null key output") }; }
-    unsafe { *out = e.key_pressed_with(k, m) as u8; }
+    unsafe { *out = e.key_pressed(k, Some(m)) as u8; }
     0
 });
 

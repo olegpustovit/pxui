@@ -714,10 +714,10 @@ impl Ui {
     /// the press (what `scrub` takes), as its build would read them. `None` on any other frame (a
     /// press, a release, typing: its view builds and the field reads them itself).
     pub fn field_drag(&self, field: &UiBox) -> Option<(f32, f32)> {
-        if !self.live(field) || self.box_flags(field) & DRAG_FREE == 0 {
+        if !self.live(field) || !self.box_flags(field).any(Flags::DRAG_FREE) {
             return None;
         }
-        let signal = self.signal(field);
+        let signal = self.signal_owned(field);
         let pure = signal.held && !signal.pressed && !signal.released && signal.button == Some(MouseButton::LeftButton) && signal.keys.is_empty();
         let alt = self.press_keys(field).contains(&Key::Alt);
         (pure && !alt).then(|| (fraction_at(ints(self.rect(field)), signal.pointer.0), signal.pointer.0 - signal.press_point.0))
@@ -802,9 +802,9 @@ impl Ui {
         let saved = self.enter(header);
         let b = self.box_(
             &format!("{}-button-{}", key, index),
-            BoxOpts::default().flags(if enabled { CLICKABLE | TAB_STOP } else { NO_FLAGS }).at((x, y_buttons)).w(Size::Px(w)).h(Size::Px(self.control_h())),
+            BoxOpts::default().flags(if enabled { Flags::CLICKABLE | Flags::TAB_STOP } else { Flags::NONE }).at((x, y_buttons)).w(Size::Px(w)).h(Size::Px(self.control_h())),
         );
-        let signal = self.signal(&b);
+        let signal = self.signal_owned(&b);
         if enabled && signal.clicked {
             *pressed = Some(index);
         }
@@ -847,12 +847,12 @@ impl Ui {
     /// `Previous`, Escape `Close`. `grab` takes the keyboard for it.
     #[allow(clippy::too_many_arguments)]
     pub fn line_field(&mut self, at: (f32, f32), w: f32, h: f32, grab: bool, placeholder: &str, label: &str, value: &str) -> (String, LineStep) {
-        let field_box = self.box_(label, BoxOpts::default().flags(CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK).at(at).w(Size::Px(w)).h(Size::Px(h)));
+        let field_box = self.box_(label, BoxOpts::default().flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK).at(at).w(Size::Px(w)).h(Size::Px(h)));
         let field = field_box;
         if grab {
             self.focus_box(&field);
         }
-        let signal = self.signal(&field);
+        let signal = self.signal_owned(&field);
         let focused = self.focused(&field);
         let mut edit = if focused {
             self.load_text_edit(field.box_key, value)
@@ -1083,7 +1083,7 @@ impl Ui {
 
     /// A box at the root, laid out and painted after every pane (like a tooltip), so a popup under
     /// a caret is never clipped by its pane.
-    fn overlay_box(&mut self, flags: i64, at: (f32, f32), w: f32, h: f32, label: &str) -> UiBox {
+    fn overlay_box(&mut self, flags: Flags, at: (f32, f32), w: f32, h: f32, label: &str) -> UiBox {
         let saved = self.enter_root();
         let overlay = self.box_(label, BoxOpts::default().flags(flags).w(Size::Px(w)).h(Size::Px(h)).at(at));
         self.push_overlay(overlay.index);
@@ -1514,7 +1514,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let row = this.text_line_height() as f32;
     let body = this.box_(
         label,
-        BoxOpts::default().flags(CLICKABLE | FOCUSABLE | BLOCKING | SCROLL | CLIP | KEEP_TAB).at(at).w(Size::Px(w)).h(Size::Px(h)).scroll_step(row),
+        BoxOpts::default().flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::SCROLL | Flags::CLIP | Flags::KEEP_TAB).at(at).w(Size::Px(w)).h(Size::Px(h)).scroll_step(row),
     );
     // a `select` request takes the keyboard for the area
     if o.select.is_some() {
@@ -1561,7 +1561,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
     let suggest = this.box_fmt(format_args!("{}-suggest", label), BoxOpts::default().w(Size::Px(0.0)).h(Size::Px(0.0)).at((0.0, 0.0)));
     let scrub = this.box_fmt(format_args!("{}-scrub", label), BoxOpts::default().w(Size::Px(0.0)).h(Size::Px(0.0)).at((0.0, 0.0)));
     this.leave(saved);
-    let signal = this.signal(&body);
+    let signal = this.signal_owned(&body);
     // the I-beam over text; a number under the pointer asks for the scrub cursor further down,
     // and the last request wins
     if signal.hovered {
@@ -1678,15 +1678,15 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         let (view_w, _) = this.view_size();
         let width = width.min(120.0f32.max(view_w - 16.0));
         let height = (shown as i64 * this.row_height()) as f32 + if doc_empty { 4.0 } else { 22.0 };
-        let container = this.overlay_box(BLOCKING, (0.0, 0.0), width, height, &format!("{}-completions", label));
+        let container = this.overlay_box(Flags::BLOCKING, (0.0, 0.0), width, height, &format!("{}-completions", label));
         let saved = this.enter(&container);
         let mut boxes = Vec::new();
         for i in 0..shown {
-            boxes.push(this.kit_row(Some(CLICKABLE | BLOCKING | KEEP_FOCUS), None, &format!("row-{}", i)));
+            boxes.push(this.kit_row(Some(Flags::CLICKABLE | Flags::BLOCKING | Flags::KEEP_FOCUS), None, &format!("row-{}", i)));
         }
         this.leave(saved);
         for (i, r) in boxes.iter().enumerate() {
-            if this.signal(r).clicked {
+            if this.signal_owned(r).clicked {
                 let c = items[first + i].clone();
                 this.accept_completion(&mut edit, &suggest, &mut st, &c);
             }
@@ -1932,7 +1932,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         }
         for (i, r) in boxes.iter().enumerate() {
             let c = &items[first + i];
-            let state = State { hovered: this.signal(r).hovered, checked: first + i == selected, ..State::default() };
+            let state = State { hovered: this.signal_owned(r).hovered, checked: first + i == selected, ..State::default() };
             this.style(r, &list, state);
             this.set_role(r, Role::ListItem, if first + i == selected { crate::a11y::state::SELECTED } else { 0 });
             this.node_mut(r).inset = Edges { l: this.space(2), ..Edges::default() };
@@ -2253,13 +2253,13 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     fill(query, &mut rows);
     // the search row: a 20-point field in 4 points of padding, a [/] before the query
     // a 20-point field in 4 points of margin
-    let search = this.box_(label, BoxOpts::default().flags(CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK).w(Size::Grow).h(Size::Px(this.control_h())));
+    let search = this.box_(label, BoxOpts::default().flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK).w(Size::Grow).h(Size::Px(this.control_h())));
     this.node_mut(&search).margin = Edges::all(4.0);
     if this.focus_key() == 0 || this.slot_rw(search.box_slot) == 0.0 {
         this.focus_box(&search);
     }
     let list = this.box_keyed(int_key(search.box_key, 0), BoxOpts::default().w(Size::Grow).h(Size::Fit).axis(Axis::Column));
-    let search_signal = this.signal(&search);
+    let search_signal = this.signal_owned(&search);
     if search_signal.hovered {
         this.request_cursor(Cursor::Text);
     }
@@ -2355,11 +2355,11 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
         let row = this.box_keyed(
             int_key(list.box_key, visible),
             BoxOpts::default()
-                .flags(CLICKABLE | FOCUSABLE | BLOCKING | if off(index) { KEEP_FOCUS } else { 0 })
+                .flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | if off(index) { Flags::KEEP_FOCUS } else { Flags::NONE })
                 .w(Size::Grow)
                 .h(Size::Px(row_height as f32)),
         );
-        let row_signal = this.signal(&row);
+        let row_signal = this.signal_owned(&row);
         if result == Pick::None && row_signal.clicked && !off(index) {
             result = Pick::Pick(index);
         }
@@ -2472,12 +2472,12 @@ pub(crate) fn default_picker_row(this: &mut Ui, c: &PickerRowConfig, text: &str,
 /// Whether the text changed (the new one is in `returned`) and whether a text editor is open.
 fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFieldOpts, valid: &dyn Fn(&str) -> bool, label: &str, value: &str) -> (bool, bool) {
     let slider = o.slide.is_some() || o.scrub.is_some();
-    let drag = if slider && o.kept_drag { DRAG_FREE } else { NO_FLAGS };
+    let drag = if slider && o.kept_drag { Flags::DRAG_FREE } else { Flags::NONE };
     let bx = this.box_(
         label,
-        BoxOpts::default().flags(CLICKABLE | TAB_STOP | BLOCKING | CLIP | drag).at(at).w(Size::Px(w)).h(Size::Px(h)),
+        BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP | Flags::BLOCKING | Flags::CLIP | drag).at(at).w(Size::Px(w)).h(Size::Px(h)),
     );
-    let signal = this.signal(&bx);
+    let signal = this.signal_owned(&bx);
     let bounds = ints(this.rect(&bx));
     let keys = this.key_events(&bx);
     let np = NumParams {
@@ -2499,7 +2499,7 @@ fn value_field_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &ValueFiel
         &|text| if valid(text) { Some(text.to_owned()) } else { None },
     );
     if editing {
-        this.set_flags_of_box(&bx, CLICKABLE | FOCUSABLE | BLOCKING | CLIP);
+        this.set_flags_of_box(&bx, Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::CLIP);
     }
     if signal.pressed {
         this.scrub_origin = Some((bx.box_key, value.to_owned()));
@@ -2662,7 +2662,7 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
     } else {
         (if buttons { y_buttons + 20.0 } else { y_detail + line }) + 8.0 + 1.0
     };
-    let header = this.box_(key, BoxOpts::default().flags(CLIP).w(Size::Grow).h(Size::Px(height)));
+    let header = this.box_(key, BoxOpts::default().flags(Flags::CLIP).w(Size::Grow).h(Size::Px(height)));
     let renaming = rename.is_some();
     let title_shown = match &rename {
         Some(valid) => {
@@ -2745,11 +2745,11 @@ fn inspector_header_body(this: &mut Ui, key: &str, kind: Option<&str>, badge: Op
     if !renaming {
         let dy = if win { text_top_for(font_size, Some(display_size), 0.0, title_h) } else { 2.0 };
         let look = Look { font: Font { size: display_size, ..title_look.font }, ..title_look };
-        let n = this.node_keyed(k(3), Node { flags: FIT_TEXT, h: Size::Px(display_size as f32), at: Some((0.0, y_title + dy)).into(), look, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
+        let n = this.node_keyed(k(3), Node { flags: Flags::FIT_TEXT, h: Size::Px(display_size as f32), at: Some((0.0, y_title + dy)).into(), look, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
         this.text(&n, title);
     }
     let ty = text_top_for(font_size, None, 0.0, line);
-    let n = this.node_keyed(k(4), Node { flags: FIT_TEXT, h: Size::Px(font_size as f32), at: Some((0.0, y_detail + ty)).into(), look: hint, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
+    let n = this.node_keyed(k(4), Node { flags: Flags::FIT_TEXT, h: Size::Px(font_size as f32), at: Some((0.0, y_detail + ty)).into(), look: hint, inset: Edges { l: text_x, r: text_x, ..Edges::default() }, ..Node::DEFAULT });
     this.text(&n, detail);
     this.leave(saved);
     Head { renamed: title_shown, chosen: pressed, reset_pressed }
@@ -2870,15 +2870,15 @@ fn menu_rows_body(this: &mut Ui, m: &MenuRows) -> (Option<i64>, Option<i64>) {
         if text.is_empty() {
             let look = t.separator.idle;
             // a hairline 4 points down in a `gap`-point space
-            let line = this.box_fmt(format_args!("separator-{}", index), BoxOpts::default().flags(BLOCKING).w(Size::Grow).h(Size::Px(1.0)));
+            let line = this.box_fmt(format_args!("separator-{}", index), BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(1.0)));
             this.set_look(&line, look, State::default());
             this.set_role(&line, Role::Separator, 0);
             this.node_mut(&line).margin = Edges { t: 4.0, b: m.gap - 5.0, ..Edges::ZERO };
         } else {
             let enabled = *enabled;
             let danger = m.danger.contains(&index);
-            let row = this.kit_row(Some(if enabled { CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY } else { BLOCKING }), None, text);
-            let signal = this.signal(&row);
+            let row = this.kit_row(Some(if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY } else { Flags::BLOCKING }), None, text);
+            let signal = this.signal_owned(&row);
             if enabled && signal.hovered {
                 hovered = Some(index);
             }
@@ -2930,9 +2930,9 @@ fn text_field_body(this: &mut Ui, text: &str, value: &str, options: pxui_types::
     // the control, its hit shape and its text sit `space(2)` in from the row's ends at any density (until the body's own editor part has
     // been laid out)
     let side = this.space(2) as i64;
-    let row = this.kit_row(Some(CLICKABLE | FOCUSABLE | BLOCKING | FOCUS_MARK), None, text);
+    let row = this.kit_row(Some(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::FOCUS_MARK), None, text);
     this.hit_part(&row, Part::EDITOR);
-    let signal = this.signal_state(&row);
+    let signal = this.signal(&row);
     let mut focused = this.focused(&row);
     if focused { this.text_input_options = options; }
     let control_at = |ui: &Ui| ui.part_rect(row.box_key, Part::EDITOR).map_or_else(|| value_control_at(ints(ui.rect(&row)), side), |r| ints(r));
@@ -3078,7 +3078,7 @@ fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, i
     let mut opened: Option<i64> = None;
     let mut picked: Option<i64> = None;
     let shown = this.popup_with_related(popts, (x, y), width, height, label, &mut |ui: &mut Ui| {
-        let top = ui.box_("menu-top", BoxOpts::default().flags(BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+        let top = ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
         let open_row = ui.state(&top, -1);
         opened = if open_row >= 0 { Some(open_row) } else { None };
         let m = MenuRows {
@@ -3103,7 +3103,7 @@ fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, i
             }
             opened = if now >= 0 { Some(now) } else { None };
         }
-        ui.box_("menu-bottom", BoxOpts::default().flags(BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+        ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
     });
     if !shown {
         this.dismiss_popup();
@@ -3122,7 +3122,7 @@ fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, i
             let mut sub_picked: Option<i64> = None;
             let sub_opts = PopupOpts { look: Some(sheet), attached: true, role: Role::Menu, ..PopupOpts::default() };
             this.popup_with_related(sub_opts, (sx, sy), sw, sh, &format!("{}-sub", label), &mut |ui: &mut Ui| {
-                ui.box_("menu-top", BoxOpts::default().flags(BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+                ui.box_("menu-top", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
                 let m = MenuRows {
                     items: sub.rows.clone(),
                     keys: sub.keys.clone(),
@@ -3137,7 +3137,7 @@ fn context_menu_body(this: &mut Ui, at: (f32, f32), o: &MenuOpts, label: &str, i
                 };
                 let (p, _) = ui.menu_rows(&m);
                 sub_picked = p;
-                ui.box_("menu-bottom", BoxOpts::default().flags(BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
+                ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(6.0)));
             });
             match sub_picked {
                 Some(index) => {

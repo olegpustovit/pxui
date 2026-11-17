@@ -372,7 +372,7 @@ mod tests {
                                 1 => "visible",
                                 2 => "later",
                                 _ => "prefetch",
-                            },
+                            }.into(),
                             crate::ui::Node {
                                 w: crate::ui::Size::Px(30.0),
                                 h: crate::ui::Size::Px(30.0),

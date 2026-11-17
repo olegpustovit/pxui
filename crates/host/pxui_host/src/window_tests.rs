@@ -79,7 +79,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
             },
             &mut |ui| {
                 let node = ui.node(
-                    "image",
+                    "image".into(),
                     Node {
                         w: Size::Px(64.0),
                         h: Size::Px(32.0),

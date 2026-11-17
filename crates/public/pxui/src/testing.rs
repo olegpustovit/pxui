@@ -26,8 +26,8 @@ pub fn frame(ui: &mut Ui, events: &[Event], build: &mut dyn FnMut(&mut Ui)) {
 /// use pxui::ui::{Node, Size, CLICKABLE, Role};
 /// let mut clicked = false;
 /// let mut build = |ui: &mut pxui::Ui| {
-///     let b = ui.node("b", Node { flags: CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
-///     clicked |= ui.signal_state(&b).clicked;
+///     let b = ui.node("b".into(), Node { flags: CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
+///     clicked |= ui.signal(&b).clicked;
 /// };
 /// let mut ui = pxui::doc::frames(1, &mut build);
 /// pxui::testing::click(&mut ui, 10.0, 10.0, &mut build);
@@ -48,8 +48,8 @@ pub fn click(ui: &mut Ui, x: f64, y: f64, build: &mut dyn FnMut(&mut Ui)) {
 /// use std::cell::Cell;
 /// let (clicked, node) = (Cell::new(false), Cell::new(None));
 /// let mut build = |ui: &mut pxui::Ui| {
-///     let b = ui.node("b", Node { flags: CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
-///     clicked.set(clicked.get() | ui.signal_state(&b).clicked);
+///     let b = ui.node("b".into(), Node { flags: CLICKABLE, role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
+///     clicked.set(clicked.get() | ui.signal(&b).clicked);
 ///     node.set(Some(b));
 /// };
 /// let mut ui = pxui::doc::frames(1, &mut build);
@@ -67,7 +67,7 @@ pub fn click_node(ui: &mut Ui, node: &Handle, build: &mut dyn FnMut(&mut Ui)) {
 ///
 /// ```
 /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x", pxui::Label::DEFAULT));
-/// pxui::testing::key(&mut ui, 'a' as u32, &mut |ui| { let _ = ui.key_pressed('a' as u32); });
+/// pxui::testing::key(&mut ui, 'a' as u32, &mut |ui| { let _ = ui.key_pressed('a' as u32, None); });
 /// ```
 pub fn key(ui: &mut Ui, code: u32, build: &mut dyn FnMut(&mut Ui)) {
     let events = [Event { kind: Event::KEY_PRESSED, code, ..Default::default() }, Event { kind: Event::KEY_RELEASED, code, ..Default::default() }];
@@ -81,7 +81,7 @@ pub fn key(ui: &mut Ui, code: u32, build: &mut dyn FnMut(&mut Ui)) {
 /// ```
 /// use pxui::ui::{Node, Size, Role};
 /// let ui = pxui::doc::frames(1, &mut |ui| {
-///     let n = ui.node("n", Node { role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
+///     let n = ui.node("n".into(), Node { role: Role::Button, w: Size::Px(50.0), h: Size::Px(20.0), ..Node::DEFAULT });
 ///     ui.a11y_name(&n, "Save");
 /// });
 /// let r = pxui::testing::find(&ui, Role::Button, "Save").unwrap();

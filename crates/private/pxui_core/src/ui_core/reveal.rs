@@ -37,7 +37,7 @@ impl Ui {
     /// use their cached heights, settling new measurements without replaying input. Stale handles
     /// and out-of-range indices do nothing. A request never allocates.
     pub fn reveal(&mut self, list: &Handle, index: usize) {
-        if !self.live(list) || index == usize::MAX || self.slots[list.box_slot].node.flags & (SCROLL | SCROLL_X) == 0 { return; }
+        if !self.live(list) || index == usize::MAX || !self.slots[list.box_slot].node.flags.any(Flags::SCROLL | Flags::SCROLL_X) { return; }
         self.slots[list.box_slot].reveal = index;
         if self.building { return; }
         if let Some(mut cache) = self.list_heights.remove(&list.box_key) {

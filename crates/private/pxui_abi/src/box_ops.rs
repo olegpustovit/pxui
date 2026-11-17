@@ -161,7 +161,7 @@ export!(pub unsafe fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const Pxui
     let (Some(label), Some(w), Some(h)) = (unsafe { checked(label) }, size(desc.w), size(desc.h)) else { return unsafe { fail(ui, "invalid box arguments") }; };
     let hit = desc.hit.map(|hit| hit_closure(state.shared(), hit, desc.hit_user, owner));
     let opts = BoxOpts {
-        flags: desc.flags, w, h, max_h: desc.max_h, axis, padding: desc.padding, at: (desc.has_at != 0).then_some((desc.at[0], desc.at[1])),
+        flags: pxui_types::Flags(desc.flags), w, h, max_h: desc.max_h, axis, padding: desc.padding, at: (desc.has_at != 0).then_some((desc.at[0], desc.at[1])),
         scroll_step: desc.scroll_step, hit, hit_rect: (desc.has_hit_rect != 0).then_some(desc.hit_rect),
     };
     unsafe { *out = to_abi_box((&mut *state.engine).box_(label, opts)); }

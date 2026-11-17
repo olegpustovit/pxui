@@ -1,5 +1,5 @@
 use super::gesture::{DISMISS, EDGE_BACK, HIGHLIGHT_DELAY, LONG_PRESS, LONG_PRESS_DELAY, ROW_SWIPE, TOUCH_DRAG};
-use super::{Direction, SCROLL, SCROLL_X, Ui, p32};
+use super::{Direction, Flags, Ui, p32};
 use input::{Event, MouseButton, TouchPhase};
 
 type Id = (u64, u64);
@@ -223,8 +223,8 @@ impl Ui {
             // A touch-drag node under the contact takes it now, with no arbitration against scrolls or the swipes and presses of rows beneath it.
             let claim = self.gesture_at(p32(t.point), TOUCH_DRAG);
             let claimed = claim != 0 && owner != 0 && self.hit_within(owner, claim);
-            let vertical = if claimed { 0 } else { self.scroll_target_flags(p32(t.point), SCROLL) };
-            let horizontal = if claimed { 0 } else { self.scroll_target_flags(p32(t.point), SCROLL_X) };
+            let vertical = if claimed { 0 } else { self.scroll_target_flags(p32(t.point), Flags::SCROLL) };
+            let horizontal = if claimed { 0 } else { self.scroll_target_flags(p32(t.point), Flags::SCROLL_X) };
             let scroll = [vertical, horizontal].map(|key| {
                 if self.modal_target(key) == key {
                     key

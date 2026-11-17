@@ -2,7 +2,7 @@
 //! painter yields byte-identical instances, in the same order, text included.
 use input::{frame, Event, Platform};
 use pxui_core::ui::{Node, Ui as Engine};
-use pxui_types::{geom::{Rect, Rgba}, node::Dir, shape::Shapes, theme::Look, ui::{CLIP, ROUND_CLIP}, FrameIn, Size};
+use pxui_types::{geom::{Rect, Rgba}, node::Dir, shape::Shapes, theme::Look, FrameIn, Size};
 
 const SIZE: (f32, f32) = (300.0, 200.0);
 
@@ -58,9 +58,9 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
     input.events = vec![Event::PointerMoved((-100.0, -100.0))];
     let frame = frame::Frame { input, pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) };
     ui.frame(&frame, &mut |ui| {
-        let round = ui.node("round", Node { flags: CLIP | ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+        let round = ui.node("round".into(), Node { flags: pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..Node::DEFAULT });
         ui.within(&round, &mut |ui| {
-            let b = ui.node("canvas", Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..Node::DEFAULT });
+            let b = ui.node("canvas".into(), Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..Node::DEFAULT });
             ui.canvas(&b, |p, _| art!(p));
         });
     });
@@ -70,9 +70,9 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
 fn wrapper_instances() -> Vec<pxui_types::draw::Instance> {
     let mut ui = pxui::Ui::create(pxui::Platform::Apple, None, &[pxui_core::text::PRAGMASEVKA]);
     ui.frame(&FrameIn { width: SIZE.0, height: SIZE.1, scale: 1.0, ..FrameIn::default() }, &mut |ui: &mut pxui::Ui| {
-        let round = ui.node("round", pxui::Node { flags: CLIP | ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..pxui::Node::DEFAULT });
+        let round = ui.node("round".into(), pxui::Node { flags: pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..pxui::Node::DEFAULT });
         ui.within(&round, &mut |ui: &mut pxui::Ui| {
-            let b = ui.node("canvas", pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });
+            let b = ui.node("canvas".into(), pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });
             ui.canvas(&b, |p, _| art!(p));
         });
     }).expect("frame");

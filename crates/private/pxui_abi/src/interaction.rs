@@ -50,7 +50,7 @@ export!(pub unsafe fn pxui_ui_state(ui: *mut PxuiUi, box_: *const PxuiBox, defau
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() || out.is_null() { return unsafe { fail(ui, "null state argument") }; }
     let engine = unsafe { &*state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale state box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale state box", crate::PXUI_ERR_STALE) }; };
     unsafe { *out = engine.state(&box_, default); }
     0
 });
@@ -59,7 +59,7 @@ export!(pub unsafe fn pxui_ui_set_state(ui: *mut PxuiUi, box_: *const PxuiBox, v
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() { return unsafe { fail(ui, "null state box") }; }
     let engine = unsafe { &mut *state.engine };
-    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { fail(ui, "stale state box") }; };
+    let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale state box", crate::PXUI_ERR_STALE) }; };
     engine.set_state(&box_, value);
     0
 });
@@ -211,7 +211,7 @@ export!(pub unsafe fn pxui_ui_signal(ui: *mut PxuiUi, box_: *const PxuiBox, out:
     if box_.is_null() || out.is_null() { return unsafe { fail(ui, "invalid signal arguments") }; }
     let engine = unsafe { &*state.engine };
     let Some(box_) = live_box(engine, unsafe { *box_ }) else { return unsafe { crate::state::fail_code(ui, "stale signal box", crate::PXUI_ERR_STALE) }; };
-    let signal = engine.signal_state(&box_);
+    let signal = engine.signal(&box_);
     unsafe { write_borrowed_signal(state, &signal, engine.key_events_ref(&box_), &mut *out); }
     0
 });

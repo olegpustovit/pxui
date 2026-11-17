@@ -562,6 +562,17 @@ export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *
     unsafe { trusted::pxui_ui_label(ui, pair(text), &style, digits) }
 });
 
+// ABI 1.49: the text style `style` shapes with, resolved against the Ui's theme label (what `pxui_ui_label` would shape), written to
+// `out` (its `size` set). `digits` is ignored. Refused for a null or invalid style or one that does not resolve.
+export!(pub unsafe fn pxui_ui_resolve_label(ui: *mut PxuiUi, style: *const pxui_types::ffi::PxuiLabelStyle, out: *mut pxui_types::TextStyle) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui, "null resolve output") }; }
+    let Some((style, _)) = label_style(style) else { return unsafe { fail(ui, "invalid label style") } };
+    let Some(resolved) = unsafe { &*state.engine }.resolve(&style) else { return unsafe { fail(ui, "label style does not resolve") } };
+    unsafe { out.write_unaligned(resolved); }
+    0
+});
+
 /// The `Label` and `digits` flag a caller's record holds; `None` for a null or short record, unknown `set` bits, a flag past 1, a
 /// non-finite set value or an invalid set width. Enumerations and sizes are the engine's to check (`resolve_label`).
 pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Option<(pxui_types::Label, bool)> {

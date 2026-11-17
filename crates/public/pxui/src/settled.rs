@@ -3,7 +3,7 @@
 //! between two counted points. The counting allocator is `mem_sys`, installed for the test binary by the `use`: linked statically
 //! (`--features static`) it counts the library's allocations too; linked dynamically it counts the wrapper's own.
 use crate::{Node, Ui};
-use pxui_types::{geom::{Rect, Rgba}, ui::{CLIP, SCROLL}};
+use pxui_types::{geom::{Rect, Rgba}};
 use crate::opts::{BoxOpts, HitFn};
 use std::{rc::Rc, sync::atomic::{AtomicUsize, Ordering}};
 
@@ -13,6 +13,7 @@ static CANVAS_SHAPES: AtomicUsize = AtomicUsize::new(0);
 const SHAPES: usize = 300;
 use mem_sys as _;
 use pxui_types::{Axis, FrameIn, Size, layout::{Cell, Grid, Track}};
+use pxui_types::Flags;
 
 struct State {
     clicks: u32,
@@ -33,11 +34,11 @@ fn panel(ui: &mut Ui, s: &mut State) {
         s.volume = ui.slider("Volume", s.volume, 0.0..=1.0);
         s.mode = ui.radio("Mode", &["Auto", "Light", "Dark"], s.mode);
         let _ = ui.text_field("Name", "abc");
-        let row = ui.node("row", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
+        let row = ui.node("row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
             // a keyed node of a grid, as a custom widget declares it
             const COLS: [Track; 2] = [Track::Fr(1.0), Track::Px(40.0)];
-            let cell = ui.node_keyed(7, Node { grid: Some(Grid::new(&COLS, &[])).into(), cell: Cell::at(0, 0), ..Node::DEFAULT });
+            let cell = ui.node(7i64.into(), Node { grid: Some(Grid::new(&COLS, &[])).into(), cell: Cell::at(0, 0), ..Node::DEFAULT });
             let signal = ui.signal(&cell);
             s.clicks += signal.clicked as u32;
             ui.text(&cell, "custom");
@@ -51,7 +52,7 @@ fn panel(ui: &mut Ui, s: &mut State) {
 // list, a table and a popup.
 fn engine_shaped(ui: &mut Ui, s: &mut State) {
     s.seen += (ui.font_size() + ui.row_height()) as u64 + ui.frame_index() + ui.captured() as u64;
-    let scroller = ui.box_fmt(format_args!("scroller"), BoxOpts::default().flags(SCROLL | CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)).at((4.0, 4.0)));
+    let scroller = ui.box_fmt(format_args!("scroller"), BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)).at((4.0, 4.0)));
     s.seen += ui.scroll_offset(&scroller) as u64 + ui.local_rect(&scroller).w as u64 + ui.cached_label(&scroller, 0, "cached").len() as u64;
     ui.set_text_state(&scroller, None);
     s.seen += ui.text_state(&scroller).is_some() as u64 + ui.hovered_exactly(&scroller) as u64 + ui.drop_target(&scroller).is_some() as u64;
@@ -69,7 +70,7 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
     });
     let hit = ui.box_("hit", BoxOpts { hit: Some(Rc::clone(&s.hit)), ..BoxOpts::default().w(Size::Px(20.0)).h(Size::Px(20.0)) });
     s.seen += hit.box_key as u64 & 1;
-    s.seen += ui.list_view("items", 3, false, &mut [0; 3], |row, emit| emit(["one", "two", "three"][row])).is_some() as u64;
+    s.seen += ui.list_view("items", 3, false, &mut [0; 3], &mut |ui, row| ui.item_text(["one", "two", "three"][row])).is_some() as u64;
     s.seen += ui.table_str((0.0, 0.0), 120.0, 60.0, &["Name", "Size"], 3, |_, column| if column == 0 { "row" } else { "1" }, "table").is_some() as u64;
     s.seen += ui.popup(None, None, true, false, (10.0, 10.0), 80.0, 30.0, "popup", &mut |ui: &mut Ui| ui.label("popped", crate::Label::DEFAULT)) as u64;
 }

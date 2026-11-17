@@ -55,9 +55,8 @@ pub use pxui_types::{Flags, Size};
 pub use crate::opts::{BoxOpts, HitFn};
 pub use pxui_types::shape::{clip_of, Shapes};
 pub use pxui_types::ui::{
-    ellipsis, text_top_for,    contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Drop, Keyframe, Payload, Target, UndoKind,
-    BLOCKING, CAPTURE_UNCLAIMED, CLICKABLE, CLIP, DRAG_FREE, DRAG_THRESHOLD, FIT_TEXT, FIT_TEXT_PIXEL, FOCUSABLE, FOCUS_MARK, HOVER_FREE, KEEP_FOCUS,
-    KEEP_ROOM, KEEP_TAB, NO_FLAGS, OVER_THUMB, ROOT_KEY, ROUND_CLIP, SCROLL, SCROLL_X, STICKY, TAB_ONLY, TAB_STOP, TAB_STOP_MARKED,
+    ellipsis, text_top_for, contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Drop, Keyframe, Payload, Target, UndoKind,
+    DRAG_THRESHOLD, ROOT_KEY,
 };
 pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
 use pxui_types::node::Transition;
@@ -157,7 +156,7 @@ impl SlotTable {
 
 // ------------------------------------------------------------- boxes
 
-const HIT_FLAGS: i64 = CLICKABLE | FOCUSABLE | SCROLL | SCROLL_X | BLOCKING | CAPTURE_UNCLAIMED;
+const HIT_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::SCROLL).or(Flags::SCROLL_X).or(Flags::BLOCKING).or(Flags::CAPTURE_UNCLAIMED);
 
 pub use crate::theme::{Bodies, BodyId, Curve, Font, Look, Part, Ring, Shadow, State, States, Theme, Tokens};
 pub use crate::a11y::{A11yAction, A11yTree, Role};
@@ -644,7 +643,7 @@ impl NodeText {
     }
     fn style(&self,node:&Node,rtl:bool)->Style {
         let mut style=self.style;
-        if node.flags & FIT_TEXT!=0 && style.ellipsis==pxui_text::Ellipsis::None { style.ellipsis=pxui_text::Ellipsis::End; }
+        if node.flags.any(Flags::FIT_TEXT) && style.ellipsis==pxui_text::Ellipsis::None { style.ellipsis=pxui_text::Ellipsis::End; }
         if rtl && style.align==pxui_text::Align::Left { style.align=pxui_text::Align::Right; }
         style
     }
@@ -762,7 +761,7 @@ impl Slot {
 struct HitRec {
     key: i64,
     parent: i64,
-    flags: i64,
+    flags: Flags,
     x: f32,
     y: f32,
     w: f32,
@@ -910,10 +909,10 @@ fn lay_out_spans(t:&mut Text,style:&Style,width:f32,text:&str,spans:&[TextSpan])
     t.layout_spans(key,text,style,width,spans).map(|metrics|(key,metrics))
 }
 
-fn plain_style(look:&Look,size:i64,flags:i64)->Style {
+fn plain_style(look:&Look,size:i64,flags:Flags)->Style {
     Style {font:look.font.family,size:size as f32,weight:look.font.weight,
         tracking:look.font.tracking*size as f32,
-        ellipsis:if flags & FIT_TEXT!=0 {pxui_text::Ellipsis::End} else {pxui_text::Ellipsis::None},
+        ellipsis:if flags.any(Flags::FIT_TEXT) {pxui_text::Ellipsis::End} else {pxui_text::Ellipsis::None},
         ..Style::default()}
 }
 
@@ -1870,7 +1869,7 @@ impl Ui {
                 if local.w > 0.0 && local.h > 0.0 && shown.w > 0.0 && shown.h > 0.0 {
                     states |= a11y_state::VISIBLE;
                 }
-                if n.flags & FOCUSABLE != 0 {
+                if n.flags.any(Flags::FOCUSABLE) {
                     states |= a11y_state::FOCUSABLE;
                     acts |= a11y_actions::FOCUS;
                 }
@@ -1880,10 +1879,10 @@ impl Ui {
                 if self.active == Some(s.key) {
                     states |= a11y_state::PRESSED;
                 }
-                if n.flags & CLICKABLE != 0 {
+                if n.flags.any(Flags::CLICKABLE) {
                     acts |= a11y_actions::PRESS;
                 }
-                if n.flags & (SCROLL | SCROLL_X) != 0 {
+                if n.flags.any(Flags::SCROLL | Flags::SCROLL_X) {
                     acts |= a11y_actions::SCROLL;
                 }
                 if n.a11y & a11y_state::EDITABLE != 0 || n.role == Role::Slider {
@@ -2331,7 +2330,7 @@ impl Ui {
     /// Topmost hit entry under `point`; 0 when none.
     fn topmost(&self, point: (f32, f32)) -> i64 {
         for index in (0..self.hit_count).rev() {
-            if self.hits[index].flags & HIT_FLAGS != 0 && self.hit_contains(index, point) {
+            if self.hits[index].flags.any(HIT_FLAGS) && self.hit_contains(index, point) {
                 return self.hits[index].key;
             }
         }
@@ -2367,10 +2366,10 @@ impl Ui {
         last
     }
 
-    fn flags_of_key(&self, key: i64) -> i64 {
+    fn flags_of_key(&self, key: i64) -> Flags {
         match self.hit_index(key) {
             Some(index) => self.hits[index].flags,
-            None => 0,
+            None => Flags::NONE,
         }
     }
 
@@ -2378,10 +2377,10 @@ impl Ui {
     /// over it that is not its own content (a field inside a scrolling panel lets the panel
     /// scroll; a menu over it does not).
     fn scroll_target(&mut self, point: (f32, f32)) -> i64 {
-        self.scroll_target_flags(point, SCROLL | SCROLL_X)
+        self.scroll_target_flags(point, Flags::SCROLL | Flags::SCROLL_X)
     }
 
-    fn scroll_target_flags(&mut self, point: (f32, f32), wanted: i64) -> i64 {
+    fn scroll_target_flags(&mut self, point: (f32, f32), wanted: Flags) -> i64 {
         let mut blocker = 0;
         let mut index = self.hit_count as i64 - 1;
         while index >= 0 {
@@ -2389,9 +2388,9 @@ impl Ui {
             if self.hit_contains(i, point) {
                 let flags = self.hits[i].flags;
                 let key = self.hits[i].key;
-                if flags & wanted != 0 {
+                if flags.any(wanted) {
                     return if blocker == 0 || self.hit_within(blocker, key) { key } else { 0 };
-                } else if blocker == 0 && flags & BLOCKING != 0 {
+                } else if blocker == 0 && flags.any(Flags::BLOCKING) {
                     blocker = key;
                 }
             }
@@ -2401,7 +2400,7 @@ impl Ui {
     }
 
     fn eligible(&mut self, index: usize) -> bool {
-        if self.hits[index].flags & FOCUSABLE == 0 {
+        if !self.hits[index].flags.any(Flags::FOCUSABLE) {
             return false;
         }
         match self.modal_key {
@@ -2518,7 +2517,7 @@ impl Ui {
                 input::update_keys(&mut modifiers, event);
                 let command = self.command_modifiers(&modifiers);
                 if let Event::KeyPressed(Key::Tab) = event {
-                    if !command && self.flags_of_key(self.focus) & KEEP_TAB == 0 {
+                    if !command && !self.flags_of_key(self.focus).any(Flags::KEEP_TAB) {
                         self.traverse_focus(modifiers.contains(&Key::Shift));
                     }
                 }
@@ -2586,12 +2585,12 @@ impl Ui {
                     }
                     Event::PointerPressed(button, point) => {
                         self.pointer = p32(*point);
-                        let target = if owner == 0 || self.flags_of_key(owner) & CLICKABLE != 0 {
+                        let target = if owner == 0 || self.flags_of_key(owner).any(Flags::CLICKABLE) {
                             owner
                         } else {
                             let mut found = None;
                             self.hit_ancestors(owner, &mut |key| {
-                                if found.is_none() && self.flags_of_key(key) & CAPTURE_UNCLAIMED != 0 {
+                                if found.is_none() && self.flags_of_key(key).any(Flags::CAPTURE_UNCLAIMED) {
                                     found = Some(key);
                                 }
                             });
@@ -2609,16 +2608,16 @@ impl Ui {
                             // the nearest focusable box at or around the press takes the focus unless
                             // it is a Tab stop only (buttons, as on macOS); a list takes it from its rows
                             let mut holder = 0;
-                            if flags & KEEP_FOCUS == 0 {
+                            if !flags.any(Flags::KEEP_FOCUS) {
                                 self.hit_ancestors(target, &mut |key| {
-                                    if holder == 0 && self.flags_of_key(key) & FOCUSABLE != 0 {
+                                    if holder == 0 && self.flags_of_key(key).any(Flags::FOCUSABLE) {
                                         holder = key;
                                     }
                                 });
                             }
-                            let focus = if flags & KEEP_FOCUS != 0 {
+                            let focus = if flags.any(Flags::KEEP_FOCUS) {
                                 self.focus
-                            } else if holder != 0 && self.flags_of_key(holder) & TAB_ONLY == 0 {
+                            } else if holder != 0 && !self.flags_of_key(holder).any(Flags::TAB_ONLY) {
                                 holder
                             } else {
                                 0
@@ -2630,7 +2629,7 @@ impl Ui {
                             self.focus = focus;
                             self.keyboard_focus = false;
                         }
-                        if (target == 0 || flags & (CLICKABLE | CAPTURE_UNCLAIMED) != 0) && self.active.is_none() {
+                        if (target == 0 || flags.any(Flags::CLICKABLE | Flags::CAPTURE_UNCLAIMED)) && self.active.is_none() {
                             self.active = Some(target);
                             self.active_button = *button;
                             self.active_press = self.pointer;
@@ -2799,7 +2798,7 @@ impl Ui {
                                     self.composition_selection = (*start, *length);
                                 }
                                 Event::TextInput(_) => self.composition.clear(),
-                                Event::KeyPressed(Key::Escape) if self.flags_of_key(self.focus) & TAB_ONLY != 0 => {
+                                Event::KeyPressed(Key::Escape) if self.flags_of_key(self.focus).any(Flags::TAB_ONLY) => {
                                     self.focus = 0;
                                     self.keyboard_focus = false;
                                     self.edit_focus = 0;
@@ -2855,18 +2854,15 @@ impl Ui {
         self.passed_undo = Some(kind);
     }
 
-    /// The key was pressed in this frame's events (a dialog's Enter).
-    pub fn key_pressed(&self, key: Key) -> bool {
-        self.frame_events.iter().any(|e| matches!(e, Event::KeyPressed(k) if *k == key))
-    }
-
     /// Raw held keys, including modifiers while a widget or popup owns keyboard input.
     pub fn key_down(&self, key: Key) -> bool {
         self.input_frame.as_ref().is_some_and(|frame| frame.input.keys.contains(&key))
     }
 
-    /// Raw press query with a modifier at the time of each event, including same-frame releases.
-    pub fn key_pressed_with(&self, key: Key, modifier: Key) -> bool {
+    /// The key was pressed in this frame's events (a dialog's Enter); with `modifier`, only while that modifier was held at the
+    /// event, including same-frame releases.
+    pub fn key_pressed(&self, key: Key, modifier: Option<Key>) -> bool {
+        let Some(modifier) = modifier else { return self.frame_events.iter().any(|e| matches!(e, Event::KeyPressed(k) if *k == key)); };
         let Some(index) = [Key::Shift, Key::Ctrl, Key::Alt, Key::Meta].iter().position(|k| *k == modifier) else { return false; };
         let mut held = self.frame_modifiers[index];
         for event in &self.frame_events {
@@ -3278,13 +3274,15 @@ impl Ui {
         UiBox { index, box_key: key, box_slot: slot, generation: self.slots[slot].generation }
     }
 
-    /// Declare a node under the current parent, keyed by `label` (see `key_of`).
+    /// Declare a node under the current parent by `key` (see `pxui_types::ui::Key`): a label as `key_of`, an id as its NUL-and-hex
+    /// label, both under the parent's seed.
     #[inline]
-    pub fn node(&mut self, label: &str, node: Node) -> Handle {
-        self.node_ref(label, &node)
+    pub fn node(&mut self, key: pxui_types::ui::Key, node: Node) -> Handle {
+        let mut id_label = [0u8; 17];
+        self.node_ref(key.label(&mut id_label), &node)
     }
 
-    /// `node` of a node the caller keeps: it is copied once, into the box.
+    /// A node keyed by a label the caller holds (the C ABI's `pxui_ui_node`, the widgets' own labels); it is copied once, into the box.
     pub fn node_ref(&mut self, label: &str, node: &Node) -> Handle {
         self.require_building();
         let key = key_of(self.current_seed(), label);
@@ -3508,14 +3506,14 @@ impl Ui {
     }
 
     /// What input did to the node this frame; a stale handle has no signal.
-    pub fn signal(&self, b: &UiBox) -> Signal {
-        let mut signal = self.signal_state(b);
+    pub fn signal_owned(&self, b: &UiBox) -> Signal {
+        let mut signal = self.signal(b);
         signal.keys.extend(self.key_events_ref(b).iter().map(|(event, _)| event.clone()));
         signal
     }
 
     /// Signal scalars without cloning the owned key/text events.
-    pub fn signal_state(&self, b: &UiBox) -> Signal {
+    pub fn signal(&self, b: &UiBox) -> Signal {
         let key = if self.live(b) { b.box_key } else { 0 };
         let held = key != 0 && self.active == Some(key);
         let slot = &self.slots[b.box_slot];
@@ -3966,7 +3964,7 @@ impl Ui {
             let slot=self.boxes[index].slot;
             let rich=self.slots[slot].rich.as_deref().filter(|r|r.active);
             let line_box=rich.is_some_and(|r|r.line_box);
-            let pixel=n.flags & FIT_TEXT_PIXEL!=0;
+            let pixel=n.flags.any(Flags::FIT_TEXT_PIXEL);
             // a Fit width is the text's: any text, not only pixel-fitted or line-box text (else it collapsed to 0)
             let has_text=rich.is_some() || !self.slots[slot].text.is_empty();
             if (line_box && (matches!(n.w,Size::Fit) || matches!(n.h,Size::Fit))) || ((pixel || has_text) && matches!(n.w,Size::Fit)) {
@@ -4380,20 +4378,20 @@ impl Ui {
         self.l_y[0] = 0.0;
         for index in 0..self.count {
             // A leaf's position and size are already resolved by its parent.
-            if self.boxes[index].first == NONE && self.nd(index).flags & (SCROLL | SCROLL_X) == 0 {
+            if self.boxes[index].first == NONE && !self.nd(index).flags.any(Flags::SCROLL | Flags::SCROLL_X) {
                 continue;
             }
             let n = *self.nd(index);
             let pad = n.padding;
-            let scrolls = n.flags & SCROLL != 0;
+            let scrolls = n.flags.any(Flags::SCROLL);
             let max_scroll = 0.0f32.max(self.l_content[index] - self.l_h[index]);
-            let gutter = if scrolls && max_scroll > 0.0 && n.flags & OVER_THUMB == 0 { 10.0 } else { 0.0 };
+            let gutter = if scrolls && max_scroll > 0.0 && !n.flags.any(Flags::OVER_THUMB) { 10.0 } else { 0.0 };
             let slot = self.boxes[index].slot;
             if scrolls {
                 self.apply_scroll(false, time, index);
                 self.scroll_y[slot] = 0.0f32.max(max_scroll.min(self.scroll_y[slot]));
             }
-            if n.flags & SCROLL_X != 0 {
+            if n.flags.any(Flags::SCROLL_X) {
                 self.apply_scroll_x(false, time, index);
                 let max_x = 0.0f32.max(self.l_content_w[index] - self.l_w[index]);
                 self.scroll_xs[slot] = 0.0f32.max(max_x.min(self.scroll_xs[slot]));
@@ -4422,7 +4420,7 @@ impl Ui {
                 (None, _) => self.arrange_flow(index, &n, (inner_w, inner_h), inner_at),
             }
             let scroll_y = if scrolls { self.scroll_y[slot] + self.glides[0][slot].visual as f32 } else { 0.0 };
-            let scroll_x = if n.flags & SCROLL_X != 0 { self.scroll_xs[slot] + self.glides[1][slot].visual as f32 } else { 0.0 };
+            let scroll_x = if n.flags.any(Flags::SCROLL_X) { self.scroll_xs[slot] + self.glides[1][slot].visual as f32 } else { 0.0 };
             let rtl = self.dir == Direction::Rtl;
             let (root_w, root_h) = (self.l_w[0], self.l_h[0]);
             let last = self.boxes[index].last;
@@ -4438,7 +4436,7 @@ impl Ui {
                     if rtl {
                         self.l_x[child] = 2.0 * origin_x + self.l_w[index] - self.l_x[child] - self.l_w[child];
                     }
-                    if c.flags & STICKY != 0 && scrolls {
+                    if c.flags.any(Flags::STICKY) && scrolls {
                         self.l_y[child] = self.l_y[child].max(inner_at.1 + c.margin_t);
                         stuck = true;
                     }
@@ -4463,7 +4461,7 @@ impl Ui {
                 let mut child = self.boxes[index].first;
                 while child != NONE {
                     let next = self.boxes[child].next;
-                    if self.nd(child).flags & STICKY != 0 && child != self.boxes[index].last {
+                    if self.nd(child).flags.any(Flags::STICKY) && child != self.boxes[index].last {
                         self.unlink(index, child);
                         let end = self.boxes[index].last;
                         self.boxes[end].next = child;
@@ -4526,7 +4524,7 @@ impl Ui {
         if self.slots[slot].text.is_empty() && !self.slots[slot].rich.as_ref().is_some_and(|r|r.active && r.line_box) {
             let n = *self.nd(c);
             let f = self.next_flow(self.boxes[c].first);
-            if f == NONE || n.grid.is_some() || n.flags & (SCROLL | SCROLL_X) != 0 {
+            if f == NONE || n.grid.is_some() || n.flags.any(Flags::SCROLL | Flags::SCROLL_X) {
                 return h;
             }
             let fa = self.nd(f).align_self.get().unwrap_or(n.align);
@@ -4541,7 +4539,7 @@ impl Ui {
         let size = look.font.points(self.font_size);
         let stored=&self.slots[slot];
         let flags=stored.node.flags;
-        let pixel=flags & FIT_TEXT_PIXEL!=0;
+        let pixel=flags.any(Flags::FIT_TEXT_PIXEL);
         let rich=stored.rich.as_deref().filter(|r|r.active);
         let style=if pixel {plain_style(&look,size,flags)} else {Style {font:look.font.family,size:size as f32,weight:look.font.weight,tracking:look.font.tracking*size as f32,..Style::default()}};
         let value=if pixel && rich.is_none() && look.font.caps {
@@ -4892,7 +4890,7 @@ fn keep_frame(kept: &mut Option<rframe::Frame>, f: &rframe::Frame) {
 
 /// What `arrange` reads of a child while placing it (not the whole node).
 struct Placed {
-    flags: i64,
+    flags: Flags,
     margin_t: f32,
     anchor: Option<Anchor>,
     w_grow: bool,
@@ -5142,7 +5140,7 @@ impl Paint {
                     self.push(edge);
                 }
             } else {
-                let room = node.flags & KEEP_ROOM != 0;
+                let room = node.flags.any(Flags::KEEP_ROOM);
                 if look.fill.a > 0 || room {
                     self.fill(x, y, w, h, fade(look.fill));
                 }
@@ -5160,7 +5158,7 @@ impl Paint {
                 let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics,&self.text));
                 self.text_laid(at,&style,Some(look.text),key,metrics,o,true);
             }
-        } else if !text.is_empty() && node.flags & FIT_TEXT_PIXEL!=0 {
+        } else if !text.is_empty() && node.flags.any(Flags::FIT_TEXT_PIXEL) {
             let size=look.font.points(self.font_size);
             let style=plain_style(look,size,node.flags);
             let inset=node.inset;
@@ -5170,7 +5168,7 @@ impl Paint {
             let value=if look.font.caps {buffer.as_str()} else {text};
             let (mut key,mut metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,0.0,value,&[]).unwrap();
             let limit=w-inset.l-inset.r;
-            if node.flags & FIT_TEXT!=0 && metrics.w>limit {
+            if node.flags.any(Flags::FIT_TEXT) && metrics.w>limit {
                 (key,metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,limit,value,&[]).unwrap();
             }
             let at=(if self.rtl {x+w-inset.l-metrics.w} else {x+inset.l},text_top_for(self.font_size,Some(size),y+inset.t,h-inset.t-inset.b));
@@ -5185,7 +5183,7 @@ impl Paint {
             let mut buffer = std::mem::take(&mut self.label);
             buffer.clear();
             let mut fitted = false;
-            if node.flags & FIT_TEXT != 0 {
+            if node.flags.any(Flags::FIT_TEXT) {
                 let limit = w - inset.l - inset.r;
                 let plain = Style { tracking: 0.0, ..style };
                 if lay_out(&mut self.text, &plain, 0.0, text).1.w > limit {
@@ -5564,7 +5562,7 @@ impl Ui {
     /// The node marks its own focus (`FOCUS_MARK`) and holds it: its look's ring shows.
     fn marks_focus(&self, slot: usize) -> bool {
         let s = &self.slots[slot];
-        s.key != 0 && s.key == self.focus && s.node.flags & FOCUS_MARK != 0
+        s.key != 0 && s.key == self.focus && s.node.flags.any(Flags::FOCUS_MARK)
     }
 
     /// Paint the node's look and text, recording the instance range a patch rewrites.
@@ -5647,19 +5645,19 @@ impl Ui {
         let visible = visible || (view != NO_VIEW && w > 0.0 && h > 0.0);
         let flags = self.nd(index).flags;
         // a gesture node is findable by touch arbitration without being interactive itself
-        let has_hit = (flags & HIT_FLAGS != 0 || self.gestures[slot].kinds != 0) && hw > 0.0 && hh > 0.0;
+        let has_hit = (flags.any(HIT_FLAGS) || self.gestures[slot].kinds != 0) && hw > 0.0 && hh > 0.0;
         if has_hit {
             self.record_hit(index, parent_hit, clipped_hit);
         }
         // a box with no extent of its own (a `Fit` box whose children are all placed with `at`) is
         // not out of view: its children show unless it clips them
         let shown = visible;
-        if shown || ((w <= 0.0 || h <= 0.0) && flags & CLIP == 0) {
+        if shown || ((w <= 0.0 || h <= 0.0) && !flags.any(Flags::CLIP)) {
             if shown {
                 self.paint_node(paint, index, clip_rect);
                 self.run_painters(self.boxes[index].paint.0, index, clip_rect, paint);
             }
-            let child_clip = if flags & CLIP != 0 {
+            let child_clip = if flags.any(Flags::CLIP) {
                 let p = self.nd(index).padding;
                 intersect(clip_rect, Rect::new(x + p.l, y + p.t, 0.0f32.max(w - p.l - p.r), 0.0f32.max(h - p.t - p.b)))
             } else {
@@ -5672,9 +5670,9 @@ impl Ui {
             // f16 in the 64-byte budget (specification/pxui.md, the designed limit); a cached view
             // inside takes its outer clip square from the view table
             let outer_radius = paint.clip_radius;
-            if flags & CLIP != 0 {
+            if flags.any(Flags::CLIP) {
                 let r = self.nd(index).look.radius;
-                paint.clip_radius = if flags & ROUND_CLIP != 0 { r[0].max(r[1]).max(r[2]).max(r[3]) } else { 0.0 };
+                paint.clip_radius = if flags.any(Flags::ROUND_CLIP) { r[0].max(r[1]).max(r[2]).max(r[3]) } else { 0.0 };
             }
             if view != NO_VIEW {
                 self.visit_view(paint, index, view, child_clip, parent_hit);
@@ -5700,15 +5698,15 @@ impl Ui {
                 self.run_painters(self.boxes[index].over.0, index, clip_rect, paint);
                 if let Some(bar) = self.nd(index).bar.get() {
                     paint.clip_rect = clip_rect;
-                    if flags & SCROLL != 0 || flags & SCROLL_X == 0 {
+                    if flags.any(Flags::SCROLL) || !flags.any(Flags::SCROLL_X) {
                         paint.bar(screen_rect, index, slot, &bar);
                     }
-                    if flags & SCROLL_X != 0 {
+                    if flags.any(Flags::SCROLL_X) {
                         paint.bar_x(screen_rect, index, slot, &bar);
                     }
                 }
             }
-            if shown && self.keyboard_focus && self.focus == self.boxes[index].key && flags & FOCUS_MARK == 0 {
+            if shown && self.keyboard_focus && self.focus == self.boxes[index].key && !flags.any(Flags::FOCUS_MARK) {
                 // a node that marks its own focus draws its look's ring; any other gets the theme's
                 paint.clip_rect = clip_rect;
                 let ring = self.theme.ring;
@@ -5729,7 +5727,7 @@ impl Ui {
         let s = &mut self.slots[slot];
         (s.rx, s.ry, s.rw, s.rh, s.clip) = (rect.x, rect.y, rect.w, rect.h, clip);
         let n = self.nd(index);
-        let child_clip = if n.flags & CLIP != 0 {
+        let child_clip = if n.flags.any(Flags::CLIP) {
             let p = n.padding;
             clip.intersect(Rect::new(rect.x + p.l, rect.y + p.t, (rect.w - p.l - p.r).max(0.0), (rect.h - p.t - p.b).max(0.0)))
         } else { clip };
@@ -6410,7 +6408,7 @@ impl Ui {
     /// root wherever it is called, and painted over the rest.
     pub fn anchored(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let saved = self.enter_root_parent();
-        let b = self.node(label, Node { w, h, anchor: Some(Anchor { rect: anchor, placement }).into(), ..Node::DEFAULT });
+        let b = self.node_ref(label, &Node { w, h, anchor: Some(Anchor { rect: anchor, placement }).into(), ..Node::DEFAULT });
         self.overlays.push(b.index);
         self.within(&b, f);
         self.leave(saved);
@@ -6784,7 +6782,7 @@ impl Ui {
     }
 
     fn view_entry(&mut self, label: &str, revision: u64, w: Size, h: Size, entry: bool, f: &mut dyn FnMut(&mut Ui)) -> Handle {
-        let b = self.node(label, Node { w, h, ..Node::DEFAULT });
+        let b = self.node_ref(label, &Node { w, h, ..Node::DEFAULT });
         let parent = self.view_cur;
         let v = match self.slots[b.box_slot].view {
             NO_VIEW => {
@@ -6872,7 +6870,7 @@ impl Ui {
     pub fn list(&mut self, label: &str, count: usize, row_h: f32, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
         let padding = self.list_padding(key_of(self.current_seed(), label));
         assert!(row_h > 0.0, "Ui.list {label}: rows need a positive height");
-        let body = self.node(label, Node { flags: SCROLL | CLIP, w: Size::Grow, h: Size::Grow, scroll_step: row_h, role: Role::List, ..Node::DEFAULT });
+        let body = self.node_ref(label, &Node { flags: Flags::SCROLL | Flags::CLIP, w: Size::Grow, h: Size::Grow, scroll_step: row_h, role: Role::List, ..Node::DEFAULT });
         let seen = self.slots[body.box_slot].rh;
         let height = if seen > 0.0 { seen } else { self.view_h };
         // the wheel and the trackpad move the list before its rows are chosen (as `table` does)
@@ -6902,16 +6900,18 @@ impl Ui {
         body
     }
 
-    /// A single scrolling section; headings use the existing sticky layout and rows stay virtual.
-    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
+    /// A single scrolling section; headings use the existing sticky layout and rows stay virtual. With `row_key`, row `i`'s box is
+    /// keyed by the item id `key(i)` (`Key::Id` under the rows), so a row's state follows its item when the items reorder; without
+    /// it, by its index.
+    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
         let padding = self.list_padding(key_of(self.current_seed(), label));
         let rows_h=section.count as f32*section.row_height;
         let before=section.leading_height+section.header_height;
         let total=before+rows_h+section.trailing_height;
         assert!(section.row_height>0.0 && section.row_height.is_finite() && total.is_finite()
             && [section.leading_height,section.header_height,section.trailing_height].iter().all(|v|v.is_finite() && *v>=0.0),"Ui.section_list: invalid section geometry");
-        let flags=SCROLL|CLIP|if section.overlay_scrollbar {OVER_THUMB} else {0};
-        let body=self.node(label,Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
+        let flags=Flags::SCROLL|Flags::CLIP|if section.overlay_scrollbar {Flags::OVER_THUMB} else {Flags::NONE};
+        let body=self.node_ref(label, &Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
         let seen=self.slots[body.box_slot].rh;
         let height=if seen>0.0 {seen} else {self.view_h};
         self.expect(body.box_slot,f32::NAN,height);
@@ -6924,30 +6924,39 @@ impl Ui {
         let first=top.saturating_sub(OVERSCAN).min(section.count);
         let last=bottom.saturating_add(OVERSCAN+1).min(section.count);
         let saved=self.enter(&body);
-        for (key,h,flags,index) in [("leading",section.leading_height,0,usize::MAX),("header",section.header_height,STICKY|BLOCKING,usize::MAX-1)] {
+        for (key,h,flags,index) in [("leading",section.leading_height,Flags::NONE,usize::MAX),("header",section.header_height,Flags::STICKY|Flags::BLOCKING,usize::MAX-1)] {
             if h>0.0 {
-                let part=self.node(key,Node {flags,w:Size::Grow,h:Size::Px(h),..Node::DEFAULT});
+                let part=self.node_ref(key, &Node {flags,w:Size::Grow,h:Size::Px(h),..Node::DEFAULT});
                 let inner=self.enter(&part); f(self,index); self.leave(inner);
             }
         }
-        let extent=self.node("rows",Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
+        let extent=self.node("rows".into(),Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
         let inner=self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
         for index in first..last {
-            let row=self.node_keyed(int_key(body.box_key,index as i64),Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,index as f32*section.row_height)).into(),role:Role::ListItem,..Node::DEFAULT});
+            let node=Node {w:Size::Grow,h:Size::Px(section.row_height),at:Some((0.0,index as f32*section.row_height)).into(),role:Role::ListItem,..Node::DEFAULT};
+            let row=self.list_row(body.box_key,index,row_key,node);
             self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             let part=self.enter(&row); f(self,index); self.leave(part);
         }
         self.leave(inner);
-        if section.trailing_height>0.0 {self.node("trailing",Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
+        if section.trailing_height>0.0 {self.node("trailing".into(),Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
         self.leave(saved);
         self.remember_list(&body,ListGeometry::rows(&body,section.count,section.row_height,before,section.header_height,section.trailing_height,padding));
         body
     }
 
-    /// A section with measured virtual rows; the callback also receives its logical content Y.
-    pub fn section_list_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+    /// Row `index`'s box of the section list `list`: keyed by its item id when the list has `key`, else by its index.
+    fn list_row(&mut self,list:i64,index:usize,key:Option<&dyn Fn(usize)->i64>,node:Node)->Handle {
+        match key {
+            Some(key)=>self.node(pxui_types::ui::Key::Id(key(index)),node),
+            None=>self.node_keyed(int_key(list,index as i64),node),
+        }
+    }
+
+    /// A section with measured virtual rows; the callback also receives its logical content Y. `row_key` as `section_list`'s.
+    pub fn section_list_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
         let key=key_of(self.current_seed(),label);
         let padding=self.list_padding(key);
         let mut cache=self.list_heights.remove(&key).unwrap_or_default();
@@ -6963,8 +6972,8 @@ impl Ui {
         let total=before+rows_h+section.trailing_height;
         assert!(section.row_height>0.0 && section.row_height.is_finite() && total.is_finite()
             && [section.leading_height,section.header_height,section.trailing_height].iter().all(|v|v.is_finite() && *v>=0.0),"Ui.section_list: invalid section geometry");
-        let flags=SCROLL|CLIP|if section.overlay_scrollbar {OVER_THUMB} else {0};
-        let body=self.node(label,Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
+        let flags=Flags::SCROLL|Flags::CLIP|if section.overlay_scrollbar {Flags::OVER_THUMB} else {Flags::NONE};
+        let body=self.node_ref(label, &Node {flags,w:Size::Grow,h:Size::Grow,scroll_step:section.row_height,role:Role::List,..Node::DEFAULT});
         let seen=self.slots[body.box_slot].rh;
         let height=if seen>0.0 {seen} else {self.view_h};
         self.expect(body.box_slot,f32::NAN,height);
@@ -6977,24 +6986,25 @@ impl Ui {
         let first=top.saturating_sub(OVERSCAN).min(section.count);
         let last=bottom.saturating_add(OVERSCAN+1).min(section.count);
         let saved=self.enter(&body);
-        for (key,h,flags,index) in [("leading",section.leading_height,0,usize::MAX),("header",section.header_height,STICKY|BLOCKING,usize::MAX-1)] {
+        for (key,h,flags,index) in [("leading",section.leading_height,Flags::NONE,usize::MAX),("header",section.header_height,Flags::STICKY|Flags::BLOCKING,usize::MAX-1)] {
             if h>0.0 {
-                let part=self.node(key,Node {flags,w:Size::Grow,h:Size::Px(h),..Node::DEFAULT});
+                let part=self.node_ref(key, &Node {flags,w:Size::Grow,h:Size::Px(h),..Node::DEFAULT});
                 let inner=self.enter(&part); f(self,index,if index==usize::MAX {0.0} else {section.leading_height}); self.leave(inner);
             }
         }
-        let extent=self.node("rows",Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
+        let extent=self.node("rows".into(),Node {w:Size::Grow,h:Size::Px(rows_h),..Node::DEFAULT});
         let inner=self.enter(&extent);
         self.slots[extent.box_slot].holds_rows = true;
         self.text_mut().list_window(body.box_key as u64,first,last);
         for index in first..last {
-            let row=self.node_keyed(int_key(body.box_key,index as i64),Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,cache.tops[index])).into(),role:Role::ListItem,..Node::DEFAULT});
+            let node=Node {w:Size::Grow,h:Size::Fit,at:Some((0.0,cache.tops[index])).into(),role:Role::ListItem,..Node::DEFAULT};
+            let row=self.list_row(body.box_key,index,row_key,node);
             self.slots[row.box_slot].row_of = (body.box_key, index as u32);
             self.list_rows.push((body.box_key,index,row.box_slot));
             let part=self.enter(&row); f(self,index,before+cache.tops[index]); self.leave(part);
         }
         self.leave(inner);
-        if section.trailing_height>0.0 {self.node("trailing",Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
+        if section.trailing_height>0.0 {self.node("trailing".into(),Node {h:Size::Px(section.trailing_height),..Node::DEFAULT});}
         self.leave(saved);
         cache.geometry=ListGeometry::rows(&body,section.count,0.0,before,section.header_height,section.trailing_height,padding);
         self.list_heights.insert(body.box_key,cache);
@@ -7009,7 +7019,7 @@ impl Ui {
     pub fn list_measured(&mut self, label: &str, count: usize, estimate_h: f32, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
         let padding = self.list_padding(key_of(self.current_seed(), label));
         assert!(estimate_h > 0.0, "Ui.list_measured {label}: the estimate needs a positive height");
-        let body = self.node(label, Node { flags: SCROLL | CLIP, w: Size::Grow, h: Size::Grow, scroll_step: estimate_h, role: Role::List, ..Node::DEFAULT });
+        let body = self.node_ref(label, &Node { flags: Flags::SCROLL | Flags::CLIP, w: Size::Grow, h: Size::Grow, scroll_step: estimate_h, role: Role::List, ..Node::DEFAULT });
         let mut cache = self.list_heights.remove(&body.box_key).unwrap_or_default();
         if cache.heights.len() != count {
             cache.heights.resize(count, estimate_h);
@@ -7078,10 +7088,10 @@ impl Ui {
     fn cells(&mut self, label: &str, count: usize, cell: (f32, f32), sideways: bool, f: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
         let padding = self.list_padding(key_of(self.current_seed(), label));
         assert!(cell.0 > 0.0 && cell.1 > 0.0, "Ui.grid_list {label}: cells need a positive size");
-        let flags = CLIP | if sideways { SCROLL_X } else { SCROLL };
+        let flags = Flags::CLIP | if sideways { Flags::SCROLL_X } else { Flags::SCROLL };
         // `along` is the scrolling axis, `across` the one the cells wrap in
         let (along, across) = if sideways { cell } else { (cell.1, cell.0) };
-        let body = self.node(label, Node { flags, w: Size::Grow, h: Size::Grow, scroll_step: along, role: Role::List, ..Node::DEFAULT });
+        let body = self.node_ref(label, &Node { flags, w: Size::Grow, h: Size::Grow, scroll_step: along, role: Role::List, ..Node::DEFAULT });
         let seen = (self.slots[body.box_slot].rw, self.slots[body.box_slot].rh);
         let (w, h) = (if seen.0 > 0.0 { seen.0 } else { self.view_w }, if seen.1 > 0.0 { seen.1 } else { self.view_h });
         self.expect(body.box_slot, w, h);
@@ -7289,7 +7299,7 @@ impl Ui {
         let mut marks = std::mem::take(&mut self.marks);
         marks.clear();
         // a drag-free node held and moved (no press, release or key) dirties nothing
-        let drag_free = |ui: &Ui, key: i64| ui.active == Some(key) && ui.table.find(key).and_then(|slot| ui.slots.get(slot)).is_some_and(|s| s.node.flags & DRAG_FREE != 0);
+        let drag_free = |ui: &Ui, key: i64| ui.active == Some(key) && ui.table.find(key).and_then(|slot| ui.slots.get(slot)).is_some_and(|s| s.node.flags.any(Flags::DRAG_FREE));
         marks.extend(self.signals.iter().filter(|(k, a)| !(drag_free(self, **k) && !a.pressed && !a.released && !a.clicked && a.keys.is_empty())).map(|(k, _)| *k));
         let (hot, focus, keyboard, carrying) = self.seen;
         let mut now = (if self.touches.using_touch { 0 } else { self.hot }, self.focus, self.keyboard_focus, self.payload.is_some());
@@ -7302,7 +7312,7 @@ impl Ui {
             marks.extend([hot, now.0]);
         } else if now.0 != hot {
             for key in [hot, now.0] {
-                if !self.table.find(key).is_some_and(|slot| self.slots[slot].node.flags & HOVER_FREE != 0) {
+                if !self.table.find(key).is_some_and(|slot| self.slots[slot].node.flags.any(Flags::HOVER_FREE)) {
                     marks.push(key);
                 }
             }
@@ -8053,11 +8063,11 @@ impl Ui {
         self.slots[slot].rw
     }
 
-    pub(crate) fn box_flags(&self, b: &UiBox) -> i64 {
+    pub(crate) fn box_flags(&self, b: &UiBox) -> Flags {
         self.slots[b.box_slot].node.flags
     }
 
-    pub(crate) fn set_flags_of_box(&mut self, b: &UiBox, flags: i64) {
+    pub(crate) fn set_flags_of_box(&mut self, b: &UiBox, flags: Flags) {
         self.slots[b.box_slot].node.flags = flags;
     }
 

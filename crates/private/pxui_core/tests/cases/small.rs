@@ -215,12 +215,12 @@ fn plain(events: Vec<Event>) -> frame::Frame {
 pub fn window_pxui_input() {
     let mut ui = new_ui(Some(11));
     let body = |ui: &mut Ui| -> (i64, Signal, Signal) {
-        let view = ui.box_("view", BoxOpts::default().flags(CLICKABLE).at((0.0, 0.0)).w(Size::Px(160.0)).h(Size::Px(240.0)));
+        let view = ui.box_("view", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(160.0)).h(Size::Px(240.0)));
         let saved = ui.enter(&view);
-        let control = ui.box_("control", BoxOpts::default().flags(CLICKABLE + FOCUSABLE).at((30.0, 30.0)).w(Size::Px(50.0)).h(Size::Px(50.0)));
+        let control = ui.box_("control", BoxOpts::default().flags(Flags::CLICKABLE | Flags::FOCUSABLE).at((30.0, 30.0)).w(Size::Px(50.0)).h(Size::Px(50.0)));
         ui.leave(saved);
-        let graph = ui.box_("graph", BoxOpts::default().flags(CLICKABLE + SCROLL).at((160.0, 0.0)).w(Size::Px(160.0)).h(Size::Px(240.0)));
-        (key_of_box(&view), ui.signal(&control), ui.signal(&graph))
+        let graph = ui.box_("graph", BoxOpts::default().flags(Flags::CLICKABLE | Flags::SCROLL).at((160.0, 0.0)).w(Size::Px(160.0)).h(Size::Px(240.0)));
+        (key_of_box(&view), ui.signal_owned(&control), ui.signal_owned(&graph))
     };
     let step = |ui: &mut Ui, popup: bool, f: frame::Frame| -> (frame::Frame, Signal, Signal) {
         let mut out = None;
@@ -292,7 +292,7 @@ pub fn window_pxui_input() {
         "cancellation events were consumed",
     );
     let only_view = |ui: &mut Ui| -> i64 {
-        let b = ui.box_("only-view", BoxOpts::default().flags(CLICKABLE).at((0.0, 0.0)).w(Size::Px(160.0)).h(Size::Px(240.0)));
+        let b = ui.box_("only-view", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(160.0)).h(Size::Px(240.0)));
         key_of_box(&b)
     };
     ui.frame(&plain(vec![]), &mut |ui| {
@@ -325,7 +325,7 @@ pub fn window_pxui_input() {
     }
     check(modal_y(&mut ui, "height-original") != centred, "dynamic modal keys did not evict old cached heights");
     let probe = |ui: &mut Ui| -> Vec<Key> {
-        let b = ui.box_("press-keys", BoxOpts::default().flags(CLICKABLE).w(Size::Px(100.0)).h(Size::Px(100.0)));
+        let b = ui.box_("press-keys", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(100.0)));
         ui.press_keys(&b)
     };
     let mut seen = Vec::new();
@@ -346,14 +346,14 @@ pub fn window_pxui_input() {
     // capture_unclaimed: a blocking (non-clickable) child under the ancestor takes the press away
     // from it only where the child is clickable
     let unclaimed = |ui: &mut Ui| -> (Signal, Signal) {
-        let outer = ui.box_("outer", BoxOpts::default().flags(CAPTURE_UNCLAIMED + BLOCKING).at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(200.0)));
+        let outer = ui.box_("outer", BoxOpts::default().flags(Flags::CAPTURE_UNCLAIMED | Flags::BLOCKING).at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(200.0)));
         let saved = ui.enter(&outer);
-        let taker = ui.box_("taker", BoxOpts::default().flags(CLICKABLE).at((100.0, 0.0)).w(Size::Px(50.0)).h(Size::Px(50.0)));
+        let taker = ui.box_("taker", BoxOpts::default().flags(Flags::CLICKABLE).at((100.0, 0.0)).w(Size::Px(50.0)).h(Size::Px(50.0)));
         ui.leave(saved);
         let saved = ui.enter(&outer);
-        ui.box_("plain", BoxOpts::default().flags(SCROLL).at((0.0, 100.0)).w(Size::Px(50.0)).h(Size::Px(50.0)));
+        ui.box_("plain", BoxOpts::default().flags(Flags::SCROLL).at((0.0, 100.0)).w(Size::Px(50.0)).h(Size::Px(50.0)));
         ui.leave(saved);
-        (ui.signal(&outer), ui.signal(&taker))
+        (ui.signal_owned(&outer), ui.signal_owned(&taker))
     };
     ui.frame(&plain(vec![]), &mut |ui| {
         unclaimed(ui);
@@ -499,13 +499,13 @@ fn window_pxui_focused_text_field_warm_ime() {
     ui.destroy();
 }
 
-fn window_pxui_keyboard_signal_state_reuses_routing_storage() {
+fn window_pxui_keyboard_signal_reuses_routing_storage() {
     let mut ui = new_ui(Some(11));
     let button = Cell::new(None);
     let clicks = Cell::new(0);
     let mut build = |ui: &mut Ui| {
-        let node = ui.node("button", Node { flags: CLICKABLE | TAB_STOP, w: Size::Px(120.0), h: Size::Px(32.0), ..Node::DEFAULT });
-        let state = ui.signal_state(&node);
+        let node = ui.node("button".into(), Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, w: Size::Px(120.0), h: Size::Px(32.0), ..Node::DEFAULT });
+        let state = ui.signal(&node);
         check(state.keys.is_empty(), "scalar signal copied key events");
         clicks.set(clicks.get() + i32::from(state.clicked));
         button.set(Some(node));
@@ -522,16 +522,16 @@ fn window_pxui_keyboard_signal_state_reuses_routing_storage() {
         check(events.len() == 4 && events[1].1.contains(&Key::Shift) && !events[2].1.contains(&Key::Space), "borrowed event modifiers changed");
     }
     check(clicks.get() == 60, "keyboard activation lost clicks");
-    let owned = ui.signal(&button.get().unwrap());
+    let owned = ui.signal_owned(&button.get().unwrap());
     check(owned.clicked && owned.keys.len() == 4, "legacy owned signal lost key events");
     let old = button.get().unwrap();
     ui.frame(&keyboard_frame(vec![], vec![]), &mut |_| {});
-    check(ui.signal(&old).keys.is_empty() && ui.key_events_ref(&old).is_empty(), "retired node retained routed input");
+    check(ui.signal_owned(&old).keys.is_empty() && ui.key_events_ref(&old).is_empty(), "retired node retained routed input");
     ui.destroy();
 }
 
 pub const CASES: &[(&str, fn())] = &[
-    ("window_pxui_keyboard_signal_state_reuses_routing_storage", window_pxui_keyboard_signal_state_reuses_routing_storage),
+    ("window_pxui_keyboard_signal_reuses_routing_storage", window_pxui_keyboard_signal_reuses_routing_storage),
     ("window_pxui_focused_text_field_warm_ime", window_pxui_focused_text_field_warm_ime),
     ("text_rows_lru", text_rows_lru),
     ("fuzzy_score_ranks", fuzzy_score_ranks),

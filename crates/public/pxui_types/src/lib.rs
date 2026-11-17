@@ -20,15 +20,15 @@ pub use node::{Axis, Bar, Dir, Mark, Node};
 pub use text::{Label, TextGlyph, TextMetrics, TextSpan, TextSpans, TextStyle};
 pub use theme::{Curve, Font, Look, Motion, Ring, Shadow, State, States, Tokens};
 
-/// Node behavior bits as a typed value; the record stores the raw integer (`bits`), so unknown future bits stay representable.
+/// Node behavior bits as a typed value over the raw integer (`bits`), so unknown future bits stay representable.
 ///
-/// Combine with `|` or the `const fn or`. `Flags::FOCUSABLE` is the node flag; the accessibility state of the same name is
+/// Combine with `|` or the `const fn or`; test with `any`. `Flags::FOCUSABLE` is the node flag; the accessibility state of the same name is
 /// `a11y::state::FOCUSABLE`.
 ///
 /// ```
 /// use pxui_types::{Flags, Node};
 /// const N: Node = Node::row().flags(Flags::CLICKABLE.or(Flags::TAB_STOP));
-/// assert_eq!(N.flags, Flags::CLICKABLE.bits() | Flags::TAB_STOP.bits());
+/// assert_eq!(N.flags, Flags::CLICKABLE | Flags::TAB_STOP);
 /// assert_eq!(Flags::CLICKABLE | Flags::CLIP, Flags(9));
 /// ```
 #[repr(transparent)]
@@ -38,48 +38,58 @@ pub struct Flags(pub i64);
 impl Flags {
     /// No flags.
     pub const NONE: Flags = Flags(0);
-    /// Same bit as `ui::CLICKABLE`.
-    pub const CLICKABLE: Flags = Flags(ui::CLICKABLE);
-    /// Same bit as `ui::FOCUSABLE`.
-    pub const FOCUSABLE: Flags = Flags(ui::FOCUSABLE);
-    /// Same bit as `ui::SCROLL`.
-    pub const SCROLL: Flags = Flags(ui::SCROLL);
-    /// Same bit as `ui::CLIP`.
-    pub const CLIP: Flags = Flags(ui::CLIP);
-    /// Same bit as `ui::BLOCKING`.
-    pub const BLOCKING: Flags = Flags(ui::BLOCKING);
-    /// Same bit as `ui::TAB_ONLY`.
-    pub const TAB_ONLY: Flags = Flags(ui::TAB_ONLY);
-    /// Same bit as `ui::TAB_STOP`.
-    pub const TAB_STOP: Flags = Flags(ui::TAB_STOP);
-    /// Same bit as `ui::KEEP_TAB`.
-    pub const KEEP_TAB: Flags = Flags(ui::KEEP_TAB);
-    /// Same bit as `ui::KEEP_FOCUS`.
-    pub const KEEP_FOCUS: Flags = Flags(ui::KEEP_FOCUS);
-    /// Same bit as `ui::OVER_THUMB`.
-    pub const OVER_THUMB: Flags = Flags(ui::OVER_THUMB);
-    /// Same bit as `ui::CAPTURE_UNCLAIMED`.
-    pub const CAPTURE_UNCLAIMED: Flags = Flags(ui::CAPTURE_UNCLAIMED);
-    /// Same bit as `ui::FOCUS_MARK`.
-    pub const FOCUS_MARK: Flags = Flags(ui::FOCUS_MARK);
-    /// Same bit as `ui::TAB_STOP_MARKED`.
-    pub const TAB_STOP_MARKED: Flags = Flags(ui::TAB_STOP_MARKED);
-    /// Same bit as `ui::FIT_TEXT`.
-    pub const FIT_TEXT: Flags = Flags(ui::FIT_TEXT);
-    /// Same bit as `ui::FIT_TEXT_PIXEL`.
-    pub const FIT_TEXT_PIXEL: Flags = Flags(ui::FIT_TEXT_PIXEL);
-    /// Same bit as `ui::SCROLL_X`.
-    pub const SCROLL_X: Flags = Flags(ui::SCROLL_X);
-    /// Same bit as `ui::STICKY`.
-    pub const STICKY: Flags = Flags(ui::STICKY);
-    /// Same bit as `ui::ROUND_CLIP`.
-    pub const ROUND_CLIP: Flags = Flags(ui::ROUND_CLIP);
-    /// Same bit as `ui::HOVER_FREE`.
-    pub const HOVER_FREE: Flags = Flags(ui::HOVER_FREE);
-    /// Same bit as `ui::KEEP_ROOM`.
-    pub const KEEP_ROOM: Flags = Flags(ui::KEEP_ROOM);
-    /// Same bit as `ui::DRAG_FREE`.
-    pub const DRAG_FREE: Flags = Flags(ui::DRAG_FREE);
+    /// Takes pointer presses and clicks.
+    pub const CLICKABLE: Flags = Flags(1);
+    /// Takes the keyboard focus.
+    pub const FOCUSABLE: Flags = Flags(2);
+    /// Scrolls its content vertically.
+    pub const SCROLL: Flags = Flags(4);
+    /// Clips its children to its bounds.
+    pub const CLIP: Flags = Flags(8);
+    /// Blocks input to what lies under it.
+    pub const BLOCKING: Flags = Flags(16);
+    /// Kit controls enter keyboard mode through Tab; pointer editing retains the existing host
+    /// shortcut behavior. Text-entry rows also focus on a press.
+    pub const TAB_ONLY: Flags = Flags(32);
+    /// Keyboard traversal focus for a control whose pointer interaction leaves keyboard input with its
+    /// host. Escape relinquishes this keyboard focus.
+    pub const TAB_STOP: Flags = Flags(Self::FOCUSABLE.0 | Self::TAB_ONLY.0);
+    /// a multiline editor keeps Tab for itself (two spaces) instead of moving the focus
+    pub const KEEP_TAB: Flags = Flags(64);
+    /// a press on such a box leaves the keyboard focus where it is (a completion row under an editor)
+    pub const KEEP_FOCUS: Flags = Flags(128);
+    /// a scrolling box whose thumb is drawn over its content (an inspector body): no gutter
+    pub const OVER_THUMB: Flags = Flags(4096);
+    /// A press whose topmost hit box is not clickable is captured by the nearest ancestor with this
+    /// flag.
+    pub const CAPTURE_UNCLAIMED: Flags = Flags(8192);
+    /// the control marks its own keyboard focus: the engine strokes no ring round it
+    pub const FOCUS_MARK: Flags = Flags(256);
+    /// `TAB_STOP` with `FOCUS_MARK`.
+    pub const TAB_STOP_MARKED: Flags = Flags(Self::TAB_STOP.0 | Self::FOCUS_MARK.0);
+    /// The node's text is cut with an ellipsis to the room its look leaves (the placed width less the
+    /// text inset) when it does not fit.
+    pub const FIT_TEXT: Flags = Flags(16384);
+    /// Fit text width, including text insets, rounded up to the frame's physical-pixel density.
+    pub const FIT_TEXT_PIXEL: Flags = Flags(2097152);
+    /// scrolls sideways (the wheel's and the trackpad's horizontal motion); with `SCROLL` on both axes
+    pub const SCROLL_X: Flags = Flags(32768);
+    /// a flow child of a scroll box that stops at its top edge instead of scrolling out (CSS sticky);
+    /// it paints over its siblings
+    pub const STICKY: Flags = Flags(65536);
+    /// with `CLIP`: the children's clip takes the corner radius of the node's look (CSS `overflow:
+    /// hidden` with `border-radius`); without it a clip is square
+    pub const ROUND_CLIP: Flags = Flags(131072);
+    /// Nothing the node's view builds follows its hover: the pointer moving onto or off it dirties no
+    /// view (the app reads `hovered_within` between frames and patches what shows it).
+    pub const HOVER_FREE: Flags = Flags(262144);
+    /// The node's square look paints its fill and border instances even when they are clear, so a
+    /// patch to a look that shows them rewrites its range in place (it never grows the layer).
+    pub const KEEP_ROOM: Flags = Flags(524288);
+    /// Nothing the node's view builds follows a drag of it: while the pointer holds it and only moves
+    /// (no press, release or key), its view is not dirtied. The owner reads the drag between builds
+    /// (`signal` on the kept handle; `field_drag` for a `value_field`) and patches what shows it.
+    pub const DRAG_FREE: Flags = Flags(1048576);
     /// The union of two flag sets.
     ///
     /// Allocates: never.
@@ -93,7 +103,21 @@ impl Flags {
     pub const fn or(self, other: Flags) -> Flags {
         Flags(self.0 | other.0)
     }
-    /// The raw bits, as stored in `Node::flags`.
+    /// Whether any bit of `other` is set in `self`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Flags;
+    /// assert!(Flags::TAB_STOP.any(Flags::FOCUSABLE | Flags::CLIP));
+    /// assert!(!Flags::CLIP.any(Flags::SCROLL));
+    /// ```
+    #[inline]
+    pub const fn any(self, other: Flags) -> bool {
+        self.0 & other.0 != 0
+    }
+    /// The raw bits.
     ///
     /// Allocates: never.
     /// Panics: never.
@@ -113,6 +137,13 @@ impl core::ops::BitOr for Flags {
     #[inline]
     fn bitor(self, other: Flags) -> Flags {
         self.or(other)
+    }
+}
+
+impl core::ops::BitOrAssign for Flags {
+    #[inline]
+    fn bitor_assign(&mut self, other: Flags) {
+        self.0 |= other.0;
     }
 }
 
@@ -874,7 +905,7 @@ mod builders {
             justify: Justify::Center,
             align: Align::End,
             role: Role::Button,
-            flags: 5,
+            flags: Flags(5),
             ..Node::DEFAULT
         });
         same(&COLUMN, &Node { axis: Axis::Column, ..Node::DEFAULT });
@@ -902,11 +933,10 @@ mod builders {
     fn node_focusable_and_a11y_focusable_are_distinct_names() {
         assert_eq!(Flags::FOCUSABLE.bits(), 2);
         assert_eq!(a11y::state::FOCUSABLE, 1);
-        assert_eq!(Flags::FOCUSABLE.bits(), ui::FOCUSABLE);
-        assert_eq!(Flags::CLICKABLE | Flags::TAB_ONLY | Flags::FOCUSABLE, Flags(ui::TAB_STOP | ui::CLICKABLE));
+        assert_eq!(Flags::CLICKABLE | Flags::TAB_ONLY | Flags::FOCUSABLE, Flags::TAB_STOP | Flags::CLICKABLE);
         assert_eq!(size_of::<Flags>(), size_of::<i64>());
         let n = Node::row().flags(Flags::FOCUSABLE);
-        assert_eq!(n.flags, ui::FOCUSABLE);
+        assert_eq!(n.flags, Flags::FOCUSABLE);
         assert_eq!(n.a11y, 0, "a node flag does not set an a11y state");
     }
 }

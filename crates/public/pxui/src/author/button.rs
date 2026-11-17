@@ -1,5 +1,5 @@
 //! The kit button with options: `ui.button_with(key, text, &Button)` reports a `Response`; `ui.button(text)` is `Button::DEFAULT`.
-use super::{layout::id_text, Key, Response};
+use super::{Key, Response};
 use crate::Ui;
 use pxui_types::{geom::Edges, layout::Justify, theme::States, Size};
 
@@ -149,7 +149,7 @@ impl Ui {
     /// use pxui::{ui::{Node, Size}, Button};
     /// let mut ui = pxui::doc::frames(1, &mut |ui: &mut pxui::Ui| {
     ///     let pill = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).name("Play all");
-    ///     ui.button_content("play", &pill, |ui| { ui.node("icon", Node { w: Size::Px(16.0), h: Size::Px(16.0), ..Node::DEFAULT }); });
+    ///     ui.button_content("play", &pill, |ui| { ui.node("icon".into(), Node { w: Size::Px(16.0), h: Size::Px(16.0), ..Node::DEFAULT }); });
     /// });
     /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "Play all"));
     /// ```
@@ -164,7 +164,7 @@ impl Ui {
     #[track_caller]
     fn button_key(&mut self, key: Key, text: &str, button: &Button, content: Option<&mut dyn FnMut(&mut Ui)>) -> Response {
         let mut id_label = [0u8; 17];
-        let label = match key { Key::Label(label) => label, Key::Id(id) => id_text(id, &mut id_label) };
+        let label = key.label(&mut id_label);
         self.button_keyed(label, text, button, content)
     }
 }
@@ -244,7 +244,7 @@ mod tests {
         let inner = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             let b = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).name("Play all").pad(Edges { l: 2.0, ..Edges::ZERO });
-            last.set(Some(ui.button_content("play-all", &b, |ui| { inner.set(Some(ui.node("icon", Node { w: Size::Px(16.0), h: Size::Px(16.0), ..Node::DEFAULT }))); })));
+            last.set(Some(ui.button_content("play-all", &b, |ui| { inner.set(Some(ui.node("icon".into(), Node { w: Size::Px(16.0), h: Size::Px(16.0), ..Node::DEFAULT }))); })));
         };
         let ui = crate::doc::frames(3, &mut build);
         let (is_button, _, w, h) = node(&ui, "Play all");
@@ -275,7 +275,7 @@ mod tests {
 
     #[test]
     fn warm_frames_allocate_nothing() {
-        let content = |ui: &mut Ui| { ui.node("i", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }); };
+        let content = |ui: &mut Ui| { ui.node("i".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }); };
         let states = crate::doc::frames(1, &mut |_| {}).theme().button;
         let mut ui = crate::doc::frames(1, &mut |_| {});
         let mut build = |ui: &mut Ui| {

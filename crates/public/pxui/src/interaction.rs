@@ -55,23 +55,43 @@ impl Ui {
     #[inline] #[track_caller] pub fn leave(&mut self,saved:UiSaved) {check(self, unsafe{sys::pxui_ui_leave(self.0.as_ptr(),&saved)})}
     #[inline] #[track_caller] pub fn focus_box(&mut self,box_:&PxuiBox) {check(self, unsafe{sys::pxui_ui_focus_box(self.0.as_ptr(),box_)})}
     #[inline] #[track_caller] pub fn focused(&self,box_:&PxuiBox)-> bool {let mut out=0;check(self, unsafe{sys::pxui_ui_focused(self.0.as_ptr(),box_,&mut out)});out!=0}
-    #[inline] #[track_caller] pub fn state(&self,box_:&PxuiBox,default:i64)-> i64 {let mut out=0;check(self, unsafe{sys::pxui_ui_state(self.0.as_ptr(),box_,default,&mut out)});out}
-    #[inline] #[track_caller] pub fn set_state(&mut self,box_:&PxuiBox,value:i64) {check(self, unsafe{sys::pxui_ui_set_state(self.0.as_ptr(),box_,value)})}
-
-    /// What happened to `box_` this frame, as scalars; key events are `signal_keys`. Same as `signal`.
+    /// `box_`'s state slot, or `default` while it was never set.
     ///
-    /// Allocates: nothing.
-    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    /// A handle of a node that has gone reads `default` (no panic), like every query on a stale handle.
+    /// Allocates: never.
+    /// Panics: outside a frame, or when the `Ui` has failed.
     ///
     /// ```
-    /// let mut ui = pxui::Ui::new().unwrap();
-    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n", pxui::Node::DEFAULT);
-    ///     assert!(!ui.signal_state(&b).clicked);
-    /// }).unwrap();
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     assert_eq!(ui.state(&b, 5), 5);
+    ///     ui.set_state(&b, 7);
+    ///     assert_eq!(ui.state(&b, 5), 7);
+    /// });
     /// ```
     #[inline]
-    #[track_caller] pub fn signal_state(&self, box_: &PxuiBox) -> Signal { self.signal(box_) }
+    #[track_caller]
+    pub fn state(&self,box_:&PxuiBox,default:i64)-> i64 {
+        let mut out=default;
+        if !crate::live(self, unsafe{sys::pxui_ui_state(self.0.as_ptr(),box_,default,&mut out)}) { return default; }
+        out
+    }
+    /// Stores `value` in `box_`'s state slot; it persists across frames while the node lives.
+    ///
+    /// A handle of a node that has gone stores nothing (no panic), like every patch on a stale handle.
+    /// Allocates: never.
+    /// Panics: outside a frame, or when the `Ui` has failed.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     ui.set_state(&b, -1);
+    ///     assert_eq!(ui.state(&b, 0), -1);
+    /// });
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn set_state(&mut self,box_:&PxuiBox,value:i64) { let _ = crate::live(self, unsafe{sys::pxui_ui_set_state(self.0.as_ptr(),box_,value)}); }
 
     /// What happened to `box_` this frame: one library call that fills scalars on the stack.
     ///
@@ -81,7 +101,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::Ui::new().unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n", pxui::Node::DEFAULT);
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
     ///     assert!(!ui.signal(&b).hovered);
     /// }).unwrap();
     /// ```
@@ -103,7 +123,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::Ui::new().unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n", pxui::Node::DEFAULT);
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
     ///     assert!(ui.signal_keys(&b).is_empty());
     /// }).unwrap();
     /// ```

@@ -1,5 +1,5 @@
 //! The kit icon button: `ui.icon_button(key, icon, name, &IconButton)` reports a `Response`.
-use super::{layout::id_text, Key, Response};
+use super::{Key, Response};
 use crate::{Paint, Ui};
 use pxui_types::geom::{Rect, Rgba};
 use pxui_types::{theme::States, Size};
@@ -124,7 +124,7 @@ impl Ui {
     #[track_caller]
     fn icon_button_key(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton) -> Response {
         let mut id_label = [0u8; 17];
-        let label = match key { Key::Label(label) => label, Key::Id(id) => id_text(id, &mut id_label) };
+        let label = key.label(&mut id_label);
         self.icon_button_keyed(label, icon, name, button)
     }
 }

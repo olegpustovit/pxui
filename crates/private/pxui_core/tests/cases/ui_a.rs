@@ -20,11 +20,11 @@ fn scale_1(scale: f64) {
     let roots = |ui: &mut Ui, events: Vec<Event>| -> (Signal, Signal, i64) {
         let mut out = None;
         ui.frame(&frame_at(vec![], scale, 0.5, events), &mut |ui| {
-            let root = ui.box_("root", BoxOpts::default().flags(CLICKABLE).w(Size::Px(100.0)).h(Size::Px(100.0)));
+            let root = ui.box_("root", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(100.0)));
             let saved = ui.enter(&root);
-            let child = ui.box_("child", BoxOpts::default().flags(CLICKABLE).w(Size::Px(30.0)).h(Size::Px(30.0)).at((10.0, 10.0)));
+            let child = ui.box_("child", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Px(30.0)).h(Size::Px(30.0)).at((10.0, 10.0)));
             ui.leave(saved);
-            out = Some((ui.signal(&root), ui.signal(&child), key(&root)));
+            out = Some((ui.signal_owned(&root), ui.signal_owned(&child), key(&root)));
         });
         out.unwrap()
     };
@@ -344,7 +344,7 @@ fn scale_7(scale: f64) {
         ui.frame(&frame_at(vec![], scale, t, events), &mut |ui| {
             let parent = ui.box_(
                 "rubber",
-                BoxOpts::default().flags(SCROLL + CLIP).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(80.0)).scroll_step(24.0),
+                BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(80.0)).scroll_step(24.0),
             );
             let saved = ui.enter(&parent);
             child = Some(ui.box_("content", BoxOpts::default().w(Size::Px(100.0)).h(Size::Px(100.0))));
@@ -370,7 +370,7 @@ fn scale_7(scale: f64) {
         ui.frame(&frame_at(vec![], scale, t, events), &mut |ui| {
             let p = ui.box_(
                 "direction",
-                BoxOpts::default().flags(SCROLL + CLIP).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(80.0)).scroll_step(24.0),
+                BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(80.0)).scroll_step(24.0),
             );
             let saved = ui.enter(&p);
             ui.box_("long", BoxOpts::default().w(Size::Px(100.0)).h(Size::Px(240.0)));
@@ -416,7 +416,7 @@ impl Pad {
         self.ui.frame(&frame_at(vec![], scale, self.clock, events), &mut |ui| {
             let p = ui.box_(
                 "pad",
-                BoxOpts::default().flags(SCROLL + CLIP).at((0.0, 0.0)).w(Size::Px(100.0)).h(h.clone()).scroll_step(24.0),
+                BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).at((0.0, 0.0)).w(Size::Px(100.0)).h(h.clone()).scroll_step(24.0),
             );
             let saved = ui.enter(&p);
             ui.box_("long", BoxOpts::default().w(Size::Px(100.0)).h(Size::Px(content as f32)));
@@ -549,8 +549,8 @@ fn scale_9(scale: f64) {
         let t = advance();
         let mut seen = 1.0;
         ui.frame(&frame_at(vec![], scale, t, events), &mut |ui| {
-            let canvas = ui.box_("pinch", BoxOpts::default().flags(SCROLL + CLIP).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(80.0)));
-            seen = ui.signal(&canvas).pinch;
+            let canvas = ui.box_("pinch", BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(80.0)));
+            seen = ui.signal_owned(&canvas).pinch;
         });
         seen
     };
@@ -803,7 +803,7 @@ pub fn window_pxui_frame_gate() {
     let mut ui = field_ui();
     let step = |ui: &mut Ui, time: f64, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, time, events), &mut |ui| {
-            let b = ui.box_("gate", BoxOpts::default().flags(CLICKABLE).at((200.0, 150.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
+            let b = ui.box_("gate", BoxOpts::default().flags(Flags::CLICKABLE).at((200.0, 150.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
             if ui.hovered_within(&b) && ui.hover_delay("gate") {
                 ui.tooltip("gate", "Tip");
             }
@@ -847,16 +847,16 @@ pub fn window_pxui_tooltip_rest() {
         key_name.replace(key.unwrap_or("a").to_owned());
         skip.set(skipped);
         ui.frame(&frame_at(vec![], 1.0, time, events), &mut |ui| {
-            let parent = ui.box_("hover-parent", BoxOpts::default().flags(CLICKABLE).w(Size::Px(100.0)).h(Size::Px(100.0)));
+            let parent = ui.box_("hover-parent", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(100.0)));
             let saved = ui.enter(&parent);
-            let child = ui.box_("hover-child", BoxOpts::default().flags(CLICKABLE).w(Size::Px(40.0)).h(Size::Px(40.0)));
+            let child = ui.box_("hover-child", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Px(40.0)).h(Size::Px(40.0)));
             ui.leave(saved);
             let k = key_name.borrow().clone();
             let ready = !skip.get() && ui.hovered_within(&parent) && ui.hover_delay(&k);
             if ready {
                 ui.tooltip(&k, "A shared tooltip.");
             }
-            out = (ready, ui.hovered_within(&parent), ui.signal(&child).hovered);
+            out = (ready, ui.hovered_within(&parent), ui.signal_owned(&child).hovered);
         });
         out
     };
@@ -915,8 +915,8 @@ pub fn window_pxui_hover_cursor() {
     let hovered = Cell::new(false);
     let mut build = |ui: &mut Ui| {
         ui.panel(PanelOpts::default().at(0.0, 0.0).width(240.0), "panel", &mut |ui| {
-            let row = ui.box_("probe", BoxOpts::default().flags(CLICKABLE).w(Size::Grow).h(Size::Px(24.0)));
-            hovered.set(ui.signal(&row).hovered);
+            let row = ui.box_("probe", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Grow).h(Size::Px(24.0)));
+            hovered.set(ui.signal_owned(&row).hovered);
         });
     };
     ui.frame(&frame_at(vec![], 2.0, 0.0, vec![]), &mut build);
@@ -966,9 +966,9 @@ pub fn window_pxui_fit_box() {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
             let group = ui.box_("group", BoxOpts::default().w(Size::Fit).h(Size::Fit));
             let saved = ui.enter(&group);
-            let child = ui.box_("placed", BoxOpts::default().flags(CLICKABLE).at((40.0, 40.0)).w(Size::Px(20.0)).h(Size::Px(20.0)));
+            let child = ui.box_("placed", BoxOpts::default().flags(Flags::CLICKABLE).at((40.0, 40.0)).w(Size::Px(20.0)).h(Size::Px(20.0)));
             ui.leave(saved);
-            hovered = ui.signal(&child).hovered;
+            hovered = ui.signal_owned(&child).hovered;
         });
         hovered
     };
@@ -1053,18 +1053,18 @@ fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
     let background = Cell::new(false);
     let mut build = |ui: &mut Ui| {
         open.set(ui.modal(Some(300.0), "warm-modal", &mut |ui| {
-            let body = ui.node("body", Node { w: Size::Grow, h: Size::Px(140.0), flags: CLICKABLE | TAB_STOP | SCROLL, ..Node::DEFAULT });
+            let body = ui.node("body".into(), Node { w: Size::Grow, h: Size::Px(140.0), flags: Flags::CLICKABLE | Flags::TAB_STOP | Flags::SCROLL, ..Node::DEFAULT });
             inside.set(Some(body));
             ui.within(&body, &mut |ui| {
                 for (key, width, caps) in [("wide", 80.0, false), ("tiny", 1.0, true), ("caps", 60.0, true)] {
-                    let label = ui.node(key, Node { w: Size::Px(width), h: Size::Px(24.0), flags: FIT_TEXT, look: Look { font: Font { caps, ..Font::BODY }, ..Look::NONE }, ..Node::DEFAULT });
+                    let label = ui.node_ref(key, &Node { w: Size::Px(width), h: Size::Px(24.0), flags: Flags::FIT_TEXT, look: Look { font: Font { caps, ..Font::BODY }, ..Look::NONE }, ..Node::DEFAULT });
                     ui.text(&label, "a long label with café and 🎵");
                 }
             });
-            let _ = ui.signal_state(&body);
+            let _ = ui.signal(&body);
         }));
-        let behind = ui.node("background", Node { w: Size::Grow, h: Size::Grow, flags: CLICKABLE | TAB_STOP, ..Node::DEFAULT });
-        let signal = ui.signal_state(&behind);
+        let behind = ui.node("background".into(), Node { w: Size::Grow, h: Size::Grow, flags: Flags::CLICKABLE | Flags::TAB_STOP, ..Node::DEFAULT });
+        let signal = ui.signal(&behind);
         background.set(signal.clicked || signal.hovered);
     };
     for time in [0.0, 0.01, 0.02] { ui.frame(&frame_at(vec![], 1.0, time, vec![]), &mut build); }
@@ -1094,11 +1094,11 @@ fn window_fitted_paint_matches_legacy_ellipsis_and_ascii_caps() {
                 let look = Look { text: Rgba { r: 0, g: 0, b: 0, a: 255 }, font: Font { caps, ..Font::BODY }, ..Look::NONE };
                 let frame = frame_at(vec![], 1.0, 0.0, vec![]);
                 actual.frame(&frame, &mut |ui| {
-                    let row = ui.node("label", Node { w: Size::Px(width), h: Size::Px(24.0), flags: FIT_TEXT, look, ..Node::DEFAULT });
+                    let row = ui.node("label".into(), Node { w: Size::Px(width), h: Size::Px(24.0), flags: Flags::FIT_TEXT, look, ..Node::DEFAULT });
                     ui.text(&row, label);
                 });
                 expected.frame(&frame, &mut |ui| {
-                    let row = ui.node("label", Node { w: Size::Px(width), h: Size::Px(24.0), look: Look { font: Font { caps: false, ..look.font }, ..look }, ..Node::DEFAULT });
+                    let row = ui.node("label".into(), Node { w: Size::Px(width), h: Size::Px(24.0), look: Look { font: Font { caps: false, ..look.font }, ..look }, ..Node::DEFAULT });
                     ui.text(&row, &shown);
                 });
                 let a = actual.output().draw;

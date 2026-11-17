@@ -256,7 +256,7 @@ fn image_retirement_rejects_a_missing_renderer() {
 fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     extern "C" fn slider(user:*mut c_void,raw:*mut c_void) {
         let ui=raw.cast::<PxuiUi>();
-        let desc=pxui_types::Node {flags:pxui_types::ui::FOCUSABLE,role:pxui_types::a11y::Role::Slider,w:pxui_types::Size::Px(200.0),h:pxui_types::Size::Px(20.0),..pxui_types::Node::DEFAULT};
+        let desc=pxui_types::Node {flags:pxui_types::Flags::FOCUSABLE,role:pxui_types::a11y::Role::Slider,w:pxui_types::Size::Px(200.0),h:pxui_types::Size::Px(20.0),..pxui_types::Node::DEFAULT};
         unsafe { assert_eq!(pxui_ui_node_keyed(ui,27,&desc,user.cast()),0); }
     }
     let ui=create();
@@ -270,12 +270,12 @@ fn accessibility_batches_validate_the_entire_span_before_applying_any_chunk() {
     batch[64].action_code=3;
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),batch.len())},PXUI_ERR_ARGUMENT);
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
-    let value=unsafe {(&*(*ui).engine).signal_state(&crate::state::core_box(node).unwrap()).a11y_value};
+    let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box(node).unwrap()).a11y_value};
     assert_eq!(value,None,"invalid tail must not deliver earlier chunks");
     batch[64].action_code=4; batch[64].payload=77.0;
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,batch.as_ptr(),batch.len())},0);
     assert_eq!(run(ui,Some(slider),(&mut node as *mut PxuiBox).cast()),0);
-    let value=unsafe {(&*(*ui).engine).signal_state(&crate::state::core_box(node).unwrap()).a11y_value};
+    let value=unsafe {(&*(*ui).engine).signal(&crate::state::core_box(node).unwrap()).a11y_value};
     assert_eq!(value,Some(77.0));
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,core::ptr::null(),0)},0);
     assert_eq!(unsafe {pxui_ui_inject_a11y(ui,core::ptr::null(),1)},PXUI_ERR_ARGUMENT);
@@ -298,7 +298,7 @@ fn section_list_descriptors_validate_before_callbacks_and_restore_the_owner() {
         let ui=raw.cast::<PxuiUi>();
         let valid=PxuiSectionListDesc {size:core::mem::size_of::<PxuiSectionListDesc>() as u32,
             overlay_scrollbar:1,reserved:[0;3],label:Str {ptr:b"section".as_ptr(),len:7},count:10_000,
-            row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,build:Some(part),user};
+            row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,build:Some(part),user,key:None};
         let mut out=PxuiBox {box_key:777,..PxuiBox::default()};
         let mut bad=[valid;10];
         bad[0].size-=1; bad[1].overlay_scrollbar=2; bad[2].reserved[1]=1;
@@ -323,6 +323,40 @@ fn section_list_descriptors_validate_before_callbacks_and_restore_the_owner() {
     assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
 }
 
+/// An ABI 1.20 caller's 64-byte record (no `key`) still builds, its rows keyed by index; a 72-byte one with `key` keys each row box
+/// by the id it returns, so the id's row keeps its key when the items reorder.
+#[test]
+fn section_lists_take_the_old_record_and_key_rows_by_item_id() {
+    use pxui_types::ffi::PxuiSectionListDesc;
+    extern "C" fn row(user:*mut c_void,raw:*mut c_void,index:usize) {
+        let state=unsafe {&mut *user.cast::<([i64;3],[i64;3])>()};
+        let mut node=PxuiBox::default();
+        // a child of the row box: its key follows the row's
+        assert_eq!(unsafe {crate::pxui_ui_node(raw.cast(),Str {ptr:b"title".as_ptr(),len:5},&pxui_types::Node::DEFAULT,&mut node)},0);
+        if index<3 {state.1[index]=node.box_key;}
+    }
+    extern "C" fn key(user:*mut c_void,index:usize)->i64 { unsafe {(*user.cast::<([i64;3],[i64;3])>()).0[index]} }
+    extern "C" fn build(user:*mut c_void,raw:*mut c_void) {
+        let ui=raw.cast::<PxuiUi>();
+        let keyed=PxuiSectionListDesc {size:core::mem::size_of::<PxuiSectionListDesc>() as u32,overlay_scrollbar:0,reserved:[0;3],
+            label:Str {ptr:b"keyed".as_ptr(),len:5},count:3,row_height:20.0,leading_height:0.0,header_height:0.0,trailing_height:0.0,
+            build:Some(row),user,key:Some(key)};
+        let mut out=PxuiBox::default();
+        assert_eq!(unsafe {pxui_ui_section_list(ui,&keyed,&mut out)},0);
+        let old=PxuiSectionListDesc {size:64,label:Str {ptr:b"old".as_ptr(),len:3},build:None,..keyed};
+        assert_eq!(unsafe {pxui_ui_section_list(ui,&old,&mut out)},0);
+    }
+    let ui=create();
+    let mut state=([10i64,20,30],[0i64;3]);
+    assert_eq!(run(ui,Some(build),(&mut state as *mut ([i64;3],[i64;3])).cast()),0,"{}",error(ui));
+    let before=state.1;
+    state.0.reverse();
+    assert_eq!(run(ui,Some(build),(&mut state as *mut ([i64;3],[i64;3])).cast()),0,"{}",error(ui));
+    assert_eq!((state.1[0],state.1[2]),(before[2],before[0]),"each id's row (and its child) keeps its key");
+    assert_ne!(before[0],before[1]);
+    assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
+}
+
 #[test]
 fn measured_section_descriptors_validate_before_callbacks_and_restore_the_owner() {
     use pxui_types::ffi::PxuiMeasuredSectionDesc;
@@ -339,7 +373,7 @@ fn measured_section_descriptors_validate_before_callbacks_and_restore_the_owner(
         let ui=raw.cast::<PxuiUi>();
         let valid=PxuiMeasuredSectionDesc {size:core::mem::size_of::<PxuiMeasuredSectionDesc>() as u32,
             overlay_scrollbar:1,reserved:[0;3],label:Str {ptr:b"section".as_ptr(),len:7},count:10_000,
-            row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,build:Some(part),user};
+            row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,build:Some(part),user,key:None};
         let before=unsafe {*user.cast::<usize>()};
         let mut out=PxuiBox {box_key:777,..PxuiBox::default()};
         let mut bad=[valid;10];

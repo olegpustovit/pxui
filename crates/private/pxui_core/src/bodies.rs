@@ -650,13 +650,15 @@ macro_rules! registry {
             names: Vec<HashMap<String, BodyId>>,
             /// the row a list, tree or table view is building (`Ui::item`); here, not in `Ui`, so `Ui` stays the size it was
             pub(crate) item: UiBox,
+            /// what `item` is a row of: `ITEM_NONE`, `ITEM_LIST`, `ITEM_TREE` or `ITEM_TABLE` (`Ui::item_text` puts its text by it)
+            pub(crate) item_kind: u8,
             /// an opaque pointer of the host that registered bodies (the C ABI's state): what a registered body's trampoline finds its caller's data by
             host: *mut core::ffi::c_void,
         }
 
         impl Default for BodyTable {
             fn default() -> BodyTable {
-                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| HashMap::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, host: core::ptr::null_mut() }
+                BodyTable { $($kind: Vec::new(),)* names: Bodies::KINDS.iter().map(|_| HashMap::new()).collect(), item: UiBox { index: 0, box_key: 0, box_slot: 0, generation: 0 }, item_kind: crate::ui_widgets::ITEM_NONE, host: core::ptr::null_mut() }
             }
         }
 

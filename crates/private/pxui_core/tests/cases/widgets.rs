@@ -89,7 +89,7 @@ fn cells(i: usize, c: usize, put: &mut dyn FnMut(&str)) {
 
 /// A fixed-height box for a widget that fills its parent.
 fn sized(ui: &mut Ui, label: &str, h: f32, f: &mut dyn FnMut(&mut Ui)) {
-    let b = ui.node(label, Node { h: Size::Px(h), ..Node::DEFAULT });
+    let b = ui.node_ref(label, &Node { h: Size::Px(h), ..Node::DEFAULT });
     ui.within(&b, f);
 }
 
@@ -113,9 +113,9 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         s.picked = Some(p);
     }
     s.busy.clear();
-    let row = ui.node("columns", Node { w: Size::Px(W as f32), h: Size::Fit, axis: Axis::Row, at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
+    let row = ui.node("columns".into(), Node { w: Size::Px(W as f32), h: Size::Fit, axis: Axis::Row, at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
     ui.within(&row, &mut |ui| {
-        let left = ui.node("left", Node { w: Size::Px(240.0), ..Node::DEFAULT });
+        let left = ui.node("left".into(), Node { w: Size::Px(240.0), ..Node::DEFAULT });
         ui.within(&left, &mut |ui| {
             s.check = ui.checkbox("Check", s.check);
             s.radio = ui.radio("Radio", &["One", "Two", "Three"], s.radio);
@@ -128,7 +128,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             s.tab = ui.tabs("Tabs", &["Alpha", "Beta", "Gamma"], s.tab);
             s.seg = ui.segmented("Mode", &["A", "B", "C"], s.seg);
             s.drop = ui.dropdown("Pick", &NAMES, s.drop);
-            let holder = ui.node("add-row", Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let holder = ui.node("add-row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
             ui.within(&holder, &mut |ui| {
                 if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT).clicked {
                     s.icon += 1;
@@ -141,7 +141,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             }
             s.scroll = Some(ui.scroll_view("Scroll", Size::Grow, Size::Px(60.0), &mut |ui| {
                 for name in NAMES {
-                    let n = ui.node(name, Node { w: Size::Px(400.0), h: Size::Px(24.0), ..Node::DEFAULT });
+                    let n = ui.node_ref(name, &Node { w: Size::Px(400.0), h: Size::Px(24.0), ..Node::DEFAULT });
                     ui.text(&n, name);
                 }
             }));
@@ -149,20 +149,20 @@ pub fn body(ui: &mut Ui, s: &mut S) {
                 ui.image("Picture", &image, pxui_core::draw::Fit::Contain, Size::Px(48.0), Size::Px(32.0));
             }
         });
-        let right = ui.node("right", Node { w: Size::Px(240.0), ..Node::DEFAULT });
+        let right = ui.node("right".into(), Node { w: Size::Px(240.0), ..Node::DEFAULT });
         ui.within(&right, &mut |ui| {
-            let b = ui.node("list-box", Node { h: Size::Px(120.0), ..Node::DEFAULT });
+            let b = ui.node("list-box".into(), Node { h: Size::Px(120.0), ..Node::DEFAULT });
             ui.within(&b, &mut |ui| {
-                if let Some(a) = ui.list_view("List", BIG, s.multi, &mut s.list, &names) {
+                if let Some(a) = ui.list_view("List", BIG, s.multi, &mut s.list, &mut |ui, i| names(i, &mut |t| ui.item_text(t))) {
                     s.activated = Some(a);
                 }
             });
             s.list_frame = ui.box_of_key(key_of(b.box_key, "List"));
             sized(ui, "tree-box", 120.0, &mut |ui| {
-                s.shown = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &names).1;
+                s.shown = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui, i| names(i, &mut |t| ui.item_text(t))).1;
             });
             sized(ui, "table-box", 150.0, &mut |ui| {
-                if let Some(c) = ui.table_view("Table", &["Name", "Next", "More"], &mut s.widths, BIG, Some((0, true)), &mut s.table_sel, &cells) {
+                if let Some(c) = ui.table_view("Table", &["Name", "Next", "More"], &mut s.widths, BIG, Some((0, true)), &mut s.table_sel, &mut |ui, r, c| cells(r, c, &mut |t| ui.item_text(t))) {
                     s.sorted = Some(c);
                 }
             });
@@ -432,7 +432,7 @@ fn widgets_scroll_view_rtl() {
     let (view, row) = (std::cell::Cell::new(None), std::cell::Cell::new(None));
     let mut build = |ui: &mut Ui| {
         view.set(Some(ui.scroll_view("Scroll", Size::Px(200.0), Size::Px(60.0), &mut |ui| {
-            let n = ui.node("wide", Node { w: Size::Px(400.0), h: Size::Px(24.0), inset: Edges { l: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
+            let n = ui.node("wide".into(), Node { w: Size::Px(400.0), h: Size::Px(24.0), inset: Edges { l: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
             ui.text(&n, "alpha");
             row.set(Some(n));
         })));

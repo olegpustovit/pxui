@@ -23,13 +23,13 @@ fn round_body(ui: &mut Ui, c: &SliderConfig, _label: &str) {
     let t = ui.theme();
     let (rail, fill, thumb) = (t.separator.idle, t.mark.idle, t.slider);
     ui.part(Part::RAIL, Node { h: Size::Px(4.0), look: rail, ..Node::DEFAULT });
-    ui.node("fill", Node { w: Size::Pct(c.fraction), h: Size::Px(4.0), look: fill, ..Node::DEFAULT });
-    let lane = ui.node("lane", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
+    ui.node("fill".into(), Node { w: Size::Pct(c.fraction), h: Size::Px(4.0), look: fill, ..Node::DEFAULT });
+    let lane = ui.node("lane".into(), Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
     let inside = ui.enter(&lane);
-    ui.node("before", Node { h: Size::Px(1.0), grow: c.fraction, ..Node::DEFAULT });
+    ui.node("before".into(), Node { h: Size::Px(1.0), grow: c.fraction, ..Node::DEFAULT });
     let th = ui.part(Part::THUMB, Node { w: Size::Px(24.0), h: Size::Px(24.0), look: Look { radius: [12.0; 4], ..Look::NONE }, ..Node::DEFAULT });
     ui.style(&th, &thumb, c.state);
-    ui.node("after", Node { h: Size::Px(1.0), grow: 1.0 - c.fraction, ..Node::DEFAULT });
+    ui.node("after".into(), Node { h: Size::Px(1.0), grow: 1.0 - c.fraction, ..Node::DEFAULT });
     ui.leave(inside);
 }
 
@@ -38,11 +38,11 @@ fn tall_body(ui: &mut Ui, c: &ProgressConfig, label: &str) {
     let t = ui.theme();
     let (track, bar) = (t.progress.idle, t.mark.idle);
     ui.text(&c.row, shown(label));
-    let tr = ui.part(Part::TRACK, Node { flags: CLIP, h: Size::Px(8.0), look: track, ..Node::DEFAULT });
+    let tr = ui.part(Part::TRACK, Node { flags: Flags::CLIP, h: Size::Px(8.0), look: track, ..Node::DEFAULT });
     let inside = ui.enter(&tr);
     match c.value {
         Some(v) => {
-            ui.node("fill", Node { w: Size::Pct(v), h: Size::Grow, look: bar, ..Node::DEFAULT });
+            ui.node("fill".into(), Node { w: Size::Pct(v), h: Size::Grow, look: bar, ..Node::DEFAULT });
         }
         None => {
             ui.part(Part::BAR, Node { w: Size::Pct(0.5), h: Size::Grow, look: bar, ..Node::DEFAULT });
@@ -314,7 +314,7 @@ pub fn registering_a_name_again_consumes_no_id() {
 /// A progress body that draws a ring and builds no track still has its accessible name, number and busy state (on the row).
 fn ring_body(ui: &mut Ui, c: &ProgressConfig, label: &str) {
     ui.text(&c.row, shown(label));
-    ui.node("ring", Node { w: Size::Px(16.0), h: Size::Px(16.0), look: Look { border: Look::NONE.fill, border_w: 2.0, radius: [8.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("ring".into(), Node { w: Size::Px(16.0), h: Size::Px(16.0), look: Look { border: Look::NONE.fill, border_w: 2.0, radius: [8.0; 4], ..Look::NONE }, ..Node::DEFAULT });
 }
 
 pub fn progress_without_track_keeps_accessibility() {
@@ -399,7 +399,7 @@ fn pill_button(ui: &mut Ui, c: &ButtonConfig, states: &States, _text: &str) {
     let n = ui.node_mut(&c.row);
     (n.w, n.h) = (Size::Px(90.0), Size::Px(20.0));
     ui.set_look(&c.row, Look { radius: [10.0; 4], ..look }, c.state);
-    ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(6.0), look: Look { fill: look.text, ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("dot".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(6.0), look: Look { fill: look.text, ..Look::NONE }, ..Node::DEFAULT });
 }
 
 /// Press, Space, the returned `true`, the role and the name are the default button's; the box is the body's.
@@ -432,7 +432,7 @@ fn recording_button(ui: &mut Ui, c: &ButtonConfig, _states: &States, _text: &str
     SEEN.with(|seen| seen.set((px(c.w), px(c.h), matches!(c.justify, Justify::Center) as u8, c.pad.l)));
     ui.node_mut(&c.line).h = Size::Px(ui.row_height() as f32);
     ui.node_mut(&c.row).w = Size::Px(77.0);
-    ui.node("mine", Node { w: Size::Px(33.0), h: Size::Px(8.0), ..Node::DEFAULT });
+    ui.node("mine".into(), Node { w: Size::Px(33.0), h: Size::Px(8.0), ..Node::DEFAULT });
 }
 
 /// `button_opts` builds through the Button body: a registered body gets the options in its config and replaces the structure.
@@ -496,7 +496,7 @@ fn round_icon(ui: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, 
     let n = ui.node_mut(&c.node);
     (n.w, n.h) = (Size::Px(32.0), Size::Px(32.0));
     ui.set_look(&c.node, Look { radius: [16.0; 4], ..look }, c.state);
-    ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(12.0), look: Look { fill: look.text, ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("dot".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), margin: Edges::all(12.0), look: Look { fill: look.text, ..Look::NONE }, ..Node::DEFAULT });
 }
 
 pub fn icon_button_round_body() {
@@ -516,7 +516,7 @@ fn recording_icon(ui: &mut Ui, c: &IconButtonConfig, states: &States, _label: &s
     let n = ui.node_mut(&c.node);
     (n.w, n.h) = (Size::Px(40.0), Size::Px(40.0));
     ui.set_look(&c.node, *states.pick(c.state), c.state);
-    ui.node("mine", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
+    ui.node("mine".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
 }
 
 /// `icon_button` builds through the icon button body: a registered body gets the options in its config and replaces the structure.
@@ -606,13 +606,13 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
         let mut t = 0.0;
         let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
             if hand {
-                let node = ui.node("play", Node { w: Size::Px(36.0), h: Size::Px(36.0), flags: CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY, role: Role::Button, ..Node::DEFAULT });
+                let node = ui.node("play".into(), Node { w: Size::Px(36.0), h: Size::Px(36.0), flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, role: Role::Button, ..Node::DEFAULT });
                 let signal = ui.signal(&node);
                 ui.a11y_name(&node, "Play");
                 let state = State { hovered: signal.hovered, pressed: signal.held, ..State::default() };
                 ui.within(&node, &mut |ui| {
                     ui.view("visual", 1 + u64::from(signal.hovered) + 2 * u64::from(signal.held), Size::Grow, Size::Grow, &mut |ui| {
-                        let surface = ui.node("surface", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                        let surface = ui.node("surface".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
                         ui.set_look(&surface, *states.pick(state), state);
                         let ink = states.pick(state).text;
                         ui.draw(&surface, move |paint, rect| play_icon(paint, Rect { x: rect.x + (rect.w - 20.0) / 2.0, y: rect.y + (rect.h - 20.0) / 2.0, w: 20.0, h: 20.0 }, ink, [0; 3]));
@@ -680,7 +680,7 @@ fn mark_check(ui: &mut Ui, c: &CheckConfig, text: &str) {
     ui.node_mut(&c.row).inset = Edges { l: 20.0, ..Edges::ZERO };
     ui.text(&c.row, shown(text));
     let fill = if c.on { ui.theme().tokens.accent } else { Look::NONE.fill };
-    ui.node("mark", Node { w: Size::Px(10.0), h: Size::Px(10.0), margin: Edges::all(2.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("mark".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), margin: Edges::all(2.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT });
 }
 
 pub fn checkbox_mark_body() {
@@ -794,7 +794,7 @@ fn ruled_label(ui: &mut Ui, c: &LabelConfig, text: &str) {
     let n = ui.node_mut(&c.node);
     n.h = Size::Px(30.0);
     ui.text(&c.node, shown(text));
-    ui.node("rule", Node { h: Size::Px(1.0), margin: Edges { t: 20.0, ..Edges::ZERO }, look: Look { fill: pxui_core::geom::color::white(), ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("rule".into(), Node { h: Size::Px(1.0), margin: Edges { t: 20.0, ..Edges::ZERO }, look: Look { fill: pxui_core::geom::color::white(), ..Look::NONE }, ..Node::DEFAULT });
 }
 
 pub fn label_rule_body() {
@@ -805,7 +805,7 @@ pub fn label_rule_body() {
 /// A footer that is just its end key, with no rule and no hints.
 fn bare_footer(ui: &mut Ui, c: &FooterConfig, right: Option<&str>, _hints: &[(&str, &str)]) {
     ui.node_mut(&c.row).h = Size::Px(24.0);
-    let end = ui.node("end", Node { w: Size::Px(60.0), h: Size::Px(24.0), ..Node::DEFAULT });
+    let end = ui.node("end".into(), Node { w: Size::Px(60.0), h: Size::Px(24.0), ..Node::DEFAULT });
     ui.text(&end, right.unwrap_or(""));
 }
 
@@ -834,9 +834,9 @@ pub fn grip_wide_band_body() {
         }
         let ratio = Cell::new(0.5f32);
         let mut build = |ui: &mut Ui| {
-            let host = ui.node("host", Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
+            let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
             let saved = ui.enter(&host);
-            let got = ui.split("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| { ui.node("a", Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("b", Node { h: Size::Grow, ..Node::DEFAULT }); });
+            let got = ui.split("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| { ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT }); });
             if let Some(r) = got {
                 ratio.set(r);
             }
@@ -960,7 +960,7 @@ fn swap_root(kind: &str, install: &dyn Fn(&mut Ui), per: u32, same_allocs: bool,
 /// A sheet with a band across its top and the accent look: the content follows the band.
 fn banded_sheet(ui: &mut Ui, c: &PanelConfig, _label: &str, content: &mut dyn FnMut(&mut Ui)) {
     ui.set_look(&c.node, ink_look(), State::default());
-    ui.node("band", Node { w: Size::Grow, h: Size::Px(6.0), look: ink_look(), ..Node::DEFAULT });
+    ui.node("band".into(), Node { w: Size::Grow, h: Size::Px(6.0), look: ink_look(), ..Node::DEFAULT });
     content(ui);
 }
 
@@ -1022,7 +1022,7 @@ fn column_dialog(ui: &mut Ui, title: &str, buttons: &[&str], content: &mut dyn F
     ui.text(&head, title);
     content(ui);
     for (i, text) in buttons.iter().enumerate() {
-        let n = ui.part(Part::button(i as u8), Node { flags: CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+        let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
         ui.text(&n, text);
     }
 }
@@ -1039,7 +1039,7 @@ pub fn dialog_column_body() {
     let got = swap_root("dialog", &install, 1, false, &script, &|ui, c| {
         let out = ui.dialog("Title", &["Cancel", "OK"], &mut |ui| {
             c.built();
-            ui.node("text", Node { h: Size::Px(30.0), ..Node::DEFAULT });
+            ui.node("text".into(), Node { h: Size::Px(30.0), ..Node::DEFAULT });
         });
         let code = match out {
             DialogOut::Open => 0,
@@ -1062,7 +1062,7 @@ fn plain_section(ui: &mut Ui, c: &SectionConfig, label: &str, content: &mut dyn 
     ui.node_mut(&c.title).inset = Edges { l: 30.0, t: c.gap, ..Edges::ZERO };
     ui.text(&c.title, label);
     if c.open {
-        ui.node("rule", Node { h: Size::Px(2.0), look: ink_look(), ..Node::DEFAULT });
+        ui.node("rule".into(), Node { h: Size::Px(2.0), look: ink_look(), ..Node::DEFAULT });
         content(ui);
     }
 }
@@ -1073,7 +1073,7 @@ pub fn inspector_section_plain_body() {
         ui.panel(PanelOpts { window: true, ..PanelOpts::default() }, "p", &mut |ui| {
             let open = ui.inspector_section("sec", true, None, "Section", &mut |ui| {
                 c.built();
-                ui.node("row", Node { h: Size::Px(20.0), ..Node::DEFAULT });
+                ui.node("row".into(), Node { h: Size::Px(20.0), ..Node::DEFAULT });
             });
             c.a.set(open as i64);
         });
@@ -1100,11 +1100,11 @@ pub fn inspector_row_bullet_body() {
 
 /// A split with a 6-point spacer before the first pane.
 fn spaced_split(ui: &mut Ui, c: &SplitConfig, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) {
-    ui.node("space", Node { w: Size::Px(6.0), h: Size::Px(6.0), look: ink_look(), ..Node::DEFAULT });
-    let first = ui.node("a", Node { w: Size::Grow, h: Size::Grow, grow: c.ratio, min_w: c.min_a, flags: CLIP, ..Node::DEFAULT });
+    ui.node("space".into(), Node { w: Size::Px(6.0), h: Size::Px(6.0), look: ink_look(), ..Node::DEFAULT });
+    let first = ui.node("a".into(), Node { w: Size::Grow, h: Size::Grow, grow: c.ratio, min_w: c.min_a, flags: Flags::CLIP, ..Node::DEFAULT });
     ui.within(&first, a);
     ui.grip(format_args!("grip"), c.axis, None);
-    let second = ui.node("b", Node { w: Size::Grow, h: Size::Grow, grow: 1.0 - c.ratio, min_w: c.min_b, flags: CLIP, ..Node::DEFAULT });
+    let second = ui.node("b".into(), Node { w: Size::Grow, h: Size::Grow, grow: 1.0 - c.ratio, min_w: c.min_b, flags: Flags::CLIP, ..Node::DEFAULT });
     ui.within(&second, b);
 }
 
@@ -1118,12 +1118,12 @@ pub fn split_spacer_body() {
         vec![vec![move_to(from)], vec![press(from)], vec![move_to(to)], vec![release(to)], vec![]]
     };
     let got = swap_root("split", &install, 2, false, &script, &|ui, c| {
-        let host = ui.node("host", Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
+        let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
         let saved = ui.enter(&host);
         let ratio = if c.b.get() == 0 { 500 } else { c.b.get() };
         let pane = |ui: &mut Ui| {
             c.built();
-            ui.node("x", Node { h: Size::Grow, ..Node::DEFAULT });
+            ui.node("x".into(), Node { h: Size::Grow, ..Node::DEFAULT });
         };
         if let Some(r) = ui.split("split", Axis::Row, ratio as f32 / 1000.0, 20.0, 30.0, &mut |ui| pane(ui), &mut |ui| pane(ui)) {
             c.b.set((r * 1000.0) as i64);
@@ -1149,7 +1149,7 @@ pub fn scroll_view_square_body() {
         let sv = ui.scroll_view("sv", Size::Px(100.0), Size::Px(50.0), &mut |ui| {
             c.built();
             for _ in 0..10 {
-                ui.node("row", Node { h: Size::Px(24.0), ..Node::DEFAULT });
+                ui.node("row".into(), Node { h: Size::Px(24.0), ..Node::DEFAULT });
             }
         });
         c.a.set((ui.scroll_offset(&sv) * 100.0) as i64);
@@ -1178,7 +1178,7 @@ pub fn toast_chip_body() {
 fn dark_tip(ui: &mut Ui, c: &TipConfig, lines: &[String]) {
     ui.set_look(&c.tip, ink_look(), State::default());
     for line in lines {
-        let n = ui.node("line", Node { w: Size::Px(c.width), h: Size::Px(14.0), ..Node::DEFAULT });
+        let n = ui.node("line".into(), Node { w: Size::Px(c.width), h: Size::Px(14.0), ..Node::DEFAULT });
         ui.text(&n, line);
     }
 }
@@ -1193,7 +1193,7 @@ pub fn tip_dark_body() {
     };
     swap_root("tip", &install, 0, true, &script, &|ui, _| {
         ui.panel(PanelOpts::default(), "p", &mut |ui| {
-            let host = ui.node("host", Node { w: Size::Px(80.0), h: Size::Px(20.0), flags: CLICKABLE, ..Node::DEFAULT });
+            let host = ui.node("host".into(), Node { w: Size::Px(80.0), h: Size::Px(20.0), flags: Flags::CLICKABLE, ..Node::DEFAULT });
             ui.tip(&host, text);
         });
     });
@@ -1204,7 +1204,7 @@ pub fn tip_dark_body() {
         let events = if k == 0 { vec![move_to((30, 20))] } else { vec![] };
         ui.frame(&frame(k as f64 * 0.1, events), &mut |ui| {
             ui.panel(PanelOpts::default(), "p", &mut |ui| {
-                let host = ui.node("host", Node { w: Size::Px(80.0), h: Size::Px(20.0), flags: CLICKABLE, ..Node::DEFAULT });
+                let host = ui.node("host".into(), Node { w: Size::Px(80.0), h: Size::Px(20.0), flags: Flags::CLICKABLE, ..Node::DEFAULT });
                 ui.tip(&host, text);
             })
         });
@@ -1230,7 +1230,7 @@ pub fn kept_view_runs_no_container_body() {
             ui.panel(PanelOpts { window: true, ..PanelOpts::default() }, "p", &mut |ui| {
                 ui.view("v", 1, Size::Grow, Size::Fit, &mut |ui| {
                     ui.inspector_section("sec", true, None, "Section", &mut |ui| {
-                        ui.node("row", Node { h: Size::Px(20.0), ..Node::DEFAULT });
+                        ui.node("row".into(), Node { h: Size::Px(20.0), ..Node::DEFAULT });
                     });
                 });
             })
@@ -1342,7 +1342,7 @@ fn dotted_item(ui: &mut Ui, c: &MenuItemConfig, text: &str) {
     ui.set_look(&c.node, Look::NONE, c.state);
     ui.text(&c.node, text);
     if c.state.checked {
-        ui.node("dot", Node { w: Size::Px(6.0), h: Size::Px(6.0), at: Some((8.0, 9.0)).into(), look: ink_look(), ..Node::DEFAULT });
+        ui.node("dot".into(), Node { w: Size::Px(6.0), h: Size::Px(6.0), at: Some((8.0, 9.0)).into(), look: ink_look(), ..Node::DEFAULT });
     }
 }
 
@@ -1377,7 +1377,7 @@ fn bar_row(ui: &mut Ui, c: &MenuRowConfig, text: &str, _key: Option<&str>) {
     ui.node_mut(&c.row).inset = Edges { l: 20.0, ..Edges::ZERO };
     ui.text(&c.row, text);
     if c.selected {
-        ui.node("bar", Node { w: Size::Px(3.0), h: Size::Px(16.0), at: Some((8.0, 4.0)).into(), look: ink_look(), ..Node::DEFAULT });
+        ui.node("bar".into(), Node { w: Size::Px(3.0), h: Size::Px(16.0), at: Some((8.0, 4.0)).into(), look: ink_look(), ..Node::DEFAULT });
     }
 }
 
@@ -1398,7 +1398,7 @@ fn list_build(ui: &mut Ui, c: &Cells) {
     if sel.is_empty() {
         sel.resize(4, 0);
     }
-    let got = ui.list_view("List", 4, false, &mut sel, &|i, put| put(["one", "two", "three", "four"][i]));
+    let got = ui.list_view("List", 4, false, &mut sel, &mut |ui, i| ui.item_text(["one", "two", "three", "four"][i]));
     if got.is_some() {
         c.b.set(c.b.get() + 1);
     }
@@ -1408,7 +1408,7 @@ fn list_build(ui: &mut Ui, c: &Cells) {
 /// A list row with a bullet before its content, lit in ink when selected.
 fn bullet_list_row(ui: &mut Ui, c: &RowConfig, content: &mut dyn FnMut(&mut Ui)) {
     ui.set_look(&c.row, if c.state.checked { ink_look() } else { Look::NONE }, c.state);
-    ui.node("bullet", Node { w: Size::Px(4.0), h: Size::Px(4.0), margin: Edges::all(8.0), look: ink_look(), ..Node::DEFAULT });
+    ui.node("bullet".into(), Node { w: Size::Px(4.0), h: Size::Px(4.0), margin: Edges::all(8.0), look: ink_look(), ..Node::DEFAULT });
     content(ui);
 }
 
@@ -1432,7 +1432,7 @@ fn tree_build(ui: &mut Ui, c: &Cells) {
         (*open, *visible) = (vec![1, 0, 0, 0], vec![0; 4]);
     }
     let mut selected = c.row.get();
-    ui.tree("Tree", &NODES, &mut open, &mut selected, &mut visible, &|node, put| put(["root", "a", "b", "last"][node]));
+    ui.tree("Tree", &NODES, &mut open, &mut selected, &mut visible, &mut |ui, node| ui.item_text(["root", "a", "b", "last"][node]));
     c.row.set(selected);
     c.a.set(selected.map_or(0, |n| n as i64 + 1));
     c.b.set(open[0] as i64);
@@ -1441,7 +1441,7 @@ fn tree_build(ui: &mut Ui, c: &Cells) {
 /// A tree row with its own 16-point disclosure (a `Part::DISCLOSURE` press target) and a dark look when selected.
 fn boxed_tree_row(ui: &mut Ui, c: &TreeRowConfig, content: &mut dyn FnMut(&mut Ui)) {
     ui.set_look(&c.row, if c.state.checked { ink_look() } else { Look::NONE }, c.state);
-    ui.part(Part::DISCLOSURE, Node { flags: if c.has { CLICKABLE } else { NO_FLAGS }, w: Size::Px(16.0), h: Size::Grow, look: if c.has { ink_look() } else { Look::NONE }, ..Node::DEFAULT });
+    ui.part(Part::DISCLOSURE, Node { flags: if c.has { Flags::CLICKABLE } else { Flags::NONE }, w: Size::Px(16.0), h: Size::Grow, look: if c.has { ink_look() } else { Look::NONE }, ..Node::DEFAULT });
     content(ui);
 }
 
@@ -1467,7 +1467,7 @@ fn table_view_build(ui: &mut Ui, c: &Cells) {
         widths.extend([120.0, 120.0]);
     }
     let mut selected = c.row.get();
-    let sorted = ui.table_view("Table", &["Name", "Size"], &mut widths, 3, Some((0, true)), &mut selected, &|r, col, put| put(NAMES[r][col]));
+    let sorted = ui.table_view("Table", &["Name", "Size"], &mut widths, 3, Some((0, true)), &mut selected, &mut |ui, r, col| ui.item_text(NAMES[r][col]));
     c.row.set(selected);
     c.a.set(selected.map_or(0, |n| n as i64 + 1));
     if let Some(col) = sorted {
@@ -1519,7 +1519,7 @@ pub fn table_view_with_widget_cell() {
         let mut step = |ui: &mut Ui, e: Vec<Event>| {
             t += 0.1;
             ui.frame(&frame(t, e), &mut |ui| {
-                ui.table_view_with("Table", &["Name", "Action"], &mut widths.borrow_mut(), 3, None, &mut selected, &mut |ui, row, col| {
+                ui.table_view("Table", &["Name", "Action"], &mut widths.borrow_mut(), 3, None, &mut selected, &mut |ui, row, col| {
                     if col == 0 {
                         ui.label(["row 0", "row 1", "row 2"][row], pxui_core::ui::Label::DEFAULT);
                     } else if ui.button("Go") {
@@ -1649,9 +1649,9 @@ fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig, _icon: &str, editor: &mut dy
     let n = ui.node_mut(&c.well);
     (n.h, n.axis, n.align, n.gap) = (Size::Px(28.0), Axis::Row, Align::Center, 6.0);
     ui.set_look(&c.well, ink_look(), c.state);
-    ui.node("icon", Node { w: Size::Px(14.0), h: Size::Px(14.0), look: Look { fill: ui_ink(), radius: [7.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("icon".into(), Node { w: Size::Px(14.0), h: Size::Px(14.0), look: Look { fill: ui_ink(), radius: [7.0; 4], ..Look::NONE }, ..Node::DEFAULT });
     if editor(ui) {
-        let clear = ui.part(Part::CLEAR, Node { flags: CLICKABLE | BLOCKING, w: Size::Px(20.0), h: Size::Px(20.0), look: ink_look(), ..Node::DEFAULT });
+        let clear = ui.part(Part::CLEAR, Node { flags: Flags::CLICKABLE | Flags::BLOCKING, w: Size::Px(20.0), h: Size::Px(20.0), look: ink_look(), ..Node::DEFAULT });
         ui.text(&clear, "x");
     }
 }
@@ -1766,9 +1766,9 @@ pub fn line_field_inked_body() {
 fn topped_value(ui: &mut Ui, c: &ValueFieldConfig, o: &ValueFieldOpts, shown: &str) {
     ui.set_look(&c.field, if c.state.focused { Look::NONE } else { ink_look() }, c.state);
     if !c.state.focused {
-        let n = ui.node("top", Node { at: Some((0.0, 0.0)).into(), w: Size::Px(c.w * o.fraction.unwrap_or(0.0)), h: Size::Px(2.0), look: ink_look(), ..Node::DEFAULT });
+        let n = ui.node("top".into(), Node { at: Some((0.0, 0.0)).into(), w: Size::Px(c.w * o.fraction.unwrap_or(0.0)), h: Size::Px(2.0), look: ink_look(), ..Node::DEFAULT });
         let _ = n;
-        let t = ui.node("shown", Node { at: Some((2.0, 3.0)).into(), w: Size::Px(c.w), h: Size::Px(14.0), ..Node::DEFAULT });
+        let t = ui.node("shown".into(), Node { at: Some((2.0, 3.0)).into(), w: Size::Px(c.w), h: Size::Px(14.0), ..Node::DEFAULT });
         ui.text(&t, shown);
     }
 }

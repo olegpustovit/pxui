@@ -6,6 +6,7 @@
 use pxui::bodies::{text_of, PxuiSearchFieldConfig, PxuiSegmentConfig, PxuiSliderConfig, PxuiToggleConfig, PxuiRowConfig};
 use pxui::theme::{Look, State};
 use pxui::{ui_kit::PanelOpts, Part, Ui};
+use pxui_types::Flags;
 use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, ui::int_key, Axis, Node, Size};
 
 /// The theme lines that select the proof bodies, on top of any base theme text.
@@ -60,13 +61,13 @@ fn round_slider(ui: &mut Ui, c: &PxuiSliderConfig) {
     let (rail, fill, thumb) = { let t = ui.theme(); (t.separator.idle, t.mark.idle, t.slider) };
     let fraction = c.fraction;
     ui.part(Part::RAIL, Node { h: Size::Px(4.0), look: rail, ..Node::DEFAULT });
-    ui.node("fill", Node { w: Size::Pct(fraction), h: Size::Px(4.0), look: fill, ..Node::DEFAULT });
-    let lane = ui.node("lane", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
+    ui.node("fill".into(), Node { w: Size::Pct(fraction), h: Size::Px(4.0), look: fill, ..Node::DEFAULT });
+    let lane = ui.node("lane".into(), Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
     ui.within(&lane, &mut |ui: &mut Ui| {
-        ui.node("before", Node { h: Size::Px(1.0), grow: fraction, ..Node::DEFAULT });
+        ui.node("before".into(), Node { h: Size::Px(1.0), grow: fraction, ..Node::DEFAULT });
         let th = ui.part(Part::THUMB, Node { w: Size::Px(24.0), h: Size::Px(24.0), look: Look { radius: [12.0; 4], ..Look::NONE }, ..Node::DEFAULT });
         ui.style(&th, &thumb, state);
-        ui.node("after", Node { h: Size::Px(1.0), grow: 1.0 - fraction, ..Node::DEFAULT });
+        ui.node("after".into(), Node { h: Size::Px(1.0), grow: 1.0 - fraction, ..Node::DEFAULT });
     });
 }
 
@@ -106,9 +107,9 @@ fn boxed_search(ui: &mut Ui, c: &PxuiSearchFieldConfig) {
     (well.h, well.axis, well.align, well.gap, well.padding) = (Size::Px(24.0), Axis::Row, Align::Center, 6.0, Edges { l: 6.0, ..Edges::ZERO });
     ui.set_node_layout(&c.well, &well);
     ui.set_look(&c.well, look, state);
-    ui.node("icon", Node { w: Size::Px(14.0), h: Size::Px(14.0), look: Look { fill: accent, radius: [7.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+    ui.node("icon".into(), Node { w: Size::Px(14.0), h: Size::Px(14.0), look: Look { fill: accent, radius: [7.0; 4], ..Look::NONE }, ..Node::DEFAULT });
     if ui.slot(c.editor) {
-        let clear = ui.part(Part::CLEAR, Node { flags: pxui_types::ui::CLICKABLE | pxui_types::ui::BLOCKING, w: Size::Px(20.0), h: Size::Px(20.0), look: Look { text: hint.text, ..Look::NONE }, ..Node::DEFAULT });
+        let clear = ui.part(Part::CLEAR, Node { flags: Flags::CLICKABLE | Flags::BLOCKING, w: Size::Px(20.0), h: Size::Px(20.0), look: Look { text: hint.text, ..Look::NONE }, ..Node::DEFAULT });
         ui.text(&clear, "x");
     }
 }
@@ -139,9 +140,9 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
     ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true), "table", &mut |ui: &mut Ui| {
         let (widths, selected, flags) = (&mut s.widths, &mut s.selected, &mut s.flags);
         // the table fills its parent: give it a height
-        let frame = ui.node("frame", Node { h: Size::Px(140.0), ..Node::DEFAULT });
+        let frame = ui.node("frame".into(), Node { h: Size::Px(140.0), ..Node::DEFAULT });
         ui.within(&frame, &mut |ui: &mut Ui| {
-            let _ = ui.table_view_with("Settings", &["Name", "On"], widths, 3, None, selected, &mut |ui: &mut Ui, row, column| {
+            let _ = ui.table_view("Settings", &["Name", "On"], widths, 3, None, selected, &mut |ui: &mut Ui, row, column| {
                 if column == 0 { ui.label(NAMES[row], pxui::Label::DEFAULT); } else { flags[row] = ui.toggle(NAMES[row], flags[row]); }
             });
         });

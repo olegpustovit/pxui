@@ -23,54 +23,6 @@ pub enum SectionPart {
     Row(usize),
 }
 
-pub const NO_FLAGS: i64 = 0;
-pub const CLICKABLE: i64 = 1;
-pub const FOCUSABLE: i64 = 2;
-pub const SCROLL: i64 = 4;
-pub const CLIP: i64 = 8;
-pub const BLOCKING: i64 = 16;
-/// Kit controls enter keyboard mode through Tab; pointer editing retains the existing host
-/// shortcut behavior. Text-entry rows also focus on a press.
-pub const TAB_ONLY: i64 = 32;
-/// Keyboard traversal focus for a control whose pointer interaction leaves keyboard input with its
-/// host. Escape relinquishes this keyboard focus.
-pub const TAB_STOP: i64 = FOCUSABLE | TAB_ONLY;
-/// a multiline editor keeps Tab for itself (two spaces) instead of moving the focus
-pub const KEEP_TAB: i64 = 64;
-/// a press on such a box leaves the keyboard focus where it is (a completion row under an editor)
-pub const KEEP_FOCUS: i64 = 128;
-/// a scrolling box whose thumb is drawn over its content (an inspector body): no gutter
-pub const OVER_THUMB: i64 = 4096;
-/// A press whose topmost hit box is not clickable is captured by the nearest ancestor with this
-/// flag.
-pub const CAPTURE_UNCLAIMED: i64 = 8192;
-/// the control marks its own keyboard focus: the engine strokes no ring round it
-pub const FOCUS_MARK: i64 = 256;
-pub const TAB_STOP_MARKED: i64 = TAB_STOP | FOCUS_MARK;
-/// The node's text is cut with an ellipsis to the room its look leaves (the placed width less the
-/// text inset) when it does not fit.
-pub const FIT_TEXT: i64 = 16384;
-/// Fit text width, including text insets, rounded up to the frame's physical-pixel density.
-pub const FIT_TEXT_PIXEL: i64 = 2097152;
-/// scrolls sideways (the wheel's and the trackpad's horizontal motion); with `SCROLL` on both axes
-pub const SCROLL_X: i64 = 32768;
-/// a flow child of a scroll box that stops at its top edge instead of scrolling out (CSS sticky);
-/// it paints over its siblings
-pub const STICKY: i64 = 65536;
-/// with `CLIP`: the children's clip takes the corner radius of the node's look (CSS `overflow:
-/// hidden` with `border-radius`); without it a clip is square
-pub const ROUND_CLIP: i64 = 131072;
-/// Nothing the node's view builds follows its hover: the pointer moving onto or off it dirties no
-/// view (the app reads `hovered_within` between frames and patches what shows it).
-pub const HOVER_FREE: i64 = 262144;
-/// The node's square look paints its fill and border instances even when they are clear, so a
-/// patch to a look that shows them rewrites its range in place (it never grows the layer).
-pub const KEEP_ROOM: i64 = 524288;
-/// Nothing the node's view builds follows a drag of it: while the pointer holds it and only moves
-/// (no press, release or key), its view is not dirtied. The owner reads the drag between builds
-/// (`signal` on the kept handle; `field_drag` for a `value_field`) and patches what shows it.
-pub const DRAG_FREE: i64 = 1048576;
-
 /// Points a pressed pointer travels before a press is a drag: a carry starts, a click ends.
 pub const DRAG_THRESHOLD: f32 = 4.0;
 
@@ -284,6 +236,51 @@ pub fn contains(rect: Rect, point: (f32, f32)) -> bool { rect.contains(point) }
 pub fn intersect(a: Rect, b: Rect) -> Rect { a.intersect(b) }
 
 // ---------------------------------------------------------------- keys
+
+/// A node's key among its siblings: a fixed label or an item id, never display text.
+///
+/// Like React's `key`: unique among the children of one parent, so list rows pass their item id. A key is resolved under the
+/// parent's seed, so the same key under two parents names two nodes. Two siblings with one key take order-stable `#dup` keys.
+/// Write it with `.into()` at a call site: `ui.node("toolbar".into(), node)`, `ui.node(song.id.into(), node)`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    /// A fixed label, hashed as the label of `key_of` under the parent's seed (a `###` suffix replaces it).
+    Label(&'static str),
+    /// An item id, hashed as the label of a NUL byte and its 16 lowercase hex digits under the parent's seed.
+    Id(i64),
+}
+impl From<&'static str> for Key { #[inline] fn from(label: &'static str) -> Key { Key::Label(label) } }
+impl From<i64> for Key { #[inline] fn from(id: i64) -> Key { Key::Id(id) } }
+impl From<u64> for Key { #[inline] fn from(id: u64) -> Key { Key::Id(id as i64) } }
+
+impl Key {
+    /// The label this key is hashed as under the parent's seed: a `Label` itself, an `Id` written into `buf` as a NUL byte and
+    /// its 16 lowercase hex digits (so an id never collides with a printable label).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::Key;
+    /// let mut buf = [0u8; 17];
+    /// assert_eq!(Key::Label("row").label(&mut buf), "row");
+    /// assert_eq!(Key::Id(255).label(&mut buf), "\u{0}00000000000000ff");
+    /// ```
+    #[inline]
+    pub fn label<'b>(&self, buf: &'b mut [u8; 17]) -> &'b str {
+        match *self { Key::Label(label) => label, Key::Id(id) => id_text(id, buf) }
+    }
+}
+
+/// `id` as a label: a NUL byte and its 16 lowercase hex digits, written into `out`. Out of line: label keys inline without it.
+#[cold]
+#[inline(never)]
+fn id_text(id: i64, out: &mut [u8; 17]) -> &str {
+    out[0] = 0;
+    for (at, digit) in out[1..].iter_mut().enumerate() { *digit = b"0123456789abcdef"[(id as u64 >> (60 - 4 * at)) as usize & 15]; }
+    // NUL and ASCII hex digits: always UTF-8
+    core::str::from_utf8(out).unwrap_or_default()
+}
 
 /// The seed of a root: the key every top-level label hashes under.
 pub const ROOT_KEY: i64 = 0x2c1b3c6d;

@@ -14,9 +14,6 @@ library!(lib {
     fn pxui_paint_span(p: *mut RawPaint, at_least: usize, span: *mut Span) -> i32;
     fn pxui_paint_icon(p: *mut RawPaint, x: f32, y: f32, font: u16, size: f32, codepoint: u32, c: Rgba) -> f32;
     fn pxui_paint_text(p: *mut RawPaint, x: f32, y: f32, s: Str);
-    fn pxui_paint_text_color(p: *mut RawPaint, x: f32, y: f32, c: Rgba, s: Str);
-    fn pxui_paint_text_size(p: *mut RawPaint, x: f32, y: f32, size: i64, c: Rgba, s: Str);
-    fn pxui_paint_text_with(p: *mut RawPaint, x: f32, y: f32, has_size: u8, size: i64, tracking: f32, has_color: u8, color: Rgba, s: Str);
     fn pxui_paint_label(p: *mut RawPaint, x: f32, y: f32, style: *const PxuiLabelStyle, width: f32, s: Str) -> TextMetrics;
     fn pxui_paint_label_chars(p: *mut RawPaint, x: f32, y: f32, style: *const PxuiLabelStyle, s: Str) -> f32;
     fn pxui_paint_text_width(p: *mut RawPaint, has_size: u8, size: i64, s: Str) -> f32;
@@ -97,9 +94,9 @@ impl<'a> Paint<'a> {
     /// let ink = Rgba { r: 20, g: 20, b: 20, a: 255 };
     /// let seen = Rc::new(Cell::new(Rgba::default()));
     /// let mut ui = pxui::Ui::new().unwrap();
-    /// ui.set_colors(&[ink], &[ink]);
+    /// ui.set_colors(&[(ink, ink)]);
     /// ui.frame(&pxui::FrameIn { width: 100.0, height: 100.0, ..Default::default() }, &mut |ui| {
-    ///     let b = ui.node("canvas", Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+    ///     let b = ui.node("canvas".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
     ///     let seen = seen.clone();
     ///     ui.draw(&b, move |p, _| seen.set(p.color(ColorToken(0))));
     /// }).unwrap();
@@ -113,13 +110,6 @@ impl<'a> Paint<'a> {
     /// One glyph of icon font `font` at `size` points, its top-left at `at`: its advance.
     #[inline] pub fn icon(&mut self, at: (f32, f32), font: u16, size: f32, ch: char, c: Rgba) -> f32 { unsafe { lib::pxui_paint_icon(self.raw(), at.0, at.1, font, size, ch as u32, c) } }
     #[inline] pub fn text(&mut self, at: (f32, f32), s: &str) { unsafe { lib::pxui_paint_text(self.raw(), at.0, at.1, crate::as_str(s)) } }
-    #[inline] pub fn text_c(&mut self, at: (f32, f32), c: Rgba, s: &str) { unsafe { lib::pxui_paint_text_color(self.raw(), at.0, at.1, c, crate::as_str(s)) } }
-    #[inline] pub fn text_s(&mut self, at: (f32, f32), size: i64, c: Rgba, s: &str) { unsafe { lib::pxui_paint_text_size(self.raw(), at.0, at.1, size, c, crate::as_str(s)) } }
-    #[inline]
-    pub fn text_with(&mut self, at: (f32, f32), size: Option<i64>, tracking: f32, color: Option<Rgba>, s: &str) {
-        let (has_color, color) = some(color);
-        unsafe { lib::pxui_paint_text_with(self.raw(), at.0, at.1, size.is_some() as u8, size.unwrap_or_default(), tracking, has_color, color, crate::as_str(s)) }
-    }
     /// Draws `s` in `style` at `at` (its top-left, in points), laid out within `width` points (0: unbounded); returns its metrics.
     ///
     /// The style's unset fields resolve as a label body resolves them, against this painter's theme (the root theme's label look,
@@ -131,7 +121,7 @@ impl<'a> Paint<'a> {
     /// ```
     /// use pxui::Label;
     /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("title", pxui::Node::DEFAULT);
+    ///     let node = ui.node("title".into(), pxui::Node::DEFAULT);
     ///     ui.canvas(&node, |paint, rect| assert!(paint.text_styled((rect.x, rect.y), &Label::TITLE, 0.0, "Songs").width > 0.0));
     /// });
     /// assert!(ui.text_layout_count() > 0);
@@ -152,7 +142,7 @@ impl<'a> Paint<'a> {
     ///
     /// ```
     /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("clock", pxui::Node::DEFAULT);
+    ///     let node = ui.node("clock".into(), pxui::Node::DEFAULT);
     ///     ui.canvas(&node, |paint, rect| {
     ///         let w = paint.text_chars((rect.x, rect.y), &pxui::Label::MONO, "1:23.4");
     ///         assert!(w > 0.0);
@@ -372,7 +362,7 @@ mod tests {
     fn frame_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(ui: &mut crate::Ui, canvas: F) -> Result<(), crate::Error> {
         let mut canvas = Some(canvas);
         ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| {
-            let node = ui.node("canvas", Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
+            let node = ui.node("canvas".into(), Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
             if let Some(canvas) = canvas.take() { ui.canvas(&node, canvas); }
         }).map(|_| ())
     }

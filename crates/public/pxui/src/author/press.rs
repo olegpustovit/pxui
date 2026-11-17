@@ -1,9 +1,9 @@
 //! A pressable node: `ui.pressable` declares a clickable, focusable node, looks it by its state and reports what happened to it.
 use pxui_types::{Node, PxuiBox};
 use pxui_types::theme::{Look, State};
-use pxui_types::ui::{CLICKABLE, TAB_STOP};
-use super::{layout::id_text, Key};
+use super::Key;
 use crate::Ui;
+use pxui_types::Flags;
 
 /// What happened to a pressable node this frame, read from its signal when it was declared.
 #[derive(Clone, Copy, Debug)]
@@ -27,7 +27,7 @@ impl Ui {
     ///
     /// `node` is used as given with `CLICKABLE | TAB_STOP` added. `look` is applied with the hovered, pressed (held) and focused state, so
     /// the theme's state transitions run; the response is the one the node earned before `f` ran, so `f` may use it for its own children.
-    /// Allocates: as `node`, `signal_state` and `within` (never on a warm frame).
+    /// Allocates: as `node`, `signal` and `within` (never on a warm frame).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`).
     /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics.
     ///
@@ -50,11 +50,9 @@ impl Ui {
     #[inline]
     #[track_caller]
     fn press(&mut self, key: Key, mut node: Node, look: &Look, f: &mut dyn FnMut(&mut Ui)) -> Response {
-        node.flags |= CLICKABLE | TAB_STOP;
-        let mut id_label = [0u8; 17];
-        let label = match key { Key::Label(label) => label, Key::Id(id) => id_text(id, &mut id_label) };
-        let b = self.node(label, node);
-        let signal = self.signal_state(&b);
+        node.flags |= Flags::CLICKABLE | Flags::TAB_STOP;
+        let b = self.node(key.into(), node);
+        let signal = self.signal(&b);
         let focused = self.focused(&b);
         self.set_look(&b, *look, State { hovered: signal.hovered, pressed: signal.held, focused, ..State::default() });
         self.within(&b, f);
@@ -66,6 +64,7 @@ impl Ui {
 mod tests {
     use crate::ui::{Look, Node, Role, Size};
     use crate::{testing, Event, Ui};
+    use pxui_types::Flags;
 
     fn node() -> Node { Node { w: Size::Px(50.0), h: Size::Px(20.0), role: Role::Button, ..Node::DEFAULT } }
 
@@ -105,15 +104,15 @@ mod tests {
         assert!(r.clicked && r.activated && r.focused);
     }
 
-    /// The pressable is one node: same count as the hand-written node, signal_state, within.
+    /// The pressable is one node: same count as the hand-written node, signal, within.
     #[test]
     fn node_count_matches_hand_written() {
         let hand = crate::doc::frames(2, &mut |ui| {
-            let b = ui.node("p", Node { flags: crate::ui::CLICKABLE | crate::ui::TAB_STOP, ..node() });
-            let _ = ui.signal_state(&b);
-            ui.within(&b, &mut |ui| { ui.node("c", node()); });
+            let b = ui.node("p".into(), Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, ..node() });
+            let _ = ui.signal(&b);
+            ui.within(&b, &mut |ui| { ui.node("c".into(), node()); });
         });
-        let sugar = crate::doc::frames(2, &mut |ui| { ui.pressable("p", node(), &Look::NONE, |ui| { ui.node("c", node()); }); });
+        let sugar = crate::doc::frames(2, &mut |ui| { ui.pressable("p", node(), &Look::NONE, |ui| { ui.node("c".into(), node()); }); });
         assert_eq!(hand.a11y_nodes().len(), sugar.a11y_nodes().len());
         assert!(!sugar.a11y_nodes().is_empty());
     }
@@ -121,7 +120,7 @@ mod tests {
     #[test]
     fn warm_frames_allocate_nothing() {
         let mut ui = crate::doc::frames(1, &mut |_| {});
-        let mut build = |ui: &mut Ui| { ui.pressable("p", node(), &Look::NONE, |ui| { ui.node("c", node()); }); ui.pressable(7i64, node(), &Look::NONE, |_| {}); };
+        let mut build = |ui: &mut Ui| { ui.pressable("p", node(), &Look::NONE, |ui| { ui.node("c".into(), node()); }); ui.pressable(7i64, node(), &Look::NONE, |_| {}); };
         for round in 0..20 {
             mem_sys::local_reset();
             testing::frame(&mut ui, &[], &mut build);

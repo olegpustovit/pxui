@@ -87,19 +87,19 @@ mod text_identity {
 mod text_identity_cases {
     use super::text_identity::lay_out_node;
     use pxui_text::{Style, Text};
-    use pxui_types::ui::FIT_TEXT_PIXEL;
+    use pxui_types::Flags;
 
     #[test]
     fn retained_node_reuses_its_fingerprint_and_revalidates_stale_layouts() {
         let mut text=Text::new(&[pxui_text::PRAGMASEVKA]);
         let memo=std::cell::Cell::new(None);
         let style=Style::default();
-        let (key,_)=lay_out_node(&mut text,&memo,FIT_TEXT_PIXEL,&style,0.0,"a label",&[]).unwrap();
+        let (key,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,0.0,"a label",&[]).unwrap();
         memo.set(Some((key,7)));
-        let (next,_)=lay_out_node(&mut text,&memo,FIT_TEXT_PIXEL,&style,100.0,"a label",&[]).unwrap();
+        let (next,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,100.0,"a label",&[]).unwrap();
         assert_eq!(next,pxui_text::layout_key(&style,100.0,7,&[]),"unchanged text must reuse the retained fingerprint, including across widths");
         text.layout(next,"a different label",&style,100.0);
-        let (fresh,_)=lay_out_node(&mut text,&memo,FIT_TEXT_PIXEL,&style,100.0,"a label",&[]).unwrap();
+        let (fresh,_)=lay_out_node(&mut text,&memo,Flags::FIT_TEXT_PIXEL,&style,100.0,"a label",&[]).unwrap();
         assert_eq!(fresh,pxui_text::content_key(&style,100.0,"a label",&[]),"a stale layout must revalidate its text");
     }
 }

@@ -253,7 +253,7 @@ pub fn styling_animate_spring() {
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
             let look = Look { fill: color::rgb(200, 40, 40), ..Look::NONE };
-            chip.set(Some(ui.node("chip", Node { w: Size::Px(40.0), h: Size::Px(20.0), look, ..Node::DEFAULT })));
+            chip.set(Some(ui.node("chip".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), look, ..Node::DEFAULT })));
         });
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -286,7 +286,7 @@ pub fn styling_animate_keys() {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
             runs.set(runs.get() + 1);
             let look = Look { fill: color::rgb(200, 40, 40), ..Look::NONE };
-            chip.set(Some(ui.node("chip", Node { w: Size::Px(40.0), h: Size::Px(20.0), look, ..Node::DEFAULT })));
+            chip.set(Some(ui.node("chip".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), look, ..Node::DEFAULT })));
         });
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -333,9 +333,9 @@ pub fn styling_animate_scale() {
     let mut build = |ui: &mut Ui| {
         let v = ui.view("outer", 1, Size::Px(100.0), Size::Px(80.0), &mut |ui| {
             let inner = ui.view("inner", 1, Size::Px(50.0), Size::Px(40.0), &mut |ui| {
-                let b = ui.node("button", Node { flags: CLICKABLE, role: Role::Button, w: Size::Px(20.0), h: Size::Px(10.0), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                let b = ui.node("button".into(), Node { flags: Flags::CLICKABLE, role: Role::Button, w: Size::Px(20.0), h: Size::Px(10.0), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
                 ui.a11y_name(&b, "Scaled");
-                if ui.signal(&b).clicked { clicks.set(clicks.get() + 1); }
+                if ui.signal_owned(&b).clicked { clicks.set(clicks.get() + 1); }
                 button.set(Some(b));
             });
             ui.node_mut(&inner).at = Some((20.0, 10.0)).into();
@@ -407,8 +407,8 @@ pub fn styling_view_transform_hits() {
     let (view, clicked) = (Cell::new(None), Cell::new(false));
     let mut build = |ui: &mut Ui| {
         view.set(Some(ui.view("v", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
-            let h = ui.node("chip", Node { flags: CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
-            clicked.set(clicked.get() || ui.signal(&h).clicked);
+            let h = ui.node("chip".into(), Node { flags: Flags::CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+            clicked.set(clicked.get() || ui.signal_owned(&h).clicked);
         })));
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -435,9 +435,9 @@ pub fn styling_nested_view_transform() {
     let mut build = |ui: &mut Ui| {
         outer.set(Some(ui.view("outer", 1, Size::Px(200.0), Size::Px(150.0), &mut |ui| {
             ui.view("inner", 1, Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-                let h = ui.node("btn", Node { flags: CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), at: Some((10.0, 10.0)).into(), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                let h = ui.node("btn".into(), Node { flags: Flags::CLICKABLE, w: Size::Px(40.0), h: Size::Px(20.0), at: Some((10.0, 10.0)).into(), look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
                 btn.set(Some(h));
-                if ui.signal(&h).clicked {
+                if ui.signal_owned(&h).clicked {
                     clicked.set(clicked.get() + 1);
                 }
             });
@@ -485,9 +485,9 @@ pub fn styling_backdrop_blur_record() {
     let mut ui = new_ui(None);
     let view = Cell::new(None);
     let mut build = |ui: &mut Ui| {
-        ui.node("under", Node { w: Size::Px(300.0), h: Size::Px(30.0), look: Look { fill: color::rgb(1, 2, 3), ..Look::NONE }, ..Node::DEFAULT });
+        ui.node("under".into(), Node { w: Size::Px(300.0), h: Size::Px(30.0), look: Look { fill: color::rgb(1, 2, 3), ..Look::NONE }, ..Node::DEFAULT });
         view.set(Some(ui.view("glass", 1, Size::Px(120.0), Size::Px(40.0), &mut |ui| {
-            ui.node("pane", Node { w: Size::Px(120.0), h: Size::Px(40.0), look: Look { fill: color::rgba(255, 255, 255, 80), ..Look::NONE }, ..Node::DEFAULT });
+            ui.node("pane".into(), Node { w: Size::Px(120.0), h: Size::Px(40.0), look: Look { fill: color::rgba(255, 255, 255, 80), ..Look::NONE }, ..Node::DEFAULT });
         })));
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -518,7 +518,7 @@ pub fn styling_images_and_icons() {
     for k in 0..2 {
         let image = image.clone();
         ui.frame(&at(k as f64, vec![]), &mut |ui| {
-            let b = ui.node("art", Node { w: Size::Px(100.0), h: Size::Px(100.0), ..Node::DEFAULT });
+            let b = ui.node("art".into(), Node { w: Size::Px(100.0), h: Size::Px(100.0), ..Node::DEFAULT });
             let image = image.clone();
             ui.canvas(&b, move |p, r| {
                 p.image_fit(r.x, r.y, r.w, r.h, &image, Fit::Contain, color::white());

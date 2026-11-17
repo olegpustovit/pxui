@@ -232,7 +232,7 @@ impl Ui {
             None => (None, core::ptr::null_mut(), None),
         };
         let desc = PxuiBoxDesc {
-            size: core::mem::size_of::<PxuiBoxDesc>() as u32, axis: opts.axis as u32, flags: opts.flags, w: size(opts.w), h: size(opts.h),
+            size: core::mem::size_of::<PxuiBoxDesc>() as u32, axis: opts.axis as u32, flags: opts.flags.0, w: size(opts.w), h: size(opts.h),
             max_h: opts.max_h, padding: opts.padding, scroll_step: opts.scroll_step, has_at: opts.at.is_some() as u8,
             has_hit_rect: opts.hit_rect.is_some() as u8, reserved: [0; 2], at: opts.at.map_or([0.0; 2], |(x, y)| [x, y]),
             hit_rect: opts.hit_rect.unwrap_or_default(), hit, hit_user, hit_release: hit_release_fn,
@@ -311,7 +311,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::Ui::new().unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n", pxui::Node::DEFAULT);
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
     ///     assert_eq!(ui.text_state(&b), None);
     ///     ui.set_text_state(&b, Some("kept".into()));
     ///     assert_eq!(ui.text_state(&b), Some("kept"));
@@ -409,7 +409,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::Ui::new().unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n", pxui::Node::DEFAULT);
+    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
     ///     assert!(ui.press_keys(&b).is_empty());
     /// }).unwrap();
     /// ```

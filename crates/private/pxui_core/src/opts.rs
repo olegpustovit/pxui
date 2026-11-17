@@ -1,12 +1,12 @@
 //! The option records of the widgets that take closures (`Rc<dyn Fn>`): Rust-side only, never an ABI type. The engine keeps its own; the wrapper has the same records (`pxui::opts`).
-use pxui_types::{geom::{Rect, Rgba as Color}, node::Axis, ui::{CodeContext, Completion, Drop, ScrubPhase, NO_FLAGS}, Size};
+use pxui_types::{geom::{Rect, Rgba as Color}, node::Axis, ui::{CodeContext, Completion, Drop, ScrubPhase}, Flags, Size};
 use std::rc::Rc;
 
 pub type HitFn = Rc<dyn Fn(Rect) -> Rect>;
 
 #[derive(Clone)]
 pub struct BoxOpts {
-    pub flags: i64,
+    pub flags: Flags,
     pub w: Size,
     pub h: Size,
     pub max_h: f32,
@@ -21,7 +21,7 @@ pub struct BoxOpts {
 impl Default for BoxOpts {
     fn default() -> BoxOpts {
         BoxOpts {
-            flags: NO_FLAGS,
+            flags: Flags::NONE,
             w: Size::Grow,
             h: Size::Fit,
             max_h: f32::INFINITY,
@@ -36,7 +36,7 @@ impl Default for BoxOpts {
 }
 
 impl BoxOpts {
-    pub fn flags(mut self, flags: i64) -> BoxOpts {
+    pub fn flags(mut self, flags: Flags) -> BoxOpts {
         self.flags = flags;
         self
     }

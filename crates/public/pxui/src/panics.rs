@@ -28,7 +28,7 @@ fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
     let mut ui = Ui::new().expect("library");
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), &mut |ui: &mut Ui| {
-            let node = ui.node("canvas", Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT });
+            let node = ui.node("canvas".into(), Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT });
             ui.draw(&node, |_, _| panic!("paint callback"));
         });
     }));
@@ -84,6 +84,6 @@ fn the_text_service_of_a_poisoned_ui_answers_errors() {
     let style = pxui_types::TextStyle::default();
     let mut text = ui.text_service();
     assert_eq!(text.add_font(crate::text::pragmasevka()), None);
-    assert_eq!(text.quads("", &style, f32::INFINITY, (0.0, 0.0), 1.0), Err(crate::Error::InvalidInput));
-    assert_eq!(text.rasterize_rgba("", &style, f32::INFINITY, 1.0, [255; 4]), Err(crate::Error::InvalidInput));
+    assert_eq!({ let mut glyphs=Vec::new(); text.quads("", &style, f32::INFINITY, (0.0, 0.0), 1.0, &mut glyphs).map(|_|glyphs) }, Err(crate::Error::InvalidInput));
+    assert_eq!({ let mut px=Vec::new(); text.rasterize_rgba("", &style, f32::INFINITY, 1.0, [255; 4], &mut px).map(|(w,h)|(w,h,px)) }, Err(crate::Error::InvalidInput));
 }

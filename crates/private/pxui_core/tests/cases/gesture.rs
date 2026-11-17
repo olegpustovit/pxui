@@ -47,19 +47,19 @@ impl Scene {
         let mut seen = None;
         let mut list_box = None;
         self.ui.frame(&self.frame, &mut |ui| {
-            let nav = ui.box_("nav", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(200.0)).flags(CLIP));
+            let nav = ui.box_("nav", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(200.0)).flags(Flags::CLIP));
             let nav_state = ui.gesture(&nav, Some(nav_cfg), commands[0]);
             let dismissed = dismiss.map_or_else(DismissState::default, |(fraction, velocity)| ui.dismiss(&nav, fraction, velocity));
             let saved = ui.enter(&nav);
-            let list = ui.box_("list", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(200.0)).flags(CLIP | SCROLL));
+            let list = ui.box_("list", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(200.0)).flags(Flags::CLIP | Flags::SCROLL));
             ui.gesture(&list, Some(list_cfg), commands[2]);
             list_box = Some(list);
             let inner = ui.enter(&list);
             let mut first = None;
             for i in 0..rows {
-                let row = ui.box_(ROWS[i], BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(50.0)).flags(CLICKABLE));
+                let row = ui.box_(ROWS[i], BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(50.0)).flags(Flags::CLICKABLE));
                 if i == 0 {
-                    first = Some((ui.gesture(&row, Some(row_cfg), commands[1]), ui.signal_state(&row).clicked));
+                    first = Some((ui.gesture(&row, Some(row_cfg), commands[1]), ui.signal(&row).clicked));
                 }
             }
             ui.leave(inner);
@@ -623,17 +623,17 @@ fn strip_step(ui: &mut Ui, frame: &mut input::frame::Frame, time: f64, events: &
     frame.input.events.extend_from_slice(events);
     let mut out = None;
     ui.frame(frame, &mut |ui| {
-        let list = ui.box_("strip-list", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(200.0)).flags(CLIP | SCROLL));
+        let list = ui.box_("strip-list", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(200.0)).flags(Flags::CLIP | Flags::SCROLL));
         let inner = ui.enter(&list);
         for name in ROWS {
-            let row = ui.box_(name, BoxOpts::default().w(Size::Px(100.0)).h(Size::Px(50.0)).flags(CLICKABLE));
+            let row = ui.box_(name, BoxOpts::default().w(Size::Px(100.0)).h(Size::Px(50.0)).flags(Flags::CLICKABLE));
             // rows under the strip take swipes: without the claim they would hold the touch pending
             ui.gesture(&row, Some(GestureCfg { kinds: ROW_SWIPE, reveal: 60.0, ..Default::default() }), 0);
         }
         ui.leave(inner);
-        let strip = ui.box_("strip", BoxOpts::default().at((80.0, 0.0)).w(Size::Px(20.0)).h(Size::Px(200.0)).flags(CLICKABLE));
+        let strip = ui.box_("strip", BoxOpts::default().at((80.0, 0.0)).w(Size::Px(20.0)).h(Size::Px(200.0)).flags(Flags::CLICKABLE));
         ui.gesture(&strip, Some(GestureCfg { kinds: if claim { TOUCH_DRAG } else { 0 }, ..Default::default() }), 0);
-        out = Some((ui.signal_state(&strip), list));
+        out = Some((ui.signal(&strip), list));
     });
     let (signal, list) = out.unwrap();
     (signal, ui.scroll_offset(&list))

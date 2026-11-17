@@ -1,15 +1,10 @@
 // The gallery pages, against the wrapper `pxui`.
 use pxui::{collections::TreeNode, DialogOut, Image, MenuOpts, MenuResult, Pick, PickerOpts, PxuiBox as Handle, ui_kit::PanelOpts, TextAreaOpts, Ui, ValueFieldOpts};
 use pxui::theme::Look;
-use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Node, Size, Str};
+use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
-use pxui_types::ui::{Keyframe, Target};
+use pxui_types::ui::{Key, Keyframe, Target};
 use std::fmt::Write;
-
-const SCROLL: i64 = 4;
-const CLIP: i64 = 8;
-const SCROLL_X: i64 = 32768;
-const STICKY: i64 = 65536;
 
 /// The page area every page is laid out for (the goldens render it at this size).
 pub const PAGE_W: i64 = 640;
@@ -25,8 +20,8 @@ pub const ROWS: usize = 100_000;
 /// How long a toast shows.
 pub const TOAST_SECONDS: f64 = 3.0;
 
-fn node(ui: &mut Ui, label: &str, desc: Node) -> Handle {
-    ui.node(label, desc)
+fn node(ui: &mut Ui, label: &'static str, desc: Node) -> Handle {
+    ui.node(label.into(), desc)
 }
 
 /// What the gallery holds between frames. `page_rev` and `chrome_rev` are the views' revisions: an
@@ -134,7 +129,7 @@ fn cells(i: usize, c: usize, put: &mut dyn FnMut(&str)) {
 fn text_only(look: &Look) -> Look { Look { text: look.text, font: look.font, ..Look::NONE } }
 
 /// A column `w` wide at `at` in its parent (a page's free-standing panel spot).
-fn column(ui: &mut Ui, label: &str, at: (f32, f32), w: f32, h: Size, f: &mut dyn FnMut(&mut Ui)) {
+fn column(ui: &mut Ui, label: &'static str, at: (f32, f32), w: f32, h: Size, f: &mut dyn FnMut(&mut Ui)) {
     let n = node(ui, label, Node { w: Size::Px(w), h, at: Some(at).into(), ..Node::DEFAULT });
     ui.within(&n, f);
 }
@@ -240,17 +235,17 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
     ui.within(&pad, &mut |ui: &mut Ui| {
         let ratio = s.split;
         if let Some(r) = ui.split("split", Axis::Row, ratio, 120.0, 200.0, &mut |ui: &mut Ui| {
-            let _ = ui.list_view("Files", ROWS, true, &mut s.list, &names);
+            let _ = ui.list_view("Files", ROWS, true, &mut s.list, &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
         }, &mut |ui: &mut Ui| {
             let half = node(ui, "right", Node { w: Size::Grow, h: Size::Grow, padding: Edges { l: 8.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
             ui.within(&half, &mut |ui: &mut Ui| {
                 let top = node(ui, "tree-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&top, &mut |ui: &mut Ui| {
-                    let _ = ui.tree("Outline", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &names);
+                    let _ = ui.tree("Outline", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
                 });
                 let bottom = node(ui, "table-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&bottom, &mut |ui: &mut Ui| {
-                    if let Some(c) = ui.table_view("Points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, Some(s.sort), &mut s.table_sel, &cells) {
+                    if let Some(c) = ui.table_view("Points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, Some(s.sort), &mut s.table_sel, &mut |ui: &mut Ui, r: usize, c: usize| cells(r, c, &mut |t| ui.item_text(t))) {
                         s.sort = (c, if s.sort.0 == c { !s.sort.1 } else { true });
                     }
                 });
@@ -319,7 +314,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
 
 /// A captioned demo box of the layout page, `w` x `h` at `at`: its caption, then `f`'s nodes in a
 /// box with a hairline (`body` its layout).
-fn demo(ui: &mut Ui, title: &str, at: (f32, f32), (w, h): (f32, f32), body: Node, f: &mut dyn FnMut(&mut Ui)) {
+fn demo(ui: &mut Ui, title: &'static str, at: (f32, f32), (w, h): (f32, f32), body: Node, f: &mut dyn FnMut(&mut Ui)) {
     let (hint, border) = { let t = ui.theme(); (text_only(&t.hint.idle), t.field.idle.border) };
     let outer = node(ui, title, Node { w: Size::Px(w), h: Size::Px(h), at: Some(at).into(), gap: 4.0, ..Node::DEFAULT });
     ui.within(&outer, &mut |ui: &mut Ui| {
@@ -332,11 +327,12 @@ fn demo(ui: &mut Ui, title: &str, at: (f32, f32), (w, h): (f32, f32), body: Node
 }
 
 /// A filled chip: `k` picks the accent, the control or the track colour.
-fn chip(ui: &mut Ui, label: &str, k: usize, n: Node) -> Handle {
+/// A coloured demo box. Repeated chips have no item id: siblings share one label and are identified by position (`#dup`).
+fn chip(ui: &mut Ui, key: Key, k: usize, n: Node) -> Handle {
     let t = ui.tokens();
     let fill = [t.accent, t.control, t.track][k % 3];
     let border = if k % 3 == 2 { t.foreground } else { fill };
-    node(ui, label, Node { look: Look { fill, border, border_w: 1.0, ..n.look }, ..n })
+    ui.node(key, Node { look: Look { fill, border, border_w: 1.0, ..n.look }, ..n })
 }
 
 fn px(w: f32, h: f32) -> Node {
@@ -353,11 +349,11 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     let (col_w, gap) = (196.0, 14.0);
     let x = |c: usize| 12.0 + c as f32 * (col_w + gap);
     demo(ui, "Weights and shrink", (x(0), 12.0), (col_w, 104.0), Node { gap: 6.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
-        for (r, weights) in [[1.0, 2.0, 3.0], [1.0, 1.0, 1.0]].iter().enumerate() {
-            let line = node(ui, &format!("grow{r}"), Node { w: Size::Grow, h: Size::Px(16.0), gap: 4.0, ..row });
+        for weights in [[1.0, 2.0, 3.0], [1.0, 1.0, 1.0]].iter() {
+            let line = node(ui, "line", Node { w: Size::Grow, h: Size::Px(16.0), gap: 4.0, ..row });
             ui.within(&line, &mut |ui: &mut Ui| {
                 for (i, g) in weights.iter().enumerate() {
-                    chip(ui, &format!("g{i}"), i, Node { w: Size::Grow, h: Size::Grow, grow: *g, ..Node::DEFAULT });
+                    chip(ui, "chip".into(), i, Node { w: Size::Grow, h: Size::Grow, grow: *g, ..Node::DEFAULT });
                 }
             });
         }
@@ -365,38 +361,38 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         let line = node(ui, "shrink", Node { w: Size::Px(120.0), h: Size::Px(16.0), ..row });
         ui.within(&line, &mut |ui: &mut Ui| {
             for (i, sh) in [1.0, 3.0].iter().enumerate() {
-                chip(ui, &format!("s{i}"), i + 1, Node { shrink: *sh, ..px(100.0, 16.0) });
+                chip(ui, "chip".into(), i + 1, Node { shrink: *sh, ..px(100.0, 16.0) });
             }
         });
         let line = node(ui, "minmax", Node { w: Size::Grow, h: Size::Px(16.0), gap: 4.0, ..row });
         ui.within(&line, &mut |ui: &mut Ui| {
-            chip(ui, "max", 0, Node { w: Size::Grow, h: Size::Grow, max_w: 40.0, ..Node::DEFAULT });
-            chip(ui, "free", 1, Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
-            chip(ui, "min", 2, Node { min_w: 50.0, ..px(10.0, 16.0) });
-            chip(ui, "aspect", 0, Node { w: Size::Fit, h: Size::Px(16.0), aspect: 2.0, ..Node::DEFAULT });
+            chip(ui, "max".into(), 0, Node { w: Size::Grow, h: Size::Grow, max_w: 40.0, ..Node::DEFAULT });
+            chip(ui, "free".into(), 1, Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+            chip(ui, "min".into(), 2, Node { min_w: 50.0, ..px(10.0, 16.0) });
+            chip(ui, "aspect".into(), 0, Node { w: Size::Fit, h: Size::Px(16.0), aspect: 2.0, ..Node::DEFAULT });
         });
     });
     const JUSTIFY: [Justify; 6] = [Justify::Start, Justify::Center, Justify::End, Justify::SpaceBetween, Justify::SpaceAround, Justify::SpaceEvenly];
     demo(ui, "Justify, gap 4", (x(1), 12.0), (col_w, 104.0), Node { gap: 4.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
-        for (r, j) in JUSTIFY.iter().enumerate() {
-            let line = node(ui, &format!("j{r}"), Node { w: Size::Grow, h: Size::Px(10.0), justify: *j, gap: 4.0, ..row });
+        for j in JUSTIFY.iter() {
+            let line = node(ui, "line", Node { w: Size::Grow, h: Size::Px(10.0), justify: *j, gap: 4.0, ..row });
             ui.within(&line, &mut |ui: &mut Ui| {
                 for i in 0..3 {
-                    chip(ui, &format!("c{i}"), i, px(18.0, 10.0));
+                    chip(ui, "chip".into(), i, px(18.0, 10.0));
                 }
             });
         }
     });
     const ALIGN: [Align; 5] = [Align::Start, Align::Center, Align::End, Align::Stretch, Align::Baseline];
     demo(ui, "Align, baseline last", (x(2), 12.0), (col_w, 104.0), Node { gap: 6.0, ..row }, &mut |ui: &mut Ui| {
-        for (c, a) in ALIGN.iter().enumerate() {
-            let col = node(ui, &format!("a{c}"), Node { w: Size::Grow, h: Size::Grow, align: *a, gap: 2.0, ..row });
+        for a in ALIGN.iter() {
+            let col = node(ui, "col", Node { w: Size::Grow, h: Size::Grow, align: *a, gap: 2.0, ..row });
             ui.within(&col, &mut |ui: &mut Ui| {
-                for (i, size) in [9i64, 13, 20].iter().enumerate() {
+                for size in [9i64, 13, 20].iter() {
                     let h = if *a == Align::Stretch { Size::Fit } else { Size::Px(*size as f32 + 4.0) };
                     let look = Look { font: Font { size: *size, ..Font::BODY }, ..ink };
                     let fill = ui.tokens().track;
-                    let n = node(ui, &format!("t{i}"), Node { w: Size::Px(10.0), h, look: Look { fill, ..look }, ..Node::DEFAULT });
+                    let n = node(ui, "tile", Node { w: Size::Px(10.0), h, look: Look { fill, ..look }, ..Node::DEFAULT });
                     let _ = ui.text(&n, "x");
                 }
             });
@@ -407,32 +403,32 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         let wrap = node(ui, "wrap", Node { w: Size::Grow, h: Size::Fit, wrap: true, gap: 4.0, row_gap: 4.0, ..row });
         ui.within(&wrap, &mut |ui: &mut Ui| {
             for i in 0..11 {
-                chip(ui, &format!("w{i}"), i, px(14.0 + (i % 4) as f32 * 8.0, 14.0));
+                chip(ui, "chip".into(), i, px(14.0 + (i % 4) as f32 * 8.0, 14.0));
             }
         });
-        chip(ui, "below", 1, Node { w: Size::Grow, h: Size::Px(8.0), margin: Edges { t: 4.0, ..Edges::ZERO }, ..Node::DEFAULT });
+        chip(ui, "below".into(), 1, Node { w: Size::Grow, h: Size::Px(8.0), margin: Edges { t: 4.0, ..Edges::ZERO }, ..Node::DEFAULT });
     });
     demo(ui, "Grid: fr, fit, 24; spans", (x(1), 128.0), (col_w, 104.0), Node { grid: Some(Grid::new(COLS, &[])).into(), gap: 4.0, row_gap: 4.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
-        chip(ui, "a", 0, Node { w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
-        chip(ui, "b", 1, px(30.0, 14.0));
-        chip(ui, "c", 2, Node { w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
+        chip(ui, "a".into(), 0, Node { w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
+        chip(ui, "b".into(), 1, px(30.0, 14.0));
+        chip(ui, "c".into(), 2, Node { w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
         // two rows of 14 under a 40-point row span: the content rows grow to hold it
-        chip(ui, "row-span", 1, Node { cell: Cell::at(0, 1).span(1, 2), w: Size::Grow, h: Size::Px(40.0), ..Node::DEFAULT });
+        chip(ui, "row-span".into(), 1, Node { cell: Cell::at(0, 1).span(1, 2), w: Size::Grow, h: Size::Px(40.0), ..Node::DEFAULT });
         // 70 points over the Fit and the 24 columns: the Fit one grows to hold it
-        chip(ui, "col-span", 0, Node { cell: Cell::at(1, 1).span(2, 1), ..px(70.0, 14.0) });
-        chip(ui, "d", 2, Node { cell: Cell::at(1, 2), w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
+        chip(ui, "col-span".into(), 0, Node { cell: Cell::at(1, 1).span(2, 1), ..px(70.0, 14.0) });
+        chip(ui, "d".into(), 2, Node { cell: Cell::at(1, 2), w: Size::Grow, h: Size::Px(14.0), ..Node::DEFAULT });
     });
     demo(ui, "Stack in z order", (x(2), 128.0), (col_w, 104.0), Node { axis: Axis::Stack, justify: Justify::Center, align: Align::Center, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
         for (i, (w, z, l)) in [(120.0, 0i16, 0.0), (70.0, 2, 40.0), (50.0, 1, 110.0)].iter().enumerate() {
-            chip(ui, &format!("z{i}"), i, Node { z: *z, margin: Edges { l: *l, ..Edges::ZERO }, ..px(*w, *w / 2.0) });
+            chip(ui, "chip".into(), i, Node { z: *z, margin: Edges { l: *l, ..Edges::ZERO }, ..px(*w, *w / 2.0) });
         }
     });
-    demo(ui, "Scroll both ways, sticky", (x(0), 244.0), (col_w, 104.0), Node { flags: SCROLL | SCROLL_X | CLIP, gap: 2.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
+    demo(ui, "Scroll both ways, sticky", (x(0), 244.0), (col_w, 104.0), Node { flags: Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP, gap: 2.0, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
         let input = ui.tokens().input;
-        let head = chip(ui, "head", 0, Node { flags: STICKY, w: Size::Px(320.0), h: Size::Px(14.0), look: Look { text: input, ..Look::NONE }, ..Node::DEFAULT });
+        let head = chip(ui, "head".into(), 0, Node { flags: Flags::STICKY, w: Size::Px(320.0), h: Size::Px(14.0), look: Look { text: input, ..Look::NONE }, ..Node::DEFAULT });
         let _ = ui.text(&head, "sticky header");
         for i in 0..8 {
-            chip(ui, &format!("r{i}"), 1 + i % 2, px(320.0 - 20.0 * i as f32, 14.0));
+            chip(ui, "chip".into(), 1 + i % 2, px(320.0 - 20.0 * i as f32, 14.0));
         }
     });
     demo(ui, "grid_list of 100,000", (x(1), 244.0), (col_w, 104.0), Node::DEFAULT, &mut |ui: &mut Ui| {
@@ -447,9 +443,9 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         if ui.button("Bounce") {
             s.bounce = true;
         }
-        let a = chip(ui, "anchor", 2, px(60.0, 16.0));
+        let a = chip(ui, "anchor".into(), 2, px(60.0, 16.0));
         anchor = Some(ui.rect(&a));
-        let c = chip(ui, "bouncer", 0, px(16.0, 16.0));
+        let c = chip(ui, "bouncer".into(), 0, px(16.0, 16.0));
         if std::mem::take(&mut s.bounce) {
             let ease = Curve::Bezier { duration: 0.0, points: [0.25, 0.1, 0.25, 1.0] };
             let keys = [
@@ -475,9 +471,9 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         });
     }
     demo(ui, "Column of rows, fit height", (x(0), 360.0), (col_w * 3.0 + gap * 2.0, 92.0), Node { axis: Axis::Row, gap: 8.0, align: Align::Start, ..Node::DEFAULT }, &mut |ui: &mut Ui| {
-        for (i, words) in [["one", "two", "three"], ["start", "middle", "end"], ["a", "bb", "ccc"]].iter().enumerate() {
+        for words in [["one", "two", "three"], ["start", "middle", "end"], ["a", "bb", "ccc"]].iter() {
             let border = ui.theme().field.idle.border;
-            let col = node(ui, &format!("col{i}"), Node { w: Size::Grow, h: Size::Fit, gap: 2.0, padding: Edges { l: 4.0, t: 2.0, r: 4.0, b: 2.0 }, look: Look { border, border_w: 1.0, ..Look::NONE }, ..Node::DEFAULT });
+            let col = node(ui, "col", Node { w: Size::Grow, h: Size::Fit, gap: 2.0, padding: Edges { l: 4.0, t: 2.0, r: 4.0, b: 2.0 }, look: Look { border, border_w: 1.0, ..Look::NONE }, ..Node::DEFAULT });
             ui.within(&col, &mut |ui: &mut Ui| {
                 for w in words {
                     let n = node(ui, w, Node { w: Size::Grow, h: Size::Px(16.0), look: ink, inset: Edges { l: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });

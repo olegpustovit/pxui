@@ -53,7 +53,7 @@ impl Scene {
                     .at((0.0, 0.0))
                     .w(Size::Px(120.0))
                     .h(Size::Px(120.0))
-                    .flags(CLIP | if scroll { SCROLL } else { 0 }),
+                    .flags(Flags::CLIP | if scroll { Flags::SCROLL } else { Flags::NONE }),
             );
             let saved = ui.enter(&root);
             let inner = if nested {
@@ -62,7 +62,7 @@ impl Scene {
                     BoxOpts::default()
                         .w(Size::Px(120.0))
                         .h(Size::Px(400.0))
-                        .flags(CLIP | SCROLL_X),
+                        .flags(Flags::CLIP | Flags::SCROLL_X),
                 )
             } else {
                 root
@@ -77,10 +77,10 @@ impl Scene {
                 BoxOpts::default()
                     .w(Size::Px(if nested { 2000.0 } else { 120.0 }))
                     .h(Size::Px(if nested { 400.0 } else { 4000.0 }))
-                    .flags(CLICKABLE),
+                    .flags(Flags::CLICKABLE),
             );
             row_handle = Some(row);
-            let signal = ui.signal_state(&row);
+            let signal = ui.signal(&row);
             if let Some(saved) = inner_saved {
                 ui.leave(saved);
             }

@@ -1,7 +1,7 @@
 //! SDL-to-widget-to-Metal diagnostic, with synthetic fingers and the original frame budget.
 use pxui::{
     Ui,
-    ui::{CLICKABLE, Node, Role, SectionList, SectionPart, Size},
+    ui::{Node, Role, SectionList, SectionPart, Size},
 };
 
 pub struct Probe {
@@ -55,14 +55,14 @@ impl Probe {
                 header_height: 0.0,
                 trailing_height: 0.0,
                 overlay_scrollbar: true,
-            },
+            },&|i| i as i64,
             &mut |ui, part| {
                 if let SectionPart::Row(_) = part {
                     self.rows += 1;
                     let row = ui.node(
-                        "song",
+                        "song".into(),
                         Node {
-                            flags: CLICKABLE,
+                            flags: Flags::CLICKABLE,
                             role: Role::Button,
                             w: Size::Grow,
                             h: Size::Grow,
@@ -71,7 +71,7 @@ impl Probe {
                     );
                     ui.a11y_name(&row, "Native touch song");
                     ui.text(&row, "Native touch song");
-                    self.clicked |= ui.signal_state(&row).clicked;
+                    self.clicked |= ui.signal(&row).clicked;
                 }
             },
         ));

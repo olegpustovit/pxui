@@ -115,15 +115,6 @@ impl Ui {
     pub fn passed_undo(&self) -> Option<UndoKind> {
         match unsafe { lib::pxui_ui_passed_undo(self.0.as_ptr()) } { 1 => Some(UndoKind::Undo), 2 => Some(UndoKind::Redo), _ => None }
     }
-    /// Whether the key (a `KEY_*` code or a character) was pressed in this frame's events.
-    #[inline]
-    #[track_caller]
-    pub fn key_pressed(&self, key: impl Into<u32>) -> bool {
-        let key = key.into();
-        let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_key_pressed(self.0.as_ptr(), key, &mut out) });
-        out != 0
-    }
     /// Raw held state, including modifiers while a field or popup owns keyboard focus.
     #[inline]
     #[track_caller]
@@ -132,13 +123,31 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_key_down(self.0.as_ptr(), key, &mut out) });
         out != 0
     }
-    /// Raw press query with Shift/Ctrl/Alt/Meta held at the event, even if released in the same frame.
-    /// Like `key_pressed`, this neither filters modal/widget ownership nor consumes the press.
+    /// Whether `key` (a `KEY_*` code or a character) was pressed in this frame's events; with `modifier` (Shift, Ctrl, Alt or Meta
+    /// code), only a press made while that modifier was held, even if it was released in the same frame.
+    ///
+    /// A raw query: it neither filters modal or widget ownership nor consumes the press. A modifier that is not one of the four never
+    /// matches.
+    /// Allocates: never.
+    /// Identity: `key` is a key code, not a node key.
+    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let mut seen = (false, false);
+    /// // 'x' is not a modifier, so the second query never matches
+    /// pxui::testing::key(&mut ui, 'k' as u32, &mut |ui| { seen = (ui.key_pressed('k', None), ui.key_pressed('k', Some('x' as u32))); });
+    /// assert_eq!(seen, (true, false));
+    /// ```
     #[inline]
     #[track_caller]
-    pub fn key_pressed_with(&self, key: u32, modifier: u32) -> bool {
+    pub fn key_pressed(&self, key: impl Into<u32>, modifier: Option<u32>) -> bool {
+        let key = key.into();
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_key_pressed_with(self.0.as_ptr(), key, modifier, &mut out) });
+        check(self, unsafe { match modifier {
+            None => lib::pxui_ui_key_pressed(self.0.as_ptr(), key, &mut out),
+            Some(modifier) => lib::pxui_ui_key_pressed_with(self.0.as_ptr(), key, modifier, &mut out),
+        } });
         out != 0
     }
     #[inline] #[track_caller] pub fn set_font_size(&mut self, size: i64) { check(self, unsafe { lib::pxui_ui_set_font_size(self.0.as_ptr(), size) }) }

@@ -51,7 +51,7 @@ impl Ui {
     /// const CLOCK: Label = Label::MONO;
     /// let (title, duration_text, index, total, m, s) = (String::from("Song"), String::from("3:07"), 4, 12, 3, 7);
     /// let mut ui = pxui::Ui::new().unwrap();
-    /// ui.set_colors(&[ink], &[paper]);
+    /// ui.set_colors(&[(ink, paper)]);
     /// ui.set_a11y(true);
     /// for _ in 0..2 {
     ///     ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| {
@@ -145,7 +145,7 @@ mod tests {
     /// Frames `build` in a 160-point-wide `Ui` with red as colour token 0 and accessibility on, five times, and returns the `Ui` with the last frame's tree.
     fn settle(build: &mut dyn FnMut(&mut crate::Ui)) -> crate::Ui {
         let mut ui = crate::Ui::new().unwrap();
-        ui.set_colors(&[RED], &[RED]);
+        ui.set_colors(&[(RED, RED)]);
         ui.set_a11y(true);
         for _ in 0..5 { ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, build).unwrap(); }
         ui
@@ -304,7 +304,7 @@ mod tests {
     fn boxed_label(ui: &mut crate::Ui, c: &crate::bodies::PxuiLabelConfig) {
         assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiLabelConfig>(), "this library carries the style");
         SEEN.with(|s| s.borrow_mut().push((crate::bodies::text_of(&c.text).to_owned(), c.style.set, c.style.digits, c.style.size_points, c.style.color)));
-        ui.node("mark", Node { h: Size::Px(30.0), ..Node::DEFAULT });
+        ui.node("mark".into(), Node { h: Size::Px(30.0), ..Node::DEFAULT });
     }
 
     /// With a registered label body every label goes through it with its style as given: the theme's label with nothing set, a
@@ -313,7 +313,7 @@ mod tests {
     #[test]
     fn a_registered_label_body_builds_every_label() {
         let mut ui = crate::Ui::new().unwrap();
-        ui.set_colors(&[RED], &[RED]);
+        ui.set_colors(&[(RED, RED)]);
         let id = ui.register_label_body("boxed", boxed_label).expect("registered");
         let text = "label.body = boxed";
         ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
@@ -342,7 +342,7 @@ mod tests {
         let ui = settle(&mut |ui| {
             rows.clear();
             for (key, style) in [("plain", Label::DEFAULT), ("bold", Label::DEFAULT.bold()), ("again", Label::DEFAULT)] {
-                rows.push(ui.column(key, Node::DEFAULT, |ui| { ui.node("before", Node::DEFAULT); ui.label("Same", style); }));
+                rows.push(ui.column(key, Node::DEFAULT, |ui| { ui.node("before".into(), Node::DEFAULT); ui.label("Same", style); }));
             }
         });
         let rects: Vec<_> = rows.iter().map(|b| ui.rect(b)).collect();

@@ -20,22 +20,37 @@ export!(trusted pub unsafe fn pxui_ui_list_measured(ui:*mut PxuiUi,label:Str,cou
 export!(trusted pub unsafe fn pxui_ui_section_list(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiSectionListDesc,out:*mut PxuiBox)->i32 {
     if unsafe {get(ui)}.is_none() {return PXUI_ERR_ARGUMENT;}
     if desc.is_null() || out.is_null() {return unsafe {fail(ui,"null section list argument")};}
-    let Some(desc)=sized!(desc) else {return unsafe {fail(ui,"invalid section list descriptor")};};
+    // all-zero is a valid record: null pointers, empty strings, no callbacks
+    let mut record=unsafe {core::mem::zeroed::<pxui_types::ffi::PxuiSectionListDesc>()};
+    if !unsafe {read_section_desc(desc.cast(),core::mem::size_of_val(&record),(&mut record as *mut pxui_types::ffi::PxuiSectionListDesc).cast())} {return unsafe {fail(ui,"invalid section list descriptor")};}
+    let desc=record;
     if desc.overlay_scrollbar>1 || desc.reserved!=[0;3] {return unsafe {fail(ui,"invalid section list flags")};}
     let Some(label)=(unsafe {checked(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
     let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0};
-    unsafe {crate::trusted::section_list(ui,label,&section,&mut |ui,index| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index);}},&mut *out)}
+    unsafe {crate::trusted::section_list(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index);}},&mut *out)}
 });
 
 export!(trusted pub unsafe fn pxui_ui_section_list_measured(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiMeasuredSectionDesc,out:*mut PxuiBox)->i32 {
     if unsafe {get(ui)}.is_none() {return PXUI_ERR_ARGUMENT;}
     if desc.is_null() || out.is_null() {return unsafe {fail(ui,"null section list argument")};}
-    let Some(desc)=sized!(desc) else {return unsafe {fail(ui,"invalid section list descriptor")};};
+    // all-zero is a valid record: null pointers, empty strings, no callbacks
+    let mut record=unsafe {core::mem::zeroed::<pxui_types::ffi::PxuiMeasuredSectionDesc>()};
+    if !unsafe {read_section_desc(desc.cast(),core::mem::size_of_val(&record),(&mut record as *mut pxui_types::ffi::PxuiMeasuredSectionDesc).cast())} {return unsafe {fail(ui,"invalid section list descriptor")};}
+    let desc=record;
     if desc.overlay_scrollbar>1 || desc.reserved!=[0;3] {return unsafe {fail(ui,"invalid section list flags")};}
     let Some(label)=(unsafe {checked(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
     let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0};
-    unsafe {crate::trusted::section_list_measured(ui,label,&section,&mut |ui,index,y| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index,y);}},&mut *out)}
+    unsafe {crate::trusted::section_list_measured(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index,y| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index,y);}},&mut *out)}
 });
+
+/// Copies a section list record of `full` bytes from `desc` into `out` up to the record's own `size`: the record without its last
+/// field, `key` (the 64-byte ABI 1.20/1.21 record), leaves `key` as `out` had it (none); any other size short of `full` is refused.
+unsafe fn read_section_desc(desc: *const u8, full: usize, out: *mut u8) -> bool {
+    let size = unsafe { desc.cast::<u32>().read_unaligned() } as usize;
+    if size < full && size != full - core::mem::size_of::<pxui_types::ffi::PxuiRowKey>() { return false; }
+    unsafe { core::ptr::copy_nonoverlapping(desc, out, size.min(full)); }
+    true
+}
 
 #[cfg(test)]
 mod curve_tests {

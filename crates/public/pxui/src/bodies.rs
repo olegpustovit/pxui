@@ -247,7 +247,7 @@ mod tests {
 
     /// The `_with` forms build the caller's own children for each row and cell, in both link modes.
     #[test]
-    fn the_with_forms_build_the_callers_cells() {
+    fn collections_build_the_callers_cells() {
         let mut ui = Ui::new().expect("library");
         let (mut list, mut open, mut visible) = (vec![0u8; 5], vec![0u8; 3], vec![0u32; 3]);
         let nodes = [crate::TreeNode { depth: 0, children: 1 }, crate::TreeNode { depth: 1, children: 0 }, crate::TreeNode { depth: 0, children: 0 }];
@@ -255,10 +255,10 @@ mod tests {
         let (rows, cells, nodes_built) = (Cell::new(0), Cell::new(0), Cell::new(0));
         for n in 0..3 {
             ui.frame(&input(n as f64), &mut |ui: &mut Ui| {
-                ui.list_view_with("list", 5, false, &mut list, &mut |ui: &mut Ui, row| { rows.set(rows.get() + 1); ui.label(&format!("row {row}"), crate::Label::DEFAULT); });
-                let shown = ui.tree_with("tree", &nodes, &mut open, &mut tree_selected, &mut visible, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}"), crate::Label::DEFAULT); }).1;
+                ui.list_view("list", 5, false, &mut list, &mut |ui: &mut Ui, row| { rows.set(rows.get() + 1); ui.label(&format!("row {row}"), crate::Label::DEFAULT); });
+                let shown = ui.tree("tree", &nodes, &mut open, &mut tree_selected, &mut visible, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}"), crate::Label::DEFAULT); }).1;
                 assert_eq!(shown, 2, "the first node's child is closed");
-                let _ = ui.table_view_with("table", &["a", "b"], &mut widths, 3, None, &mut selected, &mut |ui: &mut Ui, row, column| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}"), crate::Label::DEFAULT); });
+                let _ = ui.table_view("table", &["a", "b"], &mut widths, 3, None, &mut selected, &mut |ui: &mut Ui, row, column| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}"), crate::Label::DEFAULT); });
             }).expect("frame");
         }
         assert!(rows.get() > 0 && nodes_built.get() > 0 && cells.get() > 0, "rows {}, nodes {}, cells {}", rows.get(), nodes_built.get(), cells.get());

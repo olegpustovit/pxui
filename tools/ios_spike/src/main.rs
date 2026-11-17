@@ -366,7 +366,7 @@ mod ios {
                             (rect.y, extent.logical.0 as f32-rect.x-rect.w, extent.logical.1 as f32-rect.y-rect.h, rect.x)
                         } else { (t, r, b, l) };
                         let content = ui.node(
-                            "iOS safe content",
+                            "iOS safe content".into(),
                             Node {
                                 w: Size::Grow,
                                 h: Size::Grow,
@@ -376,7 +376,7 @@ mod ios {
                         );
                         ui.within(&content, &mut |ui| {
                             let inner = ui.node(
-                                "iOS safe bounds",
+                                "iOS safe bounds".into(),
                                 Node {
                                     w: Size::Grow,
                                     h: Size::Grow,
@@ -389,7 +389,7 @@ mod ios {
                                     touch.view(ui);
                                 } else if self.keyboard_check {
                                     ui.label("PXUI native keyboard", pxui::Label::DEFAULT);
-                                    ui.node("field spacer", Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
+                                    ui.node("field spacer".into(), Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
                                     if let Some(text) = self.text.as_mut() {text.view(ui,self.frames);}
                                     else {ui.text_field("Mobile input", "café track");}
                                 } else {

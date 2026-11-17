@@ -9,6 +9,14 @@ use ogpu_core::render_pass::{Load, Store};
 use ogpu_core::types::{Extent, Origin, TextureDescriptor, TextureFormat, TextureUsage};
 use pxui_core::draw::{fit, nine_slice, Fit};
 use pxui_render::{flags, ramp, AtlasKind, Blurred, Break, Instance, Painter, View};
+
+/// The `Label` that resolves to `style` (every field set; tracking back to ems): the text calls take the authoring style.
+#[allow(dead_code)]
+fn label_of(style:&pxui::TextStyle)->pxui::Label {
+    pxui::Label {font:Some(style.font),size:Some(style.size_points),weight:Some(style.weight),tracking:Some(style.tracking/style.size_points),caps:Some(false),
+        line_height:Some(style.line_height),wrap:style.wrap,max_lines:style.max_lines,ellipsis:style.ellipsis,align:style.align,features:style.features,..pxui::Label::BODY}
+}
+
 #[path = "../../../../tools/t/png.rs"]
 mod png;
 
@@ -1043,14 +1051,14 @@ fn shared_second_atlas_activates_after_prepare_without_replacing_first_page() {
     assert!(matches!(renderer.atlas(pxui::AtlasKind::Mask2),Err(pxui::Error::State)));
     let first=renderer.atlas(pxui::AtlasKind::Mask).unwrap();
     let black=pxui::geom::color::rgba(0,0,0,255);
-    ui.set_colors(&[black],&[black]);
+    ui.set_colors(&[(black,black)]);
     let style=pxui::Label::BODY.size(600.0).color(pxui::theme::ColorToken(0));
     let mut first_pixels:Option<Vec<u8>>=None;
     let mut first_glyph=None;
     for frame in 1..=7 {
         mem_sys::local_reset();
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            let b=ui.node("page-growth",pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(300.0),..pxui::Node::DEFAULT });
+            let b=ui.node("page-growth".into(),pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(300.0),..pxui::Node::DEFAULT });
             ui.canvas(&b,move |paint,_| { paint.text_styled((0.0,0.0),&style,0.0,if frame==1 { "A" } else { "ABCDEF" }); });
         }).unwrap();
         let allocations=mem_sys::local_alloc_count();
@@ -1102,7 +1110,7 @@ fn shared_system_preferences_change_native_pixels_without_warm_allocations() {
             ui.view("appearance",1,pxui::ui::Size::Px(100.0),pxui::ui::Size::Px(40.0),&mut |ui| {
                 assert_eq!(ui.system_appearance(),appearance);
                 assert!(ui.tokens().reduced_motion);
-                ui.node("block",pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(24.0),look:pxui::ui::Look { fill:ui.tokens().foreground,..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
+                ui.node("block".into(),pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(24.0),look:pxui::ui::Look { fill:ui.tokens().foreground,..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
             });
         }).unwrap();
         if frame>=4 { assert_eq!(mem_sys::local_alloc_count(),0,"warm parsed theme selection and frame preferences allocate nothing"); }
@@ -1131,8 +1139,8 @@ fn shared_inline_spans_render_colors_background_and_rule() {
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            let b=ui.node("label",pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(40.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
-            ui.text_spans(&b,"ab CD ef",&style,&[span]).unwrap();
+            let b=ui.node("label".into(),pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(40.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
+            ui.text_spans(&b,"ab CD ef",&label_of(&style),&[span]).unwrap();
         }).unwrap();
         let rect=|color|ui.layers().find_map(|layer|layer.instances.iter().find(|i|i.kind==pxui_types::draw::kind::RECT && i.color==color).map(|i|i.rect)).expect("decoration instance");
         let background=rect([0,0,255,64]);
@@ -1166,7 +1174,7 @@ fn shared_ellipsis_modes_native_pixels_and_warm_draw() {
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=6 {
         ui.frame(&pxui_types::FrameIn { width:320.0,height:160.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            let b=ui.node("truncation",pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(160.0),..pxui::Node::DEFAULT });
+            let b=ui.node("truncation".into(),pxui::Node { w:pxui::ui::Size::Px(320.0),h:pxui::ui::Size::Px(160.0),..pxui::Node::DEFAULT });
             ui.canvas(&b,move |paint,_| {
                 for (i,ellipsis) in modes.into_iter().enumerate() {
                     let style=pxui::TextStyle { ellipsis,size_points:20.0,..Default::default() };
@@ -1212,8 +1220,8 @@ fn shared_system_fonts_render_scripts_emoji_and_zero_warm_allocations() {
     for frame in 1..=6 {
         mem_sys::local_reset();
         ui.frame(&pxui_types::FrameIn { width:320.0,height:150.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            let b=ui.node("native-fonts",pxui::Node { w:pxui::ui::Size::Px(300.0),h:pxui::ui::Size::Px(80.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
-            ui.text_spans(&b,"漢字 العربية",&style,&[]).unwrap();
+            let b=ui.node("native-fonts".into(),pxui::Node { w:pxui::ui::Size::Px(300.0),h:pxui::ui::Size::Px(80.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
+            ui.text_spans(&b,"漢字 العربية",&label_of(&style),&[]).unwrap();
             ui.canvas(&b,move |paint,_| { paint.text_styled((10.0,100.0),&emoji,100.0,"😀"); });
         }).unwrap();
         let build_allocations=mem_sys::local_alloc_count();
@@ -1244,8 +1252,8 @@ fn shared_inline_ligature_color_preserves_native_coverage() {
     for frame in 1..=6 {
         let colored=frame%2==0;
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            let b=ui.node("ligature",pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(60.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
-            ui.text_spans(&b,"لا",&style,if colored { std::slice::from_ref(&span) } else { &[] }).unwrap();
+            let b=ui.node("ligature".into(),pxui::ui::Node { w:pxui::ui::Size::Px(200.0),h:pxui::ui::Size::Px(60.0),look:pxui::ui::Look { text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
+            ui.text_spans(&b,"لا",&label_of(&style),if colored { std::slice::from_ref(&span) } else { &[] }).unwrap();
         }).unwrap();
         let draws=renderer.draw_calls();
         let allocations=shared_app_frame(&queue,&target,&mut renderer,frame,frame-1);
@@ -1346,7 +1354,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
     let build = |ui: &mut pxui::Ui| {
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             glass.set(Some(ui.view("glass", 1, Size::Px(160.0), Size::Px(80.0), &mut |ui: &mut pxui::Ui| {
-                let pane=ui.node("pane", Node { w: Size::Px(160.0), h: Size::Px(80.0), look: Look { fill: pxui::geom::color::rgba(0, 0, 0, 1), ..Look::NONE }, ..Node::DEFAULT });
+                let pane=ui.node("pane".into(), Node { w: Size::Px(160.0), h: Size::Px(80.0), look: Look { fill: pxui::geom::color::rgba(0, 0, 0, 1), ..Look::NONE }, ..Node::DEFAULT });
                 if large {
                     let images=[images[0],images[1]];
                     ui.canvas(&pane,move |paint,rect| {
@@ -1355,7 +1363,7 @@ fn shared_backdrop_blur_case(prepared: bool, reenter: bool, large: bool) {
                 }
             })));
             second.set(Some(ui.view("second glass", 1, Size::Px(60.0), Size::Px(30.0), &mut |ui: &mut pxui::Ui| {
-                ui.node("pane", Node { w: Size::Px(60.0), h: Size::Px(30.0), look: Look { fill:pxui::geom::color::rgba(0,0,0,1), ..Look::NONE }, ..Node::DEFAULT });
+                ui.node("pane".into(), Node { w: Size::Px(60.0), h: Size::Px(30.0), look: Look { fill:pxui::geom::color::rgba(0,0,0,1), ..Look::NONE }, ..Node::DEFAULT });
             })));
         }).expect("build blur view");
     };
@@ -1512,7 +1520,7 @@ fn shared_backdrop_blur_bgra() {
     let glass=std::cell::Cell::new(None);
     let mut build=|ui: &mut pxui::Ui| {
         glass.set(Some(ui.view("BGRA glass",1,pxui::ui::Size::Px(160.0),pxui::ui::Size::Px(80.0),&mut |ui| {
-            ui.node("pane",pxui::ui::Node { w:pxui::ui::Size::Px(160.0),h:pxui::ui::Size::Px(80.0),
+            ui.node("pane".into(),pxui::ui::Node { w:pxui::ui::Size::Px(160.0),h:pxui::ui::Size::Px(80.0),
                 look:pxui::ui::Look { fill:pxui::geom::color::rgba(0,0,0,1),..pxui::ui::Look::NONE },..pxui::ui::Node::DEFAULT });
         })));
     };
@@ -1606,7 +1614,7 @@ fn shared_large_image_layer_allocates_nothing() {
     for (index,count) in [65,128,96,128,65,64,96].into_iter().chain([128;20]).enumerate() {
         let frame=index as u64+1;
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            let bounds=ui.node("images",pxui::ui::Node { w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(256.0),..pxui::ui::Node::DEFAULT });
+            let bounds=ui.node("images".into(),pxui::ui::Node { w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(256.0),..pxui::ui::Node::DEFAULT });
             ui.canvas(&bounds,move |paint,rect| {
                 for i in 0..count { paint.image(rect.x,rect.y+i as f32*2.0,64.0,2.0,&images[i%2]); }
             });
@@ -1778,7 +1786,7 @@ fn shared_public_view_controls_keep_native_draws_and_instances() {
                 builds.set(builds.get()+1);
                 inner.set(Some(ui.view("inner",1,pxui::ui::Size::Px(100.0),pxui::ui::Size::Px(80.0),&mut |ui| {
                     for (key,rect) in [("base",Rect::new(0.0,0.0,100.0,80.0)),("overlap",Rect::new(20.0,20.0,40.0,20.0))] {
-                        ui.node(key,pxui::Node { w:pxui::ui::Size::Px(rect.w),h:pxui::ui::Size::Px(rect.h),at:Some((rect.x,rect.y)).into(),
+                        ui.node(key.into(),pxui::Node { w:pxui::ui::Size::Px(rect.w),h:pxui::ui::Size::Px(rect.h),at:Some((rect.x,rect.y)).into(),
                             look:pxui::ui::Look { fill:color::rgb(255,0,0),..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
                     }
                 })));
@@ -1833,11 +1841,12 @@ fn shared_public_measured_rows_render_settled_clipped_heights() {
         mem_sys::local_reset();
         let calls=Cell::new(0);
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
-            let bounds=ui.node("bounds",pxui::Node { w:pxui::ui::Size::Px(100.0),h:pxui::ui::Size::Px(200.0),..pxui::Node::DEFAULT });
+            let bounds=ui.node("bounds".into(),pxui::Node { w:pxui::ui::Size::Px(100.0),h:pxui::ui::Size::Px(200.0),..pxui::Node::DEFAULT });
             ui.within(&bounds,&mut |ui| {
-                list.set(Some(ui.list_measured("rows",200,12.0,&mut |ui,i| {
+                list.set(Some(ui.section_list_measured("rows",&pxui::ui::SectionList {count:200,row_height:12.0,leading_height:0.0,header_height:0.0,trailing_height:0.0,overlay_scrollbar:false},&|i| i as i64,&mut |ui,part,_| {
+                    let pxui::ui::SectionPart::Row(i)=part else { return };
                     calls.set(calls.get()+1);
-                    ui.node("row",pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(10.0+(i%3) as f32*10.0),
+                    ui.node("row".into(),pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(10.0+(i%3) as f32*10.0),
                         look:pxui::ui::Look { fill:colors[i%3],..pxui::ui::Look::NONE },..pxui::Node::DEFAULT });
                 })));
             });
@@ -1884,7 +1893,7 @@ fn shared_foreign_image_gallery_reuses_wrappers_and_releases_only_completed_imag
         let start=((frame-1)%4) as usize*32;
         mem_sys::local_reset();
         ui.frame(&pxui_types::FrameIn{width:128.0,height:64.0,time:frame as f64/60.0,..Default::default()},&mut |ui| {
-            let bounds=ui.node("gallery",pxui::ui::Node{w:pxui::ui::Size::Px(128.0),h:pxui::ui::Size::Px(64.0),..pxui::ui::Node::DEFAULT});
+            let bounds=ui.node("gallery".into(),pxui::ui::Node{w:pxui::ui::Size::Px(128.0),h:pxui::ui::Size::Px(64.0),..pxui::ui::Node::DEFAULT});
             ui.canvas(&bounds,move |paint,rect| {
                 for index in 0..32 { paint.image(rect.x+(index%8) as f32*16.0,rect.y+(index/8) as f32*16.0,16.0,16.0,&images[start+index]); }
             });
@@ -1927,7 +1936,7 @@ fn shared_fractional_fills_render_thin_bars_in_one_warm_draw() {
         for frame in 1..=12u64 {
             mem_sys::local_reset();
             ui.frame(&pxui_types::FrameIn{width:640.0,height:32.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
-                let node=ui.node("bars",pxui::ui::Node{w:pxui::ui::Size::Px(640.0),h:pxui::ui::Size::Px(32.0),..pxui::ui::Node::DEFAULT});
+                let node=ui.node("bars".into(),pxui::ui::Node{w:pxui::ui::Size::Px(640.0),h:pxui::ui::Size::Px(32.0),..pxui::ui::Node::DEFAULT});
                 ui.canvas(&node,|paint,rect| {
                     for i in 0..200 { paint.fill_fractional(rect.x+1.25+i as f32*3.0,rect.y+1.25,0.5,12.0,pxui::geom::Rgba{r:0,g:255,b:0,a:255}); }
                 });
@@ -1982,10 +1991,10 @@ fn shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations() 
                     let section=pxui::ui::SectionList {count:10_000,row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true};
                     let mut build=|ui:&mut pxui::Ui,part| {
                         let (r,g,b)=match part {pxui::ui::SectionPart::Leading=>(255,0,0),pxui::ui::SectionPart::Header=>(255,255,255),pxui::ui::SectionPart::Row(_)=>(0,0,255)};
-                        let mut paint=|ui:&mut pxui::Ui| {ui.node("paint",pxui::ui::Node {w:pxui::ui::Size::Grow,h:pxui::ui::Size::Px(if part==pxui::ui::SectionPart::Leading {100.0} else if part==pxui::ui::SectionPart::Header {30.0} else if measured && matches!(part,pxui::ui::SectionPart::Row(index) if index%2==0) {40.0} else {20.0}),look:pxui::ui::Look {fill:pxui::geom::Rgba {r,g,b,a:255},..pxui::ui::Look::NONE},..pxui::ui::Node::DEFAULT});};
+                        let mut paint=|ui:&mut pxui::Ui| {ui.node("paint".into(),pxui::ui::Node {w:pxui::ui::Size::Grow,h:pxui::ui::Size::Px(if part==pxui::ui::SectionPart::Leading {100.0} else if part==pxui::ui::SectionPart::Header {30.0} else if measured && matches!(part,pxui::ui::SectionPart::Row(index) if index%2==0) {40.0} else {20.0}),look:pxui::ui::Look {fill:pxui::geom::Rgba {r,g,b,a:255},..pxui::ui::Look::NONE},..pxui::ui::Node::DEFAULT});};
                         if part==pxui::ui::SectionPart::Leading {ui.view("heading-cache",0,pxui::ui::Size::Grow,pxui::ui::Size::Fit,&mut paint);} else {paint(ui);}
                     };
-                    body=Some(if measured {ui.section_list_measured("section",&section,&mut |ui,part,_| build(ui,part))} else {ui.section_list("section",&section,&mut build)});
+                    body=Some(if measured {ui.section_list_measured("section",&section,&|i| i as i64,&mut |ui,part,_| build(ui,part))} else {ui.section_list("section",&section,&|i| i as i64,&mut build)});
                 }).unwrap();
                 let build_allocations=mem_sys::local_alloc_count();
                 let commands=ok(be::begin_commands(&queue));
@@ -2047,7 +2056,7 @@ fn shared_filled_triangle_pixels_cover_both_windings_in_one_warm_draw() {
         for frame in 1..=8u64 {
             mem_sys::local_reset();
             ui.frame(&pxui_types::FrameIn {width:64.0,height:32.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
-                let node=ui.node("triangles",pxui::ui::Node {w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(32.0),..pxui::Node::DEFAULT});
+                let node=ui.node("triangles".into(),pxui::ui::Node {w:pxui::ui::Size::Px(64.0),h:pxui::ui::Size::Px(32.0),..pxui::Node::DEFAULT});
                 ui.draw(&node,|paint,_| {
                     for index in 0..3 {
                         let points=[(7.0,4.6),(7.0,19.4),(19.4,12.0)].map(|p|(4.25+index as f32*20.0+p.0*(2.0/3.0),4.5+p.1*(2.0/3.0)));
@@ -2106,9 +2115,9 @@ fn shared_pixel_fit_text_matches_explicit_width_pixels() {
                 let look=pxui::ui::Look {text:pxui::geom::color::rgba(0,0,0,255),..pxui::ui::Look::NONE};
                 mem_sys::local_reset();
                 ui.frame(&pxui::FrameIn {width:320.0,height:100.0,scale:density as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
-                    let label=ui.node("rich",pxui::Node {flags:pxui::ui::FIT_TEXT|if fitted {pxui::ui::FIT_TEXT_PIXEL} else {0},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,10.0)).into(),look,..pxui::Node::DEFAULT});
-                    ui.text_line_box(&label,value,&style,&span).unwrap();
-                    let label=ui.node("plain",pxui::Node {flags:if fitted {pxui::ui::FIT_TEXT_PIXEL} else {0},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(plain_width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,40.0)).into(),inset:pxui::ui::Edges {l:1.25,r:3.5,..Default::default()},look:pxui::ui::Look {font:pxui::ui::Font {size:14,caps:true,..pxui::ui::Font::BODY},..look},..pxui::Node::DEFAULT});
+                    let label=ui.node("rich".into(),pxui::Node {flags:pxui_types::Flags::FIT_TEXT|if fitted {pxui_types::Flags::FIT_TEXT_PIXEL} else {pxui_types::Flags::NONE},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,10.0)).into(),look,..pxui::Node::DEFAULT});
+                    ui.text_line_box(&label,value,&label_of(&style),&span).unwrap();
+                    let label=ui.node("plain".into(),pxui::Node {flags:if fitted {pxui_types::Flags::FIT_TEXT_PIXEL} else {pxui_types::Flags::NONE},w:if fitted {pxui::ui::Size::Fit} else {pxui::ui::Size::Px(plain_width)},h:pxui::ui::Size::Px(24.0),at:Some((10.0,40.0)).into(),inset:pxui::ui::Edges {l:1.25,r:3.5,..Default::default()},look:pxui::ui::Look {font:pxui::ui::Font {size:14,caps:true,..pxui::ui::Font::BODY},..look},..pxui::Node::DEFAULT});
                     ui.text(&label,"ab cd");
                 }).unwrap();
                 if frame>=4 {assert_eq!(mem_sys::local_alloc_count(),0,"warm pixel-fit UI build");}

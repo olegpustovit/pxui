@@ -9,8 +9,8 @@ fn at(t: f64, events: Vec<Event>) -> input::frame::Frame {
     frame_at(vec![], 2.0, t, events)
 }
 
-fn chip(ui: &mut Ui, key: &str, fill: color::T, flags: i64) -> Handle {
-    ui.node(key, Node { flags, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT })
+fn chip(ui: &mut Ui, key: &str, fill: color::T, flags: Flags) -> Handle {
+    ui.node_ref(key, &Node { flags, w: Size::Px(40.0), h: Size::Px(20.0), look: Look { fill, ..Look::NONE }, ..Node::DEFAULT })
 }
 
 const RED: color::T = color::T { r: 200, g: 0, b: 0, a: 255 };
@@ -23,11 +23,11 @@ pub fn window_pxui_view_rebuilds_one() {
     let mut build = |ui: &mut Ui| {
         ui.view("a", rev_a.get(), Size::Px(100.0), Size::Px(50.0), &mut |ui| {
             a_runs.set(a_runs.get() + 1);
-            chip(ui, "x", RED, NO_FLAGS);
+            chip(ui, "x", RED, Flags::NONE);
         });
         ui.view("b", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
             b_runs.set(b_runs.get() + 1);
-            chip(ui, "y", BLUE, NO_FLAGS);
+            chip(ui, "y", BLUE, Flags::NONE);
         });
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -46,7 +46,7 @@ pub fn window_pxui_view_rebuilds_one() {
     // the view stops being declared: its nodes go with it
     ui.frame(&at(0.3, vec![]), &mut |ui| {
         ui.view("a", 2, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
-            chip(ui, "x", RED, NO_FLAGS);
+            chip(ui, "x", RED, Flags::NONE);
         });
     });
     check(!y.is_some_and(|y| ui.live(&y)), "a dropped view's node lived on");
@@ -60,7 +60,7 @@ pub fn window_pxui_shrunk_layer_clips_dirty() {
     let (count, rev) = (Cell::new(6), Cell::new(1u64));
     let mut build = |ui: &mut Ui| {
         ui.view("a", rev.get(), Size::Px(100.0), Size::Px(200.0), &mut |ui| {
-            for i in 0..count.get() { chip(ui, &format!("c{i}"), RED, NO_FLAGS); }
+            for i in 0..count.get() { chip(ui, &format!("c{i}"), RED, Flags::NONE); }
         });
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -79,10 +79,10 @@ pub fn window_pxui_view_nested() {
     let mut build = |ui: &mut Ui| {
         ui.view("outer", rev.get(), Size::Px(200.0), Size::Px(100.0), &mut |ui| {
             outer.set(outer.get() + 1);
-            chip(ui, "o", RED, NO_FLAGS);
+            chip(ui, "o", RED, Flags::NONE);
             ui.view("inner", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
                 inner.set(inner.get() + 1);
-                chip(ui, "i", BLUE, NO_FLAGS);
+                chip(ui, "i", BLUE, Flags::NONE);
             });
         });
     };
@@ -103,14 +103,14 @@ pub fn window_pxui_view_input() {
     let mut build = |ui: &mut Ui| {
         ui.view("a", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
             a_runs.set(a_runs.get() + 1);
-            let h = chip(ui, "x", RED, CLICKABLE);
-            let s = ui.signal(&h);
+            let h = chip(ui, "x", RED, Flags::CLICKABLE);
+            let s = ui.signal_owned(&h);
             hovered.set(s.hovered);
             clicked.set(clicked.get() || s.clicked);
         });
         ui.view("b", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
             b_runs.set(b_runs.get() + 1);
-            chip(ui, "y", BLUE, CLICKABLE);
+            chip(ui, "y", BLUE, Flags::CLICKABLE);
         });
     };
     ui.frame(&at(0.0, vec![move_to((300, 230))]), &mut build);
@@ -135,7 +135,7 @@ pub fn window_pxui_view_offset() {
     let mut build = |ui: &mut Ui| {
         view.set(Some(ui.view("a", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
             runs.set(runs.get() + 1);
-            node.set(Some(chip(ui, "x", RED, CLICKABLE)));
+            node.set(Some(chip(ui, "x", RED, Flags::CLICKABLE)));
         })));
     };
     ui.frame(&at(0.0, vec![move_to((300, 230))]), &mut build);
@@ -154,9 +154,9 @@ pub fn window_pxui_view_offset() {
     check(ui.output().views.iter().any(|(_, e)| e.opacity == 0.5) && ui.output().draw[0].instances == instances, "opacity");
     // the old place no longer hits; the new one does, and the frame keeps the offset
     ui.frame(&at(0.2, vec![move_to((5, 5))]), &mut build);
-    check(!ui.signal(&n).hovered, "the node hit at its old place");
+    check(!ui.signal_owned(&n).hovered, "the node hit at its old place");
     ui.frame(&at(0.3, vec![move_to((35, 15))]), &mut build);
-    check(ui.signal(&n).hovered && runs.get() == 2, "the node missed at its offset place");
+    check(ui.signal_owned(&n).hovered && runs.get() == 2, "the node missed at its offset place");
     check(ui.output().views.iter().any(|(_, e)| e.offset == [30.0, 10.0]), "a frame dropped the offset");
     ui.destroy();
 }
@@ -171,7 +171,7 @@ pub fn window_pxui_view_table_2000() {
         v.clear();
         for k in 0..2000 {
             v.push(ui.view(&format!("card{k}"), 1, Size::Px(20.0), Size::Px(10.0), &mut |ui| {
-                chip(ui, "x", RED, CLICKABLE);
+                chip(ui, "x", RED, Flags::CLICKABLE);
             }));
         }
     };
@@ -204,7 +204,7 @@ pub fn window_pxui_view_kept_atlas_break() {
         let img = image.clone();
         ui.label(&format!("before {}", rev.get()), pxui_core::ui::Label::DEFAULT);
         ui.view("v", 1, Size::Px(100.0), Size::Px(40.0), &mut |ui| {
-            let h = ui.node("pic", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
+            let h = ui.node("pic".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT });
             let img = img.clone();
             ui.canvas(&h, move |paint, r| paint.image(r.x, r.y, r.w, r.h, &img));
             ui.label("\u{1f600}", pxui_core::ui::Label::DEFAULT);
@@ -235,10 +235,10 @@ pub fn window_pxui_view_damage() {
     let (fill, rev, node) = (Cell::new(RED), Cell::new(1u64), Cell::new(None));
     let mut build = |ui: &mut Ui| {
         ui.view("v", rev.get(), Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-            chip(ui, "first", BLUE, NO_FLAGS);
-            node.set(Some(chip(ui, "second", fill.get(), NO_FLAGS)));
+            chip(ui, "first", BLUE, Flags::NONE);
+            node.set(Some(chip(ui, "second", fill.get(), Flags::NONE)));
         });
-        chip(ui, "root", BLUE, NO_FLAGS);
+        chip(ui, "root", BLUE, Flags::NONE);
     };
     ui.frame(&at(0.0, vec![]), &mut build);
     ui.frame(&at(0.1, vec![]), &mut build);
@@ -290,7 +290,7 @@ pub fn window_pxui_list() {
         built.set(0);
         ui.list("rows", 100_000, 24.0, &mut |ui, i| {
             built.set(built.get() + 1);
-            let cell = ui.node("cell", Node { h: Size::Px(24.0), ..Node::DEFAULT });
+            let cell = ui.node("cell".into(), Node { h: Size::Px(24.0), ..Node::DEFAULT });
             if i == 5 {
                 cells.set(Some(cell));
             }
@@ -317,7 +317,7 @@ pub fn window_pxui_view_verify() {
     let mut ui = new_ui(None);
     let mut build = |ui: &mut Ui| {
         ui.view("stale-view", 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
-            chip(ui, "x", fill.get(), NO_FLAGS);
+            chip(ui, "x", fill.get(), Flags::NONE);
         });
     };
     ui.frame(&at(0.0, vec![]), &mut build);
@@ -488,7 +488,7 @@ pub fn window_pxui_list_text_survives_idle() {
     let mut list = |ui: &mut Ui| {
         ui.list("rows", 10_000, 24.0, &mut |ui, i| {
             ui.view("row", rev.get(), Size::Grow, Size::Px(24.0), &mut |ui| {
-                let row = ui.node("name", Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+                let row = ui.node("name".into(), Node { w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
                 ui.text(&row, &names[i % 64]);
             });
         });
@@ -518,7 +518,7 @@ pub fn window_pxui_budget_zero_alloc() {
     let mut list = |ui: &mut Ui| {
         ui.list("rows", 10_000, 24.0, &mut |ui, i| {
             ui.view("row", 0, Size::Grow, Size::Px(24.0), &mut |ui| {
-                let row = ui.node("name", Node { w: Size::Grow, h: Size::Px(24.0), role: pxui_core::a11y::Role::Label, ..Node::DEFAULT });
+                let row = ui.node("name".into(), Node { w: Size::Grow, h: Size::Px(24.0), role: pxui_core::a11y::Role::Label, ..Node::DEFAULT });
                 ui.text(&row, WORDS[i % 4]);
                 ui.a11y_name(&row, WORDS[i % 4]);
                 ui.a11y_value(&row, WORDS[(i + 1) % 4], (0, 0));
@@ -582,11 +582,11 @@ pub fn window_pxui_view_resize_settles() {
     let (parent_h, runs) = (Cell::new(100.0f32), Cell::new(0));
     let ink = color::rgb(1, 2, 3);
     let mut build = |ui: &mut Ui| {
-        let col = ui.node("col", Node { w: Size::Px(200.0), h: Size::Px(parent_h.get()), ..Node::DEFAULT });
+        let col = ui.node("col".into(), Node { w: Size::Px(200.0), h: Size::Px(parent_h.get()), ..Node::DEFAULT });
         ui.within(&col, &mut |ui| {
             ui.view("v", 1, Size::Grow, Size::Grow, &mut |ui| {
                 runs.set(runs.get() + 1);
-                let h = ui.node("fill", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                let h = ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
                 ui.canvas(&h, move |paint, r| paint.fill(r.x, r.y, r.w, r.h, ink));
             });
         });
@@ -607,7 +607,7 @@ pub fn window_pxui_view_fit() {
     let (runs, rows_a) = ([Cell::new(0), Cell::new(0), Cell::new(0)], Cell::new(1usize));
     let (views, last) = (Cell::new([None; 3]), Cell::new(None));
     let mut build = |ui: &mut Ui| {
-        let col = ui.node("col", Node { w: Size::Px(200.0), h: Size::Px(400.0), ..Node::DEFAULT });
+        let col = ui.node("col".into(), Node { w: Size::Px(200.0), h: Size::Px(400.0), ..Node::DEFAULT });
         ui.within(&col, &mut |ui| {
             let mut vs = [None; 3];
             for (i, name) in ["a", "b", "c"].iter().enumerate() {
@@ -615,7 +615,7 @@ pub fn window_pxui_view_fit() {
                 vs[i] = Some(ui.view(name, rev, Size::Grow, Size::Fit, &mut |ui| {
                     runs[i].set(runs[i].get() + 1);
                     for r in 0..count {
-                        let h = chip(ui, ["r0", "r1", "r2"][r], RED, CLICKABLE);
+                        let h = chip(ui, ["r0", "r1", "r2"][r], RED, Flags::CLICKABLE);
                         if i == 2 {
                             last.set(Some(h));
                         }
@@ -654,7 +654,7 @@ pub fn window_pxui_view_fit() {
     let c = last.get().unwrap();
     check(ui.rect(&c) == Rect::new(0.0, 120.0, 40.0, 20.0), &format!("c's row at {:?}", ui.rect(&c)));
     ui.frame(&at(0.3, vec![move_to((10, 130))]), &mut build);
-    check(ui.signal(&c).hovered, "the moved view's row missed the pointer");
+    check(ui.signal_owned(&c).hovered, "the moved view's row missed the pointer");
     ui.frame(&at(0.4, vec![move_to((10, 300))]), &mut build);
     rows_a.set(1);
     ui.frame(&at(0.5, vec![]), &mut build);
@@ -741,8 +741,8 @@ pub fn window_pxui_empty_buffers_preserve_names_and_values() {
     ui.set_a11y(true);
     let reuse = Cell::new(false);
     let mut build = |ui: &mut Ui| {
-        let spare = ui.node("spare", Node { role: pxui_core::a11y::Role::Label, h: Size::Px(24.0), ..Node::DEFAULT });
-        let target = ui.node("target", Node { role: pxui_core::a11y::Role::Label, h: Size::Px(24.0), ..Node::DEFAULT });
+        let spare = ui.node("spare".into(), Node { role: pxui_core::a11y::Role::Label, h: Size::Px(24.0), ..Node::DEFAULT });
+        let target = ui.node("target".into(), Node { role: pxui_core::a11y::Role::Label, h: Size::Px(24.0), ..Node::DEFAULT });
         if !reuse.get() {
             ui.text(&spare, LONG);
             ui.a11y_name(&spare, LONG);
@@ -779,7 +779,7 @@ pub fn window_pxui_more_kept_views_reuse_compaction_scratch() {
             ui.view("outer", frame, Size::Px(200.0), Size::Px(200.0), &mut |ui| {
                 for (i, label) in labels.iter().enumerate() {
                     ui.view(label, if i < 3 { 1 } else { phase }, Size::Px(20.0), Size::Px(10.0), &mut |ui| {
-                        ui.node("tile", Node { w: Size::Grow, h: Size::Grow, look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
+                        ui.node("tile".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: color::rgb(9, 9, 9), ..Look::NONE }, ..Node::DEFAULT });
                     });
                 }
             });
@@ -801,7 +801,7 @@ pub fn window_pxui_view_newcomer_keeps_warm_buffers() {
             ui.frame(&at(frame as f64 / 60.0, vec![]), &mut |ui| {
                 for &(label, n) in labels {
                     ui.view(label, 1, Size::Px(100.0), Size::Px(50.0), &mut |ui| {
-                        for name in &names[..n] { ui.node(name, Node { w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT }); }
+                        for name in &names[..n] { ui.node_ref(name, &Node { w: Size::Px(4.0), h: Size::Px(4.0), ..Node::DEFAULT }); }
                     });
                 }
             });
@@ -825,12 +825,12 @@ pub fn window_pxui_damage_containment_preserves_other_views() {
     let (view, revision, fill) = (Cell::new(None), Cell::new(0), Cell::new(RED));
     let mut build = |ui: &mut Ui| {
         view.set(Some(ui.view("clipped", revision.get(), Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-            ui.node("background", Node { w: Size::Px(100.0), h: Size::Px(60.0), at: Some((0.0, 0.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+            ui.node("background".into(), Node { w: Size::Px(100.0), h: Size::Px(60.0), at: Some((0.0, 0.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
             ui.view("nested", revision.get(), Size::Px(100.0), Size::Px(60.0), &mut |ui| {
-                ui.node("inside", Node { w: Size::Px(20.0), h: Size::Px(10.0), at: Some((20.0, 20.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+                ui.node("inside".into(), Node { w: Size::Px(20.0), h: Size::Px(10.0), at: Some((20.0, 20.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
             });
         })));
-        ui.node("outside", Node { w: Size::Px(20.0), h: Size::Px(20.0), at: Some((150.0, 80.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
+        ui.node("outside".into(), Node { w: Size::Px(20.0), h: Size::Px(20.0), at: Some((150.0, 80.0)).into(), look: Look { fill: fill.get(), ..Look::NONE }, ..Node::DEFAULT });
     };
     ui.frame(&at(0.0, vec![]), &mut build);
     let view = view.get().unwrap();
@@ -878,13 +878,13 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
             mem_sys::local_reset();
             let mut ends = [None; 2];
             ui.frame(&frame, &mut |ui| {
-                let viewport = ui.node("viewport", Node { flags: CLIP, w: Size::Px(600.0), h: Size::Px(400.0), ..Node::DEFAULT });
+                let viewport = ui.node("viewport".into(), Node { flags: Flags::CLIP, w: Size::Px(600.0), h: Size::Px(400.0), ..Node::DEFAULT });
                 ui.within(&viewport, &mut |ui| {
                     for row in first..first + ROWS {
                         let holder = ui.node_keyed(int_key(viewport.box_key, row as i64), Node { w: Size::Px(600.0), h: Size::Px(20.0), at: Some((0.0, (row - first) as f32 * 20.0)).into(), ..Node::DEFAULT });
                         ui.within(&holder, &mut |ui| {
                             let view = ui.view("row", if fresh { tick as u64 } else { 1 }, Size::Grow, Size::Grow, &mut |ui| {
-                                let node = ui.node("tiles", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+                                let node = ui.node("tiles".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
                                 ui.canvas(&node, move |paint, rect| {
                                     for tile in 0..TILES { paint.fill(rect.x + tile as f32 * 8.0, rect.y, 8.0, 20.0, color::rgb(20 + (row % 200) as i64, 10, 10)); }
                                 });
@@ -894,7 +894,7 @@ pub fn window_pxui_streaming_rows_reuse_retained_gaps() {
                         });
                     }
                 });
-                ui.view("footer", 1, Size::Px(600.0), Size::Px(20.0), &mut |ui| { chip(ui, "control", BLUE, NO_FLAGS); });
+                ui.view("footer", 1, Size::Px(600.0), Size::Px(20.0), &mut |ui| { chip(ui, "control", BLUE, Flags::NONE); });
             });
             if tick >= 30 {
                 assert_eq!(mem_sys::local_alloc_count(), 0, "tick {tick}");
@@ -958,7 +958,7 @@ pub fn window_pxui_view_unchanged_controls_keep_table_storage() {
     let mut ui=new_ui(None);
     let view=Cell::new(None);
     let mut build=|ui:&mut Ui| {
-        view.set(Some(ui.view("unchanged",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| { chip(ui,"child",RED,CLICKABLE); })));
+        view.set(Some(ui.view("unchanged",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| { chip(ui,"child",RED,Flags::CLICKABLE); })));
     };
     ui.frame(&at(0.0,vec![]),&mut build);
     let view=view.get().unwrap();
@@ -986,7 +986,7 @@ pub fn window_pxui_view_unchanged_controls_keep_table_storage() {
 pub fn window_pxui_view_entrance_channels() {
     let mut ui=new_ui(None);
     let (view,child)= (Cell::new(None),Cell::new(None));
-    let mut build=|ui:&mut Ui| {view.set(Some(ui.view("entrance",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {child.set(Some(chip(ui,"child",RED,CLICKABLE)));})));};
+    let mut build=|ui:&mut Ui| {view.set(Some(ui.view("entrance",1,Size::Px(100.0),Size::Px(80.0),&mut |ui| {child.set(Some(chip(ui,"child",RED,Flags::CLICKABLE)));})));};
     ui.frame(&at(0.0,vec![]),&mut build);
     let original=ui.output().draw[0].instances.clone();
     let curve=Curve::Bezier {duration:0.24,points:[0.0,0.0,1.0,1.0]};

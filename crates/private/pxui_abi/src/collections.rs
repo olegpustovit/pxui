@@ -54,7 +54,7 @@ export!(trusted pub unsafe fn pxui_ui_list_view(ui: *mut PxuiUi, desc: *const Px
     let selected: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
     let bad_text = Cell::new(false);
     let mut activated = None;
-    let rc = unsafe { crate::trusted::list_view(ui, label, desc.count, desc.multi != 0, selected, &mut |row, put| if !callback_text(desc.text, desc.user, row, 0, put) { bad_text.set(true); }, &mut activated) };
+    let rc = unsafe { crate::trusted::list_view_text(ui, label, desc.count, desc.multi != 0, selected, &mut |row, put| if !callback_text(desc.text, desc.user, row, 0, put) { bad_text.set(true); }, &mut activated) };
     if rc != 0 { return rc; }
     if bad_text.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
     unsafe { *out = activated.unwrap_or(usize::MAX); }
@@ -78,7 +78,7 @@ export!(trusted pub unsafe fn pxui_ui_tree(ui: *mut PxuiUi, desc: *const PxuiTre
     let visible: &mut [u32] = if desc.visible.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.visible.ptr, desc.visible.len) } };
     let bad_text = Cell::new(false);
     let mut result = (None, 0);
-    let rc = unsafe { crate::trusted::tree(ui, label, raw_nodes, open, &mut selected, visible, &mut |row, put| if !callback_text(desc.text, desc.user, row, 0, put) { bad_text.set(true); }, &mut result) };
+    let rc = unsafe { crate::trusted::tree_text(ui, label, raw_nodes, open, &mut selected, visible, &mut |row, put| if !callback_text(desc.text, desc.user, row, 0, put) { bad_text.set(true); }, &mut result) };
     if rc != 0 { return rc; }
     if bad_text.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
     unsafe { *desc.visible_len = result.1; *desc.selected = selected.unwrap_or(usize::MAX); *out = result.0.unwrap_or(usize::MAX); }
@@ -103,12 +103,20 @@ export!(trusted pub unsafe fn pxui_ui_table_view(ui: *mut PxuiUi, desc: *const P
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     let bad_text = Cell::new(false);
     let mut activated = None;
-    let rc = unsafe { crate::trusted::table_view(ui, label, &titles, widths, desc.rows, sort, &mut selected, &mut |row, col, put| if !callback_text(desc.text, desc.user, row, col, put) { bad_text.set(true); }, &mut activated) };
+    let rc = unsafe { crate::trusted::table_view_text(ui, label, &titles, widths, desc.rows, sort, &mut selected, &mut |row, col, put| if !callback_text(desc.text, desc.user, row, col, put) { bad_text.set(true); }, &mut activated) };
     state.shared().put_strs(titles);
     if rc != 0 { return rc; }
     if bad_text.get() { return unsafe { fail(ui, "invalid collection callback text") }; }
     unsafe { *desc.selected = selected.unwrap_or(usize::MAX); *out = activated.unwrap_or(usize::MAX); }
     0
+});
+
+// ABI 1.49: the kit's text of the collection item being built, from inside a `list_view`/`tree` row or a `table_view` cell callback
+// (the `_with` exports): a list row's text, a tree row's text naming the row, a table cell's text naming the cell. Refused elsewhere.
+export!(pub unsafe fn pxui_ui_item_text(ui: *mut PxuiUi, text: Str) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(text) = (unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid item text") } };
+    unsafe { crate::trusted::item_text(ui, text) }
 });
 
 export!(trusted pub unsafe fn pxui_ui_list_view_with(ui: *mut PxuiUi, desc: *const PxuiListViewWithDesc, out: *mut usize) -> i32 {
@@ -121,7 +129,7 @@ export!(trusted pub unsafe fn pxui_ui_list_view_with(ui: *mut PxuiUi, desc: *con
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid list view label") }; };
     let selected: &mut [u8] = if desc.selected.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.selected.ptr, desc.selected.len) } };
     let mut activated = None;
-    let rc = unsafe { crate::trusted::list_view_with(ui, label, desc.count, desc.multi != 0, selected, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut activated) };
+    let rc = unsafe { crate::trusted::list_view(ui, label, desc.count, desc.multi != 0, selected, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut activated) };
     if rc != 0 { return rc; }
     unsafe { *out = activated.unwrap_or(usize::MAX); }
     0
@@ -141,7 +149,7 @@ export!(trusted pub unsafe fn pxui_ui_tree_with(ui: *mut PxuiUi, desc: *const Px
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     let visible: &mut [u32] = if desc.visible.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.visible.ptr, desc.visible.len) } };
     let mut result = (None, 0);
-    let rc = unsafe { crate::trusted::tree_with(ui, label, raw_nodes, open, &mut selected, visible, &mut |ui, node, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), node, column) }, &mut result) };
+    let rc = unsafe { crate::trusted::tree(ui, label, raw_nodes, open, &mut selected, visible, &mut |ui, node, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), node, column) }, &mut result) };
     if rc != 0 { return rc; }
     unsafe { *desc.visible_len = result.1; *desc.selected = selected.unwrap_or(usize::MAX); *out = result.0.unwrap_or(usize::MAX); }
     0
@@ -164,7 +172,7 @@ export!(trusted pub unsafe fn pxui_ui_table_view_with(ui: *mut PxuiUi, desc: *co
     let sort = (desc.has_sort != 0).then_some((desc.sort_column, desc.ascending != 0));
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
     let mut activated = None;
-    let rc = unsafe { crate::trusted::table_view_with(ui, label, &titles, widths, desc.rows, sort, &mut selected, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut activated) };
+    let rc = unsafe { crate::trusted::table_view(ui, label, &titles, widths, desc.rows, sort, &mut selected, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut activated) };
     state.shared().put_strs(titles);
     if rc != 0 { return rc; }
     unsafe { *desc.selected = selected.unwrap_or(usize::MAX); *out = activated.unwrap_or(usize::MAX); }

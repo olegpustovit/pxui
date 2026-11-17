@@ -599,14 +599,14 @@ pub fn window_pxui_modal_4() {
     let raised = |ui: &mut Ui, events: Vec<Event>| -> (bool, bool) {
         let mut out = (false, false);
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            let front = ui.box_("front", BoxOpts::default().flags(CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
+            let front = ui.box_("front", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
             front_key.set(key(&front));
             ui.to_front(0, &front);
-            let back = ui.box_("back", BoxOpts::default().flags(CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
+            let back = ui.box_("back", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
             for b in [&front, &back] {
                 ui.draw(b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, color::white()));
             }
-            out = (ui.signal(&front).clicked, ui.signal(&back).clicked);
+            out = (ui.signal_owned(&front).clicked, ui.signal_owned(&back).clicked);
         });
         out
     };
@@ -678,13 +678,13 @@ pub fn window_pxui_carry() {
             if popup.get() {
                 ui.popup(None, None, true, false, (200.0, 0.0), 100.0, 40.0, "over", &mut |_| {});
             }
-            let source = ui.box_("source", BoxOpts::default().flags(CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
-            let target = ui.box_("target", BoxOpts::default().flags(CLICKABLE).at((0.0, 100.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
-            if ui.signal(&source).held {
+            let source = ui.box_("source", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
+            let target = ui.box_("target", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 100.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
+            if ui.signal_owned(&source).held {
                 ui.carry(Some(&source), "material", "(ref cobalt)");
             }
-            clicked.set(clicked.get() || ui.signal(&target).clicked);
-            out = (ui.carrying(), ui.drop_target(&target), ui.signal(&target).hovered);
+            clicked.set(clicked.get() || ui.signal_owned(&target).clicked);
+            out = (ui.carrying(), ui.drop_target(&target), ui.signal_owned(&target).hovered);
         });
         out
     };

@@ -239,7 +239,7 @@ fn gpu_patch() {
     let chip = |text: &'static str, fill: (i64, i64, i64)| {
         move |ui: &mut Ui| -> Handle {
             let look = Look { fill: pxui_core::geom::color::rgb(fill.0, fill.1, fill.2), text: pxui_core::geom::color::black(), ..Look::NONE };
-            let h = ui.node("clock", Node { w: Size::Px(120.0), h: Size::Px(24.0), at: Some((10.0, 10.0)).into(), look, inset: Edges { l: 6.0, ..Edges::default() }, ..Node::DEFAULT });
+            let h = ui.node("clock".into(), Node { w: Size::Px(120.0), h: Size::Px(24.0), at: Some((10.0, 10.0)).into(), look, inset: Edges { l: 6.0, ..Edges::default() }, ..Node::DEFAULT });
             ui.text(&h, text);
             h
         }
@@ -298,7 +298,7 @@ fn gpu_view_offset_pixels() {
         for count in 0..2 {
             ui.frame(&frame_at(count, 240, 2), &mut |ui| {
                 let at = if offset { (0.0, 0.0) } else { (24.0, 16.0) };
-                let holder = ui.node("holder", Node { w: Size::Px(300.0), h: Size::Px(200.0), at: Some(at).into(), ..Node::DEFAULT });
+                let holder = ui.node("holder".into(), Node { w: Size::Px(300.0), h: Size::Px(200.0), at: Some(at).into(), ..Node::DEFAULT });
                 let saved = ui.enter(&holder);
                 view = Some(ui.view("kit", 1, Size::Px(300.0), Size::Px(200.0), &mut |ui| new_panel(ui)));
                 ui.leave(saved);
@@ -327,7 +327,7 @@ fn gpu_retained_bytes() {
         ui.view("kit", 1, Size::Px(WIDTH as f32), Size::Px(200.0), &mut |ui| new_panel(ui));
         ui.view("chip", 1, Size::Px(100.0), Size::Px(30.0), &mut |ui| {
             let look = Look { fill: pxui_core::geom::color::rgb(200, 40, 40), ..Look::NONE };
-            chip = Some(ui.node("chip", Node { w: Size::Px(80.0), h: Size::Px(20.0), look, ..Node::DEFAULT }));
+            chip = Some(ui.node("chip".into(), Node { w: Size::Px(80.0), h: Size::Px(20.0), look, ..Node::DEFAULT }));
         });
     };
     let mut painter = gpu::painter(&mut ui);
@@ -356,9 +356,9 @@ fn gpu_round_clip() {
     }
     let red = pxui_core::geom::color::rgb(220, 20, 20);
     let (pixels, _) = render(1, 80, &mut |ui| {
-        let clip = ui.node("clip", Node { flags: CLIP | ROUND_CLIP, w: Size::Px(100.0), h: Size::Px(60.0), at: Some((10.0, 10.0)).into(), look: Look { radius: [16.0; 4], ..Look::NONE }, ..Node::DEFAULT });
+        let clip = ui.node("clip".into(), Node { flags: Flags::CLIP | Flags::ROUND_CLIP, w: Size::Px(100.0), h: Size::Px(60.0), at: Some((10.0, 10.0)).into(), look: Look { radius: [16.0; 4], ..Look::NONE }, ..Node::DEFAULT });
         ui.within(&clip, &mut |ui| {
-            ui.node("fill", Node { w: Size::Grow, h: Size::Grow, look: Look { fill: red, ..Look::NONE }, ..Node::DEFAULT });
+            ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: red, ..Look::NONE }, ..Node::DEFAULT });
         });
     });
     let at = |x: usize, y: usize| &pixels[(y * WIDTH as usize + x) * 4..][..3];
@@ -442,11 +442,11 @@ fn gpu_plain_keyframe_cached_owner_visibility() {
             let frame = frame_at(tick as i64, 80, density);
             mem_sys::local_reset();
             ui.frame(&frame, &mut |ui| {
-                let clip = ui.node("clip", Node { flags: CLIP, w: Size::Px(100.0), h: Size::Px(40.0), at: Some((10.0, 10.0)).into(), ..Node::DEFAULT });
+                let clip = ui.node("clip".into(), Node { flags: Flags::CLIP, w: Size::Px(100.0), h: Size::Px(40.0), at: Some((10.0, 10.0)).into(), ..Node::DEFAULT });
                 ui.within(&clip, &mut |ui| {
                     let cached = ui.view("cached", 1, Size::Grow, Size::Px(20.0), &mut |ui| {
                         builds.set(builds.get() + 1);
-                        let fill = ui.node("fill", Node { w: Size::Grow, h: Size::Grow, look: Look { fill: pxui_core::geom::color::rgb(220, 20, 20), ..Look::NONE }, ..Node::DEFAULT });
+                        let fill = ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: pxui_core::geom::color::rgb(220, 20, 20), ..Look::NONE }, ..Node::DEFAULT });
                         let curve = Curve::Bezier { duration: 1.0, points: [0.0, 0.0, 1.0, 1.0] };
                         ui.animate_keys_repeat(&fill, &[Keyframe { time: 0.0, target: Target::Opacity(1.0), curve }, Keyframe { time: 1.0, target: Target::Opacity(1.0), curve }], 0, false, 0.0);
                     });

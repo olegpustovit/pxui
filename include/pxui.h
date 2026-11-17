@@ -341,9 +341,12 @@ typedef struct { const PxuiMenuDesc *ptr; size_t len; } PxuiMenuDescSpan;
 typedef void (*PxuiGridBuild)(void *user, PxuiUi *ui, size_t index);
 typedef struct { uint32_t size,reserved; PxuiStr label; size_t count; float cell_w,cell_h; PxuiGridBuild build; void *user; } PxuiGridListDesc;
 /* build: SIZE_MAX for leading content, SIZE_MAX-1 for the sticky heading, otherwise a row index. */
-typedef struct { uint32_t size; uint8_t overlay_scrollbar,reserved[3]; PxuiStr label; size_t count; float row_height,leading_height,header_height,trailing_height; PxuiGridBuild build; void *user; } PxuiSectionListDesc;
+/* ABI 1.49: `key` returns the item id of row `index`; row boxes are keyed by it (a row's state follows its item). A record
+   ending before `key` (56-byte `user` end, size 64 without it) or a null `key` keys rows by index. */
+typedef int64_t (*PxuiRowKey)(void *user, size_t index);
+typedef struct { uint32_t size; uint8_t overlay_scrollbar,reserved[3]; PxuiStr label; size_t count; float row_height,leading_height,header_height,trailing_height; PxuiGridBuild build; void *user; PxuiRowKey key; } PxuiSectionListDesc;
 typedef void (*PxuiMeasuredSectionBuild)(void *user, void *ui, size_t index, float content_y);
-typedef struct { uint32_t size; uint8_t overlay_scrollbar,reserved[3]; PxuiStr label; size_t count; float row_height,leading_height,header_height,trailing_height; PxuiMeasuredSectionBuild build; void *user; } PxuiMeasuredSectionDesc;
+typedef struct { uint32_t size; uint8_t overlay_scrollbar,reserved[3]; PxuiStr label; size_t count; float row_height,leading_height,header_height,trailing_height; PxuiMeasuredSectionBuild build; void *user; PxuiRowKey key; } PxuiMeasuredSectionDesc;
 typedef struct { uint32_t size,axis; PxuiStr label; float ratio,min_a,min_b; uint32_t reserved; PxuiBuild build_a; void *user_a; PxuiBuild build_b; void *user_b; } PxuiSplitDesc;
 typedef struct { uint32_t size,reserved; PxuiStr label; PxuiMenuDescSpan menus; } PxuiMenuBarDesc;
 typedef struct { uint32_t size,reserved; size_t menu,item; } PxuiMenuOut;
@@ -452,6 +455,9 @@ int32_t pxui_label(PxuiUi *ui, PxuiStr text);
    pxui_label now is). A null or short style, unknown set bits, invalid UTF-8, a non-finite or non-positive size, an invalid
    wrap, align, ellipsis, feature or width, or a font the Ui lacks is refused before anything is built. */
 int32_t pxui_ui_label(PxuiUi *ui, PxuiStr text, const PxuiLabelStyle *style);
+/* ABI 1.49: the PxuiTextStyle `style` shapes with, resolved against the Ui's theme label as pxui_ui_label resolves it (unset fields
+   the theme label's, tracking in points); `digits` is ignored. Refused for a style pxui_ui_label would refuse. */
+int32_t pxui_ui_resolve_label(PxuiUi *ui, const PxuiLabelStyle *style, PxuiTextStyle *out);
 int32_t pxui_button(PxuiUi *ui, PxuiStr label, uint8_t *out);
 int32_t pxui_toggle(PxuiUi *ui, PxuiStr label, uint8_t on, uint8_t *out);
 int32_t pxui_text_field(PxuiUi *ui, PxuiStr label, PxuiStr value, PxuiStr *changed, uint8_t *out_changed); /* changed: the new text, borrowed until the next frame, when out_changed */
@@ -559,6 +565,9 @@ typedef struct { uint32_t size; uint8_t has_sort,ascending,reserved[2]; PxuiStr 
 int32_t pxui_ui_list_view_with(PxuiUi *ui, const PxuiListViewWithDesc *desc, size_t *activated);
 int32_t pxui_ui_tree_with(PxuiUi *ui, const PxuiTreeViewWithDesc *desc, size_t *activated);
 int32_t pxui_ui_table_view_with(PxuiUi *ui, const PxuiTableViewWithDesc *desc, size_t *sort_column);
+/* ABI 1.49: from inside a list_view/tree row or table_view cell callback of the _with calls, the kit's text of that item: a list
+   row's row label, a tree row's (naming the row), a table cell's (naming the cell). Refused outside a collection item. */
+int32_t pxui_ui_item_text(PxuiUi *ui, PxuiStr text);
 typedef struct { int64_t start, end; } PxuiRange;
 typedef struct { int64_t start, end; PxuiColor color; uint32_t reserved; } PxuiColorSpan;
 typedef struct { int64_t line, start, end; uint8_t has_range, reserved[7]; PxuiStr text; } PxuiNote;
@@ -989,8 +998,8 @@ _Static_assert(sizeof(PxuiTableViewWithDesc) == 96 && offsetof(PxuiTableViewWith
 _Static_assert(sizeof(PxuiTextSpan) == 24 && offsetof(PxuiTextSpan, start) == 0 && offsetof(PxuiTextSpan, end) == 4 && offsetof(PxuiTextSpan, weight) == 8 && offsetof(PxuiTextSpan, flags) == 10 && offsetof(PxuiTextSpan, color) == 12 && offsetof(PxuiTextSpan, background) == 16 && offsetof(PxuiTextSpan, underline) == 20, "TextSpan layout");
 _Static_assert(sizeof(PxuiTextSpans) == 200 && offsetof(PxuiTextSpans, size) == 0 && offsetof(PxuiTextSpans, count) == 4 && offsetof(PxuiTextSpans, spans) == 8, "TextSpans layout");
 _Static_assert(offsetof(PxuiFrameIn, environment) == 56 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52, "FrameInV1_8 layout");
-_Static_assert(sizeof(PxuiSectionListDesc) == 64 && offsetof(PxuiSectionListDesc, size) == 0 && offsetof(PxuiSectionListDesc, overlay_scrollbar) == 4 && offsetof(PxuiSectionListDesc, reserved) == 5 && offsetof(PxuiSectionListDesc, label) == 8 && offsetof(PxuiSectionListDesc, count) == 24 && offsetof(PxuiSectionListDesc, row_height) == 32 && offsetof(PxuiSectionListDesc, leading_height) == 36 && offsetof(PxuiSectionListDesc, header_height) == 40 && offsetof(PxuiSectionListDesc, trailing_height) == 44 && offsetof(PxuiSectionListDesc, build) == 48 && offsetof(PxuiSectionListDesc, user) == 56, "PxuiSectionListDesc layout");
-_Static_assert(sizeof(PxuiMeasuredSectionDesc) == 64 && offsetof(PxuiMeasuredSectionDesc, size) == 0 && offsetof(PxuiMeasuredSectionDesc, overlay_scrollbar) == 4 && offsetof(PxuiMeasuredSectionDesc, reserved) == 5 && offsetof(PxuiMeasuredSectionDesc, label) == 8 && offsetof(PxuiMeasuredSectionDesc, count) == 24 && offsetof(PxuiMeasuredSectionDesc, row_height) == 32 && offsetof(PxuiMeasuredSectionDesc, leading_height) == 36 && offsetof(PxuiMeasuredSectionDesc, header_height) == 40 && offsetof(PxuiMeasuredSectionDesc, trailing_height) == 44 && offsetof(PxuiMeasuredSectionDesc, build) == 48 && offsetof(PxuiMeasuredSectionDesc, user) == 56, "PxuiMeasuredSectionDesc layout");
+_Static_assert(sizeof(PxuiSectionListDesc) == 72 && offsetof(PxuiSectionListDesc, size) == 0 && offsetof(PxuiSectionListDesc, overlay_scrollbar) == 4 && offsetof(PxuiSectionListDesc, reserved) == 5 && offsetof(PxuiSectionListDesc, label) == 8 && offsetof(PxuiSectionListDesc, count) == 24 && offsetof(PxuiSectionListDesc, row_height) == 32 && offsetof(PxuiSectionListDesc, leading_height) == 36 && offsetof(PxuiSectionListDesc, header_height) == 40 && offsetof(PxuiSectionListDesc, trailing_height) == 44 && offsetof(PxuiSectionListDesc, build) == 48 && offsetof(PxuiSectionListDesc, user) == 56 && offsetof(PxuiSectionListDesc, key) == 64, "PxuiSectionListDesc layout");
+_Static_assert(sizeof(PxuiMeasuredSectionDesc) == 72 && offsetof(PxuiMeasuredSectionDesc, size) == 0 && offsetof(PxuiMeasuredSectionDesc, overlay_scrollbar) == 4 && offsetof(PxuiMeasuredSectionDesc, reserved) == 5 && offsetof(PxuiMeasuredSectionDesc, label) == 8 && offsetof(PxuiMeasuredSectionDesc, count) == 24 && offsetof(PxuiMeasuredSectionDesc, row_height) == 32 && offsetof(PxuiMeasuredSectionDesc, leading_height) == 36 && offsetof(PxuiMeasuredSectionDesc, header_height) == 40 && offsetof(PxuiMeasuredSectionDesc, trailing_height) == 44 && offsetof(PxuiMeasuredSectionDesc, build) == 48 && offsetof(PxuiMeasuredSectionDesc, user) == 56 && offsetof(PxuiMeasuredSectionDesc, key) == 64, "PxuiMeasuredSectionDesc layout");
 _Static_assert(sizeof(PxuiEnvironment) == 72 && offsetof(PxuiEnvironment, safe_area) == 0 && offsetof(PxuiEnvironment, keyboard_frame) == 16 && offsetof(PxuiEnvironment, keyboard_from) == 32 && offsetof(PxuiEnvironment, keyboard_started) == 48 && offsetof(PxuiEnvironment, keyboard_duration) == 56 && offsetof(PxuiEnvironment, keyboard_curve) == 64 && offsetof(PxuiEnvironment, keyboard_visible) == 68, "Environment layout");
 _Static_assert(offsetof(PxuiFrameIn, keyboard) == 128 && offsetof(PxuiFrameIn, size) == 0 && offsetof(PxuiFrameIn, events) == 8 && offsetof(PxuiFrameIn, event_count) == 16 && offsetof(PxuiFrameIn, width) == 24 && offsetof(PxuiFrameIn, height) == 28 && offsetof(PxuiFrameIn, scale) == 32 && offsetof(PxuiFrameIn, time) == 40 && offsetof(PxuiFrameIn, appearance) == 48 && offsetof(PxuiFrameIn, reduced_motion) == 52 && offsetof(PxuiFrameIn, environment) == 56, "FrameInV1_24 layout");
 _Static_assert(sizeof(PxuiTouch) == 48 && offsetof(PxuiTouch, device) == 0 && offsetof(PxuiTouch, finger) == 8 && offsetof(PxuiTouch, x) == 16 && offsetof(PxuiTouch, y) == 24 && offsetof(PxuiTouch, time) == 32 && offsetof(PxuiTouch, pressure) == 40 && offsetof(PxuiTouch, phase) == 44, "Touch layout");

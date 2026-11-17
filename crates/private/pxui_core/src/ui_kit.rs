@@ -290,7 +290,7 @@ pub(crate) fn default_section(this: &mut Ui, c: &SectionConfig, label: &str, con
 /// One pane of the built-in split: it grows by its share of the room and holds at its minimum along the split.
 pub(crate) fn default_pane(this: &mut Ui, c: &SplitConfig, label: &str, grow: f32, min: f32, content: &mut dyn FnMut(&mut Ui)) {
     let row = c.axis == Axis::Row;
-    let pane = this.node(label, Node { w: Size::Grow, h: Size::Grow, grow, min_w: if row { min } else { 0.0 }, min_h: if row { 0.0 } else { min }, flags: CLIP, ..Node::DEFAULT });
+    let pane = this.node_ref(label, &Node { w: Size::Grow, h: Size::Grow, grow, min_w: if row { min } else { 0.0 }, min_h: if row { 0.0 } else { min }, flags: Flags::CLIP, ..Node::DEFAULT });
     this.within(&pane, content);
 }
 
@@ -381,8 +381,8 @@ impl Ui {
     }
 
 
-    pub(crate) fn kit_row(&mut self, flags: Option<i64>, hit: Option<HitFn>, label: &str) -> UiBox {
-        let flags = flags.unwrap_or(CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY);
+    pub(crate) fn kit_row(&mut self, flags: Option<Flags>, hit: Option<HitFn>, label: &str) -> UiBox {
+        let flags = flags.unwrap_or(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY);
         let mut opts = BoxOpts::default().flags(flags).w(Size::Grow).h(Size::Px(self.row_height() as f32));
         opts.hit = hit;
         self.box_(label, opts)
@@ -606,10 +606,9 @@ impl Ui {
         };
         let thumb = t.scrollbar.idle;
         let bar = Bar { color: thumb.fill, radius: thumb.radius[0], width: t.scrollbar_w, gap: t.scrollbar_gap, margin: padding as f32, whole: true };
-        let panel = self.node(
-            label,
-            Node {
-                flags: SCROLL | CLIP | BLOCKING,
+        let panel = self.node_ref(
+            label, &Node {
+                flags: Flags::SCROLL | Flags::CLIP | Flags::BLOCKING,
                 w: Size::Px(width),
                 h,
                 max_h,
@@ -674,7 +673,7 @@ impl Ui {
         let pin = if window { None } else { pin };
         self.lead_gap();
         let rh = self.row_height() as f32;
-        let row = self.node(key, Node { flags: CLICKABLE, h: Size::Px(rh), inset: Edges { l: label_x, ..Edges::default() }, ..Node::DEFAULT });
+        let row = self.node_ref(key, &Node { flags: Flags::CLICKABLE, h: Size::Px(rh), inset: Edges { l: label_x, ..Edges::default() }, ..Node::DEFAULT });
         let state = State { hovered: self.hovered_within(&row), ..State::default() };
         self.set_role(&row, Role::Label, 0);
         self.a11y_name(&row, label);
@@ -724,10 +723,10 @@ impl Ui {
 
     fn section_at(&mut self, at: (bool, bool), key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
         let rh = self.row_height() as f32;
-        let title = self.box_(key, BoxOpts::default().flags(CLICKABLE | TAB_STOP).w(Size::Grow).h(Size::Px(rh)));
+        let title = self.box_(key, BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP).w(Size::Grow).h(Size::Px(rh)));
         let open = self.state(&title, if expanded { 1 } else { 0 }) != 0;
         let open = set_expanded.unwrap_or(open);
-        let signal = self.signal(&title);
+        let signal = self.signal_owned(&title);
         let open = if signal.clicked { !open } else { open };
         // the gap above depends on this section's own state, known only now
         let gap = self.section_gap(!open, at) as f32;
@@ -752,8 +751,8 @@ impl Ui {
 
     /// The value control inside an inspector row.
     pub fn inspector_toggle_value(&mut self, key: &str, at: (f32, f32), value: bool) -> bool {
-        let control = self.box_(key, BoxOpts::default().flags(CLICKABLE | TAB_STOP).at(at).w(Size::Px(28.0)).h(Size::Px(self.control_h())));
-        let value = if self.signal(&control).clicked { !value } else { value };
+        let control = self.box_(key, BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP).at(at).w(Size::Px(28.0)).h(Size::Px(self.control_h())));
+        let value = if self.signal_owned(&control).clicked { !value } else { value };
         self.set_role(&control, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
         self.a11y_name(&control, key);
         let on = State { checked: value, ..State::default() };
@@ -782,14 +781,14 @@ impl Ui {
     pub fn inspector_button(&mut self, key: &str, label: &str) -> bool {
         self.lead_gap();
         let pad = (self.row_height() as f32 - self.control_h()) / 2.0;
-        let row = self.node(key, Node { flags: CLICKABLE | TAB_STOP, h: Size::Px(self.row_height() as f32), axis: Axis::Row, padding: Edges { l: 6.0, t: pad, r: 6.0, b: pad }, ..Node::DEFAULT });
-        let signal = self.signal(&row);
+        let row = self.node_ref(key, &Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, h: Size::Px(self.row_height() as f32), axis: Axis::Row, padding: Edges { l: 6.0, t: pad, r: 6.0, b: pad }, ..Node::DEFAULT });
+        let signal = self.signal_owned(&row);
         // the ground is the label and 6 points each side, from 6 in; the label is cut to the row less 24
         let tw = self.text_width(None, label);
         let state = State { hovered: signal.hovered, pressed: signal.held, ..State::default() };
         let look = Look { ring: Ring::NONE, ..*self.theme().button.pick(state) };
         let saved = self.enter(&row);
-        let ground = self.node_keyed(int_key(row.box_key, 0), Node { flags: FIT_TEXT, w: Size::Px(tw + 12.0), shrink: 1.0, min_w: 1.0, h: Size::Grow, inset: Edges { l: 6.0, r: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
+        let ground = self.node_keyed(int_key(row.box_key, 0), Node { flags: Flags::FIT_TEXT, w: Size::Px(tw + 12.0), shrink: 1.0, min_w: 1.0, h: Size::Grow, inset: Edges { l: 6.0, r: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
         self.leave(saved);
         self.set_look(&ground, look, state);
         self.text(&ground, label);
@@ -817,7 +816,7 @@ impl Ui {
         let rh = self.row_height() as f32;
         let t = self.theme();
         let bar = Bar { color: t.scrollbar.idle.fill, radius: t.scrollbar.idle.radius[0], width: t.scrollbar_w, gap: t.scrollbar_gap, margin: 6.0, whole: false };
-        let body = self.node("inspector-body", Node { flags: SCROLL | CLIP | OVER_THUMB, h: Size::Grow, scroll_step: rh, bar: Some(bar).into(), role: Role::ScrollArea, ..Node::DEFAULT });
+        let body = self.node("inspector-body".into(), Node { flags: Flags::SCROLL | Flags::CLIP | Flags::OVER_THUMB, h: Size::Grow, scroll_step: rh, bar: Some(bar).into(), role: Role::ScrollArea, ..Node::DEFAULT });
         self.within(&body, f);
     }
 
@@ -856,7 +855,7 @@ impl Ui {
         self.lead_gap();
         let rh = self.row_height() as f32;
         let (dot, hint) = (self.theme().notice.idle, self.theme().hint.idle);
-        let row = self.node(key, Node { flags: FIT_TEXT, h: Size::Px(rh), look: hint, inset: Edges { l: 26.0, r: 12.0, ..Edges::default() }, role: Role::Label, ..Node::DEFAULT });
+        let row = self.node_ref(key, &Node { flags: Flags::FIT_TEXT, h: Size::Px(rh), look: hint, inset: Edges { l: 26.0, r: 12.0, ..Edges::default() }, role: Role::Label, ..Node::DEFAULT });
         self.text(&row, message);
         let saved = self.enter(&row);
         self.placed(int_key(row.box_key, 0), (12.0, rh / 2.0 - 3.0), Size::Px(6.0), 6.0, dot, Edges::default(), "");
@@ -960,6 +959,21 @@ impl Ui {
         assert!(self.label_styled(text, &style, false), "Ui.label: invalid style {style:?}");
     }
 
+    /// The text style `label` shapes with, resolved against this `Ui`'s theme label as `label` resolves it (unset fields are the
+    /// theme label's; tracking becomes points): what `label` would shape. `None` for a style that does not resolve.
+    pub fn resolve(&self, label: &Label) -> Option<TextStyle> {
+        let look = self.theme().label.idle;
+        let s = resolve_label(label, &look, self.font_size(), self.row_height() as f32, None)?.style;
+        Some(TextStyle {
+            size: core::mem::size_of::<TextStyle>() as u32, font: s.font, weight: s.weight, size_points: s.size, line_height: s.line_height,
+            wrap: match s.wrap { Wrap::None => TextStyle::WRAP_NONE, Wrap::Word => TextStyle::WRAP_WORD, Wrap::Glyph => TextStyle::WRAP_GLYPH, Wrap::WordSpaces => TextStyle::WRAP_WORD_SPACES },
+            align: match s.align { TextAlign::Left => TextStyle::ALIGN_LEFT, TextAlign::Center => TextStyle::ALIGN_CENTER, TextAlign::Right => TextStyle::ALIGN_RIGHT },
+            max_lines: s.max_lines, italic: s.italic as u8,
+            ellipsis: match s.ellipsis { Ellipsis::None => TextStyle::ELLIPSIS_NONE, Ellipsis::End => TextStyle::ELLIPSIS_END, Ellipsis::Middle => TextStyle::ELLIPSIS_MIDDLE, Ellipsis::Head => TextStyle::ELLIPSIS_HEAD },
+            features: s.features, tracking: s.tracking,
+        })
+    }
+
     /// `label`, or with `digits` a number drawn one cached character layout at a time (its accessible value the text). `false`, with
     /// nothing built, when the style does not resolve (`resolve_label`), its padding or width is not finite, or its font is not loaded.
     pub fn label_styled(&mut self, text: &str, style: &Label, digits: bool) -> bool {
@@ -986,7 +1000,7 @@ impl Ui {
     /// A window's foot: a line-2 hairline under 4 points of space, then the keys in ink-3 each
     /// followed by what it does in ink-2, 8 points apart, and `right` (a key or a count) at the end.
     pub fn footer(&mut self, right: Option<&str>, hints: &[(&str, &str)]) {
-        let row = self.node("footer", Node { role: Role::StatusBar, ..Node::DEFAULT });
+        let row = self.node("footer".into(), Node { role: Role::StatusBar, ..Node::DEFAULT });
         in_body!(self, row.box_key, row, footer, default_footer(&FooterConfig { row }, right, hints));
     }
 
@@ -1017,11 +1031,11 @@ impl Ui {
         let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
         let line = self.node_keyed(int_key(unique.0, 0x6c69), Node::DEFAULT);
         let saved = self.enter(&line);
-        let flags = if opts.enabled { CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY | FOCUS_MARK } else { BLOCKING | TAB_ONLY };
+        let flags = if opts.enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY | Flags::FOCUS_MARK } else { Flags::BLOCKING | Flags::TAB_ONLY };
         let row = self.node_unique(unique, &Node { flags, role: Role::Button, ..Node::DEFAULT });
         self.a11y_name(&row, name.unwrap_or(text));
         self.leave(saved);
-        let signal = self.signal_state(&row);
+        let signal = self.signal(&row);
         let focused = self.focused(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !opts.enabled, checked: opts.selected };
         let mut states = match opts.states { Some(s) => s, None if opts.bare => self.theme().button_bare, None => self.theme().button };
@@ -1050,9 +1064,9 @@ impl Ui {
     /// A switch row: the label and the 28 x 14 switch at the end (the default body; a theme's `body.toggle` picks another).
     /// Behaviour: the row, a press on the part its body builds as `Part::HIT` (the whole row without one), the value, the role.
     pub fn toggle(&mut self, text: &str, value: bool) -> bool {
-        let row = self.kit_row(Some(CLICKABLE | FOCUSABLE | BLOCKING | TAB_ONLY), None, text);
+        let row = self.kit_row(Some(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY), None, text);
         self.hit_part(&row, Part::HIT);
-        let signal = self.signal(&row);
+        let signal = self.signal_owned(&row);
         let value = if signal.clicked { !value } else { value };
         self.set_role(&row, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
         let config = ToggleConfig { state: State { hovered: signal.hovered, ..State::default() }, on: value, row };
@@ -1066,7 +1080,7 @@ impl Ui {
     /// else a 1-point flow child that fills its row or column across.
     pub fn grip(&mut self, label: std::fmt::Arguments, axis: Axis, rect: Option<Rect>) -> (Handle, Signal) {
         let row = axis == Axis::Row;
-        let mut opts = BoxOpts::default().flags(CLICKABLE | BLOCKING);
+        let mut opts = BoxOpts::default().flags(Flags::CLICKABLE | Flags::BLOCKING);
         opts = match rect {
             Some(r) => opts.at((r.x, r.y)).w(Size::Px(r.w)).h(Size::Px(r.h)),
             None if row => opts.w(Size::Px(1.0)).h(Size::Grow),
@@ -1074,7 +1088,7 @@ impl Ui {
         };
         let b = self.box_fmt(label, opts);
         self.set_role(&b, Role::Splitter, if row { st::VERTICAL } else { st::HORIZONTAL });
-        let signal = self.signal(&b);
+        let signal = self.signal_owned(&b);
         if signal.hovered || signal.held {
             self.request_cursor(if row { Cursor::HorizontalResize } else { Cursor::VerticalResize });
         }
@@ -1088,12 +1102,12 @@ impl Ui {
     /// returns the new ratio (the caller stores it); `None` otherwise.
     pub fn split(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> {
         let row = axis == Axis::Row;
-        let split = self.node(label, Node { w: Size::Grow, h: Size::Grow, axis, ..Node::DEFAULT });
+        let split = self.node_ref(label, &Node { w: Size::Grow, h: Size::Grow, axis, ..Node::DEFAULT });
         let config = SplitConfig { split, axis, ratio: ratio.clamp(0.0, 1.0), min_a, min_b };
         in_body!(self, split.box_key, split, split, default_split(&config, a, b));
         // the grip is the box the body built under the key `Ui::grip` gives "grip" (none: the split cannot be dragged)
         let Some(grip) = self.box_of_key(key_of(split.box_key, "grip")).filter(|g| self.live(g)) else { return None };
-        let signal = self.signal(&grip);
+        let signal = self.signal_owned(&grip);
         if !(signal.held || signal.released) || (if row { signal.drag.0 } else { signal.drag.1 }) == 0.0 {
             return None;
         }
@@ -1122,7 +1136,7 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
     }
     let (head_look, row_look) = (this.theme().table_head.idle, this.theme().table_row.idle);
     let cell_body = body_of!(this, table);
-    let root = this.box_(label, BoxOpts::default().flags(CLIP).at(at).w(Size::Px(w)).h(Size::Px(h)));
+    let root = this.box_(label, BoxOpts::default().flags(Flags::CLIP).at(at).w(Size::Px(w)).h(Size::Px(h)));
     let saved = this.enter(&root);
     let header = this.box_fmt(format_args!("{}-header", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(row_h)));
     this.set_role(&root, Role::Table, 0);
@@ -1137,7 +1151,7 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
         this.leave(saved);
     }
     let body_h = 0.0f32.max(h - row_h);
-    let body = this.box_fmt(format_args!("{}-body", label), BoxOpts::default().flags(SCROLL + CLIP).w(Size::Px(w)).h(Size::Px(body_h)).scroll_step(row_h));
+    let body = this.box_fmt(format_args!("{}-body", label), BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(w)).h(Size::Px(body_h)).scroll_step(row_h));
     // Both sizes are explicit: use the shared wheel/trackpad/coast state before choosing rows.
     // Arrange then sees consumed input and a zero time delta.
     this.set_l_h(&body, body_h);
@@ -1152,8 +1166,8 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
     let extent = this.box_fmt(format_args!("{}-extent", label), BoxOpts::default().w(Size::Px(w)).h(Size::Px(rows as f32 * row_h)));
     let saved_extent = this.enter(&extent);
     for index in first..last {
-        let row = this.box_fmt(format_args!("{}-row-{}", label, index), BoxOpts::default().flags(CLICKABLE).at((0.0, index as f32 * row_h)).w(Size::Px(w)).h(Size::Px(row_h)));
-        if this.signal(&row).clicked {
+        let row = this.box_fmt(format_args!("{}-row-{}", label, index), BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, index as f32 * row_h)).w(Size::Px(w)).h(Size::Px(row_h)));
+        if this.signal_owned(&row).clicked {
             clicked = Some(index);
         }
         this.set_look(&row, row_look, State::default());
@@ -1169,7 +1183,7 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
     }
     this.leave(saved_extent);
     this.leave(saved_body);
-    let sig = this.signal(&body);
+    let sig = this.signal_owned(&body);
     this.leave(saved);
     this.table_stops = stops;
     (clicked, sig)

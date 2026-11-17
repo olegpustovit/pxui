@@ -1,6 +1,9 @@
 //! Stable text inputs and outputs shared with libpxui.
 use crate::{theme::ColorToken, Size};
 
+/// The resolved style the shaper sees: every field concrete, tracking in points. Shaping and worker calls take it (`Text`,
+/// `UiText`, `PreparedText`, `Paint::text_metrics`/`text_spans`); authoring calls take a `Label`, and `Ui::resolve(&label)` gives
+/// the `TextStyle` that label shapes with, so worker-prepared text matches what the `Ui` draws.
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct TextStyle {
@@ -55,7 +58,8 @@ impl TextStyle {
     pub const ALIGN_RIGHT: u32 = 2;
 }
 
-/// How a label looks (`Ui::label`, `label_fmt`, `label_digits`, `Paint::text_styled`): a text style, colour and box. App styles
+/// The authoring text style (`Ui::label`, `label_fmt`, `label_digits`, `Ui::text_line_box`/`text_spans`, `Paint::text_styled`/
+/// `text_chars`): a theme-relative text style, colour and box. `Ui::resolve` turns it into the `TextStyle` the shaper sees. App styles
 /// are consts built from a preset with the const builders: `const TITLE: Label = Label::BODY.size(15.0).bold();`.
 ///
 /// One meaning throughout: a `None` field is the theme's label style, resolved from the theme's label look (`Theme::label`) and its
@@ -149,6 +153,51 @@ impl Label {
     /// ```
     #[inline]
     pub const fn bold(mut self) -> Label { self.weight = Some(700); self }
+    /// This style at weight `weight` (400 regular, 500 medium, 700 bold).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Label;
+    /// assert_eq!(Label::BODY.weight(500).weight, Some(500));
+    /// ```
+    #[inline]
+    pub const fn weight(mut self, weight: u16) -> Label { self.weight = Some(weight); self }
+    /// This style with `ems` of extra space after every glyph (a fraction of the size; negative tightens). The resolved style
+    /// (`Ui::resolve`) carries it in points, `ems * size`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Label;
+    /// assert_eq!(Label::BODY.tracking(-0.02).tracking, Some(-0.02));
+    /// ```
+    #[inline]
+    pub const fn tracking(mut self, ems: f32) -> Label { self.tracking = Some(ems); self }
+    /// This style with lines `points` high (0: 1.2 times the size).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Label;
+    /// assert_eq!(Label::BODY.line_height(18.2).line_height, Some(18.2));
+    /// ```
+    #[inline]
+    pub const fn line_height(mut self, points: f32) -> Label { self.line_height = Some(points); self }
+    /// This style wrapping at words, the fitting width keeping the separators a visible soft wrap omits (`WRAP_WORD_SPACES`).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Label, TextStyle};
+    /// assert_eq!(Label::BODY.wrap_spaces().wrap, TextStyle::WRAP_WORD_SPACES);
+    /// ```
+    #[inline]
+    pub const fn wrap_spaces(mut self) -> Label { self.wrap = TextStyle::WRAP_WORD_SPACES; self }
     /// This style in the app's colour `token` (`Ui::set_colors`), resolved when the label is built or painted.
     ///
     /// Allocates: never.

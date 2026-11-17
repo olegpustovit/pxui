@@ -2,7 +2,7 @@
 use core::hash::{Hash, Hasher};
 use pxui_types::{PxuiBox, Size};
 use crate::Ui;
-use super::layout::{id_text, Key};
+use super::Key;
 
 /// FNV-1a 64: fixed seed, std only, no allocation, so a hash is the same on every run and platform (std's own hashers promise neither).
 struct FixedHasher(u64);
@@ -66,7 +66,7 @@ impl Ui {
     #[track_caller]
     fn view_keyed(&mut self, key: Key, revision: u64, f: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
         let mut id_label = [0u8; 17];
-        let label = match key { Key::Label(label) => label, Key::Id(id) => id_text(id, &mut id_label) };
+        let label = key.label(&mut id_label);
         self.view(label, revision, Size::Grow, Size::Grow, f)
     }
 }

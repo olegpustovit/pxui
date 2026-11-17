@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 48
+minor 49
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -146,6 +146,7 @@ function pxui_ui_inspector_section_view int32_t pxui_ui_inspector_section_view (
 function pxui_ui_inspector_toggle int32_t pxui_ui_inspector_toggle ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t value , uint8_t * out ) ;
 function pxui_ui_inspector_toggle_value int32_t pxui_ui_inspector_toggle_value ( PxuiUi * ui , PxuiStr key , float x , float y , uint8_t value , uint8_t * out ) ;
 function pxui_ui_inspector_width float pxui_ui_inspector_width ( PxuiUi * ui ) ;
+function pxui_ui_item_text int32_t pxui_ui_item_text ( PxuiUi * ui , PxuiStr text ) ;
 function pxui_ui_key_down int32_t pxui_ui_key_down ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_key_pressed_with int32_t pxui_ui_key_pressed_with ( PxuiUi * ui , uint32_t code , uint32_t modifier , uint8_t * out ) ;
@@ -187,6 +188,7 @@ function pxui_ui_remember int32_t pxui_ui_remember ( PxuiUi * ui , PxuiStr text 
 function pxui_ui_repaint_after int32_t pxui_ui_repaint_after ( PxuiUi * ui , double seconds ) ;
 function pxui_ui_request_cursor int32_t pxui_ui_request_cursor ( PxuiUi * ui , uint32_t shape ) ;
 function pxui_ui_request_frame int32_t pxui_ui_request_frame ( PxuiUi * ui ) ;
+function pxui_ui_resolve_label int32_t pxui_ui_resolve_label ( PxuiUi * ui , const PxuiLabelStyle * style , PxuiTextStyle * out ) ;
 function pxui_ui_reveal int32_t pxui_ui_reveal ( PxuiUi * ui , const PxuiBox * list , size_t index ) ;
 function pxui_ui_root_at int32_t pxui_ui_root_at ( PxuiUi * ui , float x , float y , PxuiI64Span roots , uint8_t * present , int64_t * out ) ;
 function pxui_ui_row_height int64_t pxui_ui_row_height ( PxuiUi * ui ) ;
@@ -340,7 +342,7 @@ layout PxuiLookDesc 152 8 0 4 8 12 16 20 24 28 44 92 96 120 124 136 140 144 145
 layout PxuiMark 12 4
 layout PxuiMarkDesc 16 4 0 4 8 12 13
 layout PxuiMaybeRange 24 8 0 1 8 16
-layout PxuiMeasuredSectionDesc 64 8 0 4 5 8 24 32 36 40 44 48 56
+layout PxuiMeasuredSectionDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
 layout PxuiMenuBarDesc 40 8 0 4 8 24
 layout PxuiMenuDesc 40 8 0 4 8 24
 layout PxuiMenuExtra 80 8 0 4 8 16 32 48 64
@@ -378,7 +380,7 @@ layout PxuiScrollConfig 48 8 0 8 40
 layout PxuiScrubOut 48 8 0 4 8 40 44
 layout PxuiSearchFieldConfig 80 8 0 4 16 24 56 72
 layout PxuiSectionConfig 72 8 0 4 8 16 48 64
-layout PxuiSectionListDesc 64 8 0 4 5 8 24 32 36 40 44 48 56
+layout PxuiSectionListDesc 72 8 0 4 5 8 24 32 36 40 44 48 56 64
 layout PxuiSegmentConfig 88 8 0 4 16 24 32 40 72
 layout PxuiShadow 24 4 0 4 12 16 20
 layout PxuiShadowDesc 24 4 0 4 12 16 20 21
