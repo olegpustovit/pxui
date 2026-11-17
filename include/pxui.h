@@ -766,6 +766,7 @@ uint32_t pxui_ui_platform(PxuiUi *ui); /* 0 other, 1 Apple */
 int32_t pxui_ui_rebuilt_named(PxuiUi *ui, PxuiStr prefix, uint64_t *out);
 int32_t pxui_ui_expanded(PxuiUi *ui, PxuiStr key, uint8_t *out); /* 0 unknown, 1 collapsed, 2 expanded */
 int32_t pxui_ui_hover_delay(PxuiUi *ui, PxuiStr key, uint8_t *out);
+/* Legacy: the Rust wrapper's tooltip job is pxui_ui_tip (keyed by a box); kept for the append-only ABI. */
 int32_t pxui_ui_tooltip(PxuiUi *ui, PxuiStr key, PxuiStr text);
 int32_t pxui_ui_cap_width(PxuiUi *ui, PxuiStr text, float *out);
 float pxui_ui_text_top(PxuiUi *ui, uint8_t has_size, int64_t size, float y, float h);
@@ -859,6 +860,7 @@ int32_t pxui_ui_popup(PxuiUi *ui, const PxuiPopupDesc *desc, PxuiBuild build, vo
 int32_t pxui_ui_inspector_bar(PxuiUi *ui, PxuiHintSpan hints, int64_t count);
 int32_t pxui_ui_inspector_body(PxuiUi *ui, PxuiBuild build, void *user);
 int32_t pxui_ui_inspector_header(PxuiUi *ui, const PxuiHeaderDesc *desc, PxuiTextValid rename, void *user, PxuiHeadOut *out);
+/* Legacy: the Rust wrapper no longer calls pxui_ui_inspector_section_view or pxui_ui_inspector_toggle_value (pxui_ui_inspector_section and pxui_ui_inspector_toggle are the calls); kept for the append-only ABI. */
 int32_t pxui_ui_inspector_section_view(PxuiUi *ui, PxuiStr key, uint64_t revision, uint8_t expanded, uint8_t has_set, uint8_t set_expanded, PxuiStr label, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_inspector_toggle_value(PxuiUi *ui, PxuiStr key, float x, float y, uint8_t value, uint8_t *out);
 int32_t pxui_ui_line_field(PxuiUi *ui, float x, float y, float w, float h, uint8_t grab, PxuiStr placeholder, PxuiStr label, PxuiStr value, PxuiStr *text, uint32_t *step); /* step: 0 none, 1 next, 2 previous, 3 close */

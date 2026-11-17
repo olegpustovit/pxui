@@ -294,11 +294,11 @@ pub fn styling_animate_keys() {
     let chip = chip.get().expect("chip");
     let shown = |ui: &Ui| ui.output().draw[0].instances.iter().find(|i| i.color[0] == 200).map(|i| (i.rect[0], i.color[3] as i32));
     let linear = Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] };
-    let keys = [Keyframe { time: 0.1, target: Target::Opacity(0.0), curve: linear }, Keyframe { time: 0.3, target: Target::Opacity(1.0), curve: linear }, Keyframe { time: 0.4, target: Target::Offset(20.0, 0.0), curve: linear }];
+    let keys = [Keyframe::opacity(0.1, 0.0).curve(linear), Keyframe::opacity(0.3, 1.0).curve(linear), Keyframe::offset(0.4, 20.0, 0.0).curve(linear)];
     let built = runs.get();
     let mut t0 = 0.1;
     for round in 0..2 {
-        check(ui.animate_keys(&chip, &keys), "animate_keys refused");
+        check(ui.animate_keys(&chip, &keys, &Keyframes::DEFAULT), "animate_keys refused");
         let frames: Vec<_> = [0.05, 0.1, 0.2, 0.35, 0.5].iter().map(|dt| at(t0 + dt, vec![])).collect();
         let mut seen = Vec::with_capacity(frames.len());
         mem_sys::local_reset();
@@ -371,8 +371,8 @@ pub fn styling_animate_scale() {
     };
     let target = Target::Scale { x: 2.0, y: 0.5, anchor: (1.0, 1.0) };
     assert!(!ui.animate(&button, target, linear) && !ui.animate(&flat, target, linear));
-    let key = Keyframe { time: 0.2, target: target, curve: linear };
-    assert!(!ui.animate_keys(&button, &[key]) && !ui.animate_keys(&flat, &[key]));
+    let key = Keyframe::scale(0.2, 2.0, 0.5).anchor(1.0, 1.0).curve(linear);
+    assert!(!ui.animate_keys(&button, &[key], &Keyframes::DEFAULT) && !ui.animate_keys(&flat, &[key], &Keyframes::DEFAULT));
     assert!(ui.animate(&outer, target, linear));
     ui.frame(&at(0.2, vec![]), &mut build);
     shown(&ui, Rect::new(40.0, 67.5, 30.0, 7.5));

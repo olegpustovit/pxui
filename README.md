@@ -227,7 +227,7 @@ labels, so unchanged nodes do not hash their text again. It supports plain, line
 span text, caps and RTL. `geom::hash::FastHasher` exposes the existing internal hash primitive for
 UI revisions and identities.
 
-ABI 1.30 adds `Ui::animate_keys_repeat(&view, &keys, Repeat::Forever, autoreverse, start_offset)`
+ABI 1.30 adds repeated keyframe runs: `Ui::animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse().offset(0.2))`
 (`pxui_ui_animate_keys_repeat` in C). `Repeat::Count(n)` counts complete cycles, including the
 reverse leg when enabled; zero is refused by the Rust wrapper and means forever in C. Keyframes
 need positive total duration; the finite nonnegative offset is seconds into the first cycle.

@@ -411,3 +411,7 @@ height, default 0.25, or 600 pt/s downward; never on a cancel) with a one-frame 
 
 ABI 1.42 gesture kind 32 (`GestureOpts::touch_drag`) claims a touch at touch-down: mode 1 (the mouse press/drag path) with
 no scroll, long press, swipe, back or dismiss arbitration, for index strips and scrubbers inside scroll views.
+
+### DX1.12 (F part 2): legacy marks, no new exports
+
+The Rust wrapper dropped `inspector_section_view`, `inspector_toggle_value` and `tooltip` (twins of `inspector_section`, `inspector_toggle` and `tip`); their C exports `pxui_ui_inspector_section_view`, `pxui_ui_inspector_toggle_value` and `pxui_ui_tooltip` are legacy, kept for the append-only ABI. `carrying_ref`/`drop_target_ref` became `carrying`/`drop_target` (the owned copies are gone), `scroll_offset`/`scroll_position` became `Ui::scroll`, and `view_offset`/`view_opacity`/`view_scale`/`view_transform_about` became `Ui::set_view(&ViewTransform)`; the C exports are unchanged. `animate_keys_repeat` folded into `animate_keys(box, keys, &Keyframes)` (the engine's `Ui::animate_keys` has the same signature; `Keyframe`, `Keyframes` and `Repeat` live in `pxui_types::ui`, and the owned `Payload`/`Drop` moved into `pxui_core`, out of the public surface), which calls `pxui_ui_animate_keys` for the plain run and `pxui_ui_animate_keys_repeat` otherwise.

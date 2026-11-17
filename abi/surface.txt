@@ -124,9 +124,7 @@ Ui|inspector_label_x|Rays|done
 Ui|inspector_message|Gallery,Rays|done
 Ui|inspector_readout|Gallery,Rays|done
 Ui|inspector_row|Gallery,Rays|done
-Ui|inspector_section_view|Rays|done
 Ui|inspector_section|Gallery,Rays|done
-Ui|inspector_toggle_value|Rays|done
 Ui|inspector_toggle|Gallery,Rays|done
 Ui|inspector_width|Rays|done
 Ui|key_pressed|Rays|done
@@ -173,8 +171,7 @@ Ui|root_at|Rays|done
 Ui|routed_input|Rays|done: pxui_ui_input, the frame's input as routed to an owner
 Ui|row_height|Rays|done
 Ui|scope|Rays|done
-Ui|scroll_offset|Rays|done
-Ui|scroll_position|Rays|done
+Ui|scroll|Rays|done
 Ui|scroll_view|Gallery|done
 Ui|search_field|Gallery|done
 Ui|segmented|Gallery|done
@@ -214,7 +211,6 @@ Ui|to_front|Rays|done
 Ui|toasts|Gallery|done
 Ui|toggle|Gallery,Rays|done
 Ui|tokens|Gallery,Rays|done
-Ui|tooltip|Rays|done
 Ui|tree|Gallery|done
 Ui|unfocus|Rays|done
 Ui|value_field|Gallery,Rays|done
@@ -224,9 +220,8 @@ Ui|verifying|Rays|done
 Ui|view_backdrop_blur|Rays|done
 Ui|view_backdrop_saturation|LocalWave|done
 Ui|view_flat|Rays|done
-Ui|view_offset|Rays|done
+Ui|set_view|Rays|done
 Ui|view_size|Gallery,Rays|done
-Ui|view_transform_about|Rays|done
 Ui|view|Gallery,Rays|done
 Ui|wants_frame|Gallery,Rays|done
 Ui|within|Gallery,Rays|done

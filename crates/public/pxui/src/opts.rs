@@ -1,5 +1,6 @@
 //! The option records of the widgets that take closures (`Rc<dyn Fn>`): Rust-side only, never an ABI type. The engine keeps its own (`pxui_core::opts`); these are the same records for the wrapper's API.
-use pxui_types::{geom::{Rect, Rgba as Color}, node::Axis, ui::{CodeContext, Completion, Drop, ScrubPhase}, Size};
+use pxui_types::{geom::{Rect, Rgba as Color}, node::Axis, ui::{CodeContext, Completion, ScrubPhase}, Size};
+use crate::DropRef;
 use std::rc::Rc;
 use pxui_types::Flags;
 
@@ -235,7 +236,7 @@ pub struct TextAreaOpts {
     pub on_caret: Option<Rc<dyn Fn(i64)>>,
     pub on_caret_move: Option<Rc<dyn Fn(i64)>>,
     pub on_select: Option<Rc<dyn Fn((i64, i64))>>,
-    pub on_drop: Option<Rc<dyn Fn(i64, Drop)>>,
+    pub on_drop: Option<Rc<dyn Fn(i64, DropRef)>>,
     pub chips: Vec<(i64, i64, Color)>,
 }
 

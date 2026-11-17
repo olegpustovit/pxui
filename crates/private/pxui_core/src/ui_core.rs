@@ -55,9 +55,26 @@ pub use pxui_types::{Flags, Size};
 pub use crate::opts::{BoxOpts, HitFn};
 pub use pxui_types::shape::{clip_of, Shapes};
 pub use pxui_types::ui::{
-    ellipsis, text_top_for, contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Drop, Keyframe, Payload, Target, UndoKind,
+    ellipsis, text_top_for, contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Keyframe, Keyframes, Repeat, Target, UndoKind,
     DRAG_THRESHOLD, ROOT_KEY,
 };
+/// What a carry holds: a `kind` and a `value`, both strings (the engine's own storage; the wrapper lends them as `PayloadRef`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Payload {
+    /// What sort of thing is carried; a drop target accepts by comparing it.
+    pub kind: String,
+    /// The thing itself, in the app's own encoding.
+    pub value: String,
+}
+
+/// What a drop target sees of a carry this frame.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Drop {
+    /// the pointer is over the box while a payload is held
+    Hover(Payload),
+    /// the payload was released over the box, this frame only
+    Dropped(Payload),
+}
 pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
 use pxui_types::node::Transition;
 use crate::bodies::{in_body, BodyTable, TipConfig};
@@ -6667,27 +6684,26 @@ impl Ui {
     /// `curve` (Bezier/table/steps use the segment's duration; a spring that has not settled by the next stop
     /// jumps to it). A target sets its channel and keeps the others from the stop before. Driven as
     /// `animate` is (patch path, no rebuild, no allocation once warm; reduced motion jumps to the
-    /// last stop); `animate` is the one-key case. `false` for a stale handle.
-    pub fn animate_keys(&mut self, b: &Handle, keys: &[Keyframe]) -> bool {
-        self.animate_keys_repeat(b, keys, 1, false, 0.0)
-    }
-
-    /// `repeat == 0` loops forever; a count includes the reverse leg. Offset is seconds into the
-    /// first cycle. Hidden runs keep their timeline but do not schedule frames. Retarget to stop.
-    pub fn animate_keys_repeat(&mut self, b: &Handle, keys: &[Keyframe], repeat: u32, autoreverse: bool, offset: f32) -> bool {
+    /// last stop); `animate` is the one-key case. `play` says how often the run repeats (a count includes the reverse leg), whether
+    /// each cycle plays back and how many seconds into the first cycle it starts. Hidden runs keep their timeline but do not schedule
+    /// frames. Retarget to stop. `false` for a stale handle.
+    pub fn animate_keys(&mut self, b: &Handle, keys: &[Keyframe], play: &Keyframes) -> bool {
+        let repeat = match play.cycles() { Repeat::Count(n) => n as u32, Repeat::Forever => 0 };
+        let (autoreverse, offset) = (play.reverses(), play.start());
         assert!(!keys.is_empty() && keys.len() <= MAX_KEYS, "Ui.animate_keys: 1 to {MAX_KEYS} keyframes, not {}", keys.len());
-        assert!(keys.windows(2).all(|w| w[0].time <= w[1].time) && keys[0].time >= 0.0, "Ui.animate_keys: keyframe times ascend from 0");
+        assert!(keys.windows(2).all(|w| w[0].time() <= w[1].time()) && keys[0].time() >= 0.0, "Ui.animate_keys: keyframe times ascend from 0");
         assert!(repeat <= u16::MAX as u32 && offset.is_finite() && offset >= 0.0);
         if !self.live(b) {
             return false;
         }
-        if keys.iter().any(|key| matches!(key.target, Target::Scale { .. })) && !self.view_id(b).is_some_and(|v| self.views[v as usize].index != 0) { return false; }
+        if keys.iter().any(|key| matches!(key.target(), Target::Scale { .. })) && !self.view_id(b).is_some_and(|v| self.views[v as usize].index != 0) { return false; }
         let slot = b.box_slot;
         let from = self.pose(slot).0;
         let mut k = Keys { n: 0, t: [0.0; MAX_KEYS], pose: [from; MAX_KEYS], curve: [Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }; MAX_KEYS], repeat, autoreverse, offset };
         let mut at = from;
-        for &Keyframe { time: t, target, curve } in keys {
-            match target {
+        for key in keys {
+            let (t, curve) = (key.time(), key.segment());
+            match key.target() {
                 Target::Look(look) => at.look = look,
                 Target::Offset(dx, dy) => (at.dx, at.dy) = (dx, dy),
                 Target::Opacity(o) => at.opacity = o.clamp(0.0, 1.0),
@@ -6701,7 +6717,7 @@ impl Ui {
         if autoreverse { at = if k.t[0] == 0.0 { k.pose[0] } else { from }; }
         self.start_tween(slot, Curve::Bezier { duration: last, points: [0.0, 0.0, 1.0, 1.0] }, from, at);
         let tween = self.tween_of(slot).expect("the run just started");
-        self.tweens[tween].view_only &= keys.iter().all(|key| !matches!(key.target, Target::Look(_)));
+        self.tweens[tween].view_only &= keys.iter().all(|key| !matches!(key.target(), Target::Look(_)));
         if last > 0.0 {
             let id = match self.free_keyframes.pop() {
                 Some(id) => {

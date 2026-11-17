@@ -4,7 +4,7 @@ use crate::node::{look, mark, size};
 use crate::opts::{BoxOpts, HitFn};
 use crate::{as_str, check, Ui};
 use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Dir, Size, ui::{Drop, Payload}, Mark, PxuiBox, Str};
+use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Dir, Size, Mark, PxuiBox, Str};
 use std::{alloc::Layout, fmt::{Arguments, Write}};
 
 library!(lib {
@@ -98,53 +98,200 @@ fn hit_box(hit: HitFn) -> *mut c_void {
     at.cast()
 }
 
-/// A carry query borrowed until the next mutable UI call, without owned string copies.
+/// The payload a drag or key carry holds, borrowed from the library until the next mutable call on the `Ui`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct PayloadRef<'a> {
+    /// What the payload is, as the carrier named it (`"song"`, `"row"`).
     pub kind: &'a str,
+    /// Which one it is, as the carrier named it (an id).
     pub value: &'a str,
 }
+/// What a drag looks like to a drop target, with the payload borrowed as for `PayloadRef`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DropRef<'a> {
+    /// A payload is held over the target or one of its descendants.
     Hover(PayloadRef<'a>),
+    /// The payload was released on the target in this frame.
     Dropped(PayloadRef<'a>),
 }
 
 /// Touch gestures a node takes (touch only: a mouse or trackpad never starts one).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+///
+/// A `Copy` value built from `GestureOpts::DEFAULT` (no gesture) with const builders.
+///
+/// ```
+/// use pxui::{DismissOpts, GestureOpts};
+/// const ROW: GestureOpts = GestureOpts::DEFAULT.long_press().row_swipe(72.0).dismiss(DismissOpts::DEFAULT.fraction(0.25));
+/// assert_ne!(ROW, GestureOpts::DEFAULT);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct GestureOpts {
-    /// delayed highlight after 0.1 s and a long press after 0.5 s, within 10 pt of the touch-down
-    pub long_press: bool,
-    /// horizontal row swipe revealing actions this many points wide (8 pt axis lock; vertical goes to scroll)
-    pub row_swipe: Option<f32>,
-    /// interactive back from the leading 20 pt of the node
-    pub edge_back: bool,
-    /// pull to refresh on a scroll node: the pull distance in points (0 picks 60)
-    pub refresh: Option<f32>,
-    /// row swipe with actions on both sides and a full swipe (UIKit swipeActions); replaces `row_swipe`
-    pub swipe_actions: Option<SwipeActions>,
-    /// vertical drag-to-dismiss for a full-screen player or bottom sheet
-    pub dismiss: Option<DismissOpts>,
-    /// take the touch at once as a held press and drag (an index strip, a scrubber): reported like a held mouse button, never scrolling an enclosing scroll view
-    pub touch_drag: bool,
+    long_press: bool,
+    row_swipe: Option<f32>,
+    edge_back: bool,
+    refresh: Option<f32>,
+    swipe_actions: Option<SwipeActions>,
+    dismiss: Option<DismissOpts>,
+    touch_drag: bool,
 }
 
-/// Drag-to-dismiss thresholds; 0 picks the default (UIKit sheet: a quarter of the node height, 600 points/s).
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+impl GestureOpts {
+    /// No gesture.
+    pub const DEFAULT: GestureOpts = GestureOpts { long_press: false, row_swipe: None, edge_back: false, refresh: None, swipe_actions: None, dismiss: None, touch_drag: false };
+    /// A delayed highlight after 0.1 s and a long press after 0.5 s, within 10 pt of the touch-down.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = GestureOpts::DEFAULT.long_press();
+    /// ```
+    pub const fn long_press(self) -> GestureOpts { GestureOpts { long_press: true, ..self } }
+    /// A horizontal row swipe revealing actions `width` points wide (8 pt axis lock; vertical goes to scroll).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = GestureOpts::DEFAULT.row_swipe(72.0);
+    /// ```
+    pub const fn row_swipe(self, width: f32) -> GestureOpts { GestureOpts { row_swipe: Some(width), ..self } }
+    /// An interactive back from the leading 20 pt of the node.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = GestureOpts::DEFAULT.edge_back();
+    /// ```
+    pub const fn edge_back(self) -> GestureOpts { GestureOpts { edge_back: true, ..self } }
+    /// Pull to refresh on a scroll node at UIKit's pull distance (60 points).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::GestureOpts;
+    /// let _ = GestureOpts::DEFAULT.pull_to_refresh();
+    /// ```
+    pub const fn pull_to_refresh(self) -> GestureOpts { GestureOpts { refresh: Some(0.0), ..self } }
+    /// Pull to refresh on a scroll node: the pull distance in `points` that fires it.
+    /// Allocates: never.
+    /// Panics: when `points` is not finite and above 0 (`pull_to_refresh` is the default distance).
+    ///
+    /// ```
+    /// use pxui::GestureOpts;
+    /// let _ = GestureOpts::DEFAULT.refresh(48.0);
+    /// ```
+    pub const fn refresh(self, points: f32) -> GestureOpts {
+        assert!(points > 0.0 && points < f32::INFINITY, "pxui: the refresh distance must be finite and above 0");
+        GestureOpts { refresh: Some(points), ..self }
+    }
+    /// A row swipe with actions on both sides and a full swipe (UIKit swipeActions); replaces `row_swipe`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = GestureOpts::DEFAULT.swipe_actions(SwipeActions::DEFAULT.trailing(80.0));
+    /// ```
+    pub const fn swipe_actions(self, actions: SwipeActions) -> GestureOpts { GestureOpts { swipe_actions: Some(actions), ..self } }
+    /// A vertical drag-to-dismiss for a full-screen player or bottom sheet.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = GestureOpts::DEFAULT.dismiss(DismissOpts::DEFAULT);
+    /// ```
+    pub const fn dismiss(self, dismiss: DismissOpts) -> GestureOpts { GestureOpts { dismiss: Some(dismiss), ..self } }
+    /// Takes the touch at once as a held press and drag (an index strip, a scrubber): reported like a held mouse button, never scrolling an enclosing scroll view.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = GestureOpts::DEFAULT.touch_drag();
+    /// ```
+    pub const fn touch_drag(self) -> GestureOpts { GestureOpts { touch_drag: true, ..self } }
+}
+impl Default for GestureOpts {
+    fn default() -> GestureOpts { GestureOpts::DEFAULT }
+}
+
+/// Drag-to-dismiss thresholds; a threshold left unset takes the UIKit sheet's (a quarter of the node height, 600 points/s).
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct DismissOpts {
-    /// fraction of the node height a release past commits
-    pub fraction: f32,
-    /// downward release speed in points per second that commits
-    pub velocity: f32,
+    fraction: Option<f32>,
+    velocity: Option<f32>,
 }
 
-/// Row-swipe actions in points. A side of 0 has no actions; leading and trailing follow the layout direction.
-#[derive(Clone, Copy, Debug, Default, PartialEq)]
+impl DismissOpts {
+    /// The UIKit sheet's thresholds.
+    pub const DEFAULT: DismissOpts = DismissOpts { fraction: None, velocity: None };
+    /// The fraction of the node height a release past commits.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = DismissOpts::DEFAULT.fraction(0.25);
+    /// ```
+    pub const fn fraction(self, fraction: f32) -> DismissOpts { DismissOpts { fraction: Some(fraction), ..self } }
+    /// The downward release speed in points per second that commits.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = DismissOpts::DEFAULT.velocity(600.0);
+    /// ```
+    pub const fn velocity(self, velocity: f32) -> DismissOpts { DismissOpts { velocity: Some(velocity), ..self } }
+}
+impl Default for DismissOpts {
+    fn default() -> DismissOpts { DismissOpts::DEFAULT }
+}
+
+/// Row-swipe actions in points; a side left unset has no actions, and leading and trailing follow the layout direction.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SwipeActions {
-    pub leading: f32,
-    pub trailing: f32,
-    /// finger travel that commits the edge action on release (0: no full swipe)
-    pub full: f32,
+    leading: Option<f32>,
+    trailing: Option<f32>,
+    full: Option<f32>,
+}
+
+impl SwipeActions {
+    /// No actions on either side and no full swipe.
+    pub const DEFAULT: SwipeActions = SwipeActions { leading: None, trailing: None, full: None };
+    /// Actions `width` points wide on the leading side.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = SwipeActions::DEFAULT.leading(60.0);
+    /// ```
+    pub const fn leading(self, width: f32) -> SwipeActions { SwipeActions { leading: Some(width), ..self } }
+    /// Actions `width` points wide on the trailing side.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = SwipeActions::DEFAULT.trailing(80.0);
+    /// ```
+    pub const fn trailing(self, width: f32) -> SwipeActions { SwipeActions { trailing: Some(width), ..self } }
+    /// The finger travel in points that commits the edge action on release; unset: no full swipe.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{DismissOpts, GestureOpts, SwipeActions};
+    /// let _ = SwipeActions::DEFAULT.full(120.0);
+    /// ```
+    pub const fn full(self, travel: f32) -> SwipeActions { SwipeActions { full: Some(travel), ..self } }
+}
+impl Default for SwipeActions {
+    fn default() -> SwipeActions { SwipeActions::DEFAULT }
 }
 
 /// What the gestures did to a node. The `*_fired`/`long_pressed`/`back_*` bits last one frame; read
@@ -153,24 +300,33 @@ pub struct SwipeActions {
 pub struct GestureState {
     /// contact held past the highlight delay, or a quick tap's one-frame flash
     pub highlighted: bool,
+    /// the contact held past 0.5 s without moving (one frame)
     pub long_pressed: bool,
+    /// a row swipe is under the finger or settling
     pub swiping: bool,
+    /// the row rests open
     pub swipe_open: bool,
-    /// which side rests open (with `swipe_open`), and a full swipe's commit, which lasts one frame; the row settles closed
+    /// the leading side's actions rest open (with `swipe_open`)
     pub swipe_open_leading: bool,
+    /// the trailing side's actions rest open (with `swipe_open`)
     pub swipe_open_trailing: bool,
+    /// a full swipe committed the leading edge action on release (one frame; the row settles closed)
     pub swipe_commit_leading: bool,
+    /// a full swipe committed the trailing edge action on release (one frame; the row settles closed)
     pub swipe_commit_trailing: bool,
     /// signed shift for the swiped row's content: positive reveals the actions on its left, negative on its right (the physical side; leading is left in left-to-right)
     pub swipe: f32,
+    /// an edge back is under the finger or settling
     pub back_active: bool,
     /// the back finished committing: pop the screen now (`back` is already 0)
     pub back_committed: bool,
+    /// the back was cancelled and sprang back (one frame)
     pub back_cancelled: bool,
     /// back progress 0..1 while the finger drags or the commit/cancel settles
     pub back: f32,
     /// the pull crossed the threshold and was released: start loading, `refreshing` holds until `end_refresh`
     pub refresh_fired: bool,
+    /// a pull to refresh is held, from the release until `end_refresh`
     pub refreshing: bool,
     /// points the content is pulled down past the top
     pub pull: f32,
@@ -207,21 +363,22 @@ impl Ui {
     /// use pxui::{ui::Size, GestureOpts, Node};
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let row = ui.node("row".into(), Node { h: Size::Px(44.0), ..Node::DEFAULT });
-    ///     let state = ui.gesture(&row, GestureOpts { long_press: true, row_swipe: Some(80.0), ..GestureOpts::default() });
+    ///     let state = ui.gesture(&row, GestureOpts::DEFAULT.long_press().row_swipe(80.0));
     ///     assert!(!state.long_pressed && !state.swiping);
     /// });
     /// ```
     #[track_caller]
     pub fn gesture(&mut self, node: &PxuiBox, opts: GestureOpts) -> GestureState {
         let kinds = u32::from(opts.long_press) | u32::from(opts.row_swipe.is_some()) << 1 | u32::from(opts.edge_back) << 2 | u32::from(opts.refresh.is_some()) << 3 | u32::from(opts.touch_drag) << 5;
+        // the C record reads a 0 threshold as the default (UIKit's 60 points)
         let request = pxui_types::ffi::PxuiGestureIn { kinds, reveal: opts.row_swipe.unwrap_or(0.0), threshold: opts.refresh.unwrap_or(0.0), ..Default::default() };
         let state = self.gesture_call(node, Some(request), 0);
         if let Some(a) = opts.swipe_actions {
-            let swipe = pxui_types::ffi::PxuiSwipeIn { leading: a.leading, trailing: a.trailing, full: a.full, ..Default::default() };
+            let swipe = pxui_types::ffi::PxuiSwipeIn { leading: a.leading.unwrap_or(0.0), trailing: a.trailing.unwrap_or(0.0), full: a.full.unwrap_or(0.0), ..Default::default() };
             crate::live(self, unsafe { lib::pxui_ui_swipe_actions(self.0.as_ptr(), node, &swipe) });
         }
         let Some(d) = opts.dismiss else { return state };
-        let (request, mut out) = (pxui_types::ffi::PxuiDismissIn { fraction: d.fraction, velocity: d.velocity, ..Default::default() }, pxui_types::ffi::PxuiDismissOut::default());
+        let (request, mut out) = (pxui_types::ffi::PxuiDismissIn { fraction: d.fraction.unwrap_or(0.0), velocity: d.velocity.unwrap_or(0.0), ..Default::default() }, pxui_types::ffi::PxuiDismissOut::default());
         crate::live(self, unsafe { lib::pxui_ui_dismiss(self.0.as_ptr(), node, &request, &mut out) });
         GestureState { dismissing: out.flags & 8192 != 0, dismiss_committed: out.flags & 16384 != 0, dismiss_cancelled: out.flags & 32768 != 0, dismiss: out.offset, ..state }
     }
@@ -368,7 +525,7 @@ impl Ui {
         let rc = unsafe { lib::pxui_ui_patch_mark(self.0.as_ptr(), b, &mark(value), &mut out) };
         crate::live(self, rc) && out != 0
     }
-    /// The rectangle of `b` as its view lays it out, in the space `patch_rect` takes (`rect` is where the window shows it); empty for a stale handle.
+    /// The rectangle of `b` as its view lays it out, in the space `patch_rect` takes (`Ui::rect` is where the window shows it); empty for a stale handle.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).
     ///
@@ -384,23 +541,6 @@ impl Ui {
         let mut out = Rect::default();
         let rc = unsafe { lib::pxui_ui_local_rect(self.0.as_ptr(), b, &mut out) };
         if !crate::live(self, rc) { return Rect::default(); }
-        out
-    }
-    /// The settled scroll offset of `b` in points, without elastic overscroll (`scroll_position` is the painted one).
-    /// Allocates: never.
-    /// Panics: when the library refuses the call (a null `Ui` or a stale handle).
-    ///
-    /// ```
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.scroll_view("s", pxui::ui::Size::Px(100.0), pxui::ui::Size::Px(100.0), &mut |_| {});
-    ///     assert_eq!(ui.scroll_offset(&b), 0.0);
-    /// });
-    /// ```
-    #[inline]
-    #[track_caller]
-    pub fn scroll_offset(&self, b: &PxuiBox) -> f32 {
-        let mut out = 0.0;
-        check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 0, &mut out) });
         out
     }
     /// The cumulative number of text layouts the cache had to compute, for warm-up checks; an unchanged layout does not advance it.
@@ -435,22 +575,23 @@ impl Ui {
     pub fn reveal(&mut self, list: &PxuiBox, index: usize) {
         crate::live(self, unsafe { lib::pxui_ui_reveal(self.0.as_ptr(), list, index) });
     }
-    /// The painted scroll offset of `b` in points, elastic overscroll included (`scroll_offset` is the settled one).
+    /// The scroll offset of `b` in points: where it has settled and where it is painted now.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui` or a stale handle).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let b = ui.scroll_view("s", pxui::ui::Size::Px(100.0), pxui::ui::Size::Px(100.0), &mut |_| {});
-    ///     assert_eq!(ui.scroll_position(&b), 0.0);
+    ///     assert_eq!(ui.scroll(&b), pxui::ui::Scroll { settled: 0.0, painted: 0.0 });
     /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn scroll_position(&self, b: &PxuiBox) -> f32 {
-        let mut out = 0.0;
-        check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 1, &mut out) });
-        out
+    pub fn scroll(&self, b: &PxuiBox) -> Scroll {
+        let (mut settled, mut painted) = (0.0, 0.0);
+        check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 0, &mut settled) });
+        check(self, unsafe { lib::pxui_ui_scroll_offset(self.0.as_ptr(), b, 1, &mut painted) });
+        Scroll { settled, painted }
     }
     #[inline] #[track_caller] pub fn set_scroll_offset(&mut self, b: &PxuiBox, value: f32) { check(self, unsafe { lib::pxui_ui_set_scroll_offset(self.0.as_ptr(), b, value) }) }
     /// The text kept in the box's slot, or none when it holds none; borrowed from the library, valid until the
@@ -513,36 +654,20 @@ impl Ui {
     }
     #[inline] #[track_caller] pub fn to_front(&mut self, order: i64, b: &PxuiBox) { check(self, unsafe { lib::pxui_ui_to_front(self.0.as_ptr(), order, b) }) }
 
-    /// The payload a drag or key carry is holding as an owned copy, or `None` when nothing is carried.
-    /// Prefer `carrying_ref` when a borrow does; this one copies the two strings.
-    /// Allocates: the copies of `kind` and `value`; never when nothing is carried.
-    /// Panics: when the library refuses the call (a null `Ui`).
-    ///
-    /// ```
-    /// use pxui::ui::Payload;
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     assert_eq!(ui.carrying(), None);
-    ///     ui.carry(None, "song", "42");
-    ///     assert_eq!(ui.carrying(), Some(Payload { kind: "song".into(), value: "42".into() }));
-    /// });
-    /// ```
-    #[track_caller]
-    pub fn carrying(&self) -> Option<Payload> {
-        self.carrying_ref().map(|p| Payload { kind: p.kind.to_owned(), value: p.value.to_owned() })
-    }
-    /// The payload being carried, borrowed from the library until the next mutable call on the `Ui`, or `None` when nothing is carried.
+    /// The payload a drag or key carry is holding, borrowed from the library until the next mutable call on the `Ui`, or `None` when nothing is carried.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
+    ///     assert!(ui.carrying().is_none());
     ///     ui.carry(None, "song", "42");
-    ///     let held = ui.carrying_ref().unwrap();
+    ///     let held = ui.carrying().unwrap();
     ///     assert_eq!((held.kind, held.value), ("song", "42"));
     /// });
     /// ```
     #[track_caller]
-    pub fn carrying_ref(&self) -> Option<PayloadRef<'_>> {
+    pub fn carrying(&self) -> Option<PayloadRef<'_>> {
         let (mut present, mut kind, mut value) = (0, Str::default(), Str::default());
         check(self, unsafe { lib::pxui_ui_carrying(self.0.as_ptr(), &mut present, &mut kind, &mut value) });
         (present != 0).then(|| PayloadRef { kind: crate::lent_str(kind), value: crate::lent_str(value) })
@@ -582,37 +707,31 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_transfer_carry(self.0.as_ptr(), to, &mut out) });
         out != 0
     }
-    /// What a drag looks like to the drop target `b` as an owned `Drop`: `Hover` while a payload is held over it or one of its descendants, `Dropped` in the frame the payload was released there, `None` otherwise.
-    /// A drop stays readable by the target and its ancestors for the whole frame it happened in.
-    /// Allocates: copies the payload's two strings; never when it returns `None`.
+    /// Ends a held carry: `carrying` reads `None` from now on and the drop targets see no hover.
+    /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let slot = ui.node("slot".into(), pxui::Node::DEFAULT);
-    ///     assert_eq!(ui.drop_target(&slot), None);
+    ///     ui.carry(None, "row", "7");
+    ///     ui.cancel_carry();
+    ///     assert!(ui.carrying().is_none());
     /// });
     /// ```
     #[inline] #[track_caller] pub fn cancel_carry(&mut self) { check(self, unsafe { lib::pxui_ui_cancel_carry(self.0.as_ptr()) }) }
-    #[track_caller]
-    pub fn drop_target(&mut self, b: &PxuiBox) -> Option<Drop> {
-        self.drop_target_ref(b).map(|drop| match drop {
-            DropRef::Hover(p) => Drop::Hover(Payload { kind: p.kind.to_owned(), value: p.value.to_owned() }),
-            DropRef::Dropped(p) => Drop::Dropped(Payload { kind: p.kind.to_owned(), value: p.value.to_owned() }),
-        })
-    }
-    /// `drop_target` with the payload borrowed from the library until the next mutable call on the `Ui`, so no string is copied.
+    /// What a drag looks like to the drop target `b`: `Hover` while a payload is held over it or one of its descendants, `Dropped` in the frame the payload was released there, `None` otherwise.
+    /// A drop stays readable by the target and its ancestors for the whole frame it happened in; the payload is borrowed from the library until the next mutable call on the `Ui`, so no string is copied.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a null `Ui`).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let slot = ui.node("slot".into(), pxui::Node::DEFAULT);
-    ///     assert!(ui.drop_target_ref(&slot).is_none());
+    ///     assert!(ui.drop_target(&slot).is_none());
     /// });
     /// ```
     #[track_caller]
-    pub fn drop_target_ref(&mut self, b: &PxuiBox) -> Option<DropRef<'_>> {
+    pub fn drop_target(&mut self, b: &PxuiBox) -> Option<DropRef<'_>> {
         let (mut tag, mut kind, mut value) = (0, Str::default(), Str::default());
         check(self, unsafe { lib::pxui_ui_drop_target(self.0.as_ptr(), b, &mut tag, &mut kind, &mut value) });
         let payload = || PayloadRef { kind: crate::lent_str(kind), value: crate::lent_str(value) };
@@ -754,28 +873,46 @@ impl Ui {
         }
         last
     }
-    #[inline] #[track_caller] pub fn view_offset(&mut self, b: &PxuiBox, dx: f32, dy: f32) { check(self, unsafe { lib::pxui_ui_view_offset(self.0.as_ptr(), b, dx, dy) }) }
-    /// Multiply each instance's alpha by a finite 0..1 value; overlaps remain per-instance, not group opacity.
-    #[inline] #[track_caller] pub fn view_opacity(&mut self,b:&PxuiBox,opacity:f32) { check(self,unsafe { lib::pxui_ui_view_opacity(self.0.as_ptr(),b,opacity) }) }
-    /// Uniform scale about the view box's centre. Zero hides it; negative values reflect both axes.
-    #[inline] #[track_caller] pub fn view_scale(&mut self,b:&PxuiBox,scale:f32) { check(self,unsafe { lib::pxui_ui_view_scale(self.0.as_ptr(),b,scale) }) }
-    /// Maps the view `b`'s output through `pivot + scale * transform * (p - pivot)` about the window point `pivot`, which stays put when the view moves.
-    /// `transform` is a row-major 2x2 matrix (`[1.0, 0.0, 0.0, 1.0]` is the identity; rotation, skew and flips go here); one table entry, no rebuild. Unchanged values change nothing, and a scale of 1 leaves every point exact.
+    /// Sets the view `b`'s table entry to `view`: the fields it sets take effect, the ones it leaves unset keep the entry's current value.
+    /// One table entry, no rebuild; unchanged values change nothing, and a scale of 1 leaves every point exact.
+    /// Every field is checked before any is applied, so a refused call changes nothing.
     /// Allocates: never.
-    /// Panics: when the library refuses the call (a stale or non-view box, or a non-finite value).
+    /// Panics: when an offset, scale or matrix value is not finite, the opacity is outside 0 to 1, or the library refuses the call (a stale or non-view box).
+    ///
+    /// ```
+    /// use pxui::ui::{Size, ViewTransform};
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let v = ui.view("v", 1, Size::Px(40.0), Size::Px(40.0), &mut |_| {});
+    ///     ui.set_view(&v, &ViewTransform::DEFAULT.offset(4.0, 0.0).opacity(0.5).about(1.5, [1.0, 0.0, 0.0, 1.0], (20.0, 20.0)));
+    /// });
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn set_view(&mut self, b: &PxuiBox, view: &ViewTransform) {
+        let finite = |values: &[f32]| values.iter().all(|v| v.is_finite());
+        assert!(view.offset.is_none_or(|(x, y)| finite(&[x, y])), "pxui: the view offset must be finite");
+        assert!(view.opacity.is_none_or(|o| (0.0..=1.0).contains(&o)), "pxui: the view opacity must be in 0 to 1");
+        assert!(view.scale.is_none_or(|s| finite(&[s])), "pxui: the view scale must be finite");
+        assert!(view.about.is_none_or(|a| finite(&[a.scale, a.matrix[0], a.matrix[1], a.matrix[2], a.matrix[3], a.pivot.0, a.pivot.1])), "pxui: the view transform must be finite");
+        let ui = self.0.as_ptr();
+        if let Some((dx, dy)) = view.offset { check(self, unsafe { lib::pxui_ui_view_offset(ui, b, dx, dy) }) }
+        if let Some(opacity) = view.opacity { check(self, unsafe { lib::pxui_ui_view_opacity(ui, b, opacity) }) }
+        if let Some(scale) = view.scale { check(self, unsafe { lib::pxui_ui_view_scale(ui, b, scale) }) }
+        if let Some(about) = view.about { check(self, unsafe { lib::pxui_ui_view_transform_about(ui, b, about.scale, about.matrix.as_ptr(), about.pivot.0, about.pivot.1) }) }
+    }
+    /// Clips the view `b` to `clip` in window points, for painting and hit testing (`None` removes the clip).
+    /// One table entry, no rebuild; an unchanged clip changes nothing.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a stale or non-view box, or a rectangle that is not finite or has a negative size).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let v = ui.view("v", 1, pxui::ui::Size::Px(40.0), pxui::ui::Size::Px(40.0), &mut |_| {});
-    ///     ui.view_transform_about(&v, 1.5, [1.0, 0.0, 0.0, 1.0], (20.0, 20.0));
+    ///     ui.view_clip(&v, Some(pxui::ui::Rect::new(0.0, 0.0, 20.0, 20.0)));
+    ///     ui.view_clip(&v, None);
     /// });
     /// ```
     #[inline] #[track_caller] pub fn view_clip(&mut self,b:&PxuiBox,clip:Option<Rect>) { check(self,unsafe { lib::pxui_ui_view_clip(self.0.as_ptr(),b,clip.as_ref().map_or(core::ptr::null(),|r|r)) }) }
-    #[inline]
-    #[track_caller]
-    pub fn view_transform_about(&mut self, b: &PxuiBox, scale: f32, transform: [f32; 4], pivot: (f32, f32)) {
-        check(self, unsafe { lib::pxui_ui_view_transform_about(self.0.as_ptr(), b, scale, transform.as_ptr(), pivot.0, pivot.1) })
-    }
     /// Edits what a widget finishes of a node it declared this frame: `edit` gets the node's look, mark and inset, and what it leaves there is written back; returns what `edit` returns.
     /// `edit` must not call the `Ui`. For a stale handle the library refuses.
     /// Allocates: never.
@@ -845,6 +982,77 @@ impl Ui {
 }
 
 /// A string the library lent: copied, since it only lives until the next frame.
+
+/// The scroll offset of a box in points, as `Ui::scroll` reads it.
+#[derive(Clone, Copy, Debug, Default, PartialEq)]
+pub struct Scroll {
+    /// Where the scroll has settled, without elastic overscroll.
+    pub settled: f32,
+    /// Where the content is painted now, elastic overscroll included.
+    pub painted: f32,
+}
+
+/// What a retained view's table entry applies to its output, for `Ui::set_view`: a `Copy` value built from `ViewTransform::DEFAULT` (nothing set) with const builders.
+///
+/// A field left unset keeps the entry's current value.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct ViewTransform {
+    offset: Option<(f32, f32)>,
+    opacity: Option<f32>,
+    scale: Option<f32>,
+    about: Option<About>,
+}
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct About {
+    scale: f32,
+    matrix: [f32; 4],
+    pivot: (f32, f32),
+}
+
+impl ViewTransform {
+    /// Nothing set.
+    pub const DEFAULT: ViewTransform = ViewTransform { offset: None, opacity: None, scale: None, about: None };
+    /// Shifts the view by `(dx, dy)` points.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::ui::ViewTransform;
+    /// let _ = ViewTransform::DEFAULT.offset(4.0, 0.0);
+    /// ```
+    pub const fn offset(self, dx: f32, dy: f32) -> ViewTransform { ViewTransform { offset: Some((dx, dy)), ..self } }
+    /// Multiplies each instance's alpha by a finite 0..1 value; overlaps remain per-instance, not group opacity.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::ui::ViewTransform;
+    /// let _ = ViewTransform::DEFAULT.opacity(0.5);
+    /// ```
+    pub const fn opacity(self, opacity: f32) -> ViewTransform { ViewTransform { opacity: Some(opacity), ..self } }
+    /// A uniform scale about the view box's centre. Zero hides it; negative values reflect both axes.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::ui::ViewTransform;
+    /// let _ = ViewTransform::DEFAULT.scale(2.0);
+    /// ```
+    pub const fn scale(self, scale: f32) -> ViewTransform { ViewTransform { scale: Some(scale), ..self } }
+    /// Maps the output through `pivot + scale * matrix * (p - pivot)` about the window point `pivot`, which stays put when the view moves.
+    /// `matrix` is a row-major 2x2 (`[1.0, 0.0, 0.0, 1.0]` is the identity; rotation, skew and flips go here).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::ui::ViewTransform;
+    /// let _ = ViewTransform::DEFAULT.about(1.5, [1.0, 0.0, 0.0, 1.0], (20.0, 20.0));
+    /// ```
+    pub const fn about(self, scale: f32, matrix: [f32; 4], pivot: (f32, f32)) -> ViewTransform { ViewTransform { about: Some(About { scale, matrix, pivot }), ..self } }
+}
+impl Default for ViewTransform {
+    fn default() -> ViewTransform { ViewTransform::DEFAULT }
+}
 
 /// What `Ui::node_mut` edits of a node.
 #[derive(Clone, Copy, Debug, PartialEq)]

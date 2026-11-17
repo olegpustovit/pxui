@@ -2,7 +2,7 @@
 //! and the loud failure of a caller bug.
 use crate::Ui;
 use crate::opts::BoxOpts;
-use pxui_types::{geom::Rect, ui::{Cursor, Drop, UndoKind}, FrameIn, Mark, Size};
+use pxui_types::{geom::Rect, ui::{Cursor, UndoKind}, FrameIn, Mark, Size};
 use std::panic::{catch_unwind, AssertUnwindSafe};
 
 
@@ -224,7 +224,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
             for (index, expected) in [(1,1.0),(0,1.0),(4,61.0),(3,61.0),(0,35.0)] {
                 ui.reveal(&body.get().unwrap(),index);
                 ui.frame(&input(),&mut build).unwrap();
-                assert_eq!(ui.scroll_offset(&body.get().unwrap()),expected,"minimum adjustment for row {index}");
+                assert_eq!(ui.scroll(&body.get().unwrap()).settled,expected,"minimum adjustment for row {index}");
             }
         }
         for round in 0..5 {
@@ -239,9 +239,9 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
                 let header=if kind==0 || kind==2 {14.0} else {0.0};
                 assert!(r.y>=viewport.y+6.0+header-0.05 && r.y+r.h<=viewport.y+viewport.h-5.95,"kind {kind}, index {index}: {r:?} in {viewport:?}");
                 assert!(calls.get()<100,"reveal must not build all 10,000 rows");
-                let offset=ui.scroll_offset(&list);
+                let offset=ui.scroll(&list).settled;
                 ui.reveal(&list,index);
-                assert_eq!(ui.scroll_offset(&list),offset,"visible rows need no additional scrolling");
+                assert_eq!(ui.scroll(&list).settled,offset,"visible rows need no additional scrolling");
                 if round>1 {assert_eq!(allocations,0,"the request itself allocates nothing");assert_eq!(mem_sys::local_alloc_count(),0,"warm reveal/build/draw kind {kind}");}
             }
         }
@@ -251,16 +251,16 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
         ui.frame(&input(),&mut build).unwrap();
         assert!(ui.box_of_key(row_key(1)).is_some(),"live cached-list geometry must survive cache expiry");
         assert_eq!(mem_sys::local_alloc_count(),0);
-        let list=body.get().unwrap();let offset=ui.scroll_offset(&list);
+        let list=body.get().unwrap();let offset=ui.scroll(&list).settled;
         for index in [10_000,usize::MAX-1,usize::MAX] {ui.reveal(&list,index);}
-        assert_eq!(ui.scroll_offset(&list),offset);
+        assert_eq!(ui.scroll(&list).settled,offset);
         // A request made after the builder must settle in the same frame with the new viewport.
         size.set(80.0);requested.set(Some(9_999));
         ui.frame(&input(),&mut build).unwrap();
-        let list=body.get().unwrap();let r=ui.rect(&ui.box_of_key(row_key(9_999)).unwrap_or_else(||panic!("resize kind {kind}, offset {}, request {:?}",ui.scroll_offset(&list),requested.get())));let v=ui.rect(&list);
+        let list=body.get().unwrap();let r=ui.rect(&ui.box_of_key(row_key(9_999)).unwrap_or_else(||panic!("resize kind {kind}, offset {}, request {:?}",ui.scroll(&list).settled,requested.get())));let v=ui.rect(&list);
         assert!(r.y>=v.y+5.95 && r.y+r.h<=v.y+v.h-5.95);
         count.set(0);ui.frame(&input(),&mut build).unwrap();
-        assert_eq!(ui.scroll_offset(&body.get().unwrap()),0.0);
+        assert_eq!(ui.scroll(&body.get().unwrap()).settled,0.0);
         ui.frame(&input(),&mut |_| {}).unwrap();
         ui.reveal(&list,5);
     }
@@ -278,7 +278,7 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
     let mut build = |ui: &mut Ui| {
         let row = ui.box_("row", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(50.0)).flags(pxui_types::Flags::CLICKABLE));
         node.set(Some(row));
-        state.set(ui.gesture(&row, GestureOpts { long_press: true, swipe_actions: Some(SwipeActions { leading: 60.0, trailing: 80.0, full: 120.0 }), ..Default::default() }));
+        state.set(ui.gesture(&row, GestureOpts::DEFAULT.long_press().swipe_actions(SwipeActions::DEFAULT.leading(60.0).trailing(80.0).full(120.0))));
     };
     let touch = |ui: &mut Ui, phase: u32, x: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
         let packet = Touch { device: 1, finger: 7, x, y: 25.0, phase, time: at, pressure: 1.0 };
@@ -353,7 +353,7 @@ fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocatio
     let state = Cell::new(GestureState::default());
     let mut build = |ui: &mut Ui| {
         let sheet = ui.box_("sheet", BoxOpts::default().at((0.0, 0.0)).w(Size::Px(200.0)).h(Size::Px(200.0)).flags(pxui_types::Flags::CLICKABLE));
-        state.set(ui.gesture(&sheet, GestureOpts { dismiss: Some(DismissOpts::default()), ..Default::default() }));
+        state.set(ui.gesture(&sheet, GestureOpts::DEFAULT.dismiss(DismissOpts::DEFAULT)));
     };
     let touch = |ui: &mut Ui, phase: u32, y: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
         let packet = Touch { device: 1, finger: 7, x: 100.0, y, phase, time: at, pressure: 1.0 };
@@ -537,7 +537,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
 
 #[test]
 fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_without_allocating() {
-    use crate::{kit::{AnimationTarget, Keyframe, Repeat}, ui::{Curve, Look, Node, Target}};
+    use crate::{ui::{Curve, Keyframe, Keyframes, Look, Node, Repeat, Target, ViewTransform}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
@@ -554,8 +554,7 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
         })));
     };
     let curve = Curve::Bezier { duration: 99.0, points: [0.0, 0.0, 1.0, 1.0] };
-    let scale = |y| AnimationTarget::Scale { x: 1.0, y, anchor: (0.5, 1.0) };
-    let keys = [Keyframe { time: 0.0, target: scale(0.4), curve }, Keyframe { time: 0.5, target: scale(1.0), curve }];
+    let keys = [Keyframe::scale(0.0, 1.0, 0.4).anchor(0.5, 1.0).curve(curve), Keyframe::scale(0.5, 1.0, 1.0).anchor(0.5, 1.0).curve(curve)];
     ui.frame(&input(), &mut build).unwrap();
     ui.frame(&input(), &mut build).unwrap();
     let view = view.get().unwrap();
@@ -568,7 +567,7 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
         let start = round as f64 * 10.0;
         ui.frame(&FrameIn { time: start, ..input() }, &mut build).unwrap();
         mem_sys::local_reset();
-        assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Forever, true, 0.25));
+        assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse().offset(0.25)));
         for tick in 0..61 {
             let dt = tick as f64 / 60.0;
             ui.frame(&FrameIn { time: start + dt, ..input() }, &mut build).unwrap();
@@ -590,34 +589,34 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
         ui.view_clip(&view, None);
         ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
         assert!(ui.wants_frame(&[], start + 3.0));
-        ui.view_opacity(&view, 0.0);
+        ui.set_view(&view, &ViewTransform::DEFAULT.opacity(0.0));
         ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
         assert!(!ui.wants_frame(&[], start + 3.0), "manually hidden loops must idle");
-        ui.view_opacity(&view, 1.0);
+        ui.set_view(&view, &ViewTransform::DEFAULT.opacity(1.0));
         ui.frame(&FrameIn { time: start + 3.0, ..input() }, &mut build).unwrap();
         assert!(ui.wants_frame(&[], start + 3.0));
         // Finite cycles count both legs and settle at their authored first stop.
-        assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Count(2), true, 0.0));
+        assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Count(2)).autoreverse()));
         for (dt, height, running) in [(0.5, 10.0, true), (1.0, 4.0, true), (1.5, 10.0, true), (2.0, 4.0, false)] {
             ui.frame(&FrameIn { time: start + 3.0 + dt, ..input() }, &mut build).unwrap();
             assert!((ui.rect(&child).h - height).abs() < 0.001);
             assert_eq!(ui.wants_frame(&[], start + 3.0 + dt), running);
         }
-        assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Count(2), false, 0.25));
+        assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Count(2)).offset(0.25)));
         ui.frame(&FrameIn { time: start + 5.75, ..input() }, &mut build).unwrap();
         assert!((ui.rect(&child).h - 10.0).abs() < 0.001);
         assert!(!ui.wants_frame(&[], start + 5.75));
-        assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Forever, true, 0.0));
+        assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse()));
         assert!(ui.animate(&view, Target::Scale { x: 1.0, y: 0.4, anchor: (0.5, 1.0) }, curve.with_duration(0.0)));
         ui.frame(&FrameIn { time: start + 6.0, ..input() }, &mut build).unwrap();
         assert!(!ui.wants_frame(&[], start + 6.0), "retargeting stops a loop");
         if round > 0 { assert_eq!(mem_sys::local_alloc_count(), 0); }
     }
-    assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Forever, true, 0.25));
+    assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse().offset(0.25)));
     ui.frame(&FrameIn { time: 27.0, reduced_motion: 1, ..input() }, &mut build).unwrap();
     assert!((ui.rect(&child).h - 4.0).abs() < 0.001);
     assert!(!ui.wants_frame(&[], 28.0));
-    assert!(ui.animate_keys_repeat(&view, &keys, Repeat::Forever, true, 0.0));
+    assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse()));
     ui.frame(&FrameIn { time: 28.0, reduced_motion: 1, ..input() }, &mut build).unwrap();
     assert!(!ui.wants_frame(&[], 29.0));
     ui.frame(&FrameIn { time: 29.0, ..input() }, &mut |_| {}).unwrap();
@@ -648,7 +647,7 @@ fn shrinking_virtual_sections_select_the_clamped_rows_in_one_build_without_warm_
             count.set(next);let previous=builds.get();
             ui.frame(&input(),&mut build).unwrap();
             assert_eq!(builds.get()-previous,1,"shrink completes in the original build");
-            assert_eq!(ui.scroll_offset(&body.get().unwrap()),0.0);
+            assert_eq!(ui.scroll(&body.get().unwrap()).settled,0.0);
             assert_eq!(rows.get(),next,"the first shrink frame must not leave an empty viewport");
             assert_eq!(first.get(),if next>0 {Some(0)} else {None});
         }
@@ -704,12 +703,12 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
     for round in 0..8 {
         mem_sys::local_reset();
         for offset in [90.0,105.0,500.0,199_900.0,0.0] {
-            let previous=ui.scroll_offset(&body.get().unwrap());
+            let previous=ui.scroll(&body.get().unwrap()).settled;
             let previous_builds=frame_builds.get();
             ui.inject_a11y(&[crate::A11yAction {id,action_code:8,payload:(offset-previous) as f64,..Default::default()}]);
             ui.frame(&input(),&mut build).unwrap();
             if !flat {assert_eq!(frame_builds.get()-previous_builds,1,"indexed heading return must not settle an extra frame build");}
-            assert!((ui.scroll_offset(&body.get().unwrap())-offset).abs()<0.001,"scroll offset");
+            assert!((ui.scroll(&body.get().unwrap()).settled-offset).abs()<0.001,"scroll offset");
             assert!((ui.rect(&lead.get().unwrap()).y+offset).abs()<0.001,"retained heading rect: {:?}",ui.rect(&lead.get().unwrap()));
             let heading=ui.a11y_nodes().iter().find(|n|ui.a11y_name_of(n)=="Page heading").unwrap();
             assert!((heading.rect.y+offset).abs()<0.001,"retained heading accessibility: {:?}",heading.rect);
@@ -1023,7 +1022,7 @@ fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
 
 #[test]
 fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_warm() {
-    use crate::{kit::{AnimationTarget, Keyframe}, ui::{Curve, Look, Node, Role, Target}};
+    use crate::{ui::{Curve, Keyframe, Keyframes, Look, Node, Role, Target}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     for nested in [false,true] {
@@ -1074,10 +1073,10 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
         ui.frame(&FrameIn { time: base + 0.3, ..input() }, &mut build).unwrap();
         shown(&ui, Rect::new(120.0, 50.0, 20.0, 10.0));
         let keys = [
-            Keyframe { time: 0.2, target: AnimationTarget::Scale { x: 2.0, y: 0.5, anchor: (1.0, 1.0) }, curve: spring.with_duration(99.0) },
-            Keyframe { time: 0.4, target: AnimationTarget::Scale { x: 1.0, y: 1.0, anchor: (1.0, 1.0) }, curve: Curve::Steps { duration: 99.0, count: 2 } },
+            Keyframe::scale(0.2, 2.0, 0.5).anchor(1.0, 1.0).curve(spring.with_duration(99.0)),
+            Keyframe::scale(0.4, 1.0, 1.0).anchor(1.0, 1.0).curve(Curve::Steps { duration: 99.0, count: 2 }),
         ];
-        assert!(ui.animate_keys(&view, &keys));
+        assert!(ui.animate_keys(&view, &keys, &Keyframes::DEFAULT));
         for (dt, expected) in [(0.1, Rect::new(32.0, 88.5, 42.0, 4.5)), (0.3, Rect::new(80.0, 67.5, 30.0, 7.5)), (0.4, Rect::new(120.0, 50.0, 20.0, 10.0))] {
             ui.frame(&FrameIn { time: base + 0.3 + dt, ..input() }, &mut build).unwrap();
             shown(&ui, expected);
@@ -1100,7 +1099,7 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
 
 #[test]
 fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm() {
-    use crate::{kit::{AnimationTarget, Keyframe}, ui::{Curve, Look, Node, Target}};
+    use crate::{ui::{Curve, Keyframe, Keyframes, Look, Node, Target}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let table = Curve::Table {
@@ -1140,10 +1139,10 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
             assert!((x(&ui) - expected).abs() < 0.001, "steps {dt}: {}", x(&ui));
         }
         let keys = [
-            Keyframe { time: 0.4, target: AnimationTarget::Offset(100.0, 0.0), curve: table.with_duration(99.0) },
-            Keyframe { time: 0.6, target: AnimationTarget::Offset(0.0, 0.0), curve: steps.with_duration(99.0) },
+            Keyframe::offset(0.4, 100.0, 0.0).curve(table.with_duration(99.0)),
+            Keyframe::offset(0.6, 0.0, 0.0).curve(steps.with_duration(99.0)),
         ];
-        assert!(ui.animate_keys(&chip, &keys));
+        assert!(ui.animate_keys(&chip, &keys, &Keyframes::DEFAULT));
         for (dt, expected) in [(0.1, 120.0), (0.2, 90.0), (0.4, 100.0), (0.5, 50.0), (0.6, 0.0)] {
             ui.frame(&FrameIn { time: base + 0.6 + dt, ..input() }, &mut build).unwrap();
             assert!((x(&ui) - expected).abs() < 0.001, "keys {dt}: {}", x(&ui));
@@ -1169,9 +1168,9 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
         assert_eq!(ui.passed_undo(), None::<UndoKind>);
         let b = ui.box_("scroller", BoxOpts::default().flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::SCROLL | pxui_types::Flags::CLIP).w(Size::Px(100.0)).h(Size::Px(60.0)).at((10.0, 20.0)).scroll_step(12.0));
         ui.box_fmt(format_args!("{}-fmt", "fmt"), BoxOpts::default().w(Size::Px(10.0)).h(Size::Px(10.0)));
-        assert_eq!(ui.scroll_offset(&b), 0.0);
+        assert_eq!(ui.scroll(&b).settled, 0.0);
         ui.set_scroll_offset(&b, 5.0);
-        assert_eq!((ui.scroll_offset(&b), ui.scroll_position(&b)), (5.0, 5.0));
+        assert_eq!((ui.scroll(&b).settled, ui.scroll(&b).painted), (5.0, 5.0));
         assert_eq!(ui.text_state(&b), None);
         ui.set_text_state(&b, Some("kept".into()));
         assert_eq!(ui.text_state(&b), Some("kept"));
@@ -1182,12 +1181,12 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
         let _ = ui.local_rect(&b);
         assert!(!ui.hovered_exactly(&b) && !ui.hovered_within(&b));
         assert_eq!(ui.context_at(&b), None);
-        assert_eq!(ui.drop_target(&b), None::<Drop>);
+        assert!(ui.drop_target(&b).is_none());
         assert!(ui.press_keys(&b).is_empty());
         assert_eq!(ui.root_at((1.0, 1.0), &[]), None);
         ui.carry(None, "kind", "value");
         let payload = ui.carrying().expect("a key carry is held at once");
-        assert_eq!((payload.kind.as_str(), payload.value.as_str()), ("kind", "value"));
+        assert_eq!((payload.kind, payload.value), ("kind", "value"));
         ui.cancel_carry();
         assert_eq!(ui.carrying(), None);
         ui.request_cursor(Cursor::Text);
@@ -1206,7 +1205,7 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
 fn a_caller_bug_panics_with_the_librarys_message_at_the_call() {
     let mut ui = Ui::new().expect("library");
     let stale = pxui_types::PxuiBox { index: 0, box_key: 1, box_slot: 99, generation: 7 };
-    let err = catch_unwind(AssertUnwindSafe(|| { let _ = ui.scroll_offset(&stale); })).expect_err("a stale box is refused");
+    let err = catch_unwind(AssertUnwindSafe(|| { let _ = ui.scroll(&stale).settled; })).expect_err("a stale box is refused");
     let message = err.downcast_ref::<String>().expect("a formatted message");
     assert!(message.contains("stale box"), "{message}");
     let err = catch_unwind(AssertUnwindSafe(|| ui.set_font_size(0))).expect_err("a font size of zero is refused");
@@ -1227,8 +1226,8 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 let head = ui.inspector_head_for_test(&actions);
                 assert_eq!(head.renamed, "Title");
                 ui.inspector_body(&mut |ui: &mut Ui| {
-                    assert!(ui.inspector_section_view("section", round, true, None, "Section", &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); }));
-                    assert!(!ui.inspector_toggle_value("toggle", (0.0, 0.0), false));
+                    assert!(ui.inspector_section("section", true, None, "Section", &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); }));
+                    assert!(!ui.inspector_toggle("toggle", "Toggle", false));
                 });
                 ui.inspector_bar(&hints, 3);
                 let (text, step) = ui.line_field((0.0, 0.0), 120.0, 20.0, false, "find", "line", "abc");
@@ -1710,7 +1709,7 @@ fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
 fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_authored_flags() {
     use std::cell::Cell;
     use crate::ui::Curve;
-    use crate::kit::{AnimationTarget,Keyframe};
+    use crate::ui::{Keyframe,Keyframes};
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
     let scoped=crate::Theme::default();
@@ -1734,8 +1733,8 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
         ui.frame(&FrameIn { time:time+0.01,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
         let before=builds.get();
         let view=handle.get().unwrap();
-        ui.animate_keys(&view,&[Keyframe { time:5.0,target:AnimationTarget::Scale { x:0.9,y:0.9,anchor:(0.5,0.5) },curve:ease },
-            Keyframe { time:10.0,target:AnimationTarget::Scale { x:0.8,y:0.8,anchor:(0.5,0.5) },curve:ease }]);
+        ui.animate_keys(&view,&[Keyframe::scale(5.0, 0.9, 0.9).curve(ease),
+            Keyframe::scale(10.0, 0.8, 0.8).curve(ease)],&Keyframes::DEFAULT);
         ui.frame(&FrameIn { time:time+0.1,appearance:FrameIn::APPEARANCE_LIGHT,..input() },&mut build).unwrap();
         mem_sys::local_reset();
         ui.frame(&FrameIn { time:time+0.2,appearance:FrameIn::APPEARANCE_DARK,reduced_motion:1,..input() },&mut build).unwrap();
@@ -1764,6 +1763,7 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
 #[test]
 fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_allocations() {
     use std::cell::Cell;
+    use crate::ViewTransform;
     mem_sys::set_peer(crate::library_counter);
     let view=Cell::new(None);
     let child=Cell::new(None);
@@ -1782,15 +1782,15 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     let (v,c,built)=(view.get().unwrap(),child.get().unwrap(),builds.get());
     let original=ui.layer(0).instances.to_vec();
     let near=|a:Rect,b:Rect|[a.x-b.x,a.y-b.y,a.w-b.w,a.h-b.h].iter().all(|v|v.abs()<0.001);
-    ui.view_transform_about(&v,1.0,[0.0,-1.0,1.0,0.0],(90.0,70.0));
-    ui.view_scale(&v,1.0);
+    ui.set_view(&v,&ViewTransform::DEFAULT.about(1.0,[0.0,-1.0,1.0,0.0],(90.0,70.0)));
+    ui.set_view(&v,&ViewTransform::DEFAULT.scale(1.0));
     assert!(near(ui.rect(&c),Rect::new(50.0,40.0,20.0,10.0)),"centre scale replaces an earlier manual rotation and fixed pivot");
     for cycle in 0..4 {
         mem_sys::local_reset();
         for (scale,expected) in [(2.0,Rect::new(10.0,10.0,40.0,20.0)),(1.0,Rect::new(50.0,40.0,20.0,10.0)),
             (0.0,Rect::new(90.0,70.0,0.0,0.0)),(-1.0,Rect::new(110.0,90.0,20.0,10.0))] {
-            ui.view_opacity(&v,0.5);
-            ui.view_scale(&v,scale);
+            ui.set_view(&v,&ViewTransform::DEFAULT.opacity(0.5));
+            ui.set_view(&v,&ViewTransform::DEFAULT.scale(scale));
             ui.view_clip(&v,Some(Rect::new(0.0,0.0,320.0,240.0)));
             ui.view_clip(&v,None);
             assert!(near(ui.rect(&c),expected),"scale {scale}: {:?}",ui.rect(&c));
@@ -1800,7 +1800,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
         assert_eq!(builds.get(),built);
         if cycle>0 { assert_eq!(mem_sys::local_alloc_count(),0); }
     }
-    ui.view_scale(&v,2.0);
+    ui.set_view(&v,&ViewTransform::DEFAULT.scale(2.0));
     ui.view_clip(&v,Some(Rect::new(20.0,15.0,10.0,10.0)));
     for (time,x,hovered) in [(1.0,25.0,true),(1.1,15.0,false)] {
         let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x,y:20.0,..Default::default() };
@@ -1811,8 +1811,8 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     let event=pxui_types::Event { kind:pxui_types::Event::POINTER_MOVED,x:15.0,y:20.0,..Default::default() };
     ui.frame(&FrameIn { time:1.2,events:&event,event_count:1,..input() },&mut build).unwrap();
     assert!(ui.signal(&c).hovered);
-    for opacity in [-1.0,1.01,f32::NAN,f32::INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.view_opacity(&v,opacity))).is_err()); }
-    for scale in [f32::NAN,f32::INFINITY,f32::NEG_INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.view_scale(&v,scale))).is_err()); }
+    for opacity in [-1.0,1.01,f32::NAN,f32::INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.set_view(&v,&ViewTransform::DEFAULT.opacity(opacity)))).is_err()); }
+    for scale in [f32::NAN,f32::INFINITY,f32::NEG_INFINITY] { assert!(catch_unwind(AssertUnwindSafe(||ui.set_view(&v,&ViewTransform::DEFAULT.scale(scale)))).is_err()); }
     for clip in [Rect::new(0.0,0.0,-1.0,2.0),Rect::new(f32::NAN,0.0,1.0,1.0),Rect::new(f32::MAX,0.0,f32::MAX,1.0)] {
         assert!(catch_unwind(AssertUnwindSafe(||ui.view_clip(&v,Some(clip)))).is_err());
     }
@@ -1852,7 +1852,7 @@ fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
     }
     ui.set_scroll_offset(&list.get().unwrap(),120.0);
     ui.frame(&FrameIn { time:1.0,..input() },&mut build).unwrap();
-    assert!(ui.scroll_offset(&list.get().unwrap())>=120.0);
+    assert!(ui.scroll(&list.get().unwrap()).settled>=120.0);
     for frame in 1..5 {
         mem_sys::local_reset();
         ui.frame(&FrameIn { time:1.0+frame as f64/60.0,..input() },&mut build).unwrap();
@@ -1862,7 +1862,7 @@ fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
     calls.set(0);
     ui.frame(&FrameIn { time:2.0,..input() },&mut build).unwrap();
     assert_eq!(calls.get(),0);
-    assert_eq!(ui.scroll_offset(&list.get().unwrap()),0.0);
+    assert_eq!(ui.scroll(&list.get().unwrap()).settled,0.0);
 }
 
 #[test]
@@ -2089,9 +2089,9 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
         let source = ui.box_("carry-source", BoxOpts::default().flags(pxui_types::Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
         let target = ui.box_("carry-target", BoxOpts::default().flags(pxui_types::Flags::CLICKABLE).at((0.0, 100.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
         if ui.signal(&source).held { ui.carry(Some(&source), payload.kind, payload.value); }
-        if let Some(p) = ui.carrying_ref() { assert_eq!(p, payload); }
+        if let Some(p) = ui.carrying() { assert_eq!(p, payload); }
         hover = false; dropped = false;
-        if let Some(state) = ui.drop_target_ref(&target) {
+        if let Some(state) = ui.drop_target(&target) {
             match state {
                 DropRef::Hover(p) => { assert_eq!(p, payload); hover = true; }
                 DropRef::Dropped(p) => { assert_eq!(p, payload); dropped = true; deliveries += 1; }
@@ -2117,11 +2117,11 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
         ui.frame(&FrameIn { time: 10.0 + round as f64, ..input() }, &mut |_| {}).unwrap();
         mem_sys::local_reset();
         ui.carry(None, payload.kind, payload.value);
-        assert_eq!(ui.carrying_ref(), Some(payload));
+        assert_eq!(ui.carrying(), Some(payload));
         ui.carry(None, "kind", "café");
-        assert_eq!(ui.carrying_ref(), Some(PayloadRef { kind: "kind", value: "café" }));
+        assert_eq!(ui.carrying(), Some(PayloadRef { kind: "kind", value: "café" }));
         ui.cancel_carry();
-        assert_eq!(ui.carrying_ref(), None);
+        assert_eq!(ui.carrying(), None);
         if round > 1 { assert_eq!(mem_sys::local_alloc_count(), 0); }
     }
 }
@@ -2145,7 +2145,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
                 source.set(Some(row));
                 if ui.signal(&row).held { ui.carry(Some(&row), "occurrence", "duplicate song"); }
             }
-            if let Some(DropRef::Dropped(payload)) = ui.drop_target_ref(&row) {
+            if let Some(DropRef::Dropped(payload)) = ui.drop_target(&row) {
                 assert_eq!((payload.kind, payload.value), ("occurrence", "duplicate song"));
                 dropped.set(Some(index));
             }
@@ -2181,11 +2181,11 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
             }
             if events[0].kind == Event::SCROLLED && events[0].y < 0.0 {
                 assert!(!ui.transfer_carry(&source.get().unwrap()), "a virtualized child is stale");
-                assert!(ui.carrying_ref().is_some());
+                assert!(ui.carrying().is_some());
             }
         }
         assert_eq!(dropped.get(), Some(34));
-        assert!(ui.carrying_ref().is_none());
+        assert!(ui.carrying().is_none());
         if round > 4 { assert_eq!(mem_sys::local_alloc_count(), 0, "modified cross-page gesture across both allocator copies"); }
     }
     for cancel in [Some(event(Event::POINTER_CANCELLED, 0.0)), Some(event(Event::FOCUS_LOST, 0.0)), None] {
@@ -2201,7 +2201,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
         let e = event(Event::POINTER_RELEASED, 80.0);
         time += 0.02;
         ui.frame(&FrameIn { time, events: &e, event_count: 1, ..input() }, &mut build).unwrap();
-        assert!(dropped.get().is_none() && ui.carrying_ref().is_none());
+        assert!(dropped.get().is_none() && ui.carrying().is_none());
     }
     for e in [event(Event::POINTER_PRESSED, 10.0), event(Event::POINTER_MOVED, 80.0)] {
         time += 0.02;
@@ -2210,7 +2210,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
     visible.set(false);
     time += 0.02;
     ui.frame(&FrameIn { time, ..input() }, &mut build).unwrap();
-    assert!(ui.carrying_ref().is_none() && !ui.captured());
+    assert!(ui.carrying().is_none() && !ui.captured());
     assert_eq!(ui.built_nodes(), 1, "removing the container must remove its floating label in the same frame");
     assert!(ui.repaint_at().is_none());
     let body = list.get().unwrap();
@@ -2277,7 +2277,7 @@ fn output_partitions_reuse_the_engine_dirty_capacity_after_unchanged_frames() {
 
 #[test]
 fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_allocating() {
-    use crate::kit::{AnimationTarget, Keyframe};
+    use crate::ui::{Keyframe, Keyframes};
     use crate::ui::{Curve, Node, Role};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
@@ -2297,17 +2297,17 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
     let instances=ui.layer(0).instances.to_vec();
     let curve=Curve::Bezier {duration:1.0,points:[0.0,0.0,1.0,1.0]};
     let keys=[
-        Keyframe {time:0.0,target:AnimationTarget::Opacity(0.0),curve},
-        Keyframe {time:0.0,target:AnimationTarget::Offset(0.0,10.0),curve},
-        Keyframe {time:0.1,target:AnimationTarget::Opacity(0.0),curve},
-        Keyframe {time:0.34,target:AnimationTarget::Opacity(1.0),curve},
-        Keyframe {time:0.34,target:AnimationTarget::Offset(0.0,0.0),curve},
+        Keyframe::opacity(0.0, 0.0).curve(curve),
+        Keyframe::offset(0.0, 0.0,10.0).curve(curve),
+        Keyframe::opacity(0.1, 0.0).curve(curve),
+        Keyframe::opacity(0.34, 1.0).curve(curve),
+        Keyframe::offset(0.34, 0.0,0.0).curve(curve),
     ];
     for round in 0..4 {
         let base=round as f64;
         ui.frame(&FrameIn {time:base,..input()},&mut build).unwrap();
         mem_sys::local_reset();
-        assert!(ui.animate_keys(&view.get().unwrap(),&keys));
+        assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT));
         for (dt,y) in [(0.0,30.0),(0.05,30.0),(0.22,25.0),(0.34,20.0),(0.5,20.0)] {
             ui.frame(&FrameIn {time:base+dt,..input()},&mut build).unwrap();
             assert_eq!(ui.now(),base+dt);
@@ -2479,7 +2479,7 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
             ui.set_scroll_offset(&body.get().unwrap(),100.0);ui.frame(&input(),&mut build).unwrap();
             assert_eq!(ui.rect(&header.get().unwrap()).y,0.0);
             count.set(2);ui.frame(&input(),&mut build).unwrap();
-            assert_eq!(ui.scroll_offset(&body.get().unwrap()),(170.0+2.0*h-240.0).max(0.0));
+            assert_eq!(ui.scroll(&body.get().unwrap()).settled,(170.0+2.0*h-240.0).max(0.0));
             assert_eq!(positions.borrow().len(),2);
         }
         if cycle>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"warm measured height changes/scroll/shrink");}
@@ -2655,7 +2655,7 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
         packet.phase = phase; packet.y = y; packet.time = time;
         send(&mut ui, &packet, &mut build);
     }
-    assert!(ui.scroll_offset(&body.get().unwrap()) >= 499.0, "retiring the original row cancelled its ancestor scroll capture");
+    assert!(ui.scroll(&body.get().unwrap()).settled >= 499.0, "retiring the original row cancelled its ancestor scroll capture");
     for frame in 0..182 {
         packet.time = 1.0 + frame as f64 / 120.0;
         packet.phase = (frame % 4) as u32;
@@ -2667,7 +2667,7 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
         assert!(built.get() <= 10 + 1 + 2 * 4 + 1, "frame {frame} exceeded viewport rows plus overscan: {}", built.get());
         if frame >= 82 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm virtual finger frame {frame}"); }
     }
-    assert!(ui.scroll_offset(&body.get().unwrap()) > 100.0);
+    assert!(ui.scroll(&body.get().unwrap()).settled > 100.0);
 }
 
 #[test]

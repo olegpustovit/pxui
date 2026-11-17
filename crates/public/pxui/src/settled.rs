@@ -53,7 +53,7 @@ fn panel(ui: &mut Ui, s: &mut State) {
 fn engine_shaped(ui: &mut Ui, s: &mut State) {
     s.seen += (ui.font_size() + ui.row_height()) as u64 + ui.frame_index() + ui.captured() as u64;
     let scroller = ui.box_fmt(format_args!("scroller"), BoxOpts::default().flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)).at((4.0, 4.0)));
-    s.seen += ui.scroll_offset(&scroller) as u64 + ui.local_rect(&scroller).w as u64 + ui.cached_label(&scroller, 0, "cached").len() as u64;
+    s.seen += ui.scroll(&scroller).settled as u64 + ui.local_rect(&scroller).w as u64 + ui.cached_label(&scroller, 0, "cached").len() as u64;
     ui.set_text_state(&scroller, None);
     s.seen += ui.text_state(&scroller).is_some() as u64 + ui.hovered_exactly(&scroller) as u64 + ui.drop_target(&scroller).is_some() as u64;
     let canvas = ui.box_("canvas", BoxOpts::default().w(Size::Px(80.0)).h(Size::Px(30.0)));

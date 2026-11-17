@@ -3,7 +3,7 @@ use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_types::ffi::{PxuiAreaCallbacks, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
 use std::rc::Rc;
-use pxui_types::ui::Drop;
+use pxui_core::ui::Drop;
 use pxui_core::ui_text::{CodeContext, Completion, Language, ScrubPhase, TextAreaOpts, ValueFieldOpts};
 
 pub type TextValid = Option<extern "C" fn(*mut c_void, Str) -> u8>;

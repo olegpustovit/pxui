@@ -36,24 +36,6 @@ pub enum SectionPart {
 /// Points a pressed pointer travels before a press is a drag: a carry starts, a click ends.
 pub const DRAG_THRESHOLD: f32 = 4.0;
 
-/// What a carry holds: a `kind` and a `value`, both strings.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub struct Payload {
-    /// What sort of thing is carried; a drop target accepts by comparing it.
-    pub kind: String,
-    /// The thing itself, in the app's own encoding.
-    pub value: String,
-}
-
-/// What a drop target sees of a carry this frame.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum Drop {
-    /// the pointer is over the box while a payload is held
-    Hover(Payload),
-    /// the payload was released over the box, this frame only
-    Dropped(Payload),
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Cursor {
     /// The pointer shape for dragging an edge left or right.
@@ -88,15 +70,193 @@ pub enum Target {
     Scale { x: f32, y: f32, anchor: (f32, f32) },
 }
 
-/// One stop of `Ui::animate_keys`: the node reaches `target` `time` seconds after the start, the segment before it shaped by `curve`.
+/// One stop of `Ui::animate_keys`: the node reaches a target `time` seconds after the start, the segment before it shaped by a curve.
+///
+/// Built by the constructor of its target (`opacity`, `offset`, `look`, `scale`) and, when the segment needs a shape other than the default, `curve`.
+///
+/// ```
+/// use pxui_types::{theme::Curve, ui::{Keyframe, Target}};
+/// let stop = Keyframe::opacity(0.4, 0.5).curve(Curve::Spring { omega: 10.0 });
+/// assert_eq!((stop.time(), stop.target()), (0.4, Target::Opacity(0.5)));
+/// ```
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Keyframe {
-    /// Seconds after the start; the stops' times ascend from 0.
-    pub time: f32,
+    time: f32,
+    target: Target,
+    curve: crate::theme::Curve,
+}
+
+impl Keyframe {
+    /// The curve of a stop that names none: CSS `ease`, over the segment's own duration.
+    const EASE: crate::theme::Curve = crate::theme::Curve::Bezier { duration: 0.0, points: [0.25, 0.1, 0.25, 1.0] };
+    const fn new(time: f32, target: Target) -> Keyframe { Keyframe { time, target, curve: Keyframe::EASE } }
+    /// A stop `time` seconds after the start that fades the node to `value` (0 to 1).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::Keyframe;
+    /// let _ = Keyframe::opacity(0.2, 0.5);
+    /// ```
+    pub const fn opacity(time: f32, value: f32) -> Keyframe { Keyframe::new(time, Target::Opacity(value)) }
+    /// A stop `time` seconds after the start that moves the node's paint offset to `(x, y)` points.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::Keyframe;
+    /// let _ = Keyframe::offset(0.2, 0.0, 8.0);
+    /// ```
+    pub const fn offset(time: f32, x: f32, y: f32) -> Keyframe { Keyframe::new(time, Target::Offset(x, y)) }
+    /// A stop `time` seconds after the start that moves the node's look to `look`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::Look, ui::Keyframe};
+    /// let _ = Keyframe::look(0.2, &Look::NONE);
+    /// ```
+    pub const fn look(time: f32, look: &Look) -> Keyframe { Keyframe::new(time, Target::Look(*look)) }
+    /// A stop `time` seconds after the start that scales the view by `x` and `y` about the centre of its box (`anchor` moves the point).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::Keyframe;
+    /// let _ = Keyframe::scale(0.2, 1.2, 1.2).anchor(0.5, 1.0);
+    /// ```
+    pub const fn scale(time: f32, x: f32, y: f32) -> Keyframe { Keyframe::new(time, Target::Scale { x, y, anchor: (0.5, 0.5) }) }
+    /// Scales about the fractional point `(x, y)` of the box ((0, 0) is top-left); a stop that does not scale is unchanged.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::Keyframe;
+    /// let _ = Keyframe::scale(0.2, 1.2, 1.2).anchor(0.5, 1.0);
+    /// ```
+    pub const fn anchor(self, x: f32, y: f32) -> Keyframe {
+        match self.target {
+            Target::Scale { x: sx, y: sy, .. } => Keyframe { target: Target::Scale { x: sx, y: sy, anchor: (x, y) }, ..self },
+            _ => self,
+        }
+    }
+    /// Shapes the segment that ends at this stop by `curve` (Bezier, table and steps use the segment's duration).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::Curve, ui::Keyframe};
+    /// let _ = Keyframe::opacity(0.2, 1.0).curve(Curve::Spring { omega: 12.0 });
+    /// ```
+    pub const fn curve(self, curve: crate::theme::Curve) -> Keyframe { Keyframe { curve, ..self } }
+    /// Seconds after the start.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let key = pxui_types::ui::Keyframe::opacity(0.2, 0.5);
+    /// assert_eq!(key.time(), 0.2);
+    /// ```
+    pub const fn time(&self) -> f32 { self.time }
     /// Where the stop moves its channel; the other channels keep the stop before's.
-    pub target: Target,
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::{Keyframe, Target};
+    /// assert_eq!(Keyframe::opacity(0.2, 0.5).target(), Target::Opacity(0.5));
+    /// ```
+    pub const fn target(&self) -> Target { self.target }
     /// The shape of the segment that ends at this stop.
-    pub curve: crate::theme::Curve,
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::Curve, ui::Keyframe};
+    /// let spring = Curve::Spring { omega: 9.0 };
+    /// assert_eq!(Keyframe::opacity(0.2, 0.5).curve(spring).segment(), spring);
+    /// ```
+    pub const fn segment(&self) -> crate::theme::Curve { self.curve }
+}
+
+/// How many times an `animate_keys` run plays.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Repeat {
+    /// This many cycles, at least 1; with `autoreverse` the count includes the reverse legs.
+    Count(u16),
+    /// Until another run or `Ui::animate` replaces it.
+    Forever,
+}
+
+/// The playback of an `animate_keys` run: how often it repeats, whether each cycle plays back, and where it starts.
+///
+/// A `Copy` value built from `Keyframes::DEFAULT` (once, forward, from the start) with const builders.
+///
+/// ```
+/// use pxui_types::ui::{Keyframes, Repeat};
+/// const PULSE: Keyframes = Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse().offset(0.2);
+/// assert_ne!(PULSE, Keyframes::DEFAULT);
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Keyframes {
+    repeat: Repeat,
+    autoreverse: bool,
+    offset: f32,
+}
+
+impl Keyframes {
+    /// One forward cycle from the start.
+    pub const DEFAULT: Keyframes = Keyframes { repeat: Repeat::Count(1), autoreverse: false, offset: 0.0 };
+    /// Plays `repeat` cycles.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::{Keyframes, Repeat};
+    /// let _ = Keyframes::DEFAULT.repeat(Repeat::Count(2));
+    /// ```
+    pub const fn repeat(self, repeat: Repeat) -> Keyframes { Keyframes { repeat, ..self } }
+    /// Plays each cycle back after it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::ui::Keyframes::DEFAULT.autoreverse();
+    /// ```
+    pub const fn autoreverse(self) -> Keyframes { Keyframes { autoreverse: true, ..self } }
+    /// Starts `seconds` (finite, not negative) into the first cycle.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::ui::Keyframes::DEFAULT.offset(0.25);
+    /// ```
+    pub const fn offset(self, seconds: f32) -> Keyframes { Keyframes { offset: seconds, ..self } }
+    /// How many cycles run.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::ui::{Keyframes, Repeat};
+    /// assert_eq!(Keyframes::DEFAULT.cycles(), Repeat::Count(1));
+    /// ```
+    pub const fn cycles(&self) -> Repeat { self.repeat }
+    /// Whether each cycle plays back after it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::Keyframes::DEFAULT.autoreverse().reverses());
+    /// ```
+    pub const fn reverses(&self) -> bool { self.autoreverse }
+    /// Seconds into the first cycle the run starts at.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::Keyframes::DEFAULT.offset(0.5).start(), 0.5);
+    /// ```
+    pub const fn start(&self) -> f32 { self.offset }
 }
 
 /// The result of a `picker` for a frame.

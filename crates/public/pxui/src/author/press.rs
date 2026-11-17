@@ -311,7 +311,7 @@ mod tests {
     /// press's highlight reaches the look and `f` as `pressed`; a touch drag holds the node.
     #[test]
     fn a_gesture_taken_after_pressable_routes_the_next_input() {
-        let (opts, seen, gesture, held) = (Cell::new(GestureOpts { long_press: true, ..Default::default() }), Cell::new(State::default()), Cell::new(Default::default()), Cell::new(false));
+        let (opts, seen, gesture, held) = (Cell::new(GestureOpts::DEFAULT.long_press()), Cell::new(State::default()), Cell::new(Default::default()), Cell::new(false));
         let mut build = |ui: &mut Ui| {
             let r = ui.pressable("row", Node { at: Some((0.0, 0.0)).into(), w: Size::Px(200.0), h: Size::Px(50.0), ..Node::DEFAULT }, &P.tab_stop(false), |_, state| seen.set(state));
             held.set(r.held);
@@ -331,7 +331,7 @@ mod tests {
         ui.frame(&input(1.6), &mut build).unwrap();
         assert!(gesture.get().long_pressed);
         touch(&mut ui, 2, 1.7, &mut build);
-        opts.set(GestureOpts { touch_drag: true, ..Default::default() });
+        opts.set(GestureOpts::DEFAULT.touch_drag());
         ui.frame(&input(2.0), &mut build).unwrap();
         touch(&mut ui, 0, 3.0, &mut build);
         assert!(held.get(), "a touch drag taken after pressable holds it at once");
@@ -358,7 +358,7 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             ui.pressable("p", node(), &P.look(&looks).selected(true), |ui, _| { ui.node("c".into(), node()); });
             let r = ui.pressable(7i64, node(), &P.enabled(false), |_, _| {});
-            ui.gesture(&r.handle, GestureOpts { long_press: true, ..Default::default() });
+            ui.gesture(&r.handle, GestureOpts::DEFAULT.long_press());
         };
         for round in 0..20 {
             mem_sys::local_reset();

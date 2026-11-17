@@ -444,7 +444,7 @@ fn gpu_plain_keyframe_cached_owner_visibility() {
                         builds.set(builds.get() + 1);
                         let fill = ui.node("fill".into(), Node { w: Size::Grow, h: Size::Grow, look: Look { fill: pxui_core::geom::color::rgb(220, 20, 20), ..Look::NONE }, ..Node::DEFAULT });
                         let curve = Curve::Bezier { duration: 1.0, points: [0.0, 0.0, 1.0, 1.0] };
-                        ui.animate_keys_repeat(&fill, &[Keyframe { time: 0.0, target: Target::Opacity(1.0), curve }, Keyframe { time: 1.0, target: Target::Opacity(1.0), curve }], 0, false, 0.0);
+                        ui.animate_keys(&fill, &[Keyframe::opacity(0.0, 1.0).curve(curve), Keyframe::opacity(1.0, 1.0).curve(curve)], &Keyframes::DEFAULT.repeat(Repeat::Forever));
                     });
                     ui.node_mut(&cached).at = Some((0.0, offset)).into();
                     ui.view_opacity(&cached, opacity);

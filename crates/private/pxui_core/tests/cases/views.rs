@@ -1131,9 +1131,9 @@ pub fn window_pxui_view_entrance_channels() {
     ui.frame(&at(0.0,vec![]),&mut build);
     let original=ui.output().draw[0].instances.clone();
     let curve=Curve::Bezier {duration:0.24,points:[0.0,0.0,1.0,1.0]};
-    let keys=[Keyframe{time:0.0,target:Target::Opacity(0.0),curve},Keyframe{time:0.0,target:Target::Offset(32.0,10.0),curve},
-        Keyframe{time:0.24,target:Target::Opacity(1.0),curve},Keyframe{time:0.24,target:Target::Offset(0.0,0.0),curve}];
-    assert!(ui.animate_keys(&view.get().unwrap(),&keys));
+    let keys=[Keyframe::opacity(0.0, 0.0).curve(curve),Keyframe::offset(0.0, 32.0,10.0).curve(curve),
+        Keyframe::opacity(0.24, 1.0).curve(curve),Keyframe::offset(0.24, 0.0,0.0).curve(curve)];
+    assert!(ui.animate_keys(&view.get().unwrap(),&keys,&Keyframes::DEFAULT));
     for (time,x,y,alpha) in [(0.0,32.0,10.0,0.0),(0.12,16.0,5.0,0.5),(0.24,0.0,0.0,1.0)] {
         ui.frame(&at(time,vec![]),&mut build);
         let r=ui.rect(&child.get().unwrap());

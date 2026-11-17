@@ -535,7 +535,7 @@ for the text widgets' caret, selection and composition and the text area's code 
 interpolate between states over the theme's motion (a transition record per node, painted steady and
 stepped through the patch path: a kept view is not rebuilt; `repaint_at` asks for frames until it
 rests); `ui.animate(handle, Target::{Look, Offset, Opacity, Scale}, Curve::{Bezier, Spring, Table, Steps})` drives the same
-path, and `ui.animate_keys(handle, &[(t, Target, Curve)])` runs up to `MAX_KEYS` (8) keyframes, each
+path, and `ui.animate_keys(handle, &[Keyframe::at(t, Curve).opacity(..)], &Keyframes::DEFAULT)` runs up to `MAX_KEYS` (8) keyframes, each
 segment on its own curve (Bezier, table and steps use the segment's duration), in reused fixed records (no
 allocation once warm). A table holds up to 16 inline positions and values, including uneven sample times
 and overshoot; finite endpoints are (0, 0) and (1, 1). Completion follows duration, so overshoot does not

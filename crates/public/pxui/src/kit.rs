@@ -2,7 +2,7 @@ use crate::{composite::{defer_callback_panic, deferred}, check, Ui};
 #[cfg(not(feature = "static"))]
 use crate::Strs;
 use core::{ffi::c_void, mem::ManuallyDrop, panic::AssertUnwindSafe, ptr::NonNull};
-use pxui_types::{Axis, Look, PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
+use pxui_types::{ui::Target, Axis, Look, PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
 
 #[cfg_attr(feature = "static", allow(unused_imports))]
 pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc as GridListDesc, PxuiHintDesc as HintDesc, PxuiInspectorRowDesc as InspectorRowDesc, PxuiInspectorSectionDesc as InspectorSectionDesc, PxuiInspectorTextDesc as InspectorTextDesc, PxuiInspectorValueDesc as InspectorValueDesc, PxuiKeyframeDesc as KeyframeDesc, PxuiMenuBarDesc as MenuBarDesc, PxuiMenuDesc as MenuDesc, PxuiMenuOut as MenuOut, PxuiSplitDesc as SplitDesc, PxuiTableDesc as TableDesc};
@@ -36,24 +36,24 @@ mod sys {
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::ui::{Curve, Keyframe, Target};
+    /// use pxui::ui::{Curve, Keyframe};
     /// pxui::doc::frames(2, &mut |ui| {
     ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
-    ///     ui.animate_keys(&b, &[Keyframe { time: 0.0, target: Target::Offset(0.0, 8.0), curve: Curve::Spring { omega: 10.0 } }]);
+    ///     ui.animate_keys(&b, &[Keyframe::offset(0.0, 0.0, 8.0).curve(Curve::Spring { omega: 10.0 })], &pxui::Keyframes::DEFAULT);
     /// });
     /// ```
     pub fn pxui_ui_animate_keys(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, out: *mut u8) -> i32;
-    /// The C entry `Ui::animate_keys_repeat` calls: plays `keys` (1 to 8) on `box_` `repeat` times (0 is forever; a count includes the reverse leg), reversing every other cycle when `autoreverse` is non-zero, starting `start_offset` seconds in; writes 1 to `out` while it runs.
+    /// The C entry `Ui::animate_keys` calls for a repeated, reversed or offset run: plays `keys` (1 to 8) on `box_` `repeat` times (0 is forever; a count includes the reverse leg), reversing every other cycle when `autoreverse` is non-zero, starting `start_offset` seconds in; writes 1 to `out` while it runs.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// use pxui::ui::{Curve, Keyframe, Target};
+    /// use pxui::ui::{Curve, Keyframe};
     /// pxui::doc::frames(2, &mut |ui| {
     ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
     ///     let curve = Curve::Bezier { duration: 0.4, points: [0.0, 0.0, 1.0, 1.0] };
-    ///     let keys = [Keyframe { time: 0.0, target: Target::Opacity(1.0), curve }, Keyframe { time: 0.4, target: Target::Opacity(0.5), curve }];
-    ///     ui.animate_keys_repeat(&b, &keys, pxui::kit::Repeat::Count(2), false, 0.0);
+    ///     let keys = [Keyframe::opacity(0.0, 1.0).curve(curve), Keyframe::opacity(0.4, 0.5).curve(curve)];
+    ///     ui.animate_keys(&b, &keys, &pxui::Keyframes::DEFAULT.repeat(pxui::Repeat::Count(2)));
     /// });
     /// ```
     pub fn pxui_ui_animate_keys_repeat(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32;
@@ -158,15 +158,7 @@ fn encode_look(value: Look) -> PxuiLookDesc {
     }
 }
 
-/// What a keyframe moves a node to: the same type as `ui::Target`, which `Ui::animate` takes.
-pub use pxui_types::ui::Target as AnimationTarget;
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Repeat {
-    Count(u16),
-    Forever,
-}
-/// One stop of `animate_keys`, shared with the engine.
-pub use pxui_types::ui::Keyframe;
+use pxui_types::ui::{Keyframe, Keyframes, Repeat};
 
 const HINT_NONE: HintDesc = HintDesc { size: core::mem::size_of::<HintDesc>() as u32, reserved: 0, key: Str { ptr: core::ptr::null(), len: 0 }, value: Str { ptr: core::ptr::null(), len: 0 } };
 
@@ -393,50 +385,43 @@ impl Ui {
             check(self, unsafe { sys::pxui_ui_footer(self.0.as_ptr(), &desc) })
         }
     }
-    #[inline]
-    #[track_caller] pub fn animate_keys(&mut self, box_: &PxuiBox, keys: &[Keyframe]) -> bool {
-        self.animate_keyframes(box_, keys, None)
-    }
-
-    /// Runs the keyframes `keys` (1 to 8, times ascending from 0) on the box `box_` and repeats them: `repeat` cycles (a count includes the reverse leg) or forever, optionally playing each cycle back after it (`autoreverse`), starting `start_offset` seconds into the first cycle.
+    /// Runs the keyframes `keys` (1 to 8, times ascending from 0) on the box `box_` as `play` says: how often they repeat (a count includes the reverse legs), whether each cycle plays back, and how far into the first cycle they start.
     /// The run needs a positive duration; hidden runs request no frames. Call `animate_keys` with another run, or `animate`, to stop it. True while it runs; false for a stale handle.
     /// Allocates: never.
     /// Panics: when `keys` is empty or over 8, the count is `Repeat::Count(0)`, or the library refuses the run.
     ///
     /// ```
-    /// use pxui::ui::{Curve, Keyframe, Target};
-    /// use pxui::kit::Repeat;
+    /// use pxui::ui::{Curve, Keyframe};
+    /// use pxui::{Keyframes, Repeat};
     /// pxui::doc::frames(2, &mut |ui| {
     ///     let b = ui.node("pulse".into(), pxui::Node::DEFAULT);
-    ///     let keys = [Keyframe { time: 0.0, target: Target::Opacity(1.0), curve: Curve::Spring { omega: 8.0 } },
-    ///         Keyframe { time: 0.5, target: Target::Opacity(0.4), curve: Curve::Bezier { duration: 0.5, points: [0.4, 0.0, 0.2, 1.0] } }];
-    ///     ui.animate_keys_repeat(&b, &keys, Repeat::Forever, true, 0.0);
+    ///     let spring = Curve::Spring { omega: 8.0 };
+    ///     let keys = [Keyframe::opacity(0.0, 1.0).curve(spring), Keyframe::opacity(0.5, 0.4).curve(spring)];
+    ///     ui.animate_keys(&b, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse());
+    ///     ui.animate_keys(&b, &keys[..1], &Keyframes::DEFAULT);
     /// });
     /// ```
     #[track_caller]
-    pub fn animate_keys_repeat(&mut self, box_: &PxuiBox, keys: &[Keyframe], repeat: Repeat, autoreverse: bool, start_offset: f32) -> bool {
-        assert!(repeat != Repeat::Count(0), "pxui: repeat count must be positive");
-        self.animate_keyframes(box_, keys, Some((repeat, autoreverse, start_offset)))
-    }
-
-    #[track_caller]
-    fn animate_keyframes(&mut self, box_: &PxuiBox, keys: &[Keyframe], repeat: Option<(Repeat, bool, f32)>) -> bool {
+    pub fn animate_keys(&mut self, box_: &PxuiBox, keys: &[Keyframe], play: &Keyframes) -> bool {
+        assert!(play.cycles() != Repeat::Count(0), "pxui: repeat count must be positive");
         assert!(!keys.is_empty() && keys.len() <= 8, "pxui: animate_keys accepts 1..=8 keyframes");
         let mut descriptors = [KeyframeDesc::default(); 8];
         for (out, key) in descriptors.iter_mut().zip(keys) {
-            let (target, values, look) = match key.target {
-                AnimationTarget::Offset(x, y) => (0, [x, y, 0.0, 0.0], encode_look(Look::NONE)),
-                AnimationTarget::Opacity(value) => (1, [value, 0.0, 0.0, 0.0], encode_look(Look::NONE)),
-                AnimationTarget::Look(value) => (2, [0.0; 4], encode_look(value)),
-                AnimationTarget::Scale { x, y, anchor } => (3, [x, y, anchor.0, anchor.1], encode_look(Look::NONE)),
+            let (target, values, look) = match key.target() {
+                Target::Offset(x, y) => (0, [x, y, 0.0, 0.0], encode_look(Look::NONE)),
+                Target::Opacity(value) => (1, [value, 0.0, 0.0, 0.0], encode_look(Look::NONE)),
+                Target::Look(value) => (2, [0.0; 4], encode_look(value)),
+                Target::Scale { x, y, anchor } => (3, [x, y, anchor.0, anchor.1], encode_look(Look::NONE)),
             };
-            *out = KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: key.time, target, reserved: 0, values, look, curve: PxuiCurveDesc::from(key.curve) };
+            *out = KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: key.time(), target, reserved: 0, values, look, curve: PxuiCurveDesc::from(key.segment()) };
         }
         let mut out = 0;
         let span = Slice { ptr: descriptors.as_ptr(), len: keys.len() };
-        let rc = match repeat {
-            None => unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, span, &mut out) },
-            Some((repeat, reverse, offset)) => unsafe { sys::pxui_ui_animate_keys_repeat(self.0.as_ptr(), box_, span, match repeat { Repeat::Count(n) => n.into(), Repeat::Forever => 0 }, reverse as u8, offset, &mut out) },
+        let rc = if *play == Keyframes::DEFAULT {
+            unsafe { sys::pxui_ui_animate_keys(self.0.as_ptr(), box_, span, &mut out) }
+        } else {
+            let count = match play.cycles() { Repeat::Count(n) => n.into(), Repeat::Forever => 0 };
+            unsafe { sys::pxui_ui_animate_keys_repeat(self.0.as_ptr(), box_, span, count, play.reverses() as u8, play.start(), &mut out) }
         };
         crate::live(self, rc) && out != 0
     }

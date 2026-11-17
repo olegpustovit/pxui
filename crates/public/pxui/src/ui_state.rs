@@ -40,7 +40,6 @@ library!(lib {
     fn pxui_ui_rebuilt_named(ui: *mut PxuiUi, prefix: pxui_types::Str, out: *mut u64) -> i32;
     fn pxui_ui_expanded(ui: *mut PxuiUi, key: pxui_types::Str, out: *mut u8) -> i32;
     fn pxui_ui_hover_delay(ui: *mut PxuiUi, key: pxui_types::Str, out: *mut u8) -> i32;
-    fn pxui_ui_tooltip(ui: *mut PxuiUi, key: pxui_types::Str, text: pxui_types::Str) -> i32;
     fn pxui_ui_cap_width(ui: *mut PxuiUi, text: pxui_types::Str, out: *mut f32) -> i32;
 });
 
@@ -350,7 +349,6 @@ impl Ui {
     /// ```
     /// pxui::doc::frames(1, &mut |ui| assert!(ui.cap_width("TITLE") > ui.cap_width("T")));
     /// ```
-    #[inline] #[track_caller] pub fn tooltip(&mut self, key: &str, text: &str) { check(self, unsafe { lib::pxui_ui_tooltip(self.0.as_ptr(), as_str(key), as_str(text)) }) }
     #[track_caller]
     pub fn cap_width(&mut self, text: &str) -> f32 {
         let mut out = 0.0;

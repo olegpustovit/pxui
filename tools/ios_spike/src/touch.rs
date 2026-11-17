@@ -93,7 +93,7 @@ impl Probe {
         if self.clicked {
             self.taps += 1;
         }
-        let position = ui.scroll_offset(&self.body.ok_or("Native touch list was not built")?);
+        let position = ui.scroll(&self.body.ok_or("Native touch list was not built")?).settled;
         if phase == 6 {
             self.caught = position;
         }

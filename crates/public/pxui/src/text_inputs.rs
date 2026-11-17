@@ -2,7 +2,7 @@
 use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, check, lent_str, lent_string, live, Ui};
 use core::ffi::c_void;
-use pxui_types::{ffi::{AreaNotify, PxuiAreaCallbacks, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, Drop, Payload, TextEdit}, PxuiBox, Str};
+use pxui_types::{ffi::{AreaNotify, PxuiAreaCallbacks, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, TextEdit}, PxuiBox, Str};
 
 pub use pxui_types::ui::ScrubPhase;
 pub use crate::opts::{Language, TextAreaOpts, ValueFieldOpts};
@@ -95,8 +95,8 @@ extern "C" fn on_select(user: *mut c_void, start: i64, end: i64) { let a = area(
 extern "C" fn on_drop(user: *mut c_void, at: i64, dropped: u8, kind: Str, value: Str) {
     let a = area(user);
     if let Some(f) = &a.opts.on_drop {
-        let payload = Payload { kind: utf8(kind).to_owned(), value: utf8(value).to_owned() };
-        guarded((), &mut || f(at, if dropped == 0 { Drop::Hover(payload.clone()) } else { Drop::Dropped(payload.clone()) }))
+        let payload = crate::PayloadRef { kind: utf8(kind), value: utf8(value) };
+        guarded((), &mut || f(at, if dropped == 0 { crate::DropRef::Hover(payload) } else { crate::DropRef::Dropped(payload) }))
     }
 }
 extern "C" fn colorize(user: *mut c_void, value: Str, out: *mut Slice<PxuiColorSpan>) {

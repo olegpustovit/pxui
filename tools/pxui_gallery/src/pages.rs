@@ -3,7 +3,7 @@ use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, P
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
-use pxui_types::ui::{Key, Keyframe, Target};
+use pxui_types::ui::{Key, Keyframe, Keyframes};
 use std::fmt::Write;
 
 /// The page area every page is laid out for (the goldens render it at this size).
@@ -451,12 +451,12 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
         if std::mem::take(&mut s.bounce) {
             let ease = Curve::Bezier { duration: 0.0, points: [0.25, 0.1, 0.25, 1.0] };
             let keys = [
-                Keyframe { time: 0.2, target: Target::Offset(120.0, 0.0), curve: ease },
-                Keyframe { time: 0.35, target: Target::Opacity(0.3), curve: ease },
-                Keyframe { time: 0.6, target: Target::Offset(0.0, 0.0), curve: Curve::Spring { omega: 18.0 } },
-                Keyframe { time: 0.7, target: Target::Opacity(1.0), curve: ease },
+                Keyframe::offset(0.2, 120.0, 0.0).curve(ease),
+                Keyframe::opacity(0.35, 0.3).curve(ease),
+                Keyframe::offset(0.6, 0.0, 0.0).curve(Curve::Spring { omega: 18.0 }),
+                Keyframe::opacity(0.7, 1.0).curve(ease),
             ];
-            let _ = ui.animate_keys(&c, &keys);
+            let _ = ui.animate_keys(&c, &keys, &Keyframes::DEFAULT);
         }
     });
     // the popup sits by the anchor's last laid-out rectangle, outside the page's flow (the first

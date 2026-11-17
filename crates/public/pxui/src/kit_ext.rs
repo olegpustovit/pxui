@@ -30,8 +30,6 @@ library!(lib {
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
     fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const PxuiHeaderDesc, rename: Option<extern "C" fn(*mut c_void, Str) -> u8>, user: *mut c_void, out: *mut PxuiHeadOut) -> i32;
-    fn pxui_ui_inspector_section_view(ui: *mut PxuiUi, key: Str, revision: u64, expanded: u8, has_set: u8, set_expanded: u8, label: Str, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8) -> i32;
-    fn pxui_ui_inspector_toggle_value(ui: *mut PxuiUi, key: Str, x: f32, y: f32, value: u8, out: *mut u8) -> i32;
     fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32) -> i32;
     fn pxui_ui_field_drag(ui: *mut PxuiUi, box_: *const PxuiBox, present: *mut u8, out: *mut Point) -> i32;
 });
@@ -343,18 +341,6 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_inspector_header(self.0.as_ptr(), &desc, rename.is_some().then_some(rename_call as extern "C" fn(*mut c_void, Str) -> u8), user, &mut out) });
         let renamed = if out.renamed.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(out.renamed.ptr, out.renamed.len) }).into_owned() };
         Head { renamed, chosen: (out.has_chosen != 0).then_some(out.chosen), reset_pressed: out.reset_pressed != 0 }
-    }
-    #[track_caller]
-    pub fn inspector_section_view(&mut self, key: &str, revision: u64, expanded: bool, set_expanded: Option<bool>, label: &str, mut f: &mut dyn FnMut(&mut Ui)) -> bool {
-        let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_inspector_section_view(self.0.as_ptr(), as_str(key), revision, expanded as u8, set_expanded.is_some() as u8, set_expanded.unwrap_or(false) as u8, as_str(label), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void, &mut out) });
-        out != 0
-    }
-    #[track_caller]
-    pub fn inspector_toggle_value(&mut self, key: &str, at: (f32, f32), value: bool) -> bool {
-        let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_inspector_toggle_value(self.0.as_ptr(), as_str(key), at.0, at.1, value as u8, &mut out) });
-        out != 0
     }
     /// A one-line search field at `at`: the new value when it differs from `value` (else none) and what its keys asked. The
     /// text is borrowed from the library, valid until the next call on `ui`.
