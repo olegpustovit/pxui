@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 53
+minor 54
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -154,6 +154,7 @@ function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_
 function pxui_ui_key_pressed_with int32_t pxui_ui_key_pressed_with ( PxuiUi * ui , uint32_t code , uint32_t modifier , uint8_t * out ) ;
 function pxui_ui_keyboard int32_t pxui_ui_keyboard ( PxuiUi * ui , PxuiKeyboard * out ) ;
 function pxui_ui_label int32_t pxui_ui_label ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style ) ;
+function pxui_ui_label_node int32_t pxui_ui_label_node ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style , const PxuiLabelBox * label_box , PxuiBox * out ) ;
 function pxui_ui_layer_drawn int32_t pxui_ui_layer_drawn ( PxuiUi * ui , uint64_t layer ) ;
 function pxui_ui_leave int32_t pxui_ui_leave ( PxuiUi * ui , const PxuiSaved * saved ) ;
 function pxui_ui_line_field int32_t pxui_ui_line_field ( PxuiUi * ui , float x , float y , float w , float h , uint8_t grab , PxuiStr placeholder , PxuiStr label , PxuiStr value , PxuiStr * text , uint32_t * step ) ;
@@ -302,12 +303,13 @@ layout PxuiBadgeConfig 80 8 0 8 40 56 72
 layout PxuiBar 24 4 0 4 8 12 16 20
 layout PxuiBox 32 8 0 8 16 24
 layout PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
-layout PxuiButtonConfig 136 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132
-layout PxuiButtonDesc 96 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80
+layout PxuiButtonConfig 144 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135
+layout PxuiButtonDesc 104 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97
 layout PxuiCell 8 2 0 2 4 6
 layout PxuiCheckConfig 72 8 0 4 12 16 48 64
 layout PxuiColorSpan 24 8 0 8 16 20
 layout PxuiCompletion 80 8 0 8 16 32 48 64
+layout PxuiCurve 140 4 0 4
 layout PxuiCurveDesc 160 4 0 4 8 24 28 32 96
 layout PxuiDescription 40 8 0 1 8 16 24
 layout PxuiDialogConfig 88 8 0 8 24 40 48 56 64 72 80
@@ -332,15 +334,16 @@ layout PxuiHeadActionDesc 40 8 0 4 5 6 8 24
 layout PxuiHeadOut 32 8 0 4 5 6 8 24
 layout PxuiHeaderDesc 144 8 0 4 5 6 7 8 9 16 32 48 64 80 96 112 128
 layout PxuiHintDesc 40 8 0 4 8 24
-layout PxuiIconButtonConfig 128 8 0 4 16 48 64 80 88 89 90 92 96 100 104 112 120 124
-layout PxuiIconButtonDesc 96 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88
+layout PxuiIconButtonConfig 136 8 0 4 16 48 64 80 88 89 90 92 96 100 104 112 120 124 128
+layout PxuiIconButtonDesc 104 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96
 layout PxuiInspectorRowConfig 80 8 0 4 12 13 16 24 56 72
 layout PxuiInspectorRowDesc 96 8 0 4 5 6 7 8 24 40 44 48 80 84 88
 layout PxuiInspectorSectionDesc 64 8 0 4 5 6 7 8 24 40 48 56
 layout PxuiInspectorTextDesc 40 8 0 4 8 24
 layout PxuiInspectorValueDesc 64 8 0 4 5 8 24 40 56
 layout PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
-layout PxuiLabelConfig 128 8 0 4 8 40 56 120
+layout PxuiLabelBox 16 4 0 4 8 12 13 14
+layout PxuiLabelConfig 144 8 0 4 8 40 56 120 124
 layout PxuiLabelStyle 64 8 0 4 8 10 12 14 16 17 18 19 20 24 28 32 36 40 44 48
 layout PxuiLayerInfo 48 8 0 8 12 16 32
 layout PxuiLineFieldConfig 72 8 0 4 12 16 48 64

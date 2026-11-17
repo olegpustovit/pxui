@@ -731,6 +731,37 @@ mod sized_records {
         unsafe { pxui_ui_destroy(ui); }
     }
 
+    /// ABI 1.54: the 96-byte button and icon button records from before `centered` and the press curves are still read (as a plain button and
+    /// the kit's springs); a size between the two, a `centered` past 1, a nonzero reserved byte or an invalid curve is refused.
+    #[test]
+    fn grown_button_records_take_their_old_size() {
+        let ui = create();
+        let k = Str { ptr: b"k".as_ptr(), len: 1 };
+        let mut button: PxuiButtonDesc = unsafe { core::mem::zeroed() };
+        (button.size, button.enabled, button.key, button.text, button.centered) = (size_of::<PxuiButtonDesc>() as u32, 1, k, k, 1);
+        let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
+        (icon.size, icon.enabled, icon.press_scale, icon.key, icon.name, icon.icon) = (size_of::<PxuiIconButtonDesc>() as u32, 1, 0.96, k, k, k);
+        let press = |b: &PxuiButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_response(ui, b, None, core::ptr::null_mut(), &mut out) } });
+        let tap = |b: &PxuiIconButtonDesc| in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button_response(ui, b, &mut out) } });
+        assert_eq!(press(&button), 0);
+        assert_eq!(press(&PxuiButtonDesc { size: 96, centered: 7, ..button }), 0, "a 96-byte record's tail is not read");
+        assert_eq!(press(&PxuiButtonDesc { size: 100, ..button }), PXUI_ERR_ARGUMENT);
+        assert_eq!(press(&PxuiButtonDesc { centered: 2, ..button }), PXUI_ERR_ARGUMENT);
+        assert_eq!(press(&PxuiButtonDesc { reserved2: [0, 0, 1, 0, 0, 0, 0], ..button }), PXUI_ERR_ARGUMENT);
+        assert_eq!(tap(&icon), 0, "null curves are the kit's springs");
+        use pxui_types::Curve;
+        let springs = [Curve::Spring { omega: 30.0 }, Curve::Spring { omega: 10.0 }];
+        assert_eq!(tap(&PxuiIconButtonDesc { press: springs.as_ptr(), ..icon }), 0);
+        let bad_tag = { let mut raw = [0u32; 70]; raw[0] = 9; raw };
+        assert_eq!(tap(&PxuiIconButtonDesc { size: 96, press: bad_tag.as_ptr().cast(), ..icon }), 0, "a 96-byte record's tail is not read");
+        assert_eq!(tap(&PxuiIconButtonDesc { press: bad_tag.as_ptr().cast(), ..icon }), PXUI_ERR_ARGUMENT, "an unknown curve kind is refused before it is read");
+        assert_eq!(tap(&PxuiIconButtonDesc { press: springs.as_ptr().cast::<u8>().wrapping_add(1).cast(), ..icon }), PXUI_ERR_ARGUMENT, "a misaligned pointer");
+        assert_eq!(tap(&PxuiIconButtonDesc { size: 100, ..icon }), PXUI_ERR_ARGUMENT);
+        let still = [Curve::Spring { omega: 30.0 }, Curve::Spring { omega: 0.0 }];
+        assert_eq!(tap(&PxuiIconButtonDesc { press: still.as_ptr(), ..icon }), PXUI_ERR_ARGUMENT);
+        unsafe { pxui_ui_destroy(ui); }
+    }
+
     /// ABI 1.48: the response calls check their descriptors as the `_with` ones do, and refuse a null or short `PxuiResponse`; a plain
     /// call fills the record with the box it declared.
     #[test]

@@ -2,7 +2,7 @@ use crate::{composite::{defer_callback_panic, deferred}, check, Ui};
 #[cfg(not(feature = "static"))]
 use crate::Strs;
 use core::{ffi::c_void, mem::ManuallyDrop, panic::AssertUnwindSafe, ptr::NonNull};
-use pxui_types::{Axis, Curve, Look, PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
+use pxui_types::{Axis, Look, PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
 
 #[cfg_attr(feature = "static", allow(unused_imports))]
 pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc as GridListDesc, PxuiHintDesc as HintDesc, PxuiInspectorRowDesc as InspectorRowDesc, PxuiInspectorSectionDesc as InspectorSectionDesc, PxuiInspectorTextDesc as InspectorTextDesc, PxuiInspectorValueDesc as InspectorValueDesc, PxuiKeyframeDesc as KeyframeDesc, PxuiMenuBarDesc as MenuBarDesc, PxuiMenuDesc as MenuDesc, PxuiMenuOut as MenuOut, PxuiSplitDesc as SplitDesc, PxuiTableDesc as TableDesc};
@@ -143,14 +143,6 @@ pub enum Repeat {
 }
 /// One stop of `animate_keys`, shared with the engine.
 pub use pxui_types::ui::Keyframe;
-pub(crate) fn encode_curve(value: Curve) -> PxuiCurveDesc {
-    match value {
-        Curve::Bezier { duration, points } => PxuiCurveDesc { kind: PxuiCurveDesc::BEZIER, duration, points, ..PxuiCurveDesc::default() },
-        Curve::Spring { omega } => PxuiCurveDesc { kind: PxuiCurveDesc::SPRING, omega, ..PxuiCurveDesc::default() },
-        Curve::Table { duration, count, positions, values } => PxuiCurveDesc { kind: PxuiCurveDesc::TABLE, duration, count, positions, values, ..PxuiCurveDesc::default() },
-        Curve::Steps { duration, count } => PxuiCurveDesc { kind: PxuiCurveDesc::STEPS, duration, count, ..PxuiCurveDesc::default() },
-    }
-}
 
 const HINT_NONE: HintDesc = HintDesc { size: core::mem::size_of::<HintDesc>() as u32, reserved: 0, key: Str { ptr: core::ptr::null(), len: 0 }, value: Str { ptr: core::ptr::null(), len: 0 } };
 
@@ -401,7 +393,7 @@ impl Ui {
                 AnimationTarget::Look(value) => (2, [0.0; 4], encode_look(value)),
                 AnimationTarget::Scale { x, y, anchor } => (3, [x, y, anchor.0, anchor.1], encode_look(Look::NONE)),
             };
-            *out = KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: key.time, target, reserved: 0, values, look, curve: encode_curve(key.curve) };
+            *out = KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: key.time, target, reserved: 0, values, look, curve: PxuiCurveDesc::from(key.curve) };
         }
         let mut out = 0;
         let span = Slice { ptr: descriptors.as_ptr(), len: keys.len() };

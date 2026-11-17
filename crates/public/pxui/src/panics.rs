@@ -40,7 +40,7 @@ fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
 #[test]
 fn the_output_borrows_the_ui() {
     let mut ui = Ui::new().expect("library");
-    ui.frame(&input(), &mut |ui: &mut Ui| ui.label("x", crate::Label::DEFAULT)).expect("frame");
+    ui.frame(&input(), &mut |ui: &mut Ui| { ui.label("x", crate::Label::DEFAULT); }).expect("frame");
     let revision = ui.output().draw_revision;
     assert_eq!(revision, ui.draw_revision());
 }

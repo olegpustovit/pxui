@@ -17,8 +17,7 @@ library!(lib {
     fn pxui_text_width_spans(ui:*mut PxuiUi,key:u64,value:Str,style:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32;
     fn pxui_ui_text_line_box(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const TextStyle,spans:*const TextSpans)->i32;
     fn pxui_ui_text_spans(ui:*mut PxuiUi,box_:*const crate::PxuiBox,value:Str,style:*const TextStyle,spans:*const TextSpans)->i32;
-    fn pxui_ui_label(ui:*mut PxuiUi,text:Str,style:*const pxui_types::ffi::PxuiLabelStyle)->i32;
-    fn pxui_label(ui:*mut PxuiUi,text:Str)->i32;
+    fn pxui_ui_label_node(ui:*mut PxuiUi,text:Str,style:*const pxui_types::ffi::PxuiLabelStyle,label_box:*const pxui_types::ffi::PxuiLabelBox,out:*mut crate::PxuiBox)->i32;
     fn pxui_ui_resolve_label(ui:*mut PxuiUi,style:*const pxui_types::ffi::PxuiLabelStyle,out:*mut TextStyle)->i32;
     fn pxui_default_font() -> Str;
     fn pxui_shaper_create(fonts: *const Str, count: usize) -> *mut PxuiShaper;
@@ -253,25 +252,33 @@ impl Ui {
     }
     pub fn text_service(&mut self) -> UiText<'_> { UiText(self) }
 
-    /// The label call of `label`, `label_fmt` and `label_digits`: linked statically, the library's trusted entry with the style as it is;
-    /// else `pxui_label` for `Label::DEFAULT` (every field unset: the C label), or the style as its record.
+    /// The label call of `label`, `label_fmt` and `label_digits`, returning the label's node: linked statically, the library's trusted
+    /// entry with the style as it is; else `pxui_ui_label_node` with no record for `Label::DEFAULT` (every field unset: the C label), or
+    /// the style as its record and, when it sets one, its box as a `PxuiLabelBox`.
     #[inline(always)]
     #[track_caller]
-    pub(crate) fn label_call(&mut self, text: &str, style: &pxui_types::Label, digits: bool) {
+    pub(crate) fn label_call(&mut self, text: &str, style: &pxui_types::Label, digits: bool) -> crate::PxuiBox {
+        let mut out = crate::PxuiBox::default();
         if style.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::label, style.variant); }
         #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::pxui_ui_label(self.0.as_ptr(), as_str(text), style, digits) };
+        let rc = unsafe { pxui_abi_link::trusted::pxui_ui_label(self.0.as_ptr(), as_str(text), style, digits, &mut out) };
         #[cfg(not(feature = "static"))]
         let rc = {
             let l = style;
-            let plain = !digits && l.font.is_none() && l.size.is_none() && l.weight.is_none() && l.tracking.is_none() && l.caps.is_none() && l.color.is_none()
-                && l.width.is_none() && l.line_height.is_none() && l.pad.is_none() && l.wrap == pxui_types::TextStyle::WRAP_NONE && l.max_lines == 0
-                && l.ellipsis == pxui_types::TextStyle::ELLIPSIS_NONE && l.align == pxui_types::TextStyle::ALIGN_LEFT && l.features == 0;
-            if plain { unsafe { lib::pxui_label(self.0.as_ptr(), as_str(text)) } }
-            else { unsafe { lib::pxui_ui_label(self.0.as_ptr(), as_str(text), &pxui_types::ffi::PxuiLabelStyle { digits: digits as u8, ..pxui_types::ffi::PxuiLabelStyle::from(style) }) } }
+            let boxed = l.height.is_some() || l.whole_pixels || l.role != pxui_types::a11y::Role::Label;
+            let plain = !digits && !boxed && l.font.is_none() && l.size.is_none() && l.weight.is_none() && l.tracking.is_none() && l.caps.is_none()
+                && l.color.is_none() && l.width.is_none() && l.line_height.is_none() && l.pad.is_none() && l.wrap == pxui_types::TextStyle::WRAP_NONE
+                && l.max_lines == 0 && l.ellipsis == pxui_types::TextStyle::ELLIPSIS_NONE && l.align == pxui_types::TextStyle::ALIGN_LEFT && l.features == 0;
+            if plain { unsafe { lib::pxui_ui_label_node(self.0.as_ptr(), as_str(text), core::ptr::null(), core::ptr::null(), &mut out) } }
+            else {
+                let label_box = pxui_types::ffi::PxuiLabelBox::from(style);
+                let label_box = if boxed { &label_box as *const pxui_types::ffi::PxuiLabelBox } else { core::ptr::null() };
+                unsafe { lib::pxui_ui_label_node(self.0.as_ptr(), as_str(text), &pxui_types::ffi::PxuiLabelStyle { digits: digits as u8, ..pxui_types::ffi::PxuiLabelStyle::from(style) }, label_box, &mut out) }
+            }
         };
         if style.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::label, 0); }
-        crate::check(self, rc)
+        crate::check(self, rc);
+        out
     }
 }
 
@@ -308,7 +315,7 @@ impl UiText<'_> {
     /// Panics: never.
     ///
     /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x", pxui::Label::DEFAULT));
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
     /// let mut text = ui.text_service();
     /// let mut pixels = Vec::new();
     /// let (w, h) = text.rasterize_rgba("abc", &Default::default(), 0.0, 1.0, [255; 4], &mut pixels).unwrap();
@@ -327,7 +334,7 @@ impl UiText<'_> {
     /// Panics: never.
     ///
     /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("x", pxui::Label::DEFAULT));
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
     /// let mut glyphs = Vec::new();
     /// let n = ui.text_service().quads("abc", &Default::default(), 0.0, (0.0, 0.0), 1.0, &mut glyphs).unwrap();
     /// assert_eq!((n, glyphs.len()), (3, 3));

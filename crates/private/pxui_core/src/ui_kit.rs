@@ -111,10 +111,12 @@ pub struct ButtonOpts {
     pub ink: Option<Color>,
     pub bare: bool,
     pub icon: bool,
+    /// The box is exactly `w` by `h` with nothing around it in its line, its text centred in it (`Button::centered`).
+    pub centered: bool,
 }
 
 impl ButtonOpts {
-    pub const DEFAULT: ButtonOpts = ButtonOpts { states: None, w: Size::Fit, h: Size::Fit, enabled: true, selected: false, justify: Justify::Start, padding: Edges::ZERO, ink: None, bare: false, icon: false };
+    pub const DEFAULT: ButtonOpts = ButtonOpts { states: None, w: Size::Fit, h: Size::Fit, enabled: true, selected: false, justify: Justify::Start, padding: Edges::ZERO, ink: None, bare: false, icon: false, centered: false };
 }
 
 /// What happened to a button this frame, as the wrapper's `Response` says it.
@@ -138,9 +140,27 @@ impl Response {
 }
 
 /// The built-in button: its text on a 20-point box (6 points of padding in a transparent 1-point edge; 4 when `bare`), the glyph
-/// centred in the 20-point square of an `icon`, the box 5 points in from the start of its line (8 from the end with `at_end`).
+/// centred in the 20-point square of an `icon`, the box 5 points in from the start of its line (8 from the end with `at_end`). A
+/// `centered` button's line is its box, its text centred in it.
 #[inline(always)]
 pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
+    if c.centered {
+        let line = this.node_new(&c.line);
+        (line.w, line.h, line.axis, line.justify) = (c.w, c.h, Axis::Row, c.justify);
+        let row = this.node_new(&c.row);
+        (row.w, row.h, row.axis, row.justify, row.align) = (c.w, c.h, Axis::Row, Justify::Center, Align::Center);
+        if c.pad != Edges::ZERO { row.padding = c.pad; }
+        this.style(&c.row, states, c.state);
+        if !text.is_empty() {
+            // the text on a node of its own, as wide as it in whole pixels, centred by the row
+            let look = *states.pick(c.state);
+            let saved = this.enter(&c.row);
+            let n = this.node_keyed(int_key(c.row.box_key, 1), Node { w: Size::Fit, h: Size::Grow, flags: Flags::FIT_TEXT_PIXEL, look: text_only(&look), ..Node::DEFAULT });
+            this.text(&n, shown(text));
+            this.leave(saved);
+        }
+        return;
+    }
     let measure = this.text_width(None, shown(text));
     let control_h = this.control_h();
     let rh = this.row_height() as f32;
@@ -207,16 +227,18 @@ pub(crate) fn resolve_label(label: &Label, look: &Look, font_size: i64, row_heig
 }
 
 /// Whether `label` is kit text, one line in the label look's font a row high: nothing set that only line-box text draws (wrap, a
-/// line limit, an ellipsis, an alignment, features, a line height, a width) and a whole-point size.
+/// line limit, an ellipsis, an alignment, features, a line height, a width, a box height, whole pixels) and a whole-point size.
 fn kit_label(label: &Label) -> bool {
     label.wrap == TextStyle::WRAP_NONE && label.max_lines == 0 && label.ellipsis == TextStyle::ELLIPSIS_NONE && label.align == TextStyle::ALIGN_LEFT
         && label.features == 0 && label.line_height.is_none() && label.width.is_none() && label.size.is_none_or(|s| s >= 1.0 && s.fract() == 0.0)
+        && label.height.is_none() && !label.whole_pixels
 }
 
 /// The built-in label, one meaning for every `Label`: what it leaves unset is the theme's label (ink-2 capitals in the label font, a
 /// full-width row 12 points in, 4 more above it when it is the first thing of its parent). Kit text when it asks for nothing
-/// more (`Label::DEFAULT` is exactly the theme's label); otherwise line-box text as tall as the lines it shows, or with `digits`
-/// one cached character layout at a time, as wide as the characters with digits on the advance of `0`.
+/// more (`Label::DEFAULT` is exactly the theme's label); otherwise line-box text as tall as the lines it shows (or `height` with the
+/// lines centred in it), or with `digits` one cached character layout at a time, as wide as the characters with digits on the
+/// advance of `0`. `whole_pixels` rounds a fitted width up to whole pixels.
 pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
     let label = &c.style;
     let look = this.theme().label.idle;
@@ -245,6 +267,8 @@ pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
     if !c.digits {
         let n = this.node_new(&c.node);
         (n.w, n.look, n.inset) = (label.width.unwrap_or(Size::Grow), Look { text: resolved.color, ..Look::NONE }, inset);
+        if let Some(h) = label.height { n.h = Size::Px(h + gap); }
+        if label.whole_pixels { n.flags = n.flags | Flags::FIT_TEXT_PIXEL; }
         this.text_line_box_caps(&c.node, text, &style, resolved.caps);
         return;
     }
@@ -255,13 +279,15 @@ pub(crate) fn default_label(this: &mut Ui, c: &LabelConfig, text: &str) {
         let ch = if resolved.caps { ch.to_ascii_uppercase() } else { ch };
         width += if ch.is_ascii_digit() { zero } else { this.text_metrics(&style, 0.0, ch.encode_utf8(&mut utf8)).w };
     }
+    if label.whole_pixels { let d = this.density() as f32; width = ((width + inset.l) * d).ceil() / d - inset.l; }
+    let height = label.height.unwrap_or(line);
     let n = this.node_new(&c.node);
-    (n.w, n.h) = (Size::Px(width + inset.l), Size::Px(line + gap));
+    (n.w, n.h) = (Size::Px(width + inset.l), Size::Px(height + gap));
     let mut shown = [0u8; LABEL_DIGITS];
     let mut len = text.len().min(LABEL_DIGITS);
     while !text.is_char_boundary(len) { len -= 1; }
     shown[..len].copy_from_slice(&text.as_bytes()[..len]);
-    let (color, caps, at) = (resolved.color, resolved.caps, (inset.l, gap));
+    let (color, caps, at) = (resolved.color, resolved.caps, (inset.l, gap + (height - line) / 2.0));
     this.canvas(&c.node, move |paint, rect| {
         if let Ok(text) = core::str::from_utf8(&shown[..len]) { paint.chars((rect.x + at.0, rect.y + at.1), &style, Some(color), caps, text); }
     });
@@ -1003,7 +1029,7 @@ impl Ui {
     /// "\0label", so the n-th takes its n-th `#dup`), role `Label`. `Label::DEFAULT` is the theme's label: a window's title or a
     /// panel's caption, ink-2 capitals 12 points from the left, 4 points above it when it is the first thing of its parent.
     pub fn label(&mut self, text: &str, style: Label) {
-        assert!(self.label_styled(text, &style, false), "Ui.label: invalid style {style:?}");
+        assert!(self.label_styled(text, &style, false).is_some(), "Ui.label: invalid style {style:?}");
     }
 
     /// The text style `label` shapes with, resolved against this `Ui`'s theme label as `label` resolves it (unset fields are the
@@ -1023,25 +1049,25 @@ impl Ui {
 
     /// `label`, or with `digits` a number drawn one cached character layout at a time (its accessible value the text). `false`, with
     /// nothing built, when the style does not resolve (`resolve_label`), its padding or width is not finite, or its font is not loaded.
-    pub fn label_styled(&mut self, text: &str, style: &Label, digits: bool) -> bool {
+    pub fn label_styled(&mut self, text: &str, style: &Label, digits: bool) -> Option<Handle> {
         // kit text needs only a finite tracking and padding and a loaded font when it names one; anything else resolves in full
         if kit_label(style) && !digits {
-            if !style.tracking.is_none_or(f32::is_finite) || !style.pad.is_none_or(f32::is_finite) || style.font.is_some_and(|font| self.text_mut().font_metrics(font).is_none()) { return false; }
+            if !style.tracking.is_none_or(f32::is_finite) || !style.pad.is_none_or(f32::is_finite) || style.font.is_some_and(|font| self.text_mut().font_metrics(font).is_none()) { return None; }
         } else {
             let width = match style.width { Some(Size::Px(v) | Size::Pct(v)) => v.is_finite(), _ => true };
-            if !width || !style.pad.is_none_or(f32::is_finite) { return false; }
+            if !width || !style.pad.is_none_or(f32::is_finite) || !style.height.is_none_or(|h| h.is_finite() && h >= 0.0) { return None; }
             let look = self.theme().label.idle;
-            let Some(resolved) = resolve_label(style, &look, self.font_size(), self.row_height() as f32, None) else { return false };
-            if self.text_mut().font_metrics(resolved.style.font).is_none() { return false; }
+            let Some(resolved) = resolve_label(style, &look, self.font_size(), self.row_height() as f32, None) else { return None };
+            if self.text_mut().font_metrics(resolved.style.font).is_none() { return None; }
         }
         let first = self.last_child_of_parent() == NONE;
         // every label is "\0label": siblings in a row resolve their duplicates without looking the key up again
         self.require_building();
         let unique = self.unique_key_repeated(key_of(self.current_seed(), "\0label"));
-        let node = self.node_unique(unique, &Node { role: Role::Label, ..Node::DEFAULT });
+        let node = self.node_unique(unique, &Node { role: style.role, ..Node::DEFAULT });
         if digits { self.a11y_value(&node, shown(text), (0, 0)); }
         in_body!(flat; self, node.box_key, node, label, default_label(&LabelConfig { node, first, style: *style, digits }, text));
-        true
+        Some(node)
     }
 
     /// A window's foot: a line-2 hairline under 4 points of space, then the keys in ink-3 each
@@ -1092,7 +1118,7 @@ impl Ui {
                 look.text = ink;
             }
         }
-        let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, line, row };
+        let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line, row };
         let shown_text = if content.is_some() { "" } else { text };
         in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, shown_text));
         // size, placement and padding went to the body in its config; the accessible states are the engine's
@@ -1125,7 +1151,7 @@ impl Ui {
                 look.text = ink;
             }
         }
-        let config = ButtonConfig { state, bare: false, icon: false, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, line: *line, row };
+        let config = ButtonConfig { state, bare: false, icon: false, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line: *line, row };
         in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, text));
         self.node_mut(&row).state.disabled = !opts.enabled;
         self.set_role(&row, Role::Button, 0);

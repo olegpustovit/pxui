@@ -48,15 +48,15 @@ export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, te
 /// The checked `PxuiButtonDesc` behind `desc` (not null) through the trusted entry: what happened to `out`, the whole signal to
 /// `signal` when given.
 unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: Build, user: *mut c_void, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
-    let Some(d) = read_desc!(desc, PxuiButtonDesc) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+    let Some((d, _)) = read_desc!(desc, PxuiButtonDesc, 96) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
     let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
-    if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid button descriptor") }; }
+    if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.centered > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid button descriptor") }; }
     let (Some(key), Some(text), Some(name)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid button looks") } };
     let mut content = |ui: *mut PxuiUi| if let Some(build) = build { build(user, ui.cast()) };
     let pad = Edges { l: d.padding[0], t: d.padding[1], r: d.padding[2], b: d.padding[3] };
-    unsafe { trusted::button_with(ui, key, text, (d.has_name != 0).then_some(name), looks.as_ref(), w, h, justify, pad, d.enabled != 0, d.selected != 0, d.danger != 0,
+    unsafe { trusted::button_with(ui, key, text, (d.has_name != 0).then_some(name), looks.as_ref(), w, h, justify, pad, d.enabled != 0, d.selected != 0, d.danger != 0, d.centered != 0,
         if build.is_some() { Some(&mut content) } else { None }, out, signal) }
 }
 
@@ -88,12 +88,27 @@ export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: St
 
 /// The checked `PxuiIconButtonDesc` behind `desc` (not null) through the trusted entry, as `button_call`.
 unsafe fn icon_button_call(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
-    let Some(d) = read_desc!(desc, PxuiIconButtonDesc) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
+    let Some((d, _)) = read_desc!(desc, PxuiIconButtonDesc, 96) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
+    // null (and a 96-byte record) is the kit's springs
+    let Some(press) = (unsafe { press_curves(d.press) }) else { return unsafe { fail(ui, "invalid icon button press curves") }; };
     let (Some(w), Some(h)) = (size(d.w_kind, d.w), size(d.h_kind, d.h)) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
     if d.enabled > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
     let (Some(key), Some(name), Some(icon)) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid icon button looks") } };
-    unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, out, signal) }
+    unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, press, out, signal) }
+}
+
+/// The two press curves behind `press` (null: `Some(None)`, the kit's), checked before they are read as `Curve`s: `None` for a pointer
+/// that is not 4-aligned or a curve whose kind byte is past `Steps`. Their parameters are the trusted entry's to check (`Curve::valid`).
+/// The reference is `'static` to the engine's types but the caller's record is only borrowed for the call: nothing keeps it after.
+unsafe fn press_curves(press: *const pxui_types::Curve) -> Option<Option<&'static [pxui_types::Curve; 2]>> {
+    if press.is_null() { return Some(None); }
+    let stride = core::mem::size_of::<pxui_types::Curve>();
+    if press as usize % core::mem::align_of::<pxui_types::Curve>() != 0 { return None; }
+    // the tag is the first byte of a `repr(C, u8)` enum: 0 Bezier, 1 Spring, 2 Table, 3 Steps
+    let tags = unsafe { [press.cast::<u8>().read(), press.cast::<u8>().add(stride).read()] };
+    if tags.iter().any(|t| *t > 3) { return None; }
+    Some(Some(unsafe { &*press.cast::<[pxui_types::Curve; 2]>() }))
 }
 
 /// A button size as a descriptor writes it (kind 0 the kit's, 1 points, 2 fill); the points are the trusted entry's to check.

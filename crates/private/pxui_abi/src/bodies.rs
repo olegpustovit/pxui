@@ -134,18 +134,18 @@ mod tramps {
     tramp!(button, |ui, sh, c: &ButtonConfig, states: &States, label: &str| PxuiButtonConfig {
         state: st(c.state), bare: c.bare as u8, icon: c.icon as u8, at_end: c.at_end as u8, line: bx(c.line), row: bx(c.row), states: states, label: pair(label),
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, justify: match c.justify { Justify::Center => 1, Justify::End => 2, _ => 0 },
-        reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, padding: [c.pad.l, c.pad.t, c.pad.r, c.pad.b]
+        reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, padding: [c.pad.l, c.pad.t, c.pad.r, c.pad.b], centered: c.centered as u8, reserved2: [0; 9]
     });
     tramp!(icon_button, |ui, sh, c: &IconButtonConfig, states: &States, label: &str, icon: &str| PxuiIconButtonConfig {
         state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon), states: states,
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, press_scale: c.press_scale,
-        draw: foreign_draw(c.draw).0, draw_user: foreign_draw(c.draw).1, ink: c.ink
+        draw: foreign_draw(c.draw).0, draw_user: foreign_draw(c.draw).1, ink: c.ink, press: c.press.map_or(core::ptr::null(), |p| p.as_ptr())
     });
     tramp!(checkbox, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });
     tramp!(radio, |ui, sh, c: &CheckConfig, label: &str| PxuiCheckConfig { state: st(c.state), on: c.on as u8, row: bx(c.row), label: pair(label) });
     tramp!(spinner, |ui, sh, c: &SpinnerConfig, label: &str| PxuiSpinnerConfig { node: bx(c.node), label: pair(label) });
     tramp!(badge, |ui, sh, c: &BadgeConfig, label: &str, text: &str| PxuiBadgeConfig { node: bx(c.node), label: pair(label), text: pair(text) });
-    tramp!(label, |ui, sh, c: &LabelConfig, text: &str| PxuiLabelConfig { first: c.first as u8, node: bx(c.node), text: pair(text), style: PxuiLabelStyle { digits: c.digits as u8, ..PxuiLabelStyle::from(&c.style) } });
+    tramp!(label, |ui, sh, c: &LabelConfig, text: &str| PxuiLabelConfig { first: c.first as u8, node: bx(c.node), text: pair(text), style: PxuiLabelStyle { digits: c.digits as u8, ..PxuiLabelStyle::from(&c.style) }, label_box: pxui_types::ffi::PxuiLabelBox::from(&c.style) });
     tramp_span!(footer, hints, |ui, sh, span, c: &FooterConfig, right: Option<&str>, hints: &[(&str, &str)]| {
         span.extend(hints.iter().map(|(k, v)| PxuiHintDesc { size: core::mem::size_of::<PxuiHintDesc>() as u32, reserved: 0, key: pair(k), value: pair(v) }));
     }, PxuiFooterConfig { row: bx(c.row), has_right: right.is_some() as u8, right: opt(right), hints: Slice { ptr: span.as_ptr(), len: span.len() } });

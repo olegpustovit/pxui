@@ -2,7 +2,7 @@
 //! through the label widget body, formatting into a fixed stack buffer where they take `format_args!`.
 use core::fmt::{Arguments, Write};
 use pxui_types::Label;
-use crate::Ui;
+use crate::{Handle, Ui};
 
 /// The bytes a formatted label keeps; the rest is dropped at a character boundary.
 const CAPACITY: usize = 128;
@@ -37,6 +37,10 @@ impl Ui {
     /// A typographic style's node is `style`'s width (`Fit` unless a builder changed it) and as tall as the lines it shows (lines
     /// times the line height, 1.2 times the size); wrapping, line limit, ellipsis and alignment apply inside that width.
     /// `Label::DEFAULT` is the theme's kit label.
+    ///
+    /// Returns the label's node, valid for this frame, for the rare tweak a style does not cover: a fill (`Ui::set_look`), an accessible
+    /// state or value (`Ui::set_role`, `Ui::a11y_value`), or other text laid into the same node (`Ui::text_line_box`). Most callers
+    /// drop it. A registered label body builds inside this node.
     /// Allocates: never on a warm frame.
     /// Identity: no key; every label is the n-th `"\0label"` among its siblings. Labels hold no state, so moving one costs nothing.
     /// Panics: when the library refuses the label (outside a frame, a style with a non-finite or non-positive size, an unloaded font).
@@ -62,15 +66,17 @@ impl Ui {
     ///         ui.label_fmt(format_args!("{} of {}", index + 1, total), DIM);
     ///         ui.label_digits(format_args!("{m}:{s:02}"), CLOCK);
     ///         ui.label("Section", Label::DEFAULT);
+    ///         let badge = ui.label("New", Label::CAPTION);
+    ///         ui.set_look(&badge, pxui::ui::Look { fill: ink, ..pxui::ui::Look::NONE }, pxui::ui::State::default());
     ///     }).unwrap();
     /// }
     /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "5 of 12"));
     /// ```
     #[inline]
     #[track_caller]
-    pub fn label(&mut self, text: &str, style: Label) { self.label_body(text, &style, false) }
+    pub fn label(&mut self, text: &str, style: Label) -> Handle { self.label_body(text, &style, false) }
 
-    /// Shows formatted text in `style` as `label` does, formatting into a 128-byte stack buffer.
+    /// Shows formatted text in `style` as `label` does (returning its node), formatting into a 128-byte stack buffer.
     ///
     /// Text past 128 bytes is dropped at a UTF-8 character boundary, so the label never holds a partial character.
     /// Allocates: never; a warm frame with a repeating value allocates nothing.
@@ -78,18 +84,18 @@ impl Ui {
     /// Panics: as `label`.
     ///
     /// ```
-    /// let ui = pxui::doc::frames(2, &mut |ui| ui.label_fmt(format_args!("{} songs", 10_000), pxui::Label::DEFAULT));
+    /// let ui = pxui::doc::frames(2, &mut |ui| { ui.label_fmt(format_args!("{} songs", 10_000), pxui::Label::DEFAULT); });
     /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "10000 songs"));
     /// ```
     #[inline]
     #[track_caller]
-    pub fn label_fmt(&mut self, args: Arguments, style: Label) { self.label_body(Stack::new(args).as_str(), &style, false) }
+    pub fn label_fmt(&mut self, args: Arguments, style: Label) -> Handle { self.label_body(Stack::new(args).as_str(), &style, false) }
 
     /// Shows a number that changes every frame (a clock, a stopwatch, "1:23") in `style`: formatted into a 128-byte stack buffer
     /// and drawn one cached character layout at a time, digits on the advance of `0`, so no new text is shaped once its characters
     /// have been seen.
     ///
-    /// The node is as wide as the characters and one line tall; its accessible value is the text. There is no kerning between
+    /// The node (returned, as `label` returns its node) is as wide as the characters and one line tall; its accessible value is the text. There is no kerning between
     /// characters and no wrapping; `Label::DEFAULT` is the theme's label here too. A registered `label` body is given the style with
     /// `digits` set.
     /// Allocates: never when warm; the first use of a character in a style shapes it.
@@ -97,20 +103,20 @@ impl Ui {
     /// Panics: as `label`.
     ///
     /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label_digits(format_args!("{}:{:02}", 0, 0), pxui::Label::MONO));
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label_digits(format_args!("{}:{:02}", 0, 0), pxui::Label::MONO); });
     /// let layouts = ui.text_layout_count();
-    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| ui.label_digits(format_args!("{}:{:02}", 1, 5), pxui::Label::MONO)).unwrap();
+    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| { ui.label_digits(format_args!("{}:{:02}", 1, 5), pxui::Label::MONO); }).unwrap();
     /// assert_eq!(ui.text_layout_count(), layouts, "no new layout for new digits");
     /// ```
     #[inline]
     #[track_caller]
-    pub fn label_digits(&mut self, args: Arguments, style: Label) { self.label_body(Stack::new(args).as_str(), &style, true) }
+    pub fn label_digits(&mut self, args: Arguments, style: Label) -> Handle { self.label_body(Stack::new(args).as_str(), &style, true) }
 
     /// The one body of `label`, `label_fmt` and `label_digits`, through the label body.
     #[inline]
     #[track_caller]
-    fn label_body(&mut self, text: &str, style: &Label, digits: bool) {
-        self.label_call(text, style, digits);
+    fn label_body(&mut self, text: &str, style: &Label, digits: bool) -> Handle {
+        self.label_call(text, style, digits)
     }
 }
 
@@ -156,7 +162,7 @@ mod tests {
 
     /// `label` inside a column (`Fit` tall, `w` wide), returning the column's handle: its rectangle is the label's.
     fn boxed(ui: &mut crate::Ui, key: &'static str, w: Size, text: &str, style: Label) -> PxuiBox {
-        ui.column(key, Node { w, ..Node::DEFAULT }, |ui| ui.label(text, style))
+        ui.column(key, Node { w, ..Node::DEFAULT }, |ui| { ui.label(text, style); })
     }
 
     /// `kit::text`: one line, end ellipsis, height one line, however long the text; `settings::paragraph`: word wrap with
@@ -215,14 +221,14 @@ mod tests {
     #[test]
     fn ellipsis_keeps_ink_inside_the_width_and_align_places_it() {
         let red = Label::BODY.grow().color(ColorToken(0));
-        let ui = settle(&mut |ui| ui.label(LONG, red.lines(1).ellipsis()));
+        let ui = settle(&mut |ui| { ui.label(LONG, red.lines(1).ellipsis()); });
         let (lo, hi) = ink(&ui);
         assert!(lo >= 0.0 && hi <= 160.0 && hi > 120.0, "ellipsized line fills but never passes the width: {lo} {hi}");
-        let ui = settle(&mut |ui| ui.label(LONG, red.lines(1)));
+        let ui = settle(&mut |ui| { ui.label(LONG, red.lines(1)); });
         assert!(ink(&ui).1 > 160.0, "without an ellipsis the line runs on");
         let mut edges = Vec::new();
         for style in [red, red.center(), red.end()] {
-            let ui = settle(&mut |ui| ui.label("hi", style));
+            let ui = settle(&mut |ui| { ui.label("hi", style); });
             edges.push(ink(&ui));
         }
         let mid = |(lo, hi): (f32, f32)| (lo + hi) / 2.0;
@@ -235,9 +241,9 @@ mod tests {
     fn label_width_and_colour_options_apply() {
         let (mut fit, mut fixed, mut grown) = (None, None, None);
         let ui = settle(&mut |ui| {
-            fit = Some(ui.row("fit", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| ui.label("hi", Label::BODY.color(ColorToken(0)))));
-            fixed = Some(ui.row("fixed", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| ui.label("hi", Label::BODY.w(Size::Px(50.0)))));
-            grown = Some(ui.row("grown", Node::DEFAULT, |ui| ui.label("hi", Label::BODY.grow())));
+            fit = Some(ui.row("fit", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("hi", Label::BODY.color(ColorToken(0))); }));
+            fixed = Some(ui.row("fixed", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("hi", Label::BODY.w(Size::Px(50.0))); }));
+            grown = Some(ui.row("grown", Node::DEFAULT, |ui| { ui.label("hi", Label::BODY.grow()); }));
         });
         let (fit, fixed, grown) = (ui.rect(&fit.unwrap()), ui.rect(&fixed.unwrap()), ui.rect(&grown.unwrap()));
         assert!(fit.w > 0.0 && fit.w < 40.0, "{fit:?}");
@@ -275,7 +281,7 @@ mod tests {
             let t = n * 7 + 11;
             let (a, b, c) = if n % 2 == 0 { (t / 6000, t / 100 % 60, t % 100) } else { (t / 120 / 60, t / 120 % 60, t % 120 * 100 / 120) };
             mem_sys::local_reset();
-            ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| ui.label_digits(format_args!("{a}:{b:02}.{c:02}"), Label::BODY)).unwrap();
+            ui.frame(&FrameIn { width: 200.0, height: 100.0, ..FrameIn::default() }, &mut |ui: &mut crate::Ui| { ui.label_digits(format_args!("{a}:{b:02}.{c:02}"), Label::BODY); }).unwrap();
             if n == 100 { layouts = ui.text_layout_count(); }
             if n > 100 {
                 assert_eq!(ui.text_layout_count(), layouts, "frame {n}");
@@ -289,7 +295,7 @@ mod tests {
     fn digits_take_one_width_whatever_the_digits() {
         let width = |value: u32| {
             let mut b = None;
-            let ui = settle(&mut |ui| b = Some(ui.row("clock", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| ui.label_digits(format_args!("{}:{}", value, value * 11), Label::BODY))));
+            let ui = settle(&mut |ui| b = Some(ui.row("clock", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label_digits(format_args!("{}:{}", value, value * 11), Label::BODY); })));
             ui.rect(&b.unwrap()).w
         };
         assert!(width(1) > 0.0);
@@ -298,12 +304,14 @@ mod tests {
 
     thread_local! {
         static SEEN: core::cell::RefCell<Vec<(String, u32, u8, f32, u16)>> = const { core::cell::RefCell::new(Vec::new()) };
+        static GROWN: core::cell::RefCell<Vec<(u32, f32, u8, u8)>> = const { core::cell::RefCell::new(Vec::new()) };
     }
 
     /// A label body that records its config and fills the label's node with one 30-point-tall child of its own, no text.
     fn boxed_label(ui: &mut crate::Ui, c: &crate::bodies::PxuiLabelConfig) {
-        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiLabelConfig>(), "this library carries the style");
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiLabelConfig>(), "this library carries the style and the box");
         SEEN.with(|s| s.borrow_mut().push((crate::bodies::text_of(&c.text).to_owned(), c.style.set, c.style.digits, c.style.size_points, c.style.color)));
+        GROWN.with(|g| g.borrow_mut().push((c.label_box.set, c.label_box.height, c.label_box.role, c.label_box.whole_pixels)));
         ui.node("mark".into(), Node { h: Size::Px(30.0), ..Node::DEFAULT });
     }
 
@@ -318,19 +326,26 @@ mod tests {
         let text = "label.body = boxed";
         ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
         assert_eq!(ui.theme().body.label, id);
-        let (mut kit, mut styled, mut digits) = (None, None, None);
+        let (mut kit, mut styled, mut digits, mut boxed) = (None, None, None, None);
         for _ in 0..2 {
             SEEN.with(|s| s.borrow_mut().clear());
+            GROWN.with(|g| g.borrow_mut().clear());
             ui.frame(&FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() }, &mut |ui| {
-                kit = Some(ui.column("kit", Node::DEFAULT, |ui| ui.label("Kit", Label::DEFAULT)));
-                styled = Some(ui.column("styled", Node::DEFAULT, |ui| ui.label("Styled", Label::TITLE.color(ColorToken(0)))));
-                digits = Some(ui.column("digits", Node::DEFAULT, |ui| ui.label_digits(format_args!("{}:{:02}", 1, 5), Label::MONO)));
+                kit = Some(ui.column("kit", Node::DEFAULT, |ui| { ui.label("Kit", Label::DEFAULT); }));
+                styled = Some(ui.column("styled", Node::DEFAULT, |ui| { ui.label("Styled", Label::TITLE.color(ColorToken(0))); }));
+                digits = Some(ui.column("digits", Node::DEFAULT, |ui| { ui.label_digits(format_args!("{}:{:02}", 1, 5), Label::MONO); }));
+                boxed = Some(ui.column("boxed", Node::DEFAULT, |ui| { ui.label("Boxed", Label::BODY.h(44.0).whole_pixels().role(crate::ui::Role::Paragraph)); }));
             }).unwrap();
         }
         let seen = SEEN.with(|s| s.borrow().clone());
         use pxui_types::ffi::PxuiLabelStyle as S;
-        assert_eq!(seen, vec![("Kit".into(), 0, 0, 0.0, 0), ("Styled".into(), S::SET_ALL, 0, 20.0, 0), ("1:05".into(), S::SET_ALL & !S::SET_COLOR, 1, 14.0, 0)]);
-        for b in [kit, styled, digits] { assert_eq!(ui.rect(&b.unwrap()).h, 30.0, "the body's node height"); }
+        assert_eq!(seen, vec![("Kit".into(), 0, 0, 0.0, 0), ("Styled".into(), S::SET_ALL, 0, 20.0, 0), ("1:05".into(), S::SET_ALL & !S::SET_COLOR, 1, 14.0, 0),
+            ("Boxed".into(), S::SET_ALL & !S::SET_COLOR, 0, 14.0, 0)]);
+        let grown = GROWN.with(|g| g.borrow().clone());
+        use pxui_types::ffi::PxuiLabelBox as B;
+        assert_eq!(grown[3], (B::SET_ALL, 44.0, crate::ui::Role::Paragraph as u8, 1), "the body is given the box height, role and whole pixels");
+        assert!(grown[..3].iter().all(|g| *g == (0, 0.0, 0, 0)));
+        for b in [kit, styled, digits, boxed] { assert_eq!(ui.rect(&b.unwrap()).h, 30.0, "the body's node height"); }
         assert!(ui.layers().flat_map(|l| l.instances.iter()).all(|i| i.color != [255, 0, 0, 255]), "the built-in body drew no text");
     }
 
@@ -350,6 +365,36 @@ mod tests {
         let ids: Vec<u64> = ui.a11y_nodes().iter().filter(|a| ui.a11y_name_of(a) == "Same").map(|a| a.id).collect();
         assert_eq!(ids.len(), 3);
         assert!(ids[0] != ids[1] && ids[1] != ids[2] && ids[0] != ids[2], "{ids:?}");
+    }
+
+    /// SwiftUI-style text: `h` gives the node its box with the line centred in it, `whole_pixels` rounds its fitted width up to whole
+    /// pixels, `role` is what accessibility hears (`Unknown` for a caption it skips), and `label` returns the node it built.
+    #[test]
+    fn box_height_whole_pixels_and_role_reach_the_node() {
+        use crate::ui::Role;
+        const HEADING: Label = Label::BODY.size(13.0).line_height(18.2).lines(1).ellipsis();
+        let (mut boxed, mut plain, mut lined, mut hidden) = (None, None, None, None);
+        let ui = settle(&mut |ui| {
+            boxed = Some(ui.row("boxed", Node { w: Size::Fit, ..Node::DEFAULT }, |ui| { ui.label("Heading", HEADING.h(30.0).whole_pixels().role(Role::Paragraph)); }));
+            plain = Some(ui.label("Heading", HEADING));
+            lined = Some(ui.label("Heading", HEADING.line_height(30.0)));
+            hidden = Some(ui.label("Caption", HEADING.role(Role::Unknown)));
+        });
+        let (boxed, plain, lined) = (ui.rect(&boxed.unwrap()), ui.rect(&plain.unwrap()), ui.rect(&lined.unwrap()));
+        assert_eq!(boxed.h, 30.0, "the box height");
+        assert!(plain.w.fract() != 0.0, "the fixture's width is fractional: {plain:?}");
+        assert_eq!(boxed.w, plain.w.ceil(), "rounded up to whole pixels at 1x");
+        assert_eq!(lined.h, 30.0);
+        let heading = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Heading").expect("the heading");
+        assert!(heading.is_role(Role::Paragraph) && heading.rect.h == 30.0, "the role and the returned node: {heading:?}");
+        let glyphs = |r: crate::geom::Rect| -> Vec<[f32; 4]> {
+            ui.layers().flat_map(|l| l.instances.iter()).filter(|i| i.kind == pxui_types::draw::kind::MASK && i.rect[1] >= r.y && i.rect[3] <= r.y + r.h)
+                .map(|i| [i.rect[0] - r.x, i.rect[1] - r.y, i.rect[2] - r.x, i.rect[3] - r.y]).collect()
+        };
+        let (in_box, in_line) = (glyphs(boxed), glyphs(lined));
+        assert!(!in_box.is_empty() && in_box.len() == in_line.len(), "{in_box:?} {in_line:?}");
+        for (a, b) in in_box.iter().zip(&in_line) { assert!(a[0] == b[0] && (a[1] - b[1]).abs() <= 1.0, "an 18.2 line centred in 30 sits where a 30 line does, within its floored half-leading and pixel snap: {a:?} {b:?}"); }
+        assert!(hidden.is_some() && ui.a11y_nodes().iter().all(|n| ui.a11y_name_of(n) != "Caption"), "an Unknown label is skipped");
     }
 
     /// A 200-byte string of 3-byte characters keeps 126 bytes: 42 whole characters, never half of the 43rd.

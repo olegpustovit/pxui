@@ -167,7 +167,7 @@ mod tests {
         let refused = catch_unwind(AssertUnwindSafe(|| ui.part(Part::HIT, Node::DEFAULT)));
         assert!(refused.is_err());
         assert!(ui.last_error().contains("inside a body"), "{}", ui.last_error());
-        ui.frame(&input(1.0), &mut |ui: &mut Ui| ui.label("still usable", crate::Label::DEFAULT)).expect("the Ui is not poisoned");
+        ui.frame(&input(1.0), &mut |ui: &mut Ui| { ui.label("still usable", crate::Label::DEFAULT); }).expect("the Ui is not poisoned");
     }
 
     fn boom(_: &mut Ui, _: &crate::bodies::PxuiToggleConfig) {
@@ -208,7 +208,7 @@ mod tests {
         let stale = catch_unwind(AssertUnwindSafe(|| ui.slot(SLOT.with(Cell::get))));
         assert!(stale.is_err());
         assert!(ui.last_error().contains("stale slot"), "{}", ui.last_error());
-        ui.frame(&input(1.0), &mut |ui: &mut Ui| ui.label("still usable", crate::Label::DEFAULT)).expect("the Ui is not poisoned");
+        ui.frame(&input(1.0), &mut |ui: &mut Ui| { ui.label("still usable", crate::Label::DEFAULT); }).expect("the Ui is not poisoned");
     }
 
     /// Content run through a slot that panics follows the callback panic rule too (in the static build it unwinds through the slot to
@@ -397,7 +397,7 @@ mod tests {
         let scoped = { let mut theme = Theme::default(); theme.apply(&ui, "label.body = nested").expect("theme"); theme };
         ui.set_variant(BodyKind::label, 9);
         VARIANTS.with(|v| v.borrow_mut().clear());
-        ui.frame(&input(0.0), &mut |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| ui.label("x", crate::Label::DEFAULT))).expect("frame");
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.label("x", crate::Label::DEFAULT); })).expect("frame");
         assert_eq!(VARIANTS.with(|v| v.borrow().clone()), [("nested", 0)]);
     }
 }

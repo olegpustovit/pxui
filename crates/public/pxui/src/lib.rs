@@ -389,8 +389,8 @@ impl Ui {
     /// library and resumed here, after the call returns.
     ///
     /// ```
-    /// let mut ui = pxui::doc::frames(1, &mut |ui| ui.label("a", pxui::Label::DEFAULT));
-    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| ui.label("b", pxui::Label::DEFAULT)).unwrap();
+    /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("a", pxui::Label::DEFAULT); });
+    /// ui.frame(&pxui::FrameIn { width: 320.0, height: 240.0, ..Default::default() }, &mut |ui| { ui.label("b", pxui::Label::DEFAULT); }).unwrap();
     /// assert_eq!(ui.frame_index(), 2);
     /// ```
     ///
@@ -437,7 +437,7 @@ impl Ui {
     /// The accessibility nodes of the last frame (parents before children), when `set_a11y(true)`.
     ///
     /// ```
-    /// let ui = pxui::doc::frames(1, &mut |ui| ui.label("hi", pxui::Label::DEFAULT));
+    /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
     /// assert!(!ui.a11y_nodes().is_empty());
     /// ```
     pub fn a11y_nodes(&self) -> &[A11yNode] {

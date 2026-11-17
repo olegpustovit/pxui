@@ -3,7 +3,7 @@ use crate::box_ops::Label;
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::interaction::decode_signal;
 use crate::{Button, Icon, IconButton, Segmented, Toggle};
-use crate::kit::{encode_curve, HintDesc, KeyframeDesc};
+use crate::kit::{HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
 use core::ffi::c_void;
@@ -54,7 +54,7 @@ fn keyframe(target: Target, curve: Curve) -> KeyframeDesc {
         Target::Look(value) => (2, [0.0; 4], look(value)),
         Target::Scale { x, y, anchor } => (3, [x, y, anchor.0, anchor.1], look(Look::NONE)),
     };
-    KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: 0.0, target: kind, reserved: 0, values, look: shape, curve: encode_curve(curve) }
+    KeyframeDesc { size: core::mem::size_of::<KeyframeDesc>() as u32, time: 0.0, target: kind, reserved: 0, values, look: shape, curve: pxui_types::ffi::PxuiCurveDesc::from(curve) }
 }
 
 /// The six looks of `states` (idle, hover, pressed, focus, disabled, checked) as the descriptors carry them.
@@ -87,12 +87,13 @@ impl Ui {
             Icon::Draw(f) => ("", Some(crate::paint::icon_draw as extern "C" fn(*mut c_void, *mut c_void, Rect, Rgba, *const pxui_types::ffi::PxuiPaintInfo)), f as *mut c_void),
         };
         let mut out = PxuiResponse::EMPTY;
-        let plain = button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && button.press_scale == 1.0 && draw.is_none();
+        let plain = button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && button.press_scale == 1.0 && draw.is_none()
+            && button.press.is_none();
         #[cfg(feature = "static")]
         let rc = if plain {
             unsafe { pxui_abi_link::trusted::icon_button_plain(self.0.as_ptr(), key, glyph, name, &mut out) }
         } else {
-            unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, name, button.look.as_ref(), button.w, button.h, button.enabled, button.press_scale, &mut out, None) }
+            unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, name, button.look.as_ref(), button.w, button.h, button.enabled, button.press_scale, button.press, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {
@@ -104,6 +105,7 @@ impl Ui {
             let desc = PxuiIconButtonDesc {
                 size: core::mem::size_of::<PxuiIconButtonDesc>() as u32, enabled: button.enabled as u8, w_kind, h_kind, reserved: 0, w, h, press_scale: button.press_scale,
                 states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), icon: as_str(glyph), draw, draw_user: user,
+                press: button.press.map_or(core::ptr::null(), |p| p.as_ptr()),
             };
             unsafe { lib::pxui_ui_icon_button_response(self.0.as_ptr(), &desc, &mut out) }
         };
@@ -118,14 +120,14 @@ impl Ui {
     pub(crate) fn button_keyed(&mut self, key: &str, text: &str, button: &Button, content: Option<&mut dyn FnMut(&mut Ui)>) -> Response {
         let mut out = PxuiResponse::EMPTY;
         let plain = content.is_none() && button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && !button.selected
-            && !button.danger && button.name.is_none() && button.align == Justify::Start && button.pad == pxui_types::geom::Edges::ZERO;
+            && !button.danger && button.name.is_none() && button.align == Justify::Start && button.pad == pxui_types::geom::Edges::ZERO && !button.centered;
         #[cfg(feature = "static")]
         let rc = match content {
             None if plain => unsafe { pxui_abi_link::trusted::button_plain(self.0.as_ptr(), key, text, &mut out) },
             Some(f) => unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look.as_ref(), button.w, button.h, button.align, button.pad,
-                button.enabled, button.selected, button.danger, Some(inner!(|ui: &mut Ui| f(ui))), &mut out, None) },
+                button.enabled, button.selected, button.danger, button.centered, Some(inner!(|ui: &mut Ui| f(ui))), &mut out, None) },
             None => unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look.as_ref(), button.w, button.h, button.align, button.pad,
-                button.enabled, button.selected, button.danger, None, &mut out, None) },
+                button.enabled, button.selected, button.danger, button.centered, None, &mut out, None) },
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {
@@ -139,7 +141,7 @@ impl Ui {
                 size: core::mem::size_of::<PxuiButtonDesc>() as u32, enabled: button.enabled as u8, selected: button.selected as u8, danger: button.danger as u8,
                 justify: match button.align { Justify::Center => 1, Justify::End => 2, _ => 0 }, w_kind, h_kind, has_name: button.name.is_some() as u8, reserved: 0,
                 w, h, padding: [p.l, p.t, p.r, p.b], states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
-                key: as_str(key), text: as_str(text), name: as_str(button.name.unwrap_or("")),
+                key: as_str(key), text: as_str(text), name: as_str(button.name.unwrap_or("")), centered: button.centered as u8, reserved2: [0; 7],
             };
             let has_content = content.is_some();
             let mut inner = content;

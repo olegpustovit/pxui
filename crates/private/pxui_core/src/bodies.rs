@@ -70,6 +70,8 @@ pub struct ButtonConfig {
     pub h: Size,
     pub justify: Justify,
     pub pad: Edges,
+    /// The caller asked for `Button::centered`: the box exactly `w` by `h` with nothing around it in its line, its text centred.
+    pub centered: bool,
     pub line: Handle,
     pub row: Handle,
 }
@@ -91,6 +93,8 @@ pub struct IconButtonConfig {
     /// body paints it in the 20-point square (`control_h`) at the centre of its plate with `Ui::icon_draw`.
     pub ink: crate::geom::Rgba,
     pub draw: Option<(crate::ui_widgets::IconDraw, [usize; 3])>,
+    /// The curves the press scale runs in on press and back out on release; `None` is the kit's (springs of 60 and 20).
+    pub press: Option<&'static [pxui_types::Curve; 2]>,
 }
 
 pub type IconButtonBody = fn(&mut Ui, &IconButtonConfig, &States, &str, &str);

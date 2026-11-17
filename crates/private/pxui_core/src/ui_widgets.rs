@@ -1043,7 +1043,7 @@ impl Ui {
         self.a11y_name(&b, shown(name));
         let states = match button.states { Some(states) => states, None => self.theme().icon_button };
         let ink = states.pick(state).text;
-        let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw };
+        let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw, press: button.press };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
         self.node_new(&b).state.disabled = !button.enabled;
         let response = Response::of(&s, focused, b);
@@ -1294,10 +1294,13 @@ pub struct IconButton {
     pub enabled: bool,
     /// The scale the button's contents spring to while pressed (1.0: no animation, no view).
     pub press_scale: f32,
+    /// The curves the scale runs in on press and back out on release; `None` is the kit's (`PRESS_IN`, `PRESS_OUT`). Read only
+    /// during the call (the C ABI's are the caller's, borrowed for it).
+    pub press: Option<&'static [Curve; 2]>,
 }
 
 impl IconButton {
-    pub const DEFAULT: IconButton = IconButton { states: None, w: Size::Fit, h: Size::Fit, enabled: true, press_scale: 1.0 };
+    pub const DEFAULT: IconButton = IconButton { states: None, w: Size::Fit, h: Size::Fit, enabled: true, press_scale: 1.0, press: None };
 }
 
 impl Ui {
@@ -1311,9 +1314,9 @@ impl Ui {
     }
 }
 
-/// Spring rates of a pressed icon button's scale: fast in, slower out.
-const PRESS_IN: f32 = 60.0;
-const PRESS_OUT: f32 = 20.0;
+/// The kit's curves of a pressed icon button's scale: a fast spring in, a slower one out.
+pub const PRESS_IN: Curve = Curve::Spring { omega: 60.0 };
+pub const PRESS_OUT: Curve = Curve::Spring { omega: 20.0 };
 
 /// The built-in icon button: a square (the kit's 20 points, or the caller's size), the glyph centred. With a press scale below or above
 /// 1 the plate and glyph sit in a view that springs to that scale while the button is held and back on release.
@@ -1354,7 +1357,7 @@ pub(crate) fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &
     if this.state(&visual, 0) != held {
         this.set_state(&visual, held);
         let scale = if c.state.pressed { c.press_scale } else { 1.0 };
-        this.animate(&visual, Target::Scale { x: scale, y: scale, anchor: (0.5, 0.5) }, Curve::Spring { omega: if c.state.pressed { PRESS_IN } else { PRESS_OUT } });
+        this.animate(&visual, Target::Scale { x: scale, y: scale, anchor: (0.5, 0.5) }, match (c.press, c.state.pressed) { (Some(p), true) => p[0], (Some(p), false) => p[1], (None, true) => PRESS_IN, (None, false) => PRESS_OUT });
     }
 }
 

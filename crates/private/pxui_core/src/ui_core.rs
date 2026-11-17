@@ -627,21 +627,28 @@ pub fn key(b: &UiBox) -> i64 {
 
 struct NodeText { style:Style, spans:TextSpans, active:bool, line_box:bool }
 impl NodeText {
+    /// Where the text's first line starts as `Paint::text_laid` takes it: the top of the em box, the baseline `ascent * size` below.
+    /// A line box puts that baseline at its line's rounded ascent plus the floored half-leading, the lines centred in `h`.
     fn top(&self,y:f32,h:f32,metrics:Metrics,text:&Text)->f32 {
         if self.line_box {
-            let (a,d)=text.font_metrics(self.style.font).expect("validated line-box font");
-            let (a,d)=((a*self.style.size).round(),(d*self.style.size).round());
-            let line=self.style.line_height;
-            let leading=(line-a-d)/2.0;
-            let rounded=leading.round();
-            let tolerance=4.0*f32::EPSILON*line.abs().max(a).max(d);
-            let leading=if (leading-rounded).abs()<=tolerance {rounded} else {leading};
-            let baseline=a+leading.floor();
-            return y+(h-line*metrics.lines.max(1) as f32)/2.0+baseline-metrics.baseline;
+            let ascent=text.font_metrics(self.style.font).expect("validated line-box font").0*self.style.size;
+            return self.line_box_baseline(y,h,metrics,text)-ascent;
         }
         let line=if self.style.line_height>0.0 { self.style.line_height } else { self.style.size*1.2 };
         let block=self.style.size+metrics.lines.saturating_sub(1) as f32*line;
         y+((h-block)/2.0).floor()
+    }
+    /// A line box's first baseline: its lines centred in `h` from `y`, the baseline the rounded primary-face ascent plus the floored
+    /// half-leading below the first line's top (ULP-snapped at whole points).
+    fn line_box_baseline(&self,y:f32,h:f32,metrics:Metrics,text:&Text)->f32 {
+        let (a,d)=text.font_metrics(self.style.font).expect("validated line-box font");
+        let (a,d)=((a*self.style.size).round(),(d*self.style.size).round());
+        let line=self.style.line_height;
+        let leading=(line-a-d)/2.0;
+        let rounded=leading.round();
+        let tolerance=4.0*f32::EPSILON*line.abs().max(a).max(d);
+        let leading=if (leading-rounded).abs()<=tolerance {rounded} else {leading};
+        y+(h-line*metrics.lines.max(1) as f32)/2.0+a+leading.floor()
     }
     fn style(&self,node:&Node,rtl:bool)->Style {
         let mut style=self.style;
@@ -4574,6 +4581,7 @@ impl Ui {
         let text=self.text.as_mut().expect("Ui: the text engine is lent out");
         let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans.as_slice().unwrap()).unwrap().1}
             else {lay_out_node(text,&stored.text_layout,flags,&style,0.0,value,&[]).unwrap().1};
+        if let Some(rich)=rich.filter(|r|r.line_box) { return rich.line_box_baseline(inset.t,h-inset.t-inset.b,m,text); }
         let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m,text));
         top+m.baseline
     }

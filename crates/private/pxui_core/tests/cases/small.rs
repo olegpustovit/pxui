@@ -527,6 +527,7 @@ fn window_pxui_keyboard_signal_reuses_routing_storage() {
 }
 
 pub const CASES: &[(&str, fn())] = &[
+    ("line_box_glyphs_keep_their_half_leading", line_box_glyphs_keep_their_half_leading),
     ("window_pxui_keyboard_signal_reuses_routing_storage", window_pxui_keyboard_signal_reuses_routing_storage),
     ("window_pxui_focused_text_field_warm_ime", window_pxui_focused_text_field_warm_ime),
     ("text_rows_lru", text_rows_lru),
@@ -537,3 +538,34 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_keyboard", window_pxui_keyboard),
     ("window_pxui_input", window_pxui_input),
 ];
+
+/// A line box places its first baseline its half-leading below its line's top: the glyphs of one line centred in a 30-point box sit
+/// where they sit whatever the line height (a 12-point heading given its row's height as its line height no longer jumps up by half
+/// the difference), and a box as tall as one 30-point line draws them there too.
+fn line_box_glyphs_keep_their_half_leading() {
+    let mut ui = new_ui(None);
+    let frame = frame_at(vec![], 2.0, 0.0, vec![]);
+    let glyphs = |ui: &mut Ui, line_height: f32, h: Size| {
+        let mut rect = Rect::default();
+        ui.frame(&frame, &mut |ui| {
+            let node = ui.node("t".into(), Node { w: Size::Px(200.0), h, ..Node::DEFAULT });
+            check(ui.text_line_box(&node, "Hgx", &pxui_text::Style { size: 12.0, line_height, ..Default::default() }, &[]), "a line box");
+            rect = ui.rect(&node);
+        });
+        let rects: Vec<[f32; 4]> = ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui_types::draw::kind::MASK).map(|i| i.rect).collect();
+        (rect.h, rects)
+    };
+    let (_, natural) = glyphs(&mut ui, 30.0, Size::Px(30.0));
+    check(natural.len() == 3, "three glyphs");
+    // whole-point half-leadings land exactly; 16.8 floors 1.4 points of it, so it may sit up to a point higher
+    for line_height in [12.0, 14.0, 20.0, 24.0, 16.8] {
+        let (_, at) = glyphs(&mut ui, line_height, Size::Px(30.0));
+        let close = at.len() == 3 && at.iter().zip(&natural).all(|(a, b)| a[0] == b[0] && (0.0..=1.0).contains(&(b[1] - a[1])) && a[3] - a[1] == b[3] - b[1]);
+        check(close && (line_height == 16.8 || at == natural), &format!("line height {line_height} moved the glyphs: {at:?} vs {natural:?}"));
+    }
+    let (h, fit) = glyphs(&mut ui, 30.0, Size::Fit);
+    check(h == 30.0 && fit == natural, &format!("a 30-point line's own box: {h} {fit:?} vs {natural:?}"));
+    // the em box centred in the 30-point box: the cap height of the golden face around its middle
+    let top = natural[0][1];
+    check((9.0..=12.0).contains(&top), &format!("centred glyph top {top}"));
+}

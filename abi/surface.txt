@@ -130,7 +130,7 @@ Ui|inspector_toggle_value|Rays|done
 Ui|inspector_toggle|Gallery,Rays|done
 Ui|inspector_width|Rays|done
 Ui|key_pressed|Rays|done
-Ui|label|Gallery,Rays|done
+Ui|label|Gallery,Rays|done: pxui_ui_label_node (returns the label's node)
 Ui|last_press_within|Rays|inlined
 Ui|layer_count|Rays|done
 Ui|layers|Rays|done: every layer in draw order

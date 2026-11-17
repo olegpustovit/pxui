@@ -424,12 +424,12 @@ pub fn button_pill_body() {
     ui.destroy();
 }
 
-thread_local! { static SEEN: Cell<(f32, f32, u8, f32)> = const { Cell::new((0.0, 0.0, 9, 0.0)) }; }
+thread_local! { static SEEN: Cell<(f32, f32, u8, f32, bool)> = const { Cell::new((0.0, 0.0, 9, 0.0, false)) }; }
 
 /// A body that records what the `Button` asked for and builds its own structure: one 33-point node named "mine".
 fn recording_button(ui: &mut Ui, c: &ButtonConfig, _states: &States, _text: &str) {
     let px = |s: Size| if let Size::Px(v) = s { v } else { -1.0 };
-    SEEN.with(|seen| seen.set((px(c.w), px(c.h), matches!(c.justify, Justify::Center) as u8, c.pad.l)));
+    SEEN.with(|seen| seen.set((px(c.w), px(c.h), matches!(c.justify, Justify::Center) as u8, c.pad.l, c.centered)));
     ui.node_mut(&c.line).h = Size::Px(ui.row_height() as f32);
     ui.node_mut(&c.row).w = Size::Px(77.0);
     ui.node("mine".into(), Node { w: Size::Px(33.0), h: Size::Px(8.0), ..Node::DEFAULT });
@@ -439,11 +439,11 @@ fn recording_button(ui: &mut Ui, c: &ButtonConfig, _states: &States, _text: &str
 pub fn button_opts_uses_a_registered_body() {
     let mut ui = new_ui(None);
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("recording", recording_button));
-    let opts = ButtonOpts { w: Size::Px(50.0), h: Size::Px(30.0), justify: Justify::Center, padding: Edges { l: 3.0, ..Edges::ZERO }, ..ButtonOpts::DEFAULT };
+    let opts = ButtonOpts { w: Size::Px(50.0), h: Size::Px(30.0), justify: Justify::Center, padding: Edges { l: 3.0, ..Edges::ZERO }, centered: true, ..ButtonOpts::DEFAULT };
     for k in 0..2 {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.button_opts("Go", "Go", None, &opts, None, None); }));
     }
-    check(SEEN.with(|s| s.get()) == (50.0, 30.0, 1, 3.0), &format!("the body's config is {:?}", SEEN.with(|s| s.get())));
+    check(SEEN.with(|s| s.get()) == (50.0, 30.0, 1, 3.0, true), &format!("the body's config is {:?}", SEEN.with(|s| s.get())));
     let row = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
     let w = ui.box_of_key(row).map(|b| ui.rect(&b).w);
     check(w == Some(77.0), &format!("the box is not the body's: {w:?}"));
@@ -508,11 +508,15 @@ pub fn icon_button_round_body() {
     swap("icon_button", &|ui| pick(ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("round", round_icon)), Role::Button, "Add", Key::Space, &hits);
 }
 
-thread_local! { static ICON_SEEN: Cell<(f32, f32, f32, u8)> = const { Cell::new((0.0, 0.0, 0.0, 9)) }; }
+thread_local! {
+    static ICON_SEEN: Cell<(f32, f32, f32, u8)> = const { Cell::new((0.0, 0.0, 0.0, 9)) };
+    static ICON_CURVES: Cell<Option<[Curve; 2]>> = const { Cell::new(None) };
+}
 
 fn recording_icon(ui: &mut Ui, c: &IconButtonConfig, states: &States, _label: &str, _icon: &str) {
     let px = |s: Size| if let Size::Px(v) = s { v } else { -1.0 };
     ICON_SEEN.with(|seen| seen.set((px(c.w), px(c.h), c.press_scale, c.state.disabled as u8)));
+    ICON_CURVES.with(|seen| seen.set(c.press.copied()));
     let n = ui.node_mut(&c.node);
     (n.w, n.h) = (Size::Px(40.0), Size::Px(40.0));
     ui.set_look(&c.node, *states.pick(c.state), c.state);
@@ -523,11 +527,14 @@ fn recording_icon(ui: &mut Ui, c: &IconButtonConfig, states: &States, _label: &s
 pub fn icon_button_uses_a_registered_body() {
     let mut ui = new_ui(None);
     pick(&mut ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("recording", recording_icon));
-    let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled: false, ..IconButton::DEFAULT };
+    const PRESS: [Curve; 2] = [Curve::Bezier { duration: 0.08, points: [0.16, 1.0, 0.3, 1.0] }, Curve::Steps { duration: 0.24, count: 2 }];
+    let press = PRESS;
+    let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled: false, press: Some(&PRESS), ..IconButton::DEFAULT };
     for k in 0..2 {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("Go", Icon::Glyph('+'), "Go", &opts); }));
     }
     check(ICON_SEEN.with(|s| s.get()) == (36.0, 36.0, 0.96, 1), &format!("the body's config is {:?}", ICON_SEEN.with(|s| s.get())));
+    check(ICON_CURVES.with(|s| s.get()) == Some(press), "the body is given the press curves");
     let node = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
     check(ui.box_of_key(key_of(node, "mine")).is_some(), "the body's own node is missing");
     ui.destroy();
@@ -575,6 +582,31 @@ pub fn icon_button_is_the_transport_key() {
         }
         ui.destroy();
     }
+}
+
+/// The built-in body runs the caller's press curves: an instant curve in puts the plate at the press scale on the first held frame
+/// (the kit's spring would be under way), and one end step out keeps it there until the step's 0.2 seconds are over.
+pub fn icon_button_press_runs_the_callers_curves() {
+    let mut ui = new_ui(None);
+    let mut t = 0.0;
+    let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96,
+        press: Some(&[Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }, Curve::Steps { duration: 0.2, count: 1 }]), ..IconButton::DEFAULT };
+    let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("play", Icon::Glyph('+'), "Play", &opts); });
+    let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
+    for _ in 0..3 { step(&mut ui, vec![]); }
+    let node = key_of(key_of(0x2c1b3c6d, "panel"), "play");
+    let w = |ui: &mut Ui| { let b = ui.box_of_key(key_of(key_of(node, "visual"), "surface")).expect("the plate"); ui.rect(&b).w };
+    let at = { let b = ui.box_of_key(node).expect("the key"); mid(ui.rect(&b), 18.0) };
+    step(&mut ui, vec![move_to(at)]);
+    step(&mut ui, vec![press(at)]);
+    step(&mut ui, vec![]);
+    check((w(&mut ui) - 34.56).abs() < 0.01, &format!("the instant curve in: {}", w(&mut ui)));
+    step(&mut ui, vec![release(at)]);
+    for _ in 0..5 { step(&mut ui, vec![]); }
+    check((w(&mut ui) - 34.56).abs() < 0.01, &format!("the end step out holds until it ends: {}", w(&mut ui)));
+    for _ in 0..25 { step(&mut ui, vec![]); }
+    check(w(&mut ui) == 36.0, &format!("the end step out is over: {}", w(&mut ui)));
+    ui.destroy();
 }
 
 /// LocalWave's play icon (`lw_ui/src/icons.rs::play`): one triangle on a 24-unit grid scaled to the square it is given.
@@ -1860,6 +1892,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("duplicate_key_buttons_own_their_parts", duplicate_key_buttons_own_their_parts),
     ("icon_button_round_body", icon_button_round_body),
     ("icon_button_uses_a_registered_body", icon_button_uses_a_registered_body),
+    ("icon_button_press_runs_the_callers_curves", icon_button_press_runs_the_callers_curves),
     ("icon_button_is_the_transport_key", icon_button_is_the_transport_key),
     ("icon_button_draws_the_apps_icon_like_the_transport_key", icon_button_draws_the_apps_icon_like_the_transport_key),
     ("icon_button_body_receives_the_drawing", icon_button_body_receives_the_drawing),

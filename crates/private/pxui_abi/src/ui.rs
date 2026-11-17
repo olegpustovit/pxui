@@ -559,8 +559,35 @@ export!(trusted pub unsafe fn pxui_ui_label(ui: *mut PxuiUi, text: Str, style: *
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let (Some(text), false) = (unsafe { checked(text) }, style.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
     let Some((style, digits)) = label_style(style) else { return unsafe { fail(ui, "invalid label style") } };
-    unsafe { trusted::pxui_ui_label(ui, pair(text), &style, digits) }
+    let mut out = PxuiBox::default();
+    unsafe { trusted::pxui_ui_label(ui, pair(text), &style, digits, &mut out) }
 });
+
+// ABI 1.54: `pxui_ui_label` with the label's box (`label_box`, null for none) writing the label's node to `out`; a null `style` is
+// the theme's label (`pxui_label`).
+export!(trusted pub unsafe fn pxui_ui_label_node(ui: *mut PxuiUi, text: Str, style: *const pxui_types::ffi::PxuiLabelStyle, label_box: *const pxui_types::ffi::PxuiLabelBox, out: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let (Some(text), false) = (unsafe { checked(text) }, out.is_null()) else { return unsafe { fail(ui, "invalid label arguments") } };
+    let (mut style, digits) = if style.is_null() { (pxui_types::Label::DEFAULT, false) } else {
+        let Some(read) = label_style(style) else { return unsafe { fail(ui, "invalid label style") } };
+        read
+    };
+    if !label_box.is_null() && !read_label_box(label_box, &mut style) { return unsafe { fail(ui, "invalid label box") } }
+    unsafe { trusted::pxui_ui_label(ui, pair(text), &style, digits, &mut *out) }
+});
+
+/// Applies the caller's `PxuiLabelBox` (not null) to `label`: false, leaving `label` as it was, for a short record, unknown `set` bits,
+/// a non-finite height, a role past the last one, `whole_pixels` past 1 or nonzero reserved bytes.
+pub(crate) fn read_label_box(label_box: *const pxui_types::ffi::PxuiLabelBox, label: &mut pxui_types::Label) -> bool {
+    use pxui_types::ffi::PxuiLabelBox as B;
+    let Some(b) = read_desc!(label_box, B) else { return false };
+    if b.set & !B::SET_ALL != 0 || !b.height.is_finite() || b.role > pxui_types::a11y::Role::Separator as u8 || b.whole_pixels > 1 || b.reserved != [0; 2] { return false; }
+    label.height = (b.set & B::SET_HEIGHT != 0).then_some(b.height);
+    // the role was checked against the last one above
+    if b.set & B::SET_ROLE != 0 { label.role = unsafe { core::mem::transmute::<u8, pxui_types::a11y::Role>(b.role) }; }
+    label.whole_pixels = b.whole_pixels != 0;
+    true
+}
 
 // ABI 1.49: the text style `style` shapes with, resolved against the Ui's theme label (what `pxui_ui_label` would shape), written to
 // `out` (its `size` set). `digits` is ignored. Refused for a null or invalid style or one that does not resolve.
@@ -588,6 +615,7 @@ pub(crate) fn label_style(style: *const pxui_types::ffi::PxuiLabelStyle) -> Opti
         color: on(S::SET_COLOR).then_some(pxui_types::theme::ColorToken(r.color)), width,
         line_height: on(S::SET_LINE_HEIGHT).then_some(r.line_height), pad: on(S::SET_PAD).then_some(r.pad),
         wrap: r.wrap, max_lines: r.max_lines, ellipsis: r.ellipsis, align: r.align, features: r.features, variant: 0,
+        height: None, whole_pixels: false, role: pxui_types::a11y::Role::Label,
     }, r.digits != 0))
 }
 
@@ -840,5 +868,29 @@ mod keyboard_tests {
         assert_eq!(unsafe {crate::ui_state::pxui_ui_keyboard(core::ptr::null_mut(),&mut got)},PXUI_ERR_ARGUMENT);
         assert_eq!(got,prior);
         assert_eq!(unsafe {super::pxui_ui_destroy(ui)},0);
+    }
+}
+
+#[cfg(test)]
+mod label_records {
+    use super::read_label_box;
+    use pxui_types::{a11y::Role, ffi::PxuiLabelBox as B, Label};
+
+    /// A label's box record carries its height, role and whole pixels; nothing set leaves the style's; a short record, unknown bits,
+    /// an out-of-range role, a non-finite height, `whole_pixels` past 1 or a nonzero reserved byte is refused and changes nothing.
+    #[test]
+    fn label_box_record_applies_or_is_refused_whole() {
+        let full = B::from(&Label::BODY.h(30.0).whole_pixels().role(Role::Paragraph));
+        assert_eq!(full.set, B::SET_HEIGHT | B::SET_ROLE);
+        let mut label = Label::BODY.size(12.0);
+        assert!(read_label_box(&full, &mut label));
+        assert!(label.height == Some(30.0) && label.whole_pixels && label.role == Role::Paragraph && label.size == Some(12.0));
+        assert_eq!(B::from(&Label::BODY), B { size: core::mem::size_of::<B>() as u32, ..B::default() }, "a plain label sets nothing");
+        for bad in [B { size: 12, ..full }, B { set: 4, ..full }, B { role: Role::Separator as u8 + 1, ..full }, B { height: f32::NAN, ..full },
+            B { whole_pixels: 2, ..full }, B { reserved: [0, 1], ..full }] {
+            let mut label = Label::BODY;
+            assert!(!read_label_box(&bad, &mut label), "{bad:?}");
+            assert!(label.height.is_none() && !label.whole_pixels && label.role == Role::Label);
+        }
     }
 }

@@ -1,5 +1,5 @@
 //! Stable text inputs and outputs shared with libpxui.
-use crate::{theme::ColorToken, Size};
+use crate::{a11y::Role, theme::ColorToken, Size};
 
 /// The resolved style the shaper sees: every field concrete, tracking in points. Shaping and worker calls take it (`Text`,
 /// `UiText`, `PreparedText`, `Paint::text_metrics`/`text_spans`); authoring calls take a `Label`, and `Ui::resolve(&label)` gives
@@ -66,7 +66,8 @@ impl TextStyle {
 /// rows when the label body builds (or the painter paints): its font, size, weight, tracking, capitals and colour, a full-width
 /// box one row high per line, 12 points in from the start with 4 above when it is its parent's first child. `Label::DEFAULT` sets
 /// nothing, so it is the theme's label; a builder sets only its own field. `BODY`, `CAPTION`, `TITLE` and `MONO` set every field
-/// but the colour (theirs is the theme label colour unless `color` sets one).
+/// but the colour (theirs is the theme label colour unless `color` sets one) and the box height (theirs is as tall as the lines).
+/// Every label is `Role::Label` to accessibility unless `role` says otherwise; a fitted width is fractional unless `whole_pixels`.
 #[derive(Clone, Copy, Debug)]
 pub struct Label {
     /// The font family (the `Ui`'s font order); `None`: the theme label's.
@@ -99,6 +100,12 @@ pub struct Label {
     pub features: u32,
     /// What a registered label body reads from its config (`PxuiLabelConfig::variant`); 0 for none.
     pub variant: u16,
+    /// The node's height in points, the lines centred in it; `None`: as tall as the lines it shows (the theme's row for its label).
+    pub height: Option<f32>,
+    /// Whether a `Fit` width is rounded up to whole pixels of the display (SwiftUI's text frames).
+    pub whole_pixels: bool,
+    /// The accessible role: `Role::Label`, `Role::Paragraph` for running text, `Role::Unknown` for text assistive technology skips.
+    pub role: Role,
 }
 
 impl Label {
@@ -106,6 +113,7 @@ impl Label {
     pub const DEFAULT: Label = Label {
         font: None, size: None, weight: None, tracking: None, caps: None, color: None, width: None, line_height: None, pad: None,
         wrap: TextStyle::WRAP_NONE, max_lines: 0, ellipsis: TextStyle::ELLIPSIS_NONE, align: TextStyle::ALIGN_LEFT, features: 0, variant: 0,
+        height: None, whole_pixels: false, role: Role::Label,
     };
     /// Running text: the UI face at 14 points, regular, as wide as the text, lines 1.2 times the size, no inset.
     pub const BODY: Label = Label {
@@ -180,6 +188,7 @@ impl Label {
     pub const fn tracking(mut self, ems: f32) -> Label { self.tracking = Some(ems); self }
     /// This style with lines `points` high (0: 1.2 times the size).
     ///
+    /// It also grows the node's height, which is its lines' unless `h` sets a box taller than them.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -301,6 +310,45 @@ impl Label {
     /// ```
     #[inline]
     pub const fn variant(mut self, variant: u16) -> Label { self.variant = variant; self }
+
+    /// This style in a node `points` high with its lines centred in it (a 12-point heading in a 30-point row), whatever its line height.
+    ///
+    /// The line height still spaces the lines; the box only places them. The painter (`Paint::text_styled`) has no box and ignores it.
+    /// Allocates: never.
+    /// Panics: never (a height that is not finite and at least zero is refused when the label is shown).
+    ///
+    /// ```
+    /// use pxui_types::Label;
+    /// const HEADING: Label = Label::BODY.size(12.0).line_height(16.8).h(30.0);
+    /// assert_eq!(HEADING.height, Some(30.0));
+    /// ```
+    #[inline]
+    pub const fn h(mut self, points: f32) -> Label { self.height = Some(points); self }
+
+    /// This style with a `Fit` width rounded up to whole pixels of the display, as SwiftUI frames text; other widths are unchanged.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Label;
+    /// assert!(Label::BODY.whole_pixels().whole_pixels);
+    /// ```
+    #[inline]
+    pub const fn whole_pixels(mut self) -> Label { self.whole_pixels = true; self }
+
+    /// This style announced as `role`: `Role::Paragraph` for running text, `Role::Unknown` for a caption assistive technology skips.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{a11y::Role, Label};
+    /// assert_eq!(Label::BODY.role(Role::Paragraph).role, Role::Paragraph);
+    /// assert_eq!(Label::BODY.role, Role::Label);
+    /// ```
+    #[inline]
+    pub const fn role(mut self, role: Role) -> Label { self.role = role; self }
 }
 
 #[repr(C)]

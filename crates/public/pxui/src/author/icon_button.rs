@@ -2,7 +2,7 @@
 use super::{Key, Response};
 use crate::{Paint, Ui};
 use pxui_types::geom::{Rect, Rgba};
-use pxui_types::{theme::States, Size};
+use pxui_types::{theme::{Curve, States}, Size};
 
 /// What an icon button shows: a glyph of the icon font its look names, or the app's own drawing.
 ///
@@ -51,11 +51,14 @@ pub struct IconButton {
     pub(crate) enabled: bool,
     pub(crate) press_scale: f32,
     pub(crate) variant: u16,
+    pub(crate) press: Option<&'static [Curve; 2]>,
 }
 
 impl IconButton {
     /// The plain kit icon button.
-    pub const DEFAULT: IconButton = IconButton { w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0, variant: 0 };
+    pub const DEFAULT: IconButton = IconButton {
+        w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0, press: None, variant: 0,
+    };
 
     /// A button `w` by `h` points.
     /// Allocates: never.
@@ -89,6 +92,20 @@ impl IconButton {
     /// let _ = B;
     /// ```
     pub const fn press_scale(mut self, scale: f32) -> IconButton { self.press_scale = scale; self }
+
+    /// Sets the curves the press scale runs: `curves[0]` from rest to `press_scale` when the button is pressed, `curves[1]` back on
+    /// release, in place of the kit's springs (`Curve::Spring` of 60 in, 20 out); reduced motion still makes both instant. The pair is
+    /// a `static` (a `const` button's `&[..]` is promoted to one), so the button carries a pointer, not the curves.
+    /// Allocates: never.
+    /// Panics: never (a curve that is not `Curve::valid` is refused when the button is declared).
+    ///
+    /// ```
+    /// use pxui::{theme::Curve, IconButton};
+    /// const EASE: Curve = Curve::Bezier { duration: 0.24, points: [0.16, 1.0, 0.3, 1.0] };
+    /// const KEY: IconButton = IconButton::sized(36.0, 36.0).press_scale(0.96).press_curves(&[Curve::Spring { omega: 80.0 }, EASE]);
+    /// let _ = KEY;
+    /// ```
+    pub const fn press_curves(mut self, curves: &'static [Curve; 2]) -> IconButton { self.press = Some(curves); self }
 
     /// Sets whether the button takes input: disabled takes no press or focus, shows the `disabled` look and reads as disabled to accessibility.
     /// Allocates: never.
@@ -224,6 +241,30 @@ mod tests {
         }
     }
 
+    thread_local! { static CURVES: Cell<*const crate::theme::Curve> = const { Cell::new(core::ptr::null()) }; }
+
+    /// A body that records the press curves pointer its config carries (null: none, the kit's).
+    fn recording(_ui: &mut Ui, c: &crate::bodies::PxuiIconButtonConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiIconButtonConfig>(), "this library carries the curves");
+        CURVES.with(|s| s.set(c.press));
+    }
+
+    static EASED: [crate::theme::Curve; 2] = [crate::theme::Curve::Bezier { duration: 0.08, points: [0.16, 1.0, 0.3, 1.0] }, crate::theme::Curve::Steps { duration: 0.24, count: 2 }];
+
+    /// A registered icon button body is given the caller's press curves (the very `static`, by pointer), or null for the kit's springs.
+    #[test]
+    fn a_registered_body_is_given_the_press_curves() {
+        let mut ui = Ui::new().unwrap();
+        let id = ui.register_icon_button_body("recording", recording).expect("registered");
+        let text = "icon_button.body = recording";
+        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        assert_eq!(ui.theme().body.icon_button, id);
+        for (button, seen) in [(KEY, core::ptr::null()), (KEY.press_curves(&EASED), EASED.as_ptr()), (IconButton::DEFAULT, core::ptr::null())] {
+            testing::frame(&mut ui, &[], &mut |ui| { ui.icon_button("k", PLAY, "Play", &button); });
+            assert_eq!(CURVES.with(|s| s.get()), seen);
+        }
+    }
+
     #[test]
     fn warm_frames_allocate_nothing() {
         let looks = crate::doc::frames(1, &mut |_| {}).theme().icon_button;
@@ -232,6 +273,7 @@ mod tests {
             ui.icon_button("a", PLAY, "Play", &KEY.look(&looks));
             ui.icon_button(2i64, Icon::Glyph('x'), "Close", &IconButton::DEFAULT);
             ui.icon_button("off", PLAY, "Off", &KEY.enabled(false));
+            ui.icon_button("eased", PLAY, "Eased", &KEY.press_curves(&EASED));
         };
         for round in 0..20 {
             mem_sys::local_reset();

@@ -18,14 +18,37 @@ pub struct Button {
     pub(crate) align: Justify,
     pub(crate) pad: Edges,
     pub(crate) variant: u16,
+    pub(crate) centered: bool,
 }
 
 impl Button {
     /// The plain kit button.
-    pub const DEFAULT: Button = Button { w: Size::Fit, h: Size::Fit, look: None, enabled: true, selected: false, danger: false, name: None, align: Justify::Start, pad: Edges::ZERO, variant: 0 };
+    pub const DEFAULT: Button = Button { w: Size::Fit, h: Size::Fit, look: None, enabled: true, selected: false, danger: false, name: None, align: Justify::Start, pad: Edges::ZERO, variant: 0, centered: false };
+
+    /// A button exactly `w` by `h` points with its text centred in it: exactly `Button::DEFAULT.size(Size::Px(w), Size::Px(h)).centered()`.
+    /// Allocates: never.
+    /// Panics: never (a negative or non-finite size is refused when the button is declared).
+    ///
+    /// ```
+    /// const ACTION: pxui::Button = pxui::Button::sized(120.0, 44.0);
+    /// let _ = ACTION;
+    /// ```
+    pub const fn sized(w: f32, h: f32) -> Button { Button::DEFAULT.size(Size::Px(w), Size::Px(h)).centered() }
+
+    /// Makes the box exactly its size (`size`) with nothing around it in its line and its text centred across and down on a node of
+    /// its own, as wide as the text in whole pixels (a tab, a sheet's action); `align` still places the box in a line wider than it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{ui::Size, Button};
+    /// const TAB: Button = Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered();
+    /// let _ = TAB;
+    /// ```
+    pub const fn centered(mut self) -> Button { self.centered = true; self }
 
     /// Sets the box's width and height: `Size::Px` points, `Size::Grow` to fill its line, `Size::Fit` the kit's (text plus 14 wide, 20 high).
-    /// `Pct` and `Rel` are refused when the button is declared.
+    /// `Pct` and `Rel` are refused when the button is declared. It leaves `centered` as it is.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -293,6 +316,54 @@ mod tests {
         assert_eq!(hits.get(), (false, true));
     }
 
+    /// A `centered` button is its box: exactly 120 by 44 (`sized`) or its bar's width by 44, nothing around it in its line, the text
+    /// centred across and down, the fill of its look over the whole box.
+    #[test]
+    fn centered_button_is_its_box_with_the_text_centred() {
+        use crate::ui::{Look, States};
+        let red = crate::geom::Rgba { r: 200, g: 0, b: 0, a: 255 };
+        let plate = States::all(Look { fill: red, text: crate::geom::Rgba { r: 1, g: 2, b: 3, a: 255 }, ..Look::NONE });
+        let (action, tab) = (Button::sized(120.0, 44.0).look(&plate), Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().look(&plate));
+        let last: Cell<Option<Response>> = Cell::new(None);
+        let mut build = |ui: &mut Ui| {
+            last.set(Some(ui.button_with("action", "Save", &action)));
+            ui.row("bar", Node { w: Size::Px(200.0), ..Node::DEFAULT }, |ui| { ui.button_with("tab", "Songs", &tab); });
+        };
+        let ui = crate::doc::frames(3, &mut build);
+        let (_, _, w, h) = node(&ui, "Save");
+        assert_eq!((w, h), (120.0, 44.0));
+        let box_ = ui.rect(&last.get().unwrap().handle);
+        let (_, _, w, h) = node(&ui, "Songs");
+        assert_eq!((w, h), (200.0, 44.0), "the tab fills its bar");
+        let fills: Vec<[f32; 4]> = ui.layers().flat_map(|l| l.instances.iter()).filter(|i| i.color == [200, 0, 0, 255]).map(|i| i.rect).collect();
+        assert!(fills.contains(&[box_.x, box_.y, box_.x + 120.0, box_.y + 44.0]), "the plate is the whole box: {box_:?} {fills:?}");
+        let ink: Vec<[f32; 4]> = ui.layers().flat_map(|l| l.instances.iter()).filter(|i| i.color[..3] == [1, 2, 3] && i.rect[1] < box_.y + box_.h).map(|i| i.rect).collect();
+        let (l, t, r, b) = ink.iter().fold((f32::MAX, f32::MAX, f32::MIN, f32::MIN), |(l, t, r, b), g| (l.min(g[0]), t.min(g[1]), r.max(g[2]), b.max(g[3])));
+        assert!(!ink.is_empty() && ((l + r) / 2.0 - (box_.x + 60.0)).abs() <= 2.0 && ((t + b) / 2.0 - (box_.y + 22.0)).abs() <= 3.0, "the text centred: {l} {t} {r} {b} in {box_:?}");
+    }
+
+    thread_local! { static SIZED: Cell<(u8, u8, f32, f32)> = const { Cell::new((9, 9, 0.0, 0.0)) }; }
+
+    /// A body that records the size kinds and `centered` its config carries.
+    fn recording(_ui: &mut Ui, c: &crate::bodies::PxuiButtonConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<crate::bodies::PxuiButtonConfig>(), "this library carries `centered`");
+        SIZED.with(|s| s.set((c.centered, c.w_kind, c.w, c.h)));
+    }
+
+    /// A registered button body is given `centered` in its config.
+    #[test]
+    fn a_registered_body_is_given_centered() {
+        let mut ui = Ui::new().unwrap();
+        let id = ui.register_button_body("recording", recording).expect("registered");
+        let text = "button.body = recording";
+        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        assert_eq!(ui.theme().body.button, id);
+        for (button, seen) in [(Button::sized(120.0, 44.0), (1, 1, 120.0, 44.0)), (Button::DEFAULT.size(Size::Px(120.0), Size::Px(44.0)), (0, 1, 120.0, 44.0))] {
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
+            assert_eq!(SIZED.with(|s| s.get()), seen);
+        }
+    }
+
     #[test]
     fn warm_frames_allocate_nothing() {
         let content = |ui: &mut Ui| { ui.node("i".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }); };
@@ -302,6 +373,7 @@ mod tests {
             ui.button("Go");
             ui.button_content(1i64, &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).look(&states).danger(), &content);
             ui.button_with("off", "Off", &Button::DEFAULT.enabled(false).selected(true).name("Off button").align(Justify::End));
+            ui.button_with("tab", "Songs", &Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().selected(true));
         };
         for round in 0..20 {
             mem_sys::local_reset();
