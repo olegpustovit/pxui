@@ -223,6 +223,56 @@ mod tests {
         assert!(!of("label").is_empty() && of("label").iter().all(|v| *v == 0), "the content's label sees 0: {seen:?}");
     }
 
+    thread_local! { static DETAILS: RefCell<Vec<(usize, usize)>> = const { RefCell::new(Vec::new()) }; }
+
+    /// Add music: two choices with a sentence of explanation each.
+    fn build_details(ui: &mut Ui) {
+        let buttons = [DialogButton::new("Cancel").cancel(), DialogButton::new("Add folder").detail("Keeps watching it for new music"), DialogButton::new("Add files").default()];
+        let r = ui.dialog("add", "Add music", &buttons, &Dialog::DEFAULT.width(320.0), &mut |_: &mut Ui| {});
+        if r.chosen.is_some() || r.dismissed { LAST.set(r); }
+    }
+
+    /// A body that records each button's detail length and builds a full-width part per button.
+    fn detailed(ui: &mut Ui, c: &DialogConfig) {
+        assert!(c.size as usize >= core::mem::size_of::<pxui_types::ffi::PxuiDialogConfig>(), "this library carries the details");
+        ui.slot(c.content);
+        DETAILS.with(|d| d.borrow_mut().clear());
+        for i in 0..c.buttons.len {
+            DETAILS.with(|d| d.borrow_mut().push((i, c.text_at(&c.details, i).len())));
+            let n = ui.part(Part::button(i as u8), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
+            ui.text(&n, c.text_at(&c.buttons, i));
+        }
+    }
+
+    /// `DialogButton::detail`: the built-in body draws it under the button's label inside the button (a label accessibility reads), the
+    /// row grows to fit it and a click on the button still chooses it; a registered body is given every button's detail (empty: none)
+    /// and its structure is used; a warm frame allocates nothing.
+    #[test]
+    fn a_button_detail_is_drawn_under_its_label_and_given_to_a_registered_body() {
+        let mut build = build_details;
+        let mut ui = crate::doc::frames(3, &mut build);
+        let button = testing::find(&ui, Role::Button, "Add folder").unwrap();
+        // the theme's label style draws capitals: accessibility reads what is drawn
+        let detail = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Label) && ui.a11y_name_of(n).eq_ignore_ascii_case("Keeps watching it for new music")).expect("the detail label").rect;
+        assert!(button.h > 20.0 && detail.y > button.y && detail.y + detail.h <= button.y + button.h && detail.x >= button.x, "{button:?} {detail:?}");
+        assert_eq!(click_button(&mut ui, "Add folder", &mut build), DialogResponse { chosen: Some(1), dismissed: false });
+        let mut ui = crate::doc::frames(1, &mut |_| {});
+        for round in 0..20 {
+            mem_sys::local_reset();
+            testing::frame(&mut ui, &[], &mut build);
+            if round > 3 { assert_eq!(mem_sys::local_alloc_count(), 0, "round {round}"); }
+        }
+        let mut ui = Ui::new().unwrap();
+        ui.set_a11y(true);
+        let id = ui.register_dialog_body("detailed", detailed).expect("registered");
+        let text = "dialog.body = detailed";
+        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        assert_eq!(ui.theme().body.dialog, id);
+        for _ in 0..3 { ui.frame(&FrameIn { width: 400.0, height: 300.0, ..FrameIn::default() }, &mut build).unwrap(); }
+        assert_eq!(DETAILS.with(|d| d.borrow().clone()), [(0, 0), (1, 31), (2, 0)]);
+        assert!(testing::find(&ui, Role::Button, "Cancel").unwrap().w > 200.0, "the body's structure shows");
+    }
+
     /// An open dialog (title, body, three buttons) allocates nothing on a warm frame, with and without hover.
     #[test]
     fn warm_frames_allocate_nothing() {

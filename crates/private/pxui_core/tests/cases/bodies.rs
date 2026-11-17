@@ -396,7 +396,7 @@ fn pick(ui: &mut Ui, f: &dyn Fn(&mut Theme, BodyId), register: &dyn Fn(&mut Ui) 
 }
 
 /// A pill: a fixed 90 x 20 box with a dot inside, in the caller's look.
-fn pill_button(ui: &mut Ui, c: &ButtonConfig, states: &States, _text: &str) {
+fn pill_button(ui: &mut Ui, c: &ButtonConfig, states: &States, _text: &str, _parts: [&str; 3]) {
     let look = *states.pick(c.state);
     let rh = ui.row_height() as f32;
     ui.node_mut(&c.line).h = Size::Px(rh);
@@ -431,7 +431,7 @@ pub fn button_pill_body() {
 thread_local! { static SEEN: Cell<(f32, f32, u8, f32, bool)> = const { Cell::new((0.0, 0.0, 9, 0.0, false)) }; }
 
 /// A body that records what the `Button` asked for and builds its own structure: one 33-point node named "mine".
-fn recording_button(ui: &mut Ui, c: &ButtonConfig, _states: &States, _text: &str) {
+fn recording_button(ui: &mut Ui, c: &ButtonConfig, _states: &States, _text: &str, _parts: [&str; 3]) {
     let px = |s: Size| if let Size::Px(v) = s { v } else { -1.0 };
     SEEN.with(|seen| seen.set((px(c.w), px(c.h), matches!(c.justify, Justify::Center) as u8, c.pad.l, c.centered)));
     ui.node_mut(&c.line).h = Size::Px(ui.row_height() as f32);
@@ -445,7 +445,7 @@ pub fn button_opts_uses_a_registered_body() {
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("recording", recording_button));
     let opts = ButtonOpts { w: Size::Px(50.0), h: Size::Px(30.0), justify: Justify::Center, padding: Edges { l: 3.0, ..Edges::ZERO }, centered: true, ..ButtonOpts::DEFAULT };
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Go", "Go", None, &opts, None, None); }));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Go", "Go", None, &opts, [""; 3], None, None); }));
     }
     check(SEEN.with(|s| s.get()) == (50.0, 30.0, 1, 3.0, true), &format!("the body's config is {:?}", SEEN.with(|s| s.get())));
     let row = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
@@ -456,7 +456,7 @@ pub fn button_opts_uses_a_registered_body() {
 }
 
 /// A body that builds one `Part::HIT` node: its key is the part's of the button whose body is building.
-fn part_button(ui: &mut Ui, _c: &ButtonConfig, _states: &States, _text: &str) {
+fn part_button(ui: &mut Ui, _c: &ButtonConfig, _states: &States, _text: &str, _parts: [&str; 3]) {
     ui.part(Part::HIT, Node { w: Size::Px(10.0), h: Size::Px(8.0), ..Node::DEFAULT });
 }
 
@@ -468,7 +468,7 @@ pub fn duplicate_key_buttons_own_their_parts() {
     let mut rows = [0i64; 2];
     for k in 0..2 {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
-            for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, None, None).handle.box_key; }
+            for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, [""; 3], None, None).handle.box_key; }
         }));
     }
     check(rows[0] != rows[1], "the two buttons share a key");

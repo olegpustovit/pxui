@@ -1,12 +1,27 @@
 //! The kit button with options: `ui.button_with(key, text, &Button)` reports a `Response`; `ui.button(text)` is `Button::DEFAULT`.
-use super::{Key, Response};
+use super::{Icon, Key, Response};
 use crate::Ui;
 use pxui_types::{geom::Edges, layout::{Along, Justify}, theme::{BodyKind, State, States}, Axis, Label, Size};
 
 /// How `Ui::button_with` varies the kit's button, as a `Copy` value built with `const fn` builders from `Button::DEFAULT`.
 ///
 /// The default is the plain `Ui::button`: the theme's look, 20 points high, as wide as its text plus 14, 5 points in from the start of its line.
-/// `'a` is the borrow of a `name` given at run time (`'static` for a const button).
+/// `'a` is the borrow of a `name`, `detail` or `accessory` given at run time (`'static` for a const button).
+///
+/// A button can carry a leading `icon`, a `detail` line under its text and a trailing `accessory` (a shortcut such as "⌘K"), each drawn by
+/// the default body and handed to a registered body in its config. A link is a button too: a const with a look that has no fill or
+/// border in any state, only a text colour (in an app, a theme look naming its link colour token), inked differently while hovered or
+/// pressed, and the text style in `label`; a registered body selected by `variant` gives it any other structure (an underline).
+///
+/// ```
+/// use pxui::{geom::Rgba, ui::{Look, States}, Button, Icon, Label};
+/// const INK: Look = Look::NONE.text(Rgba::rgb(40, 90, 200));
+/// const HOT: Look = Look::NONE.text(Rgba::rgb(20, 50, 140));
+/// const LINK_LOOK: States = States::all(INK).hover(HOT).pressed(HOT);
+/// const LINK: Button = Button::DEFAULT.look(&LINK_LOOK).label(Label::BODY.size(13.0)).pad(pxui::ui::Edges::ZERO);
+/// const SEARCH: Button = Button::sized(200.0, 28.0).icon(Icon::glyph('?')).accessory("⌘K");
+/// let _ = (LINK, SEARCH);
+/// ```
 #[derive(Clone, Copy)]
 pub struct Button<'a> {
     pub(crate) w: Size,
@@ -25,12 +40,17 @@ pub struct Button<'a> {
     pub(crate) gap: f32,
     pub(crate) content_align: Option<Along>,
     pub(crate) focus_on_click: bool,
+    pub(crate) icon: Option<Icon>,
+    pub(crate) detail: &'a str,
+    pub(crate) accessory: &'a str,
+    pub(crate) detail_label: Option<Label>,
+    pub(crate) accessory_label: Option<Label>,
 }
 
 impl<'a> Button<'a> {
     /// The plain kit button.
     pub const DEFAULT: Button<'a> = Button { w: Size::Fit, h: Size::Fit, look: None, enabled: true, selected: false, danger: false, name: None, align: Justify::Start, pad: Edges::ZERO, variant: 0, centered: false,
-        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false };
+        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false, icon: None, detail: "", accessory: "", detail_label: None, accessory_label: None };
 
     /// A button exactly `w` by `h` points with its text centred in it: exactly `Button::DEFAULT.size(Size::Px(w), Size::Px(h)).centered()`.
     /// Allocates: never.
@@ -219,6 +239,67 @@ impl<'a> Button<'a> {
     /// let _ = FILE;
     /// ```
     pub const fn focus_on_click(mut self, focus: bool) -> Button<'a> { self.focus_on_click = focus; self }
+
+    /// Draws `icon` before the text, in a 20-point (control-high) square inked in the look's text colour for the button's state: an
+    /// icon font glyph or the app's drawing, as `Ui::icon_button` draws it. The box lays the icon, the text and any detail and accessory
+    /// out in a row, `gap` apart (4 points unless set). A registered body reads the glyph with `config.text_of(&config.lead)` and the drawing in
+    /// `lead_draw`/`lead_user` (`bodies::ButtonConfig`).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SHUFFLE: pxui::Button = pxui::Button::sized(120.0, 36.0).icon(pxui::Icon::glyph('~'));
+    /// let _ = SHUFFLE;
+    /// ```
+    pub const fn icon(mut self, icon: Icon) -> Button<'a> { self.icon = Some(icon); self }
+
+    /// Draws `detail` as a second line under the text, which it borrows (a literal or a runtime string): in `detail_label`'s style, or
+    /// the theme's label style. A button of the kit's height grows to fit both lines. Empty is none. The detail is a text node inside the
+    /// button, read to accessibility as a label after its name; a registered body reads it with `config.text_of(&config.detail)` and its style in `detail_style`
+    /// (`bodies::ButtonConfig`).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const RESCAN: pxui::Button = pxui::Button::DEFAULT.detail("Look for new and changed files in every source");
+    /// let _ = RESCAN;
+    /// ```
+    pub const fn detail(mut self, detail: &'a str) -> Button<'a> { self.detail = detail; self }
+
+    /// Draws `accessory` at the end of the box, after the text: a keyboard shortcut ("⌘K"), a count or a disclosure mark, which it borrows.
+    /// In `accessory_label`'s style, or the theme's label style; a box wider than its contents keeps it at its end. Empty is none. A
+    /// registered body reads it with `config.text_of(&config.accessory)` (`bodies::ButtonConfig`).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SEARCH: pxui::Button = pxui::Button::sized(200.0, 28.0).accessory("⌘K");
+    /// let _ = SEARCH;
+    /// ```
+    pub const fn accessory(mut self, accessory: &'a str) -> Button<'a> { self.accessory = accessory; self }
+
+    /// Draws the `detail` line through the label line box in `style` in place of the theme's label style (an unset width is the
+    /// text's, an unset pad none, an unset colour the theme label's).
+    /// Allocates: never.
+    /// Panics: never (a style that does not resolve is refused when the button is declared).
+    ///
+    /// ```
+    /// use pxui::{Button, Label};
+    /// const ROW: Button = Button::DEFAULT.detail("Every source").detail_label(Label::BODY.size(12.0));
+    /// let _ = ROW;
+    /// ```
+    pub const fn detail_label(mut self, style: Label) -> Button<'a> { self.detail_label = Some(style); self }
+
+    /// Draws the `accessory` through the label line box in `style` in place of the theme's label style (unset fields as `detail_label`).
+    /// Allocates: never.
+    /// Panics: never (a style that does not resolve is refused when the button is declared).
+    ///
+    /// ```
+    /// use pxui::{Button, Label};
+    /// const SEARCH: Button = Button::sized(200.0, 28.0).accessory("⌘K").accessory_label(Label::MONO.size(11.0));
+    /// let _ = SEARCH;
+    /// ```
+    pub const fn accessory_label(mut self, style: Label) -> Button<'a> { self.accessory_label = Some(style); self }
 }
 
 impl Ui {
@@ -254,7 +335,8 @@ impl Ui {
     ///
     /// `f` runs inside the box, laid out by `Button::axis`, `gap` and `content_align`, and is given the button's interaction state
     /// this frame by value (hovered, pressed, focused, disabled, checked): a snapshot of what input did to it, read before `f` runs,
-    /// so the contents can follow the press (`states.pick(state)`). A disabled button's contents get `disabled: true`. Give the box a size (`Button::size`), since the kit's fit width is that of an empty text, and an
+    /// so the contents can follow the press (`states.pick(state)`). A disabled button's contents get `disabled: true`. The contents
+    /// replace the text and its parts: a `Button::icon`, `detail` or `accessory` is not drawn (nor given to a registered body) here. Give the box a size (`Button::size`), since the kit's fit width is that of an empty text, and an
     /// accessible name (`Button::name`): without one the node has none.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
@@ -662,6 +744,71 @@ mod tests {
         }
     }
 
+    fn dot(paint: &mut crate::Paint<'_>, rect: crate::geom::Rect, ink: crate::geom::Rgba, _: u32) { paint.fill(crate::geom::Rect::new(rect.x + 8.0, rect.y + 8.0, 4.0, 4.0), crate::Fill::new(ink)); }
+
+    /// The default body lays out a leading icon, a detail and an accessory: the icon widens a fitted box by more than its square, the
+    /// accessory sits at the end of a wider box (a label, read by accessibility), a detail sits under the text inside a box that grew to
+    /// two lines. A button without them is laid out as before.
+    #[test]
+    fn the_default_body_lays_out_the_icon_detail_and_accessory() {
+        use crate::{Icon, Label};
+        let handles: Cell<[Option<Response>; 4]> = Cell::new([None; 4]);
+        let mut build = |ui: &mut Ui| {
+            let plain = ui.button_with("plain", "Search", &Button::DEFAULT);
+            let icon = ui.button_with("icon", "Search", &Button::DEFAULT.icon(Icon::glyph('?')));
+            let search = ui.button_with("search", "Search", &Button::DEFAULT.size(Size::Px(200.0), Size::Px(28.0)).icon(Icon::draw(dot, 3)).accessory("Cmd K").accessory_label(Label::BODY.size(11.0)));
+            let rescan = ui.button_with("rescan", "Rescan", &Button::DEFAULT.detail("Every source"));
+            handles.set([Some(plain), Some(icon), Some(search), Some(rescan)]);
+        };
+        let ui = crate::doc::frames(3, &mut build);
+        let [plain, icon, search, rescan] = handles.get().map(|r| ui.rect(&r.unwrap().handle));
+        assert!(icon.w >= plain.w + 20.0, "the icon's square and gap widen the box: {plain:?} {icon:?}");
+        assert_eq!((plain.h, icon.h), (20.0, 20.0), "one line is the kit's height");
+        let shortcut = a11y(&ui, Role::Label, "Cmd K").rect;
+        assert!(shortcut.x + shortcut.w <= search.x + search.w && shortcut.x + shortcut.w >= search.x + search.w - 8.0, "the accessory ends the box: {search:?} {shortcut:?}");
+        // the theme's label style draws capitals: accessibility reads what is drawn
+        let detail = ui.a11y_nodes().iter().find(|n| n.is_role(Role::Label) && ui.a11y_name_of(n).eq_ignore_ascii_case("Every source")).expect("the detail label").rect;
+        assert!(rescan.h > 20.0 && detail.y >= rescan.y + 8.0 && detail.y + detail.h <= rescan.y + rescan.h, "the detail is under the text inside the box: {rescan:?} {detail:?}");
+        assert!(node(&ui, "Rescan").0, "the button keeps its name and role");
+    }
+
+    thread_local! { static PARTS: Cell<(usize, bool, usize, usize, u8, u8, f32)> = const { Cell::new((9, false, 9, 9, 9, 9, 0.0)) }; }
+
+    /// A body that records the parts its config carries and builds one 33-point node.
+    fn parts_body(ui: &mut Ui, c: &crate::bodies::ButtonConfig) {
+        use crate::bodies::BodyConfig;
+        assert!(c.size as usize >= core::mem::size_of::<pxui_types::ffi::PxuiButtonConfig>(), "this library carries the parts");
+        let (lead, detail, accessory) = (c.text_of(&c.lead).len(), c.text_of(&c.detail).len(), c.text_of(&c.accessory).len());
+        PARTS.with(|s| s.set((lead, c.lead_draw.is_some() && !c.lead_user.is_null(), detail, accessory, c.has_detail_style, c.has_accessory_style, c.detail_style.size_points)));
+        let mut row = ui.node_layout(&c.row);
+        (row.w, row.h) = (Size::Px(33.0), Size::Px(33.0));
+        ui.set_node_layout(&c.row, &row);
+    }
+
+    /// A registered button body is given the leading icon (a glyph, or the app's drawing), the detail, the accessory and their styles,
+    /// and its structure is the one used.
+    #[test]
+    fn a_registered_body_is_given_the_parts() {
+        use crate::{Icon, Label};
+        let mut ui = Ui::new().unwrap();
+        ui.set_a11y(true);
+        let id = ui.register_button_body("parts_body", parts_body).expect("registered");
+        let text = "button.body = parts_body";
+        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        assert_eq!(ui.theme().body.button, id);
+        let full = Button::DEFAULT.icon(Icon::glyph('?')).detail("Every source").accessory("Cmd K").detail_label(Label::BODY.size(12.0)).accessory_label(Label::MONO);
+        let drawn = Button::DEFAULT.icon(Icon::draw(dot, 1));
+        for (button, seen) in [(full, (1, false, 12, 5, 1, 1, 12.0)), (drawn, (0, true, 0, 0, 0, 0, 0.0)), (Button::DEFAULT.name("Go"), (0, false, 0, 0, 0, 0, 0.0))] {
+            testing::frame(&mut ui, &[], &mut |ui| { ui.button_with("b", "Go", &button); });
+            assert_eq!(PARTS.with(|s| s.get()), seen);
+            let n = a11y(&ui, Role::Button, "Go");
+            assert_eq!((n.rect.w, n.rect.h), (33.0, 33.0), "the registered body's structure");
+        }
+        // contents replace the text and its parts: the body is given none
+        testing::frame(&mut ui, &[], &mut |ui| { ui.button_content("b", &full.name("Go"), |_, _| {}); });
+        assert_eq!(PARTS.with(|s| s.get()), (0, false, 0, 0, 1, 1, 12.0), "no glyph, drawing, detail or accessory with contents");
+    }
+
     #[test]
     fn warm_frames_allocate_nothing() {
         let content = |ui: &mut Ui, _: crate::ui::State| { ui.node("i".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }); };
@@ -676,6 +823,9 @@ mod tests {
             ui.button_with("tab", "Songs", &Button::DEFAULT.size(Size::Grow, Size::Px(44.0)).centered().selected(true));
             ui.button_with("label", "Label", &Button::sized(90.0, 30.0).label(crate::Label::BODY.size(14.0).h_px(20.0)).content_align(crate::ui::Along::Start).focus_on_click(true));
             ui.button_with("row", "Row", &Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).gap(4.0).content_align(crate::ui::Along::End).name(name));
+            ui.button_with("search", "Search", &Button::sized(200.0, 28.0).icon(crate::Icon::glyph('?')).accessory("Cmd K").accessory_label(crate::Label::MONO));
+            ui.button_with("drawn", "Drawn", &Button::DEFAULT.icon(crate::Icon::draw(dot, 2)).detail(name).detail_label(crate::Label::BODY.size(12.0)));
+            ui.button_with("rescan", "Rescan", &Button::DEFAULT.size(Size::Grow, Size::Fit).detail("Every source").accessory(">"));
             ui.button_content("state", &Button::sized(90.0, 30.0).axis(crate::ui::Axis::Column), |ui, state| {
                 let w = if state.hovered { 6.0 } else { 8.0 };
                 ui.node("i".into(), Node { w: Size::Px(w), h: Size::Px(8.0), ..Node::DEFAULT });

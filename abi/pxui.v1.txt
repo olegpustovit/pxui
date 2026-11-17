@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 70
+minor 71
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -320,8 +320,8 @@ layout PxuiBadgeConfig 80 8 0 8 40 56 72
 layout PxuiBar 24 4 0 4 8 12 16 20
 layout PxuiBox 32 8 0 8 16 24
 layout PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
-layout PxuiButtonConfig 232 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135 144 145 146 147 148 152 216
-layout PxuiButtonDesc 192 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 104 105 106 107 108 112 176
+layout PxuiButtonConfig 464 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135 144 145 146 147 148 152 216 232 248 256 264 280 296 297 298 304 368 384 448
+layout PxuiButtonDesc 424 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 104 105 106 107 108 112 176 192 208 216 224 240 256 257 258 264 328 344 408
 layout PxuiCell 8 2 0 2 4 6
 layout PxuiCheckConfig 72 8 0 4 12 16 48 64
 layout PxuiColorSpan 24 8 0 8 16 20
@@ -329,8 +329,8 @@ layout PxuiCompletion 80 8 0 8 16 32 48 64
 layout PxuiCurve 140 4 0 4
 layout PxuiCurveDesc 160 4 0 4 8 24 28 32 96
 layout PxuiDescription 40 8 0 1 8 16 24
-layout PxuiDialogConfig 88 8 0 8 24 40 48 56 64 72 80
-layout PxuiDialogDesc 88 8 0 4 8 24 40 56 64 72 80
+layout PxuiDialogConfig 104 8 0 8 24 40 48 56 64 72 80 88
+layout PxuiDialogDesc 104 8 0 4 8 24 40 56 64 72 80 88
 layout PxuiDialogOut 16 8 0 8
 layout PxuiDialogResult 16 8 0 4 5 6 8
 layout PxuiDirty 8 4 0 4
@@ -350,7 +350,7 @@ layout PxuiGripConfig 56 8 0 4 12 13 16 48
 layout PxuiHeadActionDesc 40 8 0 4 5 6 8 24
 layout PxuiHintDesc 40 8 0 4 8 24
 layout PxuiIconButtonConfig 136 8 0 4 16 48 64 80 88 89 90 92 96 100 104 112 120 124 128
-layout PxuiIconButtonDesc 104 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96
+layout PxuiIconButtonDesc 112 8 0 4 5 6 7 8 12 16 24 32 48 64 80 88 96 104 105 106
 layout PxuiKeyedDesc 40 8 0 4 8 24
 layout PxuiKeyframeDesc 344 8 0 4 8 12 16 32 184
 layout PxuiLabelBox 16 4 0 4 8 12 13 14

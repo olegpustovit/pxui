@@ -772,6 +772,8 @@ pub enum Feature {
     /// ABI 1.70: images without a key whose name is accessibility only (`Ui::image`) and painted images that report a refusal
     /// (`Paint::image`).
     ImageChecked = pxui_types::feature::IMAGE_CHECKED,
+    /// ABI 1.71: `Button::icon`/`detail`/`accessory`, `IconButton::selected` and `DialogButton::detail` (and their body config fields).
+    ButtonParts = pxui_types::feature::BUTTON_PARTS,
 }
 
 /// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.

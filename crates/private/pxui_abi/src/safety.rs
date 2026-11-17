@@ -956,7 +956,7 @@ mod sized_records {
         let mut value: PxuiButtonDesc = unsafe { core::mem::zeroed() };
         let fix: fn(&mut PxuiButtonDesc) = |d| { d.enabled = 1; d.key = Str { ptr: b"k".as_ptr(), len: 1 }; d.text = d.key; };
         fix(&mut value);
-        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104], &mut |p| {
+        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104, 192], &mut |p| {
             let p = p.cast::<PxuiButtonDesc>();
             in_frame(ui, &mut |ui| { let (mut out, mut signal, mut focused) = (PxuiBox::default(), PxuiSignal::default(), 0u8); unsafe { pxui_ui_button_with(ui, p, None, core::ptr::null_mut(), &mut out, &mut signal, &mut focused) } })
         });
@@ -969,7 +969,7 @@ mod sized_records {
         let mut value: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
         let fix: fn(&mut PxuiIconButtonDesc) = |d| { d.enabled = 1; d.press_scale = 1.0; d.key = Str { ptr: b"k".as_ptr(), len: 1 }; d.name = d.key; d.icon = d.key; };
         fix(&mut value);
-        four_min(ui, ((&value as *const PxuiIconButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96], &mut |p| {
+        four_min(ui, ((&value as *const PxuiIconButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104], &mut |p| {
             let p = p.cast::<PxuiIconButtonDesc>();
             in_frame(ui, &mut |ui| { let (mut out, mut signal, mut focused) = (PxuiBox::default(), PxuiSignal::default(), 0u8); unsafe { pxui_ui_icon_button_with(ui, p, &mut out, &mut signal, &mut focused) } })
         });
@@ -1007,6 +1007,24 @@ mod sized_records {
             assert_eq!(press(&bad), PXUI_ERR_ARGUMENT);
         }
         assert_eq!(press(&PxuiButtonDesc { has_label: 0, label: pxui_types::ffi::PxuiLabelStyle { size: 8, ..label }, ..laid }), 0, "the label is read only when has_label is 1");
+        // ABI 1.71: a 192-byte record (1.56) has no leading icon, detail or accessory, whatever its tail holds; the whole record's are checked
+        let garbage = Str { ptr: b"\xff".as_ptr(), len: 1 };
+        assert_eq!(press(&PxuiButtonDesc { size: 192, has_detail_label: 9, reserved3: [9; 6], detail: garbage, ..laid }), 0, "a 192-byte record's tail is not read");
+        assert_eq!(press(&PxuiButtonDesc { size: 200, ..laid }), PXUI_ERR_ARGUMENT);
+        let parts = PxuiButtonDesc { lead: k, detail: k, accessory: k, has_detail_label: 1, detail_label: label, detail_box: label_box, has_accessory_label: 1, accessory_label: label, accessory_box: label_box, ..laid };
+        assert_eq!(press(&parts), 0, "{}", error(ui));
+        for bad in [PxuiButtonDesc { has_detail_label: 2, ..parts }, PxuiButtonDesc { has_accessory_label: 2, ..parts }, PxuiButtonDesc { reserved3: [0, 0, 0, 0, 0, 1], ..parts },
+            PxuiButtonDesc { detail: garbage, ..parts }, PxuiButtonDesc { accessory: garbage, ..parts }, PxuiButtonDesc { lead: garbage, ..parts },
+            PxuiButtonDesc { detail_label: pxui_types::ffi::PxuiLabelStyle { size_points: -3.0, ..label }, ..parts }, PxuiButtonDesc { accessory_box: pxui_types::ffi::PxuiLabelBox { whole_pixels: 2, ..label_box }, ..parts }] {
+            assert_eq!(press(&bad), PXUI_ERR_ARGUMENT);
+        }
+        assert_eq!(press(&PxuiButtonDesc { has_detail_label: 0, detail_label: pxui_types::ffi::PxuiLabelStyle { size: 8, ..label }, ..parts }), 0, "a detail style is read only when has_detail_label is 1");
+        // ABI 1.71: the icon button's on/off state: 0 or 1, checked only when checkable; a 104-byte record is a plain button
+        assert_eq!(tap(&PxuiIconButtonDesc { checkable: 1, checked: 1, ..icon }), 0);
+        assert_eq!(tap(&PxuiIconButtonDesc { size: 104, checkable: 9, checked: 9, reserved2: [9; 6], ..icon }), 0, "a 104-byte record's tail is not read");
+        for bad in [PxuiIconButtonDesc { checkable: 2, ..icon }, PxuiIconButtonDesc { checked: 1, ..icon }, PxuiIconButtonDesc { checkable: 1, checked: 2, ..icon }, PxuiIconButtonDesc { reserved2: [0, 1, 0, 0, 0, 0], ..icon }] {
+            assert_eq!(tap(&bad), PXUI_ERR_ARGUMENT);
+        }
         assert_eq!(tap(&icon), 0, "null curves are the kit's springs");
         use pxui_types::Curve;
         let springs = [Curve::Spring { omega: 30.0 }, Curve::Spring { omega: 10.0 }];
@@ -1030,17 +1048,17 @@ mod sized_records {
         let k = Str { ptr: b"k".as_ptr(), len: 1 };
         let mut value: PxuiButtonDesc = unsafe { core::mem::zeroed() };
         (value.enabled, value.key, value.text) = (1, k, k);
-        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104], &mut |p| {
+        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104, 192], &mut |p| {
             let p = p.cast::<PxuiButtonDesc>();
             in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_response(ui, p, None, core::ptr::null_mut(), &mut out) } })
         });
-        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104], &mut |p| {
+        four_min(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), &[96, 104, 192], &mut |p| {
             let p = p.cast::<PxuiButtonDesc>();
             in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_content(ui, p, None, core::ptr::null_mut(), &mut out) } })
         });
         let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
         (icon.enabled, icon.press_scale, icon.key, icon.name, icon.icon) = (1, 1.0, k, k, k);
-        four_min(ui, ((&icon as *const PxuiIconButtonDesc).cast(), size_of_val(&icon), align_of_val(&icon)), &[96], &mut |p| {
+        four_min(ui, ((&icon as *const PxuiIconButtonDesc).cast(), size_of_val(&icon), align_of_val(&icon)), &[96, 104], &mut |p| {
             let p = p.cast::<PxuiIconButtonDesc>();
             in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_icon_button_response(ui, p, &mut out) } })
         });
@@ -1070,7 +1088,7 @@ mod sized_records {
         let mut value: PxuiDialogDesc = unsafe { core::mem::zeroed() };
         value.size = size_of_val(&value) as u32;
         (value.width, value.key, value.title, value.buttons, value.default_at, value.cancel_at) = (320.0, k, k, Slice { ptr: buttons.as_ptr(), len: 2 }, 1, 0);
-        four(ui, ((&value as *const PxuiDialogDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+        four_min(ui, ((&value as *const PxuiDialogDesc).cast(), size_of_val(&value), align_of_val(&value)), &[88], &mut |p| {
             let p = p.cast::<PxuiDialogDesc>();
             in_frame(ui, &mut |ui| { let mut out = PxuiDialogResult::EMPTY; unsafe { pxui_ui_dialog_response(ui, p, None, core::ptr::null_mut(), &mut out) } })
         });
@@ -1080,6 +1098,14 @@ mod sized_records {
         let short = PxuiDialogResult { size: 4, ..PxuiDialogResult::EMPTY };
         for bad_out in [core::ptr::null_mut(), &short as *const PxuiDialogResult as *mut PxuiDialogResult] {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &value, None, core::ptr::null_mut(), bad_out) }), PXUI_ERR_ARGUMENT);
+        }
+        // ABI 1.71: as many details as buttons (or none); an 88-byte record's details are not read
+        let details = [k, Str { ptr: b"\xff".as_ptr(), len: 1 }];
+        let mut sink = PxuiDialogResult::EMPTY;
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &PxuiDialogDesc { details: Slice { ptr: buttons.as_ptr(), len: 2 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
+        assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &PxuiDialogDesc { size: 88, details: Slice { ptr: core::ptr::null(), len: 7 }, ..value }, None, core::ptr::null_mut(), &mut sink) }), 0, "{}", error(ui));
+        for bad in [Slice { ptr: buttons.as_ptr(), len: 1 }, Slice { ptr: details.as_ptr(), len: 2 }, Slice { ptr: core::ptr::null(), len: 2 }] {
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_dialog_response(ui, &PxuiDialogDesc { details: bad, ..value }, None, core::ptr::null_mut(), &mut sink) }), PXUI_ERR_ARGUMENT);
         }
         let fixes: [fn(&mut PxuiDialogDesc); 7] = [|d| d.default_at = 2, |d| d.cancel_at = -2, |d| d.danger = 4, |d| d.disabled = 1 << 40, |d| d.width = f32::NAN, |d| d.width = -1.0, |d| d.buttons.len = 65];
         for fix in fixes {
@@ -1546,9 +1572,9 @@ fn the_library_checks_the_major_the_app_was_built_against_once_at_create() {
 fn supports_answers_from_the_feature_registry_of_this_build() {
     use pxui_types::feature as f;
     let has = |id: u32| unsafe { pxui_supports(id) };
-    assert_eq!((has(0), has(28), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
+    assert_eq!((has(0), has(29), has(u32::MAX), has(ABI_VERSION)), (0, 0, 0, 0), "no id 0, none past the registry, versions are not ids");
     assert_eq!((has(f::A11Y_BRIDGE) == 1, has(f::METAL) == 1, has(f::VULKAN) == 1), (cfg!(target_os = "linux"), cfg!(any(target_os = "macos", target_os = "ios")), cfg!(any(windows, target_os = "linux"))));
-    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED, f::LABEL_TEXT, f::MENU_MAX_H, f::SEGMENTED_RESULT, f::WIDGETS_KEYED, f::SEGMENTED_STORED_FOCUS, f::IMAGE_CHECKED] {
+    for id in [f::EXTENSION_SET, f::BUTTON_CONTENT, f::ICON_BUTTON_CURVES, f::TOGGLE_RESPONSE, f::SEGMENTED_RESPONSE, f::DIALOG_RESPONSE, f::WIDGET_VARIANTS, f::LABEL_NODE, f::MENU_ITEM_IDS, f::FRAME_SURFACE, f::ITEM_TEXT, f::COLOR_TOKENS, f::SWIPE_ACTIONS, f::DISMISS, f::LOOK_TOKENS, f::ICON_WORD, f::TEXT_WORKER, f::TEXT_FIELD_KEYED, f::LABEL_TEXT, f::MENU_MAX_H, f::SEGMENTED_RESULT, f::WIDGETS_KEYED, f::SEGMENTED_STORED_FOCUS, f::IMAGE_CHECKED, f::BUTTON_PARTS] {
         assert_eq!(has(id), 1, "feature {id}");
     }
     // pxui.h numbers the same ids
@@ -1558,7 +1584,7 @@ fn supports_answers_from_the_feature_registry_of_this_build() {
     assert_eq!(1 << 16 | built, ABI_VERSION, "pxui.h PXUI_ABI_BUILT");
     for (name, id) in [("A11Y_BRIDGE", f::A11Y_BRIDGE), ("METAL", f::METAL), ("VULKAN", f::VULKAN), ("EXTENSION_SET", f::EXTENSION_SET), ("BUTTON_CONTENT", f::BUTTON_CONTENT), ("ICON_BUTTON_CURVES", f::ICON_BUTTON_CURVES),
         ("TOGGLE_RESPONSE", f::TOGGLE_RESPONSE), ("SEGMENTED_RESPONSE", f::SEGMENTED_RESPONSE), ("DIALOG_RESPONSE", f::DIALOG_RESPONSE), ("WIDGET_VARIANTS", f::WIDGET_VARIANTS), ("LABEL_NODE", f::LABEL_NODE),
-        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED), ("LABEL_TEXT", f::LABEL_TEXT), ("MENU_MAX_H", f::MENU_MAX_H), ("SEGMENTED_RESULT", f::SEGMENTED_RESULT), ("WIDGETS_KEYED", f::WIDGETS_KEYED), ("SEGMENTED_STORED_FOCUS", f::SEGMENTED_STORED_FOCUS), ("IMAGE_CHECKED", f::IMAGE_CHECKED)] {
+        ("MENU_ITEM_IDS", f::MENU_ITEM_IDS), ("FRAME_SURFACE", f::FRAME_SURFACE), ("ITEM_TEXT", f::ITEM_TEXT), ("COLOR_TOKENS", f::COLOR_TOKENS), ("SWIPE_ACTIONS", f::SWIPE_ACTIONS), ("DISMISS", f::DISMISS), ("LOOK_TOKENS", f::LOOK_TOKENS), ("ICON_WORD", f::ICON_WORD), ("TEXT_WORKER", f::TEXT_WORKER), ("TEXT_FIELD_KEYED", f::TEXT_FIELD_KEYED), ("LABEL_TEXT", f::LABEL_TEXT), ("MENU_MAX_H", f::MENU_MAX_H), ("SEGMENTED_RESULT", f::SEGMENTED_RESULT), ("WIDGETS_KEYED", f::WIDGETS_KEYED), ("SEGMENTED_STORED_FOCUS", f::SEGMENTED_STORED_FOCUS), ("IMAGE_CHECKED", f::IMAGE_CHECKED), ("BUTTON_PARTS", f::BUTTON_PARTS)] {
         assert!(header.contains(&format!("PXUI_FEATURE_{name} = {id}")), "{name}");
     }
 }

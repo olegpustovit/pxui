@@ -8,13 +8,15 @@ use pxui_types::ffi::PxuiKeyedDesc;
 
 const MAX_BUTTONS: usize = 64;
 
-/// The buttons of `texts` with the flags a dialog record carries (`PxuiDialogDesc`): `buf` holds them for the call.
-fn dialog_buttons<'a, 'b>(texts: &[&'a str], (default_at, cancel_at, danger, disabled): (i64, i64, u64, u64), buf: &'b mut [DialogButton<'a>; MAX_BUTTONS]) -> Option<&'b [DialogButton<'a>]> {
+/// The buttons of `texts` with the flags and the details a dialog record carries (`PxuiDialogDesc`; `details` as many as `texts` or none):
+/// `buf` holds them for the call.
+fn dialog_buttons<'a, 'b>(texts: &[&'a str], details: &[&'a str], (default_at, cancel_at, danger, disabled): (i64, i64, u64, u64), buf: &'b mut [DialogButton<'a>; MAX_BUTTONS]) -> Option<&'b [DialogButton<'a>]> {
     let n = texts.len();
     let beyond = |mask: u64| n < MAX_BUTTONS && mask >> n != 0;
     if n > MAX_BUTTONS || !(-1..n as i64).contains(&default_at) || !(-1..n as i64).contains(&cancel_at) || beyond(danger) || beyond(disabled) { return None; }
+    if !details.is_empty() && details.len() != n { return None; }
     for (i, (b, text)) in buf.iter_mut().zip(texts).enumerate() {
-        *b = DialogButton { text, default: i as i64 == default_at, cancel: i as i64 == cancel_at, danger: danger >> i & 1 != 0, enabled: disabled >> i & 1 == 0 };
+        *b = DialogButton { text, default: i as i64 == default_at, cancel: i as i64 == cancel_at, danger: danger >> i & 1 != 0, enabled: disabled >> i & 1 == 0, detail: details.get(i).copied().unwrap_or("") };
     }
     Some(&buf[..n])
 }
@@ -128,7 +130,7 @@ export!(trusted pub unsafe fn pxui_ui_dialog(ui: *mut PxuiUi, title: Str, button
     let n = buttons.len as i64;
     let flags = (n - 1, -1, 0, 0);
     let decoded = match unsafe { checked(title) } {
-        Some(title) if unsafe { strings(buttons, MAX_BUTTONS, &mut list) } => dialog_buttons(&list, flags, &mut buf).map(|b| (title, b)),
+        Some(title) if unsafe { strings(buttons, MAX_BUTTONS, &mut list) } => dialog_buttons(&list, &[], flags, &mut buf).map(|b| (title, b)),
         _ => None,
     };
     let Some((title, buttons)) = decoded else {
@@ -149,11 +151,14 @@ export!(trusted pub unsafe fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *co
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() { return unsafe { fail(ui, "null dialog argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short dialog result") } };
-    let Some(d) = read_desc!(desc, PxuiDialogDesc) else { return unsafe { fail(ui, "invalid dialog descriptor") } };
+    // the 88-byte record of 1.53 and the whole one; an 88-byte record's `details` are zero (none)
+    let Some((d, _)) = read_desc!(desc, PxuiDialogDesc, [88]) else { return unsafe { fail(ui, "invalid dialog descriptor") } };
     let mut list = state.shared().take_strs();
     let mut buf = [DialogButton::new(""); MAX_BUTTONS];
+    // the labels, then the details after them in the same scratch
+    let read = unsafe { strings(d.buttons, MAX_BUTTONS, &mut list) && crate::state::append_strings(d.details, MAX_BUTTONS, &mut list) };
     let decoded = match (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.title) }) {
-        (Some(key), Some(title)) if unsafe { strings(d.buttons, MAX_BUTTONS, &mut list) } => dialog_buttons(&list, (d.default_at, d.cancel_at, d.danger, d.disabled), &mut buf).map(|b| (key, title, b)),
+        (Some(key), Some(title)) if read => { let (texts, details) = list.split_at(d.buttons.len); dialog_buttons(texts, details, (d.default_at, d.cancel_at, d.danger, d.disabled), &mut buf).map(|b| (key, title, b)) }
         _ => None,
     };
     let Some((key, title, buttons)) = decoded else {

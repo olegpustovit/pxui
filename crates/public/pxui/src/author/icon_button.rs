@@ -64,12 +64,13 @@ pub struct IconButton {
     pub(crate) press_scale: f32,
     pub(crate) variant: u16,
     pub(crate) press: Option<&'static [Curve; 2]>,
+    pub(crate) selected: Option<bool>,
 }
 
 impl IconButton {
     /// The plain kit icon button.
     pub const DEFAULT: IconButton = IconButton {
-        w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0, press: None, variant: 0,
+        w: Size::Fit, h: Size::Fit, look: None, enabled: true, press_scale: 1.0, press: None, variant: 0, selected: None,
     };
 
     /// A button `w` by `h` points.
@@ -152,6 +153,24 @@ impl IconButton {
     /// let _ = B;
     /// ```
     pub const fn variant(mut self, variant: u16) -> IconButton { self.variant = variant; self }
+
+    /// Makes the button an on/off key (shuffle, repeat, a panel's toggle) that is on when `on`: it shows its look's `checked` state while
+    /// on and reads to accessibility as checkable, checked while on; a registered body sees it as `state.checked`. A click still only
+    /// reports `clicked`: the caller flips its value and passes it back next frame. Without it the button is a plain one.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{Icon, IconButton};
+    /// const KEY: IconButton = IconButton::sized(36.0, 36.0);
+    /// let mut shuffle = false;
+    /// let mut ui = pxui::doc::frames(1, &mut |ui: &mut pxui::Ui| {
+    ///     if ui.icon_button("shuffle", Icon::glyph('~'), "Shuffle", &KEY.selected(shuffle)).clicked { shuffle = !shuffle; }
+    /// });
+    /// let node = *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Shuffle").unwrap();
+    /// assert!(node.states & pxui::a11y::state::CHECKABLE != 0 && node.states & pxui::a11y::state::CHECKED == 0);
+    /// ```
+    pub const fn selected(mut self, on: bool) -> IconButton { self.selected = Some(on); self }
 }
 
 impl Ui {
@@ -324,6 +343,48 @@ mod tests {
         }
     }
 
+    thread_local! { static CHECKED: Cell<u8> = const { Cell::new(9) }; }
+
+    /// A body that records the checked state it is given and builds its own structure: a 33-point square.
+    fn checked_body(ui: &mut Ui, c: &crate::bodies::IconButtonConfig) {
+        CHECKED.with(|s| s.set(c.state.checked));
+        let mut node = ui.node_layout(&c.node);
+        (node.w, node.h) = (crate::ui::Size::Px(33.0), crate::ui::Size::Px(33.0));
+        ui.set_node_layout(&c.node, &node);
+    }
+
+    /// `selected`: an on/off key reads as checkable (checked while on); a plain button is not checkable; a registered body sees `state.checked` and its structure is the one used.
+    #[test]
+    fn selected_is_an_on_off_key() {
+        const PLATE: IconButton = IconButton::sized(36.0, 36.0);
+        let on = Cell::new(false);
+        let mut build = |ui: &mut Ui| {
+            if ui.icon_button("shuffle", PLAY, "Shuffle", &PLATE.selected(on.get())).clicked { on.set(!on.get()); }
+            ui.icon_button("play", PLAY, "Play", &KEY);
+        };
+        let mut ui = crate::doc::frames(3, &mut build);
+        let find = |ui: &Ui, name: &str| *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == name).unwrap();
+        let off = find(&ui, "Shuffle");
+        assert!(off.is_role(Role::Button) && off.states & state::CHECKABLE != 0 && off.states & state::CHECKED == 0);
+        assert_eq!(find(&ui, "Play").states & state::CHECKABLE, 0, "a plain icon button is not checkable");
+        testing::click(&mut ui, f64::from(off.rect.x + 18.0), f64::from(off.rect.y + 18.0), &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert!(on.get() && find(&ui, "Shuffle").states & state::CHECKED != 0, "the caller's flip shows checked");
+        let mut ui = Ui::new().unwrap();
+        ui.set_a11y(true);
+        let id = ui.register_icon_button_body("checked_body", checked_body).expect("registered");
+        let text = "icon_button.body = checked_body";
+        ui.set_theme(&pxui_types::ffi::ThemeSource { size: core::mem::size_of::<pxui_types::ffi::ThemeSource>() as u32, flags: 0, source: pxui_types::Str { ptr: text.as_ptr(), len: text.len() } }).unwrap();
+        assert_eq!(ui.theme().body.icon_button, id);
+        for (key, seen) in [(KEY.selected(true), 1), (KEY.selected(false), 0), (KEY, 0)] {
+            testing::frame(&mut ui, &[], &mut |ui| { ui.icon_button("k", PLAY, "Key", &key); });
+            assert_eq!(CHECKED.with(|s| s.get()), seen);
+            let n = find(&ui, "Key");
+            assert_eq!((n.rect.w, n.rect.h), (33.0, 33.0), "the registered body's structure");
+            assert_eq!(n.states & state::CHECKED != 0, seen == 1, "the accessible state is behaviour's");
+        }
+    }
+
     #[test]
     fn warm_frames_allocate_nothing() {
         let looks = crate::doc::frames(1, &mut |_| {}).theme().icon_button;
@@ -333,6 +394,8 @@ mod tests {
             ui.icon_button(2i64, Icon::Glyph('x'), "Close", &IconButton::DEFAULT);
             ui.icon_button("off", PLAY, "Off", &KEY.enabled(false));
             ui.icon_button("eased", PLAY, "Eased", &KEY.press_curves(&EASED));
+            ui.icon_button("on", PLAY, "Shuffle", &KEY.selected(true));
+            ui.icon_button("off-key", PLAY, "Repeat", &KEY.selected(false).look(&looks));
         };
         for round in 0..20 {
             mem_sys::local_reset();

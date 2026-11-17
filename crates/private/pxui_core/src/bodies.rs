@@ -63,7 +63,8 @@ pub type ProgressBody = fn(&mut Ui, &ProgressConfig, &str);
 /// caller asked for). The button is a `row` (its key, hit area, focus and accessible name, the node a press lands on) inside a `line`
 /// that places it in its row; both come with their behaviour only, and the body sets their layout and look (`Ui::node_mut`) and
 /// builds what is inside `row`, which it runs with entered. `bare`, `icon` and `at_end` are the variant the caller asked for.
-/// Behaviour reads no part.
+/// Behaviour reads no part. `parts` beside the text are the caller's leading icon glyph, detail and accessory (`Button::icon`, `detail`,
+/// `accessory`; empty: none).
 pub struct ButtonConfig {
     pub state: State,
     pub bare: bool,
@@ -86,9 +87,14 @@ pub struct ButtonConfig {
     pub axis: Option<Axis>,
     pub gap: f32,
     pub content_align: Option<crate::layout::Along>,
+    /// The app's drawing of the caller's `Button::icon`, which wins over the glyph in `parts[0]` (`Ui::icon_draw_in` paints it).
+    pub lead_draw: Option<(crate::ui_widgets::IconDraw, [usize; 4])>,
+    /// The caller's `Button::detail_label` and `Button::accessory_label` (`None`: the theme's label style).
+    pub detail_label: Option<pxui_types::text::LabelFields>,
+    pub accessory_label: Option<pxui_types::text::LabelFields>,
 }
 
-pub type ButtonBody = fn(&mut Ui, &ButtonConfig, &States, &str);
+pub type ButtonBody = fn(&mut Ui, &ButtonConfig, &States, &str, [&str; 3]);
 
 /// What an icon button body is given (the look per state, then its label and its icon, beside it). It runs with the button's `node`
 /// entered, which carries the key, the hit area and the accessible name; the body sets its size and look (`states.pick(state)`: the
@@ -185,7 +191,7 @@ pub struct PanelConfig {
 
 pub type PanelBody = fn(&mut Ui, &PanelConfig, &str, &mut dyn FnMut(&mut Ui));
 
-/// What a dialog body is given (its title, its buttons (label, default, cancel, danger, enabled), then the caller's content, beside it). It runs inside the modal's sheet
+/// What a dialog body is given (its title, its buttons (label, default, cancel, danger, enabled, detail), then the caller's content, beside it). It runs inside the modal's sheet
 /// (entered) and builds the title bar, calls `content` once, then builds the buttons; the sheet itself is the `modal` body's.
 /// Behaviour reads three kinds of part: the title bar built as `Part::TITLE` (it gets the heading role and the title as name; none, no
 /// heading), and button `i` built as `Part::button(i)`, a clickable node (it gets the button role, its label as name and a press on it

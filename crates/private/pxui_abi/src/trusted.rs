@@ -366,32 +366,38 @@ fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
 /// `pxui_ui_button_plain`: `states` in place of the theme's button, `w` and `h` (`button_size`), `justify` its place in the line, `pad`
 /// (finite, non-negative) inside the box, `centered` the box exactly its size with its text centred, `label` the text's style (one that
 /// resolves), `axis`, `gap` (finite, non-negative) and `content_align` the contents' layout, `focus_on_click` a press focusing it,
-/// `content` built in the box in place of `text` and given the button's state. What happened goes to `out`; with `signal`, the box's
+/// `lead` the leading icon's glyph or `lead_draw` (the app's C drawing with its `lead_user` and `lead_word`, as `icon_button_with` takes
+/// them), `detail` and `accessory` (empty: none; clipped as the text is) in `detail_label` and `accessory_label` (ones that resolve), `content` built in the box in place of `text` and given the button's state. What happened goes to `out`; with `signal`, the box's
 /// whole signal too.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&str>, states: Option<&States>, w: Size, h: Size, justify: Justify, pad: Edges,
     enabled: bool, selected: bool, danger: bool, centered: bool, label: Option<&pxui_types::text::LabelFields>, axis: Option<Axis>, gap: f32, content_align: Option<Along>, focus_on_click: bool,
+    lead: &str, lead_draw: pxui_types::ffi::PxuiIconDraw, lead_user: *mut core::ffi::c_void, lead_word: u32, detail: &str, accessory: &str,
+    detail_label: Option<&pxui_types::text::LabelFields>, accessory_label: Option<&pxui_types::text::LabelFields>,
     content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     enter!(ui);
     let text = clip(text);
     let name = name.map(clip);
+    let parts = [clip(lead), clip(detail), clip(accessory)];
     if long_key(key) { return unsafe { fail(ui, "invalid button text") }; }
     if !button_size(w) || !button_size(h) || ![pad.l, pad.t, pad.r, pad.b, gap].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid button descriptor") }; }
     let (e, shared) = (unsafe { engine(ui) }, unsafe { (*ui).shared });
-    if label.is_some_and(|l| e.resolve(l).is_none()) { return unsafe { fail(ui, "invalid button label") }; }
+    if [label, detail_label, accessory_label].iter().any(|l| l.is_some_and(|l| e.resolve(l).is_none())) { return unsafe { fail(ui, "invalid button label") }; }
     let ink = if danger { Some(e.theme().tokens.invalid) } else { None };
+    let lead_draw = lead_draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, lead_user as usize, shared as usize, lead_word as usize]));
     // the looks and the label are copied only when given: `copied()` copies the whole record either way
-    let mut opts = pxui_core::ui::ButtonOpts { states: None, w, h, enabled, selected, justify, padding: pad, ink, bare: false, icon: false, centered, label: None, axis, gap, content_align, focus_on_click };
+    let mut opts = pxui_core::ui::ButtonOpts { states: None, w, h, enabled, selected, justify, padding: pad, ink, bare: false, icon: false, centered, label: None, axis, gap, content_align, focus_on_click,
+        lead_draw, detail_label: detail_label.copied(), accessory_label: accessory_label.copied() };
     if let Some(states) = states { opts.states = Some(*states); }
     if let Some(label) = label { opts.label = Some(*label); }
     let mut run = content.map(|f| move |engine: &mut Ui, state: State| call_inner(shared, engine, &mut |raw| f(raw, state)));
     let body = run.as_mut().map(|f| f as &mut dyn FnMut(&mut Ui, State));
     let r = match signal {
-        None => e.button_opts(key, text, name, &opts, body, None),
+        None => e.button_opts(key, text, name, &opts, parts, body, None),
         Some(signal) => {
             let mut read = pxui_core::ui::Signal::default();
-            let r = e.button_opts(key, text, name, &opts, body, Some(&mut read));
+            let r = e.button_opts(key, text, name, &opts, parts, body, Some(&mut read));
             crate::interaction::write_borrowed_signal(unsafe { &*ui }, &read, unsafe { engine(ui) }.key_events_ref(&r.handle), signal);
             r
         }
@@ -407,7 +413,7 @@ pub unsafe fn button_plain(ui: *mut PxuiUi, key: &str, text: &str, out: &mut Pxu
     enter!(ui);
     let text = clip(text);
     if long_key(key) { return unsafe { fail(ui, "invalid button text") }; }
-    let r = unsafe { engine(ui) }.button_opts(key, text, None, &pxui_core::ui::ButtonOpts::DEFAULT, None, None);
+    let r = unsafe { engine(ui) }.button_opts(key, text, None, &pxui_core::ui::ButtonOpts::DEFAULT, [""; 3], None, None);
     respond(&r, out);
     0
 }
@@ -427,11 +433,12 @@ pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &
 
 /// The kit icon button with options, the body of `pxui_ui_icon_button_with`, `_response` and `_plain`: the `glyph`, or the app's
 /// drawing `draw` (a C callback, its `user` and the icon's `word`, read in it with `pxui_paint_icon_word`), named `name`; `states` in place of the theme's icon button, `w` and `h`
-/// (`button_size`), `press_scale` finite and positive, `press` the valid curves in and out (`None`: the kit's). What happened goes to `out`; with `signal`, the box's whole signal too.
+/// (`button_size`), `press_scale` finite and positive, `press` the valid curves in and out (`None`: the kit's), `selected` an on/off key's
+/// state (`None`: a plain button). What happened goes to `out`; with `signal`, the box's whole signal too.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn icon_button_with(ui: *mut PxuiUi, key: &str, glyph: &str, draw: pxui_types::ffi::PxuiIconDraw, user: *mut core::ffi::c_void, word: u32, name: &str, states: Option<&States>,
-    w: Size, h: Size, enabled: bool, press_scale: f32, press: Option<&'static [pxui_types::Curve; 2]>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    w: Size, h: Size, enabled: bool, press_scale: f32, press: Option<&'static [pxui_types::Curve; 2]>, selected: Option<bool>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     enter!(ui);
     let glyph = clip(glyph);
     let name = clip(name);
@@ -439,7 +446,7 @@ pub unsafe fn icon_button_with(ui: *mut PxuiUi, key: &str, glyph: &str, draw: px
     if !button_size(w) || !button_size(h) || !press_scale.is_finite() || press_scale <= 0.0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
     let draw = draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, user as usize, unsafe { (*ui).shared } as usize, word as usize]));
     if press.is_some_and(|p| !p[0].valid() || !p[1].valid()) { return unsafe { fail(ui, "invalid icon button press curve") }; }
-    let mut button = pxui_core::ui::IconButton { states: None, w, h, enabled, press_scale, press };
+    let mut button = pxui_core::ui::IconButton { states: None, w, h, enabled, press_scale, press, selected };
     if let Some(states) = states { button.states = Some(*states); }
     let e = unsafe { engine(ui) };
     let r = match signal {
@@ -802,7 +809,7 @@ pub unsafe fn dialog(ui: *mut PxuiUi, key: &str, title: &str, buttons: &[pxui_ty
     enter!(ui);
     let title = clip(title);
     let mut spare = Vec::new();
-    let buttons = if buttons.iter().all(|b| !long(b.text)) { buttons } else { spare.extend(buttons.iter().map(|b| pxui_types::ui::DialogButton { text: clip(b.text), ..*b })); &spare[..] };
+    let buttons = if buttons.iter().all(|b| !long(b.text) && !long(b.detail)) { buttons } else { spare.extend(buttons.iter().map(|b| pxui_types::ui::DialogButton { text: clip(b.text), detail: clip(b.detail), ..*b })); &spare[..] };
     if long_key(key) || buttons.len() > 64 || !style.width.is_finite() || style.width < 0.0 { return unsafe { fail(ui, "invalid dialog arguments") }; }
     let shared = unsafe { (*ui).shared };
     *out = unsafe { engine(ui) }.dialog(key, title, buttons, style, &mut |engine: &mut Ui| call_inner(shared, engine, f));

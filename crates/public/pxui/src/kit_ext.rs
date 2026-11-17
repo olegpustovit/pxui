@@ -111,12 +111,12 @@ impl Ui {
         };
         let mut out = PxuiResponse::EMPTY;
         let plain = button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && button.press_scale == 1.0 && draw.is_none()
-            && button.press.is_none();
+            && button.press.is_none() && button.selected.is_none();
         #[cfg(feature = "static")]
         let rc = if plain {
             unsafe { pxui_abi_link::trusted::icon_button_plain(self.0.as_ptr(), key, glyph, name, &mut out) }
         } else {
-            unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, word, name, button.look.as_ref(), button.w, button.h, button.enabled, button.press_scale, button.press, &mut out, None) }
+            unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, word, name, button.look.as_ref(), button.w, button.h, button.enabled, button.press_scale, button.press, button.selected, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {
@@ -129,6 +129,7 @@ impl Ui {
                 size: core::mem::size_of::<PxuiIconButtonDesc>() as u32, enabled: button.enabled as u8, w_kind, h_kind, reserved: 0, w, h, press_scale: button.press_scale,
                 states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), icon: as_str(glyph), draw, draw_user: user,
                 press: button.press.map_or(core::ptr::null(), |p| p.as_ptr()),
+                checkable: button.selected.is_some() as u8, checked: (button.selected == Some(true)) as u8, reserved2: [0; 6],
             };
             if draw.is_some() { unsafe { lib::pxui_ui_icon_word(self.0.as_ptr(), word) }; }
             unsafe { lib::pxui_ui_icon_button_response(self.0.as_ptr(), &desc, &mut out) }
@@ -145,7 +146,15 @@ impl Ui {
         let mut out = PxuiResponse::EMPTY;
         let plain = content.is_none() && button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && !button.selected
             && !button.danger && button.name.is_none() && button.align == Justify::Start && button.pad == pxui_types::geom::Edges::ZERO && !button.centered
-            && button.label.is_none() && button.axis.is_none() && button.gap == 0.0 && button.content_align.is_none() && !button.focus_on_click;
+            && button.label.is_none() && button.axis.is_none() && button.gap == 0.0 && button.content_align.is_none() && !button.focus_on_click
+            && button.icon.is_none() && button.detail.is_empty() && button.accessory.is_empty() && button.detail_label.is_none() && button.accessory_label.is_none();
+        // the leading icon as the icon button passes it: a glyph's text, or the app's function as the drawing's user pointer and its word
+        let mut glyph = [0u8; 4];
+        let (lead, lead_draw, lead_user, lead_word) = match button.icon {
+            None => ("", None, core::ptr::null_mut(), 0),
+            Some(Icon::Glyph(ch)) => (ch.encode_utf8(&mut glyph) as &str, None, core::ptr::null_mut(), 0),
+            Some(Icon::Draw(f, word)) => ("", Some(crate::paint::icon_draw as extern "C" fn(*mut c_void, *mut c_void, Rect, Rgba, *const pxui_types::ffi::PxuiPaintInfo)), f as *mut c_void, word),
+        };
         #[cfg(feature = "static")]
         let rc = if plain {
             unsafe { pxui_abi_link::trusted::button_plain(self.0.as_ptr(), key, text, &mut out) }
@@ -158,6 +167,7 @@ impl Ui {
             };
             unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look.as_ref(), button.w, button.h, button.align, button.pad,
                 button.enabled, button.selected, button.danger, button.centered, button.label.as_ref().map(|l| l.fields()), button.axis, button.gap, button.content_align, button.focus_on_click,
+                lead, lead_draw, lead_user, lead_word, button.detail, button.accessory, button.detail_label.as_ref().map(|l| l.fields()), button.accessory_label.as_ref().map(|l| l.fields()),
                 if has_content { Some(&mut run) } else { None }, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
@@ -176,7 +186,12 @@ impl Ui {
                 has_label: button.label.is_some() as u8, axis: button.axis.map_or(0, |a| a as u8 + 1),
                 content_align: match button.content_align { None => 0, Some(pxui_types::layout::Along::Start) => 1, Some(pxui_types::layout::Along::Center) => 2, Some(pxui_types::layout::Along::End) => 3 }, focus_on_click: button.focus_on_click as u8,
                 gap: button.gap, label: button.label.as_ref().map(pxui_types::ffi::PxuiLabelStyle::from).unwrap_or_default(), label_box: button.label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
+                lead: as_str(lead), lead_draw, lead_user, detail: as_str(button.detail), accessory: as_str(button.accessory),
+                has_detail_label: button.detail_label.is_some() as u8, has_accessory_label: button.accessory_label.is_some() as u8, reserved3: [0; 6],
+                detail_label: button.detail_label.as_ref().map(pxui_types::ffi::PxuiLabelStyle::from).unwrap_or_default(), detail_box: button.detail_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
+                accessory_label: button.accessory_label.as_ref().map(pxui_types::ffi::PxuiLabelStyle::from).unwrap_or_default(), accessory_box: button.accessory_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
             };
+            if lead_draw.is_some() { unsafe { lib::pxui_ui_icon_word(self.0.as_ptr(), lead_word) }; }
             let build = if content.is_some() { Some(button_build as extern "C" fn(*mut c_void, *mut c_void, *const pxui_types::ffi::PxuiStateDesc)) } else { None };
             let mut inner = content;
             unsafe { lib::pxui_ui_button_content(self.0.as_ptr(), &desc, build, &mut inner as *mut _ as *mut c_void, &mut out) }
@@ -270,14 +285,15 @@ impl Ui {
         }
         #[cfg(not(feature = "static"))]
         {
-            let mut texts = [Str::default(); 64];
+            let (mut texts, mut details) = ([Str::default(); 64], [Str::default(); 64]);
             let at = |pick: fn(&DialogButton) -> bool| buttons.iter().position(pick).map_or(-1, |i| i as i64);
             let mask = |pick: fn(&DialogButton) -> bool| buttons.iter().take(64).enumerate().fold(0u64, |m, (i, b)| m | (pick(b) as u64) << i);
-            for (text, b) in texts.iter_mut().zip(buttons) { *text = as_str(b.text); }
+            for ((text, detail), b) in texts.iter_mut().zip(details.iter_mut()).zip(buttons) { (*text, *detail) = (as_str(b.text), as_str(b.detail)); }
             let desc = PxuiDialogDesc {
                 size: core::mem::size_of::<PxuiDialogDesc>() as u32, width: style.width, key: as_str(key), title: as_str(title),
                 buttons: Slice { ptr: texts.as_ptr(), len: buttons.len() }, default_at: at(|b| b.default), cancel_at: at(|b| b.cancel),
                 danger: mask(|b| b.danger), disabled: mask(|b| !b.enabled),
+                details: Slice { ptr: details.as_ptr(), len: buttons.len() },
             };
             let mut result = PxuiDialogResult::EMPTY;
             check(self, unsafe { lib::pxui_ui_dialog_response(self.0.as_ptr(), &desc, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut body as *mut _ as *mut c_void, &mut result) });

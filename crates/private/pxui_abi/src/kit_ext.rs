@@ -62,8 +62,11 @@ export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, te
 /// The checked `PxuiButtonDesc` behind `desc` (not null) through the trusted entry: what happened to `out`, the whole signal to
 /// `signal` when given.
 unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
-    // the 96-byte record of 1.48, the 104-byte one of 1.54 and the whole one: no other size; the fields the caller's size does not cover are zero and `grown` gates the label
-    let Some((d, grown)) = read_desc!(desc, PxuiButtonDesc, [96, 104]) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+    // a word set for this call goes to the leading icon's drawing; the next call reads 0
+    let word = core::mem::take(&mut unsafe { &*ui }.shared().icon_word);
+    // the 96-byte record of 1.48, the 104-byte one of 1.54, the 192-byte one of 1.56 and the whole one: no other size; the fields the
+    // caller's size does not cover are zero (no label, no leading icon, detail or accessory)
+    let Some((d, _)) = read_desc!(desc, PxuiButtonDesc, [96, 104, 192]) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
     let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.centered > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid button descriptor") }; }
@@ -72,15 +75,21 @@ unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Opt
     let axis = match d.axis { 0 => Some(None), 1 => Some(Some(Axis::Row)), 2 => Some(Some(Axis::Column)), 3 => Some(Some(Axis::Stack)), _ => None };
     let content_align = match d.content_align { 0 => Some(None), 1 => Some(Some(Along::Start)), 2 => Some(Some(Along::Center)), 3 => Some(Some(Along::End)), _ => None };
     let (Some(axis), Some(content_align)) = (axis, content_align) else { return unsafe { fail(ui, "invalid button descriptor") }; };
-    if d.has_label > 1 || d.focus_on_click > 1 { return unsafe { fail(ui, "invalid button descriptor") }; }
-    let label = if grown && d.has_label == 1 {
-        let Some((mut style, false)) = crate::ui::label_style(&d.label) else { return unsafe { fail(ui, "invalid button label") } };
-        if !crate::ui::read_label_box(&d.label_box, &mut style) { return unsafe { fail(ui, "invalid button label") } }
-        Some(style)
-    } else { None };
+    if d.has_label > 1 || d.focus_on_click > 1 || d.has_detail_label > 1 || d.has_accessory_label > 1 || d.reserved3 != [0; 6] { return unsafe { fail(ui, "invalid button descriptor") }; }
+    let (Some(label), Some(detail_label), Some(accessory_label)) = (label_of(d.has_label, &d.label, &d.label_box), label_of(d.has_detail_label, &d.detail_label, &d.detail_box),
+        label_of(d.has_accessory_label, &d.accessory_label, &d.accessory_box)) else { return unsafe { fail(ui, "invalid button label") } };
+    let (Some(lead), Some(detail), Some(accessory)) = (unsafe { checked(d.lead) }, unsafe { checked(d.detail) }, unsafe { checked(d.accessory) }) else { return unsafe { fail(ui, "invalid button text") }; };
     let pad = Edges { l: d.padding[0], t: d.padding[1], r: d.padding[2], b: d.padding[3] };
     unsafe { trusted::button_with(ui, key, text, (d.has_name != 0).then_some(name), looks.as_ref(), w, h, justify, pad, d.enabled != 0, d.selected != 0, d.danger != 0, d.centered != 0,
-        label.as_ref(), axis, d.gap, content_align, d.focus_on_click != 0, content, out, signal) }
+        label.as_ref(), axis, d.gap, content_align, d.focus_on_click != 0,
+        lead, d.lead_draw, d.lead_user, word, detail, accessory, detail_label.as_ref(), accessory_label.as_ref(), content, out, signal) }
+}
+
+/// The label style a button record carries in `style` and `label_box` when `has` is 1: `Some(None)` for none, `None` for one that is invalid.
+fn label_of(has: u8, style: &pxui_types::ffi::PxuiLabelStyle, label_box: &pxui_types::ffi::PxuiLabelBox) -> Option<Option<pxui_types::text::LabelFields>> {
+    if has != 1 { return Some(None); }
+    let Some((mut fields, false)) = crate::ui::label_style(style) else { return None };
+    crate::ui::read_label_box(label_box, &mut fields).then_some(Some(fields))
 }
 
 // The kit icon button with options; `states` is null (the theme's icon button) or six looks.
@@ -114,14 +123,15 @@ export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: St
 /// The checked `PxuiIconButtonDesc` behind `desc` (not null) through the trusted entry, as `button_call`.
 unsafe fn icon_button_call(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     let word = core::mem::take(&mut unsafe { &*ui }.shared().icon_word);
-    let Some((d, grown)) = read_desc!(desc, PxuiIconButtonDesc, [96]) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
-    // null (and a 96-byte record, whose `press` the caller never had) is the kit's springs
-    let Some(press) = (if grown { unsafe { press_curves(d.press) } } else { Some(None) }) else { return unsafe { fail(ui, "invalid icon button press curves") }; };
+    let Some((d, _)) = read_desc!(desc, PxuiIconButtonDesc, [96, 104]) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
+    // null (and a 96-byte record, whose `press` the caller never had: the fields its size does not cover are zero) is the kit's springs
+    let Some(press) = (unsafe { press_curves(d.press) }) else { return unsafe { fail(ui, "invalid icon button press curves") }; };
     let (Some(w), Some(h)) = (size(d.w_kind, d.w), size(d.h_kind, d.h)) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
-    if d.enabled > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
+    // a 96- or 104-byte record reads `checkable` 0: a plain button
+    if d.enabled > 1 || d.reserved != 0 || d.checkable > 1 || d.checked > d.checkable || d.reserved2 != [0; 6] { return unsafe { fail(ui, "invalid icon button descriptor") }; }
     let (Some(key), Some(name), Some(icon)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid icon button looks") } };
-    unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, word, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, press, out, signal) }
+    unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, word, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, press, (d.checkable == 1).then_some(d.checked == 1), out, signal) }
 }
 
 /// The two press curves behind `press` (null: `Some(None)`, the kit's), checked before they are read as `Curve`s: `None` for a pointer

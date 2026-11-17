@@ -1283,6 +1283,8 @@ pub struct DialogButton<'a> {
     pub danger: bool,
     /// A disabled button takes no press, shows its disabled look and is skipped by Return and Escape.
     pub enabled: bool,
+    /// A secondary line under the label (empty: none), in the theme's label style.
+    pub detail: &'a str,
 }
 
 impl<'a> DialogButton<'a> {
@@ -1295,7 +1297,7 @@ impl<'a> DialogButton<'a> {
     /// const KEEP: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("Keep");
     /// assert!(KEEP.enabled && !KEEP.default);
     /// ```
-    pub const fn new(text: &'a str) -> DialogButton<'a> { DialogButton { text, default: false, cancel: false, danger: false, enabled: true } }
+    pub const fn new(text: &'a str) -> DialogButton<'a> { DialogButton { text, default: false, cancel: false, danger: false, enabled: true, detail: "" } }
 
     /// Marks the button Return presses.
     ///
@@ -1340,6 +1342,19 @@ impl<'a> DialogButton<'a> {
     /// assert!(!b.enabled);
     /// ```
     pub const fn enabled(mut self, enabled: bool) -> DialogButton<'a> { self.enabled = enabled; self }
+
+    /// Sets a secondary line under the label, which it borrows (a literal or a runtime string): a choice that needs a sentence of
+    /// explanation. The built-in dialog body draws it in the theme's label style under the label, a text node inside the button that
+    /// accessibility reads as a label; a registered body reads it with `config.text_at(&config.details, i)` (`bodies::DialogConfig`). Empty is none.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const FOLDER: pxui_types::ui::DialogButton = pxui_types::ui::DialogButton::new("Add folder").detail("Keeps watching it for new music");
+    /// assert_eq!(FOLDER.detail, "Keeps watching it for new music");
+    /// ```
+    pub const fn detail(mut self, detail: &'a str) -> DialogButton<'a> { self.detail = detail; self }
 }
 
 /// What a dialog's frame did.

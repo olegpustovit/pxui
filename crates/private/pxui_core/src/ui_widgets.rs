@@ -72,7 +72,8 @@ const STOP_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::BLOCKI
 
 /// The built-in dialog: the title bar, the content, then the buttons at the end of a row. Each button is built through the button
 /// body as `Part::button(i)` of the dialog, in the row (the body's `line`), which is the 20-point row of the buttons with 6 points above
-/// and below; behaviour finds a button by its part and ignores the presses of a disabled one.
+/// and below (as tall as the buttons when one has a detail line under its label); behaviour finds a button by its part and ignores the
+/// presses of a disabled one.
 pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton], content: &mut dyn FnMut(&mut Ui)) {
     let t = this.theme();
     let (bar, invalid) = (t.dialog.idle, t.tokens.invalid);
@@ -84,8 +85,10 @@ pub(crate) fn default_dialog(this: &mut Ui, title: &str, buttons: &[DialogButton
     let saved = this.enter(&row);
     for (i, b) in buttons.iter().enumerate() {
         let opts = ButtonOpts { enabled: b.enabled, justify: Justify::End, ink: b.danger.then_some(invalid), ..ButtonOpts::DEFAULT };
-        this.button_in(&row, this.own_part_key(Part::button(i as u8)), b.text, &opts);
+        this.button_in(&row, this.own_part_key(Part::button(i as u8)), b.text, &opts, ["", b.detail, ""]);
     }
+    // each button's body lays the row out as its line; a button with a detail line makes it as tall as it needs
+    if buttons.iter().any(|b| !b.detail.is_empty()) { this.node_new(&row).h = Size::Fit; }
     this.leave(saved);
 }
 
@@ -1167,13 +1170,14 @@ impl Ui {
         // a disabled button reports no click from any input (a press begun while it was enabled, an assistive technology's press)
         s.clicked &= enabled;
         let focused = self.focused(&b);
-        let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !enabled, ..State::default() };
+        let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !enabled, checked: button.selected == Some(true) };
         self.a11y_name(&b, shown(name));
         let states = self.resolve_states(match &button.states { Some(states) => states, None => &self.theme().icon_button });
         let ink = states.pick(state).text;
         let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw, press: button.press };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
         self.node_new(&b).state.disabled = !enabled;
+        if let Some(on) = button.selected { self.set_role(&b, Role::Button, st::CHECKABLE | if on { st::CHECKED } else { 0 }); }
         let response = Response::of(&s, focused, b);
         if let Some(out) = signal { *out = s; }
         response
@@ -1441,20 +1445,27 @@ pub struct IconButton {
     /// The curves the scale runs in on press and back out on release; `None` is the kit's (`PRESS_IN`, `PRESS_OUT`). Read only
     /// during the call (the C ABI's are the caller's, borrowed for it).
     pub press: Option<&'static [Curve; 2]>,
+    /// An on/off key (`IconButton::selected`): `Some(on)` shows its `checked` look when on and reads as CHECKABLE (CHECKED when on);
+    /// `None` is a plain button.
+    pub selected: Option<bool>,
 }
 
 impl IconButton {
-    pub const DEFAULT: IconButton = IconButton { states: None, w: Size::Fit, h: Size::Fit, enabled: true, press_scale: 1.0, press: None };
+    pub const DEFAULT: IconButton = IconButton { states: None, w: Size::Fit, h: Size::Fit, enabled: true, press_scale: 1.0, press: None, selected: None };
 }
 
 impl Ui {
     /// Paints the app's drawing of an icon button's `c` (when it has one) on `node`: its 20-point (`control_h`) square at the centre of
     /// the node's rectangle, in `c.ink`. For a body that builds its own plate; the built-in body calls it on its plate.
     pub fn icon_draw(&mut self, node: &Handle, c: &IconButtonConfig) {
-        if let Some((f, data)) = c.draw {
-            let (ch, ink) = (self.control_h(), c.ink);
-            self.draw(node, move |paint, rect| f(paint, Rect { x: rect.x + (rect.w - ch) / 2.0, y: rect.y + (rect.h - ch) / 2.0, w: ch, h: ch }, ink, data));
-        }
+        if let Some(draw) = c.draw { self.icon_draw_in(node, draw, c.ink); }
+    }
+
+    /// Paints the app's icon drawing `draw` on `node` in `ink`: its 20-point (`control_h`) square at the centre of the node's rectangle.
+    /// A button's leading icon (`ButtonConfig::lead_draw`) and an icon button's drawing go through it.
+    pub fn icon_draw_in(&mut self, node: &Handle, (f, data): (IconDraw, [usize; 4]), ink: crate::geom::Rgba) {
+        let ch = self.control_h();
+        self.draw(node, move |paint, rect| f(paint, Rect { x: rect.x + (rect.w - ch) / 2.0, y: rect.y + (rect.h - ch) / 2.0, w: ch, h: ch }, ink, data));
     }
 }
 
@@ -1482,7 +1493,7 @@ pub(crate) fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &
         return;
     }
     let word = |color: crate::geom::Rgba| u32::from_le_bytes([color.r, color.g, color.b, color.a]) as i64;
-    let bits = (c.state.hovered as i64) | (c.state.pressed as i64) << 1 | (c.state.focused as i64) << 2 | (c.state.disabled as i64) << 3;
+    let bits = (c.state.hovered as i64) | (c.state.pressed as i64) << 1 | (c.state.focused as i64) << 2 | (c.state.disabled as i64) << 3 | (c.state.checked as i64) << 4;
     let art = c.draw.map_or(0, |(f, data)| (f as usize as i64) ^ (data[0] as i64).rotate_left(16) ^ (data[1] as i64).rotate_left(32) ^ (data[3] as i64).rotate_left(48));
     let mut revision = key_of(word(look.fill) | word(look.text) << 32 ^ art, icon);
     revision = key_of(revision ^ word(look.border) ^ bits << 40 ^ (width.to_bits() as i64) << 8 ^ look.font.size.rotate_left(20) ^ i64::from(look.font.family) << 52, "icon_button");

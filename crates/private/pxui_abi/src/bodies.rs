@@ -134,13 +134,17 @@ mod tramps {
     });
     tramp!(slider, |ui, sh, c: &SliderConfig, label: &str| PxuiSliderConfig { state: st(c.state), fraction: c.fraction, track: bx(c.track), label: pair(label) });
     tramp!(progress, |ui, sh, c: &ProgressConfig, label: &str| PxuiProgressConfig { has_value: c.value.is_some() as u8, value: c.value.unwrap_or(0.0), row: bx(c.row), label: pair(label) });
-    tramp!(button, |ui, sh, c: &ButtonConfig, states: &States, label: &str| PxuiButtonConfig {
+    tramp!(button, |ui, sh, c: &ButtonConfig, states: &States, label: &str, parts: [&str; 3]| PxuiButtonConfig {
         state: st(c.state), bare: c.bare as u8, icon: c.icon as u8, at_end: c.at_end as u8, line: bx(c.line), row: bx(c.row), states: states, label: pair(label),
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, justify: match c.justify { Justify::Center => 1, Justify::End => 2, _ => 0 },
         reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, padding: [c.pad.l, c.pad.t, c.pad.r, c.pad.b], centered: c.centered as u8, reserved2: [0; 9],
         has_label: c.label.is_some() as u8, axis: c.axis.map_or(0, |a| a as u8 + 1),
         content_align: match c.content_align { None => 0, Some(pxui_types::layout::Along::Start) => 1, Some(pxui_types::layout::Along::Center) => 2, Some(pxui_types::layout::Along::End) => 3 }, reserved3: 0, gap: c.gap,
-        text_style: c.label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), text_box: c.label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default()
+        text_style: c.label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), text_box: c.label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
+        lead: pair(parts[0]), lead_draw: foreign_draw(c.lead_draw).0, lead_user: foreign_draw(c.lead_draw).1, detail: pair(parts[1]), accessory: pair(parts[2]),
+        has_detail_style: c.detail_label.is_some() as u8, has_accessory_style: c.accessory_label.is_some() as u8, reserved4: [0; 6],
+        detail_style: c.detail_label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), detail_box: c.detail_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
+        accessory_style: c.accessory_label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), accessory_box: c.accessory_label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default()
     });
     tramp!(icon_button, |ui, sh, c: &IconButtonConfig, states: &States, label: &str, icon: &str| PxuiIconButtonConfig {
         state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon), states: states,
@@ -160,11 +164,13 @@ mod tramps {
     tramp!(window, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
     tramp!(popup, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
     tramp!(modal, |ui, sh, c: &PanelConfig, label: &str, body: &mut dyn FnMut(&mut Ui)| PxuiPanelConfig { node: bx(c.node), label: pair(label), content: content(sh, body) });
-    // a dialog has no engine config: its title, buttons (their flags as masks) and content are the whole record
+    // a dialog has no engine config: its title, buttons (their flags as masks, their details after their labels in the span) and content
+    // are the whole record
     tramp_span!(dialog, strs, |ui, sh, span, title: &str, buttons: &[pxui_types::ui::DialogButton], body: &mut dyn FnMut(&mut Ui)| {
         span.extend(buttons.iter().map(|b| pair(b.text)));
+        span.extend(buttons.iter().map(|b| pair(b.detail)));
     }, PxuiDialogConfig {
-        title: pair(title), buttons: Slice { ptr: span.as_ptr(), len: span.len() }, content: content(sh, body),
+        title: pair(title), buttons: Slice { ptr: span.as_ptr(), len: buttons.len() }, details: Slice { ptr: span[buttons.len()..].as_ptr(), len: buttons.len() }, content: content(sh, body),
         default_at: buttons.iter().position(|b| b.default).map_or(-1, |i| i as i64), cancel_at: buttons.iter().position(|b| b.cancel).map_or(-1, |i| i as i64),
         danger: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (b.danger as u64) << i), disabled: buttons.iter().take(64).enumerate().fold(0, |m, (i, b)| m | (!b.enabled as u64) << i)
     });
