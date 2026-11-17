@@ -7,6 +7,10 @@ license.workspace = true
 [lib]
 test = false
 
+[features]
+# Installs `CountingAllocator` as the process's global allocator: test and performance builds only, never a production library.
+counting = []
+
 [build-dependencies]
 cc = "1"
 

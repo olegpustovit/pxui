@@ -10,7 +10,7 @@ pxui_types = { path = "../../public/pxui_types" }
 cosmic-text = { version = "0.19", default-features = false, features = ["std", "swash"] }
 
 [dev-dependencies]
-mem_sys = { path = "../../open/mem_sys" }
+mem_sys = { path = "../../open/mem_sys", features = ["counting"] }
 
 [lints]
 workspace = true

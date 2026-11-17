@@ -1,3 +1,10 @@
+//! Process memory probes (footprint, pressure, CPU clocks) and, behind the `counting` feature, the counting global allocator the
+//! zero-allocation tests and performance gates assert against.
+//!
+//! The library never chooses the process allocator: without `counting` nothing here is a `#[global_allocator]` and the allocation
+//! counters stay 0. A test or performance build opts in by enabling `mem_sys/counting` (pxui's test dependencies, a counting `libpxui`
+//! built with `pxui_dylib/counting`, an app's own perf build). A dynamic `libpxui` is its own copy of this crate with its own
+//! allocator: the app registers its counter export with [`set_peer`], which refuses a library that does not count when the app does.
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 pub mod profile;
 
@@ -16,7 +23,12 @@ static PEAK: AtomicU64 = AtomicU64::new(0);
 static PRESSURE: AtomicI64 = AtomicI64::new(0);
 static PRESSURE_LOCK: Mutex<bool> = Mutex::new(false);
 
+/// The counting allocator: `System` with atomic counters around it. Installed as the process's global allocator only with the
+/// `counting` feature.
 pub struct CountingAllocator;
+
+/// Whether this copy installed [`CountingAllocator`] as the global allocator (the `counting` feature); without it every count is 0.
+pub const COUNTING: bool = cfg!(feature = "counting");
 
 /// Another copy of this crate in the process (a dynamic `libpxui` carries its own allocator and counters): its counter export,
 /// registered once by the app. The public counters below add its numbers to this copy's, so budgets and ledgers see the whole process.
@@ -27,8 +39,16 @@ pub const COUNT_LOCAL_ALLOCS: u32 = 4;
 pub const COUNT_LOCAL_PEAK: u32 = 5;
 /// Resets the peer's per-thread counters (answers 0).
 pub const COUNT_LOCAL_RESET: u32 = 6;
+/// 1 when that copy counts ([`COUNTING`]); a copy older than this number answers 0, which reads as not counting.
+pub const COUNT_COUNTING: u32 = 7;
 static PEER: OnceLock<fn(u32) -> u64> = OnceLock::new();
-pub fn set_peer(counter: fn(u32) -> u64) { let _ = PEER.set(counter); }
+/// Registers the other copy's counter export (`pxui::library_counter`) once; later calls are ignored.
+/// Panics: when this copy counts and the peer does not (a counting app against a production `libpxui` would silently miss the
+/// library's allocations: build it with `pxui_dylib/counting`).
+pub fn set_peer(counter: fn(u32) -> u64) {
+    assert!(!COUNTING || counter(COUNT_COUNTING) == 1, "mem_sys: this build counts allocations but the peer library does not; build libpxui with the `counting` feature");
+    let _ = PEER.set(counter);
+}
 fn peer(which: u32) -> u64 { PEER.get().map_or(0, |counter| counter(which)) }
 
 /// This copy's own counter `which` (the numbers above), what a process's other copy reads through its export.
@@ -40,10 +60,12 @@ pub fn own(which: u32) -> u64 {
         COUNT_LOCAL_ALLOCS => LOCAL.with(|local| local.get().2),
         COUNT_LOCAL_PEAK => LOCAL.with(|local| local.get().1).max(0) as u64,
         COUNT_LOCAL_RESET => { local_reset_own(); 0 }
+        COUNT_COUNTING => u64::from(COUNTING),
         _ => 0,
     }
 }
 
+#[cfg(feature = "counting")]
 #[global_allocator]
 static GLOBAL: CountingAllocator = CountingAllocator;
 
@@ -83,6 +105,15 @@ pub fn local_alloc_count() -> u64 { LOCAL.with(|local| local.get().2) + peer(COU
 // recorded, so it cannot recurse).
 static WARM_ON: AtomicUsize = AtomicUsize::new(0);
 static REPORTS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+/// Reports kept until [`take_reports`]; at the cap the oldest is dropped, so an unread store cannot grow with uptime.
+pub const REPORT_CAP: usize = 1024;
+
+fn store_report(reports: &mut Vec<String>, text: String) {
+    if reports.len() >= REPORT_CAP {
+        reports.remove(0);
+    }
+    reports.push(text);
+}
 thread_local! { static WARM: Cell<u8> = const { Cell::new(0) }; }
 
 /// Ends its thread's warm scope on drop.
@@ -96,7 +127,7 @@ impl Drop for WarmScope {
     }
 }
 
-/// Starts recording a backtrace for every allocation this thread makes until the returned guard drops.
+/// Starts recording a backtrace for every allocation this thread makes until the returned guard drops (counting builds only).
 /// Read the result with [`take_reports`]; scopes do not nest (a second call on the same thread is a no-op).
 /// Allocates: nothing on the calling thread; reports are stored apart from the counters.
 /// Panics: never.
@@ -123,7 +154,8 @@ pub fn take_reports() -> Vec<String> {
 }
 
 /// Adds one formatted message to the reports [`take_reports`] returns, from any thread (debug diagnostics, e.g. a style mismatch).
-/// Allocates: the message; inside a warm scope that allocation is not itself reported. Reports are dropped if the store is busy.
+/// Allocates: the message; inside a warm scope that allocation is not itself reported. Reports are dropped if the store is busy;
+/// past [`REPORT_CAP`] the oldest is dropped.
 /// Panics: never.
 ///
 /// ```
@@ -134,7 +166,7 @@ pub fn report(message: std::fmt::Arguments) {
     let before = WARM.try_with(|state| state.replace(2)).unwrap_or(0);
     let text = message.to_string();
     if let Ok(mut reports) = REPORTS.try_lock() {
-        reports.push(text);
+        store_report(&mut reports, text);
     }
     let _ = WARM.try_with(|state| state.set(before));
 }
@@ -153,7 +185,7 @@ fn note_alloc(size: usize) {
                 let _ = WARM.try_with(|state| state.set(2));
                 let report = std::backtrace::Backtrace::force_capture().to_string();
                 if let Ok(mut reports) = REPORTS.try_lock() {
-                    reports.push(report);
+                    store_report(&mut reports, report);
                 }
                 let _ = WARM.try_with(|state| state.set(1));
                 return;

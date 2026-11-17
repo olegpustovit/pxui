@@ -263,10 +263,11 @@ fn run() -> i32 {
 /// and builds it from the `pxui/` checkout's workspace into its own target directory.
 fn ensure_libpxui(args: &Args) -> Result<(), i32> {
     let in_rays = !Path::new("crates/private/pxui_dylib").exists() && Path::new("pxui/Cargo.toml").exists();
-    let linked = in_rays || args.cargo.windows(2).any(|pair| (pair[0] == "-p" || pair[0] == "--package") && (pair[1] == "pxui" || pair[1] == "pxui_gallery"));
+    let linked = in_rays || args.cargo.windows(2).any(|pair| (pair[0] == "-p" || pair[0] == "--package") && (pair[1] == "pxui" || pair[1] == "pxui_gallery" || pair[1] == "pxui_host"));
     if !linked { return Ok(()); }
     let mut build = Command::new("cargo");
-    build.args(["build", "-q", "-p", "pxui_dylib", "--target-dir"]).arg(args.target_dir.clone().unwrap_or_else(default_target_dir));
+    // The test build of the library counts its allocations (`counting`), so warm-allocation tests see both sides of the ABI.
+    build.args(["build", "-q", "-p", "pxui_dylib", "--features", "pxui_dylib/counting", "--target-dir"]).arg(args.target_dir.clone().unwrap_or_else(default_target_dir));
     if in_rays { build.args(["--manifest-path", "pxui/Cargo.toml"]); }
     let mut profile = "debug".to_owned();
     let mut flags = args.cargo.iter();

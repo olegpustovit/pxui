@@ -17,7 +17,7 @@ metal_sys = { path = "../metal_sys" }
 native_layer_token_sys = { path = "../native_layer_token_sys" }
 
 [dev-dependencies]
-mem_sys = { path = "../mem_sys" }
+mem_sys = { path = "../mem_sys", features = ["counting"] }
 
 [[test]]
 name = "gpu_all"

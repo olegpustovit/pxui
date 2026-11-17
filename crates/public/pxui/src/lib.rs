@@ -735,7 +735,8 @@ fn check(ui: &Ui, rc: i32) { if rc != 0 { refused(ui, rc) } }
 #[track_caller]
 fn refused(ui: &Ui, rc: i32) -> ! { panic!("pxui: {} ({rc})", ui.last_error()) }
 /// The library's process counters, for the performance gate: calls made into it (this one included) and heap allocations its
-/// allocator has made. In a static build both are the app's own allocator and the calls of the same process.
+/// allocator has made. Allocations count only in a counting build (a `libpxui` built with `pxui_dylib/counting`; statically, the
+/// app's `mem_sys/counting`) and read 0 otherwise. In a static build both are the app's own allocator and the calls of the same process.
 #[cfg(feature="static")]
 pub fn library_counter(which:u32)->u64 { unsafe { sys::pxui_counter(which) } }
 #[cfg(not(feature="static"))]

@@ -5,6 +5,10 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+# A test/performance libpxui: the library's own copy of `mem_sys` installs its counting allocator (`pxui_counter`).
+counting = ["mem_sys/counting"]
+
 [lib]
 name = "pxui"
 
@@ -23,6 +27,9 @@ ogpu_metal = { path = "../../open/ogpu_metal" }
 
 [target.'cfg(any(windows, target_os = "linux"))'.dependencies]
 ogpu_vulkan = { path = "../../open/ogpu_vulkan" }
+
+[dev-dependencies]
+mem_sys = { path = "../../open/mem_sys", features = ["counting"] }
 
 [lints]
 workspace = true

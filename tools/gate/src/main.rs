@@ -1340,8 +1340,25 @@ fn deps(workspace: &Path) -> Result<Vec<String>, String> {
         }
     }
     errors.extend(ogpu_selection_errors(&packages, &runtime_graph, &selection_direct, workspace));
+    errors.extend(counting_allocator_errors(workspace)?);
     errors.sort();
     Ok(errors)
+}
+
+/// The library never chooses the process allocator: no normal (non-dev) edge of a default workspace-wide build, for any target, may
+/// turn on `mem_sys/counting` (it would unify into the shipped libpxui). Tests and perf builds opt in through dev-dependencies or a
+/// package's own `counting` feature.
+fn counting_allocator_errors(workspace: &Path) -> Result<Vec<String>, String> {
+    let output = std::process::Command::new("cargo")
+        .args(["tree", "-q", "--workspace", "--target", "all", "-e", "normal,features", "-i", "mem_sys", "--prefix", "none"])
+        .current_dir(workspace).output().map_err(|error| format!("cannot run cargo tree: {error}"))?;
+    if !output.status.success() {
+        return Ok(vec![format!("counting allocator: cargo tree failed: {}", String::from_utf8_lossy(&output.stderr).trim())]);
+    }
+    let tree = String::from_utf8_lossy(&output.stdout);
+    Ok(if tree.lines().any(|line| line.trim() == "mem_sys feature \"counting\"") {
+        vec![format!("counting allocator: a normal dependency enables mem_sys/counting in a default workspace build (it would reach the shipped libpxui); use a dev-dependency or an opt-in `counting` feature:\n{tree}")]
+    } else { Vec::new() })
 }
 
 

@@ -21,7 +21,7 @@ pxui_types = { path = "../../public/pxui_types" }
 [dev-dependencies]
 pxui_render = { path = "../pxui_render" }
 ogpu_core = { path = "../../open/ogpu_core" }
-mem_sys = { path = "../../open/mem_sys" }
+mem_sys = { path = "../../open/mem_sys", features = ["counting"] }
 
 [target.'cfg(any(windows, target_os = "linux"))'.dev-dependencies]
 ogpu_vulkan = { path = "../../open/ogpu_vulkan" }

@@ -1,3 +1,9 @@
+// mem_sys counts only with its `counting` feature; a plain `cargo t -p mem_sys` installs the counting allocator here, as an app's
+// test or performance build does.
+#[cfg(not(feature = "counting"))]
+#[global_allocator]
+static ALLOCATOR: mem_sys::CountingAllocator = mem_sys::CountingAllocator;
+
 // One test: reports are process-wide, so concurrent scopes in sibling tests would mix.
 #[test]
 fn warm_scope_reports_allocations_only() {

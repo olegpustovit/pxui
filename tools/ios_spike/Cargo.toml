@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+[features]
+# The spike's warm-allocation checks count only with `--features counting`; off by default (see pxui_gallery).
+counting = ["mem_sys/counting"]
+
 [[bin]]
 name = "pxui-ios-spike"
 path = "src/main.rs"

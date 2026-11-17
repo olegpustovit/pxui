@@ -11,7 +11,7 @@ native_layer_token_sys = { path = "../native_layer_token_sys" }
 sdl3 = { path = "../sdl3" }
 
 [dev-dependencies]
-mem_sys = { path = "../mem_sys" }
+mem_sys = { path = "../mem_sys", features = ["counting"] }
 sdl3_sys = { path = "../sdl3_sys", features = ["test-util"] }
 
 [features]

@@ -12,6 +12,11 @@ name = "pxui"
 path = "src/lib.rs"
 crate-type = ["cdylib"]
 
+[features]
+# The test/performance libpxui (`cargo t` builds it): counts its allocations for the zero-allocation gates. Production builds leave
+# the process allocator alone.
+counting = ["pxui_abi_link/counting"]
+
 [dependencies]
 pxui_abi_link = { package = "pxui_abi", path = "../pxui_abi" }
 

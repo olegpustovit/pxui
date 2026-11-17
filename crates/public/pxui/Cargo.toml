@@ -13,7 +13,7 @@ pxui_types = { path = "../pxui_types" }
 pxui_abi_link = { package = "pxui_abi", path = "../../private/pxui_abi", optional = true }
 
 [dev-dependencies]
-mem_sys = { path = "../../open/mem_sys" }
+mem_sys = { path = "../../open/mem_sys", features = ["counting"] }
 
 [lints]
 workspace = true

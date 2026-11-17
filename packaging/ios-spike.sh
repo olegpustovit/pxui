@@ -11,7 +11,7 @@ build_root=${2:-"$PWD/target"}
 packaging/build-sdl-ios.sh "$sdk" "$build_root"
 build_root=$(cd "$build_root" && pwd)
 SDL3_DIR="$build_root/sdl-$sdk" CARGO_TARGET_DIR="$build_root" \
-    IPHONEOS_DEPLOYMENT_TARGET=18.0 cargo build -p ios_spike --target "$target"
+    IPHONEOS_DEPLOYMENT_TARGET=18.0 cargo build -p ios_spike --features counting --target "$target"
 bundle="$build_root/$target/debug/PXUIHostSpike.app"
 mkdir -p "$bundle"
 cp "$build_root/$target/debug/pxui-ios-spike" "$bundle/PXUIHostSpike"

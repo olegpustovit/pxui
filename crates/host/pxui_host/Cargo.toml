@@ -21,6 +21,9 @@ ogpu_core = { path = "../../open/ogpu_core" }
 ogpu_metal = { path = "../../open/ogpu_metal" }
 metal_sys = { path = "../../open/metal_sys" }
 
+[dev-dependencies]
+mem_sys = { path = "../../open/mem_sys", features = ["counting"] }
+
 [lints]
 workspace = true
 

@@ -22,6 +22,9 @@ test = false
 [features]
 default = ["static"]
 static = ["pxui/static"]
+# The gallery counts its frames' allocations (`--features counting`; its tests turn it on through the dev-dependency). Off by
+# default so a workspace build never unifies the counting allocator into the shipped libpxui (`gate deps` checks).
+counting = ["mem_sys/counting"]
 
 [dependencies]
 input = { path = "../../crates/open/input" }
@@ -62,6 +65,7 @@ path = "tests/bodies.rs"
 harness = false
 
 [dev-dependencies]
+mem_sys = { path = "../../crates/open/mem_sys", features = ["counting"] }
 abi_bench = { path = "../abi_bench" }
 
 [lints]

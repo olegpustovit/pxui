@@ -6,6 +6,15 @@ use crate::node::size;
 use crate::sys;
 use crate::{Ui, check};
 
+// Per-thread state of the wrapper, by design (OS-grade criterion 2): each lives in a `thread_local`, is shared by every `Ui` on
+// that thread, is never touched from another thread and holds no app pointer past the call that filled it. Bounded:
+// - `CALLBACK_PANIC` (below): at most one deferred panic per thread, taken by the outermost call; `PENDING` counts the threads
+//   holding one, so a settled process skips the lookup.
+// - `paint::POOL`: released closure boxes, at most `POOLED` (64) per closure layout; layouts are the app's distinct closure types.
+// - `overlays::ROWS` / `MENU_COLUMNS`: a picker's rows and a long menu's columns, grown to the largest one built on the thread.
+// - `ORPHANS` (lib.rs): each `Ui` dropped before its renderers, until a renderer drop on this thread destroys it.
+// None of them is the process allocator: allocation counting is `mem_sys`'s opt-in `counting` feature (test/perf builds).
+
 // A panic in an app callback must not unwind through the library. The first one is kept here and every later callback
 // of the call is skipped; the outermost call that can run callbacks (frame, prepare, draw) resumes it after it returns.
 thread_local! { static CALLBACK_PANIC: std::cell::RefCell<Option<Box<dyn Any + Send>>> = const { std::cell::RefCell::new(None) }; }

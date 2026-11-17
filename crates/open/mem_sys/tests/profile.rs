@@ -1,4 +1,8 @@
 #![cfg(any(target_os = "macos", target_os = "ios"))]
+// mem_sys counts only with its `counting` feature; a plain `cargo t -p mem_sys` installs the counting allocator here.
+#[cfg(not(feature = "counting"))]
+#[global_allocator]
+static ALLOCATOR: mem_sys::CountingAllocator = mem_sys::CountingAllocator;
 use mem_sys::profile::{FrameInterval, thread_cpu_time_ns, ui_thread_priority};
 
 #[test]

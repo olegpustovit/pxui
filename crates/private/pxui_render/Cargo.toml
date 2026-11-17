@@ -16,7 +16,7 @@ pxui_core = { path = "../pxui_core" }
 pxui_types = { path = "../../public/pxui_types" }
 
 [dev-dependencies]
-mem_sys = { path = "../../open/mem_sys" }
+mem_sys = { path = "../../open/mem_sys", features = ["counting"] }
 pxui = { path = "../../public/pxui", features = ["static"] }
 
 [target.'cfg(any(windows, target_os = "linux"))'.dev-dependencies]

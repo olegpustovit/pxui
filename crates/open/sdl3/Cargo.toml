@@ -16,7 +16,7 @@ test-util = ["sdl3_sys/test-util"]
 
 [dev-dependencies]
 sdl3_sys = { path = "../sdl3_sys", features = ["test-util"] }
-mem_sys = { path = "../mem_sys" }
+mem_sys = { path = "../mem_sys", features = ["counting"] }
 
 [lints]
 workspace = true
