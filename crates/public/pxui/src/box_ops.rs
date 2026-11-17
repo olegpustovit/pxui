@@ -518,6 +518,20 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_context_at(self.0.as_ptr(), b, &mut present, &mut out) });
         (present != 0).then_some((out.x, out.y))
     }
+    /// Whether `b` itself, none of its children, is the topmost box under the pointer; always false while the last input was a touch.
+    /// Reads the hover the frame's input routing settled; the answer is for this frame. A stale handle reads false.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// use pxui::{ui::Size, Event, Node};
+    /// let mut b = None;
+    /// let mut build = |ui: &mut pxui::Ui| b = Some(ui.node("n".into(), Node { flags: pxui::ui::Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT }));
+    /// let mut ui = pxui::doc::frames(2, &mut build);
+    /// let moved = [Event { kind: Event::POINTER_MOVED, x: 10.0, y: 10.0, ..Default::default() }];
+    /// pxui::testing::frame(&mut ui, &moved, &mut build);
+    /// assert!(ui.hovered_exactly(&b.unwrap()));
+    /// ```
     #[inline]
     #[track_caller]
     pub fn hovered_exactly(&self, b: &PxuiBox) -> bool {
@@ -525,6 +539,19 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_hovered(self.0.as_ptr(), b, 0, &mut out) });
         out != 0
     }
+    /// Whether `b` or one of its hit descendants owns the pointer's hover in the shared hit tree.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// use pxui::{ui::Size, Event, Node};
+    /// let mut b = None;
+    /// let mut build = |ui: &mut pxui::Ui| b = Some(ui.node("n".into(), Node { flags: pxui::ui::Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT }));
+    /// let mut ui = pxui::doc::frames(2, &mut build);
+    /// let moved = [Event { kind: Event::POINTER_MOVED, x: 10.0, y: 10.0, ..Default::default() }];
+    /// pxui::testing::frame(&mut ui, &moved, &mut build);
+    /// assert!(ui.hovered_within(&b.unwrap()));
+    /// ```
     #[inline]
     #[track_caller]
     pub fn hovered_within(&mut self, b: &PxuiBox) -> bool {
@@ -589,7 +616,19 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_view_flat(self.0.as_ptr(), as_str(label), revision, size(w), size(h), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
-    /// The last root pressed by a pointer press among `events`, by the previous hit tree.
+    /// The last of `roots` (box keys) that a pointer press among `events` landed on or under, by the previous frame's hit tree; `None` when no press hit one.
+    /// Window points; call it before the frame that takes `events` replaces the tree, to see which panel a press belongs to.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// use pxui::{ui::Size, Event, Node};
+    /// let mut key = 0;
+    /// let ui = pxui::doc::frames(2, &mut |ui| key = ui.node("n".into(), Node { flags: pxui::ui::Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT }).box_key);
+    /// let press = |x| [Event { kind: Event::POINTER_PRESSED, x, y: 10.0, ..Default::default() }];
+    /// assert_eq!(ui.last_press_within(&press(10.0), &[key]), Some(key));
+    /// assert_eq!(ui.last_press_within(&press(200.0), &[key]), None);
+    /// ```
     #[track_caller]
     pub fn last_press_within(&self, events: &[pxui_types::Event], roots: &[i64]) -> Option<i64> {
         let mut last = None;

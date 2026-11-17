@@ -17,9 +17,6 @@ crates/public/pxui/src/box_ops.rs	Ui::drop_target_ref	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::end_refresh	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::gesture	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::gesture_state	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::hovered_exactly	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::hovered_within	example,Allocates,Panics
-crates/public/pxui/src/box_ops.rs	Ui::last_press_within	example,Allocates,Panics
 crates/public/pxui/src/box_ops.rs	Ui::transfer_carry	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::field_drag	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::grip	example,Allocates,Panics,Identity
@@ -79,9 +76,6 @@ crates/public/pxui/src/theme_scope.rs	Theme::load	example,Allocates,Panics
 crates/public/pxui/src/theme_scope.rs	Theme::set	example,Allocates,Panics,Identity
 crates/public/pxui/src/theme_scope.rs	Ui::themed	example,Allocates,Panics
 crates/public/pxui/src/theme_scope.rs	Ui::use_theme	example,Allocates,Panics
-crates/public/pxui/src/ui_state.rs	Ui::expanded	example,Allocates,Panics,Identity
-crates/public/pxui/src/ui_state.rs	Ui::hover_delay	example,Allocates,Panics,Identity
-crates/public/pxui/src/ui_state.rs	Ui::key_down	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_badge	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_checkbox	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_dropdown	example,Allocates,Panics,Identity

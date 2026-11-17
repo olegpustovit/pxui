@@ -168,7 +168,19 @@ impl Ui {
     pub fn passed_undo(&self) -> Option<UndoKind> {
         match unsafe { lib::pxui_ui_passed_undo(self.0.as_ptr()) } { 1 => Some(UndoKind::Undo), 2 => Some(UndoKind::Redo), _ => None }
     }
-    /// Raw held state, including modifiers while a field or popup owns keyboard focus.
+    /// Whether `key` (a key code, a character or `KEY_SPECIAL` plus an index, modifiers included) is held in this frame's input.
+    /// A raw query, unlike `key_pressed` it reports the held state: a key pressed and released in one frame was never held at the frame's end. While a text field or popup owns the keyboard the modifiers are still reported.
+    /// Allocates: never.
+    /// Identity: `key` is a key code, not a node key.
+    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    ///
+    /// ```
+    /// use pxui::Event;
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let press = [Event { kind: Event::KEY_PRESSED, code: 'a' as u32, ..Default::default() }];
+    /// pxui::testing::frame(&mut ui, &press, &mut |ui| assert!(ui.key_down('a' as u32)));
+    /// pxui::testing::frame(&mut ui, &[], &mut |ui| assert!(ui.key_down('a' as u32))); // still held
+    /// ```
     #[inline]
     #[track_caller]
     pub fn key_down(&self, key: u32) -> bool {
@@ -297,13 +309,34 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_rebuilt_named(self.0.as_ptr(), as_str(prefix), &mut out) });
         out as usize
     }
-    /// The state of the inspector section built under `key` in the current parent, if there is one.
+    /// The state of the inspector section built under `key` in the current parent: `Some(true)` expanded, `Some(false)` collapsed, `None` when no section of that key has been built there.
+    /// Read it where the section is built (inside the same parent); it is `None` until the section has first been built there, and keeps its state from frame to frame.
+    /// Allocates: never.
+    /// Identity: `key` is the key given to `inspector_section`, resolved under the current parent's seed as for any label.
+    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     assert_eq!(ui.expanded("details"), None); // not built yet
+    ///     ui.inspector_section("details", true, None, "Details", &mut |ui| { ui.label("body", pxui::Label::DEFAULT); });
+    ///     assert_eq!(ui.expanded("details"), Some(true));
+    /// });
+    /// ```
     #[track_caller]
     pub fn expanded(&self, key: &str) -> Option<bool> {
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_expanded(self.0.as_ptr(), as_str(key), &mut out) });
         match out { 0 => None, state => Some(state == 2) }
     }
+    /// Whether the pointer has rested, unmoved, on the target named `key` for the hover delay (the tooltip wait); call it every frame the pointer is over the target.
+    /// A different `key`, a moved pointer, a missed frame, a touch, a press in progress, a modal or focus loss restart the wait. The first call for a key is always false.
+    /// Allocates: the first call for a key copies it; never afterwards for the same key.
+    /// Identity: `key` names the hover target for this one wait, compared as text (not resolved under a parent): two targets with one key share the wait.
+    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| assert!(!ui.hover_delay("play")));
+    /// ```
     #[track_caller]
     pub fn hover_delay(&mut self, key: &str) -> bool {
         let mut out = 0;
