@@ -748,6 +748,19 @@ mod sized_records {
         assert_eq!(press(&PxuiButtonDesc { size: 100, ..button }), PXUI_ERR_ARGUMENT);
         assert_eq!(press(&PxuiButtonDesc { centered: 2, ..button }), PXUI_ERR_ARGUMENT);
         assert_eq!(press(&PxuiButtonDesc { reserved2: [0, 0, 1, 0, 0, 0, 0], ..button }), PXUI_ERR_ARGUMENT);
+        // ABI 1.56: the 104-byte record of 1.54 is read without its tail; the label, layout and focus fields are checked
+        assert_eq!(press(&PxuiButtonDesc { size: 104, axis: 9, gap: f32::NAN, has_label: 7, ..button }), 0, "a 104-byte record's tail is not read");
+        assert_eq!(press(&PxuiButtonDesc { size: 150, ..button }), PXUI_ERR_ARGUMENT);
+        let label = pxui_types::ffi::PxuiLabelStyle::from(&pxui_types::Label::BODY.size(14.0));
+        let label_box = pxui_types::ffi::PxuiLabelBox::from(&pxui_types::Label::BODY.h(20.0));
+        let laid = PxuiButtonDesc { has_label: 1, label, label_box, axis: 2, content_align: 3, gap: 4.0, focus_on_click: 1, ..button };
+        assert_eq!(press(&laid), 0);
+        for bad in [PxuiButtonDesc { axis: 4, ..laid }, PxuiButtonDesc { content_align: 4, ..laid }, PxuiButtonDesc { gap: -1.0, ..laid }, PxuiButtonDesc { gap: f32::INFINITY, ..laid },
+            PxuiButtonDesc { has_label: 2, ..laid }, PxuiButtonDesc { focus_on_click: 2, ..laid }, PxuiButtonDesc { label: pxui_types::ffi::PxuiLabelStyle { size: 8, ..label }, ..laid },
+            PxuiButtonDesc { label: pxui_types::ffi::PxuiLabelStyle { size_points: -3.0, ..label }, ..laid }, PxuiButtonDesc { label_box: pxui_types::ffi::PxuiLabelBox { whole_pixels: 2, ..label_box }, ..laid }] {
+            assert_eq!(press(&bad), PXUI_ERR_ARGUMENT);
+        }
+        assert_eq!(press(&PxuiButtonDesc { has_label: 0, label: pxui_types::ffi::PxuiLabelStyle { size: 8, ..label }, ..laid }), 0, "the label is read only when has_label is 1");
         assert_eq!(tap(&icon), 0, "null curves are the kit's springs");
         use pxui_types::Curve;
         let springs = [Curve::Spring { omega: 30.0 }, Curve::Spring { omega: 10.0 }];
@@ -774,6 +787,10 @@ mod sized_records {
             let p = p.cast::<PxuiButtonDesc>();
             in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_response(ui, p, None, core::ptr::null_mut(), &mut out) } })
         });
+        four(ui, ((&value as *const PxuiButtonDesc).cast(), size_of_val(&value), align_of_val(&value)), true, &mut |p| {
+            let p = p.cast::<PxuiButtonDesc>();
+            in_frame(ui, &mut |ui| { let mut out = PxuiResponse::EMPTY; unsafe { pxui_ui_button_content(ui, p, None, core::ptr::null_mut(), &mut out) } })
+        });
         let mut icon: PxuiIconButtonDesc = unsafe { core::mem::zeroed() };
         (icon.enabled, icon.press_scale, icon.key, icon.name, icon.icon) = (1, 1.0, k, k, k);
         four(ui, ((&icon as *const PxuiIconButtonDesc).cast(), size_of_val(&icon), align_of_val(&icon)), true, &mut |p| {
@@ -785,6 +802,7 @@ mod sized_records {
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_plain(ui, k, k, out) }), PXUI_ERR_ARGUMENT);
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_icon_button_plain(ui, k, k, k, out) }), PXUI_ERR_ARGUMENT);
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_response(ui, &value, None, core::ptr::null_mut(), out) }), PXUI_ERR_ARGUMENT);
+            assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_button_content(ui, &value, None, core::ptr::null_mut(), out) }), PXUI_ERR_ARGUMENT);
             assert_eq!(in_frame(ui, &mut |ui| unsafe { pxui_ui_icon_button_response(ui, &icon, out) }), PXUI_ERR_ARGUMENT);
         }
         let bad = Str { ptr: [0xffu8].as_ptr(), len: 1 };

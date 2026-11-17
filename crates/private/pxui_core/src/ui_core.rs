@@ -1729,7 +1729,7 @@ impl Ui {
     }
 
     /// Actions from an assistive technology (`pxui_atspi::Bridge::pump`), applied at the start of
-    /// the next frame as input: Press clicks, Focus focuses, Scroll scrolls by `payload` points,
+    /// the next frame as input: Press clicks (not a node shown disabled), Focus focuses, Scroll scrolls by `payload` points,
     /// SetValue hands `payload` to the widget (`Signal::a11y_value`), Expand and Collapse click a
     /// disclosure whose state differs, Select focuses a text field and sets its selection
     /// (`Signal::a11y_select`). Ids of nodes that are gone are dropped.
@@ -1742,8 +1742,10 @@ impl Ui {
         for a in &pending {
             let (slot, generation) = ((a.id & 0xffff_ffff) as usize, (a.id >> 32) as u32);
             let Some(s) = self.slots.get(slot).filter(|s| s.generation == generation && s.key != 0) else { continue };
-            let (key, expanded) = (s.key, s.node.a11y & a11y_state::EXPANDED != 0);
+            let (key, expanded, disabled) = (s.key, s.node.a11y & a11y_state::EXPANDED != 0, s.node.state.disabled);
             match a.action {
+                // a node shown disabled takes no press, as it takes none from the pointer or the keyboard
+                A11yKind::Press | A11yKind::Expand | A11yKind::Collapse if disabled => {}
                 A11yKind::Press => self.accumulator(key).clicked = true,
                 A11yKind::Focus => {
                     let b = UiBox { index: NONE, box_key: key, box_slot: slot, generation };

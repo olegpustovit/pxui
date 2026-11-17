@@ -527,17 +527,18 @@ impl Ui {
         let grow = opts.grow || opts.w.is_some();
         let strip = self.node_keyed(int_key(key, 0), Node { flags: strip_flags, w: strip_w, h: Size::Px(ch), axis: Axis::Row, role: Role::Group, ..Node::DEFAULT });
         self.a11y_name(&strip, shown(name));
-        let s = self.signal_owned(&strip);
+        let mut s = self.signal_owned(&strip);
+        s.clicked &= enabled;
         let focused = self.focused(&strip);
         let mut sel = selected.min(count.saturating_sub(1));
-        pressed(&s.keys, &mut |k| sel = clamp_step(sel, self.along(k), count));
+        if enabled { pressed(&s.keys, &mut |k| sel = clamp_step(sel, self.along(k), count)); }
         let inner = self.enter(&strip);
         for i in 0..count {
             let option = option(i);
             let flags = if enabled { ROW_FLAGS } else { Flags::BLOCKING };
             let n = self.node_keyed(int_key(strip.box_key, i as i64), Node { flags, h: Size::Grow, role: Role::Radio, ..Node::DEFAULT });
             let ns = self.signal(&n);
-            if ns.clicked {
+            if enabled && ns.clicked {
                 sel = i;
             }
             let state = State { hovered: enabled && ns.hovered, pressed: enabled && ns.held, checked: sel == i, disabled: !enabled, ..State::default() };
@@ -1051,17 +1052,20 @@ impl Ui {
     /// `icon_button` with the glyph as any string (the C ABI's) beside an optional drawing, which wins; `signal`, when given, receives
     /// the box's signal as it was read for it, without its key events (`key_events_ref`): the C ABI's signal without a second read.
     pub fn icon_button_text(&mut self, key: &str, glyph: &str, draw: Option<(IconDraw, [usize; 3])>, name: &str, button: &IconButton, signal: Option<&mut Signal>) -> Response {
-        let flags = if button.enabled { STOP_FLAGS } else { Flags::BLOCKING | Flags::TAB_ONLY };
+        let enabled = button.enabled && !self.scope_disabled();
+        let flags = if enabled { STOP_FLAGS } else { Flags::BLOCKING | Flags::TAB_ONLY };
         let b = self.node_ref(key, &Node { flags, role: Role::Button, ..Node::DEFAULT });
-        let s = self.signal(&b);
+        let mut s = self.signal(&b);
+        // a disabled button reports no click from any input (a press begun while it was enabled, an assistive technology's press)
+        s.clicked &= enabled;
         let focused = self.focused(&b);
-        let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !button.enabled, ..State::default() };
+        let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !enabled, ..State::default() };
         self.a11y_name(&b, shown(name));
         let states = match button.states { Some(states) => states, None => self.theme().icon_button };
         let ink = states.pick(state).text;
         let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw, press: button.press };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
-        self.node_new(&b).state.disabled = !button.enabled;
+        self.node_new(&b).state.disabled = !enabled;
         let response = Response::of(&s, focused, b);
         if let Some(out) = signal { *out = s; }
         response

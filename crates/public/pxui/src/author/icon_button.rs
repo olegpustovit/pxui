@@ -68,7 +68,19 @@ impl IconButton {
     /// const KEY: pxui::IconButton = pxui::IconButton::sized(36.0, 36.0);
     /// let _ = KEY;
     /// ```
-    pub const fn sized(w: f32, h: f32) -> IconButton { IconButton { w: Size::Px(w), h: Size::Px(h), ..IconButton::DEFAULT } }
+    pub const fn sized(w: f32, h: f32) -> IconButton { IconButton::DEFAULT.size(Size::Px(w), Size::Px(h)) }
+
+    /// Sets the box's width and height: `Size::Px` points, `Size::Grow` to fill its line, `Size::Fit` the kit's (the theme's 20-point
+    /// square); `IconButton::sized(w, h)` is `DEFAULT.size(Size::Px(w), Size::Px(h))`. `Pct` and `Rel` are refused when the button is declared.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui::{ui::Size, IconButton};
+    /// const WIDE: IconButton = IconButton::DEFAULT.size(Size::Grow, Size::Px(44.0));
+    /// let _ = WIDE;
+    /// ```
+    pub const fn size(mut self, w: Size, h: Size) -> IconButton { self.w = w; self.h = h; self }
 
     /// Sets the look per state (idle, hover, pressed, focus, disabled, checked) in place of the theme's `icon_button`; its font draws the glyph.
     /// Allocates: never.
@@ -107,7 +119,8 @@ impl IconButton {
     /// ```
     pub const fn press_curves(mut self, curves: &'static [Curve; 2]) -> IconButton { self.press = Some(curves); self }
 
-    /// Sets whether the button takes input: disabled takes no press or focus, shows the `disabled` look and reads as disabled to accessibility.
+    /// Sets whether the button takes input: disabled takes no press or focus, shows the `disabled` look and reads as disabled to accessibility
+    /// (its node lacks the ENABLED and FOCUSABLE states). A disabled button never reports `clicked` or `activated`, from any input.
     /// Allocates: never.
     /// Panics: never.
     ///
@@ -207,6 +220,20 @@ mod tests {
         assert_eq!(hits.get(), 0);
         let on = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Help").unwrap();
         assert_eq!((on.rect.w, on.rect.h), (20.0, 20.0));
+    }
+
+    /// `size` takes any `Size`: a key filling its 200-point bar, 44 high; `sized` is `size` in points.
+    #[test]
+    fn size_fills_its_line() {
+        use crate::ui::{Node, Size};
+        let mut build = |ui: &mut Ui| {
+            ui.row("bar", Node { w: Size::Px(200.0), ..Node::DEFAULT }, |ui| { ui.icon_button("wide", PLAY, "Wide", &IconButton::DEFAULT.size(Size::Grow, Size::Px(44.0))); });
+            ui.icon_button("key", PLAY, "Key", &IconButton::DEFAULT.size(Size::Px(36.0), Size::Px(36.0)));
+        };
+        let ui = crate::doc::frames(2, &mut build);
+        let size = |name: &str| { let n = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == name).unwrap(); (n.rect.w, n.rect.h) };
+        assert_eq!(size("Wide"), (200.0, 44.0));
+        assert_eq!(size("Key"), (36.0, 36.0));
     }
 
     thread_local! { static SEEN: Cell<(u32, f32, f32, u8)> = const { Cell::new((0, 0.0, 0.0, 0)) }; }

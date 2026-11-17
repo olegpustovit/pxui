@@ -348,7 +348,7 @@ mod tests {
             ui.menu("menu", (10.0, 10.0), &ITEMS, &Menu::DEFAULT.variant(2));
             ui.menu("plain", (100.0, 10.0), &ITEMS, &Menu::DEFAULT);
             // the built-in button body runs the contents; the registered label inside is given no variant
-            ui.button_content("pill", &Button::DEFAULT.variant(1).size(Size::Px(60.0), Size::Px(30.0)).name("Pill"), |ui| { ui.label("inside", Label::DEFAULT); });
+            ui.button_content("pill", &Button::DEFAULT.variant(1).size(Size::Px(60.0), Size::Px(30.0)).name("Pill"), |ui, _| { ui.label("inside", Label::DEFAULT); });
             ui.label("after", Label::DEFAULT.variant(5));
             ui.toggle_with("t", "T", true, &crate::Toggle::DEFAULT.variant(4));
             ui.toggle_with("t0", "T", true, &crate::Toggle::DEFAULT);

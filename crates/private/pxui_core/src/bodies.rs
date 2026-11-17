@@ -76,6 +76,13 @@ pub struct ButtonConfig {
     pub centered: bool,
     pub line: Handle,
     pub row: Handle,
+    /// The caller's `Button::label`: the text drawn through the label line box in this style (`None`: the kit's text).
+    pub label: Option<pxui_types::Label>,
+    /// The caller's `Button::axis`, `Button::gap` and `Button::content_align`: how `row` lays out its contents (`None`: the kit's), the
+    /// contents placed across the box by `content_align` and centred down it.
+    pub axis: Option<Axis>,
+    pub gap: f32,
+    pub content_align: Option<Align>,
 }
 
 pub type ButtonBody = fn(&mut Ui, &ButtonConfig, &States, &str);

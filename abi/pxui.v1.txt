@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 55
+minor 56
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -85,6 +85,7 @@ function pxui_ui_box int32_t pxui_ui_box ( PxuiUi * ui , PxuiStr label , const P
 function pxui_ui_box_of_a11y uint8_t pxui_ui_box_of_a11y ( PxuiUi * ui , uint64_t id , PxuiBox * out ) ;
 function pxui_ui_box_of_key uint8_t pxui_ui_box_of_key ( PxuiUi * ui , int64_t key , PxuiBox * out ) ;
 function pxui_ui_busy_step int32_t pxui_ui_busy_step ( PxuiUi * ui , const PxuiBox * box , double now , uint8_t * out ) ;
+function pxui_ui_button_content int32_t pxui_ui_button_content ( PxuiUi * ui , const PxuiButtonDesc * desc , PxuiButtonBuild build , void * user , PxuiResponse * out ) ;
 function pxui_ui_button_plain int32_t pxui_ui_button_plain ( PxuiUi * ui , PxuiStr key , PxuiStr text , PxuiResponse * out ) ;
 function pxui_ui_button_response int32_t pxui_ui_button_response ( PxuiUi * ui , const PxuiButtonDesc * desc , PxuiBuild build , void * user , PxuiResponse * out ) ;
 function pxui_ui_button_styled int32_t pxui_ui_button_styled ( PxuiUi * ui , PxuiStr text , uint8_t bare , uint8_t icon , uint8_t at_end , uint8_t has_ink , PxuiColor ink , uint8_t * out ) ;
@@ -303,8 +304,8 @@ layout PxuiBadgeConfig 80 8 0 8 40 56 72
 layout PxuiBar 24 4 0 4 8 12 16 20
 layout PxuiBox 32 8 0 8 16 24
 layout PxuiBoxDesc 112 8 0 4 8 16 32 48 52 56 60 61 62 64 72 88 96 104
-layout PxuiButtonConfig 144 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135
-layout PxuiButtonDesc 104 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97
+layout PxuiButtonConfig 232 8 0 4 12 13 14 16 48 80 88 104 105 106 107 108 112 116 132 134 135 144 145 146 147 148 152 216
+layout PxuiButtonDesc 192 8 0 4 5 6 7 8 9 10 11 12 16 20 40 48 64 80 96 97 104 105 106 107 108 112 176
 layout PxuiCell 8 2 0 2 4 6
 layout PxuiCheckConfig 72 8 0 4 12 16 48 64
 layout PxuiColorSpan 24 8 0 8 16 20

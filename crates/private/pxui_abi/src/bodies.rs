@@ -135,7 +135,10 @@ mod tramps {
     tramp!(button, |ui, sh, c: &ButtonConfig, states: &States, label: &str| PxuiButtonConfig {
         state: st(c.state), bare: c.bare as u8, icon: c.icon as u8, at_end: c.at_end as u8, line: bx(c.line), row: bx(c.row), states: states, label: pair(label),
         w_kind: size_kind(c.w).0, h_kind: size_kind(c.h).0, justify: match c.justify { Justify::Center => 1, Justify::End => 2, _ => 0 },
-        reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, padding: [c.pad.l, c.pad.t, c.pad.r, c.pad.b], centered: c.centered as u8, reserved2: [0; 9]
+        reserved: 0, w: size_kind(c.w).1, h: size_kind(c.h).1, padding: [c.pad.l, c.pad.t, c.pad.r, c.pad.b], centered: c.centered as u8, reserved2: [0; 9],
+        has_label: c.label.is_some() as u8, axis: c.axis.map_or(0, |a| a as u8 + 1),
+        content_align: match c.content_align { None => 0, Some(pxui_types::layout::Align::Start) => 1, Some(pxui_types::layout::Align::End) => 3, Some(_) => 2 }, reserved3: 0, gap: c.gap,
+        text_style: c.label.as_ref().map(PxuiLabelStyle::from).unwrap_or_default(), text_box: c.label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default()
     });
     tramp!(icon_button, |ui, sh, c: &IconButtonConfig, states: &States, label: &str, icon: &str| PxuiIconButtonConfig {
         state: st(c.state), node: bx(c.node), label: pair(label), icon: pair(icon), states: states,

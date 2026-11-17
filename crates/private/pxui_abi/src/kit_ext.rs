@@ -6,8 +6,8 @@ use crate::text_inputs::TextValid;
 use crate::trusted;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui::{Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, States, Ui};
-use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonDesc, PxuiIconButtonDesc, PxuiResponse, PxuiSegmentedDesc, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
+use pxui_core::ui::{Align, Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, State, States, Ui};
+use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonBuild, PxuiButtonDesc, PxuiIconButtonDesc, PxuiStateDesc, PxuiResponse, PxuiSegmentedDesc, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
@@ -24,7 +24,8 @@ export!(trusted pub unsafe fn pxui_ui_button_with(ui: *mut PxuiUi, desc: *const 
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || out.is_null() || signal.is_null() || focused.is_null() { return unsafe { fail(ui, "null button argument") }; }
     let mut response = PxuiResponse::EMPTY;
-    let rc = unsafe { button_call(ui, desc, build, user, &mut response, Some(&mut *signal)) };
+    let mut content = |ui: *mut PxuiUi, _: State| if let Some(build) = build { build(user, ui.cast()) };
+    let rc = unsafe { button_call(ui, desc, if build.is_some() { Some(&mut content) } else { None }, &mut response, Some(&mut *signal)) };
     if rc == 0 { unsafe { (*out, *focused) = (response.node, (response.flags & PxuiResponse::FOCUSED != 0) as u8); } }
     rc
 });
@@ -34,7 +35,20 @@ export!(trusted pub unsafe fn pxui_ui_button_response(ui: *mut PxuiUi, desc: *co
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() { return unsafe { fail(ui, "null button argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
-    unsafe { button_call(ui, desc, build, user, out, None) }
+    let mut content = |ui: *mut PxuiUi, _: State| if let Some(build) = build { build(user, ui.cast()) };
+    unsafe { button_call(ui, desc, if build.is_some() { Some(&mut content) } else { None }, out, None) }
+});
+
+// ABI 1.56: `pxui_ui_button_response` whose content callback is also given the button's interaction state this frame.
+export!(trusted pub unsafe fn pxui_ui_button_content(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: PxuiButtonBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() { return unsafe { fail(ui, "null button argument") }; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
+    let mut content = |ui: *mut PxuiUi, s: State| if let Some(build) = build {
+        let state = PxuiStateDesc { hovered: s.hovered as u8, pressed: s.pressed as u8, focused: s.focused as u8, disabled: s.disabled as u8, checked: s.checked as u8, reserved: [0; 3] };
+        build(user, ui.cast(), &state)
+    };
+    unsafe { button_call(ui, desc, if build.is_some() { Some(&mut content) } else { None }, out, None) }
 });
 
 // ABI 1.48: the plain kit button (`Button::DEFAULT`: the theme's look, the kit's size, at the start of its line) keyed by `key`.
@@ -47,17 +61,26 @@ export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, te
 
 /// The checked `PxuiButtonDesc` behind `desc` (not null) through the trusted entry: what happened to `out`, the whole signal to
 /// `signal` when given.
-unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: Build, user: *mut c_void, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
-    let Some((d, _)) = read_desc!(desc, PxuiButtonDesc, 96) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    // the 96-byte record of 1.48 and the 104-byte one of 1.54 are read with their grown fields zero
+    let Some((d, grown)) = read_desc!(desc, PxuiButtonDesc, 96).or_else(|| read_desc!(desc, PxuiButtonDesc, 104)) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
     let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.centered > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid button descriptor") }; }
     let (Some(key), Some(text), Some(name)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid button looks") } };
-    let mut content = |ui: *mut PxuiUi| if let Some(build) = build { build(user, ui.cast()) };
+    let axis = match d.axis { 0 => Some(None), 1 => Some(Some(Axis::Row)), 2 => Some(Some(Axis::Column)), 3 => Some(Some(Axis::Stack)), _ => None };
+    let content_align = match d.content_align { 0 => Some(None), 1 => Some(Some(Align::Start)), 2 => Some(Some(Align::Center)), 3 => Some(Some(Align::End)), _ => None };
+    let (Some(axis), Some(content_align)) = (axis, content_align) else { return unsafe { fail(ui, "invalid button descriptor") }; };
+    if d.has_label > 1 || d.focus_on_click > 1 { return unsafe { fail(ui, "invalid button descriptor") }; }
+    let label = if grown && d.has_label == 1 {
+        let Some((mut style, false)) = crate::ui::label_style(&d.label) else { return unsafe { fail(ui, "invalid button label") } };
+        if !crate::ui::read_label_box(&d.label_box, &mut style) { return unsafe { fail(ui, "invalid button label") } }
+        Some(style)
+    } else { None };
     let pad = Edges { l: d.padding[0], t: d.padding[1], r: d.padding[2], b: d.padding[3] };
     unsafe { trusted::button_with(ui, key, text, (d.has_name != 0).then_some(name), looks.as_ref(), w, h, justify, pad, d.enabled != 0, d.selected != 0, d.danger != 0, d.centered != 0,
-        if build.is_some() { Some(&mut content) } else { None }, out, signal) }
+        label.as_ref(), axis, d.gap, content_align, d.focus_on_click != 0, content, out, signal) }
 }
 
 // The kit icon button with options; `states` is null (the theme's icon button) or six looks.

@@ -147,10 +147,21 @@ pub struct ButtonOpts {
     pub icon: bool,
     /// The box is exactly `w` by `h` with nothing around it in its line, its text centred in it (`Button::centered`).
     pub centered: bool,
+    /// The text drawn through the label line box in this style (`Button::label`); `None` is the kit's text.
+    pub label: Option<Label>,
+    /// The contents' axis (`Button::axis`); `None` is the kit's.
+    pub axis: Option<Axis>,
+    /// The space between the contents in points (`Button::gap`).
+    pub gap: f32,
+    /// The contents' place across the box (`Button::content_align`); `None` is the kit's.
+    pub content_align: Option<Align>,
+    /// A press focuses the button (`Button::focus_on_click`); else only Tab does.
+    pub focus_on_click: bool,
 }
 
 impl ButtonOpts {
-    pub const DEFAULT: ButtonOpts = ButtonOpts { states: None, w: Size::Fit, h: Size::Fit, enabled: true, selected: false, justify: Justify::Start, padding: Edges::ZERO, ink: None, bare: false, icon: false, centered: false };
+    pub const DEFAULT: ButtonOpts = ButtonOpts { states: None, w: Size::Fit, h: Size::Fit, enabled: true, selected: false, justify: Justify::Start, padding: Edges::ZERO, ink: None, bare: false, icon: false, centered: false,
+        label: None, axis: None, gap: 0.0, content_align: None, focus_on_click: false };
 }
 
 /// What happened to a button this frame, as the wrapper's `Response` says it.
@@ -181,18 +192,34 @@ pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, t
     if c.centered {
         let line = this.node_new(&c.line);
         (line.w, line.h, line.axis, line.justify) = (c.w, c.h, Axis::Row, c.justify);
+        let axis = c.axis.unwrap_or(Axis::Row);
+        let (justify, align) = content_place(axis, c.content_align.unwrap_or(Align::Center));
         let row = this.node_new(&c.row);
-        (row.w, row.h, row.axis, row.justify, row.align) = (c.w, c.h, Axis::Row, Justify::Center, Align::Center);
+        (row.w, row.h, row.axis, row.justify, row.align, row.gap) = (c.w, c.h, axis, justify, align, c.gap);
         if c.pad != Edges::ZERO { row.padding = c.pad; }
         this.style(&c.row, states, c.state);
-        if !text.is_empty() {
-            // the text on a node of its own, as wide as it in whole pixels, centred by the row
-            let look = *states.pick(c.state);
-            let saved = this.enter(&c.row);
-            let n = this.node_keyed(int_key(c.row.box_key, 1), Node { w: Size::Fit, h: Size::Grow, flags: Flags::FIT_TEXT_PIXEL, look: text_only(&look), ..Node::DEFAULT });
-            this.text(&n, shown(text));
-            this.leave(saved);
-        }
+        if !text.is_empty() { button_text(this, c, states, text); }
+        return;
+    }
+    let laid_out = c.label.is_some() || c.axis.is_some() || c.content_align.is_some() || c.gap != 0.0;
+    if laid_out {
+        // the contents laid out by the box: the text on a node of its own (or the caller's contents), the kit's side insets as padding
+        let control_h = this.control_h();
+        let rh = this.row_height() as f32;
+        let pad = (rh - control_h) / 2.0;
+        let line = this.node_new(&c.line);
+        line.h = match c.h { Size::Px(h) => Size::Px(h + 2.0 * pad), Size::Fit => Size::Px(rh), h => h };
+        (line.axis, line.justify) = (Axis::Row, if c.at_end { Justify::End } else { c.justify });
+        line.padding = Edges { l: 5.0, t: pad, r: if c.at_end { 8.0 } else { 5.0 }, b: pad };
+        let side = if c.bare { 5.0 } else { 7.0 };
+        let axis = c.axis.unwrap_or(Axis::Row);
+        let (justify, align) = content_place(axis, c.content_align.unwrap_or(Align::Start));
+        let row = this.node_new(&c.row);
+        (row.w, row.shrink, row.min_w, row.h) = (c.w, 1.0, 1.0, match c.h { Size::Fit => Size::Grow, h => h });
+        (row.axis, row.justify, row.align, row.gap) = (axis, justify, align, c.gap);
+        row.padding = Edges { l: c.pad.l + side, t: c.pad.t, r: c.pad.r + side, b: c.pad.b };
+        this.style(&c.row, states, c.state);
+        if !text.is_empty() { button_text(this, c, states, text); }
         return;
     }
     let measure = this.text_width(None, shown(text));
@@ -223,6 +250,33 @@ pub(crate) fn default_button(this: &mut Ui, c: &ButtonConfig, states: &States, t
         Some(d) => n.mark = Mark::Chevron(d),
         None => this.text(&c.row, shown(text)),
     }
+}
+
+/// Where a button's contents sit (`Button::content_align`) as the box's justify and align for its `axis`: `align` across the box,
+/// centred down it.
+fn content_place(axis: Axis, align: Align) -> (Justify, Align) {
+    let across = match align { Align::Start => Justify::Start, Align::End => Justify::End, _ => Justify::Center };
+    match axis { Axis::Column => (Justify::Center, align), _ => (across, Align::Center) }
+}
+
+/// A laid-out button's text inside `c.row`: on a node of its own as wide as it in whole pixels, or through the label line box in the
+/// caller's `Button::label` style (as `Ui::label` draws it; an unset width is the text's, an unset pad none, an unset colour the
+/// look's text colour for the state).
+fn button_text(this: &mut Ui, c: &ButtonConfig, states: &States, text: &str) {
+    let look = *states.pick(c.state);
+    let saved = this.enter(&c.row);
+    match c.label {
+        Some(mut style) => {
+            style.width = style.width.or(Some(Size::Fit));
+            style.pad = style.pad.or(Some(0.0));
+            if let Some(n) = this.label_styled(text, &style, false).filter(|_| style.color.is_none()) { this.node_mut(&n).look.text = look.text; }
+        }
+        None => {
+            let n = this.node_keyed(int_key(c.row.box_key, 1), Node { w: Size::Fit, h: Size::Grow, flags: Flags::FIT_TEXT_PIXEL, look: text_only(&look), ..Node::DEFAULT });
+            this.text(&n, shown(text));
+        }
+    }
+    this.leave(saved);
 }
 
 /// The built-in grip: the line in the separator look (none when the caller placed it), the accent while held, taking presses
@@ -1132,7 +1186,7 @@ impl Ui {
     /// given, receives the box's signal as it was read for it, without its key events (`key_events_ref`): the C ABI's signal
     /// without a second read.
     #[allow(clippy::too_many_arguments)]
-    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, content: Option<&mut dyn FnMut(&mut Ui)>, signal_out: Option<&mut Signal>) -> Response {
+    pub fn button_opts(&mut self, key: &str, text: &str, name: Option<&str>, opts: &ButtonOpts, content: Option<&mut dyn FnMut(&mut Ui, State)>, signal_out: Option<&mut Signal>) -> Response {
         // the row lays the box out: 5 in from the start (8 from the end at the end), the control
         // centred in the row's height; the box is the button (its key, its hit area)
         // the box's key is resolved first (one key on several buttons, as `button(text)` gives, takes its duplicates), so the line's,
@@ -1142,11 +1196,14 @@ impl Ui {
         let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
         let line = self.node_keyed(int_key(unique.0, 0x6c69), Node::DEFAULT);
         let saved = self.enter(&line);
-        let flags = if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY | Flags::FOCUS_MARK } else { Flags::BLOCKING | Flags::TAB_ONLY };
+        let tab_only = if opts.focus_on_click { Flags::NONE } else { Flags::TAB_ONLY };
+        let flags = if enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | tab_only | Flags::FOCUS_MARK } else { Flags::BLOCKING | Flags::TAB_ONLY };
         let row = self.node_unique(unique, &Node { flags, role: Role::Button, ..Node::DEFAULT });
         self.a11y_name(&row, name.unwrap_or(text));
         self.leave(saved);
-        let signal = self.signal(&row);
+        let mut signal = self.signal(&row);
+        // a disabled button reports no click from any input (a press begun while it was enabled, an assistive technology's press)
+        signal.clicked &= enabled;
         let focused = self.focused(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !enabled, checked: opts.selected };
         let mut states = match opts.states { Some(s) => s, None if opts.bare => self.theme().button_bare, None => self.theme().button };
@@ -1155,7 +1212,8 @@ impl Ui {
                 look.text = ink;
             }
         }
-        let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line, row };
+        let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line, row,
+            label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align };
         let shown_text = if content.is_some() { "" } else { text };
         in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, shown_text));
         // size, placement and padding went to the body in its config; the accessible states are the engine's
@@ -1164,7 +1222,7 @@ impl Ui {
         self.set_role(&row, Role::Button, if opts.selected { st::SELECTED } else { 0 });
         if let Some(f) = content {
             let inside = self.enter(&row);
-            f(self);
+            f(self, state);
             self.leave(inside);
         }
         let response = Response::of(&signal, focused, row);
@@ -1179,7 +1237,8 @@ impl Ui {
         let flags = if opts.enabled { Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY | Flags::FOCUS_MARK } else { Flags::BLOCKING | Flags::TAB_ONLY };
         let row = self.node_unique(unique, &Node { flags, role: Role::Button, ..Node::DEFAULT });
         self.a11y_name(&row, text);
-        let signal = self.signal(&row);
+        let mut signal = self.signal(&row);
+        signal.clicked &= opts.enabled;
         let focused = self.focused(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !opts.enabled, checked: opts.selected };
         let mut states = self.theme().button;
@@ -1188,7 +1247,8 @@ impl Ui {
                 look.text = ink;
             }
         }
-        let config = ButtonConfig { state, bare: false, icon: false, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line: *line, row };
+        let config = ButtonConfig { state, bare: false, icon: false, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line: *line, row,
+            label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align };
         in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, text));
         self.node_mut(&row).state.disabled = !opts.enabled;
         self.set_role(&row, Role::Button, 0);
@@ -1214,7 +1274,8 @@ impl Ui {
         let unique = self.unique_key_repeated(key_of(self.current_seed(), key));
         let row = self.node_unique(unique, &Node { flags, w: Size::Grow, h: Size::Px(h), ..Node::DEFAULT });
         if !opts.press_row { self.hit_part(&row, Part::HIT); }
-        let signal = self.signal(&row);
+        let mut signal = self.signal(&row);
+        signal.clicked &= enabled;
         let value = value ^ signal.clicked;
         self.set_role(&row, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
         let (switch_w, switch_h) = opts.switch.unwrap_or((0.0, 0.0));

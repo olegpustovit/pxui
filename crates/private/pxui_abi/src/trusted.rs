@@ -8,7 +8,7 @@ use crate::state::{get, Inner, MAX_TEXT_BYTES, MAX_TOTAL_TEXT_BYTES, PxuiUi, box
 use crate::{PxuiBox, PxuiSignal, Str};
 use pxui_types::ffi::PxuiResponse;
 use pxui_core::ui::{Segment, SegmentedOpts, ToggleOpts, Ui};
-use pxui_types::{FrameIn, FrameOut, Node, Size, ffi::Input, geom::Edges, layout::Justify, theme::{States, ThemeSnapshot}};
+use pxui_types::{Axis, FrameIn, FrameOut, Label, Node, Size, ffi::Input, geom::Edges, layout::{Align, Justify}, theme::{State, States, ThemeSnapshot}};
 
 
 /// `value` as text the caller promises is UTF-8 (the checked length is the one the exports refuse above). Its pointer is never null:
@@ -308,23 +308,29 @@ fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
         | r.focused as u32 * PxuiResponse::FOCUSED | r.activated as u32 * PxuiResponse::ACTIVATED;
 }
 
-/// The kit button with options, the body of `pxui_ui_button_with`, `pxui_ui_button_response` and `pxui_ui_button_plain`: `states` in
-/// place of the theme's button, `w` and `h` (`button_size`), `justify` its place in the line, `pad` (finite, non-negative) inside the
-/// box, `centered` the box exactly its size with its text centred, `content` built in the box in place of `text`. What happened goes to `out`; with `signal`, the box's whole signal too.
+/// The kit button with options, the body of `pxui_ui_button_with`, `pxui_ui_button_response`, `pxui_ui_button_content` and
+/// `pxui_ui_button_plain`: `states` in place of the theme's button, `w` and `h` (`button_size`), `justify` its place in the line, `pad`
+/// (finite, non-negative) inside the box, `centered` the box exactly its size with its text centred, `label` the text's style (one that
+/// resolves), `axis`, `gap` (finite, non-negative) and `content_align` the contents' layout, `focus_on_click` a press focusing it,
+/// `content` built in the box in place of `text` and given the button's state. What happened goes to `out`; with `signal`, the box's
+/// whole signal too.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
 pub unsafe fn button_with(ui: *mut PxuiUi, key: &str, text: &str, name: Option<&str>, states: Option<&States>, w: Size, h: Size, justify: Justify, pad: Edges,
-    enabled: bool, selected: bool, danger: bool, centered: bool, content: Option<Inner>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    enabled: bool, selected: bool, danger: bool, centered: bool, label: Option<&Label>, axis: Option<Axis>, gap: f32, content_align: Option<Align>, focus_on_click: bool,
+    content: Option<&mut dyn FnMut(*mut PxuiUi, State)>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     enter!(ui);
     if long(key) || long(text) || name.is_some_and(long) { return unsafe { fail(ui, "invalid button text") }; }
-    if !button_size(w) || !button_size(h) || ![pad.l, pad.t, pad.r, pad.b].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid button descriptor") }; }
+    if !button_size(w) || !button_size(h) || ![pad.l, pad.t, pad.r, pad.b, gap].iter().all(|v| (0.0..=f32::MAX).contains(v)) { return unsafe { fail(ui, "invalid button descriptor") }; }
     let (e, shared) = (unsafe { engine(ui) }, unsafe { (*ui).shared });
+    if label.is_some_and(|l| e.resolve(l).is_none()) { return unsafe { fail(ui, "invalid button label") }; }
     let ink = if danger { Some(e.theme().tokens.invalid) } else { None };
-    // the looks are copied only when given: `states.copied()` copies the whole record either way
-    let mut opts = pxui_core::ui::ButtonOpts { states: None, w, h, enabled, selected, justify, padding: pad, ink, bare: false, icon: false, centered };
+    // the looks and the label are copied only when given: `copied()` copies the whole record either way
+    let mut opts = pxui_core::ui::ButtonOpts { states: None, w, h, enabled, selected, justify, padding: pad, ink, bare: false, icon: false, centered, label: None, axis, gap, content_align, focus_on_click };
     if let Some(states) = states { opts.states = Some(*states); }
-    let mut run = content.map(|f| move |engine: &mut Ui| call_inner(shared, engine, &mut *f));
-    let body = run.as_mut().map(|f| f as &mut dyn FnMut(&mut Ui));
+    if let Some(label) = label { opts.label = Some(*label); }
+    let mut run = content.map(|f| move |engine: &mut Ui, state: State| call_inner(shared, engine, &mut |raw| f(raw, state)));
+    let body = run.as_mut().map(|f| f as &mut dyn FnMut(&mut Ui, State));
     let r = match signal {
         None => e.button_opts(key, text, name, &opts, body, None),
         Some(signal) => {

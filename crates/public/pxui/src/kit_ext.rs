@@ -7,7 +7,7 @@ use crate::kit::{HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
 use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look}, Axis, PxuiBox, Str};
+use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look, State}, Axis, PxuiBox, Str};
 use pxui_types::{layout::Justify, Size};
 use crate::Response;
 use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Head, HeadAction, LineStep, Target};
@@ -17,7 +17,7 @@ library!(lib {
     fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key: *const KeyframeDesc, out: *mut u8) -> i32;
     fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, text: Str, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *const PxuiDialogDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiDialogResult) -> i32;
-    fn pxui_ui_button_response(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_button_content(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::PxuiButtonBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: Str, icon: Str, name: Str, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_response(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, text: Str, on: u8, out: *mut PxuiResponse) -> i32;
@@ -45,6 +45,20 @@ extern "C" fn rename_call(user: *mut c_void, name: Str) -> u8 {
         Ok(ok) => ok as u8,
         Err(panic) => { defer_callback_panic(panic); 0 }
     }
+}
+
+/// A button's content callback (`pxui_ui_button_content`): `user` is the wrapper's `Option<&mut dyn FnMut(&mut Ui, State)>`, called
+/// with the button's state. A panic is deferred to the end of the call, as `composite::call` defers it.
+#[cfg(not(feature = "static"))]
+extern "C" fn button_build(user: *mut c_void, raw: *mut c_void, state: *const pxui_types::ffi::PxuiStateDesc) {
+    if user.is_null() || raw.is_null() || state.is_null() || deferred() { return; }
+    let s = unsafe { *state };
+    let state = State { hovered: s.hovered != 0, pressed: s.pressed != 0, focused: s.focused != 0, disabled: s.disabled != 0, checked: s.checked != 0 };
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let mut ui = core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new(raw.cast()).unwrap()));
+        if let Some(f) = unsafe { &mut *user.cast::<Option<&mut dyn FnMut(&mut Ui, State)>>() } { f(&mut ui, state) }
+    }));
+    if let Err(panic) = result { defer_callback_panic(panic); }
 }
 
 fn keyframe(target: Target, curve: Curve) -> KeyframeDesc {
@@ -113,21 +127,28 @@ impl Ui {
         response(&out)
     }
     /// The one body of `button`, `button_with` and `button_content`: linked statically, the library's trusted entry with the options as
-    /// they are; else the plain call for `Button::DEFAULT` without contents, or the options as a descriptor and the contents as a callback.
-    /// One `PxuiResponse` comes back either way.
+    /// they are; else the plain call for `Button::DEFAULT` without contents, or the options as a descriptor and the contents as a callback
+    /// given the button's state. One `PxuiResponse` comes back either way.
     #[inline(always)]
     #[track_caller]
-    pub(crate) fn button_keyed(&mut self, key: &str, text: &str, button: &Button, content: Option<&mut dyn FnMut(&mut Ui)>) -> Response {
+    pub(crate) fn button_keyed(&mut self, key: &str, text: &str, button: &Button<'_>, content: Option<&mut dyn FnMut(&mut Ui, State)>) -> Response {
         let mut out = PxuiResponse::EMPTY;
         let plain = content.is_none() && button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && !button.selected
-            && !button.danger && button.name.is_none() && button.align == Justify::Start && button.pad == pxui_types::geom::Edges::ZERO && !button.centered;
+            && !button.danger && button.name.is_none() && button.align == Justify::Start && button.pad == pxui_types::geom::Edges::ZERO && !button.centered
+            && button.label.is_none() && button.axis.is_none() && button.gap == 0.0 && button.content_align.is_none() && !button.focus_on_click;
         #[cfg(feature = "static")]
-        let rc = match content {
-            None if plain => unsafe { pxui_abi_link::trusted::button_plain(self.0.as_ptr(), key, text, &mut out) },
-            Some(f) => unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look.as_ref(), button.w, button.h, button.align, button.pad,
-                button.enabled, button.selected, button.danger, button.centered, Some(inner!(|ui: &mut Ui| f(ui))), &mut out, None) },
-            None => unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look.as_ref(), button.w, button.h, button.align, button.pad,
-                button.enabled, button.selected, button.danger, button.centered, None, &mut out, None) },
+        let rc = if plain {
+            unsafe { pxui_abi_link::trusted::button_plain(self.0.as_ptr(), key, text, &mut out) }
+        } else {
+            let has_content = content.is_some();
+            let mut inner = content;
+            let mut run = |raw: *mut crate::sys::PxuiUi, state: State| if let Some(f) = inner.as_mut() {
+                let mut ui = core::mem::ManuallyDrop::new(Ui(unsafe { core::ptr::NonNull::new_unchecked(raw) }));
+                f(&mut ui, state)
+            };
+            unsafe { pxui_abi_link::trusted::button_with(self.0.as_ptr(), key, text, button.name, button.look.as_ref(), button.w, button.h, button.align, button.pad,
+                button.enabled, button.selected, button.danger, button.centered, button.label.as_ref(), button.axis, button.gap, button.content_align, button.focus_on_click,
+                if has_content { Some(&mut run) } else { None }, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {
@@ -142,13 +163,13 @@ impl Ui {
                 justify: match button.align { Justify::Center => 1, Justify::End => 2, _ => 0 }, w_kind, h_kind, has_name: button.name.is_some() as u8, reserved: 0,
                 w, h, padding: [p.l, p.t, p.r, p.b], states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()),
                 key: as_str(key), text: as_str(text), name: as_str(button.name.unwrap_or("")), centered: button.centered as u8, reserved2: [0; 7],
+                has_label: button.label.is_some() as u8, axis: button.axis.map_or(0, |a| a as u8 + 1),
+                content_align: match button.content_align { None => 0, Some(pxui_types::layout::Align::Start) => 1, Some(pxui_types::layout::Align::End) => 3, Some(_) => 2 }, focus_on_click: button.focus_on_click as u8,
+                gap: button.gap, label: button.label.as_ref().map(pxui_types::ffi::PxuiLabelStyle::from).unwrap_or_default(), label_box: button.label.as_ref().map(pxui_types::ffi::PxuiLabelBox::from).unwrap_or_default(),
             };
-            let has_content = content.is_some();
+            let build = if content.is_some() { Some(button_build as extern "C" fn(*mut c_void, *mut c_void, *const pxui_types::ffi::PxuiStateDesc)) } else { None };
             let mut inner = content;
-            let mut run = |ui: &mut Ui| if let Some(f) = inner.as_mut() { f(ui) };
-            let mut f: &mut dyn FnMut(&mut Ui) = &mut run;
-            let build = if has_content { Some(call::<&mut dyn FnMut(&mut Ui)> as extern "C" fn(*mut c_void, *mut c_void)) } else { None };
-            unsafe { lib::pxui_ui_button_response(self.0.as_ptr(), &desc, build, &mut f as *mut _ as *mut c_void, &mut out) }
+            unsafe { lib::pxui_ui_button_content(self.0.as_ptr(), &desc, build, &mut inner as *mut _ as *mut c_void, &mut out) }
         };
         check(self, rc);
         response(&out)
