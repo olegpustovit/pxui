@@ -2520,9 +2520,13 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
     let node=ui.a11y_nodes().iter().find(|node|node.is_role(crate::ui::Role::Slider)).unwrap();assert_eq!(node.value.tag,2);assert_eq!(ui.a11y_value_of(node),None);
     let stale=pxui_types::PxuiBox {index:0,box_key:1,box_slot:99,generation:99};ui.a11y_value(&stale,"stale",(0,0));
     assert!(ui.last_error().contains("stale"));
-    assert!(catch_unwind(AssertUnwindSafe(|| {ui.frame(&input(),&mut |ui| {
-        let node=ui.node("invalid".into(),crate::Node::DEFAULT);ui.a11y_value(&node,"é",(1,0));
-    }).unwrap();})).is_err(),"selection bytes cannot split UTF-8");
+    for (value,selection,expected) in [("é",(1,0),[0,0]),("aé",(2,99),[1,2]),("🎵x",(3,1),[0,0])] {
+        ui.frame(&input(),&mut |ui| {
+            let node=ui.node("invalid".into(),crate::Node {role:crate::ui::Role::Button,..crate::Node::DEFAULT});ui.a11y_value(&node,value,selection);
+        }).unwrap();
+        let node=ui.a11y_nodes().iter().find(|node|ui.a11y_value_of(node)==Some(value)).unwrap();
+        assert_eq!(node.selection,expected,"offsets inside a character round down, past the end clamp, never panic");
+    }
 }
 
 #[test]

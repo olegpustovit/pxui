@@ -93,9 +93,10 @@ impl Ui {
     /// Sets the accessible text value of `box_` and its selection, `(anchor, caret)` as UTF-8 byte offsets into `value`.
     ///
     /// A value set with `a11y_number` on the same box takes precedence in the published tree. The tree reports the selection in Unicode
-    /// scalar offsets, matching native text widgets. A dead `box_` (from an earlier frame) is ignored.
+    /// scalar offsets, matching native text widgets. An offset past the end of `value` becomes the end, and one inside a character moves back to
+    /// that character's start. A dead `box_` (from an earlier frame) is ignored.
     /// Allocates: grows the node's value string when `value` is longer than the one it held; otherwise never.
-    /// Panics: when an offset is past the end of `value` or inside a character.
+    /// Panics: when `value` is longer than the text limit (the library refuses it).
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| {
@@ -106,8 +107,10 @@ impl Ui {
     /// ```
     #[track_caller]
     pub fn a11y_value(&mut self,box_:&PxuiBox,value:&str,selection:(u32,u32)) {
+        let boundary=|offset:u32|{let mut at=(offset as usize).min(value.len());while !value.is_char_boundary(at) {at-=1;}at as u32};
+        let (anchor,caret)=(boundary(selection.0),boundary(selection.1));
         let value=Str {ptr:value.as_ptr(),len:value.len()};
-        crate::live(self,unsafe {sys::pxui_ui_a11y_value(self.0.as_ptr(),box_,value,selection.0,selection.1)});
+        crate::live(self,unsafe {sys::pxui_ui_a11y_value(self.0.as_ptr(),box_,value,anchor,caret)});
     }
     /// Sets the accessible name (what a screen reader announces) of `box_`, a box declared in the current frame.
     ///
