@@ -23,6 +23,7 @@ pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, Platfor
 pub use pxui_types::theme;
 pub mod images;
 pub mod doc;
+#[cfg(doctest)] mod guide;
 pub mod testing;
 
 /// The engine's module paths, so an app moves to the wrapper by swapping its dependency.

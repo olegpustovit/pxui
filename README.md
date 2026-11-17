@@ -5,6 +5,9 @@ pipeline paints it on Metal (Apple Silicon) or Vulkan (Windows, Linux). It is th
 Rays, which embeds this repository as a submodule at `pxui/`, and it
 builds and tests on its own.
 
+Writing an app on it: read [crates/public/pxui/src/guide/SKILL.md](crates/public/pxui/src/guide/SKILL.md), the current API shape
+(const style values, keyed widgets, no per-frame allocation); its samples run as doctests.
+
 Dependencies are std and `cc`; `pxui_text` alone adds cosmic-text for shaping and glyph rasterisation.
 
 ## Crates

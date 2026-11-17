@@ -649,15 +649,15 @@ the new value or an intent, one `States` entry each in the theme (`checkbox`, `r
 Home/End, SetValue; the value is the a11y value text), `progress(label, Some(f) | None) -> Handle`,
 `spinner(label) -> Handle` and `busy_step(&h, now) -> bool` (the indeterminate bar and the spinner move
 by `patch_rect`/`patch_look` between frames: no build, no allocation; reduced motion stops them),
-`tabs`, `segmented`, `dropdown(label, options, i)` (an anchored menu; Down/Up/Enter/Escape),
+`tabs`, `segmented_with(key, &[Segment], i, &Segmented) -> (Response, usize)`, `dropdown(label, options, i)` (an anchored menu; Down/Up/Enter/Escape),
 `menu_bar(label, &[(title, items)]) -> Option<(menu, item)>` (hover switches an open menu; Left/Right,
 Down, Enter, Escape), `tip(&h, text)`, `scroll_view(label, w, h, f)` (both axes),
 `list_view(label, count, multi, &mut [u8], text)` (a flag a row, not 0: set), `tree(label, &[TreeNode], &mut open, &mut selected,
 &mut visible, text) -> (activated, rows shown)` (`visible`: a row per node, the shown rows written first) and `table_view(label, titles, &mut widths, rows, sort, &mut selected, cell)`
 (virtual through `ui.list`; the table's header stays, grips resize columns, a header click is the sort
-intent), `dialog(title, buttons, body) -> DialogOut`, `toasts(label, &[&str], seconds)` (the lower end corner;
+intent), `dialog(key, title, &[DialogButton], &Dialog, body) -> DialogResponse` (the key is a static string or an id, never the title), `toasts(label, &[&str], seconds)` (the lower end corner;
 each goes `seconds` after it first showed, timed by the engine through `repaint_at_time` and keyed by
-its text, and is returned once for the caller to drop), `icon_button(label, glyph)`, `badge(label, text) -> Handle`,
+its text, and is returned once for the caller to drop), `icon_button(key, Icon, name, &IconButton) -> Response`, `badge(label, text) -> Handle`,
 `search_field(label, icon, value, placeholder)` and `image(label, &Image, Fit, w, h)`. Every widget is
 one Tab stop. A click focuses as on macOS: the nearest focusable box at or around the press takes the
 keyboard focus unless it is `TAB_ONLY` (buttons, checkboxes, radios, tabs, segments, dropdowns, menus,
