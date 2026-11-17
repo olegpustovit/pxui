@@ -27,6 +27,11 @@ nothing may reach outside this repository (no `../../..` paths past the root).
 - A focused warm run should finish under 30 seconds. Never raise deadlines to hide regressions or
   weaken assertions. Leave one small runnable regression for nontrivial logic.
 - Run `git diff --check` and `cargo run -p gate -- deps` before committing; commit completed stages.
+- Owner sign-offs (2026-11-17, pxui Unification Plan in LocalWave's AGENTS.md): (4) build-time measurement scripts
+  (LocalWave `tools/dx/buildtime.sh`) may use their own target directories and a temporary worktree, removed when they
+  finish; the shared-`target/` rule above holds for everything else. (5) Breaking API and ABI changes are welcome until
+  the 2.0 freeze, with no compat layers, twins or shims; only performance, build speed and zero warm allocations
+  constrain a change (ABI minors still bump and manifests are regenerated, never hand-edited).
 
 ## Contracts
 
