@@ -50,10 +50,14 @@ export!(bare pub unsafe fn pxui_ui_draw(ui: *mut crate::PxuiUi, box_: *const Pxu
     let owner = CallbackOwner { user, release };
     // `owner` releases the callback on every early return, so a poisoned or invalid call still frees the caller's closure.
     let Some(state) = (unsafe { crate::get(ui) }) else { return crate::PXUI_ERR_ARGUMENT };
+    unsafe { crate::state::note_call(state.shared) };
     if state.shared().poisoned { return crate::PXUI_ERR_PANIC; }
     if !unsafe { crate::state::usable(ui) } { return unsafe { crate::state::refuse(state.shared) }; }
+    if !state.shared().in_frame { return unsafe { crate::state::outside_frame(state.shared) }; }
     if box_.is_null() || over > 1 { return unsafe { crate::fail(ui, "invalid paint callback descriptor") }; }
     let Some(b) = crate::core_box(unsafe { *box_ }) else { return unsafe { crate::fail(ui, "invalid paint box") }; };
+    // a node of the frame being built: the engine attaches the drawing to it
+    if !unsafe { &*state.engine }.is_current_build_box(&b) { return unsafe { crate::state::fail_code(ui, "not a node of the frame being built", crate::PXUI_ERR_STALE) }; }
     let shared = state.shared;
     let callback = move |paint: &mut EnginePaint, rect: pxui_core::ui::Rect| {
         let _owner = &owner;

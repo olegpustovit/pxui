@@ -6,7 +6,7 @@ use input::{Event, ScrollPhase};
 use pxui_core::ui::{Saved, Signal};
 use pxui_types::{Event as FfiEvent, ffi::Slice};
 
-export!(pub unsafe fn pxui_ui_enter(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut PxuiSaved) -> i32 {
+export!(build pub unsafe fn pxui_ui_enter(ui: *mut PxuiUi, box_: *const PxuiBox, out: *mut PxuiSaved) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if box_.is_null() || out.is_null() { return unsafe { fail(ui, "null enter argument") }; }
     let engine = unsafe { &mut *state.engine };
@@ -17,7 +17,7 @@ export!(pub unsafe fn pxui_ui_enter(ui: *mut PxuiUi, box_: *const PxuiBox, out: 
     0
 });
 
-export!(pub unsafe fn pxui_ui_leave(ui: *mut PxuiUi, saved: *const PxuiSaved) -> i32 {
+export!(build pub unsafe fn pxui_ui_leave(ui: *mut PxuiUi, saved: *const PxuiSaved) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if saved.is_null() { return unsafe { fail(ui, "null leave state") }; }
     let Some(saved) = read_desc!(saved, PxuiSaved) else { return unsafe { fail(ui, "invalid leave state") }; };

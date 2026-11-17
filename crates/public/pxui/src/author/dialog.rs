@@ -10,7 +10,7 @@ impl Ui {
     /// the dialog, a lost window focus: `dismissed`) the `cancel` one; a disabled button takes no press and is skipped by both.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the title.
-    /// Panics: when the library refuses the arguments (outside a frame, more than 64 buttons, a negative or infinite width).
+    /// Panics: when the library refuses the arguments (outside a frame, more than 64 buttons, a negative or infinite width). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::{Dialog, DialogButton};

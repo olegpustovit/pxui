@@ -1,4 +1,4 @@
-use crate::state::{PxuiUi, boxed, checked, fail, finite, get};
+use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, boxed, checked, checked_text, fail, finite, get};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_types::ffi::{PxuiAreaCallbacks, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
@@ -29,6 +29,9 @@ unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbacks>, o: &mu
     // the data refills the scratch options in place: storage kept from earlier calls is reused (no allocation once warm)
     o.wrap = has(PxuiTextAreaDesc::WRAP);
     o.errors.clear(); o.errors.extend_from_slice(errors);
+    // messages (labels) and splices (editor text) are copied: `MAX_TOTAL_TEXT_BYTES` of them together
+    let total = messages.iter().map(|n| n.text.len).chain(splices.iter().map(|n| n.text.len)).fold(0usize, usize::saturating_add);
+    if total > MAX_TOTAL_TEXT_BYTES { return None; }
     for (i, n) in messages.iter().enumerate() {
         let text = unsafe { checked(n.text) }?;
         let entry = (n.line, (n.has_range != 0).then_some((n.start, n.end)));
@@ -37,7 +40,7 @@ unsafe fn area_opts(d: &PxuiTextAreaDesc, cb: Option<&PxuiAreaCallbacks>, o: &mu
     o.messages.truncate(messages.len());
     o.spans.clear(); o.spans.extend(spans.iter().map(|r| (r.start, r.end)));
     for (i, sp) in splices.iter().enumerate() {
-        let text = unsafe { checked(sp.text) }?;
+        let text = unsafe { checked_text(sp.text) }?;
         if let Some(slot) = o.splice.get_mut(i) { (slot.0, slot.1) = (sp.start, sp.end); slot.2.clear(); slot.2.push_str(text); } else { o.splice.push((sp.start, sp.end, text.to_owned())); }
     }
     o.splice.truncate(splices.len());
@@ -102,7 +105,7 @@ pub(crate) fn area_adapters() -> AreaAdapters {
     let language = Language {
         colorize: { let ctx = c(&ctx); Rc::new(move |t: &str| { let cb = ctx.cb.get(); let Some(f) = cb.colorize else { return Vec::new() }; let mut out = Slice::default(); f(cb.user, str_of(t), &mut out); unsafe { span_of(out, 1 << 20) }.map_or_else(Vec::new, |v| v.iter().map(|c| (c.start, c.end, c.color)).collect()) }) },
         brackets: { let ctx = c(&ctx); Rc::new(move |t: &str| { let cb = ctx.cb.get(); let Some(f) = cb.brackets else { return Vec::new() }; let mut out = Slice::default(); f(cb.user, str_of(t), &mut out); unsafe { span_of(out, 1 << 20) }.map_or_else(Vec::new, |v| v.iter().map(|r| (r.start, r.end)).collect()) }) },
-        indent: { let ctx = c(&ctx); Rc::new(move |t: &str, caret| { let cb = ctx.cb.get(); let Some(f) = cb.indent else { return String::new() }; let mut out = Str::default(); f(cb.user, str_of(t), caret, &mut out); unsafe { checked(out) }.unwrap_or("").to_owned() }) },
+        indent: { let ctx = c(&ctx); Rc::new(move |t: &str, caret| { let cb = ctx.cb.get(); let Some(f) = cb.indent else { return String::new() }; let mut out = Str::default(); f(cb.user, str_of(t), caret, &mut out); unsafe { checked_text(out) }.unwrap_or("").to_owned() }) },
         pairs: Vec::new(),
         complete: { let ctx = c(&ctx); Rc::new(move |t: &str, caret| {
             let cb = ctx.cb.get(); let Some(f) = cb.complete else { return Vec::new() };
@@ -130,14 +133,14 @@ pub(crate) fn area_adapters() -> AreaAdapters {
         on_caret_move: Rc::new(move |p| { let cb = x6.cb.get(); if let Some(f) = cb.on_caret_move { f(cb.user, p) } }),
         on_select: Rc::new(move |(a, b)| { let cb = x7.cb.get(); if let Some(f) = cb.on_select { f(cb.user, a, b) } }),
         on_drop: Rc::new(move |p, drop: Drop| { let cb = x8.cb.get(); if let Some(f) = cb.on_drop { let (dropped, payload) = match &drop { Drop::Hover(x) => (0, x), Drop::Dropped(x) => (1, x) }; f(cb.user, p, dropped, str_of(&payload.kind), str_of(&payload.value)) } }),
-        rewrite: Rc::new(move |t: &str, caret| { let cb = x9.cb.get(); let Some(f) = cb.rewrite else { return (t.to_owned(), caret) }; let mut out = PxuiRewrite { text: Str::default(), caret }; f(cb.user, str_of(t), caret, &mut out); (unsafe { checked(out.text) }.unwrap_or(t).to_owned(), out.caret) }),
+        rewrite: Rc::new(move |t: &str, caret| { let cb = x9.cb.get(); let Some(f) = cb.rewrite else { return (t.to_owned(), caret) }; let mut out = PxuiRewrite { text: Str::default(), caret }; f(cb.user, str_of(t), caret, &mut out); (unsafe { checked_text(out.text) }.unwrap_or(t).to_owned(), out.caret) }),
         language: Some(language),
         ctx,
     }
 }
 
 // A text area with its options. `cbs` (may be null) holds the app's closures: they run only during this call, with `cbs.user`.
-export!(pub unsafe fn pxui_ui_text_area_submit(
+export!(build pub unsafe fn pxui_ui_text_area_submit(
     ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, cbs: *const PxuiAreaCallbacks,
     out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8,
 ) -> i32 {
@@ -154,7 +157,7 @@ export!(pub unsafe fn pxui_ui_text_area_submit(
         return unsafe { fail(ui, "invalid text area arguments") };
     }
     unsafe { *out_text = Str::default(); *out_changed = 0; *out_submitted = 0; }
-    let (Some(label), Some(value)) = (unsafe { checked(d.label) }, unsafe { checked(d.value) }) else {
+    let (Some(label), Some(value)) = (unsafe { checked(d.label) }, unsafe { checked_text(d.value) }) else {
         return unsafe { fail(ui, "invalid text area strings") };
     };
     let shared = state.shared();
@@ -165,7 +168,8 @@ export!(pub unsafe fn pxui_ui_text_area_submit(
     if let Some(lang) = opts.language.take() { ad.language = Some(lang); }
     unsafe { *out_changed = text.is_some() as u8; *out_submitted = submitted as u8; }
     // an unchanged text is the caller's own value: nothing is copied into the library's storage
-    unsafe { *out_text = match text { Some(text) => state.lend(text), None => d.value }; }
+    let text = match text { Some(text) => match state.lend(text) { Ok(text) => text, Err(code) => return code }, None => d.value };
+    unsafe { *out_text = text; }
     0
 });
 
@@ -235,7 +239,7 @@ unsafe fn field_desc(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc) -> Result
 // A value field with its options. `valid` says whether typed text may commit (null: all may); `slide` and `scrub` turn a
 // pointer position into the field's text (they write the text, borrowed from the caller until its next callback). All three
 // are called only during this call, with `user`.
-export!(pub unsafe fn pxui_ui_value_field(
+export!(build pub unsafe fn pxui_ui_value_field(
     ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: TextValid, slide: SlideText, scrub: ScrubText, user: *mut c_void,
     out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8,
 ) -> i32 {
@@ -263,7 +267,8 @@ export!(pub unsafe fn pxui_ui_value_field(
     if ctx.invalid.get() { return unsafe { fail(ui, "invalid value field callback result") }; }
     unsafe { *out_changed = text.is_some() as u8; *out_editing = editing as u8; }
     // the field's text, changed or not, kept by the library until the next frame
-    unsafe { *out_text = state.lend(text.unwrap_or(value)); }
+    let Ok(text) = state.lend(text.unwrap_or(value)) else { return crate::PXUI_ERR_STATE };
+    unsafe { *out_text = text; }
     0
 });
 
@@ -281,17 +286,19 @@ export!(pub unsafe fn pxui_ui_patch_field(ui: *mut PxuiUi, box_: *const PxuiBox,
 // The edit the Ui keeps for the field under `key`: its text (borrowed until the next frame) and caret and anchor byte offsets.
 export!(pub unsafe fn pxui_ui_load_text_edit(ui: *mut PxuiUi, key: i64, text: Str, out_text: *mut Str, caret: *mut u64, anchor: *mut u64) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(text) = (unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid edit text") }; };
+    let Some(text) = (unsafe { checked_text(text) }) else { return unsafe { fail(ui, "invalid edit text") }; };
     if out_text.is_null() || caret.is_null() || anchor.is_null() { return unsafe { fail(ui, "null edit output") }; }
     let edit = unsafe { (&mut *state.engine).load_text_edit(key, text) };
-    unsafe { *caret = edit.caret as u64; *anchor = edit.anchor as u64; *out_text = state.give(edit.text); }
+    let (edit_caret, edit_anchor) = (edit.caret as u64, edit.anchor as u64);
+    let Ok(edited) = state.give(edit.text) else { return crate::PXUI_ERR_STATE };
+    unsafe { *caret = edit_caret; *anchor = edit_anchor; *out_text = edited; }
     0
 });
 
 // Snapshots `text` with its caret and anchor for undo; `typing` joins consecutive typing into one step.
 export!(pub unsafe fn pxui_ui_remember(ui: *mut PxuiUi, text: Str, caret: u64, anchor: u64, typing: u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(text) = (unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid edit text") }; };
+    let Some(text) = (unsafe { checked_text(text) }) else { return unsafe { fail(ui, "invalid edit text") }; };
     let at = |offset: u64| usize::try_from(offset).ok().filter(|offset| text.is_char_boundary(*offset));
     let (Some(caret), Some(anchor)) = (at(caret), at(anchor)) else { return unsafe { fail(ui, "caret and anchor must sit on characters of the text") }; };
     if typing > 1 { return unsafe { fail(ui, "invalid typing flag") }; }

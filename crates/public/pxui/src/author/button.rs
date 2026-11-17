@@ -228,7 +228,7 @@ impl Ui {
     /// press and release inside it or Enter/Space while focused, `activated` the keyboard one.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: when the library refuses the arguments (outside a frame, a `Pct` or `Rel` size, a negative padding).
+    /// Panics: when the library refuses the arguments (outside a frame, a `Pct` or `Rel` size, a negative padding). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::{ui::{Size, Justify}, Button};
@@ -258,7 +258,7 @@ impl Ui {
     /// accessible name (`Button::name`): without one the node has none.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: as `button_with`, or when `f` panics.
+    /// Panics: as `button_with`, or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::{ui::{Node, Size}, Button};

@@ -120,6 +120,7 @@ pub const UNSAFE_FILES: &[(&str, &str)] = &[
     ("crates/private/pxui_abi/src/state.rs", "the Ui handle's shared state and the helpers that decode caller-owned C pointers"),
     ("crates/private/pxui_abi/src/ui.rs", "creates and frees the Ui and decodes caller-owned frame, theme and event buffers at the C ABI boundary"),
     ("crates/private/pxui_abi/src/safety.rs", "tests the exports through raw C handles"),
+    ("crates/private/pxui_abi/src/fuzz.rs", "calls every export through raw C handles with garbage arguments"),
     ("crates/private/pxui_core/src/arena.rs", "frame bump arena: canvas closures are written into raw bytes and called through type-erased records"),
     ("crates/private/pxui_render/src/lib.rs", "writes instance bytes into the host-mapped upload ring and views instance structs as bytes"),
     ("crates/private/pxui_abi/src/a11y.rs", "validates and translates caller-owned C ABI pointers at the PXUI FFI boundary"),

@@ -14,7 +14,7 @@ impl Ui {
     /// next call on `ui`.
     /// Allocates: nothing once warm; typing allocates the new text.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the field's text or name.
-    /// Panics: when the library refuses the call (outside a frame, text too long).
+    /// Panics: when the library refuses the call (outside a frame, text too long). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// let mut ui = pxui::Ui::new().unwrap();
@@ -34,7 +34,7 @@ impl Ui {
     /// Placement: absolute, at `rect` in the parent's space (the caller-painted inspector field; no flow node).
     /// Allocates: the engine allocates the result text each call; the wrapper nothing.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the field's text.
-    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    /// Panics: when the `Ui` has failed, like every `Ui` call. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::{ui::{LineStep, Rect}, LineField};
@@ -56,7 +56,7 @@ impl Ui {
     /// Allocates: nothing on a warm frame with the same `area` data, callbacks and language (the adapters are made once per `Ui` and rebound each call);
     /// results a callback returns (colours, completions, text) and typing allocate.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the area's text.
-    /// Panics: when the `Ui` has failed, like every `Ui` call, when an offset in `area` is over `i64::MAX`, or when `area` holds more than 64 errors,
+    /// Panics: when the `Ui` has failed, like every `Ui` call, when an offset in `area` is over `i64::MAX`, or when `area` holds more than 64 errors, A key or identity label over 256 bytes panics (a programmer error).
     /// notes, spans, splices or chips, or the language more than 32 bracket pairs (they cross in stack buffers).
     ///
     /// ```
@@ -77,7 +77,7 @@ impl Ui {
     /// Placement: absolute, at `rect` in the parent's space (the caller-painted inspector value; no flow node).
     /// Allocates: nothing on an idle warm frame; editing, sliding or scrubbing allocates the text.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the field's text.
-    /// Panics: when the `Ui` has failed, like every `Ui` call, or when a size in `field` is over `i64::MAX`.
+    /// Panics: when the `Ui` has failed, like every `Ui` call, or when a size in `field` is over `i64::MAX`. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::{ui::Rect, ValueCallbacks, ValueField};
@@ -97,7 +97,7 @@ impl Ui {
     ///
     /// Allocates: nothing once warm; the changed text is copied into buffers the library reuses.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the field's text.
-    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    /// Panics: when the `Ui` has failed, like every `Ui` call. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// let mut ui = pxui::Ui::new().unwrap();
@@ -117,7 +117,7 @@ impl Ui {
     /// `scrubber` carries the arrow-key step and the accessible name (the scrubber is unnamed without one).
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never display text.
-    /// Panics: when the library refuses the call (outside a frame, a non-finite value or step).
+    /// Panics: when the library refuses the call (outside a frame, a non-finite value or step). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// let mut ui = pxui::Ui::new().unwrap();

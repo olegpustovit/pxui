@@ -240,10 +240,10 @@ mod tests {
         let mut late = None;
         ui.frame(&input(0.0), &mut |ui: &mut Ui| { late = Some(ui.register_toggle_body("late", probe)); }).expect("frame");
         assert!(late.expect("ran").is_err(), "bodies are registered outside a frame");
-        // a part outside a body is a caller bug
+        // a part outside a body is a caller bug (outside a frame, it is refused as every builder is)
         let refused = catch_unwind(AssertUnwindSafe(|| ui.part(Part::HIT, Node::DEFAULT)));
         assert!(refused.is_err());
-        assert!(ui.last_error().contains("inside a body"), "{}", ui.last_error());
+        assert!(ui.last_error().contains("frame callback"), "{}", ui.last_error());
         ui.frame(&input(1.0), &mut |ui: &mut Ui| { ui.label("still usable", crate::Label::DEFAULT); }).expect("the Ui is not poisoned");
     }
 

@@ -96,7 +96,7 @@ impl Ui {
     /// scalar offsets, matching native text widgets. An offset past the end of `value` becomes the end, and one inside a character moves back to
     /// that character's start. A dead `box_` (from an earlier frame) is ignored.
     /// Allocates: grows the node's value string when `value` is longer than the one it held; otherwise never.
-    /// Panics: when `value` is longer than the text limit (the library refuses it).
+    /// Panics: when `value` is longer than the text limit (the library refuses it). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| {
@@ -116,7 +116,7 @@ impl Ui {
     ///
     /// A dead `box_` (from an earlier frame) is ignored.
     /// Allocates: grows the node's name string when `name` is longer than the one it held; otherwise never.
-    /// Panics: when the library refuses the call (an invalid box or name), or outside a frame.
+    /// Panics: when the library refuses the call (an invalid box or name), or outside a frame. Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| {

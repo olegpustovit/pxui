@@ -22,11 +22,9 @@ unsafe fn font_slice<'a>(value: Str) -> Option<&'a [u8]> {
     unsafe { bytes(value) }
 }
 
-unsafe fn utf8<'a>(value: Str) -> Option<&'a str> {
-    // every shaper, text-service and spans entry takes its text here: over `MAX_TEXT_BYTES` is refused (`PXUI_ERR_ARGUMENT`) before any read
-    if value.len > crate::state::MAX_TEXT_BYTES { return None; }
-    std::str::from_utf8(unsafe { bytes(value) }?).ok()
-}
+/// Text to measure or shape: every shaper, text-service and spans entry takes its text here, editor text (`state::checked_text`): over
+/// `MAX_TEXT_BYTES` is refused (`PXUI_ERR_ARGUMENT`) before any read.
+unsafe fn utf8<'a>(value: Str) -> Option<&'a str> { unsafe { crate::state::checked_text(value) } }
 
 pub(crate) fn style(value: TextStyle) -> Option<Style> {
     if value.size < core::mem::size_of::<TextStyle>() as u32 || value.features & !Style::FEATURE_TABULAR_NUMBERS != 0
@@ -86,7 +84,7 @@ unsafe fn measure_spans(text:&mut Text,key:u64,value:Str,style_:*const TextStyle
     0
 }
 
-export!(bare pub unsafe fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
+export!(object pub unsafe fn pxui_shaper_width_spans(shaper:*mut PxuiShaper,key:u64,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut TextMetrics)->i32 {
     let Some(shaper)=(unsafe { shaper.as_mut() }) else { return PXUI_ERR_ARGUMENT };
     unsafe { measure_spans(&mut shaper.text,key,value,style_,max_width,spans,out) }
 });
@@ -117,7 +115,7 @@ pub(crate) fn metrics(value: pxui_text::Metrics) -> TextMetrics {
 }
 
 /// A text shaper of its own, for text laid out off the `Ui` (on any thread): its own font system and no GPU atlas.
-pub struct PxuiShaper { text: Text, raster_glyphs: Vec<pxui_text::Glyph> }
+pub struct PxuiShaper { text: Text, raster_glyphs: Vec<pxui_text::Glyph>, pub(crate) poisoned: bool }
 
 /// Owned entirely by the library. Installation replaces its contents with retired UI storage.
 pub struct PxuiPreparedText { prepared: pxui_text::Prepared }
@@ -126,10 +124,10 @@ export!(pub unsafe fn pxui_text_fork(ui:*mut PxuiUi)->*mut PxuiShaper {
     let Some(state)=(unsafe { crate::state::get(ui) }) else { return core::ptr::null_mut() };
     if state.shared().in_frame { return core::ptr::null_mut(); }
     let text=unsafe { &mut *state.engine }.text_mut().preparer();
-    Box::into_raw(Box::new(PxuiShaper { text, raster_glyphs: Vec::new() }))
+    Box::into_raw(Box::new(PxuiShaper { text, raster_glyphs: Vec::new(), poisoned: false }))
 });
 
-export!(bare pub unsafe fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32 {
+export!(object pub unsafe fn pxui_shaper_prepare(shaper:*mut PxuiShaper,value:Str,style_:*const TextStyle,max_width:f32,spans:*const TextSpans,out:*mut *mut PxuiPreparedText,out_metrics:*mut TextMetrics)->i32 {
     if out.is_null() || out_metrics.is_null() { return PXUI_ERR_ARGUMENT; }
     let (Some(shaper),Some(value),Some(style),Some(spans))=(unsafe { shaper.as_mut() },unsafe { utf8(value) },unsafe { read_style(style_) },unsafe { span_packet(spans) }) else { return PXUI_ERR_ARGUMENT };
     let Some(prepared)=shaper.text.prepare(value,&style,max_width,spans.as_slice().unwrap()) else { return PXUI_ERR_ARGUMENT };
@@ -236,14 +234,14 @@ mod prepared_tests {
 }
 
 
+// A shaper over `fonts` (copied; the first is the default); null when there is none (shaping needs a font: one without any would fail
+// at its first text), when one is refused, or past the font limits.
 export!(bare pub unsafe fn pxui_shaper_create(fonts: *const Str, count: usize) -> *mut PxuiShaper {
-    if count > pxui_text::MAX_FONTS || (count != 0 && fonts.is_null()) { return core::ptr::null_mut(); }
+    if count == 0 || count > pxui_text::MAX_FONTS || fonts.is_null() { return core::ptr::null_mut(); }
     let mut font_bytes = Vec::with_capacity(count);
-    if count != 0 {
-        for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
-            let Some(font) = (unsafe { font_slice(*font) }) else { return core::ptr::null_mut(); };
-            font_bytes.push(font);
-        }
+    for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
+        let Some(font) = (unsafe { font_slice(*font) }) else { return core::ptr::null_mut(); };
+        font_bytes.push(font);
     }
     // each font within the per-font and total caps and parseable: a refused font refuses the shaper
     if font_bytes.iter().map(|font| font.len()).sum::<usize>() > pxui_text::MAX_FONT_TOTAL_BYTES { return core::ptr::null_mut(); }
@@ -251,12 +249,12 @@ export!(bare pub unsafe fn pxui_shaper_create(fonts: *const Str, count: usize) -
     if text.font_count() != font_bytes.len() { return core::ptr::null_mut(); }
     // the same default as `Ui` (ui.rs `platform`), so a standalone shaper rasterises like the UI's
     text.set_apple_raster(cfg!(any(target_os = "macos", target_os = "ios")));
-    Box::into_raw(Box::new(PxuiShaper { text, raster_glyphs: Vec::new() }))
+    Box::into_raw(Box::new(PxuiShaper { text, raster_glyphs: Vec::new(), poisoned: false }))
 });
 
 export!(bare pub unsafe fn pxui_shaper_destroy(shaper: *mut PxuiShaper) { if !shaper.is_null() { drop(unsafe { Box::from_raw(shaper) }); } });
 
-export!(bare pub unsafe fn pxui_shaper_system_fonts(shaper:*mut PxuiShaper)->i32 {
+export!(object pub unsafe fn pxui_shaper_system_fonts(shaper:*mut PxuiShaper)->i32 {
     let Some(shaper)=(unsafe { shaper.as_mut() }) else { return PXUI_ERR_ARGUMENT };
     if shaper.text.enable_system_fonts() { 0 } else { crate::PXUI_ERR_STATE }
 });
@@ -268,17 +266,17 @@ export!(pub unsafe fn pxui_text_system_fonts(ui:*mut PxuiUi)->i32 {
     0
 });
 
-export!(bare pub unsafe fn pxui_shaper_add_font(shaper: *mut PxuiShaper, font: Str) -> u32 {
+export!(object failing(u32::MAX) pub unsafe fn pxui_shaper_add_font(shaper: *mut PxuiShaper, font: Str) -> u32 {
     let (Some(shaper), Some(font)) = (unsafe { shaper.as_mut() }, unsafe { font_slice(font) }) else { return u32::MAX; };
     shaper.text.add_font(font).and_then(|index| u32::try_from(index).ok()).unwrap_or(u32::MAX)
 });
 
-export!(bare pub unsafe fn pxui_shaper_width(shaper: *mut PxuiShaper, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
+export!(object pub unsafe fn pxui_shaper_width(shaper: *mut PxuiShaper, key: u64, value: Str, style_: *const TextStyle, max_width: f32, out: *mut TextMetrics) -> i32 {
     let Some(shaper) = (unsafe { shaper.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
     unsafe { measure(&mut shaper.text, key, value, style_, max_width, out) }
 });
 
-export!(bare pub unsafe fn pxui_shaper_rasterize_rgba(
+export!(object failing(usize::MAX) pub unsafe fn pxui_shaper_rasterize_rgba(
     shaper: *mut PxuiShaper, key: u64, value: Str, style_: *const TextStyle, max_width: f32, scale: f32,
     color_r: u8, color_g: u8, color_b: u8, color_a: u8, width: *mut u32, height: *mut u32, out: *mut u8, capacity: usize,
 ) -> usize {

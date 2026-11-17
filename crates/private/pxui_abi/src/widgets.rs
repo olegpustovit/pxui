@@ -50,7 +50,7 @@ mod scrub_tests {
     }
 }
 
-export!(pub unsafe fn pxui_ui_scrub(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, step: f32, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32 {
+export!(build pub unsafe fn pxui_ui_scrub(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, step: f32, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid scrub output") }; };
     let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scrub label") }; };
@@ -138,7 +138,7 @@ export!(trusted pub unsafe fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, 
     if changed.is_null() || out.is_null() { return unsafe { fail(ui, "null search field output") }; }
     unsafe { *changed = 0; *out = Str::default(); }
     let (Some(label), Some(icon), Some(value), Some(placeholder)) = (
-        unsafe { checked(label) }, unsafe { checked(icon) }, unsafe { checked(value) }, unsafe { checked(placeholder) },
+        unsafe { checked(label) }, unsafe { checked(icon) }, unsafe { crate::state::checked_text(value) }, unsafe { checked(placeholder) },
     ) else { return unsafe { fail(ui, "invalid search field text") }; };
     let mut found = None;
     let rc = unsafe { trusted::search_field(ui, label, icon, value, placeholder, &mut found) };

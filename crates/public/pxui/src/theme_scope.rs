@@ -1,7 +1,7 @@
 //! A theme built from tokens and key/value pairs (the keys of a theme file), scoped over a subtree with `Ui::themed`.
 use crate::composite::call;
 use crate::sys::PxuiTheme;
-use crate::{as_str, check, Ui};
+use crate::{as_text, check, Ui};
 use core::{ffi::c_void, ptr::NonNull};
 use pxui_types::{ffi::ThemeTokens, geom::Rgba, theme::{ColorToken, Tokens}, Str};
 
@@ -33,12 +33,12 @@ impl Theme {
         Err(if message.len == 0 { format!("theme call failed ({rc})") } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(message.ptr, message.len) }).into_owned() })
     }
     /// Sets one theme file key (`button.hover.fill`, `tokens.accent`, ...); the error says why it was refused.
-    pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> { self.result(unsafe { lib::pxui_theme_set(self.0.as_ptr(), as_str(key), as_str(value)) }) }
+    pub fn set(&mut self, key: &str, value: &str) -> Result<(), String> { self.result(unsafe { lib::pxui_theme_set(self.0.as_ptr(), as_text(key), as_text(value)) }) }
     /// Applies theme file text over the theme (any number of lines), with `KIND.body = NAME` naming the bodies `ui` registered
     /// (`Ui::register_toggle_body` and its siblings); an unregistered name is an error and nothing changes.
-    pub fn apply(&mut self, ui: &Ui, text: &str) -> Result<(), String> { self.result(unsafe { lib::pxui_ui_theme_apply(ui.0.as_ptr(), self.0.as_ptr(), as_str(text)) }) }
+    pub fn apply(&mut self, ui: &Ui, text: &str) -> Result<(), String> { self.result(unsafe { lib::pxui_ui_theme_apply(ui.0.as_ptr(), self.0.as_ptr(), as_text(text)) }) }
     /// Applies the theme file at `path`; nothing changes unless all of it is valid.
-    pub fn load(&mut self, path: &str) -> Result<(), String> { self.result(unsafe { lib::pxui_theme_load(self.0.as_ptr(), as_str(path)) }) }
+    pub fn load(&mut self, path: &str) -> Result<(), String> { self.result(unsafe { lib::pxui_theme_load(self.0.as_ptr(), as_text(path)) }) }
 }
 
 impl Default for Theme { fn default() -> Theme { Theme::make(core::ptr::null()) } }

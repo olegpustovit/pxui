@@ -447,12 +447,12 @@ fn abi_bench_paint_calls() {
     let ink = Rgba { r: 20, g: 120, b: 220, a: 255 };
     let mut calls = |shapes: u64, count: u64| {
         let input = FrameIn { width: 300.0, height: 200.0, scale: 1.0, time: count as f64 / 60.0, ..FrameIn::default() };
-        let before = pxui::library_counter(pxui::COUNTER_CALLS);
+        let before = ui.library_calls();
         ui.frame(&input, &mut |ui: &mut pxui::Ui| {
             let b = ui.node("canvas".into(), pxui::Node { w: Size::Px(300.0), h: Size::Px(200.0), ..pxui::Node::DEFAULT });
             ui.canvas(&b, move |p, _| for i in 0..shapes { p.fill((i % 300) as f32, (i / 300) as f32, 1.0, 1.0, ink); });
         }).expect("frame");
-        pxui::library_counter(pxui::COUNTER_CALLS) - before - 1
+        ui.library_calls() - before
     };
     for count in 0..4 { calls(0, count); }
     let empty = calls(0, 4);

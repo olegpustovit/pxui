@@ -4,7 +4,9 @@
 //! performed by installation. Glyph rasterization/atlas growth remain separate cold work.
 use super::*;
 
-const MAX_TEXT_BYTES: usize = 1 << 20;
+/// The longest text one preparation takes (`shaper_prepare`, docs/abi.md Limits): a worker result owns its text and shaping, so it is
+/// capped below the 16 MiB editor-text cap of the calls that shape in place.
+const MAX_PREPARED_BYTES: usize = 1 << 20;
 /// Debug builds remember this many installed layouts' styles (a ring; no allocation after `preparer`).
 #[cfg(debug_assertions)]
 const MAX_INSTALLED: usize = 256;
@@ -41,7 +43,7 @@ impl Text {
 
     /// Worker only. A result owns its source text, original shaping and reusable glyph storage.
     pub fn prepare(&mut self, text: &str, style: &Style, width: f32, spans: &[TextSpan]) -> Option<Prepared> {
-        if text.len() > MAX_TEXT_BYTES || !width.is_finite() || !valid_spans(text, spans)
+        if text.len() > MAX_PREPARED_BYTES || !width.is_finite() || !valid_spans(text, spans)
             || !style.size.is_finite() || style.size <= 0.0 || !style.line_height.is_finite()
             || !style.tracking.is_finite() || style.features & !Style::FEATURE_TABULAR_NUMBERS != 0 {
             return None;

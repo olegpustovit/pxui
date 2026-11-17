@@ -49,7 +49,7 @@ impl Ui {
     /// Allocates: as `view` (never on a warm frame, kept or rebuilt).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); an id never collides with a
     /// printable label.
-    /// Panics: when the library refuses the view (outside a frame), or when `f` panics.
+    /// Panics: when the library refuses the view (outside a frame), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use std::cell::Cell;

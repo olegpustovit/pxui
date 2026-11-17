@@ -106,7 +106,7 @@ mod tests {
     }
 }
 
-export!(pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, label: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
+export!(build pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, label: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { crate::get(ui) }) else { return -1; };
     if raw.is_null() || out.is_null() { return unsafe { crate::fail(ui, "invalid image descriptor") }; }
     let (Some(label), Some(image), Some(fit), Some(width), Some(height)) = (unsafe { checked(label) }, image(unsafe { *raw }, &mut state.shared().images), fit(fit_code), size(width), size(height))

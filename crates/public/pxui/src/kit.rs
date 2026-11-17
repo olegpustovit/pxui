@@ -62,7 +62,7 @@ mod sys {
 }
 
 #[inline]
-fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
+fn as_str(value: &str) -> Str { crate::as_str(value) }
 
 type Build = pxui_types::ffi::UiBuild;
 type GridBuild = Option<extern "C" fn(*mut c_void, *mut c_void, usize)>;
@@ -186,7 +186,7 @@ impl Ui {
     /// view (minimum scroll, sticky heading respected). Ids must be unique among the rows (a repeated id takes a `#dup` key).
     /// Allocates: never on a warm frame.
     /// Identity: `label` keys the list under its parent; row boxes are `Key::Id(key(i))` under the list's rows.
-    /// Panics: when the library refuses the geometry (a row height that is not positive and finite, more than a million rows), or
+    /// Panics: when the library refuses the geometry (a row height that is not positive and finite, more than a million rows), or A key or identity label over 256 bytes panics (a programmer error).
     /// when `build` or `key` panics.
     ///
     /// ```
@@ -205,7 +205,7 @@ impl Ui {
     ///
     /// Allocates: never on a warm frame (the height cache grows with the count).
     /// Identity: as `section_list`.
-    /// Panics: as `section_list`.
+    /// Panics: as `section_list`. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::ui::{SectionList, SectionPart};

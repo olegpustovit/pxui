@@ -1,5 +1,6 @@
 # PXUI extension set: no stability guarantee (docs/abi.md, Extension set). Rows may change or disappear between minors.
 # The set is the names listed here; add a name to move a call out of the frozen manifest, then run `cargo run -p gate -- abi-snapshot --write`.
+function pxui_ui_calls uint64_t pxui_ui_calls ( const PxuiUi * ui ) ;
 function pxui_ui_inspector_bar int32_t pxui_ui_inspector_bar ( PxuiUi * ui , PxuiHintSpan hints , int64_t count ) ;
 function pxui_ui_inspector_body int32_t pxui_ui_inspector_body ( PxuiUi * ui , PxuiBuild build , void * user ) ;
 function pxui_ui_inspector_button int32_t pxui_ui_inspector_button ( PxuiUi * ui , PxuiStr key , PxuiStr label , uint8_t * out ) ;

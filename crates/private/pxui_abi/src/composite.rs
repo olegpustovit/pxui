@@ -102,7 +102,7 @@ export!(trusted pub unsafe fn pxui_ui_dialog_response(ui: *mut PxuiUi, desc: *co
     let Some(d) = read_desc!(desc, PxuiDialogDesc) else { return unsafe { fail(ui, "invalid dialog descriptor") } };
     let mut list = state.shared().take_strs();
     let mut buf = [DialogButton::new(""); MAX_BUTTONS];
-    let decoded = match (unsafe { checked(d.key) }, unsafe { checked(d.title) }) {
+    let decoded = match (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.title) }) {
         (Some(key), Some(title)) if unsafe { strings(d.buttons, MAX_BUTTONS, &mut list) } => dialog_buttons(&list, (d.default_at, d.cancel_at, d.danger, d.disabled), &mut buf).map(|b| (key, title, b)),
         _ => None,
     };

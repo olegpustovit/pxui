@@ -160,7 +160,7 @@ impl Ui {
     /// `clicked` is the press and release inside it or Enter/Space while focused. The icon-only control needs `name`: it is the only text it has.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display name.
-    /// Panics: when the library refuses the arguments (outside a frame, a `Pct` or `Rel` size, a press scale that is not above zero).
+    /// Panics: when the library refuses the arguments (outside a frame, a `Pct` or `Rel` size, a press scale that is not above zero). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::{Icon, IconButton};

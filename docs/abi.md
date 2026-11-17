@@ -33,6 +33,40 @@ frozen by a released minor. A call added after N is simply absent from an older 
 **Reserved flag bits.** Node flags (`Flags`, `u64`) use bits 0-21 today (highest is `FIT_TEXT_PIXEL`, 1 << 21). Bits 22-62 are
 reserved for future minors and must be passed as zero. Bit 63 is unassigned.
 
+**Limits.** An untrusted caller (a compositor hosts many apps) can make no export panic, abort, poison its `Ui` or allocate without
+bound; every limit refuses with an error, never cuts. A test calls every export the manifests list, outside a frame and inside one,
+with zero, null, garbage and oversized arguments, and fails on any panic, `PXUI_ERR_PANIC` or poisoned `Ui` (`pxui_abi` `fuzz.rs`; a
+name missing from it fails too). The export macro's `catch_unwind` is the backstop for a library bug, not a way to refuse an argument.
+Since 1.66:
+
+| Input | Cap | Past it |
+| --- | --- | --- |
+| An identifier: a key, a node or container label used as identity, a body, theme-file or bridge name, a carry kind | 256 bytes (`MAX_KEY_BYTES`) | refused; the Rust wrapper panics (a programmer error: keys are `&'static str` or ids) |
+| Display text: labels, titles, accessible names and values, tips, menu and list rows, hints, options; a node's text with spans or as a line box (`ui_text_spans`, `ui_text_line_box`, `ui_label_text_spans`, `ui_label_text_line_box`) | 64 KiB (`MAX_LABEL_BYTES`) | refused from C; the Rust wrapper clips it at a character boundary first (user data never panics) |
+| Editor text: a text field's or area's value, a splice, a paste, an edit, a theme source, text the text service measures or shapes (`text_width`/`_spans`, `text_quads`, `text_rasterize_rgba`, `ui_label_measure`, `ui_label_quads`, `ui_label_rasterize_rgba`, the shaper's); one event's text | 16 MiB (`MAX_TEXT_BYTES`) | refused |
+| A text prepared off the UI thread (`shaper_prepare`) | 1 MiB (`pxui_text` `MAX_PREPARED_BYTES`) | refused |
+| `text_prewarm` / `ui_label_prewarm` text | 16 KiB | refused |
+| A font; fonts per text service; font bytes per text service (1.63) | 32 MiB; 64; 256 MiB | refused |
+| A call's string span (options, rows, titles, hints, a text area's messages and splices); one frame's event text (or one `ui_wants_frame` call's) | 16 MiB together (`MAX_TOTAL_TEXT_BYTES`) | refused |
+| Strings the library hands back between two frames (edited text, lent payloads, a picker query) | 4096 and 64 MiB (`MAX_RETURNED`, `MAX_RETURNED_BYTES`) | `PXUI_ERR_STATE` until the next frame |
+| `FrameIn.width`/`height`, `PxuiInput.logical_size`, a resize or pixel-size event | `0..=65536` (`MAX_SURFACE`) | refused |
+
+**Error code of a cap.** An argument past its cap is `PXUI_ERR_ARGUMENT` on every path (C exports, trusted entries, the text service; a
+call that returns a value answers its failure value: null, 0, `SIZE_MAX` or `UINT32_MAX` as its row says), with the reason in
+`pxui_last_error`. The one budget that is not an argument's, the strings handed back since the frame began, answers `PXUI_ERR_STATE`
+(the call is not allowed now; the next frame resets it). Nothing is cut on the C side; only the Rust wrapper clips display text.
+
+- Events (`frame`, `ui_frame`, `ui_wants_frame`: one validator): `x`, `y` and `value` finite for every kind; text editing start and
+  length not negative; a resize or pixel-size change within `0..=65536`; a known kind and code. `FrameIn.width`/`height` and
+  `PxuiInput.logical_size` within `0..=65536` points (`MAX_SURFACE`); a held key code that names no key is refused as the event path
+  refuses it.
+- Builders (every call that declares nodes: widgets, containers, `ui_node`, `ui_box`, `ui_draw`, `part`, ...) answer `PXUI_ERR_STATE`
+  outside a frame callback, before the engine is touched (`enter!` and the `build` export form); the `Ui` is not poisoned.
+- A shaper, a theme and an accessibility bridge whose call panicked are poisoned like a `Ui`: every later call answers its failure value
+  at once; destroy still frees them.
+- Calls are counted per `Ui` (`ui_calls`, extension set): no counter is shared between `Ui`s or threads; `counter(0)` reads 0.
+- A shaper needs a font: `shaper_create` with none (or only refused ones) is null, never a panic at its first text.
+
 **Version and features.** `PxuiUiDesc.abi_built` (the record's 1.60 tail) is the `major << 16 | minor` the app was built against (`PXUI_ABI_BUILT`;
 `pxui_types::ABI_BUILT`, kept equal to `ABI_VERSION` by a test). Create checks the major only, against the library's own (nothing is fixed to major 1):
 another major returns null; 0, a 12-byte record, is unstated. The minor is not compared: an app built for a newer minor runs on an older library, which reads
@@ -156,6 +190,7 @@ wrapper) and name the replacement; nothing is removed from the manifest.
 | 1.63 | none (limits and refusals) | **Text, image and renderer hardening for untrusted callers.** *Fonts* (`ui_create_with_fonts`, `shaper_create`, `shaper_add_font`, `text_add_font`): a font is 1 byte to 32 MiB (`MAX_FONT_BYTES`; was 16 MiB for `ui_create_with_fonts` only, unbounded for the adds), a text service holds at most 64 fonts (`MAX_FONTS`; `Style.font` is a `u16`; was 128) and 256 MiB of font bytes in all (`MAX_FONT_TOTAL_BYTES`); bytes that are not a parseable font are refused (`UINT32_MAX` for the adds, `NULL` for the creates) with nothing kept; fonts are never removed. The Rust wrapper's `add_font` now answers `None` for such bytes. *Layouts*: retained layouts have a byte budget (`LAYOUT_BYTES`, 64 MiB) over their estimated shaped size (160 bytes per text byte plus 1 KiB per layout, since cosmic-text reports no buffer sizes), besides the 4,096-layout count. Past it the least valuable layouts go, never one laid out in the current frame (so a frame showing many large texts keeps them all, and the excess goes the next frame; a layout larger than the whole budget stays only while used); a text service that never ends a frame evicts regardless past twice the budget. *Text length*: every shaper, text-service and spans entry refuses text over 256 MiB (`MAX_TEXT_BYTES`) with `PXUI_ERR_ARGUMENT` (`SIZE_MAX` for the sized-result calls). *System fonts* (`text_system_fonts`, `shaper_system_fonts`): memory-mapped by the OS, demand-paged and outside the font budget above; bounded instead to 128 files, 256 MiB per file (the macOS colour-emoji collection is about 190 MB) and 1 GiB of mapped address space in all, a file past either skipped. *Renderer*: `renderer_create` reads `gpu` and `target` only after their `size` covers the record (a shorter record is refused, `NULL`; the lease of a gpu record too short to hold `release_owner` is not released); `renderer_resize` answers `PXUI_ERR_ARGUMENT` for an extent above the device's maximum 2D texture dimension, allocating nothing. *Images*: native-image identities are per `Ui`, not per thread; bounds as in 1.13 (the eviction scan is bounded by 1,024 entries; it is not O(1)). |
 | 1.64 | `ui_text_field_keyed`, `ui_input_box`, 56-byte `PxuiTextFieldDesc` | A text field keyed by `desc.key` and named `desc.name` (empty: unnamed), size-prefixed, and the box of the text input the last text field, line field, search field, text area or value field call built (the wrapper reads its response from it and names it). Legacy, cut at 2.0: `text_field`, `text_field_with_options`, `ui_search_field` and `ui_text_area_submit` (they keep working; the wrapper reads the box they built through `ui_input_box` and names it itself). `ui_line_field` and `ui_value_field` are in the extension set. |
 | 1.65 | `ui_label_text_spans`, `ui_label_text_line_box`, `ui_label_measure`, `ui_label_quads`, `ui_label_rasterize_rgba`, `ui_label_prewarm`, `PXUI_FEATURE_LABEL_TEXT` (22) | Text calls on a label style (`PxuiLabelStyle`, `digits` ignored), resolved against the `Ui`'s theme in the same call as `ui_resolve_label` resolves it, then run as their resolved-style twins (`ui_text_spans`, `ui_text_line_box`, `text_width`/`text_width_spans`, `text_quads`, `text_rasterize_rgba`, `text_prewarm`) with the content's layout key: no resolve round trip per call. The Rust wrapper's `Ui::text_spans`/`text_line_box`/`prewarm_text` and `UiText` take a `Label` through them (static builds call the trusted entries with the label's fields borrowed). A null, short, invalid or unresolvable label record is refused as the twin refuses an invalid style; `ui_label_measure`'s spans may be null. |
+| 1.66 | Limits (see **Limits**): per-role string caps, one event validator, surface and held-key checks, builders refused outside a frame, bounded returned strings, poisoned shapers/themes/bridges; `ui_calls` (extension set); `counter(0)` reads 0; `shaper_create` with no font is null | OS-grade untrusted callers. The Rust wrapper clips display text past 64 KiB (identifiers past 256 bytes still panic). Behaviour change on inputs earlier minors accepted: an identifier over 256 bytes, display text over 64 KiB, editor/event text over 16 MiB (was 256 MiB), a non-finite event coordinate or value in a frame (`ui_wants_frame` already refused it), a negative text editing range, a resize, frame size or logical size outside `0..=65536`, an unknown held key code (was `Key::Unknown`), a builder outside a frame (was a caught panic: `PXUI_ERR_PANIC` and a poisoned `Ui`), a 4097th string handed back between frames. Grid track lists are found by hash, not by a scan (O(grids) a frame). |
 
 Frame extensions retain the frozen 48/56/128-byte prefixes. Validate leading sizes, active
 records, flags and UTF-8 boundaries before mutation; partial tails never justify reading

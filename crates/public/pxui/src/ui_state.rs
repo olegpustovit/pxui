@@ -34,6 +34,7 @@ library!(lib {
     fn pxui_ui_verify_views(ui: *mut PxuiUi, on: u8) -> i32;
     fn pxui_ui_set_timing(ui: *mut PxuiUi, on: u8) -> i32;
     fn pxui_ui_phase_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32;
+    fn pxui_ui_calls(ui: *const PxuiUi) -> u64;
     fn pxui_ui_phase_cpu_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32;
     fn pxui_ui_bytes(ui: *mut PxuiUi, out: *mut i64, len: usize) -> i32;
     fn pxui_ui_platform(ui: *mut PxuiUi) -> u32;
@@ -250,6 +251,19 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_phase_times(self.0.as_ptr(), nanos.as_mut_ptr(), nanos.len()) });
         nanos.map(std::time::Duration::from_nanos)
     }
+    /// Calls this `Ui` has made into the library since it was created: its own, its frame callbacks', its renderers' and paint
+    /// handles' (this one is not counted). The performance gates' count of library calls; per `Ui`, so another `Ui` or thread never
+    /// moves it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// let before = ui.library_calls();
+    /// pxui::testing::frame(&mut ui, &[], &mut |_| {});
+    /// assert!(ui.library_calls() > before);
+    /// ```
+    pub fn library_calls(&self) -> u64 { unsafe { lib::pxui_ui_calls(self.0.as_ptr()) } }
     /// The last frame's thread CPU time in each phase, in `phase_times` order, summed across settling passes.
     ///
     /// Needs `set_timing(true)` and a platform thread CPU clock (Apple platforms today); there is no wall-clock fallback.
@@ -312,7 +326,7 @@ impl Ui {
     /// Read it where the section is built (inside the same parent); it is `None` until the section has first been built there, and keeps its state from frame to frame.
     /// Allocates: never.
     /// Identity: `key` is the key given to `inspector_section`, resolved under the current parent's seed as for any label.
-    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit).
+    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
@@ -331,7 +345,7 @@ impl Ui {
     /// A different `key`, a moved pointer, a missed frame, a touch, a press in progress, a modal or focus loss restart the wait. The first call for a key is always false.
     /// Allocates: the first call for a key copies it; never afterwards for the same key.
     /// Identity: `key` names the hover target for this one wait, compared as text (not resolved under a parent): two targets with one key share the wait.
-    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit).
+    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| assert!(!ui.hover_delay("play")));
@@ -344,7 +358,7 @@ impl Ui {
     }
     /// The width in points a string takes in the small-caps label style at the current theme.
     /// Allocates: on the first measurement of `text` (the text cache); never when it is cached.
-    /// Panics: when the library refuses the call (outside a frame, or text over the limit).
+    /// Panics: when the library refuses the call (outside a frame, or text over the limit). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| assert!(ui.cap_width("TITLE") > ui.cap_width("T")));

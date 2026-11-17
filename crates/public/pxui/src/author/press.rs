@@ -108,7 +108,7 @@ impl Ui {
     /// so there is nothing for a registered body to replace; style it with `look` or the theme's colour tokens.
     /// Allocates: as `node`, `signal` and `within` (never on a warm frame).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics.
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::{ui::{Look, Node, Role, States}, Pressable};

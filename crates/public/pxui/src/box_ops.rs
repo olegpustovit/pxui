@@ -2,7 +2,7 @@
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::node::{look, mark, size};
 use crate::opts::{BoxOpts, HitFn};
-use crate::{as_str, check, Ui};
+use crate::{as_str, as_text, check, Ui};
 use core::ffi::c_void;
 use pxui_types::{geom::{Point, Rect}, ffi::{PxuiBoxDesc, PxuiLookDesc, PxuiMarkDesc, PxuiSizeDesc, Slice}, theme::Look, Dir, Size, Mark, PxuiBox, Str};
 use std::{alloc::Layout, fmt::{Arguments, Write}};
@@ -429,7 +429,7 @@ impl Ui {
     /// `opts` sets its flags, size, axis, padding, scroll step and optional free position and hit shape (see `BoxOpts`).
     /// Allocates: never on a warm frame; a new identity takes a slot the first time, and a `hit` closure takes a pooled box once per call.
     /// Identity: `label` hashes under the parent's seed as `key_of` does; two boxes with one label in one parent collide and the second takes a `#dup` key, so label boxes that can reorder by something unique.
-    /// Panics: when the library refuses the box (outside a frame, an invalid size or a `label` over the text limit).
+    /// Panics: when the library refuses the box (outside a frame, an invalid size or a `label` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::ui::BoxOpts;
@@ -631,13 +631,13 @@ impl Ui {
     #[track_caller]
     pub fn set_text_state(&mut self, b: &PxuiBox, value: Option<&str>) {
         let text = value.unwrap_or("");
-        check(self, unsafe { lib::pxui_ui_set_text_state(self.0.as_ptr(), b, value.is_some() as u8, as_str(text)) })
+        check(self, unsafe { lib::pxui_ui_set_text_state(self.0.as_ptr(), b, value.is_some() as u8, as_text(text)) })
     }
     /// The text kept in `b`'s slot number `index`, replaced by `text` when it differs: stable text for paint callbacks without a per-frame `String`.
     ///
     /// Borrowed from the library until the next call on this box or the next frame. The slots follow the node and go with it.
     /// Allocates: when `text` differs from the kept text (a new string); never for an unchanged one.
-    /// Panics: when the library refuses the call (a stale handle or text over the limit).
+    /// Panics: when the library refuses the call (a stale handle or text over the limit). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
@@ -675,7 +675,7 @@ impl Ui {
     /// Holds a payload of `kind` and `value` for a drag or a key-driven move; drop targets read it with `drop_target` and everyone with `carrying`.
     /// With `from` (the box that owns the pressed left button) the payload is held once the pointer has moved 4 points from the press, so a widget calls it every frame while pressed. With `None` (a key) it is held at once, with no capture, and `cancel_carry` ends it. A new payload replaces the one held.
     /// Allocates: copies `kind` and `value` into storage the `Ui` reuses between carries; allocates only when a string outgrows it.
-    /// Panics: when the library refuses the call (a stale `from`, or text over the limit).
+    /// Panics: when the library refuses the call (a stale `from`, or text over the limit). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
@@ -839,7 +839,7 @@ impl Ui {
     /// `revision` and `build` behave as for `view`: the view's build is kept while `revision` is unchanged. `view_offset` and the other table changes on it take effect by a rebuild instead.
     /// Allocates: never on a warm frame; a new identity takes a slot the first time.
     /// Identity: `label` keys the view under its parent as for `box_`; two views with one label in one parent collide.
-    /// Panics: when the library refuses the call (outside a frame, an invalid size, or a `label` over the text limit).
+    /// Panics: when the library refuses the call (outside a frame, an invalid size, or a `label` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {

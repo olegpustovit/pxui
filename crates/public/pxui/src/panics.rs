@@ -45,11 +45,23 @@ fn the_output_borrows_the_ui() {
     assert_eq!(revision, ui.draw_revision());
 }
 
-/// A `Ui` an engine panic poisoned: `box_` outside a frame panics in the engine, under the export's catch (`box_` is no trusted
-/// entry, so this holds linked statically too).
-fn poisoned() -> Ui {
+/// A builder outside a frame is a caller bug the library refuses (`PXUI_ERR_STATE`) before the engine is reached: the wrapper panics
+/// with its message and the `Ui` stays usable, not poisoned.
+#[test]
+fn a_builder_outside_a_frame_panics_with_the_library_message_and_leaves_the_ui_usable() {
     let mut ui = Ui::new().expect("library");
-    assert!(catch_unwind(AssertUnwindSafe(|| { ui.box_("outside a frame", Default::default()); })).is_err(), "the engine panics outside a frame");
+    let message = refusal("box_ outside a frame must panic", &mut || { ui.box_("outside a frame", Default::default()); });
+    assert!(message.contains("frame callback") && message.ends_with("(-3)"), "{message}");
+    let _ = ui.view_size();
+    ui.frame(&input(), &mut |ui: &mut Ui| { ui.label("fine", crate::Label::DEFAULT); }).expect("the Ui is not poisoned");
+}
+
+/// A `Ui` poisoned as a panic the library caught would leave it. No argument causes one any more (the export fuzz), so the state is
+/// injected; static link only, where the wrapper reaches the library's internals.
+#[cfg(feature = "static")]
+fn poisoned() -> Ui {
+    let ui = Ui::new().expect("library");
+    pxui_abi_link::poison_of(ui.id());
     ui
 }
 
@@ -60,6 +72,7 @@ fn refusal(what: &str, f: &mut dyn FnMut()) -> String {
 }
 
 /// A refused `theme()` panics with the library's message instead of dereferencing the null the library returns.
+#[cfg(feature = "static")]
 #[test]
 fn theme_of_a_poisoned_ui_panics_with_the_library_message() {
     let mut ui = poisoned();
@@ -70,6 +83,7 @@ fn theme_of_a_poisoned_ui_panics_with_the_library_message() {
 }
 
 /// `view_size()` on a poisoned `Ui` panics like every status call, rather than answering 0 by 0.
+#[cfg(feature = "static")]
 #[test]
 fn view_size_of_a_poisoned_ui_panics() {
     let ui = poisoned();
@@ -78,6 +92,7 @@ fn view_size_of_a_poisoned_ui_panics() {
 }
 
 /// The text service of a poisoned `Ui` answers its errors (whose zero is a real answer: font 0, no glyphs, an empty image), not success.
+#[cfg(feature = "static")]
 #[test]
 fn the_text_service_of_a_poisoned_ui_answers_errors() {
     let mut ui = poisoned();

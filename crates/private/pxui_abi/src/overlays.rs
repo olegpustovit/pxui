@@ -19,7 +19,7 @@ export!(trusted pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox,
     unsafe { crate::trusted::tip(ui, &*box_, label) }
 });
 
-export!(pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {
+export!(build pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out_index.is_null() || !seconds.is_finite() || seconds < 0.0 { return unsafe { fail(ui, "invalid toast arguments") }; }
     let mut list = state.shared().take_strs();
@@ -167,7 +167,7 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
     true
 }
 
-export!(pub unsafe fn pxui_ui_picker(
+export!(build pub unsafe fn pxui_ui_picker(
     ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, label: Str, query: Str,
     rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
@@ -205,7 +205,8 @@ export!(pub unsafe fn pxui_ui_picker(
     let opts = PickerOpts { limit, slash: slash != 0, at_rest: at_rest != 0, mark, off };
     let (query, pick) = unsafe { (&mut *state.engine).picker_filled(&opts, label, query, &mut { fill }) };
     if invalid.get() { return unsafe { fail(ui, "invalid picker rows") }; }
-    unsafe { *out_query = state.give(query); }
+    let Ok(query) = state.give(query) else { return crate::PXUI_ERR_STATE };
+    unsafe { *out_query = query; }
     let (tag, index) = match pick { Pick::None => (0, -1), Pick::Pick(index) => (1, index), Pick::Delete(index) => (2, index), Pick::Submit => (3, -1), Pick::Back => (4, -1), Pick::Cancel => (5, -1) };
     unsafe { *out_tag = tag; *out_index = index; }
     0

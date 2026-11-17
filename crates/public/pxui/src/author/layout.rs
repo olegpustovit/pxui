@@ -13,7 +13,7 @@ impl Ui {
     /// Allocates: as `node` and `within` (never on a warm frame).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); an id never collides with a
     /// printable label.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics.
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::ui::{Node, Size};
@@ -37,7 +37,7 @@ impl Ui {
     /// Allocates: as `node` and `within` (never on a warm frame).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); an id never collides with a
     /// printable label.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics.
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::ui::{Node, Size};
@@ -62,7 +62,7 @@ impl Ui {
     /// Allocates: as `node` and `within` (never on a warm frame).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); an id never collides with a
     /// printable label.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics.
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve), or when `f` panics. A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::ui::{Node, Size};
@@ -89,7 +89,7 @@ impl Ui {
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); each row box is `Key::Id(id(i))`
     /// under the list, so ids must be unique among the rows (a repeated id takes a `#dup` key).
-    /// Panics: when the library refuses the list (outside a frame, `row_h` not positive and finite, more than a million rows), or when
+    /// Panics: when the library refuses the list (outside a frame, `row_h` not positive and finite, more than a million rows), or when A key or identity label over 256 bytes panics (a programmer error).
     /// `id` or `f` panics.
     ///
     /// ```

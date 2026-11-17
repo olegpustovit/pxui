@@ -3,7 +3,7 @@
 //! settles. Validate descriptors before mutation and preserve callback recovery, hit/accessibility
 //! geometry and bounded warm allocation behavior.
 //!
-use crate::state::{PxuiUi, checked, fail, get, strings, text};
+use crate::state::{PxuiUi, checked, fail, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::{cell::Cell, ffi::c_void, mem::{align_of, offset_of, size_of}};
 use pxui_core::ui_widgets::TreeNode;
@@ -18,10 +18,10 @@ const _: () = assert!(size_of::<TreeNode>() == size_of::<PxuiTreeNode>() && alig
 struct EmitCtx { invalid: bool }
 // The Rust callback target stays in a stack context and never crosses the ABI boundary.
 struct EmitCtxWithTarget<'a> { ctx: EmitCtx, target: Option<&'a mut dyn FnMut(&str)> }
-// What C emits is checked as text here; its lengths are checked by the entry the text goes to.
+// What C emits is checked here as display text (`checked`: at most `MAX_LABEL_BYTES`, refused past it); the entry checks the total.
 extern "C" fn emit_to_target(user: *mut c_void, value: Str) {
     let state = unsafe { &mut *user.cast::<EmitCtxWithTarget<'_>>() };
-    let Some(text) = (unsafe { text(value) }) else { state.ctx.invalid = true; return; };
+    let Some(text) = (unsafe { crate::state::checked(value) }) else { state.ctx.invalid = true; return; };
     if let Some(target) = state.target.as_deref_mut() { target(text); }
 }
 
@@ -113,7 +113,7 @@ export!(trusted pub unsafe fn pxui_ui_table_view(ui: *mut PxuiUi, desc: *const P
 
 // ABI 1.49: the kit's text of the collection item being built, from inside a `list_view`/`tree` row or a `table_view` cell callback
 // (the `_with` exports): a list row's text, a tree row's text naming the row, a table cell's text naming the cell. Refused elsewhere.
-export!(pub unsafe fn pxui_ui_item_text(ui: *mut PxuiUi, text: Str) -> i32 {
+export!(build pub unsafe fn pxui_ui_item_text(ui: *mut PxuiUi, text: Str) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(text) = (unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid item text") } };
     unsafe { crate::trusted::item_text(ui, text) }

@@ -148,7 +148,13 @@ unsafe fn grid_node(ui: *mut PxuiUi, label: Option<&str>, key: i64, desc: &Node,
     let Some(split) = (unsafe { tracks(cols, cols_len, &mut buffer) }) else { return unsafe { fail(ui, "invalid grid tracks") } };
     let Some(len) = (unsafe { tracks(rows, rows_len, &mut buffer[split..]) }).map(|rows| split + rows) else { return unsafe { fail(ui, "invalid grid tracks") } };
     let flat = &buffer[..len];
-    let stored = match unsafe { (*ui).shared() }.grid_tracks.values().find(|stored| stored[..] == *flat) { Some(stored) => Rc::clone(stored), None => Rc::from(flat) };
+    let hash = tracks_hash(flat);
+    let shared = unsafe { (*ui).shared() };
+    let stored = match shared.grid_shared.get(&hash).filter(|stored| stored[..] == *flat) {
+        Some(stored) => Rc::clone(stored),
+        // a new list (or one whose hash another list holds: that entry is replaced, its boxes keep their own `Rc`)
+        None => { let stored: Rc<[Track]> = Rc::from(flat); shared.grid_shared.insert(hash, Rc::clone(&stored)); stored }
+    };
     // the engine's Grid borrows 'static tracks: these live in `shared` until the box is gone (see `finish_frame`)
     let all: &'static [Track] = unsafe { core::mem::transmute::<&[Track], &'static [Track]>(&stored[..]) };
     let node = Node { grid: OptGrid::Some(Grid::new(&all[..split], &all[split..])), ..*desc };
@@ -180,7 +186,7 @@ unsafe fn invalid_keyed(ui: *mut PxuiUi) -> i32 { unsafe { fail(ui, "invalid key
 export!(trusted pub unsafe fn pxui_ui_node(ui:*mut PxuiUi,label:pxui_types::Str,desc:*const Node,out:*mut PxuiBox)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};
     if out.is_null(){return unsafe{fail(ui,"null node argument")};}
-    let Some(label)=(unsafe{checked(label)}) else{return unsafe{fail(ui,"invalid node label")};};
+    let Some(label)=(unsafe{crate::state::checked_key(label)}) else{return unsafe{fail(ui,"invalid node label")};};
     let Some(desc)=(unsafe{checked_node(desc)}) else{return unsafe{invalid_node(ui)};};
     if desc.grid.is_some() { return unsafe{grid_node(ui,Some(label),0,desc,out)}; }
     unsafe{crate::trusted::node(ui,label,desc,out)}
@@ -220,17 +226,30 @@ export!(pub unsafe fn pxui_ui_set_node_layout(ui: *mut PxuiUi, box_: *const Pxui
     0
 });
 
+/// FNV-1a over a track list's kinds and sizes: the key of `Shared::grid_shared`.
+fn tracks_hash(tracks: &[Track]) -> u64 {
+    tracks.iter().fold(0xcbf2_9ce4_8422_2325, |hash, track| {
+        let word = match track { Track::Px(v) => 1u64 << 32 | u64::from(v.to_bits()), Track::Fr(v) => 2u64 << 32 | u64::from(v.to_bits()), Track::Fit => 3u64 << 32 };
+        (hash ^ word).wrapping_mul(0x100_0000_01b3)
+    })
+}
+
 /// Ends a frame: frees replaced grid tracks and those of boxes that are gone. The output is built when it is read.
 pub(crate) fn finish_frame(shared: &mut Shared, engine: &Ui) {
     shared.grid_retired.clear();
-    if !shared.grid_tracks.is_empty() { retire_gone_tracks(shared, engine); }
+    if !shared.grid_tracks.is_empty() || !shared.grid_shared.is_empty() { retire_gone_tracks(shared, engine); }
     shared.frame_ended = true;
 }
 
 /// Out of line: a frame without a grid node (most of them) never enters it, and this keeps its registers out of `finish_frame`'s entry.
 #[cold]
 #[inline(never)]
-fn retire_gone_tracks(shared: &mut Shared, engine: &Ui) { shared.grid_tracks.retain(|key, _| engine.box_of_key(*key).is_some()); }
+/// One pass over the grid nodes (a lookup each), then over the stored lists: linear in the grids, where a scan per node was quadratic.
+fn retire_gone_tracks(shared: &mut Shared, engine: &Ui) {
+    shared.grid_tracks.retain(|key, _| engine.box_of_key(*key).is_some());
+    // a list only the index holds belongs to no box any more
+    shared.grid_shared.retain(|_, stored| Rc::strong_count(stored) > 1);
+}
 
 export!(trusted pub unsafe fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut Rect)->i32 {
     if unsafe{get(ui)}.is_none() {return crate::PXUI_ERR_ARGUMENT};

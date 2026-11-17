@@ -20,7 +20,7 @@ impl Ui {
     /// Allocates: never on a warm frame (a new identity takes a slot the first time).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`): a label hashes as `key_of` does,
     /// an id as its NUL-and-hex label, so an id never collides with a printable label; a repeated key takes a `#dup` key.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve or grid).
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve or grid). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
     /// use pxui::ui::{Node, Size};

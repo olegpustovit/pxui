@@ -97,4 +97,4 @@ impl Ui {
 }
 
 #[inline]
-fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
+fn as_str(value: &str) -> Str { crate::as_str(value) }

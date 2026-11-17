@@ -18,7 +18,7 @@ export!(trusted pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnaps
 /// A theme a caller builds from tokens and key/value pairs, then scopes over a subtree with `pxui_ui_themed`. Each `set`
 /// or `load` applies over what is there already, as `Theme::parse` does over its base: a `tokens.*` key re-derives every
 /// look from the new tokens, so set tokens before the keys that restyle single looks.
-pub struct PxuiTheme { theme: Theme, error: String }
+pub struct PxuiTheme { theme: Theme, error: String, pub(crate) poisoned: bool }
 
 // A parsed theme can be selected repeatedly without parsing or allocating on an OS appearance change.
 export!(pub unsafe fn pxui_ui_use_theme(ui:*mut PxuiUi,theme:*const PxuiTheme)->i32 {
@@ -72,21 +72,21 @@ export!(bare pub unsafe fn pxui_theme_create(tokens: *const ThemeTokens) -> *mut
         None => Theme::default(),
         Some(_) => match read_desc!(tokens, ThemeTokens) { Some(t) if tokens_valid(&t) => Theme::from_tokens(t.into()), _ => return core::ptr::null_mut() },
     };
-    Box::into_raw(Box::new(PxuiTheme { theme, error: String::new() }))
+    Box::into_raw(Box::new(PxuiTheme { theme, error: String::new(), poisoned: false }))
 });
 
 export!(bare pub unsafe fn pxui_theme_destroy(theme: *mut PxuiTheme) { if !theme.is_null() { drop(unsafe { Box::from_raw(theme) }); } });
 
 // Sets one theme file key (`button.hover.fill`, `tokens.accent`, ...) to its value text.
-export!(bare pub unsafe fn pxui_theme_set(theme: *mut PxuiTheme, key: Str, value: Str) -> i32 {
+export!(object pub unsafe fn pxui_theme_set(theme: *mut PxuiTheme, key: Str, value: Str) -> i32 {
     let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(key), Some(value)) = (unsafe { checked(key) }, unsafe { checked(value) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
+    let (Some(key), Some(value)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(value) }) else { theme.error = "invalid theme text".into(); return PXUI_ERR_ARGUMENT; };
     if key.contains(['\n', '=']) || value.contains('\n') { theme.error = "a key holds no `=` or line break and a value no line break".into(); return PXUI_ERR_ARGUMENT; }
     theme.apply(&format!("{key} = {value}"), None)
 });
 
 // Applies the theme file at `path`.
-export!(bare pub unsafe fn pxui_theme_load(theme: *mut PxuiTheme, path: Str) -> i32 {
+export!(object pub unsafe fn pxui_theme_load(theme: *mut PxuiTheme, path: Str) -> i32 {
     let Some(theme) = (unsafe { theme.as_mut() }) else { return PXUI_ERR_ARGUMENT; };
     let Some(path) = (unsafe { checked(path) }) else { theme.error = "invalid theme path".into(); return PXUI_ERR_ARGUMENT; };
     match std::fs::read_to_string(path) {
@@ -101,7 +101,7 @@ export!(bare pub unsafe fn pxui_theme_last_error(theme: *const PxuiTheme) -> Str
 });
 
 // Builds a subtree under `theme`; the Ui's own theme is back when the call returns.
-export!(pub unsafe fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, build: Build, user: *mut c_void) -> i32 {
+export!(build pub unsafe fn pxui_ui_themed(ui: *mut PxuiUi, theme: *const PxuiTheme, build: Build, user: *mut c_void) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(theme) = (unsafe { theme.as_ref() }) else { return unsafe { fail(ui, "null theme") }; };
     let shared = state.shared;

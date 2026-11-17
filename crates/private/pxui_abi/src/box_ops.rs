@@ -118,8 +118,6 @@ mod gesture_tests {
     }
 }
 
-/// Keeps `value` alive until the next frame of `ui` and returns it as a `Str`.
-fn ui_give(ui: *mut PxuiUi, value: String) -> Str { unsafe { &*ui }.give(value) }
 
 pub type PxuiHit = Option<extern "C" fn(*mut c_void, Rect) -> Rect>;
 
@@ -147,7 +145,7 @@ fn hit_closure(shared: &mut crate::state::Shared, call: extern "C" fn(*mut c_voi
     closure
 }
 
-export!(pub unsafe fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32 {
+export!(build pub unsafe fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const PxuiBoxDesc, out: *mut PxuiBox) -> i32 {
     if desc.is_null() { return PXUI_ERR_ARGUMENT; }
     // the box owns the hit callback from here on, so a refused descriptor still releases it: read what it holds first
     let Some(desc) = read_desc!(desc, PxuiBoxDesc) else { return PXUI_ERR_ARGUMENT; };
@@ -168,7 +166,7 @@ export!(pub unsafe fn pxui_ui_box(ui: *mut PxuiUi, label: Str, desc: *const Pxui
     0
 });
 
-export!(pub unsafe fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32 {
+export!(build pub unsafe fn pxui_ui_set_at(ui: *mut PxuiUi, box_: *const PxuiBox, x: f32, y: f32) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if !finite(&[x, y]) { return unsafe { fail(ui, "position is not finite") }; }
     e.set_at(&b, (x, y));
@@ -228,6 +226,7 @@ export!(pub unsafe fn pxui_ui_set_node_fields(ui: *mut PxuiUi, box_: *const Pxui
     };
     let Some(look) = decode_look(f.look) else { return unsafe { fail(ui, "invalid look") }; };
     if !finite(&[f.inset.l, f.inset.t, f.inset.r, f.inset.b]) { return unsafe { fail(ui, "invalid inset") }; }
+    if !e.live(&b) { return unsafe { crate::state::fail_code(ui, "stale box", crate::PXUI_ERR_STALE) } }
     let look = e.resolve_look(&look).unwrap_or(look);
     let n = e.node_mut(&b);
     (n.look, n.mark, n.inset) = (look, mark, f.inset);
@@ -327,9 +326,10 @@ export!(pub unsafe fn pxui_ui_text_state(ui: *mut PxuiUi, box_: *const PxuiBox, 
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if present.is_null() || out.is_null() { return unsafe { fail(ui, "null text state output") }; }
     let value = e.text_state(&b);
+    let given = match value { Some(value) => match unsafe { &*ui }.give(value) { Ok(value) => Some(value), Err(code) => return code }, None => None };
     unsafe {
-        *present = value.is_some() as u8;
-        *out = value.map_or(Str::default(), |value| ui_give(ui, value));
+        *present = given.is_some() as u8;
+        *out = given.unwrap_or_default();
     }
     0
 });
@@ -343,7 +343,7 @@ export!(pub unsafe fn pxui_ui_set_text_state(ui: *mut PxuiUi, box_: *const PxuiB
 
 // The text kept in the box's slot under `index`: borrowed from the slot, valid until the next `cached_label` of the
 // same box or the next frame.
-export!(pub unsafe fn pxui_ui_cached_label(ui: *mut PxuiUi, box_: *const PxuiBox, index: u64, text: Str, out: *mut Str) -> i32 {
+export!(build pub unsafe fn pxui_ui_cached_label(ui: *mut PxuiUi, box_: *const PxuiBox, index: u64, text: Str, out: *mut Str) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     let Some(text) = (unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid label") }; };
     if out.is_null() || index > 1 << 20 { return unsafe { fail(ui, "invalid cached label arguments") }; }
@@ -352,7 +352,7 @@ export!(pub unsafe fn pxui_ui_cached_label(ui: *mut PxuiUi, box_: *const PxuiBox
     0
 });
 
-export!(pub unsafe fn pxui_ui_to_front(ui: *mut PxuiUi, order: i64, box_: *const PxuiBox) -> i32 {
+export!(build pub unsafe fn pxui_ui_to_front(ui: *mut PxuiUi, order: i64, box_: *const PxuiBox) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if !e.is_current_build_box(&b) { return unsafe { fail(ui, "to_front needs a box of this frame's build") }; }
     e.to_front(order, &b);
@@ -366,16 +366,17 @@ export!(pub unsafe fn pxui_ui_carrying(ui: *mut PxuiUi, present: *mut u8, kind: 
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if present.is_null() || kind.is_null() || value.is_null() { return unsafe { fail(ui, "null carry output") }; }
     let payload = e.carrying_ref();
+    let lent = match payload { Some(p) => match unsafe { lend_payload(ui, &p.kind, &p.value) } { Ok(pair) => pair, Err(code) => return code }, None => (Str::default(), Str::default()) };
     unsafe {
         *present = payload.is_some() as u8;
-        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| ((&*ui).lend(&p.kind), (&*ui).lend(&p.value)));
+        (*kind, *value) = lent;
     }
     0
 }); 
 
 export!(pub unsafe fn pxui_ui_carry(ui: *mut PxuiUi, has_from: u8, from: *const PxuiBox, kind: Str, value: Str) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(kind), Some(value)) = (unsafe { checked(kind) }, unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid carry text") }; };
+    let (Some(kind), Some(value)) = (unsafe { crate::state::checked_key(kind) }, unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid carry text") }; };
     if has_from > 1 { return unsafe { fail(ui, "invalid carry flag") }; }
     if has_from == 0 { e.carry(None, kind, value); return 0; }
     let (e, b) = match unsafe { boxed(ui, from) } { Ok(v) => v, Err(code) => return code };
@@ -401,12 +402,19 @@ export!(pub unsafe fn pxui_ui_drop_target(ui: *mut PxuiUi, box_: *const PxuiBox,
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };
     if tag.is_null() || kind.is_null() || value.is_null() { return unsafe { fail(ui, "null drop output") }; }
     let (code, payload) = match e.drop_target_ref(&b) { None => (0, None), Some((false, p)) => (1, Some(p)), Some((true, p)) => (2, Some(p)) };
+    let lent = match payload { Some(p) => match unsafe { lend_payload(ui, &p.kind, &p.value) } { Ok(pair) => pair, Err(code) => return code }, None => (Str::default(), Str::default()) };
     unsafe {
         *tag = code;
-        (*kind, *value) = payload.map_or((Str::default(), Str::default()), |p| ((&*ui).lend(&p.kind), (&*ui).lend(&p.value)));
+        (*kind, *value) = lent;
     }
     0
 });
+
+/// A payload's kind and value lent to the caller until the next frame (`PxuiUi::lend`, refused past its caps).
+unsafe fn lend_payload(ui: *mut PxuiUi, kind: &str, value: &str) -> Result<(Str, Str), i32> {
+    let ui = unsafe { &*ui };
+    Ok((ui.lend(kind)?, ui.lend(value)?))
+}
 
 export!(pub unsafe fn pxui_ui_context_at(ui: *mut PxuiUi, box_: *const PxuiBox, present: *mut u8, out: *mut pxui_types::geom::Point) -> i32 {
     let (e, b) = match unsafe { boxed(ui, box_) } { Ok(v) => v, Err(code) => return code };

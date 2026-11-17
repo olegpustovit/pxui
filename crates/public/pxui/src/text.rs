@@ -7,7 +7,7 @@
 //! draws. `Wrap`, `Ellipsis` and `TextAlign` name the numbers the resolved record carries.
 pub use pxui_types::text::{Ellipsis, TextAlign, Wrap};
 use crate::sys::{PxuiPreparedText, PxuiShaper, PxuiTextWorker};
-use crate::{as_str, Error, Ui};
+use crate::{as_str, as_text, Error, Ui};
 use core::ptr::NonNull;
 use pxui_types::{ffi::{PxuiLabelStyle, PxuiTextStyle}, Label, Str, TextGlyph, TextMetrics, TextSpan, TextSpans};
 
@@ -109,20 +109,20 @@ impl Backing {
 
     fn measure(self, key: u64, value: &str, style: &PxuiTextStyle, max_width: f32) -> Result<TextMetrics, Error> {
         let mut out = TextMetrics::default();
-        let rc = unsafe { lib::pxui_shaper_width(self.0, key, as_str(value), style, max_width, &mut out) };
+        let rc = unsafe { lib::pxui_shaper_width(self.0, key, as_text(value), style, max_width, &mut out) };
         if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
 
     fn measure_spans(self,key:u64,value:&str,style:&PxuiTextStyle,max_width:f32,spans:&[TextSpan])->Result<TextMetrics,Error> {
         let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let mut out=TextMetrics::default();
-        let rc=unsafe { lib::pxui_shaper_width_spans(self.0,key,as_str(value),style,max_width,&spans,&mut out) };
+        let rc=unsafe { lib::pxui_shaper_width_spans(self.0,key,as_text(value),style,max_width,&spans,&mut out) };
         if rc==0 { Ok(out) } else { Err(Error::from_code(rc)) }
     }
 
     fn rasterize_rgba(self, key: u64, value: &str, style: &PxuiTextStyle, max_width: f32, scale: f32, color: [u8; 4], pixels: &mut Vec<u8>) -> Result<(u32, u32), Error> {
         let (mut width, mut height) = (0, 0);
-        let mut call = |out, capacity| unsafe { lib::pxui_shaper_rasterize_rgba(self.0, key, as_str(value), style, max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, out, capacity) };
+        let mut call = |out, capacity| unsafe { lib::pxui_shaper_rasterize_rgba(self.0, key, as_text(value), style, max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, out, capacity) };
         pixels.clear();
         let required = call(core::ptr::null_mut(), 0);
         if required == usize::MAX { return Err(Error::InvalidInput); }
@@ -177,7 +177,7 @@ impl Text {
         let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let mut raw=core::ptr::null_mut();
         let mut metrics=TextMetrics::default();
-        let rc=unsafe { lib::pxui_shaper_prepare(self.0.as_ptr(),as_str(value),&style.0,max_width,&spans,&mut raw,&mut metrics) };
+        let rc=unsafe { lib::pxui_shaper_prepare(self.0.as_ptr(),as_text(value),&style.0,max_width,&spans,&mut raw,&mut metrics) };
         if rc!=0 { return Err(Error::from_code(rc)); }
         Ok(PreparedText { raw:NonNull::new(raw).expect("pxui: preparation succeeded without storage"),metrics })
     }
@@ -196,7 +196,8 @@ impl Text {
         let rc=unsafe { lib::pxui_shaper_system_fonts(self.0.as_ptr()) };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
     }
-    /// Creates a shaper of its own holding `fonts` (each the bytes of a font file, copied), the first being the default.
+    /// Creates a shaper of its own holding `fonts` (each the bytes of a font file, copied), the first being the default; `None` when a font cannot be read
+    /// or `fonts` is empty (shaping needs a font).
     /// A `Text` may move to another thread, but one thread at a time uses it.
     /// Allocates: the font system and caches, once; the font bytes are copied.
     /// Panics: never.
@@ -372,9 +373,9 @@ impl Ui {
         let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let rc={
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_text_spans(self.0.as_ptr(), box_, as_str(text), style.fields(), &spans) };
+            let rc = unsafe { pxui_abi_link::trusted::label_text_spans(self.0.as_ptr(), box_, as_text(text), style.fields(), &spans) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_text_spans(self.0.as_ptr(), box_, as_str(text), &PxuiLabelStyle::from(style), &spans) };
+            let rc = unsafe { lib::pxui_ui_label_text_spans(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(style), &spans) };
             rc
         };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
@@ -398,9 +399,9 @@ impl Ui {
         let spans=TextSpans::new(spans).ok_or(Error::InvalidInput)?;
         let rc={
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_text_line_box(self.0.as_ptr(), box_, as_str(text), style.fields(), &spans) };
+            let rc = unsafe { pxui_abi_link::trusted::label_text_line_box(self.0.as_ptr(), box_, as_text(text), style.fields(), &spans) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_text_line_box(self.0.as_ptr(), box_, as_str(text), &PxuiLabelStyle::from(style), &spans) };
+            let rc = unsafe { lib::pxui_ui_label_text_line_box(self.0.as_ptr(), box_, as_text(text), &PxuiLabelStyle::from(style), &spans) };
             rc
         };
         if rc==0 {Ok(())} else {Err(Error::from_code(rc))}
@@ -455,9 +456,9 @@ impl Ui {
     pub fn prewarm_text(&mut self,text:&str,style:&Label,max_width:f32)->Result<(),Error> {
         let rc={
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_prewarm(self.0.as_ptr(), as_str(text), style.fields(), max_width) };
+            let rc = unsafe { pxui_abi_link::trusted::label_prewarm(self.0.as_ptr(), as_text(text), style.fields(), max_width) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_prewarm(self.0.as_ptr(), as_str(text), &PxuiLabelStyle::from(style), max_width) };
+            let rc = unsafe { lib::pxui_ui_label_prewarm(self.0.as_ptr(), as_text(text), &PxuiLabelStyle::from(style), max_width) };
             rc
         };
         if rc==0 { Ok(()) } else { Err(Error::from_code(rc)) }
@@ -567,9 +568,9 @@ impl UiText<'_> {
         let mut out = TextMetrics::default();
         let rc = {
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_measure(self.0.0.as_ptr(), as_str(value), style.fields(), max_width, core::ptr::null(), &mut out) };
+            let rc = unsafe { pxui_abi_link::trusted::label_measure(self.0.0.as_ptr(), as_text(value), style.fields(), max_width, core::ptr::null(), &mut out) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_measure(self.0.0.as_ptr(), as_str(value), &PxuiLabelStyle::from(style), max_width, core::ptr::null(), &mut out) };
+            let rc = unsafe { lib::pxui_ui_label_measure(self.0.0.as_ptr(), as_text(value), &PxuiLabelStyle::from(style), max_width, core::ptr::null(), &mut out) };
             rc
         };
         if rc == 0 { Ok(out) } else { Err(Error::from_code(rc)) }
@@ -589,9 +590,9 @@ impl UiText<'_> {
         let mut out=TextMetrics::default();
         let rc={
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_measure(self.0.0.as_ptr(), as_str(value), style.fields(), max_width, &spans, &mut out) };
+            let rc = unsafe { pxui_abi_link::trusted::label_measure(self.0.0.as_ptr(), as_text(value), style.fields(), max_width, &spans, &mut out) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_measure(self.0.0.as_ptr(), as_str(value), &PxuiLabelStyle::from(style), max_width, &spans, &mut out) };
+            let rc = unsafe { lib::pxui_ui_label_measure(self.0.0.as_ptr(), as_text(value), &PxuiLabelStyle::from(style), max_width, &spans, &mut out) };
             rc
         };
         if rc==0 { Ok(out) } else { Err(Error::from_code(rc)) }
@@ -627,9 +628,9 @@ impl UiText<'_> {
         let (mut width, mut height) = (0, 0);
         let mut call = |pixels: *mut u8, capacity: usize| {
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_rasterize_rgba(ui, as_str(value), style.fields(), max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, pixels, capacity) };
+            let rc = unsafe { pxui_abi_link::trusted::label_rasterize_rgba(ui, as_text(value), style.fields(), max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, pixels, capacity) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_rasterize_rgba(ui, as_str(value), &PxuiLabelStyle::from(style), max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, pixels, capacity) };
+            let rc = unsafe { lib::pxui_ui_label_rasterize_rgba(ui, as_text(value), &PxuiLabelStyle::from(style), max_width, scale, color[0], color[1], color[2], color[3], &mut width, &mut height, pixels, capacity) };
             rc
         };
         out.clear();
@@ -660,9 +661,9 @@ impl UiText<'_> {
         let ui = self.0.0.as_ptr();
         let call = |out, capacity| {
             #[cfg(feature = "static")]
-            let rc = unsafe { pxui_abi_link::trusted::label_quads(ui, as_str(value), style.fields(), max_width, origin.0, origin.1, scale, out, capacity) };
+            let rc = unsafe { pxui_abi_link::trusted::label_quads(ui, as_text(value), style.fields(), max_width, origin.0, origin.1, scale, out, capacity) };
             #[cfg(not(feature = "static"))]
-            let rc = unsafe { lib::pxui_ui_label_quads(ui, as_str(value), &PxuiLabelStyle::from(style), max_width, origin.0, origin.1, scale, out, capacity) };
+            let rc = unsafe { lib::pxui_ui_label_quads(ui, as_text(value), &PxuiLabelStyle::from(style), max_width, origin.0, origin.1, scale, out, capacity) };
             rc
         };
         out.clear();

@@ -41,7 +41,7 @@ mod link {
     }
 
     #[inline]
-    fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
+    fn as_str(value: &str) -> Str { crate::as_str(value) }
 
     impl Ui {
         pub(super) fn list_view_c(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], mut cell: Cell) -> Option<usize> {
@@ -103,7 +103,7 @@ impl Ui {
     /// `multi`, Command (Ctrl) toggles one and Shift selects a run. One Tab stop; arrows, Page keys, Home and End move the keyboard's row.
     /// Allocates: never on a warm frame.
     /// Identity: `label` keys the list under its parent; rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `selected` shorter than `count`), or when `cell` panics.
+    /// Panics: when the library refuses the call (outside a frame, `selected` shorter than `count`), or when `cell` panics. A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// let mut selected = [0u8; 3];
@@ -127,7 +127,7 @@ impl Ui {
     /// `open` holds one flag a node (not 0: expanded); `selected` is the selected node, both updated in place.
     /// Allocates: never on a warm frame.
     /// Identity: `label` keys the tree under its parent; rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `open` or `visible` too short), or when `cell` panics.
+    /// Panics: when the library refuses the call (outside a frame, `open` or `visible` too short), or when `cell` panics. A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::collections::TreeNode;
@@ -155,7 +155,7 @@ impl Ui {
     /// `sort` marks the sorted column with a chevron (up when ascending); dragging a header grip resizes its column.
     /// Allocates: never on a warm frame.
     /// Identity: `label` keys the table under its parent; rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `widths` not one a title, a sort column past them), or when `cell`
+    /// Panics: when the library refuses the call (outside a frame, `widths` not one a title, a sort column past them), or when `cell` A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     /// panics.
     ///
     /// ```
@@ -179,7 +179,7 @@ impl Ui {
     ///
     /// Call it from a `list_view`, `tree` or `table_view` cell callback; the text is the item's accessible name where it names one.
     /// Allocates: never on a warm frame (text it has not shaped before is shaped once).
-    /// Panics: outside a collection item, on invalid text, or when the `Ui` has failed.
+    /// Panics: outside a collection item, on invalid text, or when the `Ui` has failed. Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// let mut selected = [0u8; 2];

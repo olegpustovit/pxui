@@ -638,7 +638,7 @@ impl Ui {
     /// It is `button_with("button", text, &Button::DEFAULT).clicked`; use `button_with` for any option or a fixed key.
     /// Allocates: never on a warm frame.
     /// Identity: position among siblings (every `button(..)` shares one key and takes order-stable duplicate keys); use `button_with(key, ..)` when the order can change.
-    /// Panics: when the library refuses the call (outside a frame).
+    /// Panics: when the library refuses the call (outside a frame). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// let mut clicked = false;
@@ -694,8 +694,27 @@ impl Strs {
     }
 }
 
+/// Display text as the library takes it, clipped to the display-text cap (`MAX_LABEL_BYTES`, 64 KiB) at a character boundary: text past
+/// 64 KiB from user data is clipped, never refused, so it cannot panic the app. Identifiers and editor text go through `as_text`.
 #[inline]
-fn as_str(s: &str) -> Str { Str { ptr: s.as_ptr(), len: s.len() } }
+fn as_str(s: &str) -> Str { as_text(clip(s)) }
+
+/// A string as the library takes it, unchanged: identifiers (refused past 256 bytes: a programmer error), editor text (16 MiB) and
+/// text the text service measures or shapes.
+#[inline]
+fn as_text(s: &str) -> Str { Str { ptr: s.as_ptr(), len: s.len() } }
+
+/// The library's cap on one display text (`docs/abi.md`, Limits).
+pub(crate) const MAX_LABEL_BYTES: usize = 64 << 10;
+
+/// `s` cut to `MAX_LABEL_BYTES` at a character boundary (itself when shorter). Allocates nothing.
+#[inline]
+pub(crate) fn clip(s: &str) -> &str {
+    if s.len() <= MAX_LABEL_BYTES { return s; }
+    let mut end = MAX_LABEL_BYTES;
+    while !s.is_char_boundary(end) { end -= 1; }
+    &s[..end]
+}
 
 /// `rc` of a call the engine tolerates a stale handle for: true when it ran, false when the handle had gone; anything else is the
 /// caller bug `check` reports.
@@ -717,14 +736,13 @@ fn check(ui: &Ui, rc: i32) { if rc != 0 { refused(ui, rc) } }
 #[inline(never)]
 #[track_caller]
 fn refused(ui: &Ui, rc: i32) -> ! { panic!("pxui: {} ({rc})", ui.last_error()) }
-/// The library's process counters, for the performance gate: calls made into it (this one included) and heap allocations its
-/// allocator has made. Allocations count only in a counting build (a `libpxui` built with `pxui_dylib/counting`; statically, the
-/// app's `mem_sys/counting`) and read 0 otherwise. In a static build both are the app's own allocator and the calls of the same process.
+/// The library's process counter, for the performance gate: heap allocations its allocator has made (`COUNTER_ALLOCATIONS`). They
+/// count only in a counting build (a `libpxui` built with `pxui_dylib/counting`; statically, the app's `mem_sys/counting`) and read 0
+/// otherwise; in a static build they are the app's own allocator. Calls are counted per `Ui` (`Ui::library_calls`), not here.
 #[cfg(feature="static")]
 pub fn library_counter(which:u32)->u64 { unsafe { sys::pxui_counter(which) } }
 #[cfg(not(feature="static"))]
 pub fn library_counter(which:u32)->u64 { sys::pxui_counter(which) }
-pub const COUNTER_CALLS:u32=0;
 pub const COUNTER_ALLOCATIONS:u32=1;
 /// A capability a library may or may not have, as `pxui_supports` numbers them (`PXUI_FEATURE_*`; ids are append-only and mirror `pxui_types::feature`).
 #[repr(u32)]

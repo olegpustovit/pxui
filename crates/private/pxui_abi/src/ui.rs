@@ -28,9 +28,17 @@ export!(bare pub unsafe fn pxui_abi_version() -> u32 { crate::ABI_VERSION });
 // `mem_sys::COUNT_*` (allocations, bytes, live bytes, this thread's allocations and peak, reset of this thread's, 7 = 1 when it counts).
 // They count only in a test/performance libpxui (`pxui_dylib/counting`); a production library leaves the process allocator alone
 // and reads 0. The app registers this export with `mem_sys::set_peer`, so its budgets and ledgers count the whole process.
-// Anything else reads 0.
+// Anything else reads 0, and so does 0 since 1.66: calls are counted per `Ui` (`pxui_ui_calls`), never across the process.
 export!(bare pub unsafe fn pxui_counter(which: u32) -> u64 {
-    match which { 0 => crate::state::calls(), _ => mem_sys::own(which) }
+    match which { 0 => 0, _ => mem_sys::own(which) }
+});
+
+// Calls into the library made on `ui` (its owner and every handle a callback borrowed from it, its renderers and paint handles)
+// since it was created; this call is not one of them. A plain field of that `Ui`: no counter is shared between `Ui`s or threads.
+// 0 for null.
+export!(bare pub unsafe fn pxui_ui_calls(ui: *const PxuiUi) -> u64 {
+    if ui.is_null() { return 0; }
+    unsafe { (*(*ui).shared).calls }
 });
 
 export!(pub unsafe fn pxui_ui_view_size(ui: *mut PxuiUi, out: *mut pxui_types::geom::Point) -> i32 {
@@ -197,7 +205,7 @@ export!(pub unsafe fn pxui_ui_set_theme(ui: *mut PxuiUi, source: *const ThemeSou
     let Some(source) = read_desc!(source, ThemeSource) else { return unsafe { fail(ui, "invalid theme descriptor") }; };
     if source.flags & !3 != 0 { return unsafe { fail(ui, "invalid theme descriptor") }; }
     let parsed: Result<pxui_core::Theme, Vec<pxui_core::theme::ThemeError>> = if source.source.len == 0 { Ok(pxui_core::Theme::default()) } else {
-        let Some(text) = (unsafe { text(source.source) }) else { return unsafe { fail(ui, "invalid theme UTF-8") }; };
+        let Some(text) = (unsafe { crate::state::checked_text(source.source) }) else { return unsafe { fail(ui, "invalid theme UTF-8 or length") }; };
         unsafe { &*state.engine }.parse_theme(text, &pxui_core::Theme::default())
     };
     let mut theme = match parsed { Ok(theme) => theme, Err(errors) => return unsafe { fail(ui, &errors.iter().map(|e| format!("line {}: {}", e.line, e.message)).collect::<Vec<_>>().join("\n")) } };
@@ -268,22 +276,41 @@ fn touch_event(e:&pxui_types::Event)->Option<input::Touch> {
     value.valid().then_some(value)
 }
 
-pub(crate) fn translate_event(e: &pxui_types::Event) -> Option<Event> {
+/// The largest width or height of a surface a frame takes, in points (`FrameIn.width`/`height`, `Input.logical_size`) and of a resize
+/// event, in points or pixels: a larger or negative one is refused.
+pub(crate) const MAX_SURFACE: f64 = (1 << 16) as f64;
+
+/// One wire event checked and decoded: the one validator of both frame entries and `pxui_ui_wants_frame`. Its `x`, `y` and `value` are
+/// finite whatever its kind; its text (any kind's, read only past these checks) is at most `MAX_TEXT_BYTES` and is taken from `budget`
+/// (`MAX_TOTAL_TEXT_BYTES` a frame, or a `wants_frame` call); a touch's payload is a whole valid `Touch`; a text editing range is not
+/// negative; a resize is within `0..=MAX_SURFACE`; the kind and its code are known. Anything else is refused (`None`), never cut.
+pub(crate) fn translate_event(e: &pxui_types::Event, budget: &mut usize) -> Option<Event> {
+    if !(e.x.is_finite() && e.y.is_finite() && e.value.is_finite()) { return None; }
     if e.kind==pxui_types::Event::TOUCH {return touch_event(e).map(Event::Touch);}
     // the commonest event of a frame carries no text or code: no wire record to build and decode
     if e.kind==pxui_types::Event::POINTER_MOVED {return Some(Event::PointerMoved((e.x,e.y)));}
-    Event::from_raw(&input::wire::Raw { kind: e.kind, code: e.code, x: e.x, y: e.y, value: e.value, text: unsafe { text(e.text) },touch:None })
+    if e.text.len > crate::state::MAX_TEXT_BYTES || e.text.len > *budget { return None; }
+    *budget -= e.text.len;
+    let event = Event::from_raw(&input::wire::Raw { kind: e.kind, code: e.code, x: e.x, y: e.y, value: e.value, text: unsafe { text(e.text) },touch:None })?;
+    let size = |(w, h): (i64, i64)| (0..=MAX_SURFACE as i64).contains(&w) && (0..=MAX_SURFACE as i64).contains(&h);
+    match &event {
+        Event::TextEditing { start, length, .. } if *start < 0 || *length < 0 => None,
+        Event::Resized(wh) | Event::PixelSizeChanged(wh) if !size(*wh) => None,
+        _ => Some(event),
+    }
 }
 
 fn valid_touches(events:&[pxui_types::Event])->bool {
     events.iter().all(|e|e.kind!=pxui_types::Event::TOUCH || touch_event(e).is_some())
 }
 
-/// Appends `events` to `base`, folding the key and pointer ones into its held state. False when one is invalid.
+/// Appends `events` to `base`, folding the key and pointer ones into its held state. False when one is invalid (`translate_event`,
+/// with the frame's text budget).
 unsafe fn push_events(base: &mut input::Frame, events: Slice<pxui_types::Event>) -> bool {
     if events.len == 0 { return true; }
+    let mut budget = crate::state::MAX_TOTAL_TEXT_BYTES;
     for raw in unsafe { std::slice::from_raw_parts(events.ptr, events.len) } {
-        let Some(event) = translate_event(raw) else { return false };
+        let Some(event) = translate_event(raw, &mut budget) else { return false };
         match &event {
             Event::KeyPressed(k) => if !base.keys.contains(k) { base.keys.push(*k) },
             Event::KeyReleased(k) => base.keys.retain(|held| held != k),
@@ -360,6 +387,7 @@ unsafe fn run_frame(ui: *mut PxuiUi, frame: &frame::Frame, build: Inner, out: &m
         s.paint_error = false;
         s.returned.clear();
         s.lent_used = 0;
+        s.returned_bytes = 0;
         s.chunks_used = 0;
         s.in_frame = true;
         // no handle is usable until the build callback runs: the engine is mid-frame (its own phases run between callbacks)
@@ -393,9 +421,11 @@ unsafe fn enter_frame(ui: *mut PxuiUi) -> Result<(), i32> {
 
 /// The frame entries' bodies, shared by the exports (which decode and check the C descriptor first) and the static wrapper.
 pub(crate) unsafe fn frame_body(ui: *mut PxuiUi, input: &FrameIn, build: Inner, out: &mut FrameOut) -> i32 {
-    crate::state::note_call();
+    if !ui.is_null() { unsafe { crate::state::note_call((*ui).shared) }; }
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
-    if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !input.width.is_finite() || !input.height.is_finite() { return unsafe { fail(ui, "invalid frame descriptor") }; }
+    // a size within 0..=MAX_SURFACE (NaN is outside every range)
+    let surface = |v: f32| (0.0..=MAX_SURFACE as f32).contains(&v);
+    if !input.time.is_finite() || !input.scale.is_finite() || input.scale <= 0.0 || !surface(input.width) || !surface(input.height) { return unsafe { fail(ui, "invalid frame descriptor") }; }
     if input.event_count > 4096 || (input.event_count != 0 && input.events.is_null()) { return unsafe { fail(ui, "invalid frame event slice") }; }
     let legacy=core::mem::offset_of!(FrameIn,appearance) as u32;
     let previous=core::mem::offset_of!(FrameIn,environment) as u32;
@@ -463,9 +493,10 @@ export!(trusted frame pub unsafe fn pxui_frame(ui: *mut PxuiUi, input: *const Fr
 });
 
 pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inner, out: &mut FrameOut) -> i32 {
-    crate::state::note_call();
+    if !ui.is_null() { unsafe { crate::state::note_call((*ui).shared) }; }
     if let Err(code) = unsafe { enter_frame(ui) } { return code; }
-    if !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid input frame") }; }
+    if !input.time.is_finite() || !input.dt.is_finite() || input.dt < 0.0 || !input.fps.is_finite() || input.fps < 0.0 || !input.pointer.iter().all(|v| v.is_finite()) || !input.pixel_scale.iter().all(|v| v.is_finite() && *v > 0.0) || !input.mouse_delta.iter().all(|v| v.is_finite())
+        || !input.logical_size.iter().all(|v| (0..=MAX_SURFACE as i64).contains(v)) { return unsafe { fail(ui, "invalid input frame") }; }
     if input.events.len > 4096 || input.keys.len > 512 || input.buttons.len > 32 || (input.events.len != 0 && input.events.ptr.is_null()) || (input.keys.len != 0 && input.keys.ptr.is_null()) || (input.buttons.len != 0 && input.buttons.ptr.is_null()) { return unsafe { fail(ui, "invalid input spans") }; }
     let events=if input.events.len==0 {&[]} else {unsafe {core::slice::from_raw_parts(input.events.ptr,input.events.len)}};
     if !valid_touches(events) {return unsafe {fail(ui,"invalid touch payload")};}
@@ -475,7 +506,13 @@ pub(crate) unsafe fn input_frame_body(ui: *mut PxuiUi, input: &Input, build: Inn
     base.keys.clear(); // This entry receives the host's authoritative held-key snapshot.
     base.size = (input.logical_size[0], input.logical_size[1]);
     base.pointer = (input.pointer[0], input.pointer[1]);
-    if input.keys.len != 0 { for code in unsafe { std::slice::from_raw_parts(input.keys.ptr, input.keys.len) } { base.keys.push(key(*code).unwrap_or(Key::Unknown(*code as i64))); } }
+    if input.keys.len != 0 {
+        for code in unsafe { std::slice::from_raw_parts(input.keys.ptr, input.keys.len) } {
+            // an unknown code is refused as the event path refuses it
+            let Some(value) = key(*code) else { return unsafe { fail(ui, "invalid held key") }; };
+            base.keys.push(value);
+        }
+    }
     if input.buttons.len != 0 {
         for code in unsafe { std::slice::from_raw_parts(input.buttons.ptr, input.buttons.len) } {
             let Some(value) = button(*code) else { return unsafe { fail(ui, "invalid held mouse button") }; };
@@ -556,13 +593,13 @@ export!(trusted pub unsafe fn pxui_within(ui: *mut PxuiUi, box_: *const PxuiBox,
 
 export!(trusted pub unsafe fn pxui_scope(ui: *mut PxuiUi, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scope label") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui, "invalid scope label") }; };
     unsafe { trusted::scope(ui, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
 });
 
 export!(trusted pub unsafe fn pxui_col(ui: *mut PxuiUi, padding: f32, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid column arguments") }; };
+    let Some(label) = (unsafe { crate::state::checked_key(label) }) else { return unsafe { fail(ui, "invalid column arguments") }; };
     unsafe { trusted::col(ui, padding, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
 });
 
@@ -690,34 +727,38 @@ export!(trusted pub unsafe fn pxui_toggle(ui: *mut PxuiUi, label: Str, on: u8, o
 export!(trusted pub unsafe fn pxui_text_field(ui: *mut PxuiUi, label: Str, value: Str, changed: *mut Str, out_changed: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field output") }; }
-    let (Some(label), Some(value)) = (unsafe { checked(label) }, unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid text field arguments") } };
+    let (Some(label), Some(value)) = (unsafe { checked(label) }, unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui, "invalid text field arguments") } };
     unsafe { trusted::pxui_text_field(ui, pair(label), pair(value), changed, out_changed) }
 });
 
-export!(pub unsafe fn pxui_text_field_with_options(ui: *mut PxuiUi, label: Str, value: Str, options: *const pxui_types::PxuiTextInputOptions, changed: *mut Str, out_changed: *mut u8) -> i32 {
+export!(build pub unsafe fn pxui_text_field_with_options(ui: *mut PxuiUi, label: Str, value: Str, options: *const pxui_types::PxuiTextInputOptions, changed: *mut Str, out_changed: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if options.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui,"null text field options or output") }; }
-    let (Some(label),Some(value))=(unsafe { checked(label) },unsafe { checked(value) }) else { return unsafe { fail(ui,"invalid text field text") }; };
+    let (Some(label),Some(value))=(unsafe { checked(label) },unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui,"invalid text field text") }; };
     let o=unsafe { *options };
     let Some(options)=pxui_types::TextTraits::from_numbers(o.autocorrect,o.capitalization,o.action) else { return unsafe { fail(ui,"invalid text input options") }; };
     unsafe { *out_changed=0; *changed=Str::default(); }
     if let Some(value) = unsafe { &mut *state.engine }.text_field_keyed(label,label,value,options) {
-        unsafe { *changed=state.give(value); *out_changed=1; }
+        let Ok(value)=state.give(value) else { return PXUI_ERR_STATE };
+        unsafe { *changed=value; *out_changed=1; }
     }
     0
 });
 
 // ABI 1.64: a text field keyed by `desc.key` and named `desc.name` to a screen reader (unnamed when empty); `changed` takes the new text when
 // `out_changed` is 1. The record is size-prefixed: a shorter one, an out-of-range trait or text that is not UTF-8 is refused before the widget runs.
-export!(pub unsafe fn pxui_ui_text_field_keyed(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8) -> i32 {
+export!(build pub unsafe fn pxui_ui_text_field_keyed(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || changed.is_null() || out_changed.is_null() { return unsafe { fail(ui, "null text field descriptor or output") }; }
     if unsafe { (*desc).size } < core::mem::size_of::<pxui_types::ffi::PxuiTextFieldDesc>() as u32 { return unsafe { fail(ui, "invalid text field descriptor") }; }
     let d = unsafe { *desc };
-    let (Some(key), Some(name), Some(value)) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.value) }) else { return unsafe { fail(ui, "invalid text field text") }; };
+    let (Some(key), Some(name), Some(value)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::checked_text(d.value) }) else { return unsafe { fail(ui, "invalid text field text") }; };
     let Some(traits) = pxui_types::TextTraits::from_numbers(d.autocorrect as u32, d.capitalization as u32, d.action as u32).filter(|_| d.reserved == 0) else { return unsafe { fail(ui, "invalid text input options") }; };
     unsafe { *out_changed = 0; *changed = Str::default(); }
-    if let Some(text) = unsafe { &mut *state.engine }.text_field_keyed(key, name, value, traits) { unsafe { *changed = state.give(text); *out_changed = 1; } }
+    if let Some(text) = unsafe { &mut *state.engine }.text_field_keyed(key, name, value, traits) {
+        let Ok(text) = state.give(text) else { return PXUI_ERR_STATE };
+        unsafe { *changed = text; *out_changed = 1; }
+    }
     0
 });
 
@@ -734,6 +775,16 @@ export!(pub unsafe fn pxui_ui_input_box(ui: *mut PxuiUi, out: *mut PxuiBox) -> i
 #[cfg(test)]
 mod tests {
     use pxui_types::Event as C;
+
+    /// Runs `f` on the borrowed handle of one frame of `ui`: builders are refused outside a frame (`PXUI_ERR_STATE`), so argument checks
+    /// are tested inside one.
+    fn in_frame(ui: *mut super::PxuiUi, f: &mut dyn FnMut(*mut super::PxuiUi)) {
+        extern "C" fn run(user: *mut core::ffi::c_void, ui: *mut core::ffi::c_void) { unsafe { (*user.cast::<&mut dyn FnMut(*mut super::PxuiUi)>())(ui.cast()) } }
+        let mut f = f;
+        let mut out = crate::FrameOut::default();
+        let input = crate::FrameIn { width: 320.0, height: 240.0, ..Default::default() };
+        assert_eq!(unsafe { super::pxui_frame(ui, &input, Some(run), (&mut f as *mut &mut dyn FnMut(*mut super::PxuiUi)).cast(), &mut out) }, 0);
+    }
 
     #[test]
     fn the_keyed_text_field_refuses_invalid_descriptors_before_output_or_widget_mutation() {
@@ -757,15 +808,20 @@ mod tests {
         ];
         let mut changed=Str {ptr:b"sentinel".as_ptr(),len:8};
         let mut flag=77;
-        for (i,desc) in cases.iter().enumerate() {
-            // a fresh Ui per refusal: a refused call must not leave one poisoned or with a node
-            assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,desc,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT,"case {i}");
-            assert_eq!((changed.len,flag),(8,77),"case {i} left its output alone");
-            assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),0,"case {i} built nothing");
-        }
-        assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,core::ptr::null(),&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,&good,core::ptr::null_mut(),&mut flag)},PXUI_ERR_ARGUMENT);
-        assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,&good,&mut changed,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
+        // outside a frame the builder is refused before its descriptor is read
+        assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,&good,&mut changed,&mut flag)},PXUI_ERR_STATE);
+        in_frame(ui,&mut |ui| {
+            let built=unsafe {&*(*ui).engine}.built_nodes();
+            for (i,desc) in cases.iter().enumerate() {
+                // a refused call must not leave the Ui poisoned or with a node
+                assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,desc,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT,"case {i}");
+                assert_eq!((changed.len,flag),(8,77),"case {i} left its output alone");
+                assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),built,"case {i} built nothing");
+            }
+            assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,core::ptr::null(),&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,&good,core::ptr::null_mut(),&mut flag)},PXUI_ERR_ARGUMENT);
+            assert_eq!(unsafe {pxui_ui_text_field_keyed(ui,&good,&mut changed,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
+        });
         assert_eq!(unsafe {pxui_ui_text_field_keyed(core::ptr::null_mut(),&good,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
         assert_eq!((changed.len,flag),(8,77));
         // no input has been built yet, and a null output is refused
@@ -796,30 +852,44 @@ mod tests {
         let mut d=base(); d.splice=pxui_types::ffi::Slice {ptr:splices.as_ptr(),len:1}; cases.push(d);
         let mut d=base(); d.chips=pxui_types::ffi::Slice {ptr:chips.as_ptr(),len:1}; cases.push(d);
         let (mut out,mut changed,mut submitted)=(Str {ptr:b"sentinel".as_ptr(),len:8},7u8,9u8);
-        for (i,desc) in cases.iter().enumerate() {
-            assert_eq!(unsafe {crate::text_inputs::pxui_ui_text_area_submit(ui,desc,core::ptr::null(),&mut out,&mut changed,&mut submitted)},PXUI_ERR_ARGUMENT,"case {i}");
-            assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),0,"case {i} built nothing");
-        }
+        in_frame(ui,&mut |ui| {
+            let built=unsafe {&*(*ui).engine}.built_nodes();
+            for (i,desc) in cases.iter().enumerate() {
+                assert_eq!(unsafe {crate::text_inputs::pxui_ui_text_area_submit(ui,desc,core::ptr::null(),&mut out,&mut changed,&mut submitted)},PXUI_ERR_ARGUMENT,"case {i}");
+                assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),built,"case {i} built nothing");
+            }
+        });
         assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
     }
 
     #[test]
     fn text_input_options_reject_invalid_calls_before_output_or_widget_mutation() {
         use super::*;
-        let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
-        let mut changed=Str {ptr:b"sentinel".as_ptr(),len:8};
-        let mut flag=77;
-        for options in [
-            pxui_types::PxuiTextInputOptions {autocorrect:2,..Default::default()},
-            pxui_types::PxuiTextInputOptions {capitalization:4,..Default::default()},
-            pxui_types::PxuiTextInputOptions {action:3,..Default::default()},
-        ] {
-            assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),&options,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
+        extern "C" fn invalid(_: *mut c_void, ui: *mut c_void) {
+            let ui=ui.cast::<PxuiUi>();
+            let mut changed=Str {ptr:b"sentinel".as_ptr(),len:8};
+            let mut flag=77;
+            let built=unsafe {&*(*ui).engine}.built_nodes();
+            for options in [
+                pxui_types::PxuiTextInputOptions {autocorrect:2,..Default::default()},
+                pxui_types::PxuiTextInputOptions {capitalization:4,..Default::default()},
+                pxui_types::PxuiTextInputOptions {action:3,..Default::default()},
+            ] {
+                assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),&options,&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
+                assert_eq!(changed.len,8); assert_eq!(flag,77);
+                assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),built);
+            }
+            assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),core::ptr::null(),&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
             assert_eq!(changed.len,8); assert_eq!(flag,77);
-            assert_eq!(unsafe {&*(*ui).engine}.built_nodes(),0);
         }
-        assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),core::ptr::null(),&mut changed,&mut flag)},PXUI_ERR_ARGUMENT);
+        let ui=unsafe {pxui_ui_create(&PxuiUiDesc::default())};
+        // outside a frame the builder is refused before its arguments are read
+        let (mut changed,mut flag)=(Str {ptr:b"sentinel".as_ptr(),len:8},77);
+        let options=pxui_types::PxuiTextInputOptions::default();
+        assert_eq!(unsafe {pxui_text_field_with_options(ui,Str::default(),Str::default(),&options,&mut changed,&mut flag)},PXUI_ERR_STATE);
         assert_eq!(changed.len,8); assert_eq!(flag,77);
+        let mut out=crate::FrameOut::default();
+        assert_eq!(unsafe {pxui_frame(ui,&FrameIn {width:320.0,height:240.0,..Default::default()},Some(invalid),core::ptr::null_mut(),&mut out)},0);
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(ui,core::ptr::null_mut())},PXUI_ERR_ARGUMENT);
         let mut options=pxui_types::PxuiTextInputOptions::from(pxui_types::TextTraits::SEARCH);
         assert_eq!(unsafe {crate::ui_state::pxui_ui_text_input_options(core::ptr::null_mut(),&mut options)},PXUI_ERR_ARGUMENT);
@@ -841,10 +911,12 @@ mod tests {
         }
         let keyboard = Keyboard { frame: [0.0, 500.0, 390.0, 344.0], flags: Keyboard::VALID };
         assert!(super::same_keyboard(&keyboard, &keyboard.clone()) && !super::same_keyboard(&keyboard, &Keyboard { flags: 0, ..keyboard }));
+        // a pointer that is not finite is refused before either path
         for (x, y) in [(1.5, -2.0), (f64::NAN, 0.0), (f64::INFINITY, -0.0)] {
             let event = C { kind: C::POINTER_MOVED, x, y, ..Default::default() };
-            let general = input::Event::from_raw(&input::wire::Raw { kind: event.kind, code: event.code, x, y, value: event.value, text: unsafe { super::text(event.text) }, touch: None });
-            let got = super::translate_event(&event);
+            let general = input::Event::from_raw(&input::wire::Raw { kind: event.kind, code: event.code, x, y, value: event.value, text: unsafe { super::text(event.text) }, touch: None })
+                .filter(|_| x.is_finite() && y.is_finite());
+            let got = super::translate_event(&event, &mut 0);
             assert_eq!(format!("{got:?}"), format!("{general:?}"));
         }
     }

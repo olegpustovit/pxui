@@ -6,17 +6,24 @@ use pxui_core::ui::{Ui, UiBox};
 use pxui_types::{Event as FfiEvent, PxuiBox, ffi::{A11yNode, Output, Slice}, layout::Track};
 use std::{collections::HashMap, rc::Rc};
 
-/// Calls into the library since the process started (`pxui_counter`): one plain load and store, for the one thread the contract allows.
-static CALLS: core::sync::atomic::AtomicU64 = core::sync::atomic::AtomicU64::new(0);
-pub(crate) fn note_call() {
-    use core::sync::atomic::Ordering::Relaxed;
-    CALLS.store(CALLS.load(Relaxed).wrapping_add(1), Relaxed);
-}
-pub(crate) fn calls() -> u64 { CALLS.load(core::sync::atomic::Ordering::Relaxed) }
+/// Counts one call into the library on the `Ui` behind `shared` (`pxui_ui_calls`): a plain field of that `Ui`, which one thread uses
+/// at a time, so no counter is shared between `Ui`s or threads. Calls without a `Ui` (version, text service, theme objects) are not counted.
+#[inline(always)]
+pub(crate) unsafe fn note_call(shared: *mut Shared) { if !shared.is_null() { unsafe { (*shared).calls = (*shared).calls.wrapping_add(1); } } }
 
-/// One string at most 256 MiB: a whole source file is text one widget edits; a longer one is refused with an error, never cut.
-pub(crate) const MAX_TEXT_BYTES: usize = 1 << 28;
-pub(crate) const MAX_TOTAL_TEXT_BYTES: usize = 8 << 20;
+// Per-role caps on one string from the caller (docs/abi.md, Limits). A longer one is refused with an error, never cut.
+/// An identifier: a key, a node or widget label used as identity, a body, theme or font name.
+pub(crate) const MAX_KEY_BYTES: usize = 256;
+/// Display text: a label, a title, an accessible name or value, a tip, a menu row.
+pub(crate) const MAX_LABEL_BYTES: usize = 64 << 10;
+/// Editor text (a text field's or area's value, a paste, a text measured or shaped by the text service) and one event's text.
+pub(crate) const MAX_TEXT_BYTES: usize = 16 << 20;
+/// All the strings of one call's span (options, rows, hints) together, and all the event text of one frame.
+pub(crate) const MAX_TOTAL_TEXT_BYTES: usize = 16 << 20;
+/// Strings the library hands back (`lend`, `give`) between two frames: at most this many, and `MAX_RETURNED_BYTES` in all; a call
+/// past either is refused with `PXUI_ERR_STATE`, so a caller looping outside a frame cannot grow them without bound.
+pub(crate) const MAX_RETURNED: usize = 4096;
+pub(crate) const MAX_RETURNED_BYTES: usize = 64 << 20;
 
 /// One signal's key events and the joined text some of them carry, kept between frames so a frame that
 /// reports keys allocates only while the buffers grow.
@@ -27,6 +34,8 @@ pub(crate) struct KeyChunk { pub events: Vec<FfiEvent>, pub text: String, pub to
 pub(crate) struct Shared {
     pub error: String,
     pub poisoned: bool,
+    /// calls into the library on this `Ui` since it was created (`pxui_ui_calls`)
+    pub calls: u64,
     /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
     pub paint_error: bool,
     /// the word `pxui_ui_icon_word` gave the next icon button call's drawing; that call takes it (back to 0)
@@ -49,8 +58,13 @@ pub(crate) struct Shared {
     /// Copies lent to C, with buffers reused only after the next frame begins.
     pub lent: Vec<String>,
     pub lent_used: usize,
+    /// bytes of the strings in `returned` and the first `lent_used` of `lent`
+    pub returned_bytes: usize,
     /// grid tracks the engine's nodes borrow, one shared slice per keyed node that has a grid (equal lists share one)
     pub grid_tracks: HashMap<i64, Rc<[Track]>>,
+    /// the stored track lists by their hash (`node::tracks_hash`), so a grid node finds an equal list in one lookup, not a scan of them
+    /// all; an entry no box holds any more goes at the end of a frame
+    pub grid_shared: HashMap<u64, Rc<[Track]>>,
     /// replaced track slices, freed at the end of the frame (the old node may still borrow them until then)
     pub grid_retired: Vec<Rc<[Track]>>,
     /// the output of the last frame, built into these buffers when it is read (`pxui_ui_output`)
@@ -63,6 +77,8 @@ pub(crate) struct Shared {
     pub chunks_used: usize,
     /// the engine's input record of the last frame, kept for its vectors' capacity: a frame's events refill it without allocating
     pub spare_input: Option<Box<input::frame::Frame>>,
+    /// the events `pxui_ui_wants_frame` decodes, kept for their capacity (empty between calls)
+    pub wants: Vec<input::Event>,
     /// key codes of a box's held keys, valid until the next frame
     pub key_codes: Vec<u32>,
     /// a menu's rows and its submenus' rows borrowed from the caller for one call: empty between calls
@@ -108,9 +124,9 @@ impl Shared {
     pub fn put_segments(&mut self, mut segments: Vec<pxui_types::ui::Segment<'static>>) { segments.clear(); self.segments.push(segments); }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0,
-            grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
-            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
+            error: String::new(), poisoned: false, calls: 0, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), area: Default::default(), area_ad: None, lent: Vec::new(), lent_used: 0, returned_bytes: 0,
+            grid_tracks: HashMap::new(), grid_shared: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
+            layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, wants: Vec::new(), key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), segments: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(), images: crate::image::Handles::new(),
         }
     }
@@ -128,21 +144,36 @@ pub struct PxuiUi {
 impl PxuiUi {
     pub(crate) fn borrowed(engine: &mut Ui, shared: *mut Shared) -> Self { Self { engine: engine as *mut Ui, shared, owner: false } }
     pub(crate) fn shared<'a>(&self) -> &'a mut Shared { unsafe { &mut *self.shared } }
-    pub(crate) fn lend(&self, value: &str) -> Str {
+    /// A copy of `value` valid until the next frame, in a buffer reused after it; refused (`PXUI_ERR_STATE`, recorded) past
+    /// `MAX_RETURNED` strings or `MAX_RETURNED_BYTES` since the frame began.
+    pub(crate) fn lend(&self, value: &str) -> Result<Str, i32> {
         let shared = self.shared();
+        unsafe { room(self, shared, value.len()) }?;
         if shared.lent_used == shared.lent.len() { shared.lent.push(String::new()); }
         let slot = &mut shared.lent[shared.lent_used];
         slot.clear(); slot.push_str(value);
         shared.lent_used += 1;
-        Str { ptr: slot.as_ptr(), len: slot.len() }
+        Ok(Str { ptr: slot.as_ptr(), len: slot.len() })
     }
-    /// Keeps `value` alive until the next frame and returns it as a `Str`.
-    pub(crate) fn give(&self, value: String) -> Str {
-        let returned = &mut self.shared().returned;
-        returned.push(value);
-        let value = returned.last().map_or("", String::as_str);
-        Str { ptr: value.as_ptr(), len: value.len() }
+    /// Keeps `value` alive until the next frame and returns it as a `Str`; refused as `lend`.
+    pub(crate) fn give(&self, value: String) -> Result<Str, i32> {
+        let shared = self.shared();
+        unsafe { room(self, shared, value.len()) }?;
+        shared.returned.push(value);
+        let value = shared.returned.last().map_or("", String::as_str);
+        Ok(Str { ptr: value.as_ptr(), len: value.len() })
     }
+}
+
+/// Counts a string of `len` bytes about to be handed back, or refuses it past the caps (`MAX_RETURNED`, `MAX_RETURNED_BYTES`).
+#[inline]
+unsafe fn room(ui: &PxuiUi, shared: &mut Shared, len: usize) -> Result<(), i32> {
+    let bytes = shared.returned_bytes.saturating_add(len);
+    if shared.returned.len() + shared.lent_used >= MAX_RETURNED || bytes > MAX_RETURNED_BYTES {
+        return Err(unsafe { fail_code(ui as *const PxuiUi as *mut PxuiUi, "too many strings handed back since the frame began: read them and run a frame", crate::PXUI_ERR_STATE) });
+    }
+    shared.returned_bytes = bytes;
+    Ok(())
 }
 
 /// What a trusted entry runs for a container's children: it gets the borrowed handle of the engine being built. The C exports wrap
@@ -173,6 +204,17 @@ pub(crate) unsafe fn refuse(shared: *mut Shared) -> i32 {
         error.clear();
         error.push_str("this handle is not the one a frame callback may use now: use the handle of the innermost callback, and the owner only outside a frame");
     }
+    crate::PXUI_ERR_STATE
+}
+
+/// What a builder call (`enter!`) on the usable handle outside a frame returns: `PXUI_ERR_STATE`, the reason recorded. A builder
+/// declares nodes of the frame being built, so it runs only in a frame callback.
+#[cold]
+#[inline(never)]
+pub(crate) unsafe fn outside_frame(shared: *mut Shared) -> i32 {
+    let error = unsafe { &mut (*shared).error };
+    error.clear();
+    error.push_str("this call builds the frame: make it from a frame callback, with that callback's handle");
     crate::PXUI_ERR_STATE
 }
 
@@ -212,6 +254,12 @@ impl Handle for *mut crate::paint::PxuiPaint {
     fn shared(self) -> *mut Shared { if self.is_null() { core::ptr::null_mut() } else { unsafe { (*self).shared } } }
     #[inline(always)] fn usable(self, _: *mut Shared) -> bool { true }
 }
+
+/// Where an `object` export (macros.rs) finds the poison flag of its first argument: null for a null object.
+pub(crate) trait Poison { fn poison(self) -> *mut bool; }
+impl Poison for *mut crate::text::PxuiShaper { fn poison(self) -> *mut bool { if self.is_null() { core::ptr::null_mut() } else { unsafe { &raw mut (*self).poisoned } } } }
+impl Poison for *mut crate::theme::PxuiTheme { fn poison(self) -> *mut bool { if self.is_null() { core::ptr::null_mut() } else { unsafe { &raw mut (*self).poisoned } } } }
+impl Poison for *mut crate::a11y::PxuiA11y { fn poison(self) -> *mut bool { if self.is_null() { core::ptr::null_mut() } else { unsafe { &raw mut (*self).poisoned } } } }
 
 /// Records a caught panic: the `Ui` fails every call until its next frame; a panic of the frame itself ends the frame.
 pub(crate) unsafe fn panicked(shared: *mut Shared, payload: Box<dyn core::any::Any + Send>, leave_frame: bool) {
@@ -286,13 +334,35 @@ pub(crate) fn ascii(bytes: &[u8]) -> bool {
 #[inline(always)]
 pub(crate) fn pair(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
 
-/// `text` limited to `MAX_TEXT_BYTES`. The limit is compared past 16 bytes only, where `ascii` branches anyway: a label pays nothing for it.
+/// `text` limited to `MAX_LABEL_BYTES`: display text, the default role. The limit is compared past 16 bytes only, where `ascii`
+/// branches anyway: a label pays nothing for it.
 #[inline(always)]
 pub(crate) unsafe fn checked(value: Str) -> Option<&'static str> {
-    if value.len <= 16 { unsafe { text(value) } } else if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
+    if value.len <= 16 { unsafe { text(value) } } else if value.len > MAX_LABEL_BYTES { None } else { unsafe { text(value) } }
 }
 
-/// Decodes a span of strings into `out` (cleared first): at most `max` of them, at most eight megabytes in all.
+/// `text` cut to `MAX_LABEL_BYTES` at a character boundary: display text from the Rust wrapper, which clips rather than panics on user
+/// data. The C exports never clip (they refuse, `checked`); a trusted entry clips what only the static wrapper can pass.
+pub(crate) fn clip(text: &str) -> &str {
+    if text.len() <= MAX_LABEL_BYTES { return text; }
+    let mut end = MAX_LABEL_BYTES;
+    while !text.is_char_boundary(end) { end -= 1; }
+    &text[..end]
+}
+
+/// `text` limited to `MAX_KEY_BYTES`: an identifier.
+#[inline(always)]
+pub(crate) unsafe fn checked_key(value: Str) -> Option<&'static str> {
+    if value.len <= 16 { unsafe { text(value) } } else if value.len > MAX_KEY_BYTES { None } else { unsafe { text(value) } }
+}
+
+/// `text` limited to `MAX_TEXT_BYTES`: editor text.
+#[inline(always)]
+pub(crate) unsafe fn checked_text(value: Str) -> Option<&'static str> {
+    if value.len > MAX_TEXT_BYTES { None } else { unsafe { text(value) } }
+}
+
+/// Decodes a span of strings into `out` (cleared first): at most `max` of them, each a label (`checked`), `MAX_TOTAL_TEXT_BYTES` in all.
 pub(crate) unsafe fn strings(values: Slice<Str>, max: usize, out: &mut Vec<&'static str>) -> bool {
     out.clear();
     unsafe { append_strings(values, max, out) }

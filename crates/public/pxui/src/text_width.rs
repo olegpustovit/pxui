@@ -12,7 +12,7 @@ mod sys {
 }
 
 #[inline]
-fn as_str(value:&str)->Str { Str{ptr:value.as_ptr(),len:value.len()} }
+fn as_str(value: &str) -> Str { crate::as_str(value) }
 
 impl Ui {
     /// The width in points of single-line kit text at `size` (`None`: the kit's font size), in the `Ui`'s font and theme, for layout during a build.

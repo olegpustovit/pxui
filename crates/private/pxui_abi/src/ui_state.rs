@@ -259,7 +259,7 @@ export!(pub unsafe fn pxui_ui_rebuilt_named(ui: *mut PxuiUi, prefix: Str, out: *
 // An inspector section's state by key: 0 unknown, 1 collapsed, 2 expanded.
 export!(pub unsafe fn pxui_ui_expanded(ui: *mut PxuiUi, key: Str, out: *mut u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(key) = (unsafe { checked(key) }) else { return unsafe { fail(ui, "invalid section key") }; };
+    let Some(key) = (unsafe { crate::state::checked_key(key) }) else { return unsafe { fail(ui, "invalid section key") }; };
     if out.is_null() { return unsafe { fail(ui, "null section output") }; }
     unsafe { *out = match e.expanded(key) { None => 0, Some(false) => 1, Some(true) => 2 }; }
     0
@@ -267,15 +267,15 @@ export!(pub unsafe fn pxui_ui_expanded(ui: *mut PxuiUi, key: Str, out: *mut u8) 
 
 export!(pub unsafe fn pxui_ui_hover_delay(ui: *mut PxuiUi, key: Str, out: *mut u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(key) = (unsafe { checked(key) }) else { return unsafe { fail(ui, "invalid hover key") }; };
+    let Some(key) = (unsafe { crate::state::checked_key(key) }) else { return unsafe { fail(ui, "invalid hover key") }; };
     if out.is_null() { return unsafe { fail(ui, "null hover output") }; }
     unsafe { *out = e.hover_delay(key) as u8; }
     0
 });
 
-export!(pub unsafe fn pxui_ui_tooltip(ui: *mut PxuiUi, key: Str, text: Str) -> i32 {
+export!(build pub unsafe fn pxui_ui_tooltip(ui: *mut PxuiUi, key: Str, text: Str) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(key), Some(text)) = (unsafe { checked(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid tooltip text") }; };
+    let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid tooltip text") }; };
     e.tooltip(key, text);
     0
 });

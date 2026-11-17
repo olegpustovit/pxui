@@ -13,13 +13,31 @@ fn run(ui: *mut PxuiUi, build: Build, user: *mut c_void) -> i32 {
 extern "C" fn nothing(_: *mut c_void, _: *mut c_void) {}
 extern "C" fn count(user: *mut c_void, _: *mut c_void) { unsafe { *user.cast::<u32>() += 1; } }
 
+/// A builder called outside a frame (the owner handle is usable between frames) is refused with `PXUI_ERR_STATE` before the engine
+/// is reached: no panic, no poison, and the next call and frame run normally.
 #[test]
-fn an_engine_panic_through_an_export_returns_the_error_and_poisons_the_ui() {
+fn a_builder_outside_a_frame_is_refused_without_poisoning_the_ui() {
     let ui = create();
-    // declaring a node outside a frame makes the engine panic ("boxes must be built inside Ui.frame")
     let desc = pxui_types::Node::DEFAULT;
     let mut out = PxuiBox::default();
-    assert_eq!(unsafe { pxui_ui_node_keyed(ui, 7, &desc, &mut out) }, PXUI_ERR_PANIC);
+    assert_eq!(unsafe { pxui_ui_node_keyed(ui, 7, &desc, &mut out) }, PXUI_ERR_STATE);
+    assert!(error(ui).contains("frame callback"), "{}", error(ui));
+    let mut pressed = 0;
+    assert_eq!(unsafe { pxui_button(ui, Str { ptr: b"x".as_ptr(), len: 1 }, &mut pressed) }, PXUI_ERR_STATE);
+    assert!(!unsafe { (*(*ui).shared).poisoned });
+    assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, 0);
+    let mut built = 0u32;
+    assert_eq!(run(ui, Some(count), (&mut built as *mut u32).cast()), 0);
+    assert_eq!(built, 1);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// The backstop for a library bug: a panic an export catches poisons its `Ui`, every later call fails with `PXUI_ERR_PANIC`, and the
+/// next frame reports it, skips itself and clears the flag. Another `Ui` is untouched.
+#[test]
+fn a_caught_panic_poisons_the_ui_until_its_next_frame() {
+    let ui = create();
+    unsafe { panicked((*ui).shared, Box::new("a library bug"), false); }
     assert!(error(ui).starts_with("panic: "), "{}", error(ui));
     // every later call on this Ui fails at once with the same code, even valid ones
     assert_eq!(unsafe { pxui_ui_set_dir(ui, 0) }, PXUI_ERR_PANIC);
@@ -421,6 +439,190 @@ fn accessible_text_value_guards_validate_the_whole_input_before_mutation() {
     let node=nodes.iter().find(|node|node.value.tag==1).unwrap();assert_eq!(&strings[node.value.text_start as usize..node.value.text_end as usize],"Café".as_bytes());assert_eq!(node.selection,[4,0]);
     assert_eq!(unsafe {pxui_ui_a11y_value(core::ptr::null_mut(),core::ptr::null(),Str::default(),0,0)},PXUI_ERR_ARGUMENT);
     assert_eq!(unsafe {pxui_ui_destroy(ui)},0);
+}
+
+fn str_of(bytes: &[u8]) -> Str { Str { ptr: bytes.as_ptr(), len: bytes.len() } }
+fn frame_with(ui: *mut PxuiUi, input: &FrameIn) -> i32 { let mut out = FrameOut::default(); unsafe { pxui_frame(ui, input, None, core::ptr::null_mut(), &mut out) } }
+
+/// One validator for the frame entries and `pxui_ui_wants_frame`: coordinates and values finite for every kind, a text editing range
+/// not negative, a resize within the surface limit, each event's text within `MAX_TEXT_BYTES` and a frame's within
+/// `MAX_TOTAL_TEXT_BYTES`; refused, never cut. A settled `wants_frame` allocates nothing.
+#[test]
+fn events_are_validated_alike_on_every_path_with_a_frame_text_budget() {
+    use pxui_types::Event as E;
+    let ui = create();
+    let big = vec![b'a'; crate::state::MAX_TOTAL_TEXT_BYTES / 2 + 1];
+    let refused = [
+        vec![E { kind: E::POINTER_MOVED, x: f64::NAN, ..E::default() }],
+        vec![E { kind: E::KEY_PRESSED, code: input::Key::Enter.code(), value: f64::INFINITY, ..E::default() }],
+        vec![E { kind: E::SCROLLED, y: f64::NEG_INFINITY, ..E::default() }],
+        vec![E { kind: E::TEXT_EDITING, x: -1.0, text: str_of(b"ime"), ..E::default() }],
+        vec![E { kind: E::RESIZED, x: 70_000.0, y: 10.0, ..E::default() }],
+        vec![E { kind: E::RESIZED, x: -1.0, y: 10.0, ..E::default() }],
+        // each text within the cap, the two past the frame's budget
+        vec![E { kind: E::PASTE, text: str_of(&big), ..E::default() }, E { kind: E::PASTE, text: str_of(&big), ..E::default() }],
+        // a length past the cap is refused before a byte is read
+        vec![E { kind: E::TEXT_INPUT, text: Str { ptr: b"x".as_ptr(), len: crate::state::MAX_TEXT_BYTES + 1 }, ..E::default() }],
+    ];
+    for (i, events) in refused.iter().enumerate() {
+        let input = FrameIn { events: events.as_ptr(), event_count: events.len(), ..frame_in() };
+        assert_eq!(frame_with(ui, &input), PXUI_ERR_ARGUMENT, "frame, case {i}");
+        let mut wants = 7u8;
+        assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Slice { ptr: events.as_ptr(), len: events.len() }, 0.0, &mut wants) }, PXUI_ERR_ARGUMENT, "wants_frame, case {i}");
+        assert_eq!(wants, 7);
+    }
+    // one paste of half the budget is fine, and so is a resize at the limit
+    let fine = [E { kind: E::PASTE, text: str_of(&big), ..E::default() }, E { kind: E::RESIZED, x: 65_536.0, y: 0.0, ..E::default() }];
+    assert_eq!(frame_with(ui, &FrameIn { events: fine.as_ptr(), event_count: 2, ..frame_in() }), 0, "{}", error(ui));
+    let moves = [E { kind: E::POINTER_MOVED, x: 1.0, y: 2.0, ..E::default() }; 3];
+    let mut wants = 0u8;
+    for _ in 0..2 { assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Slice { ptr: moves.as_ptr(), len: 3 }, 0.0, &mut wants) }, 0); }
+    mem_sys::local_reset();
+    let before = mem_sys::local_alloc_count();
+    assert_eq!(unsafe { pxui_ui_wants_frame(ui, pxui_types::ffi::Slice { ptr: moves.as_ptr(), len: 3 }, 0.0, &mut wants) }, 0);
+    assert_eq!(mem_sys::local_alloc_count() - before, 0, "a settled wants_frame allocates");
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// A frame's size and the host input's logical size are within `0..=MAX_SURFACE`; a held key code must name a key.
+#[test]
+fn frame_sizes_and_held_keys_are_checked() {
+    let ui = create();
+    for (w, h) in [(-1.0, 10.0), (10.0, 1e30), (f32::NAN, 10.0), (65_537.0, 10.0)] {
+        assert_eq!(frame_with(ui, &FrameIn { width: w, height: h, ..frame_in() }), PXUI_ERR_ARGUMENT, "{w} x {h}");
+    }
+    assert_eq!(frame_with(ui, &FrameIn { width: 65_536.0, height: 0.0, ..frame_in() }), 0);
+    let mut out = FrameOut::default();
+    let mut held = |keys: &[u32], size: [i64; 2]| {
+        let input = pxui_types::ffi::Input { logical_size: size, keys: pxui_types::ffi::Slice { ptr: keys.as_ptr(), len: keys.len() }, ..Default::default() };
+        unsafe { pxui_ui_frame(ui, &input, None, core::ptr::null_mut(), &mut out) }
+    };
+    assert_eq!(held(&[], [-1, 10]), PXUI_ERR_ARGUMENT);
+    assert_eq!(held(&[], [10, 1 << 17]), PXUI_ERR_ARGUMENT);
+    assert_eq!(held(&[0], [10, 10]), PXUI_ERR_ARGUMENT, "code 0 names no key");
+    assert_eq!(held(&[input::Key::Enter.code()], [10, 10]), 0);
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// One checker per role: an identifier at most `MAX_KEY_BYTES`, display text at most `MAX_LABEL_BYTES`, editor text at most
+/// `MAX_TEXT_BYTES`, on the C path and on the trusted (static wrapper) path alike.
+#[test]
+fn strings_are_capped_by_role() {
+    use crate::state::{MAX_KEY_BYTES, MAX_LABEL_BYTES};
+    extern "C" fn build(_: *mut c_void, ui: *mut c_void) {
+        let ui = ui.cast::<PxuiUi>();
+        let long = vec![b'k'; MAX_LABEL_BYTES + 1];
+        let (key, label) = (&long[..MAX_KEY_BYTES], &long[..MAX_LABEL_BYTES]);
+        let mut out = PxuiBox::default();
+        assert_eq!(unsafe { pxui_ui_node(ui, str_of(key), &pxui_types::Node::DEFAULT, &mut out) }, 0);
+        assert_eq!(unsafe { pxui_ui_node(ui, str_of(&long[..MAX_KEY_BYTES + 1]), &pxui_types::Node::DEFAULT, &mut out) }, PXUI_ERR_ARGUMENT);
+        let key_str = core::str::from_utf8(&long[..MAX_KEY_BYTES + 1]).unwrap();
+        assert_eq!(unsafe { crate::trusted::node_str(ui, key_str, &pxui_types::Node::DEFAULT, &mut out) }, PXUI_ERR_ARGUMENT);
+        let b = { let mut b = PxuiBox::default(); assert_eq!(unsafe { pxui_ui_node(ui, str_of(b"t"), &pxui_types::Node::DEFAULT, &mut b) }, 0); b };
+        assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(label)) }, 0);
+        assert_eq!(unsafe { pxui_ui_text(ui, &b, str_of(&long)) }, PXUI_ERR_ARGUMENT);
+        // a text field's value is editor text: past the label cap is fine
+        let (mut changed, mut flag) = (Str::default(), 0u8);
+        assert_eq!(unsafe { pxui_text_field(ui, str_of(b"f"), str_of(&long), &mut changed, &mut flag) }, 0, "{}", error(ui));
+    }
+    let ui = create();
+    assert_eq!(run(ui, Some(build), core::ptr::null_mut()), 0, "{}", error(ui));
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// Strings handed back between frames are bounded: past `MAX_RETURNED` a call answers `PXUI_ERR_STATE`; the next frame frees them.
+#[test]
+fn strings_handed_back_between_frames_are_bounded() {
+    let ui = create();
+    let (mut text, mut caret, mut anchor) = (Str::default(), 0u64, 0u64);
+    let load = |text: &mut Str, caret: &mut u64, anchor: &mut u64| unsafe { pxui_ui_load_text_edit(ui, 5, str_of(b"abc"), text, caret, anchor) };
+    for _ in 0..crate::state::MAX_RETURNED { assert_eq!(load(&mut text, &mut caret, &mut anchor), 0); }
+    assert_eq!(load(&mut text, &mut caret, &mut anchor), PXUI_ERR_STATE);
+    assert!(error(ui).contains("handed back"), "{}", error(ui));
+    assert_eq!(run(ui, Some(nothing), core::ptr::null_mut()), 0);
+    assert_eq!(load(&mut text, &mut caret, &mut anchor), 0);
+    assert_eq!(unsafe { core::slice::from_raw_parts(text.ptr, text.len) }, b"abc");
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
+}
+
+/// A shaper needs a font: none (or only refused ones) is refused at create, never a panic at its first text.
+#[test]
+fn a_shaper_without_a_font_is_refused_at_create() {
+    let font = unsafe { pxui_default_font() };
+    let empty = Str::default();
+    unsafe {
+        assert!(pxui_shaper_create(core::ptr::null(), 0).is_null());
+        assert!(pxui_shaper_create(&font, 0).is_null());
+        assert!(pxui_shaper_create(core::ptr::null(), 1).is_null());
+        assert!(pxui_shaper_create(&empty, 1).is_null());
+        assert!(pxui_shaper_create(&str_of(b"not a font"), 1).is_null());
+        let shaper = pxui_shaper_create(&font, 1);
+        let (style, mut metrics) = (pxui_types::ffi::PxuiTextStyle::default(), pxui_types::TextMetrics::default());
+        assert_eq!(pxui_shaper_width(shaper, 0, str_of(b"a"), &style, 0.0, &mut metrics), 0);
+        pxui_shaper_destroy(shaper);
+    }
+}
+
+/// A shaper or theme whose call panicked fails every later call with its failure value and is still freed by its destroy.
+#[test]
+fn a_poisoned_shaper_or_theme_fails_its_calls_and_is_still_freed() {
+    let font = unsafe { pxui_default_font() };
+    let shaper = unsafe { pxui_shaper_create(&font, 1) };
+    let style = pxui_types::ffi::PxuiTextStyle::default();
+    let mut metrics = pxui_types::TextMetrics::default();
+    assert_eq!(unsafe { pxui_shaper_width(shaper, 0, str_of(b"a"), &style, 0.0, &mut metrics) }, 0);
+    unsafe { (*shaper).poisoned = true; }
+    assert_eq!(unsafe { pxui_shaper_width(shaper, 0, str_of(b"a"), &style, 0.0, &mut metrics) }, PXUI_ERR_PANIC);
+    assert_eq!(unsafe { pxui_shaper_add_font(shaper, str_of(b"")) }, u32::MAX);
+    unsafe { pxui_shaper_destroy(shaper); }
+    let theme = unsafe { pxui_theme_create(core::ptr::null()) };
+    unsafe { (*theme).poisoned = true; }
+    assert_eq!(unsafe { pxui_theme_set(theme, str_of(b"tokens.accent"), str_of(b"#ff0000")) }, PXUI_ERR_PANIC);
+    unsafe { pxui_theme_destroy(theme); }
+}
+
+/// Calls are counted per `Ui`: one `Ui`'s calls never move another's, and reading the count is not a call.
+#[test]
+fn calls_are_counted_per_ui() {
+    let (a, b) = (create(), create());
+    let (at_a, at_b) = unsafe { (pxui_ui_calls(a), pxui_ui_calls(b)) };
+    for _ in 0..5 { assert_eq!(unsafe { pxui_ui_set_dir(a, 0) }, 0); }
+    assert_eq!(unsafe { pxui_ui_calls(a) } - at_a, 5);
+    assert_eq!(unsafe { pxui_ui_calls(b) }, at_b);
+    let mut built = 0u32;
+    assert_eq!(run(b, Some(count), (&mut built as *mut u32).cast()), 0);
+    assert_eq!(unsafe { pxui_ui_calls(a) } - at_a, 5);
+    assert!(unsafe { pxui_ui_calls(b) } > at_b);
+    assert_eq!(unsafe { pxui_ui_calls(core::ptr::null()) } | unsafe { pxui_counter(0) }, 0);
+    assert_eq!(unsafe { pxui_ui_destroy(a) } | unsafe { pxui_ui_destroy(b) }, 0);
+}
+
+/// Grid nodes with equal track lists share one stored list, found by hash; a list no box holds goes at the end of a frame.
+#[test]
+fn grid_track_lists_are_shared_by_hash_and_retired_with_their_boxes() {
+    use pxui_types::layout::{Grid, Track};
+    static COLS: [Track; 2] = [Track::Px(40.0), Track::Fr(1.0)];
+    static ROWS: [Track; 1] = [Track::Fit];
+    extern "C" fn grids(user: *mut c_void, ui: *mut c_void) {
+        let n = unsafe { *user.cast::<i64>() };
+        for key in 0..n {
+            let node = pxui_types::Node { grid: Some(Grid::new(&COLS, &ROWS)).into(), ..pxui_types::Node::DEFAULT };
+            let mut out = PxuiBox::default();
+            assert_eq!(unsafe { pxui_ui_node_keyed(ui.cast(), 100 + key, &node, &mut out) }, 0);
+        }
+    }
+    let ui = create();
+    let mut n = 3i64;
+    assert_eq!(run(ui, Some(grids), (&mut n as *mut i64).cast()), 0);
+    let shared = unsafe { &*(*ui).shared };
+    assert_eq!((shared.grid_tracks.len(), shared.grid_shared.len()), (3, 1));
+    let first = shared.grid_tracks.values().next().unwrap();
+    assert!(shared.grid_tracks.values().all(|stored| std::rc::Rc::ptr_eq(stored, first)));
+    n = 0;
+    assert_eq!(run(ui, Some(grids), (&mut n as *mut i64).cast()), 0);
+    let shared = unsafe { &*(*ui).shared };
+    assert_eq!((shared.grid_tracks.len(), shared.grid_shared.len()), (0, 0));
+    assert_eq!(unsafe { pxui_ui_destroy(ui) }, 0);
 }
 
 // Size-prefixed records against a guard page. Each record is copied to the very end of a readable page with an inaccessible page
@@ -1371,7 +1573,8 @@ fn every_text_entry_refuses_text_over_the_cap() {
     let style = pxui_types::ffi::PxuiTextStyle::default();
     let mut out = pxui_types::TextMetrics::default();
     unsafe {
-        let shaper = pxui_shaper_create(core::ptr::null(), 0);
+        let font = pxui_default_font();
+        let shaper = pxui_shaper_create(&font, 1);
         assert!(!shaper.is_null());
         assert_eq!(pxui_shaper_width(shaper, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);
         assert_eq!(pxui_text_width(ui, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);

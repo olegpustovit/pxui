@@ -12,7 +12,7 @@ use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
 
-export!(pub unsafe fn pxui_ui_button_styled(ui: *mut PxuiUi, text: Str, bare: u8, icon: u8, at_end: u8, has_ink: u8, ink: Rgba, out: *mut u8) -> i32 {
+export!(build pub unsafe fn pxui_ui_button_styled(ui: *mut PxuiUi, text: Str, bare: u8, icon: u8, at_end: u8, has_ink: u8, ink: Rgba, out: *mut u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(text) = (unsafe { checked(text) }).filter(|_| bare <= 1 && icon <= 1 && at_end <= 1 && has_ink <= 1 && !out.is_null()) else { return unsafe { fail(ui, "invalid button arguments") }; };
     unsafe { *out = e.button_styled(text, bare != 0, icon != 0, at_end != 0, (has_ink != 0).then_some(ink)) as u8; }
@@ -55,7 +55,7 @@ export!(trusted pub unsafe fn pxui_ui_button_content(ui: *mut PxuiUi, desc: *con
 export!(trusted pub unsafe fn pxui_ui_button_plain(ui: *mut PxuiUi, key: Str, text: Str, out: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short button response") } };
-    let (Some(key), Some(text)) = (unsafe { checked(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid button text") } };
+    let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid button text") } };
     unsafe { trusted::button_plain(ui, key, text, out) }
 });
 
@@ -67,7 +67,7 @@ unsafe fn button_call(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, content: Opt
     let justify = match d.justify { 0 => Some(Justify::Start), 1 => Some(Justify::Center), 2 => Some(Justify::End), _ => None };
     let (Some(w), Some(h), Some(justify)) = (size(d.w_kind, d.w), size(d.h_kind, d.h), justify) else { return unsafe { fail(ui, "invalid button descriptor") }; };
     if d.enabled > 1 || d.selected > 1 || d.danger > 1 || d.has_name > 1 || d.reserved != 0 || d.centered > 1 || d.reserved2 != [0; 7] { return unsafe { fail(ui, "invalid button descriptor") }; }
-    let (Some(key), Some(text), Some(name)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
+    let (Some(key), Some(text), Some(name)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.name) }) else { return unsafe { fail(ui, "invalid button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid button looks") } };
     let axis = match d.axis { 0 => Some(None), 1 => Some(Some(Axis::Row)), 2 => Some(Some(Axis::Column)), 3 => Some(Some(Axis::Stack)), _ => None };
     let content_align = match d.content_align { 0 => Some(None), 1 => Some(Some(Align::Start)), 2 => Some(Some(Align::Center)), 3 => Some(Some(Align::End)), _ => None };
@@ -107,7 +107,7 @@ export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: St
     // a word set for this call has no drawing to go to: the next call reads 0
     state.shared().icon_word = 0;
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short icon button response") } };
-    let (Some(key), Some(icon), Some(name)) = (unsafe { checked(key) }, unsafe { checked(icon) }, unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid icon button text") } };
+    let (Some(key), Some(icon), Some(name)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(icon) }, unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid icon button text") } };
     unsafe { trusted::icon_button_plain(ui, key, icon, name, out) }
 });
 
@@ -119,7 +119,7 @@ unsafe fn icon_button_call(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out
     let Some(press) = (if grown { unsafe { press_curves(d.press) } } else { Some(None) }) else { return unsafe { fail(ui, "invalid icon button press curves") }; };
     let (Some(w), Some(h)) = (size(d.w_kind, d.w), size(d.h_kind, d.h)) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
     if d.enabled > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
-    let (Some(key), Some(name), Some(icon)) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
+    let (Some(key), Some(name), Some(icon)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid icon button looks") } };
     unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, word, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, press, out, signal) }
 }
@@ -156,7 +156,7 @@ unsafe fn looks(states: *const pxui_types::ffi::PxuiLookDesc) -> Result<Option<S
 export!(trusted pub unsafe fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, text: Str, on: u8, out: *mut PxuiResponse) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short toggle response") } };
-    let (Some(key), Some(text)) = (unsafe { checked(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid toggle text") } };
+    let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid toggle text") } };
     if on > 1 { return unsafe { fail(ui, "invalid toggle value") }; }
     unsafe { trusted::toggle_plain(ui, key, text, on != 0, out) }
 });
@@ -169,7 +169,7 @@ export!(trusted pub unsafe fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *co
     // an 88-byte record is the 1.51 one: no title style
     let Some((d, grown)) = read_desc!(desc, PxuiToggleDesc, [88]) else { return unsafe { fail(ui, "invalid toggle descriptor") }; };
     if d.enabled > 1 || d.on > 1 || d.press_row > 1 || d.reserved != 0 || (grown && (d.has_style > 1 || d.reserved2 != [0; 7])) { return unsafe { fail(ui, "invalid toggle descriptor") }; }
-    let (Some(key), Some(text), Some(detail)) = (unsafe { checked(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.detail) }) else { return unsafe { fail(ui, "invalid toggle text") } };
+    let (Some(key), Some(text), Some(detail)) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.text) }, unsafe { checked(d.detail) }) else { return unsafe { fail(ui, "invalid toggle text") } };
     let (Ok(track), Ok(knob)) = (unsafe { looks(d.track) }, unsafe { looks(d.knob) }) else { return unsafe { fail(ui, "invalid toggle looks") } };
     let label = match if grown { d.has_style } else { 0 } {
         0 => None,
@@ -184,7 +184,7 @@ export!(trusted pub unsafe fn pxui_ui_segmented_plain(ui: *mut PxuiUi, key: Str,
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short segmented response") } };
     if chosen.is_null() { return unsafe { fail(ui, "null segmented choice") }; }
     let mut list = state.shared().take_strs();
-    let (Some(key), Some(name), true) = (unsafe { checked(key) }, unsafe { checked(name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
+    let (Some(key), Some(name), true) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid segmented strings") };
     };
@@ -207,7 +207,7 @@ export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: 
     if d.enabled > 1 || d.grow > 1 || d.reserved != [0; 2] || (grown && d.reserved2 != 0) { return unsafe { fail(ui, "invalid segmented descriptor") }; }
     let Ok(states) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid segmented looks") } };
     let mut list = state.shared().take_strs();
-    let (Some(key), Some(name), true) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
+    let (Some(key), Some(name), true) = (unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.name) }, unsafe { crate::state::strings(options, trusted::MAX_OPTIONS, &mut list) }) else {
         state.shared().put_strs(list);
         return unsafe { fail(ui, "invalid segmented strings") };
     };
@@ -229,7 +229,7 @@ export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: 
 });
 
 // Builds a subtree with every interactive node in it disabled when `disabled` is 1 (scopes nest by OR); the Ui is back as it was when the call returns.
-export!(pub unsafe fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: Build, user: *mut c_void) -> i32 {
+export!(build pub unsafe fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: Build, user: *mut c_void) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if disabled > 1 { return unsafe { fail(ui, "invalid disabled flag") }; }
     let shared = state.shared;
@@ -238,7 +238,7 @@ export!(pub unsafe fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: Bui
 });
 
 // `axis` 0 is a row (a vertical grip), 1 a column; `rect` places the grip in its parent when `has_rect` is set.
-export!(pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32 {
+export!(build pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let axis = match axis { 0 => Axis::Row, 1 => Axis::Column, _ => return unsafe { fail(ui, "unknown grip axis") } };
     let Some(label) = (unsafe { checked(label) }).filter(|_| has_rect <= 1 && !out.is_null() && !signal.is_null() && crate::state::finite(&[rect.x, rect.y, rect.w, rect.h])) else { return unsafe { fail(ui, "invalid grip arguments") }; };
@@ -247,7 +247,7 @@ export!(pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_r
     0
 });
 
-export!(pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
+export!(build pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
     let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
@@ -263,7 +263,7 @@ export!(pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc,
     0
 });
 
-export!(pub unsafe fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<PxuiHintDesc>, count: i64) -> i32 {
+export!(build pub unsafe fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<PxuiHintDesc>, count: i64) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if hints.len > 4096 || (hints.len != 0 && hints.ptr.is_null()) { return unsafe { fail(ui, "invalid inspector bar hints") }; }
     let raw = if hints.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(hints.ptr, hints.len) } };
@@ -283,7 +283,7 @@ export!(pub unsafe fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<PxuiHi
     0
 });
 
-export!(pub unsafe fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: Build, user: *mut c_void) -> i32 {
+export!(build pub unsafe fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: Build, user: *mut c_void) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let shared = state.shared;
     unsafe { (&mut *state.engine).inspector_body(&mut |engine: &mut Ui| call_build(shared, engine, build, user)); }
@@ -291,7 +291,7 @@ export!(pub unsafe fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: Build, user
 });
 
 // `rename` (when set) says whether a typed name is valid; it is called only during this call.
-export!(pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const PxuiHeaderDesc, rename: TextValid, user: *mut c_void, out: *mut PxuiHeadOut) -> i32 {
+export!(build pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const PxuiHeaderDesc, rename: TextValid, user: *mut c_void, out: *mut PxuiHeadOut) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid inspector header output") }; };
     if desc.is_null() { return unsafe { fail(ui, "null inspector header argument") }; }
@@ -302,7 +302,7 @@ export!(pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const Pxu
     }
     let optional = |flag: u8, value: Str| -> Result<Option<&'static str>, ()> { if flag == 0 { Ok(None) } else { unsafe { checked(value) }.map(Some).ok_or(()) } };
     let (Some(key), Some(title), Some(detail), Ok(kind), Ok(badge), Ok(index), Ok(reset)) = (
-        unsafe { checked(d.key) }, unsafe { checked(d.title) }, unsafe { checked(d.detail) },
+        unsafe { crate::state::checked_key(d.key) }, unsafe { checked(d.title) }, unsafe { checked(d.detail) },
         optional(d.has_kind, d.kind), optional(d.has_badge, d.badge), optional(d.has_index, d.index), optional(d.has_reset, d.reset),
     ) else { return unsafe { fail(ui, "invalid inspector header text") }; };
     let raw: &[PxuiHeadActionDesc] = if d.actions.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(d.actions.ptr, d.actions.len) } };
@@ -330,14 +330,14 @@ export!(pub unsafe fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const Pxu
     });
     let head = unsafe { (&mut *state.engine).inspector_header(key, kind, badge, index, valid, &actions, reset, d.reset_enabled != 0, title, detail) };
     state.shared().actions = actions;
-    let renamed = state.give(head.renamed);
+    let Ok(renamed) = state.give(head.renamed) else { return crate::PXUI_ERR_STATE };
     (out.renamed, out.chosen, out.has_chosen, out.reset_pressed) = (renamed, head.chosen.unwrap_or(0), head.chosen.is_some() as u8, head.reset_pressed as u8);
     0
 });
 
-export!(pub unsafe fn pxui_ui_inspector_section_view(ui: *mut PxuiUi, key: Str, revision: u64, expanded: u8, has_set: u8, set_expanded: u8, label: Str, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
+export!(build pub unsafe fn pxui_ui_inspector_section_view(ui: *mut PxuiUi, key: Str, revision: u64, expanded: u8, has_set: u8, set_expanded: u8, label: Str, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(key), Some(label)) = (unsafe { checked(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector section text") }; };
+    let (Some(key), Some(label)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid inspector section text") }; };
     if out.is_null() || expanded > 1 || has_set > 1 || set_expanded > 1 { return unsafe { fail(ui, "invalid inspector section arguments") }; }
     let shared = state.shared;
     let mut body = |engine: &mut Ui| call_build(shared, engine, build, user);
@@ -346,21 +346,22 @@ export!(pub unsafe fn pxui_ui_inspector_section_view(ui: *mut PxuiUi, key: Str, 
     0
 });
 
-export!(pub unsafe fn pxui_ui_inspector_toggle_value(ui: *mut PxuiUi, key: Str, x: f32, y: f32, value: u8, out: *mut u8) -> i32 {
+export!(build pub unsafe fn pxui_ui_inspector_toggle_value(ui: *mut PxuiUi, key: Str, x: f32, y: f32, value: u8, out: *mut u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let Some(key) = (unsafe { checked(key) }).filter(|_| value <= 1 && !out.is_null() && crate::state::finite(&[x, y])) else { return unsafe { fail(ui, "invalid toggle arguments") }; };
+    let Some(key) = (unsafe { crate::state::checked_key(key) }).filter(|_| value <= 1 && !out.is_null() && crate::state::finite(&[x, y])) else { return unsafe { fail(ui, "invalid toggle arguments") }; };
     unsafe { *out = e.inspector_toggle_value(key, (x, y), value != 0) as u8; }
     0
 });
 
 // `step`: 0 none, 1 next, 2 previous, 3 close. The text is borrowed until the next frame.
-export!(pub unsafe fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32) -> i32 {
+export!(build pub unsafe fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    let (Some(placeholder), Some(label), Some(value)) = (unsafe { checked(placeholder) }, unsafe { checked(label) }, unsafe { checked(value) }) else { return unsafe { fail(ui, "invalid line field text") }; };
+    let (Some(placeholder), Some(label), Some(value)) = (unsafe { checked(placeholder) }, unsafe { checked(label) }, unsafe { crate::state::checked_text(value) }) else { return unsafe { fail(ui, "invalid line field text") }; };
     if text.is_null() || step.is_null() || grab > 1 || !crate::state::finite(&[x, y, w, h]) { return unsafe { fail(ui, "invalid line field arguments") }; }
     let (edited, next) = unsafe { (&mut *state.engine).line_field((x, y), w, h, grab != 0, placeholder, label, value) };
+    let Ok(edited) = state.give(edited) else { return crate::PXUI_ERR_STATE };
     unsafe {
-        *text = state.give(edited);
+        *text = edited;
         *step = match next { LineStep::None => 0, LineStep::Next => 1, LineStep::Previous => 2, LineStep::Close => 3 };
     }
     0

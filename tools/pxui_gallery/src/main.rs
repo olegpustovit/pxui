@@ -209,7 +209,7 @@ fn main() {
         events.clear();
         if !win.pump(&mut events) { break; }
         let now = win.time();
-        if now > 0.5 { calls_at_settle.get_or_insert_with(|| pxui::library_counter(pxui::COUNTER_CALLS)); }
+        if now > 0.5 { calls_at_settle.get_or_insert_with(|| ui.library_calls()); }
         if now >= next_theme_poll {
             next_theme_poll = now + 1.0;
             let stamp = modified(&theme_path);
@@ -343,7 +343,7 @@ fn main() {
         if let Some(secs) = exit_after { wake = wake.min(secs); }
         if wake > win.time() { host::wait(&mut win, wake.is_finite().then_some(wake)); }
     }
-    if let Some(at) = calls_at_settle { calls_idle = pxui::library_counter(pxui::COUNTER_CALLS) - at - 1; }
+    if let Some(at) = calls_at_settle { calls_idle = ui.library_calls() - at; }
     if count { println!("pxui_gallery: frames {frames} draws {draws} settled {settled} idle_calls {calls_idle}"); }
     s.image = None;
     drop(renderer);

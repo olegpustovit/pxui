@@ -69,7 +69,7 @@ mod raw {
 }
 
 #[inline]
-fn as_str(value: &str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
+fn as_str(value: &str) -> Str { crate::as_str(value) }
 
 // The rows a picker holds between its calls on this thread: its row strings (the app's fill reuses them) and their `Str` span, so a
 // settled picker allocates nothing here. Taken for the call and put back, so a picker built inside a picker's callback finds them empty.

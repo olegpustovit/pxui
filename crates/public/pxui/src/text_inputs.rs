@@ -1,7 +1,7 @@
 //! Text widgets with options: the text field, line field, value field (slide, scrub and validity callbacks), the text area, and the text edit the `Ui` keeps.
 //! The non-generic bodies of the key-first calls in `author/fields.rs`.
 use crate::composite::{defer_callback_panic, deferred};
-use crate::{as_str, check, lent_str, lent_string, live, AreaCallbacks, Key, LineField, LineFieldResponse, Response, TextArea, TextAreaResponse, TextField, TextFieldResponse, Ui, ValueCallbacks, ValueField, ValueFieldResponse};
+use crate::{as_str, as_text, check, lent_str, lent_string, live, AreaCallbacks, Key, LineField, LineFieldResponse, Response, TextArea, TextAreaResponse, TextField, TextFieldResponse, Ui, ValueCallbacks, ValueField, ValueFieldResponse};
 use core::ffi::c_void;
 use pxui_types::{geom::Rect, ffi::{AreaNotify, PxuiAreaCallbacks, PxuiColorSpan, PxuiCompletion, PxuiDescription, PxuiMaybeRange, PxuiNote, PxuiRange, PxuiRewrite, PxuiSplice, PxuiTextAreaDesc, PxuiTextFieldDesc, PxuiValueFieldDesc, Slice}, ui::{CodeContext, LineStep, TextEdit}, PxuiBox, Str};
 
@@ -191,7 +191,7 @@ impl Ui {
         let traits = field.traits();
         let desc = PxuiTextFieldDesc {
             size: core::mem::size_of::<PxuiTextFieldDesc>() as u32, autocorrect: traits.autocorrects() as u8, capitalization: traits.capitalizes() as u8, action: traits.return_key() as u8, reserved: 0,
-            key: as_str(label), name: as_str(field.accessible_name()), value: as_str(value),
+            key: as_text(label), name: as_str(field.accessible_name()), value: as_text(value),
         };
         if variant != 0 { self.set_variant(pxui_types::theme::BodyKind::text_field, variant); }
         check(self, unsafe { lib::pxui_ui_text_field_keyed(self.0.as_ptr(), &desc, &mut changed, &mut did_change) });
@@ -206,7 +206,7 @@ impl Ui {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         let (mut text, mut step) = (Str::default(), 0);
-        check(self, unsafe { lib::pxui_ui_line_field(self.0.as_ptr(), rect.x, rect.y, rect.w, rect.h, field.grab as u8, as_str(field.placeholder), as_str(label), as_str(value), &mut text, &mut step) });
+        check(self, unsafe { lib::pxui_ui_line_field(self.0.as_ptr(), rect.x, rect.y, rect.w, rect.h, field.grab as u8, as_str(field.placeholder), as_str(label), as_text(value), &mut text, &mut step) });
         let edited = lent_str(text);
         let changed = (edited != value).then_some(edited);
         let response = self.input_response(changed.is_some(), Some(field.name));
@@ -232,7 +232,7 @@ impl Ui {
         for (slot, line) in errors.iter_mut().zip(o.errors) { *slot = engine(*line); }
         for (slot, n) in messages.iter_mut().zip(o.notes) { *slot = PxuiNote { line: engine(n.line), start: n.range.map_or(0, |r| engine(r.0)), end: n.range.map_or(0, |r| engine(r.1)), has_range: n.range.is_some() as u8, reserved: [0; 7], text: as_str(n.text) }; }
         for (slot, (start, end)) in spans.iter_mut().zip(o.spans) { *slot = PxuiRange { start: engine(*start), end: engine(*end) }; }
-        for (slot, s) in splice.iter_mut().zip(o.splices) { *slot = PxuiSplice { start: engine(s.start), end: engine(s.end), text: as_str(s.text) }; }
+        for (slot, s) in splice.iter_mut().zip(o.splices) { *slot = PxuiSplice { start: engine(s.start), end: engine(s.end), text: as_text(s.text) }; }
         for (slot, (start, end, color)) in chips.iter_mut().zip(o.chips) { *slot = PxuiColorSpan { start: engine(*start), end: engine(*end), color: *color, reserved: 0 }; }
         let pair_count = lang.map_or(0, |l| l.pairs.len());
         if let Some(l) = lang { for (slot, (open, close)) in pairs.chunks_exact_mut(2).zip(l.pairs) { slot[0] = *open as u32; slot[1] = *close as u32; } }
@@ -242,7 +242,7 @@ impl Ui {
             flags: has(o.wrap, PxuiTextAreaDesc::WRAP) | has(o.reveal.is_some(), PxuiTextAreaDesc::HAS_REVEAL) | has(o.select.is_some(), PxuiTextAreaDesc::HAS_SELECT)
                 | has(lang.is_some(), PxuiTextAreaDesc::HAS_LANGUAGE) | has(lang.is_some_and(|l| l.rewrite.is_some()), PxuiTextAreaDesc::HAS_REWRITE),
             x: at.0, y: at.1, width, height, reveal: o.reveal.map_or(0, |r| engine(r.at)), reveal_nonce: o.reveal.map_or(0, |r| r.request as i64),
-            select: o.select.map_or(PxuiRange::default(), |(start, end)| PxuiRange { start: engine(start), end: engine(end) }), label: as_str(label), value: as_str(value),
+            select: o.select.map_or(PxuiRange::default(), |(start, end)| PxuiRange { start: engine(start), end: engine(end) }), label: as_str(label), value: as_text(value),
             errors: Slice { ptr: errors.as_ptr(), len: o.errors.len() }, messages: Slice { ptr: messages.as_ptr(), len: o.notes.len() },
             spans: Slice { ptr: spans.as_ptr(), len: o.spans.len() }, splice: Slice { ptr: splice.as_ptr(), len: o.splices.len() }, chips: Slice { ptr: chips.as_ptr(), len: o.chips.len() },
             comment: as_str(lang.map_or("", |l| l.comment)), pairs: Slice { ptr: pairs.as_ptr(), len: pair_count * 2 },
@@ -323,7 +323,7 @@ impl Ui {
     #[track_caller]
     pub fn load_text_edit(&mut self, key: i64, text: &str) -> TextEdit {
         let (mut out, mut caret, mut anchor) = (Str::default(), 0, 0);
-        check(self, unsafe { lib::pxui_ui_load_text_edit(self.0.as_ptr(), key, as_str(text), &mut out, &mut caret, &mut anchor) });
+        check(self, unsafe { lib::pxui_ui_load_text_edit(self.0.as_ptr(), key, as_text(text), &mut out, &mut caret, &mut anchor) });
         TextEdit { text: lent_string(out), caret: caret as usize, anchor: anchor as usize }
     }
 
@@ -342,7 +342,7 @@ impl Ui {
     /// ```
     #[track_caller]
     pub fn remember(&mut self, edit: &TextEdit, typing: bool) {
-        check(self, unsafe { lib::pxui_ui_remember(self.0.as_ptr(), as_str(&edit.text), edit.caret as u64, edit.anchor as u64, typing as u8) })
+        check(self, unsafe { lib::pxui_ui_remember(self.0.as_ptr(), as_text(&edit.text), edit.caret as u64, edit.anchor as u64, typing as u8) })
     }
 }
 

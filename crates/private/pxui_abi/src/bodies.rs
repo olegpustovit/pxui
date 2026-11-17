@@ -3,7 +3,7 @@
 //! app's `(fn, user)` pair that `Shared::bodies` keeps for the body id the theme names. The default path never comes here: a widget
 //! with no registered body calls its built-in body directly. A call costs one load of the host pointer, two bounds-checked loads of
 //! the pair, the record on the stack and one indirect call; nothing is allocated (a slot is a push on a reused stack).
-use crate::state::{PxuiUi, Shared, checked, fail, fail_code, get, pair, to_abi_box};
+use crate::state::{PxuiUi, Shared, fail, fail_code, get, pair, to_abi_box};
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_STATE, PXUI_ERR_STALE, PxuiBox, Str};
 use core::ffi::c_void;
 use pxui_core::{bodies::*, ui::Ui};
@@ -251,7 +251,7 @@ fn name_ok(name: &str) -> bool { !name.is_empty() && name != "default" && !name.
 // replaces its function and keeps its id. Register at start-up: `user` must outlive the `Ui`.
 export!(pub unsafe fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, body: PxuiBodyFn, user: *mut c_void) -> u16 {
     let Some(state) = (unsafe { get(ui) }) else { return 0 };
-    let (Some(body), Some(name)) = (body, unsafe { checked(name) }) else { unsafe { fail(ui, "invalid body registration") }; return 0 };
+    let (Some(body), Some(name)) = (body, unsafe { crate::state::checked_key(name) }) else { unsafe { fail(ui, "invalid body registration") }; return 0 };
     if state.shared().in_frame || !state.owner { unsafe { fail_code(ui, "bodies are registered outside a frame", PXUI_ERR_STATE) }; return 0 }
     let Some(register) = REGISTER.get(kind as usize) else { unsafe { fail(ui, "unknown body kind") }; return 0 };
     if !name_ok(name) { unsafe { fail(ui, "invalid body name") }; return 0 }
@@ -270,7 +270,7 @@ export!(pub unsafe fn pxui_body_register(ui: *mut PxuiUi, kind: u32, name: Str, 
 
 // Builds a node as `part` of the widget whose body is running (the way `pxui_ui_node_keyed` does): behaviour finds it again by role.
 // A part is a number of `Part`; refused outside a body call or for a number that names no part.
-export!(pub unsafe fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
+export!(build pub unsafe fn pxui_part(ui: *mut PxuiUi, part: u32, node: *const Node, out: *mut PxuiBox) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
     if state.shared().bodies.depth == 0 { return unsafe { fail_code(ui, "a part is built inside a body", PXUI_ERR_STATE) } }
     if !Part::valid(part) { return unsafe { fail(ui, "invalid part number") } }
@@ -290,7 +290,8 @@ export!(pub unsafe fn pxui_part_box(ui: *mut PxuiUi, owner: i64, part: u32, out:
 /// call that received it: one deeper (a nested body, or the slot's own content, which runs a level down) is refused, so the closure
 /// it lends is never entered while it runs.
 pub unsafe fn slot(ui: *mut PxuiUi, slot: PxuiSlot, out: *mut u8) -> i32 {
-    enter!(ui);
+    // a slot exists only while its body call runs (in a frame): outside one it is stale, which says more than "outside a frame"
+    enter!(any ui);
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT };
     let bodies = &mut state.shared().bodies;
     let Some(&(_, level, found)) = bodies.slots.iter().rev().find(|(serial, ..)| *serial == slot.serial) else { return unsafe { fail_code(ui, "stale slot", PXUI_ERR_STALE) } };

@@ -47,7 +47,7 @@ impl Ui {
     /// drop it. A registered label body builds inside this node.
     /// Allocates: never on a warm frame.
     /// Identity: no key; every label is the n-th `"\0label"` among its siblings. Labels hold no state, so moving one costs nothing.
-    /// Panics: when the library refuses the label (outside a frame, a style with a non-finite or non-positive size, an unloaded font).
+    /// Panics: when the library refuses the label (outside a frame, a style with a non-finite or non-positive size, an unloaded font). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::{theme::ColorToken, Label, Node};
@@ -143,6 +143,29 @@ mod tests {
             ui.label("Songs", Label::TITLE.grow());
         };
         for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); }
+        let scope = mem_sys::warm_scope();
+        for _ in 0..100 {
+            mem_sys::local_reset();
+            ui.frame(&input, &mut build).unwrap();
+            assert_eq!(mem_sys::local_alloc_count(), 0);
+        }
+        drop(scope);
+        assert!(mem_sys::take_reports().is_empty());
+    }
+
+    /// Display text from user data past the 64 KiB cap is clipped at a character boundary by the wrapper, never a panic: a 100 KiB
+    /// title renders with its first 65,535 bytes (the cap falls inside a two-byte character), and its warm frames allocate nothing.
+    #[test]
+    fn a_title_past_the_display_cap_is_clipped_not_refused() {
+        mem_sys::set_peer(crate::library_counter);
+        let mut title = String::from("a");
+        while title.len() < 100 << 10 { title.push('é'); }
+        let mut ui = crate::Ui::new().unwrap();
+        ui.set_a11y(true);
+        let input = FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() };
+        let mut build = |ui: &mut crate::Ui| { ui.label(&title, Label::TITLE); };
+        for _ in 0..8 { ui.frame(&input, &mut build).unwrap(); }
+        assert!(ui.a11y_nodes().iter().any(|node| ui.a11y_name_of(node) == &title[..65_535]), "the clipped title is the label's name");
         let scope = mem_sys::warm_scope();
         for _ in 0..100 {
             mem_sys::local_reset();

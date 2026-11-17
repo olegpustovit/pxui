@@ -262,7 +262,7 @@ impl Ui {
     /// (`Toggle::enabled(false)`, or inside `Ui::disabled`) takes no press or focus.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: when the library refuses the arguments (outside a frame, a negative size, text too long, a title style that does not resolve).
+    /// Panics: when the library refuses the arguments (outside a frame, a negative size, text too long, a title style that does not resolve). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::Toggle;
@@ -285,7 +285,7 @@ impl Ui {
     /// `toggle_with` for any option or a fixed key.
     /// Allocates: never on a warm frame.
     /// Identity: by position among the parent's children (the key `"toggle"`, made unique in order).
-    /// Panics: when the library refuses the call (outside a frame, text too long).
+    /// Panics: when the library refuses the call (outside a frame, text too long). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// let mut on = false;
@@ -306,7 +306,7 @@ impl Ui {
     /// (its text without), role Radio.
     /// Allocates: never on a warm frame (up to 32 options; more allocate a span).
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never an option's text.
-    /// Panics: when the library refuses the arguments (outside a frame, more than 4096 options, a negative height, width, padding or least width).
+    /// Panics: when the library refuses the arguments (outside a frame, more than 4096 options, a negative height, width, padding or least width). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::{Segment, Segmented};
@@ -332,7 +332,7 @@ impl Ui {
     /// among its siblings, not `label`.
     /// Allocates: never on a warm frame (up to 32 options).
     /// Identity: by position among the parent's children (the key `"segmented"`, made unique in order).
-    /// Panics: as `segmented_with`.
+    /// Panics: as `segmented_with`. Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// let mut chosen = 0;

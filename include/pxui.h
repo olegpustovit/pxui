@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 65u)
+#define PXUI_ABI_BUILT ((1u << 16) | 66u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -254,9 +254,21 @@ enum PxuiValueCode {
 /* Status codes of every call that returns int32_t: 0 is success. */
 #define PXUI_ERR_ARGUMENT (-1) /* invalid argument; pxui_last_error says which */
 #define PXUI_ERR_GPU (-2)      /* GPU adoption or recording failed (pxui_renderer_*) */
-#define PXUI_ERR_STATE (-3)    /* not allowed now: inside a frame callback, on a borrowed handle, or with a renderer attached */
+#define PXUI_ERR_STATE (-3)    /* not allowed now: inside a frame callback, on a borrowed handle, with a renderer attached, a builder (a call that
+                                  declares nodes: widgets, containers, pxui_ui_node...) outside a frame callback, or past the returned-string caps below */
 #define PXUI_ERR_STALE (-5)    /* the box handle names a node that has gone (queries and patches treat it as "nothing there") */
-#define PXUI_ERR_PANIC (-4)    /* a panic was caught in the library; the Ui fails every call until its next frame call */
+#define PXUI_ERR_PANIC (-4)    /* a panic was caught in the library (a library bug: no argument causes one); the Ui fails every call until its next frame
+                                  call. A shaper, theme or accessibility bridge whose call panicked fails every later call (its destroy still frees it). */
+/* Limits (ABI 1.66; docs/abi.md, Limits). Every call refuses an argument past its cap with PXUI_ERR_ARGUMENT (or its failure value) rather
+   than cuts; the only cap answering PXUI_ERR_STATE is the handed-back string budget below, which the next frame resets:
+   - one string: an identifier (a key, a node or container label used as identity, a body, theme or app name, a carry kind) at most 256 bytes;
+     display text (labels, titles, accessible names and values, tips, rows) at most 64 KiB; editor text (a text field's or area's value, a
+     paste, an edit, text the text service measures or shapes) and one event's text at most 16 MiB; a font at most 32 MiB; a text
+     pxui_shaper_prepare takes at most 1 MiB;
+   - a call's string span (options, rows, hints, titles) at most 16 MiB together; one frame's event text at most 16 MiB together;
+   - strings the library hands back (edited text, lent payloads): at most 4096 and 64 MiB between two frames, then PXUI_ERR_STATE;
+   - events: x, y and value finite for every kind, text editing start/length not negative, a resize 0..=65536;
+     FrameIn.width/height and PxuiInput.logical_size 0..=65536 points; held key codes must be known keys (PXUI_ERR_ARGUMENT). */
 enum PxuiTargetFormat { PXUI_TARGET_RGBA8=1, PXUI_TARGET_BGRA8=2 };
 typedef struct {
     uint32_t size;
@@ -429,8 +441,12 @@ enum {
     PXUI_FEATURE_TEXT_FIELD_KEYED = 21,  /* 1.64: pxui_ui_text_field_keyed, pxui_ui_input_box */
     PXUI_FEATURE_LABEL_TEXT = 22         /* 1.65: pxui_ui_label_text_spans/_text_line_box/_measure/_quads/_rasterize_rgba/_prewarm */
 };
-/* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */
+/* Process counters for performance gates: which 1 = heap allocations the library's allocator has made (a counting build); anything else
+   reads 0, and so does 0 since 1.66 (calls are counted per Ui: pxui_ui_calls). */
 uint64_t pxui_counter(uint32_t which);
+/* Extension set (diagnostics). Calls made into the library on ui (its owner, the handles its callbacks borrowed, its renderers and paint
+   handles) since it was created; this call is not counted. A field of that Ui: no counter is shared between Uis or threads. 0 for NULL. */
+uint64_t pxui_ui_calls(const PxuiUi *ui);
 PxuiUi *pxui_ui_create(const PxuiUiDesc *desc);
 /* ABI 1.63 font limits (any entry point that adds a font: this one, pxui_shaper_create, pxui_shaper_add_font, pxui_text_add_font): a font is
    1 byte to 32 MiB (33,554,432), a text service holds at most 64 fonts and 256 MiB of font bytes in all, and bytes that are not a parseable font
@@ -698,7 +714,7 @@ int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anch
 /* A text shaper of its own, for text laid out off the Ui on any thread: its own font system, no GPU atlas. */
 /* A shaper is a plain library object with no thread-local state: it may be created on one thread and used on another, but one thread
    uses one shaper at a time (calls on it never overlap). It shares nothing with a PxuiUi's text service. */
-PxuiShaper *pxui_shaper_create(const PxuiStr *fonts, size_t count);
+PxuiShaper *pxui_shaper_create(const PxuiStr *fonts, size_t count); /* ABI 1.66: NULL for count 0 (a shaper needs a font) */
 /* ABI 1.36: fork between frames, then move the owned shaper to a worker. This reserves the
    UI's bounded receiving cache and clones immutable font sources with matching face identities. */
 PxuiShaper *pxui_text_fork(PxuiUi *ui);

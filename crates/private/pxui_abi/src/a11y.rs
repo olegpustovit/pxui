@@ -30,21 +30,22 @@ pub struct PxuiA11y {
     actions: Vec<(u64, pxui_types::ffi::A11yAction)>,
     #[cfg(target_os = "linux")]
     span: Vec<pxui_types::ffi::A11yAction>,
+    pub(crate) poisoned: bool,
 }
 
 // Connects to the accessibility bus as `name`; null when there is none (the reason is not an error: no assistive technology).
 export!(bare pub unsafe fn pxui_a11y_start(name: Str) -> *mut PxuiA11y {
     #[cfg(target_os = "linux")]
     {
-        let Some(name) = (unsafe { checked(name) }) else { return core::ptr::null_mut() };
-        return match pxui_atspi::Bridge::connect(name) { Ok(bridge) => Box::into_raw(Box::new(PxuiA11y { bridge, actions: Vec::new(), span: Vec::new() })), Err(_) => core::ptr::null_mut() };
+        let Some(name) = (unsafe { crate::state::checked_key(name) }) else { return core::ptr::null_mut() };
+        return match pxui_atspi::Bridge::connect(name) { Ok(bridge) => Box::into_raw(Box::new(PxuiA11y { bridge, actions: Vec::new(), span: Vec::new(), poisoned: false })), Err(_) => core::ptr::null_mut() };
     }
     #[cfg(not(target_os = "linux"))]
     { let _ = name; core::ptr::null_mut() }
 });
 
 // The descriptor the bridge's events wake: the app adds it to its event loop.
-export!(bare pub unsafe fn pxui_a11y_fd(a11y: *mut PxuiA11y) -> i32 {
+export!(object pub unsafe fn pxui_a11y_fd(a11y: *mut PxuiA11y) -> i32 {
     #[cfg(target_os = "linux")]
     { return unsafe { a11y.as_ref() }.map_or(-1, |a| a.bridge.fd()); }
     #[cfg(not(target_os = "linux"))]
@@ -52,7 +53,7 @@ export!(bare pub unsafe fn pxui_a11y_fd(a11y: *mut PxuiA11y) -> i32 {
 });
 
 // Publishes `tree` (a frame's `Output.a11y`, borrowed for the call).
-export!(bare pub unsafe fn pxui_a11y_update(a11y: *mut PxuiA11y, tree: *const pxui_types::ffi::A11yTree) -> i32 {
+export!(object pub unsafe fn pxui_a11y_update(a11y: *mut PxuiA11y, tree: *const pxui_types::ffi::A11yTree) -> i32 {
     #[cfg(target_os = "linux")]
     {
         let (Some(a), Some(tree)) = (unsafe { a11y.as_mut() }, unsafe { tree.as_ref() }) else { return PXUI_ERR_ARGUMENT };
@@ -65,7 +66,7 @@ export!(bare pub unsafe fn pxui_a11y_update(a11y: *mut PxuiA11y, tree: *const px
 
 // Handles the bus's pending traffic. 1: the connection is alive, 0: it is gone (stop the bridge). The actions assistive technology
 // asked for are in `out` (borrowed until the next pump), for `Ui::inject_a11y`.
-export!(bare pub unsafe fn pxui_a11y_pump(a11y: *mut PxuiA11y, out: *mut pxui_types::ffi::A11yActionSpan) -> i32 {
+export!(object pub unsafe fn pxui_a11y_pump(a11y: *mut PxuiA11y, out: *mut pxui_types::ffi::A11yActionSpan) -> i32 {
     #[cfg(target_os = "linux")]
     {
         let (Some(a), false) = (unsafe { a11y.as_mut() }, out.is_null()) else { return PXUI_ERR_ARGUMENT };
