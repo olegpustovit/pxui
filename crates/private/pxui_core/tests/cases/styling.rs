@@ -246,6 +246,51 @@ pub fn styling_reduced_motion() {
     ui.destroy();
 }
 
+/// Colour tokens in looks (ABI 1.61): a colour spelling the in-band encoding resolves as a token; an animation to a token look ends on
+/// the token's entry; a theme swap moves the token look to the dark entry with no change by the app; and an interpolated colour that
+/// happens to spell a token is painted as the clear colour it is, never resolved again.
+pub fn styling_colour_token_looks() {
+    use pxui_types::{geom::Rgba, theme::ColorToken};
+    let mut ui = new_ui(None);
+    let c = |v: u8| color::rgb(v as i64, v as i64, v as i64);
+    let (marker, never) = (color::rgb(1, 2, 3), color::rgb(4, 5, 6));
+    check(ui.set_colors(&[c(240), c(200), marker, never], &[c(16), c(60), marker, never]), "set_colors");
+    let spelled = Rgba { r: 0x54, g: 0x4b, b: 2, a: 0 };
+    let chip = Cell::new(None);
+    let mut build = |ui: &mut Ui| {
+        ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
+            let paper = Look { fill: Rgba::token(ColorToken(0)), ..Look::NONE };
+            chip.set(Some(ui.node("chip".into(), Node { w: Size::Px(40.0), h: Size::Px(20.0), look: paper, ..Node::DEFAULT })));
+            ui.node("raw".into(), Node { w: Size::Px(30.0), h: Size::Px(20.0), look: Look { fill: spelled, ..Look::NONE }, ..Node::DEFAULT });
+        });
+    };
+    let has = |ui: &Ui, color: [u8; 4]| ui.output().draw.iter().flat_map(|l| l.instances.iter()).any(|i| i.color == color);
+    let rgba = |c: Rgba| [c.r, c.g, c.b, c.a];
+    ui.frame(&at(0.0, vec![]), &mut build);
+    ui.frame(&at(0.1, vec![]), &mut build);
+    check(has(&ui, rgba(c(240))) && has(&ui, rgba(marker)), "a declared token look and a colour spelling token 2 paint their light entries");
+    let chip = chip.get().expect("chip");
+    let linear = |duration: f32| Curve::Bezier { duration, points: [0.0, 0.0, 1.0, 1.0] };
+    check(ui.animate(&chip, Target::Look(Look { fill: Rgba::token(ColorToken(1)), ..Look::NONE }), linear(0.4)), "animate refused");
+    for k in 1..=10 { ui.frame(&at(0.1 + 0.05 * k as f64, vec![]), &mut build); }
+    check(ui.transitions() == 0 && has(&ui, rgba(c(200))), "an animation to a token look rests on its entry");
+    let mut dark = Theme::default();
+    dark.tokens.panel = c(16);
+    check(pxui_types::theme::dark(&dark.tokens), "a dark theme");
+    ui.set_theme(dark);
+    for k in 1..=20 { ui.frame(&at(1.0 + 0.05 * k as f64, vec![]), &mut build); }
+    check(has(&ui, rgba(c(16))) && !has(&ui, rgba(c(240))) && !has(&ui, rgba(c(200))), "the swap moves the token look to its dark entry");
+    // from a clear colour spelling 0x50 to one spelling 0x58: halfway is 0x54, 0x4b, 3, 0, token 3's spelling
+    let clear = |r: u8| Look { fill: Rgba { r, g: 0x4b, b: 3, a: 0 }, ..Look::NONE };
+    check(ui.animate(&chip, Target::Look(clear(0x50)), linear(0.0)), "animate refused");
+    ui.frame(&at(3.0, vec![]), &mut build);
+    check(ui.animate(&chip, Target::Look(clear(0x58)), linear(1.0)), "animate refused");
+    ui.frame(&at(3.0, vec![]), &mut build);
+    ui.frame(&at(3.5, vec![]), &mut build);
+    check(has(&ui, [0x54, 0x4b, 3, 0]) && !has(&ui, rgba(never)), "an interpolated colour is never resolved as a token");
+    ui.destroy();
+}
+
 /// `animate` moves a node's offset and opacity on a spring between frames and settles.
 pub fn styling_animate_spring() {
     let mut ui = new_ui(None);
@@ -566,6 +611,7 @@ pub const CASES: &[(&str, fn())] = &[
     ("styling_reduced_motion", styling_reduced_motion),
     ("styling_theme_swap_transition", styling_theme_swap_transition),
     ("styling_animate_spring", styling_animate_spring),
+    ("styling_colour_token_looks", styling_colour_token_looks),
     ("styling_animate_keys", styling_animate_keys),
     ("styling_nested_view_transform", styling_nested_view_transform),
 ];

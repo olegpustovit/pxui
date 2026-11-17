@@ -610,7 +610,7 @@ pub fn icon_button_press_runs_the_callers_curves() {
 }
 
 /// LocalWave's play icon (`lw_ui/src/icons.rs::play`): one triangle on a 24-unit grid scaled to the square it is given.
-fn play_icon(paint: &mut Paint, rect: Rect, ink: pxui_core::geom::Rgba, _: [usize; 3]) {
+fn play_icon(paint: &mut Paint, rect: Rect, ink: pxui_core::geom::Rgba, _: [usize; 4]) {
     use pxui_types::shape::Shapes;
     let scale = rect.w.min(rect.h) / 24.0;
     let at = |(x, y): (f32, f32)| (rect.x + x * scale, rect.y + y * scale);
@@ -619,7 +619,7 @@ fn play_icon(paint: &mut Paint, rect: Rect, ink: pxui_core::geom::Rgba, _: [usiz
 
 thread_local! { static PLAYED: Cell<(u32, f32, f32, u8)> = const { Cell::new((0, 0.0, 0.0, 0)) }; }
 
-fn recorded_play(paint: &mut Paint, rect: Rect, ink: pxui_core::geom::Rgba, data: [usize; 3]) {
+fn recorded_play(paint: &mut Paint, rect: Rect, ink: pxui_core::geom::Rgba, data: [usize; 4]) {
     PLAYED.with(|p| p.set((p.get().0 + 1, rect.w, rect.h, ink.r)));
     play_icon(paint, rect, ink, data);
 }
@@ -647,11 +647,11 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
                         let surface = ui.node("surface".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
                         ui.set_look(&surface, *states.pick(state), state);
                         let ink = states.pick(state).text;
-                        ui.draw(&surface, move |paint, rect| play_icon(paint, Rect { x: rect.x + (rect.w - 20.0) / 2.0, y: rect.y + (rect.h - 20.0) / 2.0, w: 20.0, h: 20.0 }, ink, [0; 3]));
+                        ui.draw(&surface, move |paint, rect| play_icon(paint, Rect { x: rect.x + (rect.w - 20.0) / 2.0, y: rect.y + (rect.h - 20.0) / 2.0, w: 20.0, h: 20.0 }, ink, [0; 4]));
                     });
                 });
             } else {
-                ui.icon_button("play", Icon::Draw(play_icon, [0; 3]), "Play", &button);
+                ui.icon_button("play", Icon::Draw(play_icon, [0; 4]), "Play", &button);
             }
         });
         let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
@@ -679,7 +679,7 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
     // the drawing is told the 20-point square and the ink of the state
     let mut ui = new_ui(None);
     let b = IconButton { states: Some(states), press_scale: 1.0, ..IconButton::DEFAULT };
-    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 3]), "Play", &b); })); }
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 4]), "Play", &b); })); }
     check(PLAYED.with(|p| p.get()) == (PLAYED.with(|p| p.get()).0, 20.0, 20.0, 10) && PLAYED.with(|p| p.get()).0 > 0, &format!("the drawing's square and ink: {:?}", PLAYED.with(|p| p.get())));
     ui.destroy();
 }
@@ -699,7 +699,7 @@ pub fn icon_button_body_receives_the_drawing() {
     pick(&mut ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("art", art_icon));
     PLAYED.with(|p| p.set((0, 0.0, 0.0, 0)));
     let b = IconButton { states: Some(States::all(Look { text: pxui_core::geom::Rgba { r: 77, g: 0, b: 0, a: 255 }, ..Look::NONE })), ..IconButton::DEFAULT };
-    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 3]), "Go", &b); })); }
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 4]), "Go", &b); })); }
     check(ICON_ART.with(|a| a.get()) == (true, 77), &format!("the body's config: {:?}", ICON_ART.with(|a| a.get())));
     check(PLAYED.with(|p| p.get()).0 > 0, "the body's own node was not drawn on");
     ui.destroy();

@@ -103,7 +103,9 @@ export!(trusted pub unsafe fn pxui_ui_icon_button_response(ui: *mut PxuiUi, desc
 
 // ABI 1.48: the plain kit icon button (`IconButton::DEFAULT`: the theme's look, the kit's square) showing the glyph `icon`, named `name`.
 export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: Str, icon: Str, name: Str, out: *mut PxuiResponse) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    // a word set for this call has no drawing to go to: the next call reads 0
+    state.shared().icon_word = 0;
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short icon button response") } };
     let (Some(key), Some(icon), Some(name)) = (unsafe { checked(key) }, unsafe { checked(icon) }, unsafe { checked(name) }) else { return unsafe { fail(ui, "invalid icon button text") } };
     unsafe { trusted::icon_button_plain(ui, key, icon, name, out) }
@@ -111,6 +113,7 @@ export!(trusted pub unsafe fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: St
 
 /// The checked `PxuiIconButtonDesc` behind `desc` (not null) through the trusted entry, as `button_call`.
 unsafe fn icon_button_call(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
+    let word = core::mem::take(&mut unsafe { &*ui }.shared().icon_word);
     let Some((d, grown)) = read_desc!(desc, PxuiIconButtonDesc, [96]) else { return unsafe { fail(ui, "invalid icon button descriptor") }; };
     // null (and a 96-byte record, whose `press` the caller never had) is the kit's springs
     let Some(press) = (if grown { unsafe { press_curves(d.press) } } else { Some(None) }) else { return unsafe { fail(ui, "invalid icon button press curves") }; };
@@ -118,7 +121,7 @@ unsafe fn icon_button_call(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out
     if d.enabled > 1 || d.reserved != 0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
     let (Some(key), Some(name), Some(icon)) = (unsafe { checked(d.key) }, unsafe { checked(d.name) }, unsafe { checked(d.icon) }) else { return unsafe { fail(ui, "invalid icon button text") }; };
     let Ok(looks) = (unsafe { looks(d.states) }) else { return unsafe { fail(ui, "invalid icon button looks") } };
-    unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, press, out, signal) }
+    unsafe { trusted::icon_button_with(ui, key, icon, d.draw, d.draw_user, word, name, looks.as_ref(), w, h, d.enabled != 0, d.press_scale, press, out, signal) }
 }
 
 /// The two press curves behind `press` (null: `Some(None)`, the kit's), checked before they are read as `Curve`s: `None` for a pointer

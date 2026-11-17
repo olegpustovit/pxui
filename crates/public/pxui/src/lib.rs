@@ -780,6 +780,10 @@ pub enum Feature {
     SwipeActions = pxui_types::feature::SWIPE_ACTIONS,
     /// Drag-to-dismiss (1.41).
     Dismiss = pxui_types::feature::DISMISS,
+    /// ABI 1.61: look colours that name colour tokens (`Color::token`).
+    LookTokens = pxui_types::feature::LOOK_TOKENS,
+    /// ABI 1.61: `Icon::draw(f, word)` passes the word to the drawing.
+    IconWord = pxui_types::feature::ICON_WORD,
 }
 
 /// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.

@@ -1,5 +1,5 @@
 //! Queries and switches on the `Ui` as a whole: font and row size, focus, carries, timing and the frame counters.
-use crate::state::{PxuiUi, checked, engine, fail, finite};
+use crate::state::{PxuiUi, checked, engine, fail, finite, get};
 use crate::ui::key;
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use pxui_core::ui::{Cursor, UndoKind};
@@ -104,6 +104,13 @@ export!(pub unsafe fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) 
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if kind as usize >= pxui_types::theme::Bodies::KINDS.len() { return unsafe { fail(ui, "unknown body kind") }; }
     e.set_variant(kind, variant);
+    0
+});
+// ABI 1.61: the word the next icon button call (`pxui_ui_icon_button_with`/`_response`) hands its drawing, read in the drawing with
+// `pxui_paint_icon_word`; that call takes it, so the one after reads 0 unless set again.
+export!(pub unsafe fn pxui_ui_icon_word(ui: *mut PxuiUi, word: u32) -> i32 {
+    let Some(ui) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    ui.shared().icon_word = word;
     0
 });
 export!(pub unsafe fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32 {

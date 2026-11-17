@@ -20,6 +20,7 @@ library!(lib {
     fn pxui_ui_button_content(ui: *mut PxuiUi, desc: *const PxuiButtonDesc, build: pxui_types::ffi::PxuiButtonBuild, user: *mut c_void, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_plain(ui: *mut PxuiUi, key: Str, icon: Str, name: Str, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_icon_button_response(ui: *mut PxuiUi, desc: *const PxuiIconButtonDesc, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_icon_word(ui: *mut PxuiUi, word: u32) -> i32;
     fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, text: Str, on: u8, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiToggleDesc, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_segmented_plain(ui: *mut PxuiUi, key: Str, name: Str, options: Slice<Str>, selected: usize, out: *mut PxuiResponse, chosen: *mut usize) -> i32;
@@ -106,9 +107,10 @@ impl Ui {
     #[track_caller]
     pub(crate) fn icon_button_keyed(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton) -> Response {
         let mut buf = [0u8; 4];
-        let (glyph, draw, user) = match icon {
-            Icon::Glyph(ch) => (ch.encode_utf8(&mut buf) as &str, None, core::ptr::null_mut()),
-            Icon::Draw(f) => ("", Some(crate::paint::icon_draw as extern "C" fn(*mut c_void, *mut c_void, Rect, Rgba, *const pxui_types::ffi::PxuiPaintInfo)), f as *mut c_void),
+        let (glyph, draw, user, word) = match icon {
+            Icon::Glyph(ch) => (ch.encode_utf8(&mut buf) as &str, None, core::ptr::null_mut(), 0),
+            // the app's function itself is the user pointer (`paint::icon_draw` casts it back), its word the icon's word
+            Icon::Draw(f, word) => ("", Some(crate::paint::icon_draw as extern "C" fn(*mut c_void, *mut c_void, Rect, Rgba, *const pxui_types::ffi::PxuiPaintInfo)), f as *mut c_void, word),
         };
         let mut out = PxuiResponse::EMPTY;
         let plain = button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && button.press_scale == 1.0 && draw.is_none()
@@ -117,7 +119,7 @@ impl Ui {
         let rc = if plain {
             unsafe { pxui_abi_link::trusted::icon_button_plain(self.0.as_ptr(), key, glyph, name, &mut out) }
         } else {
-            unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, name, button.look.as_ref(), button.w, button.h, button.enabled, button.press_scale, button.press, &mut out, None) }
+            unsafe { pxui_abi_link::trusted::icon_button_with(self.0.as_ptr(), key, glyph, draw, user, word, name, button.look.as_ref(), button.w, button.h, button.enabled, button.press_scale, button.press, &mut out, None) }
         };
         #[cfg(not(feature = "static"))]
         let rc = if plain {
@@ -131,6 +133,7 @@ impl Ui {
                 states: looks.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), icon: as_str(glyph), draw, draw_user: user,
                 press: button.press.map_or(core::ptr::null(), |p| p.as_ptr()),
             };
+            if draw.is_some() { unsafe { lib::pxui_ui_icon_word(self.0.as_ptr(), word) }; }
             unsafe { lib::pxui_ui_icon_button_response(self.0.as_ptr(), &desc, &mut out) }
         };
         check(self, rc);

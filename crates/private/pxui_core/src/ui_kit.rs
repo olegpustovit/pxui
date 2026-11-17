@@ -1215,6 +1215,7 @@ impl Ui {
                 look.text = ink;
             }
         }
+        let states = self.resolve_states(&states);
         let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line, row,
             label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align };
         let shown_text = if content.is_some() { "" } else { text };
@@ -1250,6 +1251,7 @@ impl Ui {
                 look.text = ink;
             }
         }
+        let states = self.resolve_states(&states);
         let config = ButtonConfig { state, bare: false, icon: false, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line: *line, row,
             label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align };
         in_body!(flat; self, row.box_key, row, button, default_button(&config, &states, text));
@@ -1284,7 +1286,8 @@ impl Ui {
         let (switch_w, switch_h) = opts.switch.unwrap_or((0.0, 0.0));
         let config = ToggleConfig { state: State { hovered: enabled && signal.hovered, disabled: !enabled, ..State::default() }, on: value, row, row_h, switch_w, switch_h,
             inset: opts.inset.unwrap_or(0.0), press_row: opts.press_row, detail: opts.detail, label: opts.label, stored, clicked: signal.clicked };
-        in_body!(self, row.box_key, row, toggle, default_toggle(&config, opts.track.as_ref(), opts.knob.as_ref(), text));
+        let (track, knob) = (opts.track.map(|s| self.resolve_states(&s)), opts.knob.map(|s| self.resolve_states(&s)));
+        in_body!(self, row.box_key, row, toggle, default_toggle(&config, track.as_ref(), knob.as_ref(), text));
         if !enabled { self.node_new(&row).state.disabled = true; }
         Response::of(&signal, self.focused(&row), row)
     }

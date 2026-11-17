@@ -104,7 +104,7 @@ pub struct IconButtonConfig {
     /// The look's text colour for `state`, and the app's drawing when the icon is not a glyph (the `icon` argument is then empty): the
     /// body paints it in the 20-point square (`control_h`) at the centre of its plate with `Ui::icon_draw`.
     pub ink: crate::geom::Rgba,
-    pub draw: Option<(crate::ui_widgets::IconDraw, [usize; 3])>,
+    pub draw: Option<(crate::ui_widgets::IconDraw, [usize; 4])>,
     /// The curves the press scale runs in on press and back out on release; `None` is the kit's (springs of 60 and 20).
     pub press: Option<&'static [pxui_types::Curve; 2]>,
 }

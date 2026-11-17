@@ -964,6 +964,9 @@ pub struct Ui {
     themes: Vec<Theme>,
     theme_depth: usize,
     theme_ids: Vec<Theme>,
+    /// the root theme as `set_theme` was given it, kept only when its looks name colour tokens (`theme` holds them resolved), so a
+    /// colour table change resolves it again
+    theme_raw: Option<Box<Theme>>,
     theme_id: u32,
     /// this `Ui`'s number among the process's, for `theme_key`
     serial: u64,
@@ -1242,6 +1245,7 @@ impl Ui {
             themes: Vec::new(),
             theme_depth: 0,
             theme_ids: Vec::new(),
+            theme_raw: None,
             theme_id: 0,
             serial: { static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1); NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed) },
             tweens: Vec::new(),
@@ -1468,6 +1472,9 @@ impl Ui {
     /// (no further rebuild); a theme that does not move (`reduced_motion`, or no durations) snaps.
     /// Between frames, or inside one for what is built after it.
     pub fn set_theme(&mut self, mut theme: Theme) {
+        // a theme whose looks name colour tokens is kept as given and installed resolved
+        self.theme_raw = theme_names_token(&theme).then(|| Box::new(theme));
+        resolve_theme(&mut theme, &self.colors);
         self.theme_reduced_motion=theme.tokens.reduced_motion;
         theme.tokens.reduced_motion|=self.system_reduced_motion;
         if theme != self.theme {
@@ -1494,14 +1501,25 @@ impl Ui {
         self.theme.tokens.reduced_motion=self.theme_reduced_motion||reduced_motion;
     }
 
-    /// Installs the app's colour tokens: entry `i` of `light`/`dark` is token `i`; the rest read transparent.
-    /// False (nothing changes) when the lengths differ or pass `ColorToken::LIMIT`. A changed table rebuilds every view once.
+    /// Installs the app's colour tokens: entry `i` of `light`/`dark` is token `i`; the rest read transparent. An entry that itself
+    /// names a token (`Rgba::token`) is stored as clear, so a resolved colour never names one and resolving it again changes nothing.
+    /// False (nothing changes) when the lengths differ or pass `ColorToken::LIMIT`. A changed table rebuilds every view once and
+    /// re-resolves the root theme's token looks.
     pub fn set_colors(&mut self, light: &[Color], dark: &[Color]) -> bool {
         if light.len() != dark.len() || light.len() > pxui_types::theme::ColorToken::LIMIT { return false; }
         let mut colors = [[Color::default(); pxui_types::theme::ColorToken::LIMIT]; 2];
         colors[0][..light.len()].copy_from_slice(light);
         colors[1][..dark.len()].copy_from_slice(dark);
-        if colors != self.colors { self.colors = colors; self.epoch += 1; }
+        for c in colors.iter_mut().flatten() { if c.as_token().is_some() { *c = Color::default(); } }
+        if colors != self.colors {
+            self.colors = colors;
+            self.epoch += 1;
+            if let Some(raw) = self.theme_raw.as_deref() {
+                let mut theme = *raw;
+                resolve_theme(&mut theme, &self.colors);
+                self.theme = theme;
+            }
+        }
         true
     }
 
@@ -1509,6 +1527,28 @@ impl Ui {
     /// when that theme is dark (`theme::dark`), else the light one; transparent past the table.
     #[inline] pub fn color(&self, token: u16) -> Color {
         self.colors[theme::dark(&self.theme().tokens) as usize].get(token as usize).copied().unwrap_or_default()
+    }
+
+    /// `look` with every colour that names a token (`Rgba::token`) replaced by `color(token)`, the theme in effect's entry; `None` when
+    /// it names none (most looks), so a caller copies nothing. Called only where a look is applied (declared, set, patched, animated
+    /// to, handed to a body), never on an interpolated look: a transition's in-between colour that happens to read as a token is
+    /// painted as the clear colour it is.
+    pub fn resolve_look(&self, look: &Look) -> Option<Look> {
+        if !names_token(look) { return None; }
+        let mut out = *look;
+        resolve_with(&mut out, &self.colors[theme::dark(&self.theme().tokens) as usize]);
+        Some(out)
+    }
+
+    /// `states` with each look's token colours resolved (`resolve_look`): what a widget hands its body.
+    pub fn resolve_states(&self, states: &States) -> States {
+        let r = |look: &Look| self.resolve_look(look).unwrap_or(*look);
+        States { idle: r(&states.idle), hover: r(&states.hover), pressed: r(&states.pressed), focus: r(&states.focus), disabled: r(&states.disabled), checked: r(&states.checked) }
+    }
+
+    /// `color` resolved as a look's colour is (`resolve_look`): a token's entry for the theme in effect, else `color` itself.
+    pub fn resolve_color(&self, color: Color) -> Color {
+        match color.as_token() { Some(token) => self.color(token.0), None => color }
     }
 
     pub fn set_environment(&mut self, value:pxui_types::Environment) {
@@ -1570,6 +1610,7 @@ impl Ui {
         } else {
             self.themes[self.theme_depth] = *theme;
         }
+        resolve_theme(&mut self.themes[self.theme_depth], &self.colors);
         self.theme_depth += 1;
         f(self);
         self.theme_depth -= 1;
@@ -3281,6 +3322,7 @@ impl Ui {
     /// Declare build box `index`: its node record takes `node`, and its text, hit shape and canvases
     /// start empty. A patch made since the node's last build ends here.
     fn set_box(&mut self, index: usize, node: &Node) {
+        let look = self.resolve_look(&node.look);
         let b = &mut self.boxes[index];
         let slot=b.slot;
         b.hit = None;
@@ -3290,6 +3332,7 @@ impl Ui {
         b.over = arena::EMPTY;
         let s = &mut self.slots[b.slot];
         s.node = *node;
+        if let Some(look) = look { s.node.look = look; }
         s.text.clear();
         if let Some(rich)=&mut s.rich { rich.active=false; }
         s.a11y_name.clear();
@@ -3383,6 +3426,7 @@ impl Ui {
     /// its signal is known).
     pub fn set_look(&mut self, b: &Handle, look: Look, state: State) {
         if self.live(b) {
+            let look = self.resolve_look(&look).unwrap_or(look);
             let s = &self.slots[b.box_slot];
             // a node shown last frame in another state moves to this look over the theme's transition
             let transition = if self.motion && s.seen_state != state && self.range_valid(b.box_slot) {
@@ -6061,7 +6105,7 @@ impl Ui {
         if !self.live(b) {
             return false;
         }
-        self.slots[b.box_slot].node.look = *look;
+        self.slots[b.box_slot].node.look = self.resolve_look(look).unwrap_or(*look);
         self.repaint_node(b.box_slot)
     }
 
@@ -6667,7 +6711,7 @@ impl Ui {
             None => self.rest(slot),
         };
         match target {
-            Target::Look(look) => to.look = look,
+            Target::Look(look) => to.look = self.resolve_look(&look).unwrap_or(look),
             Target::Offset(dx, dy) => (to.dx, to.dy) = (dx, dy),
             Target::Opacity(o) => to.opacity = o.clamp(0.0, 1.0),
             Target::Scale { x, y, anchor } => { to.scale = [x, y]; to.anchor = [anchor.0, anchor.1]; },
@@ -6704,7 +6748,7 @@ impl Ui {
         for key in keys {
             let (t, curve) = (key.time(), key.segment());
             match key.target() {
-                Target::Look(look) => at.look = look,
+                Target::Look(look) => at.look = self.resolve_look(&look).unwrap_or(look),
                 Target::Offset(dx, dy) => (at.dx, at.dy) = (dx, dy),
                 Target::Opacity(o) => at.opacity = o.clamp(0.0, 1.0),
                 Target::Scale { x, y, anchor } => { at.scale = [x, y]; at.anchor = [anchor.0, anchor.1]; },
@@ -8183,4 +8227,35 @@ pub(crate) fn default_tip(this: &mut Ui, c: &TipConfig, lines: &[String]) {
         let n = this.node_keyed(int_key(c.tip.box_key, i as i64), Node { w: Size::Px(c.width), h: Size::Px(20.0), at: Some((0.0, 14.0 * i as f32)).into(), look: Look { fill: CLEAR_INK, border: CLEAR_INK, shadows: [Shadow::NONE; 2], ..look }, inset: Edges { l: 7.0, ..Edges::default() }, ..Node::DEFAULT });
         this.text(&n, line);
     }
+}
+
+/// Whether any colour of `look` names a colour token (`Rgba::token`).
+fn names_token(look: &Look) -> bool {
+    let named = |c: Color| c.as_token().is_some();
+    named(look.fill) || matches!(look.gradient, pxui_types::node::OptColor::Some(c) if named(c)) || named(look.border) || named(look.shadows[0].color)
+        || named(look.shadows[1].color) || named(look.text) || named(look.ring.color) || named(look.selection) || named(look.caret)
+}
+
+/// Replaces each colour of `look` that names a token by its entry of `table` (transparent at or past `ColorToken::LIMIT`).
+fn resolve_with(look: &mut Look, table: &[Color; pxui_types::theme::ColorToken::LIMIT]) {
+    let ink = |c: &mut Color| if let Some(token) = c.as_token() { *c = table.get(token.0 as usize).copied().unwrap_or_default() };
+    let [a, b] = &mut look.shadows;
+    for c in [&mut look.fill, &mut look.border, &mut a.color, &mut b.color, &mut look.text, &mut look.ring.color, &mut look.selection, &mut look.caret] { ink(c); }
+    if let pxui_types::node::OptColor::Some(c) = &mut look.gradient { ink(c); }
+}
+
+/// Whether any look of `theme` (its parts' states and its focus ring) names a colour token.
+fn theme_names_token(theme: &Theme) -> bool {
+    let mut any = theme.ring.color.as_token().is_some();
+    theme.each_states(&mut |s| any |= [&s.idle, &s.hover, &s.pressed, &s.focus, &s.disabled, &s.checked].into_iter().any(names_token));
+    any
+}
+
+/// Resolves every token look of `theme` (its parts' states and its focus ring) against its own side of `colors` (light or dark by its
+/// tokens); a theme naming none is left as it is after one scan.
+fn resolve_theme(theme: &mut Theme, colors: &[[Color; pxui_types::theme::ColorToken::LIMIT]; 2]) {
+    if !theme_names_token(theme) { return; }
+    let table = &colors[theme::dark(&theme.tokens) as usize];
+    if let Some(token) = theme.ring.color.as_token() { theme.ring.color = table.get(token.0 as usize).copied().unwrap_or_default(); }
+    theme.each_states_mut(&mut |s| for look in [&mut s.idle, &mut s.hover, &mut s.pressed, &mut s.focus, &mut s.disabled, &mut s.checked] { resolve_with(look, table); });
 }

@@ -2372,7 +2372,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
         let doomed = index == armed;
         let unavailable = off(index);
         let (text, detail) = &rows[index as usize];
-        let swatch = o.mark.as_ref().and_then(|m| m(index));
+        let swatch = o.mark.as_ref().and_then(|m| m(index)).map(|c| this.resolve_color(c));
         // the keyboard cursor is the control fill; a row armed for deletion reads in the error colour
         let state = State { hovered: row_signal.hovered, checked: current, ..State::default() };
         this.set_role(&row, Role::ListItem, if current { crate::a11y::state::SELECTED } else { 0 });
@@ -2903,7 +2903,7 @@ fn menu_rows_body(this: &mut Ui, items: &[MenuItem], m: &MenuLook) -> (Option<i6
             this.a11y_name(&row, shown(text));
             let config = MenuRowConfig {
                 state, index, row, selected, chevron, danger: item.danger, lead: if item.checked.is_some() { MENU_LEAD } else { 0.0 },
-                swatch_pad: m.swatch_pad, swatch: item.swatch, row_h: m.row_h,
+                swatch_pad: m.swatch_pad, swatch: item.swatch.map(|c| this.resolve_color(c)), row_h: m.row_h,
             };
             let key = Some(item.shortcut).filter(|k| !k.is_empty());
             in_item!(this, body, row.box_key, row, default_menu_row(&config, text, key));

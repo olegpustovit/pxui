@@ -2979,6 +2979,87 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     assert_eq!(ui.color(ColorToken(64)), Rgba::default());
 }
 
+thread_local! { static TOKEN_BODY_INK: std::cell::Cell<pxui_types::geom::Rgba> = const { std::cell::Cell::new(pxui_types::geom::Rgba { r: 0, g: 0, b: 0, a: 0 }) }; }
+
+/// A registered icon button body that records the ink (its states' text colour) it was given.
+fn token_body(_ui: &mut Ui, c: &crate::bodies::PxuiIconButtonConfig) {
+    TOKEN_BODY_INK.with(|s| s.set(c.ink));
+}
+
+#[test]
+fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_rebuild() {
+    use std::cell::Cell;
+    use pxui_types::{geom::{Color, Rgba}, theme::{ColorToken, States}, Look};
+    const PAPER: ColorToken = ColorToken(0);
+    const INK: ColorToken = ColorToken(1);
+    const ROW: Look = Look::NONE.fill(Color::token(PAPER)).text(Color::token(INK)).border(Color::rgb(1, 2, 3), 1.0);
+    const PLATE: States = States::all(ROW);
+    const KEY: crate::IconButton = crate::IconButton::sized(36.0, 36.0).look(&PLATE);
+    mem_sys::set_peer(crate::library_counter);
+    let c = |v: u8| Rgba { r: v, g: v, b: v, a: 255 };
+    let mut ui = Ui::new().unwrap();
+    ui.register_icon_button_body("token_body", token_body).unwrap();
+    let mut light = crate::Theme::default();
+    light.set("tokens.panel", "#f4f5f0").unwrap();
+    light.apply(&ui, "icon_button.body = token_body").unwrap();
+    let mut dark = crate::Theme::default();
+    dark.set("tokens.panel", "#101010").unwrap();
+    dark.apply(&ui, "icon_button.body = token_body").unwrap();
+    ui.set_colors(&[(c(240), c(16)), (c(30), c(220))]);
+    ui.use_theme(&light);
+    let (node, pressed, button) = (Cell::new(Look::NONE), Cell::new(Look::NONE), Cell::new(Look::NONE));
+    // a retained view whose revision never changes: the engine rebuilds it at the swap, the app changes nothing
+    let mut build = |ui: &mut Ui| {
+        ui.view("tokens", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
+            let b = ui.node("plain".into(), crate::Node { w: Size::Px(20.0), h: Size::Px(10.0), look: ROW, ..crate::Node::DEFAULT });
+            node.set(ui.node_mut(&b, |f| f.look));
+            let p = ui.pressable("row", crate::Node { w: Size::Px(20.0), h: Size::Px(10.0), ..crate::Node::DEFAULT }, &crate::Pressable::DEFAULT.look(&PLATE), |_, _| {});
+            pressed.set(ui.node_mut(&p.handle, |f| f.look));
+            ui.icon_button("key", crate::Icon::glyph('>'), "Key", &KEY);
+            let b = ui.button_with("button", "Button", &crate::Button::DEFAULT.look(&PLATE));
+            button.set(ui.node_mut(&b.handle, |f| f.look));
+        });
+    };
+    for round in 0..4 {
+        for (theme, paper, ink) in [(&light, c(240), c(30)), (&dark, c(16), c(220))] {
+            mem_sys::local_reset();
+            ui.use_theme(theme);
+            ui.frame(&input(), &mut build).unwrap();
+            assert_eq!((node.get().fill, node.get().text, node.get().border), (paper, ink, Color::rgb(1, 2, 3)), "a node's const look");
+            assert_eq!((pressed.get().fill, pressed.get().text), (paper, ink), "a pressable's const look");
+            assert_eq!((button.get().fill, button.get().text), (paper, ink), "the built-in button body applies resolved states");
+            assert_eq!(TOKEN_BODY_INK.with(|s| s.get()), ink, "a registered body is given resolved states and ink");
+            if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm swaps and resolution allocate nothing"); }
+        }
+    }
+}
+
+thread_local! { static SWATCH_SEEN: std::cell::Cell<pxui_types::geom::Rgba> = const { std::cell::Cell::new(pxui_types::geom::Rgba { r: 0, g: 0, b: 0, a: 0 }) }; }
+
+/// A registered context-menu row body that records the swatch it was given.
+fn swatch_row(_ui: &mut Ui, c: &crate::bodies::PxuiMenuRowConfig) {
+    if c.has_swatch != 0 { SWATCH_SEEN.with(|s| s.set(c.swatch)); }
+}
+
+#[test]
+fn a_registered_menu_row_body_is_given_a_swatch_token_resolved_for_the_theme() {
+    use pxui_types::{geom::{Color, Rgba}, theme::ColorToken, ui::{Menu, MenuItem}};
+    const ITEMS: [MenuItem; 1] = [MenuItem::new("Accent").swatch(Color::token(ColorToken(0)))];
+    let c = |v: u8| Rgba { r: v, g: v, b: v, a: 255 };
+    let mut ui = Ui::new().unwrap();
+    ui.register_context_menu_body("swatch_row", swatch_row).unwrap();
+    let (mut light, mut dark) = (crate::Theme::default(), crate::Theme::default());
+    light.set("tokens.panel", "#f4f5f0").unwrap();
+    dark.set("tokens.panel", "#101010").unwrap();
+    for theme in [&mut light, &mut dark] { theme.apply(&ui, "context_menu.body = swatch_row").unwrap(); }
+    ui.set_colors(&[(c(240), c(16))]);
+    for (theme, want) in [(&light, c(240)), (&dark, c(16)), (&light, c(240))] {
+        ui.use_theme(theme);
+        ui.frame(&input(), &mut |ui| { ui.menu("m", (10.0, 10.0), &ITEMS, &Menu::DEFAULT); }).unwrap();
+        assert_eq!(SWATCH_SEEN.with(|s| s.get()), want);
+    }
+}
+
 /// `resolve` is what the label shapes with: `Label::BODY` is exactly the default `TextStyle`, unset fields take the theme label's,
 /// tracking becomes points, and an invalid style is refused by `text_line_box` without failing the `Ui`.
 #[test]

@@ -683,10 +683,14 @@ pub mod feature {
     pub const SWIPE_ACTIONS: u32 = 16;
     /// ABI 1.41: `ui_dismiss`.
     pub const DISMISS: u32 = 17;
+    /// ABI 1.61: look colours that name colour tokens (`Rgba::token`), resolved where a look is applied.
+    pub const LOOK_TOKENS: u32 = 18;
+    /// ABI 1.61: `ui_icon_word` / `paint_icon_word`, an icon drawing's word.
+    pub const ICON_WORD: u32 = 19;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 60;
+pub const ABI_BUILT: u32 = 1 << 16 | 61;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

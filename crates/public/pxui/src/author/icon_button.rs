@@ -7,13 +7,14 @@ use pxui_types::{theme::{Curve, States}, Size};
 /// What an icon button shows: a glyph of the icon font its look names, or the app's own drawing.
 ///
 /// The app owns its icon set: pxui names none. A drawing is a plain function that paints into the 20-point square it is given, in the
-/// ink it is given (the look's text colour for the button's state); a stateful icon (a filled heart) is one function per state.
+/// ink it is given (the look's text colour for the button's state), told which icon by the word the `Icon` carries: one function draws
+/// a whole icon set by id, and a stateful icon (a filled heart) is one more id.
 #[derive(Clone, Copy)]
 pub enum Icon {
     /// A character of the icon font.
     Glyph(char),
-    /// The app's drawing: painter, the square to draw in, the ink.
-    Draw(fn(&mut Paint<'_>, Rect, Rgba)),
+    /// The app's drawing and its word: the function is called with the painter, the square to draw in, the ink and the word.
+    Draw(fn(&mut Paint<'_>, Rect, Rgba, u32), u32),
 }
 
 impl Icon {
@@ -27,17 +28,28 @@ impl Icon {
     /// ```
     pub const fn glyph(ch: char) -> Icon { Icon::Glyph(ch) }
 
-    /// The drawing `f`: called at paint time with the painter, the 20-point square at the centre of the plate and the ink.
+    /// The drawing `f` of icon `word`: `f` is called at paint time with the painter, the 20-point square at the centre of the plate, the
+    /// ink and `word` (the app's icon id, any value).
+    ///
+    /// `f` crosses the library as the drawing callback's user pointer and `word` as the call's icon word (`pxui_ui_icon_word`, read back
+    /// with `pxui_paint_icon_word`); a change of either repaints the icon.
     /// Allocates: never.
     /// Panics: never (a panic inside `f` is re-raised from the frame).
     ///
     /// ```
     /// use pxui::{geom::{Rect, Rgba}, Icon, Paint};
-    /// fn dot(paint: &mut Paint<'_>, rect: Rect, ink: Rgba) { paint.fill(rect.x + 8.0, rect.y + 8.0, 4.0, 4.0, ink); }
-    /// const DOT: Icon = Icon::draw(dot);
-    /// let _ = DOT;
+    /// const DOT: u32 = 0;
+    /// const BAR: u32 = 1;
+    /// fn icon(paint: &mut Paint<'_>, rect: Rect, ink: Rgba, word: u32) {
+    ///     match word {
+    ///         DOT => paint.fill(rect.x + 8.0, rect.y + 8.0, 4.0, 4.0, ink),
+    ///         _ => paint.fill(rect.x + 4.0, rect.y + 9.0, 12.0, 2.0, ink),
+    ///     }
+    /// }
+    /// const ICONS: [Icon; 2] = [Icon::draw(icon, DOT), Icon::draw(icon, BAR)];
+    /// let _ = ICONS;
     /// ```
-    pub const fn draw(f: fn(&mut Paint<'_>, Rect, Rgba)) -> Icon { Icon::Draw(f) }
+    pub const fn draw(f: fn(&mut Paint<'_>, Rect, Rgba, u32), word: u32) -> Icon { Icon::Draw(f, word) }
 }
 
 /// How `Ui::icon_button` varies the kit's icon button, as a `Copy` value built with `const fn` builders from `IconButton::DEFAULT`.
@@ -237,22 +249,33 @@ mod tests {
     }
 
     thread_local! { static SEEN: Cell<(u32, f32, f32, u8)> = const { Cell::new((0, 0.0, 0.0, 0)) }; }
+    thread_local! { static WORDS: Cell<[u32; 2]> = const { Cell::new([0; 2]) }; }
 
     /// LocalWave's play drawing, through the C ABI: the app's function is called with the 20-point square at the centre of the plate and
     /// the look's text ink, and paints one triangle.
-    fn play(paint: &mut crate::Paint<'_>, rect: crate::geom::Rect, ink: crate::geom::Rgba) {
+    fn play(paint: &mut crate::Paint<'_>, rect: crate::geom::Rect, ink: crate::geom::Rgba, word: u32) {
+        WORDS.with(|w| w.set([word, w.get()[1]]));
         SEEN.with(|s| s.set((s.get().0 + 1, rect.w, rect.h, ink.r)));
         let scale = rect.w.min(rect.h) / 24.0;
         let at = |(x, y): (f32, f32)| (rect.x + x * scale, rect.y + y * scale);
         paint.triangle(at((7.0, 4.6)), at((7.0, 19.4)), at((19.4, 12.0)), ink);
     }
 
+    /// A second drawing function, so each must be called with its own icon's word.
+    fn bar(paint: &mut crate::Paint<'_>, rect: crate::geom::Rect, ink: crate::geom::Rgba, word: u32) {
+        WORDS.with(|w| w.set([w.get()[0], word]));
+        paint.fill(rect.x + 4.0, rect.y + 9.0, 12.0, 2.0, ink);
+    }
+
     #[test]
-    fn a_drawn_icon_is_painted_in_the_plate_with_the_states_ink() {
+    fn a_drawn_icon_is_painted_in_the_plate_with_the_states_ink_and_its_word() {
         use crate::ui::{Look, States};
         let looks = States::all(Look { text: crate::geom::Rgba { r: 33, g: 0, b: 0, a: 255 }, ..Look::NONE });
         let key = KEY.look(&looks);
-        let mut build = |ui: &mut Ui| { ui.icon_button("play", Icon::draw(play), "Play", &key); };
+        let mut build = |ui: &mut Ui| {
+            ui.icon_button("play", Icon::draw(play, 7), "Play", &key);
+            ui.icon_button("bar", Icon::draw(bar, 9), "Bar", &key);
+        };
         let mut ui = crate::doc::frames(1, &mut build);
         let n = *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Play").expect("named Play");
         assert_eq!((n.rect.w, n.rect.h), (36.0, 36.0));
@@ -261,6 +284,15 @@ mod tests {
         testing::frame(&mut ui, &[], &mut build);
         let (calls, w, h, ink) = SEEN.with(|s| s.get());
         assert!(calls > 0 && (w, h, ink) == (20.0, 20.0, 33), "{:?}", (calls, w, h, ink));
+        assert_eq!(WORDS.with(|w| w.get()), [7, 9], "each function is called with its own icon's word");
+        // a new word repaints the icon with it
+        let mut build = |ui: &mut Ui| {
+            ui.icon_button("play", Icon::draw(play, 8), "Play", &key);
+            ui.icon_button("bar", Icon::draw(bar, 9), "Bar", &key);
+        };
+        testing::frame(&mut ui, &[], &mut build);
+        testing::frame(&mut ui, &[], &mut build);
+        assert_eq!(WORDS.with(|w| w.get()), [8, 9]);
         for round in 0..20 {
             mem_sys::local_reset();
             testing::frame(&mut ui, &[], &mut build);

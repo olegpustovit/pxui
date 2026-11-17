@@ -113,7 +113,7 @@ fn size_kind(size: pxui_core::ui::Size) -> (u8, f32) {
 }
 
 /// The C callback and user data of an icon drawing that crossed the ABI as `paint::icon_bridge` (null for a Rust drawing of the engine).
-fn foreign_draw(draw: Option<(pxui_core::ui::IconDraw, [usize; 3])>) -> (pxui_types::ffi::PxuiIconDraw, *mut c_void) {
+fn foreign_draw(draw: Option<(pxui_core::ui::IconDraw, [usize; 4])>) -> (pxui_types::ffi::PxuiIconDraw, *mut c_void) {
     match draw {
         Some((f, d)) if f as usize == crate::paint::icon_bridge as *const () as usize => (unsafe { core::mem::transmute::<usize, pxui_types::ffi::PxuiIconDraw>(d[0]) }, d[1] as *mut c_void),
         _ => (None, core::ptr::null_mut()),

@@ -16,7 +16,7 @@ const MIN_SPAN: usize = 256;
 struct Window { base: *mut Instance, base_len: usize, room: usize, open: bool }
 
 #[repr(C)]
-pub struct PxuiPaint { paint: *mut EnginePaint, pub(crate) shared: *mut Shared, window: Window }
+pub struct PxuiPaint { paint: *mut EnginePaint, pub(crate) shared: *mut Shared, window: Window, word: u32 }
 
 pub type PaintBuild = Option<extern "C" fn(*mut c_void, *mut PxuiPaint, Rect, *const PxuiPaintInfo)>;
 pub type PaintRelease = Option<extern "C" fn(*mut c_void)>;
@@ -59,7 +59,7 @@ export!(bare pub unsafe fn pxui_ui_draw(ui: *mut crate::PxuiUi, box_: *const Pxu
         let _owner = &owner;
         if let Some(build) = build {
             let info = info_of(paint);
-            let mut borrowed = PxuiPaint { paint, shared, window: Window { base: core::ptr::null_mut(), base_len: 0, room: 0, open: false } };
+            let mut borrowed = PxuiPaint { paint, shared, window: Window { base: core::ptr::null_mut(), base_len: 0, room: 0, open: false }, word: 0 };
             build(user, &mut borrowed, Rect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, &info);
             // shapes written into a span the callback never committed are not in the draw list: say so rather than drop them
             if borrowed.window.open { unsafe { refuse(shared, "a paint callback returned with its span uncommitted: commit it (pxui_paint_span with at_least 0) before returning") }; }
@@ -71,12 +71,13 @@ export!(bare pub unsafe fn pxui_ui_draw(ui: *mut crate::PxuiUi, box_: *const Pxu
 });
 
 
-/// The engine drawing of an icon whose app drawing is a C callback: `data` is the callback, its user data and the library state.
-pub(crate) fn icon_bridge(paint: &mut EnginePaint, rect: pxui_core::ui::Rect, ink: Rgba, data: [usize; 3]) {
+/// The engine drawing of an icon whose app drawing is a C callback: `data` is the callback, its user data, the library state and the
+/// icon's word (`pxui_paint_icon_word` during the call).
+pub(crate) fn icon_bridge(paint: &mut EnginePaint, rect: pxui_core::ui::Rect, ink: Rgba, data: [usize; 4]) {
     let Some(build) = (unsafe { core::mem::transmute::<usize, pxui_types::ffi::PxuiIconDraw>(data[0]) }) else { return };
     let shared = data[2] as *mut Shared;
     let info = info_of(paint);
-    let mut borrowed = PxuiPaint { paint, shared, window: Window { base: core::ptr::null_mut(), base_len: 0, room: 0, open: false } };
+    let mut borrowed = PxuiPaint { paint, shared, window: Window { base: core::ptr::null_mut(), base_len: 0, room: 0, open: false }, word: data[3] as u32 };
     build(data[1] as *mut c_void, (&mut borrowed as *mut PxuiPaint).cast(), Rect { x: rect.x, y: rect.y, w: rect.w, h: rect.h }, ink, &info);
     if borrowed.window.open { unsafe { refuse(shared, "an icon drawing returned with its span uncommitted: commit it (pxui_paint_span with at_least 0) before returning") }; }
 }
@@ -103,6 +104,12 @@ export!(pub unsafe fn pxui_paint_input_region(p:*mut PxuiPaint,cursor:f32,x:f32,
 export!(pub unsafe fn pxui_paint_scroll_y(p: *mut PxuiPaint, slot: u64) -> f32 {
     let Some(paint) = (unsafe { p.as_ref().and_then(|h| h.paint.as_ref()) }) else { return 0.0 };
     paint.scroll_y.get(slot as usize).copied().unwrap_or(0.0)
+});
+
+// ABI 1.61: the word of the icon drawing this painter was handed to (`pxui_ui_icon_word`, the wrapper's `Icon::draw(f, word)`); 0 in any
+// other paint callback or for a null painter.
+export!(pub unsafe fn pxui_paint_icon_word(p: *mut PxuiPaint) -> u32 {
+    unsafe { p.as_ref() }.map_or(0, |h| h.word)
 });
 
 // Colour token `token` resolved for the painter's theme (`pxui_ui_color`); transparent past the table or for a null painter.

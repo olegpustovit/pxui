@@ -831,7 +831,9 @@ impl Ring {
 /// left, top right, bottom right, bottom left), the node's text in `text` and `font`, its mark, then
 /// `ring` while it holds the focus. `opacity` scales every alpha. `selection` and `caret` colour a text
 /// widget's editing marks. Transparent colours paint nothing. A `dashed` square border is one point
-/// of 4-on, 3-off dashes (a drop target, an expression card).
+/// of 4-on, 3-off dashes (a drop target, an expression card). Any colour may name a token (`Color::token`): the engine resolves
+/// it for the theme in effect when the look is applied, so an app's looks are plain `const`s:
+/// `const ROW: Look = Look::NONE.fill(Color::token(PAPER)).text(Color::token(INK));`.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Look {
@@ -969,6 +971,7 @@ impl Look {
     ///
     /// `t` is not clamped: an overshooting curve extrapolates, and colour channels saturate at 0 and 255. A gradient present on either
     /// look is interpolated, the other side standing in its `fill`. A shadow's `inner` flag is `to`'s once `to`'s shadow is visible.
+    /// A token colour (`Color::token`) interpolates as the clear colour it is encoded as: the engine lerps looks after resolving them.
     /// Allocates: never.
     /// Panics: never.
     ///

@@ -72,7 +72,8 @@ export!(bare pub unsafe fn pxui_supports(id: u32) -> u32 {
         f::METAL => cfg!(any(target_os = "macos", target_os = "ios")),
         f::VULKAN => cfg!(any(windows, target_os = "linux")),
         f::EXTENSION_SET | f::BUTTON_CONTENT | f::ICON_BUTTON_CURVES | f::TOGGLE_RESPONSE | f::SEGMENTED_RESPONSE | f::DIALOG_RESPONSE | f::WIDGET_VARIANTS
-            | f::LABEL_NODE | f::MENU_ITEM_IDS | f::FRAME_SURFACE | f::ITEM_TEXT | f::COLOR_TOKENS | f::SWIPE_ACTIONS | f::DISMISS => true,
+            | f::LABEL_NODE | f::MENU_ITEM_IDS | f::FRAME_SURFACE | f::ITEM_TEXT | f::COLOR_TOKENS | f::SWIPE_ACTIONS | f::DISMISS
+            | f::LOOK_TOKENS | f::ICON_WORD => true,
         _ => false,
     }) as u32
 });

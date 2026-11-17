@@ -35,6 +35,12 @@ macro_rules! widgets {
             pub body: Bodies,
         }
         const WIDGETS: &[&str] = &[$(stringify!($name)),*];
+        impl Theme {
+            /// Calls `f` with each part's `States`, in declaration order.
+            pub(crate) fn each_states(&self, f: &mut dyn FnMut(&States)) { $(f(&self.$name);)* }
+            /// Calls `f` with each part's `States` to change, in declaration order.
+            pub(crate) fn each_states_mut(&mut self, f: &mut dyn FnMut(&mut States)) { $(f(&mut self.$name);)* }
+        }
         fn widget_mut<'a>(t: &'a mut Theme, name: &str) -> Option<&'a mut States> {
             match name { $(stringify!($name) => Some(&mut t.$name),)* _ => None }
         }

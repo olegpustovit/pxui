@@ -17,7 +17,7 @@ typedef struct PxuiPreparedText PxuiPreparedText;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 60u)
+#define PXUI_ABI_BUILT ((1u << 16) | 61u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -49,6 +49,9 @@ typedef struct { uint32_t size; double time,dt; int64_t frame,tick; int64_t logi
 typedef struct { float x,y,w,h; } PxuiRect;
 typedef struct { float x,y; } PxuiPoint;
 typedef struct { uint8_t r,g,b,a; } PxuiColor;
+/* ABI 1.61 (final): a colour with a 0, r 0x54, g 0x4b names colour token b of pxui_ui_set_colors (64 and past: transparent). The library
+   resolves it for the theme in effect where a look or swatch is applied (never on an interpolated look); bodies receive resolved looks.
+   A paint call given a raw token paints nothing: resolve it with pxui_ui_color / pxui_paint_color. */
 typedef struct { float fast,normal,slow,ease[4]; } PxuiMotion;
 typedef struct { uint32_t size; PxuiColor panel,foreground,control,input,track,accent,ink_ground; uint8_t has_ink_ground,reserved[3]; float space[4],radius[3]; int64_t display_size,title_size,font_size,label_size; PxuiMotion motion; uint8_t reduced_motion,reserved_tail[3]; float density; } PxuiThemeTokens;
 typedef struct { uint32_t size,cursor; uint8_t has_cursor,has_ime,has_background,has_clipboard; int64_t ime_rect[4],ime_caret; PxuiStr clipboard; PxuiColor background; uint8_t paste,reserved[7]; } PxuiPlatformOut;
@@ -416,7 +419,9 @@ enum {
     PXUI_FEATURE_ITEM_TEXT = 14,         /* 1.49 */
     PXUI_FEATURE_COLOR_TOKENS = 15,      /* 1.43 */
     PXUI_FEATURE_SWIPE_ACTIONS = 16,     /* 1.40 */
-    PXUI_FEATURE_DISMISS = 17            /* 1.41 */
+    PXUI_FEATURE_DISMISS = 17,           /* 1.41 */
+    PXUI_FEATURE_LOOK_TOKENS = 18,       /* 1.61: look colours naming colour tokens */
+    PXUI_FEATURE_ICON_WORD = 19          /* 1.61: pxui_ui_icon_word / pxui_paint_icon_word */
 };
 /* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */
 uint64_t pxui_counter(uint32_t which);
@@ -719,6 +724,8 @@ void pxui_paint_input_region(PxuiPaint *paint, float cursor, float x, float y, f
 float pxui_paint_scroll_y(PxuiPaint *paint, uint64_t slot);
 /* ABI 1.43: colour token `token` resolved for the painter's theme, as pxui_ui_color; transparent past the table. */
 PxuiColor pxui_paint_color(PxuiPaint *paint, uint16_t token);
+/* ABI 1.61: in a PxuiIconDraw call, the word pxui_ui_icon_word gave that icon button; 0 in any other paint callback. */
+uint32_t pxui_paint_icon_word(PxuiPaint *paint);
 /* ABI 1.45: text in a label style, resolved as a label body resolves it against the painter's theme (its label look, rows and
    colour tokens). paint_label lays out within width (0: unbounded) and draws; paint_label_chars draws one cached character
    layout at a time, digits on the advance of 0, and returns the width drawn. An invalid style draws nothing and returns 0. */
@@ -758,6 +765,10 @@ int64_t pxui_ui_density(PxuiUi *ui);
    pxui_body_register; the `variant` field every Pxui*Config record now ends with; 0 none). Set it just before the widget call and
    0 again after: only a body of that kind reads it, and a body's trampoline keeps it 0 while the body runs. A frame starts with it cleared. */
 int32_t pxui_ui_variant(PxuiUi *ui, uint32_t kind, uint16_t variant);
+/* ABI 1.61: the word the next pxui_ui_icon_button_with/_response call hands its drawing (read there with pxui_paint_icon_word), so one
+   callback draws many icons by id; that call takes it (the call after reads 0 unless set again). A registered icon button body that calls
+   `draw` itself from its own paint callback passes no word (pxui_paint_icon_word reads 0 there). */
+int32_t pxui_ui_icon_word(PxuiUi *ui, uint32_t word);
 uint64_t pxui_ui_frame_index(PxuiUi *ui);
 uint8_t pxui_ui_captured(PxuiUi *ui);
 uint8_t pxui_ui_text_input_focused(PxuiUi *ui);

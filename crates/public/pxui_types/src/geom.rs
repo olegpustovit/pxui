@@ -36,6 +36,10 @@ pub struct Edges {
     pub b: f32,
 }
 
+/// A colour: four channel bytes, not premultiplied, or a colour token (`Rgba::token`) the engine resolves where a look is applied.
+///
+/// The token encoding is in-band and final (ABI 1.61): a colour with alpha 0, red 0x54 and green 0x4b names token `b`. Such a colour
+/// therefore never paints as the clear colour its bytes spell where a look is applied; every other colour means its channels.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 pub struct Rgba {
@@ -75,6 +79,65 @@ impl Edges {
     #[inline]
     pub const fn xy(x: f32, y: f32) -> Edges {
         Edges { l: x, t: y, r: x, b: y }
+    }
+}
+
+/// The colour a look's fields take (`Look::fill`, `Look::text`, ...): `Color::rgb(..)` or `Color::token(TOKEN)`, the same type as `Rgba`.
+pub type Color = Rgba;
+
+impl Rgba {
+    /// Red, green and blue under the token encoding: a clear colour with these two channels carries a token in `b`.
+    const TOKEN_RG: (u8, u8) = (0x54, 0x4b);
+
+    /// The opaque colour of channels `r`, `g`, `b`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Color;
+    /// const INK: Color = Color::rgb(1, 2, 3);
+    /// assert_eq!(INK, Color { r: 1, g: 2, b: 3, a: 255 });
+    /// ```
+    #[inline]
+    pub const fn rgb(r: u8, g: u8, b: u8) -> Rgba { Rgba { r, g, b, a: 255 } }
+
+    /// The colour of `token` in the app's light/dark table (`Ui::set_colors`), resolved by the engine for the theme in effect when a
+    /// look holding it is applied to a node (a node's look, `set_look`, `pressable`, a button's, icon button's, toggle's or segment's
+    /// looks, `patch_look`, an animated look), so a theme or appearance switch needs no rebuild by the app.
+    ///
+    /// It is encoded in the colour's bytes (final): alpha 0, red 0x54, green 0x4b, blue the token. A token at or past `ColorToken::LIMIT`
+    /// (64), or past the installed table, resolves transparent (a token past 255 is stored as 255). Bodies receive their looks, swatches
+    /// and ink already resolved, and so does a theme whose looks name tokens. Resolution happens once, where a look is applied, never on
+    /// an interpolated look (`Look::lerp`, a running transition). A `Paint` call given a raw token paints nothing (the clear colour its
+    /// bytes spell): resolve it first with `ui.color(token)` or `paint.color(token)`; text span colours are not resolved either.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Color, theme::ColorToken};
+    /// const ACCENT: Color = Color::token(ColorToken(3));
+    /// assert_eq!(ACCENT.as_token(), Some(ColorToken(3)));
+    /// assert_eq!(Color::rgb(0, 0, 0).as_token(), None);
+    /// ```
+    #[inline]
+    pub const fn token(token: crate::theme::ColorToken) -> Rgba {
+        Rgba { r: Self::TOKEN_RG.0, g: Self::TOKEN_RG.1, b: if token.0 > 255 { 255 } else { token.0 as u8 }, a: 0 }
+    }
+
+    /// The token this colour names (`Rgba::token`), or `None` for a plain colour.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Color, theme::ColorToken};
+    /// assert_eq!(Color::token(ColorToken(1)).as_token(), Some(ColorToken(1)));
+    /// assert_eq!(Color::default().as_token(), None);
+    /// ```
+    #[inline]
+    pub const fn as_token(self) -> Option<crate::theme::ColorToken> {
+        if self.a == 0 && self.r == Self::TOKEN_RG.0 && self.g == Self::TOKEN_RG.1 { Some(crate::theme::ColorToken(self.b as u16)) } else { None }
     }
 }
 

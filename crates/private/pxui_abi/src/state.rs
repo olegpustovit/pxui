@@ -29,6 +29,8 @@ pub(crate) struct Shared {
     pub poisoned: bool,
     /// a paint call was refused (a span left open, a library call under an open span): the frame that ran the callback reports it
     pub paint_error: bool,
+    /// the word `pxui_ui_icon_word` gave the next icon button call's drawing; that call takes it (back to 0)
+    pub icon_word: u32,
     pub in_frame: bool,
     /// the one `PxuiUi` handle that may be used right now: the owner outside a frame; in a frame the innermost borrowed handle (the
     /// engine it holds is the live `&mut Ui` of that callback), or null while no callback runs. Any other handle reaches the engine
@@ -100,7 +102,7 @@ impl Shared {
     pub fn put_segments(&mut self, mut segments: Vec<pxui_types::ui::Segment<'static>>) { segments.clear(); self.segments.push(segments); }
     pub fn new() -> Self {
         Self {
-            error: String::new(), poisoned: false, paint_error: false, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), lent: Vec::new(), lent_used: 0,
+            error: String::new(), poisoned: false, paint_error: false, icon_word: 0, in_frame: false, current: core::ptr::null_mut(), frame_ended: false, renderers: 0, returned: Vec::new(), lent: Vec::new(), lent_used: 0,
             grid_tracks: HashMap::new(), grid_retired: Vec::new(), output: Output::default(), nodes: Vec::new(),
             layers: Vec::new(), dirty: Vec::new(), last_children: Vec::new(), chunks: Vec::new(), chunks_used: 0, spare_input: None, key_codes: Vec::new(), menu: Vec::new(), menu_sub: Vec::new(), routed: None, routed_events: Vec::new(), routed_text: Vec::new(),routed_touches:Vec::new(), routed_keys: Vec::new(), routed_buttons: Vec::new(),
             hints: Vec::new(), hits: Vec::new(), actions: Vec::new(), rename: None, field: None, strs: Vec::new(), segments: Vec::new(), raster_glyphs: Vec::new(), menus: Vec::new(), bodies: Default::default(),

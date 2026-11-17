@@ -367,16 +367,16 @@ pub unsafe fn icon_button_plain(ui: *mut PxuiUi, key: &str, glyph: &str, name: &
 }
 
 /// The kit icon button with options, the body of `pxui_ui_icon_button_with`, `_response` and `_plain`: the `glyph`, or the app's
-/// drawing `draw` (a C callback and its `user`), named `name`; `states` in place of the theme's icon button, `w` and `h`
+/// drawing `draw` (a C callback, its `user` and the icon's `word`, read in it with `pxui_paint_icon_word`), named `name`; `states` in place of the theme's icon button, `w` and `h`
 /// (`button_size`), `press_scale` finite and positive, `press` the valid curves in and out (`None`: the kit's). What happened goes to `out`; with `signal`, the box's whole signal too.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-pub unsafe fn icon_button_with(ui: *mut PxuiUi, key: &str, glyph: &str, draw: pxui_types::ffi::PxuiIconDraw, user: *mut core::ffi::c_void, name: &str, states: Option<&States>,
+pub unsafe fn icon_button_with(ui: *mut PxuiUi, key: &str, glyph: &str, draw: pxui_types::ffi::PxuiIconDraw, user: *mut core::ffi::c_void, word: u32, name: &str, states: Option<&States>,
     w: Size, h: Size, enabled: bool, press_scale: f32, press: Option<&'static [pxui_types::Curve; 2]>, out: &mut PxuiResponse, signal: Option<&mut PxuiSignal>) -> i32 {
     enter!(ui);
     if long(key) || long(glyph) || long(name) { return unsafe { fail(ui, "invalid icon button text") }; }
     if !button_size(w) || !button_size(h) || !press_scale.is_finite() || press_scale <= 0.0 { return unsafe { fail(ui, "invalid icon button descriptor") }; }
-    let draw = draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, user as usize, unsafe { (*ui).shared } as usize]));
+    let draw = draw.map(|f| (crate::paint::icon_bridge as pxui_core::ui::IconDraw, [f as usize, user as usize, unsafe { (*ui).shared } as usize, word as usize]));
     if press.is_some_and(|p| !p[0].valid() || !p[1].valid()) { return unsafe { fail(ui, "invalid icon button press curve") }; }
     let mut button = pxui_core::ui::IconButton { states: None, w, h, enabled, press_scale, press };
     if let Some(states) = states { button.states = Some(*states); }

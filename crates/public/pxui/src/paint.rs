@@ -25,6 +25,7 @@ library!(lib {
     fn pxui_paint_ratio(p: *mut RawPaint, x: f32, y: f32, a: i64, b: i64);
     fn pxui_paint_scroll_y(p: *mut RawPaint, slot: u64) -> f32;
     fn pxui_paint_color(p: *mut RawPaint, token: u16) -> Rgba;
+    fn pxui_paint_icon_word(p: *mut RawPaint) -> u32;
     fn pxui_paint_input_region(p: *mut RawPaint, cursor: f32, x: f32, y: f32, w: f32, h: f32);
 });
 
@@ -303,13 +304,15 @@ extern "C" fn draw<F: FnMut(&mut Paint<'_>, Rect)>(user: *mut c_void, raw: *mut 
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
 
-/// The C callback of an `Icon::Draw`: `user` is the app's drawing function itself (a plain `fn` pointer, so nothing to release).
+/// The C callback of an `Icon::Draw`: `user` is the app's drawing function itself (a plain `fn` pointer, so nothing to release); the
+/// icon's word is the painter's (`pxui_paint_icon_word`).
 pub(crate) extern "C" fn icon_draw(user: *mut c_void, raw: *mut c_void, rect: Rect, ink: Rgba, info: *const PxuiPaintInfo) {
     if deferred() { return; }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        let word = unsafe { lib::pxui_paint_icon_word(raw.cast()) };
         let Some(mut paint) = (unsafe { info.as_ref().and_then(|info| Paint::from_raw(raw.cast(), info)) }) else { return };
-        let f = unsafe { core::mem::transmute::<*mut c_void, fn(&mut Paint<'_>, Rect, Rgba)>(user) };
-        f(&mut paint, rect, ink);
+        let f = unsafe { core::mem::transmute::<*mut c_void, fn(&mut Paint<'_>, Rect, Rgba, u32)>(user) };
+        f(&mut paint, rect, ink, word);
         paint.flush();
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }

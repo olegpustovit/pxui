@@ -532,6 +532,7 @@ impl Ui {
         let focused = self.focused(&strip);
         let mut sel = selected.min(count.saturating_sub(1));
         if enabled { pressed(&s.keys, &mut |k| sel = clamp_step(sel, self.along(k), count)); }
+        let states = opts.states.map(|s| self.resolve_states(&s));
         let inner = self.enter(&strip);
         for i in 0..count {
             let option = option(i);
@@ -545,7 +546,7 @@ impl Ui {
             let config = SegmentConfig { state, index: i, selected: sel, group: strip.box_key, node: n, grow, padding: opts.padding, min_segment: opts.min_segment, line, strip };
             self.set_role(&n, Role::Radio, st::CHECKABLE | if sel == i { st::CHECKED } else { 0 });
             self.a11y_name(&n, option.name.unwrap_or(option.text));
-            in_item!(flat; self, body, n.box_key, n, default_segment(&config, opts.states.as_ref(), option.text));
+            in_item!(flat; self, body, n.box_key, n, default_segment(&config, states.as_ref(), option.text));
             if !enabled { self.node_new(&n).state.disabled = true; }
         }
         self.leave(inner);
@@ -1051,7 +1052,7 @@ impl Ui {
 
     /// `icon_button` with the glyph as any string (the C ABI's) beside an optional drawing, which wins; `signal`, when given, receives
     /// the box's signal as it was read for it, without its key events (`key_events_ref`): the C ABI's signal without a second read.
-    pub fn icon_button_text(&mut self, key: &str, glyph: &str, draw: Option<(IconDraw, [usize; 3])>, name: &str, button: &IconButton, signal: Option<&mut Signal>) -> Response {
+    pub fn icon_button_text(&mut self, key: &str, glyph: &str, draw: Option<(IconDraw, [usize; 4])>, name: &str, button: &IconButton, signal: Option<&mut Signal>) -> Response {
         let enabled = button.enabled && !self.scope_disabled();
         let flags = if enabled { STOP_FLAGS } else { Flags::BLOCKING | Flags::TAB_ONLY };
         let b = self.node_ref(key, &Node { flags, role: Role::Button, ..Node::DEFAULT });
@@ -1061,7 +1062,7 @@ impl Ui {
         let focused = self.focused(&b);
         let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !enabled, ..State::default() };
         self.a11y_name(&b, shown(name));
-        let states = match button.states { Some(states) => states, None => self.theme().icon_button };
+        let states = self.resolve_states(match &button.states { Some(states) => states, None => &self.theme().icon_button });
         let ink = states.pick(state).text;
         let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw, press: button.press };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
@@ -1293,14 +1294,14 @@ pub(crate) fn default_badge(this: &mut Ui, c: &BadgeConfig, _label: &str, text: 
 }
 
 /// An app drawing of an icon: paints into the 20-point square `rect` in `ink` (the look's text colour for the button's state). The
-/// three words are the caller's (the C ABI's callback, its user data and its library state); a plain Rust drawing ignores them.
-pub type IconDraw = fn(&mut Paint, Rect, crate::geom::Rgba, [usize; 3]);
+/// four words are the caller's (the C ABI's callback, its user data, its library state and the icon's word); a plain Rust drawing ignores them.
+pub type IconDraw = fn(&mut Paint, Rect, crate::geom::Rgba, [usize; 4]);
 
 /// What an icon button shows: a glyph of the icon font its look names, or the app's own drawing.
 #[derive(Clone, Copy)]
 pub enum Icon {
     Glyph(char),
-    Draw(IconDraw, [usize; 3]),
+    Draw(IconDraw, [usize; 4]),
 }
 
 /// How `icon_button` varies the kit's icon button; `DEFAULT` is the plain one.
@@ -1359,7 +1360,7 @@ pub(crate) fn default_icon_button(this: &mut Ui, c: &IconButtonConfig, states: &
     }
     let word = |color: crate::geom::Rgba| u32::from_le_bytes([color.r, color.g, color.b, color.a]) as i64;
     let bits = (c.state.hovered as i64) | (c.state.pressed as i64) << 1 | (c.state.focused as i64) << 2 | (c.state.disabled as i64) << 3;
-    let art = c.draw.map_or(0, |(f, data)| (f as usize as i64) ^ (data[0] as i64).rotate_left(16) ^ (data[1] as i64).rotate_left(32));
+    let art = c.draw.map_or(0, |(f, data)| (f as usize as i64) ^ (data[0] as i64).rotate_left(16) ^ (data[1] as i64).rotate_left(32) ^ (data[3] as i64).rotate_left(48));
     let mut revision = key_of(word(look.fill) | word(look.text) << 32 ^ art, icon);
     revision = key_of(revision ^ word(look.border) ^ bits << 40 ^ (width.to_bits() as i64) << 8 ^ look.font.size.rotate_left(20) ^ i64::from(look.font.family) << 52, "icon_button");
     let saved = this.enter(&c.node);

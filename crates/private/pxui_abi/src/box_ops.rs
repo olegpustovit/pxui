@@ -228,6 +228,7 @@ export!(pub unsafe fn pxui_ui_set_node_fields(ui: *mut PxuiUi, box_: *const Pxui
     };
     let Some(look) = decode_look(f.look) else { return unsafe { fail(ui, "invalid look") }; };
     if !finite(&[f.inset.l, f.inset.t, f.inset.r, f.inset.b]) { return unsafe { fail(ui, "invalid inset") }; }
+    let look = e.resolve_look(&look).unwrap_or(look);
     let n = e.node_mut(&b);
     (n.look, n.mark, n.inset) = (look, mark, f.inset);
     0
