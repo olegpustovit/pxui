@@ -301,9 +301,6 @@ fn run_timeout(case: Duration) -> Duration {
 
 fn run_all(args: &Args) -> i32 {
     let started = Instant::now();
-    let mut gc = Command::new("cargo");
-    gc.args(["run", "-q", "-p", "buildtime", "--", "gc"]);
-    if let Err(status) = qualification_setup(&mut gc, started, QUALIFICATION_TIMEOUT, false) { return status; }
     let mut metadata = Command::new("cargo");
     metadata.args(["metadata", "--no-deps", "--format-version=1"]);
     let output = match qualification_setup(&mut metadata, started, QUALIFICATION_TIMEOUT, true) {
@@ -311,6 +308,12 @@ fn run_all(args: &Args) -> i32 {
         Err(status) => return status,
     };
     let json = String::from_utf8_lossy(&output.stdout);
+    // The build-cache gc is Rays' `buildtime` crate; a workspace without it (pxui alone, LocalWave) skips it.
+    if json.contains("\"name\":\"buildtime\"") {
+        let mut gc = Command::new("cargo");
+        gc.args(["run", "-q", "-p", "buildtime", "--", "gc"]);
+        if let Err(status) = qualification_setup(&mut gc, started, QUALIFICATION_TIMEOUT, false) { return status; }
+    }
     let Some(packages) = json_field(&json, "packages") else { return 1; };
     let mut rows = Vec::new();
     let mut rest = packages.trim_start_matches('[').trim();
