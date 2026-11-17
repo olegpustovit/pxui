@@ -532,11 +532,14 @@ fn run_tests(
 
 
 /// `--doc`: rustdoc doctests, which have no test executables. Runs them in the default link mode and again with the `static` feature
-/// (the mode PXUI's `pxui_abi` links statically); each doctest is its own `cargo test --doc` case under the per-case limit,
-/// and listing plus all cases share the whole-run limit. Compilation of the crate is the build step, before the run clock starts.
+/// (the mode PXUI's `pxui_abi` links statically) where the package has it; listing plus the run share the whole-run limit, and a filter
+/// selects a module's doctests (`cargo t -p pxui --doc crates/public/pxui/src/kit.rs`). Compilation of the crate is the build step.
 fn run_doctests(args: &Args, timeout: Option<Duration>) -> i32 {
     let mut failure_code = 0;
+    // Only the packages that have the feature link it (`pxui`, `pxui_gallery`).
+    let has_static = args.cargo.windows(2).any(|pair| (pair[0] == "-p" || pair[0] == "--package") && (pair[1] == "pxui" || pair[1] == "pxui_gallery"));
     for mode in [None, Some("static")] {
+        if mode.is_some() && !has_static { continue; }
         let doc = |extra: &[&str]| {
             let mut command = Command::new("cargo");
             command.args(["test", "--doc"]).args(&args.cargo);
@@ -558,25 +561,27 @@ fn run_doctests(args: &Args, timeout: Option<Duration>) -> i32 {
             Err(error) => { eprintln!("rays-t: could not read doctests: {error}"); return 1; }
         };
         if args.list { for name in &names { println!("{label}::{name}: test"); } continue; }
+        // Merged doctests compile once per run, so one invocation runs the whole filtered set; a per-name `--exact` run
+        // matches nothing (0 tests, exit 0) and a name with spaces is no valid filter. Every listed doctest must pass:
+        // an ignored or filtered-out one is a failure, so nothing is skipped silently.
         let run_started = Instant::now();
         let mut passed = 0;
-        for name in &names {
-            let mut command = doc(&["--exact", name]);
-            match run_command(&mut command, run_started, timeout, Some(args.test_timeout), true) {
+        if !names.is_empty() {
+            let mut command = match args.filter.as_deref() { Some(filter) => doc(&[filter]), None => doc(&[]) };
+            match run_command(&mut command, run_started, timeout, timeout, true) {
                 Ok(RunResult::Finished(output)) => {
-                    if output.status.success() { passed += 1; } else {
+                    let stdout = String::from_utf8_lossy(&output.stdout);
+                    let summary = stdout.lines().rev().find(|line| line.starts_with("test result:")).unwrap_or("");
+                    let count = |word: &str| summary.split(';').find_map(|part| part.trim().trim_start_matches("test result: ok.").trim().strip_suffix(word)).and_then(|n| n.trim().parse::<usize>().ok()).unwrap_or(usize::MAX);
+                    if output.status.success() && count(" passed") == names.len() && count(" ignored") == 0 { passed = names.len(); } else {
                         print_bytes(io::stdout(), &output.stdout);
                         print_bytes(io::stderr(), &output.stderr);
-                        eprintln!("rays-t: doctest {label}::{name} failed ({})", output.status);
-                        failure_code = status_code(output.status);
+                        eprintln!("rays-t: doctests ({label}) failed or skipped: expected {} passed, none ignored ({})", names.len(), output.status);
+                        failure_code = if output.status.success() { 1 } else { status_code(output.status) };
                     }
                 }
-                Ok(RunResult::TimedOut { elapsed, whole_run, .. }) => {
-                    if whole_run { return report_whole_timeout(run_started); }
-                    eprintln!("rays-t: doctest {label}::{name} exceeded the {}s limit (elapsed {:.3}s)", args.test_timeout.as_secs(), elapsed.as_secs_f64());
-                    failure_code = 124;
-                }
-                Err(error) => { eprintln!("rays-t: failed to run doctest {label}::{name}: {error}"); return 1; }
+                Ok(RunResult::TimedOut { elapsed, .. }) => return report_timeout(elapsed, "doctest run"),
+                Err(error) => { eprintln!("rays-t: failed to run doctests {label}: {error}"); return 1; }
             }
         }
         eprintln!("rays-t: doctests ({label}): {passed}/{} passed in {:.3}s", names.len(), run_started.elapsed().as_secs_f64());

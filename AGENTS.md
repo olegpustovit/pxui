@@ -76,7 +76,9 @@ or method the comment has, in this order:
 5. `/// Panics:` — "never", or the condition.
 6. A fenced example that compiles and runs under `cargo t -p pxui --doc`.
    Examples use `pxui::doc::frames`. `ignore`, `no_run`, `text` and
-   `compile_fail` fences are not accepted on functions.
+   `compile_fail` fences are not accepted on functions. `cargo run -p gate -- docs` runs each
+   module's doctests as its own `cargo t -p <crate> --doc <path of the module>` chunk and fails when a
+   doctest is outside every chunk, ignored or skipped.
 
 Fields, variants and constants need one line each; they need no example.
 

@@ -1448,17 +1448,56 @@ fn docs(workspace: &Path) -> Result<Vec<String>, String> {
     let shape_errors = docs_allowlist(workspace)?;
     if !shape_errors.is_empty() { return Ok(shape_errors); }
     // rays-t bounds setup/build, each case and the test run. Gate checks never refresh fixtures.
-    for (package, filter, target) in policy::DOCS_CHECKS.iter().copied() {
-        let mut command = std::process::Command::new("cargo");
-        command.current_dir(workspace).args(["t", "--profile", "default", "-p", package])
-            .env_remove("RAYS_UPDATE_FIXTURES").env_remove("RAYS_ALLOW_SKIP");
-        if let Some(target) = target { command.args(["--test", target]); }
-        let status = command.arg(filter).status().map_err(|error| format!("cannot run registry check: {error}"))?;
-        if !status.success() {
-            return Ok(vec![format!("docs gate: {package}::{filter} failed ({status}); examples, descriptions, angle units and docs/lisp.md must match the registry")]);
+    for (package, src) in policy::DOCS_CHECKS.iter().copied() {
+        let chunks = doctest_chunks(&workspace.join(src), src).map_err(|error| format!("cannot read {src}: {error}"))?;
+        let run = |extra: &[&str]| {
+            let mut command = std::process::Command::new("cargo");
+            command.current_dir(workspace).args(["t", "--profile", "default", "-p", package, "--doc"]).args(extra)
+                .env_remove("RAYS_UPDATE_FIXTURES").env_remove("RAYS_ALLOW_SKIP");
+            command
+        };
+        let listing = run(&["--list"]).stderr(std::process::Stdio::inherit()).output().map_err(|error| format!("cannot run registry check: {error}"))?;
+        if !listing.status.success() { return Ok(vec![format!("docs gate: {package} doctest listing failed ({})", listing.status)]); }
+        let names: Vec<_> = String::from_utf8_lossy(&listing.stdout).lines().filter_map(|line| line.strip_suffix(": test").map(str::to_owned)).collect();
+        let (counts, orphans) = doctest_counts(&names, &chunks);
+        if !orphans.is_empty() { return Ok(orphans.into_iter().map(|name| format!("docs gate: {package} doctest outside every module chunk: {name}")).collect()); }
+        for (chunk, count) in chunks.iter().zip(counts) {
+            if count == 0 { continue; }
+            let started = std::time::Instant::now();
+            let status = run(&[chunk]).status().map_err(|error| format!("cannot run registry check: {error}"))?;
+            eprintln!("docs gate: {package} {} {count} doctests {:.1}s", chunk, started.elapsed().as_secs_f64());
+            if !status.success() {
+                return Ok(vec![format!("docs gate: {package} {} failed ({status}); every doctest must run and pass under the runner's limits", chunk)]);
+            }
         }
     }
     Ok(Vec::new())
+}
+
+/// Name filters, one per top-level module of `src` (a file `a.rs` or a directory `a/`), each unique inside the crate's doctest names.
+fn doctest_chunks(dir: &Path, relative: &str) -> std::io::Result<Vec<String>> {
+    let mut chunks = Vec::new();
+    for entry in fs::read_dir(dir)? {
+        let entry = entry?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if entry.path().is_dir() { chunks.push(format!("{relative}/{name}/")); }
+        else if name.ends_with(".rs") { chunks.push(format!("{relative}/{name}")); }
+    }
+    chunks.sort();
+    Ok(chunks)
+}
+
+/// Listed doctests per chunk (both link modes counted), and the names no chunk covers.
+fn doctest_counts(names: &[String], chunks: &[String]) -> (Vec<usize>, Vec<String>) {
+    let mut counts = vec![0; chunks.len()];
+    let mut orphans = Vec::new();
+    for name in names {
+        match chunks.iter().position(|chunk| name.contains(chunk.as_str())) {
+            Some(index) => counts[index] += 1,
+            None => orphans.push(name.clone()),
+        }
+    }
+    (counts, orphans)
 }
 
 fn dynamic_symbols(os: &str, output: &str) -> Vec<String> {
@@ -1941,7 +1980,7 @@ fn main() {
 
 #[cfg(test)]
 mod docs_tests {
-    use super::{docs_compare, docs_source};
+    use super::{docs_compare, docs_source, doctest_counts};
     use std::collections::BTreeSet;
 
     const FULL: &str = "/// Does it.\n/// Allocates: never.\n/// Panics: never.\n///\n/// ```\n/// assert!(true);\n/// ```\npub fn go() {}\n";
@@ -1972,6 +2011,15 @@ mod docs_tests {
     fn crate_private_and_test_items_are_skipped_and_methods_carry_their_type() {
         assert!(docs_source("pub(crate) fn hidden() {}\n#[cfg(test)]\nmod t { pub fn x() {} }").is_empty());
         assert_eq!(docs_source("impl<'a> Ui {\n    pub fn m(&self) {}\n}")[0].0, "Ui::m");
+    }
+
+    #[test]
+    fn doctests_split_by_module_and_uncovered_ones_are_reported() {
+        let chunks = ["c/src/a.rs".to_owned(), "c/src/b/".to_owned()];
+        let names = ["dynamic::c/src/a.rs - a::f (line 1)", "static::c/src/b/x.rs - x::g (line 2)", "dynamic::c/src/c.rs - c::h (line 3)"].map(str::to_owned);
+        let (counts, orphans) = doctest_counts(&names, &chunks);
+        assert_eq!(counts, [1, 1]);
+        assert_eq!(orphans, ["dynamic::c/src/c.rs - c::h (line 3)"]);
     }
 
     #[test]

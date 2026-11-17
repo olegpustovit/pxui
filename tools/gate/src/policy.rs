@@ -105,8 +105,9 @@ pub const NO_DIRECT: &[(&str, &str, &str)] = &[];
 pub const TESTS_INCLUDED: &[&str] = &["pxui_core", "pxui_text", "pxui_render"];
 pub const TESTS_INCLUDED_FORBIDDEN: &[&str] = &["sdl3", "sdl3_sys", "pxui_sdl"];
 
-/// Doctests of the public API run with the docs checks.
-pub const DOCS_CHECKS: &[(&str, &str, Option<&str>)] = &[("pxui", "--doc", None)];
+/// Doctests of the public API run with the docs checks, one `cargo t -p <package> --doc` run per top-level module of
+/// the source directory (package, source directory): a whole-crate run exceeds the runner's 60 s limit.
+pub const DOCS_CHECKS: &[(&str, &str)] = &[("pxui_types", "crates/public/pxui_types/src"), ("pxui", "crates/public/pxui/src")];
 
 /// Crates besides `*_sys` that may use `unsafe`.
 pub const UNSAFE_CRATES: &[&str] = &["pxui_wayland", "pxui_atspi"]; // own their C shims (Wayland, libdbus-1) and the extern blocks over them, like *_sys crates
