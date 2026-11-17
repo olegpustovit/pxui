@@ -516,8 +516,8 @@ impl Images {
     /// Stores the worker's result for `key` in slot `index` (`None` records a failed decode so it is not retried), replacing that slot.
     ///
     /// Pending wants for `key.id` are cleared, except when `image` is present and a want asked for more pixels than `key.max_pixels`.
-    /// The slot's previous image is only forgotten here: the host still owns and destroys it. Moves `revision` on. An id that
-    /// is already cached in another slot is not removed from it; pick `index` with `index(key.id)` or `oldest`.
+    /// The slot's previous image is only forgotten here: the host still owns and destroys it. Moves `revision` on. An id maps to
+    /// one slot: when `key.id` is already cached in another slot, that slot is emptied (as `remove` does), so `index(key.id)` is `index`.
     /// Allocates: never.
     /// Identity: `key.id` becomes the id `get` finds the image by.
     /// Panics: when `index` is `CAPACITY` or more.
@@ -538,6 +538,9 @@ impl Images {
         });
         drop(pending);
         self.remove(index);
+        if let Some(other) = self.by_id.get(&key.id).copied() {
+            self.remove(other);
+        }
         let tick = self.clock.get().saturating_add(1);
         self.clock.set(tick);
         self.entries[index] = Entry {
@@ -754,6 +757,23 @@ mod tests {
         }
         assert!(images.requests().keys().is_empty());
         assert_eq!(mem_sys::local_alloc_count(), 0);
+    }
+    #[test]
+    fn an_id_inserted_into_a_second_slot_leaves_its_first_slot_and_removing_that_slot_keeps_the_mapping() {
+        let mut images = Images::default();
+        let key = Key {
+            id: 7,
+            max_pixels: 64,
+            ..Default::default()
+        };
+        images.insert(0, key, None);
+        images.insert(3, key, None);
+        assert_eq!(images.index(7), Some(3));
+        images.remove(0);
+        assert_eq!(images.index(7), Some(3), "removing the old slot must not drop the new mapping");
+        assert_eq!(images.quality(7), Some(64));
+        images.insert(3, Key { id: 8, ..key }, None);
+        assert_eq!((images.index(7), images.index(8)), (None, Some(3)));
     }
     #[test]
     fn cached_quality_does_not_retry_small_sources() {
