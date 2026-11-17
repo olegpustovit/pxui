@@ -7,7 +7,7 @@ use crate::kit::{HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
 use core::ffi::c_void;
-use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, PxuiSignal, Slice}, theme::{Curve, Look, State}, Axis, PxuiBox, Str};
+use pxui_types::{geom::{Point, Rect, Rgba}, ffi::{PxuiButtonDesc, PxuiDialogDesc, PxuiDialogResult, PxuiIconButtonDesc, PxuiResponse, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiSignal, Slice}, theme::{Curve, Look, State}, Axis, PxuiBox, Str};
 use pxui_types::{layout::Justify, Size};
 use crate::Response;
 use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Head, HeadAction, Target};
@@ -26,7 +26,6 @@ library!(lib {
     fn pxui_ui_segmented_result(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiSegmentedDesc, options: Slice<Str>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
     fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32;
-    fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8) -> i32;
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
     fn pxui_ui_inspector_body(ui: *mut PxuiUi, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_inspector_header(ui: *mut PxuiUi, desc: *const PxuiHeaderDesc, rename: Option<extern "C" fn(*mut c_void, Str) -> u8>, user: *mut c_void, out: *mut PxuiHeadOut) -> i32;
@@ -293,17 +292,6 @@ impl Ui {
         let code = match axis { Axis::Row => 0, _ => 1 };
         check(self, unsafe { lib::pxui_ui_grip(self.0.as_ptr(), as_str(label.as_str()), code, rect.is_some() as u8, rect.unwrap_or_default(), &mut out, &mut raw) });
         (out, decode_signal(&raw))
-    }
-    #[track_caller]
-    pub fn popup(&mut self, stroke: Option<Rgba>, max_height: Option<f32>, dismiss_initial: bool, attached: bool, at: (f32, f32), width: f32, height: f32, label: &str, mut f: &mut dyn FnMut(&mut Ui)) -> bool {
-        let desc = PxuiPopupDesc {
-            size: core::mem::size_of::<PxuiPopupDesc>() as u32, has_stroke: stroke.is_some() as u8, has_max_height: max_height.is_some() as u8,
-            dismiss_initial: dismiss_initial as u8, attached: attached as u8, stroke: stroke.unwrap_or_default(), max_height: max_height.unwrap_or_default(),
-            x: at.0, y: at.1, width, height, label: as_str(label),
-        };
-        let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_popup(self.0.as_ptr(), &desc, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void, &mut out) });
-        out != 0
     }
     #[track_caller]
     pub fn inspector_bar(&mut self, hints: &[(&str, &str)], count: i64) {

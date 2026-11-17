@@ -276,7 +276,7 @@ export!(pub unsafe fn pxui_ui_hover_delay(ui: *mut PxuiUi, key: Str, out: *mut u
 export!(build pub unsafe fn pxui_ui_tooltip(ui: *mut PxuiUi, key: Str, text: Str) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let (Some(key), Some(text)) = (unsafe { crate::state::checked_key(key) }, unsafe { checked(text) }) else { return unsafe { fail(ui, "invalid tooltip text") }; };
-    e.tooltip(key, text);
+    e.tooltip_legacy(key, text);
     0
 });
 

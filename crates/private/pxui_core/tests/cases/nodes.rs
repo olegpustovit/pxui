@@ -175,7 +175,7 @@ pub fn window_pxui_arena_closures() {
 pub fn window_pxui_arena_first_frame() {
     let mut ui = new_ui(None);
     let kit = |ui: &mut Ui, extra: Option<&str>| {
-        ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.button("Quit");
             if let Some(key) = extra {

@@ -30,14 +30,14 @@ pub fn label(scale: f64, message: &str) -> String {
 pub fn step(scale: f64, ui: &mut Ui, events: Vec<Event>, build: &mut dyn FnMut(&mut Ui)) {
     let t = advance();
     host_frame(ui, &frame_at(vec![], scale, t, events), &mut |ui| {
-        ui.panel(PanelOpts::default().at(0.0, 0.0).width(240.0), "panel", &mut |ui| build(ui));
+        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).name("panel"), &mut |ui| build(ui));
     });
 }
 
 pub fn modified_step(scale: f64, ui: &mut Ui, modifiers: Vec<Key>, k: Key, build: &mut dyn FnMut(&mut Ui)) {
     let t = advance();
     host_frame(ui, &frame_at(modifiers, scale, t, vec![key_down(k)]), &mut |ui| {
-        ui.panel(PanelOpts::default().at(0.0, 0.0).width(240.0), "panel", &mut |ui| build(ui));
+        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).name("panel"), &mut |ui| build(ui));
     });
 }
 

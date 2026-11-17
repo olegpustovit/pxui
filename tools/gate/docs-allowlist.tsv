@@ -10,7 +10,6 @@ crates/public/pxui/src/kit_ext.rs	Ui::grip	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_bar	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_body	example,Allocates,Panics
 crates/public/pxui/src/kit_ext.rs	Ui::inspector_header	example,Allocates,Panics,Identity
-crates/public/pxui/src/kit_ext.rs	Ui::popup	example,Allocates,Panics,Identity
 crates/public/pxui/src/kit.rs	pxui_ui_footer	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_grid_list	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_inspector_button	example,Allocates,Panics,Identity
@@ -23,10 +22,7 @@ crates/public/pxui/src/kit.rs	pxui_ui_menu_bar	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_section_list	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_section_list_measured	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_split	example,Allocates,Panics
-crates/public/pxui/src/kit.rs	pxui_ui_table	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_wants_frame	example,Allocates,Panics
-crates/public/pxui/src/kit.rs	Ui::table	example,Allocates,Panics,Identity
-crates/public/pxui/src/kit.rs	Ui::table_str	example,Allocates,Panics,Identity
 crates/public/pxui/src/style.rs	pxui_ui_set_look	example,Allocates,Panics
 crates/public/pxui/src/style.rs	pxui_ui_style	example,Allocates,Panics
 crates/public/pxui/src/testing.rs	click	Panics
@@ -40,12 +36,4 @@ crates/public/pxui/src/theme_scope.rs	Theme::load	example,Allocates,Panics
 crates/public/pxui/src/theme_scope.rs	Theme::set	example,Allocates,Panics,Identity
 crates/public/pxui/src/theme_scope.rs	Ui::themed	example,Allocates,Panics
 crates/public/pxui/src/theme_scope.rs	Ui::use_theme	example,Allocates,Panics
-crates/public/pxui/src/widgets.rs	pxui_ui_badge	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_checkbox	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_dropdown	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_progress	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_radio	example,Allocates,Panics,Identity
 crates/public/pxui/src/widgets.rs	pxui_ui_search_field	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_slider	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_spinner	example,Allocates,Panics,Identity
-crates/public/pxui/src/widgets.rs	pxui_ui_tabs	example,Allocates,Panics,Identity

@@ -4,18 +4,12 @@
 //! counted here, not hidden: the equality below shows the ABI adds nothing to them.
 use input::{frame, Event, Platform};
 use mem_sys as _;
-use pxui_core::ui::{HeadAction, PanelOpts, PickerOpts, Ui as Engine};
+use pxui_core::ui::{HeadAction, Overlay, PickRows, PickerOpts, Ui as Engine};
 use pxui_types::FrameIn;
 use std::rc::Rc;
 
-fn fill(_: &str, rows: &mut Vec<(String, String)>) {
-    rows.truncate(2);
-    for (at, (label, detail)) in [("one", "1"), ("two", "2")].into_iter().enumerate() {
-        match rows.get_mut(at) {
-            Some(row) => { row.0.clear(); row.0.push_str(label); row.1.clear(); row.1.push_str(detail); }
-            None => rows.push((label.into(), detail.into())),
-        }
-    }
+fn fill(_: &str, rows: &mut PickRows) {
+    for (label, detail) in [("one", "1"), ("two", "2")] { rows.push(label, detail); }
 }
 
 fn engine_allocations() -> u64 {
@@ -30,9 +24,9 @@ fn engine_allocations() -> u64 {
         input.events = vec![Event::PointerMoved((-100.0, -100.0))];
         let frame = frame::Frame { input, pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) };
         let mut measured = 0;
-        ui.frame(&frame, &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+        ui.frame(&frame, &mut |ui| ui.panel("panel", &Overlay::DEFAULT, &mut |ui| {
             let before = mem_sys::local_alloc_count();
-            let _ = ui.picker_filled(&PickerOpts::default(), "filter", "", &mut fill);
+            let _ = ui.picker("filter", "filter", "", &PickerOpts::default(), &mut fill);
             let _ = ui.inspector_header("head", Some("kind"), None, Some("1"), Some(Rc::clone(&rename)), &actions, Some("reset"), true, "Title", "detail");
             measured = mem_sys::local_alloc_count() - before;
         }));
@@ -49,9 +43,9 @@ fn wrapper_allocations() -> u64 {
     for count in 0..12 {
         let input = FrameIn { width: 320.0, height: 240.0, time: count as f64 / 60.0, scale: 1.0, ..FrameIn::default() };
         let mut measured = 0;
-        ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel(pxui::ui::PanelOpts::default(), "panel", &mut |ui: &mut pxui::Ui| {
+        ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
             let before = mem_sys::local_alloc_count();
-            let _ = ui.picker_filled(&pxui::PickerOpts::DEFAULT, "filter", "", &mut fill);
+            let _ = ui.picker("filter", "filter", "", &pxui::PickerOpts::DEFAULT, &mut fill);
             let _ = ui.inspector_header("head", Some("kind"), None, Some("1"), Some(Rc::clone(&rename)), &actions, Some("reset"), true, "Title", "detail");
             measured = mem_sys::local_alloc_count() - before;
         })).expect("frame");

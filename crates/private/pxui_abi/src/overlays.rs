@@ -1,10 +1,11 @@
 use crate::state::{MAX_TOTAL_TEXT_BYTES, PxuiUi, checked, core_box, fail, finite, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
-use pxui_core::ui_text::{Menu, MenuItem, MenuResponse, Pick, PickerOpts};
+use pxui_core::ui_text::{Menu, MenuItem, MenuResponse, Pick, PickerOpts, PickRows};
+use std::rc::Rc;
+use pxui_types::{ffi::PxuiKeyedDesc, ui::{shown, Toast}};
 use pxui_types::ui::Key as NodeKey;
 use pxui_types::ffi::{PxuiMenuExtra, Slice};
-use std::rc::Rc;
 
 const MAX_ROWS: usize = 4096;
 
@@ -16,21 +17,48 @@ export!(trusted pub unsafe fn pxui_ui_tip(ui: *mut PxuiUi, box_: *const PxuiBox,
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if box_.is_null() { return unsafe { fail(ui, "null tooltip box") }; }
     let (Some(label), Some(_)) = (unsafe { checked(label) }, core_box(unsafe { *box_ })) else { return unsafe { fail(ui, "invalid tooltip arguments") }; };
-    unsafe { crate::trusted::tip(ui, &*box_, label) }
+    unsafe { crate::trusted::tooltip(ui, &*box_, label) }
 });
 
-export!(build pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {
+/// Toasts of `items` keyed by `key`, each by its id in `ids` (empty: by its text, as before 1.63), the body of `pxui_ui_toasts` and
+/// `pxui_ui_toasts_keyed`; up to 32 on the stack, more in a buffer.
+unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: Slice<Str>, ids: Slice<i64>, by_text: bool, seconds: f64, out_index: *mut i64) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out_index.is_null() || !seconds.is_finite() || seconds < 0.0 { return unsafe { fail(ui, "invalid toast arguments") }; }
+    if out_index.is_null() || !seconds.is_finite() || seconds < 0.0 || (!by_text && ids.len != items.len) || (ids.len != 0 && ids.ptr.is_null()) {
+        return unsafe { fail(ui, "invalid toast arguments") };
+    }
     let mut list = state.shared().take_strs();
-    let Some(label) = (unsafe { checked(label) }).filter(|_| unsafe { strings(items, MAX_ROWS, &mut list) }) else {
-        state.shared().put_strs(list);
-        return unsafe { fail(ui, "invalid toast strings") };
+    if !unsafe { strings(items, MAX_ROWS, &mut list) } { state.shared().put_strs(list); return unsafe { fail(ui, "invalid toast strings") }; }
+    let ids = if by_text || ids.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(ids.ptr, ids.len) } };
+    let toast = |i: usize| Toast::new(if by_text { pxui_types::ui::key_of(0, list[i]) } else { ids[i] }, list[i]);
+    let mut stack = [Toast::new(0, ""); 32];
+    let heap: Vec<Toast>;
+    let items: &[Toast] = if list.len() <= 32 {
+        for (i, t) in stack[..list.len()].iter_mut().enumerate() { *t = toast(i); }
+        &stack[..list.len()]
+    } else {
+        heap = (0..list.len()).map(toast).collect();
+        &heap
     };
-    let value = unsafe { (&mut *state.engine).toasts(label, &list, seconds) };
+    let mut gone = None;
+    let rc = unsafe { crate::trusted::toasts(ui, key, items, seconds, &mut gone) };
     state.shared().put_strs(list);
-    unsafe { *out_index = value.map_or(-1, |index| index as i64); }
-    0
+    unsafe { *out_index = gone.map_or(-1, |index| index as i64); }
+    rc
+}
+
+// Legacy (cut at 2.0): keyed by its label, each toast by its text; `pxui_ui_toasts_keyed` keys each by an id.
+export!(build pub unsafe fn pxui_ui_toasts(ui: *mut PxuiUi, label: Str, items: Slice<Str>, seconds: f64, out_index: *mut i64) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid toast strings") }; };
+    unsafe { toasts(ui, label, items, Slice { ptr: core::ptr::null(), len: 0 }, true, seconds, out_index) }
+});
+
+// ABI 1.68: toasts keyed by `keyed.key` (the stack's accessible name `keyed.name`), toast `i` keyed by `ids[i]` (as many as `items`).
+export!(build pub unsafe fn pxui_ui_toasts_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, items: Slice<Str>, ids: Slice<i64>, seconds: f64, out_index: *mut i64) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some((key, _name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { toasts(ui, key, items, ids, false, seconds, out_index) }
 });
 
 export!(trusted pub unsafe fn pxui_ui_context_menu(
@@ -174,47 +202,64 @@ unsafe fn decode_extra(extra: &PxuiMenuExtra, size: usize, menu: &mut [MenuItem<
     true
 }
 
-export!(build pub unsafe fn pxui_ui_picker(
-    ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, label: Str, query: Str,
+/// The picker keyed by `key`, `placeholder` its placeholder and name: the body of `pxui_ui_picker` and `pxui_ui_picker_keyed`.
+#[allow(clippy::too_many_arguments)]
+unsafe fn picker(
+    ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, key: &str, placeholder: &str, query: Str,
     rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
 ) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if out_query.is_null() || out_tag.is_null() || out_index.is_null() || !(1..=1024).contains(&limit) || slash > 1 || at_rest > 1 {
         return unsafe { fail(ui, "invalid picker arguments") };
     }
-    let (Some(label), Some(query)) = (unsafe { checked(label) }, unsafe { checked(query) }) else {
-        return unsafe { fail(ui, "invalid picker strings") };
-    };
+    let Some(query) = (unsafe { checked(query) }) else { return unsafe { fail(ui, "invalid picker strings") }; };
     let invalid = Cell::new(false);
-    // The engine keeps the rows between frames; each call replaces them in place, reusing their strings.
-    let fill = |query: &str, rows: &mut Vec<(String, String)>| {
+    // The engine keeps the rows between frames; each call pushes them in place, reusing their strings.
+    let mut fill = |query: &str, rows: &mut PickRows| {
         let mut span = Slice { ptr: core::ptr::null(), len: 0 };
         if let Some(callback) = rows_cb { callback(user, Str { ptr: query.as_ptr(), len: query.len() }, &mut span); }
-        if span.len > MAX_ROWS * 2 || span.len % 2 != 0 || (span.len != 0 && span.ptr.is_null()) { invalid.set(true); return rows.clear(); }
+        if span.len > MAX_ROWS * 2 || span.len % 2 != 0 || (span.len != 0 && span.ptr.is_null()) { invalid.set(true); return; }
         let values = if span.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(span.ptr, span.len) } };
         let mut total = 0usize;
-        for (at, pair) in values.chunks_exact(2).enumerate() {
+        for pair in values.chunks_exact(2) {
             total = total.saturating_add(pair[0].len).saturating_add(pair[1].len);
             let texts = (unsafe { checked(pair[0]) }, unsafe { checked(pair[1]) });
             let (Some(label), Some(detail)) = texts else { invalid.set(true); return rows.clear(); };
             if total > MAX_TOTAL_TEXT_BYTES { invalid.set(true); return rows.clear(); }
-            match rows.get_mut(at) {
-                Some(row) => { row.0.clear(); row.0.push_str(label); row.1.clear(); row.1.push_str(detail); }
-                None => rows.push((label.to_owned(), detail.to_owned())),
-            }
+            rows.push(label, detail);
         }
-        rows.truncate(values.len() / 2);
     };
     // the closures run only during this call, so they may hold `user`
     let user_addr = user as usize;
     let mark = mark_cb.map(|cb| Rc::new(move |row: i64| { let mut c = pxui_types::geom::Rgba::default(); (cb(user_addr as *mut c_void, row, &mut c) != 0).then_some(c) }) as Rc<dyn Fn(i64) -> Option<pxui_types::geom::Rgba>>);
     let off = off_cb.map(|cb| Rc::new(move |row: i64| cb(user_addr as *mut c_void, row) != 0) as Rc<dyn Fn(i64) -> bool>);
     let opts = PickerOpts { limit, slash: slash != 0, at_rest: at_rest != 0, mark, off };
-    let (query, pick) = unsafe { (&mut *state.engine).picker_filled(&opts, label, query, &mut { fill }) };
+    let r = unsafe { (&mut *state.engine).picker(key, placeholder, query, &opts, &mut fill) };
+    let (tag, index) = match r.pick { Pick::None => (0, -1), Pick::Pick(index) => (1, index), Pick::Delete(index) => (2, index), Pick::Submit => (3, -1), Pick::Back => (4, -1), Pick::Cancel => (5, -1) };
+    let query = r.query.to_owned();
     if invalid.get() { return unsafe { fail(ui, "invalid picker rows") }; }
     let Ok(query) = state.give(query) else { return crate::PXUI_ERR_STATE };
     unsafe { *out_query = query; }
-    let (tag, index) = match pick { Pick::None => (0, -1), Pick::Pick(index) => (1, index), Pick::Delete(index) => (2, index), Pick::Submit => (3, -1), Pick::Back => (4, -1), Pick::Cancel => (5, -1) };
     unsafe { *out_tag = tag; *out_index = index; }
     0
+}
+
+// Legacy (cut at 2.0): keyed by its label, which (up to a `##`) is also its placeholder; `pxui_ui_picker_keyed` keys apart.
+export!(build pub unsafe fn pxui_ui_picker(
+    ui: *mut PxuiUi, limit: i64, slash: u8, at_rest: u8, label: Str, query: Str,
+    rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
+) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid picker strings") }; };
+    unsafe { picker(ui, limit, slash, at_rest, label, shown(label), query, rows_cb, mark_cb, off_cb, user, out_query, out_tag, out_index) }
+});
+
+// ABI 1.68: the picker keyed by `keyed.key`, `keyed.name` its placeholder and accessible name.
+export!(build pub unsafe fn pxui_ui_picker_keyed(
+    ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, limit: i64, slash: u8, at_rest: u8, query: Str,
+    rows_cb: PickerRows, mark_cb: PickerMark, off_cb: PickerOff, user: *mut c_void, out_query: *mut Str, out_tag: *mut u32, out_index: *mut i64,
+) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some((key, placeholder)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { picker(ui, limit, slash, at_rest, key, placeholder, query, rows_cb, mark_cb, off_cb, user, out_query, out_tag, out_index) }
 });

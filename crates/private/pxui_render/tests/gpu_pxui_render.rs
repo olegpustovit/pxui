@@ -936,7 +936,7 @@ fn shared_ui(caption: &str) -> pxui::Ui {
 fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32,
         width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
-    ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel(pxui_types::ui::PanelOpts::default(), "panel", &mut |ui: &mut pxui::Ui| {
+    ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
         ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
         ui.toggle("Animate", true);
         ui.toggle("Wire", false);
@@ -1683,7 +1683,7 @@ fn shared_frame_serials() {
 /// A panel of `rows` labels and a caption: frames of different sizes, so each build moves the layer's instance count.
 fn rows_ui(ui: &mut pxui::Ui, rows: usize, caption: &str) {
     let input = pxui_types::FrameIn { size: std::mem::size_of::<pxui_types::FrameIn>() as u32, width: 320.0, height: 300.0, scale: 2.0, time: 1.0 / 60.0, ..Default::default() };
-    ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel(pxui_types::ui::PanelOpts::default(), "panel", &mut |ui: &mut pxui::Ui| {
+    ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
         for row in 0..rows { ui.label(&format!("row {row} {caption}"), pxui_core::ui::Label::DEFAULT); }
         ui.button("Quit");
     })).expect("build a frame of rows");
@@ -1839,7 +1839,7 @@ fn shared_public_measured_rows_render_settled_clipped_heights() {
         ui.frame(&pxui_types::FrameIn { width:320.0,height:300.0,scale:2.0,time:frame as f64/60.0,..Default::default() },&mut |ui| {
             let bounds=ui.node("bounds".into(),pxui::Node { w:pxui::ui::Size::Px(100.0),h:pxui::ui::Size::Px(200.0),..pxui::Node::DEFAULT });
             ui.within(&bounds,&mut |ui| {
-                list.set(Some(ui.section_list_measured("rows",&pxui::ui::SectionList {count:200,row_height:12.0,leading_height:0.0,header_height:0.0,trailing_height:0.0,overlay_scrollbar:false},&|i| i as i64,&mut |ui,part,_| {
+                list.set(Some(ui.section_list("rows",&pxui::ui::SectionList::new(200).row_h(12.0).measured(),&|i| i as i64,&mut |ui,part,_| {
                     let pxui::ui::SectionPart::Row(i)=part else { return };
                     calls.set(calls.get()+1);
                     ui.node("row".into(),pxui::Node { w:pxui::ui::Size::Px(80.0),h:pxui::ui::Size::Px(10.0+(i%3) as f32*10.0),
@@ -1984,13 +1984,13 @@ fn shared_section_list_pins_native_pixels_without_gutters_or_warm_allocations() 
                 frame+=1;
                 mem_sys::local_reset();
                 ui.frame(&pxui_types::FrameIn {width:320.0,height:240.0,scale:scale as f32,time:frame as f64/60.0,..Default::default()},&mut |ui| {
-                    let section=pxui::ui::SectionList {count:10_000,row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true};
-                    let mut build=|ui:&mut pxui::Ui,part| {
+                    let section=pxui::ui::SectionList::new(10_000).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar();
+                    let build=|ui:&mut pxui::Ui,part| {
                         let (r,g,b)=match part {pxui::ui::SectionPart::Leading=>(255,0,0),pxui::ui::SectionPart::Header=>(255,255,255),pxui::ui::SectionPart::Row(_)=>(0,0,255)};
                         let mut paint=|ui:&mut pxui::Ui| {ui.node("paint".into(),pxui::ui::Node {w:pxui::ui::Size::Grow,h:pxui::ui::Size::Px(if part==pxui::ui::SectionPart::Leading {100.0} else if part==pxui::ui::SectionPart::Header {30.0} else if measured && matches!(part,pxui::ui::SectionPart::Row(index) if index%2==0) {40.0} else {20.0}),look:pxui::ui::Look {fill:pxui::geom::Rgba {r,g,b,a:255},..pxui::ui::Look::NONE},..pxui::ui::Node::DEFAULT});};
                         if part==pxui::ui::SectionPart::Leading {ui.view("heading-cache",0,pxui::ui::Size::Grow,pxui::ui::Size::Fit,&mut paint);} else {paint(ui);}
                     };
-                    body=Some(if measured {ui.section_list_measured("section",&section,&|i| i as i64,&mut |ui,part,_| build(ui,part))} else {ui.section_list("section",&section,&|i| i as i64,&mut build)});
+                    body=Some(if measured {ui.section_list("section",&section.measured(),&|i| i as i64,&mut |ui,part,_| build(ui,part))} else {ui.section_list("section",&section,&|i| i as i64,&mut |ui,part,_| build(ui,part))});
                 }).unwrap();
                 let build_allocations=mem_sys::local_alloc_count();
                 let commands=ok(be::begin_commands(&queue));

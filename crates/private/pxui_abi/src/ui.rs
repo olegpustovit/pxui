@@ -9,7 +9,7 @@ use crate::state::{Build, Inner, PxuiUi, Shared, boxed, call_inner, checked, fai
 use crate::{PXUI_ERR_ARGUMENT, PXUI_ERR_PANIC, PXUI_ERR_STATE, FrameIn, FrameOut, PxuiBox, PxuiPanel, PxuiUiDesc, Str};
 use core::ffi::c_void;
 use input::{Event, Key, MouseButton, Platform, frame};
-use pxui_core::ui::{PanelOpts, Ui};
+use pxui_core::ui::Ui;
 use pxui_types::ffi::{A11yNode, A11yTree, Damage, Input, Output, PlatformOut, Slice, ThemeSource};
 
 fn platform() -> Platform {
@@ -85,7 +85,7 @@ export!(bare pub unsafe fn pxui_supports(id: u32) -> u32 {
         f::VULKAN => cfg!(any(windows, target_os = "linux")),
         f::EXTENSION_SET | f::BUTTON_CONTENT | f::ICON_BUTTON_CURVES | f::TOGGLE_RESPONSE | f::SEGMENTED_RESPONSE | f::DIALOG_RESPONSE | f::WIDGET_VARIANTS
             | f::LABEL_NODE | f::MENU_ITEM_IDS | f::FRAME_SURFACE | f::ITEM_TEXT | f::COLOR_TOKENS | f::SWIPE_ACTIONS | f::DISMISS
-            | f::LOOK_TOKENS | f::ICON_WORD | f::TEXT_WORKER | f::TEXT_FIELD_KEYED | f::LABEL_TEXT | f::MENU_MAX_H | f::SEGMENTED_RESULT => true,
+            | f::LOOK_TOKENS | f::ICON_WORD | f::TEXT_WORKER | f::TEXT_FIELD_KEYED | f::LABEL_TEXT | f::MENU_MAX_H | f::SEGMENTED_RESULT | f::WIDGETS_KEYED => true,
         _ => false,
     }) as u32
 });
@@ -603,16 +603,30 @@ export!(trusted pub unsafe fn pxui_col(ui: *mut PxuiUi, padding: f32, label: Str
     unsafe { trusted::col(ui, padding, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
 });
 
+/// The panel of `panel`'s record keyed by `key` and named `name`, the body of `pxui_panel` and `pxui_ui_panel_keyed`.
+unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel, build: Build, user: *mut c_void) -> i32 {
+    // read where it lies (a record at least as long as ours), the look only when it has one
+    let Some(panel) = sized!(panel) else { return unsafe { fail(ui, "invalid panel descriptor") }; };
+    if panel.padding < 0 { return unsafe { fail(ui, "invalid panel padding") }; }
+    let mut overlay = pxui_types::ui::Overlay { at: (panel.x, panel.y), w: Some(panel.width), h: (panel.has_height != 0).then_some(panel.height),
+        max_h: (panel.has_max_height != 0).then_some(panel.max_height), window: panel.window != 0, padding: panel.padding as f32, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
+    if panel.has_stroke != 0 { overlay.stroke = Some(panel.stroke); }
+    if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; overlay.look = Some(look); }
+    unsafe { trusted::panel(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
+}
+
+// Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_panel_keyed` keys apart.
 export!(trusted pub unsafe fn pxui_panel(ui: *mut PxuiUi, panel: *const PxuiPanel, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid panel label") }; };
-    // read where it lies (a record at least as long as ours), the look only when it has one
-    let Some(panel) = sized!(panel) else { return unsafe { fail(ui, "invalid panel descriptor") }; };
-    let mut opts = PanelOpts { stroke: None, look: None, window: panel.window != 0, x: panel.x, y: panel.y, width: panel.width,
-        height: (panel.has_height != 0).then_some(panel.height), max_height: (panel.has_max_height != 0).then_some(panel.max_height), padding: panel.padding };
-    if panel.has_stroke != 0 { opts.stroke = Some(panel.stroke); }
-    if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; opts.look = Some(look); }
-    unsafe { trusted::panel(ui, opts, label, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
+    unsafe { self::panel(ui, label, pxui_types::ui::shown(label), panel, build, user) }
+});
+
+// ABI 1.68: a panel keyed by `keyed.key`, named `keyed.name` (empty: none).
+export!(trusted pub unsafe fn pxui_ui_panel_keyed(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, panel: *const PxuiPanel, build: Build, user: *mut c_void) -> i32 {
+    if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { self::panel(ui, key, name, panel, build, user) }
 });
 
 export!(trusted pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {

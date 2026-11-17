@@ -710,10 +710,13 @@ pub mod feature {
     /// 1.67 also changes the keyboard model of every segmented call (one Tab stop, the chosen option; every option focusable to
     /// assistive technology).
     pub const SEGMENTED_RESULT: u32 = 24;
+    /// ABI 1.68: `PxuiKeyedDesc` and the `ui_*_keyed` widget and container calls (checkbox, choice, slider, progress, spinner, badge,
+    /// panel, popup, modal, anchored, scroll_view, toasts, table_view; picker in the extension set).
+    pub const WIDGETS_KEYED: u32 = 25;
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 67;
+pub const ABI_BUILT: u32 = 1 << 16 | 68;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

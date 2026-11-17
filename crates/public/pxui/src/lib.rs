@@ -58,9 +58,8 @@ pub mod ui_text {
     }
     pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
     pub use pxui_types::ui::{CodeContext, Completion, Menu, MenuItem, MenuResponse, Pick};
-    pub use crate::{Language, PickerOpts, ScrubPhase, TextArea, ValueField};
+    pub use crate::{Language, ScrubPhase, TextArea, ValueField};
 }
-pub mod ui_kit { pub use pxui_types::ui::PanelOpts; }
 pub mod ui_widgets { pub use crate::{Dialog, DialogButton, DialogResponse, Scrub, Segment, TreeNode}; }
 /// The node handle `box_`, `node` and the views return.
 pub type Handle = pxui_types::PxuiBox;
@@ -87,7 +86,7 @@ pub mod widgets;
 pub use widgets::Scrub;
 pub mod composite;
 pub mod overlays;
-pub use pxui_types::ui::{Menu, MenuItem, MenuResponse, Pick};
+pub use pxui_types::ui::{Checkbox, Choice, Dropdown, ListResponse, Menu, MenuItem, MenuResponse, Overlay, Pick, PickRows, PickerResponse, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
 pub mod collections;
 pub mod bodies;
 pub use collections::TreeNode;
@@ -135,7 +134,7 @@ mod sys {
     use pxui_types::{FrameIn, FrameOut, Str};
     use pxui_types::ffi::{A11yAction, ThemeSource};
     #[repr(C)] pub struct PxuiUi { _private: [u8; 0] }
-    pub use pxui_types::{PxuiBox, PxuiPanel, PxuiTargetDesc, PxuiUiDesc};
+    pub use pxui_types::{PxuiBox, PxuiTargetDesc, PxuiUiDesc};
     #[repr(C)] pub struct PxuiRenderer { _private:[u8;0] }
     #[repr(C)] pub struct PxuiTheme { _private:[u8;0] }
     #[repr(C)] pub struct PxuiPaint { _private:[u8;0] }
@@ -167,17 +166,13 @@ mod sys {
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_box_of_a11y(ui:*mut PxuiUi,id:u64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->i32;
-        pub fn pxui_ui_modal(ui:*mut PxuiUi,label:Str,has_width:u8,width:f32,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut u8)->i32;
-        pub fn pxui_ui_scroll_view(ui:*mut PxuiUi,label:Str,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_view(ui:*mut PxuiUi,label:Str,revision:u64,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
-        pub fn pxui_ui_anchored(ui:*mut PxuiUi,label:Str,anchor:*const pxui_types::ffi::PxuiAnchorDesc,width:pxui_types::ffi::PxuiSizeDesc,height:pxui_types::ffi::PxuiSizeDesc,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut PxuiBox)->i32;
         pub fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32;
         pub fn pxui_last_error(ui: *const PxuiUi) -> Str;
         pub fn pxui_frame(ui:*mut PxuiUi,input:*const FrameIn,build:pxui_types::ffi::UiBuild,user:*mut c_void,out:*mut FrameOut)->i32;
         pub fn pxui_within(ui:*mut PxuiUi,box_:*const PxuiBox,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_scope(ui:*mut PxuiUi,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_col(ui:*mut PxuiUi,padding:f32,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
-        pub fn pxui_panel(ui:*mut PxuiUi,panel:*const PxuiPanel,label:Str,build:pxui_types::ffi::UiBuild,user:*mut c_void)->i32;
         pub fn pxui_renderer_create(ui:*mut PxuiUi,gpu:*const pxui_types::Gpu,target:*const PxuiTargetDesc)->*mut PxuiRenderer;
         pub fn pxui_renderer_prepare(renderer:*mut PxuiRenderer,commands:*const pxui_types::Commands,frame:u64,completed:u64)->i32;
         pub fn pxui_renderer_resize(renderer:*mut PxuiRenderer,width:u32,height:u32)->i32;
@@ -614,25 +609,6 @@ impl Ui {
         let rc = unsafe { sys::pxui_col(self.0.as_ptr(), padding, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
         check(self, rc)
     }
-    #[inline]
-    #[track_caller]
-    pub fn panel(&mut self, opts: pxui_types::ui::PanelOpts, label: &str, mut f: &mut dyn FnMut(&mut Ui)) {
-        #[cfg(not(feature = "static"))]
-        let panel = {
-            // the options a panel usually has are written as they are; each optional part only when it is there
-            let mut panel = PxuiPanel { x: opts.x, y: opts.y, width: opts.width, padding: opts.padding, window: opts.window as u8, ..PxuiPanel::default() };
-            if let Some(height) = opts.height { (panel.has_height, panel.height) = (1, height); }
-            if let Some(height) = opts.max_height { (panel.has_max_height, panel.max_height) = (1, height); }
-            if let Some(stroke) = opts.stroke { (panel.has_stroke, panel.stroke) = (1, stroke); }
-            if let Some(look) = opts.look { panel_look(&mut panel, look); }
-            panel
-        };
-        #[cfg(feature = "static")]
-        let rc = unsafe { pxui_abi_link::trusted::panel(self.0.as_ptr(), opts, label, inner!(|ui: &mut Ui| f(ui))) };
-        #[cfg(not(feature = "static"))]
-        let rc = unsafe { sys::pxui_panel(self.0.as_ptr(), &panel, as_str(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
-        check(self, rc)
-    }
     /// A kit button with the theme's look: `true` on the frame a press and release both land inside it.
     ///
     /// It is `button_with("button", text, &Button::DEFAULT).clicked`; use `button_with` for any option or a fixed key.
@@ -650,12 +626,6 @@ impl Ui {
     #[inline] #[track_caller] pub fn button(&mut self, text:&str) -> bool { self.button_with("button", text, &Button::DEFAULT).clicked }
 }
 
-
-/// A panel descriptor's look, out of line: inlined, its encoding made the plain panel's descriptor a select of every field.
-#[cfg(not(feature = "static"))]
-#[cold]
-#[inline(never)]
-fn panel_look(panel: &mut PxuiPanel, look: pxui_types::theme::Look) { (panel.has_look, panel.look) = (1, crate::node::look(look)); }
 
 impl Drop for Ui {
     fn drop(&mut self) {
@@ -794,6 +764,9 @@ pub enum Feature {
     /// ABI 1.67: a segmented control with no choice, reporting the option a secondary press began on; 1.67 also changes the keyboard
     /// model of every segmented control (one Tab stop, the chosen option; every option focusable to assistive technology).
     SegmentedResult = pxui_types::feature::SEGMENTED_RESULT,
+    /// ABI 1.68: the keyed widget and container calls (`PxuiKeyedDesc`): key and name apart for checkbox, radio, tabs, dropdown, slider,
+    /// progress, spinner, badge, panel, popup, modal, anchored, scroll_view, toasts, table_view and picker.
+    WidgetsKeyed = pxui_types::feature::WIDGETS_KEYED,
 }
 
 /// Whether the library has `feature`, as it was built: backends and the accessibility bridge depend on the platform, the rest on the library's minor.

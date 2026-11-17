@@ -38,14 +38,14 @@ pub fn window_pxui_picker() {
             vec![]
         };
         host_frame(ui, &frame_at(keys, 1.0, 0.0, events), &mut |ui| {
-            ui.panel(PanelOpts::default().at(0.0, 0.0).width(240.0), "p", &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).name("p"), &mut |ui| {
                 let off: Rc<dyn Fn(i64) -> bool> = {
                     let (off_index, all_off) = (off_index.clone(), all_off.clone());
                     Rc::new(move |index| !all_off.get() && index == off_index.get())
                 };
-                let o = PickerOpts { off: Some(off), ..PickerOpts::default() };
+                let o = pxui_core::ui::PickerOpts { off: Some(off), ..pxui_core::ui::PickerOpts::default() };
                 let q = query.borrow().clone();
-                let (edited, result) = ui.picker(&o, "Search", &q, &rows);
+                let (edited, result) = { let r = ui.picker("Search", "Search", &q, &o, &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(&a, &b) }); (r.query.to_owned(), r.pick) };
                 *query.borrow_mut() = edited;
                 last.set(result);
             });

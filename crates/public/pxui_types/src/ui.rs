@@ -5,12 +5,13 @@ use crate::geom::{hash, Rect, Rgba as Color};
 use crate::theme::{Look, States};
 use std::borrow::Cow;
 
-/// Fixed rows in one scroll region, with a scrolling lead-in and a sticky column heading.
-#[derive(Clone, Copy, Debug)]
+/// Virtual rows in one scroll region, with a scrolling lead-in and a sticky column heading, as a `Copy` value built with `const fn`
+/// builders from `SectionList::new(count)` (`Ui::section_list`). The fields are what the engine reads; write them through the builders.
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct SectionList {
     /// Number of rows.
     pub count: usize,
-    /// Height of each row in points.
+    /// Height of each row in points (its estimate until built when `measured`).
     pub row_height: f32,
     /// Height in points of the lead-in that scrolls above the header.
     pub leading_height: f32,
@@ -20,6 +21,365 @@ pub struct SectionList {
     pub trailing_height: f32,
     /// The scrollbar floats over the rows instead of taking width from them.
     pub overlay_scrollbar: bool,
+    /// Rows take the heights they lay out to (`row_height` is their estimate until built).
+    pub measured: bool,
+}
+
+impl SectionList {
+    /// `count` rows of the kit's 24 points, no lead-in, heading or trailer, a scrollbar beside the rows, fixed heights.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SONGS: pxui_types::ui::SectionList = pxui_types::ui::SectionList::new(0).row_h(44.0);
+    /// assert_eq!(SONGS.row_height, 44.0);
+    /// ```
+    pub const fn new(count: usize) -> SectionList {
+        SectionList { count, row_height: 24.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false, measured: false }
+    }
+
+    /// Sets each row's height in points (positive and finite; the estimate until built when `measured`).
+    /// Allocates: never.
+    /// Panics: never (a height that is not positive and finite is refused by `Ui::section_list`).
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::SectionList::new(3).row_h(20.0).row_height, 20.0);
+    /// ```
+    pub const fn row_h(mut self, h: f32) -> SectionList { self.row_height = h; self }
+
+    /// Sets the height in points of the lead-in that scrolls above the heading.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::SectionList::new(3).lead(100.0).leading_height, 100.0);
+    /// ```
+    pub const fn lead(mut self, h: f32) -> SectionList { self.leading_height = h; self }
+
+    /// Sets the height in points of the sticky column heading.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::SectionList::new(3).header(30.0).header_height, 30.0);
+    /// ```
+    pub const fn header(mut self, h: f32) -> SectionList { self.header_height = h; self }
+
+    /// Sets the height in points of the space after the last row.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::SectionList::new(3).trail(40.0).trailing_height, 40.0);
+    /// ```
+    pub const fn trail(mut self, h: f32) -> SectionList { self.trailing_height = h; self }
+
+    /// Floats the scrollbar over the rows instead of taking width from them.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SectionList::new(3).overlay_scrollbar().overlay_scrollbar);
+    /// ```
+    pub const fn overlay_scrollbar(mut self) -> SectionList { self.overlay_scrollbar = true; self }
+
+    /// Lets each row take the height it lays out to (wrapped text): `row_height` is its estimate until built, and the heights are kept.
+    /// Allocates: never here. Built, the list keeps a height cache of two `f32` a row (at most the 1,000,000-row limit, 8 MB), resized
+    /// when the count changes and dropped 600 frames after the list's node is gone.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::SectionList::new(3).measured().measured);
+    /// ```
+    pub const fn measured(mut self) -> SectionList { self.measured = true; self }
+}
+
+/// How `Ui::selection_list` varies the kit's selectable list, as a `Copy` value built with `const fn` builders from
+/// `SelectionList::DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct SelectionList {
+    /// Command (Ctrl) toggles a row and Shift selects a run; without, a click selects a row alone.
+    pub multi: bool,
+}
+
+impl SelectionList {
+    /// One row selected at a time.
+    pub const DEFAULT: SelectionList = SelectionList { multi: false };
+
+    /// Lets Command (Ctrl) toggle a row and Shift select a run (Space toggles the keyboard's row).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const FILES: pxui_types::ui::SelectionList = pxui_types::ui::SelectionList::DEFAULT.multi();
+    /// assert!(FILES.multi);
+    /// ```
+    pub const fn multi(mut self) -> SelectionList { self.multi = true; self }
+}
+
+/// How `Ui::table_view` varies the kit's virtual table, as a `Copy` value built with `const fn` builders from `TableView::DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TableView {
+    /// The sorted column and whether it ascends (its header shows a chevron); `None`: unsorted.
+    pub sort: Option<(usize, bool)>,
+    /// A fixed text table at this rectangle (in its parent) instead of the virtual table filling its parent: a 24-point header,
+    /// hairlines and right-aligned text cells, a click reporting the row.
+    pub text: Option<Rect>,
+}
+
+impl TableView {
+    /// The virtual table, unsorted.
+    pub const DEFAULT: TableView = TableView { sort: None, text: None };
+
+    /// The fixed text table at `rect` (in its parent): every cell is the text its callback gives `Ui::item_text`; widths, selection and
+    /// sort do not apply, and a click reports its row.
+    /// Allocates: never.
+    /// Panics: never (a rect that is not finite or is negative is refused by `Ui::table_view`).
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rect, ui::TableView};
+    /// const POINTS: TableView = TableView::text(Rect { x: 0.0, y: 0.0, w: 296.0, h: 200.0 });
+    /// assert!(POINTS.text.is_some());
+    /// ```
+    pub const fn text(rect: Rect) -> TableView { TableView { sort: None, text: Some(rect) } }
+
+    /// Marks column `column` sorted, ascending or not (a chevron up or down in its header); the app sorts its rows.
+    /// Allocates: never.
+    /// Panics: never (a column past the titles is refused by `Ui::table_view`).
+    ///
+    /// ```
+    /// let by_name = pxui_types::ui::TableView::DEFAULT.sort(0, true);
+    /// assert_eq!(by_name.sort, Some((0, true)));
+    /// ```
+    pub const fn sort(mut self, column: usize, ascending: bool) -> TableView { self.sort = Some((column, ascending)); self }
+}
+
+/// What `Ui::selection_list` reports this frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct ListResponse {
+    /// The row a double click or Enter activated.
+    pub activated: Option<usize>,
+}
+
+/// What `Ui::tree` reports this frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TreeResponse {
+    /// The node a double click or Enter activated.
+    pub activated: Option<usize>,
+    /// How many rows are shown (the start of `visible` the tree wrote).
+    pub shown: usize,
+}
+
+/// What `Ui::table_view` reports this frame.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct TableResponse {
+    /// The row clicked (a text table, `TableView::text`).
+    pub row: Option<usize>,
+    /// The column whose header was clicked: the sort intent (the virtual table).
+    pub sort: Option<usize>,
+}
+
+/// One toast of `Ui::toasts`: its text and the item id that keys it (never its text), a `Copy` value.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Toast<'a> {
+    /// The app's id of the toast: its identity (two toasts of one text are two toasts).
+    pub id: i64,
+    /// What it says.
+    pub text: &'a str,
+}
+
+impl<'a> Toast<'a> {
+    /// The toast `id` saying `text`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SAVED: pxui_types::ui::Toast = pxui_types::ui::Toast::new(1, "Saved");
+    /// assert_eq!(SAVED.id, 1);
+    /// ```
+    pub const fn new(id: i64, text: &'a str) -> Toast<'a> { Toast { id, text } }
+}
+
+/// How `Ui::checkbox` varies the kit's checkbox, as a `Copy` value built with `const fn` builders from `Checkbox::DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Checkbox {
+    /// The variant a registered checkbox body reads from its config (0: none).
+    pub variant: u16,
+}
+
+impl Checkbox {
+    /// The plain kit checkbox: a row with the 12-point box and the text.
+    pub const DEFAULT: Checkbox = Checkbox { variant: 0 };
+
+    /// Sets the variant a registered checkbox body reads from its config (`variant`, 0 by default): one body builds different
+    /// structures by it. The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SETTING: pxui_types::ui::Checkbox = pxui_types::ui::Checkbox::DEFAULT.variant(1);
+    /// assert_eq!(SETTING.variant, 1);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Checkbox { self.variant = variant; self }
+}
+
+/// How `Ui::radio` and `Ui::tabs` vary the kit's radio group and tab bar, as a `Copy` value built with `const fn` builders from
+/// `Choice::DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Choice<'a> {
+    /// The group's (the tab bar's) accessible name; empty: none.
+    pub name: &'a str,
+    /// The variant the options' bodies (`radio` rows, `tab`s) read from their config (0: none).
+    pub variant: u16,
+}
+
+impl<'a> Choice<'a> {
+    /// The plain kit radio group or tab bar, unnamed (each option is named by its text).
+    pub const DEFAULT: Choice<'a> = Choice { name: "", variant: 0 };
+
+    /// Sets the group's (the tab bar's) accessible name; the key is identity only, never the name.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const QUALITY: pxui_types::ui::Choice = pxui_types::ui::Choice::DEFAULT.name("Quality");
+    /// assert_eq!(QUALITY.name, "Quality");
+    /// ```
+    pub const fn name(mut self, name: &'a str) -> Choice<'a> { self.name = name; self }
+
+    /// Sets the variant the registered bodies of the options read from their config (0 by default). The built-in bodies ignore it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const PILLS: pxui_types::ui::Choice = pxui_types::ui::Choice::DEFAULT.variant(2);
+    /// assert_eq!(PILLS.variant, 2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Choice<'a> { self.variant = variant; self }
+}
+
+/// How `Ui::dropdown` varies the kit's dropdown, as a `Copy` value built with `const fn` builders from `Dropdown::DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dropdown {
+    /// The variant a registered dropdown body reads from its config (0: none).
+    pub variant: u16,
+}
+
+impl Dropdown {
+    /// The plain kit dropdown: the text, then a button showing the choice and a chevron.
+    pub const DEFAULT: Dropdown = Dropdown { variant: 0 };
+
+    /// Sets the variant a registered dropdown body reads from its config (0 by default). The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const COMPACT: pxui_types::ui::Dropdown = pxui_types::ui::Dropdown::DEFAULT.variant(1);
+    /// assert_eq!(COMPACT.variant, 1);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Dropdown { self.variant = variant; self }
+}
+
+/// How `Ui::slider` varies the kit's slider, as a `Copy` value built with `const fn` builders from `Slider::DEFAULT`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Slider {
+    /// The variant a registered slider body reads from its config (0: none).
+    pub variant: u16,
+}
+
+impl Slider {
+    /// The plain kit slider: the text, then a rail with the filled part and an 8 x 14 thumb.
+    pub const DEFAULT: Slider = Slider { variant: 0 };
+
+    /// Sets the variant a registered slider body reads from its config (0 by default). The built-in body ignores it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SEEK: pxui_types::ui::Slider = pxui_types::ui::Slider::DEFAULT.variant(1);
+    /// assert_eq!(SEEK.variant, 1);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Slider { self.variant = variant; self }
+}
+
+/// The rows a `Ui::picker` fill writes: `(label, detail)` text pairs pushed in order, kept between frames so a settled picker's row
+/// strings are reused, not allocated again.
+#[derive(Debug, Default)]
+pub struct PickRows {
+    rows: Vec<(String, String)>,
+    len: usize,
+}
+
+impl PickRows {
+    /// No rows, nothing allocated.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::PickRows::new().is_empty());
+    /// ```
+    pub const fn new() -> PickRows { PickRows { rows: Vec::new(), len: 0 } }
+
+    /// Appends the row `label` with `detail` beside it.
+    /// Allocates: only past the longest rows and the most rows kept so far (their strings are reused).
+    /// Identity: none; rows are keyed by their index in the picker.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut rows = pxui_types::ui::PickRows::new();
+    /// rows.push("Song", "Artist");
+    /// assert_eq!(rows.get(0), Some(("Song", "Artist")));
+    /// ```
+    pub fn push(&mut self, label: &str, detail: &str) {
+        if self.len == self.rows.len() { self.rows.push((String::new(), String::new())); }
+        let row = &mut self.rows[self.len];
+        row.0.clear();
+        row.0.push_str(label);
+        row.1.clear();
+        row.1.push_str(detail);
+        self.len += 1;
+    }
+
+    /// Forgets the rows, keeping their storage.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut rows = pxui_types::ui::PickRows::new();
+    /// rows.push("a", "");
+    /// rows.clear();
+    /// assert_eq!(rows.len(), 0);
+    /// ```
+    pub fn clear(&mut self) { self.len = 0; }
+
+    /// How many rows there are.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::PickRows::new().is_empty());
+    /// ```
+    pub fn len(&self) -> usize { self.len }
+
+    /// Whether there are no rows.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::ui::PickRows::new().is_empty());
+    /// ```
+    pub fn is_empty(&self) -> bool { self.len == 0 }
+
+    /// Row `i`'s label and detail, or none past the rows.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::ui::PickRows::new().get(0), None);
+    /// ```
+    pub fn get(&self, i: usize) -> Option<(&str, &str)> { (i < self.len).then(|| (self.rows[i].0.as_str(), self.rows[i].1.as_str())) }
 }
 
 /// The part of a `SectionList` a build callback is asked to fill.
@@ -31,6 +391,181 @@ pub enum SectionPart {
     Header,
     /// Row `n`, counted from 0.
     Row(usize),
+}
+
+/// How `Ui::panel`, `Ui::popup`, `Ui::modal` and `Ui::anchored` place and dress their sheet, as one `Copy` value built with `const fn`
+/// builders from `Overlay::DEFAULT`. Each call reads the options it has and ignores the rest (listed per builder).
+///
+/// The default: at (12, 12), the call's own width (a panel 280, a modal 320, a popup 180, an anchored sheet its content's), the
+/// content's height, no limit, the theme's look, no padding, a sheet (not a window), unnamed, under its anchor.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Overlay<'a> {
+    /// The sheet's top-left in window points (panel, popup).
+    pub at: (f32, f32),
+    /// The width in points (`None`: the call's own).
+    pub w: Option<f32>,
+    /// A fixed height in points (panel, anchored), or a popup's height before it is first laid out (its first frame's hit area).
+    pub h: Option<f32>,
+    /// The tallest the sheet grows in points; past it the content scrolls (panel, popup).
+    pub max_h: Option<f32>,
+    /// A floating sheet's hairline: the theme's popup look in this colour (panel, popup).
+    pub stroke: Option<Color>,
+    /// A look in place of the theme's (panel).
+    pub look: Option<Look>,
+    /// The inner padding in whole points (panel).
+    pub padding: f32,
+    /// Lays the sheet out as a window with inspector rows (panel).
+    pub window: bool,
+    /// A press outside dismisses the popup on its first frame too (popup).
+    pub dismiss_initial: bool,
+    /// The popup belongs to the popup built before it (a submenu): it shares its events and is never dismissed by itself (popup).
+    pub attached: bool,
+    /// The sheet's accessible name (`None`: none; the key is identity only).
+    pub name: Option<&'a str>,
+    /// Where an anchored sheet sits by its anchor (anchored).
+    pub place: crate::layout::Placement,
+}
+
+impl<'a> Overlay<'a> {
+    /// The plain sheet of each call.
+    pub const DEFAULT: Overlay<'a> = Overlay {
+        at: (12.0, 12.0), w: None, h: None, max_h: None, stroke: None, look: None, padding: 0.0, window: false, dismiss_initial: false, attached: false,
+        name: None, place: crate::layout::Placement::BELOW,
+    };
+
+    /// Places the sheet's top-left at (`x`, `y`) window points (panel, popup).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const MENU: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.at(40.0, 60.0);
+    /// assert_eq!(MENU.at, (40.0, 60.0));
+    /// ```
+    pub const fn at(mut self, x: f32, y: f32) -> Overlay<'a> { self.at = (x, y); self }
+
+    /// Sets the width in points (a panel is at least 180).
+    /// Allocates: never.
+    /// Panics: never (a width that is not finite or is negative is refused by the call).
+    ///
+    /// ```
+    /// const WIDE: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.w(320.0);
+    /// assert_eq!(WIDE.w, Some(320.0));
+    /// ```
+    pub const fn w(mut self, w: f32) -> Overlay<'a> { self.w = Some(w); self }
+
+    /// Sets a fixed height in points (panel, anchored), or a popup's height before it is first laid out.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const PANE: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.h(200.0);
+    /// assert_eq!(PANE.h, Some(200.0));
+    /// ```
+    pub const fn h(mut self, h: f32) -> Overlay<'a> { self.h = Some(h); self }
+
+    /// Sets the tallest the sheet grows in points; past it the content scrolls (panel, popup).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const LIST: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.max_h(400.0);
+    /// assert_eq!(LIST.max_h, Some(400.0));
+    /// ```
+    pub const fn max_h(mut self, h: f32) -> Overlay<'a> { self.max_h = Some(h); self }
+
+    /// Draws the sheet as a floating one with a hairline in `color` (panel, popup).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rgba, ui::Overlay};
+    /// const EDGED: Overlay = Overlay::DEFAULT.stroke(Rgba { r: 0, g: 0, b: 0, a: 40 });
+    /// assert!(EDGED.stroke.is_some());
+    /// ```
+    pub const fn stroke(mut self, color: Color) -> Overlay<'a> { self.stroke = Some(color); self }
+
+    /// Draws the sheet in `look` in place of the theme's (panel).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{theme::Look, ui::Overlay};
+    /// const BARE: Overlay = Overlay::DEFAULT.look(Look::NONE);
+    /// assert!(BARE.look.is_some());
+    /// ```
+    pub const fn look(mut self, look: Look) -> Overlay<'a> { self.look = Some(look); self }
+
+    /// Sets the inner padding in whole points (panel; a fraction is dropped).
+    /// Allocates: never.
+    /// Panics: never (a negative padding is refused by the call).
+    ///
+    /// ```
+    /// const ROOMY: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.padding(8.0);
+    /// assert_eq!(ROOMY.padding, 8.0);
+    /// ```
+    pub const fn padding(mut self, padding: f32) -> Overlay<'a> { self.padding = padding; self }
+
+    /// Lays the sheet out as a floating window with inspector rows (panel).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const INSPECTOR: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.window();
+    /// assert!(INSPECTOR.window);
+    /// ```
+    pub const fn window(mut self) -> Overlay<'a> { self.window = true; self }
+
+    /// Lets a press outside dismiss the popup on its first frame too (popup).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const MENU: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.dismiss_initial();
+    /// assert!(MENU.dismiss_initial);
+    /// ```
+    pub const fn dismiss_initial(mut self) -> Overlay<'a> { self.dismiss_initial = true; self }
+
+    /// Attaches the popup to the popup built before it (a submenu): it shares that popup's events and is never dismissed by itself
+    /// (popup).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SUBMENU: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.attached();
+    /// assert!(SUBMENU.attached);
+    /// ```
+    pub const fn attached(mut self) -> Overlay<'a> { self.attached = true; self }
+
+    /// Sets the sheet's accessible name (shown up to any `##` in it); without it the sheet has none.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const SETTINGS: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.name("Settings");
+    /// assert_eq!(SETTINGS.name, Some("Settings"));
+    /// ```
+    pub const fn name(mut self, name: &'a str) -> Overlay<'a> { self.name = Some(name); self }
+
+    /// Sets where an anchored sheet sits by its anchor (anchored; `Placement::BELOW` by default).
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{layout::{Placement, Side}, ui::Overlay};
+    /// const ABOVE: Overlay = Overlay::DEFAULT.place(Placement { side: Side::Above, ..Placement::BELOW });
+    /// assert_eq!(ABOVE.place.side, Side::Above);
+    /// ```
+    pub const fn place(mut self, place: crate::layout::Placement) -> Overlay<'a> { self.place = place; self }
+}
+
+/// What `Ui::picker` reports: the query as it stands after this frame's edits, borrowed from the `Ui` until its next call, and what
+/// happened to it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PickerResponse<'a> {
+    /// The query after this frame's edits.
+    pub query: &'a str,
+    /// What happened: a row picked or deleted, submit, back, cancel, or nothing.
+    pub pick: Pick,
 }
 
 /// Points a pressed pointer travels before a press is a drag: a carry starts, a click ends.

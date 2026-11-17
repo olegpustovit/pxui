@@ -57,7 +57,7 @@ pub fn styling_themed_scope() {
             inside.set(Some(ui.theme().tokens.accent));
             ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
                 runs.set(runs.get() + 1);
-                ui.panel(PanelOpts::default(), "p", &mut |ui| {
+                ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
                     ui.button("Go");
                 });
             });
@@ -85,7 +85,7 @@ pub fn styling_variant_states() {
     let danger = States { idle: Look { fill: red, ..t.button.idle }, ..t.button };
     for k in 0..2 {
         ui.frame(&at(k as f64, vec![]), &mut |ui| {
-            ui.panel(PanelOpts::default(), "p", &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
                 ui.button_opts("Delete", "Delete", None, &ButtonOpts { states: Some(danger), ..ButtonOpts::DEFAULT }, None, None);
             });
         });
@@ -108,7 +108,7 @@ pub fn styling_transition_without_rebuild() {
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
             runs.set(runs.get() + 1);
-            ui.panel(PanelOpts::default(), "p", &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
                 ui.button("Go");
             });
         });
@@ -150,7 +150,7 @@ pub fn styling_theme_swap_transition() {
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(300.0), Size::Px(200.0), &mut |ui| {
             runs.set(runs.get() + 1);
-            ui.panel(PanelOpts::default(), "p", &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
                 ui.label("Swap", pxui_core::ui::Label::DEFAULT);
                 ui.button("Go");
                 ui.toggle("On", true);
@@ -165,7 +165,7 @@ pub fn styling_theme_swap_transition() {
         ui.set_theme(theme);
         let mut b = |ui: &mut Ui| {
             ui.view("v", 1, Size::Px(300.0), Size::Px(200.0), &mut |ui| {
-                ui.panel(PanelOpts::default(), "p", &mut |ui| {
+                ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
                     ui.label("Swap", pxui_core::ui::Label::DEFAULT);
                     ui.button("Go");
                     ui.toggle("On", true);
@@ -228,7 +228,7 @@ pub fn styling_reduced_motion() {
     theme.tokens.reduced_motion = true;
     ui.set_theme(theme);
     let mut build = |ui: &mut Ui| {
-        ui.panel(PanelOpts::default(), "p", &mut |ui| {
+        ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
             ui.button("Go");
         });
     };

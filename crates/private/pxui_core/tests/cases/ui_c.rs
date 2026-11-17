@@ -527,7 +527,7 @@ pub fn window_pxui_modal_1() {
     let shown = Cell::new(false);
     let modal = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            shown.set(ui.modal(Some(200.0), "modal", &mut |ui| ui.label("Hello", pxui_core::ui::Label::DEFAULT)));
+            shown.set(ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.w(200.0).name("modal"), &mut |ui| ui.label("Hello", pxui_core::ui::Label::DEFAULT)));
         });
     };
     modal(&mut ui, vec![]);
@@ -556,7 +556,7 @@ pub fn window_pxui_modal_2() {
     let shown = Cell::new(false);
     let popup = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            shown.set(ui.popup(None, None, true, false, (20.0, 20.0), 200.0, 10.0, "popup", &mut |ui| {
+            shown.set(ui.popup("popup", &pxui_core::ui::Overlay::DEFAULT.at(20.0, 20.0).w(200.0).h(10.0).dismiss_initial().name("popup"), &mut |ui| {
                 ui.label("One", pxui_core::ui::Label::DEFAULT);
                 ui.label("Two", pxui_core::ui::Label::DEFAULT);
             }));
@@ -676,7 +676,7 @@ pub fn window_pxui_carry() {
         let mut out = (None, None, false);
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
             if popup.get() {
-                ui.popup(None, None, true, false, (200.0, 0.0), 100.0, 40.0, "over", &mut |_| {});
+                ui.popup("over", &pxui_core::ui::Overlay::DEFAULT.at(200.0, 0.0).w(100.0).h(40.0).dismiss_initial().name("over"), &mut |_| {});
             }
             let source = ui.box_("source", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
             let target = ui.box_("target", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 100.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));

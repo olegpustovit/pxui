@@ -3,7 +3,8 @@ use crate::state::{Build, PxuiUi, checked, fail, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiDialogOut, Str};
 use core::ffi::c_void;
 use pxui_types::ffi::{PxuiAnchorDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSizeDesc, Slice};
-use pxui_types::ui::{Dialog, DialogButton, DialogResponse};
+use pxui_types::ui::{shown, Dialog, DialogButton, DialogResponse, Overlay};
+use pxui_types::ffi::PxuiKeyedDesc;
 
 const MAX_BUTTONS: usize = 64;
 
@@ -18,23 +19,49 @@ fn dialog_buttons<'a, 'b>(texts: &[&'a str], (default_at, cancel_at, danger, dis
     Some(&buf[..n])
 }
 
-export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, label: Str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+/// The modal of a width flag and width named `name`, the body of `pxui_ui_modal` and `pxui_ui_modal_keyed`.
+unsafe fn modal(ui: *mut PxuiUi, key: &str, name: &str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
     if out.is_null() || has_width > 1 { return unsafe { fail(ui, "invalid modal arguments") }; }
-    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid modal label") }; };
+    let overlay = Overlay { w: (has_width != 0).then_some(width), name: Some(name), ..Overlay::DEFAULT };
     let mut open = false;
-    let rc = unsafe { crate::trusted::modal(ui, label, (has_width != 0).then_some(width), &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut open) };
+    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut open) };
     unsafe { *out = open as u8; }
     rc
+}
+
+// Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_modal_keyed` keys apart.
+export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, label: Str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid modal label") }; };
+    unsafe { modal(ui, label, shown(label), has_width, width, callback, user, out) }
 });
 
+// ABI 1.68: a modal keyed by `keyed.key`, named `keyed.name`.
+export!(trusted pub unsafe fn pxui_ui_modal_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { modal(ui, key, name, has_width, width, callback, user, out) }
+});
+
+/// The scroll view named `name`, the body of `pxui_ui_scroll_view` and `pxui_ui_scroll_view_keyed`.
+unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+    if out.is_null() { return unsafe { fail(ui, "null scroll view output") }; }
+    let (Some(width), Some(height)) = (size(width), size(height)) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
+    unsafe { crate::trusted::scroll_view(ui, key, name, width, height, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
+}
+
+// Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_scroll_view_keyed` keys apart.
 export!(trusted pub unsafe fn pxui_ui_scroll_view(ui: *mut PxuiUi, label: Str, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
-    if out.is_null() { return unsafe { fail(ui, "null scroll view output") }; }
-    let (Some(label), Some(width), Some(height)) = (unsafe { checked(label) }, size(width), size(height)) else {
-        return unsafe { fail(ui, "invalid scroll view arguments") };
-    };
-    unsafe { crate::trusted::scroll_view(ui, label, width, height, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
+    unsafe { scroll_view(ui, label, shown(label), width, height, callback, user, out) }
+});
+
+// ABI 1.68: a scroll view keyed by `keyed.key`, named `keyed.name` (empty: none).
+export!(trusted pub unsafe fn pxui_ui_scroll_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { scroll_view(ui, key, name, width, height, callback, user, out) }
 });
 
 unsafe fn view_with(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox, flat: bool) -> i32 {
@@ -55,18 +82,40 @@ export!(trusted pub unsafe fn pxui_ui_view_flat(ui: *mut PxuiUi, label: Str, rev
     unsafe { view_with(ui, label, revision, width, height, callback, user, out, true) }
 });
 
-export!(trusted pub unsafe fn pxui_ui_anchored(ui: *mut PxuiUi, label: Str, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
-    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+/// `anchor`'s placement, or `None` for an invalid descriptor.
+fn placement(anchor: &PxuiAnchorDesc) -> Option<pxui_types::layout::Placement> {
+    if anchor.has_anchor != 1 || anchor.flip > 1 || anchor.side > 3 || anchor.align > 4 { return None; }
+    let side = match anchor.side { 0 => pxui_types::layout::Side::Below, 1 => pxui_types::layout::Side::Above, 2 => pxui_types::layout::Side::Right, _ => pxui_types::layout::Side::Left };
+    let align = match anchor.align { 0 => pxui_types::layout::Align::Start, 1 => pxui_types::layout::Align::Center, 2 => pxui_types::layout::Align::End, 3 => pxui_types::layout::Align::Stretch, _ => pxui_types::layout::Align::Baseline };
+    Some(pxui_types::layout::Placement { side, align, gap: anchor.gap, margin: anchor.margin, flip: anchor.flip != 0 })
+}
+
+// Legacy (cut at 2.0): keyed by its label (identity only); `pxui_ui_anchored_keyed` keys apart and names.
+export!(build pub unsafe fn pxui_ui_anchored(ui: *mut PxuiUi, label: Str, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if anchor.is_null() || out.is_null() { return unsafe { fail(ui, "null anchored argument") }; }
-    let (Some(label), Some(width), Some(height)) = (unsafe { checked(label) }, size(width), size(height)) else {
-        return unsafe { fail(ui, "invalid anchored arguments") };
-    };
+    let (Some(label), Some(width), Some(height)) = (unsafe { checked(label) }, size(width), size(height)) else { return unsafe { fail(ui, "invalid anchored arguments") }; };
     let anchor = unsafe { *anchor };
-    if anchor.has_anchor != 1 || anchor.flip > 1 || anchor.side > 3 || anchor.align > 4 { return unsafe { fail(ui, "invalid anchor descriptor") }; }
-    let side = match anchor.side { 0 => pxui_types::layout::Side::Below, 1 => pxui_types::layout::Side::Above, 2 => pxui_types::layout::Side::Right, 3 => pxui_types::layout::Side::Left, _ => unreachable!() };
-    let align = match anchor.align { 0 => pxui_types::layout::Align::Start, 1 => pxui_types::layout::Align::Center, 2 => pxui_types::layout::Align::End, 3 => pxui_types::layout::Align::Stretch, 4 => pxui_types::layout::Align::Baseline, _ => unreachable!() };
-    let placement = pxui_types::layout::Placement { side, align, gap: anchor.gap, margin: anchor.margin, flip: anchor.flip != 0 };
-    unsafe { crate::trusted::anchored(ui, label, anchor.rect, placement, width, height, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
+    let Some(place) = placement(&anchor) else { return unsafe { fail(ui, "invalid anchor descriptor") }; };
+    let r = anchor.rect;
+    if label.len() > crate::state::MAX_TEXT_BYTES || r.w < 0.0 || r.h < 0.0 || place.margin < 0.0 || ![r.x, r.y, r.w, r.h, place.gap, place.margin].iter().all(|v| v.is_finite()) { return unsafe { fail(ui, "invalid anchored arguments") }; }
+    let shared = state.shared;
+    let b = unsafe { (&mut *state.engine).anchored_legacy(label, r, place, width, height, &mut |engine| crate::state::call_build(shared, engine, callback, user)) };
+    unsafe { *out = crate::state::to_abi_box(b); }
+    0
+});
+
+// ABI 1.68: a sheet by its anchor keyed by `keyed.key`, named `keyed.name` (empty: none); `width` and `height` in points or fit.
+export!(trusted pub unsafe fn pxui_ui_anchored_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    if anchor.is_null() || out.is_null() { return unsafe { fail(ui, "null anchored argument") }; }
+    let points = |s: Option<pxui_types::Size>| match s { Some(pxui_types::Size::Fit) => Some(None), Some(pxui_types::Size::Px(v)) => Some(Some(v)), _ => None };
+    let (Some(w), Some(h)) = (points(size(width)), points(size(height))) else { return unsafe { fail(ui, "invalid anchored size: points or fit") }; };
+    let anchor = unsafe { *anchor };
+    let Some(place) = placement(&anchor) else { return unsafe { fail(ui, "invalid anchor descriptor") }; };
+    let overlay = Overlay { w, h, place, name: (!name.is_empty()).then_some(name), ..Overlay::DEFAULT };
+    unsafe { crate::trusted::anchored(ui, key, anchor.rect, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
 });
 
 // A dialog with the plain buttons of its labels: the last is the default, none cancels, the sheet is keyed by the title.

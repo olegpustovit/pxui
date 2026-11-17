@@ -322,7 +322,7 @@ pub fn layout_anchored_flip() {
     // the engine primitive places a Fit popup in layout, by its laid-out size
     let mut ui = new_ui(None);
     let r = lay(&mut ui, 0.0, vec![], &mut |ui| {
-        let pop = ui.anchored("pop", Rect::new(10.0, 200.0, 30.0, 20.0), p(Side::Below), Size::Fit, Size::Fit, &mut |ui| {
+        let pop = ui.anchored("pop", Rect::new(10.0, 200.0, 30.0, 20.0), &pxui_core::ui::Overlay::DEFAULT.place(p(Side::Below)), &mut |ui| {
             ui.node("body".into(), px(100.0, 50.0));
         });
         vec![pop]
@@ -642,7 +642,7 @@ pub fn layout_warm_zero_alloc() {
 pub fn layout_kit_resize_same_frame() {
     let mut ui = new_ui(None);
     let width = std::cell::Cell::new(280.0);
-    let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default().width(width.get()), "panel", &mut |ui| {
+    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.w(width.get()).name("panel"), &mut |ui| {
         ui.text_field("Caption", "value");
         ui.toggle("Wire", true);
     });
@@ -737,7 +737,7 @@ pub fn stress(ui: &mut Ui, groups: usize) {
 /// root rebuilds the view that builds it).
 pub fn stress_popup(ui: &mut Ui) {
     let popup = Placement { side: Side::Below, align: Align::Start, gap: 2.0, margin: 4.0, flip: true };
-    ui.anchored("stress-pop", Rect::new(2300.0, 2390.0, 40.0, 20.0), popup, Size::Fit, Size::Fit, &mut |ui| {
+    ui.anchored("stress-pop", Rect::new(2300.0, 2390.0, 40.0, 20.0), &pxui_core::ui::Overlay::DEFAULT.place(popup), &mut |ui| {
         ui.node("pop-body".into(), Node { look: Look { fill: color::white(), ..Look::NONE }, ..px(120.0, 60.0) });
         ui.node("pop-line".into(), Node { w: Size::Grow, h: Size::Px(1.0), ..Node::DEFAULT });
     });

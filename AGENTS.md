@@ -66,7 +66,7 @@ nothing may reach outside this repository (no `../../..` paths past the root).
 The code is the documentation. There is no separate guide, tutorial or API
 reference to keep in step; `specification/` describes behaviour, not signatures.
 
-A type that crosses the C ABI as a record lives in `pxui_types`; an authoring-only style value, callback set or response struct lives in `pxui` (`author/`).
+A type that crosses the C ABI as a record, and a type the engine shares (a style value both sides take, such as `Overlay` or `Choice`), lives in `pxui_types`; an authoring-only style value, callback set or response struct lives in `pxui` (`author/`).
 Style-value builders name sizes one way: a length in points ends in `_px` (`w_px`, `h_px`), a `Size` takes the bare
 name (`w`, `h`), and alignment is one builder taking its enum (`Label::align(TextAlign::Center)`).
 

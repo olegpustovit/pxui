@@ -5,6 +5,11 @@ use crate::node::size;
 #[cfg(not(feature = "static"))]
 use crate::sys;
 use crate::{Ui, check};
+#[cfg(not(feature = "static"))]
+use pxui_types::ffi::PxuiKeyedDesc;
+use pxui_types::ui::{Key, Overlay};
+#[cfg(not(feature = "static"))]
+use pxui_types::PxuiPanel;
 
 // Per-thread state of the wrapper, by design (OS-grade criterion 2): each lives in a `thread_local`, is shared by every `Ui` on
 // that thread, is never touched from another thread and holds no app pointer past the call that filled it. Bounded:
@@ -52,21 +57,55 @@ fn encode_placement(value: Placement) -> PxuiAnchorDesc {
 
 
 impl Ui {
-    #[inline]
-    #[track_caller] pub fn modal(&mut self, width: Option<f32>, label: &str, mut build: &mut dyn FnMut(&mut Ui)) -> bool {
+    /// The one body of `modal`: linked statically, the library's trusted entry with the overlay; else the keyed export.
+    #[track_caller]
+    pub(crate) fn modal_key(&mut self, key: Key, overlay: &Overlay<'_>, mut build: &mut dyn FnMut(&mut Ui)) -> bool {
+        let mut id_label = [0u8; 17];
+        let key = key.label(&mut id_label);
         #[cfg(feature = "static")]
-        { let mut out = false; check(self, unsafe { pxui_abi_link::trusted::modal(self.0.as_ptr(), label, width, inner!(|ui: &mut Ui| build(ui)), &mut out) }); out }
+        { let mut out = false; check(self, unsafe { pxui_abi_link::trusted::modal(self.0.as_ptr(), key, overlay, inner!(|ui: &mut Ui| build(ui)), &mut out) }); out }
         #[cfg(not(feature = "static"))]
-        { let mut out = 0; check(self, unsafe { sys::pxui_ui_modal(self.0.as_ptr(), as_str(label), width.is_some() as u8, width.unwrap_or_default(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) }); out != 0 }
+        {
+            let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
+            let width = overlay.w;
+            let mut out = 0;
+            check(self, unsafe { keyed_sys::pxui_ui_modal_keyed(self.0.as_ptr(), &keyed, width.is_some() as u8, width.unwrap_or_default(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
+            out != 0
+        }
     }
 
-    #[inline]
-    #[track_caller] pub fn scroll_view(&mut self, label: &str, width: Size, height: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
+    /// The one body of `panel`: linked statically, the library's trusted entry with the overlay; else the overlay as the panel record of
+    /// the keyed export.
+    #[track_caller]
+    pub(crate) fn panel_key(&mut self, key: Key, overlay: &Overlay<'_>, mut f: &mut dyn FnMut(&mut Ui)) {
+        let mut id_label = [0u8; 17];
+        let key = key.label(&mut id_label);
+        #[cfg(feature = "static")]
+        let rc = unsafe { pxui_abi_link::trusted::panel(self.0.as_ptr(), key, overlay, inner!(|ui: &mut Ui| f(ui))) };
+        #[cfg(not(feature = "static"))]
+        let rc = {
+            // the options a panel usually has are written as they are; each optional part only when it is there
+            let mut panel = PxuiPanel { x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(280.0), padding: overlay.padding as i64, window: overlay.window as u8, ..PxuiPanel::default() };
+            if let Some(height) = overlay.h { (panel.has_height, panel.height) = (1, height); }
+            if let Some(height) = overlay.max_h { (panel.has_max_height, panel.max_height) = (1, height); }
+            if let Some(stroke) = overlay.stroke { (panel.has_stroke, panel.stroke) = (1, stroke); }
+            if let Some(look) = overlay.look { panel_look(&mut panel, look); }
+            let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
+            unsafe { keyed_sys::pxui_ui_panel_keyed(self.0.as_ptr(), &keyed, &panel, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) }
+        };
+        check(self, rc)
+    }
+
+    /// The one body of `scroll_view`: keyed by `key`, unnamed.
+    #[track_caller]
+    pub(crate) fn scroll_view_key(&mut self, key: Key, width: Size, height: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
+        let mut id_label = [0u8; 17];
+        let key = key.label(&mut id_label);
         let mut out = PxuiBox::default();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::scroll_view(self.0.as_ptr(), label, width, height, inner!(|ui: &mut Ui| build(ui)), &mut out) });
+        check(self, unsafe { pxui_abi_link::trusted::scroll_view(self.0.as_ptr(), key, "", width, height, inner!(|ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { sys::pxui_ui_scroll_view(self.0.as_ptr(), as_str(label), size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { keyed_sys::pxui_ui_scroll_view_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
@@ -81,20 +120,45 @@ impl Ui {
         out
     }
 
-    #[inline]
-    #[track_caller] pub fn anchored(&mut self, label: &str, anchor: Rect, placement: Placement, width: Size, height: Size, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
+    /// The one body of `anchored`: keyed by `key`, the overlay's placement and size (each its content's when unset), named by its name.
+    #[track_caller]
+    pub(crate) fn anchored_key(&mut self, key: Key, anchor: Rect, overlay: &Overlay<'_>, mut build: &mut dyn FnMut(&mut Ui)) -> PxuiBox {
+        let mut id_label = [0u8; 17];
+        let key = key.label(&mut id_label);
         let mut out = PxuiBox::default();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::anchored(self.0.as_ptr(), label, anchor, placement, width, height, inner!(|ui: &mut Ui| build(ui)), &mut out) });
+        check(self, unsafe { pxui_abi_link::trusted::anchored(self.0.as_ptr(), key, anchor, overlay, inner!(|ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
         {
-            let mut descriptor = encode_placement(placement);
+            let mut descriptor = encode_placement(overlay.place);
             descriptor.rect = anchor;
-            check(self, unsafe { sys::pxui_ui_anchored(self.0.as_ptr(), as_str(label), &descriptor, size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
+            let (width, height) = (overlay.w.map_or(Size::Fit, Size::Px), overlay.h.map_or(Size::Fit, Size::Px));
+            check(self, unsafe { keyed_sys::pxui_ui_anchored_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or(""))), &descriptor, size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         }
         out
     }
 }
 
+/// A panel descriptor's look, out of line: inlined, its encoding made the plain panel's descriptor a select of every field.
+#[cfg(not(feature = "static"))]
+#[cold]
+#[inline(never)]
+fn panel_look(panel: &mut PxuiPanel, look: pxui_types::theme::Look) { (panel.has_look, panel.look) = (1, crate::node::look(look)); }
+
 #[inline]
 fn as_str(value: &str) -> Str { crate::as_str(value) }
+
+// The keyed container exports (ABI 1.68): key and name apart in a `PxuiKeyedDesc`.
+#[cfg(not(feature = "static"))]
+mod keyed_sys {
+    use core::ffi::c_void;
+    use pxui_types::{PxuiBox, PxuiPanel, ffi::{PxuiAnchorDesc, PxuiKeyedDesc, PxuiSizeDesc, UiBuild}};
+    use crate::sys::PxuiUi;
+    #[link(name = "pxui")]
+    unsafe extern "C" {
+        pub(super) fn pxui_ui_modal_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_width: u8, width: f32, build: UiBuild, user: *mut c_void, out: *mut u8) -> i32;
+        pub(super) fn pxui_ui_panel_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, panel: *const PxuiPanel, build: UiBuild, user: *mut c_void) -> i32;
+        pub(super) fn pxui_ui_scroll_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_anchored_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
+    }
+}

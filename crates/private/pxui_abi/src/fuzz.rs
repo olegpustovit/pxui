@@ -141,6 +141,24 @@ impl Arg for *mut PxuiShaper { fn arg(v: u32) -> Self { if v % 2 == 1 { core::pt
 impl Arg for *mut PxuiTheme { fn arg(v: u32) -> Self { if v % 2 == 1 { core::ptr::null_mut() } else { THEME.with(Cell::get) } } }
 impl Arg for *const PxuiTheme { fn arg(v: u32) -> Self { <*mut PxuiTheme>::arg(v).cast_const() } }
 impl Arg for *const PxuiTextWorker { fn arg(_: u32) -> Self { core::ptr::null() } }
+/// A keyed widget's identity record (the `*_keyed` calls): null, size 0, then the whole record with garbage in one field each: an invalid
+/// UTF-8 key, a key past the identifier cap (300 bytes), a name past the display cap or with a huge length, a non-zero `reserved`.
+impl Arg for *const PxuiKeyedDesc {
+    fn arg(v: u32) -> Self {
+        let size = core::mem::size_of::<PxuiKeyedDesc>() as u32;
+        let ok = Str { ptr: b"k".as_ptr(), len: 1 };
+        let desc = match v % VARIANTS {
+            1 => return core::ptr::null(),
+            2 => PxuiKeyedDesc { size: 0, reserved: 0, key: ok, name: ok },
+            3 => PxuiKeyedDesc { size, reserved: 0, key: Str { ptr: GARBAGE.as_ptr(), len: GARBAGE.len() }, name: Str { ptr: LONG.as_ptr(), len: LONG.len() } },
+            4 => PxuiKeyedDesc { size, reserved: 0, key: Str { ptr: LONG.as_ptr(), len: 300 }, name: Str { ptr: GARBAGE.as_ptr(), len: 1 << 40 } },
+            5 => PxuiKeyedDesc { size, reserved: 7, key: ok, name: ok },
+            _ => PxuiKeyedDesc { size, reserved: 0, key: ok, name: Str { ptr: b"Name".as_ptr(), len: 4 } },
+        };
+        unsafe { buf().cast::<PxuiKeyedDesc>().write(desc) };
+        buf().cast()
+    }
+}
 impl Arg for PxuiSizeDesc { fn arg(v: u32) -> Self { PxuiSizeDesc { kind: u32::arg(v), value: f32::arg(v), relative: None } } }
 
 /// Records the failures of one call: a panic (even one the export caught) and a poisoned `Ui`. The `Ui` is unpoisoned so the rest
@@ -210,7 +228,9 @@ fuzz!(
     pxui_theme_load/2, pxui_theme_set/3, pxui_toggle/4, pxui_ui_a11y_name/3, pxui_ui_a11y_number/6, pxui_ui_a11y_value/5, pxui_ui_anchored/8, pxui_ui_animate/4,
     pxui_ui_animate_keys/4, pxui_ui_animate_keys_repeat/7, pxui_ui_badge/4, pxui_ui_box/4, pxui_ui_box_of_a11y/3, pxui_ui_box_of_key/3, pxui_ui_busy_step/4,
     pxui_ui_button_content/5, pxui_ui_button_plain/4, pxui_ui_button_response/5, pxui_ui_button_styled/8, pxui_ui_button_with/7, pxui_ui_bytes/3,
-    pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_checkbox/4,
+    pxui_ui_cached_label/5, pxui_ui_calls/1, pxui_ui_cancel_carry/1, pxui_ui_cap_width/3, pxui_ui_captured/1, pxui_ui_carry/5, pxui_ui_carrying/4, pxui_ui_checkbox/4, pxui_ui_checkbox_keyed/4, pxui_ui_choice_keyed/7, pxui_ui_slider_keyed/7, pxui_ui_progress_keyed/5, pxui_ui_spinner_keyed/3,
+    pxui_ui_badge_keyed/4, pxui_ui_panel_keyed/5, pxui_ui_popup_keyed/6, pxui_ui_modal_keyed/7, pxui_ui_anchored_keyed/8, pxui_ui_scroll_view_keyed/7,
+    pxui_ui_toasts_keyed/6, pxui_ui_table_view_keyed/6, pxui_ui_picker_keyed/13,
     pxui_ui_color/2, pxui_ui_content_rect/2, pxui_ui_context_at/4, pxui_ui_context_menu/13, pxui_ui_density/1,
     pxui_ui_dialog/6, pxui_ui_dialog_response/5, pxui_ui_disabled/4, pxui_ui_dismiss/4, pxui_ui_dismiss_popup/1, pxui_ui_draw/6,
     pxui_ui_drop_target/5, pxui_ui_dropdown/5, pxui_ui_enter/3, pxui_ui_environment/2, pxui_ui_expanded/3, pxui_ui_field_drag/4, pxui_ui_focus_box/2,

@@ -286,7 +286,7 @@ fn scale_7(scale: f64) {
     // A bounded panel scrolls by whole rows and routes hits to scrolled rows.
     let toggles = RefCell::new([false; 4]);
     let mut scrolled = |ui: &mut Ui| {
-        ui.panel(PanelOpts::default().at(0.0, 0.0).width(240.0).max_height(80.0), "scroll", &mut |ui| {
+        ui.panel("scroll", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).max_h(80.0).name("scroll"), &mut |ui| {
             for index in 0..4 {
                 let v = toggles.borrow()[index];
                 let n = ui.toggle(&format!("Row {}", index), v);
@@ -316,7 +316,7 @@ fn scale_7(scale: f64) {
     let fixed_panel = |ui: &mut Ui, events: Vec<Event>| {
         let t = advance();
         ui.frame(&frame_at(vec![], scale, t, events), &mut |ui| {
-            ui.panel(PanelOpts::default().at(0.0, 0.0).width(240.0).height(80.0), "fixed", &mut |ui| {
+            ui.panel("fixed", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).h(80.0).name("fixed"), &mut |ui| {
                 for index in 0..4 {
                     let v = fixed.borrow()[index];
                     let n = ui.toggle(&format!("Fixed {}", index), v);
@@ -805,7 +805,7 @@ pub fn window_pxui_frame_gate() {
         ui.frame(&frame_at(vec![], 1.0, time, events), &mut |ui| {
             let b = ui.box_("gate", BoxOpts::default().flags(Flags::CLICKABLE).at((200.0, 150.0)).w(Size::Px(100.0)).h(Size::Px(60.0)));
             if ui.hovered_within(&b) && ui.hover_delay("gate") {
-                ui.tooltip("gate", "Tip");
+                ui.tooltip_legacy("gate", "Tip");
             }
             ui.draw(&b, |paint, Rect { x, y, w, h }| paint.fill(x, y, w, h, pxui_core::geom::color::white()));
         });
@@ -854,7 +854,7 @@ pub fn window_pxui_tooltip_rest() {
             let k = key_name.borrow().clone();
             let ready = !skip.get() && ui.hovered_within(&parent) && ui.hover_delay(&k);
             if ready {
-                ui.tooltip(&k, "A shared tooltip.");
+                ui.tooltip_legacy(&k, "A shared tooltip.");
             }
             out = (ready, ui.hovered_within(&parent), ui.signal_owned(&child).hovered);
         });
@@ -900,7 +900,7 @@ pub fn window_pxui_tooltip_rest() {
     }
     let mut ready = false;
     ui.frame(&frame_at(vec![], 1.0, 1.5, vec![]), &mut |ui| {
-        ui.modal(None, "hover-modal", &mut |ui| ui.label("Modal", pxui_core::ui::Label::DEFAULT));
+        ui.modal("hover-modal", &pxui_core::ui::Overlay::DEFAULT.name("hover-modal"), &mut |ui| ui.label("Modal", pxui_core::ui::Label::DEFAULT));
         ready = ui.hover_delay("a");
     });
     if ready {
@@ -914,7 +914,7 @@ pub fn window_pxui_hover_cursor() {
     let mut ui = field_ui();
     let hovered = Cell::new(false);
     let mut build = |ui: &mut Ui| {
-        ui.panel(PanelOpts::default().at(0.0, 0.0).width(240.0), "panel", &mut |ui| {
+        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).name("panel"), &mut |ui| {
             let row = ui.box_("probe", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Grow).h(Size::Px(24.0)));
             hovered.set(ui.signal_owned(&row).hovered);
         });
@@ -983,7 +983,7 @@ pub fn window_pxui_fit_box() {
 /// time is reported.
 pub fn window_pxui_baseline() {
     let build = |ui: &mut Ui| {
-        ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.toggle("Animate", true);
             ui.text_field("Caption", "Functional UI");
@@ -1016,7 +1016,7 @@ pub fn window_pxui_batches() {
     // One panel paints one layer with no texture breaks: one draw call.
     let mut ui = field_ui();
     ui.frame(&frame_at(vec![], 2.0, 0.0, vec![]), &mut |ui| {
-        ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.toggle("Animate", true);
             ui.text_field("Caption", "Functional UI");
@@ -1052,7 +1052,7 @@ fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
     let open = Cell::new(false);
     let background = Cell::new(false);
     let mut build = |ui: &mut Ui| {
-        open.set(ui.modal(Some(300.0), "warm-modal", &mut |ui| {
+        open.set(ui.modal("warm-modal", &pxui_core::ui::Overlay::DEFAULT.w(300.0).name("warm-modal"), &mut |ui| {
             let body = ui.node("body".into(), Node { w: Size::Grow, h: Size::Px(140.0), flags: Flags::CLICKABLE | Flags::TAB_STOP | Flags::SCROLL, ..Node::DEFAULT });
             inside.set(Some(body));
             ui.within(&body, &mut |ui| {

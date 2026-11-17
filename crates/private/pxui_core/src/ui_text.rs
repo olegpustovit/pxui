@@ -14,6 +14,7 @@ use crate::ui_kit::*;
 pub use crate::opts::{Language, PickerOpts, TextAreaOpts, ValueFieldOpts};
 pub use pxui_types::ui::{ScrubPhase, Menu, MenuItem, MenuResponse, TextEdit, LineStep, CodeContext, Completion, Pick};
 pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
+pub use pxui_types::ui::PickRows;
 use pxui_types::ui::Key as NodeKey;
 use input::{Event, Key, MouseButton};
 use crate::geom::{color, Rgba as Color};
@@ -1518,14 +1519,13 @@ impl Ui {
     /// and neither Enter nor a click picks it. With `at_rest` the field keeps the keyboard but looks
     /// at rest (a hairline, no caret) until something is typed in it. Build it inside a panel or
     /// `modal`.
-    pub fn picker(&mut self, o: &PickerOpts, label: &str, query: &str, rows_of: &dyn Fn(&str) -> Vec<(String, String)>) -> (String, Pick) {
-        picker_body(self, o, label, query, &mut |query, rows| *rows = rows_of(query))
-    }
-
-    /// `picker` that asks for its rows by filling a vector it keeps between frames: `fill(query, rows)` replaces `rows`
-    /// with the rows for `query`, reusing the strings already in it, so a settled picker copies no row into new storage.
-    pub fn picker_filled(&mut self, o: &PickerOpts, label: &str, query: &str, fill: &mut dyn FnMut(&str, &mut Vec<(String, String)>)) -> (String, Pick) {
-        picker_body(self, o, label, query, fill)
+    /// Keyed by `key` (hashed under the parent's seed), `placeholder` its placeholder and accessible name. The picker asks for its rows
+    /// by `fill(query, rows)` pushing them into `rows`, which it keeps between frames, so a settled picker copies no row into new
+    /// storage; the edited query is lent until the next call.
+    pub fn picker(&mut self, key: &str, placeholder: &str, query: &str, o: &PickerOpts, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> {
+        let (query, pick) = picker_body(self, o, key, placeholder, query, fill);
+        self.returned = query;
+        PickerResponse { query: &self.returned, pick }
     }
 }
 
@@ -1962,7 +1962,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         if hovered_number.is_none() && open == 0 {
             if let Some((start, _, doc)) = (l.describe)(&final_text, byte as i64) {
                 if !doc.is_empty() {
-                    this.tooltip(&format!("{}#{}", label, start), &doc);
+                    this.tooltip_sheet(&format!("{}#{}", label, start), &doc);
                 }
             }
         }
@@ -2311,9 +2311,10 @@ fn handle_keys_body(this: &mut Ui, body: &UiBox, cfg: Wrap, page: i64, language:
     }
 }
 
-fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &mut dyn FnMut(&str, &mut Vec<(String, String)>)) -> (String, Pick) {
+fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, placeholder: &str, query: &str, fill: &mut dyn FnMut(&str, &mut PickRows)) -> (String, Pick) {
     let off = |i: i64| o.off.as_ref().map(|f| f(i)).unwrap_or(false);
     let mut rows = core::mem::take(&mut this.picker_rows);
+    rows.clear();
     fill(query, &mut rows);
     // the search row: a 20-point field in 4 points of padding, a [/] before the query
     // a 20-point field in 4 points of margin
@@ -2374,6 +2375,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
                     this.edit_text_event(false, &mut edit, &|_| true, &modifiers, event);
                     if edit.text != query {
                         query = edit.text.clone();
+                        rows.clear();
                         fill(&query, &mut rows);
                         cursor = 0;
                         armed = -1;
@@ -2387,7 +2389,6 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     let length = o.limit.min(count);
     let start = if length == count { 0 } else { 0.max((count - length).min(cursor - length / 2)) };
     let composition = this.composition().to_owned();
-    let placeholder = display(label);
     let font_size = this.font_size();
     let (slash, at_rest) = (o.slash, o.at_rest);
     let t = this.theme();
@@ -2396,11 +2397,11 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
     let state = State { focused: !resting, ..State::default() };
     let field = *t.field.pick(state);
     this.set_role(&search, Role::TextField, crate::a11y::state::EDITABLE);
-    this.a11y_name(&search, label);
+    this.a11y_name(&search, placeholder);
     this.a11y_value(&search, &edit.text, (edit.text[..edit.anchor.min(edit.text.len())].chars().count() as u32, edit.text[..edit.caret.min(edit.text.len())].chars().count() as u32));
     this.set_role(&list, Role::List, 0);
     let config = PickerFieldConfig { state, empty: edit.text.is_empty(), slash, prefix: prefix as f32, inset, search };
-    in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, &placeholder));
+    in_body!(this, search.box_key, search, picker_field, default_picker_field(&config, placeholder));
     {
         let edit = edit.clone();
         let marks = if edit.text.is_empty() { None } else { Some((field.selection, field.caret)) };
@@ -2430,7 +2431,7 @@ fn picker_body(this: &mut Ui, o: &PickerOpts, label: &str, query: &str, fill: &m
         let current = index == cursor;
         let doomed = index == armed;
         let unavailable = off(index);
-        let (text, detail) = &rows[index as usize];
+        let (text, detail) = rows.get(index as usize).unwrap_or_default();
         let swatch = o.mark.as_ref().and_then(|m| m(index)).map(|c| this.resolve_color(c));
         // the keyboard cursor is the control fill; a row armed for deletion reads in the error colour
         let state = State { hovered: row_signal.hovered, checked: current, ..State::default() };

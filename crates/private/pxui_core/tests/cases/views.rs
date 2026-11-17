@@ -262,7 +262,7 @@ pub fn window_pxui_view_kit_cached() {
     let panel = |ui: &mut Ui, rev: u64| {
         ui.view("kit", rev, Size::Px(310.0), Size::Px(220.0), &mut |ui| {
             runs.set(runs.get() + 1);
-            ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+            ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
                 ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
                 ui.toggle("Animate", true);
                 ui.text_field("Caption", "Functional UI");
@@ -868,7 +868,7 @@ pub fn window_pxui_budget_zero_alloc() {
     ui.set_theme(theme);
     let mut build = |ui: &mut Ui| {
         ui.view("v", 1, Size::Px(200.0), Size::Px(100.0), &mut |ui| {
-            ui.panel(PanelOpts::default(), "p", &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
                 ui.button("Go");
             });
         });

@@ -3,6 +3,7 @@
 //! settles. Validate descriptors before mutation and preserve callback recovery, hit/accessibility
 //! geometry and bounded warm allocation behavior.
 //!
+use pxui_types::{ffi::PxuiKeyedDesc, ui::{TableResponse, TableView}};
 use crate::state::{PxuiUi, checked, fail, get, strings};
 use crate::{PXUI_ERR_ARGUMENT, Str};
 use core::{cell::Cell, ffi::c_void, mem::{align_of, offset_of, size_of}};
@@ -155,26 +156,46 @@ export!(trusted pub unsafe fn pxui_ui_tree_with(ui: *mut PxuiUi, desc: *const Px
     0
 });
 
-export!(trusted pub unsafe fn pxui_ui_table_view_with(ui: *mut PxuiUi, desc: *const PxuiTableViewWithDesc, out: *mut usize) -> i32 {
+/// The table of `desc` keyed by `key`, named `name`, a text table at `text` when given: the body of `pxui_ui_table_view_with` and
+/// `pxui_ui_table_view_keyed`; `sort` the clicked header, `row` the clicked row (a text table).
+unsafe fn table_view(ui: *mut PxuiUi, key: &str, name: &str, desc: &PxuiTableViewWithDesc, text: Option<pxui_types::geom::Rect>, sort_out: *mut usize, row_out: *mut usize) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if out.is_null() { return unsafe { fail(ui, "null table argument") }; }
-    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
     if desc.has_sort > 1 || desc.ascending > 1 || desc.reserved != [0; 2] || desc.rows > MAX_ITEMS || desc.titles.len > 4096
-        || desc.widths.len != desc.titles.len || !valid_span(desc.widths.ptr, desc.widths.len, desc.titles.len) || desc.selected.is_null() {
+        || (text.is_none() && desc.widths.len != desc.titles.len) || !valid_span(desc.widths.ptr, desc.widths.len, desc.widths.len) || desc.selected.is_null() {
         return unsafe { fail(ui, "invalid table descriptor") };
     }
     let mut titles = state.shared().take_strs();
-    let Some(label) = (unsafe { checked(desc.label) }).filter(|_| unsafe { strings(desc.titles, 4096, &mut titles) }) else {
-        state.shared().put_strs(titles);
-        return unsafe { fail(ui, "invalid table strings") };
-    };
+    if !unsafe { strings(desc.titles, 4096, &mut titles) } { state.shared().put_strs(titles); return unsafe { fail(ui, "invalid table strings") }; }
     let widths: &mut [f32] = if desc.widths.len == 0 { &mut [] } else { unsafe { core::slice::from_raw_parts_mut(desc.widths.ptr, desc.widths.len) } };
     let sort = (desc.has_sort != 0).then_some((desc.sort_column, desc.ascending != 0));
     let mut selected = (unsafe { *desc.selected } != usize::MAX).then_some(unsafe { *desc.selected });
-    let mut activated = None;
-    let rc = unsafe { crate::trusted::table_view(ui, label, &titles, widths, desc.rows, sort, &mut selected, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut activated) };
+    let mut r = TableResponse::default();
+    let rc = unsafe { crate::trusted::table_view(ui, key, name, &titles, widths, desc.rows, &mut selected, &TableView { sort, text }, &mut |ui, row, column| if let Some(build) = desc.build { build(desc.user, ui.cast(), row, column) }, &mut r) };
     state.shared().put_strs(titles);
     if rc != 0 { return rc; }
-    unsafe { *desc.selected = selected.unwrap_or(usize::MAX); *out = activated.unwrap_or(usize::MAX); }
+    unsafe { *desc.selected = selected.unwrap_or(usize::MAX); *sort_out = r.sort.unwrap_or(usize::MAX); }
+    if !row_out.is_null() { unsafe { *row_out = r.row.unwrap_or(usize::MAX); } }
     0
+}
+
+// Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_table_view_keyed` keys apart.
+export!(trusted pub unsafe fn pxui_ui_table_view_with(ui: *mut PxuiUi, desc: *const PxuiTableViewWithDesc, out: *mut usize) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if out.is_null() { return unsafe { fail(ui, "null table argument") }; }
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
+    let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid table strings") }; };
+    unsafe { table_view(ui, label, pxui_types::ui::shown(label), desc, None, out, core::ptr::null_mut()) }
+});
+
+// ABI 1.68: the table keyed by `keyed.key` and named `keyed.name` (empty: none); `desc.label` must be empty. With `text`, the fixed text
+// table at that rectangle (each cell's text given to `pxui_ui_item_text`; `widths` may be empty), `row` its clicked row; `sort` the clicked
+// header of the virtual table. `usize::MAX`: none.
+export!(trusted pub unsafe fn pxui_ui_table_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiTableViewWithDesc, text: *const pxui_types::geom::Rect, sort: *mut usize, row: *mut usize) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if sort.is_null() || row.is_null() { return unsafe { fail(ui, "null table argument") }; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid table descriptor") }; };
+    if desc.label.len != 0 { return unsafe { fail(ui, "a keyed table takes no label") }; }
+    let text = if text.is_null() { None } else { Some(unsafe { *text }) };
+    unsafe { table_view(ui, key, name, desc, text, sort, row) }
 });

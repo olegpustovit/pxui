@@ -26,13 +26,13 @@ struct State {
 }
 
 fn panel(ui: &mut Ui, s: &mut State) {
-    ui.panel(pxui_types::ui::PanelOpts::default(), "settings", &mut |ui: &mut Ui| {
+    ui.panel("settings", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
         ui.label("Display", crate::Label::DEFAULT);
         if ui.button("Apply") { s.clicks += 1; }
         s.night = ui.toggle("Night light", s.night);
-        s.check = ui.checkbox("Check", s.check);
-        s.volume = ui.slider("Volume", s.volume, 0.0..=1.0);
-        s.mode = ui.radio("Mode", &["Auto", "Light", "Dark"], s.mode);
+        s.check = s.check != ui.checkbox("check", "Check", s.check, &crate::Checkbox::DEFAULT).changed;
+        s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &crate::Slider::DEFAULT).1;
+        s.mode = ui.radio("mode", &["Auto", "Light", "Dark"], s.mode, &crate::Choice::DEFAULT.name("Mode")).1;
         let _ = ui.text_field("Name", "abc", &crate::TextField::DEFAULT);
         let row = ui.node("row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
@@ -70,9 +70,9 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
     });
     let hit = ui.box_("hit", BoxOpts { hit: Some(Rc::clone(&s.hit)), ..BoxOpts::default().w(Size::Px(20.0)).h(Size::Px(20.0)) });
     s.seen += hit.box_key as u64 & 1;
-    s.seen += ui.list_view("items", 3, false, &mut [0; 3], &mut |ui, row| ui.item_text(["one", "two", "three"][row])).is_some() as u64;
-    s.seen += ui.table_str((0.0, 0.0), 120.0, 60.0, &["Name", "Size"], 3, |_, column| if column == 0 { "row" } else { "1" }, "table").is_some() as u64;
-    s.seen += ui.popup(None, None, true, false, (10.0, 10.0), 80.0, 30.0, "popup", &mut |ui: &mut Ui| { ui.label("popped", crate::Label::DEFAULT); }) as u64;
+    s.seen += ui.selection_list("items", 3, &mut [0; 3], &crate::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["one", "two", "three"][row])).activated.is_some() as u64;
+    s.seen += ui.table_view("table", &["Name", "Size"], &mut [], 3, &mut None, &crate::TableView::text(crate::ui::Rect::new(0.0, 0.0, 120.0, 60.0)), &mut |ui, _, column| ui.item_text(if column == 0 { "row" } else { "1" })).row.is_some() as u64;
+    s.seen += ui.popup("popup", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(80.0).h(30.0).dismiss_initial(), &mut |ui: &mut Ui| { ui.label("popped", crate::Label::DEFAULT); }) as u64;
 }
 
 #[test]

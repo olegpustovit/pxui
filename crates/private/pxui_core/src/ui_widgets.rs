@@ -28,6 +28,9 @@ pub struct TreeNode {
 }
 
 pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Segment, Segmented};
+use pxui_types::theme::BodyKind;
+
+pub use pxui_types::ui::{Checkbox, Choice, Dropdown, Slider, Toast};
 
 /// Behavior for a caller-painted horizontal adjustable value. Pointer motion previews; only a
 /// captured left-button release commits. Keyboard and accessibility adjustments commit directly.
@@ -63,6 +66,7 @@ pub(crate) const ITEM_NONE: u8 = 0;
 const ITEM_LIST: u8 = 1;
 const ITEM_TREE: u8 = 2;
 const ITEM_TABLE: u8 = 3;
+pub(crate) const ITEM_TEXT_CELL: u8 = 4;
 const ROW_FLAGS: Flags = Flags::CLICKABLE.or(Flags::BLOCKING);
 const STOP_FLAGS: Flags = Flags::CLICKABLE.or(Flags::FOCUSABLE).or(Flags::BLOCKING).or(Flags::TAB_ONLY);
 
@@ -236,6 +240,7 @@ impl Ui {
         match self.bodies.item_kind {
             ITEM_LIST => { self.row_text(text); }
             ITEM_TREE => { let n = self.row_text(text); self.a11y_name(&n, text); }
+            ITEM_TEXT_CELL => { self.text_cell.clear(); self.text_cell.push_str(text); self.text_cell_set = true; }
             _ => self.cell_text(text),
         }
     }
@@ -281,24 +286,33 @@ impl Ui {
         n
     }
 
-    /// A checkbox row: the 12-point box (an accent square inside when on) and the label.
-    pub fn checkbox(&mut self, text: &str, value: bool) -> bool {
-        let key = key_of(self.current_seed(), text);
+    /// A checkbox row keyed by `key` (hashed under the parent's seed): the 12-point box (an accent square inside when on) and `text`,
+    /// which names it; `checkbox.variant` reaches a registered body. Reports the row's response (`clicked` flips the value).
+    pub fn checkbox(&mut self, key: &str, text: &str, value: bool, checkbox: &Checkbox) -> Response {
+        let variant = checkbox.variant;
+        if variant != 0 { self.set_variant(BodyKind::checkbox as u32, variant); }
+        let key = key_of(self.current_seed(), key);
         let row = self.kit_line(key, STOP_FLAGS, Role::CheckBox);
         let s = self.signal_owned(&row);
         let value = value ^ s.clicked;
         self.set_role(&row, Role::CheckBox, st::CHECKABLE | if value { st::CHECKED } else { 0 });
-        self.a11y_name(&row, shown(text));
+        self.a11y_name(&row, text);
         let config = CheckConfig { state: State { hovered: s.hovered, pressed: s.held, ..State::default() }, on: value, row };
-        in_body!(self, row.box_key, row, checkbox, default_checkbox(&config, shown(text)));
-        value
+        in_body!(self, row.box_key, row, checkbox, default_checkbox(&config, text));
+        if variant != 0 { self.set_variant(BodyKind::checkbox as u32, 0); }
+        Response::of(&s, self.focused(&row), row)
     }
 
     /// A radio group: one row per option, `selected` the chosen one. One Tab stop; the arrows move
     /// the choice. Returns the choice.
-    pub fn radio(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
-        let group = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, role: Role::Group, ..Node::DEFAULT });
-        self.a11y_name(&group, shown(label));
+    /// A radio group keyed by `key` (hashed under the parent's seed), named `choice.name`, its variant given to the rows' bodies;
+    /// reports the group's response and the choice.
+    pub fn radio(&mut self, key: &str, options: &[&str], selected: usize, choice: &Choice) -> (Response, usize) {
+        let variant = choice.variant;
+        if variant != 0 { self.set_variant(BodyKind::radio as u32, variant); }
+        let name = choice.name;
+        let group = self.node_ref(key, &Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, role: Role::Group, ..Node::DEFAULT });
+        self.a11y_name(&group, name);
         let s = self.signal_owned(&group);
         let mut sel = selected.min(options.len().saturating_sub(1));
         pressed(&s.keys, &mut |k| match k {
@@ -319,14 +333,21 @@ impl Ui {
             in_body!(self, row.box_key, row, radio, default_radio(&config, option));
         }
         self.leave(saved);
-        sel
+        if variant != 0 { self.set_variant(BodyKind::radio as u32, 0); }
+        (Response::of(&s, self.focused(&group), group), sel)
     }
 
     /// A horizontal slider row: the label, then a rail with the filled part and an 8 x 14 thumb.
     /// Dragging, the arrows (a hundredth of the range; Page keys a tenth; Home and End the ends) and
     /// an assistive technology's SetValue move it. Returns the value, held in `range`.
-    pub fn slider(&mut self, text: &str, value: f32, range: RangeInclusive<f32>) -> f32 {
-        slider_body(self, text, value, range)
+    /// Keyed by `key` (hashed under the parent's seed), showing and named `text`, its variant given to the slider body; reports the
+    /// track's response and the value.
+    pub fn slider(&mut self, key: &str, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> (Response, f32) {
+        let variant = slider.variant;
+        if variant != 0 { self.set_variant(BodyKind::slider as u32, variant); }
+        let result = slider_body(self, key, text, value, range);
+        if variant != 0 { self.set_variant(BodyKind::slider as u32, 0); }
+        result
     }
 
     /// A behavior-only scrubber. Size it with the normal node layout API and paint into `node`.
@@ -399,14 +420,15 @@ impl Ui {
     /// A progress row: the label and a 4-point track, with a bar `value` (0 to 1) of the way or, with `None`, a third-wide bar that
     /// `busy_step` sweeps across (the default body; a theme's `body.progress` picks another). Behaviour: the track's accessible
     /// name, number and busy state, on the node the body builds as `Part::TRACK`. Returns the row, for `busy_step`.
-    pub fn progress(&mut self, label: &str, value: Option<f32>) -> Handle {
-        let key = key_of(self.current_seed(), label);
+    /// Keyed by `key` (hashed under the parent's seed), showing and named `text`.
+    pub fn progress(&mut self, key: &str, text: &str, value: Option<f32>) -> Handle {
+        let (key, label) = (key_of(self.current_seed(), key), text);
         let row = self.kit_line(key, Flags::NONE, Role::Unknown);
         let config = ProgressConfig { value, row };
         in_body!(self, key, row, progress, default_progress(&config, label));
         // a body without a track part gets the facts on the row: the widget's own box
         let track = self.part_box(key, Part::TRACK).unwrap_or(row);
-        self.a11y_name(&track, shown(label));
+        self.a11y_name(&track, label);
         match value {
             Some(v) => {
                 self.set_role(&track, Role::Progress, 0);
@@ -419,10 +441,11 @@ impl Ui {
 
     /// A 16-point spinner: eight dots round a circle, the lead dot in the accent. `busy_step` turns
     /// it. Returns its node.
-    pub fn spinner(&mut self, label: &str) -> Handle {
-        let n = self.node_ref(label, &Node { role: Role::Progress, a11y: st::BUSY, ..Node::DEFAULT });
-        self.a11y_name(&n, shown(label));
-        in_body!(self, n.box_key, n, spinner, default_spinner(&SpinnerConfig { node: n }, label));
+    /// Keyed by `key` (hashed under the parent's seed), named `name`.
+    pub fn spinner(&mut self, key: &str, name: &str) -> Handle {
+        let n = self.node_ref(key, &Node { role: Role::Progress, a11y: st::BUSY, ..Node::DEFAULT });
+        self.a11y_name(&n, name);
+        in_body!(self, n.box_key, n, spinner, default_spinner(&SpinnerConfig { node: n }, name));
         n
     }
 
@@ -462,12 +485,17 @@ impl Ui {
 
     /// A row of tabs, the one in use underlined. One Tab stop; Left and Right (Home, End) switch.
     /// Returns the tab in use.
-    pub fn tabs(&mut self, label: &str, tabs: &[&str], selected: usize) -> usize {
+    /// Keyed by `key` (hashed under the parent's seed), the bar named `choice.name`, its variant given to the tabs' bodies; reports the
+    /// bar's response and the tab in use.
+    pub fn tabs(&mut self, key: &str, tabs: &[&str], selected: usize, choice: &Choice) -> (Response, usize) {
+        let variant = choice.variant;
+        if variant != 0 { self.set_variant(BodyKind::tab as u32, variant); }
+        let name = choice.name;
         let rh = self.row_height() as f32;
         let bar_look = self.theme().header.idle;
         let body = body_of!(self, tab);
-        let bar = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, h: Size::Px(rh), axis: Axis::Row, padding: Edges { l: self.space(2), r: self.space(2), ..Edges::ZERO }, gap: self.space(2), look: bar_look, role: Role::TabList, ..Node::DEFAULT });
-        self.a11y_name(&bar, shown(label));
+        let bar = self.node_ref(key, &Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, h: Size::Px(rh), axis: Axis::Row, padding: Edges { l: self.space(2), r: self.space(2), ..Edges::ZERO }, gap: self.space(2), look: bar_look, role: Role::TabList, ..Node::DEFAULT });
+        self.a11y_name(&bar, name);
         let s = self.signal_owned(&bar);
         let mut sel = selected.min(tabs.len().saturating_sub(1));
         pressed(&s.keys, &mut |k| match k {
@@ -502,7 +530,8 @@ impl Ui {
             self.set_role(&n, Role::Tab, st::SELECTABLE);
         }
         self.leave(saved);
-        sel
+        if variant != 0 { self.set_variant(BodyKind::tab as u32, 0); }
+        (Response::of(&s, self.focused(&bar), bar), sel)
     }
 
     /// A segmented control keyed by `key` (hashed under the parent's seed, duplicates in order), the strip named `name` to accessibility
@@ -614,7 +643,7 @@ impl Ui {
         let rh = self.row_height() as f32;
         let place = Placement { side: Side::Below, align: Align::Start, gap: 2.0, margin: 4.0, flip: true };
         let mut picked = None;
-        let menu = self.anchored("menu", anchor, place, Size::Px(width), Size::Fit, &mut |ui| {
+        let menu = self.anchored_label("menu", anchor, place, Size::Px(width), Size::Fit, &mut |ui| {
             for (i, item) in items.iter().enumerate() {
                 let n = ui.node_keyed(int_key(ui.current_seed(), i as i64), Node { flags: ROW_FLAGS, h: Size::Px(rh), role: Role::MenuItem, ..Node::DEFAULT });
                 let s = ui.signal_owned(&n);
@@ -640,15 +669,19 @@ impl Ui {
     /// Enter, Space or Down opens its menu below (Up and Down move in it, Enter picks, Escape or a
     /// press outside closes it). Returns the choice. While open its menu escapes a cached view, so
     /// that view rebuilds each frame until it closes.
-    pub fn dropdown(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
-        let key = key_of(self.current_seed(), label);
+    /// `dropdown` keyed by `key` (hashed under the parent's seed), showing and named `text`; reports the button's response and the
+    /// choice.
+    pub fn dropdown(&mut self, key: &str, text: &str, options: &[&str], selected: usize, dropdown: &Dropdown) -> (Response, usize) {
+        let variant = dropdown.variant;
+        if variant != 0 { self.set_variant(BodyKind::dropdown as u32, variant); }
+        let key = key_of(self.current_seed(), key);
         let row = self.kit_line(key, Flags::NONE, Role::Unknown);
         let rh = self.row_height() as f32;
         let ch = self.control_h();
         let t = self.theme();
         let label_look = t.row.idle;
         let saved = self.enter(&row);
-        self.text_leaf(int_key(key, 0), rh, label_look, shown(label));
+        self.text_leaf(int_key(key, 0), rh, label_look, text);
         let button = self.node_keyed(int_key(key, 1), Node { flags: STOP_FLAGS, h: Size::Px(ch), axis: Axis::Row, align: Align::Center, gap: 4.0, padding: Edges { l: 4.0, r: 6.0, ..Edges::ZERO }, role: Role::ComboBox, ..Node::DEFAULT });
         let s = self.signal_owned(&button);
         let mut sel = selected.min(options.len().saturating_sub(1));
@@ -683,7 +716,7 @@ impl Ui {
         }
         let open = lit >= 0;
         self.set_role(&button, Role::ComboBox, st::EXPANDABLE | if open { st::EXPANDED } else { 0 });
-        self.a11y_name(&button, shown(label));
+        self.a11y_name(&button, text);
         let inner = self.enter(&button);
         let config = DropdownConfig { state: State { hovered: s.hovered, pressed: s.held, focused: self.focused(&button), ..State::default() }, open, key, button };
         in_place!(self, button.box_key, dropdown, default_dropdown(&config, options.get(sel).copied().unwrap_or("")));
@@ -696,7 +729,8 @@ impl Ui {
         self.leave(inner);
         self.leave(saved);
         self.set_state(&button, lit);
-        sel
+        if variant != 0 { self.set_variant(BodyKind::dropdown as u32, 0); }
+        (Response::of(&s, self.focused(&button), button), sel)
     }
 
     /// A menu bar: each `(title, items)` a top-level item that opens its menu below it. While one
@@ -775,9 +809,9 @@ impl Ui {
     }
 
     /// The kit tooltip for node `h` while the pointer rests on it.
-    pub fn tip(&mut self, h: &Handle, text: &str) {
+    pub fn tooltip(&mut self, h: &Handle, text: &str) {
         if self.live(h) && self.signal_owned(h).hovered {
-            self.tooltip(text, text);
+            self.tooltip_sheet(text, text);
         }
     }
 
@@ -788,7 +822,6 @@ impl Ui {
         let look = self.theme().scroll_view.idle;
         let rh = self.row_height() as f32;
         let n = self.node_ref(label, &Node { flags: Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP | Flags::BLOCKING, w, h, look, bar: Some(bar).into(), scroll_step: rh, padding: Edges::all(1.0), role: Role::ScrollArea, ..Node::DEFAULT });
-        self.a11y_name(&n, shown(label));
         in_body!(self, n.box_key, n, scroll_view, default_scroll(&ScrollConfig { node: n }, f));
         n
     }
@@ -843,7 +876,12 @@ impl Ui {
     /// double click or Enter activated.
     /// `cell(ui, i)` builds row `i`'s children (any widgets; `item_text` for the kit's text row) inside the row node (`Ui::item`) the
     /// `list_view` body shapes.
-    pub fn list_view(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(&mut Ui, usize)) -> Option<usize> {
+    /// Keyed by `key` (hashed under the parent's seed); `list.multi` lets Command (Ctrl) and Shift select several rows.
+    pub fn selection_list(&mut self, key: &str, count: usize, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
+        ListResponse { activated: self.list_view(key, count, list.multi, selected, cell) }
+    }
+
+    fn list_view(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(&mut Ui, usize)) -> Option<usize> {
         let count = count.min(selected.len());
         let rh = self.row_height() as f32;
         let frame = self.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: self.theme().scroll_view.idle, padding: Edges::all(1.0), ..Node::DEFAULT });
@@ -908,7 +946,13 @@ impl Ui {
     /// the number of rows shown.
     /// `cell(ui, node)` builds the children of the row that shows tree node `node`, after the disclosure mark, inside the row node
     /// (`Ui::item`); `item_text` puts the kit's text there and names the row.
-    pub fn tree(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> (Option<usize>, usize) {
+    /// Keyed by `key` (hashed under the parent's seed).
+    pub fn tree(&mut self, key: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
+        let (activated, shown) = self.tree_label(key, nodes, open, selected, visible, cell);
+        TreeResponse { activated, shown }
+    }
+
+    fn tree_label(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> (Option<usize>, usize) {
         assert!(visible.len() >= nodes.len(), "tree: `visible` holds at least a row per node");
         // the visible rows are re-derived each build (specification/pxui.md, designed limits)
         let flatten = |visible: &mut [u32], open: &[u8]| {
@@ -1014,8 +1058,14 @@ impl Ui {
     #[allow(clippy::too_many_arguments)]
     /// `cell(ui, row, col)` builds the children of one cell (any widgets; `item_text` for the kit's text cell), inside the cell node
     /// (the column's width, the cell role) of a row node (`Ui::item`) the `table_view` body shapes.
-    pub fn table_view(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> Option<usize> {
-        table_view_body(self, label, titles, widths, rows, sort, selected, cell)
+    /// Keyed by `key` (hashed under the parent's seed). With `TableView::text(rect)`, the fixed text table at `rect` instead: a
+    /// 24-point header of `titles`, hairlines and right-aligned cells whose text each `cell` gives `item_text`; a click reports the row.
+    pub fn table_view(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
+        if let Some(r) = table.text {
+            let row = crate::ui_kit::table_body(self, (r.x, r.y), r.w, r.h, titles, rows.min(i64::MAX as usize) as i64, cell, key).0;
+            return TableResponse { row: row.map(|row| row as usize), sort: None };
+        }
+        TableResponse { row: None, sort: table_view_body(self, key, titles, widths, rows, table.sort, selected, cell) }
     }
 
     /// A modal dialog titled `title`: its title bar, `body`, then `buttons` at the end of a row, built through the dialog body and
@@ -1024,7 +1074,7 @@ impl Ui {
     pub fn dialog(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> DialogResponse {
         let mut chosen = None;
         let enter = self.key_pressed(Key::Enter, None);
-        let shown_now = self.modal(Some(style.width), key, &mut |ui| {
+        let shown_now = self.modal_named(Some(style.width), key, None, &mut |ui| {
             let owner = ui.current_seed();
             in_place!(ui, owner, dialog, default_dialog(title, buttons, body));
             // the heading and the buttons are the body's nodes: their presses are read here, and a role or a name only where the body
@@ -1058,10 +1108,11 @@ impl Ui {
     }
 
     /// Toasts stacked in the window's lower end corner (the newest lowest), 12 points from its
-    /// edges. Each goes `seconds` after it first showed: the engine keeps that time by the toast's
-    /// text and asks for the frame (`repaint_after`), so the host needs no timer. Returns a toast
+    /// edges, the stack keyed by `key`. Each goes `seconds` after it first showed: the engine keeps that time by the toast's
+    /// id and asks for the frame (`repaint_after`), so the host needs no timer. Returns a toast
     /// clicked away or expired (one a frame; the caller drops it).
-    pub fn toasts(&mut self, label: &str, items: &[&str], seconds: f64) -> Option<usize> {
+    pub fn toasts(&mut self, key: &str, items: &[Toast], seconds: f64) -> Option<usize> {
+        let label = key;
         if items.is_empty() {
             return None;
         }
@@ -1070,14 +1121,14 @@ impl Ui {
         let place = Placement { side: Side::Above, align: if self.rtl() { Align::Start } else { Align::End }, gap: 0.0, margin: m, flip: false };
         let mut gone = None;
         let now = self.now();
-        let stack = self.anchored(label, Rect::new(x, h - m, 0.0, 0.0), place, Size::Px(260.0), Size::Fit, &mut |ui| {
+        let stack = self.anchored_label(label, Rect::new(x, h - m, 0.0, 0.0), place, Size::Px(260.0), Size::Fit, &mut |ui| {
             for (i, item) in items.iter().enumerate() {
-                // keyed by text, so dropping one keeps the others' times
-                let n = ui.node_keyed(key_of(ui.current_seed(), item), Node { flags: ROW_FLAGS | Flags::FIT_TEXT, role: Role::StatusBar, ..Node::DEFAULT });
+                // keyed by the item's id, so dropping one keeps the others' times
+                let n = ui.node_keyed(int_key(ui.current_seed(), item.id), Node { flags: ROW_FLAGS | Flags::FIT_TEXT, role: Role::StatusBar, ..Node::DEFAULT });
                 let s = ui.signal_owned(&n);
-                ui.a11y_name(&n, item);
+                ui.a11y_name(&n, item.text);
                 let config = ToastConfig { state: State { hovered: s.hovered, ..State::default() }, node: n };
-                in_body!(flat; ui, n.box_key, n, toast, default_toast(&config, item));
+                in_body!(flat; ui, n.box_key, n, toast, default_toast(&config, item.text));
                 let born = f64::from_bits(ui.state(&n, now.to_bits() as i64) as u64);
                 ui.set_state(&n, born.to_bits() as i64);
                 if s.clicked || now >= born + seconds {
@@ -1123,13 +1174,13 @@ impl Ui {
         response
     }
 
-    /// A small label in the badge look (`text`, keyed by `label` so `patch_text` can update a count
-    /// without a rebuild). Returns its node.
-    pub fn badge(&mut self, label: &str, text: &str) -> Handle {
-        let n = self.node_ref(label, &Node { role: Role::Label, ..Node::DEFAULT });
-        self.a11y_name(&n, shown(label));
+    /// A small label in the badge look keyed by `key` (hashed under the parent's seed), named `name` (empty: none), `text` its value
+    /// (`patch_text` updates a count without a rebuild). Returns its node.
+    pub fn badge(&mut self, key: &str, name: &str, text: &str) -> Handle {
+        let n = self.node_ref(key, &Node { role: Role::Label, ..Node::DEFAULT });
+        self.a11y_name(&n, name);
         self.a11y_value(&n, text, (0, 0));
-        in_body!(flat; self, n.box_key, n, badge, default_badge(&BadgeConfig { node: n }, label, text));
+        in_body!(flat; self, n.box_key, n, badge, default_badge(&BadgeConfig { node: n }, name, text));
         n
     }
 
@@ -1171,7 +1222,6 @@ fn table_view_body(this: &mut Ui, label: &str, titles: &[&str], widths: &mut [f3
     let (head_body, row_body) = (body_of!(this, table_head), body_of!(this, table_view));
     let bar = this.thumb();
     let frame = this.node_ref(label, &Node { flags: Flags::FOCUSABLE | Flags::SCROLL_X | Flags::CLIP, w: Size::Grow, h: Size::Grow, look: frame_look, bar: Some(bar).into(), padding: Edges::all(1.0), role: Role::Table, ..Node::DEFAULT });
-    this.a11y_name(&frame, shown(label));
     let s = this.signal_owned(&frame);
     let focused = this.focused(&frame);
     let page = (this.rect(&frame).h / rh - 1.0).floor().max(1.0) as i64;
@@ -1494,16 +1544,16 @@ pub(crate) fn default_slider(this: &mut Ui, c: &SliderConfig, _label: &str) {
     this.leave(tl);
 }
 
-fn slider_body(this: &mut Ui, text: &str, value: f32, range: RangeInclusive<f32>) -> f32 {
+fn slider_body(this: &mut Ui, key: &str, text: &str, value: f32, range: RangeInclusive<f32>) -> (Response, f32) {
     let (lo, hi) = (*range.start(), *range.end());
     let span = (hi - lo).max(f32::MIN_POSITIVE);
-    let key = key_of(this.current_seed(), text);
+    let key = key_of(this.current_seed(), key);
     let row = this.kit_line(key, Flags::NONE, Role::Unknown);
     let rh = this.row_height() as f32;
     let ch = this.control_h();
     let label_look = this.theme().row.idle;
     let saved = this.enter(&row);
-    this.text_leaf(int_key(key, 0), rh, label_look, shown(text));
+    this.text_leaf(int_key(key, 0), rh, label_look, text);
     let track = this.node_keyed(int_key(key, 1), Node { flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING, h: Size::Px(ch), axis: Axis::Stack, align: Align::Center, role: Role::Slider, ..Node::DEFAULT });
     let s = this.signal_owned(&track);
     let mut v = value.clamp(lo.min(hi), hi.max(lo));
@@ -1532,10 +1582,10 @@ fn slider_body(this: &mut Ui, text: &str, value: f32, range: RangeInclusive<f32>
     }
     let v = v.clamp(lo.min(hi), hi.max(lo));
     let f = ((v - lo) / span).clamp(0.0, 1.0);
-    this.a11y_name(&track, shown(text));
+    this.a11y_name(&track, text);
     this.a11y_number(&track, v as f64, lo.min(hi) as f64, hi.max(lo) as f64, step as f64);
     let config = SliderConfig { state: State { hovered: s.hovered, pressed: s.held, ..State::default() }, fraction: f, track };
     in_body!(this, key, track, slider, default_slider(&config, text));
     this.leave(saved);
-    v
+    (Response::of(&s, this.focused(&track), track), v)
 }

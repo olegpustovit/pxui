@@ -89,7 +89,7 @@ pub fn toggle_checkbox_body() {
     for checkbox in [false, true] {
         let mut ui = toggle_ui(checkbox);
         let on = Cell::new(false);
-        let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| on.set(ui.toggle("Animate", on.get())));
+        let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| on.set(ui.toggle("Animate", on.get())));
         let mut t = 0.0;
         let mut step = |ui: &mut Ui, e: Vec<Event>| {
             t += 0.1;
@@ -141,7 +141,7 @@ pub fn slider_custom_thumb() {
     theme.body.slider = id;
     ui.set_theme(theme);
     let v = Cell::new(0.5f32);
-    let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| v.set(ui.slider("Level", v.get(), 0.0..=1.0)));
+    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| v.set(ui.slider("Level", "Level", v.get(), 0.0..=1.0, &pxui_core::ui::Slider::DEFAULT).1));
     let mut t = 0.0;
     let mut step = |ui: &mut Ui, e: Vec<Event>| {
         t += 0.1;
@@ -193,8 +193,8 @@ fn busy_step_with(custom: bool) {
         ui.view("busy", 1, Size::Px(240.0), Size::Px(100.0), &mut |ui| {
             let mut h = handles.borrow_mut();
             h.clear();
-            h.push(ui.progress("Busy", None));
-            h.push(ui.progress("Done", Some(0.5)));
+            h.push(ui.progress("Busy", "Busy", None));
+            h.push(ui.progress("Done", "Done", Some(0.5)));
         });
     };
     for t in 0..3 {
@@ -244,7 +244,7 @@ pub fn theme_file_selects_body() {
         let mut ui = new_ui(None);
         ui.register_toggle_body("checkbox", checkbox_body);
         for k in 0..2 {
-            ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.themed(theme, &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.toggle("Animate", true); })));
+            ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.themed(theme, &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); })));
         }
         let drawn = ui.output().draw[0].instances.to_vec();
         ui.destroy();
@@ -271,7 +271,7 @@ pub fn unknown_body_is_error() {
     let mut theme = base;
     theme.body.toggle = BodyId(7);
     ui.set_theme(theme);
-    ui.frame(&frame(0.0, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.toggle("Animate", true); }));
+    ui.frame(&frame(0.0, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); }));
     ui.destroy();
 }
 
@@ -289,7 +289,7 @@ pub fn a_theme_from_another_ui_never_selects_another_body() {
     check(b.parse_theme("toggle.body = second\n", &Theme::default()).is_err(), "b knows no body second");
     b.set_theme(theme);
     for k in 0..2 {
-        b.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.toggle("Animate", true); }));
+        b.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); }));
     }
     // and the same name registered in both is the same id, whose body each Ui runs
     check(b.register_toggle_body("second", checkbox_body) == second, "a name is one id in every Ui");
@@ -324,9 +324,9 @@ pub fn progress_without_track_keeps_accessibility() {
     theme.body.progress = ui.register_progress_body("ring", ring_body);
     ui.set_theme(theme);
     for t in 0..2 {
-        ui.frame(&frame(t as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
-            ui.progress("Busy", None);
-            ui.progress("Done", Some(0.25));
+        ui.frame(&frame(t as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
+            ui.progress("Busy", "Busy", None);
+            ui.progress("Done", "Done", Some(0.25));
         }));
     }
     let tree = ui.output().a11y;
@@ -348,7 +348,7 @@ fn swap(kind: &str, install: &dyn Fn(&mut Ui), role: Role, name: &str, key: Key,
             install(&mut ui);
         }
         let value = Cell::new(0);
-        let mut b = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| build(ui, &value));
+        let mut b = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui, &value));
         let mut t = 0.0;
         let mut step = |ui: &mut Ui, e: Vec<Event>| {
             t += 0.1;
@@ -417,7 +417,7 @@ pub fn button_pill_body() {
     let mut ui = new_ui(None);
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("pill", pill_button));
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.button("Go"); }));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button("Go"); }));
     }
     let w = ui.box_of_key(key_of(key_of(0x2c1b3c6d, "panel"), "Go")).map(|b| ui.rect(&b).w);
     check(w == Some(90.0), &format!("the button's box is not the body's: {w:?}"));
@@ -441,7 +441,7 @@ pub fn button_opts_uses_a_registered_body() {
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("recording", recording_button));
     let opts = ButtonOpts { w: Size::Px(50.0), h: Size::Px(30.0), justify: Justify::Center, padding: Edges { l: 3.0, ..Edges::ZERO }, centered: true, ..ButtonOpts::DEFAULT };
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.button_opts("Go", "Go", None, &opts, None, None); }));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Go", "Go", None, &opts, None, None); }));
     }
     check(SEEN.with(|s| s.get()) == (50.0, 30.0, 1, 3.0, true), &format!("the body's config is {:?}", SEEN.with(|s| s.get())));
     let row = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
@@ -463,7 +463,7 @@ pub fn duplicate_key_buttons_own_their_parts() {
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("parts", part_button));
     let mut rows = [0i64; 2];
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, None, None).handle.box_key; }
         }));
     }
@@ -531,7 +531,7 @@ pub fn icon_button_uses_a_registered_body() {
     let press = PRESS;
     let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled: false, press: Some(&PRESS), ..IconButton::DEFAULT };
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("Go", Icon::Glyph('+'), "Go", &opts); }));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Glyph('+'), "Go", &opts); }));
     }
     check(ICON_SEEN.with(|s| s.get()) == (36.0, 36.0, 0.96, 1), &format!("the body's config is {:?}", ICON_SEEN.with(|s| s.get())));
     check(ICON_CURVES.with(|s| s.get()) == Some(press), "the body is given the press curves");
@@ -551,7 +551,7 @@ pub fn icon_button_is_the_transport_key() {
         ui.set_a11y(true);
         let (clicks, mut t) = (Cell::new(0), 0.0);
         let opts = IconButton { states: Some(states), w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled, ..IconButton::DEFAULT };
-        let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { if ui.icon_button("play", Icon::Glyph('+'), "Play", &opts).clicked { clicks.set(clicks.get() + 1); } });
+        let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { if ui.icon_button("play", Icon::Glyph('+'), "Play", &opts).clicked { clicks.set(clicks.get() + 1); } });
         let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
         for _ in 0..3 { step(&mut ui, vec![]); }
         let n = tree_node(&ui, Role::Button, "Play");
@@ -591,7 +591,7 @@ pub fn icon_button_press_runs_the_callers_curves() {
     let mut t = 0.0;
     let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96,
         press: Some(&[Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }, Curve::Steps { duration: 0.2, count: 1 }]), ..IconButton::DEFAULT };
-    let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("play", Icon::Glyph('+'), "Play", &opts); });
+    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Glyph('+'), "Play", &opts); });
     let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
     for _ in 0..3 { step(&mut ui, vec![]); }
     let node = key_of(key_of(0x2c1b3c6d, "panel"), "play");
@@ -636,7 +636,7 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
         let mut ui = new_ui(None);
         ui.set_a11y(true);
         let mut t = 0.0;
-        let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+        let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             if hand {
                 let node = ui.node("play".into(), Node { w: Size::Px(36.0), h: Size::Px(36.0), flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, role: Role::Button, ..Node::DEFAULT });
                 let signal = ui.signal(&node);
@@ -679,7 +679,7 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
     // the drawing is told the 20-point square and the ink of the state
     let mut ui = new_ui(None);
     let b = IconButton { states: Some(states), press_scale: 1.0, ..IconButton::DEFAULT };
-    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 4]), "Play", &b); })); }
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 4]), "Play", &b); })); }
     check(PLAYED.with(|p| p.get()) == (PLAYED.with(|p| p.get()).0, 20.0, 20.0, 10) && PLAYED.with(|p| p.get()).0 > 0, &format!("the drawing's square and ink: {:?}", PLAYED.with(|p| p.get())));
     ui.destroy();
 }
@@ -699,7 +699,7 @@ pub fn icon_button_body_receives_the_drawing() {
     pick(&mut ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("art", art_icon));
     PLAYED.with(|p| p.set((0, 0.0, 0.0, 0)));
     let b = IconButton { states: Some(States::all(Look { text: pxui_core::geom::Rgba { r: 77, g: 0, b: 0, a: 255 }, ..Look::NONE })), ..IconButton::DEFAULT };
-    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 4]), "Go", &b); })); }
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 4]), "Go", &b); })); }
     check(ICON_ART.with(|a| a.get()) == (true, 77), &format!("the body's config: {:?}", ICON_ART.with(|a| a.get())));
     check(PLAYED.with(|p| p.get()).0 > 0, "the body's own node was not drawn on");
     ui.destroy();
@@ -716,12 +716,12 @@ fn mark_check(ui: &mut Ui, c: &CheckConfig, text: &str) {
 }
 
 pub fn checkbox_mark_body() {
-    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.checkbox("Snap", v.get() != 0) as i64);
+    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(((v.get() != 0) ^ ui.checkbox("Snap", "Snap", v.get() != 0, &pxui_core::ui::Checkbox::DEFAULT).clicked) as i64);
     swap("checkbox", &|ui| pick(ui, &|t, id| t.body.checkbox = id, &|ui| ui.register_checkbox_body("mark", mark_check)), Role::CheckBox, "Snap", Key::Space, &hits);
 }
 
 pub fn radio_mark_body() {
-    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.radio("Mode", &["A", "B", "C"], v.get() as usize) as i64);
+    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.radio("Mode", &["A", "B", "C"], v.get() as usize, &pxui_core::ui::Choice::DEFAULT.name("Mode")).1 as i64);
     // a click on "B" chooses 1; Tab then Down moves on to 2
     swap("radio", &|ui| pick(ui, &|t, id| t.body.radio = id, &|ui| ui.register_radio_body("mark", mark_check)), Role::Radio, "B", Key::ArrowDown, &hits);
 }
@@ -733,7 +733,7 @@ fn settled(kind: &str, custom: &str, ui: &mut Ui, build: &dyn Fn(&mut Ui)) -> (F
     let mut t = 0.0;
     let mut step = |ui: &mut Ui| {
         t += 0.1;
-        ui.frame(&frame(t, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| build(ui)));
+        ui.frame(&frame(t, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui)));
     };
     for _ in 0..3 {
         step(ui);
@@ -782,12 +782,12 @@ fn ui_ink() -> pxui_core::geom::Rgba {
 
 pub fn spinner_three_dots_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.spinner = id, &|ui| ui.register_spinner_body("three", three_dots));
-    swap_static("spinner", &install, &|ui| { ui.spinner("Loading"); });
+    swap_static("spinner", &install, &|ui| { ui.spinner("Loading", "Loading"); });
     let mut ui = new_ui(None);
     install(&mut ui);
     let h = std::cell::Cell::new(None);
     for k in 0..3 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| h.set(Some(ui.spinner("Loading")))));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| h.set(Some(ui.spinner("Loading", "Loading")))));
     }
     let spinner = h.get().expect("the spinner");
     check(ui.part_rect(spinner.box_key, Part::dot(2)).is_some_and(|r| r.w == 6.0) && ui.part_rect(spinner.box_key, Part::dot(3)).is_none(), "the dots are the body's");
@@ -810,12 +810,12 @@ fn box_badge(ui: &mut Ui, c: &BadgeConfig, _label: &str, text: &str) {
 
 pub fn badge_box_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.badge = id, &|ui| ui.register_badge_body("box", box_badge));
-    swap_static("badge", &install, &|ui| { ui.badge("Unread", "12"); });
+    swap_static("badge", &install, &|ui| { ui.badge("Unread", "Unread", "12"); });
     let mut ui = new_ui(None);
     install(&mut ui);
     let h = std::cell::Cell::new(None);
     for k in 0..3 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| h.set(Some(ui.badge("Unread", "12")))));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| h.set(Some(ui.badge("Unread", "Unread", "12")))));
     }
     check(ui.patch_text(&h.get().expect("the badge"), "13"), "patch_text missed the badge's node");
     ui.destroy();
@@ -1005,18 +1005,18 @@ fn go_button(ui: &mut Ui, c: &Cells) {
 
 pub fn panel_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.panel = id, &|ui| ui.register_panel_body("banded", banded_sheet));
-    let got = swap_root("panel", &install, 1, false, &|ui| click_on(ui, Role::Button, "Go"), &|ui, c| ui.panel(PanelOpts::default(), "p", &mut |ui| go_button(ui, c)));
+    let got = swap_root("panel", &install, 1, false, &|ui| click_on(ui, Role::Button, "Go"), &|ui, c| ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| go_button(ui, c)));
     check(got.0 == 1, "panel: the click on a button in the content did nothing");
 }
 
 pub fn window_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.window = id, &|ui| ui.register_window_body("banded", banded_sheet));
-    let got = swap_root("window", &install, 1, false, &|ui| click_on(ui, Role::Button, "Go"), &|ui, c| ui.panel(PanelOpts { window: true, ..PanelOpts::default() }, "w", &mut |ui| go_button(ui, c)));
+    let got = swap_root("window", &install, 1, false, &|ui| click_on(ui, Role::Button, "Go"), &|ui, c| ui.panel("w", &pxui_core::ui::Overlay::DEFAULT.window().name("w"), &mut |ui| go_button(ui, c)));
     check(got.0 == 1, "window: the click on a button in the content did nothing");
     // the window body is the window's alone: a panel with the same theme is built by the built-in body
     let mut ui = new_ui(None);
     pick(&mut ui, &|t, id| t.body.window = id, &|ui| ui.register_window_body("banded", |_, _, _, _| panic!("the window body ran for a panel")));
-    ui.frame(&frame(0.1, vec![]), &mut |ui| ui.panel(PanelOpts::default(), "p", &mut |_| {}));
+    ui.frame(&frame(0.1, vec![]), &mut |ui| ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |_| {}));
     ui.destroy();
 }
 
@@ -1031,7 +1031,7 @@ fn open_then_dismiss(ui: &Ui) -> Vec<Vec<Event>> {
 pub fn popup_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.popup = id, &|ui| ui.register_popup_body("banded", banded_sheet));
     let got = swap_root("popup", &install, 1, false, &open_then_dismiss, &|ui, c| {
-        if !ui.popup(None, None, true, false, (10.0, 10.0), 200.0, 100.0, "pop", &mut |ui| go_button(ui, c)) {
+        if !ui.popup("pop", &pxui_core::ui::Overlay::DEFAULT.at(10.0, 10.0).w(200.0).h(100.0).dismiss_initial().name("pop"), &mut |ui| go_button(ui, c)) {
             c.b.set(c.b.get() + 1);
         }
     });
@@ -1041,7 +1041,7 @@ pub fn popup_banded_body() {
 pub fn modal_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.modal = id, &|ui| ui.register_modal_body("banded", banded_sheet));
     let got = swap_root("modal", &install, 1, false, &open_then_dismiss, &|ui, c| {
-        if !ui.modal(None, "mod", &mut |ui| go_button(ui, c)) {
+        if !ui.modal("mod", &pxui_core::ui::Overlay::DEFAULT.name("mod"), &mut |ui| go_button(ui, c)) {
             c.b.set(c.b.get() + 1);
         }
     });
@@ -1103,7 +1103,7 @@ fn plain_section(ui: &mut Ui, c: &SectionConfig, label: &str, content: &mut dyn 
 pub fn inspector_section_plain_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.inspector_section = id, &|ui| ui.register_inspector_section_body("plain", plain_section));
     let got = swap_root("inspector_section", &install, 1, false, &|ui| click_on(ui, Role::Heading, "Section"), &|ui, c| {
-        ui.panel(PanelOpts { window: true, ..PanelOpts::default() }, "p", &mut |ui| {
+        ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.window().name("p"), &mut |ui| {
             let open = ui.inspector_section("sec", true, None, "Section", &mut |ui| {
                 c.built();
                 ui.node("row".into(), Node { h: Size::Px(20.0), ..Node::DEFAULT });
@@ -1123,7 +1123,7 @@ fn bullet_row(ui: &mut Ui, c: &InspectorRowConfig, label: &str) {
 pub fn inspector_row_bullet_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.inspector_row = id, &|ui| ui.register_inspector_row_body("bullet", bullet_row));
     let got = swap_root("inspector_row", &install, 0, true, &|ui| vec![vec![move_to(mid(tree_node(ui, Role::Label, "Label").rect, 4.0))], vec![]], &|ui, c| {
-        ui.panel(PanelOpts::default(), "p", &mut |ui| {
+        ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
             let (_, x, y, w) = ui.inspector_row(None, Some(true), "r", "Label");
             c.a.set(((x + y + w) * 1000.0) as i64);
         });
@@ -1200,7 +1200,7 @@ fn chip_toast(ui: &mut Ui, c: &ToastConfig, text: &str) {
 pub fn toast_chip_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.toast = id, &|ui| ui.register_toast_body("chip", chip_toast));
     let got = swap_root("toast", &install, 0, false, &|ui| click_on(ui, Role::StatusBar, "one"), &|ui, c| {
-        if let Some(i) = ui.toasts("t", &["one", "two"], 1000.0) {
+        if let Some(i) = ui.toasts("t", &[pxui_core::ui::Toast::new(1, "one"), pxui_core::ui::Toast::new(2, "two")], 1000.0) {
             c.a.set(c.a.get() * 10 + i as i64 + 1);
         }
     });
@@ -1225,9 +1225,9 @@ pub fn tip_dark_body() {
         frames
     };
     swap_root("tip", &install, 0, true, &script, &|ui, _| {
-        ui.panel(PanelOpts::default(), "p", &mut |ui| {
+        ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
             let host = ui.node("host".into(), Node { w: Size::Px(80.0), h: Size::Px(20.0), flags: Flags::CLICKABLE, ..Node::DEFAULT });
-            ui.tip(&host, text);
+            ui.tooltip(&host, text);
         });
     });
     // it showed (the facts compare equal, so the check is on one run)
@@ -1236,9 +1236,9 @@ pub fn tip_dark_body() {
     for k in 0..12 {
         let events = if k == 0 { vec![move_to((30, 20))] } else { vec![] };
         ui.frame(&frame(k as f64 * 0.1, events), &mut |ui| {
-            ui.panel(PanelOpts::default(), "p", &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
                 let host = ui.node("host".into(), Node { w: Size::Px(80.0), h: Size::Px(20.0), flags: Flags::CLICKABLE, ..Node::DEFAULT });
-                ui.tip(&host, text);
+                ui.tooltip(&host, text);
             })
         });
     }
@@ -1260,7 +1260,7 @@ pub fn kept_view_runs_no_container_body() {
     let mut counts = Vec::new();
     for k in 0..12 {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| {
-            ui.panel(PanelOpts { window: true, ..PanelOpts::default() }, "p", &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.window().name("p"), &mut |ui| {
                 ui.view("v", 1, Size::Grow, Size::Fit, &mut |ui| {
                     ui.inspector_section("sec", true, None, "Section", &mut |ui| {
                         ui.node("row".into(), Node { h: Size::Px(20.0), ..Node::DEFAULT });
@@ -1297,7 +1297,7 @@ fn fixed_tab(ui: &mut Ui, c: &TabConfig, text: &str) {
 pub fn tab_fixed_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.tab = id, &|ui| ui.register_tab_body("fixed", fixed_tab));
     // a click on "B" chooses 1; Tab then Right moves on to 2
-    swap_all("tab", &install, Role::Tab, "B", Key::ArrowRight, &|ui, v| v.set(ui.tabs("Tabs", &["A", "B", "C"], v.get() as usize) as i64));
+    swap_all("tab", &install, Role::Tab, "B", Key::ArrowRight, &|ui, v| v.set(ui.tabs("Tabs", &["A", "B", "C"], v.get() as usize, &pxui_core::ui::Choice::DEFAULT.name("Tabs")).1 as i64));
 }
 
 thread_local! { static FIRST_SEGMENT: Cell<i64> = const { Cell::new(0) }; }
@@ -1333,7 +1333,7 @@ pub fn segment_sliding_body() {
     let mut t = 0.0;
     let mut step = |ui: &mut Ui, e: Vec<Event>| {
         t += 0.1;
-        ui.frame(&frame(t, e), &mut |ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| build(ui, &v)));
+        ui.frame(&frame(t, e), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui, &v)));
     };
     for _ in 0..3 {
         step(&mut ui, vec![]);
@@ -1358,7 +1358,7 @@ fn pill_dropdown(ui: &mut Ui, c: &DropdownConfig, text: &str) {
 }
 
 fn dropdown_build(ui: &mut Ui, c: &Cells) {
-    let v = ui.dropdown("Pick", &["A", "B", "C"], c.a.get() as usize);
+    let v = ui.dropdown("Pick", "Pick", &["A", "B", "C"], c.a.get() as usize, &pxui_core::ui::Dropdown::DEFAULT).1;
     c.a.set(v as i64);
 }
 
@@ -1430,7 +1430,7 @@ fn list_build(ui: &mut Ui, c: &Cells) {
     if sel.is_empty() {
         sel.resize(4, 0);
     }
-    let got = ui.list_view("List", 4, false, &mut sel, &mut |ui, i| ui.item_text(["one", "two", "three", "four"][i]));
+    let got = ui.selection_list("List", 4, &mut sel, &pxui_core::ui::SelectionList { multi: false }, &mut |ui, i| ui.item_text(["one", "two", "three", "four"][i])).activated;
     if got.is_some() {
         c.b.set(c.b.get() + 1);
     }
@@ -1464,7 +1464,7 @@ fn tree_build(ui: &mut Ui, c: &Cells) {
         (*open, *visible) = (vec![1, 0, 0, 0], vec![0; 4]);
     }
     let mut selected = c.row.get();
-    ui.tree("Tree", &NODES, &mut open, &mut selected, &mut visible, &mut |ui, node| ui.item_text(["root", "a", "b", "last"][node]));
+    { let r = ui.tree("Tree", &NODES, &mut open, &mut selected, &mut visible, &mut |ui, node| ui.item_text(["root", "a", "b", "last"][node])); (r.activated, r.shown) };
     c.row.set(selected);
     c.a.set(selected.map_or(0, |n| n as i64 + 1));
     c.b.set(open[0] as i64);
@@ -1499,7 +1499,7 @@ fn table_view_build(ui: &mut Ui, c: &Cells) {
         widths.extend([120.0, 120.0]);
     }
     let mut selected = c.row.get();
-    let sorted = ui.table_view("Table", &["Name", "Size"], &mut widths, 3, Some((0, true)), &mut selected, &mut |ui, r, col| ui.item_text(NAMES[r][col]));
+    let sorted = ui.table_view("Table", &["Name", "Size"], &mut widths, 3, &mut selected, &pxui_core::ui::TableView { sort: Some((0, true)), text: None }, &mut |ui, r, col| ui.item_text(NAMES[r][col])).sort;
     c.row.set(selected);
     c.a.set(selected.map_or(0, |n| n as i64 + 1));
     if let Some(col) = sorted {
@@ -1551,13 +1551,13 @@ pub fn table_view_with_widget_cell() {
         let mut step = |ui: &mut Ui, e: Vec<Event>| {
             t += 0.1;
             ui.frame(&frame(t, e), &mut |ui| {
-                ui.table_view("Table", &["Name", "Action"], &mut widths.borrow_mut(), 3, None, &mut selected, &mut |ui, row, col| {
+                ui.table_view("Table", &["Name", "Action"], &mut widths.borrow_mut(), 3, &mut selected, &pxui_core::ui::TableView { sort: None, text: None }, &mut |ui, row, col| {
                     if col == 0 {
                         ui.label(["row 0", "row 1", "row 2"][row], pxui_core::ui::Label::DEFAULT);
                     } else if ui.button("Go") {
                         goes.set(goes.get() * 10 + row as i64 + 1);
                     }
-                });
+                }).sort;
             });
         };
         for _ in 0..3 {
@@ -1583,7 +1583,7 @@ pub fn table_view_with_widget_cell() {
 }
 
 fn read_only_table(ui: &mut Ui, c: &Cells) {
-    let (clicked, _) = ui.table_with((0.0, 0.0), 200.0, 100.0, &["Name", "Size"], 5, &mut |r, col, emit| emit(NAMES[r as usize % 3][col as usize]), "t");
+    let clicked = ui.table_view("t", &["Name", "Size"], &mut [], 5, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(0.0, 0.0, 200.0, 100.0)), &mut |ui, r, col| ui.item_text(NAMES[r % 3][col])).row.map(|r| r as i64);
     if let Some(r) = clicked {
         c.a.set(r + 1);
     }
@@ -1617,13 +1617,11 @@ pub fn picker_label_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.picker = id, &|ui| ui.register_picker_body("label", label_pick_row));
     // Down moves to "Beta", Enter picks it
     let got = swap_root("picker", &install, 0, true, &|_| keys_then(&[Key::ArrowDown, Key::Enter]), &|ui, c| {
-        ui.panel(PanelOpts::default(), "p", &mut |ui| {
-            let mut fill = |_: &str, rows: &mut Vec<(String, String)>| {
-                if rows.is_empty() {
-                    rows.extend([("Alpha", "one"), ("Beta", "two"), ("Gamma", "three")].map(|(a, b)| (a.to_owned(), b.to_owned())));
-                }
+        ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
+            let mut fill = |_: &str, rows: &mut pxui_core::ui::PickRows| {
+                for (a, b) in [("Alpha", "one"), ("Beta", "two"), ("Gamma", "three")] { rows.push(a, b); }
             };
-            if let (_, Pick::Pick(i)) = ui.picker_filled(&PickerOpts::default(), "Find", "", &mut fill) {
+            if let (_, Pick::Pick(i)) = { let r = ui.picker("Find", "Find", "", &pxui_core::ui::PickerOpts::default(), &mut fill); (r.query.to_owned(), r.pick) } {
                 c.a.set(i + 1);
             }
         });
@@ -1689,7 +1687,7 @@ fn boxed_search(ui: &mut Ui, c: &SearchFieldConfig, _icon: &str, editor: &mut dy
 }
 
 fn search_build(ui: &mut Ui, c: &Cells) {
-    ui.panel(PanelOpts::default(), "p", &mut |ui| {
+    ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
         let changed = ui.search_field("Find", "?", std::str::from_utf8(&c.sel.borrow()).unwrap(), "search");
         if let Some(v) = changed {
             keep_text(c, &v);
@@ -1753,7 +1751,7 @@ fn leading_field(ui: &mut Ui, c: &TextFieldConfig, text: &str, value: &str) {
 }
 
 fn text_field_build(ui: &mut Ui, c: &Cells) {
-    ui.panel(PanelOpts::default(), "p", &mut |ui| {
+    ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
         let changed = ui.text_field("Caption", std::str::from_utf8(&c.sel.borrow()).unwrap());
         if let Some(v) = changed {
             keep_text(c, &v);
@@ -1825,13 +1823,12 @@ fn inked_picker_field(ui: &mut Ui, c: &PickerFieldConfig, _placeholder: &str) {
 }
 
 fn picker_build(ui: &mut Ui, c: &Cells) {
-    ui.panel(PanelOpts::default(), "p", &mut |ui| {
+    ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |ui| {
         let now = text_of(c);
-        let mut fill = |q: &str, rows: &mut Vec<(String, String)>| {
-            rows.clear();
-            rows.extend(["Alpha", "Beta", "Gamma"].iter().filter(|r| r.to_lowercase().contains(q)).map(|r| (r.to_string(), String::new())));
+        let mut fill = |q: &str, rows: &mut pxui_core::ui::PickRows| {
+            for r in ["Alpha", "Beta", "Gamma"].iter().filter(|r| r.to_lowercase().contains(q)) { rows.push(r, ""); }
         };
-        let (q, pick) = ui.picker_filled(&PickerOpts::default(), "Find", &now, &mut fill);
+        let (q, pick) = { let r = ui.picker("Find", "Find", &now, &pxui_core::ui::PickerOpts::default(), &mut fill); (r.query.to_owned(), r.pick) };
         keep_text(c, &q);
         if let Pick::Pick(i) = pick {
             c.row.set(Some(i as usize));
@@ -1865,9 +1862,9 @@ pub fn kept_view_runs_no_item_body() {
     let mut counts = Vec::new();
     for k in 0..12 {
         ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| {
-            ui.panel(PanelOpts { window: true, ..PanelOpts::default() }, "p", &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.window().name("p"), &mut |ui| {
                 ui.view("v", 1, Size::Grow, Size::Fit, &mut |ui| {
-                    ui.tabs("tabs", &["A", "B"], 0);
+                    ui.tabs("tabs", &["A", "B"], 0, &pxui_core::ui::Choice::DEFAULT.name("tabs")).1;
                 });
             })
         });

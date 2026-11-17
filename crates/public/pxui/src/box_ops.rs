@@ -581,7 +581,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.scroll_view("s", pxui::ui::Size::Px(100.0), pxui::ui::Size::Px(100.0), &mut |_| {});
+    ///     let b = ui.scroll_view("s", pxui::ui::Size::Px(100.0), pxui::ui::Size::Px(100.0), |_| {});
     ///     assert_eq!(ui.scroll(&b), pxui::ui::Scroll { settled: 0.0, painted: 0.0 });
     /// });
     /// ```

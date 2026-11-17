@@ -4,11 +4,9 @@
 pub mod pxui {
     pub use pxui_core::text;
     pub use pxui_core::ui::*;
-    pub use pxui_core::ui_kit::PanelOpts;
     pub use pxui_core::ui_widgets::TreeNode;
     pub use pxui_types::ui::{Dialog, DialogButton, DialogResponse, Menu, MenuItem, MenuResponse, Pick};
     pub mod collections { pub use pxui_core::ui_widgets::TreeNode; }
-    pub mod ui_kit { pub use pxui_core::ui_kit::PanelOpts; }
     pub use pxui_types::theme;
     pub type PxuiBox = pxui_core::ui::UiBox;
 }
@@ -30,8 +28,8 @@ pub mod inputs {
     pub fn layer_search(ui: &mut Ui, search: &mut String) {
         if let Some(q) = ui.search_field("Find", "/", search, "Search layers") { *search = q.to_owned(); }
     }
-    pub fn presets(ui: &mut Ui, rows: &dyn Fn(&str) -> Vec<(String, String)>) -> Pick {
-        ui.picker(&PickerOpts { limit: 4, ..PickerOpts::default() }, "Search presets", "", rows).1
+    pub fn presets(ui: &mut Ui, rows: &mut dyn FnMut(&str, &mut pxui_types::ui::PickRows)) -> Pick {
+        ui.picker("presets-search", "Search presets", "", &PickerOpts { limit: 4, ..PickerOpts::default() }, rows).pick
     }
 }
 

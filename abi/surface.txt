@@ -82,7 +82,7 @@ Ui|cap_width|Rays|done
 Ui|captured|Rays|done
 Ui|carrying|Rays|done
 Ui|carry|Rays|done
-Ui|checkbox|Gallery|done
+Ui|checkbox|Gallery|done: pxui_ui_checkbox_keyed
 Ui|clipboard_request|Rays|done
 Ui|col|Rays|done
 Ui|context_at|Rays|done
@@ -135,7 +135,7 @@ Ui|layers|Rays|done: every layer in draw order
 Ui|layer|Rays|done: a safe view of one layer of the last frame (instances, dirty ranges, breaks)
 Ui|leave|A4-required,Rays|done
 Ui|line_field|Rays|done
-Ui|list_view|Gallery|done
+Ui|selection_list|Gallery|done
 Ui|load_text_edit|Rays|done
 Ui|local_rect|Rays|done
 Ui|menu_bar|Gallery|done
@@ -193,7 +193,6 @@ Ui|split|Gallery|done
 Ui|state|A4-required,Rays|done
 Ui|style|A4-required|done
 Ui|table_view|Gallery|done
-Ui|table|Gallery,Rays|done
 Ui|tabs|Gallery|done
 Ui|text_area|Gallery,Rays|done
 Ui|text_field|Gallery,Rays|done
@@ -206,7 +205,7 @@ Ui|text_width|A4-required,Rays|done
 Ui|text|A4-required,Gallery,Rays|done
 Ui|themed|Rays|done
 Ui|theme|Gallery,Rays|done
-Ui|tip|Gallery|done
+Ui|tooltip|Gallery|done
 Ui|to_front|Rays|done
 Ui|toasts|Gallery|done
 Ui|toggle|Gallery,Rays|done
@@ -235,7 +234,6 @@ Ui|density|LocalWave|done: pxui_ui_density
 
 Ui|section_list|LocalWave|done: pxui_ui_section_list
 
-Ui|section_list_measured|LocalWave|done: pxui_ui_section_list_measured
 
 Ui|a11y_value|LocalWave|done: UTF-8 text value and selection via pxui_ui_a11y_value
 Ui|a11y_value_of|LocalWave|done: borrowed text value from a current accessibility node

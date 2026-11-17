@@ -1,4 +1,5 @@
 use crate::{check, Ui};
+use pxui_types::ui::{Key, ListResponse, SelectionList, TableResponse, TableView, TreeResponse};
 #[cfg(not(feature = "static"))]
 use pxui_types::Str;
 
@@ -26,7 +27,7 @@ mod link {
     unsafe extern "C" {
         fn pxui_ui_list_view_with(ui: *mut crate::sys::PxuiUi, desc: *const ListViewWithDesc, out: *mut usize) -> i32;
         fn pxui_ui_tree_with(ui: *mut crate::sys::PxuiUi, desc: *const TreeViewWithDesc, out: *mut usize) -> i32;
-        fn pxui_ui_table_view_with(ui: *mut crate::sys::PxuiUi, desc: *const TableViewWithDesc, out: *mut usize) -> i32;
+        fn pxui_ui_table_view_keyed(ui: *mut crate::sys::PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const TableViewWithDesc, text: *const pxui_types::geom::Rect, sort: *mut usize, row: *mut usize) -> i32;
     }
 
     /// The cell callback: the caller's closure behind a trait object, so one trampoline serves all three collections.
@@ -73,7 +74,9 @@ mod link {
             ((out != usize::MAX).then_some(out), rows_len)
         }
 
-        pub(super) fn table_view_c(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, mut cell: Cell) -> Option<usize> {
+        #[allow(clippy::too_many_arguments)]
+        pub(super) fn table_view_c(&mut self, key: &str, titles: &[&str], widths: &mut [f32], rows: usize, table: &TableView, selected: &mut Option<usize>, mut cell: Cell) -> TableResponse {
+            let (sort, label) = (table.sort, "");
             let titles = crate::Strs::new(titles);
             let mut selected_raw = selected.unwrap_or(usize::MAX);
             let desc = TableViewWithDesc {
@@ -83,107 +86,78 @@ mod link {
                 sort_column: sort.map_or(0, |(column, _)| column), selected: &mut selected_raw,
                 build: Some(call_cell), user: (&mut cell as *mut Cell).cast(),
             };
-            let mut out = usize::MAX;
-            let rc = unsafe { pxui_ui_table_view_with(self.0.as_ptr(), &desc, &mut out) };
+            let (mut sort, mut row) = (usize::MAX, usize::MAX);
+            let text = table.text.as_ref().map_or(core::ptr::null(), |r| r as *const _);
+            let rc = unsafe { pxui_ui_table_view_keyed(self.0.as_ptr(), &pxui_types::ffi::PxuiKeyedDesc::new(key, ""), &desc, text, &mut sort, &mut row) };
             crate::composite::resume_deferred();
             check(self, rc);
             *selected = (selected_raw != usize::MAX).then_some(selected_raw);
-            (out != usize::MAX).then_some(out)
+            TableResponse { row: (row != usize::MAX).then_some(row), sort: (sort != usize::MAX).then_some(sort) }
         }
 
     }
 }
 
 impl Ui {
-    /// A selectable virtual list of `count` rows filling its parent: `cell(ui, row)` builds the rows in view inside the row node the
-    /// `list_view` body shapes (`item_text` for the kit's text row; any widgets otherwise). Returns the row a double click or Enter
-    /// activated.
-    ///
-    /// `selected` holds one flag a row (not 0: selected), the library's own storage for the call: a click selects a row alone; with
-    /// `multi`, Command (Ctrl) toggles one and Shift selects a run. One Tab stop; arrows, Page keys, Home and End move the keyboard's row.
-    /// Allocates: never on a warm frame.
-    /// Identity: `label` keys the list under its parent; rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `selected` shorter than `count`), or when `cell` panics. A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
-    ///
-    /// ```
-    /// let mut selected = [0u8; 3];
-    /// pxui::doc::frames(1, &mut |ui| { ui.list_view("Files", 3, true, &mut selected, &mut |ui, row| ui.item_text(["a", "b", "c"][row])); });
-    /// ```
-    #[track_caller] pub fn list_view(&mut self, label: &str, count: usize, multi: bool, selected: &mut [u8], cell: &mut dyn FnMut(&mut Ui, usize)) -> Option<usize> {
+    /// The one body of `selection_list`: keyed by `key` (the export's label is identity only).
+    #[track_caller]
+    pub(crate) fn selection_list_key(&mut self, key: Key, count: usize, selected: &mut [u8], list: &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize)) -> ListResponse {
+        let mut id_label = [0u8; 17];
+        let (label, multi) = (key.label(&mut id_label), list.multi);
         #[cfg(feature = "static")]
         {
             let mut out = None;
             check(self, unsafe { pxui_abi_link::trusted::list_view(self.0.as_ptr(), label, count, multi, selected, &mut |raw, row, _| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), row), &mut out) });
-            out
+            ListResponse { activated: out }
         }
         #[cfg(not(feature = "static"))]
-        self.list_view_c(label, count, multi, selected, &mut |ui, row, _| cell(ui, row))
+        ListResponse { activated: self.list_view_c(label, count, multi, selected, &mut |ui, row, _| cell(ui, row)) }
     }
 
-    /// A preorder virtual tree: `cell(ui, node)` builds the row that shows tree node `node`, after the disclosure mark (`item_text` for
-    /// the kit's text row, which names the row). The library writes the shown rows into the start of `visible` (at least a row per
-    /// node); returns the node a double click or Enter activated and the number of rows shown.
-    ///
-    /// `open` holds one flag a node (not 0: expanded); `selected` is the selected node, both updated in place.
-    /// Allocates: never on a warm frame.
-    /// Identity: `label` keys the tree under its parent; rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `open` or `visible` too short), or when `cell` panics. A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
-    ///
-    /// ```
-    /// use pxui::collections::TreeNode;
-    /// let nodes = [TreeNode { depth: 0, children: 1 }, TreeNode { depth: 1, children: 0 }];
-    /// let (mut open, mut selected, mut visible) = ([1u8, 0], None, [0u32; 2]);
-    /// pxui::doc::frames(1, &mut |ui| { ui.tree("Outline", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, node| ui.item_text(["root", "leaf"][node])); });
-    /// assert_eq!(visible, [0, 1]);
-    /// ```
-    #[track_caller] pub fn tree(&mut self, label: &str, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> (Option<usize>, usize) {
+    /// The one body of `tree`: keyed by `key` (the export's label is identity only).
+    #[allow(clippy::too_many_arguments)]
+    #[track_caller]
+    pub(crate) fn tree_key(&mut self, key: Key, nodes: &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell: &mut dyn FnMut(&mut Ui, usize)) -> TreeResponse {
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
         #[cfg(feature = "static")]
-        {
+        let (activated, shown) = {
             let mut out = (None, 0);
             let nodes = unsafe { core::slice::from_raw_parts(nodes.as_ptr().cast::<TreeNodeDesc>(), nodes.len()) };
             check(self, unsafe { pxui_abi_link::trusted::tree(self.0.as_ptr(), label, nodes, open, selected, visible, &mut |raw, node, _| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), node), &mut out) });
             out
-        }
+        };
         #[cfg(not(feature = "static"))]
-        self.tree_c(label, nodes, open, selected, visible, &mut |ui, node, _| cell(ui, node))
+        let (activated, shown) = self.tree_c(label, nodes, open, selected, visible, &mut |ui, node, _| cell(ui, node));
+        TreeResponse { activated, shown }
     }
 
-    /// A virtual table: a header of `titles` over `rows` rows, columns `widths` points wide; `cell(ui, row, column)` builds one cell
-    /// inside the cell node (`item_text` for the kit's text cell, which names the cell). Widths and selection update in place; returns
-    /// the column whose header was clicked (the sort intent).
-    ///
-    /// `sort` marks the sorted column with a chevron (up when ascending); dragging a header grip resizes its column.
-    /// Allocates: never on a warm frame.
-    /// Identity: `label` keys the table under its parent; rows are keyed by index.
-    /// Panics: when the library refuses the call (outside a frame, `widths` not one a title, a sort column past them), or when `cell` A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
-    /// panics.
-    ///
-    /// ```
-    /// let (mut widths, mut selected) = ([80.0f32, 60.0], None);
-    /// pxui::doc::frames(1, &mut |ui| { ui.table_view("Points", &["Name", "Tag"], &mut widths, 2, None, &mut selected, &mut |ui, row, column| ui.item_text(["a", "b", "c", "d"][row * 2 + column])); });
-    /// ```
+    /// The one body of `table_view`: keyed by `key`, unnamed, a text table with `TableView::text`.
     #[allow(clippy::too_many_arguments)]
-    #[track_caller] pub fn table_view(&mut self, label: &str, titles: &[&str], widths: &mut [f32], rows: usize, sort: Option<(usize, bool)>, selected: &mut Option<usize>, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> Option<usize> {
+    #[track_caller]
+    pub(crate) fn table_view_key(&mut self, key: Key, titles: &[&str], widths: &mut [f32], rows: usize, selected: &mut Option<usize>, table: &TableView, cell: &mut dyn FnMut(&mut Ui, usize, usize)) -> TableResponse {
+        let mut id_label = [0u8; 17];
+        let key = key.label(&mut id_label);
         #[cfg(feature = "static")]
         {
-            let mut out = None;
-            check(self, unsafe { pxui_abi_link::trusted::table_view(self.0.as_ptr(), label, titles, widths, rows, sort, selected, &mut |raw, row, column| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), row, column), &mut out) });
+            let mut out = TableResponse::default();
+            check(self, unsafe { pxui_abi_link::trusted::table_view(self.0.as_ptr(), key, "", titles, widths, rows, selected, table, &mut |raw, row, column| (&mut *cell)(&mut *core::mem::ManuallyDrop::new(Ui(core::ptr::NonNull::new_unchecked(raw))), row, column), &mut out) });
             out
         }
         #[cfg(not(feature = "static"))]
-        self.table_view_c(label, titles, widths, rows, sort, selected, cell)
+        self.table_view_c(key, titles, widths, rows, table, selected, cell)
     }
 
-    /// The kit's text of the collection item `cell` is building: a `list_view` row's label, a `tree` row's (naming the row) or a
+    /// The kit's text of the collection item `cell` is building: a `selection_list` row's label, a `tree` row's (naming the row) or a
     /// `table_view` cell's (naming the cell), in the item's look, through its row body.
     ///
-    /// Call it from a `list_view`, `tree` or `table_view` cell callback; the text is the item's accessible name where it names one.
+    /// Call it from a `selection_list`, `tree` or `table_view` cell callback; the text is the item's accessible name where it names one.
     /// Allocates: never on a warm frame (text it has not shaped before is shaped once).
     /// Panics: outside a collection item, on invalid text, or when the `Ui` has failed. Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// let mut selected = [0u8; 2];
-    /// pxui::doc::frames(1, &mut |ui| { ui.list_view("Files", 2, false, &mut selected, &mut |ui, row| ui.item_text(["notes.txt", "song.flac"][row])); });
+    /// pxui::doc::frames(1, &mut |ui| { ui.selection_list("files", 2, &mut selected, &pxui::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["notes.txt", "song.flac"][row])); });
     /// ```
     #[inline]
     #[track_caller] pub fn item_text(&mut self, text: &str) {
@@ -219,11 +193,11 @@ mod item_text_tests {
         for _ in 0..2 {
             ui.frame(&input, &mut |ui: &mut Ui| {
                 let half = ui.node("lists".into(), crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
-                ui.within(&half, &mut |ui| { ui.list_view("list", 1, false, &mut list, &mut |ui, _| ui.item_text("list row")); });
+                ui.within(&half, &mut |ui| { ui.selection_list("list", 1, &mut list, &crate::SelectionList::DEFAULT, &mut |ui, _| ui.item_text("list row")); });
                 let half = ui.node("trees".into(), crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
                 ui.within(&half, &mut |ui| { ui.tree("tree", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, _| ui.item_text("tree row")); });
                 let half = ui.node("tables".into(), crate::Node { h: crate::ui::Size::Px(80.0), ..crate::Node::DEFAULT });
-                ui.within(&half, &mut |ui| { ui.table_view("table", &["A"], &mut widths, 1, None, &mut cell, &mut |ui, _, _| ui.item_text("table cell")); });
+                ui.within(&half, &mut |ui| { ui.table_view("table", &["A"], &mut widths, 1, &mut cell, &crate::TableView::DEFAULT, &mut |ui, _, _| ui.item_text("table cell")); });
             }).expect("frame");
         }
         let names: Vec<String> = ui.a11y_nodes().iter().map(|node| ui.a11y_name_of(node).to_owned()).collect();
@@ -253,10 +227,10 @@ mod tests {
             ui.frame(&input, &mut |ui: &mut Ui| {
                 ui.view("page", count, pxui_types::Size::Grow, pxui_types::Size::Grow, &mut |ui: &mut Ui| {
                     let ratio = ui.split("split", pxui_types::Axis::Row, 0.34, 120.0, 200.0, &mut |ui: &mut Ui| {
-                        let _ = ui.list_view("Files", ROWS, true, &mut list, &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
+                        let _ = ui.selection_list("files", ROWS, &mut list, &crate::SelectionList::DEFAULT.multi(), &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
                     }, &mut |ui: &mut Ui| {
-                        shown = ui.tree("Outline", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("node {i}")); }).1;
-                        let _ = ui.table_view("Points", &["Name", "Group", "Tag"], &mut widths, ROWS, Some((0, true)), &mut table_sel, &mut |ui, r, c| { cells.set(cells.get() + 1); ui.item_text(&format!("{r}:{c}")); });
+                        shown = ui.tree("outline", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("node {i}")); }).shown;
+                        let _ = ui.table_view("points", &["Name", "Group", "Tag"], &mut widths, ROWS, &mut table_sel, &crate::TableView::DEFAULT.sort(0, true), &mut |ui, r, c| { cells.set(cells.get() + 1); ui.item_text(&format!("{r}:{c}")); });
                     });
                     assert!(ratio.is_none() || ratio.is_some());
                 });

@@ -85,7 +85,7 @@ impl Ui {
     /// Only the rows in view (and a few past each edge) are built, so the list costs the same at ten rows or a million. Like React's
     /// row key, `id(i)` is the item's own id (never its index or text): a row's state and its children's identities follow the item
     /// when the items reorder. The returned handle is the list's scroll box (`reveal(&list, i)` scrolls row `i` into view). Rows of
-    /// differing heights: `section_list_measured`.
+    /// differing heights: `section_list` with `SectionList::measured`.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); each row box is `Key::Id(id(i))`
     /// under the list, so ids must be unique among the rows (a repeated id takes a `#dup` key).
@@ -108,9 +108,7 @@ impl Ui {
     /// The one body of `list`: a section list with no lead-in, heading or trailer, its rows handed to `f`.
     #[track_caller]
     fn list_rows(&mut self, key: Key, count: usize, row_h: f32, id: &dyn Fn(usize) -> i64, f: &mut dyn FnMut(&mut Ui, usize)) -> PxuiBox {
-        let mut id_label = [0u8; 17];
-        let rows = SectionList { count, row_height: row_h, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false };
-        self.section_list(key.label(&mut id_label), &rows, id, &mut |ui, part| if let SectionPart::Row(i) = part { f(ui, i) })
+        self.section_list_key(key, &SectionList::new(count).row_h(row_h), id, &mut |ui, part, _| if let SectionPart::Row(i) = part { f(ui, i) })
     }
 
     /// The one body of `row`, `column` and `stack`: `node` with `axis` set, declared by `key`, then `f` inside it.

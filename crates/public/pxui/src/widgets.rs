@@ -1,4 +1,14 @@
-use crate::{Key, PxuiBox, Scrubber, SearchField, SearchFieldResponse, Ui, check};
+use crate::{Key, PxuiBox, Response, Scrubber, SearchField, SearchFieldResponse, Ui, check};
+use pxui_types::{ffi::{PxuiKeyedDesc, PxuiResponse, Slice}, theme::BodyKind, ui::Checkbox, Str};
+
+library!(keyed_lib {
+    fn pxui_ui_checkbox_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, on: u8, out: *mut PxuiResponse) -> i32;
+    fn pxui_ui_choice_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, kind: u32, options: Slice<Str>, selected: usize, out: *mut PxuiResponse, chosen: *mut usize) -> i32;
+    fn pxui_ui_slider_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, value_out: *mut f32) -> i32;
+    fn pxui_ui_progress_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_value: u8, value: f32, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_spinner_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, out: *mut PxuiBox) -> i32;
+    fn pxui_ui_badge_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: Str, out: *mut PxuiBox) -> i32;
+});
 
 library!(scrub_lib {
     fn pxui_ui_scrub(ui: *mut PxuiUi, label: pxui_types::Str, value: f32, min: f32, max: f32, step: f32, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
@@ -17,25 +27,13 @@ pub struct Scrub {
     pub held: bool,
 }
 
-#[cfg(not(feature = "static"))]
-use crate::Strs;
-#[cfg(not(feature = "static"))]
-use pxui_types::Str;
 
 #[cfg(not(feature = "static"))]
 mod sys {
-    use pxui_types::{PxuiBox, Str, ffi::Slice};
+    use pxui_types::Str;
     use crate::sys::PxuiUi;
     #[link(name = "pxui")]
     unsafe extern "C" {
-    pub fn pxui_ui_checkbox(ui: *mut PxuiUi, label: Str, value: u8, out: *mut u8) -> i32;
-    pub fn pxui_ui_radio(ui: *mut PxuiUi, label: Str, options: Slice<Str>, selected: usize, out: *mut usize) -> i32;
-    pub fn pxui_ui_tabs(ui: *mut PxuiUi, label: Str, options: Slice<Str>, selected: usize, out: *mut usize) -> i32;
-    pub fn pxui_ui_dropdown(ui: *mut PxuiUi, label: Str, options: Slice<Str>, selected: usize, out: *mut usize) -> i32;
-    pub fn pxui_ui_slider(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, out: *mut f32) -> i32;
-    pub fn pxui_ui_progress(ui: *mut PxuiUi, label: Str, has_value: u8, value: f32, out: *mut PxuiBox) -> i32;
-    pub fn pxui_ui_spinner(ui: *mut PxuiUi, label: Str, out: *mut PxuiBox) -> i32;
-    pub fn pxui_ui_badge(ui: *mut PxuiUi, label: Str, value: Str, out: *mut PxuiBox) -> i32;
     pub fn pxui_ui_search_field(ui: *mut PxuiUi, label: Str, icon: Str, value: Str, placeholder: Str, changed: *mut u8, out: *mut Str) -> i32;
     }
 }
@@ -58,92 +56,81 @@ impl Ui {
         Scrub { node: out.node, preview: (out.flags & 1 != 0).then_some(out.preview), commit: (out.flags & 2 != 0).then_some(out.commit), held: out.flags & 4 != 0 }
     }
 
-    #[inline]
-    #[track_caller] pub fn checkbox(&mut self, label: &str, value: bool) -> bool {
-        #[cfg(feature = "static")]
-        { let mut out = false; check(self, unsafe { pxui_abi_link::trusted::checkbox(self.0.as_ptr(), label, value, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        { let mut out = 0; check(self, unsafe { sys::pxui_ui_checkbox(self.0.as_ptr(), as_str(label), value as u8, &mut out) }); out != 0 }
+    /// The one body of `checkbox`: the key's label and the text apart in a `PxuiKeyedDesc`, the variant around the call.
+    #[track_caller]
+    pub(crate) fn checkbox_key(&mut self, key: Key, text: &str, on: bool, checkbox: &Checkbox) -> Response {
+        let mut id_label = [0u8; 17];
+        let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(text));
+        let mut out = PxuiResponse::EMPTY;
+        self.with_variant(BodyKind::checkbox, checkbox.variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_checkbox_keyed(ui.0.as_ptr(), &keyed, on as u8, &mut out) }));
+        let mut r = crate::kit_ext::response(&out);
+        r.changed = r.clicked;
+        r
     }
 
-    #[inline]
-    #[track_caller] pub fn radio(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
-        #[cfg(feature = "static")]
-        { let mut out = 0; check(self, unsafe { pxui_abi_link::trusted::choice(self.0.as_ptr(), 0, label, options, selected, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        {
-            let options = Strs::new(options);
-            let mut out = 0;
-            check(self, unsafe { sys::pxui_ui_radio(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) });
-            out
-        }
+    /// The one body of `radio`, `tabs` and `dropdown` (`kind` 0, 1, 3 of `pxui_ui_choice_keyed`, `body` their option's kind).
+    #[allow(clippy::too_many_arguments)]
+    #[track_caller]
+    pub(crate) fn choice_key(&mut self, kind: u32, body: BodyKind, key: Key, name: &str, options: &[&str], selected: usize, variant: u16) -> (Response, usize) {
+        let mut id_label = [0u8; 17];
+        let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(name));
+        let (mut out, mut chosen) = (PxuiResponse::EMPTY, 0usize);
+        let options = crate::Strs::new(options);
+        self.with_variant(body, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_choice_keyed(ui.0.as_ptr(), &keyed, kind, options.span(), selected, &mut out, &mut chosen) }));
+        let mut r = crate::kit_ext::response(&out);
+        r.changed = chosen != selected;
+        (r, chosen)
     }
 
-    #[inline]
-    #[track_caller] pub fn tabs(&mut self, label: &str, tabs: &[&str], selected: usize) -> usize {
-        #[cfg(feature = "static")]
-        { let mut out = 0; check(self, unsafe { pxui_abi_link::trusted::choice(self.0.as_ptr(), 1, label, tabs, selected, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        {
-            let tabs = Strs::new(tabs);
-            let mut out = 0;
-            check(self, unsafe { sys::pxui_ui_tabs(self.0.as_ptr(), as_str(label), tabs.span(), selected, &mut out) });
-            out
-        }
+    /// The one body of `slider`.
+    #[track_caller]
+    pub(crate) fn slider_key(&mut self, key: Key, text: &str, value: f32, min: f32, max: f32, variant: u16) -> (Response, f32) {
+        let mut id_label = [0u8; 17];
+        let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(text));
+        let (mut out, mut v) = (PxuiResponse::EMPTY, 0.0f32);
+        self.with_variant(BodyKind::slider, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_slider_keyed(ui.0.as_ptr(), &keyed, value, min, max, &mut out, &mut v) }));
+        let mut r = crate::kit_ext::response(&out);
+        r.changed = v != value;
+        (r, v)
     }
 
-    #[inline]
-    #[track_caller] pub fn dropdown(&mut self, label: &str, options: &[&str], selected: usize) -> usize {
-        #[cfg(feature = "static")]
-        { let mut out = 0; check(self, unsafe { pxui_abi_link::trusted::choice(self.0.as_ptr(), 3, label, options, selected, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        {
-            let options = Strs::new(options);
-            let mut out = 0;
-            check(self, unsafe { sys::pxui_ui_dropdown(self.0.as_ptr(), as_str(label), options.span(), selected, &mut out) });
-            out
-        }
-    }
-
-    #[inline]
-    #[track_caller] pub fn slider(&mut self, label: &str, value: f32, range: core::ops::RangeInclusive<f32>) -> f32 {
-        let mut out = 0.0;
-        #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::slider(self.0.as_ptr(), label, value, *range.start(), *range.end(), &mut out) });
-        #[cfg(not(feature = "static"))]
-        check(self, unsafe { sys::pxui_ui_slider(self.0.as_ptr(), as_str(label), value, *range.start(), *range.end(), &mut out) });
-        out
-    }
-
-    #[inline]
-    #[track_caller] pub fn progress(&mut self, label: &str, value: Option<f32>) -> PxuiBox {
+    /// The one body of `progress`.
+    #[track_caller]
+    pub(crate) fn progress_key(&mut self, key: Key, text: &str, value: Option<f32>) -> PxuiBox {
+        let mut id_label = [0u8; 17];
+        let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(text));
         let mut out = PxuiBox::default();
-        #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::progress(self.0.as_ptr(), label, value, &mut out) });
-        #[cfg(not(feature = "static"))]
-        check(self, unsafe { sys::pxui_ui_progress(self.0.as_ptr(), as_str(label), value.is_some() as u8, value.unwrap_or_default(), &mut out) });
+        check(self, unsafe { keyed_lib::pxui_ui_progress_keyed(self.0.as_ptr(), &keyed, value.is_some() as u8, value.unwrap_or_default(), &mut out) });
         out
     }
 
-    #[inline]
-    #[track_caller] pub fn spinner(&mut self, label: &str) -> PxuiBox {
+    /// The one body of `spinner`.
+    #[track_caller]
+    pub(crate) fn spinner_key(&mut self, key: Key, name: &str) -> PxuiBox {
+        let mut id_label = [0u8; 17];
+        let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(name));
         let mut out = PxuiBox::default();
-        #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::spinner(self.0.as_ptr(), label, &mut out) });
-        #[cfg(not(feature = "static"))]
-        check(self, unsafe { sys::pxui_ui_spinner(self.0.as_ptr(), as_str(label), &mut out) });
+        check(self, unsafe { keyed_lib::pxui_ui_spinner_keyed(self.0.as_ptr(), &keyed, &mut out) });
         out
     }
 
-
-    #[inline]
-    #[track_caller] pub fn badge(&mut self, label: &str, value: &str) -> PxuiBox {
+    /// The one body of `badge`.
+    #[track_caller]
+    pub(crate) fn badge_key(&mut self, key: Key, name: &str, text: &str) -> PxuiBox {
+        let mut id_label = [0u8; 17];
+        let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(name));
         let mut out = PxuiBox::default();
-        #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::badge(self.0.as_ptr(), label, value, &mut out) });
-        #[cfg(not(feature = "static"))]
-        check(self, unsafe { sys::pxui_ui_badge(self.0.as_ptr(), as_str(label), as_str(value), &mut out) });
+        check(self, unsafe { keyed_lib::pxui_ui_badge_keyed(self.0.as_ptr(), &keyed, crate::as_str(text), &mut out) });
         out
+    }
+
+    /// Runs `f` with `variant` set for the bodies of `kind` (cleared after); a variant of 0 sets nothing.
+    #[track_caller]
+    pub(crate) fn with_variant(&mut self, kind: BodyKind, variant: u16, f: &mut dyn FnMut(&mut Ui)) {
+        if variant == 0 { return f(self); }
+        self.set_variant(kind, variant);
+        f(self);
+        self.set_variant(kind, 0);
     }
 
 

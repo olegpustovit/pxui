@@ -5,7 +5,7 @@
 //! Not in `PAGES`: it needs the wrapper (the pages there also compile against the engine for the A7 bench).
 use pxui::bodies::{text_of, PxuiSearchFieldConfig, PxuiSegmentConfig, PxuiSliderConfig, PxuiToggleConfig, PxuiRowConfig};
 use pxui::theme::{Look, State};
-use pxui::{ui_kit::PanelOpts, Part, SearchField, Ui};
+use pxui::{Overlay, Part, SearchField, Ui};
 use pxui_types::Flags;
 use pxui_types::{ffi::PxuiStateDesc, geom::Edges, layout::Align, ui::int_key, Axis, Node, Size};
 
@@ -128,21 +128,21 @@ const NAMES: [&str; 3] = ["Wi-Fi", "Bluetooth", "Hotspot"];
 
 /// The page: the widgets the proof bodies replace, as plain calls.
 pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
-    ui.panel(PanelOpts::default().width(296.0), "bodies", &mut |ui: &mut Ui| {
+    ui.panel("bodies", &Overlay::DEFAULT.w(296.0), &mut |ui: &mut Ui| {
         ui.label("Bodies", pxui::Label::DEFAULT);
         let custom = ui.toggle("Custom bodies", s.custom);
         if custom != s.custom { (s.custom, s.dirty) = (custom, true); }
         s.wifi = ui.toggle("Wi-Fi", s.wifi);
-        s.volume = ui.slider("Volume", s.volume, 0.0..=1.0);
+        s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &pxui::Slider::DEFAULT).1;
         s.align = ui.segmented_with("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
     });
-    ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true), "table", &mut |ui: &mut Ui| {
+    ui.panel("table", &Overlay::DEFAULT.at(332.0, 12.0).w(296.0).window(), &mut |ui: &mut Ui| {
         let (widths, selected, flags) = (&mut s.widths, &mut s.selected, &mut s.flags);
         // the table fills its parent: give it a height
         let frame = ui.node("frame".into(), Node { h: Size::Px(140.0), ..Node::DEFAULT });
         ui.within(&frame, &mut |ui: &mut Ui| {
-            let _ = ui.table_view("Settings", &["Name", "On"], widths, 3, None, selected, &mut |ui: &mut Ui, row, column| {
+            let _ = ui.table_view("settings", &["Name", "On"], widths, 3, selected, &pxui::TableView::DEFAULT, &mut |ui: &mut Ui, row, column| {
                 if column == 0 { ui.label(NAMES[row], pxui::Label::DEFAULT); } else { flags[row] = ui.toggle(NAMES[row], flags[row]); }
             });
         });

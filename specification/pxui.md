@@ -575,7 +575,7 @@ once; the parent's own `Fit` size and a grid row were measured with one line). `
 from its parent (physical, outside the flow); `anchor: Some(Anchor { rect, placement })` places it
 by a window rectangle in layout, after its size is known: `place_anchored(anchor, size, Placement {
 side, align, gap, margin, flip }, bounds)` opens on `side`, flips to the opposite side when it does
-not fit there, and keeps it inside; `ui.anchored(label, rect, placement, w, h, f)` builds such a
+not fit there, and keeps it inside; `ui.anchored(key, rect, &Overlay::DEFAULT.place(placement), f)` builds such a
 popup at the root (the kit's menus, submenus, completions and tooltips use `place_anchored`).
 `SCROLL` scrolls down, `SCROLL_X` sideways (wheel and trackpad with the same stretch, coast and bounce;
 a thumb from the node's `bar` on each axis; `ui.scroll_offset_x`); a `STICKY` flow child of a scroll box stops at its top and paints over
@@ -644,20 +644,23 @@ table/column semantics (rows are flat), live regions (announcements), text-field
 **Widget set (P5, landed).** `ui_widgets.rs`, each a method over `&mut Ui` taking a value and returning
 the new value or an intent, one `States` entry each in the theme (`checkbox`, `radio`, `slider`,
 `progress`, `spinner`, `tab`, `segment`, `dropdown`, `menubar`, `scroll_view`, `listbox`, `tree`,
-`column`, `dialog`, `toast`, `icon_button`, `search`, `image`; dusk styles them): `checkbox(text, on)`,
-`radio(label, options, i)`, `slider(text, v, lo..=hi)` (drag, arrows a hundredth, Page a tenth,
-Home/End, SetValue; the value is the a11y value text), `progress(label, Some(f) | None) -> Handle`,
-`spinner(label) -> Handle` and `busy_step(&h, now) -> bool` (the indeterminate bar and the spinner move
+`column`, `dialog`, `toast`, `icon_button`, `search`, `image`; dusk styles them). Every interactive one takes a key first (a static
+string or an item id, never its text) and reports a `Response`: `checkbox(key, text, on, &Checkbox)`,
+`radio(key, options, i, &Choice) -> (Response, usize)`, `slider(key, text, v, lo..=hi, &Slider) -> (Response, f32)` (drag, arrows a
+hundredth, Page a tenth, Home/End, SetValue; the value is the a11y value text), `progress(key, text, Some(f) | None) -> Handle`,
+`spinner(key, name) -> Handle`, `badge(key, name, text)` and `busy_step(&h, now) -> bool` (the indeterminate bar and the spinner move
 by `patch_rect`/`patch_look` between frames: no build, no allocation; reduced motion stops them),
-`tabs`, `segmented_with(key, &[Segment], i, &Segmented) -> (Response, usize)`, `dropdown(label, options, i)` (an anchored menu; Down/Up/Enter/Escape),
+`tabs(key, tabs, i, &Choice)`, `segmented_with(key, &[Segment], i, &Segmented) -> (Response, usize)`, `dropdown(key, text, options, i, &Dropdown)` (an anchored menu; Down/Up/Enter/Escape),
 `menu_bar(label, &[(title, items)]) -> Option<(menu, item)>` (hover switches an open menu; Left/Right,
-Down, Enter, Escape), `tip(&h, text)`, `scroll_view(label, w, h, f)` (both axes),
-`list_view(label, count, multi, &mut [u8], text)` (a flag a row, not 0: set), `tree(label, &[TreeNode], &mut open, &mut selected,
-&mut visible, text) -> (activated, rows shown)` (`visible`: a row per node, the shown rows written first) and `table_view(label, titles, &mut widths, rows, sort, &mut selected, cell)`
+Down, Enter, Escape), `tooltip(&h, text)`, `scroll_view(key, w, h, f)` (both axes), `panel`/`popup`/`modal(key, &Overlay, f)` (one
+`Copy` overlay style: position, size, look, name),
+`selection_list(key, count, &mut [u8], &SelectionList, cell) -> ListResponse` (a flag a row, not 0: set), `tree(key, &[TreeNode], &mut open,
+&mut selected, &mut visible, cell) -> TreeResponse` (`visible`: a row per node, the shown rows written first), `table_view(key, titles,
+&mut widths, rows, &mut selected, &TableView, cell) -> TableResponse` (`TableView::text(rect)`: the fixed text table, its cells' text through `item_text`)
 (virtual through `ui.list`; the table's header stays, grips resize columns, a header click is the sort
-intent), `dialog(key, title, &[DialogButton], &Dialog, body) -> DialogResponse` (the key is a static string or an id, never the title), `toasts(label, &[&str], seconds)` (the lower end corner;
+intent), `dialog(key, title, &[DialogButton], &Dialog, body) -> DialogResponse` (the key is a static string or an id, never the title), `toasts(key, &[Toast], seconds)` (each toast keyed by its id) (the lower end corner;
 each goes `seconds` after it first showed, timed by the engine through `repaint_at_time` and keyed by
-its text, and is returned once for the caller to drop), `icon_button(key, Icon, name, &IconButton) -> Response`, `badge(label, text) -> Handle`,
+its id, and is returned once for the caller to drop), `icon_button(key, Icon, name, &IconButton) -> Response`,
 `search_field(key, value, &SearchField)` and `image(label, &Image, Fit, w, h)`. Every widget is
 one Tab stop. A click focuses as on macOS: the nearest focusable box at or around the press takes the
 keyboard focus unless it is `TAB_ONLY` (buttons, checkboxes, radios, tabs, segments, dropdowns, menus,

@@ -30,7 +30,7 @@ pub fn layer_search(ui: &mut Ui, search: &mut String) {
 }
 
 /// The presets picker: four rows from `rows(query)`.
-pub fn presets(ui: &mut Ui, rows: &dyn Fn(&str) -> Vec<(String, String)>) -> Pick {
+pub fn presets(ui: &mut Ui, rows: &mut dyn FnMut(&str, &mut pxui::PickRows)) -> Pick {
     const PICKER: PickerOpts = PickerOpts::DEFAULT.limit(4);
-    ui.picker(&PICKER, "Search presets", "", rows).1
+    ui.picker("presets-search", "Search presets", "", &PICKER, rows).pick
 }

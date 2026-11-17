@@ -317,7 +317,7 @@ mod tests {
         let mut ui = Ui::new().expect("library");
         ui.register_tab_body("wide", wide_tab).expect("registered");
         ui.set_theme(&source("tab.body = wide")).expect("theme");
-        for n in 0..3 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.tabs("T", &["a", "b"], 0); }).expect("frame"); }
+        for n in 0..3 { ui.frame(&input(n as f64), &mut |ui: &mut Ui| { ui.tabs("t", &["a", "b"], 0, &crate::Choice::DEFAULT); }).expect("frame"); }
         let tab = TAB.with(|t| t.borrow().expect("the body ran"));
         assert_eq!(ui.rect(&tab).w, 100.0);
     }
@@ -332,10 +332,10 @@ mod tests {
         let (rows, cells, nodes_built) = (Cell::new(0), Cell::new(0), Cell::new(0));
         for n in 0..3 {
             ui.frame(&input(n as f64), &mut |ui: &mut Ui| {
-                ui.list_view("list", 5, false, &mut list, &mut |ui: &mut Ui, row| { rows.set(rows.get() + 1); ui.label(&format!("row {row}"), crate::Label::DEFAULT); });
-                let shown = ui.tree("tree", &nodes, &mut open, &mut tree_selected, &mut visible, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}"), crate::Label::DEFAULT); }).1;
+                ui.selection_list("list", 5, &mut list, &crate::SelectionList::DEFAULT, &mut |ui: &mut Ui, row| { rows.set(rows.get() + 1); ui.label(&format!("row {row}"), crate::Label::DEFAULT); });
+                let shown = ui.tree("tree", &nodes, &mut open, &mut tree_selected, &mut visible, &mut |ui: &mut Ui, node| { nodes_built.set(nodes_built.get() + 1); ui.label(&format!("node {node}"), crate::Label::DEFAULT); }).shown;
                 assert_eq!(shown, 2, "the first node's child is closed");
-                let _ = ui.table_view("table", &["a", "b"], &mut widths, 3, None, &mut selected, &mut |ui: &mut Ui, row, column| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}"), crate::Label::DEFAULT); });
+                let _ = ui.table_view("table", &["a", "b"], &mut widths, 3, &mut selected, &crate::TableView::DEFAULT, &mut |ui: &mut Ui, row, column| { cells.set(cells.get() + 1); ui.label(&format!("{row}:{column}"), crate::Label::DEFAULT); });
             }).expect("frame");
         }
         assert!(rows.get() > 0 && nodes_built.get() > 0 && cells.get() > 0, "rows {}, nodes {}, cells {}", rows.get(), nodes_built.get(), cells.get());

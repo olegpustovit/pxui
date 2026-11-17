@@ -278,20 +278,37 @@ export!(build pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32,
     0
 });
 
-export!(build pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
-    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
-    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
-    let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
+/// The popup of `desc` keyed by `key` and named `name`: the body of `pxui_ui_popup` and `pxui_ui_popup_keyed`.
+unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
     if d.has_stroke > 1 || d.has_max_height > 1 || d.dismiss_initial > 1 || d.attached > 1
-        || !crate::state::finite(&[d.x, d.y, d.width, d.height]) || (d.has_max_height != 0 && !d.max_height.is_finite()) {
+        || !crate::state::finite(&[d.x, d.y, d.width, d.height]) || (d.has_max_height != 0 && !d.max_height.is_finite()) || d.width < 0.0 || d.height < 0.0 {
         return unsafe { fail(ui, "invalid popup descriptor") };
     }
-    let Some(label) = (unsafe { checked(d.label) }) else { return unsafe { fail(ui, "invalid popup label") }; };
-    let shared = state.shared;
-    let mut body = |engine: &mut Ui| call_build(shared, engine, build, user);
-    let open = unsafe { (&mut *state.engine).popup((d.has_stroke != 0).then_some(d.stroke), (d.has_max_height != 0).then_some(d.max_height), d.dismiss_initial != 0, d.attached != 0, (d.x, d.y), d.width, d.height, label, &mut body) };
+    let overlay = pxui_types::ui::Overlay { at: (d.x, d.y), w: Some(d.width), h: Some(d.height), max_h: (d.has_max_height != 0).then_some(d.max_height),
+        stroke: (d.has_stroke != 0).then_some(d.stroke), dismiss_initial: d.dismiss_initial != 0, attached: d.attached != 0, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
+    let mut open = false;
+    let rc = unsafe { crate::trusted::popup(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut open) };
     unsafe { *out = open as u8; }
-    0
+    rc
+}
+
+// Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_popup_keyed` keys apart.
+export!(build pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
+    let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
+    let Some(label) = (unsafe { checked(d.label) }) else { return unsafe { fail(ui, "invalid popup label") }; };
+    unsafe { popup(ui, label, pxui_types::ui::shown(label), &d, build, user, out) }
+});
+
+// ABI 1.68: a popup keyed by `keyed.key` and named `keyed.name` (empty: none); `desc.label` must be empty.
+export!(build pub unsafe fn pxui_ui_popup_keyed(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
+    if d.label.len != 0 { return unsafe { fail(ui, "a keyed popup takes no label") }; }
+    unsafe { popup(ui, key, name, &d, build, user, out) }
 });
 
 export!(build pub unsafe fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<PxuiHintDesc>, count: i64) -> i32 {

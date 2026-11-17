@@ -24,12 +24,12 @@ pub fn window_pxui_table() {
         move |ui: &mut Ui| {
             let (cells, first) = (cells.clone(), first.clone());
             let headers = ["index", "value"];
-            let mut cell = move |row: i64, column: i64| {
+            let cell = move |row: i64, column: i64| {
                 cells.set(cells.get() + 1);
                 first.set(first.get().min(row));
                 (row + column).to_string()
             };
-            let c = ui.table((0.0, 0.0), 300.0, 168.0, &headers, 1_000_000, &mut cell, "table");
+            let c = ui.table_view("table", &headers, &mut [], 1_000_000 as usize, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(0.0, 0.0, 300.0, 168.0)), &mut |ui, r, c| ui.item_text(&cell(r as i64, c as i64))).row.map(|r| r as i64);
             clicked.set(c);
         }
     };
@@ -108,7 +108,7 @@ struct Model {
 fn controls(ui: &mut Ui, model: &mut Model) {
     let m = model.clone();
     let mut out = m.clone();
-    ui.panel(PanelOpts::default().width(400.0), "controls", &mut |ui| {
+    ui.panel("controls", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("controls"), &mut |ui| {
         out.clicks = m.clicks + if ui.button("Run") { 1 } else { 0 };
         out.enabled = ui.toggle("Enabled", m.enabled);
         out.text = ui.text_field("Text", &m.text).unwrap_or_else(|| m.text.clone());
@@ -138,7 +138,7 @@ pub fn window_pxui_keyboard() {
     step(&mut ui, &mut model, vec![], vec![key_down(Key::Tab), key_down(Key::Space)]);
     check(model.enabled, "Space did not toggle the focused control");
     // Rebuilding fewer controls prunes focus and keeps hidden controls inert.
-    ui.frame(&keyboard_frame(vec![], vec![]), &mut |ui| ui.panel(PanelOpts::default().width(400.0), "controls", &mut |_| {}));
+    ui.frame(&keyboard_frame(vec![], vec![]), &mut |ui| ui.panel("controls", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("controls"), &mut |_| {}));
     check(!ui.text_input_focused(), "disappearing focused controls kept focus");
     step(&mut ui, &mut model, vec![], vec![key_down(Key::Space)]);
     check(model.enabled, "a control that had disappeared kept its keyboard activation");
@@ -170,7 +170,7 @@ pub fn window_pxui_keyboard() {
     let mut background = false;
     let mut popup = |ui: &mut Ui| {
         menu = ui.menu("menu".into(), (100.0, 100.0), &ITEMS, &Menu::DEFAULT);
-        ui.panel(PanelOpts::default(), "background", &mut |ui| background = ui.button("Background"));
+        ui.panel("background", &pxui_core::ui::Overlay::DEFAULT.name("background"), &mut |ui| background = ui.button("Background"));
     };
     ui.frame(&keyboard_frame(vec![], vec![]), &mut popup);
     ui.frame(&keyboard_frame(vec![], vec![key_down(Key::Tab), key_down(Key::Enter)]), &mut popup);
@@ -178,9 +178,9 @@ pub fn window_pxui_keyboard() {
     ui.frame(&keyboard_frame(vec![], vec![Event::FocusLost]), &mut |_| {});
     let picked = std::cell::RefCell::new(None);
     let mut picker = |ui: &mut Ui| {
-        ui.modal(None, "picker", &mut |ui| {
+        ui.modal("picker", &pxui_core::ui::Overlay::DEFAULT.name("picker"), &mut |ui| {
             let rows = |_: &str| vec![("One".to_owned(), String::new()), ("Two".to_owned(), String::new())];
-            *picked.borrow_mut() = Some(ui.picker(&PickerOpts::default(), "Search", "", &rows));
+            *picked.borrow_mut() = Some({ let r = ui.picker("Search", "Search", "", &pxui_core::ui::PickerOpts::default(), &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(&a, &b) }); (r.query.to_owned(), r.pick) });
         });
     };
     ui.frame(&keyboard_frame(vec![], vec![]), &mut picker);
@@ -222,7 +222,7 @@ pub fn window_pxui_input() {
         let mut out = None;
         ui.frame(&f, &mut |ui| {
             if popup {
-                ui.modal(None, "modal", &mut |ui| ui.label("Popup", pxui_core::ui::Label::DEFAULT));
+                ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.name("modal"), &mut |ui| ui.label("Popup", pxui_core::ui::Label::DEFAULT));
             }
             out = Some(body(ui));
         });
@@ -305,7 +305,7 @@ pub fn window_pxui_input() {
     let modal_y = |ui: &mut Ui, label: &str| -> f64 {
         let mut row = None;
         ui.frame(&plain(vec![]), &mut |ui| {
-            ui.modal(None, label, &mut |ui| row = Some(ui.box_("row", BoxOpts::default().h(Size::Px(24.0)))));
+            ui.modal(label, &pxui_core::ui::Overlay::DEFAULT.name(label), &mut |ui| row = Some(ui.box_("row", BoxOpts::default().h(Size::Px(24.0)))));
         });
         f64::from(ui.rect(&row.expect("modal open")).y)
     };
@@ -454,7 +454,7 @@ fn text_rows_lru() {
 fn window_pxui_focused_text_field_warm_ime() {
     let mut ui = new_ui(Some(11));
     let mut build = |ui: &mut Ui| {
-        ui.panel(PanelOpts::default().width(400.0), "editor", &mut |ui| {
+        ui.panel("editor", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("editor"), &mut |ui| {
             assert!(ui.text_field("Text", "café track 10").is_none());
             // Force arena growth after the editor captures its text ranges.
             for i in 0..128 {
@@ -487,7 +487,7 @@ fn window_pxui_focused_text_field_warm_ime() {
     // Selection and composition must survive the borrowed paint path; committing replaces the selection.
     let mut committed = None;
     ui.frame(&keyboard_frame(vec![], vec![Event::TextInput("é".into())]), &mut |ui| {
-        ui.panel(PanelOpts::default().width(400.0), "editor", &mut |ui| {
+        ui.panel("editor", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("editor"), &mut |ui| {
             committed = ui.text_field("Text", "café track 10");
         });
     });

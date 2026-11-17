@@ -559,29 +559,6 @@ impl Ui {
     pub fn text_top(&self, size: Option<i64>, y: f32, h: f32) -> f32 {
         text_top_for(self.font_size(), size, y, h)
     }
-
-    /// Read-only table with a fixed 24-point header and rows, hairlines and right-aligned values.
-    /// Only visible rows request cells (`cell(row, column)`) or build hit boxes. Returns a clicked row index.
-    #[allow(clippy::too_many_arguments)]
-    pub fn table(&mut self, at: (f32, f32), w: f32, h: f32, headers: &[&str], rows: i64, cell: &mut dyn FnMut(i64, i64) -> String, label: &str) -> Option<i64> {
-        table_body(self, at, w, h, headers, rows, &mut |row, column, emit| emit(&cell(row, column)), label).0
-    }
-
-    /// `table` over borrowed headers and cells: `cell(row, column, emit)` calls `emit` with the text of one cell, which
-    /// may borrow from the caller. No header or cell is copied.
-    #[allow(clippy::too_many_arguments)]
-    pub fn table_with(
-        &mut self,
-        at: (f32, f32),
-        w: f32,
-        h: f32,
-        headers: &[&str],
-        rows: i64,
-        cell: &mut dyn FnMut(i64, i64, &mut dyn FnMut(&str)),
-        label: &str,
-    ) -> (Option<i64>, Signal) {
-        table_body(self, at, w, h, headers, rows, cell, label)
-    }
 }
 
 /// The built-in `table` cell: a header's title 8 points in from its column's start, a data cell's text right-aligned 8 points in from its end.
@@ -730,8 +707,11 @@ impl Ui {
     /// A light panel at `(x, y)` (default `(12, 12)`, width 280). `height` fills a fixed pane;
     /// otherwise content sets the height. Rows beyond the height or `max_height` use the shared
     /// elastic scroll. `window` lays inspector rows and heads out as a floating window's.
-    pub fn panel(&mut self, opts: PanelOpts, label: &str, f: &mut dyn FnMut(&mut Ui)) {
-        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, label, None, None, f);
+    /// Keyed by `key` (hashed under the parent's seed), placed and dressed by `overlay` (280 wide by default) and named by its name
+    /// (none without).
+    pub fn panel(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) {
+        let opts = panel_opts(overlay, 280.0);
+        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, key, Some(overlay.name.unwrap_or("")), None, f);
     }
 
     /// A sheet of `kind`: its node (named `name`, the label when `None`; given `role` and its states before the body runs, so a
@@ -741,11 +721,13 @@ impl Ui {
         if let Some(name) = name { self.a11y_name(&node, name); }
         if let Some((role, states)) = role { self.set_role(&node, role, states); }
         let c = PanelConfig { node };
+        // a body is given the sheet's name, never its key (a label's part after `##`)
+        let text = name.unwrap_or(shown(label));
         match kind {
-            Sheet::Panel => in_body!(self, node.box_key, node, panel, default_panel(&c, label, f)),
-            Sheet::Window => in_body!(self, node.box_key, node, window, default_panel(&c, label, f)),
-            Sheet::Popup => in_body!(self, node.box_key, node, popup, default_panel(&c, label, f)),
-            Sheet::Modal => in_body!(self, node.box_key, node, modal, default_panel(&c, label, f)),
+            Sheet::Panel => in_body!(self, node.box_key, node, panel, default_panel(&c, text, f)),
+            Sheet::Window => in_body!(self, node.box_key, node, window, default_panel(&c, text, f)),
+            Sheet::Popup => in_body!(self, node.box_key, node, popup, default_panel(&c, text, f)),
+            Sheet::Modal => in_body!(self, node.box_key, node, modal, default_panel(&c, text, f)),
         }
         self.panel_leave(previous);
     }
@@ -1095,16 +1077,24 @@ impl Ui {
         true
     }
 
-    pub fn popup(&mut self, stroke: Option<Color>, max_height: Option<f32>, dismiss_initial: bool, attached: bool, at: (f32, f32), width: f32, height: f32, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
-        let opts = PopupOpts { stroke, look: None, max_height, dismiss_initial, attached, ..PopupOpts::default() };
-        self.popup_with_related(opts, at, width, height, label, None, f)
+    /// A popup keyed by `key` (hashed under the parent's seed), placed and dressed by `overlay` and named by its name (none without).
+    /// Returns whether it is open (and `f` ran).
+    pub fn popup(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> bool {
+        let opts = PopupOpts { stroke: overlay.stroke, look: None, max_height: overlay.max_h, dismiss_initial: overlay.dismiss_initial, attached: overlay.attached, ..PopupOpts::default() };
+        self.popup_with_related(opts, overlay.at, overlay.w.unwrap_or(0.0), overlay.h.unwrap_or(0.0), key, Some(overlay.name.unwrap_or("")), f)
     }
 
     /// A kit panel centered in the frame, outlined in the accent colour. Build it before the body
     /// it shields, at the root level; it paints on top. Escape, window focus loss, or a press
     /// outside it dismisses it: the builder is skipped and `false` is returned, so the host drops
     /// its open state.
-    pub fn modal(&mut self, width: Option<f32>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool {
+    /// Keyed by `key` (hashed under the parent's seed), `overlay`'s width (320 by default) and named by its name (none without).
+    pub fn modal(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> bool {
+        self.modal_named(overlay.w, key, Some(overlay.name.unwrap_or("")), f)
+    }
+
+    /// The one body of `modal` (and of `dialog`): the sheet named `name` (`None`: the label).
+    pub(crate) fn modal_named(&mut self, width: Option<f32>, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> bool {
         let width = width.unwrap_or(320.0);
         let key = key_of(self.current_seed(), label);
         let slot = self.slot_for(key);
@@ -1118,7 +1108,7 @@ impl Ui {
         let y = content.y + (0.0f32.max((view_h - height) / 2.0)).round();
         let look = self.theme().modal.idle;
         let opts = PopupOpts { look: Some(look), max_height: Some(48.0f32.max(view_h - 32.0)), dismiss_initial: false, role: Role::Dialog, ..PopupOpts::default() };
-        self.popup_with_related(opts, (x, y), width, height, label, None, f)
+        self.popup_with_related(opts, (x, y), width, height, label, name, f)
     }
 
     /// A label: `text` in `style` through the label body, identity by its place among its siblings (every label has the one key
@@ -1343,7 +1333,10 @@ impl Ui {
 
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
-fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], rows: i64, cell: &mut dyn FnMut(i64, i64, &mut dyn FnMut(&str)), label: &str) -> (Option<i64>, Signal) {
+/// The fixed text table of `table_view` (`TableView::text`): only visible rows ask `cell(ui, row, column)` for their text, which the
+/// cell gives `item_text` (a cell that gives none stays empty), or build hit boxes. Returns the clicked row.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], rows: i64, cell: &mut dyn FnMut(&mut Ui, usize, usize), label: &str) -> (Option<i64>, Signal) {
     if rows < 0 {
         panic!("Ui.table: negative row count");
     }
@@ -1395,11 +1388,19 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
         this.set_look(&row, row_look, State::default());
         let saved = this.enter(&row);
         for column in 0..headers.len() {
-            cell(index, column as i64, &mut |value: &str| {
+            // the cell's text comes back through `item_text` into a buffer kept between frames
+            this.text_cell.clear();
+            this.text_cell_set = false;
+            let outer = core::mem::replace(&mut this.bodies.item_kind, crate::ui_widgets::ITEM_TEXT_CELL);
+            cell(this, index as usize, column);
+            this.bodies.item_kind = outer;
+            if this.text_cell_set {
+                let value = core::mem::take(&mut this.text_cell);
                 let key = int_key(row.box_key, column as i64);
                 let config = TableCellConfig { header: false, row: index, column: column as i64, key, left: stops[column], right: stops[column + 1], height: row_h };
-                in_item!(place; this, cell_body, key, default_table_cell(&config, value));
-            });
+                in_item!(place; this, cell_body, key, default_table_cell(&config, &value));
+                this.text_cell = value;
+            }
         }
         this.leave(saved);
     }
@@ -1409,4 +1410,10 @@ fn table_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, headers: &[&str], r
     this.leave(saved);
     this.table_stops = stops;
     (clicked, sig)
+}
+
+/// The engine's panel record of `overlay` for a call whose own width is `width`.
+fn panel_opts(overlay: &Overlay, width: f32) -> PanelOpts {
+    PanelOpts { stroke: overlay.stroke, look: overlay.look, window: overlay.window, x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(width), height: overlay.h,
+        max_height: overlay.max_h, padding: overlay.padding as i64 }
 }

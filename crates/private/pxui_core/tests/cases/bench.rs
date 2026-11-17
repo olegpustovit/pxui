@@ -65,7 +65,7 @@ pub fn pxui_bench() {
         ui.frame(&frame_at(vec![], 2.0, t.get(), vec![]), f);
     };
     bench("kit baseline", &mut ui, 200, &mut |ui, _| step(ui, &mut |ui| {
-        ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
             ui.toggle("Animate", true);
             ui.text_field("Caption", "Functional UI");

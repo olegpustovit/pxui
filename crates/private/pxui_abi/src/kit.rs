@@ -26,8 +26,8 @@ export!(trusted pub unsafe fn pxui_ui_section_list(ui:*mut PxuiUi,desc:*const px
     let desc=record;
     if desc.overlay_scrollbar>1 || desc.reserved!=[0;3] {return unsafe {fail(ui,"invalid section list flags")};}
     let Some(label)=(unsafe {checked(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
-    let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0};
-    unsafe {crate::trusted::section_list(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index);}},&mut *out)}
+    let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0,measured:false};
+    unsafe {crate::trusted::section_list(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index,_| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index);}},&mut *out)}
 });
 
 export!(trusted pub unsafe fn pxui_ui_section_list_measured(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiMeasuredSectionDesc,out:*mut PxuiBox)->i32 {
@@ -39,8 +39,8 @@ export!(trusted pub unsafe fn pxui_ui_section_list_measured(ui:*mut PxuiUi,desc:
     let desc=record;
     if desc.overlay_scrollbar>1 || desc.reserved!=[0;3] {return unsafe {fail(ui,"invalid section list flags")};}
     let Some(label)=(unsafe {checked(desc.label)}) else {return unsafe {fail(ui,"invalid section list label")};};
-    let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0};
-    unsafe {crate::trusted::section_list_measured(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index,y| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index,y);}},&mut *out)}
+    let section=pxui_types::ui::SectionList {count:desc.count,row_height:desc.row_height,leading_height:desc.leading_height,header_height:desc.header_height,trailing_height:desc.trailing_height,overlay_scrollbar:desc.overlay_scrollbar!=0,measured:true};
+    unsafe {crate::trusted::section_list(ui,label,&section,desc.key.map(|key| move |index| key(desc.user,index)).as_ref().map(|key| key as &dyn Fn(usize)->i64),&mut |ui,index,y| {if let Some(build)=desc.build {build(desc.user,ui.cast(),index,y);}},&mut *out)}
 });
 
 /// Copies a section list record of `full` bytes from `desc` into `out` up to the record's own `size`: the record without its last

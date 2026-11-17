@@ -1,11 +1,10 @@
 use crate::{composite::{defer_callback_panic, deferred}, check, Ui};
-#[cfg(not(feature = "static"))]
-use crate::Strs;
 use core::{ffi::c_void, mem::ManuallyDrop, panic::AssertUnwindSafe, ptr::NonNull};
 use pxui_types::{ui::Target, Axis, Look, PxuiBox, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
+use pxui_types::ui::{Key, SectionList, SectionPart};
 
 #[cfg_attr(feature = "static", allow(unused_imports))]
-pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc as GridListDesc, PxuiHintDesc as HintDesc, PxuiInspectorRowDesc as InspectorRowDesc, PxuiInspectorSectionDesc as InspectorSectionDesc, PxuiInspectorTextDesc as InspectorTextDesc, PxuiInspectorValueDesc as InspectorValueDesc, PxuiKeyframeDesc as KeyframeDesc, PxuiMenuBarDesc as MenuBarDesc, PxuiMenuDesc as MenuDesc, PxuiMenuOut as MenuOut, PxuiSplitDesc as SplitDesc, PxuiTableDesc as TableDesc};
+pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc as GridListDesc, PxuiHintDesc as HintDesc, PxuiInspectorRowDesc as InspectorRowDesc, PxuiInspectorSectionDesc as InspectorSectionDesc, PxuiInspectorTextDesc as InspectorTextDesc, PxuiInspectorValueDesc as InspectorValueDesc, PxuiKeyframeDesc as KeyframeDesc, PxuiMenuBarDesc as MenuBarDesc, PxuiMenuDesc as MenuDesc, PxuiMenuOut as MenuOut, PxuiSplitDesc as SplitDesc};
 
 #[cfg(feature = "static")]
 mod sys {
@@ -13,7 +12,7 @@ mod sys {
 }
 #[cfg(not(feature = "static"))]
 mod sys {
-    use super::{FooterDesc, GridListDesc, InspectorRowDesc, InspectorSectionDesc, InspectorTextDesc, InspectorValueDesc, KeyframeDesc, MenuBarDesc, MenuOut, SplitDesc, TableDesc};
+    use super::{FooterDesc, GridListDesc, InspectorRowDesc, InspectorSectionDesc, InspectorTextDesc, InspectorValueDesc, KeyframeDesc, MenuBarDesc, MenuOut, SplitDesc};
     pub use crate::sys::PxuiUi;
     use pxui_types::{PxuiBox, Str, ffi::Slice};
     #[link(name = "pxui")]
@@ -57,7 +56,6 @@ mod sys {
     /// });
     /// ```
     pub fn pxui_ui_animate_keys_repeat(ui: *mut PxuiUi, box_: *const PxuiBox, keys: Slice<KeyframeDesc>, repeat: u32, autoreverse: u8, start_offset: f32, out: *mut u8) -> i32;
-    pub fn pxui_ui_table(ui: *mut PxuiUi, desc: *const TableDesc, clicked_row: *mut i64) -> i32;
     }
 }
 
@@ -66,7 +64,6 @@ fn as_str(value: &str) -> Str { crate::as_str(value) }
 
 type Build = pxui_types::ffi::UiBuild;
 type GridBuild = Option<extern "C" fn(*mut c_void, *mut c_void, usize)>;
-type CellFn = Option<extern "C" fn(*mut c_void, i64, i64) -> Str>;
 
 // Each context hands out its trampoline and its user pointer from one method, so the two cannot name different types.
 struct Callback<F> { f: F }
@@ -119,33 +116,6 @@ extern "C" fn call_keyed_measured(user: *mut c_void, raw: *mut c_void, index: us
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
-/// The cell closure of `table_str`: its text is the caller's own, so the library borrows it and nothing is copied.
-struct CellStr<F> { f: F }
-extern "C" fn call_cell_str<'a, F: FnMut(i64, i64) -> &'a str>(user: *mut c_void, row: i64, column: i64) -> Str {
-    let state = unsafe { &mut *user.cast::<CellStr<F>>() };
-    if deferred() { return Str::default(); }
-    match std::panic::catch_unwind(AssertUnwindSafe(|| (state.f)(row, column))) {
-        Ok(value) => as_str(value),
-        Err(panic) => { defer_callback_panic(panic); Str::default() }
-    }
-}
-
-struct CellText<F> {
-    f: F,
-    value: String,
-}
-impl<F: FnMut(i64, i64) -> String> CellText<F> {
-    fn erased(&mut self) -> (CellFn, *mut c_void) { (Some(call_cell::<F>), (self as *mut Self).cast()) }
-}
-extern "C" fn call_cell<F: FnMut(i64, i64) -> String>(user: *mut c_void, row: i64, column: i64) -> Str {
-    let state = unsafe { &mut *user.cast::<CellText<F>>() };
-    if deferred() { return Str::default(); }
-    match std::panic::catch_unwind(AssertUnwindSafe(|| (state.f)(row, column))) {
-        Ok(value) => { state.value = value; Str { ptr: state.value.as_ptr(), len: state.value.len() } }
-        Err(panic) => { defer_callback_panic(panic); Str::default() }
-    }
-}
-
 fn encode_look(value: Look) -> PxuiLookDesc {
     let shadow = |s: pxui_types::Shadow| PxuiShadowDesc { color: s.color, offset: s.offset, blur: s.blur, spread: s.spread, inner: s.inner as u8, reserved: [0; 3] };
     PxuiLookDesc {
@@ -179,79 +149,47 @@ impl Hints {
 }
 
 impl Ui {
-    /// A scrolling lead-in, sticky heading and virtual fixed-height rows in one scroll region; row `i`'s box is keyed by the item id
-    /// `key(i)`, so a row's state follows its item when the items reorder (React's row key).
-    ///
-    /// `build(ui, part)` builds the lead-in, the heading and each row in view. `reveal(&returned_box, row)` scrolls a row index into
-    /// view (minimum scroll, sticky heading respected). Ids must be unique among the rows (a repeated id takes a `#dup` key).
-    /// Allocates: never on a warm frame.
-    /// Identity: `label` keys the list under its parent; row boxes are `Key::Id(key(i))` under the list's rows.
-    /// Panics: when the library refuses the geometry (a row height that is not positive and finite, more than a million rows), or A key or identity label over 256 bytes panics (a programmer error).
-    /// when `build` or `key` panics.
-    ///
-    /// ```
-    /// use pxui::ui::{SectionList, SectionPart};
-    /// let ids = [7i64, 3, 9];
-    /// let section = SectionList { count: ids.len(), row_height: 20.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false };
-    /// pxui::doc::frames(1, &mut |ui| { ui.section_list("songs", &section, &|i| ids[i], &mut |ui, part| if let SectionPart::Row(i) = part { ui.label_fmt(format_args!("{}", ids[i]), pxui::Label::BODY); }); });
-    /// ```
+    /// The one body of `section_list` (and of `list`): keyed by `key`, measured or fixed rows as `section` says; `build` is given the part's
+    /// logical content Y (fixed rows: the lead-in and heading heights and the rows above it).
     #[track_caller]
-    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,key:&dyn Fn(usize)->i64,build:&mut dyn FnMut(&mut Ui,pxui_types::ui::SectionPart))->PxuiBox {
-        self.keyed_section(label,section,false,key,&mut |ui,part,_| build(ui,part))
-    }
-
-    /// `section_list` with rows of their own measured heights (estimated at `row_height` until built); `build` also gets the part's
-    /// logical content Y. Rows are keyed by `key(i)` as in `section_list`.
-    ///
-    /// Allocates: never on a warm frame (the height cache grows with the count).
-    /// Identity: as `section_list`.
-    /// Panics: as `section_list`. A key or identity label over 256 bytes panics (a programmer error).
-    ///
-    /// ```
-    /// use pxui::ui::{SectionList, SectionPart};
-    /// let section = SectionList { count: 3, row_height: 20.0, leading_height: 0.0, header_height: 0.0, trailing_height: 0.0, overlay_scrollbar: false };
-    /// pxui::doc::frames(2, &mut |ui| { ui.section_list_measured("notes", &section, &|i| i as i64, &mut |ui, part, _y| if let SectionPart::Row(_) = part { ui.label("note", pxui::Label::BODY.wrap()); }); });
-    /// ```
-    #[track_caller]
-    pub fn section_list_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,key:&dyn Fn(usize)->i64,build:&mut dyn FnMut(&mut Ui,pxui_types::ui::SectionPart,f32))->PxuiBox {
-        self.keyed_section(label,section,true,key,build)
-    }
-
-    /// The one body of `section_list` and `section_list_measured`.
-    #[track_caller]
-    fn keyed_section(&mut self,label:&str,section:&pxui_types::ui::SectionList,measured:bool,key:&dyn Fn(usize)->i64,build:&mut dyn FnMut(&mut Ui,pxui_types::ui::SectionPart,f32))->PxuiBox {
-        use pxui_types::ui::SectionPart;
-        let part=|index| match index {usize::MAX=>SectionPart::Leading,index if index==usize::MAX-1=>SectionPart::Header,index=>SectionPart::Row(index)};
-        let mut out=PxuiBox::default();
-        #[cfg(feature="static")]
+    pub(crate) fn section_list_key(&mut self, key: Key, section: &SectionList, id: &dyn Fn(usize) -> i64, build: &mut dyn FnMut(&mut Ui, SectionPart, f32)) -> PxuiBox {
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
+        let part = |index| match index { usize::MAX => SectionPart::Leading, index if index == usize::MAX - 1 => SectionPart::Header, index => SectionPart::Row(index) };
+        // a fixed row's Y is known without a layout: the C fixed form passes none
+        #[cfg(not(feature = "static"))]
+        let fixed_y = |index: usize| match part(index) { SectionPart::Leading => 0.0, SectionPart::Header => section.leading_height, SectionPart::Row(i) => section.leading_height + section.header_height + i as f32 * section.row_height };
+        #[cfg(not(feature = "static"))]
+        let measured = section.measured;
+        let mut out = PxuiBox::default();
+        #[cfg(feature = "static")]
         {
-            let mut invoke=|raw:*mut crate::sys::PxuiUi,index,y| { let mut ui=ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(raw)) }); build(&mut ui,part(index),y) };
-            check(self,unsafe { if measured {
-                pxui_abi_link::trusted::section_list_measured(self.0.as_ptr(),label,section,Some(key),&mut invoke,&mut out)
-            } else {
-                pxui_abi_link::trusted::section_list(self.0.as_ptr(),label,section,Some(key),&mut |raw,index| invoke(raw,index,0.0),&mut out)
-            } });
+            let mut invoke = |raw: *mut crate::sys::PxuiUi, index, y| { let mut ui = ManuallyDrop::new(unsafe { Ui(NonNull::new_unchecked(raw)) }); build(&mut ui, part(index), y) };
+            check(self, unsafe { pxui_abi_link::trusted::section_list(self.0.as_ptr(), label, section, Some(id), &mut invoke, &mut out) });
         }
-        #[cfg(not(feature="static"))]
+        #[cfg(not(feature = "static"))]
         {
-            let mut invoke=|ui:&mut Ui,index,y| build(ui,part(index),y);
-            let mut context=KeyedSection {key,build:&mut invoke};
-            let user=(&mut context as *mut KeyedSection).cast();
-            let (overlay_scrollbar,label,count)=(u8::from(section.overlay_scrollbar),as_str(label),section.count);
-            let (row_height,leading_height,header_height,trailing_height)=(section.row_height,section.leading_height,section.header_height,section.trailing_height);
-            check(self,unsafe { if measured {
-                let desc=pxui_types::ffi::PxuiMeasuredSectionDesc {size:core::mem::size_of::<pxui_types::ffi::PxuiMeasuredSectionDesc>() as u32,overlay_scrollbar,reserved:[0;3],label,count,row_height,leading_height,header_height,trailing_height,build:Some(call_keyed_measured),user,key:Some(call_row_key)};
-                sys::pxui_ui_section_list_measured(self.0.as_ptr(),&desc,&mut out)
+            let mut invoke = |ui: &mut Ui, index, y: f32| build(ui, part(index), if measured { y } else { fixed_y(index) });
+            let mut context = KeyedSection { key: id, build: &mut invoke };
+            let user = (&mut context as *mut KeyedSection).cast();
+            let (overlay_scrollbar, label, count) = (u8::from(section.overlay_scrollbar), as_str(label), section.count);
+            let (row_height, leading_height, header_height, trailing_height) = (section.row_height, section.leading_height, section.header_height, section.trailing_height);
+            check(self, unsafe { if measured {
+                let desc = pxui_types::ffi::PxuiMeasuredSectionDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiMeasuredSectionDesc>() as u32, overlay_scrollbar, reserved: [0; 3], label, count, row_height, leading_height, header_height, trailing_height, build: Some(call_keyed_measured), user, key: Some(call_row_key) };
+                sys::pxui_ui_section_list_measured(self.0.as_ptr(), &desc, &mut out)
             } else {
-                let desc=pxui_types::ffi::PxuiSectionListDesc {size:core::mem::size_of::<pxui_types::ffi::PxuiSectionListDesc>() as u32,overlay_scrollbar,reserved:[0;3],label,count,row_height,leading_height,header_height,trailing_height,build:Some(call_keyed_grid),user,key:Some(call_row_key)};
-                sys::pxui_ui_section_list(self.0.as_ptr(),&desc,&mut out)
+                let desc = pxui_types::ffi::PxuiSectionListDesc { size: core::mem::size_of::<pxui_types::ffi::PxuiSectionListDesc>() as u32, overlay_scrollbar, reserved: [0; 3], label, count, row_height, leading_height, header_height, trailing_height, build: Some(call_keyed_grid), user, key: Some(call_row_key) };
+                sys::pxui_ui_section_list(self.0.as_ptr(), &desc, &mut out)
             } });
         }
         out
     }
 
-    #[inline]
-    #[track_caller] pub fn grid_list(&mut self, label: &str, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> PxuiBox {
+    /// The one body of `grid_list`: keyed by `key`.
+    #[track_caller]
+    pub(crate) fn grid_list_key(&mut self, key: Key, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> PxuiBox {
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
         let mut out = PxuiBox::default();
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::grid_list(self.0.as_ptr(), label, count, cell_w, cell_h, &mut |raw: *mut crate::sys::PxuiUi, index: usize| { let mut ui = ManuallyDrop::new(Ui(NonNull::new_unchecked(raw))); build(&mut ui, index) }, &mut out) });
@@ -426,44 +364,4 @@ impl Ui {
         crate::live(self, rc) && out != 0
     }
 
-    #[inline]
-    /// `table` over cells that borrow from the caller's data (valid for the whole call): nothing is copied or allocated per cell.
-    #[track_caller]
-    pub fn table_str<'a, F: FnMut(i64, i64) -> &'a str>(&mut self, at: (f32, f32), width: f32, height: f32, headers: &[&str], rows: i64, cell: F, label: &str) -> Option<i64> {
-        #[cfg(feature = "static")]
-        {
-            let (mut cell, mut out) = (cell, None);
-            check(self, unsafe { pxui_abi_link::trusted::table(self.0.as_ptr(), at, width, height, headers, rows, &mut |row: i64, column: i64, put: &mut dyn FnMut(&str)| put(cell(row, column)), label, &mut out) });
-            out
-        }
-        #[cfg(not(feature = "static"))]
-        {
-            let header_values = Strs::new(headers);
-            let mut callback = CellStr { f: cell };
-            let desc = TableDesc { size: core::mem::size_of::<TableDesc>() as u32, reserved: 0, label: as_str(label), at: [at.0, at.1], width, height, headers: header_values.span(), rows, cell: Some(call_cell_str::<F>), user: (&mut callback as *mut CellStr<F>).cast() };
-            let mut out = -1;
-            check(self, unsafe { sys::pxui_ui_table(self.0.as_ptr(), &desc, &mut out) });
-            (out >= 0).then_some(out)
-        }
-    }
-
-    #[track_caller]
-    pub fn table<F: FnMut(i64, i64) -> String>(&mut self, at: (f32, f32), width: f32, height: f32, headers: &[&str], rows: i64, cell: F, label: &str) -> Option<i64> {
-        #[cfg(feature = "static")]
-        {
-            let (mut cell, mut out) = (cell, None);
-            check(self, unsafe { pxui_abi_link::trusted::table(self.0.as_ptr(), at, width, height, headers, rows, &mut |row: i64, column: i64, put: &mut dyn FnMut(&str)| put(&cell(row, column)), label, &mut out) });
-            out
-        }
-        #[cfg(not(feature = "static"))]
-        {
-            let header_values = Strs::new(headers);
-            let mut callback = CellText { f: cell, value: String::new() };
-            let (cell, user) = callback.erased();
-            let desc = TableDesc { size: core::mem::size_of::<TableDesc>() as u32, reserved: 0, label: as_str(label), at: [at.0, at.1], width, height, headers: header_values.span(), rows, cell, user };
-            let mut out = -1;
-            check(self, unsafe { sys::pxui_ui_table(self.0.as_ptr(), &desc, &mut out) });
-            (out >= 0).then_some(out)
-        }
-    }
 }

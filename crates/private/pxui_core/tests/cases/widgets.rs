@@ -101,7 +101,7 @@ pub fn all(ui: &mut Ui, s: &mut S) {
 
 /// The toasts, at the root (outside any cached view).
 pub fn toasts(ui: &mut Ui, s: &mut S) {
-    let toasts = ["Saved", "Exported"];
+    let toasts = [pxui_core::ui::Toast::new(1, "Saved"), pxui_core::ui::Toast::new(2, "Exported")];
     if let Some(i) = ui.toasts("toasts", &toasts[..s.toasts], TOAST_SECONDS) {
         s.gone = Some(i);
     }
@@ -117,17 +117,17 @@ pub fn body(ui: &mut Ui, s: &mut S) {
     ui.within(&row, &mut |ui| {
         let left = ui.node("left".into(), Node { w: Size::Px(240.0), ..Node::DEFAULT });
         ui.within(&left, &mut |ui| {
-            s.check = ui.checkbox("Check", s.check);
-            s.radio = ui.radio("Radio", &["One", "Two", "Three"], s.radio);
-            s.slider = ui.slider("Level", s.slider, 0.0..=1.0);
-            ui.progress("Done", Some(0.5));
-            let p = ui.progress("Busy", None);
+            s.check = s.check ^ ui.checkbox("Check", "Check", s.check, &pxui_core::ui::Checkbox::DEFAULT).clicked;
+            s.radio = ui.radio("Radio", &["One", "Two", "Three"], s.radio, &pxui_core::ui::Choice::DEFAULT.name("Radio")).1;
+            s.slider = ui.slider("Level", "Level", s.slider, 0.0..=1.0, &pxui_core::ui::Slider::DEFAULT).1;
+            ui.progress("Done", "Done", Some(0.5));
+            let p = ui.progress("Busy", "Busy", None);
             s.busy.push(p);
-            let sp = ui.spinner("Spin");
+            let sp = ui.spinner("Spin", "Spin");
             s.busy.push(sp);
-            s.tab = ui.tabs("Tabs", &["Alpha", "Beta", "Gamma"], s.tab);
+            s.tab = ui.tabs("Tabs", &["Alpha", "Beta", "Gamma"], s.tab, &pxui_core::ui::Choice::DEFAULT.name("Tabs")).1;
             s.seg = ui.segmented_opts("Mode", "Mode", &[Segment::new("A"), Segment::new("B"), Segment::new("C")], Some(s.seg), &SegmentedOpts::DEFAULT).1.unwrap_or(s.seg);
-            s.drop = ui.dropdown("Pick", &NAMES, s.drop);
+            s.drop = ui.dropdown("Pick", "Pick", &NAMES, s.drop, &pxui_core::ui::Dropdown::DEFAULT).1;
             let holder = ui.node("add-row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
             ui.within(&holder, &mut |ui| {
                 if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT).clicked {
@@ -135,7 +135,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
                 }
             });
             s.add = ui.box_of_key(key_of(holder.box_key, "Add"));
-            ui.badge("count", "12");
+            ui.badge("count", "count", "12");
             if let Some(q) = ui.search_field("Search", "/", &s.search, "Search") {
                 s.search = q.to_owned();
             }
@@ -145,6 +145,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
                     ui.text(&n, name);
                 }
             }));
+            if let Some(scroll) = s.scroll { ui.a11y_name(&scroll, "Scroll"); }
             if let Some(image) = s.image.clone() {
                 ui.image("Picture", &image, pxui_core::draw::Fit::Contain, Size::Px(48.0), Size::Px(32.0));
             }
@@ -153,16 +154,16 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         ui.within(&right, &mut |ui| {
             let b = ui.node("list-box".into(), Node { h: Size::Px(120.0), ..Node::DEFAULT });
             ui.within(&b, &mut |ui| {
-                if let Some(a) = ui.list_view("List", BIG, s.multi, &mut s.list, &mut |ui, i| names(i, &mut |t| ui.item_text(t))) {
+                if let Some(a) = ui.selection_list("List", BIG, &mut s.list, &pxui_core::ui::SelectionList { multi: s.multi }, &mut |ui, i| names(i, &mut |t| ui.item_text(t))).activated {
                     s.activated = Some(a);
                 }
             });
             s.list_frame = ui.box_of_key(key_of(b.box_key, "List"));
             sized(ui, "tree-box", 120.0, &mut |ui| {
-                s.shown = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui, i| names(i, &mut |t| ui.item_text(t))).1;
+                s.shown = { let r = ui.tree("Tree", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui, i| names(i, &mut |t| ui.item_text(t))); (r.activated, r.shown) }.1;
             });
             sized(ui, "table-box", 150.0, &mut |ui| {
-                if let Some(c) = ui.table_view("Table", &["Name", "Next", "More"], &mut s.widths, BIG, Some((0, true)), &mut s.table_sel, &mut |ui, r, c| cells(r, c, &mut |t| ui.item_text(t))) {
+                if let Some(c) = ui.table_view("Table", &["Name", "Next", "More"], &mut s.widths, BIG, &mut s.table_sel, &pxui_core::ui::TableView { sort: Some((0, true)), text: None }, &mut |ui, r, c| cells(r, c, &mut |t| ui.item_text(t))).sort {
                     s.sorted = Some(c);
                 }
             });
@@ -277,11 +278,11 @@ fn widgets_busy_patches() {
     let build = |ui: &mut Ui, s: &mut S| {
         ui.view("busy", 1, Size::Px(240.0), Size::Px(100.0), &mut |ui| {
             s.busy.clear();
-            let p = ui.progress("Busy", None);
+            let p = ui.progress("Busy", "Busy", None);
             s.busy.push(p);
-            let sp = ui.spinner("Spin");
+            let sp = ui.spinner("Spin", "Spin");
             s.busy.push(sp);
-            ui.progress("Done", Some(0.5));
+            ui.progress("Done", "Done", Some(0.5));
         });
     };
     for t in 0..3 {
@@ -389,7 +390,7 @@ fn widgets_tip_and_icon() {
     check(s.icon == 1, "the icon button clicks");
     let tip = |ui: &mut Ui, s: &mut S| {
         let h = all_and_tip(ui, s);
-        ui.tip(&h, "Add a row");
+        ui.tooltip(&h, "Add a row");
     };
     for t in 0..6 {
         ui.frame(&at(2.0 + t as f64 * 0.1, vec![move_to(centre(&add))]), &mut |ui| tip(ui, &mut s));
@@ -465,7 +466,7 @@ fn widgets_compact_toggle_hit() {
     theme.tokens.density = 0.84;
     ui.set_theme(theme);
     let on = std::cell::Cell::new(false);
-    let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| on.set(ui.toggle("Animate", on.get())));
+    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| on.set(ui.toggle("Animate", on.get())));
     for t in 0..2 {
         ui.frame(&at(t as f64 * 0.1, vec![]), &mut build);
     }
@@ -486,7 +487,7 @@ fn widgets_compact_field_hit() {
     let mut theme = Theme::default();
     theme.tokens.density = 0.84;
     ui.set_theme(theme);
-    let mut build = |ui: &mut Ui| ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
         ui.text_field("Caption", "value");
     });
     for t in 0..2 {

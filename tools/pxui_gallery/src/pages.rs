@@ -1,6 +1,6 @@
 // The gallery pages, against the wrapper `pxui`.
 use super::inputs;
-use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Pick, PxuiBox as Handle, ui_kit::PanelOpts, Ui};
+use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Overlay, Pick, PxuiBox as Handle, Ui};
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, draw::Fit, ffi::ThemeSource, geom::Edges, layout::{Align, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};
@@ -74,8 +74,9 @@ pub struct Gallery {
     pub said: &'static str,
     // layout page: the keyframed chip and whether its button asked for a run
     pub bounce: bool,
-    /// the toasts shown (each goes `TOAST_SECONDS` after it showed, or when clicked)
-    pub toasts: Vec<&'static str>,
+    /// the toasts shown (each goes `TOAST_SECONDS` after it showed, or when clicked), each keyed by its id, and the ids given so far
+    pub toasts: Vec<pxui::Toast<'static>>,
+    pub toasted: i64,
     /// the busy widgets of the last build of the page (for `busy_step`) and the readout
     pub busy: Vec<Handle>,
     pub readout: Option<Handle>,
@@ -90,7 +91,7 @@ impl Gallery {
             check: true, radio: 1, slider: 0.4, tab: 0, segment: 1, choice: 2, search: String::new(), adds: 0, image: None,
             list: vec![0; ROWS], nodes: (0..ROWS).map(|i| TreeNode { depth: [0, 1, 2, 2, 1, 2][i % 6], children: matches!(i % 6, 0 | 1 | 4) as u8 }).collect(),
             open: (0..ROWS).map(|i| (i < 6) as u8).collect(), tree_sel: Some(2), visible: vec![0; ROWS], widths: [96.0, 72.0, 72.0], table_sel: Some(1), sort: (0, true), split: 0.34,
-            dialog: false, menu_at: None, picker: false, said: "", bounce: false, toasts: Vec::with_capacity(8), busy: Vec::with_capacity(4), readout: None,
+            dialog: false, menu_at: None, picker: false, said: "", bounce: false, toasts: Vec::with_capacity(8), toasted: 0, busy: Vec::with_capacity(4), readout: None,
         }
     }
 
@@ -109,7 +110,8 @@ impl Gallery {
         if self.toasts.len() == self.toasts.capacity() {
             self.toasts.remove(0);
         }
-        self.toasts.push(text);
+        self.toasted += 1;
+        self.toasts.push(pxui::Toast::new(self.toasted, text));
     }
 }
 
@@ -139,7 +141,7 @@ fn column(ui: &mut Ui, label: &'static str, at: (f32, f32), w: f32, h: Size, f: 
 /// rest of the old kit: inspector section, rows and button, a value field, a text area, a footer
 /// and the read-only table.
 pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
-    ui.panel(PanelOpts::default(), "panel", &mut |ui: &mut Ui| {
+    ui.panel("panel", &Overlay::DEFAULT, &mut |ui: &mut Ui| {
         ui.label("PXUI", pxui::Label::DEFAULT);
         s.animate = ui.toggle("Animate", s.animate);
         s.wire = ui.toggle("Wire", s.wire);
@@ -148,7 +150,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
             s.quit = true;
         }
     });
-    ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0).window(true), "inspector", &mut |ui: &mut Ui| {
+    ui.panel("inspector", &Overlay::DEFAULT.at(332.0, 12.0).w(296.0).window(), &mut |ui: &mut Ui| {
         let _ = ui.inspector_section("section", true, None, "Inspector", &mut |ui: &mut Ui| {
             s.snap = ui.inspector_toggle("snap", "Snap", s.snap);
             let _ = ui.inspector_readout(None, "count", "Points", "1,024");
@@ -168,33 +170,39 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         ui.footer(Some("2 keys"), s.hints);
     });
     column(ui, "old-table", (332.0, 250.0), 296.0, Size::Px(200.0), &mut |ui: &mut Ui| {
-        let _ = ui.table((0.0, 0.0), 296.0, 200.0, &["row", "name", "x"], 1000, &mut |r: i64, c: i64| if c == 0 { r.to_string() } else if c == 1 { NAMES[r as usize % NAMES.len()].to_owned() } else { format!("{:.2}", r as f64 * 0.25) }, "old-table");
+        const OLD_TABLE: pxui::TableView = pxui::TableView::text(pxui_types::geom::Rect { x: 0.0, y: 0.0, w: 296.0, h: 200.0 });
+        let mut cell = String::new();
+        let _ = ui.table_view("old-table", &["row", "name", "x"], &mut [], 1000, &mut None, &OLD_TABLE, &mut |ui: &mut Ui, r: usize, c: usize| {
+            cell.clear();
+            let _ = if c == 0 { write!(cell, "{r}") } else if c == 1 { cell.write_str(NAMES[r % NAMES.len()]) } else { write!(cell, "{:.2}", r as f64 * 0.25) };
+            ui.item_text(&cell);
+        });
     });
 }
 
 /// The controls page: every value widget, two columns.
 pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     s.busy.clear();
-    ui.panel(PanelOpts::default().width(296.0), "values", &mut |ui: &mut Ui| {
+    ui.panel("values", &Overlay::DEFAULT.w(296.0), &mut |ui: &mut Ui| {
         ui.label("Values", pxui::Label::DEFAULT);
-        s.check = ui.checkbox("Snap to grid", s.check);
-        s.radio = ui.radio("Quality", &["Draft", "Normal", "Final"], s.radio);
-        s.slider = ui.slider("Opacity", s.slider, 0.0..=1.0);
-        let _ = ui.progress("Export", Some(s.slider));
-        let p = ui.progress("Indexing", None);
+        s.check = s.check != ui.checkbox("snap-to-grid", "Snap to grid", s.check, &pxui::Checkbox::DEFAULT).clicked;
+        s.radio = ui.radio("quality", &["Draft", "Normal", "Final"], s.radio, &pxui::Choice::DEFAULT.name("Quality")).1;
+        s.slider = ui.slider("opacity", "Opacity", s.slider, 0.0..=1.0, &pxui::Slider::DEFAULT).1;
+        let _ = ui.progress("export", "Export", Some(s.slider));
+        let p = ui.progress("indexing", "Indexing", None);
         s.busy.push(p);
         let row = node(ui, "spin-row", Node { h: Size::Px(24.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
-            let sp = ui.spinner("Loading");
+            let sp = ui.spinner("loading", "Loading");
             s.busy.push(sp);
-            let b = ui.badge("count", "NEW");
-            let _ = ui.tip(&b, "A badge: a small label in the accent");
+            let b = ui.badge("count", "Count", "NEW");
+            ui.tooltip(&b, "A badge: a small label in the accent");
         });
         s.segment = ui.segmented_with("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.segment), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.segment);
-        s.choice = ui.dropdown("Blend", &["Normal", "Multiply", "Screen", "Overlay", "Add"], s.choice);
+        s.choice = ui.dropdown("blend", "Blend", &["Normal", "Multiply", "Screen", "Overlay", "Add"], s.choice, &pxui::Dropdown::DEFAULT).1;
     });
-    ui.panel(PanelOpts::default().at(332.0, 12.0).width(296.0), "more", &mut |ui: &mut Ui| {
-        s.tab = ui.tabs("Sections", &["Layer", "Mask", "Effects"], s.tab);
+    ui.panel("more", &Overlay::DEFAULT.at(332.0, 12.0).w(296.0), &mut |ui: &mut Ui| {
+        s.tab = ui.tabs("sections", &["Layer", "Mask", "Effects"], s.tab, &pxui::Choice::DEFAULT.name("Sections")).1;
         inputs::layer_search(ui, &mut s.search);
         let row = node(ui, "icons", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 4.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
@@ -204,7 +212,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
                 }
             }
         });
-        let _ = ui.scroll_view("Scroll both ways", Size::Grow, Size::Px(96.0), &mut |ui: &mut Ui| {
+        let _ = ui.scroll_view("scroll-both", Size::Grow, Size::Px(96.0), &mut |ui: &mut Ui| {
             for (i, name) in NAMES.iter().enumerate() {
                 let text = ui.theme().value.idle.text;
                 let n = node(ui, name, Node { w: Size::Px(420.0), h: Size::Px(22.0), inset: Edges { l: 8.0 + 8.0 * i as f32, ..Edges::ZERO }, look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
@@ -228,17 +236,17 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
     ui.within(&pad, &mut |ui: &mut Ui| {
         let ratio = s.split;
         if let Some(r) = ui.split("split", Axis::Row, ratio, 120.0, 200.0, &mut |ui: &mut Ui| {
-            let _ = ui.list_view("Files", ROWS, true, &mut s.list, &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
+            let _ = ui.selection_list("files", ROWS, &mut s.list, &pxui::SelectionList::DEFAULT.multi(), &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
         }, &mut |ui: &mut Ui| {
             let half = node(ui, "right", Node { w: Size::Grow, h: Size::Grow, padding: Edges { l: 8.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
             ui.within(&half, &mut |ui: &mut Ui| {
                 let top = node(ui, "tree-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&top, &mut |ui: &mut Ui| {
-                    let _ = ui.tree("Outline", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
+                    let _ = ui.tree("outline", &s.nodes, &mut s.open, &mut s.tree_sel, &mut s.visible, &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
                 });
                 let bottom = node(ui, "table-box", Node { h: Size::Grow, ..Node::DEFAULT });
                 ui.within(&bottom, &mut |ui: &mut Ui| {
-                    if let Some(c) = ui.table_view("Points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, Some(s.sort), &mut s.table_sel, &mut |ui: &mut Ui, r: usize, c: usize| cells(r, c, &mut |t| ui.item_text(t))) {
+                    if let Some(c) = ui.table_view("points", &["Name", "Group", "Tag"], &mut s.widths, ROWS, &mut s.table_sel, &pxui::TableView::DEFAULT.sort(s.sort.0, s.sort.1), &mut |ui: &mut Ui, r: usize, c: usize| cells(r, c, &mut |t| ui.item_text(t))).sort {
                         s.sort = (c, if s.sort.0 == c { !s.sort.1 } else { true });
                     }
                 });
@@ -252,7 +260,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
 /// The overlays page: buttons that open the dialog, a context menu, the picker in a modal and a
 /// toast; a tooltip on a resting pointer.
 pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
-    ui.panel(PanelOpts::default().width(296.0), "overlays", &mut |ui: &mut Ui| {
+    ui.panel("overlays", &Overlay::DEFAULT.w(296.0), &mut |ui: &mut Ui| {
         ui.label("Overlays", pxui::Label::DEFAULT);
         if ui.button("Open dialog") {
             s.dialog = true;
@@ -271,7 +279,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
             let _ = ui.icon_button("Help", pxui::Icon::Glyph('?'), "Help", &pxui::IconButton::DEFAULT);
         });
         if let Some(help) = ui.box_of_key(pxui_types::ui::key_of(row.box_key, "Help")) {
-            let _ = ui.tip(&help, "Rest the pointer on a control to see its tip");
+            ui.tooltip(&help, "Rest the pointer on a control to see its tip");
         }
         if !s.said.is_empty() {
             let _ = ui.inspector_message("said", s.said);
@@ -295,10 +303,10 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     }
     if s.picker {
         let mut close = false;
-        let _ = ui.modal(Some(240.0), "presets", &mut |ui: &mut Ui| {
+        let _ = ui.modal("presets", &Overlay::DEFAULT.w(240.0).name("Presets"), &mut |ui: &mut Ui| {
             ui.label("Presets", pxui::Label::DEFAULT);
-            let rows = |_: &str| NAMES[..5].iter().map(|n| (n.to_string(), "09-24".to_owned())).collect();
-            let pick = inputs::presets(ui, &rows);
+            let mut rows = |_: &str, rows: &mut pxui::PickRows| for n in &NAMES[..5] { rows.push(n, "09-24"); };
+            let pick = inputs::presets(ui, &mut rows);
             close = !matches!(pick, Pick::None);
         });
         if close {
@@ -460,7 +468,7 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     if let Some(a) = anchor.filter(|a| a.w > 0.0) {
         let place = Placement { side: Side::Right, align: Align::Center, gap: 4.0, margin: 4.0, flip: true };
         let (input, border, foreground) = { let t = ui.theme(); (t.tokens.input, t.field.idle.border, t.tokens.foreground) };
-        let _ = ui.anchored("popup", a, place, Size::Fit, Size::Fit, &mut |ui: &mut Ui| {
+        let _ = ui.anchored("popup", a, &Overlay::DEFAULT.place(place), &mut |ui: &mut Ui| {
             let n = node(ui, "popup-body", Node { w: Size::Px(96.0), h: Size::Px(24.0), look: Look { fill: input, border, border_w: 1.0, text: foreground, ..Look::NONE }, inset: Edges { l: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
             let _ = ui.text(&n, "anchored, flips");
         });
@@ -509,16 +517,16 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
         let body = node(ui, "body", Node { w: Size::Px(w), h: Size::Px(h - 24.0), at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
         ui.within(&body, &mut |ui: &mut Ui| {
             let _ = ui.view("chrome", s.chrome_rev, Size::Grow, Size::Px(CHROME_H), &mut |ui: &mut Ui| {
-                let page = ui.tabs("Pages", &PAGES, s.page);
+                let page = ui.tabs("pages", &PAGES, s.page, &pxui::Choice::DEFAULT.name("Pages")).1;
                 if page != s.page {
                     (s.page, s.page_rev) = (page, s.page_rev + 1); // the tabs show the click in this build
                 }
                 let row = node(ui, "switches", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
                 ui.within(&row, &mut |ui: &mut Ui| {
                     let theme = ui.segmented_with("theme", &[pxui::Segment::new("Rays"), pxui::Segment::new("Dusk")], Some(s.dusk as usize), &pxui::Segmented::DEFAULT.name("Theme")).chosen == Some(1);
-                    let compact = ui.checkbox("Compact", s.compact);
-                    let rtl = ui.checkbox("RTL", s.rtl);
-                    let reduced = ui.checkbox("Still", s.reduced);
+                    let compact = s.compact != ui.checkbox("compact", "Compact", s.compact, &pxui::Checkbox::DEFAULT).clicked;
+                    let rtl = s.rtl != ui.checkbox("rtl", "RTL", s.rtl, &pxui::Checkbox::DEFAULT).clicked;
+                    let reduced = s.reduced != ui.checkbox("still", "Still", s.reduced, &pxui::Checkbox::DEFAULT).clicked;
                     if (theme, compact, rtl, reduced) != (s.dusk, s.compact, s.rtl, s.reduced) {
                         (s.dusk, s.compact, s.rtl, s.reduced, s.host_dirty) = (theme, compact, rtl, reduced, true);
                     }

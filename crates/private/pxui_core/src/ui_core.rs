@@ -55,7 +55,7 @@ pub use pxui_types::{Flags, Size};
 pub use crate::opts::{BoxOpts, HitFn};
 pub use pxui_types::shape::{clip_of, Shapes};
 pub use pxui_types::ui::{
-    ellipsis, text_top_for, contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Keyframe, Keyframes, Repeat, Target, UndoKind,
+    ellipsis, text_top_for, contains, display, find_marker, hash_range, int_key, intersect, key_of, shown, Cursor, Keyframe, Keyframes, ListResponse, Overlay, PickerResponse, Repeat, SelectionList, TableResponse, TableView, Target, TreeResponse, UndoKind,
     DRAG_THRESHOLD, ROOT_KEY,
 };
 /// What a carry holds: a `kind` and a `value`, both strings (the engine's own storage; the wrapper lends them as `PayloadRef`).
@@ -1087,6 +1087,9 @@ pub struct Ui {
     pub(crate) input_box: Option<Handle>,
     /// What each text area keeps between frames (bounded, see `AreaCacheEntry`).
     pub(crate) area_cache: Vec<crate::ui_text::AreaCacheEntry>,
+    /// A text table cell's text, as its callback gave `item_text` (kept between frames), and whether it gave one.
+    pub(crate) text_cell: String,
+    pub(crate) text_cell_set: bool,
     pub(crate) edit_caret: usize,
     pub(crate) edit_anchor: usize,
     pub(crate) edit_scroll_x: f32,
@@ -1107,7 +1110,7 @@ pub struct Ui {
     pub(crate) edit_group: i64,
     pub(crate) edit_shelf: Vec<ShelfEntry>,
     /// the picker's rows, kept between frames so `picker_filled` reuses their strings
-    pub(crate) picker_rows: Vec<(String, String)>,
+    pub(crate) picker_rows: pxui_types::ui::PickRows,
     /// the table's column stops, kept between frames
     pub(crate) table_stops: Vec<f32>,
     /// the bodies apps registered for the widget kinds (`register_toggle_body` and siblings), by kind; empty until one is.
@@ -1344,6 +1347,8 @@ impl Ui {
             returned: String::new(),
             input_box: None,
             area_cache: Vec::new(),
+            text_cell: String::new(),
+            text_cell_set: false,
             edit_caret: 0,
             edit_anchor: 0,
             edit_scroll_x: 0.0,
@@ -1361,7 +1366,7 @@ impl Ui {
             edit_redo: Vec::new(),
             edit_group: -1,
             edit_shelf: Vec::new(),
-            picker_rows: Vec::new(),
+            picker_rows: pxui_types::ui::PickRows::new(),
             table_stops: Vec::new(),
             bodies: Box::default(),
             part_owner: 0,
@@ -3247,7 +3252,7 @@ impl Ui {
         self.parents.last().copied().unwrap_or(0)
     }
 
-    pub(crate) fn current_seed(&self) -> i64 {
+    pub fn current_seed(&self) -> i64 {
         self.seeds.last().copied().unwrap_or(0)
     }
 
@@ -6578,7 +6583,11 @@ impl Ui {
 
     /// A tooltip: a 20-point sheet with a line-2 edge and 6 points of padding, text at the label
     /// size and long text wraps to further 14-point lines.
-    pub fn tooltip(&mut self, key: &str, text: &str) {
+    #[doc(hidden)]
+    /// The C 1.x `pxui_ui_tooltip` only (cut at 2.0): the tooltip sheet for a hover the caller tracks by `key`; Rust calls `tooltip`.
+    pub fn tooltip_legacy(&mut self, key: &str, text: &str) { self.tooltip_sheet(key, text) }
+
+    pub(crate) fn tooltip_sheet(&mut self, key: &str, text: &str) {
         if !self.hover_delay(key) {
             return;
         }
@@ -6622,13 +6631,26 @@ impl Ui {
     /// on the placement's side, flipped to the other when it does not fit there, kept inside the
     /// window. Its size may be `Fit`: placement runs in layout, after the size is known. Built at the
     /// root wherever it is called, and painted over the rest.
-    pub fn anchored(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+    #[doc(hidden)]
+    /// The C 1.x `pxui_ui_anchored` only (cut at 2.0): any `Size` for the sheet, which `Overlay` (points or fit) does not take.
+    pub fn anchored_legacy(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+        self.anchored_label(label, anchor, placement, w, h, f)
+    }
+
+    pub(crate) fn anchored_label(&mut self, label: &str, anchor: Rect, placement: Placement, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let saved = self.enter_root_parent();
         let b = self.node_ref(label, &Node { w, h, anchor: Some(Anchor { rect: anchor, placement }).into(), ..Node::DEFAULT });
         self.overlays.push(b.index);
         self.within(&b, f);
         self.leave(saved);
         b
+    }
+
+    /// A sheet keyed by `key` (hashed under the parent's seed) placed by `anchor` at `overlay`'s placement, `overlay`'s width and
+    /// height (each its content's when unset).
+    pub fn anchored(&mut self, key: &str, anchor: Rect, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+        let size = |v: Option<f32>| v.map_or(Size::Fit, Size::Px);
+        self.anchored_label(key, anchor, overlay.place, size(overlay.w), size(overlay.h), f)
     }
 
     pub fn col(&mut self, padding: f32, label: &str, f: &mut dyn FnMut(&mut Ui)) {
@@ -7132,10 +7154,17 @@ impl Ui {
         body
     }
 
-    /// A single scrolling section; headings use the existing sticky layout and rows stay virtual. With `row_key`, row `i`'s box is
-    /// keyed by the item id `key(i)` (`Key::Id` under the rows), so a row's state follows its item when the items reorder; without
-    /// it, by its index.
-    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
+    /// A scrolling lead-in, sticky heading and virtual rows (fixed, or measured with `SectionList::measured`) in one region keyed by
+    /// `label`; `f(ui, index, y)` builds the part `index` (`usize::MAX` the lead-in, `usize::MAX - 1` the heading, else row `index`) at its
+    /// logical content Y. With `row_key`, row `i`'s box is keyed by the item id `key(i)` (`Key::Id` under the rows), so a row's state
+    /// follows its item when the items reorder; without it, by its index.
+    pub fn section_list(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+        if section.measured { return self.section_rows_measured(label,section,row_key,f); }
+        let y=|index:usize| match index { usize::MAX=>0.0, i if i==usize::MAX-1=>section.leading_height, i=>section.leading_height+section.header_height+i as f32*section.row_height };
+        self.section_rows_fixed(label,section,row_key,&mut |ui,index| f(ui,index,y(index)))
+    }
+
+    fn section_rows_fixed(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize))->Handle {
         let padding = self.list_padding(key_of(self.current_seed(), label));
         let rows_h=section.count as f32*section.row_height;
         let before=section.leading_height+section.header_height;
@@ -7221,8 +7250,7 @@ impl Ui {
         }
     }
 
-    /// A section with measured virtual rows; the callback also receives its logical content Y. `row_key` as `section_list`'s.
-    pub fn section_list_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
+    fn section_rows_measured(&mut self,label:&str,section:&pxui_types::ui::SectionList,row_key:Option<&dyn Fn(usize)->i64>,f:&mut dyn FnMut(&mut Ui,usize,f32))->Handle {
         let key=key_of(self.current_seed(),label);
         let padding=self.list_padding(key);
         let mut cache=self.list_heights.remove(&key).unwrap_or_default();

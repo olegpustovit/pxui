@@ -79,7 +79,7 @@ fn dusk_panel(ui: &mut Ui) {
 }
 
 fn new_panel(ui: &mut Ui) {
-    ui.panel(PanelOpts::default(), "panel", &mut |ui| {
+    ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
         ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
         ui.toggle("Animate", true);
         ui.toggle("Wire", false);
@@ -90,7 +90,7 @@ fn new_panel(ui: &mut Ui) {
 
 /// The floating widgets: a modal with a picker, and a context menu.
 fn overlays(ui: &mut Ui) {
-    ui.modal(Some(220.0), "modal", &mut |ui| {
+    ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.w(220.0).name("modal"), &mut |ui| {
         ui.label("Presets", pxui_core::ui::Label::DEFAULT);
         let rows = |_: &str| {
             vec![
@@ -100,7 +100,7 @@ fn overlays(ui: &mut Ui) {
                 ("dome".to_owned(), "09-19".to_owned()),
             ]
         };
-        ui.picker(&PickerOpts { limit: 3, ..PickerOpts::default() }, "Search presets", "", &rows);
+        { let r = ui.picker("Search presets", "Search presets", "", &pxui_core::ui::PickerOpts { limit: 3, ..pxui_core::ui::PickerOpts::default() }, &mut |q: &str, out: &mut pxui_core::ui::PickRows| for (a, b) in rows(q) { out.push(&a, &b) }); (r.query.to_owned(), r.pick) };
     });
     const ITEMS: [MenuItem; 3] = [MenuItem::new("View"), MenuItem::new("Set active camera").enabled(false), MenuItem::new("Delete")];
     ui.menu("context".into(), (12.0, 200.0), &ITEMS, &Menu::DEFAULT);
@@ -108,7 +108,7 @@ fn overlays(ui: &mut Ui) {
 
 fn table(ui: &mut Ui) {
     let headers = ["index", "P.x", "weight", "group"];
-    let mut cell = |row: i64, column: i64| -> String {
+    let cell = |row: i64, column: i64| -> String {
         if column == 0 {
             row.to_string()
         } else if column == 3 {
@@ -117,7 +117,7 @@ fn table(ui: &mut Ui) {
             cfmt::g((row + column) as f64 * 0.125, 6)
         }
     };
-    ui.table((8.0, 8.0), 304.0, 280.0, &headers, 1000000, &mut cell, "table");
+    ui.table_view("table", &headers, &mut [], 1000000 as usize, &mut None, &pxui_core::ui::TableView::text(pxui_core::ui::Rect::new(8.0, 8.0, 304.0, 280.0)), &mut |ui, r, c| ui.item_text(&cell(r as i64, c as i64))).row.map(|r| r as i64);
 }
 
 fn parity(name: &str, golden: &str, height: i64, build: fn(&mut Ui)) {
@@ -398,7 +398,7 @@ fn gpu_focused_text_field_ime_pixels() {
     for density in DENSITIES {
         let mut ui = crate::support::new_ui(Some(11));
         let mut build = |ui: &mut Ui| {
-            ui.panel(PanelOpts::default(), "editor", &mut |ui| {
+            ui.panel("editor", &pxui_core::ui::Overlay::DEFAULT.name("editor"), &mut |ui| {
                 assert!(ui.text_field("Caption", "café track 10").is_none());
             });
         };

@@ -201,11 +201,11 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
                     let row=ui.node((index as i64).into(),Node {w:Size::Px(25.0),h:Size::Px(h),look:Look {fill:crate::geom::Rgba {r:255,a:255,..Default::default()},..Look::NONE},..Node::DEFAULT});
                     keys[index].set(row.box_key);
                 };
-                let section=SectionList {count:count.get(),row_height:20.0,leading_height:35.0,header_height:14.0,trailing_height:11.0,overlay_scrollbar:true};
+                let section=SectionList::new(count.get()).row_h(20.0).lead(35.0).header(14.0).trail(11.0).overlay_scrollbar();
                 let list=match kind {
-                    0=>ui.section_list("rows",&section,&|i| i as i64,&mut |ui,part| if let SectionPart::Row(index)=part {row(ui,index)}),
-                    1=>ui.section_list_measured("rows",&SectionList {count:count.get(),row_height:20.0,leading_height:0.0,header_height:0.0,trailing_height:0.0,overlay_scrollbar:false},&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
-                    2=>ui.section_list_measured("rows",&section,&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
+                    0=>ui.section_list("rows",&section,&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
+                    1=>ui.section_list("rows",&SectionList::new(count.get()).row_h(20.0).measured(),&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
+                    2=>ui.section_list("rows",&section.measured(),&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
                     _=>ui.grid_list("rows",count.get(),25.0,20.0,&mut row),
                 };
                 ui.set_node_layout(&list,&Node {w:Size::Grow,h:Size::Grow,padding:crate::geom::Edges::all(6.0),..Node::DEFAULT});
@@ -392,7 +392,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
     let popup = Cell::new(false);
     let present = Cell::new(true);
     let mut build = |ui: &mut Ui| {
-        if popup.get() { ui.popup(None,None,false,false,(0.0,0.0),200.0,30.0,"scrub-popup",&mut |_| {}); }
+        if popup.get() { ui.popup("scrub-popup", &crate::Overlay::DEFAULT.at(0.0, 0.0).w(200.0).h(30.0), |_| {}); }
         if !present.get() { result.set(None); return; }
         let (lo, hi) = range.get();
         let scrub = ui.scrub("position", value.get(), lo..=hi, &crate::Scrubber::DEFAULT.step(5.0).name("Position"));
@@ -629,7 +629,7 @@ fn shrinking_virtual_sections_select_the_clamped_rows_in_one_build_without_warm_
     let mut ui=Ui::new().unwrap();
     let mut build=|ui:&mut Ui| {
         builds.set(builds.get()+1);rows.set(0);first.set(None);
-        body.set(Some(ui.section_list("shrinking",&SectionList {count:count.get(),row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true},&|i| i as i64,&mut |_,part| {
+        body.set(Some(ui.section_list("shrinking",&SectionList::new(count.get()).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar(),&|i| i as i64,&mut |_,part,_| {
             if let SectionPart::Row(index)=part {if first.get().is_none() {first.set(Some(index));}rows.set(rows.get()+1);}
         })));
     };
@@ -657,13 +657,13 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
     mem_sys::set_peer(crate::library_counter);
     for flat in [false,true] {
     let mut ui=Ui::new().unwrap(); ui.set_a11y(true);
-    let section=SectionList {count:10_000,row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true};
+    let section=SectionList::new(10_000).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar();
     let body=Cell::new(None); let lead=Cell::new(None); let header=Cell::new(None); let first=Cell::new(None);
     let rows=Cell::new(0usize); let frame_builds=Cell::new(0usize); let clicked=Cell::new(false); let sorted=Cell::new(false);
     let mut build=|ui:&mut Ui| {
         frame_builds.set(frame_builds.get()+1);
         rows.set(0); clicked.set(false); sorted.set(false); first.set(None);
-        body.set(Some(ui.section_list("section",&section,&|i| i as i64,&mut |ui,part| {
+        body.set(Some(ui.section_list("section",&section,&|i| i as i64,&mut |ui,part,_| {
             match part {
                 SectionPart::Leading=>{
                     let clip=ui.node("heading-clip".into(),Node {flags:pxui_types::Flags::CLIP,w:Size::Grow,h:Size::Px(100.0),..Node::DEFAULT});
@@ -729,18 +729,18 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
 #[test]
 fn section_lists_validate_geometry_recover_callbacks_and_support_empty_unpinned_sections() {
     use crate::ui::{SectionList,SectionPart};
-    let valid=SectionList {count:0,row_height:20.0,leading_height:30.0,header_height:0.0,trailing_height:40.0,overlay_scrollbar:false};
+    let valid=SectionList::new(0).row_h(20.0).lead(30.0).trail(40.0);
     let mut ui=Ui::new().unwrap();
     let called=std::cell::Cell::new(false);
     for bad in [SectionList {count:1_000_001,..valid},SectionList {row_height:0.0,..valid},SectionList {row_height:f32::NAN,..valid},SectionList {leading_height:-1.0,..valid},SectionList {header_height:f32::INFINITY,..valid},SectionList {trailing_height:-1.0,..valid},SectionList {count:2,row_height:f32::MAX,..valid}] {
-        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("bad",&bad,&|i| i as i64,&mut |_,_|called.set(true));});})).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("bad",&bad,&|i| i as i64,&mut |_,_,_|called.set(true));});})).is_err());
         assert!(!called.get(),"invalid geometry reached the callback");
     }
     for fail in [SectionPart::Leading,SectionPart::Header,SectionPart::Row(0)] {
         let section=SectionList {count:1,header_height:20.0,..valid};
-        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("panic",&section,&|i| i as i64,&mut |_,part| {if part==fail {panic!("section callback");}});});})).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("panic",&section,&|i| i as i64,&mut |_,part,_| {if part==fail {panic!("section callback");}});});})).is_err());
         let mut calls=0;
-        ui.frame(&input(),&mut |ui| {ui.section_list("empty",&valid,&|i| i as i64,&mut |_,part| {assert_eq!(part,SectionPart::Leading);calls+=1;});}).unwrap();
+        ui.frame(&input(),&mut |ui| {ui.section_list("empty",&valid,&|i| i as i64,&mut |_,part,_| {assert_eq!(part,SectionPart::Leading);calls+=1;});}).unwrap();
         assert!(calls>=1,"empty sections retain the lead-in and omit a zero heading and all rows");
     }
 }
@@ -748,18 +748,18 @@ fn section_lists_validate_geometry_recover_callbacks_and_support_empty_unpinned_
 #[test]
 fn measured_sections_validate_geometry_recover_callbacks_and_support_empty_unpinned_sections() {
     use crate::ui::{SectionList,SectionPart};
-    let valid=SectionList {count:0,row_height:20.0,leading_height:30.0,header_height:0.0,trailing_height:40.0,overlay_scrollbar:false};
+    let valid=SectionList::new(0).row_h(20.0).lead(30.0).trail(40.0);
     let mut ui=Ui::new().unwrap();
     let called=std::cell::Cell::new(false);
     for bad in [SectionList {count:1_000_001,..valid},SectionList {row_height:0.0,..valid},SectionList {row_height:f32::NAN,..valid},SectionList {leading_height:-1.0,..valid},SectionList {header_height:f32::INFINITY,..valid},SectionList {trailing_height:-1.0,..valid},SectionList {count:2,row_height:f32::MAX,..valid}] {
-        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list_measured("bad",&bad,&|i| i as i64,&mut |_,_,_|called.set(true));});})).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("bad",&bad.measured(),&|i| i as i64,&mut |_,_,_|called.set(true));});})).is_err());
         assert!(!called.get(),"invalid geometry reached the callback");
     }
     for fail in [SectionPart::Leading,SectionPart::Header,SectionPart::Row(0)] {
         let section=SectionList {count:1,header_height:20.0,..valid};
-        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list_measured("panic",&section,&|i| i as i64,&mut |_,part,_| {if part==fail {panic!("section callback");}});});})).is_err());
+        assert!(catch_unwind(AssertUnwindSafe(|| {let _=ui.frame(&input(),&mut |ui| {ui.section_list("panic",&section.measured(),&|i| i as i64,&mut |_,part,_| {if part==fail {panic!("section callback");}});});})).is_err());
         let mut calls=0;
-        ui.frame(&input(),&mut |ui| {ui.section_list_measured("empty",&valid,&|i| i as i64,&mut |_,part,_| {assert_eq!(part,SectionPart::Leading);calls+=1;});}).unwrap();
+        ui.frame(&input(),&mut |ui| {ui.section_list("empty",&valid.measured(),&|i| i as i64,&mut |_,part,_| {assert_eq!(part,SectionPart::Leading);calls+=1;});}).unwrap();
         assert!(calls>=1,"empty sections retain the lead-in and omit a zero heading and all rows");
     }
 }
@@ -866,7 +866,7 @@ fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds()
     let clicked = Cell::new(false);
     let mut build = |ui: &mut Ui| {
         if open.get() {
-            ui.popup(None,None,false,false,(0.0,0.0),180.0,100.0,"popup",&mut |ui| {
+            ui.popup("popup", &crate::Overlay::DEFAULT.at(0.0, 0.0).w(180.0).h(100.0), &mut |ui: &mut Ui| {
                 ui.node("cover".into(),crate::Node {flags:pxui_types::Flags::CLICKABLE,w:Size::Grow,h:Size::Px(100.0),..crate::Node::DEFAULT});
             });
         }
@@ -910,7 +910,7 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
         assert_eq!(ui.key_pressed(',', None), comma.get(), "reading held keys must not consume activation");
     };
     let mut build = |ui: &mut Ui| {
-        if modal.get() { ui.popup(None, None, false, false, (10.0,10.0),180.0,40.0,"keys",&mut contents); }
+        if modal.get() { ui.popup("keys", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(180.0).h(40.0), &mut contents); }
         else { contents(ui); }
     };
     ui.frame(&input(), &mut build).unwrap();
@@ -970,7 +970,7 @@ fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
                         assert!(!ui.key_down(modifier));
                     };
                     ui.frame(&FrameIn {time:round as f64,events:events.as_ptr(),event_count:events.len(),..input()},&mut |ui| {
-                        if popup {ui.popup(None,None,false,true,(0.0,0.0),120.0,30.0,"chord",&mut contents);}
+                        if popup {ui.popup("chord", &crate::Overlay::DEFAULT.at(0.0, 0.0).w(120.0).h(30.0).attached(), &mut contents);}
                         else {contents(ui);}
                     }).unwrap();
                     ui.dismiss_popup();
@@ -1216,7 +1216,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
     let actions = [HeadAction { caption: "Run".into(), keycap: "R".into(), active: false, usable: true }];
     for round in 0..3 {
         ui.frame(&input(), &mut |ui: &mut Ui| {
-            ui.panel(pxui_types::ui::PanelOpts::default(), "extras", &mut |ui: &mut Ui| {
+            ui.panel("extras", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 assert!(!ui.button_with("styled", "Styled", &crate::Button::DEFAULT.danger().align(pxui_types::layout::Justify::End)).clicked);
                 let head = ui.inspector_head_for_test(&actions);
                 assert_eq!(head.renamed, "Title");
@@ -1233,7 +1233,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 assert_eq!(ui.field_drag(&grip), None);
                 if round == 0 { assert!(ui.animate(&grip, Target::Opacity(0.5), Curve::Spring { omega: 30.0 }), "a new target starts moving"); }
                 let mut ran = false;
-                let open = ui.popup(None, Some(100.0), true, false, (10.0, 10.0), 100.0, 40.0, "pop", &mut |ui: &mut Ui| { ran = true; ui.label("popped", crate::Label::DEFAULT); });
+                let open = ui.popup("pop", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(100.0).h(40.0).max_h(100.0).dismiss_initial(), &mut |ui: &mut Ui| { ran = true; ui.label("popped", crate::Label::DEFAULT); });
                 assert_eq!(open, ran, "the build runs exactly while the popup is open");
             });
         }).expect("frame");
@@ -1321,7 +1321,7 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
     let callbacks = ValueCallbacks::DEFAULT.valid(&accept).slide(&slide).scrub(&scrub);
     for _ in 0..2 {
         ui.frame(&input(), &mut |ui: &mut Ui| {
-            ui.panel(pxui_types::ui::PanelOpts::default(), "fields", &mut |ui: &mut Ui| {
+            ui.panel("fields", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 let field = ui.value_field("amount", "0.25", pxui_types::geom::Rect::new(10.0, 10.0, 120.0, 20.0), &opts, &callbacks);
                 let (text, editing) = (field.changed, field.editing);
                 assert_eq!((text, editing), (None, false));
@@ -1384,7 +1384,7 @@ fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
         mem_sys::local_reset();
         let scope = (tick >= 8).then(mem_sys::warm_scope);
         ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
-            ui.panel(pxui_types::ui::PanelOpts::default(), "borrowed", &mut |ui: &mut Ui| {
+            ui.panel("borrowed", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 let area = ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &plain, &AreaCallbacks::DEFAULT);
                 assert_eq!((area.changed, area.submitted), (None, false));
             });
@@ -1402,7 +1402,7 @@ fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
     let mut changed = None;
     for tick in 12..16 {
         ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
-            ui.panel(pxui_types::ui::PanelOpts::default(), "borrowed", &mut |ui: &mut Ui| {
+            ui.panel("borrowed", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 changed = changed.take().or(ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &edit, &AreaCallbacks::DEFAULT).changed.map(str::to_owned));
             });
         }).expect("frame");
@@ -1432,7 +1432,7 @@ fn a_text_area_with_data_callbacks_and_a_language_and_a_value_field_with_callbac
         mem_sys::local_reset();
         let scope = (tick >= 8).then(mem_sys::warm_scope);
         ui.frame(&FrameIn { time: tick as f64 / 60.0, ..input() }, &mut |ui: &mut Ui| {
-            ui.panel(pxui_types::ui::PanelOpts::default(), "data", &mut |ui: &mut Ui| {
+            ui.panel("data", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 let r = ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &area, &callbacks);
                 assert_eq!((r.changed, r.submitted), (None, false));
                 let v = ui.value_field("amount", "0.25", pxui_types::geom::Rect::new(0.0, 110.0, 100.0, 20.0), &ValueField::DEFAULT.fraction(0.5), &value_callbacks);
@@ -1859,7 +1859,7 @@ fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
     let mut build=|ui:&mut Ui| {
         let col=ui.node("column".into(),crate::Node { w:Size::Px(100.0),h:Size::Px(200.0),..crate::Node::DEFAULT });
         ui.within(&col,&mut |ui| {
-            list.set(Some(ui.section_list_measured("measured",&crate::ui::SectionList {count:count.get(),row_height:12.0,leading_height:0.0,header_height:0.0,trailing_height:0.0,overlay_scrollbar:false},&|i| i as i64,&mut |ui,part,_| {
+            list.set(Some(ui.section_list("measured",&crate::ui::SectionList::new(count.get()).row_h(12.0).measured(),&|i| i as i64,&mut |ui,part,_| {
                 let crate::ui::SectionPart::Row(i)=part else { return };
                 assert!(i<count.get());
                 calls.set(calls.get()+1);
@@ -1899,13 +1899,13 @@ fn measured_list_validation_and_callback_panics_leave_frames_reusable() {
     let mut ui=Ui::new().unwrap();
     for (count,estimate) in [(1,0.0),(1,-1.0),(1,f32::NAN),(1,f32::INFINITY),(1_000_001,12.0),(10,f32::MAX)] {
         assert!(catch_unwind(AssertUnwindSafe(|| {
-            ui.frame(&input(),&mut |ui| { ui.section_list_measured("bad",&crate::ui::SectionList {count:count,row_height:estimate,leading_height:0.0,header_height:0.0,trailing_height:0.0,overlay_scrollbar:false},&|i| i as i64,&mut |_,_,_|panic!("invalid arguments reached the row")); }).unwrap();
+            ui.frame(&input(),&mut |ui| { ui.section_list("bad",&crate::ui::SectionList::new(count).row_h(estimate).measured(),&|i| i as i64,&mut |_,_,_|panic!("invalid arguments reached the row")); }).unwrap();
         })).is_err());
     }
     assert!(catch_unwind(AssertUnwindSafe(|| {
-        ui.frame(&input(),&mut |ui| { ui.section_list_measured("panic",&crate::ui::SectionList {count:1,row_height:20.0,leading_height:0.0,header_height:0.0,trailing_height:0.0,overlay_scrollbar:false},&|i| i as i64,&mut |_,_,_|panic!("row callback")); }).unwrap();
+        ui.frame(&input(),&mut |ui| { ui.section_list("panic",&crate::ui::SectionList::new(1).row_h(20.0).measured(),&|i| i as i64,&mut |_,_,_|panic!("row callback")); }).unwrap();
     })).is_err());
-    ui.frame(&input(),&mut |ui| { ui.section_list_measured("recovered",&crate::ui::SectionList {count:1,row_height:20.0,leading_height:0.0,header_height:0.0,trailing_height:0.0,overlay_scrollbar:false},&|i| i as i64,&mut |ui,_,_| { ui.label("Recovered", crate::Label::DEFAULT); }); }).unwrap();
+    ui.frame(&input(),&mut |ui| { ui.section_list("recovered",&crate::ui::SectionList::new(1).row_h(20.0).measured(),&|i| i as i64,&mut |ui,_,_| { ui.label("Recovered", crate::Label::DEFAULT); }); }).unwrap();
 }
 
 #[test]
@@ -2480,7 +2480,7 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
     let positions=RefCell::new(Vec::with_capacity(100));
     let mut build=|ui:&mut Ui| {
         positions.borrow_mut().clear();
-        body.set(Some(ui.section_list_measured("measured",&SectionList {count:count.get(),row_height:20.0,leading_height:100.0,header_height:30.0,trailing_height:40.0,overlay_scrollbar:true},&|i| i as i64,&mut |ui,part,y| {
+        body.set(Some(ui.section_list("measured",&SectionList::new(count.get()).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar().measured(),&|i| i as i64,&mut |ui,part,y| {
             match part {
                 SectionPart::Leading=>assert_eq!(y,0.0),
                 SectionPart::Header=>{assert_eq!(y,100.0);header.set(Some(ui.node("heading".into(),Node {w:Size::Grow,h:Size::Grow,..Node::DEFAULT})));},
@@ -2652,10 +2652,7 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
     let mut build = |ui: &mut Ui| {
         built.set(0);
         ui.view("touch-page", 0, Size::Grow, Size::Grow, &mut |ui| {
-            body.set(Some(ui.section_list("touch-list", &SectionList {
-                count: 10_000, row_height: 24.0, leading_height: 0.0, header_height: 0.0,
-                trailing_height: 0.0, overlay_scrollbar: true,
-            },&|i| i as i64, &mut |ui, part| {
+            body.set(Some(ui.section_list("touch-list", &SectionList::new(10_000).row_h(24.0).overlay_scrollbar(),&|i| i as i64, &mut |ui, part,_| {
                 if let SectionPart::Row(index) = part {
                     built.set(built.get() + 1);
                     let row = ui.node("touch-row".into(), Node { flags: pxui_types::Flags::CLICKABLE, w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
