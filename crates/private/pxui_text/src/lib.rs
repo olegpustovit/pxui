@@ -276,6 +276,21 @@ struct Rich { spans:TextSpans }
 /// Removing entries shrinks each following sweep budget; MAX_LAYOUTS also bounds storage.
 pub const KEEP_FRAMES: u32 = 600;
 pub const SWEEP_FRAMES: u32 = 64;
+/// Largest font `Text::add_font` accepts, in bytes.
+pub const MAX_FONT_BYTES: usize = 32 << 20;
+/// Most fonts one text service holds (`Style::font` is a `u16`; fonts are never removed).
+pub const MAX_FONTS: usize = 64;
+/// Total bytes of the fonts one text service holds.
+pub const MAX_FONT_TOTAL_BYTES: usize = 256 << 20;
+/// Byte budget over the estimated size of retained layouts (`layout_cost`: shaped lines and glyph runs plus the text, about
+/// `SHAPED_BYTES_PER_TEXT_BYTE` per text byte and `LAYOUT_BASE_BYTES` per entry; cosmic-text does not report its buffer sizes). Past it the
+/// least valuable layouts go (`victim` order), but never one laid out in the current frame: a frame showing many large texts keeps them all and
+/// the excess goes the next frame. A layout above the whole budget stays only while it is used. A text service that never ends a frame
+/// has no "current frame to protect": past twice the budget it evicts regardless, sparing only the layout just made.
+pub const LAYOUT_BYTES: usize = 64 << 20;
+pub const SHAPED_BYTES_PER_TEXT_BYTE: usize = 160;
+pub const LAYOUT_BASE_BYTES: usize = 1024;
+fn layout_cost(text_len: usize) -> usize { text_len.saturating_mul(SHAPED_BYTES_PER_TEXT_BYTE).saturating_add(LAYOUT_BASE_BYTES) }
 /// Bound retained layouts even for standalone shapers without a frame clock.
 const MAX_LAYOUTS: usize = 4096;
 /// Evicted layouts kept for the next fresh one (their buffer, text and glyph list storage), so text that
@@ -742,6 +757,10 @@ pub struct Text {
     g: Glyphs,
     system:Option<Box<system::SystemFonts>>,
     names: Vec<String>,
+    /// bytes of the fonts `add_font` accepted, against `MAX_FONT_TOTAL_BYTES`
+    font_bytes: usize,
+    /// estimated bytes of the retained layouts (`layout_cost` of each text), against `LAYOUT_BYTES`
+    layout_bytes: usize,
     font_metrics: Vec<(f32,f32)>,
     wrap_rows: Vec<(usize,usize,usize,f32)>,
     entries: HashMap<u64, Entry, Fast>,
@@ -812,6 +831,8 @@ impl Text {
                 pinned: [0; 8],
             },
             names: Vec::new(),
+            font_bytes: 0,
+            layout_bytes: 0,
             system:None,
             font_metrics: Vec::new(),
             wrap_rows: Vec::new(),
@@ -836,13 +857,15 @@ impl Text {
             reporter: None,
         };
         for f in fonts {
-            t.add_font(f);
+            let _ = t.add_font(f);
         }
         t
     }
 
     /// Enable OS discovery on missing glyphs. Explicit-font constructors stay deterministic.
-    /// Returns false when this platform has no native provider. Cold discovery may allocate/map files.
+    /// Returns false when this platform has no native provider. Cold discovery may allocate/map files. System fonts are memory-mapped,
+    /// demand-paged and outside the `add_font` budget; they are bounded by file count, file size and total mapped bytes (see `system.rs`:
+    /// 128 files, 256 MiB each, 1 GiB mapped).
     pub fn enable_system_fonts(&mut self)->bool {
         if !font_sys::SUPPORTED { return false; }
         if self.system.is_none() {
@@ -853,6 +876,7 @@ impl Text {
             self.keys.clear();
             self.sweep=0;
             self.cache_bytes=0;
+            self.layout_bytes=0;
             self.font_generation=Arc::new(());
         }
         true
@@ -868,6 +892,7 @@ impl Text {
         self.keys.clear();
         self.sweep = 0;
         self.cache_bytes = 0;
+        self.layout_bytes = 0;
         self.font_generation = Arc::new(());
     }
 
@@ -876,20 +901,30 @@ impl Text {
         self.g.apple
     }
 
-    /// Loads a font (copies the bytes); returns its index for `Style::font`. Existing layouts keep
-    /// their old shaping until their text, width or style changes.
-    pub fn add_font(&mut self, bytes: &[u8]) -> usize {
+    /// Loads a font (copies the bytes); returns its index for `Style::font`, or `None` when it is refused: empty, larger than
+    /// `MAX_FONT_BYTES`, not a parseable font, or past `MAX_FONTS` fonts or `MAX_FONT_TOTAL_BYTES` in all (nothing is kept then).
+    /// Existing layouts keep their old shaping until their text, width or style changes.
+    pub fn add_font(&mut self, bytes: &[u8]) -> Option<usize> {
+        if bytes.is_empty() || bytes.len() > MAX_FONT_BYTES || self.names.len() >= MAX_FONTS || self.font_bytes + bytes.len() > MAX_FONT_TOTAL_BYTES { return None; }
         let ids = self.g.fs.db_mut().load_font_source(fontdb::Source::Binary(Arc::new(bytes.to_vec())));
-        let name = ids.first().and_then(|id| self.g.fs.db().face(*id)).and_then(|f| f.families.first()).map(|f| f.0.clone()).unwrap_or_default();
-        let metrics = ids.first().and_then(|id| self.g.fs.get_font(*id, Weight::NORMAL)).map_or((0.0,0.0), |f| {
+        let metrics = ids.first().and_then(|id| self.g.fs.get_font(*id, Weight::NORMAL)).map(|f| {
             let m = f.as_swash().metrics(&[]);
             (m.ascent / m.units_per_em as f32,m.descent.abs() / m.units_per_em as f32)
         });
+        let Some(metrics) = metrics else {
+            for id in ids { self.g.fs.db_mut().remove_face(id); }
+            return None;
+        };
+        let name = ids.first().and_then(|id| self.g.fs.db().face(*id)).and_then(|f| f.families.first()).map(|f| f.0.clone()).unwrap_or_default();
         self.names.push(name);
         self.font_metrics.push(metrics);
+        self.font_bytes += bytes.len();
         self.font_generation=Arc::new(());
-        self.names.len() - 1
+        Some(self.names.len() - 1)
     }
+
+    /// How many fonts `add_font` has accepted.
+    pub fn font_count(&self) -> usize { self.names.len() }
 
     /// The font's ascent as a fraction of its size (0 for an unknown index).
     pub fn ascent(&self, font: u16) -> f32 {
@@ -962,6 +997,7 @@ impl Text {
         self.layouts = self.layouts.saturating_add(1);
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         let css = self.css_baseline(style);
+        let before = self.entries.get(&key).map_or(0, |e| layout_cost(e.text.len()));
         let keys = &mut self.keys;
         let (spare, cache_bytes) = (&mut self.spare, &mut self.cache_bytes);
         let e = self.entries.entry(key).or_insert_with(|| {
@@ -1085,7 +1121,27 @@ impl Text {
         }
         e.m = m;
         e.raw_baseline = raw;
+        self.layout_bytes = self.layout_bytes - before + layout_cost(text.len());
+        self.fit_budget(key);
         m
+    }
+
+    /// Evicts layouts until `layout_bytes` fits `LAYOUT_BYTES`: the best victim by `rank` that was not laid out this frame (any but `keep`
+    /// once past twice the budget). Scans once per eviction, only while over budget.
+    fn fit_budget(&mut self, keep: u64) {
+        while self.layout_bytes > LAYOUT_BYTES {
+            let hard = self.layout_bytes > 2 * LAYOUT_BYTES;
+            let mut best: Option<(usize, u64)> = None;
+            for (at, key) in self.keys.iter().enumerate() {
+                let Some(e) = self.entries.get(key) else { best = Some((at, u64::MAX)); break };
+                if *key == keep || (!hard && e.frame == self.frame) { continue; }
+                let rank = self.rank(e);
+                if best.is_none_or(|(_, r)| rank >= r) { best = Some((at, rank)); }
+            }
+            let Some((at, _)) = best else { return };
+            let old = self.keys.swap_remove(at);
+            if let Some(entry) = self.entries.remove(&old) { self.retire(entry); }
+        }
     }
 
     /// Where the shaped glyphs of layout `key` put their first baseline below the layout's top: `Metrics::baseline` unless the style has
@@ -1410,6 +1466,7 @@ impl Text {
     #[inline]
     /// Takes an evicted layout out of the glyph-cache accounting and keeps its storage for reuse.
     fn retire(&mut self, mut e: Entry) {
+        self.layout_bytes -= layout_cost(e.text.len());
         self.cache_bytes -= e.glyphs.capacity() * size_of::<CachedGlyph>();
         if self.spare.len() < SPARE_LAYOUTS && e.text.capacity() <= SPARE_TEXT_BYTES {
             e.glyphs.clear();
@@ -1430,6 +1487,16 @@ impl Text {
 
     /// The index in `keys` to evict from a full cache: of the next 64 entries from the sweep, the
     /// farthest list row beyond its keep window, else the oldest one not owned by a list window or a live view, else the sweep's own.
+    /// How readily layout `e` goes: higher is evicted first (far list rows, then the longest unused; kept rows and live views never rank above 0).
+    fn rank(&self, e: &Entry) -> u64 {
+        match self.list_distance(e) {
+            Some(d) if d > LIST_KEEP_ROWS => 1 << 40 | d as u64,
+            Some(_) => 0,
+            None if self.view_owned(e) => 0,
+            None => 1 << 20 | self.frame.wrapping_sub(e.frame) as u64,
+        }
+    }
+
     fn victim(&mut self) -> usize {
         let n = self.keys.len();
         self.sweep %= n;
@@ -1437,12 +1504,7 @@ impl Text {
         for step in 0..n.min(64) {
             let at = (self.sweep + step) % n;
             let Some(e) = self.entries.get(&self.keys[at]) else { return at };
-            let rank = match self.list_distance(e) {
-                Some(d) if d > LIST_KEEP_ROWS => 1 << 40 | d as u64,
-                Some(_) => 0,
-                None if self.view_owned(e) => 0,
-                None => 1 << 20 | self.frame.wrapping_sub(e.frame) as u64,
-            };
+            let rank = self.rank(e);
             if rank > best_rank { (best, best_rank) = (at, rank); }
         }
         best
@@ -1488,6 +1550,58 @@ impl Text {
 #[cfg(test)]
 mod layout_cache_tests {
     use super::*;
+
+    #[test]
+    fn fonts_are_capped_and_unparseable_ones_refused() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        assert_eq!(text.add_font(&[]), None);
+        assert_eq!(text.add_font(b"not a font"), None);
+        assert_eq!(text.add_font(&vec![0; MAX_FONT_BYTES + 1]), None);
+        assert_eq!(text.font_count(), 1);
+        for _ in 1..MAX_FONTS { assert!(text.add_font(PRAGMASEVKA).is_some()); }
+        assert_eq!(text.add_font(PRAGMASEVKA), None, "the {MAX_FONTS}th font is the last");
+        assert_eq!(text.font_count(), MAX_FONTS);
+        let mut text = Text::new(&[]);
+        text.font_bytes = MAX_FONT_TOTAL_BYTES - 1;
+        assert_eq!(text.add_font(PRAGMASEVKA), None, "past the total budget");
+    }
+
+    #[test]
+    fn many_large_layouts_stay_cached_across_warm_frames_within_the_budget() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        let big = "a".repeat(20 << 10);
+        let style = Style::default();
+        let count = 6u64;
+        assert!(count as usize * layout_cost(big.len()) < LAYOUT_BYTES);
+        for key in 1..=count { text.layout(key, &big, &style, 0.0); }
+        text.end_frame();
+        let shaped = text.layout_count();
+        mem_sys::local_reset();
+        for _ in 0..5 {
+            for key in 1..=count { text.layout(key, &big, &style, 0.0); }
+            text.end_frame();
+        }
+        assert_eq!(mem_sys::local_alloc_count(), 0);
+        assert_eq!(text.layout_count(), shaped, "no layout reshaped");
+        assert_eq!(text.entries.len(), count as usize);
+        assert!(text.layout_bytes <= LAYOUT_BYTES);
+    }
+
+    #[test]
+    fn the_layout_budget_evicts_unused_layouts_but_never_one_used_this_frame() {
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        let big = "a".repeat(LAYOUT_BYTES / SHAPED_BYTES_PER_TEXT_BYTE / 3);
+        let style = Style::default();
+        for key in 1..=2 { text.layout(key, &big, &style, 0.0); }
+        text.end_frame();
+        for key in 3..=4 { text.layout(key, &big, &style, 0.0); }
+        // 4 x a third of the budget: the two used this frame stay, an older one goes
+        assert!(text.entries.contains_key(&3) && text.entries.contains_key(&4));
+        assert!(text.layout_bytes <= LAYOUT_BYTES + layout_cost(0) * 4);
+        assert_eq!(text.entries.len(), text.keys.len());
+        let sum: usize = text.entries.values().map(|e| layout_cost(e.text.len())).sum();
+        assert_eq!(sum, text.layout_bytes);
+    }
 
     #[test]
     fn standalone_layout_cache_stays_bounded_without_end_frame() {

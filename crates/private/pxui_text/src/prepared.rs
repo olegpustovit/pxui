@@ -49,6 +49,7 @@ impl Text {
         let key = content_key(style, width, text, spans);
         self.layout_spans(key, text, style, width, spans)?;
         let mut entry = self.entries.remove(&key)?;
+        self.layout_bytes -= layout_cost(entry.text.len());
         self.keys.swap_remove(self.keys.iter().position(|&item| item == key)?);
         self.cache_bytes -= entry.glyphs.capacity() * size_of::<CachedGlyph>();
         entry.cached = false;
@@ -89,6 +90,7 @@ impl Text {
                 let old = self.keys.swap_remove(at);
                 self.entries.remove(&old).expect("layout keys match their entries")
             } else {
+                self.layout_bytes += layout_cost(0);
                 Entry::empty(&record.entry.style, self.frame)
             };
             self.entries.insert(record.key, empty);
@@ -100,6 +102,7 @@ impl Text {
             std::mem::swap(&mut record.spare, &mut record.entry.glyphs);
             record.entry.cacheable = false;
         }
+        self.layout_bytes = self.layout_bytes - layout_cost(slot.text.len()) + layout_cost(record.entry.text.len());
         std::mem::swap(slot, &mut record.entry);
         (slot.list, slot.row, slot.view, slot.frame) = owner;
         self.cache_bytes = retained + slot.glyphs.capacity() * size_of::<CachedGlyph>();
@@ -112,6 +115,7 @@ impl Text {
                 None => { self.installed.remove(0); self.installed.push(item); }
             }
         }
+        self.fit_budget(record.key);
         record.ready = false;
         true
     }

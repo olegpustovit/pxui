@@ -62,8 +62,9 @@ fn fallback_resolves_missing_glyph_from_second_font() {
 
 #[test]
 fn colour_emoji_lands_in_colour_atlas() {
-    let Some(emoji) = read("/System/Library/Fonts/Apple Color Emoji.ttc") else { return };
-    let mut t = Text::new(&[&pragma(), &emoji]);
+    // the 190 MB system collection is over `MAX_FONT_BYTES`: the system provider resolves it instead
+    let mut t = Text::new(&[&pragma()]);
+    if !t.enable_system_fonts() { return; }
     t.layout(1, "a\u{1f600}", &Style { size: 20.0, ..Style::default() }, 0.0);
     let g = emitted(&mut t, 1);
     assert!(g.iter().any(|g| g.atlas == AtlasKind::Color), "{g:?}");

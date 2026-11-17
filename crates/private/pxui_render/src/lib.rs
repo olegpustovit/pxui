@@ -489,6 +489,8 @@ impl Painter {
     /// after the existing frames-in-flight window. Repeating the same capacity is a no-op.
     pub fn prepare_blur(&mut self, max_region_px: [u32; 2]) -> Result<(), Error> {
         if max_region_px.contains(&0) { return Err(invalid("Painter.prepare_blur", "blur extent must be nonzero")); }
+        let maximum = backend::capabilities(&self.device).limits.max_texture_dimension_2d;
+        if max_region_px.iter().any(|&extent| i64::from(extent) > maximum) { return Err(invalid("Painter.prepare_blur", "blur extent exceeds the device's maximum texture dimension")); }
         let size = ((max_region_px[0] / 2).max(1), (max_region_px[1] / 2).max(1));
         if self.blur.as_ref().is_some_and(|b| b.size == size) { return Ok(()); }
         let target = |label: &str| backend::create_texture(&self.device, TextureDescriptor {

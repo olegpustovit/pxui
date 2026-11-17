@@ -1481,6 +1481,9 @@ fn shared_resize_validation() {
     assert_eq!(renderer.resize(0, 600), Err(pxui::Error::InvalidInput));
     assert_eq!(renderer.resize(640, 0), Err(pxui::Error::InvalidInput));
     assert!(ui.last_error().contains("nonzero"));
+    assert_eq!(renderer.resize(u32::MAX, 600), Err(pxui::Error::InvalidInput), "above the device texture limit");
+    assert_eq!(renderer.resize(640, 1 << 20), Err(pxui::Error::InvalidInput), "above the device texture limit");
+    assert!(ui.last_error().contains("maximum texture"));
     renderer.resize(640, 600).expect("valid resize");
     mem_sys::local_reset();
     renderer.resize(640, 600).expect("unchanged resize");

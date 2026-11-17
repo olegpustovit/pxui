@@ -1340,3 +1340,50 @@ fn grown_fields_are_read_only_when_the_callers_size_covers_them() {
     assert_eq!(build(&mut |ui| unsafe { pxui_ui_segmented_response(ui, &PxuiSegmentedDesc { names: bad, ..seg }, Slice { ptr: options.as_ptr(), len: 2 }, &mut response, &mut chosen) }), PXUI_ERR_ARGUMENT);
     unsafe { pxui_ui_destroy(ui); }
 }
+
+#[test]
+fn fonts_and_renderer_records_are_validated() {
+    let ui = create();
+    let font = |bytes: &[u8]| Str { ptr: bytes.as_ptr(), len: bytes.len() };
+    unsafe {
+        assert_eq!(pxui_text_add_font(ui, font(b"not a font")), u32::MAX);
+        assert_eq!(pxui_text_add_font(ui, Str { ptr: core::ptr::null(), len: 0 }), u32::MAX);
+        assert_eq!(pxui_text_add_font(ui, Str { ptr: b"x".as_ptr(), len: pxui_text::MAX_FONT_BYTES + 1 }), u32::MAX);
+        assert_ne!(pxui_text_add_font(ui, font(pxui_text::PRAGMASEVKA)), u32::MAX);
+        let garbage = [font(b"not a font")];
+        assert!(pxui_ui_create_with_fonts(&PxuiUiDesc::default(), garbage.as_ptr(), 1).is_null());
+        let two = [font(pxui_text::PRAGMASEVKA), font(pxui_text::PRAGMASEVKA)];
+        let made = pxui_ui_create_with_fonts(&PxuiUiDesc::default(), two.as_ptr(), 2);
+        assert!(!made.is_null());
+        assert_eq!(pxui_ui_destroy(made), 0);
+        // a gpu or target record shorter than its type is refused before it is read
+        let short = 4u32;
+        assert!(pxui_renderer_create(ui, (&short as *const u32).cast(), &PxuiTargetDesc::default()).is_null());
+        assert!(pxui_renderer_create(ui, &pxui_types::Gpu::default(), (&short as *const u32).cast()).is_null());
+        assert_eq!(pxui_ui_destroy(ui), 0);
+    }
+}
+
+#[test]
+fn every_text_entry_refuses_text_over_the_cap() {
+    let ui = create();
+    let over = Str { ptr: b"x".as_ptr(), len: crate::state::MAX_TEXT_BYTES + 1 };
+    let style = pxui_types::TextStyle::default();
+    let mut out = pxui_types::TextMetrics::default();
+    unsafe {
+        let shaper = pxui_shaper_create(core::ptr::null(), 0);
+        assert!(!shaper.is_null());
+        assert_eq!(pxui_shaper_width(shaper, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_text_width(ui, 0, over, &style, 100.0, &mut out), PXUI_ERR_ARGUMENT);
+        let spans = pxui_types::TextSpans::default();
+        assert_eq!(pxui_shaper_width_spans(shaper, 0, over, &style, 100.0, &spans, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_text_width_spans(ui, 0, over, &style, 100.0, &spans, &mut out), PXUI_ERR_ARGUMENT);
+        assert_eq!(pxui_text_prewarm(ui, over, &style, 100.0), PXUI_ERR_ARGUMENT);
+        let (mut w, mut h) = (0u32, 0u32);
+        assert_eq!(pxui_shaper_rasterize_rgba(shaper, 0, over, &style, 100.0, 1.0, 0, 0, 0, 255, &mut w, &mut h, core::ptr::null_mut(), 0), usize::MAX);
+        assert_eq!(pxui_text_rasterize_rgba(ui, 0, over, &style, 100.0, 1.0, 0, 0, 0, 255, &mut w, &mut h, core::ptr::null_mut(), 0), usize::MAX);
+        assert_eq!(pxui_text_quads(ui, 0, over, &style, 100.0, 0.0, 0.0, 1.0, core::ptr::null_mut(), 0), usize::MAX);
+        pxui_shaper_destroy(shaper);
+        assert_eq!(pxui_ui_destroy(ui), 0);
+    }
+}

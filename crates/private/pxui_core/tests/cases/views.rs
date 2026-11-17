@@ -195,9 +195,9 @@ pub fn window_pxui_view_table_2000() {
 /// is placed again around it (the text must not sample the image).
 pub fn window_pxui_view_kept_atlas_break() {
     // a colour glyph after the image needs the break back to the colour atlas
-    let Ok(emoji) = std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc") else { return println!("note: skipping, no colour emoji font") };
     let mut ui = new_ui(None);
-    ui.text_mut().add_font(&emoji);
+    // the 190 MB system emoji collection is over `MAX_FONT_BYTES`: the system provider resolves it instead
+    if !ui.text_mut().enable_system_fonts() { return println!("note: skipping, no system fonts"); }
     let image = pxui_core::ui::Image { handle: std::rc::Rc::new(()), width: 8, height: 8 };
     let rev = Cell::new(1u64);
     let mut build = |ui: &mut Ui| {

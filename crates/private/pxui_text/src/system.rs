@@ -2,9 +2,17 @@ use cosmic_text::FontSystem;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+/// System fonts are memory-mapped by fontdb, demand-paged by the OS and outside the `add_font` budget (`MAX_FONT_TOTAL_BYTES`). Their bounds:
+/// at most 128 files, each at most `MAX_SYSTEM_FONT_FILE_BYTES` (256 MiB: the macOS colour-emoji collection is about 190 MB), and at most
+/// `MAX_SYSTEM_MAPPED_BYTES` of address space mapped in all (1 GiB, a ceiling on mapped bytes, not resident memory). A file past either is
+/// skipped (its text keeps its missing glyphs).
+pub const MAX_SYSTEM_FONT_FILE_BYTES: u64 = 256 << 20;
+pub const MAX_SYSTEM_MAPPED_BYTES: u64 = 1 << 30;
+
 #[derive(Clone, Default)]
 pub(crate) struct SystemFonts {
     pub paths:HashSet<PathBuf>,
+    mapped:u64,
     failed:HashSet<String>,
 }
 
@@ -13,7 +21,11 @@ impl SystemFonts {
         if self.failed.contains(cluster) { return false; }
         let loaded=font_sys::fallback_path(cluster,fonts.locale()).is_some_and(|path| {
             // shortcut: at most 128 mapped fallback files; revisit with a corpus exceeding that set.
-            if self.paths.len()>=128 || !self.paths.insert(path.clone()) { return false; }
+            if self.paths.len()>=128 || self.paths.contains(&path) { return false; }
+            let Ok(size)=std::fs::metadata(&path).map(|m|m.len()) else { return false; };
+            if size>MAX_SYSTEM_FONT_FILE_BYTES || self.mapped.saturating_add(size)>MAX_SYSTEM_MAPPED_BYTES { return false; }
+            self.paths.insert(path.clone());
+            self.mapped+=size;
             let before=fonts.db().faces().count();
             fonts.db_mut().load_font_file(&path).is_ok() && fonts.db().faces().count()>before
         });
@@ -54,6 +66,18 @@ mod tests {
 
     fn missing(text:&Text,key:u64)->usize {
         text.entries[&key].buf.layout_runs().flat_map(|run|run.glyphs.iter()).filter(|glyph|glyph.glyph_id==0).count()
+    }
+
+    #[test]
+    fn system_fonts_past_the_mapped_cap_are_skipped() {
+        let mut text=Text::new(&[PRAGMASEVKA]);
+        assert!(text.enable_system_fonts());
+        text.system.as_mut().unwrap().mapped=super::MAX_SYSTEM_MAPPED_BYTES;
+        text.system.as_mut().unwrap().paths.clear();
+        let style=Style { size:20.0,..Default::default() };
+        text.layout(1,"漢字",&style,300.0);
+        assert!(missing(&text,1)>0,"a file past the mapped-bytes cap is not mapped");
+        assert!(text.system.as_ref().unwrap().paths.is_empty());
     }
 
     #[test]

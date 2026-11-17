@@ -49,12 +49,14 @@ export!(bare pub unsafe fn pxui_ui_create(desc: *const PxuiUiDesc) -> *mut PxuiU
 });
 
 export!(bare pub unsafe fn pxui_ui_create_with_fonts(desc: *const PxuiUiDesc, fonts: *const Str, count: usize) -> *mut PxuiUi {
-    if desc.is_null() || count == 0 || count > 128 || fonts.is_null() { return core::ptr::null_mut(); }
+    if desc.is_null() || count == 0 || count > pxui_core::text::MAX_FONTS || fonts.is_null() { return core::ptr::null_mut(); }
     let Some((desc, _)) = read_desc!(desc, PxuiUiDesc, [12]) else { return core::ptr::null_mut(); };
     if !valid_desc(&desc) { return core::ptr::null_mut(); }
     let mut bytes = Vec::with_capacity(count);
+    let mut total = 0usize;
     for font in unsafe { std::slice::from_raw_parts(fonts, count) } {
-        if font.len == 0 || font.len > 16 * 1024 * 1024 || font.ptr.is_null() { return core::ptr::null_mut(); }
+        total = total.saturating_add(font.len);
+        if font.len == 0 || font.len > pxui_core::text::MAX_FONT_BYTES || total > pxui_core::text::MAX_FONT_TOTAL_BYTES || font.ptr.is_null() { return core::ptr::null_mut(); }
         bytes.push(unsafe { std::slice::from_raw_parts(font.ptr, font.len) });
     }
     unsafe { create_ui(desc, &bytes) }
@@ -83,6 +85,8 @@ export!(bare pub unsafe fn pxui_supports(id: u32) -> u32 {
 unsafe fn create_ui(desc: PxuiUiDesc, fonts: &[&[u8]]) -> *mut PxuiUi {
     #[allow(unused_mut)]
     let mut text = pxui_core::text::Text::new(fonts);
+    // an unparseable font refuses the Ui
+    if text.font_count() != fonts.len() { return core::ptr::null_mut(); }
     #[cfg(debug_assertions)]
     { text.reporter = Some(mem_sys::report); }
     let platform = match desc.platform { 0 => platform(), 1 => Platform::Apple, _ => Platform::Other };

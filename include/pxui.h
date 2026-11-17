@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 62u)
+#define PXUI_ABI_BUILT ((1u << 16) | 63u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -428,6 +428,9 @@ enum {
 /* Process counters for performance gates: which 0 = calls made into the library (this one included), 1 = heap allocations the library's allocator has made; anything else reads 0. */
 uint64_t pxui_counter(uint32_t which);
 PxuiUi *pxui_ui_create(const PxuiUiDesc *desc);
+/* ABI 1.63 font limits (any entry point that adds a font: this one, pxui_shaper_create, pxui_shaper_add_font, pxui_text_add_font): a font is
+   1 byte to 32 MiB (33,554,432), a text service holds at most 64 fonts and 256 MiB of font bytes in all, and bytes that are not a parseable font
+   are refused (UINT32_MAX / NULL, nothing kept). The bytes are copied and fonts are never removed. */
 PxuiUi *pxui_ui_create_with_fonts(const PxuiUiDesc *desc, const PxuiStr *fonts, size_t count);
 int32_t pxui_ui_destroy(PxuiUi *ui); /* PXUI_ERR_STATE: borrowed handle, inside a frame, or a renderer still attached */
 PxuiStr pxui_last_error(const PxuiUi *ui);
@@ -676,7 +679,9 @@ int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *o
 int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
 /* ABI 1.28: key=0 on text width/quads/raster calls selects library-owned content identity.
    Nonzero legacy keys remain accepted; content/style/width/span validation still fences cache reuse.
-   Layout storage is bounded even for standalone shapers without a frame clock. */
+   Layout storage is bounded even for standalone shapers without a frame clock. ABI 1.63: and by bytes: 64 MiB of estimated shaped size, never evicting a layout used in the current frame; text over 256 MiB is
+   PXUI_ERR_ARGUMENT (SIZE_MAX) on every shaper/text/spans entry. System fonts (pxui_*_system_fonts) are mmapped, demand-paged and outside the font
+   budget: at most 128 files, 256 MiB each and 1 GiB mapped in all. */
 /* A text shaper of its own, for text laid out off the Ui on any thread: its own font system, no GPU atlas. */
 /* A shaper is a plain library object with no thread-local state: it may be created on one thread and used on another, but one thread
    uses one shaper at a time (calls on it never overlap). It shares nothing with a PxuiUi's text service. */
@@ -766,6 +771,8 @@ PxuiRenderer *pxui_renderer_create(PxuiUi *ui, const PxuiGpu *gpu, const PxuiTar
 int32_t pxui_renderer_prepare(PxuiRenderer *renderer, const PxuiCommands *commands, uint64_t frame, uint64_t completed);
 /* Prepare blur storage at startup/resize, outside frame recording. Nonzero drawable-pixel dimensions. */
 int32_t pxui_renderer_resize(PxuiRenderer *renderer, uint32_t width, uint32_t height);
+/* ABI 1.63: an extent above the device's maximum 2D texture dimension is PXUI_ERR_ARGUMENT, nothing allocated. pxui_renderer_create reads
+   gpu and target only after their size covers the record (a shorter one is refused, NULL, with the reason in pxui_last_error). */
 int32_t pxui_renderer_draw(PxuiRenderer *renderer, const PxuiPass *pass);
 /* The draw calls the renderer has issued so far. */
 /* ABI 1.13: forget on every sampling renderer before destroying/reusing an app texture.

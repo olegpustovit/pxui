@@ -170,14 +170,14 @@ impl Text {
         let fonts: Vec<Str> = fonts.iter().map(|font| Str { ptr: font.as_ptr(), len: font.len() }).collect();
         NonNull::new(unsafe { lib::pxui_shaper_create(fonts.as_ptr(), fonts.len()) }).map(Self)
     }
-    /// Adds the font `bytes` (copied) to this shaper and returns its index; the bytes are not validated here, so `None` only when the library cannot register another font.
+    /// Adds the font `bytes` (copied) to this shaper and returns its index; `None` when the bytes are refused: empty, over 32 MiB, not a parseable font, or past 64 fonts or 256 MiB of fonts on this shaper (system fonts are separate: memory-mapped, demand-paged, 128 files, 256 MiB each, 1 GiB mapped).
     /// Allocates: a copy of the font bytes and its tables.
     /// Panics: never.
     ///
     /// ```
     /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
     /// assert!(text.add_font(pxui::text::pragmasevka()).is_some());
-    /// assert!(text.add_font(b"not a font").is_some()); // the bytes are not validated here
+    /// assert!(text.add_font(b"not a font").is_none()); // not a parseable font
     /// ```
     pub fn add_font(&mut self, bytes: &[u8]) -> Option<u32> { Backing::Shaper(self.0.as_ptr()).add_font(bytes) }
     /// Lays `value` out in `style` within `max_width` points (0: unbounded) and returns its size and line count, without drawing.
@@ -473,7 +473,7 @@ impl UiText<'_> {
         Ok(RetiredText(raw))
     }
     fn backing(&self) -> Backing { Backing::Ui(self.0.0.as_ptr()) }
-    /// Adds the font `bytes` (copied) to the `Ui`'s font system and returns its index; the bytes are not validated here, so `None` only when the library cannot register another font.
+    /// Adds the font `bytes` (copied) to the `Ui`'s font system and returns its index; `None` when the bytes are refused: empty, over 32 MiB, not a parseable font, or past 64 fonts or 256 MiB of fonts on this `Ui` (system fonts are separate: memory-mapped, demand-paged, 128 files, 256 MiB each, 1 GiB mapped).
     /// Fonts that layouts prepared on a fork were shaped with are no longer valid afterwards.
     /// Allocates: a copy of the font bytes and its tables.
     /// Panics: never.

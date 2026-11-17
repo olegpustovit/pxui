@@ -389,7 +389,7 @@ fn key_of_box(b: &UiBox) -> i64 {
 pub fn window_pxui_typography() {
     use pxui_core::text::{Align, Style, Wrap};
     let mut ui = new_ui(None);
-    let icons = ui.text_mut().add_font(include_bytes!("../../../../../assets/fonts/Pragmasevka-Regular.ttf")) as u16;
+    let icons = ui.text_mut().add_font(include_bytes!("../../../../../assets/fonts/Pragmasevka-Regular.ttf")).unwrap() as u16;
     let body = Style { size: 13.0, ..Style::default() };
     let text = "one two three four five six";
     let mut metrics = Vec::new();

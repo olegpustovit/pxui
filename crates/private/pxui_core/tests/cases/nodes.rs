@@ -268,9 +268,9 @@ pub fn window_pxui_paint_grid_one_instance() {
 /// A patch that brings a colour glyph after an image, inside a kept view, is drawn the same frame:
 /// the layer breaks back to the colour atlas before the glyph and to the image's texture state after.
 pub fn window_pxui_node_patch_colour_glyph() {
-    let Ok(emoji) = std::fs::read("/System/Library/Fonts/Apple Color Emoji.ttc") else { return println!("note: skipping, no colour emoji font") };
     let mut ui = new_ui(None);
-    ui.text_mut().add_font(&emoji);
+    // the 190 MB system emoji collection is over `MAX_FONT_BYTES`: the system provider resolves it instead
+    if !ui.text_mut().enable_system_fonts() { return println!("note: skipping, no system fonts"); }
     let image = pxui_core::ui::Image { handle: Rc::new(()), width: 8, height: 8 };
     let label = Cell::new(None);
     let mut build = |ui: &mut Ui| {

@@ -71,10 +71,9 @@ impl Drop for GpuLease {
 
 /// A renderer on the app's device, or why it could not be made. The lease on the app's device is released on every refusal
 /// until the adopted driver owns it.
-unsafe fn make(ui: &mut PxuiUi, gpu: &pxui_types::Gpu, target: PxuiTargetDesc) -> Result<PxuiRenderer, String> {
+unsafe fn make(ui: &mut PxuiUi, gpu: pxui_types::Gpu, target: PxuiTargetDesc) -> Result<PxuiRenderer, String> {
     let mut lease=GpuLease { token:gpu.owner_token, release:gpu.release_owner, active:true };
-    if gpu.size < core::mem::size_of::<pxui_types::Gpu>() as u32 { return Err("invalid gpu descriptor".into()); }
-    if target.size < core::mem::size_of::<PxuiTargetDesc>() as u32 || target.samples == 0 { return Err("invalid target descriptor".into()); }
+    if target.samples == 0 { return Err("invalid target descriptor".into()); }
     let (format,color) = match target.format { 1=>(TextureFormat::Rgba8Unorm,ColorFormat::Rgba8Unorm), 2=>(TextureFormat::Bgra8Unorm,ColorFormat::Bgra8Unorm), _=>return Err("unknown target format".into()) };
     let native=ogpu_core::backend::NativeDevice { size:gpu.size, backend:gpu.backend, instance:gpu.instance, physical_device:gpu.physical_device, device:gpu.device, queue:gpu.queue, queue_family:gpu.queue_family, api_version:gpu.api_version, features:gpu.features, get_instance_proc_addr:gpu.get_instance_proc_addr, pipeline_cache:gpu.pipeline_cache, mtl_device:gpu.mtl_device, wl_display:gpu.wl_display, wl_surface:gpu.wl_surface, metal_layer:gpu.metal_layer, hwnd:gpu.hwnd, owner_token:gpu.owner_token, release_owner:gpu.release_owner };
     lease.active=false;
@@ -113,7 +112,12 @@ export!(pub unsafe fn pxui_renderer_create(ui:*mut PxuiUi, gpu:*const pxui_types
         unsafe { fail(ui, "a renderer needs the owner Ui outside a frame, a gpu and a target"); }
         return core::ptr::null_mut();
     }
-    match unsafe { make(state, &*gpu, *target) } {
+    // sizes are checked before the records are read: a shorter record is refused, never over-read (the lease of a gpu record that short is not released: its fields are not there)
+    let (Some(gpu), Some(target))=(read_desc!(gpu, pxui_types::Gpu), read_desc!(target, PxuiTargetDesc)) else {
+        unsafe { fail(ui, "invalid gpu or target descriptor"); }
+        return core::ptr::null_mut();
+    };
+    match unsafe { make(state, gpu, target) } {
         Ok(renderer)=>{ state.shared().renderers += 1; Box::into_raw(Box::new(renderer)) }
         Err(message)=>{ unsafe { fail(ui, &message); } core::ptr::null_mut() }
     }
@@ -195,7 +199,7 @@ export!(pub unsafe fn pxui_renderer_forget_image(renderer:*mut PxuiRenderer, raw
         Ok(())
     })();
     if let Err(error)=released { return renderer.fail_gpu(error); }
-    crate::image::forget(raw);
+    unsafe { &mut *renderer.shared }.images.remove(&crate::image::image_key(&raw));
     0
 });
 
@@ -204,6 +208,9 @@ export!(pub unsafe fn pxui_renderer_resize(renderer:*mut PxuiRenderer, width:u32
     if renderer.is_null() { return PXUI_ERR_ARGUMENT; }
     let renderer=unsafe { &mut *renderer };
     if width==0 || height==0 { return renderer.fail(PXUI_ERR_ARGUMENT, "renderer extent must be nonzero"); }
+    // the device's own limit: the blur targets are half this extent, so a larger one is refused here, never allocated
+    let maximum=ogpu_core::backend::capabilities(&renderer.device).limits.max_texture_dimension_2d;
+    if i64::from(width)>maximum || i64::from(height)>maximum { return renderer.fail(PXUI_ERR_ARGUMENT, "renderer extent exceeds the device's maximum texture dimension"); }
     match renderer.painter.prepare_blur([width,height]) { Ok(())=>0, Err(e)=>renderer.fail_gpu(e) }
 });
 
