@@ -117,6 +117,15 @@ impl Text {
                 None => { self.installed.remove(0); self.installed.push(item); }
             }
         }
+        // a plain layout installed at a finite width is remembered like one shaped here (`recent_widths`), so a new node drawing
+        // text the worker prepared at that width finds it; one hash per install, off the frame's hot path
+        let (style, width) = (slot.style, f32::from_bits(slot.width));
+        if width.is_finite() && width > 0.0 {
+            let hash = text_hash(&slot.text);
+            if layout_key(&style, width, hash, &[]) == record.key {
+                self.note_width(layout_key(&style, 0.0, hash, &[]), width);
+            }
+        }
         self.fit_budget(record.key);
         record.ready = false;
         true
@@ -180,6 +189,18 @@ mod tests {
         assert_eq!(prepared_glyphs,ordinary_glyphs);
         eprintln!("prepared text 64 new labels, warm glyphs: ordinary main {ordinary_ns} ns/{ordinary_allocations} allocations; prepared main {prepared_ns} ns/0 allocations; worker {worker_ns} ns (separate thread, not a total CPU reduction)");
         std::thread::spawn(move ||drop(records)).join().unwrap();
+    }
+
+    #[test]
+    fn an_installed_plain_layout_is_remembered_by_its_width() {
+        let style = Style { size: 13.0, ..Style::default() };
+        let mut ui = Text::new(&[PRAGMASEVKA]);
+        let mut worker = ui.preparer();
+        let mut record = std::thread::spawn(move || worker.prepare("1234567 plays", &style, 40.0, &[]).unwrap()).join().unwrap();
+        assert!(ui.install(&mut record));
+        let natural = layout_key(&style, 0.0, text_hash("1234567 plays"), &[]);
+        assert_eq!(ui.recent_widths(natural)[0], 40.0, "a worker layout's width is recorded like one shaped on this thread");
+        std::thread::spawn(move || drop(record)).join().unwrap();
     }
 
     #[test]
