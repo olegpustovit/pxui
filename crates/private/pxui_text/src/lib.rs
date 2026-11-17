@@ -697,6 +697,8 @@ struct Entry {
     /// the view (0: none) whose paint last drew this layout: it owns it while its last paint is `frame`
     view: u32,
     m: Metrics,
+    /// the first baseline below the top as the shaped glyphs sit (`m.baseline` is the CSS one when the style has a line height)
+    raw_baseline: f32,
     /// The glyph list `glyphs` replays: valid while `cached`, for `cached_scale` (f32 bits), until
     /// the atlas evicts past `cached_evictions`.
     glyphs: Vec<CachedGlyph>,
@@ -728,7 +730,7 @@ impl Entry {
         Self {
             buf: Buffer::new_empty(CMetrics::new(style.size, lh)),
             text: String::new(), style: *style, rich: None, width: 0, frame, list: 0, row: 0, view: 0,
-            m: Metrics::default(), glyphs: Vec::new(), cached: false, cacheable: true,
+            m: Metrics::default(), raw_baseline: 0.0, glyphs: Vec::new(), cached: false, cacheable: true,
             cached_scale: 0, cached_evictions: 0, shelves: [0; 8],
         }
     }
@@ -889,6 +891,20 @@ impl Text {
         self.font_metrics.get(font as usize).map_or(0.0,|metrics|metrics.0)
     }
 
+    /// The first baseline of a line of `style` with an explicit line height, below the line's top, as CSS places it: the rounded
+    /// primary-face ascent plus the floored half-leading (ULP-snapped at whole points); `None` without a line height or font metrics.
+    fn css_baseline(&self,style:&Style)->Option<f32> {
+        if !(style.line_height>0.0) { return None; }
+        let (a,d)=self.font_metrics(style.font)?;
+        let (a,d)=((a*style.size).round(),(d*style.size).round());
+        let line=style.line_height;
+        let leading=(line-a-d)/2.0;
+        let rounded=leading.round();
+        let tolerance=4.0*f32::EPSILON*line.abs().max(a).max(d);
+        let leading=if (leading-rounded).abs()<=tolerance {rounded} else {leading};
+        Some(a+leading.floor())
+    }
+
     /// Primary-face distances above and below the baseline, normalized to the em size.
     pub fn font_metrics(&self,font:u16)->Option<(f32,f32)> {
         self.font_metrics.get(font as usize).copied().filter(|(a,d)|a.is_finite() && d.is_finite() && *a>0.0 && *d>=0.0)
@@ -940,6 +956,7 @@ impl Text {
         self.report_style_mismatch(key, text, style, width);
         self.layouts = self.layouts.saturating_add(1);
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
+        let css = self.css_baseline(style);
         let keys = &mut self.keys;
         let (spare, cache_bytes) = (&mut self.spare, &mut self.cache_bytes);
         let e = self.entries.entry(key).or_insert_with(|| {
@@ -1023,6 +1040,7 @@ impl Text {
             if system::shape(b,&mut self.g.fs,system) { self.font_generation=Arc::new(()); }
         }
         let mut m = Metrics::default();
+        let mut raw = 0.0;
         let logical_spaces=style.wrap==Wrap::WordSpaces;
         let rows=&mut self.wrap_rows;
         if logical_spaces {rows.clear();}
@@ -1033,7 +1051,8 @@ impl Text {
                 rows.push((run.line_i,start,end,run.line_w));
             }
             if m.lines == 0 {
-                m.baseline = run.line_y - run.line_top;
+                raw = run.line_y - run.line_top;
+                m.baseline = css.unwrap_or(raw);
             }
             m.lines += 1;
             m.w = m.w.max(run.line_w);
@@ -1060,8 +1079,13 @@ impl Text {
             rich.spans=TextSpans::new(spans).expect("validated span count");
         }
         e.m = m;
+        e.raw_baseline = raw;
         m
     }
+
+    /// Where the shaped glyphs of layout `key` put their first baseline below the layout's top: `Metrics::baseline` unless the style has
+    /// a line height, whose baseline is the CSS one; the offset `glyphs`' origin is relative to. 0 for an unknown key.
+    pub fn glyph_baseline(&self,key:u64)->f32 { self.entries.get(&key).map_or(0.0,|e|e.raw_baseline) }
 
     /// Line boxes from the retained shaped runs, with no temporary allocation.
     pub fn decorations(&self,key:u64,underline:bool,f:&mut dyn FnMut(Decoration)) {

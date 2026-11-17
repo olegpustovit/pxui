@@ -632,23 +632,16 @@ impl NodeText {
     fn top(&self,y:f32,h:f32,metrics:Metrics,text:&Text)->f32 {
         if self.line_box {
             let ascent=text.font_metrics(self.style.font).expect("validated line-box font").0*self.style.size;
-            return self.line_box_baseline(y,h,metrics,text)-ascent;
+            return self.line_box_baseline(y,h,metrics)-ascent;
         }
         let line=if self.style.line_height>0.0 { self.style.line_height } else { self.style.size*1.2 };
         let block=self.style.size+metrics.lines.saturating_sub(1) as f32*line;
         y+((h-block)/2.0).floor()
     }
-    /// A line box's first baseline: its lines centred in `h` from `y`, the baseline the rounded primary-face ascent plus the floored
-    /// half-leading below the first line's top (ULP-snapped at whole points).
-    fn line_box_baseline(&self,y:f32,h:f32,metrics:Metrics,text:&Text)->f32 {
-        let (a,d)=text.font_metrics(self.style.font).expect("validated line-box font");
-        let (a,d)=((a*self.style.size).round(),(d*self.style.size).round());
-        let line=self.style.line_height;
-        let leading=(line-a-d)/2.0;
-        let rounded=leading.round();
-        let tolerance=4.0*f32::EPSILON*line.abs().max(a).max(d);
-        let leading=if (leading-rounded).abs()<=tolerance {rounded} else {leading};
-        y+(h-line*metrics.lines.max(1) as f32)/2.0+a+leading.floor()
+    /// A line box's first baseline: its lines centred in `h` from `y`, `metrics.baseline` (the rounded primary-face ascent plus the
+    /// floored half-leading, from `pxui_text`) below the first line's top.
+    fn line_box_baseline(&self,y:f32,h:f32,metrics:Metrics)->f32 {
+        y+(h-self.style.line_height*metrics.lines.max(1) as f32)/2.0+metrics.baseline
     }
     fn style(&self,node:&Node,rtl:bool)->Style {
         let mut style=self.style;
@@ -4592,7 +4585,7 @@ impl Ui {
         let text=self.text.as_mut().expect("Ui: the text engine is lent out");
         let m=if let Some(rich)=rich {lay_out_node(text,&stored.text_layout,flags,&rich.style(&stored.node,self.dir==Direction::Rtl),self.l_w[c]-inset.l-inset.r,value,rich.spans.as_slice().unwrap()).unwrap().1}
             else {lay_out_node(text,&stored.text_layout,flags,&style,0.0,value,&[]).unwrap().1};
-        if let Some(rich)=rich.filter(|r|r.line_box) { return rich.line_box_baseline(inset.t,h-inset.t-inset.b,m,text); }
+        if let Some(rich)=rich.filter(|r|r.line_box) { return rich.line_box_baseline(inset.t,h-inset.t-inset.b,m); }
         let top=rich.map_or_else(||text_top_for(self.font_size,Some(size),inset.t,h-inset.t-inset.b),|r|r.top(inset.t,h-inset.t-inset.b,m,text));
         top+m.baseline
     }
@@ -5201,7 +5194,8 @@ impl Paint {
             let style=rich.style(node,self.rtl);
             if let Some((key,metrics))=lay_out_node(&mut self.text,memo,node.flags,&style,width,text,rich.spans.as_slice().unwrap()) {
                 let at=(x+if self.rtl { node.inset.r } else { node.inset.l },rich.top(y+node.inset.t,h-node.inset.t-node.inset.b,metrics,&self.text));
-                self.text_laid(at,&style,Some(look.text),key,metrics,o,true);
+                let below=self.text.ascent(style.font)*style.size;
+                self.text_laid(at,below,&style,Some(look.text),key,metrics,o,true);
             }
         } else if !text.is_empty() && node.flags.any(Flags::FIT_TEXT_PIXEL) {
             let size=look.font.points(self.font_size);
@@ -5217,7 +5211,8 @@ impl Paint {
                 (key,metrics)=lay_out_node(&mut self.text,memo,node.flags,&style,limit,value,&[]).unwrap();
             }
             let at=(if self.rtl {x+w-inset.l-metrics.w} else {x+inset.l},text_top_for(self.font_size,Some(size),y+inset.t,h-inset.t-inset.b));
-            self.text_laid(at,&style,Some(fade(look.text)),key,metrics,1.0,false);
+            let below=self.text.ascent(style.font)*style.size;
+            self.text_laid(at,below,&style,Some(fade(look.text)),key,metrics,1.0,false);
             self.label=buffer;
         } else if !text.is_empty() {
             let size = look.font.points(self.font_size);
@@ -5257,7 +5252,8 @@ impl Paint {
             // right to left the start inset is at the right: the text ends there
             let (key, m) = lay_out(&mut self.text, &style, 0.0, text);
             let at = if self.rtl { (x + w - inset.l - m.w, at.1) } else { at };
-            self.text_laid(at, &style, ink, key, m,1.0,false);
+            let below=self.text.ascent(style.font)*style.size;
+            self.text_laid(at, below, &style, ink, key, m,1.0,false);
             self.label = buffer;
         }
         match node.mark {
@@ -5377,7 +5373,7 @@ impl Paint {
     pub fn icon(&mut self, at: (f32, f32), font: u16, size: f32, codepoint: char, color: Color) -> f32 {
         let mut buffer = [0u8; 4];
         let style = Style { font, size, ..Style::default() };
-        self.text_styled(at, &style, 0.0, Some(color), codepoint.encode_utf8(&mut buffer)).w
+        self.text_em(at, &style, 0.0, Some(color), codepoint.encode_utf8(&mut buffer)).w
     }
 
     /// Kit text with its top-left corner at `at`. Without `size` it uses the UI's own font; with
@@ -5385,30 +5381,39 @@ impl Paint {
     pub fn text_with(&mut self, at: (f32, f32), size: Option<i64>, tracking: f32, color: Option<Color>, text: &str) {
         if !text.is_empty() {
             let style = kit_style(size.unwrap_or(self.font_size), tracking);
-            self.text_styled(at, &style, 0.0, color, text);
+            self.text_em(at, &style, 0.0, color, text);
         }
     }
 
     /// Text in any style (wrap, ellipsis, line limit, alignment, font) within `width` points (0:
-    /// unbounded), its top-left corner at `at`: the first baseline sits the font's ascent below `at`,
-    /// on a device pixel. Mask glyphs take `color` (the theme's foreground by default); colour glyphs
-    /// keep their own colours under its alpha.
+    /// unbounded), its layout's top-left corner at `at`: the first baseline sits `Metrics::baseline` below `at`,
+    /// on a device pixel, whatever the line height. Mask glyphs take `color` (the theme's foreground by default);
+    /// colour glyphs keep their own colours under its alpha.
     pub fn text_styled(&mut self, at: (f32, f32), style: &Style, width: f32, color: Option<Color>, text: &str) -> Metrics {
         let (key, m) = lay_out(&mut self.text, style, width, text);
-        self.text_laid(at, style, color, key, m,1.0,false)
+        self.text_laid(at, m.baseline, style, color, key, m,1.0,false)
     }
 
+    /// `text_styled` placed by its em box: the first baseline sits the font's ascent below `at` (kit text and icons).
+    fn text_em(&mut self, at: (f32, f32), style: &Style, width: f32, color: Option<Color>, text: &str) -> Metrics {
+        let (key, m) = lay_out(&mut self.text, style, width, text);
+        let below = self.text.ascent(style.font) * style.size;
+        self.text_laid(at, below, style, color, key, m,1.0,false)
+    }
+
+    /// `text_styled` with styled byte ranges; `None` when the spans are invalid.
     pub fn text_spans(&mut self,at:(f32,f32),style:&Style,width:f32,color:Option<Color>,text:&str,spans:&[TextSpan])->Option<Metrics> {
         let (key,metrics)=lay_out_spans(&mut self.text,style,width,text,spans)?;
-        Some(self.text_laid(at,style,color,key,metrics,1.0,true))
+        Some(self.text_laid(at,metrics.baseline,style,color,key,metrics,1.0,true))
     }
 
-    /// `text_styled` for a layout already made (`lay_out`'s key and metrics).
-    fn text_laid(&mut self, at: (f32, f32), style: &Style, color: Option<Color>, key: u64, m: Metrics, opacity:f32, decorated:bool) -> Metrics {
+    /// Draws a layout already made (`lay_out`'s key and metrics) with its first baseline `below` points under `at.1`, on a device pixel:
+    /// the font's ascent for text placed by its em box (`text_em`, node text), `Metrics::baseline` for text placed by its layout top.
+    fn text_laid(&mut self, at: (f32, f32), below: f32, style: &Style, color: Option<Color>, key: u64, m: Metrics, opacity:f32, decorated:bool) -> Metrics {
         let d = self.density as f32;
         let snap = |v: f32| (v * d).round() / d;
-        let baseline = snap(at.1 + self.text.ascent(style.font) * style.size);
-        let origin = (snap(at.0), baseline - m.baseline);
+        let baseline = snap(at.1 + below);
+        let origin = (snap(at.0), baseline - self.text.glyph_baseline(key));
         let color = rgba(color.unwrap_or(self.theme.foreground));
         let (clip, view) = (clip_of(self.clip_rect), self.view);
         let Paint { text: t, layers, layer, .. } = self;

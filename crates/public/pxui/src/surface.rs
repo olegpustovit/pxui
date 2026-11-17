@@ -15,6 +15,21 @@ fn label_of(style:&crate::TextStyle)->crate::Label {
 
 fn input() -> FrameIn { FrameIn { width: 320.0, height: 240.0, ..FrameIn::default() } }
 
+/// How far below a canvas draw's `at` (the layout's top) the same style's node text starts: node text is placed by its em box, so a
+/// canvas that must land on the same pixels draws at the node's top plus this.
+fn em_top_to_layout_top(style:&crate::TextStyle)->f32 {
+    let mut ui=Ui::new().unwrap();
+    let style=crate::TextStyle {wrap:crate::TextStyle::WRAP_NONE,ellipsis:crate::TextStyle::ELLIPSIS_NONE,max_lines:0,..*style};
+    ui.frame(&input(),&mut |ui| {
+        let b=ui.node("probe".into(),crate::Node { w:Size::Px(200.0),h:Size::Px(style.size_points),..crate::Node::DEFAULT });
+        ui.text_spans(&b,"H",&label_of(&style),&[]).unwrap();
+        ui.canvas(&b,move |paint,rect| {paint.text_spans((rect.x,rect.y),&style,0.0,None,"H",&[]).unwrap();});
+    }).unwrap();
+    let ys:Vec<f32>=ui.layers().flat_map(|layer|layer.instances.iter().map(|i|i.rect[1])).collect();
+    assert_eq!(ys.len(),2,"one node glyph and one canvas glyph");
+    ys[0]-ys[1]
+}
+
 #[test]
 fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_install() {
     use crate::{PreparedText,RetiredText,TextStyle,TextSpan};
@@ -1521,11 +1536,12 @@ fn inline_node_fractional_font_alignment_matches_canvas_text() {
     let mut ui=Ui::new().unwrap();
     let style=TextStyle { size_points:20.25,..Default::default() };
     let span=TextSpan { start:0,end:2,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
+    let shift=em_top_to_layout_top(&style);
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("fractional".into(),crate::Node { w:Size::Px(200.0),h:Size::Px(40.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
         ui.text_spans(&b,"ab cd",&label_of(&style),&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
-            let top=rect.y+((rect.h-style.size_points)/2.0).floor();
+            let top=rect.y+((rect.h-style.size_points)/2.0).floor()+shift;
             paint.text_spans((rect.x,top),&style,200.0,Some(color::rgba(0,0,0,255)),"ab cd",&[span]).unwrap();
         });
     }).unwrap();
@@ -1548,12 +1564,13 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() };
     let metrics=ui.text_service().measure_spans("aa bb cc",&style,45.0,&[span]).unwrap();
     assert_eq!(metrics.lines,3);
+    let shift=em_top_to_layout_top(&style);
     ui.frame(&input(),&mut |ui| {
         let b=ui.node("wrapped".into(),crate::Node { w:Size::Px(45.0),h:Size::Px(80.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
         ui.text_spans(&b,"aa bb cc",&label_of(&style),&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
             let block=style.size_points+(metrics.lines-1) as f32*style.line_height;
-            let top=rect.y+((rect.h-block)/2.0).floor();
+            let top=rect.y+((rect.h-block)/2.0).floor()+shift;
             paint.text_spans((rect.x,top),&style,45.0,Some(color::rgba(0,0,0,255)),"aa bb cc",&[span]).unwrap();
         });
     }).unwrap();
@@ -1604,6 +1621,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let spans=[TextSpan { start:0,end:1,flags:TextSpan::COLOR,color:color::rgba(255,0,0,255),..Default::default() },
         TextSpan { start:25,end:26,flags:TextSpan::COLOR,color:color::rgba(0,0,255,255),..Default::default() }];
+    let shift=em_top_to_layout_top(&TextStyle { size_points:20.0,..Default::default() });
     for frame in 0..15 {
         let ellipsis=[TextStyle::ELLIPSIS_END,TextStyle::ELLIPSIS_MIDDLE,TextStyle::ELLIPSIS_HEAD][frame%3];
         let style=TextStyle { ellipsis,size_points:20.0,..Default::default() };
@@ -1612,7 +1630,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
             let b=ui.node("ellipsis".into(),crate::Node { flags:pxui_types::Flags::FIT_TEXT,role:crate::ui::Role::Label,w:Size::Px(100.0),h:Size::Px(40.0),look:crate::ui::Look { text:color::rgba(0,0,0,255),..crate::ui::Look::NONE },..crate::Node::DEFAULT });
             ui.text_spans(&b,source,&label_of(&style),&spans).unwrap();
             ui.canvas(&b,move |paint,rect| {
-                let top=rect.y+((rect.h-style.size_points)/2.0).floor();
+                let top=rect.y+((rect.h-style.size_points)/2.0).floor()+shift;
                 paint.text_spans((rect.x,top),&style,100.0,Some(color::rgba(0,0,0,255)),source,&spans).unwrap();
             });
         }).unwrap();

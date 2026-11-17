@@ -529,6 +529,7 @@ fn window_pxui_keyboard_signal_reuses_routing_storage() {
 pub const CASES: &[(&str, fn())] = &[
     ("menu_padding_name_and_the_current_choice", menu_padding_name_and_the_current_choice),
     ("line_box_glyphs_keep_their_half_leading", line_box_glyphs_keep_their_half_leading),
+    ("paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline", paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline),
     ("window_pxui_keyboard_signal_reuses_routing_storage", window_pxui_keyboard_signal_reuses_routing_storage),
     ("window_pxui_focused_text_field_warm_ime", window_pxui_focused_text_field_warm_ime),
     ("text_rows_lru", text_rows_lru),
@@ -569,6 +570,53 @@ fn line_box_glyphs_keep_their_half_leading() {
     // the em box centred in the 30-point box: the cap height of the golden face around its middle
     let top = natural[0][1];
     check((9.0..=12.0).contains(&top), &format!("centred glyph top {top}"));
+}
+
+/// `Paint::text_styled`/`text_spans` (and so `label`, `chars`) take the layout's top: the first baseline sits `Metrics::baseline` below `at`, whatever the
+/// line height, and a line box of the same style puts its glyphs on the same pixels as `text_spans` at the line's top.
+fn paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline() {
+    let mut ui = new_ui(None);
+    let frame = frame_at(vec![], 2.0, 0.0, vec![]);
+    let mask = |ui: &Ui| -> Vec<[f32; 4]> { ui.output().draw[0].instances.iter().filter(|i| i.kind == pxui_types::draw::kind::MASK).map(|i| i.rect).collect() };
+    let mut on_baseline = Vec::new();
+    for line_height in [0.0, 12.0, 14.0, 20.0, 24.0, 16.8, 30.0] {
+        let style = pxui_text::Style { size: 12.0, line_height, ..Default::default() };
+        // `at = 40 - measure().baseline` puts the first baseline on y = 40 for every line height
+        ui.frame(&frame, &mut |ui| {
+            let b = ui.box_("measured", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(60.0)).at((0.0, 0.0)));
+            ui.draw(&b, move |paint, _| {
+                let baseline = paint.text_metrics(&style, 0.0, "Hgx").baseline;
+                paint.text_styled((0.0, 40.0 - baseline), &style, 0.0, None, "Hgx");
+            });
+        });
+        let glyphs = mask(&ui);
+        check(glyphs.len() == 3, "three glyphs");
+        on_baseline.push(glyphs);
+    }
+    for glyphs in &on_baseline[1..] {
+        check(*glyphs == on_baseline[0], &format!("the first baseline moved with the line height: {glyphs:?} vs {:?}", on_baseline[0]));
+    }
+    // the same style in a line box as tall as its line, and drawn at that line's top, lands on the same pixels
+    for line_height in [14.0, 20.0, 24.0, 30.0] {
+        let style = pxui_text::Style { size: 12.0, line_height, ..Default::default() };
+        let mut painted = Vec::new();
+        for painter in 0..3 {
+            ui.frame(&frame, &mut |ui| {
+                let b = ui.box_("painted", BoxOpts::default().w(Size::Px(200.0)).h(Size::Px(line_height)).at((0.0, 0.0)));
+                if painter == 0 {
+                    ui.text_line_box(&b, "Hgx", &style, &[]);
+                } else {
+                    ui.draw(&b, move |paint, _| match painter {
+                        1 => { paint.text_spans((0.0, 0.0), &style, 0.0, None, "Hgx", &[]); }
+                        _ => { paint.text_styled((0.0, 0.0), &style, 0.0, None, "Hgx"); }
+                    });
+                }
+            });
+            painted.push(mask(&ui));
+        }
+        check(painted[0].len() == 3 && painted[0] == painted[1] && painted[0] == painted[2], &format!("line height {line_height}: line box {:?}, text_spans {:?}, text_styled {:?}", painted[0], painted[1], painted[2]));
+    }
+    ui.destroy();
 }
 
 /// `Menu::padding` moves the first row down and grows the sheet by twice the change; `Menu::name` names the sheet (none without, never the

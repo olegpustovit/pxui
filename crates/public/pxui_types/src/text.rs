@@ -356,6 +356,8 @@ impl Label {
 pub struct TextMetrics {
     pub width: f32,
     pub height: f32,
+    /// Distance, in points, from the top of the layout to its first line's baseline: `Paint::text_styled`, `text_spans` and `text_chars` put
+    /// the first baseline this far below `at`.
     pub baseline: f32,
     pub lines: u32,
 }

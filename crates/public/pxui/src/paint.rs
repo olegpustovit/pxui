@@ -110,8 +110,10 @@ impl<'a> Paint<'a> {
     /// One glyph of icon font `font` at `size` points, its top-left at `at`: its advance.
     #[inline] pub fn icon(&mut self, at: (f32, f32), font: u16, size: f32, ch: char, c: Rgba) -> f32 { unsafe { lib::pxui_paint_icon(self.raw(), at.0, at.1, font, size, ch as u32, c) } }
     #[inline] pub fn text(&mut self, at: (f32, f32), s: &str) { unsafe { lib::pxui_paint_text(self.raw(), at.0, at.1, crate::as_str(s)) } }
-    /// Draws `s` in `style` at `at` (its top-left, in points), laid out within `width` points (0: unbounded); returns its metrics.
+    /// Draws `s` in `style` at `at` (the top-left of its layout, in points), laid out within `width` points (0: unbounded); returns its metrics.
     ///
+    /// The first baseline lies `TextMetrics::baseline` below `at`, on a device pixel, whatever the line height: to put it on `y`, draw at
+    /// `y - baseline` (measure with `text_metrics`). A `Label::line_height` text drawn at the top of a line box lands where the line box's glyphs do.
     /// The style's unset fields resolve as a label body resolves them, against this painter's theme (the root theme's label look,
     /// its rows and the app's colour tokens); the box fields (`width`, `pad`) are the caller's here. A style that does not resolve
     /// (a size that is not positive, an unknown wrap or align) draws nothing and returns zero metrics.
@@ -139,7 +141,7 @@ impl<'a> Paint<'a> {
     ///
     /// Each distinct character is shaped once per style and then hit in the text cache; there is no kerning between characters and
     /// no wrapping. Returns the width drawn. `0`-`9`, `:` `.` `,` `-` `/` `+` `%` and space are the intended set; any other character
-    /// is drawn with its own advance. `style` resolves as in `text_styled`.
+    /// is drawn with its own advance. `style` resolves as in `text_styled`, and `at` is the layout's top as there.
     /// Allocates: never when warm; the first use of a character in a style shapes it.
     /// Panics: never.
     ///
@@ -158,7 +160,7 @@ impl<'a> Paint<'a> {
         unsafe { lib::pxui_paint_label_chars(self.raw(), at.0, at.1, &style, crate::as_str(s)) }
     }
     #[inline] pub fn text_width(&mut self, size: Option<i64>, s: &str) -> f32 { unsafe { lib::pxui_paint_text_width(self.raw(), size.is_some() as u8, size.unwrap_or_default(), crate::as_str(s)) } }
-    /// Draws `text` at `at` (its top-left, in points) in one shaped layout, wrapped within `width` points (0: unbounded), with up to eight styled byte ranges `spans`; returns its metrics.
+    /// Draws `text` at `at` (the top-left of its layout, in points; the first baseline is `TextMetrics::baseline` below it) in one shaped layout, wrapped within `width` points (0: unbounded), with up to eight styled byte ranges `spans`; returns its metrics.
     ///
     /// `style` is the shaper's own `TextStyle` (not the theme-relative `Label`); `color` overrides the ink colour of the whole text, `None` keeps the theme's. Spans are ordered, non-overlapping and nonempty, as UTF-8 byte ranges of `text` on character boundaries.
     /// Allocates: never when warm; text it has not shaped before is shaped once.
