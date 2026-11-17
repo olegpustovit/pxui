@@ -64,7 +64,16 @@ impl Ui {
     #[track_caller] pub fn verify_new_views(on: bool) { assert_eq!(unsafe { lib::pxui_verify_new_views(on as u8) }, 0, "pxui: verify_new_views refused") }
     /// The last frame asked for the clipboard's text: send it with the next frame as a paste event.
     #[inline] pub fn paste_requested(&self) -> bool { self.output().platform.paste != 0 }
-    /// The text the last frame wants on the clipboard, borrowed until the next frame.
+    /// The text the last frame wants on the clipboard (a copy or cut), or `None` when it asked for none.
+    ///
+    /// Borrowed from the library until the next call on this `Ui`; copy it to the system clipboard before the next frame. An empty string is a request to clear it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
+    /// assert_eq!(ui.clipboard_request(), None);
+    /// ```
     pub fn clipboard_request(&self) -> Option<&str> {
         let p = &self.output().platform;
         if p.has_clipboard == 0 { return None; }
@@ -82,30 +91,70 @@ impl Ui {
     pub(crate) fn set_variant(&mut self, kind: pxui_types::theme::BodyKind, variant: u16) { unsafe { lib::pxui_ui_variant(self.0.as_ptr(), kind as u32, variant) }; }
     /// Integer rendering density shared with Paint: host scale rounded to at least one.
     #[inline] pub fn density(&self) -> i64 { unsafe { lib::pxui_ui_density(self.0.as_ptr()) } }
-    /// The current frame's host geometry and keyboard timing, available inside cached views.
+    /// The last frame's host geometry (safe-area insets, keyboard frame and animation), the same value every cached view sees.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.environment().keyboard_visible, 0);
+    /// ```
     pub fn environment(&self) -> pxui_types::Environment {
         let mut value=pxui_types::Environment::default();
         check(self,unsafe { lib::pxui_ui_environment(self.0.as_ptr(),&mut value) });
         value
     }
-    /// Current native keyboard presentation geometry.
+    /// The native keyboard's presentation geometry (`frame`, in window points, and `Keyboard::VALID`/`ANIMATING` flags in `flags`).
+    ///
+    /// Unlike `environment`, it follows the keyboard while it animates and does not change the frame's layout.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.keyboard().flags & pxui::Keyboard::VALID, 0); // a headless host reports no keyboard
+    /// ```
     pub fn keyboard(&self) -> pxui_types::Keyboard {
         let mut value = pxui_types::Keyboard::default();
         check(self, unsafe { lib::pxui_ui_keyboard(self.0.as_ptr(), &mut value) });
         value
     }
+    /// The platform keyboard traits (autocorrect, capitalization, return key) of the text field in focus, or the defaults when none is.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.text_input_options(), pxui::TextInputOptions::DEFAULT);
+    /// ```
     pub fn text_input_options(&self) -> pxui_types::TextInputOptions {
         let mut value=pxui_types::PxuiTextInputOptions::default();
         check(self,unsafe {lib::pxui_ui_text_input_options(self.0.as_ptr(),&mut value)});
         value.into()
     }
-    /// Safe window content above a docked keyboard, following its native presentation geometry.
+    /// The window area left above a docked keyboard, in window points: the whole window while no keyboard is shown.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// let r = ui.content_rect();
+    /// assert_eq!((r.w, r.h), (320.0, 240.0));
+    /// ```
     pub fn content_rect(&self) -> pxui_types::geom::Rect {
         let mut value = pxui_types::geom::Rect::new(0.0, 0.0, 0.0, 0.0);
         check(self, unsafe { lib::pxui_ui_content_rect(self.0.as_ptr(), &mut value) });
         value
     }
-    /// Host-supplied monotonic frame time; cached views share the same animation clock.
+    /// The undo or redo keystroke the focused text field could not apply because its own history was exhausted, or `None`.
+    /// Valid for the frame that received the key: hand the step to the application's own undo when it is `Some`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert_eq!(ui.passed_undo(), None);
+    /// ```
     #[inline] pub fn now(&self) -> f64 { unsafe { lib::pxui_ui_now(self.0.as_ptr()) } }
     #[inline] pub fn frame_index(&self) -> u64 { unsafe { lib::pxui_ui_frame_index(self.0.as_ptr()) } }
     #[inline] pub fn captured(&self) -> bool { unsafe { lib::pxui_ui_captured(self.0.as_ptr()) != 0 } }
@@ -155,6 +204,13 @@ impl Ui {
         } });
         out != 0
     }
+    /// Asks the window host for a pointer cursor `shape` for this frame; the request lapses unless it is repeated every build.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (outside a frame).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| ui.request_cursor(pxui::ui::Cursor::Text));
+    /// ```
     #[inline] #[track_caller] pub fn set_font_size(&mut self, size: i64) { check(self, unsafe { lib::pxui_ui_set_font_size(self.0.as_ptr(), size) }) }
     #[inline] #[track_caller] pub fn unfocus(&mut self) { check(self, unsafe { lib::pxui_ui_unfocus(self.0.as_ptr()) }) }
     #[inline] #[track_caller] pub fn dismiss_popup(&mut self) { check(self, unsafe { lib::pxui_ui_dismiss_popup(self.0.as_ptr()) }) }
@@ -167,17 +223,35 @@ impl Ui {
     #[inline] #[track_caller] pub fn repaint_after(&mut self, seconds: f64) { check(self, unsafe { lib::pxui_ui_repaint_after(self.0.as_ptr(), seconds) }) }
     #[inline] #[track_caller] pub fn verify_views(&mut self, on: bool) { check(self, unsafe { lib::pxui_ui_verify_views(self.0.as_ptr(), on as u8) }) }
     #[inline] #[track_caller] pub fn set_timing(&mut self, on: bool) { check(self, unsafe { lib::pxui_ui_set_timing(self.0.as_ptr(), on as u8) }) }
-    /// The last frame's time in each phase, in `begin, build, intrinsic, arrange, paint, a11y, finish` order.
+    /// The last frame's wall time in each phase, in `begin, build, intrinsic, arrange, paint, a11y, finish` order; all zero until `set_timing(true)` and a frame has run.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// ui.set_timing(true);
+    /// pxui::testing::frame(&mut ui, &[], &mut |_| {});
+    /// assert_eq!(ui.phase_times().len(), 7);
+    /// ```
     #[track_caller]
     pub fn phase_times(&self) -> [std::time::Duration; 7] {
         let mut nanos = [0u64; 7];
         check(self, unsafe { lib::pxui_ui_phase_times(self.0.as_ptr(), nanos.as_mut_ptr(), nanos.len()) });
         nanos.map(std::time::Duration::from_nanos)
     }
-    /// Thread CPU in phase order, summed across settling passes; enabled by set_timing.
-    /// Currently Apple platforms; refuses unavailable/failed clocks.
+    /// The last frame's thread CPU time in each phase, in `phase_times` order, summed across settling passes.
     ///
-    /// Errors: State unless timing is enabled and the platform has a thread CPU clock.
+    /// Needs `set_timing(true)` and a platform thread CPU clock (Apple platforms today); there is no wall-clock fallback.
+    /// Allocates: never.
+    /// Panics: never; an unavailable clock is the `Err` below.
+    /// Errors: `Error::State` unless timing is enabled and the platform has a thread CPU clock.
+    ///
+    /// ```
+    /// let mut ui = pxui::doc::frames(1, &mut |_| {});
+    /// ui.set_timing(true);
+    /// pxui::testing::frame(&mut ui, &[], &mut |_| {});
+    /// let _cpu = ui.phase_cpu_times(); // `Err` on a platform without a thread CPU clock
+    /// ```
     #[track_caller]
     pub fn phase_cpu_times(&self) -> Result<[std::time::Duration; 7], crate::Error> {
         let mut nanos = [0u64; 7];
@@ -190,12 +264,33 @@ impl Ui {
             Err(crate::Error::from_code(code))
         }
     }
+    /// The heap this `Ui` holds for the host's accounting: glyph atlas, glyph lists and text undo history, in bytes.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui`).
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |ui| { ui.label("hi", pxui::Label::DEFAULT); });
+    /// assert_eq!(ui.bytes().text_undo, 0);
+    /// ```
     #[track_caller]
     pub fn bytes(&self) -> Bytes {
         let mut out = [0i64; 3];
         check(self, unsafe { lib::pxui_ui_bytes(self.0.as_ptr(), out.as_mut_ptr(), out.len()) });
         Bytes { atlas: out[0], glyph_lists: out[1], text_undo: out[2] }
     }
+    /// How many views whose label starts with `prefix` the last frame built instead of keeping (their revision changed, or they were new).
+    ///
+    /// An empty `prefix` counts every view. Read after the frame, never inside a view's own build.
+    /// Allocates: never.
+    /// Panics: when the library refuses the call (a null `Ui` or a `prefix` over the text limit).
+    ///
+    /// ```
+    /// let mut build = |ui: &mut pxui::Ui| { ui.view("list", 1, pxui::ui::Size::Grow, pxui::ui::Size::Grow, &mut |_| {}); };
+    /// let mut ui = pxui::doc::frames(1, &mut build);
+    /// assert_eq!(ui.rebuilt_named("list"), 1);
+    /// pxui::testing::frame(&mut ui, &[], &mut build);
+    /// assert_eq!(ui.rebuilt_named("list"), 0); // same revision: kept
+    /// ```
     #[track_caller]
     pub fn rebuilt_named(&self, prefix: &str) -> usize {
         let mut out = 0;
@@ -215,6 +310,13 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_hover_delay(self.0.as_ptr(), as_str(key), &mut out) });
         out != 0
     }
+    /// The width in points a string takes in the small-caps label style at the current theme.
+    /// Allocates: on the first measurement of `text` (the text cache); never when it is cached.
+    /// Panics: when the library refuses the call (outside a frame, or text over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| assert!(ui.cap_width("TITLE") > ui.cap_width("T")));
+    /// ```
     #[inline] #[track_caller] pub fn tooltip(&mut self, key: &str, text: &str) { check(self, unsafe { lib::pxui_ui_tooltip(self.0.as_ptr(), as_str(key), as_str(text)) }) }
     #[track_caller]
     pub fn cap_width(&mut self, text: &str) -> f32 {
