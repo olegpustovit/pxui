@@ -7,11 +7,17 @@ use crate::geom::Rect;
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Justify {
     #[default]
+    /// Children pack at the start of the main axis.
     Start,
+    /// Children pack in the middle.
     Center,
+    /// Children pack at the end.
     End,
+    /// Free room goes between children; the first and last touch the edges.
     SpaceBetween,
+    /// Free room goes around each child: half a share at the ends, a full share between.
     SpaceAround,
+    /// Free room is split into equal shares between children and at both ends.
     SpaceEvenly,
 }
 
@@ -20,8 +26,11 @@ pub enum Justify {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Align {
     #[default]
+    /// The child sits at the start of the cross axis.
     Start,
+    /// The child is centred across the line.
     Center,
+    /// The child sits at the end of the cross axis.
     End,
     /// a `Fit` cross size fills the line (a `Grow` one always does)
     Stretch,
@@ -34,7 +43,9 @@ pub enum Align {
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Direction {
     #[default]
+    /// Left to right: flow children start at the left.
     Ltr,
+    /// Right to left: flow children start at the right.
     Rtl,
 }
 
@@ -43,8 +54,11 @@ pub enum Direction {
 #[repr(C, u8)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Track {
+    /// A fixed size in logical points.
     Px(f32),
+    /// A share of the room left after fixed and content tracks, in proportion to the number.
     Fr(f32),
+    /// The size of its content.
     Fit,
 }
 
@@ -65,14 +79,54 @@ pub struct Grid {
 }
 
 impl Grid {
+    /// Grid tracks from `'static` column and row lists (`rows` may be empty: rows are then added as children need them).
+    ///
+    /// Only `'static` slices are accepted because the grid keeps their addresses. At most `MAX_TRACKS` columns are used.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::layout::{Grid, Track};
+    /// const G: Grid = Grid::new(&[Track::Px(40.0), Track::Fr(1.0)], &[]);
+    /// assert_eq!(G.cols().len(), 2);
+    /// assert!(G.rows().is_empty());
+    /// ```
     pub const fn new(cols: &'static [Track], rows: &'static [Track]) -> Grid {
         Grid { cols: cols.as_ptr(), cols_len: cols.len(), rows: rows.as_ptr(), rows_len: rows.len() }
     }
+    /// The column tracks, left to right.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::layout::{Grid, Track};
+    /// assert_eq!(Grid::new(&[Track::Fit], &[]).cols(), &[Track::Fit]);
+    /// ```
     #[inline]
     pub fn cols(&self) -> &'static [Track] { unsafe { core::slice::from_raw_parts(self.cols, self.cols_len) } }
+    /// The explicit row tracks, top to bottom; empty when rows are sized by their content as children reach them.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::layout::{Grid, Track};
+    /// assert_eq!(Grid::new(&[], &[Track::Px(8.0)]).rows(), &[Track::Px(8.0)]);
+    /// ```
     #[inline]
     pub fn rows(&self) -> &'static [Track] { unsafe { core::slice::from_raw_parts(self.rows, self.rows_len) } }
     /// The tracks as the C caller wrote them, not yet trusted: (columns pointer, length, rows pointer, length).
+    ///
+    /// The pointers are only valid for the lengths given, and only as long as the caller of the C API keeps them; the library copies them first.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::layout::{Grid, Track};
+    /// let (_, cols, _, rows) = Grid::new(&[Track::Fit, Track::Fit], &[]).raw();
+    /// assert_eq!((cols, rows), (2, 0));
+    /// ```
     pub fn raw(&self) -> (*const Track, usize, *const Track, usize) { (self.cols, self.cols_len, self.rows, self.rows_len) }
 }
 
@@ -80,26 +134,42 @@ impl PartialEq for Grid {
     fn eq(&self, other: &Grid) -> bool { self.cols() == other.cols() && self.rows() == other.rows() }
 }
 
+/// The most columns a grid uses.
 pub const MAX_TRACKS: usize = 64;
 
 /// A grid child's cell. `col == AUTO` places it at the next free cell in row order.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Cell {
+    /// Zero-based column of the cell's first track, or `Cell::AUTO`.
     pub col: u16,
+    /// Zero-based row of the cell's first track.
     pub row: u16,
+    /// Columns covered (1 or more).
     pub col_span: u16,
+    /// Rows covered (1 or more).
     pub row_span: u16,
 }
 
 impl Cell {
+    /// The `col` value that means "next free cell in row order".
     pub const AUTO: u16 = u16::MAX;
+    /// Automatic placement, one column and one row.
     pub const DEFAULT: Cell = Cell {
         col: Cell::AUTO,
         row: 0,
         col_span: 1,
         row_span: 1,
     };
+    /// A one-by-one cell at column `col`, row `row` (zero-based).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::layout::Cell;
+    /// assert_eq!(Cell::at(2, 1), Cell { col: 2, row: 1, col_span: 1, row_span: 1 });
+    /// ```
     pub const fn at(col: u16, row: u16) -> Cell {
         Cell {
             col,
@@ -108,6 +178,15 @@ impl Cell {
             row_span: 1,
         }
     }
+    /// This cell covering `col_span` columns and `row_span` rows from where it starts (neither is checked for zero or for the grid's size).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::layout::Cell;
+    /// assert_eq!(Cell::at(0, 0).span(2, 3).col_span, 2);
+    /// ```
     pub const fn span(self, col_span: u16, row_span: u16) -> Cell {
         Cell {
             col_span,
@@ -121,9 +200,13 @@ impl Cell {
 #[repr(u8)]
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Side {
+    /// Under the anchor.
     Below,
+    /// Over the anchor.
     Above,
+    /// To the right of the anchor.
     Right,
+    /// To the left of the anchor.
     Left,
 }
 
@@ -133,14 +216,20 @@ pub enum Side {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Placement {
+    /// The side of the anchor the popup opens on.
     pub side: Side,
+    /// Alignment along the anchor's edge; only `Start`, `Center` and `End` differ (any other value aligns as `Start`).
     pub align: Align,
+    /// Points between the anchor and the popup.
     pub gap: f32,
+    /// Points the popup keeps inside the bounds.
     pub margin: f32,
+    /// Open on the opposite side when the chosen one does not fit.
     pub flip: bool,
 }
 
 impl Placement {
+    /// Opens under the anchor, left edges aligned, no gap or margin, flipping above when it does not fit.
     pub const BELOW: Placement = Placement {
         side: Side::Below,
         align: Align::Start,
@@ -154,11 +243,29 @@ impl Placement {
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Anchor {
+    /// The anchor rectangle in window points.
     pub rect: Rect,
+    /// How the node sits by it.
     pub placement: Placement,
 }
 
-/// The rectangle a popup of `size` takes by `anchor` inside `bounds`.
+/// The rectangle a popup of `size` (width, height in points) takes by `anchor` inside `bounds` under placement `p`.
+///
+/// All rectangles share one coordinate space (window points). With `p.flip` the popup moves to the opposite side whenever its own side
+/// overflows `bounds`, without checking that the opposite side fits; the result is then pulled inside `bounds` less `p.margin`
+/// on both axes, and a popup larger than the room ends up at the bounds' top-left plus the margin.
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::layout::{place_anchored, Placement};
+/// use pxui_types::geom::Rect;
+/// let bounds = Rect::new(0.0, 0.0, 100.0, 100.0);
+/// let below = place_anchored(Rect::new(10.0, 10.0, 20.0, 10.0), (30.0, 20.0), Placement::BELOW, bounds);
+/// assert_eq!((below.x, below.y), (10.0, 20.0));
+/// let flipped = place_anchored(Rect::new(10.0, 80.0, 20.0, 10.0), (30.0, 20.0), Placement::BELOW, bounds);
+/// assert_eq!(flipped.y, 60.0);
+/// ```
 pub fn place_anchored(anchor: Rect, size: (f32, f32), p: Placement, bounds: Rect) -> Rect {
     let (w, h) = size;
     let m = p.margin;

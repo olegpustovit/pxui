@@ -7,7 +7,15 @@ use crate::geom::{color, Rect, Rgba as Color};
 use crate::node::Dir;
 use crate::theme::{self, Tokens};
 
-/// The instance clip of `rect`: whole points covering it.
+/// The instance clip of `rect` as `[left, top, right, bottom]` whole points that cover it (edges rounded outward, clamped to `i16`).
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// use pxui_types::{geom::Rect, shape::clip_of};
+/// assert_eq!(clip_of(Rect::new(0.5, 1.2, 2.0, 2.0)), [0, 1, 3, 4]);
+/// ```
 pub fn clip_of(Rect { x, y, w, h }: Rect) -> [i16; 4] {
     let whole = |v: f32| v.clamp(i16::MIN as f32, i16::MAX as f32) as i16;
     [whole(x.floor()), whole(y.floor()), whole((x + w).ceil()), whole((y + h).ceil())]
@@ -23,18 +31,32 @@ fn rgba(c: Color) -> [u8; 4] {
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Span {
+    /// `size_of::<Span>()`, so the library can tell which ABI version a caller was built with.
     pub size: u32,
+    /// View table index stamped on every instance.
     pub view: u16,
+    /// Clip corner radius stamped on every instance, as an `f16` bit pattern.
     pub clip_radius_f16: u16,
+    /// Clip rectangle `[left, top, right, bottom]` stamped on every instance.
     pub clip: [i16; 4],
+    /// The next instance slot to write.
     pub at: *mut Instance,
+    /// One past the last writable slot.
     pub end: *mut Instance,
 }
 
 impl Span {
+    /// A span with no room (null window): the first `write` reports full so the writer asks the library for a window.
     pub const EMPTY: Span = Span { size: core::mem::size_of::<Span>() as u32, view: 0, clip_radius_f16: 0, clip: [0; 4], at: core::ptr::null_mut(), end: core::ptr::null_mut() };
 
-    /// Room for this many more instances.
+    /// How many more instances `write` can store before the span is full.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::shape::Span::EMPTY.room(), 0);
+    /// ```
     #[inline]
     pub fn room(&self) -> usize {
         (self.end as usize - self.at as usize) / core::mem::size_of::<Instance>()
@@ -45,6 +67,19 @@ impl Span {
     /// # Safety
     /// `at..end` must be the window the library handed out (`pxui_paint_span`): writable instance storage, `at <= end`, both in one
     /// allocation. The wrapper's `Paint` is the one caller; a `Span` is plain data a caller can fill with anything, so this cannot be safe.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{draw::Instance, shape::Span};
+    /// let mut storage = [Instance::rect([0.0; 4], [0; 4]); 1];
+    /// let mut span = Span { clip: [1, 2, 3, 4], at: storage.as_mut_ptr(), end: unsafe { storage.as_mut_ptr().add(1) }, ..Span::EMPTY };
+    /// assert_eq!(span.room(), 1);
+    /// assert!(unsafe { span.write(Instance::rect([0.0, 0.0, 5.0, 5.0], [255; 4])) });
+    /// assert!(!unsafe { span.write(Instance::rect([0.0; 4], [0; 4])) });
+    /// assert_eq!(storage[0].clip, [1, 2, 3, 4]);
+    /// ```
     #[inline]
     pub unsafe fn write(&mut self, instance: Instance) -> bool {
         if self.at == self.end {
@@ -59,14 +94,17 @@ impl Span {
     }
 }
 
+/// The shape painter: implement the five primitives and every shape below is built from them as 64-byte instances.
 pub trait Shapes {
     /// Appends `instance` under the current clip and view.
     fn push(&mut self, instance: Instance);
     /// Device pixels per point.
     fn density(&self) -> i64;
+    /// The theme tokens flags and other themed shapes read.
     fn theme(&self) -> Tokens;
     /// The clip rectangle shapes are cut to.
     fn clip_rect(&self) -> Rect;
+    /// Replaces the clip rectangle (`grid` restores it after narrowing).
     fn set_clip_rect(&mut self, clip: Rect);
 
     /// An edge at `v` points as the rasteriser covers pixel centres (`a <= centre < b`): snapped
@@ -76,6 +114,7 @@ pub trait Shapes {
         (v * d - 0.5).ceil() / d
     }
 
+    /// A snapped rectangle from corners `(x0, y0)` to `(x1, y1)`; drawn only when it keeps at least one pixel.
     fn hard(&mut self, x0: f32, y0: f32, x1: f32, y1: f32, color: [u8; 4]) {
         let r = [self.snap(x0), self.snap(y0), self.snap(x1), self.snap(y1)];
         if r[2] > r[0] && r[3] > r[1] {
@@ -144,6 +183,7 @@ pub trait Shapes {
         }
     }
 
+    /// A one-point `stroke_w`.
     fn stroke(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
         self.stroke_w(x, y, w, h, 1.0, color);
     }
@@ -156,10 +196,12 @@ pub trait Shapes {
         self.stroke_w(x + half, y + half, w - width, h - width, width, color);
     }
 
+    /// A one-point `frame_w`.
     fn frame(&mut self, x: f32, y: f32, w: f32, h: f32, color: Color) {
         self.frame_w(x, y, w, h, 1.0, color);
     }
 
+    /// A filled and/or stroked rectangle; with neither colour it fills white.
     fn rect(&mut self, x: f32, y: f32, w: f32, h: f32, fill: Option<Color>, stroke: Option<Color>) {
         let fill = match (fill, stroke) {
             (None, None) => Some(color::white()),
@@ -187,6 +229,7 @@ pub trait Shapes {
         }
     }
 
+    /// A one-point `line_w`.
     fn line(&mut self, from: (f32, f32), to: (f32, f32), color: Color) {
         self.line_w(from, to, 1.0, color);
     }
@@ -298,6 +341,7 @@ pub trait Shapes {
         }
     }
 
+    /// A line of 4-point dashes every 7 points along `from` to `to`, `width` thick (nothing for a zero-length line).
     fn dashed_w(&mut self, from: (f32, f32), to: (f32, f32), width: f32, color: Color) {
         let (x0, y0) = from;
         let (x1, y1) = to;
@@ -310,6 +354,7 @@ pub trait Shapes {
         }
     }
 
+    /// A one-point `dashed_w`.
     fn dashed(&mut self, from: (f32, f32), to: (f32, f32), color: Color) {
         self.dashed_w(from, to, 1.0, color);
     }

@@ -4,39 +4,63 @@
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Point {
+    /// Horizontal position in logical points.
     pub x: f32,
+    /// Vertical position in logical points, growing downward.
     pub y: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Rect {
+    /// Left edge in logical points.
     pub x: f32,
+    /// Top edge in logical points.
     pub y: f32,
+    /// Width in logical points.
     pub w: f32,
+    /// Height in logical points.
     pub h: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 #[repr(C)]
 pub struct Edges {
+    /// Left (start) inset in logical points.
     pub l: f32,
+    /// Top inset in logical points.
     pub t: f32,
+    /// Right (end) inset in logical points.
     pub r: f32,
+    /// Bottom inset in logical points.
     pub b: f32,
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(C)]
 pub struct Rgba {
+    /// Red, 0 to 255.
     pub r: u8,
+    /// Green, 0 to 255.
     pub g: u8,
+    /// Blue, 0 to 255.
     pub b: u8,
+    /// Opacity, 0 (clear) to 255 (opaque); the colour is not premultiplied.
     pub a: u8,
 }
 
 impl Edges {
+    /// No inset on any side.
     pub const ZERO: Edges = Edges { l: 0.0, t: 0.0, r: 0.0, b: 0.0 };
+    /// Edges with the same inset `v` points on all four sides.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Edges;
+    /// assert_eq!(Edges::all(4.0), Edges { l: 4.0, t: 4.0, r: 4.0, b: 4.0 });
+    /// ```
     pub const fn all(v: f32) -> Edges { Edges { l: v, t: v, r: v, b: v } }
     /// Edges with `x` on the left and right and `y` on the top and bottom.
     ///
@@ -55,10 +79,50 @@ impl Edges {
 }
 
 impl Rect {
+    /// The rectangle with top-left `x`, `y` and size `w` by `h`, all in logical points; nothing is checked, so a negative size is kept.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rect;
+    /// assert_eq!(Rect::new(1.0, 2.0, 3.0, 4.0), Rect { x: 1.0, y: 2.0, w: 3.0, h: 4.0 });
+    /// ```
     pub const fn new(x: f32, y: f32, w: f32, h: f32) -> Rect { Rect { x, y, w, h } }
-    /// The rectangle as Rays f64 data at the boundary.
+    /// The rectangle as an `(x, y, w, h)` tuple of `f64`, each widened exactly from its `f32`.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rect;
+    /// assert_eq!(Rect::new(1.0, 2.0, 3.0, 4.0).f64(), (1.0, 2.0, 3.0, 4.0));
+    /// ```
     pub fn f64(self) -> (f64, f64, f64, f64) { (self.x as f64, self.y as f64, self.w as f64, self.h as f64) }
+    /// Whether the point `p` (x, y in the rectangle's coordinate space) is inside: left and top edges count, right and bottom do not.
+    ///
+    /// A rectangle of zero or negative size contains nothing.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rect;
+    /// let r = Rect::new(0.0, 0.0, 10.0, 10.0);
+    /// assert!(r.contains((0.0, 0.0)) && !r.contains((10.0, 5.0)));
+    /// ```
     pub fn contains(self, p: (f32, f32)) -> bool { p.0 >= self.x && p.1 >= self.y && p.0 < self.x + self.w && p.1 < self.y + self.h }
+    /// The overlap of this rectangle and `o`; when they do not overlap the width or height (or both) is 0.
+    ///
+    /// An empty result keeps the position the overlap arithmetic gives (the larger left and top), not the origin.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::Rect;
+    /// let a = Rect::new(0.0, 0.0, 10.0, 10.0);
+    /// assert_eq!(a.intersect(Rect::new(5.0, 5.0, 10.0, 10.0)), Rect::new(5.0, 5.0, 5.0, 5.0));
+    /// assert_eq!(a.intersect(Rect::new(20.0, 0.0, 5.0, 5.0)).w, 0.0);
+    /// ```
     pub fn intersect(self, o: Rect) -> Rect {
         let x = self.x.max(o.x);
         let y = self.y.max(o.y);
@@ -74,19 +138,109 @@ pub mod color {
     use super::Rgba;
 
     fn clamp_byte(value: i64) -> u8 { value.clamp(0, 255) as u8 }
+    /// The colour of channels `r`, `g`, `b` and opacity `a`, each clamped to 0 to 255.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::{color, Rgba};
+    /// assert_eq!(color::rgba(300, -5, 10, 128), Rgba { r: 255, g: 0, b: 10, a: 128 });
+    /// ```
     pub fn rgba(r: i64, g: i64, b: i64, a: i64) -> Rgba { Rgba { r: clamp_byte(r), g: clamp_byte(g), b: clamp_byte(b), a: clamp_byte(a) } }
+    /// The opaque colour of channels `r`, `g`, `b`, each clamped to 0 to 255.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::{color, Rgba};
+    /// assert_eq!(color::rgb(1, 2, 3), Rgba { r: 1, g: 2, b: 3, a: 255 });
+    /// ```
     pub fn rgb(r: i64, g: i64, b: i64) -> Rgba { rgba(r, g, b, 255) }
+    /// The opaque grey with all three channels `v`, clamped to 0 to 255.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::color::gray(128).g, 128);
+    /// ```
     pub fn gray(v: i64) -> Rgba { rgb(v, v, v) }
+    /// Opaque black.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::color::black(), pxui_types::geom::color::rgb(0, 0, 0));
+    /// ```
     pub fn black() -> Rgba { rgb(0, 0, 0) }
+    /// Opaque white.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::color::white().r, 255);
+    /// ```
     pub fn white() -> Rgba { rgb(255, 255, 255) }
+    /// Fully transparent black (all four channels 0).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::color::transparent().a, 0);
+    /// ```
     pub fn transparent() -> Rgba { rgba(0, 0, 0, 0) }
+    /// The colour `c` with its opacity replaced by `alpha`, clamped to 0 to 255 (not multiplied into the old one).
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::color;
+    /// assert_eq!(color::with_alpha(color::rgb(1, 2, 3), 10), color::rgba(1, 2, 3, 10));
+    /// ```
     pub fn with_alpha(c: Rgba, alpha: i64) -> Rgba { Rgba { a: clamp_byte(alpha), ..c } }
+    /// The colour from channels in 0.0 to 1.0 (`alpha` `None`: opaque); each is scaled by 255, rounded and clamped, so out-of-range values saturate.
+    ///
+    /// The argument order is alpha first, then red, green, blue.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::color;
+    /// assert_eq!(color::of_unit_floats(None, 1.0, 0.5, 0.0), color::rgb(255, 128, 0));
+    /// ```
     pub fn of_unit_floats(alpha: Option<f64>, r: f64, g: f64, b: f64) -> Rgba {
         let byte = |v: f64| (v * 255.0).round() as i64;
         rgba(byte(r), byte(g), byte(b), byte(alpha.unwrap_or(1.0)))
     }
+    /// The colour's channels as `(r, g, b, a)`, each divided by 255 into 0.0 to 1.0.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::color;
+    /// assert_eq!(color::to_floats(color::rgba(255, 0, 255, 0)), (1.0, 0.0, 1.0, 0.0));
+    /// ```
     pub fn to_floats(c: Rgba) -> (f64, f64, f64, f64) { (c.r as f64 / 255.0, c.g as f64 / 255.0, c.b as f64 / 255.0, c.a as f64 / 255.0) }
 
+    /// Parses `#rgb`, `#rgba`, `#rrggbb` or `#rrggbbaa` (the `#` is optional, digits of either case); a missing alpha is opaque.
+    ///
+    /// The short forms repeat each digit (`#f80` is `#ff8800`). Any other length or a non-hex digit is an `Err` with a message.
+    /// Allocates: the short forms allocate a scratch buffer; the long forms do not (an `Err` allocates its message).
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::color;
+    /// assert_eq!(color::hex("#f80"), Ok(color::rgb(255, 136, 0)));
+    /// assert_eq!(color::hex("11223380"), Ok(color::rgba(17, 34, 51, 128)));
+    /// assert!(color::hex("#12").is_err());
+    /// ```
     pub fn hex(value: &str) -> Result<Rgba, String> {
         let value = value.strip_prefix('#').unwrap_or(value).as_bytes();
         let expanded = if value.len() == 3 || value.len() == 4 { Some(value.iter().flat_map(|b| [*b, *b]).collect::<Vec<_>>()) } else { None };
@@ -99,12 +253,43 @@ pub mod color {
             _ => Err("Color.hex: invalid hexadecimal digit".to_owned()),
         }
     }
+    /// The same as `hex`, kept for callers that used the Rays name: it returns the `Result` and never panics despite the `_exn` suffix.
+    ///
+    /// Allocates: as `hex`.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::color;
+    /// assert_eq!(color::hex_exn("#000"), Ok(color::black()));
+    /// assert!(color::hex_exn("nope").is_err());
+    /// ```
     pub fn hex_exn(value: &str) -> Result<Rgba, String> { hex(value) }
 
+    /// The colour as lower-case `#rrggbb`, or `#rrggbbaa` when it is not fully opaque; `hex` reads it back.
+    ///
+    /// Allocates: one `String`.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::color;
+    /// assert_eq!(color::to_hex_string(color::rgb(255, 136, 0)), "#ff8800");
+    /// assert_eq!(color::to_hex_string(color::rgba(0, 0, 0, 1)), "#00000001");
+    /// ```
     pub fn to_hex_string(c: Rgba) -> String {
         if c.a == 255 { format!("#{:02x}{:02x}{:02x}", c.r, c.g, c.b) } else { format!("#{:02x}{:02x}{:02x}{:02x}", c.r, c.g, c.b, c.a) }
     }
 
+    /// The colour `pct` of the way from `c1` to `c2`, every channel (alpha too) interpolated linearly and rounded to nearest.
+    ///
+    /// `pct` is clamped to 0.0 to 1.0, so 0 gives `c1` and 1 gives `c2`.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::color;
+    /// assert_eq!(color::blend(color::black(), color::white(), 0.5), color::gray(128));
+    /// assert_eq!(color::blend(color::black(), color::white(), 9.0), color::white());
+    /// ```
     pub fn blend(c1: Rgba, c2: Rgba, pct: f64) -> Rgba {
         let pct = pct.clamp(0.0, 1.0);
         let inv = 1.0 - pct;
@@ -163,6 +348,17 @@ pub mod hash {
         v = (v ^ (v >> 27)).wrapping_mul(0x94d049bb133111eb);
         v ^ (v >> 31)
     }
+    /// A 64-bit hash of `bytes` continuing from `seed`, framed by the length so a prefix never hashes like the whole.
+    ///
+    /// The same seed and bytes always give the same value, across runs and machines; it is not a cryptographic or DoS-safe hash.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::hash;
+    /// assert_eq!(hash::bytes(1, b"abc"), hash::bytes(1, b"abc"));
+    /// assert_ne!(hash::bytes(1, b"abc"), hash::bytes(1, b"abc\0"));
+    /// ```
     pub fn bytes(seed: u64, bytes: &[u8]) -> u64 {
         let mut hash = word(seed, bytes.len() as u64);
         let mut chunks = bytes.chunks_exact(8);
@@ -174,11 +370,34 @@ pub mod hash {
         }
         hash
     }
+    /// Folds `value` into `hash`, a new 64-bit hash (as `i64`) that depends on both and on their order.
+    ///
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::geom::hash;
+    /// assert_ne!(hash::mix(hash::mix(0, 1), 2), hash::mix(hash::mix(0, 2), 1));
+    /// ```
     pub fn mix(hash: i64, value: i64) -> i64 { word(hash as u64, value as u64) as i64 }
 }
 
-/// A Rays f64 point at the Paint boundary.
+/// The point `p` narrowed from `f64` to `f32` (nearest; large values lose precision).
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// assert_eq!(pxui_types::geom::p32((1.5, -2.0)), (1.5f32, -2.0f32));
+/// ```
 pub fn p32(p: (f64, f64)) -> (f32, f32) { (p.0 as f32, p.1 as f32) }
 
-/// A pointer position back to Rays f64 data.
+/// The point `p` widened from `f32` to `f64`, exactly.
+///
+/// Allocates: never.
+/// Panics: never.
+///
+/// ```
+/// assert_eq!(pxui_types::geom::p64((1.5, -2.0)), (1.5f64, -2.0f64));
+/// ```
 pub fn p64(p: (f32, f32)) -> (f64, f64) { (p.0 as f64, p.1 as f64) }
