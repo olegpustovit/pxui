@@ -276,6 +276,15 @@ pub const KEEP_FRAMES: u32 = 600;
 pub const SWEEP_FRAMES: u32 = 64;
 /// Bound retained layouts even for standalone shapers without a frame clock.
 const MAX_LAYOUTS: usize = 4096;
+/// Evicted layouts kept for the next fresh one (their buffer, text and glyph list storage), so text that
+/// changes every frame shapes into reused storage. The sweep evicts in bursts about `SWEEP_FRAMES` frames apart, so the pool holds two bursts' worth. Bounded: at most this many, each with text up to
+/// `SPARE_TEXT_BYTES`; a larger layout is dropped.
+const SPARE_LAYOUTS: usize = 2 * SWEEP_FRAMES as usize;
+const SPARE_TEXT_BYTES: usize = 1024;
+/// Text storage a new layout starts with, so ordinary labels never regrow a pooled layout.
+const LABEL_BYTES: usize = 64;
+/// Glyph slots a new layout starts with, for the same reason.
+const LABEL_GLYPHS: usize = 32;
 /// Rows past a virtual list's built window whose layouts are never age-evicted; farther ones go first.
 pub const LIST_KEEP_ROWS: u32 = 64;
 /// Lists whose windows are tracked; the least recently built one is replaced by another.
@@ -700,6 +709,20 @@ struct Entry {
 }
 
 impl Entry {
+    /// An evicted entry made ready to be laid out again; its storage is kept.
+    fn recycle(&mut self, frame: u32) {
+        self.rich = None;
+        self.width = 0;
+        self.frame = frame;
+        (self.list, self.row, self.view) = (0, 0, 0);
+        self.m = Metrics::default();
+        self.glyphs.clear();
+        self.cached = false;
+        self.cacheable = true;
+        (self.cached_scale, self.cached_evictions) = (0, 0);
+        self.shelves = [0; 8];
+    }
+
     fn empty(style: &Style, frame: u32) -> Self {
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         Self {
@@ -718,6 +741,8 @@ pub struct Text {
     font_metrics: Vec<(f32,f32)>,
     wrap_rows: Vec<(usize,usize,usize,f32)>,
     entries: HashMap<u64, Entry, Fast>,
+    /// evicted layouts awaiting reuse (at most `SPARE_LAYOUTS`)
+    spare: Vec<Entry>,
     /// every entry's key, and where the incremental sweep goes on
     keys: Vec<u64>,
     sweep: usize,
@@ -785,6 +810,7 @@ impl Text {
             font_metrics: Vec::new(),
             wrap_rows: Vec::new(),
             entries: HashMap::default(),
+            spare: Vec::with_capacity(SPARE_LAYOUTS),
             keys: Vec::new(),
             sweep: 0,
             frame: 1,
@@ -907,7 +933,7 @@ impl Text {
             let old = self.keys.swap_remove(at);
             self.sweep = (at + 1) % MAX_LAYOUTS;
             if let Some(entry) = self.entries.remove(&old) {
-                self.cache_bytes -= entry.glyphs.capacity() * size_of::<CachedGlyph>();
+                self.retire(entry);
             }
         }
         #[cfg(debug_assertions)]
@@ -915,9 +941,25 @@ impl Text {
         self.layouts = self.layouts.saturating_add(1);
         let lh = if style.line_height > 0.0 { style.line_height } else { style.size * 1.2 };
         let keys = &mut self.keys;
+        let (spare, cache_bytes) = (&mut self.spare, &mut self.cache_bytes);
         let e = self.entries.entry(key).or_insert_with(|| {
             keys.push(key);
-            Entry::empty(style, frame)
+            // one whose text storage already fits, so a changing label grows storage only until the pool has seen its longest
+            let fit = spare.iter().rposition(|e| e.text.capacity() >= text.len()).or(spare.len().checked_sub(1));
+            match fit.map(|at| spare.swap_remove(at)) {
+                Some(mut e) => {
+                    *cache_bytes += e.glyphs.capacity() * size_of::<CachedGlyph>();
+                    e.recycle(frame);
+                    e
+                }
+                None => {
+                    let mut e = Entry::empty(style, frame);
+                    e.text.reserve(LABEL_BYTES);
+                    e.glyphs.reserve_exact(LABEL_GLYPHS);
+                    *cache_bytes += e.glyphs.capacity() * size_of::<CachedGlyph>();
+                    e
+                }
+            }
         });
         e.frame = frame;
         if self.scope.0 != 0 { (e.list, e.row) = self.scope; }
@@ -1337,6 +1379,15 @@ impl Text {
 
     /// The entry's view is live and not painted since it asked for the entry.
     #[inline]
+    /// Takes an evicted layout out of the glyph-cache accounting and keeps its storage for reuse.
+    fn retire(&mut self, mut e: Entry) {
+        self.cache_bytes -= e.glyphs.capacity() * size_of::<CachedGlyph>();
+        if self.spare.len() < SPARE_LAYOUTS && e.text.capacity() <= SPARE_TEXT_BYTES {
+            e.glyphs.clear();
+            self.spare.push(e);
+        }
+    }
+
     fn view_owned(&self, e: &Entry) -> bool {
         e.view != 0 && self.views.get(e.view as usize) == Some(&e.frame)
     }
@@ -1395,7 +1446,7 @@ impl Text {
                 continue;
             }
             if let Some(e) = self.entries.remove(&key) {
-                self.cache_bytes -= e.glyphs.capacity() * size_of::<CachedGlyph>();
+                self.retire(e);
             }
             self.keys.swap_remove(self.sweep);
         }
@@ -1413,10 +1464,12 @@ mod layout_cache_tests {
         text.layout(1, "a", &Style::default(), 0.0);
         text.glyphs(1, (0.0, 0.0), 1.0, &mut |_| {});
         assert!(text.cache_bytes > 0);
+        let held = |text: &Text| text.entries.values().map(|e| e.glyphs.capacity() * size_of::<CachedGlyph>()).sum::<usize>();
         for key in 2..=MAX_LAYOUTS as u64 + 8 {
             text.layout(key, "", &Style::default(), 0.0);
         }
-        assert_eq!(text.cache_bytes, 0);
+        // evicted layouts' glyph storage waits in the pool and is counted only once a layout holds it again
+        assert_eq!(text.cache_bytes, held(&text));
         assert_eq!(text.entries.len(), MAX_LAYOUTS);
         assert_eq!(text.keys.len(), MAX_LAYOUTS);
         for key in MAX_LAYOUTS as u64..=MAX_LAYOUTS as u64 + 8 {
@@ -1428,6 +1481,37 @@ mod layout_cache_tests {
         assert!(text.entries.is_empty());
         assert!(text.keys.is_empty());
         assert_eq!(text.cache_bytes, 0);
+    }
+
+    /// A label that is new every frame (a fresh key and text) lays out into evicted layouts' storage:
+    /// once the sweep has returned some, frames allocate nothing, and the pool stays bounded.
+    #[test]
+    fn fresh_layouts_reuse_evicted_storage_without_warm_allocations() {
+        let labels: Vec<String> = (0..4096).map(|i| format!("Track {i:04} - {}", i * 7919 % 10_000)).collect();
+        let style = Style::default();
+        let mut text = Text::new(&[PRAGMASEVKA]);
+        let frame = |text: &mut Text, i: usize| {
+            text.layout(i as u64 + 1, &labels[i], &style, 0.0);
+            text.glyphs(i as u64 + 1, (0.0, 0.0), 1.0, &mut |_| {});
+            text.end_frame();
+        };
+        for i in 0..1024 {
+            frame(&mut text, i);
+        }
+        assert!(!text.spare.is_empty() || text.entries.len() < 64);
+        let scope = mem_sys::warm_scope();
+        for i in 1024..4096 {
+            frame(&mut text, i);
+        }
+        drop(scope);
+        // shaping a string the engine has never seen allocates inside cosmic-text (the named fling
+        // exception); everything the engine itself allocates for a fresh layout must be reused storage
+        let reports = mem_sys::take_reports();
+        let ours: Vec<_> = reports.iter().filter(|r| !["cosmic_text", "unicode_bidi", "harfrust", "swash"].iter().any(|lib| r.contains(lib))).collect();
+        assert!(!reports.is_empty(), "the shaping exception disappeared: tighten this test");
+        assert!(ours.is_empty(), "{} of {} warm allocations are not the shaping library's, first:\n{}", ours.len(), reports.len(), ours[0]);
+        assert!(text.spare.len() <= SPARE_LAYOUTS && text.spare.capacity() <= 2 * SPARE_LAYOUTS);
+        assert!(text.entries.len() < 2 * KEEP_FRAMES as usize + 8);
     }
 
     fn row(text: &mut Text, row: usize) {
