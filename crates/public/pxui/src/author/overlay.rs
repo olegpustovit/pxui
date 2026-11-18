@@ -3,7 +3,7 @@
 //! picker_field), so a registered body replaces its structure.
 use crate::Handle;
 use super::Key;
-use crate::{PickerOpts, Ui};
+use crate::{Chosen, OverlayResponse, Picker, Ui};
 use pxui_types::{geom::Rect, ui::{Overlay, PickRows, PickerResponse, Toast}, Size};
 
 impl Ui {
@@ -19,13 +19,13 @@ impl Ui {
     /// ```
     /// use pxui::Overlay;
     /// const SETTINGS: Overlay = Overlay::DEFAULT.w(296.0).name("Settings");
-    /// pxui::doc::frames(1, &mut |ui| ui.panel("settings", &SETTINGS, |ui| { ui.label("Display", pxui::Label::DEFAULT); }));
+    /// pxui::doc::frames(1, &mut |ui| { assert!(ui.panel("settings", &SETTINGS, |ui| { ui.label("Display", pxui::Label::DEFAULT); }).open); });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn panel<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, mut f: F) { self.panel_key(key.into(), overlay, &mut f) }
+    pub fn panel<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, mut f: F) -> OverlayResponse { self.panel_key(key.into(), overlay, &mut f) }
 
-    /// Declares a popup at `Overlay::at`, `Overlay::w` wide (at least 180), builds `f` in it and returns whether it is open.
+    /// Declares a popup at `Overlay::at`, `Overlay::w` wide (at least 180), builds `f` in it and reports its root and open state.
     ///
     /// Escape, window focus loss or a press outside its last laid-out bounds dismisses it: `f` is skipped and `false` returned, so the
     /// caller drops its open state. `Overlay::h` is its hit area before it is first laid out; `Overlay::dismiss_initial` lets a press
@@ -38,15 +38,14 @@ impl Ui {
     /// ```
     /// use pxui::Overlay;
     /// let mut ran = false;
-    /// pxui::doc::frames(1, &mut |ui| { ran = ui.popup("song-menu", &Overlay::DEFAULT.at(10.0, 10.0).w(200.0).h(60.0), |_| {}); });
+    /// pxui::doc::frames(1, &mut |ui| { ran = ui.popup("song-menu", &Overlay::DEFAULT.at(10.0, 10.0).w(200.0).h(60.0), |_| {}).open; });
     /// assert!(ran);
     /// ```
     #[inline]
     #[track_caller]
-    pub fn popup<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, mut f: F) -> bool { self.popup_key(key.into(), overlay, &mut f) }
+    pub fn popup<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, mut f: F) -> OverlayResponse { self.popup_key(key.into(), overlay, &mut f) }
 
-    /// Declares a modal sheet centred in the content area, `Overlay::w` wide (320 by default), builds `f` in it and returns whether it is
-    /// open.
+    /// Declares a modal sheet centred in the content area, `Overlay::w` wide (320 by default), builds `f` in it and reports its root and open state.
     ///
     /// Escape, window focus loss or a press outside it dismisses it: `f` is skipped and `false` returned. Build it before the body it
     /// shields, at the root level; it paints on top. Named by `Overlay::name` (none without).
@@ -61,10 +60,10 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn modal<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, mut f: F) -> bool { self.modal_key(key.into(), overlay, &mut f) }
+    pub fn modal<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, mut f: F) -> OverlayResponse { self.modal_key(key.into(), overlay, &mut f) }
 
     /// Declares a sheet placed by `anchor` (window points, e.g. `ui.rect(&field)`) at `Overlay::place`, `Overlay::w` by `Overlay::h`
-    /// (each its content's when unset), builds `f` in it and returns its node.
+    /// (each its content's when unset), builds `f` in it and reports its root and open state.
     ///
     /// It opens on the placement's side, flips when it does not fit there and stays inside the window; built at the root wherever it is
     /// called and painted over the rest.
@@ -79,7 +78,7 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn anchored<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, mut f: F) -> Handle {
+    pub fn anchored<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, mut f: F) -> OverlayResponse {
         self.anchored_key(key.into(), anchor, overlay, &mut f)
     }
 
@@ -97,8 +96,8 @@ impl Ui {
     #[track_caller]
     pub fn scroll_view<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, w: Size, h: Size, mut f: F) -> Handle { self.scroll_view_key(key.into(), w, h, &mut f) }
 
-    /// Stacks the toasts `items` in the window's lower end corner (the newest lowest) and returns the index of one clicked away or expired
-    /// this frame (the caller drops it), or none.
+    /// Stacks the toasts `items` in the window's lower end corner (the newest lowest) and reports one clicked away or expired
+    /// this frame. The caller drops the item indicated by chosen or chosen_id. The stack itself remains open.
     ///
     /// Each goes `seconds` after it first showed: the library keeps that time by the toast's id and asks for the frame, so the host needs
     /// no timer.
@@ -109,14 +108,14 @@ impl Ui {
     ///
     /// ```
     /// use pxui::ui::Toast;
-    /// pxui::doc::frames(1, &mut |ui| { assert_eq!(ui.toasts("toasts", &[Toast::new(1, "Saved")], 3.0), None); });
+    /// pxui::doc::frames(1, &mut |ui| { assert_eq!(ui.toasts("toasts", &[Toast::new(1, "Saved")], 3.0).chosen, None); });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn toasts<K: Into<Key>>(&mut self, key: K, items: &[Toast], seconds: f64) -> Option<usize> { self.toasts_key(key.into(), items, seconds) }
+    pub fn toasts<K: Into<Key>>(&mut self, key: K, items: &[Toast<'_>], seconds: f64) -> Chosen { self.toasts_key(key.into(), items, seconds) }
 
     /// A focused search row over the `(label, detail)` rows `fill(query, rows)` pushes into `rows` for the current query (kept between
-    /// frames, their strings reused), windowed to `PickerOpts::limit` around the cursor; reports the edited query and what happened.
+    /// frames, their strings reused), windowed to `Picker::limit` around the cursor; reports the edited query and what happened.
     ///
     /// Indices in `Pick` refer to the rows of the returned query. `Pick::Pick` comes on Enter or a row click, `Submit` on Enter with no
     /// rows, `Delete` on a second Delete over the same armed row, `Back` on Backspace or Left with an empty query, `Cancel` on Escape.
@@ -129,13 +128,13 @@ impl Ui {
     /// ```
     /// use pxui::ui::Pick;
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let r = ui.picker("find", "Search", "", &pxui::PickerOpts::DEFAULT, &mut |_query, rows| rows.push("Song", "Artist"));
+    ///     let r = ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_query, rows| rows.push("Song", "Artist"));
     ///     assert_eq!((r.query, r.pick), ("", Pick::None));
     /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn picker<K: Into<Key>>(&mut self, key: K, placeholder: &str, query: &str, picker: &PickerOpts<'_>, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> {
+    pub fn picker<K: Into<Key>>(&mut self, key: K, placeholder: &str, query: &str, picker: &Picker<'_>, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> {
         self.picker_key(key.into(), placeholder, query, picker, fill)
     }
 }
@@ -144,7 +143,7 @@ impl Ui {
 mod tests {
     use crate::bodies::{ModalConfig, PanelConfig, PickerFieldConfig, PopupConfig, ScrollViewConfig, ToastsConfig};
     use crate::ui::{Node, Rect, Role, Size};
-    use crate::{testing, FrameIn, Overlay, PickerOpts, Ui};
+    use crate::{testing, FrameIn, Overlay, Picker, Ui};
     use std::cell::RefCell;
     use crate::bodies::BodyConfig;
 
@@ -165,7 +164,7 @@ mod tests {
         ui.popup("menu", &Overlay::DEFAULT.at(20.0, 200.0).w(120.0).h(40.0), |ui| { ui.label("in popup", crate::Label::BODY); });
         ui.scroll_view("log", Size::Px(100.0), Size::Px(60.0), |ui| { ui.label("in scroll", crate::Label::BODY); });
         ui.toasts("toasts", &[crate::ui::Toast::new(1, "Saved")], 3.0);
-        ui.picker("find", "Search", "", &PickerOpts::DEFAULT, &mut |_, _| {});
+        ui.picker("find", "Search", "", &Picker::DEFAULT, &mut |_, _| {});
         ui.modal("confirm", &Overlay::DEFAULT.name("Delete?"), |ui| { ui.label("in modal", crate::Label::BODY); });
     }
 
@@ -206,7 +205,7 @@ mod tests {
             ui.panel("settings", &Overlay::DEFAULT.name("Settings"), |_| {});
             ui.panel("plain", &Overlay::DEFAULT.at(300.0, 12.0), |_| {});
             let b = ui.anchored("hint", Rect::new(40.0, 40.0, 20.0, 10.0), &Overlay::DEFAULT.w(50.0).h(20.0), |_| {});
-            at.set(ui.rect(&b));
+            at.set(ui.rect(&b.handle));
         };
         let mut ui = crate::doc::frames(2, &mut build);
         assert!(testing::find(&ui, Role::Panel, "Settings").is_some());

@@ -22,12 +22,13 @@ fn dialog_buttons<'a, 'b>(texts: &[&'a str], details: &[&'a str], (default_at, c
 }
 
 /// The modal of a width flag and width named `name`, the body of `pxui_ui_modal` and `pxui_ui_modal_keyed`.
-unsafe fn modal(ui: *mut PxuiUi, key: &str, name: &str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
+unsafe fn modal(ui: *mut PxuiUi, key: &str, name: &str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8, root: Option<&mut PxuiBox>) -> i32 {
     if out.is_null() || has_width > 1 { return unsafe { fail(ui, "invalid modal arguments") }; }
     let overlay = Overlay { w: (has_width != 0).then_some(width), name: Some(name), ..Overlay::DEFAULT };
-    let mut open = false;
-    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut open) };
+    let (mut open, mut node) = (false, PxuiBox::default());
+    let rc = unsafe { crate::trusted::modal(ui, key, &overlay, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut open, &mut node) };
     unsafe { *out = open as u8; }
+    if let Some(root) = root { *root = node; }
     rc
 }
 
@@ -35,14 +36,22 @@ unsafe fn modal(ui: *mut PxuiUi, key: &str, name: &str, has_width: u8, width: f3
 export!(trusted pub unsafe fn pxui_ui_modal(ui: *mut PxuiUi, label: Str, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid modal label") }; };
-    unsafe { modal(ui, label, shown(label), has_width, width, callback, user, out) }
+    unsafe { modal(ui, label, shown(label), has_width, width, callback, user, out, None) }
 });
 
 // ABI 1.68: a modal keyed by `keyed.key`, named `keyed.name`.
 export!(trusted pub unsafe fn pxui_ui_modal_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { modal(ui, key, name, has_width, width, callback, user, out) }
+    unsafe { modal(ui, key, name, has_width, width, callback, user, out, None) }
+});
+
+// ABI 1.76: `pxui_ui_modal_keyed` that also writes the modal's root to `root` (the empty box when it is dismissed).
+export!(trusted pub unsafe fn pxui_ui_modal_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_width: u8, width: f32, callback: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if root.is_null() { return unsafe { fail(ui, "null modal root") }; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { modal(ui, key, name, has_width, width, callback, user, out, Some(&mut *root)) }
 });
 
 /// The scroll view named `name`, the body of `pxui_ui_scroll_view` and `pxui_ui_scroll_view_keyed`.

@@ -936,13 +936,13 @@ fn shared_ui(caption: &str) -> pxui::Ui {
 
 fn shared_frame_ui(ui: &mut pxui::Ui, caption: &str) {
     let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
-    ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
+    ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
         ui.label("PXUI", pxui_core::ui::Label::DEFAULT);
         ui.toggle("Animate", true);
         ui.toggle("Wire", false);
         ui.text_field("caption", caption, &pxui::TextField::DEFAULT.name("Caption"));
         ui.button("Quit");
-    })).expect("build shared-device panel");
+    }); }).expect("build shared-device panel");
 }
 
 /// A renderer adopting `device` through one native lease, as an app hands its GPU to libpxui.
@@ -1686,10 +1686,10 @@ fn shared_frame_serials() {
 /// A panel of `rows` labels and a caption: frames of different sizes, so each build moves the layer's instance count.
 fn rows_ui(ui: &mut pxui::Ui, rows: usize, caption: &str) {
     let input = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(1.0 / 60.0);
-    ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
+    ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
         for row in 0..rows { ui.label(&format!("row {row} {caption}"), pxui_core::ui::Label::DEFAULT); }
         ui.button("Quit");
-    })).expect("build a frame of rows");
+    }); }).expect("build a frame of rows");
 }
 
 /// Views of `rows` labels each, kept by revision: frames that move kept runs inside a layer.

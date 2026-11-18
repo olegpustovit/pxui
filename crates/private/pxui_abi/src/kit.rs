@@ -2,6 +2,7 @@ use crate::state::{boxed, MAX_TOTAL_TEXT_BYTES, PxuiUi, append_strings, checked,
 use crate::style::decode_look;
 use crate::ui::translate_event;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
+use pxui_types::ffi::PxuiResponse;
 use pxui_core::ui::{Axis, Keyframe, Keyframes, Repeat, Target, MAX_KEYS};
 use pxui_types::ffi::{PxuiCurveDesc, PxuiGridListDesc, Slice};
 pub use pxui_types::ffi::{PxuiFooterDesc, PxuiHintDesc, PxuiInspectorRowDesc, PxuiInspectorSectionDesc, PxuiInspectorTextDesc, PxuiInspectorValueDesc, PxuiKeyframeDesc, PxuiMenuBarDesc, PxuiMenuOut, PxuiSplitDesc, PxuiTableDesc};
@@ -266,20 +267,48 @@ export!(pub unsafe fn pxui_ui_animate(ui: *mut PxuiUi, box_: *const PxuiBox, key
 });
 
 export!(trusted pub unsafe fn pxui_ui_split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, changed: *mut u8, ratio: *mut f32) -> i32 {
+    let mut response = PxuiResponse::EMPTY;
+    unsafe { split(ui, desc, &mut response, changed, ratio, true) }
+});
+
+// ABI 1.76: the split of `desc` reporting the grip's response (the empty one when the body builds no grip) into `out`; `has_ratio` is
+// 1 with the ratio under the pointer in `ratio` while the grip is held and on its release frame (the release value is final), else 0.
+export!(trusted pub unsafe fn pxui_ui_split_result(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, out: *mut PxuiResponse, has_ratio: *mut u8, ratio: *mut f32) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short split response") } };
+    unsafe { split(ui, desc, out, has_ratio, ratio, false) }
+});
+
+/// The body of `pxui_ui_split` (`moved_only`: a ratio only when the grip moved along the axis) and `pxui_ui_split_result`.
+unsafe fn split(ui: *mut PxuiUi, desc: *const PxuiSplitDesc, response: &mut PxuiResponse, changed: *mut u8, ratio: *mut f32, moved_only: bool) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if desc.is_null() || changed.is_null() || ratio.is_null() { return unsafe { fail(ui, "null split argument") }; }
     let Some(desc) = sized!(desc) else { return unsafe { fail(ui, "invalid split descriptor") }; };
     if desc.axis > 1 { return unsafe { fail(ui, "invalid split descriptor") }; }
     let Some(label) = (unsafe { checked(desc.label) }) else { return unsafe { fail(ui, "invalid split label") }; };
     let axis = if desc.axis == 0 { Axis::Row } else { Axis::Column };
-    let mut moved = None;
+    let (mut moved, mut at) = (false, None);
     let rc = unsafe { crate::trusted::split(ui, label, axis, desc.ratio, desc.min_a, desc.min_b,
-        &mut |ui| if let Some(build) = desc.build_a { build(desc.user_a, ui.cast()) }, &mut |ui| if let Some(build) = desc.build_b { build(desc.user_b, ui.cast()) }, &mut moved) };
-    unsafe { *changed = moved.is_some() as u8; *ratio = moved.unwrap_or_default(); }
+        &mut |ui| if let Some(build) = desc.build_a { build(desc.user_a, ui.cast()) }, &mut |ui| if let Some(build) = desc.build_b { build(desc.user_b, ui.cast()) }, response, &mut moved, &mut at) };
+    let at = at.filter(|_| moved || !moved_only);
+    unsafe { *changed = at.is_some() as u8; *ratio = at.unwrap_or_default(); }
     rc
-});
+}
 
 export!(build pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut) -> i32 {
+    let mut dismissed = 0;
+    unsafe { menu_bar(ui, desc, out, &mut dismissed) }
+});
+
+// ABI 1.76: `pxui_ui_menu_bar` that also sets `dismissed` to 1 when the menu open at the frame's start closed without a pick.
+export!(build pub unsafe fn pxui_ui_menu_bar_result(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut, dismissed: *mut u8) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if dismissed.is_null() { return unsafe { fail(ui, "null menu bar argument") }; }
+    unsafe { menu_bar(ui, desc, out, &mut *dismissed) }
+});
+
+/// The body of `pxui_ui_menu_bar` and `pxui_ui_menu_bar_result`.
+unsafe fn menu_bar(ui: *mut PxuiUi, desc: *const PxuiMenuBarDesc, out: *mut PxuiMenuOut, dismissed: &mut u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null menu bar argument") }; }
     let (Some(desc), Some(out)) = (sized!(desc), sized_mut!(out)) else { return unsafe { fail(ui, "invalid menu bar descriptor") }; };
@@ -308,14 +337,15 @@ export!(build pub unsafe fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const PxuiM
             menus.push((unsafe { checked(menu.title) }.unwrap_or(""), items));
             at += menu.items.len;
         }
-        Some(unsafe { (&mut *state.engine).menu_bar(label, &menus) })
+        Some(unsafe { (&mut *state.engine).menu_bar_result(label, menus.len(), &|m| (menus[m].0, menus[m].1.len()), &|m, i| menus[m].1[i]) })
     } else { None };
     menus.clear();
     { let shared = state.shared(); shared.put_strs(flat); shared.menus = menus; }
-    let Some(picked) = picked else { return unsafe { fail(ui, "invalid menu bar strings") }; };
+    let Some((picked, closed)) = picked else { return unsafe { fail(ui, "invalid menu bar strings") }; };
     (out.menu, out.item) = picked.unwrap_or((usize::MAX, usize::MAX));
+    *dismissed = closed as u8;
     0
-});
+}
 
 export!(trusted pub unsafe fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut PxuiInspectorRowDesc) -> i32 {
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }

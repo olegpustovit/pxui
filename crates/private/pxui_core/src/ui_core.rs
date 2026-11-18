@@ -631,7 +631,7 @@ struct Piece {
 /// A node handle: its index in this frame's build (`NONE` for `box_of_key`), key, retained slot and
 /// the slot's generation. The slot and generation are stable while the node lives; a handle to a
 /// node that is gone is stale, and the engine checks it before touching the slot.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct UiBox {
     pub index: usize,
     pub box_key: i64,
@@ -1120,7 +1120,7 @@ pub struct Ui {
     // input
     pointer: (f32, f32),
     hot: i64,
-    hover_rest: Option<(String, (f32, f32), f64, i64)>,
+    hover_rest: Option<(HoverId, (f32, f32), f64, i64)>,
     active: Option<i64>,
     active_button: MouseButton,
     active_press: (f32, f32),
@@ -3301,6 +3301,16 @@ impl Ui {
             _ => f64::INFINITY,
         };
         Some(wake.min(hover)).filter(|t| t.is_finite())
+    }
+}
+
+/// What a hover wait is keyed by: the C export's text (copied when it starts) or a resolved key (copied as a number).
+pub(crate) enum HoverId { Text(String), Key(i64) }
+
+impl HoverId {
+    /// Whether this is the wait asked for by `text` (the C export's), else by the resolved `key`.
+    fn is(&self, text: Option<&str>, key: i64) -> bool {
+        match (self, text) { (HoverId::Text(a), Some(b)) => a == b, (HoverId::Key(a), None) => *a == key, _ => false }
     }
 }
 
@@ -6784,7 +6794,13 @@ impl Ui {
 
     // ------------------------------------------------------ layout helpers
 
-    pub fn hover_delay(&mut self, key: &str) -> bool {
+    /// The hover wait of the C text-keyed export: a new text copies it (its 1.x behaviour).
+    pub fn hover_delay(&mut self, key: &str) -> bool { self.hover_wait(Some(key), 0) }
+
+    /// The hover wait on a resolved key (a box key or an authored key resolved under its seed): resets copy no text.
+    pub fn hover_delay_key(&mut self, key: i64) -> bool { self.hover_wait(None, key) }
+
+    pub(crate) fn hover_wait(&mut self, text: Option<&str>, key: i64) -> bool {
         self.escape();
         let time = match &self.input_frame {
             Some(frame) => frame.input.t,
@@ -6796,7 +6812,7 @@ impl Ui {
         }
         match &self.hover_rest {
             Some((previous, pointer, start, seen))
-                if previous.as_str() == key
+                if previous.is(text, key)
                     && *pointer == self.pointer
                     && (*seen == self.frame_number || *seen == self.frame_number - 1)
                     && time >= *start =>
@@ -6806,7 +6822,7 @@ impl Ui {
                 time - start >= HOVER_SECONDS
             }
             _ => {
-                self.hover_rest = Some((key.to_owned(), self.pointer, time, self.frame_number));
+                self.hover_rest = Some((text.map_or(HoverId::Key(key), |t| HoverId::Text(t.to_owned())), self.pointer, time, self.frame_number));
                 false
             }
         }
@@ -6816,10 +6832,11 @@ impl Ui {
     /// size and long text wraps to further 14-point lines.
     #[doc(hidden)]
     /// The C 1.x `pxui_ui_tooltip` only (cut at 2.0): the tooltip sheet for a hover the caller tracks by `key`; Rust calls `tooltip`.
-    pub fn tooltip_legacy(&mut self, key: &str, text: &str) { self.tooltip_sheet(key, text) }
+    pub fn tooltip_legacy(&mut self, key: &str, text: &str) { self.tooltip_sheet(Some(key), 0, text) }
 
-    pub(crate) fn tooltip_sheet(&mut self, key: &str, text: &str) {
-        if !self.hover_delay(key) {
+    /// The tooltip once the hover wait of `wait` (text) or `key` (see `hover_wait`) has passed.
+    pub(crate) fn tooltip_sheet(&mut self, wait: Option<&str>, key: i64, text: &str) {
+        if !self.hover_wait(wait, key) {
             return;
         }
         let size = 8.max(self.font_size - 2);

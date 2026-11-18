@@ -1,10 +1,45 @@
 //! The kit's small widgets keyed apart from their text: `ui.checkbox(key, text, on, &Checkbox)`, `ui.radio`, `ui.tabs`,
 //! `ui.dropdown` and `ui.slider` report a `Response` (and the choice or value); `ui.progress`, `ui.spinner` and `ui.badge` declare
 //! stateless leaves and return their node. Each is built through its widget body, so a registered body replaces its structure.
-use crate::Handle;
+use crate::{Handle, PickResponse, Segment, SliderResponse};
 use super::{Key, Response};
 use crate::Ui;
 use pxui_types::{theme::BodyKind, ui::{Checkbox, Choice, Dropdown, Slider}};
+
+/// The radio group's accessible name and variant used by [Ui::radio].
+#[derive(Clone, Copy, Debug)]
+pub struct Radio<'a> {
+    pub(crate) name: &'a str,
+    pub(crate) variant: u16,
+}
+
+impl<'a> Radio<'a> {
+    /// The theme's default body variant, with no accessible group name.
+    pub const DEFAULT: Radio<'a> = Radio { name: "", variant: 0 };
+
+    /// Names the group for assistive technology.
+    ///
+    /// The label is borrowed for the build call.
+    /// Allocates: never.
+    /// Identity: The name supplies accessible text. The group is identified by its key.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Radio = pxui::Radio::DEFAULT.name("Mode");
+    /// ```
+    pub const fn name(mut self, name: &'a str) -> Radio<'a> { self.name = name; self }
+
+    /// Selects the variant the registered body receives.
+    ///
+    /// Zero uses the theme's variant.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Radio = pxui::Radio::DEFAULT.variant(2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Radio<'a> { self.variant = variant; self }
+}
 
 impl Ui {
     /// Declares a kit checkbox (a row with the 12-point box and `text`) under the current parent and reports what happened to it.
@@ -29,30 +64,25 @@ impl Ui {
     #[track_caller]
     pub fn checkbox<K: Into<Key>>(&mut self, key: K, text: &str, on: bool, checkbox: &Checkbox) -> Response { self.checkbox_key(key.into(), text, on, checkbox) }
 
-    /// Declares a kit radio group (one row a option, `selected` the chosen one) and reports the group's response and the choice.
+    /// Builds a radio group and reports its current choice and interaction.
     ///
-    /// One Tab stop; the arrows move the choice, a press on a row chooses it. `selected` is clamped to the options; `changed` says the
-    /// returned choice differs from `selected`. Each row is named by its option, the group by `Choice::name`.
-    /// Allocates: never on a warm frame (up to 32 options; more allocate a span).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never an option's text.
-    /// Panics: when the library refuses the call (outside a frame, more than 4096 options). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// The caller supplies its current selection. Arrows or a press choose an item. None leaves the group unselected.
+    /// Each option uses its explicit name when supplied and otherwise uses its text.
+    /// Allocates: never on a warm frame within the inline item capacity.
+    /// Identity: The key identifies this control among siblings. Items are keyed as in [Ui::segmented]: an item id (never display
+    /// text) follows the item through a reorder for node creation, focus and secondary presses, and unnamed items use a positional
+    /// namespace distinct from ids.
+    /// Panics: an invalid build or a key whose label exceeds 256 bytes.
     ///
     /// ```
-    /// use pxui::Choice;
-    /// let mut mode = 0;
-    /// let mut build = |ui: &mut pxui::Ui| {
-    ///     const MODE: Choice = Choice::DEFAULT.name("Mode");
-    ///     mode = ui.radio("mode", &["Auto", "Light", "Dark"], mode, &MODE).1;
-    /// };
-    /// let mut ui = pxui::doc::frames(1, &mut build);
-    /// let dark = pxui::testing::find(&ui, pxui::Role::Radio, "Dark").expect("the Dark row");
-    /// pxui::testing::click(&mut ui, f64::from(dark.x + 4.0), f64::from(dark.y + 4.0), &mut build);
-    /// assert_eq!(mode, 2);
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let _ = ui.radio("mode", &[pxui::Segment::new("Auto")], None, &pxui::Radio::DEFAULT);
+    /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn radio<K: Into<Key>>(&mut self, key: K, options: &[&str], selected: usize, choice: &Choice<'_>) -> (Response, usize) {
-        self.choice_key(0, BodyKind::radio, key.into(), choice.name, options, selected, choice.variant)
+    pub fn radio<K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, radio: &Radio<'_>) -> PickResponse {
+        self.pick_one_key(0, key.into(), radio.name, items, selected, radio.variant)
     }
 
     /// Declares a kit tab bar (`tabs` side by side, the one in use underlined) and reports the bar's response and the tab in use.
@@ -77,45 +107,45 @@ impl Ui {
         self.choice_key(1, BodyKind::tabs, key.into(), choice.name, tabs, selected, choice.variant)
     }
 
-    /// Declares a kit dropdown (`text`, then a button showing the chosen option and a chevron) and reports the button's response and
-    /// the choice.
+    /// Builds a dropdown and reports the button interaction and current selection.
     ///
-    /// A click, Enter, Space or Down opens its menu below (Up and Down move in it, Enter picks, Escape or a press outside closes it);
-    /// `changed` says the returned choice differs from `selected`. The button is named `text`. While open, its menu escapes a cached
-    /// view, so that view rebuilds each frame until it closes.
-    /// Allocates: never on a warm frame (up to 32 options).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: as `radio`. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// None leaves the group unselected. The button is named by text. Click, Enter, Space or Down opens the menu.
+    /// Arrows move through the menu. Enter picks. Escape and an outside press close the menu.
+    /// Allocates: never on a warm frame within the inline item capacity.
+    /// Identity: The key identifies this control among siblings. Items are keyed as in [Ui::segmented]: an item id (never display
+    /// text) follows the item through a reorder for node creation, focus and secondary presses, and unnamed items use a positional
+    /// namespace distinct from ids.
+    /// Panics: an invalid build or a key whose label exceeds 256 bytes.
     ///
     /// ```
-    /// let mut blend = 1;
-    /// pxui::doc::frames(1, &mut |ui| { blend = ui.dropdown("blend", "Blend", &["Normal", "Multiply"], blend, &pxui::Dropdown::DEFAULT).1; });
-    /// assert_eq!(blend, 1);
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let _ = ui.dropdown("blend", "Blend", &[pxui::Segment::new("Normal")], None, &pxui::Dropdown::DEFAULT);
+    /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn dropdown<K: Into<Key>>(&mut self, key: K, text: &str, options: &[&str], selected: usize, dropdown: &Dropdown) -> (Response, usize) {
-        self.choice_key(3, BodyKind::dropdown, key.into(), text, options, selected, dropdown.variant)
+    pub fn dropdown<K: Into<Key>>(&mut self, key: K, text: &str, items: &[Segment<'_>], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse {
+        self.pick_one_key(3, key.into(), text, items, selected, dropdown.variant)
     }
 
-    /// Declares a kit slider (`text`, then a rail with the filled part and a thumb) over `range` and reports the track's response and
-    /// the value, held in `range`.
+    /// Builds a slider and reports the resulting value and interaction.
     ///
-    /// Dragging, the arrows (a hundredth of the range; Page keys a tenth; Home and End the ends) and an assistive technology's SetValue
-    /// move it; `changed` says the returned value differs from `value`. The track is named `text`.
+    /// The value is clamped to the finite, ordered range. Dragging previews it. Release, keyboard and accessibility edits commit it,
+    /// and on that frame `preview` equals `commit` (see [crate::SliderResponse] for which frames supply each).
+    /// The track's accessible name is text.
     /// Allocates: never on a warm frame.
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the display text.
-    /// Panics: when the library refuses the call (outside a frame, a value or bound that is not finite, `range` reversed). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Identity: The key identifies this control among siblings. An item's id is independent of its display text.
+    /// Panics: an invalid build, a nonfinite value or bound, a reversed range, or an overlong key.
     ///
     /// ```
-    /// let mut volume = 0.5;
-    /// pxui::doc::frames(1, &mut |ui| { volume = ui.slider("volume", "Volume", volume, 0.0..=1.0, &pxui::Slider::DEFAULT).1; });
-    /// assert_eq!(volume, 0.5);
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let _ = ui.slider("volume", "Volume", 0.5, 0.0..=1.0, &pxui::Slider::DEFAULT);
+    /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn slider<K: Into<Key>>(&mut self, key: K, text: &str, value: f32, range: core::ops::RangeInclusive<f32>, slider: &Slider) -> (Response, f32) {
-        self.slider_key(key.into(), text, value, *range.start(), *range.end(), slider.variant)
+    pub fn slider<K: Into<Key>>(&mut self, key: K, text: &str, value: f32, range: core::ops::RangeInclusive<f32>, slider: &Slider) -> SliderResponse {
+        self.slider_key(key.into(), text, value, range, slider)
     }
 
     /// Declares a kit progress row (`text` and a 4-point track) and returns its node: a bar `value` (0 to 1) of the way, or with `None`
@@ -186,9 +216,9 @@ mod tests {
 
     fn build(ui: &mut Ui) {
         ui.checkbox("check", "Check", false, &Checkbox::DEFAULT.variant(1));
-        ui.radio("radio", &["A", "B"], 0, &Choice::DEFAULT.variant(2));
+        ui.radio("radio", &[crate::Segment::new("A"), crate::Segment::new("B")], Some(0), &crate::Radio::DEFAULT.variant(2));
         ui.tabs("tabs", &["T"], 0, &Choice::DEFAULT.variant(3));
-        ui.dropdown("drop", "Drop", &["x"], 0, &Dropdown::DEFAULT.variant(4));
+        ui.dropdown("drop", "Drop", &[crate::Segment::new("x")], Some(0), &Dropdown::DEFAULT.variant(4));
         ui.slider("slide", "Slide", 0.5, 0.0..=1.0, &Slider::DEFAULT.variant(5));
         ui.progress("prog", "Prog", None);
         ui.spinner("spin", "Spin");

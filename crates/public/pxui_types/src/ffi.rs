@@ -1342,6 +1342,24 @@ pub struct PxuiSegmentedDesc {
     pub reserved4: [u8; 7],
 }
 
+/// ABI 1.76: one item of a pick-one control (`pxui_ui_pick`, `pxui_ui_segmented_items`), borrowed for the call.
+#[repr(C)]
+#[derive(Clone, Copy, Debug, Default)]
+pub struct PxuiPickItem {
+    /// 1 when `id` keys the item (its node, focus and secondary press follow it through a reorder), 0 for an item keyed by its place.
+    pub has_id: u8,
+    /// Zero.
+    pub reserved: [u8; 7],
+    /// The item's id, read when `has_id` is 1.
+    pub id: i64,
+    /// The text shown.
+    pub text: Str,
+    /// The accessible name (empty: the text).
+    pub name: Str,
+    /// Additional text for the item's body (may be empty).
+    pub detail: Str,
+}
+
 /// One text button of an inspector head.
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -2072,6 +2090,7 @@ pub(crate) mod layout {
         check("PxuiTextFieldDesc", size_of::<PxuiTextFieldDesc>(), align_of::<PxuiTextFieldDesc>(), &[("size", core::mem::offset_of!(PxuiTextFieldDesc, size)), ("autocorrect", core::mem::offset_of!(PxuiTextFieldDesc, autocorrect)), ("capitalization", core::mem::offset_of!(PxuiTextFieldDesc, capitalization)), ("action", core::mem::offset_of!(PxuiTextFieldDesc, action)), ("reserved", core::mem::offset_of!(PxuiTextFieldDesc, reserved)), ("key", core::mem::offset_of!(PxuiTextFieldDesc, key)), ("name", core::mem::offset_of!(PxuiTextFieldDesc, name)), ("value", core::mem::offset_of!(PxuiTextFieldDesc, value))]);
         check("PxuiToggleDesc", size_of::<PxuiToggleDesc>(), align_of::<PxuiToggleDesc>(), &[("size", core::mem::offset_of!(PxuiToggleDesc, size)), ("enabled", core::mem::offset_of!(PxuiToggleDesc, enabled)), ("on", core::mem::offset_of!(PxuiToggleDesc, on)), ("press_row", core::mem::offset_of!(PxuiToggleDesc, press_row)), ("reserved", core::mem::offset_of!(PxuiToggleDesc, reserved)), ("row_h", core::mem::offset_of!(PxuiToggleDesc, row_h)), ("switch_w", core::mem::offset_of!(PxuiToggleDesc, switch_w)), ("switch_h", core::mem::offset_of!(PxuiToggleDesc, switch_h)), ("inset", core::mem::offset_of!(PxuiToggleDesc, inset)), ("track", core::mem::offset_of!(PxuiToggleDesc, track)), ("knob", core::mem::offset_of!(PxuiToggleDesc, knob)), ("key", core::mem::offset_of!(PxuiToggleDesc, key)), ("text", core::mem::offset_of!(PxuiToggleDesc, text)), ("detail", core::mem::offset_of!(PxuiToggleDesc, detail)), ("has_style", core::mem::offset_of!(PxuiToggleDesc, has_style)), ("reserved2", core::mem::offset_of!(PxuiToggleDesc, reserved2)), ("style", core::mem::offset_of!(PxuiToggleDesc, style))]);
         check("PxuiSegmentedDesc", size_of::<PxuiSegmentedDesc>(), align_of::<PxuiSegmentedDesc>(), &[("size", core::mem::offset_of!(PxuiSegmentedDesc, size)), ("enabled", core::mem::offset_of!(PxuiSegmentedDesc, enabled)), ("grow", core::mem::offset_of!(PxuiSegmentedDesc, grow)), ("reserved", core::mem::offset_of!(PxuiSegmentedDesc, reserved)), ("h", core::mem::offset_of!(PxuiSegmentedDesc, h)), ("states", core::mem::offset_of!(PxuiSegmentedDesc, states)), ("key", core::mem::offset_of!(PxuiSegmentedDesc, key)), ("name", core::mem::offset_of!(PxuiSegmentedDesc, name)), ("selected", core::mem::offset_of!(PxuiSegmentedDesc, selected)), ("w", core::mem::offset_of!(PxuiSegmentedDesc, w)), ("padding", core::mem::offset_of!(PxuiSegmentedDesc, padding)), ("min_segment", core::mem::offset_of!(PxuiSegmentedDesc, min_segment)), ("reserved2", core::mem::offset_of!(PxuiSegmentedDesc, reserved2)), ("names", core::mem::offset_of!(PxuiSegmentedDesc, names)), ("has_selected", core::mem::offset_of!(PxuiSegmentedDesc, has_selected)), ("reserved3", core::mem::offset_of!(PxuiSegmentedDesc, reserved3)), ("focus_on_click", core::mem::offset_of!(PxuiSegmentedDesc, focus_on_click)), ("reserved4", core::mem::offset_of!(PxuiSegmentedDesc, reserved4))]);
+        check("PxuiPickItem", size_of::<PxuiPickItem>(), align_of::<PxuiPickItem>(), &[("has_id", core::mem::offset_of!(PxuiPickItem, has_id)), ("reserved", core::mem::offset_of!(PxuiPickItem, reserved)), ("id", core::mem::offset_of!(PxuiPickItem, id)), ("text", core::mem::offset_of!(PxuiPickItem, text)), ("name", core::mem::offset_of!(PxuiPickItem, name)), ("detail", core::mem::offset_of!(PxuiPickItem, detail))]);
         check("PxuiHeadActionDesc", size_of::<PxuiHeadActionDesc>(), align_of::<PxuiHeadActionDesc>(), &[("size", core::mem::offset_of!(PxuiHeadActionDesc, size)), ("active", core::mem::offset_of!(PxuiHeadActionDesc, active)), ("usable", core::mem::offset_of!(PxuiHeadActionDesc, usable)), ("reserved", core::mem::offset_of!(PxuiHeadActionDesc, reserved)), ("caption", core::mem::offset_of!(PxuiHeadActionDesc, caption)), ("keycap", core::mem::offset_of!(PxuiHeadActionDesc, keycap))]);
         check("PxuiHeaderDesc", size_of::<PxuiHeaderDesc>(), align_of::<PxuiHeaderDesc>(), &[("size", core::mem::offset_of!(PxuiHeaderDesc, size)), ("has_kind", core::mem::offset_of!(PxuiHeaderDesc, has_kind)), ("has_badge", core::mem::offset_of!(PxuiHeaderDesc, has_badge)), ("has_index", core::mem::offset_of!(PxuiHeaderDesc, has_index)), ("has_reset", core::mem::offset_of!(PxuiHeaderDesc, has_reset)), ("reset_enabled", core::mem::offset_of!(PxuiHeaderDesc, reset_enabled)), ("reserved", core::mem::offset_of!(PxuiHeaderDesc, reserved)), ("key", core::mem::offset_of!(PxuiHeaderDesc, key)), ("kind", core::mem::offset_of!(PxuiHeaderDesc, kind)), ("badge", core::mem::offset_of!(PxuiHeaderDesc, badge)), ("index", core::mem::offset_of!(PxuiHeaderDesc, index)), ("reset", core::mem::offset_of!(PxuiHeaderDesc, reset)), ("title", core::mem::offset_of!(PxuiHeaderDesc, title)), ("detail", core::mem::offset_of!(PxuiHeaderDesc, detail)), ("actions", core::mem::offset_of!(PxuiHeaderDesc, actions))]);
         check("PxuiHeadOut", size_of::<PxuiHeadOut>(), align_of::<PxuiHeadOut>(), &[("size", core::mem::offset_of!(PxuiHeadOut, size)), ("has_chosen", core::mem::offset_of!(PxuiHeadOut, has_chosen)), ("reset_pressed", core::mem::offset_of!(PxuiHeadOut, reset_pressed)), ("reserved", core::mem::offset_of!(PxuiHeadOut, reserved)), ("renamed", core::mem::offset_of!(PxuiHeadOut, renamed)), ("chosen", core::mem::offset_of!(PxuiHeadOut, chosen))]);

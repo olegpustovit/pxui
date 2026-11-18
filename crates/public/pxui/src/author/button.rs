@@ -558,7 +558,7 @@ mod tests {
             let i = ui.icon_button("x", Icon::Glyph('x'), "Close", &IconButton::sized(30.0, 30.0).enabled(on));
             h[1] += (i.clicked || i.activated) as u32;
             h[2] += ui.toggle_with("t", "Wifi", false, &Toggle::DEFAULT.enabled(on)).changed as u32;
-            h[3] += (ui.segmented_with("s", &[crate::Segment::new("A"), crate::Segment::new("B")], Some(0), &Segmented::DEFAULT.enabled(on)).chosen != Some(0)) as u32;
+            h[3] += (ui.segmented("s", &[crate::Segment::new("A"), crate::Segment::new("B")], Some(0), &Segmented::DEFAULT.enabled(on)).chosen != Some(0)) as u32;
             hits.set(h);
         };
         let all = [(Role::Button, "Go"), (Role::Button, "Close"), (Role::Toggle, "Wifi"), (Role::Radio, "B")];

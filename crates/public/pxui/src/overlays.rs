@@ -3,11 +3,11 @@ use core::{cell::Cell, ffi::c_void};
 use pxui_types::{Str, ffi::{PxuiKeyedDesc, PxuiPopupDesc, Slice}, ui::{Key, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, Toast}};
 #[cfg(not(feature = "static"))]
 use pxui_types::ffi::{PxuiMenuExtra, PxuiSubmenu, PxuiSwatch};
-use crate::{composite::{defer_callback_panic, deferred}, check, Strs, Ui};
+use crate::{composite::{defer_callback_panic, deferred}, check, OverlayResponse, Strs, Ui};
 
-use crate::PickerOpts;
+use crate::Picker;
 library!(popup_lib {
-    fn pxui_ui_popup_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8) -> i32;
+    fn pxui_ui_popup_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: pxui_types::ffi::UiBuild, user: *mut c_void, out: *mut u8, root: *mut pxui_types::PxuiBox) -> i32;
 });
 
 
@@ -70,7 +70,7 @@ mod raw {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     ui.picker("find", "Search", "", &pxui::PickerOpts::DEFAULT, &mut |_query, rows| rows.push("Song", "Artist"));
+    ///     ui.picker("find", "Search", "", &pxui::Picker::DEFAULT, &mut |_query, rows| rows.push("Song", "Artist"));
     /// });
     /// ```
     pub fn pxui_ui_picker_keyed(ui:*mut PxuiUi,keyed:*const PxuiKeyedDesc,limit:i64,slash:u8,at_rest:u8,query:Str,rows:PickerRows,mark:PickerMark,off:PickerOff,user:*mut c_void,out_query:*mut Str,out_tag:*mut u32,out_index:*mut i64)->i32;
@@ -94,7 +94,7 @@ struct Rows<'a, 'f> {
     fill: &'a mut (dyn FnMut(&str, &mut PickRows) + 'f),
     owned: PickRows,
     raw: Vec<Str>,
-    options: &'a PickerOpts<'a>,
+    options: &'a Picker<'a>,
 }
 extern "C" fn mark(user: *mut c_void, row: i64, out: *mut pxui_types::geom::Rgba) -> u8 {
     if user.is_null() || out.is_null() || deferred() { return 0; }
@@ -131,7 +131,7 @@ impl Ui {
     /// Call it every frame after declaring `box_`; nothing shows while the pointer is elsewhere, during a press, on touch or while a
     /// popup is open. The tooltip is a sheet at the root, placed by the pointer, built through the tip body. A stale box shows nothing.
     /// Allocates: once for the rested text; never while nothing shows.
-    /// Identity: the tooltip is keyed by its text, so two boxes with one text share one.
+    /// Identity: the tooltip's owner supplies its identity. Updating its text keeps the same identity and hover timer.
     /// Panics: when the library refuses the call (outside a frame, text too long). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
@@ -151,7 +151,7 @@ impl Ui {
 
     /// The one body of `toasts`: keyed by `key`, each toast by its id; texts and ids as the export's columns (on the stack up to 32).
     #[track_caller]
-    pub(crate) fn toasts_key(&mut self, key: Key, items: &[Toast], seconds: f64) -> Option<usize> {
+    pub(crate) fn toasts_key(&mut self, key: Key, items: &[Toast], seconds: f64) -> Chosen {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), "");
         let texts = Strs::each(items.len(), &|i| items[i].text);
@@ -166,12 +166,13 @@ impl Ui {
         };
         let mut index: i64 = -1;
         check(self, unsafe { raw::pxui_ui_toasts_keyed(self.0.as_ptr(), &keyed, texts.span(), Slice { ptr: ids.as_ptr(), len: ids.len() }, seconds, &mut index) });
-        (index >= 0).then_some(index as usize)
+        let chosen = (index >= 0).then_some(index as usize);
+        Chosen { chosen, chosen_id: chosen.and_then(|index| items.get(index).map(|item| item.id)), dismissed: false }
     }
 
     /// The one body of `popup`: the overlay as the popup record, keyed by `key` and named by the overlay's name.
     #[track_caller]
-    pub(crate) fn popup_key(&mut self, key: Key, overlay: &Overlay<'_>, mut f: &mut dyn FnMut(&mut Ui)) -> bool {
+    pub(crate) fn popup_key(&mut self, key: Key, overlay: &Overlay<'_>, mut f: &mut dyn FnMut(&mut Ui)) -> OverlayResponse {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(overlay.name.unwrap_or("")));
         let desc = PxuiPopupDesc {
@@ -179,9 +180,9 @@ impl Ui {
             dismiss_initial: overlay.dismiss_initial as u8, attached: overlay.attached as u8, stroke: overlay.stroke.unwrap_or_default(), max_height: overlay.max_h.unwrap_or_default(),
             x: overlay.at.0, y: overlay.at.1, width: overlay.w.unwrap_or(0.0), height: overlay.h.unwrap_or(0.0), label: Str::default(),
         };
-        let mut out = 0;
-        check(self, unsafe { popup_lib::pxui_ui_popup_keyed(self.0.as_ptr(), &keyed, &desc, Some(crate::composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void, &mut out) });
-        out != 0
+        let (mut out, mut handle) = (0, crate::Handle::default());
+        check(self, unsafe { popup_lib::pxui_ui_popup_root(self.0.as_ptr(), &keyed, &desc, Some(crate::composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void, &mut out, &mut handle) });
+        OverlayResponse { handle, open: out != 0 }
     }
 
     /// The one body of `menu`: linked statically, the library's trusted entry with the rows as they are; else the rows as the C export's
@@ -271,7 +272,7 @@ impl Ui {
 
     /// The one body of `picker`: key and placeholder apart in a `PxuiKeyedDesc`; the rows the app pushes kept on the thread between calls.
     #[track_caller]
-    pub(crate) fn picker_key(&mut self, key: Key, placeholder: &str, query: &str, options: &PickerOpts<'_>, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> {
+    pub(crate) fn picker_key(&mut self, key: Key, placeholder: &str, query: &str, options: &Picker<'_>, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(placeholder));
         let (owned, raw) = ROWS.take();

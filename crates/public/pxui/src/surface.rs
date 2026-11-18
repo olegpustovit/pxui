@@ -356,14 +356,14 @@ fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocatio
 
 #[test]
 fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_warm_allocations() {
-    use crate::{Event, Scrub, Touch, Str, ui::{Node, Role}};
+    use crate::{Event, SliderResponse, Touch, Str, ui::{Node, Role}};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     ui.set_a11y(true);
     let value = Cell::new(40.0);
     let range = Cell::new((10.0, 110.0));
-    let result = Cell::new(None::<Scrub>);
+    let result = Cell::new(None::<SliderResponse>);
     let popup = Cell::new(false);
     let present = Cell::new(true);
     let mut build = |ui: &mut Ui| {
@@ -371,7 +371,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         if !present.get() { result.set(None); return; }
         let (lo, hi) = range.get();
         let scrub = ui.scrub("position", value.get(), lo..=hi, &crate::Scrubber::DEFAULT.step(5.0).name("Position"));
-        ui.set_node_layout(&scrub.node, &Node::DEFAULT.w_px(200.0).h_px(20.0));
+        ui.set_node_layout(&scrub.response.handle, &Node::DEFAULT.w_px(200.0).h_px(20.0));
         result.set(Some(scrub));
     };
     let pointer = |kind, x, code| Event { kind, x, y: 10.0, code, ..Default::default() };
@@ -410,8 +410,8 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
                 frame
             }, &mut build).unwrap();
             let s = result.get().unwrap();
-            assert_eq!((s.preview, s.commit, s.held), (preview, commit, held), "event {event:?}");
-            assert_eq!(ui.rect(&s.node), Rect::new(0.0, 0.0, 200.0, 20.0));
+            assert_eq!((s.preview, s.commit, s.response.held), (preview, commit, held), "event {event:?}");
+            assert_eq!(ui.rect(&s.response.handle), Rect::new(0.0, 0.0, 200.0, 20.0));
         }
         // The release point survives a later move in the same batch.
         let press = pointer(Event::POINTER_PRESSED, 50.0, 0);
@@ -443,7 +443,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             frame
         }, &mut build).unwrap();
         let s = result.get().unwrap();
-        assert_eq!((s.preview,s.commit,s.held),(Some(20.0),Some(85.0),true),"a new capture previews independently of the previous release");
+        assert_eq!((s.preview,s.commit,s.response.held),(Some(20.0),Some(85.0),true),"a new capture previews independently of the previous release");
         let cancel = pointer(Event::POINTER_CANCELLED,20.0,0);
         ui.frame(&{
             let mut frame = input().time(time);
@@ -467,7 +467,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
                 frame
             }, &mut build).unwrap();
             let s=result.get().unwrap();let expected=if accessible {75.0} else {40.0};
-            assert_eq!((s.preview,s.commit,s.held),(Some(expected),Some(expected),false),"digital adjustment takes over a held pointer");
+            assert_eq!((s.preview,s.commit,s.response.held),(Some(expected),Some(expected),false),"digital adjustment takes over a held pointer");
             let release=pointer(Event::POINTER_RELEASED,150.0,0);
             ui.frame(&{
                 let mut frame = input().time(time);
@@ -524,7 +524,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
                 frame
             }, &mut build).unwrap();
             let s = result.get().unwrap();
-            assert_eq!(s.held,held);
+            assert_eq!(s.response.held,held);
             assert!(s.commit.is_none(),"multitouch cancels the original adjustment");
         }
         ui.frame(&{
@@ -535,7 +535,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         }, &mut build).unwrap();
         popup.set(true);
         ui.frame(&input().time(time), &mut build).unwrap();
-        assert!(!result.get().unwrap().held);
+        assert!(!result.get().unwrap().response.held);
         let release = pointer(Event::POINTER_RELEASED,150.0,0);
         ui.frame(&{
             let mut frame = input().time(time);
@@ -575,7 +575,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
     }, &mut build).unwrap();
     range.set((10.0, 10.0)); value.set(10.0);
     ui.frame(&input().time(time), &mut build).unwrap();
-    assert!(!result.get().unwrap().held);
+    assert!(!result.get().unwrap().response.held);
     assert!(ui.a11y_nodes().iter().find(|n| n.id == identity).unwrap().is_role(Role::Progress));
     range.set((10.0, 110.0)); value.set(40.0);
     let release = pointer(Event::POINTER_RELEASED, 150.0, 0);
@@ -588,7 +588,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
     assert!(result.get().unwrap().commit.is_none(), "a read-only transition cancels capture");
     ui.set_dir(true);
     ui.frame(&input().time(time), &mut build).unwrap();
-    let x = f64::from(ui.rect(&result.get().unwrap().node).x);
+    let x = f64::from(ui.rect(&result.get().unwrap().response.handle).x);
     let press = pointer(Event::POINTER_PRESSED, x + 50.0, 0);
     let release = pointer(Event::POINTER_RELEASED, x + 150.0, 0);
     ui.frame(&{
@@ -1381,7 +1381,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 assert_eq!(ui.field_drag(&grip), None);
                 if round == 0 { assert!(ui.animate(&grip, Target::Opacity(0.5), Curve::Spring { omega: 30.0 }), "a new target starts moving"); }
                 let mut ran = false;
-                let open = ui.popup("pop", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(100.0).h(40.0).max_h(100.0).dismiss_initial(), &mut |ui: &mut Ui| { ran = true; ui.label("popped", crate::Label::DEFAULT); });
+                let open = ui.popup("pop", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(100.0).h(40.0).max_h(100.0).dismiss_initial(), &mut |ui: &mut Ui| { ran = true; ui.label("popped", crate::Label::DEFAULT); }).open;
                 assert_eq!(open, ran, "the build runs exactly while the popup is open");
             });
         }).expect("frame");
@@ -3468,4 +3468,140 @@ fn resolve_gives_the_style_a_label_shapes_with() {
         assert!(ui.text_line_box(&node,"x",&crate::Label::BODY.size(-1.0),&[]).is_err());
         ui.text_line_box(&node,"x",&crate::Label::BODY.line_height(20.0),&[]).unwrap();
     }).unwrap();
+}
+
+/// U1b.1: pick-one items keyed by id follow a reorder and never meet a positional item; a click chooses and a secondary press
+/// reports its item; the slider commits on release with an equal preview; overlays report their roots and a dismissal; the menu
+/// bar reports the flat index, the item id and a dismissal; the split reports its ratio while held and on release. Warm frames
+/// of all of these allocate nothing.
+#[test]
+fn u1b1_results_follow_item_ids_report_phases_roots_and_menus_without_warm_allocations() {
+    use crate::testing;
+    use crate::{Event, Segment, ui::{MenuItem, Role}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    const A: Segment = Segment::new("Alpha").id(1);
+    const B: Segment = Segment::new("Beta").id(2);
+    const POSITIONAL: [Segment; 3] = [Segment::new("P"), Segment::new("Q"), Segment::new("R").id(1)];
+    const FILE: [MenuItem; 2] = [MenuItem::new("Open").id(10), MenuItem::new("Save").id(11)];
+    const MENUS: [crate::MenuBarMenu; 1] = [crate::MenuBarMenu::new("File", &FILE)];
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.set_a11y(true);
+    let (flip, popup_open) = (Cell::new(false), Cell::new(true));
+    let (pick, seg, slide) = (Cell::new(None::<crate::PickResponse>), Cell::new(None::<crate::PickResponse>), Cell::new(None::<crate::SliderResponse>));
+    let (popup, panel, bar, split) = (Cell::new(None::<crate::OverlayResponse>), Cell::new(None::<crate::OverlayResponse>), Cell::new(None::<crate::Chosen>), Cell::new(None::<crate::SplitResponse>));
+    let mut build = |ui: &mut Ui| {
+        bar.set(Some(ui.menu_bar("bar", &MENUS, &crate::MenuBar::DEFAULT)));
+        let items = if flip.get() { [B, A] } else { [A, B] };
+        pick.set(Some(ui.radio("mode", &items, Some(0), &crate::Radio::DEFAULT.name("Mode"))));
+        seg.set(Some(ui.segmented("seg", &POSITIONAL, None, &crate::Segmented::DEFAULT)));
+        slide.set(Some(ui.slider("vol", "Volume", 0.5, 0.0..=1.0, &crate::Slider::DEFAULT)));
+        split.set(Some(ui.split("split", 0.5, &crate::Split::DEFAULT, &mut |_| {}, &mut |_| {})));
+        panel.set(Some(ui.panel("p", &crate::Overlay::DEFAULT.at(200.0, 150.0).w(100.0), |_| {})));
+        if popup_open.get() { popup.set(Some(ui.popup("pop", &crate::Overlay::DEFAULT.at(250.0, 10.0).w(60.0).h(20.0), |_| {}))); }
+    };
+    let id_of = |ui: &Ui, name: &str| ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == name).map(|n| n.id).expect(name);
+    for _ in 0..2 { testing::frame(&mut ui, &[], &mut build); }
+    let (beta, q, r) = (id_of(&ui, "Beta"), id_of(&ui, "Q"), id_of(&ui, "R"));
+    assert_ne!(q, r, "explicit id 1 and the item at index 1 are two identities");
+    flip.set(true);
+    testing::frame(&mut ui, &[], &mut build);
+    assert_eq!(id_of(&ui, "Beta"), beta, "an item keyed by id keeps its node through a reorder");
+    // overlays: the popup's and the panel's roots are live; Escape dismisses the popup with the empty handle
+    let (open, root) = (popup.get().unwrap(), panel.get().unwrap().handle);
+    assert!(open.open && open.handle.box_key != 0 && panel.get().unwrap().open);
+    assert!(ui.rect(&open.handle).w > 0.0 && ui.rect(&root).w > 0.0);
+    testing::key(&mut ui, crate::KeyCode::Escape, &mut build);
+    assert_eq!((popup.get().unwrap().open, popup.get().unwrap().handle.box_key), (false, 0));
+    popup_open.set(false);
+    testing::frame(&mut ui, &[], &mut build);
+    // a click on Beta (now first) keeps it; Alpha (second) is chosen and changes the choice
+    let alpha = testing::find(&ui, Role::Radio, "Alpha").unwrap();
+    testing::click(&mut ui, f64::from(alpha.x + 4.0), f64::from(alpha.y + 4.0), &mut build);
+    let p = pick.get().unwrap();
+    assert_eq!((p.chosen, p.response.changed, p.secondary), (Some(1), true, None));
+    let at = |kind, x: f32, y: f32, code| Event { kind, x: f64::from(x), y: f64::from(y), code, ..Default::default() };
+    testing::frame(&mut ui, &[at(Event::POINTER_PRESSED, alpha.x + 4.0, alpha.y + 4.0, 1)], &mut build);
+    assert_eq!(pick.get().unwrap().secondary, Some(1), "a secondary press reports its item and never chooses");
+    testing::frame(&mut ui, &[at(Event::POINTER_RELEASED, alpha.x + 4.0, alpha.y + 4.0, 1)], &mut build);
+    // the slider: a held drag previews, the release commits with an equal preview, the next frame has neither
+    let track = slide.get().unwrap().response.handle;
+    let t = ui.rect(&track);
+    let (x, y) = (t.x + t.w * 0.75, t.y + t.h / 2.0);
+    testing::frame(&mut ui, &[at(Event::POINTER_PRESSED, x, y, 0)], &mut build);
+    let s = slide.get().unwrap();
+    assert!(s.preview.is_some() && s.commit.is_none() && s.response.held && Some(s.value) == s.preview);
+    testing::frame(&mut ui, &[at(Event::POINTER_RELEASED, x, y, 0)], &mut build);
+    let s = slide.get().unwrap();
+    assert!(s.commit.is_some() && s.preview == s.commit && s.response.changed);
+    testing::frame(&mut ui, &[], &mut build);
+    assert_eq!((slide.get().unwrap().preview, slide.get().unwrap().commit), (None, None));
+    // the split: no ratio at rest; a held grip and its release report one
+    assert_eq!(split.get().unwrap().ratio, None);
+    let grip = ui.rect(&split.get().unwrap().response.handle);
+    let (gx, gy) = (grip.x + grip.w / 2.0, grip.y + grip.h / 2.0);
+    testing::frame(&mut ui, &[at(Event::POINTER_PRESSED, gx, gy, 0)], &mut build);
+    assert!(split.get().unwrap().ratio.is_some() && split.get().unwrap().response.held, "a held grip reports its ratio even before it moves");
+    testing::frame(&mut ui, &[at(Event::POINTER_MOVED, gx + 20.0, gy, 0), at(Event::POINTER_RELEASED, gx + 20.0, gy, 0)], &mut build);
+    assert!(split.get().unwrap().ratio.is_some_and(|r| r > 0.5), "the release frame reports the final ratio");
+    testing::frame(&mut ui, &[], &mut build);
+    assert_eq!(split.get().unwrap().ratio, None);
+    // the menu bar: open File, pick Save (flat index 1, id 11); open again and a press outside is a dismissal
+    let file = testing::find(&ui, Role::MenuItem, "File").unwrap();
+    testing::click(&mut ui, f64::from(file.x + 4.0), f64::from(file.y + 4.0), &mut build);
+    let save = testing::find(&ui, Role::MenuItem, "Save").unwrap();
+    testing::click(&mut ui, f64::from(save.x + 4.0), f64::from(save.y + 4.0), &mut build);
+    let c = bar.get().unwrap();
+    assert_eq!((c.chosen, c.chosen_id, c.dismissed), (Some(1), Some(11), false));
+    testing::click(&mut ui, f64::from(file.x + 4.0), f64::from(file.y + 4.0), &mut build);
+    testing::frame(&mut ui, &[at(Event::POINTER_PRESSED, 310.0, 230.0, 0)], &mut build);
+    let c = bar.get().unwrap();
+    assert_eq!((c.chosen, c.dismissed), (None, true));
+    // warm frames, including presses and moves, allocate nothing
+    testing::frame(&mut ui, &[], &mut build);
+    mem_sys::local_reset();
+    for (kind, x, y) in [(Event::POINTER_MOVED, x, y), (Event::POINTER_PRESSED, x, y), (Event::POINTER_MOVED, x - 10.0, y), (Event::POINTER_RELEASED, x - 10.0, y), (Event::POINTER_MOVED, gx, gy)] {
+        testing::frame(&mut ui, &[at(kind, x, y, 0)], &mut build);
+    }
+    assert_eq!(mem_sys::local_alloc_count(), 0, "warm U1b.1 result frames allocate nothing");
+}
+
+/// U1b.1: a tooltip's wait is keyed by its owner: one text on two boxes is two waits, a changed text keeps the owner's wait,
+/// and the wait allocates nothing.
+#[test]
+fn a_tooltip_waits_by_its_owner_and_allocates_nothing_while_it_waits() {
+    use crate::{Event, ui::{Flags, Node, Role}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.set_a11y(true);
+    let text = Cell::new("Tip");
+    let mut build = |ui: &mut Ui| {
+        for (key, x) in [("a", 0.0), ("b", 100.0)] {
+            let b = ui.node(key.into(), Node { flags: Flags::CLICKABLE, role: Role::Button, at: Some((x, 0.0)).into(), w: crate::ui::Size::Px(80.0), h: crate::ui::Size::Px(30.0), ..Node::DEFAULT });
+            ui.tooltip(&b, text.get());
+        }
+    };
+    let shown = |ui: &Ui, name: &str| ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n).contains(name) && n.role != Role::Button as u32);
+    let mut time = 0.0;
+    let mut rest = |ui: &mut Ui, x: f64, frames: usize, build: &mut dyn FnMut(&mut Ui)| for _ in 0..frames {
+        time += 0.1;
+        let moved = Event { kind: Event::POINTER_MOVED, x, y: 10.0, ..Default::default() };
+        let mut frame = FrameIn::new(320.0, 240.0).time(time);
+        frame.wire.events = &moved;
+        frame.wire.event_count = 1;
+        ui.frame(&frame, build).unwrap();
+    };
+    rest(&mut ui, 10.0, 2, &mut build);
+    mem_sys::local_reset();
+    rest(&mut ui, 10.0, 2, &mut build);
+    assert_eq!(mem_sys::local_alloc_count(), 0, "a waiting tooltip copies no text");
+    rest(&mut ui, 10.0, 3, &mut build);
+    assert!(shown(&ui, "Tip"), "the owner's wait passed");
+    rest(&mut ui, 110.0, 1, &mut build);
+    assert!(!shown(&ui, "Tip"), "another owner with the same text waits again");
+    rest(&mut ui, 110.0, 5, &mut build);
+    text.set("Tip two");
+    rest(&mut ui, 110.0, 1, &mut build);
+    assert!(shown(&ui, "Tip two"), "a changed text keeps the owner's wait");
 }

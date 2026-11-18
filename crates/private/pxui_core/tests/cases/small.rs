@@ -138,7 +138,7 @@ pub fn window_pxui_keyboard() {
     step(&mut ui, &mut model, vec![], vec![key_down(Key::Tab), key_down(Key::Space)]);
     check(model.enabled, "Space did not toggle the focused control");
     // Rebuilding fewer controls prunes focus and keeps hidden controls inert.
-    ui.frame(&keyboard_frame(vec![], vec![]), &mut |ui| ui.panel("controls", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("controls"), &mut |_| {}));
+    ui.frame(&keyboard_frame(vec![], vec![]), &mut |ui| { ui.panel("controls", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("controls"), &mut |_| {}); });
     check(!ui.text_input_focused(), "disappearing focused controls kept focus");
     step(&mut ui, &mut model, vec![], vec![key_down(Key::Space)]);
     check(model.enabled, "a control that had disappeared kept its keyboard activation");

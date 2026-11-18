@@ -1,5 +1,4 @@
-//! The kit toggle and segmented control with options: `ui.toggle_with(key, text, on, &Toggle)` reports a `Response` and `ui.segmented_with(key,
-//! options, selected, &Segmented)` a `SegmentedResponse` (`changed` when the value moved); `ui.toggle(text, on)` is the toggle's default.
+//! Keyed toggle and segmented controls, built through registered widget bodies.
 use super::{Key, Response};
 use crate::{Segment, Ui};
 use pxui_types::ui::Segmented;
@@ -141,18 +140,6 @@ impl<'a> Toggle<'a> {
     pub const fn label(mut self, label: Label) -> Toggle<'a> { self.label = Some(label); self }
 }
 
-/// What `Ui::segmented_with` reports: the strip's response, the choice and the option a secondary press began on.
-#[derive(Clone, Copy, Debug)]
-pub struct SegmentedResponse {
-    /// The strip's response: `clicked` (and `activated`) for a press or Space/Enter on an option, `changed` when `chosen` differs from the
-    /// `selected` given, `hovered`, `held` and `focused` for the strip or any option, `secondary` as `secondary` below; `handle` the strip.
-    pub response: Response,
-    /// The choice after this frame's input; `None` when no option is chosen (a press or an arrow key chooses one).
-    pub chosen: Option<usize>,
-    /// The option a secondary press (the right button, or the two-finger or control click the platform reports as one) began on this
-    /// frame: the request for its context menu. It never changes the choice.
-    pub secondary: Option<usize>,
-}
 
 impl Ui {
     /// Declares a kit toggle (a row with `text` and a switch) under the current parent and reports what happened to it.
@@ -210,8 +197,10 @@ impl Ui {
     /// chooses one; an index past the options is clamped to the last. A secondary press on an option is `secondary` (its index), never a
     /// choice. The strip is named `Segmented::name` (none without), each option by its `Segment::name` (its text without).
     /// Allocates: never on a warm frame (up to 32 options; more allocate a span).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never an option's text. The options are
-    /// keyed by their place in the strip.
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never an option's text. An option
+    /// with `Segment::id` is keyed by that id, so its node, focus and a secondary press in progress follow it when the options reorder;
+    /// an option without one is keyed by its place in a separate positional namespace (explicit id 1 and the option at index 1 never
+    /// share an identity). Each option's id, name and detail reach its registered body in both link modes.
     /// Panics: when the library refuses the arguments (outside a frame, more than 4096 options, a negative height, width, padding or least width). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
@@ -220,7 +209,7 @@ impl Ui {
     /// let mut build = |ui: &mut pxui::Ui| {
     ///     const CHIPS: Segmented = Segmented::DEFAULT.h_px(28.0).name("Appearance");
     ///     const OPTIONS: [Segment; 3] = [Segment::new("System"), Segment::new("Light"), Segment::new("Dark").name("Use the dark theme")];
-    ///     let strip = ui.segmented_with("appearance", &OPTIONS, chosen, &CHIPS);
+    ///     let strip = ui.segmented("appearance", &OPTIONS, chosen, &CHIPS);
     ///     if strip.response.changed { chosen = strip.chosen; }
     /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
@@ -230,9 +219,9 @@ impl Ui {
     /// ```
     #[inline]
     #[track_caller]
-    pub fn segmented_with<K: Into<Key>>(&mut self, key: K, options: &[Segment], selected: Option<usize>, segmented: &Segmented<'_>) -> SegmentedResponse { self.segmented_key(key.into(), options, selected, segmented) }
+    pub fn segmented<K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, segmented: &Segmented<'_>) -> crate::PickResponse { self.segmented_key(key.into(), items, selected, segmented) }
 
-    /// The one body of `toggle_with`: the key's label, then the engine call.
+    /// The one body of `toggle`: the key's label, then the engine call.
     #[track_caller]
     fn toggle_key(&mut self, key: Key, text: &str, on: bool, toggle: &Toggle<'_>) -> Response {
         let mut id_label = [0u8; 17];
@@ -244,9 +233,9 @@ impl Ui {
         response
     }
 
-    /// The one body of `segmented_with`: the key's label, then the engine call.
+    /// The one body of `segmented`: the key's label, then the engine call.
     #[track_caller]
-    fn segmented_key(&mut self, key: Key, options: &[Segment], selected: Option<usize>, segmented: &Segmented<'_>) -> SegmentedResponse {
+    fn segmented_key(&mut self, key: Key, options: &[Segment], selected: Option<usize>, segmented: &Segmented<'_>) -> crate::PickResponse {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
         if segmented.variant == 0 { return self.segmented_keyed(label, segmented.name.unwrap_or(""), options, selected, segmented); }
@@ -352,7 +341,7 @@ mod tests {
         let chosen = Cell::new(1usize);
         let last: Cell<Option<Response>> = Cell::new(None);
         let mut build = |ui: &mut Ui| {
-            let r = ui.segmented_with("cache", &OPTIONS, Some(chosen.get()), &CHIPS);
+            let r = ui.segmented("cache", &OPTIONS, Some(chosen.get()), &CHIPS);
             chosen.set(r.chosen.unwrap());
             last.set(Some(r.response));
         };
@@ -380,7 +369,7 @@ mod tests {
     #[test]
     fn default_height_and_a_disabled_strip_blocks_input() {
         let (chosen, enabled) = (Cell::new(0usize), Cell::new(false));
-        let mut plain = |ui: &mut Ui| { chosen.set(ui.segmented_with("align", &[Segment::new("Left"), Segment::new("Right")], Some(chosen.get()), &Segmented::DEFAULT.name("Align")).chosen.unwrap()); };
+        let mut plain = |ui: &mut Ui| { chosen.set(ui.segmented("align", &[Segment::new("Left"), Segment::new("Right")], Some(chosen.get()), &Segmented::DEFAULT.name("Align")).chosen.unwrap()); };
         let mut ui = crate::doc::frames(3, &mut plain);
         let (_, strip) = node(&ui, Role::Group, "Align");
         assert_eq!(strip.h, 20.0);
@@ -388,7 +377,7 @@ mod tests {
         click_centre(&mut ui, right, &mut plain);
         assert_eq!(chosen.get(), 1);
         chosen.set(0);
-        let mut off = |ui: &mut Ui| { chosen.set(ui.segmented_with("seg", &[Segment::new("Left"), Segment::new("Right")], Some(chosen.get()), &Segmented::DEFAULT.enabled(enabled.get()).name("Align")).chosen.unwrap()); };
+        let mut off = |ui: &mut Ui| { chosen.set(ui.segmented("seg", &[Segment::new("Left"), Segment::new("Right")], Some(chosen.get()), &Segmented::DEFAULT.enabled(enabled.get()).name("Align")).chosen.unwrap()); };
         let mut ui = crate::doc::frames(3, &mut off);
         let (states, _) = node(&ui, Role::Group, "Align");
         let (radio, right) = node(&ui, Role::Radio, "Right");
@@ -413,7 +402,7 @@ mod tests {
     fn no_choice_checks_nothing_until_a_press_or_key_chooses() {
         let (chosen, last) = (Cell::new(None), Cell::new(None));
         let mut build = |ui: &mut Ui| {
-            let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT.name("Mode"));
+            let r = ui.segmented("s", &THREE, chosen.get(), &Segmented::DEFAULT.name("Mode"));
             if r.response.changed { chosen.set(r.chosen); }
             last.set(Some(r));
         };
@@ -448,7 +437,7 @@ mod tests {
         let (chosen, last) = (Cell::new(Some(0)), Cell::new(None));
         let mut build = |ui: &mut Ui| {
             ui.button_with("before", "Before", &crate::Button::DEFAULT);
-            let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT);
+            let r = ui.segmented("s", &THREE, chosen.get(), &Segmented::DEFAULT);
             if r.response.changed { chosen.set(r.chosen); }
             last.set(Some(r));
             ui.button_with("after", "After", &crate::Button::DEFAULT);
@@ -488,7 +477,7 @@ mod tests {
     fn assistive_technology_focuses_any_option() {
         let chosen = Cell::new(Some(0));
         let mut build = |ui: &mut Ui| {
-            let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT);
+            let r = ui.segmented("s", &THREE, chosen.get(), &Segmented::DEFAULT);
             if r.response.changed { chosen.set(r.chosen); }
         };
         let mut ui = crate::doc::frames(3, &mut build);
@@ -510,7 +499,7 @@ mod tests {
     fn the_focus_moves_to_the_tab_stop_when_its_option_goes() {
         let (chosen, count, last) = (Cell::new(Some(2)), Cell::new(3usize), Cell::new(None));
         let mut build = |ui: &mut Ui| {
-            let r = ui.segmented_with("s", &THREE[..count.get()], chosen.get(), &Segmented::DEFAULT.name("Mode"));
+            let r = ui.segmented("s", &THREE[..count.get()], chosen.get(), &Segmented::DEFAULT.name("Mode"));
             if r.response.changed { chosen.set(r.chosen); }
             last.set(Some(r));
         };
@@ -538,7 +527,7 @@ mod tests {
     fn a_secondary_press_reports_its_option() {
         let (chosen, last) = (Cell::new(Some(0)), Cell::new(None));
         let mut build = |ui: &mut Ui| {
-            let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT);
+            let r = ui.segmented("s", &THREE, chosen.get(), &Segmented::DEFAULT);
             if r.response.changed { chosen.set(r.chosen); }
             last.set(Some(r));
         };
@@ -578,7 +567,7 @@ mod tests {
         ui.register_segmented_body("choice", choice_body).expect("segment body");
         let scoped = crate::ThemeHandle::parse("segmented.body = choice").expect("theme");
         let chosen = Cell::new(None);
-        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT); });
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { ui.segmented("s", &THREE, chosen.get(), &Segmented::DEFAULT); });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
         SELECTED_SEEN.with(|s| s.borrow_mut().clear());
         testing::frame(&mut ui, &[key(TAB)], &mut build);
@@ -614,7 +603,7 @@ mod tests {
         ui.register_segmented_body("chosen_stored", chosen_stored_body).expect("segment body");
         let scoped = crate::ThemeHandle::parse("segmented.body = chosen_stored").expect("theme");
         let chosen = Cell::new(Some(0));
-        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT); if r.response.changed { chosen.set(r.chosen); } });
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented("s", &THREE, chosen.get(), &Segmented::DEFAULT); if r.response.changed { chosen.set(r.chosen); } });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
         let last = || STORED_SEEN.with(|s| *s.borrow().last().unwrap());
         assert_eq!(last(), (1, 0, 1, 0), "idle: the caller's choice is the current one");
@@ -641,7 +630,7 @@ mod tests {
         for (strip, focuses) in [(Segmented::DEFAULT, false), (Segmented::DEFAULT.focus_on_click(true), true)] {
             let (chosen, last) = (Cell::new(Some(0)), Cell::new(None));
             let mut build = |ui: &mut Ui| {
-                let r = ui.segmented_with("s", &THREE, chosen.get(), &strip);
+                let r = ui.segmented("s", &THREE, chosen.get(), &strip);
                 if r.response.changed { chosen.set(r.chosen); }
                 last.set(Some(r));
             };
@@ -658,7 +647,7 @@ mod tests {
         ui.register_segmented_body("chosen_stored", chosen_stored_body).expect("segment body");
         let scoped = crate::ThemeHandle::parse("segmented.body = chosen_stored").expect("theme");
         let chosen = Cell::new(Some(0));
-        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented_with("s", &THREE, chosen.get(), &Segmented::DEFAULT.focus_on_click(true)); if r.response.changed { chosen.set(r.chosen); } });
+        let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| { let r = ui.segmented("s", &THREE, chosen.get(), &Segmented::DEFAULT.focus_on_click(true)); if r.response.changed { chosen.set(r.chosen); } });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
         let at = node(&ui, Role::Radio, "Two").1;
         click_centre(&mut ui, at, &mut build);
@@ -819,7 +808,7 @@ mod tests {
         ui.node("custom".into(), Node { w: Size::Px(33.0), h: Size::Grow, ..Node::DEFAULT });
     }
 
-    /// `toggle_with` and `segmented_with` are built through their registered bodies, which get the caller's options in their records.
+    /// `toggle_with` and `segmented` are built through their registered bodies, which get the caller's options in their records.
     #[test]
     fn registered_bodies_build_the_widgets_and_see_the_options() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
@@ -831,7 +820,7 @@ mod tests {
         let owner = Cell::new(0);
         let mut build = |ui: &mut Ui| {
             owner.set(ui.toggle_with("t", "Offline", true, &SETTING.inset(16.0).press_row(true).detail("More").label(crate::Label::BODY.size(15.0))).handle.box_key);
-            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B").name("Use B")], Some(0), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
+            ui.segmented("s", &[Segment::new("A"), Segment::new("B").name("Use B")], Some(0), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
         };
         for n in 0..3 { ui.frame(&crate::FrameIn::new(320.0, 240.0).time(n as f64), &mut build).expect("frame"); }
         let (size, on, row_h, w, h) = TOGGLE_SEEN.with(Cell::get);
@@ -886,7 +875,7 @@ mod tests {
         let mut build = |ui: &mut Ui| ui.themed(&scoped, &mut |ui: &mut Ui| {
             let r = ui.toggle_with("t", "Offline", on.get(), &SETTING);
             owner.set(r.handle.box_key);
-            ui.segmented_with("s", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT);
+            ui.segmented("s", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT);
         });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
         FLIPS.with(|f| f.borrow_mut().clear());
@@ -928,9 +917,9 @@ mod tests {
     fn segmented_size_padding_least_width_and_names() {
         const OPTIONS: [Segment; 3] = [Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB"), Segment::new("A")];
         let mut build = |ui: &mut Ui| {
-            ui.segmented_with("plain", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Plain"));
-            ui.segmented_with("sized", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Sized").w_px(240.0));
-            ui.segmented_with("roomy", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Roomy").padding(12.0).min_segment(50.0));
+            ui.segmented("plain", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Plain"));
+            ui.segmented("sized", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Sized").w_px(240.0));
+            ui.segmented("roomy", &OPTIONS, Some(0), &Segmented::DEFAULT.name("Roomy").padding(12.0).min_segment(50.0));
         };
         let ui = crate::doc::frames(3, &mut build);
         let radios: Vec<Rect> = ui.a11y_nodes().iter().filter(|n| n.is_role(Role::Radio)).map(|n| n.rect).collect();
@@ -949,14 +938,14 @@ mod tests {
         let looks = States::all(Look::NONE);
         let mut ui = crate::doc::frames(1, &mut |_| {});
         let mut build = |ui: &mut Ui| {
-            ui.segmented_with("none", &THREE, None, &Segmented::DEFAULT);
+            ui.segmented("none", &THREE, None, &Segmented::DEFAULT);
             ui.toggle("Plain", true);
             ui.toggle_with(3i64, "Big", false, &SETTING.track(&looks).knob(&looks).enabled(false));
-            ui.segmented_with("align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], Some(1), &Segmented::DEFAULT.name("Align"));
-            ui.segmented_with("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], Some(0), &Segmented::DEFAULT.h_px(28.0).grow().look(&looks).name("Cache").enabled(false));
-            ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented_with("inner", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT.name("Inner")); }); });
+            ui.segmented("align", &[Segment::new("Left"), Segment::new("Centre"), Segment::new("Right")], Some(1), &Segmented::DEFAULT.name("Align"));
+            ui.segmented("chips", &[Segment::new("5 GB"), Segment::new("10 GB")], Some(0), &Segmented::DEFAULT.h_px(28.0).grow().look(&looks).name("Cache").enabled(false));
+            ui.disabled(true, |ui| { ui.toggle("Inside", false); ui.disabled(false, |ui| { ui.segmented("inner", &[Segment::new("A"), Segment::new("B")], Some(0), &Segmented::DEFAULT.name("Inner")); }); });
             ui.toggle_with("detail", "Download ahead", true, &SETTING.detail("Fetch the next two cloud songs in the queue before they play").label(crate::Label::BODY.size(15.0)).press_row(true));
-            ui.segmented_with("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], Some(1), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
+            ui.segmented("named", &[Segment::new("4 GB").name("Use 4 GB"), Segment::new("8 GB").name("Use 8 GB")], Some(1), &Segmented::DEFAULT.w_px(200.0).padding(10.0).min_segment(40.0));
         };
         for round in 0..20 {
             mem_sys::local_reset();

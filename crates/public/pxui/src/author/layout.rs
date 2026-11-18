@@ -7,6 +7,26 @@ use crate::Ui;
 pub use pxui_types::ui::Key;
 
 impl Ui {
+    /// Builds two panes separated by a draggable divider.
+    ///
+    /// Keep the ratio in the caller. The divider reports a new ratio while held and on release (store the release value; it is final).
+    /// A registered split body that builds no grip makes the split fixed: `ratio` is then always none. The panes borrow their callbacks
+    /// for the call.
+    /// Allocates: never on a warm frame.
+    /// Identity: The key identifies the split under its parent.
+    /// Panics: an invalid axis, ratio, minimum size or key, or when a pane's callback panics.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let _ = ui.split("editor", 0.5, &pxui::Split::DEFAULT, &mut |_| {}, &mut |_| {});
+    /// });
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn split<K: Into<Key>>(&mut self, key: K, ratio: f32, split: &crate::Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> crate::SplitResponse {
+        self.split_key(key.into(), ratio, split, a, b)
+    }
+
     /// Declares `node` laid out as a row under the current parent and runs `f` to build its children inside it.
     ///
     /// `node` is used as given with `axis` set to `Axis::Row`; the returned handle is the row's, valid this frame (style it,

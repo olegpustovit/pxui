@@ -1,33 +1,20 @@
 use crate::Handle;
-use crate::{Key, PxuiBox, Response, Scrubber, SearchField, SearchFieldResponse, Ui, check};
+use crate::{Key, PickResponse, PxuiBox, Response, Scrubber, Segment, SliderResponse, SearchField, SearchFieldResponse, Ui, check};
 use pxui_types::{ffi::{PxuiKeyedDesc, PxuiResponse, Slice}, theme::BodyKind, ui::Checkbox, Str};
 
 library!(keyed_lib {
     fn pxui_ui_checkbox_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, on: u8, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_choice_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, kind: u32, options: Slice<Str>, selected: usize, out: *mut PxuiResponse, chosen: *mut usize) -> i32;
-    fn pxui_ui_slider_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, value_out: *mut f32) -> i32;
+    fn pxui_ui_slider_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
+    fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, kind: u32, items: Slice<pxui_types::ffi::PxuiPickItem>, has_selected: u8, selected: usize, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
     fn pxui_ui_progress_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_value: u8, value: f32, out: *mut PxuiBox) -> i32;
     fn pxui_ui_spinner_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, out: *mut PxuiBox) -> i32;
     fn pxui_ui_badge_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: Str, out: *mut PxuiBox) -> i32;
 });
 
 library!(scrub_lib {
-    fn pxui_ui_scrub(ui: *mut PxuiUi, label: pxui_types::Str, value: f32, min: f32, max: f32, step: f32, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
+    fn pxui_ui_scrub_result(ui: *mut PxuiUi, label: pxui_types::Str, value: f32, min: f32, max: f32, step: f32, response: *mut PxuiResponse, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32;
 });
-
-/// What `Ui::scrub` reports for a caller-painted scrubber.
-#[derive(Clone, Copy, Debug)]
-pub struct Scrub {
-    /// The scrubber's node, valid this frame: size it with `set_node_layout` and paint it with `draw`.
-    pub node: Handle,
-    /// The provisional value while the pointer drags, or none.
-    pub preview: Option<f32>,
-    /// The final value: the pointer's release, or a key or accessibility adjustment; none otherwise.
-    pub commit: Option<f32>,
-    /// The pointer holds the scrubber.
-    pub held: bool,
-}
-
 
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -44,17 +31,44 @@ mod sys {
 #[inline]
 fn as_str(value: &str) -> Str { crate::as_str(value) }
 
+/// A slider or scrubber's result from its response and phase record (flags 1 preview, 2 commit); `value` is shown when neither.
+fn slider_response(out: &PxuiResponse, phases: &pxui_types::ffi::PxuiScrubOut, value: f32) -> SliderResponse {
+    let preview = (phases.flags & 1 != 0).then_some(phases.preview);
+    let commit = (phases.flags & 2 != 0).then_some(phases.commit);
+    let mut response = crate::kit_ext::response(out);
+    response.changed = commit.is_some();
+    SliderResponse { response, value: preview.unwrap_or(value), preview, commit }
+}
+
 impl Ui {
+
+    /// The one body of `radio` (`kind` 0) and `dropdown` (3): the items as the export's items column (on the stack up to 32), the
+    /// variant around the call.
+    #[track_caller]
+    pub(crate) fn pick_one_key(&mut self, kind: u32, key: Key, name: &str, items: &[Segment<'_>], selected: Option<usize>, variant: u16) -> PickResponse {
+        let mut id_label = [0u8; 17];
+        let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(name));
+        let list = crate::PickItems::new(items);
+        let (mut out, mut result) = (PxuiResponse::EMPTY, pxui_types::ffi::PxuiSegmentedResult::EMPTY);
+        let body = if kind == 0 { BodyKind::radio } else { BodyKind::dropdown };
+        self.with_variant(body, variant, &mut |ui| check(ui, unsafe {
+            keyed_lib::pxui_ui_pick(ui.0.as_ptr(), &keyed, kind, list.span(), selected.is_some() as u8, selected.unwrap_or(0), &mut out, &mut result)
+        }));
+        let chosen = (result.has_chosen != 0).then_some(result.chosen as usize);
+        let mut response = crate::kit_ext::response(&out);
+        response.changed = chosen != selected.filter(|_| !items.is_empty()).map(|i| i.min(items.len() - 1));
+        PickResponse { response, chosen, secondary: (result.has_secondary != 0).then_some(result.secondary as usize) }
+    }
 
     /// The one body of `scrub`.
     #[track_caller]
-    pub(crate) fn scrub_key(&mut self, key: Key, value: f32, range: core::ops::RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> Scrub {
+    pub(crate) fn scrub_key(&mut self, key: Key, value: f32, range: core::ops::RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> SliderResponse {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
-        let mut out = pxui_types::ffi::PxuiScrubOut::default();
-        check(self, unsafe { scrub_lib::pxui_ui_scrub(self.0.as_ptr(), crate::as_str(label), value, *range.start(), *range.end(), scrubber.step, &mut out) });
+        let (mut response, mut out) = (PxuiResponse::EMPTY, pxui_types::ffi::PxuiScrubOut::default());
+        check(self, unsafe { scrub_lib::pxui_ui_scrub_result(self.0.as_ptr(), crate::as_str(label), value, *range.start(), *range.end(), scrubber.step, &mut response, &mut out) });
         self.a11y_name(&out.node, scrubber.name);
-        Scrub { node: out.node, preview: (out.flags & 1 != 0).then_some(out.preview), commit: (out.flags & 2 != 0).then_some(out.commit), held: out.flags & 4 != 0 }
+        slider_response(&response, &out, value.clamp(*range.start(), *range.end()))
     }
 
     /// The one body of `checkbox`: the key's label and the text apart in a `PxuiKeyedDesc`, the variant around the call.
@@ -85,14 +99,15 @@ impl Ui {
 
     /// The one body of `slider`.
     #[track_caller]
-    pub(crate) fn slider_key(&mut self, key: Key, text: &str, value: f32, min: f32, max: f32, variant: u16) -> (Response, f32) {
+    pub(crate) fn slider_key(&mut self, key: Key, text: &str, value: f32, range: core::ops::RangeInclusive<f32>, slider: &crate::Slider) -> SliderResponse {
+        let (min, max, variant) = (*range.start(), *range.end(), slider.variant);
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(text));
-        let (mut out, mut v) = (PxuiResponse::EMPTY, 0.0f32);
-        self.with_variant(BodyKind::slider, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_slider_keyed(ui.0.as_ptr(), &keyed, value, min, max, &mut out, &mut v) }));
-        let mut r = crate::kit_ext::response(&out);
-        r.changed = v != value;
-        (r, v)
+        let (mut out, mut phases) = (PxuiResponse::EMPTY, pxui_types::ffi::PxuiScrubOut::default());
+        self.with_variant(BodyKind::slider, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_slider_result(ui.0.as_ptr(), &keyed, value, min, max, &mut out, &mut phases) }));
+        let mut r = slider_response(&out, &phases, phases.preview);
+        r.response.changed = r.value != value;
+        r
     }
 
     /// The one body of `progress`.

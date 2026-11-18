@@ -169,7 +169,7 @@ impl ButtonOpts {
 }
 
 /// What happened to a button this frame, as the wrapper's `Response` says it.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 pub struct Response {
     /// Pointer released over it after a press on it, or Enter/Space while focused.
     pub clicked: bool,
@@ -701,20 +701,28 @@ impl Default for PopupOpts {
     }
 }
 
+/// An overlay's root as the wrapper reports it: the empty box and closed when it was dismissed.
+fn overlay_response(root: Option<Handle>) -> crate::ui_widgets::OverlayResponse {
+    crate::ui_widgets::OverlayResponse { handle: root.unwrap_or_default(), open: root.is_some() }
+}
+
 impl Ui {
     /// A light panel at `(x, y)` (default `(12, 12)`, width 280). `height` fills a fixed pane;
     /// otherwise content sets the height. Rows beyond the height or `max_height` use the shared
     /// elastic scroll. `window` lays inspector rows and heads out as a floating window's.
     /// Keyed by `key` (hashed under the parent's seed), placed and dressed by `overlay` (280 wide by default) and named by its name
     /// (none without).
-    pub fn panel(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) {
+    pub fn panel(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) { self.panel_root(key, overlay, f); }
+
+    /// `panel`, returning the panel's root.
+    pub fn panel_root(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let opts = panel_opts(overlay, 280.0);
-        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, key, Some(overlay.name.unwrap_or("")), None, f);
+        self.sheet(&opts, if opts.window { Sheet::Window } else { Sheet::Panel }, key, Some(overlay.name.unwrap_or("")), None, f)
     }
 
     /// A sheet of `kind`: its node (named `name`, the label when `None`; given `role` and its states before the body runs, so a
     /// registered body may set another), then the body of that kind around the caller's content.
-    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, name: Option<&str>, role: Option<(Role, u32)>, f: &mut dyn FnMut(&mut Ui)) {
+    fn sheet(&mut self, opts: &PanelOpts, kind: Sheet, label: &str, name: Option<&str>, role: Option<(Role, u32)>, f: &mut dyn FnMut(&mut Ui)) -> UiBox {
         let (node, previous) = self.panel_enter(opts, label);
         if let Some(name) = name { self.a11y_name(&node, name); }
         if let Some((role, states)) = role { self.set_role(&node, role, states); }
@@ -728,6 +736,7 @@ impl Ui {
             Sheet::Modal => in_body!(self, node.box_key, node, modal, default_panel(&c, text, f)),
         }
         self.panel_leave(previous);
+        node
     }
 
     /// Open a panel: the box and the kit state to give back to `panel_leave`.
@@ -789,7 +798,7 @@ impl Ui {
     /// and is never dismissed by itself. Returns whether it is open (and `f` ran).
     /// `name` is the sheet's accessible name, given before its body runs (`None`: the label).
     #[allow(clippy::too_many_arguments)]
-    pub fn popup_with_related(&mut self, opts: PopupOpts, at: (f32, f32), width: f32, height: f32, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> bool {
+    pub fn popup_with_related(&mut self, opts: PopupOpts, at: (f32, f32), width: f32, height: f32, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> Option<UiBox> {
         let (x, y) = at;
         let key = key_of(self.current_seed(), label);
         // Build a popup before the body it shields. Previous popups arbitrate in `route`; this also
@@ -821,7 +830,7 @@ impl Ui {
             }
         }
         if dismissed && !opts.attached {
-            return false;
+            return None;
         }
         // Popups live at the root wherever they are built, so a pane's hit area never clips them,
         // and are moved last so they paint on top.
@@ -835,7 +844,7 @@ impl Ui {
         popts.padding = if opts.stroke.is_none() && opts.look.is_none() { 0 } else { 1 };
         // the sheet's role (a menu, a dialog) is set before its body runs: a registered body's own role stays
         let modal = if opts.role == Role::Dialog { st::MODAL } else { 0 };
-        self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, Some((opts.role, modal)), f);
+        let root = self.sheet(&popts, if opts.role == Role::Dialog { Sheet::Modal } else { Sheet::Popup }, label, name, Some((opts.role, modal)), f);
         self.leave(saved);
         self.push_overlay(index, if opts.role == Role::Dialog { LayerRole::Modal } else { LayerRole::Popup });
         if opts.attached {
@@ -843,12 +852,15 @@ impl Ui {
         } else {
             self.set_modal_key(Some(key));
         }
-        true
+        Some(root)
     }
 
     /// A popup keyed by `key` (hashed under the parent's seed), placed and dressed by `overlay` and named by its name (none without).
     /// Returns whether it is open (and `f` ran).
-    pub fn popup(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> bool {
+    pub fn popup(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> crate::ui_widgets::OverlayResponse { overlay_response(self.popup_root(key, overlay, f)) }
+
+    /// `popup`, returning its root while open.
+    pub fn popup_root(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Option<Handle> {
         let opts = PopupOpts { stroke: overlay.stroke, look: None, max_height: overlay.max_h, dismiss_initial: overlay.dismiss_initial, attached: overlay.attached, ..PopupOpts::default() };
         self.popup_with_related(opts, overlay.at, overlay.w.unwrap_or(0.0), overlay.h.unwrap_or(0.0), key, Some(overlay.name.unwrap_or("")), f)
     }
@@ -858,12 +870,15 @@ impl Ui {
     /// outside it dismisses it: the builder is skipped and `false` is returned, so the host drops
     /// its open state.
     /// Keyed by `key` (hashed under the parent's seed), `overlay`'s width (320 by default) and named by its name (none without).
-    pub fn modal(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> bool {
+    pub fn modal(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> crate::ui_widgets::OverlayResponse { overlay_response(self.modal_root(key, overlay, f)) }
+
+    /// `modal`, returning its root while open.
+    pub fn modal_root(&mut self, key: &str, overlay: &Overlay, f: &mut dyn FnMut(&mut Ui)) -> Option<Handle> {
         self.modal_named(overlay.w, key, Some(overlay.name.unwrap_or("")), f)
     }
 
     /// The one body of `modal` (and of `dialog`): the sheet named `name` (`None`: the label).
-    pub(crate) fn modal_named(&mut self, width: Option<f32>, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> bool {
+    pub(crate) fn modal_named(&mut self, width: Option<f32>, label: &str, name: Option<&str>, f: &mut dyn FnMut(&mut Ui)) -> Option<UiBox> {
         let width = width.unwrap_or(320.0);
         let key = key_of(self.current_seed(), label);
         let slot = self.slot_for(key);
@@ -1091,22 +1106,38 @@ impl Ui {
     /// Two panes side by side (`Row`) or stacked (`Column`) filling the parent, `a` taking `ratio` of
     /// the room the grip leaves and `b` the rest, neither below its minimum. Dragging the grip
     /// returns the new ratio (the caller stores it); `None` otherwise.
-    pub fn split(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> {
+    /// The wrapper's `split`: `split_result` with the grip's response and its ratio while held and on release.
+    pub fn split(&mut self, key: &str, ratio: f32, split: &crate::ui_widgets::Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> crate::ui_widgets::SplitResponse {
+        let (response, _, ratio) = self.split_result(key, split.axis, ratio, split.min_a, split.min_b, a, b);
+        crate::ui_widgets::SplitResponse { response, ratio }
+    }
+
+    pub fn split_legacy(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> {
+        let (_, moved, held) = self.split_result(label, axis, ratio, min_a, min_b, a, b);
+        held.filter(|_| moved)
+    }
+
+    /// `split` reporting the grip's response (the empty one without a grip), whether the grip moved along the axis, and the ratio
+    /// under the pointer whenever the grip is held and on its release frame.
+    #[allow(clippy::too_many_arguments)]
+    pub fn split_result(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> (Response, bool, Option<f32>) {
         let row = axis == Axis::Row;
         let split = self.node_ref(label, &Node { w: Size::Grow, h: Size::Grow, axis, ..Node::DEFAULT });
         let config = SplitConfig { split, axis, ratio: ratio.clamp(0.0, 1.0), min_a, min_b };
         in_body!(self, split.box_key, split, split, default_split(&config, a, b));
         // the grip is the box the body built under the key `Ui::grip` gives "grip" (none: the split cannot be dragged)
-        let Some(grip) = self.box_of_key(key_of(split.box_key, "grip")).filter(|g| self.live(g)) else { return None };
+        let Some(grip) = self.box_of_key(key_of(split.box_key, "grip")).filter(|g| self.live(g)) else { return (Response::default(), false, None) };
         let signal = self.signal_owned(&grip);
-        if !(signal.held || signal.released) || (if row { signal.drag.0 } else { signal.drag.1 }) == 0.0 {
-            return None;
+        let response = Response::of(&signal, self.focused(&grip), grip);
+        if !(signal.held || signal.released) {
+            return (response, false, None);
         }
+        let moved = (if row { signal.drag.0 } else { signal.drag.1 }) != 0.0;
         let r = self.rect(&split);
         let (start, len, at) = if row { (r.x, r.w, signal.pointer.0) } else { (r.y, r.h, signal.pointer.1) };
         let room = (len - 1.0).max(1.0);
         let along = (at - start).clamp(min_a, (room - min_b).max(min_a));
-        Some(along / room)
+        (response, moved, Some(along / room))
     }
 }
 

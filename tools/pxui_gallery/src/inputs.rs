@@ -1,6 +1,6 @@
 //! The gallery's text inputs through the wrapper: the one place the pages' inputs are called, so `abi_bench` can supply the same functions over
 //! the engine and compile the page source against either.
-use pxui::{draw::Fit, ui::{Pick, Rect}, AreaCallbacks, Image, ImageStyle, PickerOpts, SearchField, TextArea, TextField, Ui, ValueCallbacks, ValueField};
+use pxui::{draw::Fit, ui::{Pick, Rect}, AreaCallbacks, Image, ImageStyle, Picker, SearchField, TextArea, TextField, Ui, ValueCallbacks, ValueField};
 
 /// The caption field: edits `caption` in place.
 pub fn caption(ui: &mut Ui, caption: &mut String) {
@@ -31,7 +31,7 @@ pub fn layer_search(ui: &mut Ui, search: &mut String) {
 
 /// The presets picker: four rows from `rows(query)`.
 pub fn presets(ui: &mut Ui, rows: &mut dyn FnMut(&str, &mut pxui::PickRows)) -> Pick {
-    const PICKER: PickerOpts = PickerOpts::DEFAULT.limit(4);
+    const PICKER: Picker = Picker::DEFAULT.limit(4);
     ui.picker("presets-search", "Search presets", "", &PICKER, rows).pick
 }
 

@@ -133,8 +133,8 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         let custom = ui.toggle("Custom bodies", s.custom);
         if custom != s.custom { (s.custom, s.dirty) = (custom, true); }
         s.wifi = ui.toggle("Wi-Fi", s.wifi);
-        s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &pxui::Slider::DEFAULT).1;
-        s.align = ui.segmented_with("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
+        s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &pxui::Slider::DEFAULT).value;
+        s.align = ui.segmented("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
     });
     ui.panel("table", &Overlay::DEFAULT.at(332.0, 12.0).w(296.0).window(), &mut |ui: &mut Ui| {

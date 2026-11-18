@@ -1062,7 +1062,7 @@ fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
                 }
             });
             let _ = ui.signal(&body);
-        }));
+        }).open);
         let behind = ui.node("background".into(), Node { w: Size::Grow, h: Size::Grow, flags: Flags::CLICKABLE | Flags::TAB_STOP, ..Node::DEFAULT });
         let signal = ui.signal(&behind);
         background.set(signal.clicked || signal.hovered);

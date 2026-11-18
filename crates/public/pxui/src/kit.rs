@@ -9,7 +9,7 @@ pub(crate) use pxui_types::ffi::{PxuiFooterDesc as FooterDesc, PxuiGridListDesc 
 
 #[cfg(feature = "static")]
 mod sys {
-    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_animate_keys_repeat, pxui_ui_menu_bar, pxui_ui_wants_frame};
+    pub use pxui_abi_link::{pxui_ui_animate_keys, pxui_ui_animate_keys_repeat, pxui_ui_menu_bar_result, pxui_ui_wants_frame};
 }
 #[cfg(not(feature = "static"))]
 mod sys {
@@ -21,8 +21,8 @@ mod sys {
     pub fn pxui_ui_section_list(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiSectionListDesc,out:*mut PxuiBox)->i32;
     pub fn pxui_ui_section_list_measured(ui:*mut PxuiUi,desc:*const pxui_types::ffi::PxuiMeasuredSectionDesc,out:*mut PxuiBox)->i32;
     pub fn pxui_ui_grid_list(ui: *mut PxuiUi, desc: *const GridListDesc, out: *mut PxuiBox) -> i32;
-    pub fn pxui_ui_split(ui: *mut PxuiUi, desc: *const SplitDesc, changed: *mut u8, ratio: *mut f32) -> i32;
-    pub fn pxui_ui_menu_bar(ui: *mut PxuiUi, desc: *const MenuBarDesc, out: *mut MenuOut) -> i32;
+    pub fn pxui_ui_split_result(ui: *mut PxuiUi, desc: *const SplitDesc, out: *mut pxui_types::ffi::PxuiResponse, has_ratio: *mut u8, ratio: *mut f32) -> i32;
+    pub fn pxui_ui_menu_bar_result(ui: *mut PxuiUi, desc: *const MenuBarDesc, out: *mut MenuOut, dismissed: *mut u8) -> i32;
     pub fn pxui_ui_inspector_row(ui: *mut PxuiUi, desc: *mut InspectorRowDesc) -> i32;
     pub fn pxui_ui_inspector_section(ui: *mut PxuiUi, desc: *mut InspectorSectionDesc) -> i32;
     pub fn pxui_ui_inspector_toggle(ui: *mut PxuiUi, key: Str, label: Str, value: u8, out: *mut u8) -> i32;
@@ -149,6 +149,94 @@ impl Hints {
     pub(crate) fn span(&self) -> Slice<HintDesc> { Slice { ptr: if self.len <= 16 { self.stack.as_ptr() } else { self.heap.as_ptr() }, len: self.len } }
 }
 
+/// The layout and minimum pane sizes used by [Ui::split].
+#[derive(Clone, Copy, Debug)]
+pub struct Split {
+    axis: Axis,
+    min_a: f32,
+    min_b: f32,
+}
+
+impl Split {
+    /// Side-by-side panes with no minimum size.
+    pub const DEFAULT: Split = Split { axis: Axis::Row, min_a: 0.0, min_b: 0.0 };
+
+    /// Chooses side-by-side or vertically stacked panes.
+    ///
+    /// The split validates its layout before either pane is built.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Split = pxui::Split::DEFAULT.axis(pxui::ui::Axis::Column);
+    /// ```
+    pub const fn axis(mut self, axis: Axis) -> Split { self.axis = axis; self }
+
+    /// Sets the first pane's minimum length in logical points.
+    ///
+    /// The split validates its layout before either pane is built.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Split = pxui::Split::DEFAULT.min_a(120.0);
+    /// ```
+    pub const fn min_a(mut self, points: f32) -> Split { self.min_a = points; self }
+
+    /// Sets the second pane's minimum length in logical points.
+    ///
+    /// The split validates its layout before either pane is built.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Split = pxui::Split::DEFAULT.min_b(200.0);
+    /// ```
+    pub const fn min_b(mut self, points: f32) -> Split { self.min_b = points; self }
+}
+
+/// Visual options for the registered menu-bar body.
+#[derive(Clone, Copy, Debug)]
+pub struct MenuBar {
+    variant: u16,
+}
+
+impl MenuBar {
+    /// The theme's default body variant.
+    pub const DEFAULT: MenuBar = MenuBar { variant: 0 };
+
+    /// Selects the variant the menu-bar body receives.
+    ///
+    /// Zero uses the theme's variant.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const BAR: pxui::MenuBar = pxui::MenuBar::DEFAULT.variant(2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> MenuBar { self.variant = variant; self }
+}
+
+/// One named menu and its ordered items in a menu bar.
+#[derive(Clone, Copy, Debug)]
+pub struct MenuBarMenu<'a> {
+    title: &'a str,
+    items: &'a [crate::MenuItem<'a>],
+}
+
+impl<'a> MenuBarMenu<'a> {
+    /// Gives one menu its title and borrowed items.
+    ///
+    /// Use explicit item ids to identify actions across menus.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const FILE: pxui::MenuBarMenu = pxui::MenuBarMenu::new("File", &[pxui::MenuItem::new("Open").id(1)]);
+    /// ```
+    pub const fn new(title: &'a str, items: &'a [crate::MenuItem<'a>]) -> MenuBarMenu<'a> { MenuBarMenu { title, items } }
+}
+
 impl Ui {
     /// The one body of `section_list` (and of `list`): keyed by `key`, measured or fixed rows as `section` says; `build` is given the part's
     /// logical content Y (fixed rows: the lead-in and heading heights and the rows above it).
@@ -204,26 +292,40 @@ impl Ui {
         out
     }
 
-    #[inline]
-    #[track_caller] pub fn split(&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> {
+    /// The one body of `split`: linked statically, the library's trusted entry with the panes as they are; else the split as a
+    /// descriptor with the panes as callbacks.
+    #[track_caller]
+    pub(crate) fn split_key(&mut self, key: crate::Key, ratio: f32, split: &Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> crate::SplitResponse {
+        let Split { axis, min_a, min_b } = *split;
         if axis == Axis::Stack { panic!("pxui: a split is a row or a column") }
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
+        let mut out = pxui_types::ffi::PxuiResponse::EMPTY;
         #[cfg(feature = "static")]
-        { let mut out = None; check(self, unsafe { pxui_abi_link::trusted::split(self.0.as_ptr(), label, axis, ratio, min_a, min_b, inner!(|ui: &mut Ui| a(ui)), inner!(|ui: &mut Ui| b(ui)), &mut out) }); out }
+        let at = {
+            let (mut moved, mut at) = (false, None);
+            check(self, unsafe { pxui_abi_link::trusted::split(self.0.as_ptr(), label, axis, ratio, min_a, min_b, inner!(|ui: &mut Ui| a(ui)), inner!(|ui: &mut Ui| b(ui)), &mut out, &mut moved, &mut at) });
+            at
+        };
         #[cfg(not(feature = "static"))]
-        {
+        let at = {
             let (mut context_a, mut context_b) = (Callback { f: a }, Callback { f: b });
             let ((build_a, user_a), (build_b, user_b)) = (context_a.erased(), context_b.erased());
             let desc = SplitDesc { size: core::mem::size_of::<SplitDesc>() as u32, reserved: 0, label: as_str(label), axis: match axis { Axis::Row => 0, _ => 1 }, ratio, min_a, min_b, build_a, user_a, build_b, user_b };
-            let (mut changed, mut out) = (0u8, 0.0f32);
-            check(self, unsafe { sys::pxui_ui_split(self.0.as_ptr(), &desc, &mut changed, &mut out) });
-            (changed != 0).then_some(out)
-        }
+            let (mut has, mut at) = (0u8, 0.0f32);
+            check(self, unsafe { sys::pxui_ui_split_result(self.0.as_ptr(), &desc, &mut out, &mut has, &mut at) });
+            (has != 0).then_some(at)
+        };
+        crate::SplitResponse { response: crate::kit_ext::response(&out), ratio: at }
     }
 
-    #[inline]
-    #[track_caller] pub fn menu_bar(&mut self, label: &str, menus: &[(&str, &[&str])]) -> Option<(usize, usize)> {
-        // a bar of up to 8 menus and 64 items lives on the stack, a larger one on the heap
-        let total: usize = menus.iter().map(|(_, items)| items.len()).sum();
+    /// The one body of `menu_bar`: the titles and item texts as the descriptor's spans (a bar of up to 8 menus and 64 items on the
+    /// stack, a larger one on the heap); the pick comes back as the flat item index and that item's id.
+    #[track_caller]
+    pub(crate) fn menu_bar_key(&mut self, key: crate::Key, menus: &[MenuBarMenu<'_>], bar: &MenuBar) -> crate::Chosen {
+        let mut id_label = [0u8; 17];
+        let label = key.label(&mut id_label);
+        let total: usize = menus.iter().map(|menu| menu.items.len()).sum();
         let none = MenuDesc { size: core::mem::size_of::<MenuDesc>() as u32, reserved: 0, title: Str::default(), items: Slice { ptr: core::ptr::null(), len: 0 } };
         let (mut flat_stack, mut menus_stack) = ([Str::default(); 64], [none; 8]);
         let (mut flat_heap, mut menus_heap): (Vec<Str>, Vec<MenuDesc>);
@@ -235,15 +337,18 @@ impl Ui {
             (&mut flat_heap[..], &mut menus_heap[..])
         };
         let mut at = 0;
-        for ((title, items), desc) in menus.iter().zip(descs.iter_mut()) {
-            for (out, item) in flat[at..at + items.len()].iter_mut().zip(*items) { *out = as_str(item); }
-            *desc = MenuDesc { size: core::mem::size_of::<MenuDesc>() as u32, reserved: 0, title: as_str(title), items: Slice { ptr: flat[at..].as_ptr(), len: items.len() } };
-            at += items.len();
+        for (menu, desc) in menus.iter().zip(descs.iter_mut()) {
+            for (out, item) in flat[at..at + menu.items.len()].iter_mut().zip(menu.items) { *out = as_str(item.text); }
+            *desc = MenuDesc { size: core::mem::size_of::<MenuDesc>() as u32, reserved: 0, title: as_str(menu.title), items: Slice { ptr: flat[at..].as_ptr(), len: menu.items.len() } };
+            at += menu.items.len();
         }
         let desc = MenuBarDesc { size: core::mem::size_of::<MenuBarDesc>() as u32, reserved: 0, label: as_str(label), menus: Slice { ptr: descs.as_ptr(), len: descs.len() } };
         let mut out = MenuOut { size: core::mem::size_of::<MenuOut>() as u32, reserved: 0, menu: usize::MAX, item: usize::MAX };
-        check(self, unsafe { sys::pxui_ui_menu_bar(self.0.as_ptr(), &desc, &mut out) });
-        (out.menu != usize::MAX && out.item != usize::MAX).then_some((out.menu, out.item))
+        let mut dismissed = 0u8;
+        self.with_variant(pxui_types::theme::BodyKind::menu_bar, bar.variant, &mut |ui| check(ui, unsafe { sys::pxui_ui_menu_bar_result(ui.0.as_ptr(), &desc, &mut out, &mut dismissed) }));
+        let picked = menus.get(out.menu).and_then(|menu| Some((menu.items.get(out.item)?, out.item)));
+        let chosen = picked.map(|(_, item)| menus[..out.menu].iter().map(|menu| menu.items.len()).sum::<usize>() + item);
+        crate::Chosen { chosen, chosen_id: picked.and_then(|(item, _)| item.id), dismissed: dismissed != 0 }
     }
 
     #[inline]

@@ -24,12 +24,12 @@ fn engine_allocations() -> u64 {
         input.events = vec![Event::PointerMoved((-100.0, -100.0))];
         let frame = frame::Frame { input, pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) };
         let mut measured = 0;
-        ui.frame(&frame, &mut |ui| ui.panel("panel", &Overlay::DEFAULT, &mut |ui| {
+        ui.frame(&frame, &mut |ui| { ui.panel("panel", &Overlay::DEFAULT, &mut |ui| {
             let before = mem_sys::local_alloc_count();
             let _ = ui.picker("filter", "filter", "", &PickerOpts::default(), &mut fill);
             let _ = ui.inspector_header("head", Some("kind"), None, Some("1"), Some(Rc::clone(&rename)), &actions, Some("reset"), true, "Title", "detail");
             measured = mem_sys::local_alloc_count() - before;
-        }));
+        }); });
         if count >= 8 { worst = worst.max(measured); }
     }
     worst
@@ -43,12 +43,12 @@ fn wrapper_allocations() -> u64 {
     for count in 0..12 {
         let input = FrameIn::new(320.0, 240.0).scale(1.0).time(count as f64 / 60.0);
         let mut measured = 0;
-        ui.frame(&input, &mut |ui: &mut pxui::Ui| ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
+        ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
             let before = mem_sys::local_alloc_count();
-            let _ = ui.picker("filter", "filter", "", &pxui::PickerOpts::DEFAULT, &mut fill);
+            let _ = ui.picker("filter", "filter", "", &pxui::Picker::DEFAULT, &mut fill);
             let _ = ui.inspector_header("head", Some("kind"), None, Some("1"), Some(Rc::clone(&rename)), &actions, Some("reset"), true, "Title", "detail");
             measured = mem_sys::local_alloc_count() - before;
-        })).expect("frame");
+        }); }).expect("frame");
         if count >= 8 { worst = worst.max(measured); }
     }
     worst

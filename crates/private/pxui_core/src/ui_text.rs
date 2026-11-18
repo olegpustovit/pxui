@@ -1730,7 +1730,7 @@ fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &Text
         if hovered_number.is_none() && open == 0 {
             if let Some((start, _, doc)) = (l.describe)(&final_text, byte as i64) {
                 if !doc.is_empty() {
-                    this.tooltip_sheet(&format!("{}#{}", label, start), &doc);
+                    this.tooltip_sheet(Some(&format!("{}#{}", label, start)), 0, &doc);
                 }
             }
         }
@@ -2432,7 +2432,7 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
             opened = if now >= 0 { Some(now) } else { None };
         }
         ui.box_("menu-bottom", BoxOpts::default().flags(Flags::BLOCKING).w(Size::Grow).h(Size::Px(pad)));
-    });
+    }).is_some();
     if !shown {
         this.dismiss_popup();
         return Chosen { dismissed: true, ..Chosen::default() };

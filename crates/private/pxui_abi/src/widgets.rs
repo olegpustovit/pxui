@@ -108,13 +108,38 @@ export!(build pub unsafe fn pxui_ui_scrub(ui: *mut PxuiUi, label: Str, value: f3
     }
     if !state.shared().in_frame { return crate::PXUI_ERR_STATE; }
     let result = unsafe { crate::state::engine(ui) }.unwrap().scrub(label, value, min..=max, step);
+    write_scrub(&result, out);
+    0
+});
+
+// ABI 1.76: `pxui_ui_scrub` that also reports the scrubber's complete `PxuiResponse` (its focus, hover, press and secondary press).
+export!(build pub unsafe fn pxui_ui_scrub_result(ui: *mut PxuiUi, label: Str, value: f32, min: f32, max: f32, step: f32, response: *mut PxuiResponse, out: *mut pxui_types::ffi::PxuiScrubOut) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(response) = sized_mut!(response) else { return unsafe { fail(ui, "invalid scrub response") }; };
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "invalid scrub output") }; };
+    let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid scrub label") }; };
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || !(max - min).is_finite() || !step.is_finite() || step <= 0.0 {
+        return unsafe { fail(ui, "invalid scrub range, value or step") };
+    }
+    if !state.shared().in_frame { return crate::PXUI_ERR_STATE; }
+    let engine = unsafe { crate::state::engine(ui) }.unwrap();
+    let result = engine.scrub(label, value, min..=max, step);
+    let signal = engine.signal(&result.node);
+    let r = pxui_core::ui::Response { clicked: signal.clicked, hovered: signal.hovered, held: result.held, focused: engine.focused(&result.node), activated: signal.clicked && !signal.released,
+        secondary: signal.pressed && signal.button == Some(input::MouseButton::RightButton), handle: result.node };
+    trusted::respond(&r, response);
+    write_scrub(&result, out);
+    0
+});
+
+/// A scrub's phases as the 1.x record carries them.
+fn write_scrub(result: &pxui_core::ui::Scrub, out: &mut pxui_types::ffi::PxuiScrubOut) {
     *out = pxui_types::ffi::PxuiScrubOut {
         flags: u32::from(result.preview.is_some()) | (u32::from(result.commit.is_some()) << 1) | (u32::from(result.held) << 2),
         node: crate::state::to_abi_box(result.node), preview: result.preview.unwrap_or_default(), commit: result.commit.unwrap_or_default(),
         ..Default::default()
     };
-    0
-});
+}
 
 /// A `PxuiKeyedDesc` read whole: `size` at least the record's, `reserved` zero, `key` an identifier (UTF-8, at most `MAX_KEY_BYTES`) and
 /// `name` display text (UTF-8, at most `MAX_LABEL_BYTES`); `None` refuses the call.
@@ -195,6 +220,17 @@ export!(trusted pub unsafe fn pxui_ui_slider_keyed(ui: *mut PxuiUi, keyed: *cons
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short slider response") } };
     let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     unsafe { trusted::slider(ui, key, text, value, min, max, &Slider::DEFAULT, out, &mut *value_out) }
+});
+
+// ABI 1.76: the kit slider keyed by `keyed.key`, showing and named `keyed.name`, reporting into one `PxuiResponse` and a
+// `PxuiScrubOut`: flags 1 a held preview, 2 a commit (a release, a key or an assistive SetValue, `preview` equal to it), 4 held;
+// `preview` is the value shown (the held one, the committed one, or the caller's value held in the range).
+export!(trusted pub unsafe fn pxui_ui_slider_result(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, value: f32, min: f32, max: f32, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiScrubOut) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short slider result") } };
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short slider response") } };
+    let Some((key, text)) = (unsafe { read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { trusted::slider_result(ui, key, text, value, min, max, &Slider::DEFAULT, out, result) }
 });
 
 // Legacy (cut at 2.0): keyed by its label, shown up to a `##`; `pxui_ui_progress_keyed` keys apart.

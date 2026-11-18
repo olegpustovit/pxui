@@ -1052,11 +1052,15 @@ impl<'a> Menu<'a> {
     pub const fn focus_on_click(mut self, focus: bool) -> Menu<'a> { self.focus_on_click = focus; self }
 }
 
-/// One option of a segmented control (`Ui::segmented_with`), a `Copy` value built with `const fn` builders from `Segment::new`.
+/// One option of a pick-one control (`Ui::segmented`, `Ui::radio`, `Ui::dropdown`), a `Copy` value built with `const fn` builders from `Segment::new`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Segment<'a> {
     /// The text the segment shows; also its accessible name unless `name` is set.
     pub text: &'a str,
+    /// Optional item id used for identity and returned as chosen_id.
+    pub id: Option<i64>,
+    /// Additional text for the option's body.
+    pub detail: &'a str,
     /// The accessible name when it differs from the text (`None`: the text).
     pub name: Option<&'a str>,
 }
@@ -1070,7 +1074,7 @@ impl<'a> Segment<'a> {
     /// const FOUR: pxui_types::ui::Segment = pxui_types::ui::Segment::new("4 GB");
     /// assert_eq!((FOUR.text, FOUR.name), ("4 GB", None));
     /// ```
-    pub const fn new(text: &'a str) -> Segment<'a> { Segment { text, name: None } }
+    pub const fn new(text: &'a str) -> Segment<'a> { Segment { text, id: None, detail: "", name: None } }
 
     /// Sets the accessible name, read in place of the text (what the option does, when the text alone is terse).
     /// Allocates: never.
@@ -1081,9 +1085,33 @@ impl<'a> Segment<'a> {
     /// assert_eq!(FOUR.name, Some("Use 4 GB"));
     /// ```
     pub const fn name(mut self, name: &'a str) -> Segment<'a> { self.name = Some(name); self }
+
+    /// Assigns an explicit id to this item.
+    ///
+    /// The chosen result carries it unchanged.
+    /// Allocates: never.
+    /// Identity: Use ids unique among sibling items. The id keys the item's node, focus and secondary-press routing, so they follow it
+    /// through a reorder. When one is absent, the item's position supplies identity in a namespace that never collides with an id.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::ui::Segment::new("Dark").id(7);
+    /// ```
+    pub const fn id(self, id: i64) -> Segment<'a> { Segment { id: Some(id), ..self } }
+
+    /// Sets additional text for the item's body.
+    ///
+    /// The string is borrowed for the build call.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::ui::Segment::new("Dark").detail("Theme");
+    /// ```
+    pub const fn detail(self, detail: &'a str) -> Segment<'a> { Segment { detail, ..self } }
 }
 
-/// How `Ui::segmented_with` varies the kit's segmented control, as a `Copy` value built with `const fn` builders from `Segmented::DEFAULT`.
+/// How `Ui::segmented` varies the kit's segmented control, as a `Copy` value built with `const fn` builders from `Segmented::DEFAULT`.
 ///
 /// The default is the kit's plain strip: the theme's control height, each segment as wide as its text plus 16, the text 8 in.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -1181,7 +1209,7 @@ impl<'a> Segmented<'a> {
 
     /// Sets the strip's width in points, its segments sharing it equally (as `grow` shares its line's).
     /// Allocates: never.
-    /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
+    /// Panics: never (a negative or non-finite width panics at the `segmented` call).
     ///
     /// ```
     /// const STRIP: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.w_px(240.0);
@@ -1191,7 +1219,7 @@ impl<'a> Segmented<'a> {
 
     /// Sets a segment's text inset in points, and half the room around its text when segments are as wide as their text (8 by default).
     /// Allocates: never.
-    /// Panics: never (a negative or non-finite padding panics at the `segmented_with` call).
+    /// Panics: never (a negative or non-finite padding panics at the `segmented` call).
     ///
     /// ```
     /// const ROOMY: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.padding(12.0);
@@ -1201,7 +1229,7 @@ impl<'a> Segmented<'a> {
 
     /// Sets the least width of a segment in points (none by default), whether it is as wide as its text or shares the strip.
     /// Allocates: never.
-    /// Panics: never (a negative or non-finite width panics at the `segmented_with` call).
+    /// Panics: never (a negative or non-finite width panics at the `segmented` call).
     ///
     /// ```
     /// const EVEN: pxui_types::ui::Segmented = pxui_types::ui::Segmented::DEFAULT.min_segment(56.0);

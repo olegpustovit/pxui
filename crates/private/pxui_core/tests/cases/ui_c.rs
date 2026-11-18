@@ -527,7 +527,7 @@ pub fn window_pxui_modal_1() {
     let shown = Cell::new(false);
     let modal = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            shown.set(ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.w(200.0).name("modal"), &mut |ui| ui.label("Hello", pxui_core::ui::Label::DEFAULT)));
+            shown.set(ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.w(200.0).name("modal"), &mut |ui| ui.label("Hello", pxui_core::ui::Label::DEFAULT)).open);
         });
     };
     modal(&mut ui, vec![]);
@@ -616,7 +616,7 @@ pub fn window_pxui_modal_2() {
             shown.set(ui.popup("popup", &pxui_core::ui::Overlay::DEFAULT.at(20.0, 20.0).w(200.0).h(10.0).dismiss_initial().name("popup"), &mut |ui| {
                 ui.label("One", pxui_core::ui::Label::DEFAULT);
                 ui.label("Two", pxui_core::ui::Label::DEFAULT);
-            }));
+            }).open);
         });
     };
     popup(&mut ui, vec![]);

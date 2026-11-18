@@ -226,13 +226,13 @@ mod tests {
             let input = crate::FrameIn::new(640.0, 464.0).time(count as f64 / 60.0);
             ui.frame(&input, &mut |ui: &mut Ui| {
                 ui.view_of("page", &count, |ui: &mut Ui| {
-                    let ratio = ui.split("split", pxui_types::Axis::Row, 0.34, 120.0, 200.0, &mut |ui: &mut Ui| {
+                    let ratio = ui.split("split", 0.34, &crate::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
                         let _ = ui.selection_list("files", ROWS, &mut list, &crate::SelectionList::DEFAULT.multi(), &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("file {i}")); });
                     }, &mut |ui: &mut Ui| {
                         shown = ui.tree("outline", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, i| { texts.set(texts.get() + 1); ui.item_text(&format!("node {i}")); }).shown;
                         let _ = ui.table_view("points", &["Name", "Group", "Tag"], &mut widths, ROWS, &mut table_sel, &crate::TableView::DEFAULT.sort(0, true), &mut |ui, r, c| { cells.set(cells.get() + 1); ui.item_text(&format!("{r}:{c}")); });
                     });
-                    assert!(ratio.is_none() || ratio.is_some());
+                    assert!(ratio.ratio.is_none());
                 });
             }).expect("frame");
         }

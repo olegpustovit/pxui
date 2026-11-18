@@ -16,7 +16,7 @@ the function you call (what it does, `Allocates:`, `Identity:`, `Panics:`, examp
   and `const fn` builders that take `self` by value. Declare them as `const` items; never write a struct literal with
   `..Default::default()` at a call site, and never build a style per frame from data.
 - One function per job. `label`, `label_fmt`, `label_digits`; `button_with` (text) and `button_content` (your own
-  contents); `icon_button`; `toggle_with`; `segmented_with`; `menu`; `dialog`; `pressable`; `list`; `view_of`;
+  contents); `icon_button`; `toggle_with`; `segmented`; `menu`; `dialog`; `pressable`; `list`; `view_of`;
   `row`, `column`, `stack`. The short `button(text)` and `toggle(text, on)` exist for prototypes and key by position.
 - Labels are leaves: no key, identity by position among siblings, no state. Everything interactive takes a key first.
 
@@ -108,8 +108,8 @@ pxui::doc::frames(2, &mut |ui| {
 ## Toggles and segmented controls
 
 `toggle_with(key, text, on, &Toggle)` returns a `Response`: the new value is `on != response.changed`; the app owns
-the value. `segmented_with(key, &[Segment], selected, &Segmented)` takes the choice as `Option<usize>` (`None`: none
-chosen) and returns a `SegmentedResponse`: `response` (`changed` when the choice moved), `chosen`, and `secondary`, the
+the value. `segmented(key, &[Segment], selected, &Segmented)` takes the choice as `Option<usize>` (`None`: none
+chosen) and returns a `PickResponse`: `response` (`changed` when the choice moved), `chosen`, and `secondary`, the
 option a right/two-finger press began on (a context-menu request, never a choice). The strip is one Tab stop, the
 chosen option; Left/Right move the focus and the choice. Segments are `Segment::new(text)` values in a `const` array,
 never `&[&str]`.
@@ -122,7 +122,7 @@ const OPTIONS: [Segment; 3] = [Segment::new("System"), Segment::new("Light"), Se
 let (mut offline, mut look) = (false, Some(0));
 pxui::doc::frames(2, &mut |ui| {
     if ui.toggle_with("offline", "Offline mode", offline, &SETTING).changed { offline = !offline; }
-    let strip = ui.segmented_with("appearance", &OPTIONS, look, &LOOKS);
+    let strip = ui.segmented("appearance", &OPTIONS, look, &LOOKS);
     if strip.response.changed { look = strip.chosen; }
 });
 ```

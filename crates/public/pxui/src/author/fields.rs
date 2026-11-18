@@ -1,9 +1,8 @@
 //! The key-first calls of the text inputs: thin generic shims over the one non-generic body each (`text_inputs.rs`, `widgets.rs`).
 //!
-//! `line_field`, `value_field` and `text_area` place their field absolutely, at a `Rect` in the parent's space: they are the caller-painted
-//! inspector widgets (a field in a row the caller laid out), and the library lays no flow node out for them.
+//! Line and value fields take a rectangle in the parent's space. A text area takes its layout from a node.
 use super::Key;
-use crate::{AreaCallbacks, LineField, LineFieldResponse, Scrub, Scrubber, SearchField, SearchFieldResponse, TextArea, TextAreaResponse, TextField, TextFieldResponse, Ui, ValueCallbacks, ValueField, ValueFieldResponse};
+use crate::{AreaCallbacks, LineField, LineFieldResponse, SliderResponse, Scrubber, SearchField, SearchFieldResponse, TextArea, TextAreaResponse, TextField, TextFieldResponse, Ui, ValueCallbacks, ValueField, ValueFieldResponse};
 use pxui_types::geom::Rect;
 
 impl Ui {
@@ -114,7 +113,9 @@ impl Ui {
     /// adjustments take over capture and commit. A collapsed range is read-only. Use `set_node_layout` to size the returned node and `draw`
     /// to paint its body.
     ///
-    /// `scrubber` carries the arrow-key step and the accessible name (the scrubber is unnamed without one).
+    /// `scrubber` carries the arrow-key step and the accessible name (the scrubber is unnamed without one). A held drag supplies
+    /// `preview`; a release, key or accessibility edit supplies `commit` with `preview` set to the same value, so a caller painting from
+    /// `preview` shows the committed position until its seek takes effect.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never display text.
     /// Panics: when the library refuses the call (outside a frame, a non-finite value or step). A key or identity label over 256 bytes panics (a programmer error).
@@ -123,10 +124,10 @@ impl Ui {
     /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
     ///     let scrub = ui.scrub("position", 5.0, 0.0..=10.0, &pxui::Scrubber::DEFAULT.step(1.0));
-    ///     assert!(scrub.preview.is_none() && scrub.commit.is_none() && !scrub.held);
+    ///     assert!(scrub.preview.is_none() && scrub.commit.is_none() && !scrub.response.held);
     /// }).unwrap();
     /// ```
     #[inline]
     #[track_caller]
-    pub fn scrub<K: Into<Key>>(&mut self, key: K, value: f32, range: core::ops::RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> Scrub { self.scrub_key(key.into(), value, range, scrubber) }
+    pub fn scrub<K: Into<Key>>(&mut self, key: K, value: f32, range: core::ops::RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> SliderResponse { self.scrub_key(key.into(), value, range, scrubber) }
 }

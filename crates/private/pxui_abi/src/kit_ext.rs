@@ -7,7 +7,7 @@ use crate::trusted;
 use crate::{PXUI_ERR_ARGUMENT, PxuiBox, PxuiSignal, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_core::ui::{Along, Axis, Edges, HeadAction, Justify, LineStep, Rect, Size, State, States, Ui};
-use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonBuild, PxuiButtonDesc, PxuiIconButtonDesc, PxuiStateDesc, PxuiResponse, PxuiSegmentedDesc, PxuiSegmentedResult, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
+use pxui_types::{geom::{Point, Rgba}, ffi::{PxuiButtonBuild, PxuiButtonDesc, PxuiIconButtonDesc, PxuiStateDesc, PxuiResponse, PxuiPickItem, PxuiSegmentedDesc, PxuiSegmentedResult, PxuiToggleDesc, PxuiHeadActionDesc, PxuiHeadOut, PxuiHeaderDesc, PxuiPopupDesc, Slice}};
 use std::rc::Rc;
 
 const MAX_ACTIONS: usize = 256;
@@ -212,7 +212,7 @@ export!(trusted pub unsafe fn pxui_ui_segmented_response(ui: *mut PxuiUi, desc: 
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     if chosen.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
     let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { segmented_desc(ui, desc, options, out, false, &mut at, &mut secondary) };
+    let rc = unsafe { segmented_desc(ui, desc, options, Slice { ptr: core::ptr::null(), len: 0 }, out, false, &mut at, &mut secondary) };
     if rc == 0 { unsafe { *chosen = at.unwrap_or(0); } }
     rc
 });
@@ -223,7 +223,21 @@ export!(trusted pub unsafe fn pxui_ui_segmented_result(ui: *mut PxuiUi, desc: *c
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short segmented result") } };
     let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { segmented_desc(ui, desc, options, out, true, &mut at, &mut secondary) };
+    let rc = unsafe { segmented_desc(ui, desc, options, Slice { ptr: core::ptr::null(), len: 0 }, out, true, &mut at, &mut secondary) };
+    if rc == 0 {
+        (result.has_chosen, result.chosen, result.has_secondary, result.secondary) = (at.is_some() as u8, at.unwrap_or(0) as u64, secondary.is_some() as u8, secondary.unwrap_or(0) as u64);
+        result.reserved = [0; 2];
+    }
+    rc
+});
+
+// ABI 1.76: `pxui_ui_segmented_result` with the options as pick-one `items` (each with its id, name and detail; `options` none and
+// `desc.names` empty): an item with an id is keyed by it.
+export!(trusted pub unsafe fn pxui_ui_segmented_items(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, items: Slice<PxuiPickItem>, out: *mut PxuiResponse, result: *mut PxuiSegmentedResult) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short segmented result") } };
+    let (mut at, mut secondary) = (None, None);
+    let rc = unsafe { segmented_desc(ui, desc, Slice { ptr: core::ptr::null(), len: 0 }, items, out, true, &mut at, &mut secondary) };
     if rc == 0 {
         (result.has_chosen, result.chosen, result.has_secondary, result.secondary) = (at.is_some() as u8, at.unwrap_or(0) as u64, secondary.is_some() as u8, secondary.unwrap_or(0) as u64);
         result.reserved = [0; 2];
@@ -232,7 +246,7 @@ export!(trusted pub unsafe fn pxui_ui_segmented_result(ui: *mut PxuiUi, desc: *c
 });
 
 // The body of `pxui_ui_segmented_response` and `pxui_ui_segmented_result` (`none`: the caller can be told no option is chosen).
-unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, options: Slice<Str>, out: *mut PxuiResponse, none: bool, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, options: Slice<Str>, items: Slice<PxuiPickItem>, out: *mut PxuiResponse, none: bool, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() { return unsafe { fail(ui, "null segmented argument") }; }
     let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short segmented response") } };
@@ -260,14 +274,62 @@ unsafe fn segmented_desc(ui: *mut PxuiUi, desc: *const PxuiSegmentedDesc, option
         return unsafe { fail(ui, "invalid segmented names") };
     }
     let mut segments = state.shared().take_segments();
-    segments.extend(list.iter().enumerate().map(|(i, text)| pxui_types::ui::Segment { text, name: names.get(i).copied().filter(|n| !n.is_empty()) }));
+    segments.extend(list.iter().enumerate().map(|(i, text)| pxui_types::ui::Segment { name: names.get(i).copied().filter(|n| !n.is_empty()), ..pxui_types::ui::Segment::new(text) }));
+    // 1.76 items stand for the options and names, which are then empty
+    if items.len != 0 && (!list.is_empty() || !names.is_empty() || !unsafe { pick_items(items, &mut segments) }) {
+        state.shared().put_segments(segments);
+        state.shared().put_strs(names);
+        state.shared().put_strs(list);
+        return unsafe { fail(ui, "invalid segmented items") };
+    }
     let selected = (d.has_selected == 1).then_some(d.selected);
-    let rc = unsafe { trusted::segmented_with(ui, key, name, &segments, selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, d.focus_on_click != 0, out, chosen, secondary) };
+    let rc = unsafe { trusted::segmented(ui, key, name, &segments, selected, d.enabled != 0, d.h, d.grow != 0, states.as_ref(), d.w, d.padding, d.min_segment, d.focus_on_click != 0, out, chosen, secondary) };
     state.shared().put_segments(segments);
     state.shared().put_strs(names);
     state.shared().put_strs(list);
     rc
 }
+
+/// Appends `items` to `out` (cleared first): at most `MAX_OPTIONS`, `has_id` 0 or 1 with `reserved` zero, every string checked and
+/// all of them within `MAX_TOTAL_TEXT_BYTES`; false refuses them.
+unsafe fn pick_items(items: Slice<PxuiPickItem>, out: &mut Vec<pxui_types::ui::Segment<'static>>) -> bool {
+    out.clear();
+    if items.len > trusted::MAX_OPTIONS || (items.len != 0 && items.ptr.is_null()) { return false; }
+    let items = if items.len == 0 { &[] } else { unsafe { core::slice::from_raw_parts(items.ptr, items.len) } };
+    let mut total = 0usize;
+    for item in items {
+        total = total.saturating_add(item.text.len).saturating_add(item.name.len).saturating_add(item.detail.len);
+        let (Some(text), Some(name), Some(detail)) = (unsafe { checked(item.text) }, unsafe { checked(item.name) }, unsafe { checked(item.detail) }) else { return false };
+        if item.has_id > 1 || item.reserved != [0; 7] || total > MAX_TOTAL_TEXT_BYTES { return false; }
+        let segment = pxui_types::ui::Segment { name: (!name.is_empty()).then_some(name), detail, ..pxui_types::ui::Segment::new(text) };
+        out.push(if item.has_id == 1 { segment.id(item.id) } else { segment });
+    }
+    true
+}
+
+// ABI 1.76: a radio group (`kind` 0) or a dropdown (3) of pick-one `items` keyed by `keyed.key` and named `keyed.name`; `selected` is
+// read when `has_selected` is 1. Reports one `PxuiResponse` and a `PxuiSegmentedResult` (the choice, none for none, and the item a
+// secondary press began on).
+export!(trusted pub unsafe fn pxui_ui_pick(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, kind: u32, items: Slice<PxuiPickItem>, has_selected: u8, selected: usize, out: *mut PxuiResponse, result: *mut PxuiSegmentedResult) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(out) = sized_mut!(out) else { return unsafe { fail(ui, "null or short pick response") } };
+    let Some(result) = sized_mut!(result) else { return unsafe { fail(ui, "null or short pick result") } };
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    if !matches!(kind, 0 | 3) || has_selected > 1 { return unsafe { fail(ui, "invalid pick arguments") }; }
+    let mut segments = state.shared().take_segments();
+    if !unsafe { pick_items(items, &mut segments) } {
+        state.shared().put_segments(segments);
+        return unsafe { fail(ui, "invalid pick items") };
+    }
+    let (mut at, mut secondary) = (None, None);
+    let rc = unsafe { trusted::pick(ui, kind, key, name, &segments, (has_selected == 1).then_some(selected), out, &mut at, &mut secondary) };
+    state.shared().put_segments(segments);
+    if rc == 0 {
+        (result.has_chosen, result.chosen, result.has_secondary, result.secondary) = (at.is_some() as u8, at.unwrap_or(0) as u64, secondary.is_some() as u8, secondary.unwrap_or(0) as u64);
+        result.reserved = [0; 2];
+    }
+    rc
+});
 
 // Builds a subtree with every interactive node in it disabled when `disabled` is 1 (scopes nest by OR); the Ui is back as it was when the call returns.
 export!(build pub unsafe fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: Build, user: *mut c_void) -> i32 {
@@ -289,7 +351,7 @@ export!(build pub unsafe fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32,
 });
 
 /// The popup of `desc` keyed by `key` and named `name`: the body of `pxui_ui_popup` and `pxui_ui_popup_keyed`.
-unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8) -> i32 {
+unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8, root: Option<&mut PxuiBox>) -> i32 {
     if d.has_stroke > 1 || d.has_max_height > 1 || d.dismiss_initial > 1 || d.attached > 1
         || !crate::state::finite(&[d.x, d.y, d.width, d.height]) || (d.has_max_height != 0 && !d.max_height.is_finite()) || d.width < 0.0 || d.height < 0.0 {
         return unsafe { fail(ui, "invalid popup descriptor") };
@@ -297,8 +359,10 @@ unsafe fn popup(ui: *mut PxuiUi, key: &str, name: &str, d: &PxuiPopupDesc, build
     let overlay = pxui_types::ui::Overlay { at: (d.x, d.y), w: Some(d.width), h: Some(d.height), max_h: (d.has_max_height != 0).then_some(d.max_height),
         stroke: (d.has_stroke != 0).then_some(d.stroke), dismiss_initial: d.dismiss_initial != 0, attached: d.attached != 0, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
     let mut open = false;
-    let rc = unsafe { crate::trusted::popup(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut open) };
+    let mut node = PxuiBox::default();
+    let rc = unsafe { crate::trusted::popup(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, &mut open, &mut node) };
     unsafe { *out = open as u8; }
+    if let Some(root) = root { *root = node; }
     rc
 }
 
@@ -308,7 +372,7 @@ export!(build pub unsafe fn pxui_ui_popup(ui: *mut PxuiUi, desc: *const PxuiPopu
     if desc.is_null() || out.is_null() { return unsafe { fail(ui, "null popup argument") }; }
     let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
     let Some(label) = (unsafe { checked(d.label) }) else { return unsafe { fail(ui, "invalid popup label") }; };
-    unsafe { popup(ui, label, pxui_types::ui::shown(label), &d, build, user, out) }
+    unsafe { popup(ui, label, pxui_types::ui::shown(label), &d, build, user, out, None) }
 });
 
 // ABI 1.68: a popup keyed by `keyed.key` and named `keyed.name` (empty: none); `desc.label` must be empty.
@@ -318,7 +382,17 @@ export!(build pub unsafe fn pxui_ui_popup_keyed(ui: *mut PxuiUi, keyed: *const p
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
     if d.label.len != 0 { return unsafe { fail(ui, "a keyed popup takes no label") }; }
-    unsafe { popup(ui, key, name, &d, build, user, out) }
+    unsafe { popup(ui, key, name, &d, build, user, out, None) }
+});
+
+// ABI 1.76: `pxui_ui_popup_keyed` that also writes the popup's root to `root` (the empty box when it is dismissed).
+export!(build pub unsafe fn pxui_ui_popup_root(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, desc: *const PxuiPopupDesc, build: Build, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    if desc.is_null() || out.is_null() || root.is_null() { return unsafe { fail(ui, "null popup argument") }; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some(d) = read_desc!(desc, PxuiPopupDesc) else { return unsafe { fail(ui, "invalid popup descriptor") }; };
+    if d.label.len != 0 { return unsafe { fail(ui, "a keyed popup takes no label") }; }
+    unsafe { popup(ui, key, name, &d, build, user, out, Some(&mut *root)) }
 });
 
 export!(build pub unsafe fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<PxuiHintDesc>, count: i64) -> i32 {

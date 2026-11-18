@@ -147,7 +147,7 @@ impl Ui {
 
     /// Builds `f` with every interactive node it declares disabled when `disabled`: no press, no focus, and the accessible disabled state.
     ///
-    /// It covers whatever `f` declares (`button_with`, `toggle_with`, `segmented_with`, `pressable`, any node with `CLICKABLE` or
+    /// It covers whatever `f` declares (`button_with`, `toggle_with`, `segmented`, `pressable`, any node with `CLICKABLE` or
     /// `FOCUSABLE`); the kit widgets also show their `disabled` look (a `pressable` shows the look of its own `enabled`). Scopes nest: a
     /// node is disabled when any scope around it is. A node still blocks what is under it. A view cached inside rebuilds when the flag
     /// flips. `f` runs even when `disabled` is false.

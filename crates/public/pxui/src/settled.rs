@@ -30,8 +30,8 @@ fn panel(ui: &mut Ui, s: &mut State) {
         if ui.button("Apply") { s.clicks += 1; }
         s.night = ui.toggle("Night light", s.night);
         s.check = s.check != ui.checkbox("check", "Check", s.check, &crate::Checkbox::DEFAULT).changed;
-        s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &crate::Slider::DEFAULT).1;
-        s.mode = ui.radio("mode", &["Auto", "Light", "Dark"], s.mode, &crate::Choice::DEFAULT.name("Mode")).1;
+        s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &crate::Slider::DEFAULT).value;
+        s.mode = ui.radio("mode", &[crate::Segment::new("Auto"), crate::Segment::new("Light"), crate::Segment::new("Dark")], Some(s.mode), &crate::Radio::DEFAULT.name("Mode")).chosen.unwrap_or(s.mode);
         let _ = ui.text_field("Name", "abc", &crate::TextField::DEFAULT);
         let row = ui.node("row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
@@ -69,7 +69,7 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
     });
     s.seen += ui.selection_list("items", 3, &mut [0; 3], &crate::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["one", "two", "three"][row])).activated.is_some() as u64;
     s.seen += ui.table_view("table", &["Name", "Size"], &mut [], 3, &mut None, &crate::TableView::text(crate::ui::Rect::new(0.0, 0.0, 120.0, 60.0)), &mut |ui, _, column| ui.item_text(if column == 0 { "row" } else { "1" })).row.is_some() as u64;
-    s.seen += ui.popup("popup", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(80.0).h(30.0).dismiss_initial(), &mut |ui: &mut Ui| { ui.label("popped", crate::Label::DEFAULT); }) as u64;
+    s.seen += ui.popup("popup", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(80.0).h(30.0).dismiss_initial(), &mut |ui: &mut Ui| { ui.label("popped", crate::Label::DEFAULT); }).open as u64;
 }
 
 #[test]

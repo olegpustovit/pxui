@@ -52,6 +52,13 @@ fn pressed(keys: &[Event], f: &mut dyn FnMut(Key)) {
 }
 
 /// `i` moved by `by` within `0..n`, wrapping.
+/// A pick-one item's key under `seed`: its id in a namespace of its own, else its place (`int_key(seed, i)`, unchanged for
+/// positional items); an id never meets a place (the namespace key is negative, places are not).
+pub(crate) fn item_key(seed: i64, id: Option<i64>, i: usize) -> i64 {
+    const ID_SPACE: i64 = -0x4944;
+    match id { Some(id) => int_key(int_key(seed, ID_SPACE), id), None => int_key(seed, i as i64) }
+}
+
 fn wrap(i: usize, by: i64, n: usize) -> usize {
     if n == 0 { 0 } else { (i as i64 + by).rem_euclid(n as i64) as usize }
 }
@@ -167,12 +174,88 @@ impl SegmentedOpts {
     pub const DEFAULT: SegmentedOpts = SegmentedOpts { enabled: true, h: None, grow: false, states: None, w: None, padding: 8.0, min_segment: 0.0, focus_on_click: false };
 }
 
-/// What `segmented_with` reports: the strip's response, the choice (`None`: none) and the option a secondary press began on.
+// The wrapper's U1b.1 result and style shapes, so the gallery pages compile against the engine too (abi_bench); strings are
+// 'static here (an engine record carries no lifetime).
+
+/// What `radio`, `dropdown` and `segmented` report: the response, the choice (`None`: none) and the item a secondary press began on.
 #[derive(Clone, Copy, Debug)]
-pub struct SegmentedResponse {
+pub struct PickResponse {
     pub response: Response,
     pub chosen: Option<usize>,
     pub secondary: Option<usize>,
+}
+
+/// What `slider` reports: the value shown, the held preview and the commit (with `preview` equal to it on that frame).
+#[derive(Clone, Copy, Debug)]
+pub struct SliderResponse {
+    pub response: Response,
+    pub value: f32,
+    pub preview: Option<f32>,
+    pub commit: Option<f32>,
+}
+
+/// What `popup` and `modal` report: the root (empty when dismissed) and whether the caller keeps it open.
+#[derive(Clone, Copy, Debug)]
+pub struct OverlayResponse {
+    pub handle: Handle,
+    pub open: bool,
+}
+
+/// What `split` reports: the grip's response and the ratio while it is held and on its release.
+#[derive(Clone, Copy, Debug)]
+pub struct SplitResponse {
+    pub response: Response,
+    pub ratio: Option<f32>,
+}
+
+/// A radio group's accessible name and body variant.
+#[derive(Clone, Copy, Debug)]
+pub struct Radio {
+    pub name: &'static str,
+    pub variant: u16,
+}
+
+impl Radio {
+    pub const DEFAULT: Radio = Radio { name: "", variant: 0 };
+    pub const fn name(mut self, name: &'static str) -> Radio { self.name = name; self }
+    pub const fn variant(mut self, variant: u16) -> Radio { self.variant = variant; self }
+}
+
+/// A split's axis and the panes' least lengths.
+#[derive(Clone, Copy, Debug)]
+pub struct Split {
+    pub axis: Axis,
+    pub min_a: f32,
+    pub min_b: f32,
+}
+
+impl Split {
+    pub const DEFAULT: Split = Split { axis: Axis::Row, min_a: 0.0, min_b: 0.0 };
+    pub const fn axis(mut self, axis: Axis) -> Split { self.axis = axis; self }
+    pub const fn min_a(mut self, points: f32) -> Split { self.min_a = points; self }
+    pub const fn min_b(mut self, points: f32) -> Split { self.min_b = points; self }
+}
+
+/// A menu bar's body variant.
+#[derive(Clone, Copy, Debug)]
+pub struct MenuBar {
+    pub variant: u16,
+}
+
+impl MenuBar {
+    pub const DEFAULT: MenuBar = MenuBar { variant: 0 };
+    pub const fn variant(mut self, variant: u16) -> MenuBar { self.variant = variant; self }
+}
+
+/// One menu of a bar: its title and items.
+#[derive(Clone, Copy, Debug)]
+pub struct MenuBarMenu {
+    pub title: &'static str,
+    pub items: &'static [pxui_types::ui::MenuItem<'static>],
+}
+
+impl MenuBarMenu {
+    pub const fn new(title: &'static str, items: &'static [pxui_types::ui::MenuItem<'static>]) -> MenuBarMenu { MenuBarMenu { title, items } }
 }
 
 /// The built-in segment: the text's width and twice `padding` (or its share of the strip with `grow`), at least `min_segment`, `padding`
@@ -308,38 +391,79 @@ impl Ui {
         Response::of(&s, self.focused(&row), row)
     }
 
+    /// The wrapper's `radio`: `pick_radio` over `items`.
+    pub fn radio(&mut self, key: &str, items: &[Segment], selected: Option<usize>, radio: &Radio) -> PickResponse {
+        let (response, chosen, secondary) = self.pick_radio(key, radio.name, items.len(), &|i| items[i], selected, radio.variant);
+        PickResponse { response, chosen, secondary }
+    }
+
+    /// The wrapper's `dropdown`: `pick_dropdown` over `items`.
+    pub fn dropdown(&mut self, key: &str, text: &str, items: &[Segment], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse {
+        let (response, chosen, secondary) = self.pick_dropdown(key, text, items.len(), &|i| items[i], selected, dropdown.variant);
+        PickResponse { response, chosen, secondary }
+    }
+
+    /// The wrapper's `slider`: `slider_result` as one value.
+    pub fn slider(&mut self, key: &str, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> SliderResponse {
+        let (response, value, preview, commit) = self.slider_result(key, text, value, range, slider);
+        SliderResponse { response, value, preview, commit }
+    }
+
+    /// The wrapper's `menu_bar`: the pick as the flat item index and its id, and a dismissal.
+    pub fn menu_bar(&mut self, key: &str, menus: &[MenuBarMenu], bar: &MenuBar) -> Chosen {
+        if bar.variant != 0 { self.set_variant(BodyKind::menu_bar as u32, bar.variant); }
+        let (picked, dismissed) = self.menu_bar_result(key, menus.len(), &|m| (menus[m].title, menus[m].items.len()), &|m, i| menus[m].items[i].text);
+        if bar.variant != 0 { self.set_variant(BodyKind::menu_bar as u32, 0); }
+        let item = picked.and_then(|(m, i)| Some((menus.get(m)?.items.get(i)?, m, i)));
+        Chosen { chosen: item.map(|(_, m, i)| menus[..m].iter().map(|menu| menu.items.len()).sum::<usize>() + i), chosen_id: item.and_then(|(it, _, _)| it.id), dismissed }
+    }
+
     /// A radio group: one row per option, `selected` the chosen one. One Tab stop; the arrows move
     /// the choice. Returns the choice.
     /// A radio group keyed by `key` (hashed under the parent's seed), named `choice.name`, its variant given to the rows' bodies;
     /// reports the group's response and the choice.
-    pub fn radio(&mut self, key: &str, options: &[&str], selected: usize, choice: &Choice) -> (Response, usize) {
-        let variant = choice.variant;
+    pub fn radio_legacy(&mut self, key: &str, options: &[&str], selected: usize, choice: &Choice) -> (Response, usize) {
+        let (r, sel, _) = self.pick_radio(key, choice.name, options.len(), &|i| Segment::new(options[i]), Some(selected), choice.variant);
+        (r, sel.unwrap_or(0))
+    }
+
+    /// The radio group over `count` items, item `i` being `item(i)`: an item with an id is keyed by it (its row, focus and a
+    /// secondary press follow it through a reorder), one without by its place in a namespace ids never reach; `selected` none
+    /// checks no row (an arrow then chooses the first or last). Reports the group's response, the choice and the row a secondary
+    /// press began on.
+    pub fn pick_radio<'a>(&mut self, key: &str, name: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, variant: u16) -> (Response, Option<usize>, Option<usize>) {
         if variant != 0 { self.set_variant(BodyKind::radio as u32, variant); }
-        let name = choice.name;
         let group = self.node_ref(key, &Node { flags: Flags::FOCUSABLE | Flags::TAB_ONLY, role: Role::Group, ..Node::DEFAULT });
         self.a11y_name(&group, name);
         let s = self.signal_owned(&group);
-        let mut sel = selected.min(options.len().saturating_sub(1));
+        let mut sel = selected.filter(|_| count > 0).map(|i| i.min(count - 1));
         pressed(&s.keys, &mut |k| match k {
-            Key::ArrowDown | Key::ArrowRight => sel = wrap(sel, 1, options.len()),
-            Key::ArrowUp | Key::ArrowLeft => sel = wrap(sel, -1, options.len()),
+            Key::ArrowDown | Key::ArrowRight => sel = Some(sel.map_or(0, |i| wrap(i, 1, count))),
+            Key::ArrowUp | Key::ArrowLeft => sel = Some(sel.map_or(count.saturating_sub(1), |i| wrap(i, -1, count))),
             _ => {}
         });
+        if count == 0 { sel = None; }
+        let mut secondary = None;
         let saved = self.enter(&group);
-        for (i, option) in options.iter().enumerate() {
-            let row = self.kit_line(int_key(group.box_key, i as i64), ROW_FLAGS, Role::Radio);
+        for i in 0..count {
+            let option = item(i);
+            let row = self.kit_line(item_key(group.box_key, option.id, i), ROW_FLAGS, Role::Radio);
             let rs = self.signal_owned(&row);
             if rs.clicked {
-                sel = i;
+                sel = Some(i);
             }
-            self.set_role(&row, Role::Radio, st::CHECKABLE | if sel == i { st::CHECKED } else { 0 });
-            self.a11y_name(&row, option);
-            let config = CheckConfig { state: State { hovered: rs.hovered, pressed: rs.held, ..State::default() }, on: sel == i, row };
-            in_body!(self, row.box_key, row, radio, default_radio(&config, option));
+            if rs.pressed && rs.button == Some(input::MouseButton::RightButton) { secondary = Some(i); }
+            let on = sel == Some(i);
+            self.set_role(&row, Role::Radio, st::CHECKABLE | if on { st::CHECKED } else { 0 });
+            self.a11y_name(&row, option.name.unwrap_or(option.text));
+            let config = CheckConfig { state: State { hovered: rs.hovered, pressed: rs.held, ..State::default() }, on, row };
+            in_body!(self, row.box_key, row, radio, default_radio(&config, option.text));
         }
         self.leave(saved);
         if variant != 0 { self.set_variant(BodyKind::radio as u32, 0); }
-        (Response::of(&s, self.focused(&group), group), sel)
+        let mut r = Response::of(&s, self.focused(&group), group);
+        r.secondary |= secondary.is_some();
+        (r, sel, secondary)
     }
 
     /// A horizontal slider row: the label, then a rail with the filled part and an 8 x 14 thumb.
@@ -347,7 +471,13 @@ impl Ui {
     /// an assistive technology's SetValue move it. Returns the value, held in `range`.
     /// Keyed by `key` (hashed under the parent's seed), showing and named `text`, its variant given to the slider body; reports the
     /// track's response and the value.
-    pub fn slider(&mut self, key: &str, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> (Response, f32) {
+    pub fn slider_legacy(&mut self, key: &str, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> (Response, f32) {
+        let (r, v, _, _) = self.slider_result(key, text, value, range, slider);
+        (r, v)
+    }
+
+    /// `slider` with the held preview and the commit (see `slider_body`).
+    pub fn slider_result(&mut self, key: &str, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> (Response, f32, Option<f32>, Option<f32>) {
         let variant = slider.variant;
         if variant != 0 { self.set_variant(BodyKind::slider as u32, variant); }
         let result = slider_body(self, key, text, value, range);
@@ -548,13 +678,13 @@ impl Ui {
 
     /// The wrapper's `segmented_with` shape over `segmented_opts`: `segmented` (a `Segmented` value) varies the strip and its variant
     /// reaches the registered segment body; `response.changed` is not the engine's (the caller compares `chosen`).
-    pub fn segmented_with(&mut self, key: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> SegmentedResponse {
+    pub fn segmented(&mut self, key: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> PickResponse {
         let opts = SegmentedOpts { enabled: segmented.enabled, h: segmented.h, grow: segmented.grow, states: segmented.look.copied(), w: segmented.w, padding: segmented.padding, min_segment: segmented.min_segment, focus_on_click: segmented.focus_on_click };
         let kind = pxui_types::theme::BodyKind::segmented as u32;
         if segmented.variant != 0 { self.set_variant(kind, segmented.variant); }
         let (response, chosen, secondary) = self.segmented_opts(key, segmented.name.unwrap_or(""), options, selected, &opts);
         if segmented.variant != 0 { self.set_variant(0, 0); }
-        SegmentedResponse { response, chosen, secondary }
+        PickResponse { response, chosen, secondary }
     }
 
     /// The one body of `segmented_opts`: `count` options, option `i` being `option(i)` (the C ABI's texts without a copy).
@@ -589,7 +719,7 @@ impl Ui {
         let stored = sel;
         // the option holding the focus, if one does: its arrows move the focus and the choice
         let focus = self.focus_key();
-        let held = (0..count).find(|i| int_key(strip.box_key, *i as i64) == focus);
+        let held = (0..count).find(|i| item_key(strip.box_key, option(*i).id, *i) == focus);
         let mut at = held;
         if let (true, Some(from)) = (enabled, held) {
             for (event, _) in self.key_events_of(focus) {
@@ -611,7 +741,7 @@ impl Ui {
         let inner = self.enter(&strip);
         for i in 0..count {
             let option = option(i);
-            let n = self.node_keyed(int_key(strip.box_key, i as i64), Node { flags: if enabled { ROW_FLAGS } else { Flags::BLOCKING }, h: Size::Grow, role: Role::Radio, ..Node::DEFAULT });
+            let n = self.node_keyed(item_key(strip.box_key, option.id, i), Node { flags: if enabled { ROW_FLAGS } else { Flags::BLOCKING }, h: Size::Grow, role: Role::Radio, ..Node::DEFAULT });
             let ns = self.signal(&n);
             (hovered, pressed) = (hovered || ns.hovered, pressed || ns.held);
             if enabled && ns.clicked {
@@ -636,7 +766,7 @@ impl Ui {
         self.leave(saved);
         if !enabled { self.node_new(&strip).state.disabled = true; }
         let now = self.focus_key();
-        let focused = (0..count).any(|i| int_key(strip.box_key, i as i64) == now);
+        let focused = (0..count).any(|i| item_key(strip.box_key, option(i).id, i) == now);
         self.set_state(&line, sel.map_or(-1, |i| i as i64));
         self.set_state(&strip, if focused { now } else { 0 });
         let response = Response { clicked, hovered, held: pressed, focused, activated: clicked && by_key, secondary: secondary.is_some(), handle: strip };
@@ -644,7 +774,7 @@ impl Ui {
     }
 
     /// Menu rows in an anchored sheet below `anchor`, `current` lit: the row clicked, if any.
-    fn menu_sheet(&mut self, anchor: Rect, width: f32, items: &[&str], current: Option<usize>) -> Option<usize> {
+    fn menu_sheet<'a>(&mut self, anchor: Rect, width: f32, count: usize, items: &dyn Fn(usize) -> Segment<'a>, current: Option<usize>) -> Option<usize> {
         let t = self.theme();
         let sheet = t.popup.idle;
         let body = body_of!(self, menu_item);
@@ -652,15 +782,16 @@ impl Ui {
         let place = Placement { side: Side::Below, align: Along::Start, gap: 2.0, margin: 4.0, flip: true };
         let mut picked = None;
         let menu = self.anchored_label("menu", anchor, place, Size::Px(width), Size::Fit, &mut |ui| {
-            for (i, item) in items.iter().enumerate() {
-                let n = ui.node_keyed(int_key(ui.current_seed(), i as i64), Node { flags: ROW_FLAGS, h: Size::Px(rh), role: Role::MenuItem, ..Node::DEFAULT });
+            for i in 0..count {
+                let item = items(i);
+                let n = ui.node_keyed(item_key(ui.current_seed(), item.id, i), Node { flags: ROW_FLAGS, h: Size::Px(rh), role: Role::MenuItem, ..Node::DEFAULT });
                 let s = ui.signal_owned(&n);
                 if s.clicked {
                     picked = Some(i);
                 }
-                ui.a11y_name(&n, item);
+                ui.a11y_name(&n, item.name.unwrap_or(item.text));
                 let config = MenuItemConfig { state: State { hovered: s.hovered, pressed: s.held, checked: current == Some(i), ..State::default() }, index: i, node: n };
-                in_item!(flat; ui, body, n.box_key, n, default_menu_item(&config, item));
+                in_item!(flat; ui, body, n.box_key, n, default_menu_item(&config, item.text));
             }
         });
         let n = self.node_mut(&menu);
@@ -679,8 +810,15 @@ impl Ui {
     /// that view rebuilds each frame until it closes.
     /// `dropdown` keyed by `key` (hashed under the parent's seed), showing and named `text`; reports the button's response and the
     /// choice.
-    pub fn dropdown(&mut self, key: &str, text: &str, options: &[&str], selected: usize, dropdown: &Dropdown) -> (Response, usize) {
-        let variant = dropdown.variant;
+    pub fn dropdown_legacy(&mut self, key: &str, text: &str, options: &[&str], selected: usize, dropdown: &Dropdown) -> (Response, usize) {
+        let (r, sel, _) = self.pick_dropdown(key, text, options.len(), &|i| Segment::new(options[i]), Some(selected), dropdown.variant);
+        (r, sel.unwrap_or(0))
+    }
+
+    /// The dropdown over `count` items, item `i` being `item(i)` (its menu row keyed as `pick_radio` keys its row); `selected` none
+    /// shows no option on the button (opening the menu then lights the first). Reports the button's response, the choice and the
+    /// menu row a secondary press began on (none: the menu rows take primary presses only).
+    pub fn pick_dropdown<'a>(&mut self, key: &str, text: &str, count: usize, item: &dyn Fn(usize) -> Segment<'a>, selected: Option<usize>, variant: u16) -> (Response, Option<usize>, Option<usize>) {
         if variant != 0 { self.set_variant(BodyKind::dropdown as u32, variant); }
         let key = key_of(self.current_seed(), key);
         let row = self.kit_line(key, Flags::NONE, Role::Unknown);
@@ -692,15 +830,15 @@ impl Ui {
         self.text_leaf(int_key(key, 0), rh, label_look, text);
         let button = self.node_keyed(int_key(key, 1), Node { flags: STOP_FLAGS, h: Size::Px(ch), axis: Axis::Row, align: Align::Center, gap: 4.0, padding: Edges { l: 4.0, r: 6.0, ..Edges::ZERO }, role: Role::ComboBox, ..Node::DEFAULT });
         let s = self.signal_owned(&button);
-        let mut sel = selected.min(options.len().saturating_sub(1));
+        let mut sel = selected.filter(|_| count > 0).map(|i| i.min(count - 1));
         // the open menu's lit row, or -1 closed
         let mut lit = self.state(&button, -1);
         let mut pick = false;
         let by_key = s.keys.iter().any(|e| matches!(e, Event::KeyPressed(Key::Enter | Key::Space | Key::KeyChar(' '))));
         pressed(&s.keys, &mut |k| match k {
-            Key::ArrowDown if lit < 0 => lit = sel as i64,
-            Key::ArrowDown => lit = clamp_step(lit as usize, 1, options.len()) as i64,
-            Key::ArrowUp if lit >= 0 => lit = clamp_step(lit as usize, -1, options.len()) as i64,
+            Key::ArrowDown if lit < 0 => lit = sel.unwrap_or(0) as i64,
+            Key::ArrowDown => lit = clamp_step(lit as usize, 1, count) as i64,
+            Key::ArrowUp if lit >= 0 => lit = clamp_step(lit as usize, -1, count) as i64,
             Key::Escape => lit = -1,
             _ => {}
         });
@@ -708,11 +846,11 @@ impl Ui {
             if by_key && lit >= 0 {
                 pick = true;
             } else {
-                lit = if lit < 0 { sel as i64 } else { -1 };
+                lit = if lit < 0 { sel.unwrap_or(0) as i64 } else { -1 };
             }
         }
-        if pick {
-            sel = lit as usize;
+        if pick && (lit as usize) < count {
+            sel = Some(lit as usize);
             lit = -1;
         }
         let anchor = self.rect(&button);
@@ -727,10 +865,10 @@ impl Ui {
         self.a11y_name(&button, text);
         let inner = self.enter(&button);
         let config = DropdownConfig { state: State { hovered: s.hovered, pressed: s.held, focused: self.focused(&button), ..State::default() }, open, key, button };
-        in_place!(self, button.box_key, dropdown, default_dropdown(&config, options.get(sel).copied().unwrap_or("")));
+        in_place!(self, button.box_key, dropdown, default_dropdown(&config, sel.map_or("", |i| item(i).text)));
         if open {
-            if let Some(i) = self.menu_sheet(anchor, anchor.w.max(80.0), options, Some(lit as usize)) {
-                sel = i;
+            if let Some(i) = self.menu_sheet(anchor, anchor.w.max(80.0), count, item, Some(lit as usize)) {
+                sel = Some(i);
                 lit = -1;
             }
         }
@@ -738,14 +876,20 @@ impl Ui {
         self.leave(saved);
         self.set_state(&button, lit);
         if variant != 0 { self.set_variant(BodyKind::dropdown as u32, 0); }
-        (Response::of(&s, self.focused(&button), button), sel)
+        (Response::of(&s, self.focused(&button), button), sel, None)
     }
 
     /// A menu bar: each `(title, items)` a top-level item that opens its menu below it. While one
     /// is open, hovering another switches to it. Keys (Tab to the bar): Left and Right move between
     /// menus, Down, Enter or Space open one, Up and Down move in it, Enter picks, Escape closes.
     /// Returns `(menu, item)` on the frame an item is picked.
-    pub fn menu_bar(&mut self, label: &str, menus: &[(&str, &[&str])]) -> Option<(usize, usize)> {
+    pub fn menu_bar_legacy(&mut self, label: &str, menus: &[(&str, &[&str])]) -> Option<(usize, usize)> {
+        self.menu_bar_result(label, menus.len(), &|m| (menus[m].0, menus[m].1.len()), &|m, i| menus[m].1[i]).0
+    }
+
+    /// `menu_bar`, also reporting a dismissal: a menu open when the frame began closed without a pick (Escape, a press outside, or
+    /// its title clicked again).
+    pub fn menu_bar_result<'a>(&mut self, label: &str, count: usize, entry: &dyn Fn(usize) -> (&'a str, usize), item: &dyn Fn(usize, usize) -> &'a str) -> (Option<(usize, usize)>, bool) {
         let rh = self.row_height() as f32;
         let t = self.theme();
         let bar_look = t.menubar.idle;
@@ -756,12 +900,14 @@ impl Ui {
         // state: menu * 65536 + (lit + 1) * 2 + open
         let packed = self.state(&bar, 0);
         let (mut menu, mut lit, mut open) = ((packed >> 16) as usize, ((packed & 0xffff) >> 1) as i64 - 1, packed & 1 == 1);
-        let count = |m: usize| menus.get(m).map_or(0, |(_, items)| items.len());
+        let was_open = open;
+        let menus = count;
+        let count = |m: usize| if m < menus { entry(m).1 } else { 0 };
         let mut picked = None;
         let by_key = s.keys.iter().any(|e| matches!(e, Event::KeyPressed(Key::Enter | Key::Space | Key::KeyChar(' '))));
         pressed(&s.keys, &mut |k| match k {
             Key::ArrowLeft | Key::ArrowRight => {
-                menu = wrap(menu, self.along(k), menus.len());
+                menu = wrap(menu, self.along(k), menus);
                 lit = -1;
             }
             Key::ArrowDown if !open => (open, lit) = (true, 0),
@@ -780,7 +926,8 @@ impl Ui {
         }
         let saved = self.enter(&bar);
         let mut anchor = Rect::new(0.0, 0.0, 0.0, 0.0);
-        for (i, (title, _)) in menus.iter().enumerate() {
+        for i in 0..menus {
+            let title = entry(i).0;
             let n = self.node_keyed(int_key(bar.box_key, i as i64), Node { flags: ROW_FLAGS, h: Size::Grow, role: Role::MenuItem, ..Node::DEFAULT });
             let ns = self.signal_owned(&n);
             if ns.clicked {
@@ -804,8 +951,9 @@ impl Ui {
             }
         }
         if open {
-            if let Some((_, items)) = menus.get(menu) {
-                if let Some(i) = self.menu_sheet(anchor, 160.0, items, (lit >= 0).then_some(lit as usize)) {
+            if menu < menus {
+                let at = menu;
+                if let Some(i) = self.menu_sheet(anchor, 160.0, count(at), &|i| Segment::new(item(at, i)), (lit >= 0).then_some(lit as usize)) {
                     picked = Some((menu, i));
                     open = false;
                 }
@@ -813,13 +961,14 @@ impl Ui {
         }
         self.leave(saved);
         self.set_state(&bar, ((menu as i64) << 16) | ((lit + 1) << 1) | open as i64);
-        picked
+        (picked, was_open && !open && picked.is_none())
     }
 
     /// The kit tooltip for node `h` while the pointer rests on it.
     pub fn tooltip(&mut self, h: &Handle, text: &str) {
+        // keyed by its owner: the same text on two boxes is two waits, and a changed text keeps the wait
         if self.live(h) && self.signal_owned(h).hovered {
-            self.tooltip_sheet(text, text);
+            self.tooltip_sheet(None, h.box_key, text);
         }
     }
 
@@ -1098,7 +1247,7 @@ impl Ui {
                     }
                 }
             }
-        });
+        }).is_some();
         // the sheet is named by the title, not by the key it is found by
         if shown_now {
             if let Some(sheet) = self.box_of_key(key_of(self.current_seed(), key)) {
@@ -1119,7 +1268,13 @@ impl Ui {
     /// edges, the stack keyed by `key`. Each goes `seconds` after it first showed: the engine keeps that time by the toast's
     /// id and asks for the frame (`repaint_after`), so the host needs no timer. Returns a toast
     /// clicked away or expired (one a frame; the caller drops it).
-    pub fn toasts(&mut self, key: &str, items: &[Toast], seconds: f64) -> Option<usize> {
+    pub fn toasts(&mut self, key: &str, items: &[Toast], seconds: f64) -> Chosen {
+        let chosen = self.toasts_index(key, items, seconds);
+        Chosen { chosen, chosen_id: chosen.and_then(|i| items.get(i).map(|t| t.id)), dismissed: false }
+    }
+
+    /// The toast clicked away or expired this frame (`toasts`' index).
+    pub fn toasts_index(&mut self, key: &str, items: &[Toast], seconds: f64) -> Option<usize> {
         let label = key;
         if items.is_empty() {
             return None;
@@ -1575,7 +1730,9 @@ pub(crate) fn default_slider(this: &mut Ui, c: &SliderConfig, _label: &str) {
     this.leave(tl);
 }
 
-fn slider_body(this: &mut Ui, key: &str, text: &str, value: f32, range: RangeInclusive<f32>) -> (Response, f32) {
+/// Reports the track's response, the value, the held preview and the commit (a release, a key or an assistive SetValue; the
+/// preview equals it on that frame).
+fn slider_body(this: &mut Ui, key: &str, text: &str, value: f32, range: RangeInclusive<f32>) -> (Response, f32, Option<f32>, Option<f32>) {
     let (lo, hi) = (*range.start(), *range.end());
     let span = (hi - lo).max(f32::MIN_POSITIVE);
     let key = key_of(this.current_seed(), key);
@@ -1589,7 +1746,9 @@ fn slider_body(this: &mut Ui, key: &str, text: &str, value: f32, range: RangeInc
     let s = this.signal_owned(&track);
     let mut v = value.clamp(lo.min(hi), hi.max(lo));
     let step = span / 100.0;
+    let mut keyed = false;
     pressed(&s.keys, &mut |k| {
+        keyed |= matches!(k, Key::ArrowRight | Key::ArrowLeft | Key::ArrowUp | Key::ArrowDown | Key::PageUp | Key::PageDown | Key::Home | Key::End);
         v += match k {
             Key::ArrowRight | Key::ArrowLeft => this.along(k) as f32 * step,
             Key::ArrowUp => step,
@@ -1612,11 +1771,13 @@ fn slider_body(this: &mut Ui, key: &str, text: &str, value: f32, range: RangeInc
         v = a as f32;
     }
     let v = v.clamp(lo.min(hi), hi.max(lo));
+    let commit = (keyed || (s.released && !s.held) || s.a11y_value.is_some()).then_some(v);
+    let preview = if commit.is_some() || s.held { Some(v) } else { None };
     let f = ((v - lo) / span).clamp(0.0, 1.0);
     this.a11y_name(&track, text);
     this.a11y_number(&track, v as f64, lo.min(hi) as f64, hi.max(lo) as f64, step as f64);
     let config = SliderConfig { state: State { hovered: s.hovered, pressed: s.held, ..State::default() }, fraction: f, track };
     in_body!(this, key, track, slider, default_slider(&config, text));
     this.leave(saved);
-    (Response::of(&s, this.focused(&track), track), v)
+    (Response::of(&s, this.focused(&track), track), v, preview, commit)
 }

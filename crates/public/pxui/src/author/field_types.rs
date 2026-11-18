@@ -761,9 +761,9 @@ impl<'a> AreaCallbacks<'a> {
     pub const fn language(mut self, language: Language<'a>) -> AreaCallbacks<'a> { self.language = Some(language); self }
 }
 
-/// How `Ui::picker` shows its rows, as a `Copy` value built with `const fn` builders from `PickerOpts::DEFAULT`; the optional `mark` and `off` are call-scoped borrowed closures.
+/// How `Ui::picker` shows its rows, as a `Copy` value built with `const fn` builders from `Picker::DEFAULT`; the optional `mark` and `off` are call-scoped borrowed closures.
 #[derive(Clone, Copy)]
-pub struct PickerOpts<'a> {
+pub struct Picker<'a> {
     pub(crate) limit: usize,
     pub(crate) slash: bool,
     pub(crate) at_rest: bool,
@@ -771,54 +771,54 @@ pub struct PickerOpts<'a> {
     pub(crate) off: Option<&'a dyn Fn(usize) -> bool>,
 }
 
-impl<'a> PickerOpts<'a> {
+impl<'a> Picker<'a> {
     /// The plain picker: ten rows, the `/`, no marks.
-    pub const DEFAULT: PickerOpts<'a> = PickerOpts { limit: 10, slash: true, at_rest: false, mark: None, off: None };
+    pub const DEFAULT: Picker<'a> = Picker { limit: 10, slash: true, at_rest: false, mark: None, off: None };
     /// Sets the most rows windowed around the cursor (10 by default).
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const STYLE: pxui::PickerOpts = pxui::PickerOpts::DEFAULT.limit(4);
+    /// const STYLE: pxui::Picker = pxui::Picker::DEFAULT.limit(4);
     /// let _ = STYLE;
     /// ```
-    pub const fn limit(mut self, rows: usize) -> PickerOpts<'a> { self.limit = rows; self }
+    pub const fn limit(mut self, rows: usize) -> Picker<'a> { self.limit = rows; self }
     /// Sets whether the search field shows a `/` before the query (on by default).
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const STYLE: pxui::PickerOpts = pxui::PickerOpts::DEFAULT.slash(false);
+    /// const STYLE: pxui::Picker = pxui::Picker::DEFAULT.slash(false);
     /// let _ = STYLE;
     /// ```
-    pub const fn slash(mut self, on: bool) -> PickerOpts<'a> { self.slash = on; self }
+    pub const fn slash(mut self, on: bool) -> Picker<'a> { self.slash = on; self }
     /// Sets whether the search field keeps the keyboard but looks at rest (a hairline, no caret) until something is typed in it (off by default).
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const STYLE: pxui::PickerOpts = pxui::PickerOpts::DEFAULT.at_rest(true);
+    /// const STYLE: pxui::Picker = pxui::Picker::DEFAULT.at_rest(true);
     /// let _ = STYLE;
     /// ```
-    pub const fn at_rest(mut self, on: bool) -> PickerOpts<'a> { self.at_rest = on; self }
+    pub const fn at_rest(mut self, on: bool) -> Picker<'a> { self.at_rest = on; self }
     /// Sets `f(row)`: a colour marking row `row`, or none. Call-scoped: borrowed for the `picker` call, on the calling thread, never kept; it must not call back into the `Ui`.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// let f = |_row: usize| None;
-    /// let _ = pxui::PickerOpts::DEFAULT.mark(&f);
+    /// let _ = pxui::Picker::DEFAULT.mark(&f);
     /// ```
-    pub const fn mark(mut self, f: &'a dyn Fn(usize) -> Option<Rgba>) -> PickerOpts<'a> { self.mark = Some(f); self }
+    pub const fn mark(mut self, f: &'a dyn Fn(usize) -> Option<Rgba>) -> Picker<'a> { self.mark = Some(f); self }
     /// Sets `f(row)`: whether row `row` shows off (it cannot be chosen). Call-scoped like `mark`.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
     /// let f = |_row: usize| false;
-    /// let _ = pxui::PickerOpts::DEFAULT.off(&f);
+    /// let _ = pxui::Picker::DEFAULT.off(&f);
     /// ```
-    pub const fn off(mut self, f: &'a dyn Fn(usize) -> bool) -> PickerOpts<'a> { self.off = Some(f); self }
+    pub const fn off(mut self, f: &'a dyn Fn(usize) -> bool) -> Picker<'a> { self.off = Some(f); self }
 }
 
 /// How `Ui::scrub` builds the caller-painted scrubber's behaviour, as a `Copy` value built with `const fn` builders from `Scrubber::DEFAULT`.

@@ -17,10 +17,10 @@ crates/public/pxui/src/kit.rs	pxui_ui_inspector_readout	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_inspector_row	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_inspector_section	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_inspector_toggle	example,Allocates,Panics,Identity
-crates/public/pxui/src/kit.rs	pxui_ui_menu_bar	example,Allocates,Panics
+crates/public/pxui/src/kit.rs	pxui_ui_menu_bar_result	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_section_list	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_section_list_measured	example,Allocates,Panics
-crates/public/pxui/src/kit.rs	pxui_ui_split	example,Allocates,Panics
+crates/public/pxui/src/kit.rs	pxui_ui_split_result	example,Allocates,Panics
 crates/public/pxui/src/kit.rs	pxui_ui_wants_frame	example,Allocates,Panics
 crates/public/pxui/src/style.rs	pxui_ui_set_look	example,Allocates,Panics
 crates/public/pxui/src/style.rs	pxui_ui_style	example,Allocates,Panics

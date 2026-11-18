@@ -597,7 +597,7 @@ pub fn layout_split_drag() {
         let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), ..px(201.0, 100.0) });
         let saved = ui.enter(&host);
         let (mut a, mut b) = (None, None);
-        let got = ui.split("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| a = Some(ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT })), &mut |ui| b = Some(ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT })));
+        let got = ui.split_legacy("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| a = Some(ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT })), &mut |ui| b = Some(ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT })));
         if let Some(r) = got {
             ratio.set(r);
         }
@@ -680,10 +680,10 @@ pub fn layout_warm_zero_alloc() {
 pub fn layout_kit_resize_same_frame() {
     let mut ui = new_ui(None);
     let width = std::cell::Cell::new(280.0);
-    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.w(width.get()).name("panel"), &mut |ui| {
+    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.w(width.get()).name("panel"), &mut |ui| {
         ui.text_field("Caption", "value");
         ui.toggle("Wire", true);
-    });
+    }); };
     let control = |ui: &Ui, row: &str| {
         let panel = key_of(0x2c1b3c6d, "panel");
         ui.rect(&ui.box_of_key(part_key(key_of(panel, row), Part::EDITOR)).unwrap())

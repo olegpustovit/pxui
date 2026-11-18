@@ -147,7 +147,7 @@ pub unsafe fn toggle_with(ui: *mut PxuiUi, key: &str, text: &str, on: bool, trac
 #[inline(always)]
 pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: usize, out: &mut PxuiResponse, chosen: &mut usize) -> i32 {
     let (mut at, mut secondary) = (None, None);
-    let rc = unsafe { segmented_with(ui, key, name, options, Some(selected), true, 0.0, false, None, 0.0, 8.0, 0.0, false, out, &mut at, &mut secondary) };
+    let rc = unsafe { segmented(ui, key, name, options, Some(selected), true, 0.0, false, None, 0.0, 8.0, 0.0, false, out, &mut at, &mut secondary) };
     *chosen = at.unwrap_or(0);
     rc
 }
@@ -158,7 +158,7 @@ pub unsafe fn segmented_plain(ui: *mut PxuiUi, key: &str, name: &str, options: &
 /// (each finite and not negative), `focus_on_click` a press on an option focusing it. `chosen` is the choice after this frame's input, `secondary` the option a secondary press began on.
 #[allow(clippy::too_many_arguments)]
 #[inline(always)]
-pub unsafe fn segmented_with(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: Option<usize>, enabled: bool, h: f32, grow: bool, states: Option<&States>,
+pub unsafe fn segmented(ui: *mut PxuiUi, key: &str, name: &str, options: &[Segment], selected: Option<usize>, enabled: bool, h: f32, grow: bool, states: Option<&States>,
     w: f32, padding: f32, min_segment: f32, focus_on_click: bool, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
     enter!(ui);
     let name = clip(name);
@@ -272,8 +272,8 @@ fn clip_strs<'a>(list: &'a [&'a str], spare: &'a mut Vec<&'a str>) -> &'a [&'a s
 }
 /// `clip_strs` of segments, their texts and names.
 fn clip_segments<'a>(list: &'a [Segment<'a>], spare: &'a mut Vec<Segment<'a>>) -> &'a [Segment<'a>] {
-    if list.iter().all(|o| !long(o.text) && !o.name.is_some_and(long)) { return list; }
-    spare.extend(list.iter().map(|o| Segment { text: clip(o.text), name: o.name.map(clip) }));
+    if list.iter().all(|o| !long(o.text) && !o.name.is_some_and(long) && !long(o.detail)) { return list; }
+    spare.extend(list.iter().map(|o| Segment { text: clip(o.text), name: o.name.map(clip), detail: clip(o.detail), ..*o }));
     spare
 }
 /// Whether an identifier is past its cap (`MAX_KEY_BYTES`).
@@ -289,7 +289,7 @@ fn options_ok(options: &[&str]) -> bool {
 /// Whether segmented `options` are within the engine's limits: as `options_ok`, their names counted with their texts.
 #[inline]
 fn segments_ok(options: &[Segment]) -> bool {
-    let total = options.iter().fold(0usize, |total, o| total.saturating_add(o.text.len()).saturating_add(o.name.map_or(0, str::len)));
+    let total = options.iter().fold(0usize, |total, o| total.saturating_add(o.text.len()).saturating_add(o.name.map_or(0, str::len)).saturating_add(o.detail.len()));
     options.len() <= MAX_OPTIONS && total <= MAX_TOTAL_TEXT_BYTES
 }
 
@@ -318,14 +318,50 @@ pub unsafe fn choice(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, options:
     if long_key(key) || !options_ok(options) { return unsafe { fail(ui, "invalid widget strings") }; }
     let engine = unsafe { engine(ui) };
     let (r, at) = match kind {
-        0 => engine.radio(key, options, selected, &Choice { name, variant }),
+        0 => engine.radio_legacy(key, options, selected, &Choice { name, variant }),
         1 => engine.tabs(key, options, selected, &Choice { name, variant }),
         2 => { let (r, at, _) = engine.segmented_options(key, name, options.len(), &|i| Segment::new(options[i]), Some(selected), &SegmentedOpts::DEFAULT); (r, at.unwrap_or(0)) }
-        3 => engine.dropdown(key, name, options, selected, &Dropdown { variant }),
+        3 => engine.dropdown_legacy(key, name, options, selected, &Dropdown { variant }),
         _ => return unsafe { fail(ui, "invalid choice kind") },
     };
     respond(&r, out);
     *chosen = at;
+    0
+}
+
+/// A pick-one control of `items` keyed by `key`: `kind` 0 a radio group (`name` its accessible name), 3 a dropdown (`name` its shown
+/// and accessible text); an item with an id is keyed by it. `chosen` is the choice (none: none), `secondary` the item a secondary
+/// press began on. Any other kind is refused.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub unsafe fn pick(ui: *mut PxuiUi, kind: u32, key: &str, name: &str, items: &[Segment], selected: Option<usize>, out: &mut PxuiResponse, chosen: &mut Option<usize>, secondary: &mut Option<usize>) -> i32 {
+    enter!(ui);
+    let name = clip(name);
+    let mut spare = Vec::new();
+    let items = clip_segments(items, &mut spare);
+    if long_key(key) || !segments_ok(items) { return unsafe { fail(ui, "invalid widget strings") }; }
+    let engine = unsafe { engine(ui) };
+    let (r, at, pressed) = match kind {
+        0 => engine.pick_radio(key, name, items.len(), &|i| items[i], selected, 0),
+        3 => engine.pick_dropdown(key, name, items.len(), &|i| items[i], selected, 0),
+        _ => return unsafe { fail(ui, "invalid pick kind") },
+    };
+    respond(&r, out);
+    (*chosen, *secondary) = (at, pressed);
+    0
+}
+
+/// The kit slider with its phases: `scrub` gets the held preview and the commit (flags 1 and 2), the value in `preview` when neither.
+#[allow(clippy::too_many_arguments)]
+#[inline]
+pub unsafe fn slider_result(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f32, max: f32, slider: &Slider, out: &mut PxuiResponse, scrub: &mut pxui_types::ffi::PxuiScrubOut) -> i32 {
+    enter!(ui);
+    let text = clip(text);
+    if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || long_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
+    let (r, v, preview, commit) = unsafe { engine(ui) }.slider_result(key, text, value, min..=max, slider);
+    respond(&r, out);
+    *scrub = pxui_types::ffi::PxuiScrubOut { flags: u32::from(preview.is_some()) | u32::from(commit.is_some()) << 1 | u32::from(r.held) << 2, node: to_abi_box(r.handle),
+        preview: preview.unwrap_or(v), commit: commit.unwrap_or_default(), ..Default::default() };
     0
 }
 
@@ -336,7 +372,7 @@ pub unsafe fn slider(ui: *mut PxuiUi, key: &str, text: &str, value: f32, min: f3
     enter!(ui);
     let text = clip(text);
     if !value.is_finite() || !min.is_finite() || !max.is_finite() || min > max || long_key(key) { return unsafe { fail(ui, "invalid slider arguments") }; }
-    let (r, v) = unsafe { engine(ui) }.slider(key, text, value, min..=max, slider);
+    let (r, v) = unsafe { engine(ui) }.slider_legacy(key, text, value, min..=max, slider);
     respond(&r, out);
     *value_out = v;
     0
@@ -367,7 +403,7 @@ fn button_size(size: Size) -> bool { match size { Size::Fit | Size::Grow => true
 
 /// The engine's response as the record the wrapper's `Response` is read from.
 #[inline(always)]
-fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
+pub(crate) fn respond(r: &pxui_core::ui::Response, out: &mut PxuiResponse) {
     out.node = to_abi_box(r.handle);
     out.flags = r.clicked as u32 * PxuiResponse::CLICKED | r.hovered as u32 * PxuiResponse::HOVERED | r.held as u32 * PxuiResponse::HELD
         | r.focused as u32 * PxuiResponse::FOCUSED | r.activated as u32 * PxuiResponse::ACTIVATED | r.secondary as u32 * PxuiResponse::SECONDARY;
@@ -626,23 +662,24 @@ fn overlay_ok(overlay: &Overlay) -> bool {
 
 /// A panel keyed by `key`, placed, dressed and named by `overlay`.
 #[inline]
-pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner) -> i32 {
+pub unsafe fn panel(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, root: &mut PxuiBox) -> i32 {
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
     if long_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid panel descriptor") }; }
     let shared = unsafe { (*ui).shared };
-    unsafe { engine(ui) }.panel(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    *root = to_abi_box(unsafe { engine(ui) }.panel_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f)));
     0
 }
 
-/// A popup keyed by `key`, placed, dressed and named by `overlay`; `out` says whether it is open.
+/// A popup keyed by `key`, placed, dressed and named by `overlay`; `out` says whether it is open, `root` its root (empty: dismissed).
 #[inline]
-pub unsafe fn popup(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out: &mut bool) -> i32 {
+pub unsafe fn popup(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out: &mut bool, root: &mut PxuiBox) -> i32 {
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
     if long_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid popup descriptor") }; }
     let shared = unsafe { (*ui).shared };
-    *out = unsafe { engine(ui) }.popup(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    let open = unsafe { engine(ui) }.popup_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    (*out, *root) = (open.is_some(), open.map_or_else(PxuiBox::default, to_abi_box));
     0
 }
 
@@ -769,13 +806,17 @@ pub(crate) unsafe fn grid_cells(ui: *mut PxuiUi, label: &str, count: usize, cell
     0
 }
 
-/// Two panes in a row (`axis` 0) or a column (1); `changed` is the new ratio when the user moved the divider.
+/// Two panes in a row (`axis` 0) or a column (1); `response` is the grip's, `moved` whether it moved along the axis and `out` the
+/// ratio under the pointer while the grip is held and on its release.
+#[allow(clippy::too_many_arguments)]
 #[inline]
-pub unsafe fn split(ui: *mut PxuiUi, label: &str, axis: pxui_types::Axis, ratio: f32, min_a: f32, min_b: f32, a: Inner, b: Inner, out: &mut Option<f32>) -> i32 {
+pub unsafe fn split(ui: *mut PxuiUi, label: &str, axis: pxui_types::Axis, ratio: f32, min_a: f32, min_b: f32, a: Inner, b: Inner, response: &mut PxuiResponse, moved: &mut bool, out: &mut Option<f32>) -> i32 {
     enter!(ui);
     if long_key(label) || ![ratio, min_a, min_b].iter().all(|v| v.is_finite()) || min_a < 0.0 || min_b < 0.0 || axis == pxui_types::Axis::Stack { return unsafe { fail(ui, "invalid split descriptor") }; }
     let shared = unsafe { (*ui).shared };
-    *out = unsafe { engine(ui) }.split(label, axis, ratio, min_a, min_b, &mut |engine: &mut Ui| call_inner(shared, engine, a), &mut |engine: &mut Ui| call_inner(shared, engine, b));
+    let (r, m, at) = unsafe { engine(ui) }.split_result(label, axis, ratio, min_a, min_b, &mut |engine: &mut Ui| call_inner(shared, engine, a), &mut |engine: &mut Ui| call_inner(shared, engine, b));
+    respond(&r, response);
+    (*moved, *out) = (m, at);
     0
 }
 
@@ -794,12 +835,13 @@ pub unsafe fn anchored(ui: *mut PxuiUi, key: &str, anchor: pxui_types::geom::Rec
 
 /// A modal keyed by `key`, `overlay`'s width and name; `out` says whether it is open.
 #[inline]
-pub unsafe fn modal(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out: &mut bool) -> i32 {
+pub unsafe fn modal(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out: &mut bool, root: &mut PxuiBox) -> i32 {
     enter!(ui);
     let overlay = &Overlay { name: overlay.name.map(clip), ..*overlay };
     if long_key(key) || !overlay_ok(overlay) { return unsafe { fail(ui, "invalid modal arguments") }; }
     let shared = unsafe { (*ui).shared };
-    *out = unsafe { engine(ui) }.modal(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    let open = unsafe { engine(ui) }.modal_root(key, overlay, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    (*out, *root) = (open.is_some(), open.map_or_else(PxuiBox::default, to_abi_box));
     0
 }
 
@@ -810,7 +852,7 @@ pub unsafe fn toasts(ui: *mut PxuiUi, key: &str, items: &[pxui_types::ui::Toast]
     if long_key(key) || items.len() > MAX_OPTIONS || !seconds.is_finite() || seconds < 0.0 { return unsafe { fail(ui, "invalid toasts") }; }
     let spare: Vec<pxui_types::ui::Toast>;
     let items = if items.iter().all(|t| !long(t.text)) { items } else { spare = items.iter().map(|t| pxui_types::ui::Toast::new(t.id, clip(t.text))).collect(); &spare };
-    *out = unsafe { engine(ui) }.toasts(key, items, seconds);
+    *out = unsafe { engine(ui) }.toasts_index(key, items, seconds);
     0
 }
 

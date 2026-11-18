@@ -624,7 +624,7 @@ export!(trusted pub unsafe fn pxui_col(ui: *mut PxuiUi, padding: f32, label: Str
 });
 
 /// The panel of `panel`'s record keyed by `key` and named `name`, the body of `pxui_panel` and `pxui_ui_panel_keyed`.
-unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel, build: Build, user: *mut c_void) -> i32 {
+unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel, build: Build, user: *mut c_void, root: &mut PxuiBox) -> i32 {
     // read where it lies (a record at least as long as ours), the look only when it has one
     let Some(panel) = sized!(panel) else { return unsafe { fail(ui, "invalid panel descriptor") }; };
     if panel.padding < 0 { return unsafe { fail(ui, "invalid panel padding") }; }
@@ -632,21 +632,29 @@ unsafe fn panel(ui: *mut PxuiUi, key: &str, name: &str, panel: *const PxuiPanel,
         max_h: (panel.has_max_height != 0).then_some(panel.max_height), window: panel.window != 0, padding: panel.padding as f32, name: Some(name), ..pxui_types::ui::Overlay::DEFAULT };
     if panel.has_stroke != 0 { overlay.stroke = Some(panel.stroke); }
     if panel.has_look != 0 { let Some(look) = crate::style::decode_look(panel.look) else { return unsafe { fail(ui, "invalid panel look") }; }; overlay.look = Some(look); }
-    unsafe { trusted::panel(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }) }
+    unsafe { trusted::panel(ui, key, &overlay, &mut |ui| if let Some(build) = build { build(user, ui.cast()) }, root) }
 }
 
 // Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_panel_keyed` keys apart.
 export!(trusted pub unsafe fn pxui_panel(ui: *mut PxuiUi, panel: *const PxuiPanel, label: Str, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
     let Some(label) = (unsafe { checked(label) }) else { return unsafe { fail(ui, "invalid panel label") }; };
-    unsafe { self::panel(ui, label, pxui_types::ui::shown(label), panel, build, user) }
+    unsafe { self::panel(ui, label, pxui_types::ui::shown(label), panel, build, user, &mut PxuiBox::default()) }
 });
 
 // ABI 1.68: a panel keyed by `keyed.key`, named `keyed.name` (empty: none).
 export!(trusted pub unsafe fn pxui_ui_panel_keyed(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, panel: *const PxuiPanel, build: Build, user: *mut c_void) -> i32 {
     if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
-    unsafe { self::panel(ui, key, name, panel, build, user) }
+    unsafe { self::panel(ui, key, name, panel, build, user, &mut PxuiBox::default()) }
+});
+
+// ABI 1.76: `pxui_ui_panel_keyed` that also writes the panel's root to `root`.
+export!(trusted pub unsafe fn pxui_ui_panel_root(ui: *mut PxuiUi, keyed: *const pxui_types::ffi::PxuiKeyedDesc, panel: *const PxuiPanel, build: Build, user: *mut c_void, root: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() || panel.is_null() { return PXUI_ERR_ARGUMENT; }
+    if root.is_null() { return unsafe { fail(ui, "null panel root") }; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    unsafe { self::panel(ui, key, name, panel, build, user, &mut *root) }
 });
 
 export!(trusted pub unsafe fn pxui_label(ui: *mut PxuiUi, label: Str) -> i32 {

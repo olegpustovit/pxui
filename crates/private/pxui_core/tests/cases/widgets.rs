@@ -102,14 +102,14 @@ pub fn all(ui: &mut Ui, s: &mut S) {
 /// The toasts, at the root (outside any cached view).
 pub fn toasts(ui: &mut Ui, s: &mut S) {
     let toasts = [pxui_core::ui::Toast::new(1, "Saved"), pxui_core::ui::Toast::new(2, "Exported")];
-    if let Some(i) = ui.toasts("toasts", &toasts[..s.toasts], TOAST_SECONDS) {
+    if let Some(i) = ui.toasts_index("toasts", &toasts[..s.toasts], TOAST_SECONDS) {
         s.gone = Some(i);
     }
 }
 
 /// The menu bar and both columns of widgets.
 pub fn body(ui: &mut Ui, s: &mut S) {
-    if let Some(p) = ui.menu_bar("menus", &MENUS) {
+    if let Some(p) = ui.menu_bar_legacy("menus", &MENUS) {
         s.picked = Some(p);
     }
     s.busy.clear();
@@ -118,8 +118,8 @@ pub fn body(ui: &mut Ui, s: &mut S) {
         let left = ui.node("left".into(), Node { w: Size::Px(240.0), ..Node::DEFAULT });
         ui.within(&left, &mut |ui| {
             s.check = s.check ^ ui.checkbox("Check", "Check", s.check, &pxui_core::ui::Checkbox::DEFAULT).clicked;
-            s.radio = ui.radio("Radio", &["One", "Two", "Three"], s.radio, &pxui_core::ui::Choice::DEFAULT.name("Radio")).1;
-            s.slider = ui.slider("Level", "Level", s.slider, 0.0..=1.0, &pxui_core::ui::Slider::DEFAULT).1;
+            s.radio = ui.radio_legacy("Radio", &["One", "Two", "Three"], s.radio, &pxui_core::ui::Choice::DEFAULT.name("Radio")).1;
+            s.slider = ui.slider_legacy("Level", "Level", s.slider, 0.0..=1.0, &pxui_core::ui::Slider::DEFAULT).1;
             ui.progress("Done", "Done", Some(0.5));
             let p = ui.progress("Busy", "Busy", None);
             s.busy.push(p);
@@ -127,7 +127,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             s.busy.push(sp);
             s.tab = ui.tabs("Tabs", &["Alpha", "Beta", "Gamma"], s.tab, &pxui_core::ui::Choice::DEFAULT.name("Tabs")).1;
             s.seg = ui.segmented_opts("Mode", "Mode", &[Segment::new("A"), Segment::new("B"), Segment::new("C")], Some(s.seg), &SegmentedOpts::DEFAULT).1.unwrap_or(s.seg);
-            s.drop = ui.dropdown("Pick", "Pick", &NAMES, s.drop, &pxui_core::ui::Dropdown::DEFAULT).1;
+            s.drop = ui.dropdown_legacy("Pick", "Pick", &NAMES, s.drop, &pxui_core::ui::Dropdown::DEFAULT).1;
             let holder = ui.node("add-row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, padding: Edges { l: 12.0, t: 2.0, ..Edges::ZERO }, ..Node::DEFAULT });
             ui.within(&holder, &mut |ui| {
                 if ui.icon_button("Add", Icon::Glyph('+'), "Add", &IconButton::DEFAULT).clicked {
@@ -466,7 +466,7 @@ fn widgets_compact_toggle_hit() {
     theme.tokens.density = 0.84;
     ui.set_theme(theme);
     let on = std::cell::Cell::new(false);
-    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| on.set(ui.toggle("Animate", on.get())));
+    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| on.set(ui.toggle("Animate", on.get()))); };
     for t in 0..2 {
         ui.frame(&at(t as f64 * 0.1, vec![]), &mut build);
     }
@@ -487,9 +487,9 @@ fn widgets_compact_field_hit() {
     let mut theme = Theme::default();
     theme.tokens.density = 0.84;
     ui.set_theme(theme);
-    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
+    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
         ui.text_field("Caption", "value");
-    });
+    }); };
     for t in 0..2 {
         ui.frame(&at(t as f64 * 0.1, vec![]), &mut build);
     }

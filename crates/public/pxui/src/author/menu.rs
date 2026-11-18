@@ -3,6 +3,26 @@ use super::Key;
 use crate::{ui::{Menu, MenuItem, Chosen}, Ui};
 
 impl Ui {
+    /// Builds a menu bar and reports the chosen action.
+    ///
+    /// The chosen index counts items across all menus in their declared order. chosen_id is the item's explicit id, when supplied.
+    /// Dismissed reports closing the active menu without choosing an item. It leaves the menu bar available.
+    /// Allocates: never on a warm frame within the inline menu and item capacities.
+    /// Identity: The key identifies the bar. Use unique item ids across menus when dispatching actions by chosen_id.
+    /// Panics: an invalid build or a key over 256 bytes.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     const FILE: pxui::MenuBarMenu = pxui::MenuBarMenu::new("File", &[pxui::MenuItem::new("Open").id(1)]);
+    ///     let _ = ui.menu_bar("menus", &[FILE], &pxui::MenuBar::DEFAULT);
+    /// });
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn menu_bar<K: Into<Key>>(&mut self, key: K, menus: &[crate::MenuBarMenu<'_>], bar: &crate::MenuBar) -> crate::Chosen {
+        self.menu_bar_key(key.into(), menus, bar)
+    }
+
     /// Shows a floating menu of `items` at `at` (window points, moved inside the window) and reports what happened to it this frame.
     ///
     /// Call it every frame the menu is open and stop when `dismissed` or `chosen` comes back: a `chosen` index is the row clicked (or

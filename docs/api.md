@@ -21,13 +21,13 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 
 | Job | Signature (target) | Body kind | Step |
 |---|---|---|---|
-| Containers | `row/column/stack<F>(node: Node, f: F) -> Handle` (keyless, D25.1); `id<K, F>(key, f)` keys a subtree; the handle getter `id() -> usize` is renamed `instance_id() -> usize` (D26) so `id` names one thing; `node<K>(key: K, node: Node) -> Handle` (HEAD takes `Key`; becomes key-first generic like every other call, codemod drops `.into()`); `within(&Handle, &mut dyn FnMut(&mut Ui))` | — | keyless + `id` U1b.6; `node` U1b.2; `enter/leave` → crate-private U1a.3 |
+| Containers | `row/column/stack<F>(node: Node, f: F) -> Handle` (keyless, D25.1); `id<K, F>(key, f)` scopes descendant identities without adding a node; the instance getter `id() -> usize` is renamed `instance_id() -> usize` (D26) so `id` names one thing; `node<K>(key: K, node: Node) -> Handle` (HEAD takes `Key`; becomes key-first generic like every other call, codemod drops `.into()`); `within(&Handle, &mut dyn FnMut(&mut Ui))` | — | keyless + `id` U1b.6; `node` U1b.2; `enter/leave` → crate-private U1a.3 |
 | Pressable / disabled | `pressable<K, F>(key, node: Node, &Pressable, f: F /* (ui, State) */) -> Response`; `disabled<F>(bool, f)` | — | HEAD |
-| Retained view | `view_of<K, T: Hash, F>(key, inputs: &T, f) -> Handle`; `set_view(&Handle, &ViewTransform)` (clip, blur, saturation become fields) | — | U1b.4 |
+| Retained view | `view_of<K, T: Hash, F>(key, inputs: &T, f) -> Handle`; `set_view(&Handle, &ViewTransform)` (const clip, blur and saturation builders leave omitted fields alone. clip(None) lifts the clip) | — | U1b.4 |
 | Scroll | `scroll_view<K, F>(key, node: Node, f) -> Handle`; `scroll(&Handle) -> Scroll`; `set_scroll_offset`; `reveal` | scroll_view | U1b.5 |
 | Split | `split<K>(key, ratio: f32, &Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> SplitResponse { response, ratio: Option<f32> }`; `Split` holds axis, min_a, min_b | split | U1b.1 |
 | Text | `label(&str, Label) -> Handle`, `label_fmt(Arguments, Label)`, `label_digits(Arguments, Label)`; `text(&Handle, &str)`; `text_spans`, `text_line_box` take `Label` | label | HEAD; spans U1b.3 |
-| Measure (D20) | `Ui::text_service() -> &UiText` and `Paint::text_service()`; `UiText::measure(&str, Label, max_w: Option<f32>) -> Result<TextMetrics, Error>`, `measure_spans`, `width`, `rasterize_rgba`, `quads`, `add_font`, `enable_system_fonts`; worker form `Text::measure(&str, &TextStyle, max_w)` | — | U1b.3 |
+| Measure (D20) | `Ui::text_service() -> UiText<'_>` and `Paint::text_service() -> UiText<'_>`; `UiText::measure(&str, Label, max_w: Option<f32>) -> Result<TextMetrics, Error>`, `measure_spans`, `width`, `rasterize_rgba`, `quads`, `add_font`, `enable_system_fonts`; worker form `Text::measure(&str, &TextStyle, max_w)` | — | U1b.3 |
 | Text worker | `TextStyle`, `Text`, `TextWorker`, `PreparedText`, `RetiredText`, `UiText::fork/install`, `prewarm_text`, `set_text_worker`, `resolve(&Label) -> TextStyle` | — | HEAD (D20) |
 | Button | `button<K>(key, text: &str, &Button) -> Response` (D25: one name, no short form, no `_with`); `button_content<K, F>(key, &Button, f /* (ui, State) */) -> Response`. `Button`: icon, icon_size, detail, accessory, label(Label), selected, disabled, danger, align, pad, axis, variant, look | button | name + `disabled` U1b.6; `icon_size` U2b.7 |
 | Icon button | `icon_button<K>(key, Icon, name: &str, &IconButton) -> Response` | icon_button | HEAD |
@@ -38,31 +38,31 @@ The target public surface. **Rule:** a call not marked with a step keeps its HEA
 | Disclosure | `disclosure<K>(key, text: &str, open: bool, &Disclosure, f: &mut dyn FnMut(&mut Ui)) -> Response` (changed = toggled) | disclosure (section engine) | U2a.3 |
 | Slider (D10) | `slider<K>(key, text, value: f32, range: RangeInclusive<f32>, &Slider) -> SliderResponse`; `scrub<K>(key, value, range, &Scrubber) -> SliderResponse` | slider (scrub: caller-painted) | U1b.1 |
 | Progress / spinner / badge | `progress<K>(key, text, value: Option<f32>, &Progress) -> Handle`; `spinner<K>(key, name, &Spinner) -> Handle`; `badge<K>(key, name, text, &Badge) -> Handle` (argument order as HEAD) | progress / spinner / badge | U1b.5 |
-| Menu | `menu<K>(key, at: Point, &[MenuItem], &Menu) -> Chosen`; `menu_bar<K>(key, &[MenuBarMenu], &MenuBar) -> Chosen` (item identity via `MenuItem::id`); `MenuBarMenu::new(title, &[MenuItem])` | menu_row / menu_item / menu_bar | U1b.1 |
+| Menu | `menu<K>(key, at: Point, &[MenuItem], &Menu) -> Chosen`; `menu_bar<K>(key, &[MenuBarMenu], &MenuBar) -> Chosen` (flat index in menu order, item identity via `MenuItem::id`); `MenuBarMenu::new(title, &[MenuItem])` | menu_row / menu_item / menu_bar | U1b.1 |
 | Dialog | `dialog<K>(key, title: &str, &[DialogButton], &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen` | dialog | HEAD |
 | Overlays | `panel/popup/modal<K, F>(key, &Overlay, f) -> OverlayResponse { handle, open: bool }`; `anchored<K, F>(key, anchor: Rect, &Overlay, f) -> OverlayResponse`; sheets via `Overlay::present(Presentation::{Centered, Bottom, Full})` + `.dismiss(DismissOpts)`; `tooltip(&Handle, &str)` keyed by the owner; `toasts<K>(key, &[Toast], seconds: f64) -> Chosen` | panel / popup / modal / tooltip / toasts | U1b.1 (results, tooltip key); U2a.4 (present) |
 | Lists | `list<K, F>(key, count, row_h: f32, row_key: &dyn Fn(usize) -> i64, f) -> ListResponse`; `section_list<K>(key, &SectionList, row_key, build) -> ListResponse`; `grid_list<K>(key, count, &GridList, build) -> Handle`; `ListResponse { handle, activated, secondary, row: Option<Handle>, moved: Option<(usize, usize)>, drop_at: Option<usize> }` | — (rows are app content) | U1b.5 (grid_list); U2b.2–U2b.3 (ListResponse) |
 | Selection list | `selection_list<K>(key, count, row_key, state: &mut ListState /* selection, anchor; D25.3 */, &SelectionList, cell: &mut dyn FnMut(&mut Ui, usize, CellState)) -> ListResponse`; sections, header, measured rows, per-row enabled; selection semantics (click, Meta-toggle, Shift-range, double-click, keyboard) in the widget | selection_list | U2a.1 (row_key), U2b.1 (rest) |
 | Table | `table<K>(key, &[Column], rows, row_key, state: &mut TableState /* widths, sort, selection; D25.3 */, &Table, cell: &mut dyn FnMut(&mut Ui, usize, usize, CellState)) -> TableResponse`; `table_head<K>(key, &[Column], state: &mut TableState, &TableHead) -> HeadResponse { response, sort: Option<(usize, Sort)> }`; `Column::new(title).sortable(bool).share(f32).id(i64)`; `Sort::{Ascending, Descending}`, `None` = original order | table_row / table_head / table_cell | U2b.1 |
-| Tree | `tree<K>(key, &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell) -> TreeResponse`; `TreeNode::new` | tree | HEAD; builder U1b.5 |
+| Tree | `tree<K>(key, &[TreeNode], open: &mut [u8], selected: &mut Option<usize>, visible: &mut [u32], cell) -> TreeResponse`; `TreeNode::new(depth, has_children)` | tree | HEAD; builder U1b.5 |
 | Picker | `picker<K>(key, placeholder, query, &Picker, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse`; `PickRows::push(PickRow)`; `PickRow::new(label).detail(..).art(PickArt).heading(..)`; `PickerOpts` → `Picker` | picker | U1b.1 (rename); U2a.4 (rows) |
 | Text input | `text_field<K>(key, value: &str, &TextField) -> TextFieldResponse`; `search_field<K>(key, value, &SearchField) -> SearchFieldResponse` (+ variant, return key); `text_area<K>(key, value, node: Node, &TextArea, &AreaCallbacks) -> TextAreaResponse` | text_field / search_field | HEAD; text_area U1b.5; SearchField U2b.7 |
 | Gestures, drag, drop | `gesture`, `gesture_state`, `close_swipe`, `end_refresh`, `carry`, `carrying`, `transfer_carry`, `cancel_carry`, `drop_target` (any node), `States` gains `dropping`; `GestureOpts`, `SwipeActions`, `DismissOpts` | — | HEAD; drop U2b.2 |
 | Keys (D23) | `key_pressed(KeyCode, Mods) -> bool`, `key_down(KeyCode) -> bool`, `testing::key(KeyCode)` | — | U1a.4 |
-| Local state | `state/set_state(&Handle, ..)`, `text_state/set_text_state`, `expanded<K>(key) -> Option<bool>`, `hover_delay<K>(key) -> bool`, `load_text_edit<K>(key, ..)`, `box_of_key<K>(key)`, `root_at(Point, &[Key])`, `part_box/part_rect(&Handle, ..)` | — | U1b.2 |
-| Paint | `canvas/canvas_over(&Handle, f)`; Paint shapes Rect + Fill/Stroke; `Paint::text/text_chars/text_spans/measure` take `Label`; `Paint::image(Rect, &Image, &ImageStyle)` | — | U1b.3 (text), U1b.2 (image) |
+| Local state | `state/set_state(&Handle, ..)`, `text_state/set_text_state`, `expanded<K>(key) -> Option<bool>`, `hover_delay<K>(key) -> bool`, `load_text_edit<K>(key, ..)`, `box_of_key<K>(key)`, `root_at(Point, &[Key]) -> Option<Key>` (innermost candidate), `part_box/part_rect(&Handle, ..)`. Authored keys resolve under the current seed. Already-resolved keys use `Key::Resolved` | — | U1b.2 |
+| Paint | `canvas/canvas_over(&Handle, f)`; Paint shapes Rect + Fill/Stroke; `Paint::text/text_chars/text_spans` take `Point` and `Label`. Measurement is on `text_service()`; `Paint::image(Rect, &Image, &ImageStyle)` with a tint builder on `ImageStyle` | — | U1b.3 (text), U1b.2 (image) |
 | Looks | `style(&Handle, &States, State)` (`set_look` folded in, `States::of(Look)`); `patch_*` family | — | U1b.4 |
 | Animation | `animate(&Handle, Target, Curve)`, `animate_keys(&Handle, &[Keyframe], &Keyframes)` (two jobs) | — | HEAD |
-| Images | `image<K>(key, &Image, &ImageStyle) -> Result<Handle, Error>`; `Image::rgba8`; `images::{Want, Request}`, `Images::store/get/requests` | — | U1b.2; builder U1b.5 |
-| A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree`; `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
+| Images | `image<K>(key, name, &Image, &ImageStyle) -> Result<Handle, Error>`; `Image::rgba8(width, height, vk_image_view, mtl_texture)` describes native storage; `images::{Want, Request}`, `Images::store/get/requests` | — | U1b.2; builder U1b.5 |
+| A11y | `a11y_name(&Handle, &str) -> bool` with UTF-8-safe display clipping; `a11y_value/a11y_number(&Handle, ..) -> Result<bool, Error>`; `set_role(&Handle, Role, A11yStates)`; `a11y_tree() -> A11yTree<'_>` (borrowed strings, revision and first child); `a11y_nodes`, `a11y_name_of`, `a11y_value_of`, `box_of_a11y` | — | U1a.3 (rule), U1b.4 (types) |
 | Theme | `set_theme(&ThemeHandle) -> Result<(), Error>`, `themed(&ThemeHandle, f)`, `theme()`, `tokens()`, `ThemeHandle::parse/set_color/density/reduced_motion`; `bodies::register_<kind>_body(..) -> Result<BodyId, Error>`; `Rgba::token(T).alpha(a)` (D19); `ColorToken::ACCENT`; `Appearance`; sizes `f32` (`font_size`, `row_height`, `density`, `set_font_size`) | — | U1a.2; U1b.3 (units); U2b.7 (alpha, accent) |
 | Frame / lifecycle | `Ui::new(&UiDesc) -> Result<Ui, Error>` with `UiDesc::new(Platform).font_size(f32).fonts(&[FontData])` and `UiDesc::DEFAULT`; one `frame(&FrameIn, build)`; `FrameIn::new(w, h)` with event wire fields and const builders, or `unsafe FrameIn::snapshot(&Input)` for a host's complete borrowed snapshot; `layer(i) -> Option<Layer>`, `layers() -> Layers`, `output() -> Output`; `focus_box(&Handle)` stays public for the registered command editor body, with `focused` crate-private and `enter`/`leave` internal to the engine and C ABI | — | U1a.3 |
 | Host integration | `Renderer::new -> Result<_, Error>`; `Ui::register_<kind>_body(..) -> Result<BodyId, Error>`; `A11yBridge::connect -> Option`; `Gpu`, `Pass`, `Commands`, `Input`, `Output`, `Platform`, `Bytes`; pxui_host `Graphics::open/draw/close`, `Accessibility::open`, `Platform::pump/apply` → `Result<_, Error>` | — | U1a.3 |
 | Diagnostics | `phase_times`, `phase_cpu_times`, `set_timing`, `repaint_after`, `wants_frame`, `library_counter` (D3), `verify_views` (D22) | — | HEAD; U1c.2 |
 | Getters | `keyboard()`, `environment()`, `text_traits()` (was `text_input_options`), `ime() -> Option<Ime>`, `platform()`, `now()`, `frame_index()`, `system_appearance() -> Appearance` | — | U1a.4 (appearance), U1b.2 |
 | Signals | `signal`, `signal_keys` → `Signal`: documented as the body/custom-control layer | — | HEAD |
-| Hover / press queries | `hovered(&Handle, within: bool) -> bool` replaces the `hovered_exactly`/`hovered_within` twin; `press_keys`, `last_press_within`, `context_at(&Handle) -> Option<Point>`, free `context_clicked` | — | U1b.2 |
-| Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size` (→ `Size` U1b.3). Input/text: `captured`, `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused`, `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `request_frame`, `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named`, `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
+| Hover / press queries | `hovered(&Handle, within: bool) -> bool` replaces the `hovered_exactly`/`hovered_within` twin; `press_keys`, `last_press_within(&[Event], &[Key]) -> Option<Key>`, `context_at(&Handle) -> Option<Point>`, free `context_clicked` | — | U1b.2 |
+| Kept as HEAD (listed so the two-way check passes) | Build/retained: `set_at`, `to_front`, `node_layout`/`set_node_layout`, `node_mut` (made non-generic U1c.1), `cached_label`, `busy_step`, `set_dir`, `rtl`, `view_size() -> ViewSize` (width and height in logical points, U1b.3). Input/text: `captured`, `clipboard_request`, `paste_requested`, `passed_undo`, `text_input_focused`, `text_undo_bytes`, `unfocus`, `remember<K>(key, ..)` (key-first with `load_text_edit`, U1b.2), `event_text`, `dismiss_popup`. Frame/diagnostics: `request_frame`, `request_cursor`, `arranged_nodes`, `built_nodes`, `rebuilt_views`, `rebuilt_named`, `draw_calls`, `draw_revision`, `text_layout_count`, `verifying`, `abi_version`. A11y: `set_a11y`, `inject_a11y`. | — | HEAD unless noted |
 | Testing | `testing::{frame, click, click_node, key, find}` | — | U1a.4 |
 | Extension set (no stability) | `pxui::ext::{inspector_*, footer, line_field, value_field, grip, field_drag, inspector_width, inspector_label_x}` | through bodies | U1c.3 |
 | 2.0 additions | Error/diagnostics export and font list at create (C, U5.9); `pxui_supports` baseline (U5.8); surface registration (U5.2) | — | U5 |
@@ -90,6 +90,25 @@ borrowed layer remains valid. The C output query and layout stay intact. Program
 `Mods::NONE` requires no modifiers. A nonempty requirement matches one press with every requested
 modifier held, even when more modifiers are held or a later event releases them.
 
+### U1b shape decisions
+
+Approved at the U1b shape review (2026-11-18) unless marked as a finding to honor in implementation.
+
+- Pick-one options keep a borrowed name and detail. An explicit item id keys the item's node, focus and secondary-press routing, so they follow it through a reorder, and becomes `chosen_id` in U1b.6. Items without an id are positional in a namespace distinct from ids (explicit id 1 and index 1 differ). Id, name and detail cross in both link modes. `chosen` is the current selection, `response.changed` reports a change, and `secondary` reports the item where the secondary press began.
+- Sliders keep value, drag preview and final commit separate. A held drag supplies `preview`; a release, keyboard step or accessibility edit supplies `commit` with `preview` equal to it on that frame, so a caller painting from the preview shows the committed value before an asynchronous update. `SplitResponse::ratio` is present while the divider is held and on its release frame (the final value), and always none for a split body without a grip.
+- `OverlayResponse::open` preserves modal and popup dismissal. The handle is empty after a dismissal. Toasts report a removed item's index and id while the stack stays open.
+- Lookups (`node` lookup, `box_of_key`, `root_at`, `last_press_within`, `hover_delay`) resolve authored keys under the active scope seed during a build and under the root seed outside one; `Key::Resolved` is a valid identity everywhere, creation calls included: it crosses as a 0x01-tagged label that the engine uses as the key itself, never hashed again, with no panic path. Authored labels beginning with a byte below 0x20 are reserved. `root_at` prefers the innermost matching ancestor regardless of candidate order and keeps the 65,536-candidate bound. The Rust hover timer and tooltip owner use the resolved key without allocating; the 1.x C text-keyed hover export keeps its behavior.
+- `style` validates all six looks before applying any, as the 1.x style route does, including an invalid value in an inactive look (accepted; the cost of six looks for migrated `set_look` callers is measured at CP1).
+- `Ime::caret` is a horizontal position, so `f32` points.
+- Keyless `row`, `column` and `stack`, and labels and images (formerly the reserved texts "\0label" and "\0image"), take engine positional keys derived in the engine's own hash domain in U1b.6, so no `Key` can collide with them. `id(key, f)` returns unit: it scopes descendant keys, adds no node, and a caller captures a descendant's handle inside `f`.
+- `ViewSize` describes the surface's width and height. `Size` remains a one-axis layout rule. `UiText` borrows its UI or painter, and `Text` keeps the resolved worker style. Tuple positions this list pins as HEAD (`set_at`, `ViewTransform::about`) stay HEAD; D21 is not expanded at U1b.
+- Fractional units: `Font` gains `size_points: f32` in its existing tail padding at offset 28 (size, alignment and 1.x offsets unchanged); `Font::size(f32)` sets it and the rounded legacy `size`, `points()` returns it, and the engine reads it only from records whose size prefix declares the fractional version. Rust `Ui::theme()` borrows the engine-owned fractional snapshot: `Tokens` text sizes are `f32`, and the legacy integer `ThemeSnapshot` is C-only, with no twin type in Rust. The legacy `PxuiFontDesc`, `PxuiLookDesc`, `PxuiFont`, `Node` and borrowed `ThemeSnapshot` layouts and field meanings are unchanged. New size-prefixed records carry the `f32` font size (creation, setter, looks and nodes) and panel padding, validated separately; the integer C getters keep reporting integers. The Rust theme query borrows an engine-owned fractional snapshot; the legacy projection is prepared at theme or style mutation, never on the warm path. Paint and UI density keep the existing rounded choice.
+- `A11yStates` authors flags and exposes their wire mask for inspecting `A11yNode`. The C bridge still takes the wire tree, available in `Ui::output()`. The borrowed Rust tree does not keep it alive beyond the UI borrow.
+- `Image::rgba8` is a const initializer of the existing native GPU descriptor: it copies and uploads no pixels, and the host keeps the native view and texture alive through every GPU use. `image(key, name, ..)` keeps a runtime accessible name distinct from the key.
+- `GridList` has `DEFAULT` (64-point square cells) and `w_px`/`h_px` cell builders, and no variant: the grid builds app-defined cells and has no body. Existing SectionList trailing-height and overlay-scrollbar builders, font tracking and Look field builders already cover those authoring values.
+- The wire Event constructors fill scalar fields. `Str` converts only from `&'static str` and `Slice<u8>` only from `&'static [u8]` until U5.1 defines borrowed events and payloads.
+- C wire (U1b.1, ABI 1.76): the Rust results cross through one result per call (`pxui_ui_pick`, `pxui_ui_segmented_items`, the slider and scrub `_result` exports, the overlay `_root` exports, `pxui_ui_split_result`, `pxui_ui_menu_bar_result`). Pick-one items cross as the new `PxuiPickItem` record (id, name, detail); the append-only manifest refuses grown records, so no 1.x record changes size. The earlier exports keep their results.
+
 <!-- surface -->
 ```text
 pxui mod @HEAD
@@ -101,7 +120,46 @@ pxui::A11yBridge::fd fn (&self) -> i32 @HEAD
 pxui::A11yBridge::pump fn (&mut self, out: &mut dyn FnMut(A11yAction)) -> bool @HEAD
 pxui::A11yBridge::update fn (&mut self, tree: &A11yTree) -> bool @HEAD
 pxui::A11yNode use pxui_types::ffi::A11yNode @HEAD
-pxui::A11yTree use pxui_types::ffi::A11yTree @HEAD
+pxui::A11yStates impl Clone @U1b.4
+pxui::A11yStates impl Copy @U1b.4
+pxui::A11yStates impl Debug @U1b.4
+pxui::A11yStates impl Default @U1b.4
+pxui::A11yStates impl Eq @U1b.4
+pxui::A11yStates impl PartialEq @U1b.4
+pxui::A11yStates impl StructuralPartialEq @U1b.4
+pxui::A11yStates struct (_) @U1b.4
+pxui::A11yStates::ACTIVE const A11yStates @U1b.4
+pxui::A11yStates::BUSY const A11yStates @U1b.4
+pxui::A11yStates::CHECKABLE const A11yStates @U1b.4
+pxui::A11yStates::CHECKED const A11yStates @U1b.4
+pxui::A11yStates::DEFAULT const A11yStates @U1b.4
+pxui::A11yStates::EDITABLE const A11yStates @U1b.4
+pxui::A11yStates::ENABLED const A11yStates @U1b.4
+pxui::A11yStates::EXPANDABLE const A11yStates @U1b.4
+pxui::A11yStates::EXPANDED const A11yStates @U1b.4
+pxui::A11yStates::FOCUSABLE const A11yStates @U1b.4
+pxui::A11yStates::FOCUSED const A11yStates @U1b.4
+pxui::A11yStates::HORIZONTAL const A11yStates @U1b.4
+pxui::A11yStates::MIXED const A11yStates @U1b.4
+pxui::A11yStates::MODAL const A11yStates @U1b.4
+pxui::A11yStates::MULTILINE const A11yStates @U1b.4
+pxui::A11yStates::NONE const A11yStates @U1b.4
+pxui::A11yStates::PRESSED const A11yStates @U1b.4
+pxui::A11yStates::READ_ONLY const A11yStates @U1b.4
+pxui::A11yStates::SELECTABLE const A11yStates @U1b.4
+pxui::A11yStates::SELECTED const A11yStates @U1b.4
+pxui::A11yStates::VERTICAL const A11yStates @U1b.4
+pxui::A11yStates::VISIBLE const A11yStates @U1b.4
+pxui::A11yStates::bits fn const (self) -> u32 @U1b.4
+pxui::A11yStates::with fn const (self, other: A11yStates) -> A11yStates @U1b.4
+pxui::A11yTree impl Clone @U1b.4
+pxui::A11yTree impl Copy @U1b.4
+pxui::A11yTree impl Debug @U1b.4
+pxui::A11yTree struct <'a> @U1b.4
+-pxui::A11yTree use pxui_types::ffi::A11yTree @U1b.4
+pxui::A11yTree::first_child field u32 @U1b.4
+pxui::A11yTree::revision field u64 @U1b.4
+pxui::A11yTree::strings field &'a [u8] @U1b.4
 pxui::Appearance use pxui_types::Appearance @U1a.3
 pxui::AreaCallbacks impl Clone @HEAD
 pxui::AreaCallbacks impl Copy @HEAD
@@ -136,8 +194,12 @@ pxui::AtlasKind::Color variant @HEAD
 pxui::AtlasKind::Color2 variant @HEAD
 pxui::AtlasKind::Mask variant @HEAD
 pxui::AtlasKind::Mask2 variant @HEAD
-pxui::Badge struct <'a> @U1b.5
-pxui::Badge::DEFAULT const Badge<'a> @U1b.5
+pxui::Badge impl Clone @U1b.5
+pxui::Badge impl Copy @U1b.5
+pxui::Badge impl Debug @U1b.5
+pxui::Badge struct @U1b.5
+pxui::Badge::DEFAULT const Badge @U1b.5
+pxui::Badge::variant fn const (self, variant: u16) -> Badge @U1b.5
 pxui::BodyId use pxui_types::theme::BodyId @HEAD
 pxui::BodyKind use pxui_types::theme::BodyKind @HEAD
 pxui::BracketsFn type <'a>= dyn Fn(&str) -> Vec<(usize, usize)> + 'a @HEAD
@@ -349,8 +411,13 @@ pxui::GestureState::swipe_open_leading field bool @HEAD
 pxui::GestureState::swipe_open_trailing field bool @HEAD
 pxui::GestureState::swiping field bool @HEAD
 pxui::Gpu use pxui_types::Gpu @HEAD
+pxui::GridList impl Clone @U1b.5
+pxui::GridList impl Copy @U1b.5
+pxui::GridList impl Debug @U1b.5
 pxui::GridList struct @U1b.5
 pxui::GridList::DEFAULT const GridList @U1b.5
+pxui::GridList::h_px fn const (self, points: f32) -> GridList @U1b.5
+pxui::GridList::w_px fn const (self, points: f32) -> GridList @U1b.5
 pxui::Handle type = PxuiBox @HEAD
 pxui::HeadResponse struct @U2b.1
 pxui::HeadResponse::response field Response @U2b.1
@@ -384,9 +451,17 @@ pxui::ImageStyle::DEFAULT const ImageStyle @HEAD
 pxui::ImageStyle::fit fn const (self, fit: Fit) -> ImageStyle @HEAD
 pxui::ImageStyle::h fn const (self, size: Size) -> ImageStyle @HEAD
 pxui::ImageStyle::h_px fn const (self, points: f32) -> ImageStyle @HEAD
+pxui::ImageStyle::tint fn const (self, tint: Rgba) -> ImageStyle @U1b.2
 pxui::ImageStyle::w fn const (self, size: Size) -> ImageStyle @HEAD
 pxui::ImageStyle::w_px fn const (self, points: f32) -> ImageStyle @HEAD
+pxui::Ime impl Clone @U1b.2
+pxui::Ime impl Copy @U1b.2
+pxui::Ime impl Debug @U1b.2
+pxui::Ime impl PartialEq @U1b.2
+pxui::Ime impl StructuralPartialEq @U1b.2
 pxui::Ime struct @U1b.2
+pxui::Ime::caret field f32 @U1b.2
+pxui::Ime::rect field Rect @U1b.2
 pxui::IndentFn type <'a>= dyn Fn(&str, usize) -> String + 'a @HEAD
 pxui::Input use pxui_types::ffi::Input @HEAD
 pxui::Key use author::Key @HEAD
@@ -478,8 +553,15 @@ pxui::LineFieldResponse::step field LineStep @HEAD
 pxui::ListResponse use pxui_types::ui::ListResponse @HEAD
 pxui::ListState struct @U2b.1
 pxui::Menu use pxui_types::ui::Menu @HEAD
-pxui::MenuBar struct <'a> @U1b.1
-pxui::MenuBar::DEFAULT const MenuBar<'a> @U1b.1
+pxui::MenuBar impl Clone @U1b.1
+pxui::MenuBar impl Copy @U1b.1
+pxui::MenuBar impl Debug @U1b.1
+pxui::MenuBar struct @U1b.1
+pxui::MenuBar::DEFAULT const MenuBar @U1b.1
+pxui::MenuBar::variant fn const (self, variant: u16) -> MenuBar @U1b.1
+pxui::MenuBarMenu impl Clone @U1b.1
+pxui::MenuBarMenu impl Copy @U1b.1
+pxui::MenuBarMenu impl Debug @U1b.1
 pxui::MenuBarMenu struct <'a> @U1b.1
 pxui::MenuBarMenu::new fn const (title: &'a str, items: &'a [MenuItem<'a>]) -> MenuBarMenu<'a> @U1b.1
 pxui::MenuItem use pxui_types::ui::MenuItem @HEAD
@@ -510,6 +592,9 @@ pxui::NodeFields::mark field Mark @HEAD
 pxui::NumberAtFn type <'a>= dyn Fn(&str, usize) -> Option<(usize, usize)> + 'a @HEAD
 pxui::Output use pxui_types::ffi::Output @HEAD
 pxui::Overlay use pxui_types::ui::Overlay @HEAD
+pxui::OverlayResponse impl Clone @U1b.1
+pxui::OverlayResponse impl Copy @U1b.1
+pxui::OverlayResponse impl Debug @U1b.1
 pxui::OverlayResponse struct @U1b.1
 pxui::OverlayResponse::handle field Handle @U1b.1
 pxui::OverlayResponse::open field bool @U1b.1
@@ -523,22 +608,26 @@ pxui::Paint::cubic fn (&mut self, points: [(f32, f32); 4], stroke: Stroke) @HEAD
 pxui::Paint::curve fn (&mut self, from: (f32, f32), control: (f32, f32), to: (f32, f32), stroke: Stroke) @HEAD
 pxui::Paint::dashed fn (&mut self, from: (f32, f32), to: (f32, f32), stroke: Stroke) @HEAD
 pxui::Paint::dashed_rect fn (&mut self, rect: Rect, stroke: Stroke) @HEAD
-pxui::Paint::density fn (&self) -> i64 @HEAD
+pxui::Paint::density fn (&self) -> f32 @U1b.3
+-pxui::Paint::density fn (&self) -> i64 @U1b.3
 pxui::Paint::fill fn (&mut self, rect: Rect, fill: Fill) @HEAD
 pxui::Paint::flag fn (&mut self, at: (f32, f32), round: bool, on: bool) @HEAD
 pxui::Paint::frame fn (&mut self, rect: Rect, stroke: Stroke) @HEAD
 pxui::Paint::grid fn (&mut self, rect: Rect, origin: (f32, f32), spacing: f32, dot: f32, fill: Fill) @HEAD
 pxui::Paint::icon fn (&mut self, at: (f32, f32), font: u16, size: f32, ch: char, color: Rgba) -> f32 @HEAD
+-pxui::Paint::image fn (&mut self, rect: Rect, image: &Image, fit_mode: Fit, tint: Rgba) -> Result<(), Error> @U1b.2
 pxui::Paint::image fn (&mut self, rect: Rect, image: &Image, style: &ImageStyle) -> Result<(), Error> @U1b.2
 pxui::Paint::line fn (&mut self, from: (f32, f32), to: (f32, f32), stroke: Stroke) @HEAD
-pxui::Paint::measure fn (&mut self, text: &str, style: Label, max_width: Option<f32>) -> Result<TextMetrics, Error> @U1b.3
 pxui::Paint::rtl fn (&self) -> bool @HEAD
 pxui::Paint::scroll_y fn (&mut self, slot: u64) -> f32 @HEAD
 pxui::Paint::stroke fn (&mut self, rect: Rect, stroke: Stroke) @HEAD
+-pxui::Paint::text fn (&mut self, at: (f32, f32), style: &Label, width: f32, s: &str) -> TextMetrics @U1b.3
 pxui::Paint::text fn (&mut self, at: Point, style: Label, width: f32, s: &str) -> TextMetrics @U1b.3
+-pxui::Paint::text_chars fn (&mut self, at: (f32, f32), style: &Label, s: &str) -> f32 @U1b.3
 pxui::Paint::text_chars fn (&mut self, at: Point, style: Label, s: &str) -> f32 @U1b.3
 -pxui::Paint::text_metrics fn (&mut self, style: &TextStyle, width: f32, s: &str) -> TextMetrics @U1b.3
 pxui::Paint::text_service fn (&mut self) -> UiText<'_> @U1b.3
+-pxui::Paint::text_spans fn (&mut self, at: (f32, f32), style: &TextStyle, width: f32, text: &str, spans: &[TextSpan]) -> Result<TextMetrics, Error> @U1b.3
 pxui::Paint::text_spans fn (&mut self, at: Point, style: Label, width: f32, text: &str, spans: &[TextSpan]) -> Result<TextMetrics, Error> @U1b.3
 -pxui::Paint::theme fn (&self) -> Tokens @U1b.4
 pxui::Paint::tokens fn (&self) -> Tokens @U1b.4
@@ -555,9 +644,12 @@ pxui::PayloadRef struct <'a> @HEAD
 pxui::PayloadRef::kind field &'a str @HEAD
 pxui::PayloadRef::value field &'a str @HEAD
 pxui::Pick use pxui_types::ui::Pick @HEAD
+pxui::PickResponse impl Clone @U1b.1
+pxui::PickResponse impl Copy @U1b.1
+pxui::PickResponse impl Debug @U1b.1
 pxui::PickResponse struct @U1b.1
 pxui::PickResponse::chosen field Option<usize> @U1b.1
-pxui::PickResponse::chosen_id field Option<i64> @U1b.1
+pxui::PickResponse::chosen_id field Option<i64> @U1b.6
 pxui::PickResponse::response field Response @U1b.1
 pxui::PickResponse::secondary field Option<usize> @U1b.1
 pxui::PickRow struct <'a> @U2a.4
@@ -613,13 +705,22 @@ pxui::Pressable::focus_on_click fn const (self, focus: bool) -> Pressable<'a> @H
 pxui::Pressable::look fn const (self, look: &'a States) -> Pressable<'a> @HEAD
 pxui::Pressable::selected fn const (self, selected: bool) -> Pressable<'a> @HEAD
 pxui::Pressable::tab_stop fn const (self, tab_stop: bool) -> Pressable<'a> @HEAD
-pxui::Progress struct <'a> @U1b.5
-pxui::Progress::DEFAULT const Progress<'a> @U1b.5
+pxui::Progress impl Clone @U1b.5
+pxui::Progress impl Copy @U1b.5
+pxui::Progress impl Debug @U1b.5
+pxui::Progress struct @U1b.5
+pxui::Progress::DEFAULT const Progress @U1b.5
+pxui::Progress::variant fn const (self, variant: u16) -> Progress @U1b.5
 pxui::PxuiPanel use pxui_types::PxuiPanel @HEAD
 pxui::PxuiTargetDesc use pxui_types::PxuiTargetDesc @HEAD
 pxui::PxuiUiDesc use pxui_types::PxuiUiDesc @HEAD
+pxui::Radio impl Clone @U1b.1
+pxui::Radio impl Copy @U1b.1
+pxui::Radio impl Debug @U1b.1
 pxui::Radio struct <'a> @U1b.1
 pxui::Radio::DEFAULT const Radio<'a> @U1b.1
+pxui::Radio::name fn const (self, name: &'a str) -> Radio<'a> @U1b.1
+pxui::Radio::variant fn const (self, variant: u16) -> Radio<'a> @U1b.1
 pxui::Recorder type <'a>= &'a mut dyn FnMut(&Image) -> Result<(), Error> @HEAD
 pxui::Rect use pxui_types::geom::Rect @U1a.1
 pxui::Renderer impl Drop @HEAD
@@ -754,6 +855,9 @@ pxui::Size use pxui_types::Size @U1a.1
 pxui::Slice use pxui_types::ffi::Slice @HEAD
 pxui::SlideFn type <'a>= dyn Fn(f32) -> String + 'a @HEAD
 pxui::Slider use pxui_types::ui::Slider @HEAD
+pxui::SliderResponse impl Clone @U1b.1
+pxui::SliderResponse impl Copy @U1b.1
+pxui::SliderResponse impl Debug @U1b.1
 pxui::SliderResponse struct @U1b.1
 pxui::SliderResponse::commit field Option<f32> @U1b.1
 pxui::SliderResponse::preview field Option<f32> @U1b.1
@@ -762,8 +866,12 @@ pxui::SliderResponse::value field f32 @U1b.1
 pxui::Sort enum @U2b.1
 pxui::Sort::Ascending variant @U2b.1
 pxui::Sort::Descending variant @U2b.1
-pxui::Spinner struct <'a> @U1b.5
-pxui::Spinner::DEFAULT const Spinner<'a> @U1b.5
+pxui::Spinner impl Clone @U1b.5
+pxui::Spinner impl Copy @U1b.5
+pxui::Spinner impl Debug @U1b.5
+pxui::Spinner struct @U1b.5
+pxui::Spinner::DEFAULT const Spinner @U1b.5
+pxui::Spinner::variant fn const (self, variant: u16) -> Spinner @U1b.5
 pxui::Splice impl Clone @HEAD
 pxui::Splice impl Copy @HEAD
 pxui::Splice impl Debug @HEAD
@@ -772,11 +880,17 @@ pxui::Splice impl PartialEq @HEAD
 pxui::Splice impl StructuralPartialEq @HEAD
 pxui::Splice struct <'a> @HEAD
 pxui::Splice::new fn const (start: usize, end: usize, text: &'a str) -> Splice<'a> @HEAD
+pxui::Split impl Clone @U1b.1
+pxui::Split impl Copy @U1b.1
+pxui::Split impl Debug @U1b.1
 pxui::Split struct @U1b.1
 pxui::Split::DEFAULT const Split @U1b.1
 pxui::Split::axis fn const (self, axis: Axis) -> Split @U1b.1
 pxui::Split::min_a fn const (self, points: f32) -> Split @U1b.1
 pxui::Split::min_b fn const (self, points: f32) -> Split @U1b.1
+pxui::SplitResponse impl Clone @U1b.1
+pxui::SplitResponse impl Copy @U1b.1
+pxui::SplitResponse impl Debug @U1b.1
 pxui::SplitResponse struct @U1b.1
 pxui::SplitResponse::ratio field Option<f32> @U1b.1
 pxui::SplitResponse::response field Response @U1b.1
@@ -934,7 +1048,7 @@ pxui::TreeNode impl StructuralPartialEq @HEAD
 pxui::TreeNode struct @HEAD
 pxui::TreeNode::children field u8 @HEAD
 pxui::TreeNode::depth field u16 @HEAD
-pxui::TreeNode::new fn const (text: &'a str, depth: u16) -> TreeNode<'a> @U1b.5
+pxui::TreeNode::new fn const (depth: u16, has_children: bool) -> TreeNode @U1b.5
 pxui::TreeResponse use pxui_types::ui::TreeResponse @HEAD
 pxui::Ui impl Drop @HEAD
 pxui::Ui struct (_) @HEAD
@@ -942,19 +1056,24 @@ pxui::Ui::a11y_name fn (&mut self, box_: &Handle, name: &str) -> bool @U1a.3
 pxui::Ui::a11y_name_of fn (&self, node: &A11yNode) -> &str @HEAD
 pxui::Ui::a11y_nodes fn (&self) -> &[A11yNode] @HEAD
 pxui::Ui::a11y_number fn (&mut self, box_: &Handle, now: f64, min: f64, max: f64, step: f64) -> Result<bool, Error> @U1a.3
-pxui::Ui::a11y_tree fn (&self) -> A11yTree @U1b.4
+-pxui::Ui::a11y_tree fn (&self) -> (&[u8], u64, u32) @U1b.4
+pxui::Ui::a11y_tree fn (&self) -> A11yTree<'_> @U1b.4
 pxui::Ui::a11y_value fn (&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> Result<bool, Error> @U1a.3
 pxui::Ui::a11y_value_of fn (&self, node: &A11yNode) -> Option<&str> @HEAD
+-pxui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> Handle @U1b.1
 pxui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::Ui::animate fn (&mut self, b: &Handle, target: Target, curve: Curve) -> bool @HEAD
 pxui::Ui::animate_keys fn (&mut self, box_: &Handle, keys: &[Keyframe], play: &Keyframes) -> bool @HEAD
 pxui::Ui::arranged_nodes fn (&self) -> usize @HEAD
 pxui::Ui::background_request fn (&self) -> Option<Rgba> @HEAD
-pxui::Ui::badge fn <K: Into<Key>>(&mut self, key: K, name: &str, text: &str, badge: &Badge<'_>) -> Handle @U1b.5
+-pxui::Ui::badge fn <K: Into<Key>>(&mut self, key: K, name: &str, text: &str) -> Handle @U1b.5
+pxui::Ui::badge fn <K: Into<Key>>(&mut self, key: K, name: &str, text: &str, badge: &Badge) -> Handle @U1b.5
 pxui::Ui::box_of_a11y fn (&self, id: u64) -> Option<Handle> @HEAD
+-pxui::Ui::box_of_key fn (&self, key: i64) -> Option<Handle> @U1b.2
 pxui::Ui::box_of_key fn <K: Into<Key>>(&self, key: K) -> Option<Handle> @U1b.2
 pxui::Ui::built_nodes fn (&self) -> usize @HEAD
 pxui::Ui::busy_step fn (&mut self, box_: &Handle, now: f64) -> bool @HEAD
+-pxui::Ui::button fn (&mut self, text: &str) -> bool @U1b.6
 pxui::Ui::button fn <K: Into<Key>>(&mut self, key: K, text: &str, button: &Button<'_>) -> Response @U1b.6
 pxui::Ui::button_content fn <K: Into<Key>, F: FnMut(&mut Ui, State)>(&mut self, key: K, button: &Button<'_>, f: F) -> Response @HEAD
 -pxui::Ui::button_with fn <K: Into<Key>>(&mut self, key: K, text: &str, button: &Button<'_>) -> Response @U1b.6
@@ -972,10 +1091,13 @@ pxui::Ui::clipboard_request fn (&self) -> Option<&str> @HEAD
 pxui::Ui::close_swipe fn (&mut self, node: &Handle) @HEAD
 pxui::Ui::color fn (&self, token: ColorToken) -> Rgba @HEAD
 pxui::Ui::column fn <F: FnMut(&mut Ui)>(&mut self, node: Node, f: F) -> Handle @U1b.6
+-pxui::Ui::column fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, f: F) -> Handle @U1b.6
 pxui::Ui::content_rect fn (&self) -> Rect @HEAD
+-pxui::Ui::context_at fn (&mut self, b: &Handle) -> Option<(f32, f32)> @U1b.2
 pxui::Ui::context_at fn (&mut self, b: &Handle) -> Option<Point> @U1b.2
 -pxui::Ui::create fn (platform: Platform, font_size: Option<i64>, fonts: &[&[u8]]) -> Self @U1a.3
 pxui::Ui::density fn (&self) -> f32 @U1b.3
+-pxui::Ui::density fn (&self) -> i64 @U1b.3
 pxui::Ui::dialog fn <K: Into<Key>>(&mut self, key: K, title: &str, buttons: &[DialogButton<'_>], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen @HEAD
 pxui::Ui::disabled fn <F: FnMut(&mut Ui)>(&mut self, disabled: bool, f: F) @HEAD
 pxui::Ui::disclosure fn <K: Into<Key>>(&mut self, key: K, text: &str, open: bool, disclosure: &Disclosure<'_>, f: &mut dyn FnMut(&mut Ui)) -> Response @U2a.3
@@ -983,33 +1105,41 @@ pxui::Ui::dismiss_popup fn (&mut self) @HEAD
 pxui::Ui::draw_revision fn (&self) -> u64 @HEAD
 pxui::Ui::drawn fn (&mut self, index: usize) @HEAD
 pxui::Ui::drop_target fn (&mut self, b: &Handle) -> Option<DropRef<'_>> @HEAD
-pxui::Ui::dropdown fn <K: Into<Key>>(&mut self, key: K, text: &str, items: &[Segment<'_>], selected: Option<usize>, dropdown: &Dropdown<'_>) -> PickResponse @U1b.1
+pxui::Ui::dropdown fn <K: Into<Key>>(&mut self, key: K, text: &str, items: &[Segment<'_>], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse @U1b.1
+-pxui::Ui::dropdown fn <K: Into<Key>>(&mut self, key: K, text: &str, options: &[&str], selected: usize, dropdown: &Dropdown) -> (Response, usize) @U1b.1
 -pxui::Ui::enable_system_fonts fn (&mut self) -> Result<(), Error> @U1b.3
 pxui::Ui::end_refresh fn (&mut self, node: &Handle) @HEAD
 -pxui::Ui::enter fn (&mut self, box_: &Handle) -> UiSaved @U1a.3
 pxui::Ui::environment fn (&self) -> Environment @HEAD
+-pxui::Ui::expanded fn (&self, key: &str) -> Option<bool> @U1b.2
 pxui::Ui::expanded fn <K: Into<Key>>(&self, key: K) -> Option<bool> @U1b.2
 -pxui::Ui::field_drag fn (&self, field: &Handle) -> Option<(f32, f32)> @U1c.3
 pxui::Ui::focus_box fn (&mut self, box_: &Handle) @U1a.3
 -pxui::Ui::focused fn (&self, box_: &Handle) -> bool @U1a.3
 pxui::Ui::font_size fn (&self) -> f32 @U1b.3
+-pxui::Ui::font_size fn (&self) -> i64 @U1b.3
 -pxui::Ui::footer fn (&mut self, right: Option<&str>, hints: &[(&str, &str)]) @U1c.3
 pxui::Ui::frame fn (&mut self, input: &FrameIn<'_>, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 pxui::Ui::frame_index fn (&self) -> u64 @HEAD
 pxui::Ui::gesture fn (&mut self, node: &Handle, opts: &GestureOpts) -> GestureState @U1b.2
+-pxui::Ui::gesture fn (&mut self, node: &Handle, opts: GestureOpts) -> GestureState @U1b.2
 pxui::Ui::gesture_state fn (&mut self, node: &Handle) -> GestureState @HEAD
+-pxui::Ui::grid_list fn <K: Into<Key>>(&mut self, key: K, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> Handle @U1b.5
 pxui::Ui::grid_list fn <K: Into<Key>>(&mut self, key: K, count: usize, grid: &GridList, build: &mut dyn FnMut(&mut Ui, usize)) -> Handle @U1b.5
 -pxui::Ui::grip fn (&mut self, label: Arguments<'_>, axis: Axis, rect: Option<Rect>) -> (Handle, Signal) @U1c.3
+-pxui::Ui::hover_delay fn (&mut self, key: &str) -> bool @U1b.2
 pxui::Ui::hover_delay fn <K: Into<Key>>(&mut self, key: K) -> bool @U1b.2
 pxui::Ui::hovered fn (&self, b: &Handle, within: bool) -> bool @U1b.2
 -pxui::Ui::hovered_exactly fn (&self, b: &Handle) -> bool @U1b.2
 -pxui::Ui::hovered_within fn (&mut self, b: &Handle) -> bool @U1b.2
 pxui::Ui::icon_button fn <K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton<'_>) -> Response @HEAD
-pxui::Ui::id fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, f: F) -> Handle @U1b.6
-pxui::Ui::image fn <K: Into<Key>>(&mut self, key: K, image: &Image, style: &ImageStyle) -> Result<Handle, Error> @U1b.2
+-pxui::Ui::id fn (&self) -> usize @U1b.6
+pxui::Ui::id fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, f: F) @U1b.6
+-pxui::Ui::image fn (&mut self, name: &str, image: &Image, style: &ImageStyle) -> Result<Handle, Error> @U1b.2
+pxui::Ui::image fn <K: Into<Key>>(&mut self, key: K, name: &str, image: &Image, style: &ImageStyle) -> Result<Handle, Error> @U1b.2
+-pxui::Ui::ime fn (&self) -> Option<((i64, i64, i64, i64), i64)> @U1b.2
 pxui::Ui::ime fn (&self) -> Option<Ime> @U1b.2
 pxui::Ui::inject_a11y fn (&mut self, actions: &[A11yAction]) @HEAD
-pxui::Ui::instance_id fn (&self) -> usize @U1b.6
 -pxui::Ui::input_frame fn (&mut self, input: &Input, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 -pxui::Ui::inspector_bar fn (&mut self, hints: &[(&str, &str)], count: i64) @U1c.3
 -pxui::Ui::inspector_body fn (&mut self, f: &mut dyn FnMut(&mut Ui)) @U1c.3
@@ -1022,6 +1152,7 @@ pxui::Ui::instance_id fn (&self) -> usize @U1b.6
 -pxui::Ui::inspector_section fn (&mut self, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: &mut dyn FnMut(&mut Ui)) -> bool @U1c.3
 -pxui::Ui::inspector_toggle fn (&mut self, key: &str, label: &str, value: bool) -> bool @U1c.3
 -pxui::Ui::inspector_width fn (&self) -> f32 @U1c.3
+pxui::Ui::instance_id fn (&self) -> usize @U1b.6
 pxui::Ui::item_text fn (&mut self, text: &str) @HEAD
 pxui::Ui::key_down fn (&self, key: KeyCode) -> bool @U1a.4
 pxui::Ui::key_pressed fn (&self, key: KeyCode, mods: Mods) -> bool @U1a.4
@@ -1030,7 +1161,8 @@ pxui::Ui::label fn (&mut self, text: &str, style: Label) -> Handle @HEAD
 pxui::Ui::label_digits fn (&mut self, args: Arguments<'_>, style: Label) -> Handle @HEAD
 pxui::Ui::label_fmt fn (&mut self, args: Arguments<'_>, style: Label) -> Handle @HEAD
 pxui::Ui::last_error fn (&self) -> &str @HEAD
-pxui::Ui::last_press_within fn (&self, events: &[Event], roots: &[i64]) -> Option<i64> @HEAD
+pxui::Ui::last_press_within fn (&self, events: &[Event], roots: &[Key]) -> Option<Key> @U1b.2
+-pxui::Ui::last_press_within fn (&self, events: &[Event], roots: &[i64]) -> Option<i64> @U1b.2
 pxui::Ui::layer fn (&self, index: usize) -> Option<Layer<'_>> @U1a.3
 pxui::Ui::layer_count fn (&self) -> usize @HEAD
 pxui::Ui::layers fn (&self) -> Layers<'_> @U1a.3
@@ -1038,21 +1170,29 @@ pxui::Ui::layers fn (&self) -> Layers<'_> @U1a.3
 pxui::Ui::library_calls fn (&self) -> u64 @HEAD
 -pxui::Ui::line_field fn <K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'_> @U1c.3
 pxui::Ui::list fn <K: Into<Key>, F: FnMut(&mut Ui, usize)>(&mut self, key: K, count: usize, row_h: f32, row_key: &dyn Fn(usize) -> i64, f: F) -> ListResponse @U2b.2
+-pxui::Ui::load_text_edit fn (&mut self, key: i64, text: &str) -> TextEdit @U1b.2
 pxui::Ui::load_text_edit fn <K: Into<Key>>(&mut self, key: K, text: &str) -> TextEdit @U1b.2
 pxui::Ui::local_rect fn (&self, b: &Handle) -> Rect @HEAD
-pxui::Ui::menu fn <K: Into<Key>>(&mut self, key: K, at: Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen @U1b.1
-pxui::Ui::menu_bar fn <K: Into<Key>>(&mut self, key: K, menus: &[MenuBarMenu<'_>], bar: &MenuBar<'_>) -> Chosen @U1b.1
+-pxui::Ui::menu fn <K: Into<Key>>(&mut self, key: K, at: (f32, f32), items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen @U1b.3
+pxui::Ui::menu fn <K: Into<Key>>(&mut self, key: K, at: Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen @U1b.3
+-pxui::Ui::menu_bar fn (&mut self, label: &str, menus: &[(&str, &[&str])]) -> Option<(usize, usize)> @U1b.1
+pxui::Ui::menu_bar fn <K: Into<Key>>(&mut self, key: K, menus: &[MenuBarMenu<'_>], bar: &MenuBar) -> Chosen @U1b.1
 pxui::Ui::modal fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
+-pxui::Ui::modal fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> bool @U1b.1
 pxui::Ui::new fn (desc: &UiDesc<'_>) -> Result<Self, Error> @U1a.3
+-pxui::Ui::node fn (&mut self, key: Key, node: Node) -> Handle @U1b.2
 pxui::Ui::node fn <K: Into<Key>>(&mut self, key: K, node: Node) -> Handle @U1b.2
 pxui::Ui::node_layout fn (&self, b: &Handle) -> Node @HEAD
 pxui::Ui::node_mut fn (&mut self, b: &Handle, edit: &mut dyn FnMut(&mut NodeFields)) @U1c.1
 pxui::Ui::now fn (&self) -> f64 @HEAD
 pxui::Ui::output fn (&self) -> Output @U1a.3
+-pxui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) @U1b.1
 pxui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::Ui::part fn (&mut self, part: Part, node: Node) -> Handle @HEAD
 pxui::Ui::part_box fn (&self, owner: &Handle, part: Part) -> Option<Handle> @U1b.2
+-pxui::Ui::part_box fn (&self, owner: i64, part: Part) -> Option<Handle> @U1b.2
 pxui::Ui::part_rect fn (&self, owner: &Handle, part: Part) -> Option<Rect> @U1b.2
+-pxui::Ui::part_rect fn (&self, owner: i64, part: Part) -> Option<Rect> @U1b.2
 pxui::Ui::passed_undo fn (&self) -> Option<UndoKind> @HEAD
 pxui::Ui::paste_requested fn (&self) -> bool @HEAD
 pxui::Ui::patch_field fn (&mut self, field: &Handle, o: &ValueField<'_>, value_text: &str) -> bool @HEAD
@@ -1063,13 +1203,17 @@ pxui::Ui::patch_text fn (&mut self, box_: &Handle, value: &str) -> bool @HEAD
 pxui::Ui::phase_cpu_times fn (&self) -> Result<[Duration; 7], Error> @HEAD
 pxui::Ui::phase_times fn (&self) -> [Duration; 7] @HEAD
 pxui::Ui::picker fn <K: Into<Key>>(&mut self, key: K, placeholder: &str, query: &str, picker: &Picker<'_>, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> @U1b.1
+-pxui::Ui::picker fn <K: Into<Key>>(&mut self, key: K, placeholder: &str, query: &str, picker: &PickerOpts<'_>, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> @U1b.1
 pxui::Ui::platform fn (&self) -> Platform @HEAD
 pxui::Ui::popup fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
+-pxui::Ui::popup fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> bool @U1b.1
 pxui::Ui::press_keys fn (&self, b: &Handle) -> &[u32] @HEAD
 pxui::Ui::pressable fn <K: Into<Key>, F: FnMut(&mut Ui, State)>(&mut self, key: K, node: Node, pressable: &Pressable<'_>, f: F) -> Response @HEAD
 pxui::Ui::prewarm_text fn (&mut self, text: &str, style: &Label, max_width: f32) -> Result<(), Error> @HEAD
-pxui::Ui::progress fn <K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>, progress: &Progress<'_>) -> Handle @U1b.5
+-pxui::Ui::progress fn <K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>) -> Handle @U1b.5
+pxui::Ui::progress fn <K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>, progress: &Progress) -> Handle @U1b.5
 pxui::Ui::radio fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, radio: &Radio<'_>) -> PickResponse @U1b.1
+-pxui::Ui::radio fn <K: Into<Key>>(&mut self, key: K, options: &[&str], selected: usize, choice: &Choice<'_>) -> (Response, usize) @U1b.1
 pxui::Ui::rebuilt_named fn (&self, prefix: &str) -> usize @HEAD
 pxui::Ui::rebuilt_views fn (&self) -> usize @HEAD
 pxui::Ui::rect fn (&self, box_: &Handle) -> Rect @HEAD
@@ -1113,6 +1257,7 @@ pxui::Ui::register_tooltip_body fn (&mut self, name: &str, body: fn(&mut Ui, &To
 pxui::Ui::register_tree_body fn (&mut self, name: &str, body: fn(&mut Ui, &TreeConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &ValueFieldConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.3
+-pxui::Ui::remember fn (&mut self, edit: &TextEdit, typing: bool) @U1b.2
 pxui::Ui::remember fn <K: Into<Key>>(&mut self, key: K, edit: &TextEdit, typing: bool) @U1b.2
 pxui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
@@ -1120,12 +1265,17 @@ pxui::Ui::request_cursor fn (&mut self, shape: Cursor) @HEAD
 pxui::Ui::request_frame fn (&mut self) @HEAD
 pxui::Ui::resolve fn (&self, style: &Label) -> TextStyle @HEAD
 pxui::Ui::reveal fn (&mut self, list: &Handle, index: usize) @HEAD
+-pxui::Ui::root_at fn (&self, point: (f32, f32), roots: &[i64]) -> Option<i64> @U1b.2
 pxui::Ui::root_at fn (&self, point: Point, roots: &[Key]) -> Option<Key> @U1b.2
 -pxui::Ui::routed_input fn (&mut self, owner: Option<i64>) -> Routed<'_> @U1a.3
 pxui::Ui::row fn <F: FnMut(&mut Ui)>(&mut self, node: Node, f: F) -> Handle @U1b.6
+-pxui::Ui::row fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, f: F) -> Handle @U1b.6
 pxui::Ui::row_height fn (&self) -> f32 @U1b.3
+-pxui::Ui::row_height fn (&self) -> i64 @U1b.3
 pxui::Ui::scroll fn (&self, b: &Handle) -> Scroll @HEAD
 pxui::Ui::scroll_view fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, f: F) -> Handle @U1b.5
+-pxui::Ui::scroll_view fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, w: Size, h: Size, f: F) -> Handle @U1b.5
+-pxui::Ui::scrub fn <K: Into<Key>>(&mut self, key: K, value: f32, range: RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> Scrub @U1b.1
 pxui::Ui::scrub fn <K: Into<Key>>(&mut self, key: K, value: f32, range: RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> SliderResponse @U1b.1
 pxui::Ui::search_field fn <K: Into<Key>>(&mut self, key: K, value: &str, field: &SearchField<'_>) -> SearchFieldResponse<'_> @HEAD
 pxui::Ui::section_index fn <K: Into<Key>>(&mut self, key: K, letters: &[&str], index: &SectionIndex<'_>) -> PickResponse @U2a.3
@@ -1138,9 +1288,11 @@ pxui::Ui::set_at fn (&mut self, b: &Handle, at: (f32, f32)) @HEAD
 -pxui::Ui::set_colors fn (&mut self, colors: &[(Rgba, Rgba)]) @U1a.2
 pxui::Ui::set_dir fn (&mut self, rtl: bool) @HEAD
 pxui::Ui::set_font_size fn (&mut self, size: f32) @U1b.3
+-pxui::Ui::set_font_size fn (&mut self, size: i64) @U1b.3
 -pxui::Ui::set_look fn (&mut self, box_: &Handle, look: Look, state: State) @U1b.4
 pxui::Ui::set_node_layout fn (&mut self, b: &Handle, node: &Node) @HEAD
 pxui::Ui::set_role fn (&mut self, box_: &Handle, role: Role, states: A11yStates) @U1b.4
+-pxui::Ui::set_role fn (&mut self, box_: &Handle, role: Role, states: u32) @U1b.4
 pxui::Ui::set_scroll_offset fn (&mut self, b: &Handle, value: f32) @HEAD
 pxui::Ui::set_state fn (&mut self, box_: &Handle, value: i64) @HEAD
 pxui::Ui::set_text_state fn (&mut self, b: &Handle, value: Option<&str>) @HEAD
@@ -1151,11 +1303,15 @@ pxui::Ui::set_timing fn (&mut self, on: bool) @HEAD
 pxui::Ui::set_view fn (&mut self, b: &Handle, view: &ViewTransform) @HEAD
 pxui::Ui::signal fn (&self, box_: &Handle) -> Signal @HEAD
 pxui::Ui::signal_keys fn (&self, box_: &Handle) -> &[Event] @HEAD
-pxui::Ui::slider fn <K: Into<Key>>(&mut self, key: K, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider<'_>) -> SliderResponse @U1b.1
+-pxui::Ui::slider fn <K: Into<Key>>(&mut self, key: K, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> (Response, f32) @U1b.1
+pxui::Ui::slider fn <K: Into<Key>>(&mut self, key: K, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> SliderResponse @U1b.1
 pxui::Ui::slot fn (&mut self, slot: PxuiSlot) -> bool @HEAD
-pxui::Ui::spinner fn <K: Into<Key>>(&mut self, key: K, name: &str, spinner: &Spinner<'_>) -> Handle @U1b.5
+-pxui::Ui::spinner fn <K: Into<Key>>(&mut self, key: K, name: &str) -> Handle @U1b.5
+pxui::Ui::spinner fn <K: Into<Key>>(&mut self, key: K, name: &str, spinner: &Spinner) -> Handle @U1b.5
+-pxui::Ui::split fn (&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> @U1b.1
 pxui::Ui::split fn <K: Into<Key>>(&mut self, key: K, ratio: f32, split: &Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> SplitResponse @U1b.1
 pxui::Ui::stack fn <F: FnMut(&mut Ui)>(&mut self, node: Node, f: F) -> Handle @U1b.6
+-pxui::Ui::stack fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, f: F) -> Handle @U1b.6
 pxui::Ui::state fn (&self, box_: &Handle, default: i64) -> i64 @HEAD
 pxui::Ui::style fn (&mut self, box_: &Handle, states: &States, state: State) @HEAD
 pxui::Ui::system_appearance fn (&self) -> Appearance @U1a.4
@@ -1165,12 +1321,15 @@ pxui::Ui::table_head fn <K: Into<Key>>(&mut self, key: K, columns: &[Column<'_>]
 pxui::Ui::tabs fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, tabs: &Tabs<'_>) -> PickResponse @U2a.2
 pxui::Ui::text fn (&mut self, box_: &Handle, value: &str) @HEAD
 pxui::Ui::text_area fn <K: Into<Key>>(&mut self, key: K, value: &str, node: Node, area: &TextArea<'_>, callbacks: &AreaCallbacks<'_>) -> TextAreaResponse<'_> @U1b.5
+-pxui::Ui::text_area fn <K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, area: &TextArea<'_>, callbacks: &AreaCallbacks<'_>) -> TextAreaResponse<'_> @U1b.5
 pxui::Ui::text_field fn <K: Into<Key>>(&mut self, key: K, value: &str, field: &TextField<'_>) -> TextFieldResponse<'_> @HEAD
 pxui::Ui::text_input_focused fn (&self) -> bool @HEAD
 -pxui::Ui::text_input_options fn (&self) -> TextTraits @U1b.2
 pxui::Ui::text_layout_count fn (&self) -> u64 @HEAD
+-pxui::Ui::text_line_box fn (&mut self, box_: &Handle, text: &str, style: &Label, spans: &[TextSpan]) -> Result<(), Error> @U1b.3
 pxui::Ui::text_line_box fn (&mut self, box_: &Handle, text: &str, style: Label, spans: &[TextSpan]) -> Result<(), Error> @U1b.3
 pxui::Ui::text_service fn (&mut self) -> UiText<'_> @HEAD
+-pxui::Ui::text_spans fn (&mut self, box_: &Handle, text: &str, style: &Label, spans: &[TextSpan]) -> Result<(), Error> @U1b.3
 pxui::Ui::text_spans fn (&mut self, box_: &Handle, text: &str, style: Label, spans: &[TextSpan]) -> Result<(), Error> @U1b.3
 pxui::Ui::text_state fn (&self, b: &Handle) -> Option<&str> @HEAD
 -pxui::Ui::text_top fn (&self, size: Option<i64>, y: f32, h: f32) -> f32 @U1b.3
@@ -1181,6 +1340,8 @@ pxui::Ui::theme fn (&self) -> &Theme @HEAD
 pxui::Ui::themed fn (&mut self, theme: &ThemeHandle, f: &mut dyn FnMut(&mut Ui)) @U1a.2
 pxui::Ui::to_front fn (&mut self, order: i64, b: &Handle) @HEAD
 pxui::Ui::toasts fn <K: Into<Key>>(&mut self, key: K, items: &[Toast<'_>], seconds: f64) -> Chosen @U1b.1
+-pxui::Ui::toasts fn <K: Into<Key>>(&mut self, key: K, items: &[Toast<'_>], seconds: f64) -> Option<usize> @U1b.1
+-pxui::Ui::toggle fn (&mut self, text: &str, on: bool) -> bool @U1b.6
 pxui::Ui::toggle fn <K: Into<Key>>(&mut self, key: K, text: &str, on: bool, toggle: &Toggle<'_>) -> Response @U1b.6
 -pxui::Ui::toggle_with fn <K: Into<Key>>(&mut self, key: K, text: &str, on: bool, toggle: &Toggle<'_>) -> Response @U1b.6
 pxui::Ui::tokens fn (&self) -> Tokens @HEAD
@@ -1197,7 +1358,8 @@ pxui::Ui::verifying fn (&self) -> bool @HEAD
 -pxui::Ui::view_backdrop_saturation fn (&mut self, b: &Handle, saturation: f32) @U1b.4
 -pxui::Ui::view_clip fn (&mut self, b: &Handle, clip: Option<Rect>) @U1b.4
 pxui::Ui::view_of fn <K: Into<Key>, T: Hash + ?Sized, F: FnMut(&mut Ui)>(&mut self, key: K, inputs: &T, f: F) -> Handle @HEAD
-pxui::Ui::view_size fn (&self) -> Size @U1b.3
+-pxui::Ui::view_size fn (&self) -> (f32, f32) @U1b.3
+pxui::Ui::view_size fn (&self) -> ViewSize @U1b.3
 pxui::Ui::wants_frame fn (&self, events: &[Event], now: f64) -> bool @HEAD
 pxui::Ui::within fn (&mut self, box_: &Handle, f: &mut dyn FnMut(&mut Ui)) @HEAD
 pxui::UiDesc impl Clone @U1a.3
@@ -1213,10 +1375,15 @@ pxui::UiText::add_font fn (&mut self, bytes: &[u8]) -> Result<u32, Error> @HEAD
 pxui::UiText::enable_system_fonts fn (&mut self) -> Result<(), Error> @U1b.3
 pxui::UiText::fork fn (&mut self) -> Result<Text, Error> @HEAD
 pxui::UiText::install fn (&mut self, prepared: PreparedText) -> Result<RetiredText, (Error, PreparedText)> @HEAD
+-pxui::UiText::measure fn (&mut self, value: &str, style: &Label, max_width: f32) -> Result<TextMetrics, Error> @U1b.3
 pxui::UiText::measure fn (&mut self, value: &str, style: Label, max_width: Option<f32>) -> Result<TextMetrics, Error> @U1b.3
+-pxui::UiText::measure_spans fn (&mut self, value: &str, style: &Label, max_width: f32, spans: &[TextSpan]) -> Result<TextMetrics, Error> @U1b.3
 pxui::UiText::measure_spans fn (&mut self, value: &str, style: Label, max_width: Option<f32>, spans: &[TextSpan]) -> Result<TextMetrics, Error> @U1b.3
+-pxui::UiText::quads fn (&mut self, value: &str, style: &Label, max_width: f32, origin: (f32, f32), scale: f32, out: &mut Vec<TextGlyph>) -> Result<usize, Error> @U1b.3
 pxui::UiText::quads fn (&mut self, value: &str, style: Label, max_width: Option<f32>, origin: Point, scale: f32, out: &mut Vec<TextGlyph>) -> Result<usize, Error> @U1b.3
+-pxui::UiText::rasterize_rgba fn (&mut self, value: &str, style: &Label, max_width: f32, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), Error> @U1b.3
 pxui::UiText::rasterize_rgba fn (&mut self, value: &str, style: Label, max_width: Option<f32>, scale: f32, color: [u8; 4], out: &mut Vec<u8>) -> Result<(u32, u32), Error> @U1b.3
+-pxui::UiText::width fn (&mut self, value: &str, style: &Label, max_width: f32) -> Result<f32, Error> @U1b.3
 pxui::UiText::width fn (&mut self, value: &str, style: Label, max_width: Option<f32>) -> Result<f32, Error> @U1b.3
 pxui::ValidFn type <'a>= dyn Fn(&str) -> bool + 'a @HEAD
 pxui::ValueCallbacks impl Clone @HEAD
@@ -1253,6 +1420,15 @@ pxui::ValueFieldResponse struct <'a> @HEAD
 pxui::ValueFieldResponse::changed field Option<&'a str> @HEAD
 pxui::ValueFieldResponse::editing field bool @HEAD
 pxui::ValueFieldResponse::response field Response @HEAD
+pxui::ViewSize impl Clone @U1b.3
+pxui::ViewSize impl Copy @U1b.3
+pxui::ViewSize impl Debug @U1b.3
+pxui::ViewSize impl Default @U1b.3
+pxui::ViewSize impl PartialEq @U1b.3
+pxui::ViewSize impl StructuralPartialEq @U1b.3
+pxui::ViewSize struct @U1b.3
+pxui::ViewSize::height field f32 @U1b.3
+pxui::ViewSize::width field f32 @U1b.3
 pxui::ViewTransform impl Clone @HEAD
 pxui::ViewTransform impl Copy @HEAD
 pxui::ViewTransform impl Debug @HEAD
@@ -1262,11 +1438,11 @@ pxui::ViewTransform impl StructuralPartialEq @HEAD
 pxui::ViewTransform struct @HEAD
 pxui::ViewTransform::DEFAULT const ViewTransform @HEAD
 pxui::ViewTransform::about fn const (self, scale: f32, matrix: [f32; 4], pivot: (f32, f32)) -> ViewTransform @HEAD
-pxui::ViewTransform::blur field f32 @U1b.4
-pxui::ViewTransform::clip field Option<Rect> @U1b.4
+pxui::ViewTransform::blur fn const (self, blur: f32) -> ViewTransform @U1b.4
+pxui::ViewTransform::clip fn const (self, clip: Option<Rect>) -> ViewTransform @U1b.4
 pxui::ViewTransform::offset fn const (self, dx: f32, dy: f32) -> ViewTransform @HEAD
 pxui::ViewTransform::opacity fn const (self, opacity: f32) -> ViewTransform @HEAD
-pxui::ViewTransform::saturation field f32 @U1b.4
+pxui::ViewTransform::saturation fn const (self, saturation: f32) -> ViewTransform @U1b.4
 pxui::ViewTransform::scale fn const (self, scale: f32) -> ViewTransform @HEAD
 pxui::Wrap use pxui_types::text::Wrap @U1a.1
 -pxui::a11y mod @U1a.1
@@ -1675,6 +1851,7 @@ pxui::ui::ImageStyle::DEFAULT const ImageStyle @HEAD
 pxui::ui::ImageStyle::fit fn const (self, fit: Fit) -> ImageStyle @HEAD
 pxui::ui::ImageStyle::h fn const (self, size: Size) -> ImageStyle @HEAD
 pxui::ui::ImageStyle::h_px fn const (self, points: f32) -> ImageStyle @HEAD
+pxui::ui::ImageStyle::tint fn const (self, tint: Rgba) -> ImageStyle @U1b.2
 pxui::ui::ImageStyle::w fn const (self, size: Size) -> ImageStyle @HEAD
 pxui::ui::ImageStyle::w_px fn const (self, points: f32) -> ImageStyle @HEAD
 pxui::ui::Key use pxui_types::ui::Key @U1a.1
@@ -1712,22 +1889,29 @@ pxui::ui::Paint::cubic fn (&mut self, points: [(f32, f32); 4], stroke: Stroke) @
 pxui::ui::Paint::curve fn (&mut self, from: (f32, f32), control: (f32, f32), to: (f32, f32), stroke: Stroke) @HEAD
 pxui::ui::Paint::dashed fn (&mut self, from: (f32, f32), to: (f32, f32), stroke: Stroke) @HEAD
 pxui::ui::Paint::dashed_rect fn (&mut self, rect: Rect, stroke: Stroke) @HEAD
-pxui::ui::Paint::density fn (&self) -> i64 @HEAD
+pxui::ui::Paint::density fn (&self) -> f32 @U1b.3
+-pxui::ui::Paint::density fn (&self) -> i64 @U1b.3
 pxui::ui::Paint::fill fn (&mut self, rect: Rect, fill: Fill) @HEAD
 pxui::ui::Paint::flag fn (&mut self, at: (f32, f32), round: bool, on: bool) @HEAD
 pxui::ui::Paint::frame fn (&mut self, rect: Rect, stroke: Stroke) @HEAD
 pxui::ui::Paint::grid fn (&mut self, rect: Rect, origin: (f32, f32), spacing: f32, dot: f32, fill: Fill) @HEAD
 pxui::ui::Paint::icon fn (&mut self, at: (f32, f32), font: u16, size: f32, ch: char, color: Rgba) -> f32 @HEAD
-pxui::ui::Paint::image fn (&mut self, rect: Rect, image: &Image, fit_mode: Fit, tint: Rgba) -> Result<(), Error> @HEAD
+-pxui::ui::Paint::image fn (&mut self, rect: Rect, image: &Image, fit_mode: Fit, tint: Rgba) -> Result<(), Error> @U1b.2
+pxui::ui::Paint::image fn (&mut self, rect: Rect, image: &Image, style: &ImageStyle) -> Result<(), Error> @U1b.2
 pxui::ui::Paint::line fn (&mut self, from: (f32, f32), to: (f32, f32), stroke: Stroke) @HEAD
 pxui::ui::Paint::rtl fn (&self) -> bool @HEAD
 pxui::ui::Paint::scroll_y fn (&mut self, slot: u64) -> f32 @HEAD
 pxui::ui::Paint::stroke fn (&mut self, rect: Rect, stroke: Stroke) @HEAD
-pxui::ui::Paint::text fn (&mut self, at: (f32, f32), style: &Label, width: f32, s: &str) -> TextMetrics @HEAD
-pxui::ui::Paint::text_chars fn (&mut self, at: (f32, f32), style: &Label, s: &str) -> f32 @HEAD
-pxui::ui::Paint::text_metrics fn (&mut self, style: &TextStyle, width: f32, s: &str) -> TextMetrics @HEAD
-pxui::ui::Paint::text_spans fn (&mut self, at: (f32, f32), style: &TextStyle, width: f32, text: &str, spans: &[TextSpan]) -> Result<TextMetrics, Error> @HEAD
-pxui::ui::Paint::theme fn (&self) -> Tokens @HEAD
+-pxui::ui::Paint::text fn (&mut self, at: (f32, f32), style: &Label, width: f32, s: &str) -> TextMetrics @U1b.3
+pxui::ui::Paint::text fn (&mut self, at: Point, style: Label, width: f32, s: &str) -> TextMetrics @U1b.3
+-pxui::ui::Paint::text_chars fn (&mut self, at: (f32, f32), style: &Label, s: &str) -> f32 @U1b.3
+pxui::ui::Paint::text_chars fn (&mut self, at: Point, style: Label, s: &str) -> f32 @U1b.3
+-pxui::ui::Paint::text_metrics fn (&mut self, style: &TextStyle, width: f32, s: &str) -> TextMetrics @U1b.3
+pxui::ui::Paint::text_service fn (&mut self) -> UiText<'_> @U1b.3
+-pxui::ui::Paint::text_spans fn (&mut self, at: (f32, f32), style: &TextStyle, width: f32, text: &str, spans: &[TextSpan]) -> Result<TextMetrics, Error> @U1b.3
+pxui::ui::Paint::text_spans fn (&mut self, at: Point, style: Label, width: f32, text: &str, spans: &[TextSpan]) -> Result<TextMetrics, Error> @U1b.3
+-pxui::ui::Paint::theme fn (&self) -> Tokens @U1b.4
+pxui::ui::Paint::tokens fn (&self) -> Tokens @U1b.4
 pxui::ui::Paint::triangle fn (&mut self, a: (f32, f32), b: (f32, f32), c: (f32, f32), fill: Fill) @HEAD
 pxui::ui::PanelOpts use pxui_types::ui::PanelOpts @U1a.1
 pxui::ui::Pick use pxui_types::ui::Pick @HEAD
@@ -1834,6 +2018,7 @@ pxui::ui::TextArea::wrap fn const (self, on: bool) -> TextArea<'a> @HEAD
 pxui::ui::TextEdit use pxui_types::ui::TextEdit @U1a.1
 pxui::ui::Toast use pxui_types::ui::Toast @U1a.1
 pxui::ui::Tokens use pxui_types::theme::Tokens @HEAD
+pxui::ui::Transition use pxui_types::node::Transition @U1b.5
 pxui::ui::TreeNode impl Clone @HEAD
 pxui::ui::TreeNode impl Copy @HEAD
 pxui::ui::TreeNode impl Debug @HEAD
@@ -1844,6 +2029,7 @@ pxui::ui::TreeNode impl StructuralPartialEq @HEAD
 pxui::ui::TreeNode struct @HEAD
 pxui::ui::TreeNode::children field u8 @HEAD
 pxui::ui::TreeNode::depth field u16 @HEAD
+pxui::ui::TreeNode::new fn const (depth: u16, has_children: bool) -> TreeNode @U1b.5
 pxui::ui::TreeResponse use pxui_types::ui::TreeResponse @U1a.1
 pxui::ui::Ui impl Drop @HEAD
 pxui::ui::Ui struct (_) @HEAD
@@ -1851,19 +2037,24 @@ pxui::ui::Ui::a11y_name fn (&mut self, box_: &Handle, name: &str) -> bool @U1a.3
 pxui::ui::Ui::a11y_name_of fn (&self, node: &A11yNode) -> &str @HEAD
 pxui::ui::Ui::a11y_nodes fn (&self) -> &[A11yNode] @HEAD
 pxui::ui::Ui::a11y_number fn (&mut self, box_: &Handle, now: f64, min: f64, max: f64, step: f64) -> Result<bool, Error> @U1a.3
-pxui::ui::Ui::a11y_tree fn (&self) -> A11yTree @U1b.4
+-pxui::ui::Ui::a11y_tree fn (&self) -> (&[u8], u64, u32) @U1b.4
+pxui::ui::Ui::a11y_tree fn (&self) -> A11yTree<'_> @U1b.4
 pxui::ui::Ui::a11y_value fn (&mut self, box_: &Handle, value: &str, selection: (u32, u32)) -> Result<bool, Error> @U1a.3
 pxui::ui::Ui::a11y_value_of fn (&self, node: &A11yNode) -> Option<&str> @HEAD
+-pxui::ui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> Handle @U1b.1
 pxui::ui::Ui::anchored fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, anchor: Rect, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::ui::Ui::animate fn (&mut self, b: &Handle, target: Target, curve: Curve) -> bool @HEAD
 pxui::ui::Ui::animate_keys fn (&mut self, box_: &Handle, keys: &[Keyframe], play: &Keyframes) -> bool @HEAD
 pxui::ui::Ui::arranged_nodes fn (&self) -> usize @HEAD
 pxui::ui::Ui::background_request fn (&self) -> Option<Rgba> @HEAD
-pxui::ui::Ui::badge fn <K: Into<Key>>(&mut self, key: K, name: &str, text: &str, badge: &Badge<'_>) -> Handle @U1b.5
+-pxui::ui::Ui::badge fn <K: Into<Key>>(&mut self, key: K, name: &str, text: &str) -> Handle @U1b.5
+pxui::ui::Ui::badge fn <K: Into<Key>>(&mut self, key: K, name: &str, text: &str, badge: &Badge) -> Handle @U1b.5
 pxui::ui::Ui::box_of_a11y fn (&self, id: u64) -> Option<Handle> @HEAD
+-pxui::ui::Ui::box_of_key fn (&self, key: i64) -> Option<Handle> @U1b.2
 pxui::ui::Ui::box_of_key fn <K: Into<Key>>(&self, key: K) -> Option<Handle> @U1b.2
 pxui::ui::Ui::built_nodes fn (&self) -> usize @HEAD
 pxui::ui::Ui::busy_step fn (&mut self, box_: &Handle, now: f64) -> bool @HEAD
+-pxui::ui::Ui::button fn (&mut self, text: &str) -> bool @U1b.6
 pxui::ui::Ui::button fn <K: Into<Key>>(&mut self, key: K, text: &str, button: &Button<'_>) -> Response @U1b.6
 pxui::ui::Ui::button_content fn <K: Into<Key>, F: FnMut(&mut Ui, State)>(&mut self, key: K, button: &Button<'_>, f: F) -> Response @HEAD
 -pxui::ui::Ui::button_with fn <K: Into<Key>>(&mut self, key: K, text: &str, button: &Button<'_>) -> Response @U1b.6
@@ -1881,10 +2072,13 @@ pxui::ui::Ui::clipboard_request fn (&self) -> Option<&str> @HEAD
 pxui::ui::Ui::close_swipe fn (&mut self, node: &Handle) @HEAD
 pxui::ui::Ui::color fn (&self, token: ColorToken) -> Rgba @HEAD
 pxui::ui::Ui::column fn <F: FnMut(&mut Ui)>(&mut self, node: Node, f: F) -> Handle @U1b.6
+-pxui::ui::Ui::column fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, f: F) -> Handle @U1b.6
 pxui::ui::Ui::content_rect fn (&self) -> Rect @HEAD
+-pxui::ui::Ui::context_at fn (&mut self, b: &Handle) -> Option<(f32, f32)> @U1b.2
 pxui::ui::Ui::context_at fn (&mut self, b: &Handle) -> Option<Point> @U1b.2
 -pxui::ui::Ui::create fn (platform: Platform, font_size: Option<i64>, fonts: &[&[u8]]) -> Self @U1a.3
 pxui::ui::Ui::density fn (&self) -> f32 @U1b.3
+-pxui::ui::Ui::density fn (&self) -> i64 @U1b.3
 pxui::ui::Ui::dialog fn <K: Into<Key>>(&mut self, key: K, title: &str, buttons: &[DialogButton<'_>], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen @HEAD
 pxui::ui::Ui::disabled fn <F: FnMut(&mut Ui)>(&mut self, disabled: bool, f: F) @HEAD
 pxui::ui::Ui::disclosure fn <K: Into<Key>>(&mut self, key: K, text: &str, open: bool, disclosure: &Disclosure<'_>, f: &mut dyn FnMut(&mut Ui)) -> Response @U2a.3
@@ -1892,33 +2086,41 @@ pxui::ui::Ui::dismiss_popup fn (&mut self) @HEAD
 pxui::ui::Ui::draw_revision fn (&self) -> u64 @HEAD
 pxui::ui::Ui::drawn fn (&mut self, index: usize) @HEAD
 pxui::ui::Ui::drop_target fn (&mut self, b: &Handle) -> Option<DropRef<'_>> @HEAD
-pxui::ui::Ui::dropdown fn <K: Into<Key>>(&mut self, key: K, text: &str, items: &[Segment<'_>], selected: Option<usize>, dropdown: &Dropdown<'_>) -> PickResponse @U1b.1
+pxui::ui::Ui::dropdown fn <K: Into<Key>>(&mut self, key: K, text: &str, items: &[Segment<'_>], selected: Option<usize>, dropdown: &Dropdown) -> PickResponse @U1b.1
+-pxui::ui::Ui::dropdown fn <K: Into<Key>>(&mut self, key: K, text: &str, options: &[&str], selected: usize, dropdown: &Dropdown) -> (Response, usize) @U1b.1
 -pxui::ui::Ui::enable_system_fonts fn (&mut self) -> Result<(), Error> @U1b.3
 pxui::ui::Ui::end_refresh fn (&mut self, node: &Handle) @HEAD
 -pxui::ui::Ui::enter fn (&mut self, box_: &Handle) -> UiSaved @U1a.3
 pxui::ui::Ui::environment fn (&self) -> Environment @HEAD
+-pxui::ui::Ui::expanded fn (&self, key: &str) -> Option<bool> @U1b.2
 pxui::ui::Ui::expanded fn <K: Into<Key>>(&self, key: K) -> Option<bool> @U1b.2
 -pxui::ui::Ui::field_drag fn (&self, field: &Handle) -> Option<(f32, f32)> @U1c.3
 pxui::ui::Ui::focus_box fn (&mut self, box_: &Handle) @U1a.3
 -pxui::ui::Ui::focused fn (&self, box_: &Handle) -> bool @U1a.3
 pxui::ui::Ui::font_size fn (&self) -> f32 @U1b.3
+-pxui::ui::Ui::font_size fn (&self) -> i64 @U1b.3
 -pxui::ui::Ui::footer fn (&mut self, right: Option<&str>, hints: &[(&str, &str)]) @U1c.3
 pxui::ui::Ui::frame fn (&mut self, input: &FrameIn<'_>, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 pxui::ui::Ui::frame_index fn (&self) -> u64 @HEAD
 pxui::ui::Ui::gesture fn (&mut self, node: &Handle, opts: &GestureOpts) -> GestureState @U1b.2
+-pxui::ui::Ui::gesture fn (&mut self, node: &Handle, opts: GestureOpts) -> GestureState @U1b.2
 pxui::ui::Ui::gesture_state fn (&mut self, node: &Handle) -> GestureState @HEAD
+-pxui::ui::Ui::grid_list fn <K: Into<Key>>(&mut self, key: K, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> Handle @U1b.5
 pxui::ui::Ui::grid_list fn <K: Into<Key>>(&mut self, key: K, count: usize, grid: &GridList, build: &mut dyn FnMut(&mut Ui, usize)) -> Handle @U1b.5
 -pxui::ui::Ui::grip fn (&mut self, label: Arguments<'_>, axis: Axis, rect: Option<Rect>) -> (Handle, Signal) @U1c.3
+-pxui::ui::Ui::hover_delay fn (&mut self, key: &str) -> bool @U1b.2
 pxui::ui::Ui::hover_delay fn <K: Into<Key>>(&mut self, key: K) -> bool @U1b.2
 pxui::ui::Ui::hovered fn (&self, b: &Handle, within: bool) -> bool @U1b.2
 -pxui::ui::Ui::hovered_exactly fn (&self, b: &Handle) -> bool @U1b.2
 -pxui::ui::Ui::hovered_within fn (&mut self, b: &Handle) -> bool @U1b.2
 pxui::ui::Ui::icon_button fn <K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton<'_>) -> Response @HEAD
-pxui::ui::Ui::id fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, f: F) -> Handle @U1b.6
-pxui::ui::Ui::image fn <K: Into<Key>>(&mut self, key: K, image: &Image, style: &ImageStyle) -> Result<Handle, Error> @U1b.2
+-pxui::ui::Ui::id fn (&self) -> usize @U1b.6
+pxui::ui::Ui::id fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, f: F) @U1b.6
+-pxui::ui::Ui::image fn (&mut self, name: &str, image: &Image, style: &ImageStyle) -> Result<Handle, Error> @U1b.2
+pxui::ui::Ui::image fn <K: Into<Key>>(&mut self, key: K, name: &str, image: &Image, style: &ImageStyle) -> Result<Handle, Error> @U1b.2
+-pxui::ui::Ui::ime fn (&self) -> Option<((i64, i64, i64, i64), i64)> @U1b.2
 pxui::ui::Ui::ime fn (&self) -> Option<Ime> @U1b.2
 pxui::ui::Ui::inject_a11y fn (&mut self, actions: &[A11yAction]) @HEAD
-pxui::ui::Ui::instance_id fn (&self) -> usize @U1b.6
 -pxui::ui::Ui::input_frame fn (&mut self, input: &Input, build: &mut dyn FnMut(&mut Ui)) -> Result<Frame<'_>, Error> @U1a.3
 -pxui::ui::Ui::inspector_bar fn (&mut self, hints: &[(&str, &str)], count: i64) @U1c.3
 -pxui::ui::Ui::inspector_body fn (&mut self, f: &mut dyn FnMut(&mut Ui)) @U1c.3
@@ -1931,6 +2133,7 @@ pxui::ui::Ui::instance_id fn (&self) -> usize @U1b.6
 -pxui::ui::Ui::inspector_section fn (&mut self, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: &mut dyn FnMut(&mut Ui)) -> bool @U1c.3
 -pxui::ui::Ui::inspector_toggle fn (&mut self, key: &str, label: &str, value: bool) -> bool @U1c.3
 -pxui::ui::Ui::inspector_width fn (&self) -> f32 @U1c.3
+pxui::ui::Ui::instance_id fn (&self) -> usize @U1b.6
 pxui::ui::Ui::item_text fn (&mut self, text: &str) @HEAD
 pxui::ui::Ui::key_down fn (&self, key: KeyCode) -> bool @U1a.4
 pxui::ui::Ui::key_pressed fn (&self, key: KeyCode, mods: Mods) -> bool @U1a.4
@@ -1939,7 +2142,8 @@ pxui::ui::Ui::label fn (&mut self, text: &str, style: Label) -> Handle @HEAD
 pxui::ui::Ui::label_digits fn (&mut self, args: Arguments<'_>, style: Label) -> Handle @HEAD
 pxui::ui::Ui::label_fmt fn (&mut self, args: Arguments<'_>, style: Label) -> Handle @HEAD
 pxui::ui::Ui::last_error fn (&self) -> &str @HEAD
-pxui::ui::Ui::last_press_within fn (&self, events: &[Event], roots: &[i64]) -> Option<i64> @HEAD
+pxui::ui::Ui::last_press_within fn (&self, events: &[Event], roots: &[Key]) -> Option<Key> @U1b.2
+-pxui::ui::Ui::last_press_within fn (&self, events: &[Event], roots: &[i64]) -> Option<i64> @U1b.2
 pxui::ui::Ui::layer fn (&self, index: usize) -> Option<Layer<'_>> @U1a.3
 pxui::ui::Ui::layer_count fn (&self) -> usize @HEAD
 pxui::ui::Ui::layers fn (&self) -> Layers<'_> @U1a.3
@@ -1947,21 +2151,29 @@ pxui::ui::Ui::layers fn (&self) -> Layers<'_> @U1a.3
 pxui::ui::Ui::library_calls fn (&self) -> u64 @HEAD
 -pxui::ui::Ui::line_field fn <K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'_> @U1c.3
 pxui::ui::Ui::list fn <K: Into<Key>, F: FnMut(&mut Ui, usize)>(&mut self, key: K, count: usize, row_h: f32, row_key: &dyn Fn(usize) -> i64, f: F) -> ListResponse @U2b.2
+-pxui::ui::Ui::load_text_edit fn (&mut self, key: i64, text: &str) -> TextEdit @U1b.2
 pxui::ui::Ui::load_text_edit fn <K: Into<Key>>(&mut self, key: K, text: &str) -> TextEdit @U1b.2
 pxui::ui::Ui::local_rect fn (&self, b: &Handle) -> Rect @HEAD
-pxui::ui::Ui::menu fn <K: Into<Key>>(&mut self, key: K, at: Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen @U1b.1
-pxui::ui::Ui::menu_bar fn <K: Into<Key>>(&mut self, key: K, menus: &[MenuBarMenu<'_>], bar: &MenuBar<'_>) -> Chosen @U1b.1
+-pxui::ui::Ui::menu fn <K: Into<Key>>(&mut self, key: K, at: (f32, f32), items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen @U1b.3
+pxui::ui::Ui::menu fn <K: Into<Key>>(&mut self, key: K, at: Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen @U1b.3
+-pxui::ui::Ui::menu_bar fn (&mut self, label: &str, menus: &[(&str, &[&str])]) -> Option<(usize, usize)> @U1b.1
+pxui::ui::Ui::menu_bar fn <K: Into<Key>>(&mut self, key: K, menus: &[MenuBarMenu<'_>], bar: &MenuBar) -> Chosen @U1b.1
 pxui::ui::Ui::modal fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
+-pxui::ui::Ui::modal fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> bool @U1b.1
 pxui::ui::Ui::new fn (desc: &UiDesc<'_>) -> Result<Self, Error> @U1a.3
+-pxui::ui::Ui::node fn (&mut self, key: Key, node: Node) -> Handle @U1b.2
 pxui::ui::Ui::node fn <K: Into<Key>>(&mut self, key: K, node: Node) -> Handle @U1b.2
 pxui::ui::Ui::node_layout fn (&self, b: &Handle) -> Node @HEAD
 pxui::ui::Ui::node_mut fn (&mut self, b: &Handle, edit: &mut dyn FnMut(&mut NodeFields)) @U1c.1
 pxui::ui::Ui::now fn (&self) -> f64 @HEAD
 pxui::ui::Ui::output fn (&self) -> Output @U1a.3
+-pxui::ui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) @U1b.1
 pxui::ui::Ui::panel fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
 pxui::ui::Ui::part fn (&mut self, part: Part, node: Node) -> Handle @HEAD
 pxui::ui::Ui::part_box fn (&self, owner: &Handle, part: Part) -> Option<Handle> @U1b.2
+-pxui::ui::Ui::part_box fn (&self, owner: i64, part: Part) -> Option<Handle> @U1b.2
 pxui::ui::Ui::part_rect fn (&self, owner: &Handle, part: Part) -> Option<Rect> @U1b.2
+-pxui::ui::Ui::part_rect fn (&self, owner: i64, part: Part) -> Option<Rect> @U1b.2
 pxui::ui::Ui::passed_undo fn (&self) -> Option<UndoKind> @HEAD
 pxui::ui::Ui::paste_requested fn (&self) -> bool @HEAD
 pxui::ui::Ui::patch_field fn (&mut self, field: &Handle, o: &ValueField<'_>, value_text: &str) -> bool @HEAD
@@ -1972,13 +2184,17 @@ pxui::ui::Ui::patch_text fn (&mut self, box_: &Handle, value: &str) -> bool @HEA
 pxui::ui::Ui::phase_cpu_times fn (&self) -> Result<[Duration; 7], Error> @HEAD
 pxui::ui::Ui::phase_times fn (&self) -> [Duration; 7] @HEAD
 pxui::ui::Ui::picker fn <K: Into<Key>>(&mut self, key: K, placeholder: &str, query: &str, picker: &Picker<'_>, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> @U1b.1
+-pxui::ui::Ui::picker fn <K: Into<Key>>(&mut self, key: K, placeholder: &str, query: &str, picker: &PickerOpts<'_>, fill: &mut dyn FnMut(&str, &mut PickRows)) -> PickerResponse<'_> @U1b.1
 pxui::ui::Ui::platform fn (&self) -> Platform @HEAD
 pxui::ui::Ui::popup fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> OverlayResponse @U1b.1
+-pxui::ui::Ui::popup fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, overlay: &Overlay<'_>, f: F) -> bool @U1b.1
 pxui::ui::Ui::press_keys fn (&self, b: &Handle) -> &[u32] @HEAD
 pxui::ui::Ui::pressable fn <K: Into<Key>, F: FnMut(&mut Ui, State)>(&mut self, key: K, node: Node, pressable: &Pressable<'_>, f: F) -> Response @HEAD
 pxui::ui::Ui::prewarm_text fn (&mut self, text: &str, style: &Label, max_width: f32) -> Result<(), Error> @HEAD
-pxui::ui::Ui::progress fn <K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>, progress: &Progress<'_>) -> Handle @U1b.5
+-pxui::ui::Ui::progress fn <K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>) -> Handle @U1b.5
+pxui::ui::Ui::progress fn <K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>, progress: &Progress) -> Handle @U1b.5
 pxui::ui::Ui::radio fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, radio: &Radio<'_>) -> PickResponse @U1b.1
+-pxui::ui::Ui::radio fn <K: Into<Key>>(&mut self, key: K, options: &[&str], selected: usize, choice: &Choice<'_>) -> (Response, usize) @U1b.1
 pxui::ui::Ui::rebuilt_named fn (&self, prefix: &str) -> usize @HEAD
 pxui::ui::Ui::rebuilt_views fn (&self) -> usize @HEAD
 pxui::ui::Ui::rect fn (&self, box_: &Handle) -> Rect @HEAD
@@ -2022,6 +2238,7 @@ pxui::ui::Ui::register_tooltip_body fn (&mut self, name: &str, body: fn(&mut Ui,
 pxui::ui::Ui::register_tree_body fn (&mut self, name: &str, body: fn(&mut Ui, &TreeConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::ui::Ui::register_value_field_body fn (&mut self, name: &str, body: fn(&mut Ui, &ValueFieldConfig)) -> Result<BodyId, Error> @U1a.3
 pxui::ui::Ui::register_window_body fn (&mut self, name: &str, body: fn(&mut Ui, &WindowConfig)) -> Result<BodyId, Error> @U1a.3
+-pxui::ui::Ui::remember fn (&mut self, edit: &TextEdit, typing: bool) @U1b.2
 pxui::ui::Ui::remember fn <K: Into<Key>>(&mut self, key: K, edit: &TextEdit, typing: bool) @U1b.2
 pxui::ui::Ui::repaint_after fn (&mut self, seconds: f64) @HEAD
 pxui::ui::Ui::repaint_at fn (&self) -> Option<f64> @HEAD
@@ -2029,12 +2246,17 @@ pxui::ui::Ui::request_cursor fn (&mut self, shape: Cursor) @HEAD
 pxui::ui::Ui::request_frame fn (&mut self) @HEAD
 pxui::ui::Ui::resolve fn (&self, style: &Label) -> TextStyle @HEAD
 pxui::ui::Ui::reveal fn (&mut self, list: &Handle, index: usize) @HEAD
+-pxui::ui::Ui::root_at fn (&self, point: (f32, f32), roots: &[i64]) -> Option<i64> @U1b.2
 pxui::ui::Ui::root_at fn (&self, point: Point, roots: &[Key]) -> Option<Key> @U1b.2
 -pxui::ui::Ui::routed_input fn (&mut self, owner: Option<i64>) -> Routed<'_> @U1a.3
 pxui::ui::Ui::row fn <F: FnMut(&mut Ui)>(&mut self, node: Node, f: F) -> Handle @U1b.6
+-pxui::ui::Ui::row fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, f: F) -> Handle @U1b.6
 pxui::ui::Ui::row_height fn (&self) -> f32 @U1b.3
+-pxui::ui::Ui::row_height fn (&self) -> i64 @U1b.3
 pxui::ui::Ui::scroll fn (&self, b: &Handle) -> Scroll @HEAD
 pxui::ui::Ui::scroll_view fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, f: F) -> Handle @U1b.5
+-pxui::ui::Ui::scroll_view fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, w: Size, h: Size, f: F) -> Handle @U1b.5
+-pxui::ui::Ui::scrub fn <K: Into<Key>>(&mut self, key: K, value: f32, range: RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> Scrub @U1b.1
 pxui::ui::Ui::scrub fn <K: Into<Key>>(&mut self, key: K, value: f32, range: RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> SliderResponse @U1b.1
 pxui::ui::Ui::search_field fn <K: Into<Key>>(&mut self, key: K, value: &str, field: &SearchField<'_>) -> SearchFieldResponse<'_> @HEAD
 pxui::ui::Ui::section_index fn <K: Into<Key>>(&mut self, key: K, letters: &[&str], index: &SectionIndex<'_>) -> PickResponse @U2a.3
@@ -2047,9 +2269,11 @@ pxui::ui::Ui::set_at fn (&mut self, b: &Handle, at: (f32, f32)) @HEAD
 -pxui::ui::Ui::set_colors fn (&mut self, colors: &[(Rgba, Rgba)]) @U1a.2
 pxui::ui::Ui::set_dir fn (&mut self, rtl: bool) @HEAD
 pxui::ui::Ui::set_font_size fn (&mut self, size: f32) @U1b.3
+-pxui::ui::Ui::set_font_size fn (&mut self, size: i64) @U1b.3
 -pxui::ui::Ui::set_look fn (&mut self, box_: &Handle, look: Look, state: State) @U1b.4
 pxui::ui::Ui::set_node_layout fn (&mut self, b: &Handle, node: &Node) @HEAD
 pxui::ui::Ui::set_role fn (&mut self, box_: &Handle, role: Role, states: A11yStates) @U1b.4
+-pxui::ui::Ui::set_role fn (&mut self, box_: &Handle, role: Role, states: u32) @U1b.4
 pxui::ui::Ui::set_scroll_offset fn (&mut self, b: &Handle, value: f32) @HEAD
 pxui::ui::Ui::set_state fn (&mut self, box_: &Handle, value: i64) @HEAD
 pxui::ui::Ui::set_text_state fn (&mut self, b: &Handle, value: Option<&str>) @HEAD
@@ -2060,11 +2284,15 @@ pxui::ui::Ui::set_timing fn (&mut self, on: bool) @HEAD
 pxui::ui::Ui::set_view fn (&mut self, b: &Handle, view: &ViewTransform) @HEAD
 pxui::ui::Ui::signal fn (&self, box_: &Handle) -> Signal @HEAD
 pxui::ui::Ui::signal_keys fn (&self, box_: &Handle) -> &[Event] @HEAD
-pxui::ui::Ui::slider fn <K: Into<Key>>(&mut self, key: K, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider<'_>) -> SliderResponse @U1b.1
+-pxui::ui::Ui::slider fn <K: Into<Key>>(&mut self, key: K, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> (Response, f32) @U1b.1
+pxui::ui::Ui::slider fn <K: Into<Key>>(&mut self, key: K, text: &str, value: f32, range: RangeInclusive<f32>, slider: &Slider) -> SliderResponse @U1b.1
 pxui::ui::Ui::slot fn (&mut self, slot: PxuiSlot) -> bool @HEAD
-pxui::ui::Ui::spinner fn <K: Into<Key>>(&mut self, key: K, name: &str, spinner: &Spinner<'_>) -> Handle @U1b.5
+-pxui::ui::Ui::spinner fn <K: Into<Key>>(&mut self, key: K, name: &str) -> Handle @U1b.5
+pxui::ui::Ui::spinner fn <K: Into<Key>>(&mut self, key: K, name: &str, spinner: &Spinner) -> Handle @U1b.5
+-pxui::ui::Ui::split fn (&mut self, label: &str, axis: Axis, ratio: f32, min_a: f32, min_b: f32, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> Option<f32> @U1b.1
 pxui::ui::Ui::split fn <K: Into<Key>>(&mut self, key: K, ratio: f32, split: &Split, a: &mut dyn FnMut(&mut Ui), b: &mut dyn FnMut(&mut Ui)) -> SplitResponse @U1b.1
 pxui::ui::Ui::stack fn <F: FnMut(&mut Ui)>(&mut self, node: Node, f: F) -> Handle @U1b.6
+-pxui::ui::Ui::stack fn <K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, f: F) -> Handle @U1b.6
 pxui::ui::Ui::state fn (&self, box_: &Handle, default: i64) -> i64 @HEAD
 pxui::ui::Ui::style fn (&mut self, box_: &Handle, states: &States, state: State) @HEAD
 pxui::ui::Ui::system_appearance fn (&self) -> Appearance @U1a.4
@@ -2074,12 +2302,15 @@ pxui::ui::Ui::table_head fn <K: Into<Key>>(&mut self, key: K, columns: &[Column<
 pxui::ui::Ui::tabs fn <K: Into<Key>>(&mut self, key: K, items: &[Segment<'_>], selected: Option<usize>, tabs: &Tabs<'_>) -> PickResponse @U2a.2
 pxui::ui::Ui::text fn (&mut self, box_: &Handle, value: &str) @HEAD
 pxui::ui::Ui::text_area fn <K: Into<Key>>(&mut self, key: K, value: &str, node: Node, area: &TextArea<'_>, callbacks: &AreaCallbacks<'_>) -> TextAreaResponse<'_> @U1b.5
+-pxui::ui::Ui::text_area fn <K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, area: &TextArea<'_>, callbacks: &AreaCallbacks<'_>) -> TextAreaResponse<'_> @U1b.5
 pxui::ui::Ui::text_field fn <K: Into<Key>>(&mut self, key: K, value: &str, field: &TextField<'_>) -> TextFieldResponse<'_> @HEAD
 pxui::ui::Ui::text_input_focused fn (&self) -> bool @HEAD
 -pxui::ui::Ui::text_input_options fn (&self) -> TextTraits @U1b.2
 pxui::ui::Ui::text_layout_count fn (&self) -> u64 @HEAD
+-pxui::ui::Ui::text_line_box fn (&mut self, box_: &Handle, text: &str, style: &Label, spans: &[TextSpan]) -> Result<(), Error> @U1b.3
 pxui::ui::Ui::text_line_box fn (&mut self, box_: &Handle, text: &str, style: Label, spans: &[TextSpan]) -> Result<(), Error> @U1b.3
 pxui::ui::Ui::text_service fn (&mut self) -> UiText<'_> @HEAD
+-pxui::ui::Ui::text_spans fn (&mut self, box_: &Handle, text: &str, style: &Label, spans: &[TextSpan]) -> Result<(), Error> @U1b.3
 pxui::ui::Ui::text_spans fn (&mut self, box_: &Handle, text: &str, style: Label, spans: &[TextSpan]) -> Result<(), Error> @U1b.3
 pxui::ui::Ui::text_state fn (&self, b: &Handle) -> Option<&str> @HEAD
 -pxui::ui::Ui::text_top fn (&self, size: Option<i64>, y: f32, h: f32) -> f32 @U1b.3
@@ -2090,6 +2321,8 @@ pxui::ui::Ui::theme fn (&self) -> &Theme @HEAD
 pxui::ui::Ui::themed fn (&mut self, theme: &ThemeHandle, f: &mut dyn FnMut(&mut Ui)) @U1a.2
 pxui::ui::Ui::to_front fn (&mut self, order: i64, b: &Handle) @HEAD
 pxui::ui::Ui::toasts fn <K: Into<Key>>(&mut self, key: K, items: &[Toast<'_>], seconds: f64) -> Chosen @U1b.1
+-pxui::ui::Ui::toasts fn <K: Into<Key>>(&mut self, key: K, items: &[Toast<'_>], seconds: f64) -> Option<usize> @U1b.1
+-pxui::ui::Ui::toggle fn (&mut self, text: &str, on: bool) -> bool @U1b.6
 pxui::ui::Ui::toggle fn <K: Into<Key>>(&mut self, key: K, text: &str, on: bool, toggle: &Toggle<'_>) -> Response @U1b.6
 -pxui::ui::Ui::toggle_with fn <K: Into<Key>>(&mut self, key: K, text: &str, on: bool, toggle: &Toggle<'_>) -> Response @U1b.6
 pxui::ui::Ui::tokens fn (&self) -> Tokens @HEAD
@@ -2106,7 +2339,8 @@ pxui::ui::Ui::verifying fn (&self) -> bool @HEAD
 -pxui::ui::Ui::view_backdrop_saturation fn (&mut self, b: &Handle, saturation: f32) @U1b.4
 -pxui::ui::Ui::view_clip fn (&mut self, b: &Handle, clip: Option<Rect>) @U1b.4
 pxui::ui::Ui::view_of fn <K: Into<Key>, T: Hash + ?Sized, F: FnMut(&mut Ui)>(&mut self, key: K, inputs: &T, f: F) -> Handle @HEAD
-pxui::ui::Ui::view_size fn (&self) -> Size @U1b.3
+-pxui::ui::Ui::view_size fn (&self) -> (f32, f32) @U1b.3
+pxui::ui::Ui::view_size fn (&self) -> ViewSize @U1b.3
 pxui::ui::Ui::wants_frame fn (&self, events: &[Event], now: f64) -> bool @HEAD
 pxui::ui::Ui::within fn (&mut self, box_: &Handle, f: &mut dyn FnMut(&mut Ui)) @HEAD
 pxui::ui::UndoKind use pxui_types::ui::UndoKind @U1a.1
@@ -2139,11 +2373,11 @@ pxui::ui::ViewTransform impl StructuralPartialEq @HEAD
 pxui::ui::ViewTransform struct @HEAD
 pxui::ui::ViewTransform::DEFAULT const ViewTransform @HEAD
 pxui::ui::ViewTransform::about fn const (self, scale: f32, matrix: [f32; 4], pivot: (f32, f32)) -> ViewTransform @HEAD
-pxui::ui::ViewTransform::blur field f32 @U1b.4
-pxui::ui::ViewTransform::clip field Option<Rect> @U1b.4
+pxui::ui::ViewTransform::blur fn const (self, blur: f32) -> ViewTransform @U1b.4
+pxui::ui::ViewTransform::clip fn const (self, clip: Option<Rect>) -> ViewTransform @U1b.4
 pxui::ui::ViewTransform::offset fn const (self, dx: f32, dy: f32) -> ViewTransform @HEAD
 pxui::ui::ViewTransform::opacity fn const (self, opacity: f32) -> ViewTransform @HEAD
-pxui::ui::ViewTransform::saturation field f32 @U1b.4
+pxui::ui::ViewTransform::saturation fn const (self, saturation: f32) -> ViewTransform @U1b.4
 pxui::ui::ViewTransform::scale fn const (self, scale: f32) -> ViewTransform @HEAD
 pxui::ui::context_clicked fn (signal: &Signal) -> bool @HEAD
 pxui::ui::fuzzy_match use pxui_types::text_edit::fuzzy_match @HEAD
@@ -2154,7 +2388,7 @@ pxui::ui::key_of use pxui_types::ui::key_of @U1a.1
 pxui::ui::line_end use pxui_types::text_edit::line_end @HEAD
 pxui::ui::line_start use pxui_types::text_edit::line_start @HEAD
 pxui::ui::scrubbed use pxui_types::text_edit::scrubbed @HEAD
-pxui::ui::state use pxui_types::a11y::state @U1a.1
+-pxui::ui::state use pxui_types::a11y::state @U1b.4
 -pxui::ui_core mod @U1a.1
 -pxui::ui_core::* use pxui_types::ui::* @U1a.1
 -pxui::ui_core::Axis use pxui_types::node::Axis @U1a.1
@@ -2730,6 +2964,7 @@ pxui_types::Environment::keyboard_frame field [f32; 4] @HEAD
 pxui_types::Environment::keyboard_from field [f32; 4] @HEAD
 pxui_types::Environment::keyboard_started field f64 @HEAD
 pxui_types::Environment::keyboard_visible field u32 @HEAD
+pxui_types::Environment::new fn const (safe_area: [f32; 4]) -> Environment @U1b.5
 pxui_types::Environment::safe_area field [f32; 4] @HEAD
 pxui_types::Event impl Clone @HEAD
 pxui_types::Event impl Copy @HEAD
@@ -2763,7 +2998,10 @@ pxui_types::Event::TOUCH const u32 @HEAD
 pxui_types::Event::TRACKPAD_SCROLLED const u32 @HEAD
 pxui_types::Event::VISIBILITY_CHANGED const u32 @HEAD
 pxui_types::Event::code field u32 @HEAD
+pxui_types::Event::key fn const (kind: u32, code: u32) -> Event @U1b.5
 pxui_types::Event::kind field u32 @HEAD
+pxui_types::Event::new fn const (kind: u32) -> Event @U1b.5
+pxui_types::Event::pointer fn const (kind: u32, code: u32, x: f64, y: f64) -> Event @U1b.5
 pxui_types::Event::text field Str @HEAD
 pxui_types::Event::value field f64 @HEAD
 pxui_types::Event::x field f64 @HEAD
@@ -2815,9 +3053,12 @@ pxui_types::Font::caps field bool @HEAD
 pxui_types::Font::caps fn const (self) -> Font @HEAD
 pxui_types::Font::family field u16 @HEAD
 pxui_types::Font::family fn const (self, family: u16) -> Font @HEAD
-pxui_types::Font::points fn (&self, body: i64) -> i64 @HEAD
+pxui_types::Font::points fn (&self, body: f32) -> f32 @U1b.3
+-pxui_types::Font::points fn (&self, body: i64) -> i64 @U1b.3
 pxui_types::Font::size field i64 @HEAD
-pxui_types::Font::size fn const (self, points: i64) -> Font @HEAD
+pxui_types::Font::size_points field f32 @U1b.3
+pxui_types::Font::size fn const (self, points: f32) -> Font @U1b.3
+-pxui_types::Font::size fn const (self, points: i64) -> Font @U1b.3
 pxui_types::Font::tracking field f32 @HEAD
 pxui_types::Font::tracking fn const (self, ems: f32) -> Font @HEAD
 pxui_types::Font::weight field u16 @HEAD
@@ -2890,7 +3131,7 @@ pxui_types::Image::FORMAT_RGBA8 const u32 @HEAD
 pxui_types::Image::format field u32 @HEAD
 pxui_types::Image::height field u32 @HEAD
 pxui_types::Image::mtl_texture field *mut c_void @HEAD
-pxui_types::Image::rgba8 fn const (width: u32, height: u32, pixels: &'a [u8]) -> Image<'a> @U1b.5
+pxui_types::Image::rgba8 fn const (width: u32, height: u32, vk_image_view: *mut c_void, mtl_texture: *mut c_void) -> Image @U1b.5
 pxui_types::Image::size field u32 @HEAD
 pxui_types::Image::valid fn (&self) -> bool @HEAD
 pxui_types::Image::vk_image_view field *mut c_void @HEAD
@@ -2908,6 +3149,7 @@ pxui_types::Keyboard::ANIMATING const u32 @HEAD
 pxui_types::Keyboard::VALID const u32 @HEAD
 pxui_types::Keyboard::flags field u32 @HEAD
 pxui_types::Keyboard::frame field [f32; 4] @HEAD
+pxui_types::Keyboard::new fn const (frame: Rect, flags: u32) -> Keyboard @U1b.5
 pxui_types::Keyboard::valid fn (&self) -> bool @HEAD
 pxui_types::Label impl Clone @HEAD
 pxui_types::Label impl Copy @HEAD
@@ -3077,7 +3319,9 @@ pxui_types::Node::shrink field f32 @HEAD
 pxui_types::Node::shrink fn const (self, factor: f32) -> Node @HEAD
 pxui_types::Node::stack fn const () -> Node @HEAD
 pxui_types::Node::state field State @HEAD
+pxui_types::Node::state fn const (self, state: State) -> Node @U1b.5
 pxui_types::Node::transition field OptTransition @HEAD
+pxui_types::Node::transition fn const (self, transition: Option<Transition>) -> Node @U1b.5
 pxui_types::Node::w field Size @HEAD
 pxui_types::Node::w fn const (self, size: Size) -> Node @HEAD
 pxui_types::Node::w_px fn const (self, points: f32) -> Node @HEAD
@@ -3245,17 +3489,22 @@ pxui_types::State impl PartialEq @HEAD
 pxui_types::State impl StructuralPartialEq @HEAD
 pxui_types::State struct @HEAD
 pxui_types::State::checked field bool @HEAD
+pxui_types::State::checked fn const (self, checked: bool) -> State @U1b.5
 pxui_types::State::disabled field bool @HEAD
+pxui_types::State::disabled fn const (self, disabled: bool) -> State @U1b.5
 pxui_types::State::focused field bool @HEAD
+pxui_types::State::focused fn const (self, focused: bool) -> State @U1b.5
 pxui_types::State::hovered field bool @HEAD
+pxui_types::State::hovered fn const (self, hovered: bool) -> State @U1b.5
 pxui_types::State::pressed field bool @HEAD
+pxui_types::State::pressed fn const (self, pressed: bool) -> State @U1b.5
 pxui_types::States impl Clone @HEAD
 pxui_types::States impl Copy @HEAD
 pxui_types::States impl Debug @HEAD
 pxui_types::States impl PartialEq @HEAD
 pxui_types::States impl StructuralPartialEq @HEAD
 pxui_types::States struct @HEAD
-pxui_types::States::all fn const (look: Look) -> States @HEAD
+-pxui_types::States::all fn const (look: Look) -> States @U1b.4
 pxui_types::States::checked field Look @HEAD
 pxui_types::States::checked fn const (self, look: Look) -> States @HEAD
 pxui_types::States::disabled field Look @HEAD
@@ -3267,6 +3516,7 @@ pxui_types::States::hover field Look @HEAD
 pxui_types::States::hover fn const (self, look: Look) -> States @HEAD
 pxui_types::States::idle field Look @HEAD
 pxui_types::States::idle fn const (self, look: Look) -> States @HEAD
+pxui_types::States::of fn const (look: Look) -> States @U1b.4
 pxui_types::States::pick fn (&self, s: State) -> &Look @HEAD
 pxui_types::States::pressed field Look @HEAD
 pxui_types::States::pressed fn const (self, look: Look) -> States @HEAD
@@ -3274,6 +3524,7 @@ pxui_types::Str impl Clone @HEAD
 pxui_types::Str impl Copy @HEAD
 pxui_types::Str impl Debug @HEAD
 pxui_types::Str impl Default @HEAD
+pxui_types::Str impl From<&'static str> @U1b.5
 pxui_types::Str struct @HEAD
 pxui_types::Str::len field usize @HEAD
 pxui_types::Str::ptr field *const u8 @HEAD
@@ -3311,12 +3562,17 @@ pxui_types::TextSpan::BACKGROUND const u16 @HEAD
 pxui_types::TextSpan::COLOR const u16 @HEAD
 pxui_types::TextSpan::UNDERLINE const u16 @HEAD
 pxui_types::TextSpan::background field Rgba @HEAD
+pxui_types::TextSpan::background fn const (self, background: Rgba) -> TextSpan @U1b.5
 pxui_types::TextSpan::color field Rgba @HEAD
+pxui_types::TextSpan::color fn const (self, color: Rgba) -> TextSpan @U1b.5
 pxui_types::TextSpan::end field u32 @HEAD
 pxui_types::TextSpan::flags field u16 @HEAD
+pxui_types::TextSpan::new fn const (start: u32, end: u32) -> TextSpan @U1b.5
 pxui_types::TextSpan::start field u32 @HEAD
 pxui_types::TextSpan::underline field Rgba @HEAD
+pxui_types::TextSpan::underline fn const (self, underline: Rgba) -> TextSpan @U1b.5
 pxui_types::TextSpan::weight field u16 @HEAD
+pxui_types::TextSpan::weight fn const (self, weight: u16) -> TextSpan @U1b.5
 pxui_types::TextSpans impl Clone @HEAD
 pxui_types::TextSpans impl Copy @HEAD
 pxui_types::TextSpans impl Debug @HEAD
@@ -3363,10 +3619,12 @@ pxui_types::Tokens::accent field Rgba @HEAD
 pxui_types::Tokens::border fn const (&self) -> Rgba @HEAD
 pxui_types::Tokens::control field Rgba @HEAD
 pxui_types::Tokens::density field f32 @HEAD
-pxui_types::Tokens::display_size field i64 @HEAD
+-pxui_types::Tokens::display_size field i64 @U1b.3
+pxui_types::Tokens::display_size field f32 @U1b.3
 pxui_types::Tokens::edge fn const (&self) -> Rgba @HEAD
 pxui_types::Tokens::faint_border fn const (&self) -> Rgba @HEAD
-pxui_types::Tokens::font_size field i64 @HEAD
+-pxui_types::Tokens::font_size field i64 @U1b.3
+pxui_types::Tokens::font_size field f32 @U1b.3
 pxui_types::Tokens::foreground field Rgba @HEAD
 pxui_types::Tokens::from_ffi fn (value: ThemeTokens) -> Self @HEAD
 pxui_types::Tokens::ground fn (&self) -> Rgba @HEAD
@@ -3377,7 +3635,8 @@ pxui_types::Tokens::ink_ground field OptColor @HEAD
 pxui_types::Tokens::input field Rgba @HEAD
 pxui_types::Tokens::invalid field Rgba @HEAD
 pxui_types::Tokens::is_dark fn const (&self) -> bool @HEAD
-pxui_types::Tokens::label_size field i64 @HEAD
+-pxui_types::Tokens::label_size field i64 @U1b.3
+pxui_types::Tokens::label_size field f32 @U1b.3
 pxui_types::Tokens::motion field Motion @HEAD
 pxui_types::Tokens::moves fn (&self) -> bool @HEAD
 pxui_types::Tokens::panel field Rgba @HEAD
@@ -3386,7 +3645,8 @@ pxui_types::Tokens::radius field [f32; 3] @HEAD
 pxui_types::Tokens::reduced_motion field bool @HEAD
 pxui_types::Tokens::space field [f32; 4] @HEAD
 pxui_types::Tokens::tint fn const (&self) -> Rgba @HEAD
-pxui_types::Tokens::title_size field i64 @HEAD
+-pxui_types::Tokens::title_size field i64 @U1b.3
+pxui_types::Tokens::title_size field f32 @U1b.3
 pxui_types::Tokens::track field Rgba @HEAD
 pxui_types::Tokens::transition fn (&self, from: State, to: State) -> Curve @HEAD
 pxui_types::Touch impl Clone @HEAD
@@ -3398,6 +3658,7 @@ pxui_types::Touch impl StructuralPartialEq @HEAD
 pxui_types::Touch struct @HEAD
 pxui_types::Touch::device field u64 @HEAD
 pxui_types::Touch::finger field u64 @HEAD
+pxui_types::Touch::new fn const (device: u64, finger: u64, at: [f64; 2], time: f64, pressure: f32, phase: u32) -> Touch @U1b.5
 pxui_types::Touch::phase field u32 @HEAD
 pxui_types::Touch::pressure field f32 @HEAD
 pxui_types::Touch::time field f64 @HEAD
@@ -4543,6 +4804,17 @@ pxui_types::ffi::PxuiPanelConfig::label field Str @HEAD
 pxui_types::ffi::PxuiPanelConfig::node field PxuiBox @HEAD
 pxui_types::ffi::PxuiPanelConfig::size field u32 @HEAD
 pxui_types::ffi::PxuiPanelConfig::variant field u16 @HEAD
+pxui_types::ffi::PxuiPickItem impl Clone @U1b.1
+pxui_types::ffi::PxuiPickItem impl Copy @U1b.1
+pxui_types::ffi::PxuiPickItem impl Debug @U1b.1
+pxui_types::ffi::PxuiPickItem impl Default @U1b.1
+pxui_types::ffi::PxuiPickItem struct @U1b.1
+pxui_types::ffi::PxuiPickItem::detail field Str @U1b.1
+pxui_types::ffi::PxuiPickItem::has_id field u8 @U1b.1
+pxui_types::ffi::PxuiPickItem::id field i64 @U1b.1
+pxui_types::ffi::PxuiPickItem::name field Str @U1b.1
+pxui_types::ffi::PxuiPickItem::reserved field [u8; 7] @U1b.1
+pxui_types::ffi::PxuiPickItem::text field Str @U1b.1
 pxui_types::ffi::PxuiPickerFieldConfig impl Clone @HEAD
 pxui_types::ffi::PxuiPickerFieldConfig impl Copy @HEAD
 pxui_types::ffi::PxuiPickerFieldConfig struct @HEAD
@@ -5211,6 +5483,7 @@ pxui_types::ffi::Slice impl Clone @HEAD
 pxui_types::ffi::Slice impl Copy @HEAD
 pxui_types::ffi::Slice impl Debug @HEAD
 pxui_types::ffi::Slice impl Default @HEAD
+pxui_types::ffi::Slice impl From<&'static [u8]> @U1b.5
 pxui_types::ffi::Slice struct <T> @HEAD
 pxui_types::ffi::Slice::len field usize @HEAD
 pxui_types::ffi::Slice::ptr field *const T @HEAD
@@ -5273,9 +5546,14 @@ pxui_types::geom::Edges struct @HEAD
 pxui_types::geom::Edges::ZERO const Edges @HEAD
 pxui_types::geom::Edges::all fn const (v: f32) -> Edges @HEAD
 pxui_types::geom::Edges::b field f32 @HEAD
+pxui_types::geom::Edges::b fn const (self, points: f32) -> Edges @U1b.5
 pxui_types::geom::Edges::l field f32 @HEAD
+pxui_types::geom::Edges::l fn const (self, points: f32) -> Edges @U1b.5
+pxui_types::geom::Edges::new fn const (l: f32, t: f32, r: f32, b: f32) -> Edges @U1b.5
 pxui_types::geom::Edges::r field f32 @HEAD
+pxui_types::geom::Edges::r fn const (self, points: f32) -> Edges @U1b.5
 pxui_types::geom::Edges::t field f32 @HEAD
+pxui_types::geom::Edges::t fn const (self, points: f32) -> Edges @U1b.5
 pxui_types::geom::Edges::xy fn const (x: f32, y: f32) -> Edges @HEAD
 pxui_types::geom::Point impl Clone @HEAD
 pxui_types::geom::Point impl Copy @HEAD
@@ -5284,6 +5562,7 @@ pxui_types::geom::Point impl Default @HEAD
 pxui_types::geom::Point impl PartialEq @HEAD
 pxui_types::geom::Point impl StructuralPartialEq @HEAD
 pxui_types::geom::Point struct @HEAD
+pxui_types::geom::Point::new fn const (x: f32, y: f32) -> Point @U1b.3
 pxui_types::geom::Point::x field f32 @HEAD
 pxui_types::geom::Point::y field f32 @HEAD
 pxui_types::geom::Rect impl Clone @HEAD
@@ -5569,7 +5848,9 @@ pxui_types::node::Node::shrink field f32 @HEAD
 pxui_types::node::Node::shrink fn const (self, factor: f32) -> Node @HEAD
 pxui_types::node::Node::stack fn const () -> Node @HEAD
 pxui_types::node::Node::state field State @HEAD
+pxui_types::node::Node::state fn const (self, state: State) -> Node @U1b.5
 pxui_types::node::Node::transition field OptTransition @HEAD
+pxui_types::node::Node::transition fn const (self, transition: Option<Transition>) -> Node @U1b.5
 pxui_types::node::Node::w field Size @HEAD
 pxui_types::node::Node::w fn const (self, size: Size) -> Node @HEAD
 pxui_types::node::Node::w_px fn const (self, points: f32) -> Node @HEAD
@@ -5816,12 +6097,17 @@ pxui_types::text::TextSpan::BACKGROUND const u16 @HEAD
 pxui_types::text::TextSpan::COLOR const u16 @HEAD
 pxui_types::text::TextSpan::UNDERLINE const u16 @HEAD
 pxui_types::text::TextSpan::background field Rgba @HEAD
+pxui_types::text::TextSpan::background fn const (self, background: Rgba) -> TextSpan @U1b.5
 pxui_types::text::TextSpan::color field Rgba @HEAD
+pxui_types::text::TextSpan::color fn const (self, color: Rgba) -> TextSpan @U1b.5
 pxui_types::text::TextSpan::end field u32 @HEAD
 pxui_types::text::TextSpan::flags field u16 @HEAD
+pxui_types::text::TextSpan::new fn const (start: u32, end: u32) -> TextSpan @U1b.5
 pxui_types::text::TextSpan::start field u32 @HEAD
 pxui_types::text::TextSpan::underline field Rgba @HEAD
+pxui_types::text::TextSpan::underline fn const (self, underline: Rgba) -> TextSpan @U1b.5
 pxui_types::text::TextSpan::weight field u16 @HEAD
+pxui_types::text::TextSpan::weight fn const (self, weight: u16) -> TextSpan @U1b.5
 pxui_types::text::TextSpans impl Clone @HEAD
 pxui_types::text::TextSpans impl Copy @HEAD
 pxui_types::text::TextSpans impl Debug @HEAD
@@ -6002,9 +6288,12 @@ pxui_types::theme::Font::caps field bool @HEAD
 pxui_types::theme::Font::caps fn const (self) -> Font @HEAD
 pxui_types::theme::Font::family field u16 @HEAD
 pxui_types::theme::Font::family fn const (self, family: u16) -> Font @HEAD
-pxui_types::theme::Font::points fn (&self, body: i64) -> i64 @HEAD
+pxui_types::theme::Font::points fn (&self, body: f32) -> f32 @U1b.3
+-pxui_types::theme::Font::points fn (&self, body: i64) -> i64 @U1b.3
 pxui_types::theme::Font::size field i64 @HEAD
-pxui_types::theme::Font::size fn const (self, points: i64) -> Font @HEAD
+pxui_types::theme::Font::size_points field f32 @U1b.3
+pxui_types::theme::Font::size fn const (self, points: f32) -> Font @U1b.3
+-pxui_types::theme::Font::size fn const (self, points: i64) -> Font @U1b.3
 pxui_types::theme::Font::tracking field f32 @HEAD
 pxui_types::theme::Font::tracking fn const (self, ems: f32) -> Font @HEAD
 pxui_types::theme::Font::weight field u16 @HEAD
@@ -6120,17 +6409,22 @@ pxui_types::theme::State impl PartialEq @HEAD
 pxui_types::theme::State impl StructuralPartialEq @HEAD
 pxui_types::theme::State struct @HEAD
 pxui_types::theme::State::checked field bool @HEAD
+pxui_types::theme::State::checked fn const (self, checked: bool) -> State @U1b.5
 pxui_types::theme::State::disabled field bool @HEAD
+pxui_types::theme::State::disabled fn const (self, disabled: bool) -> State @U1b.5
 pxui_types::theme::State::focused field bool @HEAD
+pxui_types::theme::State::focused fn const (self, focused: bool) -> State @U1b.5
 pxui_types::theme::State::hovered field bool @HEAD
+pxui_types::theme::State::hovered fn const (self, hovered: bool) -> State @U1b.5
 pxui_types::theme::State::pressed field bool @HEAD
+pxui_types::theme::State::pressed fn const (self, pressed: bool) -> State @U1b.5
 pxui_types::theme::States impl Clone @HEAD
 pxui_types::theme::States impl Copy @HEAD
 pxui_types::theme::States impl Debug @HEAD
 pxui_types::theme::States impl PartialEq @HEAD
 pxui_types::theme::States impl StructuralPartialEq @HEAD
 pxui_types::theme::States struct @HEAD
-pxui_types::theme::States::all fn const (look: Look) -> States @HEAD
+-pxui_types::theme::States::all fn const (look: Look) -> States @U1b.4
 pxui_types::theme::States::checked field Look @HEAD
 pxui_types::theme::States::checked fn const (self, look: Look) -> States @HEAD
 pxui_types::theme::States::disabled field Look @HEAD
@@ -6142,7 +6436,7 @@ pxui_types::theme::States::hover field Look @HEAD
 pxui_types::theme::States::hover fn const (self, look: Look) -> States @HEAD
 pxui_types::theme::States::idle field Look @HEAD
 pxui_types::theme::States::idle fn const (self, look: Look) -> States @HEAD
-pxui_types::theme::States::of fn const (look: &'a Look) -> States<'a> @U1b.4
+pxui_types::theme::States::of fn const (look: Look) -> States @U1b.4
 pxui_types::theme::States::pick fn (&self, s: State) -> &Look @HEAD
 pxui_types::theme::States::pressed field Look @HEAD
 pxui_types::theme::States::pressed fn const (self, look: Look) -> States @HEAD
@@ -6234,10 +6528,12 @@ pxui_types::theme::Tokens::accent field Rgba @HEAD
 pxui_types::theme::Tokens::border fn const (&self) -> Rgba @HEAD
 pxui_types::theme::Tokens::control field Rgba @HEAD
 pxui_types::theme::Tokens::density field f32 @HEAD
-pxui_types::theme::Tokens::display_size field i64 @HEAD
+-pxui_types::theme::Tokens::display_size field i64 @U1b.3
+pxui_types::theme::Tokens::display_size field f32 @U1b.3
 pxui_types::theme::Tokens::edge fn const (&self) -> Rgba @HEAD
 pxui_types::theme::Tokens::faint_border fn const (&self) -> Rgba @HEAD
-pxui_types::theme::Tokens::font_size field i64 @HEAD
+-pxui_types::theme::Tokens::font_size field i64 @U1b.3
+pxui_types::theme::Tokens::font_size field f32 @U1b.3
 pxui_types::theme::Tokens::foreground field Rgba @HEAD
 pxui_types::theme::Tokens::from_ffi fn (value: ThemeTokens) -> Self @HEAD
 pxui_types::theme::Tokens::ground fn (&self) -> Rgba @HEAD
@@ -6248,7 +6544,8 @@ pxui_types::theme::Tokens::ink_ground field OptColor @HEAD
 pxui_types::theme::Tokens::input field Rgba @HEAD
 pxui_types::theme::Tokens::invalid field Rgba @HEAD
 pxui_types::theme::Tokens::is_dark fn const (&self) -> bool @HEAD
-pxui_types::theme::Tokens::label_size field i64 @HEAD
+-pxui_types::theme::Tokens::label_size field i64 @U1b.3
+pxui_types::theme::Tokens::label_size field f32 @U1b.3
 pxui_types::theme::Tokens::motion field Motion @HEAD
 pxui_types::theme::Tokens::moves fn (&self) -> bool @HEAD
 pxui_types::theme::Tokens::panel field Rgba @HEAD
@@ -6257,7 +6554,8 @@ pxui_types::theme::Tokens::radius field [f32; 3] @HEAD
 pxui_types::theme::Tokens::reduced_motion field bool @HEAD
 pxui_types::theme::Tokens::space field [f32; 4] @HEAD
 pxui_types::theme::Tokens::tint fn const (&self) -> Rgba @HEAD
-pxui_types::theme::Tokens::title_size field i64 @HEAD
+-pxui_types::theme::Tokens::title_size field i64 @U1b.3
+pxui_types::theme::Tokens::title_size field f32 @U1b.3
 pxui_types::theme::Tokens::track field Rgba @HEAD
 pxui_types::theme::Tokens::transition fn (&self, from: State, to: State) -> Curve @HEAD
 pxui_types::theme::WIDGET_COUNT const usize @HEAD
@@ -6403,6 +6701,7 @@ pxui_types::ui::Key impl PartialEq @HEAD
 pxui_types::ui::Key impl StructuralPartialEq @HEAD
 pxui_types::ui::Key::Id variant (i64) @HEAD
 pxui_types::ui::Key::Label variant (&'static str) @HEAD
+pxui_types::ui::Key::Resolved variant (i64) @U1b.2
 pxui_types::ui::Key::label fn <'b>(&self, buf: &'b mut [u8; 17]) -> &'b str @HEAD
 pxui_types::ui::Keyframe impl Clone @HEAD
 pxui_types::ui::Keyframe impl Copy @HEAD
@@ -6492,7 +6791,7 @@ pxui_types::ui::MenuItem::disabled fn const (self, disabled: bool) -> MenuItem<'
 pxui_types::ui::MenuItem::enabled field bool @HEAD
 -pxui_types::ui::MenuItem::enabled fn const (self, enabled: bool) -> MenuItem<'a> @U1b.6
 pxui_types::ui::MenuItem::id field Option<i64> @HEAD
-pxui_types::ui::MenuItem::id fn const (self, id: i64) -> MenuItem<'a> @U1b.1
+pxui_types::ui::MenuItem::id fn const (self, id: i64) -> MenuItem<'a> @HEAD
 pxui_types::ui::MenuItem::new fn const (text: &'a str) -> MenuItem<'a> @HEAD
 pxui_types::ui::MenuItem::selected field bool @HEAD
 pxui_types::ui::MenuItem::selected fn const (self, selected: bool) -> MenuItem<'a> @HEAD
@@ -6511,18 +6810,21 @@ pxui_types::ui::Overlay impl StructuralPartialEq @HEAD
 pxui_types::ui::Overlay struct <'a> @HEAD
 pxui_types::ui::Overlay::DEFAULT const Overlay<'a> @HEAD
 pxui_types::ui::Overlay::at field (f32, f32) @HEAD
-pxui_types::ui::Overlay::at fn const (self, x: f32, y: f32) -> Overlay<'a> @HEAD
+pxui_types::ui::Overlay::at fn const (self, at: Point) -> Overlay<'a> @U1b.5
+-pxui_types::ui::Overlay::at fn const (self, x: f32, y: f32) -> Overlay<'a> @U1b.5
 pxui_types::ui::Overlay::attached field bool @HEAD
 pxui_types::ui::Overlay::attached fn const (self) -> Overlay<'a> @HEAD
 pxui_types::ui::Overlay::dismiss fn const (self, dismiss: DismissOpts) -> Overlay<'a> @U2a.4
 pxui_types::ui::Overlay::dismiss_initial field bool @HEAD
 pxui_types::ui::Overlay::dismiss_initial fn const (self) -> Overlay<'a> @HEAD
 pxui_types::ui::Overlay::h field Option<f32> @HEAD
-pxui_types::ui::Overlay::h fn const (self, h: f32) -> Overlay<'a> @HEAD
+-pxui_types::ui::Overlay::h fn const (self, h: f32) -> Overlay<'a> @U1b.5
+pxui_types::ui::Overlay::h_px fn const (self, h: f32) -> Overlay<'a> @U1b.5
 pxui_types::ui::Overlay::look field Option<Look> @HEAD
 pxui_types::ui::Overlay::look fn const (self, look: Look) -> Overlay<'a> @HEAD
 pxui_types::ui::Overlay::max_h field Option<f32> @HEAD
-pxui_types::ui::Overlay::max_h fn const (self, h: f32) -> Overlay<'a> @HEAD
+-pxui_types::ui::Overlay::max_h fn const (self, h: f32) -> Overlay<'a> @U1b.5
+pxui_types::ui::Overlay::max_h_px fn const (self, h: f32) -> Overlay<'a> @U1b.5
 pxui_types::ui::Overlay::name field Option<&'a str> @HEAD
 pxui_types::ui::Overlay::name fn const (self, name: &'a str) -> Overlay<'a> @HEAD
 pxui_types::ui::Overlay::padding field f32 @HEAD
@@ -6533,8 +6835,8 @@ pxui_types::ui::Overlay::present fn const (self, presentation: Presentation) -> 
 pxui_types::ui::Overlay::stroke field Option<Rgba> @HEAD
 pxui_types::ui::Overlay::stroke fn const (self, color: Rgba) -> Overlay<'a> @HEAD
 pxui_types::ui::Overlay::w field Option<f32> @HEAD
--pxui_types::ui::Overlay::w fn const (self, w: f32) -> Overlay<'a> @U1b.6
-pxui_types::ui::Overlay::w_px fn const (self, points: f32) -> Overlay<'a> @U1b.6
+-pxui_types::ui::Overlay::w fn const (self, w: f32) -> Overlay<'a> @U1b.5
+pxui_types::ui::Overlay::w_px fn const (self, w: f32) -> Overlay<'a> @U1b.5
 pxui_types::ui::Overlay::window field bool @HEAD
 pxui_types::ui::Overlay::window fn const (self) -> Overlay<'a> @HEAD
 pxui_types::ui::PanelOpts impl Clone @HEAD
@@ -6546,8 +6848,10 @@ pxui_types::ui::PanelOpts::height fn (self, height: f32) -> PanelOpts @HEAD
 pxui_types::ui::PanelOpts::look field Option<Look> @HEAD
 pxui_types::ui::PanelOpts::max_height field Option<f32> @HEAD
 pxui_types::ui::PanelOpts::max_height fn (self, height: f32) -> PanelOpts @HEAD
-pxui_types::ui::PanelOpts::padding field i64 @HEAD
-pxui_types::ui::PanelOpts::padding fn (self, padding: i64) -> PanelOpts @HEAD
+pxui_types::ui::PanelOpts::padding field f32 @U1b.3
+-pxui_types::ui::PanelOpts::padding field i64 @U1b.3
+-pxui_types::ui::PanelOpts::padding fn (self, padding: i64) -> PanelOpts @U1b.3
+pxui_types::ui::PanelOpts::padding fn const (self, padding: f32) -> PanelOpts @U1b.3
 pxui_types::ui::PanelOpts::stroke field Option<Rgba> @HEAD
 pxui_types::ui::PanelOpts::width field f32 @HEAD
 pxui_types::ui::PanelOpts::width fn (self, width: f32) -> PanelOpts @HEAD
@@ -6646,7 +6950,9 @@ pxui_types::ui::Segment impl Eq @HEAD
 pxui_types::ui::Segment impl PartialEq @HEAD
 pxui_types::ui::Segment impl StructuralPartialEq @HEAD
 pxui_types::ui::Segment struct <'a> @HEAD
+pxui_types::ui::Segment::detail field &'a str @U1b.1
 pxui_types::ui::Segment::detail fn const (self, detail: &'a str) -> Segment<'a> @U1b.1
+pxui_types::ui::Segment::id field Option<i64> @U1b.1
 pxui_types::ui::Segment::id fn const (self, id: i64) -> Segment<'a> @U1b.1
 pxui_types::ui::Segment::name field Option<&'a str> @HEAD
 pxui_types::ui::Segment::name fn const (self, name: &'a str) -> Segment<'a> @HEAD

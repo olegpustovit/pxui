@@ -51,7 +51,7 @@ pub mod ui {
         let ((px, py), (rx, ry)) = (signal.press_point, signal.release_point);
         signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
     }
-    pub use crate::{Dialog, DialogButton, DismissOpts, Fill, GestureOpts, GestureState, Handle, ImageStyle, Language, Paint, Scrub, ScrubPhase, Scroll, Segment, Signal, Stroke, SwipeActions, TextArea, TreeNode, Ui, ValueField, ViewTransform};
+    pub use crate::{Dialog, DialogButton, DismissOpts, Fill, GestureOpts, GestureState, Handle, ImageStyle, Language, Paint, ScrubPhase, Scroll, Segment, Signal, Stroke, SwipeActions, TextArea, TreeNode, Ui, ValueField, ViewTransform};
     pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
     pub use pxui_types::ui::{
         Checkbox, Choice, Chosen, CodeContext, Completion, Cursor, Dropdown, Head, HeadAction, Key, Keyframe, Keyframes,
@@ -76,7 +76,6 @@ pub use box_ops::{NodeFields, PayloadRef, DropRef, GestureOpts, GestureState, Sc
 mod paint;
 pub use paint::{Fill, Paint, Stroke};
 mod widgets;
-pub use widgets::Scrub;
 mod composite;
 mod overlays;
 pub use pxui_types::ui::{Checkbox, Choice, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
@@ -105,7 +104,9 @@ pub use theme_scope::ThemeHandle;
 pub use ui_state::{Bytes, Platform};
 mod node;
 mod author;
-pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, PickerOpts, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SegmentedResponse, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
+pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, Picker, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
+pub use author::{OverlayResponse, PickResponse, Radio, SliderResponse, SplitResponse};
+pub use kit::{MenuBar, MenuBarMenu, Split};
 pub use pxui_types::ui::Segment;
 #[cfg(test)]
 mod settled;
@@ -298,14 +299,14 @@ impl<'a> Iterator for Layers<'a> {
 /// What a pass split hands the app's recorder: the colour target of the pass the app just ended.
 pub type Recorder<'a> = &'a mut dyn FnMut(&pxui_types::Image) -> Result<(), Error>;
 
-struct Split<'a> {
+struct PassSplitContext<'a> {
     f: &'a mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>,
     error: Option<Error>,
 }
 
 extern "C" fn split_pass(user: *mut c_void, record: pxui_types::PassRecord, record_user: *mut c_void, out: *mut pxui_types::Pass) -> i32 {
     if deferred_panic() { return -1; }
-    let split = unsafe { &mut *user.cast::<Split>() };
+    let split = unsafe { &mut *user.cast::<PassSplitContext>() };
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut recorder = |image: &pxui_types::Image| -> Result<(), Error> { let rc = record(record_user, image); if rc == 0 { Ok(()) } else { Err(Error::from_code(rc)) } };
         (split.f)(&mut recorder)
@@ -328,8 +329,8 @@ impl Renderer {
     ///
     /// Errors: Gpu when recording fails; the `Error` the `split` closure returned, when it failed.
     pub fn draw_layer(&mut self, pass: &pxui_types::Pass, layer: u32, split: &mut dyn FnMut(Recorder) -> Result<pxui_types::Pass, Error>) -> Result<(), Error> {
-        let mut ctx = Split { f: split, error: None };
-        let pass = pxui_types::Pass { first_layer: layer, layer_count: 1, split: Some(split_pass), split_user: (&mut ctx as *mut Split).cast(), ..*pass };
+        let mut ctx = PassSplitContext { f: split, error: None };
+        let pass = pxui_types::Pass { first_layer: layer, layer_count: 1, split: Some(split_pass), split_user: (&mut ctx as *mut PassSplitContext).cast(), ..*pass };
         let rc = unsafe { sys::pxui_renderer_draw(self.raw.as_ptr(), &pass) };
         composite::resume_deferred();
         if rc == 0 { Ok(()) } else { Err(ctx.error.unwrap_or(Error::from_code(rc))) }
@@ -794,6 +795,27 @@ impl Drop for Ui {
 }
 
 /// A `&[&str]` as a span of `Str` for one call: up to 32 strings live on the stack, more on the heap.
+/// Pick-one items as the C items column, on the stack up to 32.
+pub(crate) struct PickItems {
+    stack:[pxui_types::ffi::PxuiPickItem;32],
+    heap:Vec<pxui_types::ffi::PxuiPickItem>,
+    len:usize,
+}
+
+impl PickItems {
+    pub(crate) fn new(items:&[Segment])->Self {
+        let item=|s:&Segment| pxui_types::ffi::PxuiPickItem { has_id:s.id.is_some() as u8, id:s.id.unwrap_or(0), text:as_str(s.text), name:as_str(s.name.unwrap_or("")), detail:as_str(s.detail), ..Default::default() };
+        let mut list=Self { stack:[pxui_types::ffi::PxuiPickItem::default();32], heap:Vec::new(), len:items.len() };
+        if items.len()<=32 { for (out,s) in list.stack.iter_mut().zip(items) { *out=item(s); } }
+        else { list.heap=items.iter().map(item).collect(); }
+        list
+    }
+    pub(crate) fn span(&self)->pxui_types::ffi::Slice<pxui_types::ffi::PxuiPickItem> {
+        let ptr=if self.len<=32 { self.stack.as_ptr() } else { self.heap.as_ptr() };
+        pxui_types::ffi::Slice { ptr, len:self.len }
+    }
+}
+
 pub(crate) struct Strs {
     stack:[Str;32],
     heap:Vec<Str>,
@@ -904,8 +926,6 @@ pub enum Feature {
     IconButtonCurves = pxui_types::feature::ICON_BUTTON_CURVES,
     /// `Toggle` options and response (1.51).
     ToggleResponse = pxui_types::feature::TOGGLE_RESPONSE,
-    /// `Segmented` options and response (1.51).
-    SegmentedResponse = pxui_types::feature::SEGMENTED_RESPONSE,
     /// The dialog response call (1.53).
     DialogResponse = pxui_types::feature::DIALOG_RESPONSE,
     /// Widget body variants (1.52).

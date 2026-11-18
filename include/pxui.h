@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 75u)
+#define PXUI_ABI_BUILT ((1u << 16) | 76u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -364,6 +364,10 @@ typedef void (*PxuiButtonBuild)(void *user, PxuiUi *ui, const PxuiStateDesc *sta
 typedef struct { uint32_t size; uint8_t enabled,on,press_row,reserved; float row_h,switch_w,switch_h,inset; const PxuiLookDesc *track,*knob; PxuiStr key,text,detail; uint8_t has_style, reserved2[7]; PxuiLabelStyle style; } PxuiToggleDesc;
 /* ABI 1.67 (a 64- or 96-byte record is still read, its selected always the choice): has_selected 1 when selected is the choice (clamped to
    the options), 0 for no choice (final; selected not read; pxui_ui_segmented_response refuses it); reserved3 zero. */
+/* ABI 1.76: one pick-one item (pxui_ui_pick, pxui_ui_segmented_items), borrowed for the call: has_id 1 keys it by id (its node, focus and
+   secondary press follow it through a reorder), 0 by its place; reserved zero; name empty for the text; detail extra body text (may be empty). */
+typedef struct { uint8_t has_id, reserved[7]; int64_t id; PxuiStr text, name, detail; } PxuiPickItem;
+typedef struct { const PxuiPickItem *ptr; size_t len; } PxuiPickItemSpan;
 typedef struct { uint32_t size; uint8_t enabled,grow,reserved[2]; float h; const PxuiLookDesc *states; PxuiStr key,name; size_t selected; float w, padding, min_segment; uint32_t reserved2; PxuiStrSpan names;
                  /* ABI 1.67 */ uint8_t has_selected, reserved3[7];
                  /* ABI 1.69 (a shorter record reads 0): 1 for a press on an option to focus it (it is then the Tab stop), 0 for a press that chooses without focusing; reserved4 zero. */
@@ -1058,6 +1062,22 @@ int32_t pxui_ui_popup_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPo
 int32_t pxui_ui_modal_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_anchored_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiAnchorDesc *anchor, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_scroll_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
+/* ABI 1.76: one result per call. pxui_ui_pick is a radio group (kind 0) or dropdown (3) of items, selected read when has_selected is 1,
+   reporting the choice (none for none) and the item a secondary press began on; pxui_ui_segmented_items is pxui_ui_segmented_result with
+   the options as items (desc->names empty). The slider and scrub results fill a PxuiScrubOut: flags 1
+   a held preview, 2 a commit (a release, a key or an assistive SetValue, with preview equal to it), 4 held; a slider's preview is the value
+   shown. The _root forms also write the overlay's root (the empty box when it is dismissed). pxui_ui_split_result reports the grip's
+   response (empty without a grip) and has_ratio 1 with the ratio under the pointer while the grip is held and on its release frame.
+   pxui_ui_menu_bar_result sets dismissed to 1 when the menu open at the frame's start closed without a pick. */
+int32_t pxui_ui_segmented_items(PxuiUi *ui, const PxuiSegmentedDesc *desc, PxuiPickItemSpan items, PxuiResponse *out, PxuiSegmentedResult *result);
+int32_t pxui_ui_pick(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint32_t kind, PxuiPickItemSpan items, uint8_t has_selected, size_t selected, PxuiResponse *out, PxuiSegmentedResult *result);
+int32_t pxui_ui_slider_result(PxuiUi *ui, const PxuiKeyedDesc *keyed, float value, float min, float max, PxuiResponse *out, PxuiScrubOut *result);
+int32_t pxui_ui_scrub_result(PxuiUi *ui, PxuiStr label, float value, float min, float max, float step, PxuiResponse *response, PxuiScrubOut *out);
+int32_t pxui_ui_panel_root(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPanel *panel, PxuiBuild build, void *user, PxuiBox *root);
+int32_t pxui_ui_popup_root(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPopupDesc *desc, PxuiBuild build, void *user, uint8_t *out, PxuiBox *root);
+int32_t pxui_ui_modal_root(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out, PxuiBox *root);
+int32_t pxui_ui_split_result(PxuiUi *ui, const PxuiSplitDesc *desc, PxuiResponse *out, uint8_t *has_ratio, float *ratio);
+int32_t pxui_ui_menu_bar_result(PxuiUi *ui, const PxuiMenuBarDesc *desc, PxuiMenuOut *out, uint8_t *dismissed);
 /* ABI 1.72: the authoring view keyed by keyed->key (keyed->name must be empty). It fills its parent, or takes its content's size on the
    main axis of a row or column whose size there is fit; build runs only when revision (a hash of what it reads) changed. */
 int32_t pxui_ui_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint64_t revision, PxuiBuild build, void *user, PxuiBox *out);
@@ -1276,6 +1296,7 @@ _Static_assert(sizeof(PxuiUiDesc) == 16 && offsetof(PxuiUiDesc, size) == 0 && of
 _Static_assert(sizeof(PxuiTextFieldDesc) == 56 && offsetof(PxuiTextFieldDesc, size) == 0 && offsetof(PxuiTextFieldDesc, autocorrect) == 4 && offsetof(PxuiTextFieldDesc, capitalization) == 5 && offsetof(PxuiTextFieldDesc, action) == 6 && offsetof(PxuiTextFieldDesc, reserved) == 7 && offsetof(PxuiTextFieldDesc, key) == 8 && offsetof(PxuiTextFieldDesc, name) == 24 && offsetof(PxuiTextFieldDesc, value) == 40, "PxuiTextFieldDesc layout");
 _Static_assert(sizeof(PxuiSegmentedResult) == 24 && offsetof(PxuiSegmentedResult, size) == 0 && offsetof(PxuiSegmentedResult, has_chosen) == 4 && offsetof(PxuiSegmentedResult, has_secondary) == 5 && offsetof(PxuiSegmentedResult, reserved) == 6 && offsetof(PxuiSegmentedResult, chosen) == 8 && offsetof(PxuiSegmentedResult, secondary) == 16, "PxuiSegmentedResult layout");
 _Static_assert(sizeof(PxuiKeyedDesc) == 40 && offsetof(PxuiKeyedDesc, size) == 0 && offsetof(PxuiKeyedDesc, reserved) == 4 && offsetof(PxuiKeyedDesc, key) == 8 && offsetof(PxuiKeyedDesc, name) == 24, "PxuiKeyedDesc layout");
+_Static_assert(sizeof(PxuiPickItem) == 64 && offsetof(PxuiPickItem, has_id) == 0 && offsetof(PxuiPickItem, reserved) == 1 && offsetof(PxuiPickItem, id) == 8 && offsetof(PxuiPickItem, text) == 16 && offsetof(PxuiPickItem, name) == 32 && offsetof(PxuiPickItem, detail) == 48, "PxuiPickItem layout");
 _Static_assert(sizeof(PxuiHeadOut) == 32 && offsetof(PxuiHeadOut, size) == 0 && offsetof(PxuiHeadOut, has_chosen) == 4 && offsetof(PxuiHeadOut, reset_pressed) == 5 && offsetof(PxuiHeadOut, reserved) == 6 && offsetof(PxuiHeadOut, renamed) == 8 && offsetof(PxuiHeadOut, chosen) == 24, "PxuiHeadOut layout");
 _Static_assert(sizeof(PxuiHeaderDesc) == 144 && offsetof(PxuiHeaderDesc, size) == 0 && offsetof(PxuiHeaderDesc, has_kind) == 4 && offsetof(PxuiHeaderDesc, has_badge) == 5 && offsetof(PxuiHeaderDesc, has_index) == 6 && offsetof(PxuiHeaderDesc, has_reset) == 7 && offsetof(PxuiHeaderDesc, reset_enabled) == 8 && offsetof(PxuiHeaderDesc, reserved) == 9 && offsetof(PxuiHeaderDesc, key) == 16 && offsetof(PxuiHeaderDesc, kind) == 32 && offsetof(PxuiHeaderDesc, badge) == 48 && offsetof(PxuiHeaderDesc, index) == 64 && offsetof(PxuiHeaderDesc, reset) == 80 && offsetof(PxuiHeaderDesc, title) == 96 && offsetof(PxuiHeaderDesc, detail) == 112 && offsetof(PxuiHeaderDesc, actions) == 128, "PxuiHeaderDesc layout");
 _Static_assert(sizeof(PxuiInspectorRowConfig) == 80 && offsetof(PxuiInspectorRowConfig, size) == 0 && offsetof(PxuiInspectorRowConfig, state) == 4 && offsetof(PxuiInspectorRowConfig, has_pin) == 12 && offsetof(PxuiInspectorRowConfig, pin) == 13 && offsetof(PxuiInspectorRowConfig, label_w) == 16 && offsetof(PxuiInspectorRowConfig, row) == 24 && offsetof(PxuiInspectorRowConfig, label) == 56 && offsetof(PxuiInspectorRowConfig, variant) == 72, "PxuiInspectorRowConfig layout");

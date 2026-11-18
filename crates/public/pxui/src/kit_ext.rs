@@ -3,7 +3,7 @@ use crate::Handle;
 use crate::box_ops::Label;
 use crate::composite::{call, defer_callback_panic, deferred};
 use crate::interaction::decode_signal;
-use crate::{Button, Icon, IconButton, Segment, Segmented, SegmentedResponse, Toggle};
+use crate::{Button, Icon, IconButton, Segment, PickResponse, Segmented, Toggle};
 use crate::kit::{HintDesc, KeyframeDesc};
 use crate::node::look;
 use crate::{as_str, check, Signal, Ui};
@@ -24,7 +24,7 @@ library!(lib {
     fn pxui_ui_icon_word(ui: *mut PxuiUi, word: u32) -> i32;
     fn pxui_ui_toggle_plain(ui: *mut PxuiUi, key: Str, text: Str, on: u8, out: *mut PxuiResponse) -> i32;
     fn pxui_ui_toggle_response(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiToggleDesc, out: *mut PxuiResponse) -> i32;
-    fn pxui_ui_segmented_result(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiSegmentedDesc, options: Slice<Str>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
+    fn pxui_ui_segmented_items(ui: *mut PxuiUi, desc: *const pxui_types::ffi::PxuiSegmentedDesc, items: Slice<pxui_types::ffi::PxuiPickItem>, out: *mut PxuiResponse, result: *mut pxui_types::ffi::PxuiSegmentedResult) -> i32;
     fn pxui_ui_disabled(ui: *mut PxuiUi, disabled: u8, build: pxui_types::ffi::UiBuild, user: *mut c_void) -> i32;
     fn pxui_ui_grip(ui: *mut PxuiUi, label: Str, axis: u32, has_rect: u8, rect: Rect, out: *mut PxuiBox, signal: *mut PxuiSignal) -> i32;
     fn pxui_ui_inspector_bar(ui: *mut PxuiUi, hints: Slice<HintDesc>, count: i64) -> i32;
@@ -235,38 +235,36 @@ impl Ui {
         r.changed = r.clicked;
         r
     }
-    /// The one body of `segmented_with`, as `toggle_keyed`: the strip's response, the choice and the option a secondary press began on.
+    /// The one body of `segmented`, as `toggle_keyed`: the strip's response, the choice and the option a secondary press began on.
     #[inline(always)]
     #[track_caller]
-    pub(crate) fn segmented_keyed(&mut self, key: &str, name: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> SegmentedResponse {
+    pub(crate) fn segmented_keyed(&mut self, key: &str, name: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> PickResponse {
         let mut out = PxuiResponse::EMPTY;
         #[cfg(feature = "static")]
         let (chosen, secondary, rc) = {
             let (mut chosen, mut secondary) = (None, None);
-            let rc = unsafe { pxui_abi_link::trusted::segmented_with(self.0.as_ptr(), key, name, options, selected, segmented.enabled, segmented.h.unwrap_or(0.0), segmented.grow,
+            let rc = unsafe { pxui_abi_link::trusted::segmented(self.0.as_ptr(), key, name, options, selected, segmented.enabled, segmented.h.unwrap_or(0.0), segmented.grow,
                 segmented.look, segmented.w.unwrap_or(0.0), segmented.padding, segmented.min_segment, segmented.focus_on_click, &mut out, &mut chosen, &mut secondary) };
             (chosen, secondary, rc)
         };
         #[cfg(not(feature = "static"))]
         let (chosen, secondary, rc) = {
-            let named = options.iter().any(|o| o.name.is_some());
-            let texts = crate::Strs::each(options.len(), &|i| options[i].text);
+            let items = crate::PickItems::new(options);
             let states = segmented.look.map(six);
-            let names = crate::Strs::each(if named { options.len() } else { 0 }, &|i| options[i].name.unwrap_or(""));
             let desc = pxui_types::ffi::PxuiSegmentedDesc {
                 size: core::mem::size_of::<pxui_types::ffi::PxuiSegmentedDesc>() as u32, enabled: segmented.enabled as u8, grow: segmented.grow as u8, reserved: [0; 2], h: segmented.h.unwrap_or(0.0),
                 states: states.as_ref().map_or(core::ptr::null(), |l| l.as_ptr()), key: as_str(key), name: as_str(name), selected: selected.unwrap_or(0),
                 w: segmented.w.unwrap_or(0.0), padding: segmented.padding, min_segment: segmented.min_segment, reserved2: 0,
-                names: if named { names.span() } else { Slice { ptr: core::ptr::null(), len: 0 } }, has_selected: selected.is_some() as u8, reserved3: [0; 7], focus_on_click: segmented.focus_on_click as u8, reserved4: [0; 7],
+                names: Slice { ptr: core::ptr::null(), len: 0 }, has_selected: selected.is_some() as u8, reserved3: [0; 7], focus_on_click: segmented.focus_on_click as u8, reserved4: [0; 7],
             };
             let mut result = pxui_types::ffi::PxuiSegmentedResult::EMPTY;
-            let rc = unsafe { lib::pxui_ui_segmented_result(self.0.as_ptr(), &desc, texts.span(), &mut out, &mut result) };
+            let rc = unsafe { lib::pxui_ui_segmented_items(self.0.as_ptr(), &desc, items.span(), &mut out, &mut result) };
             ((result.has_chosen != 0).then_some(result.chosen as usize), (result.has_secondary != 0).then_some(result.secondary as usize), rc)
         };
         check(self, rc);
         let mut response = response(&out);
         response.changed = chosen != selected.filter(|_| !options.is_empty()).map(|i| i.min(options.len() - 1));
-        SegmentedResponse { response, chosen, secondary }
+        PickResponse { response, chosen, secondary }
     }
     /// The one body of `disabled`: `f` runs under the library's scope.
     #[track_caller]

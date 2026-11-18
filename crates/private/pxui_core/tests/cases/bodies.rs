@@ -89,7 +89,7 @@ pub fn toggle_checkbox_body() {
     for checkbox in [false, true] {
         let mut ui = toggle_ui(checkbox);
         let on = Cell::new(false);
-        let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| on.set(ui.toggle("Animate", on.get())));
+        let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| on.set(ui.toggle("Animate", on.get()))); };
         let mut t = 0.0;
         let mut step = |ui: &mut Ui, e: Vec<Event>| {
             t += 0.1;
@@ -141,7 +141,7 @@ pub fn slider_custom_thumb() {
     theme.body.slider = id;
     ui.set_theme(theme);
     let v = Cell::new(0.5f32);
-    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| v.set(ui.slider("Level", "Level", v.get(), 0.0..=1.0, &pxui_core::ui::Slider::DEFAULT).1));
+    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| v.set(ui.slider_legacy("Level", "Level", v.get(), 0.0..=1.0, &pxui_core::ui::Slider::DEFAULT).1)); };
     let mut t = 0.0;
     let mut step = |ui: &mut Ui, e: Vec<Event>| {
         t += 0.1;
@@ -244,7 +244,7 @@ pub fn theme_file_selects_body() {
         let mut ui = new_ui(None);
         ui.register_toggle_body("checkbox", checkbox_body);
         for k in 0..2 {
-            ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.themed(theme, &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); })));
+            ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.themed(theme, &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); }); }));
         }
         let drawn = ui.output().draw[0].instances.to_vec();
         ui.destroy();
@@ -271,7 +271,7 @@ pub fn unknown_body_is_error() {
     let mut theme = base;
     theme.body.toggle = BodyId(7);
     ui.set_theme(theme);
-    ui.frame(&frame(0.0, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); }));
+    ui.frame(&frame(0.0, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); }); });
     ui.destroy();
 }
 
@@ -291,7 +291,7 @@ pub fn a_theme_from_another_ui_never_selects_another_body() {
     theme.body.toggle = b.named_body("toggle", "second").unwrap_or_default();
     b.set_theme(theme);
     for k in 0..2 {
-        b.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); }));
+        b.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.toggle("Animate", true); }); });
     }
     let own = b.register_toggle_body("second", checkbox_body);
     check(own.0 == 3 && b.named_body("toggle", "second") == Some(own), "the same name registered in b is b's own id");
@@ -328,10 +328,10 @@ pub fn progress_without_track_keeps_accessibility() {
     theme.body.progress = ui.register_progress_body("ring", ring_body);
     ui.set_theme(theme);
     for t in 0..2 {
-        ui.frame(&frame(t as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
+        ui.frame(&frame(t as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             ui.progress("Busy", "Busy", None);
             ui.progress("Done", "Done", Some(0.25));
-        }));
+        }); });
     }
     let tree = ui.output().a11y;
     let find = |name: &str| *tree.nodes.iter().find(|n| n.role == Role::Progress && tree.str(n.name) == name).unwrap_or_else(|| panic!("no progress {name}"));
@@ -352,7 +352,7 @@ fn swap(kind: &str, install: &dyn Fn(&mut Ui), role: Role, name: &str, key: Key,
             install(&mut ui);
         }
         let value = Cell::new(0);
-        let mut b = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui, &value));
+        let mut b = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui, &value)); };
         let mut t = 0.0;
         let mut step = |ui: &mut Ui, e: Vec<Event>| {
             t += 0.1;
@@ -421,7 +421,7 @@ pub fn button_pill_body() {
     let mut ui = new_ui(None);
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("pill", pill_button));
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button("Go"); }));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button("Go"); }); });
     }
     let w = ui.box_of_key(key_of(key_of(0x2c1b3c6d, "panel"), "Go")).map(|b| ui.rect(&b).w);
     check(w == Some(90.0), &format!("the button's box is not the body's: {w:?}"));
@@ -445,7 +445,7 @@ pub fn button_opts_uses_a_registered_body() {
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("recording", recording_button));
     let opts = ButtonOpts { w: Size::Px(50.0), h: Size::Px(30.0), justify: Justify::Center, padding: Edges { l: 3.0, ..Edges::ZERO }, centered: true, ..ButtonOpts::DEFAULT };
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Go", "Go", None, &opts, [""; 3], None, None); }));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.button_opts("Go", "Go", None, &opts, [""; 3], None, None); }); });
     }
     check(SEEN.with(|s| s.get()) == (50.0, 30.0, 1, 3.0, true), &format!("the body's config is {:?}", SEEN.with(|s| s.get())));
     let row = key_of(key_of(0x2c1b3c6d, "panel"), "Go");
@@ -467,9 +467,9 @@ pub fn duplicate_key_buttons_own_their_parts() {
     pick(&mut ui, &|t, id| t.body.button = id, &|ui| ui.register_button_body("parts", part_button));
     let mut rows = [0i64; 2];
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             for (i, text) in ["One", "Two"].into_iter().enumerate() { rows[i] = ui.button_opts("button", text, None, &ButtonOpts::DEFAULT, [""; 3], None, None).handle.box_key; }
-        }));
+        }); });
     }
     check(rows[0] != rows[1], "the two buttons share a key");
     let parts = rows.map(|row| ui.part_box(row, Part::HIT).map(|b| b.box_key));
@@ -535,7 +535,7 @@ pub fn icon_button_uses_a_registered_body() {
     let press = PRESS;
     let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled: false, press: Some(&PRESS), ..IconButton::DEFAULT };
     for k in 0..2 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Glyph('+'), "Go", &opts); }));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Glyph('+'), "Go", &opts); }); });
     }
     check(ICON_SEEN.with(|s| s.get()) == (36.0, 36.0, 0.96, 1), &format!("the body's config is {:?}", ICON_SEEN.with(|s| s.get())));
     check(ICON_CURVES.with(|s| s.get()) == Some(press), "the body is given the press curves");
@@ -555,7 +555,7 @@ pub fn icon_button_is_the_transport_key() {
         ui.set_a11y(true);
         let (clicks, mut t) = (Cell::new(0), 0.0);
         let opts = IconButton { states: Some(states), w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96, enabled, ..IconButton::DEFAULT };
-        let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { if ui.icon_button("play", Icon::Glyph('+'), "Play", &opts).clicked { clicks.set(clicks.get() + 1); } });
+        let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { if ui.icon_button("play", Icon::Glyph('+'), "Play", &opts).clicked { clicks.set(clicks.get() + 1); } }); };
         let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
         for _ in 0..3 { step(&mut ui, vec![]); }
         let n = tree_node(&ui, Role::Button, "Play");
@@ -595,7 +595,7 @@ pub fn icon_button_press_runs_the_callers_curves() {
     let mut t = 0.0;
     let opts = IconButton { w: Size::Px(36.0), h: Size::Px(36.0), press_scale: 0.96,
         press: Some(&[Curve::Bezier { duration: 0.0, points: [0.0, 0.0, 1.0, 1.0] }, Curve::Steps { duration: 0.2, count: 1 }]), ..IconButton::DEFAULT };
-    let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Glyph('+'), "Play", &opts); });
+    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Glyph('+'), "Play", &opts); }); };
     let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
     for _ in 0..3 { step(&mut ui, vec![]); }
     let node = key_of(key_of(0x2c1b3c6d, "panel"), "play");
@@ -640,7 +640,7 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
         let mut ui = new_ui(None);
         ui.set_a11y(true);
         let mut t = 0.0;
-        let mut build = |ui: &mut Ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
+        let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| {
             if hand {
                 let node = ui.node("play".into(), Node { w: Size::Px(36.0), h: Size::Px(36.0), flags: Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::TAB_ONLY, role: Role::Button, ..Node::DEFAULT });
                 let signal = ui.signal(&node);
@@ -657,7 +657,7 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
             } else {
                 ui.icon_button("play", Icon::Draw(play_icon, [0; 4]), "Play", &button);
             }
-        });
+        }); };
         let mut step = |ui: &mut Ui, e: Vec<Event>| { t += 0.01; ui.frame(&frame(t, e), &mut build); };
         for _ in 0..3 { step(&mut ui, vec![]); }
         let rest = ui.output().draw[0].instances.to_vec();
@@ -683,7 +683,7 @@ pub fn icon_button_draws_the_apps_icon_like_the_transport_key() {
     // the drawing is told the 20-point square and the ink of the state
     let mut ui = new_ui(None);
     let b = IconButton { states: Some(states), press_scale: 1.0, ..IconButton::DEFAULT };
-    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 4]), "Play", &b); })); }
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("play", Icon::Draw(recorded_play, [0; 4]), "Play", &b); }); }); }
     check(PLAYED.with(|p| p.get()) == (PLAYED.with(|p| p.get()).0, 20.0, 20.0, 10) && PLAYED.with(|p| p.get()).0 > 0, &format!("the drawing's square and ink: {:?}", PLAYED.with(|p| p.get())));
     ui.destroy();
 }
@@ -703,7 +703,7 @@ pub fn icon_button_body_receives_the_drawing() {
     pick(&mut ui, &|t, id| t.body.icon_button = id, &|ui| ui.register_icon_button_body("art", art_icon));
     PLAYED.with(|p| p.set((0, 0.0, 0.0, 0)));
     let b = IconButton { states: Some(States::all(Look { text: pxui_core::geom::Rgba { r: 77, g: 0, b: 0, a: 255 }, ..Look::NONE })), ..IconButton::DEFAULT };
-    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 4]), "Go", &b); })); }
+    for k in 0..3 { ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| { ui.icon_button("Go", Icon::Draw(recorded_play, [0; 4]), "Go", &b); }); }); }
     check(ICON_ART.with(|a| a.get()) == (true, 77), &format!("the body's config: {:?}", ICON_ART.with(|a| a.get())));
     check(PLAYED.with(|p| p.get()).0 > 0, "the body's own node was not drawn on");
     ui.destroy();
@@ -725,7 +725,7 @@ pub fn checkbox_mark_body() {
 }
 
 pub fn radio_mark_body() {
-    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.radio("Mode", &["A", "B", "C"], v.get() as usize, &pxui_core::ui::Choice::DEFAULT.name("Mode")).1 as i64);
+    let hits = |ui: &mut Ui, v: &Cell<i64>| v.set(ui.radio_legacy("Mode", &["A", "B", "C"], v.get() as usize, &pxui_core::ui::Choice::DEFAULT.name("Mode")).1 as i64);
     // a click on "B" chooses 1; Tab then Down moves on to 2
     swap("radio", &|ui| pick(ui, &|t, id| t.body.radio = id, &|ui| ui.register_radio_body("mark", mark_check)), Role::Radio, "B", Key::ArrowDown, &hits);
 }
@@ -737,7 +737,7 @@ fn settled(kind: &str, custom: &str, ui: &mut Ui, build: &dyn Fn(&mut Ui)) -> (F
     let mut t = 0.0;
     let mut step = |ui: &mut Ui| {
         t += 0.1;
-        ui.frame(&frame(t, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui)));
+        ui.frame(&frame(t, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui)); });
     };
     for _ in 0..3 {
         step(ui);
@@ -791,7 +791,7 @@ pub fn spinner_three_dots_body() {
     install(&mut ui);
     let h = std::cell::Cell::new(None);
     for k in 0..3 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| h.set(Some(ui.spinner("Loading", "Loading")))));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| h.set(Some(ui.spinner("Loading", "Loading")))); });
     }
     let spinner = h.get().expect("the spinner");
     check(ui.part_rect(spinner.box_key, Part::dot(2)).is_some_and(|r| r.w == 6.0) && ui.part_rect(spinner.box_key, Part::dot(3)).is_none(), "the dots are the body's");
@@ -819,7 +819,7 @@ pub fn badge_box_body() {
     install(&mut ui);
     let h = std::cell::Cell::new(None);
     for k in 0..3 {
-        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| h.set(Some(ui.badge("Unread", "Unread", "12")))));
+        ui.frame(&frame(k as f64 * 0.1, vec![]), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| h.set(Some(ui.badge("Unread", "Unread", "12")))); });
     }
     check(ui.patch_text(&h.get().expect("the badge"), "13"), "patch_text missed the badge's node");
     ui.destroy();
@@ -872,7 +872,7 @@ pub fn grip_wide_band_body() {
         let mut build = |ui: &mut Ui| {
             let host = ui.node("host".into(), Node { at: Some((0.0, 0.0)).into(), w: Size::Px(201.0), h: Size::Px(100.0), ..Node::DEFAULT });
             let saved = ui.enter(&host);
-            let got = ui.split("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| { ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT }); });
+            let got = ui.split_legacy("split", Axis::Row, ratio.get(), 20.0, 30.0, &mut |ui| { ui.node("a".into(), Node { h: Size::Grow, ..Node::DEFAULT }); }, &mut |ui| { ui.node("b".into(), Node { h: Size::Grow, ..Node::DEFAULT }); });
             if let Some(r) = got {
                 ratio.set(r);
             }
@@ -1020,7 +1020,7 @@ pub fn window_banded_body() {
     // the window body is the window's alone: a panel with the same theme is built by the built-in body
     let mut ui = new_ui(None);
     pick(&mut ui, &|t, id| t.body.window = id, &|ui| ui.register_window_body("banded", |_, _, _, _| panic!("the window body ran for a panel")));
-    ui.frame(&frame(0.1, vec![]), &mut |ui| ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |_| {}));
+    ui.frame(&frame(0.1, vec![]), &mut |ui| { ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.name("p"), &mut |_| {}); });
     ui.destroy();
 }
 
@@ -1035,7 +1035,7 @@ fn open_then_dismiss(ui: &Ui) -> Vec<Vec<Event>> {
 pub fn popup_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.popup = id, &|ui| ui.register_popup_body("banded", banded_sheet));
     let got = swap_root("popup", &install, 1, false, &open_then_dismiss, &|ui, c| {
-        if !ui.popup("pop", &pxui_core::ui::Overlay::DEFAULT.at(10.0, 10.0).w(200.0).h(100.0).dismiss_initial().name("pop"), &mut |ui| go_button(ui, c)) {
+        if !ui.popup("pop", &pxui_core::ui::Overlay::DEFAULT.at(10.0, 10.0).w(200.0).h(100.0).dismiss_initial().name("pop"), &mut |ui| go_button(ui, c)).open {
             c.b.set(c.b.get() + 1);
         }
     });
@@ -1045,7 +1045,7 @@ pub fn popup_banded_body() {
 pub fn modal_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.modal = id, &|ui| ui.register_modal_body("banded", banded_sheet));
     let got = swap_root("modal", &install, 1, false, &open_then_dismiss, &|ui, c| {
-        if !ui.modal("mod", &pxui_core::ui::Overlay::DEFAULT.name("mod"), &mut |ui| go_button(ui, c)) {
+        if !ui.modal("mod", &pxui_core::ui::Overlay::DEFAULT.name("mod"), &mut |ui| go_button(ui, c)).open {
             c.b.set(c.b.get() + 1);
         }
     });
@@ -1162,7 +1162,7 @@ pub fn split_spacer_body() {
             c.built();
             ui.node("x".into(), Node { h: Size::Grow, ..Node::DEFAULT });
         };
-        if let Some(r) = ui.split("split", Axis::Row, ratio as f32 / 1000.0, 20.0, 30.0, &mut |ui| pane(ui), &mut |ui| pane(ui)) {
+        if let Some(r) = ui.split_legacy("split", Axis::Row, ratio as f32 / 1000.0, 20.0, 30.0, &mut |ui| pane(ui), &mut |ui| pane(ui)) {
             c.b.set((r * 1000.0) as i64);
             c.a.set(c.a.get() + 1);
         }
@@ -1204,7 +1204,7 @@ fn chip_toast(ui: &mut Ui, c: &ToastConfig, text: &str) {
 pub fn toast_chip_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.toasts = id, &|ui| ui.register_toasts_body("chip", chip_toast));
     let got = swap_root("toast", &install, 0, false, &|ui| click_on(ui, Role::StatusBar, "one"), &|ui, c| {
-        if let Some(i) = ui.toasts("t", &[pxui_core::ui::Toast::new(1, "one"), pxui_core::ui::Toast::new(2, "two")], 1000.0) {
+        if let Some(i) = ui.toasts_index("t", &[pxui_core::ui::Toast::new(1, "one"), pxui_core::ui::Toast::new(2, "two")], 1000.0) {
             c.a.set(c.a.get() * 10 + i as i64 + 1);
         }
     });
@@ -1337,7 +1337,7 @@ pub fn segment_sliding_body() {
     let mut t = 0.0;
     let mut step = |ui: &mut Ui, e: Vec<Event>| {
         t += 0.1;
-        ui.frame(&frame(t, e), &mut |ui| ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui, &v)));
+        ui.frame(&frame(t, e), &mut |ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.name("panel"), &mut |ui| build(ui, &v)); });
     };
     for _ in 0..3 {
         step(&mut ui, vec![]);
@@ -1362,7 +1362,7 @@ fn pill_dropdown(ui: &mut Ui, c: &DropdownConfig, text: &str) {
 }
 
 fn dropdown_build(ui: &mut Ui, c: &Cells) {
-    let v = ui.dropdown("Pick", "Pick", &["A", "B", "C"], c.a.get() as usize, &pxui_core::ui::Dropdown::DEFAULT).1;
+    let v = ui.dropdown_legacy("Pick", "Pick", &["A", "B", "C"], c.a.get() as usize, &pxui_core::ui::Dropdown::DEFAULT).1;
     c.a.set(v as i64);
 }
 
@@ -1401,7 +1401,7 @@ pub fn menu_bar_cell_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.menu_bar = id, &|ui| ui.register_menu_bar_body("cell", cell_title));
     // Tab, Down opens "File", Down moves to "Open", Enter picks (0, 1): reported as 0 * 10 + 1 + 1
     let got = swap_root("menu_bar", &install, 0, false, &|_| keys_then(&[Key::Tab, Key::ArrowDown, Key::ArrowDown, Key::Enter]), &|ui, c| {
-        if let Some((m, i)) = ui.menu_bar("Bar", &[("File", &["New", "Open"]), ("Edit", &["Cut"])]) {
+        if let Some((m, i)) = ui.menu_bar_legacy("Bar", &[("File", &["New", "Open"]), ("Edit", &["Cut"])]) {
             c.a.set((m * 10 + i + 1) as i64);
         }
     });

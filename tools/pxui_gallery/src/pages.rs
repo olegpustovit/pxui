@@ -15,7 +15,9 @@ pub const WINDOW_W: i64 = PAGE_W;
 pub const CHROME_H: f32 = 48.0;
 pub const WINDOW_H: i64 = 24 + CHROME_H as i64 + PAGE_H + 24;
 pub const PAGES: [&str; 5] = ["Kit", "Controls", "Collections", "Overlays", "Layout"];
-pub const MENUS: [(&str, &[&str]); 2] = [("File", &["Reload theme", "Toast", "Quit"]), ("View", &PAGES)];
+const FILE_ITEMS: [pxui::MenuItem; 3] = [pxui::MenuItem::new("Reload theme"), pxui::MenuItem::new("Toast"), pxui::MenuItem::new("Quit")];
+const PAGE_ITEMS: [pxui::MenuItem; 5] = [pxui::MenuItem::new(PAGES[0]), pxui::MenuItem::new(PAGES[1]), pxui::MenuItem::new(PAGES[2]), pxui::MenuItem::new(PAGES[3]), pxui::MenuItem::new(PAGES[4])];
+pub const MENUS: [pxui::MenuBarMenu; 2] = [pxui::MenuBarMenu::new("File", &FILE_ITEMS), pxui::MenuBarMenu::new("View", &PAGE_ITEMS)];
 const NAMES: [&str; 12] = ["alpha", "beta", "gamma", "delta", "epsilon", "zeta", "eta", "theta", "iota", "kappa", "lambda", "mu"];
 pub const ROWS: usize = 100_000;
 /// How long a toast shows.
@@ -176,8 +178,8 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     ui.panel("values", &Overlay::DEFAULT.w(296.0), &mut |ui: &mut Ui| {
         ui.label("Values", pxui::Label::DEFAULT);
         s.check = s.check != ui.checkbox("snap-to-grid", "Snap to grid", s.check, &pxui::Checkbox::DEFAULT).clicked;
-        s.radio = ui.radio("quality", &["Draft", "Normal", "Final"], s.radio, &pxui::Choice::DEFAULT.name("Quality")).1;
-        s.slider = ui.slider("opacity", "Opacity", s.slider, 0.0..=1.0, &pxui::Slider::DEFAULT).1;
+        s.radio = ui.radio("quality", &[pxui::Segment::new("Draft"), pxui::Segment::new("Normal"), pxui::Segment::new("Final")], Some(s.radio), &pxui::Radio::DEFAULT.name("Quality")).chosen.unwrap_or(s.radio);
+        s.slider = ui.slider("opacity", "Opacity", s.slider, 0.0..=1.0, &pxui::Slider::DEFAULT).value;
         let _ = ui.progress("export", "Export", Some(s.slider));
         let p = ui.progress("indexing", "Indexing", None);
         s.busy.push(p);
@@ -188,8 +190,9 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
             let b = ui.badge("count", "Count", "NEW");
             ui.tooltip(&b, "A badge: a small label in the accent");
         });
-        s.segment = ui.segmented_with("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.segment), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.segment);
-        s.choice = ui.dropdown("blend", "Blend", &["Normal", "Multiply", "Screen", "Overlay", "Add"], s.choice, &pxui::Dropdown::DEFAULT).1;
+        s.segment = ui.segmented("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.segment), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.segment);
+        const BLENDS: [pxui::Segment; 5] = [pxui::Segment::new("Normal"), pxui::Segment::new("Multiply"), pxui::Segment::new("Screen"), pxui::Segment::new("Overlay"), pxui::Segment::new("Add")];
+        s.choice = ui.dropdown("blend", "Blend", &BLENDS, Some(s.choice), &pxui::Dropdown::DEFAULT).chosen.unwrap_or(s.choice);
     });
     ui.panel("more", &Overlay::DEFAULT.at(332.0, 12.0).w(296.0), &mut |ui: &mut Ui| {
         s.tab = ui.tabs("sections", &["Layer", "Mask", "Effects"], s.tab, &pxui::Choice::DEFAULT.name("Sections")).1;
@@ -223,7 +226,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
     let pad = node(ui, "collections", Node { w: Size::Grow, h: Size::Grow, padding: Edges::all(12.0), ..Node::DEFAULT });
     ui.within(&pad, &mut |ui: &mut Ui| {
         let ratio = s.split;
-        if let Some(r) = ui.split("split", Axis::Row, ratio, 120.0, 200.0, &mut |ui: &mut Ui| {
+        if let Some(r) = ui.split("split", ratio, &pxui::Split::DEFAULT.min_a(120.0).min_b(200.0), &mut |ui: &mut Ui| {
             let _ = ui.selection_list("files", ROWS, &mut s.list, &pxui::SelectionList::DEFAULT.multi(), &mut |ui: &mut Ui, i: usize| names(i, &mut |t| ui.item_text(t)));
         }, &mut |ui: &mut Ui| {
             let half = node(ui, "right", Node { w: Size::Grow, h: Size::Grow, padding: Edges { l: 8.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
@@ -239,7 +242,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
                     }
                 });
             });
-        }) {
+        }).ratio {
             s.split = r;
         }
     });
@@ -495,11 +498,11 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
     let window = node(ui, "window", Node { w: Size::Px(w), h: Size::Px(h), role: Role::Window, ..Node::DEFAULT });
     ui.a11y_name(&window, "PXUI kit gallery");
     ui.within(&window, &mut |ui: &mut Ui| {
-        match ui.menu_bar("menus", &MENUS) {
-            Some((0, 0)) => s.reload = true,
-            Some((0, 1)) => s.toast("Hello from the menu"),
-            Some((0, _)) => s.quit = true,
-            Some((_, i)) if i != s.page => (s.page, s.page_rev, s.chrome_rev) = (i, s.page_rev + 1, s.chrome_rev + 1),
+        match ui.menu_bar("menus", &MENUS, &pxui::MenuBar::DEFAULT).chosen {
+            Some(0) => s.reload = true,
+            Some(1) => s.toast("Hello from the menu"),
+            Some(2) => s.quit = true,
+            Some(i) if i - FILE_ITEMS.len() != s.page => (s.page, s.page_rev, s.chrome_rev) = (i - FILE_ITEMS.len(), s.page_rev + 1, s.chrome_rev + 1),
             _ => {}
         }
         let body = node(ui, "body", Node { w: Size::Px(w), h: Size::Px(h - 24.0), at: Some((0.0, 24.0)).into(), ..Node::DEFAULT });
@@ -512,7 +515,7 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
                 }
                 let row = node(ui, "switches", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
                 ui.within(&row, &mut |ui: &mut Ui| {
-                    let theme = ui.segmented_with("theme", &[pxui::Segment::new("Rays"), pxui::Segment::new("Dusk")], Some(s.dusk as usize), &pxui::Segmented::DEFAULT.name("Theme")).chosen == Some(1);
+                    let theme = ui.segmented("theme", &[pxui::Segment::new("Rays"), pxui::Segment::new("Dusk")], Some(s.dusk as usize), &pxui::Segmented::DEFAULT.name("Theme")).chosen == Some(1);
                     let compact = s.compact != ui.checkbox("compact", "Compact", s.compact, &pxui::Checkbox::DEFAULT).clicked;
                     let rtl = s.rtl != ui.checkbox("rtl", "RTL", s.rtl, &pxui::Checkbox::DEFAULT).clicked;
                     let reduced = s.reduced != ui.checkbox("still", "Still", s.reduced, &pxui::Checkbox::DEFAULT).clicked;
@@ -534,7 +537,7 @@ pub fn app(ui: &mut Ui, s: &mut Gallery) {
             }); });
         });
     });
-    if let Some(i) = ui.toasts("toasts", &s.toasts, TOAST_SECONDS) {
+    if let Some(i) = ui.toasts("toasts", &s.toasts, TOAST_SECONDS).chosen {
         s.toasts.remove(i);
     }
 }
