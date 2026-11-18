@@ -161,7 +161,7 @@ mod tests {
     /// A body that gives its parts their own accessibility: the title a Label, each button ENABLED (and DEFAULT on Return's), the last
     /// one named apart from its label; the second button is left unnamed.
     fn self_described(ui: &mut Ui, c: &DialogConfig) {
-        use crate::a11y::state;
+        use crate::ui::state;
         let title = ui.part(Part::TITLE, Node { role: Role::Label, w: Size::Grow, h: Size::Px(24.0), ..Node::DEFAULT });
         ui.text(&title, c.text_of(&c.title));
         ui.slot(c.content);
@@ -177,7 +177,7 @@ mod tests {
     /// its buttons keep their states (DEFAULT on Save) and their own name; a part the body left unnamed or without a role gets the kit's.
     #[test]
     fn a_registered_dialog_body_keeps_its_roles_states_and_names() {
-        use crate::a11y::state;
+        use crate::ui::state;
         let mut ui = Ui::new().unwrap();
         ui.set_a11y(true);
         ui.register_dialog_body("described", self_described).expect("registered");

@@ -170,7 +170,7 @@ impl<'a> IconButton<'a> {
     ///     if ui.icon_button("shuffle", Icon::glyph('~'), "Shuffle", &KEY.selected(shuffle)).clicked { shuffle = !shuffle; }
     /// });
     /// let node = *ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Shuffle").unwrap();
-    /// assert!(node.states & pxui::a11y::state::CHECKABLE != 0 && node.states & pxui::a11y::state::CHECKED == 0);
+    /// assert!(node.states & pxui::ui::state::CHECKABLE != 0 && node.states & pxui::ui::state::CHECKED == 0);
     /// ```
     pub const fn selected(mut self, on: bool) -> IconButton<'a> { self.selected = Some(on); self }
 }
@@ -211,7 +211,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::{Icon, IconButton};
-    use crate::a11y::state;
+    use crate::ui::state;
     use crate::ui::Role;
     use crate::{testing, Response, Ui};
     use std::cell::Cell;

@@ -382,7 +382,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::Button;
-    use crate::a11y::state;
+    use crate::ui::state;
     use crate::ui::{Edges, Justify, Node, Role, Size};
     use crate::{testing, Response, Ui};
     use std::cell::Cell;

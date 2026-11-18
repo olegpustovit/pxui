@@ -221,7 +221,7 @@ mod tests {
         mem_sys::set_peer(crate::library_counter);
         let mut ui = crate::Ui::new().unwrap();
         let input = FrameIn { width: 160.0, height: 240.0, ..FrameIn::default() };
-        let wrapped = Label::BODY.grow().wrap().lines(3).ellipsis().align(crate::text::TextAlign::Center);
+        let wrapped = Label::BODY.grow().wrap().lines(3).ellipsis().align(crate::TextAlign::Center);
         let frame = core::cell::Cell::new(0usize);
         let mut build = |ui: &mut crate::Ui| {
             ui.label(LONG, wrapped);
@@ -256,7 +256,7 @@ mod tests {
         let ui = settle(&mut |ui| { ui.label(LONG, red.lines(1)); });
         assert!(ink(&ui).1 > 160.0, "without an ellipsis the line runs on");
         let mut edges = Vec::new();
-        for style in [red, red.align(crate::text::TextAlign::Center), red.align(crate::text::TextAlign::End)] {
+        for style in [red, red.align(crate::TextAlign::Center), red.align(crate::TextAlign::End)] {
             let ui = settle(&mut |ui| { ui.label("hi", style); });
             edges.push(ink(&ui));
         }

@@ -2101,7 +2101,7 @@ fn shared_pixel_fit_text_matches_explicit_width_pixels() {
         let style=pxui::Label::BODY.size(14.25).line_height(20.0).lines(1);
         let value="ab CD café";
         let span=[pxui::TextSpan {start:3,end:5,weight:700,..Default::default()}];
-        let mut text=pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+        let mut text=pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
         let width=(text.measure_spans(value,&ui.resolve(&style),0.0,&span).unwrap().width*density as f32).ceil()/density as f32;
         let plain_width=((text.width("AB CD",&ui.resolve(&pxui::Label::BODY.size(14.0)),0.0).unwrap()+4.75)*density as f32).ceil()/density as f32;
         for rtl in [false,true] {

@@ -83,7 +83,7 @@ impl Ui {
     /// Panics: when the library refuses the call (outside a frame, `open` or `visible` too short), or when `cell` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
-    /// use pxui::collections::TreeNode;
+    /// use pxui::TreeNode;
     /// let nodes = [TreeNode { depth: 0, children: 1 }, TreeNode { depth: 1, children: 0 }];
     /// let (mut open, mut selected, mut visible) = ([1u8, 0], None, [0u32; 2]);
     /// pxui::doc::frames(1, &mut |ui| { assert_eq!(ui.tree("outline", &nodes, &mut open, &mut selected, &mut visible, &mut |ui, node| ui.item_text(["root", "leaf"][node])).shown, 2); });

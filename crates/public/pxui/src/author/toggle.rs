@@ -224,7 +224,7 @@ impl Ui {
     ///     if strip.response.changed { chosen = strip.chosen; }
     /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
-    /// let dark = pxui::testing::find(&ui, pxui::a11y::Role::Radio, "Use the dark theme").expect("the Dark option, by its name");
+    /// let dark = pxui::testing::find(&ui, pxui::Role::Radio, "Use the dark theme").expect("the Dark option, by its name");
     /// pxui::testing::click(&mut ui, f64::from(dark.x + 4.0), f64::from(dark.y + 4.0), &mut build);
     /// assert_eq!(chosen, Some(2));
     /// ```
@@ -260,7 +260,7 @@ impl Ui {
 #[cfg(test)]
 mod tests {
     use super::{Segment, Segmented, Toggle};
-    use crate::a11y::state;
+    use crate::ui::state;
     use crate::ui::{Look, Node, Rect, Role, Size, States};
     use crate::{testing, Part, Response, Ui};
     use std::cell::Cell;

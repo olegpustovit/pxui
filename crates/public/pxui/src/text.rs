@@ -5,7 +5,6 @@
 //! One style input per side: the `Ui`'s service (`UiText`) and authoring take a `Label` and resolve it against the theme
 //! (`Ui::resolve`); a worker's `Text` takes the resolved `TextStyle` that call returns, so worker-prepared text matches what the `Ui`
 //! draws. `Wrap`, `Ellipsis` and `TextAlign` name the numbers the resolved record carries.
-pub use pxui_types::text::{Ellipsis, TextAlign, Wrap};
 use crate::sys::{PxuiPreparedText, PxuiShaper, PxuiTextWorker};
 use crate::{as_str, as_text, Error, Ui};
 use core::ptr::NonNull;
@@ -64,7 +63,7 @@ library!(lib {
 /// Panics: never.
 ///
 /// ```
-/// assert!(!pxui::text::pragmasevka().is_empty());
+/// assert!(!pxui::pragmasevka().is_empty());
 /// ```
 pub fn pragmasevka() -> &'static [u8] {
     let font = unsafe { lib::pxui_default_font() };
@@ -186,7 +185,7 @@ impl Text {
     ///
     /// ```
     /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
-    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let prepared = text.prepare("Song title", &style, 0.0, &[]).unwrap();
     /// assert!(prepared.metrics().width > 0.0);
     /// ```
@@ -206,7 +205,7 @@ impl Text {
     ///
     /// ```
     /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
-    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let _ = text.enable_system_fonts(); // `Err(State)` where the platform has none
     /// ```
     pub fn enable_system_fonts(&mut self)->Result<(),Error> {
@@ -221,7 +220,7 @@ impl Text {
     /// Errors: `Error::InvalidInput` when a font cannot be read or there are more fonts than the library holds.
     ///
     /// ```
-    /// let text = pxui::Text::new(&[pxui::text::pragmasevka()]);
+    /// let text = pxui::Text::new(&[pxui::pragmasevka()]);
     /// assert!(text.is_ok());
     /// ```
     pub fn new(fonts: &[&[u8]]) -> Result<Self, Error> {
@@ -236,8 +235,8 @@ impl Text {
     ///
     /// ```
     /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
-    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
-    /// assert_eq!(text.add_font(pxui::text::pragmasevka()), Ok(1));
+    /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
+    /// assert_eq!(text.add_font(pxui::pragmasevka()), Ok(1));
     /// assert!(text.add_font(b"not a font").is_err()); // not a parseable font
     /// ```
     pub fn add_font(&mut self, bytes: &[u8]) -> Result<u32, Error> { Backing(self.0.as_ptr()).add_font(bytes) }
@@ -250,7 +249,7 @@ impl Text {
     ///
     /// ```
     /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
-    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let m = text.measure("Song title", &style, 0.0).unwrap();
     /// assert!(m.width > 0.0 && m.height > 0.0);
     /// ```
@@ -262,7 +261,7 @@ impl Text {
     ///
     /// ```
     /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
-    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
     /// assert!(text.measure_spans("Song title", &style, 0.0, &[bold]).unwrap().width > 0.0);
     /// ```
@@ -274,7 +273,7 @@ impl Text {
     ///
     /// ```
     /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
-    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// assert!(text.width("Song title", &style, 0.0).unwrap() > 0.0);
     /// ```
     pub fn width(&mut self, value: &str, style: &TextStyle, max_width: f32) -> Result<f32, Error> { self.measure(value, style, max_width).map(|m| m.width) }
@@ -286,7 +285,7 @@ impl Text {
     ///
     /// ```
     /// let style = pxui::Ui::new().unwrap().resolve(&pxui::Label::BODY);
-    /// let mut text = pxui::Text::new(&[pxui::text::pragmasevka()]).unwrap();
+    /// let mut text = pxui::Text::new(&[pxui::pragmasevka()]).unwrap();
     /// let mut pixels = Vec::new();
     /// let (w, h) = text.rasterize_rgba("abc", &style, 0.0, 1.0, [255; 4], &mut pixels).unwrap();
     /// assert_eq!(pixels.len(), (w * h * 4) as usize);
@@ -566,7 +565,7 @@ impl UiText<'_> {
     ///
     /// ```
     /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
-    /// assert!(ui.text_service().add_font(pxui::text::pragmasevka()).is_ok());
+    /// assert!(ui.text_service().add_font(pxui::pragmasevka()).is_ok());
     /// ```
     pub fn add_font(&mut self, bytes: &[u8]) -> Result<u32, Error> {
         let index = unsafe { lib::pxui_text_add_font(self.0.0.as_ptr(), Str { ptr: bytes.as_ptr(), len: bytes.len() }) };

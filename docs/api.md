@@ -275,6 +275,7 @@ pxui::Fill struct @HEAD
 pxui::Fill::DEFAULT const Fill @HEAD
 pxui::Fill::fractional fn const (self) -> Fill @HEAD
 pxui::Fill::new fn const (color: Rgba) -> Fill @HEAD
+pxui::Flags use pxui_types::Flags @U1a.1
 pxui::Frame impl Deref @HEAD
 pxui::Frame struct <'a> @HEAD
 pxui::FrameIn use pxui_types::FrameIn @HEAD
@@ -526,6 +527,7 @@ pxui::Platform impl StructuralPartialEq @HEAD
 pxui::Platform::Apple variant @HEAD
 pxui::Platform::Other variant @HEAD
 pxui::PlatformOut use pxui_types::ffi::PlatformOut @HEAD
+pxui::Point use pxui_types::geom::Point @U1a.1
 pxui::PreparedText impl Drop @HEAD
 pxui::PreparedText impl Send @HEAD
 pxui::PreparedText struct @HEAD
@@ -549,6 +551,7 @@ pxui::PxuiUiDesc use pxui_types::PxuiUiDesc @HEAD
 pxui::Radio struct <'a> @U1b.1
 pxui::Radio::DEFAULT const Radio<'a> @U1b.1
 pxui::Recorder type <'a>= &'a mut dyn FnMut(&Image) -> Result<(), Error> @HEAD
+pxui::Rect use pxui_types::geom::Rect @U1a.1
 pxui::Renderer impl Drop @HEAD
 pxui::Renderer struct @HEAD
 pxui::Renderer::atlas fn (&self, kind: AtlasKind) -> Result<Image, Error> @HEAD
@@ -585,6 +588,8 @@ pxui::Reveal impl StructuralPartialEq @HEAD
 pxui::Reveal struct @HEAD
 pxui::Reveal::new fn const (at: usize, request: u64) -> Reveal @HEAD
 pxui::RewriteFn type <'a>= dyn Fn(&str, usize) -> (String, usize) + 'a @HEAD
+pxui::Rgba use pxui_types::geom::Rgba @U1a.1
+pxui::Role use pxui_types::a11y::Role @U1a.1
 pxui::Routed struct <'a> @HEAD
 pxui::Routed::buttons fn (&self) -> &[u32] @HEAD
 pxui::Routed::events fn (&self) -> &[Event] @HEAD
@@ -675,6 +680,7 @@ pxui::Signal::release_point field (f32, f32) @HEAD
 pxui::Signal::released field bool @HEAD
 pxui::Signal::scroll field (f32, f32) @HEAD
 pxui::Signal::subtree_press field Option<i64> @HEAD
+pxui::Size use pxui_types::Size @U1a.1
 pxui::Slice use pxui_types::ffi::Slice @HEAD
 pxui::SlideFn type <'a>= dyn Fn(f32) -> String + 'a @HEAD
 pxui::Slider use pxui_types::ui::Slider @HEAD
@@ -1502,14 +1508,18 @@ pxui::ui mod @HEAD
 pxui::ui::* use pxui_types::draw::* @HEAD
 pxui::ui::* use pxui_types::geom::* @HEAD
 pxui::ui::* use pxui_types::layout::* @HEAD
-pxui::ui::* use pxui_types::ui::* @HEAD
+-pxui::ui::* use pxui_types::ui::* @U1a.1
 pxui::ui::Axis use pxui_types::node::Axis @HEAD
 pxui::ui::Bar use pxui_types::node::Bar @HEAD
-pxui::ui::Chosen use crate::Chosen @HEAD
+pxui::ui::Checkbox use pxui_types::ui::Checkbox @U1a.1
+pxui::ui::Choice use pxui_types::ui::Choice @U1a.1
+-pxui::ui::Chosen use crate::Chosen @U1a.1
 pxui::ui::Chosen use pxui_types::ui::Chosen @HEAD
 pxui::ui::CodeContext use pxui_types::ui::CodeContext @HEAD
 pxui::ui::Completion use pxui_types::ui::Completion @HEAD
+pxui::ui::Cursor use pxui_types::ui::Cursor @U1a.1
 pxui::ui::Curve use pxui_types::theme::Curve @HEAD
+pxui::ui::DRAG_THRESHOLD use pxui_types::ui::DRAG_THRESHOLD @U1a.1
 pxui::ui::Dialog use crate::Dialog @HEAD
 pxui::ui::DialogButton use crate::DialogButton @HEAD
 pxui::ui::Dir use pxui_types::node::Dir @HEAD
@@ -1523,6 +1533,7 @@ pxui::ui::DismissOpts struct @HEAD
 pxui::ui::DismissOpts::DEFAULT const DismissOpts @HEAD
 pxui::ui::DismissOpts::fraction fn const (self, fraction: f32) -> DismissOpts @HEAD
 pxui::ui::DismissOpts::velocity fn const (self, velocity: f32) -> DismissOpts @HEAD
+pxui::ui::Dropdown use pxui_types::ui::Dropdown @U1a.1
 pxui::ui::Fill impl Clone @HEAD
 pxui::ui::Fill impl Copy @HEAD
 pxui::ui::Fill impl Debug @HEAD
@@ -1578,6 +1589,8 @@ pxui::ui::GestureState::swipe_open_leading field bool @HEAD
 pxui::ui::GestureState::swipe_open_trailing field bool @HEAD
 pxui::ui::GestureState::swiping field bool @HEAD
 pxui::ui::Handle type = PxuiBox @HEAD
+pxui::ui::Head use pxui_types::ui::Head @U1a.1
+pxui::ui::HeadAction use pxui_types::ui::HeadAction @U1a.1
 pxui::ui::Image use pxui_types::Image @HEAD
 pxui::ui::ImageStyle impl Clone @HEAD
 pxui::ui::ImageStyle impl Copy @HEAD
@@ -1589,6 +1602,9 @@ pxui::ui::ImageStyle::h fn const (self, size: Size) -> ImageStyle @HEAD
 pxui::ui::ImageStyle::h_px fn const (self, points: f32) -> ImageStyle @HEAD
 pxui::ui::ImageStyle::w fn const (self, size: Size) -> ImageStyle @HEAD
 pxui::ui::ImageStyle::w_px fn const (self, points: f32) -> ImageStyle @HEAD
+pxui::ui::Key use pxui_types::ui::Key @U1a.1
+pxui::ui::Keyframe use pxui_types::ui::Keyframe @U1a.1
+pxui::ui::Keyframes use pxui_types::ui::Keyframes @U1a.1
 pxui::ui::Language impl Clone @HEAD
 pxui::ui::Language impl Copy @HEAD
 pxui::ui::Language struct <'a> @HEAD
@@ -1603,11 +1619,14 @@ pxui::ui::Language::indent fn const (self, f: &'a IndentFn<'a>) -> Language<'a> 
 pxui::ui::Language::number_at fn const (self, f: &'a NumberAtFn<'a>) -> Language<'a> @HEAD
 pxui::ui::Language::pairs fn const (self, pairs: &'a [(char, char)]) -> Language<'a> @HEAD
 pxui::ui::Language::rewrite fn const (self, f: &'a RewriteFn<'a>) -> Language<'a> @HEAD
+pxui::ui::LineStep use pxui_types::ui::LineStep @U1a.1
+pxui::ui::ListResponse use pxui_types::ui::ListResponse @U1a.1
 pxui::ui::Look use pxui_types::theme::Look @HEAD
 pxui::ui::Mark use pxui_types::node::Mark @HEAD
 pxui::ui::Menu use pxui_types::ui::Menu @HEAD
 pxui::ui::MenuItem use pxui_types::ui::MenuItem @HEAD
 pxui::ui::Node use pxui_types::node::Node @HEAD
+pxui::ui::Overlay use pxui_types::ui::Overlay @U1a.1
 pxui::ui::Paint struct <'a> @HEAD
 pxui::ui::Paint::brackets fn (&mut self, rect: Rect, offset: f32, length: f32, stroke: Stroke) @HEAD
 pxui::ui::Paint::chevron fn (&mut self, at: (f32, f32), direction: Dir, stroke: Stroke) @HEAD
@@ -1635,7 +1654,12 @@ pxui::ui::Paint::text_metrics fn (&mut self, style: &TextStyle, width: f32, s: &
 pxui::ui::Paint::text_spans fn (&mut self, at: (f32, f32), style: &TextStyle, width: f32, text: &str, spans: &[TextSpan]) -> Result<TextMetrics, Error> @HEAD
 pxui::ui::Paint::theme fn (&self) -> Tokens @HEAD
 pxui::ui::Paint::triangle fn (&mut self, a: (f32, f32), b: (f32, f32), c: (f32, f32), fill: Fill) @HEAD
+pxui::ui::PanelOpts use pxui_types::ui::PanelOpts @U1a.1
 pxui::ui::Pick use pxui_types::ui::Pick @HEAD
+pxui::ui::PickRows use pxui_types::ui::PickRows @U1a.1
+pxui::ui::PickerResponse use pxui_types::ui::PickerResponse @U1a.1
+pxui::ui::ROOT_KEY use pxui_types::ui::ROOT_KEY @U1a.1
+pxui::ui::Repeat use pxui_types::ui::Repeat @U1a.1
 pxui::ui::Ring use pxui_types::theme::Ring @HEAD
 pxui::ui::Role use pxui_types::a11y::Role @HEAD
 pxui::ui::Scroll impl Clone @HEAD
@@ -1656,7 +1680,11 @@ pxui::ui::Scroll::settled field f32 @HEAD
 -pxui::ui::Scrub::node field Handle @U1b.1
 -pxui::ui::Scrub::preview field Option<f32> @U1b.1
 pxui::ui::ScrubPhase use crate::ScrubPhase @HEAD
+pxui::ui::SectionList use pxui_types::ui::SectionList @U1a.1
+pxui::ui::SectionPart use pxui_types::ui::SectionPart @U1a.1
 pxui::ui::Segment use crate::Segment @HEAD
+pxui::ui::Segmented use pxui_types::ui::Segmented @U1a.1
+pxui::ui::SelectionList use pxui_types::ui::SelectionList @U1a.1
 pxui::ui::Shadow use pxui_types::theme::Shadow @HEAD
 pxui::ui::Signal impl Clone @HEAD
 pxui::ui::Signal impl Debug @HEAD
@@ -1685,6 +1713,7 @@ pxui::ui::Signal::released field bool @HEAD
 pxui::ui::Signal::scroll field (f32, f32) @HEAD
 pxui::ui::Signal::subtree_press field Option<i64> @HEAD
 pxui::ui::Size use pxui_types::Size @HEAD
+pxui::ui::Slider use pxui_types::ui::Slider @U1a.1
 pxui::ui::State use pxui_types::theme::State @HEAD
 pxui::ui::States use pxui_types::theme::States @HEAD
 pxui::ui::Stroke impl Clone @HEAD
@@ -1708,6 +1737,9 @@ pxui::ui::SwipeActions::DEFAULT const SwipeActions @HEAD
 pxui::ui::SwipeActions::full fn const (self, travel: f32) -> SwipeActions @HEAD
 pxui::ui::SwipeActions::leading fn const (self, width: f32) -> SwipeActions @HEAD
 pxui::ui::SwipeActions::trailing fn const (self, width: f32) -> SwipeActions @HEAD
+pxui::ui::TableResponse use pxui_types::ui::TableResponse @U1a.1
+pxui::ui::TableView use pxui_types::ui::TableView @U1a.1
+pxui::ui::Target use pxui_types::ui::Target @U1a.1
 pxui::ui::TextArea impl Clone @HEAD
 pxui::ui::TextArea impl Copy @HEAD
 pxui::ui::TextArea impl Debug @HEAD
@@ -1724,6 +1756,8 @@ pxui::ui::TextArea::select fn const (self, start: usize, end: usize) -> TextArea
 pxui::ui::TextArea::spans fn const (self, spans: &'a [(usize, usize)]) -> TextArea<'a> @HEAD
 pxui::ui::TextArea::splices fn const (self, splices: &'a [Splice<'a>]) -> TextArea<'a> @HEAD
 pxui::ui::TextArea::wrap fn const (self, on: bool) -> TextArea<'a> @HEAD
+pxui::ui::TextEdit use pxui_types::ui::TextEdit @U1a.1
+pxui::ui::Toast use pxui_types::ui::Toast @U1a.1
 pxui::ui::Tokens use pxui_types::theme::Tokens @HEAD
 pxui::ui::TreeNode impl Clone @HEAD
 pxui::ui::TreeNode impl Copy @HEAD
@@ -1735,6 +1769,7 @@ pxui::ui::TreeNode impl StructuralPartialEq @HEAD
 pxui::ui::TreeNode struct @HEAD
 pxui::ui::TreeNode::children field u8 @HEAD
 pxui::ui::TreeNode::depth field u16 @HEAD
+pxui::ui::TreeResponse use pxui_types::ui::TreeResponse @U1a.1
 pxui::ui::Ui impl Drop @HEAD
 pxui::ui::Ui struct (_) @HEAD
 pxui::ui::Ui::a11y_name fn (&mut self, box_: &Handle, name: &str) -> bool @U1a.3
@@ -1999,6 +2034,7 @@ pxui::ui::Ui::view_of fn <K: Into<Key>, T: Hash + ?Sized, F: FnMut(&mut Ui)>(&mu
 pxui::ui::Ui::view_size fn (&self) -> Size @U1b.3
 pxui::ui::Ui::wants_frame fn (&self, events: &[Event], now: f64) -> bool @HEAD
 pxui::ui::Ui::within fn (&mut self, box_: &Handle, f: &mut dyn FnMut(&mut Ui)) @HEAD
+pxui::ui::UndoKind use pxui_types::ui::UndoKind @U1a.1
 pxui::ui::ValueField impl Clone @HEAD
 pxui::ui::ValueField impl Copy @HEAD
 pxui::ui::ValueField impl Debug @HEAD
@@ -2037,10 +2073,13 @@ pxui::ui::ViewTransform::scale fn const (self, scale: f32) -> ViewTransform @HEA
 pxui::ui::context_clicked fn (signal: &Signal) -> bool @HEAD
 pxui::ui::fuzzy_match use pxui_types::text_edit::fuzzy_match @HEAD
 pxui::ui::fuzzy_score use pxui_types::text_edit::fuzzy_score @HEAD
-pxui::ui::key fn (b: &Handle) -> i64 @HEAD
+pxui::ui::int_key use pxui_types::ui::int_key @U1a.1
+-pxui::ui::key fn (b: &Handle) -> i64 @U1a.1
+pxui::ui::key_of use pxui_types::ui::key_of @U1a.1
 pxui::ui::line_end use pxui_types::text_edit::line_end @HEAD
 pxui::ui::line_start use pxui_types::text_edit::line_start @HEAD
 pxui::ui::scrubbed use pxui_types::text_edit::scrubbed @HEAD
+pxui::ui::state use pxui_types::a11y::state @U1a.1
 -pxui::ui_core mod @U1a.1
 -pxui::ui_core::* use pxui_types::ui::* @U1a.1
 -pxui::ui_core::Axis use pxui_types::node::Axis @U1a.1
@@ -6647,7 +6686,7 @@ pxui_types::ui::UndoKind::Redo variant @HEAD
 pxui_types::ui::UndoKind::Undo variant @HEAD
 pxui_types::ui::display fn (text: &str) -> String @HEAD
 pxui_types::ui::ellipsis fn <'a>(width: &mut dyn FnMut(&str) -> f32, limit: f32, label: &'a str) -> Cow<'a, str> @HEAD
-pxui_types::ui::find_marker fn (text: &str, marker: &str) -> Option<usize> @HEAD
+-pxui_types::ui::find_marker fn (text: &str, marker: &str) -> Option<usize> @U1a.1
 pxui_types::ui::hash_range fn (seed: i64, text: &str, first: usize, last: usize) -> i64 @HEAD
 pxui_types::ui::int_key fn (seed: i64, n: i64) -> i64 @HEAD
 pxui_types::ui::key_of fn (seed: i64, text: &str) -> i64 @HEAD

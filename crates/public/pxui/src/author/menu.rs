@@ -272,7 +272,7 @@ mod tests {
     /// CHECKED and SELECTED; the sheet is named `Menu::name`, never by its key, and `padding` moves the first row down by its change.
     #[test]
     fn a_registered_row_body_gets_the_current_choice_and_the_sheet_its_name() {
-        use crate::a11y::state;
+        use crate::ui::state;
         const SIZES: [MenuItem; 3] = [MenuItem::new("4 GB"), MenuItem::new("8 GB").selected(true), MenuItem::new("16 GB").checked(true)];
         let mut ui = Ui::new().expect("library");
         ui.set_a11y(true);
@@ -334,7 +334,7 @@ mod tests {
         let mut build = |ui: &mut Ui| { let items = if order.get() { [b, a] } else { [a, b] }; ui.menu("m", (10.0, 10.0), &items, &Menu::DEFAULT); };
         let mut ui = crate::doc::frames(3, &mut build);
         testing::key(&mut ui, TAB, &mut build);
-        let focused = |ui: &Ui| ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem) && n.states & crate::a11y::state::FOCUSED != 0).map(|n| ui.a11y_name_of(n).to_owned());
+        let focused = |ui: &Ui| ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem) && n.states & crate::ui::state::FOCUSED != 0).map(|n| ui.a11y_name_of(n).to_owned());
         assert_eq!(focused(&ui).as_deref(), Some("A"));
         order.set(true);
         testing::frame(&mut ui, &[], &mut build);
@@ -353,7 +353,7 @@ mod tests {
             testing::frame(&mut ui, &[Event { kind: Event::POINTER_PRESSED, x, y, ..Default::default() }], &mut build);
             testing::frame(&mut ui, &[], &mut build);
             let states = ui.a11y_nodes().iter().find(|n| n.is_role(Role::MenuItem) && ui.a11y_name_of(n) == "Two").map(|n| n.states).expect("row");
-            assert_eq!(states & crate::a11y::state::FOCUSED != 0, focuses, "focus_on_click {}", menu.focus_on_click);
+            assert_eq!(states & crate::ui::state::FOCUSED != 0, focuses, "focus_on_click {}", menu.focus_on_click);
         }
     }
 

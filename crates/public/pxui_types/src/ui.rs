@@ -1657,15 +1657,7 @@ pub fn hash_range(seed: i64, text: &str, first: usize, last: usize) -> i64 {
 /// The byte index of the first `marker` (`##` or `###`) in `text`, or `None`; text with no `#` at all is rejected without searching.
 ///
 /// A `marker` that has no `#` in it is never found.
-/// Allocates: never.
-/// Panics: never.
-///
-/// ```
-/// use pxui_types::ui::find_marker;
-/// assert_eq!(find_marker("Play##space", "##"), Some(4));
-/// assert_eq!(find_marker("Play", "##"), None);
-/// ```
-pub fn find_marker(text: &str, marker: &str) -> Option<usize> {
+pub(crate) fn find_marker(text: &str, marker: &str) -> Option<usize> {
     if text.contains('#') { text.find(marker) } else { None }
 }
 

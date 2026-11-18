@@ -1,6 +1,6 @@
 // The gallery pages, against the wrapper `pxui`.
 use super::inputs;
-use pxui::{collections::TreeNode, Dialog, DialogButton, Image, Menu, MenuItem, Overlay, Pick, Handle, Ui};
+use pxui::{Dialog, DialogButton, Handle, Image, Menu, MenuItem, Overlay, Pick, TreeNode, Ui};
 use pxui::theme::Look;
 use pxui_types::{a11y::Role, ffi::ThemeSource, geom::Edges, layout::{Align, Along, Cell, Grid, Justify, Placement, Side, Track}, Axis, Flags, Node, Size, Str};
 use pxui_types::theme::{Curve, Font};

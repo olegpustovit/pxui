@@ -69,7 +69,7 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
     std::thread::spawn(move || drop(retired)).join().unwrap();
     let mut worker=ui.text_service().fork().unwrap();
     let stale:PreparedText=std::thread::spawn(move || worker.prepare("stale",&style,200.0,&[]).unwrap()).join().unwrap();
-    assert!(ui.text_service().add_font(crate::text::pragmasevka()).is_ok());
+    assert!(ui.text_service().add_font(crate::pragmasevka()).is_ok());
     let (code,stale)=match ui.text_service().install(stale) {Err(error)=>error,Ok(_)=>panic!("stale fonts accepted")};
     assert_eq!(code,crate::Error::State);
     std::thread::spawn(move || drop(stale)).join().unwrap();
@@ -705,7 +705,7 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
             assert!((ui.rect(&lead.get().unwrap()).y+offset).abs()<0.001,"retained heading rect: {:?}",ui.rect(&lead.get().unwrap()));
             let heading=ui.a11y_nodes().iter().find(|n|ui.a11y_name_of(n)=="Page heading").unwrap();
             assert!((heading.rect.y+offset).abs()<0.001,"retained heading accessibility: {:?}",heading.rect);
-            assert_eq!(heading.states & crate::a11y::state::VISIBLE!=0,offset<100.0,"offscreen headings are not visible to accessibility");
+            assert_eq!(heading.states & crate::ui::state::VISIBLE!=0,offset<100.0,"offscreen headings are not visible to accessibility");
             assert!((ui.rect(&header.get().unwrap()).y-(100.0-offset).max(0.0)).abs()<0.001);
             assert!((1..30).contains(&rows.get()),"only viewport rows plus overscan: {}",rows.get());
         }
@@ -1295,7 +1295,7 @@ fn second_atlas_pages_reach_public_quads_and_both_rasterizers() {
     assert!(glyphs.iter().any(|g|g.atlas==0) && glyphs.iter().any(|g|g.atlas==2));
     assert!(glyphs.iter().all(|g|g.atlas==0 || g.atlas==2));
     let (w,h,pixels)={ let mut px=Vec::new(); text.rasterize_rgba("ABCDEF",&style,0.0,2.0,[17,33,65,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
-    let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let mut shaper=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let (sw,sh,rgba)={ let mut px=Vec::new(); shaper.rasterize_rgba("ABCDEF",&resolved,0.0,2.0,[17,33,65,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
     assert_eq!((w,h),(sw,sh));
     assert_eq!(pixels,rgba,"standalone and UI mirrors sample both pages identically");
@@ -1341,7 +1341,7 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
 fn a_shaper_of_its_own_measures_and_rasterizes_off_the_ui() {
     let mut ui = Ui::new().expect("library");
     let style = ui.resolve(&crate::Label::BODY);
-    let mut text = crate::Text::new(&[crate::text::pragmasevka()]).expect("a shaper");
+    let mut text = crate::Text::new(&[crate::pragmasevka()]).expect("a shaper");
     let metrics = text.measure("abc", &style, 0.0).expect("measure");
     assert!(metrics.width > 0.0);
     // the same text measures the same in the Ui's own service: one font, two homes
@@ -1505,7 +1505,7 @@ fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() 
     let style=ui.resolve(&label);
     let span=TextSpan { start:3,end:5,flags:TextSpan::COLOR|TextSpan::BACKGROUND|TextSpan::UNDERLINE,
         color:Rgba::rgba(255,0,0,255),background:Rgba::rgba(0,0,255,64),underline:Rgba::rgba(0,255,0,255),..Default::default() };
-    let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let mut shaper=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let measured=shaper.measure_spans(text,&style,200.0,&[span]).unwrap();
     assert_eq!(ui.text_service().measure_spans(text,&label,200.0,&[span]).unwrap(),measured);
     for frame in 0..10 {
@@ -1619,7 +1619,7 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
 #[test]
 fn ellipsis_modes_match_standalone_ui_measurement_quads_and_rasterization() {
     let mut ui=Ui::new().unwrap();
-    let mut shaper=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let mut shaper=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let source="ABCDEFGHIJKLMNOPQRSTUVWXYZ";
     let mut previous=None;
     let body=crate::Label::BODY.size(20.0);
@@ -1684,7 +1684,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
 fn system_fonts_reach_standalone_and_ui_shapers_without_warm_allocations() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();
-    let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let mut text=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let label=crate::Label::BODY.size(20.0);
     let style=ui.resolve(&label);
     let old={ let mut px=Vec::new(); text.rasterize_rgba("漢字",&style,300.0,1.0,[0,0,0,255], &mut px).map(|(w,h)|(w,h,px)) }.unwrap();
@@ -2849,7 +2849,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
 fn keyless_text_measurement_retains_interleaved_values_styles_widths_and_spans() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
-    let mut text = crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let mut text = crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let plain = crate::Label::BODY.size(14.0).line_height(20.0).wrap();
     let cases = [
         ("1111", plain, 0.0),
@@ -2885,7 +2885,7 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
     use crate::{TextSpan,ui::{Node,Look,Font,Role}};
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new().unwrap();ui.set_a11y(true);
-    let mut text=crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let mut text=crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let span=[TextSpan {start:0,end:2,weight:700,..Default::default()}];
     let mut nodes=[None;9];
     let look=Look::NONE.text(crate::geom::Rgba::rgba(0,0,0,255));
@@ -2935,7 +2935,7 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
 fn text_into_forms_match_and_allocate_nothing_with_capacity() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new().unwrap();
-    let mut shaper = crate::Text::new(&[crate::text::pragmasevka()]).unwrap();
+    let mut shaper = crate::Text::new(&[crate::pragmasevka()]).unwrap();
     let label = crate::Label::BODY;
     let style = ui.resolve(&label);
     let color = [1, 2, 3, 255];
@@ -3097,7 +3097,7 @@ fn resolve_gives_the_style_a_label_shapes_with() {
         (plain.font,plain.weight,plain.size_points.to_bits(),plain.line_height.to_bits(),plain.wrap,plain.align,plain.max_lines,plain.ellipsis,plain.features,plain.tracking.to_bits()));
     let tracked=(ui.resolve(&crate::Label::BODY.size(18.0).tracking(-0.04).weight(500).line_height(25.2).wrap_spaces().lines(2).ellipsis())).0;
     assert_eq!((tracked.size_points,tracked.tracking,tracked.weight,tracked.line_height,tracked.wrap,tracked.max_lines,tracked.ellipsis),
-        (18.0,-0.04f32*18.0,500,25.2,(crate::text::Wrap::WordSpaces as u32),2,(crate::text::Ellipsis::End as u8)));
+        (18.0,-0.04f32*18.0,500,25.2,(crate::Wrap::WordSpaces as u32),2,(crate::Ellipsis::End as u8)));
     let theme=ui.resolve(&crate::Label::DEFAULT).0;
     assert!(theme.size_points>0.0,"the theme label's size");
     ui.frame(&input(),&mut |ui| {

@@ -20,28 +20,20 @@ pub use pxui_types::{Label,TextSpan};
 pub use pxui_types::ui::{Dialog, DialogButton};
 
 pub use pxui_types::{draw, geom};
+pub use pxui_types::a11y::Role;
+pub use pxui_types::geom::{Point, Rect, Rgba};
+pub use pxui_types::{Flags, Size};
 pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree, Input, Output, PlatformOut, ThemeSource};
 
 pub use pxui_types::theme;
 pub mod images;
+#[doc(hidden)]
 pub mod doc;
-#[cfg(doctest)] mod guide;
+pub mod guide;
 pub mod testing;
 
-/// The engine's module paths, so an app moves to the wrapper by swapping its dependency.
-pub mod a11y {
-    pub use pxui_types::a11y::{state, Role};
-    pub use pxui_types::ffi::{A11yAction, A11yNode, A11yTree};
-}
-pub mod ui_core {
-    pub use pxui_types::ui::*;
-    pub use crate::{GestureOpts, GestureState, Scroll, SwipeActions, DismissOpts, ViewTransform, Paint, Ui};
-    pub use pxui_types::{Flags, Size};
-    pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
-    /// The key of a node handle.
-    #[inline] pub fn key(b: &crate::Handle) -> i64 { b.box_key }
-}
-pub mod ui_text {
+/// The types and operations used to build a UI.
+pub mod ui {
     /// Whether `signal` is a right click: released with the right button within 4 points of its press.
     /// Allocates: never.
     /// Panics: never.
@@ -56,46 +48,43 @@ pub mod ui_text {
         let ((px, py), (rx, ry)) = (signal.press_point, signal.release_point);
         signal.released && signal.button == Some(1) && (px - rx) * (px - rx) + (py - ry) * (py - ry) < 16.0
     }
+    pub use crate::{Dialog, DialogButton, DismissOpts, Fill, GestureOpts, GestureState, Handle, ImageStyle, Language, Paint, Scrub, ScrubPhase, Scroll, Segment, Signal, Stroke, SwipeActions, TextArea, TreeNode, Ui, ValueField, ViewTransform};
     pub use pxui_types::text_edit::{scrubbed, fuzzy_match, fuzzy_score, line_end, line_start};
-    pub use pxui_types::ui::{CodeContext, Completion, Menu, MenuItem, Chosen, Pick};
-    pub use crate::{Language, ScrubPhase, TextArea, ValueField};
-}
-pub mod ui_widgets { pub use crate::{Dialog, DialogButton, Chosen, Scrub, Segment, TreeNode}; }
-/// The node handle `node`, the containers (`row`, `column`, `stack`), `view_of` and the widgets' `Response::handle` give: the one
-/// name of a node in the wrapper (the C record is `PxuiBox`).
-pub type Handle = pxui_types::PxuiBox;
-
-pub mod ui {
-    pub use crate::ui_core::*;
-    pub use crate::Handle;
-    pub use pxui_types::Image;
-    pub use crate::ui_text::*;
-    pub use crate::ui_widgets::*;
-    pub use crate::{Fill, ImageStyle, Paint, Signal, Stroke, Ui};
+    pub use pxui_types::ui::{
+        Checkbox, Choice, Chosen, CodeContext, Completion, Cursor, Dropdown, Head, HeadAction, Key, Keyframe, Keyframes,
+        LineStep, ListResponse, Menu, MenuItem, Overlay, PanelOpts, Pick, PickRows, PickerResponse, Repeat, SectionList,
+        SectionPart, Segmented, SelectionList, Slider, TableResponse, TableView, Target, TextEdit, Toast, TreeResponse,
+        UndoKind, DRAG_THRESHOLD, ROOT_KEY, int_key, key_of,
+    };
+    pub use pxui_types::{Flags, Image, Size};
+    pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
     pub use pxui_types::draw::*;
     pub use pxui_types::geom::*;
     pub use pxui_types::layout::*;
     pub use pxui_types::theme::{Curve, Font, Look, Ring, Shadow, State, States, Tokens};
-    pub use pxui_types::a11y::Role;
+    pub use pxui_types::a11y::{state, Role};
 }
-pub mod text;
-pub use text::{PreparedText, RetiredText, Text, TextStyle, TextWorker, UiText};
+/// A node's identity as returned by a build operation (the C record is `PxuiBox`).
+pub type Handle = pxui_types::PxuiBox;
+mod text;
+pub use text::{pragmasevka, PreparedText, RetiredText, Text, TextStyle, TextWorker, UiText};
+pub use pxui_types::text::{Ellipsis, TextAlign, Wrap};
 pub use box_ops::{NodeFields, PayloadRef, DropRef, GestureOpts, GestureState, Scroll, SwipeActions, DismissOpts, ViewTransform};
-pub mod paint;
+mod paint;
 pub use paint::{Fill, Paint, Stroke};
-pub mod widgets;
+mod widgets;
 pub use widgets::Scrub;
-pub mod composite;
-pub mod overlays;
+mod composite;
+mod overlays;
 pub use pxui_types::ui::{Checkbox, Choice, Dropdown, ListResponse, Menu, MenuItem, Chosen, Overlay, Pick, PickRows, PickerResponse, SelectionList, Slider, TableResponse, TableView, Toast, TreeResponse};
-pub mod collections;
+mod collections;
 pub mod bodies;
 pub use collections::TreeNode;
-pub mod image;
+mod image;
 pub use image::ImageStyle;
 mod text_inputs;
 pub use text_inputs::ScrubPhase;
-pub mod kit;
+mod kit;
 pub use pxui_types::ui::{Keyframes, Repeat};
 #[path = "a11y.rs"]
 mod a11y_ffi;

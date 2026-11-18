@@ -45,7 +45,7 @@ impl Ui {
     ///     mode = ui.radio("mode", &["Auto", "Light", "Dark"], mode, &MODE).1;
     /// };
     /// let mut ui = pxui::doc::frames(1, &mut build);
-    /// let dark = pxui::testing::find(&ui, pxui::a11y::Role::Radio, "Dark").expect("the Dark row");
+    /// let dark = pxui::testing::find(&ui, pxui::Role::Radio, "Dark").expect("the Dark row");
     /// pxui::testing::click(&mut ui, f64::from(dark.x + 4.0), f64::from(dark.y + 4.0), &mut build);
     /// assert_eq!(mode, 2);
     /// ```
@@ -67,7 +67,7 @@ impl Ui {
     /// let mut page = 0;
     /// let mut build = |ui: &mut pxui::Ui| { page = ui.tabs("pages", &["Layer", "Mask"], page, &pxui::Choice::DEFAULT).1; };
     /// let mut ui = pxui::doc::frames(1, &mut build);
-    /// let mask = pxui::testing::find(&ui, pxui::a11y::Role::Tab, "Mask").expect("the Mask tab");
+    /// let mask = pxui::testing::find(&ui, pxui::Role::Tab, "Mask").expect("the Mask tab");
     /// pxui::testing::click(&mut ui, f64::from(mask.x + 4.0), f64::from(mask.y + 4.0), &mut build);
     /// assert_eq!(page, 1);
     /// ```

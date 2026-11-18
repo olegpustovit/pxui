@@ -27,7 +27,7 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// use pxui::a11y::{state, Role};
+        /// use pxui::ui::{state, Role};
         /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("go".into(), pxui::Node::DEFAULT); ui.set_role(&b, Role::Button, state::ENABLED); });
         /// ```
         pub fn pxui_ui_set_role(ui: *mut PxuiUi, box_: *const PxuiBox, role: u32, states: u32) -> i32;
@@ -52,14 +52,14 @@ impl Ui {
         let rc = unsafe { sys::pxui_ui_a11y_number(self.0.as_ptr(), box_, now, min, max, step) };
         crate::live(self, rc);
     }
-    /// Sets how assistive technology sees `box_`: its `role` and a bitmask of `pxui::a11y::state` flags `states`.
+    /// Sets how assistive technology sees `box_`: its `role` and a bitmask of `pxui::ui::state` flags `states`.
     ///
     /// A dead `box_` (from an earlier frame) is ignored.
     /// Allocates: never.
     /// Panics: outside a frame, or when the library refuses the call (a null box).
     ///
     /// ```
-    /// use pxui::a11y::{state, Role};
+    /// use pxui::ui::{state, Role};
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     let b = ui.node("go".into(), pxui::Node::DEFAULT);
     ///     ui.set_role(&b, Role::Button, state::FOCUSABLE | state::ENABLED);
