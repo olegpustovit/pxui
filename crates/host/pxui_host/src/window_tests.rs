@@ -9,7 +9,7 @@ fn release_keepalive() {}
 #[cfg(target_os = "macos")]
 fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_release() {
     use pxui::images::Want;
-    use pxui::ui::{Fit, Node, Rgba, Size};
+    use pxui::ui::{Fit, Node, Size};
     use pxui::{FrameIn, Ui};
     use crate::{Graphics, Window};
     mem_sys::set_peer(pxui::library_counter);
@@ -65,7 +65,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
             &FrameIn::new(320.0, 240.0).time(frame as f64 / 60.0),
             &mut |ui| {
                 let node = ui.node(
-                    "image".into(),
+                    "image",
                     Node {
                         w: Size::Px(64.0),
                         h: Size::Px(32.0),
@@ -77,7 +77,7 @@ fn framework_host_uploads_exact_rgba_reuses_warm_frames_and_fences_texture_relea
                     .get(1, "memory:rgba", 32.0, Some(&node))
                     .unwrap();
                 ui.canvas(&node, move |paint, r| {
-                    paint.image(r, &image, Fit::Cover, Rgba::rgb(255, 255, 255)).unwrap();
+                    paint.image(r, &image, &pxui::ImageStyle::DEFAULT.fit(Fit::Cover)).unwrap();
                 });
             },
         )

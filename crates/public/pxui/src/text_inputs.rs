@@ -19,7 +19,7 @@ library!(lib {
     fn pxui_ui_text_field_keyed(ui: *mut PxuiUi, desc: *const PxuiTextFieldDesc, changed: *mut Str, out_changed: *mut u8) -> i32;
     fn pxui_ui_input_box(ui: *mut PxuiUi, out: *mut PxuiBox) -> i32;
     fn pxui_ui_load_text_edit(ui: *mut PxuiUi, key: i64, text: Str, out_text: *mut Str, caret: *mut u64, anchor: *mut u64) -> i32;
-    fn pxui_ui_remember(ui: *mut PxuiUi, text: Str, caret: u64, anchor: u64, typing: u8) -> i32;
+    fn pxui_ui_remember_key(ui: *mut PxuiUi, key: i64, text: Str, caret: u64, anchor: u64, typing: u8) -> i32;
 });
 
 // What the library's callbacks reach during one `value_field` call: the app's closures and the text a callback produced
@@ -296,7 +296,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let plain = ui.node("n".into(), pxui::Node::DEFAULT); // not a value field
+    ///     let plain = ui.node("n", pxui::Node::DEFAULT); // not a value field
     ///     assert!(!ui.patch_field(&plain, &pxui::ValueField::DEFAULT, "1.0"));
     /// });
     /// ```
@@ -308,42 +308,16 @@ impl Ui {
         live(self, rc) && out != 0
     }
 
-    /// The edit the `Ui` keeps for the field under `key`, loaded with `text`: its caret, selection and undo history follow the key while the text is unchanged.
-    /// When `key` or `text` differs from the last load, the previous edit's undo history is shelved (the three latest are kept) and this one starts at the end of `text`, or resumes a shelved history for the same key and text.
-    /// Allocates: the returned `TextEdit` owns a copy of the text.
-    /// Identity: `key` is the field's box key (`Handle::box_key`), not a label; two fields with one key share one edit.
-    /// Panics: when the library refuses the call (a null `Ui`, or `text` over the limit).
-    ///
-    /// ```
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     let field = ui.node("field".into(), pxui::Node::DEFAULT);
-    ///     let edit = ui.load_text_edit(field.box_key, "hello");
-    ///     assert_eq!((edit.text.as_str(), edit.caret, edit.anchor), ("hello", 5, 5));
-    /// });
-    /// ```
-    #[track_caller]
-    pub fn load_text_edit(&mut self, key: i64, text: &str) -> TextEdit {
+    pub(crate) fn load_edit_key(&mut self, key: Key, text: &str) -> TextEdit {
+        let key = self.resolve_lookup_key(key);
         let (mut out, mut caret, mut anchor) = (Str::default(), 0, 0);
         check(self, unsafe { lib::pxui_ui_load_text_edit(self.0.as_ptr(), key, as_text(text), &mut out, &mut caret, &mut anchor) });
         TextEdit { text: lent_string(out), caret: caret as usize, anchor: anchor as usize }
     }
 
-    /// Snapshots `edit` for undo; with `typing`, consecutive typing at one caret joins the previous snapshot into one step.
-    /// Taking a snapshot clears the redo history. The history holds the latest 200 steps and is bounded in bytes overall (`text_undo_bytes`).
-    /// Allocates: a copy of the text for each snapshot that is not joined.
-    /// Panics: when the library refuses the call (a null `Ui`, or `edit.text` over the limit).
-    ///
-    /// ```
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     let field = ui.node("field".into(), pxui::Node::DEFAULT);
-    ///     let edit = ui.load_text_edit(field.box_key, "hello");
-    ///     ui.remember(&edit, false);
-    ///     assert!(ui.text_undo_bytes() > 0);
-    /// });
-    /// ```
-    #[track_caller]
-    pub fn remember(&mut self, edit: &TextEdit, typing: bool) {
-        check(self, unsafe { lib::pxui_ui_remember(self.0.as_ptr(), as_text(&edit.text), edit.caret as u64, edit.anchor as u64, typing as u8) })
+    pub(crate) fn remember_key(&mut self, key: Key, edit: &TextEdit, typing: bool) {
+        let key = self.resolve_lookup_key(key);
+        check(self, unsafe { lib::pxui_ui_remember_key(self.0.as_ptr(), key, as_text(&edit.text), edit.caret as u64, edit.anchor as u64, typing as u8) })
     }
 }
 

@@ -378,7 +378,7 @@ impl Ui {
     /// ```
     /// const NAME: pxui::Label = pxui::Label::BODY.line_height(20.0);
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("name".into(), pxui::Node::DEFAULT);
+    ///     let node = ui.node("name", pxui::Node::DEFAULT);
     ///     let bold = pxui::TextSpan { start: 0, end: 4, weight: 700, ..Default::default() };
     ///     ui.text_spans(&node, "Song title", &NAME, &[bold]).unwrap();
     /// });
@@ -406,7 +406,7 @@ impl Ui {
     /// ```
     /// const NAME: pxui::Label = pxui::Label::BODY.size(15.0).line_height(21.0);
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("name".into(), pxui::Node::DEFAULT);
+    ///     let node = ui.node("name", pxui::Node::DEFAULT);
     ///     ui.text_line_box(&node, "Song title", &NAME, &[]).unwrap();
     /// });
     /// ```

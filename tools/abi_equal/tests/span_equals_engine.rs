@@ -106,9 +106,9 @@ fn engine_instances() -> Vec<pxui_types::draw::Instance> {
 fn wrapper_instances() -> Vec<pxui_types::draw::Instance> {
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(pxui_core::text::PRAGMASEVKA)])).expect("pxui Ui");
     ui.frame(&FrameIn::new(SIZE.0, SIZE.1).scale(1.0), &mut |ui: &mut pxui::Ui| {
-        let round = ui.node("round".into(), pxui::Node { flags: pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..pxui::Node::DEFAULT });
+        let round = ui.node("round", pxui::Node { flags: pxui_types::Flags::CLIP | pxui_types::Flags::ROUND_CLIP, w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), look: Look { radius: [6.0; 4], ..Look::NONE }, ..pxui::Node::DEFAULT });
         ui.within(&round, &mut |ui: &mut pxui::Ui| {
-            let b = ui.node("canvas".into(), pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });
+            let b = ui.node("canvas", pxui::Node { w: Size::Px(SIZE.0), h: Size::Px(SIZE.1), ..pxui::Node::DEFAULT });
             ui.canvas(&b, |p, _| wrapper_art(p));
         });
     }).expect("frame");

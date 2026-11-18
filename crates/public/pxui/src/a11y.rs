@@ -74,7 +74,7 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("play".into(), pxui::Node::DEFAULT.role(pxui::Role::Button)); ui.a11y_name(&b, "Play"); });
+        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("play", pxui::Node::DEFAULT.role(pxui::Role::Button)); ui.a11y_name(&b, "Play"); });
         /// ```
         pub fn pxui_ui_a11y_name_checked(ui: *mut PxuiUi, box_: *const PxuiBox, name: Str) -> i32;
         /// The C entry `Ui::a11y_value` calls: sets a box's accessible text `value` and selection (`anchor`, `caret` as UTF-8 byte offsets,
@@ -84,7 +84,7 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("field".into(), pxui::Node::DEFAULT); assert!(ui.a11y_value(&b, "héllo", (0, 3)).unwrap()); });
+        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("field", pxui::Node::DEFAULT); assert!(ui.a11y_value(&b, "héllo", (0, 3)).unwrap()); });
         /// ```
         pub fn pxui_ui_a11y_value(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str,anchor:u32,caret:u32)->i32;
     }
@@ -101,7 +101,7 @@ impl Ui {
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("name".into(), pxui::Node::DEFAULT.role(pxui::Role::TextField));
+    ///     let b = ui.node("name", pxui::Node::DEFAULT.role(pxui::Role::TextField));
     ///     assert!(ui.a11y_value(&b, "héllo", (0, 3)).unwrap());
     /// });
     /// assert!(ui.a11y_tree().0.windows("héllo".len()).any(|w| w == "héllo".as_bytes()));
@@ -121,7 +121,7 @@ impl Ui {
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("play".into(), pxui::Node::DEFAULT.role(pxui::Role::Button));
+    ///     let b = ui.node("play", pxui::Node::DEFAULT.role(pxui::Role::Button));
     ///     assert!(ui.a11y_name(&b, "Play"));
     /// });
     /// assert!(ui.a11y_tree().0.windows(4).any(|w| w == b"Play"));

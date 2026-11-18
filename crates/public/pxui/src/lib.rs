@@ -101,7 +101,7 @@ mod box_ops;
 mod kit_ext;
 mod theme_scope;
 pub use theme_scope::ThemeHandle;
-pub use ui_state::{Bytes, Platform};
+pub use ui_state::{Bytes, Ime, Platform};
 mod node;
 mod author;
 pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, Picker, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
@@ -160,6 +160,7 @@ mod sys {
         pub fn pxui_ui_request_frame(ui:*mut PxuiUi)->i32;
         pub fn pxui_ui_rect(ui:*mut PxuiUi,box_:*const PxuiBox,out:*mut pxui_types::geom::Rect)->i32;
         pub fn pxui_ui_box_of_key(ui:*mut PxuiUi,key:i64,out:*mut PxuiBox)->u8;
+        pub fn pxui_ui_key_seed(ui:*mut PxuiUi,out:*mut i64)->i32;
         pub fn pxui_ui_box_of_a11y(ui:*mut PxuiUi,id:u64,out:*mut PxuiBox)->u8;
         pub fn pxui_ui_text(ui:*mut PxuiUi,box_:*const PxuiBox,value:Str)->i32;
         pub fn pxui_ui_destroy(ui: *mut PxuiUi) -> i32;
@@ -740,7 +741,37 @@ impl Ui {
         check(self, unsafe{sys::pxui_ui_rect(self.0.as_ptr(),box_,&mut out)});
         out
     }
-    #[inline] pub fn box_of_key(&self,key:i64)->Option<Handle>{
+    pub(crate) fn box_of_author_key(&self, key: Key) -> Option<Handle> {
+        self.box_of_resolved_key(self.resolve_lookup_key(key))
+    }
+
+    /// The box key a lookup names: `Key::Resolved` unchanged (already hashed, never hashed again); an authored label or id hashed
+    /// as `node` hashes it, under the active scope seed during a build and under `ROOT_KEY` outside one. No allocation.
+    #[track_caller]
+    pub(crate) fn resolve_lookup_key(&self, key: Key) -> i64 {
+        match key {
+            Key::Resolved(key) => key,
+            key => self.resolve_under(self.lookup_seed(), key),
+        }
+    }
+
+    /// `key` hashed as `node` hashes it under `seed` (`Key::Resolved` as it is).
+    #[track_caller]
+    pub(crate) fn resolve_under(&self, seed: i64, key: Key) -> i64 {
+        if let Key::Label(label) = key { authored(label); }
+        let mut buf = [0u8; 17];
+        pxui_types::ui::key_of(seed, key.label(&mut buf))
+    }
+
+    /// The seed `resolve_lookup_key` hashes an authored key under.
+    #[track_caller]
+    pub(crate) fn lookup_seed(&self) -> i64 {
+        let mut seed = 0;
+        check(self, unsafe { sys::pxui_ui_key_seed(self.0.as_ptr(), &mut seed) });
+        seed
+    }
+
+    pub(crate) fn box_of_resolved_key(&self,key:i64)->Option<Handle>{
         let mut out=Handle::default();
         #[cfg(feature = "static")]
         let found=unsafe{pxui_abi_link::trusted::box_of_key(self.0.as_ptr(),key,&mut out)};
@@ -843,6 +874,14 @@ impl Strs {
         let ptr=if self.len<=32 { self.stack.as_ptr() } else { self.heap.as_ptr() };
         pxui_types::ffi::Slice { ptr, len:self.len }
     }
+}
+
+/// Panics when an authored label begins with a byte below 0x20: those labels are reserved for the id and resolved key forms and the
+/// engine's own positional keys.
+#[inline]
+#[track_caller]
+pub(crate) fn authored(label: &str) {
+    assert!(label.as_bytes().first().is_none_or(|b| *b >= 0x20), "pxui: a key label beginning with a control byte is reserved");
 }
 
 /// Display text as the library takes it, clipped to the display-text cap (`MAX_LABEL_BYTES`, 64 KiB) at a character boundary: text past

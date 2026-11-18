@@ -14,33 +14,14 @@ pub(crate) fn state(v:pxui_types::theme::State)->PxuiStateDesc { PxuiStateDesc{h
 pub(crate) fn mark(v:Mark)->PxuiMarkDesc { match v {Mark::None=>PxuiMarkDesc{kind:0,..Default::default()},Mark::Chevron(dir)=>PxuiMarkDesc{kind:1,direction:dir as u32,..Default::default()},Mark::Line{width,rising}=>PxuiMarkDesc{kind:2,width,rising:rising as u8,..Default::default()}} }
 
 impl Ui {
-    /// Declares `node` under the current parent by `key` and returns its handle, valid this frame.
-    ///
-    /// The node crosses as it is, by reference: the library checks it where it lies and copies it once into the engine (a grid's
-    /// tracks are copied too).
-    /// Allocates: never on a warm frame (a new identity takes a slot the first time).
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`): a label hashes as `key_of` does,
-    /// an id as its NUL-and-hex label, so an id never collides with a printable label; a repeated key takes a `#dup` key.
-    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve or grid). A key or identity label over 256 bytes panics (a programmer error).
-    ///
-    /// ```
-    /// use pxui::ui::{Node, Size};
-    /// let mut rows = Vec::new();
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     rows.clear();
-    ///     let list = ui.node("list".into(), Node::DEFAULT);
-    ///     ui.within(&list, &mut |ui| for id in [41u64, 42] { rows.push(ui.node(id.into(), Node { h: Size::Px(24.0), ..Node::DEFAULT })); });
-    /// });
-    /// assert_ne!(rows[0].box_key, rows[1].box_key);
-    /// ```
-    #[inline(always)]
+    #[inline]
     #[track_caller]
-    pub fn node(&mut self,key:crate::Key,node:Node)->Handle {
+    pub(crate) fn node_key(&mut self,key:crate::Key,node:Node)->Handle {
         // written by the library whenever it returns 0; `check` does not return otherwise
         let mut out=core::mem::MaybeUninit::<Handle>::uninit();
         let rc=match key {
-            crate::Key::Label(label)=>self.node_call(label,&node,out.as_mut_ptr()),
-            crate::Key::Id(id)=>{ let mut id_label=[0u8;17]; self.node_call(crate::Key::Id(id).label(&mut id_label),&node,out.as_mut_ptr()) }
+            crate::Key::Label(label)=>{ crate::authored(label); self.node_call(label,&node,out.as_mut_ptr()) },
+            key=>{ let mut id_label=[0u8;17]; self.node_call(key.label(&mut id_label),&node,out.as_mut_ptr()) }
         };
         check(self,rc);
         unsafe { out.assume_init() }

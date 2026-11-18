@@ -24,7 +24,7 @@ pub const ROWS: usize = 100_000;
 pub const TOAST_SECONDS: f64 = 3.0;
 
 fn node(ui: &mut Ui, label: &'static str, desc: Node) -> Handle {
-    ui.node(label.into(), desc)
+    ui.node(Key::Label(label), desc)
 }
 
 /// What the gallery holds between frames. `page_rev` and `chrome_rev` are the views' revisions: an
@@ -267,11 +267,9 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
         }
         let row = node(ui, "tip-row", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
-            let _ = ui.icon_button("Help", pxui::Icon::Glyph('?'), "Help", &pxui::IconButton::DEFAULT);
-        });
-        if let Some(help) = ui.box_of_key(pxui_types::ui::key_of(row.box_key, "Help")) {
+            let help = ui.icon_button("Help", pxui::Icon::Glyph('?'), "Help", &pxui::IconButton::DEFAULT).handle;
             ui.tooltip(&help, "Rest the pointer on a control to see its tip");
-        }
+        });
         if !s.said.is_empty() {
             let _ = ui.inspector_message("said", s.said);
         }

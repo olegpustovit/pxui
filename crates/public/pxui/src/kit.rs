@@ -38,7 +38,7 @@ mod sys {
     /// ```
     /// use pxui::ui::{Curve, Keyframe};
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     ui.animate_keys(&b, &[Keyframe::offset(0.0, 0.0, 8.0).curve(Curve::Spring { omega: 10.0 })], &pxui::Keyframes::DEFAULT);
     /// });
     /// ```
@@ -50,7 +50,7 @@ mod sys {
     /// ```
     /// use pxui::ui::{Curve, Keyframe};
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     let curve = Curve::Bezier { duration: 0.4, points: [0.0, 0.0, 1.0, 1.0] };
     ///     let keys = [Keyframe::opacity(0.0, 1.0).curve(curve), Keyframe::opacity(0.4, 0.5).curve(curve)];
     ///     ui.animate_keys(&b, &keys, &pxui::Keyframes::DEFAULT.repeat(pxui::Repeat::Count(2)));
@@ -438,7 +438,7 @@ impl Ui {
     /// use pxui::ui::{Curve, Keyframe};
     /// use pxui::{Keyframes, Repeat};
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("pulse".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("pulse", pxui::Node::DEFAULT);
     ///     let spring = Curve::Spring { omega: 8.0 };
     ///     let keys = [Keyframe::opacity(0.0, 1.0).curve(spring), Keyframe::opacity(0.5, 0.4).curve(spring)];
     ///     ui.animate_keys(&b, &keys, &Keyframes::DEFAULT.repeat(Repeat::Forever).autoreverse());

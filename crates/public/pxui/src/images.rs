@@ -370,7 +370,7 @@ impl Images {
     /// use pxui::images::{Images, Request};
     /// let images = Images::default();
     /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("cover".into(), pxui::Node::DEFAULT);
+    ///     let node = ui.node("cover", pxui::Node::DEFAULT);
     ///     images.get(1, "a.png", 50.0, Some(&node));
     /// });
     /// images.get(2, "b.png", 100.0, None);
@@ -383,13 +383,13 @@ impl Images {
     pub fn requests(&self, ui: Option<&crate::Ui>, out: &mut Request) {
         let mut queue = self.queue.borrow_mut();
         if let Some(ui) = ui {
-            queue.pending.retain(|wanted| wanted.node.is_none_or(|key| ui.box_of_key(key).is_some()));
+            queue.pending.retain(|wanted| wanted.node.is_none_or(|key| ui.box_of_key(crate::Key::Resolved(key)).is_some()));
         }
         out.clear();
         out.epoch = self.epoch;
         for wanted in queue.pending.iter() {
             if let (Some(ui), Some(key)) = (ui, wanted.node) {
-                let Some(node) = ui.box_of_key(key) else {
+                let Some(node) = ui.box_of_key(crate::Key::Resolved(key)) else {
                     continue;
                 };
                 let rect = ui.rect(&node);
@@ -444,7 +444,7 @@ impl Images {
     /// let images = pxui::images::Images::default();
     /// assert!(images.get(1, "a.png", 100.0, None).is_none());
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("cover".into(), pxui::Node::DEFAULT);
+    ///     let node = ui.node("cover", pxui::Node::DEFAULT);
     ///     assert!(images.get(2, "b.png", 50.0, Some(&node)).is_none());
     /// });
     /// let mut request = pxui::images::Request::default();
@@ -711,7 +711,7 @@ mod tests {
                                 1 => "visible",
                                 2 => "later",
                                 _ => "prefetch",
-                            }.into(),
+                            },
                             crate::ui::Node {
                                 w: crate::ui::Size::Px(30.0),
                                 h: crate::ui::Size::Px(30.0),

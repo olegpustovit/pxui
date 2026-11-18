@@ -17,7 +17,7 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("vol".into(), pxui::Node::DEFAULT); assert!(ui.a11y_number(&b, 5.0, 0.0, 10.0, 1.0).unwrap()); });
+        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("vol", pxui::Node::DEFAULT); assert!(ui.a11y_number(&b, 5.0, 0.0, 10.0, 1.0).unwrap()); });
         /// ```
         pub fn pxui_ui_a11y_number_checked(ui: *mut PxuiUi, box_: *const PxuiBox, now: f64, min: f64, max: f64, step: f64) -> i32;
         /// The C entry `Ui::set_role` calls: sets a box's accessibility role and state bits; an error code for a null box or a role past
@@ -27,7 +27,7 @@ mod sys {
         /// Panics: never.
         ///
         /// ```
-        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("go".into(), pxui::Node::DEFAULT); ui.set_role(&b, pxui::Role::Button, 0); });
+        /// pxui::doc::frames(1, &mut |ui| { let b = ui.node("go", pxui::Node::DEFAULT); ui.set_role(&b, pxui::Role::Button, 0); });
         /// ```
         pub fn pxui_ui_set_role(ui: *mut PxuiUi, box_: *const PxuiBox, role: u32, states: u32) -> i32;
     }
@@ -44,7 +44,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("volume".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("volume", pxui::Node::DEFAULT);
     ///     assert!(ui.a11y_number(&b, 3.0, 0.0, 10.0, 1.0).unwrap());
     /// });
     /// ```
@@ -62,7 +62,7 @@ impl Ui {
     /// ```
     /// use pxui::Role;
     /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("go".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("go", pxui::Node::DEFAULT);
     ///     ui.set_role(&b, Role::Button, 0);
     /// });
     /// assert!(ui.a11y_nodes().iter().any(|n| n.role == Role::Button as u32));

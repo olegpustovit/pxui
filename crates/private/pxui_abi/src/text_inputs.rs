@@ -295,6 +295,18 @@ export!(pub unsafe fn pxui_ui_load_text_edit(ui: *mut PxuiUi, key: i64, text: St
     0
 });
 
+// ABI 1.77: `pxui_ui_remember` for the field keyed `key` (a resolved box key): the active editor's history when `key` owns it, the
+// shelved history of that key otherwise (a key with no history is left alone); the active editor never changes.
+export!(pub unsafe fn pxui_ui_remember_key(ui: *mut PxuiUi, key: i64, text: Str, caret: u64, anchor: u64, typing: u8) -> i32 {
+    let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(text) = (unsafe { checked_text(text) }) else { return unsafe { fail(ui, "invalid edit text") }; };
+    let at = |offset: u64| usize::try_from(offset).ok().filter(|offset| text.is_char_boundary(*offset));
+    let (Some(caret), Some(anchor)) = (at(caret), at(anchor)) else { return unsafe { fail(ui, "caret and anchor must sit on characters of the text") }; };
+    if typing > 1 { return unsafe { fail(ui, "invalid typing flag") }; }
+    unsafe { (&mut *state.engine).remember_key(key, &pxui_core::ui_text::TextEdit { text: text.to_owned(), caret, anchor }, typing != 0); }
+    0
+});
+
 // Snapshots `text` with its caret and anchor for undo; `typing` joins consecutive typing into one step.
 export!(pub unsafe fn pxui_ui_remember(ui: *mut PxuiUi, text: Str, caret: u64, anchor: u64, typing: u8) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };

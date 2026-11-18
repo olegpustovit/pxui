@@ -145,7 +145,7 @@ mod tests {
     fn marker(ui: &mut Ui, c: &MenuRowConfig) {
         assert!(c.size as usize >= core::mem::size_of::<MenuRowConfig>(), "this library carries the row height");
         SEEN.with(|s| s.borrow_mut().push((c.text_of(&c.text).to_owned(), c.state.disabled != 0, c.danger != 0, c.selected != 0, c.has_shortcut != 0, c.lead, c.row_h)));
-        ui.node("custom".into(), pxui_types::Node { w: pxui_types::Size::Px(7.0), h: pxui_types::Size::Px(9.0), ..pxui_types::Node::DEFAULT });
+        ui.node("custom", pxui_types::Node { w: pxui_types::Size::Px(7.0), h: pxui_types::Size::Px(9.0), ..pxui_types::Node::DEFAULT });
     }
 
     /// With a registered `menu_row` body every row goes through it, with the item's flags and the menu's row height; its

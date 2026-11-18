@@ -347,6 +347,18 @@ impl Ui {
         self.edit_group = -1;
     }
 
+    /// `remember` for the field keyed `key` (a resolved box key): the active editor's history when `key` owns it, a shelved
+    /// history of that key otherwise; a key with no history is left alone. The active editor never changes.
+    pub fn remember_key(&mut self, key: i64, edit: &TextEdit, typing: bool) {
+        if key == self.edit_owner { return self.remember(edit, typing); }
+        if let Some(entry) = self.edit_shelf.iter_mut().find(|entry| entry.0 == key) {
+            entry.2.insert(0, (edit.text.clone(), edit.caret, edit.anchor));
+            entry.2.truncate(200);
+            entry.3.clear();
+            self.enforce_text_undo();
+        }
+    }
+
     fn undo_text(&mut self, edit: &mut TextEdit, redo: bool) -> bool {
         let stack = if redo { &mut self.edit_redo } else { &mut self.edit_undo };
         if stack.is_empty() {

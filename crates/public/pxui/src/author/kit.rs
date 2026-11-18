@@ -204,7 +204,7 @@ mod tests {
     thread_local! { static SEEN: RefCell<Vec<(&'static str, u16)>> = const { RefCell::new(Vec::new()) }; }
     fn seen(kind: &'static str, variant: u16) { SEEN.with(|s| s.borrow_mut().push((kind, variant))); }
     /// Each registered body builds one marker node of its own, named by its kind, so the custom structure shows in the tree.
-    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind.into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
+    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
     fn check(ui: &mut Ui, c: &CheckboxConfig) { seen("checkbox", c.variant); marker(ui, "custom checkbox"); }
     fn radio(ui: &mut Ui, c: &RadioConfig) { seen("radio", c.variant); marker(ui, "custom radio"); }
     fn tab(ui: &mut Ui, c: &TabsConfig) { seen("tab", c.variant); marker(ui, "custom tab"); }

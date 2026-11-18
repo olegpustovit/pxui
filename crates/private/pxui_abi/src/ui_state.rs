@@ -286,11 +286,23 @@ export!(pub unsafe fn pxui_ui_expanded(ui: *mut PxuiUi, key: Str, out: *mut u8) 
     0
 });
 
+// ABI 1.77: a `key` in the resolved form (a 0x01 byte and 16 lowercase hex digits, `Key::Resolved`) waits on that key itself,
+// allocation-free and shared with tooltip owners; any other text keeps the 1.x wait compared as text.
 export!(pub unsafe fn pxui_ui_hover_delay(ui: *mut PxuiUi, key: Str, out: *mut u8) -> i32 {
     let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
     let Some(key) = (unsafe { crate::state::checked_key(key) }) else { return unsafe { fail(ui, "invalid hover key") }; };
     if out.is_null() { return unsafe { fail(ui, "null hover output") }; }
-    unsafe { *out = e.hover_delay(key) as u8; }
+    let resolved = key.len() == 17 && key.as_bytes()[0] == 1;
+    unsafe { *out = if resolved { e.hover_delay_key(pxui_types::ui::key_of(0, key)) } else { e.hover_delay(key) } as u8; }
+    0
+});
+
+// ABI 1.77: the seed an authored key resolves under for a lookup: the active scope's during a build, `ROOT_KEY` outside one, so
+// `key_of(seed, label)` names what `pxui_ui_node` keyed by `label` in that scope.
+export!(pub unsafe fn pxui_ui_key_seed(ui: *mut PxuiUi, out: *mut i64) -> i32 {
+    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    if out.is_null() { return unsafe { fail(ui, "null seed output") }; }
+    unsafe { *out = e.lookup_seed(); }
     0
 });
 

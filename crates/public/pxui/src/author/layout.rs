@@ -27,6 +27,97 @@ impl Ui {
         self.split_key(key.into(), ratio, split, a, b)
     }
 
+    /// Builds a keyed leaf that displays a host-owned GPU image.
+    ///
+    /// The host keeps the native texture alive through all GPU uses. Name supplies the accessibility label verbatim.
+    /// Invalid images, dimensions or names return InvalidInput. Outside a frame returns State.
+    /// Allocates: never on a warm frame.
+    /// Identity: The key identifies the node among siblings. Changing its accessible name preserves the node.
+    /// Panics: an authored key whose label exceeds 256 bytes.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let result = ui.image("cover", "Cover art", &pxui::Image::default(), &pxui::ImageStyle::DEFAULT);
+    ///     assert_eq!(result.err(), Some(pxui::Error::InvalidInput));
+    /// });
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn image<K: Into<Key>>(&mut self, key: K, name: &str, image: &crate::Image, style: &crate::ImageStyle) -> Result<Handle, crate::Error> {
+        self.image_key(key.into(), name, image, style)
+    }
+
+    /// Whether the pointer has rested, unmoved, on the target named `key` for the hover delay (the tooltip wait); call it every frame the pointer is over the target.
+    /// A different `key`, a moved pointer, a missed frame, a touch, a press in progress, a modal or focus loss restart the wait. The first call for a key is always false.
+    /// There is one wait per `Ui`; the tooltip of an owner uses the same timer, keyed by the owner's box.
+    /// Allocates: never; the wait stores the resolved key, so resets and pointer moves copy no text.
+    /// Identity: `key` resolves under the active scope seed like `node`, so the same label under two parents names two targets.
+    /// `Key::Resolved` names an existing box. The 1.x C text-keyed export keeps its own behavior.
+    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| assert!(!ui.hover_delay("play")));
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn hover_delay<K: Into<Key>>(&mut self, key: K) -> bool { self.hover_delay_key(key.into()) }
+
+    /// The state of the inspector section built under `key` in the current parent: `Some(true)` expanded, `Some(false)` collapsed, `None` when no section of that key has been built there.
+    /// Read it where the section is built (inside the same parent); it is `None` until the section has first been built there, and keeps its state from frame to frame.
+    /// Allocates: never.
+    /// Identity: `key` is the key given to `inspector_section`, resolved under the current parent's seed as for any label.
+    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     assert_eq!(ui.expanded("details"), None); // not built yet
+    ///     ui.inspector_section("details", true, None, "Details", &mut |ui| { ui.label("body", pxui::Label::DEFAULT); });
+    ///     assert_eq!(ui.expanded("details"), Some(true));
+    /// });
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn expanded<K: Into<Key>>(&self, key: K) -> Option<bool> { self.expanded_key(key.into()) }
+
+    /// Finds the live node for a key.
+    ///
+    /// Returns None when the node is absent from the UI's retained tables.
+    /// Allocates: never.
+    /// Identity: Authored labels and ids resolve as `node` resolves them: under the active scope seed during a build, under the root
+    /// seed outside one. Use Key::Resolved with an existing box key; it is never hashed again.
+    /// Panics: an invalid authored key.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     assert!(ui.box_of_key("missing").is_none());
+    /// });
+    /// ```
+    #[inline]
+    pub fn box_of_key<K: Into<Key>>(&self, key: K) -> Option<Handle> { self.box_of_author_key(key.into()) }
+
+    /// Declares `node` under the current parent by `key` and returns its handle, valid this frame.
+    ///
+    /// The node crosses as it is, by reference: the library checks it where it lies and copies it once into the engine (a grid's
+    /// tracks are copied too).
+    /// Allocates: never on a warm frame (a new identity takes a slot the first time).
+    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`): a label hashes as `key_of` does,
+    /// an id as its NUL-and-hex label, so an id never collides with a printable label; a repeated key takes a `#dup` key.
+    /// Panics: when the library refuses the node (outside a frame, an invalid transition curve or grid). A key or identity label over 256 bytes panics (a programmer error).
+    ///
+    /// ```
+    /// use pxui::ui::{Node, Size};
+    /// let mut rows = Vec::new();
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     rows.clear();
+    ///     let list = ui.node("list", Node::DEFAULT);
+    ///     ui.within(&list, &mut |ui| for id in [41u64, 42] { rows.push(ui.node(id, Node { h: Size::Px(24.0), ..Node::DEFAULT })); });
+    /// });
+    /// assert_ne!(rows[0].box_key, rows[1].box_key);
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn node<K: Into<Key>>(&mut self, key: K, node: Node) -> Handle { self.node_key(key.into(), node) }
+
     /// Declares `node` laid out as a row under the current parent and runs `f` to build its children inside it.
     ///
     /// `node` is used as given with `axis` set to `Axis::Row`; the returned handle is the row's, valid this frame (style it,
@@ -41,8 +132,8 @@ impl Ui {
     /// let (mut a, mut b) = (None, None);
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     ui.row("toolbar", Node { h: Size::Px(24.0), ..Node::DEFAULT }, |ui| {
-    ///         a = Some(ui.node("a".into(), Node { w: Size::Px(10.0), ..Node::DEFAULT }));
-    ///         b = Some(ui.node("b".into(), Node { w: Size::Px(10.0), ..Node::DEFAULT }));
+    ///         a = Some(ui.node("a", Node { w: Size::Px(10.0), ..Node::DEFAULT }));
+    ///         b = Some(ui.node("b", Node { w: Size::Px(10.0), ..Node::DEFAULT }));
     ///     });
     /// });
     /// assert_eq!(ui.rect(&b.unwrap()).x, ui.rect(&a.unwrap()).x + 10.0);
@@ -90,8 +181,8 @@ impl Ui {
     /// let (mut a, mut b) = (None, None);
     /// let ui = pxui::doc::frames(2, &mut |ui| {
     ///     ui.stack("badge", Node::DEFAULT, |ui| {
-    ///         a = Some(ui.node("art".into(), Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT }));
-    ///         b = Some(ui.node("dot".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }));
+    ///         a = Some(ui.node("art", Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT }));
+    ///         b = Some(ui.node("dot", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }));
     ///     });
     /// });
     /// assert_eq!((ui.rect(&a.unwrap()).x, ui.rect(&a.unwrap()).y), (ui.rect(&b.unwrap()).x, ui.rect(&b.unwrap()).y));
@@ -141,7 +232,7 @@ impl Ui {
     #[track_caller]
     fn container(&mut self, key: Key, axis: Axis, mut node: Node, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         node.axis = axis;
-        let b = self.node(key.into(), node);
+        let b = self.node_key(key, node);
         self.within(&b, f);
         b
     }
@@ -174,11 +265,11 @@ mod tests {
         let (built, list) = (Cell::new(0), Cell::new(None));
         let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         let mut build = |ui: &mut crate::Ui| {
-            let column = ui.node("column".into(), Node { w: Size::Px(100.0), h: Size::Px(200.0), ..Node::DEFAULT });
+            let column = ui.node("column", Node { w: Size::Px(100.0), h: Size::Px(200.0), ..Node::DEFAULT });
             ui.within(&column, &mut |ui| {
                 list.set(Some(ui.list("rows", 10_000, 20.0, &|i| i as i64 * 3 + 1, |ui, i| {
                     built.set(built.get() + 1);
-                    rows[i].set(Some(ui.node("cell".into(), Node { h: Size::Px(20.0), ..Node::DEFAULT })));
+                    rows[i].set(Some(ui.node("cell", Node { h: Size::Px(20.0), ..Node::DEFAULT })));
                 })));
             });
         };
@@ -205,7 +296,7 @@ mod tests {
         let mut build = |ui: &mut crate::Ui| {
             let ids = ids.borrow();
             ui.list("items", ids.len(), 20.0, &|i| ids[i], |ui, i| {
-                let child = ui.node("title".into(), Node { h: Size::Px(20.0), ..Node::DEFAULT });
+                let child = ui.node("title", Node { h: Size::Px(20.0), ..Node::DEFAULT });
                 seen[i].set((ids[i], child.box_key));
             });
         };
@@ -224,7 +315,7 @@ mod tests {
     #[test]
     fn container_label_matches_node() {
         let (mut by_node, mut by_row) = (None, None);
-        crate::doc::frames(1, &mut |ui| { by_node = Some(ui.node("x".into(), Node::DEFAULT)); });
+        crate::doc::frames(1, &mut |ui| { by_node = Some(ui.node("x", Node::DEFAULT)); });
         crate::doc::frames(1, &mut |ui| { by_row = Some(ui.row("x", Node::DEFAULT, |_| {})); });
         assert_eq!(by_node.unwrap().box_key, by_row.unwrap().box_key);
     }

@@ -33,11 +33,11 @@ fn panel(ui: &mut Ui, s: &mut State) {
         s.volume = ui.slider("volume", "Volume", s.volume, 0.0..=1.0, &crate::Slider::DEFAULT).value;
         s.mode = ui.radio("mode", &[crate::Segment::new("Auto"), crate::Segment::new("Light"), crate::Segment::new("Dark")], Some(s.mode), &crate::Radio::DEFAULT.name("Mode")).chosen.unwrap_or(s.mode);
         let _ = ui.text_field("Name", "abc", &crate::TextField::DEFAULT);
-        let row = ui.node("row".into(), Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
+        let row = ui.node("row", Node { h: Size::Px(24.0), axis: Axis::Row, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
             // a keyed node of a grid, as a custom widget declares it
             const COLS: [Track; 2] = [Track::Fr(1.0), Track::Px(40.0)];
-            let cell = ui.node(7i64.into(), Node { grid: Some(Grid::new(&COLS, &[])).into(), cell: Cell::at(0, 0), ..Node::DEFAULT });
+            let cell = ui.node(7i64, Node { grid: Some(Grid::new(&COLS, &[])).into(), cell: Cell::at(0, 0), ..Node::DEFAULT });
             let signal = ui.signal(&cell);
             s.clicks += signal.clicked as u32;
             ui.text(&cell, "custom");
@@ -51,11 +51,11 @@ fn panel(ui: &mut Ui, s: &mut State) {
 // list, a table and a popup.
 fn engine_shaped(ui: &mut Ui, s: &mut State) {
     s.seen += (ui.font_size() + ui.row_height()) as u64 + ui.frame_index() + ui.captured() as u64;
-    let scroller = ui.node("scroller".into(), Node { at: Some((4.0, 4.0)).into(), ..Node::DEFAULT.flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)) });
+    let scroller = ui.node("scroller", Node { at: Some((4.0, 4.0)).into(), ..Node::DEFAULT.flags(Flags::SCROLL | Flags::CLIP).w(Size::Px(60.0)).h(Size::Px(40.0)) });
     s.seen += ui.scroll(&scroller).settled as u64 + ui.local_rect(&scroller).w as u64 + ui.cached_label(&scroller, 0, "cached").len() as u64;
     ui.set_text_state(&scroller, None);
-    s.seen += ui.text_state(&scroller).is_some() as u64 + ui.hovered_exactly(&scroller) as u64 + ui.drop_target(&scroller).is_some() as u64;
-    let canvas = ui.node("canvas".into(), Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(30.0)));
+    s.seen += ui.text_state(&scroller).is_some() as u64 + ui.hovered(&scroller, false) as u64 + ui.drop_target(&scroller).is_some() as u64;
+    let canvas = ui.node("canvas", Node::DEFAULT.w(Size::Px(80.0)).h(Size::Px(30.0)));
     let origin = s.clicks as f32;
     ui.canvas(&canvas, move |p, _| {
         CANVAS_RUNS.fetch_add(1, Ordering::Relaxed);

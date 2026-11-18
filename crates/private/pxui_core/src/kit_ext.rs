@@ -731,7 +731,7 @@ impl Ui {
 
     /// The retained state of an inspector section built in the current parent, by its key.
     pub fn expanded(&self, text: &str) -> Option<bool> {
-        let key = key_of(self.current_seed(), text);
+        let key = key_of(self.lookup_seed(), text);
         let slot = self.slot_for(key)?;
         self.slot_state(slot).map(|value| value == 1)
     }

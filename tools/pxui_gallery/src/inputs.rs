@@ -40,6 +40,6 @@ pub fn images(ui: &mut Ui, image: &Image) {
     const THUMB: ImageStyle = ImageStyle::DEFAULT.w_px(40.0).h_px(40.0);
     const FITS: [(&str, ImageStyle); 4] = [("Contain", THUMB.fit(Fit::Contain)), ("Cover", THUMB.fit(Fit::Cover)), ("Fill", THUMB.fit(Fit::Fill)), ("None", THUMB.fit(Fit::None))];
     for (name, style) in &FITS {
-        let _ = ui.image(name, image, style);
+        let _ = ui.image(*name, name, image, style);
     }
 }

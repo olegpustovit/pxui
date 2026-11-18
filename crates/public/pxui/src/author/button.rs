@@ -350,7 +350,7 @@ impl Ui {
     ///     let pill = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).name("Play all");
     ///     ui.button_content("play", &pill, |ui, state| {
     ///         let w = if state.pressed { 14.0 } else { 16.0 };
-    ///         ui.node("icon".into(), Node { w: Size::Px(w), h: Size::Px(w), ..Node::DEFAULT });
+    ///         ui.node("icon", Node { w: Size::Px(w), h: Size::Px(w), ..Node::DEFAULT });
     ///     });
     /// });
     /// assert!(ui.a11y_nodes().iter().any(|n| ui.a11y_name_of(n) == "Play all"));
@@ -454,7 +454,7 @@ mod tests {
         let inner = Cell::new(None);
         let mut build = |ui: &mut Ui| {
             let b = Button::DEFAULT.size(Size::Px(90.0), Size::Px(30.0)).name("Play all").pad(Edges { l: 2.0, ..Edges::ZERO });
-            last.set(Some(ui.button_content("play-all", &b, |ui, _| { inner.set(Some(ui.node("icon".into(), Node { w: Size::Px(16.0), h: Size::Px(16.0), ..Node::DEFAULT }))); })));
+            last.set(Some(ui.button_content("play-all", &b, |ui, _| { inner.set(Some(ui.node("icon", Node { w: Size::Px(16.0), h: Size::Px(16.0), ..Node::DEFAULT }))); })));
         };
         let ui = crate::doc::frames(3, &mut build);
         let (is_button, _, w, h) = node(&ui, "Play all");
@@ -666,8 +666,8 @@ mod tests {
             let mut inner = None;
             let r = ui.button_content("tile", &tile, |ui, state| {
                 seen.set(state);
-                let a = ui.node("a".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
-                let b = ui.node("b".into(), Node { w: Size::Px(20.0), h: Size::Px(10.0), ..Node::DEFAULT });
+                let a = ui.node("a", Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+                let b = ui.node("b", Node { w: Size::Px(20.0), h: Size::Px(10.0), ..Node::DEFAULT });
                 inner = Some((a, b));
             });
             let (a, b) = inner.unwrap();
@@ -813,7 +813,7 @@ mod tests {
 
     #[test]
     fn warm_frames_allocate_nothing() {
-        let content = |ui: &mut Ui, _: crate::ui::State| { ui.node("i".into(), Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }); };
+        let content = |ui: &mut Ui, _: crate::ui::State| { ui.node("i", Node { w: Size::Px(8.0), h: Size::Px(8.0), ..Node::DEFAULT }); };
         let states = crate::doc::frames(1, &mut |_| {}).theme().button;
         let mut ui = crate::doc::frames(1, &mut |_| {});
         let name = String::from("Row button");
@@ -830,7 +830,7 @@ mod tests {
             ui.button_with("rescan", "Rescan", &Button::DEFAULT.size(Size::Grow, Size::Fit).detail("Every source").accessory(">"));
             ui.button_content("state", &Button::sized(90.0, 30.0).axis(crate::ui::Axis::Column), |ui, state| {
                 let w = if state.hovered { 6.0 } else { 8.0 };
-                ui.node("i".into(), Node { w: Size::Px(w), h: Size::Px(8.0), ..Node::DEFAULT });
+                ui.node("i", Node { w: Size::Px(w), h: Size::Px(8.0), ..Node::DEFAULT });
             });
         };
         for round in 0..20 {

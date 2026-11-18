@@ -15,7 +15,7 @@ fn em_top_to_layout_top(points:f32)->f32 {
     let label=crate::Label::BODY.size(points);
     let style=ui.resolve(&label);
     ui.frame(&input(),&mut |ui| {
-        let b=ui.node("probe".into(),crate::Node::DEFAULT.w_px(200.0).h_px(points));
+        let b=ui.node("probe",crate::Node::DEFAULT.w_px(200.0).h_px(points));
         ui.text_spans(&b,"H",&label,&[]).unwrap();
         ui.canvas(&b,move |paint,rect| {paint.text_spans((rect.x,rect.y),&style,0.0,"H",&[]).unwrap();});
     }).unwrap();
@@ -63,7 +63,7 @@ fn prepared_text_moves_between_worker_and_ui_without_shaping_or_allocating_on_in
     assert_eq!(ui.text_layout_count(),layouts);
     assert_eq!(mem_sys::local_alloc_count(),0);
     ui.frame(&input(),&mut |ui| {
-        let node=ui.node("prepared-label".into(),crate::Node::DEFAULT.w_px(200.0).h_px(30.0));
+        let node=ui.node("prepared-label",crate::Node::DEFAULT.w_px(200.0).h_px(30.0));
         ui.text_spans(&node,"Track 00000",&label,&spans).unwrap();
     }).unwrap();
     assert_eq!(ui.text_layout_count(),layouts,"ordinary node drawing must use the prepared content key");
@@ -112,7 +112,7 @@ fn text_layout_count_distinguishes_cold_content_from_retained_warm_frames_withou
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     assert_eq!(ui.text_layout_count(),0);
     let mut build=|ui:&mut Ui| {
-        let node=ui.node("label".into(),Node::DEFAULT.w_px(200.0).h_px(30.0));
+        let node=ui.node("label",Node::DEFAULT.w_px(200.0).h_px(30.0));
         ui.text(&node,"Cache identity");
     };
     ui.frame(&input(),&mut build).unwrap();
@@ -125,7 +125,7 @@ fn text_layout_count_distinguishes_cold_content_from_retained_warm_frames_withou
         if round>2 {assert_eq!(mem_sys::local_alloc_count(),0);}
     }
     ui.frame(&input(),&mut |ui| {
-        let node=ui.node("label".into(),Node::DEFAULT.w_px(200.0).h_px(30.0));
+        let node=ui.node("label",Node::DEFAULT.w_px(200.0).h_px(30.0));
         ui.text(&node,"Replacement identity");
     }).unwrap();
     assert!(ui.text_layout_count()>first);
@@ -163,7 +163,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
                 let mut row=|ui:&mut Ui,index:usize| {
                     calls.set(calls.get()+1);
                     let h=if kind==1 || kind==2 {10.0+(index%3) as f32*20.0} else {20.0};
-                    let row=ui.node((index as i64).into(),Node::DEFAULT.w_px(25.0).h_px(h).look(Look::NONE.fill(crate::geom::Rgba::rgb(255, 0, 0))));
+                    let row=ui.node(index as i64,Node::DEFAULT.w_px(25.0).h_px(h).look(Look::NONE.fill(crate::geom::Rgba::rgb(255, 0, 0))));
                     keys[index].set(row.box_key);
                 };
                 let section=SectionList::new(count.get()).row_h(20.0).lead(35.0).header(14.0).trail(11.0).overlay_scrollbar();
@@ -195,7 +195,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
                 let allocations=mem_sys::local_alloc_count();
                 ui.frame(&input(),&mut build).unwrap();
                 let list=body.get().unwrap();
-                let r=ui.rect(&ui.box_of_key(row_key(index)).unwrap());let viewport=ui.rect(&list);
+                let r=ui.rect(&ui.box_of_key(crate::Key::Resolved(row_key(index))).unwrap());let viewport=ui.rect(&list);
                 let header=if kind==0 || kind==2 {14.0} else {0.0};
                 assert!(r.y>=viewport.y+6.0+header-0.05 && r.y+r.h<=viewport.y+viewport.h-5.95,"kind {kind}, index {index}: {r:?} in {viewport:?}");
                 assert!(calls.get()<100,"reveal must not build all 10,000 rows");
@@ -209,7 +209,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
         mem_sys::local_reset();
         ui.reveal(&body.get().unwrap(),1);
         ui.frame(&input(),&mut build).unwrap();
-        assert!(ui.box_of_key(row_key(1)).is_some(),"live cached-list geometry must survive cache expiry");
+        assert!(ui.box_of_key(crate::Key::Resolved(row_key(1))).is_some(),"live cached-list geometry must survive cache expiry");
         assert_eq!(mem_sys::local_alloc_count(),0);
         let list=body.get().unwrap();let offset=ui.scroll(&list).settled;
         for index in [10_000,usize::MAX-1,usize::MAX] {ui.reveal(&list,index);}
@@ -217,7 +217,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
         // A request made after the builder must settle in the same frame with the new viewport.
         size.set(80.0);requested.set(Some(9_999));
         ui.frame(&input(),&mut build).unwrap();
-        let list=body.get().unwrap();let r=ui.rect(&ui.box_of_key(row_key(9_999)).unwrap_or_else(||panic!("resize kind {kind}, offset {}, request {:?}",ui.scroll(&list).settled,requested.get())));let v=ui.rect(&list);
+        let list=body.get().unwrap();let r=ui.rect(&ui.box_of_key(crate::Key::Resolved(row_key(9_999))).unwrap_or_else(||panic!("resize kind {kind}, offset {}, request {:?}",ui.scroll(&list).settled,requested.get())));let v=ui.rect(&list);
         assert!(r.y>=v.y+5.95 && r.y+r.h<=v.y+v.h-5.95);
         count.set(0);ui.frame(&input(),&mut build).unwrap();
         assert_eq!(ui.scroll(&body.get().unwrap()).settled,0.0);
@@ -236,9 +236,9 @@ fn gestures_swipe_long_press_and_stale_handles_through_the_abi_without_warm_allo
     let node = Cell::new(None);
     let mut time = 0.0;
     let mut build = |ui: &mut Ui| {
-        let row = ui.node("row".into(), Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(50.0)).flags(pxui_types::Flags::CLICKABLE) });
+        let row = ui.node("row", Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(50.0)).flags(pxui_types::Flags::CLICKABLE) });
         node.set(Some(row));
-        state.set(ui.gesture(&row, GestureOpts::DEFAULT.long_press().swipe_actions(SwipeActions::DEFAULT.leading(60.0).trailing(80.0).full(120.0))));
+        state.set(ui.gesture(&row, &GestureOpts::DEFAULT.long_press().swipe_actions(SwipeActions::DEFAULT.leading(60.0).trailing(80.0).full(120.0))));
     };
     let touch = |ui: &mut Ui, phase: u32, x: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
         let packet = Touch { device: 1, finger: 7, x, y: 25.0, phase, time: at, pressure: 1.0 };
@@ -317,8 +317,8 @@ fn dismiss_drags_commits_and_springs_back_through_the_abi_without_warm_allocatio
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let state = Cell::new(GestureState::default());
     let mut build = |ui: &mut Ui| {
-        let sheet = ui.node("sheet".into(), Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(200.0)).flags(pxui_types::Flags::CLICKABLE) });
-        state.set(ui.gesture(&sheet, GestureOpts::DEFAULT.dismiss(DismissOpts::DEFAULT)));
+        let sheet = ui.node("sheet", Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.w(Size::Px(200.0)).h(Size::Px(200.0)).flags(pxui_types::Flags::CLICKABLE) });
+        state.set(ui.gesture(&sheet, &GestureOpts::DEFAULT.dismiss(DismissOpts::DEFAULT)));
     };
     let touch = |ui: &mut Ui, phase: u32, y: f64, at: f64, build: &mut dyn FnMut(&mut Ui)| {
         let packet = Touch { device: 1, finger: 7, x: 100.0, y, phase, time: at, pressure: 1.0 };
@@ -626,9 +626,9 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
     let child = Cell::new(None);
     let builds = Cell::new(0);
     let mut build = |ui: &mut Ui| {
-        view.set(Some({ let enclosing = ui.node("repeat".into(), Node::column().w_px(20.0).h_px(10.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("repeat", &1, |ui| {
+        view.set(Some({ let enclosing = ui.node("repeat", Node::column().w_px(20.0).h_px(10.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("repeat", &1, |ui| {
             builds.set(builds.get() + 1);
-            let bar = ui.node("bar".into(), Node::DEFAULT.w(Size::Grow).h(Size::Grow).role(crate::ui::Role::Image).look(Look::NONE.fill(crate::geom::Rgba::rgb(255, 0, 0))));
+            let bar = ui.node("bar", Node::DEFAULT.w(Size::Grow).h(Size::Grow).role(crate::ui::Role::Image).look(Look::NONE.fill(crate::geom::Rgba::rgb(255, 0, 0))));
             ui.a11y_name(&bar, "Repeated bar");
             child.set(Some(bar));
         })); view }));
@@ -751,21 +751,21 @@ fn section_list_scrolls_leading_content_pins_blocks_and_virtualizes_without_warm
         body.set(Some(ui.section_list("section",&section,&|i| i as i64,&mut |ui,part,_| {
             match part {
                 SectionPart::Leading=>{
-                    let clip=ui.node("heading-clip".into(),Node::DEFAULT.flags(pxui_types::Flags::CLIP).w(Size::Grow).h_px(100.0));
+                    let clip=ui.node("heading-clip",Node::DEFAULT.flags(pxui_types::Flags::CLIP).w(Size::Grow).h_px(100.0));
                     ui.within(&clip,&mut |ui| {
                         ui.view_of("heading-cache",&0,|ui| {
-                            let node=ui.node("title".into(),Node::DEFAULT.role(Role::Label).w(Size::Grow).h_px(100.0));
+                            let node=ui.node("title",Node::DEFAULT.role(Role::Label).w(Size::Grow).h_px(100.0));
                             ui.a11y_name(&node,"Page heading"); lead.set(Some(node));
                         });
                     });
                 }
                 SectionPart::Header=>{
-                    let node=ui.node("sort".into(),Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).role(Role::Button).w_px(50.0).h(Size::Grow));
+                    let node=ui.node("sort",Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).role(Role::Button).w_px(50.0).h(Size::Grow));
                     ui.a11y_name(&node,"Sort"); header.set(Some(node)); sorted.set(ui.signal(&node).clicked);
                 }
                 SectionPart::Row(index)=>{
                     rows.set(rows.get()+1);
-                    let node=ui.node("row".into(),Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).role(Role::Button).w(Size::Grow).h(Size::Grow));
+                    let node=ui.node("row",Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).role(Role::Button).w(Size::Grow).h(Size::Grow));
                     ui.a11y_name(&node,"Row");
                     if index==0 {first.set(Some(node));}
                     clicked.set(clicked.get() || ui.signal(&node).clicked);
@@ -868,7 +868,7 @@ fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() 
                 ui.column("density", Node::column().w_px(40.0).h_px(40.0), |ui| { ui.view_of("density", &0, |ui| {
                     builds.set(builds.get()+1);
                     let density=ui.density();
-                    let node=ui.node("paint".into(),crate::Node::DEFAULT.w_px(40.0).h_px(40.0));
+                    let node=ui.node("paint",crate::Node::DEFAULT.w_px(40.0).h_px(40.0));
                     ui.canvas(&node,move |paint,_| {assert_eq!(paint.density(),density);});
                 }); });
             }).unwrap();
@@ -887,7 +887,7 @@ fn analytic_curves_preserve_fractional_geometry_validate_and_reuse_warm_storage(
         mem_sys::local_reset();
         for scale in [1.0,2.0] {
             ui.frame(&input().scale(scale),&mut |ui| {
-                let node=ui.node("curves".into(),crate::Node::DEFAULT.w_px(100.0).h_px(100.0));
+                let node=ui.node("curves",crate::Node::DEFAULT.w_px(100.0).h_px(100.0));
                 ui.canvas(&node,|paint,_| {
                     let color=crate::geom::Rgba::rgb(12, 34, 56);
                     paint.curve((1.25,2.75), (3.5,4.25), (5.75,6.5), Stroke::new(color).width(1.6));
@@ -956,10 +956,10 @@ fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds()
     let mut build = |ui: &mut Ui| {
         if open.get() {
             ui.popup("popup", &crate::Overlay::DEFAULT.at(0.0, 0.0).w(180.0).h(100.0), &mut |ui: &mut Ui| {
-                ui.node("cover".into(),crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Grow).h_px(100.0));
+                ui.node("cover",crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Grow).h_px(100.0));
             });
         }
-        let underlying=ui.node("underlying".into(),crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(180.0).h_px(100.0));
+        let underlying=ui.node("underlying",crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(180.0).h_px(100.0));
         let signal=ui.signal(&underlying);
         pressed.set(signal.pressed); clicked.set(signal.clicked);
     };
@@ -996,7 +996,7 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
     let held = Cell::new(false);
     let comma = Cell::new(false);
     let mut contents = |ui: &mut Ui| {
-        let field = ui.node("focused".into(), crate::Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).w_px(120.0).h_px(32.0));
+        let field = ui.node("focused", crate::Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).w_px(120.0).h_px(32.0));
         ui.focus_box(&field);
         assert_eq!(ui.key_down(meta), held.get());
         assert_eq!(ui.key_pressed(crate::KeyCode::Char(','), crate::Mods::ANY), comma.get());
@@ -1056,7 +1056,7 @@ fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
                     ([key(Event::KEY_PRESSED,modifier.wire()),key(Event::KEY_RELEASED,modifier.wire()),key(Event::KEY_PRESSED,b'k' as u32)],false),
                 ] {
                     let mut contents=|ui:&mut Ui| {
-                        let field=ui.node("focus".into(),crate::Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).w_px(100.0).h_px(24.0));
+                        let field=ui.node("focus",crate::Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).w_px(100.0).h_px(24.0));
                         ui.focus_box(&field);
                         assert_eq!(ui.key_pressed(crate::KeyCode::Char('k'), mods),expected);
                         assert_eq!(ui.key_pressed(crate::KeyCode::Char('k'), mods),expected,"query consumes nothing");
@@ -1140,8 +1140,8 @@ fn backdrop_saturation_validates_and_updates_without_warm_allocations() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let view = Cell::new(None);
     let mut build = |ui: &mut Ui| {
-        view.set(Some({ let enclosing = ui.node("glass".into(), Node::column().w_px(120.0).h_px(40.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("glass", &1, |ui| {
-            ui.node("pane".into(), crate::Node::DEFAULT.w_px(120.0).h_px(40.0).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::WHITE)));
+        view.set(Some({ let enclosing = ui.node("glass", Node::column().w_px(120.0).h_px(40.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("glass", &1, |ui| {
+            ui.node("pane", crate::Node::DEFAULT.w_px(120.0).h_px(40.0).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::WHITE)));
         })); view }));
     };
     ui.frame(&input(), &mut build).unwrap();
@@ -1170,12 +1170,12 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
     ui.set_a11y(true);
     let (child, view, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
     let mut content = |ui: &mut Ui| {
-        let v_box = ui.node("scale".into(), Node::column().w_px(100.0).h_px(80.0));
+        let v_box = ui.node("scale", Node::column().w_px(100.0).h_px(80.0));
         ui.set_at(&v_box, (100.0, 40.0));
         let mut v = v_box;
         ui.within(&v_box, &mut |ui| v = ui.view_of("scale", &1, |ui| {
             builds.set(builds.get() + 1);
-            let b = ui.node("child".into(), Node::DEFAULT.w_px(20.0).h_px(10.0).role(Role::Button).at(20.0, 10.0).look(Look::NONE.fill(pxui_types::geom::Rgba::rgb(9, 9, 9))));
+            let b = ui.node("child", Node::DEFAULT.w_px(20.0).h_px(10.0).role(Role::Button).at(20.0, 10.0).look(Look::NONE.fill(pxui_types::geom::Rgba::rgb(9, 9, 9))));
             ui.a11y_name(&b, "Scaled");
             child.set(Some(b));
         }));
@@ -1259,7 +1259,7 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
     let mut build = |ui: &mut Ui| {
         ui.column("animation", Node::column().w_px(250.0).h_px(50.0), |ui| { ui.view_of("animation", &1, |ui| {
             builds.set(builds.get() + 1);
-            chip.set(Some(ui.node("chip".into(), Node::DEFAULT.w_px(40.0).h_px(20.0).look(Look::NONE.fill(pxui_types::geom::Rgba::rgb(200, 40, 40))))));
+            chip.set(Some(ui.node("chip", Node::DEFAULT.w_px(40.0).h_px(20.0).look(Look::NONE.fill(pxui_types::geom::Rgba::rgb(200, 40, 40))))));
         }); });
     };
     for time in [0.0, 0.1] { ui.frame(&input().time(time), &mut build).unwrap(); }
@@ -1310,7 +1310,7 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
     ui.frame(&input(), &mut |ui: &mut Ui| {
         assert!(!ui.captured() && !ui.text_input_focused() && !ui.verifying());
         assert_eq!(ui.passed_undo(), None::<UndoKind>);
-        let b = ui.node("scroller".into(), Node { at: Some((10.0, 20.0)).into(), scroll_step: 12.0, ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::SCROLL | pxui_types::Flags::CLIP).w(Size::Px(100.0)).h(Size::Px(60.0)) });
+        let b = ui.node("scroller", Node { at: Some((10.0, 20.0)).into(), scroll_step: 12.0, ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::SCROLL | pxui_types::Flags::CLIP).w(Size::Px(100.0)).h(Size::Px(60.0)) });
         assert_eq!(ui.scroll(&b).settled, 0.0);
         ui.set_scroll_offset(&b, 5.0);
         assert_eq!((ui.scroll(&b).settled, ui.scroll(&b).painted), (5.0, 5.0));
@@ -1322,11 +1322,11 @@ fn queries_boxes_patches_and_text_state_have_the_engine_shape() {
         let _ = ui.patch_rect(&b, Rect::new(0.0, 0.0, 1.0, 1.0));
         let _ = ui.patch_mark(&b, Mark::None);
         let _ = ui.local_rect(&b);
-        assert!(!ui.hovered_exactly(&b) && !ui.hovered_within(&b));
+        assert!(!ui.hovered(&b, false) && !ui.hovered(&b, true));
         assert_eq!(ui.context_at(&b), None);
         assert!(ui.drop_target(&b).is_none());
         assert!(ui.press_keys(&b).is_empty());
-        assert_eq!(ui.root_at((1.0, 1.0), &[]), None);
+        assert_eq!(ui.root_at(crate::Point { x: 1.0, y: 1.0 }, &[]), None);
         ui.carry(None, "kind", "value");
         let payload = ui.carrying().expect("a key carry is held at once");
         assert_eq!((payload.kind, payload.value), ("kind", "value"));
@@ -1472,15 +1472,15 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
                 let field = ui.value_field("amount", "0.25", pxui_types::geom::Rect::new(10.0, 10.0, 120.0, 20.0), &opts, &callbacks);
                 let (text, editing) = (field.changed, field.editing);
                 assert_eq!((text, editing), (None, false));
-                let edit = ui.load_text_edit(7, "abc");
+                let edit = ui.load_text_edit(crate::Key::Resolved(7), "abc");
                 assert_eq!((edit.text.as_str(), edit.caret, edit.anchor), ("abc", 3, 3));
-                ui.remember(&TextEdit { text: "abc".into(), caret: 1, anchor: 1 }, false);
+                ui.remember(crate::Key::Resolved(7), &TextEdit { text: "abc".into(), caret: 1, anchor: 1 }, false);
                 assert!(ui.text_undo_bytes() >= 3, "the snapshot is held");
             });
         }).expect("frame");
     }
     let err = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-        let _ = ui.frame(&input(), &mut |ui: &mut Ui| ui.remember(&TextEdit { text: "é".into(), caret: 1, anchor: 0 }, false));
+        let _ = ui.frame(&input(), &mut |ui: &mut Ui| ui.remember(crate::Key::Resolved(7), &TextEdit { text: "é".into(), caret: 1, anchor: 0 }, false));
     })).expect_err("a caret inside a character is a caller bug");
     assert!(err.downcast_ref::<String>().is_some_and(|m| m.contains("caret and anchor")));
 }
@@ -1511,7 +1511,7 @@ fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     let source = "(graph g)\n".repeat(300_000);
     assert!(source.len() > 1 << 21);
     ui.frame(&input(), &mut |ui: &mut Ui| {
-        let edit: TextEdit = ui.load_text_edit(9, &source);
+        let edit: TextEdit = ui.load_text_edit(crate::Key::Resolved(9), &source);
         assert_eq!(edit.text.len(), source.len(), "the edit holds the whole text");
         let text = ui.text_area("area", &source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &crate::TextArea::DEFAULT, &crate::AreaCallbacks::DEFAULT).changed;
         assert_eq!(text, None, "the whole text crossed and compared equal");
@@ -1630,7 +1630,7 @@ fn canvas_feature_styles_have_distinct_warm_cache_entries() {
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
-            let bounds=ui.node("numbers".into(),crate::Node::DEFAULT.w_px(240.0).h_px(80.0));
+            let bounds=ui.node("numbers",crate::Node::DEFAULT.w_px(240.0).h_px(80.0));
             ui.canvas(&bounds,move |paint,rect| {
                 assert_eq!(paint.text((rect.x,rect.y), &crate::Label::BODY.size(20.0), 0.0, "1111"),a);
                 assert_eq!(paint.text((rect.x,rect.y+30.0), &crate::Label::MONO.size(20.0), 0.0, "1111"),b);
@@ -1661,7 +1661,7 @@ fn inline_spans_on_nodes_preserve_labels_opacity_and_zero_allocation_rebuilds() 
         let opacity=if frame%2==0 { 0.5 } else { 1.0 };
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
-            let b=ui.node("label".into(),crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(200.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(30,30,30,255)).opacity(opacity)));
+            let b=ui.node("label",crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(200.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(30,30,30,255)).opacity(opacity)));
             if plain { ui.text(&b,text); } else { ui.text_spans(&b,text,&label,&[span]).unwrap(); }
         }).unwrap();
         if frame>=6 { assert_eq!(mem_sys::local_alloc_count(),0,"warm rich/plain rebuilds retain their span storage and glyph caches"); }
@@ -1694,7 +1694,7 @@ fn inline_canvas_styles_keep_independent_caches_and_reject_invalid_ranges() {
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
-            let b=ui.node("canvas".into(),crate::Node::DEFAULT.w_px(200.0).h_px(80.0));
+            let b=ui.node("canvas",crate::Node::DEFAULT.w_px(200.0).h_px(80.0));
             ui.canvas(&b,move |paint,rect| {
                 let a=paint.text_spans((rect.x,rect.y),&style,0.0,"ab cd",&[red]).unwrap();
                 let b=paint.text_spans((rect.x,rect.y+30.0),&style,0.0,"ab cd",&[green]).unwrap();
@@ -1719,7 +1719,7 @@ fn inline_node_fractional_font_alignment_matches_canvas_text() {
     let span=TextSpan { start:0,end:2,flags:TextSpan::COLOR,color:Rgba::rgba(255,0,0,255),..Default::default() };
     let shift=em_top_to_layout_top(20.25);
     ui.frame(&input(),&mut |ui| {
-        let b=ui.node("fractional".into(),crate::Node::DEFAULT.w_px(200.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
+        let b=ui.node("fractional",crate::Node::DEFAULT.w_px(200.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
         ui.text_spans(&b,"ab cd",&label,&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
             let top=rect.y+((rect.h-20.25)/2.0).floor()+shift;
@@ -1751,7 +1751,7 @@ fn inline_node_wrapped_alignment_matches_the_complete_canvas_block() {
     assert_eq!(metrics.lines,3);
     let shift=em_top_to_layout_top(20.0);
     ui.frame(&input(),&mut |ui| {
-        let b=ui.node("wrapped".into(),crate::Node::DEFAULT.w_px(45.0).h_px(80.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
+        let b=ui.node("wrapped",crate::Node::DEFAULT.w_px(45.0).h_px(80.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
         ui.text_spans(&b,"aa bb cc",&label,&[span]).unwrap();
         ui.canvas(&b,move |paint,rect| {
             let block=20.0+(metrics.lines-1) as f32*24.0;
@@ -1812,7 +1812,7 @@ fn ellipsis_modes_on_nodes_and_canvas_preserve_labels_fit_modes_and_warm_storage
         let (label,style)=(labels[frame%3],styles[frame%3]);
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
-            let b=ui.node("ellipsis".into(),crate::Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT).role(crate::ui::Role::Label).w_px(100.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
+            let b=ui.node("ellipsis",crate::Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT).role(crate::ui::Role::Label).w_px(100.0).h_px(40.0).look(crate::ui::Look::NONE.text(Rgba::rgba(0,0,0,255))));
             ui.text_spans(&b,source,&label,&spans).unwrap();
             ui.canvas(&b,move |paint,rect| {
                 let top=rect.y+((rect.h-20.0)/2.0).floor()+shift;
@@ -1878,7 +1878,7 @@ fn system_font_nodes_keep_labels_warm_storage_and_refuse_late_enable() {
     for frame in 0..7 {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/60.0),&mut |ui| {
-            let b=ui.node("native-fonts".into(),crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(300.0).h_px(40.0));
+            let b=ui.node("native-fonts",crate::Node::DEFAULT.role(crate::ui::Role::Label).w_px(300.0).h_px(40.0));
             ui.text_spans(&b,source,&label,&[]).unwrap();
             ui.canvas(&b,move |paint,rect| { paint.text((rect.x,rect.y+50.0), &crate::Label::BODY.size(20.0), 300.0, source); });
         }).unwrap();
@@ -1903,10 +1903,10 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
     let builds=Cell::new(0);
     let seen=Cell::new(crate::Appearance::Unknown);
     let mut build=|ui:&mut Ui| {
-        handle.set(Some({ let enclosing = ui.node("system".into(), Node::column().w_px(100.0).h_px(60.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("system", &1, |ui| {
+        handle.set(Some({ let enclosing = ui.node("system", Node::column().w_px(100.0).h_px(60.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("system", &1, |ui| {
             builds.set(builds.get()+1);
             seen.set(ui.system_appearance());
-            child.set(Some(ui.node("child".into(),crate::Node::DEFAULT.w_px(20.0).h_px(10.0).at(10.0,10.0))));
+            child.set(Some(ui.node("child",crate::Node::DEFAULT.w_px(20.0).h_px(10.0).at(10.0,10.0))));
         })); view }));
         let reduced=ui.tokens().reduced_motion;
         ui.themed(&scoped,&mut |ui|assert_eq!(ui.tokens().reduced_motion,reduced,"a scoped theme cannot bypass OS motion policy"));
@@ -1962,11 +1962,11 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     let builds=Cell::new(0);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build=|ui:&mut Ui| {
-        let enclosing = ui.node("controlled".into(), Node::column().w_px(100.0).h_px(80.0));
+        let enclosing = ui.node("controlled", Node::column().w_px(100.0).h_px(80.0));
         ui.set_at(&enclosing,(40.0,30.0));
         let v={ let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("controlled", &1, |ui| {
             builds.set(builds.get()+1);
-            child.set(Some(ui.node("child".into(),crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(20.0).h_px(10.0).at(10.0,10.0).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::rgb(255,0,0))))));
+            child.set(Some(ui.node("child",crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(20.0).h_px(10.0).at(10.0,10.0).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::rgb(255,0,0))))));
         })); view };
         view.set(Some(v));
     };
@@ -2030,13 +2030,13 @@ fn public_measured_list_settles_virtual_rows_and_reuses_warm_storage() {
     let count=Cell::new(200);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build=|ui:&mut Ui| {
-        let col=ui.node("column".into(),crate::Node::DEFAULT.w_px(100.0).h_px(200.0));
+        let col=ui.node("column",crate::Node::DEFAULT.w_px(100.0).h_px(200.0));
         ui.within(&col,&mut |ui| {
             list.set(Some(ui.section_list("measured",&crate::ui::SectionList::new(count.get()).row_h(12.0).measured(),&|i| i as i64,&mut |ui,part,_| {
                 let crate::ui::SectionPart::Row(i)=part else { return };
                 assert!(i<count.get());
                 calls.set(calls.get()+1);
-                rows[i].set(Some(ui.node("row".into(),crate::Node::DEFAULT.w_px(80.0).h_px(10.0+(i%3) as f32*10.0))));
+                rows[i].set(Some(ui.node("row",crate::Node::DEFAULT.w_px(80.0).h_px(10.0+(i%3) as f32*10.0))));
             })));
         });
     };
@@ -2151,8 +2151,8 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
         }, &mut build).unwrap();
         if tick >= 10 { assert_eq!(mem_sys::local_alloc_count(), 0, "warm focused text field across the ABI"); }
         assert!(ui.text_input_focused());
-        let ((_, _, w, h), caret) = ui.ime().expect("focused field must publish IME geometry");
-        assert!(w > 0 && h > 0 && caret >= 0 && caret <= w);
+        let crate::Ime { rect: crate::Rect { w, h, .. }, caret } = ui.ime().expect("focused field must publish IME geometry");
+        assert!(w > 0.0 && h > 0.0 && caret >= 0.0 && caret <= w);
     }
     let commit = Event { kind: Event::TEXT_INPUT, text: Str { ptr: composition.as_ptr(), len: composition.len() }, ..Event::default() };
     let mut changed = false;
@@ -2211,9 +2211,9 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
                 frame.wire.event_count = 1;
                 frame
             },&mut build).unwrap();
-            assert_eq!(ui.ime().unwrap().1,(2.0+full_width).round() as i64,"focused text uses the body's editor font size {size}");
+            assert_eq!(ui.ime().unwrap().caret,(2.0+full_width).round(),"focused text uses the body's editor font size {size}");
             assert!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).map(|quad|(quad.rect,quad.aux)).eq(glyphs.iter().copied()),"focus preserves the exact glyph positions and atlas samples");
-            let editor = ui.part_rect(ROW.get(),Part::EDITOR).unwrap();
+            let editor = ui.part_rect(&ui.box_of_key(crate::Key::Resolved(ROW.get())).unwrap(),Part::EDITOR).unwrap();
             let prefix = ui.text_width(Some(points),"café ");
             let x = editor.x+2.0+prefix;
             let y = editor.y+editor.h/2.0;
@@ -2231,7 +2231,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             assert_eq!(selected.selection,[5,5],"pointer hit testing uses the displayed UTF-8 text at size {size}");
             if size==20 {
                 let width = ui.text_width(Some(24),"café ");
-                assert_eq!(ui.ime().unwrap().1,(2.0+width).round() as i64,"a body size change paints the new font immediately, after hit testing the previous frame");
+                assert_eq!(ui.ime().unwrap().caret,(2.0+width).round(),"a body size change paints the new font immediately, after hit testing the previous frame");
             }
             let key = |kind,code: crate::KeyCode| Event {kind,code:code.wire(),..Default::default()};
             let composition = "é";
@@ -2256,7 +2256,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
                 if tick>=8 {assert_eq!(mem_sys::local_alloc_count(),0,"warm custom body, focus, selection and composition");}
                 assert!(ui.ime().is_some());
             }
-            assert_eq!(ui.signal_keys(&ui.box_of_key(ROW.get()).unwrap()).len(),keys.len(),"editing must restore the original key stream for later consumers");
+            assert_eq!(ui.signal_keys(&ui.box_of_key(crate::Key::Resolved(ROW.get())).unwrap()).len(),keys.len(),"editing must restore the original key stream for later consumers");
             let commit = Event {kind:Event::TEXT_INPUT,text:Str {ptr:composition.as_ptr(),len:composition.len()},..Default::default()};
             let mut changed = false;
             ui.frame(&{
@@ -2279,7 +2279,7 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
     let button = Cell::new(None);
     let clicks = Cell::new(0);
     let mut build = |ui: &mut Ui| {
-        let node = ui.node("button".into(), crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::TAB_STOP).w_px(120.0).h_px(32.0));
+        let node = ui.node("button", crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::TAB_STOP).w_px(120.0).h_px(32.0));
         let state = ui.signal(&node);
         clicks.set(clicks.get() + i32::from(state.clicked));
         // the measured frame below reads the borrowed key slices; warm frames take the same path
@@ -2309,7 +2309,7 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
         frame.wire.event_count = events.len();
         frame
     }, &mut |ui: &mut Ui| {
-        let node = ui.node("button".into(), crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::TAB_STOP).w_px(120.0).h_px(32.0));
+        let node = ui.node("button", crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE | pxui_types::Flags::TAB_STOP).w_px(120.0).h_px(32.0));
         seen = ui.signal_keys(&node).len() + ui.press_keys(&node).len() + usize::from(ui.signal(&node).clicked);
     }).unwrap();
     drop(scope);
@@ -2353,8 +2353,8 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
     let mut deliveries = 0;
     let payload = PayloadRef { kind: "queue-occurrence", value: "18446744073709551615" };
     let mut build = |ui: &mut Ui| {
-        let source = ui.node("carry-source".into(), Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(40.0)) });
-        let target = ui.node("carry-target".into(), Node { at: Some((0.0, 100.0)).into(), ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(40.0)) });
+        let source = ui.node("carry-source", Node { at: Some((0.0, 0.0)).into(), ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(40.0)) });
+        let target = ui.node("carry-target", Node { at: Some((0.0, 100.0)).into(), ..Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Px(100.0)).h(Size::Px(40.0)) });
         if ui.signal(&source).held { ui.carry(Some(&source), payload.kind, payload.value); }
         if let Some(p) = ui.carrying() { assert_eq!(p, payload); }
         hover = false; dropped = false;
@@ -2412,7 +2412,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
     let mut build = |ui: &mut Ui| {
         if !visible.get() { return; }
         let body = ui.grid_list("virtual-carry", 10_000, 320.0, 20.0, &mut |ui, index| {
-            let row = ui.node("row".into(), Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Grow).h(Size::Grow));
+            let row = ui.node("row", Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Grow).h(Size::Grow));
             if index == 0 {
                 source.set(Some(row));
                 if ui.signal(&row).held { ui.carry(Some(&row), "occurrence", "duplicate song"); }
@@ -2423,7 +2423,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
             }
         });
         list.set(Some(body));
-        let unrelated = ui.node("unrelated".into(), Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).at(400.0, 0.0).w_px(10.0).h_px(10.0));
+        let unrelated = ui.node("unrelated", Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).at(400.0, 0.0).w_px(10.0).h_px(10.0));
         assert!(!ui.transfer_carry(&unrelated));
         ui.transfer_carry(&body);
         assert!(!ui.signal(&body).clicked, "finishing a carry must not click its capture owner");
@@ -2524,7 +2524,7 @@ fn fractional_fills_preserve_subpixel_quads_refuse_invalid_bounds_and_allocate_n
     for frame in 0..20 {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64),&mut |ui| {
-            let node=ui.node("fractional".into(),crate::Node::DEFAULT.w_px(320.0).h_px(40.0));
+            let node=ui.node("fractional",crate::Node::DEFAULT.w_px(320.0).h_px(40.0));
             ui.canvas(&node,|paint,rect| {
                 let white=pxui_types::geom::Rgba::WHITE;
                 for i in 0..200 { paint.fill(Rect::new(rect.x+i as f32*1.5+0.25, rect.y+1.25, 0.5, 4.0), Fill::new(white).fractional()); }
@@ -2557,7 +2557,7 @@ fn output_partitions_reuse_the_engine_dirty_capacity_after_unchanged_frames() {
                 let changed=index%2==0 && phase%2==1;
                 let revision=if index%2==0 {phase as u64} else {0};
                 ui.column(*name, Node::column().w_px(20.0).h_px(4.0), |ui| { ui.view_of(*name, &revision, |ui| {
-                    ui.node("quad".into(),Node::DEFAULT.w_px(20.0).h_px(4.0).look(Look::NONE.fill(if changed {pxui_types::geom::Rgba::rgb(0, 0, 255)} else {pxui_types::geom::Rgba::WHITE})));
+                    ui.node("quad",Node::DEFAULT.w_px(20.0).h_px(4.0).look(Look::NONE.fill(if changed {pxui_types::geom::Rgba::rgb(0, 0, 255)} else {pxui_types::geom::Rgba::WHITE})));
                 }); });
             }
         }).unwrap();
@@ -2582,9 +2582,9 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
     ui.set_a11y(true);
     let (view, child, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
     let mut build = |ui: &mut Ui| {
-        let v={ let enclosing = ui.node("entrance".into(), Node::column().w_px(100.0).h_px(80.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("entrance", &1, |ui| {
+        let v={ let enclosing = ui.node("entrance", Node::column().w_px(100.0).h_px(80.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("entrance", &1, |ui| {
             builds.set(builds.get()+1);
-            let b=ui.node("child".into(),Node::DEFAULT.w_px(20.0).h_px(10.0).role(Role::Button).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::rgb(20,30,40))));
+            let b=ui.node("child",Node::DEFAULT.w_px(20.0).h_px(10.0).role(Role::Button).look(crate::ui::Look::NONE.fill(pxui_types::geom::Rgba::rgb(20,30,40))));
             ui.a11y_name(&b,"Moving child"); child.set(Some(b));
         })); view };
         ui.set_at(&v,(20.0,20.0)); view.set(Some(v));
@@ -2626,7 +2626,7 @@ fn recycled_view_records_reserve_short_name_storage_without_losing_diagnostics()
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let seed=|ui:&mut Ui,label:&'static str| {
         for index in 0..16 {
-            let parent=ui.node(crate::ui::int_key(0x91b17,index).into(),Node::DEFAULT.w_px(10.0).h_px(10.0));
+            let parent=ui.node(crate::ui::int_key(0x91b17,index),Node::DEFAULT.w_px(10.0).h_px(10.0));
             ui.within(&parent,&mut |ui| {ui.view_of(label, &1, |_| {});});
         }
     };
@@ -2653,7 +2653,7 @@ fn reopening_nested_view_kinds_reuses_their_node_and_hit_capacities() {
                 for (label,count) in [("header",2),("information",10),("clock",1),("queue",24)] {
                     ui.column(label, Node::column().h_px(40.0), |ui| { ui.view_of(label, &1, |ui| {
                         for _index in 0..count {
-                            let b=ui.node("item".into(),Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(10.0).h_px(1.0).role(Role::Button));
+                            let b=ui.node("item",Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w_px(10.0).h_px(1.0).role(Role::Button));
                             ui.a11y_name(&b,"item");
                         }
                     }); });
@@ -2679,7 +2679,7 @@ fn accessibility_action_batches_keep_order_without_warm_allocations() {
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap(); ui.set_a11y(true);
     let value=Cell::new(None);
     let mut build=|ui:&mut Ui| {
-        let slider=ui.node("slider".into(),Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).role(Role::Slider).w_px(200.0).h_px(20.0));
+        let slider=ui.node("slider",Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).role(Role::Slider).w_px(200.0).h_px(20.0));
         ui.a11y_name(&slider,"Accessible value");
         assert_eq!(ui.a11y_number(&slider,0.0,0.0,100.0,1.0), Ok(true));
         value.set(ui.signal(&slider).a11y_value);
@@ -2714,7 +2714,7 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
             for empty in [false,true] {
                 ui.frame(&input().time(round as f64),&mut |ui| {
                     ui.column("wrapper", Node::column().w_px(width), |ui| { ui.view_of("wrapper", &((width as u64)*2+u64::from(empty)), |ui| {
-                        let node=ui.node("line".into(),Node::DEFAULT.role(Role::Label).w(Size::Grow).h(Size::Fit));
+                        let node=ui.node("line",Node::DEFAULT.role(Role::Label).w(Size::Grow).h(Size::Fit));
                         ui.text_line_box(&node,if empty {""} else {value},&style,&[]).unwrap();
                         handle.set(Some(node));
                     }); });
@@ -2727,7 +2727,7 @@ fn line_box_text_fits_wraps_and_resizes_in_one_frame_without_warm_allocations() 
         if round>=3 {assert_eq!(mem_sys::local_alloc_count(),0,"line-box fit/resize reuses layout and glyphs");}
     }
     ui.frame(&input(),&mut |ui| {
-        let node=ui.node("checked".into(),Node::DEFAULT.role(Role::Label).w_px(200.0).h_px(20.0));
+        let node=ui.node("checked",Node::DEFAULT.role(Role::Label).w_px(200.0).h_px(20.0));
         let ink = crate::TextSpan { start: 0, end: 3, color: crate::geom::Rgba::rgb(17, 59, 137), flags: crate::TextSpan::COLOR, ..Default::default() };
         ui.text_line_box(&node,value,&style,&[ink]).unwrap();
         for invalid in [
@@ -2755,10 +2755,10 @@ fn measured_section_rows_settle_positions_pin_heading_and_reuse_warm_storage() {
         body.set(Some(ui.section_list("measured",&SectionList::new(count.get()).row_h(20.0).lead(100.0).header(30.0).trail(40.0).overlay_scrollbar().measured(),&|i| i as i64,&mut |ui,part,y| {
             match part {
                 SectionPart::Leading=>assert_eq!(y,0.0),
-                SectionPart::Header=>{assert_eq!(y,100.0);header.set(Some(ui.node("heading".into(),Node::DEFAULT.w(Size::Grow).h(Size::Grow))));},
+                SectionPart::Header=>{assert_eq!(y,100.0);header.set(Some(ui.node("heading",Node::DEFAULT.w(Size::Grow).h(Size::Grow))));},
                 SectionPart::Row(index)=>{
                     let h=if taller.get() {40.0} else {20.0};
-                    let row=ui.node("content".into(),Node::DEFAULT.w(Size::Grow).h_px(h));
+                    let row=ui.node("content",Node::DEFAULT.w(Size::Grow).h_px(h));
                     positions.borrow_mut().push((index,y,row));
                 }
             }
@@ -2793,7 +2793,7 @@ fn filled_triangles_preserve_vertices_winding_validate_and_allocate_nothing_when
         mem_sys::local_reset();
         for scale in [1.0,2.0] {
             ui.frame(&input().scale(scale),&mut |ui| {
-                let node=ui.node("triangles".into(),crate::Node::DEFAULT.w_px(100.0).h_px(100.0));
+                let node=ui.node("triangles",crate::Node::DEFAULT.w_px(100.0).h_px(100.0));
                 ui.canvas(&node,|paint,_| {
                     let color=crate::geom::Rgba::rgba(12, 34, 56, 128);
                     paint.triangle((1.25,2.75), (5.75,2.75), (3.5,6.5), Fill::new(color));
@@ -2823,7 +2823,7 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
         mem_sys::local_reset();
         for value in ["Not kept offline","Kept offline","Café","", "ready\0now","🎵e\u{301}","👩‍💻"] {
             ui.frame(&input(),&mut |ui| {
-                let button=ui.node("value".into(),crate::Node::DEFAULT.w_px(100.0).h_px(30.0).role(crate::ui::Role::Button));
+                let button=ui.node("value",crate::Node::DEFAULT.w_px(100.0).h_px(30.0).role(crate::ui::Role::Button));
                 ui.a11y_name(&button,"Offline");assert_eq!(ui.a11y_value(&button,value,(value.len() as u32,0)), Ok(true));
             }).unwrap();
             let node=ui.a11y_nodes().iter().find(|node|ui.a11y_name_of(node)=="Offline").unwrap();
@@ -2833,7 +2833,7 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
     }
     let mut original = None;
     ui.frame(&input(),&mut |ui| {
-        let node=ui.node("number".into(),crate::Node::DEFAULT.w_px(100.0).h_px(30.0).role(crate::ui::Role::Slider));
+        let node=ui.node("number",crate::Node::DEFAULT.w_px(100.0).h_px(30.0).role(crate::ui::Role::Slider));
         assert_eq!(ui.a11y_value(&node,"one",(0,0)), Ok(true));
         assert_eq!(ui.a11y_number(&node,1.0,0.0,2.0,1.0), Ok(true));
         original = Some(node);
@@ -2844,7 +2844,7 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
     assert_eq!(ui.a11y_value(&retired, "stale", (0, 0)), Ok(false));
     let name = format!("{}é", "a".repeat((64 << 10) - 1));
     ui.frame(&input(), &mut |ui| {
-        let replacement = ui.node("replacement".into(), Node::DEFAULT.flags(crate::Flags::FOCUSABLE).role(crate::Role::Button));
+        let replacement = ui.node("replacement", Node::DEFAULT.flags(crate::Flags::FOCUSABLE).role(crate::Role::Button));
         assert_eq!(replacement.box_slot, retired.box_slot, "exercise an actually recycled slot");
         assert_ne!(replacement.generation, retired.generation);
         assert!(ui.a11y_name(&replacement, &name));
@@ -2862,7 +2862,7 @@ fn accessible_text_values_preserve_utf8_selection_precedence_and_warm_storage() 
     assert_eq!(ui.a11y_name_of(replacement), &name[..name.len() - 2]);
     for (value,selection,expected) in [("é",(1,0),[0,0]),("aé",(2,99),[1,2]),("🎵x",(3,1),[0,0])] {
         ui.frame(&input(),&mut |ui| {
-            let node=ui.node("normalized".into(),crate::Node::DEFAULT.role(crate::ui::Role::Button));
+            let node=ui.node("normalized",crate::Node::DEFAULT.role(crate::ui::Role::Button));
             assert_eq!(ui.a11y_value(&node,value,selection), Ok(true));
         }).unwrap();
         let node=ui.a11y_nodes().iter().find(|node|ui.a11y_value_of(node)==Some(value)).unwrap();
@@ -2948,7 +2948,7 @@ fn touch_gestures_drive_virtual_rows_catch_coasts_and_keep_warm_allocations_zero
             body.set(Some(ui.section_list("touch-list", &SectionList::new(10_000).row_h(24.0).overlay_scrollbar(),&|i| i as i64, &mut |ui, part,_| {
                 if let SectionPart::Row(index) = part {
                     built.set(built.get() + 1);
-                    let row = ui.node("touch-row".into(), Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Grow).h(Size::Grow));
+                    let row = ui.node("touch-row", Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Grow).h(Size::Grow));
                     ui.a11y_name(&row, "Song");
                     let signal = ui.signal(&row);
                     if signal.clicked { clicked.set(Some(index)); }
@@ -3012,7 +3012,7 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
             builds.set(builds.get()+1);
             let rect = ui.content_rect();
             assert_eq!([rect.x, rect.y, rect.w, rect.h], expected.get());
-            node.set(Some(ui.node("visible content".into(), crate::Node::DEFAULT.at(rect.x, rect.y).w_px(rect.w).h_px(rect.h))));
+            node.set(Some(ui.node("visible content", crate::Node::DEFAULT.at(rect.x, rect.y).w_px(rect.w).h_px(rect.h))));
         });
     };
     let environment = Environment {safe_area:[47.0,0.0,34.0,0.0],..Environment::default()};
@@ -3098,14 +3098,14 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
             frame
         },&mut build).unwrap();
         let expected=match step {0|1=>Options::SEARCH,2|3=>done,_=>Options::default()};
-        assert_eq!(ui.text_input_options(),expected,"frame {frame}");
+        assert_eq!(ui.text_traits(),expected,"frame {frame}");
         assert_eq!(ui.ime().is_some(),step<4,"Done must dismiss native input in the same frame");
         if step==4 {assert!(ui.key_pressed(key, crate::Mods::ANY),"raw key queries remain non-consuming");}
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm keyboard options frame {frame}");}
     }
     show_search.set(false);
     ui.frame(&input(),&mut build).unwrap();
-    assert_eq!(ui.text_input_options(),Options::default(),"an unfocused or omitted field cannot retain options");
+    assert_eq!(ui.text_traits(),Options::default(),"an unfocused or omitted field cannot retain options");
 }
 
 #[test]
@@ -3147,14 +3147,14 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
             frame
         },&mut build).unwrap();
         let prefix=if start>3.0 {value} else {"éi"};
-        assert_eq!(ui.ime().unwrap().1,(2.0+ui.text_width(Some(18),prefix)).round() as i64,"marked selection uses Unicode scalar offsets");
+        assert_eq!(ui.ime().unwrap().caret,(2.0+ui.text_width(Some(18),prefix)).round(),"marked selection uses Unicode scalar offsets");
     }
     for frame in 0..182 {
         mem_sys::local_reset();
         ui.frame(&input().time(frame as f64/120.0),&mut build).unwrap();
         assert_eq!(ui.layers().flat_map(|layer|layer.instances.iter()).filter(|quad|quad.kind==crate::draw::kind::MASK).count(),3,
             "preedit must replace the selected base text instead of appending to it");
-        assert_eq!(ui.ime().unwrap().1,(2.0+ui.text_width(Some(18),"éi")).round() as i64);
+        assert_eq!(ui.ime().unwrap().caret,(2.0+ui.text_width(Some(18),"éi")).round());
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm marked selection frame {frame}");}
     }
     let commit=[Event {kind:Event::TEXT_INPUT,text:Str {ptr:value.as_ptr(),len:value.len()},..Default::default()},key(Event::KEY_PRESSED,crate::KeyCode::Enter),key(Event::KEY_RELEASED,crate::KeyCode::Enter)];
@@ -3228,18 +3228,18 @@ fn pixel_fit_text_rounds_density_and_reuses_recycled_identity_style_and_span_lay
                 mem_sys::local_reset();serial+=1;
                 ui.frame(&input().scale(scale).time(serial as f64/60.0),&mut |ui| {
                     for (index,value) in values.into_iter().enumerate() {
-                        let node=ui.node((index as i64+100+100*(round%2) as i64).into(),Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).role(Role::Label).look(look));
+                        let node=ui.node(index as i64+100+100*(round%2) as i64,Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).role(Role::Label).look(look));
                         ui.text_line_box(&node,value,&style,&[]).unwrap();nodes[index]=Some(node);
                     }
-                    let node=ui.node("spans".into(),Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).look(look));
+                    let node=ui.node("spans",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).look(look));
                     ui.text_spans(&node,values[0],&styles[0],&span).unwrap();nodes[4]=Some(node);
-                    let node=ui.node("plain-caps".into(),Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).role(Role::Label).look(look.font(Font::BODY.size(14).caps())));
+                    let node=ui.node("plain-caps",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).role(Role::Label).look(look.font(Font::BODY.size(14).caps())));
                     ui.text(&node,values[0]);nodes[5]=Some(node);
-                    let node=ui.node("limited".into(),Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).max_w(10.25).h_px(24.0).look(look));
+                    let node=ui.node("limited",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).max_w(10.25).h_px(24.0).look(look));
                     ui.text_line_box(&node,values[2],&style,&[]).unwrap();nodes[6]=Some(node);
-                    let node=ui.node("insets".into(),Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).inset(crate::ui::Edges {l:0.2,r:0.3,..Default::default()}).look(look));
+                    let node=ui.node("insets",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).h_px(24.0).inset(crate::ui::Edges {l:0.2,r:0.3,..Default::default()}).look(look));
                     ui.text_line_box(&node,values[0],&style,&[]).unwrap();nodes[7]=Some(node);
-                    let node=ui.node("plain-limited".into(),Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).max_w(10.25).h_px(24.0).look(Look::NONE.text(crate::geom::Rgba::rgba(255,0,0,255)).font(Font::BODY.size(14))));
+                    let node=ui.node("plain-limited",Node::DEFAULT.flags(pxui_types::Flags::FIT_TEXT|pxui_types::Flags::FIT_TEXT_PIXEL).w(Size::Fit).max_w(10.25).h_px(24.0).look(Look::NONE.text(crate::geom::Rgba::rgba(255,0,0,255)).font(Font::BODY.size(14))));
                     ui.text(&node,values[0]);nodes[8]=Some(node);
                 }).unwrap();
                 let density=ui.density() as f32;
@@ -3308,7 +3308,7 @@ fn colour_tokens_follow_a_light_dark_theme_swap_without_app_rebuild_or_warm_allo
     let mut build = |ui: &mut Ui| {
         ui.column("tokens", Node::column().w_px(100.0).h_px(60.0), |ui| { ui.view_of("tokens", &1, |ui| {
             built.set(ui.color(ColorToken(1)));
-            let b = ui.node("canvas".into(), crate::Node::DEFAULT.w_px(20.0).h_px(10.0));
+            let b = ui.node("canvas", crate::Node::DEFAULT.w_px(20.0).h_px(10.0));
             let painted = painted.clone();
             ui.canvas(&b, move |p, _| painted.set(p.color(ColorToken(0))));
         }); });
@@ -3400,7 +3400,7 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     // a retained view whose revision never changes: the engine rebuilds it at the swap, the app changes nothing
     let mut build = |ui: &mut Ui| {
         ui.column("tokens", Node::column().w_px(200.0).h_px(100.0), |ui| { ui.view_of("tokens", &1, |ui| {
-            let b = ui.node("plain".into(), crate::Node::DEFAULT.w_px(20.0).h_px(10.0).look(ROW));
+            let b = ui.node("plain", crate::Node::DEFAULT.w_px(20.0).h_px(10.0).look(ROW));
             node.set(ui.node_mut(&b, |f| f.look));
             let p = ui.pressable("row", crate::Node::DEFAULT.w_px(20.0).h_px(10.0), &crate::Pressable::DEFAULT.look(&PLATE), |_, _| {});
             pressed.set(ui.node_mut(&p.handle, |f| f.look));
@@ -3464,7 +3464,7 @@ fn resolve_gives_the_style_a_label_shapes_with() {
     let theme=ui.resolve(&crate::Label::DEFAULT).0;
     assert!(theme.size_points>0.0,"the theme label's size");
     ui.frame(&input(),&mut |ui| {
-        let node=ui.node("n".into(),crate::Node::DEFAULT);
+        let node=ui.node("n",crate::Node::DEFAULT);
         assert!(ui.text_line_box(&node,"x",&crate::Label::BODY.size(-1.0),&[]).is_err());
         ui.text_line_box(&node,"x",&crate::Label::BODY.line_height(20.0),&[]).unwrap();
     }).unwrap();
@@ -3578,7 +3578,7 @@ fn a_tooltip_waits_by_its_owner_and_allocates_nothing_while_it_waits() {
     let text = Cell::new("Tip");
     let mut build = |ui: &mut Ui| {
         for (key, x) in [("a", 0.0), ("b", 100.0)] {
-            let b = ui.node(key.into(), Node { flags: Flags::CLICKABLE, role: Role::Button, at: Some((x, 0.0)).into(), w: crate::ui::Size::Px(80.0), h: crate::ui::Size::Px(30.0), ..Node::DEFAULT });
+            let b = ui.node(key, Node { flags: Flags::CLICKABLE, role: Role::Button, at: Some((x, 0.0)).into(), w: crate::ui::Size::Px(80.0), h: crate::ui::Size::Px(30.0), ..Node::DEFAULT });
             ui.tooltip(&b, text.get());
         }
     };
@@ -3604,4 +3604,72 @@ fn a_tooltip_waits_by_its_owner_and_allocates_nothing_while_it_waits() {
     text.set("Tip two");
     rest(&mut ui, 110.0, 1, &mut build);
     assert!(shown(&ui, "Tip two"), "a changed text keeps the owner's wait");
+}
+
+/// U1b.2 keys: a resolved key is the key itself in creation calls and lookups (never hashed again); authored lookups resolve under
+/// the active scope during a build and the root seed outside one; `root_at` keeps the innermost candidate whatever the order and
+/// past one 32-key chunk; `remember` writes only the keyed field's history; the hover wait and lookups allocate nothing warm.
+#[test]
+fn u1b2_keys_resolve_once_and_lookups_keep_the_innermost_candidate_without_warm_allocations() {
+    use crate::{Event, Key, Point, ui::{Flags, Node}};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let keys = Cell::new((0i64, 0i64, 0i64));
+    let lookups = Cell::new((false, false, false));
+    let mut build = |ui: &mut Ui| {
+        let outer = ui.node("outer", Node { flags: Flags::CLICKABLE, at: Some((0.0, 0.0)).into(), w: Size::Px(200.0), h: Size::Px(100.0), ..Node::DEFAULT });
+        ui.within(&outer, &mut |ui: &mut Ui| {
+            let inner = ui.node("inner", Node { flags: Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT });
+            // an authored lookup resolves under the active scope: "inner" here is the child just built
+            lookups.set((ui.box_of_key("inner").is_some_and(|b| b.box_key == inner.box_key), lookups.get().1, lookups.get().2));
+            keys.set((outer.box_key, inner.box_key, keys.get().2));
+        });
+        // a resolved key creates a node keyed by exactly that key, and finds it again
+        let again = ui.node(Key::Resolved(0x5eed_5eed), Node::DEFAULT);
+        keys.set((keys.get().0, keys.get().1, again.box_key));
+        lookups.set((lookups.get().0, ui.box_of_key(Key::Resolved(0x5eed_5eed)).is_some(), ui.hover_delay(Key::Resolved(outer.box_key))));
+    };
+    for t in 0..3 { ui.frame(&input().time(t as f64), &mut build).unwrap(); }
+    let (outer, inner, again) = keys.get();
+    assert_eq!(again, 0x5eed_5eed, "a resolved key is never hashed again");
+    assert!(lookups.get().0 && lookups.get().1, "authored and resolved lookups find their nodes during a build");
+    // outside a build, an authored key resolves under the root seed
+    assert_eq!(ui.box_of_key("outer").map(|b| b.box_key), Some(outer));
+    // innermost wins whatever the order, also when the winners come from different 32-key chunks
+    let mut many = [Key::Resolved(1); 40];
+    many[3] = Key::Resolved(outer);
+    many[37] = Key::Label("inner-missing");
+    many[39] = Key::Resolved(inner);
+    let at = Point { x: 10.0, y: 10.0 };
+    assert_eq!(ui.root_at(at, &many), Some(Key::Resolved(inner)));
+    assert_eq!(ui.root_at(at, &[Key::Resolved(inner), Key::Label("outer")]), Some(Key::Resolved(inner)));
+    assert_eq!(ui.root_at(at, &[Key::Label("outer")]), Some(Key::Label("outer")), "the candidate comes back as the caller wrote it");
+    assert_eq!(ui.root_at(Point { x: 150.0, y: 10.0 }, &many), Some(Key::Resolved(outer)));
+    // the history of a field that is not the active editor is untouched by another key's snapshot
+    ui.frame(&input().time(4.0), &mut |ui: &mut Ui| {
+        let _ = ui.load_text_edit(Key::Resolved(11), "a");
+        let before = ui.text_undo_bytes();
+        ui.remember(Key::Resolved(12), &pxui_types::ui::TextEdit { text: "zzz".into(), caret: 0, anchor: 0 }, false);
+        assert_eq!(ui.text_undo_bytes(), before, "a key with no history takes no snapshot");
+        ui.remember(Key::Resolved(11), &pxui_types::ui::TextEdit { text: "abc".into(), caret: 0, anchor: 0 }, false);
+        assert!(ui.text_undo_bytes() > before, "the active field's snapshot is held");
+        // 11 is shelved when 13 loads; a snapshot keyed 11 goes to its shelved history and 13 stays the active editor
+        let _ = ui.load_text_edit(Key::Resolved(13), "b");
+        let shelved = ui.text_undo_bytes();
+        ui.remember(Key::Resolved(11), &pxui_types::ui::TextEdit { text: "abcd".into(), caret: 0, anchor: 0 }, false);
+        assert!(ui.text_undo_bytes() > shelved, "the shelved field's history takes the snapshot");
+        assert_eq!(ui.load_text_edit(Key::Resolved(13), "b").text, "b", "the active editor did not change");
+    }).unwrap();
+    // warm: lookups, a resolved node and the hover wait allocate nothing in the wrapper or the library
+    for t in 5..9 {
+        let moved = Event { kind: Event::POINTER_MOVED, x: 150.0, y: 10.0, ..Default::default() };
+        let mut frame = input().time(t as f64 * 0.1 + 5.0);
+        frame.wire.events = &moved;
+        frame.wire.event_count = 1;
+        if t == 7 { mem_sys::local_reset(); }
+        ui.frame(&frame, &mut build).unwrap();
+        let _ = ui.root_at(at, &many);
+    }
+    assert_eq!(mem_sys::local_alloc_count(), 0, "warm lookups and the resolved hover wait allocate nothing");
 }

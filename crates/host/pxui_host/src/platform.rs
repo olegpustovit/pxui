@@ -75,7 +75,7 @@ impl Platform {
                 out.ime_caret,
             )
         });
-        let options=if ime.is_some() {ui.text_input_options()} else {pxui::TextTraits::default()};
+        let options=if ime.is_some() {ui.text_traits()} else {pxui::TextTraits::default()};
         window.set_text_input_with_options(ime,pxui_sdl::TextInputOptions {
             autocorrect:options.autocorrects() as u32,capitalization:options.capitalizes() as u32,action:options.return_key() as u32,
         }).map_err(|_| Error::Host("could not set native text input"))?;

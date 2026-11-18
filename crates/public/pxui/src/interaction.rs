@@ -75,7 +75,7 @@ mod sys {
         ///
         /// ```
         /// pxui::doc::frames(1, &mut |ui| {
-        ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+        ///     let b = ui.node("n", pxui::Node::DEFAULT);
         ///     assert_eq!(ui.state(&b, 3), 3);
         /// });
         /// ```
@@ -86,7 +86,7 @@ mod sys {
         ///
         /// ```
         /// pxui::doc::frames(2, &mut |ui| {
-        ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+        ///     let b = ui.node("n", pxui::Node::DEFAULT);
         ///     let n = ui.state(&b, 0);
         ///     ui.set_state(&b, n + 1);
         /// });
@@ -99,7 +99,7 @@ mod sys {
         ///
         /// ```
         /// pxui::doc::frames(1, &mut |ui| {
-        ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+        ///     let b = ui.node("n", pxui::Node::DEFAULT);
         ///     let signal = ui.signal(&b);
         ///     assert!(!signal.clicked && !signal.hovered);
         /// });
@@ -120,7 +120,7 @@ impl Ui {
     /// ```
     /// use pxui::{Flags, Node, Role, ui::state};
     /// let ui = pxui::doc::frames(1, &mut |ui| {
-    ///     let row = ui.node("editor".into(), Node::DEFAULT.flags(Flags::FOCUSABLE).role(Role::TextField));
+    ///     let row = ui.node("editor", Node::DEFAULT.flags(Flags::FOCUSABLE).role(Role::TextField));
     ///     ui.focus_box(&row);
     /// });
     /// assert!(ui.a11y_nodes().iter().any(|node| node.is_role(Role::TextField) && node.states & state::FOCUSED != 0));
@@ -137,7 +137,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert_eq!(ui.state(&b, 5), 5);
     ///     ui.set_state(&b, 7);
     ///     assert_eq!(ui.state(&b, 5), 7);
@@ -158,7 +158,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     ui.set_state(&b, -1);
     ///     assert_eq!(ui.state(&b, 0), -1);
     /// });
@@ -175,7 +175,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert!(!ui.signal(&b).hovered);
     /// }).unwrap();
     /// ```
@@ -197,7 +197,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert!(ui.signal_keys(&b).is_empty());
     /// }).unwrap();
     /// ```

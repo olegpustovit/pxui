@@ -366,7 +366,7 @@ mod ios {
                             (rect.y, extent.logical.0 as f32-rect.x-rect.w, extent.logical.1 as f32-rect.y-rect.h, rect.x)
                         } else { (t, r, b, l) };
                         let content = ui.node(
-                            "iOS safe content".into(),
+                            "iOS safe content",
                             Node {
                                 w: Size::Grow,
                                 h: Size::Grow,
@@ -376,7 +376,7 @@ mod ios {
                         );
                         ui.within(&content, &mut |ui| {
                             let inner = ui.node(
-                                "iOS safe bounds".into(),
+                                "iOS safe bounds",
                                 Node {
                                     w: Size::Grow,
                                     h: Size::Grow,
@@ -389,7 +389,7 @@ mod ios {
                                     touch.view(ui);
                                 } else if self.keyboard_check {
                                     ui.label("PXUI native keyboard", pxui::Label::DEFAULT);
-                                    ui.node("field spacer".into(), Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
+                                    ui.node("field spacer", Node { w:Size::Grow,h:Size::Grow,..Node::DEFAULT });
                                     if let Some(text) = self.text.as_mut() {text.view(ui,self.frames);}
                                     else {ui.text_field("Mobile input", "café track", &pxui::TextField::DEFAULT);}
                                 } else {
@@ -424,9 +424,9 @@ mod ios {
                 ));
             }
             if self.keyboard_check {
-                if let Some(((x, y, w, h), _)) = self.ui.ime() {
-                    if (x as f32) < rect.x - 1.0 || (y as f32) < rect.y - 1.0
-                        || (x+w) as f32 > rect.x+rect.w+1.0 || (y+h) as f32 > rect.y+rect.h+1.0 {
+                if let Some(pxui::Ime { rect: pxui::Rect { x, y, w, h }, .. }) = self.ui.ime() {
+                    if x < rect.x - 1.0 || y < rect.y - 1.0
+                        || x+w > rect.x+rect.w+1.0 || y+h > rect.y+rect.h+1.0 {
                         return Err(format!("Focused field is outside usable content: {:?}, content={rect:?}", (x,y,w,h)));
                     }
                 }

@@ -100,7 +100,7 @@ pxui::doc::frames(2, &mut |ui| {
     let pill = Button::sized(90.0, 30.0).name("Shuffle");
     ui.button_content("shuffle", &pill, |ui, state| {
         let side = if state.pressed { 14.0 } else { 16.0 };
-        ui.node("icon".into(), Node { w: Size::Px(side), h: Size::Px(side), ..Node::DEFAULT });
+        ui.node("icon", Node { w: Size::Px(side), h: Size::Px(side), ..Node::DEFAULT });
     });
 });
 ```

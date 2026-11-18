@@ -3396,6 +3396,11 @@ impl Ui {
         self.seeds.last().copied().unwrap_or(0)
     }
 
+    /// The seed a lookup resolves an authored key under: the active scope's during a build, `ROOT_KEY` outside one.
+    pub fn lookup_seed(&self) -> i64 {
+        self.seeds.last().copied().unwrap_or(ROOT_KEY)
+    }
+
     /// Two boxes with one key in a frame get distinct, order-stable keys: the n-th takes the key's
     /// n-th `#dup` hash. The first key's slot remembers the last duplicate taken this frame, so the
     /// n-th hashes on from there without looking it up again: two lookups and one hash, whatever n.

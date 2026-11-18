@@ -1363,6 +1363,13 @@ impl Ui {
         self.image_at(unique, name, image, fit, w, h)
     }
 
+    /// An image keyed by `key` (a label or id under the current parent, as `node` keys it) and named `name` for accessibility only.
+    pub fn image_keyed(&mut self, key: &str, name: &str, image: &Image, fit: Fit, w: Size, h: Size) -> Handle {
+        self.require_building();
+        let unique = self.unique_key(key_of(self.current_seed(), key));
+        self.image_at(unique, name, image, fit, w, h)
+    }
+
     /// The 1.x `pxui_ui_image` form: keyed and named by one `label` (`key_of`, the name before `##`). Cut at 2.0.
     #[doc(hidden)]
     pub fn image_labeled(&mut self, label: &str, image: &Image, fit: Fit, w: Size, h: Size) -> Handle {

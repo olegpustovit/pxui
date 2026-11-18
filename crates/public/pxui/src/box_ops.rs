@@ -339,13 +339,13 @@ impl Ui {
     /// ```
     /// use pxui::{ui::Size, GestureOpts, Node};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let row = ui.node("row".into(), Node { h: Size::Px(44.0), ..Node::DEFAULT });
-    ///     let state = ui.gesture(&row, GestureOpts::DEFAULT.long_press().row_swipe(80.0));
+    ///     let row = ui.node("row", Node { h: Size::Px(44.0), ..Node::DEFAULT });
+    ///     let state = ui.gesture(&row, &GestureOpts::DEFAULT.long_press().row_swipe(80.0));
     ///     assert!(!state.long_pressed && !state.swiping);
     /// });
     /// ```
     #[track_caller]
-    pub fn gesture(&mut self, node: &Handle, opts: GestureOpts) -> GestureState {
+    pub fn gesture(&mut self, node: &Handle, opts: &GestureOpts) -> GestureState {
         let kinds = u32::from(opts.long_press) | u32::from(opts.row_swipe.is_some()) << 1 | u32::from(opts.edge_back) << 2 | u32::from(opts.refresh.is_some()) << 3 | u32::from(opts.touch_drag) << 5;
         // the C record reads a 0 threshold as the default (UIKit's 60 points)
         let request = pxui_types::ffi::PxuiGestureIn { kinds, reveal: opts.row_swipe.unwrap_or(0.0), threshold: opts.refresh.unwrap_or(0.0), ..Default::default() };
@@ -366,7 +366,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let row = ui.node("row".into(), pxui::Node::DEFAULT);
+    ///     let row = ui.node("row", pxui::Node::DEFAULT);
     ///     assert!(!ui.gesture_state(&row).swipe_open);
     /// });
     /// ```
@@ -379,7 +379,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let row = ui.node("row".into(), pxui::Node::DEFAULT);
+    ///     let row = ui.node("row", pxui::Node::DEFAULT);
     ///     ui.close_swipe(&row);
     /// });
     /// ```
@@ -392,7 +392,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let list = ui.node("list".into(), pxui::Node::DEFAULT);
+    ///     let list = ui.node("list", pxui::Node::DEFAULT);
     ///     ui.end_refresh(&list);
     /// });
     /// ```
@@ -409,7 +409,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert!(ui.patch_look(&b, &pxui::ui::Look::NONE));
     /// });
     /// ```
@@ -429,7 +429,7 @@ impl Ui {
     /// ```
     /// use pxui::ui::Rect;
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert!(ui.patch_rect(&b, Rect::new(0.0, 0.0, 10.0, 10.0)));
     /// });
     /// ```
@@ -447,7 +447,7 @@ impl Ui {
     /// ```
     /// use pxui::ui::{Dir, Mark};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert!(ui.patch_mark(&b, Mark::Chevron(Dir::Down)));
     /// });
     /// ```
@@ -463,7 +463,7 @@ impl Ui {
     ///
     /// ```
     /// let mut b = None;
-    /// let ui = pxui::doc::frames(2, &mut |ui| b = Some(ui.node("n".into(), pxui::Node { w: pxui::ui::Size::Px(30.0), h: pxui::ui::Size::Px(10.0), ..pxui::Node::DEFAULT })));
+    /// let ui = pxui::doc::frames(2, &mut |ui| b = Some(ui.node("n", pxui::Node { w: pxui::ui::Size::Px(30.0), h: pxui::ui::Size::Px(10.0), ..pxui::Node::DEFAULT })));
     /// let r = ui.local_rect(&b.unwrap());
     /// assert_eq!((r.w, r.h), (30.0, 10.0));
     /// ```
@@ -499,7 +499,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     ui.reveal(&b, 7); // not a list: nothing to scroll
     /// });
     /// ```
@@ -536,7 +536,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert_eq!(ui.text_state(&b), None);
     ///     ui.set_text_state(&b, Some("kept".into()));
     ///     assert_eq!(ui.text_state(&b), Some("kept"));
@@ -555,7 +555,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     ui.set_text_state(&b, Some("draft"));
     ///     assert_eq!(ui.text_state(&b), Some("draft"));
     ///     ui.set_text_state(&b, None);
@@ -575,7 +575,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert_eq!(ui.cached_label(&b, 0, "12 songs"), "12 songs");
     /// });
     /// ```
@@ -631,7 +631,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let list = ui.node("list".into(), pxui::Node::DEFAULT);
+    ///     let list = ui.node("list", pxui::Node::DEFAULT);
     ///     assert!(!ui.transfer_carry(&list)); // nothing is being carried
     /// });
     /// ```
@@ -660,7 +660,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let slot = ui.node("slot".into(), pxui::Node::DEFAULT);
+    ///     let slot = ui.node("slot", pxui::Node::DEFAULT);
     ///     assert!(ui.drop_target(&slot).is_none());
     /// });
     /// ```
@@ -678,55 +678,33 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("b".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("b", pxui::Node::DEFAULT);
     ///     assert_eq!(ui.context_at(&b), None);
     /// });
     /// ```
     #[track_caller]
-    pub fn context_at(&mut self, b: &Handle) -> Option<(f32, f32)> {
+    pub fn context_at(&mut self, b: &Handle) -> Option<Point> {
         let (mut present, mut out) = (0, Point::default());
         check(self, unsafe { lib::pxui_ui_context_at(self.0.as_ptr(), b, &mut present, &mut out) });
-        (present != 0).then_some((out.x, out.y))
+        (present != 0).then_some(out)
     }
-    /// Whether `b` itself, none of its children, is the topmost box under the pointer; always false while the last input was a touch.
-    /// Reads the hover the frame's input routing settled; the answer is for this frame. A stale handle reads false.
-    /// Allocates: never.
-    /// Panics: when the library refuses the call (a null `Ui`).
+    /// Reports whether the node owns hover for this frame.
+    ///
+    /// Pass within to include descendants in the shared hit tree. Otherwise only the pointer's topmost node counts.
+    /// Allocates: never once the hover chain is warm.
+    /// Panics: when the library refuses the query.
     ///
     /// ```
-    /// use pxui::{ui::Size, Event, Node};
-    /// let mut b = None;
-    /// let mut build = |ui: &mut pxui::Ui| b = Some(ui.node("n".into(), Node { flags: pxui::ui::Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT }));
-    /// let mut ui = pxui::doc::frames(2, &mut build);
-    /// let moved = [Event { kind: Event::POINTER_MOVED, x: 10.0, y: 10.0, ..Default::default() }];
-    /// pxui::testing::frame(&mut ui, &moved, &mut build);
-    /// assert!(ui.hovered_exactly(&b.unwrap()));
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let node = ui.node("target", pxui::Node::DEFAULT);
+    ///     assert!(!ui.hovered(&node, false));
+    /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn hovered_exactly(&self, b: &Handle) -> bool {
+    pub fn hovered(&self, b: &Handle, within: bool) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_hovered(self.0.as_ptr(), b, 0, &mut out) });
-        out != 0
-    }
-    /// Whether `b` or one of its hit descendants owns the pointer's hover in the shared hit tree.
-    /// Allocates: never.
-    /// Panics: when the library refuses the call (a null `Ui`).
-    ///
-    /// ```
-    /// use pxui::{ui::Size, Event, Node};
-    /// let mut b = None;
-    /// let mut build = |ui: &mut pxui::Ui| b = Some(ui.node("n".into(), Node { flags: pxui::ui::Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT }));
-    /// let mut ui = pxui::doc::frames(2, &mut build);
-    /// let moved = [Event { kind: Event::POINTER_MOVED, x: 10.0, y: 10.0, ..Default::default() }];
-    /// pxui::testing::frame(&mut ui, &moved, &mut build);
-    /// assert!(ui.hovered_within(&b.unwrap()));
-    /// ```
-    #[inline]
-    #[track_caller]
-    pub fn hovered_within(&mut self, b: &Handle) -> bool {
-        let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_hovered(self.0.as_ptr(), b, 1, &mut out) });
+        check(self, unsafe { lib::pxui_ui_hovered(self.0.as_ptr(), b, within as u8, &mut out) });
         out != 0
     }
     /// The key codes held at the box's captured press, retained through release; borrowed from the
@@ -738,7 +716,7 @@ impl Ui {
     /// ```
     /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     assert!(ui.press_keys(&b).is_empty());
     /// }).unwrap();
     /// ```
@@ -748,44 +726,64 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_press_keys(self.0.as_ptr(), b, &mut ptr, &mut len) });
         if len == 0 || ptr.is_null() { &[] } else { unsafe { core::slice::from_raw_parts(ptr, len) } }
     }
-    /// The first of `roots` (box keys) that is the topmost box under `point`, or one of its ancestors, in the previous frame's hit tree; `None` when none is.
-    /// Window points; call it while handling input, before this frame's tree replaces the last one.
-    /// Allocates: never.
-    /// Panics: when the library refuses the call (a null `Ui`).
+    /// Finds the innermost candidate root hit at the given surface point.
+    ///
+    /// Uses the previous frame's hit tree. The root may be the top hit or one of its ancestors; of several matching candidates the one
+    /// nearest the top hit wins, whatever order `roots` lists them in. Returns the matching candidate as the caller wrote it.
+    /// Allocates: never; candidates resolve into fixed storage.
+    /// Identity: Authored labels and ids resolve under the active scope seed during a build and under the root seed outside one.
+    /// `Key::Resolved` passes an existing box key unchanged and is never hashed again.
+    /// Panics: more than 65,536 candidates, a non-finite point, or when the library refuses the query.
     ///
     /// ```
-    /// let mut key = 0;
-    /// let ui = pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node { flags: pxui::ui::Flags::CLICKABLE, w: pxui::ui::Size::Px(50.0), h: pxui::ui::Size::Px(50.0), ..pxui::Node::DEFAULT });
-    ///     key = b.box_key;
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     assert!(ui.root_at(pxui::Point { x: 5.0, y: 5.0 }, &[pxui::Key::Label("pane")]).is_none());
     /// });
-    /// assert_eq!(ui.root_at((10.0, 10.0), &[key]), Some(key));
-    /// assert_eq!(ui.root_at((200.0, 200.0), &[key]), None);
     /// ```
     #[track_caller]
-    pub fn root_at(&self, point: (f32, f32), roots: &[i64]) -> Option<i64> {
-        let (mut present, mut out) = (0, 0);
-        check(self, unsafe { lib::pxui_ui_root_at(self.0.as_ptr(), point.0, point.1, Slice { ptr: roots.as_ptr(), len: roots.len() }, &mut present, &mut out) });
-        (present != 0).then_some(out)
+    pub fn root_at(&self, point: Point, roots: &[crate::Key]) -> Option<crate::Key> {
+        assert!(roots.len() <= 1 << 16, "pxui: root_at takes at most 65,536 candidates");
+        let seed = self.lookup_seed();
+        let query = |keys: &[i64]| {
+            let (mut present, mut out) = (0, 0);
+            check(self, unsafe { lib::pxui_ui_root_at(self.0.as_ptr(), point.x, point.y, Slice { ptr: keys.as_ptr(), len: keys.len() }, &mut present, &mut out) });
+            (present != 0).then_some(out)
+        };
+        // candidates resolve 32 at a time into the stack; a chunk's winner and the best so far meet in one more query, which keeps
+        // the innermost of the two
+        let mut best: Option<(i64, crate::Key)> = None;
+        let mut keys = [0i64; 32];
+        for chunk in roots.chunks(32) {
+            for (slot, key) in keys.iter_mut().zip(chunk) { *slot = self.resolve_under(seed, *key); }
+            let Some(hit) = query(&keys[..chunk.len()]) else { continue };
+            let found = chunk[keys[..chunk.len()].iter().position(|k| *k == hit).unwrap_or(0)];
+            best = match best {
+                Some((key, root)) if query(&[key, hit]) == Some(key) => Some((key, root)),
+                _ => Some((hit, found)),
+            };
+        }
+        best.map(|(_, root)| root)
     }
-    /// The last of `roots` (box keys) that a pointer press among `events` landed on or under, by the previous frame's hit tree; `None` when no press hit one.
+    /// The last of `roots` that a pointer press among `events` landed on or under, by the previous frame's hit tree; `None` when no press hit one.
     /// Window points; call it before the frame that takes `events` replaces the tree, to see which panel a press belongs to.
     /// Allocates: never.
+    /// Identity: keys resolve as in [Ui::root_at].
     /// Panics: when the library refuses the call (a null `Ui`).
     ///
     /// ```
     /// use pxui::{ui::Size, Event, Node};
     /// let mut key = 0;
-    /// let ui = pxui::doc::frames(2, &mut |ui| key = ui.node("n".into(), Node { flags: pxui::ui::Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT }).box_key);
+    /// let ui = pxui::doc::frames(2, &mut |ui| key = ui.node("n", Node { flags: pxui::ui::Flags::CLICKABLE, w: Size::Px(50.0), h: Size::Px(50.0), ..Node::DEFAULT }).box_key);
     /// let press = |x| [Event { kind: Event::POINTER_PRESSED, x, y: 10.0, ..Default::default() }];
+    /// let key = pxui::Key::Resolved(key);
     /// assert_eq!(ui.last_press_within(&press(10.0), &[key]), Some(key));
     /// assert_eq!(ui.last_press_within(&press(200.0), &[key]), None);
     /// ```
     #[track_caller]
-    pub fn last_press_within(&self, events: &[pxui_types::Event], roots: &[i64]) -> Option<i64> {
+    pub fn last_press_within(&self, events: &[pxui_types::Event], roots: &[crate::Key]) -> Option<crate::Key> {
         let mut last = None;
         for event in events.iter().filter(|event| event.kind == pxui_types::Event::POINTER_PRESSED) {
-            if let Some(root) = self.root_at((event.x as f32, event.y as f32), roots) { last = Some(root); }
+            if let Some(root) = self.root_at(Point { x: event.x as f32, y: event.y as f32 }, roots) { last = Some(root); }
         }
         last
     }
@@ -841,7 +839,7 @@ impl Ui {
     /// ```
     /// use pxui::ui::Mark;
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     let had_mark = ui.node_mut(&b, |fields| { let had = fields.mark != Mark::None; fields.mark = Mark::None; had });
     ///     assert!(!had_mark);
     /// });
@@ -868,7 +866,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node { w: pxui::ui::Size::Px(5.0), ..pxui::Node::DEFAULT });
+    ///     let b = ui.node("n", pxui::Node { w: pxui::ui::Size::Px(5.0), ..pxui::Node::DEFAULT });
     ///     assert!(matches!(ui.node_layout(&b).w, pxui::ui::Size::Px(5.0)));
     /// });
     /// ```
@@ -886,7 +884,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     let wide = pxui::Node { w: pxui::ui::Size::Px(80.0), ..ui.node_layout(&b) };
     ///     ui.set_node_layout(&b, &wide);
     ///     assert!(matches!(ui.node_layout(&b).w, pxui::ui::Size::Px(80.0)));

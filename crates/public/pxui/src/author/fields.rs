@@ -6,6 +6,41 @@ use crate::{AreaCallbacks, LineField, LineFieldResponse, SliderResponse, Scrubbe
 use pxui_types::geom::Rect;
 
 impl Ui {
+    /// Snapshots `edit` for undo; with `typing`, consecutive typing at one caret joins the previous snapshot into one step.
+    /// Taking a snapshot clears the redo history. The history holds the latest 200 steps and is bounded in bytes overall (`text_undo_bytes`).
+    /// Allocates: a copy of the text for each snapshot that is not joined.
+    /// Identity: the key identifies the field whose undo history receives the snapshot.
+    /// Panics: when the library refuses the call (a null `Ui`, or `edit.text` over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let field = ui.node("field", pxui::Node::DEFAULT);
+    ///     let edit = ui.load_text_edit(pxui::Key::Resolved(field.box_key), "hello");
+    ///     ui.remember(pxui::Key::Resolved(field.box_key), &edit, false);
+    ///     assert!(ui.text_undo_bytes() > 0);
+    /// });
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn remember<K: Into<Key>>(&mut self, key: K, edit: &pxui_types::ui::TextEdit, typing: bool) { self.remember_key(key.into(), edit, typing) }
+
+    /// The edit the `Ui` keeps for the field under `key`, loaded with `text`: its caret, selection and undo history follow the key while the text is unchanged.
+    /// When `key` or `text` differs from the last load, the previous edit's undo history is shelved (the three latest are kept) and this one starts at the end of `text`, or resumes a shelved history for the same key and text.
+    /// Allocates: the returned `TextEdit` owns a copy of the text.
+    /// Identity: the key resolves under the current seed. Use Key::Resolved for a live field's box key.
+    /// Panics: when the library refuses the call (a null `Ui`, or `text` over the limit).
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let field = ui.node("field", pxui::Node::DEFAULT);
+    ///     let edit = ui.load_text_edit(pxui::Key::Resolved(field.box_key), "hello");
+    ///     assert_eq!((edit.text.as_str(), edit.caret, edit.anchor), ("hello", 5, 5));
+    /// });
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn load_text_edit<K: Into<Key>>(&mut self, key: K, text: &str) -> pxui_types::ui::TextEdit { self.load_edit_key(key.into(), text) }
+
     /// A single-line text field keyed by `key`: what happened to its row, and the new text when the user changed it.
     ///
     /// `value` is what the field shows; edit it from `changed`. `field` carries the native keyboard traits, the accessible name (the field is

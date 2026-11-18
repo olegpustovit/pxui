@@ -62,7 +62,7 @@ impl Probe {
                 if let SectionPart::Row(_) = part {
                     self.rows += 1;
                     let row = ui.node(
-                        "song".into(),
+                        "song",
                         Node {
                             flags: Flags::CLICKABLE,
                             role: Role::Button,

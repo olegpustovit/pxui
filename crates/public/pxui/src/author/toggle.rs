@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(rect.h, 60.0);
         assert!(states & state::CHECKABLE != 0 && states & state::CHECKED == 0 && states & state::ENABLED != 0 && states & state::FOCUSABLE != 0, "{states:#x}");
         let owner = last.get().unwrap().handle.box_key;
-        let switch = ui.part_rect(owner, Part::HIT).expect("the switch");
+        let switch = ui.part_rect(&ui.box_of_key(crate::Key::Resolved(owner)).expect("the owner"), Part::HIT).expect("the switch");
         assert_eq!((switch.w, switch.h), (48.0, 28.0));
         assert_eq!(switch.y - rect.y, 16.0, "centred in the row");
         assert_eq!(rect.x + rect.w - (switch.x + switch.w), 12.0, "12 from the row's end");
@@ -555,7 +555,7 @@ mod tests {
         SELECTED_SEEN.with(|s| s.borrow_mut().push((c.index, c.has_selected, c.selected, c.state.focused)));
         let segment = Node { w: Size::Px(21.0), ..ui.node_layout(&c.node) };
         ui.set_node_layout(&c.node, &segment);
-        ui.node("mine".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+        ui.node("mine", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
     }
 
     /// A registered segment body builds the options: with no choice it is given `has_selected` 0 (and `selected` 0), with one
@@ -591,7 +591,7 @@ mod tests {
         if c.index == 2 { STORED_SEEN.with(|s| s.borrow_mut().push((c.has_stored, c.stored, c.has_selected, c.selected))); }
         let segment = Node { w: Size::Px(21.0), ..ui.node_layout(&c.node) };
         ui.set_node_layout(&c.node, &segment);
-        ui.node("mine".into(), Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
+        ui.node("mine", Node { w: Size::Grow, h: Size::Grow, ..Node::DEFAULT });
     }
 
     /// A registered segment body is given the choice the caller passed (`stored`): on the frame a press moves the choice it still reads the
@@ -756,7 +756,7 @@ mod tests {
             owner.set((a, b));
         };
         let ui = crate::doc::frames(3, &mut build);
-        let gap = |name: &str, key: i64| { let row = node(&ui, Role::Toggle, name).1; let s = ui.part_rect(key, Part::HIT).expect("switch"); row.x + row.w - (s.x + s.w) };
+        let gap = |name: &str, key: i64| { let row = node(&ui, Role::Toggle, name).1; let s = ui.part_rect(&ui.box_of_key(crate::Key::Resolved(key)).expect("the owner"), Part::HIT).expect("switch"); row.x + row.w - (s.x + s.w) };
         assert_eq!((gap("Default", owner.get().0), gap("Inset", owner.get().1)), (12.0, 16.0));
     }
 
@@ -769,7 +769,7 @@ mod tests {
         let ui = crate::doc::frames(3, &mut build);
         let (states, row) = node(&ui, Role::Toggle, "Download ahead");
         assert!(states & state::CHECKABLE != 0 && row.h == 60.0);
-        let s = ui.part_rect(owner.get(), Part::HIT).expect("switch");
+        let s = ui.part_rect(&ui.box_of_key(crate::Key::Resolved(owner.get())).expect("the owner"), Part::HIT).expect("switch");
         assert_eq!((s.w, s.h, s.y - row.y), (48.0, 28.0, 16.0));
         assert_eq!(row.x + row.w - (s.x + s.w), 16.0);
     }
@@ -805,7 +805,7 @@ mod tests {
     fn segment_body(ui: &mut Ui, c: &crate::bodies::SegmentedConfig) {
         SEGMENT_SEEN.with(|s| s.set((c.size, c.grow, c.index)));
         STYLE_SEEN.with(|s| { let (h, z, _, _) = s.get(); s.set((h, z, c.padding, c.min_segment)); });
-        ui.node("custom".into(), Node { w: Size::Px(33.0), h: Size::Grow, ..Node::DEFAULT });
+        ui.node("custom", Node { w: Size::Px(33.0), h: Size::Grow, ..Node::DEFAULT });
     }
 
     /// `toggle_with` and `segmented` are built through their registered bodies, which get the caller's options in their records.
@@ -826,7 +826,7 @@ mod tests {
         let (size, on, row_h, w, h) = TOGGLE_SEEN.with(Cell::get);
         assert!(size >= 76 && on == 1 && (row_h, w, h) == (60.0, 48.0, 28.0), "the toggle body's record: {size} {on} {row_h} {w} {h}");
         assert_eq!(TOGGLE_MORE.with(Cell::get), (16.0, 1, 4), "the record carries the inset, press_row and detail");
-        let hit = ui.part_rect(owner.get(), Part::HIT).expect("the custom body's part");
+        let hit = ui.part_rect(&ui.box_of_key(crate::Key::Resolved(owner.get())).expect("the owner"), Part::HIT).expect("the custom body's part");
         assert_eq!((hit.w, hit.h), (10.0, 10.0), "the custom switch, not the kit's 48 x 28");
         let (size, grow, last) = SEGMENT_SEEN.with(Cell::get);
         assert!(size >= 72 && grow == 1 && last == 1, "the segment body ran for both options with the record's grow: {size} {grow} {last}");
@@ -879,7 +879,7 @@ mod tests {
         });
         for _ in 0..3 { testing::frame(&mut ui, &[], &mut build); }
         FLIPS.with(|f| f.borrow_mut().clear());
-        let hit = ui.part_rect(owner.get(), Part::HIT).expect("the body's switch");
+        let hit = ui.part_rect(&ui.box_of_key(crate::Key::Resolved(owner.get())).expect("the owner"), Part::HIT).expect("the body's switch");
         testing::click(&mut ui, f64::from(hit.x + 5.0), f64::from(hit.y + 5.0), &mut build);
         let flips = FLIPS.with(|f| f.borrow().clone());
         assert!(flips.contains(&(1, 0, 1)), "the click frame: on 1, stored 0, clicked 1: {flips:?}");

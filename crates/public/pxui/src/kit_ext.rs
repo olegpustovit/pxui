@@ -89,7 +89,7 @@ impl Ui {
     /// ```
     /// use pxui::ui::{Curve, Target};
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     ui.animate(&b, Target::Opacity(0.5), Curve::Spring { omega: 12.0 });
     /// });
     /// ```

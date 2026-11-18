@@ -179,14 +179,38 @@ impl Ui {
         out
     }
 
-    /// The box of `part` of the widget keyed `owner`, as the last build left it; `None` if its body built none.
-    pub fn part_box(&self, owner: i64, part: Part) -> Option<Handle> {
+    /// Returns a named part of a widget from its last build.
+    ///
+    /// A stale owner or missing part returns None.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let node = ui.node("owner", pxui::Node::DEFAULT);
+    ///     assert!(ui.part_box(&node, pxui::Part::HIT).is_none());
+    /// });
+    /// ```
+    pub fn part_box(&self, owner: &Handle, part: Part) -> Option<Handle> {
+        let live = self.box_of_resolved_key(owner.box_key)?;
+        if (live.box_slot, live.generation) != (owner.box_slot, owner.generation) { return None; }
         let mut out = Handle::default();
-        (unsafe { sys::pxui_part_box(self.0.as_ptr(), owner, part.0, &mut out) } == 0).then_some(out)
+        (unsafe { sys::pxui_part_box(self.0.as_ptr(), owner.box_key, part.0, &mut out) } == 0).then_some(out)
     }
 
-    /// The rectangle `part` of the widget keyed `owner` had last frame; `None` before it has been laid out or if the body builds none.
-    pub fn part_rect(&self, owner: i64, part: Part) -> Option<Rect> {
+    /// Returns the part's surface rectangle from the last layout.
+    ///
+    /// A missing part, stale owner or part without a positive laid-out size returns None.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// pxui::doc::frames(1, &mut |ui| {
+    ///     let node = ui.node("owner", pxui::Node::DEFAULT);
+    ///     assert!(ui.part_rect(&node, pxui::Part::HIT).is_none());
+    /// });
+    /// ```
+    pub fn part_rect(&self, owner: &Handle, part: Part) -> Option<Rect> {
         self.part_box(owner, part).map(|b| self.rect(&b)).filter(|r| r.w > 0.0 && r.h > 0.0)
     }
 
@@ -247,8 +271,9 @@ mod tests {
         }
         let seen = TOGGLES.with(|t| t.borrow().clone());
         assert!(!seen.is_empty() && seen.iter().all(|s| *s == ("Wi-Fi".to_owned(), true, false)), "only the scoped toggle ran the body: {seen:?}");
-        assert!(ui.part_rect(ROWS.with(Cell::get), Part::HIT).is_some(), "the part the body built is found by its widget's key");
-        assert!(ui.part_box(ROWS.with(Cell::get), Part::TRACK).is_none());
+        let row = ui.box_of_key(crate::Key::Resolved(ROWS.with(Cell::get))).expect("the row");
+        assert!(ui.part_rect(&row, Part::HIT).is_some(), "the part the body built is found by its widget's handle");
+        assert!(ui.part_box(&row, Part::TRACK).is_none());
         // the Ui's own theme, from the theme text
         TOGGLES.with(|t| t.borrow_mut().clear());
         ui.set_theme(&source("toggle.body = probe")).expect("theme text");

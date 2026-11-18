@@ -97,7 +97,7 @@ impl<'a> Paint<'a> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("list".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("list", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     let slot = node.box_slot;
     ///     ui.canvas(&node, move |paint, _| assert_eq!(paint.scroll_y(slot), 0.0));
     /// });
@@ -120,7 +120,7 @@ impl<'a> Paint<'a> {
     /// theme.set_color(ColorToken(0), ink);
     /// ui.set_theme(&theme).unwrap();
     /// ui.frame(&pxui::FrameIn::new(100.0, 100.0), &mut |ui| {
-    ///     let b = ui.node("canvas".into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
+    ///     let b = ui.node("canvas", Node { w: Size::Px(10.0), h: Size::Px(10.0), ..Node::DEFAULT });
     ///     let seen = seen.clone();
     ///     ui.canvas(&b, move |p, _| seen.set(p.color(ColorToken(0))));
     /// }).unwrap();
@@ -134,7 +134,7 @@ impl<'a> Paint<'a> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("canvas".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("canvas", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, _| { let _accent = paint.theme().accent; });
     /// });
     /// ```
@@ -146,7 +146,7 @@ impl<'a> Paint<'a> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("canvas".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("canvas", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, _| assert!(paint.density() >= 1));
     /// });
     /// ```
@@ -158,7 +158,7 @@ impl<'a> Paint<'a> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("canvas".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("canvas", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, _| assert!(!paint.rtl()));
     /// });
     /// ```
@@ -170,7 +170,7 @@ impl<'a> Paint<'a> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("canvas".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("canvas", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, _| assert_eq!(paint.clip_radius(), 0.0));
     /// });
     /// ```
@@ -185,7 +185,7 @@ impl<'a> Paint<'a> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("icon".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("icon", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| { paint.icon((rect.x, rect.y), 0, 12.0, 'x', pxui::geom::Rgba::rgb(0, 0, 0)); });
     /// });
     /// ```
@@ -205,7 +205,7 @@ impl<'a> Paint<'a> {
     /// use std::{cell::Cell, rc::Rc};
     /// let width = Rc::new(Cell::new(0.0));
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("title".into(), pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
+    ///     let node = ui.node("title", pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
     ///     let width = width.clone();
     ///     ui.canvas(&node, move |paint, rect| width.set(paint.text((rect.x, rect.y), &Label::TITLE, 0.0, "Songs").width));
     /// });
@@ -229,7 +229,7 @@ impl<'a> Paint<'a> {
     /// use std::{cell::Cell, rc::Rc};
     /// let width = Rc::new(Cell::new(0.0));
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("clock".into(), pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
+    ///     let node = ui.node("clock", pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
     ///     let width = width.clone();
     ///     ui.canvas(&node, move |paint, rect| width.set(paint.text_chars((rect.x, rect.y), &pxui::Label::MONO, "1:23.4")));
     /// });
@@ -253,7 +253,7 @@ impl<'a> Paint<'a> {
     /// let width = Rc::new(Cell::new(0.0));
     /// let out = width.clone();
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("rich".into(), pxui::Node { w: pxui::ui::Size::Px(200.0), h: pxui::ui::Size::Px(30.0), ..pxui::Node::DEFAULT });
+    ///     let node = ui.node("rich", pxui::Node { w: pxui::ui::Size::Px(200.0), h: pxui::ui::Size::Px(30.0), ..pxui::Node::DEFAULT });
     ///     let out = out.clone();
     ///     let style = ui.resolve(&Label::BODY);
     ///     ui.canvas(&node, move |paint, rect| {
@@ -281,7 +281,7 @@ impl<'a> Paint<'a> {
     /// let width = Rc::new(Cell::new(0.0));
     /// let out = width.clone();
     /// pxui::doc::frames(2, &mut |ui| {
-    ///     let node = ui.node("measure".into(), pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
+    ///     let node = ui.node("measure", pxui::Node { w: pxui::ui::Size::Px(100.0), h: pxui::ui::Size::Px(20.0), ..pxui::Node::DEFAULT });
     ///     let (out, style) = (out.clone(), ui.resolve(&pxui::Label::BODY));
     ///     ui.canvas(&node, move |paint, _| out.set(paint.text_metrics(&style, 0.0, "Songs").width));
     /// });
@@ -395,7 +395,7 @@ impl Paint<'_> {
     /// ```
     /// use pxui::{geom::{Rect, Rgba}, Fill};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("box".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("box", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| {
     ///         paint.fill(rect, Fill::new(Rgba::rgb(240, 240, 240)));
     ///         paint.fill(Rect::new(rect.x, rect.y + rect.h - 0.5, rect.w, 0.5), Fill::new(Rgba::rgb(0, 0, 0)).fractional());
@@ -416,7 +416,7 @@ impl Paint<'_> {
     /// ```
     /// use pxui::{geom::Rgba, Stroke};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("box".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("box", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.stroke(rect, Stroke::new(Rgba::rgb(0, 0, 0)).width(2.0)));
     /// });
     /// ```
@@ -430,7 +430,7 @@ impl Paint<'_> {
     /// ```
     /// use pxui::{geom::Rgba, Stroke};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("box".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("box", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.frame(rect, Stroke::new(Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -443,7 +443,7 @@ impl Paint<'_> {
     /// ```
     /// use pxui::{geom::Rgba, Stroke};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("box".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("box", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.brackets(rect, 3.0, 8.0, Stroke::new(Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -455,7 +455,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("zone".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("zone", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.dashed_rect(rect, pxui::Stroke::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -468,7 +468,7 @@ impl Paint<'_> {
     /// ```
     /// use pxui::{geom::Rgba, Stroke};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("rule".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("rule", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.line((rect.x, rect.y), (rect.x + rect.w, rect.y), Stroke::new(Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -481,7 +481,7 @@ impl Paint<'_> {
     /// ```
     /// use pxui::{geom::Rgba, Stroke};
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("rule".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("rule", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.dashed((rect.x, rect.y), (rect.x + 40.0, rect.y), Stroke::new(Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -495,7 +495,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("play".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("play", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.triangle((rect.x, rect.y), (rect.x, rect.y + 10.0), (rect.x + 9.0, rect.y + 5.0), pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -508,7 +508,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("arc".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("arc", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.curve((rect.x, rect.y), (rect.x + 5.0, rect.y + 10.0), (rect.x + 10.0, rect.y), pxui::Stroke::new(pxui::geom::Rgba::rgb(0, 0, 0)).width(1.5)));
     /// });
     /// ```
@@ -522,7 +522,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("wave".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("wave", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, r| paint.cubic([(r.x, r.y), (r.x + 4.0, r.y + 8.0), (r.x + 8.0, r.y - 8.0), (r.x + 12.0, r.y)], pxui::Stroke::new(pxui::geom::Rgba::rgb(0, 0, 0)).width(1.5)));
     /// });
     /// ```
@@ -537,7 +537,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("dot".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("dot", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.circle((rect.x + 6.0, rect.y + 6.0), 4.0, Some(pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))), None));
     /// });
     /// ```
@@ -555,7 +555,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("grid".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("grid", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.grid(rect, (rect.x, rect.y), 8.0, 1.0, pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -567,7 +567,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("more".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("more", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.chevron((rect.x + 6.0, rect.y + 6.0), pxui::ui::Dir::Down, pxui::Stroke::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -579,7 +579,7 @@ impl Paint<'_> {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("flag".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("flag", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.flag((rect.x + 6.0, rect.y + 6.0), false, true));
     /// });
     /// ```
@@ -686,7 +686,7 @@ impl crate::Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("canvas".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("canvas", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas(&node, |paint, rect| paint.fill(rect, pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -698,7 +698,7 @@ impl crate::Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let node = ui.node("row".into(), pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
+    ///     let node = ui.node("row", pxui::Node::DEFAULT.w_px(40.0).h_px(40.0));
     ///     ui.canvas_over(&node, |paint, r| paint.fill(pxui::geom::Rect::new(r.x, r.y + r.h - 1.0, r.w, 1.0), pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
@@ -753,7 +753,7 @@ mod tests {
     fn frame_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(ui: &mut crate::Ui, canvas: F) -> Result<(), crate::Error> {
         let mut canvas = Some(canvas);
         ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut crate::Ui| {
-            let node = ui.node("canvas".into(), Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
+            let node = ui.node("canvas", Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
             if let Some(canvas) = canvas.take() { ui.canvas(&node, canvas); }
         }).map(|_| ())
     }

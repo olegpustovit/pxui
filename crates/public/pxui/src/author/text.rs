@@ -345,7 +345,7 @@ mod tests {
         assert!(c.size as usize >= core::mem::size_of::<crate::bodies::LabelConfig>(), "this library carries the style and the box");
         SEEN.with(|s| s.borrow_mut().push((c.text_of(&c.text).to_owned(), c.style.set, c.style.digits, c.style.size_points, c.style.color)));
         GROWN.with(|g| g.borrow_mut().push((c.label_box.set, c.label_box.height, c.label_box.role, c.label_box.whole_pixels)));
-        ui.node("mark".into(), Node { h: Size::Px(30.0), ..Node::DEFAULT });
+        ui.node("mark", Node { h: Size::Px(30.0), ..Node::DEFAULT });
     }
 
     /// With a registered label body every label goes through it with its style as given: the theme's label with nothing set, a
@@ -390,7 +390,7 @@ mod tests {
         let ui = settle(&mut |ui| {
             rows.clear();
             for (key, style) in [("plain", Label::DEFAULT), ("bold", Label::DEFAULT.bold()), ("again", Label::DEFAULT)] {
-                rows.push(ui.column(key, Node::DEFAULT, |ui| { ui.node("before".into(), Node::DEFAULT); ui.label("Same", style); }));
+                rows.push(ui.column(key, Node::DEFAULT, |ui| { ui.node("before", Node::DEFAULT); ui.label("Same", style); }));
             }
         });
         let rects: Vec<_> = rows.iter().map(|b| ui.rect(b)).collect();

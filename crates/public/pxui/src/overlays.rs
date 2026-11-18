@@ -33,7 +33,7 @@ mod raw {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("n".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("n", pxui::Node::DEFAULT);
     ///     ui.tooltip(&b, "Shuffle");
     /// });
     /// ```
@@ -136,7 +136,7 @@ impl Ui {
     ///
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
-    ///     let b = ui.node("shuffle".into(), pxui::Node::DEFAULT);
+    ///     let b = ui.node("shuffle", pxui::Node::DEFAULT);
     ///     ui.tooltip(&b, "Shuffle");
     /// });
     /// ```

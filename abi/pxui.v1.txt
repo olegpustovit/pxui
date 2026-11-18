@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 76
+minor 77
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -153,6 +153,7 @@ function pxui_ui_icon_button_response int32_t pxui_ui_icon_button_response ( Pxu
 function pxui_ui_icon_button_with int32_t pxui_ui_icon_button_with ( PxuiUi * ui , const PxuiIconButtonDesc * desc , PxuiBox * out , PxuiSignal * signal , uint8_t * focused ) ;
 function pxui_ui_icon_word int32_t pxui_ui_icon_word ( PxuiUi * ui , uint32_t word ) ;
 function pxui_ui_image int32_t pxui_ui_image ( PxuiUi * ui , PxuiStr label , const PxuiImage * image , uint32_t fit , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBox * out ) ;
+function pxui_ui_image_keyed int32_t pxui_ui_image_keyed ( PxuiUi * ui , PxuiStr key , PxuiStr name , const PxuiImage * image , uint32_t fit , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBox * out ) ;
 function pxui_ui_image_node int32_t pxui_ui_image_node ( PxuiUi * ui , PxuiStr name , const PxuiImage * image , uint32_t fit , PxuiSizeDesc width , PxuiSizeDesc height , PxuiBox * out ) ;
 function pxui_ui_inject_a11y int32_t pxui_ui_inject_a11y ( PxuiUi * ui , const PxuiA11yAction * actions , size_t count ) ;
 function pxui_ui_input int32_t pxui_ui_input ( PxuiUi * ui , uint8_t has_owner , int64_t owner , PxuiInput * out ) ;
@@ -162,6 +163,7 @@ function pxui_ui_key_down int32_t pxui_ui_key_down ( PxuiUi * ui , uint32_t code
 function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_key_pressed_mods int32_t pxui_ui_key_pressed_mods ( PxuiUi * ui , uint32_t code , uint32_t modifiers , uint8_t * out ) ;
 function pxui_ui_key_pressed_with int32_t pxui_ui_key_pressed_with ( PxuiUi * ui , uint32_t code , uint32_t modifier , uint8_t * out ) ;
+function pxui_ui_key_seed int32_t pxui_ui_key_seed ( PxuiUi * ui , int64_t * out ) ;
 function pxui_ui_keyboard int32_t pxui_ui_keyboard ( PxuiUi * ui , PxuiKeyboard * out ) ;
 function pxui_ui_label int32_t pxui_ui_label ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style ) ;
 function pxui_ui_label_measure int32_t pxui_ui_label_measure ( PxuiUi * ui , PxuiStr value , const PxuiLabelStyle * style , float max_width , const PxuiTextSpans * spans , PxuiTextMetrics * out ) ;
@@ -211,6 +213,7 @@ function pxui_ui_radio int32_t pxui_ui_radio ( PxuiUi * ui , PxuiStr label , Pxu
 function pxui_ui_rebuilt_named int32_t pxui_ui_rebuilt_named ( PxuiUi * ui , PxuiStr prefix , uint64_t * out ) ;
 function pxui_ui_rect int32_t pxui_ui_rect ( PxuiUi * ui , const PxuiBox * box , PxuiRect * out ) ;
 function pxui_ui_remember int32_t pxui_ui_remember ( PxuiUi * ui , PxuiStr text , uint64_t caret , uint64_t anchor , uint8_t typing ) ;
+function pxui_ui_remember_key int32_t pxui_ui_remember_key ( PxuiUi * ui , int64_t key , PxuiStr text , uint64_t caret , uint64_t anchor , uint8_t typing ) ;
 function pxui_ui_repaint_after int32_t pxui_ui_repaint_after ( PxuiUi * ui , double seconds ) ;
 function pxui_ui_request_cursor int32_t pxui_ui_request_cursor ( PxuiUi * ui , uint32_t shape ) ;
 function pxui_ui_request_frame int32_t pxui_ui_request_frame ( PxuiUi * ui ) ;

@@ -29,7 +29,7 @@ fn a_paint_callback_panic_is_carried_to_the_frame_that_paints() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
     let result = catch_unwind(AssertUnwindSafe(|| {
         let _ = ui.frame(&input(), &mut |ui: &mut Ui| {
-            let node = ui.node("canvas".into(), Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT });
+            let node = ui.node("canvas", Node { w: Size::Px(40.0), h: Size::Px(40.0), ..Node::DEFAULT });
             ui.canvas(&node, |_, _| panic!("paint callback"));
         });
     }));
@@ -51,7 +51,7 @@ fn the_output_borrows_the_ui() {
 #[test]
 fn a_builder_outside_a_frame_panics_with_the_library_message_and_leaves_the_ui_usable() {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
-    let message = refusal("node outside a frame must panic", &mut || { ui.node("outside a frame".into(), Node::DEFAULT); });
+    let message = refusal("node outside a frame must panic", &mut || { ui.node("outside a frame", Node::DEFAULT); });
     assert!(message.contains("frame callback") && message.ends_with("(-3)"), "{message}");
     let _ = ui.view_size();
     ui.frame(&input(), &mut |ui: &mut Ui| { ui.label("fine", crate::Label::DEFAULT); }).expect("the Ui is not poisoned");

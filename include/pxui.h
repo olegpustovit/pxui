@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 76u)
+#define PXUI_ABI_BUILT ((1u << 16) | 77u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -625,6 +625,8 @@ int32_t pxui_ui_image(PxuiUi *ui, PxuiStr label, const PxuiImage *image, uint32_
    key). PXUI_ERR_ARGUMENT, nothing added, for an invalid descriptor (zero size, no native handle, a depth format, a short size), an
    unknown fit, a size or a name the library refuses. */
 int32_t pxui_ui_image_node(PxuiUi *ui, PxuiStr name, const PxuiImage *image, uint32_t fit, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBox *out);
+/* ABI 1.77: an image keyed by `key` (as pxui_ui_node keys a label) and named `name` for accessibility only. */
+int32_t pxui_ui_image_keyed(PxuiUi *ui, PxuiStr key, PxuiStr name, const PxuiImage *image, uint32_t fit, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBox *out);
 int32_t pxui_ui_modal(PxuiUi *ui, PxuiStr label, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_scroll_view(PxuiUi *ui, PxuiStr label, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 /* Legacy, cut at 2.0: superseded by pxui_ui_view_keyed (1.72); size the enclosing node instead of the view. */
@@ -768,6 +770,8 @@ int32_t pxui_ui_patch_field(PxuiUi *ui, const PxuiBox *field, const PxuiValueFie
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing); /* the callbacks run only during the call; slide and scrub write their text, borrowed until their next callback */
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
 int32_t pxui_ui_remember(PxuiUi *ui, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
+/* ABI 1.77: pxui_ui_remember into the history of the field keyed `key` (a box key); the active editor never changes. */
+int32_t pxui_ui_remember_key(PxuiUi *ui, int64_t key, PxuiStr text, uint64_t caret, uint64_t anchor, uint8_t typing);
 /* ABI 1.28: key=0 on text width/quads/raster calls selects library-owned content identity.
    Nonzero legacy keys remain accepted; content/style/width/span validation still fences cache reuse.
    Layout storage is bounded even for standalone shapers without a frame clock. ABI 1.63: and by bytes: 64 MiB of estimated shaped size, never evicting a layout used in the current frame; text over 256 MiB is
@@ -939,7 +943,10 @@ int32_t pxui_ui_bytes(PxuiUi *ui, int64_t *out, size_t len); /* atlas, glyph lis
 uint32_t pxui_ui_platform(PxuiUi *ui); /* 0 other, 1 Apple */
 int32_t pxui_ui_rebuilt_named(PxuiUi *ui, PxuiStr prefix, uint64_t *out);
 int32_t pxui_ui_expanded(PxuiUi *ui, PxuiStr key, uint8_t *out); /* 0 unknown, 1 collapsed, 2 expanded */
+/* ABI 1.77: a key of a 0x01 byte and 16 lowercase hex digits waits on that resolved key itself; other text waits as text. */
 int32_t pxui_ui_hover_delay(PxuiUi *ui, PxuiStr key, uint8_t *out);
+/* ABI 1.77: the seed an authored key resolves under for a lookup (the active scope during a build, the root seed outside one). */
+int32_t pxui_ui_key_seed(PxuiUi *ui, int64_t *out);
 /* Legacy: the Rust wrapper's tooltip job is pxui_ui_tip (keyed by a box); kept for the append-only ABI. */
 int32_t pxui_ui_tooltip(PxuiUi *ui, PxuiStr key, PxuiStr text);
 int32_t pxui_ui_cap_width(PxuiUi *ui, PxuiStr text, float *out);

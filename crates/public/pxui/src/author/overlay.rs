@@ -150,7 +150,7 @@ mod tests {
     thread_local! { static SEEN: RefCell<Vec<(&'static str, String)>> = const { RefCell::new(Vec::new()) }; }
     fn seen(kind: &'static str, text: &str) { SEEN.with(|s| s.borrow_mut().push((kind, text.to_owned()))); }
     /// Each registered body builds one marker node of its own, named by its kind, so the custom structure shows in the tree.
-    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind.into(), Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
+    fn marker(ui: &mut Ui, kind: &'static str) { let n = ui.node(kind, Node { w: Size::Px(10.0), h: Size::Px(10.0), role: Role::Image, ..Node::DEFAULT }); ui.a11y_name(&n, kind); }
     fn sheet(ui: &mut Ui, label: &str, content: pxui_types::ffi::PxuiSlot, kind: &'static str) { seen(kind, label); marker(ui, kind); ui.slot(content); }
     fn panel(ui: &mut Ui, c: &PanelConfig) { sheet(ui, c.text_of(&c.label), c.content, "panel") }
     fn popup(ui: &mut Ui, c: &PopupConfig) { sheet(ui, c.text_of(&c.label), c.content, "popup") }

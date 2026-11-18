@@ -181,7 +181,7 @@ impl Ui {
         };
         (node.state.disabled, node.state.checked) = (!p.enabled, p.selected);
         if p.selected { node.a11y |= SELECTED; }
-        let b = self.node(key.into(), node);
+        let b = self.node_key(key, node);
         let signal = self.signal(&b);
         let focused = p.enabled && p.tab_stop && self.focused(&b);
         // a touch gesture's highlight (taken with `ui.gesture` on this node) shows as the press it is
@@ -299,7 +299,7 @@ mod tests {
     fn disabled_never_clicks_and_tab_stop_is_optional() {
         let (enabled, tab_stop, under, last) = (Cell::new(true), Cell::new(true), Cell::new(false), Cell::new(None));
         let mut build = |ui: &mut Ui| {
-            let b = ui.node("under".into(), Node { at: Some((0.0, 0.0)).into(), flags: Flags::CLICKABLE, role: Role::Unknown, ..node() });
+            let b = ui.node("under", Node { at: Some((0.0, 0.0)).into(), flags: Flags::CLICKABLE, role: Role::Unknown, ..node() });
             under.set(under.get() | ui.signal(&b).clicked);
             let p = P.enabled(enabled.get()).tab_stop(tab_stop.get());
             last.set(Some(ui.pressable("p", Node { at: Some((0.0, 0.0)).into(), ..node() }, &p, |_, _| {})));
@@ -333,7 +333,7 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             let r = ui.pressable("row", Node { at: Some((0.0, 0.0)).into(), w: Size::Px(200.0), h: Size::Px(50.0), ..Node::DEFAULT }, &P.tab_stop(false), |_, state| seen.set(state));
             held.set(r.held);
-            gesture.set(ui.gesture(&r.handle, opts.get()));
+            gesture.set(ui.gesture(&r.handle, &opts.get()));
         };
         let input = |time: f64| FrameIn::new(320.0, 240.0).time(time);
         let touch = |ui: &mut Ui, phase: u32, at: f64, build: &mut dyn FnMut(&mut Ui)| {
@@ -382,11 +382,11 @@ mod tests {
     #[test]
     fn node_count_matches_hand_written() {
         let hand = crate::doc::frames(2, &mut |ui| {
-            let b = ui.node("p".into(), Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, ..node() });
+            let b = ui.node("p", Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, ..node() });
             let _ = ui.signal(&b);
-            ui.within(&b, &mut |ui| { ui.node("c".into(), node()); });
+            ui.within(&b, &mut |ui| { ui.node("c", node()); });
         });
-        let sugar = crate::doc::frames(2, &mut |ui| { ui.pressable("p", node(), &P, |ui, _| { ui.node("c".into(), node()); }); });
+        let sugar = crate::doc::frames(2, &mut |ui| { ui.pressable("p", node(), &P, |ui, _| { ui.node("c", node()); }); });
         assert_eq!(hand.a11y_nodes().len(), sugar.a11y_nodes().len());
         assert!(!sugar.a11y_nodes().is_empty());
     }
@@ -396,9 +396,9 @@ mod tests {
         let mut ui = crate::doc::frames(1, &mut |_| {});
         let looks = States::all(Look::NONE);
         let mut build = |ui: &mut Ui| {
-            ui.pressable("p", node(), &P.look(&looks).selected(true), |ui, _| { ui.node("c".into(), node()); });
+            ui.pressable("p", node(), &P.look(&looks).selected(true), |ui, _| { ui.node("c", node()); });
             let r = ui.pressable(7i64, node(), &P.enabled(false), |_, _| {});
-            ui.gesture(&r.handle, GestureOpts::DEFAULT.long_press());
+            ui.gesture(&r.handle, &GestureOpts::DEFAULT.long_press());
         };
         for round in 0..20 {
             mem_sys::local_reset();

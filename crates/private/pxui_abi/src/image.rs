@@ -173,6 +173,19 @@ export!(build pub unsafe fn pxui_ui_image(ui: *mut crate::PxuiUi, label: Str, ra
     0
 });
 
+// ABI 1.77: an image keyed by `key` (a label or id label under the current parent, as `pxui_ui_node` keys it) and named `name` for
+// accessibility only (never parsed for a key). Checked as `pxui_ui_image_node`, the key as a node label.
+export!(build pub unsafe fn pxui_ui_image_keyed(ui: *mut crate::PxuiUi, key: Str, name: Str, raw: *const pxui_types::Image, fit_code: u32, width: PxuiSizeDesc, height: PxuiSizeDesc, out: *mut PxuiBox) -> i32 {
+    let Some(state) = (unsafe { crate::get(ui) }) else { return crate::PXUI_ERR_ARGUMENT; };
+    if raw.is_null() || out.is_null() { return unsafe { crate::fail(ui, "invalid image descriptor") }; }
+    let (Some(record), Some(key), Some(name), Some(fit), Some(width), Some(height)) = (read_desc!(raw, pxui_types::Image), unsafe { crate::state::checked_key(key) }, unsafe { checked(name) }, fit(fit_code), size(width), size(height))
+        else { return unsafe { crate::fail(ui, "invalid image arguments") }; };
+    let Some(image) = image(record, &mut state.shared().images) else { return unsafe { crate::fail(ui, "invalid image descriptor") }; };
+    let handle = unsafe { &mut *state.engine }.image_keyed(key, name, &image, fit, width, height);
+    unsafe { *out = to_abi_box(handle); }
+    0
+});
+
 // ABI 1.70: an image with no key (the n-th image among its siblings, as a label is) named `name` for accessibility only; `name` is never
 // parsed for a key. The record is read after its `size`, and every argument is checked before the image's native handle is registered:
 // PXUI_ERR_ARGUMENT, nothing added and nothing registered, for a short or invalid descriptor (`Image::valid`), an unknown fit, a size or

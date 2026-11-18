@@ -59,6 +59,15 @@ pub struct Bytes {
     pub text_undo: i64,
 }
 
+/// The focused input method's area and caret position in logical surface points.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Ime {
+    /// The area for native input-method placement.
+    pub rect: crate::Rect,
+    /// The horizontal caret offset in the area, in logical points.
+    pub caret: f32,
+}
+
 impl Ui {
     /// `verify_views(true)` for every `Ui` created from now on: a test harness turns it on once.
     #[track_caller] pub fn verify_new_views(on: bool) { assert_eq!(unsafe { lib::pxui_verify_new_views(on as u8) }, 0, "pxui: verify_new_views refused") }
@@ -82,8 +91,22 @@ impl Ui {
     }
     /// The window ground colour the last frame asked for.
     #[inline] pub fn background_request(&self) -> Option<pxui_types::geom::Rgba> { let p = &self.output().platform; (p.has_background != 0).then_some(p.background) }
-    /// The input-method area of the focused text and its caret offset, in points: `((x, y, w, h), caret)`.
-    #[inline] pub fn ime(&self) -> Option<((i64, i64, i64, i64), i64)> { let p = &self.output().platform; (p.has_ime != 0).then(|| ((p.ime_rect[0], p.ime_rect[1], p.ime_rect[2], p.ime_rect[3]), p.ime_caret)) }
+    /// Reports the active input-method rectangle and caret, if any.
+    ///
+    /// The geometry is in logical surface points.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let ui = pxui::doc::frames(1, &mut |_| {});
+    /// assert!(ui.ime().is_none());
+    /// ```
+    #[inline]
+    pub fn ime(&self) -> Option<Ime> {
+        let p = self.output().platform;
+        let [x, y, w, h] = p.ime_rect.map(|value| value as f32);
+        (p.has_ime != 0).then_some(Ime { rect: crate::Rect::new(x, y, w, h), caret: p.ime_caret as f32 })
+    }
     #[inline] pub fn font_size(&self) -> i64 { unsafe { lib::pxui_ui_font_size(self.0.as_ptr()) } }
     #[inline] pub fn row_height(&self) -> i64 { unsafe { lib::pxui_ui_row_height(self.0.as_ptr()) } }
     /// Hands the registered bodies of kind `kind` that the widget call in progress builds `variant` (0 clears it); called only for a non-zero style variant, around that call.
@@ -125,9 +148,9 @@ impl Ui {
     ///
     /// ```
     /// let ui = pxui::doc::frames(1, &mut |_| {});
-    /// assert_eq!(ui.text_input_options(), pxui::TextTraits::DEFAULT);
+    /// assert_eq!(ui.text_traits(), pxui::TextTraits::DEFAULT);
     /// ```
-    pub fn text_input_options(&self) -> pxui_types::TextTraits {
+    pub fn text_traits(&self) -> pxui_types::TextTraits {
         let mut value=pxui_types::PxuiTextInputOptions::default();
         check(self,unsafe {lib::pxui_ui_text_input_options(self.0.as_ptr(),&mut value)});
         pxui_types::TextTraits::from_numbers(value.autocorrect, value.capitalization, value.action).unwrap_or_default()
@@ -322,38 +345,20 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_rebuilt_named(self.0.as_ptr(), as_str(prefix), &mut out) });
         out as usize
     }
-    /// The state of the inspector section built under `key` in the current parent: `Some(true)` expanded, `Some(false)` collapsed, `None` when no section of that key has been built there.
-    /// Read it where the section is built (inside the same parent); it is `None` until the section has first been built there, and keeps its state from frame to frame.
-    /// Allocates: never.
-    /// Identity: `key` is the key given to `inspector_section`, resolved under the current parent's seed as for any label.
-    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
-    ///
-    /// ```
-    /// pxui::doc::frames(1, &mut |ui| {
-    ///     assert_eq!(ui.expanded("details"), None); // not built yet
-    ///     ui.inspector_section("details", true, None, "Details", &mut |ui| { ui.label("body", pxui::Label::DEFAULT); });
-    ///     assert_eq!(ui.expanded("details"), Some(true));
-    /// });
-    /// ```
-    #[track_caller]
-    pub fn expanded(&self, key: &str) -> Option<bool> {
+    pub(crate) fn expanded_key(&self, key: crate::Key) -> Option<bool> {
+        if let crate::Key::Label(label) = key { crate::authored(label); }
+        let mut label = [0; 17];
+        let key = key.label(&mut label);
         let mut out = 0;
         check(self, unsafe { lib::pxui_ui_expanded(self.0.as_ptr(), as_str(key), &mut out) });
         match out { 0 => None, state => Some(state == 2) }
     }
-    /// Whether the pointer has rested, unmoved, on the target named `key` for the hover delay (the tooltip wait); call it every frame the pointer is over the target.
-    /// A different `key`, a moved pointer, a missed frame, a touch, a press in progress, a modal or focus loss restart the wait. The first call for a key is always false.
-    /// Allocates: the first call for a key copies it; never afterwards for the same key.
-    /// Identity: `key` names the hover target for this one wait, compared as text (not resolved under a parent): two targets with one key share the wait.
-    /// Panics: when the library refuses the call (a null `Ui`, or `key` over the text limit). A key or identity label over 256 bytes panics (a programmer error).
-    ///
-    /// ```
-    /// pxui::doc::frames(1, &mut |ui| assert!(!ui.hover_delay("play")));
-    /// ```
-    #[track_caller]
-    pub fn hover_delay(&mut self, key: &str) -> bool {
+    pub(crate) fn hover_delay_key(&mut self, key: crate::Key) -> bool {
+        // the resolved form crosses the 1.x text export, which waits on the key itself (no text copied)
+        let mut label = [0; 17];
+        let key = crate::Key::Resolved(self.resolve_lookup_key(key));
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_hover_delay(self.0.as_ptr(), as_str(key), &mut out) });
+        check(self, unsafe { lib::pxui_ui_hover_delay(self.0.as_ptr(), as_str(key.label(&mut label)), &mut out) });
         out != 0
     }
     /// The width in points a string takes in the small-caps label style at the current theme.
@@ -371,4 +376,5 @@ impl Ui {
     }
     /// Where the top of kit text of `size` points sits centred in a row at `y` of height `h`.
     #[inline] pub fn text_top(&self, size: Option<i64>, y: f32, h: f32) -> f32 { text_top_for(self.font_size(), size, y, h) }
+
 }
