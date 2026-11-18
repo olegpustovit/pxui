@@ -143,14 +143,14 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
         }
     });
     ui.panel("inspector", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0).window(), &mut |ui: &mut Ui| {
-        let _ = ui.inspector_section("section", true, None, "Inspector", &mut |ui: &mut Ui| {
-            s.snap = ui.inspector_toggle("snap", "Snap", s.snap);
-            let _ = ui.inspector_readout(None, "count", "Points", "1,024");
-            let (row, cx, cy, cw) = ui.inspector_row(None, None, "scale", "Scale");
+        let _ = pxui::ext::inspector_section(ui, "section", true, None, "Inspector", &mut |ui: &mut Ui| {
+            s.snap = pxui::ext::inspector_toggle(ui, "snap", "Snap", s.snap);
+            let _ = pxui::ext::inspector_readout(ui, None, "count", "Points", "1,024");
+            let (row, cx, cy, cw) = pxui::ext::inspector_row(ui, None, None, "scale", "Scale");
             ui.within(&row, &mut |ui: &mut Ui| {
                 inputs::scale(ui, (cx, cy, cw), &mut s.scale);
             });
-            if ui.inspector_button("reset", "Reset") {
+            if pxui::ext::inspector_button(ui, "reset", "Reset") {
                 s.scale = "1.5".to_owned();
             }
         });
@@ -159,7 +159,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
             // None: unchanged. Some: the new text, borrowed until the next call on `ui`.
             inputs::notes(ui, &mut s.notes);
         });
-        ui.footer(Some("2 keys"), s.hints);
+        pxui::ext::footer(ui, Some("2 keys"), s.hints);
     });
     column(ui, "old-table", (332.0, 250.0), 296.0, Size::Px(200.0), &mut |ui: &mut Ui| {
         const OLD_TABLE: pxui::TableView = pxui::TableView::text(pxui_types::geom::Rect { x: 0.0, y: 0.0, w: 296.0, h: 200.0 });
@@ -271,12 +271,12 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
             ui.tooltip(&help, "Rest the pointer on a control to see its tip");
         });
         if !s.said.is_empty() {
-            let _ = ui.inspector_message("said", s.said);
+            let _ = pxui::ext::inspector_message(ui, "said", s.said);
         }
     });
     if s.dialog {
         const BUTTONS: [DialogButton; 2] = [DialogButton::new("Cancel").cancel(), DialogButton::new("Delete").primary()];
-        let answer = ui.dialog("delete-layer", "Delete layer", &BUTTONS, &Dialog::DEFAULT, &mut |ui: &mut Ui| { let _ = ui.inspector_message("body", "This cannot be undone."); });
+        let answer = ui.dialog("delete-layer", "Delete layer", &BUTTONS, &Dialog::DEFAULT, &mut |ui: &mut Ui| { let _ = pxui::ext::inspector_message(ui, "body", "This cannot be undone."); });
         if answer.chosen.is_some() || answer.dismissed {
             (s.dialog, s.said) = (false, if answer.chosen == Some(1) { "Deleted the layer" } else { "Kept the layer" });
         }

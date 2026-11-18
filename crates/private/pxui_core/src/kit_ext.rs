@@ -737,51 +737,51 @@ impl Ui {
     }
 
     /// The value control inside an inspector row.
-    pub fn inspector_toggle_value(&mut self, key: &str, at: (f32, f32), value: bool) -> bool {
-        let control = self.box_(key, BoxOpts::default().flags(Flags::CLICKABLE | Flags::TAB_STOP).at(at).w(Size::Px(28.0)).h(Size::Px(self.control_h())));
-        let value = if self.signal_owned(&control).clicked { !value } else { value };
-        self.set_role(&control, Role::Toggle, st::CHECKABLE | if value { st::CHECKED } else { 0 });
-        self.a11y_name(&control, key);
-        let on = State { checked: value, ..State::default() };
-        let (track, knob) = (*self.theme().switch.pick(on), *self.theme().knob.pick(on));
+    /// The kit toggle's switch alone, its box keyed `key` at `at` in the current parent, built through the toggle body (an app's
+    /// registered toggle body draws it); the toggle inside is keyed `value`.
+    fn switch_at(&mut self, key: &str, at: (f32, f32), value: bool) -> Response {
+        // the toggle body sets its switch the theme's second space step in from the row's end: the box is that much wider, so the
+        // switch's start is `at` in every theme
+        let (h, side) = (self.control_h(), self.space(2));
+        let control = self.box_(key, BoxOpts::default().at(at).w(Size::Px(28.0 + side)).h(Size::Px(h)));
         let saved = self.enter(&control);
-        let switch = self.placed(int_key(control.box_key, 0), (0.0, 3.0), Size::Px(28.0), 14.0, track, Edges::default(), "");
-        self.node_mut(&switch).state = on;
-        let inner = self.enter(&switch);
-        let k = self.placed(int_key(control.box_key, 1), (if value { 17.0 } else { 3.0 }, 3.0), Size::Px(8.0), 8.0, knob, Edges::default(), "");
-        self.node_mut(&k).state = on;
-        self.leave(inner);
+        let response = self.toggle_opts("value", "", value, &ToggleOpts { row_h: Some(h), ..ToggleOpts::DEFAULT });
         self.leave(saved);
-        value
+        response
     }
 
-    /// A switch row: the switch sits at the start of the control column, not at the row's end.
+    /// A bare inspector switch at `at`, named `key`; the value after this frame's click.
+    pub fn inspector_toggle_value(&mut self, key: &str, at: (f32, f32), value: bool) -> bool {
+        let response = self.switch_at(key, at, value);
+        self.a11y_name(&response.handle, key);
+        value ^ response.clicked
+    }
+
+    /// A switch row: the switch sits at the start of the control column, not at the row's end, named by the row's `label`.
     pub fn inspector_toggle(&mut self, key: &str, label: &str, value: bool) -> bool {
         let (row, cx, cy, _) = self.inspector_row(None, None, key, label);
         let saved = self.enter(&row);
-        let v = self.inspector_toggle_value(&format!("{}-value", key), (cx, cy), value);
+        let response = self.switch_at("switch", (cx, cy), value);
+        self.a11y_name(&response.handle, label);
         self.leave(saved);
-        v
+        value ^ response.clicked
     }
 
-    /// A text button on a row of its own.
+    /// A text button on a row of its own: the kit button, built through the button body, its text 6 points in from the row's start.
     pub fn inspector_button(&mut self, key: &str, label: &str) -> bool {
         self.lead_gap();
-        let pad = (self.row_px() as f32 - self.control_h()) / 2.0;
-        let row = self.node_ref(key, &Node { flags: Flags::CLICKABLE | Flags::TAB_STOP, h: Size::Px(self.row_px() as f32), axis: Axis::Row, padding: Edges { l: 6.0, t: pad, r: 6.0, b: pad }, ..Node::DEFAULT });
-        let signal = self.signal_owned(&row);
-        // the ground is the label and 6 points each side, from 6 in; the label is cut to the row less 24
+        let h = self.control_h();
+        let pad = (self.row_px() as f32 - h) / 2.0;
+        let row = self.node_ref(key, &Node { h: Size::Px(self.row_px() as f32), axis: Axis::Row, padding: Edges { l: 6.0, t: pad, r: 6.0, b: pad }, ..Node::DEFAULT });
+        // the ground is the label and 6 points each side, as the inspector has always drawn it: the button's looks without their ring
         let tw = self.text_width(None, label);
-        let state = State { hovered: signal.hovered, pressed: signal.held, ..State::default() };
-        let look = Look { ring: Ring::NONE, ..*self.theme().button.pick(state) };
+        let mut states = self.theme().button;
+        for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.disabled, &mut states.checked] { look.ring = Ring::NONE; }
+        let opts = ButtonOpts { states: Some(states), w: Size::Px(tw + 12.0), h: Size::Px(h), centered: true, ..ButtonOpts::DEFAULT };
         let saved = self.enter(&row);
-        let ground = self.node_keyed(int_key(row.box_key, 0), Node { flags: Flags::FIT_TEXT, w: Size::Px(tw + 12.0), shrink: 1.0, min_w: 1.0, h: Size::Grow, inset: Edges { l: 6.0, r: 6.0, ..Edges::ZERO }, ..Node::DEFAULT });
+        let response = self.button_opts("button", label, None, &opts, ["", "", ""], None, None);
         self.leave(saved);
-        self.set_look(&ground, look, state);
-        self.text(&ground, label);
-        self.set_role(&row, Role::Button, 0);
-        self.a11y_name(&row, label);
-        signal.clicked
+        response.clicked
     }
 
     /// A read-only value in the same responsive inspector row.

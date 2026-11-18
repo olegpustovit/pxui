@@ -378,8 +378,8 @@ mod tests {
             let input = crate::FrameIn::new(320.0, 240.0).time(n as f64);
             ui.frame(&input, &mut |ui: &mut Ui| {
                 search = Some(ui.search_field("s", "x", &SearchField::DEFAULT.name("Find")).response);
-                line = Some(ui.line_field("l", "x", rect, &LineField::DEFAULT).response);
-                value = Some(ui.value_field("v", "1", Rect::new(0.0, 30.0, 100.0, 20.0), &ValueField::DEFAULT.name("Scale"), &ValueCallbacks::DEFAULT).response);
+                line = Some(crate::ext::line_field(ui, "l", "x", rect, &LineField::DEFAULT).response);
+                value = Some(crate::ext::value_field(ui, "v", "1", Rect::new(0.0, 30.0, 100.0, 20.0), &ValueField::DEFAULT.name("Scale"), &ValueCallbacks::DEFAULT).response);
                 area = Some(ui.text_area("a", "x", pxui_types::Node::DEFAULT.at(0.0, 60.0).w_px(100.0).h_px(40.0), &TextArea::DEFAULT, &AreaCallbacks::DEFAULT).response);
             }).expect("frame");
         }

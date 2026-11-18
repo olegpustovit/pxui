@@ -1377,17 +1377,17 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 assert!(!ui.button("styled", "Styled", &crate::Button::DEFAULT.danger().align(pxui_types::layout::Justify::End)).clicked);
                 let head = ui.inspector_head_for_test(&actions);
                 assert_eq!(head.renamed, "Title");
-                ui.inspector_body(&mut |ui: &mut Ui| {
-                    assert!(ui.inspector_section("section", true, None, "Section", &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); }));
-                    assert!(!ui.inspector_toggle("toggle", "Toggle", false));
+                crate::ext::inspector_body(ui, &mut |ui: &mut Ui| {
+                    assert!(crate::ext::inspector_section(ui, "section", true, None, "Section", &mut |ui: &mut Ui| { ui.label("inside", crate::Label::DEFAULT); }));
+                    assert!(!crate::ext::inspector_toggle(ui, "toggle", "Toggle", false));
                 });
-                ui.inspector_bar(&hints, 3);
-                let line = ui.line_field("find", "abc", pxui_types::geom::Rect::new(0.0, 0.0, 120.0, 20.0), &crate::LineField::DEFAULT.placeholder("line"));
+                crate::ext::inspector_bar(ui, &hints, 3);
+                let line = crate::ext::line_field(ui, "find", "abc", pxui_types::geom::Rect::new(0.0, 0.0, 120.0, 20.0), &crate::LineField::DEFAULT.placeholder("line"));
                 let (text, step) = (line.changed, line.step);
                 assert_eq!((text, step), (None, LineStep::None));
-                let (grip, signal) = ui.grip(format_args!("grip-{}", 1), Axis::Row, None);
+                let (grip, signal) = crate::ext::grip(ui, format_args!("grip-{}", 1), Axis::Row, None);
                 assert!(!signal.clicked);
-                assert_eq!(ui.field_drag(&grip), None);
+                assert_eq!(crate::ext::field_drag(ui, &grip), None);
                 if round == 0 { assert!(ui.animate(&grip, Target::Opacity(0.5), Curve::Spring { omega: 30.0 }), "a new target starts moving"); }
                 let mut ran = false;
                 let open = ui.popup("pop", &crate::Overlay::DEFAULT.at(crate::Point::new(10.0, 10.0)).w_px(100.0).h_px(40.0).max_h_px(100.0).dismiss_initial(), &mut |ui: &mut Ui| { ran = true; ui.label("popped", crate::Label::DEFAULT); }).open;
@@ -1399,7 +1399,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
 
 impl Ui {
     fn inspector_head_for_test(&mut self, actions: &[pxui_types::ui::HeadAction]) -> pxui_types::ui::Head {
-        self.inspector_header("head", Some("kind"), None, Some("1"), Some(std::rc::Rc::new(|name: &str| !name.is_empty())), actions, Some("reset"), true, "Title", "detail")
+        crate::ext::inspector_header(self, "head", Some("kind"), None, Some("1"), Some(std::rc::Rc::new(|name: &str| !name.is_empty())), actions, Some("reset"), true, "Title", "detail")
     }
 }
 
@@ -1478,7 +1478,7 @@ fn value_fields_take_their_options_and_text_edits_are_kept() {
     for _ in 0..2 {
         ui.frame(&input(), &mut |ui: &mut Ui| {
             ui.panel("fields", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
-                let field = ui.value_field("amount", "0.25", pxui_types::geom::Rect::new(10.0, 10.0, 120.0, 20.0), &opts, &callbacks);
+                let field = crate::ext::value_field(ui, "amount", "0.25", pxui_types::geom::Rect::new(10.0, 10.0, 120.0, 20.0), &opts, &callbacks);
                 let (text, editing) = (field.changed, field.editing);
                 assert_eq!((text, editing), (None, false));
                 let edit = ui.load_text_edit(crate::Key::Resolved(7), "abc");
@@ -1591,7 +1591,7 @@ fn a_text_area_with_data_callbacks_and_a_language_and_a_value_field_with_callbac
             ui.panel("data", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
                 let r = ui.text_area("area", source, pxui_types::Node::DEFAULT.at(0.0, 0.0).w_px(100.0).h_px(100.0), &area, &callbacks);
                 assert_eq!((r.changed, r.submitted), (None, false));
-                let v = ui.value_field("amount", "0.25", pxui_types::geom::Rect::new(0.0, 110.0, 100.0, 20.0), &ValueField::DEFAULT.fraction(0.5), &value_callbacks);
+                let v = crate::ext::value_field(ui, "amount", "0.25", pxui_types::geom::Rect::new(0.0, 110.0, 100.0, 20.0), &ValueField::DEFAULT.fraction(0.5), &value_callbacks);
                 assert_eq!((v.changed, v.editing), (None, false));
             });
         }).expect("frame");
@@ -3695,8 +3695,8 @@ fn reserved_resolved_keys_are_refused_and_never_alias_ids() {
     ui.frame(&input(), &mut |ui: &mut Ui| {
         let mut labels = [[0u8; 17]; 2];
         let [zero, one] = &mut labels;
-        ui.inspector_section(Key::Id(0).label(zero), true, None, "Zero", &mut |_| {});
-        ui.inspector_section(Key::Id(1).label(one), false, None, "One", &mut |_| {});
+        crate::ext::inspector_section(ui, Key::Id(0).label(zero), true, None, "Zero", &mut |_| {});
+        crate::ext::inspector_section(ui, Key::Id(1).label(one), false, None, "One", &mut |_| {});
         for reserved in [Key::Resolved(0), Key::Resolved(1)] {
             assert!(refused(&mut || { ui.node(reserved, Node::DEFAULT); }), "{reserved:?} is not created");
             assert!(refused(&mut || { ui.expanded(reserved); }), "{reserved:?} is not looked up as Id(0)/Id(1)");

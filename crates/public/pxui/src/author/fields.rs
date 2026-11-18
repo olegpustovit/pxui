@@ -62,27 +62,6 @@ impl Ui {
     #[track_caller]
     pub fn text_field<K: Into<Key>>(&mut self, key: K, value: &str, field: &TextField<'_>) -> TextFieldResponse<'_> { self.text_field_key(key.into(), value, field) }
 
-    /// A one-line field at `rect` with a hairline: its response, the new value when it differs from `value`, and what its keys asked (Enter or
-    /// Down next, Shift-Enter or Up previous, Escape close). The text is borrowed from the library, valid until the next call on `ui`.
-    ///
-    /// Placement: absolute, at `rect` in the parent's space (the caller-painted inspector field; no flow node).
-    /// Allocates: the engine allocates the result text each call; the wrapper nothing.
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the field's text.
-    /// Panics: when the `Ui` has failed, like every `Ui` call. A key or identity label over 256 bytes panics (a programmer error).
-    ///
-    /// ```
-    /// use pxui::{ui::{LineStep, Rect}, LineField};
-    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     const LINE: LineField = LineField::DEFAULT.placeholder("line");
-    ///     let line = ui.line_field("find", "abc", Rect::new(0.0, 0.0, 120.0, 20.0), &LINE);
-    ///     assert_eq!((line.changed, line.step), (None, LineStep::None));
-    /// }).unwrap();
-    /// ```
-    #[inline]
-    #[track_caller]
-    pub fn line_field<K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'_> { self.line_field_key(key.into(), value, rect, field) }
-
     /// A multiline text area laid out by `node`: its response, the new text when it changed (else none) and whether it was submitted. The
     /// closures in `callbacks` run during this call on this thread and are not kept; the text is borrowed from the library, valid until
     /// the next call on `ui`.
@@ -108,27 +87,6 @@ impl Ui {
     #[inline]
     #[track_caller]
     pub fn text_area<K: Into<Key>>(&mut self, key: K, value: &str, node: crate::Node, area: &TextArea<'_>, callbacks: &AreaCallbacks<'_>) -> TextAreaResponse<'_> { self.text_area_node(key.into(), value, node, area, callbacks) }
-
-    /// A compact field at `rect`: its response, the new text when it changed (else none) and whether a text editor is open. Only text the
-    /// `callbacks` accept commits. The text is borrowed from the library, valid until the next call on `ui`.
-    ///
-    /// Placement: absolute, at `rect` in the parent's space (the caller-painted inspector value; no flow node).
-    /// Allocates: nothing on an idle warm frame; editing, sliding or scrubbing allocates the text.
-    /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the field's text.
-    /// Panics: when the `Ui` has failed, like every `Ui` call, or when a size in `field` is over `i64::MAX`. A key or identity label over 256 bytes panics (a programmer error).
-    ///
-    /// ```
-    /// use pxui::{ui::Rect, ValueCallbacks, ValueField};
-    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
-    /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let accept = |t: &str| t.parse::<f32>().is_ok();
-    ///     let field = ui.value_field("amount", "0.25", Rect::new(0.0, 0.0, 100.0, 20.0), &ValueField::DEFAULT, &ValueCallbacks::DEFAULT.valid(&accept));
-    ///     assert_eq!((field.changed, field.editing), (None, false));
-    /// }).unwrap();
-    /// ```
-    #[inline]
-    #[track_caller]
-    pub fn value_field<K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, field: &ValueField<'_>, callbacks: &ValueCallbacks<'_>) -> ValueFieldResponse<'_> { self.value_field_key(key.into(), value, rect, field, callbacks) }
 
     /// A search field keyed by `key`: its response and the text the user changed the value to, borrowed from the library and valid until the
     /// next call on `ui`.
@@ -170,3 +128,45 @@ impl Ui {
     #[track_caller]
     pub fn scrub<K: Into<Key>>(&mut self, key: K, value: f32, range: core::ops::RangeInclusive<f32>, scrubber: &Scrubber<'_>) -> SliderResponse { self.scrub_key(key.into(), value, range, scrubber) }
 }
+
+// The extension set (`pxui::ext`): free functions on a `Ui`, out of the prelude, with no stability promise.
+/// A one-line field at `rect` with a hairline: its response, the new value when it differs from `value`, and what its keys asked (Enter or
+/// Down next, Shift-Enter or Up previous, Escape close). The text is borrowed from the library, valid until the next call on `ui`.
+///
+/// Placement: absolute, at `rect` in the parent's space (the caller-painted inspector field; no flow node).
+/// Allocates: the engine allocates the result text each call; the wrapper nothing.
+/// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the field's text.
+/// Panics: when the `Ui` has failed, like every `Ui` call. A key or identity label over 256 bytes panics (a programmer error).
+///
+/// ```
+/// use pxui::{ui::{LineStep, Rect}, LineField};
+/// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+/// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
+///     const LINE: LineField = LineField::DEFAULT.placeholder("line");
+///     let line = pxui::ext::line_field(ui, "find", "abc", Rect::new(0.0, 0.0, 120.0, 20.0), &LINE);
+///     assert_eq!((line.changed, line.step), (None, LineStep::None));
+/// }).unwrap();
+/// ```
+#[inline]
+#[track_caller]
+pub fn line_field<'a, K: Into<Key>>(ui: &'a mut Ui, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'a> { ui.line_field_key(key.into(), value, rect, field) }
+/// A compact field at `rect`: its response, the new text when it changed (else none) and whether a text editor is open. Only text the
+/// `callbacks` accept commits. The text is borrowed from the library, valid until the next call on `ui`.
+///
+/// Placement: absolute, at `rect` in the parent's space (the caller-painted inspector value; no flow node).
+/// Allocates: nothing on an idle warm frame; editing, sliding or scrubbing allocates the text.
+/// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the field's text.
+/// Panics: when the `Ui` has failed, like every `Ui` call, or when a size in `field` is over `i64::MAX`. A key or identity label over 256 bytes panics (a programmer error).
+///
+/// ```
+/// use pxui::{ui::Rect, ValueCallbacks, ValueField};
+/// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+/// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
+///     let accept = |t: &str| t.parse::<f32>().is_ok();
+///     let field = pxui::ext::value_field(ui, "amount", "0.25", Rect::new(0.0, 0.0, 100.0, 20.0), &ValueField::DEFAULT, &ValueCallbacks::DEFAULT.valid(&accept));
+///     assert_eq!((field.changed, field.editing), (None, false));
+/// }).unwrap();
+/// ```
+#[inline]
+#[track_caller]
+pub fn value_field<'a, K: Into<Key>>(ui: &'a mut Ui, key: K, value: &str, rect: Rect, field: &ValueField<'_>, callbacks: &ValueCallbacks<'_>) -> ValueFieldResponse<'a> { ui.value_field_key(key.into(), value, rect, field, callbacks) }

@@ -282,6 +282,25 @@ mod tests {
         assert_eq!(TOGGLES.with(|t| t.borrow().clone()), vec![("Own".to_owned(), false, false)]);
     }
 
+    /// U1c.3 (D6): the extension set's inspector toggle and button are built through the toggle and button bodies, so a registered body
+    /// draws them: the switch is a toggle without text, the button a button with its label.
+    #[test]
+    fn the_inspector_toggle_and_button_are_built_through_their_bodies() {
+        thread_local! { static BUTTONS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) }; }
+        fn counting(_: &mut Ui, c: &crate::bodies::ButtonConfig) { BUTTONS.with(|b| b.borrow_mut().push(c.text_of(&c.label).to_owned())); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.register_toggle_body("probe", probe).expect("toggle body");
+        ui.register_button_body("counting", counting).expect("button body");
+        ui.set_theme(&source("toggle.body = probe\nbutton.body = counting")).expect("theme text");
+        TOGGLES.with(|t| t.borrow_mut().clear());
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| {
+            let _ = crate::ext::inspector_toggle(ui, "snap", "Snap", true);
+            let _ = crate::ext::inspector_button(ui, "reset", "Reset");
+        }).expect("frame");
+        assert_eq!(TOGGLES.with(|t| t.borrow().clone()), vec![(String::new(), true, false)], "the switch is the toggle body's");
+        assert_eq!(BUTTONS.with(|b| b.borrow().clone()), vec!["Reset".to_owned()], "the button is the button body's");
+    }
+
     /// A theme text that names no registered body, and every bad registration, are errors, not crashes.
     #[test]
     fn unknown_body_names_and_bad_registrations_are_errors() {
@@ -382,7 +401,7 @@ mod tests {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_footer_body("hinter", hinter).expect("registered");
         ui.set_theme(&source("footer.body = hinter")).expect("theme");
-        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.footer(None, &[("Esc", "close")]); }).expect("frame");
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| { crate::ext::footer(ui, None, &[("Esc", "close")]); }).expect("frame");
         let seen = HINTS.with(|h| h.borrow().clone()).expect("the body ran");
         assert_eq!(seen, (Some(("Esc".to_owned(), "close".to_owned())), true, true, true, true));
     }

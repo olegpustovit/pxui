@@ -35,6 +35,19 @@ pub mod doc;
 pub mod guide;
 pub mod testing;
 
+/// The extension set: the inspector rows, the footer, the line and value fields, the grip and their getters, as free functions taking
+/// the `Ui`.
+///
+/// These are the controls of one application (Rays' inspector), kept out of the prelude (`pxui::ui`) and out of the stable surface:
+/// they may change or move to that application with no notice. Their C exports are listed apart in `abi/pxui.ext.txt`. The inspector
+/// toggle and button are built through the toggle and button bodies, so a registered body draws them too.
+pub mod ext {
+    pub use crate::author::fields::{line_field, value_field};
+    pub use crate::kit::{footer, inspector_button, inspector_message, inspector_readout, inspector_row, inspector_section, inspector_toggle};
+    pub use crate::kit_ext::{field_drag, grip, inspector_bar, inspector_body, inspector_header};
+    pub use crate::ui_state::{inspector_label_x, inspector_width};
+}
+
 /// The types and operations used to build a UI.
 pub mod ui {
     /// Whether `signal` is a right click: released with the right button within 4 points of its press.

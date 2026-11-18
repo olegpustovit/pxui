@@ -3,7 +3,7 @@ mod button;
 mod collection;
 mod dialog;
 mod field_types;
-mod fields;
+pub(crate) mod fields;
 mod icon_button;
 mod kit;
 mod layout;

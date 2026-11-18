@@ -339,82 +339,10 @@ impl Ui {
     }
 
     #[inline]
-    #[track_caller] pub fn inspector_row(&mut self, width: Option<f32>, pin: Option<bool>, key: &str, label: &str) -> (Handle, f32, f32, f32) {
-        #[cfg(feature = "static")]
-        { let mut out = (Handle::default(), 0.0, 0.0, 0.0); check(self, unsafe { pxui_abi_link::trusted::inspector_row(self.0.as_ptr(), width, pin, key, label, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        {
-            let mut desc = InspectorRowDesc { size: core::mem::size_of::<InspectorRowDesc>() as u32, has_width: width.is_some() as u8, has_pin: pin.is_some() as u8, pin: pin.unwrap_or(false) as u8, reserved: 0, key: as_str(key), label: as_str(label), width: width.unwrap_or_default(), reserved_tail: 0, row: Handle::default(), control_x: 0.0, control_y: 0.0, control_w: 0.0 };
-            check(self, unsafe { sys::pxui_ui_inspector_row(self.0.as_ptr(), &mut desc) });
-            (desc.row, desc.control_x, desc.control_y, desc.control_w)
-        }
-    }
-
-    #[inline]
-    #[track_caller] pub fn inspector_section(&mut self, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: &mut dyn FnMut(&mut Ui)) -> bool {
-        #[cfg(feature = "static")]
-        { let mut out = false; check(self, unsafe { pxui_abi_link::trusted::inspector_section(self.0.as_ptr(), key, expanded, set_expanded, label, inner!(|ui: &mut Ui| build(ui)), &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        {
-            let mut build = build;
-            let (build, user): (Build, _) = (Some(crate::composite::call), &mut build as *mut _ as *mut c_void);
-            let mut desc = InspectorSectionDesc { size: core::mem::size_of::<InspectorSectionDesc>() as u32, expanded: expanded as u8, has_set: set_expanded.is_some() as u8, set_expanded: set_expanded.unwrap_or(false) as u8, reserved: 0, key: as_str(key), label: as_str(label), build, user, out_open: 0 };
-            check(self, unsafe { sys::pxui_ui_inspector_section(self.0.as_ptr(), &mut desc) });
-            desc.out_open != 0
-        }
-    }
-
-    #[inline]
-    #[track_caller] pub fn inspector_toggle(&mut self, key: &str, label: &str, value: bool) -> bool {
-        #[cfg(feature = "static")]
-        { let mut out = false; check(self, unsafe { pxui_abi_link::trusted::inspector_toggle(self.0.as_ptr(), key, label, value, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        { let mut out = 0; check(self, unsafe { sys::pxui_ui_inspector_toggle(self.0.as_ptr(), as_str(key), as_str(label), value as u8, &mut out) }); out != 0 }
-    }
-    #[inline]
-    #[track_caller] pub fn inspector_button(&mut self, key: &str, label: &str) -> bool {
-        #[cfg(feature = "static")]
-        { let mut out = false; check(self, unsafe { pxui_abi_link::trusted::inspector_button(self.0.as_ptr(), key, label, &mut out) }); out }
-        #[cfg(not(feature = "static"))]
-        { let mut out = 0; check(self, unsafe { sys::pxui_ui_inspector_button(self.0.as_ptr(), as_str(key), as_str(label), &mut out) }); out != 0 }
-    }
-    #[inline]
-    #[track_caller] pub fn inspector_readout(&mut self, width: Option<f32>, key: &str, label: &str, value: &str)  {
-        #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::inspector_readout(self.0.as_ptr(), width, key, label, value) });
-        #[cfg(not(feature = "static"))]
-        {
-            let desc = InspectorValueDesc { size: core::mem::size_of::<InspectorValueDesc>() as u32, has_width: width.is_some() as u8, reserved: [0; 3], key: as_str(key), label: as_str(label), value: as_str(value), width: width.unwrap_or_default() };
-            check(self, unsafe { sys::pxui_ui_inspector_readout(self.0.as_ptr(), &desc) })
-        }
-    }
-    #[inline]
-    #[track_caller] pub fn inspector_message(&mut self, key: &str, message: &str)  {
-        #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::inspector_message(self.0.as_ptr(), key, message) });
-        #[cfg(not(feature = "static"))]
-        {
-            let desc = InspectorTextDesc { size: core::mem::size_of::<InspectorTextDesc>() as u32, reserved: 0, key: as_str(key), text: as_str(message) };
-            check(self, unsafe { sys::pxui_ui_inspector_message(self.0.as_ptr(), &desc) })
-        }
-    }
-
-    #[inline]
     #[track_caller] pub fn wants_frame(&self, events: &[pxui_types::Event], now: f64) -> bool {
         let mut out = 0;
         check(self, unsafe { sys::pxui_ui_wants_frame(self.0.as_ptr(), Slice { ptr: events.as_ptr(), len: events.len() }, now, &mut out) });
         out != 0
-    }
-    #[inline]
-    #[track_caller] pub fn footer(&mut self, right: Option<&str>, hints: &[(&str, &str)])  {
-        #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::footer(self.0.as_ptr(), right, hints) });
-        #[cfg(not(feature = "static"))]
-        {
-            let hints = Hints::new(hints);
-            let desc = FooterDesc { size: core::mem::size_of::<FooterDesc>() as u32, has_right: right.is_some() as u8, reserved: [0; 3], right: right.map_or_else(Str::default, as_str), hints: hints.span() };
-            check(self, unsafe { sys::pxui_ui_footer(self.0.as_ptr(), &desc) })
-        }
     }
     /// Runs the keyframes `keys` (1 to 8, times ascending from 0) on the box `box_` as `play` says: how often they repeat (a count includes the reverse legs), whether each cycle plays back, and how far into the first cycle they start.
     /// The run needs a positive duration; hidden runs request no frames. Call `animate_keys` with another run, or `animate`, to stop it. True while it runs; false for a stale handle.
@@ -457,4 +385,75 @@ impl Ui {
         crate::live(self, rc) && out != 0
     }
 
+}
+
+// The extension set (`pxui::ext`): free functions on a `Ui`, out of the prelude, with no stability promise.
+#[inline]
+#[track_caller] pub fn inspector_row(ui: &mut Ui, width: Option<f32>, pin: Option<bool>, key: &str, label: &str) -> (Handle, f32, f32, f32) {
+    #[cfg(feature = "static")]
+    { let mut out = (Handle::default(), 0.0, 0.0, 0.0); check(ui, unsafe { pxui_abi_link::trusted::inspector_row(ui.0.as_ptr(), width, pin, key, label, &mut out) }); out }
+    #[cfg(not(feature = "static"))]
+    {
+        let mut desc = InspectorRowDesc { size: core::mem::size_of::<InspectorRowDesc>() as u32, has_width: width.is_some() as u8, has_pin: pin.is_some() as u8, pin: pin.unwrap_or(false) as u8, reserved: 0, key: as_str(key), label: as_str(label), width: width.unwrap_or_default(), reserved_tail: 0, row: Handle::default(), control_x: 0.0, control_y: 0.0, control_w: 0.0 };
+        check(ui, unsafe { sys::pxui_ui_inspector_row(ui.0.as_ptr(), &mut desc) });
+        (desc.row, desc.control_x, desc.control_y, desc.control_w)
+    }
+}
+#[inline]
+#[track_caller] pub fn inspector_section(ui: &mut Ui, key: &str, expanded: bool, set_expanded: Option<bool>, label: &str, build: &mut dyn FnMut(&mut Ui)) -> bool {
+    #[cfg(feature = "static")]
+    { let mut out = false; check(ui, unsafe { pxui_abi_link::trusted::inspector_section(ui.0.as_ptr(), key, expanded, set_expanded, label, inner!(|ui: &mut Ui| build(ui)), &mut out) }); out }
+    #[cfg(not(feature = "static"))]
+    {
+        let mut build = build;
+        let (build, user): (Build, _) = (Some(crate::composite::call), &mut build as *mut _ as *mut c_void);
+        let mut desc = InspectorSectionDesc { size: core::mem::size_of::<InspectorSectionDesc>() as u32, expanded: expanded as u8, has_set: set_expanded.is_some() as u8, set_expanded: set_expanded.unwrap_or(false) as u8, reserved: 0, key: as_str(key), label: as_str(label), build, user, out_open: 0 };
+        check(ui, unsafe { sys::pxui_ui_inspector_section(ui.0.as_ptr(), &mut desc) });
+        desc.out_open != 0
+    }
+}
+#[inline]
+#[track_caller] pub fn inspector_toggle(ui: &mut Ui, key: &str, label: &str, value: bool) -> bool {
+    #[cfg(feature = "static")]
+    { let mut out = false; check(ui, unsafe { pxui_abi_link::trusted::inspector_toggle(ui.0.as_ptr(), key, label, value, &mut out) }); out }
+    #[cfg(not(feature = "static"))]
+    { let mut out = 0; check(ui, unsafe { sys::pxui_ui_inspector_toggle(ui.0.as_ptr(), as_str(key), as_str(label), value as u8, &mut out) }); out != 0 }
+}
+#[inline]
+#[track_caller] pub fn inspector_button(ui: &mut Ui, key: &str, label: &str) -> bool {
+    #[cfg(feature = "static")]
+    { let mut out = false; check(ui, unsafe { pxui_abi_link::trusted::inspector_button(ui.0.as_ptr(), key, label, &mut out) }); out }
+    #[cfg(not(feature = "static"))]
+    { let mut out = 0; check(ui, unsafe { sys::pxui_ui_inspector_button(ui.0.as_ptr(), as_str(key), as_str(label), &mut out) }); out != 0 }
+}
+#[inline]
+#[track_caller] pub fn inspector_readout(ui: &mut Ui, width: Option<f32>, key: &str, label: &str, value: &str)  {
+    #[cfg(feature = "static")]
+    check(ui, unsafe { pxui_abi_link::trusted::inspector_readout(ui.0.as_ptr(), width, key, label, value) });
+    #[cfg(not(feature = "static"))]
+    {
+        let desc = InspectorValueDesc { size: core::mem::size_of::<InspectorValueDesc>() as u32, has_width: width.is_some() as u8, reserved: [0; 3], key: as_str(key), label: as_str(label), value: as_str(value), width: width.unwrap_or_default() };
+        check(ui, unsafe { sys::pxui_ui_inspector_readout(ui.0.as_ptr(), &desc) })
+    }
+}
+#[inline]
+#[track_caller] pub fn inspector_message(ui: &mut Ui, key: &str, message: &str)  {
+    #[cfg(feature = "static")]
+    check(ui, unsafe { pxui_abi_link::trusted::inspector_message(ui.0.as_ptr(), key, message) });
+    #[cfg(not(feature = "static"))]
+    {
+        let desc = InspectorTextDesc { size: core::mem::size_of::<InspectorTextDesc>() as u32, reserved: 0, key: as_str(key), text: as_str(message) };
+        check(ui, unsafe { sys::pxui_ui_inspector_message(ui.0.as_ptr(), &desc) })
+    }
+}
+#[inline]
+#[track_caller] pub fn footer(ui: &mut Ui, right: Option<&str>, hints: &[(&str, &str)])  {
+    #[cfg(feature = "static")]
+    check(ui, unsafe { pxui_abi_link::trusted::footer(ui.0.as_ptr(), right, hints) });
+    #[cfg(not(feature = "static"))]
+    {
+        let hints = Hints::new(hints);
+        let desc = FooterDesc { size: core::mem::size_of::<FooterDesc>() as u32, has_right: right.is_some() as u8, reserved: [0; 3], right: right.map_or_else(Str::default, as_str), hints: hints.span() };
+        check(ui, unsafe { sys::pxui_ui_footer(ui.0.as_ptr(), &desc) })
+    }
 }

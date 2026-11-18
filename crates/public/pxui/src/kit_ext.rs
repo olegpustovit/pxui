@@ -299,53 +299,55 @@ impl Ui {
             Chosen { chosen: (result.has_chosen != 0).then_some(result.chosen as usize), chosen_id: None, dismissed: result.dismissed != 0 }
         }
     }
-    /// A 1-point splitter line (see the engine): its box and what happened to it.
-    #[track_caller]
-    pub fn grip(&mut self, label: Arguments, axis: Axis, rect: Option<Rect>) -> (Handle, Signal) {
-        let (mut out, mut raw) = (Handle::default(), PxuiSignal::default());
-        let label = Label::new(label);
-        let code = match axis { Axis::Row => 0, _ => 1 };
-        check(self, unsafe { lib::pxui_ui_grip(self.0.as_ptr(), as_str(label.as_str()), code, rect.is_some() as u8, rect.unwrap_or_default(), &mut out, &mut raw) });
-        (out, decode_signal(&raw))
-    }
-    #[track_caller]
-    pub fn inspector_bar(&mut self, hints: &[(&str, &str)], count: i64) {
-        let hints = crate::kit::Hints::new(hints);
-        check(self, unsafe { lib::pxui_ui_inspector_bar(self.0.as_ptr(), hints.span(), count) })
-    }
-    #[track_caller]
-    pub fn inspector_body(&mut self, mut f: &mut dyn FnMut(&mut Ui)) {
-        check(self, unsafe { lib::pxui_ui_inspector_body(self.0.as_ptr(), Some(call), &mut f as *mut _ as *mut c_void) })
-    }
-    #[allow(clippy::too_many_arguments)]
-    #[track_caller]
-    pub fn inspector_header(&mut self, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>,
-        actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head {
-        let text = |value: Option<&str>| value.map_or_else(Str::default, as_str);
-        // up to 16 actions live on the stack, more on the heap
-        let one = |a: &HeadAction| PxuiHeadActionDesc { size: core::mem::size_of::<PxuiHeadActionDesc>() as u32, active: a.active as u8, usable: a.usable as u8, reserved: [0; 2], caption: as_str(&a.caption), keycap: as_str(&a.keycap) };
-        let mut stack = [one(&HeadAction { caption: String::new(), keycap: String::new(), active: false, usable: false }); 16];
-        let heap: Vec<PxuiHeadActionDesc>;
-        let descs: &[PxuiHeadActionDesc] = if actions.len() <= 16 {
-            for (slot, a) in stack.iter_mut().zip(actions) { *slot = one(a); }
-            &stack[..actions.len()]
-        } else { heap = actions.iter().map(one).collect(); &heap };
-        let desc = PxuiHeaderDesc {
-            size: core::mem::size_of::<PxuiHeaderDesc>() as u32, has_kind: kind.is_some() as u8, has_badge: badge.is_some() as u8, has_index: index.is_some() as u8,
-            has_reset: reset.is_some() as u8, reset_enabled: reset_enabled as u8, reserved: [0; 3], key: as_str(key), kind: text(kind), badge: text(badge), index: text(index),
-            reset: text(reset), title: as_str(title), detail: as_str(detail), actions: Slice { ptr: descs.as_ptr(), len: descs.len() },
-        };
-        let mut out = PxuiHeadOut { size: core::mem::size_of::<PxuiHeadOut>() as u32, has_chosen: 0, reset_pressed: 0, reserved: [0; 2], renamed: Str::default(), chosen: 0 };
-        let user = rename.as_ref().map_or(core::ptr::null_mut(), |rename| rename as *const Rc<dyn Fn(&str) -> bool> as *mut c_void);
-        check(self, unsafe { lib::pxui_ui_inspector_header(self.0.as_ptr(), &desc, rename.is_some().then_some(rename_call as extern "C" fn(*mut c_void, Str) -> u8), user, &mut out) });
-        let renamed = if out.renamed.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(out.renamed.ptr, out.renamed.len) }).into_owned() };
-        Head { renamed, chosen: (out.has_chosen != 0).then_some(out.chosen), reset_pressed: out.reset_pressed != 0 }
-    }
-    /// The fraction of a dragged `kept_drag` field's track under the pointer, and the pointer's points from the press.
-    #[track_caller]
-    pub fn field_drag(&self, field: &Handle) -> Option<(f32, f32)> {
-        let (mut present, mut out) = (0, Point::default());
-        let rc = unsafe { lib::pxui_ui_field_drag(self.0.as_ptr(), field, &mut present, &mut out) };
-        (crate::live(self, rc) && present != 0).then_some((out.x, out.y))
-    }
+}
+
+// The extension set (`pxui::ext`): free functions on a `Ui`, out of the prelude, with no stability promise.
+/// A 1-point splitter line (see the engine): its box and what happened to it.
+#[track_caller]
+pub fn grip(ui: &mut Ui, label: Arguments, axis: Axis, rect: Option<Rect>) -> (Handle, Signal) {
+    let (mut out, mut raw) = (Handle::default(), PxuiSignal::default());
+    let label = Label::new(label);
+    let code = match axis { Axis::Row => 0, _ => 1 };
+    check(ui, unsafe { lib::pxui_ui_grip(ui.0.as_ptr(), as_str(label.as_str()), code, rect.is_some() as u8, rect.unwrap_or_default(), &mut out, &mut raw) });
+    (out, decode_signal(&raw))
+}
+#[track_caller]
+pub fn inspector_bar(ui: &mut Ui, hints: &[(&str, &str)], count: i64) {
+    let hints = crate::kit::Hints::new(hints);
+    check(ui, unsafe { lib::pxui_ui_inspector_bar(ui.0.as_ptr(), hints.span(), count) })
+}
+#[track_caller]
+pub fn inspector_body(ui: &mut Ui, mut f: &mut dyn FnMut(&mut Ui)) {
+    check(ui, unsafe { lib::pxui_ui_inspector_body(ui.0.as_ptr(), Some(call), &mut f as *mut _ as *mut c_void) })
+}
+#[allow(clippy::too_many_arguments)]
+#[track_caller]
+pub fn inspector_header(ui: &mut Ui, key: &str, kind: Option<&str>, badge: Option<&str>, index: Option<&str>, rename: Option<Rc<dyn Fn(&str) -> bool>>,
+    actions: &[HeadAction], reset: Option<&str>, reset_enabled: bool, title: &str, detail: &str) -> Head {
+    let text = |value: Option<&str>| value.map_or_else(Str::default, as_str);
+    // up to 16 actions live on the stack, more on the heap
+    let one = |a: &HeadAction| PxuiHeadActionDesc { size: core::mem::size_of::<PxuiHeadActionDesc>() as u32, active: a.active as u8, usable: a.usable as u8, reserved: [0; 2], caption: as_str(&a.caption), keycap: as_str(&a.keycap) };
+    let mut stack = [one(&HeadAction { caption: String::new(), keycap: String::new(), active: false, usable: false }); 16];
+    let heap: Vec<PxuiHeadActionDesc>;
+    let descs: &[PxuiHeadActionDesc] = if actions.len() <= 16 {
+        for (slot, a) in stack.iter_mut().zip(actions) { *slot = one(a); }
+        &stack[..actions.len()]
+    } else { heap = actions.iter().map(one).collect(); &heap };
+    let desc = PxuiHeaderDesc {
+        size: core::mem::size_of::<PxuiHeaderDesc>() as u32, has_kind: kind.is_some() as u8, has_badge: badge.is_some() as u8, has_index: index.is_some() as u8,
+        has_reset: reset.is_some() as u8, reset_enabled: reset_enabled as u8, reserved: [0; 3], key: as_str(key), kind: text(kind), badge: text(badge), index: text(index),
+        reset: text(reset), title: as_str(title), detail: as_str(detail), actions: Slice { ptr: descs.as_ptr(), len: descs.len() },
+    };
+    let mut out = PxuiHeadOut { size: core::mem::size_of::<PxuiHeadOut>() as u32, has_chosen: 0, reset_pressed: 0, reserved: [0; 2], renamed: Str::default(), chosen: 0 };
+    let user = rename.as_ref().map_or(core::ptr::null_mut(), |rename| rename as *const Rc<dyn Fn(&str) -> bool> as *mut c_void);
+    check(ui, unsafe { lib::pxui_ui_inspector_header(ui.0.as_ptr(), &desc, rename.is_some().then_some(rename_call as extern "C" fn(*mut c_void, Str) -> u8), user, &mut out) });
+    let renamed = if out.renamed.len == 0 { String::new() } else { String::from_utf8_lossy(unsafe { core::slice::from_raw_parts(out.renamed.ptr, out.renamed.len) }).into_owned() };
+    Head { renamed, chosen: (out.has_chosen != 0).then_some(out.chosen), reset_pressed: out.reset_pressed != 0 }
+}
+/// The fraction of a dragged `kept_drag` field's track under the pointer, and the pointer's points from the press.
+#[track_caller]
+pub fn field_drag(ui: &Ui, field: &Handle) -> Option<(f32, f32)> {
+    let (mut present, mut out) = (0, Point::default());
+    let rc = unsafe { lib::pxui_ui_field_drag(ui.0.as_ptr(), field, &mut present, &mut out) };
+    (crate::live(ui, rc) && present != 0).then_some((out.x, out.y))
 }

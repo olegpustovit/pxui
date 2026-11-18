@@ -10,6 +10,17 @@ pub mod pxui {
     pub use pxui_types::theme;
     pub use pxui_core::ui::Handle;
     pub use super::shapes::{Badge, Button, GridList, MenuBar, MenuBarMenu, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, Split, SplitResponse, Toggle, Ui};
+    /// The extension set as the wrapper names it (`pxui::ext`): free functions over the engine's own calls.
+    pub mod ext {
+        use super::{Handle, Ui};
+        pub fn inspector_section(ui: &mut Ui, key: &str, expanded: bool, set: Option<bool>, label: &str, f: &mut dyn FnMut(&mut Ui)) -> bool { ui.inspector_section(key, expanded, set, label, f) }
+        pub fn inspector_toggle(ui: &mut Ui, key: &str, label: &str, value: bool) -> bool { ui.inspector_toggle(key, label, value) }
+        pub fn inspector_readout(ui: &mut Ui, width: Option<f32>, key: &str, label: &str, value: &str) { ui.inspector_readout(width, key, label, value) }
+        pub fn inspector_row(ui: &mut Ui, width: Option<f32>, pin: Option<bool>, key: &str, label: &str) -> (Handle, f32, f32, f32) { ui.inspector_row(width, pin, key, label) }
+        pub fn inspector_button(ui: &mut Ui, key: &str, label: &str) -> bool { ui.inspector_button(key, label) }
+        pub fn inspector_message(ui: &mut Ui, key: &str, message: &str) { ui.inspector_message(key, message) }
+        pub fn footer(ui: &mut Ui, right: Option<&str>, hints: &[(&str, &str)]) { ui.footer(right, hints) }
+    }
 }
 
 /// The wrapper's call shapes over the engine's own calls, for the page source: the engine keeps one call per job, and this tool's

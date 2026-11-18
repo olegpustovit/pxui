@@ -46,7 +46,7 @@ fn wrapper_allocations() -> u64 {
         ui.frame(&input, &mut |ui: &mut pxui::Ui| { ui.panel("panel", &pxui::Overlay::DEFAULT, &mut |ui: &mut pxui::Ui| {
             let before = mem_sys::local_alloc_count();
             let _ = ui.picker("filter", "filter", "", &pxui::Picker::DEFAULT, &mut fill);
-            let _ = ui.inspector_header("head", Some("kind"), None, Some("1"), Some(Rc::clone(&rename)), &actions, Some("reset"), true, "Title", "detail");
+            let _ = pxui::ext::inspector_header(ui, "head", Some("kind"), None, Some("1"), Some(Rc::clone(&rename)), &actions, Some("reset"), true, "Title", "detail");
             measured = mem_sys::local_alloc_count() - before;
         }); }).expect("frame");
         if count >= 8 { worst = worst.max(measured); }

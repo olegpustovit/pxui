@@ -19,7 +19,7 @@ pub fn scale(ui: &mut Ui, (x, y, w): (f32, f32, f32), scale: &mut String) {
     const FIELD: ValueField = ValueField::DEFAULT.name("Scale");
     let accept = |t: &str| t.parse::<f64>().is_ok();
     let callbacks = ValueCallbacks::DEFAULT.valid(&accept);
-    if let Some(v) = ui.value_field("scale-value", scale, Rect::new(x, y, w, 20.0), &FIELD, &callbacks).changed { *scale = v.to_owned(); }
+    if let Some(v) = pxui::ext::value_field(ui, "scale-value", scale, Rect::new(x, y, w, 20.0), &FIELD, &callbacks).changed { *scale = v.to_owned(); }
 }
 
 /// The inspector's notes area.

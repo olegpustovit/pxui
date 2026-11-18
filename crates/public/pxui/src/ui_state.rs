@@ -211,8 +211,6 @@ impl Ui {
     #[inline] pub fn text_input_focused(&self) -> bool { unsafe { lib::pxui_ui_text_input_focused(self.0.as_ptr()) != 0 } }
     #[inline] pub fn verifying(&self) -> bool { unsafe { lib::pxui_ui_verifying(self.0.as_ptr()) != 0 } }
     #[inline] pub fn text_undo_bytes(&self) -> usize { unsafe { lib::pxui_ui_text_undo_bytes(self.0.as_ptr()) as usize } }
-    #[inline] pub fn inspector_width(&self) -> f32 { unsafe { lib::pxui_ui_inspector_width(self.0.as_ptr()) } }
-    #[inline] pub fn inspector_label_x(&self) -> f32 { unsafe { lib::pxui_ui_inspector_label_x(self.0.as_ptr()) } }
     #[inline] pub fn platform(&self) -> Platform { if unsafe { lib::pxui_ui_platform(self.0.as_ptr()) } == 1 { Platform::Apple } else { Platform::Other } }
     #[inline]
     pub fn passed_undo(&self) -> Option<UndoKind> {
@@ -424,3 +422,7 @@ impl Ui {
     }
 
 }
+
+// The extension set (`pxui::ext`): free functions on a `Ui`, out of the prelude, with no stability promise.
+#[inline] pub fn inspector_width(ui: &Ui) -> f32 { unsafe { lib::pxui_ui_inspector_width(ui.0.as_ptr()) } }
+#[inline] pub fn inspector_label_x(ui: &Ui) -> f32 { unsafe { lib::pxui_ui_inspector_label_x(ui.0.as_ptr()) } }

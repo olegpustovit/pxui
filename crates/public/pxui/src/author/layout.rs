@@ -71,7 +71,7 @@ impl Ui {
     /// ```
     /// pxui::doc::frames(1, &mut |ui| {
     ///     assert_eq!(ui.expanded("details"), None); // not built yet
-    ///     ui.inspector_section("details", true, None, "Details", &mut |ui| { ui.label("body", pxui::Label::DEFAULT); });
+    ///     pxui::ext::inspector_section(ui, "details", true, None, "Details", &mut |ui| { ui.label("body", pxui::Label::DEFAULT); });
     ///     assert_eq!(ui.expanded("details"), Some(true));
     /// });
     /// ```
