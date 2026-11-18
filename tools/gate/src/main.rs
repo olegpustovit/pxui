@@ -2018,6 +2018,69 @@ fn field_declaration(text: &str, fields: &mut Vec<(String, String)>) {
     }
 }
 
+/// The library code of a Rust source: comments (line, block, doc) dropped, string and char literals emptied, and every `#[cfg(test)]`
+/// item removed, so only code the library is built with can prove a size-checked read (`Growth::new`). Line breaks are kept.
+fn library_code(source: &str) -> String {
+    let bytes = source.as_bytes();
+    let mut code = String::with_capacity(source.len());
+    let newlines = |text: &[u8]| "\n".repeat(text.iter().filter(|&&byte| byte == b'\n').count());
+    // `'x'`, `'\n'`, `'\''` or `'\u{..}'` starting at `at` (a lifetime `'a` is not one)
+    let char_literal_end = |at: usize| -> Option<usize> {
+        if bytes[at] != b'\'' { return None; }
+        let width = if bytes.get(at + 1) == Some(&b'\\') { bytes.get(at + 3..)?.iter().position(|&byte| byte == b'\'')? + 2 } else { source[at + 1..].chars().next()?.len_utf8() };
+        (bytes.get(at + 1 + width) == Some(&b'\'')).then_some(at + width + 2)
+    };
+    let mut i = 0;
+    while i < bytes.len() {
+        let rest = &bytes[i..];
+        if rest.starts_with(b"//") {
+            while i < bytes.len() && bytes[i] != b'\n' { i += 1; }
+        } else if rest.starts_with(b"/*") {
+            let (start, mut depth) = (i, 0usize);
+            while i < bytes.len() {
+                if bytes[i..].starts_with(b"/*") { depth += 1; i += 2; }
+                else if bytes[i..].starts_with(b"*/") { depth -= 1; i += 2; if depth == 0 { break; } }
+                else { i += 1; }
+            }
+            code.push_str(&newlines(&bytes[start..i]));
+        } else if let Some(end) = raw_string_end(bytes, i).filter(|_| i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_')) {
+            code.push_str("\"\"");
+            code.push_str(&newlines(&bytes[i..end]));
+            i = end;
+        } else if bytes[i] == b'"' {
+            let start = i;
+            i += 1;
+            while i < bytes.len() && bytes[i] != b'"' { i += if bytes[i] == b'\\' { 2 } else { 1 }; }
+            i = (i + 1).min(bytes.len());
+            code.push_str("\"\"");
+            code.push_str(&newlines(&bytes[start..i]));
+        } else if let Some(end) = char_literal_end(i) {
+            code.push_str("'_'");
+            i = end;
+        } else {
+            let ch = source[i..].chars().next().unwrap_or(' ');
+            code.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    // an item ends at a `;` outside brackets or at the `}` that closes its body
+    while let Some(at) = code.find("#[cfg(test)]") {
+        let (mut depth, mut end) = (0i32, code.len());
+        for (i, ch) in code[at + "#[cfg(test)]".len()..].char_indices() {
+            match ch {
+                '(' | '[' | '{' => depth += 1,
+                ')' | ']' => depth -= 1,
+                '}' => { depth -= 1; if depth == 0 { end = at + "#[cfg(test)]".len() + i + 1; break; } }
+                ';' if depth == 0 => { end = at + "#[cfg(test)]".len() + i + 1; break; }
+                _ => (),
+            }
+        }
+        let lines = newlines(code[at..end].as_bytes());
+        code.replace_range(at..end, &lines);
+    }
+    code
+}
+
 /// Recorded records whose field types changed other than by growth at the end, each reviewed when it landed, pinned to the field types
 /// it was reviewed with (a later change fails again): a field in padding the library reads only while it agrees with an older one, and
 /// a grown record kept at its recorded size with its larger layout recorded as a row of its own.
@@ -2045,6 +2108,8 @@ impl Growth {
     /// From the old and current header text and the library's sources (with pxui_types' `theme.rs`, whose `body_kinds!` names the body
     /// configs); the returned records come from the current exports.
     fn new(old_header: &str, header: &str, current: &BTreeMap<String, String>, library_sources: &[String]) -> Self {
+        // a comment or test code proves nothing about what the library reads
+        let library_sources: Vec<String> = library_sources.iter().map(|source| library_code(source)).collect();
         let returned = current.values().filter_map(|line| {
             let mut words = line.split_whitespace().skip(2);
             (words.next() == Some("const")).then(|| words.next().map(str::to_owned)).flatten().filter(|_| words.next() == Some("*"))
@@ -2054,7 +2119,7 @@ impl Growth {
             rest.split_once("};").map_or(rest, |(kinds, _)| kinds).lines().filter_map(|line| line.split_whitespace().nth(3)).filter(|word| word.starts_with("Pxui")).map(|word| word.trim_end_matches(',').to_owned())
         }).collect();
         let mut read_sizes: BTreeMap<String, Vec<u64>> = BTreeMap::new();
-        for source in library_sources {
+        for source in &library_sources {
             for call in source.split("read_desc!(").skip(1) {
                 let Some((args, _)) = call.split_once(')') else { continue };
                 let mut parts = args.splitn(3, ',').map(str::trim).skip(1);
@@ -2568,6 +2633,20 @@ mod abi_tests {
         let by_hand = "const DESC_V1: usize = 8;\nlet valid = matches!(size, DESC_V1) || size >= FULL;";
         assert!(grow(desc.0, desc.1, grown_desc.0, grown_desc.1, 3, no, by_hand).is_empty(), "read by hand at 8");
         assert!(!grow(desc.0, desc.1, grown_desc.0, grown_desc.1, 3, no, "const DESC_V1: usize = 8;").is_empty(), "a `_V` constant no size check names");
+        // only library code proves a read: not a comment (line, block, doc) and not `#[cfg(test)]` code
+        let real = "/// `read_desc!` reads it.\nfn f(desc: *const PxuiDesc) { let s = \"//\"; let c = '\"'; let d = read_desc!(desc, PxuiDesc, [8]); }\n#[cfg(test)]\nmod tests { fn t() {} }";
+        assert!(grow(desc.0, desc.1, grown_desc.0, grown_desc.1, 3, no, real).is_empty(), "a library read beside comments, literals and tests");
+        for loophole in [
+            "fn f() {}\n// read_desc!(desc, PxuiDesc, [8])",
+            "/* read_desc!(desc, PxuiDesc, [8]) */",
+            "/// let d = read_desc!(desc, PxuiDesc, [8]);\nfn f() {}",
+            "#[cfg(test)]\nmod tests { fn t() { let d = read_desc!(desc, PxuiDesc, [8]); } }",
+            "#[cfg(test)]\nfn t() { let d = read_desc!(desc, PxuiDesc, [8]); }",
+            "const DESC_V1: usize = 8;\n// matches!(size, DESC_V1)",
+            "const DESC_V1: usize = 8;\n#[cfg(test)]\nconst OK: bool = matches!(size, DESC_V1);",
+        ] {
+            assert!(!grow(desc.0, desc.1, grown_desc.0, grown_desc.1, 3, no, loophole).is_empty(), "refused: {loophole}");
+        }
         let caller_config = ("PxuiDescConfig 8 4 0 4", "uint32_t size; float w;");
         assert!(!grow(caller_config.0, caller_config.1, "PxuiDescConfig 12 4 0 4 8", grown_desc.1, 3, no, KINDS).is_empty(), "a caller-written `*Config` not read at 8");
 

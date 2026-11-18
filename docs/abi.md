@@ -27,7 +27,7 @@ frozen by a released minor. An app built against 1.N does not run against an old
   export returns as `const T *` (`PxuiThemeSnapshot`); a reader built against the smaller layout reads its prefix, and a reader built against
   the larger one reads a grown field only when the record's `size` (a config's) covers it, or after checking the library's minor (a
   snapshot's); (b) a record the caller writes whose first field is `uint32_t size` and that the library reads at the recorded size
-  (`read_desc!(ptr, T, [.., recorded size, ..])`, or a hand-written reader's `const <RECORD>_V<minor>: usize = <size>` that its size check names: `matches!(size, <RECORD>_V<minor> | ..)`). Every other change of
+  (`read_desc!(ptr, T, [.., recorded size, ..])`, or a hand-written reader's `const <RECORD>_V<minor>: usize = <size>` that its size check names: `matches!(size, <RECORD>_V<minor> | ..)`; only library code counts, not comments or `#[cfg(test)]` code). Every other change of
   a recorded row or of a recorded record's field types is refused, an append to a caller-written record without the size prefix included.
   Fields put into a record's padding before this rule (`PxuiFontDesc.size_points` 1.79, `PxuiPanel.padding_points` 1.78) and
   `PxuiUiDesc.abi_built` (1.60, recorded as its own row `PxuiUiDescV1_60`) are pinned in the gate as reviewed exceptions. The library reads
