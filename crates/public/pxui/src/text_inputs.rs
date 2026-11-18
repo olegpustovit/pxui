@@ -1,5 +1,6 @@
 //! Text widgets with options: the text field, line field, value field (slide, scrub and validity callbacks), the text area, and the text edit the `Ui` keeps.
 //! The non-generic bodies of the key-first calls in `author/fields.rs`.
+use core::mem::MaybeUninit;
 use crate::Handle;
 use crate::composite::{defer_callback_panic, deferred};
 use crate::{as_str, as_text, check, lent_str, lent_string, live, AreaCallbacks, Key, LineField, LineFieldResponse, Response, TextArea, TextAreaResponse, TextField, TextFieldResponse, Ui, ValueCallbacks, ValueField, ValueFieldResponse};
@@ -37,28 +38,29 @@ fn text<'a>(value: Str) -> Option<&'a str> {
 }
 
 /// Runs an app closure for a library callback: nothing once a panic is waiting, and a panic is kept to resume at the call.
-fn guarded<R>(fallback: R, f: &mut dyn FnMut() -> R) -> R {
-    if deferred() { return fallback; }
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) { Ok(value) => value, Err(panic) => { defer_callback_panic(panic); fallback } }
+/// The callback stores its result through its captures; on a skip or a panic the caller's fallback stays.
+fn guarded(f: &mut dyn FnMut()) {
+    if deferred() { return; }
+    if let Err(panic) = std::panic::catch_unwind(std::panic::AssertUnwindSafe(f)) { defer_callback_panic(panic); }
 }
 
 extern "C" fn valid_call(user: *mut c_void, value: Str) -> u8 {
     let field = unsafe { &*user.cast::<Field>() };
     let Some(value) = text(value) else { return 0 };
-    guarded(0, &mut || (field.valid)(value) as u8)
+    { let mut out = 0; guarded(&mut || out = (field.valid)(value) as u8); out }
 }
 
 extern "C" fn slide_call(user: *mut c_void, fraction: f32, out: *mut Str) {
     let field = unsafe { &mut *user.cast::<Field>() };
     let Some(slide) = field.slide else { return };
-    field.produced = guarded(String::new(), &mut || slide(fraction));
+    field.produced = { let mut out = String::new(); guarded(&mut || out = slide(fraction)); out };
     unsafe { *out = as_str(&field.produced); }
 }
 
 extern "C" fn scrub_call(user: *mut c_void, origin: Str, dx: f32, coarse: u8, out: *mut Str) {
     let field = unsafe { &mut *user.cast::<Field>() };
     let (Some(scrub), Some(origin)) = (field.scrub, text(origin)) else { return };
-    field.produced = guarded(String::new(), &mut || scrub(origin, dx, coarse != 0));
+    field.produced = { let mut out = String::new(); guarded(&mut || out = scrub(origin, dx, coarse != 0)); out };
     unsafe { *out = as_str(&field.produced); }
 }
 
@@ -98,53 +100,53 @@ fn utf8<'a>(value: Str) -> &'a str {
     text(value).unwrap_or_else(|| { defer_callback_panic(Box::new("pxui: the library lent text that is not UTF-8")); "" })
 }
 
-extern "C" fn on_context(user: *mut c_void, x: f32, y: f32) { let a = area(user); if let Some(f) = &a.cb.on_context { guarded((), &mut || f((x, y))) } }
-extern "C" fn on_scrub(user: *mut c_void, phase: u32) { let a = area(user); if let Some(f) = &a.cb.on_scrub { guarded((), &mut || f(if phase == 0 { ScrubPhase::Live } else { ScrubPhase::Done })) } }
-extern "C" fn on_scrub_edit(user: *mut c_void, start: i64, end: i64, value: Str) { let a = area(user); if let Some(f) = &a.cb.on_scrub_edit { guarded((), &mut || f((offset(start), offset(end)), utf8(value))) } }
-extern "C" fn on_click(user: *mut c_void, at: i64, flag: u8) { let a = area(user); if let Some(f) = &a.cb.on_click { guarded((), &mut || f(offset(at), flag != 0)) } }
-extern "C" fn on_caret(user: *mut c_void, at: i64) { let a = area(user); if let Some(f) = &a.cb.on_caret { guarded((), &mut || f(offset(at))) } }
-extern "C" fn on_caret_move(user: *mut c_void, at: i64) { let a = area(user); if let Some(f) = &a.cb.on_caret_move { guarded((), &mut || f(offset(at))) } }
-extern "C" fn on_select(user: *mut c_void, start: i64, end: i64) { let a = area(user); if let Some(f) = &a.cb.on_select { guarded((), &mut || f((offset(start), offset(end)))) } }
+extern "C" fn on_context(user: *mut c_void, x: f32, y: f32) { let a = area(user); if let Some(f) = &a.cb.on_context { guarded(&mut || f((x, y))) } }
+extern "C" fn on_scrub(user: *mut c_void, phase: u32) { let a = area(user); if let Some(f) = &a.cb.on_scrub { guarded(&mut || f(if phase == 0 { ScrubPhase::Live } else { ScrubPhase::Done })) } }
+extern "C" fn on_scrub_edit(user: *mut c_void, start: i64, end: i64, value: Str) { let a = area(user); if let Some(f) = &a.cb.on_scrub_edit { guarded(&mut || f((offset(start), offset(end)), utf8(value))) } }
+extern "C" fn on_click(user: *mut c_void, at: i64, flag: u8) { let a = area(user); if let Some(f) = &a.cb.on_click { guarded(&mut || f(offset(at), flag != 0)) } }
+extern "C" fn on_caret(user: *mut c_void, at: i64) { let a = area(user); if let Some(f) = &a.cb.on_caret { guarded(&mut || f(offset(at))) } }
+extern "C" fn on_caret_move(user: *mut c_void, at: i64) { let a = area(user); if let Some(f) = &a.cb.on_caret_move { guarded(&mut || f(offset(at))) } }
+extern "C" fn on_select(user: *mut c_void, start: i64, end: i64) { let a = area(user); if let Some(f) = &a.cb.on_select { guarded(&mut || f((offset(start), offset(end)))) } }
 extern "C" fn on_drop(user: *mut c_void, at: i64, dropped: u8, kind: Str, value: Str) {
     let a = area(user);
     if let Some(f) = &a.cb.on_drop {
         let payload = crate::PayloadRef { kind: utf8(kind), value: utf8(value) };
-        guarded((), &mut || f(offset(at), if dropped == 0 { crate::DropRef::Hover(payload) } else { crate::DropRef::Dropped(payload) }))
+        guarded(&mut || f(offset(at), if dropped == 0 { crate::DropRef::Hover(payload) } else { crate::DropRef::Dropped(payload) }))
     }
 }
 extern "C" fn colorize(user: *mut c_void, value: Str, out: *mut Slice<PxuiColorSpan>) {
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    a.colors = guarded(Vec::new(), &mut || (l.colorize)(value).into_iter().map(|(start, end, color)| PxuiColorSpan { start: engine(start), end: engine(end), color, reserved: 0 }).collect());
+    a.colors = { let mut out = Vec::new(); guarded(&mut || out = (l.colorize)(value).into_iter().map(|(start, end, color)| PxuiColorSpan { start: engine(start), end: engine(end), color, reserved: 0 }).collect()); out };
     unsafe { *out = Slice { ptr: a.colors.as_ptr(), len: a.colors.len() }; }
 }
 extern "C" fn brackets(user: *mut c_void, value: Str, out: *mut Slice<PxuiRange>) {
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    a.ranges = guarded(Vec::new(), &mut || (l.brackets)(value).into_iter().map(|(start, end)| PxuiRange { start: engine(start), end: engine(end) }).collect());
+    a.ranges = { let mut out = Vec::new(); guarded(&mut || out = (l.brackets)(value).into_iter().map(|(start, end)| PxuiRange { start: engine(start), end: engine(end) }).collect()); out };
     unsafe { *out = Slice { ptr: a.ranges.as_ptr(), len: a.ranges.len() }; }
 }
 extern "C" fn indent(user: *mut c_void, value: Str, caret: i64, out: *mut Str) {
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
-    a.produced = guarded(String::new(), &mut || (l.indent)(utf8(value), offset(caret)));
+    a.produced = { let mut out = String::new(); guarded(&mut || out = (l.indent)(utf8(value), offset(caret))); out };
     unsafe { *out = lend(&a.produced); }
 }
 extern "C" fn complete(user: *mut c_void, value: Str, caret: i64, out: *mut Slice<PxuiCompletion>) {
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    a.completion_texts = guarded(Vec::new(), &mut || (l.complete)(value, offset(caret)));
-    a.completions = a.completion_texts.iter().map(|c| PxuiCompletion { start: guarded(0, &mut || engine(c.replace.0)), end: guarded(0, &mut || engine(c.replace.1)), insert: lend(&c.insert), label: lend(&c.label), detail: lend(&c.detail), doc: lend(&c.doc) }).collect();
+    a.completion_texts = { let mut out = Vec::new(); guarded(&mut || out = (l.complete)(value, offset(caret))); out };
+    a.completions = a.completion_texts.iter().map(|c| PxuiCompletion { start: { let mut out = 0; guarded(&mut || out = engine(c.replace.0)); out }, end: { let mut out = 0; guarded(&mut || out = engine(c.replace.1)); out }, insert: lend(&c.insert), label: lend(&c.label), detail: lend(&c.detail), doc: lend(&c.doc) }).collect();
     unsafe { *out = Slice { ptr: a.completions.as_ptr(), len: a.completions.len() }; }
 }
 extern "C" fn describe(user: *mut c_void, value: Str, at: i64, out: *mut PxuiDescription) {
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    match guarded(None, &mut || (l.describe)(value, offset(at)).map(|(start, end, text)| (engine(start), engine(end), text))) {
+    match { let mut out = None; guarded(&mut || out = (l.describe)(value, offset(at)).map(|(start, end, text)| (engine(start), engine(end), text))); out } {
         Some((start, end, text)) => { a.produced = text; unsafe { *out = PxuiDescription { has: 1, reserved: [0; 7], start, end, text: lend(&a.produced) }; } }
         None => unsafe { (*out).has = 0 },
     }
@@ -153,18 +155,18 @@ extern "C" fn number_at(user: *mut c_void, value: Str, at: i64, out: *mut PxuiMa
     let a = area(user);
     let Some(l) = &a.cb.language else { return };
     let value = utf8(value);
-    unsafe { *out = match guarded(None, &mut || (l.number_at)(value, offset(at)).map(|(start, end)| (engine(start), engine(end)))) { Some((start, end)) => PxuiMaybeRange { has: 1, reserved: [0; 7], start, end }, None => PxuiMaybeRange::default() }; }
+    unsafe { *out = match { let mut out = None; guarded(&mut || out = (l.number_at)(value, offset(at)).map(|(start, end)| (engine(start), engine(end)))); out } { Some((start, end)) => PxuiMaybeRange { has: 1, reserved: [0; 7], start, end }, None => PxuiMaybeRange::default() }; }
 }
 extern "C" fn context_at(user: *mut c_void, value: Str, caret: i64) -> u32 {
     let a = area(user);
     let Some(l) = &a.cb.language else { return 0 };
-    match guarded(CodeContext::Code, &mut || (l.context_at)(utf8(value), offset(caret))) { CodeContext::Code => 0, CodeContext::String => 1, CodeContext::Comment => 2 }
+    match { let mut out = CodeContext::Code; guarded(&mut || out = (l.context_at)(utf8(value), offset(caret))); out } { CodeContext::Code => 0, CodeContext::String => 1, CodeContext::Comment => 2 }
 }
 extern "C" fn rewrite(user: *mut c_void, value: Str, caret: i64, out: *mut PxuiRewrite) {
     let a = area(user);
     let Some(f) = a.cb.language.as_ref().and_then(|l| l.rewrite) else { return };
     let value = utf8(value);
-    let (text, caret) = guarded((value.to_owned(), caret), &mut || { let (text, at) = f(value, offset(caret)); (text, engine(at)) });
+    let (text, caret) = { let mut out = (value.to_owned(), caret); guarded(&mut || out = { let (text, at) = f(value, offset(caret)); (text, engine(at)) }); out };
     a.produced = text;
     unsafe { *out = PxuiRewrite { text: lend(&a.produced), caret }; }
 }
@@ -223,19 +225,21 @@ impl Ui {
         // the data crosses in fixed stack buffers (no heap per call): at most `AREA_DATA` of each kind, `AREA_DATA / 2` bracket pairs
         assert!(o.errors.len() <= AREA_DATA && o.notes.len() <= AREA_DATA && o.spans.len() <= AREA_DATA && o.splices.len() <= AREA_DATA && o.chips.len() <= AREA_DATA
             && lang.is_none_or(|l| l.pairs.len() <= AREA_DATA / 2), "pxui: a text area takes at most {AREA_DATA} errors, notes, spans, splices and chips and {} bracket pairs", AREA_DATA / 2);
-        let mut errors = [0i64; AREA_DATA];
-        let mut messages = [PxuiNote { line: 0, start: 0, end: 0, has_range: 0, reserved: [0; 7], text: Str::default() }; AREA_DATA];
-        let mut spans = [PxuiRange::default(); AREA_DATA];
-        let mut splice = [PxuiSplice { start: 0, end: 0, text: Str::default() }; AREA_DATA];
-        let mut chips = [PxuiColorSpan::default(); AREA_DATA];
-        let mut pairs = [0u32; AREA_DATA];
-        for (slot, line) in errors.iter_mut().zip(o.errors) { *slot = engine(*line); }
-        for (slot, n) in messages.iter_mut().zip(o.notes) { *slot = PxuiNote { line: engine(n.line), start: n.range.map_or(0, |r| engine(r.0)), end: n.range.map_or(0, |r| engine(r.1)), has_range: n.range.is_some() as u8, reserved: [0; 7], text: as_str(n.text) }; }
-        for (slot, (start, end)) in spans.iter_mut().zip(o.spans) { *slot = PxuiRange { start: engine(*start), end: engine(*end) }; }
-        for (slot, s) in splice.iter_mut().zip(o.splices) { *slot = PxuiSplice { start: engine(s.start), end: engine(s.end), text: as_text(s.text) }; }
-        for (slot, (start, end, color)) in chips.iter_mut().zip(o.chips) { *slot = PxuiColorSpan { start: engine(*start), end: engine(*end), color: *color, reserved: 0 }; }
+        // only the slots the call's data fills are written (and only they cross): zeroing all of them, about 7 KiB, cost each frame more
+        // than the rest of the call
+        let mut errors = [const { MaybeUninit::<i64>::uninit() }; AREA_DATA];
+        let mut messages = [const { MaybeUninit::<PxuiNote>::uninit() }; AREA_DATA];
+        let mut spans = [const { MaybeUninit::<PxuiRange>::uninit() }; AREA_DATA];
+        let mut splice = [const { MaybeUninit::<PxuiSplice>::uninit() }; AREA_DATA];
+        let mut chips = [const { MaybeUninit::<PxuiColorSpan>::uninit() }; AREA_DATA];
+        let mut pairs = [const { MaybeUninit::<u32>::uninit() }; AREA_DATA];
+        for (slot, line) in errors.iter_mut().zip(o.errors) { slot.write(engine(*line)); }
+        for (slot, n) in messages.iter_mut().zip(o.notes) { slot.write(PxuiNote { line: engine(n.line), start: n.range.map_or(0, |r| engine(r.0)), end: n.range.map_or(0, |r| engine(r.1)), has_range: n.range.is_some() as u8, reserved: [0; 7], text: as_str(n.text) }); }
+        for (slot, (start, end)) in spans.iter_mut().zip(o.spans) { slot.write(PxuiRange { start: engine(*start), end: engine(*end) }); }
+        for (slot, s) in splice.iter_mut().zip(o.splices) { slot.write(PxuiSplice { start: engine(s.start), end: engine(s.end), text: as_text(s.text) }); }
+        for (slot, (start, end, color)) in chips.iter_mut().zip(o.chips) { slot.write(PxuiColorSpan { start: engine(*start), end: engine(*end), color: *color, reserved: 0 }); }
         let pair_count = lang.map_or(0, |l| l.pairs.len());
-        if let Some(l) = lang { for (slot, (open, close)) in pairs.chunks_exact_mut(2).zip(l.pairs) { slot[0] = *open as u32; slot[1] = *close as u32; } }
+        if let Some(l) = lang { for (slot, (open, close)) in pairs.chunks_exact_mut(2).zip(l.pairs) { slot[0].write(*open as u32); slot[1].write(*close as u32); } }
         let has = |on: bool, flag: u32| if on { flag } else { 0 };
         let desc = PxuiTextAreaDesc {
             size: core::mem::size_of::<PxuiTextAreaDesc>() as u32,
@@ -244,9 +248,9 @@ impl Ui {
             // ignored: `node` lays the area out
             x: 0.0, y: 0.0, width: 0.0, height: 0.0, reveal: o.reveal.map_or(0, |r| engine(r.at)), reveal_nonce: o.reveal.map_or(0, |r| r.request as i64),
             select: o.select.map_or(PxuiRange::default(), |(start, end)| PxuiRange { start: engine(start), end: engine(end) }), label: as_str(label), value: as_text(value),
-            errors: Slice { ptr: errors.as_ptr(), len: o.errors.len() }, messages: Slice { ptr: messages.as_ptr(), len: o.notes.len() },
-            spans: Slice { ptr: spans.as_ptr(), len: o.spans.len() }, splice: Slice { ptr: splice.as_ptr(), len: o.splices.len() }, chips: Slice { ptr: chips.as_ptr(), len: o.chips.len() },
-            comment: as_str(lang.map_or("", |l| l.comment)), pairs: Slice { ptr: pairs.as_ptr(), len: pair_count * 2 },
+            errors: Slice { ptr: errors.as_ptr().cast(), len: o.errors.len() }, messages: Slice { ptr: messages.as_ptr().cast(), len: o.notes.len() },
+            spans: Slice { ptr: spans.as_ptr().cast(), len: o.spans.len() }, splice: Slice { ptr: splice.as_ptr().cast(), len: o.splices.len() }, chips: Slice { ptr: chips.as_ptr().cast(), len: o.chips.len() },
+            comment: as_str(lang.map_or("", |l| l.comment)), pairs: Slice { ptr: pairs.as_ptr().cast(), len: pair_count * 2 },
         };
         let mut ctx = Area { cb, colors: Vec::new(), ranges: Vec::new(), completions: Vec::new(), completion_texts: Vec::new(), produced: String::new() };
 

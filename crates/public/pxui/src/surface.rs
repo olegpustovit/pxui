@@ -3402,12 +3402,12 @@ fn const_looks_naming_colour_tokens_resolve_for_the_theme_in_effect_without_app_
     let mut build = |ui: &mut Ui| {
         ui.column(Node::column().w_px(200.0).h_px(100.0), |ui| { ui.view_of("tokens", &1, |ui| {
             let b = ui.node("plain", crate::Node::DEFAULT.w_px(20.0).h_px(10.0).look(ROW));
-            node.set(ui.node_mut(&b, |f| f.look));
+            ui.node_mut(&b, &mut |f| node.set(f.look));
             let p = ui.pressable("row", crate::Node::DEFAULT.w_px(20.0).h_px(10.0), &crate::Pressable::DEFAULT.look(&PLATE), |_, _| {});
-            pressed.set(ui.node_mut(&p.handle, |f| f.look));
+            ui.node_mut(&p.handle, &mut |f| pressed.set(f.look));
             ui.icon_button("key", crate::Icon::glyph('>'), "Key", &KEY);
             let b = ui.button("button", "Button", &crate::Button::DEFAULT.look(&PLATE));
-            button.set(ui.node_mut(&b.handle, |f| f.look));
+            ui.node_mut(&b.handle, &mut |f| button.set(f.look));
         }); });
     };
     for round in 0..4 {

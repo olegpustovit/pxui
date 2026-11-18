@@ -488,7 +488,6 @@ impl Ui {
     /// The label call of `label`, `label_fmt` and `label_digits`, returning the label's node: linked statically, the library's trusted
     /// entry with the style as it is; else `pxui_ui_label_node` with no record for `Label::DEFAULT` (every field unset: the C label), or
     /// the style as its record and, when it sets one, its box as a `PxuiLabelBox`.
-    #[inline(always)]
     #[track_caller]
     pub(crate) fn label_call(&mut self, text: &str, style: &pxui_types::Label, digits: bool) -> crate::Handle {
         let mut out = crate::Handle::default();

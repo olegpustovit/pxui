@@ -121,7 +121,6 @@ impl Ui {
     pub fn label_digits(&mut self, args: Arguments, style: Label) -> Handle { self.label_body(Stack::new(args).as_str(), &style, true) }
 
     /// The one body of `label`, `label_fmt` and `label_digits`, through the label body.
-    #[inline]
     #[track_caller]
     fn label_body(&mut self, text: &str, style: &Label, digits: bool) -> Handle {
         self.label_call(text, style, digits)

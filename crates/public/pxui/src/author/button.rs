@@ -362,8 +362,9 @@ impl Ui {
     }
 
     /// The one body of `button` and `button_content`: the key's label, then the engine call (`text` is empty for contents).
-    #[inline(always)]
     #[track_caller]
+    // Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).
+    #[inline]
     fn button_key(&mut self, key: Key, text: &str, button: &Button<'_>, content: Option<&mut dyn FnMut(&mut Ui, State)>) -> Response {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);

@@ -169,6 +169,8 @@ impl Ui {
     pub fn disabled<F: FnMut(&mut Ui)>(&mut self, disabled: bool, mut f: F) { self.disabled_scope(disabled, &mut f) }
 
     /// The one body of `pressable`: the node with its flags and fixed state, its signal, its look by state, then `f` inside it.
+    // Inline: listed in the plan (section 3) from its measurement before U1; no abi_bench page builds a pressable, so U1c.1 could not
+    // re-measure it (out of line, the label body moved the pages by at most 0.02% and lost its #[inline]).
     #[inline]
     #[track_caller]
     fn press(&mut self, key: Key, mut node: Node, p: &Pressable<'_>, f: &mut dyn FnMut(&mut Ui, State)) -> Response {

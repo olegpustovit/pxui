@@ -39,11 +39,12 @@ pub(crate) fn defer_callback_panic(panic: Box<dyn Any + Send>) {
     CALLBACK_PANIC.with(|slot| { let mut slot = slot.borrow_mut(); if slot.is_none() { *slot = Some(panic); PENDING.fetch_add(1, core::sync::atomic::Ordering::Relaxed); } });
 }
 
-pub(crate) extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut c_void) {
+/// The C callback of a children closure: `user` points at the caller's `&mut dyn FnMut(&mut Ui)`, `raw` is the library's `Ui`.
+pub(crate) extern "C" fn call(user: *mut c_void, raw: *mut c_void) {
     if raw.is_null() || deferred() { return; }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let mut ui = ManuallyDrop::new(Ui(NonNull::new(raw.cast()).unwrap()));
-        (unsafe { &mut *user.cast::<F>() })(&mut ui);
+        (unsafe { &mut *user.cast::<&mut dyn FnMut(&mut Ui)>() })(&mut ui);
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
@@ -69,7 +70,7 @@ impl Ui {
             let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
             let width = overlay.w;
             let mut out = 0;
-            check(self, unsafe { keyed_sys::pxui_ui_modal_root(self.0.as_ptr(), &keyed, width.is_some() as u8, width.unwrap_or_default(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out, &mut handle) });
+            check(self, unsafe { keyed_sys::pxui_ui_modal_root(self.0.as_ptr(), &keyed, width.is_some() as u8, width.unwrap_or_default(), Some(call), &mut build as *mut _ as *mut c_void, &mut out, &mut handle) });
             OverlayResponse { handle, open: out != 0 }
         }
     }
@@ -92,7 +93,7 @@ impl Ui {
             if let Some(stroke) = overlay.stroke { (panel.has_stroke, panel.stroke) = (1, stroke); }
             if let Some(look) = overlay.look { panel_look(&mut panel, look); }
             let keyed = PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or("")));
-            unsafe { keyed_sys::pxui_ui_panel_root(self.0.as_ptr(), &keyed, &panel, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void, &mut handle) }
+            unsafe { keyed_sys::pxui_ui_panel_root(self.0.as_ptr(), &keyed, &panel, Some(call), &mut f as *mut _ as *mut c_void, &mut handle) }
         };
         check(self, rc);
         OverlayResponse { handle, open: true }
@@ -107,12 +108,11 @@ impl Ui {
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::scroll_view(self.0.as_ptr(), key, "", &node, inner!(|ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { keyed_sys::pxui_ui_scroll_view_node(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), &node, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { keyed_sys::pxui_ui_scroll_view_node(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), &node, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
     /// The one body of `view_of`: the view keyed by `key` under the parent, sized by its parent, kept while `revision` is unchanged.
-    #[inline]
     #[track_caller]
     pub(crate) fn view_key(&mut self, key: Key, revision: u64, mut build: &mut dyn FnMut(&mut Ui)) -> Handle {
         let mut id_label = [0u8; 17];
@@ -121,7 +121,7 @@ impl Ui {
         #[cfg(feature = "static")]
         check(self, unsafe { pxui_abi_link::trusted::view_of(self.0.as_ptr(), key, revision, inner!(|ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { keyed_sys::pxui_ui_view_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), revision, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { keyed_sys::pxui_ui_view_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), revision, Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
@@ -138,7 +138,7 @@ impl Ui {
             let mut descriptor = encode_placement(overlay.place);
             descriptor.rect = anchor;
             let (width, height) = { use pxui_types::Size; (overlay.w.map_or(Size::Fit, Size::Px), overlay.h.map_or(Size::Fit, Size::Px)) };
-            check(self, unsafe { keyed_sys::pxui_ui_anchored_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or(""))), &descriptor, size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
+            check(self, unsafe { keyed_sys::pxui_ui_anchored_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or(""))), &descriptor, size(width), size(height), Some(call), &mut build as *mut _ as *mut c_void, &mut out) });
         }
         OverlayResponse { handle: out, open: true }
     }

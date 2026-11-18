@@ -190,45 +190,30 @@ fn generic_parameters<'a>(tokens: &[&'a str]) -> Vec<Vec<&'a str>> {
     parameters
 }
 
-/// The public wrapper (`crates/public/pxui`) is safe Rust over a C ABI, and three shape rules that hold elsewhere cannot hold
+/// The public wrapper (`crates/public/pxui`) is safe Rust over a C ABI, and two shape rules that hold elsewhere cannot hold
 /// there. It is one policy, not a list of lines:
 /// - `catch_unwind`: an app closure that panics inside a library callback must not unwind through C; the wrapper catches it
 ///   in every trampoline and resumes it at the call that ran the callback.
 /// - lifetime parameters on structs: a value that borrows library memory (a frame, a painter, a text service) is tied to its `Ui`
 ///   by a lifetime, which is how Rust says the library's pointer is valid only that long.
-/// - generics: only the closure trampolines of a callback crossing the ABI. A type parameter is `F` (bare on the struct that holds
-///   the closure, `F: FnMut(..)`/`Fn`/`FnOnce` on the function, or `F: ?Sized` over a `dyn` closure) or `R`, the closure's result.
-///   Any other generic item there still fails.
-pub fn wrapper_allows(path: &str, rule: &str, generics: &[&str]) -> bool {
+/// Type parameters there are `shim_allows`'s alone.
+pub fn wrapper_allows(path: &str, rule: &str) -> bool {
     // a lifetime-only struct or enum borrows its inputs and does not monomorphise: public types may have them
     if rule == "struct lifetime" && path.starts_with("crates/public/pxui_types/src/") { return true; }
     if !path.starts_with("crates/public/pxui/src/") { return false; }
-    match rule {
-        "catch_unwind" | "struct lifetime" => true,
-        "generic" => !generics.is_empty() && closure_generics(generics),
-        _ => false,
-    }
+    matches!(rule, "catch_unwind" | "struct lifetime")
 }
 
-// The tokens between `<` and `>`: lifetimes, `F`, or `F: Fn/FnMut/FnOnce(..)` separated by top-level commas.
-fn closure_generics(tokens: &[&str]) -> bool {
-    generic_parameters(tokens).iter().filter(|parameter| !parameter.is_empty()).all(|parameter| match parameter.as_slice() {
-        ["'", ..] => true,
-        ["F"] | ["R"] | ["F", ":", "?", "Sized"] => true,
-        ["F", ":", bound, ..] => matches!(*bound, "Fn" | "FnMut" | "FnOnce"),
-        _ => false,
-    })
-}
-
-/// Authoring shims (`crates/public/pxui/src/author/`): a function may take type parameters when it is nothing but a
+/// Wrapper shims (every file of `crates/public/pxui/src/`): a function may take type parameters when it is nothing but a
 /// forwarding call, so each instantiation costs one call and the body it forwards to is compiled once.
 /// - the type parameters are lifetimes, `F: Fn/FnMut(..)` (the children closure), `T: Hash` / `T: Hash + ?Sized`
 ///   or `K: Into<Key>`;
 /// - the function is `#[inline]`;
 /// - the body is one expression of at most 40 tokens: no statement, binding, block or control flow.
-/// The closure-trampoline exemption of `wrapper_allows` does not apply in that folder.
-pub fn author_shim_allows(path: &str, generics: &[&str], inline: bool, body: &[&str]) -> bool {
-    if !path.starts_with("crates/public/pxui/src/author/") || !inline || generics.is_empty() { return false; }
+/// The body it forwards to must not be `#[inline(always)]` (checked by the caller, across the wrapper's files). Any other generic
+/// function, struct or impl there fails; the one boxed canvas closure is an allowlisted row.
+pub fn shim_allows(path: &str, generics: &[&str], inline: bool, body: &[&str]) -> bool {
+    if !path.starts_with("crates/public/pxui/src/") || !inline || generics.is_empty() { return false; }
     let shaped = generic_parameters(generics).iter().filter(|parameter| !parameter.is_empty()).all(|parameter| match parameter.as_slice() {
         ["'", ..] => true,
         ["F", ":", bound, "(", ..] => matches!(*bound, "Fn" | "FnMut"),

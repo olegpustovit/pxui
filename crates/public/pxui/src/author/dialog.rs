@@ -28,7 +28,6 @@ impl Ui {
     }
 
     /// The one body of `dialog`: the engine call, with the dialog's variant set around it.
-    #[inline(always)]
     #[track_caller]
     fn dialog_call(&mut self, key: Key, title: &str, buttons: &[DialogButton], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         if dialog.variant == 0 { return self.dialog_key(key, title, buttons, dialog, body); }
@@ -39,7 +38,6 @@ impl Ui {
     }
 
     /// The one body of `dialog`: the key's label, then the engine call.
-    #[inline(always)]
     #[track_caller]
     fn dialog_key(&mut self, key: Key, title: &str, buttons: &[DialogButton], dialog: &Dialog, body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         let mut id_label = [0u8; 17];

@@ -55,7 +55,6 @@ impl Ui {
     }
 
     /// The one body of `menu`: the engine call, with the menu's variant set around it, then the chosen row's id.
-    #[inline(always)]
     #[track_caller]
     fn menu_call(&mut self, key: Key, at: crate::Point, items: &[MenuItem<'_>], menu: &Menu<'_>) -> Chosen {
         if menu.variant != 0 { self.set_variant(pxui_types::theme::BodyKind::menu_row, menu.variant); }

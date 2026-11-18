@@ -592,12 +592,15 @@ impl Shapes for Writer {
     }
 }
 
-// The canvas closure is boxed behind the user pointer; the library releases it exactly once.
-extern "C" fn draw<F: FnMut(&mut Paint<'_>, Rect)>(user: *mut c_void, raw: *mut RawPaint, rect: Rect, info: *const PxuiPaintInfo) {
+/// A canvas closure as the library keeps it: the user pointer is a pooled box that starts with this erased pointer to the closure
+/// stored after it in the same box (`boxed`), so drawing and releasing it are not generic; the library releases it exactly once.
+type Canvas = dyn FnMut(&mut Paint<'_>, Rect) + 'static;
+
+extern "C" fn draw(user: *mut c_void, raw: *mut RawPaint, rect: Rect, info: *const PxuiPaintInfo) {
     if deferred() { return; }
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         let Some(mut paint) = (unsafe { info.as_ref().and_then(|info| Paint::from_raw(raw, info)) }) else { return };
-        (unsafe { &mut *user.cast::<F>() })(&mut paint, rect);
+        (unsafe { &mut **user.cast::<*mut Canvas>() })(&mut paint, rect);
         paint.flush();
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
@@ -648,21 +651,36 @@ pub(crate) fn pool_give(layout: Layout, at: *mut u8) {
 /// What a closure's `Drop` panicked with is kept to resume at the next call that can: it must not unwind into the library.
 pub(crate) fn dropped(result: std::thread::Result<()>) { if let Err(panic) = result { defer_callback_panic(panic); } }
 
-fn boxed<F>(f: F) -> *mut c_void {
-    let at = pool_take(Layout::new::<F>());
-    unsafe { at.cast::<F>().write(f); }
-    at.cast()
+/// The box of a closure of layout `value`: the erased pointer, then the closure at the returned offset.
+fn canvas_box(value: Layout) -> (Layout, usize) {
+    let (layout, at) = Layout::new::<*mut Canvas>().extend(value).expect("a closure's layout fits a box");
+    (layout.pad_to_align(), at)
 }
 
-extern "C" fn release<F>(user: *mut c_void) {
-    dropped(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { core::ptr::drop_in_place(user.cast::<F>()) })));
-    pool_give(Layout::new::<F>(), user.cast());
+/// The one generic piece of `canvas`: `f` moved into a pooled box behind its own erased pointer (see `Canvas`), one copy per closure type.
+fn boxed<F: FnMut(&mut Paint<'_>, Rect) + 'static>(f: F) -> *mut c_void {
+    let (layout, at) = canvas_box(Layout::new::<F>());
+    let base = pool_take(layout);
+    unsafe {
+        let value = base.add(at).cast::<F>();
+        value.write(f);
+        base.cast::<*mut Canvas>().write(value as *mut Canvas);
+    }
+    base.cast()
+}
+
+extern "C" fn release(user: *mut c_void) {
+    let erased = unsafe { *user.cast::<*mut Canvas>() };
+    let (layout, _) = canvas_box(unsafe { Layout::for_value(&*erased) });
+    dropped(std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| unsafe { core::ptr::drop_in_place(erased) })));
+    pool_give(layout, user.cast());
 }
 
 impl crate::Ui {
-    fn canvas_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &Handle, over: u8, f: F) {
-        let user = boxed(f);
-        crate::check(self, unsafe { lib::pxui_ui_draw(self.0.as_ptr(), b, over, Some(draw::<F>), user, Some(release::<F>)) });
+    /// The one body of `canvas` and `canvas_over`: hands the boxed closure (`boxed`) to the library, under (`over` 0) or over (1) the children.
+    #[track_caller]
+    fn canvas_at(&mut self, b: &Handle, over: u8, user: *mut c_void) {
+        crate::check(self, unsafe { lib::pxui_ui_draw(self.0.as_ptr(), b, over, Some(draw), user, Some(release)) });
     }
     /// Draws `f` into node `b` each time it paints, given the node's final laid-out rectangle: after its look, before its children.
     ///
@@ -677,7 +695,7 @@ impl crate::Ui {
     ///     ui.canvas(&node, |paint, rect| paint.fill(rect, pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
-    #[inline] #[track_caller] pub fn canvas<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &Handle, f: F) { self.canvas_with(b, 0, f) }
+    #[inline] #[track_caller] pub fn canvas<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &Handle, f: F) { self.canvas_at(b, 0, boxed(f)) }
     /// Like `canvas`, but `f` draws after the node's children, outside its content clip (an underline, a focus ring, an overlay).
     ///
     /// Allocates: as `canvas`.
@@ -689,7 +707,7 @@ impl crate::Ui {
     ///     ui.canvas_over(&node, |paint, r| paint.fill(pxui::geom::Rect::new(r.x, r.y + r.h - 1.0, r.w, 1.0), pxui::Fill::new(pxui::geom::Rgba::rgb(0, 0, 0))));
     /// });
     /// ```
-    #[inline] #[track_caller] pub fn canvas_over<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &Handle, f: F) { self.canvas_with(b, 1, f) }
+    #[inline] #[track_caller] pub fn canvas_over<F: FnMut(&mut Paint<'_>, Rect) + 'static>(&mut self, b: &Handle, f: F) { self.canvas_at(b, 1, boxed(f)) }
 }
 
 #[cfg(test)]
@@ -703,20 +721,18 @@ mod tests {
     struct Bomb;
     impl Drop for Bomb { fn drop(&mut self) { panic!("drop bomb"); } }
 
-    fn pair<F>(f: F) -> (*mut c_void, extern "C" fn(*mut c_void)) { (boxed(f), release::<F>) }
-
     #[test]
     fn a_zero_sized_closure_is_dropped_once_and_a_panicking_drop_stays_out_of_c() {
         let counted = Counted;
         let f = move |_: &mut Paint<'_>, _: Rect| { let _ = &counted; };
         assert_eq!(core::mem::size_of_val(&f), 0, "the closure owns a zero-sized value");
-        let (user, release) = pair(f);
+        let user = boxed(f);
         release(user);
         assert_eq!(DROPS.load(Ordering::SeqCst), 1, "dropped exactly once");
 
         let bomb = Bomb;
         let g = move |_: &mut Paint<'_>, _: Rect| { let _ = &bomb; };
-        let (user, release) = pair(g);
+        let user = boxed(g);
         release(user);
         let panic = crate::composite::take_callback_panic().expect("the panic of Drop is kept, not unwound into C");
         assert_eq!(panic.downcast_ref::<&str>(), Some(&"drop bomb"));
@@ -737,7 +753,10 @@ mod tests {
     use crate::FrameIn;
     use pxui_types::{Node, Size};
 
-    fn frame_with<F: FnMut(&mut Paint<'_>, Rect) + 'static>(ui: &mut crate::Ui, canvas: F) -> Result<(), crate::Error> {
+    const INK: Rgba = Rgba { r: 1, g: 2, b: 3, a: 255 };
+    const NARROW: Rect = Rect::new(10.0, 10.0, 30.0, 20.0);
+
+    fn frame_with(ui: &mut crate::Ui, canvas: fn(&mut Paint<'_>, Rect)) -> Result<(), crate::Error> {
         let mut canvas = Some(canvas);
         ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut crate::Ui| {
             let node = ui.node("canvas", Node { w: Size::Px(80.0), h: Size::Px(40.0), ..Node::DEFAULT });
@@ -749,39 +768,36 @@ mod tests {
     /// stamped with the new clip, and the old clip comes back after.
     #[test]
     fn a_clip_set_mid_drawing_restamps_every_refilled_span() {
-        let ink = Rgba { r: 1, g: 2, b: 3, a: 255 };
-        let narrow = Rect::new(10.0, 10.0, 30.0, 20.0);
         let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         frame_with(&mut ui, move |p, _| {
             let saved = Shapes::clip_rect(&p.w);
-            Shapes::set_clip_rect(&mut p.w, narrow);
-            for i in 0..3000 { p.fill(Rect::new((i % 40) as f32, (i / 40) as f32 * 0.5, 1.0, 1.0), Fill::new(ink)); }
+            Shapes::set_clip_rect(&mut p.w, NARROW);
+            for i in 0..3000 { p.fill(Rect::new((i % 40) as f32, (i / 40) as f32 * 0.5, 1.0, 1.0), Fill::new(INK)); }
             Shapes::set_clip_rect(&mut p.w, saved);
-            p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(ink));
+            p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(INK));
         }).expect("frame");
         let clips: Vec<_> = ui.layers().flat_map(|layer| layer.instances.iter().map(|i| i.clip)).collect();
-        assert_eq!(clips.iter().filter(|c| **c == clip_of(narrow)).count(), 3000, "every shape under the narrow clip carries it");
-        assert_ne!(*clips.last().unwrap(), clip_of(narrow), "the saved clip is restored");
+        assert_eq!(clips.iter().filter(|c| **c == clip_of(NARROW)).count(), 3000, "every shape under the NARROW clip carries it");
+        assert_ne!(*clips.last().unwrap(), clip_of(NARROW), "the saved clip is restored");
     }
 
     #[test]
     fn a_span_left_open_or_a_library_call_under_one_is_an_error_not_a_silent_drop() {
-        let ink = Rgba { r: 1, g: 2, b: 3, a: 255 };
         let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         // a library call made while a span is open (the wrapper's own calls commit first; this one bypasses it)
         let rc = frame_with(&mut ui, move |p, _| {
-            p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(ink));
+            p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(INK));
             unsafe { lib::pxui_paint_label_chars(p.w.raw.as_ptr(), 0.0, 0.0, &PxuiLabelStyle::from(&Label::BODY), crate::as_str("x")) };
         });
         assert_eq!(rc.err(), Some(crate::Error::State));
         assert!(ui.last_error().contains("span is open"), "{}", ui.last_error());
         // a callback that returns with its span uncommitted (its shapes would be dropped)
-        let rc = frame_with(&mut ui, move |p, _| { p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(ink)); p.w.open = false; });
+        let rc = frame_with(&mut ui, move |p, _| { p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(INK)); p.w.open = false; });
         assert_eq!(rc.err(), Some(crate::Error::State));
         assert!(ui.last_error().contains("uncommitted"), "{}", ui.last_error());
         // a panic with a span open is carried to the frame, and the next frame draws cleanly
-        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let _ = frame_with(&mut ui, move |p, _| { p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(ink)); panic!("with a span open"); }); }));
+        let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| { let _ = frame_with(&mut ui, move |p, _| { p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(INK)); panic!("with a span open"); }); }));
         assert!(result.is_err());
-        assert!(frame_with(&mut ui, move |p, _| p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(ink))).is_ok(), "the Ui draws again");
+        assert!(frame_with(&mut ui, move |p, _| p.fill(Rect::new(0.0, 0.0, 4.0, 4.0), Fill::new(INK))).is_ok(), "the Ui draws again");
     }
 }

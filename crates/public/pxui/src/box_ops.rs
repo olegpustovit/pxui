@@ -820,7 +820,8 @@ impl Ui {
         if let Some(blur) = view.blur { check(self, unsafe { lib::pxui_ui_view_backdrop_blur(ui, b, blur) }) }
         if let Some(saturation) = view.saturation { check(self, unsafe { lib::pxui_ui_view_backdrop_saturation(ui, b, saturation) }) }
     }
-    /// Edits what a widget finishes of a node it declared this frame: `edit` gets the node's look, mark and inset, and what it leaves there is written back; returns what `edit` returns.
+    /// Edits what a widget finishes of a node it declared this frame: `edit` gets the node's look, mark and inset, and what it leaves there is written back.
+    /// To read a field out, assign it to a local inside `edit`.
     /// `edit` must not call the `Ui`. For a stale handle the library refuses.
     /// Allocates: never.
     /// Panics: when the library refuses the call (a stale handle, or a look or inset with a non-finite number).
@@ -829,12 +830,13 @@ impl Ui {
     /// use pxui::ui::Mark;
     /// pxui::doc::frames(1, &mut |ui| {
     ///     let b = ui.node("n", pxui::Node::DEFAULT);
-    ///     let had_mark = ui.node_mut(&b, |fields| { let had = fields.mark != Mark::None; fields.mark = Mark::None; had });
+    ///     let mut had_mark = true;
+    ///     ui.node_mut(&b, &mut |fields| { had_mark = fields.mark != Mark::None; fields.mark = Mark::None; });
     ///     assert!(!had_mark);
     /// });
     /// ```
     #[track_caller]
-    pub fn node_mut<R>(&mut self, b: &Handle, edit: impl FnOnce(&mut NodeFields) -> R) -> R {
+    pub fn node_mut(&mut self, b: &Handle, edit: &mut dyn FnMut(&mut NodeFields)) {
         let mut raw = pxui_types::ffi::PxuiNodeFields { size: core::mem::size_of::<pxui_types::ffi::PxuiNodeFields>() as u32, reserved: 0, look: Default::default(), mark: Default::default(), inset: Default::default() };
         check(self, unsafe { lib::pxui_ui_node_fields(self.0.as_ptr(), b, &mut raw) });
         let direction = |d: u32| match d { 0 => Dir::Down, 1 => Dir::Up, 2 => Dir::Left, _ => Dir::Right };
@@ -842,12 +844,11 @@ impl Ui {
             look: raw.look.into(), inset: raw.inset,
             mark: match raw.mark.kind { 1 => Mark::Chevron(direction(raw.mark.direction)), 2 => Mark::Line { width: raw.mark.width, rising: raw.mark.rising != 0 }, _ => Mark::None },
         };
-        let result = edit(&mut fields);
+        edit(&mut fields);
         raw.look = fields.look.into();
         raw.mark = mark(fields.mark);
         raw.inset = fields.inset;
         check(self, unsafe { lib::pxui_ui_set_node_fields(self.0.as_ptr(), b, &raw) });
-        result
     }
     /// The node `b` as the engine holds it this frame: change its layout fields and give it back to `set_node_layout`.
     /// Allocates: never.

@@ -49,7 +49,7 @@ fn checkbox_toggle(ui: &mut Ui, c: &ToggleConfig) {
     let state = state_of(&c.state);
     let (look, boxes) = { let t = ui.theme(); (*t.toggle.pick(state), t.checkbox) };
     ui.style(&c.row, &pxui::theme::States::of(look), state);
-    ui.node_mut(&c.row, |n| n.inset = Edges { l: 24.0, ..Edges::ZERO });
+    ui.node_mut(&c.row, &mut |n| n.inset = Edges { l: 24.0, ..Edges::ZERO });
     ui.text(&c.row, c.text_of(&c.label));
     let b = ui.part(Part::HIT, Node { at: Some((6.0, 6.0)).into(), w: Size::Px(12.0), h: Size::Px(12.0), ..Node::DEFAULT });
     ui.style(&b, &boxes, State { hovered: state.hovered, checked: c.on != 0, ..State::default() });

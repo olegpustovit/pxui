@@ -1,6 +1,8 @@
 use crate::Handle;
-use crate::{composite::{defer_callback_panic, deferred}, check, Ui};
-use core::{ffi::c_void, mem::ManuallyDrop, panic::AssertUnwindSafe, ptr::NonNull};
+use crate::{check, Ui};
+#[cfg(not(feature = "static"))]
+use {crate::composite::{defer_callback_panic, deferred}, core::panic::AssertUnwindSafe};
+use core::{ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
 use pxui_types::{ui::Target, Axis, Look, Str, ffi::{PxuiCurveDesc, PxuiFontDesc, PxuiLookDesc, PxuiRingDesc, PxuiShadowDesc, Slice}};
 use pxui_types::ui::{Key, SectionList, SectionPart};
 
@@ -66,30 +68,14 @@ fn as_str(value: &str) -> Str { crate::as_str(value) }
 type Build = pxui_types::ffi::UiBuild;
 type GridBuild = Option<extern "C" fn(*mut c_void, *mut c_void, usize)>;
 
-// Each context hands out its trampoline and its user pointer from one method, so the two cannot name different types.
-struct Callback<F> { f: F }
-impl<F: FnMut(&mut Ui)> Callback<F> {
-    fn erased(&mut self) -> (Build, *mut c_void) { (Some(call::<F>), (self as *mut Self).cast()) }
-}
-struct GridCallback<F> { f: F }
-impl<F: FnMut(&mut Ui, usize)> GridCallback<F> {
-    fn erased(&mut self) -> (GridBuild, *mut c_void) { (Some(call_grid::<F>), (self as *mut Self).cast()) }
-}
-extern "C" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut c_void) {
+/// The C callback of a grid cell builder: `user` points at the caller's `&mut dyn FnMut(&mut Ui, usize)`.
+#[cfg(not(feature = "static"))]
+extern "C" fn call_grid(user: *mut c_void, raw: *mut c_void, index: usize) {
     if raw.is_null() || deferred() { return; }
-    let state = unsafe { &mut *user.cast::<Callback<F>>() };
+    let build = unsafe { &mut *user.cast::<&mut dyn FnMut(&mut Ui, usize)>() };
     let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
         let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw.cast()) }));
-        (state.f)(&mut ui);
-    }));
-    if let Err(panic) = result { defer_callback_panic(panic); }
-}
-extern "C" fn call_grid<F: FnMut(&mut Ui, usize)>(user: *mut c_void, raw: *mut c_void, index: usize) {
-    if raw.is_null() || deferred() { return; }
-    let state = unsafe { &mut *user.cast::<GridCallback<F>>() };
-    let result = std::panic::catch_unwind(AssertUnwindSafe(|| {
-        let mut ui = ManuallyDrop::new(Ui(unsafe { NonNull::new_unchecked(raw.cast()) }));
-        (state.f)(&mut ui, index);
+        build(&mut ui, index);
     }));
     if let Err(panic) = result { defer_callback_panic(panic); }
 }
@@ -284,8 +270,8 @@ impl Ui {
         check(self, unsafe { pxui_abi_link::trusted::grid_list(self.0.as_ptr(), label, count, cell_w, cell_h, &mut |raw: *mut crate::sys::PxuiUi, index: usize| { let mut ui = ManuallyDrop::new(Ui(NonNull::new_unchecked(raw))); build(&mut ui, index) }, &mut out) });
         #[cfg(not(feature = "static"))]
         {
-            let mut context = GridCallback { f: build };
-            let (build, user) = context.erased();
+            let mut build = build;
+            let (build, user): (GridBuild, _) = (Some(call_grid), &mut build as *mut _ as *mut c_void);
             let desc = GridListDesc { size: core::mem::size_of::<GridListDesc>() as u32, reserved: 0, label: as_str(label), count, cell_w, cell_h, build, user };
             check(self, unsafe { sys::pxui_ui_grid_list(self.0.as_ptr(), &desc, &mut out) });
         }
@@ -309,8 +295,9 @@ impl Ui {
         };
         #[cfg(not(feature = "static"))]
         let at = {
-            let (mut context_a, mut context_b) = (Callback { f: a }, Callback { f: b });
-            let ((build_a, user_a), (build_b, user_b)) = (context_a.erased(), context_b.erased());
+            let (mut a, mut b) = (a, b);
+            let (build_a, user_a): (Build, _) = (Some(crate::composite::call), &mut a as *mut _ as *mut c_void);
+            let (build_b, user_b): (Build, _) = (Some(crate::composite::call), &mut b as *mut _ as *mut c_void);
             let desc = SplitDesc { size: core::mem::size_of::<SplitDesc>() as u32, reserved: 0, label: as_str(label), axis: match axis { Axis::Row => 0, _ => 1 }, ratio, min_a, min_b, build_a, user_a, build_b, user_b };
             let (mut has, mut at) = (0u8, 0.0f32);
             check(self, unsafe { sys::pxui_ui_split_result(self.0.as_ptr(), &desc, &mut out, &mut has, &mut at) });
@@ -369,8 +356,8 @@ impl Ui {
         { let mut out = false; check(self, unsafe { pxui_abi_link::trusted::inspector_section(self.0.as_ptr(), key, expanded, set_expanded, label, inner!(|ui: &mut Ui| build(ui)), &mut out) }); out }
         #[cfg(not(feature = "static"))]
         {
-            let mut context = Callback { f: build };
-            let (build, user) = context.erased();
+            let mut build = build;
+            let (build, user): (Build, _) = (Some(crate::composite::call), &mut build as *mut _ as *mut c_void);
             let mut desc = InspectorSectionDesc { size: core::mem::size_of::<InspectorSectionDesc>() as u32, expanded: expanded as u8, has_set: set_expanded.is_some() as u8, set_expanded: set_expanded.unwrap_or(false) as u8, reserved: 0, key: as_str(key), label: as_str(label), build, user, out_open: 0 };
             check(self, unsafe { sys::pxui_ui_inspector_section(self.0.as_ptr(), &mut desc) });
             desc.out_open != 0

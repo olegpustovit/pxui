@@ -593,7 +593,7 @@ impl Ui {
         };
         #[cfg(not(feature = "static"))]
         let rc = unsafe {
-            let call: pxui_types::ffi::UiBuild = Some(composite::call::<&mut dyn FnMut(&mut Ui)>);
+            let call: pxui_types::ffi::UiBuild = Some(composite::call);
             let user = (&mut build as *mut &mut dyn FnMut(&mut Ui)).cast::<c_void>();
             match input.snapshot {
                 Some(snapshot) => sys::pxui_ui_frame(self.0.as_ptr(), snapshot, call, user, &mut out),
@@ -842,7 +842,7 @@ impl Ui {
         #[cfg(feature = "static")]
         let rc = unsafe { pxui_abi_link::trusted::within(self.0.as_ptr(), box_, inner!(|ui: &mut Ui| f(ui))) };
         #[cfg(not(feature = "static"))]
-        let rc = unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
+        let rc = unsafe { sys::pxui_within(self.0.as_ptr(), box_, Some(composite::call), &mut f as *mut _ as *mut c_void) };
         check(self, rc)
     }
 
@@ -855,7 +855,7 @@ impl Ui {
         #[cfg(feature = "static")]
         let rc = unsafe { pxui_abi_link::trusted::scope(self.0.as_ptr(), label, inner!(|ui: &mut Ui| f(ui))) };
         #[cfg(not(feature = "static"))]
-        let rc = unsafe { sys::pxui_scope(self.0.as_ptr(), as_text(label), Some(composite::call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) };
+        let rc = unsafe { sys::pxui_scope(self.0.as_ptr(), as_text(label), Some(composite::call), &mut f as *mut _ as *mut c_void) };
         check(self, rc)
     }
 

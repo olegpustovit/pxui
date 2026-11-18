@@ -73,7 +73,8 @@ fn keyframe(target: Target, curve: Curve) -> KeyframeDesc {
 fn six(s: &pxui_types::theme::States) -> [pxui_types::ffi::PxuiLookDesc; 6] { [look(s.idle), look(s.hover), look(s.pressed), look(s.focus), look(s.disabled), look(s.checked)] }
 
 /// The wrapper's `Response` of a button call's record.
-#[inline(always)]
+// Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).
+#[inline]
 pub(crate) fn response(out: &PxuiResponse) -> Response {
     let on = |bit: u32| out.flags & bit != 0;
     Response { clicked: on(PxuiResponse::CLICKED), hovered: on(PxuiResponse::HOVERED), held: on(PxuiResponse::HELD), focused: on(PxuiResponse::FOCUSED), activated: on(PxuiResponse::ACTIVATED), changed: false,
@@ -101,8 +102,9 @@ impl Ui {
     }
     /// The one body of `icon_button`: linked statically, the library's trusted entry with the options as they are; else the plain call
     /// for `IconButton::DEFAULT` with a glyph, or the options as a descriptor. One `PxuiResponse` comes back either way.
-    #[inline(always)]
     #[track_caller]
+    // Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).
+    #[inline]
     pub(crate) fn icon_button_keyed(&mut self, key: &str, icon: Icon, name: &str, button: &IconButton<'_>) -> Response {
         let mut buf = [0u8; 4];
         let (glyph, draw, user, word) = match icon {
@@ -141,8 +143,9 @@ impl Ui {
     /// The one body of `button` and `button_content`: linked statically, the library's trusted entry with the options as
     /// they are; else the plain call for `Button::DEFAULT` without contents, or the options as a descriptor and the contents as a callback
     /// given the button's state. One `PxuiResponse` comes back either way.
-    #[inline(always)]
     #[track_caller]
+    // Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).
+    #[inline]
     pub(crate) fn button_keyed(&mut self, key: &str, text: &str, button: &Button<'_>, content: Option<&mut dyn FnMut(&mut Ui, State)>) -> Response {
         let mut out = PxuiResponse::EMPTY;
         let plain = content.is_none() && button.look.is_none() && matches!((button.w, button.h), (Size::Fit, Size::Fit)) && button.enabled && !button.selected
@@ -202,7 +205,6 @@ impl Ui {
     }
     /// The one body of `toggle`; a click is the flip of `on`. Linked statically, the library's trusted entry with the options
     /// as they are; else the plain call for `Toggle::DEFAULT`, or the options as a descriptor. One `PxuiResponse` comes back either way.
-    #[inline(always)]
     #[track_caller]
     pub(crate) fn toggle_keyed(&mut self, key: &str, text: &str, on: bool, toggle: &Toggle) -> Response {
         let mut out = PxuiResponse::EMPTY;
@@ -236,7 +238,6 @@ impl Ui {
         r
     }
     /// The one body of `segmented`, as `toggle_keyed`: the strip's response, the choice and the option a secondary press began on.
-    #[inline(always)]
     #[track_caller]
     pub(crate) fn segmented_keyed(&mut self, key: &str, name: &str, options: &[Segment], selected: Option<usize>, segmented: &Segmented) -> PickResponse {
         let mut out = PxuiResponse::EMPTY;
@@ -269,11 +270,10 @@ impl Ui {
     /// The one body of `disabled`: `f` runs under the library's scope.
     #[track_caller]
     pub(crate) fn disabled_scope(&mut self, disabled: bool, mut f: &mut dyn FnMut(&mut Ui)) {
-        check(self, unsafe { lib::pxui_ui_disabled(self.0.as_ptr(), disabled as u8, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
+        check(self, unsafe { lib::pxui_ui_disabled(self.0.as_ptr(), disabled as u8, Some(call), &mut f as *mut _ as *mut c_void) })
     }
     /// The one body of `dialog`: linked statically, the library's trusted entry with the buttons as they are; else the buttons as a
     /// descriptor (their labels and flags) and the body as a callback.
-    #[inline(always)]
     #[track_caller]
     pub(crate) fn dialog_keyed(&mut self, key: &str, title: &str, buttons: &[DialogButton], style: &Dialog, mut body: &mut dyn FnMut(&mut Ui)) -> Chosen {
         #[cfg(feature = "static")]
@@ -295,7 +295,7 @@ impl Ui {
                 details: Slice { ptr: details.as_ptr(), len: buttons.len() },
             };
             let mut result = PxuiDialogResult::EMPTY;
-            check(self, unsafe { lib::pxui_ui_dialog_response(self.0.as_ptr(), &desc, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut body as *mut _ as *mut c_void, &mut result) });
+            check(self, unsafe { lib::pxui_ui_dialog_response(self.0.as_ptr(), &desc, Some(call), &mut body as *mut _ as *mut c_void, &mut result) });
             Chosen { chosen: (result.has_chosen != 0).then_some(result.chosen as usize), chosen_id: None, dismissed: result.dismissed != 0 }
         }
     }
@@ -315,7 +315,7 @@ impl Ui {
     }
     #[track_caller]
     pub fn inspector_body(&mut self, mut f: &mut dyn FnMut(&mut Ui)) {
-        check(self, unsafe { lib::pxui_ui_inspector_body(self.0.as_ptr(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
+        check(self, unsafe { lib::pxui_ui_inspector_body(self.0.as_ptr(), Some(call), &mut f as *mut _ as *mut c_void) })
     }
     #[allow(clippy::too_many_arguments)]
     #[track_caller]

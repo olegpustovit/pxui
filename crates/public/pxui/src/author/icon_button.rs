@@ -195,8 +195,9 @@ impl Ui {
     pub fn icon_button<K: Into<Key>>(&mut self, key: K, icon: Icon, name: &str, button: &IconButton<'_>) -> Response { self.icon_button_key(key.into(), icon, name, button) }
 
     /// The one body of `icon_button`: the key's label and the glyph's text, then the engine call.
-    #[inline(always)]
     #[track_caller]
+    // Inline: out of line, the button bodies cost the abi_bench Overlays page 0.9% more retired instructions (static release, U1c.1: 1.0189 inline, 1.0277 not).
+    #[inline]
     fn icon_button_key(&mut self, key: Key, icon: Icon, name: &str, button: &IconButton<'_>) -> Response {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);

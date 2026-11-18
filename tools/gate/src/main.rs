@@ -176,8 +176,35 @@ fn issue(issues: &mut Vec<String>, path: &str, line: usize, message: impl AsRef<
     issues.push(format!("{path}:{line}: {}", message.as_ref()));
 }
 
-fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
+/// `#[inline]` and `#[inline(always)]` among the attributes of the item whose keyword (`fn`, after any visibility) is at `index`.
+fn inline_attributes(tokens: &[Token], index: usize) -> (bool, bool) {
+    let mut before = index;
+    while before > 0 && matches!(tokens[before - 1].text.as_str(), "pub" | "crate" | "super" | "in" | "self" | "(" | ")" | "const" | "unsafe" | "extern" | "\"C\"") { before -= 1; }
+    let (mut inline, mut always) = (false, false);
+    while before > 0 && tokens[before - 1].text == "]" {
+        let Some(open) = (0..before - 1).rev().find(|&at| tokens[at].text == "[" && matching(tokens, at, "[", "]") == Some(before - 1)) else { break };
+        if open == 0 || tokens[open - 1].text != "#" { break; }
+        if tokens.get(open + 1).is_some_and(|name| name.text == "inline") {
+            inline = true;
+            always |= tokens.get(open + 3).is_some_and(|argument| argument.text == "always");
+        }
+        before = open - 1;
+    }
+    (inline, always)
+}
+
+/// The functions of `source` marked `#[inline(always)]`, by name: a generic shim must not forward into one (`shape_source`).
+fn inline_always_functions(source: &str) -> Vec<String> {
     let tokens = lex(source);
+    (0..tokens.len()).filter(|&index| tokens[index].text == "fn" && tokens.get(index + 1).is_some_and(|name| is_identifier(&name.text)) && inline_attributes(&tokens, index).1)
+        .map(|index| tokens[index + 1].text.clone()).collect()
+}
+
+/// The shape issues of one file. `always` names the `#[inline(always)]` functions of the public wrapper's other files (the file's own
+/// are found here), so a shim in one file forwarding into such a body in another is caught.
+fn shape_source(crate_name: &str, path: &str, source: &str, always: &[String]) -> Vec<String> {
+    let tokens = lex(source);
+    let own_always = inline_always_functions(source);
     // Whole test files (tests/, src/tests.rs, src/test_*.rs) count as one test region.
     let file = path.rsplit('/').next().unwrap_or(path);
     let test_file = path.contains("/tests/") || file == "tests.rs" || file.starts_with("test_");
@@ -218,7 +245,7 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
         if matches!(token.text.as_str(), "async" | "await") {
             issue(&mut issues, path, token.line, "async/await is not allowed in product code");
         }
-        if token.text == "catch_unwind" && crate_name != "parallel" && !policy::wrapper_allows(path, "catch_unwind", &[]) {
+        if token.text == "catch_unwind" && crate_name != "parallel" && !policy::wrapper_allows(path, "catch_unwind") {
             issue(&mut issues, path, token.line, "catch_unwind is restricted to parallel worker isolation and the bin/rays crash reporter");
         }
         if token.text == "macro_rules"
@@ -281,7 +308,7 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
             if tokens.get(generic_index).is_some_and(|next| next.text == "<") {
                 // Borrow lifetimes do not monomorphize functions or impls; only type parameters do.
                 let borrow_lifetimes_only = (matches!(token.text.as_str(), "fn" | "impl" | "type")
-                    || (matches!(token.text.as_str(), "struct" | "enum") && policy::wrapper_allows(path, "struct lifetime", &[])))
+                    || (matches!(token.text.as_str(), "struct" | "enum") && policy::wrapper_allows(path, "struct lifetime")))
                     && generic_end(&tokens, generic_index).is_some_and(|end| {
                         let parameters = &tokens[generic_index + 1..end];
                         !parameters.is_empty() && parameters.iter().enumerate().all(|(at, parameter)| {
@@ -289,35 +316,30 @@ fn shape_source(crate_name: &str, path: &str, source: &str) -> Vec<String> {
                                 || (at > 0 && parameters[at - 1].text == "'" && is_identifier(&parameter.text))
                         })
                     });
-                let wrapper_closure = generic_end(&tokens, generic_index).is_some_and(|end| {
+                // A wrapper shim (`crates/public/pxui/src`): `#[inline]`, a body that is one forwarding call into a body that is not
+                // `#[inline(always)]`.
+                let mut forwards_into_always = None;
+                let shim = token.text == "fn" && generic_end(&tokens, generic_index).is_some_and(|end| {
                     let parameters: Vec<&str> = tokens[generic_index + 1..end].iter().map(|part| part.text.as_str()).collect();
-                    policy::wrapper_allows(path, "generic", &parameters)
-                });
-                // An authoring shim: `#[inline]` among the attributes before the item, a body that is one forwarding call.
-                let author_shim = token.text == "fn" && generic_end(&tokens, generic_index).is_some_and(|end| {
-                    let parameters: Vec<&str> = tokens[generic_index + 1..end].iter().map(|part| part.text.as_str()).collect();
-                    let mut before = index;
-                    while before > 0 && matches!(tokens[before - 1].text.as_str(), "pub" | "crate" | "super" | "in" | "self" | "(" | ")" | "const") { before -= 1; }
-                    let mut inline = false;
-                    while before > 0 && tokens[before - 1].text == "]" {
-                        let Some(open) = (0..before - 1).rev().find(|&at| tokens[at].text == "[" && matching(&tokens, at, "[", "]") == Some(before - 1)) else { break };
-                        if open == 0 || tokens[open - 1].text != "#" { break; }
-                        inline |= tokens.get(open + 1).is_some_and(|name| name.text == "inline");
-                        before = open - 1;
-                    }
+                    let (inline, _) = inline_attributes(&tokens, index);
                     function_body(&tokens, index).is_some_and(|(open, close)| {
                         let body: Vec<&str> = tokens[open + 1..close].iter().map(|part| part.text.as_str()).collect();
-                        policy::author_shim_allows(path, &parameters, inline, &body)
+                        let allowed = policy::shim_allows(path, &parameters, inline, &body);
+                        let callee = body.iter().position(|part| *part == "(").and_then(|at| at.checked_sub(1)).map(|at| body[at]);
+                        if allowed { forwards_into_always = callee.filter(|callee| always.iter().chain(&own_always).any(|name| name == callee)); }
+                        allowed
                     })
                 });
-                let wrapper_closure = wrapper_closure && !path.starts_with("crates/public/pxui/src/author/") || author_shim;
-                if !borrow_lifetimes_only && !wrapper_closure && !domain_header.is_some_and(|(start, _)| token.text == "fn" && start == index)
+                if let Some(callee) = forwards_into_always {
+                    issue(&mut issues, path, token.line, format!("a generic shim must not forward into the #[inline(always)] body `{callee}`"));
+                }
+                if !borrow_lifetimes_only && !shim && !domain_header.is_some_and(|(start, _)| token.text == "fn" && start == index)
                     && !kernel_headers.iter().any(|(start, _)| token.text == "fn" && *start == index) {
                     issue(&mut issues, path, token.line, "generic items are not allowed in product crates");
                 }
                 if matches!(token.text.as_str(), "struct" | "enum") {
                     if let Some(end) = generic_end(&tokens, generic_index) {
-                        if tokens[generic_index + 1..end].iter().any(|parameter| parameter.text == "'") && !policy::wrapper_allows(path, "struct lifetime", &[]) {
+                        if tokens[generic_index + 1..end].iter().any(|parameter| parameter.text == "'") && !policy::wrapper_allows(path, "struct lifetime") {
                             issue(&mut issues, path, token.line, "struct and enum lifetime parameters are not allowed");
                         }
                     }
@@ -546,6 +568,12 @@ fn shape(workspace: &Path) -> Result<Vec<String>, String> {
     let mut files = Vec::new();
     rust_sources(&crates, &mut files).map_err(|error| format!("cannot scan {}: {error}", crates.display()))?;
     files.sort();
+    let mut always = Vec::new();
+    for file in &files {
+        if file.strip_prefix(workspace).is_ok_and(|relative| relative.starts_with("crates/public/pxui/src")) {
+            always.extend(inline_always_functions(&fs::read_to_string(file).map_err(|error| format!("cannot read {}: {error}", file.display()))?));
+        }
+    }
     let mut issues = Vec::new();
     for file in files {
         let relative = file.strip_prefix(workspace).unwrap_or(&file).to_string_lossy().replace('\\', "/");
@@ -566,7 +594,7 @@ fn shape(workspace: &Path) -> Result<Vec<String>, String> {
                 ));
             }
         }
-        issues.extend(shape_source(&crate_name, &relative, &source));
+        issues.extend(shape_source(&crate_name, &relative, &source, &always));
     }
     issues.sort();
     apply_shape_baseline(workspace, issues)
@@ -2362,7 +2390,7 @@ mod author_shim_tests {
     const GENERIC: &str = "generic items are not allowed in product crates";
 
     fn generic_issues(path: &str, source: &str) -> usize {
-        shape_source("pxui", path, source).iter().filter(|issue| issue.ends_with(GENERIC)).count()
+        shape_source("pxui", path, source, &[]).iter().filter(|issue| issue.ends_with(GENERIC)).count()
     }
 
     #[test]
@@ -2374,17 +2402,36 @@ mod author_shim_tests {
     }
 
     #[test]
-    fn shims_need_inline_and_the_author_folder() {
+    fn shims_need_inline_and_the_wrapper() {
         let thin = "#[inline] pub fn row<F: FnMut(&mut Ui)>(ui: &mut Ui, mut f: F) { ui.row_body(&mut f) }";
         assert_eq!(generic_issues("crates/host/pxui_host/src/lib.rs", thin), 1);
-        assert_eq!(generic_issues("crates/public/pxui/src/widgets.rs", "#[inline] pub fn row<T: Hash>(ui: &mut Ui, t: &T) { ui.row_body(t) }"), 1);
+        assert_eq!(generic_issues("crates/public/pxui/src/widgets.rs", "#[inline] pub fn row<T: Hash>(ui: &mut Ui, t: &T) { ui.row_body(t) }"), 0);
         assert_eq!(generic_issues(AUTHOR, "#[must_use] pub fn row<F: FnMut(&mut Ui)>(ui: &mut Ui, mut f: F) { ui.row_body(&mut f) }"), 1);
+    }
+
+    /// U1c.1: the shim rule holds in every file of the wrapper, not only `author/`: a generic body, a generic closure trampoline and
+    /// a generic context struct fail there, and so does a shim forwarding into an `#[inline(always)]` body, in its own file or another.
+    #[test]
+    fn generic_bodies_and_inline_always_callees_fail_everywhere_in_the_wrapper() {
+        const PAINT: &str = "crates/public/pxui/src/paint.rs";
+        assert_eq!(generic_issues(PAINT, "impl Ui { pub fn canvas<F: FnMut(&mut Paint, Rect) + 'static>(&mut self, b: &Handle, f: F) { let user = boxed(f); self.draw(b, user) } }"), 1);
+        assert_eq!(generic_issues(PAINT, "extern \"C\" fn call<F: FnMut(&mut Ui)>(user: *mut c_void, raw: *mut c_void) { (unsafe { &mut *user.cast::<F>() })(ui) }"), 1);
+        assert_eq!(generic_issues(PAINT, "struct Callback<F> { f: F }"), 1);
+        const ALWAYS: &str = "must not forward into the #[inline(always)] body `row_body`";
+        let always = |path: &str, source: &str, others: &[String]| shape_source("pxui", path, source, others).iter().filter(|issue| issue.ends_with(ALWAYS)).count();
+        let shim = "impl Ui { #[inline] pub fn row<F: FnMut(&mut Ui)>(&mut self, mut f: F) { self.row_body(&mut f) } }";
+        let same_file = "impl Ui { #[inline] pub fn row<F: FnMut(&mut Ui)>(&mut self, mut f: F) { self.row_body(&mut f) }\n#[inline(always)]\n#[track_caller]\nfn row_body(&mut self, f: &mut dyn FnMut(&mut Ui)) { f(self) } }";
+        assert_eq!(always(AUTHOR, same_file, &[]), 1);
+        assert_eq!(always(PAINT, shim, &["row_body".to_owned()]), 1, "the callee is in another file of the wrapper");
+        assert_eq!(always(PAINT, shim, &[]), 0);
+        assert_eq!(always(AUTHOR, &same_file.replace("#[inline(always)]", "#[inline]"), &[]), 0, "a plain #[inline] callee is allowed");
+        assert_eq!(super::inline_always_functions(same_file), ["row_body"]);
     }
 
     #[test]
     fn lifetime_only_public_types_pass_and_type_parameters_still_fail() {
         for path in ["crates/public/pxui_types/src/ui.rs", "crates/public/pxui/src/overlays.rs"] {
-            assert_eq!(shape_source("pxui", path, "pub struct Item<'a> { text: &'a str }\nimpl<'a> Item<'a> { pub const fn new(text: &'a str) -> Item<'a> { Item { text } } }").len(), 0, "{path}");
+            assert_eq!(shape_source("pxui", path, "pub struct Item<'a> { text: &'a str }\nimpl<'a> Item<'a> { pub const fn new(text: &'a str) -> Item<'a> { Item { text } } }", &[]).len(), 0, "{path}");
             assert_eq!(generic_issues(path, "pub struct X<T> { value: T }"), 1, "{path}");
             assert_eq!(generic_issues(path, "pub struct X<'a, T> { value: &'a T }"), 1, "{path}");
         }
@@ -2393,7 +2440,7 @@ mod author_shim_tests {
 
     #[test]
     fn public_pxui_parameters_borrow_their_inputs() {
-        let owned = |source: &str| shape_source("pxui", "crates/public/pxui/src/kit.rs", source).iter().filter(|issue| issue.contains("owns a")).count();
+        let owned = |source: &str| shape_source("pxui", "crates/public/pxui/src/kit.rs", source, &[]).iter().filter(|issue| issue.contains("owns a")).count();
         assert_eq!(owned("impl Ui { pub fn footer(&mut self, hints: &[(String, String)]) {} }"), 1);
         assert_eq!(owned("pub fn a(items: Vec<u8>) {}"), 1);
         assert_eq!(owned("pub fn a<F: Fn() -> String>(name: &String, f: F) {}"), 1);
@@ -2402,7 +2449,7 @@ mod author_shim_tests {
         assert_eq!(owned("pub fn a(items: &[(&str, bool)], text: &str) -> String { String::new() }"), 0);
         assert_eq!(owned("pub fn a<F: Fn() -> Vec<u8>>(f: F) -> Vec<u8> { Vec::new() }"), 0);
         assert_eq!(owned("fn private(items: Vec<u8>) {}\npub(crate) fn crate_only(items: Vec<u8>) {}\n#[cfg(test)]\nmod t { pub fn x(v: Vec<u8>) {} }"), 0);
-        assert!(shape_source("pxui_core", "crates/private/pxui_core/src/x.rs", "pub fn a(items: Vec<u8>) {}").is_empty());
+        assert!(shape_source("pxui_core", "crates/private/pxui_core/src/x.rs", "pub fn a(items: Vec<u8>) {}", &[]).is_empty());
     }
 
     #[test]
@@ -2414,9 +2461,9 @@ mod author_shim_tests {
         let other = "#[inline] pub fn value<T: Clone>(ui: &mut Ui, t: &T) { ui.value_body(t.clone()) }";
         assert_eq!(generic_issues(AUTHOR, other), 1);
         assert_eq!(generic_issues(AUTHOR, "pub struct Local<T> { value: T }"), 1);
-        assert!(shape_source("pxui", AUTHOR, "pub fn row(ui: &mut Ui, f: impl FnMut(&mut Ui)) { ui.row_body(f) }")
+        assert!(shape_source("pxui", AUTHOR, "pub fn row(ui: &mut Ui, f: impl FnMut(&mut Ui)) { ui.row_body(f) }", &[])
             .iter().any(|issue| issue.ends_with("impl Trait is not allowed in product crates")));
-        assert!(shape_source("pxui", AUTHOR, "macro_rules! row { () => {} }")
+        assert!(shape_source("pxui", AUTHOR, "macro_rules! row { () => {} }", &[])
             .iter().any(|issue| issue.ends_with("macro_rules! is not allowed in product crates")));
     }
 }

@@ -167,6 +167,6 @@ impl Ui {
     /// ```
     #[track_caller]
     pub fn themed(&mut self, theme: &ThemeHandle, mut f: &mut dyn FnMut(&mut Ui)) {
-        check(self, unsafe { lib::pxui_ui_themed(self.0.as_ptr(), theme.0.as_ptr(), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut f as *mut _ as *mut c_void) })
+        check(self, unsafe { lib::pxui_ui_themed(self.0.as_ptr(), theme.0.as_ptr(), Some(call), &mut f as *mut _ as *mut c_void) })
     }
 }

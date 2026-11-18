@@ -15,6 +15,8 @@ pub(crate) fn state(v:pxui_types::theme::State)->PxuiStateDesc { PxuiStateDesc{h
 pub(crate) fn mark(v:Mark)->PxuiMarkDesc { match v {Mark::None=>PxuiMarkDesc{kind:0,..Default::default()},Mark::Chevron(dir)=>PxuiMarkDesc{kind:1,direction:dir as u32,..Default::default()},Mark::Line{width,rising}=>PxuiMarkDesc{kind:2,width,rising:rising as u8,..Default::default()}} }
 
 impl Ui {
+    // Inline: out of line, `node` costs the abi_bench Layout page 0.8% and the Author page 0.4% more retired instructions
+    // (static release, U1c.1: Layout 1.0186 inline, 1.0266 not).
     #[inline]
     #[track_caller]
     pub(crate) fn node_key(&mut self,key:crate::Key,node:Node)->Handle {
@@ -44,7 +46,6 @@ impl Ui {
     }
 
     /// The library call of `node`. Static: a Rust label is UTF-8 by its type, so the trusted entry checks only its length.
-    #[inline(always)]
     fn node_call(&mut self,label:&str,node:&Node,out:*mut Handle)->i32 {
         #[cfg(feature="static")]
         return unsafe{pxui_abi_link::trusted::node_str(self.0.as_ptr(),label,node,out)};
