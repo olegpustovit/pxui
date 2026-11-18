@@ -2428,9 +2428,11 @@ fn menu_body(this: &mut Ui, key: NodeKey, at: (f32, f32), items: &[MenuItem], me
         let sub = items[row].submenu;
         let sub_width = view_w.min(ui.menu_measure(0.0, sub, false, swatch_pad, key_size));
         let sub_height = height_of(sub);
-        // beside the menu, overlapping it by a point, level with its row; left when no room right
+        // beside the sheet as laid out (a panel's 180 points at least, as the sheet and the submenu are), overlapping it by a point,
+        // level with its row; left when no room right
         let beside = Placement { side: Side::Right, align: Along::Start, gap: -1.0, margin: 0.0, flip: true };
-        place_anchored(Rect::new(x, row_top(row) - pad - 1.0, width, 0.0), (sub_width, sub_height), beside, bounds)
+        let at = place_anchored(Rect::new(x, row_top(row) - pad - 1.0, width.max(180.0), 0.0), (sub_width.max(180.0), sub_height), beside, bounds);
+        Rect { w: sub_width, ..at }
     };
     // the rows of the submenus are numbered after those of this menu, in order
     let base_of = |row: usize| items.len() + items[..row].iter().map(|i| i.submenu.len()).sum::<usize>();

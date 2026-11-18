@@ -1793,7 +1793,7 @@ impl States {
 
 #[cfg(test)]
 mod tests {
-    use super::{Look, Rgba};
+    use super::{Curve, Look, Motion, Rgba, State, Tokens};
 
     #[test]
     fn look_colors_keep_their_rounded_values_near_the_start() {
@@ -1817,5 +1817,29 @@ mod tests {
                 r: channel(0.0, 255.0), g: channel(255.0, 0.0), b: channel(127.0, 127.0), a: channel(63.0, 128.0),
             });
         }
+    }
+
+    /// U2b.8: a change that moves content (`checked`, `disabled`) runs over `motion.slow`, with the theme's ease, and reduced motion
+    /// or no change is instant.
+    #[test]
+    fn transition_honours_slow() {
+        let mut tokens = Tokens::DEFAULT;
+        tokens.motion = Motion { fast: 0.05, normal: 0.1, slow: 0.4, ease: [0.2, 0.0, 0.0, 1.0] };
+        let idle = State::default();
+        for to in [State { checked: true, ..idle }, State { disabled: true, ..idle }] {
+            assert_eq!(tokens.transition(idle, to), Curve::Bezier { duration: 0.4, points: [0.2, 0.0, 0.0, 1.0] });
+        }
+        tokens.reduced_motion = true;
+        assert!(tokens.transition(idle, State { checked: true, ..idle }).instant());
+    }
+
+    /// U2b.8: a theme whose only motion is `motion.slow` still moves; reduced motion stops it.
+    #[test]
+    fn moves_honours_slow() {
+        let mut tokens = Tokens::DEFAULT;
+        (tokens.motion.fast, tokens.motion.normal, tokens.motion.slow) = (0.0, 0.0, 0.3);
+        assert!(tokens.moves());
+        tokens.reduced_motion = true;
+        assert!(!tokens.moves());
     }
 }

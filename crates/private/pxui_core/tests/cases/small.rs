@@ -449,7 +449,31 @@ fn window_pxui_keyboard_signal_reuses_routing_storage() {
     ui.destroy();
 }
 
+/// U2b.8: `state`/`set_state` through a gone node's handle (the previous frame's) neither read nor write the slot: the node that takes
+/// the slot keeps its own state.
+fn state_on_gone_slot_is_ignored() {
+    let mut ui = new_ui(None);
+    let mut gone = None;
+    ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| { let a = ui.node_keyed(11, Node::DEFAULT); ui.set_state(&a, 5); gone = Some(a); });
+    let gone = gone.unwrap();
+    // the frame that stops declaring it still holds it while building; from the next one the handle is gone
+    ui.frame(&frame_at(vec![], 1.0, 0.1, vec![]), &mut |_| {});
+    let mut reused = false;
+    for k in 2..6 {
+        ui.frame(&frame_at(vec![], 1.0, k as f64 * 0.1, vec![]), &mut |ui| {
+            let b = ui.node_keyed(22 + k, Node::DEFAULT);
+            check(ui.state(&gone, -1) == -1, "a gone node's handle reads the default");
+            ui.set_state(&gone, 9);
+            check(ui.state(&b, 0) == 0, "the stale write reached the node that took the slot");
+            reused |= b.box_slot == gone.box_slot;
+        });
+    }
+    check(reused, "a later node took the gone node's slot (the case the stale write corrupted)");
+    ui.destroy();
+}
+
 pub const CASES: &[(&str, fn())] = &[
+    ("state_on_gone_slot_is_ignored", state_on_gone_slot_is_ignored),
     ("menu_padding_name_and_the_current_choice", menu_padding_name_and_the_current_choice),
     ("line_box_glyphs_keep_their_half_leading", line_box_glyphs_keep_their_half_leading),
     ("paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline", paint_text_at_is_the_layout_top_and_measure_baseline_the_first_baseline),

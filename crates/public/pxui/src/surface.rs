@@ -3805,3 +3805,51 @@ fn scroll_views_and_text_areas_take_flow_nodes_and_allocate_nothing_when_warm() 
     assert_eq!(b.x, a.x + 30.0, "the content flows on the node's axis");
     assert_eq!((t.y, t.w, t.h), (70.0, 320.0, 40.0), "the text area flows after the scroll view, filling the width");
 }
+
+/// U2b.8: `state`/`set_state` through a previous frame's handle of a gone node read the default and store nothing, and never reach
+/// the node that took its slot (both link modes).
+#[test]
+fn state_through_a_gone_handle_is_ignored() {
+    use std::cell::Cell;
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let gone = Cell::new(None);
+    ui.frame(&input(), &mut |ui| { let a = ui.node("a", crate::Node::DEFAULT); ui.set_state(&a, 5); gone.set(Some(a)); }).unwrap();
+    ui.frame(&input(), &mut |_| {}).unwrap();
+    let gone = gone.get().unwrap();
+    for k in 0..4 {
+        ui.frame(&input(), &mut |ui| {
+            let b = ui.node(crate::Key::Id(k), crate::Node::DEFAULT);
+            assert_eq!(ui.state(&gone, -1), -1, "a gone node's handle reads the default");
+            ui.set_state(&gone, 9);
+            assert_eq!(ui.state(&b, 0), 0, "the stale write reached the node that took the slot");
+        }).unwrap();
+    }
+}
+
+thread_local! { static TIP_LINES: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) }; }
+
+/// A registered tooltip body that records the lines it reads through `text_at` (one past the end too).
+fn tip_lines(_ui: &mut Ui, c: &crate::bodies::TooltipConfig) {
+    use crate::bodies::BodyConfig;
+    TIP_LINES.with(|l| { let mut l = l.borrow_mut(); l.clear(); for i in 0..=c.lines.len { l.push(c.text_at(&c.lines, i).to_owned()); } });
+}
+
+/// U2b.8: a registered tooltip body reads the tip's lines through `text_at` (both link modes): the line, then "" past the end.
+#[test]
+fn tooltip_body_reads_text_at() {
+    use crate::{Event, ui::{Flags, Node, Role}};
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.register_tooltip_body("lines", tip_lines).unwrap();
+    ui.set_theme(&crate::ThemeHandle::parse("tooltip.body = lines").unwrap()).unwrap();
+    let mut build = |ui: &mut Ui| {
+        let b = ui.node("owner", Node { flags: Flags::CLICKABLE, role: Role::Button, w: crate::ui::Size::Px(80.0), h: crate::ui::Size::Px(30.0), ..Node::DEFAULT });
+        ui.tooltip(&b, "Reveal in Finder");
+    };
+    for k in 0..8 {
+        let moved = Event { kind: Event::POINTER_MOVED, x: 10.0, y: 10.0, ..Default::default() };
+        let mut frame = FrameIn::new(320.0, 240.0).time(0.2 * k as f64);
+        (frame.wire.events, frame.wire.event_count) = (&moved, 1);
+        ui.frame(&frame, &mut build).unwrap();
+    }
+    assert_eq!(TIP_LINES.with(|l| l.borrow().clone()), ["Reveal in Finder", ""], "the body read the line, and none past the end");
+}

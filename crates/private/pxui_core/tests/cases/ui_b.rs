@@ -180,32 +180,60 @@ pub fn window_pxui_context_menu() {
     ui.destroy();
 }
 
+/// A 640 by 480 frame: room for a 180-point menu and its 180-point submenu side by side.
+fn wide(events: Vec<Event>) -> input::frame::Frame {
+    let mut f = frame_at(vec![], 1.0, 0.0, events);
+    f.input.size = (640, 480);
+    f
+}
+
 pub fn window_pxui_submenu() {
     let mut ui = field_ui();
     const KINDS: [MenuItem; 2] = [MenuItem::new("Draw"), MenuItem::new("Value")];
     const ITEMS: [MenuItem; 2] = [MenuItem::new("New graph").submenu(&KINDS), MenuItem::new("Delete")];
     let submenu = |ui: &mut Ui, events: Vec<Event>| -> Chosen {
         let mut out = Chosen::default();
-        ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
+        ui.frame(&wide(events), &mut |ui| {
             out = ui.menu("submenu".into(), pxui_types::geom::Point::new(20.0, 20.0), &ITEMS, &Menu::DEFAULT.w_px(150.0));
         });
         out
     };
     submenu(&mut ui, vec![]);
     submenu(&mut ui, vec![move_to((60, 38))]);
-    submenu(&mut ui, vec![move_to((190, 62))]);
-    if submenu(&mut ui, vec![press((190, 62))]) != Chosen::default() {
+    // the submenu sits beside the 180-point sheet (20..200), overlapping it by a point
+    submenu(&mut ui, vec![move_to((250, 62))]);
+    if submenu(&mut ui, vec![press((250, 62))]) != Chosen::default() {
         fail("submenu committed on press");
     }
     if submenu(&mut ui, vec![]) != Chosen::default() {
         fail("submenu lost capture between frames");
     }
-    if submenu(&mut ui, vec![release((190, 62))]).chosen != Some(3) {
+    if submenu(&mut ui, vec![release((250, 62))]).chosen != Some(3) {
         fail("submenu did not commit on release");
     }
-    if !submenu(&mut ui, vec![press((300, 200))]).dismissed {
+    if !submenu(&mut ui, vec![press((500, 300))]).dismissed {
         fail("submenu did not dismiss outside");
     }
+    ui.destroy();
+}
+
+/// U2b.8: a submenu opens beside the sheet as it is laid out (at least a panel's 180 points), overlapping its edge by one point, not
+/// beside the narrower measured row width (it used to cover the sheet's last 30 points).
+pub fn submenu_opens_beside_measured_width() {
+    let mut ui = field_ui();
+    ui.set_a11y(true);
+    const KINDS: [MenuItem; 2] = [MenuItem::new("Draw"), MenuItem::new("Value")];
+    const ITEMS: [MenuItem; 2] = [MenuItem::new("New").submenu(&KINDS), MenuItem::new("Delete")];
+    let step = |ui: &mut Ui, events: Vec<Event>| { ui.frame(&wide(events), &mut |ui| { ui.menu("narrow".into(), pxui_types::geom::Point::new(20.0, 20.0), &ITEMS, &Menu::DEFAULT); }); };
+    step(&mut ui, vec![]);
+    step(&mut ui, vec![move_to((40, 38))]);
+    step(&mut ui, vec![]);
+    let tree = ui.output().a11y;
+    let menus: Vec<_> = tree.nodes.iter().filter(|n| n.role == pxui_core::a11y::Role::Menu).map(|n| n.rect).collect();
+    check(menus.len() == 2, &format!("the menu and its submenu: {menus:?}"));
+    let (sheet, sub) = (menus[0], menus[1]);
+    check(sheet.w >= 180.0, &format!("the sheet is a panel's width at least: {sheet:?}"));
+    check((sub.x - (sheet.x + sheet.w - 1.0)).abs() <= 0.5, &format!("the submenu {sub:?} is not beside the sheet {sheet:?}"));
     ui.destroy();
 }
 
@@ -440,4 +468,5 @@ pub const CASES: &[(&str, fn())] = &[
     ("window_pxui_picker", window_pxui_picker),
     ("window_pxui_context_menu", window_pxui_context_menu),
     ("window_pxui_submenu", window_pxui_submenu),
+    ("submenu_opens_beside_measured_width", submenu_opens_beside_measured_width),
 ];

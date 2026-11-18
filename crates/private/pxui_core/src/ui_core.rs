@@ -4195,12 +4195,16 @@ impl Ui {
     }
 
     /// Retained per-box scalar state for custom widgets.
+    /// The value `set_state` stored in `b`'s slot, else `default`; a gone node's handle (its slot reused or freed) reads `default`.
     pub fn state(&self, b: &UiBox, default: i64) -> i64 {
+        if !self.live(b) { return default; }
         self.slots[b.box_slot].state_value.unwrap_or(default)
     }
 
+    /// Stores `value` in `b`'s slot while the node lives; a gone node's handle stores nothing (it never reaches the node that took
+    /// its slot).
     pub fn set_state(&mut self, b: &UiBox, value: i64) {
-        self.slots[b.box_slot].state_value = Some(value);
+        if self.live(b) { self.slots[b.box_slot].state_value = Some(value); }
     }
 
     /// Stable paint text follows its existing retained box key and is discarded with that slot.
