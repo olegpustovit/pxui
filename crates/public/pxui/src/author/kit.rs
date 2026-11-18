@@ -41,6 +41,72 @@ impl<'a> Radio<'a> {
     pub const fn variant(mut self, variant: u16) -> Radio<'a> { self.variant = variant; self }
 }
 
+/// The progress row's body and variant used by [Ui::progress].
+#[derive(Clone, Copy, Debug)]
+pub struct Progress {
+    pub(crate) variant: u16,
+}
+
+impl Progress {
+    /// The theme's default body variant.
+    pub const DEFAULT: Progress = Progress { variant: 0 };
+
+    /// Selects the variant the registered body receives.
+    ///
+    /// Zero uses the theme's variant.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Progress = pxui::Progress::DEFAULT.variant(2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Progress { self.variant = variant; self }
+}
+
+/// The spinner's body and variant used by [Ui::spinner].
+#[derive(Clone, Copy, Debug)]
+pub struct Spinner {
+    pub(crate) variant: u16,
+}
+
+impl Spinner {
+    /// The theme's default body variant.
+    pub const DEFAULT: Spinner = Spinner { variant: 0 };
+
+    /// Selects the variant the registered body receives.
+    ///
+    /// Zero uses the theme's variant.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Spinner = pxui::Spinner::DEFAULT.variant(2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Spinner { self.variant = variant; self }
+}
+
+/// The badge's body and variant used by [Ui::badge].
+#[derive(Clone, Copy, Debug)]
+pub struct Badge {
+    pub(crate) variant: u16,
+}
+
+impl Badge {
+    /// The theme's default body variant.
+    pub const DEFAULT: Badge = Badge { variant: 0 };
+
+    /// Selects the variant the registered body receives.
+    ///
+    /// Zero uses the theme's variant.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const STYLE: pxui::Badge = pxui::Badge::DEFAULT.variant(2);
+    /// ```
+    pub const fn variant(mut self, variant: u16) -> Badge { self.variant = variant; self }
+}
+
 impl Ui {
     /// Declares a kit checkbox (a row with the 12-point box and `text`) under the current parent and reports what happened to it.
     ///
@@ -157,11 +223,11 @@ impl Ui {
     /// Panics: when the library refuses the call (outside a frame, a value that is not finite). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
-    /// pxui::doc::frames(1, &mut |ui| { ui.progress("export", "Export", Some(0.4)); });
+    /// pxui::doc::frames(1, &mut |ui| { ui.progress("export", "Export", Some(0.4), &pxui::Progress::DEFAULT); });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn progress<K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>) -> Handle { self.progress_key(key.into(), text, value) }
+    pub fn progress<K: Into<Key>>(&mut self, key: K, text: &str, value: Option<f32>, progress: &Progress) -> Handle { self.progress_key(key.into(), text, value, progress.variant) }
 
     /// Declares a kit spinner (eight dots round a 16-point circle) named `name` and returns its node, which `busy_step` turns.
     ///
@@ -171,11 +237,11 @@ impl Ui {
     /// Panics: when the library refuses the call (outside a frame). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
-    /// pxui::doc::frames(1, &mut |ui| { ui.spinner("loading", "Loading"); });
+    /// pxui::doc::frames(1, &mut |ui| { ui.spinner("loading", "Loading", &pxui::Spinner::DEFAULT); });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn spinner<K: Into<Key>>(&mut self, key: K, name: &str) -> Handle { self.spinner_key(key.into(), name) }
+    pub fn spinner<K: Into<Key>>(&mut self, key: K, name: &str, spinner: &Spinner) -> Handle { self.spinner_key(key.into(), name, spinner.variant) }
 
     /// Declares a kit badge (`text` on a 16-point pill in the badge look) named `name` and returns its node; `patch_text` on it updates a
     /// count without a rebuild.
@@ -186,11 +252,11 @@ impl Ui {
     /// Panics: when the library refuses the call (outside a frame). A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
-    /// pxui::doc::frames(1, &mut |ui| { ui.badge("unread", "Unread", "3"); });
+    /// pxui::doc::frames(1, &mut |ui| { ui.badge("unread", "Unread", "3", &pxui::Badge::DEFAULT); });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn badge<K: Into<Key>>(&mut self, key: K, name: &str, text: &str) -> Handle { self.badge_key(key.into(), name, text) }
+    pub fn badge<K: Into<Key>>(&mut self, key: K, name: &str, text: &str, badge: &Badge) -> Handle { self.badge_key(key.into(), name, text, badge.variant) }
 }
 
 #[cfg(test)]
@@ -220,13 +286,13 @@ mod tests {
         ui.tabs("tabs", &["T"], 0, &Choice::DEFAULT.variant(3));
         ui.dropdown("drop", "Drop", &[crate::Segment::new("x")], Some(0), &Dropdown::DEFAULT.variant(4));
         ui.slider("slide", "Slide", 0.5, 0.0..=1.0, &Slider::DEFAULT.variant(5));
-        ui.progress("prog", "Prog", None);
-        ui.spinner("spin", "Spin");
-        ui.badge("badge", "Badge", "7");
+        ui.progress("prog", "Prog", None, &crate::Progress::DEFAULT.variant(6));
+        ui.spinner("spin", "Spin", &crate::Spinner::DEFAULT.variant(7));
+        ui.badge("badge", "Badge", "7", &crate::Badge::DEFAULT.variant(8));
     }
 
     /// Every widget of the family is built through its body: with a registered body for each kind, the custom structure is what the tree
-    /// holds, and each style's variant reaches its own body's config (the leaves, which have no style, are given 0).
+    /// holds, and each style's variant reaches its own body's config.
     #[test]
     fn each_kit_widget_is_built_through_its_registered_body_with_its_variant() {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
@@ -245,7 +311,7 @@ mod tests {
         ui.frame(&FrameIn::new(400.0, 400.0), &mut build).unwrap();
         let mut got = SEEN.with(|s| s.borrow().clone());
         got.dedup();
-        assert_eq!(got, [("checkbox", 1), ("radio", 2), ("tab", 3), ("dropdown", 4), ("slider", 5), ("progress", 0), ("spinner", 0), ("badge", 0)]);
+        assert_eq!(got, [("checkbox", 1), ("radio", 2), ("tab", 3), ("dropdown", 4), ("slider", 5), ("progress", 6), ("spinner", 7), ("badge", 8)]);
         for kind in ["checkbox", "radio", "tab", "dropdown", "slider", "progress", "spinner", "badge"] {
             assert!(testing::find(&ui, Role::Image, &format!("custom {kind}")).is_some(), "the {kind} body's structure is used");
         }
@@ -260,7 +326,7 @@ mod tests {
         let mut build = |ui: &mut Ui| {
             let a = ui.checkbox("a", text.get(), false, &Checkbox::DEFAULT).handle.box_key;
             let b = ui.checkbox("b", "Shuffle", false, &Checkbox::DEFAULT).handle.box_key;
-            let p = ui.progress("export", "Export", Some(0.5)).box_key;
+            let p = ui.progress("export", "Export", Some(0.5), &crate::Progress::DEFAULT).box_key;
             boxes.set([a, b, p]);
         };
         let mut ui = crate::doc::frames(1, &mut build);

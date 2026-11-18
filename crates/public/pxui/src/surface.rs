@@ -170,7 +170,7 @@ fn reveal_uses_fixed_measured_section_and_grid_geometry_without_warm_allocations
                     0=>ui.section_list("rows",&section,&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
                     1=>ui.section_list("rows",&SectionList::new(count.get()).row_h(20.0).measured(),&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
                     2=>ui.section_list("rows",&section.measured(),&|i| i as i64,&mut |ui,part,_| if let SectionPart::Row(index)=part {row(ui,index)}),
-                    _=>ui.grid_list("rows",count.get(),25.0,20.0,&mut row),
+                    _=>ui.grid_list("rows",count.get(),&crate::GridList::DEFAULT.w_px(25.0).h_px(20.0),&mut row),
                 };
                 ui.set_node_layout(&list,&Node::DEFAULT.w(Size::Grow).h(Size::Grow).padding(crate::geom::Edges::all(6.0)));
                 body.set(Some(list));
@@ -366,7 +366,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
     let popup = Cell::new(false);
     let present = Cell::new(true);
     let mut build = |ui: &mut Ui| {
-        if popup.get() { ui.popup("scrub-popup", &crate::Overlay::DEFAULT.at(0.0, 0.0).w(200.0).h(30.0), |_| {}); }
+        if popup.get() { ui.popup("scrub-popup", &crate::Overlay::DEFAULT.at(crate::Point::new(0.0, 0.0)).w_px(200.0).h_px(30.0), |_| {}); }
         if !present.get() { result.set(None); return; }
         let (lo, hi) = range.get();
         let scrub = ui.scrub("position", value.get(), lo..=hi, &crate::Scrubber::DEFAULT.step(5.0).name("Position"));
@@ -958,7 +958,7 @@ fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds()
     let clicked = Cell::new(false);
     let mut build = |ui: &mut Ui| {
         if open.get() {
-            ui.popup("popup", &crate::Overlay::DEFAULT.at(0.0, 0.0).w(180.0).h(100.0), &mut |ui: &mut Ui| {
+            ui.popup("popup", &crate::Overlay::DEFAULT.at(crate::Point::new(0.0, 0.0)).w_px(180.0).h_px(100.0), &mut |ui: &mut Ui| {
                 ui.node("cover",crate::Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Grow).h_px(100.0));
             });
         }
@@ -1007,7 +1007,7 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
         assert_eq!(ui.key_pressed(crate::KeyCode::Char(','), crate::Mods::ANY), comma.get(), "reading held keys must not consume activation");
     };
     let mut build = |ui: &mut Ui| {
-        if modal.get() { ui.popup("keys", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(180.0).h(40.0), &mut contents); }
+        if modal.get() { ui.popup("keys", &crate::Overlay::DEFAULT.at(crate::Point::new(10.0, 10.0)).w_px(180.0).h_px(40.0), &mut contents); }
         else { contents(ui); }
     };
     ui.frame(&input(), &mut build).unwrap();
@@ -1072,7 +1072,7 @@ fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
                         frame.wire.event_count = events.len();
                         frame
                     },&mut |ui| {
-                        if popup {ui.popup("chord", &crate::Overlay::DEFAULT.at(0.0, 0.0).w(120.0).h(30.0).attached(), &mut contents);}
+                        if popup {ui.popup("chord", &crate::Overlay::DEFAULT.at(crate::Point::new(0.0, 0.0)).w_px(120.0).h_px(30.0).attached(), &mut contents);}
                         else {contents(ui);}
                     }).unwrap();
                     ui.dismiss_popup();
@@ -1386,7 +1386,7 @@ fn kit_extras_build_and_report_through_the_engine_shapes() {
                 assert_eq!(ui.field_drag(&grip), None);
                 if round == 0 { assert!(ui.animate(&grip, Target::Opacity(0.5), Curve::Spring { omega: 30.0 }), "a new target starts moving"); }
                 let mut ran = false;
-                let open = ui.popup("pop", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(100.0).h(40.0).max_h(100.0).dismiss_initial(), &mut |ui: &mut Ui| { ran = true; ui.label("popped", crate::Label::DEFAULT); }).open;
+                let open = ui.popup("pop", &crate::Overlay::DEFAULT.at(crate::Point::new(10.0, 10.0)).w_px(100.0).h_px(40.0).max_h_px(100.0).dismiss_initial(), &mut |ui: &mut Ui| { ran = true; ui.label("popped", crate::Label::DEFAULT); }).open;
                 assert_eq!(open, ran, "the build runs exactly while the popup is open");
             });
         }).expect("frame");
@@ -1518,7 +1518,7 @@ fn a_stale_field_patches_nothing_and_whole_source_files_round_trip() {
     ui.frame(&input(), &mut |ui: &mut Ui| {
         let edit: TextEdit = ui.load_text_edit(crate::Key::Resolved(9), &source);
         assert_eq!(edit.text.len(), source.len(), "the edit holds the whole text");
-        let text = ui.text_area("area", &source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &crate::TextArea::DEFAULT, &crate::AreaCallbacks::DEFAULT).changed;
+        let text = ui.text_area("area", &source, pxui_types::Node::DEFAULT.at(0.0, 0.0).w_px(100.0).h_px(100.0), &crate::TextArea::DEFAULT, &crate::AreaCallbacks::DEFAULT).changed;
         assert_eq!(text, None, "the whole text crossed and compared equal");
     }).expect("frame");
 }
@@ -1537,7 +1537,7 @@ fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
         let scope = (tick >= 8).then(mem_sys::warm_scope);
         ui.frame(&input().time(tick as f64 / 60.0), &mut |ui: &mut Ui| {
             ui.panel("borrowed", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
-                let area = ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &plain, &AreaCallbacks::DEFAULT);
+                let area = ui.text_area("area", source, pxui_types::Node::DEFAULT.at(0.0, 0.0).w_px(100.0).h_px(100.0), &plain, &AreaCallbacks::DEFAULT);
                 assert_eq!((area.changed, area.submitted), (None, false));
             });
         }).expect("frame");
@@ -1555,7 +1555,7 @@ fn text_area_borrows_its_text_and_allocates_nothing_on_warm_frames() {
     for tick in 12..16 {
         ui.frame(&input().time(tick as f64 / 60.0), &mut |ui: &mut Ui| {
             ui.panel("borrowed", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
-                changed = changed.take().or(ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &edit, &AreaCallbacks::DEFAULT).changed.map(str::to_owned));
+                changed = changed.take().or(ui.text_area("area", source, pxui_types::Node::DEFAULT.at(0.0, 0.0).w_px(100.0).h_px(100.0), &edit, &AreaCallbacks::DEFAULT).changed.map(str::to_owned));
             });
         }).expect("frame");
     }
@@ -1585,7 +1585,7 @@ fn a_text_area_with_data_callbacks_and_a_language_and_a_value_field_with_callbac
         let scope = (tick >= 8).then(mem_sys::warm_scope);
         ui.frame(&input().time(tick as f64 / 60.0), &mut |ui: &mut Ui| {
             ui.panel("data", &crate::Overlay::DEFAULT, &mut |ui: &mut Ui| {
-                let r = ui.text_area("area", source, pxui_types::geom::Rect::new(0.0, 0.0, 100.0, 100.0), &area, &callbacks);
+                let r = ui.text_area("area", source, pxui_types::Node::DEFAULT.at(0.0, 0.0).w_px(100.0).h_px(100.0), &area, &callbacks);
                 assert_eq!((r.changed, r.submitted), (None, false));
                 let v = ui.value_field("amount", "0.25", pxui_types::geom::Rect::new(0.0, 110.0, 100.0, 20.0), &ValueField::DEFAULT.fraction(0.5), &value_callbacks);
                 assert_eq!((v.changed, v.editing), (None, false));
@@ -2412,7 +2412,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
     let visible = Cell::new(true);
     let mut build = |ui: &mut Ui| {
         if !visible.get() { return; }
-        let body = ui.grid_list("virtual-carry", 10_000, 320.0, 20.0, &mut |ui, index| {
+        let body = ui.grid_list("virtual-carry", 10_000, &crate::GridList::DEFAULT.w_px(320.0).h_px(20.0), &mut |ui, index| {
             let row = ui.node("row", Node::DEFAULT.flags(pxui_types::Flags::CLICKABLE).w(Size::Grow).h(Size::Grow));
             if index == 0 {
                 source.set(Some(row));
@@ -3498,8 +3498,8 @@ fn u1b1_results_follow_item_ids_report_phases_roots_and_menus_without_warm_alloc
         seg.set(Some(ui.segmented("seg", &POSITIONAL, None, &crate::Segmented::DEFAULT)));
         slide.set(Some(ui.slider("vol", "Volume", 0.5, 0.0..=1.0, &crate::Slider::DEFAULT)));
         split.set(Some(ui.split("split", 0.5, &crate::Split::DEFAULT, &mut |_| {}, &mut |_| {})));
-        panel.set(Some(ui.panel("p", &crate::Overlay::DEFAULT.at(200.0, 150.0).w(100.0), |_| {})));
-        if popup_open.get() { popup.set(Some(ui.popup("pop", &crate::Overlay::DEFAULT.at(250.0, 10.0).w(60.0).h(20.0), |_| {}))); }
+        panel.set(Some(ui.panel("p", &crate::Overlay::DEFAULT.at(crate::Point::new(200.0, 150.0)).w_px(100.0), |_| {})));
+        if popup_open.get() { popup.set(Some(ui.popup("pop", &crate::Overlay::DEFAULT.at(crate::Point::new(250.0, 10.0)).w_px(60.0).h_px(20.0), |_| {}))); }
     };
     let id_of = |ui: &Ui, name: &str| ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == name).map(|n| n.id).expect(name);
     for _ in 0..2 { testing::frame(&mut ui, &[], &mut build); }
@@ -3706,4 +3706,34 @@ fn u1b3_fractional_sizes_and_the_painters_text_service_without_warm_allocations(
     assert_eq!(mem_sys::local_alloc_count(), 0, "a warm painter measure and label spans allocate nothing");
     assert_eq!(painted.get().0, expected.width, "the painter measures what the Ui measures");
     assert!(painted.get().1 > 0.0);
+}
+
+#[test]
+fn scroll_views_and_text_areas_take_flow_nodes_and_allocate_nothing_when_warm() {
+    use crate::{AreaCallbacks, TextArea};
+    use std::cell::Cell;
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let (scroll, first, second, area) = (Cell::new(None), Cell::new(None), Cell::new(None), Cell::new(None));
+    let mut build = |ui: &mut Ui| {
+        ui.node("top", Node::DEFAULT.h_px(20.0));
+        scroll.set(Some(ui.scroll_view("strip", Node::row().pad(4.0).h_px(50.0), |ui| {
+            first.set(Some(ui.node("a", Node::DEFAULT.w_px(30.0).h_px(10.0))));
+            second.set(Some(ui.node("b", Node::DEFAULT.w_px(30.0).h_px(10.0))));
+        })));
+        area.set(Some(ui.text_area("notes", "one\ntwo", Node::DEFAULT.h_px(40.0), &TextArea::DEFAULT, &AreaCallbacks::DEFAULT).response.handle));
+    };
+    for time in 0..10 {
+        mem_sys::local_reset();
+        let scope = (time >= 8).then(mem_sys::warm_scope);
+        ui.frame(&input().time(time as f64 / 60.0), &mut build).unwrap();
+        let allocated = mem_sys::local_alloc_count();
+        drop(scope);
+        if time >= 8 { assert_eq!(allocated, 0, "warm scroll view and text area"); assert!(mem_sys::take_reports().is_empty()); }
+    }
+    let (s, a, b, t) = (ui.rect(&scroll.get().unwrap()), ui.rect(&first.get().unwrap()), ui.rect(&second.get().unwrap()), ui.rect(&area.get().unwrap()));
+    assert_eq!((s.y, s.h), (20.0, 50.0), "the scroll view flows after the first node at its node's height");
+    assert_eq!((a.x - s.x, a.y - s.y), (5.0, 5.0), "the content sits a point inside the node's padding");
+    assert_eq!(b.x, a.x + 30.0, "the content flows on the node's axis");
+    assert_eq!((t.y, t.w, t.h), (70.0, 320.0, 40.0), "the text area flows after the scroll view, filling the width");
 }

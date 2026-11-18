@@ -1076,8 +1076,10 @@ impl Ui {
     /// one undo step before `select`. Returns the new text on the frames it changed (borrowed until
     /// the next call on the Ui) and the submit.
     #[allow(clippy::too_many_arguments)]
-    pub fn text_area_submit(&mut self, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (Option<&str>, bool) {
-        let (changed, submitted) = text_area_submit_body(self, at, w, h, o, label, text);
+    /// `place` lays the area out under the current parent (any size, padding or `at`); the wrap width is `place.w` when it is
+    /// `Px`, else the area's width from the last layout.
+    pub fn text_area_submit(&mut self, place: Node, o: &TextAreaOpts, label: &str, text: &str) -> (Option<&str>, bool) {
+        let (changed, submitted) = text_area_submit_body(self, place, o, label, text);
         (changed.then_some(self.returned.as_str()), submitted)
     }
 }
@@ -1107,6 +1109,18 @@ struct AreaPaint {
     theme: Tokens,
     /// the area's ground, gutter rule (`border`), text, selection and caret
     look: Look,
+}
+
+/// `n` in decimal, written into `buf` (a line number painted per frame without allocating).
+fn decimal(buf: &mut [u8; 20], mut n: usize) -> &str {
+    let mut i = buf.len();
+    loop {
+        i -= 1;
+        buf[i] = b'0' + (n % 10) as u8;
+        n /= 10;
+        if n == 0 { break; }
+    }
+    core::str::from_utf8(&buf[i..]).unwrap_or_default()
 }
 
 impl AreaPaint {
@@ -1165,8 +1179,9 @@ impl AreaPaint {
                 paint.fill(bx, y, bw, row, theme.faint_border());
             }
             if starts_line {
-                let number = (logical + 1).to_string();
-                let number_x = bx + gutter - 10.0 - paint.text_width(Some(small), &number);
+                let mut digits = [0u8; 20];
+                let number = decimal(&mut digits, logical + 1);
+                let number_x = bx + gutter - 10.0 - paint.text_width(Some(small), number);
                 if wrong {
                     paint.fill(number_x - 10.0, y + row / 2.0 - 3.0, 6.0, 6.0, theme.invalid);
                 }
@@ -1180,7 +1195,7 @@ impl AreaPaint {
                     } else {
                         theme.ink_3()
                     },
-                    &number,
+                    number,
                 );
             }
             clip(paint, bx + gutter, bw - gutter);
@@ -1367,14 +1382,14 @@ impl Ui {
 // Method bodies outside `impl` blocks: each module is its own codegen unit, so the big bodies
 // compile in parallel with the rest of the crate (rustc places methods with their type).
 /// Whether the text changed (the new one is in `returned`) and whether it was submitted.
-fn text_area_submit_body(this: &mut Ui, at: (f32, f32), w: f32, h: f32, o: &TextAreaOpts, label: &str, text: &str) -> (bool, bool) {
+fn text_area_submit_body(this: &mut Ui, place: Node, o: &TextAreaOpts, label: &str, text: &str) -> (bool, bool) {
     // a line of code is one and a half times its text, as code editors set it (17 points at
     // 11, 20 at 13): the 24-point row is a control's, twice the text
     let row = this.text_line_height() as f32;
-    let body = this.box_(
-        label,
-        BoxOpts::default().flags(Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::SCROLL | Flags::CLIP | Flags::KEEP_TAB).at(at).w(Size::Px(w)).h(Size::Px(h)).scroll_step(row),
-    );
+    let flags = place.flags | Flags::CLICKABLE | Flags::FOCUSABLE | Flags::BLOCKING | Flags::SCROLL | Flags::CLIP | Flags::KEEP_TAB;
+    let body = this.node_ref(label, &Node { flags, scroll_step: row, ..place });
+    // a flow width is known from the last layout (the area's geometry is retained across frames)
+    let w = match place.w { Size::Px(w) => w, _ => this.rect(&body).w };
     this.input_box = Some(body);
     // a `select` request takes the keyboard for the area
     if o.select.is_some() {

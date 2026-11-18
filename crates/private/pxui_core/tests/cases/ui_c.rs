@@ -527,7 +527,7 @@ pub fn window_pxui_modal_1() {
     let shown = Cell::new(false);
     let modal = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            shown.set(ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.w(200.0).name("modal"), &mut |ui| ui.label("Hello", pxui_core::ui::Label::DEFAULT)).open);
+            shown.set(ui.modal("modal", &pxui_core::ui::Overlay::DEFAULT.w_px(200.0).name("modal"), &mut |ui| ui.label("Hello", pxui_core::ui::Label::DEFAULT)).open);
         });
     };
     modal(&mut ui, vec![]);
@@ -560,9 +560,9 @@ pub fn floating_roots_are_layers_with_their_roles() {
     for _ in 0..2 {
         ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| {
             ui.label("Base", pxui_core::ui::Label::DEFAULT);
-            ui.popup("popup", &Overlay::DEFAULT.at(20.0, 20.0).w(120.0).h(40.0).dismiss_initial(), &mut |ui| ui.label("One", pxui_core::ui::Label::DEFAULT));
-            ui.modal("modal", &Overlay::DEFAULT.w(160.0), &mut |ui| ui.label("Two", pxui_core::ui::Label::DEFAULT));
-            ui.anchored("anchored", anchor, &Overlay::DEFAULT.place(placement).w(60.0).h(20.0), &mut |_| {});
+            ui.popup("popup", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(20.0, 20.0)).w_px(120.0).h_px(40.0).dismiss_initial(), &mut |ui| ui.label("One", pxui_core::ui::Label::DEFAULT));
+            ui.modal("modal", &Overlay::DEFAULT.w_px(160.0), &mut |ui| ui.label("Two", pxui_core::ui::Label::DEFAULT));
+            ui.anchored("anchored", anchor, &Overlay::DEFAULT.place(placement).w_px(60.0).h_px(20.0), &mut |_| {});
         });
     }
     let roles: Vec<(LayerRole, Rect)> = ui.output().draw.iter().map(|l| (l.role, l.anchor)).collect();
@@ -582,7 +582,7 @@ pub fn floating_roots_past_the_layer_limit_share_a_merged_layer() {
     for _ in 0..2 {
         ui.frame(&frame_at(vec![], 1.0, 0.0, vec![]), &mut |ui| {
             for i in 0..roots {
-                ui.anchored(&format!("root{i}"), anchor(i), &Overlay::DEFAULT.w(4.0).h(4.0), &mut |_| {});
+                ui.anchored(&format!("root{i}"), anchor(i), &Overlay::DEFAULT.w_px(4.0).h_px(4.0), &mut |_| {});
             }
         });
     }
@@ -613,7 +613,7 @@ pub fn window_pxui_modal_2() {
     let shown = Cell::new(false);
     let popup = |ui: &mut Ui, events: Vec<Event>| {
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
-            shown.set(ui.popup("popup", &pxui_core::ui::Overlay::DEFAULT.at(20.0, 20.0).w(200.0).h(10.0).dismiss_initial().name("popup"), &mut |ui| {
+            shown.set(ui.popup("popup", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(20.0, 20.0)).w_px(200.0).h_px(10.0).dismiss_initial().name("popup"), &mut |ui| {
                 ui.label("One", pxui_core::ui::Label::DEFAULT);
                 ui.label("Two", pxui_core::ui::Label::DEFAULT);
             }).open);
@@ -735,7 +735,7 @@ pub fn window_pxui_carry() {
         let mut out = (None, None, false);
         ui.frame(&frame_at(vec![], 1.0, 0.0, events), &mut |ui| {
             if popup.get() {
-                ui.popup("over", &pxui_core::ui::Overlay::DEFAULT.at(200.0, 0.0).w(100.0).h(40.0).dismiss_initial().name("over"), &mut |_| {});
+                ui.popup("over", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(200.0, 0.0)).w_px(100.0).h_px(40.0).dismiss_initial().name("over"), &mut |_| {});
             }
             let source = ui.box_("source", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 0.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));
             let target = ui.box_("target", BoxOpts::default().flags(Flags::CLICKABLE).at((0.0, 100.0)).w(Size::Px(100.0)).h(Size::Px(40.0)));

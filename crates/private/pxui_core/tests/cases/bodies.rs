@@ -1035,7 +1035,7 @@ fn open_then_dismiss(ui: &Ui) -> Vec<Vec<Event>> {
 pub fn popup_banded_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.popup = id, &|ui| ui.register_popup_body("banded", banded_sheet));
     let got = swap_root("popup", &install, 1, false, &open_then_dismiss, &|ui, c| {
-        if !ui.popup("pop", &pxui_core::ui::Overlay::DEFAULT.at(10.0, 10.0).w(200.0).h(100.0).dismiss_initial().name("pop"), &mut |ui| go_button(ui, c)).open {
+        if !ui.popup("pop", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(10.0, 10.0)).w_px(200.0).h_px(100.0).dismiss_initial().name("pop"), &mut |ui| go_button(ui, c)).open {
             c.b.set(c.b.get() + 1);
         }
     });
@@ -1213,7 +1213,7 @@ pub fn scroll_view_square_body() {
     let install = |ui: &mut Ui| pick(ui, &|t, id| t.body.scroll_view = id, &|ui| ui.register_scroll_view_body("square", square_scroll));
     let script = |_: &Ui| vec![vec![move_to((50, 40))], vec![Event::Scrolled((0.0, -30.0))], vec![], vec![]];
     let got = swap_root("scroll_view", &install, 1, false, &script, &|ui, c| {
-        let sv = ui.scroll_view("sv", Size::Px(100.0), Size::Px(50.0), &mut |ui| {
+        let sv = ui.scroll_view("sv", Node::DEFAULT.w_px(100.0).h_px(50.0), &mut |ui| {
             c.built();
             for _ in 0..10 {
                 ui.node("row".into(), Node { h: Size::Px(24.0), ..Node::DEFAULT });

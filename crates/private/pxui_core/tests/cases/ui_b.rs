@@ -38,7 +38,7 @@ pub fn window_pxui_picker() {
             vec![]
         };
         host_frame(ui, &frame_at(keys, 1.0, 0.0, events), &mut |ui| {
-            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).name("p"), &mut |ui| {
+            ui.panel("p", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(0.0, 0.0)).w_px(240.0).name("p"), &mut |ui| {
                 let off: Rc<dyn Fn(i64) -> bool> = {
                     let (off_index, all_off) = (off_index.clone(), all_off.clone());
                     Rc::new(move |index| !all_off.get() && index == off_index.get())
@@ -257,7 +257,7 @@ impl Rig {
         let area = &mut self.area;
         let submitted = &mut self.submitted;
         host_frame(&mut self.ui, &frame_at(o.keys, 1.0, self.time, events), &mut |ui| {
-            let (text, submit) = ui.text_area_submit((0.0, 0.0), 300.0, 96.0, &opts, "area", area);
+            let (text, submit) = ui.text_area_submit(Node::DEFAULT.at(0.0, 0.0).w_px(300.0).h_px(96.0), &opts, "area", area);
             if let Some(text) = text { *area = text.to_owned(); }
             *submitted = submit;
         });

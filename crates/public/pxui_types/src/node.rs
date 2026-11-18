@@ -268,6 +268,33 @@ pub struct Node {
 }
 
 impl Node {
+    /// Sets the declared interaction state.
+    ///
+    /// The engine uses it when choosing interaction transitions.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node, theme::State};
+    /// let _ = Node::DEFAULT.state(State::default().checked(true));
+    /// ```
+    pub const fn state(self, state: State) -> Node { Node { state, ..self } }
+
+    /// Sets or clears the node's transition.
+    ///
+    /// The curve is checked when the node is built.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{Node, node::Transition};
+    /// let _ = Node::DEFAULT.transition(Some(Transition::Spring { omega: 12.0 }));
+    /// ```
+    pub const fn transition(self, transition: Option<Transition>) -> Node {
+        let transition = match transition { Some(curve) => OptTransition::Some(curve), None => OptTransition::None };
+        Node { transition, ..self }
+    }
+
     pub const DEFAULT: Node = Node {
         size: core::mem::size_of::<Node>() as u32,
         flags: Flags::NONE,

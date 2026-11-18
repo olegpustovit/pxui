@@ -60,7 +60,7 @@ pub mod ui {
         UndoKind, DRAG_THRESHOLD, ROOT_KEY, int_key, key_of,
     };
     pub use pxui_types::{Flags, Image, Size};
-    pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node};
+    pub use pxui_types::node::{Axis, Bar, Dir, Mark, Node, Transition};
     pub use pxui_types::draw::*;
     pub use pxui_types::geom::*;
     pub use pxui_types::layout::*;
@@ -105,7 +105,7 @@ pub use ui_state::{Bytes, Ime, Platform};
 mod node;
 mod author;
 pub use author::{hash_of, AreaCallbacks, AreaNote, BracketsFn, Button, ColorizeFn, CompleteFn, ContextAtFn, DescribeFn, Icon, IconButton, IndentFn, Key, Language, LineField, LineFieldResponse, NumberAtFn, Picker, Pressable, Response, Reveal, RewriteFn, ScrubFn, Scrubber, SearchField, SearchFieldResponse, Segmented, SlideFn, Splice, TextArea, TextAreaResponse, TextField, TextFieldResponse, Toggle, ValidFn, ValueCallbacks, ValueField, ValueFieldResponse};
-pub use author::{OverlayResponse, PickResponse, Radio, SliderResponse, SplitResponse};
+pub use author::{Badge, GridList, OverlayResponse, PickResponse, Progress, Radio, SliderResponse, Spinner, SplitResponse};
 pub use kit::{MenuBar, MenuBarMenu, Split};
 pub use pxui_types::ui::Segment;
 #[cfg(test)]

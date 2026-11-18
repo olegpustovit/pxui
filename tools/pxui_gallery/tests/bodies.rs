@@ -8,7 +8,7 @@ mod run;
 
 #[cfg(feature = "static")]
 mod identical {
-    use abi_bench::{gallery::{page, Gallery, PAGES, PAGE_H, PAGE_W}, pxui::{text::Text, Size, Theme, Ui}};
+    use abi_bench::{gallery::{page, Gallery, PAGES, PAGE_H, PAGE_W}, pxui::{text::Text, Size, Theme, Ui as Pages}, Engine as Ui};
     use input::{frame::Frame, Event, MouseButton, Platform};
     use std::path::PathBuf;
 
@@ -41,7 +41,7 @@ mod identical {
             self.frame.input.events = events;
             let revision = if rebuild { self.count } else { 1 };
             let state = &mut self.state;
-            self.ui.frame(&self.frame, &mut |ui: &mut Ui| { ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(ui, state, index)); });
+            self.ui.frame(&self.frame, &mut |ui: &mut Ui| { ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut Ui| page(Pages::of(ui), state, index)); });
         }
 
         /// The frame's layers as bytes: key, id, every instance field, every break.

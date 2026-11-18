@@ -142,7 +142,7 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
             s.quit = true;
         }
     });
-    ui.panel("inspector", &Overlay::DEFAULT.at(332.0, 12.0).w(296.0).window(), &mut |ui: &mut Ui| {
+    ui.panel("inspector", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0).window(), &mut |ui: &mut Ui| {
         let _ = ui.inspector_section("section", true, None, "Inspector", &mut |ui: &mut Ui| {
             s.snap = ui.inspector_toggle("snap", "Snap", s.snap);
             let _ = ui.inspector_readout(None, "count", "Points", "1,024");
@@ -175,26 +175,26 @@ pub fn kit_page(ui: &mut Ui, s: &mut Gallery) {
 /// The controls page: every value widget, two columns.
 pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
     s.busy.clear();
-    ui.panel("values", &Overlay::DEFAULT.w(296.0), &mut |ui: &mut Ui| {
+    ui.panel("values", &Overlay::DEFAULT.w_px(296.0), &mut |ui: &mut Ui| {
         ui.label("Values", pxui::Label::DEFAULT);
         s.check = s.check != ui.checkbox("snap-to-grid", "Snap to grid", s.check, &pxui::Checkbox::DEFAULT).clicked;
         s.radio = ui.radio("quality", &[pxui::Segment::new("Draft"), pxui::Segment::new("Normal"), pxui::Segment::new("Final")], Some(s.radio), &pxui::Radio::DEFAULT.name("Quality")).chosen.unwrap_or(s.radio);
         s.slider = ui.slider("opacity", "Opacity", s.slider, 0.0..=1.0, &pxui::Slider::DEFAULT).value;
-        let _ = ui.progress("export", "Export", Some(s.slider));
-        let p = ui.progress("indexing", "Indexing", None);
+        let _ = ui.progress("export", "Export", Some(s.slider), &pxui::Progress::DEFAULT);
+        let p = ui.progress("indexing", "Indexing", None, &pxui::Progress::DEFAULT);
         s.busy.push(p);
         let row = node(ui, "spin-row", Node { h: Size::Px(24.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 8.0, ..Node::DEFAULT });
         ui.within(&row, &mut |ui: &mut Ui| {
-            let sp = ui.spinner("loading", "Loading");
+            let sp = ui.spinner("loading", "Loading", &pxui::Spinner::DEFAULT);
             s.busy.push(sp);
-            let b = ui.badge("count", "Count", "NEW");
+            let b = ui.badge("count", "Count", "NEW", &pxui::Badge::DEFAULT);
             ui.tooltip(&b, "A badge: a small label in the accent");
         });
         s.segment = ui.segmented("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.segment), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.segment);
         const BLENDS: [pxui::Segment; 5] = [pxui::Segment::new("Normal"), pxui::Segment::new("Multiply"), pxui::Segment::new("Screen"), pxui::Segment::new("Overlay"), pxui::Segment::new("Add")];
         s.choice = ui.dropdown("blend", "Blend", &BLENDS, Some(s.choice), &pxui::Dropdown::DEFAULT).chosen.unwrap_or(s.choice);
     });
-    ui.panel("more", &Overlay::DEFAULT.at(332.0, 12.0).w(296.0), &mut |ui: &mut Ui| {
+    ui.panel("more", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0), &mut |ui: &mut Ui| {
         s.tab = ui.tabs("sections", &["Layer", "Mask", "Effects"], s.tab, &pxui::Choice::DEFAULT.name("Sections")).1;
         inputs::layer_search(ui, &mut s.search);
         let row = node(ui, "icons", Node { h: Size::Px(28.0), axis: Axis::Row, align: Align::Center, padding: Edges { l: 12.0, ..Edges::ZERO }, gap: 4.0, ..Node::DEFAULT });
@@ -205,7 +205,7 @@ pub fn controls_page(ui: &mut Ui, s: &mut Gallery) {
                 }
             }
         });
-        let _ = ui.scroll_view("scroll-both", Size::Grow, Size::Px(96.0), &mut |ui: &mut Ui| {
+        let _ = ui.scroll_view("scroll-both", Node::DEFAULT.h_px(96.0), &mut |ui: &mut Ui| {
             for (i, name) in NAMES.iter().enumerate() {
                 let text = ui.theme().value.idle.text;
                 let n = node(ui, name, Node { w: Size::Px(420.0), h: Size::Px(22.0), inset: Edges { l: 8.0 + 8.0 * i as f32, ..Edges::ZERO }, look: Look { text, ..Look::NONE }, ..Node::DEFAULT });
@@ -251,7 +251,7 @@ pub fn collections_page(ui: &mut Ui, s: &mut Gallery) {
 /// The overlays page: buttons that open the dialog, a context menu, the picker in a modal and a
 /// toast; a tooltip on a resting pointer.
 pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
-    ui.panel("overlays", &Overlay::DEFAULT.w(296.0), &mut |ui: &mut Ui| {
+    ui.panel("overlays", &Overlay::DEFAULT.w_px(296.0), &mut |ui: &mut Ui| {
         ui.label("Overlays", pxui::Label::DEFAULT);
         if ui.button("Open dialog") {
             s.dialog = true;
@@ -292,7 +292,7 @@ pub fn overlays_page(ui: &mut Ui, s: &mut Gallery) {
     }
     if s.picker {
         let mut close = false;
-        let _ = ui.modal("presets", &Overlay::DEFAULT.w(240.0).name("Presets"), &mut |ui: &mut Ui| {
+        let _ = ui.modal("presets", &Overlay::DEFAULT.w_px(240.0).name("Presets"), &mut |ui: &mut Ui| {
             ui.label("Presets", pxui::Label::DEFAULT);
             let mut rows = |_: &str, rows: &mut pxui::PickRows| for n in &NAMES[..5] { rows.push(n, "09-24"); };
             let pick = inputs::presets(ui, &mut rows);
@@ -425,7 +425,7 @@ pub fn layout_page(ui: &mut Ui, s: &mut Gallery) {
     });
     demo(ui, "grid_list of 100,000", (x(1), 244.0), (col_w, 104.0), Node::DEFAULT, &mut |ui: &mut Ui| {
         let t = ui.tokens();
-        let _ = ui.grid_list("cells", 100_000, 22.0, 14.0, &mut |ui: &mut Ui, i: usize| {
+        let _ = ui.grid_list("cells", 100_000, &pxui::GridList::DEFAULT.w_px(22.0).h_px(14.0), &mut |ui: &mut Ui, i: usize| {
             let look = Look { fill: if i % 7 == 0 { t.accent } else { t.control }, border: t.panel, border_w: 1.0, ..Look::NONE };
             node(ui, "cell", Node { w: Size::Grow, h: Size::Grow, look, ..Node::DEFAULT });
         });

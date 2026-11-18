@@ -972,13 +972,16 @@ impl Ui {
         }
     }
 
-    /// A box `w` x `h` whose content (`f`'s children, laid out as a column) scrolls on both axes,
-    /// with the theme's thumbs. Returns its node.
-    pub fn scroll_view(&mut self, label: &str, w: Size, h: Size, f: &mut dyn FnMut(&mut Ui)) -> Handle {
+    /// A box laid out by `node` whose content (`f`'s children, flowing on `node`'s axis) scrolls on both axes, with the theme's
+    /// thumbs. The scroll view adds its scroll flags, look, thumbs, row scroll step and role, and keeps its one-point frame inset
+    /// inside `node`'s padding. Returns its node.
+    pub fn scroll_view(&mut self, label: &str, node: Node, f: &mut dyn FnMut(&mut Ui)) -> Handle {
         let bar = self.thumb();
         let look = self.theme().scroll_view.idle;
         let rh = self.row_px() as f32;
-        let n = self.node_ref(label, &Node { flags: Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP | Flags::BLOCKING, w, h, look, bar: Some(bar).into(), scroll_step: rh, padding: Edges::all(1.0), role: Role::ScrollArea, ..Node::DEFAULT });
+        let p = node.padding;
+        let padding = Edges { l: p.l + 1.0, t: p.t + 1.0, r: p.r + 1.0, b: p.b + 1.0 };
+        let n = self.node_ref(label, &Node { flags: node.flags | Flags::SCROLL | Flags::SCROLL_X | Flags::CLIP | Flags::BLOCKING, look, bar: Some(bar).into(), scroll_step: rh, padding, role: Role::ScrollArea, ..node });
         in_body!(self, n.box_key, n, scroll_view, default_scroll(&ScrollConfig { node: n }, f));
         n
     }

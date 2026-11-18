@@ -5,6 +5,7 @@ use core::ffi::c_void;
 use pxui_types::ffi::{PxuiAnchorDesc, PxuiDialogDesc, PxuiDialogResult, PxuiSizeDesc, Slice};
 use pxui_types::ui::{shown, Dialog, DialogButton, Chosen, Overlay};
 use pxui_types::ffi::PxuiKeyedDesc;
+use pxui_types::Node;
 
 const MAX_BUTTONS: usize = 64;
 
@@ -57,8 +58,8 @@ export!(trusted pub unsafe fn pxui_ui_modal_root(ui: *mut PxuiUi, keyed: *const 
 /// The scroll view named `name`, the body of `pxui_ui_scroll_view` and `pxui_ui_scroll_view_keyed`.
 unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
     if out.is_null() { return unsafe { fail(ui, "null scroll view output") }; }
-    let (Some(width), Some(height)) = (size(width), size(height)) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
-    unsafe { crate::trusted::scroll_view(ui, key, name, width, height, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
+    let (Some(w), Some(h)) = (size(width), size(height)) else { return unsafe { fail(ui, "invalid scroll view arguments") }; };
+    unsafe { crate::trusted::scroll_view(ui, key, name, &Node { w, h, ..Node::DEFAULT }, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
 }
 
 // Legacy (cut at 2.0): keyed by its label, named up to a `##`; `pxui_ui_scroll_view_keyed` keys apart.
@@ -73,6 +74,16 @@ export!(trusted pub unsafe fn pxui_ui_scroll_view_keyed(ui: *mut PxuiUi, keyed: 
     if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
     let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
     unsafe { scroll_view(ui, key, name, width, height, callback, user, out) }
+});
+
+// ABI 1.80: a scroll view keyed by `keyed.key`, named `keyed.name` (empty: none), laid out by the checked `node` (no grid); the frame
+// adds its scroll flags, look, thumbs, scroll step and role, and insets the content one point inside the node's padding.
+export!(trusted pub unsafe fn pxui_ui_scroll_view_node(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, node: *const Node, callback: Build, user: *mut c_void, out: *mut PxuiBox) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some((key, name)) = (unsafe { crate::widgets::read_keyed(keyed) }) else { return unsafe { fail(ui, "invalid keyed descriptor") } };
+    let Some(node) = (unsafe { crate::node::checked_node(node) }) else { return unsafe { fail(ui, "invalid scroll view node") } };
+    if out.is_null() { return unsafe { fail(ui, "null scroll view output") }; }
+    unsafe { crate::trusted::scroll_view(ui, key, name, node, &mut |ui| if let Some(callback) = callback { callback(user, ui.cast()) }, &mut *out) }
 });
 
 unsafe fn view_with(ui: *mut PxuiUi, label: Str, revision: u64, width: PxuiSizeDesc, height: PxuiSizeDesc, callback: Build, user: *mut c_void, out: *mut PxuiBox, flat: bool) -> i32 {

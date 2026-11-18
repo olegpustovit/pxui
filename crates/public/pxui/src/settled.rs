@@ -69,7 +69,7 @@ fn engine_shaped(ui: &mut Ui, s: &mut State) {
     });
     s.seen += ui.selection_list("items", 3, &mut [0; 3], &crate::SelectionList::DEFAULT, &mut |ui, row| ui.item_text(["one", "two", "three"][row])).activated.is_some() as u64;
     s.seen += ui.table_view("table", &["Name", "Size"], &mut [], 3, &mut None, &crate::TableView::text(crate::ui::Rect::new(0.0, 0.0, 120.0, 60.0)), &mut |ui, _, column| ui.item_text(if column == 0 { "row" } else { "1" })).row.is_some() as u64;
-    s.seen += ui.popup("popup", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(80.0).h(30.0).dismiss_initial(), &mut |ui: &mut Ui| { ui.label("popped", crate::Label::DEFAULT); }).open as u64;
+    s.seen += ui.popup("popup", &crate::Overlay::DEFAULT.at(crate::Point::new(10.0, 10.0)).w_px(80.0).h_px(30.0).dismiss_initial(), &mut |ui: &mut Ui| { ui.label("popped", crate::Label::DEFAULT); }).open as u64;
 }
 
 #[test]

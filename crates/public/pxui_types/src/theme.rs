@@ -1565,6 +1565,63 @@ pub struct State {
     pub checked: bool,
 }
 
+impl State {
+    /// Sets the hovered interaction state.
+    ///
+    /// Other state fields keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::theme::State::default().hovered(true).hovered);
+    /// ```
+    pub const fn hovered(self, hovered: bool) -> State { State { hovered, ..self } }
+
+    /// Sets the pressed interaction state.
+    ///
+    /// Other state fields keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::theme::State::default().pressed(true).pressed);
+    /// ```
+    pub const fn pressed(self, pressed: bool) -> State { State { pressed, ..self } }
+
+    /// Sets the focused interaction state.
+    ///
+    /// Other state fields keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::theme::State::default().focused(true).focused);
+    /// ```
+    pub const fn focused(self, focused: bool) -> State { State { focused, ..self } }
+
+    /// Sets the disabled interaction state.
+    ///
+    /// Other state fields keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::theme::State::default().disabled(true).disabled);
+    /// ```
+    pub const fn disabled(self, disabled: bool) -> State { State { disabled, ..self } }
+
+    /// Sets the checked interaction state.
+    ///
+    /// Other state fields keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert!(pxui_types::theme::State::default().checked(true).checked);
+    /// ```
+    pub const fn checked(self, checked: bool) -> State { State { checked, ..self } }
+}
+
 /// A look per interaction state, plus `checked` for a widget that is on, current or selected.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -4,6 +4,11 @@ use crate::{Event, PxuiBox, Str, geom::{Edges, Rect, Rgba}};
 #[repr(C)]
 #[derive(Clone, Copy, Debug)]
 pub struct Slice<T> { pub ptr: *const T, pub len: usize }
+
+impl From<&'static [u8]> for Slice<u8> {
+    /// A wire byte span whose backing storage remains alive for the process.
+    fn from(value: &'static [u8]) -> Slice<u8> { Slice { ptr: value.as_ptr(), len: value.len() } }
+}
 impl<T> Default for Slice<T> { fn default() -> Self { Self { ptr: core::ptr::null(), len: 0 } } }
 
 #[repr(C)]

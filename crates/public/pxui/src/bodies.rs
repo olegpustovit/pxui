@@ -398,7 +398,7 @@ mod tests {
         let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
         ui.register_scroll_view_body("probe", scroll).expect("registered");
         ui.set_theme(&source("scroll_view.body = probe")).expect("theme");
-        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.scroll_view("list", Size::Grow, Size::Grow, &mut |ui: &mut Ui| { CONTENT.with(|c| c.set(c.get() + 1)); ui.label("row", crate::Label::DEFAULT); }); }).expect("frame");
+        ui.frame(&input(0.0), &mut |ui: &mut Ui| { ui.scroll_view("list", crate::Node::DEFAULT.h(Size::Grow), &mut |ui: &mut Ui| { CONTENT.with(|c| c.set(c.get() + 1)); ui.label("row", crate::Label::DEFAULT); }); }).expect("frame");
         assert_eq!(CONTENT.with(Cell::get), 1);
         let stale = catch_unwind(AssertUnwindSafe(|| ui.slot(SLOT.with(Cell::get))));
         assert!(stale.is_err());
@@ -414,7 +414,7 @@ mod tests {
         ui.register_scroll_view_body("probe", |ui, c| { ui.slot(c.content); }).expect("registered");
         ui.set_theme(&source("scroll_view.body = probe")).expect("theme");
         let ran = Cell::new(0);
-        let build = |ui: &mut Ui, boom: bool| { ui.scroll_view("list", Size::Grow, Size::Grow, &mut |_: &mut Ui| { ran.set(ran.get() + 1); if boom { panic!("content") } }); };
+        let build = |ui: &mut Ui, boom: bool| { ui.scroll_view("list", crate::Node::DEFAULT.h(Size::Grow), &mut |_: &mut Ui| { ran.set(ran.get() + 1); if boom { panic!("content") } }); };
         let result = catch_unwind(AssertUnwindSafe(|| { let _ = ui.frame(&input(0.0), &mut |ui: &mut Ui| build(ui, true)); }));
         assert_eq!(result.expect_err("the panic surfaces at frame()").downcast_ref::<&str>(), Some(&"content"));
         ui.frame(&input(1.0), &mut |ui: &mut Ui| build(ui, false)).expect("the next frame renders");

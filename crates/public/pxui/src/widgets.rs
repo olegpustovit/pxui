@@ -112,31 +112,31 @@ impl Ui {
 
     /// The one body of `progress`.
     #[track_caller]
-    pub(crate) fn progress_key(&mut self, key: Key, text: &str, value: Option<f32>) -> Handle {
+    pub(crate) fn progress_key(&mut self, key: Key, text: &str, value: Option<f32>, variant: u16) -> Handle {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(text));
         let mut out = Handle::default();
-        check(self, unsafe { keyed_lib::pxui_ui_progress_keyed(self.0.as_ptr(), &keyed, value.is_some() as u8, value.unwrap_or_default(), &mut out) });
+        self.with_variant(BodyKind::progress, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_progress_keyed(ui.0.as_ptr(), &keyed, value.is_some() as u8, value.unwrap_or_default(), &mut out) }));
         out
     }
 
     /// The one body of `spinner`.
     #[track_caller]
-    pub(crate) fn spinner_key(&mut self, key: Key, name: &str) -> Handle {
+    pub(crate) fn spinner_key(&mut self, key: Key, name: &str, variant: u16) -> Handle {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(name));
         let mut out = Handle::default();
-        check(self, unsafe { keyed_lib::pxui_ui_spinner_keyed(self.0.as_ptr(), &keyed, &mut out) });
+        self.with_variant(BodyKind::spinner, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_spinner_keyed(ui.0.as_ptr(), &keyed, &mut out) }));
         out
     }
 
     /// The one body of `badge`.
     #[track_caller]
-    pub(crate) fn badge_key(&mut self, key: Key, name: &str, text: &str) -> Handle {
+    pub(crate) fn badge_key(&mut self, key: Key, name: &str, text: &str, variant: u16) -> Handle {
         let mut id_label = [0u8; 17];
         let keyed = PxuiKeyedDesc::new(key.label(&mut id_label), crate::clip(name));
         let mut out = Handle::default();
-        check(self, unsafe { keyed_lib::pxui_ui_badge_keyed(self.0.as_ptr(), &keyed, crate::as_str(text), &mut out) });
+        self.with_variant(BodyKind::badge, variant, &mut |ui| check(ui, unsafe { keyed_lib::pxui_ui_badge_keyed(ui.0.as_ptr(), &keyed, crate::as_str(text), &mut out) }));
         out
     }
 

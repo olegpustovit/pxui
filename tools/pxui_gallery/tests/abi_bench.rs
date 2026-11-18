@@ -92,7 +92,7 @@ fn pointer() -> Event {
 use pxui_gallery::gpu::allocations;
 
 struct Wrapped { ui: pxui::Ui, state: Gallery, events: [Event; 1], moved: bool }
-struct Direct { ui: engine::Ui, state: direct_pages::Gallery, frame: Frame, moved: bool }
+struct Direct { ui: abi_bench::Engine, state: direct_pages::Gallery, frame: Frame, moved: bool }
 
 fn wrapped() -> Wrapped {
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
@@ -106,7 +106,7 @@ fn direct() -> Direct {
     input.pointer = (-100.0, -100.0);
     input.events = vec![HostEvent::PointerMoved((-100.0, -100.0))];
     let frame = Frame { input, pixel_scale: (1.0, 1.0), fps: 60.0, mouse_delta: (0.0, 0.0) };
-    Direct { ui: engine::Ui::create(Platform::Apple, None, engine::text::Text::new(&[DEPARTURE_MONO])), state: direct_pages::Gallery::new(), frame, moved: true }
+    Direct { ui: abi_bench::Engine::create(Platform::Apple, None, engine::text::Text::new(&[DEPARTURE_MONO])), state: direct_pages::Gallery::new(), frame, moved: true }
 }
 
 /// One frame of page `index` whose view has revision `revision` (a new one rebuilds the page, the same one settles).
@@ -126,7 +126,7 @@ fn direct_frame(d: &mut Direct, index: usize, revision: u64, count: u64) {
     d.frame.input.events.clear();
     if d.moved { d.frame.input.events.push(HostEvent::PointerMoved((-100.0, -100.0))); }
     let state = &mut d.state;
-    d.ui.frame(&d.frame, &mut |ui: &mut engine::Ui| { ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut engine::Ui| direct_pages::page(ui, state, index)); });
+    d.ui.frame(&d.frame, &mut |ui: &mut abi_bench::Engine| { ui.view("page", revision, Size::Grow, Size::Grow, &mut |ui: &mut abi_bench::Engine| direct_pages::page(engine::Ui::of(ui), state, index)); });
 }
 
 /// Retired instructions per forced rebuild, the fewest of `INSTRUCTION_ROUNDS` rounds of `INSTRUCTION_FRAMES` (the process's count, so
@@ -311,7 +311,7 @@ fn abi_bench_instances() {
             wrapped_frame(&mut w, index, 1, count);
             direct_frame(&mut d, index, 1, count);
         }
-        let from_wrapper = unsafe { &*w.ui.engine_ptr().cast::<engine::Ui>() };
+        let from_wrapper = unsafe { &*w.ui.engine_ptr().cast::<abi_bench::Engine>() };
         let (a, b) = (from_wrapper.output().draw, d.ui.output().draw);
         assert_eq!(a.len(), b.len(), "{name}: layer count");
         let mut bytes = 0;

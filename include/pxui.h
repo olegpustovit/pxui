@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 79u)
+#define PXUI_ABI_BUILT ((1u << 16) | 80u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -770,6 +770,9 @@ typedef struct {
     uint32_t (*context_at)(void *user, PxuiStr text, int64_t caret); void (*rewrite)(void *user, PxuiStr text, int64_t caret, PxuiRewrite *out);
 } PxuiAreaCallbacks;
 int32_t pxui_ui_text_area_submit(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiAreaCallbacks *callbacks, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted);
+/* ABI 1.80: pxui_ui_text_area_submit laid out by node under the current parent (checked as pxui_ui_node checks it; no grid); desc's
+   x, y, width and height are ignored. The wrap width is node's Px width, else the area's width from the last layout. */
+int32_t pxui_ui_text_area_node(PxuiUi *ui, const PxuiTextAreaDesc *desc, const PxuiNode *node, const PxuiAreaCallbacks *callbacks, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_submitted);
 int32_t pxui_ui_patch_field(PxuiUi *ui, const PxuiBox *field, const PxuiValueFieldDesc *desc, PxuiStr text, uint8_t *out); /* the field's value and soft-range line written by patches, as its build lays them out; out is 0 when a patch cannot show it (a lead, a value too wide beside its trail): build the field's view */
 int32_t pxui_ui_value_field(PxuiUi *ui, const PxuiValueFieldDesc *desc, PxuiTextValid valid, PxuiSlideText slide, PxuiScrubText scrub, void *user, PxuiStr *out_text, uint8_t *out_changed, uint8_t *out_editing); /* the callbacks run only during the call; slide and scrub write their text, borrowed until their next callback */
 int32_t pxui_ui_load_text_edit(PxuiUi *ui, int64_t key, PxuiStr text, PxuiStr *out_text, uint64_t *caret, uint64_t *anchor);
@@ -1081,6 +1084,9 @@ int32_t pxui_ui_popup_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiPo
 int32_t pxui_ui_modal_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, uint8_t has_width, float width, PxuiBuild build, void *user, uint8_t *out);
 int32_t pxui_ui_anchored_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiAnchorDesc *anchor, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
 int32_t pxui_ui_scroll_view_keyed(PxuiUi *ui, const PxuiKeyedDesc *keyed, PxuiSizeDesc width, PxuiSizeDesc height, PxuiBuild build, void *user, PxuiBox *out);
+/* ABI 1.80: the scroll view laid out by node (checked as pxui_ui_node checks it; no grid): the frame adds its scroll flags, look,
+   thumbs, row scroll step and role, and insets the content one point inside the node's padding. */
+int32_t pxui_ui_scroll_view_node(PxuiUi *ui, const PxuiKeyedDesc *keyed, const PxuiNode *node, PxuiBuild build, void *user, PxuiBox *out);
 /* ABI 1.76: one result per call. pxui_ui_pick is a radio group (kind 0) or dropdown (3) of items, selected read when has_selected is 1,
    reporting the choice (none for none) and the item a secondary press began on; pxui_ui_segmented_items is pxui_ui_segmented_result with
    the options as items (desc->names empty). The slider and scrub results fill a PxuiScrubOut: flags 1

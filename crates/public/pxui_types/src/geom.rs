@@ -70,6 +70,61 @@ pub struct Rgba {
 }
 
 impl Edges {
+    /// Sets all four insets in logical points.
+    ///
+    /// The order is left, top, right, bottom.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::Edges::new(1.0, 2.0, 3.0, 4.0).b, 4.0);
+    /// ```
+    pub const fn new(l: f32, t: f32, r: f32, b: f32) -> Edges { Edges { l, t, r, b } }
+
+    /// Sets the left inset in logical points.
+    ///
+    /// Other edges keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::Edges::all(0.0).l(4.0).l, 4.0);
+    /// ```
+    pub const fn l(self, points: f32) -> Edges { Edges { l: points, ..self } }
+
+    /// Sets the top inset in logical points.
+    ///
+    /// Other edges keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::Edges::all(0.0).t(4.0).t, 4.0);
+    /// ```
+    pub const fn t(self, points: f32) -> Edges { Edges { t: points, ..self } }
+
+    /// Sets the right inset in logical points.
+    ///
+    /// Other edges keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::Edges::all(0.0).r(4.0).r, 4.0);
+    /// ```
+    pub const fn r(self, points: f32) -> Edges { Edges { r: points, ..self } }
+
+    /// Sets the bottom inset in logical points.
+    ///
+    /// Other edges keep their values.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::geom::Edges::all(0.0).b(4.0).b, 4.0);
+    /// ```
+    pub const fn b(self, points: f32) -> Edges { Edges { b: points, ..self } }
+
     /// No inset on any side.
     pub const ZERO: Edges = Edges { l: 0.0, t: 0.0, r: 0.0, b: 0.0 };
     /// Edges with the same inset `v` points on all four sides.

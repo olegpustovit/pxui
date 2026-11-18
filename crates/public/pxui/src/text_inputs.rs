@@ -12,7 +12,7 @@ pub use pxui_types::ui::ScrubPhase;
 pub const AREA_DATA: usize = 64;
 
 library!(lib {
-    fn pxui_ui_text_area_submit(ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, cbs: *const PxuiAreaCallbacks, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8) -> i32;
+    fn pxui_ui_text_area_node(ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const pxui_types::Node, cbs: *const PxuiAreaCallbacks, out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8) -> i32;
     fn pxui_ui_value_field(ui: *mut PxuiUi, desc: *const PxuiValueFieldDesc, valid: Option<extern "C" fn(*mut c_void, Str) -> u8>, slide: Option<extern "C" fn(*mut c_void, f32, *mut Str)>, scrub: Option<extern "C" fn(*mut c_void, Str, f32, u8, *mut Str)>, user: *mut c_void, out_text: *mut Str, out_changed: *mut u8, out_editing: *mut u8) -> i32;
     fn pxui_ui_patch_field(ui: *mut PxuiUi, box_: *const PxuiBox, desc: *const PxuiValueFieldDesc, text: Str, out: *mut u8) -> i32;
     fn pxui_ui_line_field(ui: *mut PxuiUi, x: f32, y: f32, w: f32, h: f32, grab: u8, placeholder: Str, label: Str, value: Str, text: *mut Str, step: *mut u32) -> i32;
@@ -216,10 +216,9 @@ impl Ui {
 
     /// The one body of `text_area`.
     #[track_caller]
-    pub(crate) fn text_area_key(&mut self, key: Key, value: &str, rect: Rect, o: &TextArea<'_>, cb: &AreaCallbacks<'_>) -> TextAreaResponse<'_> {
+    pub(crate) fn text_area_node(&mut self, key: Key, value: &str, node: pxui_types::Node, o: &TextArea<'_>, cb: &AreaCallbacks<'_>) -> TextAreaResponse<'_> {
         let mut id_label = [0u8; 17];
         let label = key.label(&mut id_label);
-        let (at, width, height) = ((rect.x, rect.y), rect.w, rect.h);
         let lang = cb.language.as_ref();
         // the data crosses in fixed stack buffers (no heap per call): at most `AREA_DATA` of each kind, `AREA_DATA / 2` bracket pairs
         assert!(o.errors.len() <= AREA_DATA && o.notes.len() <= AREA_DATA && o.spans.len() <= AREA_DATA && o.splices.len() <= AREA_DATA && o.chips.len() <= AREA_DATA
@@ -242,7 +241,8 @@ impl Ui {
             size: core::mem::size_of::<PxuiTextAreaDesc>() as u32,
             flags: has(o.wrap, PxuiTextAreaDesc::WRAP) | has(o.reveal.is_some(), PxuiTextAreaDesc::HAS_REVEAL) | has(o.select.is_some(), PxuiTextAreaDesc::HAS_SELECT)
                 | has(lang.is_some(), PxuiTextAreaDesc::HAS_LANGUAGE) | has(lang.is_some_and(|l| l.rewrite.is_some()), PxuiTextAreaDesc::HAS_REWRITE),
-            x: at.0, y: at.1, width, height, reveal: o.reveal.map_or(0, |r| engine(r.at)), reveal_nonce: o.reveal.map_or(0, |r| r.request as i64),
+            // ignored: `node` lays the area out
+            x: 0.0, y: 0.0, width: 0.0, height: 0.0, reveal: o.reveal.map_or(0, |r| engine(r.at)), reveal_nonce: o.reveal.map_or(0, |r| r.request as i64),
             select: o.select.map_or(PxuiRange::default(), |(start, end)| PxuiRange { start: engine(start), end: engine(end) }), label: as_str(label), value: as_text(value),
             errors: Slice { ptr: errors.as_ptr(), len: o.errors.len() }, messages: Slice { ptr: messages.as_ptr(), len: o.notes.len() },
             spans: Slice { ptr: spans.as_ptr(), len: o.spans.len() }, splice: Slice { ptr: splice.as_ptr(), len: o.splices.len() }, chips: Slice { ptr: chips.as_ptr(), len: o.chips.len() },
@@ -270,7 +270,7 @@ impl Ui {
             rewrite: lang.and_then(|l| l.rewrite).map(|_| rewrite as extern "C" fn(*mut c_void, Str, i64, *mut PxuiRewrite)),
         };
         let (mut out, mut changed, mut submitted) = (Str::default(), 0, 0);
-        check(self, unsafe { lib::pxui_ui_text_area_submit(self.0.as_ptr(), &desc, &cbs, &mut out, &mut changed, &mut submitted) });
+        check(self, unsafe { lib::pxui_ui_text_area_node(self.0.as_ptr(), &desc, &node, &cbs, &mut out, &mut changed, &mut submitted) });
         let response = self.input_response(changed != 0, Some(o.name));
         TextAreaResponse { response, changed: (changed != 0).then(|| lent_str(out)), submitted: submitted != 0 }
     }
@@ -376,7 +376,7 @@ mod tests {
                 search = Some(ui.search_field("s", "x", &SearchField::DEFAULT.name("Find")).response);
                 line = Some(ui.line_field("l", "x", rect, &LineField::DEFAULT).response);
                 value = Some(ui.value_field("v", "1", Rect::new(0.0, 30.0, 100.0, 20.0), &ValueField::DEFAULT.name("Scale"), &ValueCallbacks::DEFAULT).response);
-                area = Some(ui.text_area("a", "x", Rect::new(0.0, 60.0, 100.0, 40.0), &TextArea::DEFAULT, &AreaCallbacks::DEFAULT).response);
+                area = Some(ui.text_area("a", "x", pxui_types::Node::DEFAULT.at(0.0, 60.0).w_px(100.0).h_px(40.0), &TextArea::DEFAULT, &AreaCallbacks::DEFAULT).response);
             }).expect("frame");
         }
         for r in [search, line, value, area].into_iter().flatten() { assert!(!r.changed && !r.clicked); }

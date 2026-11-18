@@ -683,15 +683,16 @@ pub unsafe fn popup(ui: *mut PxuiUi, key: &str, overlay: &Overlay, f: Inner, out
     0
 }
 
-/// A scroll view keyed by `key`, named `name` (empty: none).
+/// A scroll view keyed by `key`, named `name` (empty: none), laid out by `node` (no grid; a transition must be valid).
 #[inline]
-pub unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, width: Size, height: Size, f: Inner, out: &mut PxuiBox) -> i32 {
+pub unsafe fn scroll_view(ui: *mut PxuiUi, key: &str, name: &str, node: &Node, f: Inner, out: &mut PxuiBox) -> i32 {
     enter!(ui);
     let name = clip(name);
-    if long_key(key) || !finite(width) || !finite(height) { return unsafe { fail(ui, "invalid scroll view arguments") }; }
+    let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
+    if long_key(key) || !finite(node.w) || !finite(node.h) || node.grid.is_some() || bad_curve { return unsafe { fail(ui, "invalid scroll view arguments") }; }
     let shared = unsafe { (*ui).shared };
     let engine = unsafe { engine(ui) };
-    let b = engine.scroll_view(key, width, height, &mut |engine: &mut Ui| call_inner(shared, engine, f));
+    let b = engine.scroll_view(key, *node, &mut |engine: &mut Ui| call_inner(shared, engine, f));
     if !name.is_empty() { engine.a11y_name(&b, name); }
     *out = to_abi_box(b);
     0

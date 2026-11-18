@@ -26,7 +26,7 @@ pub fn scale(ui: &mut Ui, (x, y, w): (f32, f32, f32), scale: &mut String) {
 pub fn notes(ui: &mut Ui, notes: &mut String) {
     const AREA: TextArea = TextArea::DEFAULT.name("Notes");
     // None: unchanged. Some: the new text, borrowed until the next call on `ui`.
-    if let Some(text) = ui.text_area("notes-area", notes, Rect::new(12.0, 4.0, 270.0, 56.0), &AREA, &AreaCallbacks::DEFAULT).changed { *notes = text.to_owned(); }
+    if let Some(text) = ui.text_area("notes-area", notes, pxui_types::Node::DEFAULT.at(12.0, 4.0).w_px(270.0).h_px(56.0), &AREA, &AreaCallbacks::DEFAULT).changed { *notes = text.to_owned(); }
 }
 
 /// The layers search field.

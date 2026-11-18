@@ -224,6 +224,11 @@ pub struct Str {
     pub len: usize,
 }
 
+impl From<&'static str> for Str {
+    /// A wire span whose text remains valid for the lifetime of the process.
+    fn from(value: &'static str) -> Str { Str { ptr: value.as_ptr(), len: value.len() } }
+}
+
 /// How the platform keyboard capitalizes what is typed into a text field (`TextTraits::capitalization`).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 #[repr(u32)]
@@ -353,6 +358,21 @@ pub struct Touch {
     pub phase:u32,
 }
 
+impl Touch {
+    /// Builds a touch sample from its native scalar values.
+    ///
+    /// Position is in logical surface points and time is monotonic seconds. The consumer validates phase and pressure.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::Touch::new(1, 2, [10.0, 20.0], 0.0, 1.0, 0);
+    /// ```
+    pub const fn new(device: u64, finger: u64, at: [f64; 2], time: f64, pressure: f32, phase: u32) -> Touch {
+        Touch { device, finger, x: at[0], y: at[1], time, pressure, phase }
+    }
+}
+
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default)]
 pub struct Event {
@@ -365,6 +385,44 @@ pub struct Event {
 }
 
 impl Event {
+    /// Builds an event that carries no borrowed payload.
+    ///
+    /// Supply a scalar-only event kind. The frame validates the kind and its remaining fields.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Event;
+    /// const LOST: Event = Event::new(Event::FOCUS_LOST);
+    /// ```
+    pub const fn new(kind: u32) -> Event {
+        Event { kind, code: 0, x: 0.0, y: 0.0, value: 0.0, text: Str { ptr: core::ptr::null(), len: 0 } }
+    }
+
+    /// Builds a key edge with a raw key code.
+    ///
+    /// Use KEY_PRESSED or KEY_RELEASED. The host preserves the code as supplied.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Event;
+    /// let _ = Event::key(Event::KEY_PRESSED, u32::from('x'));
+    /// ```
+    pub const fn key(kind: u32, code: u32) -> Event { Event { code, ..Event::new(kind) } }
+
+    /// Builds a pointer event with its position and button code.
+    ///
+    /// Position is in logical surface points. A motion event may use code zero.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Event;
+    /// const MOVE: Event = Event::pointer(Event::POINTER_MOVED, 0, 10.0, 20.0);
+    /// ```
+    pub const fn pointer(kind: u32, code: u32, x: f64, y: f64) -> Event { Event { code, x, y, ..Event::new(kind) } }
+
     pub const KEY_PRESSED: u32 = 1;
     pub const KEY_RELEASED: u32 = 2;
     pub const POINTER_MOVED: u32 = 3;
@@ -411,6 +469,22 @@ pub struct Environment {
     pub keyboard_visible: u32,
 }
 
+impl Environment {
+    /// Builds the environment with the surface's safe-area insets.
+    ///
+    /// Insets are in logical points, top, right, bottom, left. No keyboard geometry is set.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const ENV: pxui_types::Environment = pxui_types::Environment::new([24.0, 0.0, 0.0, 0.0]);
+    /// ```
+    pub const fn new(safe_area: [f32; 4]) -> Environment {
+        Environment { safe_area, keyboard_frame: [0.0; 4], keyboard_from: [0.0; 4],
+            keyboard_started: 0.0, keyboard_duration: 0.0, keyboard_curve: 0, keyboard_visible: 0 }
+    }
+}
+
 /// Native presentation geometry, in logical window points; does not change Environment's frozen layout.
 #[repr(C)]
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
@@ -419,6 +493,20 @@ pub struct Keyboard {
     pub flags: u32,
 }
 impl Keyboard {
+    /// Builds native keyboard presentation geometry.
+    ///
+    /// The frame is in logical surface points. The frame validates the validity and animation flags.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::{geom::Rect, Keyboard};
+    /// assert!(Keyboard::new(Rect::new(0.0, 0.0, 320.0, 200.0), Keyboard::VALID).valid());
+    /// ```
+    pub const fn new(frame: geom::Rect, flags: u32) -> Keyboard {
+        Keyboard { frame: [frame.x, frame.y, frame.w, frame.h], flags }
+    }
+
     pub const VALID: u32 = 1;
     pub const ANIMATING: u32 = 2;
     /// Whether the geometry is valid: flags 0..=3 without ANIMATING alone, finite non-negative frame.
@@ -633,6 +721,23 @@ pub struct Image {
 impl Default for Image { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, vk_image_view: core::ptr::null_mut(), mtl_texture: core::ptr::null_mut(), width: 0, height: 0, format: 0 } } }
 
 impl Image {
+    /// Describes a host-owned native RGBA8 GPU texture.
+    ///
+    /// A const initializer of this descriptor's fields: it copies, uploads and retains nothing. Leave the handle for the unused backend
+    /// null. The host owns the native view or texture and keeps it valid for every GPU use of a frame that drew it; pxui never
+    /// destroys it.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// use pxui_types::Image;
+    /// let image = Image::rgba8(32, 24, core::ptr::null_mut(), core::ptr::null_mut());
+    /// assert!(!image.valid());
+    /// ```
+    pub const fn rgba8(width: u32, height: u32, vk_image_view: *mut core::ffi::c_void, mtl_texture: *mut core::ffi::c_void) -> Image {
+        Image { size: core::mem::size_of::<Image>() as u32, vk_image_view, mtl_texture, width, height, format: Image::FORMAT_RGBA8 }
+    }
+
     pub const FORMAT_R8: u32 = 0;
     pub const FORMAT_RGBA8: u32 = 1;
     pub const FORMAT_BGRA8: u32 = 2;
@@ -794,7 +899,7 @@ pub mod feature {
 }
 
 /// The ABI version this crate's records describe (`major << 16 | minor`); an app states it as `PxuiUiDesc::abi_built`.
-pub const ABI_BUILT: u32 = 1 << 16 | 79;
+pub const ABI_BUILT: u32 = 1 << 16 | 80;
 impl Default for PxuiUiDesc { fn default() -> Self { Self { size: core::mem::size_of::<Self>() as u32, platform: 0, font_size: 0, abi_built: ABI_BUILT } } }
 
 #[cfg(test)]

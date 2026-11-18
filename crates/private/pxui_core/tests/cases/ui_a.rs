@@ -286,7 +286,7 @@ fn scale_7(scale: f64) {
     // A bounded panel scrolls by whole rows and routes hits to scrolled rows.
     let toggles = RefCell::new([false; 4]);
     let mut scrolled = |ui: &mut Ui| {
-        ui.panel("scroll", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).max_h(80.0).name("scroll"), &mut |ui| {
+        ui.panel("scroll", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(0.0, 0.0)).w_px(240.0).max_h_px(80.0).name("scroll"), &mut |ui| {
             for index in 0..4 {
                 let v = toggles.borrow()[index];
                 let n = ui.toggle(&format!("Row {}", index), v);
@@ -316,7 +316,7 @@ fn scale_7(scale: f64) {
     let fixed_panel = |ui: &mut Ui, events: Vec<Event>| {
         let t = advance();
         ui.frame(&frame_at(vec![], scale, t, events), &mut |ui| {
-            ui.panel("fixed", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).h(80.0).name("fixed"), &mut |ui| {
+            ui.panel("fixed", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(0.0, 0.0)).w_px(240.0).h_px(80.0).name("fixed"), &mut |ui| {
                 for index in 0..4 {
                     let v = fixed.borrow()[index];
                     let n = ui.toggle(&format!("Fixed {}", index), v);
@@ -914,7 +914,7 @@ pub fn window_pxui_hover_cursor() {
     let mut ui = field_ui();
     let hovered = Cell::new(false);
     let mut build = |ui: &mut Ui| {
-        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.at(0.0, 0.0).w(240.0).name("panel"), &mut |ui| {
+        ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(0.0, 0.0)).w_px(240.0).name("panel"), &mut |ui| {
             let row = ui.box_("probe", BoxOpts::default().flags(Flags::CLICKABLE).w(Size::Grow).h(Size::Px(24.0)));
             hovered.set(ui.signal_owned(&row).hovered);
         });
@@ -946,7 +946,7 @@ pub fn window_pxui_hover_cursor() {
     }
     let mut area_ui = new_ui(Some(11));
     let mut area = |ui: &mut Ui| {
-        ui.text_area_submit((0.0, 0.0), 200.0, 100.0, &TextAreaOpts::default(), "area", "hello");
+        ui.text_area_submit(Node::DEFAULT.at(0.0, 0.0).w_px(200.0).h_px(100.0), &TextAreaOpts::default(), "area", "hello");
     };
     area_ui.frame(&frame_at(vec![], 1.0, 0.9, vec![]), &mut area);
     area_ui.frame(&frame_at(vec![], 1.0, 1.0, vec![move_to((50, 30))]), &mut area);
@@ -1052,7 +1052,7 @@ fn window_modal_input_and_fitted_labels_reuse_warm_storage() {
     let open = Cell::new(false);
     let background = Cell::new(false);
     let mut build = |ui: &mut Ui| {
-        open.set(ui.modal("warm-modal", &pxui_core::ui::Overlay::DEFAULT.w(300.0).name("warm-modal"), &mut |ui| {
+        open.set(ui.modal("warm-modal", &pxui_core::ui::Overlay::DEFAULT.w_px(300.0).name("warm-modal"), &mut |ui| {
             let body = ui.node("body".into(), Node { w: Size::Grow, h: Size::Px(140.0), flags: Flags::CLICKABLE | Flags::TAB_STOP | Flags::SCROLL, ..Node::DEFAULT });
             inside.set(Some(body));
             ui.within(&body, &mut |ui| {

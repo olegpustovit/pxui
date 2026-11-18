@@ -187,7 +187,7 @@ unsafe fn legacy_anchor_align(desc: *const Node) -> Option<Node> {
 
 /// The node behind `desc` when it is one (see `node_ok`), borrowed for the call.
 #[inline(always)]
-unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
+pub(crate) unsafe fn checked_node<'a>(desc: *const Node) -> Option<&'a Node> {
     if desc.is_null() || !unsafe { node_ok(desc) } { None } else { Some(unsafe { &*desc }) }
 }
 

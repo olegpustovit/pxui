@@ -4,7 +4,7 @@
 use crate::Handle;
 use super::Key;
 use crate::{Chosen, OverlayResponse, Picker, Ui};
-use pxui_types::{geom::Rect, ui::{Overlay, PickRows, PickerResponse, Toast}, Size};
+use pxui_types::{geom::Rect, ui::{Overlay, PickRows, PickerResponse, Toast}, Node};
 
 impl Ui {
     /// Declares a floating panel placed and dressed by `overlay` (280 wide at (12, 12) by default) and builds `f` inside it.
@@ -18,7 +18,7 @@ impl Ui {
     ///
     /// ```
     /// use pxui::Overlay;
-    /// const SETTINGS: Overlay = Overlay::DEFAULT.w(296.0).name("Settings");
+    /// const SETTINGS: Overlay = Overlay::DEFAULT.w_px(296.0).name("Settings");
     /// pxui::doc::frames(1, &mut |ui| { assert!(ui.panel("settings", &SETTINGS, |ui| { ui.label("Display", pxui::Label::DEFAULT); }).open); });
     /// ```
     #[inline]
@@ -38,7 +38,7 @@ impl Ui {
     /// ```
     /// use pxui::Overlay;
     /// let mut ran = false;
-    /// pxui::doc::frames(1, &mut |ui| { ran = ui.popup("song-menu", &Overlay::DEFAULT.at(10.0, 10.0).w(200.0).h(60.0), |_| {}).open; });
+    /// pxui::doc::frames(1, &mut |ui| { ran = ui.popup("song-menu", &Overlay::DEFAULT.at(pxui::Point::new(10.0, 10.0)).w_px(200.0).h_px(60.0), |_| {}).open; });
     /// assert!(ran);
     /// ```
     #[inline]
@@ -55,7 +55,7 @@ impl Ui {
     ///
     /// ```
     /// use pxui::Overlay;
-    /// const CONFIRM: Overlay = Overlay::DEFAULT.w(260.0).name("Delete song?");
+    /// const CONFIRM: Overlay = Overlay::DEFAULT.w_px(260.0).name("Delete song?");
     /// pxui::doc::frames(1, &mut |ui| { ui.modal("confirm-delete", &CONFIRM, |ui| { ui.label("Delete?", pxui::Label::BODY); }); });
     /// ```
     #[inline]
@@ -82,19 +82,21 @@ impl Ui {
         self.anchored_key(key.into(), anchor, overlay, &mut f)
     }
 
-    /// Declares a box `w` by `h` whose content (`f`'s children, laid out as a column) scrolls on both axes with the theme's thumbs, and
-    /// returns its node (unnamed; role ScrollArea).
+    /// Builds a scroll area laid out by `node` and returns its handle. The content (`f`'s children) flows on `node`'s axis, through
+    /// the registered scroll view body, and scrolls on both axes with the theme's thumbs. The scroll view adds its scroll flags, look,
+    /// thumbs, row scroll step and role (ScrollArea, unnamed), and keeps a one-point frame inset inside `node`'s padding.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`).
-    /// Panics: when the library refuses the call (outside a frame, a size that is not finite), or when `f` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// Panics: when the library refuses the call (outside a frame, a size that is not finite, a grid node or an invalid transition), or
+    /// when `f` panics. A key over 256 bytes panics (a programmer error).
     ///
     /// ```
-    /// use pxui::ui::Size;
-    /// pxui::doc::frames(1, &mut |ui| { ui.scroll_view("log", Size::Grow, Size::Px(96.0), |ui| { ui.label("line", pxui::Label::BODY); }); });
+    /// use pxui::Node;
+    /// pxui::doc::frames(1, &mut |ui| { ui.scroll_view("log", Node::column().h_px(96.0), |ui| { ui.label("line", pxui::Label::BODY); }); });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn scroll_view<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, w: Size, h: Size, mut f: F) -> Handle { self.scroll_view_key(key.into(), w, h, &mut f) }
+    pub fn scroll_view<K: Into<Key>, F: FnMut(&mut Ui)>(&mut self, key: K, node: Node, mut f: F) -> Handle { self.scroll_view_node(key.into(), node, &mut f) }
 
     /// Stacks the toasts `items` in the window's lower end corner (the newest lowest) and reports one clicked away or expired
     /// this frame. The caller drops the item indicated by chosen or chosen_id. The stack itself remains open.
@@ -161,8 +163,8 @@ mod tests {
 
     fn build(ui: &mut Ui) {
         ui.panel("settings", &Overlay::DEFAULT.name("Settings"), |ui| { ui.label("in panel", crate::Label::BODY); });
-        ui.popup("menu", &Overlay::DEFAULT.at(20.0, 200.0).w(120.0).h(40.0), |ui| { ui.label("in popup", crate::Label::BODY); });
-        ui.scroll_view("log", Size::Px(100.0), Size::Px(60.0), |ui| { ui.label("in scroll", crate::Label::BODY); });
+        ui.popup("menu", &Overlay::DEFAULT.at(crate::Point::new(20.0, 200.0)).w_px(120.0).h_px(40.0), |ui| { ui.label("in popup", crate::Label::BODY); });
+        ui.scroll_view("log", Node::DEFAULT.w_px(100.0).h_px(60.0), |ui| { ui.label("in scroll", crate::Label::BODY); });
         ui.toasts("toasts", &[crate::ui::Toast::new(1, "Saved")], 3.0);
         ui.picker("find", "Search", "", &Picker::DEFAULT, &mut |_, _| {});
         ui.modal("confirm", &Overlay::DEFAULT.name("Delete?"), |ui| { ui.label("in modal", crate::Label::BODY); });
@@ -203,8 +205,8 @@ mod tests {
         let at = std::cell::Cell::new(Rect::default());
         let mut build = |ui: &mut Ui| {
             ui.panel("settings", &Overlay::DEFAULT.name("Settings"), |_| {});
-            ui.panel("plain", &Overlay::DEFAULT.at(300.0, 12.0), |_| {});
-            let b = ui.anchored("hint", Rect::new(40.0, 40.0, 20.0, 10.0), &Overlay::DEFAULT.w(50.0).h(20.0), |_| {});
+            ui.panel("plain", &Overlay::DEFAULT.at(crate::Point::new(300.0, 12.0)), |_| {});
+            let b = ui.anchored("hint", Rect::new(40.0, 40.0, 20.0, 10.0), &Overlay::DEFAULT.w_px(50.0).h_px(20.0), |_| {});
             at.set(ui.rect(&b.handle));
         };
         let mut ui = crate::doc::frames(2, &mut build);

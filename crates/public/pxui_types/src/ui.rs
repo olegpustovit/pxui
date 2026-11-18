@@ -438,40 +438,40 @@ impl<'a> Overlay<'a> {
     /// Panics: never.
     ///
     /// ```
-    /// const MENU: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.at(40.0, 60.0);
+    /// const MENU: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.at(pxui_types::geom::Point::new(40.0, 60.0));
     /// assert_eq!(MENU.at, (40.0, 60.0));
     /// ```
-    pub const fn at(mut self, x: f32, y: f32) -> Overlay<'a> { self.at = (x, y); self }
+    pub const fn at(mut self, at: crate::geom::Point) -> Overlay<'a> { self.at = (at.x, at.y); self }
 
     /// Sets the width in points (a panel is at least 180).
     /// Allocates: never.
     /// Panics: never (a width that is not finite or is negative is refused by the call).
     ///
     /// ```
-    /// const WIDE: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.w(320.0);
+    /// const WIDE: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.w_px(320.0);
     /// assert_eq!(WIDE.w, Some(320.0));
     /// ```
-    pub const fn w(mut self, w: f32) -> Overlay<'a> { self.w = Some(w); self }
+    pub const fn w_px(mut self, w: f32) -> Overlay<'a> { self.w = Some(w); self }
 
     /// Sets a fixed height in points (panel, anchored), or a popup's height before it is first laid out.
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const PANE: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.h(200.0);
+    /// const PANE: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.h_px(200.0);
     /// assert_eq!(PANE.h, Some(200.0));
     /// ```
-    pub const fn h(mut self, h: f32) -> Overlay<'a> { self.h = Some(h); self }
+    pub const fn h_px(mut self, h: f32) -> Overlay<'a> { self.h = Some(h); self }
 
     /// Sets the tallest the sheet grows in points; past it the content scrolls (panel, popup).
     /// Allocates: never.
     /// Panics: never.
     ///
     /// ```
-    /// const LIST: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.max_h(400.0);
+    /// const LIST: pxui_types::ui::Overlay = pxui_types::ui::Overlay::DEFAULT.max_h_px(400.0);
     /// assert_eq!(LIST.max_h, Some(400.0));
     /// ```
-    pub const fn max_h(mut self, h: f32) -> Overlay<'a> { self.max_h = Some(h); self }
+    pub const fn max_h_px(mut self, h: f32) -> Overlay<'a> { self.max_h = Some(h); self }
 
     /// Draws the sheet as a floating one with a hairline in `color` (panel, popup).
     /// Allocates: never.

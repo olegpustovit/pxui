@@ -83,27 +83,31 @@ impl Ui {
     #[track_caller]
     pub fn line_field<K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, field: &LineField<'_>) -> LineFieldResponse<'_> { self.line_field_key(key.into(), value, rect, field) }
 
-    /// A multiline text area at `rect`: its response, the new text when it changed (else none) and whether it was submitted. The closures in
-    /// `callbacks` run during this call on this thread and are not kept; the text is borrowed from the library, valid until the next call on `ui`.
+    /// A multiline text area laid out by `node`: its response, the new text when it changed (else none) and whether it was submitted. The
+    /// closures in `callbacks` run during this call on this thread and are not kept; the text is borrowed from the library, valid until
+    /// the next call on `ui`.
     ///
-    /// Placement: absolute, at `rect` in the parent's space (the caller-painted code editor pane; no flow node).
+    /// Placement: `node` is one flow node under the current parent (size, padding and placement as any `Node`; an absolute position is
+    /// `Node::at`), and the editor fills it; the area adds its input flags and row scroll step. The wrap width is the node's `Px` width,
+    /// else the area's width from the last layout (a new flow-sized area wraps from its second frame).
     /// Allocates: nothing on a warm frame with the same `area` data, callbacks and language (the adapters are made once per `Ui` and rebound each call);
     /// results a callback returns (colours, completions, text) and typing allocate.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); never the area's text.
-    /// Panics: when the `Ui` has failed, like every `Ui` call, when an offset in `area` is over `i64::MAX`, or when `area` holds more than 64 errors, A key or identity label over 256 bytes panics (a programmer error).
-    /// notes, spans, splices or chips, or the language more than 32 bracket pairs (they cross in stack buffers).
+    /// Panics: when the `Ui` has failed, like every `Ui` call, when the library refuses `node` (a grid or an invalid transition), when an
+    /// offset in `area` is over `i64::MAX`, or when `area` holds more than 64 errors, notes, spans, splices or chips, or the language more
+    /// than 32 bracket pairs (they cross in stack buffers). A key or identity label over 256 bytes panics (a programmer error).
     ///
     /// ```
-    /// use pxui::{ui::Rect, AreaCallbacks, TextArea};
+    /// use pxui::{AreaCallbacks, Node, TextArea};
     /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
     /// ui.frame(&pxui::FrameIn::default(), &mut |ui| {
-    ///     let area = ui.text_area("area", "hello", Rect::new(0.0, 0.0, 100.0, 60.0), &TextArea::DEFAULT, &AreaCallbacks::DEFAULT);
+    ///     let area = ui.text_area("area", "hello", Node::column().w_px(100.0).h_px(60.0), &TextArea::DEFAULT, &AreaCallbacks::DEFAULT);
     ///     assert_eq!((area.changed, area.submitted), (None, false));
     /// }).unwrap();
     /// ```
     #[inline]
     #[track_caller]
-    pub fn text_area<K: Into<Key>>(&mut self, key: K, value: &str, rect: Rect, area: &TextArea<'_>, callbacks: &AreaCallbacks<'_>) -> TextAreaResponse<'_> { self.text_area_key(key.into(), value, rect, area, callbacks) }
+    pub fn text_area<K: Into<Key>>(&mut self, key: K, value: &str, node: crate::Node, area: &TextArea<'_>, callbacks: &AreaCallbacks<'_>) -> TextAreaResponse<'_> { self.text_area_node(key.into(), value, node, area, callbacks) }
 
     /// A compact field at `rect`: its response, the new text when it changed (else none) and whether a text editor is open. Only text the
     /// `callbacks` accept commits. The text is borrowed from the library, valid until the next call on `ui`.

@@ -8,8 +8,23 @@ use pxui_types::Str;
 #[repr(C)]
 #[derive(Clone, Copy, Default, Debug, PartialEq, Eq)]
 pub struct TreeNode {
+    /// Depth in the preorder tree, zero at the root.
     pub depth: u16,
+    /// Whether the row has child rows, stored as one or zero.
     pub children: u8,
+}
+
+impl TreeNode {
+    /// Declares a row in a preorder tree.
+    ///
+    /// Depth is relative to the root row. The tree calls its cell builder for the displayed content.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const ROW: pxui::TreeNode = pxui::TreeNode::new(0, true);
+    /// ```
+    pub const fn new(depth: u16, has_children: bool) -> TreeNode { TreeNode { depth, children: has_children as u8 } }
 }
 
 use pxui_types::ffi::PxuiTreeNode as TreeNodeDesc;

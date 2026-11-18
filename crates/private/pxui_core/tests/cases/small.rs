@@ -108,7 +108,7 @@ struct Model {
 fn controls(ui: &mut Ui, model: &mut Model) {
     let m = model.clone();
     let mut out = m.clone();
-    ui.panel("controls", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("controls"), &mut |ui| {
+    ui.panel("controls", &pxui_core::ui::Overlay::DEFAULT.w_px(400.0).name("controls"), &mut |ui| {
         out.clicks = m.clicks + if ui.button("Run") { 1 } else { 0 };
         out.enabled = ui.toggle("Enabled", m.enabled);
         out.text = ui.text_field("Text", &m.text).unwrap_or_else(|| m.text.clone());
@@ -138,7 +138,7 @@ pub fn window_pxui_keyboard() {
     step(&mut ui, &mut model, vec![], vec![key_down(Key::Tab), key_down(Key::Space)]);
     check(model.enabled, "Space did not toggle the focused control");
     // Rebuilding fewer controls prunes focus and keeps hidden controls inert.
-    ui.frame(&keyboard_frame(vec![], vec![]), &mut |ui| { ui.panel("controls", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("controls"), &mut |_| {}); });
+    ui.frame(&keyboard_frame(vec![], vec![]), &mut |ui| { ui.panel("controls", &pxui_core::ui::Overlay::DEFAULT.w_px(400.0).name("controls"), &mut |_| {}); });
     check(!ui.text_input_focused(), "disappearing focused controls kept focus");
     step(&mut ui, &mut model, vec![], vec![key_down(Key::Space)]);
     check(model.enabled, "a control that had disappeared kept its keyboard activation");
@@ -454,7 +454,7 @@ fn text_rows_lru() {
 fn window_pxui_focused_text_field_warm_ime() {
     let mut ui = new_ui(Some(11));
     let mut build = |ui: &mut Ui| {
-        ui.panel("editor", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("editor"), &mut |ui| {
+        ui.panel("editor", &pxui_core::ui::Overlay::DEFAULT.w_px(400.0).name("editor"), &mut |ui| {
             assert!(ui.text_field("Text", "café track 10").is_none());
             // Force arena growth after the editor captures its text ranges.
             for i in 0..128 {
@@ -487,7 +487,7 @@ fn window_pxui_focused_text_field_warm_ime() {
     // Selection and composition must survive the borrowed paint path; committing replaces the selection.
     let mut committed = None;
     ui.frame(&keyboard_frame(vec![], vec![Event::TextInput("é".into())]), &mut |ui| {
-        ui.panel("editor", &pxui_core::ui::Overlay::DEFAULT.w(400.0).name("editor"), &mut |ui| {
+        ui.panel("editor", &pxui_core::ui::Overlay::DEFAULT.w_px(400.0).name("editor"), &mut |ui| {
             committed = ui.text_field("Text", "café track 10");
         });
     });

@@ -6,6 +6,42 @@ use super::Key;
 use crate::{collections::TreeNode, Ui};
 use pxui_types::{ui::{ListResponse, SectionList, SectionPart, SelectionList, TableResponse, TableView, TreeResponse}};
 
+/// Fixed logical cell dimensions for [Ui::grid_list].
+///
+/// The app builds every cell, so the grid has no body and this style has no variant.
+#[derive(Clone, Copy, Debug)]
+pub struct GridList {
+    w: f32,
+    h: f32,
+}
+
+impl GridList {
+    /// Square, 64-point cells.
+    pub const DEFAULT: GridList = GridList { w: 64.0, h: 64.0 };
+
+    /// Sets the cell width in logical points.
+    ///
+    /// Grid construction checks that the dimension is positive and finite.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const GRID: pxui::GridList = pxui::GridList::DEFAULT.w_px(80.0);
+    /// ```
+    pub const fn w_px(self, points: f32) -> GridList { GridList { w: points, ..self } }
+
+    /// Sets the cell height in logical points.
+    ///
+    /// Grid construction checks that the dimension is positive and finite.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// const GRID: pxui::GridList = pxui::GridList::DEFAULT.h_px(80.0);
+    /// ```
+    pub const fn h_px(self, points: f32) -> GridList { GridList { h: points, ..self } }
+}
+
 impl Ui {
     /// Declares a scrolling lead-in, a sticky heading and virtual rows in one scroll region filling its parent, and returns the scroll box.
     ///
@@ -34,19 +70,19 @@ impl Ui {
         self.section_list_key(key.into(), section, row_key, build)
     }
 
-    /// Declares a virtual grid of `count` cells, each `cell_w` by `cell_h` points, filling its parent: as many columns as fit, rows
+    /// Declares a virtual grid of `count` cells sized by the GridList, filling its parent: as many columns as fit, rows
     /// scrolling; `build(ui, i)` builds cell `i` in view and the scroll box is returned.
     /// Allocates: never on a warm frame.
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); cells are keyed by index.
     /// Panics: when the library refuses the call (outside a frame, a cell size that is not positive and finite), or when `build` panics. A key over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
-    /// pxui::doc::frames(1, &mut |ui| { ui.grid_list("covers", 100, 64.0, 64.0, &mut |ui, i| { ui.label_fmt(format_args!("{i}"), pxui::Label::BODY); }); });
+    /// pxui::doc::frames(1, &mut |ui| { ui.grid_list("covers", 100, &pxui::GridList::DEFAULT, &mut |ui, i| { ui.label_fmt(format_args!("{i}"), pxui::Label::BODY); }); });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn grid_list<K: Into<Key>>(&mut self, key: K, count: usize, cell_w: f32, cell_h: f32, build: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
-        self.grid_list_key(key.into(), count, cell_w, cell_h, build)
+    pub fn grid_list<K: Into<Key>>(&mut self, key: K, count: usize, grid: &GridList, build: &mut dyn FnMut(&mut Ui, usize)) -> Handle {
+        self.grid_list_key(key.into(), count, grid.w, grid.h, build)
     }
 
     /// Declares a selectable virtual list of `count` rows filling its parent: `cell(ui, row)` builds each row in view inside the row

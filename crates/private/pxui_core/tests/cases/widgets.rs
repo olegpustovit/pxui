@@ -139,7 +139,7 @@ pub fn body(ui: &mut Ui, s: &mut S) {
             if let Some(q) = ui.search_field("Search", "/", &s.search, "Search") {
                 s.search = q.to_owned();
             }
-            s.scroll = Some(ui.scroll_view("Scroll", Size::Grow, Size::Px(60.0), &mut |ui| {
+            s.scroll = Some(ui.scroll_view("Scroll", Node::DEFAULT.h_px(60.0), &mut |ui| {
                 for name in NAMES {
                     let n = ui.node_ref(name, &Node { w: Size::Px(400.0), h: Size::Px(24.0), ..Node::DEFAULT });
                     ui.text(&n, name);
@@ -432,7 +432,7 @@ fn widgets_scroll_view_rtl() {
     ui.set_dir(Direction::Rtl);
     let (view, row) = (std::cell::Cell::new(None), std::cell::Cell::new(None));
     let mut build = |ui: &mut Ui| {
-        view.set(Some(ui.scroll_view("Scroll", Size::Px(200.0), Size::Px(60.0), &mut |ui| {
+        view.set(Some(ui.scroll_view("Scroll", Node::DEFAULT.w_px(200.0).h_px(60.0), &mut |ui| {
             let n = ui.node("wide".into(), Node { w: Size::Px(400.0), h: Size::Px(24.0), inset: Edges { l: 8.0, ..Edges::ZERO }, ..Node::DEFAULT });
             ui.text(&n, "alpha");
             row.set(Some(n));

@@ -3,6 +3,7 @@ use crate::{PXUI_ERR_ARGUMENT, PxuiBox, Str};
 use core::{cell::Cell, ffi::c_void};
 use pxui_types::ffi::{PxuiAreaCallbacks, PxuiDescription, PxuiMaybeRange, PxuiRewrite, PxuiTextAreaDesc, PxuiValueFieldDesc, Slice};
 use std::rc::Rc;
+use pxui_types::{Node, Size};
 use pxui_core::ui::Drop;
 use pxui_core::ui_text::{CodeContext, Completion, Language, ScrubPhase, TextAreaOpts, ValueFieldOpts};
 
@@ -144,6 +145,27 @@ export!(build pub unsafe fn pxui_ui_text_area_submit(
     ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, cbs: *const PxuiAreaCallbacks,
     out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8,
 ) -> i32 {
+    unsafe { text_area(ui, desc, None, cbs, out_text, out_changed, out_submitted) }
+});
+
+// ABI 1.80: `pxui_ui_text_area_submit` laid out by the checked `node` under the current parent (no grid) instead of the descriptor's
+// x, y, width and height, which are ignored. The wrap width is the node's `Px` width, else the area's width from the last layout.
+export!(build pub unsafe fn pxui_ui_text_area_node(
+    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, node: *const Node, cbs: *const PxuiAreaCallbacks,
+    out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8,
+) -> i32 {
+    if unsafe { get(ui) }.is_none() { return PXUI_ERR_ARGUMENT; }
+    let Some(node) = (unsafe { crate::node::checked_node(node) }) else { return unsafe { fail(ui, "invalid text area node") } };
+    let bad_curve = matches!(&node.transition, pxui_types::node::OptTransition::Some(curve) if !curve.valid());
+    if node.grid.is_some() || bad_curve { return unsafe { fail(ui, "invalid text area node") }; }
+    unsafe { text_area(ui, desc, Some(*node), cbs, out_text, out_changed, out_submitted) }
+});
+
+/// The body of both text area exports: `place` (checked by the caller) or the descriptor's rectangle lays the area out.
+unsafe fn text_area(
+    ui: *mut PxuiUi, desc: *const PxuiTextAreaDesc, place: Option<Node>, cbs: *const PxuiAreaCallbacks,
+    out_text: *mut Str, out_changed: *mut u8, out_submitted: *mut u8,
+) -> i32 {
     let Some(state) = (unsafe { get(ui) }) else { return PXUI_ERR_ARGUMENT; };
     if desc.is_null() || out_text.is_null() || out_changed.is_null() || out_submitted.is_null() {
         return unsafe { fail(ui, "invalid text area arguments") };
@@ -153,9 +175,10 @@ export!(build pub unsafe fn pxui_ui_text_area_submit(
         return unsafe { fail(ui, "invalid text area descriptor") };
     }
     let d = unsafe { *desc };
-    if d.flags & !PxuiTextAreaDesc::KNOWN != 0 || !finite(&[d.x, d.y, d.width, d.height]) || d.width < 0.0 || d.height < 0.0 {
+    if d.flags & !PxuiTextAreaDesc::KNOWN != 0 || (place.is_none() && (!finite(&[d.x, d.y, d.width, d.height]) || d.width < 0.0 || d.height < 0.0)) {
         return unsafe { fail(ui, "invalid text area arguments") };
     }
+    let place = place.unwrap_or(Node { at: Some((d.x, d.y)).into(), w: Size::Px(d.width), h: Size::Px(d.height), ..Node::DEFAULT });
     unsafe { *out_text = Str::default(); *out_changed = 0; *out_submitted = 0; }
     let (Some(label), Some(value)) = (unsafe { checked(d.label) }, unsafe { checked_text(d.value) }) else {
         return unsafe { fail(ui, "invalid text area strings") };
@@ -163,7 +186,7 @@ export!(build pub unsafe fn pxui_ui_text_area_submit(
     let shared = state.shared();
     let (opts, ad) = (&mut shared.area, shared.area_ad.get_or_insert_with(area_adapters));
     if unsafe { area_opts(&d, cbs.as_ref(), opts, ad) }.is_none() { return unsafe { fail(ui, "invalid text area options") }; }
-    let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit((d.x, d.y), d.width, d.height, opts, label, value) };
+    let (text, submitted) = unsafe { (&mut *state.engine).text_area_submit(place, opts, label, value) };
     // the language goes back to its adapters for the next call
     if let Some(lang) = opts.language.take() { ad.language = Some(lang); }
     unsafe { *out_changed = text.is_some() as u8; *out_submitted = submitted as u8; }
@@ -171,7 +194,7 @@ export!(build pub unsafe fn pxui_ui_text_area_submit(
     let text = match text { Some(text) => match state.lend(text) { Ok(text) => text, Err(code) => return code }, None => d.value };
     unsafe { *out_text = text; }
     0
-});
+}
 
 /// What the callbacks of a value field reach: the caller's `user` and functions of the call in progress (they run only during it).
 pub(crate) struct FieldCtx { user: Cell<*mut c_void>, slide: Cell<SlideText>, scrub: Cell<ScrubText>, invalid: Cell<bool> }

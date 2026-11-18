@@ -127,7 +127,7 @@ const NAMES: [&str; 3] = ["Wi-Fi", "Bluetooth", "Hotspot"];
 
 /// The page: the widgets the proof bodies replace, as plain calls.
 pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
-    ui.panel("bodies", &Overlay::DEFAULT.w(296.0), &mut |ui: &mut Ui| {
+    ui.panel("bodies", &Overlay::DEFAULT.w_px(296.0), &mut |ui: &mut Ui| {
         ui.label("Bodies", pxui::Label::DEFAULT);
         let custom = ui.toggle("Custom bodies", s.custom);
         if custom != s.custom { (s.custom, s.dirty) = (custom, true); }
@@ -136,7 +136,7 @@ pub fn page(ui: &mut Ui, s: &mut BodiesPage) {
         s.align = ui.segmented("align", &[pxui::Segment::new("Left"), pxui::Segment::new("Centre"), pxui::Segment::new("Right")], Some(s.align), &pxui::Segmented::DEFAULT.name("Align")).chosen.unwrap_or(s.align);
         if let Some(v) = ui.search_field("find", &s.query, &SearchField::DEFAULT.icon("?").placeholder("Search").name("Find")).changed { s.query = v.to_owned(); }
     });
-    ui.panel("table", &Overlay::DEFAULT.at(332.0, 12.0).w(296.0).window(), &mut |ui: &mut Ui| {
+    ui.panel("table", &Overlay::DEFAULT.at(pxui_types::geom::Point::new(332.0, 12.0)).w_px(296.0).window(), &mut |ui: &mut Ui| {
         let (widths, selected, flags) = (&mut s.widths, &mut s.selected, &mut s.flags);
         // the table fills its parent: give it a height
         let frame = ui.node("frame", Node { h: Size::Px(140.0), ..Node::DEFAULT });

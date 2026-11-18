@@ -479,6 +479,64 @@ pub struct TextSpan {
     pub underline: crate::geom::Rgba,
 }
 impl TextSpan {
+    /// Creates an unstyled span over a UTF-8 byte range.
+    ///
+    /// The text setter validates ordered ranges and character boundaries.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::TextSpan::new(0, 4);
+    /// ```
+    pub const fn new(start: u32, end: u32) -> TextSpan {
+        TextSpan { start, end, weight: 0, flags: 0, color: crate::geom::Rgba::CLEAR,
+            background: crate::geom::Rgba::CLEAR, underline: crate::geom::Rgba::CLEAR }
+    }
+
+    /// Sets the font weight for this span.
+    ///
+    /// Zero uses the surrounding text's weight.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// assert_eq!(pxui_types::TextSpan::new(0, 4).weight(700).weight, 700);
+    /// ```
+    pub const fn weight(self, weight: u16) -> TextSpan { TextSpan { weight, ..self } }
+
+    /// Sets the span's color colour.
+    ///
+    /// The change applies to this span's byte range.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::TextSpan::new(0, 4).color(pxui_types::geom::Rgba::BLACK);
+    /// ```
+    pub const fn color(self, color: crate::geom::Rgba) -> TextSpan { TextSpan { color, flags: self.flags | TextSpan::COLOR, ..self } }
+
+    /// Sets the span's background colour.
+    ///
+    /// The change applies to this span's byte range.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::TextSpan::new(0, 4).background(pxui_types::geom::Rgba::BLACK);
+    /// ```
+    pub const fn background(self, background: crate::geom::Rgba) -> TextSpan { TextSpan { background, flags: self.flags | TextSpan::BACKGROUND, ..self } }
+
+    /// Sets the span's underline colour.
+    ///
+    /// The change applies to this span's byte range.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let _ = pxui_types::TextSpan::new(0, 4).underline(pxui_types::geom::Rgba::BLACK);
+    /// ```
+    pub const fn underline(self, underline: crate::geom::Rgba) -> TextSpan { TextSpan { underline, flags: self.flags | TextSpan::UNDERLINE, ..self } }
+
     pub const COLOR: u16=1;
     pub const BACKGROUND: u16=2;
     pub const UNDERLINE: u16=4;

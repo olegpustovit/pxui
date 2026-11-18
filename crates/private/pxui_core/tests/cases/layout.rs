@@ -680,7 +680,7 @@ pub fn layout_warm_zero_alloc() {
 pub fn layout_kit_resize_same_frame() {
     let mut ui = new_ui(None);
     let width = std::cell::Cell::new(280.0);
-    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.w(width.get()).name("panel"), &mut |ui| {
+    let mut build = |ui: &mut Ui| { ui.panel("panel", &pxui_core::ui::Overlay::DEFAULT.w_px(width.get()).name("panel"), &mut |ui| {
         ui.text_field("Caption", "value");
         ui.toggle("Wire", true);
     }); };

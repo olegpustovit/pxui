@@ -1,6 +1,6 @@
 use crate::{Handle, OverlayResponse};
 use core::{any::Any, ffi::c_void, mem::ManuallyDrop, ptr::NonNull};
-use pxui_types::{Size, geom::Rect, layout::{Along, Placement, Side}, ffi::PxuiAnchorDesc};
+use pxui_types::{geom::Rect, layout::{Along, Placement, Side}, ffi::PxuiAnchorDesc};
 #[cfg(not(feature = "static"))]
 use crate::node::size;
 use crate::{Ui, check};
@@ -98,16 +98,16 @@ impl Ui {
         OverlayResponse { handle, open: true }
     }
 
-    /// The one body of `scroll_view`: keyed by `key`, unnamed.
+    /// The one body of `scroll_view`: keyed by `key`, unnamed, laid out by `node`.
     #[track_caller]
-    pub(crate) fn scroll_view_key(&mut self, key: Key, width: Size, height: Size, mut build: &mut dyn FnMut(&mut Ui)) -> Handle {
+    pub(crate) fn scroll_view_node(&mut self, key: Key, node: pxui_types::Node, mut build: &mut dyn FnMut(&mut Ui)) -> Handle {
         let mut id_label = [0u8; 17];
         let key = key.label(&mut id_label);
         let mut out = Handle::default();
         #[cfg(feature = "static")]
-        check(self, unsafe { pxui_abi_link::trusted::scroll_view(self.0.as_ptr(), key, "", width, height, inner!(|ui: &mut Ui| build(ui)), &mut out) });
+        check(self, unsafe { pxui_abi_link::trusted::scroll_view(self.0.as_ptr(), key, "", &node, inner!(|ui: &mut Ui| build(ui)), &mut out) });
         #[cfg(not(feature = "static"))]
-        check(self, unsafe { keyed_sys::pxui_ui_scroll_view_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
+        check(self, unsafe { keyed_sys::pxui_ui_scroll_view_node(self.0.as_ptr(), &PxuiKeyedDesc::new(key, ""), &node, Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         out
     }
 
@@ -137,7 +137,7 @@ impl Ui {
         {
             let mut descriptor = encode_placement(overlay.place);
             descriptor.rect = anchor;
-            let (width, height) = (overlay.w.map_or(Size::Fit, Size::Px), overlay.h.map_or(Size::Fit, Size::Px));
+            let (width, height) = { use pxui_types::Size; (overlay.w.map_or(Size::Fit, Size::Px), overlay.h.map_or(Size::Fit, Size::Px)) };
             check(self, unsafe { keyed_sys::pxui_ui_anchored_keyed(self.0.as_ptr(), &PxuiKeyedDesc::new(key, crate::clip(overlay.name.unwrap_or(""))), &descriptor, size(width), size(height), Some(call::<&mut dyn FnMut(&mut Ui)>), &mut build as *mut _ as *mut c_void, &mut out) });
         }
         OverlayResponse { handle: out, open: true }
@@ -162,7 +162,7 @@ mod keyed_sys {
         pub(super) fn pxui_ui_modal_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, has_width: u8, width: f32, build: UiBuild, user: *mut c_void, out: *mut u8, root: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_panel_root(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, panel: *const PxuiPanel, build: UiBuild, user: *mut c_void, root: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, revision: u64, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
-        pub(super) fn pxui_ui_scroll_view_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
+        pub(super) fn pxui_ui_scroll_view_node(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, node: *const pxui_types::Node, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
         pub(super) fn pxui_ui_anchored_keyed(ui: *mut PxuiUi, keyed: *const PxuiKeyedDesc, anchor: *const PxuiAnchorDesc, width: PxuiSizeDesc, height: PxuiSizeDesc, build: UiBuild, user: *mut c_void, out: *mut PxuiBox) -> i32;
     }
 }
