@@ -113,8 +113,8 @@ pub(crate) struct Shared {
     pub bodies: crate::bodies::BodyState,
     /// this `Ui`'s native-image identities (`pxui_ui_image`, `pxui_paint_image`), bounded; no other `Ui` shares them
     pub images: crate::image::Handles,
-    /// the 1.x integer projection of the theme in effect that `pxui_ui_theme` lends C (made on its first call, refilled per call)
-    pub legacy_theme: Option<Box<pxui_types::theme::ThemeSnapshot>>,
+    /// the 1.x integer projection of the theme in effect that `pxui_ui_theme` lends C (held inline: filled per call, no allocation)
+    pub legacy_theme: Option<pxui_types::theme::ThemeSnapshot>,
 }
 
 impl Shared {

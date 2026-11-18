@@ -10,16 +10,16 @@ const _: () = assert!(core::mem::size_of::<Theme>() == core::mem::size_of::<Them
     && core::mem::offset_of!(Theme, image) == core::mem::offset_of!(ThemeSnapshot, image));
 
 // The theme in effect, whole, lent in the 1.x layout (`include/pxui.h`: integer token text sizes): valid until the `Ui` next
-// changes it (a theme swap, a `themed` scope) or is freed, or until the next call. The engine's own snapshot keeps fractional sizes
-// (`pxui_ui_theme_exact`); this projection of it is copied for C callers only, here, never on a frame's path.
+// changes it (a theme swap, a `themed` scope) or is freed. The engine's own snapshot keeps fractional sizes (`pxui_ui_theme_exact`);
+// this projection of it is copied for C callers only, here, into storage the `Ui` holds inline (no allocation, one address for the
+// `Ui`'s life), never on a frame's path or by the Rust wrapper.
 export!(pub unsafe fn pxui_ui_theme(ui:*mut PxuiUi) -> *const ThemeSnapshot {
     let Some(state) = (unsafe { get(ui) }) else { return core::ptr::null(); };
     let exact = unsafe { crate::trusted::pxui_ui_theme(ui) };
     if exact.is_null() { return core::ptr::null(); }
-    let legacy = state.shared().legacy_theme.get_or_insert_with(|| Box::new(unsafe { *exact }));
-    **legacy = unsafe { *exact };
+    let legacy = state.shared().legacy_theme.insert(unsafe { *exact });
     legacy_tokens(&mut legacy.tokens);
-    &**legacy
+    legacy
 });
 
 // ABI 1.78: the theme in effect as the engine keeps it, lent: `Tokens` text sizes are `float` in each 8-byte slot of the 1.x layout
@@ -308,6 +308,29 @@ mod legacy_tests {
         let mut points = 0.0;
         assert_eq!(unsafe { crate::ui_state::pxui_ui_font_points(ui, &mut points) }, 0);
         assert_eq!((points, unsafe { crate::ui_state::pxui_ui_font_size(ui) }), (14.5, 15));
+        unsafe { crate::pxui_ui_destroy(ui) };
+    }
+
+    /// The C projection: copied into storage the `Ui` holds, so a call allocates nothing; lent at one address that keeps the 1.x
+    /// contract (still the theme in effect until the `Ui` changes it); and only `pxui_ui_theme` builds it, never the exact query the
+    /// Rust wrapper uses or a frame.
+    #[test]
+    fn the_c_projection_allocates_nothing_keeps_its_lifetime_and_is_never_built_for_rust() {
+        let ui = unsafe { crate::pxui_ui_create(&crate::PxuiUiDesc::default()) };
+        let built = || unsafe { crate::state::get(ui) }.unwrap().shared().legacy_theme.is_some();
+        assert!(!unsafe { super::pxui_ui_theme_exact(ui) }.is_null());
+        let frame = |ui| { let mut out = pxui_types::FrameOut::default(); unsafe { crate::trusted::frame(ui, &pxui_types::FrameIn::default(), &mut |_| {}, &mut out) } };
+        assert_eq!(frame(ui), 0);
+        assert!(!built(), "the exact query and a frame never build the C projection");
+        mem_sys::local_reset();
+        let first = unsafe { super::pxui_ui_theme(ui) };
+        let font = unsafe { (*first).tokens.font_size };
+        let again = unsafe { super::pxui_ui_theme(ui) };
+        assert_eq!(mem_sys::local_alloc_count(), 0, "the projection is copied without allocating");
+        assert!(built() && core::ptr::eq(first, again), "one address for the Ui's life");
+        assert_eq!(frame(ui), 0);
+        assert!(!unsafe { super::pxui_ui_theme_exact(ui) }.is_null());
+        assert_eq!(unsafe { (*first).tokens.font_size }, font, "still the theme in effect: valid until the Ui changes it");
         unsafe { crate::pxui_ui_destroy(ui) };
     }
 }
