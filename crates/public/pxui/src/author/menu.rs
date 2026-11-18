@@ -37,7 +37,7 @@ impl Ui {
     /// Identity: `key` is unique among its siblings, resolved under the parent's seed (see `Key`); it is never the accessible name (`Menu::name`).
     /// A row is keyed under the menu by its `MenuItem::id`, else by its position, never by its text: rows of one text are distinct.
     /// Panics: when the library refuses the arguments (outside a frame, a non-finite position or width, a negative or non-finite padding or
-    /// `max_h`). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
+    /// `max_h`), or when `items` holds more than 4096 rows (refused before any row is copied). A key or identity label over 256 bytes panics (a programmer error). Display text past 64 KiB is clipped at a character boundary, never refused.
     ///
     /// ```
     /// use pxui::ui::{Menu, MenuItem};

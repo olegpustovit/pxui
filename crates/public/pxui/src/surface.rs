@@ -620,6 +620,7 @@ fn repeating_keyframes_keep_instances_and_builds_idle_when_hidden_and_stop_witho
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     ui.set_a11y(true);
     let view = Cell::new(None);
     let child = Cell::new(None);
@@ -860,6 +861,7 @@ fn measured_sections_validate_geometry_recover_callbacks_and_support_empty_unpin
 fn rendering_density_matches_paint_updates_cached_views_and_allocates_nothing() {
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     assert_eq!(ui.density(),1.0);
     let builds=std::cell::Cell::new(0);
     for round in 0..6 {
@@ -1170,6 +1172,7 @@ fn scale_animation_retargets_keyframes_and_accessibility_allocate_nothing_when_w
     mem_sys::set_peer(crate::library_counter);
     for nested in [false,true] {
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     ui.set_a11y(true);
     let (child, view, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
     let mut content = |ui: &mut Ui| {
@@ -1259,6 +1262,7 @@ fn sampled_and_stepped_animations_keep_overshoot_and_allocate_nothing_when_warm(
     let chip = Cell::new(None);
     let builds = Cell::new(0);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     let mut build = |ui: &mut Ui| {
         ui.column(Node::column().w_px(250.0).h_px(50.0), |ui| { ui.view_of("animation", &1, |ui| {
             builds.set(builds.get() + 1);
@@ -1898,6 +1902,7 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
     use crate::ui::{Keyframe,Keyframes};
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     let scoped=crate::ThemeHandle::default();
     let handle=Cell::new(None);
     let child=Cell::new(None);
@@ -1962,6 +1967,7 @@ fn public_view_controls_retain_instances_geometry_and_hit_clips_without_warm_all
     let child=Cell::new(None);
     let builds=Cell::new(0);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     let mut build=|ui:&mut Ui| {
         let enclosing = ui.node("controlled", Node::column().w_px(100.0).h_px(80.0));
         ui.set_at(&enclosing,(40.0,30.0));
@@ -2580,6 +2586,7 @@ fn simultaneous_view_entrance_channels_move_cached_children_and_settle_without_a
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     ui.set_a11y(true);
     let (view, child, builds) = (Cell::new(None), Cell::new(None), Cell::new(0));
     let mut build = |ui: &mut Ui| {
@@ -2899,6 +2906,7 @@ fn checked_renderer_creation_releases_the_gpu_lease_on_refusal() {
 fn host_environment_invalidates_cached_layout_and_reuses_warm_geometry() {
     use std::cell::Cell;
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     mem_sys::set_peer(crate::library_counter);
     let builds=Cell::new(0);
     let seen=Cell::new(crate::Environment::default());
@@ -3005,6 +3013,7 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    ui.verify_views(false); // the test counts kept views' rebuilds or allocations; verification rebuilds them
     let node = Cell::new(None);
     let builds = Cell::new(0);
     let expected = Cell::new([0.0, 47.0, 390.0, 763.0]);

@@ -520,7 +520,8 @@ impl Ui {
     ///
     /// `Error::Version` means the ABI major differs. `Error::InvalidInput` means the size
     /// or supplied fonts were refused. At most 64 fonts, 32 MiB per font and 256 MiB total
-    /// are accepted.
+    /// are accepted. Built with `debug_assertions`, the new UI verifies its retained views (`verify_views(true)`: every clean view is
+    /// built again each frame and a forgotten revision panics); turn it off on a `Ui` whose test counts rebuilds or frame cost.
     /// Allocates: the Ui and its owned font storage at creation.
     /// Panics: never.
     ///
@@ -554,7 +555,10 @@ impl Ui {
             unsafe { sys::pxui_ui_create_with_fonts(&raw, fonts.as_ptr(), fonts.len()) }
         };
         let ui = NonNull::new(ui).map(Self).ok_or(Error::InvalidInput)?;
+        let mut ui = ui;
         if let Some(points) = exact { ui.set_font_points(points)?; }
+        #[cfg(debug_assertions)]
+        ui.verify_views(true);
         Ok(ui)
     }
 

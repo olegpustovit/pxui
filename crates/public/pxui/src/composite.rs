@@ -10,13 +10,19 @@ use pxui_types::ui::{Key, Overlay};
 #[cfg(not(feature = "static"))]
 use pxui_types::PxuiPanel;
 
-// Per-thread state of the wrapper, by design (OS-grade criterion 2): each lives in a `thread_local`, is shared by every `Ui` on
-// that thread, is never touched from another thread and holds no app pointer past the call that filled it. Bounded:
-// - `CALLBACK_PANIC` (below): at most one deferred panic per thread, taken by the outermost call; `PENDING` counts the threads
-//   holding one, so a settled process skips the lookup.
-// - `paint::POOL`: released closure boxes, at most `POOLED` (64) per closure layout; layouts are the app's distinct closure types.
-// - `overlays::ROWS` / `MENU_COLUMNS`: a picker's rows and a long menu's columns, grown to the largest one built on the thread.
-// - `ORPHANS` (lib.rs): each `Ui` dropped before its renderers, until a renderer drop on this thread destroys it.
+// The wrapper's only state outside a `Ui`, all of it here (OS-grade criteria 2 and 4). Each is shared by every `Ui` of its thread,
+// never handed to another thread, holds no app pointer past the call that filled it, and has a fixed bound:
+// - `CALLBACK_PANIC` (below, thread-local): at most one deferred panic per thread, taken by the outermost call that ran the callback.
+// - `PENDING` (below): the one process-wide value, an atomic count of the threads holding a deferred panic (at most the thread
+//   count), read Relaxed from any thread so a settled process skips the thread-local lookup.
+// - `paint::POOL` (thread-local): released canvas boxes, at most `POOLED` (64) per closure layout; the layouts are the app's distinct
+//   canvas closure types, a fixed set per program.
+// - `overlays::ROWS` (thread-local): one picker's rows, at most the library's 4096 rows and 16 MiB of text (a fill past that is
+//   refused and its rows dropped).
+// - `overlays::MENU_COLUMNS` (thread-local, dynamic link only): one long menu's columns, at most `MENU_ROWS` (4096) rows; `Ui::menu`
+//   refuses a longer menu before copying a row.
+// - `ORPHANS` (lib.rs, thread-local): each `Ui` dropped while a renderer still draws it, until a renderer drop on this thread
+//   destroys it: at most the live renderers' `Ui`s.
 // None of them is the process allocator: allocation counting is `mem_sys`'s opt-in `counting` feature (test/perf builds).
 
 // A panic in an app callback must not unwind through the library. The first one is kept here and every later callback

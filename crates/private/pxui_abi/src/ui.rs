@@ -99,8 +99,7 @@ unsafe fn create_ui(desc: PxuiUiDesc, fonts: &[&[u8]]) -> *mut PxuiUi {
     { text.reporter = Some(mem_sys::report); }
     let platform = match desc.platform { 0 => platform(), 1 => Platform::Apple, _ => Platform::Other };
     let font_size = (desc.font_size != 0).then_some(desc.font_size as f32);
-    let mut ui = Ui::create(platform, font_size, text);
-    ui.verify_views(crate::ui_state::VERIFY_NEW_VIEWS.load(core::sync::atomic::Ordering::Relaxed));
+    let ui = Ui::create(platform, font_size, text);
     let engine = Box::into_raw(Box::new(ui));
     let shared = Box::into_raw(Box::new(Shared::new()));
     let owner = Box::into_raw(Box::new(PxuiUi { engine, shared, owner: true }));

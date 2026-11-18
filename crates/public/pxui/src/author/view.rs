@@ -57,7 +57,11 @@ impl Ui {
     /// ```
     /// use std::cell::Cell;
     /// let runs = Cell::new(0);
-    /// pxui::doc::frames(3, &mut |ui| { ui.view_of("title", &("Songs", 12u32), |ui| { runs.set(runs.get() + 1); ui.label("Songs", pxui::Label::DEFAULT); }); });
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.verify_views(false); // a debug build otherwise rebuilds every kept view to verify it
+    /// for _ in 0..3 {
+    ///     ui.frame(&pxui::FrameIn::new(320.0, 240.0), &mut |ui| { ui.view_of("title", &("Songs", 12u32), |ui| { runs.set(runs.get() + 1); ui.label("Songs", pxui::Label::DEFAULT); }); }).unwrap();
+    /// }
     /// assert_eq!(runs.get(), 1);
     /// ```
     #[inline]
@@ -91,6 +95,7 @@ mod tests {
     fn view_of_rebuilds_only_when_inputs_change() {
         let runs = Cell::new(0u32);
         let mut ui = crate::Ui::new(&crate::UiDesc::DEFAULT).expect("library");
+        ui.verify_views(false); // the test counts rebuilds; verification rebuilds every kept view
         let input = FrameIn::new(320.0, 240.0);
         let frame = |ui: &mut crate::Ui, n: u32| {
             ui.frame(&input, &mut |ui| { ui.view_of("v", &("title", n), |ui| { runs.set(runs.get() + 1); ui.label("title", crate::Label::DEFAULT); }); }).expect("frame");

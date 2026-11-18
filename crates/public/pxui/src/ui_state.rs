@@ -30,7 +30,6 @@ library!(lib {
     fn pxui_ui_dismiss_popup(ui: *mut PxuiUi) -> i32;
     fn pxui_ui_request_cursor(ui: *mut PxuiUi, shape: u32) -> i32;
     fn pxui_ui_repaint_after(ui: *mut PxuiUi, seconds: f64) -> i32;
-    fn pxui_verify_new_views(on: u8) -> i32;
     fn pxui_ui_verify_views(ui: *mut PxuiUi, on: u8) -> i32;
     fn pxui_ui_set_timing(ui: *mut PxuiUi, on: u8) -> i32;
     fn pxui_ui_phase_times(ui: *mut PxuiUi, out: *mut u64, len: usize) -> i32;
@@ -68,8 +67,6 @@ pub struct Ime {
 }
 
 impl Ui {
-    /// `verify_views(true)` for every `Ui` created from now on: a test harness turns it on once.
-    #[track_caller] pub fn verify_new_views(on: bool) { assert_eq!(unsafe { lib::pxui_verify_new_views(on as u8) }, 0, "pxui: verify_new_views refused") }
     /// The last frame asked for the clipboard's text: send it with the next frame as a paste event.
     #[inline] pub fn paste_requested(&self) -> bool { self.output().platform.paste != 0 }
     /// The text the last frame wants on the clipboard (a copy or cut), or `None` when it asked for none.
@@ -307,7 +304,19 @@ impl Ui {
         check(self, unsafe { lib::pxui_ui_request_cursor(self.0.as_ptr(), code) })
     }
     #[inline] #[track_caller] pub fn repaint_after(&mut self, seconds: f64) { check(self, unsafe { lib::pxui_ui_repaint_after(self.0.as_ptr(), seconds) }) }
-    #[inline] #[track_caller] pub fn verify_views(&mut self, on: bool) { check(self, unsafe { lib::pxui_ui_verify_views(self.0.as_ptr(), on as u8) }) }
+    /// Turns view verification on or off for this `Ui`: while on, every clean retained view is built again each frame and a view whose
+    /// output differs from the kept one (a revision the app forgot to bump) panics, naming the view.
+    /// On by default when built with `debug_assertions` (`Ui::new`); a test that counts rebuilds or measures a frame turns it off.
+    /// Allocates: never.
+    /// Panics: never.
+    ///
+    /// ```
+    /// let mut ui = pxui::Ui::new(&pxui::UiDesc::DEFAULT).unwrap();
+    /// ui.verify_views(false);
+    /// ```
+    #[inline]
+    #[track_caller]
+    pub fn verify_views(&mut self, on: bool) { check(self, unsafe { lib::pxui_ui_verify_views(self.0.as_ptr(), on as u8) }) }
     #[inline] #[track_caller] pub fn set_timing(&mut self, on: bool) { check(self, unsafe { lib::pxui_ui_set_timing(self.0.as_ptr(), on as u8) }) }
     /// The last frame's wall time in each phase, in `begin, build, intrinsic, arrange, paint, a11y, finish` order; all zero until `set_timing(true)` and a frame has run.
     /// Allocates: never.
@@ -387,6 +396,7 @@ impl Ui {
     /// let mut build = |ui: &mut pxui::Ui| { ui.view_of("list", &1, |_| {}); };
     /// let mut ui = pxui::doc::frames(1, &mut build);
     /// assert_eq!(ui.rebuilt_named("list"), 1);
+    /// ui.verify_views(false); // a debug build otherwise rebuilds every kept view to verify it
     /// pxui::testing::frame(&mut ui, &[], &mut build);
     /// assert_eq!(ui.rebuilt_named("list"), 0); // same revision: kept
     /// ```

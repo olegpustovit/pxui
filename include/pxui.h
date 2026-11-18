@@ -949,7 +949,7 @@ int32_t pxui_ui_unfocus(PxuiUi *ui);
 int32_t pxui_ui_dismiss_popup(PxuiUi *ui);
 int32_t pxui_ui_request_cursor(PxuiUi *ui, uint32_t shape); /* 1 horizontal resize, 2 vertical resize, 3 text */
 int32_t pxui_ui_repaint_after(PxuiUi *ui, double seconds);
-/* verify_views(on) for every Ui created from now on. */
+/* Legacy, cut at 2.0: verification is per Ui (pxui_ui_verify_views); 0 does nothing, 1 is refused (PXUI_ERR_STATE). */
 int32_t pxui_verify_new_views(uint8_t on);
 int32_t pxui_ui_verify_views(PxuiUi *ui, uint8_t on);
 int32_t pxui_ui_set_timing(PxuiUi *ui, uint8_t on);

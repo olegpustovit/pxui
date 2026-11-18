@@ -294,6 +294,7 @@ fn special() {
             // a name that is refused before any bus is reached
             assert!(pxui_a11y_start(Str { ptr: core::ptr::null(), len: 5 }).is_null());
             pxui_verify_new_views(0);
+            assert_eq!(pxui_verify_new_views(1), crate::PXUI_ERR_STATE, "verification is per Ui: no process-wide flag");
         }
         check("special", &0i32, panics);
     }

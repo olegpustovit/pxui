@@ -82,9 +82,15 @@ fn as_str(value: &str) -> Str { crate::as_str(value) }
 
 // The rows a picker holds between its calls on this thread: its row strings (the app's fill reuses them) and their `Str` span, so a
 // settled picker allocates nothing here. Taken for the call and put back, so a picker built inside a picker's callback finds them empty.
+// Bounded by the library's row cap (4096 rows and 16 MiB of text a call): a fill past it is refused, and the refusal's
+// panic drops the taken rows instead of putting them back.
 thread_local! { static ROWS: Cell<(PickRows, Vec<Str>)> = const { Cell::new((PickRows::new(), Vec::new())) }; }
 
-// The columns of a menu of more than 32 rows, kept on this thread between calls so a settled long menu allocates nothing here.
+/// The most rows a menu takes: the library's row cap (it refuses more); `Ui::menu` refuses a longer one before copying a row.
+pub(crate) const MENU_ROWS: usize = 4096;
+
+// The columns of a menu of more than 32 rows, kept on this thread between calls so a settled long menu allocates nothing here; at most
+// `MENU_ROWS` rows' worth (about 240 KiB), the longest menu built on the thread.
 #[cfg(not(feature = "static"))]
 type MenuColumns = (Vec<Str>, Vec<u8>, Vec<Str>, Vec<PxuiSwatch>, Vec<u8>, Vec<i64>, Vec<u8>, Vec<i64>, Vec<u8>);
 #[cfg(not(feature = "static"))]
@@ -189,6 +195,8 @@ impl Ui {
     /// columns (on the stack up to 32 rows, in buffers kept on the thread past that; submenus always on the heap), then the call.
     #[track_caller]
     pub(crate) fn menu_keyed(&mut self, key: Key, at: (f32, f32), items: &[MenuItem], menu: &Menu) -> Chosen {
+        // refused before any row is copied, so the columns kept on the thread never hold more than the library takes
+        assert!(items.len() <= MENU_ROWS, "pxui: a menu takes at most {MENU_ROWS} rows");
         #[cfg(feature = "static")]
         {
             let mut out = Chosen::default();
@@ -374,5 +382,26 @@ mod tests {
         let accepted: Vec<bool> = results.iter().map(|status| *status == 0).collect();
         assert_eq!(accepted, [true, false, false, true, false, false, false, true, true, false, false, false, false, true, true, false, false, false, false,
             true, false, true, false, false, false]);
+    }
+
+    /// U1c.2 (OS-grade 4): a menu past the library's row cap is refused before a row is copied, so the columns the dynamic wrapper keeps
+    /// on the thread never grow past `MENU_ROWS`; a menu at the cap is served.
+    #[test]
+    fn a_menu_past_the_row_cap_is_refused_before_its_columns_grow() {
+        use crate::{Menu, MenuItem, Point};
+        let items: Vec<MenuItem> = (0..super::MENU_ROWS + 1).map(|_| MenuItem::new("row")).collect();
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        let refused = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _ = ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut Ui| { ui.menu("long", Point::new(0.0, 0.0), &items, &Menu::DEFAULT); });
+        }));
+        let panic = refused.expect_err("a menu of 4097 rows is refused");
+        let message = panic.downcast_ref::<String>().map(String::as_str).or_else(|| panic.downcast_ref::<&str>().copied()).unwrap_or("");
+        assert!(message.contains("at most 4096 rows"), "{message}");
+        #[cfg(not(feature = "static"))]
+        { let kept = super::MENU_COLUMNS.take(); assert_eq!(kept.0.capacity(), 0, "nothing was copied for the refused menu"); }
+        let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+        ui.frame(&FrameIn::new(200.0, 100.0), &mut |ui: &mut Ui| { ui.menu("long", Point::new(0.0, 0.0), &items[..super::MENU_ROWS], &Menu::DEFAULT); }).expect("a menu at the cap is served");
+        #[cfg(not(feature = "static"))]
+        { let kept = super::MENU_COLUMNS.take(); assert!(kept.0.capacity() <= super::MENU_ROWS + super::MENU_ROWS / 2, "kept columns stay near the cap"); }
     }
 }
