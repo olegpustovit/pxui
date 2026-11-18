@@ -277,15 +277,18 @@ fn abi_bench_author() {
     let leaf = pxui::Node { w: Size::Px(10.0), h: Size::Px(10.0), ..pxui::Node::DEFAULT };
     let mut ui = pxui::Ui::new(&pxui::UiDesc::new(pxui::Platform::Apple).fonts(&[pxui::FontData(DEPARTURE_MONO)])).expect("pxui Ui");
     let shim = Shim;
-    // kind 0: node + within; 1: `ui.row` (the authoring layer); 2: the node-rebuilding helper
+    // kind 0: node + within; 1: `ui.row` (the authoring layer); 2: the node-rebuilding helper. Each row is one id scope (`ui.id`) holding
+    // one container: kinds 0 and 2 open the same scope `ui.row` needs for its identity, so the three kinds do the same job and the ratio
+    // is the authoring layer's cost over the plain calls, not the scope's (one library call each side). The plain node is named (a label
+    // checked and hashed) where `ui.row` is positional, so the row measures about 1.3% under it (U1c.5); before U1c.5 kind 0 had no scope.
     let mut build = |kind: u8, count: u64| {
         let input = FrameIn::new(PAGE_W as f32, PAGE_H as f32).scale(1.0).time(count as f64 / 60.0);
         ui.frame(&input, &mut |ui: &mut pxui::Ui| for label in &labels {
             let mut children = |ui: &mut pxui::Ui| for l in &leaves { ui.node(*l, leaf); };
             match kind {
-                0 => { let b = ui.node(*label, row); ui.within(&b, &mut children); }
-                1 => { ui.id(*label, |ui| { ui.row(row, children); }); }
-                _ => shim.rebuilding(ui, label, row, children),
+                0 => ui.id(*label, |ui| { let b = ui.node("row", row); ui.within(&b, &mut children); }),
+                1 => ui.id(*label, |ui| { ui.row(row, &mut children); }),
+                _ => ui.id(*label, |ui| shim.rebuilding(ui, "row", row, &mut children)),
             }
         }).expect("frame");
     };
