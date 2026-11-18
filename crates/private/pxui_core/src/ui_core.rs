@@ -1060,7 +1060,8 @@ pub struct Ui {
     font_points: f32,
     platform: Platform,
     /// the text engine; `Paint` holds it while a frame paints
-    text: Option<Text>,
+    /// boxed: it moves into each frame's `Paint` and back, a pointer instead of its 2.3 KiB
+    text: Option<Box<Text>>,
     table: SlotTable,
     slots: Vec<Slot>,
     empty_strings: EmptyStrings,
@@ -1354,7 +1355,7 @@ impl Ui {
             font_size,
             font_points,
             platform,
-            text: Some(text),
+            text: Some(Box::new(text)),
             table: SlotTable::create(),
             slots: Vec::new(),
             empty_strings: EmptyStrings::default(),
@@ -2285,7 +2286,7 @@ impl Ui {
     }
 
     /// Cumulative text layout misses. None while the painter temporarily owns the text service.
-    pub fn text_layout_count(&self) -> Option<u64> { self.text.as_ref().map(Text::layout_count) }
+    pub fn text_layout_count(&self) -> Option<u64> { self.text.as_ref().map(|t| t.layout_count()) }
 
     /// The kit row height exactly, fractions kept.
     pub fn row_height(&self) -> f32 {
@@ -5389,7 +5390,7 @@ pub struct Paint {
     pub colors: [Rgba; pxui_types::theme::ColorToken::LIMIT],
     /// the root theme's label look, which a `Label`'s unset fields resolve from (`Paint::label`)
     pub label_look: Look,
-    pub text: Text,
+    pub text: Box<Text>,
     // Two recent ppem/density pairs share the Apple shader's packed half values.
     glyph_light_memo: [([u32; 2], [u32; 2]); 2],
     /// the focused text's input area and caret offset
@@ -7609,7 +7610,7 @@ impl Ui {
     /// inside such a row, `outer`): its nodes' unseen text goes to the queue instead of shaping (`BoxRec::ahead`), so it is
     /// ready when the row scrolls into view.
     fn ahead_row(&mut self, outer: bool, shown: &core::ops::Range<usize>, index: usize) {
-        self.ahead = outer || (!shown.contains(&index) && self.text.as_ref().is_some_and(Text::queue_running));
+        self.ahead = outer || (!shown.contains(&index) && self.text.as_ref().is_some_and(|t| t.queue_running()));
     }
 
     /// Attaches this `Ui` to the prepare queue's `worker` (shared with any number of `Ui`s; `None` detaches): from then on its
