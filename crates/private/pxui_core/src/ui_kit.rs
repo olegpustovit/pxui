@@ -980,12 +980,12 @@ impl Ui {
         let focused = self.focused(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !enabled, checked: opts.selected };
         let mut states = match opts.states { Some(s) => s, None if opts.bare => self.theme().button_bare, None => self.theme().button };
-        if let Some(ink) = opts.ink {
+        if let Some(ink) = opts.ink.map(|ink| self.resolve_color(ink)) {
             for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.checked] {
                 look.text = ink;
             }
         }
-        let states = self.resolve_states(&states);
+        if opts.states.is_some() { self.resolve_states(&mut states); }
         // the caller's contents replace the text and its parts: the leading icon, detail and accessory are not drawn or given to a body
         let (parts, lead_draw) = if content.is_some() { ([""; 3], None) } else { (parts, opts.lead_draw) };
         let config = ButtonConfig { state, bare: opts.bare, icon: opts.icon, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line, row,
@@ -1019,12 +1019,11 @@ impl Ui {
         let focused = self.focused(&row);
         let state = State { hovered: signal.hovered, pressed: signal.held, focused, disabled: !opts.enabled, checked: opts.selected };
         let mut states = self.theme().button;
-        if let Some(ink) = opts.ink {
+        if let Some(ink) = opts.ink.map(|ink| self.resolve_color(ink)) {
             for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.checked] {
                 look.text = ink;
             }
         }
-        let states = self.resolve_states(&states);
         let config = ButtonConfig { state, bare: false, icon: false, at_end: matches!(opts.justify, Justify::End), w: opts.w, h: opts.h, justify: opts.justify, pad: opts.padding, centered: opts.centered, line: *line, row,
             label: opts.label, axis: opts.axis, gap: opts.gap, content_align: opts.content_align, lead_draw: opts.lead_draw,
             detail_label: opts.detail_label, accessory_label: opts.accessory_label };
@@ -1060,7 +1059,7 @@ impl Ui {
         let (switch_w, switch_h) = opts.switch.unwrap_or((0.0, 0.0));
         let config = ToggleConfig { state: State { hovered: enabled && signal.hovered, disabled: !enabled, ..State::default() }, on: value, row, row_h, switch_w, switch_h,
             inset: opts.inset.unwrap_or(0.0), press_row: opts.press_row, detail: opts.detail, label: opts.label, stored, clicked: signal.clicked };
-        let (track, knob) = (opts.track.map(|s| self.resolve_states(&s)), opts.knob.map(|s| self.resolve_states(&s)));
+        let (track, knob) = (opts.track.map(|mut s| { self.resolve_states(&mut s); s }), opts.knob.map(|mut s| { self.resolve_states(&mut s); s }));
         in_body!(self, row.box_key, row, toggle, default_toggle(&config, track.as_ref(), knob.as_ref(), text));
         if !enabled { self.node_new(&row).state.disabled = true; }
         Response::of(&signal, self.focused(&row), row)

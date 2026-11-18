@@ -1686,10 +1686,12 @@ impl Ui {
         Some(out)
     }
 
-    /// `states` with each look's token colours resolved (`resolve_look`): what a widget hands its body.
-    pub fn resolve_states(&self, states: &States) -> States {
-        let r = |look: &Look| self.resolve_look(look).unwrap_or(*look);
-        States { idle: r(&states.idle), hover: r(&states.hover), pressed: r(&states.pressed), focus: r(&states.focus), disabled: r(&states.disabled), checked: r(&states.checked) }
+    /// `states` with each look's token colours resolved (`resolve_look`) where they lie: what a widget hands its body. The theme in
+    /// effect's own states are resolved already (`set_theme`, `set_colors`, themed scopes), so only a caller's are passed here.
+    pub fn resolve_states(&self, states: &mut States) {
+        for look in [&mut states.idle, &mut states.hover, &mut states.pressed, &mut states.focus, &mut states.disabled, &mut states.checked] {
+            if names_token(look) { resolve_with(look, self.palette()); }
+        }
     }
 
     /// `color` resolved as a look's colour is (`resolve_look`): a token's entry for the theme in effect, else `color` itself.

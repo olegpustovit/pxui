@@ -595,7 +595,7 @@ impl Ui {
         let moved = held.is_some() && self.state(&line, code) != code;
         let lost = held.is_none() && focus != 0 && self.state(&strip, 0) == focus;
         let follow = enabled && (moved || lost);
-        let states = opts.states.map(|s| self.resolve_states(&s));
+        let states = opts.states.map(|mut s| { self.resolve_states(&mut s); s });
         let (mut clicked, mut by_key, mut secondary, mut tab) = (false, false, None, None);
         let (mut hovered, mut pressed) = (s.hovered, s.held);
         let inner = self.enter(&strip);
@@ -1171,7 +1171,7 @@ impl Ui {
         let focused = self.focused(&b);
         let state = State { hovered: s.hovered, pressed: s.held, focused, disabled: !enabled, checked: button.selected == Some(true) };
         self.a11y_name(&b, shown(name));
-        let states = self.resolve_states(match &button.states { Some(states) => states, None => &self.theme().icon_button });
+        let states = match button.states { Some(mut states) => { self.resolve_states(&mut states); states }, None => self.theme().icon_button };
         let ink = states.pick(state).text;
         let config = IconButtonConfig { state, node: b, w: button.w, h: button.h, press_scale: button.press_scale, ink, draw, press: button.press };
         in_body!(flat; self, b.box_key, b, icon_button, default_icon_button(&config, &states, name, glyph));
