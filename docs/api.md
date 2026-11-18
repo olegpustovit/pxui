@@ -86,6 +86,10 @@ The output descriptor is a value so fresh queries can reflect a draw acknowledgm
 borrowed layer remains valid. The C output query and layout stay intact. Programmatic
 `focus_box` serves the command palette and compact Find on the build that creates the field.
 
+`KeyCode::Char` preserves the character supplied by the host. `Mods::ANY` is a wildcard and
+`Mods::NONE` requires no modifiers. A nonempty requirement matches one press with every requested
+modifier held, even when more modifiers are held or a later event releases them.
+
 <!-- surface -->
 ```text
 pxui mod @HEAD
@@ -98,11 +102,7 @@ pxui::A11yBridge::pump fn (&mut self, out: &mut dyn FnMut(A11yAction)) -> bool @
 pxui::A11yBridge::update fn (&mut self, tree: &A11yTree) -> bool @HEAD
 pxui::A11yNode use pxui_types::ffi::A11yNode @HEAD
 pxui::A11yTree use pxui_types::ffi::A11yTree @HEAD
-pxui::Appearance enum @U1a.4
 pxui::Appearance use pxui_types::Appearance @U1a.3
-pxui::Appearance::Dark variant @U1a.4
-pxui::Appearance::Light variant @U1a.4
-pxui::Appearance::Unknown variant @U1a.4
 pxui::AreaCallbacks impl Clone @HEAD
 pxui::AreaCallbacks impl Copy @HEAD
 pxui::AreaCallbacks struct <'a> @HEAD
@@ -391,7 +391,44 @@ pxui::IndentFn type <'a>= dyn Fn(&str, usize) -> String + 'a @HEAD
 pxui::Input use pxui_types::ffi::Input @HEAD
 pxui::Key use author::Key @HEAD
 pxui::KeyCode enum @U1a.4
+pxui::KeyCode impl Clone @U1a.4
+pxui::KeyCode impl Copy @U1a.4
+pxui::KeyCode impl Debug @U1a.4
+pxui::KeyCode impl Eq @U1a.4
+pxui::KeyCode impl PartialEq @U1a.4
+pxui::KeyCode impl StructuralPartialEq @U1a.4
+pxui::KeyCode::Alt variant @U1a.4
+pxui::KeyCode::ArrowDown variant @U1a.4
+pxui::KeyCode::ArrowLeft variant @U1a.4
+pxui::KeyCode::ArrowRight variant @U1a.4
+pxui::KeyCode::ArrowUp variant @U1a.4
+pxui::KeyCode::Backspace variant @U1a.4
 pxui::KeyCode::Char variant (char) @U1a.4
+pxui::KeyCode::Ctrl variant @U1a.4
+pxui::KeyCode::Delete variant @U1a.4
+pxui::KeyCode::End variant @U1a.4
+pxui::KeyCode::Enter variant @U1a.4
+pxui::KeyCode::Escape variant @U1a.4
+pxui::KeyCode::F1 variant @U1a.4
+pxui::KeyCode::F10 variant @U1a.4
+pxui::KeyCode::F11 variant @U1a.4
+pxui::KeyCode::F12 variant @U1a.4
+pxui::KeyCode::F2 variant @U1a.4
+pxui::KeyCode::F3 variant @U1a.4
+pxui::KeyCode::F4 variant @U1a.4
+pxui::KeyCode::F5 variant @U1a.4
+pxui::KeyCode::F6 variant @U1a.4
+pxui::KeyCode::F7 variant @U1a.4
+pxui::KeyCode::F8 variant @U1a.4
+pxui::KeyCode::F9 variant @U1a.4
+pxui::KeyCode::Home variant @U1a.4
+pxui::KeyCode::Insert variant @U1a.4
+pxui::KeyCode::Meta variant @U1a.4
+pxui::KeyCode::PageDown variant @U1a.4
+pxui::KeyCode::PageUp variant @U1a.4
+pxui::KeyCode::Shift variant @U1a.4
+pxui::KeyCode::Space variant @U1a.4
+pxui::KeyCode::Tab variant @U1a.4
 pxui::Keyboard use pxui_types::Keyboard @HEAD
 pxui::Keyframes use pxui_types::ui::Keyframes @HEAD
 pxui::Label use pxui_types::Label @HEAD
@@ -446,7 +483,13 @@ pxui::MenuBar::DEFAULT const MenuBar<'a> @U1b.1
 pxui::MenuBarMenu struct <'a> @U1b.1
 pxui::MenuBarMenu::new fn const (title: &'a str, items: &'a [MenuItem<'a>]) -> MenuBarMenu<'a> @U1b.1
 pxui::MenuItem use pxui_types::ui::MenuItem @HEAD
-pxui::Mods struct @U1a.4
+pxui::Mods impl Clone @U1a.4
+pxui::Mods impl Copy @U1a.4
+pxui::Mods impl Debug @U1a.4
+pxui::Mods impl Eq @U1a.4
+pxui::Mods impl PartialEq @U1a.4
+pxui::Mods impl StructuralPartialEq @U1a.4
+pxui::Mods struct (_) @U1a.4
 pxui::Mods::ALT const Mods @U1a.4
 pxui::Mods::ANY const Mods @U1a.4
 pxui::Mods::CTRL const Mods @U1a.4

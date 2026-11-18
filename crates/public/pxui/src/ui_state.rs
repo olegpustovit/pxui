@@ -3,6 +3,7 @@
 //! here with the library's message, inside the frame callback or at the app's call.
 use crate::{as_str, check, Ui};
 use pxui_types::ui::{text_top_for, Cursor, UndoKind};
+use crate::{KeyCode, Mods};
 
 library!(lib {
     fn pxui_ui_font_size(ui: *mut PxuiUi) -> i64;
@@ -21,9 +22,8 @@ library!(lib {
     fn pxui_ui_inspector_width(ui: *mut PxuiUi) -> f32;
     fn pxui_ui_inspector_label_x(ui: *mut PxuiUi) -> f32;
     fn pxui_ui_passed_undo(ui: *mut PxuiUi) -> u32;
-    fn pxui_ui_key_pressed(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
     fn pxui_ui_key_down(ui: *mut PxuiUi, code: u32, out: *mut u8) -> i32;
-    fn pxui_ui_key_pressed_with(ui: *mut PxuiUi, code: u32, modifier: u32, out: *mut u8) -> i32;
+    fn pxui_ui_key_pressed_mods(ui: *mut PxuiUi, code: u32, modifiers: u32, out: *mut u8) -> i32;
     fn pxui_ui_variant(ui: *mut PxuiUi, kind: u32, variant: u16) -> i32;
     fn pxui_ui_set_font_size(ui: *mut PxuiUi, size: i64) -> i32;
     fn pxui_ui_unfocus(ui: *mut PxuiUi) -> i32;
@@ -168,52 +168,52 @@ impl Ui {
     pub fn passed_undo(&self) -> Option<UndoKind> {
         match unsafe { lib::pxui_ui_passed_undo(self.0.as_ptr()) } { 1 => Some(UndoKind::Undo), 2 => Some(UndoKind::Redo), _ => None }
     }
-    /// Whether `key` (a key code, a character or `KEY_SPECIAL` plus an index, modifiers included) is held in this frame's input.
-    /// A raw query, unlike `key_pressed` it reports the held state: a key pressed and released in one frame was never held at the frame's end. While a text field or popup owns the keyboard the modifiers are still reported.
+    /// Reports whether `key` is held at the end of this frame's input.
+    ///
+    /// This query includes modifiers while a text field or popup owns the keyboard.
     /// Allocates: never.
-    /// Identity: `key` is a key code, not a node key.
-    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    /// Identity: `key` names a physical or character key from the input.
+    /// Panics: when the Ui has failed or the character is NUL.
     ///
     /// ```
-    /// use pxui::Event;
+    /// use pxui::{Event, KeyCode};
     /// let mut ui = pxui::doc::frames(1, &mut |_| {});
     /// let press = [Event { kind: Event::KEY_PRESSED, code: 'a' as u32, ..Default::default() }];
-    /// pxui::testing::frame(&mut ui, &press, &mut |ui| assert!(ui.key_down('a' as u32)));
-    /// pxui::testing::frame(&mut ui, &[], &mut |ui| assert!(ui.key_down('a' as u32))); // still held
+    /// pxui::testing::frame(&mut ui, &press, &mut |ui| assert!(ui.key_down(KeyCode::Char('a'))));
+    /// pxui::testing::frame(&mut ui, &[], &mut |ui| assert!(ui.key_down(KeyCode::Char('a'))));
     /// ```
     #[inline]
     #[track_caller]
-    pub fn key_down(&self, key: u32) -> bool {
+    pub fn key_down(&self, key: KeyCode) -> bool {
         let mut out = 0;
-        check(self, unsafe { lib::pxui_ui_key_down(self.0.as_ptr(), key, &mut out) });
+        check(self, unsafe { lib::pxui_ui_key_down(self.0.as_ptr(), key.wire(), &mut out) });
         out != 0
     }
-    /// Whether `key` (a `KEY_*` code or a character) was pressed in this frame's events; with `modifier` (Shift, Ctrl, Alt or Meta
-    /// code), only a press made while that modifier was held, even if it was released in the same frame.
+    /// Reports whether `key` was pressed this frame with the requested modifiers.
     ///
-    /// A raw query: it neither filters modal or widget ownership nor consumes the press. A `modifier` that is not one of the four is
-    /// refused (the call panics).
+    /// The check uses the state at each press, before a later release or focus loss.
+    /// `Mods::ANY` accepts any state, `Mods::NONE` requires no modifiers, and all
+    /// modifiers in a nonempty mask must be held during one press. Additional modifiers
+    /// are allowed. The query observes raw input without consuming it.
     /// Allocates: never.
-    /// Identity: `key` is a key code, not a node key.
-    /// Panics: when the `Ui` has failed, like every `Ui` call.
+    /// Identity: `key` names a physical or character key from the input.
+    /// Panics: when the Ui has failed or the character is NUL.
     ///
     /// ```
+    /// use pxui::{KeyCode, Mods};
     /// let mut ui = pxui::doc::frames(1, &mut |_| {});
-    /// let mut seen = (false, false);
-    /// // no modifier was held for the press, so the query with Shift (special key 12) does not match
-    /// let shift = pxui_types::KEY_SPECIAL + 12;
-    /// pxui::testing::key(&mut ui, 'k' as u32, &mut |ui| { seen = (ui.key_pressed('k', None), ui.key_pressed('k', Some(shift))); });
-    /// assert_eq!(seen, (true, false));
+    /// let key = KeyCode::Char('k');
+    /// pxui::testing::key(&mut ui, key, &mut |ui| {
+    ///     assert!(ui.key_pressed(key, Mods::ANY));
+    ///     assert!(ui.key_pressed(key, Mods::NONE));
+    ///     assert!(!ui.key_pressed(key, Mods::SHIFT));
+    /// });
     /// ```
     #[inline]
     #[track_caller]
-    pub fn key_pressed(&self, key: impl Into<u32>, modifier: Option<u32>) -> bool {
-        let key = key.into();
+    pub fn key_pressed(&self, key: KeyCode, mods: Mods) -> bool {
         let mut out = 0;
-        check(self, unsafe { match modifier {
-            None => lib::pxui_ui_key_pressed(self.0.as_ptr(), key, &mut out),
-            Some(modifier) => lib::pxui_ui_key_pressed_with(self.0.as_ptr(), key, modifier, &mut out),
-        } });
+        check(self, unsafe { lib::pxui_ui_key_pressed_mods(self.0.as_ptr(), key.wire(), mods.0, &mut out) });
         out != 0
     }
     /// Asks the window host for a pointer cursor `shape` for this frame; the request lapses unless it is repeated every build.

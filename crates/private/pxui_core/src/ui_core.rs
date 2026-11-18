@@ -1131,7 +1131,7 @@ pub struct Ui {
     composition_selection: (i64, i64),
     previous_keys: Vec<Key>,
     route_keys: Vec<Key>,
-    frame_modifiers: [bool; 4],
+    frame_modifiers: u32,
     pub(crate) edit_focus: i64,
     pub(crate) edit_owner: i64,
     pub(crate) text_input_options: pxui_types::TextTraits,
@@ -1399,7 +1399,7 @@ impl Ui {
             composition_selection: (0, 0),
             previous_keys: Vec::new(),
             route_keys: Vec::new(),
-            frame_modifiers: [false; 4],
+            frame_modifiers: 0,
             edit_focus: 0,
             edit_owner: 0,
             text_input_options: pxui_types::TextTraits::default(),
@@ -2723,7 +2723,7 @@ impl Ui {
         self.modal_in_frame = self.modal_key.is_some();
         let mut modifiers = std::mem::take(&mut self.route_keys);
         input::keys_before_into(&self.previous_keys, &frame.input.keys, &frame.input.events, &mut modifiers);
-        self.frame_modifiers = [Key::Shift, Key::Ctrl, Key::Alt, Key::Meta].map(|key| modifiers.contains(&key));
+        self.frame_modifiers = modifiers.iter().fold(0, |mask, &key| mask | modifier_bit(key));
         self.previous_keys.clone_from(&frame.input.keys);
         self.view_w = frame.input.size.0 as f32;
         self.view_h = frame.input.size.1 as f32;
@@ -3086,17 +3086,29 @@ impl Ui {
     /// The key was pressed in this frame's events (a dialog's Enter); with `modifier`, only while that modifier was held at the
     /// event, including same-frame releases.
     pub fn key_pressed(&self, key: Key, modifier: Option<Key>) -> bool {
-        let Some(modifier) = modifier else { return self.frame_events.iter().any(|e| matches!(e, Event::KeyPressed(k) if *k == key)); };
-        let Some(index) = [Key::Shift, Key::Ctrl, Key::Alt, Key::Meta].iter().position(|k| *k == modifier) else { return false; };
-        let mut held = self.frame_modifiers[index];
+        let modifiers = match modifier {
+            None => 16,
+            Some(modifier) => {
+                let bit = modifier_bit(modifier);
+                if bit == 0 { return false; }
+                bit
+            }
+        };
+        self.key_pressed_mods(key, modifiers)
+    }
+
+    /// Modifier mask 0 requires no held modifiers; 16 accepts a press with any modifiers.
+    pub fn key_pressed_mods(&self, key: Key, modifiers: u32) -> bool {
+        if modifiers == 16 { return self.frame_events.iter().any(|e| matches!(e, Event::KeyPressed(k) if *k == key)); }
+        let mut held = self.frame_modifiers;
         for event in &self.frame_events {
             match event {
                 Event::KeyPressed(k) => {
-                    if *k == modifier { held = true; }
-                    if *k == key && held { return true; }
+                    held |= modifier_bit(*k);
+                    if *k == key && (if modifiers == 0 { held == 0 } else { held & modifiers == modifiers }) { return true; }
                 }
-                Event::KeyReleased(k) if *k == modifier => held = false,
-                Event::FocusLost => held = false,
+                Event::KeyReleased(k) => held &= !modifier_bit(*k),
+                Event::FocusLost => held = 0,
                 _ => {}
             }
         }
@@ -3289,6 +3301,17 @@ impl Ui {
             _ => f64::INFINITY,
         };
         Some(wake.min(hover)).filter(|t| t.is_finite())
+    }
+}
+
+#[inline]
+fn modifier_bit(key: Key) -> u32 {
+    match key {
+        Key::Shift => 1,
+        Key::Ctrl => 2,
+        Key::Alt => 4,
+        Key::Meta => 8,
+        _ => 0,
     }
 }
 

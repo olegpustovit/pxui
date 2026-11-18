@@ -55,10 +55,11 @@ mod tests {
     use core::cell::{Cell, RefCell};
     use crate::bodies::BodyConfig;
 
-    const ENTER: u32 = pxui_types::KEY_SPECIAL + 5;
-    const ESCAPE: u32 = pxui_types::KEY_SPECIAL + 6;
+    const ENTER: crate::KeyCode = crate::KeyCode::Enter;
+    const ESCAPE: crate::KeyCode = crate::KeyCode::Escape;
 
-    fn key(ui: &mut Ui, code: u32, build: &mut dyn FnMut(&mut Ui)) -> Chosen {
+    fn key(ui: &mut Ui, key: crate::KeyCode, build: &mut dyn FnMut(&mut Ui)) -> Chosen {
+        let code = key.wire();
         let events = [Event { kind: Event::KEY_PRESSED, code, ..Default::default() }, Event { kind: Event::KEY_RELEASED, code, ..Default::default() }];
         testing::frame(ui, &events, build);
         LAST.with(Cell::get)

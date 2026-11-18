@@ -375,7 +375,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         result.set(Some(scrub));
     };
     let pointer = |kind, x, code| Event { kind, x, y: 10.0, code, ..Default::default() };
-    let key = |index| Event { kind: Event::KEY_PRESSED, code: pxui_types::KEY_SPECIAL + index, ..Default::default() };
+    let key = |index: crate::KeyCode| Event { kind: Event::KEY_PRESSED, code: index.wire(), ..Default::default() };
     ui.frame(&input(), &mut build).unwrap();
     let mut identity = ui.a11y_nodes().iter().find(|n| ui.a11y_name_of(n) == "Position").unwrap().id;
     let mut time = 0.0;
@@ -387,14 +387,14 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             (pointer(Event::POINTER_RELEASED, 150.0, 0), Some(85.0), Some(85.0), false),
             (pointer(Event::POINTER_PRESSED, 50.0, 1), None, None, false),
             (pointer(Event::POINTER_RELEASED, 50.0, 1), None, None, false),
-            (key(3), Some(45.0), Some(45.0), false),
-            (key(2), Some(35.0), Some(35.0), false),
-            (key(0), Some(45.0), Some(45.0), false),
-            (key(1), Some(35.0), Some(35.0), false),
-            (key(27), Some(90.0), Some(90.0), false),
-            (key(28), Some(10.0), Some(10.0), false),
-            (key(25), Some(10.0), Some(10.0), false),
-            (key(26), Some(110.0), Some(110.0), false),
+            (key(crate::KeyCode::ArrowRight), Some(45.0), Some(45.0), false),
+            (key(crate::KeyCode::ArrowLeft), Some(35.0), Some(35.0), false),
+            (key(crate::KeyCode::ArrowUp), Some(45.0), Some(45.0), false),
+            (key(crate::KeyCode::ArrowDown), Some(35.0), Some(35.0), false),
+            (key(crate::KeyCode::PageUp), Some(90.0), Some(90.0), false),
+            (key(crate::KeyCode::PageDown), Some(10.0), Some(10.0), false),
+            (key(crate::KeyCode::Home), Some(10.0), Some(10.0), false),
+            (key(crate::KeyCode::End), Some(110.0), Some(110.0), false),
             (pointer(Event::POINTER_PRESSED, 50.0, 0), Some(35.0), None, true),
             (pointer(Event::POINTER_CANCELLED, 50.0, 0), None, None, false),
             (pointer(Event::POINTER_RELEASED, 50.0, 0), None, None, false),
@@ -458,7 +458,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
                 frame.wire.event_count = 1;
                 frame
             }, &mut build).unwrap();
-            let right=key(3);
+            let right=key(crate::KeyCode::ArrowRight);
             if accessible { ui.inject_a11y(&[crate::A11yAction {id:identity,action_code:4,payload:75.0,..Default::default()}]); }
             ui.frame(&{
                 let mut frame = input().time(time);
@@ -477,7 +477,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             },&mut build).unwrap();
             assert!(result.get().unwrap().commit.is_none());
         }
-        let events = [key(3), key(3), key(2)];
+        let events = [key(crate::KeyCode::ArrowRight), key(crate::KeyCode::ArrowRight), key(crate::KeyCode::ArrowLeft)];
         ui.frame(&{
             let mut frame = input().time(time);
             frame.wire.events = events.as_ptr();
@@ -485,7 +485,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
             frame
         }, &mut build).unwrap();
         assert_eq!(result.get().unwrap().commit, Some(45.0), "all routed presses retain their order");
-        let events = [key(12), key(3), Event { kind: Event::KEY_RELEASED, code: pxui_types::KEY_SPECIAL + 12, ..Default::default() }];
+        let events = [key(crate::KeyCode::Meta), key(crate::KeyCode::ArrowRight), Event { kind: Event::KEY_RELEASED, code: crate::KeyCode::Meta.wire(), ..Default::default() }];
         ui.frame(&{
             let mut frame = input().time(time);
             frame.wire.events = events.as_ptr();
@@ -605,7 +605,7 @@ fn scrub_previews_capture_commits_release_and_routes_keys_a11y_touch_without_war
         frame
     }, &mut build).unwrap();
     assert_eq!(result.get().unwrap().commit, Some(35.0));
-    let right = key(3);
+    let right = key(crate::KeyCode::ArrowRight);
     ui.frame(&{
         let mut frame = input().time(time);
         frame.wire.events = &right;
@@ -987,10 +987,10 @@ fn dismissed_popups_do_not_intercept_the_next_press_over_their_previous_bounds()
 #[test]
 fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming_presses() {
     use std::cell::Cell;
-    use pxui_types::{Event, KEY_SPECIAL};
+    use pxui_types::{Event};
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
-    let meta = KEY_SPECIAL + 12;
+    let meta = crate::KeyCode::Meta;
     assert!(!ui.key_down(meta));
     let modal = Cell::new(false);
     let held = Cell::new(false);
@@ -999,9 +999,9 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
         let field = ui.node("focused".into(), crate::Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).w_px(120.0).h_px(32.0));
         ui.focus_box(&field);
         assert_eq!(ui.key_down(meta), held.get());
-        assert_eq!(ui.key_pressed(',', None), comma.get());
+        assert_eq!(ui.key_pressed(crate::KeyCode::Char(','), crate::Mods::ANY), comma.get());
         assert_eq!(ui.key_down(meta), held.get());
-        assert_eq!(ui.key_pressed(',', None), comma.get(), "reading held keys must not consume activation");
+        assert_eq!(ui.key_pressed(crate::KeyCode::Char(','), crate::Mods::ANY), comma.get(), "reading held keys must not consume activation");
     };
     let mut build = |ui: &mut Ui| {
         if modal.get() { ui.popup("keys", &crate::Overlay::DEFAULT.at(10.0, 10.0).w(180.0).h(40.0), &mut contents); }
@@ -1015,12 +1015,12 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
         for popup in [false, true] {
             modal.set(popup);
             for (kind, code, down, pressed) in [
-                (Event::KEY_PRESSED, meta, true, false),
+                (Event::KEY_PRESSED, meta.wire(), true, false),
                 (Event::POINTER_MOVED, 0, true, false),
                 (Event::KEY_PRESSED, ',' as u32, true, true),
                 (Event::KEY_RELEASED, ',' as u32, true, false),
-                (Event::KEY_RELEASED, meta, false, false),
-                (Event::KEY_PRESSED, meta, true, false),
+                (Event::KEY_RELEASED, meta.wire(), false, false),
+                (Event::KEY_PRESSED, meta.wire(), true, false),
                 (Event::FOCUS_LOST, 0, false, false),
             ] {
                 held.set(down); comma.set(pressed);
@@ -1041,26 +1041,26 @@ fn held_keys_include_focused_and_modal_modifiers_without_allocating_or_consuming
 
 #[test]
 fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
-    use pxui_types::{Event, KEY_SPECIAL};
+    use pxui_types::{Event};
     mem_sys::set_peer(crate::library_counter);
     let mut ui=Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     for round in 0..5 {
         mem_sys::local_reset();
-        for modifier in [KEY_SPECIAL+9,KEY_SPECIAL+10,KEY_SPECIAL+11,KEY_SPECIAL+12] {
+        for (modifier, mods) in [(crate::KeyCode::Shift, crate::Mods::SHIFT), (crate::KeyCode::Ctrl, crate::Mods::CTRL), (crate::KeyCode::Alt, crate::Mods::ALT), (crate::KeyCode::Meta, crate::Mods::META)] {
             let key=|kind,code| Event {kind,code,..Default::default()};
             for popup in [false,true] {
                 for (events,expected) in [
-                    ([key(Event::KEY_PRESSED,modifier),key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_RELEASED,modifier)],true),
-                    ([key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_PRESSED,modifier),key(Event::KEY_RELEASED,modifier)],false),
-                    ([key(Event::KEY_PRESSED,modifier),key(Event::FOCUS_LOST,0),key(Event::KEY_PRESSED,b'k' as u32)],false),
-                    ([key(Event::KEY_PRESSED,modifier),key(Event::KEY_RELEASED,modifier),key(Event::KEY_PRESSED,b'k' as u32)],false),
+                    ([key(Event::KEY_PRESSED,modifier.wire()),key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_RELEASED,modifier.wire())],true),
+                    ([key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_PRESSED,modifier.wire()),key(Event::KEY_RELEASED,modifier.wire())],false),
+                    ([key(Event::KEY_PRESSED,modifier.wire()),key(Event::FOCUS_LOST,0),key(Event::KEY_PRESSED,b'k' as u32)],false),
+                    ([key(Event::KEY_PRESSED,modifier.wire()),key(Event::KEY_RELEASED,modifier.wire()),key(Event::KEY_PRESSED,b'k' as u32)],false),
                 ] {
                     let mut contents=|ui:&mut Ui| {
                         let field=ui.node("focus".into(),crate::Node::DEFAULT.flags(pxui_types::Flags::FOCUSABLE).w_px(100.0).h_px(24.0));
                         ui.focus_box(&field);
-                        assert_eq!(ui.key_pressed('k' as u32, Some(modifier)),expected);
-                        assert_eq!(ui.key_pressed('k' as u32, Some(modifier)),expected,"query consumes nothing");
-                        assert!(ui.key_pressed('k', None));
+                        assert_eq!(ui.key_pressed(crate::KeyCode::Char('k'), mods),expected);
+                        assert_eq!(ui.key_pressed(crate::KeyCode::Char('k'), mods),expected,"query consumes nothing");
+                        assert!(ui.key_pressed(crate::KeyCode::Char('k'), crate::Mods::ANY));
                         assert!(!ui.key_down(modifier));
                     };
                     ui.frame(&{
@@ -1074,26 +1074,62 @@ fn modifier_at_press_queries_keep_event_order_focus_loss_and_warm_storage() {
                     }).unwrap();
                     ui.dismiss_popup();
                 }
-                let press=key(Event::KEY_PRESSED,modifier);
+                let press=key(Event::KEY_PRESSED,modifier.wire());
                 ui.frame(&{
                     let mut frame = input();
                     frame.wire.events = &press;
                     frame.wire.event_count = 1;
                     frame
                 },&mut |_| {}).unwrap();
-                let events=[key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_RELEASED,modifier)];
+                let events=[key(Event::KEY_PRESSED,b'k' as u32),key(Event::KEY_RELEASED,modifier.wire())];
                 ui.frame(&{
                     let mut frame = input();
                     frame.wire.events = events.as_ptr();
                     frame.wire.event_count = events.len();
                     frame
                 },&mut |ui| {
-                    assert!(ui.key_pressed('k' as u32, Some(modifier)),"modifier can be held from the previous frame");
+                    assert!(ui.key_pressed(crate::KeyCode::Char('k'), mods),"modifier can be held from the previous frame");
                     assert!(!ui.key_down(modifier));
                 }).unwrap();
             }
         }
         if round>=2 {assert_eq!(mem_sys::local_alloc_count(),0,"focused and modal modifier-at-press queries");}
+    }
+}
+
+#[test]
+fn combined_modifiers_match_one_press_and_keep_character_case() {
+    use crate::{Event, KeyCode, Mods};
+    mem_sys::set_peer(crate::library_counter);
+    let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
+    let edge = |kind, key: KeyCode| Event { kind, code: key.wire(), ..Default::default() };
+    let press = |key| edge(Event::KEY_PRESSED, key);
+    let release = |key| edge(Event::KEY_RELEASED, key);
+    let (key, upper) = (KeyCode::Char('k'), KeyCode::Char('K'));
+    let (meta, shift, alt) = (KeyCode::Meta, KeyCode::Shift, KeyCode::Alt);
+    let chord = Mods::META.with(Mods::SHIFT);
+    let separate = [press(meta), press(key), release(key), release(meta),
+        press(shift), press(key), release(key), release(shift)];
+    let together = [press(meta), press(shift), press(alt), press(key), release(key),
+        release(alt), release(shift), release(meta)];
+    let unmodified = [press(meta), Event { kind: Event::FOCUS_LOST, ..Default::default() },
+        press(key), release(key)];
+    for round in 0..5 {
+        mem_sys::local_reset();
+        for (events, expected) in [
+            (&separate[..], (true, true, false, false)),
+            (&together[..], (true, true, true, false)),
+            (&unmodified[..], (false, false, false, true)),
+        ] {
+            crate::testing::frame(&mut ui, events, &mut |ui| {
+                assert_eq!((ui.key_pressed(key, Mods::META), ui.key_pressed(key, Mods::SHIFT),
+                    ui.key_pressed(key, chord), ui.key_pressed(key, Mods::NONE)), expected);
+                assert!(ui.key_pressed(key, Mods::ANY));
+                assert!(!ui.key_pressed(upper, Mods::ANY));
+                assert!(!ui.key_down(meta) && !ui.key_down(shift) && !ui.key_down(key));
+            });
+        }
+        if round >= 2 { assert_eq!(mem_sys::local_alloc_count(), 0); }
     }
 }
 
@@ -1865,7 +1901,7 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
     let handle=Cell::new(None);
     let child=Cell::new(None);
     let builds=Cell::new(0);
-    let seen=Cell::new(0);
+    let seen=Cell::new(crate::Appearance::Unknown);
     let mut build=|ui:&mut Ui| {
         handle.set(Some({ let enclosing = ui.node("system".into(), Node::column().w_px(100.0).h_px(60.0)); let mut view = enclosing; ui.within(&enclosing, &mut |ui| view = ui.view_of("system", &1, |ui| {
             builds.set(builds.get()+1);
@@ -1878,55 +1914,27 @@ fn system_preferences_invalidate_kept_views_snap_running_motion_and_restore_auth
     let ease=Curve::Bezier { duration:10.0,points:[0.0,0.0,1.0,1.0] };
     for cycle in 0..5 {
         let time=cycle as f64*20.0;
-        ui.frame(&{
-            let mut frame = input().time(time);
-            frame.wire.appearance = crate::Appearance::Light as u32;
-            frame
-        },&mut build).unwrap();
-        ui.frame(&{
-            let mut frame = input().time(time+0.01);
-            frame.wire.appearance = crate::Appearance::Light as u32;
-            frame
-        },&mut build).unwrap();
+        ui.frame(&input().time(time).appearance(crate::Appearance::Light),&mut build).unwrap();
+        ui.frame(&input().time(time+0.01).appearance(crate::Appearance::Light),&mut build).unwrap();
         let before=builds.get();
         let view=handle.get().unwrap();
         ui.animate_keys(&view,&[Keyframe::scale(5.0, 0.9, 0.9).curve(ease),
             Keyframe::scale(10.0, 0.8, 0.8).curve(ease)],&Keyframes::DEFAULT);
-        ui.frame(&{
-            let mut frame = input().time(time+0.1);
-            frame.wire.appearance = crate::Appearance::Light as u32;
-            frame
-        },&mut build).unwrap();
+        ui.frame(&input().time(time+0.1).appearance(crate::Appearance::Light),&mut build).unwrap();
         mem_sys::local_reset();
-        ui.frame(&{
-            let mut frame = input().time(time+0.2).reduced_motion(true);
-            frame.wire.appearance = crate::Appearance::Dark as u32;
-            frame
-        },&mut build).unwrap();
+        ui.frame(&input().time(time+0.2).reduced_motion(true).appearance(crate::Appearance::Dark),&mut build).unwrap();
         assert!(builds.get()>before);
-        assert_eq!(seen.get(),crate::Appearance::Dark as u32);
+        assert_eq!(seen.get(),crate::Appearance::Dark);
         assert!(ui.tokens().reduced_motion);
         assert!(ui.repaint_at().is_none(),"turning on reduced motion settles existing keyframes");
         let rect=ui.rect(&child.get().unwrap());
         assert!((rect.w-16.0).abs()<0.001 && (rect.h-8.0).abs()<0.001,"motion reaches the final keyframe: {rect:?}");
         if cycle>=2 { assert_eq!(mem_sys::local_alloc_count(),0,"warm preference changes retain caches and animation storage"); }
-        ui.frame(&{
-            let mut frame = input().time(time+0.3).reduced_motion(true);
-            frame.wire.appearance = crate::Appearance::Dark as u32;
-            frame
-        },&mut build).unwrap();
+        ui.frame(&input().time(time+0.3).reduced_motion(true).appearance(crate::Appearance::Dark),&mut build).unwrap();
         let before=builds.get();
-        ui.frame(&{
-            let mut frame = input().time(time+0.4).reduced_motion(true);
-            frame.wire.appearance = crate::Appearance::Dark as u32;
-            frame
-        },&mut build).unwrap();
+        ui.frame(&input().time(time+0.4).reduced_motion(true).appearance(crate::Appearance::Dark),&mut build).unwrap();
         assert_eq!(builds.get(),before,"unchanged OS inputs do not invalidate views");
-        ui.frame(&{
-            let mut frame = input().time(time+0.5);
-            frame.wire.appearance = crate::Appearance::Light as u32;
-            frame
-        },&mut build).unwrap();
+        ui.frame(&input().time(time+0.5).appearance(crate::Appearance::Light),&mut build).unwrap();
         assert!(!ui.tokens().reduced_motion,"the app's original motion flag is restored");
     }
     let mut theme = crate::ThemeHandle::default();
@@ -2109,15 +2117,15 @@ fn short_startup_input_keeps_capacity_for_the_first_background_resume_batch() {
 
 #[test]
 fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
-    use pxui_types::{Event, Str, KEY_SPECIAL};
+    use pxui_types::{Event, Str};
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build = |ui: &mut Ui| {
         assert!(ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed.is_none());
     };
     ui.frame(&input(), &mut build).unwrap();
-    let key = |kind, code| Event { kind, code: KEY_SPECIAL + code, ..Event::default() };
-    let focus = [key(Event::KEY_PRESSED, 8)];
+    let key = |kind, code: crate::KeyCode| Event { kind, code: code.wire(), ..Event::default() };
+    let focus = [key(Event::KEY_PRESSED, crate::KeyCode::Tab)];
     ui.frame(&{
         let mut frame = input().time(0.1);
         frame.wire.events = focus.as_ptr();
@@ -2126,7 +2134,7 @@ fn focused_text_field_keeps_selection_and_ime_without_warm_allocations() {
     }, &mut build).unwrap();
     assert!(ui.text_input_focused());
     let composition = "é";
-    let select = [key(Event::KEY_PRESSED, 9), key(Event::KEY_PRESSED, 2), key(Event::KEY_RELEASED, 9),
+    let select = [key(Event::KEY_PRESSED, crate::KeyCode::Shift), key(Event::KEY_PRESSED, crate::KeyCode::ArrowLeft), key(Event::KEY_RELEASED, crate::KeyCode::Shift),
         Event { kind: Event::TEXT_EDITING, text: Str { ptr: composition.as_ptr(), len: composition.len() }, y: 1.0, ..Event::default() }];
     ui.frame(&{
         let mut frame = input().time(0.2);
@@ -2196,7 +2204,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             assert!(!glyphs.is_empty());
             let points = if size==0 {ui.font_size()} else {Font::BODY.size(size).points(ui.font_size())};
             let full_width = ui.text_width(Some(points),value);
-            let focus = Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+8,..Default::default()};
+            let focus = Event {kind:Event::KEY_PRESSED,code:crate::KeyCode::Tab.wire(),..Default::default()};
             ui.frame(&{
                 let mut frame = frame.time(0.1);
                 frame.wire.events = &focus;
@@ -2225,9 +2233,9 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
                 let width = ui.text_width(Some(24),"café ");
                 assert_eq!(ui.ime().unwrap().1,(2.0+width).round() as i64,"a body size change paints the new font immediately, after hit testing the previous frame");
             }
-            let key = |kind,code| Event {kind,code:pxui_types::KEY_SPECIAL+code,..Default::default()};
+            let key = |kind,code: crate::KeyCode| Event {kind,code:code.wire(),..Default::default()};
             let composition = "é";
-            let select = [key(Event::KEY_PRESSED,9),key(Event::KEY_PRESSED,2),key(Event::KEY_RELEASED,9),Event {kind:Event::TEXT_EDITING,text:Str {ptr:composition.as_ptr(),len:composition.len()},y:1.0,..Default::default()}];
+            let select = [key(Event::KEY_PRESSED,crate::KeyCode::Shift),key(Event::KEY_PRESSED,crate::KeyCode::ArrowLeft),key(Event::KEY_RELEASED,crate::KeyCode::Shift),Event {kind:Event::TEXT_EDITING,text:Str {ptr:composition.as_ptr(),len:composition.len()},y:1.0,..Default::default()}];
             ui.frame(&{
                 let mut frame = frame.time(0.3);
                 frame.wire.events = select.as_ptr();
@@ -2236,7 +2244,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
             },&mut build).unwrap();
             let selected = ui.a11y_nodes().iter().find(|node|node.role==Role::TextField as u32).unwrap();
             assert_eq!(selected.selection,[5,4]);
-            let keys = [Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+11,..Default::default()},Event {kind:Event::KEY_PRESSED,code:pxui_types::KEY_SPECIAL+14,..Default::default()},Event {kind:Event::KEY_RELEASED,code:pxui_types::KEY_SPECIAL+14,..Default::default()},Event {kind:Event::KEY_RELEASED,code:pxui_types::KEY_SPECIAL+11,..Default::default()}];
+            let keys = [Event {kind:Event::KEY_PRESSED,code:crate::KeyCode::Alt.wire(),..Default::default()},Event {kind:Event::KEY_PRESSED,code:crate::KeyCode::F2.wire(),..Default::default()},Event {kind:Event::KEY_RELEASED,code:crate::KeyCode::F2.wire(),..Default::default()},Event {kind:Event::KEY_RELEASED,code:crate::KeyCode::Alt.wire(),..Default::default()}];
             for tick in 0..24 {
                 mem_sys::local_reset();
                 ui.frame(&{
@@ -2265,7 +2273,7 @@ fn custom_text_field_font_sizes_keep_glyphs_caret_hit_selection_and_ime_without_
 #[test]
 fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
     use std::cell::Cell;
-    use pxui_types::{Event, KEY_SPECIAL};
+    use pxui_types::{Event};
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let button = Cell::new(None);
@@ -2280,8 +2288,8 @@ fn numeric_signal_preserves_legacy_keys_without_warm_keyboard_allocations() {
     };
     ui.frame(&input(), &mut build).unwrap();
     ui.focus_box(&button.get().unwrap());
-    let key = |kind, code| Event { kind, code: KEY_SPECIAL + code, ..Default::default() };
-    let events = [key(Event::KEY_PRESSED, 9), key(Event::KEY_PRESSED, 4), key(Event::KEY_RELEASED, 4), key(Event::KEY_RELEASED, 9)];
+    let key = |kind, code: crate::KeyCode| Event { kind, code: code.wire(), ..Default::default() };
+    let events = [key(Event::KEY_PRESSED, crate::KeyCode::Shift), key(Event::KEY_PRESSED, crate::KeyCode::Space), key(Event::KEY_RELEASED, crate::KeyCode::Space), key(Event::KEY_RELEASED, crate::KeyCode::Shift)];
     for tick in 0..60 {
         mem_sys::local_reset();
         ui.frame(&{
@@ -2393,7 +2401,7 @@ fn borrowed_carry_queries_and_whole_warm_pointer_gestures_allocate_nothing() {
 #[test]
 fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_gestures_allocation_free() {
     use crate::{DropRef, Node};
-    use pxui_types::{Event, KEY_SPECIAL};
+    use pxui_types::{Event};
     use std::cell::Cell;
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
@@ -2422,7 +2430,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
     };
     ui.frame(&input(), &mut build).unwrap();
     let event = |kind, y| Event { kind, x: 10.0, y, ..Default::default() };
-    let shift = |kind| Event { kind, code: KEY_SPECIAL + 9, ..Default::default() };
+    let shift = |kind| Event { kind, code: crate::KeyCode::Shift.wire(), ..Default::default() };
     let mut time = 0.0;
     for round in 0..20 {
         dropped.set(None);
@@ -2446,7 +2454,7 @@ fn transferred_pointer_carries_survive_virtualization_and_keep_warm_modified_ges
                 frame
             }, &mut build).unwrap();
             if round == 0 && events[0].kind == Event::POINTER_RELEASED {
-                assert_eq!(ui.press_keys(&list.get().unwrap()), &[KEY_SPECIAL + 9], "capture transfer preserves the press modifiers through release");
+                assert_eq!(ui.press_keys(&list.get().unwrap()), &[crate::KeyCode::Shift.wire()], "capture transfer preserves the press modifiers through release");
             }
             if events[0].kind == Event::SCROLLED && events[0].y < 0.0 {
                 assert!(!ui.transfer_carry(&source.get().unwrap()), "a virtualized child is stale");
@@ -3036,13 +3044,13 @@ fn keyboard_presentation_updates_cached_content_bounds_without_warm_allocations(
 
 #[test]
 fn text_field_refocus_reuses_its_warm_editor_storage() {
-    use pxui_types::{Event, KEY_SPECIAL};
+    use pxui_types::{Event};
     mem_sys::set_peer(crate::library_counter);
     let mut ui = Ui::new(&crate::UiDesc::DEFAULT).unwrap();
     let mut build = |ui: &mut Ui| assert!(ui.text_field("Caption", "café track 10", &crate::TextField::DEFAULT).changed.is_none());
     let focus = [
-        Event {kind:Event::KEY_PRESSED,code:KEY_SPECIAL+8,..Event::default()},
-        Event {kind:Event::KEY_RELEASED,code:KEY_SPECIAL+8,..Event::default()},
+        Event {kind:Event::KEY_PRESSED,code:crate::KeyCode::Tab.wire(),..Event::default()},
+        Event {kind:Event::KEY_RELEASED,code:crate::KeyCode::Tab.wire(),..Event::default()},
     ];
     ui.frame(&input(), &mut build).unwrap();
     for frame in 0..182 {
@@ -3078,7 +3086,8 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
     ui.frame(&input(),&mut build).unwrap();
     for frame in 0..182 {
         let step=frame%6;
-        let code=pxui_types::KEY_SPECIAL+if matches!(step,0|2) {8} else {5};
+        let key = if matches!(step, 0 | 2) { crate::KeyCode::Tab } else { crate::KeyCode::Enter };
+        let code = key.wire();
         let events=[Event {kind:Event::KEY_PRESSED,code,..Default::default()},Event {kind:Event::KEY_RELEASED,code,..Default::default()}];
         let active=matches!(step,0|2|4);
         mem_sys::local_reset();
@@ -3091,7 +3100,7 @@ fn text_input_options_follow_the_focused_field_and_done_keeps_warm_storage() {
         let expected=match step {0|1=>Options::SEARCH,2|3=>done,_=>Options::default()};
         assert_eq!(ui.text_input_options(),expected,"frame {frame}");
         assert_eq!(ui.ime().is_some(),step<4,"Done must dismiss native input in the same frame");
-        if step==4 {assert!(ui.key_pressed(code, None),"raw key queries remain non-consuming");}
+        if step==4 {assert!(ui.key_pressed(key, crate::Mods::ANY),"raw key queries remain non-consuming");}
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm keyboard options frame {frame}");}
     }
     show_search.set(false);
@@ -3119,9 +3128,9 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
         if response.focused { ui.focus_box(&response.handle); }
     };
     ui.frame(&input(),&mut build).unwrap();
-    let key=|kind,n|Event {kind,code:pxui_types::KEY_SPECIAL+n,..Default::default()};
-    let focus=[key(Event::KEY_PRESSED,8),key(Event::KEY_RELEASED,8),key(Event::KEY_PRESSED,12),
-        Event {kind:Event::KEY_PRESSED,code:'a' as u32,..Default::default()},key(Event::KEY_RELEASED,12)];
+    let key=|kind,n: crate::KeyCode|Event {kind,code:n.wire(),..Default::default()};
+    let focus=[key(Event::KEY_PRESSED,crate::KeyCode::Tab),key(Event::KEY_RELEASED,crate::KeyCode::Tab),key(Event::KEY_PRESSED,crate::KeyCode::Meta),
+        Event {kind:Event::KEY_PRESSED,code:'a' as u32,..Default::default()},key(Event::KEY_RELEASED,crate::KeyCode::Meta)];
     ui.frame(&{
         let mut frame = input();
         frame.wire.events = focus.as_ptr();
@@ -3148,7 +3157,7 @@ fn marked_text_replaces_the_selection_and_tracks_unicode_caret_without_warm_allo
         assert_eq!(ui.ime().unwrap().1,(2.0+ui.text_width(Some(18),"éi")).round() as i64);
         if frame>=82 {assert_eq!(mem_sys::local_alloc_count(),0,"warm marked selection frame {frame}");}
     }
-    let commit=[Event {kind:Event::TEXT_INPUT,text:Str {ptr:value.as_ptr(),len:value.len()},..Default::default()},key(Event::KEY_PRESSED,5),key(Event::KEY_RELEASED,5)];
+    let commit=[Event {kind:Event::TEXT_INPUT,text:Str {ptr:value.as_ptr(),len:value.len()},..Default::default()},key(Event::KEY_PRESSED,crate::KeyCode::Enter),key(Event::KEY_RELEASED,crate::KeyCode::Enter)];
     let mut changed=false;
     ui.frame(&{
         let mut frame = input();

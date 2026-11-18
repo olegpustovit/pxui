@@ -398,10 +398,10 @@ mod tests {
         assert_eq!(chosen.get(), 0);
     }
 
-    fn key(code: u32) -> pxui_types::Event { pxui_types::Event { kind: pxui_types::Event::KEY_PRESSED, code: pxui_types::KEY_SPECIAL + code, ..Default::default() } }
-    const RIGHT: u32 = 3;
-    const SPACE: u32 = 4;
-    const TAB: u32 = 8;
+    fn key(code: crate::KeyCode) -> pxui_types::Event { pxui_types::Event { kind: pxui_types::Event::KEY_PRESSED, code: code.wire(), ..Default::default() } }
+    const RIGHT: crate::KeyCode = crate::KeyCode::ArrowRight;
+    const SPACE: crate::KeyCode = crate::KeyCode::Space;
+    const TAB: crate::KeyCode = crate::KeyCode::Tab;
     const THREE: [Segment; 3] = [Segment::new("One"), Segment::new("Two"), Segment::new("Three")];
 
     /// The states of the three options, in order.
@@ -499,7 +499,7 @@ mod tests {
         testing::frame(&mut ui, &[], &mut build);
         testing::frame(&mut ui, &[], &mut build);
         assert_eq!((radios(&ui).map(|s| s & state::FOCUSED != 0), chosen.get()), ([false, false, true], Some(0)), "focused, not chosen");
-        testing::frame(&mut ui, &[key(RIGHT - 1)], &mut build); // Left
+        testing::frame(&mut ui, &[key(crate::KeyCode::ArrowLeft)], &mut build); // Left
         testing::frame(&mut ui, &[], &mut build);
         assert_eq!((radios(&ui).map(|s| s & state::FOCUSED != 0), chosen.get()), ([false, true, false], Some(1)), "Left from the focused option");
     }
@@ -718,8 +718,8 @@ mod tests {
     /// focused by a press on it, as a row is, so Enter after a click flips it again; a plain toggle stays a Tab stop only.
     #[test]
     fn enter_or_space_on_the_focused_toggle_flips_it() {
-        const TAB: u32 = pxui_types::KEY_SPECIAL + 8;
-        const ENTER: u32 = pxui_types::KEY_SPECIAL + 5;
+        const TAB: crate::KeyCode = crate::KeyCode::Tab;
+        const ENTER: crate::KeyCode = crate::KeyCode::Enter;
         for toggle in [Toggle::DEFAULT, Toggle::DEFAULT.press_row(true), SETTING.detail("More").press_row(true), SETTING] {
             let on = Cell::new(false);
             let mut build = |ui: &mut Ui| { if ui.toggle_with("t", "Wi-Fi", on.get(), &toggle).changed { on.set(!on.get()); } };
@@ -728,7 +728,7 @@ mod tests {
             assert!(node(&ui, Role::Toggle, "Wi-Fi").0 & state::FOCUSED != 0, "Tab focuses the row");
             testing::key(&mut ui, ENTER, &mut build);
             assert!(on.get(), "Enter flips it");
-            testing::key(&mut ui, ' ' as u32, &mut build);
+            testing::key(&mut ui, crate::KeyCode::Char(' '), &mut build);
             assert!(!on.get(), "Space flips it back");
             let mut ui = crate::doc::frames(3, &mut build);
             let r = node(&ui, Role::Toggle, "Wi-Fi").1;

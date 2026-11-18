@@ -1096,14 +1096,10 @@ fn shared_system_preferences_change_native_pixels_without_warm_allocations() {
     let mut renderer=shared_renderer(&device,&ui);
     for frame in 1..=8 {
         let is_dark=frame%2==0;
-        let appearance=if is_dark { pxui::Appearance::Dark as u32 } else { pxui::Appearance::Light as u32 };
+        let appearance = if is_dark { pxui::Appearance::Dark } else { pxui::Appearance::Light };
         mem_sys::local_reset();
         ui.set_theme(if is_dark { &dark } else { &light }).unwrap();
-        ui.frame(&{
-            let mut frame = pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0).reduced_motion(true);
-            frame.wire.appearance = appearance;
-            frame
-        },&mut |ui| {
+        ui.frame(&pxui::FrameIn::new(320.0, 300.0).scale(2.0).time(frame as f64/60.0).reduced_motion(true).appearance(appearance),&mut |ui| {
             ui.column("appearance", pxui::Node::column().w_px(100.0).h_px(40.0), |ui| { ui.view_of("appearance", &1, |ui| {
                 assert_eq!(ui.system_appearance(),appearance);
                 assert!(ui.tokens().reduced_motion);

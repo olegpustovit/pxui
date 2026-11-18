@@ -1,5 +1,5 @@
 # Append-only PXUI ABI snapshot.
-minor 74
+minor 75
 function pxui_a11y_fd int32_t pxui_a11y_fd ( PxuiA11y * a11y ) ;
 function pxui_a11y_pump int32_t pxui_a11y_pump ( PxuiA11y * a11y , PxuiA11yActionSpan * out ) ;
 function pxui_a11y_start PxuiA11y * pxui_a11y_start ( PxuiStr name ) ;
@@ -160,6 +160,7 @@ function pxui_ui_input_box int32_t pxui_ui_input_box ( PxuiUi * ui , PxuiBox * o
 function pxui_ui_item_text int32_t pxui_ui_item_text ( PxuiUi * ui , PxuiStr text ) ;
 function pxui_ui_key_down int32_t pxui_ui_key_down ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
 function pxui_ui_key_pressed int32_t pxui_ui_key_pressed ( PxuiUi * ui , uint32_t code , uint8_t * out ) ;
+function pxui_ui_key_pressed_mods int32_t pxui_ui_key_pressed_mods ( PxuiUi * ui , uint32_t code , uint32_t modifiers , uint8_t * out ) ;
 function pxui_ui_key_pressed_with int32_t pxui_ui_key_pressed_with ( PxuiUi * ui , uint32_t code , uint32_t modifier , uint8_t * out ) ;
 function pxui_ui_keyboard int32_t pxui_ui_keyboard ( PxuiUi * ui , PxuiKeyboard * out ) ;
 function pxui_ui_label int32_t pxui_ui_label ( PxuiUi * ui , PxuiStr text , const PxuiLabelStyle * style ) ;

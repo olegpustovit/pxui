@@ -2,7 +2,7 @@
 //! Every helper takes the `Ui` and the build closure, because an event reaches the app through the next frame's build.
 use crate::geom::Rect;
 use crate::ui::Role;
-use crate::{Event, FrameIn, Handle, Ui};
+use crate::{Event, FrameIn, Handle, KeyCode, Ui};
 
 /// Runs one 320 x 240 frame of `build` with `events` as that frame's input.
 ///
@@ -63,15 +63,20 @@ pub fn click_node(ui: &mut Ui, node: &Handle, build: &mut dyn FnMut(&mut Ui)) {
     click(ui, (r.x + r.w / 2.0) as f64, (r.y + r.h / 2.0) as f64, build);
 }
 
-/// Presses and releases the key `code` (a Unicode scalar value, or `KEY_SPECIAL` plus an index) in one frame.
+/// Presses and releases `key` in one frame.
 ///
-/// Allocates: as one frame. Panics: when the frame fails.
+/// Allocates: as one frame.
+/// Identity: `key` names the keyboard event sent to the frame.
+/// Panics: when the frame fails.
 ///
 /// ```
+/// use pxui::{KeyCode, Mods};
 /// let mut ui = pxui::doc::frames(1, &mut |ui| { ui.label("x", pxui::Label::DEFAULT); });
-/// pxui::testing::key(&mut ui, 'a' as u32, &mut |ui| { let _ = ui.key_pressed('a' as u32, None); });
+/// let key = KeyCode::Char('a');
+/// pxui::testing::key(&mut ui, key, &mut |ui| assert!(ui.key_pressed(key, Mods::ANY)));
 /// ```
-pub fn key(ui: &mut Ui, code: u32, build: &mut dyn FnMut(&mut Ui)) {
+pub fn key(ui: &mut Ui, key: KeyCode, build: &mut dyn FnMut(&mut Ui)) {
+    let code = key.wire();
     let events = [Event { kind: Event::KEY_PRESSED, code, ..Default::default() }, Event { kind: Event::KEY_RELEASED, code, ..Default::default() }];
     frame(ui, &events, build);
 }

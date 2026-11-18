@@ -237,7 +237,7 @@ fuzz!(
     pxui_ui_focused/3, pxui_ui_font_size/1, pxui_ui_footer/2, pxui_ui_frame/5, pxui_ui_frame_index/1, pxui_ui_gesture/5, pxui_ui_grid_list/3, pxui_ui_grip/7,
     pxui_ui_hover_delay/3, pxui_ui_hovered/4, pxui_ui_icon_button/4, pxui_ui_icon_button_plain/5, pxui_ui_icon_button_response/3, pxui_ui_icon_button_with/5,
     pxui_ui_icon_word/2, pxui_ui_image/7, pxui_ui_image_node/7, pxui_ui_inject_a11y/3, pxui_ui_input/4, pxui_ui_input_box/2, pxui_ui_item_text/2, pxui_ui_key_down/3, pxui_ui_key_pressed/3,
-    pxui_ui_key_pressed_with/4, pxui_ui_keyboard/2, pxui_ui_label/3, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
+    pxui_ui_key_pressed_mods/4, pxui_ui_key_pressed_with/4, pxui_ui_keyboard/2, pxui_ui_label/3, pxui_ui_label_node/5, pxui_ui_label_text_spans/5, pxui_ui_label_text_line_box/5, pxui_ui_label_measure/6,
     pxui_ui_label_quads/9, pxui_ui_label_rasterize_rgba/13, pxui_ui_label_prewarm/4, pxui_ui_layer_drawn/2, pxui_ui_leave/2, pxui_ui_list_measured/7,
     pxui_ui_list_view/3, pxui_ui_list_view_with/3, pxui_ui_load_text_edit/6, pxui_ui_local_rect/3, pxui_ui_menu_bar/3, pxui_ui_modal/7, pxui_ui_node/4,
     pxui_ui_node_fields/3, pxui_ui_node_keyed/4, pxui_ui_node_layout/3, pxui_ui_now/1, pxui_ui_output/1, pxui_ui_passed_undo/1, pxui_ui_patch_field/5,

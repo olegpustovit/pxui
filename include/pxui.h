@@ -18,7 +18,7 @@ typedef struct PxuiTextWorker PxuiTextWorker;
 typedef struct PxuiTheme PxuiTheme;
 /* abi_built (ABI 1.60 tail): the version the app was built against, PXUI_ABI_BUILT. Only the major is checked (an app built for a newer minor may run on an older library and probe pxui_supports); 0 (a 12-byte record) is unstated. */
 typedef struct { uint32_t size, platform; int32_t font_size; uint32_t abi_built; } PxuiUiDesc;
-#define PXUI_ABI_BUILT ((1u << 16) | 74u)
+#define PXUI_ABI_BUILT ((1u << 16) | 75u)
 typedef struct { const uint8_t *ptr; size_t len; } PxuiStr;
 /* Autocorrect: 0/1; capitalization: none/sentences/words/letters (0..3); action: Return/Done/Search (0..2). */
 typedef struct { uint32_t autocorrect, capitalization, action; } PxuiTextInputOptions;
@@ -916,6 +916,8 @@ int32_t pxui_ui_key_pressed(PxuiUi *ui, uint32_t code, uint8_t *out);
 int32_t pxui_ui_key_down(PxuiUi *ui, uint32_t code, uint8_t *out);
 /* ABI 1.23: raw press query with Shift/Ctrl/Alt/Meta held at the event, including same-frame release. */
 int32_t pxui_ui_key_pressed_with(PxuiUi *ui, uint32_t code, uint32_t modifier, uint8_t *out);
+/* Match all requested modifiers on one press (Shift=1, Ctrl=2, Alt=4, Meta=8). 0 requires none and 16 accepts any. */
+int32_t pxui_ui_key_pressed_mods(PxuiUi *ui, uint32_t code, uint32_t modifiers, uint8_t *out);
 int32_t pxui_ui_set_font_size(PxuiUi *ui, int64_t size);
 int32_t pxui_ui_unfocus(PxuiUi *ui);
 int32_t pxui_ui_dismiss_popup(PxuiUi *ui);

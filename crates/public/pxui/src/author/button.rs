@@ -590,7 +590,7 @@ mod tests {
         }
         assert_eq!(hits.get(), [0; 4], "a release on a widget disabled since the press reports none");
         // Space on the focused button and icon button once they are disabled (Tab focuses the button, then the icon button)
-        let (tab, space) = (pxui_types::KEY_SPECIAL + 8, pxui_types::KEY_SPECIAL + 4);
+        let (tab, space) = (crate::KeyCode::Tab, crate::KeyCode::Space);
         for name in ["Go", "Close"] {
             enabled.set(true);
             testing::frame(&mut ui, &[], &mut build);

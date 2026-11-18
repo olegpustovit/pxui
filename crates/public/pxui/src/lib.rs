@@ -114,6 +114,8 @@ mod surface;
 #[cfg(test)]
 mod panics;
 pub use interaction::Signal;
+mod keys;
+pub use keys::{KeyCode, Mods};
 pub use pxui_types::Node;
 
 #[cfg(feature = "static")]
@@ -671,11 +673,26 @@ impl Ui {
         if output.is_null() { refused(self, pxui_types::PXUI_ERR_PANIC) }
         unsafe { output.read() }
     }
-    /// The last FrameIn's host appearance (UNKNOWN, LIGHT or DARK); available inside cached views.
-    pub fn system_appearance(&self)->u32 {
-        let mut value=0;
-        check(self,unsafe { sys::pxui_ui_system_appearance(self.0.as_ptr(),&mut value) });
-        value
+    /// Reads the host appearance from the last frame, including inside cached views.
+    ///
+    /// `Appearance::Unknown` is the default before the host reports a value.
+    /// Allocates: never.
+    /// Panics: when the library refuses the Ui.
+    ///
+    /// ```
+    /// use pxui::{Appearance, FrameIn, Ui, UiDesc};
+    /// let mut ui = Ui::new(&UiDesc::DEFAULT).unwrap();
+    /// ui.frame(&FrameIn::new(20.0, 20.0).appearance(Appearance::Dark), &mut |_| {}).unwrap();
+    /// assert_eq!(ui.system_appearance(), Appearance::Dark);
+    /// ```
+    pub fn system_appearance(&self) -> Appearance {
+        let mut value = 0;
+        check(self, unsafe { sys::pxui_ui_system_appearance(self.0.as_ptr(), &mut value) });
+        match value {
+            WireFrame::APPEARANCE_LIGHT => Appearance::Light,
+            WireFrame::APPEARANCE_DARK => Appearance::Dark,
+            _ => Appearance::Unknown,
+        }
     }
 
     /// The theme in effect's tokens, by value: what a canvas closure captures.
@@ -971,15 +988,14 @@ mod snapshot_tests {
     #[test]
     fn snapshot_sets_and_clears_held_keys_without_edges() {
         let mut ui = Ui::new(&UiDesc::DEFAULT).unwrap();
-        let meta = pxui_types::KEY_SPECIAL + 12;
-        let keys = [meta];
+        let keys = [KeyCode::Meta.wire()];
         let mut snapshot = Input {
             logical_size: [320, 240],
             keys: Slice { ptr: keys.as_ptr(), len: keys.len() },
             ..Default::default()
         };
-        ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |ui| assert!(ui.key_down(meta))).unwrap();
+        ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |ui| assert!(ui.key_down(KeyCode::Meta))).unwrap();
         snapshot.keys = Slice::default();
-        ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |ui| assert!(!ui.key_down(meta))).unwrap();
+        ui.frame(&unsafe { FrameIn::snapshot(&snapshot) }, &mut |ui| assert!(!ui.key_down(KeyCode::Meta))).unwrap();
     }
 }

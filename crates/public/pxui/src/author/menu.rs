@@ -55,14 +55,14 @@ mod tests {
     use crate::bodies::MenuRowConfig;
     use crate::ui::{Menu, MenuItem, Chosen, Role};
     use crate::{testing, FrameIn, Ui};
-    use pxui_types::{Event, KEY_SPECIAL};
+    use pxui_types::{Event};
     use std::cell::{Cell, RefCell};
     use crate::bodies::BodyConfig;
 
     const ITEMS: [MenuItem; 4] = [MenuItem::new("Play next"), MenuItem::new("Add to playlist").enabled(false), MenuItem::new("Delete").danger(), MenuItem::new("Size").checked(true).shortcut("Ctrl S")];
-    const TAB: u32 = KEY_SPECIAL + 8;
-    const ENTER: u32 = KEY_SPECIAL + 5;
-    const ESCAPE: u32 = KEY_SPECIAL + 6;
+    const TAB: crate::KeyCode = crate::KeyCode::Tab;
+    const ENTER: crate::KeyCode = crate::KeyCode::Enter;
+    const ESCAPE: crate::KeyCode = crate::KeyCode::Escape;
 
     fn centre(ui: &Ui, name: &str) -> (f64, f64) {
         let r = testing::find(ui, Role::MenuItem, name).unwrap_or_else(|| panic!("no row {name}"));

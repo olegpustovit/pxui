@@ -71,6 +71,15 @@ export!(pub unsafe fn pxui_ui_key_pressed_with(ui: *mut PxuiUi, code: u32, modif
     0
 });
 
+export!(pub unsafe fn pxui_ui_key_pressed_mods(ui: *mut PxuiUi, code: u32, modifiers: u32, out: *mut u8) -> i32 {
+    let Some(e) = (unsafe { engine(ui) }) else { return PXUI_ERR_ARGUMENT; };
+    let Some(k) = key(code) else { return unsafe { fail(ui, "unknown key code") }; };
+    if modifiers > 16 { return unsafe { fail(ui, "invalid modifier mask") }; }
+    if out.is_null() { return unsafe { fail(ui, "null key output") }; }
+    unsafe { out.write(e.key_pressed_mods(k, modifiers) as u8); }
+    0
+});
+
 #[cfg(test)]
 mod held_key_tests {
     use super::*;
@@ -95,6 +104,14 @@ mod held_key_tests {
         }
         assert_eq!(unsafe { pxui_ui_key_pressed_with(ui,b'k' as u32,pxui_types::KEY_SPECIAL+12,std::ptr::null_mut()) },PXUI_ERR_ARGUMENT);
         assert_eq!(unsafe { pxui_ui_key_pressed_with(ui,b'k' as u32,pxui_types::KEY_SPECIAL+12,&mut out) },0);
+        assert_eq!(out,0);
+        out=99;
+        for (code, mask) in [(0, 8), (b'k' as u32, 17), (b'k' as u32, u32::MAX)] {
+            assert_eq!(unsafe { pxui_ui_key_pressed_mods(ui,code,mask,&mut out) },PXUI_ERR_ARGUMENT);
+            assert_eq!(out,99);
+        }
+        assert_eq!(unsafe { pxui_ui_key_pressed_mods(ui,b'k' as u32,9,std::ptr::null_mut()) },PXUI_ERR_ARGUMENT);
+        assert_eq!(unsafe { pxui_ui_key_pressed_mods(ui,b'k' as u32,9,&mut out) },0);
         assert_eq!(out,0);
         assert_eq!(unsafe { crate::pxui_ui_destroy(ui) },0);
     }

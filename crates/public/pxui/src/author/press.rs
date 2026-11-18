@@ -235,7 +235,7 @@ mod tests {
         assert!(!r.focused && !r.activated);
         testing::frame(&mut ui, &[], &mut |ui| { let b = ui.pressable("p", node(), &P, |_, _| {}).handle; ui.focus_box(&b); });
         assert!(respond(&mut ui, &[]).focused);
-        let enter = [Event { kind: Event::KEY_PRESSED, code: pxui_types::KEY_SPECIAL + 5, ..Default::default() }];
+        let enter = [Event { kind: Event::KEY_PRESSED, code: crate::KeyCode::Enter.wire(), ..Default::default() }];
         let r = respond(&mut ui, &enter);
         assert!(r.clicked && r.activated && r.focused);
     }
